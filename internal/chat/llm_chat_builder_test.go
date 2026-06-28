@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"strings"
 	"testing"
 
 	"agent-platform/internal/stream"
@@ -87,9 +88,6 @@ func TestBuildLLMChatFromJSONLUsesSystemFingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build llm chat: %v", err)
 	}
-	if chat.Legacy {
-		t.Fatalf("did not expect legacy chat: %#v", chat)
-	}
 	if got := chat.Messages[0]["content"]; got != "old system" {
 		t.Fatalf("expected old system message, got %#v", chat.Messages)
 	}
@@ -123,6 +121,21 @@ func TestBuildLLMChatFromJSONLAppendsInputMessages(t *testing.T) {
 	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
+	executeSystem := QueryLineSystemInit{
+		CacheKey:      "plan-execute:execute",
+		Fingerprint:   "sha256:execute",
+		SystemMessage: map[string]any{"role": "system", "content": "execute system"},
+		Tools:         []any{},
+		Model: map[string]any{
+			"key":             "execute-model",
+			"id":              "execute-model-id",
+			"providerKey":     "provider",
+			"protocol":        "OPENAI",
+			"reasoningEffort": "HIGH",
+		},
+		ToolChoice:     "auto",
+		RequestOptions: map[string]any{"stream": true},
+	}
 	if err := store.AppendQueryLine(chatID, QueryLine{
 		Type:      "query",
 		ChatID:    chatID,
@@ -147,21 +160,15 @@ func TestBuildLLMChatFromJSONLAppendsInputMessages(t *testing.T) {
 		t.Fatalf("append first step: %v", err)
 	}
 	if err := store.AppendStepLine(chatID, StepLine{
-		Type:      StepLineTypePlanExecute,
-		ChatID:    chatID,
-		RunID:     "run-1",
-		UpdatedAt: 3,
-		Stage:     "execute",
-		Seq:       2,
-		System: map[string]any{
-			"systemMessage": map[string]any{"role": "system", "content": "execute system"},
-			"tools":         []any{},
-		},
+		Type:          StepLineTypePlanExecute,
+		ChatID:        chatID,
+		RunID:         "run-1",
+		UpdatedAt:     3,
+		Stage:         "execute",
+		Seq:           2,
 		InputMessages: []map[string]any{{"role": "user", "content": "execute task"}},
-		ToolChoice:    "",
-		RequestOptions: map[string]any{
-			"stream": true,
-		},
+		SystemRef:     map[string]any{"cacheKey": "plan-execute:execute", "fingerprint": "sha256:execute"},
+		Systems:       []QueryLineSystemInit{executeSystem},
 		Messages: []StoredMessage{{
 			Role:    "assistant",
 			Content: []ContentPart{{Type: "text", Text: "execute answer"}},
@@ -175,7 +182,7 @@ func TestBuildLLMChatFromJSONLAppendsInputMessages(t *testing.T) {
 		t.Fatalf("build llm chat: %v", err)
 	}
 	if got := chat.Messages[0]["content"]; got != "execute system" {
-		t.Fatalf("expected inline execute system, got %#v", chat.Messages)
+		t.Fatalf("expected execute system, got %#v", chat.Messages)
 	}
 	if got := chat.Messages[len(chat.Messages)-1]["content"]; got != "execute task" {
 		t.Fatalf("expected input message appended, got %#v", chat.Messages)
@@ -272,6 +279,9 @@ func TestStepWriterKeepsLLMRequestProfileOutOfStepLines(t *testing.T) {
 	if _, ok := step["requestOptions"]; ok {
 		t.Fatalf("did not expect step request options, got %#v", step)
 	}
+	if _, ok := step["system"]; ok {
+		t.Fatalf("did not expect step system, got %#v", step)
+	}
 	if _, ok := step["systems"]; ok {
 		t.Fatalf("did not expect duplicate step systems, got %#v", step)
 	}
@@ -345,9 +355,6 @@ func TestStepWriterPersistsActualInlineProfileAsStepSystems(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build llm chat: %v", err)
 	}
-	if chat.Legacy {
-		t.Fatalf("did not expect legacy chat: %#v", chat)
-	}
 	if got := chat.Messages[0]["content"]; got != "final system" {
 		t.Fatalf("expected final system from step systems, got %#v", chat.Messages)
 	}
@@ -358,5 +365,229 @@ func TestStepWriterPersistsActualInlineProfileAsStepSystems(t *testing.T) {
 		if msg["content"] == "final answer" {
 			t.Fatalf("target assistant response must not be part of request messages: %#v", chat.Messages)
 		}
+	}
+}
+
+func TestBuildLLMChatFromJSONLRejectsMissingSystemRef(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-llm-missing-system-ref"
+	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := store.AppendQueryLine(chatID, QueryLine{
+		Type:      "query",
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: 1,
+		Query:     map[string]any{"role": "user", "message": "hello"},
+		Messages:  []map[string]any{{"role": "user", "content": "hello"}},
+		Systems: []QueryLineSystemInit{{
+			CacheKey:      "react:main",
+			Fingerprint:   "sha256:system",
+			SystemMessage: map[string]any{"role": "system", "content": "system"},
+			Tools:         []any{},
+			Model:         map[string]any{"key": "model-key"},
+		}},
+	}); err != nil {
+		t.Fatalf("append query: %v", err)
+	}
+	if err := store.AppendStepLine(chatID, StepLine{
+		Type:      StepLineTypeReact,
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: 2,
+		Seq:       1,
+		Messages: []StoredMessage{{
+			Role:    "assistant",
+			Content: []ContentPart{{Type: "text", Text: "hi"}},
+		}},
+	}); err != nil {
+		t.Fatalf("append step: %v", err)
+	}
+
+	_, err = store.BuildLLMChatFromJSONL(chatID, LLMChatBuildOptions{RunID: "run-1", Seq: 1})
+	if err == nil || !strings.Contains(err.Error(), "missing systemRef") {
+		t.Fatalf("expected missing systemRef error, got %v", err)
+	}
+}
+
+func TestBuildLLMChatFromJSONLRejectsMissingSystemSnapshot(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-llm-missing-system-snapshot"
+	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := store.AppendQueryLine(chatID, QueryLine{
+		Type:      "query",
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: 1,
+		Query:     map[string]any{"role": "user", "message": "hello"},
+		Messages:  []map[string]any{{"role": "user", "content": "hello"}},
+	}); err != nil {
+		t.Fatalf("append query: %v", err)
+	}
+	if err := store.AppendStepLine(chatID, StepLine{
+		Type:      StepLineTypeReact,
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: 2,
+		Seq:       1,
+		SystemRef: map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:missing"},
+		Messages: []StoredMessage{{
+			Role:    "assistant",
+			Content: []ContentPart{{Type: "text", Text: "hi"}},
+		}},
+	}); err != nil {
+		t.Fatalf("append step: %v", err)
+	}
+
+	_, err = store.BuildLLMChatFromJSONL(chatID, LLMChatBuildOptions{RunID: "run-1", Seq: 1})
+	if err == nil || !strings.Contains(err.Error(), "system snapshot not found") {
+		t.Fatalf("expected missing system snapshot error, got %v", err)
+	}
+}
+
+func TestBuildLLMChatFromJSONLRejectsSystemSnapshotWithoutModelKey(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-llm-missing-model-key"
+	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := store.AppendQueryLine(chatID, QueryLine{
+		Type:      "query",
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: 1,
+		Query:     map[string]any{"role": "user", "message": "hello"},
+		Messages:  []map[string]any{{"role": "user", "content": "hello"}},
+		Systems: []QueryLineSystemInit{{
+			CacheKey:      "react:main",
+			Fingerprint:   "sha256:system",
+			SystemMessage: map[string]any{"role": "system", "content": "system"},
+			Tools:         []any{},
+			Model:         map[string]any{"id": "model-id"},
+		}},
+	}); err != nil {
+		t.Fatalf("append query: %v", err)
+	}
+	if err := store.AppendStepLine(chatID, StepLine{
+		Type:      StepLineTypeReact,
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: 2,
+		Seq:       1,
+		SystemRef: map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:system"},
+		Messages: []StoredMessage{{
+			Role:    "assistant",
+			Content: []ContentPart{{Type: "text", Text: "hi"}},
+		}},
+	}); err != nil {
+		t.Fatalf("append step: %v", err)
+	}
+
+	_, err = store.BuildLLMChatFromJSONL(chatID, LLMChatBuildOptions{RunID: "run-1", Seq: 1})
+	if err == nil || !strings.Contains(err.Error(), "missing model key") {
+		t.Fatalf("expected missing model key error, got %v", err)
+	}
+}
+
+func TestBuildLLMChatFromJSONLRejectsLegacyRequestFields(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-llm-legacy-fields"
+	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := store.AppendQueryLine(chatID, QueryLine{
+		Type:      "query",
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: 1,
+		Query:     map[string]any{"role": "user", "message": "hello"},
+		Messages:  []map[string]any{{"role": "user", "content": "hello"}},
+	}); err != nil {
+		t.Fatalf("append query: %v", err)
+	}
+	if err := store.AppendStepLine(chatID, StepLine{
+		Type:            StepLineTypeReact,
+		ChatID:          chatID,
+		RunID:           "run-1",
+		UpdatedAt:       2,
+		Seq:             1,
+		ModelKey:        "legacy-model",
+		ReasoningEffort: "LOW",
+		Messages: []StoredMessage{{
+			Role:    "assistant",
+			Content: []ContentPart{{Type: "text", Text: "hi"}},
+		}},
+	}); err != nil {
+		t.Fatalf("append step: %v", err)
+	}
+
+	_, err = store.BuildLLMChatFromJSONL(chatID, LLMChatBuildOptions{RunID: "run-1", Seq: 1})
+	if err == nil || !strings.Contains(err.Error(), "missing systemRef") {
+		t.Fatalf("expected legacy request fields to be ignored, got %v", err)
+	}
+}
+
+func TestStepWriterDropsIncompleteInlineSystemProfile(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-incomplete-inline-system"
+	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	writer := NewStepWriter(store, chatID, "run-1", "REACT")
+	writer.SetPendingQueryMessages([]map[string]any{{"role": "user", "content": "hello"}})
+	writer.OnEvent(stream.NewEvent("request.query", map[string]any{
+		"role":    "user",
+		"message": "hello",
+		"runId":   "run-1",
+		"chatId":  chatID,
+	}).Data())
+	writer.OnEvent(stream.NewEvent("llm.request", map[string]any{
+		"runId":  "run-1",
+		"chatId": chatID,
+		"model": map[string]any{
+			"key": "model-key",
+		},
+		"system": map[string]any{
+			"systemMessage": map[string]any{"role": "system", "content": "legacy system"},
+			"tools":         []any{},
+		},
+		"inputMessages": []any{map[string]any{"role": "user", "content": "internal"}},
+	}).Data())
+	writer.OnEvent(stream.NewEvent("content.snapshot", map[string]any{
+		"contentId": "content-1",
+		"text":      "answer",
+	}).Data())
+	writer.Flush()
+
+	lines, err := readJSONLines(store.chatJSONLPath(chatID))
+	if err != nil {
+		t.Fatalf("read jsonl: %v", err)
+	}
+	step := lines[1]
+	for _, key := range []string{"system", "systemRef", "systems", "model", "toolChoice", "requestOptions"} {
+		if _, ok := step[key]; ok {
+			t.Fatalf("did not expect incomplete inline profile to write %s: %#v", key, step)
+		}
+	}
+	if inputMessages, _ := step["inputMessages"].([]any); len(inputMessages) != 1 {
+		t.Fatalf("expected input messages to remain, got %#v", step)
 	}
 }

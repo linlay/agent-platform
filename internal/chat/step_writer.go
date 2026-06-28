@@ -56,9 +56,7 @@ type StepWriter struct {
 	pendingEstimated        int
 	pendingModelKey         string
 	pendingReasoningEffort  string
-	pendingModel            map[string]any
 	pendingInputMessages    []map[string]any
-	pendingSystem           map[string]any
 	pendingSystemRef        map[string]any
 	pendingStepSystems      []QueryLineSystemInit
 	pendingSystemInits      []QueryLineSystemInit
@@ -493,7 +491,6 @@ func (w *StepWriter) captureRootLLMRequestData(event stream.EventData) {
 	}
 	model, _ := event.Value("model").(map[string]any)
 	if len(model) > 0 {
-		w.pendingModel = cloneStepSystemPayload(model)
 		w.capturePendingModelMetadata(model)
 	}
 	if system, _ := event.Value("system").(map[string]any); len(system) > 0 {
@@ -534,7 +531,6 @@ func (w *StepWriter) captureTaskLLMRequestData(buffer *taskStepBuffer, event str
 	}
 	model, _ := event.Value("model").(map[string]any)
 	if len(model) > 0 {
-		buffer.pendingModel = cloneStepSystemPayload(model)
 		buffer.capturePendingModelMetadata(model)
 	}
 	if system, _ := event.Value("system").(map[string]any); len(system) > 0 {
@@ -583,9 +579,7 @@ func (w *StepWriter) captureRootInlineSystemProfile(system map[string]any, event
 		if !w.isKnownSystemProfile(profile) && !systemProfilesContain(w.pendingStepSystems, profile) {
 			w.pendingStepSystems = append(w.pendingStepSystems, profile)
 		}
-		return
 	}
-	w.pendingSystem = profileMap
 }
 
 func (w *StepWriter) captureTaskInlineSystemProfile(buffer *taskStepBuffer, system map[string]any, event stream.EventData, model map[string]any) {
@@ -598,9 +592,7 @@ func (w *StepWriter) captureTaskInlineSystemProfile(buffer *taskStepBuffer, syst
 		if !w.isKnownSystemProfile(profile) && !systemProfilesContain(buffer.pendingStepSystems, profile) {
 			buffer.pendingStepSystems = append(buffer.pendingStepSystems, profile)
 		}
-		return
 	}
-	buffer.pendingSystem = profileMap
 }
 
 func querySystemInitFromProfile(profile map[string]any) (QueryLineSystemInit, bool) {
@@ -612,12 +604,16 @@ func querySystemInitFromProfile(profile map[string]any) (QueryLineSystemInit, bo
 	if cacheKey == "" || fingerprint == "" {
 		return QueryLineSystemInit{}, false
 	}
+	model := cloneStepSystemPayload(anyMap(profile["model"]))
+	if strings.TrimSpace(stringValue(model["key"])) == "" {
+		return QueryLineSystemInit{}, false
+	}
 	return QueryLineSystemInit{
 		CacheKey:       cacheKey,
 		Fingerprint:    fingerprint,
 		SystemMessage:  cloneStepSystemPayload(anyMap(profile["systemMessage"])),
 		Tools:          cloneAnySliceDeep(anySlice(profile["tools"])),
-		Model:          cloneStepSystemPayload(anyMap(profile["model"])),
+		Model:          model,
 		ToolChoice:     strings.TrimSpace(stringValue(profile["toolChoice"])),
 		RequestOptions: cloneStepSystemPayload(anyMap(profile["requestOptions"])),
 	}, true
@@ -693,9 +689,7 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 		w.pendingEstimated = 0
 		w.pendingModelKey = ""
 		w.pendingReasoningEffort = ""
-		w.pendingModel = nil
 		w.pendingInputMessages = nil
-		w.pendingSystem = nil
 		w.pendingSystemRef = nil
 		w.pendingStepSystems = nil
 		return
@@ -735,9 +729,6 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 		for _, profile := range w.pendingStepSystems {
 			w.markKnownSystemProfile(profile)
 		}
-	}
-	if len(w.pendingSystem) > 0 {
-		line.System = cloneStepSystemPayload(w.pendingSystem)
 	}
 	if len(w.pendingInputMessages) > 0 {
 		line.InputMessages = cloneMessageMaps(w.pendingInputMessages)
@@ -779,9 +770,7 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	w.pendingEstimated = 0
 	w.pendingModelKey = ""
 	w.pendingReasoningEffort = ""
-	w.pendingModel = nil
 	w.pendingInputMessages = nil
-	w.pendingSystem = nil
 	w.pendingSystemRef = nil
 	w.pendingStepSystems = nil
 }

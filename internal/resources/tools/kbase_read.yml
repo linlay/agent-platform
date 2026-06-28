@@ -3,7 +3,7 @@ label: 读取知识库片段
 description: Read a KBASE chunk by chunkId, or read indexed chunks for a source path.
 submitResultFormat: json-compact
 type: function
-clientVisible: false
+clientVisible: true
 inputSchema:
   type: object
   properties:

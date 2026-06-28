@@ -21,7 +21,6 @@ type LLMChat struct {
 	ReasoningEffort string
 	RequestOptions  map[string]any
 	SystemRef       map[string]any
-	Legacy          bool
 }
 
 type llmSystemSnapshot struct {
@@ -53,63 +52,22 @@ func (s *FileStore) BuildLLMChatFromJSONL(chatID string, options LLMChatBuildOpt
 		messages = append(messages, inputMessages...)
 	}
 
-	systemMessage, tools, systemRef, profile, legacy := resolveLLMChatSystem(target, systemCache)
+	systemMessage, tools, systemRef, profile, err := resolveLLMChatSystem(target, systemCache)
+	if err != nil {
+		return LLMChat{}, err
+	}
 	if len(systemMessage) > 0 {
 		messages = append([]map[string]any{systemMessage}, messages...)
 	}
 
 	model := cloneMapDeep(profile.Model)
 	modelKey := strings.TrimSpace(stringValue(model["key"]))
-	reasoningEffort := strings.TrimSpace(stringValue(model["reasoningEffort"]))
-	if len(model) == 0 {
-		model = cloneMapDeep(anyMap(target["model"]))
-		if len(model) > 0 {
-			legacy = true
-		}
-	}
-	if modelKey == "" && len(model) > 0 {
-		modelKey = strings.TrimSpace(stringValue(model["key"]))
-	}
-	if reasoningEffort == "" && len(model) > 0 {
-		reasoningEffort = strings.TrimSpace(stringValue(model["reasoningEffort"]))
-	}
 	if modelKey == "" {
-		modelKey = strings.TrimSpace(stringValue(target["modelKey"]))
-		if modelKey != "" {
-			legacy = true
-		}
+		return LLMChat{}, fmt.Errorf("llm chat system snapshot missing model key")
 	}
-	if reasoningEffort == "" {
-		reasoningEffort = strings.TrimSpace(stringValue(target["reasoningEffort"]))
-		if reasoningEffort != "" {
-			legacy = true
-		}
-	}
-	if len(model) == 0 && (modelKey != "" || reasoningEffort != "") {
-		model = map[string]any{}
-		if modelKey != "" {
-			model["key"] = modelKey
-		}
-		if reasoningEffort != "" {
-			model["reasoningEffort"] = reasoningEffort
-		}
-		legacy = true
-	}
-
+	reasoningEffort := strings.TrimSpace(stringValue(model["reasoningEffort"]))
 	toolChoice := strings.TrimSpace(profile.ToolChoice)
-	if toolChoice == "" {
-		if targetToolChoice := strings.TrimSpace(stringValue(target["toolChoice"])); targetToolChoice != "" {
-			toolChoice = targetToolChoice
-			legacy = true
-		} else if len(tools) > 0 {
-			legacy = true
-		}
-	}
 	requestOptions := cloneMapDeep(profile.RequestOptions)
-	if len(requestOptions) == 0 {
-		requestOptions = cloneMapDeep(anyMap(target["requestOptions"]))
-		legacy = true
-	}
 
 	return LLMChat{
 		Messages:        cloneMessageMaps(messages),
@@ -120,7 +78,6 @@ func (s *FileStore) BuildLLMChatFromJSONL(chatID string, options LLMChatBuildOpt
 		ReasoningEffort: reasoningEffort,
 		RequestOptions:  requestOptions,
 		SystemRef:       cloneMapDeep(systemRef),
-		Legacy:          legacy,
 	}, nil
 }
 
@@ -182,25 +139,21 @@ func buildLLMSystemCache(lines []map[string]any) map[string]llmSystemSnapshot {
 	return cache
 }
 
-func resolveLLMChatSystem(target map[string]any, cache map[string]llmSystemSnapshot) (map[string]any, []any, map[string]any, llmSystemSnapshot, bool) {
-	if inline := anyMap(target["system"]); len(inline) > 0 {
-		systemMessage := cloneMapDeep(anyMap(inline["systemMessage"]))
-		if len(systemMessage) == 0 && strings.TrimSpace(stringValue(inline["role"])) == "system" {
-			systemMessage = cloneMapDeep(inline)
-		}
-		return systemMessage, cloneAnySliceDeep(anySlice(inline["tools"])), nil, llmSystemSnapshot{}, true
-	}
+func resolveLLMChatSystem(target map[string]any, cache map[string]llmSystemSnapshot) (map[string]any, []any, map[string]any, llmSystemSnapshot, error) {
 	systemRef := cloneMapDeep(anyMap(target["systemRef"]))
 	if len(systemRef) == 0 {
-		return nil, nil, nil, llmSystemSnapshot{}, true
+		return nil, nil, nil, llmSystemSnapshot{}, fmt.Errorf("llm chat target missing systemRef")
 	}
 	cacheKey := strings.TrimSpace(stringValue(systemRef["cacheKey"]))
 	fingerprint := strings.TrimSpace(stringValue(systemRef["fingerprint"]))
+	if cacheKey == "" || fingerprint == "" {
+		return nil, nil, systemRef, llmSystemSnapshot{}, fmt.Errorf("llm chat target has incomplete systemRef")
+	}
 	snapshot, ok := cache[systemCacheID(cacheKey, fingerprint)]
 	if !ok {
-		return nil, nil, systemRef, llmSystemSnapshot{}, true
+		return nil, nil, systemRef, llmSystemSnapshot{}, fmt.Errorf("llm chat system snapshot not found")
 	}
-	return cloneMapDeep(snapshot.SystemMessage), cloneAnySliceDeep(snapshot.Tools), systemRef, snapshot, false
+	return cloneMapDeep(snapshot.SystemMessage), cloneAnySliceDeep(snapshot.Tools), systemRef, snapshot, nil
 }
 
 func systemCacheID(cacheKey string, fingerprint string) string {
