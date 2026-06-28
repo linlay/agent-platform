@@ -394,21 +394,17 @@ func addUsageData(base chat.UsageData, delta chat.UsageData) chat.UsageData {
 	}
 }
 
-func addUsageTimingMap(out map[string]any, usage chat.UsageData, includeDerivedSpeed bool) {
+func addUsageTimingMap(out map[string]any, usage chat.UsageData) {
 	if out == nil {
 		return
 	}
 	timing := map[string]any{}
 	if usage.FirstTokenLatencyCount > 0 {
-		timing["firstTokenLatencyMs"] = usage.FirstTokenLatencyTotalMs / int64(usage.FirstTokenLatencyCount)
 		timing["firstTokenLatencyTotalMs"] = usage.FirstTokenLatencyTotalMs
 		timing["firstTokenLatencyCount"] = usage.FirstTokenLatencyCount
 	}
 	if usage.GenerationDurationMs > 0 {
 		timing["generationDurationMs"] = usage.GenerationDurationMs
-	}
-	if includeDerivedSpeed && usage.CompletionTokens > 0 && usage.GenerationDurationMs > 0 {
-		timing["outputTokensPerSecond"] = float64(usage.CompletionTokens) * 1000 / float64(usage.GenerationDurationMs)
 	}
 	if len(timing) > 0 {
 		out["timing"] = timing
@@ -416,14 +412,14 @@ func addUsageTimingMap(out map[string]any, usage chat.UsageData, includeDerivedS
 }
 
 func usageDataMap(usage chat.UsageData) map[string]any {
-	return usageDataMapWithOptions(usage, false, false)
+	return usageDataMapWithOptions(usage, false)
 }
 
 func usageDataMapForSnapshot(usage chat.UsageData) map[string]any {
-	return usageDataMapWithOptions(usage, true, true)
+	return usageDataMapWithOptions(usage, true)
 }
 
-func usageDataMapWithOptions(usage chat.UsageData, includeZeroToolCallCount bool, includeDerivedSpeed bool) map[string]any {
+func usageDataMapWithOptions(usage chat.UsageData, includeZeroToolCallCount bool) map[string]any {
 	out := map[string]any{
 		"promptTokens":     usage.PromptTokens,
 		"completionTokens": usage.CompletionTokens,
@@ -461,7 +457,7 @@ func usageDataMapWithOptions(usage chat.UsageData, includeZeroToolCallCount bool
 	if estimated := usageEstimatedCostFromData(usage); estimated != nil {
 		out["estimatedCost"] = estimated
 	}
-	addUsageTimingMap(out, usage, includeDerivedSpeed)
+	addUsageTimingMap(out, usage)
 	return out
 }
 

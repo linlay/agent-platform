@@ -645,8 +645,16 @@ func TestProxyUsageTrackerDecoratesUsageSnapshotWithEstimatedCost(t *testing.T) 
 		t.Fatalf("expected proxy run cost from current usage, got %#v", run)
 	}
 	runTiming, _ := run["timing"].(map[string]any)
-	if floatValue(runTiming["outputTokensPerSecond"]) != 400000 {
-		t.Fatalf("expected proxy run output speed from run timing, got %#v", run)
+	if AnyIntNode(runTiming["firstTokenLatencyTotalMs"]) != 2000 ||
+		AnyIntNode(runTiming["firstTokenLatencyCount"]) != 1 ||
+		AnyIntNode(runTiming["generationDurationMs"]) != 2500 {
+		t.Fatalf("expected proxy run cumulative timing, got %#v", run)
+	}
+	if _, ok := runTiming["firstTokenLatencyMs"]; ok {
+		t.Fatalf("did not expect proxy run average first token latency, got %#v", run)
+	}
+	if _, ok := runTiming["outputTokensPerSecond"]; ok {
+		t.Fatalf("did not expect proxy run output speed in timing, got %#v", run)
 	}
 	chatUsage, _ := usage["chat"].(map[string]any)
 	chatCost, _ := chatUsage["estimatedCost"].(map[string]any)
@@ -654,8 +662,16 @@ func TestProxyUsageTrackerDecoratesUsageSnapshotWithEstimatedCost(t *testing.T) 
 		t.Fatalf("expected proxy chat usage to include base tokens and run cost, got %#v", chatUsage)
 	}
 	chatTiming, _ := chatUsage["timing"].(map[string]any)
-	if floatValue(chatTiming["outputTokensPerSecond"]) != 333335 {
-		t.Fatalf("expected proxy chat output speed from chat timing, got %#v", chatUsage)
+	if AnyIntNode(chatTiming["firstTokenLatencyTotalMs"]) != 2500 ||
+		AnyIntNode(chatTiming["firstTokenLatencyCount"]) != 2 ||
+		AnyIntNode(chatTiming["generationDurationMs"]) != 3000 {
+		t.Fatalf("expected proxy chat cumulative timing, got %#v", chatUsage)
+	}
+	if _, ok := chatTiming["firstTokenLatencyMs"]; ok {
+		t.Fatalf("did not expect proxy chat average first token latency, got %#v", chatUsage)
+	}
+	if _, ok := chatTiming["outputTokensPerSecond"]; ok {
+		t.Fatalf("did not expect proxy chat output speed in timing, got %#v", chatUsage)
 	}
 	if runUsage.EstimatedCostCurrency != "CNY" || runUsage.EstimatedCostTotal != 8.405 {
 		t.Fatalf("expected proxy run usage to capture cost, got %#v", runUsage)

@@ -61,9 +61,10 @@ func TestMapUsageDataComputesTimingFields(t *testing.T) {
 	if mapped.Timing == nil {
 		t.Fatalf("expected timing in mapped usage, got %#v", mapped)
 	}
-	if mapped.Timing.FirstTokenLatencyMs != 1000 ||
-		mapped.Timing.GenerationDurationMs != 2500 ||
-		mapped.Timing.OutputTokensPerSecond != 20 {
+	if mapped.Timing.FirstTokenLatencyMs != 0 ||
+		mapped.Timing.FirstTokenLatencyTotalMs != 2000 ||
+		mapped.Timing.FirstTokenLatencyCount != 2 ||
+		mapped.Timing.GenerationDurationMs != 2500 {
 		t.Fatalf("unexpected mapped timing %#v", mapped.Timing)
 	}
 }
@@ -82,9 +83,10 @@ func TestMapUsageDataFromPayloadComputesTimingFromInternalTotals(t *testing.T) {
 	if mapped == nil || mapped.Timing == nil {
 		t.Fatalf("expected timing in payload usage, got %#v", mapped)
 	}
-	if mapped.Timing.FirstTokenLatencyMs != 750 ||
-		mapped.Timing.GenerationDurationMs != 2000 ||
-		mapped.Timing.OutputTokensPerSecond != 21 {
+	if mapped.Timing.FirstTokenLatencyMs != 0 ||
+		mapped.Timing.FirstTokenLatencyTotalMs != 1500 ||
+		mapped.Timing.FirstTokenLatencyCount != 2 ||
+		mapped.Timing.GenerationDurationMs != 2000 {
 		t.Fatalf("unexpected payload timing %#v", mapped.Timing)
 	}
 }

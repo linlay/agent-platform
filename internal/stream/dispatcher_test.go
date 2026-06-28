@@ -396,11 +396,13 @@ func TestDispatcherIncludesTaskIDOnDebugEvents(t *testing.T) {
 	}
 	runUsage, _ := llmUsageEnvelope["runUsage"].(map[string]any)
 	runTiming, _ := runUsage["timing"].(map[string]any)
-	if intValue(runTiming["firstTokenLatencyMs"]) != 910 ||
-		intValue(runTiming["firstTokenLatencyTotalMs"]) != 1820 ||
+	if intValue(runTiming["firstTokenLatencyTotalMs"]) != 1820 ||
 		intValue(runTiming["firstTokenLatencyCount"]) != 2 ||
 		intValue(runTiming["generationDurationMs"]) != 5000 {
 		t.Fatalf("expected aggregated run timing in debug.llmChat usage, got %#v", llmUsageEnvelope)
+	}
+	if _, exists := runTiming["firstTokenLatencyMs"]; exists {
+		t.Fatalf("did not expect aggregate first token average in debug.llmChat timing, got %#v", runTiming)
 	}
 }
 
@@ -497,22 +499,30 @@ func TestDispatcherUsageSnapshotIncludesTaskAndDeepSeekCacheUsage(t *testing.T) 
 		intValue(currentTiming["generationDurationMs"]) != 2300 {
 		t.Fatalf("expected current timing usage, got %#v", usage)
 	}
-	if currentTiming["outputTokensPerSecond"] != float64(50)*1000/float64(2300) {
-		t.Fatalf("expected current output speed in usage.snapshot timing, got %#v", currentTiming)
+	if _, exists := currentTiming["firstTokenLatencyTotalMs"]; exists {
+		t.Fatalf("did not expect current first token total in usage.snapshot timing, got %#v", currentTiming)
+	}
+	if _, exists := currentTiming["firstTokenLatencyCount"]; exists {
+		t.Fatalf("did not expect current first token count in usage.snapshot timing, got %#v", currentTiming)
+	}
+	if _, exists := currentTiming["outputTokensPerSecond"]; exists {
+		t.Fatalf("did not expect derived tokens/s in usage.snapshot current timing, got %#v", currentTiming)
 	}
 	runPromptDetails, _ := run["promptTokensDetails"].(map[string]any)
 	if runPromptDetails["cacheHitTokens"] != 128 || runPromptDetails["cacheMissTokens"] != 172 || run["llmChatCompletionCount"] != 2 || run["toolCallCount"] != 5 {
 		t.Fatalf("expected detailed run usage, got %#v", usage)
 	}
 	runTiming, _ := run["timing"].(map[string]any)
-	if intValue(runTiming["firstTokenLatencyMs"]) != 950 ||
-		intValue(runTiming["firstTokenLatencyTotalMs"]) != 1900 ||
+	if intValue(runTiming["firstTokenLatencyTotalMs"]) != 1900 ||
 		intValue(runTiming["firstTokenLatencyCount"]) != 2 ||
 		intValue(runTiming["generationDurationMs"]) != 4800 {
 		t.Fatalf("expected run timing usage, got %#v", usage)
 	}
-	if runTiming["outputTokensPerSecond"] != float64(75)*1000/float64(4800) {
-		t.Fatalf("expected run output speed in usage.snapshot timing, got %#v", runTiming)
+	if _, exists := runTiming["firstTokenLatencyMs"]; exists {
+		t.Fatalf("did not expect aggregate first token average in usage.snapshot timing, got %#v", runTiming)
+	}
+	if _, exists := runTiming["outputTokensPerSecond"]; exists {
+		t.Fatalf("did not expect derived tokens/s in usage.snapshot run timing, got %#v", runTiming)
 	}
 	if _, exists := run["modelKey"]; exists {
 		t.Fatalf("did not expect run modelKey, got %#v", usage)

@@ -106,19 +106,17 @@ func usageMap(usage *runUsageState) map[string]any {
 	if usage.ToolCallCount > 0 {
 		out["toolCallCount"] = usage.ToolCallCount
 	}
-	addTimingUsage(out, usage.FirstTokenLatencyTotalMs, usage.FirstTokenLatencyCount, usage.GenerationDurationMs)
+	addCumulativeTimingUsage(out, usage.FirstTokenLatencyTotalMs, usage.FirstTokenLatencyCount, usage.GenerationDurationMs)
 	return out
 }
 
-func addTimingUsage(out map[string]any, firstTokenLatencyTotalMs int64, firstTokenLatencyCount int, generationDurationMs int64) {
+func addSingleTimingUsage(out map[string]any, firstTokenLatencyMs int64, generationDurationMs int64) {
 	if out == nil {
 		return
 	}
 	timing := map[string]any{}
-	if firstTokenLatencyCount > 0 {
-		timing["firstTokenLatencyMs"] = firstTokenLatencyTotalMs / int64(firstTokenLatencyCount)
-		timing["firstTokenLatencyTotalMs"] = firstTokenLatencyTotalMs
-		timing["firstTokenLatencyCount"] = firstTokenLatencyCount
+	if firstTokenLatencyMs > 0 {
+		timing["firstTokenLatencyMs"] = firstTokenLatencyMs
 	}
 	if generationDurationMs > 0 {
 		timing["generationDurationMs"] = generationDurationMs
@@ -128,11 +126,21 @@ func addTimingUsage(out map[string]any, firstTokenLatencyTotalMs int64, firstTok
 	}
 }
 
-func boolToTimingCount(ok bool) int {
-	if ok {
-		return 1
+func addCumulativeTimingUsage(out map[string]any, firstTokenLatencyTotalMs int64, firstTokenLatencyCount int, generationDurationMs int64) {
+	if out == nil {
+		return
 	}
-	return 0
+	timing := map[string]any{}
+	if firstTokenLatencyCount > 0 {
+		timing["firstTokenLatencyTotalMs"] = firstTokenLatencyTotalMs
+		timing["firstTokenLatencyCount"] = firstTokenLatencyCount
+	}
+	if generationDurationMs > 0 {
+		timing["generationDurationMs"] = generationDurationMs
+	}
+	if len(timing) > 0 {
+		out["timing"] = timing
+	}
 }
 
 func addDetailedUsage(out map[string]any, reasoningTokens int, promptCacheHitTokens int, promptCacheMissTokens int) {

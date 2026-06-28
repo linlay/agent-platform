@@ -165,7 +165,7 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 			llmReturnUsage["reasoningEffort"] = value.ReasoningEffort
 		}
 		addDetailedUsage(llmReturnUsage, value.LLMReturnReasoningTokens, value.LLMReturnPromptCacheHitTokens, value.LLMReturnPromptCacheMissTokens)
-		addTimingUsage(llmReturnUsage, value.LLMReturnFirstTokenLatencyMs, boolToTimingCount(value.LLMReturnFirstTokenLatencyMs > 0), value.LLMReturnGenerationDurationMs)
+		addSingleTimingUsage(llmReturnUsage, value.LLMReturnFirstTokenLatencyMs, value.LLMReturnGenerationDurationMs)
 		runUsage := map[string]any{
 			"promptTokens":           value.RunPromptTokens,
 			"completionTokens":       value.RunCompletionTokens,
@@ -174,7 +174,7 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 			"toolCallCount":          value.RunToolCallCount,
 		}
 		addDetailedUsage(runUsage, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens)
-		addTimingUsage(runUsage, value.RunFirstTokenLatencyTotalMs, value.RunFirstTokenLatencyCount, value.RunGenerationDurationMs)
+		addCumulativeTimingUsage(runUsage, value.RunFirstTokenLatencyTotalMs, value.RunFirstTokenLatencyCount, value.RunGenerationDurationMs)
 		data := map[string]any{
 			"provider": map[string]any{
 				"key":      value.ProviderKey,
@@ -241,7 +241,7 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 }
 
 func usageSnapshotEvent(runID string, taskID string, chatID string, modelKey string, reasoningEffort string, contextWindow int, currentContextSize int, estimatedNextCallSize int, currentPromptTokens int, currentCompletionTokens int, currentTotalTokens int, currentCachedTokens int, currentReasoningTokens int, currentPromptCacheHitTokens int, currentPromptCacheMissTokens int, currentLLMChatCompletionCount int, currentToolCallCount int, currentFirstTokenLatencyMs int64, currentGenerationDurationMs int64, runPromptTokens int, runCompletionTokens int, runTotalTokens int, runCachedTokens int, runReasoningTokens int, runPromptCacheHitTokens int, runPromptCacheMissTokens int, runLLMChatCompletionCount int, runToolCallCount int, runFirstTokenLatencyTotalMs int64, runFirstTokenLatencyCount int, runGenerationDurationMs int64) StreamEvent {
-	currentUsage := usageMapFromValues(currentPromptTokens, currentCompletionTokens, currentTotalTokens, currentCachedTokens, currentReasoningTokens, currentPromptCacheHitTokens, currentPromptCacheMissTokens, currentLLMChatCompletionCount, currentToolCallCount, currentFirstTokenLatencyMs, boolToTimingCount(currentFirstTokenLatencyMs > 0), currentGenerationDurationMs, false)
+	currentUsage := usageMapFromValues(currentPromptTokens, currentCompletionTokens, currentTotalTokens, currentCachedTokens, currentReasoningTokens, currentPromptCacheHitTokens, currentPromptCacheMissTokens, currentLLMChatCompletionCount, currentToolCallCount, currentFirstTokenLatencyMs, 0, currentGenerationDurationMs, false)
 	runUsage := usageMapFromValues(runPromptTokens, runCompletionTokens, runTotalTokens, runCachedTokens, runReasoningTokens, runPromptCacheHitTokens, runPromptCacheMissTokens, runLLMChatCompletionCount, runToolCallCount, runFirstTokenLatencyTotalMs, runFirstTokenLatencyCount, runGenerationDurationMs, true)
 	if modelKey != "" {
 		currentUsage["modelKey"] = modelKey
@@ -314,19 +314,10 @@ func usageMapFromValues(promptTokens int, completionTokens int, totalTokens int,
 	}
 	out["toolCallCount"] = toolCallCount
 	addDetailedUsage(out, reasoningTokens, promptCacheHitTokens, promptCacheMissTokens)
-	addTimingUsage(out, firstTokenLatencyTotalMs, firstTokenLatencyCount, generationDurationMs)
-	addOutputTokensPerSecondUsage(out, completionTokens, generationDurationMs)
+	if includeLLMChatCompletionCount {
+		addCumulativeTimingUsage(out, firstTokenLatencyTotalMs, firstTokenLatencyCount, generationDurationMs)
+	} else {
+		addSingleTimingUsage(out, firstTokenLatencyTotalMs, generationDurationMs)
+	}
 	return out
-}
-
-func addOutputTokensPerSecondUsage(out map[string]any, completionTokens int, generationDurationMs int64) {
-	if out == nil || completionTokens <= 0 || generationDurationMs <= 0 {
-		return
-	}
-	timing, _ := out["timing"].(map[string]any)
-	if timing == nil {
-		timing = map[string]any{}
-		out["timing"] = timing
-	}
-	timing["outputTokensPerSecond"] = float64(completionTokens) * 1000 / float64(generationDurationMs)
 }

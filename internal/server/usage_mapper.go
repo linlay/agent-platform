@@ -263,7 +263,7 @@ func mapUsageDataFromPayload(usage map[string]any) *api.ChatUsageData {
 	if estimatedCost := apiEstimatedCostFromMap(usage); estimatedCost != nil {
 		out.EstimatedCost = estimatedCost
 	}
-	if timing := apiTimingFromUsageMap(usage, out.CompletionTokens); timing != nil {
+	if timing := apiTimingFromUsageMap(usage); timing != nil {
 		out.Timing = timing
 	}
 	if out.TotalTokens == 0 && out.LlmChatCompletionCount == 0 && out.ToolCallCount == 0 && out.Timing == nil {
@@ -273,42 +273,34 @@ func mapUsageDataFromPayload(usage map[string]any) *api.ChatUsageData {
 }
 
 func apiTimingFromUsageData(usage chat.UsageData) *api.ChatUsageTiming {
-	var firstTokenLatencyMs int64
-	if usage.FirstTokenLatencyTotalMs > 0 && usage.FirstTokenLatencyCount > 0 {
-		firstTokenLatencyMs = usage.FirstTokenLatencyTotalMs / int64(usage.FirstTokenLatencyCount)
+	if usage.FirstTokenLatencyTotalMs <= 0 && usage.FirstTokenLatencyCount <= 0 && usage.GenerationDurationMs <= 0 {
+		return nil
 	}
-	return apiTimingFromValues(firstTokenLatencyMs, usage.GenerationDurationMs, usage.CompletionTokens)
+	return &api.ChatUsageTiming{
+		FirstTokenLatencyTotalMs: usage.FirstTokenLatencyTotalMs,
+		FirstTokenLatencyCount:   usage.FirstTokenLatencyCount,
+		GenerationDurationMs:     usage.GenerationDurationMs,
+	}
 }
 
-func apiTimingFromUsageMap(usage map[string]any, completionTokens int) *api.ChatUsageTiming {
+func apiTimingFromUsageMap(usage map[string]any) *api.ChatUsageTiming {
 	timing, _ := usage["timing"].(map[string]any)
 	if timing == nil {
 		return nil
 	}
 	firstTokenLatencyMs := int64(contracts.AnyIntNode(timing["firstTokenLatencyMs"]))
-	if firstTokenLatencyMs <= 0 {
-		total := int64(contracts.AnyIntNode(timing["firstTokenLatencyTotalMs"]))
-		count := contracts.AnyIntNode(timing["firstTokenLatencyCount"])
-		if total > 0 && count > 0 {
-			firstTokenLatencyMs = total / int64(count)
-		}
-	}
+	firstTokenLatencyTotalMs := int64(contracts.AnyIntNode(timing["firstTokenLatencyTotalMs"]))
+	firstTokenLatencyCount := contracts.AnyIntNode(timing["firstTokenLatencyCount"])
 	generationDurationMs := int64(contracts.AnyIntNode(timing["generationDurationMs"]))
-	return apiTimingFromValues(firstTokenLatencyMs, generationDurationMs, completionTokens)
-}
-
-func apiTimingFromValues(firstTokenLatencyMs int64, generationDurationMs int64, completionTokens int) *api.ChatUsageTiming {
-	if firstTokenLatencyMs <= 0 && generationDurationMs <= 0 {
+	if firstTokenLatencyMs <= 0 && firstTokenLatencyTotalMs <= 0 && firstTokenLatencyCount <= 0 && generationDurationMs <= 0 {
 		return nil
 	}
-	out := &api.ChatUsageTiming{
-		FirstTokenLatencyMs:  firstTokenLatencyMs,
-		GenerationDurationMs: generationDurationMs,
+	return &api.ChatUsageTiming{
+		FirstTokenLatencyMs:      firstTokenLatencyMs,
+		FirstTokenLatencyTotalMs: firstTokenLatencyTotalMs,
+		FirstTokenLatencyCount:   firstTokenLatencyCount,
+		GenerationDurationMs:     generationDurationMs,
 	}
-	if completionTokens > 0 && generationDurationMs > 0 {
-		out.OutputTokensPerSecond = float64(completionTokens) * 1000 / float64(generationDurationMs)
-	}
-	return out
 }
 
 func apiEstimatedCostFromMap(usage map[string]any) *api.EstimatedCost {

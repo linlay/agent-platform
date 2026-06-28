@@ -794,9 +794,10 @@ type EstimatedCost struct {
 }
 
 type ChatUsageTiming struct {
-	FirstTokenLatencyMs   int64   `json:"firstTokenLatencyMs,omitempty"`
-	GenerationDurationMs  int64   `json:"generationDurationMs,omitempty"`
-	OutputTokensPerSecond float64 `json:"outputTokensPerSecond,omitempty"`
+	FirstTokenLatencyMs      int64 `json:"firstTokenLatencyMs,omitempty"`
+	FirstTokenLatencyTotalMs int64 `json:"firstTokenLatencyTotalMs,omitempty"`
+	FirstTokenLatencyCount   int   `json:"firstTokenLatencyCount,omitempty"`
+	GenerationDurationMs     int64 `json:"generationDurationMs,omitempty"`
 }
 
 type MarkChatReadRequest struct {
