@@ -169,7 +169,7 @@ func defaultRole(role string) string {
 
 func (s *Server) buildAgentDetailResponse(def catalog.AgentDefinition) api.AgentDetailResponse {
 	modelName, meta := s.buildAgentDetailMeta(def)
-	return api.AgentDetailResponse{
+	response := api.AgentDetailResponse{
 		Key:         def.Key,
 		Name:        def.Name,
 		Icon:        def.Icon,
@@ -184,6 +184,11 @@ func (s *Server) buildAgentDetailResponse(def catalog.AgentDefinition) api.Agent
 		Controls:    cloneListMaps(def.Controls),
 		Meta:        meta,
 	}
+	if catalog.AgentUsesACPCoderBackend(def) {
+		modelOptions := s.buildModelOptionsForAgent(def.Key)
+		response.ModelOptions = &modelOptions
+	}
+	return response
 }
 
 func (s *Server) buildAgentDetailMeta(def catalog.AgentDefinition) (string, map[string]any) {

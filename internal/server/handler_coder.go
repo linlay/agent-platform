@@ -105,7 +105,10 @@ func (s *Server) listACPCoderModelOptions(agentKey string) ([]api.CoderModelOpti
 
 func (s *Server) modelOptionsFilterMode(agentKey string) string {
 	agentKey = strings.TrimSpace(agentKey)
-	if agentKey == "" || s.deps.Registry == nil {
+	if agentKey == "" {
+		return "native-only"
+	}
+	if s.deps.Registry == nil {
 		return ""
 	}
 	def, ok := s.deps.Registry.AgentDefinition(agentKey)
