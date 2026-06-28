@@ -1,0 +1,14 @@
+name: kbase_refresh
+label: 刷新知识库
+description: Trigger a KBASE index refresh for the current KBASE agent. Use force only when the index should be rebuilt from scratch.
+submitResultFormat: json-compact
+type: function
+clientVisible: false
+inputSchema:
+  type: object
+  properties:
+    force:
+      type: boolean
+      description: Rebuild the index even when file metadata appears unchanged.
+      default: false
+  additionalProperties: false

@@ -74,6 +74,39 @@ func TestLoadModelRegistryParsesProviderMemoryEmbedding(t *testing.T) {
 	}
 }
 
+func TestLoadModelRegistryParsesProviderEmbedding(t *testing.T) {
+	root := t.TempDir()
+	writeTestProviderAndModel(t, root, strings.Join([]string{
+		"apiKey: plain-text",
+		"embedding:",
+		"  model: text-embedding-3-small",
+		"  dimension: 1536",
+		"  timeout: 15",
+	}, "\n"))
+
+	registry, err := LoadModelRegistry(root)
+	if err != nil {
+		t.Fatalf("LoadModelRegistry returned error: %v", err)
+	}
+
+	provider, err := registry.GetProvider("mock")
+	if err != nil {
+		t.Fatalf("GetProvider returned error: %v", err)
+	}
+	if provider.Embedding.Model != "text-embedding-3-small" {
+		t.Fatalf("unexpected embedding model: %q", provider.Embedding.Model)
+	}
+	if provider.Embedding.Dimension != 1536 {
+		t.Fatalf("unexpected embedding dimension: %d", provider.Embedding.Dimension)
+	}
+	if provider.Embedding.Timeout != 15 {
+		t.Fatalf("unexpected embedding timeout: %d", provider.Embedding.Timeout)
+	}
+	if provider.Memory.Embedding.Model != "" {
+		t.Fatalf("provider.embedding must not populate memory embedding, got %#v", provider.Memory.Embedding)
+	}
+}
+
 func TestLoadModelRegistryDefaultsModelVisionToFalse(t *testing.T) {
 	root := t.TempDir()
 	writeTestProviderAndModel(t, root, "apiKey: plain-text", "name: Mock Model")

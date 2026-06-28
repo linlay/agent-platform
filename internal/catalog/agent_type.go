@@ -10,6 +10,7 @@ import (
 )
 
 const AgentModeCoder = "CODER"
+const AgentModeKBase = "KBASE"
 const AgentWorkspaceRootChat = "@chat"
 
 var defaultAgentVisibilityScopes = []string{"nav"}
@@ -35,6 +36,24 @@ var coderAgentProfile = agentModeProfile{
 		"maxSteps": 240,
 		"tool": map[string]any{
 			"maxCalls": 200,
+		},
+	},
+}
+
+var kbaseAgentProfile = agentModeProfile{
+	Tools: []string{
+		"kbase_search",
+		"kbase_read",
+		"kbase_status",
+		"kbase_refresh",
+		"datetime",
+	},
+	ContextTags: []string{"system", "session"},
+	Budget: map[string]any{
+		"timeout":  900,
+		"maxSteps": 40,
+		"tool": map[string]any{
+			"maxCalls": 80,
 		},
 	},
 }
@@ -226,6 +245,18 @@ func validateAgentWorkspace(workspace AgentWorkspaceConfig) error {
 }
 
 func validateAgentModeWorkspace(mode string, workspace AgentWorkspaceConfig, hasRuntimeSandbox bool) error {
+	if strings.EqualFold(strings.TrimSpace(mode), AgentModeKBase) {
+		root := strings.TrimSpace(workspace.Root)
+		if root == "" {
+			return fmt.Errorf("runtimeConfig.workspaceRoot is required for mode: KBASE")
+		}
+		if strings.EqualFold(root, AgentWorkspaceRootChat) {
+			return fmt.Errorf("runtimeConfig.workspaceRoot for mode: KBASE must be an absolute path or ~/ path, not %q", AgentWorkspaceRootChat)
+		}
+		if !filepath.IsAbs(root) {
+			return fmt.Errorf("runtimeConfig.workspaceRoot for mode: KBASE must be an absolute path or ~/ path")
+		}
+	}
 	return nil
 }
 
@@ -247,6 +278,18 @@ func ValidateAgentCoderBackend(def AgentDefinition) error {
 		return nil
 	}
 	return nil
+}
+
+func ValidateAgentKBaseConfig(def AgentDefinition) error {
+	if !strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeKBase) {
+		return nil
+	}
+	switch strings.ToLower(strings.TrimSpace(def.KBaseConfig.Storage.Location)) {
+	case "", "runtime", "workspace":
+		return nil
+	default:
+		return fmt.Errorf("kbaseConfig.storage.location must be runtime or workspace")
+	}
 }
 
 func AgentUsesACPCoderBackend(def AgentDefinition) bool {
@@ -275,6 +318,8 @@ func agentModeProfileFor(mode string) (agentModeProfile, bool) {
 	switch strings.ToUpper(strings.TrimSpace(mode)) {
 	case AgentModeCoder:
 		return coderAgentProfile, true
+	case AgentModeKBase:
+		return kbaseAgentProfile, true
 	default:
 		return agentModeProfile{}, false
 	}

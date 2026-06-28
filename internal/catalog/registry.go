@@ -49,6 +49,7 @@ type AgentDefinition struct {
 	HostAccess       AgentHostAccessConfig
 	Workspace        AgentWorkspaceConfig
 	Project          AgentProjectConfig
+	KBaseConfig      AgentKBaseConfig
 	ContextTags      []string
 	Budget           map[string]any
 	StageSettings    map[string]any
@@ -112,6 +113,37 @@ type AgentMemoryAutoRememberConfig struct {
 	Enabled  bool
 	ModelKey string
 	Timeout  int64
+}
+
+type AgentKBaseConfig struct {
+	Embedding AgentKBaseEmbeddingConfig
+	Storage   AgentKBaseStorageConfig
+	Include   []string
+	Exclude   []string
+	Chunk     AgentKBaseChunkConfig
+	Retrieval AgentKBaseRetrievalConfig
+}
+
+type AgentKBaseEmbeddingConfig struct {
+	ProviderKey string
+	Model       string
+	Dimension   int
+	Timeout     int
+}
+
+type AgentKBaseStorageConfig struct {
+	Location string
+}
+
+type AgentKBaseChunkConfig struct {
+	MaxChars     int
+	OverlapChars int
+}
+
+type AgentKBaseRetrievalConfig struct {
+	TopK         int
+	VectorWeight float64
+	FTSWeight    float64
 }
 
 type AgentRuntimePrompts struct {
@@ -595,6 +627,22 @@ func intNode(value any) int {
 		return int(v)
 	case string:
 		n, _ := strconv.Atoi(strings.TrimSpace(v))
+		return n
+	default:
+		return 0
+	}
+}
+
+func floatNode(value any) float64 {
+	switch v := value.(type) {
+	case float64:
+		return v
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case string:
+		n, _ := strconv.ParseFloat(strings.TrimSpace(v), 64)
 		return n
 	default:
 		return 0

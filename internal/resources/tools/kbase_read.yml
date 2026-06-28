@@ -1,0 +1,22 @@
+name: kbase_read
+label: 读取知识库片段
+description: Read a KBASE chunk by chunkId, or read indexed chunks for a source path.
+submitResultFormat: json-compact
+type: function
+clientVisible: false
+inputSchema:
+  type: object
+  properties:
+    chunkId:
+      type: string
+      description: Chunk id returned by kbase_search.
+    path:
+      type: string
+      description: Workspace-relative source path.
+    offset:
+      type: integer
+      description: One-based source line offset when reading by path.
+    limit:
+      type: integer
+      description: Maximum source lines when reading by path.
+  additionalProperties: false

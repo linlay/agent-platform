@@ -324,6 +324,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/interrupt", s.method(http.MethodPost, s.handleInterrupt))
 	s.router.HandleFunc("/api/access-level", s.method(http.MethodPost, s.handleAccessLevel))
 	s.router.HandleFunc("/api/learn", s.method(http.MethodPost, s.handleLearn))
+	s.router.HandleFunc("/api/kbase/", s.handleKBase)
 	s.router.HandleFunc("/api/memory/meta", s.method(http.MethodGet, s.handleMemoryMeta))
 	s.router.HandleFunc("/api/memory/context-preview", s.method(http.MethodPost, s.handleMemoryContextPreview))
 	s.router.HandleFunc("/api/memory/scope/list", s.method(http.MethodGet, s.handleMemoryScopes))

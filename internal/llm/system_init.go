@@ -55,6 +55,8 @@ func BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryReques
 		return []contracts.SystemInitProfile{buildDefaultSystemInitProfile(session, req, toolDefs, "oneshot")}
 	case "coder":
 		return []contracts.SystemInitProfile{buildDefaultSystemInitProfile(session, req, toolDefs, "coder")}
+	case "kbase":
+		return []contracts.SystemInitProfile{buildDefaultSystemInitProfile(session, req, toolDefs, "kbase")}
 	default:
 		stage := "react"
 		if strings.TrimSpace(session.Mode) == "" {
@@ -119,11 +121,11 @@ func profileRuntimeStage(session contracts.QuerySession, profile contracts.Syste
 	mode := strings.ToLower(strings.TrimSpace(profile.Mode))
 	if stage == "" || stage == "main" {
 		switch mode {
-		case "oneshot", "coder", "react":
+		case "oneshot", "coder", "kbase", "react":
 			return mode
 		}
 		normalizedMode := normalizedSystemInitMode(session.Mode)
-		if normalizedMode == "oneshot" || normalizedMode == "coder" || normalizedMode == "react" {
+		if normalizedMode == "oneshot" || normalizedMode == "coder" || normalizedMode == "kbase" || normalizedMode == "react" {
 			return normalizedMode
 		}
 		return "react"
@@ -377,6 +379,8 @@ func normalizedSystemInitMode(mode string) string {
 		return "plan-execute"
 	case "CODER":
 		return "coder"
+	case "KBASE":
+		return "kbase"
 	default:
 		return "react"
 	}

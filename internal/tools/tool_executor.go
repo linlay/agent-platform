@@ -11,6 +11,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/kbase"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
 	"agent-platform/internal/skills"
@@ -26,6 +27,7 @@ type RuntimeToolExecutor struct {
 	cfg             config.Config
 	sandbox         SandboxClient
 	chats           chat.Store
+	kbase           *kbase.Manager
 	memory          memory.Store
 	models          *models.ModelRegistry
 	skillCandidates skills.CandidateStore
@@ -81,6 +83,13 @@ func (t *RuntimeToolExecutor) WithFileChangeHooks(hooks ...FileChangeHook) *Runt
 func (t *RuntimeToolExecutor) WithModelRegistry(registry *models.ModelRegistry) *RuntimeToolExecutor {
 	if t != nil {
 		t.models = registry
+	}
+	return t
+}
+
+func (t *RuntimeToolExecutor) WithKBase(manager *kbase.Manager) *RuntimeToolExecutor {
+	if t != nil {
+		t.kbase = manager
 	}
 	return t
 }
@@ -159,6 +168,14 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 		return t.invokeMemoryPromote(toolName, args, execCtx)
 	case "memory_consolidate":
 		return t.invokeMemoryConsolidate(toolName, args, execCtx)
+	case "kbase_search":
+		return t.invokeKBaseSearch(ctx, toolName, args, execCtx)
+	case "kbase_read":
+		return t.invokeKBaseRead(toolName, args, execCtx)
+	case "kbase_status":
+		return t.invokeKBaseStatus(toolName, execCtx)
+	case "kbase_refresh":
+		return t.invokeKBaseRefresh(ctx, toolName, args, execCtx)
 	case "_session_search_", "session_search":
 		return t.invokeSessionSearch(toolName, args, execCtx)
 	case "_skill_candidate_write_", "skill_candidate_write":

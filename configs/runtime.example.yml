@@ -12,6 +12,7 @@
 #   automations-dir: ./runtime/automations
 #   chats-dir: ./runtime/chats
 #   memory-dir: ./runtime/memory
+#   kbase-dir: ./runtime/kbase
 #   pan-dir: ./runtime/pan
 #   skills-market-dir: ./runtime/skills-market
 
@@ -69,6 +70,11 @@ memory:
   hybrid-vector-weight: 0.7
   hybrid-fts-weight: 0.3
   dual-write-markdown: true
+
+kbase:
+  refresh:
+    debounce: 2s
+    reconcile-interval: 10m
 
 container-hub:
   base-url: ${AP_CONTAINER_HUB_BASE_URL:http://host.docker.internal:11960}

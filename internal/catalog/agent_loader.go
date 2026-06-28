@@ -228,7 +228,9 @@ func loadAgentPrompts(agentDir string, def *AgentDefinition, root map[string]any
 	}
 
 	def.SoulPrompt = readOptionalMarkdown(filepath.Join(agentDir, "SOUL.md"))
-	def.StaticMemoryPrompt = readOptionalMarkdown(filepath.Join(agentDir, "memory", "memory.md"))
+	if !strings.EqualFold(def.Mode, AgentModeKBase) {
+		def.StaticMemoryPrompt = readOptionalMarkdown(filepath.Join(agentDir, "memory", "memory.md"))
+	}
 
 	topPromptFiles := parsePromptFileField(root["promptFile"])
 
@@ -571,6 +573,7 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		}
 	}
 	def.Project = parseAgentProjectConfig(root["projectConfig"])
+	def.KBaseConfig = parseAgentKBaseConfig(root["kbaseConfig"])
 	if err := validateAgentWorkspace(def.Workspace); err != nil {
 		return AgentDefinition{}, nil, err
 	}
@@ -581,30 +584,38 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	if err := ValidateAgentCoderBackend(def); err != nil {
 		return AgentDefinition{}, nil, err
 	}
+	if err := ValidateAgentKBaseConfig(def); err != nil {
+		return AgentDefinition{}, nil, err
+	}
 	def = applyAgentModeProfileDefaults(def)
+	if strings.EqualFold(def.Mode, AgentModeKBase) {
+		def = enforceKBaseAgentBoundaries(def)
+	}
 
 	if err := validateReservedBashToolNames(def.Tools); err != nil {
 		return AgentDefinition{}, nil, err
 	}
-	if (len(def.Skills) > 0 || runtimeRequiresBash(def.Runtime)) && !containsString(def.Tools, "bash") {
+	if !strings.EqualFold(def.Mode, AgentModeKBase) && (len(def.Skills) > 0 || runtimeRequiresBash(def.Runtime)) && !containsString(def.Tools, "bash") {
 		def.Tools = append(def.Tools, "bash")
 	}
-	memoryConfig, err := parseAgentMemoryConfig(path, root["memoryConfig"])
-	if err != nil {
-		return AgentDefinition{}, nil, err
-	}
-	def.MemoryConfig = memoryConfig
-	def.MemoryEnabled = def.MemoryConfig.Enabled
-	if def.MemoryConfig.Enabled {
-		for _, memTool := range []string{"memory_write", "memory_read", "memory_search"} {
-			if !containsString(def.Tools, memTool) {
-				def.Tools = append(def.Tools, memTool)
-			}
+	if !strings.EqualFold(def.Mode, AgentModeKBase) {
+		memoryConfig, err := parseAgentMemoryConfig(path, root["memoryConfig"])
+		if err != nil {
+			return AgentDefinition{}, nil, err
 		}
-		if def.MemoryConfig.ManagementTools {
-			for _, memTool := range []string{"memory_update", "memory_forget", "memory_timeline", "memory_promote", "memory_consolidate"} {
+		def.MemoryConfig = memoryConfig
+		def.MemoryEnabled = def.MemoryConfig.Enabled
+		if def.MemoryConfig.Enabled {
+			for _, memTool := range []string{"memory_write", "memory_read", "memory_search"} {
 				if !containsString(def.Tools, memTool) {
 					def.Tools = append(def.Tools, memTool)
+				}
+			}
+			if def.MemoryConfig.ManagementTools {
+				for _, memTool := range []string{"memory_update", "memory_forget", "memory_timeline", "memory_promote", "memory_consolidate"} {
+					if !containsString(def.Tools, memTool) {
+						def.Tools = append(def.Tools, memTool)
+					}
 				}
 			}
 		}
@@ -616,7 +627,7 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	if def.Description == "" {
 		def.Description = def.Key
 	}
-	if def.Role == "" && !strings.EqualFold(def.Mode, AgentModeCoder) {
+	if def.Role == "" && !strings.EqualFold(def.Mode, AgentModeCoder) && !strings.EqualFold(def.Mode, AgentModeKBase) {
 		def.Role = def.Name
 	}
 	return def, root, nil
@@ -719,24 +730,134 @@ func parseAgentMemoryConfig(path string, value any) (AgentMemoryConfig, error) {
 	return cfg, nil
 }
 
+func parseAgentKBaseConfig(value any) AgentKBaseConfig {
+	node := mapNode(value)
+	cfg := AgentKBaseConfig{
+		Storage: AgentKBaseStorageConfig{Location: "runtime"},
+		Include: []string{
+			"**/*.md",
+			"**/*.txt",
+		},
+		Exclude: []string{
+			".git/**",
+			".kbase/**",
+			"node_modules/**",
+		},
+		Chunk: AgentKBaseChunkConfig{
+			MaxChars:     4000,
+			OverlapChars: 600,
+		},
+		Retrieval: AgentKBaseRetrievalConfig{
+			TopK:         8,
+			VectorWeight: 0.7,
+			FTSWeight:    0.3,
+		},
+	}
+	if len(node) == 0 {
+		return cfg
+	}
+	embedding := mapNode(node["embedding"])
+	cfg.Embedding = AgentKBaseEmbeddingConfig{
+		ProviderKey: stringNode(embedding["providerKey"]),
+		Model:       stringNode(embedding["model"]),
+		Dimension:   intNode(embedding["dimension"]),
+		Timeout:     intNode(embedding["timeout"]),
+	}
+	storage := mapNode(node["storage"])
+	if location := strings.ToLower(strings.TrimSpace(stringNode(storage["location"]))); location != "" {
+		cfg.Storage.Location = location
+	}
+	if include := listStrings(node["include"]); len(include) > 0 {
+		cfg.Include = include
+	}
+	if exclude := listStrings(node["exclude"]); len(exclude) > 0 {
+		cfg.Exclude = exclude
+	}
+	chunk := mapNode(node["chunk"])
+	if maxChars := intNode(chunk["maxChars"]); maxChars > 0 {
+		cfg.Chunk.MaxChars = maxChars
+	}
+	if maxChars := intNode(chunk["max-chars"]); maxChars > 0 {
+		cfg.Chunk.MaxChars = maxChars
+	}
+	if _, exists := chunk["overlapChars"]; exists {
+		if overlapChars := intNode(chunk["overlapChars"]); overlapChars >= 0 {
+			cfg.Chunk.OverlapChars = overlapChars
+		}
+	}
+	if _, exists := chunk["overlap-chars"]; exists {
+		if overlapChars := intNode(chunk["overlap-chars"]); overlapChars >= 0 {
+			cfg.Chunk.OverlapChars = overlapChars
+		}
+	}
+	if cfg.Chunk.OverlapChars >= cfg.Chunk.MaxChars {
+		cfg.Chunk.OverlapChars = cfg.Chunk.MaxChars / 5
+	}
+	retrieval := mapNode(node["retrieval"])
+	if topK := intNode(retrieval["topK"]); topK > 0 {
+		cfg.Retrieval.TopK = topK
+	}
+	if topK := intNode(retrieval["top-k"]); topK > 0 {
+		cfg.Retrieval.TopK = topK
+	}
+	if weight := floatNode(retrieval["vectorWeight"]); weight > 0 {
+		cfg.Retrieval.VectorWeight = weight
+	}
+	if weight := floatNode(retrieval["vector-weight"]); weight > 0 {
+		cfg.Retrieval.VectorWeight = weight
+	}
+	if weight := floatNode(retrieval["ftsWeight"]); weight > 0 {
+		cfg.Retrieval.FTSWeight = weight
+	}
+	if weight := floatNode(retrieval["fts-weight"]); weight > 0 {
+		cfg.Retrieval.FTSWeight = weight
+	}
+	return cfg
+}
+
 func applyGlobalAgentFlags(def AgentDefinition, globalMemoryEnabled bool) AgentDefinition {
 	if globalMemoryEnabled {
 		return def
 	}
 	def.MemoryEnabled = false
 	def.MemoryConfig.Enabled = false
-	if len(def.Tools) == 0 {
-		return def
-	}
-	filtered := make([]string, 0, len(def.Tools))
-	for _, tool := range def.Tools {
-		if isMemoryTool(tool) {
-			continue
-		}
-		filtered = append(filtered, tool)
-	}
-	def.Tools = filtered
+	def.Tools = filterTools(def.Tools, func(tool string) bool {
+		return !isMemoryTool(tool)
+	})
 	return def
+}
+
+func enforceKBaseAgentBoundaries(def AgentDefinition) AgentDefinition {
+	def.StaticMemoryPrompt = ""
+	def.MemoryEnabled = false
+	def.MemoryConfig = AgentMemoryConfig{}
+	def.Tools = filterTools(def.Tools, isKBaseTool)
+	if len(def.Tools) == 0 {
+		def.Tools = append([]string(nil), kbaseAgentProfile.Tools...)
+	}
+	return def
+}
+
+func filterTools(tools []string, keep func(string) bool) []string {
+	if len(tools) == 0 {
+		return nil
+	}
+	filtered := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		if keep(tool) {
+			filtered = append(filtered, tool)
+		}
+	}
+	return filtered
+}
+
+func isKBaseTool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "kbase_search", "kbase_read", "kbase_status", "kbase_refresh", "datetime":
+		return true
+	default:
+		return false
+	}
 }
 
 func isMemoryTool(name string) bool {

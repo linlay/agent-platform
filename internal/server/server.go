@@ -15,6 +15,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/frontendtools"
+	"agent-platform/internal/kbase"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
 	"agent-platform/internal/skills"
@@ -28,6 +29,7 @@ type Dependencies struct {
 	Archives               *chat.ArchiveStore
 	Archiver               *chat.Archiver
 	Memory                 memory.Store
+	KBase                  *kbase.Manager
 	Registry               catalog.Registry
 	Models                 *models.ModelRegistry
 	Runs                   contracts.RunManager

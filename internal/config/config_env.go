@@ -15,6 +15,7 @@ func (c *Config) applyEnv(options LoadOptions) {
 	c.Paths.RegistriesDir = pathEnv("AP_RUNTIME_REGISTRIES_DIR", c.Paths.RegistriesDir)
 	c.Paths.ChatsDir = pathEnv("AP_RUNTIME_CHATS_DIR", c.Paths.ChatsDir)
 	c.Paths.MemoryDir = pathEnv("AP_RUNTIME_MEMORY_DIR", c.Paths.MemoryDir)
+	c.Paths.KBaseDir = pathEnv("AP_RUNTIME_KBASE_DIR", c.Paths.KBaseDir)
 	c.Paths.PanDir = pathEnv("AP_RUNTIME_PAN_DIR", c.Paths.PanDir)
 
 	c.Providers.ExternalDir = filepath.Clean(filepath.Join(c.Paths.RegistriesDir, "providers"))

@@ -20,6 +20,7 @@ import (
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/frontendtools"
 	"agent-platform/internal/gateway"
+	"agent-platform/internal/kbase"
 	"agent-platform/internal/llm"
 	"agent-platform/internal/lsp"
 	"agent-platform/internal/mcp"
@@ -185,6 +186,8 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	if cfg.Memory.Enabled && sqliteMemoryStore != nil {
 		sqliteMemoryStore.SetRuntimeResolver(memoryRuntimeResolver(cfg, registry, modelRegistry))
 	}
+	kbaseManager := kbase.NewManager(cfg, registry, modelRegistry)
+	backendTools.WithKBase(kbaseManager)
 
 	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, frontendRegistry, sandboxClient)
 	wsHub := ws.NewHub()
@@ -207,6 +210,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		}
 	}()
 	reload.StartBackgroundReloaders(backgroundCtx, cfg, reloader)
+	kbaseManager.Start(backgroundCtx)
 	mcp.NewReconnectLoop(mcpRegistry, mcpToolSync, mcpGate, 10*time.Second).Start(backgroundCtx)
 	log.Printf("background file watchers started (agents=%s teams=%s skills=%s)",
 		cfg.Paths.AgentsDir,
@@ -260,6 +264,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Archives:      archiveStore,
 		Archiver:      archiver,
 		Memory:        memoryStore,
+		KBase:         kbaseManager,
 		Registry:      registry,
 		Models:        modelRegistry,
 		Runs:          runManager,

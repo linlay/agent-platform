@@ -1,0 +1,18 @@
+name: kbase_search
+label: 搜索知识库
+description: Search the current KBASE agent knowledge base. Results include source paths, line ranges, snippets, scores, and match type.
+submitResultFormat: json-compact
+type: function
+clientVisible: false
+inputSchema:
+  type: object
+  properties:
+    query:
+      type: string
+      description: Required. Search query.
+    limit:
+      type: integer
+      description: Maximum number of chunks to return. Defaults to the agent retrieval topK.
+  required:
+    - query
+  additionalProperties: false

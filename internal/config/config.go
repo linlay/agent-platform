@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -16,6 +17,7 @@ type Config struct {
 	CoderPrompts    CoderPromptsConfig
 	MemoryPrompts   MemoryPromptsConfig
 	CoderSettings   CoderSettingsConfig
+	KBase           KBaseConfig
 	VisionRecognize VisionRecognizeConfig
 	WebFetch        WebFetchConfig
 	ImageGenerate   ImageGenerateConfig
@@ -64,6 +66,7 @@ type PathsConfig struct {
 	AutomationsDir  string
 	ChatsDir        string
 	MemoryDir       string
+	KBaseDir        string
 	PanDir          string
 	SkillsMarketDir string
 }
@@ -138,6 +141,15 @@ type CoderACPProxyConfig struct {
 	BaseURL   string
 	AuthToken string
 	Timeout   int // seconds
+}
+
+type KBaseConfig struct {
+	Refresh KBaseRefreshConfig
+}
+
+type KBaseRefreshConfig struct {
+	Debounce          time.Duration
+	ReconcileInterval time.Duration
 }
 
 type VisionRecognizeConfig struct {

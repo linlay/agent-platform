@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func defaultConfig(options LoadOptions) Config {
@@ -23,6 +24,7 @@ func defaultConfig(options LoadOptions) Config {
 		AutomationsDir:  filepath.Join(runtimeRoot, "automations"),
 		ChatsDir:        filepath.Join(runtimeRoot, "chats"),
 		MemoryDir:       filepath.Join(runtimeRoot, "memory"),
+		KBaseDir:        filepath.Join(runtimeRoot, "kbase"),
 		PanDir:          filepath.Join(runtimeRoot, "pan"),
 		SkillsMarketDir: filepath.Join(runtimeRoot, "skills-market"),
 	}
@@ -49,6 +51,12 @@ func defaultConfig(options LoadOptions) Config {
 		},
 		CoderSettings: CoderSettingsConfig{
 			ACPProxies: map[string]CoderACPProxyConfig{},
+		},
+		KBase: KBaseConfig{
+			Refresh: KBaseRefreshConfig{
+				Debounce:          2 * time.Second,
+				ReconcileInterval: 10 * time.Minute,
+			},
 		},
 		Providers: CatalogConfig{ExternalDir: filepath.Join(paths.RegistriesDir, "providers")},
 		Models:    CatalogConfig{ExternalDir: filepath.Join(paths.RegistriesDir, "models")},
@@ -245,6 +253,7 @@ func (c *Config) normalize(configRoot string) error {
 	c.Paths.AutomationsDir = filepath.Clean(c.Paths.AutomationsDir)
 	c.Paths.ChatsDir = filepath.Clean(c.Paths.ChatsDir)
 	c.Paths.MemoryDir = filepath.Clean(c.Paths.MemoryDir)
+	c.Paths.KBaseDir = filepath.Clean(c.Paths.KBaseDir)
 	c.Paths.PanDir = filepath.Clean(c.Paths.PanDir)
 	c.Paths.SkillsMarketDir = filepath.Clean(c.Paths.SkillsMarketDir)
 

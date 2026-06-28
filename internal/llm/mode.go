@@ -20,6 +20,8 @@ func resolveAgentMode(mode string) AgentMode {
 		return planPipelineMode{}
 	case "CODER":
 		return coderMode{}
+	case "KBASE":
+		return kbaseMode{}
 	case "REACT":
 		fallthrough
 	default:
@@ -41,6 +43,14 @@ func (coderMode) Start(engine *LLMAgentEngine, ctx context.Context, req api.Quer
 	}
 	return engine.newRunStreamWithOptions(ctx, req, session, true, runStreamOptions{
 		Stage: "coder",
+	})
+}
+
+type kbaseMode struct{}
+
+func (kbaseMode) Start(engine *LLMAgentEngine, ctx context.Context, req api.QueryRequest, session QuerySession) (AgentStream, error) {
+	return engine.newRunStreamWithOptions(ctx, req, session, true, runStreamOptions{
+		Stage: "kbase",
 	})
 }
 

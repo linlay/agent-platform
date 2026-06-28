@@ -220,6 +220,23 @@ curl -sS -X POST http://127.0.0.1:11949/api/query \
 
 HITL 三态细节见 [HITL协议](HITL协议.md)。真流式、heartbeat、attach backlog 与 H2A 缓冲见 [真流式和H2A](真流式和H2A.md)。
 
+### KBASE
+
+KBASE API 只接受 `mode: KBASE` agent；非 KBASE agent 会返回 forbidden/unsupported。手工 refresh 与运行时工具 `kbase_refresh` 调用同一个后端入口。
+
+| Method | Path | 参数 | 响应 |
+|---|---|---|---|
+| GET | `/api/kbase/{agentKey}/status` | 无 | 当前索引状态，包含 `indexing`、`stale`、`lastIndexedAt`、文件数、chunk 数、embedding 与 storage |
+| POST | `/api/kbase/{agentKey}/refresh` | body: `force` 可选 | refresh 结果，包含扫描文件数、变更文件数、删除文件数、索引 chunk 数与错误信息 |
+
+refresh 示例：
+
+```bash
+curl -sS -X POST http://127.0.0.1:11949/api/kbase/docs_kbase/refresh \
+  -H "Content-Type: application/json" \
+  -d '{"force":false}'
+```
+
 ### Memory
 
 | Method | Path | 参数 | 响应 |

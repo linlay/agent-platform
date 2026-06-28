@@ -676,6 +676,133 @@ func TestParseAgentFileAllowsCoderWithoutWorkspace(t *testing.T) {
 	}
 }
 
+func TestParseAgentFileKBaseDefaultsAndConfig(t *testing.T) {
+	workspace := t.TempDir()
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: docs\n" +
+		"mode: KBASE\n" +
+		"runtimeConfig:\n" +
+		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
+		"kbaseConfig:\n" +
+		"  embedding:\n" +
+		"    providerKey: openai\n" +
+		"  storage:\n" +
+		"    location: workspace\n" +
+		"  include:\n" +
+		"    - \"**/*.md\"\n" +
+		"  chunk:\n" +
+		"    maxChars: 2000\n" +
+		"    overlapChars: 100\n" +
+		"  retrieval:\n" +
+		"    topK: 3\n" +
+		"memoryConfig:\n" +
+		"  enabled: true\n" +
+		"  managementTools: true\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if def.Mode != AgentModeKBase {
+		t.Fatalf("mode = %q, want KBASE", def.Mode)
+	}
+	for _, tool := range []string{"kbase_search", "kbase_read", "kbase_status", "kbase_refresh", "datetime"} {
+		if !containsString(def.Tools, tool) {
+			t.Fatalf("expected KBASE default tools to include %s, got %#v", tool, def.Tools)
+		}
+	}
+	for _, tool := range []string{"bash", "file_read", "memory_search"} {
+		if containsString(def.Tools, tool) {
+			t.Fatalf("expected KBASE default tools not to include %s, got %#v", tool, def.Tools)
+		}
+	}
+	if def.MemoryEnabled || def.MemoryConfig.Enabled {
+		t.Fatalf("expected KBASE to ignore memoryConfig, got %#v", def.MemoryConfig)
+	}
+	if def.KBaseConfig.Embedding.ProviderKey != "openai" || def.KBaseConfig.Storage.Location != "workspace" {
+		t.Fatalf("unexpected kbase config: %#v", def.KBaseConfig)
+	}
+	if def.KBaseConfig.Chunk.MaxChars != 2000 || def.KBaseConfig.Chunk.OverlapChars != 100 {
+		t.Fatalf("unexpected chunk config: %#v", def.KBaseConfig.Chunk)
+	}
+	if def.KBaseConfig.Retrieval.TopK != 3 {
+		t.Fatalf("unexpected retrieval config: %#v", def.KBaseConfig.Retrieval)
+	}
+}
+
+func TestParseAgentFileKBaseFiltersToolsAndStaticMemory(t *testing.T) {
+	workspace := t.TempDir()
+	agentDir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(agentDir, "memory"), 0o755); err != nil {
+		t.Fatalf("make memory dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "memory", "memory.md"), []byte("static memory"), 0o644); err != nil {
+		t.Fatalf("write memory prompt: %v", err)
+	}
+	path := filepath.Join(agentDir, "agent.yml")
+	content := "" +
+		"key: docs\n" +
+		"mode: KBASE\n" +
+		"runtimeConfig:\n" +
+		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
+		"toolConfig:\n" +
+		"  tools:\n" +
+		"    - kbase_search\n" +
+		"    - memory_search\n" +
+		"    - bash\n" +
+		"    - datetime\n" +
+		"kbaseConfig:\n" +
+		"  embedding:\n" +
+		"    providerKey: openai\n" +
+		"memoryConfig:\n" +
+		"  enabled: true\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFileWithPrompts(path, agentDir)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if got, want := strings.Join(def.Tools, ","), "kbase_search,datetime"; got != want {
+		t.Fatalf("unexpected KBASE filtered tools: got %q want %q", got, want)
+	}
+	if def.MemoryEnabled || def.MemoryConfig.Enabled || def.StaticMemoryPrompt != "" {
+		t.Fatalf("expected KBASE memory to be ignored, enabled=%v config=%#v static=%q", def.MemoryEnabled, def.MemoryConfig, def.StaticMemoryPrompt)
+	}
+}
+
+func TestParseAgentFileRejectsKBaseWithoutWorkspace(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	if err := os.WriteFile(path, []byte("key: docs\nmode: KBASE\n"), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	_, err := parseAgentFile(path)
+	if err == nil || !strings.Contains(err.Error(), "workspaceRoot is required") {
+		t.Fatalf("expected KBASE workspace error, got %v", err)
+	}
+}
+
+func TestParseAgentFileRejectsKBaseChatWorkspace(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	if err := os.WriteFile(path, []byte("key: docs\nmode: KBASE\nruntimeConfig:\n  workspaceRoot: @chat\n"), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	_, err := parseAgentFile(path)
+	if err == nil || !strings.Contains(err.Error(), "not \"@chat\"") {
+		t.Fatalf("expected KBASE @chat workspace rejection, got %v", err)
+	}
+}
+
 func TestParseAgentFileRejectsCoderRelativeWorkspace(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")

@@ -21,6 +21,7 @@ type ProviderDefinition struct {
 	DefaultModel string
 	EndpointPath string
 	Protocols    map[string]ProtocolDefinition
+	Embedding    ProviderEmbeddingConfig
 	Memory       ProviderMemoryConfig
 }
 
@@ -35,6 +36,12 @@ type ProviderMemoryConfig struct {
 }
 
 type ProviderMemoryEmbeddingConfig struct {
+	Model     string
+	Dimension int
+	Timeout   int
+}
+
+type ProviderEmbeddingConfig struct {
 	Model     string
 	Dimension int
 	Timeout   int
@@ -318,6 +325,7 @@ func loadProviders(dir string) (map[string]ProviderDefinition, error) {
 		if err != nil {
 			return nil, fmt.Errorf("load provider %s: %w", entry.Name(), err)
 		}
+		embeddingConfig := loadProviderEmbedding(values)
 		result[key] = ProviderDefinition{
 			Key:          key,
 			BaseURL:      baseURL,
@@ -325,10 +333,23 @@ func loadProviders(dir string) (map[string]ProviderDefinition, error) {
 			DefaultModel: strings.TrimSpace(stringNode(values["defaultModel"])),
 			EndpointPath: resolveProviderEndpointPath(values, baseURL, "OPENAI"),
 			Protocols:    protocols,
+			Embedding:    embeddingConfig,
 			Memory:       memoryConfig,
 		}
 	}
 	return result, nil
+}
+
+func loadProviderEmbedding(values map[string]any) ProviderEmbeddingConfig {
+	embedding := nestedMap(values, "embedding")
+	if embedding == nil {
+		return ProviderEmbeddingConfig{}
+	}
+	return ProviderEmbeddingConfig{
+		Model:     strings.TrimSpace(stringNode(embedding["model"])),
+		Dimension: intNode(embedding["dimension"]),
+		Timeout:   intNode(embedding["timeout"]),
+	}
 }
 
 func loadProviderMemory(values map[string]any) (ProviderMemoryConfig, error) {

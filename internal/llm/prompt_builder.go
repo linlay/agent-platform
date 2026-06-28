@@ -68,6 +68,7 @@ func buildSystemPromptSections(session QuerySession, req api.QueryRequest, optio
 
 	appendSection("agent-identity", "Agent Identity", "agent.identity", buildAgentIdentitySection(session))
 	appendSection("coder-system", "Coder System Prompt", "coder.system", buildCoderSystemPromptSection(session, req, toolNamesFromDefinitions(options.ToolDefinitions, session.ToolNames), options.Stage))
+	appendSection("kbase-system", "KBASE System Prompt", "kbase.system", buildKBaseSystemPromptSection(session, options.Stage))
 	appendSection("agent-soul", "Soul Prompt", "agent.soul", strings.TrimSpace(session.SoulPrompt))
 	appendSection("agent-prompt", "Agent Prompt", "agent.prompt", strings.TrimSpace(session.AgentsPrompt))
 	appendSection("workspace-agents", "Workspace AGENTS.md", "workspace.agents", buildWorkspaceAgentsSection(session.WorkspaceAgentsPrompt))
@@ -83,6 +84,24 @@ func buildSystemPromptSections(session QuerySession, req api.QueryRequest, optio
 	appendSection("tool-appendix", "Tool Appendix", "tools.appendix", buildToolAppendix(options.ToolDefinitions, appendConfig, options.IncludeAfterCallHints))
 
 	return sections
+}
+
+func buildKBaseSystemPromptSection(session QuerySession, stage string) string {
+	if !strings.EqualFold(strings.TrimSpace(session.Mode), "KBASE") {
+		return ""
+	}
+	if !strings.EqualFold(strings.TrimSpace(stage), "kbase") {
+		return ""
+	}
+	return strings.TrimSpace(`KBASE Mode
+You answer using the workspace knowledge base for this agent.
+
+Rules:
+- Search the knowledge base with kbase_search before answering factual questions about the indexed workspace.
+- Base answers on retrieved evidence. If the available evidence is insufficient, say that the knowledge base does not contain enough information.
+- Cite source paths and line ranges from kbase_search or kbase_read when giving concrete claims.
+- Use kbase_read when a search result needs more surrounding context.
+- Do not claim that unindexed or missing files were searched.`)
 }
 
 func appendRuntimeSystemPromptSections(sections *[]systemPromptSection, session QuerySession, req api.QueryRequest) {

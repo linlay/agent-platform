@@ -1,0 +1,10 @@
+name: kbase_status
+label: 知识库状态
+description: Inspect current KBASE index status, including indexing/stale state, file and chunk counts, storage location, and embedding configuration.
+submitResultFormat: json-compact
+type: function
+clientVisible: false
+inputSchema:
+  type: object
+  properties: {}
+  additionalProperties: false

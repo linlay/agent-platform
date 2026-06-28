@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 func (c *Config) applyStructuredConfig(configRoot string) error {
@@ -61,6 +62,7 @@ func (c *Config) applyPathsValues(values map[string]any) {
 	c.Paths.AutomationsDir = stringValue(anyValue(values["automations-dir"], c.Paths.AutomationsDir), c.Paths.AutomationsDir)
 	c.Paths.ChatsDir = stringValue(anyValue(values["chats-dir"], c.Paths.ChatsDir), c.Paths.ChatsDir)
 	c.Paths.MemoryDir = stringValue(anyValue(values["memory-dir"], c.Paths.MemoryDir), c.Paths.MemoryDir)
+	c.Paths.KBaseDir = stringValue(anyValue(values["kbase-dir"], c.Paths.KBaseDir), c.Paths.KBaseDir)
 	c.Paths.PanDir = stringValue(anyValue(values["pan-dir"], c.Paths.PanDir), c.Paths.PanDir)
 	c.Paths.SkillsMarketDir = stringValue(anyValue(values["skills-market-dir"], c.Paths.SkillsMarketDir), c.Paths.SkillsMarketDir)
 }
@@ -112,6 +114,15 @@ func (c *Config) applyMemoryValues(values map[string]any) {
 	c.Memory.DualWriteMarkdown = boolValue(anyValue(values["dual-write-markdown"], c.Memory.DualWriteMarkdown), c.Memory.DualWriteMarkdown)
 }
 
+func (c *Config) applyKBaseValues(values map[string]any) {
+	refresh, _ := values["refresh"].(map[string]any)
+	if len(refresh) == 0 {
+		return
+	}
+	c.KBase.Refresh.Debounce = durationValue(anyValue(refresh["debounce"], c.KBase.Refresh.Debounce), c.KBase.Refresh.Debounce)
+	c.KBase.Refresh.ReconcileInterval = durationValue(anyValue(refresh["reconcile-interval"], c.KBase.Refresh.ReconcileInterval), c.KBase.Refresh.ReconcileInterval)
+}
+
 func (c *Config) applyRuntimeFile(path string) error {
 	values, err := loadYAMLMap(path)
 	if err != nil {
@@ -155,10 +166,46 @@ func (c *Config) applyRuntimeFile(path string) error {
 	if memory, ok := values["memory"].(map[string]any); ok && len(memory) > 0 {
 		c.applyMemoryValues(memory)
 	}
+	if kbase, ok := values["kbase"].(map[string]any); ok && len(kbase) > 0 {
+		c.applyKBaseValues(kbase)
+	}
 	if budget, ok := values["budget"].(map[string]any); ok && len(budget) > 0 {
 		c.applyRuntimeBudgetValues(budget)
 	}
 	return nil
+}
+
+func durationValue(value any, fallback time.Duration) time.Duration {
+	switch v := value.(type) {
+	case time.Duration:
+		if v > 0 {
+			return v
+		}
+	case int:
+		if v > 0 {
+			return time.Duration(v) * time.Second
+		}
+	case int64:
+		if v > 0 {
+			return time.Duration(v) * time.Second
+		}
+	case float64:
+		if v > 0 {
+			return time.Duration(v) * time.Second
+		}
+	case string:
+		text := strings.TrimSpace(v)
+		if text == "" {
+			return fallback
+		}
+		if parsed, err := time.ParseDuration(text); err == nil && parsed > 0 {
+			return parsed
+		}
+		if seconds := parseInt(text, 0); seconds > 0 {
+			return time.Duration(seconds) * time.Second
+		}
+	}
+	return fallback
 }
 
 func (c *Config) applyBillingValues(values map[string]any) {

@@ -35,6 +35,12 @@ func TestLoadDefaults(t *testing.T) {
 			if cfg.Paths.ToolsDir != filepath.Join("runtime", "tools") {
 				t.Fatalf("unexpected tools dir: %q", cfg.Paths.ToolsDir)
 			}
+			if cfg.Paths.KBaseDir != filepath.Join("runtime", "kbase") {
+				t.Fatalf("unexpected kbase dir: %q", cfg.Paths.KBaseDir)
+			}
+			if cfg.KBase.Refresh.Debounce.String() != "2s" || cfg.KBase.Refresh.ReconcileInterval.String() != "10m0s" {
+				t.Fatalf("unexpected kbase refresh defaults: %#v", cfg.KBase.Refresh)
+			}
 			if !cfg.Auth.Enabled {
 				t.Fatalf("expected auth enabled by default")
 			}
@@ -191,6 +197,7 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 		"AP_RUNTIME_REGISTRIES_DIR":      true,
 		"AP_RUNTIME_CHATS_DIR":           true,
 		"AP_RUNTIME_MEMORY_DIR":          true,
+		"AP_RUNTIME_KBASE_DIR":           true,
 		"AP_RUNTIME_PAN_DIR":             true,
 		"AP_CONTAINER_HUB_BASE_URL":      true,
 		"AP_CHAT_RESOURCE_TICKET_SECRET": true,
@@ -1247,6 +1254,7 @@ func TestLoadCustomStorageDirs(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"AP_RUNTIME_CHATS_DIR":  filepath.Join("var", "custom-chats"),
 		"AP_RUNTIME_MEMORY_DIR": filepath.Join("var", "custom-memory"),
+		"AP_RUNTIME_KBASE_DIR":  filepath.Join("var", "custom-kbase"),
 	}, func() {
 		cfg, err := Load()
 		if err != nil {
@@ -1257,6 +1265,9 @@ func TestLoadCustomStorageDirs(t *testing.T) {
 		}
 		if cfg.Paths.MemoryDir != filepath.Join("var", "custom-memory") {
 			t.Fatalf("unexpected memory dir: %q", cfg.Paths.MemoryDir)
+		}
+		if cfg.Paths.KBaseDir != filepath.Join("var", "custom-kbase") {
+			t.Fatalf("unexpected kbase dir: %q", cfg.Paths.KBaseDir)
 		}
 		if cfg.Logging.LLMInteraction.RecordDir != filepath.Join("var", "custom-chats") {
 			t.Fatalf("unexpected llm chat record dir: %q", cfg.Logging.LLMInteraction.RecordDir)
@@ -1288,6 +1299,9 @@ func TestLoadRuntimeDirDerivesRuntimePaths(t *testing.T) {
 		if cfg.Paths.MemoryDir != filepath.Join(runtimeRoot, "memory") {
 			t.Fatalf("unexpected memory dir: %q", cfg.Paths.MemoryDir)
 		}
+		if cfg.Paths.KBaseDir != filepath.Join(runtimeRoot, "kbase") {
+			t.Fatalf("unexpected kbase dir: %q", cfg.Paths.KBaseDir)
+		}
 		if cfg.Paths.PanDir != filepath.Join(runtimeRoot, "pan") {
 			t.Fatalf("unexpected pan dir: %q", cfg.Paths.PanDir)
 		}
@@ -1318,8 +1332,13 @@ func TestLoadRuntimePathsFromYAML(t *testing.T) {
 		"  automations-dir: var/yaml-automations\n" +
 		"  chats-dir: var/yaml-chats\n" +
 		"  memory-dir: var/yaml-memory\n" +
+		"  kbase-dir: var/yaml-kbase\n" +
 		"  pan-dir: var/yaml-pan\n" +
-		"  skills-market-dir: var/yaml-skills-market\n"
+		"  skills-market-dir: var/yaml-skills-market\n" +
+		"kbase:\n" +
+		"  refresh:\n" +
+		"    debounce: 3s\n" +
+		"    reconcile-interval: 11m\n"
 	withIsolatedEnv(t, nil, func() {
 		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &runtimeConfig, func() {
 			cfg, err := Load()
@@ -1353,6 +1372,9 @@ func TestLoadRuntimePathsFromYAML(t *testing.T) {
 			if cfg.Paths.MemoryDir != filepath.Join("var", "yaml-memory") {
 				t.Fatalf("unexpected memory dir: %q", cfg.Paths.MemoryDir)
 			}
+			if cfg.Paths.KBaseDir != filepath.Join("var", "yaml-kbase") {
+				t.Fatalf("unexpected kbase dir: %q", cfg.Paths.KBaseDir)
+			}
 			if cfg.Paths.PanDir != filepath.Join("var", "yaml-pan") {
 				t.Fatalf("unexpected pan dir: %q", cfg.Paths.PanDir)
 			}
@@ -1367,6 +1389,9 @@ func TestLoadRuntimePathsFromYAML(t *testing.T) {
 			}
 			if cfg.Memory.StorageDir != filepath.Join("var", "yaml-memory") {
 				t.Fatalf("unexpected memory storage dir: %q", cfg.Memory.StorageDir)
+			}
+			if cfg.KBase.Refresh.Debounce.String() != "3s" || cfg.KBase.Refresh.ReconcileInterval.String() != "11m0s" {
+				t.Fatalf("unexpected kbase refresh config: %#v", cfg.KBase.Refresh)
 			}
 		})
 	})
@@ -1392,6 +1417,9 @@ func TestLoadIgnoresRemovedRuntimeDirectoryEnvs(t *testing.T) {
 		}
 		if cfg.Paths.MemoryDir != filepath.Join("runtime", "memory") {
 			t.Fatalf("unexpected memory dir: %q", cfg.Paths.MemoryDir)
+		}
+		if cfg.Paths.KBaseDir != filepath.Join("runtime", "kbase") {
+			t.Fatalf("unexpected kbase dir: %q", cfg.Paths.KBaseDir)
 		}
 		if cfg.Paths.PanDir != filepath.Join("runtime", "pan") {
 			t.Fatalf("unexpected pan dir: %q", cfg.Paths.PanDir)
@@ -1450,6 +1478,7 @@ func TestLoadRuntimeDirAllowsCommonDirectoryOverrides(t *testing.T) {
 		"AP_RUNTIME_REGISTRIES_DIR": filepath.Join("var", "custom-registries"),
 		"AP_RUNTIME_CHATS_DIR":      filepath.Join("var", "custom-chats"),
 		"AP_RUNTIME_MEMORY_DIR":     filepath.Join("var", "custom-memory"),
+		"AP_RUNTIME_KBASE_DIR":      filepath.Join("var", "custom-kbase"),
 		"AP_RUNTIME_PAN_DIR":        panDir,
 	}, func() {
 		cfg, err := Load()
@@ -1464,6 +1493,9 @@ func TestLoadRuntimeDirAllowsCommonDirectoryOverrides(t *testing.T) {
 		}
 		if cfg.Paths.MemoryDir != filepath.Join("var", "custom-memory") {
 			t.Fatalf("unexpected memory dir: %q", cfg.Paths.MemoryDir)
+		}
+		if cfg.Paths.KBaseDir != filepath.Join("var", "custom-kbase") {
+			t.Fatalf("unexpected kbase dir: %q", cfg.Paths.KBaseDir)
 		}
 		if cfg.Logging.Memory.File != filepath.Join("var", "custom-memory", "memory.log") {
 			t.Fatalf("unexpected memory log file: %q", cfg.Logging.Memory.File)
@@ -2439,6 +2471,7 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"AUTOMATIONS_DIR",
 		"AP_RUNTIME_CHATS_DIR",
 		"AP_RUNTIME_MEMORY_DIR",
+		"AP_RUNTIME_KBASE_DIR",
 		"AP_RUNTIME_PAN_DIR",
 		"SKILLS_MARKET_DIR",
 		"TOOLS_DIR",
