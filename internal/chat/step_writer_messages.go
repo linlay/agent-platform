@@ -299,18 +299,6 @@ func stringVal(v any) string {
 	return strings.TrimSpace(s)
 }
 
-func toInt(v any) int {
-	switch n := v.(type) {
-	case int:
-		return n
-	case int64:
-		return int(n)
-	case float64:
-		return int(n)
-	}
-	return 0
-}
-
 // toMapSlice converts an any value to []map[string]any.
 // Handles both []any (from JSON unmarshal) and []map[string]any (from Go engine).
 

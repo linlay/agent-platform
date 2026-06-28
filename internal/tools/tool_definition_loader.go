@@ -156,12 +156,3 @@ func fallbackToolString(value string, fallback string) string {
 	}
 	return strings.TrimSpace(fallback)
 }
-
-func firstNonEmptyStringNode(values ...any) string {
-	for _, value := range values {
-		if text := AnyStringNode(value); text != "" {
-			return text
-		}
-	}
-	return ""
-}

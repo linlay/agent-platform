@@ -441,10 +441,6 @@ func writeAllowedBySessionHostAccess(execCtx *ExecutionContext, path string) boo
 	return filetools.PathInSessionHostWriteRoot(execCtx.Session, path)
 }
 
-func accessPolicySession(execCtx *ExecutionContext) QuerySession {
-	return accessPolicySessionWithFallback(execCtx, "")
-}
-
 func accessPolicySessionWithFallback(execCtx *ExecutionContext, fallbackWorkspace string) QuerySession {
 	fallbackWorkspace = strings.TrimSpace(fallbackWorkspace)
 	if execCtx == nil {
@@ -878,25 +874,6 @@ func readLineRangeLimited(file *os.File, startLine int, limit int, maxBytes int)
 	}
 }
 
-func selectLineRange(data []byte, startLine int, limit int) []byte {
-	if startLine <= 1 && limit <= 0 {
-		return data
-	}
-	lines := bytes.SplitAfter(data, []byte("\n"))
-	if startLine < 1 {
-		startLine = 1
-	}
-	start := startLine - 1
-	if start >= len(lines) {
-		return nil
-	}
-	end := len(lines)
-	if limit > 0 && start+limit < end {
-		end = start + limit
-	}
-	return bytes.Join(lines[start:end], nil)
-}
-
 func atomicWriteFile(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".write-*")
@@ -941,9 +918,4 @@ func fileSHA256(path string) string {
 		return ""
 	}
 	return hex.EncodeToString(hash.Sum(nil))
-}
-
-func sha256BytesHex(data []byte) string {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
 }

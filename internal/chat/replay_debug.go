@@ -50,32 +50,6 @@ func synthesizedUsageSnapshotContextWindow(contextWindow map[string]any) map[str
 	return cw
 }
 
-func synthesizeUsageSnapshotEvent(runID, chatID string, taskID string, usage map[string]any, runCumulative, chatCumulative map[string]int, contextWindow map[string]any, ts int64, nextSeq func() int64) *stream.EventData {
-	if !hasProviderUsagePayload(usage) {
-		return nil
-	}
-	currentUsage := usagePayloadFromMap(usage, false)
-	payload := map[string]any{
-		"runId":  runID,
-		"chatId": chatID,
-		"usage": map[string]any{
-			"current": currentUsage,
-		},
-	}
-	if cw := synthesizedUsageSnapshotContextWindow(contextWindow); len(cw) > 0 {
-		payload["contextWindow"] = cw
-	}
-	if strings.TrimSpace(taskID) != "" {
-		payload["taskId"] = taskID
-	}
-	return &stream.EventData{
-		Seq:       nextSeq(),
-		Type:      "usage.snapshot",
-		Timestamp: ts,
-		Payload:   payload,
-	}
-}
-
 func usagePayloadFromSnapshotEvent(event stream.EventData, usage map[string]any, includeLLMChatCompletionCount bool) map[string]any {
 	out := usagePayloadFromMap(usage, includeLLMChatCompletionCount)
 	if _, ok := out["modelKey"]; !ok {

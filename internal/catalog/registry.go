@@ -572,23 +572,6 @@ func dedupeToolDefinitions(src []api.ToolDetailResponse) []api.ToolDetailRespons
 	return out
 }
 
-func matchesAgentTag(agent api.AgentSummary, needle string) bool {
-	if strings.Contains(strings.ToLower(agent.Key), needle) || strings.Contains(strings.ToLower(agent.Name), needle) || strings.Contains(strings.ToLower(agent.Description), needle) || strings.Contains(strings.ToLower(agent.Role), needle) {
-		return true
-	}
-	for _, key := range listStrings(agent.Meta["tools"]) {
-		if strings.Contains(strings.ToLower(key), needle) {
-			return true
-		}
-	}
-	for _, key := range listStrings(agent.Meta["skills"]) {
-		if strings.Contains(strings.ToLower(key), needle) {
-			return true
-		}
-	}
-	return false
-}
-
 func stringNode(value any) string {
 	switch v := value.(type) {
 	case string:
@@ -663,15 +646,6 @@ func containsString(values []string, needle string) bool {
 		}
 	}
 	return false
-}
-
-func firstStringNode(root map[string]any, keys ...string) string {
-	for _, key := range keys {
-		if text := stringNode(root[key]); text != "" {
-			return text
-		}
-	}
-	return ""
 }
 
 func defaultString(value string, fallback string) string {

@@ -330,21 +330,6 @@ func floatValue(value any) float64 {
 	}
 }
 
-func applyTerminalEventUsage(target *chat.UsageData, event stream.EventData) {
-	if target == nil {
-		return
-	}
-	usage, ok := event.Payload["usage"].(map[string]any)
-	if !ok {
-		return
-	}
-	if run, ok := usage["run"].(map[string]any); ok {
-		applyUsageMapToData(target, run)
-		return
-	}
-	applyUsageMapToData(target, usage)
-}
-
 func usageDetailInt(usage map[string]any, detailKey string, valueKey string) int {
 	details, _ := usage[detailKey].(map[string]any)
 	return contracts.AnyIntNode(details[valueKey])

@@ -26,10 +26,6 @@ func (s *Server) handleModelOptions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, api.Success(response))
 }
 
-func (s *Server) buildModelOptions() api.CoderModelOptionsResponse {
-	return s.buildModelOptionsForAgent("")
-}
-
 func (s *Server) buildModelOptionsForAgent(agentKey string) api.CoderModelOptionsResponse {
 	modelOptions := s.listModelOptionsForAgent(agentKey)
 	defaultModelKey := s.defaultModelOptionKeyForAgent(modelOptions, agentKey)
@@ -46,10 +42,6 @@ func (s *Server) buildModelOptionsForAgent(agentKey string) api.CoderModelOption
 		DefaultReasoningEffort: "MEDIUM",
 		DefaultServiceTier:     defaultServiceTier,
 	}
-}
-
-func (s *Server) listModelOptions() []api.CoderModelOption {
-	return s.listModelOptionsForAgent("")
 }
 
 func (s *Server) listModelOptionsForAgent(agentKey string) []api.CoderModelOption {
@@ -137,10 +129,6 @@ func (s *Server) shouldShowModelOption(model models.ModelDefinition) bool {
 		return false
 	}
 	return strings.TrimSpace(provider.APIKey) != ""
-}
-
-func (s *Server) defaultModelOptionKey(options []api.CoderModelOption) string {
-	return s.defaultModelOptionKeyForAgent(options, "")
 }
 
 func (s *Server) defaultModelOptionKeyForAgent(options []api.CoderModelOption, agentKey string) string {

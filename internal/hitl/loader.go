@@ -299,15 +299,6 @@ func parseFlowStringList(value string) []string {
 	return out
 }
 
-func firstString(root map[string]any, keys ...string) string {
-	for _, key := range keys {
-		if text := strings.TrimSpace(stringValue(root[key])); text != "" {
-			return text
-		}
-	}
-	return ""
-}
-
 func stringValue(value any) string {
 	if text, ok := value.(string); ok {
 		return strings.TrimSpace(text)

@@ -374,11 +374,6 @@ func usageCompatInt(raw map[string]any, protocolConfig protocolRuntimeConfig, de
 	return intAtPath(raw, path)
 }
 
-func usageCompatDerive(protocolConfig protocolRuntimeConfig, detailKey string, valueKey string) string {
-	rule := usageCompatRule(protocolConfig, detailKey, valueKey)
-	return strings.TrimSpace(AnyStringNode(rule["derive"]))
-}
-
 func usageCompatRule(protocolConfig protocolRuntimeConfig, detailKey string, valueKey string) map[string]any {
 	usageCompat := responseUsageCompat(protocolConfig)
 	details := AnyMapNode(usageCompat[detailKey])

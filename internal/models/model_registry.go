@@ -366,10 +366,6 @@ func resolveProviderEndpointPath(values map[string]any, baseURL string, protocol
 	return defaultEndpointPath(normalizedProtocol, baseURL)
 }
 
-func hasProtocolConfig(values map[string]any, protocol string) bool {
-	return nestedMap(values, "protocols", protocol) != nil
-}
-
 func nestedMap(values map[string]any, keys ...string) map[string]any {
 	current := values
 	for _, key := range keys {

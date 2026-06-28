@@ -68,10 +68,6 @@ func latestChatUsageFromEvents(events []stream.EventData) *api.ChatUsageData {
 	return latestUsageFromEvents(events, "chat")
 }
 
-func latestRunUsageFromEvents(events []stream.EventData) *api.ChatUsageData {
-	return latestUsageFromEvents(events, "run")
-}
-
 func latestUsageFromEvents(events []stream.EventData, key string) *api.ChatUsageData {
 	var latest *api.ChatUsageData
 	for _, event := range events {
@@ -157,11 +153,6 @@ func replayChatCostShouldSupplement(replay chat.UsageData, summary *chat.UsageDa
 	return replay.TotalTokens >= summary.TotalTokens
 }
 
-func latestRunUsageFromSummaries(runs []chat.RunSummary) *api.ChatUsageData {
-	usage, _ := latestRunUsageWithModelFromSummaries(runs)
-	return usage
-}
-
 func latestRunUsageWithModelFromSummaries(runs []chat.RunSummary) (*api.ChatUsageData, string) {
 	for _, run := range runs {
 		usage := run.Usage
@@ -172,11 +163,6 @@ func latestRunUsageWithModelFromSummaries(runs []chat.RunSummary) (*api.ChatUsag
 		}
 	}
 	return nil, ""
-}
-
-func runUsageForID(runs []chat.RunSummary, runID string) *api.ChatUsageData {
-	usage, _, _ := runUsageWithModelForID(runs, runID)
-	return usage
 }
 
 func runUsageWithModelForID(runs []chat.RunSummary, runID string) (*api.ChatUsageData, string, bool) {

@@ -166,14 +166,6 @@ func (s *llmRunStream) executeApprovedApprovalRequest(request approvalRequest) e
 	return s.executeOriginalBash(request.invocation)
 }
 
-func (s *llmRunStream) emitApprovalRequestForInvocation(invocation *preparedToolInvocation) error {
-	request, ok := s.approvalRequestForInvocation(invocation)
-	if !ok {
-		return s.executeOriginalBash(invocation)
-	}
-	return s.emitApprovalRequestDeltas(request)
-}
-
 func (r approvalRequest) hasApprovalDecision() bool {
 	return r.invocation != nil && strings.TrimSpace(r.invocation.approvalDecision) != ""
 }

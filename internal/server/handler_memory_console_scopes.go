@@ -39,17 +39,6 @@ func (s *Server) handleMemoryScopes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, api.Success(response))
 }
 
-func (s *Server) handleMemoryScopeRoute(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		s.handleMemoryScope(w, r)
-	case http.MethodPut:
-		s.handleMemoryScopeSave(w, r)
-	default:
-		writeJSON(w, http.StatusMethodNotAllowed, api.Failure(http.StatusMethodNotAllowed, "method not allowed"))
-	}
-}
-
 func (s *Server) handleMemoryScope(w http.ResponseWriter, r *http.Request) {
 	if !s.memorySystemEnabled() || s.deps.Memory == nil {
 		writeJSON(w, http.StatusServiceUnavailable, api.Failure(http.StatusServiceUnavailable, "memory system is disabled"))

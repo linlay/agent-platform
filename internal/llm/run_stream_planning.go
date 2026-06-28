@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -268,19 +267,6 @@ func renderPlanningDraftMarkdown(args planningDraftArgs) string {
 		return ""
 	}
 	return args.Markdown.Value
-}
-
-func partialPlanningWriteArgs(buffer string) map[string]any {
-	var full map[string]any
-	if err := json.Unmarshal([]byte(buffer), &full); err == nil && len(full) > 0 {
-		return full
-	}
-	out := map[string]any{}
-	draft := parsePlanningDraftArgs(buffer)
-	if draft.Markdown.Closed {
-		out["markdown"] = draft.Markdown.Value
-	}
-	return out
 }
 
 func findJSONObjectValueOffset(text string, key string) int {
