@@ -152,7 +152,7 @@ func buildCoderSystemPromptSection(session QuerySession, req api.QueryRequest, t
 	return renderCoderPromptTemplate(session.CoderSystemPrompt, coderPromptTemplateValues(session, req, coderPromptTemplateData{
 		AvailableTools:    toolNames,
 		PlanStageTools:    coderPlanningModePlanTools,
-		ExecuteStageTools: removeToolNames(toolNames, "plan_add_tasks", "plan_get_tasks", "plan_update_task", FinalizePlanningToolName, "ask_user_question"),
+		ExecuteStageTools: removeToolNames(AppendPlanTaskToolNames(toolNames), FinalizePlanningToolName, "ask_user_question"),
 	}))
 }
 
@@ -178,7 +178,7 @@ func coderPromptTemplateValues(session QuerySession, req api.QueryRequest, data 
 	}
 	executeStageTools := data.ExecuteStageTools
 	if len(executeStageTools) == 0 {
-		executeStageTools = removeToolNames(availableTools, "plan_add_tasks", "plan_get_tasks", "plan_update_task", FinalizePlanningToolName, "ask_user_question")
+		executeStageTools = removeToolNames(AppendPlanTaskToolNames(availableTools), FinalizePlanningToolName, "ask_user_question")
 	}
 	workspaceDir := firstNonBlank(
 		session.RuntimeContext.LocalPaths.WorkspaceDir,

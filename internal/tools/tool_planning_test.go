@@ -191,6 +191,87 @@ func TestFinalizePlanningRejectsEmptyMarkdown(t *testing.T) {
 	}
 }
 
+func TestPlanGetTasksReturnsEmptySnapshotBeforeTasksExist(t *testing.T) {
+	executor := &RuntimeToolExecutor{}
+	execCtx := &ExecutionContext{
+		Session: QuerySession{
+			RunID:  "run_tasks",
+			ChatID: "chat_1",
+		},
+	}
+
+	result, err := executor.Invoke(context.Background(), PlanGetTasksToolName, map[string]any{}, execCtx)
+	if err != nil {
+		t.Fatalf("invoke plan_get_tasks: %v", err)
+	}
+	if result.ExitCode != 0 || result.Error != "" {
+		t.Fatalf("expected empty plan snapshot success, got %#v", result)
+	}
+	if got := AnyStringNode(result.Structured["planId"]); got != "run_tasks_plan" {
+		t.Fatalf("planId=%q want run_tasks_plan", got)
+	}
+	plan, _ := result.Structured["plan"].([]map[string]any)
+	if len(plan) != 0 {
+		t.Fatalf("expected empty plan, got %#v", result.Structured["plan"])
+	}
+	if execCtx.PlanState == nil {
+		t.Fatalf("expected plan state to be initialized")
+	}
+}
+
+func TestPlanUpdateTaskSupportsInProgressAndDescriptionUpdate(t *testing.T) {
+	executor := &RuntimeToolExecutor{}
+	execCtx := &ExecutionContext{
+		Session: QuerySession{RunID: "run_tasks"},
+		PlanState: &PlanRuntimeState{
+			PlanID: "run_tasks_plan",
+			Tasks: []PlanTask{{
+				TaskID:      "task_1",
+				Status:      "init",
+				Description: "old description",
+			}},
+		},
+	}
+
+	result, err := executor.Invoke(context.Background(), PlanUpdateTaskToolName, map[string]any{
+		"taskId":      "task_1",
+		"status":      "in_progress",
+		"description": "new description",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invoke plan_update_task in_progress: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("expected in_progress update success, got %#v", result)
+	}
+	if execCtx.PlanState.ActiveTaskID != "task_1" {
+		t.Fatalf("active task=%q want task_1", execCtx.PlanState.ActiveTaskID)
+	}
+	if task := execCtx.PlanState.Tasks[0]; task.Status != "in_progress" || task.Description != "new description" {
+		t.Fatalf("unexpected task after in_progress update: %#v", task)
+	}
+	if got := AnyStringNode(result.Structured["currentTaskId"]); got != "task_1" {
+		t.Fatalf("currentTaskId=%q want task_1", got)
+	}
+
+	result, err = executor.Invoke(context.Background(), PlanUpdateTaskToolName, map[string]any{
+		"taskId": "task_1",
+		"status": "completed",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invoke plan_update_task completed: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("expected completed update success, got %#v", result)
+	}
+	if execCtx.PlanState.ActiveTaskID != "" {
+		t.Fatalf("active task=%q want empty", execCtx.PlanState.ActiveTaskID)
+	}
+	if _, ok := result.Structured["currentTaskId"]; ok {
+		t.Fatalf("did not expect currentTaskId after terminal update, got %#v", result.Structured)
+	}
+}
+
 func standardPlanningMarkdown(title string) string {
 	return `# ` + title + `
 

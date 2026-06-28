@@ -1244,16 +1244,16 @@ Plan first, then check the current time before reporting.
 				`[DONE]`,
 			)
 		case 4:
-			assertStringSliceContains(t, toolNames, "bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex")
-			assertStringSliceExcludes(t, toolNames, "plan_add_tasks", "finalize_planning", "ask_user_question", "plan_update_task")
+			assertStringSliceContains(t, toolNames, "bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex", "plan_add_tasks", "plan_get_tasks", "plan_update_task")
+			assertStringSliceExcludes(t, toolNames, "finalize_planning", "ask_user_question")
 			assertProviderMessagesContainToolResult(t, payload, "tool_plan", "finalize_planning", "approve")
 			writeProviderSSE(t, w,
 				providerToolCallFrame(t, "tool_time", "datetime", map[string]any{}),
 				`[DONE]`,
 			)
 		case 5:
-			assertStringSliceContains(t, toolNames, "bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex")
-			assertStringSliceExcludes(t, toolNames, "plan_add_tasks", "finalize_planning", "ask_user_question", "plan_update_task")
+			assertStringSliceContains(t, toolNames, "bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex", "plan_add_tasks", "plan_get_tasks", "plan_update_task")
+			assertStringSliceExcludes(t, toolNames, "finalize_planning", "ask_user_question")
 			writeProviderSSE(t, w,
 				`{"choices":[{"delta":{"content":"execution completed"},"finish_reason":"stop"}]}`,
 				`[DONE]`,
@@ -1716,7 +1716,7 @@ Revised plan with explicit test coverage.
 				`[DONE]`,
 			)
 		case 3:
-			assertStringSliceContains(t, toolNames, "bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex")
+			assertStringSliceContains(t, toolNames, "bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex", "plan_add_tasks", "plan_get_tasks", "plan_update_task")
 			assertStringSliceExcludes(t, toolNames, "finalize_planning", "ask_user_question")
 			assertProviderMessagesContainToolResult(t, payload, "tool_plan_v2", "finalize_planning", "approve")
 			writeProviderSSE(t, w,
@@ -2059,7 +2059,7 @@ func assertCoderPlanningToolSet(t *testing.T, got []string) {
 		t.Fatalf("coder planning tools length=%d tools=%#v", len(got), got)
 	}
 	assertStringSliceContains(t, got, "file_read", "file_glob", "file_grep", "datetime", "regex", "vision_recognize", "ask_user_question", "finalize_planning")
-	assertStringSliceExcludes(t, got, "bash", "file_write", "file_edit", "desktop_action", "desktop_cdp", "agent_invoke", "plan_add_tasks", "plan_update_task")
+	assertStringSliceExcludes(t, got, "bash", "file_write", "file_edit", "desktop_action", "desktop_cdp", "agent_invoke", "plan_add_tasks", "plan_get_tasks", "plan_update_task")
 }
 
 func awaitingQuestionText(payload map[string]any) string {

@@ -114,10 +114,10 @@ func (t *proxyUsageTracker) writeCumulativeUsage(usage map[string]any) {
 	t.applyRunModelKey()
 	runUsage := *t.runUsage
 	runUsage.ModelKey = ""
-	usage["run"] = usageDataMap(runUsage)
+	usage["run"] = usageDataMapForSnapshot(runUsage)
 	chatUsage := addUsageData(t.chatUsage, *t.runUsage)
 	chatUsage.ModelKey = ""
-	usage["chat"] = usageDataMap(chatUsage)
+	usage["chat"] = usageDataMapForSnapshot(chatUsage)
 }
 
 func (t *proxyUsageTracker) recordRunModelKey(modelKey string) {

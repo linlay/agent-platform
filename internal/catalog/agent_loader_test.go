@@ -589,7 +589,7 @@ func TestParseAgentFileAppliesCoderProfileDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	wantTools := []string{"bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex", "vision_recognize"}
+	wantTools := []string{"bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex", "vision_recognize", "plan_add_tasks", "plan_get_tasks", "plan_update_task"}
 	if !reflect.DeepEqual(def.Tools, wantTools) {
 		t.Fatalf("tools = %#v, want %#v", def.Tools, wantTools)
 	}
@@ -663,6 +663,11 @@ func TestParseAgentFileAllowsCoderWithoutWorkspace(t *testing.T) {
 	}
 	if !containsString(def.Tools, "vision_recognize") {
 		t.Fatalf("expected CODER default tools to include vision_recognize, got %#v", def.Tools)
+	}
+	for _, tool := range []string{"plan_add_tasks", "plan_get_tasks", "plan_update_task"} {
+		if !containsString(def.Tools, tool) {
+			t.Fatalf("expected CODER default tools to include %s, got %#v", tool, def.Tools)
+		}
 	}
 	for _, tool := range []string{"memory_write", "memory_read", "memory_search"} {
 		if containsString(def.Tools, tool) {

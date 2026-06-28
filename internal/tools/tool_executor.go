@@ -115,11 +115,11 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 		return t.invokeGlob(ctx, args, execCtx)
 	case "file_grep":
 		return t.invokeGrep(ctx, args, execCtx)
-	case "plan_add_tasks":
+	case PlanAddTasksToolName:
 		return t.invokePlanAddTasks(args, execCtx)
-	case "plan_get_tasks":
+	case PlanGetTasksToolName:
 		return t.invokePlanGetTasks(execCtx)
-	case "plan_update_task":
+	case PlanUpdateTaskToolName:
 		return t.invokePlanUpdateTask(args, execCtx)
 	case FinalizePlanningToolName:
 		return t.invokePlanningWrite(toolName, args, execCtx)

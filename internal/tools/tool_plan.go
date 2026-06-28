@@ -64,11 +64,11 @@ func (t *RuntimeToolExecutor) invokePlanAddTasks(args map[string]any, execCtx *E
 }
 
 func (t *RuntimeToolExecutor) invokePlanGetTasks(execCtx *ExecutionContext) (ToolExecutionResult, error) {
-	if execCtx == nil || execCtx.PlanState == nil {
+	if execCtx == nil {
 		payload := NewErrorPayload("plan_context_unavailable", "Plan context is unavailable in direct invocation", ErrorScopeRun, ErrorCategorySystem, nil)
 		return ToolExecutionResult{Output: MarshalJSON(payload), Structured: payload, Error: "plan_context_unavailable", ExitCode: -1}, nil
 	}
-	return structuredResult(planStatePayload(execCtx.PlanState)), nil
+	return structuredResult(planStatePayload(ensurePlanState(execCtx))), nil
 }
 
 func (t *RuntimeToolExecutor) invokePlanUpdateTask(args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
@@ -85,11 +85,18 @@ func (t *RuntimeToolExecutor) invokePlanUpdateTask(args map[string]any, execCtx 
 		return ToolExecutionResult{Output: "失败: 非法状态，仅支持 init/in_progress/completed/failed/canceled", Error: "invalid_task_status", ExitCode: -1}, nil
 	}
 	for index := range state.Tasks {
-		if strings.TrimSpace(state.Tasks[index].TaskID) != strings.TrimSpace(taskID) {
+		storedTaskID := strings.TrimSpace(state.Tasks[index].TaskID)
+		if storedTaskID != strings.TrimSpace(taskID) {
 			continue
 		}
 		state.Tasks[index].Status = status
-		if state.ActiveTaskID == taskID && (status == "completed" || status == "failed" || status == "canceled") {
+		if description := strings.TrimSpace(AnyStringNode(args["description"])); description != "" {
+			state.Tasks[index].Description = description
+		}
+		if status == "in_progress" {
+			state.ActiveTaskID = storedTaskID
+		}
+		if strings.TrimSpace(state.ActiveTaskID) == storedTaskID && (status == "completed" || status == "failed" || status == "canceled") {
 			state.ActiveTaskID = ""
 		}
 		return ToolExecutionResult{Output: "OK", Structured: planStatePayload(state), ExitCode: 0}, nil

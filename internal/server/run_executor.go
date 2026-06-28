@@ -117,7 +117,7 @@ func (p *runEventProcessor) decorate(data *stream.EventData) {
 		if p.runUsage != nil {
 			chatUsage := addUsageData(p.chatUsage, *p.runUsage)
 			chatUsage.ModelKey = ""
-			usage["chat"] = usageDataMap(chatUsage)
+			usage["chat"] = usageDataMapForSnapshot(chatUsage)
 		}
 	case "run.complete", "run.error", "run.cancel":
 		if p.runUsage != nil {
@@ -160,14 +160,14 @@ func (p *runEventProcessor) decorateUsageSnapshot(data *stream.EventData) {
 			p.applyRunModelKey()
 			runUsage := *p.runUsage
 			runUsage.ModelKey = ""
-			usage["run"] = usageDataMap(runUsage)
+			usage["run"] = usageDataMapForSnapshot(runUsage)
 		}
 	} else if hasCurrent && p.runUsage != nil {
 		*p.runUsage = addUsageData(*p.runUsage, currentUsage)
 		p.applyRunModelKey()
 		runUsage := *p.runUsage
 		runUsage.ModelKey = ""
-		usage["run"] = usageDataMap(runUsage)
+		usage["run"] = usageDataMapForSnapshot(runUsage)
 	}
 }
 
@@ -394,7 +394,7 @@ func addUsageData(base chat.UsageData, delta chat.UsageData) chat.UsageData {
 	}
 }
 
-func addUsageTimingMap(out map[string]any, usage chat.UsageData) {
+func addUsageTimingMap(out map[string]any, usage chat.UsageData, includeDerivedSpeed bool) {
 	if out == nil {
 		return
 	}
@@ -407,12 +407,23 @@ func addUsageTimingMap(out map[string]any, usage chat.UsageData) {
 	if usage.GenerationDurationMs > 0 {
 		timing["generationDurationMs"] = usage.GenerationDurationMs
 	}
+	if includeDerivedSpeed && usage.CompletionTokens > 0 && usage.GenerationDurationMs > 0 {
+		timing["outputTokensPerSecond"] = float64(usage.CompletionTokens) * 1000 / float64(usage.GenerationDurationMs)
+	}
 	if len(timing) > 0 {
 		out["timing"] = timing
 	}
 }
 
 func usageDataMap(usage chat.UsageData) map[string]any {
+	return usageDataMapWithOptions(usage, false, false)
+}
+
+func usageDataMapForSnapshot(usage chat.UsageData) map[string]any {
+	return usageDataMapWithOptions(usage, true, true)
+}
+
+func usageDataMapWithOptions(usage chat.UsageData, includeZeroToolCallCount bool, includeDerivedSpeed bool) map[string]any {
 	out := map[string]any{
 		"promptTokens":     usage.PromptTokens,
 		"completionTokens": usage.CompletionTokens,
@@ -444,13 +455,13 @@ func usageDataMap(usage chat.UsageData) map[string]any {
 	if usage.LlmChatCompletionCount > 0 {
 		out["llmChatCompletionCount"] = usage.LlmChatCompletionCount
 	}
-	if usage.ToolCallCount > 0 {
+	if usage.ToolCallCount > 0 || includeZeroToolCallCount {
 		out["toolCallCount"] = usage.ToolCallCount
 	}
 	if estimated := usageEstimatedCostFromData(usage); estimated != nil {
 		out["estimatedCost"] = estimated
 	}
-	addUsageTimingMap(out, usage)
+	addUsageTimingMap(out, usage, includeDerivedSpeed)
 	return out
 }
 

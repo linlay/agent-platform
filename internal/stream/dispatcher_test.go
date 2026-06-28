@@ -497,8 +497,8 @@ func TestDispatcherUsageSnapshotIncludesTaskAndDeepSeekCacheUsage(t *testing.T) 
 		intValue(currentTiming["generationDurationMs"]) != 2300 {
 		t.Fatalf("expected current timing usage, got %#v", usage)
 	}
-	if _, exists := currentTiming["outputTokensPerSecond"]; exists {
-		t.Fatalf("did not expect derived tokens/s in usage.snapshot current timing, got %#v", currentTiming)
+	if currentTiming["outputTokensPerSecond"] != float64(50)*1000/float64(2300) {
+		t.Fatalf("expected current output speed in usage.snapshot timing, got %#v", currentTiming)
 	}
 	runPromptDetails, _ := run["promptTokensDetails"].(map[string]any)
 	if runPromptDetails["cacheHitTokens"] != 128 || runPromptDetails["cacheMissTokens"] != 172 || run["llmChatCompletionCount"] != 2 || run["toolCallCount"] != 5 {
@@ -510,6 +510,9 @@ func TestDispatcherUsageSnapshotIncludesTaskAndDeepSeekCacheUsage(t *testing.T) 
 		intValue(runTiming["firstTokenLatencyCount"]) != 2 ||
 		intValue(runTiming["generationDurationMs"]) != 4800 {
 		t.Fatalf("expected run timing usage, got %#v", usage)
+	}
+	if runTiming["outputTokensPerSecond"] != float64(75)*1000/float64(4800) {
+		t.Fatalf("expected run output speed in usage.snapshot timing, got %#v", runTiming)
 	}
 	if _, exists := run["modelKey"]; exists {
 		t.Fatalf("did not expect run modelKey, got %#v", usage)
@@ -523,6 +526,35 @@ func TestDispatcherUsageSnapshotIncludesTaskAndDeepSeekCacheUsage(t *testing.T) 
 	}
 	if cw["modelKey"] != "deepseek-v4-pro" || cw["reasoningEffort"] != "HIGH" {
 		t.Fatalf("expected context window model metadata to match current usage, got %#v", cw)
+	}
+}
+
+func TestDispatcherUsageSnapshotIncludesZeroToolCallCounts(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{
+		RunID:  "run_1",
+		ChatID: "chat_1",
+	})
+
+	events := dispatcher.Dispatch(InputUsageSnapshot{
+		ChatID:                          "chat_1",
+		LLMReturnPromptTokens:           100,
+		LLMReturnCompletionTokens:       25,
+		LLMReturnTotalTokens:            125,
+		LLMReturnLLMChatCompletionCount: 1,
+		LLMReturnGenerationDurationMs:   1000,
+		RunPromptTokens:                 100,
+		RunCompletionTokens:             25,
+		RunTotalTokens:                  125,
+		RunLLMChatCompletionCount:       1,
+		RunGenerationDurationMs:         1000,
+	})
+
+	assertEventTypes(t, events, "usage.snapshot")
+	usage, _ := events[0].Data().Value("usage").(map[string]any)
+	current, _ := usage["current"].(map[string]any)
+	run, _ := usage["run"].(map[string]any)
+	if current["toolCallCount"] != 0 || run["toolCallCount"] != 0 {
+		t.Fatalf("expected zero tool call counts in usage.snapshot, got %#v", usage)
 	}
 }
 

@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"agent-platform/internal/contracts"
 )
 
 const AgentModeCoder = "CODER"
@@ -23,6 +25,9 @@ var coderAgentProfile = agentModeProfile{
 		"datetime",
 		"regex",
 		"vision_recognize",
+		contracts.PlanAddTasksToolName,
+		contracts.PlanGetTasksToolName,
+		contracts.PlanUpdateTaskToolName,
 	},
 	ContextTags: []string{"system", "session"},
 	Budget: map[string]any{

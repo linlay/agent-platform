@@ -851,12 +851,13 @@ func (s *coderPlanningStream) executeStageTools() []string {
 
 func coderPlanningExecuteTools(stage StageSettings, toolNames []string) []string {
 	tools := stageToolsOrDefault(stage, toolNames)
-	return removeToolNames(tools, "plan_add_tasks", "plan_get_tasks", "plan_update_task", FinalizePlanningToolName, "ask_user_question")
+	tools = AppendPlanTaskToolNames(tools)
+	return removeToolNames(tools, FinalizePlanningToolName, "ask_user_question")
 }
 
 func isPlanningOnlyTool(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "plan_add_tasks", "plan_get_tasks", "plan_update_task", FinalizePlanningToolName, "ask_user_question":
+	case FinalizePlanningToolName, "ask_user_question":
 		return true
 	default:
 		return false

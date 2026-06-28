@@ -2198,6 +2198,11 @@ func TestStepWriterPersistsUsageSnapshotWhenDebugEventsDisabled(t *testing.T) {
 					},
 					"llmChatCompletionCount": 1,
 					"toolCallCount":          2,
+					"timing": map[string]any{
+						"firstTokenLatencyMs":   820,
+						"generationDurationMs":  2380,
+						"outputTokensPerSecond": 21.01,
+					},
 					"estimatedCost": map[string]any{
 						"currency":       "CNY",
 						"inputCacheHit":  0.01,
@@ -2238,6 +2243,13 @@ func TestStepWriterPersistsUsageSnapshotWhenDebugEventsDisabled(t *testing.T) {
 	}
 	if toIntValue(usage["toolCallCount"]) != 2 {
 		t.Fatalf("expected persisted usage snapshot toolCallCount, got %#v", lines[0])
+	}
+	timing, _ := usage["timing"].(map[string]any)
+	if toIntValue(timing["firstTokenLatencyMs"]) != 820 || toIntValue(timing["generationDurationMs"]) != 2380 {
+		t.Fatalf("expected persisted usage snapshot timing, got %#v", lines[0])
+	}
+	if _, ok := timing["outputTokensPerSecond"]; ok {
+		t.Fatalf("did not expect derived tokens/s in persisted usage snapshot, got %#v", lines[0])
 	}
 	assertNoStepModelMetadata(t, usage, "usage")
 	estimatedCost, _ := usage["estimatedCost"].(map[string]any)

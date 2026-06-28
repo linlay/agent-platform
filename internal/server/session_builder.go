@@ -119,6 +119,11 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		sortedStringKeys(runtimeEnvOverrides),
 	)
 
+	toolNames := buildSessionToolNames(effectiveAgentTools(agentDef), options.AllowInvokeAgents)
+	if strings.EqualFold(agentDef.Mode, catalog.AgentModeCoder) && !catalog.AgentUsesACPCoderBackend(agentDef) {
+		toolNames = contracts.AppendPlanTaskToolNames(toolNames)
+	}
+
 	session := contracts.QuerySession{
 		RequestID:              req.RequestID,
 		RunID:                  req.RunID,
@@ -130,7 +135,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		AgentRole:              agentDef.Role,
 		AgentDescription:       agentDef.Description,
 		ModelKey:               agentDef.ModelKey,
-		ToolNames:              buildSessionToolNames(effectiveAgentTools(agentDef), options.AllowInvokeAgents),
+		ToolNames:              toolNames,
 		Mode:                   agentDef.Mode,
 		PlanningMode:           req.PlanningMode != nil && *req.PlanningMode && strings.EqualFold(agentDef.Mode, catalog.AgentModeCoder),
 		TeamID:                 req.TeamID,

@@ -225,6 +225,10 @@ func TestCoderSystemInitProfileIncludesCoderSystemPrompt(t *testing.T) {
 	session.CoderSystemPrompt = "custom coder system prompt"
 	toolDefs := []api.ToolDetailResponse{
 		{Name: "bash", Description: "run shell", Parameters: map[string]any{"type": "object"}},
+		{Name: "datetime", Description: "get time", Parameters: map[string]any{"type": "object"}},
+		{Name: "plan_add_tasks", Description: "add tasks", Parameters: map[string]any{"type": "object"}},
+		{Name: "plan_get_tasks", Description: "get tasks", Parameters: map[string]any{"type": "object"}},
+		{Name: "plan_update_task", Description: "update task", Parameters: map[string]any{"type": "object"}},
 	}
 	profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, toolDefs, 12, 4, config.PromptsConfig{})
 	if len(profiles) != 1 {
@@ -234,6 +238,7 @@ func TestCoderSystemInitProfileIncludesCoderSystemPrompt(t *testing.T) {
 	if !strings.Contains(content, "custom coder system prompt") {
 		t.Fatalf("expected coder system prompt in system init, got %q", content)
 	}
+	assertToolNames(t, profiles[0].Tools, []string{"bash", "datetime", "plan_add_tasks", "plan_get_tasks", "plan_update_task"})
 }
 
 func TestCoderPlanningModeBuildsPlanAndExecuteSystemInit(t *testing.T) {
@@ -252,6 +257,9 @@ func TestCoderPlanningModeBuildsPlanAndExecuteSystemInit(t *testing.T) {
 		{Name: "file_read", Description: "read files", Parameters: map[string]any{"type": "object"}},
 		{Name: "ask_user_question", Description: "ask", Parameters: map[string]any{"type": "object"}},
 		{Name: contracts.FinalizePlanningToolName, Description: "write plan", Parameters: map[string]any{"type": "object"}},
+		{Name: "plan_add_tasks", Description: "add tasks", Parameters: map[string]any{"type": "object"}},
+		{Name: "plan_get_tasks", Description: "get tasks", Parameters: map[string]any{"type": "object"}},
+		{Name: "plan_update_task", Description: "update task", Parameters: map[string]any{"type": "object"}},
 	}
 	req := api.QueryRequest{ChatID: "chat-1", Message: "hello"}
 	profiles := BuildSystemInitProfiles(session, req, toolDefs, 12, 4, config.PromptsConfig{})
@@ -272,8 +280,9 @@ func TestCoderPlanningModeBuildsPlanAndExecuteSystemInit(t *testing.T) {
 		t.Fatalf("did not expect coder summary profile %#v", byKey)
 	}
 	assertToolNames(t, byKey["coder:plan"].Tools, []string{"file_read", "ask_user_question", contracts.FinalizePlanningToolName})
-	assertToolNames(t, byKey["coder:execute"].Tools, []string{"bash", "file_read"})
-	wantExecuteSystem := coderPlanningExecutionSystemPrompt(session, req, session.ResolvedStageSettings, coderPlanningModePlanTools, []string{"bash", "file_read"}, defaultCoderExecuteSystemPrompt)
+	executeTools := []string{"bash", "file_read", "plan_add_tasks", "plan_get_tasks", "plan_update_task"}
+	assertToolNames(t, byKey["coder:execute"].Tools, executeTools)
+	wantExecuteSystem := coderPlanningExecutionSystemPrompt(session, req, session.ResolvedStageSettings, coderPlanningModePlanTools, executeTools, defaultCoderExecuteSystemPrompt)
 	if byKey["coder:execute"].SystemMessage["content"] != wantExecuteSystem {
 		t.Fatalf("unexpected coder execute system message %#v want %q", byKey["coder:execute"].SystemMessage, wantExecuteSystem)
 	}

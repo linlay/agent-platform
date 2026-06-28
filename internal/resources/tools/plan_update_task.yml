@@ -1,6 +1,6 @@
 name: plan_update_task
 label: 更新任务
-description: "Update the status of a task in the current plan. status only supports init, completed, failed, and canceled. On success it returns OK; on failure it returns a failure reason."
+description: "Update the status or description of a task in the current plan. status supports init, in_progress, completed, failed, and canceled. On success it returns OK; on failure it returns a failure reason."
 type: function
 clientVisible: true
 inputSchema:
@@ -11,15 +11,16 @@ inputSchema:
       description: Required. taskId of the task to update.
     status:
       type: string
-      description: Required. New task status. Supported values are init, completed, failed, and canceled.
+      description: Required. New task status. Supported values are init, in_progress, completed, failed, and canceled.
       enum:
         - init
+        - in_progress
         - completed
         - failed
         - canceled
     description:
       type: string
-      description: Updated task description. Only provide this when the description itself needs to change.
+      description: Optional updated task description. Only provide this when the description itself needs to change.
   required:
     - taskId
     - status

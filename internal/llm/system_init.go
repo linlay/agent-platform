@@ -246,7 +246,8 @@ func ComputeSystemInitFingerprint(session contracts.QuerySession, stage string, 
 }
 
 func buildDefaultSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, stage string) contracts.SystemInitProfile {
-	effectiveDefs := effectiveToolDefinitions(toolDefs, session.ToolNames, session.AgentHasRuntimeSandbox)
+	toolNames := coderRuntimeToolNamesForStage(session, stage, session.ToolNames)
+	effectiveDefs := effectiveToolDefinitions(toolDefs, toolNames, session.AgentHasRuntimeSandbox)
 	systemPrompt := buildSystemPrompt(session, req, session.ModelKey, PromptBuildOptions{
 		Stage:                 stage,
 		ToolDefinitions:       effectiveDefs,

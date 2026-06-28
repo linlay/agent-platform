@@ -1,6 +1,6 @@
 name: plan_get_tasks
 label: 读取任务
-description: Get the current plan snapshot, returning a plain-text task list and the current taskId to execute.
+description: Get the current plan snapshot, returning the task list and current taskId when present. If no tasks have been created yet, returns an empty plan snapshot.
 type: function
 clientVisible: true
 inputSchema:

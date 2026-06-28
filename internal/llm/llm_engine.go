@@ -85,6 +85,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	if options.ToolNames != nil {
 		allowedTools = options.ToolNames
 	}
+	allowedTools = coderRuntimeToolNamesForStage(session, options.Stage, allowedTools)
 	effectiveDefs := effectiveToolDefinitions(e.tools.Definitions(), allowedTools, session.AgentHasRuntimeSandbox)
 	toolSpecs := toOpenAIToolSpecs(effectiveDefs)
 	cacheKey := SystemInitCacheKey(session.Mode, options.Stage)

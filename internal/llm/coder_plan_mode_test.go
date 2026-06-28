@@ -25,9 +25,12 @@ func TestCoderPlanningStageToolsAreReadOnlyPlusVisionQuestionsAndPlan(t *testing
 		t.Fatalf("planStageTools()=%#v want %#v", got, want)
 	}
 	forbidden := map[string]struct{}{
-		"bash":       {},
-		"file_write": {},
-		"file_edit":  {},
+		"bash":             {},
+		"file_write":       {},
+		"file_edit":        {},
+		"plan_add_tasks":   {},
+		"plan_get_tasks":   {},
+		"plan_update_task": {},
 	}
 	for _, tool := range stream.planStageTools() {
 		if _, ok := forbidden[tool]; ok {
@@ -36,13 +39,13 @@ func TestCoderPlanningStageToolsAreReadOnlyPlusVisionQuestionsAndPlan(t *testing
 	}
 }
 
-func TestCoderExecuteStageToolsExcludePlanningOnlyTools(t *testing.T) {
+func TestCoderExecuteStageToolsIncludePlanTaskTools(t *testing.T) {
 	stream := &coderPlanningStream{
 		session: contracts.QuerySession{
 			ToolNames: []string{"bash", "file_read", "plan_add_tasks", contracts.FinalizePlanningToolName, "ask_user_question", "plan_update_task", "datetime"},
 		},
 	}
-	want := []string{"bash", "file_read", "datetime"}
+	want := []string{"bash", "file_read", "plan_add_tasks", "plan_update_task", "datetime", "plan_get_tasks"}
 	if got := stream.executeStageTools(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("executeStageTools()=%#v want %#v", got, want)
 	}
@@ -74,7 +77,7 @@ func TestCoderPlanningPromptUsesCoderPromptsConfig(t *testing.T) {
 	if !strings.Contains(prompt, "file_read, file_glob, file_grep, datetime, regex, vision_recognize, ask_user_question, finalize_planning") {
 		t.Fatalf("expected rendered plan stage tools, got %q", prompt)
 	}
-	if !strings.Contains(prompt, "bash, file_read, file_write, file_edit, datetime") {
+	if !strings.Contains(prompt, "bash, file_read, file_write, file_edit, datetime, plan_add_tasks, plan_get_tasks, plan_update_task") {
 		t.Fatalf("expected rendered execute stage tools, got %q", prompt)
 	}
 	if strings.Contains(prompt, "{{") || strings.Contains(prompt, "}}") {
@@ -102,7 +105,7 @@ func TestCoderExecutionSystemPromptIncludesRenderedCoderSystemPrompt(t *testing.
 	}
 	got := stream.executionSystemPrompt("fallback {{agent_key}}")
 	for _, expected := range []string{
-		"CODER coder Coder bash, file_read bash, file_read bash",
+		"CODER coder Coder bash, file_read, plan_add_tasks, plan_get_tasks, plan_update_task bash, file_read, plan_add_tasks, plan_get_tasks, plan_update_task bash",
 		"stage coder",
 	} {
 		if !strings.Contains(got, expected) {

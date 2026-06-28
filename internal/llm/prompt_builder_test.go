@@ -123,7 +123,7 @@ func TestBuildSystemPromptRendersCoderSystemPromptPlaceholders(t *testing.T) {
 		AgentName:         "Coder",
 		Mode:              "CODER",
 		PlanningMode:      false,
-		ToolNames:         []string{"bash", "file_read", "file_write", "file_edit", "ask_user_question"},
+		ToolNames:         []string{"bash", "file_read", "file_write", "file_edit", "ask_user_question", "plan_add_tasks", "plan_get_tasks", "plan_update_task"},
 		CoderSystemPrompt: "CODER {{agent_key}} {{agent_name}} {{planning_mode}} {{workspace_dir}} {{available_tools}} {{plan_stage_tools}} {{execute_stage_tools}} {{file_read_tool_name}} {{ask_user_question_tool_name}}",
 		RuntimeContext: RuntimeRequestContext{
 			LocalPaths: LocalPaths{WorkspaceDir: "/workspace"},
@@ -136,14 +136,17 @@ func TestBuildSystemPromptRendersCoderSystemPromptPlaceholders(t *testing.T) {
 			{Name: "file_write"},
 			{Name: "file_edit"},
 			{Name: "ask_user_question"},
+			{Name: "plan_add_tasks"},
+			{Name: "plan_get_tasks"},
+			{Name: "plan_update_task"},
 		},
 	})
 
 	for _, expected := range []string{
 		"CODER coder Coder false /workspace",
-		"bash, file_read, file_write, file_edit, ask_user_question",
+		"bash, file_read, file_write, file_edit, ask_user_question, plan_add_tasks, plan_get_tasks, plan_update_task",
 		"file_read, file_glob, file_grep, datetime, regex, vision_recognize, ask_user_question, finalize_planning",
-		"bash, file_read, file_write, file_edit",
+		"bash, file_read, file_write, file_edit, plan_add_tasks, plan_get_tasks, plan_update_task",
 		"file_read ask_user_question",
 	} {
 		if !strings.Contains(prompt, expected) {

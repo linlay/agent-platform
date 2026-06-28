@@ -312,10 +312,21 @@ func usageMapFromValues(promptTokens int, completionTokens int, totalTokens int,
 	if includeLLMChatCompletionCount {
 		out["llmChatCompletionCount"] = llmChatCompletionCount
 	}
-	if toolCallCount > 0 {
-		out["toolCallCount"] = toolCallCount
-	}
+	out["toolCallCount"] = toolCallCount
 	addDetailedUsage(out, reasoningTokens, promptCacheHitTokens, promptCacheMissTokens)
 	addTimingUsage(out, firstTokenLatencyTotalMs, firstTokenLatencyCount, generationDurationMs)
+	addOutputTokensPerSecondUsage(out, completionTokens, generationDurationMs)
 	return out
+}
+
+func addOutputTokensPerSecondUsage(out map[string]any, completionTokens int, generationDurationMs int64) {
+	if out == nil || completionTokens <= 0 || generationDurationMs <= 0 {
+		return
+	}
+	timing, _ := out["timing"].(map[string]any)
+	if timing == nil {
+		timing = map[string]any{}
+		out["timing"] = timing
+	}
+	timing["outputTokensPerSecond"] = float64(completionTokens) * 1000 / float64(generationDurationMs)
 }

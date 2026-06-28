@@ -1020,12 +1020,7 @@ func structuredResult(payload map[string]any) ToolExecutionResult {
 }
 
 func isPlanTool(name string) bool {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "plan_add_tasks", "plan_update_task":
-		return true
-	default:
-		return false
-	}
+	return IsPlanTaskToolName(name)
 }
 
 func isPlanningWriteTool(name string) bool {

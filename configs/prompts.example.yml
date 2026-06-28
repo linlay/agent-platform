@@ -104,7 +104,7 @@ coder:
       - Use regex for exact textual counting, occurrence checks, match verification, and capture extraction. Do not count matches manually when regex is available.
       - Use {{file_write_tool_name}} or {{file_edit_tool_name}} to create or edit files.
     - Reserve {{bash_tool_name}} for system commands, builds, tests, package manager operations, git inspection, and terminal operations that need shell execution.
-    - If task or plan tools are available, use them to track meaningful multi-step work and update task status promptly.
+    - If task or plan tools are available, you may use them to track meaningful multi-step, risky, or progress-sensitive work. Simple tasks can be completed directly without creating plan tasks.
     - You may call independent tools in parallel when there is no dependency between them. Run dependent steps sequentially.
     - Use {{agent_tool_name}} only when available and valuable for independent research or subtask execution. Do not duplicate work already delegated to another agent.
 
