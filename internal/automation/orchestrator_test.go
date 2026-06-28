@@ -475,6 +475,53 @@ func TestOrchestratorUsesDefaultZoneIDWhenAutomationZoneMissing(t *testing.T) {
 	if reg.location == nil || reg.location.String() != "Asia/Shanghai" {
 		t.Fatalf("expected default zone to apply, got %#v", reg.location)
 	}
+	items := orchestrator.Automations()
+	if len(items) != 1 || items[0].NextFireTime.IsZero() {
+		t.Fatalf("expected one active automation with next fire time, got %#v", items)
+	}
+	if _, offset := items[0].NextFireTime.Zone(); offset != 8*60*60 {
+		t.Fatalf("expected next fire time in Asia/Shanghai offset, got %s", items[0].NextFireTime.Format(time.RFC3339))
+	}
+}
+
+func TestOrchestratorAutomationZoneOverridesDefaultZoneID(t *testing.T) {
+	root := t.TempDir()
+	writeAutomation(t, filepath.Join(root, "demo.yml"), automationBody("hello", "17 9 * * *", "environment:\n  zoneId: UTC\n"))
+
+	orchestrator := NewOrchestrator(
+		NewRegistry(root, nil),
+		NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }, nil, nil),
+		config.AutomationConfig{DefaultZoneID: "Asia/Shanghai"},
+	)
+	if err := orchestrator.Start(context.Background()); err != nil {
+		t.Fatalf("start orchestrator: %v", err)
+	}
+	defer waitForStop(t, orchestrator)
+
+	reg := waitForRegistration(t, orchestrator, "demo", 2*time.Second)
+	if reg.location == nil || reg.location.String() != "UTC" {
+		t.Fatalf("expected automation zone to override default zone, got %#v", reg.location)
+	}
+}
+
+func TestOrchestratorFallsBackToLocalWhenZonesMissing(t *testing.T) {
+	root := t.TempDir()
+	writeAutomation(t, filepath.Join(root, "demo.yml"), automationBody("hello", "17 9 * * *", ""))
+
+	orchestrator := NewOrchestrator(
+		NewRegistry(root, nil),
+		NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }, nil, nil),
+		config.AutomationConfig{},
+	)
+	if err := orchestrator.Start(context.Background()); err != nil {
+		t.Fatalf("start orchestrator: %v", err)
+	}
+	defer waitForStop(t, orchestrator)
+
+	reg := waitForRegistration(t, orchestrator, "demo", 2*time.Second)
+	if reg.location != time.Local {
+		t.Fatalf("expected missing zones to fall back to time.Local, got %#v want %#v", reg.location, time.Local)
+	}
 }
 
 func TestOrchestratorAutomationsReturnsActiveRegistrations(t *testing.T) {

@@ -58,7 +58,7 @@ budget:
 
 automation:
   enabled: true
-  default-zone-id:
+  default-zone-id: Asia/Shanghai
   pool-size: 4
 
 memory:
