@@ -105,14 +105,5 @@ planning-prompt: |
 
   {{execute_tool_descriptions}}
 
-summary-system-prompt: |
-  Summarize the completed confirmed CODER plan execution for the user.
-
-summary-user-prompt-template: |
-  Please provide a final summary of the completed confirmed plan.
-
-  Original request:
-  {{original_request}}
-
-  Confirmed plan:
-  {{confirmed_plan}}
+# Native CODER planning has no separate summary stage. The execution-stage
+# response is the final user-visible response.

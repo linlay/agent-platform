@@ -1258,14 +1258,6 @@ Plan first, then check the current time before reporting.
 				`{"choices":[{"delta":{"content":"execution completed"},"finish_reason":"stop"}]}`,
 				`[DONE]`,
 			)
-		case 6:
-			if len(toolNames) != 0 {
-				t.Fatalf("coder planning summary should not expose tools, got %#v", toolNames)
-			}
-			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"content":"confirmed plan completed"},"finish_reason":"stop"}]}`,
-				`[DONE]`,
-			)
 		default:
 			t.Fatalf("unexpected provider call %d", call)
 		}
@@ -1372,11 +1364,14 @@ Plan first, then check the current time before reporting.
 	if got := strings.Count(body, `"type":"planning.delta"`); got <= 1 {
 		t.Fatalf("expected multiple live planning.delta events, got %d in %s", got, body)
 	}
-	if !strings.Contains(body, "execution completed") || !strings.Contains(body, "confirmed plan completed") {
+	if !strings.Contains(body, "execution completed") {
 		t.Fatalf("expected confirmed execution to complete, got %s", body)
 	}
-	if got := providerCallCount.Load(); got != 6 {
-		t.Fatalf("provider calls = %d, want 6", got)
+	if strings.Contains(body, "confirmed plan completed") || strings.Contains(body, "coder-summary") {
+		t.Fatalf("did not expect a separate coder summary stage, got %s", body)
+	}
+	if got := providerCallCount.Load(); got != 5 {
+		t.Fatalf("provider calls = %d, want 5", got)
 	}
 	assertPersistedPlanningModeRequestQuery(t, fixture.server)
 	assertJSONLFinalizePlanningHistory(t, fixture.chats, chatID, map[string]string{"tool_plan": "approve"})
@@ -1723,14 +1718,6 @@ Revised plan with explicit test coverage.
 				`{"choices":[{"delta":{"content":"executed revised plan"},"finish_reason":"stop"}]}`,
 				`[DONE]`,
 			)
-		case 4:
-			if len(toolNames) != 0 {
-				t.Fatalf("summary should not expose tools, got %#v", toolNames)
-			}
-			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"content":"summary for revised plan"},"finish_reason":"stop"}]}`,
-				`[DONE]`,
-			)
 		default:
 			t.Fatalf("unexpected provider call %d", call)
 		}
@@ -1792,11 +1779,14 @@ Revised plan with explicit test coverage.
 	readRemainingSSEUntilEOF(t, reader, &streamBody)
 
 	body := streamBody.String()
-	if !strings.Contains(body, "executed revised plan") || !strings.Contains(body, "summary for revised plan") {
-		t.Fatalf("expected revised plan execution and summary, got %s", body)
+	if !strings.Contains(body, "executed revised plan") {
+		t.Fatalf("expected revised plan execution, got %s", body)
 	}
-	if got := providerCallCount.Load(); got != 4 {
-		t.Fatalf("provider calls = %d, want 4", got)
+	if strings.Contains(body, "summary for revised plan") || strings.Contains(body, "coder-summary") {
+		t.Fatalf("did not expect a separate coder summary stage, got %s", body)
+	}
+	if got := providerCallCount.Load(); got != 3 {
+		t.Fatalf("provider calls = %d, want 3", got)
 	}
 	assertJSONLFinalizePlanningHistory(t, fixture.chats, chatID, map[string]string{
 		"tool_plan_v1": "reject",

@@ -22,17 +22,7 @@ var coderPlanningModePlanTools = []string{
 	FinalizePlanningToolName,
 }
 
-const defaultCoderSummarySystemPrompt = `Summarize the completed confirmed CODER plan execution for the user.`
-
 const defaultCoderExecuteSystemPrompt = `Execute the confirmed CODER plan for the user.`
-
-const defaultCoderSummaryUserPromptTemplate = `Please provide a final summary of the completed confirmed plan.
-
-Original request:
-{{original_request}}
-
-Confirmed plan:
-{{confirmed_plan}}`
 
 type coderPlanningStream struct {
 	engine  *LLMAgentEngine
@@ -61,8 +51,7 @@ type coderPlanningStream struct {
 	rejectedPlanDecision string
 	rejectedPlanReason   string
 
-	executeMessages     []openAIMessage
-	summaryBaseMessages []openAIMessage
+	executeMessages []openAIMessage
 }
 
 func newCoderPlanningStream(engine *LLMAgentEngine, ctx context.Context, req api.QueryRequest, session QuerySession) (AgentStream, error) {
@@ -122,9 +111,6 @@ func (s *coderPlanningStream) Next() (AgentDelta, error) {
 						s.executeMessages = append(s.executeMessages, nonSystemMessages(accumulated)...)
 					}
 				}
-				if s.planDone && !s.executionDone {
-					s.summaryBaseMessages = append([]openAIMessage(nil), accumulated...)
-				}
 			}
 			_ = s.current.Close()
 			s.current = nil
@@ -165,7 +151,7 @@ func (s *coderPlanningStream) advance() error {
 		return s.startExecutionStage()
 	}
 	if !s.summaryDone {
-		return s.startSummaryStage()
+		s.summaryDone = true
 	}
 	s.completed = true
 	return nil
@@ -411,6 +397,8 @@ func (s *coderPlanningStream) afterStageEOF() error {
 
 	if !s.executionDone {
 		s.executionDone = true
+		s.summaryDone = true
+		s.completed = true
 		return nil
 	}
 
@@ -647,7 +635,6 @@ func (s *coderPlanningStream) preparePlanningFeedback(normalized map[string]any)
 	s.planDone = false
 	s.confirmationDone = false
 	s.nextPlanIsFeedback = true
-	s.summaryBaseMessages = nil
 }
 
 func firstNonBlankString(values ...string) string {
@@ -754,56 +741,6 @@ func (s *coderPlanningStream) startTaskStream(task *PlanTask) error {
 	s.current = stream
 	s.taskLifecycle = true
 	return nil
-}
-
-func (s *coderPlanningStream) startSummaryStage() error {
-	s.pending = append(s.pending, DeltaStageMarker{Stage: "coder-summary"})
-	planningMarkdown := ""
-	if s.execCtx != nil && s.execCtx.PlanningState != nil {
-		planningMarkdown = s.execCtx.PlanningState.Markdown
-	}
-	summaryMessages := s.summaryMessages(planningMarkdown)
-
-	stream, err := s.engine.newRunStreamWithOptions(s.ctx, s.req, s.sessionForStage(s.settings.Summary, nil), false, runStreamOptions{
-		ExecCtx:                      s.execCtx,
-		Messages:                     summaryMessages,
-		ToolNames:                    nil,
-		ModelKey:                     s.resolveStageModelKey(s.settings.Summary),
-		MaxSteps:                     1,
-		Stage:                        "coder-summary",
-		PreserveProvidedSystemPrompt: true,
-	})
-	if err != nil {
-		return err
-	}
-	s.current = stream
-	return nil
-}
-
-func (s *coderPlanningStream) summaryMessages(planningMarkdown string) []openAIMessage {
-	base := append([]openAIMessage(nil), s.summaryBaseMessages...)
-	if len(base) == 0 {
-		base = append(base, openAIMessage{
-			Role:    "system",
-			Content: s.executionSystemPrompt(defaultCoderExecuteSystemPrompt),
-		})
-		base = append(base, s.executeMessages...)
-	}
-	return append(base, openAIMessage{
-		Role:    "user",
-		Content: s.renderSummaryUserPrompt(planningMarkdown),
-	})
-}
-
-func (s *coderPlanningStream) renderSummaryUserPrompt(planningMarkdown string) string {
-	template := defaultCoderSummaryUserPromptTemplate
-	if s.engine != nil && strings.TrimSpace(s.engine.cfg.CoderPrompts.SummaryUserPromptTemplate) != "" {
-		template = strings.TrimSpace(s.engine.cfg.CoderPrompts.SummaryUserPromptTemplate)
-	}
-	return strings.TrimSpace(renderTemplate(template, map[string]string{
-		"original_request": s.req.Message,
-		"confirmed_plan":   planningMarkdown,
-	}))
 }
 
 func (s *coderPlanningStream) emitTaskTerminal(task *PlanTask, status string) {

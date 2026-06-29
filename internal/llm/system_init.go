@@ -410,8 +410,6 @@ func normalizedCoderStage(stage string) string {
 		return "plan"
 	case strings.HasPrefix(value, "coder-execute"):
 		return "execute"
-	case value == "coder-summary":
-		return "execute"
 	default:
 		return "main"
 	}

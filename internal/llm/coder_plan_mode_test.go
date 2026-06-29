@@ -117,50 +117,23 @@ func TestCoderExecutionSystemPromptIncludesRenderedCoderSystemPrompt(t *testing.
 	}
 }
 
-func TestCoderSummaryPromptUsesCoderPromptsConfig(t *testing.T) {
+func TestCoderPlanningExecutionEOFCompletesWithoutSummaryStage(t *testing.T) {
 	stream := &coderPlanningStream{
-		engine: &LLMAgentEngine{cfg: config.Config{
-			CoderPrompts: config.CoderPromptsConfig{
-				SummaryUserPromptTemplate: "custom summary {{original_request}} {{confirmed_plan}}",
-			},
-		}},
-		req: api.QueryRequest{Message: "build it"},
+		planDone:         true,
+		confirmationDone: true,
+		executionDone:    false,
 	}
-	got := stream.renderSummaryUserPrompt("confirmed markdown")
-	if got != "custom summary build it confirmed markdown" {
-		t.Fatalf("expected custom coder summary prompt, got %q", got)
+	if err := stream.afterStageEOF(); err != nil {
+		t.Fatalf("afterStageEOF: %v", err)
 	}
-}
-
-func TestCoderSummaryMessagesReuseExecutePrefix(t *testing.T) {
-	executePrefix := []openAIMessage{
-		{Role: "system", Content: "execute system prompt"},
-		{Role: "user", Content: "execute confirmed plan"},
-		{Role: "assistant", Content: "execution complete"},
+	if !stream.executionDone || !stream.summaryDone || !stream.completed {
+		t.Fatalf("expected execution EOF to complete the run, got %#v", stream)
 	}
-	stream := &coderPlanningStream{
-		engine: &LLMAgentEngine{cfg: config.Config{
-			CoderPrompts: config.CoderPromptsConfig{
-				SummarySystemPrompt:       "summary system prompt must not be used",
-				SummaryUserPromptTemplate: "summary {{original_request}} {{confirmed_plan}}",
-			},
-		}},
-		req:                 api.QueryRequest{Message: "build it"},
-		summaryBaseMessages: append([]openAIMessage(nil), executePrefix...),
+	if stream.current != nil {
+		t.Fatalf("did not expect a summary stream to start, got %#v", stream.current)
 	}
-	got := stream.summaryMessages("confirmed markdown")
-	if len(got) != len(executePrefix)+1 {
-		t.Fatalf("expected one appended summary message, got %#v", got)
-	}
-	if !reflect.DeepEqual(got[:len(executePrefix)], executePrefix) {
-		t.Fatalf("summary prefix changed: got %#v want %#v", got[:len(executePrefix)], executePrefix)
-	}
-	last := got[len(got)-1]
-	if last.Role != "user" || last.Content != "summary build it confirmed markdown" {
-		t.Fatalf("unexpected appended summary user message %#v", last)
-	}
-	if got[0].Content == "summary system prompt must not be used" {
-		t.Fatalf("summary system prompt replaced execute prefix: %#v", got)
+	if len(stream.pending) != 0 {
+		t.Fatalf("did not expect summary stage marker after execution EOF, got %#v", stream.pending)
 	}
 }
 

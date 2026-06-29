@@ -299,7 +299,6 @@ func TestSystemInitCacheKeyMapsCoderPlanningStages(t *testing.T) {
 		{mode: "CODER", stage: "coder-plan-feedback", want: "coder:plan"},
 		{mode: "CODER", stage: "coder-execute", want: "coder:execute"},
 		{mode: "CODER", stage: "coder-execute-step-2", want: "coder:execute"},
-		{mode: "CODER", stage: "coder-summary", want: "coder:execute"},
 		{mode: "PLAN_EXECUTE", stage: "summary", want: "plan-execute:summary"},
 		{mode: "REACT", stage: "anything", want: "react:main"},
 	}

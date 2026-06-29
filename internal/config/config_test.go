@@ -264,11 +264,14 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 		"system-prompt: |\n",
 		"You are CODER, an interactive coding agent",
 		"planning-prompt: |\n",
-		"summary-system-prompt: |\n",
-		"summary-user-prompt-template: |\n",
 	} {
 		if !strings.Contains(coderPromptsExample, want) {
 			t.Fatalf("expected coder prompts example to contain %q", want)
+		}
+	}
+	for _, removed := range []string{"summary-system-prompt:", "summary-user-prompt-template:"} {
+		if strings.Contains(coderPromptsExample, removed) {
+			t.Fatalf("did not expect coder prompts example to contain legacy key %q", removed)
 		}
 	}
 	if strings.Contains(coderPromptsExample, "\ncoder:\n") {
