@@ -163,6 +163,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		ExecutePrompt:          agentDef.ExecutePrompt,
 		SummaryPrompt:          agentDef.SummaryPrompt,
 		CoderSystemPrompt:      coderSystemPrompt(agentDef.Mode, s.deps.Config.CoderPrompts.SystemPrompt),
+		KBaseSystemPrompt:      kbaseSystemPrompt(agentDef.Mode, s.deps.Config.KBasePrompts.SystemPrompt),
 		RuntimeEnvironmentID:   extractRuntimeField(agentDef.Runtime, "environmentId"),
 		RuntimeLevel:           extractRuntimeField(agentDef.Runtime, "level"),
 		RuntimeExtraMounts:     runtimeExtraMounts(agentDef.Runtime["sandboxMounts"]),
@@ -203,6 +204,13 @@ func (s *Server) buildCurrentMessages(req api.QueryRequest, session contracts.Qu
 
 func coderSystemPrompt(mode string, prompt string) string {
 	if !strings.EqualFold(strings.TrimSpace(mode), catalog.AgentModeCoder) {
+		return ""
+	}
+	return strings.TrimSpace(prompt)
+}
+
+func kbaseSystemPrompt(mode string, prompt string) string {
+	if !strings.EqualFold(strings.TrimSpace(mode), catalog.AgentModeKBase) {
 		return ""
 	}
 	return strings.TrimSpace(prompt)

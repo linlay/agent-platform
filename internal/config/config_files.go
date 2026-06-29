@@ -17,6 +17,8 @@ func (c *Config) applyStructuredConfig(configRoot string) error {
 		return err
 	}
 	c.applyPromptsFile(configFile(configRoot, "configs/prompts.yml"))
+	c.applyCoderPromptsFile(configFile(configRoot, "configs/coder-prompts.yml"))
+	c.applyKBasePromptsFile(configFile(configRoot, "configs/kbase-prompts.yml"))
 	if err := c.applyCoderSettingsFile(configFile(configRoot, "configs/coder-settings.yml")); err != nil {
 		return err
 	}
@@ -573,6 +575,9 @@ func (c *Config) applyPromptsFile(path string) {
 	if coder, ok := values["coder"].(map[string]any); ok && len(coder) > 0 {
 		c.applyCoderPromptsValues(coder)
 	}
+	if kbase, ok := values["kbase"].(map[string]any); ok && len(kbase) > 0 {
+		c.applyKBasePromptsValues(kbase)
+	}
 	if memory, ok := values["memory"].(map[string]any); ok && len(memory) > 0 {
 		c.applyMemoryPromptsValues(memory)
 	}
@@ -605,6 +610,32 @@ func (c *Config) applyCoderPromptsValues(values map[string]any) {
 	c.CoderPrompts.PlanningPrompt = stringValue(anyValue(values["planning-prompt"], c.CoderPrompts.PlanningPrompt), c.CoderPrompts.PlanningPrompt)
 	c.CoderPrompts.SummarySystemPrompt = stringValue(anyValue(values["summary-system-prompt"], c.CoderPrompts.SummarySystemPrompt), c.CoderPrompts.SummarySystemPrompt)
 	c.CoderPrompts.SummaryUserPromptTemplate = stringValue(anyValue(values["summary-user-prompt-template"], c.CoderPrompts.SummaryUserPromptTemplate), c.CoderPrompts.SummaryUserPromptTemplate)
+}
+
+func (c *Config) applyKBasePromptsValues(values map[string]any) {
+	c.KBasePrompts.SystemPrompt = stringValue(anyValue(values["system-prompt"], c.KBasePrompts.SystemPrompt), c.KBasePrompts.SystemPrompt)
+}
+
+func (c *Config) applyCoderPromptsFile(path string) {
+	values, err := loadYAMLMap(path)
+	if err != nil {
+		return
+	}
+	if len(values) == 0 {
+		return
+	}
+	c.applyCoderPromptsValues(values)
+}
+
+func (c *Config) applyKBasePromptsFile(path string) {
+	values, err := loadYAMLMap(path)
+	if err != nil {
+		return
+	}
+	if len(values) == 0 {
+		return
+	}
+	c.applyKBasePromptsValues(values)
 }
 
 func (c *Config) applyMemoryPromptsValues(values map[string]any) {

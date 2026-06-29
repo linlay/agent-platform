@@ -168,6 +168,65 @@ func TestBuildSystemPromptRendersCoderSystemPromptPlaceholders(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPromptAddsKBaseSystemPromptOnlyForKBaseStage(t *testing.T) {
+	session := QuerySession{
+		AgentKey:          "docs",
+		AgentName:         "Docs",
+		Mode:              "KBASE",
+		ToolNames:         []string{"kbase_search", "kbase_read", "datetime"},
+		KBaseSystemPrompt: "KBASE {{agent_key}} {{agent_name}} {{mode}} {{workspace_dir}} {{available_tools}}",
+		RuntimeContext: RuntimeRequestContext{
+			LocalPaths: LocalPaths{WorkspaceDir: "/docs"},
+		},
+	}
+	main := buildSystemPrompt(session, api.QueryRequest{}, "", PromptBuildOptions{
+		Stage: "kbase",
+		ToolDefinitions: []api.ToolDetailResponse{
+			{Name: "kbase_search"},
+			{Name: "kbase_read"},
+			{Name: "datetime"},
+		},
+	})
+	if !strings.Contains(main, "KBASE docs Docs KBASE /docs kbase_search, kbase_read, datetime") {
+		t.Fatalf("expected rendered KBASE system prompt, got %q", main)
+	}
+	if strings.Contains(main, "{{") || strings.Contains(main, "}}") {
+		t.Fatalf("expected KBASE system placeholders to be rendered, got %q", main)
+	}
+	otherStage := buildSystemPrompt(session, api.QueryRequest{}, "", PromptBuildOptions{Stage: "coder"})
+	if strings.Contains(otherStage, "KBASE docs Docs") {
+		t.Fatalf("expected non-kbase stage to skip KBASE system prompt, got %q", otherStage)
+	}
+	react := buildSystemPrompt(QuerySession{
+		AgentKey:          "docs",
+		AgentName:         "Docs",
+		Mode:              "REACT",
+		KBaseSystemPrompt: "KBASE {{agent_key}}",
+	}, api.QueryRequest{}, "", PromptBuildOptions{Stage: "kbase"})
+	if strings.Contains(react, "KBASE docs") {
+		t.Fatalf("expected non-KBASE mode to skip KBASE system prompt, got %q", react)
+	}
+}
+
+func TestBuildSystemPromptUsesDefaultKBaseSystemPromptWhenConfigEmpty(t *testing.T) {
+	prompt := buildSystemPrompt(QuerySession{
+		AgentKey:  "docs",
+		AgentName: "Docs",
+		Mode:      "KBASE",
+		ToolNames: []string{"kbase_search", "kbase_read"},
+	}, api.QueryRequest{}, "", PromptBuildOptions{Stage: "kbase"})
+
+	for _, expected := range []string{
+		"KBASE Mode",
+		"Search the knowledge base with kbase_search",
+		"Use kbase_read when a search result needs more surrounding context.",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("expected %q in default KBASE prompt, got %q", expected, prompt)
+		}
+	}
+}
+
 func TestBuildSystemPromptPlacesAgentIdentityBeforeSoul(t *testing.T) {
 	prompt := buildSystemPrompt(QuerySession{
 		AgentKey:   "demo",

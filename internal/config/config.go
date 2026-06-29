@@ -15,6 +15,7 @@ type Config struct {
 	Skills          SkillCatalogConfig
 	Prompts         PromptsConfig
 	CoderPrompts    CoderPromptsConfig
+	KBasePrompts    KBasePromptsConfig
 	MemoryPrompts   MemoryPromptsConfig
 	CoderSettings   CoderSettingsConfig
 	KBase           KBaseConfig
@@ -114,6 +115,10 @@ type CoderPromptsConfig struct {
 	PlanningPrompt            string
 	SummarySystemPrompt       string
 	SummaryUserPromptTemplate string
+}
+
+type KBasePromptsConfig struct {
+	SystemPrompt string
 }
 
 type MemoryPromptsConfig struct {

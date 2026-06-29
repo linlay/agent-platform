@@ -234,6 +234,7 @@ type QuerySession struct {
 	ExecutePrompt         string
 	SummaryPrompt         string
 	CoderSystemPrompt     string
+	KBaseSystemPrompt     string
 
 	RuntimeEnvironmentID   string
 	RuntimeLevel           string

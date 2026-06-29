@@ -136,6 +136,73 @@ func TestBuildQuerySessionUsesCoderProfileDefaults(t *testing.T) {
 	}
 }
 
+func TestBuildQuerySessionInjectsKBaseSystemPrompt(t *testing.T) {
+	root := t.TempDir()
+	agentsDir := filepath.Join(root, "agents")
+	workspace := filepath.Join(root, "workspace")
+	agentDir := filepath.Join(agentsDir, "docs-kbase")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("mkdir agent dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(
+		"key: docs-kbase\n"+
+			"mode: KBASE\n"+
+			"modelConfig:\n"+
+			"  modelKey: deepseek-v4-flash\n"+
+			"runtimeConfig:\n"+
+			"  workspaceRoot: "+filepath.ToSlash(workspace)+"\n"+
+			"kbaseConfig:\n"+
+			"  embedding:\n"+
+			"    providerKey: openai\n",
+	), 0o644); err != nil {
+		t.Fatalf("write agent config: %v", err)
+	}
+	cfg := config.Config{
+		Paths: config.PathsConfig{
+			AgentsDir: agentsDir,
+			ChatsDir:  filepath.Join(root, "chats"),
+		},
+		CoderPrompts: config.CoderPromptsConfig{
+			SystemPrompt: "configured coder system prompt",
+		},
+		KBasePrompts: config.KBasePromptsConfig{
+			SystemPrompt: "configured kbase system prompt",
+		},
+	}
+	registry, err := catalog.NewFileRegistry(cfg, nil)
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+	def, ok := registry.AgentDefinition("docs-kbase")
+	if !ok {
+		t.Fatal("expected docs-kbase definition")
+	}
+
+	server := &Server{deps: Dependencies{Config: cfg, Registry: registry}}
+	session, err := server.BuildQuerySession(context.Background(), api.QueryRequest{
+		AgentKey: "docs-kbase",
+		ChatID:   "chat-1",
+		RunID:    "run-1",
+		Role:     "user",
+	}, chat.Summary{ChatID: "chat-1"}, def, querySessionBuildOptions{AllowInvokeAgents: true})
+	if err != nil {
+		t.Fatalf("build query session: %v", err)
+	}
+
+	if session.Mode != catalog.AgentModeKBase {
+		t.Fatalf("mode = %q, want %q", session.Mode, catalog.AgentModeKBase)
+	}
+	if session.WorkspaceRoot != filepath.Clean(workspace) {
+		t.Fatalf("workspace root = %q, want %q", session.WorkspaceRoot, filepath.Clean(workspace))
+	}
+	if session.CoderSystemPrompt != "" {
+		t.Fatalf("coder system prompt = %q, want empty for KBASE", session.CoderSystemPrompt)
+	}
+	if session.KBaseSystemPrompt != "configured kbase system prompt" {
+		t.Fatalf("kbase system prompt = %q, want configured prompt", session.KBaseSystemPrompt)
+	}
+}
+
 func TestBuildQuerySessionDefaultsHostWorkspaceToChatDir(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{

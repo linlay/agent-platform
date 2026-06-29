@@ -232,6 +232,72 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 		}
 	}
 
+	promptsExampleBytes, err := os.ReadFile(ProjectFile("configs/prompts.example.yml"))
+	if err != nil {
+		t.Fatalf("read prompts example: %v", err)
+	}
+	promptsExample := string(promptsExampleBytes)
+	for _, want := range []string{
+		"# Shared prompt configuration. Copy to configs/prompts.yml to customize locally.\n",
+		"# CODER prompts live in configs/coder-prompts.yml.\n",
+		"# KBASE prompts live in configs/kbase-prompts.yml.\n",
+		"skill:\n",
+		"tool-appendix:\n",
+		"plan-execute:\n",
+		"memory:\n",
+	} {
+		if !strings.Contains(promptsExample, want) {
+			t.Fatalf("expected prompts example to contain %q", want)
+		}
+	}
+	if strings.Contains(promptsExample, "\ncoder:\n") || strings.Contains(promptsExample, "You are CODER") {
+		t.Fatalf("expected prompts example to move CODER prompts to coder-prompts.example.yml")
+	}
+
+	coderPromptsExampleBytes, err := os.ReadFile(ProjectFile("configs/coder-prompts.example.yml"))
+	if err != nil {
+		t.Fatalf("read coder prompts example: %v", err)
+	}
+	coderPromptsExample := string(coderPromptsExampleBytes)
+	for _, want := range []string{
+		"# CODER-specific prompt configuration. Copy to configs/coder-prompts.yml to customize locally.\n",
+		"system-prompt: |\n",
+		"You are CODER, an interactive coding agent",
+		"planning-prompt: |\n",
+		"summary-system-prompt: |\n",
+		"summary-user-prompt-template: |\n",
+	} {
+		if !strings.Contains(coderPromptsExample, want) {
+			t.Fatalf("expected coder prompts example to contain %q", want)
+		}
+	}
+	if strings.Contains(coderPromptsExample, "\ncoder:\n") {
+		t.Fatalf("expected coder prompts example to use top-level fields")
+	}
+
+	kbasePromptsExampleBytes, err := os.ReadFile(ProjectFile("configs/kbase-prompts.example.yml"))
+	if err != nil {
+		t.Fatalf("read kbase prompts example: %v", err)
+	}
+	kbasePromptsExample := string(kbasePromptsExampleBytes)
+	for _, want := range []string{
+		"# KBASE-specific prompt configuration. Copy to configs/kbase-prompts.yml to customize locally.\n",
+		"system-prompt: |\n",
+		"KBASE Mode\n",
+		"{{agent_key}}",
+		"{{workspace_dir}}",
+		"{{available_tools}}",
+		"kbase_search",
+		"kbase_read",
+	} {
+		if !strings.Contains(kbasePromptsExample, want) {
+			t.Fatalf("expected kbase prompts example to contain %q", want)
+		}
+	}
+	if strings.Contains(kbasePromptsExample, "\nkbase:\n") {
+		t.Fatalf("expected kbase prompts example to use top-level fields")
+	}
+
 	envExampleBytes, err := os.ReadFile(ProjectFile(".env.example"))
 	if err != nil {
 		t.Fatalf("read env example: %v", err)
@@ -607,13 +673,23 @@ func TestLoadIgnoresLegacyContainerHubBaseURLEnv(t *testing.T) {
 func TestLoadPromptsConfigLeavesSkillInstructionsEmptyWhenFileMissing(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		withProjectFileContents(t, filepath.Join("configs", "prompts.yml"), nil, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if cfg.Prompts.Skill.InstructionsPrompt != "" {
-				t.Fatalf("expected empty prompts override when file is missing, got %q", cfg.Prompts.Skill.InstructionsPrompt)
-			}
+			withProjectFileContents(t, filepath.Join("configs", "coder-prompts.yml"), nil, func() {
+				withProjectFileContents(t, filepath.Join("configs", "kbase-prompts.yml"), nil, func() {
+					cfg, err := Load()
+					if err != nil {
+						t.Fatalf("load config: %v", err)
+					}
+					if cfg.Prompts.Skill.InstructionsPrompt != "" {
+						t.Fatalf("expected empty prompts override when file is missing, got %q", cfg.Prompts.Skill.InstructionsPrompt)
+					}
+					if cfg.CoderPrompts.SystemPrompt != "" {
+						t.Fatalf("expected empty coder prompt when file is missing, got %q", cfg.CoderPrompts.SystemPrompt)
+					}
+					if cfg.KBasePrompts.SystemPrompt != "" {
+						t.Fatalf("expected empty kbase prompt when file is missing, got %q", cfg.KBasePrompts.SystemPrompt)
+					}
+				})
+			})
 		})
 	})
 }
@@ -649,6 +725,10 @@ func TestLoadPromptsConfigFromFile(t *testing.T) {
 			"  summary-system-prompt: custom coder summary system\n" +
 			"  summary-user-prompt-template: |\n" +
 			"    custom coder summary {{confirmed_plan}}\n" +
+			"kbase:\n" +
+			"  system-prompt: |\n" +
+			"    custom kbase system\n" +
+			"    cite sources\n" +
 			"memory:\n" +
 			"  system-prompt-template: |\n" +
 			"    custom memory system\n" +
@@ -704,6 +784,9 @@ func TestLoadPromptsConfigFromFile(t *testing.T) {
 			if cfg.CoderPrompts.SummaryUserPromptTemplate != "custom coder summary {{confirmed_plan}}" {
 				t.Fatalf("expected coder summary user prompt override, got %q", cfg.CoderPrompts.SummaryUserPromptTemplate)
 			}
+			if cfg.KBasePrompts.SystemPrompt != "custom kbase system\ncite sources" {
+				t.Fatalf("expected kbase system prompt override, got %q", cfg.KBasePrompts.SystemPrompt)
+			}
 			if cfg.MemoryPrompts.SystemPromptTemplate != "custom memory system\n{{task_instruction}}" {
 				t.Fatalf("expected memory system prompt override, got %q", cfg.MemoryPrompts.SystemPromptTemplate)
 			}
@@ -745,6 +828,67 @@ func TestLoadCoderPromptsConfigFromFile(t *testing.T) {
 			if cfg.CoderPrompts.SummaryUserPromptTemplate != "custom coder summary {{confirmed_plan}}" {
 				t.Fatalf("expected coder summary user prompt override, got %q", cfg.CoderPrompts.SummaryUserPromptTemplate)
 			}
+		})
+	})
+}
+
+func TestLoadCoderPromptsConfigFromDedicatedFileOverridesPromptsFile(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		promptsContent := "" +
+			"coder:\n" +
+			"  system-prompt: legacy coder system\n" +
+			"  planning-prompt: legacy coder planning\n" +
+			"  summary-system-prompt: legacy coder summary system\n" +
+			"  summary-user-prompt-template: legacy coder summary user\n"
+		coderPromptsContent := "" +
+			"system-prompt: |\n" +
+			"  dedicated coder system\n" +
+			"  read first\n" +
+			"planning-prompt: dedicated coder planning\n" +
+			"summary-system-prompt: dedicated coder summary system\n" +
+			"summary-user-prompt-template: dedicated coder summary user\n"
+		withProjectFileContents(t, filepath.Join("configs", "prompts.yml"), &promptsContent, func() {
+			withProjectFileContents(t, filepath.Join("configs", "coder-prompts.yml"), &coderPromptsContent, func() {
+				cfg, err := Load()
+				if err != nil {
+					t.Fatalf("load config: %v", err)
+				}
+				if cfg.CoderPrompts.SystemPrompt != "dedicated coder system\nread first" {
+					t.Fatalf("expected dedicated coder system prompt, got %q", cfg.CoderPrompts.SystemPrompt)
+				}
+				if cfg.CoderPrompts.PlanningPrompt != "dedicated coder planning" {
+					t.Fatalf("expected dedicated coder planning prompt, got %q", cfg.CoderPrompts.PlanningPrompt)
+				}
+				if cfg.CoderPrompts.SummarySystemPrompt != "dedicated coder summary system" {
+					t.Fatalf("expected dedicated coder summary prompt, got %q", cfg.CoderPrompts.SummarySystemPrompt)
+				}
+				if cfg.CoderPrompts.SummaryUserPromptTemplate != "dedicated coder summary user" {
+					t.Fatalf("expected dedicated coder summary user prompt, got %q", cfg.CoderPrompts.SummaryUserPromptTemplate)
+				}
+			})
+		})
+	})
+}
+
+func TestLoadKBasePromptsConfigFromDedicatedFileOverridesPromptsFile(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		promptsContent := "" +
+			"kbase:\n" +
+			"  system-prompt: legacy kbase system\n"
+		kbasePromptsContent := "" +
+			"system-prompt: |\n" +
+			"  dedicated kbase system\n" +
+			"  cite evidence\n"
+		withProjectFileContents(t, filepath.Join("configs", "prompts.yml"), &promptsContent, func() {
+			withProjectFileContents(t, filepath.Join("configs", "kbase-prompts.yml"), &kbasePromptsContent, func() {
+				cfg, err := Load()
+				if err != nil {
+					t.Fatalf("load config: %v", err)
+				}
+				if cfg.KBasePrompts.SystemPrompt != "dedicated kbase system\ncite evidence" {
+					t.Fatalf("expected dedicated kbase system prompt, got %q", cfg.KBasePrompts.SystemPrompt)
+				}
+			})
 		})
 	})
 }

@@ -323,6 +323,19 @@ func TestCoderSystemPromptChangesFingerprint(t *testing.T) {
 	}
 }
 
+func TestKBaseSystemPromptChangesFingerprint(t *testing.T) {
+	session := fingerprintTestSession()
+	session.Mode = "KBASE"
+	session.KBaseSystemPrompt = "kbase prompt one"
+	toolDefs := []api.ToolDetailResponse{{Name: "kbase_search", Description: "search knowledge base"}}
+	first := ComputeSystemInitFingerprint(session, "main", toolDefs)
+	session.KBaseSystemPrompt = "kbase prompt two"
+	second := ComputeSystemInitFingerprint(session, "main", toolDefs)
+	if first == second {
+		t.Fatalf("expected kbase system prompt change to update fingerprint")
+	}
+}
+
 func fingerprintTestSession() contracts.QuerySession {
 	return contracts.QuerySession{
 		RequestID:        "request-1",
