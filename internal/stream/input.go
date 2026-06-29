@@ -182,11 +182,21 @@ type Source struct {
 }
 
 type SourceChunk struct {
-	ChunkID   string  `json:"chunkId"`
-	Index     int     `json:"index"`
-	Content   string  `json:"content"`
-	Score     float64 `json:"score,omitempty"`
-	Timestamp *int64  `json:"timestamp,omitempty"`
+	ChunkID    string  `json:"chunkId"`
+	Index      int     `json:"index"`
+	Content    string  `json:"content"`
+	Score      float64 `json:"score,omitempty"`
+	Timestamp  *int64  `json:"timestamp,omitempty"`
+	Path       string  `json:"path,omitempty"`
+	Heading    string  `json:"heading,omitempty"`
+	StartLine  int     `json:"startLine,omitempty"`
+	EndLine    int     `json:"endLine,omitempty"`
+	PageStart  int     `json:"pageStart,omitempty"`
+	PageEnd    int     `json:"pageEnd,omitempty"`
+	SlideStart int     `json:"slideStart,omitempty"`
+	SlideEnd   int     `json:"slideEnd,omitempty"`
+	SourceType string  `json:"sourceType,omitempty"`
+	MatchType  string  `json:"matchType,omitempty"`
 }
 
 type AwaitAsk struct {

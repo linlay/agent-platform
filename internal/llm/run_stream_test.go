@@ -22,6 +22,7 @@ import (
 	contracts "agent-platform/internal/contracts"
 	"agent-platform/internal/frontendtools"
 	"agent-platform/internal/hitl"
+	"agent-platform/internal/kbase"
 	streampkg "agent-platform/internal/stream"
 	runtimetools "agent-platform/internal/tools"
 )
@@ -1294,6 +1295,146 @@ func TestAppendPublishedArtifactDeltaUsesOnlyPublishedArtifacts(t *testing.T) {
 	}
 	if delta.Artifacts[0]["artifactId"] != "artifact_1" || delta.Artifacts[1]["artifactId"] != "artifact_2" {
 		t.Fatalf("unexpected artifacts %#v", delta.Artifacts)
+	}
+}
+
+func TestAppendKBaseSourcePublishDeltaEmitsSourcesFromTypedHits(t *testing.T) {
+	var pending []contracts.AgentDelta
+	invocation := &preparedToolInvocation{
+		toolID:   "tool_1",
+		toolName: "kbase_search",
+		args:     map[string]any{"query": "fallback"},
+	}
+
+	appendKBaseSourcePublishDelta(&pending, contracts.QuerySession{
+		RunID: "run_1",
+	}, invocation, contracts.ToolExecutionResult{
+		ExitCode: 0,
+		Structured: map[string]any{
+			"query": "policy",
+			"results": []kbase.SearchHit{
+				{
+					ChunkID:   "chunk_1",
+					Path:      "docs/policy.md",
+					Heading:   "Policy",
+					StartLine: 12,
+					EndLine:   18,
+					Snippet:   "approval policy",
+					Score:     0.9,
+					MatchType: "hybrid",
+				},
+				{
+					ChunkID:   "chunk_2",
+					Path:      "docs/policy.md",
+					StartLine: 30,
+					EndLine:   34,
+					Snippet:   "second policy hit",
+					Score:     0.7,
+					MatchType: "fts",
+				},
+			},
+		},
+	})
+
+	if len(pending) != 1 {
+		t.Fatalf("expected one delta, got %#v", pending)
+	}
+	delta, ok := pending[0].(contracts.DeltaSourcePublish)
+	if !ok {
+		t.Fatalf("expected DeltaSourcePublish, got %#v", pending[0])
+	}
+	if delta.RunID != "run_1" || delta.ToolID != "tool_1" || delta.Kind != "kbase" || delta.Query != "policy" {
+		t.Fatalf("unexpected source publish routing %#v", delta)
+	}
+	if len(delta.Sources) != 1 {
+		t.Fatalf("expected hits grouped by path, got %#v", delta.Sources)
+	}
+	source := delta.Sources[0]
+	if source.ID != "kbase:docs/policy.md" || source.Name != "policy.md" || len(source.Chunks) != 2 {
+		t.Fatalf("unexpected source payload %#v", source)
+	}
+	if source.Chunks[0].Index != 1 || source.Chunks[0].StartLine != 12 || source.Chunks[0].MatchType != "hybrid" {
+		t.Fatalf("unexpected first chunk %#v", source.Chunks[0])
+	}
+	if source.Chunks[1].Index != 2 || source.Chunks[1].StartLine != 30 || source.Chunks[1].MatchType != "fts" {
+		t.Fatalf("unexpected second chunk %#v", source.Chunks[1])
+	}
+}
+
+func TestAppendKBaseSourcePublishDeltaSkipsNonPublishableResults(t *testing.T) {
+	cases := []struct {
+		name       string
+		invocation *preparedToolInvocation
+		result     contracts.ToolExecutionResult
+	}{
+		{
+			name:       "other tool",
+			invocation: &preparedToolInvocation{toolID: "tool_1", toolName: "file_read"},
+			result: contracts.ToolExecutionResult{Structured: map[string]any{
+				"results": []kbase.SearchHit{{ChunkID: "chunk_1", Path: "docs/a.md", Snippet: "a"}},
+			}},
+		},
+		{
+			name:       "empty results",
+			invocation: &preparedToolInvocation{toolID: "tool_1", toolName: "kbase_search"},
+			result:     contracts.ToolExecutionResult{Structured: map[string]any{"results": []kbase.SearchHit{}}},
+		},
+		{
+			name:       "failed result",
+			invocation: &preparedToolInvocation{toolID: "tool_1", toolName: "kbase_search"},
+			result: contracts.ToolExecutionResult{
+				Error:    "missing_query",
+				ExitCode: -1,
+				Structured: map[string]any{
+					"results": []kbase.SearchHit{{ChunkID: "chunk_1", Path: "docs/a.md", Snippet: "a"}},
+				},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var pending []contracts.AgentDelta
+			appendKBaseSourcePublishDelta(&pending, contracts.QuerySession{RunID: "run_1"}, tc.invocation, tc.result)
+			if len(pending) != 0 {
+				t.Fatalf("expected no source delta, got %#v", pending)
+			}
+		})
+	}
+}
+
+func TestKBaseSearchHitsAcceptsJSONShapes(t *testing.T) {
+	shapes := []any{
+		[]map[string]any{
+			{
+				"chunkId":   "chunk_map",
+				"path":      "docs/map.md",
+				"startLine": 4,
+				"snippet":   "map hit",
+				"score":     "0.42",
+			},
+		},
+		[]any{
+			map[string]any{
+				"chunkId":    "chunk_any",
+				"path":       "docs/any.md",
+				"pageStart":  float64(2),
+				"pageEnd":    float64(3),
+				"sourceType": "pdf",
+				"snippet":    "any hit",
+				"score":      float64(0.8),
+			},
+		},
+	}
+
+	for _, shape := range shapes {
+		hits := kbaseSearchHits(shape)
+		if len(hits) != 1 {
+			t.Fatalf("expected one hit for %#v, got %#v", shape, hits)
+		}
+		if hits[0].ChunkID == "" || hits[0].Path == "" || hits[0].Snippet == "" || hits[0].Score <= 0 {
+			t.Fatalf("unexpected normalized hit %#v", hits[0])
+		}
 	}
 }
 

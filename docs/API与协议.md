@@ -224,6 +224,8 @@ HITL 三态细节见 [HITL协议](HITL协议.md)。真流式、heartbeat、attac
 
 KBASE API 只接受 `mode: KBASE` agent；非 KBASE agent 会返回 forbidden/unsupported。手工 refresh 与运行时工具 `kbase_refresh` 调用同一个后端入口。
 
+KBASE agent 在运行时调用 `kbase_search` 且召回到内容时，会额外通过 live stream 发布 `source.publish` 事件。事件包含 `kind: "kbase"`、`query`、`sourceCount`、`chunkCount` 与按 source 聚合的 `sources[].chunks[]`，chunk 可携带 `path`、行号、页码、slide、`sourceType`、`matchType`、`score` 等定位字段；该事件会写入 chat JSONL 的 event line 并保留 `liveSeq`，供 `/api/chat` replay 与 `/api/attach.lastSeq` 使用。
+
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
 | GET | `/api/kbase/{agentKey}/status` | 无 | 当前索引状态，包含 `indexing`、`stale`、`lastIndexedAt`、文件数、chunk 数、embedding 与 storage |

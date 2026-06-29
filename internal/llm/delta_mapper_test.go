@@ -328,3 +328,36 @@ func TestDeltaMapper_ArtifactPublishPreservesBatchPayload(t *testing.T) {
 		t.Fatalf("unexpected artifact batch %#v", event)
 	}
 }
+
+func TestDeltaMapper_SourcePublishPreservesPayload(t *testing.T) {
+	mapper := NewDeltaMapper("run_1", "chat_1", contracts.Budget{Hitl: contracts.HitlPolicy{Timeout: 5}}, stubToolLookup{}, frontendtools.NewDefaultRegistry())
+
+	inputs := mapper.Map(contracts.DeltaSourcePublish{
+		RunID:  "run_1",
+		ToolID: "tool_1",
+		Kind:   "kbase",
+		Query:  "policy",
+		Sources: []stream.Source{
+			{
+				ID:   "kbase:docs/policy.md",
+				Name: "policy.md",
+				Chunks: []stream.SourceChunk{
+					{ChunkID: "chunk_1", Index: 1, Content: "policy", StartLine: 10, EndLine: 12},
+				},
+			},
+		},
+	})
+	if len(inputs) != 1 {
+		t.Fatalf("expected one mapped input, got %#v", inputs)
+	}
+	event, ok := inputs[0].(stream.SourcePublish)
+	if !ok {
+		t.Fatalf("expected SourcePublish input, got %#v", inputs[0])
+	}
+	if event.RunID != "run_1" || event.ToolID != "tool_1" || event.Kind != "kbase" || event.Query != "policy" {
+		t.Fatalf("unexpected source publish input %#v", event)
+	}
+	if len(event.Sources) != 1 || len(event.Sources[0].Chunks) != 1 || event.Sources[0].Chunks[0].StartLine != 10 {
+		t.Fatalf("unexpected source payload %#v", event.Sources)
+	}
+}

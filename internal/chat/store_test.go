@@ -5977,6 +5977,81 @@ func TestLoadChatReplaysSourcePublishEvent(t *testing.T) {
 	}
 }
 
+func TestStepWriterPersistsSourcePublishEventLine(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	chatID := "chat-source-writer"
+	runID := "run-source-writer"
+	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	writer := NewStepWriter(store, chatID, runID, "REACT")
+	writer.OnEvent(stream.EventData{
+		Seq:       21,
+		Type:      "source.publish",
+		Timestamp: 1003,
+		Payload: map[string]any{
+			"publishId":   "src-writer",
+			"runId":       runID,
+			"kind":        "kbase",
+			"query":       "policy",
+			"sourceCount": 1,
+			"chunkCount":  1,
+			"sources": []map[string]any{
+				{
+					"id":           "kbase:docs/policy.md",
+					"name":         "policy.md",
+					"chunkIndexes": []int{1},
+					"minIndex":     1,
+					"chunks": []map[string]any{
+						{
+							"chunkId":   "chunk_1",
+							"index":     1,
+							"content":   "policy content",
+							"startLine": 12,
+							"endLine":   14,
+						},
+					},
+				},
+			},
+		},
+	})
+	writer.Flush()
+
+	lines, err := readJSONLines(store.chatJSONLPath(chatID))
+	if err != nil {
+		t.Fatalf("read jsonl: %v", err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("expected one event line, got %#v", lines)
+	}
+	if lines[0]["_type"] != "event" || int64FromAny(lines[0]["liveSeq"]) != 21 {
+		t.Fatalf("unexpected persisted event line %#v", lines[0])
+	}
+
+	detail, err := store.LoadChat(chatID)
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+	for _, event := range detail.Events {
+		if event.Type != "source.publish" {
+			continue
+		}
+		if event.String("publishId") != "src-writer" || event.String("query") != "policy" {
+			t.Fatalf("unexpected replayed source event %#v", event)
+		}
+		if int64FromAny(event.Value("liveSeq")) != 21 {
+			t.Fatalf("expected replay liveSeq=21, got %#v", event)
+		}
+		return
+	}
+	t.Fatalf("expected source.publish replay, got %#v", detail.Events)
+}
+
 func TestStepWriterBatchedArtifactPublishUpdatesArtifactState(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {

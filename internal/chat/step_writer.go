@@ -300,6 +300,10 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.updateArtifact(event)
 		w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
 
+	case "source.publish":
+		w.flushCurrentStep()
+		w.appendTypedEventLine(event, "event")
+
 	case "debug.llmChat":
 		if inner, ok := event.Value("data").(map[string]any); ok {
 			if taskID := w.taskIDForEvent(event); taskID != "" {

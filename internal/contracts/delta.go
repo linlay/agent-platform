@@ -1,5 +1,7 @@
 package contracts
 
+import "agent-platform/internal/stream"
+
 type AgentDelta interface {
 	agentDeltaTag()
 }
@@ -124,6 +126,17 @@ type DeltaArtifactPublish struct {
 }
 
 func (DeltaArtifactPublish) agentDeltaTag() {}
+
+type DeltaSourcePublish struct {
+	PublishID string
+	RunID     string
+	ToolID    string
+	Kind      string
+	Query     string
+	Sources   []stream.Source
+}
+
+func (DeltaSourcePublish) agentDeltaTag() {}
 
 type DeltaAwaitAsk struct {
 	AwaitingID   string

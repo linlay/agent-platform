@@ -240,6 +240,15 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			ArtifactCount: value.ArtifactCount,
 			Artifacts:     append([]map[string]any(nil), value.Artifacts...),
 		}}
+	case DeltaSourcePublish:
+		return []stream.StreamInput{stream.SourcePublish{
+			PublishID: value.PublishID,
+			RunID:     value.RunID,
+			ToolID:    value.ToolID,
+			Kind:      value.Kind,
+			Query:     value.Query,
+			Sources:   append([]stream.Source(nil), value.Sources...),
+		}}
 	case DeltaAwaitAsk:
 		return []stream.StreamInput{stream.AwaitAsk{
 			AwaitingID:   value.AwaitingID,
