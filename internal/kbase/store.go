@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"math"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -19,28 +20,75 @@ type Store struct {
 	db     *sql.DB
 }
 
+type sqliteOpenMode int
+
+const (
+	sqliteOpenWrite sqliteOpenMode = iota
+	sqliteOpenRead
+
+	kbaseSQLiteBusyTimeoutMS = 5000
+)
+
 func OpenStore(root string) (*Store, error) {
-	root = filepath.Clean(strings.TrimSpace(root))
+	return openStore(root, sqliteOpenWrite)
+}
+
+func OpenReadStore(root string) (*Store, error) {
+	return openStore(root, sqliteOpenRead)
+}
+
+func openStore(root string, mode sqliteOpenMode) (*Store, error) {
+	root = strings.TrimSpace(root)
 	if root == "" {
 		return nil, fmt.Errorf("kbase store root is empty")
 	}
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		return nil, err
+	root = filepath.Clean(root)
+	if mode == sqliteOpenWrite {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			return nil, err
+		}
 	}
 	store := &Store{
 		root:   root,
 		dbPath: filepath.Join(root, "kbase.db"),
 	}
-	db, err := sql.Open("sqlite", store.dbPath)
+	if mode == sqliteOpenRead {
+		if _, err := os.Stat(store.dbPath); err != nil {
+			return nil, err
+		}
+	}
+	db, err := sql.Open("sqlite", kbaseSQLiteDSN(store.dbPath, mode))
 	if err != nil {
 		return nil, err
 	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 	store.db = db
-	if err := store.initDB(); err != nil {
-		_ = db.Close()
-		return nil, err
+	if mode == sqliteOpenWrite {
+		if err := store.initDB(); err != nil {
+			_ = db.Close()
+			return nil, err
+		}
 	}
 	return store, nil
+}
+
+func kbaseSQLiteDSN(dbPath string, mode sqliteOpenMode) string {
+	path := filepath.ToSlash(dbPath)
+	if filepath.IsAbs(dbPath) && !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	uri := url.URL{Scheme: "file", Path: path}
+	query := uri.Query()
+	query.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", kbaseSQLiteBusyTimeoutMS))
+	if mode == sqliteOpenRead {
+		query.Add("_pragma", "query_only(1)")
+	} else {
+		query.Add("_pragma", "journal_mode(WAL)")
+		query.Add("_pragma", "synchronous(NORMAL)")
+	}
+	uri.RawQuery = query.Encode()
+	return uri.String()
 }
 
 func (s *Store) Close() error {
@@ -51,6 +99,9 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) initDB() error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("kbase store is not open")
+	}
 	statements := []string{
 		`CREATE TABLE IF NOT EXISTS KBASE_META (
 			KEY_ TEXT PRIMARY KEY,

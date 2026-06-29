@@ -2,13 +2,19 @@ package kbase
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
@@ -46,6 +52,467 @@ func (r stubRegistry) TeamDefinition(string) (catalog.TeamDefinition, bool) {
 	return catalog.TeamDefinition{}, false
 }
 func (r stubRegistry) Reload(context.Context, string) error { return nil }
+
+func newKBaseTestModelRegistry(t *testing.T, root string, handler http.HandlerFunc) *models.ModelRegistry {
+	t.Helper()
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	registriesDir := filepath.Join(root, "registries")
+	providersDir := filepath.Join(registriesDir, "providers")
+	if err := os.MkdirAll(providersDir, 0o755); err != nil {
+		t.Fatalf("mkdir providers: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(providersDir, "mock.yml"), []byte(strings.Join([]string{
+		"key: mock",
+		"baseUrl: " + server.URL,
+		"apiKey: test-key",
+		"embedding:",
+		"  model: mock-embedding",
+		"  dimension: 3",
+		"  timeout: 5",
+	}, "\n")), 0o644); err != nil {
+		t.Fatalf("write provider: %v", err)
+	}
+	modelRegistry, err := models.LoadModelRegistry(registriesDir)
+	if err != nil {
+		t.Fatalf("load model registry: %v", err)
+	}
+	return modelRegistry
+}
+
+func testKBaseAgent(key string, workspace string, storage string) catalog.AgentDefinition {
+	return catalog.AgentDefinition{
+		Key:       key,
+		Mode:      catalog.AgentModeKBase,
+		Workspace: catalog.AgentWorkspaceConfig{Root: workspace},
+		KBaseConfig: catalog.AgentKBaseConfig{
+			Embedding: catalog.AgentKBaseEmbeddingConfig{ProviderKey: "mock"},
+			Storage:   catalog.AgentKBaseStorageConfig{Location: storage},
+			Include:   []string{"**/*.md", "**/*.txt"},
+			Exclude:   []string{".git/**", ".kbase/**", "node_modules/**"},
+			Chunk:     catalog.AgentKBaseChunkConfig{MaxChars: 4000, OverlapChars: 600},
+			Retrieval: catalog.AgentKBaseRetrievalConfig{TopK: 5, VectorWeight: 0.7, FTSWeight: 0.3},
+		},
+	}
+}
+
+func testEmbeddingHandler(t *testing.T, requests *atomic.Int64) http.HandlerFunc {
+	t.Helper()
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/embeddings" {
+			http.NotFound(w, r)
+			return
+		}
+		if requests != nil {
+			requests.Add(1)
+		}
+		inputs := decodeEmbeddingInputs(t, r)
+		writeEmbeddingResponse(w, inputs)
+	}
+}
+
+func decodeEmbeddingInputs(t *testing.T, r *http.Request) []string {
+	t.Helper()
+	var req struct {
+		Input []string `json:"input"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		t.Fatalf("decode embedding request: %v", err)
+	}
+	return req.Input
+}
+
+func writeEmbeddingResponse(w http.ResponseWriter, inputs []string) {
+	resp := map[string]any{"data": []map[string]any{}}
+	data := resp["data"].([]map[string]any)
+	for i, text := range inputs {
+		lower := strings.ToLower(text)
+		vector := []float64{0, 0, 1}
+		if strings.Contains(lower, "alpha") {
+			vector[0] = 1
+		}
+		if strings.Contains(lower, "beta") {
+			vector[1] = 1
+		}
+		data = append(data, map[string]any{"index": i, "embedding": vector})
+	}
+	resp["data"] = data
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func recordMax(max *atomic.Int64, value int64) {
+	for {
+		current := max.Load()
+		if value <= current || max.CompareAndSwap(current, value) {
+			return
+		}
+	}
+}
+
+func waitFor(t *testing.T, timeout time.Duration, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if condition() {
+		return
+	}
+	t.Fatalf("condition not met within %s", timeout)
+}
+
+func kbaseIndexRunCount(t *testing.T, storageDir string) int {
+	t.Helper()
+	store, err := OpenReadStore(storageDir)
+	if os.IsNotExist(err) {
+		return 0
+	}
+	if err != nil {
+		t.Fatalf("open read store for run count: %v", err)
+	}
+	defer store.Close()
+	var count int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM KBASE_INDEX_RUNS`).Scan(&count); err != nil {
+		t.Fatalf("count index runs: %v", err)
+	}
+	return count
+}
+
+func TestOpenReadStoreAndManagerReadDoNotCreateMissingDB(t *testing.T) {
+	root := t.TempDir()
+	missingStore := filepath.Join(root, "missing-store")
+	store, err := OpenReadStore(missingStore)
+	if !os.IsNotExist(err) {
+		if store != nil {
+			_ = store.Close()
+		}
+		t.Fatalf("OpenReadStore missing error = %v, want os.IsNotExist", err)
+	}
+	if _, statErr := os.Stat(missingStore); !os.IsNotExist(statErr) {
+		t.Fatalf("OpenReadStore created store dir, stat err = %v", statErr)
+	}
+
+	workspace := filepath.Join(root, "docs")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	modelRegistry := newKBaseTestModelRegistry(t, root, testEmbeddingHandler(t, nil))
+	def := testKBaseAgent("docs", workspace, "runtime")
+	cfg := config.Config{}
+	cfg.Paths.KBaseDir = filepath.Join(root, "kbase")
+	manager := NewManager(cfg, stubRegistry{agents: map[string]catalog.AgentDefinition{"docs": def}}, modelRegistry)
+	storageDir := filepath.Join(cfg.Paths.KBaseDir, "docs")
+
+	status, err := manager.Status("docs")
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if !status.Stale || status.Files != 0 || status.Chunks != 0 {
+		t.Fatalf("unexpected status for missing DB: %#v", status)
+	}
+	if _, statErr := os.Stat(storageDir); !os.IsNotExist(statErr) {
+		t.Fatalf("Status created storage dir, stat err = %v", statErr)
+	}
+
+	read, err := manager.Read("docs", ReadOptions{Path: "alpha.md"})
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if read.Found || read.Path != "alpha.md" {
+		t.Fatalf("unexpected read for missing DB: %#v", read)
+	}
+	if _, statErr := os.Stat(storageDir); !os.IsNotExist(statErr) {
+		t.Fatalf("Read created storage dir, stat err = %v", statErr)
+	}
+}
+
+func TestStoreOpenModesConfigureSQLitePragmas(t *testing.T) {
+	root := t.TempDir()
+	store, err := OpenStore(root)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	var journalMode string
+	if err := store.db.QueryRow(`PRAGMA journal_mode`).Scan(&journalMode); err != nil {
+		t.Fatalf("journal mode: %v", err)
+	}
+	if !strings.EqualFold(journalMode, "wal") {
+		t.Fatalf("journal mode = %q, want wal", journalMode)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+
+	readStore, err := OpenReadStore(root)
+	if err != nil {
+		t.Fatalf("open read store: %v", err)
+	}
+	defer readStore.Close()
+	if err := readStore.SetMeta("queryOnly", "blocked"); err == nil {
+		t.Fatal("read store SetMeta succeeded, want query_only write failure")
+	}
+}
+
+func TestStoreBusyTimeoutWaitsForWriter(t *testing.T) {
+	root := t.TempDir()
+	store, err := OpenStore(root)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	if err := store.SetMeta("seed", "ready"); err != nil {
+		t.Fatalf("seed meta: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close seed store: %v", err)
+	}
+
+	holder, err := sql.Open("sqlite", kbaseSQLiteDSN(filepath.Join(root, "kbase.db"), sqliteOpenWrite))
+	if err != nil {
+		t.Fatalf("open holder: %v", err)
+	}
+	holder.SetMaxOpenConns(1)
+	holder.SetMaxIdleConns(1)
+	defer holder.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	conn, err := holder.Conn(ctx)
+	if err != nil {
+		t.Fatalf("holder conn: %v", err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		t.Fatalf("begin immediate: %v", err)
+	}
+
+	blocked := make(chan error, 1)
+	go func() {
+		waitingStore, err := OpenStore(root)
+		if err != nil {
+			blocked <- err
+			return
+		}
+		defer waitingStore.Close()
+		blocked <- waitingStore.SetMeta("blocked", "released")
+	}()
+
+	select {
+	case err := <-blocked:
+		t.Fatalf("write finished before lock release: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
+		t.Fatalf("commit holder: %v", err)
+	}
+	select {
+	case err := <-blocked:
+		if err != nil {
+			t.Fatalf("waiting write failed: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("waiting write did not finish after lock release")
+	}
+
+	verify, err := OpenReadStore(root)
+	if err != nil {
+		t.Fatalf("open verify: %v", err)
+	}
+	defer verify.Close()
+	if got := verify.Meta("blocked"); got != "released" {
+		t.Fatalf("blocked meta = %q, want released", got)
+	}
+}
+
+func TestManagerConcurrentSearchDuringRefreshDoesNotReturnBusy(t *testing.T) {
+	var embeddingRequests atomic.Int64
+	root := t.TempDir()
+	modelRegistry := newKBaseTestModelRegistry(t, root, testEmbeddingHandler(t, &embeddingRequests))
+	workspace := filepath.Join(root, "docs")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "alpha.md"), []byte("# Alpha\nalpha overview"), 0o644); err != nil {
+		t.Fatalf("write alpha: %v", err)
+	}
+	def := testKBaseAgent("docs", workspace, "runtime")
+	cfg := config.Config{}
+	cfg.Paths.KBaseDir = filepath.Join(root, "kbase")
+	manager := NewManager(cfg, stubRegistry{agents: map[string]catalog.AgentDefinition{"docs": def}}, modelRegistry)
+	if _, err := manager.Refresh(context.Background(), "docs", RefreshOptions{Mode: "initial"}); err != nil {
+		t.Fatalf("initial refresh: %v", err)
+	}
+	for i := 0; i < 20; i++ {
+		path := filepath.Join(workspace, "new-"+strconv.Itoa(i)+".md")
+		if err := os.WriteFile(path, []byte("alpha beta concurrent refresh material"), 0o644); err != nil {
+			t.Fatalf("write new doc: %v", err)
+		}
+	}
+
+	start := make(chan struct{})
+	errs := make(chan error, 32)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		<-start
+		_, err := manager.Refresh(context.Background(), "docs", RefreshOptions{Mode: "manual"})
+		errs <- err
+	}()
+	for i := 0; i < 30; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_, err := manager.Search(ctx, "docs", "alpha", SearchOptions{Limit: 5})
+			errs <- err
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent search/refresh error: %v", err)
+		}
+	}
+}
+
+func TestManagerRefreshSerializesSharedStorageDir(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "docs")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "alpha.md"), []byte("# Alpha\nalpha shared storage"), 0o644); err != nil {
+		t.Fatalf("write alpha: %v", err)
+	}
+
+	var active atomic.Int64
+	var maxActive atomic.Int64
+	var calls atomic.Int64
+	firstStarted := make(chan struct{})
+	release := make(chan struct{})
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/embeddings" {
+			http.NotFound(w, r)
+			return
+		}
+		call := calls.Add(1)
+		if call == 1 {
+			close(firstStarted)
+		}
+		current := active.Add(1)
+		recordMax(&maxActive, current)
+		defer active.Add(-1)
+		<-release
+		inputs := decodeEmbeddingInputs(t, r)
+		writeEmbeddingResponse(w, inputs)
+	}
+	modelRegistry := newKBaseTestModelRegistry(t, root, handler)
+	defA := testKBaseAgent("docs_a", workspace, "workspace")
+	defB := testKBaseAgent("docs_b", workspace, "workspace")
+	cfg := config.Config{}
+	cfg.Paths.KBaseDir = filepath.Join(root, "kbase")
+	manager := NewManager(cfg, stubRegistry{agents: map[string]catalog.AgentDefinition{
+		"docs_a": defA,
+		"docs_b": defB,
+	}}, modelRegistry)
+
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	var wg sync.WaitGroup
+	for _, key := range []string{"docs_a", "docs_b"} {
+		agentKey := key
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := manager.Refresh(context.Background(), agentKey, RefreshOptions{Mode: "manual"})
+			errs <- err
+		}()
+	}
+	close(start)
+	select {
+	case <-firstStarted:
+	case <-time.After(2 * time.Second):
+		close(release)
+		t.Fatal("first embedding request did not start")
+	}
+	time.Sleep(150 * time.Millisecond)
+	close(release)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("shared storage refresh failed: %v", err)
+		}
+	}
+	if got := maxActive.Load(); got > 1 {
+		t.Fatalf("shared storage refreshes overlapped embedding work, max active = %d", got)
+	}
+}
+
+func TestManagerStaleSearchQueuesSingleRefresh(t *testing.T) {
+	var embeddingRequests atomic.Int64
+	root := t.TempDir()
+	modelRegistry := newKBaseTestModelRegistry(t, root, testEmbeddingHandler(t, &embeddingRequests))
+	workspace := filepath.Join(root, "docs")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "alpha.md"), []byte("# Alpha\nalpha queued refresh"), 0o644); err != nil {
+		t.Fatalf("write alpha: %v", err)
+	}
+	def := testKBaseAgent("docs", workspace, "runtime")
+	cfg := config.Config{}
+	cfg.Paths.KBaseDir = filepath.Join(root, "kbase")
+	manager := NewManager(cfg, stubRegistry{agents: map[string]catalog.AgentDefinition{"docs": def}}, modelRegistry)
+	storageDir := filepath.Join(cfg.Paths.KBaseDir, "docs")
+
+	start := make(chan struct{})
+	errs := make(chan error, 8)
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			result, err := manager.Search(context.Background(), "docs", "alpha", SearchOptions{Limit: 3})
+			if err == nil && (!result.Stale || result.Count != 0) {
+				err = fmt.Errorf("unexpected missing-index search result: %#v", result)
+			}
+			errs <- err
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("stale search error: %v", err)
+		}
+	}
+
+	waitFor(t, 3*time.Second, func() bool {
+		status, err := manager.Status("docs")
+		if err != nil || status.Stale || status.Files != 1 {
+			return false
+		}
+		return kbaseIndexRunCount(t, storageDir) == 1 && embeddingRequests.Load() == 1
+	})
+	time.Sleep(150 * time.Millisecond)
+	if got := kbaseIndexRunCount(t, storageDir); got != 1 {
+		t.Fatalf("index run count = %d, want one queued refresh", got)
+	}
+	if got := embeddingRequests.Load(); got != 1 {
+		t.Fatalf("embedding request count = %d, want 1", got)
+	}
+}
 
 func TestManagerRefreshSearchReadAndIgnoreKBaseDir(t *testing.T) {
 	embeddingServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

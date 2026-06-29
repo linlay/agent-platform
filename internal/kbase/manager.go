@@ -22,20 +22,24 @@ type Manager struct {
 	registry catalog.Registry
 	models   *models.ModelRegistry
 
-	mu       sync.Mutex
-	locks    map[string]*sync.Mutex
-	watchers map[string]*runtimewatch.Watcher
-	running  map[string]bool
+	mu             sync.Mutex
+	locks          map[string]*sync.Mutex
+	watchers       map[string]*runtimewatch.Watcher
+	running        map[string]bool
+	storageRunning map[string]bool
+	storageQueued  map[string]bool
 }
 
 func NewManager(cfg config.Config, registry catalog.Registry, modelRegistry *models.ModelRegistry) *Manager {
 	return &Manager{
-		cfg:      cfg,
-		registry: registry,
-		models:   modelRegistry,
-		locks:    map[string]*sync.Mutex{},
-		watchers: map[string]*runtimewatch.Watcher{},
-		running:  map[string]bool{},
+		cfg:            cfg,
+		registry:       registry,
+		models:         modelRegistry,
+		locks:          map[string]*sync.Mutex{},
+		watchers:       map[string]*runtimewatch.Watcher{},
+		running:        map[string]bool{},
+		storageRunning: map[string]bool{},
+		storageQueued:  map[string]bool{},
 	}
 }
 
@@ -156,11 +160,12 @@ func (m *Manager) Refresh(ctx context.Context, agentKey string, options RefreshO
 	if err != nil {
 		return RefreshResult{AgentKey: agentKey, Status: "failed", Error: err.Error()}, err
 	}
-	lock := m.agentLock(cfg.AgentKey)
+	storageKey := storageLockKey(cfg.StorageDir)
+	lock := m.storageLock(storageKey)
 	lock.Lock()
 	defer lock.Unlock()
-	m.setRunning(cfg.AgentKey, true)
-	defer m.setRunning(cfg.AgentKey, false)
+	m.setRunning(cfg.AgentKey, storageKey, true)
+	defer m.setRunning(cfg.AgentKey, storageKey, false)
 
 	store, err := OpenStore(cfg.StorageDir)
 	if err != nil {
@@ -203,10 +208,10 @@ func (m *Manager) Status(agentKey string) (Status, error) {
 		StorageDir:      cfg.StorageDir,
 		WorkspaceRoot:   cfg.WorkspaceRoot,
 		Embedding:       cfg.Embedding,
-		Indexing:        m.isRunning(cfg.AgentKey),
+		Indexing:        m.isIndexing(cfg.AgentKey, cfg.StorageDir),
 		ConfigHash:      cfg.ConfigHash,
 	}
-	store, err := OpenStore(cfg.StorageDir)
+	store, err := OpenReadStore(cfg.StorageDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			status.Stale = true
@@ -243,13 +248,6 @@ func (m *Manager) Search(ctx context.Context, agentKey string, query string, opt
 		return SearchResult{}, err
 	}
 	status, statusErr := m.Status(agentKey)
-	if statusErr == nil && status.Stale && !status.Indexing {
-		go func() {
-			if _, err := m.Refresh(context.Background(), cfg.AgentKey, RefreshOptions{Mode: "search"}); err != nil {
-				log.Printf("[kbase] search refresh failed agent=%s: %v", cfg.AgentKey, err)
-			}
-		}()
-	}
 	limit := options.Limit
 	if limit <= 0 {
 		limit = cfg.Retrieval.TopK
@@ -260,8 +258,21 @@ func (m *Manager) Search(ctx context.Context, agentKey string, query string, opt
 	if limit > 50 {
 		limit = 50
 	}
-	store, err := OpenStore(cfg.StorageDir)
+	store, err := OpenReadStore(cfg.StorageDir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			if statusErr == nil && status.Stale {
+				m.queueRefresh(cfg.AgentKey, cfg.StorageDir, "search")
+			}
+			return SearchResult{
+				AgentKey: cfg.AgentKey,
+				Query:    query,
+				Count:    0,
+				Results:  nil,
+				Stale:    true,
+				Indexing: statusErr == nil && status.Indexing,
+			}, nil
+		}
 		return SearchResult{}, err
 	}
 	defer store.Close()
@@ -323,14 +334,18 @@ func (m *Manager) Search(ctx context.Context, agentKey string, query string, opt
 		})
 	}
 	hits = sortedSearchHits(hits, limit)
-	return SearchResult{
+	result := SearchResult{
 		AgentKey: cfg.AgentKey,
 		Query:    query,
 		Count:    len(hits),
 		Results:  hits,
 		Stale:    statusErr == nil && status.Stale,
 		Indexing: statusErr == nil && status.Indexing,
-	}, nil
+	}
+	if result.Stale && !result.Indexing {
+		m.queueRefresh(cfg.AgentKey, cfg.StorageDir, "search")
+	}
+	return result, nil
 }
 
 func (m *Manager) Read(agentKey string, options ReadOptions) (ReadResult, error) {
@@ -338,18 +353,26 @@ func (m *Manager) Read(agentKey string, options ReadOptions) (ReadResult, error)
 	if err != nil {
 		return ReadResult{}, err
 	}
-	store, err := OpenStore(cfg.StorageDir)
+	chunkID := strings.TrimSpace(options.ChunkID)
+	path := filepath.ToSlash(strings.TrimSpace(options.Path))
+	if chunkID == "" && path == "" {
+		return ReadResult{}, fmt.Errorf("chunkId or path is required")
+	}
+	store, err := OpenReadStore(cfg.StorageDir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return ReadResult{Found: false, ChunkID: chunkID, Path: path}, nil
+		}
 		return ReadResult{}, err
 	}
 	defer store.Close()
-	if strings.TrimSpace(options.ChunkID) != "" {
-		chunk, err := store.ReadChunk(strings.TrimSpace(options.ChunkID))
+	if chunkID != "" {
+		chunk, err := store.ReadChunk(chunkID)
 		if err != nil || chunk == nil {
 			if err != nil {
 				return ReadResult{}, err
 			}
-			return ReadResult{Found: false, ChunkID: options.ChunkID}, nil
+			return ReadResult{Found: false, ChunkID: chunkID}, nil
 		}
 		return ReadResult{
 			Found:      true,
@@ -365,10 +388,6 @@ func (m *Manager) Read(agentKey string, options ReadOptions) (ReadResult, error)
 			SourceType: chunk.SourceType,
 			Content:    chunk.Content,
 		}, nil
-	}
-	path := filepath.ToSlash(strings.TrimSpace(options.Path))
-	if path == "" {
-		return ReadResult{}, fmt.Errorf("chunkId or path is required")
 	}
 	result, err := store.ReadPath(path, options.Offset, options.Limit)
 	if err != nil {
@@ -443,31 +462,73 @@ func (m *Manager) resolve(agentKey string) (resolvedConfig, *Embedder, error) {
 	return cfg, NewEmbedder(baseURL, provider.APIKey, embedding.Model, embedding.Dimension, embedding.Timeout), nil
 }
 
-func (m *Manager) agentLock(agentKey string) *sync.Mutex {
+func (m *Manager) storageLock(storageKey string) *sync.Mutex {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	lock := m.locks[agentKey]
+	lock := m.locks[storageKey]
 	if lock == nil {
 		lock = &sync.Mutex{}
-		m.locks[agentKey] = lock
+		m.locks[storageKey] = lock
 	}
 	return lock
 }
 
-func (m *Manager) setRunning(agentKey string, running bool) {
+func (m *Manager) setRunning(agentKey string, storageKey string, running bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if running {
 		m.running[agentKey] = true
+		m.storageRunning[storageKey] = true
 	} else {
 		delete(m.running, agentKey)
+		delete(m.storageRunning, storageKey)
 	}
 }
 
-func (m *Manager) isRunning(agentKey string) bool {
+func (m *Manager) isIndexing(agentKey string, storageDir string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.running[agentKey]
+	storageKey := storageLockKey(storageDir)
+	return m.running[agentKey] || m.storageRunning[storageKey] || m.storageQueued[storageKey]
+}
+
+func (m *Manager) queueRefresh(agentKey string, storageDir string, mode string) {
+	storageKey := storageLockKey(storageDir)
+	m.mu.Lock()
+	if m.storageRunning[storageKey] || m.storageQueued[storageKey] {
+		m.mu.Unlock()
+		return
+	}
+	m.storageQueued[storageKey] = true
+	m.mu.Unlock()
+
+	go func() {
+		defer m.setStorageQueued(storageKey, false)
+		if _, err := m.Refresh(context.Background(), agentKey, RefreshOptions{Mode: mode}); err != nil {
+			log.Printf("[kbase] %s refresh failed agent=%s: %v", mode, agentKey, err)
+		}
+	}()
+}
+
+func (m *Manager) setStorageQueued(storageKey string, queued bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if queued {
+		m.storageQueued[storageKey] = true
+	} else {
+		delete(m.storageQueued, storageKey)
+	}
+}
+
+func storageLockKey(storageDir string) string {
+	storageDir = filepath.Clean(strings.TrimSpace(storageDir))
+	if storageDir == "." || storageDir == "" {
+		return storageDir
+	}
+	if abs, err := filepath.Abs(storageDir); err == nil {
+		return abs
+	}
+	return storageDir
 }
 
 func firstNonBlank(values ...string) string {
