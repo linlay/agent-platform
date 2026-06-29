@@ -470,7 +470,7 @@ type RunConfig struct {
 	MaxBackgroundDuration int64 // seconds
 	CompletedRetention    int64 // seconds
 	EventBusMaxEvents     int
-	MaxDisconnectedWait   int64 // seconds
+	MaxDisconnectedWait   int64 // deprecated; kept for config compatibility
 	MaxObserversPerRun    int
 }
 

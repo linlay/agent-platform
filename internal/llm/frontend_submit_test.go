@@ -227,6 +227,7 @@ func TestFrontendSubmitCoordinatorAwait_TimeoutReturnsCompactStructuredError(t *
 
 func TestFrontendSubmitCoordinatorAwait_UsesAwaitingAskTimeoutOverToolBudget(t *testing.T) {
 	control := contracts.NewRunControl(context.Background(), "run_1")
+	control.SetObserverCount(0)
 	control.ExpectSubmit(contracts.AwaitingSubmitContext{
 		AwaitingID: "tool_1",
 		Mode:       "question",

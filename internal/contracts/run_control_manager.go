@@ -30,7 +30,6 @@ type InMemoryRunManager struct {
 	maxBackgroundDuration time.Duration
 	completedRetention    time.Duration
 	eventBusMaxEvents     int
-	maxDisconnectedWait   time.Duration
 	maxObserversPerRun    int
 }
 
@@ -42,7 +41,6 @@ func NewInMemoryRunManager() *InMemoryRunManager {
 		maxBackgroundDuration: defaultRunMaxBackgroundDuration,
 		completedRetention:    defaultRunCompletedRetention,
 		eventBusMaxEvents:     defaultRunEventBusMaxEvents,
-		maxDisconnectedWait:   defaultRunMaxDisconnectedWait,
 		maxObserversPerRun:    defaultRunMaxObserversPerRun,
 	}
 }
@@ -63,7 +61,6 @@ func (m *InMemoryRunManager) ConfigureRunLifecycle(cfg config.RunConfig) {
 	if cfg.EventBusMaxEvents > 0 {
 		m.eventBusMaxEvents = cfg.EventBusMaxEvents
 	}
-	m.maxDisconnectedWait = time.Duration(cfg.MaxDisconnectedWait) * time.Second
 	if cfg.MaxObserversPerRun > 0 {
 		m.maxObserversPerRun = cfg.MaxObserversPerRun
 	}
@@ -110,7 +107,6 @@ func (m *InMemoryRunManager) RegisterExclusiveForChat(_ context.Context, session
 
 func (m *InMemoryRunManager) registerLocked(session QuerySession) (context.Context, *RunControl, ActiveRun) {
 	control := NewRunControl(context.Background(), session.RunID)
-	control.SetMaxDisconnectedWait(m.maxDisconnectedWait)
 	control.SetInitialAccessLevel(session.AccessLevel)
 	run := ActiveRun{RunID: session.RunID, ChatID: session.ChatID, AgentKey: session.AgentKey}
 	eventBus := stream.NewRunEventBus(m.eventBusMaxEvents, m.maxObserversPerRun, func(count int) {
@@ -385,12 +381,6 @@ func (m *InMemoryRunManager) reapExpiredRuns() {
 			}
 			continue
 		}
-		if state.eventBus.ObserverCount() > 0 {
-			continue
-		}
-		if state.control != nil && state.control.HasNoTimeoutAwaiting() {
-			continue
-		}
 		if m.maxBackgroundDuration > 0 && now.Sub(state.startedAt) > m.maxBackgroundDuration {
 			toInterrupt = append(toInterrupt, state)
 		}
@@ -420,7 +410,7 @@ func (m *InMemoryRunManager) reapExpiredRuns() {
 		if !state.control.Interrupt(InterruptInfo{
 			Source: InterruptSourceReaper,
 			Reason: InterruptReasonRunExpired,
-			Detail: "run expired while detached from observers",
+			Detail: "run exceeded max background duration",
 			ChatID: state.run.ChatID,
 		}) {
 			log.Printf("[runctl] reaper skip interrupt run=%s state=%s", state.run.RunID, state.control.State())

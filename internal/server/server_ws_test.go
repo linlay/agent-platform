@@ -955,6 +955,132 @@ func TestWebSocketDetachReleasesRunObserverWithoutFinishingRun(t *testing.T) {
 	waitForObserverCount(t, runs, runID, 1, 2*time.Second)
 }
 
+func TestWebSocketDetachedAwaitingQuestionTimesOutAndReplays(t *testing.T) {
+	var providerCallCount atomic.Int32
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		switch call := providerCallCount.Add(1); call {
+		case 1:
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"ask_user_question","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Need confirmation\",\"type\":\"select\",\"options\":[{\"label\":\"Approve\",\"description\":\"Continue with the request\"}],\"allowFreeText\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`[DONE]`,
+			)
+		case 2:
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"content":"final answer"},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+		default:
+			t.Fatalf("unexpected provider call %d", call)
+		}
+	}, testFixtureOptions{
+		sandbox:       &recordingSandbox{},
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.Defaults.Budget.Hitl.Timeout = 1
+			cfg.WebSocket.WriteQueueSize = 16
+			cfg.WebSocket.PingInterval = 30000
+		},
+		setupRuntime: func(_ string, cfg *config.Config) {
+			agentPath := filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml")
+			if err := os.WriteFile(agentPath, []byte(strings.Join([]string{
+				"key: mock-agent",
+				"name: Mock Agent",
+				"role: 测试代理",
+				"description: test agent",
+				"modelConfig:",
+				"  modelKey: mock-model",
+				"toolConfig:",
+				"  tools:",
+				"    - ask_user_question",
+				"mode: REACT",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write helper agent config: %v", err)
+			}
+		},
+	})
+
+	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	server := httptest.NewServer(fixture.server)
+	defer server.Close()
+
+	conn, _, err := gws.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/ws", nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+	readConnectedPush(t, conn)
+
+	queryID := "req_query_detached_timeout"
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/query",
+		ID:    queryID,
+		Payload: ws.MarshalPayload(map[string]any{
+			"agentKey": "mock-agent",
+			"chatId":   "chat_ws_detached_timeout",
+			"message":  "please confirm first",
+		}),
+	}); err != nil {
+		t.Fatalf("write websocket query: %v", err)
+	}
+
+	awaitAsk := waitForWebSocketStreamEvent(t, conn, queryID, "awaiting.ask")
+	runID := awaitAsk.Event.String("runId")
+	awaitingID := awaitAsk.Event.String("awaitingId")
+	if runID == "" || awaitingID == "" {
+		t.Fatalf("expected awaiting identifiers, got %#v", awaitAsk.Event)
+	}
+	if timeout, ok := awaitAsk.Event.Value("timeout").(float64); !ok || timeout != 1 {
+		t.Fatalf("expected awaiting.ask timeout 1, got %#v", awaitAsk.Event.Payload)
+	}
+	waitForObserverCount(t, runs, runID, 1, 2*time.Second)
+
+	detachID := "req_detach_timeout"
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/detach",
+		ID:    detachID,
+		Payload: ws.MarshalPayload(map[string]any{
+			"agentKey": "mock-agent",
+			"runId":    runID,
+			"reason":   "test_detach_before_timeout",
+		}),
+	}); err != nil {
+		t.Fatalf("write detach request: %v", err)
+	}
+	detachResp, terminal := waitForWebSocketDetachFrames(t, conn, detachID, queryID)
+	if !detachResp.Accepted || detachResp.RunID != runID || terminal.Reason != "detached" {
+		t.Fatalf("unexpected detach frames response=%#v terminal=%#v", detachResp, terminal)
+	}
+	waitForObserverCount(t, runs, runID, 0, 2*time.Second)
+	waitForRunCompleted(t, runs, runID, 4*time.Second)
+
+	attachID := "req_attach_timeout_replay"
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/attach",
+		ID:    attachID,
+		Payload: ws.MarshalPayload(map[string]any{
+			"agentKey": "mock-agent",
+			"runId":    runID,
+			"lastSeq":  int64(0),
+		}),
+	}); err != nil {
+		t.Fatalf("write replay attach request: %v", err)
+	}
+	awaitAnswer := waitForWebSocketStreamEvent(t, conn, attachID, "awaiting.answer")
+	if awaitAnswer.Event.String("awaitingId") != awaitingID {
+		t.Fatalf("expected timeout answer for awaiting %s, got %#v", awaitingID, awaitAnswer.Event)
+	}
+	if awaitAnswer.Event.String("status") != "error" {
+		t.Fatalf("expected error awaiting.answer, got %#v", awaitAnswer.Event)
+	}
+	errorPayload, _ := awaitAnswer.Event.Value("error").(map[string]any)
+	if errorPayload["code"] != "timeout" {
+		t.Fatalf("expected timeout error payload, got %#v", awaitAnswer.Event)
+	}
+}
+
 func TestWebSocketPushAwaitingAskAndAnswerSyncPendingChatSummary(t *testing.T) {
 	flow := startAwaitingPushQuestionFlow(t, nil)
 	defer flow.conn.Close()
@@ -1627,6 +1753,56 @@ func collectWebSocketEventsUntilPlanningApproval(t *testing.T, conn *gws.Conn, r
 	}
 	t.Fatalf("timed out waiting for websocket planning confirmation for %s", requestID)
 	return nil, "", ""
+}
+
+func waitForWebSocketStreamEvent(t *testing.T, conn *gws.Conn, requestID string, eventType string) ws.StreamFrame {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			t.Fatalf("set websocket read deadline: %v", err)
+		}
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("read websocket message: %v", err)
+		}
+		var meta struct {
+			Frame  string `json:"frame"`
+			ID     string `json:"id"`
+			Reason string `json:"reason"`
+		}
+		if err := json.Unmarshal(raw, &meta); err != nil {
+			t.Fatalf("decode websocket frame: %v", err)
+		}
+		if meta.Frame != ws.FrameStream || meta.ID != requestID {
+			continue
+		}
+		var frame ws.StreamFrame
+		if err := json.Unmarshal(raw, &frame); err != nil {
+			t.Fatalf("decode websocket stream frame: %v", err)
+		}
+		if frame.Event != nil && frame.Event.Type == eventType {
+			return frame
+		}
+		if frame.Reason != "" {
+			t.Fatalf("stream %s ended before event %s: %#v", requestID, eventType, frame)
+		}
+	}
+	t.Fatalf("timed out waiting for websocket stream event %s on %s", eventType, requestID)
+	return ws.StreamFrame{}
+}
+
+func waitForRunCompleted(t *testing.T, runs *contracts.InMemoryRunManager, runID string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		status, ok := runs.RunStatus(runID)
+		if ok && status.CompletedAt != 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for run %s to complete", runID)
 }
 
 func collectWebSocketStreamEventTypes(t *testing.T, conn *gws.Conn, requestID string) []string {

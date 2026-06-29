@@ -23,7 +23,7 @@ HTTP query
 
 从 `/api/chat` 冷启动恢复 active run 时，客户端应使用 `activeRun.lastSeq` 作为 attach 游标。该值来自本次 chat detail 已返回历史 events 的 `liveSeq` 覆盖边界；`liveSeq` 由 `chatId.jsonl` 每行顶层字段 replay 注入，不是内存 event bus 的最新 seq。
 
-WebSocket 客户端切换 current chat 时，应对旧 chat 的 active run 发送 `/api/detach`，关闭当前 WS 连接上的 live stream observer；新 chat 打开后再按需 `/api/attach`。detach 只释放 UI 订阅流，不中断后台 run。HTTP/SSE 不新增 detach endpoint，仍由客户端关闭 EventSource 或 fetch stream。
+WebSocket 客户端切换 current chat 时，应对旧 chat 的 active run 发送 `/api/detach`，关闭当前 WS 连接上的 live stream observer；新 chat 打开后再按需 `/api/attach`。detach 只释放 UI 订阅流，不中断后台 run，也不会暂停 HITL / awaiting timeout。HTTP/SSE 不新增 detach endpoint，仍由客户端关闭 EventSource 或 fetch stream。
 
 ## 配置与接口
 

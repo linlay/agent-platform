@@ -82,119 +82,64 @@ func TestRunControlInterruptInfoPreservesFirstCause(t *testing.T) {
 	}
 }
 
-func TestRunControlAwaitSubmitPausesTimeoutWithoutObserver(t *testing.T) {
+func TestRunControlAwaitSubmitTimeoutUsesWallClockWithoutObserver(t *testing.T) {
 	control := NewRunControl(context.Background(), "run_1")
 	control.SetMaxDisconnectedWait(500 * time.Millisecond)
 	control.SetObserverCount(1)
 	control.ExpectSubmit(testAwaitingContext("await_1"))
 
-	resultCh := make(chan SubmitResult, 1)
 	errCh := make(chan error, 1)
+	startedAt := time.Now()
 	go func() {
-		result, err := control.AwaitSubmitWithTimeout(context.Background(), "await_1", 120*time.Millisecond)
-		if err != nil {
-			errCh <- err
-			return
-		}
-		resultCh <- result
+		_, err := control.AwaitSubmitWithTimeout(context.Background(), "await_1", 120*time.Millisecond)
+		errCh <- err
 	}()
 
 	time.Sleep(40 * time.Millisecond)
 	control.SetObserverCount(0)
-	time.Sleep(150 * time.Millisecond)
-	control.SetObserverCount(1)
+
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("expected deadline exceeded, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for submit timeout")
+	}
+	if elapsed := time.Since(startedAt); elapsed < 100*time.Millisecond || elapsed > 500*time.Millisecond {
+		t.Fatalf("expected wall-clock timeout near configured window, elapsed=%s", elapsed)
+	}
 
 	ack := control.ResolveSubmit(api.SubmitRequest{
 		RunID:      "run_1",
 		AwaitingID: "await_1",
 		Params:     testSubmitParams(t, []map[string]any{{"id": "q1", "answer": "ok"}}),
 	})
-	if !ack.Accepted {
-		t.Fatalf("expected submit to be accepted, got %#v", ack)
-	}
-
-	select {
-	case err := <-errCh:
-		t.Fatalf("expected paused timeout to survive disconnect, got %v", err)
-	case result := <-resultCh:
-		if result.Request.AwaitingID != "await_1" {
-			t.Fatalf("unexpected result: %#v", result)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatalf("timed out waiting for submit result")
+	if ack.Accepted || ack.Status != "unmatched" {
+		t.Fatalf("expected late submit after timeout to be unmatched, got %#v", ack)
 	}
 }
 
-func TestRunControlAwaitSubmitHonorsMaxDisconnectedWait(t *testing.T) {
+func TestRunControlAwaitSubmitIgnoresMaxDisconnectedWait(t *testing.T) {
 	control := NewRunControl(context.Background(), "run_1")
-	control.SetMaxDisconnectedWait(80 * time.Millisecond)
+	control.SetMaxDisconnectedWait(20 * time.Millisecond)
 	control.SetObserverCount(0)
 	control.ExpectSubmit(testAwaitingContext("await_1"))
 
 	startedAt := time.Now()
-	_, err := control.AwaitSubmitWithTimeout(context.Background(), "await_1", time.Second)
+	_, err := control.AwaitSubmitWithTimeout(context.Background(), "await_1", 150*time.Millisecond)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("expected deadline exceeded, got %v", err)
 	}
-	if elapsed := time.Since(startedAt); elapsed < 60*time.Millisecond || elapsed > 500*time.Millisecond {
-		t.Fatalf("expected disconnect timeout to fire near configured window, elapsed=%s", elapsed)
+	if elapsed := time.Since(startedAt); elapsed < 120*time.Millisecond || elapsed > 600*time.Millisecond {
+		t.Fatalf("expected submit timeout to ignore disconnected wait, elapsed=%s", elapsed)
 	}
 }
 
-func TestRunControlAwaitSubmitDefaultDisconnectedWaitIsForever(t *testing.T) {
+func TestRunControlAwaitSubmitNoTimeoutRemainsInfiniteWithoutObserver(t *testing.T) {
 	control := NewRunControl(context.Background(), "run_1")
 	control.SetObserverCount(0)
 	control.ExpectSubmit(testAwaitingContext("await_1"))
-
-	resultCh := make(chan SubmitResult, 1)
-	errCh := make(chan error, 1)
-	go func() {
-		result, err := control.AwaitSubmitWithTimeout(context.Background(), "await_1", time.Second)
-		if err != nil {
-			errCh <- err
-			return
-		}
-		resultCh <- result
-	}()
-
-	select {
-	case err := <-errCh:
-		t.Fatalf("did not expect disconnected wait to expire by default: %v", err)
-	case result := <-resultCh:
-		t.Fatalf("did not expect awaiting to resolve before submit: %#v", result)
-	case <-time.After(80 * time.Millisecond):
-	}
-
-	ack := control.ResolveSubmit(api.SubmitRequest{
-		RunID:      "run_1",
-		AwaitingID: "await_1",
-		Params:     testSubmitParams(t, []map[string]any{{"id": "q1", "answer": "ok"}}),
-	})
-	if !ack.Accepted {
-		t.Fatalf("expected submit to be accepted after disconnected wait, got %#v", ack)
-	}
-	select {
-	case err := <-errCh:
-		t.Fatalf("expected submit result, got err %v", err)
-	case result := <-resultCh:
-		if result.Request.AwaitingID != "await_1" {
-			t.Fatalf("unexpected result: %#v", result)
-		}
-	case <-time.After(time.Second):
-		t.Fatalf("timed out waiting for submit result")
-	}
-}
-
-func TestRunControlAwaitSubmitNoTimeoutIgnoresDisconnectedWait(t *testing.T) {
-	control := NewRunControl(context.Background(), "run_1")
-	control.SetMaxDisconnectedWait(20 * time.Millisecond)
-	control.SetObserverCount(0)
-	control.ExpectSubmit(AwaitingSubmitContext{
-		AwaitingID: "await_1",
-		Mode:       "approval",
-		ItemCount:  1,
-		NoTimeout:  true,
-	})
 
 	resultCh := make(chan SubmitResult, 1)
 	errCh := make(chan error, 1)
@@ -209,7 +154,57 @@ func TestRunControlAwaitSubmitNoTimeoutIgnoresDisconnectedWait(t *testing.T) {
 
 	select {
 	case err := <-errCh:
-		t.Fatalf("did not expect no-timeout awaiting to expire while disconnected: %v", err)
+		t.Fatalf("did not expect timeout=0 wait to expire: %v", err)
+	case result := <-resultCh:
+		t.Fatalf("did not expect awaiting to resolve before submit: %#v", result)
+	case <-time.After(80 * time.Millisecond):
+	}
+
+	ack := control.ResolveSubmit(api.SubmitRequest{
+		RunID:      "run_1",
+		AwaitingID: "await_1",
+		Params:     testSubmitParams(t, []map[string]any{{"id": "q1", "answer": "ok"}}),
+	})
+	if !ack.Accepted {
+		t.Fatalf("expected submit to be accepted for no-timeout wait, got %#v", ack)
+	}
+	select {
+	case err := <-errCh:
+		t.Fatalf("expected submit result, got err %v", err)
+	case result := <-resultCh:
+		if result.Request.AwaitingID != "await_1" {
+			t.Fatalf("unexpected result: %#v", result)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for submit result")
+	}
+}
+
+func TestRunControlAwaitSubmitNoTimeoutFlagIgnoresConfiguredTimeout(t *testing.T) {
+	control := NewRunControl(context.Background(), "run_1")
+	control.SetMaxDisconnectedWait(20 * time.Millisecond)
+	control.SetObserverCount(0)
+	control.ExpectSubmit(AwaitingSubmitContext{
+		AwaitingID: "await_1",
+		Mode:       "approval",
+		ItemCount:  1,
+		NoTimeout:  true,
+	})
+
+	resultCh := make(chan SubmitResult, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		result, err := control.AwaitSubmitWithTimeout(context.Background(), "await_1", 40*time.Millisecond)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		resultCh <- result
+	}()
+
+	select {
+	case err := <-errCh:
+		t.Fatalf("did not expect no-timeout awaiting to expire: %v", err)
 	case result := <-resultCh:
 		t.Fatalf("did not expect awaiting to resolve before submit: %#v", result)
 	case <-time.After(80 * time.Millisecond):
@@ -221,7 +216,7 @@ func TestRunControlAwaitSubmitNoTimeoutIgnoresDisconnectedWait(t *testing.T) {
 		Params:     testSubmitParams(t, []map[string]any{{"id": "confirm", "decision": "approve"}}),
 	})
 	if !ack.Accepted {
-		t.Fatalf("expected submit to be accepted after disconnected wait, got %#v", ack)
+		t.Fatalf("expected submit to be accepted for no-timeout awaiting, got %#v", ack)
 	}
 	select {
 	case err := <-errCh:
@@ -430,6 +425,13 @@ func TestInMemoryRunManagerReaperPublishesExpiredRunErrorBeforeInterrupt(t *test
 	manager.runs["run_expired"].startedAt = time.Now().Add(-time.Second)
 	manager.mu.Unlock()
 
+	observer, err := eventBus.Subscribe(0)
+	if err != nil {
+		t.Fatalf("subscribe replay: %v", err)
+	}
+	defer eventBus.Unsubscribe(observer.ID)
+
+	first := mustReadEvent(t, observer.Events)
 	manager.reapExpiredRuns()
 
 	if !control.Interrupted() {
@@ -443,13 +445,6 @@ func TestInMemoryRunManagerReaperPublishesExpiredRunErrorBeforeInterrupt(t *test
 		t.Fatalf("unexpected reaper interrupt info: %#v", info)
 	}
 
-	observer, err := eventBus.Subscribe(0)
-	if err != nil {
-		t.Fatalf("subscribe replay: %v", err)
-	}
-	defer eventBus.Unsubscribe(observer.ID)
-
-	first := mustReadEvent(t, observer.Events)
 	second := mustReadEvent(t, observer.Events)
 	if first.Type != "run.start" {
 		t.Fatalf("expected first replay event run.start, got %#v", first)
@@ -466,7 +461,7 @@ func TestInMemoryRunManagerReaperPublishesExpiredRunErrorBeforeInterrupt(t *test
 	}
 }
 
-func TestInMemoryRunManagerReaperSkipsNoTimeoutAwaitingRun(t *testing.T) {
+func TestInMemoryRunManagerReaperTreatsMaxBackgroundDurationAsGlobalLimit(t *testing.T) {
 	manager := NewInMemoryRunManager()
 	manager.maxBackgroundDuration = time.Millisecond
 
@@ -498,8 +493,8 @@ func TestInMemoryRunManagerReaperSkipsNoTimeoutAwaitingRun(t *testing.T) {
 
 	manager.reapExpiredRuns()
 
-	if control.Interrupted() {
-		t.Fatalf("did not expect no-timeout awaiting run to be interrupted by reaper")
+	if !control.Interrupted() {
+		t.Fatalf("expected no-timeout awaiting run to be interrupted by global reaper limit")
 	}
 
 	observer, err := eventBus.Subscribe(0)
@@ -512,7 +507,10 @@ func TestInMemoryRunManagerReaperSkipsNoTimeoutAwaitingRun(t *testing.T) {
 	if first.Type != "run.start" {
 		t.Fatalf("expected first replay event run.start, got %#v", first)
 	}
-	assertNoReplayEvent(t, observer.Events)
+	second := mustReadEvent(t, observer.Events)
+	if second.Type != "run.error" {
+		t.Fatalf("expected second replay event run.error, got %#v", second)
+	}
 }
 
 func mustReadEvent(t *testing.T, events <-chan stream.EventData) stream.EventData {

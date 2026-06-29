@@ -130,9 +130,7 @@ type RunControl struct {
 	accessLevel     string
 	accessVersion   int64
 
-	maxDisconnectedWait time.Duration
-	observerChanged     chan struct{}
-	accessLevelChanged  chan struct{}
+	accessLevelChanged chan struct{}
 }
 
 func NewRunControl(parent context.Context, runID string) *RunControl {
@@ -141,19 +139,17 @@ func NewRunControl(parent context.Context, runID string) *RunControl {
 	}
 	ctx, cancel := context.WithCancel(parent)
 	control := &RunControl{
-		runID:               runID,
-		ctx:                 ctx,
-		cancel:              cancel,
-		submitWaiters:       map[string]*submitWaiter{},
-		pendingSubmits:      map[string]SubmitResult{},
-		resolvedSubmits:     map[string]SubmitResult{},
-		awaitingSubmits:     map[string]AwaitingSubmitContext{},
-		state:               RunLoopStateIdle,
-		accessLevel:         AccessLevelDefault,
-		accessVersion:       1,
-		maxDisconnectedWait: defaultRunMaxDisconnectedWait,
-		observerChanged:     make(chan struct{}, 1),
-		accessLevelChanged:  make(chan struct{}, 1),
+		runID:              runID,
+		ctx:                ctx,
+		cancel:             cancel,
+		submitWaiters:      map[string]*submitWaiter{},
+		pendingSubmits:     map[string]SubmitResult{},
+		resolvedSubmits:    map[string]SubmitResult{},
+		awaitingSubmits:    map[string]AwaitingSubmitContext{},
+		state:              RunLoopStateIdle,
+		accessLevel:        AccessLevelDefault,
+		accessVersion:      1,
+		accessLevelChanged: make(chan struct{}, 1),
 	}
 	control.observerCnt.Store(1)
 	return control
@@ -325,16 +321,11 @@ func (c *RunControl) awaitSubmitWithTimeout(ctx context.Context, awaitingID stri
 		c.mu.Unlock()
 	}()
 
-	connectedRemaining := timeout
-	disconnectedRemaining := c.maxDisconnectedWaitValue()
-	if awaitingCtx.NoTimeout {
-		connectedRemaining = 0
-		disconnectedRemaining = 0
+	var timer *time.Timer
+	if timeout > 0 && !awaitingCtx.NoTimeout {
+		timer = time.NewTimer(timeout)
+		defer stopWaitTimer(timer)
 	}
-	lastHasObserver := c.HasObserver()
-	lastTick := time.Now()
-	timer := newWaitTimer(lastHasObserver, connectedRemaining, disconnectedRemaining)
-	defer stopWaitTimer(timer)
 	var accessChanged <-chan struct{}
 	if breakOnAccessVersion >= 0 {
 		accessChanged = c.accessLevelChanged
@@ -361,14 +352,14 @@ func (c *RunControl) awaitSubmitWithTimeout(ctx context.Context, awaitingID stri
 				return SubmitResult{}, false, ErrRunFinished
 			}
 			return SubmitResult{}, false, context.Canceled
-		case <-c.observerChanged:
 		case <-accessChanged:
+			if breakOnAccessVersion >= 0 {
+				if _, currentVersion := c.AccessLevelSnapshot(); currentVersion != breakOnAccessVersion {
+					return SubmitResult{}, true, nil
+				}
+			}
 		case <-waitTimerChan(timer):
-		}
-
-		now := time.Now()
-		connectedRemaining, disconnectedRemaining, expired := consumeWaitBudget(now.Sub(lastTick), lastHasObserver, connectedRemaining, disconnectedRemaining)
-		if expired {
+			c.clearTimedOutSubmit(awaitingID, waiter)
 			return SubmitResult{}, false, context.DeadlineExceeded
 		}
 		if breakOnAccessVersion >= 0 {
@@ -376,9 +367,6 @@ func (c *RunControl) awaitSubmitWithTimeout(ctx context.Context, awaitingID stri
 				return SubmitResult{}, true, nil
 			}
 		}
-		lastTick = now
-		lastHasObserver = c.HasObserver()
-		resetWaitTimer(timer, lastHasObserver, connectedRemaining, disconnectedRemaining)
 	}
 }
 
@@ -599,6 +587,18 @@ func (c *RunControl) ClearExpectedSubmit(awaitingID string) {
 	c.mu.Unlock()
 }
 
+func (c *RunControl) clearTimedOutSubmit(awaitingID string, waiter *submitWaiter) {
+	if c == nil || awaitingID == "" {
+		return
+	}
+	c.mu.Lock()
+	if current, exists := c.submitWaiters[awaitingID]; exists && current == waiter {
+		delete(c.submitWaiters, awaitingID)
+	}
+	delete(c.awaitingSubmits, awaitingID)
+	c.mu.Unlock()
+}
+
 func (c *RunControl) SetObserverCount(count int32) {
 	if c == nil {
 		return
@@ -607,10 +607,6 @@ func (c *RunControl) SetObserverCount(count int32) {
 		count = 0
 	}
 	c.observerCnt.Store(count)
-	select {
-	case c.observerChanged <- struct{}{}:
-	default:
-	}
 }
 
 func (c *RunControl) HasObserver() bool {
@@ -625,21 +621,8 @@ func (c *RunControl) ObserverCount() int32 {
 }
 
 func (c *RunControl) SetMaxDisconnectedWait(wait time.Duration) {
-	if c == nil || wait < 0 {
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.maxDisconnectedWait = wait
-}
-
-func (c *RunControl) maxDisconnectedWaitValue() time.Duration {
-	if c == nil {
-		return defaultRunMaxDisconnectedWait
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.maxDisconnectedWait
+	// Kept for configuration compatibility; submit waits use wall-clock timeout
+	// and no longer pause or switch budgets when observers detach.
 }
 
 func (c *RunControl) closeWaiters(status string, detail string) {
@@ -651,13 +634,6 @@ func (c *RunControl) closeWaiters(status string, detail string) {
 	for _, waiter := range waiters {
 		waiter.deliver(SubmitResult{Status: status, Detail: detail})
 	}
-}
-
-func newWaitTimer(hasObserver bool, connectedRemaining time.Duration, disconnectedRemaining time.Duration) *time.Timer {
-	if delay, ok := nextWaitDelay(hasObserver, connectedRemaining, disconnectedRemaining); ok {
-		return time.NewTimer(delay)
-	}
-	return nil
 }
 
 func waitTimerChan(timer *time.Timer) <-chan time.Time {
@@ -677,54 +653,4 @@ func stopWaitTimer(timer *time.Timer) {
 		default:
 		}
 	}
-}
-
-func resetWaitTimer(timer *time.Timer, hasObserver bool, connectedRemaining time.Duration, disconnectedRemaining time.Duration) {
-	if timer == nil {
-		return
-	}
-	delay, ok := nextWaitDelay(hasObserver, connectedRemaining, disconnectedRemaining)
-	if !ok {
-		stopWaitTimer(timer)
-		return
-	}
-	if !timer.Stop() {
-		select {
-		case <-timer.C:
-		default:
-		}
-	}
-	timer.Reset(delay)
-}
-
-func nextWaitDelay(hasObserver bool, connectedRemaining time.Duration, disconnectedRemaining time.Duration) (time.Duration, bool) {
-	if hasObserver {
-		if connectedRemaining > 0 {
-			return connectedRemaining, true
-		}
-		return 0, false
-	}
-	if disconnectedRemaining > 0 {
-		return disconnectedRemaining, true
-	}
-	return 0, false
-}
-
-func consumeWaitBudget(elapsed time.Duration, hadObserver bool, connectedRemaining time.Duration, disconnectedRemaining time.Duration) (time.Duration, time.Duration, bool) {
-	if elapsed <= 0 {
-		return connectedRemaining, disconnectedRemaining, false
-	}
-	if hadObserver && connectedRemaining > 0 {
-		connectedRemaining -= elapsed
-		if connectedRemaining <= 0 {
-			return 0, disconnectedRemaining, true
-		}
-	}
-	if !hadObserver && disconnectedRemaining > 0 {
-		disconnectedRemaining -= elapsed
-		if disconnectedRemaining <= 0 {
-			return connectedRemaining, 0, true
-		}
-	}
-	return connectedRemaining, disconnectedRemaining, false
 }

@@ -21,6 +21,8 @@ type Embedder struct {
 	httpClient *http.Client
 }
 
+const defaultEmbeddingBatchSize = 10
+
 func NewEmbedder(baseURL, apiKey, model string, dimension, timeout int) *Embedder {
 	if timeout <= 0 {
 		timeout = 15
@@ -55,6 +57,19 @@ func (e *Embedder) Embed(ctx context.Context, texts []string) ([][]float64, erro
 	if len(texts) == 0 {
 		return [][]float64{}, nil
 	}
+	vectors := make([][]float64, len(texts))
+	for start := 0; start < len(texts); start += defaultEmbeddingBatchSize {
+		end := minInt(start+defaultEmbeddingBatchSize, len(texts))
+		batchVectors, err := e.embedBatch(ctx, texts[start:end])
+		if err != nil {
+			return nil, err
+		}
+		copy(vectors[start:end], batchVectors)
+	}
+	return vectors, nil
+}
+
+func (e *Embedder) embedBatch(ctx context.Context, texts []string) ([][]float64, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(e.Timeout)*time.Second)
 	defer cancel()
 
