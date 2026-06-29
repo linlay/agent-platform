@@ -114,10 +114,8 @@ func (s *Server) loadChatDetail(ctx context.Context, chatID string, includeRawMe
 		}
 		if ok {
 			response.ActiveRun = toAPIActiveRunInfo(activeRun)
-			if query, queryErr := s.deps.Chats.LoadRunQuery(chatID, activeRun.RunID); queryErr == nil && query != nil {
-				if planningMode, _ := query.Query["planningMode"].(bool); planningMode {
-					response.ActiveRun.PlanningMode = true
-				}
+			if query, queryErr := s.deps.Chats.LoadRunQuery(chatID, activeRun.RunID); queryErr == nil {
+				response.ActiveRun.PlanningMode = activeRunInPlanningStage(activeRun.RunID, query, response.Events, summary)
 			}
 
 			// Drop synthesized run.complete for the still-active run so events stay
@@ -135,6 +133,39 @@ func (s *Server) loadChatDetail(ctx context.Context, chatID string, includeRawMe
 		}
 	}
 	return response, nil
+}
+
+func activeRunInPlanningStage(runID string, query *chat.QueryLine, events []stream.EventData, summary *chat.Summary) bool {
+	runID = strings.TrimSpace(runID)
+	if runID == "" || query == nil || !contracts.AnyBoolNode(query.Query["planningMode"]) {
+		return false
+	}
+	if summary != nil && summary.PendingAwaiting != nil {
+		pending := summary.PendingAwaiting
+		if strings.TrimSpace(pending.RunID) == runID && strings.EqualFold(strings.TrimSpace(pending.Mode), "plan") {
+			return true
+		}
+	}
+
+	latestDecision := ""
+	for _, event := range events {
+		if event.Type != "awaiting.answer" || strings.TrimSpace(event.String("runId")) != runID {
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(event.String("mode")), "plan") {
+			continue
+		}
+		latestDecision = activeRunPlanDecision(event.Value("plan"))
+	}
+	return !strings.EqualFold(latestDecision, "approve")
+}
+
+func activeRunPlanDecision(value any) string {
+	plan := contracts.AnyMapNode(value)
+	if len(plan) == 0 {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(plan["decision"])))
 }
 
 func persistedLiveSeqCursor(events []stream.EventData, runID string) int64 {

@@ -369,6 +369,175 @@ func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) 
 	}
 }
 
+func TestActiveRunInPlanningStage(t *testing.T) {
+	planningQuery := &chat.QueryLine{Query: map[string]any{"planningMode": true}}
+	plainQuery := &chat.QueryLine{Query: map[string]any{"message": "plain"}}
+	planAnswer := func(runID string, decision string) stream.EventData {
+		return stream.EventData{
+			Type: "awaiting.answer",
+			Payload: map[string]any{
+				"runId": runID,
+				"mode":  "plan",
+				"plan": map[string]any{
+					"decision": decision,
+				},
+			},
+		}
+	}
+
+	cases := []struct {
+		name    string
+		runID   string
+		query   *chat.QueryLine
+		events  []stream.EventData
+		summary *chat.Summary
+		want    bool
+	}{
+		{
+			name:  "plain query is never in planning stage",
+			runID: "run-plain",
+			query: plainQuery,
+			events: []stream.EventData{
+				planAnswer("run-plain", "reject"),
+			},
+			summary: &chat.Summary{PendingAwaiting: &chat.PendingAwaiting{
+				RunID: "run-plain",
+				Mode:  "plan",
+			}},
+			want: false,
+		},
+		{
+			name:  "planning query without plan answer remains planning",
+			runID: "run-planning",
+			query: planningQuery,
+			want:  true,
+		},
+		{
+			name:  "latest reject remains planning",
+			runID: "run-reject",
+			query: planningQuery,
+			events: []stream.EventData{
+				planAnswer("run-reject", "reject"),
+			},
+			want: true,
+		},
+		{
+			name:  "latest approve exits planning",
+			runID: "run-approve",
+			query: planningQuery,
+			events: []stream.EventData{
+				planAnswer("run-approve", "reject"),
+				planAnswer("run-approve", "approve"),
+			},
+			want: false,
+		},
+		{
+			name:  "other run approve does not affect active run",
+			runID: "run-current",
+			query: planningQuery,
+			events: []stream.EventData{
+				planAnswer("run-other", "approve"),
+			},
+			want: true,
+		},
+		{
+			name:  "pending plan awaiting keeps active run in planning",
+			runID: "run-pending",
+			query: planningQuery,
+			events: []stream.EventData{
+				planAnswer("run-pending", "approve"),
+			},
+			summary: &chat.Summary{PendingAwaiting: &chat.PendingAwaiting{
+				RunID: "run-pending",
+				Mode:  "plan",
+			}},
+			want: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := activeRunInPlanningStage(tc.runID, tc.query, tc.events, tc.summary); got != tc.want {
+				t.Fatalf("activeRunInPlanningStage() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestLoadChatDetailActiveRunPlanningModeReflectsPlanDecision(t *testing.T) {
+	server, chats, _ := newServerForHelperTests(t)
+	runs := contracts.NewInMemoryRunManager()
+	server.deps.Runs = runs
+
+	chatID := "chat-live-plan-approved"
+	runID := "run-live-plan-approved"
+	if _, _, err := chats.EnsureChat(chatID, "agent-1", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := chats.AppendQueryLine(chatID, chat.QueryLine{
+		ChatID:    chatID,
+		RunID:     runID,
+		UpdatedAt: 1001,
+		Query: map[string]any{
+			"chatId":       chatID,
+			"message":      "plan then execute",
+			"planningMode": true,
+		},
+		Type: "query",
+	}); err != nil {
+		t.Fatalf("append query line: %v", err)
+	}
+	if err := chats.AppendSubmitLine(chatID, chat.SubmitLine{
+		ChatID:    chatID,
+		RunID:     runID,
+		UpdatedAt: 1002,
+		Type:      "submit",
+		Submit: map[string]any{
+			"type":       "request.submit",
+			"chatId":     chatID,
+			"awaitingId": "await-plan",
+			"params": []any{
+				map[string]any{"id": "confirm", "decision": "approve"},
+			},
+		},
+		Answer: map[string]any{
+			"type":       "awaiting.answer",
+			"awaitingId": "await-plan",
+			"mode":       "plan",
+			"plan": map[string]any{
+				"id":         "confirm",
+				"planningId": runID + "_planning_1",
+				"decision":   "approve",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("append submit line: %v", err)
+	}
+	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
+		RunID:    runID,
+		ChatID:   chatID,
+		AgentKey: "agent-1",
+	})
+
+	detail, err := server.loadChatDetail(context.Background(), chatID, false)
+	if err != nil {
+		t.Fatalf("load chat detail: %v", err)
+	}
+	if detail.ActiveRun == nil || detail.ActiveRun.RunID != runID {
+		t.Fatalf("expected active run, got %#v", detail.ActiveRun)
+	}
+	if detail.ActiveRun.PlanningMode {
+		t.Fatalf("expected approved plan active run to leave planning mode, got %#v", detail.ActiveRun)
+	}
+	activeRunJSON, err := json.Marshal(detail.ActiveRun)
+	if err != nil {
+		t.Fatalf("marshal active run: %v", err)
+	}
+	if strings.Contains(string(activeRunJSON), "planningMode") {
+		t.Fatalf("expected planningMode to be omitted after approval, got %s", string(activeRunJSON))
+	}
+}
+
 func TestLoadChatDetailActiveRunLastSeqUsesPersistedLiveSeqCursor(t *testing.T) {
 	server, chats, _ := newServerForHelperTests(t)
 	runs := contracts.NewInMemoryRunManager()
