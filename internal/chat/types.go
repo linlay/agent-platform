@@ -234,6 +234,8 @@ type StoredToolCall struct {
 	ID       string         `json:"id"`
 	Type     string         `json:"type"`
 	Function StoredFunction `json:"function"`
+	ToolID   string         `json:"_toolId,omitempty"`
+	ActionID string         `json:"_actionId,omitempty"`
 }
 
 type StoredFunction struct {

@@ -142,10 +142,10 @@ func TestMergeRawMessagesByMsgID_FullBugScenario(t *testing.T) {
 		// Turn 1: content
 		{"role": "assistant", "content": "\n", "_msgId": "m_de287661", "_contentId": "c_1"},
 		// Turn 1: 4 parallel tool_calls
-		{"role": "assistant", "tool_calls": []any{map[string]any{"id": "call_1", "type": "function", "function": map[string]any{"name": "bash", "arguments": `{"command":"cd /a && git config --local user.name"}`}}}, "_msgId": "m_de287661", "_toolId": "call_1"},
-		{"role": "assistant", "tool_calls": []any{map[string]any{"id": "call_2", "type": "function", "function": map[string]any{"name": "bash", "arguments": `{"command":"cd /b && git config --local user.name"}`}}}, "_msgId": "m_de287661", "_toolId": "call_2"},
-		{"role": "assistant", "tool_calls": []any{map[string]any{"id": "call_3", "type": "function", "function": map[string]any{"name": "bash", "arguments": `{"command":"cd /c && git config --local user.name"}`}}}, "_msgId": "m_de287661", "_toolId": "call_3"},
-		{"role": "assistant", "tool_calls": []any{map[string]any{"id": "call_4", "type": "function", "function": map[string]any{"name": "bash", "arguments": `{"command":"cd /d && git config --local user.name"}`}}}, "_msgId": "m_de287661", "_toolId": "call_4"},
+		{"role": "assistant", "tool_calls": []any{map[string]any{"id": "call_1", "type": "function", "_toolId": "call_1", "function": map[string]any{"name": "bash", "arguments": `{"command":"cd /a && git config --local user.name"}`}}}, "_msgId": "m_de287661"},
+		{"role": "assistant", "tool_calls": []any{map[string]any{"id": "call_2", "type": "function", "_toolId": "call_2", "function": map[string]any{"name": "bash", "arguments": `{"command":"cd /b && git config --local user.name"}`}}}, "_msgId": "m_de287661"},
+		{"role": "assistant", "tool_calls": []any{map[string]any{"id": "call_3", "type": "function", "_toolId": "call_3", "function": map[string]any{"name": "bash", "arguments": `{"command":"cd /c && git config --local user.name"}`}}}, "_msgId": "m_de287661"},
+		{"role": "assistant", "tool_calls": []any{map[string]any{"id": "call_4", "type": "function", "_toolId": "call_4", "function": map[string]any{"name": "bash", "arguments": `{"command":"cd /d && git config --local user.name"}`}}}, "_msgId": "m_de287661"},
 		// 4 tool results
 		{"role": "tool", "tool_call_id": "call_1", "name": "bash", "content": "exit:1"},
 		{"role": "tool", "tool_call_id": "call_2", "name": "bash", "content": "exit:1"},
@@ -287,6 +287,31 @@ The tool results above already reflect these decisions; do not re-prompt for app
 	noticeText, _ := normalized[3].Content.(string)
 	if normalized[3].Role != "user" || !strings.Contains(noticeText, `[System audit — HITL approval batch]`) {
 		t.Fatalf("expected synthetic summary to move after tool result, got %#v", normalized[3])
+	}
+}
+
+func TestNormalizeOpenAIMessages_OrdersToolResultsByAssistantToolCalls(t *testing.T) {
+	messages := []openAIMessage{
+		{Role: "assistant", ToolCalls: []openAIToolCall{
+			{ID: "tool-1", Type: "function", Function: openAIFunctionCall{Name: "datetime", Arguments: "{}"}},
+			{ID: "tool-2", Type: "function", Function: openAIFunctionCall{Name: "file_read", Arguments: "{}"}},
+			{ID: "tool-3", Type: "function", Function: openAIFunctionCall{Name: "file_glob", Arguments: "{}"}},
+		}},
+		{Role: "tool", ToolCallID: "tool-3", Name: "file_glob", Content: "three"},
+		{Role: "tool", ToolCallID: "tool-1", Name: "datetime", Content: "one"},
+		{Role: "tool", ToolCallID: "tool-2", Name: "file_read", Content: "two"},
+	}
+
+	normalized := normalizeOpenAIMessages(messages)
+
+	if len(normalized) != 4 {
+		t.Fatalf("expected assistant plus three tool messages, got %#v", normalized)
+	}
+	for index, wantID := range []string{"tool-1", "tool-2", "tool-3"} {
+		message := normalized[index+1]
+		if message.Role != "tool" || message.ToolCallID != wantID {
+			t.Fatalf("expected tool result %s at index %d, got %#v", wantID, index+1, message)
+		}
 	}
 }
 

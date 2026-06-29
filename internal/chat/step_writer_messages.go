@@ -182,6 +182,11 @@ func storedMessageUpsertKey(message StoredMessage) string {
 	if id := strings.TrimSpace(message.ReasoningID); id != "" {
 		return "reasoning:" + id
 	}
+	if strings.EqualFold(strings.TrimSpace(message.Role), "assistant") && len(message.ToolCalls) > 0 {
+		if id := strings.TrimSpace(message.MsgID); id != "" {
+			return "assistant:tool-calls:" + id
+		}
+	}
 	if id := strings.TrimSpace(message.ToolID); id != "" {
 		return strings.TrimSpace(message.Role) + ":tool:" + id
 	}
@@ -195,10 +200,64 @@ func storedMessageUpsertKey(message StoredMessage) string {
 }
 
 func mergeStoredMessageSnapshot(existing StoredMessage, incoming StoredMessage) StoredMessage {
+	if strings.EqualFold(strings.TrimSpace(existing.Role), "assistant") &&
+		strings.EqualFold(strings.TrimSpace(incoming.Role), "assistant") &&
+		len(existing.ToolCalls) > 0 && len(incoming.ToolCalls) > 0 {
+		return mergeAssistantToolCallMessage(existing, incoming)
+	}
 	if storedMessageTextLen(incoming) < storedMessageTextLen(existing) {
 		return existing
 	}
 	return incoming
+}
+
+func mergeAssistantToolCallMessage(existing StoredMessage, incoming StoredMessage) StoredMessage {
+	merged := existing
+	if merged.MsgID == "" {
+		merged.MsgID = incoming.MsgID
+	}
+	if merged.Ts == nil {
+		merged.Ts = incoming.Ts
+	}
+	if len(merged.ToolCalls) == 0 {
+		merged.ToolCalls = append([]StoredToolCall(nil), incoming.ToolCalls...)
+		return merged
+	}
+	for _, incomingCall := range incoming.ToolCalls {
+		key := storedToolCallKey(incomingCall)
+		replaced := false
+		for index, existingCall := range merged.ToolCalls {
+			if key == "" || storedToolCallKey(existingCall) != key {
+				continue
+			}
+			if storedToolCallTextLen(incomingCall) >= storedToolCallTextLen(existingCall) {
+				merged.ToolCalls[index] = incomingCall
+			}
+			replaced = true
+			break
+		}
+		if !replaced {
+			merged.ToolCalls = append(merged.ToolCalls, incomingCall)
+		}
+	}
+	return merged
+}
+
+func storedToolCallKey(call StoredToolCall) string {
+	if id := strings.TrimSpace(call.ToolID); id != "" {
+		return "tool:" + id
+	}
+	if id := strings.TrimSpace(call.ActionID); id != "" {
+		return "action:" + id
+	}
+	if id := strings.TrimSpace(call.ID); id != "" {
+		return "call:" + id
+	}
+	return ""
+}
+
+func storedToolCallTextLen(call StoredToolCall) int {
+	return len(call.Function.Arguments) + len(call.Function.Name) + len(call.ID) + len(call.ToolID) + len(call.ActionID)
 }
 
 func canonicalizeStoredToolResultOrder(messages []StoredMessage) []StoredMessage {
@@ -278,6 +337,100 @@ func canonicalizeStoredToolResultOrder(messages []StoredMessage) []StoredMessage
 		cursor++
 	}
 	return out
+}
+
+func canonicalizeStoredToolResultOrderForToolIDs(messages []StoredMessage, toolOrder []string) []StoredMessage {
+	if len(messages) < 2 || len(toolOrder) < 2 || storedMessagesContainAssistant(messages) {
+		return messages
+	}
+	orderSet := make(map[string]struct{}, len(toolOrder))
+	for _, id := range toolOrder {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			orderSet[id] = struct{}{}
+		}
+	}
+	if len(orderSet) < 2 {
+		return messages
+	}
+	resultsByID := make(map[string]StoredMessage, len(orderSet))
+	knownResultCount := 0
+	for _, message := range messages {
+		if !strings.EqualFold(strings.TrimSpace(message.Role), "tool") {
+			continue
+		}
+		id := storedToolResultID(message)
+		if _, ok := orderSet[id]; !ok {
+			continue
+		}
+		resultsByID[id] = message
+		knownResultCount++
+	}
+	if knownResultCount < 2 {
+		return messages
+	}
+	orderedResults := make([]StoredMessage, 0, knownResultCount)
+	for _, id := range toolOrder {
+		if message, ok := resultsByID[strings.TrimSpace(id)]; ok {
+			orderedResults = append(orderedResults, message)
+		}
+	}
+	if len(orderedResults) != knownResultCount {
+		return messages
+	}
+	out := append([]StoredMessage(nil), messages...)
+	cursor := 0
+	for index, message := range out {
+		if !strings.EqualFold(strings.TrimSpace(message.Role), "tool") {
+			continue
+		}
+		if _, ok := orderSet[storedToolResultID(message)]; !ok {
+			continue
+		}
+		out[index] = orderedResults[cursor]
+		cursor++
+	}
+	return out
+}
+
+func assistantToolCallOrder(messages []StoredMessage) []string {
+	order := make([]string, 0)
+	seen := map[string]struct{}{}
+	for _, message := range messages {
+		if !strings.EqualFold(strings.TrimSpace(message.Role), "assistant") {
+			continue
+		}
+		for _, call := range message.ToolCalls {
+			id := storedToolCallRuntimeID(call)
+			if id == "" {
+				continue
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			order = append(order, id)
+		}
+	}
+	return order
+}
+
+func storedToolCallRuntimeID(call StoredToolCall) string {
+	for _, id := range []string{call.ToolID, call.ActionID, call.ID} {
+		if value := strings.TrimSpace(id); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func storedToolResultID(message StoredMessage) string {
+	for _, id := range []string{message.ToolCallID, message.ToolID, message.ActionID} {
+		if value := strings.TrimSpace(id); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func storedMessageTextLen(message StoredMessage) int {

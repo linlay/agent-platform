@@ -145,6 +145,10 @@ func (s *llmRunStream) invokeQueuedToolCallsAndPostHook() error {
 	if len(s.queuedToolCalls) == 0 {
 		return nil
 	}
+	if s.prepareQueuedBashApprovalBatch() {
+		return nil
+	}
+	s.queuedToolCalls = s.prioritizeAwaitingToolCalls(s.queuedToolCalls)
 	if !s.canInvokeQueuedToolCallsConcurrently(s.queuedToolCalls) {
 		s.activateNextToolCall()
 		return nil
@@ -152,6 +156,65 @@ func (s *llmRunStream) invokeQueuedToolCallsAndPostHook() error {
 	invocations := append([]*preparedToolInvocation(nil), s.queuedToolCalls...)
 	s.queuedToolCalls = nil
 	return s.invokeToolCallBatchAndPostHooks(invocations)
+}
+
+func (s *llmRunStream) prioritizeAwaitingToolCalls(invocations []*preparedToolInvocation) []*preparedToolInvocation {
+	if len(invocations) < 2 {
+		return invocations
+	}
+	awaiting := make([]*preparedToolInvocation, 0)
+	ready := make([]*preparedToolInvocation, 0, len(invocations))
+	for _, invocation := range invocations {
+		if s.invocationMayAwaitBeforeResult(invocation) {
+			awaiting = append(awaiting, invocation)
+			continue
+		}
+		ready = append(ready, invocation)
+	}
+	if len(awaiting) == 0 {
+		return invocations
+	}
+	out := make([]*preparedToolInvocation, 0, len(invocations))
+	out = append(out, awaiting...)
+	out = append(out, ready...)
+	return out
+}
+
+func (s *llmRunStream) invocationMayAwaitBeforeResult(invocation *preparedToolInvocation) bool {
+	if invocation == nil {
+		return false
+	}
+	if s.isFrontendTool(invocation.toolName) {
+		return true
+	}
+	if isPlanningWriteTool(invocation.toolName) {
+		return true
+	}
+	if request, ok := s.approvalRequestForInvocation(invocation); ok {
+		if handled, _ := s.tryResolveApprovalFastPath(request, approvalFastPathSkipBatch); !handled {
+			return true
+		}
+	}
+	if isBashTool(invocation.toolName) {
+		if result := s.lookupPrecheckedHITL(invocation); result.Intercepted {
+			request := hitlApprovalRequest(invocation, result)
+			if handled, _ := s.tryResolveHITLApprovalFastPath(request, approvalFastPathSkipBatch); !handled {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (s *llmRunStream) isFrontendTool(toolName string) bool {
+	tool, ok := s.lookupToolDefinition(toolName)
+	if !ok {
+		return false
+	}
+	toolKind, _ := tool.Meta["kind"].(string)
+	sourceType, _ := tool.Meta["sourceType"].(string)
+	return !strings.EqualFold(strings.TrimSpace(sourceType), "mcp") &&
+		strings.EqualFold(strings.TrimSpace(toolKind), "frontend")
 }
 
 func (s *llmRunStream) canInvokeQueuedToolCallsConcurrently(invocations []*preparedToolInvocation) bool {

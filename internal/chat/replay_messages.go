@@ -53,8 +53,6 @@ func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, live
 			}
 		}
 		if tcs, ok := msg["tool_calls"].([]any); ok {
-			actionID, _ := msg["_actionId"].(string)
-			toolID, _ := msg["_toolId"].(string)
 			for _, tc := range tcs {
 				tcMap, _ := tc.(map[string]any)
 				if tcMap == nil {
@@ -67,10 +65,12 @@ func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, live
 				callID, _ := tcMap["id"].(string)
 				fnName, _ := fn["name"].(string)
 				fnArgs, _ := fn["arguments"].(string)
+				actionID, _ := tcMap["_actionId"].(string)
+				toolID, _ := tcMap["_toolId"].(string)
 
 				if actionID != "" {
 					payload := map[string]any{
-						"actionId":   callID,
+						"actionId":   actionID,
 						"runId":      runID,
 						"actionName": fnName,
 						"taskId":     taskID,

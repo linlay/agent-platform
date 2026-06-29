@@ -860,12 +860,12 @@ func TestStoredMessageToEventsPreservesTimestamp(t *testing.T) {
 		{
 			name: "action snapshot",
 			msg: map[string]any{
-				"role":      "assistant",
-				"ts":        ts,
-				"_actionId": "stored-action",
+				"role": "assistant",
+				"ts":   ts,
 				"tool_calls": []any{
 					map[string]any{
-						"id": "action-call-1",
+						"id":        "action-call-1",
+						"_actionId": "stored-action",
 						"function": map[string]any{
 							"name":      "approval_action",
 							"arguments": "{\"approved\":true}",
@@ -878,12 +878,12 @@ func TestStoredMessageToEventsPreservesTimestamp(t *testing.T) {
 		{
 			name: "tool snapshot",
 			msg: map[string]any{
-				"role":    "assistant",
-				"ts":      ts,
-				"_toolId": "stored-tool",
+				"role": "assistant",
+				"ts":   ts,
 				"tool_calls": []any{
 					map[string]any{
-						"id": "tool-call-1",
+						"id":      "tool-call-1",
+						"_toolId": "stored-tool",
 						"function": map[string]any{
 							"name":      "datetime",
 							"arguments": "{}",
@@ -1442,6 +1442,72 @@ func TestStepWriterEmbedsAwaitingInStepLine(t *testing.T) {
 	}
 	if _, ok := lines[1]["answer"]; ok {
 		t.Fatalf("did not expect answer on submit-only line, got %#v", lines[1])
+	}
+}
+
+func TestStepWriterMergesParallelToolSnapshotsIntoAssistantToolCalls(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-tool-call-merge", "run-tool-call-merge", "react")
+	writer.OnEvent(stream.EventData{
+		Type:      "tool.snapshot",
+		Timestamp: 1001,
+		Payload: map[string]any{
+			"toolId":    "call_00",
+			"toolName":  "file_read",
+			"arguments": `{"file_path":"/tmp/a.txt"}`,
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "tool.snapshot",
+		Timestamp: 1002,
+		Payload: map[string]any{
+			"toolId":    "call_01",
+			"toolName":  "file_glob",
+			"arguments": `{"pattern":"*.md"}`,
+		},
+	})
+	writer.Flush()
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-tool-call-merge"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("expected one step line, got %#v", lines)
+	}
+	messages, _ := lines[0]["messages"].([]any)
+	if len(messages) != 1 {
+		t.Fatalf("expected one merged assistant message, got %#v", lines[0])
+	}
+	assistant, _ := messages[0].(map[string]any)
+	if assistant["role"] != "assistant" {
+		t.Fatalf("expected assistant message, got %#v", assistant)
+	}
+	if _, ok := assistant["_toolId"]; ok {
+		t.Fatalf("did not expect outer _toolId on assistant message, got %#v", assistant)
+	}
+	if _, ok := assistant["_actionId"]; ok {
+		t.Fatalf("did not expect outer _actionId on assistant message, got %#v", assistant)
+	}
+	if assistant["_msgId"] == "" || toIntValue(assistant["ts"]) != 1001 {
+		t.Fatalf("expected outer _msgId and first snapshot ts, got %#v", assistant)
+	}
+	calls, _ := assistant["tool_calls"].([]any)
+	if len(calls) != 2 {
+		t.Fatalf("expected two merged tool calls, got %#v", assistant)
+	}
+	for index, wantID := range []string{"call_00", "call_01"} {
+		call, _ := calls[index].(map[string]any)
+		if call["id"] != wantID || call["_toolId"] != wantID {
+			t.Fatalf("expected tool call %d to carry internal _toolId %q, got %#v", index, wantID, call)
+		}
+		if _, ok := call["_actionId"]; ok {
+			t.Fatalf("did not expect _actionId on tool call %d, got %#v", index, call)
+		}
 	}
 }
 

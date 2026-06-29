@@ -149,6 +149,8 @@ Archive 摘要、详情和搜索结果都会返回时间字段：`createdAt` 为
 
 `steam` 不是支持字段；如果误传 `steam:false`，不会触发非流式响应。
 
+实时 SSE / WS stream 的工具事件形状不变：仍按单个工具发送 `tool.snapshot`、`tool.result`、`action.snapshot`、`action.result`。持久化到 `chatId.jsonl` 时，同一 assistant turn 的多个工具调用会合并为一条 assistant message 的 `tool_calls[]`；如果该组存在 awaiting，确认前不会执行任何 sibling tool，确认后的所有结果写入同 `seq` 的 `_type:"react-tool"` continuation。
+
 可运行的 HTTP JSON 模式 curl：
 
 ```bash

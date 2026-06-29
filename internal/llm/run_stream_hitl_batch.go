@@ -54,7 +54,7 @@ func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
 	invocations := make([]*preparedToolInvocation, 0)
 	matches := make([]hitl.InterceptResult, 0)
 	for _, invocation := range s.queuedToolCalls {
-		candidate, ok := s.queuedBashApprovalCandidate(invocation)
+		candidate, ok := s.queuedApprovalCandidate(invocation)
 		if !ok {
 			continue
 		}
@@ -95,6 +95,30 @@ func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
 type queuedBashApprovalCandidate struct {
 	invocation *preparedToolInvocation
 	match      hitl.InterceptResult
+}
+
+func (s *llmRunStream) queuedApprovalCandidate(invocation *preparedToolInvocation) (queuedBashApprovalCandidate, bool) {
+	if invocation == nil {
+		return queuedBashApprovalCandidate{}, false
+	}
+	if request, ok := s.approvalRequestForInvocation(invocation); ok {
+		if !approvalRequestCanJoinBatch(request) {
+			return queuedBashApprovalCandidate{}, false
+		}
+		if handled, _ := s.tryResolveApprovalFastPath(request, approvalFastPathSkipBatch); handled {
+			return queuedBashApprovalCandidate{}, false
+		}
+		return queuedBashApprovalCandidate{invocation: invocation, match: request.result}, true
+	}
+	if isBashTool(invocation.toolName) {
+		return s.queuedBashApprovalCandidate(invocation)
+	}
+	return queuedBashApprovalCandidate{}, false
+}
+
+func approvalRequestCanJoinBatch(request approvalRequest) bool {
+	viewportType := strings.TrimSpace(request.result.Rule.ViewportType)
+	return viewportType == "" || strings.EqualFold(viewportType, "builtin")
 }
 
 func (s *llmRunStream) queuedBashApprovalCandidate(invocation *preparedToolInvocation) (queuedBashApprovalCandidate, bool) {

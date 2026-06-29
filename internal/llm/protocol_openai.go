@@ -475,7 +475,7 @@ func normalizeOpenAIMessages(messages []openAIMessage) []openAIMessage {
 			continue
 		}
 
-		matched := make([]openAIMessage, 0, len(expected))
+		matchedByID := make(map[string]openAIMessage, len(expected))
 		buffered := make([]openAIMessage, 0, 2)
 		next := index + 1
 		for next < len(messages) {
@@ -485,9 +485,10 @@ func normalizeOpenAIMessages(messages []openAIMessage) []openAIMessage {
 				break
 			}
 			if role == "tool" {
-				if _, ok := expected[strings.TrimSpace(candidate.ToolCallID)]; ok {
-					matched = append(matched, candidate)
-					delete(expected, strings.TrimSpace(candidate.ToolCallID))
+				toolCallID := strings.TrimSpace(candidate.ToolCallID)
+				if _, ok := expected[toolCallID]; ok {
+					matchedByID[toolCallID] = candidate
+					delete(expected, toolCallID)
 				}
 				next++
 				continue
@@ -498,7 +499,11 @@ func normalizeOpenAIMessages(messages []openAIMessage) []openAIMessage {
 
 		if len(expected) == 0 {
 			out = append(out, current)
-			out = append(out, matched...)
+			for _, toolCall := range current.ToolCalls {
+				if matched, ok := matchedByID[strings.TrimSpace(toolCall.ID)]; ok {
+					out = append(out, matched)
+				}
+			}
 		}
 		out = append(out, buffered...)
 		index = next

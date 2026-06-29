@@ -5474,6 +5474,93 @@ func TestPrepareQueuedBashApprovalBatch_BlocksEntireTurnAndResumesInOriginalOrde
 	}
 }
 
+func TestInvokeQueuedToolCallsAndPostHook_BlocksReadySiblingBeforeLaterApproval(t *testing.T) {
+	executor := &recordingToolExecutor{
+		defs: []api.ToolDetailResponse{
+			bashToolDefinition(),
+			backendToolDefinition("weather_tool"),
+		},
+		result: contracts.ToolExecutionResult{
+			Output:   "ok",
+			ExitCode: 0,
+		},
+	}
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools: executor,
+		},
+		session: contracts.QuerySession{
+			RequestID: "req_1",
+			ChatID:    "chat_1",
+			RunID:     "run_1",
+		},
+		runControl: contracts.NewRunControl(context.Background(), "run_1"),
+		execCtx: &contracts.ExecutionContext{
+			Budget: contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 1}},
+		},
+		checker: commandResultChecker{
+			results: map[string]hitl.InterceptResult{
+				"chmod 777 ~/a.sh": {
+					Intercepted:     true,
+					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog"},
+					OriginalCommand: "chmod 777 ~/a.sh",
+				},
+			},
+			tools: map[string]api.ToolDetailResponse{
+				strings.ToLower(bashToolDefinition().Name):                  bashToolDefinition(),
+				strings.ToLower(backendToolDefinition("weather_tool").Name): backendToolDefinition("weather_tool"),
+			},
+		},
+		queuedToolCalls: []*preparedToolInvocation{
+			{toolID: "tool_1", toolName: "weather_tool", args: map[string]any{"city": "Shanghai"}},
+			{toolID: "tool_2", toolName: "bash", args: map[string]any{"command": "chmod 777 ~/a.sh", "description": "放开 a.sh 权限"}},
+		},
+	}
+
+	if err := stream.invokeQueuedToolCallsAndPostHook(); err != nil {
+		t.Fatalf("invokeQueuedToolCallsAndPostHook returned error: %v", err)
+	}
+	if len(executor.invocations) != 0 {
+		t.Fatalf("expected ready sibling not to execute before later approval, got %#v", executor.invocations)
+	}
+	ask, ok := stream.pending[0].(contracts.DeltaAwaitAsk)
+	if !ok || ask.Mode != "approval" || len(ask.Approvals) != 1 {
+		t.Fatalf("expected approval ask before any tool execution, got %#v", stream.pending)
+	}
+
+	ack := stream.runControl.ResolveSubmit(api.SubmitRequest{
+		RunID:      "run_1",
+		AwaitingID: ask.AwaitingID,
+		Params: encodedSubmitParams(t, []map[string]any{
+			{"id": "tool_2", "decision": "approve"},
+		}),
+	})
+	if !ack.Accepted {
+		t.Fatalf("expected submit to be accepted, got %#v", ack)
+	}
+	if err := stream.awaitHITLApprovalBatchAndContinue(); err != nil {
+		t.Fatalf("awaitHITLApprovalBatchAndContinue returned error: %v", err)
+	}
+
+	for len(stream.queuedToolCalls) > 0 {
+		stream.activateNextToolCall()
+		if err := stream.invokeActiveToolCall(); err != nil {
+			t.Fatalf("invokeActiveToolCall returned error: %v", err)
+		}
+	}
+
+	if len(executor.invocations) != 2 {
+		t.Fatalf("expected ready sibling and approved bash to execute after submit, got %#v", executor.invocations)
+	}
+	if executor.invocations[0].name != "weather_tool" || executor.invocations[0].args["city"] != "Shanghai" {
+		t.Fatalf("expected ready sibling to resume first in original order, got %#v", executor.invocations)
+	}
+	if executor.invocations[1].name != "bash" || executor.invocations[1].args["command"] != "chmod 777 ~/a.sh" {
+		t.Fatalf("expected approved bash to resume second, got %#v", executor.invocations)
+	}
+}
+
 func TestAwaitHITLSubmitAndExecute_TimeoutEmitsTerminalAnswer(t *testing.T) {
 	stream := &llmRunStream{
 		ctx: context.Background(),

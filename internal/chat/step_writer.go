@@ -42,8 +42,9 @@ type StepWriter struct {
 	actionTaskIDs map[string]string
 
 	// msgId generation
-	currentMsgID string
-	needNewMsgID bool
+	currentMsgID  string
+	needNewMsgID  bool
+	lastToolOrder []string
 
 	// pending step-level metadata captured during the current LLM turn
 	pendingAwaiting         []map[string]any
@@ -162,10 +163,10 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 					Name:      toolName,
 					Arguments: event.String("arguments"),
 				},
+				ToolID: toolID,
 			}},
-			ToolID: toolID,
-			MsgID:  w.currentMsgID,
-			Ts:     &ts,
+			MsgID: w.currentMsgID,
+			Ts:    &ts,
 		})
 
 	case "tool.result":
@@ -232,10 +233,10 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 					Name:      actionName,
 					Arguments: event.String("arguments"),
 				},
+				ActionID: actionID,
 			}},
-			ActionID: actionID,
-			MsgID:    w.currentMsgID,
-			Ts:       &ts,
+			MsgID: w.currentMsgID,
+			Ts:    &ts,
 		})
 
 	case "action.result":
@@ -723,6 +724,7 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 		w.pendingApproval = nil
 	}
 	messages = canonicalizeStoredToolResultOrder(messages)
+	messages = canonicalizeStoredToolResultOrderForToolIDs(messages, w.lastToolOrder)
 
 	line := StepLine{
 		ChatID:    w.chatID,
@@ -780,6 +782,9 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	}
 
 	_ = w.store.AppendStepLine(w.chatID, line)
+	if order := assistantToolCallOrder(line.Messages); len(order) > 0 {
+		w.lastToolOrder = order
+	}
 	w.messages = nil
 	w.stepLiveSeq = 0
 	w.pendingUsage = nil

@@ -424,6 +424,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 			return nil
 		}
 	}
+	s.queuedToolCalls = s.prioritizeAwaitingToolCalls(s.queuedToolCalls)
 	return nil
 }
 

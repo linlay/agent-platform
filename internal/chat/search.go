@@ -287,7 +287,13 @@ func searchMessageText(msg map[string]any) string {
 				continue
 			}
 			function, _ := call["function"].(map[string]any)
-			parts = append(parts, stringValue(call["id"]), stringValue(function["name"]), stringValue(function["arguments"]))
+			parts = append(parts,
+				stringValue(call["id"]),
+				stringValue(call["_toolId"]),
+				stringValue(call["_actionId"]),
+				stringValue(function["name"]),
+				stringValue(function["arguments"]),
+			)
 		}
 	}
 	return strings.TrimSpace(strings.Join(parts, "\n"))
