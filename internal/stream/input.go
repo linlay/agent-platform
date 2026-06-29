@@ -86,6 +86,17 @@ type StageMarker struct {
 
 func (StageMarker) streamInputTag() {}
 
+type SyntheticQuery struct {
+	ChatID   string
+	Role     string
+	Message  string
+	Stage    string
+	Source   string
+	Messages []map[string]any
+}
+
+func (SyntheticQuery) streamInputTag() {}
+
 type PlanUpdate struct {
 	PlanID string
 	Plan   any

@@ -9,6 +9,7 @@ import (
 
 	"agent-platform/internal/api"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/i18n"
 )
 
 var coderPlanningModePlanTools = []string{
@@ -646,6 +647,13 @@ func firstNonBlankString(values ...string) string {
 	return ""
 }
 
+func coderExecuteSyntheticQueryMessage(locale string) string {
+	if i18n.ResolveLocale(i18n.DefaultLocale, locale) == i18n.LocaleZhCN {
+		return "执行计划"
+	}
+	return "Execute plan"
+}
+
 func (s *coderPlanningStream) cancelUnstartedPlan(message string) {
 	if strings.TrimSpace(message) != "" {
 		s.pending = append(s.pending, DeltaContent{Text: message})
@@ -655,12 +663,25 @@ func (s *coderPlanningStream) cancelUnstartedPlan(message string) {
 }
 
 func (s *coderPlanningStream) startExecutionStage() error {
-	s.pending = append(s.pending, DeltaStageMarker{Stage: "coder-execute"})
 	planningMarkdown := ""
 	if s.execCtx != nil && s.execCtx.PlanningState != nil {
 		planningMarkdown = s.execCtx.PlanningState.Markdown
 	}
 	executePrompt := "Execute the confirmed CODER plan.\n\nOriginal request:\n" + s.req.Message + "\n\nConfirmed plan:\n" + planningMarkdown
+	s.pending = append(s.pending,
+		DeltaStageMarker{Stage: "coder-execute"},
+		DeltaSyntheticQuery{
+			ChatID:  s.session.ChatID,
+			Role:    "user",
+			Message: coderExecuteSyntheticQueryMessage(s.session.Locale),
+			Stage:   "coder-execute",
+			Source:  "coder-plan-approve",
+			Messages: []map[string]any{{
+				"role":    "user",
+				"content": executePrompt,
+			}},
+		},
+	)
 	messages := make([]openAIMessage, 0, len(s.executeMessages)+2)
 	systemPrompt := s.executionSystemPrompt(defaultCoderExecuteSystemPrompt)
 	messages = append(messages, openAIMessage{Role: "system", Content: systemPrompt})
@@ -669,7 +690,12 @@ func (s *coderPlanningStream) startExecutionStage() error {
 
 	req := s.req
 	req.Message = executePrompt
-	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, s.sessionForStage(s.settings.Execute, s.executeStageTools()), true, runStreamOptions{
+	stageSession := s.sessionForStage(s.settings.Execute, s.executeStageTools())
+	stageSession.CurrentMessages = []map[string]any{{
+		"role":    "user",
+		"content": executePrompt,
+	}}
+	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, stageSession, true, runStreamOptions{
 		ExecCtx:   s.execCtx,
 		Messages:  messages,
 		ToolNames: s.executeStageTools(),

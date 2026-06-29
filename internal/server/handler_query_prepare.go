@@ -12,6 +12,7 @@ import (
 	"agent-platform/internal/channel"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/i18n"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/stream"
 )
@@ -34,6 +35,7 @@ type queryAdmission struct {
 	existingSummary *chat.Summary
 	agentDef        catalog.AgentDefinition
 	resourceBaseURL string
+	locale          string
 }
 
 type statusError struct {
@@ -63,6 +65,7 @@ func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (qu
 	if err := decodeJSON(r, &req); err != nil {
 		return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: "invalid request body"}
 	}
+	locale := requestLocale(r, i18n.DefaultLocale)
 	if requireMessage && strings.TrimSpace(req.Message) == "" {
 		return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: "message is required"}
 	}
@@ -154,6 +157,7 @@ func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (qu
 		existingSummary: existingSummary,
 		agentDef:        agentDef,
 		resourceBaseURL: requestBaseURL(r),
+		locale:          locale,
 	}, nil
 }
 
@@ -182,6 +186,7 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 	}
 	session, err := s.BuildQuerySession(ctx, req, summary, agentDef, querySessionBuildOptions{
 		Created:           created,
+		Locale:            admission.locale,
 		IncludeHistory:    !created,
 		IncludeMemory:     true,
 		AllowInvokeAgents: canUseInvokeAgentsTool(agentDef.Mode),

@@ -429,6 +429,9 @@ func systemRefFromDebugData(value map[string]any) map[string]any {
 }
 
 func messagesFromEventValue(value any) []map[string]any {
+	if typed, ok := value.([]map[string]any); ok {
+		return cloneMessageMaps(typed)
+	}
 	rawMessages, _ := value.([]any)
 	if len(rawMessages) == 0 {
 		return nil
@@ -442,6 +445,17 @@ func messagesFromEventValue(value any) []map[string]any {
 		out = append(out, cloneStepSystemPayload(msg))
 	}
 	return out
+}
+
+func boolFromAny(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		return strings.EqualFold(strings.TrimSpace(typed), "true")
+	default:
+		return false
+	}
 }
 
 // parseStage normalises a stage marker string to a stage name, matching Java's

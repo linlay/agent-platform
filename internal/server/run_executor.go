@@ -481,6 +481,21 @@ func isClientVisibleEvent(eventType string) bool {
 	return !strings.HasSuffix(eventType, ".snapshot")
 }
 
+func clientVisibleEventData(data stream.EventData) stream.EventData {
+	if data.Type != "request.query" || len(data.Payload) == 0 {
+		return data
+	}
+	payload := make(map[string]any, len(data.Payload))
+	for key, value := range data.Payload {
+		if key == "messages" {
+			continue
+		}
+		payload[key] = value
+	}
+	data.Payload = payload
+	return data
+}
+
 func StartRunExecutor(params RunExecutorParams) {
 	go runExecutor(params)
 }
@@ -549,7 +564,7 @@ func runExecutor(params RunExecutorParams) {
 				handleAwaitingLifecycle(params, data, tracker)
 			}
 			if isClientVisibleEvent(data.Type) && params.EventBus != nil {
-				params.EventBus.Publish(data)
+				params.EventBus.Publish(clientVisibleEventData(data))
 			}
 		}
 	}

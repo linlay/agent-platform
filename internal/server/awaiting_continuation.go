@@ -52,6 +52,7 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 	req := queryRequestForAwaitingContinuation(originalQuery, submitReq, *summary, agentDef, mode, answer, s.awaitingContinuationPlanMarkdown(chatID, mode))
 	session, err := s.BuildQuerySession(context.Background(), req, *summary, agentDef, querySessionBuildOptions{
 		Created:           false,
+		Locale:            submitReq.Locale,
 		IncludeHistory:    true,
 		IncludeMemory:     true,
 		AllowInvokeAgents: canUseInvokeAgentsTool(agentDef.Mode),

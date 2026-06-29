@@ -663,7 +663,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		if emitVisible == nil {
 			return nil
 		}
-		return emitVisible(data)
+		return emitVisible(clientVisibleEventData(data))
 	}
 
 	for _, event := range assembler.Bootstrap() {

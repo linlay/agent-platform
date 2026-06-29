@@ -146,6 +146,7 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 		AgentKey:   req.AgentKey,
 		AwaitingID: req.AwaitingID,
 		SubmitID:   req.SubmitID,
+		Locale:     req.Locale,
 		Params:     req.Params,
 	}); handled || err != nil {
 		return response, err

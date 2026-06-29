@@ -183,6 +183,16 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 	case DeltaStageMarker:
 		m.lastKind = ""
 		return []stream.StreamInput{stream.StageMarker{Stage: value.Stage}}
+	case DeltaSyntheticQuery:
+		m.lastKind = ""
+		return []stream.StreamInput{stream.SyntheticQuery{
+			ChatID:   value.ChatID,
+			Role:     value.Role,
+			Message:  value.Message,
+			Stage:    value.Stage,
+			Source:   value.Source,
+			Messages: cloneRawMessageMaps(value.Messages),
+		}}
 	case DeltaFinishReason:
 		m.lastKind = ""
 		return []stream.StreamInput{stream.InputRunComplete{FinishReason: value.Reason}}

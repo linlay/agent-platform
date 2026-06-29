@@ -51,6 +51,17 @@ type DeltaStageMarker struct {
 
 func (DeltaStageMarker) agentDeltaTag() {}
 
+type DeltaSyntheticQuery struct {
+	ChatID   string
+	Role     string
+	Message  string
+	Stage    string
+	Source   string
+	Messages []map[string]any
+}
+
+func (DeltaSyntheticQuery) agentDeltaTag() {}
+
 type DeltaFinishReason struct {
 	Reason string
 }

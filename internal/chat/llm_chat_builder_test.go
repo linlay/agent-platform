@@ -194,6 +194,108 @@ func TestBuildLLMChatFromJSONLAppendsInputMessages(t *testing.T) {
 	}
 }
 
+func TestBuildLLMChatFromJSONLUsesSyntheticQueryMessagesOnce(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-llm-synthetic-query"
+	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	executePrompt := "Execute the confirmed CODER plan.\n\nOriginal request:\nhello\n\nConfirmed plan:\n# Plan"
+	executeSystem := QueryLineSystemInit{
+		CacheKey:      "coder:execute",
+		Fingerprint:   "sha256:execute",
+		SystemMessage: map[string]any{"role": "system", "content": "execute system"},
+		Tools:         []any{},
+		Model: map[string]any{
+			"key":         "execute-model",
+			"id":          "execute-model-id",
+			"providerKey": "provider",
+			"protocol":    "OPENAI",
+		},
+		ToolChoice:     "auto",
+		RequestOptions: map[string]any{"stream": true},
+	}
+	if err := store.AppendQueryLine(chatID, QueryLine{
+		Type:      "query",
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: 1,
+		Query:     map[string]any{"role": "user", "message": "hello"},
+		Messages:  []map[string]any{{"role": "user", "content": "hello"}},
+	}); err != nil {
+		t.Fatalf("append query: %v", err)
+	}
+	if err := store.AppendStepLine(chatID, StepLine{
+		Type:      StepLineTypeReactTool,
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: 2,
+		Seq:       1,
+		Messages: []StoredMessage{{
+			Role:    "tool",
+			Name:    "finalize_planning",
+			ToolID:  "tool_plan",
+			Content: []ContentPart{{Type: "text", Text: `{"decision":"approve"}`}},
+		}},
+	}); err != nil {
+		t.Fatalf("append react-tool: %v", err)
+	}
+	if err := store.AppendQueryLine(chatID, QueryLine{
+		Type:      "query",
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: 3,
+		Query: map[string]any{
+			"role":      "user",
+			"message":   "执行计划",
+			"synthetic": true,
+			"stage":     "coder-execute",
+			"source":    "coder-plan-approve",
+		},
+		Messages: []map[string]any{{"role": "user", "content": executePrompt}},
+	}); err != nil {
+		t.Fatalf("append synthetic query: %v", err)
+	}
+	if err := store.AppendStepLine(chatID, StepLine{
+		Type:      StepLineTypeReact,
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: 4,
+		Seq:       2,
+		SystemRef: map[string]any{"cacheKey": "coder:execute", "fingerprint": "sha256:execute"},
+		Systems:   []QueryLineSystemInit{executeSystem},
+		Messages: []StoredMessage{{
+			Role:    "assistant",
+			Content: []ContentPart{{Type: "text", Text: "done"}},
+		}},
+	}); err != nil {
+		t.Fatalf("append execute step: %v", err)
+	}
+
+	chat, err := store.BuildLLMChatFromJSONL(chatID, LLMChatBuildOptions{RunID: "run-1", Seq: 2})
+	if err != nil {
+		t.Fatalf("build llm chat: %v", err)
+	}
+	if got := chat.Messages[0]["content"]; got != "execute system" {
+		t.Fatalf("expected execute system, got %#v", chat.Messages)
+	}
+	executePromptCount := 0
+	for _, msg := range chat.Messages {
+		if msg["content"] == executePrompt {
+			executePromptCount++
+		}
+		if msg["content"] == "done" {
+			t.Fatalf("target assistant response must not be part of request messages: %#v", chat.Messages)
+		}
+	}
+	if executePromptCount != 1 {
+		t.Fatalf("expected execute prompt once, got %d in %#v", executePromptCount, chat.Messages)
+	}
+}
+
 func TestStepWriterKeepsLLMRequestProfileOutOfStepLines(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {

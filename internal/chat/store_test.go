@@ -3255,6 +3255,79 @@ func TestStepWriterPersistsQueryMessages(t *testing.T) {
 	}
 }
 
+func TestStepWriterPersistsSyntheticQueryAfterInitialQuery(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-synthetic-query"
+	if _, _, err := store.EnsureChat(chatID, "agent", "", "raw user text"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	writer := NewStepWriter(store, chatID, "run-1", "react")
+	writer.SetPendingQueryMessages([]map[string]any{{"role": "user", "content": "raw user text"}})
+	writer.OnEvent(stream.EventData{
+		Type:      "request.query",
+		Timestamp: 1001,
+		Payload: map[string]any{
+			"chatId":  chatID,
+			"runId":   "run-1",
+			"role":    "user",
+			"message": "raw user text",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Seq:       42,
+		Type:      "request.query",
+		Timestamp: 1002,
+		Payload: map[string]any{
+			"chatId":    chatID,
+			"runId":     "run-1",
+			"role":      "user",
+			"message":   "执行计划",
+			"synthetic": true,
+			"stage":     "coder-execute",
+			"source":    "coder-plan-approve",
+			"messages": []any{map[string]any{
+				"role":    "user",
+				"content": "Execute the confirmed CODER plan.\n\nConfirmed plan:\n# Plan",
+			}},
+		},
+	})
+
+	lines, err := readJSONLines(store.chatJSONLPath(chatID))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("expected initial and synthetic query lines, got %#v", lines)
+	}
+	synthetic := lines[1]
+	if synthetic["_type"] != "query" || toIntValue(synthetic["liveSeq"]) != 42 {
+		t.Fatalf("expected synthetic query line with liveSeq, got %#v", synthetic)
+	}
+	query, _ := synthetic["query"].(map[string]any)
+	if query["message"] != "执行计划" || query["synthetic"] != true ||
+		query["stage"] != "coder-execute" || query["source"] != "coder-plan-approve" {
+		t.Fatalf("unexpected synthetic query payload %#v", query)
+	}
+	if _, ok := query["messages"]; ok {
+		t.Fatalf("did not expect messages inside query payload, got %#v", query)
+	}
+	if _, ok := synthetic["systems"]; ok {
+		t.Fatalf("did not expect systems on synthetic query, got %#v", synthetic)
+	}
+	rawMessages, _ := synthetic["messages"].([]any)
+	if len(rawMessages) != 1 {
+		t.Fatalf("expected top-level synthetic query messages, got %#v", synthetic)
+	}
+	message, _ := rawMessages[0].(map[string]any)
+	if message["role"] != "user" || !strings.Contains(stringValue(message["content"]), "Confirmed plan:\n# Plan") {
+		t.Fatalf("unexpected synthetic query model message %#v", message)
+	}
+}
+
 func TestStepWriterWritesSystemInitAfterQuery(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {

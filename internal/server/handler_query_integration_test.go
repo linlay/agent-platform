@@ -19,6 +19,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
+	"agent-platform/internal/contracts"
 	"agent-platform/internal/stream"
 )
 
@@ -1375,6 +1376,7 @@ Plan first, then check the current time before reporting.
 	}
 	assertPersistedPlanningModeRequestQuery(t, fixture.server)
 	assertJSONLFinalizePlanningHistory(t, fixture.chats, chatID, map[string]string{"tool_plan": "approve"})
+	assertJSONLCoderExecuteSyntheticQuery(t, fixture.chats, chatID, "Execute plan")
 }
 
 func TestFinalizePlanningStreamsDeltasBeforeProviderFinishes(t *testing.T) {
@@ -2220,6 +2222,91 @@ func assertJSONLFinalizePlanningHistory(t *testing.T, store chat.Store, chatID s
 			t.Fatalf("expected JSONL tool result %s decision %q, got result %q in:\n%s", toolID, decision, result, content)
 		}
 	}
+}
+
+func assertJSONLCoderExecuteSyntheticQuery(t *testing.T, store chat.Store, chatID string, wantMessage string) {
+	t.Helper()
+	content, err := store.LoadJSONLContent(chatID)
+	if err != nil {
+		t.Fatalf("load chat jsonl: %v", err)
+	}
+	decoder := json.NewDecoder(strings.NewReader(content))
+	var lines []map[string]any
+	for {
+		var line map[string]any
+		if err := decoder.Decode(&line); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			t.Fatalf("decode chat jsonl line: %v\n%s", err, content)
+		}
+		lines = append(lines, line)
+	}
+	for index, line := range lines {
+		if stringValue(line["_type"]) != chat.StepLineTypeReactTool || !lineHasFinalizePlanningToolResultForServerTest(line) {
+			continue
+		}
+		if index+2 >= len(lines) {
+			t.Fatalf("expected synthetic query and execute react after react-tool in:\n%s", content)
+		}
+		queryLine := lines[index+1]
+		executeLine := lines[index+2]
+		if stringValue(queryLine["_type"]) != "query" {
+			t.Fatalf("expected synthetic query after react-tool, got %#v in:\n%s", queryLine, content)
+		}
+		query, _ := queryLine["query"].(map[string]any)
+		if query["synthetic"] != true || stringValue(query["message"]) != wantMessage ||
+			stringValue(query["stage"]) != "coder-execute" || stringValue(query["source"]) != "coder-plan-approve" {
+			t.Fatalf("unexpected synthetic query payload %#v in:\n%s", query, content)
+		}
+		if _, ok := query["messages"]; ok {
+			t.Fatalf("did not expect messages inside synthetic query payload %#v", query)
+		}
+		if _, ok := queryLine["systems"]; ok {
+			t.Fatalf("did not expect systems on synthetic query %#v", queryLine)
+		}
+		rawMessages, _ := queryLine["messages"].([]any)
+		if len(rawMessages) != 1 {
+			t.Fatalf("expected one synthetic query model message, got %#v in:\n%s", queryLine, content)
+		}
+		message, _ := rawMessages[0].(map[string]any)
+		executePrompt := textFromJSONLMessageContentForServerTest(message["content"])
+		if stringValue(message["role"]) != "user" ||
+			!strings.Contains(executePrompt, "Execute the confirmed CODER plan.") ||
+			!strings.Contains(executePrompt, "Original request:\nplease plan first") ||
+			!strings.Contains(executePrompt, "Confirmed plan:\n# Confirm Coder Plan") {
+			t.Fatalf("unexpected synthetic query model message %#v", message)
+		}
+		if stringValue(executeLine["_type"]) != chat.StepLineTypeReact {
+			t.Fatalf("expected execute react after synthetic query, got %#v in:\n%s", executeLine, content)
+		}
+		if _, ok := executeLine["inputMessages"]; ok {
+			t.Fatalf("did not expect duplicate execute inputMessages on first execute react %#v", executeLine)
+		}
+		if _, ok := executeLine["systemRef"].(map[string]any); !ok {
+			t.Fatalf("expected execute react to keep systemRef, got %#v", executeLine)
+		}
+		if systems, _ := executeLine["systems"].([]any); len(systems) == 0 {
+			t.Fatalf("expected execute react to keep systems, got %#v", executeLine)
+		}
+		if got := strings.Count(content, "Execute the confirmed CODER plan.\\n\\nOriginal request:"); got != 1 {
+			t.Fatalf("expected execute prompt persisted once, got %d in:\n%s", got, content)
+		}
+		return
+	}
+	t.Fatalf("expected react-tool finalize_planning result in:\n%s", content)
+}
+
+func lineHasFinalizePlanningToolResultForServerTest(line map[string]any) bool {
+	messages, _ := line["messages"].([]any)
+	for _, rawMessage := range messages {
+		message, _ := rawMessage.(map[string]any)
+		if stringValue(message["role"]) == "tool" &&
+			stringValue(message["name"]) == contracts.FinalizePlanningToolName {
+			return true
+		}
+	}
+	return false
 }
 
 func anySliceForServerTest(value any) []any {

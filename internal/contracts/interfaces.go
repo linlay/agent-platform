@@ -198,6 +198,7 @@ type QuerySession struct {
 	AgentName             string
 	AgentRole             string
 	AgentDescription      string
+	Locale                string
 	ModelKey              string
 	ToolNames             []string
 	Mode                  string

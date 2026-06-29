@@ -381,18 +381,29 @@ func (w *StepWriter) RecordApproval(approval StepApproval) {
 // ---------------------------------------------------------------------------
 
 func (w *StepWriter) handleRequestQuery(event stream.EventData) {
-	if w.queryWritten {
+	synthetic := boolFromAny(event.Value("synthetic"))
+	if w.queryWritten && !synthetic {
 		return
 	}
-	w.queryWritten = true
+	if !synthetic {
+		w.queryWritten = true
+	} else {
+		w.flushCurrentStep()
+	}
 
 	query := map[string]any{}
 	// Copy all payload fields into query, excluding seq/type/timestamp
 	for key, val := range event.Payload {
-		if key == "liveSeq" || key == "seq" {
+		if key == "liveSeq" || key == "seq" || key == "messages" {
 			continue
 		}
 		query[key] = val
+	}
+	messages := cloneMessageMaps(w.pendingQueryMessages)
+	systems := append([]QueryLineSystemInit(nil), w.pendingSystemInits...)
+	if synthetic {
+		messages = messagesFromEventValue(event.Value("messages"))
+		systems = nil
 	}
 
 	_ = w.store.AppendQueryLine(w.chatID, QueryLine{
@@ -402,11 +413,13 @@ func (w *StepWriter) handleRequestQuery(event stream.EventData) {
 		UpdatedAt: time.Now().UnixMilli(),
 		LiveSeq:   event.Seq,
 		Query:     query,
-		Messages:  cloneMessageMaps(w.pendingQueryMessages),
-		Systems:   append([]QueryLineSystemInit(nil), w.pendingSystemInits...),
+		Messages:  messages,
+		Systems:   systems,
 	})
-	w.pendingSystemInits = nil
-	w.pendingQueryMessages = nil
+	if !synthetic {
+		w.pendingSystemInits = nil
+		w.pendingQueryMessages = nil
+	}
 }
 
 func (w *StepWriter) ensureStep() {

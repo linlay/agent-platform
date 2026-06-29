@@ -163,6 +163,7 @@ type SubmitRequest struct {
 	AgentKey   string       `json:"agentKey"`
 	AwaitingID string       `json:"awaitingId"`
 	SubmitID   string       `json:"submitId,omitempty"`
+	Locale     string       `json:"locale,omitempty"`
 	Params     SubmitParams `json:"params"`
 }
 

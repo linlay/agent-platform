@@ -19,6 +19,7 @@ import (
 type querySessionBuildOptions struct {
 	Created           bool
 	SubTaskID         string
+	Locale            string
 	IncludeHistory    bool
 	IncludeMemory     bool
 	AllowInvokeAgents bool
@@ -134,6 +135,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		AgentName:              agentDef.Name,
 		AgentRole:              agentDef.Role,
 		AgentDescription:       agentDef.Description,
+		Locale:                 options.Locale,
 		ModelKey:               agentDef.ModelKey,
 		ToolNames:              toolNames,
 		Mode:                   agentDef.Mode,
