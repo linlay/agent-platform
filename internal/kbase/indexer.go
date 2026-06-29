@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -16,11 +17,12 @@ import (
 	"unicode/utf8"
 
 	"agent-platform/internal/catalog"
+	"agent-platform/internal/config"
 )
 
 const (
-	schemaVersion       = "1"
-	defaultMaxFileBytes = 2 * 1024 * 1024
+	schemaVersion       = "2"
+	defaultMaxFileBytes = 50 * 1024 * 1024
 )
 
 var supportedTextExtensions = map[string]struct{}{
@@ -54,6 +56,7 @@ type resolvedConfig struct {
 	Exclude       []string
 	Chunk         catalog.AgentKBaseChunkConfig
 	Retrieval     catalog.AgentKBaseRetrievalConfig
+	Extraction    config.KBaseExtractionConfig
 	ConfigHash    string
 }
 
@@ -67,6 +70,7 @@ type manifest struct {
 	Exclude       []string                          `json:"exclude"`
 	Chunk         catalog.AgentKBaseChunkConfig     `json:"chunk"`
 	Retrieval     catalog.AgentKBaseRetrievalConfig `json:"retrieval"`
+	Extraction    config.KBaseExtractionConfig      `json:"extraction"`
 	Storage       string                            `json:"storage"`
 	UpdatedAt     int64                             `json:"updatedAt"`
 }
@@ -82,6 +86,7 @@ func computeConfigHash(cfg resolvedConfig) string {
 		"exclude":       cfg.Exclude,
 		"chunk":         cfg.Chunk,
 		"retrieval":     cfg.Retrieval,
+		"extraction":    cfg.Extraction,
 	}
 	data, _ := json.Marshal(payload)
 	sum := sha256.Sum256(data)
@@ -99,6 +104,7 @@ func writeManifest(storageDir string, cfg resolvedConfig) error {
 		Exclude:       append([]string(nil), cfg.Exclude...),
 		Chunk:         cfg.Chunk,
 		Retrieval:     cfg.Retrieval,
+		Extraction:    cfg.Extraction,
 		Storage:       cfg.Storage,
 		UpdatedAt:     time.Now().UnixMilli(),
 	}, "", "  ")
@@ -209,15 +215,17 @@ func indexOneFile(ctx context.Context, store *Store, cfg resolvedConfig, embedde
 		Ext:       ext,
 		Size:      info.Size(),
 		MTimeMS:   info.ModTime().UnixMilli(),
+		Mime:      mimeForExtension(ext),
+		Extractor: extractorNameForExtension(ext, cfg.Extraction),
 		Status:    "active",
 		IndexedAt: time.Now().UnixMilli(),
 	}
-	if _, ok := supportedTextExtensions[ext]; !ok {
+	if rec.Extractor == "" {
 		rec.Status = "skipped"
 		rec.SkipReason = "unsupported_extension"
 		return store.UpsertSkippedFile(rec)
 	}
-	if info.Size() > defaultMaxFileBytes {
+	if info.Size() > extractionMaxFileBytes(cfg.Extraction) {
 		rec.Status = "skipped"
 		rec.SkipReason = "file_too_large"
 		return store.UpsertSkippedFile(rec)
@@ -239,13 +247,29 @@ func indexOneFile(ctx context.Context, store *Store, cfg resolvedConfig, embedde
 	if !force && existing != nil && existing.Status == "active" && existing.SHA256 == rec.SHA256 {
 		return nil
 	}
-	if !utf8.Valid(data) || looksBinary(data) {
+	if _, ok := supportedTextExtensions[ext]; ok && (!utf8.Valid(data) || looksBinary(data)) {
 		rec.Status = "skipped"
 		rec.SkipReason = "binary_or_non_utf8"
 		return store.UpsertSkippedFile(rec)
 	}
-	text := string(data)
-	chunks := chunkText(rel, text, cfg.Chunk.MaxChars, cfg.Chunk.OverlapChars, cfg.Embedding.Model, cfg.Embedding.Dimension)
+	doc, err := extractDocument(ctx, fullPath, rel, ext, data, cfg.Extraction)
+	if err != nil {
+		var exErr extractionError
+		if errors.As(err, &exErr) && exErr.skipped {
+			rec.Status = "skipped"
+			rec.SkipReason = exErr.reason
+			rec.Error = exErr.message
+			return store.UpsertSkippedFile(rec)
+		}
+		rec.Status = "error"
+		rec.Error = err.Error()
+		return store.UpsertSkippedFile(rec)
+	}
+	rec.Mime = firstNonBlank(doc.Mime, rec.Mime)
+	rec.Extractor = firstNonBlank(doc.Extractor, rec.Extractor)
+	rec.Metadata = metadataJSON(doc.Metadata)
+	rec.TextSHA256 = shaHex([]byte(extractedText(doc)))
+	chunks := chunkExtractedDocument(rel, doc, cfg.Chunk.MaxChars, cfg.Chunk.OverlapChars, cfg.Embedding.Model, cfg.Embedding.Dimension)
 	if len(chunks) > 0 {
 		texts := make([]string, len(chunks))
 		for i := range chunks {
@@ -268,6 +292,16 @@ func indexOneFile(ctx context.Context, store *Store, cfg resolvedConfig, embedde
 }
 
 func chunkText(path string, text string, maxChars int, overlapChars int, embeddingModel string, embeddingDimension int) []chunkRecord {
+	lineCount := countLines(text)
+	return chunkExtractedDocument(path, extractedDocument{Blocks: []extractedBlock{{
+		SourceType: "text",
+		Content:    text,
+		StartLine:  1,
+		EndLine:    lineCount,
+	}}}, maxChars, overlapChars, embeddingModel, embeddingDimension)
+}
+
+func chunkExtractedDocument(path string, doc extractedDocument, maxChars int, overlapChars int, embeddingModel string, embeddingDimension int) []chunkRecord {
 	if maxChars <= 0 {
 		maxChars = 4000
 	}
@@ -277,40 +311,80 @@ func chunkText(path string, text string, maxChars int, overlapChars int, embeddi
 	if overlapChars >= maxChars {
 		overlapChars = maxChars / 5
 	}
-	lines := strings.Split(text, "\n")
 	type block struct {
-		content   string
-		startLine int
-		endLine   int
-		heading   string
+		content    string
+		startLine  int
+		endLine    int
+		heading    string
+		sourceType string
+		pageStart  int
+		pageEnd    int
+		slideStart int
+		slideEnd   int
 	}
 	blocks := []block{}
-	var current strings.Builder
-	startLine := 1
-	heading := ""
-	for i, line := range lines {
-		lineNo := i + 1
-		if h := markdownHeading(line); h != "" {
-			heading = h
+	for _, source := range doc.Blocks {
+		content := strings.TrimSpace(source.Content)
+		if content == "" {
+			continue
 		}
-		if current.Len() == 0 {
-			startLine = lineNo
+		lines := strings.Split(content, "\n")
+		var current strings.Builder
+		sourceStartLine := source.StartLine
+		if sourceStartLine <= 0 {
+			sourceStartLine = 1
 		}
-		if current.Len()+len(line)+1 > maxChars && current.Len() > 0 {
-			blocks = append(blocks, block{content: strings.TrimSpace(current.String()), startLine: startLine, endLine: lineNo - 1, heading: heading})
-			current.Reset()
-			if overlapChars > 0 && len(blocks[len(blocks)-1].content) > overlapChars {
-				overlap := tailByChars(blocks[len(blocks)-1].content, overlapChars)
-				current.WriteString(overlap)
-				current.WriteByte('\n')
+		startLine := sourceStartLine
+		heading := source.Heading
+		for i, line := range lines {
+			lineNo := i + 1
+			absoluteLine := sourceStartLine + lineNo - 1
+			if h := markdownHeading(line); h != "" {
+				heading = h
 			}
-			startLine = lineNo
+			if current.Len() == 0 {
+				startLine = absoluteLine
+			}
+			if current.Len()+len(line)+1 > maxChars && current.Len() > 0 {
+				blocks = append(blocks, block{
+					content:    strings.TrimSpace(current.String()),
+					startLine:  startLine,
+					endLine:    absoluteLine - 1,
+					heading:    heading,
+					sourceType: source.SourceType,
+					pageStart:  source.PageStart,
+					pageEnd:    source.PageEnd,
+					slideStart: source.SlideStart,
+					slideEnd:   source.SlideEnd,
+				})
+				current.Reset()
+				if overlapChars > 0 && len(blocks[len(blocks)-1].content) > overlapChars {
+					overlap := tailByChars(blocks[len(blocks)-1].content, overlapChars)
+					current.WriteString(overlap)
+					current.WriteByte('\n')
+				}
+				startLine = absoluteLine
+			}
+			current.WriteString(line)
+			current.WriteByte('\n')
 		}
-		current.WriteString(line)
-		current.WriteByte('\n')
-	}
-	if strings.TrimSpace(current.String()) != "" {
-		blocks = append(blocks, block{content: strings.TrimSpace(current.String()), startLine: startLine, endLine: len(lines), heading: heading})
+		if strings.TrimSpace(current.String()) != "" {
+			endLine := sourceStartLine + len(lines) - 1
+			if source.EndLine > 0 {
+				endLine = minInt(endLine, source.EndLine)
+			}
+			blocks = append(blocks, block{
+				content:    strings.TrimSpace(current.String()),
+				startLine:  startLine,
+				endLine:    endLine,
+				heading:    heading,
+				sourceType: source.SourceType,
+				pageStart:  source.PageStart,
+				pageEnd:    source.PageEnd,
+				slideStart: source.SlideStart,
+				slideEnd:   source.SlideEnd,
+			})
+		}
 	}
 	out := make([]chunkRecord, 0, len(blocks))
 	now := time.Now().UnixMilli()
@@ -323,14 +397,62 @@ func chunkText(path string, text string, maxChars int, overlapChars int, embeddi
 			Heading:            block.heading,
 			StartLine:          block.startLine,
 			EndLine:            block.endLine,
+			SourceType:         block.sourceType,
+			PageStart:          block.pageStart,
+			PageEnd:            block.pageEnd,
+			SlideStart:         block.slideStart,
+			SlideEnd:           block.slideEnd,
 			Content:            block.content,
 			ContentHash:        hash,
 			EmbeddingModel:     embeddingModel,
 			EmbeddingDimension: embeddingDimension,
 			UpdatedAt:          now,
 		})
+		out[len(out)-1].LocatorJSON = chunkLocatorJSON(out[len(out)-1])
 	}
 	return out
+}
+
+func extractedText(doc extractedDocument) string {
+	parts := make([]string, 0, len(doc.Blocks))
+	for _, block := range doc.Blocks {
+		if text := strings.TrimSpace(block.Content); text != "" {
+			parts = append(parts, text)
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+func metadataJSON(metadata map[string]any) string {
+	if len(metadata) == 0 {
+		return ""
+	}
+	data, err := json.Marshal(metadata)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func chunkLocatorJSON(chunk chunkRecord) string {
+	locator := map[string]any{
+		"sourceType": chunk.SourceType,
+		"startLine":  chunk.StartLine,
+		"endLine":    chunk.EndLine,
+	}
+	if chunk.PageStart > 0 {
+		locator["pageStart"] = chunk.PageStart
+		locator["pageEnd"] = chunk.PageEnd
+	}
+	if chunk.SlideStart > 0 {
+		locator["slideStart"] = chunk.SlideStart
+		locator["slideEnd"] = chunk.SlideEnd
+	}
+	data, err := json.Marshal(locator)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 func markdownHeading(line string) string {

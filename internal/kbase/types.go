@@ -29,8 +29,17 @@ type Status struct {
 	Chunks             int               `json:"chunks"`
 	Embedding          EmbeddingSnapshot `json:"embedding"`
 	LastRun            *IndexRun         `json:"lastRun,omitempty"`
+	FileStats          FileStats         `json:"fileStats,omitempty"`
 	ConfigHash         string            `json:"configHash,omitempty"`
 	ManifestConfigHash string            `json:"manifestConfigHash,omitempty"`
+}
+
+type FileStats struct {
+	Active     int            `json:"active"`
+	Skipped    int            `json:"skipped"`
+	Error      int            `json:"error"`
+	Deleted    int            `json:"deleted"`
+	Extractors map[string]int `json:"extractors,omitempty"`
 }
 
 type EmbeddingSnapshot struct {
@@ -54,14 +63,19 @@ type SearchResult struct {
 }
 
 type SearchHit struct {
-	ChunkID   string  `json:"chunkId"`
-	Path      string  `json:"path"`
-	Heading   string  `json:"heading,omitempty"`
-	StartLine int     `json:"startLine"`
-	EndLine   int     `json:"endLine"`
-	Snippet   string  `json:"snippet"`
-	Score     float64 `json:"score"`
-	MatchType string  `json:"matchType"`
+	ChunkID    string  `json:"chunkId"`
+	Path       string  `json:"path"`
+	Heading    string  `json:"heading,omitempty"`
+	StartLine  int     `json:"startLine"`
+	EndLine    int     `json:"endLine"`
+	PageStart  int     `json:"pageStart,omitempty"`
+	PageEnd    int     `json:"pageEnd,omitempty"`
+	SlideStart int     `json:"slideStart,omitempty"`
+	SlideEnd   int     `json:"slideEnd,omitempty"`
+	SourceType string  `json:"sourceType,omitempty"`
+	Snippet    string  `json:"snippet"`
+	Score      float64 `json:"score"`
+	MatchType  string  `json:"matchType"`
 }
 
 type ReadOptions struct {
@@ -72,13 +86,18 @@ type ReadOptions struct {
 }
 
 type ReadResult struct {
-	Found     bool   `json:"found"`
-	ChunkID   string `json:"chunkId,omitempty"`
-	Path      string `json:"path,omitempty"`
-	Heading   string `json:"heading,omitempty"`
-	StartLine int    `json:"startLine,omitempty"`
-	EndLine   int    `json:"endLine,omitempty"`
-	Content   string `json:"content,omitempty"`
+	Found      bool   `json:"found"`
+	ChunkID    string `json:"chunkId,omitempty"`
+	Path       string `json:"path,omitempty"`
+	Heading    string `json:"heading,omitempty"`
+	StartLine  int    `json:"startLine,omitempty"`
+	EndLine    int    `json:"endLine,omitempty"`
+	PageStart  int    `json:"pageStart,omitempty"`
+	PageEnd    int    `json:"pageEnd,omitempty"`
+	SlideStart int    `json:"slideStart,omitempty"`
+	SlideEnd   int    `json:"slideEnd,omitempty"`
+	SourceType string `json:"sourceType,omitempty"`
+	Content    string `json:"content,omitempty"`
 }
 
 type IndexRun struct {
@@ -98,9 +117,13 @@ type fileRecord struct {
 	ID         string
 	Path       string
 	Ext        string
+	Mime       string
 	Size       int64
 	MTimeMS    int64
 	SHA256     string
+	TextSHA256 string
+	Extractor  string
+	Metadata   string
 	Status     string
 	SkipReason string
 	Error      string
@@ -116,6 +139,12 @@ type chunkRecord struct {
 	Heading            string
 	StartLine          int
 	EndLine            int
+	PageStart          int
+	PageEnd            int
+	SlideStart         int
+	SlideEnd           int
+	SourceType         string
+	LocatorJSON        string
 	Content            string
 	ContentHash        string
 	Embedding          []float64

@@ -723,6 +723,9 @@ func parseAgentKBaseConfig(value any) AgentKBaseConfig {
 		Include: []string{
 			"**/*.md",
 			"**/*.txt",
+			"**/*.pdf",
+			"**/*.docx",
+			"**/*.pptx",
 		},
 		Exclude: []string{
 			".git/**",

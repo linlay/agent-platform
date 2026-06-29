@@ -784,6 +784,11 @@ func TestParseAgentFileKBaseFiltersToolsAndStaticMemory(t *testing.T) {
 	if def.MemoryEnabled || def.MemoryConfig.Enabled || def.StaticMemoryPrompt != "" {
 		t.Fatalf("expected KBASE memory to be ignored, enabled=%v config=%#v static=%q", def.MemoryEnabled, def.MemoryConfig, def.StaticMemoryPrompt)
 	}
+	for _, include := range []string{"**/*.pdf", "**/*.docx", "**/*.pptx"} {
+		if !containsString(def.KBaseConfig.Include, include) {
+			t.Fatalf("expected KBASE default include to contain %s, got %#v", include, def.KBaseConfig.Include)
+		}
+	}
 }
 
 func TestParseAgentFileRejectsKBaseWithoutWorkspace(t *testing.T) {

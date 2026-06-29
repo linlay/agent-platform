@@ -110,6 +110,15 @@ func TestManagerRefreshSearchReadAndIgnoreKBaseDir(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspace, "beta.txt"), []byte("beta reference material"), 0o644); err != nil {
 		t.Fatalf("write beta: %v", err)
 	}
+	deck := zipFixture(t, map[string]string{
+		"ppt/slides/slide1.xml": `<?xml version="1.0" encoding="UTF-8"?>
+<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+  <p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>gamma slide insight</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld>
+</p:sld>`,
+	})
+	if err := os.WriteFile(filepath.Join(workspace, "deck.pptx"), deck, 0o644); err != nil {
+		t.Fatalf("write deck: %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(workspace, ".kbase", "hidden.md"), []byte("hidden beta"), 0o644); err != nil {
 		t.Fatalf("write hidden: %v", err)
 	}
@@ -120,7 +129,7 @@ func TestManagerRefreshSearchReadAndIgnoreKBaseDir(t *testing.T) {
 		KBaseConfig: catalog.AgentKBaseConfig{
 			Embedding: catalog.AgentKBaseEmbeddingConfig{ProviderKey: "mock"},
 			Storage:   catalog.AgentKBaseStorageConfig{Location: "runtime"},
-			Include:   []string{"**/*.md", "**/*.txt"},
+			Include:   []string{"**/*.md", "**/*.txt", "**/*.pptx"},
 			Exclude:   []string{".git/**", ".kbase/**", "node_modules/**"},
 			Chunk:     catalog.AgentKBaseChunkConfig{MaxChars: 4000, OverlapChars: 600},
 			Retrieval: catalog.AgentKBaseRetrievalConfig{TopK: 5, VectorWeight: 0.7, FTSWeight: 0.3},
@@ -134,14 +143,14 @@ func TestManagerRefreshSearchReadAndIgnoreKBaseDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
-	if refresh.Status != "success" || refresh.ScannedFiles != 2 {
+	if refresh.Status != "success" || refresh.ScannedFiles != 3 {
 		t.Fatalf("unexpected refresh result: %#v", refresh)
 	}
 	status, err := manager.Status("docs")
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
-	if status.Files != 2 || status.Chunks == 0 || status.Stale {
+	if status.Files != 3 || status.Chunks == 0 || status.Stale {
 		t.Fatalf("unexpected status: %#v", status)
 	}
 	search, err := manager.Search(context.Background(), "docs", "beta", SearchOptions{Limit: 3})
@@ -157,5 +166,19 @@ func TestManagerRefreshSearchReadAndIgnoreKBaseDir(t *testing.T) {
 	}
 	if !read.Found || !strings.Contains(read.Content, "beta reference") {
 		t.Fatalf("unexpected read result: %#v", read)
+	}
+	slideSearch, err := manager.Search(context.Background(), "docs", "gamma", SearchOptions{Limit: 3})
+	if err != nil {
+		t.Fatalf("slide search: %v", err)
+	}
+	if slideSearch.Count == 0 || slideSearch.Results[0].Path != "deck.pptx" || slideSearch.Results[0].SlideStart != 1 || slideSearch.Results[0].SourceType != "pptx" {
+		t.Fatalf("expected deck.pptx slide hit, got %#v", slideSearch)
+	}
+	slideRead, err := manager.Read("docs", ReadOptions{ChunkID: slideSearch.Results[0].ChunkID})
+	if err != nil {
+		t.Fatalf("slide read: %v", err)
+	}
+	if !slideRead.Found || slideRead.SlideStart != 1 || slideRead.SourceType != "pptx" || !strings.Contains(slideRead.Content, "gamma slide") {
+		t.Fatalf("unexpected slide read result: %#v", slideRead)
 	}
 }

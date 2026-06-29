@@ -144,12 +144,38 @@ type CoderACPProxyConfig struct {
 }
 
 type KBaseConfig struct {
-	Refresh KBaseRefreshConfig
+	Refresh    KBaseRefreshConfig
+	Extraction KBaseExtractionConfig
 }
 
 type KBaseRefreshConfig struct {
 	Debounce          time.Duration
 	ReconcileInterval time.Duration
+}
+
+type KBaseExtractionConfig struct {
+	Timeout      time.Duration
+	MaxFileBytes int64
+	PDF          KBasePDFExtractionConfig
+	DOCX         KBaseDOCXExtractionConfig
+	PPTX         KBasePPTXExtractionConfig
+}
+
+type KBasePDFExtractionConfig struct {
+	Enabled bool
+	Backend string
+	Binary  string
+}
+
+type KBaseDOCXExtractionConfig struct {
+	Enabled bool
+	Backend string
+}
+
+type KBasePPTXExtractionConfig struct {
+	Enabled      bool
+	Backend      string
+	IncludeNotes bool
 }
 
 type VisionRecognizeConfig struct {

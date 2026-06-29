@@ -221,6 +221,9 @@ func (m *Manager) Status(agentKey string) (Status, error) {
 	}
 	status.Files = files
 	status.Chunks = chunks
+	if stats, err := store.FileStats(); err == nil {
+		status.FileStats = stats
+	}
 	status.ManifestConfigHash = store.Meta("configHash")
 	status.Stale = status.ManifestConfigHash == "" || status.ManifestConfigHash != cfg.ConfigHash
 	if lastIndexed := store.Meta("lastIndexedAt"); lastIndexed != "" {
@@ -304,14 +307,19 @@ func (m *Manager) Search(ctx context.Context, agentKey string, query string, opt
 			matchType = "fts"
 		}
 		hits = append(hits, SearchHit{
-			ChunkID:   chunk.ID,
-			Path:      chunk.Path,
-			Heading:   chunk.Heading,
-			StartLine: chunk.StartLine,
-			EndLine:   chunk.EndLine,
-			Snippet:   snippet(chunk.Content, query),
-			Score:     score,
-			MatchType: matchType,
+			ChunkID:    chunk.ID,
+			Path:       chunk.Path,
+			Heading:    chunk.Heading,
+			StartLine:  chunk.StartLine,
+			EndLine:    chunk.EndLine,
+			PageStart:  chunk.PageStart,
+			PageEnd:    chunk.PageEnd,
+			SlideStart: chunk.SlideStart,
+			SlideEnd:   chunk.SlideEnd,
+			SourceType: chunk.SourceType,
+			Snippet:    snippet(chunk.Content, query),
+			Score:      score,
+			MatchType:  matchType,
 		})
 	}
 	hits = sortedSearchHits(hits, limit)
@@ -344,13 +352,18 @@ func (m *Manager) Read(agentKey string, options ReadOptions) (ReadResult, error)
 			return ReadResult{Found: false, ChunkID: options.ChunkID}, nil
 		}
 		return ReadResult{
-			Found:     true,
-			ChunkID:   chunk.ID,
-			Path:      chunk.Path,
-			Heading:   chunk.Heading,
-			StartLine: chunk.StartLine,
-			EndLine:   chunk.EndLine,
-			Content:   chunk.Content,
+			Found:      true,
+			ChunkID:    chunk.ID,
+			Path:       chunk.Path,
+			Heading:    chunk.Heading,
+			StartLine:  chunk.StartLine,
+			EndLine:    chunk.EndLine,
+			PageStart:  chunk.PageStart,
+			PageEnd:    chunk.PageEnd,
+			SlideStart: chunk.SlideStart,
+			SlideEnd:   chunk.SlideEnd,
+			SourceType: chunk.SourceType,
+			Content:    chunk.Content,
 		}, nil
 	}
 	path := filepath.ToSlash(strings.TrimSpace(options.Path))
@@ -424,6 +437,7 @@ func (m *Manager) resolve(agentKey string) (resolvedConfig, *Embedder, error) {
 		Exclude:       append([]string(nil), def.KBaseConfig.Exclude...),
 		Chunk:         def.KBaseConfig.Chunk,
 		Retrieval:     def.KBaseConfig.Retrieval,
+		Extraction:    m.cfg.KBase.Extraction,
 	}
 	cfg.ConfigHash = computeConfigHash(cfg)
 	return cfg, NewEmbedder(baseURL, provider.APIKey, embedding.Model, embedding.Dimension, embedding.Timeout), nil

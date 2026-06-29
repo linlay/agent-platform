@@ -41,6 +41,18 @@ func TestLoadDefaults(t *testing.T) {
 			if cfg.KBase.Refresh.Debounce.String() != "2s" || cfg.KBase.Refresh.ReconcileInterval.String() != "10m0s" {
 				t.Fatalf("unexpected kbase refresh defaults: %#v", cfg.KBase.Refresh)
 			}
+			if cfg.KBase.Extraction.Timeout.String() != "1m0s" ||
+				cfg.KBase.Extraction.MaxFileBytes != 50*1024*1024 ||
+				!cfg.KBase.Extraction.PDF.Enabled ||
+				cfg.KBase.Extraction.PDF.Backend != "poppler" ||
+				cfg.KBase.Extraction.PDF.Binary != "pdftotext" ||
+				!cfg.KBase.Extraction.DOCX.Enabled ||
+				cfg.KBase.Extraction.DOCX.Backend != "native" ||
+				!cfg.KBase.Extraction.PPTX.Enabled ||
+				cfg.KBase.Extraction.PPTX.Backend != "native" ||
+				!cfg.KBase.Extraction.PPTX.IncludeNotes {
+				t.Fatalf("unexpected kbase extraction defaults: %#v", cfg.KBase.Extraction)
+			}
 			if !cfg.Auth.Enabled {
 				t.Fatalf("expected auth enabled by default")
 			}
@@ -1339,6 +1351,21 @@ func TestLoadRuntimePathsFromYAML(t *testing.T) {
 		"  refresh:\n" +
 		"    debounce: 3s\n" +
 		"    reconcile-interval: 11m\n"
+	runtimeConfig += "" +
+		"  extraction:\n" +
+		"    timeout: 45s\n" +
+		"    max-file-bytes: 123456\n" +
+		"    pdf:\n" +
+		"      enabled: false\n" +
+		"      backend: poppler\n" +
+		"      binary: custom-pdftotext\n" +
+		"    docx:\n" +
+		"      enabled: true\n" +
+		"      backend: native\n" +
+		"    pptx:\n" +
+		"      enabled: true\n" +
+		"      backend: native\n" +
+		"      include-notes: false\n"
 	withIsolatedEnv(t, nil, func() {
 		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &runtimeConfig, func() {
 			cfg, err := Load()
@@ -1392,6 +1419,13 @@ func TestLoadRuntimePathsFromYAML(t *testing.T) {
 			}
 			if cfg.KBase.Refresh.Debounce.String() != "3s" || cfg.KBase.Refresh.ReconcileInterval.String() != "11m0s" {
 				t.Fatalf("unexpected kbase refresh config: %#v", cfg.KBase.Refresh)
+			}
+			if cfg.KBase.Extraction.Timeout.String() != "45s" ||
+				cfg.KBase.Extraction.MaxFileBytes != 123456 ||
+				cfg.KBase.Extraction.PDF.Enabled ||
+				cfg.KBase.Extraction.PDF.Binary != "custom-pdftotext" ||
+				cfg.KBase.Extraction.PPTX.IncludeNotes {
+				t.Fatalf("unexpected kbase extraction config: %#v", cfg.KBase.Extraction)
 			}
 		})
 	})

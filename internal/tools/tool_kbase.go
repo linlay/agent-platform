@@ -61,13 +61,18 @@ func (t *RuntimeToolExecutor) invokeKBaseRead(toolName string, args map[string]a
 		return ToolExecutionResult{}, err
 	}
 	return structuredResult(map[string]any{
-		"found":     result.Found,
-		"chunkId":   result.ChunkID,
-		"path":      result.Path,
-		"heading":   result.Heading,
-		"startLine": result.StartLine,
-		"endLine":   result.EndLine,
-		"content":   result.Content,
+		"found":      result.Found,
+		"chunkId":    result.ChunkID,
+		"path":       result.Path,
+		"heading":    result.Heading,
+		"startLine":  result.StartLine,
+		"endLine":    result.EndLine,
+		"pageStart":  result.PageStart,
+		"pageEnd":    result.PageEnd,
+		"slideStart": result.SlideStart,
+		"slideEnd":   result.SlideEnd,
+		"sourceType": result.SourceType,
+		"content":    result.Content,
 	}), nil
 }
 
@@ -93,6 +98,7 @@ func (t *RuntimeToolExecutor) invokeKBaseStatus(toolName string, execCtx *Execut
 		"chunks":          status.Chunks,
 		"embedding":       status.Embedding,
 		"lastRun":         status.LastRun,
+		"fileStats":       status.FileStats,
 	}), nil
 }
 

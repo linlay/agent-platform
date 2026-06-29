@@ -116,11 +116,33 @@ func (c *Config) applyMemoryValues(values map[string]any) {
 
 func (c *Config) applyKBaseValues(values map[string]any) {
 	refresh, _ := values["refresh"].(map[string]any)
-	if len(refresh) == 0 {
+	if len(refresh) > 0 {
+		c.KBase.Refresh.Debounce = durationValue(anyValue(refresh["debounce"], c.KBase.Refresh.Debounce), c.KBase.Refresh.Debounce)
+		c.KBase.Refresh.ReconcileInterval = durationValue(anyValue(refresh["reconcile-interval"], c.KBase.Refresh.ReconcileInterval), c.KBase.Refresh.ReconcileInterval)
+	}
+	extraction, _ := values["extraction"].(map[string]any)
+	if len(extraction) == 0 {
 		return
 	}
-	c.KBase.Refresh.Debounce = durationValue(anyValue(refresh["debounce"], c.KBase.Refresh.Debounce), c.KBase.Refresh.Debounce)
-	c.KBase.Refresh.ReconcileInterval = durationValue(anyValue(refresh["reconcile-interval"], c.KBase.Refresh.ReconcileInterval), c.KBase.Refresh.ReconcileInterval)
+	c.KBase.Extraction.Timeout = durationValue(anyValue(extraction["timeout"], c.KBase.Extraction.Timeout), c.KBase.Extraction.Timeout)
+	c.KBase.Extraction.MaxFileBytes = int64Value(anyValue(extraction["max-file-bytes"], c.KBase.Extraction.MaxFileBytes), c.KBase.Extraction.MaxFileBytes)
+	pdf, _ := extraction["pdf"].(map[string]any)
+	if len(pdf) > 0 {
+		c.KBase.Extraction.PDF.Enabled = boolValue(anyValue(pdf["enabled"], c.KBase.Extraction.PDF.Enabled), c.KBase.Extraction.PDF.Enabled)
+		c.KBase.Extraction.PDF.Backend = stringValue(anyValue(pdf["backend"], c.KBase.Extraction.PDF.Backend), c.KBase.Extraction.PDF.Backend)
+		c.KBase.Extraction.PDF.Binary = stringValue(anyValue(pdf["binary"], c.KBase.Extraction.PDF.Binary), c.KBase.Extraction.PDF.Binary)
+	}
+	docx, _ := extraction["docx"].(map[string]any)
+	if len(docx) > 0 {
+		c.KBase.Extraction.DOCX.Enabled = boolValue(anyValue(docx["enabled"], c.KBase.Extraction.DOCX.Enabled), c.KBase.Extraction.DOCX.Enabled)
+		c.KBase.Extraction.DOCX.Backend = stringValue(anyValue(docx["backend"], c.KBase.Extraction.DOCX.Backend), c.KBase.Extraction.DOCX.Backend)
+	}
+	pptx, _ := extraction["pptx"].(map[string]any)
+	if len(pptx) > 0 {
+		c.KBase.Extraction.PPTX.Enabled = boolValue(anyValue(pptx["enabled"], c.KBase.Extraction.PPTX.Enabled), c.KBase.Extraction.PPTX.Enabled)
+		c.KBase.Extraction.PPTX.Backend = stringValue(anyValue(pptx["backend"], c.KBase.Extraction.PPTX.Backend), c.KBase.Extraction.PPTX.Backend)
+		c.KBase.Extraction.PPTX.IncludeNotes = boolValue(anyValue(pptx["include-notes"], c.KBase.Extraction.PPTX.IncludeNotes), c.KBase.Extraction.PPTX.IncludeNotes)
+	}
 }
 
 func (c *Config) applyRuntimeFile(path string) error {

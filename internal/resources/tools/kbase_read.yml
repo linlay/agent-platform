@@ -1,6 +1,6 @@
 name: kbase_read
 label: 读取知识库片段
-description: Read a KBASE chunk by chunkId, or read indexed chunks for a source path.
+description: Read a KBASE chunk by chunkId, or read indexed chunks for a source path. Results include line/page/slide source location when available.
 submitResultFormat: json-compact
 type: function
 clientVisible: true

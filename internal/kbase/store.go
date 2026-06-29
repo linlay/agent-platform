@@ -60,9 +60,13 @@ func (s *Store) initDB() error {
 			ID_ TEXT PRIMARY KEY,
 			PATH_ TEXT NOT NULL UNIQUE,
 			EXT_ TEXT NOT NULL,
+			MIME_ TEXT NOT NULL DEFAULT '',
 			SIZE_ INTEGER NOT NULL,
 			MTIME_MS_ INTEGER NOT NULL,
 			SHA256_ TEXT NOT NULL,
+			TEXT_SHA256_ TEXT NOT NULL DEFAULT '',
+			EXTRACTOR_ TEXT NOT NULL DEFAULT '',
+			METADATA_JSON_ TEXT NOT NULL DEFAULT '',
 			STATUS_ TEXT NOT NULL,
 			SKIP_REASON_ TEXT NOT NULL DEFAULT '',
 			ERROR_ TEXT NOT NULL DEFAULT '',
@@ -77,6 +81,12 @@ func (s *Store) initDB() error {
 			HEADING_ TEXT NOT NULL DEFAULT '',
 			START_LINE_ INTEGER NOT NULL,
 			END_LINE_ INTEGER NOT NULL,
+			SOURCE_TYPE_ TEXT NOT NULL DEFAULT '',
+			PAGE_START_ INTEGER NOT NULL DEFAULT 0,
+			PAGE_END_ INTEGER NOT NULL DEFAULT 0,
+			SLIDE_START_ INTEGER NOT NULL DEFAULT 0,
+			SLIDE_END_ INTEGER NOT NULL DEFAULT 0,
+			LOCATOR_JSON_ TEXT NOT NULL DEFAULT '',
 			CONTENT_ TEXT NOT NULL,
 			CONTENT_HASH_ TEXT NOT NULL,
 			EMBEDDING_ BLOB,
@@ -123,7 +133,57 @@ func (s *Store) initDB() error {
 			return fmt.Errorf("init kbase schema: %w", err)
 		}
 	}
+	fileColumns := map[string]string{
+		"MIME_":          "TEXT NOT NULL DEFAULT ''",
+		"TEXT_SHA256_":   "TEXT NOT NULL DEFAULT ''",
+		"EXTRACTOR_":     "TEXT NOT NULL DEFAULT ''",
+		"METADATA_JSON_": "TEXT NOT NULL DEFAULT ''",
+	}
+	for name, definition := range fileColumns {
+		if err := s.ensureColumn("KBASE_FILES", name, definition); err != nil {
+			return err
+		}
+	}
+	chunkColumns := map[string]string{
+		"SOURCE_TYPE_":  "TEXT NOT NULL DEFAULT ''",
+		"PAGE_START_":   "INTEGER NOT NULL DEFAULT 0",
+		"PAGE_END_":     "INTEGER NOT NULL DEFAULT 0",
+		"SLIDE_START_":  "INTEGER NOT NULL DEFAULT 0",
+		"SLIDE_END_":    "INTEGER NOT NULL DEFAULT 0",
+		"LOCATOR_JSON_": "TEXT NOT NULL DEFAULT ''",
+	}
+	for name, definition := range chunkColumns {
+		if err := s.ensureColumn("KBASE_CHUNKS", name, definition); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func (s *Store) ensureColumn(table string, column string, definition string) error {
+	rows, err := s.db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if strings.EqualFold(name, column) {
+			return rows.Err()
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + definition)
+	return err
 }
 
 func (s *Store) Meta(key string) string {
@@ -205,11 +265,13 @@ func scanIndexRun(rows *sql.Rows) (IndexRun, error) {
 }
 
 func (s *Store) File(path string) (*fileRecord, error) {
-	row := s.db.QueryRow(`SELECT ID_, PATH_, EXT_, SIZE_, MTIME_MS_, SHA256_, STATUS_, SKIP_REASON_, ERROR_, CHUNK_COUNT_, INDEXED_AT_
+	row := s.db.QueryRow(`SELECT ID_, PATH_, EXT_, MIME_, SIZE_, MTIME_MS_, SHA256_, TEXT_SHA256_, EXTRACTOR_, METADATA_JSON_,
+			STATUS_, SKIP_REASON_, ERROR_, CHUNK_COUNT_, INDEXED_AT_
 		FROM KBASE_FILES WHERE PATH_ = ?`, path)
 	rec := fileRecord{}
-	err := row.Scan(&rec.ID, &rec.Path, &rec.Ext, &rec.Size, &rec.MTimeMS, &rec.SHA256,
-		&rec.Status, &rec.SkipReason, &rec.Error, &rec.ChunkCount, &rec.IndexedAt)
+	err := row.Scan(&rec.ID, &rec.Path, &rec.Ext, &rec.Mime, &rec.Size, &rec.MTimeMS, &rec.SHA256,
+		&rec.TextSHA256, &rec.Extractor, &rec.Metadata, &rec.Status, &rec.SkipReason, &rec.Error,
+		&rec.ChunkCount, &rec.IndexedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -237,14 +299,17 @@ func (s *Store) ActiveFilePaths() (map[string]struct{}, error) {
 }
 
 func (s *Store) UpsertSkippedFile(rec fileRecord) error {
-	_, err := s.db.Exec(`INSERT INTO KBASE_FILES(ID_, PATH_, EXT_, SIZE_, MTIME_MS_, SHA256_, STATUS_, SKIP_REASON_, ERROR_, CHUNK_COUNT_, INDEXED_AT_)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+	_, err := s.db.Exec(`INSERT INTO KBASE_FILES(ID_, PATH_, EXT_, MIME_, SIZE_, MTIME_MS_, SHA256_, TEXT_SHA256_, EXTRACTOR_, METADATA_JSON_,
+			STATUS_, SKIP_REASON_, ERROR_, CHUNK_COUNT_, INDEXED_AT_)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
 		ON CONFLICT(PATH_) DO UPDATE SET
-			EXT_ = excluded.EXT_, SIZE_ = excluded.SIZE_, MTIME_MS_ = excluded.MTIME_MS_,
-			SHA256_ = excluded.SHA256_, STATUS_ = excluded.STATUS_,
+			EXT_ = excluded.EXT_, MIME_ = excluded.MIME_, SIZE_ = excluded.SIZE_, MTIME_MS_ = excluded.MTIME_MS_,
+			SHA256_ = excluded.SHA256_, TEXT_SHA256_ = excluded.TEXT_SHA256_, EXTRACTOR_ = excluded.EXTRACTOR_,
+			METADATA_JSON_ = excluded.METADATA_JSON_, STATUS_ = excluded.STATUS_,
 			SKIP_REASON_ = excluded.SKIP_REASON_, ERROR_ = excluded.ERROR_,
 			CHUNK_COUNT_ = 0, INDEXED_AT_ = excluded.INDEXED_AT_`,
-		rec.ID, rec.Path, rec.Ext, rec.Size, rec.MTimeMS, rec.SHA256, rec.Status, rec.SkipReason, rec.Error, rec.IndexedAt)
+		rec.ID, rec.Path, rec.Ext, rec.Mime, rec.Size, rec.MTimeMS, rec.SHA256, rec.TextSHA256, rec.Extractor, rec.Metadata,
+		rec.Status, rec.SkipReason, rec.Error, rec.IndexedAt)
 	if err != nil {
 		return err
 	}
@@ -262,22 +327,27 @@ func (s *Store) UpsertIndexedFile(rec fileRecord, chunks []chunkRecord) error {
 		}
 	}()
 	rec.ChunkCount = len(chunks)
-	_, err = tx.Exec(`INSERT INTO KBASE_FILES(ID_, PATH_, EXT_, SIZE_, MTIME_MS_, SHA256_, STATUS_, SKIP_REASON_, ERROR_, CHUNK_COUNT_, INDEXED_AT_)
-		VALUES(?, ?, ?, ?, ?, ?, 'active', '', '', ?, ?)
+	_, err = tx.Exec(`INSERT INTO KBASE_FILES(ID_, PATH_, EXT_, MIME_, SIZE_, MTIME_MS_, SHA256_, TEXT_SHA256_, EXTRACTOR_, METADATA_JSON_,
+			STATUS_, SKIP_REASON_, ERROR_, CHUNK_COUNT_, INDEXED_AT_)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', '', '', ?, ?)
 		ON CONFLICT(PATH_) DO UPDATE SET
-			ID_ = excluded.ID_, EXT_ = excluded.EXT_, SIZE_ = excluded.SIZE_,
-			MTIME_MS_ = excluded.MTIME_MS_, SHA256_ = excluded.SHA256_, STATUS_ = 'active',
+			ID_ = excluded.ID_, EXT_ = excluded.EXT_, MIME_ = excluded.MIME_, SIZE_ = excluded.SIZE_,
+			MTIME_MS_ = excluded.MTIME_MS_, SHA256_ = excluded.SHA256_, TEXT_SHA256_ = excluded.TEXT_SHA256_,
+			EXTRACTOR_ = excluded.EXTRACTOR_, METADATA_JSON_ = excluded.METADATA_JSON_, STATUS_ = 'active',
 			SKIP_REASON_ = '', ERROR_ = '', CHUNK_COUNT_ = excluded.CHUNK_COUNT_,
 			INDEXED_AT_ = excluded.INDEXED_AT_`,
-		rec.ID, rec.Path, rec.Ext, rec.Size, rec.MTimeMS, rec.SHA256, rec.ChunkCount, rec.IndexedAt)
+		rec.ID, rec.Path, rec.Ext, rec.Mime, rec.Size, rec.MTimeMS, rec.SHA256, rec.TextSHA256, rec.Extractor, rec.Metadata,
+		rec.ChunkCount, rec.IndexedAt)
 	if err != nil {
 		return err
 	}
 	if _, err = tx.Exec(`DELETE FROM KBASE_CHUNKS WHERE FILE_ID_ = ?`, rec.ID); err != nil {
 		return err
 	}
-	stmt, err := tx.Prepare(`INSERT INTO KBASE_CHUNKS(ID_, FILE_ID_, PATH_, ORDINAL_, HEADING_, START_LINE_, END_LINE_, CONTENT_, CONTENT_HASH_, EMBEDDING_, EMBEDDING_MODEL_, EMBEDDING_DIMENSION_, UPDATED_AT_)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	stmt, err := tx.Prepare(`INSERT INTO KBASE_CHUNKS(ID_, FILE_ID_, PATH_, ORDINAL_, HEADING_, START_LINE_, END_LINE_,
+			SOURCE_TYPE_, PAGE_START_, PAGE_END_, SLIDE_START_, SLIDE_END_, LOCATOR_JSON_, CONTENT_, CONTENT_HASH_,
+			EMBEDDING_, EMBEDDING_MODEL_, EMBEDDING_DIMENSION_, UPDATED_AT_)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -289,7 +359,8 @@ func (s *Store) UpsertIndexedFile(rec fileRecord, chunks []chunkRecord) error {
 			return err
 		}
 		if _, err = stmt.Exec(chunk.ID, rec.ID, chunk.Path, chunk.Ordinal, chunk.Heading, chunk.StartLine,
-			chunk.EndLine, chunk.Content, chunk.ContentHash, vector, chunk.EmbeddingModel,
+			chunk.EndLine, chunk.SourceType, chunk.PageStart, chunk.PageEnd, chunk.SlideStart, chunk.SlideEnd,
+			chunk.LocatorJSON, chunk.Content, chunk.ContentHash, vector, chunk.EmbeddingModel,
 			chunk.EmbeddingDimension, chunk.UpdatedAt); err != nil {
 			return err
 		}
@@ -324,6 +395,52 @@ func (s *Store) Counts() (files int, chunks int, err error) {
 	return
 }
 
+func (s *Store) FileStats() (FileStats, error) {
+	stats := FileStats{Extractors: map[string]int{}}
+	rows, err := s.db.Query(`SELECT STATUS_, COUNT(*) FROM KBASE_FILES GROUP BY STATUS_`)
+	if err != nil {
+		return stats, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return stats, err
+		}
+		switch status {
+		case "active":
+			stats.Active = count
+		case "skipped":
+			stats.Skipped = count
+		case "error":
+			stats.Error = count
+		case "deleted":
+			stats.Deleted = count
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return stats, err
+	}
+	extractorRows, err := s.db.Query(`SELECT EXTRACTOR_, COUNT(*) FROM KBASE_FILES WHERE EXTRACTOR_ <> '' GROUP BY EXTRACTOR_`)
+	if err != nil {
+		return stats, err
+	}
+	defer extractorRows.Close()
+	for extractorRows.Next() {
+		var extractor string
+		var count int
+		if err := extractorRows.Scan(&extractor, &count); err != nil {
+			return stats, err
+		}
+		stats.Extractors[extractor] = count
+	}
+	if len(stats.Extractors) == 0 {
+		stats.Extractors = nil
+	}
+	return stats, extractorRows.Err()
+}
+
 type ftsHit struct {
 	Chunk chunkRecord
 	Score float64
@@ -335,6 +452,7 @@ func (s *Store) SearchFTS(query string, limit int) ([]ftsHit, error) {
 		return nil, nil
 	}
 	rows, err := s.db.Query(`SELECT c.ID_, c.FILE_ID_, c.PATH_, c.ORDINAL_, c.HEADING_, c.START_LINE_, c.END_LINE_,
+			c.SOURCE_TYPE_, c.PAGE_START_, c.PAGE_END_, c.SLIDE_START_, c.SLIDE_END_, c.LOCATOR_JSON_,
 			c.CONTENT_, c.CONTENT_HASH_, c.EMBEDDING_, c.EMBEDDING_MODEL_, c.EMBEDDING_DIMENSION_, c.UPDATED_AT_,
 			bm25(KBASE_CHUNKS_FTS) AS score
 		FROM KBASE_CHUNKS_FTS fts
@@ -361,6 +479,7 @@ func (s *Store) SearchFTS(query string, limit int) ([]ftsHit, error) {
 func (s *Store) searchLike(query string, limit int) ([]ftsHit, error) {
 	pattern := "%" + strings.TrimSpace(query) + "%"
 	rows, err := s.db.Query(`SELECT ID_, FILE_ID_, PATH_, ORDINAL_, HEADING_, START_LINE_, END_LINE_,
+			SOURCE_TYPE_, PAGE_START_, PAGE_END_, SLIDE_START_, SLIDE_END_, LOCATOR_JSON_,
 			CONTENT_, CONTENT_HASH_, EMBEDDING_, EMBEDDING_MODEL_, EMBEDDING_DIMENSION_, UPDATED_AT_, 1.0
 		FROM KBASE_CHUNKS
 		WHERE PATH_ LIKE ? OR HEADING_ LIKE ? OR CONTENT_ LIKE ?
@@ -382,6 +501,7 @@ func (s *Store) searchLike(query string, limit int) ([]ftsHit, error) {
 
 func (s *Store) AllChunksWithEmbeddings() ([]chunkRecord, error) {
 	rows, err := s.db.Query(`SELECT ID_, FILE_ID_, PATH_, ORDINAL_, HEADING_, START_LINE_, END_LINE_,
+			SOURCE_TYPE_, PAGE_START_, PAGE_END_, SLIDE_START_, SLIDE_END_, LOCATOR_JSON_,
 			CONTENT_, CONTENT_HASH_, EMBEDDING_, EMBEDDING_MODEL_, EMBEDDING_DIMENSION_, UPDATED_AT_
 		FROM KBASE_CHUNKS
 		WHERE EMBEDDING_ IS NOT NULL`)
@@ -402,6 +522,7 @@ func (s *Store) AllChunksWithEmbeddings() ([]chunkRecord, error) {
 
 func (s *Store) ReadChunk(id string) (*chunkRecord, error) {
 	row := s.db.QueryRow(`SELECT ID_, FILE_ID_, PATH_, ORDINAL_, HEADING_, START_LINE_, END_LINE_,
+			SOURCE_TYPE_, PAGE_START_, PAGE_END_, SLIDE_START_, SLIDE_END_, LOCATOR_JSON_,
 			CONTENT_, CONTENT_HASH_, EMBEDDING_, EMBEDDING_MODEL_, EMBEDDING_DIMENSION_, UPDATED_AT_
 		FROM KBASE_CHUNKS WHERE ID_ = ?`, id)
 	chunk, err := scanChunkRow(row)
@@ -422,6 +543,7 @@ func (s *Store) ReadPath(path string, offset int, limit int) (*ReadResult, error
 		limit = 200
 	}
 	rows, err := s.db.Query(`SELECT ID_, FILE_ID_, PATH_, ORDINAL_, HEADING_, START_LINE_, END_LINE_,
+			SOURCE_TYPE_, PAGE_START_, PAGE_END_, SLIDE_START_, SLIDE_END_, LOCATOR_JSON_,
 			CONTENT_, CONTENT_HASH_, EMBEDDING_, EMBEDDING_MODEL_, EMBEDDING_DIMENSION_, UPDATED_AT_
 		FROM KBASE_CHUNKS WHERE PATH_ = ? ORDER BY ORDINAL_`, path)
 	if err != nil {
@@ -430,6 +552,8 @@ func (s *Store) ReadPath(path string, offset int, limit int) (*ReadResult, error
 	defer rows.Close()
 	var parts []string
 	var startLine, endLine int
+	var pageStart, pageEnd, slideStart, slideEnd int
+	var sourceType string
 	var first bool = true
 	for rows.Next() {
 		chunk, err := scanChunk(rows)
@@ -444,10 +568,19 @@ func (s *Store) ReadPath(path string, offset int, limit int) (*ReadResult, error
 		}
 		if first {
 			startLine = maxInt(chunk.StartLine, offset)
+			pageStart = chunk.PageStart
+			slideStart = chunk.SlideStart
+			sourceType = chunk.SourceType
 			first = false
 		}
 		parts = append(parts, chunk.Content)
 		endLine = chunk.EndLine
+		if chunk.PageEnd > 0 {
+			pageEnd = chunk.PageEnd
+		}
+		if chunk.SlideEnd > 0 {
+			slideEnd = chunk.SlideEnd
+		}
 		if endLine >= offset+limit-1 {
 			break
 		}
@@ -456,11 +589,16 @@ func (s *Store) ReadPath(path string, offset int, limit int) (*ReadResult, error
 		return &ReadResult{Found: false, Path: path}, rows.Err()
 	}
 	return &ReadResult{
-		Found:     true,
-		Path:      path,
-		StartLine: startLine,
-		EndLine:   endLine,
-		Content:   strings.Join(parts, "\n"),
+		Found:      true,
+		Path:       path,
+		StartLine:  startLine,
+		EndLine:    endLine,
+		PageStart:  pageStart,
+		PageEnd:    pageEnd,
+		SlideStart: slideStart,
+		SlideEnd:   slideEnd,
+		SourceType: sourceType,
+		Content:    strings.Join(parts, "\n"),
 	}, rows.Err()
 }
 
@@ -469,7 +607,8 @@ func scanChunkWithScore(rows *sql.Rows) (chunkRecord, float64, error) {
 	var embedding []byte
 	var chunk chunkRecord
 	err := rows.Scan(&chunk.ID, &chunk.FileID, &chunk.Path, &chunk.Ordinal, &chunk.Heading,
-		&chunk.StartLine, &chunk.EndLine, &chunk.Content, &chunk.ContentHash, &embedding,
+		&chunk.StartLine, &chunk.EndLine, &chunk.SourceType, &chunk.PageStart, &chunk.PageEnd,
+		&chunk.SlideStart, &chunk.SlideEnd, &chunk.LocatorJSON, &chunk.Content, &chunk.ContentHash, &embedding,
 		&chunk.EmbeddingModel, &chunk.EmbeddingDimension, &chunk.UpdatedAt, &score)
 	if err != nil {
 		return chunk, 0, err
@@ -492,7 +631,8 @@ func scanChunkRow(row rowScanner) (chunkRecord, error) {
 	var embedding []byte
 	var chunk chunkRecord
 	err := row.Scan(&chunk.ID, &chunk.FileID, &chunk.Path, &chunk.Ordinal, &chunk.Heading,
-		&chunk.StartLine, &chunk.EndLine, &chunk.Content, &chunk.ContentHash, &embedding,
+		&chunk.StartLine, &chunk.EndLine, &chunk.SourceType, &chunk.PageStart, &chunk.PageEnd,
+		&chunk.SlideStart, &chunk.SlideEnd, &chunk.LocatorJSON, &chunk.Content, &chunk.ContentHash, &embedding,
 		&chunk.EmbeddingModel, &chunk.EmbeddingDimension, &chunk.UpdatedAt)
 	if err != nil {
 		return chunk, err
@@ -563,6 +703,13 @@ func sortedSearchHits(hits []SearchHit, limit int) []SearchHit {
 
 func maxInt(a, b int) int {
 	if a > b {
+		return a
+	}
+	return b
+}
+
+func minInt(a, b int) int {
+	if a < b {
 		return a
 	}
 	return b

@@ -57,6 +57,24 @@ func defaultConfig(options LoadOptions) Config {
 				Debounce:          2 * time.Second,
 				ReconcileInterval: 10 * time.Minute,
 			},
+			Extraction: KBaseExtractionConfig{
+				Timeout:      60 * time.Second,
+				MaxFileBytes: 50 * 1024 * 1024,
+				PDF: KBasePDFExtractionConfig{
+					Enabled: true,
+					Backend: "poppler",
+					Binary:  "pdftotext",
+				},
+				DOCX: KBaseDOCXExtractionConfig{
+					Enabled: true,
+					Backend: "native",
+				},
+				PPTX: KBasePPTXExtractionConfig{
+					Enabled:      true,
+					Backend:      "native",
+					IncludeNotes: true,
+				},
+			},
 		},
 		Providers: CatalogConfig{ExternalDir: filepath.Join(paths.RegistriesDir, "providers")},
 		Models:    CatalogConfig{ExternalDir: filepath.Join(paths.RegistriesDir, "models")},
@@ -277,6 +295,7 @@ func (c *Config) normalize(configRoot string) error {
 	c.VisionRecognize = normalizeVisionRecognizeConfig(c.VisionRecognize)
 	c.WebFetch = normalizeWebFetchConfig(c.WebFetch)
 	c.ImageGenerate = normalizeImageGenerateConfig(c.ImageGenerate)
+	c.KBase.Extraction = normalizeKBaseExtractionConfig(c.KBase.Extraction)
 	c.ContainerHub.Enabled = strings.TrimSpace(c.ContainerHub.BaseURL) != ""
 	if c.Bash.WorkingDirectory == "" {
 		c.Bash.WorkingDirectory = "."
@@ -303,6 +322,32 @@ func (c *Config) normalize(configRoot string) error {
 		return err
 	}
 	return nil
+}
+
+func normalizeKBaseExtractionConfig(cfg KBaseExtractionConfig) KBaseExtractionConfig {
+	if cfg.Timeout <= 0 {
+		cfg.Timeout = 60 * time.Second
+	}
+	if cfg.MaxFileBytes <= 0 {
+		cfg.MaxFileBytes = 50 * 1024 * 1024
+	}
+	cfg.PDF.Backend = strings.ToLower(strings.TrimSpace(cfg.PDF.Backend))
+	if cfg.PDF.Backend == "" {
+		cfg.PDF.Backend = "poppler"
+	}
+	cfg.PDF.Binary = strings.TrimSpace(cfg.PDF.Binary)
+	if cfg.PDF.Binary == "" {
+		cfg.PDF.Binary = "pdftotext"
+	}
+	cfg.DOCX.Backend = strings.ToLower(strings.TrimSpace(cfg.DOCX.Backend))
+	if cfg.DOCX.Backend == "" {
+		cfg.DOCX.Backend = "native"
+	}
+	cfg.PPTX.Backend = strings.ToLower(strings.TrimSpace(cfg.PPTX.Backend))
+	if cfg.PPTX.Backend == "" {
+		cfg.PPTX.Backend = "native"
+	}
+	return cfg
 }
 
 func normalizeDesktopBridgeConfig(cfg DesktopBridgeConfig) DesktopBridgeConfig {
