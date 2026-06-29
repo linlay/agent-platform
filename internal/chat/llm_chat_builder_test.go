@@ -296,6 +296,96 @@ func TestBuildLLMChatFromJSONLUsesSyntheticQueryMessagesOnce(t *testing.T) {
 	}
 }
 
+func TestBuildLLMChatFromJSONLUsesReactToolAuditMessageOnce(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-llm-audit-once"
+	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	system := QueryLineSystemInit{
+		CacheKey:      "react:main",
+		Fingerprint:   "sha256:system",
+		SystemMessage: map[string]any{"role": "system", "content": "system"},
+		Tools:         []any{},
+		Model: map[string]any{
+			"key":         "model-key",
+			"id":          "model-id",
+			"providerKey": "provider",
+			"protocol":    "OPENAI",
+		},
+		ToolChoice:     "auto",
+		RequestOptions: map[string]any{"stream": true},
+	}
+	auditNotice := `[System audit — HITL approval batch]
+The user reviewed the following tool call(s) and submitted decisions:
+1. tool=bash command="pwd" decision=approve reason=""
+The tool results above already reflect these decisions; do not re-prompt for approval and do not retry rejected calls.`
+	if err := store.AppendQueryLine(chatID, QueryLine{
+		Type:      "query",
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: 1,
+		Query:     map[string]any{"role": "user", "message": "hello"},
+		Messages:  []map[string]any{{"role": "user", "content": "hello"}},
+		Systems:   []QueryLineSystemInit{system},
+	}); err != nil {
+		t.Fatalf("append query: %v", err)
+	}
+	if err := store.AppendStepLine(chatID, StepLine{
+		Type:      StepLineTypeReactTool,
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: 2,
+		Seq:       1,
+		Messages: []StoredMessage{
+			{
+				Role:       "tool",
+				Name:       "bash",
+				ToolCallID: "tool-1",
+				Content:    []ContentPart{{Type: "text", Text: "ok"}},
+			},
+			{
+				Role:    "user",
+				Content: textContent(auditNotice),
+			},
+		},
+	}); err != nil {
+		t.Fatalf("append react-tool: %v", err)
+	}
+	if err := store.AppendStepLine(chatID, StepLine{
+		Type:      StepLineTypeReact,
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: 3,
+		Seq:       2,
+		SystemRef: map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:system"},
+		Messages: []StoredMessage{{
+			Role:    "assistant",
+			Content: []ContentPart{{Type: "text", Text: "done"}},
+		}},
+	}); err != nil {
+		t.Fatalf("append target react: %v", err)
+	}
+
+	chat, err := store.BuildLLMChatFromJSONL(chatID, LLMChatBuildOptions{RunID: "run-1", Seq: 2})
+	if err != nil {
+		t.Fatalf("build llm chat: %v", err)
+	}
+	auditCount := 0
+	for _, message := range chat.Messages {
+		content, _ := message["content"].(string)
+		if strings.Contains(content, "[System audit — HITL approval batch]") {
+			auditCount++
+		}
+	}
+	if auditCount != 1 {
+		t.Fatalf("expected audit message once, got %d in %#v", auditCount, chat.Messages)
+	}
+}
+
 func TestStepWriterKeepsLLMRequestProfileOutOfStepLines(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
@@ -390,6 +480,69 @@ func TestStepWriterKeepsLLMRequestProfileOutOfStepLines(t *testing.T) {
 	inputMessages, _ := step["inputMessages"].([]any)
 	if len(inputMessages) != 1 {
 		t.Fatalf("expected input messages, got %#v", step)
+	}
+}
+
+func TestStepWriterSkipsSystemAuditInputMessages(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-skip-audit-input"
+	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	auditNotice := `[System audit — HITL approval batch]
+The user reviewed the following tool call(s) and submitted decisions:
+1. tool=bash command="pwd" decision=approve reason=""
+The tool results above already reflect these decisions; do not re-prompt for approval and do not retry rejected calls.`
+	if err := store.AppendStepLine(chatID, StepLine{
+		Type:      StepLineTypeReactTool,
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: 1,
+		Seq:       1,
+		Messages: []StoredMessage{
+			{
+				Role:       "tool",
+				Name:       "bash",
+				ToolCallID: "tool-1",
+				Content:    []ContentPart{{Type: "text", Text: "ok"}},
+			},
+			{
+				Role:    "user",
+				Content: textContent(auditNotice),
+			},
+		},
+	}); err != nil {
+		t.Fatalf("append react-tool: %v", err)
+	}
+
+	writer := NewStepWriter(store, chatID, "run-1", "REACT")
+	writer.OnEvent(stream.NewEvent("llm.request", map[string]any{
+		"runId":         "run-1",
+		"chatId":        chatID,
+		"inputMessages": []any{map[string]any{"role": "user", "content": auditNotice}},
+	}).Data())
+	writer.OnEvent(stream.NewEvent("content.snapshot", map[string]any{
+		"contentId": "content-1",
+		"text":      "done",
+	}).Data())
+	writer.Flush()
+
+	lines, err := readJSONLines(store.chatJSONLPath(chatID))
+	if err != nil {
+		t.Fatalf("read jsonl: %v", err)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("expected react-tool and react lines, got %#v", lines)
+	}
+	target := lines[1]
+	if stringValue(target["_type"]) != StepLineTypeReact {
+		t.Fatalf("expected target react line, got %#v", target)
+	}
+	if _, ok := target["inputMessages"]; ok {
+		t.Fatalf("did not expect duplicate audit inputMessages, got %#v", target)
 	}
 }
 

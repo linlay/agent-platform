@@ -140,6 +140,10 @@ func (s *llmRunStream) currentInputMessagesForJSONL() []map[string]any {
 	if len(raw) == 0 {
 		return nil
 	}
+	raw = filterSystemAuditInputMessages(raw)
+	if len(raw) == 0 {
+		return nil
+	}
 	if messageSlicesEqual(raw, s.session.CurrentMessages) {
 		return nil
 	}
@@ -169,6 +173,62 @@ func trailingUserMessages(messages []openAIMessage) []map[string]any {
 		}
 	}
 	return out
+}
+
+func filterSystemAuditInputMessages(messages []map[string]any) []map[string]any {
+	if len(messages) == 0 {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(messages))
+	for _, message := range messages {
+		if isSystemAuditInputMessage(message) {
+			continue
+		}
+		out = append(out, message)
+	}
+	if len(out) == len(messages) {
+		return messages
+	}
+	return out
+}
+
+func isSystemAuditInputMessage(message map[string]any) bool {
+	if len(message) == 0 {
+		return false
+	}
+	role, _ := message["role"].(string)
+	if !strings.EqualFold(strings.TrimSpace(role), "user") {
+		return false
+	}
+	content := strings.TrimSpace(inputMessageContentText(message["content"]))
+	for _, prefix := range []string{
+		"[System audit — HITL approval batch]",
+		"[System audit — auto approval]",
+		"[System audit — approval batch]",
+	} {
+		if strings.HasPrefix(content, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func inputMessageContentText(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return typed
+	case []any:
+		var builder strings.Builder
+		for _, item := range typed {
+			part, _ := item.(map[string]any)
+			if text, _ := part["text"].(string); text != "" {
+				builder.WriteString(text)
+			}
+		}
+		return builder.String()
+	default:
+		return ""
+	}
 }
 
 func messageSlicesEqual(left []map[string]any, right []map[string]any) bool {

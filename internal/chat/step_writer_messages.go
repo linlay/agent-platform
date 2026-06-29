@@ -447,6 +447,44 @@ func messagesFromEventValue(value any) []map[string]any {
 	return out
 }
 
+func filterSystemAuditInputMessages(messages []map[string]any) []map[string]any {
+	if len(messages) == 0 {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(messages))
+	for _, message := range messages {
+		if isSystemAuditInputMessage(message) {
+			continue
+		}
+		out = append(out, message)
+	}
+	if len(out) == len(messages) {
+		return messages
+	}
+	return out
+}
+
+func isSystemAuditInputMessage(message map[string]any) bool {
+	if len(message) == 0 {
+		return false
+	}
+	role, _ := message["role"].(string)
+	if !strings.EqualFold(strings.TrimSpace(role), "user") {
+		return false
+	}
+	content := strings.TrimSpace(extractTextFromContent(message["content"]))
+	for _, prefix := range []string{
+		"[System audit — HITL approval batch]",
+		"[System audit — auto approval]",
+		"[System audit — approval batch]",
+	} {
+		if strings.HasPrefix(content, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func boolFromAny(value any) bool {
 	switch typed := value.(type) {
 	case bool:

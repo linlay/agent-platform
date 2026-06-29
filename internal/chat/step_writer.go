@@ -517,7 +517,7 @@ func (w *StepWriter) captureRootLLMRequestData(event stream.EventData) {
 		w.pendingSystemRef = cloneStepSystemPayload(systemRef)
 	}
 	if inputMessages := messagesFromEventValue(event.Value("inputMessages")); len(inputMessages) > 0 {
-		w.pendingInputMessages = inputMessages
+		w.pendingInputMessages = filterSystemAuditInputMessages(inputMessages)
 	}
 }
 
@@ -557,7 +557,7 @@ func (w *StepWriter) captureTaskLLMRequestData(buffer *taskStepBuffer, event str
 		buffer.pendingSystemRef = cloneStepSystemPayload(systemRef)
 	}
 	if inputMessages := messagesFromEventValue(event.Value("inputMessages")); len(inputMessages) > 0 {
-		buffer.pendingInputMessages = inputMessages
+		buffer.pendingInputMessages = filterSystemAuditInputMessages(inputMessages)
 	}
 }
 
