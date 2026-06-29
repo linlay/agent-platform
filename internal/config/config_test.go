@@ -168,6 +168,7 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 	for _, want := range []string{
 		"resource:\n",
 		"  ticket-ttl-seconds: 86400\n",
+		"# KBASE behavior settings live in configs/kbase-settings.yml.\n",
 		"container-hub:\n",
 		"  base-url: ${AP_CONTAINER_HUB_BASE_URL:http://host.docker.internal:11960}\n",
 		"  # auth-token:\n",
@@ -187,6 +188,9 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 	if strings.Contains(runtimeExample, "server:\n") || strings.Contains(runtimeExample, "port: 11949\n") {
 		t.Fatalf("expected runtime example not to expose server port config")
 	}
+	if strings.Contains(runtimeExample, "\nkbase:\n") {
+		t.Fatalf("expected runtime example to move kbase behavior settings to kbase-settings.example.yml")
+	}
 	for _, forbidden := range []string{
 		"anthropic:\n",
 		"  max-output-tokens: 4096\n",
@@ -195,6 +199,36 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 	} {
 		if strings.Contains(runtimeExample, forbidden) {
 			t.Fatalf("expected runtime example not to expose %q", forbidden)
+		}
+	}
+
+	kbaseSettingsExampleBytes, err := os.ReadFile(ProjectFile("configs/kbase-settings.example.yml"))
+	if err != nil {
+		t.Fatalf("read kbase settings example: %v", err)
+	}
+	kbaseSettingsExample := string(kbaseSettingsExampleBytes)
+	for _, want := range []string{
+		"# KBASE-specific runtime settings.\n",
+		"refresh:\n",
+		"  debounce: 2s\n",
+		"  reconcile-interval: 10m\n",
+		"extraction:\n",
+		"  timeout: 60s\n",
+		"  max-file-bytes: 52428800\n",
+		"  pdf:\n",
+		"    enabled: true\n",
+		"    backend: poppler\n",
+		"    binary: pdftotext\n",
+		"  docx:\n",
+		"    enabled: true\n",
+		"    backend: native\n",
+		"  pptx:\n",
+		"    enabled: true\n",
+		"    backend: native\n",
+		"    include-notes: true\n",
+	} {
+		if !strings.Contains(kbaseSettingsExample, want) {
+			t.Fatalf("expected kbase settings example to contain %q", want)
 		}
 	}
 
@@ -808,6 +842,115 @@ func TestLoadCoderSettingsRejectsACPProxyWithoutBaseURL(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), "acp-proxies.codex.base-url is required") {
 				t.Fatalf("expected missing base-url error, got %v", err)
 			}
+		})
+	})
+}
+
+func TestLoadKBaseSettingsMissingFileUsesDefaults(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), nil, func() {
+			withProjectFileContents(t, filepath.Join("configs", "kbase-settings.yml"), nil, func() {
+				cfg, err := Load()
+				if err != nil {
+					t.Fatalf("load config: %v", err)
+				}
+				if cfg.KBase.Refresh.Debounce.String() != "2s" || cfg.KBase.Refresh.ReconcileInterval.String() != "10m0s" {
+					t.Fatalf("unexpected kbase refresh defaults: %#v", cfg.KBase.Refresh)
+				}
+				if cfg.KBase.Extraction.Timeout.String() != "1m0s" ||
+					cfg.KBase.Extraction.MaxFileBytes != 50*1024*1024 ||
+					!cfg.KBase.Extraction.PDF.Enabled ||
+					cfg.KBase.Extraction.PDF.Backend != "poppler" ||
+					cfg.KBase.Extraction.PDF.Binary != "pdftotext" ||
+					!cfg.KBase.Extraction.PPTX.IncludeNotes {
+					t.Fatalf("unexpected kbase extraction defaults: %#v", cfg.KBase.Extraction)
+				}
+			})
+		})
+	})
+}
+
+func TestLoadRuntimeKBaseCompatibility(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		runtimeConfig := "" +
+			"kbase:\n" +
+			"  refresh:\n" +
+			"    debounce: 4s\n" +
+			"    reconcile-interval: 12m\n" +
+			"  extraction:\n" +
+			"    timeout: 44s\n" +
+			"    max-file-bytes: 4444\n" +
+			"    pdf:\n" +
+			"      enabled: false\n" +
+			"      backend: poppler\n" +
+			"      binary: runtime-pdftotext\n" +
+			"    pptx:\n" +
+			"      include-notes: false\n"
+		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &runtimeConfig, func() {
+			withProjectFileContents(t, filepath.Join("configs", "kbase-settings.yml"), nil, func() {
+				cfg, err := Load()
+				if err != nil {
+					t.Fatalf("load config: %v", err)
+				}
+				if cfg.KBase.Refresh.Debounce.String() != "4s" || cfg.KBase.Refresh.ReconcileInterval.String() != "12m0s" {
+					t.Fatalf("unexpected runtime kbase refresh config: %#v", cfg.KBase.Refresh)
+				}
+				if cfg.KBase.Extraction.Timeout.String() != "44s" ||
+					cfg.KBase.Extraction.MaxFileBytes != 4444 ||
+					cfg.KBase.Extraction.PDF.Enabled ||
+					cfg.KBase.Extraction.PDF.Binary != "runtime-pdftotext" ||
+					cfg.KBase.Extraction.PPTX.IncludeNotes {
+					t.Fatalf("unexpected runtime kbase extraction config: %#v", cfg.KBase.Extraction)
+				}
+			})
+		})
+	})
+}
+
+func TestLoadKBaseSettingsOverridesRuntimeKBase(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		runtimeConfig := "" +
+			"kbase:\n" +
+			"  refresh:\n" +
+			"    debounce: 4s\n" +
+			"    reconcile-interval: 12m\n" +
+			"  extraction:\n" +
+			"    timeout: 44s\n" +
+			"    max-file-bytes: 4444\n" +
+			"    pdf:\n" +
+			"      enabled: false\n" +
+			"      backend: poppler\n" +
+			"      binary: runtime-pdftotext\n" +
+			"    pptx:\n" +
+			"      include-notes: false\n"
+		kbaseSettings := "" +
+			"refresh:\n" +
+			"  debounce: 6s\n" +
+			"extraction:\n" +
+			"  timeout: 66s\n" +
+			"  max-file-bytes: 6666\n" +
+			"  pdf:\n" +
+			"    enabled: true\n" +
+			"    binary: settings-pdftotext\n" +
+			"  pptx:\n" +
+			"    include-notes: true\n"
+		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &runtimeConfig, func() {
+			withProjectFileContents(t, filepath.Join("configs", "kbase-settings.yml"), &kbaseSettings, func() {
+				cfg, err := Load()
+				if err != nil {
+					t.Fatalf("load config: %v", err)
+				}
+				if cfg.KBase.Refresh.Debounce.String() != "6s" || cfg.KBase.Refresh.ReconcileInterval.String() != "12m0s" {
+					t.Fatalf("unexpected kbase refresh precedence: %#v", cfg.KBase.Refresh)
+				}
+				if cfg.KBase.Extraction.Timeout.String() != "1m6s" ||
+					cfg.KBase.Extraction.MaxFileBytes != 6666 ||
+					!cfg.KBase.Extraction.PDF.Enabled ||
+					cfg.KBase.Extraction.PDF.Binary != "settings-pdftotext" ||
+					!cfg.KBase.Extraction.PPTX.IncludeNotes {
+					t.Fatalf("unexpected kbase settings precedence: %#v", cfg.KBase.Extraction)
+				}
+			})
 		})
 	})
 }

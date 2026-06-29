@@ -10,6 +10,9 @@ func (c *Config) applyStructuredConfig(configRoot string) error {
 	if err := c.applyRuntimeFile(configFile(configRoot, "configs/runtime.yml")); err != nil {
 		return err
 	}
+	if err := c.applyKBaseSettingsFile(configFile(configRoot, "configs/kbase-settings.yml")); err != nil {
+		return err
+	}
 	if err := c.applyToolsFile(configFile(configRoot, "configs/tools.yml")); err != nil {
 		return err
 	}
@@ -194,6 +197,18 @@ func (c *Config) applyRuntimeFile(path string) error {
 	if budget, ok := values["budget"].(map[string]any); ok && len(budget) > 0 {
 		c.applyRuntimeBudgetValues(budget)
 	}
+	return nil
+}
+
+func (c *Config) applyKBaseSettingsFile(path string) error {
+	values, err := loadYAMLMap(path)
+	if err != nil {
+		return err
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	c.applyKBaseValues(values)
 	return nil
 }
 

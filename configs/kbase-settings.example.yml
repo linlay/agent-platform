@@ -1,0 +1,23 @@
+# KBASE-specific runtime settings.
+
+refresh:
+  debounce: 2s
+  reconcile-interval: 10m
+
+extraction:
+  timeout: 60s
+  max-file-bytes: 52428800
+
+  pdf:
+    enabled: true
+    backend: poppler
+    binary: pdftotext
+
+  docx:
+    enabled: true
+    backend: native
+
+  pptx:
+    enabled: true
+    backend: native
+    include-notes: true

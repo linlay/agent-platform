@@ -71,10 +71,7 @@ memory:
   hybrid-fts-weight: 0.3
   dual-write-markdown: true
 
-kbase:
-  refresh:
-    debounce: 2s
-    reconcile-interval: 10m
+# KBASE behavior settings live in configs/kbase-settings.yml.
 
 container-hub:
   base-url: ${AP_CONTAINER_HUB_BASE_URL:http://host.docker.internal:11960}
