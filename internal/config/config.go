@@ -395,7 +395,6 @@ type BashConfig struct {
 	ShellFeaturesEnabled bool
 	ShellExecutable      string
 	ShellArgs            []string
-	ShellTimeout         int // seconds
 	MaxCommandChars      int
 }
 

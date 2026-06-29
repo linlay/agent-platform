@@ -2061,7 +2061,7 @@ func TestLoadContainerHubAndBashConfigFromFiles(t *testing.T) {
 		if len(cfg.Bash.AllowedCommands) == 0 {
 			t.Fatalf("expected bash allowed commands from config file")
 		}
-		if cfg.Bash.ShellTimeout <= 0 || cfg.Bash.MaxCommandChars <= 0 {
+		if cfg.Bash.MaxCommandChars <= 0 {
 			t.Fatalf("expected bash runtime limits from config file, got %#v", cfg.Bash)
 		}
 	})
@@ -2417,7 +2417,6 @@ func TestToolsConfigYAMLOverrides(t *testing.T) {
 			"  allowed-commands: pwd,echo\n" +
 			"  shell-features-enabled: true\n" +
 			"  shell-executable: bash\n" +
-			"  shell-timeout: 12345\n" +
 			"  max-command-chars: 4321\n" +
 			"file-tools:\n" +
 			"  working-directory: " + filepath.ToSlash(filepath.Join("tmp", "merged-files")) + "\n" +
@@ -2442,7 +2441,7 @@ func TestToolsConfigYAMLOverrides(t *testing.T) {
 						if level.Approvals.ReadOutsideRoots != "block" {
 							t.Fatalf("unexpected read outside action: %#v", level.Approvals)
 						}
-						if cfg.Bash.WorkingDirectory != filepath.Join("var", "host") || cfg.Bash.ShellExecutable != "bash" || cfg.Bash.ShellTimeout != 12345 || cfg.Bash.MaxCommandChars != 4321 {
+						if cfg.Bash.WorkingDirectory != filepath.Join("var", "host") || cfg.Bash.ShellExecutable != "bash" || cfg.Bash.MaxCommandChars != 4321 {
 							t.Fatalf("unexpected bash config: %#v", cfg.Bash)
 						}
 						if strings.Join(cfg.Bash.AllowedCommands, ",") != "pwd,echo" {

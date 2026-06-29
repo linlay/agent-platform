@@ -19,6 +19,8 @@ import (
 	"agent-platform/internal/filetools"
 )
 
+const defaultBashTimeoutSeconds int64 = 60
+
 func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	command := strings.TrimSpace(stringArg(args, "command"))
 	if command == "" {
@@ -127,7 +129,7 @@ func (t *RuntimeToolExecutor) resolveBashTimeoutSeconds(args map[string]any, exe
 		if budgetTimeout > 0 {
 			return budgetTimeout
 		}
-		return int64(maxInt(t.cfg.Bash.ShellTimeout, 10))
+		return defaultBashTimeoutSeconds
 	}
 	if budgetTimeout > 0 && requested > budgetTimeout {
 		return budgetTimeout

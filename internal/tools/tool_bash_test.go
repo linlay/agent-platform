@@ -74,7 +74,6 @@ func TestInvokeHostBashSuccessReturnsPlainStdout(t *testing.T) {
 				WorkingDirectory: root,
 				AllowedCommands:  []string{"echo"},
 				ShellExecutable:  "bash",
-				ShellTimeout:     30,
 				MaxCommandChars:  16000,
 			},
 		},
@@ -120,7 +119,6 @@ func TestInvokeHostBashSuccessWithStderrReturnsStructuredJSON(t *testing.T) {
 				WorkingDirectory: root,
 				AllowedCommands:  []string{"sh"},
 				ShellExecutable:  "bash",
-				ShellTimeout:     30,
 				MaxCommandChars:  16000,
 			},
 		},
@@ -160,7 +158,6 @@ func TestInvokeHostBashDoesNotWaitForBackgroundProcessOutput(t *testing.T) {
 				AllowedCommands:      []string{"echo", "sleep"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
-				ShellTimeout:         30,
 				MaxCommandChars:      16000,
 			},
 		},
@@ -192,7 +189,6 @@ func TestInvokeHostBashDefaultsTimeoutToToolBudget(t *testing.T) {
 				AllowedCommands:      []string{"sleep"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
-				ShellTimeout:         30,
 				MaxCommandChars:      16000,
 			},
 		},
@@ -217,11 +213,7 @@ func TestInvokeHostBashDefaultsTimeoutToToolBudget(t *testing.T) {
 }
 
 func TestResolveBashTimeoutCapsRequestedTimeoutAtToolBudget(t *testing.T) {
-	executor := &RuntimeToolExecutor{
-		cfg: config.Config{
-			Bash: config.BashConfig{ShellTimeout: 30},
-		},
-	}
+	executor := &RuntimeToolExecutor{}
 	execCtx := &contracts.ExecutionContext{Budget: contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 5}}}
 
 	if got := executor.resolveBashTimeoutSeconds(map[string]any{}, execCtx); got != 5 {
@@ -233,8 +225,8 @@ func TestResolveBashTimeoutCapsRequestedTimeoutAtToolBudget(t *testing.T) {
 	if got := executor.resolveBashTimeoutSeconds(map[string]any{"timeout": 10}, execCtx); got != 5 {
 		t.Fatalf("capped requested bash timeout = %d, want tool budget 5", got)
 	}
-	if got := executor.resolveBashTimeoutSeconds(map[string]any{}, nil); got != 30 {
-		t.Fatalf("fallback bash timeout = %d, want shell timeout 30", got)
+	if got := executor.resolveBashTimeoutSeconds(map[string]any{}, nil); got != defaultBashTimeoutSeconds {
+		t.Fatalf("fallback bash timeout = %d, want %d", got, defaultBashTimeoutSeconds)
 	}
 }
 
@@ -246,7 +238,6 @@ func TestInvokeHostBashDefaultsCwdToSessionWorkspace(t *testing.T) {
 				WorkingDirectory: root,
 				AllowedCommands:  []string{"pwd"},
 				ShellExecutable:  "bash",
-				ShellTimeout:     30,
 				MaxCommandChars:  16000,
 			},
 		},
@@ -271,7 +262,6 @@ func TestInvokeHostBashFailureReturnsStructuredJSON(t *testing.T) {
 				WorkingDirectory: root,
 				AllowedCommands:  []string{"ls"},
 				ShellExecutable:  "bash",
-				ShellTimeout:     30,
 				MaxCommandChars:  16000,
 			},
 		},
@@ -315,7 +305,6 @@ func TestInvokeHostBashEarlyReturnStaysHumanReadable(t *testing.T) {
 				WorkingDirectory: t.TempDir(),
 				AllowedCommands:  []string{"echo"},
 				ShellExecutable:  "bash",
-				ShellTimeout:     30,
 				MaxCommandChars:  16000,
 			},
 		},
@@ -349,7 +338,6 @@ func TestInvokeHostBashSupportsPerCallCwd(t *testing.T) {
 				AllowedCommands:      []string{"env"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
-				ShellTimeout:         30,
 				MaxCommandChars:      16000,
 			},
 		},
@@ -389,7 +377,6 @@ func TestInvokeHostBashAllowsShellSyntaxByDefault(t *testing.T) {
 				AllowedCommands:      []string{"pwd", "cd"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
-				ShellTimeout:         30,
 				MaxCommandChars:      16000,
 			},
 		},
@@ -424,7 +411,6 @@ func TestInvokeHostBashAllowsExitStatusSpecialParameter(t *testing.T) {
 				AllowedCommands:      []string{"false", "echo"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
-				ShellTimeout:         30,
 				MaxCommandChars:      16000,
 			},
 		},
@@ -457,7 +443,6 @@ func TestInvokeHostBashIgnoresPerCallEnv(t *testing.T) {
 				AllowedCommands:      []string{"bash"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
-				ShellTimeout:         30,
 				MaxCommandChars:      16000,
 			},
 		},
@@ -488,7 +473,6 @@ func TestInvokeHostBashAppliesAgentEnvOverrides(t *testing.T) {
 				AllowedCommands:      []string{"bash"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
-				ShellTimeout:         30,
 				MaxCommandChars:      16000,
 			},
 		},
@@ -520,7 +504,6 @@ func TestInvokeHostBashSoftSecurityRequiresApproval(t *testing.T) {
 				AllowedCommands:      []string{"printf"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
-				ShellTimeout:         30,
 				MaxCommandChars:      16000,
 			},
 		},
@@ -545,7 +528,6 @@ func TestInvokeHostBashConsumesMatchingSoftSecurityApproval(t *testing.T) {
 				AllowedCommands:      []string{"printf"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
-				ShellTimeout:         30,
 				MaxCommandChars:      16000,
 			},
 		},
@@ -584,7 +566,6 @@ func TestInvokeHostBashRejectsMismatchedSoftSecurityApproval(t *testing.T) {
 				AllowedCommands:      []string{"printf"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
-				ShellTimeout:         30,
 				MaxCommandChars:      16000,
 			},
 		},
@@ -618,7 +599,6 @@ func TestInvokeHostBashAccessPolicyRequiresApprovalForOutsidePath(t *testing.T) 
 				AllowedCommands:      []string{"cat"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
-				ShellTimeout:         30,
 				MaxCommandChars:      16000,
 			},
 		},
@@ -651,7 +631,6 @@ func TestInvokeHostBashAutoApprovedAccessAddsMetadata(t *testing.T) {
 				AllowedCommands:      []string{"cat"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
-				ShellTimeout:         30,
 				MaxCommandChars:      16000,
 			},
 		},
@@ -691,7 +670,6 @@ func TestInvokeHostBashAutoApprovedReadWithDevNullRedirection(t *testing.T) {
 				AllowedCommands:      []string{"*"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
-				ShellTimeout:         30,
 				MaxCommandChars:      16000,
 			},
 		},
@@ -730,7 +708,6 @@ func TestInvokeHostBashRealOutsideRedirectionStillRequiresAccessApproval(t *test
 				AllowedCommands:      []string{"*"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
-				ShellTimeout:         30,
 				MaxCommandChars:      16000,
 			},
 		},
@@ -766,7 +743,6 @@ func TestInvokeHostBashFullAccessStillKeepsBashsecHardBlock(t *testing.T) {
 				AllowedCommands:      []string{"*"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
-				ShellTimeout:         30,
 				MaxCommandChars:      16000,
 			},
 		},

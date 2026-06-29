@@ -284,7 +284,6 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 			WorkingDirectory: root,
 			AllowedCommands:  []string{"pwd", "echo", "ls", "cat"},
 			ShellExecutable:  "bash",
-			ShellTimeout:     30,
 			MaxCommandChars:  16000,
 		},
 		ContainerHub: config.ContainerHubConfig{

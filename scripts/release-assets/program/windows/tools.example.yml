@@ -54,7 +54,6 @@ bash:
     - Bypass
     - -Command
     - "{{command}}"
-  shell-timeout: 30
   max-command-chars: 16000
 
   # To force cmd.exe instead, use:

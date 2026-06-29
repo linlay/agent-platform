@@ -172,7 +172,6 @@ func defaultConfig(options LoadOptions) Config {
 			ShellFeaturesEnabled: true,
 			ShellExecutable:      "",
 			ShellArgs:            nil,
-			ShellTimeout:         10,
 			MaxCommandChars:      16000,
 		},
 		FileTools: FileToolsConfig{
