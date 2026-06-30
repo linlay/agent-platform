@@ -47,7 +47,7 @@ func (s *FileStore) BuildLLMChatFromJSONL(chatID string, options LLMChatBuildOpt
 	prefix := lines[:targetIndex]
 	systemCache := buildLLMSystemCache(lines[:targetIndex+1])
 
-	messages := rawMessagesFromJSONLLines(prefix)
+	messages := llmRequestMessagesFromJSONLLines(prefix)
 	if inputMessages := messageMapsFromAny(target["inputMessages"]); len(inputMessages) > 0 {
 		messages = append(messages, inputMessages...)
 	}
@@ -111,6 +111,54 @@ func lineIsStep(line map[string]any) bool {
 	default:
 		return false
 	}
+}
+
+func llmRequestMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
+	if !isNewFormat(lines) {
+		return nil
+	}
+	var messages []map[string]any
+	for _, line := range lines {
+		if lineIsCompacted(line) {
+			continue
+		}
+		if steerMessage := llmRequestSteerMessageFromLine(line); len(steerMessage) > 0 {
+			messages = append(messages, steerMessage)
+			continue
+		}
+		messages = append(messages, rawMessagesFromJSONLLines([]map[string]any{line})...)
+	}
+	return messages
+}
+
+func llmRequestSteerMessageFromLine(line map[string]any) map[string]any {
+	if strings.TrimSpace(stringValue(line["_type"])) != "steer" {
+		return nil
+	}
+	event := anyMap(line["event"])
+	if strings.TrimSpace(stringValue(event["type"])) != "request.steer" {
+		return nil
+	}
+	content := strings.TrimSpace(stringValue(event["message"]))
+	if content == "" {
+		return nil
+	}
+	role := strings.TrimSpace(stringValue(event["role"]))
+	if role == "" {
+		role = "user"
+	}
+	if role != "user" {
+		return nil
+	}
+	msg := map[string]any{
+		"role":    role,
+		"content": content,
+		"ts":      line["updatedAt"],
+	}
+	if runID := strings.TrimSpace(stringValue(line["runId"])); runID != "" {
+		msg["runId"] = runID
+	}
+	return msg
 }
 
 func buildLLMSystemCache(lines []map[string]any) map[string]llmSystemSnapshot {

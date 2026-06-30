@@ -11,6 +11,8 @@ import (
 
 func (s *llmRunStream) buildLLMRequestDelta(prepared preparedProviderRequest, effectiveToolChoice string) DeltaLLMRequest {
 	systemRef := s.currentSystemRefForCall(prepared, effectiveToolChoice)
+	inputMessages := s.currentInputMessagesForJSONL()
+	s.pendingSteerInputs = nil
 	return DeltaLLMRequest{
 		TaskID:          strings.TrimSpace(s.session.SubTaskID),
 		ChatID:          strings.TrimSpace(s.session.ChatID),
@@ -21,7 +23,7 @@ func (s *llmRunStream) buildLLMRequestDelta(prepared preparedProviderRequest, ef
 		SystemRef:       systemRef,
 		ToolChoice:      strings.TrimSpace(effectiveToolChoice),
 		RequestOptions:  requestOptionsFromPreparedBody(prepared.RequestBody),
-		InputMessages:   s.currentInputMessagesForJSONL(),
+		InputMessages:   inputMessages,
 	}
 }
 
@@ -145,10 +147,33 @@ func (s *llmRunStream) currentInputMessagesForJSONL() []map[string]any {
 	if len(raw) == 0 {
 		return nil
 	}
+	raw = dropPendingSteerInputMessages(raw, s.pendingSteerInputs)
+	if len(raw) == 0 {
+		return nil
+	}
 	if messageSlicesEqual(raw, s.session.CurrentMessages) {
 		return nil
 	}
 	return raw
+}
+
+func dropPendingSteerInputMessages(messages []map[string]any, pendingSteers []map[string]any) []map[string]any {
+	if len(messages) == 0 || len(pendingSteers) == 0 {
+		return messages
+	}
+	out := make([]map[string]any, 0, len(messages))
+	steerIndex := 0
+	for _, message := range messages {
+		if steerIndex < len(pendingSteers) && messageMapsEqual(message, pendingSteers[steerIndex]) {
+			steerIndex++
+			continue
+		}
+		out = append(out, message)
+	}
+	if len(out) == len(messages) {
+		return messages
+	}
+	return out
 }
 
 func trailingUserMessages(messages []openAIMessage) []map[string]any {
@@ -236,6 +261,15 @@ func messageSlicesEqual(left []map[string]any, right []map[string]any) bool {
 	if len(left) != len(right) {
 		return false
 	}
+	for i := range left {
+		if !messageMapsEqual(left[i], right[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func messageMapsEqual(left map[string]any, right map[string]any) bool {
 	leftData, leftErr := json.Marshal(left)
 	rightData, rightErr := json.Marshal(right)
 	if leftErr != nil || rightErr != nil {

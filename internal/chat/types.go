@@ -133,17 +133,13 @@ type ToolCompactLine struct {
 }
 
 // StepLine represents a step line in chatId.jsonl.
-// _type is the persisted step shape: "react", "react-tool", or "plan-execute".
-// REACT/ONESHOT/CODER model-call lines: { _type: "react", seq: N, messages: [...] }
+// _type is the persisted step shape: "react" or "react-tool" for new writes.
+// Historical files may still contain "plan-execute" and remain readable.
+// Model-call lines: { _type: "react", seq: N, messages: [...] }
 // Split tool-result continuation lines: { _type: "react-tool", seq: N, messages: [...] }
 // In react/react-tool lines, seq is the model-call grouping id, not a physical
 // line number. Continuation lines such as HITL-split tool results may reuse the
 // same seq as the assistant tool-call step that caused them.
-// PLAN_EXECUTE mode:
-//
-//	{ _type: "plan-execute", stage: "plan", messages: [...] }
-//	{ _type: "plan-execute", stage: "execute", seq: N, messages: [...] }
-//	{ _type: "plan-execute", stage: "summary", messages: [...] }
 type StepLine struct {
 	ChatID          string                `json:"chatId"`
 	RunID           string                `json:"runId"`

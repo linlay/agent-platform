@@ -64,11 +64,12 @@ func TestCurrentInputMessagesForJSONLPreservesNonAuditUserInput(t *testing.T) {
 	}
 }
 
-func TestCurrentInputMessagesForJSONLFiltersAuditAndKeepsSteer(t *testing.T) {
+func TestCurrentInputMessagesForJSONLFiltersAuditAndSkipsPendingSteer(t *testing.T) {
 	stream := &llmRunStream{
 		session: contracts.QuerySession{
 			CurrentMessages: []map[string]any{{"role": "user", "content": "hello"}},
 		},
+		pendingSteerInputs: []map[string]any{{"role": "user", "content": "Please keep it short."}},
 		messages: []openAIMessage{
 			{Role: "system", Content: "system"},
 			{Role: "tool", ToolCallID: "tool-1", Name: "bash", Content: "ok"},
@@ -78,8 +79,26 @@ The user reviewed the following tool call(s) and submitted decisions:`},
 		},
 	}
 
+	if got := stream.currentInputMessagesForJSONL(); len(got) != 0 {
+		t.Fatalf("expected pending steer to be skipped from inputMessages, got %#v", got)
+	}
+}
+
+func TestCurrentInputMessagesForJSONLPreservesNonSteerAfterDroppingSteer(t *testing.T) {
+	stream := &llmRunStream{
+		session: contracts.QuerySession{
+			CurrentMessages: []map[string]any{{"role": "user", "content": "hello"}},
+		},
+		pendingSteerInputs: []map[string]any{{"role": "user", "content": "Please keep it short."}},
+		messages: []openAIMessage{
+			{Role: "system", Content: "system"},
+			{Role: "user", Content: "Please keep it short."},
+			{Role: "user", Content: "internal task prompt"},
+		},
+	}
+
 	got := stream.currentInputMessagesForJSONL()
-	if len(got) != 1 || got[0]["content"] != "Please keep it short." {
-		t.Fatalf("expected steer to remain after audit filtering, got %#v", got)
+	if len(got) != 1 || got[0]["content"] != "internal task prompt" {
+		t.Fatalf("expected non-steer input to remain, got %#v", got)
 	}
 }

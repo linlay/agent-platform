@@ -1843,17 +1843,20 @@ func TestStepWriterFormatsStructuredToolResultAsJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read chat jsonl: %v", err)
 	}
-	if len(lines) != 1 {
-		t.Fatalf("expected one step line, got %#v", lines)
+	if len(lines) != 2 {
+		t.Fatalf("expected tool call and tool result step lines, got %#v", lines)
 	}
 	if lines[0]["_type"] != "react" || toIntValue(lines[0]["seq"]) != 1 {
-		t.Fatalf("expected unsplit tool call step seq=1, got %#v", lines[0])
+		t.Fatalf("expected tool call step seq=1, got %#v", lines[0])
 	}
-	messages, _ := lines[0]["messages"].([]any)
-	if len(messages) != 2 {
-		t.Fatalf("expected tool snapshot and tool result messages, got %#v", lines[0])
+	if lines[1]["_type"] != StepLineTypeReactTool || toIntValue(lines[1]["seq"]) != 1 {
+		t.Fatalf("expected tool result step to reuse seq=1, got %#v", lines[1])
 	}
-	resultMsg, _ := messages[1].(map[string]any)
+	messages, _ := lines[1]["messages"].([]any)
+	if len(messages) != 1 {
+		t.Fatalf("expected one tool result message, got %#v", lines[1])
+	}
+	resultMsg, _ := messages[0].(map[string]any)
 	if resultMsg["durationMs"] != float64(77) {
 		t.Fatalf("expected persisted durationMs on tool result, got %#v", resultMsg)
 	}
@@ -1875,6 +1878,87 @@ func TestStepWriterFormatsStructuredToolResultAsJSON(t *testing.T) {
 	}
 	if decoded["output"] != "hitl_timeout: command execution timed out while waiting for user approval" {
 		t.Fatalf("unexpected decoded tool output %#v", decoded)
+	}
+}
+
+func TestStepWriterSplitsEachLLMRequestIntoReactStep(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-llm-step-boundary", "run-llm-step-boundary", "PLAN_EXECUTE")
+	writer.OnStageMarker("execute-task-1")
+	writer.OnEvent(stream.EventData{
+		Type: "llm.request",
+		Payload: map[string]any{
+			"inputMessages": []any{map[string]any{"role": "user", "content": "call one"}},
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "tool.snapshot",
+		Timestamp: 1001,
+		Payload: map[string]any{
+			"toolId":    "tool-1",
+			"toolName":  "bash",
+			"arguments": `{"command":"echo one"}`,
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "tool.result",
+		Timestamp: 1002,
+		Payload: map[string]any{
+			"toolId": "tool-1",
+			"result": "one",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type: "llm.request",
+		Payload: map[string]any{
+			"inputMessages": []any{map[string]any{"role": "user", "content": "call two"}},
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "content.snapshot",
+		Timestamp: 1003,
+		Payload: map[string]any{
+			"contentId": "content-2",
+			"text":      "done",
+		},
+	})
+	writer.Flush()
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-llm-step-boundary"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 3 {
+		t.Fatalf("expected react, react-tool, react lines, got %#v", lines)
+	}
+	if lines[0]["_type"] != StepLineTypeReact || toIntValue(lines[0]["seq"]) != 1 || lines[0]["stage"] != "execute" {
+		t.Fatalf("expected first llm chat react seq=1 stage=execute, got %#v", lines[0])
+	}
+	firstInput, _ := lines[0]["inputMessages"].([]any)
+	if len(firstInput) != 1 {
+		t.Fatalf("expected first inputMessages on first react, got %#v", lines[0])
+	}
+	firstInputMessage, _ := firstInput[0].(map[string]any)
+	if stringValue(firstInputMessage["content"]) != "call one" {
+		t.Fatalf("expected first inputMessages on first react, got %#v", lines[0])
+	}
+	if lines[1]["_type"] != StepLineTypeReactTool || toIntValue(lines[1]["seq"]) != 1 {
+		t.Fatalf("expected tool result to reuse seq=1, got %#v", lines[1])
+	}
+	if lines[2]["_type"] != StepLineTypeReact || toIntValue(lines[2]["seq"]) != 2 || lines[2]["stage"] != "execute" {
+		t.Fatalf("expected second llm chat react seq=2 stage=execute, got %#v", lines[2])
+	}
+	secondInput, _ := lines[2]["inputMessages"].([]any)
+	if len(secondInput) != 1 {
+		t.Fatalf("expected second inputMessages on second react, got %#v", lines[2])
+	}
+	secondInputMessage, _ := secondInput[0].(map[string]any)
+	if stringValue(secondInputMessage["content"]) != "call two" {
+		t.Fatalf("expected second inputMessages on second react, got %#v", lines[2])
 	}
 }
 
@@ -2332,7 +2416,7 @@ func TestStepWriterPersistsUsageSnapshotWhenDebugEventsDisabled(t *testing.T) {
 	assertNoStepModelMetadata(t, contextWindow, "contextWindow")
 }
 
-func TestStepWriterPersistsPlanExecuteModelMetadataAtTopLevel(t *testing.T) {
+func TestStepWriterPersistsPlanExecuteMetadataOnReactStep(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
@@ -2373,25 +2457,25 @@ func TestStepWriterPersistsPlanExecuteModelMetadataAtTopLevel(t *testing.T) {
 		t.Fatalf("read chat jsonl: %v", err)
 	}
 	if len(lines) != 1 {
-		t.Fatalf("expected one plan-execute step line, got %#v", lines)
+		t.Fatalf("expected one react step line, got %#v", lines)
 	}
 	line := lines[0]
-	if line["_type"] != "plan-execute" || line["stage"] != "execute" || toIntValue(line["seq"]) != 1 {
-		t.Fatalf("expected execute plan step, got %#v", line)
+	if line["_type"] != StepLineTypeReact || line["stage"] != "execute" || toIntValue(line["seq"]) != 1 {
+		t.Fatalf("expected execute react step, got %#v", line)
 	}
 	if line["modelKey"] != "plan-model" || line["reasoningEffort"] != "MEDIUM" {
-		t.Fatalf("expected plan-execute top-level model metadata, got %#v", line)
+		t.Fatalf("expected react top-level model metadata, got %#v", line)
 	}
 	usage, _ := line["usage"].(map[string]any)
 	if toIntValue(usage["promptTokens"]) != 100 || toIntValue(usage["totalTokens"]) != 150 {
-		t.Fatalf("expected plan-execute usage, got %#v", line)
+		t.Fatalf("expected react usage, got %#v", line)
 	}
-	assertNoStepModelMetadata(t, usage, "plan-execute usage")
+	assertNoStepModelMetadata(t, usage, "react usage")
 	contextWindow, _ := line["contextWindow"].(map[string]any)
 	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["currentSize"]) != 100 || toIntValue(contextWindow["estimatedNextCallSize"]) != 200 {
-		t.Fatalf("expected plan-execute contextWindow, got %#v", line)
+		t.Fatalf("expected react contextWindow, got %#v", line)
 	}
-	assertNoStepModelMetadata(t, contextWindow, "plan-execute contextWindow")
+	assertNoStepModelMetadata(t, contextWindow, "react contextWindow")
 }
 
 func TestStepWriterIgnoresEmptyUsageSnapshot(t *testing.T) {
@@ -3722,17 +3806,21 @@ func TestStepWriterPersistsInlineApprovalMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read chat jsonl: %v", err)
 	}
-	if len(lines) != 1 {
-		t.Fatalf("expected one step line, got %#v", lines)
+	if len(lines) != 2 {
+		t.Fatalf("expected tool call and tool result step lines, got %#v", lines)
 	}
-	if _, ok := lines[0]["approval"]; ok {
-		t.Fatalf("did not expect top-level approval sidecar on step line, got %#v", lines[0])
+	toolStep := lines[1]
+	if toolStep["_type"] != StepLineTypeReactTool || toIntValue(toolStep["seq"]) != 1 {
+		t.Fatalf("expected tool result step to reuse seq=1, got %#v", toolStep)
 	}
-	messages, _ := lines[0]["messages"].([]any)
-	if len(messages) != 3 {
-		t.Fatalf("expected tool snapshot, tool result, and approval message, got %#v", lines[0])
+	if _, ok := toolStep["approval"]; ok {
+		t.Fatalf("did not expect top-level approval sidecar on step line, got %#v", toolStep)
 	}
-	approvalMessage, _ := messages[2].(map[string]any)
+	messages, _ := toolStep["messages"].([]any)
+	if len(messages) != 2 {
+		t.Fatalf("expected tool result and approval message, got %#v", toolStep)
+	}
+	approvalMessage, _ := messages[1].(map[string]any)
 	if approvalMessage["role"] != "user" {
 		t.Fatalf("expected inline approval user message after tool result, got %#v", approvalMessage)
 	}
@@ -3801,17 +3889,21 @@ func TestStepWriterPersistsFormApprovalDecisionPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read chat jsonl: %v", err)
 	}
-	if len(lines) != 1 {
-		t.Fatalf("expected one step line, got %#v", lines)
+	if len(lines) != 2 {
+		t.Fatalf("expected tool call and tool result step lines, got %#v", lines)
 	}
-	if _, ok := lines[0]["approval"]; ok {
-		t.Fatalf("did not expect top-level approval sidecar on step line, got %#v", lines[0])
+	toolStep := lines[1]
+	if toolStep["_type"] != StepLineTypeReactTool || toIntValue(toolStep["seq"]) != 1 {
+		t.Fatalf("expected tool result step to reuse seq=1, got %#v", toolStep)
 	}
-	messages, _ := lines[0]["messages"].([]any)
-	if len(messages) != 3 {
-		t.Fatalf("expected inline approval message after tool result, got %#v", lines[0])
+	if _, ok := toolStep["approval"]; ok {
+		t.Fatalf("did not expect top-level approval sidecar on step line, got %#v", toolStep)
 	}
-	approvalMessage, _ := messages[2].(map[string]any)
+	messages, _ := toolStep["messages"].([]any)
+	if len(messages) != 2 {
+		t.Fatalf("expected inline approval message after tool result, got %#v", toolStep)
+	}
+	approvalMessage, _ := messages[1].(map[string]any)
 	if approvalMessage["role"] != "user" {
 		t.Fatalf("expected inline approval user message, got %#v", approvalMessage)
 	}

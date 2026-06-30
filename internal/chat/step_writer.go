@@ -8,7 +8,7 @@ import (
 )
 
 // StepWriter accumulates SSE events and writes Java-compatible JSONL lines
-// (_type: "query" / "react" / "react-tool" / "plan-execute" / "submit" / "steer" / "event")
+// (_type: "query" / "react" / "react-tool" / "submit" / "steer" / "event")
 // to the chat store.
 //
 // It mirrors the behaviour of Java's TurnTraceWriter:
@@ -165,6 +165,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		})
 
 	case "tool.result":
+		w.flushAssistantStepBeforeToolResult(event)
 		w.ensureStep()
 		toolID := event.String("toolId")
 		toolName := w.toolNames[toolID]
@@ -235,6 +236,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		})
 
 	case "action.result":
+		w.flushAssistantStepBeforeToolResult(event)
 		w.ensureStep()
 		actionID := event.String("actionId")
 		ts := event.Timestamp
@@ -319,10 +321,12 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			if w.closedTaskIDs[taskID] {
 				break
 			}
+			w.flushTaskStep(taskID)
 			buffer := w.ensureTaskBuffer(taskID)
 			w.captureTaskLLMRequestData(buffer, event)
 			buffer.liveSeq = maxLiveSeq(buffer.liveSeq, event.Seq)
 		} else {
+			w.flushCurrentStep()
 			w.captureRootLLMRequestData(event)
 			w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
 		}
@@ -439,6 +443,22 @@ func (w *StepWriter) appendStoredMessage(event stream.EventData, message StoredM
 	}
 	w.messages = upsertStoredMessage(w.messages, message)
 	w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
+}
+
+func (w *StepWriter) flushAssistantStepBeforeToolResult(event stream.EventData) {
+	if w == nil {
+		return
+	}
+	if taskID := w.taskIDForEvent(event); taskID != "" {
+		buffer := w.taskBuffers[taskID]
+		if buffer != nil && storedMessagesContainAssistant(buffer.messages) {
+			w.flushTaskStep(taskID)
+		}
+		return
+	}
+	if storedMessagesContainAssistant(w.messages) {
+		w.flushCurrentStep()
+	}
 }
 
 func (w *StepWriter) captureRootUsageSnapshot(event stream.EventData) {
@@ -701,16 +721,9 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	applyStepLineModelMetadata(&line, w.pendingModelKey, w.pendingReasoningEffort)
 
 	if w.mode == "PLAN_EXECUTE" {
-		line.Type = "plan-execute"
 		line.Stage = w.currentStage
-		// seq 只在 execute 阶段输出
-		if line.Stage == "execute" {
-			w.seqCounter++
-			line.Seq = w.seqCounter
-		}
-	} else {
-		w.assignReactSeq(&line)
 	}
+	w.assignReactSeq(&line)
 
 	_ = w.store.AppendStepLine(w.chatID, line)
 	if order := assistantToolCallOrder(line.Messages); len(order) > 0 {

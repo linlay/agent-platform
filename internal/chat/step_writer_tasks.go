@@ -98,18 +98,12 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 	applyStepLineModelMetadata(&line, buffer.pendingModelKey, buffer.pendingReasoningEffort)
 
 	if w.mode == "PLAN_EXECUTE" {
-		line.Type = "plan-execute"
 		line.Stage = buffer.taskStage
 		if strings.TrimSpace(line.Stage) == "" {
 			line.Stage = w.currentStage
 		}
-		if line.Stage == "execute" {
-			w.seqCounter++
-			line.Seq = w.seqCounter
-		}
-	} else {
-		w.assignReactSeq(&line)
 	}
+	w.assignReactSeq(&line)
 
 	_ = w.store.AppendStepLine(w.chatID, line)
 	buffer.messages = nil

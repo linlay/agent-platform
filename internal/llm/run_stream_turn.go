@@ -532,6 +532,12 @@ func (s *llmRunStream) appendPendingSteers() {
 	}
 	for _, steer := range s.runControl.DrainSteers() {
 		s.pending = append(s.pending, NewSteerDelta(steer))
+		if strings.TrimSpace(steer.Message) != "" {
+			s.pendingSteerInputs = append(s.pendingSteerInputs, map[string]any{
+				"role":    "user",
+				"content": steer.Message,
+			})
+		}
 		s.messages = append(s.messages, openAIMessage{
 			Role:    "user",
 			Content: steer.Message,
