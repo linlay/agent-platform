@@ -9,18 +9,18 @@ import (
 )
 
 type ServerDefinition struct {
-	Key             string
-	Name            string
-	BaseURL         string
-	EndpointPath    string
-	ToolPrefix      string
-	AuthToken       string
-	Headers         map[string]string
-	AliasMap        map[string]string
-	ConnectTimeout  int
-	ReadTimeout     int
-	Retry           int
-	Tools           []ToolDefinition
+	Key            string
+	Name           string
+	BaseURL        string
+	EndpointPath   string
+	ToolPrefix     string
+	AuthToken      string
+	Headers        map[string]string
+	AliasMap       map[string]string
+	ConnectTimeout int
+	ReadTimeout    int
+	Retry          int
+	Tools          []ToolDefinition
 }
 
 func (s ServerDefinition) ResolvedURL() string {
@@ -112,12 +112,13 @@ func (t ToolDefinition) ToAPITool(serverKey string) api.ToolDetailResponse {
 		kind = "frontend"
 	}
 	meta := map[string]any{
-		"kind":          kind,
-		"serverKey":     serverKey,
-		"sourceType":    "mcp",
-		"sourceKey":     serverKey,
-		"toolAction":    t.ToolAction,
-		"clientVisible": true,
+		"kind":           kind,
+		"serverKey":      serverKey,
+		"sourceType":     "mcp",
+		"sourceCategory": "mcp",
+		"sourceKey":      serverKey,
+		"toolAction":     t.ToolAction,
+		"clientVisible":  true,
 	}
 	if strings.TrimSpace(t.ViewportType) != "" {
 		meta["viewportType"] = strings.TrimSpace(t.ViewportType)
@@ -128,6 +129,12 @@ func (t ToolDefinition) ToAPITool(serverKey string) api.ToolDetailResponse {
 	for key, value := range t.Meta {
 		meta[key] = value
 	}
+	meta["kind"] = kind
+	meta["serverKey"] = serverKey
+	meta["sourceType"] = "mcp"
+	meta["sourceCategory"] = "mcp"
+	meta["sourceKey"] = serverKey
+	meta["toolAction"] = t.ToolAction
 	return api.ToolDetailResponse{
 		Key:           defaultToolKey(t.Key, t.Name),
 		Name:          t.Name,

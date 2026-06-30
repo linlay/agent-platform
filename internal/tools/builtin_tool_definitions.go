@@ -81,6 +81,7 @@ func LoadEmbeddedToolDefinitions() ([]api.ToolDetailResponse, error) {
 		}
 		def, err := parseToolDefinition(root, toolDefinitionParseOptions{
 			sourceType:       "local",
+			sourceCategory:   "platform",
 			defaultSourceKey: strings.TrimSuffix(strings.TrimSuffix(name, ".yaml"), ".yml"),
 		})
 		if err != nil {

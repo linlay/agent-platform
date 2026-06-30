@@ -54,10 +54,12 @@ GET /ws -> request / response / stream / push / error frames
 | POST | `/api/admin/agents/delete` | body: `key`/`agentKey` | 删除结果 |
 | GET | `/api/admin/agents/editor-options` | 无 | agent 编辑器可选项 |
 | GET | `/api/admin/skills` | 无 | skill 列表 |
-| GET | `/api/admin/tools` | query: `kind` | tool 列表 |
+| GET | `/api/admin/tools` | query: `kind`、`source`/`sourceCategory` | tool 列表，含 `sourceCategory` 来源分类 |
 | GET | `/api/admin/registries` | 无 | registry 文件列表与诊断 |
 | GET/PUT | `/api/admin/registries/detail` | query/body: `category`、`file`、`content` | registry 文件详情或保存结果 |
 | POST | `/api/admin/registries/validate` | body: `category`、`file`、`content` | registry 内容校验结果 |
+
+`/api/admin/tools` 中 `kind` 表示调用方式（如 `backend`、`frontend`、`action`、`external`），`sourceCategory` 表示来源分类：`platform` 为 runtime 自带工具，`external` 为 `paths.tools-dir` 下通过 RPC / YAML 接入的外部工具，`mcp` 为 MCP registry 同步工具。`source` 与 `sourceCategory` query 等价，可与 `kind` 组合过滤。
 
 ### Chat
 

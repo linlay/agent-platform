@@ -49,8 +49,13 @@ func (s *Server) toolLookup() contracts.ToolDefinitionLookup {
 	return s.deps.Registry
 }
 
-func (s *Server) listTools(kind string, tag string) []api.ToolSummary {
+func (s *Server) listTools(kind string, source string, tag string) []api.ToolSummary {
 	needleKind := strings.ToLower(strings.TrimSpace(kind))
+	needleSourceRaw := strings.TrimSpace(source)
+	needleSource := normalizeToolSourceCategory(needleSourceRaw)
+	if needleSourceRaw != "" && needleSource == "" {
+		return []api.ToolSummary{}
+	}
 	needleTag := strings.ToLower(strings.TrimSpace(tag))
 	defs := s.deps.Tools.Definitions()
 	items := make([]api.ToolSummary, 0, len(defs))
@@ -65,6 +70,10 @@ func (s *Server) listTools(kind string, tag string) []api.ToolSummary {
 		if needleKind != "" && strings.ToLower(strings.TrimSpace(metaKind)) != needleKind {
 			continue
 		}
+		sourceCategory := toolSourceCategory(tool)
+		if needleSource != "" && sourceCategory != needleSource {
+			continue
+		}
 		if needleTag != "" && !matchesToolTag(tool, needleTag) {
 			continue
 		}
@@ -73,15 +82,52 @@ func (s *Server) listTools(kind string, tag string) []api.ToolSummary {
 			continue
 		}
 		seen[normalized] = struct{}{}
+		meta := contracts.CloneMap(tool.Meta)
+		if sourceCategory != "" {
+			meta["sourceCategory"] = sourceCategory
+		}
 		items = append(items, api.ToolSummary{
-			Key:         tool.Key,
-			Name:        tool.Name,
-			Label:       tool.Label,
-			Description: tool.Description,
-			Meta:        contracts.CloneMap(tool.Meta),
+			Key:            tool.Key,
+			Name:           tool.Name,
+			Label:          tool.Label,
+			Description:    tool.Description,
+			SourceCategory: sourceCategory,
+			Meta:           meta,
 		})
 	}
 	return items
+}
+
+func normalizeToolSourceCategory(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "platform", "external", "mcp":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return ""
+	}
+}
+
+func toolSourceCategory(tool api.ToolDetailResponse) string {
+	if tool.Meta == nil {
+		return ""
+	}
+	if value := normalizeToolSourceCategory(anyStringValue(tool.Meta["sourceCategory"])); value != "" {
+		return value
+	}
+	sourceType := strings.ToLower(strings.TrimSpace(anyStringValue(tool.Meta["sourceType"])))
+	switch sourceType {
+	case "mcp":
+		return "mcp"
+	case "agent-local":
+		return "external"
+	case "local":
+		return "platform"
+	}
+	kind := strings.ToLower(strings.TrimSpace(anyStringValue(tool.Meta["kind"])))
+	if kind == "external" {
+		return "external"
+	}
+	return ""
 }
 
 func matchesToolTag(tool api.ToolDetailResponse, needle string) bool {

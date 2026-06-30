@@ -701,11 +701,12 @@ type SkillSummary struct {
 }
 
 type ToolSummary struct {
-	Key         string         `json:"key"`
-	Name        string         `json:"name"`
-	Label       string         `json:"label,omitempty"`
-	Description string         `json:"description,omitempty"`
-	Meta        map[string]any `json:"meta,omitempty"`
+	Key            string         `json:"key"`
+	Name           string         `json:"name"`
+	Label          string         `json:"label,omitempty"`
+	Description    string         `json:"description,omitempty"`
+	SourceCategory string         `json:"sourceCategory,omitempty"`
+	Meta           map[string]any `json:"meta,omitempty"`
 }
 
 type ToolDetailResponse struct {

@@ -85,6 +85,58 @@ inputSchema:
 	if tool.Meta["kind"] != "frontend" || tool.Meta["viewportKey"] != "leave_form" {
 		t.Fatalf("unexpected runtime tool metadata %#v", tool.Meta)
 	}
+	if tool.Meta["sourceCategory"] != "external" {
+		t.Fatalf("expected runtime tool sourceCategory external, got %#v", tool.Meta)
+	}
+}
+
+func TestEmbeddedToolDefinitionsArePlatformSource(t *testing.T) {
+	defs, err := LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatalf("load embedded tools: %v", err)
+	}
+	if len(defs) == 0 {
+		t.Fatal("expected embedded tool definitions")
+	}
+	for _, def := range defs {
+		if def.Meta["sourceCategory"] != "platform" {
+			t.Fatalf("expected embedded tool %q sourceCategory platform, got %#v", def.Name, def.Meta)
+		}
+	}
+}
+
+func TestBackendOverlayKeepsPlatformSourceCategory(t *testing.T) {
+	merged := MergeToolDefinitions(
+		[]api.ToolDetailResponse{{
+			Name: "datetime",
+			Meta: map[string]any{
+				"kind":           "backend",
+				"sourceType":     "local",
+				"sourceCategory": "platform",
+				"sourceKey":      "datetime",
+			},
+		}},
+		[]api.ToolDetailResponse{{
+			Name:  "datetime",
+			Label: "日期时间",
+			Meta: map[string]any{
+				"kind":           "backend",
+				"sourceType":     "agent-local",
+				"sourceCategory": "external",
+				"sourceKey":      "datetime-overlay",
+			},
+		}},
+		nil,
+	)
+	if len(merged) != 1 {
+		t.Fatalf("expected one merged tool, got %#v", merged)
+	}
+	if merged[0].Label != "日期时间" {
+		t.Fatalf("expected overlay label to apply, got %#v", merged[0])
+	}
+	if merged[0].Meta["sourceCategory"] != "platform" || merged[0].Meta["sourceType"] != "local" || merged[0].Meta["sourceKey"] != "datetime" {
+		t.Fatalf("expected backend overlay to keep platform source metadata, got %#v", merged[0].Meta)
+	}
 }
 
 func TestToolRouterReloadRuntimeExternalToolDefinitions(t *testing.T) {
@@ -117,6 +169,9 @@ inputSchema:
 	}
 	if tool.Meta["kind"] != "external" || tool.Meta["serviceKey"] != "qiuerscript" {
 		t.Fatalf("unexpected runtime tool metadata %#v", tool.Meta)
+	}
+	if tool.Meta["sourceCategory"] != "external" {
+		t.Fatalf("expected runtime external tool sourceCategory external, got %#v", tool.Meta)
 	}
 	externalMeta, _ := tool.Meta["external"].(map[string]any)
 	if externalMeta["command"] != filepath.Join(root, "qiuerscript-tool") {

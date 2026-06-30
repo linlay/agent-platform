@@ -87,15 +87,56 @@ func (r *FileRegistry) Tools(kind string, tag string) []api.ToolSummary {
 		if needleTag != "" && !matchesToolTag(tool, needleTag) {
 			continue
 		}
+		sourceCategory := toolSummarySourceCategory(tool)
+		meta := contracts.CloneMap(tool.Meta)
+		if sourceCategory != "" {
+			meta["sourceCategory"] = sourceCategory
+		}
 		items = append(items, api.ToolSummary{
-			Key:         tool.Key,
-			Name:        tool.Name,
-			Label:       tool.Label,
-			Description: tool.Description,
-			Meta:        contracts.CloneMap(tool.Meta),
+			Key:            tool.Key,
+			Name:           tool.Name,
+			Label:          tool.Label,
+			Description:    tool.Description,
+			SourceCategory: sourceCategory,
+			Meta:           meta,
 		})
 	}
 	return items
+}
+
+func toolSummarySourceCategory(tool api.ToolDetailResponse) string {
+	if tool.Meta == nil {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(anyStringValue(tool.Meta["sourceCategory"]))) {
+	case "platform":
+		return "platform"
+	case "external":
+		return "external"
+	case "mcp":
+		return "mcp"
+	}
+	switch strings.ToLower(strings.TrimSpace(anyStringValue(tool.Meta["sourceType"]))) {
+	case "mcp":
+		return "mcp"
+	case "agent-local":
+		return "external"
+	case "local":
+		return "platform"
+	}
+	if strings.EqualFold(strings.TrimSpace(anyStringValue(tool.Meta["kind"])), "external") {
+		return "external"
+	}
+	return ""
+}
+
+func anyStringValue(value any) string {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	default:
+		return ""
+	}
 }
 
 func matchesSkillTag(skill SkillDefinition, needle string) bool {
