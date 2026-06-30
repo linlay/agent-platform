@@ -187,8 +187,27 @@ func (s *Server) buildAgentDetailResponse(def catalog.AgentDefinition) api.Agent
 	if catalog.AgentUsesACPCoderBackend(def) {
 		modelOptions := s.buildModelOptionsForAgent(def.Key)
 		response.ModelOptions = &modelOptions
+		response.ModelConfig = coderModelConfigFromOptions(modelOptions)
+		applyACPCoderModelMeta(&response, response.ModelConfig)
 	}
 	return response
+}
+
+func applyACPCoderModelMeta(response *api.AgentDetailResponse, modelConfig map[string]any) {
+	if response == nil {
+		return
+	}
+	modelKey := strings.TrimSpace(modelConfigString(modelConfig, "modelKey"))
+	if modelKey == "" {
+		return
+	}
+	response.Model = modelKey
+	if response.Meta == nil {
+		response.Meta = map[string]any{}
+	}
+	response.Meta["model"] = modelKey
+	response.Meta["modelKey"] = modelKey
+	response.Meta["modelKeys"] = []string{modelKey}
 }
 
 func (s *Server) buildAgentDetailMeta(def catalog.AgentDefinition) (string, map[string]any) {

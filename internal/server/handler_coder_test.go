@@ -264,10 +264,10 @@ func TestCoderModelOptionsForACPCoderAgentUsesProxyModelDiscovery(t *testing.T) 
 			"data": map[string]any{
 				"models": []map[string]any{
 					{
-						"key":              "gpt-5.5",
-						"name":             "GPT-5.5",
-						"modelId":          "gpt-5.5",
-						"contextWindow":    272000,
+						"key":              "MiniMax-M2.7",
+						"name":             "MiniMax-M2.7",
+						"modelId":          "MiniMax-M2.7",
+						"contextWindow":    200000,
 						"isReasoner":       true,
 						"reasoningEfforts": []string{"LOW", "MEDIUM", "HIGH", "XHIGH"},
 						"serviceTiers":     []string{"FAST"},
@@ -298,14 +298,14 @@ func TestCoderModelOptionsForACPCoderAgentUsesProxyModelDiscovery(t *testing.T) 
 				"name: Codex Agent",
 				"mode: CODER",
 				"modelConfig:",
-				"  modelKey: gpt-5.5",
+				"  modelKey: claude-opus-4-6",
 				"runtimeConfig:",
 				"  acpProxyId: codex",
 			}, "\n")), 0o644); err != nil {
 				t.Fatalf("write acp agent: %v", err)
 			}
-			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "gpt-5.5.yml"), []byte(strings.Join([]string{
-				"key: gpt-5.5",
+			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "claude-opus-4-6.yml"), []byte(strings.Join([]string{
+				"key: claude-opus-4-6",
 				"name: Old Local Model",
 				"protocol: ACP_PASSTHROUGH",
 				"modelId: stale-local-model",
@@ -337,7 +337,10 @@ func TestCoderModelOptionsForACPCoderAgentUsesProxyModelDiscovery(t *testing.T) 
 		t.Fatalf("reasoning effort options = %#v", response.Data.ReasoningEfforts)
 	}
 	model := response.Data.Models[0]
-	if model.Key != "gpt-5.5" || model.Name != "GPT-5.5" || model.ModelID != "gpt-5.5" || model.ContextWindow != 272000 || model.Protocol != "ACP_PASSTHROUGH" {
+	if response.Data.DefaultModelKey != "MiniMax-M2.7" {
+		t.Fatalf("default model should come from ACP /api/models, got %#v", response.Data)
+	}
+	if model.Key != "MiniMax-M2.7" || model.Name != "MiniMax-M2.7" || model.ModelID != "MiniMax-M2.7" || model.ContextWindow != 200000 || model.Protocol != "ACP_PASSTHROUGH" {
 		t.Fatalf("unexpected proxy model %#v", model)
 	}
 	if strings.Join(model.ServiceTiers, ",") != "FAST" {
@@ -360,10 +363,13 @@ func TestAgentDetailIncludesModelOptionsOnlyForACPCoder(t *testing.T) {
 			"data": map[string]any{
 				"models": []map[string]any{
 					{
-						"key":          "gpt-5.5",
-						"name":         "GPT-5.5",
-						"modelId":      "gpt-5.5",
-						"serviceTiers": []string{"FAST"},
+						"key":              "MiniMax-M2.7",
+						"name":             "MiniMax-M2.7",
+						"modelId":          "MiniMax-M2.7",
+						"contextWindow":    200000,
+						"isReasoner":       true,
+						"reasoningEfforts": []string{"LOW", "MEDIUM", "HIGH", "XHIGH"},
+						"serviceTiers":     []string{"FAST"},
 					},
 				},
 			},
@@ -388,7 +394,7 @@ func TestAgentDetailIncludesModelOptionsOnlyForACPCoder(t *testing.T) {
 					"name: Codex Agent",
 					"mode: CODER",
 					"modelConfig:",
-					"  modelKey: gpt-5.5",
+					"  modelKey: claude-opus-4-6",
 					"runtimeConfig:",
 					"  acpProxyId: codex",
 				}, "\n"),
@@ -420,11 +426,17 @@ func TestAgentDetailIncludesModelOptionsOnlyForACPCoder(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &acpResponse); err != nil {
 		t.Fatalf("decode acp agent detail: %v", err)
 	}
-	if acpResponse.Data.ModelOptions == nil || acpResponse.Data.ModelOptions.DefaultModelKey != "gpt-5.5" {
+	if acpResponse.Data.ModelOptions == nil || acpResponse.Data.ModelOptions.DefaultModelKey != "MiniMax-M2.7" {
 		t.Fatalf("expected ACP detail model options, got %#v", acpResponse.Data.ModelOptions)
 	}
 	if len(acpResponse.Data.ModelOptions.Models) != 1 || acpResponse.Data.ModelOptions.Models[0].Protocol != "ACP_PASSTHROUGH" {
 		t.Fatalf("expected ACP passthrough model options, got %#v", acpResponse.Data.ModelOptions.Models)
+	}
+	if acpResponse.Data.Model != "MiniMax-M2.7" || modelConfigString(acpResponse.Data.ModelConfig, "modelKey") != "MiniMax-M2.7" {
+		t.Fatalf("expected ACP detail model config from /api/models, got model=%q config=%#v", acpResponse.Data.Model, acpResponse.Data.ModelConfig)
+	}
+	if acpResponse.Data.Meta["modelKey"] != "MiniMax-M2.7" {
+		t.Fatalf("expected ACP detail meta modelKey from /api/models, got %#v", acpResponse.Data.Meta)
 	}
 
 	rec = httptest.NewRecorder()
@@ -448,8 +460,34 @@ func TestAgentDetailIncludesModelOptionsOnlyForACPCoder(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("agents returned %d: %s", rec.Code, rec.Body.String())
 	}
-	if strings.Contains(rec.Body.String(), `"modelOptions"`) {
-		t.Fatalf("agent summary list should not include modelOptions, got %s", rec.Body.String())
+	var summaries api.ApiResponse[[]api.AgentSummary]
+	if err := json.Unmarshal(rec.Body.Bytes(), &summaries); err != nil {
+		t.Fatalf("decode agent summaries: %v", err)
+	}
+	var acpSummary *api.AgentSummary
+	var nativeSummary *api.AgentSummary
+	for i := range summaries.Data {
+		switch summaries.Data[i].Key {
+		case "codex-agent":
+			acpSummary = &summaries.Data[i]
+		case "native-agent":
+			nativeSummary = &summaries.Data[i]
+		}
+	}
+	if acpSummary == nil || nativeSummary == nil {
+		t.Fatalf("expected acp and native summaries, got %#v", summaries.Data)
+	}
+	if acpSummary.ModelOptions == nil || acpSummary.ModelOptions.DefaultModelKey != "MiniMax-M2.7" {
+		t.Fatalf("expected ACP summary model options from /api/models, got %#v", acpSummary.ModelOptions)
+	}
+	if acpSummary.DefaultModelKey != "MiniMax-M2.7" || modelConfigString(acpSummary.ModelConfig, "modelKey") != "MiniMax-M2.7" {
+		t.Fatalf("expected ACP summary model config from /api/models, got %#v", acpSummary)
+	}
+	if acpSummary.Meta["modelKey"] != "MiniMax-M2.7" {
+		t.Fatalf("expected ACP summary meta modelKey from /api/models, got %#v", acpSummary.Meta)
+	}
+	if nativeSummary.ModelOptions != nil || nativeSummary.ModelConfig != nil {
+		t.Fatalf("native agent summary should not include ACP model config/options, got %#v", nativeSummary)
 	}
 }
 
