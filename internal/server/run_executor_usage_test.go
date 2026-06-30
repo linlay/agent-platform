@@ -248,6 +248,53 @@ func TestRunEventProcessorDecoratesUsageSnapshotWithChatUsage(t *testing.T) {
 	}
 }
 
+func TestRunEventProcessorKeepsZeroDetailedUsageInSnapshotAggregates(t *testing.T) {
+	runUsage := chat.UsageData{}
+	processor := &runEventProcessor{
+		runUsage: &runUsage,
+	}
+	data := &stream.EventData{
+		Type: "usage.snapshot",
+		Payload: map[string]any{
+			"runId":  "run-zero-details",
+			"chatId": "chat-zero-details",
+			"usage": map[string]any{
+				"current": map[string]any{
+					"promptTokens":     10,
+					"completionTokens": 2,
+					"totalTokens":      12,
+					"promptTokensDetails": map[string]any{
+						"cacheHitTokens":  0,
+						"cacheMissTokens": 10,
+					},
+					"completionTokensDetails": map[string]any{
+						"reasoningTokens": 0,
+					},
+					"llmChatCompletionCount": 1,
+				},
+			},
+		},
+	}
+
+	processor.decorate(data)
+
+	usage, _ := data.Payload["usage"].(map[string]any)
+	for _, key := range []string{"run", "chat"} {
+		stats, _ := usage[key].(map[string]any)
+		promptDetails, _ := stats["promptTokensDetails"].(map[string]any)
+		if _, ok := promptDetails["cacheHitTokens"]; !ok || AnyIntNode(promptDetails["cacheHitTokens"]) != 0 {
+			t.Fatalf("expected %s cacheHitTokens=0, got %#v", key, stats)
+		}
+		if AnyIntNode(promptDetails["cacheMissTokens"]) != 10 {
+			t.Fatalf("expected %s cacheMissTokens=10, got %#v", key, stats)
+		}
+		completionDetails, _ := stats["completionTokensDetails"].(map[string]any)
+		if _, ok := completionDetails["reasoningTokens"]; !ok || AnyIntNode(completionDetails["reasoningTokens"]) != 0 {
+			t.Fatalf("expected %s reasoningTokens=0, got %#v", key, stats)
+		}
+	}
+}
+
 func TestRunEventProcessorNormalizesCumulativeUsageSnapshotCacheMissTokens(t *testing.T) {
 	runUsage := chat.UsageData{}
 	processor := &runEventProcessor{

@@ -264,12 +264,13 @@ func TestCoderModelOptionsForACPCoderAgentUsesProxyModelDiscovery(t *testing.T) 
 			"data": map[string]any{
 				"models": []map[string]any{
 					{
-						"key":           "gpt-5.5",
-						"name":          "GPT-5.5",
-						"modelId":       "gpt-5.5",
-						"contextWindow": 272000,
-						"isReasoner":    true,
-						"serviceTiers":  []string{"FAST"},
+						"key":              "gpt-5.5",
+						"name":             "GPT-5.5",
+						"modelId":          "gpt-5.5",
+						"contextWindow":    272000,
+						"isReasoner":       true,
+						"reasoningEfforts": []string{"LOW", "MEDIUM", "HIGH", "XHIGH"},
+						"serviceTiers":     []string{"FAST"},
 					},
 				},
 			},
@@ -332,12 +333,18 @@ func TestCoderModelOptionsForACPCoderAgentUsesProxyModelDiscovery(t *testing.T) 
 	if got := strings.Join(serviceTierKeys(response.Data.ServiceTiers), ","); got != "STANDARD,FAST" {
 		t.Fatalf("service tier options = %#v", response.Data.ServiceTiers)
 	}
+	if got := strings.Join(reasoningEffortKeys(response.Data.ReasoningEfforts), ","); got != "NONE,LOW,MEDIUM,HIGH,XHIGH" {
+		t.Fatalf("reasoning effort options = %#v", response.Data.ReasoningEfforts)
+	}
 	model := response.Data.Models[0]
 	if model.Key != "gpt-5.5" || model.Name != "GPT-5.5" || model.ModelID != "gpt-5.5" || model.ContextWindow != 272000 || model.Protocol != "ACP_PASSTHROUGH" {
 		t.Fatalf("unexpected proxy model %#v", model)
 	}
 	if strings.Join(model.ServiceTiers, ",") != "FAST" {
 		t.Fatalf("service tiers = %#v", model.ServiceTiers)
+	}
+	if strings.Join(model.ReasoningEfforts, ",") != "LOW,MEDIUM,HIGH,XHIGH" {
+		t.Fatalf("reasoning efforts = %#v", model.ReasoningEfforts)
 	}
 }
 
@@ -447,6 +454,14 @@ func TestAgentDetailIncludesModelOptionsOnlyForACPCoder(t *testing.T) {
 }
 
 func serviceTierKeys(options []api.ServiceTierOption) []string {
+	out := make([]string, 0, len(options))
+	for _, option := range options {
+		out = append(out, option.Key)
+	}
+	return out
+}
+
+func reasoningEffortKeys(options []api.ReasoningEffortOption) []string {
 	out := make([]string, 0, len(options))
 	for _, option := range options {
 		out = append(out, option.Key)

@@ -660,15 +660,16 @@ type CoderModelOptionsResponse struct {
 }
 
 type CoderModelOption struct {
-	Key           string   `json:"key"`
-	Name          string   `json:"name,omitempty"`
-	Provider      string   `json:"provider,omitempty"`
-	ModelID       string   `json:"modelId,omitempty"`
-	Protocol      string   `json:"protocol,omitempty"`
-	IsReasoner    bool     `json:"isReasoner"`
-	IsVision      bool     `json:"isVision"`
-	ContextWindow int      `json:"contextWindow,omitempty"`
-	ServiceTiers  []string `json:"serviceTiers,omitempty"`
+	Key              string   `json:"key"`
+	Name             string   `json:"name,omitempty"`
+	Provider         string   `json:"provider,omitempty"`
+	ModelID          string   `json:"modelId,omitempty"`
+	Protocol         string   `json:"protocol,omitempty"`
+	IsReasoner       bool     `json:"isReasoner"`
+	IsVision         bool     `json:"isVision"`
+	ContextWindow    int      `json:"contextWindow,omitempty"`
+	ReasoningEfforts []string `json:"reasoningEfforts,omitempty"`
+	ServiceTiers     []string `json:"serviceTiers,omitempty"`
 }
 
 type ReasoningEffortOption struct {

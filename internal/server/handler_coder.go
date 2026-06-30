@@ -21,6 +21,8 @@ var coderReasoningEfforts = []api.ReasoningEffortOption{
 	{Key: "HIGH", Label: "HIGH"},
 }
 
+var coderReasoningEffortOrder = []string{"NONE", "LOW", "MEDIUM", "HIGH", "XHIGH", "MAX"}
+
 func (s *Server) handleModelOptions(w http.ResponseWriter, r *http.Request) {
 	response := s.buildModelOptionsForAgent(strings.TrimSpace(r.URL.Query().Get("agentKey")))
 	writeJSON(w, http.StatusOK, api.Success(response))
@@ -29,6 +31,7 @@ func (s *Server) handleModelOptions(w http.ResponseWriter, r *http.Request) {
 func (s *Server) buildModelOptionsForAgent(agentKey string) api.CoderModelOptionsResponse {
 	modelOptions := s.listModelOptionsForAgent(agentKey)
 	defaultModelKey := s.defaultModelOptionKeyForAgent(modelOptions, agentKey)
+	reasoningEfforts := s.reasoningEffortOptionsForAgent(agentKey, modelOptions)
 	serviceTiers := s.serviceTierOptionsForAgent(agentKey, modelOptions)
 	defaultServiceTier := s.defaultServiceTierForAgent(agentKey, serviceTiers)
 	if defaultServiceTier == "" {
@@ -36,7 +39,7 @@ func (s *Server) buildModelOptionsForAgent(agentKey string) api.CoderModelOption
 	}
 	return api.CoderModelOptionsResponse{
 		Models:                 modelOptions,
-		ReasoningEfforts:       append([]api.ReasoningEffortOption(nil), coderReasoningEfforts...),
+		ReasoningEfforts:       reasoningEfforts,
 		ServiceTiers:           serviceTiers,
 		DefaultModelKey:        defaultModelKey,
 		DefaultReasoningEffort: "MEDIUM",
@@ -68,15 +71,16 @@ func (s *Server) listModelOptionsForAgent(agentKey string) []api.CoderModelOptio
 			continue
 		}
 		options = append(options, api.CoderModelOption{
-			Key:           model.Key,
-			Name:          model.Name,
-			Provider:      model.Provider,
-			ModelID:       model.ModelID,
-			Protocol:      model.Protocol,
-			IsReasoner:    model.IsReasoner,
-			IsVision:      model.IsVision,
-			ContextWindow: model.ContextWindow,
-			ServiceTiers:  append([]string(nil), model.ServiceTiers...),
+			Key:              model.Key,
+			Name:             model.Name,
+			Provider:         model.Provider,
+			ModelID:          model.ModelID,
+			Protocol:         model.Protocol,
+			IsReasoner:       model.IsReasoner,
+			IsVision:         model.IsVision,
+			ContextWindow:    model.ContextWindow,
+			ReasoningEfforts: append([]string(nil), model.ReasoningEfforts...),
+			ServiceTiers:     append([]string(nil), model.ServiceTiers...),
 		})
 	}
 	return options
@@ -230,6 +234,40 @@ func (s *Server) serviceTierOptionsForAgent(agentKey string, models []api.CoderM
 	return options
 }
 
+func (s *Server) reasoningEffortOptionsForAgent(agentKey string, models []api.CoderModelOption) []api.ReasoningEffortOption {
+	agentKey = strings.TrimSpace(agentKey)
+	if agentKey == "" || s.deps.Registry == nil {
+		return append([]api.ReasoningEffortOption(nil), coderReasoningEfforts...)
+	}
+	def, ok := s.deps.Registry.AgentDefinition(agentKey)
+	if !ok || !catalog.AgentUsesACPCoderBackend(def) {
+		return append([]api.ReasoningEffortOption(nil), coderReasoningEfforts...)
+	}
+	seen := map[string]struct{}{"NONE": {}}
+	hasRuntimeEffort := false
+	for _, model := range models {
+		for _, rawEffort := range model.ReasoningEfforts {
+			effort, ok := normalizeCoderReasoningEffort(rawEffort)
+			if !ok || effort == "" || effort == "NONE" {
+				continue
+			}
+			seen[effort] = struct{}{}
+			hasRuntimeEffort = true
+		}
+	}
+	if !hasRuntimeEffort {
+		return append([]api.ReasoningEffortOption(nil), coderReasoningEfforts...)
+	}
+	options := make([]api.ReasoningEffortOption, 0, len(seen))
+	for _, effort := range coderReasoningEffortOrder {
+		if _, ok := seen[effort]; !ok {
+			continue
+		}
+		options = append(options, api.ReasoningEffortOption{Key: effort, Label: effort})
+	}
+	return options
+}
+
 func serviceTierInOptions(serviceTier string, options []api.ServiceTierOption) bool {
 	serviceTier = strings.TrimSpace(serviceTier)
 	if serviceTier == "" {
@@ -268,6 +306,10 @@ func normalizeCoderReasoningEffort(value string) (string, bool) {
 		return "MEDIUM", true
 	case "HIGH":
 		return "HIGH", true
+	case "XHIGH", "EXTRA_HIGH":
+		return "XHIGH", true
+	case "MAX":
+		return "MAX", true
 	default:
 		return "", false
 	}
@@ -277,12 +319,13 @@ type acpModelCatalogResponse struct {
 	Code int `json:"code"`
 	Data struct {
 		Models []struct {
-			Key           string   `json:"key"`
-			Name          string   `json:"name"`
-			ModelID       string   `json:"modelId"`
-			ContextWindow int      `json:"contextWindow"`
-			IsReasoner    bool     `json:"isReasoner"`
-			ServiceTiers  []string `json:"serviceTiers"`
+			Key              string   `json:"key"`
+			Name             string   `json:"name"`
+			ModelID          string   `json:"modelId"`
+			ContextWindow    int      `json:"contextWindow"`
+			IsReasoner       bool     `json:"isReasoner"`
+			ReasoningEfforts []string `json:"reasoningEfforts"`
+			ServiceTiers     []string `json:"serviceTiers"`
 		} `json:"models"`
 	} `json:"data"`
 }
@@ -343,13 +386,14 @@ func fetchACPCoderModelOptions(proxy config.CoderACPProxyConfig) ([]api.CoderMod
 			continue
 		}
 		options = append(options, api.CoderModelOption{
-			Key:           key,
-			Name:          strings.TrimSpace(model.Name),
-			ModelID:       strings.TrimSpace(model.ModelID),
-			Protocol:      models.ProtocolACPPassthrough,
-			IsReasoner:    model.IsReasoner,
-			ContextWindow: model.ContextWindow,
-			ServiceTiers:  append([]string(nil), model.ServiceTiers...),
+			Key:              key,
+			Name:             strings.TrimSpace(model.Name),
+			ModelID:          strings.TrimSpace(model.ModelID),
+			Protocol:         models.ProtocolACPPassthrough,
+			IsReasoner:       model.IsReasoner,
+			ContextWindow:    model.ContextWindow,
+			ReasoningEfforts: append([]string(nil), model.ReasoningEfforts...),
+			ServiceTiers:     append([]string(nil), model.ServiceTiers...),
 		})
 	}
 	return options, nil

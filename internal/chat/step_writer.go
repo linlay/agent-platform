@@ -54,6 +54,7 @@ type StepWriter struct {
 	pendingSubmitLiveSeq    int64
 	pendingUsage            map[string]any
 	pendingContextWindowMax int
+	pendingContextCurrent   int
 	pendingEstimated        int
 	pendingModelKey         string
 	pendingReasoningEffort  string
@@ -459,6 +460,7 @@ func (w *StepWriter) captureRootUsageSnapshot(event stream.EventData) {
 	}
 	if cw := contextWindow; cw != nil {
 		w.pendingContextWindowMax = toIntFromKeys(cw, "maxSize")
+		w.pendingContextCurrent = toIntFromKeys(cw, "currentSize")
 		w.pendingEstimated = toIntFromKeys(cw, "estimatedNextCallSize")
 		w.capturePendingModelMetadata(cw)
 	}
@@ -480,6 +482,7 @@ func (w *StepWriter) captureTaskUsageSnapshot(buffer *taskStepBuffer, event stre
 	}
 	if cw := contextWindow; cw != nil {
 		buffer.pendingContextWindowMax = toIntFromKeys(cw, "maxSize")
+		buffer.pendingContextCurrent = toIntFromKeys(cw, "currentSize")
 		buffer.pendingEstimated = toIntFromKeys(cw, "estimatedNextCallSize")
 		buffer.capturePendingModelMetadata(cw)
 	}
@@ -492,6 +495,7 @@ func (w *StepWriter) captureRootDebugData(inner map[string]any) {
 	}
 	if cw, ok := inner["contextWindow"].(map[string]any); ok {
 		w.pendingContextWindowMax = toIntFromKeys(cw, "maxSize")
+		w.pendingContextCurrent = toIntFromKeys(cw, "currentSize")
 		w.pendingEstimated = toIntFromKeys(cw, "estimatedNextCallSize")
 		w.capturePendingModelMetadata(cw, model)
 	}
@@ -532,6 +536,7 @@ func (w *StepWriter) captureTaskDebugData(buffer *taskStepBuffer, inner map[stri
 	}
 	if cw, ok := inner["contextWindow"].(map[string]any); ok {
 		buffer.pendingContextWindowMax = toIntFromKeys(cw, "maxSize")
+		buffer.pendingContextCurrent = toIntFromKeys(cw, "currentSize")
 		buffer.pendingEstimated = toIntFromKeys(cw, "estimatedNextCallSize")
 		buffer.capturePendingModelMetadata(cw, model)
 	}
@@ -704,6 +709,7 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	if len(w.messages) == 0 && len(w.pendingAwaiting) == 0 {
 		w.pendingUsage = nil
 		w.pendingContextWindowMax = 0
+		w.pendingContextCurrent = 0
 		w.pendingEstimated = 0
 		w.pendingModelKey = ""
 		w.pendingReasoningEffort = ""
@@ -752,12 +758,13 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	if len(w.pendingInputMessages) > 0 {
 		line.InputMessages = cloneMessageMaps(w.pendingInputMessages)
 	}
-	if w.pendingUsage != nil || w.pendingContextWindowMax > 0 || w.pendingEstimated > 0 {
-		if cw := buildContextWindow(w.pendingUsage, w.pendingContextWindowMax, w.pendingEstimated); len(cw) > 0 {
+	if w.pendingUsage != nil || w.pendingContextWindowMax > 0 || w.pendingContextCurrent > 0 || w.pendingEstimated > 0 {
+		if cw := buildContextWindow(w.pendingContextWindowMax, w.pendingContextCurrent, w.pendingEstimated); len(cw) > 0 {
 			line.ContextWindow = cw
 		}
 		w.pendingUsage = nil
 		w.pendingContextWindowMax = 0
+		w.pendingContextCurrent = 0
 		w.pendingEstimated = 0
 		w.pendingSystemRef = nil
 	}
@@ -789,6 +796,7 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	w.stepLiveSeq = 0
 	w.pendingUsage = nil
 	w.pendingContextWindowMax = 0
+	w.pendingContextCurrent = 0
 	w.pendingEstimated = 0
 	w.pendingModelKey = ""
 	w.pendingReasoningEffort = ""

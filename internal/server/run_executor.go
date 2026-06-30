@@ -416,7 +416,7 @@ func usageDataMapWithOptions(usage chat.UsageData, includeZeroToolCallCount bool
 	if usage.CachedTokens > 0 {
 		out["promptTokensDetails"] = map[string]any{"cacheHitTokens": usage.CachedTokens}
 	}
-	if usage.ReasoningTokens > 0 {
+	if usage.ReasoningTokens > 0 || includeZeroToolCallCount {
 		out["completionTokensDetails"] = map[string]any{"reasoningTokens": usage.ReasoningTokens}
 	}
 	cacheHitTokens, cacheMissTokens := usageCacheTokens(usage)
@@ -426,10 +426,10 @@ func usageDataMapWithOptions(usage chat.UsageData, includeZeroToolCallCount bool
 			promptDetails = map[string]any{}
 			out["promptTokensDetails"] = promptDetails
 		}
-		if cacheHitTokens > 0 {
+		if cacheHitTokens > 0 || includeZeroToolCallCount {
 			promptDetails["cacheHitTokens"] = cacheHitTokens
 		}
-		if cacheMissTokens > 0 {
+		if cacheMissTokens > 0 || includeZeroToolCallCount {
 			promptDetails["cacheMissTokens"] = cacheMissTokens
 		}
 	}

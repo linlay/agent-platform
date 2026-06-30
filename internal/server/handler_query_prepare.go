@@ -287,10 +287,26 @@ func (s *Server) validateQueryModelOptions(options *api.QueryModelOptions, agent
 	}
 	reasoningEffort, ok := normalizeQueryModelReasoningEffort(reasoningEffort)
 	if !ok {
-		return &statusError{status: http.StatusBadRequest, message: "model.reasoningEffort must be LOW, MEDIUM, or HIGH; CODER agents also support NONE"}
+		return &statusError{status: http.StatusBadRequest, message: "model.reasoningEffort must be LOW, MEDIUM, HIGH, XHIGH, or MAX; CODER agents also support NONE"}
 	}
 	if reasoningEffort == "NONE" && !strings.EqualFold(strings.TrimSpace(agentDef.Mode), catalog.AgentModeCoder) {
 		return &statusError{status: http.StatusBadRequest, message: "model.reasoningEffort NONE is only supported for CODER agents"}
+	}
+	if reasoningEffort != "" && reasoningEffort != "NONE" && catalog.AgentUsesACPCoderBackend(agentDef) {
+		acpOptions, err, listed := s.listACPCoderModelOptions(agentDef.Key)
+		if listed {
+			if err != nil {
+				return &statusError{status: http.StatusBadGateway, message: "failed to fetch ACP CODER models: " + err.Error()}
+			}
+			if !reasoningEffortAllowedForACPModel(reasoningEffort, modelKey, acpOptions) {
+				return &statusError{status: http.StatusBadRequest, message: "model.reasoningEffort " + reasoningEffort + " is not available for ACP CODER"}
+			}
+		}
+	}
+	if reasoningEffort == "XHIGH" || reasoningEffort == "MAX" {
+		if !catalog.AgentUsesACPCoderBackend(agentDef) {
+			return &statusError{status: http.StatusBadRequest, message: "model.reasoningEffort " + reasoningEffort + " is only supported for ACP CODER"}
+		}
 	}
 	serviceTier, ok = normalizeQueryModelServiceTier(serviceTier)
 	if !ok {
@@ -341,6 +357,10 @@ func normalizeQueryModelReasoningEffort(value string) (string, bool) {
 		return "MEDIUM", true
 	case "HIGH":
 		return "HIGH", true
+	case "XHIGH", "EXTRA_HIGH":
+		return "XHIGH", true
+	case "MAX":
+		return "MAX", true
 	default:
 		return "", false
 	}
@@ -388,6 +408,47 @@ func serviceTierSupportedByACPModel(serviceTier string, option api.CoderModelOpt
 		}
 	}
 	return false
+}
+
+func reasoningEffortAllowedForACPModel(reasoningEffort string, modelKey string, options []api.CoderModelOption) bool {
+	reasoningEffort, ok := normalizeQueryModelReasoningEffort(reasoningEffort)
+	if !ok || reasoningEffort == "" || reasoningEffort == "NONE" {
+		return ok
+	}
+	hasDeclaredEfforts := false
+	for _, option := range options {
+		if strings.TrimSpace(modelKey) != "" && !strings.EqualFold(strings.TrimSpace(option.Key), modelKey) {
+			continue
+		}
+		supported := normalizedACPModelReasoningEfforts(option)
+		if len(supported) == 0 {
+			continue
+		}
+		hasDeclaredEfforts = true
+		if supported[reasoningEffort] {
+			return true
+		}
+	}
+	if hasDeclaredEfforts {
+		return false
+	}
+	switch reasoningEffort {
+	case "LOW", "MEDIUM", "HIGH":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizedACPModelReasoningEfforts(option api.CoderModelOption) map[string]bool {
+	out := map[string]bool{}
+	for _, rawEffort := range option.ReasoningEfforts {
+		effort, ok := normalizeQueryModelReasoningEffort(rawEffort)
+		if ok && effort != "" {
+			out[effort] = true
+		}
+	}
+	return out
 }
 
 func applyQueryModelOptionsToRawStageSettings(raw map[string]any, modelKey string, reasoningEffort string) map[string]any {

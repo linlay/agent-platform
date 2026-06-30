@@ -1954,8 +1954,11 @@ func TestStepWriterEmbedsUsageAtStepLevel(t *testing.T) {
 		t.Fatalf("did not expect derived tokens/s in step-level timing, got %#v", lines[0])
 	}
 	contextWindow, _ := lines[0]["contextWindow"].(map[string]any)
-	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["currentSize"]) != 100 || toIntValue(contextWindow["estimatedNextCallSize"]) != 200 {
+	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["estimatedNextCallSize"]) != 200 {
 		t.Fatalf("expected step-level context window, got %#v", lines[0])
+	}
+	if _, ok := contextWindow["currentSize"]; ok {
+		t.Fatalf("did not expect usage promptTokens to become context currentSize, got %#v", contextWindow)
 	}
 
 	messages, _ := lines[0]["messages"].([]any)
@@ -2798,8 +2801,11 @@ func TestStepWriterPersistsTaskScopedUsageAndSlimMetadataWithoutDebugPayload(t *
 	}
 	assertNoStepModelMetadata(t, usage, "task usage")
 	contextWindow, _ := taskLine["contextWindow"].(map[string]any)
-	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["currentSize"]) != 100 || toIntValue(contextWindow["estimatedNextCallSize"]) != 200 {
+	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["estimatedNextCallSize"]) != 200 {
 		t.Fatalf("expected task contextWindow, got %#v", taskLine)
+	}
+	if _, ok := contextWindow["currentSize"]; ok {
+		t.Fatalf("did not expect task usage promptTokens to become context currentSize, got %#v", contextWindow)
 	}
 	assertNoStepModelMetadata(t, contextWindow, "task contextWindow")
 	if _, ok := lines[1]["debug"]; ok {

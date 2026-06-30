@@ -493,17 +493,13 @@ func cloneStepSystemPayload(value map[string]any) map[string]any {
 	return cloned
 }
 
-func buildContextWindow(usage map[string]any, maxSize int, estimatedNextCallSize int) map[string]any {
-	actual := 0
-	if usage != nil {
-		actual = toIntFromKeys(usage, "promptTokens")
-	}
+func buildContextWindow(maxSize int, currentSize int, estimatedNextCallSize int) map[string]any {
 	cw := map[string]any{}
 	if maxSize > 0 {
 		cw["maxSize"] = maxSize
 	}
-	if actual > 0 {
-		cw["currentSize"] = actual
+	if currentSize > 0 {
+		cw["currentSize"] = currentSize
 	}
 	if estimatedNextCallSize > 0 {
 		cw["estimatedNextCallSize"] = estimatedNextCallSize

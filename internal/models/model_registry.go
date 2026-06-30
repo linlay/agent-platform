@@ -48,19 +48,20 @@ type ProviderEmbeddingConfig struct {
 }
 
 type ModelDefinition struct {
-	Key           string
-	Name          string
-	Provider      string
-	Protocol      string
-	ModelID       string
-	IsFunction    bool
-	IsReasoner    bool
-	IsVision      bool
-	ContextWindow int
-	Pricing       ModelPricing
-	Headers       map[string]string
-	Compat        map[string]any
-	ServiceTiers  []string
+	Key              string
+	Name             string
+	Provider         string
+	Protocol         string
+	ModelID          string
+	IsFunction       bool
+	IsReasoner       bool
+	IsVision         bool
+	ContextWindow    int
+	Pricing          ModelPricing
+	Headers          map[string]string
+	Compat           map[string]any
+	ReasoningEfforts []string
+	ServiceTiers     []string
 }
 
 const ProtocolACPPassthrough = "ACP_PASSTHROUGH"
@@ -486,19 +487,20 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 			continue
 		}
 		result[key] = ModelDefinition{
-			Key:           key,
-			Name:          strings.TrimSpace(stringNode(values["name"])),
-			Provider:      strings.TrimSpace(stringNode(values["provider"])),
-			Protocol:      strings.ToUpper(strings.TrimSpace(stringNode(values["protocol"]))),
-			ModelID:       strings.TrimSpace(stringNode(values["modelId"])),
-			IsFunction:    parseTruthy(stringNode(values["isFunction"])),
-			IsReasoner:    parseTruthy(stringNode(values["isReasoner"])),
-			IsVision:      parseTruthyDefault(values["isVision"], false),
-			ContextWindow: contracts.AnyIntNode(values["maxInputTokens"]),
-			Pricing:       loadModelPricing(values["pricing"]),
-			Headers:       stringMapNode(values["headers"]),
-			Compat:        contracts.CloneAnyMap(contracts.AnyMapNode(values["compat"])),
-			ServiceTiers:  stringSliceNode(values["serviceTiers"]),
+			Key:              key,
+			Name:             strings.TrimSpace(stringNode(values["name"])),
+			Provider:         strings.TrimSpace(stringNode(values["provider"])),
+			Protocol:         strings.ToUpper(strings.TrimSpace(stringNode(values["protocol"]))),
+			ModelID:          strings.TrimSpace(stringNode(values["modelId"])),
+			IsFunction:       parseTruthy(stringNode(values["isFunction"])),
+			IsReasoner:       parseTruthy(stringNode(values["isReasoner"])),
+			IsVision:         parseTruthyDefault(values["isVision"], false),
+			ContextWindow:    contracts.AnyIntNode(values["maxInputTokens"]),
+			Pricing:          loadModelPricing(values["pricing"]),
+			Headers:          stringMapNode(values["headers"]),
+			Compat:           contracts.CloneAnyMap(contracts.AnyMapNode(values["compat"])),
+			ReasoningEfforts: stringSliceNode(values["reasoningEfforts"]),
+			ServiceTiers:     stringSliceNode(values["serviceTiers"]),
 		}
 	}
 	return result, nil

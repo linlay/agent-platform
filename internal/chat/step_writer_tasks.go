@@ -18,6 +18,7 @@ type taskStepBuffer struct {
 	pendingSystemRef        map[string]any
 	pendingUsage            map[string]any
 	pendingContextWindowMax int
+	pendingContextCurrent   int
 	pendingEstimated        int
 	pendingModelKey         string
 	pendingReasoningEffort  string
@@ -90,8 +91,8 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 	if len(buffer.pendingInputMessages) > 0 {
 		line.InputMessages = cloneMessageMaps(buffer.pendingInputMessages)
 	}
-	if buffer.pendingUsage != nil || buffer.pendingContextWindowMax > 0 || buffer.pendingEstimated > 0 {
-		if cw := buildContextWindow(buffer.pendingUsage, buffer.pendingContextWindowMax, buffer.pendingEstimated); len(cw) > 0 {
+	if buffer.pendingUsage != nil || buffer.pendingContextWindowMax > 0 || buffer.pendingContextCurrent > 0 || buffer.pendingEstimated > 0 {
+		if cw := buildContextWindow(buffer.pendingContextWindowMax, buffer.pendingContextCurrent, buffer.pendingEstimated); len(cw) > 0 {
 			line.ContextWindow = cw
 		}
 	}
@@ -122,6 +123,7 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 	buffer.liveSeq = 0
 	buffer.pendingUsage = nil
 	buffer.pendingContextWindowMax = 0
+	buffer.pendingContextCurrent = 0
 	buffer.pendingEstimated = 0
 	buffer.pendingModelKey = ""
 	buffer.pendingReasoningEffort = ""
