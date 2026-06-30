@@ -11,6 +11,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
+	"agent-platform/internal/contracts"
 	"agent-platform/internal/models"
 )
 
@@ -45,6 +46,47 @@ func (s *Server) buildModelOptionsForAgent(agentKey string) api.CoderModelOption
 		DefaultReasoningEffort: "MEDIUM",
 		DefaultServiceTier:     defaultServiceTier,
 	}
+}
+
+func coderModelConfigFromOptions(options api.CoderModelOptionsResponse) map[string]any {
+	modelKey := strings.TrimSpace(options.DefaultModelKey)
+	if modelKey == "" && len(options.Models) > 0 {
+		modelKey = strings.TrimSpace(options.Models[0].Key)
+	}
+	if modelKey == "" {
+		return nil
+	}
+	modelConfig := map[string]any{"modelKey": modelKey}
+	reasoningEffort := strings.TrimSpace(options.DefaultReasoningEffort)
+	if reasoningEffort != "" {
+		reasoning := map[string]any{}
+		if strings.EqualFold(reasoningEffort, "NONE") {
+			reasoning["enabled"] = false
+		} else {
+			reasoning["enabled"] = true
+			reasoning["effort"] = reasoningEffort
+		}
+		modelConfig["reasoning"] = reasoning
+	}
+	if serviceTier := strings.TrimSpace(options.DefaultServiceTier); serviceTier != "" {
+		modelConfig["serviceTier"] = serviceTier
+	}
+	return modelConfig
+}
+
+func modelConfigString(modelConfig map[string]any, key string) string {
+	if len(modelConfig) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(stringValue(modelConfig[key]))
+}
+
+func coderModelConfigReasoningEffort(modelConfig map[string]any) string {
+	reasoning := contracts.AnyMapNode(modelConfig["reasoning"])
+	if enabled, ok := reasoning["enabled"].(bool); ok && !enabled {
+		return "NONE"
+	}
+	return strings.TrimSpace(stringValue(reasoning["effort"]))
 }
 
 func (s *Server) listModelOptionsForAgent(agentKey string) []api.CoderModelOption {

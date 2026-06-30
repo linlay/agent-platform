@@ -429,18 +429,20 @@ type MemoryUsageSummary struct {
 }
 
 type AgentSummary struct {
-	Key                    string                `json:"key"`
-	Name                   string                `json:"name"`
-	Icon                   any                   `json:"icon,omitempty"`
-	Mode                   string                `json:"mode,omitempty"`
-	WorkspaceDir           string                `json:"workspaceDir,omitempty"`
-	DefaultModelKey        string                `json:"defaultModelKey,omitempty"`
-	DefaultReasoningEffort string                `json:"defaultReasoningEffort,omitempty"`
-	Description            string                `json:"-"`
-	Role                   string                `json:"role,omitempty"`
-	Stats                  AgentChatStats        `json:"stats"`
-	Chats                  []ChatSummaryResponse `json:"chats,omitempty"`
-	Meta                   map[string]any        `json:"meta,omitempty"`
+	Key                    string                     `json:"key"`
+	Name                   string                     `json:"name"`
+	Icon                   any                        `json:"icon,omitempty"`
+	Mode                   string                     `json:"mode,omitempty"`
+	WorkspaceDir           string                     `json:"workspaceDir,omitempty"`
+	DefaultModelKey        string                     `json:"defaultModelKey,omitempty"`
+	DefaultReasoningEffort string                     `json:"defaultReasoningEffort,omitempty"`
+	ModelConfig            map[string]any             `json:"modelConfig,omitempty"`
+	ModelOptions           *CoderModelOptionsResponse `json:"modelOptions,omitempty"`
+	Description            string                     `json:"-"`
+	Role                   string                     `json:"role,omitempty"`
+	Stats                  AgentChatStats             `json:"stats"`
+	Chats                  []ChatSummaryResponse      `json:"chats,omitempty"`
+	Meta                   map[string]any             `json:"meta,omitempty"`
 }
 
 type AgentChatStats struct {
@@ -484,6 +486,7 @@ type AgentDetailResponse struct {
 	Skills       []string                   `json:"skills"`
 	Controls     []map[string]any           `json:"controls"`
 	Meta         map[string]any             `json:"meta"`
+	ModelConfig  map[string]any             `json:"modelConfig,omitempty"`
 	ModelOptions *CoderModelOptionsResponse `json:"modelOptions,omitempty"`
 	Definition   map[string]any             `json:"definition,omitempty"`
 	SoulPrompt   string                     `json:"soulPrompt,omitempty"`
