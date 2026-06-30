@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/automation"
@@ -44,7 +45,10 @@ func newAutomationTestServer(t *testing.T, websocket bool) automationTestServer 
 		}
 	})
 
-	cfg := config.Config{Auth: config.AuthConfig{Enabled: false}}
+	cfg := config.Config{
+		Auth:       config.AuthConfig{Enabled: false},
+		Automation: config.AutomationConfig{DefaultZoneID: "UTC"},
+	}
 	var hub *ws.Hub
 	if websocket {
 		cfg.WebSocket.WriteQueueSize = 4
@@ -76,6 +80,7 @@ func TestAutomationHTTPCRUDAndExecutionHistory(t *testing.T) {
 		"description": "Demo automation",
 		"cron":        "17 9 * * *",
 		"agentKey":    "demo-agent",
+		"zoneId":      "Asia/Shanghai",
 		"query": map[string]any{
 			"message": "hello",
 			"params":  map[string]any{"kind": "daily"},
@@ -97,6 +102,14 @@ func TestAutomationHTTPCRUDAndExecutionHistory(t *testing.T) {
 	if list.Total != 1 || len(list.Items) != 1 || list.Items[0].NextFireAt == nil || *list.Items[0].NextFireAt <= 0 || list.Items[0].NextFireTime == nil || list.Items[0].LastExecution == nil || list.Items[0].LastExecution.Status != "success" {
 		t.Fatalf("unexpected list response %#v", list)
 	}
+	assertAutomationReadableTime(t, list.Items[0].LastExecution.StartedTime)
+	if !strings.HasSuffix(list.Items[0].LastExecution.StartedTime, "+08:00") {
+		t.Fatalf("expected last execution time in automation zone, got %#v", list.Items[0].LastExecution)
+	}
+	if list.Items[0].LastExecution.CompletedAt == nil || *list.Items[0].LastExecution.CompletedAt <= 0 || strings.TrimSpace(list.Items[0].LastExecution.CompletedTime) == "" {
+		t.Fatalf("expected completed timing on last execution %#v", list.Items[0].LastExecution)
+	}
+	assertAutomationReadableTime(t, list.Items[0].LastExecution.CompletedTime)
 
 	update := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/automation/update", map[string]any{
 		"id":          create.ID,
@@ -126,6 +139,17 @@ func TestAutomationHTTPCRUDAndExecutionHistory(t *testing.T) {
 	if history.Total != 1 || len(history.Items) != 1 || history.Items[0].ID != executionID {
 		t.Fatalf("unexpected history response %#v", history)
 	}
+	if history.Items[0].StartedAt <= 0 || strings.TrimSpace(history.Items[0].StartedTime) == "" {
+		t.Fatalf("expected started timing on history item %#v", history.Items[0])
+	}
+	assertAutomationReadableTime(t, history.Items[0].StartedTime)
+	if !strings.HasSuffix(history.Items[0].StartedTime, "Z") {
+		t.Fatalf("expected deleted automation history time to fall back to UTC, got %#v", history.Items[0])
+	}
+	if history.Items[0].CompletedAt == nil || *history.Items[0].CompletedAt <= 0 || strings.TrimSpace(history.Items[0].CompletedTime) == "" {
+		t.Fatalf("expected completed timing on history item %#v", history.Items[0])
+	}
+	assertAutomationReadableTime(t, history.Items[0].CompletedTime)
 }
 
 func TestAutomationAdminManagementRoutesRemoved(t *testing.T) {
@@ -254,6 +278,16 @@ func postAutomationJSON[T any](t *testing.T, server *Server, path string, payloa
 		t.Fatalf("unexpected api response %#v", parsed)
 	}
 	return parsed.Data
+}
+
+func assertAutomationReadableTime(t *testing.T, value string) {
+	t.Helper()
+	if strings.TrimSpace(value) == "" {
+		t.Fatal("expected readable time")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, value); err != nil {
+		t.Fatalf("expected RFC3339Nano time, got %q: %v", value, err)
+	}
 }
 
 func postAutomationStatus(t *testing.T, server *Server, path string, payload any) int {

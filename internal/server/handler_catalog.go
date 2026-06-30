@@ -257,32 +257,59 @@ func (s *Server) applyKBaseDefaultAgentConfig(definition map[string]any) map[str
 	defaults := s.deps.Config.KBase.DefaultAgent
 	modelKey := strings.TrimSpace(defaults.ModelKey)
 	reasoningEffort := strings.TrimSpace(defaults.ReasoningEffort)
-	if modelKey == "" && reasoningEffort == "" {
+	embeddingDefaults := s.deps.Config.KBase.Embedding
+	embeddingProviderKey := strings.TrimSpace(embeddingDefaults.ProviderKey)
+	embeddingModel := strings.TrimSpace(embeddingDefaults.Model)
+	if modelKey == "" && reasoningEffort == "" && embeddingProviderKey == "" && embeddingModel == "" {
 		return definition
 	}
 
 	out := contracts.CloneMap(definition)
-	modelConfig := contracts.CloneMap(contracts.AnyMapNode(out["modelConfig"]))
-	if modelConfig == nil {
-		modelConfig = map[string]any{}
-	}
-	if modelKey != "" && strings.TrimSpace(stringValue(modelConfig["modelKey"])) == "" {
-		modelConfig["modelKey"] = modelKey
-	}
-	if reasoningEffort != "" {
-		reasoning := contracts.CloneMap(contracts.AnyMapNode(modelConfig["reasoning"]))
-		if reasoning == nil {
-			reasoning = map[string]any{}
+	if modelKey != "" || reasoningEffort != "" {
+		modelConfig := contracts.CloneMap(contracts.AnyMapNode(out["modelConfig"]))
+		if modelConfig == nil {
+			modelConfig = map[string]any{}
 		}
-		if strings.TrimSpace(stringValue(reasoning["effort"])) == "" {
-			reasoning["effort"] = reasoningEffort
+		if modelKey != "" && strings.TrimSpace(stringValue(modelConfig["modelKey"])) == "" {
+			modelConfig["modelKey"] = modelKey
 		}
-		if len(reasoning) > 0 {
-			modelConfig["reasoning"] = reasoning
+		if reasoningEffort != "" {
+			reasoning := contracts.CloneMap(contracts.AnyMapNode(modelConfig["reasoning"]))
+			if reasoning == nil {
+				reasoning = map[string]any{}
+			}
+			if strings.TrimSpace(stringValue(reasoning["effort"])) == "" {
+				reasoning["effort"] = reasoningEffort
+			}
+			if len(reasoning) > 0 {
+				modelConfig["reasoning"] = reasoning
+			}
+		}
+		if len(modelConfig) > 0 {
+			out["modelConfig"] = modelConfig
 		}
 	}
-	if len(modelConfig) > 0 {
-		out["modelConfig"] = modelConfig
+	if embeddingProviderKey != "" || embeddingModel != "" {
+		kbaseConfig := contracts.CloneMap(contracts.AnyMapNode(out["kbaseConfig"]))
+		if kbaseConfig == nil {
+			kbaseConfig = map[string]any{}
+		}
+		embedding := contracts.CloneMap(contracts.AnyMapNode(kbaseConfig["embedding"]))
+		if embedding == nil {
+			embedding = map[string]any{}
+		}
+		if embeddingProviderKey != "" && strings.TrimSpace(stringValue(embedding["providerKey"])) == "" {
+			embedding["providerKey"] = embeddingProviderKey
+		}
+		if embeddingModel != "" && strings.TrimSpace(stringValue(embedding["model"])) == "" {
+			embedding["model"] = embeddingModel
+		}
+		if len(embedding) > 0 {
+			kbaseConfig["embedding"] = embedding
+		}
+		if len(kbaseConfig) > 0 {
+			out["kbaseConfig"] = kbaseConfig
+		}
 	}
 	return out
 }

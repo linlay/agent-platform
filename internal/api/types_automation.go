@@ -43,11 +43,14 @@ type AutomationQueryResponse struct {
 }
 
 type AutomationExecutionBrief struct {
-	ID         string `json:"id"`
-	Status     string `json:"status"`
-	StartedAt  int64  `json:"startedAt"`
-	DurationMs *int64 `json:"durationMs,omitempty"`
-	Error      string `json:"error,omitempty"`
+	ID            string `json:"id"`
+	Status        string `json:"status"`
+	StartedAt     int64  `json:"startedAt"`
+	StartedTime   string `json:"startedTime"`
+	CompletedAt   *int64 `json:"completedAt,omitempty"`
+	CompletedTime string `json:"completedTime,omitempty"`
+	DurationMs    *int64 `json:"durationMs,omitempty"`
+	Error         string `json:"error,omitempty"`
 }
 
 type AutomationExecutionResponse struct {
@@ -60,7 +63,9 @@ type AutomationExecutionResponse struct {
 	Status         string `json:"status"`
 	Error          string `json:"error"`
 	StartedAt      int64  `json:"startedAt"`
+	StartedTime    string `json:"startedTime"`
 	CompletedAt    *int64 `json:"completedAt,omitempty"`
+	CompletedTime  string `json:"completedTime,omitempty"`
 	DurationMs     *int64 `json:"durationMs,omitempty"`
 }
 

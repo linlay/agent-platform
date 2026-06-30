@@ -240,6 +240,12 @@ func TestAgentCreateKBaseAppliesDefaultModelConfig(t *testing.T) {
 				ModelKey:        "mock-model",
 				ReasoningEffort: "MEDIUM",
 			}
+			cfg.KBase.Embedding = config.KBaseEmbeddingConfig{
+				ProviderKey: "mock-embedding-provider",
+				Model:       "mock-embedding-model",
+				Dimension:   1024,
+				Timeout:     60,
+			}
 		},
 	})
 	workspaceDir := filepath.Join(t.TempDir(), "knowledge-base-alpha")
@@ -266,6 +272,17 @@ func TestAgentCreateKBaseAppliesDefaultModelConfig(t *testing.T) {
 	if created.Meta["modelKey"] != "mock-model" {
 		t.Fatalf("expected created kbase model key mock-model, got %#v", created.Meta)
 	}
+	kbaseConfig, _ := created.Definition["kbaseConfig"].(map[string]any)
+	embedding, _ := kbaseConfig["embedding"].(map[string]any)
+	if embedding["providerKey"] != "mock-embedding-provider" || embedding["model"] != "mock-embedding-model" {
+		t.Fatalf("expected kbase default embedding provider/model, got %#v", kbaseConfig)
+	}
+	if _, ok := embedding["dimension"]; ok {
+		t.Fatalf("expected kbase default embedding dimension not to be persisted, got %#v", embedding)
+	}
+	if _, ok := embedding["timeout"]; ok {
+		t.Fatalf("expected kbase default embedding timeout not to be persisted, got %#v", embedding)
+	}
 }
 
 func TestAgentCreateKBasePreservesExplicitModelConfig(t *testing.T) {
@@ -279,6 +296,12 @@ func TestAgentCreateKBasePreservesExplicitModelConfig(t *testing.T) {
 			cfg.KBase.DefaultAgent = config.KBaseDefaultAgentConfig{
 				ModelKey:        "default-model",
 				ReasoningEffort: "MEDIUM",
+			}
+			cfg.KBase.Embedding = config.KBaseEmbeddingConfig{
+				ProviderKey: "default-embedding-provider",
+				Model:       "default-embedding-model",
+				Dimension:   1024,
+				Timeout:     60,
 			}
 		},
 	})
@@ -296,6 +319,12 @@ func TestAgentCreateKBasePreservesExplicitModelConfig(t *testing.T) {
 					"effort": "HIGH",
 				},
 			},
+			"kbaseConfig": map[string]any{
+				"embedding": map[string]any{
+					"providerKey": "explicit-embedding-provider",
+					"model":       "explicit-embedding-model",
+				},
+			},
 			"runtimeConfig": map[string]any{
 				"workspaceRoot": workspaceDir,
 			},
@@ -308,6 +337,11 @@ func TestAgentCreateKBasePreservesExplicitModelConfig(t *testing.T) {
 	reasoning, _ := modelConfig["reasoning"].(map[string]any)
 	if reasoning["effort"] != "HIGH" {
 		t.Fatalf("expected explicit kbase reasoning effort to win, got %#v", modelConfig)
+	}
+	kbaseConfig, _ := created.Definition["kbaseConfig"].(map[string]any)
+	embedding, _ := kbaseConfig["embedding"].(map[string]any)
+	if embedding["providerKey"] != "explicit-embedding-provider" || embedding["model"] != "explicit-embedding-model" {
+		t.Fatalf("expected explicit kbase embedding provider/model to win, got %#v", kbaseConfig)
 	}
 }
 
