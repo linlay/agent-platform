@@ -178,7 +178,7 @@ func (t *llmChatTrace) markSent(at time.Time) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.startedAt = at
-	t.payload["sentAt"] = at.Format(time.RFC3339Nano)
+	setTraceTimeField(t.payload, "sentAt", at)
 	t.writeLocked()
 }
 
@@ -188,7 +188,7 @@ func (t *llmChatTrace) markResponseStarted(at time.Time) {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.payload["responseStartedAt"] = at.Format(time.RFC3339Nano)
+	setTraceTimeField(t.payload, "responseStartedAt", at)
 	t.writeLocked()
 }
 
@@ -254,7 +254,7 @@ func (t *llmChatTrace) complete(status string, errText string, content string, r
 	t.completed = true
 	t.status = strings.TrimSpace(status)
 	completedAt := time.Now()
-	t.payload["completedAt"] = completedAt.Format(time.RFC3339Nano)
+	setTraceTimeField(t.payload, "completedAt", completedAt)
 	if !t.startedAt.IsZero() {
 		t.payload["durationMs"] = completedAt.Sub(t.startedAt).Milliseconds()
 	}
@@ -285,11 +285,11 @@ func (t *llmChatTrace) complete(status string, errText string, content string, r
 func traceInterruptInfo(info contracts.InterruptInfo) map[string]any {
 	info = contracts.NormalizeInterruptInfo(info)
 	out := map[string]any{
-		"source":        info.Source,
-		"reason":        info.Reason,
-		"detail":        info.Detail,
-		"interruptedAt": info.InterruptedAt.Format(time.RFC3339Nano),
+		"source": info.Source,
+		"reason": info.Reason,
+		"detail": info.Detail,
 	}
+	setTraceTimeField(out, "interruptedAt", info.InterruptedAt)
 	if info.RequestID != "" {
 		out["requestId"] = info.RequestID
 	}
@@ -297,6 +297,21 @@ func traceInterruptInfo(info contracts.InterruptInfo) map[string]any {
 		out["chatId"] = info.ChatID
 	}
 	return out
+}
+
+func setTraceTimeField(payload map[string]any, atKey string, at time.Time) {
+	if payload == nil || strings.TrimSpace(atKey) == "" {
+		return
+	}
+	payload[atKey] = at.UnixMilli()
+	payload[traceReadableTimeKey(atKey)] = at.Format(time.RFC3339Nano)
+}
+
+func traceReadableTimeKey(atKey string) string {
+	if strings.HasSuffix(atKey, "At") {
+		return strings.TrimSuffix(atKey, "At") + "Time"
+	}
+	return atKey + "Time"
 }
 
 func traceResponseToolCalls(toolCalls []openAIToolCall) []any {

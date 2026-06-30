@@ -338,7 +338,9 @@ func (s *Server) mapAutomationSummary(def automation.Definition, next *time.Time
 		RemainingRuns: cloneIntPtr(def.RemainingRuns),
 	}
 	if next != nil && !next.IsZero() {
+		nextFireAt := next.UnixMilli()
 		formatted := next.Format(time.RFC3339)
+		resp.NextFireAt = &nextFireAt
 		resp.NextFireTime = &formatted
 	}
 	if s.deps.AutomationExecutions != nil {

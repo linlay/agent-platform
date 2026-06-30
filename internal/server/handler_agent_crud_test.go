@@ -228,6 +228,76 @@ func TestAgentCreateKBaseRejectsMissingModelConfig(t *testing.T) {
 	}
 }
 
+func TestAgentCreateKBaseAppliesDefaultModelConfig(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{
+		configure: func(cfg *config.Config) {
+			cfg.KBase.DefaultAgent = config.KBaseDefaultAgentConfig{
+				ModelKey: "mock-model",
+			}
+		},
+	})
+	workspaceDir := filepath.Join(t.TempDir(), "knowledge-base-alpha")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("create workspace dir: %v", err)
+	}
+
+	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
+		"definition": map[string]any{
+			"mode": "KBASE",
+			"runtimeConfig": map[string]any{
+				"workspaceRoot": workspaceDir,
+			},
+		},
+	})
+	modelConfig, _ := created.Definition["modelConfig"].(map[string]any)
+	if modelConfig["modelKey"] != "mock-model" {
+		t.Fatalf("expected kbase default model config, got %#v", modelConfig)
+	}
+	if created.Meta["modelKey"] != "mock-model" {
+		t.Fatalf("expected created kbase model key mock-model, got %#v", created.Meta)
+	}
+}
+
+func TestAgentCreateKBasePreservesExplicitModelConfig(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{
+		configure: func(cfg *config.Config) {
+			cfg.KBase.DefaultAgent = config.KBaseDefaultAgentConfig{
+				ModelKey: "default-model",
+			}
+		},
+	})
+	workspaceDir := filepath.Join(t.TempDir(), "knowledge-base-alpha")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("create workspace dir: %v", err)
+	}
+
+	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
+		"definition": map[string]any{
+			"mode": "KBASE",
+			"modelConfig": map[string]any{
+				"modelKey": "mock-model",
+			},
+			"runtimeConfig": map[string]any{
+				"workspaceRoot": workspaceDir,
+			},
+		},
+	})
+	modelConfig, _ := created.Definition["modelConfig"].(map[string]any)
+	if modelConfig["modelKey"] != "mock-model" {
+		t.Fatalf("expected explicit kbase model config to win, got %#v", modelConfig)
+	}
+}
+
 func TestAgentCreateCoderAndOpenWorkspace(t *testing.T) {
 	fixture := newTestFixture(t)
 	workspaceDir := filepath.Join(t.TempDir(), "project-alpha")

@@ -81,7 +81,7 @@ func TestAutomationHTTPCRUDAndExecutionHistory(t *testing.T) {
 			"params":  map[string]any{"kind": "daily"},
 		},
 	})
-	if create.ID != "daily-demo" || create.Query.Message != "hello" || create.NextFireTime == nil {
+	if create.ID != "daily-demo" || create.Query.Message != "hello" || create.NextFireAt == nil || *create.NextFireAt <= 0 || create.NextFireTime == nil {
 		t.Fatalf("unexpected create response %#v", create)
 	}
 
@@ -94,7 +94,7 @@ func TestAutomationHTTPCRUDAndExecutionHistory(t *testing.T) {
 	}
 
 	list := postAutomationJSON[api.AutomationListResponse](t, fixture.server, "/api/automations", map[string]any{"tag": "ignored"})
-	if list.Total != 1 || len(list.Items) != 1 || list.Items[0].LastExecution == nil || list.Items[0].LastExecution.Status != "success" {
+	if list.Total != 1 || len(list.Items) != 1 || list.Items[0].NextFireAt == nil || *list.Items[0].NextFireAt <= 0 || list.Items[0].NextFireTime == nil || list.Items[0].LastExecution == nil || list.Items[0].LastExecution.Status != "success" {
 		t.Fatalf("unexpected list response %#v", list)
 	}
 
@@ -113,7 +113,7 @@ func TestAutomationHTTPCRUDAndExecutionHistory(t *testing.T) {
 		"id":      create.ID,
 		"enabled": false,
 	})
-	if toggled.Enabled || toggled.NextFireTime != nil {
+	if toggled.Enabled || toggled.NextFireAt != nil || toggled.NextFireTime != nil {
 		t.Fatalf("unexpected toggle response %#v", toggled)
 	}
 

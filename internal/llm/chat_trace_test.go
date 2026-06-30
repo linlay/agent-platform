@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
@@ -43,9 +44,9 @@ func TestLLMChatTraceWritesSimpleCompletion(t *testing.T) {
 	if trace["runSeq"] != float64(1) || trace["chatId"] != "chat_1" || trace["runId"] != "run_trace" {
 		t.Fatalf("unexpected metadata: %#v", trace)
 	}
-	if trace["sentAt"] == "" || trace["responseStartedAt"] == "" || trace["completedAt"] == "" {
-		t.Fatalf("expected timing fields: %#v", trace)
-	}
+	assertTraceTimePair(t, trace, "sentAt", "sentTime")
+	assertTraceTimePair(t, trace, "responseStartedAt", "responseStartedTime")
+	assertTraceTimePair(t, trace, "completedAt", "completedTime")
 	request := trace["request"].(map[string]any)
 	if request["model"] != "mock-model-id" {
 		t.Fatalf("unexpected request body: %#v", request)
@@ -257,9 +258,7 @@ func TestLLMChatTraceWritesInterruptInfo(t *testing.T) {
 	if interrupt["detail"] != "interrupt requested by HTTP API" || interrupt["requestId"] != "request_1" || interrupt["chatId"] != "chat_1" {
 		t.Fatalf("unexpected interrupt metadata: %#v", interrupt)
 	}
-	if interrupt["interruptedAt"] == "" {
-		t.Fatalf("expected interruptedAt: %#v", interrupt)
-	}
+	assertTraceTimePair(t, interrupt, "interruptedAt", "interruptedTime")
 }
 
 func TestLLMChatTraceWritesProviderError(t *testing.T) {
@@ -480,6 +479,21 @@ func readTraceFile(t *testing.T, recordDir string, seq int) map[string]any {
 
 func traceFilePath(recordDir string, chatID string, seq int) string {
 	return filepath.Join(recordDir, traceRelativeFile(chatID, "run_trace", seq))
+}
+
+func assertTraceTimePair(t *testing.T, payload map[string]any, atKey string, timeKey string) {
+	t.Helper()
+	at, ok := payload[atKey].(float64)
+	if !ok || at <= 0 {
+		t.Fatalf("expected %s epoch millis, got %#v in %#v", atKey, payload[atKey], payload)
+	}
+	readable, ok := payload[timeKey].(string)
+	if !ok || strings.TrimSpace(readable) == "" {
+		t.Fatalf("expected %s readable time, got %#v in %#v", timeKey, payload[timeKey], payload)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, readable); err != nil {
+		t.Fatalf("expected %s to parse as RFC3339Nano, got %q: %v", timeKey, readable, err)
+	}
 }
 
 func serverHTTPClient() *http.Client {

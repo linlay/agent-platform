@@ -1,5 +1,10 @@
 # KBASE-specific runtime settings.
 
+default-agent:
+  # Default modelKey written when creating a new KBASE agent without an
+  # explicit modelConfig.modelKey.
+  modelKey:
+
 refresh:
   debounce: 2s
   reconcile-interval: 10m

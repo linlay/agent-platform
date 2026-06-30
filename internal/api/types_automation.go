@@ -25,6 +25,7 @@ type AutomationSummaryResponse struct {
 	ZoneID        string                    `json:"zoneId,omitempty"`
 	SourceFile    string                    `json:"sourceFile,omitempty"`
 	RemainingRuns *int                      `json:"remainingRuns,omitempty"`
+	NextFireAt    *int64                    `json:"nextFireAt,omitempty"`
 	NextFireTime  *string                   `json:"nextFireTime,omitempty"`
 	LastExecution *AutomationExecutionBrief `json:"lastExecution,omitempty"`
 }
