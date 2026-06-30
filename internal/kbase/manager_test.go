@@ -230,6 +230,43 @@ func TestOpenReadStoreAndManagerReadDoNotCreateMissingDB(t *testing.T) {
 	}
 }
 
+func TestManagerResolveUsesKBaseEmbeddingDefaults(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "docs")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	modelRegistry := newKBaseTestModelRegistry(t, root, testEmbeddingHandler(t, nil))
+	def := testKBaseAgent("docs", workspace, "runtime")
+	def.KBaseConfig.Embedding = catalog.AgentKBaseEmbeddingConfig{}
+	cfg := config.Config{
+		KBase: config.KBaseConfig{
+			Embedding: config.KBaseEmbeddingConfig{
+				ProviderKey: "mock",
+				Model:       "settings-embedding",
+				Dimension:   1024,
+				Timeout:     60,
+			},
+		},
+	}
+	cfg.Paths.KBaseDir = filepath.Join(root, "kbase")
+	manager := NewManager(cfg, stubRegistry{agents: map[string]catalog.AgentDefinition{"docs": def}}, modelRegistry)
+
+	resolved, embedder, err := manager.resolve("docs")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if resolved.Embedding.ProviderKey != "mock" ||
+		resolved.Embedding.Model != "settings-embedding" ||
+		resolved.Embedding.Dimension != 1024 ||
+		resolved.Embedding.Timeout != 60 {
+		t.Fatalf("unexpected resolved embedding defaults: %#v", resolved.Embedding)
+	}
+	if embedder == nil || embedder.Model != "settings-embedding" || embedder.Dimension != 1024 || embedder.Timeout != 60 {
+		t.Fatalf("unexpected embedder defaults: %#v", embedder)
+	}
+}
+
 func TestStoreOpenModesConfigureSQLitePragmas(t *testing.T) {
 	root := t.TempDir()
 	store, err := OpenStore(root)
