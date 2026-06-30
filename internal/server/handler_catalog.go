@@ -192,7 +192,7 @@ func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (a
 	}
 	key := strings.TrimSpace(req.Key)
 	definition := s.applyCoderDefaultAgentConfig(req.Definition)
-	key, definition = s.normalizeCoderCreation(key, definition)
+	key, definition = s.normalizeGeneratedModeCreation(key, definition)
 	if _, err := editor.CreateEditableAgent(key, definition, req.SoulPrompt, req.AgentsPrompt); err != nil {
 		return api.AgentDetailResponse{}, mapAgentEditError(err)
 	}
@@ -240,15 +240,21 @@ func (s *Server) applyCoderDefaultAgentConfig(definition map[string]any) map[str
 	return out
 }
 
-func (s *Server) normalizeCoderCreation(key string, definition map[string]any) (string, map[string]any) {
+func (s *Server) normalizeGeneratedModeCreation(key string, definition map[string]any) (string, map[string]any) {
 	if definition == nil {
 		return key, definition
 	}
 	mode := catalog.NormalizeAgentModeForRuntime(stringValue(definition["mode"]))
-	if mode != catalog.AgentModeCoder {
+	prefix := ""
+	switch mode {
+	case catalog.AgentModeCoder:
+		prefix = "coder"
+	case catalog.AgentModeKBase:
+		prefix = "kbase"
+	default:
 		return key, definition
 	}
-	newKey := "coder-" + strconv.FormatInt(time.Now().Unix(), 36)
+	newKey := prefix + "-" + strconv.FormatInt(time.Now().Unix(), 36)
 	out := contracts.CloneMap(definition)
 	out["key"] = newKey
 

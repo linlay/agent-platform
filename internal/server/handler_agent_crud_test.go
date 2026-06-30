@@ -150,6 +150,53 @@ func TestAgentPlanExecuteCRUDUsesAPIModeContract(t *testing.T) {
 	}
 }
 
+func TestAgentCreateKBaseGeneratesKeyAndName(t *testing.T) {
+	fixture := newTestFixture(t)
+	workspaceDir := filepath.Join(t.TempDir(), "knowledge-base-alpha")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("create workspace dir: %v", err)
+	}
+
+	beforeCreate := time.Now().Unix()
+	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
+		"definition": map[string]any{
+			"mode": "KBASE",
+			"runtimeConfig": map[string]any{
+				"workspaceRoot": workspaceDir,
+			},
+		},
+	})
+	afterCreate := time.Now().Unix()
+	if !strings.HasPrefix(created.Key, "kbase-") || created.Mode != "KBASE" {
+		t.Fatalf("unexpected kbase create response %#v", created)
+	}
+	generatedAt, err := strconv.ParseInt(strings.TrimPrefix(created.Key, "kbase-"), 36, 64)
+	if err != nil {
+		t.Fatalf("kbase key suffix should be base36 seconds, key=%q err=%v", created.Key, err)
+	}
+	if generatedAt < beforeCreate || generatedAt > afterCreate {
+		t.Fatalf("kbase key suffix = %d, want between %d and %d for key %q", generatedAt, beforeCreate, afterCreate, created.Key)
+	}
+	if created.Definition["key"] != created.Key {
+		t.Fatalf("expected generated kbase key to be persisted, key=%q definition=%#v", created.Key, created.Definition["key"])
+	}
+	name, nameOk := created.Definition["name"].(string)
+	if !nameOk || name != filepath.Base(workspaceDir) {
+		t.Fatalf("kbase definition name = %#v, want %q", created.Definition["name"], filepath.Base(workspaceDir))
+	}
+	if created.Source == nil {
+		t.Fatalf("expected created source")
+	}
+	data, err := os.ReadFile(created.Source.Path)
+	if err != nil {
+		t.Fatalf("read created agent file: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) < 3 || lines[0] != "key: "+created.Key || lines[1] != "name: knowledge-base-alpha" || lines[2] != "mode: KBASE" {
+		t.Fatalf("unexpected YAML header order:\n%s", data)
+	}
+}
+
 func TestAgentCreateCoderAndOpenWorkspace(t *testing.T) {
 	fixture := newTestFixture(t)
 	workspaceDir := filepath.Join(t.TempDir(), "project-alpha")
