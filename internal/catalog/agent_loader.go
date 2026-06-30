@@ -570,6 +570,9 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	if err := ValidateAgentCoderBackend(def); err != nil {
 		return AgentDefinition{}, nil, err
 	}
+	if err := ValidateAgentModelConfig(def); err != nil {
+		return AgentDefinition{}, nil, err
+	}
 	if err := ValidateAgentKBaseConfig(def); err != nil {
 		return AgentDefinition{}, nil, err
 	}

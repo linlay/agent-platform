@@ -1,8 +1,11 @@
 package llm
 
 import (
+	"context"
+	"strings"
 	"testing"
 
+	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 )
@@ -26,5 +29,14 @@ func TestResolveMaxStepsUsesBudgetAndDefaults(t *testing.T) {
 	}
 	if got := engine.resolveMaxSteps(contracts.QuerySession{}, "react"); got != 100 {
 		t.Fatalf("resolveMaxSteps() = %d, want budget default 100", got)
+	}
+}
+
+func TestNewRunStreamRequiresExplicitModelKey(t *testing.T) {
+	engine := &LLMAgentEngine{}
+
+	_, err := engine.newRunStreamWithOptions(context.Background(), api.QueryRequest{}, contracts.QuerySession{}, true, runStreamOptions{Stage: "react"})
+	if err == nil || !strings.Contains(err.Error(), "modelConfig.modelKey is required") {
+		t.Fatalf("expected explicit model key error, got %v", err)
 	}
 }

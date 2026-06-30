@@ -74,6 +74,9 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	if strings.TrimSpace(options.ModelKey) != "" {
 		modelKey = strings.TrimSpace(options.ModelKey)
 	}
+	if strings.TrimSpace(modelKey) == "" {
+		return nil, errors.New("modelConfig.modelKey is required")
+	}
 	model, provider, err := e.models.Get(modelKey)
 	if err != nil {
 		return nil, err
