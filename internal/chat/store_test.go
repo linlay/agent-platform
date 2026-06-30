@@ -3365,6 +3365,13 @@ func TestStepWriterPersistsSyntheticQueryAfterInitialQuery(t *testing.T) {
 				"role":    "user",
 				"content": "Execute the confirmed CODER plan.\n\nConfirmed plan:\n# Plan",
 			}},
+			"systems": []any{map[string]any{
+				"cacheKey":      "coder:execute",
+				"fingerprint":   "sha256:execute",
+				"systemMessage": map[string]any{"role": "system", "content": "execute system"},
+				"tools":         []any{},
+				"model":         map[string]any{"key": "mock-model"},
+			}},
 		},
 	})
 
@@ -3387,8 +3394,16 @@ func TestStepWriterPersistsSyntheticQueryAfterInitialQuery(t *testing.T) {
 	if _, ok := query["messages"]; ok {
 		t.Fatalf("did not expect messages inside query payload, got %#v", query)
 	}
-	if _, ok := synthetic["systems"]; ok {
-		t.Fatalf("did not expect systems on synthetic query, got %#v", synthetic)
+	if _, ok := query["systems"]; ok {
+		t.Fatalf("did not expect systems inside query payload, got %#v", query)
+	}
+	rawSystems, _ := synthetic["systems"].([]any)
+	if len(rawSystems) != 1 {
+		t.Fatalf("expected top-level synthetic query systems, got %#v", synthetic)
+	}
+	system, _ := rawSystems[0].(map[string]any)
+	if system["cacheKey"] != "coder:execute" || system["fingerprint"] != "sha256:execute" {
+		t.Fatalf("unexpected synthetic query system %#v", system)
 	}
 	rawMessages, _ := synthetic["messages"].([]any)
 	if len(rawMessages) != 1 {

@@ -668,6 +668,7 @@ func (s *coderPlanningStream) startExecutionStage() error {
 		planningMarkdown = s.execCtx.PlanningState.Markdown
 	}
 	executePrompt := "Execute the confirmed CODER plan.\n\nOriginal request:\n" + s.req.Message + "\n\nConfirmed plan:\n" + planningMarkdown
+	executeProfiles := s.executeSystemInitProfiles()
 	s.pending = append(s.pending,
 		DeltaStageMarker{Stage: "coder-execute"},
 		DeltaSyntheticQuery{
@@ -680,6 +681,7 @@ func (s *coderPlanningStream) startExecutionStage() error {
 				"role":    "user",
 				"content": executePrompt,
 			}},
+			Systems: systemInitProfilePayloads(executeProfiles),
 		},
 	)
 	messages := make([]openAIMessage, 0, len(s.executeMessages)+2)
@@ -691,6 +693,7 @@ func (s *coderPlanningStream) startExecutionStage() error {
 	req := s.req
 	req.Message = executePrompt
 	stageSession := s.sessionForStage(s.settings.Execute, s.executeStageTools())
+	stageSession.SystemInitCache = mergeSystemInitProfileCache(stageSession.SystemInitCache, executeProfiles)
 	stageSession.CurrentMessages = []map[string]any{{
 		"role":    "user",
 		"content": executePrompt,
@@ -707,6 +710,72 @@ func (s *coderPlanningStream) startExecutionStage() error {
 	}
 	s.current = stream
 	return nil
+}
+
+func (s *coderPlanningStream) executeSystemInitProfiles() []SystemInitProfile {
+	if s == nil || s.engine == nil || s.engine.tools == nil {
+		return nil
+	}
+	session := s.session
+	session.ResolvedStageSettings = s.settings
+	toolDefs := s.engine.tools.Definitions()
+	profile := buildCoderPlanningExecuteSystemInitProfile(session, s.req, s.settings, toolDefs)
+	(SystemInitProfileBuilder{Models: s.engine.models}).applyRequestProfile(&profile, session, s.req)
+	profiles := []SystemInitProfile{profile}
+	executeTools := coderPlanningExecuteTools(s.settings.Execute, session.ToolNames)
+	effectiveDefs := effectiveToolDefinitions(toolDefs, executeTools, session.AgentHasRuntimeSandbox)
+	if finalProfile, ok := BuildFinalSystemInitProfile(profile, session.PromptAppend, effectiveDefs); ok {
+		(SystemInitProfileBuilder{Models: s.engine.models}).applyRequestProfile(&finalProfile, session, s.req)
+		profiles = append(profiles, finalProfile)
+	}
+	return profiles
+}
+
+func systemInitProfilePayloads(profiles []SystemInitProfile) []map[string]any {
+	if len(profiles) == 0 {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(profiles))
+	for _, profile := range profiles {
+		out = append(out, systemInitProfilePayload(profile))
+	}
+	return out
+}
+
+func systemInitProfilePayload(profile SystemInitProfile) map[string]any {
+	return map[string]any{
+		"cacheKey":       profile.CacheKey,
+		"fingerprint":    profile.Fingerprint,
+		"systemMessage":  cloneAnyMapViaJSON(profile.SystemMessage),
+		"tools":          cloneAnySlice(profile.Tools),
+		"model":          cloneAnyMapViaJSON(profile.Model),
+		"toolChoice":     profile.ToolChoice,
+		"requestOptions": cloneAnyMapViaJSON(profile.RequestOptions),
+	}
+}
+
+func mergeSystemInitProfileCache(base map[string]SystemInitSnapshot, profiles []SystemInitProfile) map[string]SystemInitSnapshot {
+	if len(profiles) == 0 {
+		return base
+	}
+	out := make(map[string]SystemInitSnapshot, len(base)+len(profiles))
+	for key, snapshot := range base {
+		out[key] = snapshot
+	}
+	for _, profile := range profiles {
+		if strings.TrimSpace(profile.CacheKey) == "" {
+			continue
+		}
+		out[profile.CacheKey] = SystemInitSnapshot{
+			Fingerprint:    profile.Fingerprint,
+			SystemMessage:  cloneAnyMapViaJSON(profile.SystemMessage),
+			Tools:          cloneAnySlice(profile.Tools),
+			Model:          cloneAnyMapViaJSON(profile.Model),
+			ToolChoice:     profile.ToolChoice,
+			RequestOptions: cloneAnyMapViaJSON(profile.RequestOptions),
+		}
+	}
+	return out
 }
 
 func (s *coderPlanningStream) advanceTaskExecution() error {

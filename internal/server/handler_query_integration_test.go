@@ -2262,8 +2262,20 @@ func assertJSONLCoderExecuteSyntheticQuery(t *testing.T, store chat.Store, chatI
 		if _, ok := query["messages"]; ok {
 			t.Fatalf("did not expect messages inside synthetic query payload %#v", query)
 		}
-		if _, ok := queryLine["systems"]; ok {
-			t.Fatalf("did not expect systems on synthetic query %#v", queryLine)
+		if _, ok := query["systems"]; ok {
+			t.Fatalf("did not expect systems inside synthetic query payload %#v", query)
+		}
+		rawSystems, _ := queryLine["systems"].([]any)
+		if len(rawSystems) != 2 {
+			t.Fatalf("expected execute and final systems on synthetic query, got %#v", queryLine)
+		}
+		systemKeys := map[string]bool{}
+		for _, rawSystem := range rawSystems {
+			system, _ := rawSystem.(map[string]any)
+			systemKeys[stringValue(system["cacheKey"])] = true
+		}
+		if !systemKeys["coder:execute"] || !systemKeys["coder:execute:final"] {
+			t.Fatalf("expected coder execute system keys, got %#v in %#v", systemKeys, queryLine)
 		}
 		rawMessages, _ := queryLine["messages"].([]any)
 		if len(rawMessages) != 1 {
@@ -2283,11 +2295,12 @@ func assertJSONLCoderExecuteSyntheticQuery(t *testing.T, store chat.Store, chatI
 		if _, ok := executeLine["inputMessages"]; ok {
 			t.Fatalf("did not expect duplicate execute inputMessages on first execute react %#v", executeLine)
 		}
-		if _, ok := executeLine["systemRef"].(map[string]any); !ok {
-			t.Fatalf("expected execute react to keep systemRef, got %#v", executeLine)
+		systemRef, _ := executeLine["systemRef"].(map[string]any)
+		if systemRef["cacheKey"] != "coder:execute" {
+			t.Fatalf("expected execute react to keep coder:execute systemRef, got %#v", executeLine)
 		}
-		if systems, _ := executeLine["systems"].([]any); len(systems) == 0 {
-			t.Fatalf("expected execute react to keep systems, got %#v", executeLine)
+		if _, ok := executeLine["systems"]; ok {
+			t.Fatalf("did not expect execute react systems, got %#v", executeLine)
 		}
 		if got := strings.Count(content, "Execute the confirmed CODER plan.\\n\\nOriginal request:"); got != 1 {
 			t.Fatalf("expected execute prompt persisted once, got %d in:\n%s", got, content)

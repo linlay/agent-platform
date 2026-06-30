@@ -72,18 +72,8 @@ func (s *llmRunStream) effectiveReasoningEffort() string {
 }
 
 func (s *llmRunStream) currentSystemRef() map[string]any {
-	if s == nil {
-		return nil
-	}
-	if !s.systemInitCacheUsed {
-		return nil
-	}
-	cacheKey := strings.TrimSpace(s.systemInitCacheKey)
-	if cacheKey == "" {
-		cacheKey = SystemInitCacheKey(s.session.Mode, s.promptBuildOptions.Stage)
-	}
-	snapshot, ok := s.session.SystemInitCache[cacheKey]
-	if !ok || strings.TrimSpace(snapshot.Fingerprint) == "" {
+	cacheKey, snapshot, ok := s.currentSystemSnapshot()
+	if !ok {
 		return nil
 	}
 	if !s.currentSystemMatchesSnapshot(snapshot) {
@@ -95,12 +85,71 @@ func (s *llmRunStream) currentSystemRef() map[string]any {
 	}
 }
 
+func (s *llmRunStream) currentSystemRefForCall(prepared preparedProviderRequest, effectiveToolChoice string) map[string]any {
+	cacheKey, snapshot, ok := s.currentSystemSnapshot()
+	if !ok {
+		return nil
+	}
+	if !s.currentSystemMatchesCallSnapshot(snapshot, prepared, effectiveToolChoice) {
+		return nil
+	}
+	return map[string]any{
+		"cacheKey":    cacheKey,
+		"fingerprint": snapshot.Fingerprint,
+	}
+}
+
+func (s *llmRunStream) currentSystemSnapshot() (string, SystemInitSnapshot, bool) {
+	if s == nil {
+		return "", SystemInitSnapshot{}, false
+	}
+	if !s.systemInitCacheUsed {
+		return "", SystemInitSnapshot{}, false
+	}
+	cacheKey := strings.TrimSpace(s.systemInitCacheKey)
+	if cacheKey == "" {
+		cacheKey = SystemInitCacheKey(s.session.Mode, s.promptBuildOptions.Stage)
+	}
+	snapshot, ok := s.session.SystemInitCache[cacheKey]
+	if !ok || strings.TrimSpace(snapshot.Fingerprint) == "" {
+		return "", SystemInitSnapshot{}, false
+	}
+	return cacheKey, snapshot, true
+}
+
 func (s *llmRunStream) currentSystemMatchesSnapshot(snapshot SystemInitSnapshot) bool {
 	currentSystem := firstSystemMessageSnapshot(s.messages)
 	if !jsonValuesEqual(currentSystem, snapshot.SystemMessage) {
 		return false
 	}
-	return jsonValuesEqual(openAIToolSpecsToAny(s.toolSpecs), snapshot.Tools)
+	return systemToolsEqual(openAIToolSpecsToAny(s.toolSpecs), snapshot.Tools)
+}
+
+func (s *llmRunStream) currentSystemMatchesCallSnapshot(snapshot SystemInitSnapshot, prepared preparedProviderRequest, effectiveToolChoice string) bool {
+	if !s.currentSystemMatchesSnapshot(snapshot) {
+		return false
+	}
+	if !jsonMapsEqual(s.currentModelSnapshot(prepared), snapshot.Model) {
+		return false
+	}
+	if strings.TrimSpace(effectiveToolChoice) != strings.TrimSpace(snapshot.ToolChoice) {
+		return false
+	}
+	return jsonMapsEqual(requestOptionsFromPreparedBody(prepared.RequestBody), snapshot.RequestOptions)
+}
+
+func systemToolsEqual(left []any, right []any) bool {
+	if len(left) == 0 && len(right) == 0 {
+		return true
+	}
+	return jsonValuesEqual(left, right)
+}
+
+func jsonMapsEqual(left map[string]any, right map[string]any) bool {
+	if len(left) == 0 && len(right) == 0 {
+		return true
+	}
+	return jsonValuesEqual(left, right)
 }
 
 func jsonValuesEqual(left any, right any) bool {

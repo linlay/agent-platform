@@ -487,7 +487,7 @@ func clientVisibleEventData(data stream.EventData) stream.EventData {
 	}
 	payload := make(map[string]any, len(data.Payload))
 	for key, value := range data.Payload {
-		if key == "messages" {
+		if key == "messages" || key == "systems" {
 			continue
 		}
 		payload[key] = value
@@ -665,6 +665,14 @@ func handleAwaitingLifecycle(params RunExecutorParams, data stream.EventData, tr
 		if params.Chats != nil {
 			_ = params.Chats.SetPendingAwaiting(params.Session.ChatID, pending)
 		}
+		if params.RunControl != nil {
+			params.RunControl.ExpectSubmit(contracts.AwaitingSubmitContext{
+				AwaitingID: awaitingID,
+				Mode:       mode,
+				ItemCount:  awaitingEventItemCount(data),
+				Timeout:    int64(contracts.AnyIntNode(data.Value("timeout"))),
+			})
+		}
 		tracker.pendingAwaitingID = awaitingID
 		tracker.pendingMode = mode
 		if params.Notifications != nil {
@@ -721,6 +729,35 @@ func handleAwaitingLifecycle(params RunExecutorParams, data stream.EventData, tr
 		if params.Notifications != nil {
 			params.Notifications.Broadcast("awaiting.answered", payload)
 		}
+	}
+}
+
+func awaitingEventItemCount(data stream.EventData) int {
+	switch strings.ToLower(strings.TrimSpace(data.String("mode"))) {
+	case "question":
+		return awaitingPayloadItemCount(data.Value("questions"))
+	case "approval":
+		return awaitingPayloadItemCount(data.Value("approvals"))
+	case "form":
+		return awaitingPayloadItemCount(data.Value("forms"))
+	case "plan":
+		if lenAnyMap(data.Value("plan")) > 0 {
+			return 1
+		}
+		return 0
+	default:
+		return 0
+	}
+}
+
+func awaitingPayloadItemCount(value any) int {
+	switch typed := value.(type) {
+	case []any:
+		return len(typed)
+	case []map[string]any:
+		return len(typed)
+	default:
+		return 0
 	}
 }
 

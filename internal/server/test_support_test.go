@@ -53,11 +53,12 @@ func newServerFromFixture(t *testing.T, fixture testFixture) *Server {
 		Chats:           fixture.chats,
 		Memory:          fixture.memories,
 		Registry:        fixture.registry,
+		Models:          fixture.modelRegistry,
 		Runs:            fixture.runs,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
 		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
-		SystemInits:     llm.SystemInitProfileBuilder{},
+		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
 		Viewport:        fixture.viewport,
@@ -75,6 +76,7 @@ type testFixture struct {
 	chats           chat.Store
 	memories        memory.Store
 	registry        catalog.Registry
+	modelRegistry   *models.ModelRegistry
 	runs            contracts.RunManager
 	agent           contracts.AgentEngine
 	tools           contracts.ToolExecutor
@@ -360,7 +362,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		Agent:           agentEngine,
 		Tools:           toolExecutor,
 		DeltaMappers:    llm.DeltaMapperFactory{Frontend: frontendRegistry},
-		SystemInits:     llm.SystemInitProfileBuilder{},
+		SystemInits:     llm.SystemInitProfileBuilder{Models: modelRegistry},
 		Sandbox:         sandbox,
 		MCP:             mcp,
 		FrontendTools:   frontendRegistry,
@@ -378,6 +380,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		chats:           chats,
 		memories:        memories,
 		registry:        registry,
+		modelRegistry:   modelRegistry,
 		runs:            runs,
 		agent:           agentEngine,
 		tools:           toolExecutor,

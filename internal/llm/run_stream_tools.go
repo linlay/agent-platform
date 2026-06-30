@@ -184,6 +184,9 @@ func (s *llmRunStream) invocationMayAwaitBeforeResult(invocation *preparedToolIn
 	if invocation == nil {
 		return false
 	}
+	if strings.TrimSpace(invocation.approvalDecision) != "" {
+		return false
+	}
 	if s.isFrontendTool(invocation.toolName) {
 		return true
 	}

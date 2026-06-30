@@ -160,6 +160,9 @@ func (s *llmRunStream) prepareNextTurn() error {
 	}
 	runSeq := s.runLLMChatCompletionCount + 1
 	effectiveToolChoice := effectiveTraceToolChoice(s.toolChoice, s.toolSpecs)
+	if err := s.ensureSystemProfileRegistered(preparedRequest, effectiveToolChoice); err != nil {
+		return err
+	}
 	trace := s.newChatTrace(runSeq, preparedRequest, effectiveToolChoice)
 	s.pending = append(s.pending, s.buildLLMRequestDelta(preparedRequest, effectiveToolChoice))
 	s.resetLastCallUsage()
@@ -196,6 +199,19 @@ func (s *llmRunStream) prepareNextTurn() error {
 	s.lastTrace = trace
 	s.step++
 	return nil
+}
+
+func (s *llmRunStream) ensureSystemProfileRegistered(prepared preparedProviderRequest, effectiveToolChoice string) error {
+	if s == nil {
+		return nil
+	}
+	if len(firstSystemMessageSnapshot(s.messages)) == 0 && len(s.toolSpecs) == 0 {
+		return nil
+	}
+	if len(s.currentSystemRefForCall(prepared, effectiveToolChoice)) > 0 {
+		return nil
+	}
+	return fmt.Errorf("system profile not registered on query: runId=%s stage=%s cacheKey=%s", strings.TrimSpace(s.session.RunID), strings.TrimSpace(s.promptBuildOptions.Stage), s.currentSystemCacheKey())
 }
 
 func (s *llmRunStream) prepareFinalTurnWithoutTools() {

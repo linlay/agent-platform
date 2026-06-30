@@ -29,7 +29,8 @@ func TestLLMChatTraceWritesSimpleCompletion(t *testing.T) {
 	defer server.Close()
 
 	engine := newTraceTestEngine(t, recordDir, server.URL, nil)
-	stream, err := engine.newRunStream(context.Background(), api.QueryRequest{ChatID: "chat_1", Message: "Hi"}, traceTestSession(), false)
+	req := api.QueryRequest{ChatID: "chat_1", Message: "Hi"}
+	stream, err := engine.newRunStream(context.Background(), req, traceTestSessionWithSystemCache(t, engine, req), false)
 	if err != nil {
 		t.Fatalf("newRunStream: %v", err)
 	}
@@ -75,7 +76,8 @@ func TestRunStreamUsesSessionCurrentMessages(t *testing.T) {
 		"role":    "user",
 		"content": "canonical model-side message",
 	}}
-	stream, err := engine.newRunStream(context.Background(), api.QueryRequest{ChatID: "chat_1", Message: "raw user message"}, session, false)
+	req := api.QueryRequest{ChatID: "chat_1", Message: "raw user message"}
+	stream, err := engine.newRunStream(context.Background(), req, traceTestSessionWithSystemCache(t, engine, req, session), false)
 	if err != nil {
 		t.Fatalf("newRunStream: %v", err)
 	}
@@ -116,7 +118,8 @@ func TestLLMChatTraceWritesToolLoopFiles(t *testing.T) {
 		result: contracts.ToolExecutionResult{Output: "2026-05-26T00:00:00Z", ExitCode: 0},
 	}
 	engine := newTraceTestEngine(t, recordDir, server.URL, executor)
-	stream, err := engine.newRunStream(context.Background(), api.QueryRequest{ChatID: "chat_1", Message: "Use tool"}, traceTestSession(), true)
+	req := api.QueryRequest{ChatID: "chat_1", Message: "Use tool"}
+	stream, err := engine.newRunStream(context.Background(), req, traceTestSessionWithSystemCache(t, engine, req), true)
 	if err != nil {
 		t.Fatalf("newRunStream: %v", err)
 	}
@@ -184,7 +187,8 @@ func TestLLMChatTraceWritesReasoningContent(t *testing.T) {
 	defer server.Close()
 
 	engine := newTraceTestEngine(t, recordDir, server.URL, nil)
-	stream, err := engine.newRunStream(context.Background(), api.QueryRequest{ChatID: "chat_1", Message: "Hi"}, traceTestSession(), false)
+	req := api.QueryRequest{ChatID: "chat_1", Message: "Hi"}
+	stream, err := engine.newRunStream(context.Background(), req, traceTestSessionWithSystemCache(t, engine, req), false)
 	if err != nil {
 		t.Fatalf("newRunStream: %v", err)
 	}
@@ -212,7 +216,8 @@ func TestLLMChatTraceWritesInterruptInfo(t *testing.T) {
 	control := contracts.NewRunControl(context.Background(), "run_trace")
 	ctx := contracts.WithRunControl(context.Background(), control)
 	engine := newTraceTestEngine(t, recordDir, server.URL, nil)
-	stream, err := engine.newRunStream(ctx, api.QueryRequest{ChatID: "chat_1", Message: "Hi"}, traceTestSession(), false)
+	req := api.QueryRequest{ChatID: "chat_1", Message: "Hi"}
+	stream, err := engine.newRunStream(ctx, req, traceTestSessionWithSystemCache(t, engine, req), false)
 	if err != nil {
 		t.Fatalf("newRunStream: %v", err)
 	}
@@ -265,7 +270,8 @@ func TestLLMChatTraceWritesProviderError(t *testing.T) {
 	defer server.Close()
 
 	engine := newTraceTestEngine(t, recordDir, server.URL, nil)
-	_, err := engine.newRunStream(context.Background(), api.QueryRequest{ChatID: "chat_1", Message: "Hi"}, traceTestSession(), false)
+	req := api.QueryRequest{ChatID: "chat_1", Message: "Hi"}
+	_, err := engine.newRunStream(context.Background(), req, traceTestSessionWithSystemCache(t, engine, req), false)
 	if err == nil {
 		t.Fatal("expected provider error")
 	}
@@ -285,7 +291,8 @@ func TestLLMChatTraceDisabledWritesNoFiles(t *testing.T) {
 
 	engine := newTraceTestEngine(t, recordDir, server.URL, nil)
 	engine.cfg.Logging.LLMInteraction.RecordEnabled = false
-	stream, err := engine.newRunStream(context.Background(), api.QueryRequest{ChatID: "chat_1", Message: "Hi"}, traceTestSession(), false)
+	req := api.QueryRequest{ChatID: "chat_1", Message: "Hi"}
+	stream, err := engine.newRunStream(context.Background(), req, traceTestSessionWithSystemCache(t, engine, req), false)
 	if err != nil {
 		t.Fatalf("newRunStream: %v", err)
 	}
@@ -309,7 +316,8 @@ func TestLLMChatTraceMaskSensitivePreservesMetadata(t *testing.T) {
 
 	engine := newTraceTestEngine(t, recordDir, server.URL, nil)
 	engine.cfg.Logging.LLMInteraction.MaskSensitive = true
-	stream, err := engine.newRunStream(context.Background(), api.QueryRequest{ChatID: "chat_1", Message: "sk-test-secret"}, traceTestSession(), false)
+	req := api.QueryRequest{ChatID: "chat_1", Message: "sk-test-secret"}
+	stream, err := engine.newRunStream(context.Background(), req, traceTestSessionWithSystemCache(t, engine, req), false)
 	if err != nil {
 		t.Fatalf("newRunStream: %v", err)
 	}
@@ -405,6 +413,66 @@ func traceTestSession() contracts.QuerySession {
 			Tool:  contracts.RetryPolicy{MaxCalls: 10},
 		},
 	}
+}
+
+func traceTestSessionWithSystemCache(t *testing.T, engine *LLMAgentEngine, req api.QueryRequest, sessions ...contracts.QuerySession) contracts.QuerySession {
+	t.Helper()
+	session := traceTestSession()
+	if len(sessions) > 0 {
+		session = sessions[0]
+	}
+	if engine == nil || engine.tools == nil {
+		return session
+	}
+	profiles := (SystemInitProfileBuilder{Models: engine.models}).BuildSystemInitProfiles(
+		session,
+		req,
+		engine.tools.Definitions(),
+		engine.cfg.Defaults.Plan.MaxSteps,
+		engine.cfg.Defaults.Plan.MaxWorkRoundsPerTask,
+		engine.cfg.Prompts,
+	)
+	cache := make(map[string]contracts.SystemInitSnapshot, len(profiles)*2)
+	for _, profile := range profiles {
+		cache[profile.CacheKey] = traceSystemInitSnapshot(profile)
+		if finalProfile, ok := BuildFinalSystemInitProfile(profile, session.PromptAppend, traceToolDefsFromProfile(profile)); ok {
+			(SystemInitProfileBuilder{Models: engine.models}).applyRequestProfile(&finalProfile, session, req)
+			cache[finalProfile.CacheKey] = traceSystemInitSnapshot(finalProfile)
+		}
+	}
+	session.SystemInitCache = cache
+	return session
+}
+
+func traceSystemInitSnapshot(profile contracts.SystemInitProfile) contracts.SystemInitSnapshot {
+	return contracts.SystemInitSnapshot{
+		Fingerprint:    profile.Fingerprint,
+		SystemMessage:  cloneAnyMapViaJSON(profile.SystemMessage),
+		Tools:          cloneAnySlice(profile.Tools),
+		Model:          cloneAnyMapViaJSON(profile.Model),
+		ToolChoice:     profile.ToolChoice,
+		RequestOptions: cloneAnyMapViaJSON(profile.RequestOptions),
+	}
+}
+
+func traceToolDefsFromProfile(profile contracts.SystemInitProfile) []api.ToolDetailResponse {
+	out := make([]api.ToolDetailResponse, 0, len(profile.Tools))
+	for _, raw := range profile.Tools {
+		tool, _ := raw.(map[string]any)
+		fn, _ := tool["function"].(map[string]any)
+		name, _ := fn["name"].(string)
+		if strings.TrimSpace(name) == "" {
+			continue
+		}
+		description, _ := fn["description"].(string)
+		parameters, _ := fn["parameters"].(map[string]any)
+		out = append(out, api.ToolDetailResponse{
+			Name:        strings.TrimSpace(name),
+			Description: description,
+			Parameters:  cloneAnyMapViaJSON(parameters),
+		})
+	}
+	return out
 }
 
 func drainTraceTestStream(t *testing.T, stream contracts.AgentStream) {

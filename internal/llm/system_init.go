@@ -77,6 +77,39 @@ func FinalSystemInitCacheKey(cacheKey string) string {
 	return cacheKey + ":final"
 }
 
+func BuildFinalSystemInitProfile(profile contracts.SystemInitProfile, appendConfig contracts.PromptAppendConfig, toolDefs []api.ToolDetailResponse) (contracts.SystemInitProfile, bool) {
+	if len(profile.Tools) == 0 {
+		return contracts.SystemInitProfile{}, false
+	}
+	systemMessage := cloneAnyMapViaJSON(profile.SystemMessage)
+	content, _ := systemMessage["content"].(string)
+	if stripped, ok := stripToolAppendixFromSystemPrompt(content, appendConfig, toolDefs, true); ok {
+		systemMessage["content"] = stripped
+	}
+	finalProfile := contracts.SystemInitProfile{
+		CacheKey:       FinalSystemInitCacheKey(profile.CacheKey),
+		Mode:           profile.Mode,
+		Stage:          profile.Stage,
+		SystemMessage:  systemMessage,
+		Tools:          []any{},
+		Model:          cloneAnyMapViaJSON(profile.Model),
+		RequestOptions: cloneAnyMapViaJSON(profile.RequestOptions),
+	}
+	fingerprintPayload := map[string]any{
+		"cacheKey":      finalProfile.CacheKey,
+		"systemMessage": finalProfile.SystemMessage,
+		"tools":         finalProfile.Tools,
+	}
+	if len(finalProfile.Model) > 0 {
+		fingerprintPayload["model"] = finalProfile.Model
+	}
+	if len(finalProfile.RequestOptions) > 0 {
+		fingerprintPayload["requestOptions"] = finalProfile.RequestOptions
+	}
+	finalProfile.Fingerprint = fingerprintLLMCallProfile(fingerprintPayload)
+	return finalProfile, true
+}
+
 func (b SystemInitProfileBuilder) applyRequestProfile(profile *contracts.SystemInitProfile, session contracts.QuerySession, req api.QueryRequest) {
 	if b.Models == nil || profile == nil {
 		return

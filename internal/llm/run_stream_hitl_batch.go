@@ -101,6 +101,9 @@ func (s *llmRunStream) queuedApprovalCandidate(invocation *preparedToolInvocatio
 	if invocation == nil {
 		return queuedBashApprovalCandidate{}, false
 	}
+	if strings.TrimSpace(invocation.approvalDecision) != "" {
+		return queuedBashApprovalCandidate{}, false
+	}
 	if request, ok := s.approvalRequestForInvocation(invocation); ok {
 		if !approvalRequestCanJoinBatch(request) {
 			return queuedBashApprovalCandidate{}, false

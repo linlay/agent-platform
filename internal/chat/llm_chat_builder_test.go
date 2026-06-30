@@ -546,7 +546,7 @@ The tool results above already reflect these decisions; do not re-prompt for app
 	}
 }
 
-func TestStepWriterPersistsActualInlineProfileAsStepSystems(t *testing.T) {
+func TestStepWriterDoesNotPersistInlineProfileAsStepSystems(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
@@ -594,32 +594,14 @@ func TestStepWriterPersistsActualInlineProfileAsStepSystems(t *testing.T) {
 		t.Fatalf("read jsonl: %v", err)
 	}
 	step := lines[1]
-	systems, _ := step["systems"].([]any)
-	if len(systems) != 1 {
-		t.Fatalf("expected step systems profile, got %#v", step)
+	if _, ok := step["systems"]; ok {
+		t.Fatalf("did not expect step-level systems, got %#v", step)
 	}
-	ref, _ := step["systemRef"].(map[string]any)
-	if ref["cacheKey"] != "react:main:final" || ref["fingerprint"] != "sha256:final" {
-		t.Fatalf("expected step systemRef to point at step systems, got %#v", step)
+	if _, ok := step["systemRef"]; ok {
+		t.Fatalf("did not expect inline system to synthesize systemRef, got %#v", step)
 	}
 	if _, ok := step["system"]; ok {
 		t.Fatalf("did not expect legacy inline system, got %#v", step)
-	}
-
-	chat, err := store.BuildLLMChatFromJSONL(chatID, LLMChatBuildOptions{RunID: "run-1", Seq: 1})
-	if err != nil {
-		t.Fatalf("build llm chat: %v", err)
-	}
-	if got := chat.Messages[0]["content"]; got != "final system" {
-		t.Fatalf("expected final system from step systems, got %#v", chat.Messages)
-	}
-	if got := chat.Messages[len(chat.Messages)-1]["content"]; got != "final input" {
-		t.Fatalf("expected input message, got %#v", chat.Messages)
-	}
-	for _, msg := range chat.Messages {
-		if msg["content"] == "final answer" {
-			t.Fatalf("target assistant response must not be part of request messages: %#v", chat.Messages)
-		}
 	}
 }
 

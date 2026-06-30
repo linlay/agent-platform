@@ -121,6 +121,19 @@ func (s stubToolExecutor) Invoke(_ context.Context, _ string, _ map[string]any, 
 	return contracts.ToolExecutionResult{}, nil
 }
 
+func TestRunStreamRequiresRegisteredSystemProfile(t *testing.T) {
+	stream := &llmRunStream{
+		session:            contracts.QuerySession{RunID: "run-1", Mode: "REACT"},
+		promptBuildOptions: PromptBuildOptions{Stage: "react"},
+		systemInitCacheKey: "react:main",
+		messages:           []openAIMessage{{Role: "system", Content: "system prompt"}},
+	}
+	err := stream.ensureSystemProfileRegistered(preparedProviderRequest{}, "")
+	if err == nil || !strings.Contains(err.Error(), "system profile not registered on query") || !strings.Contains(err.Error(), "cacheKey=react:main") {
+		t.Fatalf("expected missing system registration error, got %v", err)
+	}
+}
+
 type recordedToolInvocation struct {
 	name string
 	args map[string]any

@@ -58,6 +58,7 @@ type DeltaSyntheticQuery struct {
 	Stage    string
 	Source   string
 	Messages []map[string]any
+	Systems  []map[string]any
 }
 
 func (DeltaSyntheticQuery) agentDeltaTag() {}

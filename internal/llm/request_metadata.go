@@ -10,14 +10,15 @@ import (
 )
 
 func (s *llmRunStream) buildLLMRequestDelta(prepared preparedProviderRequest, effectiveToolChoice string) DeltaLLMRequest {
+	systemRef := s.currentSystemRefForCall(prepared, effectiveToolChoice)
 	return DeltaLLMRequest{
 		TaskID:          strings.TrimSpace(s.session.SubTaskID),
 		ChatID:          strings.TrimSpace(s.session.ChatID),
 		Model:           s.currentModelSnapshot(prepared),
 		ModelKey:        strings.TrimSpace(s.model.Key),
 		ReasoningEffort: s.effectiveReasoningEffort(),
-		System:          s.currentInlineSystemSnapshot(prepared, effectiveToolChoice),
-		SystemRef:       s.currentSystemRef(),
+		System:          s.currentInlineSystemSnapshot(prepared, effectiveToolChoice, systemRef),
+		SystemRef:       systemRef,
 		ToolChoice:      strings.TrimSpace(effectiveToolChoice),
 		RequestOptions:  requestOptionsFromPreparedBody(prepared.RequestBody),
 		InputMessages:   s.currentInputMessagesForJSONL(),
@@ -70,8 +71,8 @@ func requestOptionsFromPreparedBody(body map[string]any) map[string]any {
 	return cloneAnyMapViaJSON(out)
 }
 
-func (s *llmRunStream) currentInlineSystemSnapshot(prepared preparedProviderRequest, effectiveToolChoice string) map[string]any {
-	if len(s.currentSystemRef()) > 0 {
+func (s *llmRunStream) currentInlineSystemSnapshot(prepared preparedProviderRequest, effectiveToolChoice string, systemRef map[string]any) map[string]any {
+	if len(systemRef) > 0 {
 		return nil
 	}
 	systemMessage := firstSystemMessageSnapshot(s.messages)
