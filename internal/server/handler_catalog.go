@@ -254,8 +254,10 @@ func (s *Server) applyKBaseDefaultAgentConfig(definition map[string]any) map[str
 	if mode != catalog.AgentModeKBase {
 		return definition
 	}
-	modelKey := strings.TrimSpace(s.deps.Config.KBase.DefaultAgent.ModelKey)
-	if modelKey == "" {
+	defaults := s.deps.Config.KBase.DefaultAgent
+	modelKey := strings.TrimSpace(defaults.ModelKey)
+	reasoningEffort := strings.TrimSpace(defaults.ReasoningEffort)
+	if modelKey == "" && reasoningEffort == "" {
 		return definition
 	}
 
@@ -264,8 +266,20 @@ func (s *Server) applyKBaseDefaultAgentConfig(definition map[string]any) map[str
 	if modelConfig == nil {
 		modelConfig = map[string]any{}
 	}
-	if strings.TrimSpace(stringValue(modelConfig["modelKey"])) == "" {
+	if modelKey != "" && strings.TrimSpace(stringValue(modelConfig["modelKey"])) == "" {
 		modelConfig["modelKey"] = modelKey
+	}
+	if reasoningEffort != "" {
+		reasoning := contracts.CloneMap(contracts.AnyMapNode(modelConfig["reasoning"]))
+		if reasoning == nil {
+			reasoning = map[string]any{}
+		}
+		if strings.TrimSpace(stringValue(reasoning["effort"])) == "" {
+			reasoning["effort"] = reasoningEffort
+		}
+		if len(reasoning) > 0 {
+			modelConfig["reasoning"] = reasoning
+		}
 	}
 	if len(modelConfig) > 0 {
 		out["modelConfig"] = modelConfig

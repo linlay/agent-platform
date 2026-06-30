@@ -123,6 +123,7 @@ func (c *Config) applyKBaseValues(values map[string]any) {
 	defaultAgent, _ := values["default-agent"].(map[string]any)
 	if len(defaultAgent) > 0 {
 		c.KBase.DefaultAgent.ModelKey = stringValue(anyValue(defaultAgent["modelKey"], c.KBase.DefaultAgent.ModelKey), c.KBase.DefaultAgent.ModelKey)
+		c.KBase.DefaultAgent.ReasoningEffort = stringValue(anyValue(defaultAgent["reasoningEffort"], c.KBase.DefaultAgent.ReasoningEffort), c.KBase.DefaultAgent.ReasoningEffort)
 	}
 	refresh, _ := values["refresh"].(map[string]any)
 	if len(refresh) > 0 {

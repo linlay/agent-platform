@@ -212,7 +212,10 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 		"default-agent:\n",
 		"  # Default modelKey written when creating a new KBASE agent without an\n",
 		"  # explicit modelConfig.modelKey.\n",
-		"  modelKey:\n",
+		"  modelKey: deepseek-v4-pro\n",
+		"  # Default reasoning effort written when creating a new KBASE agent without\n",
+		"  # an explicit modelConfig.reasoning.effort.\n",
+		"  reasoningEffort: MEDIUM\n",
 		"refresh:\n",
 		"  debounce: 2s\n",
 		"  reconcile-interval: 10m\n",
@@ -1008,7 +1011,7 @@ func TestLoadKBaseSettingsMissingFileUsesDefaults(t *testing.T) {
 				if cfg.KBase.Refresh.Debounce.String() != "2s" || cfg.KBase.Refresh.ReconcileInterval.String() != "10m0s" {
 					t.Fatalf("unexpected kbase refresh defaults: %#v", cfg.KBase.Refresh)
 				}
-				if cfg.KBase.DefaultAgent.ModelKey != "" {
+				if cfg.KBase.DefaultAgent.ModelKey != "" || cfg.KBase.DefaultAgent.ReasoningEffort != "" {
 					t.Fatalf("expected empty kbase default agent config, got %#v", cfg.KBase.DefaultAgent)
 				}
 				if cfg.KBase.Extraction.Timeout.String() != "1m0s" ||
@@ -1030,6 +1033,7 @@ func TestLoadRuntimeKBaseCompatibility(t *testing.T) {
 			"kbase:\n" +
 			"  default-agent:\n" +
 			"    modelKey: runtime-kbase-model\n" +
+			"    reasoningEffort: LOW\n" +
 			"  refresh:\n" +
 			"    debounce: 4s\n" +
 			"    reconcile-interval: 12m\n" +
@@ -1051,7 +1055,7 @@ func TestLoadRuntimeKBaseCompatibility(t *testing.T) {
 				if cfg.KBase.Refresh.Debounce.String() != "4s" || cfg.KBase.Refresh.ReconcileInterval.String() != "12m0s" {
 					t.Fatalf("unexpected runtime kbase refresh config: %#v", cfg.KBase.Refresh)
 				}
-				if cfg.KBase.DefaultAgent.ModelKey != "runtime-kbase-model" {
+				if cfg.KBase.DefaultAgent.ModelKey != "runtime-kbase-model" || cfg.KBase.DefaultAgent.ReasoningEffort != "LOW" {
 					t.Fatalf("unexpected runtime kbase default agent config: %#v", cfg.KBase.DefaultAgent)
 				}
 				if cfg.KBase.Extraction.Timeout.String() != "44s" ||
@@ -1072,6 +1076,7 @@ func TestLoadKBaseSettingsOverridesRuntimeKBase(t *testing.T) {
 			"kbase:\n" +
 			"  default-agent:\n" +
 			"    modelKey: runtime-kbase-model\n" +
+			"    reasoningEffort: LOW\n" +
 			"  refresh:\n" +
 			"    debounce: 4s\n" +
 			"    reconcile-interval: 12m\n" +
@@ -1087,6 +1092,7 @@ func TestLoadKBaseSettingsOverridesRuntimeKBase(t *testing.T) {
 		kbaseSettings := "" +
 			"default-agent:\n" +
 			"  modelKey: settings-kbase-model\n" +
+			"  reasoningEffort: HIGH\n" +
 			"refresh:\n" +
 			"  debounce: 6s\n" +
 			"extraction:\n" +
@@ -1106,7 +1112,7 @@ func TestLoadKBaseSettingsOverridesRuntimeKBase(t *testing.T) {
 				if cfg.KBase.Refresh.Debounce.String() != "6s" || cfg.KBase.Refresh.ReconcileInterval.String() != "12m0s" {
 					t.Fatalf("unexpected kbase refresh precedence: %#v", cfg.KBase.Refresh)
 				}
-				if cfg.KBase.DefaultAgent.ModelKey != "settings-kbase-model" {
+				if cfg.KBase.DefaultAgent.ModelKey != "settings-kbase-model" || cfg.KBase.DefaultAgent.ReasoningEffort != "HIGH" {
 					t.Fatalf("unexpected kbase default agent precedence: %#v", cfg.KBase.DefaultAgent)
 				}
 				if cfg.KBase.Extraction.Timeout.String() != "1m6s" ||

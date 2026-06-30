@@ -237,7 +237,8 @@ func TestAgentCreateKBaseAppliesDefaultModelConfig(t *testing.T) {
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
 			cfg.KBase.DefaultAgent = config.KBaseDefaultAgentConfig{
-				ModelKey: "mock-model",
+				ModelKey:        "mock-model",
+				ReasoningEffort: "MEDIUM",
 			}
 		},
 	})
@@ -258,6 +259,10 @@ func TestAgentCreateKBaseAppliesDefaultModelConfig(t *testing.T) {
 	if modelConfig["modelKey"] != "mock-model" {
 		t.Fatalf("expected kbase default model config, got %#v", modelConfig)
 	}
+	reasoning, _ := modelConfig["reasoning"].(map[string]any)
+	if reasoning["effort"] != "MEDIUM" {
+		t.Fatalf("expected kbase default reasoning effort, got %#v", modelConfig)
+	}
 	if created.Meta["modelKey"] != "mock-model" {
 		t.Fatalf("expected created kbase model key mock-model, got %#v", created.Meta)
 	}
@@ -272,7 +277,8 @@ func TestAgentCreateKBasePreservesExplicitModelConfig(t *testing.T) {
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
 			cfg.KBase.DefaultAgent = config.KBaseDefaultAgentConfig{
-				ModelKey: "default-model",
+				ModelKey:        "default-model",
+				ReasoningEffort: "MEDIUM",
 			}
 		},
 	})
@@ -286,6 +292,9 @@ func TestAgentCreateKBasePreservesExplicitModelConfig(t *testing.T) {
 			"mode": "KBASE",
 			"modelConfig": map[string]any{
 				"modelKey": "mock-model",
+				"reasoning": map[string]any{
+					"effort": "HIGH",
+				},
 			},
 			"runtimeConfig": map[string]any{
 				"workspaceRoot": workspaceDir,
@@ -295,6 +304,10 @@ func TestAgentCreateKBasePreservesExplicitModelConfig(t *testing.T) {
 	modelConfig, _ := created.Definition["modelConfig"].(map[string]any)
 	if modelConfig["modelKey"] != "mock-model" {
 		t.Fatalf("expected explicit kbase model config to win, got %#v", modelConfig)
+	}
+	reasoning, _ := modelConfig["reasoning"].(map[string]any)
+	if reasoning["effort"] != "HIGH" {
+		t.Fatalf("expected explicit kbase reasoning effort to win, got %#v", modelConfig)
 	}
 }
 

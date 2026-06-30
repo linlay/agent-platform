@@ -155,7 +155,8 @@ type KBaseConfig struct {
 }
 
 type KBaseDefaultAgentConfig struct {
-	ModelKey string
+	ModelKey        string
+	ReasoningEffort string
 }
 
 type KBaseRefreshConfig struct {
