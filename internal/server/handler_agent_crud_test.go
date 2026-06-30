@@ -283,6 +283,15 @@ func TestAgentCreateKBaseAppliesDefaultModelConfig(t *testing.T) {
 	if _, ok := embedding["timeout"]; ok {
 		t.Fatalf("expected kbase default embedding timeout not to be persisted, got %#v", embedding)
 	}
+	icon, iconOk := created.Definition["icon"].(map[string]any)
+	if !iconOk || icon["name"] != "database" {
+		t.Fatalf("expected kbase default icon database, got %#v", created.Definition["icon"])
+	}
+	visibility, _ := created.Definition["visibility"].(map[string]any)
+	scopes, _ := visibility["scopes"].([]any)
+	if len(scopes) != 1 || scopes[0] != "nav" {
+		t.Fatalf("expected kbase default visibility [nav], got %#v", visibility["scopes"])
+	}
 }
 
 func TestAgentCreateKBasePreservesExplicitModelConfig(t *testing.T) {
@@ -345,8 +354,65 @@ func TestAgentCreateKBasePreservesExplicitModelConfig(t *testing.T) {
 	}
 }
 
+func TestAgentCreateKBaseReplacesIncompleteExplicitEmbeddingConfig(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{
+		configure: func(cfg *config.Config) {
+			cfg.KBase.DefaultAgent = config.KBaseDefaultAgentConfig{
+				ModelKey:        "mock-model",
+				ReasoningEffort: "MEDIUM",
+			}
+			cfg.KBase.Embedding = config.KBaseEmbeddingConfig{
+				ProviderKey: "default-embedding-provider",
+				Model:       "default-embedding-model",
+				Dimension:   1024,
+				Timeout:     60,
+			}
+		},
+	})
+	workspaceDir := filepath.Join(t.TempDir(), "knowledge-base-alpha")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("create workspace dir: %v", err)
+	}
+
+	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
+		"definition": map[string]any{
+			"mode": "KBASE",
+			"kbaseConfig": map[string]any{
+				"embedding": map[string]any{
+					"providerKey": "openai",
+				},
+			},
+			"runtimeConfig": map[string]any{
+				"workspaceRoot": workspaceDir,
+			},
+		},
+	})
+	kbaseConfig, _ := created.Definition["kbaseConfig"].(map[string]any)
+	embedding, _ := kbaseConfig["embedding"].(map[string]any)
+	if embedding["providerKey"] != "default-embedding-provider" || embedding["model"] != "default-embedding-model" {
+		t.Fatalf("expected incomplete explicit kbase embedding to use defaults, got %#v", kbaseConfig)
+	}
+}
+
 func TestAgentCreateCoderAndOpenWorkspace(t *testing.T) {
-	fixture := newTestFixture(t)
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{
+		configure: func(cfg *config.Config) {
+			cfg.CoderSettings.DefaultAgent = config.CoderDefaultAgentConfig{
+				ModelKey:        "mock-model",
+				ReasoningEffort: "MEDIUM",
+			}
+		},
+	})
 	workspaceDir := filepath.Join(t.TempDir(), "project-alpha")
 	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
 		t.Fatalf("create workspace dir: %v", err)
@@ -355,20 +421,9 @@ func TestAgentCreateCoderAndOpenWorkspace(t *testing.T) {
 	beforeCreate := time.Now().Unix()
 	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
 		"definition": map[string]any{
-			"name": "agent-coder",
-			"icon": "bot",
 			"mode": "CODER",
-			"modelConfig": map[string]any{
-				"modelKey": "mock-model",
-			},
-			"workspace": map[string]any{
-				"root": workspaceDir,
-			},
 			"runtimeConfig": map[string]any{
 				"workspaceRoot": workspaceDir,
-			},
-			"visibility": map[string]any{
-				"scopes": []any{"nav", "copilot"},
 			},
 		},
 	})
@@ -404,6 +459,11 @@ func TestAgentCreateCoderAndOpenWorkspace(t *testing.T) {
 	scopes, _ := visibility["scopes"].([]any)
 	if len(scopes) != 1 || scopes[0] != "nav" {
 		t.Fatalf("coder visibility scopes = %#v, want [nav]", visibility["scopes"])
+	}
+	modelConfig, _ := created.Definition["modelConfig"].(map[string]any)
+	reasoning, _ := modelConfig["reasoning"].(map[string]any)
+	if modelConfig["modelKey"] != "mock-model" || reasoning["effort"] != "MEDIUM" {
+		t.Fatalf("expected coder default model config, got %#v", modelConfig)
 	}
 	if _, ok := created.Definition["concurrency"]; ok {
 		t.Fatalf("coder definition should not persist concurrency, got %#v", created.Definition["concurrency"])

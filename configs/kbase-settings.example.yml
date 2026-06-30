@@ -9,8 +9,8 @@ default-agent:
   reasoningEffort: MEDIUM
 
 embedding:
-  providerKey:
-  model:
+  providerKey: babelark
+  model: text-embedding-v4
   dimension: 1024
   timeout: 60
 

@@ -260,11 +260,19 @@ func (s *Server) applyKBaseDefaultAgentConfig(definition map[string]any) map[str
 	embeddingDefaults := s.deps.Config.KBase.Embedding
 	embeddingProviderKey := strings.TrimSpace(embeddingDefaults.ProviderKey)
 	embeddingModel := strings.TrimSpace(embeddingDefaults.Model)
-	if modelKey == "" && reasoningEffort == "" && embeddingProviderKey == "" && embeddingModel == "" {
-		return definition
-	}
 
 	out := contracts.CloneMap(definition)
+	if isEmptyDefinitionValue(out["icon"]) {
+		out["icon"] = map[string]any{"name": "database"}
+	}
+	visibility := contracts.CloneMap(contracts.AnyMapNode(out["visibility"]))
+	if visibility == nil {
+		visibility = map[string]any{}
+	}
+	if !hasNonBlankStringList(visibility["scopes"]) {
+		visibility["scopes"] = []any{"nav"}
+		out["visibility"] = visibility
+	}
 	if modelKey != "" || reasoningEffort != "" {
 		modelConfig := contracts.CloneMap(contracts.AnyMapNode(out["modelConfig"]))
 		if modelConfig == nil {
@@ -298,10 +306,12 @@ func (s *Server) applyKBaseDefaultAgentConfig(definition map[string]any) map[str
 		if embedding == nil {
 			embedding = map[string]any{}
 		}
-		if embeddingProviderKey != "" && strings.TrimSpace(stringValue(embedding["providerKey"])) == "" {
+		providerMissing := strings.TrimSpace(stringValue(embedding["providerKey"])) == ""
+		modelMissing := strings.TrimSpace(stringValue(embedding["model"])) == ""
+		if embeddingProviderKey != "" && (providerMissing || modelMissing) {
 			embedding["providerKey"] = embeddingProviderKey
 		}
-		if embeddingModel != "" && strings.TrimSpace(stringValue(embedding["model"])) == "" {
+		if embeddingModel != "" && (providerMissing || modelMissing) {
 			embedding["model"] = embeddingModel
 		}
 		if len(embedding) > 0 {
@@ -312,6 +322,32 @@ func (s *Server) applyKBaseDefaultAgentConfig(definition map[string]any) map[str
 		}
 	}
 	return out
+}
+
+func isEmptyDefinitionValue(value any) bool {
+	if value == nil {
+		return true
+	}
+	text, ok := value.(string)
+	return ok && strings.TrimSpace(text) == ""
+}
+
+func hasNonBlankStringList(value any) bool {
+	switch items := value.(type) {
+	case []any:
+		for _, item := range items {
+			if strings.TrimSpace(stringValue(item)) != "" {
+				return true
+			}
+		}
+	case []string:
+		for _, item := range items {
+			if strings.TrimSpace(item) != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *Server) normalizeGeneratedModeCreation(key string, definition map[string]any) (string, map[string]any) {
