@@ -20,6 +20,8 @@ func writeOrderTestAgent(t *testing.T, agentsDir string, key string) {
 	content := strings.Join([]string{
 		"key: " + key,
 		"name: " + key,
+		"modelConfig:",
+		"  modelKey: mock-model",
 	}, "\n")
 	if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent %s: %v", key, err)

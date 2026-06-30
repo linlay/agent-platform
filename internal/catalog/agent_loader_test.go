@@ -158,6 +158,8 @@ func TestParseAgentFileReadsProxyTransport(t *testing.T) {
 		"key: proxy-demo\n" +
 		"name: Proxy Demo\n" +
 		"mode: PROXY\n" +
+		"modelConfig:\n" +
+		"  modelKey: mock-model\n" +
 		"proxyConfig:\n" +
 		"  baseUrl: http://127.0.0.1:3210\n" +
 		"  transport: ws\n"
@@ -181,6 +183,8 @@ func TestParseAgentFileDefaultsProxyTransportToWebSocket(t *testing.T) {
 		"key: proxy-demo\n" +
 		"name: Proxy Demo\n" +
 		"mode: PROXY\n" +
+		"modelConfig:\n" +
+		"  modelKey: mock-model\n" +
 		"proxyConfig:\n" +
 		"  baseUrl: http://127.0.0.1:3210\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -203,6 +207,8 @@ func TestParseAgentFileKeepsExplicitProxySSETransport(t *testing.T) {
 		"key: proxy-demo\n" +
 		"name: Proxy Demo\n" +
 		"mode: PROXY\n" +
+		"modelConfig:\n" +
+		"  modelKey: mock-model\n" +
 		"proxyConfig:\n" +
 		"  baseUrl: http://127.0.0.1:3210\n" +
 		"  transport: sse\n"
@@ -216,6 +222,62 @@ func TestParseAgentFileKeepsExplicitProxySSETransport(t *testing.T) {
 	}
 	if def.ProxyConfig == nil || def.ProxyConfig.Transport != "sse" {
 		t.Fatalf("expected explicit proxy transport sse, got %#v", def.ProxyConfig)
+	}
+}
+
+func TestParseAgentFileRejectsNonACPAgentsWithoutModelConfig(t *testing.T) {
+	tests := []struct {
+		name  string
+		lines []string
+	}{
+		{
+			name: "react",
+			lines: []string{
+				"key: react-demo",
+				"name: React Demo",
+				"mode: REACT",
+			},
+		},
+		{
+			name: "plan-execute",
+			lines: []string{
+				"key: plan-demo",
+				"name: Plan Demo",
+				"mode: PLAN_EXECUTE",
+			},
+		},
+		{
+			name: "native-coder",
+			lines: []string{
+				"key: coder-demo",
+				"name: Coder Demo",
+				"mode: CODER",
+			},
+		},
+		{
+			name: "proxy",
+			lines: []string{
+				"key: proxy-demo",
+				"name: Proxy Demo",
+				"mode: PROXY",
+				"proxyConfig:",
+				"  baseUrl: http://127.0.0.1:3210",
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, "agent.yml")
+			content := strings.Join(tc.lines, "\n") + "\n"
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatalf("write agent file: %v", err)
+			}
+			_, err := parseAgentFile(path)
+			if err == nil || !strings.Contains(err.Error(), "modelConfig.modelKey is required") {
+				t.Fatalf("expected modelConfig.modelKey error, got %v", err)
+			}
+		})
 	}
 }
 
@@ -443,6 +505,8 @@ func TestParseAgentFileSupportsCoderWorkspace(t *testing.T) {
 		"key: coder\n" +
 		"name: Coder\n" +
 		"mode: coder\n" +
+		"modelConfig:\n" +
+		"  modelKey: mock-model\n" +
 		"runtimeConfig:\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
 		"projectConfig:\n" +
@@ -588,6 +652,8 @@ func TestParseAgentFileAppliesCoderProfileDefaults(t *testing.T) {
 	content := "" +
 		"key: coder\n" +
 		"mode: CODER\n" +
+		"modelConfig:\n" +
+		"  modelKey: mock-model\n" +
 		"runtimeConfig:\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -627,6 +693,8 @@ func TestParseAgentFileAllowsCoderProfileOverrides(t *testing.T) {
 	content := "" +
 		"key: coder\n" +
 		"mode: CODER\n" +
+		"modelConfig:\n" +
+		"  modelKey: mock-model\n" +
 		"toolConfig:\n" +
 		"  tools:\n" +
 		"    - datetime\n" +
@@ -659,7 +727,7 @@ func TestParseAgentFileAllowsCoderProfileOverrides(t *testing.T) {
 func TestParseAgentFileAllowsCoderWithoutWorkspace(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
-	if err := os.WriteFile(path, []byte("key: coder\nmode: CODER\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("key: coder\nmode: CODER\nmodelConfig:\n  modelKey: mock-model\n"), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
 
@@ -692,6 +760,8 @@ func TestParseAgentFileKBaseDefaultsAndConfig(t *testing.T) {
 	content := "" +
 		"key: docs\n" +
 		"mode: KBASE\n" +
+		"modelConfig:\n" +
+		"  modelKey: mock-model\n" +
 		"runtimeConfig:\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
 		"kbaseConfig:\n" +
@@ -757,6 +827,8 @@ func TestParseAgentFileKBaseFiltersToolsAndStaticMemory(t *testing.T) {
 	content := "" +
 		"key: docs\n" +
 		"mode: KBASE\n" +
+		"modelConfig:\n" +
+		"  modelKey: mock-model\n" +
 		"runtimeConfig:\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
 		"toolConfig:\n" +
@@ -817,6 +889,25 @@ func TestParseAgentFileRejectsKBaseChatWorkspace(t *testing.T) {
 	}
 }
 
+func TestParseAgentFileRejectsKBaseWithoutModelConfig(t *testing.T) {
+	workspace := t.TempDir()
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: docs\n" +
+		"mode: KBASE\n" +
+		"runtimeConfig:\n" +
+		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	_, err := parseAgentFile(path)
+	if err == nil || !strings.Contains(err.Error(), "modelConfig.modelKey is required") {
+		t.Fatalf("expected KBASE model config error, got %v", err)
+	}
+}
+
 func TestParseAgentFileRejectsCoderRelativeWorkspace(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
@@ -838,7 +929,7 @@ func TestParseAgentFileExpandsHomeWorkspaceRoot(t *testing.T) {
 
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
-	if err := os.WriteFile(path, []byte("key: coder\nmode: CODER\nruntimeConfig:\n  workspaceRoot: ~/project\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("key: coder\nmode: CODER\nmodelConfig:\n  modelKey: mock-model\nruntimeConfig:\n  workspaceRoot: ~/project\n"), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
 
@@ -860,7 +951,7 @@ func TestParseAgentFileExpandsBareHomeWorkspaceRoot(t *testing.T) {
 
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
-	if err := os.WriteFile(path, []byte("key: coder\nmode: CODER\nruntimeConfig:\n  workspaceRoot: \"~\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("key: coder\nmode: CODER\nmodelConfig:\n  modelKey: mock-model\nruntimeConfig:\n  workspaceRoot: \"~\"\n"), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
 
@@ -892,6 +983,8 @@ func TestParseAgentFileAcceptsChatWorkspaceRoot(t *testing.T) {
 	content := "" +
 		"key: chat-worker\n" +
 		"mode: REACT\n" +
+		"modelConfig:\n" +
+		"  modelKey: mock-model\n" +
 		"runtimeConfig:\n" +
 		"  workspaceRoot: \"@chat\"\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -913,6 +1006,8 @@ func TestParseAgentFileAcceptsSlashWorkspaceRoot(t *testing.T) {
 	content := "" +
 		"key: chat-worker\n" +
 		"mode: REACT\n" +
+		"modelConfig:\n" +
+		"  modelKey: mock-model\n" +
 		"runtimeConfig:\n" +
 		"  workspaceRoot: \"/\"\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -939,6 +1034,8 @@ func TestParseAgentFileReadsHostAccessAndSandboxMounts(t *testing.T) {
 	content := "" +
 		"key: bootstrap\n" +
 		"mode: REACT\n" +
+		"modelConfig:\n" +
+		"  modelKey: mock-model\n" +
 		"runtimeConfig:\n" +
 		"  workspaceRoot: \"@chat\"\n" +
 		"  hostAccess:\n" +
@@ -978,6 +1075,8 @@ func TestParseAgentFileRuntimeWorkspaceRootSetsCoderWorkspace(t *testing.T) {
 	content := "" +
 		"key: coder\n" +
 		"mode: CODER\n" +
+		"modelConfig:\n" +
+		"  modelKey: mock-model\n" +
 		"runtimeConfig:\n" +
 		"  workspaceRoot: " + filepath.ToSlash(runtimeWorkspace) + "\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -1000,6 +1099,8 @@ func TestParseAgentFileLoadsProjectConfig(t *testing.T) {
 	content := "" +
 		"key: coder\n" +
 		"mode: CODER\n" +
+		"modelConfig:\n" +
+		"  modelKey: mock-model\n" +
 		"runtimeConfig:\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
 		"projectConfig:\n" +
@@ -1037,6 +1138,8 @@ func TestParseAgentFileAllowsSandboxCoderWithoutHostWorkspace(t *testing.T) {
 	content := "" +
 		"key: coder\n" +
 		"mode: CODER\n" +
+		"modelConfig:\n" +
+		"  modelKey: mock-model\n" +
 		"runtimeConfig:\n" +
 		"  environmentId: toolbox\n" +
 		"  level: run\n"

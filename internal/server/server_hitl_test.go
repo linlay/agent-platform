@@ -267,6 +267,16 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	if !foundAwaitingAnswer {
 		t.Fatalf("expected awaiting.answer in chat detail, got %#v", chatResp.Data.Events)
 	}
+	jsonlContent, err := fixture.chats.LoadJSONLContent(chatsResp.Data[0].ChatID)
+	if err != nil {
+		t.Fatalf("load chat jsonl: %v", err)
+	}
+	if strings.Contains(jsonlContent, `"inputMessages"`) {
+		t.Fatalf("did not expect steer to persist as step inputMessages:\n%s", jsonlContent)
+	}
+	if !strings.Contains(jsonlContent, `"_type":"steer"`) {
+		t.Fatalf("expected persisted steer event line in:\n%s", jsonlContent)
+	}
 
 	select {
 	case messages := <-secondTurnMessages:

@@ -252,7 +252,7 @@ func shouldOmitPayloadField(eventType string, key string, value any) bool {
 func eventPayloadKeyOrder(eventType string) []string {
 	switch eventType {
 	case "request.query":
-		return []string{"requestId", "runId", "chatId", "role", "message", "synthetic", "stage", "source", "agentKey", "teamId", "references", "params", "scene", "stream", "includeUsage", "includeFullText"}
+		return []string{"requestId", "runId", "chatId", "role", "message", "synthetic", "stage", "source", "agentKey", "teamId", "references", "params", "scene", "stream", "includeUsage", "includeFullText", "messages", "systems"}
 	case "awaiting.ask":
 		return []string{"awaitingId", "mode", "viewportType", "viewportKey", "timeout", "runId", "agentKey", "questions", "approvals", "forms", "plan"}
 	case "awaiting.answer":

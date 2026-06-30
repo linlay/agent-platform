@@ -49,7 +49,6 @@ type llmRunStream struct {
 	cancelSent          bool
 	finalTurnAttempted  bool
 	allowToolUse        bool
-	finalTurnSystem     string
 	previousToolResult  any
 	queuedToolCalls     []*preparedToolInvocation
 	activeToolCall      *preparedToolInvocation
@@ -69,6 +68,7 @@ type llmRunStream struct {
 	accessLevelVersion  int64
 	systemInitCacheKey  string
 	systemInitCacheUsed bool
+	pendingSteerInputs  []map[string]any
 
 	lastCallPromptTokens           int
 	lastCallCompletionTokens       int

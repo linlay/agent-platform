@@ -8,7 +8,7 @@ import (
 )
 
 // StepWriter accumulates SSE events and writes Java-compatible JSONL lines
-// (_type: "query" / "react" / "react-tool" / "plan-execute" / "submit" / "steer" / "event")
+// (_type: "query" / "react" / "react-tool" / "submit" / "steer" / "event")
 // to the chat store.
 //
 // It mirrors the behaviour of Java's TurnTraceWriter:
@@ -60,9 +60,7 @@ type StepWriter struct {
 	pendingReasoningEffort  string
 	pendingInputMessages    []map[string]any
 	pendingSystemRef        map[string]any
-	pendingStepSystems      []QueryLineSystemInit
 	pendingSystemInits      []QueryLineSystemInit
-	knownSystemProfiles     map[string]bool
 }
 
 type StepWriterOption func(*StepWriter)
@@ -70,17 +68,16 @@ type StepWriterOption func(*StepWriter)
 // NewStepWriter creates a StepWriter for a single run.
 func NewStepWriter(store Store, chatID, runID, mode string, opts ...StepWriterOption) *StepWriter {
 	w := &StepWriter{
-		store:               store,
-		chatID:              chatID,
-		runID:               runID,
-		mode:                strings.ToUpper(strings.TrimSpace(mode)),
-		taskBuffers:         map[string]*taskStepBuffer{},
-		closedTaskIDs:       map[string]bool{},
-		toolNames:           map[string]string{},
-		actionNames:         map[string]string{},
-		toolTaskIDs:         map[string]string{},
-		actionTaskIDs:       map[string]string{},
-		knownSystemProfiles: map[string]bool{},
+		store:         store,
+		chatID:        chatID,
+		runID:         runID,
+		mode:          strings.ToUpper(strings.TrimSpace(mode)),
+		taskBuffers:   map[string]*taskStepBuffer{},
+		closedTaskIDs: map[string]bool{},
+		toolNames:     map[string]string{},
+		actionNames:   map[string]string{},
+		toolTaskIDs:   map[string]string{},
+		actionTaskIDs: map[string]string{},
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -95,9 +92,6 @@ func (w *StepWriter) SetPendingSystemInits(lines []QueryLineSystemInit) {
 		return
 	}
 	w.pendingSystemInits = append([]QueryLineSystemInit(nil), lines...)
-	for _, line := range lines {
-		w.markKnownSystemProfile(line)
-	}
 }
 
 func (w *StepWriter) SetPendingQueryMessages(messages []map[string]any) {
@@ -171,6 +165,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		})
 
 	case "tool.result":
+		w.flushAssistantStepBeforeToolResult(event)
 		w.ensureStep()
 		toolID := event.String("toolId")
 		toolName := w.toolNames[toolID]
@@ -241,6 +236,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		})
 
 	case "action.result":
+		w.flushAssistantStepBeforeToolResult(event)
 		w.ensureStep()
 		actionID := event.String("actionId")
 		ts := event.Timestamp
@@ -325,10 +321,12 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			if w.closedTaskIDs[taskID] {
 				break
 			}
+			w.flushTaskStep(taskID)
 			buffer := w.ensureTaskBuffer(taskID)
 			w.captureTaskLLMRequestData(buffer, event)
 			buffer.liveSeq = maxLiveSeq(buffer.liveSeq, event.Seq)
 		} else {
+			w.flushCurrentStep()
 			w.captureRootLLMRequestData(event)
 			w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
 		}
@@ -396,7 +394,7 @@ func (w *StepWriter) handleRequestQuery(event stream.EventData) {
 	query := map[string]any{}
 	// Copy all payload fields into query, excluding seq/type/timestamp
 	for key, val := range event.Payload {
-		if key == "liveSeq" || key == "seq" || key == "messages" {
+		if key == "liveSeq" || key == "seq" || key == "messages" || key == "systems" {
 			continue
 		}
 		query[key] = val
@@ -405,7 +403,7 @@ func (w *StepWriter) handleRequestQuery(event stream.EventData) {
 	systems := append([]QueryLineSystemInit(nil), w.pendingSystemInits...)
 	if synthetic {
 		messages = messagesFromEventValue(event.Value("messages"))
-		systems = nil
+		systems = systemsFromEventValue(event.Value("systems"))
 	}
 
 	_ = w.store.AppendQueryLine(w.chatID, QueryLine{
@@ -445,6 +443,22 @@ func (w *StepWriter) appendStoredMessage(event stream.EventData, message StoredM
 	}
 	w.messages = upsertStoredMessage(w.messages, message)
 	w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
+}
+
+func (w *StepWriter) flushAssistantStepBeforeToolResult(event stream.EventData) {
+	if w == nil {
+		return
+	}
+	if taskID := w.taskIDForEvent(event); taskID != "" {
+		buffer := w.taskBuffers[taskID]
+		if buffer != nil && storedMessagesContainAssistant(buffer.messages) {
+			w.flushTaskStep(taskID)
+		}
+		return
+	}
+	if storedMessagesContainAssistant(w.messages) {
+		w.flushCurrentStep()
+	}
 }
 
 func (w *StepWriter) captureRootUsageSnapshot(event stream.EventData) {
@@ -515,9 +529,6 @@ func (w *StepWriter) captureRootLLMRequestData(event stream.EventData) {
 	if len(model) > 0 {
 		w.capturePendingModelMetadata(model)
 	}
-	if system, _ := event.Value("system").(map[string]any); len(system) > 0 {
-		w.captureRootInlineSystemProfile(system, event, model)
-	}
 	if systemRef, _ := event.Value("systemRef").(map[string]any); len(systemRef) > 0 {
 		w.pendingSystemRef = cloneStepSystemPayload(systemRef)
 	}
@@ -556,9 +567,6 @@ func (w *StepWriter) captureTaskLLMRequestData(buffer *taskStepBuffer, event str
 	if len(model) > 0 {
 		buffer.capturePendingModelMetadata(model)
 	}
-	if system, _ := event.Value("system").(map[string]any); len(system) > 0 {
-		w.captureTaskInlineSystemProfile(buffer, system, event, model)
-	}
 	if systemRef, _ := event.Value("systemRef").(map[string]any); len(systemRef) > 0 {
 		buffer.pendingSystemRef = cloneStepSystemPayload(systemRef)
 	}
@@ -574,48 +582,31 @@ func (w *StepWriter) capturePendingModelMetadata(values ...map[string]any) {
 	captureStepModelMetadata(&w.pendingModelKey, &w.pendingReasoningEffort, values...)
 }
 
-func completeInlineSystemProfile(system map[string]any, event stream.EventData, model map[string]any) map[string]any {
-	profile := cloneStepSystemPayload(system)
-	if len(profile) == 0 {
+func systemsFromEventValue(value any) []QueryLineSystemInit {
+	if typed, ok := value.([]QueryLineSystemInit); ok {
+		return cloneQueryLineSystemInits(typed)
+	}
+	if typed, ok := value.([]map[string]any); ok {
+		out := make([]QueryLineSystemInit, 0, len(typed))
+		for _, raw := range typed {
+			if profile, ok := querySystemInitFromProfile(raw); ok {
+				out = append(out, profile)
+			}
+		}
+		return out
+	}
+	rawSystems, _ := value.([]any)
+	if len(rawSystems) == 0 {
 		return nil
 	}
-	if _, ok := profile["model"]; !ok && len(model) > 0 {
-		profile["model"] = cloneStepSystemPayload(model)
-	}
-	if _, ok := profile["toolChoice"]; !ok {
-		if toolChoice := strings.TrimSpace(event.String("toolChoice")); toolChoice != "" {
-			profile["toolChoice"] = toolChoice
+	out := make([]QueryLineSystemInit, 0, len(rawSystems))
+	for _, raw := range rawSystems {
+		system, _ := raw.(map[string]any)
+		if profile, ok := querySystemInitFromProfile(system); ok {
+			out = append(out, profile)
 		}
 	}
-	if _, ok := profile["requestOptions"]; !ok {
-		if requestOptions, _ := event.Value("requestOptions").(map[string]any); len(requestOptions) > 0 {
-			profile["requestOptions"] = cloneStepSystemPayload(requestOptions)
-		}
-	}
-	return profile
-}
-
-func (w *StepWriter) captureRootInlineSystemProfile(system map[string]any, event stream.EventData, model map[string]any) {
-	profileMap := completeInlineSystemProfile(system, event, model)
-	if profile, ok := querySystemInitFromProfile(profileMap); ok {
-		w.pendingSystemRef = systemRefFromProfile(profile)
-		if !w.isKnownSystemProfile(profile) && !systemProfilesContain(w.pendingStepSystems, profile) {
-			w.pendingStepSystems = append(w.pendingStepSystems, profile)
-		}
-	}
-}
-
-func (w *StepWriter) captureTaskInlineSystemProfile(buffer *taskStepBuffer, system map[string]any, event stream.EventData, model map[string]any) {
-	if buffer == nil {
-		return
-	}
-	profileMap := completeInlineSystemProfile(system, event, model)
-	if profile, ok := querySystemInitFromProfile(profileMap); ok {
-		buffer.pendingSystemRef = systemRefFromProfile(profile)
-		if !w.isKnownSystemProfile(profile) && !systemProfilesContain(buffer.pendingStepSystems, profile) {
-			buffer.pendingStepSystems = append(buffer.pendingStepSystems, profile)
-		}
-	}
+	return out
 }
 
 func querySystemInitFromProfile(profile map[string]any) (QueryLineSystemInit, bool) {
@@ -640,46 +631,6 @@ func querySystemInitFromProfile(profile map[string]any) (QueryLineSystemInit, bo
 		ToolChoice:     strings.TrimSpace(stringValue(profile["toolChoice"])),
 		RequestOptions: cloneStepSystemPayload(anyMap(profile["requestOptions"])),
 	}, true
-}
-
-func systemRefFromProfile(profile QueryLineSystemInit) map[string]any {
-	if strings.TrimSpace(profile.CacheKey) == "" || strings.TrimSpace(profile.Fingerprint) == "" {
-		return nil
-	}
-	return map[string]any{
-		"cacheKey":    strings.TrimSpace(profile.CacheKey),
-		"fingerprint": strings.TrimSpace(profile.Fingerprint),
-	}
-}
-
-func (w *StepWriter) isKnownSystemProfile(profile QueryLineSystemInit) bool {
-	if w == nil {
-		return false
-	}
-	return w.knownSystemProfiles[systemCacheID(profile.CacheKey, profile.Fingerprint)]
-}
-
-func (w *StepWriter) markKnownSystemProfile(profile QueryLineSystemInit) {
-	if w == nil {
-		return
-	}
-	if strings.TrimSpace(profile.CacheKey) == "" || strings.TrimSpace(profile.Fingerprint) == "" {
-		return
-	}
-	if w.knownSystemProfiles == nil {
-		w.knownSystemProfiles = map[string]bool{}
-	}
-	w.knownSystemProfiles[systemCacheID(profile.CacheKey, profile.Fingerprint)] = true
-}
-
-func systemProfilesContain(profiles []QueryLineSystemInit, profile QueryLineSystemInit) bool {
-	id := systemCacheID(profile.CacheKey, profile.Fingerprint)
-	for _, existing := range profiles {
-		if systemCacheID(existing.CacheKey, existing.Fingerprint) == id {
-			return true
-		}
-	}
-	return false
 }
 
 func cloneQueryLineSystemInits(profiles []QueryLineSystemInit) []QueryLineSystemInit {
@@ -715,7 +666,6 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 		w.pendingReasoningEffort = ""
 		w.pendingInputMessages = nil
 		w.pendingSystemRef = nil
-		w.pendingStepSystems = nil
 		return
 	}
 
@@ -749,12 +699,6 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	if len(w.pendingSystemRef) > 0 {
 		line.SystemRef = cloneStepSystemPayload(w.pendingSystemRef)
 	}
-	if len(w.pendingStepSystems) > 0 {
-		line.Systems = cloneQueryLineSystemInits(w.pendingStepSystems)
-		for _, profile := range w.pendingStepSystems {
-			w.markKnownSystemProfile(profile)
-		}
-	}
 	if len(w.pendingInputMessages) > 0 {
 		line.InputMessages = cloneMessageMaps(w.pendingInputMessages)
 	}
@@ -777,16 +721,9 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	applyStepLineModelMetadata(&line, w.pendingModelKey, w.pendingReasoningEffort)
 
 	if w.mode == "PLAN_EXECUTE" {
-		line.Type = "plan-execute"
 		line.Stage = w.currentStage
-		// seq 只在 execute 阶段输出
-		if line.Stage == "execute" {
-			w.seqCounter++
-			line.Seq = w.seqCounter
-		}
-	} else {
-		w.assignReactSeq(&line)
 	}
+	w.assignReactSeq(&line)
 
 	_ = w.store.AppendStepLine(w.chatID, line)
 	if order := assistantToolCallOrder(line.Messages); len(order) > 0 {
@@ -802,7 +739,6 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	w.pendingReasoningEffort = ""
 	w.pendingInputMessages = nil
 	w.pendingSystemRef = nil
-	w.pendingStepSystems = nil
 }
 
 func (w *StepWriter) assignReactSeq(line *StepLine) {

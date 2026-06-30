@@ -58,6 +58,9 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		if len(value.Messages) > 0 {
 			payload["messages"] = cloneMessagePayloads(value.Messages)
 		}
+		if len(value.Systems) > 0 {
+			payload["systems"] = cloneMessagePayloads(value.Systems)
+		}
 		events = append(events, NewEvent("request.query", payload))
 		return events
 	case PlanUpdate:

@@ -66,17 +66,6 @@ func BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryReques
 	}
 }
 
-func FinalSystemInitCacheKey(cacheKey string) string {
-	cacheKey = strings.TrimSpace(cacheKey)
-	if cacheKey == "" {
-		return "final"
-	}
-	if strings.HasSuffix(cacheKey, ":final") {
-		return cacheKey
-	}
-	return cacheKey + ":final"
-}
-
 func (b SystemInitProfileBuilder) applyRequestProfile(profile *contracts.SystemInitProfile, session contracts.QuerySession, req api.QueryRequest) {
 	if b.Models == nil || profile == nil {
 		return

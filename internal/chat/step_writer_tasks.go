@@ -23,7 +23,6 @@ type taskStepBuffer struct {
 	pendingModelKey         string
 	pendingReasoningEffort  string
 	pendingInputMessages    []map[string]any
-	pendingStepSystems      []QueryLineSystemInit
 }
 
 func (w *StepWriter) ensureTaskBuffer(taskID string) *taskStepBuffer {
@@ -82,12 +81,6 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 	if len(buffer.pendingSystemRef) > 0 {
 		line.SystemRef = cloneStepSystemPayload(buffer.pendingSystemRef)
 	}
-	if len(buffer.pendingStepSystems) > 0 {
-		line.Systems = cloneQueryLineSystemInits(buffer.pendingStepSystems)
-		for _, profile := range buffer.pendingStepSystems {
-			w.markKnownSystemProfile(profile)
-		}
-	}
 	if len(buffer.pendingInputMessages) > 0 {
 		line.InputMessages = cloneMessageMaps(buffer.pendingInputMessages)
 	}
@@ -105,18 +98,12 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 	applyStepLineModelMetadata(&line, buffer.pendingModelKey, buffer.pendingReasoningEffort)
 
 	if w.mode == "PLAN_EXECUTE" {
-		line.Type = "plan-execute"
 		line.Stage = buffer.taskStage
 		if strings.TrimSpace(line.Stage) == "" {
 			line.Stage = w.currentStage
 		}
-		if line.Stage == "execute" {
-			w.seqCounter++
-			line.Seq = w.seqCounter
-		}
-	} else {
-		w.assignReactSeq(&line)
 	}
+	w.assignReactSeq(&line)
 
 	_ = w.store.AppendStepLine(w.chatID, line)
 	buffer.messages = nil
@@ -129,7 +116,6 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 	buffer.pendingReasoningEffort = ""
 	buffer.pendingInputMessages = nil
 	buffer.pendingSystemRef = nil
-	buffer.pendingStepSystems = nil
 }
 
 func (w *StepWriter) flushAllTaskSteps() {

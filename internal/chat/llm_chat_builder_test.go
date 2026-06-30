@@ -296,6 +296,108 @@ func TestBuildLLMChatFromJSONLUsesSyntheticQueryMessagesOnce(t *testing.T) {
 	}
 }
 
+func TestBuildLLMChatFromJSONLReplaysSteerWithoutInputMessages(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-llm-steer"
+	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	system := QueryLineSystemInit{
+		CacheKey:      "react:main",
+		Fingerprint:   "sha256:react",
+		SystemMessage: map[string]any{"role": "system", "content": "react system"},
+		Tools:         []any{},
+		Model: map[string]any{
+			"key":         "react-model",
+			"id":          "react-model-id",
+			"providerKey": "provider",
+			"protocol":    "OPENAI",
+		},
+		ToolChoice:     "auto",
+		RequestOptions: map[string]any{"stream": true},
+	}
+	if err := store.AppendQueryLine(chatID, QueryLine{
+		Type:      "query",
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: 1,
+		Query:     map[string]any{"role": "user", "message": "original"},
+		Messages:  []map[string]any{{"role": "user", "content": "original"}},
+		Systems:   []QueryLineSystemInit{system},
+	}); err != nil {
+		t.Fatalf("append query: %v", err)
+	}
+	if err := store.AppendStepLine(chatID, StepLine{
+		Type:      StepLineTypeReact,
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: 2,
+		Seq:       1,
+		Messages: []StoredMessage{{
+			Role:    "assistant",
+			Content: []ContentPart{{Type: "text", Text: "first answer"}},
+		}},
+	}); err != nil {
+		t.Fatalf("append first step: %v", err)
+	}
+	if err := store.AppendEventLine(chatID, EventLine{
+		Type:      "steer",
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: 3,
+		Event: map[string]any{
+			"type":    "request.steer",
+			"runId":   "run-1",
+			"chatId":  chatID,
+			"steerId": "steer-1",
+			"message": "Please keep it short.",
+			"role":    "user",
+		},
+	}); err != nil {
+		t.Fatalf("append steer: %v", err)
+	}
+	if err := store.AppendStepLine(chatID, StepLine{
+		Type:      StepLineTypeReact,
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: 4,
+		Seq:       2,
+		SystemRef: map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:react"},
+		Messages: []StoredMessage{{
+			Role:    "assistant",
+			Content: []ContentPart{{Type: "text", Text: "final answer"}},
+		}},
+	}); err != nil {
+		t.Fatalf("append target step: %v", err)
+	}
+
+	chat, err := store.BuildLLMChatFromJSONL(chatID, LLMChatBuildOptions{RunID: "run-1", Seq: 2})
+	if err != nil {
+		t.Fatalf("build llm chat: %v", err)
+	}
+	if got := chat.Messages[0]["content"]; got != "react system" {
+		t.Fatalf("expected system message first, got %#v", chat.Messages)
+	}
+	steerIndex := -1
+	for i, msg := range chat.Messages {
+		if msg["content"] == "Please keep it short." {
+			steerIndex = i
+		}
+		if msg["content"] == "final answer" {
+			t.Fatalf("target assistant response must not be part of request messages: %#v", chat.Messages)
+		}
+	}
+	if steerIndex < 0 {
+		t.Fatalf("expected steer message in reconstructed request, got %#v", chat.Messages)
+	}
+	if got := chat.Messages[len(chat.Messages)-1]["content"]; got != "Please keep it short." {
+		t.Fatalf("expected steer message at end of reconstructed request, got %#v", chat.Messages)
+	}
+}
+
 func TestBuildLLMChatFromJSONLUsesReactToolAuditMessageOnce(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
@@ -546,7 +648,7 @@ The tool results above already reflect these decisions; do not re-prompt for app
 	}
 }
 
-func TestStepWriterPersistsActualInlineProfileAsStepSystems(t *testing.T) {
+func TestStepWriterDoesNotPersistInlineProfileAsStepSystems(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
@@ -573,9 +675,9 @@ func TestStepWriterPersistsActualInlineProfileAsStepSystems(t *testing.T) {
 			"protocol":    "OPENAI",
 		},
 		"system": map[string]any{
-			"cacheKey":      "react:main:final",
-			"fingerprint":   "sha256:final",
-			"systemMessage": map[string]any{"role": "system", "content": "final system"},
+			"cacheKey":      "react:main",
+			"fingerprint":   "sha256:inline",
+			"systemMessage": map[string]any{"role": "system", "content": "inline system"},
 			"tools":         []any{},
 			"requestOptions": map[string]any{
 				"stream": true,
@@ -594,32 +696,14 @@ func TestStepWriterPersistsActualInlineProfileAsStepSystems(t *testing.T) {
 		t.Fatalf("read jsonl: %v", err)
 	}
 	step := lines[1]
-	systems, _ := step["systems"].([]any)
-	if len(systems) != 1 {
-		t.Fatalf("expected step systems profile, got %#v", step)
+	if _, ok := step["systems"]; ok {
+		t.Fatalf("did not expect step-level systems, got %#v", step)
 	}
-	ref, _ := step["systemRef"].(map[string]any)
-	if ref["cacheKey"] != "react:main:final" || ref["fingerprint"] != "sha256:final" {
-		t.Fatalf("expected step systemRef to point at step systems, got %#v", step)
+	if _, ok := step["systemRef"]; ok {
+		t.Fatalf("did not expect inline system to synthesize systemRef, got %#v", step)
 	}
 	if _, ok := step["system"]; ok {
 		t.Fatalf("did not expect legacy inline system, got %#v", step)
-	}
-
-	chat, err := store.BuildLLMChatFromJSONL(chatID, LLMChatBuildOptions{RunID: "run-1", Seq: 1})
-	if err != nil {
-		t.Fatalf("build llm chat: %v", err)
-	}
-	if got := chat.Messages[0]["content"]; got != "final system" {
-		t.Fatalf("expected final system from step systems, got %#v", chat.Messages)
-	}
-	if got := chat.Messages[len(chat.Messages)-1]["content"]; got != "final input" {
-		t.Fatalf("expected input message, got %#v", chat.Messages)
-	}
-	for _, msg := range chat.Messages {
-		if msg["content"] == "final answer" {
-			t.Fatalf("target assistant response must not be part of request messages: %#v", chat.Messages)
-		}
 	}
 }
 

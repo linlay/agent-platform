@@ -90,7 +90,7 @@ func TestAgentHTTPCRUDAndEditableDetail(t *testing.T) {
 	}
 }
 
-func TestAgentProxyCRUDAllowsProxyConfigWithoutModelConfig(t *testing.T) {
+func TestAgentProxyCRUDPersistsProxyConfigWithModelConfig(t *testing.T) {
 	fixture := newTestFixture(t)
 
 	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
@@ -101,6 +101,7 @@ func TestAgentProxyCRUDAllowsProxyConfigWithoutModelConfig(t *testing.T) {
 			"role":        "Proxy",
 			"description": "proxy test agent",
 			"mode":        "PROXY",
+			"modelConfig": map[string]any{"modelKey": "mock-model"},
 			"proxyConfig": map[string]any{
 				"baseUrl": "http://127.0.0.1:3210",
 				"token":   "proxy-token",
@@ -150,6 +151,153 @@ func TestAgentPlanExecuteCRUDUsesAPIModeContract(t *testing.T) {
 	}
 }
 
+func TestAgentCreateKBaseGeneratesKeyAndName(t *testing.T) {
+	fixture := newTestFixture(t)
+	workspaceDir := filepath.Join(t.TempDir(), "knowledge-base-alpha")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("create workspace dir: %v", err)
+	}
+
+	beforeCreate := time.Now().Unix()
+	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
+		"definition": map[string]any{
+			"mode": "KBASE",
+			"modelConfig": map[string]any{
+				"modelKey": "mock-model",
+			},
+			"runtimeConfig": map[string]any{
+				"workspaceRoot": workspaceDir,
+			},
+		},
+	})
+	afterCreate := time.Now().Unix()
+	if !strings.HasPrefix(created.Key, "kbase-") || created.Mode != "KBASE" {
+		t.Fatalf("unexpected kbase create response %#v", created)
+	}
+	generatedAt, err := strconv.ParseInt(strings.TrimPrefix(created.Key, "kbase-"), 36, 64)
+	if err != nil {
+		t.Fatalf("kbase key suffix should be base36 seconds, key=%q err=%v", created.Key, err)
+	}
+	if generatedAt < beforeCreate || generatedAt > afterCreate {
+		t.Fatalf("kbase key suffix = %d, want between %d and %d for key %q", generatedAt, beforeCreate, afterCreate, created.Key)
+	}
+	if created.Definition["key"] != created.Key {
+		t.Fatalf("expected generated kbase key to be persisted, key=%q definition=%#v", created.Key, created.Definition["key"])
+	}
+	name, nameOk := created.Definition["name"].(string)
+	if !nameOk || name != filepath.Base(workspaceDir) {
+		t.Fatalf("kbase definition name = %#v, want %q", created.Definition["name"], filepath.Base(workspaceDir))
+	}
+	if created.Source == nil {
+		t.Fatalf("expected created source")
+	}
+	data, err := os.ReadFile(created.Source.Path)
+	if err != nil {
+		t.Fatalf("read created agent file: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) < 3 || lines[0] != "key: "+created.Key || lines[1] != "name: knowledge-base-alpha" || lines[2] != "mode: KBASE" {
+		t.Fatalf("unexpected YAML header order:\n%s", data)
+	}
+}
+
+func TestAgentCreateKBaseRejectsMissingModelConfig(t *testing.T) {
+	fixture := newTestFixture(t)
+	workspaceDir := filepath.Join(t.TempDir(), "knowledge-base-alpha")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("create workspace dir: %v", err)
+	}
+	body, err := json.Marshal(map[string]any{
+		"definition": map[string]any{
+			"mode": "KBASE",
+			"runtimeConfig": map[string]any{
+				"workspaceRoot": workspaceDir,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/agents/create", bytes.NewReader(body)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "modelConfig.modelKey is required") {
+		t.Fatalf("expected modelConfig.modelKey error, got %s", rec.Body.String())
+	}
+}
+
+func TestAgentCreateKBaseAppliesDefaultModelConfig(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{
+		configure: func(cfg *config.Config) {
+			cfg.KBase.DefaultAgent = config.KBaseDefaultAgentConfig{
+				ModelKey: "mock-model",
+			}
+		},
+	})
+	workspaceDir := filepath.Join(t.TempDir(), "knowledge-base-alpha")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("create workspace dir: %v", err)
+	}
+
+	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
+		"definition": map[string]any{
+			"mode": "KBASE",
+			"runtimeConfig": map[string]any{
+				"workspaceRoot": workspaceDir,
+			},
+		},
+	})
+	modelConfig, _ := created.Definition["modelConfig"].(map[string]any)
+	if modelConfig["modelKey"] != "mock-model" {
+		t.Fatalf("expected kbase default model config, got %#v", modelConfig)
+	}
+	if created.Meta["modelKey"] != "mock-model" {
+		t.Fatalf("expected created kbase model key mock-model, got %#v", created.Meta)
+	}
+}
+
+func TestAgentCreateKBasePreservesExplicitModelConfig(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{
+		configure: func(cfg *config.Config) {
+			cfg.KBase.DefaultAgent = config.KBaseDefaultAgentConfig{
+				ModelKey: "default-model",
+			}
+		},
+	})
+	workspaceDir := filepath.Join(t.TempDir(), "knowledge-base-alpha")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("create workspace dir: %v", err)
+	}
+
+	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
+		"definition": map[string]any{
+			"mode": "KBASE",
+			"modelConfig": map[string]any{
+				"modelKey": "mock-model",
+			},
+			"runtimeConfig": map[string]any{
+				"workspaceRoot": workspaceDir,
+			},
+		},
+	})
+	modelConfig, _ := created.Definition["modelConfig"].(map[string]any)
+	if modelConfig["modelKey"] != "mock-model" {
+		t.Fatalf("expected explicit kbase model config to win, got %#v", modelConfig)
+	}
+}
+
 func TestAgentCreateCoderAndOpenWorkspace(t *testing.T) {
 	fixture := newTestFixture(t)
 	workspaceDir := filepath.Join(t.TempDir(), "project-alpha")
@@ -163,6 +311,9 @@ func TestAgentCreateCoderAndOpenWorkspace(t *testing.T) {
 			"name": "agent-coder",
 			"icon": "bot",
 			"mode": "CODER",
+			"modelConfig": map[string]any{
+				"modelKey": "mock-model",
+			},
 			"workspace": map[string]any{
 				"root": workspaceDir,
 			},
@@ -356,6 +507,9 @@ func TestAgentModelConfigUpdatePersistsCoderDefaults(t *testing.T) {
 			"key":  "coder-model-config",
 			"name": "coder-model-config",
 			"mode": "CODER",
+			"modelConfig": map[string]any{
+				"modelKey": "mock-model",
+			},
 			"runtimeConfig": map[string]any{
 				"workspaceRoot": workspaceDir,
 			},
@@ -420,6 +574,9 @@ func TestAgentModelConfigUpdatePersistsNoneReasoning(t *testing.T) {
 			"key":  "coder-model-none",
 			"name": "coder-model-none",
 			"mode": "CODER",
+			"modelConfig": map[string]any{
+				"modelKey": "mock-model",
+			},
 			"runtimeConfig": map[string]any{
 				"workspaceRoot": workspaceDir,
 			},
@@ -614,6 +771,9 @@ func TestAgentModelConfigUpdateRejectsInvalidRequests(t *testing.T) {
 			"key":  "coder-model-errors",
 			"name": "coder-model-errors",
 			"mode": "CODER",
+			"modelConfig": map[string]any{
+				"modelKey": "mock-model",
+			},
 			"runtimeConfig": map[string]any{
 				"workspaceRoot": workspaceDir,
 			},
@@ -769,6 +929,7 @@ func TestAgentCRUDSafetyErrors(t *testing.T) {
 					"name":        "Bad Proxy",
 					"description": "bad proxy",
 					"mode":        "PROXY",
+					"modelConfig": map[string]any{"modelKey": "mock-model"},
 					"proxyConfig": map[string]any{"token": "token"},
 				},
 			},
@@ -814,6 +975,9 @@ func TestAgentWSRuntimeModelConfigAndAdminRoutesRejected(t *testing.T) {
 		"definition": map[string]any{
 			"name": "WS Coder",
 			"mode": "CODER",
+			"modelConfig": map[string]any{
+				"modelKey": "mock-model",
+			},
 			"runtimeConfig": map[string]any{
 				"workspaceRoot": workspaceDir,
 			},

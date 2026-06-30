@@ -149,8 +149,13 @@ type CoderACPProxyConfig struct {
 }
 
 type KBaseConfig struct {
-	Refresh    KBaseRefreshConfig
-	Extraction KBaseExtractionConfig
+	DefaultAgent KBaseDefaultAgentConfig
+	Refresh      KBaseRefreshConfig
+	Extraction   KBaseExtractionConfig
+}
+
+type KBaseDefaultAgentConfig struct {
+	ModelKey string
 }
 
 type KBaseRefreshConfig struct {

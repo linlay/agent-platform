@@ -82,7 +82,7 @@ func TestPrepareSystemInitCacheWritesFreshSystemMessageOnPayloadChange(t *testin
 		t.Fatalf("prepare system init cache: %v", err)
 	}
 	if len(pending) != 1 {
-		t.Fatalf("expected changed system payload to append system cache line, got %#v", pending)
+		t.Fatalf("expected changed system payload to append one system cache line, got %#v", pending)
 	}
 	if pending[0].Fingerprint != oldProfiles[0].Fingerprint {
 		t.Fatalf("expected same fingerprint to be retained, got %#v", pending[0])
@@ -153,7 +153,7 @@ func TestPrepareSystemInitCacheReturnsPendingLineOnFingerprintChange(t *testing.
 	}
 }
 
-func TestPrepareSystemInitCacheOnlyWritesFirstActualProfile(t *testing.T) {
+func TestPrepareSystemInitCacheRegistersPlanExecuteProfiles(t *testing.T) {
 	store, err := chat.NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
@@ -181,8 +181,8 @@ func TestPrepareSystemInitCacheOnlyWritesFirstActualProfile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare system init cache: %v", err)
 	}
-	if len(pending) != 1 {
-		t.Fatalf("expected only first actual profile in query systems, got %#v", pending)
+	if len(pending) != 3 {
+		t.Fatalf("expected plan/execute/summary profiles in query systems, got %#v", pending)
 	}
 	if pending[0].CacheKey != "plan-execute:plan" {
 		t.Fatalf("expected plan profile first, got %#v", pending[0])
@@ -190,11 +190,11 @@ func TestPrepareSystemInitCacheOnlyWritesFirstActualProfile(t *testing.T) {
 	if _, ok := session.SystemInitCache["plan-execute:plan"]; !ok {
 		t.Fatalf("expected plan profile cached, got %#v", session.SystemInitCache)
 	}
-	if _, ok := session.SystemInitCache["plan-execute:execute"]; ok {
-		t.Fatalf("did not expect unused execute profile cached, got %#v", session.SystemInitCache)
+	if _, ok := session.SystemInitCache["plan-execute:execute"]; !ok {
+		t.Fatalf("expected execute profile cached, got %#v", session.SystemInitCache)
 	}
-	if _, ok := session.SystemInitCache["plan-execute:summary"]; ok {
-		t.Fatalf("did not expect unused summary profile cached, got %#v", session.SystemInitCache)
+	if _, ok := session.SystemInitCache["plan-execute:summary"]; !ok {
+		t.Fatalf("expected summary profile cached, got %#v", session.SystemInitCache)
 	}
 }
 
@@ -227,7 +227,10 @@ func TestMainQueryDedupsSystemsOnlyWhenPayloadMatches(t *testing.T) {
 		t.Fatalf("first prepare system init cache: %v", err)
 	}
 	if len(firstPending) != 1 {
-		t.Fatalf("expected first main query to carry system init, got %#v", firstPending)
+		t.Fatalf("expected first main query to carry one system init, got %#v", firstPending)
+	}
+	if firstPending[0].CacheKey != "react:main" {
+		t.Fatalf("unexpected first system init cache keys %#v", firstPending)
 	}
 	if err := store.AppendQueryLine(req.ChatID, chat.QueryLine{
 		Type:      "query",
@@ -296,7 +299,10 @@ func TestMainQueryDedupsSystemsWhenOnlyReferencesChange(t *testing.T) {
 		t.Fatalf("first prepare system init cache: %v", err)
 	}
 	if len(firstPending) != 1 {
-		t.Fatalf("expected first main query to carry system init, got %#v", firstPending)
+		t.Fatalf("expected first main query to carry one system init, got %#v", firstPending)
+	}
+	if firstPending[0].CacheKey != "react:main" {
+		t.Fatalf("unexpected first system init cache keys %#v", firstPending)
 	}
 	if err := store.AppendQueryLine(req.ChatID, chat.QueryLine{
 		Type:      "query",

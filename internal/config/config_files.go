@@ -120,6 +120,10 @@ func (c *Config) applyMemoryValues(values map[string]any) {
 }
 
 func (c *Config) applyKBaseValues(values map[string]any) {
+	defaultAgent, _ := values["default-agent"].(map[string]any)
+	if len(defaultAgent) > 0 {
+		c.KBase.DefaultAgent.ModelKey = stringValue(anyValue(defaultAgent["modelKey"], c.KBase.DefaultAgent.ModelKey), c.KBase.DefaultAgent.ModelKey)
+	}
 	refresh, _ := values["refresh"].(map[string]any)
 	if len(refresh) > 0 {
 		c.KBase.Refresh.Debounce = durationValue(anyValue(refresh["debounce"], c.KBase.Refresh.Debounce), c.KBase.Refresh.Debounce)

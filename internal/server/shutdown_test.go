@@ -188,6 +188,8 @@ func TestProxyQueryCancelsUpstreamRequestDuringRootContextShutdown(t *testing.T)
 				"role: 测试代理",
 				"description: proxy test agent",
 				"mode: PROXY",
+				"modelConfig:",
+				"  modelKey: mock-model",
 				"proxyConfig:",
 				"  baseUrl: " + upstream.URL,
 				"  transport: sse",

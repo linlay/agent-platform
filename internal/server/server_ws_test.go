@@ -685,6 +685,8 @@ func TestWebSocketProxyRunCompletionPushOrdering(t *testing.T) {
 				"role: proxy test agent",
 				"description: proxy websocket completion ordering test agent",
 				"mode: PROXY",
+				"modelConfig:",
+				"  modelKey: mock-model",
 				"runtimeConfig:",
 				"  workspaceRoot: " + filepath.ToSlash(workspace),
 				"proxyConfig:",

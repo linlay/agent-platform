@@ -7,9 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"agent-platform/internal/api"
 	. "agent-platform/internal/contracts"
 )
+
+const finalAnswerInstruction = "The tool execution loop has reached its configured step limit. Do not call any more tools. Based only on the conversation and tool results already available, provide the final answer or summary now."
 
 func (s *llmRunStream) Next() (AgentDelta, error) {
 	if len(s.pending) == 0 {
@@ -110,7 +111,7 @@ func (s *llmRunStream) prepareTurnForPending() error {
 	if s.step >= s.maxSteps {
 		if !s.finalTurnAttempted {
 			s.finalTurnAttempted = true
-			s.prepareFinalTurnWithoutTools()
+			s.prepareFinalAnswerTurn()
 			return s.prepareNextTurn()
 		}
 		s.enqueueFallback("Tool execution loop reached the maximum number of steps.")
@@ -160,6 +161,9 @@ func (s *llmRunStream) prepareNextTurn() error {
 	}
 	runSeq := s.runLLMChatCompletionCount + 1
 	effectiveToolChoice := effectiveTraceToolChoice(s.toolChoice, s.toolSpecs)
+	if err := s.ensureSystemProfileRegistered(preparedRequest, effectiveToolChoice); err != nil {
+		return err
+	}
 	trace := s.newChatTrace(runSeq, preparedRequest, effectiveToolChoice)
 	s.pending = append(s.pending, s.buildLLMRequestDelta(preparedRequest, effectiveToolChoice))
 	s.resetLastCallUsage()
@@ -198,64 +202,24 @@ func (s *llmRunStream) prepareNextTurn() error {
 	return nil
 }
 
-func (s *llmRunStream) prepareFinalTurnWithoutTools() {
-	s.toolSpecs = nil
-	s.promptBuildOptions.ToolDefinitions = nil
-	s.promptBuildOptions.IncludeAfterCallHints = false
-	s.systemInitCacheKey = FinalSystemInitCacheKey(s.systemInitCacheKey)
-	systemPrompt := strings.TrimSpace(s.finalTurnSystem)
-	if systemPrompt == "" {
-		systemPrompt = buildSystemPrompt(s.session, s.req, s.model.Key, PromptBuildOptions{
-			Stage:                 s.promptBuildOptions.Stage,
-			ToolDefinitions:       nil,
-			IncludeAfterCallHints: false,
-		})
+func (s *llmRunStream) ensureSystemProfileRegistered(prepared preparedProviderRequest, effectiveToolChoice string) error {
+	if s == nil {
+		return nil
 	}
-	if strings.TrimSpace(systemPrompt) != "" {
-		s.messages = replaceSystemMessage(s.messages, openAIMessage{Role: "system", Content: systemPrompt})
+	if len(firstSystemMessageSnapshot(s.messages)) == 0 && len(s.toolSpecs) == 0 {
+		return nil
 	}
+	if len(s.currentSystemRefForCall(prepared, effectiveToolChoice)) > 0 {
+		return nil
+	}
+	return fmt.Errorf("system profile not registered on query: runId=%s stage=%s cacheKey=%s", strings.TrimSpace(s.session.RunID), strings.TrimSpace(s.promptBuildOptions.Stage), s.currentSystemCacheKey())
 }
 
-func deriveFinalTurnSystemPrompt(messages []openAIMessage, session QuerySession, req api.QueryRequest, modelKey string, options PromptBuildOptions) string {
-	systemPrompt := firstSystemPromptContent(messages)
-	if stripped, ok := stripToolAppendixFromSystemPrompt(systemPrompt, session.PromptAppend, options.ToolDefinitions, options.IncludeAfterCallHints); ok {
-		return stripped
-	}
-	return buildSystemPrompt(session, req, modelKey, PromptBuildOptions{
-		Stage:                 options.Stage,
-		ToolDefinitions:       nil,
-		IncludeAfterCallHints: false,
+func (s *llmRunStream) prepareFinalAnswerTurn() {
+	s.messages = append(s.messages, openAIMessage{
+		Role:    "user",
+		Content: finalAnswerInstruction,
 	})
-}
-
-func firstSystemPromptContent(messages []openAIMessage) string {
-	for _, msg := range messages {
-		if strings.TrimSpace(msg.Role) != "system" {
-			continue
-		}
-		content, _ := msg.Content.(string)
-		return content
-	}
-	return ""
-}
-
-func stripToolAppendixFromSystemPrompt(systemPrompt string, appendConfig PromptAppendConfig, toolDefs []api.ToolDetailResponse, includeAfterCallHints bool) (string, bool) {
-	prompt := strings.TrimSpace(systemPrompt)
-	if prompt == "" {
-		return "", false
-	}
-	appendix := strings.TrimSpace(buildToolAppendix(toolDefs, appendConfig, includeAfterCallHints))
-	if appendix == "" {
-		return prompt, true
-	}
-	if prompt == appendix {
-		return "", true
-	}
-	suffix := "\n\n" + appendix
-	if !strings.HasSuffix(prompt, suffix) {
-		return "", false
-	}
-	return strings.TrimSpace(strings.TrimSuffix(prompt, suffix)), true
 }
 
 func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
@@ -337,6 +301,24 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		return nil
 	}
 	content := turn.content.String()
+	if s.finalTurnAttempted && len(toolCalls) > 0 {
+		if strings.TrimSpace(content) != "" {
+			msg := s.newAssistantTurnMessage(turn, content, nil)
+			s.messages = append(s.messages, msg)
+		}
+		if turn.trace != nil {
+			turn.trace.appendToolCalls(toolCalls)
+			turn.trace.completeOK(content, turn.reasoning.String(), toolCalls, strings.TrimSpace(turn.finishReason), turn.usage)
+		}
+		s.emitPendingUsageDelta()
+		s.emitDebugLLMChatDelta(turn.trace)
+		s.currentTurn = nil
+		if strings.TrimSpace(content) == "" {
+			s.enqueueFallback("Tool execution loop reached the maximum number of steps.")
+		}
+		s.finished = true
+		return nil
+	}
 	if content != "" || len(toolCalls) > 0 {
 		msg := s.newAssistantTurnMessage(turn, content, toolCalls)
 		s.messages = append(s.messages, msg)
@@ -550,6 +532,12 @@ func (s *llmRunStream) appendPendingSteers() {
 	}
 	for _, steer := range s.runControl.DrainSteers() {
 		s.pending = append(s.pending, NewSteerDelta(steer))
+		if strings.TrimSpace(steer.Message) != "" {
+			s.pendingSteerInputs = append(s.pendingSteerInputs, map[string]any{
+				"role":    "user",
+				"content": steer.Message,
+			})
+		}
 		s.messages = append(s.messages, openAIMessage{
 			Role:    "user",
 			Content: steer.Message,

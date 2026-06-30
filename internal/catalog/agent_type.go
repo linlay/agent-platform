@@ -280,6 +280,16 @@ func ValidateAgentCoderBackend(def AgentDefinition) error {
 	return nil
 }
 
+func ValidateAgentModelConfig(def AgentDefinition) error {
+	if AgentUsesACPCoderBackend(def) {
+		return nil
+	}
+	if strings.TrimSpace(def.ModelKey) == "" {
+		return fmt.Errorf("modelConfig.modelKey is required")
+	}
+	return nil
+}
+
 func ValidateAgentKBaseConfig(def AgentDefinition) error {
 	if !strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeKBase) {
 		return nil

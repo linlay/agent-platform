@@ -2,6 +2,7 @@ package server
 
 import (
 	"reflect"
+	"strings"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
@@ -15,10 +16,11 @@ func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts
 	if s.deps.SystemInits == nil {
 		return nil, nil
 	}
+	toolDefs := s.deps.Tools.Definitions()
 	profiles := s.deps.SystemInits.BuildSystemInitProfiles(
 		*session,
 		req,
-		s.deps.Tools.Definitions(),
+		toolDefs,
 		s.deps.Config.Defaults.Plan.MaxSteps,
 		s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask,
 		s.deps.Config.Prompts,
@@ -26,6 +28,7 @@ func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts
 	if len(profiles) == 0 {
 		return nil, nil
 	}
+	profiles = systemInitProfilesForQueryRegistration(*session, profiles)
 
 	systemInits := map[string]*chat.SystemInitLine{}
 	if !created {
@@ -37,40 +40,23 @@ func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts
 	}
 	cache := make(map[string]contracts.SystemInitSnapshot, len(profiles))
 	pendingSystems := make([]chat.QueryLineSystemInit, 0, len(profiles))
-	for index, profile := range profiles {
+	for _, profile := range profiles {
 		initLine := systemInits[profile.CacheKey]
-		system := chat.QueryLineSystemInit{
-			Fingerprint:    profile.Fingerprint,
-			CacheKey:       profile.CacheKey,
-			SystemMessage:  cloneMap(profile.SystemMessage),
-			Tools:          cloneAnySlice(profile.Tools),
-			Model:          cloneMap(profile.Model),
-			ToolChoice:     profile.ToolChoice,
-			RequestOptions: cloneMap(profile.RequestOptions),
-		}
+		system := queryLineSystemInitFromProfile(profile)
 		if initLine != nil && sameSystemInitPayload(initLine, system) {
-			cache[profile.CacheKey] = contracts.SystemInitSnapshot{
+			cache[profile.CacheKey] = systemInitSnapshotFromLine(chat.QueryLineSystemInit{
 				Fingerprint:    initLine.Fingerprint,
+				CacheKey:       initLine.CacheKey,
 				SystemMessage:  cloneMap(initLine.SystemMessage),
 				Tools:          cloneAnySlice(initLine.Tools),
 				Model:          cloneMap(initLine.Model),
 				ToolChoice:     initLine.ToolChoice,
 				RequestOptions: cloneMap(initLine.RequestOptions),
-			}
-			continue
-		}
-		if index != 0 {
+			})
 			continue
 		}
 		pendingSystems = append(pendingSystems, system)
-		cache[profile.CacheKey] = contracts.SystemInitSnapshot{
-			Fingerprint:    profile.Fingerprint,
-			SystemMessage:  cloneMap(profile.SystemMessage),
-			Tools:          cloneAnySlice(profile.Tools),
-			Model:          cloneMap(profile.Model),
-			ToolChoice:     profile.ToolChoice,
-			RequestOptions: cloneMap(profile.RequestOptions),
-		}
+		cache[profile.CacheKey] = systemInitSnapshotFromLine(system)
 	}
 	if len(cache) > 0 {
 		session.SystemInitCache = cache
@@ -97,30 +83,92 @@ func (s *Server) buildSystemInitsForChildTask(req api.QueryRequest, session *con
 	if s.deps.SystemInits == nil {
 		return nil
 	}
+	toolDefs := s.deps.Tools.Definitions()
 	profiles := s.deps.SystemInits.BuildSystemInitProfiles(
 		*session,
 		req,
-		s.deps.Tools.Definitions(),
+		toolDefs,
 		s.deps.Config.Defaults.Plan.MaxSteps,
 		s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask,
 		s.deps.Config.Prompts,
 	)
 	systems := make([]chat.QueryLineSystemInit, 0, len(profiles))
-	for index, profile := range profiles {
-		if index > 0 {
-			break
-		}
-		systems = append(systems, chat.QueryLineSystemInit{
-			CacheKey:       profile.CacheKey,
-			Fingerprint:    profile.Fingerprint,
-			SystemMessage:  cloneMap(profile.SystemMessage),
-			Tools:          cloneAnySlice(profile.Tools),
-			Model:          cloneMap(profile.Model),
-			ToolChoice:     profile.ToolChoice,
-			RequestOptions: cloneMap(profile.RequestOptions),
-		})
+	for _, profile := range systemInitProfilesForQueryRegistration(*session, profiles) {
+		systems = append(systems, queryLineSystemInitFromProfile(profile))
 	}
 	return systems
+}
+
+func (s *Server) hydrateSystemInitCache(req api.QueryRequest, session *contracts.QuerySession) {
+	if session == nil || s.deps.SystemInits == nil {
+		return
+	}
+	var toolDefs []api.ToolDetailResponse
+	if s.deps.Tools != nil {
+		toolDefs = s.deps.Tools.Definitions()
+	}
+	profiles := s.deps.SystemInits.BuildSystemInitProfiles(
+		*session,
+		req,
+		toolDefs,
+		s.deps.Config.Defaults.Plan.MaxSteps,
+		s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask,
+		s.deps.Config.Prompts,
+	)
+	profiles = systemInitProfilesForQueryRegistration(*session, profiles)
+	if len(profiles) == 0 {
+		return
+	}
+	cache := make(map[string]contracts.SystemInitSnapshot, len(profiles))
+	for _, profile := range profiles {
+		line := queryLineSystemInitFromProfile(profile)
+		cache[line.CacheKey] = systemInitSnapshotFromLine(line)
+	}
+	session.SystemInitCache = cache
+}
+
+func systemInitProfilesForQueryRegistration(session contracts.QuerySession, profiles []contracts.SystemInitProfile) []contracts.SystemInitProfile {
+	if len(profiles) == 0 {
+		return nil
+	}
+	out := make([]contracts.SystemInitProfile, 0, len(profiles))
+	for _, profile := range profiles {
+		if !shouldRegisterSystemInitProfileOnQuery(session, profile) {
+			continue
+		}
+		out = append(out, profile)
+	}
+	return out
+}
+
+func shouldRegisterSystemInitProfileOnQuery(session contracts.QuerySession, profile contracts.SystemInitProfile) bool {
+	if session.PlanningMode && strings.EqualFold(strings.TrimSpace(session.Mode), "CODER") {
+		return strings.TrimSpace(profile.CacheKey) == "coder:plan"
+	}
+	return true
+}
+
+func queryLineSystemInitFromProfile(profile contracts.SystemInitProfile) chat.QueryLineSystemInit {
+	return chat.QueryLineSystemInit{
+		Fingerprint:    profile.Fingerprint,
+		CacheKey:       profile.CacheKey,
+		SystemMessage:  cloneMap(profile.SystemMessage),
+		Tools:          cloneAnySlice(profile.Tools),
+		Model:          cloneMap(profile.Model),
+		ToolChoice:     profile.ToolChoice,
+		RequestOptions: cloneMap(profile.RequestOptions),
+	}
+}
+
+func systemInitSnapshotFromLine(line chat.QueryLineSystemInit) contracts.SystemInitSnapshot {
+	return contracts.SystemInitSnapshot{
+		Fingerprint:    line.Fingerprint,
+		SystemMessage:  cloneMap(line.SystemMessage),
+		Tools:          cloneAnySlice(line.Tools),
+		Model:          cloneMap(line.Model),
+		ToolChoice:     line.ToolChoice,
+		RequestOptions: cloneMap(line.RequestOptions),
+	}
 }
 
 func cloneMap(src map[string]any) map[string]any {

@@ -191,12 +191,18 @@ func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (a
 		return api.AgentDetailResponse{}, err
 	}
 	key := strings.TrimSpace(req.Key)
-	definition := s.applyCoderDefaultAgentConfig(req.Definition)
-	key, definition = s.normalizeCoderCreation(key, definition)
+	definition := s.applyCreateDefaultAgentConfig(req.Definition)
+	key, definition = s.normalizeGeneratedModeCreation(key, definition)
 	if _, err := editor.CreateEditableAgent(key, definition, req.SoulPrompt, req.AgentsPrompt); err != nil {
 		return api.AgentDetailResponse{}, mapAgentEditError(err)
 	}
 	return s.reloadAndLoadAgent(ctx, key)
+}
+
+func (s *Server) applyCreateDefaultAgentConfig(definition map[string]any) map[string]any {
+	definition = s.applyCoderDefaultAgentConfig(definition)
+	definition = s.applyKBaseDefaultAgentConfig(definition)
+	return definition
 }
 
 func (s *Server) applyCoderDefaultAgentConfig(definition map[string]any) map[string]any {
@@ -240,15 +246,48 @@ func (s *Server) applyCoderDefaultAgentConfig(definition map[string]any) map[str
 	return out
 }
 
-func (s *Server) normalizeCoderCreation(key string, definition map[string]any) (string, map[string]any) {
+func (s *Server) applyKBaseDefaultAgentConfig(definition map[string]any) map[string]any {
+	if definition == nil {
+		return nil
+	}
+	mode := catalog.NormalizeAgentModeForRuntime(stringValue(definition["mode"]))
+	if mode != catalog.AgentModeKBase {
+		return definition
+	}
+	modelKey := strings.TrimSpace(s.deps.Config.KBase.DefaultAgent.ModelKey)
+	if modelKey == "" {
+		return definition
+	}
+
+	out := contracts.CloneMap(definition)
+	modelConfig := contracts.CloneMap(contracts.AnyMapNode(out["modelConfig"]))
+	if modelConfig == nil {
+		modelConfig = map[string]any{}
+	}
+	if strings.TrimSpace(stringValue(modelConfig["modelKey"])) == "" {
+		modelConfig["modelKey"] = modelKey
+	}
+	if len(modelConfig) > 0 {
+		out["modelConfig"] = modelConfig
+	}
+	return out
+}
+
+func (s *Server) normalizeGeneratedModeCreation(key string, definition map[string]any) (string, map[string]any) {
 	if definition == nil {
 		return key, definition
 	}
 	mode := catalog.NormalizeAgentModeForRuntime(stringValue(definition["mode"]))
-	if mode != catalog.AgentModeCoder {
+	prefix := ""
+	switch mode {
+	case catalog.AgentModeCoder:
+		prefix = "coder"
+	case catalog.AgentModeKBase:
+		prefix = "kbase"
+	default:
 		return key, definition
 	}
-	newKey := "coder-" + strconv.FormatInt(time.Now().Unix(), 36)
+	newKey := prefix + "-" + strconv.FormatInt(time.Now().Unix(), 36)
 	out := contracts.CloneMap(definition)
 	out["key"] = newKey
 
