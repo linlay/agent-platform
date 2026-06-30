@@ -2266,15 +2266,15 @@ func assertJSONLCoderExecuteSyntheticQuery(t *testing.T, store chat.Store, chatI
 			t.Fatalf("did not expect systems inside synthetic query payload %#v", query)
 		}
 		rawSystems, _ := queryLine["systems"].([]any)
-		if len(rawSystems) != 2 {
-			t.Fatalf("expected execute and final systems on synthetic query, got %#v", queryLine)
+		if len(rawSystems) != 1 {
+			t.Fatalf("expected execute system on synthetic query, got %#v", queryLine)
 		}
 		systemKeys := map[string]bool{}
 		for _, rawSystem := range rawSystems {
 			system, _ := rawSystem.(map[string]any)
 			systemKeys[stringValue(system["cacheKey"])] = true
 		}
-		if !systemKeys["coder:execute"] || !systemKeys["coder:execute:final"] {
+		if !systemKeys["coder:execute"] {
 			t.Fatalf("expected coder execute system keys, got %#v in %#v", systemKeys, queryLine)
 		}
 		rawMessages, _ := queryLine["messages"].([]any)

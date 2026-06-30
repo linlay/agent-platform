@@ -721,14 +721,7 @@ func (s *coderPlanningStream) executeSystemInitProfiles() []SystemInitProfile {
 	toolDefs := s.engine.tools.Definitions()
 	profile := buildCoderPlanningExecuteSystemInitProfile(session, s.req, s.settings, toolDefs)
 	(SystemInitProfileBuilder{Models: s.engine.models}).applyRequestProfile(&profile, session, s.req)
-	profiles := []SystemInitProfile{profile}
-	executeTools := coderPlanningExecuteTools(s.settings.Execute, session.ToolNames)
-	effectiveDefs := effectiveToolDefinitions(toolDefs, executeTools, session.AgentHasRuntimeSandbox)
-	if finalProfile, ok := BuildFinalSystemInitProfile(profile, session.PromptAppend, effectiveDefs); ok {
-		(SystemInitProfileBuilder{Models: s.engine.models}).applyRequestProfile(&finalProfile, session, s.req)
-		profiles = append(profiles, finalProfile)
-	}
-	return profiles
+	return []SystemInitProfile{profile}
 }
 
 func systemInitProfilePayloads(profiles []SystemInitProfile) []map[string]any {

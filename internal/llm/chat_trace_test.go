@@ -432,13 +432,9 @@ func traceTestSessionWithSystemCache(t *testing.T, engine *LLMAgentEngine, req a
 		engine.cfg.Defaults.Plan.MaxWorkRoundsPerTask,
 		engine.cfg.Prompts,
 	)
-	cache := make(map[string]contracts.SystemInitSnapshot, len(profiles)*2)
+	cache := make(map[string]contracts.SystemInitSnapshot, len(profiles))
 	for _, profile := range profiles {
 		cache[profile.CacheKey] = traceSystemInitSnapshot(profile)
-		if finalProfile, ok := BuildFinalSystemInitProfile(profile, session.PromptAppend, traceToolDefsFromProfile(profile)); ok {
-			(SystemInitProfileBuilder{Models: engine.models}).applyRequestProfile(&finalProfile, session, req)
-			cache[finalProfile.CacheKey] = traceSystemInitSnapshot(finalProfile)
-		}
 	}
 	session.SystemInitCache = cache
 	return session
@@ -453,26 +449,6 @@ func traceSystemInitSnapshot(profile contracts.SystemInitProfile) contracts.Syst
 		ToolChoice:     profile.ToolChoice,
 		RequestOptions: cloneAnyMapViaJSON(profile.RequestOptions),
 	}
-}
-
-func traceToolDefsFromProfile(profile contracts.SystemInitProfile) []api.ToolDetailResponse {
-	out := make([]api.ToolDetailResponse, 0, len(profile.Tools))
-	for _, raw := range profile.Tools {
-		tool, _ := raw.(map[string]any)
-		fn, _ := tool["function"].(map[string]any)
-		name, _ := fn["name"].(string)
-		if strings.TrimSpace(name) == "" {
-			continue
-		}
-		description, _ := fn["description"].(string)
-		parameters, _ := fn["parameters"].(map[string]any)
-		out = append(out, api.ToolDetailResponse{
-			Name:        strings.TrimSpace(name),
-			Description: description,
-			Parameters:  cloneAnyMapViaJSON(parameters),
-		})
-	}
-	return out
 }
 
 func drainTraceTestStream(t *testing.T, stream contracts.AgentStream) {

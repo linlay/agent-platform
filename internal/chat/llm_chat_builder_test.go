@@ -573,9 +573,9 @@ func TestStepWriterDoesNotPersistInlineProfileAsStepSystems(t *testing.T) {
 			"protocol":    "OPENAI",
 		},
 		"system": map[string]any{
-			"cacheKey":      "react:main:final",
-			"fingerprint":   "sha256:final",
-			"systemMessage": map[string]any{"role": "system", "content": "final system"},
+			"cacheKey":      "react:main",
+			"fingerprint":   "sha256:inline",
+			"systemMessage": map[string]any{"role": "system", "content": "inline system"},
 			"tools":         []any{},
 			"requestOptions": map[string]any{
 				"stream": true,

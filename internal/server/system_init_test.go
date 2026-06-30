@@ -81,8 +81,8 @@ func TestPrepareSystemInitCacheWritesFreshSystemMessageOnPayloadChange(t *testin
 	if err != nil {
 		t.Fatalf("prepare system init cache: %v", err)
 	}
-	if len(pending) != 2 {
-		t.Fatalf("expected changed system payload and final profile to append system cache lines, got %#v", pending)
+	if len(pending) != 1 {
+		t.Fatalf("expected changed system payload to append one system cache line, got %#v", pending)
 	}
 	if pending[0].Fingerprint != oldProfiles[0].Fingerprint {
 		t.Fatalf("expected same fingerprint to be retained, got %#v", pending[0])
@@ -101,9 +101,6 @@ func TestPrepareSystemInitCacheWritesFreshSystemMessageOnPayloadChange(t *testin
 	}
 	if !reflect.DeepEqual(snapshot.Tools, pending[0].Tools) {
 		t.Fatalf("expected session cache tools to match pending tools, pending=%#v cache=%#v", pending[0].Tools, snapshot.Tools)
-	}
-	if _, ok := newSession.SystemInitCache["react:main:final"]; !ok {
-		t.Fatalf("expected final profile cache to be populated, got %#v", newSession.SystemInitCache)
 	}
 }
 
@@ -138,17 +135,14 @@ func TestPrepareSystemInitCacheReturnsPendingLineOnFingerprintChange(t *testing.
 	if err != nil {
 		t.Fatalf("prepare system init cache: %v", err)
 	}
-	if len(pending) != 2 {
-		t.Fatalf("expected main and final pending system cache lines, got %#v", pending)
+	if len(pending) != 1 {
+		t.Fatalf("expected one pending system cache line, got %#v", pending)
 	}
 	if pending[0].CacheKey != "react:main" || pending[0].Fingerprint == "" {
 		t.Fatalf("unexpected pending system cache line %#v", pending[0])
 	}
 	if _, ok := session.SystemInitCache["react:main"]; !ok {
 		t.Fatalf("expected session cache to be populated, got %#v", session.SystemInitCache)
-	}
-	if _, ok := session.SystemInitCache["react:main:final"]; !ok {
-		t.Fatalf("expected final session cache to be populated, got %#v", session.SystemInitCache)
 	}
 	loaded, err := store.LoadSystemInit(req.ChatID, "react:main")
 	if err != nil {
@@ -187,8 +181,8 @@ func TestPrepareSystemInitCacheRegistersPlanExecuteProfiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare system init cache: %v", err)
 	}
-	if len(pending) != 4 {
-		t.Fatalf("expected plan/execute/final/summary profiles in query systems, got %#v", pending)
+	if len(pending) != 3 {
+		t.Fatalf("expected plan/execute/summary profiles in query systems, got %#v", pending)
 	}
 	if pending[0].CacheKey != "plan-execute:plan" {
 		t.Fatalf("expected plan profile first, got %#v", pending[0])
@@ -198,9 +192,6 @@ func TestPrepareSystemInitCacheRegistersPlanExecuteProfiles(t *testing.T) {
 	}
 	if _, ok := session.SystemInitCache["plan-execute:execute"]; !ok {
 		t.Fatalf("expected execute profile cached, got %#v", session.SystemInitCache)
-	}
-	if _, ok := session.SystemInitCache["plan-execute:execute:final"]; !ok {
-		t.Fatalf("expected execute final profile cached, got %#v", session.SystemInitCache)
 	}
 	if _, ok := session.SystemInitCache["plan-execute:summary"]; !ok {
 		t.Fatalf("expected summary profile cached, got %#v", session.SystemInitCache)
@@ -235,10 +226,10 @@ func TestMainQueryDedupsSystemsOnlyWhenPayloadMatches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first prepare system init cache: %v", err)
 	}
-	if len(firstPending) != 2 {
-		t.Fatalf("expected first main query to carry main and final system init, got %#v", firstPending)
+	if len(firstPending) != 1 {
+		t.Fatalf("expected first main query to carry one system init, got %#v", firstPending)
 	}
-	if firstPending[0].CacheKey != "react:main" || firstPending[1].CacheKey != "react:main:final" {
+	if firstPending[0].CacheKey != "react:main" {
 		t.Fatalf("unexpected first system init cache keys %#v", firstPending)
 	}
 	if err := store.AppendQueryLine(req.ChatID, chat.QueryLine{
@@ -307,10 +298,10 @@ func TestMainQueryDedupsSystemsWhenOnlyReferencesChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first prepare system init cache: %v", err)
 	}
-	if len(firstPending) != 2 {
-		t.Fatalf("expected first main query to carry main and final system init, got %#v", firstPending)
+	if len(firstPending) != 1 {
+		t.Fatalf("expected first main query to carry one system init, got %#v", firstPending)
 	}
-	if firstPending[0].CacheKey != "react:main" || firstPending[1].CacheKey != "react:main:final" {
+	if firstPending[0].CacheKey != "react:main" {
 		t.Fatalf("unexpected first system init cache keys %#v", firstPending)
 	}
 	if err := store.AppendQueryLine(req.ChatID, chat.QueryLine{

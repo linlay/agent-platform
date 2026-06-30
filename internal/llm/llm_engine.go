@@ -202,7 +202,6 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		toolChoice:          toolChoice,
 		postToolHook:        options.PostToolHook,
 		allowToolUse:        allowToolUse,
-		finalTurnSystem:     deriveFinalTurnSystemPrompt(messages, session, req, model.Key, promptBuildOptions),
 		promptBuildOptions:  promptBuildOptions,
 		onApprovalSummary:   approvalSummarySinkFromContext(ctx),
 		systemInitCacheKey:  cacheKey,

@@ -49,7 +49,6 @@ type llmRunStream struct {
 	cancelSent          bool
 	finalTurnAttempted  bool
 	allowToolUse        bool
-	finalTurnSystem     string
 	previousToolResult  any
 	queuedToolCalls     []*preparedToolInvocation
 	activeToolCall      *preparedToolInvocation

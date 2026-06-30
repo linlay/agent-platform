@@ -7,7 +7,6 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/llm"
 )
 
 func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts.QuerySession, created bool) ([]chat.QueryLineSystemInit, error) {
@@ -132,15 +131,12 @@ func systemInitProfilesForQueryRegistration(session contracts.QuerySession, prof
 	if len(profiles) == 0 {
 		return nil
 	}
-	out := make([]contracts.SystemInitProfile, 0, len(profiles)*2)
+	out := make([]contracts.SystemInitProfile, 0, len(profiles))
 	for _, profile := range profiles {
 		if !shouldRegisterSystemInitProfileOnQuery(session, profile) {
 			continue
 		}
 		out = append(out, profile)
-		if finalProfile, ok := llm.BuildFinalSystemInitProfile(profile, session.PromptAppend, toolDefsForSystemProfile(profile)); ok {
-			out = append(out, finalProfile)
-		}
 	}
 	return out
 }
@@ -173,30 +169,6 @@ func systemInitSnapshotFromLine(line chat.QueryLineSystemInit) contracts.SystemI
 		ToolChoice:     line.ToolChoice,
 		RequestOptions: cloneMap(line.RequestOptions),
 	}
-}
-
-func toolDefsForSystemProfile(profile contracts.SystemInitProfile) []api.ToolDetailResponse {
-	out := make([]api.ToolDetailResponse, 0, len(profile.Tools))
-	for _, raw := range profile.Tools {
-		tool, _ := raw.(map[string]any)
-		fn, _ := tool["function"].(map[string]any)
-		name, _ := fn["name"].(string)
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
-		}
-		description, _ := fn["description"].(string)
-		parameters, _ := fn["parameters"].(map[string]any)
-		out = append(out, api.ToolDetailResponse{
-			Name:        name,
-			Description: description,
-			Parameters:  cloneMap(parameters),
-		})
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
 }
 
 func cloneMap(src map[string]any) map[string]any {

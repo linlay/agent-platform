@@ -751,7 +751,7 @@ func invokeAgentsToolDefinition() api.ToolDetailResponse {
 	}
 }
 
-func TestFinalTurnUsesCachedSystemPromptWithoutToolAppendix(t *testing.T) {
+func TestFinalTurnKeepsSystemToolsAndAppendsUserInstruction(t *testing.T) {
 	req := api.QueryRequest{ChatID: "chat-1", Message: "hello"}
 	session := contracts.QuerySession{
 		RunID:        "run-1",
@@ -771,11 +771,6 @@ func TestFinalTurnUsesCachedSystemPromptWithoutToolAppendix(t *testing.T) {
 	if !strings.Contains(oldSystemPrompt, "danger_tool") {
 		t.Fatalf("expected initial system prompt to contain tool appendix, got %q", oldSystemPrompt)
 	}
-	finalSystem := deriveFinalTurnSystemPrompt([]openAIMessage{{Role: "system", Content: oldSystemPrompt}}, session, req, "mock-model", PromptBuildOptions{
-		Stage:                 "react",
-		ToolDefinitions:       toolDefs,
-		IncludeAfterCallHints: true,
-	})
 
 	stream := &llmRunStream{
 		req:     req,
@@ -788,7 +783,7 @@ func TestFinalTurnUsesCachedSystemPromptWithoutToolAppendix(t *testing.T) {
 			{Role: "system", Content: oldSystemPrompt},
 			{Role: "user", Content: "hello"},
 		},
-		finalTurnSystem: finalSystem,
+		systemInitCacheKey: "react:main",
 		promptBuildOptions: PromptBuildOptions{
 			Stage:                 "react",
 			ToolDefinitions:       toolDefs,
@@ -796,36 +791,24 @@ func TestFinalTurnUsesCachedSystemPromptWithoutToolAppendix(t *testing.T) {
 		},
 	}
 
-	stream.prepareFinalTurnWithoutTools()
-	if len(stream.toolSpecs) != 0 {
-		t.Fatalf("expected final turn tool specs to be cleared, got %#v", stream.toolSpecs)
+	stream.prepareFinalAnswerTurn()
+	if len(stream.toolSpecs) != 1 {
+		t.Fatalf("expected final turn to keep tool specs, got %#v", stream.toolSpecs)
 	}
 	systemPrompt, _ := stream.messages[0].Content.(string)
-	if strings.Contains(systemPrompt, "danger_tool") {
-		t.Fatalf("expected rebuilt system prompt to omit tool appendix, got %q", systemPrompt)
+	if !strings.Contains(systemPrompt, "danger_tool") {
+		t.Fatalf("expected final turn to keep cached system prompt with tool appendix, got %q", systemPrompt)
 	}
-}
-
-func TestStripToolAppendixPreservesOriginalDynamicSystemPrompt(t *testing.T) {
-	toolDefs := []api.ToolDetailResponse{{
-		Name:          "danger_tool",
-		AfterCallHint: "Call danger_tool only when tools are available.",
-	}}
-	appendix := buildToolAppendix(toolDefs, contracts.DefaultPromptAppendConfig(), true)
-	basePrompt := "Runtime Context: System Environment\n" +
-		"timezone: Asia/Shanghai\n\n" +
-		"Agent instructions stay fixed"
-	systemPrompt := basePrompt + "\n\n" + appendix
-
-	got, ok := stripToolAppendixFromSystemPrompt(systemPrompt, contracts.DefaultPromptAppendConfig(), toolDefs, true)
-	if !ok {
-		t.Fatalf("expected tool appendix to be stripped")
+	if stream.systemInitCacheKey != "react:main" {
+		t.Fatalf("expected final turn to keep system cache key, got %q", stream.systemInitCacheKey)
 	}
-	if got != basePrompt {
-		t.Fatalf("stripped prompt = %q, want %q", got, basePrompt)
+	last := stream.messages[len(stream.messages)-1]
+	if last.Role != "user" {
+		t.Fatalf("expected final instruction to be a user message, got %#v", last)
 	}
-	if strings.Contains(got, "danger_tool") {
-		t.Fatalf("expected stripped prompt to omit tool appendix, got %q", got)
+	content, _ := last.Content.(string)
+	if !strings.Contains(content, "Do not call any more tools") || !strings.Contains(content, "final answer or summary") {
+		t.Fatalf("unexpected final instruction %q", content)
 	}
 }
 
