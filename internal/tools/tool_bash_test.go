@@ -21,7 +21,22 @@ func TestResolveHostShellInvocationDefaultsToPowerShellOnWindows(t *testing.T) {
 	if executable != "powershell.exe" {
 		t.Fatalf("expected powershell.exe, got %q", executable)
 	}
-	wantArgs := []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "Get-Process"}
+	wantCommand := "$OutputEncoding = New-Object System.Text.UTF8Encoding -ArgumentList $false; [Console]::OutputEncoding = $OutputEncoding; Get-Process"
+	wantArgs := []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", wantCommand}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
+	}
+}
+
+func TestResolveHostShellInvocationDefaultsToUTF8CmdOnWindows(t *testing.T) {
+	executable, args := resolveHostShellInvocation(config.BashConfig{
+		ShellExecutable: "cmd.exe",
+	}, "dir", "windows")
+
+	if executable != "cmd.exe" {
+		t.Fatalf("expected cmd.exe, got %q", executable)
+	}
+	wantArgs := []string{"/d", "/s", "/c", "chcp 65001 >NUL & dir"}
 	if !reflect.DeepEqual(args, wantArgs) {
 		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
 	}

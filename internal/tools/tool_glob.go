@@ -80,8 +80,8 @@ func (t *RuntimeToolExecutor) invokeGlob(ctx context.Context, args map[string]an
 			exitCode = exitErr.ExitCode()
 		}
 	}
-	out := stdout.String()
-	errText := stderr.String()
+	out := decodeSubprocessOutput(stdout.Bytes())
+	errText := decodeSubprocessOutput(stderr.Bytes())
 	if err != nil && strings.TrimSpace(out) == "" && exitCode != 1 {
 		if strings.Contains(strings.ToLower(errText), "glob") {
 			return fileToolError("glob_invalid_pattern", strings.TrimSpace(errText)), nil
