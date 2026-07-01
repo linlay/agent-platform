@@ -110,7 +110,7 @@ Archive 摘要、详情和搜索结果都会返回时间字段：`createdAt` 为
 
 `query` 对象包含 `message`、`chatId`、`role`、`params`。`role` 可选值为 `user`、`assistant`、`automation`、`system`；automation 未显式配置时默认为 `automation`。
 
-Automation 摘要和详情中的 `nextFireAt` 是下次触发时间的 epoch milliseconds；`nextFireTime` 是按 automation `zoneId` 格式化的 RFC3339 展示时间。Execution history 中的 `startedAt`、`completedAt` 仍为 epoch milliseconds。
+Automation 摘要和详情中的 `nextFireAt` 是下次触发时间的 epoch milliseconds；`nextFireTime` 是按 automation `zoneId` 格式化的 RFC3339 展示时间。`lastExecution` 与 execution history 中的 `startedAt`、`completedAt` 为 epoch milliseconds；对应的 `startedTime`、`completedTime` 为按 automation 时区格式化的 RFC3339Nano 可读时间。
 
 ### Run
 

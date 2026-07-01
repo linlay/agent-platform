@@ -287,9 +287,10 @@ func (s *Server) listAutomationExecutions(req api.AutomationExecutionsRequest) (
 	if err != nil {
 		return api.AutomationExecutionListResponse{}, err
 	}
+	loc := s.automationLocationForAutomationID(id)
 	response := api.AutomationExecutionListResponse{Items: make([]api.AutomationExecutionResponse, 0, len(items)), Total: total}
 	for _, item := range items {
-		response.Items = append(response.Items, mapAutomationExecution(item))
+		response.Items = append(response.Items, mapAutomationExecution(item, loc))
 	}
 	return response, nil
 }
@@ -349,13 +350,7 @@ func (s *Server) mapAutomationSummary(def automation.Definition, next *time.Time
 			return api.AutomationSummaryResponse{}, err
 		}
 		if last != nil {
-			resp.LastExecution = &api.AutomationExecutionBrief{
-				ID:         last.ID,
-				Status:     last.Status,
-				StartedAt:  last.StartedAt,
-				DurationMs: cloneInt64Ptr(last.DurationMs),
-				Error:      last.Error,
-			}
+			resp.LastExecution = mapAutomationExecutionBrief(*last, s.automationLocationForDefinition(def))
 		}
 	}
 	return resp, nil
@@ -412,8 +407,24 @@ func applyAutomationUpdate(def *automation.Definition, req api.UpdateAutomationR
 	}
 }
 
-func mapAutomationExecution(item automation.Execution) api.AutomationExecutionResponse {
-	return api.AutomationExecutionResponse{
+func mapAutomationExecutionBrief(item automation.Execution, loc *time.Location) *api.AutomationExecutionBrief {
+	resp := &api.AutomationExecutionBrief{
+		ID:          item.ID,
+		Status:      item.Status,
+		StartedAt:   item.StartedAt,
+		StartedTime: automationReadableTimeMillis(item.StartedAt, loc),
+		CompletedAt: cloneInt64Ptr(item.CompletedAt),
+		DurationMs:  cloneInt64Ptr(item.DurationMs),
+		Error:       item.Error,
+	}
+	if item.CompletedAt != nil {
+		resp.CompletedTime = automationReadableTimeMillis(*item.CompletedAt, loc)
+	}
+	return resp
+}
+
+func mapAutomationExecution(item automation.Execution, loc *time.Location) api.AutomationExecutionResponse {
+	resp := api.AutomationExecutionResponse{
 		ID:             item.ID,
 		AutomationID:   item.AutomationID,
 		AutomationName: item.AutomationName,
@@ -423,9 +434,56 @@ func mapAutomationExecution(item automation.Execution) api.AutomationExecutionRe
 		Status:         item.Status,
 		Error:          item.Error,
 		StartedAt:      item.StartedAt,
+		StartedTime:    automationReadableTimeMillis(item.StartedAt, loc),
 		CompletedAt:    cloneInt64Ptr(item.CompletedAt),
 		DurationMs:     cloneInt64Ptr(item.DurationMs),
 	}
+	if item.CompletedAt != nil {
+		resp.CompletedTime = automationReadableTimeMillis(*item.CompletedAt, loc)
+	}
+	return resp
+}
+
+func (s *Server) automationLocationForAutomationID(automationID string) *time.Location {
+	if s != nil && s.deps.AutomationRegistry != nil {
+		if defs, err := s.deps.AutomationRegistry.Load(); err == nil {
+			for _, def := range defs {
+				if def.ID == automationID {
+					return s.automationLocationForDefinition(def)
+				}
+			}
+		}
+	}
+	return loadAutomationAPILocation("", s.deps.Config.Automation.DefaultZoneID)
+}
+
+func (s *Server) automationLocationForDefinition(def automation.Definition) *time.Location {
+	return loadAutomationAPILocation(def.Environment.ZoneID, s.deps.Config.Automation.DefaultZoneID)
+}
+
+func loadAutomationAPILocation(zoneID string, defaultZoneID string) *time.Location {
+	if loc, err := loadAutomationAPILocationByID(zoneID); err == nil {
+		return loc
+	}
+	if loc, err := loadAutomationAPILocationByID(defaultZoneID); err == nil {
+		return loc
+	}
+	return time.Local
+}
+
+func loadAutomationAPILocationByID(zoneID string) (*time.Location, error) {
+	zoneID = strings.TrimSpace(zoneID)
+	if zoneID == "" {
+		return nil, errors.New("empty zoneId")
+	}
+	return time.LoadLocation(zoneID)
+}
+
+func automationReadableTimeMillis(ms int64, loc *time.Location) string {
+	if loc == nil {
+		loc = time.Local
+	}
+	return time.UnixMilli(ms).In(loc).Format(time.RFC3339Nano)
 }
 
 func (s *Server) nextAutomationID(name string) (string, error) {

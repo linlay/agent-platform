@@ -254,23 +254,100 @@ func (s *Server) applyKBaseDefaultAgentConfig(definition map[string]any) map[str
 	if mode != catalog.AgentModeKBase {
 		return definition
 	}
-	modelKey := strings.TrimSpace(s.deps.Config.KBase.DefaultAgent.ModelKey)
-	if modelKey == "" {
-		return definition
-	}
+	defaults := s.deps.Config.KBase.DefaultAgent
+	modelKey := strings.TrimSpace(defaults.ModelKey)
+	reasoningEffort := strings.TrimSpace(defaults.ReasoningEffort)
+	embeddingDefaults := s.deps.Config.KBase.Embedding
+	embeddingProviderKey := strings.TrimSpace(embeddingDefaults.ProviderKey)
+	embeddingModel := strings.TrimSpace(embeddingDefaults.Model)
 
 	out := contracts.CloneMap(definition)
-	modelConfig := contracts.CloneMap(contracts.AnyMapNode(out["modelConfig"]))
-	if modelConfig == nil {
-		modelConfig = map[string]any{}
+	if isEmptyDefinitionValue(out["icon"]) {
+		out["icon"] = map[string]any{"name": "database"}
 	}
-	if strings.TrimSpace(stringValue(modelConfig["modelKey"])) == "" {
-		modelConfig["modelKey"] = modelKey
+	visibility := contracts.CloneMap(contracts.AnyMapNode(out["visibility"]))
+	if visibility == nil {
+		visibility = map[string]any{}
 	}
-	if len(modelConfig) > 0 {
-		out["modelConfig"] = modelConfig
+	if !hasNonBlankStringList(visibility["scopes"]) {
+		visibility["scopes"] = []any{"nav"}
+		out["visibility"] = visibility
+	}
+	if modelKey != "" || reasoningEffort != "" {
+		modelConfig := contracts.CloneMap(contracts.AnyMapNode(out["modelConfig"]))
+		if modelConfig == nil {
+			modelConfig = map[string]any{}
+		}
+		if modelKey != "" && strings.TrimSpace(stringValue(modelConfig["modelKey"])) == "" {
+			modelConfig["modelKey"] = modelKey
+		}
+		if reasoningEffort != "" {
+			reasoning := contracts.CloneMap(contracts.AnyMapNode(modelConfig["reasoning"]))
+			if reasoning == nil {
+				reasoning = map[string]any{}
+			}
+			if strings.TrimSpace(stringValue(reasoning["effort"])) == "" {
+				reasoning["effort"] = reasoningEffort
+			}
+			if len(reasoning) > 0 {
+				modelConfig["reasoning"] = reasoning
+			}
+		}
+		if len(modelConfig) > 0 {
+			out["modelConfig"] = modelConfig
+		}
+	}
+	if embeddingProviderKey != "" || embeddingModel != "" {
+		kbaseConfig := contracts.CloneMap(contracts.AnyMapNode(out["kbaseConfig"]))
+		if kbaseConfig == nil {
+			kbaseConfig = map[string]any{}
+		}
+		embedding := contracts.CloneMap(contracts.AnyMapNode(kbaseConfig["embedding"]))
+		if embedding == nil {
+			embedding = map[string]any{}
+		}
+		providerMissing := strings.TrimSpace(stringValue(embedding["providerKey"])) == ""
+		modelMissing := strings.TrimSpace(stringValue(embedding["model"])) == ""
+		if embeddingProviderKey != "" && (providerMissing || modelMissing) {
+			embedding["providerKey"] = embeddingProviderKey
+		}
+		if embeddingModel != "" && (providerMissing || modelMissing) {
+			embedding["model"] = embeddingModel
+		}
+		if len(embedding) > 0 {
+			kbaseConfig["embedding"] = embedding
+		}
+		if len(kbaseConfig) > 0 {
+			out["kbaseConfig"] = kbaseConfig
+		}
 	}
 	return out
+}
+
+func isEmptyDefinitionValue(value any) bool {
+	if value == nil {
+		return true
+	}
+	text, ok := value.(string)
+	return ok && strings.TrimSpace(text) == ""
+}
+
+func hasNonBlankStringList(value any) bool {
+	switch items := value.(type) {
+	case []any:
+		for _, item := range items {
+			if strings.TrimSpace(stringValue(item)) != "" {
+				return true
+			}
+		}
+	case []string:
+		for _, item := range items {
+			if strings.TrimSpace(item) != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *Server) normalizeGeneratedModeCreation(key string, definition map[string]any) (string, map[string]any) {

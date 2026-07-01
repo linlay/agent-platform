@@ -415,7 +415,8 @@ func (m *Manager) resolve(agentKey string) (resolvedConfig, *Embedder, error) {
 	if !filepath.IsAbs(workspace) {
 		return resolvedConfig{}, nil, fmt.Errorf("agent %s runtimeConfig.workspaceRoot must be an absolute path for KBASE", agentKey)
 	}
-	providerKey := strings.TrimSpace(def.KBaseConfig.Embedding.ProviderKey)
+	embeddingDefaults := m.cfg.KBase.Embedding
+	providerKey := firstNonBlank(def.KBaseConfig.Embedding.ProviderKey, embeddingDefaults.ProviderKey)
 	if providerKey == "" {
 		return resolvedConfig{}, nil, fmt.Errorf("agent %s kbaseConfig.embedding.providerKey is required", agentKey)
 	}
@@ -425,9 +426,9 @@ func (m *Manager) resolve(agentKey string) (resolvedConfig, *Embedder, error) {
 	}
 	embedding := EmbeddingSnapshot{
 		ProviderKey: providerKey,
-		Model:       firstNonBlank(def.KBaseConfig.Embedding.Model, provider.Embedding.Model),
-		Dimension:   firstPositive(def.KBaseConfig.Embedding.Dimension, provider.Embedding.Dimension),
-		Timeout:     firstPositive(def.KBaseConfig.Embedding.Timeout, provider.Embedding.Timeout, 15),
+		Model:       firstNonBlank(def.KBaseConfig.Embedding.Model, embeddingDefaults.Model, provider.Embedding.Model),
+		Dimension:   firstPositive(def.KBaseConfig.Embedding.Dimension, embeddingDefaults.Dimension, provider.Embedding.Dimension),
+		Timeout:     firstPositive(def.KBaseConfig.Embedding.Timeout, embeddingDefaults.Timeout, provider.Embedding.Timeout, 15),
 	}
 	baseURL := strings.TrimRight(strings.TrimSpace(provider.BaseURL), "/")
 	if baseURL == "" || embedding.Model == "" || embedding.Dimension <= 0 {

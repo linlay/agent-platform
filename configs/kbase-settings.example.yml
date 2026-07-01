@@ -3,7 +3,16 @@
 default-agent:
   # Default modelKey written when creating a new KBASE agent without an
   # explicit modelConfig.modelKey.
-  modelKey:
+  modelKey: deepseek-v4-pro
+  # Default reasoning effort written when creating a new KBASE agent without
+  # an explicit modelConfig.reasoning.effort.
+  reasoningEffort: MEDIUM
+
+embedding:
+  providerKey: babelark
+  model: text-embedding-v4
+  dimension: 1024
+  timeout: 60
 
 refresh:
   debounce: 2s

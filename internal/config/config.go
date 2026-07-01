@@ -150,12 +150,21 @@ type CoderACPProxyConfig struct {
 
 type KBaseConfig struct {
 	DefaultAgent KBaseDefaultAgentConfig
+	Embedding    KBaseEmbeddingConfig
 	Refresh      KBaseRefreshConfig
 	Extraction   KBaseExtractionConfig
 }
 
 type KBaseDefaultAgentConfig struct {
-	ModelKey string
+	ModelKey        string
+	ReasoningEffort string
+}
+
+type KBaseEmbeddingConfig struct {
+	ProviderKey string
+	Model       string
+	Dimension   int
+	Timeout     int
 }
 
 type KBaseRefreshConfig struct {
