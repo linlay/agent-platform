@@ -42,7 +42,7 @@ func TestFileHistoryEndpointReturnsRecordedSnapshots(t *testing.T) {
 		t.Fatalf("expected empty original, got %q", original)
 	}
 	current := getFileHistory(t, fixture.server, chatID, runID, historyPath, "current")
-	if current != "hello" {
+	if current != "hello\n" {
 		t.Fatalf("expected current content, got %q", current)
 	}
 
@@ -52,7 +52,7 @@ func TestFileHistoryEndpointReturnsRecordedSnapshots(t *testing.T) {
 		AgentKey: "mock-agent",
 	})
 	current = getFileHistory(t, fixture.server, "", runID, historyPath, "current")
-	if current != "hello" {
+	if current != "hello\n" {
 		t.Fatalf("expected fallback current content, got %q", current)
 	}
 }
