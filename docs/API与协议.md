@@ -54,10 +54,12 @@ GET /ws -> request / response / stream / push / error frames
 | POST | `/api/admin/agents/delete` | body: `key`/`agentKey` | 删除结果 |
 | GET | `/api/admin/agents/editor-options` | 无 | agent 编辑器可选项 |
 | GET | `/api/admin/skills` | 无 | skill 列表 |
-| GET | `/api/admin/tools` | query: `kind` | tool 列表 |
+| GET | `/api/admin/tools` | query: `kind`、`source`/`sourceCategory` | tool 列表，含 `sourceCategory` 来源分类 |
 | GET | `/api/admin/registries` | 无 | registry 文件列表与诊断 |
 | GET/PUT | `/api/admin/registries/detail` | query/body: `category`、`file`、`content` | registry 文件详情或保存结果 |
 | POST | `/api/admin/registries/validate` | body: `category`、`file`、`content` | registry 内容校验结果 |
+
+`/api/admin/tools` 中 `kind` 表示调用方式（如 `backend`、`frontend`、`action`、`external`），`sourceCategory` 表示来源分类：`platform` 为 runtime 自带工具，`external` 为 `paths.tools-dir` 下通过 RPC / YAML 接入的外部工具，`mcp` 为 MCP registry 同步工具。`source` 与 `sourceCategory` query 等价，可与 `kind` 组合过滤。
 
 ### Chat
 
@@ -124,6 +126,8 @@ Automation 摘要和详情中的 `nextFireAt` 是下次触发时间的 epoch mil
 | POST | `/api/access-level` | body: `agentKey`、`runId`、`accessLevel`、`requestId`、`reason` | 动态更新 native run 的 accessLevel |
 
 `/api/query` 的 `stream` 是 JSON body 字段；省略或传 `true` 时返回 SSE，结束帧为 `data: [DONE]`。传 `false` 时服务端仍执行完整 run、持久化 chat，并在结束后返回普通 JSON。默认只返回最终回答：
+
+`references` 中的文件引用使用 `path` 表示当前目标智能体可直接访问的执行路径。服务端会按 agent 运行位置生成或归一化该字段：本地运行时为宿主机绝对路径，容器运行时为 `/workspace/...`。`url` 只用于平台资源下载、ticket 与 gateway 数据面，不进入模型 prompt。
 
 ```json
 {

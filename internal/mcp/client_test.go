@@ -15,7 +15,7 @@ import (
 
 func TestToolSyncLoadsStaticAndDiscoveredTools(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":"1","result":{"tools":[{"key":"remote_tool","name":"remote_tool","description":"remote","parameters":{"type":"object"}}]}}`))
+		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":"1","result":{"tools":[{"key":"remote_tool","name":"remote_tool","description":"remote","parameters":{"type":"object"},"meta":{"sourceType":"local","sourceCategory":"external","sourceKey":"wrong"}}]}}`))
 	}))
 	defer server.Close()
 
@@ -60,7 +60,7 @@ func TestToolSyncLoadsStaticAndDiscoveredTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load discovered tools: %v", err)
 	}
-	if len(tools) != 1 || tools[0].Name != "remote_tool" || tools[0].Meta["sourceType"] != "mcp" {
+	if len(tools) != 1 || tools[0].Name != "remote_tool" || tools[0].Meta["sourceType"] != "mcp" || tools[0].Meta["sourceCategory"] != "mcp" || tools[0].Meta["sourceKey"] != "demo" {
 		t.Fatalf("expected discovered mcp tool, got %#v", tools)
 	}
 }

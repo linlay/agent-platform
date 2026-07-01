@@ -59,7 +59,7 @@ func LoadRuntimeToolDefinitions(root string) ([]api.ToolDetailResponse, error) {
 
 	out := make([]api.ToolDetailResponse, 0, len(toolFiles))
 	for _, file := range toolFiles {
-		options := toolDefinitionParseOptions{sourceType: "agent-local", baseDir: filepath.Dir(file.path)}
+		options := toolDefinitionParseOptions{sourceType: "agent-local", sourceCategory: "external", baseDir: filepath.Dir(file.path)}
 		if service, ok := servicesByDir[filepath.Dir(file.path)]; ok {
 			options.defaultExternal = service.external
 		}
@@ -213,9 +213,21 @@ func mergeBackendToolDefinition(runtime api.ToolDetailResponse, overlay api.Tool
 	}
 	merged.Meta = CloneMap(runtime.Meta)
 	for key, value := range overlay.Meta {
+		if isToolSourceMetaKey(key) {
+			continue
+		}
 		merged.Meta[key] = value
 	}
 	return merged
+}
+
+func isToolSourceMetaKey(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "sourcecategory", "sourcetype", "sourcekey":
+		return true
+	default:
+		return false
+	}
 }
 
 func cloneToolDefinition(def api.ToolDetailResponse) api.ToolDetailResponse {

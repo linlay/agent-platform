@@ -501,11 +501,11 @@ func TestBuildRuntimeContextBackfillsSandboxReferencePaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildRuntimeRequestContext() error = %v", err)
 	}
-	if got := context.References[0].SandboxPath; got != "/workspace/report.docx" {
-		t.Fatalf("sandbox path from name = %q", got)
+	if got := context.References[0].Path; got != "/workspace/report.docx" {
+		t.Fatalf("reference path from name = %q", got)
 	}
-	if got := context.References[1].SandboxPath; got != "/workspace/from-url.docx" {
-		t.Fatalf("sandbox path from URL = %q", got)
+	if got := context.References[1].Path; got != "/workspace/from-url.docx" {
+		t.Fatalf("reference path from URL = %q", got)
 	}
 }
 

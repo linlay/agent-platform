@@ -11,6 +11,7 @@ import (
 
 type toolDefinitionParseOptions struct {
 	sourceType       string
+	sourceCategory   string
 	defaultSourceKey string
 	baseDir          string
 	defaultExternal  map[string]any
@@ -64,10 +65,24 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	if sourceKey == "" && !strings.EqualFold(sourceType, "mcp") {
 		sourceKey = name
 	}
+	sourceCategory := strings.ToLower(strings.TrimSpace(options.sourceCategory))
+	if sourceCategory == "" {
+		switch {
+		case strings.EqualFold(sourceType, "mcp"):
+			sourceCategory = "mcp"
+		case strings.EqualFold(sourceType, "agent-local"):
+			sourceCategory = "external"
+		case strings.EqualFold(kind, "external"):
+			sourceCategory = "external"
+		default:
+			sourceCategory = "platform"
+		}
+	}
 
 	meta := map[string]any{
-		"kind":       kind,
-		"sourceType": sourceType,
+		"kind":           kind,
+		"sourceType":     sourceType,
+		"sourceCategory": sourceCategory,
 	}
 	if strict, ok := root["strict"].(bool); ok {
 		meta["strict"] = strict

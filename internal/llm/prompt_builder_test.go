@@ -427,7 +427,7 @@ func TestBuildSessionSectionMergesContextAndAuth(t *testing.T) {
 				ExpiresAt: "2026-04-23T10:00:00Z",
 			},
 			References: []api.Reference{
-				{ID: "ref-1", Name: "doc.md", SandboxPath: "/workspace/doc.md"},
+				{ID: "ref-1", Name: "doc.md", Path: "/workspace/doc.md"},
 			},
 			LocalPaths: LocalPaths{
 				WorkingDirectory: "/Users/linlay/Project/zenmind/agent-platform",

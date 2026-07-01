@@ -82,13 +82,10 @@ func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (c
 		ChatName:     input.chatName,
 		LocalMode:    s.deps.Config.IsLocalMode(),
 		Scene:        input.scene,
-		References:   append([]api.Reference(nil), input.references...),
+		References:   s.normalizeReferencePathsForAgent(input.references, input.chatID, input.definition),
 		LocalPaths:   localPaths,
 		SandboxPaths: resolveSandboxPaths(s.deps.Config, input.definition, input.chatID),
 		AgentDigests: buildAgentDigests(s.deps.Registry),
-	}
-	if hasRuntimeSandbox(input.definition.Runtime) && s.deps.Config.ContainerHub.Enabled {
-		context.References = normalizeReferenceSandboxPaths(context.References, context.SandboxPaths.WorkspaceDir)
 	}
 	if input.principal != nil {
 		context.AuthIdentity = buildAuthIdentity(input.principal)
@@ -103,29 +100,56 @@ func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (c
 	return context, nil
 }
 
-func normalizeReferenceSandboxPaths(references []api.Reference, workspaceDir string) []api.Reference {
+func (s *Server) normalizeReferencePathsForAgent(references []api.Reference, chatID string, def catalog.AgentDefinition) []api.Reference {
 	if len(references) == 0 {
-		return references
-	}
-	workspaceDir = strings.TrimRight(strings.TrimSpace(workspaceDir), "/")
-	if workspaceDir == "" {
 		return references
 	}
 	normalized := append([]api.Reference(nil), references...)
 	for i := range normalized {
-		if strings.TrimSpace(normalized[i].SandboxPath) != "" {
-			continue
+		if path := s.referencePathForAgent(normalized[i], chatID, def); path != "" {
+			normalized[i].Path = path
 		}
-		name := sandboxReferenceName(normalized[i])
-		if name == "" {
-			continue
-		}
-		normalized[i].SandboxPath = workspaceDir + "/" + name
 	}
 	return normalized
 }
 
-func sandboxReferenceName(reference api.Reference) string {
+func (s *Server) referencePathForAgent(reference api.Reference, chatID string, def catalog.AgentDefinition) string {
+	if s.referencePathsUseContainer(def) {
+		if rel := referenceResourceRelativePath(chatID, reference); rel != "" {
+			return "/workspace/" + filepath.ToSlash(rel)
+		}
+		return strings.TrimSpace(reference.Path)
+	}
+	if fileParam := resourceFileParam(reference.URL); fileParam != "" && s != nil && s.deps.Chats != nil {
+		if path, err := s.deps.Chats.ResolveResource(fileParam); err == nil {
+			return path
+		}
+	}
+	if strings.TrimSpace(reference.Path) != "" {
+		return strings.TrimSpace(reference.Path)
+	}
+	if rel := referenceResourceRelativePath(chatID, reference); rel != "" && s != nil && s.deps.Chats != nil {
+		return filepath.Join(s.deps.Chats.ChatDir(chatID), filepath.FromSlash(rel))
+	}
+	return ""
+}
+
+func referenceResourceRelativePath(chatID string, reference api.Reference) string {
+	if fileParam := resourceFileParam(reference.URL); fileParam != "" {
+		clean := filepath.ToSlash(filepath.Clean(fileParam))
+		prefix := strings.TrimSpace(chatID) + "/"
+		if strings.TrimSpace(chatID) != "" && strings.HasPrefix(clean, prefix) {
+			return strings.TrimPrefix(clean, prefix)
+		}
+		return clean
+	}
+	if strings.TrimSpace(reference.Path) != "" {
+		return ""
+	}
+	return referenceName(reference)
+}
+
+func referenceName(reference api.Reference) string {
 	for _, candidate := range []string{
 		reference.Name,
 		resourceFileName(reference.URL),

@@ -27,6 +27,7 @@ type proxyReferenceOptions struct {
 func prepareProxyReferences(store chat.Store, ticketService *ResourceTicketService, options proxyReferenceOptions) ([]api.Reference, error) {
 	out := make([]api.Reference, 0, len(options.References)+len(options.Files))
 	for _, ref := range options.References {
+		ref = normalizeProxyReferencePath(ref, options.ChatID)
 		out = append(out, normalizeProxyReferenceURL(ref, ticketService, options))
 	}
 	for _, file := range options.Files {
@@ -53,7 +54,7 @@ func materializeProxyFileReference(store chat.Store, chatID string, runID string
 	}
 
 	chatDir := store.ChatDir(chatID)
-	sourcePath, sandboxPath, err := resolveProxyFileSource(store, chatID, chatDir, rawPath)
+	sourcePath, referencePath, err := resolveProxyFileSource(store, chatID, chatDir, rawPath)
 	if err != nil {
 		return api.Reference{}, err
 	}
@@ -82,8 +83,8 @@ func materializeProxyFileReference(store chat.Store, chatID string, runID string
 		if relErr != nil || isPathOutsideBase(relativePath) {
 			return api.Reference{}, fmt.Errorf("proxy materialized file escaped chat dir: %s", targetPath)
 		}
-		if sandboxPath == "" || !strings.HasPrefix(sandboxPath, "/workspace/") {
-			sandboxPath = "/workspace/" + filepath.ToSlash(relativePath)
+		if referencePath == "" || !strings.HasPrefix(referencePath, "/workspace/") {
+			referencePath = "/workspace/" + filepath.ToSlash(relativePath)
 		}
 	}
 
@@ -94,14 +95,14 @@ func materializeProxyFileReference(store chat.Store, chatID string, runID string
 		size = targetInfo.Size()
 	}
 	return api.Reference{
-		ID:          "proxy_file:" + strings.Trim(filepath.ToSlash(relativePath), "/"),
-		Type:        "file",
-		Name:        name,
-		MimeType:    guessProxyMimeType(name),
-		SizeBytes:   &size,
-		URL:         resourceURLForFileParam(filepath.ToSlash(filepath.Join(chatID, relativePath))),
-		SHA256:      sha256FileHex(targetPath),
-		SandboxPath: sandboxPath,
+		ID:        "proxy_file:" + strings.Trim(filepath.ToSlash(relativePath), "/"),
+		Type:      "file",
+		Name:      name,
+		Path:      referencePath,
+		MimeType:  guessProxyMimeType(name),
+		SizeBytes: &size,
+		URL:       resourceURLForFileParam(filepath.ToSlash(filepath.Join(chatID, relativePath))),
+		SHA256:    sha256FileHex(targetPath),
 	}, nil
 }
 
@@ -111,7 +112,7 @@ func resolveProxyFileSource(store chat.Store, chatID string, chatDir string, raw
 		if err != nil {
 			return "", "", err
 		}
-		return sourcePath, sandboxPathForResourceFile(chatID, fileParam), nil
+		return sourcePath, referencePathForResourceFile(chatID, fileParam), nil
 	}
 
 	if strings.HasPrefix(rawPath, "/workspace") {
@@ -141,6 +142,19 @@ func resolveProxyFileSource(store chat.Store, chatID string, chatDir string, raw
 		return "", "", fmt.Errorf("proxy file must be under /workspace, current chat, or server workspace: %s", rawPath)
 	}
 	return sourcePath, rawPath, nil
+}
+
+func normalizeProxyReferencePath(ref api.Reference, chatID string) api.Reference {
+	if path := referencePathForResourceFile(chatID, resourceFileParam(ref.URL)); path != "" {
+		ref.Path = path
+		return ref
+	}
+	if strings.TrimSpace(ref.Path) == "" {
+		if name := referenceName(ref); name != "" {
+			ref.Path = "/workspace/" + filepath.ToSlash(name)
+		}
+	}
+	return ref
 }
 
 func normalizeProxyReferenceURL(ref api.Reference, ticketService *ResourceTicketService, options proxyReferenceOptions) api.Reference {
@@ -239,7 +253,7 @@ func resourceURLForFileParam(fileParam string) string {
 	return "/api/resource?file=" + url.QueryEscape(filepath.ToSlash(fileParam))
 }
 
-func sandboxPathForResourceFile(chatID string, fileParam string) string {
+func referencePathForResourceFile(chatID string, fileParam string) string {
 	clean := filepath.ToSlash(filepath.Clean(fileParam))
 	prefix := strings.TrimSpace(chatID) + "/"
 	if strings.HasPrefix(clean, prefix) {

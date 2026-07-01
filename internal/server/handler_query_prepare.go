@@ -63,7 +63,11 @@ func releaseQuery(release queryReleaseFunc) {
 func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (queryAdmission, error) {
 	var req api.QueryRequest
 	if err := decodeJSON(r, &req); err != nil {
-		return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: "invalid request body"}
+		message := "invalid request body"
+		if strings.Contains(err.Error(), api.ReferenceSandboxPathRemovedMessage) {
+			message = api.ReferenceSandboxPathRemovedMessage
+		}
+		return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: message}
 	}
 	locale := requestLocale(r, i18n.DefaultLocale)
 	if requireMessage && strings.TrimSpace(req.Message) == "" {
@@ -194,6 +198,7 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 	if err != nil {
 		return preparedQuery{}, err
 	}
+	req.References = session.RuntimeContext.References
 	applyQueryModelOptionsToSession(req.Model, &session)
 	session.CurrentMessages = s.buildCurrentMessages(req, session)
 	if !created {
