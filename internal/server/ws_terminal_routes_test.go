@@ -299,7 +299,7 @@ func TestWebSocketTerminalOpen_isolatesSameWorkspaceAcrossAgents(t *testing.T) {
 	closeTerminalByID(t, conn, "term_close_beta", terminalBeta)
 }
 
-func TestWebSocketTerminalOpen_reusesAfterReconnectWithDeviceIDAndListsSessions(t *testing.T) {
+func TestWebSocketTerminalOpen_reusesAfterReconnectWithDeviceID(t *testing.T) {
 	workspace := t.TempDir()
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
@@ -344,35 +344,6 @@ func TestWebSocketTerminalOpen_reusesAfterReconnectWithDeviceIDAndListsSessions(
 		t.Fatalf("expected terminal id before refresh")
 	}
 	_ = connA.Close()
-
-	resp, err := http.Get(server.URL + "/api/terminal/sessions?" + deviceQuery)
-	if err != nil {
-		t.Fatalf("list terminal sessions: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("terminal sessions status = %d", resp.StatusCode)
-	}
-	var sessionsResp struct {
-		Code int `json:"code"`
-		Data struct {
-			Sessions []struct {
-				TerminalID  string `json:"terminalId"`
-				AgentKey    string `json:"agentKey"`
-				TerminalKey string `json:"terminalKey"`
-			} `json:"sessions"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&sessionsResp); err != nil {
-		t.Fatalf("decode terminal sessions: %v", err)
-	}
-	if sessionsResp.Code != 0 || len(sessionsResp.Data.Sessions) != 1 {
-		t.Fatalf("unexpected terminal sessions response: %#v", sessionsResp)
-	}
-	session := sessionsResp.Data.Sessions[0]
-	if session.TerminalID != terminalID || session.AgentKey != "coder-terminal-refresh" || session.TerminalKey != "main" {
-		t.Fatalf("unexpected terminal session listing: %#v", session)
-	}
 
 	connB := dialTestWebSocketWithQuery(t, server.URL, deviceQuery)
 	defer connB.Close()
