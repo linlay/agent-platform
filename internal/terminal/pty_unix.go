@@ -7,11 +7,13 @@ import (
 	"os/exec"
 
 	"github.com/creack/pty"
+	"golang.org/x/sys/unix"
 )
 
 type unixPTYProcess struct {
-	file *os.File
-	cmd  *exec.Cmd
+	file      *os.File
+	cmd       *exec.Cmd
+	shellPgrp int
 }
 
 func startPTY(req startPTYRequest) (ptyProcess, error) {
@@ -25,7 +27,13 @@ func startPTY(req startPTYRequest) (ptyProcess, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &unixPTYProcess{file: file, cmd: cmd}, nil
+	shellPgrp := 0
+	if cmd.Process != nil {
+		if pgrp, pgrpErr := unix.Getpgid(cmd.Process.Pid); pgrpErr == nil {
+			shellPgrp = pgrp
+		}
+	}
+	return &unixPTYProcess{file: file, cmd: cmd, shellPgrp: shellPgrp}, nil
 }
 
 func (p *unixPTYProcess) Read(buf []byte) (int, error) {
@@ -41,6 +49,17 @@ func (p *unixPTYProcess) Resize(cols int, rows int) error {
 		Rows: uint16(rows),
 		Cols: uint16(cols),
 	})
+}
+
+func (p *unixPTYProcess) Busy() bool {
+	if p == nil || p.file == nil || p.shellPgrp <= 0 {
+		return false
+	}
+	foregroundPgrp, err := unix.IoctlGetInt(int(p.file.Fd()), unix.TIOCGPGRP)
+	if err != nil || foregroundPgrp <= 0 {
+		return false
+	}
+	return foregroundPgrp != p.shellPgrp
 }
 
 func (p *unixPTYProcess) Close() error {

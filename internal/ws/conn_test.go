@@ -157,6 +157,18 @@ func TestConnClientBoundaryKeyRequiresSubjectAndDevice(t *testing.T) {
 	if withDeviceA.ClientBoundaryKey() != withDeviceB.ClientBoundaryKey() {
 		t.Fatalf("same subject and device should share boundary")
 	}
+
+	anonymousDeviceA := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{DeviceID: "device-1"})
+	anonymousDeviceB := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{DeviceID: "device-1"})
+	if anonymousDeviceA.ClientBoundaryKey() != anonymousDeviceB.ClientBoundaryKey() {
+		t.Fatalf("same anonymous device should share boundary")
+	}
+
+	anonymousA := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{})
+	anonymousB := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{})
+	if anonymousA.ClientBoundaryKey() == anonymousB.ClientBoundaryKey() {
+		t.Fatalf("anonymous connections without device id should not share boundary")
+	}
 }
 
 func TestConnReleaseTerminalStreamValidatesKindAndSupportsPreCancel(t *testing.T) {

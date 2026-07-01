@@ -230,6 +230,171 @@ func TestWebSocketTerminalOpen_reusesAgentTerminalAcrossChatsAndDetachReplaysOut
 	})
 }
 
+func TestWebSocketTerminalOpen_isolatesSameWorkspaceAcrossAgents(t *testing.T) {
+	workspace := t.TempDir()
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.WriteQueueSize = 32
+			cfg.WebSocket.PingInterval = 30000
+		},
+		setupRuntime: func(_ string, cfg *config.Config) {
+			for _, agentKey := range []string{"coder-terminal-alpha", "coder-terminal-beta"} {
+				writeTerminalTestAgentFile(t, cfg, agentKey, strings.Join([]string{
+					"key: " + agentKey,
+					"name: " + agentKey,
+					"mode: CODER",
+					"modelConfig:",
+					"  modelKey: mock-model",
+					"runtimeConfig:",
+					"  workspaceRoot: " + filepath.ToSlash(workspace),
+				}, "\n"))
+			}
+		},
+	})
+	server := httptest.NewServer(fixture.server)
+	defer server.Close()
+
+	conn := dialTestWebSocketWithQuery(t, server.URL, "deviceId=agent-scope-device")
+	defer conn.Close()
+	waitForPushFrameType(t, conn, "connected")
+
+	openTerminalStream(t, conn, "term_open_alpha", map[string]any{
+		"agentKey":    "coder-terminal-alpha",
+		"terminalKey": "main",
+		"cols":        80,
+		"rows":        24,
+	})
+	openedAlpha := waitForWebSocketFrame(t, conn, func(data []byte) bool {
+		if runtime.GOOS == "windows" && websocketErrorType(data) == "unsupported" {
+			t.Skip("Windows ConPTY is unsupported on this host")
+		}
+		return websocketStreamEventType(data) == "terminal.opened" && strings.Contains(string(data), "term_open_alpha")
+	})
+	terminalAlpha := terminalIDFromStreamFrame(t, openedAlpha)
+	if terminalAlpha == "" {
+		t.Fatalf("expected alpha terminal id")
+	}
+
+	openTerminalStream(t, conn, "term_open_beta", map[string]any{
+		"agentKey":    "coder-terminal-beta",
+		"terminalKey": "main",
+		"cols":        80,
+		"rows":        24,
+	})
+	openedBeta := waitForWebSocketFrame(t, conn, func(data []byte) bool {
+		return websocketStreamEventType(data) == "terminal.opened" && strings.Contains(string(data), "term_open_beta")
+	})
+	terminalBeta := terminalIDFromStreamFrame(t, openedBeta)
+	if terminalBeta == "" || terminalBeta == terminalAlpha {
+		t.Fatalf("expected distinct terminal ids for same workspace agents, alpha=%q beta=%q", terminalAlpha, terminalBeta)
+	}
+	if reused, ok := boolFieldFromStreamFrame(t, openedBeta, "reused"); !ok || reused {
+		t.Fatalf("same workspace different agent should open a fresh terminal: %s", string(openedBeta))
+	}
+
+	closeTerminalByID(t, conn, "term_close_alpha", terminalAlpha)
+	closeTerminalByID(t, conn, "term_close_beta", terminalBeta)
+}
+
+func TestWebSocketTerminalOpen_reusesAfterReconnectWithDeviceIDAndListsSessions(t *testing.T) {
+	workspace := t.TempDir()
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.WriteQueueSize = 32
+			cfg.WebSocket.PingInterval = 30000
+		},
+		setupRuntime: func(_ string, cfg *config.Config) {
+			writeTerminalTestAgentFile(t, cfg, "coder-terminal-refresh", strings.Join([]string{
+				"key: coder-terminal-refresh",
+				"name: Coder Terminal Refresh",
+				"mode: CODER",
+				"modelConfig:",
+				"  modelKey: mock-model",
+				"runtimeConfig:",
+				"  workspaceRoot: " + filepath.ToSlash(workspace),
+			}, "\n"))
+		},
+	})
+	server := httptest.NewServer(fixture.server)
+	defer server.Close()
+
+	const deviceQuery = "deviceId=browser-terminal-refresh"
+	connA := dialTestWebSocketWithQuery(t, server.URL, deviceQuery)
+	waitForPushFrameType(t, connA, "connected")
+	openTerminalStream(t, connA, "term_open_before_refresh", map[string]any{
+		"agentKey":    "coder-terminal-refresh",
+		"terminalKey": "main",
+		"cols":        80,
+		"rows":        24,
+	})
+	openedA := waitForWebSocketFrame(t, connA, func(data []byte) bool {
+		if runtime.GOOS == "windows" && websocketErrorType(data) == "unsupported" {
+			t.Skip("Windows ConPTY is unsupported on this host")
+		}
+		return websocketStreamEventType(data) == "terminal.opened"
+	})
+	terminalID := terminalIDFromStreamFrame(t, openedA)
+	if terminalID == "" {
+		t.Fatalf("expected terminal id before refresh")
+	}
+	_ = connA.Close()
+
+	resp, err := http.Get(server.URL + "/api/terminal/sessions?" + deviceQuery)
+	if err != nil {
+		t.Fatalf("list terminal sessions: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("terminal sessions status = %d", resp.StatusCode)
+	}
+	var sessionsResp struct {
+		Code int `json:"code"`
+		Data struct {
+			Sessions []struct {
+				TerminalID  string `json:"terminalId"`
+				AgentKey    string `json:"agentKey"`
+				TerminalKey string `json:"terminalKey"`
+			} `json:"sessions"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&sessionsResp); err != nil {
+		t.Fatalf("decode terminal sessions: %v", err)
+	}
+	if sessionsResp.Code != 0 || len(sessionsResp.Data.Sessions) != 1 {
+		t.Fatalf("unexpected terminal sessions response: %#v", sessionsResp)
+	}
+	session := sessionsResp.Data.Sessions[0]
+	if session.TerminalID != terminalID || session.AgentKey != "coder-terminal-refresh" || session.TerminalKey != "main" {
+		t.Fatalf("unexpected terminal session listing: %#v", session)
+	}
+
+	connB := dialTestWebSocketWithQuery(t, server.URL, deviceQuery)
+	defer connB.Close()
+	waitForPushFrameType(t, connB, "connected")
+	openTerminalStream(t, connB, "term_open_after_refresh", map[string]any{
+		"agentKey":    "coder-terminal-refresh",
+		"terminalKey": "main",
+		"cols":        100,
+		"rows":        30,
+	})
+	openedB := waitForWebSocketFrame(t, connB, func(data []byte) bool {
+		return websocketStreamEventType(data) == "terminal.opened" && strings.Contains(string(data), "term_open_after_refresh")
+	})
+	if got := terminalIDFromStreamFrame(t, openedB); got != terminalID {
+		t.Fatalf("reconnected terminal id = %q, want %q; frame=%s", got, terminalID, string(openedB))
+	}
+	if reused, ok := boolFieldFromStreamFrame(t, openedB, "reused"); !ok || !reused {
+		t.Fatalf("reconnect open should reuse terminal: %s", string(openedB))
+	}
+	closeTerminalByID(t, connB, "term_close_refresh", terminalID)
+}
+
 func TestWebSocketTerminalIsolatesSessionsAcrossConnections(t *testing.T) {
 	workspace := t.TempDir()
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
@@ -651,8 +816,15 @@ func writeTerminalTestAgentFile(t *testing.T, cfg *config.Config, agentKey strin
 }
 
 func dialTestWebSocket(t *testing.T, serverURL string) *gws.Conn {
+	return dialTestWebSocketWithQuery(t, serverURL, "")
+}
+
+func dialTestWebSocketWithQuery(t *testing.T, serverURL string, query string) *gws.Conn {
 	t.Helper()
 	wsURL := "ws" + strings.TrimPrefix(serverURL, "http") + "/ws"
+	if strings.TrimSpace(query) != "" {
+		wsURL += "?" + strings.TrimLeft(strings.TrimSpace(query), "?")
+	}
 	conn, _, err := gws.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)

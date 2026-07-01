@@ -176,6 +176,10 @@ func (p *windowsPTYProcess) Resize(cols int, rows int) error {
 	return err
 }
 
+func (p *windowsPTYProcess) Busy() bool {
+	return false
+}
+
 func (p *windowsPTYProcess) Close() error {
 	if p == nil {
 		return nil

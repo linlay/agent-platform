@@ -14,6 +14,7 @@ type ptyProcess interface {
 	io.Reader
 	io.Writer
 	Resize(cols int, rows int) error
+	Busy() bool
 	Close() error
 	Wait() (*int, error)
 }

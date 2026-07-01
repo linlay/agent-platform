@@ -163,6 +163,81 @@ func TestManagerOpen_isolatesAgentTerminalByOwner(t *testing.T) {
 	}
 }
 
+func TestManagerOpen_isolatesAgentTerminalByAgentKey(t *testing.T) {
+	manager := NewManager()
+	workspace := t.TempDir()
+	first, err := manager.Open(OpenRequest{
+		OwnerKey:    "owner-a",
+		AgentKey:    "coder-alpha",
+		TerminalKey: "main",
+		CWD:         workspace,
+		Shell:       "/bin/sh",
+		Cols:        80,
+		Rows:        24,
+		Env:         []string{"TERM=xterm-256color"},
+	})
+	if err != nil {
+		t.Fatalf("open first agent terminal: %v", err)
+	}
+	manager.Start(first.Session)
+	defer first.Session.Close("closed")
+
+	second, err := manager.Open(OpenRequest{
+		OwnerKey:    "owner-a",
+		AgentKey:    "coder-beta",
+		TerminalKey: "main",
+		CWD:         workspace,
+		Shell:       "/bin/sh",
+		Cols:        80,
+		Rows:        24,
+		Env:         []string{"TERM=xterm-256color"},
+	})
+	if err != nil {
+		t.Fatalf("open second agent terminal: %v", err)
+	}
+	manager.Start(second.Session)
+	defer second.Session.Close("closed")
+	if second.Reused {
+		t.Fatalf("same-owner cross-agent open should not reuse terminal")
+	}
+	if second.Session.ID() == first.Session.ID() {
+		t.Fatalf("cross-agent terminal id reused: %q", second.Session.ID())
+	}
+	infos := manager.List("owner-a")
+	if len(infos) != 2 {
+		t.Fatalf("expected two active owner sessions, got %#v", infos)
+	}
+	if infos[0].AgentKey != "coder-alpha" || infos[1].AgentKey != "coder-beta" {
+		t.Fatalf("sessions should be sorted and scoped by agent key, got %#v", infos)
+	}
+}
+
+func TestManagerListReportsBusyOnlyForForegroundCommand(t *testing.T) {
+	manager := NewManager()
+	result, err := manager.Open(OpenRequest{
+		OwnerKey:    "owner-a",
+		AgentKey:    "coder",
+		TerminalKey: "main",
+		CWD:         t.TempDir(),
+		Shell:       "/bin/sh",
+		Cols:        80,
+		Rows:        24,
+		Env:         []string{"TERM=xterm-256color"},
+	})
+	if err != nil {
+		t.Fatalf("open terminal: %v", err)
+	}
+	manager.Start(result.Session)
+	defer result.Session.Close("closed")
+
+	waitForTerminalListStatus(t, manager, "owner-a", StatusIdle)
+	if err := manager.Input("owner-a", result.Session.ID(), "sleep 2\n"); err != nil {
+		t.Fatalf("input sleep: %v", err)
+	}
+	waitForTerminalListStatus(t, manager, "owner-a", StatusBusy)
+	waitForTerminalListStatus(t, manager, "owner-a", StatusIdle)
+}
+
 func TestManagerOpen_rejectsInvalidTerminalKey(t *testing.T) {
 	manager := NewManager()
 	_, err := manager.Open(OpenRequest{
@@ -321,4 +396,17 @@ func waitForTerminalExit(t *testing.T, events <-chan Event) {
 			t.Fatalf("timed out waiting for terminal exit")
 		}
 	}
+}
+
+func waitForTerminalListStatus(t *testing.T, manager *Manager, ownerKey string, want string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		infos := manager.List(ownerKey)
+		if len(infos) == 1 && infos[0].Status == want {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for terminal status %q; infos=%#v", want, manager.List(ownerKey))
 }

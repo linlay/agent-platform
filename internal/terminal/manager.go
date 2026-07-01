@@ -18,6 +18,8 @@ const (
 
 	DefaultTerminalKey = "main"
 	ScopeAgent         = "agent"
+	StatusIdle         = "idle"
+	StatusBusy         = "busy"
 
 	maxTerminalKeyBytes         = 64
 	maxSessionsPerOwnerAndAgent = 8

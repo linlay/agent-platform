@@ -74,6 +74,16 @@ func (s *Session) Shell() string {
 	return s.shell
 }
 
+func (s *Session) Status() string {
+	if s == nil || s.finished.Load() || s.proc == nil {
+		return StatusIdle
+	}
+	if s.proc.Busy() {
+		return StatusBusy
+	}
+	return StatusIdle
+}
+
 func (s *Session) Start(onDone func(string)) {
 	if s == nil {
 		return

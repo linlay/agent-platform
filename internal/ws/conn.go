@@ -179,6 +179,9 @@ func (c *Conn) ClientBoundaryKey() string {
 	if subject != "" && deviceID != "" {
 		return "subject:" + subject + "\x00device:" + deviceID
 	}
+	if deviceID != "" {
+		return "device:" + deviceID
+	}
 	return "conn:" + c.SessionID()
 }
 

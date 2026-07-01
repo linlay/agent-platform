@@ -75,6 +75,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
+	if strings.TrimSpace(auth.DeviceID) == "" {
+		auth.DeviceID = wsAuthDeviceIDFromRequest(r)
+	}
 	auth.Subprotocol = subprotocol
 	responseHeader := http.Header{}
 	if subprotocol != "" {
@@ -186,6 +189,18 @@ func wsLocaleFromRequest(r *http.Request, defaultLocale string) string {
 		r.Header.Get("Accept-Language"),
 		defaultLocale,
 	)
+}
+
+func wsAuthDeviceIDFromRequest(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	query := r.URL.Query()
+	deviceID := strings.TrimSpace(query.Get("deviceId"))
+	if deviceID == "" {
+		deviceID = strings.TrimSpace(query.Get("device_id"))
+	}
+	return monitorNormalizeDeviceID(deviceID)
 }
 
 func wsClientMetadataFromRequest(r *http.Request, auth AuthSession) (string, string) {
