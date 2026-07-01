@@ -107,7 +107,297 @@ func TestWebSocketTerminalOpenInputAndExit(t *testing.T) {
 	})
 }
 
-func TestWebSocketTerminalRejectsUnsupportedTargets(t *testing.T) {
+func TestWebSocketTerminalOpen_reusesAgentTerminalAcrossChatsAndDetachReplaysOutput(t *testing.T) {
+	workspace := t.TempDir()
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.WriteQueueSize = 32
+			cfg.WebSocket.PingInterval = 30000
+		},
+		setupRuntime: func(_ string, cfg *config.Config) {
+			writeTerminalTestAgentFile(t, cfg, "coder-terminal-shared", strings.Join([]string{
+				"key: coder-terminal-shared",
+				"name: Coder Terminal Shared",
+				"mode: CODER",
+				"modelConfig:",
+				"  modelKey: mock-model",
+				"runtimeConfig:",
+				"  workspaceRoot: " + filepath.ToSlash(workspace),
+			}, "\n"))
+		},
+	})
+	server := httptest.NewServer(fixture.server)
+	defer server.Close()
+
+	conn := dialTestWebSocket(t, server.URL)
+	defer conn.Close()
+	waitForPushFrameType(t, conn, "connected")
+
+	openTerminalStream(t, conn, "term_open_chat_a", map[string]any{
+		"agentKey":    "coder-terminal-shared",
+		"chatId":      "chat-a",
+		"terminalKey": "main",
+		"cols":        80,
+		"rows":        24,
+	})
+	openedA := waitForWebSocketFrame(t, conn, func(data []byte) bool {
+		if runtime.GOOS == "windows" && websocketErrorType(data) == "unsupported" {
+			t.Skip("Windows ConPTY is unsupported on this host")
+		}
+		return websocketStreamEventType(data) == "terminal.opened"
+	})
+	terminalID := terminalIDFromStreamFrame(t, openedA)
+	if terminalID == "" {
+		t.Fatalf("expected terminalId in opened frame: %s", string(openedA))
+	}
+	if reused, ok := boolFieldFromStreamFrame(t, openedA, "reused"); !ok || reused {
+		t.Fatalf("first open should include reused=false: %s", string(openedA))
+	}
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/terminal/input",
+		ID:    "term_input_shared",
+		Payload: ws.MarshalPayload(map[string]any{
+			"terminalId": terminalID,
+			"data":       "printf agent-terminal-shared\\n\n",
+		}),
+	}); err != nil {
+		t.Fatalf("write terminal input: %v", err)
+	}
+	waitForWebSocketFrame(t, conn, func(data []byte) bool {
+		return websocketStreamEventType(data) == "terminal.output" && strings.Contains(string(data), "agent-terminal-shared")
+	})
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/terminal/detach",
+		ID:    "term_detach_a",
+		Payload: ws.MarshalPayload(map[string]any{
+			"terminalId":      terminalID,
+			"streamRequestId": "term_open_chat_a",
+		}),
+	}); err != nil {
+		t.Fatalf("write terminal detach: %v", err)
+	}
+	waitForWebSocketResponse(t, conn, "term_detach_a")
+
+	openTerminalStream(t, conn, "term_open_chat_b", map[string]any{
+		"agentKey":    "coder-terminal-shared",
+		"chatId":      "chat-b",
+		"terminalKey": "main",
+		"cols":        100,
+		"rows":        30,
+	})
+	openedB := waitForWebSocketFrame(t, conn, func(data []byte) bool {
+		return websocketStreamEventType(data) == "terminal.opened" && strings.Contains(string(data), "term_open_chat_b")
+	})
+	if got := terminalIDFromStreamFrame(t, openedB); got != terminalID {
+		t.Fatalf("reused terminalId = %q, want %q; frame=%s", got, terminalID, string(openedB))
+	}
+	if reused, ok := boolFieldFromStreamFrame(t, openedB, "reused"); !ok || !reused {
+		t.Fatalf("second open should be reused: %s", string(openedB))
+	}
+	replay := waitForWebSocketFrame(t, conn, func(data []byte) bool {
+		return websocketStreamEventType(data) == "terminal.output" &&
+			strings.Contains(string(data), "agent-terminal-shared") &&
+			strings.Contains(string(data), `"replay":true`)
+	})
+	if !boolValueFromStreamFrame(t, replay, "replay") {
+		t.Fatalf("expected replay payload: %s", string(replay))
+	}
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/terminal/input",
+		ID:    "term_input_exit",
+		Payload: ws.MarshalPayload(map[string]any{
+			"terminalId": terminalID,
+			"data":       "exit\n",
+		}),
+	}); err != nil {
+		t.Fatalf("write terminal exit input: %v", err)
+	}
+	waitForWebSocketFrame(t, conn, func(data []byte) bool {
+		var frame ws.StreamFrame
+		if err := json.Unmarshal(data, &frame); err != nil {
+			return false
+		}
+		return frame.Frame == ws.FrameStream && frame.ID == "term_open_chat_b" && frame.Reason == "exit"
+	})
+}
+
+func TestWebSocketTerminalIsolatesSessionsAcrossConnections(t *testing.T) {
+	workspace := t.TempDir()
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.WriteQueueSize = 32
+			cfg.WebSocket.PingInterval = 30000
+		},
+		setupRuntime: func(_ string, cfg *config.Config) {
+			writeTerminalTestAgentFile(t, cfg, "coder-terminal-isolated", strings.Join([]string{
+				"key: coder-terminal-isolated",
+				"name: Coder Terminal Isolated",
+				"mode: CODER",
+				"modelConfig:",
+				"  modelKey: mock-model",
+				"runtimeConfig:",
+				"  workspaceRoot: " + filepath.ToSlash(workspace),
+			}, "\n"))
+		},
+	})
+	server := httptest.NewServer(fixture.server)
+	defer server.Close()
+
+	connA := dialTestWebSocket(t, server.URL)
+	defer connA.Close()
+	waitForPushFrameType(t, connA, "connected")
+	connB := dialTestWebSocket(t, server.URL)
+	defer connB.Close()
+	waitForPushFrameType(t, connB, "connected")
+
+	openTerminalStream(t, connA, "term_open_owner_a", map[string]any{
+		"agentKey":    "coder-terminal-isolated",
+		"terminalKey": "main",
+		"cols":        80,
+		"rows":        24,
+	})
+	openedA := waitForWebSocketFrame(t, connA, func(data []byte) bool {
+		if runtime.GOOS == "windows" && websocketErrorType(data) == "unsupported" {
+			t.Skip("Windows ConPTY is unsupported on this host")
+		}
+		return websocketStreamEventType(data) == "terminal.opened"
+	})
+	terminalA := terminalIDFromStreamFrame(t, openedA)
+	if terminalA == "" {
+		t.Fatalf("expected first terminal id")
+	}
+	if reused, ok := boolFieldFromStreamFrame(t, openedA, "reused"); !ok || reused {
+		t.Fatalf("first owner open should include reused=false: %s", string(openedA))
+	}
+
+	if err := connB.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/terminal/input",
+		ID:    "cross_owner_input",
+		Payload: ws.MarshalPayload(map[string]any{
+			"terminalId": terminalA,
+			"data":       "printf should-not-run\\n\n",
+		}),
+	}); err != nil {
+		t.Fatalf("write cross-owner input: %v", err)
+	}
+	raw := waitForWebSocketFrame(t, connB, func(data []byte) bool {
+		return websocketErrorType(data) == "terminal_not_found" && strings.Contains(string(data), "cross_owner_input")
+	})
+	if websocketErrorType(raw) != "terminal_not_found" {
+		t.Fatalf("expected terminal_not_found, got %s", string(raw))
+	}
+
+	openTerminalStream(t, connB, "term_open_owner_b", map[string]any{
+		"agentKey":    "coder-terminal-isolated",
+		"terminalKey": "main",
+		"cols":        80,
+		"rows":        24,
+	})
+	openedB := waitForWebSocketFrame(t, connB, func(data []byte) bool {
+		return websocketStreamEventType(data) == "terminal.opened" && strings.Contains(string(data), "term_open_owner_b")
+	})
+	terminalB := terminalIDFromStreamFrame(t, openedB)
+	if terminalB == "" || terminalB == terminalA {
+		t.Fatalf("expected isolated second terminal id, got first=%q second=%q", terminalA, terminalB)
+	}
+	if reused, ok := boolFieldFromStreamFrame(t, openedB, "reused"); !ok || reused {
+		t.Fatalf("cross-connection open should include reused=false without shared auth subject: %s", string(openedB))
+	}
+
+	closeTerminalByID(t, connA, "term_close_owner_a", terminalA)
+	closeTerminalByID(t, connB, "term_close_owner_b", terminalB)
+}
+
+func TestWebSocketTerminalDetachRequiresMatchingTerminalStream(t *testing.T) {
+	workspace := t.TempDir()
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.WriteQueueSize = 16
+			cfg.WebSocket.PingInterval = 30000
+		},
+		setupRuntime: func(_ string, cfg *config.Config) {
+			writeTerminalTestAgentFile(t, cfg, "coder-terminal-detach", strings.Join([]string{
+				"key: coder-terminal-detach",
+				"name: Coder Terminal Detach",
+				"mode: CODER",
+				"modelConfig:",
+				"  modelKey: mock-model",
+				"runtimeConfig:",
+				"  workspaceRoot: " + filepath.ToSlash(workspace),
+			}, "\n"))
+		},
+	})
+	server := httptest.NewServer(fixture.server)
+	defer server.Close()
+
+	conn := dialTestWebSocket(t, server.URL)
+	defer conn.Close()
+	waitForPushFrameType(t, conn, "connected")
+
+	openTerminalStream(t, conn, "term_open_detach", map[string]any{
+		"agentKey":    "coder-terminal-detach",
+		"terminalKey": "main",
+		"cols":        80,
+		"rows":        24,
+	})
+	opened := waitForWebSocketFrame(t, conn, func(data []byte) bool {
+		if runtime.GOOS == "windows" && websocketErrorType(data) == "unsupported" {
+			t.Skip("Windows ConPTY is unsupported on this host")
+		}
+		return websocketStreamEventType(data) == "terminal.opened"
+	})
+	terminalID := terminalIDFromStreamFrame(t, opened)
+	if terminalID == "" {
+		t.Fatalf("expected terminal id")
+	}
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/terminal/detach",
+		ID:    "term_detach_wrong",
+		Payload: ws.MarshalPayload(map[string]any{
+			"terminalId":      "other-terminal",
+			"streamRequestId": "term_open_detach",
+		}),
+	}); err != nil {
+		t.Fatalf("write wrong detach: %v", err)
+	}
+	waitForWebSocketFrame(t, conn, func(data []byte) bool {
+		return websocketErrorType(data) == "invalid_request" && strings.Contains(string(data), "term_detach_wrong")
+	})
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/terminal/detach",
+		ID:    "term_detach_right",
+		Payload: ws.MarshalPayload(map[string]any{
+			"terminalId":      terminalID,
+			"streamRequestId": "term_open_detach",
+		}),
+	}); err != nil {
+		t.Fatalf("write right detach: %v", err)
+	}
+	waitForWebSocketResponse(t, conn, "term_detach_right")
+	closeTerminalByID(t, conn, "term_close_detach", terminalID)
+}
+
+func TestWebSocketTerminalOpensForAnyAgentModeWithDefaultWorkspace(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
@@ -119,6 +409,10 @@ func TestWebSocketTerminalRejectsUnsupportedTargets(t *testing.T) {
 	})
 	server := httptest.NewServer(fixture.server)
 	defer server.Close()
+	wantCWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd: %v", err)
+	}
 
 	conn := dialTestWebSocket(t, server.URL)
 	defer conn.Close()
@@ -136,20 +430,20 @@ func TestWebSocketTerminalRejectsUnsupportedTargets(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("write terminal open: %v", err)
 	}
-	raw := waitForWebSocketFrame(t, conn, func(data []byte) bool {
-		var frame ws.ErrorFrame
-		if err := json.Unmarshal(data, &frame); err != nil {
-			return false
+	opened := waitForWebSocketFrame(t, conn, func(data []byte) bool {
+		if runtime.GOOS == "windows" && websocketErrorType(data) == "unsupported" {
+			t.Skip("Windows ConPTY is unsupported on this host")
 		}
-		return frame.Frame == ws.FrameError && frame.ID == "term_react"
+		return websocketStreamEventType(data) == "terminal.opened" && strings.Contains(string(data), "term_react")
 	})
-	var frame ws.ErrorFrame
-	if err := json.Unmarshal(raw, &frame); err != nil {
-		t.Fatalf("decode error frame: %v", err)
+	terminalID := terminalIDFromStreamFrame(t, opened)
+	if terminalID == "" {
+		t.Fatalf("expected terminal id: %s", string(opened))
 	}
-	if frame.Type != "forbidden" {
-		t.Fatalf("expected forbidden, got %s", string(raw))
+	if got := stringFieldFromStreamFrame(t, opened, "cwd"); got != wantCWD {
+		t.Fatalf("terminal cwd = %q, want %q; frame=%s", got, wantCWD, string(opened))
 	}
+	closeTerminalByID(t, conn, "term_close_react", terminalID)
 }
 
 func TestWebSocketTerminalUnknownSessionControlsReturnNotFound(t *testing.T) {
@@ -195,7 +489,7 @@ func TestWebSocketTerminalUnknownSessionControlsReturnNotFound(t *testing.T) {
 	}
 }
 
-func TestOpenTerminalSessionRejectsInvalidAgentWorkspace(t *testing.T) {
+func TestOpenTerminalSessionUsesWorkspaceFallbackForAnyAgent(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
@@ -228,8 +522,48 @@ func TestOpenTerminalSessionRejectsInvalidAgentWorkspace(t *testing.T) {
 			}, "\n"))
 		},
 	})
+	wantCWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd: %v", err)
+	}
 
-	tests := []struct {
+	successes := []struct {
+		name    string
+		payload terminalOpenPayload
+	}{
+		{
+			name:    "empty workspace falls back to process cwd",
+			payload: terminalOpenPayload{AgentKey: "coder-empty", TerminalKey: "empty", Cols: 80, Rows: 24},
+		},
+		{
+			name:    "@chat workspace falls back to process cwd",
+			payload: terminalOpenPayload{AgentKey: "coder-chat", TerminalKey: "chat", Cols: 80, Rows: 24},
+		},
+		{
+			name:    "sandbox agent uses the same terminal path",
+			payload: terminalOpenPayload{AgentKey: "coder-sandbox", TerminalKey: "sandbox", Cols: 80, Rows: 24},
+		},
+	}
+	for _, tt := range successes {
+		t.Run(tt.name, func(t *testing.T) {
+			result, statusErr := fixture.server.openTerminalSession(tt.payload, "test-owner")
+			if runtime.GOOS == "windows" && statusErr != nil && statusErr.status == http.StatusNotImplemented {
+				t.Skip("Windows ConPTY is unsupported on this host")
+			}
+			if statusErr != nil {
+				t.Fatalf("expected terminal session, got %d %s", statusErr.status, statusErr.message)
+			}
+			if result.Session == nil {
+				t.Fatalf("expected terminal session")
+			}
+			defer fixture.server.terminals.Discard(result.Session)
+			if result.Session.CWD() != wantCWD {
+				t.Fatalf("cwd = %q, want %q", result.Session.CWD(), wantCWD)
+			}
+		})
+	}
+
+	failures := []struct {
 		name       string
 		payload    terminalOpenPayload
 		wantStatus int
@@ -241,31 +575,13 @@ func TestOpenTerminalSessionRejectsInvalidAgentWorkspace(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 			wantText:   "agent not found",
 		},
-		{
-			name:       "empty workspace",
-			payload:    terminalOpenPayload{AgentKey: "coder-empty", Cols: 80, Rows: 24},
-			wantStatus: http.StatusBadRequest,
-			wantText:   "agent workspace is empty",
-		},
-		{
-			name:       "@chat without chatId",
-			payload:    terminalOpenPayload{AgentKey: "coder-chat", Cols: 80, Rows: 24},
-			wantStatus: http.StatusBadRequest,
-			wantText:   "chatId is required",
-		},
-		{
-			name:       "sandbox coder",
-			payload:    terminalOpenPayload{AgentKey: "coder-sandbox", Cols: 80, Rows: 24},
-			wantStatus: http.StatusNotImplemented,
-			wantText:   "native local CODER",
-		},
 	}
 
-	for _, tt := range tests {
+	for _, tt := range failures {
 		t.Run(tt.name, func(t *testing.T) {
-			session, statusErr := fixture.server.openTerminalSession(tt.payload)
-			if session != nil {
-				session.Close("closed")
+			result, statusErr := fixture.server.openTerminalSession(tt.payload, "test-owner")
+			if result.Session != nil {
+				result.Session.Close("closed")
 				t.Fatalf("expected no session")
 			}
 			if statusErr == nil {
@@ -368,6 +684,11 @@ func websocketErrorType(data []byte) string {
 
 func terminalIDFromStreamFrame(t *testing.T, data []byte) string {
 	t.Helper()
+	return stringFieldFromStreamFrame(t, data, "terminalId")
+}
+
+func stringFieldFromStreamFrame(t *testing.T, data []byte, key string) string {
+	t.Helper()
 	var frame ws.StreamFrame
 	if err := json.Unmarshal(data, &frame); err != nil {
 		t.Fatalf("decode stream frame: %v", err)
@@ -375,7 +696,71 @@ func terminalIDFromStreamFrame(t *testing.T, data []byte) string {
 	if frame.Event == nil {
 		return ""
 	}
-	return strings.TrimSpace(stringValue(frame.Event.Payload["terminalId"]))
+	return strings.TrimSpace(stringValue(frame.Event.Payload[key]))
+}
+
+func boolValueFromStreamFrame(t *testing.T, data []byte, key string) bool {
+	t.Helper()
+	value, _ := boolFieldFromStreamFrame(t, data, key)
+	return value
+}
+
+func boolFieldFromStreamFrame(t *testing.T, data []byte, key string) (bool, bool) {
+	t.Helper()
+	var frame ws.StreamFrame
+	if err := json.Unmarshal(data, &frame); err != nil {
+		t.Fatalf("decode stream frame: %v", err)
+	}
+	if frame.Event == nil {
+		return false, false
+	}
+	value, ok := frame.Event.Payload[key].(bool)
+	return value, ok
+}
+
+func openTerminalStream(t *testing.T, conn *gws.Conn, requestID string, payload map[string]any) {
+	t.Helper()
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame:   ws.FrameRequest,
+		Type:    "/api/terminal/open",
+		ID:      requestID,
+		Payload: ws.MarshalPayload(payload),
+	}); err != nil {
+		t.Fatalf("write terminal open %s: %v", requestID, err)
+	}
+}
+
+func closeTerminalByID(t *testing.T, conn *gws.Conn, requestID string, terminalID string) {
+	t.Helper()
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/terminal/close",
+		ID:    requestID,
+		Payload: ws.MarshalPayload(map[string]any{
+			"terminalId": terminalID,
+		}),
+	}); err != nil {
+		t.Fatalf("write terminal close %s: %v", requestID, err)
+	}
+	waitForWebSocketResponse(t, conn, requestID)
+}
+
+func waitForWebSocketResponse(t *testing.T, conn *gws.Conn, requestID string) {
+	t.Helper()
+	raw := waitForWebSocketFrame(t, conn, func(data []byte) bool {
+		var frame ws.ResponseFrame
+		if err := json.Unmarshal(data, &frame); err != nil {
+			return false
+		}
+		return frame.Frame == ws.FrameResponse && frame.ID == requestID
+	})
+	var frame ws.ResponseFrame
+	if err := json.Unmarshal(raw, &frame); err != nil {
+		t.Fatalf("decode response %s: %v", requestID, err)
+	}
+	if frame.Code != 0 {
+		t.Fatalf("response %s code = %d, frame=%s", requestID, frame.Code, string(raw))
+	}
 }
 
 func terminalReadyInput() string {

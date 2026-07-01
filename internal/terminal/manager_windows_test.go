@@ -11,12 +11,14 @@ import (
 
 func TestManagerRunsInteractivePTYOnWindows(t *testing.T) {
 	manager := NewManager()
-	session, err := manager.Open(OpenRequest{
-		AgentKey: "coder",
-		CWD:      t.TempDir(),
-		Shell:    "powershell.exe",
-		Cols:     80,
-		Rows:     24,
+	result, err := manager.Open(OpenRequest{
+		OwnerKey:    "owner-a",
+		AgentKey:    "coder",
+		TerminalKey: "main",
+		CWD:         t.TempDir(),
+		Shell:       "powershell.exe",
+		Cols:        80,
+		Rows:        24,
 	})
 	if errors.Is(err, ErrUnsupported) {
 		t.Skip("Windows ConPTY is unsupported on this host")
@@ -24,10 +26,13 @@ func TestManagerRunsInteractivePTYOnWindows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open terminal: %v", err)
 	}
+	session := result.Session
 	manager.Start(session)
 	defer session.Close("closed")
+	subscription := session.Subscribe(false)
+	defer subscription.Close()
 
-	if err := manager.Input(session.ID(), "Write-Output terminal-ready\r\nexit\r\n"); err != nil {
+	if err := manager.Input("owner-a", session.ID(), "Write-Output terminal-ready\r\nexit\r\n"); err != nil {
 		t.Fatalf("input: %v", err)
 	}
 
@@ -35,7 +40,7 @@ func TestManagerRunsInteractivePTYOnWindows(t *testing.T) {
 	var output strings.Builder
 	for {
 		select {
-		case event, ok := <-session.Events():
+		case event, ok := <-subscription.Events():
 			if !ok {
 				t.Fatalf("events closed before exit; output=%q", output.String())
 			}

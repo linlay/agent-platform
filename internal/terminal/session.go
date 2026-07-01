@@ -5,22 +5,31 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+	"unicode/utf8"
 )
 
+const replayBufferLimitBytes = 256 * 1024
+
 type Session struct {
-	id        string
-	agentKey  string
-	chatID    string
-	cwd       string
-	shell     string
-	proc      ptyProcess
-	events    chan Event
-	startOnce sync.Once
-	closeOnce sync.Once
-	mu        sync.RWMutex
-	reason    string
-	startedAt time.Time
+	id          string
+	ownerKey    string
+	agentKey    string
+	terminalKey string
+	scope       string
+	cwd         string
+	shell       string
+	proc        ptyProcess
+	startOnce   sync.Once
+	closeOnce   sync.Once
+	mu          sync.RWMutex
+	subscribers map[int64]chan Event
+	replay      []byte
+	finished    atomic.Bool
+	done        chan struct{}
+	reason      string
+	startedAt   time.Time
 }
 
 func (s *Session) ID() string {
@@ -37,6 +46,20 @@ func (s *Session) AgentKey() string {
 	return s.agentKey
 }
 
+func (s *Session) OwnerKey() string {
+	if s == nil {
+		return ""
+	}
+	return s.ownerKey
+}
+
+func (s *Session) TerminalKey() string {
+	if s == nil {
+		return ""
+	}
+	return s.terminalKey
+}
+
 func (s *Session) CWD() string {
 	if s == nil {
 		return ""
@@ -49,13 +72,6 @@ func (s *Session) Shell() string {
 		return ""
 	}
 	return s.shell
-}
-
-func (s *Session) Events() <-chan Event {
-	if s == nil {
-		return nil
-	}
-	return s.events
 }
 
 func (s *Session) Start(onDone func(string)) {
@@ -116,8 +132,87 @@ func (s *Session) closeReason() string {
 	return reason
 }
 
+func (s *Session) publish(event Event) {
+	if s == nil {
+		return
+	}
+	event = s.event(event)
+	s.mu.Lock()
+	if s.finished.Load() {
+		s.mu.Unlock()
+		return
+	}
+	if event.Type == EventOutput && !event.Replay {
+		s.appendReplayLocked(event.Data)
+	}
+	var stale []int64
+	for id, ch := range s.subscribers {
+		select {
+		case ch <- event:
+		default:
+			stale = append(stale, id)
+			close(ch)
+		}
+	}
+	for _, id := range stale {
+		delete(s.subscribers, id)
+	}
+	s.mu.Unlock()
+}
+
+func (s *Session) event(event Event) Event {
+	if event.TerminalID == "" {
+		event.TerminalID = s.id
+	}
+	if event.AgentKey == "" {
+		event.AgentKey = s.agentKey
+	}
+	if event.TerminalKey == "" {
+		event.TerminalKey = s.terminalKey
+	}
+	if event.Scope == "" {
+		event.Scope = s.scope
+	}
+	if event.CWD == "" {
+		event.CWD = s.cwd
+	}
+	if event.Shell == "" {
+		event.Shell = s.shell
+	}
+	return event
+}
+
+func (s *Session) appendReplayLocked(data string) {
+	if data == "" {
+		return
+	}
+	s.replay = append(s.replay, []byte(data)...)
+	if len(s.replay) <= replayBufferLimitBytes {
+		return
+	}
+	start := len(s.replay) - replayBufferLimitBytes
+	for start < len(s.replay) && !utf8.RuneStart(s.replay[start]) {
+		start++
+	}
+	s.replay = append([]byte(nil), s.replay[start:]...)
+}
+
+func (s *Session) finishSubscribers() {
+	if !s.finished.CompareAndSwap(false, true) {
+		return
+	}
+	if s.done != nil {
+		close(s.done)
+	}
+	s.mu.Lock()
+	for id, ch := range s.subscribers {
+		delete(s.subscribers, id)
+		close(ch)
+	}
+	s.mu.Unlock()
+}
+
 func (s *Session) readLoop(onDone func(string)) {
-	defer close(s.events)
 	defer func() {
 		if onDone != nil {
 			onDone(s.id)
@@ -128,20 +223,13 @@ func (s *Session) readLoop(onDone func(string)) {
 			_ = s.proc.Close()
 		}
 	}()
+	defer s.finishSubscribers()
 
 	buf := make([]byte, 8192)
 	for {
 		n, err := s.proc.Read(buf)
 		if n > 0 {
-			s.events <- Event{
-				Type:       EventOutput,
-				TerminalID: s.id,
-				AgentKey:   s.agentKey,
-				ChatID:     s.chatID,
-				CWD:        s.cwd,
-				Shell:      s.shell,
-				Data:       string(buf[:n]),
-			}
+			s.publish(Event{Type: EventOutput, Data: string(buf[:n])})
 		}
 		if err != nil {
 			if errors.Is(err, io.EOF) {
@@ -152,14 +240,5 @@ func (s *Session) readLoop(onDone func(string)) {
 	}
 
 	exitCode, _ := s.proc.Wait()
-	s.events <- Event{
-		Type:       EventExit,
-		TerminalID: s.id,
-		AgentKey:   s.agentKey,
-		ChatID:     s.chatID,
-		CWD:        s.cwd,
-		Shell:      s.shell,
-		ExitCode:   exitCode,
-		Reason:     s.closeReason(),
-	}
+	s.publish(Event{Type: EventExit, ExitCode: exitCode, Reason: s.closeReason()})
 }
