@@ -24,7 +24,7 @@ DEPLOY_AI_VISION_OCR_MODEL_KEY=""
 DEPLOY_AI_WEB_FETCH_MODEL_KEY=""
 DEPLOY_CODER_MODEL_KEY=""
 DEPLOY_CODER_REASONING_EFFORT=""
-DEPLOY_LOCAL_PUBLIC_KEY_FILE=""
+DEPLOY_PUBLIC_KEY_SOURCE_FILE=""
 
 program_die() {
   echo "[program] $*" >&2
@@ -144,9 +144,9 @@ program_apply_deploy_flags() {
         esac
         shift 2
         ;;
-      --local-public-key-file)
-        [[ $# -ge 2 ]] || program_die "missing value for --local-public-key-file"
-        DEPLOY_LOCAL_PUBLIC_KEY_FILE="$2"
+      --public-key-source-file)
+        [[ $# -ge 2 ]] || program_die "missing value for --public-key-source-file"
+        DEPLOY_PUBLIC_KEY_SOURCE_FILE="$2"
         shift 2
         ;;
       --config-dir|--state-dir|--log-dir|--port|--daemon)
@@ -164,13 +164,8 @@ program_apply_deploy_flags() {
   program_refresh_paths
   program_require_arg_value "--ap-runtime-dir" "$DEPLOY_AP_RUNTIME_DIR"
   program_require_arg_value "--container-hub-base-url" "$DEPLOY_CONTAINER_HUB_BASE_URL"
-  program_require_arg_value "--ai-vision-general-model-key" "$DEPLOY_AI_VISION_GENERAL_MODEL_KEY"
-  program_require_arg_value "--ai-vision-ocr-model-key" "$DEPLOY_AI_VISION_OCR_MODEL_KEY"
-  program_require_arg_value "--ai-web-fetch-model-key" "$DEPLOY_AI_WEB_FETCH_MODEL_KEY"
-  program_require_arg_value "--coder-model-key" "$DEPLOY_CODER_MODEL_KEY"
-  program_require_arg_value "--coder-reasoning-effort" "$DEPLOY_CODER_REASONING_EFFORT"
-  program_require_arg_value "--local-public-key-file" "$DEPLOY_LOCAL_PUBLIC_KEY_FILE"
-  program_require_file "$DEPLOY_LOCAL_PUBLIC_KEY_FILE"
+  program_require_arg_value "--public-key-source-file" "$DEPLOY_PUBLIC_KEY_SOURCE_FILE"
+  program_require_file "$DEPLOY_PUBLIC_KEY_SOURCE_FILE"
 }
 
 program_initialize_config() {
@@ -291,9 +286,15 @@ program_render_ai_tools_file() {
   local target="$2"
 
   cp "$source" "$target"
-  program_set_ai_tools_model_key "$target" "vision-recognize" "general" "$DEPLOY_AI_VISION_GENERAL_MODEL_KEY"
-  program_set_ai_tools_model_key "$target" "vision-recognize" "ocr" "$DEPLOY_AI_VISION_OCR_MODEL_KEY"
-  program_set_ai_tools_model_key "$target" "web-fetch" "general" "$DEPLOY_AI_WEB_FETCH_MODEL_KEY"
+  if [[ -n "$DEPLOY_AI_VISION_GENERAL_MODEL_KEY" ]]; then
+    program_set_ai_tools_model_key "$target" "vision-recognize" "general" "$DEPLOY_AI_VISION_GENERAL_MODEL_KEY"
+  fi
+  if [[ -n "$DEPLOY_AI_VISION_OCR_MODEL_KEY" ]]; then
+    program_set_ai_tools_model_key "$target" "vision-recognize" "ocr" "$DEPLOY_AI_VISION_OCR_MODEL_KEY"
+  fi
+  if [[ -n "$DEPLOY_AI_WEB_FETCH_MODEL_KEY" ]]; then
+    program_set_ai_tools_model_key "$target" "web-fetch" "general" "$DEPLOY_AI_WEB_FETCH_MODEL_KEY"
+  fi
 }
 
 program_set_coder_default_value() {
@@ -334,14 +335,18 @@ program_render_coder_settings_file() {
   local target="$2"
 
   cp "$source" "$target"
-  program_set_coder_default_value "$target" "modelKey" "$DEPLOY_CODER_MODEL_KEY"
-  program_set_coder_default_value "$target" "reasoningEffort" "$DEPLOY_CODER_REASONING_EFFORT"
+  if [[ -n "$DEPLOY_CODER_MODEL_KEY" ]]; then
+    program_set_coder_default_value "$target" "modelKey" "$DEPLOY_CODER_MODEL_KEY"
+  fi
+  if [[ -n "$DEPLOY_CODER_REASONING_EFFORT" ]]; then
+    program_set_coder_default_value "$target" "reasoningEffort" "$DEPLOY_CODER_REASONING_EFFORT"
+  fi
 }
 
 program_install_local_public_key() {
   local target="$CONFIG_DIR/local-public-key.pem"
 
-  [[ -f "$target" ]] || cp "$DEPLOY_LOCAL_PUBLIC_KEY_FILE" "$target"
+  [[ -f "$target" ]] || cp "$DEPLOY_PUBLIC_KEY_SOURCE_FILE" "$target"
 }
 
 program_initialize_deploy_config() {

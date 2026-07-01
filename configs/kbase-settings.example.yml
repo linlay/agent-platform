@@ -1,12 +1,10 @@
 # KBASE-specific runtime settings.
 
 default-agent:
-  # Default modelKey written when creating a new KBASE agent without an
-  # explicit modelConfig.modelKey.
-  modelKey: deepseek-v4-pro
-  # Default reasoning effort written when creating a new KBASE agent without
-  # an explicit modelConfig.reasoning.effort.
-  reasoningEffort: MEDIUM
+  # Optional default modelKey for new KBASE agents; leave empty to require explicit configuration.
+  modelKey:
+  # Optional default reasoning effort for new KBASE agents; leave empty to require explicit configuration.
+  reasoningEffort:
 
 embedding:
   providerKey: babelark

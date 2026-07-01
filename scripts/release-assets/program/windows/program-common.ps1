@@ -23,7 +23,7 @@ $Script:DeployAIVisionOCRModelKey = ''
 $Script:DeployAIWebFetchModelKey = ''
 $Script:DeployCoderModelKey = ''
 $Script:DeployCoderReasoningEffort = ''
-$Script:DeployLocalPublicKeyFile = ''
+$Script:DeployPublicKeySourceFile = ''
 $Script:Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
 function Fail-Program([string]$Message) {
@@ -103,7 +103,7 @@ function Set-ProgramDeployOption([string]$Name, [string]$Value) {
       }
       $Script:DeployCoderReasoningEffort = $Value
     }
-    '--local-public-key-file' { $Script:DeployLocalPublicKeyFile = $Value }
+    '--public-key-source-file' { $Script:DeployPublicKeySourceFile = $Value }
     default { Fail-Program "unsupported deploy argument: $Name" }
   }
   Update-ProgramPaths
@@ -127,7 +127,7 @@ function Set-ProgramDeployArgs([string[]]$Arguments) {
       '--ai-web-fetch-model-key',
       '--coder-model-key',
       '--coder-reasoning-effort',
-      '--local-public-key-file'
+      '--public-key-source-file'
     ) -notcontains $name) {
       Fail-Program "unsupported deploy argument: $name"
     }
@@ -140,14 +140,9 @@ function Set-ProgramDeployArgs([string[]]$Arguments) {
 
   Assert-ProgramArgValue '--ap-runtime-dir' $Script:DeployAPRuntimeDir
   Assert-ProgramArgValue '--container-hub-base-url' $Script:DeployContainerHubBaseUrl
-  Assert-ProgramArgValue '--ai-vision-general-model-key' $Script:DeployAIVisionGeneralModelKey
-  Assert-ProgramArgValue '--ai-vision-ocr-model-key' $Script:DeployAIVisionOCRModelKey
-  Assert-ProgramArgValue '--ai-web-fetch-model-key' $Script:DeployAIWebFetchModelKey
-  Assert-ProgramArgValue '--coder-model-key' $Script:DeployCoderModelKey
-  Assert-ProgramArgValue '--coder-reasoning-effort' $Script:DeployCoderReasoningEffort
-  Assert-ProgramArgValue '--local-public-key-file' $Script:DeployLocalPublicKeyFile
-  if (-not (Test-Path -LiteralPath $Script:DeployLocalPublicKeyFile -PathType Leaf)) {
-    Fail-Program "required file not found: $Script:DeployLocalPublicKeyFile"
+  Assert-ProgramArgValue '--public-key-source-file' $Script:DeployPublicKeySourceFile
+  if (-not (Test-Path -LiteralPath $Script:DeployPublicKeySourceFile -PathType Leaf)) {
+    Fail-Program "required file not found: $Script:DeployPublicKeySourceFile"
   }
 }
 
@@ -246,9 +241,15 @@ function Set-ProgramAIToolsModelKey([string]$Path, [string]$Section, [string]$Pr
 
 function New-ProgramDeployAIToolsFile([string]$Source, [string]$Target) {
   Copy-Item -LiteralPath $Source -Destination $Target
-  Set-ProgramAIToolsModelKey $Target 'vision-recognize' 'general' $Script:DeployAIVisionGeneralModelKey
-  Set-ProgramAIToolsModelKey $Target 'vision-recognize' 'ocr' $Script:DeployAIVisionOCRModelKey
-  Set-ProgramAIToolsModelKey $Target 'web-fetch' 'general' $Script:DeployAIWebFetchModelKey
+  if (-not [string]::IsNullOrWhiteSpace($Script:DeployAIVisionGeneralModelKey)) {
+    Set-ProgramAIToolsModelKey $Target 'vision-recognize' 'general' $Script:DeployAIVisionGeneralModelKey
+  }
+  if (-not [string]::IsNullOrWhiteSpace($Script:DeployAIVisionOCRModelKey)) {
+    Set-ProgramAIToolsModelKey $Target 'vision-recognize' 'ocr' $Script:DeployAIVisionOCRModelKey
+  }
+  if (-not [string]::IsNullOrWhiteSpace($Script:DeployAIWebFetchModelKey)) {
+    Set-ProgramAIToolsModelKey $Target 'web-fetch' 'general' $Script:DeployAIWebFetchModelKey
+  }
 }
 
 function Set-ProgramCoderDefaultValue([string]$Path, [string]$Name, [string]$Value) {
@@ -274,14 +275,18 @@ function Set-ProgramCoderDefaultValue([string]$Path, [string]$Name, [string]$Val
 
 function New-ProgramDeployCoderSettingsFile([string]$Source, [string]$Target) {
   Copy-Item -LiteralPath $Source -Destination $Target
-  Set-ProgramCoderDefaultValue $Target 'modelKey' $Script:DeployCoderModelKey
-  Set-ProgramCoderDefaultValue $Target 'reasoningEffort' $Script:DeployCoderReasoningEffort
+  if (-not [string]::IsNullOrWhiteSpace($Script:DeployCoderModelKey)) {
+    Set-ProgramCoderDefaultValue $Target 'modelKey' $Script:DeployCoderModelKey
+  }
+  if (-not [string]::IsNullOrWhiteSpace($Script:DeployCoderReasoningEffort)) {
+    Set-ProgramCoderDefaultValue $Target 'reasoningEffort' $Script:DeployCoderReasoningEffort
+  }
 }
 
 function Install-ProgramDeployLocalPublicKey {
   $target = Join-Path $Script:ConfigDir 'local-public-key.pem'
   if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
-    Copy-Item -LiteralPath $Script:DeployLocalPublicKeyFile -Destination $target
+    Copy-Item -LiteralPath $Script:DeployPublicKeySourceFile -Destination $target
   }
 }
 

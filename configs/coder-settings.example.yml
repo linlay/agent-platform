@@ -1,12 +1,10 @@
 # CODER-specific runtime settings.
 
 default-agent:
-  # Default modelKey written when creating a new CODER agent without an
-  # explicit modelConfig.modelKey.
-  modelKey: deepseek-v4-pro
-  # Default reasoning effort written when creating a new CODER agent without
-  # an explicit modelConfig.reasoning.effort.
-  reasoningEffort: MEDIUM
+  # Optional default modelKey for new CODER agents; leave empty to require explicit configuration.
+  modelKey:
+  # Optional default reasoning effort for new CODER agents; leave empty to require explicit configuration.
+  reasoningEffort:
 
 acp-proxies:
   # ACP CODER bridge entries. Codex CLI/proxy settings stay in proxy-acp-codex.
