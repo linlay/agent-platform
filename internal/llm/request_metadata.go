@@ -138,6 +138,43 @@ func firstSystemMessageSnapshot(messages []openAIMessage) map[string]any {
 	return nil
 }
 
+func rawMessageFromOpenAIMessage(message openAIMessage) map[string]any {
+	role := strings.TrimSpace(message.Role)
+	if role == "" {
+		return nil
+	}
+	raw := map[string]any{"role": role}
+	if content, ok := message.Content.(string); ok && strings.TrimSpace(content) != "" {
+		raw["content"] = content
+	} else if message.Content != nil {
+		raw["content"] = message.Content
+	}
+	if strings.TrimSpace(message.Name) != "" {
+		raw["name"] = strings.TrimSpace(message.Name)
+	}
+	if strings.TrimSpace(message.ToolCallID) != "" {
+		raw["tool_call_id"] = message.ToolCallID
+	}
+	if len(message.ToolCalls) > 0 {
+		calls := make([]any, 0, len(message.ToolCalls))
+		for _, call := range message.ToolCalls {
+			calls = append(calls, map[string]any{
+				"id":   call.ID,
+				"type": firstNonBlank(call.Type, "function"),
+				"function": map[string]any{
+					"name":      call.Function.Name,
+					"arguments": call.Function.Arguments,
+				},
+			})
+		}
+		raw["tool_calls"] = calls
+	}
+	if strings.TrimSpace(message.ReasoningContent) != "" {
+		raw["reasoning_content"] = message.ReasoningContent
+	}
+	return raw
+}
+
 func (s *llmRunStream) currentInputMessagesForJSONL() []map[string]any {
 	raw := trailingUserMessages(s.messages)
 	if len(raw) == 0 {

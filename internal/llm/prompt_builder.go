@@ -23,6 +23,7 @@ You answer using the workspace knowledge base for this agent.
 
 Rules:
 - Search the knowledge base with kbase_search before answering factual questions about the indexed workspace.
+- Use kbase_files when you need to discover indexed files or browse nearby indexed paths.
 - Base answers on retrieved evidence. If the available evidence is insufficient, say that the knowledge base does not contain enough information.
 - Cite source paths and line ranges from kbase_search or kbase_read when giving concrete claims.
 - Use kbase_read when a search result needs more surrounding context.
@@ -109,7 +110,7 @@ func buildKBaseSystemPromptSection(session QuerySession, req api.QueryRequest, t
 	if prompt == "" {
 		prompt = defaultKBaseSystemPrompt
 	}
-	return renderCoderPromptTemplate(prompt, coderPromptTemplateValues(session, req, coderPromptTemplateData{
+	return agentcoder.RenderPromptTemplate(prompt, agentcoder.PromptTemplateValues(session, req, agentcoder.PromptTemplateData{
 		AvailableTools: toolNames,
 	}))
 }
@@ -178,72 +179,11 @@ func buildCoderSystemPromptSection(session QuerySession, req api.QueryRequest, t
 	if !strings.EqualFold(strings.TrimSpace(stage), "coder") {
 		return ""
 	}
-	return renderCoderPromptTemplate(session.CoderSystemPrompt, coderPromptTemplateValues(session, req, coderPromptTemplateData{
+	return agentcoder.RenderPromptTemplate(session.CoderSystemPrompt, agentcoder.PromptTemplateValues(session, req, agentcoder.PromptTemplateData{
 		AvailableTools:    toolNames,
 		PlanStageTools:    agentcoder.PlanningModePlanTools(),
 		ExecuteStageTools: agentcoder.PlanningExecuteTools(toolNames),
 	}))
-}
-
-type coderPromptTemplateData struct {
-	AvailableTools          []string
-	PlanStageTools          []string
-	ExecuteStageTools       []string
-	ExecuteToolDescriptions string
-}
-
-func renderCoderPromptTemplate(prompt string, values map[string]string) string {
-	return strings.TrimSpace(renderTemplate(prompt, values))
-}
-
-func coderPromptTemplateValues(session QuerySession, req api.QueryRequest, data coderPromptTemplateData) map[string]string {
-	availableTools := data.AvailableTools
-	if len(availableTools) == 0 {
-		availableTools = session.ToolNames
-	}
-	planStageTools := data.PlanStageTools
-	if len(planStageTools) == 0 {
-		planStageTools = agentcoder.PlanningModePlanTools()
-	}
-	executeStageTools := data.ExecuteStageTools
-	if len(executeStageTools) == 0 {
-		executeStageTools = agentcoder.PlanningExecuteTools(availableTools)
-	}
-	workspaceDir := firstNonBlank(
-		session.RuntimeContext.LocalPaths.WorkspaceDir,
-		session.RuntimeContext.SandboxPaths.WorkspaceDir,
-		session.WorkspaceRoot,
-	)
-	chatDir := firstNonBlank(
-		session.RuntimeContext.LocalPaths.ChatAttachmentsDir,
-		session.RuntimeContext.SandboxPaths.WorkspaceDir,
-	)
-	return map[string]string{
-		"agent_key":                   session.AgentKey,
-		"agent_name":                  session.AgentName,
-		"mode":                        session.Mode,
-		"planning_mode":               fmt.Sprintf("%t", session.PlanningMode),
-		"workspace_dir":               workspaceDir,
-		"chat_dir":                    chatDir,
-		"current_date":                time.Now().Format("2006-01-02"),
-		"timezone":                    localTimezoneName(),
-		"language_preference":         "中文",
-		"available_tools":             strings.Join(normalizeToolNameList(availableTools), ", "),
-		"plan_stage_tools":            strings.Join(normalizeToolNameList(planStageTools), ", "),
-		"execute_stage_tools":         strings.Join(normalizeToolNameList(executeStageTools), ", "),
-		"execute_tool_descriptions":   strings.TrimSpace(data.ExecuteToolDescriptions),
-		"ask_user_question_tool_name": agentcoder.AskUserQuestionToolName,
-		"finalize_planning_tool_name": FinalizePlanningToolName,
-		"bash_tool_name":              "bash",
-		"datetime_tool_name":          "datetime",
-		"file_read_tool_name":         "file_read",
-		"file_glob_tool_name":         "file_glob",
-		"file_grep_tool_name":         "file_grep",
-		"file_write_tool_name":        "file_write",
-		"file_edit_tool_name":         "file_edit",
-		"agent_tool_name":             InvokeAgentsToolName,
-		"user_request":                req.Message,
-	}
 }
 
 func toolNamesFromDefinitions(definitions []api.ToolDetailResponse, fallback []string) []string {

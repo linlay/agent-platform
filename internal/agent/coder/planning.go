@@ -23,9 +23,17 @@ func PlanningModePlanTools() []string {
 	return append([]string(nil), planningModePlanTools...)
 }
 
+func IsMode(mode string) bool {
+	return strings.EqualFold(strings.TrimSpace(mode), "CODER")
+}
+
+func IsACPBackend(mode string, acpProxyID string) bool {
+	return IsMode(mode) && strings.TrimSpace(acpProxyID) != ""
+}
+
 func RuntimeToolNamesForStage(mode string, stage string, toolNames []string) []string {
 	out := append([]string(nil), toolNames...)
-	if !strings.EqualFold(strings.TrimSpace(mode), "CODER") {
+	if !IsMode(mode) {
 		return out
 	}
 	stage = strings.ToLower(strings.TrimSpace(stage))

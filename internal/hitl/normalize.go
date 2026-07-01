@@ -8,6 +8,7 @@ import (
 
 	"agent-platform/internal/api"
 	contracts "agent-platform/internal/contracts"
+	hitlplan "agent-platform/internal/hitl/plan"
 )
 
 func Normalize(args map[string]any, params any) (map[string]any, error) {
@@ -133,51 +134,7 @@ func NormalizeForm(args map[string]any, params any) (map[string]any, error) {
 }
 
 func NormalizePlan(args map[string]any, params any) (map[string]any, error) {
-	items, err := decodeItems(params)
-	if err != nil {
-		return nil, fmt.Errorf("plan submit params must be an array")
-	}
-	if len(items) == 0 {
-		return contracts.AwaitingErrorAnswer("plan", "user_dismissed", "用户关闭等待项"), nil
-	}
-	if len(items) != 1 {
-		return nil, fmt.Errorf("expected 1 plan, got %d", len(items))
-	}
-
-	definition := contracts.AnyMapNode(args["plan"])
-	if len(definition) == 0 {
-		return nil, fmt.Errorf("plan definition is required")
-	}
-	item := items[0]
-	definitionID := strings.TrimSpace(contracts.AnyStringNode(definition["id"]))
-	submittedID := strings.TrimSpace(contracts.AnyStringNode(item["id"]))
-	if submittedID != "" && definitionID != "" && submittedID != definitionID {
-		log.Printf("[hitl][warn] plan submit id mismatch expected=%s actual=%s", definitionID, submittedID)
-	}
-	decision := strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(item["decision"])))
-	if decision == "" {
-		return nil, fmt.Errorf("items[0]: decision is required")
-	}
-	switch decision {
-	case "approve", "reject":
-	default:
-		return nil, fmt.Errorf("items[0]: unsupported plan decision %q", decision)
-	}
-
-	entry := map[string]any{
-		"id":           firstNonBlank(definitionID, submittedID),
-		"planningId":   strings.TrimSpace(contracts.AnyStringNode(definition["planningId"])),
-		"planningFile": strings.TrimSpace(contracts.AnyStringNode(definition["planningFile"])),
-		"decision":     decision,
-	}
-	if reason := strings.TrimSpace(contracts.AnyStringNode(item["reason"])); reason != "" {
-		entry["reason"] = reason
-	}
-	return map[string]any{
-		"mode":   "plan",
-		"status": "answered",
-		"plan":   entry,
-	}, nil
+	return hitlplan.Normalize(args, params)
 }
 
 func decodeItems(params any) ([]map[string]any, error) {

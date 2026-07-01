@@ -258,6 +258,11 @@ func (m *Manager) Search(ctx context.Context, agentKey string, query string, opt
 	if limit > 50 {
 		limit = 50
 	}
+	offset := options.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	scope := newPathScope(options.PathPrefix, options.PathGlob, options.Type)
 	store, err := OpenReadStore(cfg.StorageDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -268,6 +273,8 @@ func (m *Manager) Search(ctx context.Context, agentKey string, query string, opt
 				AgentKey: cfg.AgentKey,
 				Query:    query,
 				Count:    0,
+				Offset:   offset,
+				Limit:    limit,
 				Results:  nil,
 				Stale:    true,
 				Indexing: statusErr == nil && status.Indexing,
@@ -280,11 +287,12 @@ func (m *Manager) Search(ctx context.Context, agentKey string, query string, opt
 	if err != nil {
 		return SearchResult{}, err
 	}
-	fts, err := store.SearchFTS(query, limit*4)
+	ftsLimit := (offset + limit) * 4
+	fts, err := store.SearchFTS(query, scope, ftsLimit)
 	if err != nil {
 		return SearchResult{}, err
 	}
-	chunks, err := store.AllChunksWithEmbeddings()
+	chunks, err := store.AllChunksWithEmbeddings(scope)
 	if err != nil {
 		return SearchResult{}, err
 	}
@@ -333,14 +341,20 @@ func (m *Manager) Search(ctx context.Context, agentKey string, query string, opt
 			MatchType:  matchType,
 		})
 	}
-	hits = sortedSearchHits(hits, limit)
+	hits = sortedSearchHits(hits, 0)
+	matchCount := len(hits)
+	hits, truncated := pageSearchHits(hits, offset, limit)
 	result := SearchResult{
-		AgentKey: cfg.AgentKey,
-		Query:    query,
-		Count:    len(hits),
-		Results:  hits,
-		Stale:    statusErr == nil && status.Stale,
-		Indexing: statusErr == nil && status.Indexing,
+		AgentKey:   cfg.AgentKey,
+		Query:      query,
+		Count:      len(hits),
+		MatchCount: matchCount,
+		Offset:     offset,
+		Limit:      limit,
+		Truncated:  truncated,
+		Results:    hits,
+		Stale:      statusErr == nil && status.Stale,
+		Indexing:   statusErr == nil && status.Indexing,
 	}
 	if result.Stale && !result.Indexing {
 		m.queueRefresh(cfg.AgentKey, cfg.StorageDir, "search")

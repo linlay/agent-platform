@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/contracts"
 	"agent-platform/internal/modelrequest"
 )
 
@@ -16,25 +17,9 @@ type openAIProtocol struct {
 	engine *LLMAgentEngine
 }
 
-type openAIMessage struct {
-	Role             string           `json:"role"`
-	Content          any              `json:"content,omitempty"`
-	Name             string           `json:"name,omitempty"`
-	ToolCallID       string           `json:"tool_call_id,omitempty"`
-	ToolCalls        []openAIToolCall `json:"tool_calls,omitempty"`
-	ReasoningContent string           `json:"reasoning_content,omitempty"`
-}
-
-type openAIToolCall struct {
-	ID       string             `json:"id"`
-	Type     string             `json:"type"`
-	Function openAIFunctionCall `json:"function"`
-}
-
-type openAIFunctionCall struct {
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
-}
+type openAIMessage = contracts.ModelMessage
+type openAIToolCall = contracts.ModelToolCall
+type openAIFunctionCall = contracts.ModelFunctionCall
 
 type streamOptions struct {
 	IncludeUsage bool `json:"include_usage"`

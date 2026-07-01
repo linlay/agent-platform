@@ -1,30 +1,42 @@
-package llm
+package coder
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
 
-	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/api"
-	. "agent-platform/internal/contracts"
+	"agent-platform/internal/contracts"
+	hitlplan "agent-platform/internal/hitl/plan"
 	"agent-platform/internal/i18n"
 )
 
-const defaultCoderExecuteSystemPrompt = `Execute the confirmed CODER plan for the user.`
+const DefaultExecuteSystemPrompt = `Execute the confirmed CODER plan for the user.`
+
+const defaultCoderExecuteSystemPrompt = DefaultExecuteSystemPrompt
+
+const defaultTaskExecutionPromptTemplate = `Task list:
+{{task_list}}
+Current task ID: {{task_id}}
+Current task description: {{task_description}}
+Execution rules:
+1) Call at most one tool per round.
+2) You may call any available tool as needed.
+3) Before finishing this task, you MUST call plan_update_task to update its status.`
 
 type coderPlanningStream struct {
-	engine  *LLMAgentEngine
+	runtime Runtime
 	ctx     context.Context
 	req     api.QueryRequest
-	session QuerySession
-	execCtx *ExecutionContext
+	session contracts.QuerySession
+	execCtx *contracts.ExecutionContext
 
-	settings PlanExecuteSettings
-	pending  []AgentDelta
-	current  AgentStream
+	settings contracts.PlanExecuteSettings
+	pending  []contracts.AgentDelta
+	current  contracts.AgentStream
 
 	taskIndex             int
 	planDone              bool
@@ -42,34 +54,38 @@ type coderPlanningStream struct {
 	rejectedPlanDecision string
 	rejectedPlanReason   string
 
-	executeMessages []openAIMessage
+	executeMessages []contracts.ModelMessage
 }
 
-func newCoderPlanningStream(engine *LLMAgentEngine, ctx context.Context, req api.QueryRequest, session QuerySession) (AgentStream, error) {
-	settings := resolvePlanExecuteRuntimeSettings(session, engine.cfg.Defaults.Plan.MaxSteps, engine.cfg.Defaults.Plan.MaxWorkRoundsPerTask)
-	execCtx := &ExecutionContext{
+func NewPlanningStream(runtime Runtime, ctx context.Context, req api.QueryRequest, session contracts.QuerySession) (contracts.AgentStream, error) {
+	if runtime == nil {
+		return nil, fmt.Errorf("coder planning runtime is nil")
+	}
+	runtimeSettings := runtime.Settings()
+	settings := resolvePlanExecuteRuntimeSettings(session, runtimeSettings.DefaultPlanMaxSteps, runtimeSettings.DefaultPlanMaxWorkRoundsPerTask)
+	execCtx := &contracts.ExecutionContext{
 		Request:          req,
 		Session:          session,
-		RunControl:       RunControlFromContext(ctx),
-		Budget:           NormalizeBudget(session.ResolvedBudget),
+		RunControl:       contracts.RunControlFromContext(ctx),
+		Budget:           contracts.NormalizeBudget(session.ResolvedBudget),
 		StageSettings:    settings,
-		RunLoopState:     RunLoopStateIdle,
+		RunLoopState:     contracts.RunLoopStateIdle,
 		PlanningRevision: 1,
 	}
 	return &coderPlanningStream{
-		engine:   engine,
+		runtime:  runtime,
 		ctx:      ctx,
 		req:      req,
 		session:  session,
 		execCtx:  execCtx,
 		settings: settings,
-		pending: []AgentDelta{
-			DeltaStageMarker{Stage: "coder-plan"},
+		pending: []contracts.AgentDelta{
+			contracts.DeltaStageMarker{Stage: "coder-plan"},
 		},
 	}, nil
 }
 
-func (s *coderPlanningStream) Next() (AgentDelta, error) {
+func (s *coderPlanningStream) Next() (contracts.AgentDelta, error) {
 	for {
 		if len(s.pending) > 0 {
 			event := s.pending[0]
@@ -93,8 +109,8 @@ func (s *coderPlanningStream) Next() (AgentDelta, error) {
 		}
 		event, err := s.current.Next()
 		if err == io.EOF {
-			if llmStream, ok := s.current.(*llmRunStream); ok {
-				accumulated := llmStream.AccumulatedMessages()
+			if messageStream, ok := s.current.(AccumulatedMessageStream); ok {
+				accumulated := messageStream.AccumulatedMessages()
 				if !s.planDone || !s.executionDone {
 					if s.currentPlanIsFeedback {
 						s.executeMessages = nonSystemMessages(accumulated)
@@ -154,8 +170,8 @@ func (s *coderPlanningStream) startPlanStage() error {
 	req := s.req
 	req.Message = strings.TrimSpace(planPrompt) + "\n\nUser request:\n" + s.req.Message
 	stageSession := s.sessionForStage(s.settings.Plan, s.planStageTools())
-	stageSession.CurrentMessages = s.engine.buildCurrentMessagesForRequest(req, stageSession, false)
-	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, stageSession, true, runStreamOptions{
+	stageSession.CurrentMessages = s.runtime.BuildCurrentMessagesForRequest(req, stageSession, false)
+	stream, err := s.runtime.NewStageRunStream(s.ctx, req, stageSession, true, StageRunOptions{
 		ExecCtx:      s.execCtx,
 		ToolNames:    s.planStageTools(),
 		ModelKey:     s.resolveStageModelKey(s.settings.Plan),
@@ -173,13 +189,13 @@ func (s *coderPlanningStream) startPlanStage() error {
 func (s *coderPlanningStream) startPlanningFeedbackStage() error {
 	s.nextPlanIsFeedback = false
 	s.currentPlanIsFeedback = true
-	s.pending = append(s.pending, DeltaStageMarker{Stage: "coder-plan-feedback"})
+	s.pending = append(s.pending, contracts.DeltaStageMarker{Stage: "coder-plan-feedback"})
 	req := s.req
 	req.Message = s.planningFeedbackPrompt()
 	stageSession := s.sessionForStage(s.settings.Plan, s.planStageTools())
-	stageSession.HistoryMessages = append(stageSession.HistoryMessages, rawMessagesFromOpenAIMessages(s.executeMessages)...)
-	stageSession.CurrentMessages = s.engine.buildCurrentMessagesForRequest(req, stageSession, false)
-	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, stageSession, true, runStreamOptions{
+	stageSession.HistoryMessages = append(stageSession.HistoryMessages, rawMessagesFromModelMessages(s.executeMessages)...)
+	stageSession.CurrentMessages = s.runtime.BuildCurrentMessagesForRequest(req, stageSession, false)
+	stream, err := s.runtime.NewStageRunStream(s.ctx, req, stageSession, true, StageRunOptions{
 		ExecCtx:      s.execCtx,
 		ToolNames:    s.planStageTools(),
 		ModelKey:     s.resolveStageModelKey(s.settings.Plan),
@@ -194,13 +210,13 @@ func (s *coderPlanningStream) startPlanningFeedbackStage() error {
 	return nil
 }
 
-func rawMessagesFromOpenAIMessages(messages []openAIMessage) []map[string]any {
+func rawMessagesFromModelMessages(messages []contracts.ModelMessage) []map[string]any {
 	if len(messages) == 0 {
 		return nil
 	}
 	out := make([]map[string]any, 0, len(messages))
 	for _, message := range messages {
-		raw := rawMessageFromOpenAIMessage(message)
+		raw := rawMessageFromModelMessage(message)
 		if len(raw) > 0 {
 			out = append(out, raw)
 		}
@@ -208,7 +224,7 @@ func rawMessagesFromOpenAIMessages(messages []openAIMessage) []map[string]any {
 	return out
 }
 
-func rawMessageFromOpenAIMessage(message openAIMessage) map[string]any {
+func rawMessageFromModelMessage(message contracts.ModelMessage) map[string]any {
 	role := strings.TrimSpace(message.Role)
 	if role == "" {
 		return nil
@@ -247,12 +263,12 @@ func rawMessageFromOpenAIMessage(message openAIMessage) map[string]any {
 
 func (s *coderPlanningStream) planningPrompt() string {
 	custom := strings.TrimSpace(s.settings.Plan.PrimaryPrompt())
-	if s.engine != nil && strings.TrimSpace(s.engine.cfg.CoderPrompts.PlanningPrompt) != "" {
-		custom = joinNonEmptyPrompts(custom, s.engine.cfg.CoderPrompts.PlanningPrompt)
+	if s.runtime != nil && strings.TrimSpace(s.runtime.Settings().PlanningPrompt) != "" {
+		custom = joinNonEmptyPrompts(custom, s.runtime.Settings().PlanningPrompt)
 	}
 	executeToolDescriptions := s.buildExecuteToolDescriptions()
 	hasExecuteToolDescriptionsPlaceholder := promptHasTemplateValue(custom, "execute_tool_descriptions")
-	prompt := renderCoderPromptTemplate(custom, s.coderPromptTemplateValues(coderPromptTemplateData{
+	prompt := RenderPromptTemplate(custom, s.coderPromptTemplateValues(PromptTemplateData{
 		AvailableTools:          s.planStageTools(),
 		PlanStageTools:          s.planStageTools(),
 		ExecuteStageTools:       s.executeStageTools(),
@@ -268,22 +284,22 @@ func promptHasTemplateValue(prompt string, key string) bool {
 	return strings.Contains(prompt, "{{"+key+"}}") || strings.Contains(prompt, "{{ "+key+" }}")
 }
 
-func (s *coderPlanningStream) coderPromptTemplateValues(data coderPromptTemplateData) map[string]string {
-	return coderPromptTemplateValues(s.session, s.req, data)
+func (s *coderPlanningStream) coderPromptTemplateValues(data PromptTemplateData) map[string]string {
+	return PromptTemplateValues(s.session, s.req, data)
 }
 
 func (s *coderPlanningStream) executionSystemPrompt(fallback string) string {
-	return coderPlanningExecutionSystemPrompt(s.session, s.req, s.settings, s.planStageTools(), s.executeStageTools(), fallback)
+	return PlanningExecutionSystemPrompt(s.session, s.req, s.settings, s.planStageTools(), s.executeStageTools(), fallback)
 }
 
-func coderPlanningExecutionSystemPrompt(session QuerySession, req api.QueryRequest, settings PlanExecuteSettings, planTools []string, executeTools []string, fallback string) string {
+func PlanningExecutionSystemPrompt(session contracts.QuerySession, req api.QueryRequest, settings contracts.PlanExecuteSettings, planTools []string, executeTools []string, fallback string) string {
 	if planTools == nil {
-		planTools = agentcoder.PlanningModePlanTools()
+		planTools = PlanningModePlanTools()
 	}
 	if executeTools == nil {
-		executeTools = coderPlanningExecuteTools(settings.Execute, session.ToolNames)
+		executeTools = PlanningExecuteToolsForStage(settings.Execute, session.ToolNames)
 	}
-	values := coderPromptTemplateValues(session, req, coderPromptTemplateData{
+	values := PromptTemplateValues(session, req, PromptTemplateData{
 		AvailableTools:    executeTools,
 		PlanStageTools:    planTools,
 		ExecuteStageTools: executeTools,
@@ -292,8 +308,8 @@ func coderPlanningExecutionSystemPrompt(session QuerySession, req api.QueryReque
 	if stagePrompt == "" {
 		stagePrompt = fallback
 	}
-	stagePrompt = renderCoderPromptTemplate(stagePrompt, values)
-	coderPrompt := renderCoderPromptTemplate(session.CoderSystemPrompt, values)
+	stagePrompt = RenderPromptTemplate(stagePrompt, values)
+	coderPrompt := RenderPromptTemplate(session.CoderSystemPrompt, values)
 	return joinNonEmptyPrompts(coderPrompt, stagePrompt)
 }
 
@@ -308,7 +324,7 @@ func joinNonEmptyPrompts(values ...string) string {
 	return strings.Join(parts, "\n\n")
 }
 
-func planningStageHasAssistantText(messages []openAIMessage) bool {
+func planningStageHasAssistantText(messages []contracts.ModelMessage) bool {
 	start := 0
 	for index, message := range messages {
 		if strings.EqualFold(strings.TrimSpace(message.Role), "user") {
@@ -319,33 +335,33 @@ func planningStageHasAssistantText(messages []openAIMessage) bool {
 		if !strings.EqualFold(strings.TrimSpace(message.Role), "assistant") {
 			continue
 		}
-		if openAIMessageContentHasText(message.Content) {
+		if modelMessageContentHasText(message.Content) {
 			return true
 		}
 	}
 	return false
 }
 
-func openAIMessageContentHasText(content any) bool {
+func modelMessageContentHasText(content any) bool {
 	switch value := content.(type) {
 	case string:
 		return strings.TrimSpace(value) != ""
 	case []any:
 		for _, item := range value {
-			part := AnyMapNode(item)
+			part := contracts.AnyMapNode(item)
 			if len(part) == 0 {
-				if strings.TrimSpace(AnyStringNode(item)) != "" {
+				if strings.TrimSpace(contracts.AnyStringNode(item)) != "" {
 					return true
 				}
 				continue
 			}
-			if strings.TrimSpace(AnyStringNode(part["text"])) != "" {
+			if strings.TrimSpace(contracts.AnyStringNode(part["text"])) != "" {
 				return true
 			}
 		}
 	case []map[string]any:
 		for _, part := range value {
-			if strings.TrimSpace(AnyStringNode(part["text"])) != "" {
+			if strings.TrimSpace(contracts.AnyStringNode(part["text"])) != "" {
 				return true
 			}
 		}
@@ -369,12 +385,12 @@ func (s *coderPlanningStream) afterStageEOF() error {
 				s.completed = true
 				return nil
 			}
-			s.pending = append(s.pending, DeltaError{
-				Error: NewErrorPayload(
+			s.pending = append(s.pending, contracts.DeltaError{
+				Error: contracts.NewErrorPayload(
 					"plan_not_created",
 					"CODER planning mode ended without a Markdown plan",
-					ErrorScopeRun,
-					ErrorCategoryModel,
+					contracts.ErrorScopeRun,
+					contracts.ErrorCategoryModel,
 					nil,
 				),
 			})
@@ -409,7 +425,7 @@ func (s *coderPlanningStream) emitPlanConfirmationAsk() {
 	s.confirmationPending = true
 }
 
-func (s *coderPlanningStream) planConfirmationAsk() DeltaAwaitAsk {
+func (s *coderPlanningStream) planConfirmationAsk() contracts.DeltaAwaitAsk {
 	planningID := ""
 	planningFile := ""
 	toolCallID := s.planConfirmationAwaitingID()
@@ -420,7 +436,7 @@ func (s *coderPlanningStream) planConfirmationAsk() DeltaAwaitAsk {
 			toolCallID = id
 		}
 	}
-	return DeltaAwaitAsk{
+	return contracts.DeltaAwaitAsk{
 		AwaitingID:   toolCallID,
 		Mode:         "plan",
 		Timeout:      0,
@@ -458,30 +474,30 @@ func (s *coderPlanningStream) awaitPlanConfirmation() error {
 		}
 	}
 	if s.execCtx == nil || s.execCtx.RunControl == nil {
-		return ErrRunControlUnavailable
+		return contracts.ErrRunControlUnavailable
 	}
 	defer s.execCtx.RunControl.ClearExpectedSubmit(awaitingID)
 
-	s.execCtx.RunLoopState = RunLoopStateWaitingSubmit
-	s.execCtx.RunControl.TransitionState(RunLoopStateWaitingSubmit)
+	s.execCtx.RunLoopState = contracts.RunLoopStateWaitingSubmit
+	s.execCtx.RunControl.TransitionState(contracts.RunLoopStateWaitingSubmit)
 	submitResult, err := s.execCtx.RunControl.AwaitSubmitWithTimeout(s.ctx, awaitingID, 0)
 	if err != nil {
-		if errors.Is(err, ErrRunInterrupted) {
-			s.pending = append(s.pending, DeltaRunCancel{RunID: s.session.RunID})
+		if errors.Is(err, contracts.ErrRunInterrupted) {
+			s.pending = append(s.pending, contracts.DeltaRunCancel{RunID: s.session.RunID})
 			s.completed = true
 			return nil
 		}
-		s.pending = append(s.pending, DeltaAwaitingAnswer{
+		s.pending = append(s.pending, contracts.DeltaAwaitingAnswer{
 			AwaitingID: awaitingID,
-			Answer:     AwaitingErrorAnswer("plan", "invalid_submit", err.Error()),
+			Answer:     contracts.AwaitingErrorAnswer("plan", "invalid_submit", err.Error()),
 		})
 		s.cancelUnstartedPlan("已取消执行计划。")
 		return nil
 	}
 
-	s.execCtx.RunLoopState = RunLoopStateToolExecuting
-	s.execCtx.RunControl.TransitionState(RunLoopStateToolExecuting)
-	s.pending = append(s.pending, DeltaRequestSubmit{
+	s.execCtx.RunLoopState = contracts.RunLoopStateToolExecuting
+	s.execCtx.RunControl.TransitionState(contracts.RunLoopStateToolExecuting)
+	s.pending = append(s.pending, contracts.DeltaRequestSubmit{
 		RequestID:  s.session.RequestID,
 		ChatID:     s.session.ChatID,
 		RunID:      s.session.RunID,
@@ -493,20 +509,20 @@ func (s *coderPlanningStream) awaitPlanConfirmation() error {
 	args := s.planConfirmationArgs()
 	normalized, normalizeErr := normalizeHITLPlanSubmit(args, submitResult.Request.Params)
 	if normalizeErr != nil {
-		s.pending = append(s.pending, DeltaAwaitingAnswer{
+		s.pending = append(s.pending, contracts.DeltaAwaitingAnswer{
 			AwaitingID: awaitingID,
-			Answer:     awaitingAnswerWithSubmitID(AwaitingErrorAnswer("plan", "invalid_submit", normalizeErr.Error()), submitResult.Request.SubmitID),
+			Answer:     awaitingAnswerWithSubmitID(contracts.AwaitingErrorAnswer("plan", "invalid_submit", normalizeErr.Error()), submitResult.Request.SubmitID),
 		})
 		s.cancelUnstartedPlan("已取消执行计划。")
 		return nil
 	}
-	s.pending = append(s.pending, DeltaAwaitingAnswer{
+	s.pending = append(s.pending, contracts.DeltaAwaitingAnswer{
 		AwaitingID: awaitingID,
 		Answer:     awaitingAnswerWithSubmitID(normalized, submitResult.Request.SubmitID),
 	})
 	s.appendPlanConfirmationToolResult(normalized)
 
-	if strings.EqualFold(AnyStringNode(normalized["status"]), "error") {
+	if strings.EqualFold(contracts.AnyStringNode(normalized["status"]), "error") {
 		s.cancelUnstartedPlan("已取消执行计划。")
 		return nil
 	}
@@ -527,7 +543,7 @@ func (s *coderPlanningStream) appendPlanConfirmationToolResult(normalized map[st
 		return
 	}
 	toolID := s.planConfirmationAwaitingID()
-	toolName := FinalizePlanningToolName
+	toolName := contracts.FinalizePlanningToolName
 	if s.execCtx != nil && s.execCtx.PlanningState != nil {
 		if value := strings.TrimSpace(s.execCtx.PlanningState.ToolCallID); value != "" {
 			toolID = value
@@ -536,18 +552,18 @@ func (s *coderPlanningStream) appendPlanConfirmationToolResult(normalized map[st
 			toolName = value
 		}
 	}
-	content := MarshalJSON(normalized)
-	result := ToolExecutionResult{
+	content := contracts.MarshalJSON(normalized)
+	result := contracts.ToolExecutionResult{
 		Output:     content,
-		Structured: CloneMap(normalized),
+		Structured: contracts.CloneMap(normalized),
 		ExitCode:   0,
 	}
-	s.pending = append(s.pending, DeltaToolResult{
+	s.pending = append(s.pending, contracts.DeltaToolResult{
 		ToolID:   toolID,
 		ToolName: toolName,
 		Result:   result,
 	})
-	s.executeMessages = append(s.executeMessages, openAIMessage{
+	s.executeMessages = append(s.executeMessages, contracts.ModelMessage{
 		Role:       "tool",
 		ToolCallID: toolID,
 		Name:       toolName,
@@ -559,7 +575,7 @@ func (s *coderPlanningStream) planConfirmationArgs() map[string]any {
 	ask := s.planConfirmationAsk()
 	return map[string]any{
 		"mode": ask.Mode,
-		"plan": CloneMap(ask.Plan),
+		"plan": contracts.CloneMap(ask.Plan),
 	}
 }
 
@@ -602,13 +618,13 @@ Rules:
 }
 
 func confirmationDecision(normalized map[string]any) string {
-	plan := AnyMapNode(normalized["plan"])
-	return strings.ToLower(strings.TrimSpace(AnyStringNode(plan["decision"])))
+	plan := contracts.AnyMapNode(normalized["plan"])
+	return strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(plan["decision"])))
 }
 
 func confirmationReason(normalized map[string]any) string {
-	plan := AnyMapNode(normalized["plan"])
-	return strings.TrimSpace(AnyStringNode(plan["reason"]))
+	plan := contracts.AnyMapNode(normalized["plan"])
+	return strings.TrimSpace(contracts.AnyStringNode(plan["reason"]))
 }
 
 func (s *coderPlanningStream) preparePlanningFeedback(normalized map[string]any) {
@@ -646,7 +662,7 @@ func coderExecuteSyntheticQueryMessage(locale string) string {
 
 func (s *coderPlanningStream) cancelUnstartedPlan(message string) {
 	if strings.TrimSpace(message) != "" {
-		s.pending = append(s.pending, DeltaContent{Text: message})
+		s.pending = append(s.pending, contracts.DeltaContent{Text: message})
 	}
 	s.summaryDone = true
 	s.completed = true
@@ -660,8 +676,8 @@ func (s *coderPlanningStream) startExecutionStage() error {
 	executePrompt := "Execute the confirmed CODER plan.\n\nOriginal request:\n" + s.req.Message + "\n\nConfirmed plan:\n" + planningMarkdown
 	executeProfiles := s.executeSystemInitProfiles()
 	s.pending = append(s.pending,
-		DeltaStageMarker{Stage: "coder-execute"},
-		DeltaSyntheticQuery{
+		contracts.DeltaStageMarker{Stage: "coder-execute"},
+		contracts.DeltaSyntheticQuery{
 			ChatID:  s.session.ChatID,
 			Role:    "user",
 			Message: coderExecuteSyntheticQueryMessage(s.session.Locale),
@@ -674,11 +690,11 @@ func (s *coderPlanningStream) startExecutionStage() error {
 			Systems: systemInitProfilePayloads(executeProfiles),
 		},
 	)
-	messages := make([]openAIMessage, 0, len(s.executeMessages)+2)
+	messages := make([]contracts.ModelMessage, 0, len(s.executeMessages)+2)
 	systemPrompt := s.executionSystemPrompt(defaultCoderExecuteSystemPrompt)
-	messages = append(messages, openAIMessage{Role: "system", Content: systemPrompt})
+	messages = append(messages, contracts.ModelMessage{Role: "system", Content: systemPrompt})
 	messages = append(messages, s.executeMessages...)
-	messages = append(messages, openAIMessage{Role: "user", Content: executePrompt})
+	messages = append(messages, contracts.ModelMessage{Role: "user", Content: executePrompt})
 
 	req := s.req
 	req.Message = executePrompt
@@ -688,7 +704,7 @@ func (s *coderPlanningStream) startExecutionStage() error {
 		"role":    "user",
 		"content": executePrompt,
 	}}
-	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, stageSession, true, runStreamOptions{
+	stream, err := s.runtime.NewStageRunStream(s.ctx, req, stageSession, true, StageRunOptions{
 		ExecCtx:   s.execCtx,
 		Messages:  messages,
 		ToolNames: s.executeStageTools(),
@@ -702,19 +718,16 @@ func (s *coderPlanningStream) startExecutionStage() error {
 	return nil
 }
 
-func (s *coderPlanningStream) executeSystemInitProfiles() []SystemInitProfile {
-	if s == nil || s.engine == nil || s.engine.tools == nil {
+func (s *coderPlanningStream) executeSystemInitProfiles() []contracts.SystemInitProfile {
+	if s == nil || s.runtime == nil {
 		return nil
 	}
 	session := s.session
 	session.ResolvedStageSettings = s.settings
-	toolDefs := s.engine.tools.Definitions()
-	profile := buildCoderPlanningExecuteSystemInitProfile(session, s.req, s.settings, toolDefs)
-	(SystemInitProfileBuilder{Models: s.engine.models}).applyRequestProfile(&profile, session, s.req)
-	return []SystemInitProfile{profile}
+	return s.runtime.BuildExecuteSystemInitProfiles(session, s.req, s.settings)
 }
 
-func systemInitProfilePayloads(profiles []SystemInitProfile) []map[string]any {
+func systemInitProfilePayloads(profiles []contracts.SystemInitProfile) []map[string]any {
 	if len(profiles) == 0 {
 		return nil
 	}
@@ -725,7 +738,7 @@ func systemInitProfilePayloads(profiles []SystemInitProfile) []map[string]any {
 	return out
 }
 
-func systemInitProfilePayload(profile SystemInitProfile) map[string]any {
+func systemInitProfilePayload(profile contracts.SystemInitProfile) map[string]any {
 	return map[string]any{
 		"cacheKey":       profile.CacheKey,
 		"fingerprint":    profile.Fingerprint,
@@ -737,11 +750,11 @@ func systemInitProfilePayload(profile SystemInitProfile) map[string]any {
 	}
 }
 
-func mergeSystemInitProfileCache(base map[string]SystemInitSnapshot, profiles []SystemInitProfile) map[string]SystemInitSnapshot {
+func mergeSystemInitProfileCache(base map[string]contracts.SystemInitSnapshot, profiles []contracts.SystemInitProfile) map[string]contracts.SystemInitSnapshot {
 	if len(profiles) == 0 {
 		return base
 	}
-	out := make(map[string]SystemInitSnapshot, len(base)+len(profiles))
+	out := make(map[string]contracts.SystemInitSnapshot, len(base)+len(profiles))
 	for key, snapshot := range base {
 		out[key] = snapshot
 	}
@@ -749,7 +762,7 @@ func mergeSystemInitProfileCache(base map[string]SystemInitSnapshot, profiles []
 		if strings.TrimSpace(profile.CacheKey) == "" {
 			continue
 		}
-		out[profile.CacheKey] = SystemInitSnapshot{
+		out[profile.CacheKey] = contracts.SystemInitSnapshot{
 			Fingerprint:    profile.Fingerprint,
 			SystemMessage:  cloneAnyMapViaJSON(profile.SystemMessage),
 			Tools:          cloneAnySlice(profile.Tools),
@@ -768,8 +781,8 @@ func (s *coderPlanningStream) advanceTaskExecution() error {
 	}
 	s.execCtx.PlanState.ActiveTaskID = task.TaskID
 	s.pending = append(s.pending,
-		DeltaStageMarker{Stage: fmt.Sprintf("coder-execute-task-%d", s.taskIndex+1)},
-		DeltaTaskLifecycle{
+		contracts.DeltaStageMarker{Stage: fmt.Sprintf("coder-execute-task-%d", s.taskIndex+1)},
+		contracts.DeltaTaskLifecycle{
 			Kind:        "start",
 			TaskID:      task.TaskID,
 			RunID:       s.session.RunID,
@@ -780,37 +793,37 @@ func (s *coderPlanningStream) advanceTaskExecution() error {
 	return s.startTaskStream(task)
 }
 
-func (s *coderPlanningStream) startTaskStream(task *PlanTask) error {
-	beforeStatus := NormalizePlanTaskStatus(task.Status)
+func (s *coderPlanningStream) startTaskStream(task *contracts.PlanTask) error {
+	beforeStatus := contracts.NormalizePlanTaskStatus(task.Status)
 	taskPrompt := renderTemplate(defaultTaskTemplate(s.settings), map[string]string{
 		"task_list":        formatTaskList(s.execCtx.PlanState.Tasks),
 		"task_id":          task.TaskID,
 		"task_description": task.Description,
 	})
-	messages := make([]openAIMessage, 0, len(s.executeMessages)+2)
+	messages := make([]contracts.ModelMessage, 0, len(s.executeMessages)+2)
 	systemPrompt := s.executionSystemPrompt(defaultCoderExecuteSystemPrompt)
-	messages = append(messages, openAIMessage{Role: "system", Content: systemPrompt})
+	messages = append(messages, contracts.ModelMessage{Role: "system", Content: systemPrompt})
 	messages = append(messages, s.executeMessages...)
-	messages = append(messages, openAIMessage{Role: "user", Content: taskPrompt})
+	messages = append(messages, contracts.ModelMessage{Role: "user", Content: taskPrompt})
 
 	req := s.req
 	req.Message = taskPrompt
-	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, s.sessionForStage(s.settings.Execute, s.executeStageTools()), true, runStreamOptions{
+	stream, err := s.runtime.NewStageRunStream(s.ctx, req, s.sessionForStage(s.settings.Execute, s.executeStageTools()), true, StageRunOptions{
 		ExecCtx:   s.execCtx,
 		Messages:  messages,
 		ToolNames: s.executeStageTools(),
 		ModelKey:  s.resolveStageModelKey(s.settings.Execute),
 		MaxSteps:  s.settings.MaxWorkRoundsPerTask,
 		Stage:     fmt.Sprintf("coder-execute-step-%d", s.taskIndex+1),
-		PostToolHook: func(toolName string, _ string) PostToolHookResult {
+		PostToolHook: func(toolName string, _ string) contracts.PostToolHookResult {
 			if !isPlanTool(toolName) {
-				return PostToolContinue
+				return contracts.PostToolContinue
 			}
-			afterStatus := NormalizePlanTaskStatus(task.Status)
+			afterStatus := contracts.NormalizePlanTaskStatus(task.Status)
 			if afterStatus != beforeStatus && isTerminalPlanStatus(afterStatus) {
-				return PostToolStop
+				return contracts.PostToolStop
 			}
-			return PostToolContinue
+			return contracts.PostToolContinue
 		},
 	})
 	if err != nil {
@@ -821,66 +834,66 @@ func (s *coderPlanningStream) startTaskStream(task *PlanTask) error {
 	return nil
 }
 
-func (s *coderPlanningStream) emitTaskTerminal(task *PlanTask, status string) {
+func (s *coderPlanningStream) emitTaskTerminal(task *contracts.PlanTask, status string) {
 	switch status {
 	case "completed":
-		s.pending = append(s.pending, DeltaTaskLifecycle{Kind: "complete", TaskID: task.TaskID})
+		s.pending = append(s.pending, contracts.DeltaTaskLifecycle{Kind: "complete", TaskID: task.TaskID})
 	case "canceled":
-		s.pending = append(s.pending, DeltaTaskLifecycle{Kind: "cancel", TaskID: task.TaskID})
+		s.pending = append(s.pending, contracts.DeltaTaskLifecycle{Kind: "cancel", TaskID: task.TaskID})
 	case "failed":
-		s.pending = append(s.pending, DeltaTaskLifecycle{
+		s.pending = append(s.pending, contracts.DeltaTaskLifecycle{
 			Kind:   "error",
 			TaskID: task.TaskID,
-			Error: NewErrorPayload("task_failed", "Task status updated to failed",
-				ErrorScopeTask, ErrorCategorySystem, nil),
+			Error: contracts.NewErrorPayload("task_failed", "Task status updated to failed",
+				contracts.ErrorScopeTask, contracts.ErrorCategorySystem, nil),
 		})
 	}
 	s.taskIndex++
 	s.execCtx.PlanState.ActiveTaskID = ""
 }
 
-func (s *coderPlanningStream) emitTaskFailure(task *PlanTask, message string) {
+func (s *coderPlanningStream) emitTaskFailure(task *contracts.PlanTask, message string) {
 	task.Status = "failed"
-	s.pending = append(s.pending, DeltaPlanUpdate{
+	s.pending = append(s.pending, contracts.DeltaPlanUpdate{
 		PlanID: s.execCtx.PlanState.PlanID,
 		ChatID: s.session.ChatID,
-		Plan:   PlanTasksArray(s.execCtx.PlanState),
+		Plan:   contracts.PlanTasksArray(s.execCtx.PlanState),
 	})
-	s.pending = append(s.pending, DeltaTaskLifecycle{
+	s.pending = append(s.pending, contracts.DeltaTaskLifecycle{
 		Kind:   "error",
 		TaskID: task.TaskID,
-		Error: NewErrorPayload("task_execution_error", message,
-			ErrorScopeTask, ErrorCategorySystem, map[string]any{"taskId": task.TaskID}),
+		Error: contracts.NewErrorPayload("task_execution_error", message,
+			contracts.ErrorScopeTask, contracts.ErrorCategorySystem, map[string]any{"taskId": task.TaskID}),
 	})
 	s.taskIndex++
 	s.execCtx.PlanState.ActiveTaskID = ""
 }
 
 func (s *coderPlanningStream) planStageTools() []string {
-	return agentcoder.PlanningModePlanTools()
+	return PlanningModePlanTools()
 }
 
 func (s *coderPlanningStream) executeStageTools() []string {
-	return coderPlanningExecuteTools(s.settings.Execute, s.session.ToolNames)
+	return PlanningExecuteToolsForStage(s.settings.Execute, s.session.ToolNames)
 }
 
-func coderPlanningExecuteTools(stage StageSettings, toolNames []string) []string {
+func PlanningExecuteToolsForStage(stage contracts.StageSettings, toolNames []string) []string {
 	tools := stageToolsOrDefault(stage, toolNames)
-	return agentcoder.PlanningExecuteTools(tools)
+	return PlanningExecuteTools(tools)
 }
 
 func isPlanningOnlyTool(name string) bool {
-	return agentcoder.IsPlanningOnlyTool(name)
+	return IsPlanningOnlyTool(name)
 }
 
-func (s *coderPlanningStream) planStagePostToolHook(toolName string, _ string) PostToolHookResult {
+func (s *coderPlanningStream) planStagePostToolHook(toolName string, _ string) contracts.PostToolHookResult {
 	if !isPlanningWriteTool(toolName) {
-		return PostToolContinue
+		return contracts.PostToolContinue
 	}
 	if s.execCtx != nil && s.execCtx.PlanningState != nil && strings.TrimSpace(s.execCtx.PlanningState.Markdown) != "" {
-		return PostToolStop
+		return contracts.PostToolStop
 	}
-	return PostToolContinue
+	return contracts.PostToolContinue
 }
 
 func (s *coderPlanningStream) buildExecuteToolDescriptions() string {
@@ -907,10 +920,10 @@ func (s *coderPlanningStream) buildExecuteToolDescriptions() string {
 }
 
 func (s *coderPlanningStream) toolDescriptionsByName() map[string]string {
-	if s.engine == nil || s.engine.tools == nil {
+	if s.runtime == nil {
 		return map[string]string{}
 	}
-	defs := s.engine.tools.Definitions()
+	defs := s.runtime.ToolDefinitions()
 	out := make(map[string]string, len(defs))
 	for _, def := range defs {
 		name := strings.ToLower(strings.TrimSpace(def.Name))
@@ -922,7 +935,7 @@ func (s *coderPlanningStream) toolDescriptionsByName() map[string]string {
 	return out
 }
 
-func (s *coderPlanningStream) sessionForStage(stage StageSettings, toolNames []string) QuerySession {
+func (s *coderPlanningStream) sessionForStage(stage contracts.StageSettings, toolNames []string) contracts.QuerySession {
 	session := s.session
 	if modelKey := s.resolveStageModelKey(stage); modelKey != "" {
 		session.ModelKey = modelKey
@@ -933,30 +946,139 @@ func (s *coderPlanningStream) sessionForStage(stage StageSettings, toolNames []s
 	return session
 }
 
-func (s *coderPlanningStream) resolveStageModelKey(stage StageSettings) string {
+func (s *coderPlanningStream) resolveStageModelKey(stage contracts.StageSettings) string {
 	if strings.TrimSpace(stage.ModelKey) != "" {
 		return strings.TrimSpace(stage.ModelKey)
 	}
 	return s.session.ModelKey
 }
 
-func removeToolNames(base []string, names ...string) []string {
-	blocked := map[string]struct{}{}
-	for _, name := range names {
-		if trimmed := strings.ToLower(strings.TrimSpace(name)); trimmed != "" {
-			blocked[trimmed] = struct{}{}
-		}
+func resolvePlanExecuteRuntimeSettings(session contracts.QuerySession, defaultMaxSteps int, defaultMaxWorkRoundsPerTask int) contracts.PlanExecuteSettings {
+	settings := session.ResolvedStageSettings
+	if settings.MaxSteps <= 0 || settings.MaxWorkRoundsPerTask <= 0 {
+		settings = contracts.ResolvePlanExecuteSettings(session.StageSettings, defaultMaxSteps, defaultMaxWorkRoundsPerTask)
 	}
-	out := make([]string, 0, len(base))
-	for _, name := range base {
-		key := strings.ToLower(strings.TrimSpace(name))
-		if key == "" {
-			continue
+	return settings
+}
+
+func isPlanTool(name string) bool {
+	return contracts.IsPlanTaskToolName(name)
+}
+
+func isPlanningWriteTool(name string) bool {
+	return contracts.IsFinalizePlanningToolName(name)
+}
+
+func isTerminalPlanStatus(status string) bool {
+	switch status {
+	case "completed", "canceled", "failed":
+		return true
+	default:
+		return false
+	}
+}
+
+func stageToolsOrDefault(stage contracts.StageSettings, fallback []string) []string {
+	if len(stage.Tools) > 0 {
+		return append([]string(nil), stage.Tools...)
+	}
+	return append([]string(nil), fallback...)
+}
+
+func nonSystemMessages(msgs []contracts.ModelMessage) []contracts.ModelMessage {
+	out := make([]contracts.ModelMessage, 0, len(msgs))
+	for _, msg := range msgs {
+		if strings.TrimSpace(msg.Role) != "system" {
+			out = append(out, msg)
 		}
-		if _, skip := blocked[key]; skip {
-			continue
-		}
-		out = append(out, name)
 	}
 	return out
+}
+
+func defaultTaskTemplate(settings contracts.PlanExecuteSettings) string {
+	if strings.TrimSpace(settings.TaskExecutionPrompt) != "" {
+		return settings.TaskExecutionPrompt
+	}
+	return defaultTaskExecutionPromptTemplate
+}
+
+func formatTaskList(tasks []contracts.PlanTask) string {
+	if len(tasks) == 0 {
+		return "- (empty)"
+	}
+	lines := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		lines = append(lines, fmt.Sprintf("- %s | %s | %s", task.TaskID, task.Status, task.Description))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func normalizeHITLPlanSubmit(args map[string]any, params any) (map[string]any, error) {
+	return hitlplan.Normalize(args, params)
+}
+
+func awaitingAnswerWithSubmitID(answer map[string]any, submitID string) map[string]any {
+	out := contracts.CloneMap(answer)
+	if strings.TrimSpace(submitID) != "" {
+		out["submitId"] = strings.TrimSpace(submitID)
+	}
+	return out
+}
+
+func awaitingContextFromDeltaAsk(awaitAsk contracts.DeltaAwaitAsk) contracts.AwaitingSubmitContext {
+	return contracts.AwaitingSubmitContext{
+		AwaitingID: awaitAsk.AwaitingID,
+		Mode:       awaitAsk.Mode,
+		ItemCount:  awaitItemCount(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals, awaitAsk.Forms, awaitAsk.Plan),
+		Timeout:    awaitAsk.Timeout,
+	}
+}
+
+func awaitItemCount(mode string, questions []any, approvals []any, forms []any, plan map[string]any) int {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "question":
+		return len(questions)
+	case "approval":
+		return len(approvals)
+	case "form":
+		return len(forms)
+	case "plan":
+		if len(plan) > 0 {
+			return 1
+		}
+		return 0
+	default:
+		return 0
+	}
+}
+
+func cloneAnyMapViaJSON(values map[string]any) map[string]any {
+	if len(values) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(values)
+	if err != nil {
+		return contracts.CloneMap(values)
+	}
+	var out map[string]any
+	if err := json.Unmarshal(data, &out); err != nil {
+		return contracts.CloneMap(values)
+	}
+	return out
+}
+
+func cloneAnySlice(value any) []any {
+	items, _ := value.([]any)
+	if len(items) == 0 {
+		return nil
+	}
+	cloned := make([]any, 0, len(items))
+	for _, item := range items {
+		if mapped := contracts.AnyMapNode(item); len(mapped) > 0 {
+			cloned = append(cloned, cloneAnyMapViaJSON(mapped))
+			continue
+		}
+		cloned = append(cloned, item)
+	}
+	return cloned
 }

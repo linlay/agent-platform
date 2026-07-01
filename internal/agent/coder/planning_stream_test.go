@@ -1,4 +1,4 @@
-package llm
+package coder
 
 import (
 	"context"
@@ -8,14 +8,32 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/config"
 	contracts "agent-platform/internal/contracts"
 )
 
-func TestResolveAgentModeCoder(t *testing.T) {
-	if _, ok := resolveAgentMode("CODER").(coderMode); !ok {
-		t.Fatalf("expected CODER to resolve to coderMode")
-	}
+type fakePlanningRuntime struct {
+	settings RuntimeSettings
+	toolDefs []api.ToolDetailResponse
+}
+
+func (f fakePlanningRuntime) Settings() RuntimeSettings {
+	return f.settings
+}
+
+func (f fakePlanningRuntime) NewStageRunStream(context.Context, api.QueryRequest, contracts.QuerySession, bool, StageRunOptions) (contracts.AgentStream, error) {
+	return nil, nil
+}
+
+func (f fakePlanningRuntime) BuildCurrentMessagesForRequest(api.QueryRequest, contracts.QuerySession, bool) []map[string]any {
+	return nil
+}
+
+func (f fakePlanningRuntime) ToolDefinitions() []api.ToolDetailResponse {
+	return f.toolDefs
+}
+
+func (f fakePlanningRuntime) BuildExecuteSystemInitProfiles(contracts.QuerySession, api.QueryRequest, contracts.PlanExecuteSettings) []contracts.SystemInitProfile {
+	return nil
 }
 
 func TestCoderPlanningStageToolsAreReadOnlyPlusVisionQuestionsAndPlan(t *testing.T) {
@@ -53,11 +71,11 @@ func TestCoderExecuteStageToolsIncludePlanTaskTools(t *testing.T) {
 
 func TestCoderPlanningPromptUsesCoderPromptsConfig(t *testing.T) {
 	stream := &coderPlanningStream{
-		engine: &LLMAgentEngine{cfg: config.Config{
-			CoderPrompts: config.CoderPromptsConfig{
+		runtime: fakePlanningRuntime{
+			settings: RuntimeSettings{
 				PlanningPrompt: "custom {{agent_key}} {{workspace_dir}} {{plan_stage_tools}} {{execute_stage_tools}}\nUse {{finalize_planning_tool_name}}.\n{{execute_tool_descriptions}}",
 			},
-		}},
+		},
 		session: contracts.QuerySession{
 			AgentKey:     "coder",
 			PlanningMode: true,
@@ -214,7 +232,7 @@ func TestCoderPlanningStageEOFWithFinalizePlanningEmitsConfirmation(t *testing.T
 func TestCoderPlanningStageEOFWithoutPlanButAssistantTextCompletes(t *testing.T) {
 	stream := &coderPlanningStream{
 		execCtx: &contracts.ExecutionContext{},
-		executeMessages: []openAIMessage{
+		executeMessages: []contracts.ModelMessage{
 			{Role: "user", Content: "这个怎么产生的"},
 			{Role: "assistant", Content: "这是由 planningMode 误触发产生的。"},
 		},
@@ -235,8 +253,8 @@ func TestCoderPlanningStageEOFWithoutPlanButAssistantTextCompletes(t *testing.T)
 func TestCoderPlanningStageEOFWithoutPlanAndTextEmitsModelError(t *testing.T) {
 	stream := &coderPlanningStream{
 		execCtx: &contracts.ExecutionContext{},
-		executeMessages: []openAIMessage{
-			{Role: "assistant", ToolCalls: []openAIToolCall{{ID: "tool_1"}}},
+		executeMessages: []contracts.ModelMessage{
+			{Role: "assistant", ToolCalls: []contracts.ModelToolCall{{ID: "tool_1"}}},
 		},
 	}
 	if err := stream.afterStageEOF(); err != nil {
@@ -276,17 +294,17 @@ func TestCoderPlanningFeedbackStageEOFWithoutPlanCompletes(t *testing.T) {
 func TestPlanningStageHasAssistantText(t *testing.T) {
 	cases := []struct {
 		name     string
-		messages []openAIMessage
+		messages []contracts.ModelMessage
 		want     bool
 	}{
 		{
 			name:     "assistant string",
-			messages: []openAIMessage{{Role: "assistant", Content: "请补充一下范围。"}},
+			messages: []contracts.ModelMessage{{Role: "assistant", Content: "请补充一下范围。"}},
 			want:     true,
 		},
 		{
 			name: "assistant content parts",
-			messages: []openAIMessage{{
+			messages: []contracts.ModelMessage{{
 				Role: "assistant",
 				Content: []any{
 					map[string]any{"type": "text", "text": "已取消执行计划。"},
@@ -296,17 +314,17 @@ func TestPlanningStageHasAssistantText(t *testing.T) {
 		},
 		{
 			name:     "user text only",
-			messages: []openAIMessage{{Role: "user", Content: "hello"}},
+			messages: []contracts.ModelMessage{{Role: "user", Content: "hello"}},
 			want:     false,
 		},
 		{
 			name:     "assistant tool call only",
-			messages: []openAIMessage{{Role: "assistant", ToolCalls: []openAIToolCall{{ID: "tool_1"}}}},
+			messages: []contracts.ModelMessage{{Role: "assistant", ToolCalls: []contracts.ModelToolCall{{ID: "tool_1"}}}},
 			want:     false,
 		},
 		{
 			name: "history assistant before current user",
-			messages: []openAIMessage{
+			messages: []contracts.ModelMessage{
 				{Role: "assistant", Content: "历史回复"},
 				{Role: "user", Content: "当前请求"},
 			},

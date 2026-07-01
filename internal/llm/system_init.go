@@ -334,9 +334,9 @@ func buildCoderPlanningPlanSystemInitProfile(session contracts.QuerySession, req
 }
 
 func buildCoderPlanningExecuteSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, settings contracts.PlanExecuteSettings, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
-	executeTools := coderPlanningExecuteTools(settings.Execute, session.ToolNames)
+	executeTools := agentcoder.PlanningExecuteToolsForStage(settings.Execute, session.ToolNames)
 	effectiveDefs := effectiveToolDefinitions(toolDefs, executeTools, session.AgentHasRuntimeSandbox)
-	systemPrompt := coderPlanningExecutionSystemPrompt(session, req, settings, agentcoder.PlanningModePlanTools(), executeTools, defaultCoderExecuteSystemPrompt)
+	systemPrompt := agentcoder.PlanningExecutionSystemPrompt(session, req, settings, agentcoder.PlanningModePlanTools(), executeTools, agentcoder.DefaultExecuteSystemPrompt)
 	specs := toOpenAIToolSpecs(effectiveDefs)
 	return contracts.SystemInitProfile{
 		CacheKey:      SystemInitCacheKey(session.Mode, "coder-execute"),

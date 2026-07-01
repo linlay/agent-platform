@@ -32,17 +32,66 @@ func (t *RuntimeToolExecutor) invokeKBaseSearch(ctx context.Context, toolName st
 		return ToolExecutionResult{Output: "query must not be blank", Error: "missing_query", ExitCode: -1}, nil
 	}
 	limit := int(int64Arg(args, "limit"))
-	result, err := t.kbase.Search(ctx, agentKey, query, kbase.SearchOptions{Limit: limit})
+	result, err := t.kbase.Search(ctx, agentKey, query, kbase.SearchOptions{
+		Limit:      limit,
+		Offset:     int(int64Arg(args, "offset")),
+		PathPrefix: strings.TrimSpace(stringArg(args, "pathPrefix")),
+		PathGlob:   strings.TrimSpace(stringArg(args, "pathGlob")),
+		Type:       strings.TrimSpace(stringArg(args, "type")),
+	})
 	if err != nil {
 		return ToolExecutionResult{}, err
 	}
 	return structuredResult(map[string]any{
-		"agentKey": result.AgentKey,
-		"query":    result.Query,
-		"count":    result.Count,
-		"results":  result.Results,
-		"stale":    result.Stale,
-		"indexing": result.Indexing,
+		"agentKey":   result.AgentKey,
+		"query":      result.Query,
+		"count":      result.Count,
+		"matchCount": result.MatchCount,
+		"offset":     result.Offset,
+		"limit":      result.Limit,
+		"truncated":  result.Truncated,
+		"results":    result.Results,
+		"stale":      result.Stale,
+		"indexing":   result.Indexing,
+	}), nil
+}
+
+func (t *RuntimeToolExecutor) invokeKBaseFiles(toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	agentKey, contextErr := t.requireKBaseContext(toolName, execCtx)
+	if contextErr != nil {
+		return *contextErr, nil
+	}
+	headLimit := -1
+	if _, ok := args["head_limit"]; ok {
+		headLimit = int(int64Arg(args, "head_limit"))
+	}
+	result, err := t.kbase.Files(agentKey, kbase.FilesOptions{
+		Mode:      strings.TrimSpace(stringArg(args, "mode")),
+		Path:      strings.TrimSpace(stringArg(args, "path")),
+		Pattern:   strings.TrimSpace(stringArg(args, "pattern")),
+		Status:    strings.TrimSpace(stringArg(args, "status")),
+		Type:      strings.TrimSpace(stringArg(args, "type")),
+		Depth:     int(int64Arg(args, "depth")),
+		HeadLimit: headLimit,
+		Offset:    int(int64Arg(args, "offset")),
+	})
+	if err != nil {
+		return ToolExecutionResult{}, err
+	}
+	return structuredResult(map[string]any{
+		"tool":       result.Tool,
+		"mode":       result.Mode,
+		"path":       result.Path,
+		"pattern":    result.Pattern,
+		"status":     result.Status,
+		"type":       result.Type,
+		"matchCount": result.MatchCount,
+		"fileCount":  result.FileCount,
+		"dirCount":   result.DirCount,
+		"truncated":  result.Truncated,
+		"offset":     result.Offset,
+		"headLimit":  result.HeadLimit,
+		"results":    result.Results,
 	}), nil
 }
 

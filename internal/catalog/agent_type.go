@@ -20,6 +20,7 @@ var defaultAgentVisibilityScopes = []string{"nav"}
 var kbaseAgentProfile = agentModeProfile{
 	Tools: []string{
 		"kbase_search",
+		"kbase_files",
 		"kbase_read",
 		"kbase_status",
 		"kbase_refresh",
@@ -240,7 +241,7 @@ func validateAgentModeWorkspace(mode string, workspace AgentWorkspaceConfig, has
 func ValidateAgentCoderBackend(def AgentDefinition) error {
 	acpProxyID := strings.TrimSpace(def.ACPProxyID)
 	if acpProxyID != "" {
-		if !strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeCoder) {
+		if !agentcoder.IsMode(def.Mode) {
 			return fmt.Errorf("runtimeConfig.acpProxyId is only supported for mode: CODER")
 		}
 		if acpProxyID == "" {
@@ -280,8 +281,7 @@ func ValidateAgentKBaseConfig(def AgentDefinition) error {
 }
 
 func AgentUsesACPCoderBackend(def AgentDefinition) bool {
-	return strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeCoder) &&
-		strings.TrimSpace(def.ACPProxyID) != ""
+	return agentcoder.IsACPBackend(def.Mode, def.ACPProxyID)
 }
 
 func applyAgentModeProfileDefaults(def AgentDefinition) AgentDefinition {

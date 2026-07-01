@@ -283,7 +283,7 @@ func TestCoderPlanningModeBuildsPlanAndExecuteSystemInit(t *testing.T) {
 	assertToolNames(t, byKey["coder:plan"].Tools, []string{"file_read", "ask_user_question", contracts.FinalizePlanningToolName})
 	executeTools := []string{"bash", "file_read", "plan_add_tasks", "plan_get_tasks", "plan_update_task"}
 	assertToolNames(t, byKey["coder:execute"].Tools, executeTools)
-	wantExecuteSystem := coderPlanningExecutionSystemPrompt(session, req, session.ResolvedStageSettings, agentcoder.PlanningModePlanTools(), executeTools, defaultCoderExecuteSystemPrompt)
+	wantExecuteSystem := agentcoder.PlanningExecutionSystemPrompt(session, req, session.ResolvedStageSettings, agentcoder.PlanningModePlanTools(), executeTools, agentcoder.DefaultExecuteSystemPrompt)
 	if byKey["coder:execute"].SystemMessage["content"] != wantExecuteSystem {
 		t.Fatalf("unexpected coder execute system message %#v want %q", byKey["coder:execute"].SystemMessage, wantExecuteSystem)
 	}

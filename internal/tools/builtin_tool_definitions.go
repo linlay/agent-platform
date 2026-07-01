@@ -37,6 +37,7 @@ var requiredBuiltinToolNames = []string{
 	"regex",
 	"vision_recognize",
 	"image_generate",
+	"kbase_files",
 	"kbase_read",
 	"kbase_refresh",
 	"kbase_search",

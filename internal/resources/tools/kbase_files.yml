@@ -1,0 +1,45 @@
+name: kbase_files
+label: 浏览知识库文件
+description: List files and compact directory tree entries from the current KBASE index. This reads indexed KBASE metadata only, not the host filesystem.
+submitResultFormat: json-compact
+type: function
+clientVisible: true
+inputSchema:
+  type: object
+  properties:
+    mode:
+      type: string
+      enum:
+        - files
+        - tree
+      default: files
+      description: files returns a flat path list; tree returns compact directory and file entries.
+    path:
+      type: string
+      description: Workspace-relative directory or path prefix. Defaults to the knowledge base root.
+    pattern:
+      type: string
+      description: KBASE glob matched relative to path. Defaults to **. Supports *, ?, and **.
+    status:
+      type: string
+      enum:
+        - active
+        - skipped
+        - error
+        - deleted
+        - all
+      default: active
+      description: Indexed file status filter. all includes active, skipped, error, and deleted files.
+    type:
+      type: string
+      description: Optional file extension filter such as md or .pdf.
+    depth:
+      type: integer
+      description: Maximum tree depth for mode=tree. Defaults to 2 and is capped at 8.
+    head_limit:
+      type: integer
+      description: Maximum number of entries to return after offset. Defaults to 100; 0 means unlimited.
+    offset:
+      type: integer
+      description: Number of entries to skip before applying head_limit.
+  additionalProperties: false

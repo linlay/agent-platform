@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/api"
 	. "agent-platform/internal/contracts"
 )
@@ -39,7 +40,7 @@ type coderMode struct{}
 
 func (coderMode) Start(engine *LLMAgentEngine, ctx context.Context, req api.QueryRequest, session QuerySession) (AgentStream, error) {
 	if session.PlanningMode {
-		return newCoderPlanningStream(engine, ctx, req, session)
+		return agentcoder.NewPlanningStream(engine, ctx, req, session)
 	}
 	return engine.newRunStreamWithOptions(ctx, req, session, true, runStreamOptions{
 		Stage: "coder",

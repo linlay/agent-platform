@@ -214,11 +214,11 @@ func TestParallelToolCallBatchExecutesAllBeforePostToolStop(t *testing.T) {
 		},
 		maxSteps:     2,
 		allowToolUse: true,
-		postToolHook: func(toolName string, toolID string) PostToolHookResult {
+		postToolHook: func(toolName string, toolID string) contracts.PostToolHookResult {
 			if toolID == "tool_1" {
-				return PostToolStop
+				return contracts.PostToolStop
 			}
-			return PostToolContinue
+			return contracts.PostToolContinue
 		},
 		currentTurn: &providerTurnStream{
 			toolCalls: map[int]*toolCallAccumulator{
@@ -290,8 +290,8 @@ func TestParallelToolCallBatchStartsToolsConcurrently(t *testing.T) {
 		},
 		maxSteps:     2,
 		allowToolUse: true,
-		postToolHook: func(string, string) PostToolHookResult {
-			return PostToolStop
+		postToolHook: func(string, string) contracts.PostToolHookResult {
+			return contracts.PostToolStop
 		},
 		currentTurn: &providerTurnStream{
 			toolCalls: map[int]*toolCallAccumulator{
@@ -356,8 +356,8 @@ func TestParallelToolCallBatchStreamsResultAsEachToolCompletes(t *testing.T) {
 		},
 		maxSteps:     2,
 		allowToolUse: true,
-		postToolHook: func(string, string) PostToolHookResult {
-			return PostToolStop
+		postToolHook: func(string, string) contracts.PostToolHookResult {
+			return contracts.PostToolStop
 		},
 		currentTurn: &providerTurnStream{
 			toolCalls: map[int]*toolCallAccumulator{

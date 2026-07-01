@@ -284,6 +284,36 @@ func TestFileGlobSchemaIncludesRequiredPattern(t *testing.T) {
 	}
 }
 
+func TestKBaseFilesSchemaIncludesModeAndStatusEnums(t *testing.T) {
+	defs, err := LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatalf("load embedded tool definitions: %v", err)
+	}
+
+	var kbaseFilesDef map[string]any
+	for _, def := range defs {
+		if def.Name == "kbase_files" {
+			kbaseFilesDef = def.Parameters
+			break
+		}
+	}
+	if kbaseFilesDef == nil {
+		t.Fatal("expected kbase_files builtin tool definition")
+	}
+
+	properties := mapChild(t, kbaseFilesDef, "properties")
+	for _, want := range []string{"files", "tree"} {
+		if !enumContains(t, properties["mode"], want) {
+			t.Fatalf("expected kbase_files mode enum to include %q", want)
+		}
+	}
+	for _, want := range []string{"active", "skipped", "error", "deleted", "all"} {
+		if !enumContains(t, properties["status"], want) {
+			t.Fatalf("expected kbase_files status enum to include %q", want)
+		}
+	}
+}
+
 func TestEmbeddedToolDescriptionsAreEnglishFriendlyAndComplete(t *testing.T) {
 	defs, err := LoadEmbeddedToolDefinitions()
 	if err != nil {

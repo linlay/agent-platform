@@ -45,16 +45,16 @@ func TestPlanStagePostToolHookStopsAfterTasksCreated(t *testing.T) {
 		},
 	}
 
-	if got := stream.planStagePostToolHook("datetime", "tool_1"); got != PostToolContinue {
-		t.Fatalf("non-plan tool hook=%v want %v", got, PostToolContinue)
+	if got := stream.planStagePostToolHook("datetime", "tool_1"); got != contracts.PostToolContinue {
+		t.Fatalf("non-plan tool hook=%v want %v", got, contracts.PostToolContinue)
 	}
-	if got := stream.planStagePostToolHook("plan_add_tasks", "tool_1"); got != PostToolContinue {
-		t.Fatalf("empty plan hook=%v want %v", got, PostToolContinue)
+	if got := stream.planStagePostToolHook("plan_add_tasks", "tool_1"); got != contracts.PostToolContinue {
+		t.Fatalf("empty plan hook=%v want %v", got, contracts.PostToolContinue)
 	}
 
 	stream.execCtx.PlanState.Tasks = []contracts.PlanTask{{TaskID: "task_1", Description: "first task"}}
-	if got := stream.planStagePostToolHook("plan_add_tasks", "tool_1"); got != PostToolStop {
-		t.Fatalf("created-plan hook=%v want %v", got, PostToolStop)
+	if got := stream.planStagePostToolHook("plan_add_tasks", "tool_1"); got != contracts.PostToolStop {
+		t.Fatalf("created-plan hook=%v want %v", got, contracts.PostToolStop)
 	}
 }
 

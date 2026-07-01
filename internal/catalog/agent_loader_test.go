@@ -790,7 +790,7 @@ func TestParseAgentFileKBaseDefaultsAndConfig(t *testing.T) {
 	if def.Mode != AgentModeKBase {
 		t.Fatalf("mode = %q, want KBASE", def.Mode)
 	}
-	for _, tool := range []string{"kbase_search", "kbase_read", "kbase_status", "kbase_refresh", "datetime"} {
+	for _, tool := range []string{"kbase_search", "kbase_files", "kbase_read", "kbase_status", "kbase_refresh", "datetime"} {
 		if !containsString(def.Tools, tool) {
 			t.Fatalf("expected KBASE default tools to include %s, got %#v", tool, def.Tools)
 		}
@@ -834,6 +834,7 @@ func TestParseAgentFileKBaseFiltersToolsAndStaticMemory(t *testing.T) {
 		"toolConfig:\n" +
 		"  tools:\n" +
 		"    - kbase_search\n" +
+		"    - kbase_files\n" +
 		"    - memory_search\n" +
 		"    - bash\n" +
 		"    - datetime\n" +
@@ -850,7 +851,7 @@ func TestParseAgentFileKBaseFiltersToolsAndStaticMemory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if got, want := strings.Join(def.Tools, ","), "kbase_search,datetime"; got != want {
+	if got, want := strings.Join(def.Tools, ","), "kbase_search,kbase_files,datetime"; got != want {
 		t.Fatalf("unexpected KBASE filtered tools: got %q want %q", got, want)
 	}
 	if def.MemoryEnabled || def.MemoryConfig.Enabled || def.StaticMemoryPrompt != "" {

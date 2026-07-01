@@ -614,6 +614,15 @@ func TestManagerRefreshSearchReadAndIgnoreKBaseDir(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspace, "beta.txt"), []byte("beta reference material"), 0o644); err != nil {
 		t.Fatalf("write beta: %v", err)
 	}
+	if err := os.MkdirAll(filepath.Join(workspace, "guides", "deep"), 0o755); err != nil {
+		t.Fatalf("mkdir guides: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "guides", "auth-policy.md"), []byte("# Auth Policy\nscoped auth policy"), 0o644); err != nil {
+		t.Fatalf("write auth policy: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "guides", "deep", "auth-appendix.md"), []byte("# Auth Appendix\nscoped auth appendix"), 0o644); err != nil {
+		t.Fatalf("write auth appendix: %v", err)
+	}
 	deck := zipFixture(t, map[string]string{
 		"ppt/slides/slide1.xml": `<?xml version="1.0" encoding="UTF-8"?>
 <p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
@@ -647,14 +656,14 @@ func TestManagerRefreshSearchReadAndIgnoreKBaseDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
-	if refresh.Status != "success" || refresh.ScannedFiles != 3 {
+	if refresh.Status != "success" || refresh.ScannedFiles != 5 {
 		t.Fatalf("unexpected refresh result: %#v", refresh)
 	}
 	status, err := manager.Status("docs")
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
-	if status.Files != 3 || status.Chunks == 0 || status.Stale {
+	if status.Files != 5 || status.Chunks == 0 || status.Stale {
 		t.Fatalf("unexpected status: %#v", status)
 	}
 	search, err := manager.Search(context.Background(), "docs", "beta", SearchOptions{Limit: 3})
@@ -685,4 +694,98 @@ func TestManagerRefreshSearchReadAndIgnoreKBaseDir(t *testing.T) {
 	if !slideRead.Found || slideRead.SlideStart != 1 || slideRead.SourceType != "pptx" || !strings.Contains(slideRead.Content, "gamma slide") {
 		t.Fatalf("unexpected slide read result: %#v", slideRead)
 	}
+
+	scoped, err := manager.Search(context.Background(), "docs", "auth", SearchOptions{PathPrefix: "guides/", Limit: 10})
+	if err != nil {
+		t.Fatalf("scoped search: %v", err)
+	}
+	if scoped.Count != 2 || scoped.MatchCount != 2 || scoped.Truncated {
+		t.Fatalf("unexpected scoped search counts: %#v", scoped)
+	}
+	for _, hit := range scoped.Results {
+		if !strings.HasPrefix(hit.Path, "guides/") {
+			t.Fatalf("scoped search returned out-of-scope hit: %#v", scoped)
+		}
+	}
+	globbed, err := manager.Search(context.Background(), "docs", "auth", SearchOptions{PathGlob: "**/*policy.md", Limit: 10})
+	if err != nil {
+		t.Fatalf("globbed search: %v", err)
+	}
+	if globbed.Count != 1 || globbed.Results[0].Path != "guides/auth-policy.md" {
+		t.Fatalf("unexpected globbed search: %#v", globbed)
+	}
+	firstPage, err := manager.Search(context.Background(), "docs", "auth", SearchOptions{PathPrefix: "guides", Type: ".md", Limit: 1})
+	if err != nil {
+		t.Fatalf("typed search first page: %v", err)
+	}
+	if firstPage.Count != 1 || firstPage.MatchCount != 2 || !firstPage.Truncated {
+		t.Fatalf("unexpected typed first page: %#v", firstPage)
+	}
+	secondPage, err := manager.Search(context.Background(), "docs", "auth", SearchOptions{PathPrefix: "guides", Type: "md", Limit: 1, Offset: 1})
+	if err != nil {
+		t.Fatalf("typed search second page: %v", err)
+	}
+	if secondPage.Count != 1 || secondPage.MatchCount != 2 || secondPage.Truncated || secondPage.Results[0].Path == firstPage.Results[0].Path {
+		t.Fatalf("unexpected typed second page: %#v first=%#v", secondPage, firstPage)
+	}
+
+	files, err := manager.Files("docs", FilesOptions{Path: "guides", Pattern: "*.md", HeadLimit: -1})
+	if err != nil {
+		t.Fatalf("files: %v", err)
+	}
+	if files.Mode != "files" || files.MatchCount != 1 || files.Results[0].Path != "guides/auth-policy.md" {
+		t.Fatalf("unexpected files result: %#v", files)
+	}
+	tree, err := manager.Files("docs", FilesOptions{Mode: "tree", Path: "guides", Pattern: "**/*.md", Depth: 1, HeadLimit: -1})
+	if err != nil {
+		t.Fatalf("tree files: %v", err)
+	}
+	if tree.FileCount != 2 || tree.DirCount != 1 || tree.MatchCount != 2 {
+		t.Fatalf("unexpected tree counts: %#v", tree)
+	}
+	if !hasKBaseFileEntry(tree.Results, "dir", "guides/deep/") || !hasKBaseFileEntry(tree.Results, "file", "guides/auth-policy.md") {
+		t.Fatalf("unexpected tree entries: %#v", tree.Results)
+	}
+	store, err := OpenStore(filepath.Join(cfg.Paths.KBaseDir, "docs"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	if err := store.UpsertSkippedFile(fileRecord{
+		ID:         fileID("skip.bin"),
+		Path:       "skip.bin",
+		Ext:        ".bin",
+		Size:       42,
+		Status:     "skipped",
+		SkipReason: "unsupported_extension",
+		IndexedAt:  time.Now().UnixMilli(),
+	}); err != nil {
+		_ = store.Close()
+		t.Fatalf("insert skipped file: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+	activeFiles, err := manager.Files("docs", FilesOptions{HeadLimit: -1})
+	if err != nil {
+		t.Fatalf("active files: %v", err)
+	}
+	if activeFiles.FileCount != 5 || hasKBaseFileEntry(activeFiles.Results, "file", "skip.bin") {
+		t.Fatalf("default files should only include active files: %#v", activeFiles)
+	}
+	allFiles, err := manager.Files("docs", FilesOptions{Status: "all", Type: "bin", HeadLimit: -1})
+	if err != nil {
+		t.Fatalf("all files: %v", err)
+	}
+	if allFiles.FileCount != 1 || !hasKBaseFileEntry(allFiles.Results, "file", "skip.bin") {
+		t.Fatalf("expected skipped bin in status=all result: %#v", allFiles)
+	}
+}
+
+func hasKBaseFileEntry(entries []FileEntry, typ string, path string) bool {
+	for _, entry := range entries {
+		if entry.Type == typ && entry.Path == path {
+			return true
+		}
+	}
+	return false
 }

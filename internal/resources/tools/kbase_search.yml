@@ -13,6 +13,18 @@ inputSchema:
     limit:
       type: integer
       description: Maximum number of chunks to return. Defaults to the agent retrieval topK.
+    offset:
+      type: integer
+      description: Number of sorted matching chunks to skip before applying limit.
+    pathPrefix:
+      type: string
+      description: Workspace-relative path prefix to search within, such as docs/.
+    pathGlob:
+      type: string
+      description: KBASE glob matched against workspace-relative indexed paths. Supports *, ?, and **.
+    type:
+      type: string
+      description: Optional file extension filter such as md or .pdf.
   required:
     - query
   additionalProperties: false

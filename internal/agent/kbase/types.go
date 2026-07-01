@@ -50,16 +50,24 @@ type EmbeddingSnapshot struct {
 }
 
 type SearchOptions struct {
-	Limit int
+	Limit      int
+	Offset     int
+	PathPrefix string
+	PathGlob   string
+	Type       string
 }
 
 type SearchResult struct {
-	AgentKey string      `json:"agentKey"`
-	Query    string      `json:"query"`
-	Count    int         `json:"count"`
-	Results  []SearchHit `json:"results"`
-	Stale    bool        `json:"stale,omitempty"`
-	Indexing bool        `json:"indexing,omitempty"`
+	AgentKey   string      `json:"agentKey"`
+	Query      string      `json:"query"`
+	Count      int         `json:"count"`
+	MatchCount int         `json:"matchCount"`
+	Offset     int         `json:"offset"`
+	Limit      int         `json:"limit"`
+	Truncated  bool        `json:"truncated"`
+	Results    []SearchHit `json:"results"`
+	Stale      bool        `json:"stale,omitempty"`
+	Indexing   bool        `json:"indexing,omitempty"`
 }
 
 type SearchHit struct {
@@ -98,6 +106,53 @@ type ReadResult struct {
 	SlideEnd   int    `json:"slideEnd,omitempty"`
 	SourceType string `json:"sourceType,omitempty"`
 	Content    string `json:"content,omitempty"`
+}
+
+type FilesOptions struct {
+	Mode      string
+	Path      string
+	Pattern   string
+	Status    string
+	Type      string
+	Depth     int
+	HeadLimit int
+	Offset    int
+}
+
+type FilesResult struct {
+	Tool       string      `json:"tool"`
+	Mode       string      `json:"mode"`
+	Path       string      `json:"path"`
+	Pattern    string      `json:"pattern"`
+	Status     string      `json:"status"`
+	Type       string      `json:"type,omitempty"`
+	MatchCount int         `json:"matchCount"`
+	FileCount  int         `json:"fileCount"`
+	DirCount   int         `json:"dirCount"`
+	Truncated  bool        `json:"truncated"`
+	Offset     int         `json:"offset"`
+	HeadLimit  int         `json:"headLimit"`
+	Results    []FileEntry `json:"results"`
+}
+
+type FileEntry struct {
+	Type       string `json:"type"`
+	Path       string `json:"path"`
+	Name       string `json:"name"`
+	Dir        string `json:"dir,omitempty"`
+	Depth      int    `json:"depth,omitempty"`
+	Ext        string `json:"ext,omitempty"`
+	Mime       string `json:"mime,omitempty"`
+	Size       int64  `json:"size,omitempty"`
+	MTimeMS    int64  `json:"mtimeMs,omitempty"`
+	TextSHA256 string `json:"textSha256,omitempty"`
+	Extractor  string `json:"extractor,omitempty"`
+	Status     string `json:"status,omitempty"`
+	SkipReason string `json:"skipReason,omitempty"`
+	Error      string `json:"error,omitempty"`
+	ChunkCount int    `json:"chunkCount,omitempty"`
+	FileCount  int    `json:"fileCount,omitempty"`
+	IndexedAt  int64  `json:"indexedAt,omitempty"`
 }
 
 type IndexRun struct {

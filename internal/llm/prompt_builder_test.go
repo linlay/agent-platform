@@ -219,6 +219,7 @@ func TestBuildSystemPromptUsesDefaultKBaseSystemPromptWhenConfigEmpty(t *testing
 	for _, expected := range []string{
 		"KBASE Mode",
 		"Search the knowledge base with kbase_search",
+		"Use kbase_files when you need to discover indexed files",
 		"Use kbase_read when a search result needs more surrounding context.",
 	} {
 		if !strings.Contains(prompt, expected) {

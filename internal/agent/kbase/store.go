@@ -332,6 +332,27 @@ func (s *Store) File(path string) (*fileRecord, error) {
 	return &rec, nil
 }
 
+func (s *Store) AllFiles() ([]fileRecord, error) {
+	rows, err := s.db.Query(`SELECT ID_, PATH_, EXT_, MIME_, SIZE_, MTIME_MS_, SHA256_, TEXT_SHA256_, EXTRACTOR_, METADATA_JSON_,
+			STATUS_, SKIP_REASON_, ERROR_, CHUNK_COUNT_, INDEXED_AT_
+		FROM KBASE_FILES ORDER BY PATH_`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []fileRecord{}
+	for rows.Next() {
+		var rec fileRecord
+		if err := rows.Scan(&rec.ID, &rec.Path, &rec.Ext, &rec.Mime, &rec.Size, &rec.MTimeMS, &rec.SHA256,
+			&rec.TextSHA256, &rec.Extractor, &rec.Metadata, &rec.Status, &rec.SkipReason, &rec.Error,
+			&rec.ChunkCount, &rec.IndexedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, rec)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) ActiveFilePaths() (map[string]struct{}, error) {
 	rows, err := s.db.Query(`SELECT PATH_ FROM KBASE_FILES WHERE STATUS_ = 'active'`)
 	if err != nil {
@@ -497,22 +518,27 @@ type ftsHit struct {
 	Score float64
 }
 
-func (s *Store) SearchFTS(query string, limit int) ([]ftsHit, error) {
+func (s *Store) SearchFTS(query string, scope pathScope, limit int) ([]ftsHit, error) {
 	matchExpr := ftsMatchExpression(query)
 	if matchExpr == "" {
 		return nil, nil
 	}
-	rows, err := s.db.Query(`SELECT c.ID_, c.FILE_ID_, c.PATH_, c.ORDINAL_, c.HEADING_, c.START_LINE_, c.END_LINE_,
+	sqlText := `SELECT c.ID_, c.FILE_ID_, c.PATH_, c.ORDINAL_, c.HEADING_, c.START_LINE_, c.END_LINE_,
 			c.SOURCE_TYPE_, c.PAGE_START_, c.PAGE_END_, c.SLIDE_START_, c.SLIDE_END_, c.LOCATOR_JSON_,
 			c.CONTENT_, c.CONTENT_HASH_, c.EMBEDDING_, c.EMBEDDING_MODEL_, c.EMBEDDING_DIMENSION_, c.UPDATED_AT_,
 			bm25(KBASE_CHUNKS_FTS) AS score
 		FROM KBASE_CHUNKS_FTS fts
 		JOIN KBASE_CHUNKS c ON c.rowid = fts.rowid
 		WHERE KBASE_CHUNKS_FTS MATCH ?
-		ORDER BY score
-		LIMIT ?`, matchExpr, limit)
+		ORDER BY score`
+	args := []any{matchExpr}
+	if !scope.active() && limit > 0 {
+		sqlText += ` LIMIT ?`
+		args = append(args, limit)
+	}
+	rows, err := s.db.Query(sqlText, args...)
 	if err != nil {
-		return s.searchLike(query, limit)
+		return s.searchLike(query, scope, limit)
 	}
 	defer rows.Close()
 	out := []ftsHit{}
@@ -521,20 +547,31 @@ func (s *Store) SearchFTS(query string, limit int) ([]ftsHit, error) {
 		if err != nil {
 			return nil, err
 		}
+		if !scope.matches(chunk.Path) {
+			continue
+		}
 		out = append(out, ftsHit{Chunk: chunk, Score: math.Abs(score)})
+		if scope.active() && limit > 0 && len(out) >= limit {
+			break
+		}
 	}
 	normalizeFTSScores(out)
 	return out, rows.Err()
 }
 
-func (s *Store) searchLike(query string, limit int) ([]ftsHit, error) {
+func (s *Store) searchLike(query string, scope pathScope, limit int) ([]ftsHit, error) {
 	pattern := "%" + strings.TrimSpace(query) + "%"
-	rows, err := s.db.Query(`SELECT ID_, FILE_ID_, PATH_, ORDINAL_, HEADING_, START_LINE_, END_LINE_,
+	sqlText := `SELECT ID_, FILE_ID_, PATH_, ORDINAL_, HEADING_, START_LINE_, END_LINE_,
 			SOURCE_TYPE_, PAGE_START_, PAGE_END_, SLIDE_START_, SLIDE_END_, LOCATOR_JSON_,
 			CONTENT_, CONTENT_HASH_, EMBEDDING_, EMBEDDING_MODEL_, EMBEDDING_DIMENSION_, UPDATED_AT_, 1.0
 		FROM KBASE_CHUNKS
-		WHERE PATH_ LIKE ? OR HEADING_ LIKE ? OR CONTENT_ LIKE ?
-		LIMIT ?`, pattern, pattern, pattern, limit)
+		WHERE PATH_ LIKE ? OR HEADING_ LIKE ? OR CONTENT_ LIKE ?`
+	args := []any{pattern, pattern, pattern}
+	if !scope.active() && limit > 0 {
+		sqlText += ` LIMIT ?`
+		args = append(args, limit)
+	}
+	rows, err := s.db.Query(sqlText, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -545,12 +582,18 @@ func (s *Store) searchLike(query string, limit int) ([]ftsHit, error) {
 		if err != nil {
 			return nil, err
 		}
+		if !scope.matches(chunk.Path) {
+			continue
+		}
 		out = append(out, ftsHit{Chunk: chunk, Score: score})
+		if scope.active() && limit > 0 && len(out) >= limit {
+			break
+		}
 	}
 	return out, rows.Err()
 }
 
-func (s *Store) AllChunksWithEmbeddings() ([]chunkRecord, error) {
+func (s *Store) AllChunksWithEmbeddings(scope pathScope) ([]chunkRecord, error) {
 	rows, err := s.db.Query(`SELECT ID_, FILE_ID_, PATH_, ORDINAL_, HEADING_, START_LINE_, END_LINE_,
 			SOURCE_TYPE_, PAGE_START_, PAGE_END_, SLIDE_START_, SLIDE_END_, LOCATOR_JSON_,
 			CONTENT_, CONTENT_HASH_, EMBEDDING_, EMBEDDING_MODEL_, EMBEDDING_DIMENSION_, UPDATED_AT_
@@ -565,6 +608,9 @@ func (s *Store) AllChunksWithEmbeddings() ([]chunkRecord, error) {
 		chunk, err := scanChunk(rows)
 		if err != nil {
 			return nil, err
+		}
+		if !scope.matches(chunk.Path) {
+			continue
 		}
 		out = append(out, chunk)
 	}
@@ -750,6 +796,23 @@ func sortedSearchHits(hits []SearchHit, limit int) []SearchHit {
 		return hits[:limit]
 	}
 	return hits
+}
+
+func pageSearchHits(hits []SearchHit, offset int, limit int) ([]SearchHit, bool) {
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(hits) {
+		return []SearchHit{}, false
+	}
+	if limit <= 0 {
+		return hits[offset:], false
+	}
+	end := offset + limit
+	if end >= len(hits) {
+		return hits[offset:], false
+	}
+	return hits[offset:end], true
 }
 
 func maxInt(a, b int) int {

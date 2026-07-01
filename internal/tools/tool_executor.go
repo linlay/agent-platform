@@ -187,6 +187,8 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 		return t.invokeMemoryConsolidate(toolName, args, execCtx)
 	case "kbase_search":
 		return t.invokeKBaseSearch(ctx, toolName, args, execCtx)
+	case "kbase_files":
+		return t.invokeKBaseFiles(toolName, args, execCtx)
 	case "kbase_read":
 		return t.invokeKBaseRead(toolName, args, execCtx)
 	case "kbase_status":

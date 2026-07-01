@@ -301,6 +301,7 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 		"{{workspace_dir}}",
 		"{{available_tools}}",
 		"kbase_search",
+		"kbase_files",
 		"kbase_read",
 	} {
 		if !strings.Contains(kbasePromptsExample, want) {

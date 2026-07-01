@@ -845,7 +845,7 @@ func filterTools(tools []string, keep func(string) bool) []string {
 
 func isKBaseTool(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "kbase_search", "kbase_read", "kbase_status", "kbase_refresh", "datetime":
+	case "kbase_search", "kbase_files", "kbase_read", "kbase_status", "kbase_refresh", "datetime":
 		return true
 	default:
 		return false
