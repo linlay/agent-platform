@@ -51,6 +51,7 @@ GET /ws -> request / response / stream / push / error frames
 | GET/PUT | `/api/admin/agents/order` | PUT body: `order` | agent 展示顺序 |
 | POST | `/api/admin/agents/create` | body: `key`、`definition`、`soulPrompt`、`agentsPrompt` | 创建后的 agent 详情 |
 | POST | `/api/admin/agents/update` | body: `key`/`agentKey`、`definition`、`soulPrompt`、`agentsPrompt` | 更新后的 agent 详情 |
+| POST | `/api/admin/agents/update-name` | body: `key`/`agentKey`、`name` | 更新后的 agent 详情 |
 | POST | `/api/admin/agents/delete` | body: `key`/`agentKey` | 删除结果 |
 | GET | `/api/admin/agents/editor-options` | 无 | agent 编辑器可选项 |
 | GET | `/api/admin/skills` | 无 | skill 列表 |

@@ -615,6 +615,12 @@ type DeleteAgentRequest struct {
 	AgentKey string `json:"agentKey,omitempty"`
 }
 
+type UpdateAgentNameRequest struct {
+	Key      string `json:"key"`
+	AgentKey string `json:"agentKey,omitempty"`
+	Name     string `json:"name"`
+}
+
 type AgentOrderResponse struct {
 	Version   int      `json:"version"`
 	Order     []string `json:"order"`

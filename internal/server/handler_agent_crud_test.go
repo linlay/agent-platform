@@ -1153,6 +1153,136 @@ func TestAgentWSRuntimeModelConfigAndAdminRoutesRejected(t *testing.T) {
 	}
 }
 
+func TestAgentUpdateNameEndpoint(t *testing.T) {
+	fixture := newTestFixture(t)
+
+	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
+		"key": "editable-name-agent",
+		"definition": map[string]any{
+			"key":         "editable-name-agent",
+			"name":        "Editable Agent",
+			"icon":        "bot",
+			"role":        "Editor",
+			"description": "editable test agent",
+			"mode":        "REACT",
+			"modelConfig": map[string]any{"modelKey": "mock-model"},
+			"toolConfig":  map[string]any{"tools": []any{"datetime"}},
+			"runtimeConfig": map[string]any{
+				"environmentId": "shell",
+				"level":         "RUN",
+				"env":           map[string]any{"HTTP_PROXY": "http://agent-proxy"},
+			},
+		},
+		"soulPrompt":   "Soul v1",
+		"agentsPrompt": "Agents v1",
+	})
+	if created.Source == nil {
+		t.Fatalf("expected created source, got %#v", created)
+	}
+
+	updated := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/update-name", map[string]any{
+		"key":  "editable-name-agent",
+		"name": "Renamed Agent",
+	})
+	if updated.Name != "Renamed Agent" {
+		t.Fatalf("expected updated top-level name, got %q", updated.Name)
+	}
+	if nameInDef, _ := updated.Definition["name"].(string); nameInDef != "Renamed Agent" {
+		t.Fatalf("expected updated definition name, got %#v", updated.Definition["name"])
+	}
+	if updated.Description != "editable test agent" {
+		t.Fatalf("expected description to remain unchanged, got %q", updated.Description)
+	}
+	if updated.Mode != "REACT" || updated.Definition["mode"] != "REACT" {
+		t.Fatalf("expected mode to remain REACT, got %#v", updated.Definition["mode"])
+	}
+	modelConfig, _ := updated.Definition["modelConfig"].(map[string]any)
+	if modelConfig["modelKey"] != "mock-model" {
+		t.Fatalf("expected modelConfig.modelKey to remain, got %#v", modelConfig)
+	}
+	runtimeConfig, _ := updated.Definition["runtimeConfig"].(map[string]any)
+	if runtimeConfig["environmentId"] != "shell" || runtimeConfig["level"] != "RUN" {
+		t.Fatalf("expected runtimeConfig to remain, got %#v", runtimeConfig)
+	}
+	env, _ := runtimeConfig["env"].(map[string]any)
+	if env["HTTP_PROXY"] != "http://agent-proxy" {
+		t.Fatalf("expected runtimeConfig.env to remain, got %#v", runtimeConfig)
+	}
+	if updated.SoulPrompt != "Soul v1" || updated.AgentsPrompt != "Agents v1" {
+		t.Fatalf("expected prompts to remain unchanged, got soul=%q agents=%q", updated.SoulPrompt, updated.AgentsPrompt)
+	}
+
+	data, err := os.ReadFile(updated.Source.Path)
+	if err != nil {
+		t.Fatalf("read updated agent file: %v", err)
+	}
+	yaml := string(data)
+	if !strings.Contains(yaml, "\nname: Renamed Agent\n") {
+		t.Fatalf("expected YAML to contain new name, got:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, "description: editable test agent") {
+		t.Fatalf("expected YAML to preserve description, got:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, "modelKey: mock-model") {
+		t.Fatalf("expected YAML to preserve modelConfig, got:\n%s", yaml)
+	}
+	if !strings.Contains(yaml, "environmentId: shell") || !strings.Contains(yaml, "level: RUN") {
+		t.Fatalf("expected YAML to preserve runtimeConfig, got:\n%s", yaml)
+	}
+
+	renamed := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/update-name", map[string]any{
+		"agentKey": "editable-name-agent",
+		"name":     "Renamed Via Alias",
+	})
+	if renamed.Name != "Renamed Via Alias" {
+		t.Fatalf("expected agentKey alias to update name, got %q", renamed.Name)
+	}
+	if nameInDef, _ := renamed.Definition["name"].(string); nameInDef != "Renamed Via Alias" {
+		t.Fatalf("expected definition name via agentKey alias, got %#v", renamed.Definition["name"])
+	}
+
+	blankBody, err := json.Marshal(map[string]any{
+		"key":  "editable-name-agent",
+		"name": "   ",
+	})
+	if err != nil {
+		t.Fatalf("marshal blank-name request: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/agents/update-name", bytes.NewReader(blankBody)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for blank name, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "name is required") {
+		t.Fatalf("expected 'name is required' error, got %s", rec.Body.String())
+	}
+
+	notFoundBody, err := json.Marshal(map[string]any{
+		"key":  "missing-agent",
+		"name": "Anything",
+	})
+	if err != nil {
+		t.Fatalf("marshal not-found request: %v", err)
+	}
+	rec = httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/agents/update-name", bytes.NewReader(notFoundBody)))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown agent, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	missingKeyBody, err := json.Marshal(map[string]any{
+		"name": "X",
+	})
+	if err != nil {
+		t.Fatalf("marshal missing-key request: %v", err)
+	}
+	rec = httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/agents/update-name", bytes.NewReader(missingKeyBody)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing key, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func getAgentDetail(t *testing.T, server *Server, key string) api.AgentDetailResponse {
 	t.Helper()
 	rec := httptest.NewRecorder()

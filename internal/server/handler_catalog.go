@@ -119,6 +119,26 @@ func (s *Server) handleAgentUpdate(w http.ResponseWriter, r *http.Request) {
 	s.writeAgentHTTPResponse(w, response, err)
 }
 
+func (s *Server) handleAgentUpdateName(w http.ResponseWriter, r *http.Request) {
+	var req api.UpdateAgentNameRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid payload"))
+		return
+	}
+	key, err := queryOrBodyIDAny(r, []string{"agentKey", "key"}, req.AgentKey, req.Key)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
+		return
+	}
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "name is required"))
+		return
+	}
+	response, err := s.updateAgentName(r.Context(), key, name)
+	s.writeAgentHTTPResponse(w, response, err)
+}
+
 func (s *Server) handleAgentModelConfig(w http.ResponseWriter, r *http.Request) {
 	var req api.UpdateAgentModelConfigRequest
 	if err := decodeJSON(r, &req); err != nil {
@@ -387,6 +407,26 @@ func (s *Server) updateAgent(ctx context.Context, req api.UpdateAgentRequest) (a
 	}
 	key := firstNonBlank(req.Key, req.AgentKey)
 	if _, err := editor.UpdateEditableAgent(key, req.Definition, req.SoulPrompt, req.AgentsPrompt); err != nil {
+		return api.AgentDetailResponse{}, mapAgentEditError(err)
+	}
+	return s.reloadAndLoadAgent(ctx, key)
+}
+
+func (s *Server) updateAgentName(ctx context.Context, key string, name string) (api.AgentDetailResponse, error) {
+	editor, err := s.agentEditor()
+	if err != nil {
+		return api.AgentDetailResponse{}, err
+	}
+	files, found, err := editor.EditableAgent(key)
+	if err != nil {
+		return api.AgentDetailResponse{}, mapAgentEditError(err)
+	}
+	if !found {
+		return api.AgentDetailResponse{}, newAgentStatusError(http.StatusNotFound, "not_found", "agent not found")
+	}
+	definition := contracts.CloneMap(files.Definition)
+	definition["name"] = name
+	if _, err := editor.UpdateEditableAgent(key, definition, &files.SoulPrompt, &files.AgentsPrompt); err != nil {
 		return api.AgentDetailResponse{}, mapAgentEditError(err)
 	}
 	return s.reloadAndLoadAgent(ctx, key)
