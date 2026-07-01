@@ -51,7 +51,7 @@ func TestFileHistoryRecordsNewFileWithEmptyOriginal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read current history: %v", err)
 	}
-	if current != "hello" {
+	if current != "hello\n" {
 		t.Fatalf("expected current content, got %q", current)
 	}
 }

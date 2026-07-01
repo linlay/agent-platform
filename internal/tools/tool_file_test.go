@@ -10,11 +10,18 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
+	textencoding "golang.org/x/text/encoding"
+	"golang.org/x/text/encoding/charmap"
+	"golang.org/x/text/encoding/japanese"
+	"golang.org/x/text/encoding/korean"
+	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/transform"
 )
 
 func TestInvokeReadReadsAllowedFileWithLineRange(t *testing.T) {
@@ -233,6 +240,58 @@ func TestInvokeReadReturnsRawContentByDefaultAndCanAddLineNumbers(t *testing.T) 
 	}
 	if numbered.Structured["content"] != "     1\tone\n     2\ttwo\n" {
 		t.Fatalf("unexpected numbered content: %#v", numbered.Structured["content"])
+	}
+}
+
+func TestInvokeReadDecodesGB18030Text(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "settings.ini")
+	raw := encodeTextFixture(t, simplifiedchinese.GB18030, "标题=测试\n")
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, true)
+
+	result, err := executor.invokeRead(map[string]any{
+		"file_path":        "settings.ini",
+		"add_line_numbers": false,
+	}, &contracts.ExecutionContext{})
+	if err != nil {
+		t.Fatalf("invokeRead: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected read success, got %#v", result)
+	}
+	if result.Structured["kind"] != "text" || result.Structured["encoding"] != "gb18030" {
+		t.Fatalf("expected GB18030 text payload, got %#v", result.Structured)
+	}
+	if result.Structured["content"] != "标题=测试\n" {
+		t.Fatalf("unexpected decoded content: %#v", result.Structured["content"])
+	}
+	if _, ok := result.Structured["contentBase64"]; ok {
+		t.Fatalf("expected decoded text instead of base64, got %#v", result.Structured)
+	}
+}
+
+func TestInvokeReadKeepsUnknownInvalidBytesAsBase64(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "payload"), []byte{0xff, 0xfe, 0xfd, 0xfc, 0xfb, 0xfa}, 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, true)
+
+	result, err := executor.invokeRead(map[string]any{"file_path": "payload"}, &contracts.ExecutionContext{})
+	if err != nil {
+		t.Fatalf("invokeRead: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected read success, got %#v", result)
+	}
+	if result.Structured["kind"] != "binary" || result.Structured["encoding"] != "base64" {
+		t.Fatalf("expected base64 binary payload, got %#v", result.Structured)
+	}
+	if _, ok := result.Structured["contentBase64"].(string); !ok {
+		t.Fatalf("expected contentBase64, got %#v", result.Structured)
 	}
 }
 
@@ -874,7 +933,7 @@ func TestInvokeWriteRunsFileChangeHookForCoderWorkspace(t *testing.T) {
 		t.Fatalf("expected one hook event, got %#v", hook.events)
 	}
 	event := hook.events[0]
-	if event.Operation != "write" || event.WorkspaceRoot != root || filepath.Base(event.FilePath) != "main.go" || string(event.Content) != "package main" {
+	if event.Operation != "write" || event.WorkspaceRoot != root || filepath.Base(event.FilePath) != "main.go" || string(event.Content) != "package main\n" {
 		t.Fatalf("unexpected hook event: %#v", event)
 	}
 	assertLineStats(t, event.LineStats, 1, 0, 0)
@@ -1229,6 +1288,89 @@ func TestInvokeWriteAllowsReadThenWriteAndRefreshesSnapshot(t *testing.T) {
 	}
 }
 
+func TestInvokeWritePreservesExistingGB18030EncodingByDefault(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "settings.ini")
+	if err := os.WriteFile(path, encodeTextFixture(t, simplifiedchinese.GB18030, "标题=旧值\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, false)
+	execCtx := &contracts.ExecutionContext{}
+	if _, err := executor.invokeRead(map[string]any{"file_path": "settings.ini", "add_line_numbers": false}, execCtx); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	result, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path":   "settings.ini",
+		"content":     "标题=新值\n",
+		"description": "写入 GBK 配置",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeWrite: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected write success, got %#v", result)
+	}
+	if result.Structured["encoding"] != "gb18030" {
+		t.Fatalf("expected preserved GB18030 encoding, got %#v", result.Structured)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read written file: %v", err)
+	}
+	if utf8.Valid(raw) {
+		t.Fatalf("expected file to remain non-UTF-8, got %q", string(raw))
+	}
+	if got := decodeTextFixture(t, simplifiedchinese.GB18030, raw); got != "标题=新值\n" {
+		t.Fatalf("unexpected decoded content: %q", got)
+	}
+}
+
+func TestInvokeWriteSupportsExplicitLegacyEncodings(t *testing.T) {
+	root := t.TempDir()
+	executor := fileToolExecutor(root, false)
+	cases := []struct {
+		name     string
+		encoding string
+		codec    textencoding.Encoding
+		content  string
+	}{
+		{name: "shift_jis", encoding: "shift_jis", codec: japanese.ShiftJIS, content: "名前=テスト\n"},
+		{name: "euc_kr", encoding: "euc-kr", codec: korean.EUCKR, content: "이름=테스트\n"},
+		{name: "cp437", encoding: "cp437", codec: charmap.CodePage437, content: "name=café\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fileName := tc.name + ".txt"
+			result, err := executor.invokeWrite(context.Background(), map[string]any{
+				"file_path":   fileName,
+				"content":     tc.content,
+				"encoding":    tc.encoding,
+				"description": "写入指定编码文件",
+			}, &contracts.ExecutionContext{})
+			if err != nil {
+				t.Fatalf("invokeWrite: %v", err)
+			}
+			if result.Error != "" || result.ExitCode != 0 {
+				t.Fatalf("expected write success, got %#v", result)
+			}
+			if result.Structured["encoding"] != tc.encoding {
+				t.Fatalf("expected encoding %q, got %#v", tc.encoding, result.Structured)
+			}
+			raw, err := os.ReadFile(filepath.Join(root, fileName))
+			if err != nil {
+				t.Fatalf("read written file: %v", err)
+			}
+			if utf8.Valid(raw) {
+				t.Fatalf("expected legacy encoded bytes, got UTF-8 %q", string(raw))
+			}
+			if got := decodeTextFixture(t, tc.codec, raw); got != tc.content {
+				t.Fatalf("unexpected decoded content: %q", got)
+			}
+		})
+	}
+}
+
 func TestInvokeReadAfterWriteAndEditReturnsFreshContent(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "owner.md")
@@ -1490,6 +1632,45 @@ func TestInvokeEditReplacesUniqueStringAndRefreshesSnapshot(t *testing.T) {
 	resolvedPath := filepath.Join(realPath(t, root), "owner.md")
 	if snap := execCtx.ReadFileState[resolvedPath]; snap.SHA256 != fileSHA256(path) {
 		t.Fatalf("expected refreshed snapshot, got %#v", snap)
+	}
+}
+
+func TestInvokeEditPreservesGB18030Encoding(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "settings.ini")
+	if err := os.WriteFile(path, encodeTextFixture(t, simplifiedchinese.GB18030, "标题=测试\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, false)
+	execCtx := &contracts.ExecutionContext{}
+	if _, err := executor.invokeRead(map[string]any{"file_path": "settings.ini", "add_line_numbers": false}, execCtx); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	result, err := executor.invokeEdit(context.Background(), map[string]any{
+		"file_path":   "settings.ini",
+		"old_string":  "测试",
+		"new_string":  "中文",
+		"description": "编辑 GBK 配置",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeEdit: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected edit success, got %#v", result)
+	}
+	if result.Structured["encoding"] != "gb18030" {
+		t.Fatalf("expected GB18030 encoding, got %#v", result.Structured)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read edited file: %v", err)
+	}
+	if utf8.Valid(raw) {
+		t.Fatalf("expected file to remain non-UTF-8, got %q", string(raw))
+	}
+	if got := decodeTextFixture(t, simplifiedchinese.GB18030, raw); got != "标题=中文\n" {
+		t.Fatalf("unexpected decoded content: %q", got)
 	}
 }
 
@@ -1883,4 +2064,22 @@ func realPath(t *testing.T, path string) string {
 		t.Fatalf("eval symlinks %s: %v", path, err)
 	}
 	return real
+}
+
+func encodeTextFixture(t *testing.T, codec textencoding.Encoding, content string) []byte {
+	t.Helper()
+	data, _, err := transform.Bytes(codec.NewEncoder(), []byte(content))
+	if err != nil {
+		t.Fatalf("encode fixture: %v", err)
+	}
+	return data
+}
+
+func decodeTextFixture(t *testing.T, codec textencoding.Encoding, data []byte) string {
+	t.Helper()
+	decoded, _, err := transform.Bytes(codec.NewDecoder(), data)
+	if err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+	return string(decoded)
 }

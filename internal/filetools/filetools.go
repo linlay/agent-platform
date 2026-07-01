@@ -52,6 +52,7 @@ type WritePlan struct {
 	CommandText string
 	ToolName    string
 	Operation   string
+	Encoding    string
 	OldString   string
 	NewString   string
 	ReplaceAll  bool
@@ -108,8 +109,12 @@ func SessionWorkspaceRoot(session QuerySession) string {
 }
 
 func BuildWritePlanWithAccess(access AccessPlan, cfg config.FileToolsConfig, args map[string]any) (WritePlan, error) {
-	content := AnyStringNode(args["content"])
+	content, ok := args["content"].(string)
+	if !ok {
+		return WritePlan{}, fmt.Errorf("content is required")
+	}
 	description := strings.TrimSpace(AnyStringNode(args["description"]))
+	encodingName := strings.TrimSpace(AnyStringNode(args["encoding"]))
 	if len([]byte(content)) > maxPositive(cfg.MaxWriteBytes, 1<<20) {
 		return WritePlan{}, fmt.Errorf("content exceeds max write bytes")
 	}
@@ -118,7 +123,7 @@ func BuildWritePlanWithAccess(access AccessPlan, cfg config.FileToolsConfig, arg
 	if err != nil {
 		return WritePlan{}, err
 	}
-	sum := sha256.Sum256([]byte(pathKey + "\x00" + hex.EncodeToString(sha256Bytes(contentBytes))))
+	sum := sha256.Sum256([]byte(pathKey + "\x00" + hex.EncodeToString(sha256Bytes(contentBytes)) + "\x00" + strings.ToLower(encodingName)))
 	fingerprint := hex.EncodeToString(sum[:])
 	rootHash := sha256.Sum256([]byte(rootKey))
 	ruleKey := "file-write::" + hex.EncodeToString(rootHash[:8])
@@ -132,6 +137,7 @@ func BuildWritePlanWithAccess(access AccessPlan, cfg config.FileToolsConfig, arg
 		CommandText: fmt.Sprintf("file_write %s (%d bytes)", access.Path, len(contentBytes)),
 		ToolName:    "file_write",
 		Operation:   "write",
+		Encoding:    encodingName,
 	}, nil
 }
 
@@ -148,6 +154,7 @@ func BuildEditPlanWithAccess(access AccessPlan, cfg config.FileToolsConfig, args
 		return WritePlan{}, fmt.Errorf("old_string and new_string must be different")
 	}
 	description := strings.TrimSpace(AnyStringNode(args["description"]))
+	encodingName := strings.TrimSpace(AnyStringNode(args["encoding"]))
 	if len([]byte(newString)) > maxPositive(cfg.MaxWriteBytes, 1<<20) {
 		return WritePlan{}, fmt.Errorf("new_string exceeds max write bytes")
 	}
@@ -161,6 +168,7 @@ func BuildEditPlanWithAccess(access AccessPlan, cfg config.FileToolsConfig, args
 		oldString,
 		newString,
 		fmt.Sprintf("%t", replaceAll),
+		strings.ToLower(encodingName),
 	}, "\x00")
 	sum := sha256.Sum256([]byte(fingerprintInput))
 	rootHash := sha256.Sum256([]byte("file_edit\x00" + rootKey))
@@ -177,6 +185,7 @@ func BuildEditPlanWithAccess(access AccessPlan, cfg config.FileToolsConfig, args
 		CommandText: commandText,
 		ToolName:    "file_edit",
 		Operation:   "edit",
+		Encoding:    encodingName,
 		OldString:   oldString,
 		NewString:   newString,
 		ReplaceAll:  replaceAll,

@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
@@ -48,6 +47,7 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 	offset := int64Arg(args, "offset")
 	limit := int64Arg(args, "limit")
 	lineNumbered := addLineNumbersArg(args)
+	requestedEncoding := stringArg(args, "encoding")
 	snapshotOffset := int64(0)
 	if offset > 0 {
 		snapshotOffset = offset
@@ -56,7 +56,7 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 	if limit > 0 {
 		snapshotLimit = limit
 	}
-	if execCtx != nil {
+	if execCtx != nil && strings.TrimSpace(requestedEncoding) == "" {
 		if execCtx.ReadFileState == nil {
 			execCtx.ReadFileState = map[string]ReadFileSnapshot{}
 		}
@@ -140,9 +140,11 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 			payload["limit"] = limit
 		}
 	}
-	if utf8.Valid(data) {
-		content := string(data)
-		payload["encoding"] = "utf-8"
+	if decoded, ok, decodeErr := decodeFileText(data, requestedEncoding); decodeErr != nil {
+		return fileToolError("file_read_invalid_encoding", decodeErr.Error()), nil
+	} else if ok {
+		content := decoded.Content
+		payload["encoding"] = decoded.Encoding
 		payload["kind"] = "text"
 		if lineNumbered {
 			content = addLineNumbers(content, startLine)
@@ -197,28 +199,52 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 		}
 	}
 	before, beforeExists := fileSHA256IfExists(plan.FilePath)
+	beforeRaw := []byte(nil)
 	beforeContent := ""
+	beforeEncoding := "utf-8"
 	if beforeExists {
 		data, err := os.ReadFile(plan.FilePath)
 		if err != nil {
 			return fileToolError("file_write_failed", err.Error()), nil
 		}
-		beforeContent = string(data)
+		beforeRaw = data
+		if decoded, ok, _ := decodeFileText(data, ""); ok {
+			beforeContent = decoded.Content
+			beforeEncoding = decoded.Encoding
+		} else {
+			beforeContent = string(data)
+		}
+	}
+	writeEncoding := strings.TrimSpace(plan.Encoding)
+	if writeEncoding == "" {
+		writeEncoding = "utf-8"
+		if beforeExists && beforeEncoding != "utf-8" {
+			writeEncoding = beforeEncoding
+		}
+	}
+	contentText := string(plan.Content)
+	writeBytes, writeEncoding, err := encodeFileText(contentText, writeEncoding)
+	if err != nil {
+		return fileToolError("file_write_invalid_encoding", err.Error()), nil
+	}
+	if len(writeBytes) > maxInt(t.cfg.FileTools.MaxWriteBytes, 1<<20) {
+		return fileToolError("file_write_invalid_plan", "encoded content exceeds max write bytes"), nil
 	}
 	if err := os.MkdirAll(filepath.Dir(plan.FilePath), 0o755); err != nil {
 		return fileToolError("file_write_failed", err.Error()), nil
 	}
-	if err := atomicWriteFile(plan.FilePath, plan.Content); err != nil {
+	if err := atomicWriteFile(plan.FilePath, writeBytes); err != nil {
 		return fileToolError("file_write_failed", err.Error()), nil
 	}
 	after := fileSHA256(plan.FilePath)
 	info, _ := os.Stat(plan.FilePath)
-	lineStats := computeLineDiffStats(beforeContent, string(plan.Content))
-	_ = t.recordFileHistory(execCtx, plan.FilePath, []byte(beforeContent), beforeExists, plan.Content, true)
+	lineStats := computeLineDiffStats(beforeContent, contentText)
+	_ = t.recordFileHistory(execCtx, plan.FilePath, beforeRaw, beforeExists, writeBytes, true)
 	payload := map[string]any{
 		"status":       "written",
 		"filePath":     plan.FilePath,
-		"bytesWritten": len(plan.Content),
+		"bytesWritten": len(writeBytes),
+		"encoding":     writeEncoding,
 		"created":      !beforeExists,
 		"overwritten":  beforeExists,
 		"sha256":       after,
@@ -241,7 +267,7 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 		FilePath:      plan.FilePath,
 		Operation:     "write",
 		ContentSHA256: after,
-		Content:       append([]byte(nil), plan.Content...),
+		Content:       append([]byte(nil), writeBytes...),
 		LineStats:     lineStats,
 	})
 	return structuredResult(payload), nil
@@ -284,7 +310,9 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 	}
 
 	before, beforeExists := fileSHA256IfExists(plan.FilePath)
+	currentRaw := []byte(nil)
 	currentContent := ""
+	currentEncoding := strings.TrimSpace(plan.Encoding)
 	created := !beforeExists
 	if beforeExists {
 		info, err := os.Stat(plan.FilePath)
@@ -301,12 +329,21 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 		if err != nil {
 			return fileToolError("file_edit_failed", err.Error()), nil
 		}
-		if !utf8.Valid(data) {
-			return fileToolError("file_edit_non_utf8_unsupported", "file content is not valid UTF-8"), nil
+		currentRaw = data
+		decoded, ok, decodeErr := decodeFileText(data, plan.Encoding)
+		if decodeErr != nil {
+			return fileToolError("file_edit_invalid_encoding", decodeErr.Error()), nil
 		}
-		currentContent = string(data)
+		if !ok {
+			return fileToolError("file_edit_non_utf8_unsupported", "file content is not valid UTF-8 or a supported text encoding"), nil
+		}
+		currentContent = decoded.Content
+		currentEncoding = decoded.Encoding
 	} else if plan.OldString != "" {
 		return fileToolError("file_edit_file_not_found", "file does not exist and old_string is not empty"), nil
+	}
+	if strings.TrimSpace(currentEncoding) == "" {
+		currentEncoding = "utf-8"
 	}
 
 	normalizedContent, lineEndings := normalizeEditLineEndings(currentContent)
@@ -342,7 +379,10 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 	if lineEndings == "CRLF" {
 		updatedContent = strings.ReplaceAll(updatedContent, "\n", "\r\n")
 	}
-	updatedBytes := []byte(updatedContent)
+	updatedBytes, currentEncoding, err := encodeFileText(updatedContent, currentEncoding)
+	if err != nil {
+		return fileToolError("file_edit_invalid_encoding", err.Error()), nil
+	}
 	if len(updatedBytes) > maxInt(t.cfg.FileTools.MaxWriteBytes, 1<<20) {
 		return fileToolError("file_edit_content_too_large", "edited content exceeds max write bytes"), nil
 	}
@@ -354,14 +394,15 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 	}
 	after := fileSHA256(plan.FilePath)
 	info, _ := os.Stat(plan.FilePath)
-	lineStats := computeLineDiffStats(currentContent, string(updatedBytes))
-	_ = t.recordFileHistory(execCtx, plan.FilePath, []byte(currentContent), beforeExists, updatedBytes, true)
+	lineStats := computeLineDiffStats(currentContent, updatedContent)
+	_ = t.recordFileHistory(execCtx, plan.FilePath, currentRaw, beforeExists, updatedBytes, true)
 	payload := map[string]any{
 		"status":       "edited",
 		"filePath":     plan.FilePath,
 		"replacements": replacements,
 		"replaceAll":   plan.ReplaceAll,
 		"created":      created,
+		"encoding":     currentEncoding,
 		"sha256":       after,
 		"lineStats":    lineStatsPayload(lineStats),
 	}
