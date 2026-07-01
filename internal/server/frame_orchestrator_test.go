@@ -446,7 +446,7 @@ func TestFrameOrchestratorMaterializesProxySubAgentFiles(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected reference map, got %#v", refs[0])
 	}
-	if ref["sandboxPath"] != "/workspace/draft.md" || ref["name"] != "draft.md" {
+	if ref["path"] != "/workspace/draft.md" || ref["name"] != "draft.md" {
 		t.Fatalf("unexpected reference metadata %#v", ref)
 	}
 	refURL, _ := ref["url"].(string)

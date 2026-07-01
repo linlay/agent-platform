@@ -71,8 +71,9 @@ func TestUploadAndResourceRoundTrip(t *testing.T) {
 		t.Fatalf("decode upload response: %v", err)
 	}
 	assertUUIDLike(t, response.Data.ChatID)
-	if response.Data.Upload.SandboxPath != "/workspace/notes.txt" {
-		t.Fatalf("sandbox path = %q", response.Data.Upload.SandboxPath)
+	wantUploadPath := filepath.Join(fixture.cfg.Paths.ChatsDir, response.Data.ChatID, "notes.txt")
+	if response.Data.Upload.Path != wantUploadPath {
+		t.Fatalf("upload path = %q, want %q", response.Data.Upload.Path, wantUploadPath)
 	}
 	resourceReq := httptest.NewRequest(http.MethodGet, response.Data.Upload.URL, nil)
 	resourceRec := httptest.NewRecorder()
@@ -90,6 +91,55 @@ func TestUploadAndResourceRoundTrip(t *testing.T) {
 	}
 	if len(matches) != 1 {
 		t.Fatalf("expected uploaded file under %s, got %v", fixture.cfg.Paths.ChatsDir, matches)
+	}
+}
+
+func TestUploadReturnsContainerPathWhenAgentUsesContainerRuntime(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"Go runtime "}}]}`,
+			`{"choices":[{"delta":{"content":"test response"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{configure: func(cfg *config.Config) {
+		cfg.ContainerHub.ResolvedEngine = "docker"
+	}})
+	server := fixture.server
+
+	payload := &bytes.Buffer{}
+	writer := multipart.NewWriter(payload)
+	part, err := writer.CreateFormFile("file", "notes.txt")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := io.Copy(part, strings.NewReader("hello world")); err != nil {
+		t.Fatalf("write upload body: %v", err)
+	}
+	if err := writer.WriteField("agentKey", "mock-agent"); err != nil {
+		t.Fatalf("write agentKey: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/upload", payload)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var response api.ApiResponse[api.UploadResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode upload response: %v", err)
+	}
+	if response.Data.Upload.Path != "/workspace/notes.txt" {
+		t.Fatalf("upload path = %q", response.Data.Upload.Path)
+	}
+	if strings.Contains(rec.Body.String(), "sandboxPath") {
+		t.Fatalf("upload response must not include sandboxPath: %s", rec.Body.String())
 	}
 }
 

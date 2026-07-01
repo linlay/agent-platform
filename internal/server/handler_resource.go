@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 )
 
@@ -229,21 +230,54 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resourceURL := "/api/resource?file=" + url.QueryEscape(filepath.ToSlash(filepath.Join(chatID, targetName)))
-	sandboxPath := "/workspace/" + filepath.ToSlash(targetName)
+	referencePath := s.uploadReferencePath(targetName, targetPath, agentKey)
 	writeJSON(w, http.StatusOK, api.Success(api.UploadResponse{
 		RequestID: requestID,
 		ChatID:    chatID,
 		Upload: api.UploadTicket{
-			ID:          uploadID,
-			Type:        "file",
-			Name:        targetName,
-			MimeType:    header.Header.Get("Content-Type"),
-			SizeBytes:   size,
-			URL:         resourceURL,
-			SHA256:      sum,
-			SandboxPath: sandboxPath,
+			ID:        uploadID,
+			Type:      "file",
+			Name:      targetName,
+			Path:      referencePath,
+			MimeType:  header.Header.Get("Content-Type"),
+			SizeBytes: size,
+			URL:       resourceURL,
+			SHA256:    sum,
 		},
 	}))
+}
+
+func (s *Server) uploadReferencePath(targetName string, targetPath string, agentKey string) string {
+	if s.referencePathsUseContainerForAgentKey(agentKey) {
+		return "/workspace/" + filepath.ToSlash(targetName)
+	}
+	if abs, err := filepath.Abs(targetPath); err == nil {
+		return abs
+	}
+	return filepath.Clean(targetPath)
+}
+
+func (s *Server) referencePathsUseContainerForAgentKey(agentKey string) bool {
+	if s == nil || s.deps.Config.IsLocalMode() {
+		return false
+	}
+	if strings.TrimSpace(agentKey) == "" || s.deps.Registry == nil {
+		return s.deps.Config.ContainerHub.Enabled
+	}
+	if def, ok := s.deps.Registry.AgentDefinition(agentKey); ok {
+		return s.referencePathsUseContainer(def)
+	}
+	return s.deps.Config.ContainerHub.Enabled
+}
+
+func (s *Server) referencePathsUseContainer(def catalog.AgentDefinition) bool {
+	if s == nil || s.deps.Config.IsLocalMode() {
+		return false
+	}
+	if isProxyAgentMode(def.Mode) {
+		return true
+	}
+	return s.deps.Config.ContainerHub.Enabled && hasRuntimeSandbox(def.Runtime)
 }
 
 func pickUploadFile(form *multipart.Form) (multipart.File, *multipart.FileHeader, error) {

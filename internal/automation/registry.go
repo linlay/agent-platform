@@ -276,6 +276,9 @@ func parseReferences(value any) ([]api.Reference, error) {
 		if !ok {
 			return nil, fmt.Errorf("invalid query.references")
 		}
+		if _, ok := node["sandboxPath"]; ok {
+			return nil, fmt.Errorf("query.references.sandboxPath has been removed; use path")
+		}
 		meta, err := paramsNode(node["meta"])
 		if err != nil {
 			return nil, fmt.Errorf("invalid query.references.meta")
@@ -285,15 +288,15 @@ func parseReferences(value any) ([]api.Reference, error) {
 			return nil, fmt.Errorf("invalid query.references.sizeBytes")
 		}
 		references = append(references, api.Reference{
-			ID:          stringNode(node["id"]),
-			Type:        stringNode(node["type"]),
-			Name:        stringNode(node["name"]),
-			MimeType:    stringNode(node["mimeType"]),
-			SizeBytes:   sizeBytes,
-			URL:         stringNode(node["url"]),
-			SHA256:      stringNode(node["sha256"]),
-			SandboxPath: stringNode(node["sandboxPath"]),
-			Meta:        meta,
+			ID:        stringNode(node["id"]),
+			Type:      stringNode(node["type"]),
+			Name:      stringNode(node["name"]),
+			Path:      stringNode(node["path"]),
+			MimeType:  stringNode(node["mimeType"]),
+			SizeBytes: sizeBytes,
+			URL:       stringNode(node["url"]),
+			SHA256:    stringNode(node["sha256"]),
+			Meta:      meta,
 		})
 	}
 	return references, nil

@@ -67,6 +67,9 @@ func renderDefinition(def Definition) []byte {
 			if strings.TrimSpace(ref.Name) != "" {
 				node["name"] = ref.Name
 			}
+			if strings.TrimSpace(ref.Path) != "" {
+				node["path"] = ref.Path
+			}
 			if strings.TrimSpace(ref.MimeType) != "" {
 				node["mimeType"] = ref.MimeType
 			}
@@ -78,9 +81,6 @@ func renderDefinition(def Definition) []byte {
 			}
 			if strings.TrimSpace(ref.SHA256) != "" {
 				node["sha256"] = ref.SHA256
-			}
-			if strings.TrimSpace(ref.SandboxPath) != "" {
-				node["sandboxPath"] = ref.SandboxPath
 			}
 			if len(ref.Meta) > 0 {
 				node["meta"] = ref.Meta

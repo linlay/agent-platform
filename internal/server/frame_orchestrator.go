@@ -282,6 +282,9 @@ func (o *frameOrchestrator) runChildTask(index int, task preparedSubTask, princi
 		result.Error = err.Error()
 		return result
 	}
+	if len(subSession.RuntimeContext.References) > 0 {
+		subReq.References = subSession.RuntimeContext.References
+	}
 	o.writeChildTaskQueryAndSystem(subReq, &subSession, task)
 
 	if isProxyAgentMode(task.agentDef.Mode) {

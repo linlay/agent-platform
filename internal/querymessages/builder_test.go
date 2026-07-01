@@ -17,12 +17,13 @@ func TestBuildContentAdvancedUserPrompt(t *testing.T) {
 	}
 	size := int64(537)
 	content := BuildContentWithOptions("", "chat-1", "first line\nsecond line", []api.Reference{{
-		ID:          "r01",
-		Type:        "file",
-		Name:        "sales.csv",
-		SandboxPath: "/workspace/sales.csv",
-		MimeType:    "text/csv",
-		SizeBytes:   &size,
+		ID:        "r01",
+		Type:      "file",
+		Name:      "sales.csv",
+		Path:      "/workspace/sales.csv",
+		MimeType:  "text/csv",
+		SizeBytes: &size,
+		URL:       "/api/resource?file=chat-1%2Fsales.csv",
 	}}, false, false, BuildOptions{
 		AdvancedUserPrompt: true,
 		RunID:              "run_xxx",
@@ -55,7 +56,7 @@ func TestBuildContentAdvancedUserPrompt(t *testing.T) {
 		"- id: r01",
 		"  type: file",
 		"  name: sales.csv",
-		"  sandboxPath: /workspace/sales.csv",
+		"  path: /workspace/sales.csv",
 		"  mimeType: text/csv",
 		"  sizeBytes: 537",
 		"</references>",
@@ -66,7 +67,7 @@ func TestBuildContentAdvancedUserPrompt(t *testing.T) {
 			t.Fatalf("expected %q in advanced content, got %q", expected, text)
 		}
 	}
-	for _, unexpected := range []string{"chatId:", "[References]", "[User message]"} {
+	for _, unexpected := range []string{"chatId:", "[References]", "[User message]", "url:"} {
 		if strings.Contains(text, unexpected) {
 			t.Fatalf("did not expect %q in advanced content, got %q", unexpected, text)
 		}

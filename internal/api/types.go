@@ -146,15 +146,34 @@ type Scene struct {
 }
 
 type Reference struct {
-	ID          string         `json:"id,omitempty"`
-	Type        string         `json:"type,omitempty"`
-	Name        string         `json:"name,omitempty"`
-	MimeType    string         `json:"mimeType,omitempty"`
-	SizeBytes   *int64         `json:"sizeBytes,omitempty"`
-	URL         string         `json:"url,omitempty"`
-	SHA256      string         `json:"sha256,omitempty"`
-	SandboxPath string         `json:"sandboxPath,omitempty"`
-	Meta        map[string]any `json:"meta,omitempty"`
+	ID        string         `json:"id,omitempty"`
+	Type      string         `json:"type,omitempty"`
+	Name      string         `json:"name,omitempty"`
+	Path      string         `json:"path,omitempty"`
+	MimeType  string         `json:"mimeType,omitempty"`
+	SizeBytes *int64         `json:"sizeBytes,omitempty"`
+	URL       string         `json:"url,omitempty"`
+	SHA256    string         `json:"sha256,omitempty"`
+	Meta      map[string]any `json:"meta,omitempty"`
+}
+
+const ReferenceSandboxPathRemovedMessage = "reference sandboxPath has been removed; use path"
+
+func (r *Reference) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if _, ok := raw["sandboxPath"]; ok {
+		return fmt.Errorf(ReferenceSandboxPathRemovedMessage)
+	}
+	type referenceAlias Reference
+	var decoded referenceAlias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*r = Reference(decoded)
+	return nil
 }
 
 type SubmitRequest struct {

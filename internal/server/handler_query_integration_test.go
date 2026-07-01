@@ -421,7 +421,7 @@ func TestQueryRequestQueryIncludesParamsAndReferences(t *testing.T) {
 	body := bytes.NewBufferString(`{
 		"message":"include request context",
 		"params":{"channel":"desktop","nested":{"enabled":true}},
-		"references":[{"id":"ref_1","type":"file","name":"notes.txt","mimeType":"text/plain","url":"file:///tmp/notes.txt"}]
+		"references":[{"id":"ref_1","type":"file","name":"notes.txt","path":"/tmp/notes.txt","mimeType":"text/plain"}]
 	}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/query", body)
 	req.Header.Set("Content-Type", "application/json")
@@ -487,6 +487,27 @@ func assertRequestQueryContext(t *testing.T, message map[string]any) {
 	}
 	if reference["id"] != "ref_1" || reference["type"] != "file" || reference["name"] != "notes.txt" {
 		t.Fatalf("unexpected request.query reference, got %#v", reference)
+	}
+	if reference["path"] != "/tmp/notes.txt" {
+		t.Fatalf("expected request.query reference path, got %#v", reference)
+	}
+}
+
+func TestQueryRejectsRemovedSandboxPathReferenceField(t *testing.T) {
+	fixture := newTestFixture(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{
+		"message":"bad reference",
+		"references":[{"id":"ref_1","sandboxPath":"/workspace/notes.txt"}]
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), api.ReferenceSandboxPathRemovedMessage) {
+		t.Fatalf("expected removed field message, got %s", rec.Body.String())
 	}
 }
 
