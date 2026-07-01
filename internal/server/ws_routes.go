@@ -114,6 +114,7 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/terminal/open", s.wsTerminalOpen)
 	handler.RegisterRoute("/api/terminal/input", s.wsTerminalInput)
 	handler.RegisterRoute("/api/terminal/resize", s.wsTerminalResize)
+	handler.RegisterRoute("/api/terminal/detach", s.wsTerminalDetach)
 	handler.RegisterRoute("/api/terminal/close", s.wsTerminalClose)
 	handler.RegisterRoute("/api/learn", s.wsLearn)
 	handler.RegisterRoute("/api/compact", s.wsCompact)

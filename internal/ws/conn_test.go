@@ -145,6 +145,60 @@ func TestConnDetachRunStreamReleasesObserverAndAllowsReobserve(t *testing.T) {
 	conn.ReleaseStream("req_2")
 }
 
+func TestConnClientBoundaryKeyRequiresSubjectAndDevice(t *testing.T) {
+	first := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{Subject: "alice"})
+	second := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{Subject: "alice"})
+	if first.ClientBoundaryKey() == second.ClientBoundaryKey() {
+		t.Fatalf("subject without device id should not share boundary across connections")
+	}
+
+	withDeviceA := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{Subject: "alice", DeviceID: "device-1"})
+	withDeviceB := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{Subject: "alice", DeviceID: "device-1"})
+	if withDeviceA.ClientBoundaryKey() != withDeviceB.ClientBoundaryKey() {
+		t.Fatalf("same subject and device should share boundary")
+	}
+}
+
+func TestConnReleaseTerminalStreamValidatesKindAndSupportsPreCancel(t *testing.T) {
+	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 8, MaxObservesPerConn: 3}, time.Second, AuthSession{})
+	if _, err := conn.ReserveStream("run_req", "run_1"); err != nil {
+		t.Fatalf("reserve run stream: %v", err)
+	}
+	if _, ok := conn.ReleaseTerminalStream("run_req", "term_1"); ok {
+		t.Fatalf("expected terminal release to reject non-terminal stream")
+	}
+	conn.ReleaseStream("run_req")
+
+	if err := conn.reserveRequest("wss_pending"); err != nil {
+		t.Fatalf("reserve pending request: %v", err)
+	}
+	if _, ok := conn.ReleaseTerminalStream("wss_pending", ""); !ok {
+		t.Fatalf("expected pre-cancel of pending frontend terminal stream")
+	}
+	if err := conn.ReserveTerminalStream("wss_pending", "term_1"); err == nil {
+		t.Fatalf("expected pre-cancelled terminal stream reservation to fail")
+	}
+	conn.CompleteRequest("wss_pending")
+
+	if err := conn.reserveRequest("other_pending"); err != nil {
+		t.Fatalf("reserve non-terminal pending request: %v", err)
+	}
+	if _, ok := conn.ReleaseTerminalStream("other_pending", ""); ok {
+		t.Fatalf("expected non-terminal-looking pending request id to be rejected")
+	}
+	conn.CompleteRequest("other_pending")
+
+	if err := conn.ReserveTerminalStream("term_req", "term_2"); err != nil {
+		t.Fatalf("reserve terminal stream: %v", err)
+	}
+	if _, ok := conn.ReleaseTerminalStream("term_req", "wrong"); ok {
+		t.Fatalf("expected wrong terminal id to be rejected")
+	}
+	if _, ok := conn.ReleaseTerminalStream("term_req", "term_2"); !ok {
+		t.Fatalf("expected matching terminal stream to release")
+	}
+}
+
 func TestConnClosesOnWriteQueueOverflow(t *testing.T) {
 	hub := NewHub()
 	conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 1}, time.Second, AuthSession{})

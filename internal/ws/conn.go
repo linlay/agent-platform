@@ -26,9 +26,13 @@ type outboundMessage struct {
 	closeText string
 }
 
+const streamKindTerminal = "terminal"
+
 type streamEntry struct {
 	runID      string
 	streamID   string
+	kind       string
+	terminalID string
 	observerID string
 	lastSeq    int64
 	detach     func()
@@ -70,6 +74,7 @@ type Conn struct {
 	mu               sync.Mutex
 	inflightRequests map[string]struct{}
 	activeStreams    map[string]*streamEntry
+	cancelledStreams map[string]struct{}
 	observingRuns    map[string]string
 	writeQueue       chan outboundMessage
 	closed           chan struct{}
@@ -138,6 +143,7 @@ func NewConn(socket *gws.Conn, hub *Hub, cfg config.WebSocketConfig, heartbeatIn
 		auth:                auth,
 		inflightRequests:    map[string]struct{}{},
 		activeStreams:       map[string]*streamEntry{},
+		cancelledStreams:    map[string]struct{}{},
 		observingRuns:       map[string]string{},
 		writeQueue:          make(chan outboundMessage, cfg.WriteQueueSize),
 		closed:              make(chan struct{}),
@@ -160,6 +166,20 @@ func (c *Conn) SessionID() string {
 		return ""
 	}
 	return c.sessionID
+}
+
+func (c *Conn) ClientBoundaryKey() string {
+	if c == nil {
+		return ""
+	}
+	c.authMu.RLock()
+	subject := strings.TrimSpace(c.auth.Subject)
+	deviceID := strings.TrimSpace(c.auth.DeviceID)
+	c.authMu.RUnlock()
+	if subject != "" && deviceID != "" {
+		return "subject:" + subject + "\x00device:" + deviceID
+	}
+	return "conn:" + c.SessionID()
 }
 
 func (c *Conn) SetLocale(locale string) bool {
@@ -311,6 +331,14 @@ func (c *Conn) ReserveStream(requestID string, runID string) (string, error) {
 }
 
 func (c *Conn) ReserveNamedStream(requestID string, streamID string) error {
+	return c.reserveNamedStream(requestID, streamID, "", "")
+}
+
+func (c *Conn) ReserveTerminalStream(requestID string, terminalID string) error {
+	return c.reserveNamedStream(requestID, terminalID, streamKindTerminal, terminalID)
+}
+
+func (c *Conn) reserveNamedStream(requestID string, streamID string, kind string, terminalID string) error {
 	if c == nil {
 		return &ProtocolError{Code: 500, Type: "internal_error", Msg: "connection is nil"}
 	}
@@ -320,18 +348,81 @@ func (c *Conn) ReserveNamedStream(requestID string, streamID string) error {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if _, cancelled := c.cancelledStreams[requestID]; cancelled {
+		delete(c.cancelledStreams, requestID)
+		return &ProtocolError{Code: 409, Type: "stream_cancelled", Msg: fmt.Sprintf("request %s was cancelled", requestID)}
+	}
 	if _, exists := c.activeStreams[requestID]; exists {
 		return &ProtocolError{Code: 409, Type: "duplicate_stream", Msg: fmt.Sprintf("request %s already has an active stream", requestID)}
 	}
 	if c.cfg.MaxObservesPerConn > 0 && len(c.activeStreams) >= c.cfg.MaxObservesPerConn {
 		return &ProtocolError{Code: 429, Type: "too_many_streams", Msg: "too many active streams"}
 	}
-	c.activeStreams[requestID] = &streamEntry{streamID: streamID}
+	c.activeStreams[requestID] = &streamEntry{
+		streamID:   streamID,
+		kind:       strings.TrimSpace(kind),
+		terminalID: strings.TrimSpace(terminalID),
+	}
 	return nil
 }
 
 func (c *Conn) ReleaseStream(requestID string) {
 	c.releaseStream(requestID, false, "", 0)
+}
+
+func (c *Conn) ReleaseTerminalStream(requestID string, terminalID string) (DetachedStream, bool) {
+	if c == nil {
+		return DetachedStream{}, false
+	}
+	requestID = strings.TrimSpace(requestID)
+	terminalID = strings.TrimSpace(terminalID)
+	if requestID == "" {
+		return DetachedStream{}, false
+	}
+	c.mu.Lock()
+	entry := c.activeStreams[requestID]
+	if entry == nil && terminalID == "" {
+		if _, inFlight := c.inflightRequests[requestID]; !inFlight || !isTerminalStreamRequestID(requestID) {
+			c.mu.Unlock()
+			return DetachedStream{}, false
+		}
+		c.cancelledStreams[requestID] = struct{}{}
+		c.mu.Unlock()
+		return DetachedStream{StreamRequestID: requestID}, true
+	}
+	matches := entry != nil &&
+		entry.kind == streamKindTerminal &&
+		(terminalID == "" || entry.terminalID == terminalID)
+	c.mu.Unlock()
+	if !matches {
+		return DetachedStream{}, false
+	}
+	return c.releaseStream(requestID, false, "", 0)
+}
+
+func (c *Conn) TerminalIDForStream(requestID string) (string, bool) {
+	if c == nil {
+		return "", false
+	}
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" {
+		return "", false
+	}
+	c.mu.Lock()
+	entry := c.activeStreams[requestID]
+	c.mu.Unlock()
+	if entry == nil || entry.kind != streamKindTerminal || strings.TrimSpace(entry.terminalID) == "" {
+		return "", false
+	}
+	return entry.terminalID, true
+}
+
+func isTerminalStreamRequestID(requestID string) bool {
+	requestID = strings.TrimSpace(requestID)
+	return strings.HasPrefix(requestID, "wss_") ||
+		strings.HasPrefix(requestID, "wsstream_") ||
+		strings.HasPrefix(requestID, "term_") ||
+		strings.HasPrefix(requestID, "term-")
 }
 
 func (c *Conn) DetachRunStream(runID string) (DetachedStream, bool) {
@@ -363,6 +454,7 @@ func (c *Conn) releaseStream(requestID string, sendTerminal bool, reason string,
 	entry = c.activeStreams[requestID]
 	if entry != nil {
 		delete(c.activeStreams, requestID)
+		delete(c.cancelledStreams, requestID)
 		delete(c.observingRuns, entry.runID)
 		if lastSeq > entry.lastSeq {
 			entry.lastSeq = lastSeq
