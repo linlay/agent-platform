@@ -582,7 +582,7 @@ func (r *proxyEventRecorder) OnEvent(event stream.EventData) {
 		r.stepWriter.OnEvent(event)
 	case "tool.result",
 		"task.start", "task.complete", "task.cancel", "task.error",
-		"plan.create", "plan.update", "artifact.publish",
+		"plan.create", "plan.update", "artifact.publish", "source.publish",
 		"planning.start", "planning.delta", "planning.end", "planning.snapshot",
 		"request.submit", "awaiting.answer", "request.steer":
 		r.stepWriter.OnEvent(event)

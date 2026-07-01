@@ -35,6 +35,22 @@ func TestSearchSessionFindsQueryMessageAndEvent(t *testing.T) {
 				Ts:      int64Ptr(210),
 			},
 		},
+		Sources: &SourceState{Items: []map[string]any{
+			{
+				"publishId": "src_rollback",
+				"runId":     "run-1",
+				"toolId":    "call_rollback",
+				"kind":      "kbase",
+				"query":     "rollback",
+				"sources": []map[string]any{{
+					"id":   "kbase:docs/rollback.md",
+					"name": "rollback.md",
+					"chunks": []map[string]any{{
+						"content": "Deployment rollback checklist from source sidecar.",
+					}},
+				}},
+			},
+		}},
 	}); err != nil {
 		t.Fatalf("append step: %v", err)
 	}
@@ -63,6 +79,7 @@ func TestSearchSessionFindsQueryMessageAndEvent(t *testing.T) {
 	}
 	foundQuery := false
 	foundMessage := false
+	foundSource := false
 	for _, hit := range hits {
 		if hit.Kind == "query" && hit.Role == "user" {
 			foundQuery = true
@@ -70,8 +87,11 @@ func TestSearchSessionFindsQueryMessageAndEvent(t *testing.T) {
 		if hit.Kind == "message" && hit.Role == "assistant" && hit.Stage == "execute" {
 			foundMessage = true
 		}
+		if hit.Kind == "event" && hit.Meta["type"] == "source.publish" {
+			foundSource = true
+		}
 	}
-	if !foundQuery || !foundMessage {
+	if !foundQuery || !foundMessage || !foundSource {
 		t.Fatalf("expected query and message hits, got %#v", hits)
 	}
 }

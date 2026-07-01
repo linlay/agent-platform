@@ -218,6 +218,28 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 					})
 				}
 			}
+			for _, item := range sourceStateItems(line["sources"]) {
+				text := searchEventText(item)
+				if score := sessionSearchScore(text, needle); score > 0 {
+					hitTimestamp := int64FromAny(item["timestamp"])
+					if hitTimestamp == 0 {
+						hitTimestamp = ts
+					}
+					appendHit(SearchHit{
+						Kind:      "event",
+						ChatID:    chatID,
+						RunID:     runID,
+						Stage:     stage,
+						Timestamp: hitTimestamp,
+						Snippet:   buildSnippet(text, needle),
+						Score:     score,
+						Meta: map[string]any{
+							"type":   "source.publish",
+							"toolId": stringValue(item["toolId"]),
+						},
+					})
+				}
+			}
 		case "event", "steer":
 			event, _ := line["event"].(map[string]any)
 			text := searchEventText(event)

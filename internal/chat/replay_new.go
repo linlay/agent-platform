@@ -230,6 +230,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			if cw := synthesizedUsageSnapshotContextWindow(stepContextWindow); len(cw) > 0 {
 				latestContextWindow = cw
 			}
+			sourceReplay := newStepSourceReplay(line["sources"], runID, taskID, lineLiveSeq, int64FromAny(line["updatedAt"]), nextSeq)
 			for _, rawMsg := range msgs {
 				msgMap, _ := rawMsg.(map[string]any)
 				if msgMap == nil {
@@ -240,8 +241,12 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 					if ev.Type == "tool.snapshot" {
 						rd.events = append(rd.events, awaitingReplay.consumeForTool(ev.String("toolId"))...)
 					}
+					if ev.Type == "tool.result" {
+						rd.events = append(rd.events, sourceReplay.consumeForTool(ev.String("toolId"))...)
+					}
 				}
 			}
+			rd.events = append(rd.events, sourceReplay.leftoverEvents()...)
 			rd.events = append(rd.events, awaitingReplay.leftoverEvents()...)
 			if hasProviderUsagePayload(stepUsage) {
 				stepCacheHitTokens := usageCacheHitTokensFromMap(stepUsage)

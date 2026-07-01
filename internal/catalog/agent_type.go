@@ -12,6 +12,8 @@ import (
 const AgentModeCoder = "CODER"
 const AgentModeKBase = "KBASE"
 const AgentWorkspaceRootChat = "@chat"
+const DefaultCoderAgentIconName = "coder"
+const DefaultKBaseAgentIconName = "kbase"
 
 var defaultAgentVisibilityScopes = []string{"nav"}
 

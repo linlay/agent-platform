@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -109,6 +110,113 @@ func TestBuildLLMChatFromJSONLUsesSystemFingerprint(t *testing.T) {
 	}
 	if chat.RequestOptions["temperature"] != float64(0) {
 		t.Fatalf("request options not restored: %#v", chat.RequestOptions)
+	}
+}
+
+func TestBuildLLMChatFromJSONLIgnoresStepSourcesSidecar(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-llm-sources-sidecar"
+	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	system := QueryLineSystemInit{
+		CacheKey:      "react:main",
+		Fingerprint:   "sha256:system",
+		SystemMessage: map[string]any{"role": "system", "content": "system"},
+		Tools:         []any{},
+		Model: map[string]any{
+			"key":         "model-key",
+			"id":          "model-id",
+			"providerKey": "provider",
+			"protocol":    "OPENAI",
+		},
+		ToolChoice:     "auto",
+		RequestOptions: map[string]any{"stream": true},
+	}
+	if err := store.AppendQueryLine(chatID, QueryLine{
+		Type:      "query",
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: 1,
+		Query:     map[string]any{"role": "user", "message": "hello"},
+		Messages:  []map[string]any{{"role": "user", "content": "hello"}},
+		Systems:   []QueryLineSystemInit{system},
+	}); err != nil {
+		t.Fatalf("append query: %v", err)
+	}
+	if err := store.AppendStepLine(chatID, StepLine{
+		Type:      StepLineTypeReact,
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: 2,
+		Seq:       1,
+		SystemRef: map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:system"},
+		Messages: []StoredMessage{{
+			Role: "assistant",
+			ToolCalls: []StoredToolCall{{
+				ID:   "call_1",
+				Type: "function",
+				Function: StoredFunction{
+					Name:      "kbase_search",
+					Arguments: `{"query":"secret"}`,
+				},
+				ToolID: "call_1",
+			}},
+		}},
+	}); err != nil {
+		t.Fatalf("append assistant tool call step: %v", err)
+	}
+	if err := store.AppendStepLine(chatID, StepLine{
+		Type:      StepLineTypeReactTool,
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: 3,
+		Seq:       1,
+		Messages: []StoredMessage{{
+			Role:       "tool",
+			Name:       "kbase_search",
+			ToolCallID: "call_1",
+			ToolID:     "call_1",
+			Content:    textContent(`{"count":1}`),
+		}},
+		Sources: &SourceState{Items: []map[string]any{{
+			"publishId": "src_1",
+			"toolId":    "call_1",
+			"sources": []map[string]any{{
+				"id": "kbase:secret.md",
+				"chunks": []map[string]any{{
+					"content": "sidecar-only-secret",
+				}},
+			}},
+		}}},
+	}); err != nil {
+		t.Fatalf("append source sidecar step: %v", err)
+	}
+	if err := store.AppendStepLine(chatID, StepLine{
+		Type:      StepLineTypeReact,
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: 4,
+		Seq:       2,
+		SystemRef: map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:system"},
+		Messages: []StoredMessage{{
+			Role:    "assistant",
+			Content: textContent("done"),
+		}},
+	}); err != nil {
+		t.Fatalf("append target step: %v", err)
+	}
+
+	chat, err := store.BuildLLMChatFromJSONL(chatID, LLMChatBuildOptions{RunID: "run-1", Seq: 2})
+	if err != nil {
+		t.Fatalf("build llm chat: %v", err)
+	}
+	data, _ := json.Marshal(chat.Messages)
+	if strings.Contains(string(data), "sidecar-only-secret") {
+		t.Fatalf("source sidecar leaked into llm messages: %s", data)
 	}
 }
 

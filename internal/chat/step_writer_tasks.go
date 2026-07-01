@@ -14,6 +14,7 @@ type taskStepBuffer struct {
 	taskStatus              string
 	taskSubAgentKey         string
 	messages                []StoredMessage
+	sources                 *SourceState
 	liveSeq                 int64
 	pendingSystemRef        map[string]any
 	pendingUsage            map[string]any
@@ -61,7 +62,7 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 		return
 	}
 	allowEmptySubAgentStep := strings.TrimSpace(buffer.taskSubAgentKey) != "" && strings.TrimSpace(buffer.taskStatus) != ""
-	if len(buffer.messages) == 0 && !allowEmptySubAgentStep {
+	if len(buffer.messages) == 0 && !allowEmptySubAgentStep && (buffer.sources == nil || len(buffer.sources.Items) == 0) {
 		return
 	}
 
@@ -95,6 +96,9 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 	if w.latestArtifact != nil {
 		line.Artifacts = w.latestArtifact
 	}
+	if buffer.sources != nil {
+		line.Sources = cloneSourceState(buffer.sources)
+	}
 	applyStepLineModelMetadata(&line, buffer.pendingModelKey, buffer.pendingReasoningEffort)
 
 	if w.mode == "PLAN_EXECUTE" {
@@ -107,6 +111,7 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 
 	_ = w.store.AppendStepLine(w.chatID, line)
 	buffer.messages = nil
+	buffer.sources = nil
 	buffer.liveSeq = 0
 	buffer.pendingUsage = nil
 	buffer.pendingContextWindowMax = 0

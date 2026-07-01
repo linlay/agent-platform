@@ -250,11 +250,21 @@ func normalizeEditableDefinition(definition map[string]any) map[string]any {
 		normalized["mode"] = AgentModeForAPI(stringNode(normalized["mode"]))
 	}
 	if mode == AgentModeCoder {
-		normalized["icon"] = map[string]any{"name": "folder"}
+		if isEmptyEditableValue(normalized["icon"]) {
+			normalized["icon"] = map[string]any{"name": DefaultCoderAgentIconName}
+		}
 		delete(normalized, "workspace")
 		normalizeEditableCoderVisibility(normalized)
 	}
 	return normalized
+}
+
+func isEmptyEditableValue(value any) bool {
+	if value == nil {
+		return true
+	}
+	text, ok := value.(string)
+	return ok && strings.TrimSpace(text) == ""
 }
 
 func normalizeEditableCoderVisibility(definition map[string]any) {

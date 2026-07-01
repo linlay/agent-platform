@@ -267,7 +267,7 @@ func (s *Server) applyKBaseDefaultAgentConfig(definition map[string]any) map[str
 
 	out := contracts.CloneMap(definition)
 	if isEmptyDefinitionValue(out["icon"]) {
-		out["icon"] = map[string]any{"name": "database"}
+		out["icon"] = map[string]any{"name": catalog.DefaultKBaseAgentIconName}
 	}
 	visibility := contracts.CloneMap(contracts.AnyMapNode(out["visibility"]))
 	if visibility == nil {

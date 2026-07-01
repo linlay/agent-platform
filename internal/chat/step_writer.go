@@ -31,6 +31,7 @@ type StepWriter struct {
 	messages       []StoredMessage
 	latestPlan     *PlanState
 	latestArtifact *ArtifactState
+	pendingSources *SourceState
 	taskBuffers    map[string]*taskStepBuffer
 	closedTaskIDs  map[string]bool
 	stepLiveSeq    int64
@@ -299,8 +300,10 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
 
 	case "source.publish":
-		w.flushCurrentStep()
-		w.appendTypedEventLine(event, "event")
+		if !w.appendSourceEvent(event) {
+			w.flushCurrentStep()
+			w.appendTypedEventLine(event, "event")
+		}
 
 	case "debug.llmChat":
 		if inner, ok := event.Value("data").(map[string]any); ok {
@@ -443,6 +446,31 @@ func (w *StepWriter) appendStoredMessage(event stream.EventData, message StoredM
 	}
 	w.messages = upsertStoredMessage(w.messages, message)
 	w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
+}
+
+func (w *StepWriter) appendSourceEvent(event stream.EventData) bool {
+	if w == nil {
+		return false
+	}
+	item := sourceItemFromEvent(event)
+	if taskID := w.taskIDForEvent(event); taskID != "" {
+		if w.closedTaskIDs[taskID] {
+			return false
+		}
+		buffer := w.taskBuffers[taskID]
+		if buffer == nil || !storedMessagesContainTool(buffer.messages) {
+			return false
+		}
+		buffer.sources = appendSourceStateItem(buffer.sources, item)
+		buffer.liveSeq = maxLiveSeq(buffer.liveSeq, event.Seq)
+		return true
+	}
+	if !storedMessagesContainTool(w.messages) {
+		return false
+	}
+	w.pendingSources = appendSourceStateItem(w.pendingSources, item)
+	w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
+	return true
 }
 
 func (w *StepWriter) flushAssistantStepBeforeToolResult(event stream.EventData) {
@@ -657,7 +685,7 @@ func (w *StepWriter) flushCurrentStep() {
 }
 
 func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
-	if len(w.messages) == 0 && len(w.pendingAwaiting) == 0 {
+	if len(w.messages) == 0 && len(w.pendingAwaiting) == 0 && (w.pendingSources == nil || len(w.pendingSources.Items) == 0) {
 		w.pendingUsage = nil
 		w.pendingContextWindowMax = 0
 		w.pendingContextCurrent = 0
@@ -666,6 +694,7 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 		w.pendingReasoningEffort = ""
 		w.pendingInputMessages = nil
 		w.pendingSystemRef = nil
+		w.pendingSources = nil
 		return
 	}
 
@@ -718,6 +747,10 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	if w.latestArtifact != nil {
 		line.Artifacts = w.latestArtifact
 	}
+	if w.pendingSources != nil {
+		line.Sources = cloneSourceState(w.pendingSources)
+		w.pendingSources = nil
+	}
 	applyStepLineModelMetadata(&line, w.pendingModelKey, w.pendingReasoningEffort)
 
 	if w.mode == "PLAN_EXECUTE" {
@@ -739,6 +772,7 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	w.pendingReasoningEffort = ""
 	w.pendingInputMessages = nil
 	w.pendingSystemRef = nil
+	w.pendingSources = nil
 }
 
 func (w *StepWriter) assignReactSeq(line *StepLine) {
