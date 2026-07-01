@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
@@ -121,8 +122,8 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 			exitCode = exitErr.ExitCode()
 		}
 	}
-	out := stdout.String()
-	errText := stderr.String()
+	out := decodeSubprocessOutput(stdout.Bytes())
+	errText := decodeSubprocessOutput(stderr.Bytes())
 	if err != nil && strings.TrimSpace(out) == "" && exitCode != 1 {
 		if strings.Contains(errText, "unrecognized file type") || strings.Contains(errText, "unknown file type") {
 			return fileToolError("grep_invalid_type", strings.TrimSpace(errText)), nil
@@ -300,7 +301,11 @@ func truncateStringBytes(value string, maxBytes int) string {
 	if maxBytes <= 0 || len(value) <= maxBytes {
 		return value
 	}
-	return value[:maxBytes]
+	truncated := value[:maxBytes]
+	for len(truncated) > 0 && !utf8.ValidString(truncated) {
+		truncated = truncated[:len(truncated)-1]
+	}
+	return truncated
 }
 
 func formatInt64(value int64) string {

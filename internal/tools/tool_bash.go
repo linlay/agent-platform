@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -72,7 +71,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	shellExecutable, shellArgs := resolveHostShellInvocation(t.cfg.Bash, command, runtime.GOOS)
+	shellExecutable, shellArgs := resolveHostShellInvocation(t.cfg.Bash, command, currentGOOS())
 	cmd := exec.CommandContext(runCtx, shellExecutable, shellArgs...)
 	cmd.Dir = workingDir
 	cmd.Env = mergeCommandEnv(execCtx)
@@ -153,7 +152,7 @@ func readBashOutputFile(file *os.File) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return string(output), nil
+	return decodeSubprocessOutput(output), nil
 }
 
 func appendBashAccessPolicyMetadata(result *ToolExecutionResult, review accesspolicy.BashPlan, stdout, stderr, workingDir string, exitCode int) {
@@ -181,12 +180,17 @@ const hostShellCommandPlaceholder = "{{command}}"
 func resolveHostShellInvocation(cfg config.BashConfig, command string, goos string) (string, []string) {
 	shellExecutable := strings.TrimSpace(cfg.ShellExecutable)
 	shellArgs := compactShellArgs(cfg.ShellArgs)
+	usingDefaultShellArgs := false
 
 	if shellExecutable == "" {
 		shellExecutable = defaultHostShellExecutable(goos)
 	}
 	if len(shellArgs) == 0 {
 		shellArgs = defaultHostShellArgs(shellExecutable, goos)
+		usingDefaultShellArgs = true
+	}
+	if usingDefaultShellArgs {
+		command = windowsShellUTF8Command(shellExecutable, command, goos)
 	}
 	return shellExecutable, expandHostShellArgs(shellArgs, command)
 }
