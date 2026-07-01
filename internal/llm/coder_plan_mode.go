@@ -7,21 +7,11 @@ import (
 	"io"
 	"strings"
 
+	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/api"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/i18n"
 )
-
-var coderPlanningModePlanTools = []string{
-	"file_read",
-	"file_glob",
-	"file_grep",
-	"datetime",
-	"regex",
-	"vision_recognize",
-	"ask_user_question",
-	FinalizePlanningToolName,
-}
 
 const defaultCoderExecuteSystemPrompt = `Execute the confirmed CODER plan for the user.`
 
@@ -288,7 +278,7 @@ func (s *coderPlanningStream) executionSystemPrompt(fallback string) string {
 
 func coderPlanningExecutionSystemPrompt(session QuerySession, req api.QueryRequest, settings PlanExecuteSettings, planTools []string, executeTools []string, fallback string) string {
 	if planTools == nil {
-		planTools = coderPlanningModePlanTools
+		planTools = agentcoder.PlanningModePlanTools()
 	}
 	if executeTools == nil {
 		executeTools = coderPlanningExecuteTools(settings.Execute, session.ToolNames)
@@ -867,7 +857,7 @@ func (s *coderPlanningStream) emitTaskFailure(task *PlanTask, message string) {
 }
 
 func (s *coderPlanningStream) planStageTools() []string {
-	return append([]string(nil), coderPlanningModePlanTools...)
+	return agentcoder.PlanningModePlanTools()
 }
 
 func (s *coderPlanningStream) executeStageTools() []string {
@@ -876,17 +866,11 @@ func (s *coderPlanningStream) executeStageTools() []string {
 
 func coderPlanningExecuteTools(stage StageSettings, toolNames []string) []string {
 	tools := stageToolsOrDefault(stage, toolNames)
-	tools = AppendPlanTaskToolNames(tools)
-	return removeToolNames(tools, FinalizePlanningToolName, "ask_user_question")
+	return agentcoder.PlanningExecuteTools(tools)
 }
 
 func isPlanningOnlyTool(name string) bool {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case FinalizePlanningToolName, "ask_user_question":
-		return true
-	default:
-		return false
-	}
+	return agentcoder.IsPlanningOnlyTool(name)
 }
 
 func (s *coderPlanningStream) planStagePostToolHook(toolName string, _ string) PostToolHookResult {

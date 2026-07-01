@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 
+	"agent-platform/internal/agent/kbase"
 	"agent-platform/internal/catalog"
 	. "agent-platform/internal/contracts"
-	"agent-platform/internal/kbase"
 )
 
 func (t *RuntimeToolExecutor) requireKBaseContext(toolName string, execCtx *ExecutionContext) (string, *ToolExecutionResult) {

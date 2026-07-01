@@ -6,41 +6,16 @@ import (
 	"path/filepath"
 	"strings"
 
-	"agent-platform/internal/contracts"
+	agentcoder "agent-platform/internal/agent/coder"
 )
 
 const AgentModeCoder = "CODER"
 const AgentModeKBase = "KBASE"
 const AgentWorkspaceRootChat = "@chat"
-const DefaultCoderAgentIconName = "coder"
+const DefaultCoderAgentIconName = agentcoder.DefaultIconName
 const DefaultKBaseAgentIconName = "kbase"
 
 var defaultAgentVisibilityScopes = []string{"nav"}
-
-var coderAgentProfile = agentModeProfile{
-	Tools: []string{
-		"bash",
-		"file_read",
-		"file_write",
-		"file_edit",
-		"file_glob",
-		"file_grep",
-		"datetime",
-		"regex",
-		"vision_recognize",
-		contracts.PlanAddTasksToolName,
-		contracts.PlanGetTasksToolName,
-		contracts.PlanUpdateTaskToolName,
-	},
-	ContextTags: []string{"system", "session"},
-	Budget: map[string]any{
-		"timeout":  1800,
-		"maxSteps": 240,
-		"tool": map[string]any{
-			"maxCalls": 200,
-		},
-	},
-}
 
 var kbaseAgentProfile = agentModeProfile{
 	Tools: []string{
@@ -329,7 +304,11 @@ func applyAgentModeProfileDefaults(def AgentDefinition) AgentDefinition {
 func agentModeProfileFor(mode string) (agentModeProfile, bool) {
 	switch strings.ToUpper(strings.TrimSpace(mode)) {
 	case AgentModeCoder:
-		return coderAgentProfile, true
+		return agentModeProfile{
+			Tools:       agentcoder.DefaultToolNames(),
+			ContextTags: agentcoder.DefaultContextTags(),
+			Budget:      agentcoder.DefaultBudget(),
+		}, true
 	case AgentModeKBase:
 		return kbaseAgentProfile, true
 	default:

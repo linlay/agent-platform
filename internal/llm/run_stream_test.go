@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"agent-platform/internal/agent/kbase"
 	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
 	"agent-platform/internal/bashsec"
@@ -22,7 +23,6 @@ import (
 	contracts "agent-platform/internal/contracts"
 	"agent-platform/internal/frontendtools"
 	"agent-platform/internal/hitl"
-	"agent-platform/internal/kbase"
 	streampkg "agent-platform/internal/stream"
 	runtimetools "agent-platform/internal/tools"
 )

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
@@ -314,7 +315,8 @@ func buildSummarySystemInitProfile(session contracts.QuerySession, settings cont
 }
 
 func buildCoderPlanningPlanSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, _ contracts.PlanExecuteSettings, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
-	effectiveDefs := effectiveToolDefinitions(toolDefs, coderPlanningModePlanTools, session.AgentHasRuntimeSandbox)
+	planTools := agentcoder.PlanningModePlanTools()
+	effectiveDefs := effectiveToolDefinitions(toolDefs, planTools, session.AgentHasRuntimeSandbox)
 	systemPrompt := buildSystemPrompt(session, req, session.ModelKey, PromptBuildOptions{
 		Stage:                 "coder-plan",
 		ToolDefinitions:       effectiveDefs,
@@ -334,7 +336,7 @@ func buildCoderPlanningPlanSystemInitProfile(session contracts.QuerySession, req
 func buildCoderPlanningExecuteSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, settings contracts.PlanExecuteSettings, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
 	executeTools := coderPlanningExecuteTools(settings.Execute, session.ToolNames)
 	effectiveDefs := effectiveToolDefinitions(toolDefs, executeTools, session.AgentHasRuntimeSandbox)
-	systemPrompt := coderPlanningExecutionSystemPrompt(session, req, settings, coderPlanningModePlanTools, executeTools, defaultCoderExecuteSystemPrompt)
+	systemPrompt := coderPlanningExecutionSystemPrompt(session, req, settings, agentcoder.PlanningModePlanTools(), executeTools, defaultCoderExecuteSystemPrompt)
 	specs := toOpenAIToolSpecs(effectiveDefs)
 	return contracts.SystemInitProfile{
 		CacheKey:      SystemInitCacheKey(session.Mode, "coder-execute"),

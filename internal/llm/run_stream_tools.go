@@ -10,11 +10,11 @@ import (
 	"time"
 
 	"agent-platform/internal/accesspolicy"
+	"agent-platform/internal/agent/kbase"
 	"agent-platform/internal/api"
 	"agent-platform/internal/bashsec"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/hitl"
-	"agent-platform/internal/kbase"
 	"agent-platform/internal/stream"
 )
 

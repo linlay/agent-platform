@@ -1,19 +1,10 @@
 package llm
 
 import (
-	"strings"
-
+	agentcoder "agent-platform/internal/agent/coder"
 	. "agent-platform/internal/contracts"
 )
 
 func coderRuntimeToolNamesForStage(session QuerySession, stage string, toolNames []string) []string {
-	out := append([]string(nil), toolNames...)
-	if !strings.EqualFold(strings.TrimSpace(session.Mode), "CODER") {
-		return out
-	}
-	stage = strings.ToLower(strings.TrimSpace(stage))
-	if stage == "coder" || strings.HasPrefix(stage, "coder-execute") {
-		return AppendPlanTaskToolNames(out)
-	}
-	return out
+	return agentcoder.RuntimeToolNamesForStage(session.Mode, stage, toolNames)
 }

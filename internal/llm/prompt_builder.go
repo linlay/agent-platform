@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/api"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/querymessages"
@@ -179,8 +180,8 @@ func buildCoderSystemPromptSection(session QuerySession, req api.QueryRequest, t
 	}
 	return renderCoderPromptTemplate(session.CoderSystemPrompt, coderPromptTemplateValues(session, req, coderPromptTemplateData{
 		AvailableTools:    toolNames,
-		PlanStageTools:    coderPlanningModePlanTools,
-		ExecuteStageTools: removeToolNames(AppendPlanTaskToolNames(toolNames), FinalizePlanningToolName, "ask_user_question"),
+		PlanStageTools:    agentcoder.PlanningModePlanTools(),
+		ExecuteStageTools: agentcoder.PlanningExecuteTools(toolNames),
 	}))
 }
 
@@ -202,11 +203,11 @@ func coderPromptTemplateValues(session QuerySession, req api.QueryRequest, data 
 	}
 	planStageTools := data.PlanStageTools
 	if len(planStageTools) == 0 {
-		planStageTools = coderPlanningModePlanTools
+		planStageTools = agentcoder.PlanningModePlanTools()
 	}
 	executeStageTools := data.ExecuteStageTools
 	if len(executeStageTools) == 0 {
-		executeStageTools = removeToolNames(AppendPlanTaskToolNames(availableTools), FinalizePlanningToolName, "ask_user_question")
+		executeStageTools = agentcoder.PlanningExecuteTools(availableTools)
 	}
 	workspaceDir := firstNonBlank(
 		session.RuntimeContext.LocalPaths.WorkspaceDir,
@@ -231,7 +232,7 @@ func coderPromptTemplateValues(session QuerySession, req api.QueryRequest, data 
 		"plan_stage_tools":            strings.Join(normalizeToolNameList(planStageTools), ", "),
 		"execute_stage_tools":         strings.Join(normalizeToolNameList(executeStageTools), ", "),
 		"execute_tool_descriptions":   strings.TrimSpace(data.ExecuteToolDescriptions),
-		"ask_user_question_tool_name": "ask_user_question",
+		"ask_user_question_tool_name": agentcoder.AskUserQuestionToolName,
 		"finalize_planning_tool_name": FinalizePlanningToolName,
 		"bash_tool_name":              "bash",
 		"datetime_tool_name":          "datetime",

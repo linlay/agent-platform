@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
@@ -123,7 +124,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 
 	toolNames := buildSessionToolNames(effectiveAgentTools(agentDef), options.AllowInvokeAgents)
 	if strings.EqualFold(agentDef.Mode, catalog.AgentModeCoder) && !catalog.AgentUsesACPCoderBackend(agentDef) {
-		toolNames = contracts.AppendPlanTaskToolNames(toolNames)
+		toolNames = agentcoder.RuntimeToolNamesForStage(agentDef.Mode, "coder", toolNames)
 	}
 
 	session := contracts.QuerySession{

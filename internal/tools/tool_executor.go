@@ -7,11 +7,11 @@ import (
 	"strings"
 	"sync"
 
+	"agent-platform/internal/agent/kbase"
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
-	"agent-platform/internal/kbase"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
 	"agent-platform/internal/skills"
