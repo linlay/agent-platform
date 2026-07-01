@@ -2555,6 +2555,51 @@ func TestStepWriterPlanningDeltasAreLiveOnly(t *testing.T) {
 	}
 }
 
+func TestLoadChatPlanRemainsFromJSONLWhenPlanTaskSnapshotExists(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-plan-task-snapshot"
+	runID := "run-jsonl"
+	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := store.AppendStepLine(chatID, StepLine{
+		Type:      StepLineTypeReact,
+		ChatID:    chatID,
+		RunID:     runID,
+		UpdatedAt: 1001,
+		Messages:  []StoredMessage{},
+		Plan: &PlanState{
+			PlanID: "jsonl_plan",
+			Tasks: []PlanTaskState{{
+				TaskID:      "jsonl_task",
+				Description: "JSONL task",
+				Status:      "completed",
+			}},
+		},
+	}); err != nil {
+		t.Fatalf("append step: %v", err)
+	}
+	snapshotDir := filepath.Join(store.ChatDir(chatID), ToolRootDirName, ToolPlanTasksDirName)
+	if err := os.MkdirAll(snapshotDir, 0o755); err != nil {
+		t.Fatalf("mkdir snapshot dir: %v", err)
+	}
+	snapshotPath := filepath.Join(snapshotDir, runID+"_plan.json")
+	if err := os.WriteFile(snapshotPath, []byte(`{"version":1,"chatId":"chat-plan-task-snapshot","runId":"run-jsonl","planId":"snapshot_plan","tasks":[{"taskId":"snapshot_task","description":"Snapshot task","status":"failed"}]}`), 0o644); err != nil {
+		t.Fatalf("write snapshot: %v", err)
+	}
+
+	detail, err := store.LoadChat(chatID)
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+	if detail.Plan == nil || detail.Plan.PlanID != "jsonl_plan" || len(detail.Plan.Tasks) != 1 || detail.Plan.Tasks[0].TaskID != "jsonl_task" {
+		t.Fatalf("expected replay plan from JSONL, got %#v", detail.Plan)
+	}
+}
+
 func TestLoadChatRestoresPlanningFromReactAwaitingPlan(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {

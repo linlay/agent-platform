@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -219,6 +220,164 @@ func TestPlanGetTasksReturnsEmptySnapshotBeforeTasksExist(t *testing.T) {
 	}
 }
 
+func TestPlanAddTasksPersistsPlanTaskSnapshot(t *testing.T) {
+	root := t.TempDir()
+	executor := &RuntimeToolExecutor{cfg: config.Config{Paths: config.PathsConfig{ChatsDir: root}}}
+	execCtx := &ExecutionContext{
+		Session: QuerySession{
+			RunID:  "run_tasks",
+			ChatID: "chat_1",
+		},
+	}
+
+	result, err := executor.Invoke(context.Background(), PlanAddTasksToolName, map[string]any{
+		"tasks": []any{
+			map[string]any{"taskId": "task_1", "description": "first task"},
+			map[string]any{"taskId": "task_2", "description": "second task", "status": "in_progress"},
+		},
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invoke plan_add_tasks: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("expected plan_add_tasks success, got %#v", result)
+	}
+
+	snapshot := readPlanTasksSnapshotForTest(t, root, "chat_1", "run_tasks")
+	if snapshot.Version != 1 || snapshot.ChatID != "chat_1" || snapshot.RunID != "run_tasks" || snapshot.PlanID != "run_tasks_plan" {
+		t.Fatalf("unexpected snapshot metadata: %#v", snapshot)
+	}
+	if snapshot.UpdatedAt <= 0 {
+		t.Fatalf("expected updatedAt to be populated, got %#v", snapshot)
+	}
+	if len(snapshot.Tasks) != 2 || snapshot.Tasks[0].TaskID != "task_1" || snapshot.Tasks[0].Status != "init" ||
+		snapshot.Tasks[1].TaskID != "task_2" || snapshot.Tasks[1].Status != "in_progress" {
+		t.Fatalf("unexpected snapshot tasks: %#v", snapshot.Tasks)
+	}
+}
+
+func TestPlanUpdateTaskRewritesPlanTaskSnapshot(t *testing.T) {
+	root := t.TempDir()
+	executor := &RuntimeToolExecutor{cfg: config.Config{Paths: config.PathsConfig{ChatsDir: root}}}
+	execCtx := &ExecutionContext{
+		Session: QuerySession{
+			RunID:  "run_tasks",
+			ChatID: "chat_1",
+		},
+		PlanState: &PlanRuntimeState{
+			PlanID: "run_tasks_plan",
+			Tasks: []PlanTask{{
+				TaskID:      "task_1",
+				Status:      "init",
+				Description: "old description",
+			}},
+		},
+	}
+
+	result, err := executor.Invoke(context.Background(), PlanUpdateTaskToolName, map[string]any{
+		"taskId":      "task_1",
+		"status":      "in_progress",
+		"description": "new description",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invoke plan_update_task: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("expected plan_update_task success, got %#v", result)
+	}
+
+	snapshot := readPlanTasksSnapshotForTest(t, root, "chat_1", "run_tasks")
+	if snapshot.CurrentTaskID != "task_1" || len(snapshot.Tasks) != 1 ||
+		snapshot.Tasks[0].Status != "in_progress" || snapshot.Tasks[0].Description != "new description" {
+		t.Fatalf("unexpected snapshot after update: %#v", snapshot)
+	}
+}
+
+func TestPlanTaskSnapshotsAreSeparatedByRun(t *testing.T) {
+	root := t.TempDir()
+	executor := &RuntimeToolExecutor{cfg: config.Config{Paths: config.PathsConfig{ChatsDir: root}}}
+	for _, runID := range []string{"run_alpha", "run_beta"} {
+		execCtx := &ExecutionContext{
+			Session: QuerySession{
+				RunID:  runID,
+				ChatID: "chat_1",
+			},
+		}
+		result, err := executor.Invoke(context.Background(), PlanAddTasksToolName, map[string]any{
+			"tasks": []any{map[string]any{"taskId": runID + "_task", "description": runID + " task"}},
+		}, execCtx)
+		if err != nil {
+			t.Fatalf("invoke plan_add_tasks %s: %v", runID, err)
+		}
+		if result.ExitCode != 0 {
+			t.Fatalf("expected plan_add_tasks success for %s, got %#v", runID, result)
+		}
+	}
+
+	alpha := readPlanTasksSnapshotForTest(t, root, "chat_1", "run_alpha")
+	beta := readPlanTasksSnapshotForTest(t, root, "chat_1", "run_beta")
+	if alpha.PlanID != "run_alpha_plan" || beta.PlanID != "run_beta_plan" ||
+		alpha.Tasks[0].TaskID != "run_alpha_task" || beta.Tasks[0].TaskID != "run_beta_task" {
+		t.Fatalf("unexpected separated snapshots: alpha=%#v beta=%#v", alpha, beta)
+	}
+}
+
+func TestPlanTaskSnapshotUsesRuntimeContextChatsDirFallback(t *testing.T) {
+	root := t.TempDir()
+	executor := &RuntimeToolExecutor{}
+	execCtx := &ExecutionContext{
+		Session: QuerySession{
+			RunID:  "run_tasks",
+			ChatID: "chat_1",
+			RuntimeContext: RuntimeRequestContext{
+				LocalPaths: LocalPaths{ChatsDir: root},
+			},
+		},
+	}
+
+	result, err := executor.Invoke(context.Background(), PlanAddTasksToolName, map[string]any{
+		"tasks": []any{map[string]any{"taskId": "task_1", "description": "first task"}},
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invoke plan_add_tasks: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("expected plan_add_tasks success, got %#v", result)
+	}
+	snapshot := readPlanTasksSnapshotForTest(t, root, "chat_1", "run_tasks")
+	if snapshot.PlanID != "run_tasks_plan" || len(snapshot.Tasks) != 1 {
+		t.Fatalf("unexpected fallback snapshot: %#v", snapshot)
+	}
+}
+
+func TestPlanTaskSnapshotPersistenceSkipsInvalidContextWithoutFailingTool(t *testing.T) {
+	root := t.TempDir()
+	executor := &RuntimeToolExecutor{cfg: config.Config{Paths: config.PathsConfig{ChatsDir: root}}}
+	execCtx := &ExecutionContext{
+		Session: QuerySession{
+			RunID:  "run_tasks",
+			ChatID: "../bad-chat",
+		},
+	}
+
+	result, err := executor.Invoke(context.Background(), PlanAddTasksToolName, map[string]any{
+		"tasks": []any{map[string]any{"taskId": "task_1", "description": "first task"}},
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invoke plan_add_tasks: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("expected plan_add_tasks success despite invalid persistence context, got %#v", result)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("read temp chats root: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected invalid chat id to skip snapshot write, got entries=%#v", entries)
+	}
+}
+
 func TestPlanUpdateTaskSupportsInProgressAndDescriptionUpdate(t *testing.T) {
 	executor := &RuntimeToolExecutor{}
 	execCtx := &ExecutionContext{
@@ -270,6 +429,20 @@ func TestPlanUpdateTaskSupportsInProgressAndDescriptionUpdate(t *testing.T) {
 	if _, ok := result.Structured["currentTaskId"]; ok {
 		t.Fatalf("did not expect currentTaskId after terminal update, got %#v", result.Structured)
 	}
+}
+
+func readPlanTasksSnapshotForTest(t *testing.T, root string, chatID string, runID string) planTasksSnapshot {
+	t.Helper()
+	path := filepath.Join(root, chatID, chat.ToolRootDirName, chat.ToolPlanTasksDirName, runID+"_plan.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read plan tasks snapshot %s: %v", path, err)
+	}
+	var snapshot planTasksSnapshot
+	if err := json.Unmarshal(data, &snapshot); err != nil {
+		t.Fatalf("decode plan tasks snapshot %s: %v", path, err)
+	}
+	return snapshot
 }
 
 func standardPlanningMarkdown(title string) string {

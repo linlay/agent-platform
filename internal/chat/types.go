@@ -7,6 +7,7 @@ const (
 	ToolResultsDirName   = "results"
 	ToolStateDirName     = "state"
 	ToolPlansDirName     = "plans"
+	ToolPlanTasksDirName = "plan-tasks"
 	FileVersionsFileName = "file-versions.json"
 )
 

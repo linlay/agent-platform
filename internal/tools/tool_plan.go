@@ -52,6 +52,7 @@ func (t *RuntimeToolExecutor) invokePlanAddTasks(args map[string]any, execCtx *E
 		state.PlanID = execCtx.Session.RunID + "_plan"
 	}
 	state.Tasks = append(state.Tasks, tasks...)
+	t.persistPlanTasksSnapshot(execCtx, state)
 	lines := make([]string, 0, len(tasks))
 	for _, task := range tasks {
 		lines = append(lines, task.TaskID+" | "+task.Status+" | "+task.Description)
@@ -99,6 +100,7 @@ func (t *RuntimeToolExecutor) invokePlanUpdateTask(args map[string]any, execCtx 
 		if strings.TrimSpace(state.ActiveTaskID) == storedTaskID && (status == "completed" || status == "failed" || status == "canceled") {
 			state.ActiveTaskID = ""
 		}
+		t.persistPlanTasksSnapshot(execCtx, state)
 		return ToolExecutionResult{Output: "OK", Structured: planStatePayload(state), ExitCode: 0}, nil
 	}
 	return ToolExecutionResult{Output: "失败: taskId 不存在", Error: "task_not_found", ExitCode: -1}, nil
