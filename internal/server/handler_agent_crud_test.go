@@ -284,8 +284,8 @@ func TestAgentCreateKBaseAppliesDefaultModelConfig(t *testing.T) {
 		t.Fatalf("expected kbase default embedding timeout not to be persisted, got %#v", embedding)
 	}
 	icon, iconOk := created.Definition["icon"].(map[string]any)
-	if !iconOk || icon["name"] != "database" {
-		t.Fatalf("expected kbase default icon database, got %#v", created.Definition["icon"])
+	if !iconOk || icon["name"] != "kbase" {
+		t.Fatalf("expected kbase default icon kbase, got %#v", created.Definition["icon"])
 	}
 	visibility, _ := created.Definition["visibility"].(map[string]any)
 	scopes, _ := visibility["scopes"].([]any)
@@ -452,8 +452,8 @@ func TestAgentCreateCoderAndOpenWorkspace(t *testing.T) {
 		t.Fatalf("coder definition name = %q, want %q", name, filepath.Base(workspaceDir))
 	}
 	icon, iconOk := created.Definition["icon"].(map[string]any)
-	if !iconOk || icon["name"] != "folder" {
-		t.Fatalf("coder definition icon = %#v, want {name: folder}", created.Definition["icon"])
+	if !iconOk || icon["name"] != "coder" {
+		t.Fatalf("coder definition icon = %#v, want {name: coder}", created.Definition["icon"])
 	}
 	visibility, _ := created.Definition["visibility"].(map[string]any)
 	scopes, _ := visibility["scopes"].([]any)
@@ -485,13 +485,13 @@ func TestAgentCreateCoderAndOpenWorkspace(t *testing.T) {
 	if strings.Contains(string(data), "\nconcurrency:") {
 		t.Fatalf("created coder file should omit concurrency:\n%s", data)
 	}
-	if !strings.Contains(string(data), "\n  name: folder\n") {
-		t.Fatalf("created coder file should persist icon.name: folder:\n%s", data)
+	if !strings.Contains(string(data), "\n  name: coder\n") {
+		t.Fatalf("created coder file should persist icon.name: coder:\n%s", data)
 	}
 
 	updatedDefinition := created.Definition
 	updatedDefinition["name"] = "Renamed Coder"
-	updatedDefinition["icon"] = "sparkles"
+	updatedDefinition["icon"] = map[string]any{"name": "coder"}
 	updated := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/update", map[string]any{
 		"key":        created.Key,
 		"definition": updatedDefinition,
@@ -501,15 +501,15 @@ func TestAgentCreateCoderAndOpenWorkspace(t *testing.T) {
 		t.Fatalf("updated coder definition should persist name, got %#v", updated.Definition["name"])
 	}
 	updatedIcon, updatedIconOk := updated.Definition["icon"].(map[string]any)
-	if !updatedIconOk || updatedIcon["name"] != "folder" {
-		t.Fatalf("updated coder definition icon = %#v, want {name: folder}", updated.Definition["icon"])
+	if !updatedIconOk || updatedIcon["name"] != "coder" {
+		t.Fatalf("updated coder definition icon = %#v, want {name: coder}", updated.Definition["icon"])
 	}
 	updatedData, err := os.ReadFile(created.Source.Path)
 	if err != nil {
 		t.Fatalf("read updated agent file: %v", err)
 	}
-	if !strings.Contains(string(updatedData), "\nname: Renamed Coder\n") || !strings.Contains(string(updatedData), "\n  name: folder\n") {
-		t.Fatalf("updated coder file should persist name and icon.name: folder:\n%s", updatedData)
+	if !strings.Contains(string(updatedData), "\nname: Renamed Coder\n") || !strings.Contains(string(updatedData), "\n  name: coder\n") {
+		t.Fatalf("updated coder file should persist name and icon.name: coder:\n%s", updatedData)
 	}
 
 	var openedPath string
