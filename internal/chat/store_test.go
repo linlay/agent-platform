@@ -6229,7 +6229,7 @@ func TestLoadChatReplaysSourcePublishEvent(t *testing.T) {
 	}
 }
 
-func TestStepWriterPersistsSourcePublishEventLine(t *testing.T) {
+func TestStepWriterPersistsSourcePublishOnReactToolStep(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
@@ -6243,12 +6243,34 @@ func TestStepWriterPersistsSourcePublishEventLine(t *testing.T) {
 
 	writer := NewStepWriter(store, chatID, runID, "REACT")
 	writer.OnEvent(stream.EventData{
+		Seq:       19,
+		Type:      "tool.snapshot",
+		Timestamp: 1001,
+		Payload: map[string]any{
+			"toolId":    "call_1",
+			"toolName":  "kbase_search",
+			"arguments": `{"query":"policy"}`,
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Seq:       20,
+		Type:      "tool.result",
+		Timestamp: 1002,
+		Payload: map[string]any{
+			"toolId":     "call_1",
+			"toolName":   "kbase_search",
+			"durationMs": int64(5),
+			"result":     `{"count":1}`,
+		},
+	})
+	writer.OnEvent(stream.EventData{
 		Seq:       21,
 		Type:      "source.publish",
 		Timestamp: 1003,
 		Payload: map[string]any{
 			"publishId":   "src-writer",
 			"runId":       runID,
+			"toolId":      "call_1",
 			"kind":        "kbase",
 			"query":       "policy",
 			"sourceCount": 1,
@@ -6278,30 +6300,148 @@ func TestStepWriterPersistsSourcePublishEventLine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read jsonl: %v", err)
 	}
-	if len(lines) != 1 {
-		t.Fatalf("expected one event line, got %#v", lines)
+	if len(lines) != 2 {
+		t.Fatalf("expected react and react-tool lines, got %#v", lines)
 	}
-	if lines[0]["_type"] != "event" || int64FromAny(lines[0]["liveSeq"]) != 21 {
-		t.Fatalf("unexpected persisted event line %#v", lines[0])
+	if lines[0]["_type"] != StepLineTypeReact || toIntValue(lines[0]["seq"]) != 1 {
+		t.Fatalf("expected assistant tool call react line, got %#v", lines[0])
+	}
+	if lines[1]["_type"] != StepLineTypeReactTool || toIntValue(lines[1]["seq"]) != 1 || int64FromAny(lines[1]["liveSeq"]) != 21 {
+		t.Fatalf("expected react-tool line with source liveSeq, got %#v", lines[1])
+	}
+	sourcesState, _ := lines[1]["sources"].(map[string]any)
+	items, _ := sourcesState["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("expected one persisted source item, got %#v", lines[1])
+	}
+	item, _ := items[0].(map[string]any)
+	if item["publishId"] != "src-writer" || item["toolId"] != "call_1" || int64FromAny(item["liveSeq"]) != 21 {
+		t.Fatalf("unexpected persisted source item %#v", item)
+	}
+	for _, line := range lines {
+		if line["_type"] == "event" {
+			t.Fatalf("did not expect source.publish event line, got %#v", line)
+		}
 	}
 
 	detail, err := store.LoadChat(chatID)
 	if err != nil {
 		t.Fatalf("load chat: %v", err)
 	}
+	toolResultIndex := -1
+	sourceIndex := -1
 	for _, event := range detail.Events {
-		if event.Type != "source.publish" {
-			continue
+		switch event.Type {
+		case "tool.result":
+			if event.String("toolId") == "call_1" {
+				toolResultIndex = int(event.Seq)
+			}
+		case "source.publish":
+			sourceIndex = int(event.Seq)
+			if event.String("publishId") != "src-writer" || event.String("query") != "policy" || event.String("toolId") != "call_1" {
+				t.Fatalf("unexpected replayed source event %#v", event)
+			}
+			if int64FromAny(event.Value("liveSeq")) != 21 {
+				t.Fatalf("expected replay liveSeq=21, got %#v", event)
+			}
 		}
-		if event.String("publishId") != "src-writer" || event.String("query") != "policy" {
-			t.Fatalf("unexpected replayed source event %#v", event)
-		}
-		if int64FromAny(event.Value("liveSeq")) != 21 {
-			t.Fatalf("expected replay liveSeq=21, got %#v", event)
-		}
-		return
 	}
-	t.Fatalf("expected source.publish replay, got %#v", detail.Events)
+	if toolResultIndex <= 0 || sourceIndex <= toolResultIndex {
+		t.Fatalf("expected source.publish after matching tool.result, tool=%d source=%d events=%#v", toolResultIndex, sourceIndex, detail.Events)
+	}
+}
+
+func TestLoadChatReplaysMultipleStepSourcesAfterMatchingToolResults(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-source-multi"
+	runID := "run-source-multi"
+	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := store.AppendStepLine(chatID, StepLine{
+		Type:      StepLineTypeReactTool,
+		ChatID:    chatID,
+		RunID:     runID,
+		UpdatedAt: 100,
+		LiveSeq:   12,
+		Seq:       1,
+		Messages: []StoredMessage{
+			{
+				Role:       "tool",
+				Name:       "kbase_search",
+				ToolCallID: "call_1",
+				ToolID:     "call_1",
+				Content:    textContent(`{"count":1}`),
+			},
+			{
+				Role:       "tool",
+				Name:       "kbase_search",
+				ToolCallID: "call_2",
+				ToolID:     "call_2",
+				Content:    textContent(`{"count":1}`),
+			},
+		},
+		Sources: &SourceState{Items: []map[string]any{
+			{
+				"publishId":   "src_1",
+				"runId":       runID,
+				"toolId":      "call_1",
+				"kind":        "kbase",
+				"query":       "alpha",
+				"sourceCount": 1,
+				"chunkCount":  1,
+				"timestamp":   int64(101),
+				"liveSeq":     int64(11),
+				"sources": []map[string]any{{
+					"id":   "kbase:alpha.md",
+					"name": "alpha.md",
+				}},
+			},
+			{
+				"publishId":   "src_2",
+				"runId":       runID,
+				"toolId":      "call_2",
+				"kind":        "kbase",
+				"query":       "beta",
+				"sourceCount": 1,
+				"chunkCount":  1,
+				"timestamp":   int64(102),
+				"liveSeq":     int64(12),
+				"sources": []map[string]any{{
+					"id":   "kbase:beta.md",
+					"name": "beta.md",
+				}},
+			},
+		}},
+	}); err != nil {
+		t.Fatalf("append source step: %v", err)
+	}
+
+	detail, err := store.LoadChat(chatID)
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+	var order []string
+	for _, event := range detail.Events {
+		switch event.Type {
+		case "tool.result":
+			order = append(order, "tool:"+event.String("toolId"))
+		case "source.publish":
+			order = append(order, "source:"+event.String("toolId")+":"+event.String("publishId"))
+		}
+	}
+	want := []string{"tool:call_1", "source:call_1:src_1", "tool:call_2", "source:call_2:src_2"}
+	if len(order) < len(want) {
+		t.Fatalf("expected replayed tool/source order %#v, got %#v events=%#v", want, order, detail.Events)
+	}
+	for index, expected := range want {
+		if order[index] != expected {
+			t.Fatalf("unexpected replay order got %#v want prefix %#v events=%#v", order, want, detail.Events)
+		}
+	}
 }
 
 func TestStepWriterBatchedArtifactPublishUpdatesArtifactState(t *testing.T) {

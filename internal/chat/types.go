@@ -29,6 +29,10 @@ type ArtifactState struct {
 	Items []ArtifactItemState `json:"items,omitempty"`
 }
 
+type SourceState struct {
+	Items []map[string]any `json:"items,omitempty"`
+}
+
 type ArtifactItemState struct {
 	ArtifactID string `json:"artifactId"`
 	Type       string `json:"type"`
@@ -163,6 +167,7 @@ type StepLine struct {
 	Seq             int                   `json:"seq,omitempty"`
 	Plan            *PlanState            `json:"plan,omitempty"`
 	Artifacts       *ArtifactState        `json:"artifacts,omitempty"`
+	Sources         *SourceState          `json:"sources,omitempty"`
 }
 
 type StepApproval struct {

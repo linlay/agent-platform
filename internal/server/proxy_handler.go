@@ -323,7 +323,7 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 			stepWriter.OnEvent(event)
 		case "tool.result",
 			"task.start", "task.complete", "task.cancel", "task.error",
-			"plan.create", "plan.update", "artifact.publish",
+			"plan.create", "plan.update", "artifact.publish", "source.publish",
 			"planning.start", "planning.delta", "planning.end", "planning.snapshot",
 			"awaiting.ask", "request.submit", "awaiting.answer", "request.steer":
 			stepWriter.OnEvent(event)
