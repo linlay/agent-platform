@@ -10,6 +10,7 @@ import (
 
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
+	"agent-platform/internal/textcodec"
 )
 
 const defaultGlobHeadLimit = 100
@@ -80,8 +81,9 @@ func (t *RuntimeToolExecutor) invokeGlob(ctx context.Context, args map[string]an
 			exitCode = exitErr.ExitCode()
 		}
 	}
-	out := decodeSubprocessOutput(stdout.Bytes())
-	errText := decodeSubprocessOutput(stderr.Bytes())
+	runtimeInfo := t.runtimeInfo()
+	out := textcodec.DecodeSubprocessOutput(stdout.Bytes(), runtimeInfo)
+	errText := textcodec.DecodeSubprocessOutput(stderr.Bytes(), runtimeInfo)
 	if err != nil && strings.TrimSpace(out) == "" && exitCode != 1 {
 		if strings.Contains(strings.ToLower(errText), "glob") {
 			return fileToolError("glob_invalid_pattern", strings.TrimSpace(errText)), nil

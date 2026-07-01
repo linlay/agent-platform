@@ -16,6 +16,8 @@ import (
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
+	"agent-platform/internal/runtimeenv"
+	"agent-platform/internal/textcodec"
 )
 
 const defaultBashTimeoutSeconds int64 = 60
@@ -71,7 +73,8 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	shellExecutable, shellArgs := resolveHostShellInvocation(t.cfg.Bash, command, currentGOOS())
+	runtimeInfo := t.runtimeInfo()
+	shellExecutable, shellArgs := resolveHostShellInvocation(t.cfg.Bash, command, runtimeInfo.GOOS)
 	cmd := exec.CommandContext(runCtx, shellExecutable, shellArgs...)
 	cmd.Dir = workingDir
 	cmd.Env = mergeCommandEnv(execCtx)
@@ -90,11 +93,11 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	cmd.Stderr = stderrFile
 
 	err = cmd.Run()
-	stdout, readErr := readBashOutputFile(stdoutFile)
+	stdout, readErr := readBashOutputFile(stdoutFile, runtimeInfo)
 	if readErr != nil {
 		return bashResult("", readErr.Error(), "host", workingDir, -1, "bash_output_capture_failed"), nil
 	}
-	stderr, readErr := readBashOutputFile(stderrFile)
+	stderr, readErr := readBashOutputFile(stderrFile, runtimeInfo)
 	if readErr != nil {
 		return bashResult("", readErr.Error(), "host", workingDir, -1, "bash_output_capture_failed"), nil
 	}
@@ -144,7 +147,7 @@ func cleanupBashOutputFile(file *os.File) {
 	_ = os.Remove(file.Name())
 }
 
-func readBashOutputFile(file *os.File) (string, error) {
+func readBashOutputFile(file *os.File, runtimeInfo runtimeenv.Info) (string, error) {
 	if _, err := file.Seek(0, 0); err != nil {
 		return "", err
 	}
@@ -152,7 +155,7 @@ func readBashOutputFile(file *os.File) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return decodeSubprocessOutput(output), nil
+	return textcodec.DecodeSubprocessOutput(output, runtimeInfo), nil
 }
 
 func appendBashAccessPolicyMetadata(result *ToolExecutionResult, review accesspolicy.BashPlan, stdout, stderr, workingDir string, exitCode int) {

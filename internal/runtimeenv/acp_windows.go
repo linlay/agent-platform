@@ -1,6 +1,6 @@
 //go:build windows
 
-package tools
+package runtimeenv
 
 import "syscall"
 
@@ -9,7 +9,7 @@ var (
 	getACPProc  = kernel32DLL.NewProc("GetACP")
 )
 
-func subprocessOutputCodePage() uint32 {
+func detectACP() uint32 {
 	codePage, _, _ := getACPProc.Call()
 	return uint32(codePage)
 }

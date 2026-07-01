@@ -19,6 +19,7 @@ import (
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/multimodal"
+	"agent-platform/internal/textcodec"
 )
 
 func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
@@ -140,7 +141,7 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 			payload["limit"] = limit
 		}
 	}
-	if decoded, ok, decodeErr := decodeFileText(data, requestedEncoding); decodeErr != nil {
+	if decoded, ok, decodeErr := textcodec.DecodeFileText(data, requestedEncoding, t.runtimeInfo()); decodeErr != nil {
 		return fileToolError("file_read_invalid_encoding", decodeErr.Error()), nil
 	} else if ok {
 		content := decoded.Content
@@ -208,7 +209,7 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 			return fileToolError("file_write_failed", err.Error()), nil
 		}
 		beforeRaw = data
-		if decoded, ok, _ := decodeFileText(data, ""); ok {
+		if decoded, ok, _ := textcodec.DecodeFileText(data, "", t.runtimeInfo()); ok {
 			beforeContent = decoded.Content
 			beforeEncoding = decoded.Encoding
 		} else {
@@ -223,7 +224,7 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 		}
 	}
 	contentText := string(plan.Content)
-	writeBytes, writeEncoding, err := encodeFileText(contentText, writeEncoding)
+	writeBytes, writeEncoding, err := textcodec.EncodeFileText(contentText, writeEncoding)
 	if err != nil {
 		return fileToolError("file_write_invalid_encoding", err.Error()), nil
 	}
@@ -330,7 +331,7 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 			return fileToolError("file_edit_failed", err.Error()), nil
 		}
 		currentRaw = data
-		decoded, ok, decodeErr := decodeFileText(data, plan.Encoding)
+		decoded, ok, decodeErr := textcodec.DecodeFileText(data, plan.Encoding, t.runtimeInfo())
 		if decodeErr != nil {
 			return fileToolError("file_edit_invalid_encoding", decodeErr.Error()), nil
 		}
@@ -379,7 +380,7 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 	if lineEndings == "CRLF" {
 		updatedContent = strings.ReplaceAll(updatedContent, "\n", "\r\n")
 	}
-	updatedBytes, currentEncoding, err := encodeFileText(updatedContent, currentEncoding)
+	updatedBytes, currentEncoding, err := textcodec.EncodeFileText(updatedContent, currentEncoding)
 	if err != nil {
 		return fileToolError("file_edit_invalid_encoding", err.Error()), nil
 	}

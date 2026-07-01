@@ -14,6 +14,7 @@ import (
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
+	"agent-platform/internal/runtimeenv"
 	"agent-platform/internal/skills"
 )
 
@@ -36,6 +37,7 @@ type RuntimeToolExecutor struct {
 	fileStateMu     sync.Mutex
 	httpClient      *http.Client
 	defs            []api.ToolDetailResponse
+	runtimeEnv      runtimeenv.Info
 }
 
 func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient, chats chat.Store, memoryStore memory.Store, skillCandidates skills.CandidateStore) (*RuntimeToolExecutor, error) {
@@ -58,6 +60,7 @@ func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient, chats chat
 		skillCandidates: skillCandidates,
 		httpClient:      &http.Client{},
 		defs:            filtered,
+		runtimeEnv:      runtimeenv.Detect(),
 	}, nil
 }
 
@@ -99,6 +102,20 @@ func (t *RuntimeToolExecutor) WithHTTPClient(client *http.Client) *RuntimeToolEx
 		t.httpClient = client
 	}
 	return t
+}
+
+func (t *RuntimeToolExecutor) WithRuntimeEnv(info runtimeenv.Info) *RuntimeToolExecutor {
+	if t != nil && !info.IsZero() {
+		t.runtimeEnv = info
+	}
+	return t
+}
+
+func (t *RuntimeToolExecutor) runtimeInfo() runtimeenv.Info {
+	if t != nil && !t.runtimeEnv.IsZero() {
+		return t.runtimeEnv
+	}
+	return runtimeenv.Detect()
 }
 
 func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {

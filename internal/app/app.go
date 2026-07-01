@@ -28,6 +28,7 @@ import (
 	"agent-platform/internal/models"
 	"agent-platform/internal/observability"
 	"agent-platform/internal/reload"
+	"agent-platform/internal/runtimeenv"
 	"agent-platform/internal/sandbox"
 	"agent-platform/internal/server"
 	"agent-platform/internal/skills"
@@ -40,6 +41,7 @@ import (
 
 type App struct {
 	Config               config.Config
+	RuntimeEnv           runtimeenv.Info
 	Router               *server.Server
 	backgroundCancel     context.CancelFunc
 	automation           automationStopper
@@ -61,6 +63,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	if rootCtx == nil {
 		rootCtx = context.Background()
 	}
+	hostEnv := runtimeenv.Detect()
 
 	configStartedAt := time.Now()
 	log.Printf("loading config")
@@ -138,6 +141,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	if err != nil {
 		return nil, fmt.Errorf("init runtime tools: %w", err)
 	}
+	backendTools.WithRuntimeEnv(hostEnv)
 	backendTools.WithModelRegistry(modelRegistry)
 	var lspManager *lsp.Manager
 	if cfg.FileTools.Hooks.AfterFileChange.LSPDiagnostics.Enabled {
@@ -335,6 +339,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 
 	return &App{
 		Config:               cfg,
+		RuntimeEnv:           hostEnv,
 		Router:               srv,
 		backgroundCancel:     backgroundCancel,
 		automation:           automationOrchestrator,
