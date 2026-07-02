@@ -133,7 +133,7 @@ func TestDeferredPlanApproveContinuationUsesCoderExecuteSystem(t *testing.T) {
 	if got := providerCallCount.Load(); got != 1 {
 		t.Fatalf("expected one provider call, got %d", got)
 	}
-	assertDeferredPlanApproveJSONL(t, fixture.chats, chatID, runID, awaitingID)
+	assertDeferredPlanApproveJSONL(t, fixture.chats, chatID, runID, awaitingID, "submit-deferred-plan")
 }
 
 func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
@@ -1055,7 +1055,7 @@ func providerMessagesContainText(payload map[string]any, want string) bool {
 	return false
 }
 
-func assertDeferredPlanApproveJSONL(t *testing.T, store chat.Store, chatID string, sourceRunID string, awaitingID string) {
+func assertDeferredPlanApproveJSONL(t *testing.T, store chat.Store, chatID string, sourceRunID string, awaitingID string, submitID string) {
 	t.Helper()
 	content, err := store.LoadJSONLContent(chatID)
 	if err != nil {
@@ -1074,7 +1074,7 @@ func assertDeferredPlanApproveJSONL(t *testing.T, store chat.Store, chatID strin
 		lines = append(lines, line)
 	}
 	foundSourcePlanResult := false
-	syntheticIndex := -1
+	executeQueryIndex := -1
 	for index, line := range lines {
 		if stringValue(line["_type"]) == chat.StepLineTypeReactTool && stringValue(line["runId"]) == sourceRunID && lineHasFinalizePlanningToolResultForServerTest(line) {
 			foundSourcePlanResult = true
@@ -1083,53 +1083,61 @@ func assertDeferredPlanApproveJSONL(t *testing.T, store chat.Store, chatID strin
 			continue
 		}
 		query, _ := line["query"].(map[string]any)
-		if query["synthetic"] == true && stringValue(query["stage"]) == "coder-execute" && stringValue(query["source"]) == "coder-plan-approve" {
-			syntheticIndex = index
+		if stringValue(query["message"]) == "Execute plan" && stringValue(line["runId"]) != sourceRunID {
+			executeQueryIndex = index
 			break
 		}
 	}
-	if syntheticIndex < 0 {
-		t.Fatalf("expected coder execute synthetic query in:\n%s", content)
+	if executeQueryIndex < 0 {
+		t.Fatalf("expected coder execute query in:\n%s", content)
 	}
 	if !foundSourcePlanResult {
 		t.Fatalf("expected source run %s to keep finalize_planning submit tool result in:\n%s", sourceRunID, content)
 	}
-	synthetic := lines[syntheticIndex]
-	syntheticRunID := stringValue(synthetic["runId"])
-	if syntheticRunID == "" || syntheticRunID == sourceRunID {
-		t.Fatalf("expected synthetic query to use a new execution run id, got %#v in:\n%s", synthetic, content)
+	executeQueryLine := lines[executeQueryIndex]
+	executeRunID := stringValue(executeQueryLine["runId"])
+	if executeRunID == "" || executeRunID == sourceRunID {
+		t.Fatalf("expected execute query to use a new execution run id, got %#v in:\n%s", executeQueryLine, content)
 	}
-	if liveSeq := testInt64Value(synthetic["liveSeq"]); liveSeq <= 0 {
-		t.Fatalf("expected synthetic query liveSeq for new run, got %#v in:\n%s", synthetic["liveSeq"], content)
+	if liveSeq := testInt64Value(executeQueryLine["liveSeq"]); liveSeq <= 0 {
+		t.Fatalf("expected execute query liveSeq for new run, got %#v in:\n%s", executeQueryLine["liveSeq"], content)
 	}
-	query, _ := synthetic["query"].(map[string]any)
+	query, _ := executeQueryLine["query"].(map[string]any)
+	if stringValue(query["requestId"]) != submitID {
+		t.Fatalf("expected execute query requestId %q, got %#v in:\n%s", submitID, query, content)
+	}
+	for _, field := range []string{"synthetic", "stage", "source"} {
+		if _, ok := query[field]; ok {
+			t.Fatalf("did not expect %s in execute query payload: %#v", field, query)
+		}
+	}
 	if _, ok := query["systems"]; ok {
-		t.Fatalf("did not expect nested systems in synthetic query payload: %#v", query)
+		t.Fatalf("did not expect nested systems in execute query payload: %#v", query)
 	}
-	rawSystems, _ := synthetic["systems"].([]any)
+	rawSystems, _ := executeQueryLine["systems"].([]any)
 	if len(rawSystems) != 1 {
-		t.Fatalf("expected one synthetic query system, got %#v in:\n%s", synthetic, content)
+		t.Fatalf("expected one execute query system, got %#v in:\n%s", executeQueryLine, content)
 	}
 	system, _ := rawSystems[0].(map[string]any)
 	if system["cacheKey"] != "coder:execute" {
 		t.Fatalf("expected coder:execute system, got %#v in:\n%s", system, content)
 	}
-	rawMessages, _ := synthetic["messages"].([]any)
+	rawMessages, _ := executeQueryLine["messages"].([]any)
 	if len(rawMessages) != 1 {
-		t.Fatalf("expected one synthetic query message, got %#v in:\n%s", synthetic, content)
+		t.Fatalf("expected one execute query message, got %#v in:\n%s", executeQueryLine, content)
 	}
 	message, _ := rawMessages[0].(map[string]any)
 	if stringValue(message["role"]) != "user" ||
 		!strings.Contains(textFromJSONLMessageContentForServerTest(message["content"]), "Execute the confirmed CODER plan.") ||
 		!strings.Contains(textFromJSONLMessageContentForServerTest(message["content"]), "Confirmed plan:\n# Deferred Coder Plan") {
-		t.Fatalf("unexpected synthetic query message %#v in:\n%s", message, content)
+		t.Fatalf("unexpected execute query message %#v in:\n%s", message, content)
 	}
 
-	for _, line := range lines[syntheticIndex+1:] {
+	for _, line := range lines[executeQueryIndex+1:] {
 		if stringValue(line["_type"]) != chat.StepLineTypeReact {
 			continue
 		}
-		if stringValue(line["runId"]) != syntheticRunID {
+		if stringValue(line["runId"]) != executeRunID {
 			continue
 		}
 		systemRef, _ := line["systemRef"].(map[string]any)
@@ -1142,12 +1150,12 @@ func assertDeferredPlanApproveJSONL(t *testing.T, store chat.Store, chatID strin
 		if systemRef["cacheKey"] == "coder:main" {
 			t.Fatalf("did not expect coder:main systemRef in:\n%s", content)
 		}
-		if liveSeq := testInt64Value(line["liveSeq"]); liveSeq <= testInt64Value(synthetic["liveSeq"]) {
-			t.Fatalf("expected execute step liveSeq after synthetic query, got line=%#v synthetic=%#v", line["liveSeq"], synthetic["liveSeq"])
+		if liveSeq := testInt64Value(line["liveSeq"]); liveSeq <= testInt64Value(executeQueryLine["liveSeq"]) {
+			t.Fatalf("expected execute step liveSeq after execute query, got line=%#v query=%#v", line["liveSeq"], executeQueryLine["liveSeq"])
 		}
 		return
 	}
-	t.Fatalf("expected execute react after synthetic query for awaiting %s in:\n%s", awaitingID, content)
+	t.Fatalf("expected execute react after bootstrap query for awaiting %s in:\n%s", awaitingID, content)
 }
 
 func testInt64Value(value any) int64 {

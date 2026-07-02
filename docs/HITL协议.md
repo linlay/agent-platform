@@ -25,7 +25,7 @@ assistant tool_calls[]
 - `form`：来自 Bash HITL html form，approve 时提交修改后的 `form`，reject 可带 `reason`。
 - `plan`：来自 CODER planning 确认，`awaiting.ask.plan` 是单个对象；用户只能 `approve` 或 `reject`，reject 可带 `reason`。
 
-native CODER planning 的 `plan approve` 有独立 run 边界：后端先在当前 planning run 中记录 `request.submit` / `awaiting.answer` / `finalize_planning` tool result，并发布当前 run 的 `run.complete`；旧 live stream 随后以 `reason:"done"` 正常结束，不再追加新 run 的 `run.start`。旧 run 完成后，服务端启动新的 execute run，并通过 WebSocket push `run.started { runId, chatId, agentKey }` 暴露新 `runId`；webclient 应在旧 stream done 后 attach 新 `runId` 获取执行流。新 run 自己的 stream 首部为 synthetic `request.query`，然后是新 run 的 `run.start`。`plan reject` 不启动新 run，仍留在当前 planning run 中生成下一版 plan 或结束。
+native CODER planning 的 `plan approve` 有独立 run 边界：后端先在当前 planning run 中记录 `request.submit` / `awaiting.answer` / `finalize_planning` tool result，并发布当前 run 的 `run.complete`；旧 live stream 随后以 `reason:"done"` 正常结束，不再追加新 run 的 `run.start`。旧 run 完成后，服务端启动新的 execute run，并通过 WebSocket push `run.started { runId, chatId, agentKey }` 暴露新 `runId`；webclient 应在旧 stream done 后 attach 新 `runId` 获取执行流。新 run 自己的 stream 首部为 execution run bootstrap `request.query`，包含标准 query 字段 `requestId` / `runId` / `chatId` / `role` / `message`，然后是新 run 的 `run.start`。`plan reject` 不启动新 run，仍留在当前 planning run 中生成下一版 plan 或结束。
 
 同一 assistant turn 的 `tool_calls[]` 是 awaiting 原子批次：只要其中任意工具需要 `question` / `approval` / `form` / `plan` 等等待态，整组工具都会暂停，确认前不执行任何 sibling tool。`approval` 类型的 builtin 等待项可合并为一个 `awaiting.ask(mode:"approval", approvals:[...])`；不同 mode 的等待项按原始 `tool_calls[]` 顺序逐个等待。全部等待项进入终态后，后端才开始执行本组工具：approve 的工具与无需确认的 sibling 正常执行，reject / timeout 的工具生成 synthetic tool result。
 

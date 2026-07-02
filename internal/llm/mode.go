@@ -67,8 +67,6 @@ func (coderMode) Start(engine *LLMAgentEngine, ctx context.Context, req api.Quer
 				ChatID:   session.ChatID,
 				Role:     api.QueryRoleUser,
 				Message:  agentcoder.ExecuteSyntheticQueryMessage(session.Locale),
-				Stage:    "coder-execute",
-				Source:   "coder-plan-approve",
 				Messages: cloneRawMessageMaps(session.CurrentMessages),
 				Systems:  systemPayloadsFromCache(session.SystemInitCache, "coder:execute"),
 			})

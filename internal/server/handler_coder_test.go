@@ -375,10 +375,12 @@ func TestCoderModelOptionsForACPCoderAgentUsesProxyModelDiscovery(t *testing.T) 
 }
 
 func TestAgentDetailIncludesModelOptionsOnlyForACPCoder(t *testing.T) {
+	var modelRequestCount atomic.Int32
 	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/models" {
 			t.Fatalf("unexpected path %s", r.URL.Path)
 		}
+		modelRequestCount.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(map[string]any{
 			"code": 0,
@@ -461,6 +463,9 @@ func TestAgentDetailIncludesModelOptionsOnlyForACPCoder(t *testing.T) {
 	if acpResponse.Data.Meta["modelKey"] != "MiniMax-M2.7" {
 		t.Fatalf("expected ACP detail meta modelKey from /api/models, got %#v", acpResponse.Data.Meta)
 	}
+	if got := modelRequestCount.Load(); got != 1 {
+		t.Fatalf("agent detail should fetch ACP models once, got %d requests", got)
+	}
 
 	rec = httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agent?agentKey=native-agent", nil))
@@ -500,14 +505,17 @@ func TestAgentDetailIncludesModelOptionsOnlyForACPCoder(t *testing.T) {
 	if acpSummary == nil || nativeSummary == nil {
 		t.Fatalf("expected acp and native summaries, got %#v", summaries.Data)
 	}
-	if acpSummary.ModelOptions == nil || acpSummary.ModelOptions.DefaultModelKey != "MiniMax-M2.7" {
-		t.Fatalf("expected ACP summary model options from /api/models, got %#v", acpSummary.ModelOptions)
+	if got := modelRequestCount.Load(); got != 1 {
+		t.Fatalf("/api/agents should not fetch ACP models, got %d total requests", got)
 	}
-	if acpSummary.DefaultModelKey != "MiniMax-M2.7" || modelConfigString(acpSummary.ModelConfig, "modelKey") != "MiniMax-M2.7" {
-		t.Fatalf("expected ACP summary model config from /api/models, got %#v", acpSummary)
+	if acpSummary.ModelOptions != nil || acpSummary.ModelConfig != nil {
+		t.Fatalf("ACP agent summary should omit model options/config, got %#v", acpSummary)
 	}
-	if acpSummary.Meta["modelKey"] != "MiniMax-M2.7" {
-		t.Fatalf("expected ACP summary meta modelKey from /api/models, got %#v", acpSummary.Meta)
+	if acpSummary.DefaultModelKey != "claude-opus-4-6" {
+		t.Fatalf("ACP summary default model should remain local config value, got %#v", acpSummary)
+	}
+	if acpSummary.Meta["modelKey"] != "claude-opus-4-6" {
+		t.Fatalf("ACP summary meta modelKey should remain local config value, got %#v", acpSummary.Meta)
 	}
 	if nativeSummary.ModelOptions != nil || nativeSummary.ModelConfig != nil {
 		t.Fatalf("native agent summary should not include ACP model config/options, got %#v", nativeSummary)

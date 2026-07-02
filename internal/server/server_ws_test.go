@@ -1500,14 +1500,27 @@ Plan should stream over websocket.
 		t.Fatalf("unexpected websocket planning markdown file:\n%s", planningText)
 	}
 
-	submitBody := `{"agentKey":"coder-ws","runId":"` + runID + `","awaitingId":"` + awaitingID + `","params":[{"id":"confirm","decision":"approve"}]}`
+	wantSubmitID := "submit-ws-plan-approve"
+	submitBody := `{"submitId":"` + wantSubmitID + `","agentKey":"coder-ws","runId":"` + runID + `","awaitingId":"` + awaitingID + `","params":[{"id":"confirm","decision":"approve"}]}`
 	submitRec, err := http.Post(server.URL+"/api/submit", "application/json", bytes.NewBufferString(submitBody))
 	if err != nil {
 		t.Fatalf("submit approval: %v", err)
 	}
 	defer submitRec.Body.Close()
+	submitBytes, readSubmitErr := io.ReadAll(submitRec.Body)
+	if readSubmitErr != nil {
+		t.Fatalf("read submit approval response: %v", readSubmitErr)
+	}
 	if submitRec.StatusCode != http.StatusOK {
-		t.Fatalf("submit expected 200, got %d: %s", submitRec.StatusCode, readBodyString(t, submitRec.Body))
+		t.Fatalf("submit expected 200, got %d: %s", submitRec.StatusCode, string(submitBytes))
+	}
+	var submitResponse api.ApiResponse[api.SubmitResponse]
+	if err := json.Unmarshal(submitBytes, &submitResponse); err != nil {
+		t.Fatalf("decode submit response: %v", err)
+	}
+	submitID := strings.TrimSpace(submitResponse.Data.SubmitID)
+	if submitID != wantSubmitID {
+		t.Fatalf("expected submit response submitId, got %#v", submitResponse.Data)
 	}
 
 	executionRunID := waitForCoderPlanningContinuationPush(t, conn, requestID, runID, chatID, "coder-ws")
@@ -1529,7 +1542,7 @@ Plan should stream over websocket.
 	}); err != nil {
 		t.Fatalf("write websocket attach: %v", err)
 	}
-	assertWebSocketAttachedCoderExecuteRun(t, conn, attachRequestID, executionRunID, chatID, "coder-ws", "execution completed")
+	assertWebSocketAttachedCoderExecuteRun(t, conn, attachRequestID, executionRunID, chatID, "coder-ws", submitID, "execution completed")
 }
 
 type awaitingPushQuestionFlow struct {
@@ -1859,7 +1872,7 @@ func waitForCoderPlanningContinuationPush(t *testing.T, conn *gws.Conn, requestI
 	return ""
 }
 
-func assertWebSocketAttachedCoderExecuteRun(t *testing.T, conn *gws.Conn, requestID string, runID string, chatID string, agentKey string, wantContent string) {
+func assertWebSocketAttachedCoderExecuteRun(t *testing.T, conn *gws.Conn, requestID string, runID string, chatID string, agentKey string, wantQueryRequestID string, wantContent string) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	events := make([]ws.StreamFrame, 0)
@@ -1901,9 +1914,13 @@ func assertWebSocketAttachedCoderExecuteRun(t *testing.T, conn *gws.Conn, reques
 	}
 	first := events[0].Event
 	if first.Type != "request.query" || first.Seq != 1 || first.String("runId") != runID ||
-		first.Value("synthetic") != true || first.String("stage") != "coder-execute" ||
-		first.String("source") != "coder-plan-approve" || first.String("message") != "Execute plan" {
-		t.Fatalf("expected first attached event synthetic request.query seq=1, got %#v", first)
+		first.String("requestId") != wantQueryRequestID || first.String("message") != "Execute plan" {
+		t.Fatalf("expected first attached event execute request.query seq=1, got %#v", first)
+	}
+	for _, field := range []string{"synthetic", "stage", "source"} {
+		if _, ok := first.Payload[field]; ok {
+			t.Fatalf("did not expect %s on attached execute request.query, got %#v", field, first)
+		}
 	}
 	second := events[1].Event
 	if second.Type != "run.start" || second.Seq != 2 || second.String("runId") != runID ||

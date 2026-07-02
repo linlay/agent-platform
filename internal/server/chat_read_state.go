@@ -2,10 +2,8 @@ package server
 
 import (
 	"errors"
-	"strings"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 )
@@ -37,7 +35,6 @@ func toAPIActiveRunInfo(activeRun contracts.RunStatusInfo) *api.ActiveRunInfo {
 
 func (s *Server) listAgentSummaries(includeChats int, scope string) ([]api.AgentSummary, error) {
 	items := s.deps.Registry.Agents(scope)
-	s.applyACPCoderModelSummaries(items)
 	if s.deps.Chats == nil {
 		return items, nil
 	}
@@ -60,34 +57,6 @@ func (s *Server) listAgentSummaries(includeChats int, scope string) ([]api.Agent
 		}
 	}
 	return items, nil
-}
-
-func (s *Server) applyACPCoderModelSummaries(items []api.AgentSummary) {
-	if s.deps.Registry == nil {
-		return
-	}
-	for i := range items {
-		def, ok := s.deps.Registry.AgentDefinition(items[i].Key)
-		if !ok || !catalog.AgentUsesACPCoderBackend(def) {
-			continue
-		}
-		modelOptions := s.buildModelOptionsForAgent(def.Key)
-		modelConfig := coderModelConfigFromOptions(modelOptions)
-		items[i].ModelOptions = &modelOptions
-		items[i].ModelConfig = modelConfig
-		if modelKey := strings.TrimSpace(modelConfigString(modelConfig, "modelKey")); modelKey != "" {
-			items[i].DefaultModelKey = modelKey
-			if items[i].Meta == nil {
-				items[i].Meta = map[string]any{}
-			}
-			items[i].Meta["model"] = modelKey
-			items[i].Meta["modelKey"] = modelKey
-			items[i].Meta["modelKeys"] = []string{modelKey}
-		}
-		if effort := coderModelConfigReasoningEffort(modelConfig); effort != "" {
-			items[i].DefaultReasoningEffort = effort
-		}
-	}
 }
 
 func (s *Server) mapAgentChatSummaries(items []chat.Summary) ([]api.ChatSummaryResponse, error) {

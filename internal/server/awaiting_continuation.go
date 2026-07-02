@@ -236,7 +236,7 @@ func queryRequestForAwaitingContinuation(original *chat.QueryLine, submitReq api
 	}
 	req.ChatID = firstNonBlank(req.ChatID, submitReq.ChatID, summary.ChatID)
 	req.RunID = firstNonBlank(submitReq.ContinuationRunID, submitReq.RunID, req.RunID)
-	req.RequestID = firstNonBlank(submitReq.SubmitID, req.RequestID, req.RunID)
+	req.RequestID = firstNonBlank(submitReq.SubmitID, req.RunID)
 	req.AgentKey = firstNonBlank(submitReq.AgentKey, req.AgentKey, summary.AgentKey, agentDef.Key)
 	req.TeamID = firstNonBlank(req.TeamID, summary.TeamID)
 	req.Role = api.QueryRoleSystem
@@ -260,7 +260,7 @@ func queryRequestForPlanApproveContinuation(original *chat.QueryLine, submitReq 
 	originalMessage := strings.TrimSpace(req.Message)
 	req.ChatID = firstNonBlank(req.ChatID, submitReq.ChatID, summary.ChatID)
 	req.RunID = firstNonBlank(submitReq.ContinuationRunID, submitReq.RunID, req.RunID)
-	req.RequestID = firstNonBlank(submitReq.SubmitID, req.RequestID, req.RunID)
+	req.RequestID = firstNonBlank(submitReq.SubmitID, req.RunID)
 	req.AgentKey = firstNonBlank(submitReq.AgentKey, req.AgentKey, summary.AgentKey, agentDef.Key)
 	req.TeamID = firstNonBlank(req.TeamID, summary.TeamID)
 	req.Role = api.QueryRoleSystem
@@ -326,8 +326,6 @@ func coderPlanApproveSyntheticBootstrap(session contracts.QuerySession) *stream.
 		ChatID:   session.ChatID,
 		Role:     api.QueryRoleUser,
 		Message:  agentcoder.ExecuteSyntheticQueryMessage(session.Locale),
-		Stage:    "coder-execute",
-		Source:   "coder-plan-approve",
 		Messages: cloneMessageMapsForSyntheticBootstrap(session.CurrentMessages),
 		Systems:  systemPayloadsFromSessionCache(session.SystemInitCache, "coder:execute"),
 	}

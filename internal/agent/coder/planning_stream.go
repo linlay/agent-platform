@@ -700,8 +700,6 @@ func (s *coderPlanningStream) startExecutionStage() error {
 			ChatID:  s.session.ChatID,
 			Role:    "user",
 			Message: ExecuteSyntheticQueryMessage(s.session.Locale),
-			Stage:   "coder-execute",
-			Source:  "coder-plan-approve",
 			Messages: []map[string]any{{
 				"role":    "user",
 				"content": executePrompt,

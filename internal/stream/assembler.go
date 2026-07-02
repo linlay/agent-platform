@@ -141,18 +141,16 @@ func syntheticQueryPayload(request StreamRequest, value SyntheticQuery) map[stri
 	if chatID == "" {
 		chatID = request.ChatID
 	}
+	requestID := request.RequestID
+	if requestID == "" {
+		requestID = request.RunID
+	}
 	payload := map[string]any{
+		"requestId": requestID,
 		"runId":     request.RunID,
 		"chatId":    chatID,
 		"role":      value.Role,
 		"message":   value.Message,
-		"synthetic": true,
-	}
-	if value.Stage != "" {
-		payload["stage"] = value.Stage
-	}
-	if value.Source != "" {
-		payload["source"] = value.Source
 	}
 	if len(value.Messages) > 0 {
 		payload["messages"] = cloneMessagePayloads(value.Messages)

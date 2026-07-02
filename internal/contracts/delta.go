@@ -58,8 +58,6 @@ type DeltaSyntheticQuery struct {
 	ChatID   string
 	Role     string
 	Message  string
-	Stage    string
-	Source   string
 	Messages []map[string]any
 	Systems  []map[string]any
 }

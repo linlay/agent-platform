@@ -1404,7 +1404,7 @@ Plan first, then check the current time before reporting.
 	}
 	assertPersistedPlanningModeRequestQuery(t, fixture.server)
 	assertJSONLFinalizePlanningHistory(t, fixture.chats, chatID, map[string]string{"tool_plan": "approve"})
-	assertJSONLCoderExecuteSyntheticQuery(t, fixture.chats, chatID, "Execute plan")
+	assertJSONLCoderExecuteBootstrapQuery(t, fixture.chats, chatID, "Execute plan")
 }
 
 func TestFinalizePlanningStreamsDeltasBeforeProviderFinishes(t *testing.T) {
@@ -1987,7 +1987,7 @@ func waitForJSONLCoderExecuteRunID(t *testing.T, store chat.Store, chatID string
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("timed out waiting for coder execute synthetic query in chat %s", chatID)
+	t.Fatalf("timed out waiting for coder execute query in chat %s", chatID)
 	return ""
 }
 
@@ -2010,8 +2010,7 @@ func jsonLCoderExecuteRunID(t *testing.T, store chat.Store, chatID string, oldRu
 			continue
 		}
 		query, _ := line["query"].(map[string]any)
-		if query["synthetic"] != true || stringValue(query["stage"]) != "coder-execute" ||
-			stringValue(query["source"]) != "coder-plan-approve" {
+		if stringValue(query["message"]) != "Execute plan" {
 			continue
 		}
 		runID := stringValue(line["runId"])
@@ -2045,20 +2044,21 @@ func assertAttachedCoderExecuteRun(t *testing.T, body string, runID string, chat
 	if !strings.Contains(body, wantContent) {
 		t.Fatalf("expected attached execution content %q, got %s", wantContent, body)
 	}
-	if !strings.Contains(body, `"source":"coder-plan-approve"`) || !strings.Contains(body, `"stage":"coder-execute"`) {
-		t.Fatalf("expected attached synthetic execute query metadata, got %s", body)
-	}
 	messages := decodeSSEMessages(t, body)
 	if len(messages) < 3 {
 		t.Fatalf("expected attached execution replay, got %s", body)
 	}
 	if messages[0]["type"] != "request.query" || stringValue(messages[0]["runId"]) != runID ||
-		messages[0]["synthetic"] != true || stringValue(messages[0]["stage"]) != "coder-execute" ||
-		stringValue(messages[0]["source"]) != "coder-plan-approve" {
-		t.Fatalf("expected first attached event to be synthetic request.query, got %#v in %s", messages[0], body)
+		stringValue(messages[0]["requestId"]) != runID || stringValue(messages[0]["message"]) != "Execute plan" {
+		t.Fatalf("expected first attached event to be execute request.query, got %#v in %s", messages[0], body)
+	}
+	for _, field := range []string{"synthetic", "stage", "source"} {
+		if _, ok := messages[0][field]; ok {
+			t.Fatalf("did not expect %s on attached request.query, got %#v in %s", field, messages[0], body)
+		}
 	}
 	if seq, ok := messages[0]["seq"].(float64); !ok || seq != 1 {
-		t.Fatalf("expected synthetic request.query seq=1, got %#v", messages[0])
+		t.Fatalf("expected execute request.query seq=1, got %#v", messages[0])
 	}
 	if messages[1]["type"] != "run.start" || stringValue(messages[1]["runId"]) != runID {
 		t.Fatalf("expected second attached event to be run.start for %s, got %#v in %s", runID, messages[1], body)
@@ -2398,7 +2398,7 @@ func assertJSONLFinalizePlanningHistory(t *testing.T, store chat.Store, chatID s
 	}
 }
 
-func assertJSONLCoderExecuteSyntheticQuery(t *testing.T, store chat.Store, chatID string, wantMessage string) {
+func assertJSONLCoderExecuteBootstrapQuery(t *testing.T, store chat.Store, chatID string, wantMessage string) {
 	t.Helper()
 	content, err := store.LoadJSONLContent(chatID)
 	if err != nil {
@@ -2420,6 +2420,7 @@ func assertJSONLCoderExecuteSyntheticQuery(t *testing.T, store chat.Store, chatI
 		if stringValue(line["_type"]) != chat.StepLineTypeReactTool || !lineHasFinalizePlanningToolResultForServerTest(line) {
 			continue
 		}
+		sourceRunID := stringValue(line["runId"])
 		queryIndex := -1
 		var queryLine map[string]any
 		for scan := index + 1; scan < len(lines); scan++ {
@@ -2428,29 +2429,40 @@ func assertJSONLCoderExecuteSyntheticQuery(t *testing.T, store chat.Store, chatI
 				continue
 			}
 			query, _ := candidate["query"].(map[string]any)
-			if query["synthetic"] == true && stringValue(query["stage"]) == "coder-execute" && stringValue(query["source"]) == "coder-plan-approve" {
+			if stringValue(query["message"]) == wantMessage && stringValue(candidate["runId"]) != "" && stringValue(candidate["runId"]) != sourceRunID {
 				queryIndex = scan
 				queryLine = candidate
 				break
 			}
 		}
 		if queryIndex < 0 {
-			t.Fatalf("expected synthetic query after react-tool, got none in:\n%s", content)
+			t.Fatalf("expected execute bootstrap query after react-tool, got none in:\n%s", content)
 		}
 		query, _ := queryLine["query"].(map[string]any)
-		if query["synthetic"] != true || stringValue(query["message"]) != wantMessage ||
-			stringValue(query["stage"]) != "coder-execute" || stringValue(query["source"]) != "coder-plan-approve" {
-			t.Fatalf("unexpected synthetic query payload %#v in:\n%s", query, content)
+		if stringValue(query["message"]) != wantMessage {
+			t.Fatalf("unexpected execute bootstrap query payload %#v in:\n%s", query, content)
+		}
+		queryRunID := stringValue(queryLine["runId"])
+		if queryRunID == "" || queryRunID == sourceRunID {
+			t.Fatalf("expected execute bootstrap query to use new run id, got %#v in:\n%s", queryLine, content)
+		}
+		if stringValue(query["requestId"]) != queryRunID {
+			t.Fatalf("expected execute bootstrap requestId to fallback to runId %q, got %#v in:\n%s", queryRunID, query, content)
+		}
+		for _, field := range []string{"synthetic", "stage", "source"} {
+			if _, ok := query[field]; ok {
+				t.Fatalf("did not expect %s in execute bootstrap query payload %#v", field, query)
+			}
 		}
 		if _, ok := query["messages"]; ok {
-			t.Fatalf("did not expect messages inside synthetic query payload %#v", query)
+			t.Fatalf("did not expect messages inside execute bootstrap query payload %#v", query)
 		}
 		if _, ok := query["systems"]; ok {
-			t.Fatalf("did not expect systems inside synthetic query payload %#v", query)
+			t.Fatalf("did not expect systems inside execute bootstrap query payload %#v", query)
 		}
 		rawSystems, _ := queryLine["systems"].([]any)
 		if len(rawSystems) != 1 {
-			t.Fatalf("expected execute system on synthetic query, got %#v", queryLine)
+			t.Fatalf("expected execute system on bootstrap query, got %#v", queryLine)
 		}
 		systemKeys := map[string]bool{}
 		for _, rawSystem := range rawSystems {
@@ -2462,7 +2474,7 @@ func assertJSONLCoderExecuteSyntheticQuery(t *testing.T, store chat.Store, chatI
 		}
 		rawMessages, _ := queryLine["messages"].([]any)
 		if len(rawMessages) != 1 {
-			t.Fatalf("expected one synthetic query model message, got %#v in:\n%s", queryLine, content)
+			t.Fatalf("expected one execute query model message, got %#v in:\n%s", queryLine, content)
 		}
 		message, _ := rawMessages[0].(map[string]any)
 		executePrompt := textFromJSONLMessageContentForServerTest(message["content"])
@@ -2470,9 +2482,8 @@ func assertJSONLCoderExecuteSyntheticQuery(t *testing.T, store chat.Store, chatI
 			!strings.Contains(executePrompt, "Execute the confirmed CODER plan.") ||
 			!strings.Contains(executePrompt, "Original request:\nplease plan first") ||
 			!strings.Contains(executePrompt, "Confirmed plan:\n# Confirm Coder Plan") {
-			t.Fatalf("unexpected synthetic query model message %#v", message)
+			t.Fatalf("unexpected execute query model message %#v", message)
 		}
-		queryRunID := stringValue(queryLine["runId"])
 		var executeLine map[string]any
 		for scan := queryIndex + 1; scan < len(lines); scan++ {
 			candidate := lines[scan]
@@ -2486,10 +2497,10 @@ func assertJSONLCoderExecuteSyntheticQuery(t *testing.T, store chat.Store, chatI
 			break
 		}
 		if executeLine == nil {
-			t.Fatalf("expected execute react after synthetic query, got none in:\n%s", content)
+			t.Fatalf("expected execute react after bootstrap query, got none in:\n%s", content)
 		}
 		if stringValue(executeLine["_type"]) != chat.StepLineTypeReact {
-			t.Fatalf("expected execute react after synthetic query, got %#v in:\n%s", executeLine, content)
+			t.Fatalf("expected execute react after bootstrap query, got %#v in:\n%s", executeLine, content)
 		}
 		if _, ok := executeLine["inputMessages"]; ok {
 			t.Fatalf("did not expect duplicate execute inputMessages on first execute react %#v", executeLine)

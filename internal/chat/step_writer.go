@@ -382,15 +382,16 @@ func (w *StepWriter) RecordApproval(approval StepApproval) {
 // ---------------------------------------------------------------------------
 
 func (w *StepWriter) handleRequestQuery(event stream.EventData) {
-	synthetic := boolFromAny(event.Value("synthetic"))
-	if w.queryWritten && !synthetic {
+	_, hasMessages := event.Payload["messages"]
+	_, hasSystems := event.Payload["systems"]
+	bootstrapQuery := hasMessages || hasSystems
+	if w.queryWritten && !bootstrapQuery {
 		return
 	}
-	if !synthetic {
-		w.queryWritten = true
-	} else {
+	if bootstrapQuery {
 		w.flushCurrentStep()
 	}
+	w.queryWritten = true
 
 	query := map[string]any{}
 	// Copy all payload fields into query, excluding seq/type/timestamp
@@ -402,7 +403,7 @@ func (w *StepWriter) handleRequestQuery(event stream.EventData) {
 	}
 	messages := cloneMessageMaps(w.pendingQueryMessages)
 	systems := append([]QueryLineSystemInit(nil), w.pendingSystemInits...)
-	if synthetic {
+	if bootstrapQuery {
 		messages = messagesFromEventValue(event.Value("messages"))
 		systems = systemsFromEventValue(event.Value("systems"))
 	}
@@ -417,7 +418,7 @@ func (w *StepWriter) handleRequestQuery(event stream.EventData) {
 		Messages:  messages,
 		Systems:   systems,
 	})
-	if !synthetic {
+	if !bootstrapQuery {
 		w.pendingSystemInits = nil
 		w.pendingQueryMessages = nil
 	}
