@@ -60,6 +60,45 @@ func TestAssemblerBootstrapSkipsChatStartForExistingChat(t *testing.T) {
 	assertStampedTypes(t, bootstrap, "request.query", "run.start")
 }
 
+func TestAssemblerBootstrapCanUseSyntheticQuery(t *testing.T) {
+	assembler := NewAssembler(StreamRequest{
+		RunID:    "run_exec",
+		ChatID:   "chat_1",
+		AgentKey: "coder",
+		Role:     "system",
+		BootstrapSynthetic: &SyntheticQuery{
+			ChatID:  "chat_1",
+			Role:    "user",
+			Message: "Execute plan",
+			Stage:   "coder-execute",
+			Source:  "coder-plan-approve",
+			Messages: []map[string]any{{
+				"role":    "user",
+				"content": "Execute the confirmed CODER plan.",
+			}},
+			Systems: []map[string]any{{
+				"cacheKey":    "coder:execute",
+				"fingerprint": "fp_1",
+			}},
+		},
+	})
+
+	bootstrap := assembler.Bootstrap()
+	assertStampedTypes(t, bootstrap, "request.query", "run.start")
+	query := bootstrap[0].ToData()
+	if query["runId"] != "run_exec" || query["synthetic"] != true ||
+		query["message"] != "Execute plan" || query["stage"] != "coder-execute" ||
+		query["source"] != "coder-plan-approve" {
+		t.Fatalf("unexpected synthetic bootstrap query %#v", query)
+	}
+	if _, ok := query["messages"]; !ok {
+		t.Fatalf("expected synthetic bootstrap query to carry messages for persistence: %#v", query)
+	}
+	if _, ok := query["systems"]; !ok {
+		t.Fatalf("expected synthetic bootstrap query to carry systems for persistence: %#v", query)
+	}
+}
+
 func TestAssemblerBootstrapIncludesOptionalQueryContext(t *testing.T) {
 	assembler := NewAssembler(StreamRequest{
 		RequestID: "req_3",

@@ -1392,7 +1392,11 @@ Plan first, then check the current time before reporting.
 	if strings.Contains(body, "confirmed plan completed") || strings.Contains(body, "coder-summary") {
 		t.Fatalf("did not expect a separate coder summary stage, got %s", body)
 	}
-	executionRunID := handoffRunIDAfterComplete(t, body, runID, chatID, "coder-app")
+	if got := countRunStartsForDifferentRun(t, body, runID); got != 0 {
+		t.Fatalf("did not expect continuation run.start in planning stream, got %d in %s", got, body)
+	}
+	waitForProviderCallCount(t, &providerCallCount, 5)
+	executionRunID := waitForJSONLCoderExecuteRunID(t, fixture.chats, chatID, runID)
 	executionBody := attachRunSSE(t, httpServer.URL, "coder-app", executionRunID)
 	assertAttachedCoderExecuteRun(t, executionBody, executionRunID, chatID, "coder-app", "execution completed")
 	if got := providerCallCount.Load(); got != 5 {
@@ -1814,7 +1818,11 @@ Revised plan with explicit test coverage.
 	if strings.Contains(body, "summary for revised plan") || strings.Contains(body, "coder-summary") {
 		t.Fatalf("did not expect a separate coder summary stage, got %s", body)
 	}
-	executionRunID := handoffRunIDAfterComplete(t, body, runID, chatID, "coder-app")
+	if got := countRunStartsForDifferentRun(t, body, runID); got != 0 {
+		t.Fatalf("did not expect continuation run.start in planning stream, got %d in %s", got, body)
+	}
+	waitForProviderCallCount(t, &providerCallCount, 3)
+	executionRunID := waitForJSONLCoderExecuteRunID(t, fixture.chats, chatID, runID)
 	executionBody := attachRunSSE(t, httpServer.URL, "coder-app", executionRunID)
 	assertAttachedCoderExecuteRun(t, executionBody, executionRunID, chatID, "coder-app", "executed revised plan")
 	if got := providerCallCount.Load(); got != 3 {
@@ -1944,31 +1952,6 @@ func readRemainingSSEUntilEOF(t *testing.T, reader *bufio.Reader, streamBody *st
 	}
 }
 
-func handoffRunIDAfterComplete(t *testing.T, body string, oldRunID string, wantChatID string, wantAgentKey string) string {
-	t.Helper()
-	seenOldComplete := false
-	for _, message := range decodeSSEMessages(t, body) {
-		eventType := stringValue(message["type"])
-		runID := stringValue(message["runId"])
-		if eventType == "run.complete" && runID == oldRunID {
-			seenOldComplete = true
-			continue
-		}
-		if !seenOldComplete || eventType != "run.start" || runID == "" || runID == oldRunID {
-			continue
-		}
-		if got := stringValue(message["chatId"]); got != wantChatID {
-			t.Fatalf("handoff run.start chatId = %q, want %q in %#v", got, wantChatID, message)
-		}
-		if got := stringValue(message["agentKey"]); got != wantAgentKey {
-			t.Fatalf("handoff run.start agentKey = %q, want %q in %#v", got, wantAgentKey, message)
-		}
-		return runID
-	}
-	t.Fatalf("expected new run.start after old run.complete for %s, got %s", oldRunID, body)
-	return ""
-}
-
 func countRunStartsForDifferentRun(t *testing.T, body string, oldRunID string) int {
 	t.Helper()
 	count := 0
@@ -1981,6 +1964,62 @@ func countRunStartsForDifferentRun(t *testing.T, body string, oldRunID string) i
 		}
 	}
 	return count
+}
+
+func waitForProviderCallCount(t *testing.T, counter *atomic.Int32, want int32) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if counter.Load() >= want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for provider calls >= %d, got %d", want, counter.Load())
+}
+
+func waitForJSONLCoderExecuteRunID(t *testing.T, store chat.Store, chatID string, oldRunID string) string {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if runID := jsonLCoderExecuteRunID(t, store, chatID, oldRunID); runID != "" {
+			return runID
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for coder execute synthetic query in chat %s", chatID)
+	return ""
+}
+
+func jsonLCoderExecuteRunID(t *testing.T, store chat.Store, chatID string, oldRunID string) string {
+	t.Helper()
+	content, err := store.LoadJSONLContent(chatID)
+	if err != nil {
+		return ""
+	}
+	decoder := json.NewDecoder(strings.NewReader(content))
+	for {
+		var line map[string]any
+		if err := decoder.Decode(&line); err != nil {
+			if errors.Is(err, io.EOF) {
+				return ""
+			}
+			t.Fatalf("decode chat jsonl line: %v\n%s", err, content)
+		}
+		if stringValue(line["_type"]) != "query" {
+			continue
+		}
+		query, _ := line["query"].(map[string]any)
+		if query["synthetic"] != true || stringValue(query["stage"]) != "coder-execute" ||
+			stringValue(query["source"]) != "coder-plan-approve" {
+			continue
+		}
+		runID := stringValue(line["runId"])
+		if runID == "" || runID == oldRunID {
+			continue
+		}
+		return runID
+	}
 }
 
 func attachRunSSE(t *testing.T, baseURL string, agentKey string, runID string) string {
@@ -2009,15 +2048,31 @@ func assertAttachedCoderExecuteRun(t *testing.T, body string, runID string, chat
 	if !strings.Contains(body, `"source":"coder-plan-approve"`) || !strings.Contains(body, `"stage":"coder-execute"`) {
 		t.Fatalf("expected attached synthetic execute query metadata, got %s", body)
 	}
-	foundStart := false
+	messages := decodeSSEMessages(t, body)
+	if len(messages) < 3 {
+		t.Fatalf("expected attached execution replay, got %s", body)
+	}
+	if messages[0]["type"] != "request.query" || stringValue(messages[0]["runId"]) != runID ||
+		messages[0]["synthetic"] != true || stringValue(messages[0]["stage"]) != "coder-execute" ||
+		stringValue(messages[0]["source"]) != "coder-plan-approve" {
+		t.Fatalf("expected first attached event to be synthetic request.query, got %#v in %s", messages[0], body)
+	}
+	if seq, ok := messages[0]["seq"].(float64); !ok || seq != 1 {
+		t.Fatalf("expected synthetic request.query seq=1, got %#v", messages[0])
+	}
+	if messages[1]["type"] != "run.start" || stringValue(messages[1]["runId"]) != runID {
+		t.Fatalf("expected second attached event to be run.start for %s, got %#v in %s", runID, messages[1], body)
+	}
+	if seq, ok := messages[1]["seq"].(float64); !ok || seq != 2 {
+		t.Fatalf("expected attached run.start seq=2, got %#v", messages[1])
+	}
 	foundComplete := false
-	for _, message := range decodeSSEMessages(t, body) {
+	for _, message := range messages {
 		if stringValue(message["runId"]) != runID {
 			continue
 		}
 		switch message["type"] {
 		case "run.start":
-			foundStart = true
 			if got := stringValue(message["chatId"]); got != chatID {
 				t.Fatalf("attached run.start chatId = %q, want %q in %#v", got, chatID, message)
 			}
@@ -2028,8 +2083,8 @@ func assertAttachedCoderExecuteRun(t *testing.T, body string, runID string, chat
 			foundComplete = true
 		}
 	}
-	if !foundStart || !foundComplete {
-		t.Fatalf("expected attached run.start and run.complete for %s, got %s", runID, body)
+	if !foundComplete {
+		t.Fatalf("expected attached run.complete for %s, got %s", runID, body)
 	}
 }
 

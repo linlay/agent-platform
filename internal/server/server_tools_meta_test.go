@@ -59,17 +59,16 @@ func TestAdminToolsSourceCategoryFiltering(t *testing.T) {
 	if len(all) != 3 {
 		t.Fatalf("expected all three tools, got %#v", all)
 	}
-	assertToolSourceCategory(t, all, "bash", "platform")
-	assertToolSourceCategory(t, all, "qs_read", "external")
-	assertToolSourceCategory(t, all, "remote_tool", "mcp")
+	assertToolSummary(t, all, "bash", "backend", "local", "platform", "")
+	assertToolSummary(t, all, "qs_read", "external", "agent-local", "external", "")
+	assertToolSummary(t, all, "remote_tool", "backend", "mcp", "mcp", "demo")
+	assertAdminToolsResponseOmitsMeta(t, server, "/api/admin/tools")
 
-	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?source=platform"), []string{"bash"})
-	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?source=external"), []string{"qs_read"})
-	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?source=mcp"), []string{"remote_tool"})
+	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?source=mcp"), []string{"bash", "qs_read", "remote_tool"})
 	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?sourceCategory=mcp"), []string{"remote_tool"})
 	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?kind=external"), []string{"qs_read"})
-	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?kind=external&source=mcp"), nil)
-	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?source=does-not-exist"), nil)
+	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?kind=external&sourceCategory=mcp"), nil)
+	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?sourceCategory=does-not-exist"), nil)
 }
 
 func requestAdminTools(t *testing.T, server *Server, path string) []api.ToolSummary {
@@ -90,21 +89,55 @@ func requestAdminTools(t *testing.T, server *Server, path string) []api.ToolSumm
 	return response.Data
 }
 
-func assertToolSourceCategory(t *testing.T, tools []api.ToolSummary, name string, want string) {
+func assertToolSummary(t *testing.T, tools []api.ToolSummary, name string, wantKind string, wantSourceType string, wantSourceCategory string, wantServerKey string) {
 	t.Helper()
 	for _, tool := range tools {
 		if tool.Name != name {
 			continue
 		}
-		if tool.SourceCategory != want {
-			t.Fatalf("tool %s sourceCategory = %q, want %q", name, tool.SourceCategory, want)
+		if tool.Kind != wantKind {
+			t.Fatalf("tool %s kind = %q, want %q", name, tool.Kind, wantKind)
 		}
-		if tool.Meta["sourceCategory"] != want {
-			t.Fatalf("tool %s meta.sourceCategory = %#v, want %q", name, tool.Meta["sourceCategory"], want)
+		if tool.SourceType != wantSourceType {
+			t.Fatalf("tool %s sourceType = %q, want %q", name, tool.SourceType, wantSourceType)
+		}
+		if tool.SourceCategory != wantSourceCategory {
+			t.Fatalf("tool %s sourceCategory = %q, want %q", name, tool.SourceCategory, wantSourceCategory)
+		}
+		if tool.ServerKey != wantServerKey {
+			t.Fatalf("tool %s serverKey = %q, want %q", name, tool.ServerKey, wantServerKey)
 		}
 		return
 	}
 	t.Fatalf("tool %s not found in %#v", name, tools)
+}
+
+func assertAdminToolsResponseOmitsMeta(t *testing.T, server *Server, path string) {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	server.handleTools(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET %s expected 200, got %d: %s", path, rec.Code, rec.Body.String())
+	}
+	var response api.ApiResponse[[]map[string]any]
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	for _, tool := range response.Data {
+		if _, ok := tool["meta"]; ok {
+			t.Fatalf("expected /api/admin/tools item to omit meta, got %#v", tool)
+		}
+		if tool["sourceType"] == "mcp" {
+			if tool["serverKey"] == "" {
+				t.Fatalf("expected mcp tool to include serverKey, got %#v", tool)
+			}
+			continue
+		}
+		if _, ok := tool["serverKey"]; ok {
+			t.Fatalf("expected non-mcp tool to omit serverKey, got %#v", tool)
+		}
+	}
 }
 
 func assertToolNames(t *testing.T, tools []api.ToolSummary, want []string) {

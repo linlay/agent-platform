@@ -59,20 +59,23 @@ func (coderMode) Start(engine *LLMAgentEngine, ctx context.Context, req api.Quer
 		if err != nil {
 			return nil, err
 		}
+		pending := []AgentDelta{
+			DeltaStageMarker{Stage: "coder-execute"},
+		}
+		if !req.SyntheticQueryBootstrapped {
+			pending = append(pending, DeltaSyntheticQuery{
+				ChatID:   session.ChatID,
+				Role:     api.QueryRoleUser,
+				Message:  agentcoder.ExecuteSyntheticQueryMessage(session.Locale),
+				Stage:    "coder-execute",
+				Source:   "coder-plan-approve",
+				Messages: cloneRawMessageMaps(session.CurrentMessages),
+				Systems:  systemPayloadsFromCache(session.SystemInitCache, "coder:execute"),
+			})
+		}
 		return &prefixedAgentStream{
-			pending: []AgentDelta{
-				DeltaStageMarker{Stage: "coder-execute"},
-				DeltaSyntheticQuery{
-					ChatID:   session.ChatID,
-					Role:     api.QueryRoleUser,
-					Message:  agentcoder.ExecuteSyntheticQueryMessage(session.Locale),
-					Stage:    "coder-execute",
-					Source:   "coder-plan-approve",
-					Messages: cloneRawMessageMaps(session.CurrentMessages),
-					Systems:  systemPayloadsFromCache(session.SystemInitCache, "coder:execute"),
-				},
-			},
-			stream: stream,
+			pending: pending,
+			stream:  stream,
 		}, nil
 	}
 	return engine.newRunStreamWithOptions(ctx, req, session, true, runStreamOptions{

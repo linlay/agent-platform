@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 
 	"agent-platform/internal/api"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/plantasks"
 )
 
 const defaultTaskExecutionPromptTemplate = `Task list:
@@ -287,6 +289,8 @@ func (s *planPipelineStream) emitTaskTerminal(task *PlanTask, status string) {
 
 func (s *planPipelineStream) emitTaskFailure(task *PlanTask, message string) {
 	task.Status = "failed"
+	s.execCtx.PlanState.ActiveTaskID = ""
+	s.persistPlanTasksSnapshot()
 	s.pending = append(s.pending, DeltaPlanUpdate{
 		PlanID: s.execCtx.PlanState.PlanID,
 		ChatID: s.session.ChatID,
@@ -299,7 +303,15 @@ func (s *planPipelineStream) emitTaskFailure(task *PlanTask, message string) {
 			ErrorScopeTask, ErrorCategorySystem, map[string]any{"taskId": task.TaskID}),
 	})
 	s.taskIndex++
-	s.execCtx.PlanState.ActiveTaskID = ""
+}
+
+func (s *planPipelineStream) persistPlanTasksSnapshot() {
+	if s == nil || s.execCtx == nil {
+		return
+	}
+	if path, err := plantasks.PersistExecutionContext("", s.execCtx); err != nil {
+		log.Printf("[llm][plan] write plan task snapshot failed runId=%s path=%s err=%v", s.session.RunID, path, err)
+	}
 }
 
 func (s *planPipelineStream) startPlanStage() error {

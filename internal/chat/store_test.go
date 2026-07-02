@@ -2555,7 +2555,63 @@ func TestStepWriterPlanningDeltasAreLiveOnly(t *testing.T) {
 	}
 }
 
-func TestLoadChatPlanRemainsFromJSONLWhenPlanTaskSnapshotExists(t *testing.T) {
+func TestStepWriterDoesNotPersistPlanUpdateOnStepLines(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-plan-update-live-only"
+	writer := NewStepWriter(store, chatID, "run-plan-update-live-only", "react")
+	writer.OnEvent(stream.EventData{
+		Seq:       10,
+		Type:      "tool.snapshot",
+		Timestamp: 1001,
+		Payload: map[string]any{
+			"toolId":    "tool_plan",
+			"toolName":  "plan_add_tasks",
+			"arguments": `{"description":"first task"}`,
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Seq:       11,
+		Type:      "tool.result",
+		Timestamp: 1002,
+		Payload: map[string]any{
+			"toolId":   "tool_plan",
+			"toolName": "plan_add_tasks",
+			"result":   "OK",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Seq:       12,
+		Type:      "plan.update",
+		Timestamp: 1003,
+		Payload: map[string]any{
+			"planId": "run-plan-update-live-only_plan",
+			"plan": []map[string]any{{
+				"taskId":      "task_1",
+				"description": "first task",
+				"status":      "init",
+			}},
+		},
+	})
+	writer.Flush()
+
+	lines, err := readJSONLines(store.chatJSONLPath(chatID))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("expected assistant tool call and tool result step lines, got %#v", lines)
+	}
+	for _, line := range lines {
+		if _, ok := line["plan"]; ok {
+			t.Fatalf("did not expect step line to persist plan sidecar, got %#v", line)
+		}
+	}
+}
+
+func TestLoadChatPlanPrefersPlanTaskSnapshotOverLegacyJSONL(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
@@ -2595,8 +2651,45 @@ func TestLoadChatPlanRemainsFromJSONLWhenPlanTaskSnapshotExists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load chat: %v", err)
 	}
+	if detail.Plan == nil || detail.Plan.PlanID != "snapshot_plan" || len(detail.Plan.Tasks) != 1 || detail.Plan.Tasks[0].TaskID != "snapshot_task" {
+		t.Fatalf("expected replay plan from plan task snapshot, got %#v", detail.Plan)
+	}
+}
+
+func TestLoadChatPlanFallsBackToLegacyJSONLWhenPlanTaskSnapshotMissing(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-legacy-jsonl-plan"
+	runID := "run-jsonl"
+	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := store.AppendStepLine(chatID, StepLine{
+		Type:      StepLineTypeReact,
+		ChatID:    chatID,
+		RunID:     runID,
+		UpdatedAt: 1001,
+		Messages:  []StoredMessage{},
+		Plan: &PlanState{
+			PlanID: "jsonl_plan",
+			Tasks: []PlanTaskState{{
+				TaskID:      "jsonl_task",
+				Description: "JSONL task",
+				Status:      "completed",
+			}},
+		},
+	}); err != nil {
+		t.Fatalf("append step: %v", err)
+	}
+
+	detail, err := store.LoadChat(chatID)
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
 	if detail.Plan == nil || detail.Plan.PlanID != "jsonl_plan" || len(detail.Plan.Tasks) != 1 || detail.Plan.Tasks[0].TaskID != "jsonl_task" {
-		t.Fatalf("expected replay plan from JSONL, got %#v", detail.Plan)
+		t.Fatalf("expected legacy JSONL plan fallback, got %#v", detail.Plan)
 	}
 }
 

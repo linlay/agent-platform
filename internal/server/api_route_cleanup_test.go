@@ -30,6 +30,10 @@ func TestCatalogTagParametersAreIgnored(t *testing.T) {
 	if len(tools) != len(toolsWithTag) {
 		t.Fatalf("expected tools tag parameter to be ignored: all=%d tagged=%d", len(tools), len(toolsWithTag))
 	}
+	toolsWithSource := getAPIData[[]api.ToolSummary](t, fixture.server, http.MethodGet, "/api/admin/tools?source=does-not-filter", nil)
+	if len(tools) != len(toolsWithSource) {
+		t.Fatalf("expected tools source alias to be ignored: all=%d source=%d", len(tools), len(toolsWithSource))
+	}
 	kindTools := getAPIData[[]api.ToolSummary](t, fixture.server, http.MethodGet, "/api/admin/tools?kind=does-not-exist", nil)
 	if len(kindTools) != 0 || len(kindTools) > len(tools) {
 		t.Fatalf("expected kind filter to remain active: all=%d kind=%d", len(tools), len(kindTools))

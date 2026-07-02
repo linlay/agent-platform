@@ -7,6 +7,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	contracts "agent-platform/internal/contracts"
+	"agent-platform/internal/plantasks"
 )
 
 func TestPlanStageToolsDefaultsToPlanAddTasksOnly(t *testing.T) {
@@ -55,6 +56,41 @@ func TestPlanStagePostToolHookStopsAfterTasksCreated(t *testing.T) {
 	stream.execCtx.PlanState.Tasks = []contracts.PlanTask{{TaskID: "task_1", Description: "first task"}}
 	if got := stream.planStagePostToolHook("plan_add_tasks", "tool_1"); got != contracts.PostToolStop {
 		t.Fatalf("created-plan hook=%v want %v", got, contracts.PostToolStop)
+	}
+}
+
+func TestPlanExecuteTaskFailurePersistsPlanTaskSnapshot(t *testing.T) {
+	root := t.TempDir()
+	stream := &planPipelineStream{
+		session: contracts.QuerySession{RunID: "run_failed", ChatID: "chat_failed"},
+		execCtx: &contracts.ExecutionContext{
+			Session: contracts.QuerySession{
+				RunID:  "run_failed",
+				ChatID: "chat_failed",
+				RuntimeContext: contracts.RuntimeRequestContext{
+					LocalPaths: contracts.LocalPaths{ChatsDir: root},
+				},
+			},
+			PlanState: &contracts.PlanRuntimeState{
+				PlanID:       "run_failed_plan",
+				ActiveTaskID: "task_1",
+				Tasks: []contracts.PlanTask{{
+					TaskID:      "task_1",
+					Description: "first task",
+					Status:      "in_progress",
+				}},
+			},
+		},
+	}
+
+	stream.emitTaskFailure(&stream.execCtx.PlanState.Tasks[0], "boom")
+
+	snapshot, err := plantasks.LoadFile(plantasks.Path(root, "chat_failed", "run_failed"))
+	if err != nil {
+		t.Fatalf("load plan task snapshot: %v", err)
+	}
+	if snapshot.PlanID != "run_failed_plan" || snapshot.CurrentTaskID != "" || len(snapshot.Tasks) != 1 || snapshot.Tasks[0].Status != "failed" {
+		t.Fatalf("unexpected snapshot after task failure: %#v", snapshot)
 	}
 }
 

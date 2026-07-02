@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/contracts"
 )
 
 func (r *FileRegistry) Teams() []api.TeamSummary {
@@ -88,17 +87,20 @@ func (r *FileRegistry) Tools(kind string, tag string) []api.ToolSummary {
 			continue
 		}
 		sourceCategory := toolSummarySourceCategory(tool)
-		meta := contracts.CloneMap(tool.Meta)
-		if sourceCategory != "" {
-			meta["sourceCategory"] = sourceCategory
+		sourceType := strings.TrimSpace(anyStringValue(tool.Meta["sourceType"]))
+		serverKey := ""
+		if strings.EqualFold(sourceType, "mcp") {
+			serverKey = strings.TrimSpace(anyStringValue(tool.Meta["serverKey"]))
 		}
 		items = append(items, api.ToolSummary{
 			Key:            tool.Key,
 			Name:           tool.Name,
 			Label:          tool.Label,
 			Description:    tool.Description,
+			Kind:           strings.TrimSpace(metaKind),
+			SourceType:     sourceType,
 			SourceCategory: sourceCategory,
-			Meta:           meta,
+			ServerKey:      serverKey,
 		})
 	}
 	return items

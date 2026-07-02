@@ -3,6 +3,7 @@ package chat
 import (
 	"strings"
 
+	"agent-platform/internal/plantasks"
 	"agent-platform/internal/stream"
 )
 
@@ -180,6 +181,21 @@ func parsePlanFromStep(raw map[string]any) *PlanState {
 			TaskID:      stringValue(tMap["taskId"]),
 			Description: stringValue(tMap["description"]),
 			Status:      stringValue(tMap["status"]),
+		})
+	}
+	return plan
+}
+
+func planStateFromTaskSnapshot(snapshot *plantasks.Snapshot) *PlanState {
+	if snapshot == nil {
+		return nil
+	}
+	plan := &PlanState{PlanID: snapshot.PlanID, Tasks: []PlanTaskState{}}
+	for _, task := range snapshot.Tasks {
+		plan.Tasks = append(plan.Tasks, PlanTaskState{
+			TaskID:      task.TaskID,
+			Description: task.Description,
+			Status:      task.Status,
 		})
 	}
 	return plan

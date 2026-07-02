@@ -30,6 +30,7 @@ type preparedQuery struct {
 	release            queryReleaseFunc
 	continueRun        bool
 	initialSeq         int64
+	syntheticBootstrap *stream.SyntheticQuery
 }
 
 type queryAdmission struct {
@@ -645,6 +646,7 @@ func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEv
 		Created:            prepared.created,
 		ContinueRun:        prepared.continueRun,
 		InitialSeq:         prepared.initialSeq,
+		BootstrapSynthetic: prepared.syntheticBootstrap,
 		MemoryUsageSummary: memoryUsageEventPayload(prepared.memoryUsageSummary, prepared.req.ChatID, prepared.req.RunID, prepared.req.AgentKey),
 	})
 	if s.deps.Tools != nil {

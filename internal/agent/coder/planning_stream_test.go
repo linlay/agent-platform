@@ -9,6 +9,7 @@ import (
 
 	"agent-platform/internal/api"
 	contracts "agent-platform/internal/contracts"
+	"agent-platform/internal/plantasks"
 )
 
 type fakePlanningRuntime struct {
@@ -34,6 +35,41 @@ func (f fakePlanningRuntime) ToolDefinitions() []api.ToolDetailResponse {
 
 func (f fakePlanningRuntime) BuildExecuteSystemInitProfiles(contracts.QuerySession, api.QueryRequest, contracts.PlanExecuteSettings) []contracts.SystemInitProfile {
 	return nil
+}
+
+func TestCoderPlanningTaskFailurePersistsPlanTaskSnapshot(t *testing.T) {
+	root := t.TempDir()
+	stream := &coderPlanningStream{
+		session: contracts.QuerySession{RunID: "run_failed", ChatID: "chat_failed"},
+		execCtx: &contracts.ExecutionContext{
+			Session: contracts.QuerySession{
+				RunID:  "run_failed",
+				ChatID: "chat_failed",
+				RuntimeContext: contracts.RuntimeRequestContext{
+					LocalPaths: contracts.LocalPaths{ChatsDir: root},
+				},
+			},
+			PlanState: &contracts.PlanRuntimeState{
+				PlanID:       "run_failed_plan",
+				ActiveTaskID: "task_1",
+				Tasks: []contracts.PlanTask{{
+					TaskID:      "task_1",
+					Description: "first task",
+					Status:      "in_progress",
+				}},
+			},
+		},
+	}
+
+	stream.emitTaskFailure(&stream.execCtx.PlanState.Tasks[0], "boom")
+
+	snapshot, err := plantasks.LoadFile(plantasks.Path(root, "chat_failed", "run_failed"))
+	if err != nil {
+		t.Fatalf("load plan task snapshot: %v", err)
+	}
+	if snapshot.PlanID != "run_failed_plan" || snapshot.CurrentTaskID != "" || len(snapshot.Tasks) != 1 || snapshot.Tasks[0].Status != "failed" {
+		t.Fatalf("unexpected snapshot after task failure: %#v", snapshot)
+	}
 }
 
 func TestCoderPlanningStageToolsAreReadOnlyPlusVisionQuestionsAndPlan(t *testing.T) {

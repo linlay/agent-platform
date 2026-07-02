@@ -13,7 +13,7 @@ import (
 //
 // It mirrors the behaviour of Java's TurnTraceWriter:
 //   - internal stage markers flush the current step and start a new one
-//   - plan/artifact state is tracked and attached to step lines
+//   - artifact state is tracked and attached to step lines
 //   - snapshot events (reasoning/content/tool/action) become StoredMessages
 //   - request.submit + awaiting.answer are merged into SubmitLines
 //   - request.steer becomes a typed EventLine so chat detail can replay it
@@ -29,7 +29,6 @@ type StepWriter struct {
 	currentStage string
 
 	messages       []StoredMessage
-	latestPlan     *PlanState
 	latestArtifact *ArtifactState
 	pendingSources *SourceState
 	taskBuffers    map[string]*taskStepBuffer
@@ -259,8 +258,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.needNewMsgID = true
 
 	case "plan.create", "plan.update":
-		w.updatePlan(event)
-		w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
+		// Live-only for new JSONL writes. Plan task state is persisted in .tools/plan-tasks.
 
 	case "task.start":
 		w.flushCurrentStep()
@@ -740,9 +738,6 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 		w.pendingContextCurrent = 0
 		w.pendingEstimated = 0
 		w.pendingSystemRef = nil
-	}
-	if w.latestPlan != nil {
-		line.Plan = w.latestPlan
 	}
 	if w.latestArtifact != nil {
 		line.Artifacts = w.latestArtifact

@@ -17,13 +17,13 @@ AP_RUNTIME_REGISTRIES_DIR/mcp-servers
   -> normalize MCP result
 ```
 
-本地 platform tools 从 `internal/resources/tools/*.yml` 装载；自定义 frontend / external tool YAML 目录由 `configs/runtime.yml -> paths.tools-dir` 控制。`/api/admin/tools` 会返回顶层 `sourceCategory`：`platform` 表示 runtime 自带工具，`external` 表示 tools-dir 接入工具，`mcp` 表示 MCP 同步工具；`kind` 仍只表示调用方式，如 `backend`、`frontend`、`action`、`external`。
+本地 platform tools 从 `internal/resources/tools/*.yml` 装载；自定义 frontend / external tool YAML 目录由 `configs/runtime.yml -> paths.tools-dir` 控制。`/api/admin/tools` 返回扁平来源字段：`sourceType` 表示定义来源类型（如 `local`、`agent-local`、`mcp`），`sourceCategory` 表示来源分类，`platform` 为 runtime 自带工具，`external` 为 tools-dir 接入工具，`mcp` 为 MCP 同步工具；`kind` 只表示调用方式，如 `backend`、`frontend`、`action`、`external`。MCP 工具额外返回 `serverKey`。
 
 ## 配置与接口
 
 - `AP_RUNTIME_REGISTRIES_DIR`：registry 根目录。
 - `configs/runtime.yml` 的 `paths.tools-dir`：自定义 frontend tool YAML 目录。
-- `/api/admin/tools`：工具列表，支持 `kind` 与 `source` / `sourceCategory` 过滤。
+- `/api/admin/tools`：工具列表，支持 `kind` 与 `sourceCategory` 过滤；响应只返回 `key`、`name`、`label`、`description`、`kind`、`sourceType`、`sourceCategory`、`serverKey`，不透出内部 `meta`。
 - `desktop_action`：Desktop bridge 动作入口。
 - `ask_user_question`：内置 HITL question 工具。
 

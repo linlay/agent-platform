@@ -49,9 +49,9 @@ func (s *Server) toolLookup() contracts.ToolDefinitionLookup {
 	return s.deps.Registry
 }
 
-func (s *Server) listTools(kind string, source string, tag string) []api.ToolSummary {
+func (s *Server) listTools(kind string, sourceCategoryFilter string, tag string) []api.ToolSummary {
 	needleKind := strings.ToLower(strings.TrimSpace(kind))
-	needleSourceRaw := strings.TrimSpace(source)
+	needleSourceRaw := strings.TrimSpace(sourceCategoryFilter)
 	needleSource := normalizeToolSourceCategory(needleSourceRaw)
 	if needleSourceRaw != "" && needleSource == "" {
 		return []api.ToolSummary{}
@@ -82,17 +82,20 @@ func (s *Server) listTools(kind string, source string, tag string) []api.ToolSum
 			continue
 		}
 		seen[normalized] = struct{}{}
-		meta := contracts.CloneMap(tool.Meta)
-		if sourceCategory != "" {
-			meta["sourceCategory"] = sourceCategory
+		sourceType := strings.TrimSpace(anyStringValue(tool.Meta["sourceType"]))
+		serverKey := ""
+		if strings.EqualFold(sourceType, "mcp") {
+			serverKey = strings.TrimSpace(anyStringValue(tool.Meta["serverKey"]))
 		}
 		items = append(items, api.ToolSummary{
 			Key:            tool.Key,
 			Name:           tool.Name,
 			Label:          tool.Label,
 			Description:    tool.Description,
+			Kind:           strings.TrimSpace(metaKind),
+			SourceType:     sourceType,
 			SourceCategory: sourceCategory,
-			Meta:           meta,
+			ServerKey:      serverKey,
 		})
 	}
 	return items

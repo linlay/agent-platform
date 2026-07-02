@@ -38,30 +38,7 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		return nil
 	case SyntheticQuery:
 		events := d.closeOpenBlocks()
-		chatID := value.ChatID
-		if chatID == "" {
-			chatID = d.request.ChatID
-		}
-		payload := map[string]any{
-			"runId":     d.request.RunID,
-			"chatId":    chatID,
-			"role":      value.Role,
-			"message":   value.Message,
-			"synthetic": true,
-		}
-		if value.Stage != "" {
-			payload["stage"] = value.Stage
-		}
-		if value.Source != "" {
-			payload["source"] = value.Source
-		}
-		if len(value.Messages) > 0 {
-			payload["messages"] = cloneMessagePayloads(value.Messages)
-		}
-		if len(value.Systems) > 0 {
-			payload["systems"] = cloneMessagePayloads(value.Systems)
-		}
-		events = append(events, NewEvent("request.query", payload))
+		events = append(events, NewEvent("request.query", syntheticQueryPayload(d.request, value)))
 		return events
 	case PlanUpdate:
 		return d.handlePlanUpdate(value)

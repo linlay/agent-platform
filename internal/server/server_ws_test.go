@@ -1510,9 +1510,26 @@ Plan should stream over websocket.
 		t.Fatalf("submit expected 200, got %d: %s", submitRec.StatusCode, readBodyString(t, submitRec.Body))
 	}
 
-	eventTypes = append(eventTypes, collectWebSocketStreamEventTypes(t, conn, requestID)...)
-	assertStringSliceContains(t, eventTypes, "run.complete")
+	executionRunID := waitForCoderPlanningContinuationPush(t, conn, requestID, runID, chatID, "coder-ws")
 	assertStringSliceExcludes(t, eventTypes, "planning.snapshot")
+	if executionRunID == "" || executionRunID == runID {
+		t.Fatalf("expected distinct execution run id, got %q old=%q", executionRunID, runID)
+	}
+
+	attachRequestID := "req_attach_planning_execute"
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/attach",
+		ID:    attachRequestID,
+		Payload: ws.MarshalPayload(map[string]any{
+			"runId":    executionRunID,
+			"agentKey": "coder-ws",
+			"lastSeq":  0,
+		}),
+	}); err != nil {
+		t.Fatalf("write websocket attach: %v", err)
+	}
+	assertWebSocketAttachedCoderExecuteRun(t, conn, attachRequestID, executionRunID, chatID, "coder-ws", "execution completed")
 }
 
 type awaitingPushQuestionFlow struct {
@@ -1755,6 +1772,161 @@ func collectWebSocketEventsUntilPlanningApproval(t *testing.T, conn *gws.Conn, r
 	}
 	t.Fatalf("timed out waiting for websocket planning confirmation for %s", requestID)
 	return nil, "", ""
+}
+
+func waitForCoderPlanningContinuationPush(t *testing.T, conn *gws.Conn, requestID string, oldRunID string, chatID string, agentKey string) string {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	seenOldComplete := false
+	seenOldDone := false
+	seenOldFinished := false
+	for time.Now().Before(deadline) {
+		if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			t.Fatalf("set websocket read deadline: %v", err)
+		}
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("read websocket message: %v", err)
+		}
+		var meta struct {
+			Frame  string `json:"frame"`
+			ID     string `json:"id"`
+			Type   string `json:"type"`
+			Reason string `json:"reason"`
+		}
+		if err := json.Unmarshal(raw, &meta); err != nil {
+			t.Fatalf("decode websocket frame: %v", err)
+		}
+		if meta.Frame == ws.FrameStream && meta.ID == requestID {
+			var frame ws.StreamFrame
+			if err := json.Unmarshal(raw, &frame); err != nil {
+				t.Fatalf("decode websocket stream frame: %v", err)
+			}
+			if frame.Event != nil {
+				if frame.Event.Type == "run.start" && frame.Event.String("runId") != oldRunID {
+					t.Fatalf("did not expect continuation run.start in old planning stream: %#v", frame.Event)
+				}
+				if frame.Event.Type == "run.complete" && frame.Event.String("runId") == oldRunID {
+					seenOldComplete = true
+				}
+			}
+			if frame.Reason != "" {
+				if frame.Reason != "done" {
+					t.Fatalf("expected old planning stream to end done, got %#v", frame)
+				}
+				if !seenOldComplete {
+					t.Fatalf("old planning stream ended before run.complete: %#v", frame)
+				}
+				seenOldDone = true
+			}
+			continue
+		}
+		if meta.Frame != ws.FramePush {
+			continue
+		}
+		var frame ws.PushFrame
+		if err := json.Unmarshal(raw, &frame); err != nil {
+			t.Fatalf("decode websocket push frame: %v", err)
+		}
+		data, _ := frame.Data.(map[string]any)
+		runID := stringValue(data["runId"])
+		switch frame.Type {
+		case "run.finished":
+			if runID != oldRunID {
+				continue
+			}
+			if !seenOldDone {
+				t.Fatalf("old run.finished arrived before old stream done: %#v", frame)
+			}
+			seenOldFinished = true
+		case "run.started":
+			if runID == "" || runID == oldRunID {
+				continue
+			}
+			if !seenOldDone || !seenOldFinished {
+				t.Fatalf("continuation run.started arrived before old stream done/finished: %#v", frame)
+			}
+			if got := stringValue(data["chatId"]); got != chatID {
+				t.Fatalf("continuation run.started chatId=%q want %q in %#v", got, chatID, frame)
+			}
+			if got := stringValue(data["agentKey"]); got != agentKey {
+				t.Fatalf("continuation run.started agentKey=%q want %q in %#v", got, agentKey, frame)
+			}
+			return runID
+		}
+	}
+	t.Fatalf("timed out waiting for continuation run.started after old stream done")
+	return ""
+}
+
+func assertWebSocketAttachedCoderExecuteRun(t *testing.T, conn *gws.Conn, requestID string, runID string, chatID string, agentKey string, wantContent string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	events := make([]ws.StreamFrame, 0)
+	for time.Now().Before(deadline) {
+		if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			t.Fatalf("set websocket read deadline: %v", err)
+		}
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("read websocket message: %v", err)
+		}
+		var meta struct {
+			Frame  string `json:"frame"`
+			ID     string `json:"id"`
+			Reason string `json:"reason"`
+		}
+		if err := json.Unmarshal(raw, &meta); err != nil {
+			t.Fatalf("decode websocket frame: %v", err)
+		}
+		if meta.Frame != ws.FrameStream || meta.ID != requestID {
+			continue
+		}
+		var frame ws.StreamFrame
+		if err := json.Unmarshal(raw, &frame); err != nil {
+			t.Fatalf("decode websocket stream frame: %v", err)
+		}
+		if frame.Event != nil {
+			events = append(events, frame)
+		}
+		if frame.Reason != "" {
+			if frame.Reason != "done" {
+				t.Fatalf("expected attached execution stream done, got %#v", frame)
+			}
+			break
+		}
+	}
+	if len(events) < 3 {
+		t.Fatalf("expected attached execution events, got %#v", events)
+	}
+	first := events[0].Event
+	if first.Type != "request.query" || first.Seq != 1 || first.String("runId") != runID ||
+		first.Value("synthetic") != true || first.String("stage") != "coder-execute" ||
+		first.String("source") != "coder-plan-approve" || first.String("message") != "Execute plan" {
+		t.Fatalf("expected first attached event synthetic request.query seq=1, got %#v", first)
+	}
+	second := events[1].Event
+	if second.Type != "run.start" || second.Seq != 2 || second.String("runId") != runID ||
+		second.String("chatId") != chatID || second.String("agentKey") != agentKey {
+		t.Fatalf("expected second attached event run.start seq=2, got %#v", second)
+	}
+	foundContent := false
+	foundComplete := false
+	for _, frame := range events {
+		event := frame.Event
+		if event == nil {
+			continue
+		}
+		if strings.Contains(event.String("delta"), wantContent) || strings.Contains(event.String("text"), wantContent) {
+			foundContent = true
+		}
+		if event.Type == "run.complete" && event.String("runId") == runID {
+			foundComplete = true
+		}
+	}
+	if !foundContent || !foundComplete {
+		t.Fatalf("expected attached execution content and run.complete, content=%v complete=%v events=%#v", foundContent, foundComplete, events)
+	}
 }
 
 func waitForWebSocketStreamEvent(t *testing.T, conn *gws.Conn, requestID string, eventType string) ws.StreamFrame {

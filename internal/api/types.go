@@ -125,6 +125,10 @@ type QueryRequest struct {
 	PlanningMode    *bool              `json:"planningMode,omitempty"`
 	AccessLevel     string             `json:"accessLevel,omitempty"`
 	Model           *QueryModelOptions `json:"model,omitempty"`
+
+	// Internal runtime hint: the stream bootstrap already emitted the synthetic
+	// request.query for this run, so agent mode prefixes must not emit it again.
+	SyntheticQueryBootstrapped bool `json:"-"`
 }
 
 type QueryResponse struct {
@@ -745,12 +749,14 @@ type SkillSummary struct {
 }
 
 type ToolSummary struct {
-	Key            string         `json:"key"`
-	Name           string         `json:"name"`
-	Label          string         `json:"label,omitempty"`
-	Description    string         `json:"description,omitempty"`
-	SourceCategory string         `json:"sourceCategory,omitempty"`
-	Meta           map[string]any `json:"meta,omitempty"`
+	Key            string `json:"key"`
+	Name           string `json:"name"`
+	Label          string `json:"label,omitempty"`
+	Description    string `json:"description,omitempty"`
+	Kind           string `json:"kind"`
+	SourceType     string `json:"sourceType"`
+	SourceCategory string `json:"sourceCategory"`
+	ServerKey      string `json:"serverKey,omitempty"`
 }
 
 type ToolDetailResponse struct {

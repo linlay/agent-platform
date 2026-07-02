@@ -12,6 +12,7 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/stream"
 )
 
 func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq api.SubmitRequest, answer map[string]any) (bool, error) {
@@ -55,6 +56,7 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 	planDecision := planContinuationDecision(mode, answer)
 	planApprove := agentcoder.IsMode(agentDef.Mode) && planDecision == "approve"
 	planReject := agentcoder.IsMode(agentDef.Mode) && planDecision == "reject"
+	newExecutionRun := planApprove && strings.TrimSpace(runID) != strings.TrimSpace(sourceRunID)
 	req := queryRequestForAwaitingContinuation(originalQuery, submitReq, *summary, agentDef, mode, answer, planMarkdown)
 	if planApprove {
 		req = queryRequestForPlanApproveContinuation(originalQuery, submitReq, *summary, agentDef, planMarkdown)
@@ -83,6 +85,9 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 			log.Printf("[server][awaiting] prepare plan approve continuation failed chatId=%s runId=%s err=%v", chatID, runID, err)
 			return false, err
 		}
+		if newExecutionRun {
+			req.SyntheticQueryBootstrapped = true
+		}
 	} else {
 		if systemInitLines, err := s.prepareSystemInitCache(req, &session, false); err == nil {
 			_ = systemInitLines
@@ -98,8 +103,11 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 		created:     false,
 		agentDef:    agentDef,
 		session:     session,
-		continueRun: true,
+		continueRun: !newExecutionRun,
 		initialSeq:  s.continuationInitialSeq(chatID, sourceRunID, runID),
+	}
+	if newExecutionRun {
+		prepared.syntheticBootstrap = coderPlanApproveSyntheticBootstrap(session)
 	}
 	registered, statusErr := s.registerQueryRun(context.Background(), prepared)
 	if statusErr != nil {
@@ -311,6 +319,53 @@ func (s *Server) preparePlanApproveContinuation(req api.QueryRequest, original *
 		"content": req.Message,
 	}}
 	return nil
+}
+
+func coderPlanApproveSyntheticBootstrap(session contracts.QuerySession) *stream.SyntheticQuery {
+	return &stream.SyntheticQuery{
+		ChatID:   session.ChatID,
+		Role:     api.QueryRoleUser,
+		Message:  agentcoder.ExecuteSyntheticQueryMessage(session.Locale),
+		Stage:    "coder-execute",
+		Source:   "coder-plan-approve",
+		Messages: cloneMessageMapsForSyntheticBootstrap(session.CurrentMessages),
+		Systems:  systemPayloadsFromSessionCache(session.SystemInitCache, "coder:execute"),
+	}
+}
+
+func systemPayloadsFromSessionCache(cache map[string]contracts.SystemInitSnapshot, cacheKeys ...string) []map[string]any {
+	if len(cache) == 0 || len(cacheKeys) == 0 {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(cacheKeys))
+	for _, cacheKey := range cacheKeys {
+		cacheKey = strings.TrimSpace(cacheKey)
+		snapshot, ok := cache[cacheKey]
+		if !ok || strings.TrimSpace(snapshot.Fingerprint) == "" {
+			continue
+		}
+		out = append(out, map[string]any{
+			"cacheKey":       cacheKey,
+			"fingerprint":    snapshot.Fingerprint,
+			"systemMessage":  cloneMap(snapshot.SystemMessage),
+			"tools":          cloneAnySlice(snapshot.Tools),
+			"model":          cloneMap(snapshot.Model),
+			"toolChoice":     snapshot.ToolChoice,
+			"requestOptions": cloneMap(snapshot.RequestOptions),
+		})
+	}
+	return out
+}
+
+func cloneMessageMapsForSyntheticBootstrap(messages []map[string]any) []map[string]any {
+	if len(messages) == 0 {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(messages))
+	for _, message := range messages {
+		out = append(out, cloneMap(message))
+	}
+	return out
 }
 
 func (s *Server) persistedRunLiveSeq(chatID string, runID string) int64 {

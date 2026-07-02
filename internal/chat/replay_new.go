@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"agent-platform/internal/plantasks"
 	"agent-platform/internal/stream"
 )
 
@@ -96,7 +97,7 @@ func (s *FileStore) LoadRunTrace(chatID string, runID string) (RunTrace, error) 
 // ---------------------------------------------------------------------------
 
 func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []map[string]any, chatDir string) (Detail, error) {
-	var plan *PlanState
+	var legacyPlan *PlanState
 	var planning *PlanningState
 	var artifact *ArtifactState
 
@@ -188,7 +189,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			rd := ensureRun(runs, &runOrder, runID)
 
 			if rawPlan, ok := line["plan"].(map[string]any); ok {
-				plan = parsePlanFromStep(rawPlan)
+				legacyPlan = parsePlanFromStep(rawPlan)
 			}
 			if rawArt, ok := line["artifacts"].(map[string]any); ok {
 				artifact = parseArtifactFromStep(rawArt)
@@ -451,6 +452,13 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 	}
 
 	lastRunID, lastRunUsage := latestReplayRunUsage(runs, runOrder)
+
+	plan := legacyPlan
+	if snapshot, err := plantasks.LoadLatest(chatDir); err != nil {
+		return Detail{}, err
+	} else if snapshot != nil {
+		plan = planStateFromTaskSnapshot(snapshot)
+	}
 
 	return Detail{
 		ChatID:        summary.ChatID,

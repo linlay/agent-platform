@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
 	hitlplan "agent-platform/internal/hitl/plan"
 	"agent-platform/internal/i18n"
+	"agent-platform/internal/plantasks"
 )
 
 const DefaultExecuteSystemPrompt = `Execute the confirmed CODER plan for the user.`
@@ -871,6 +873,8 @@ func (s *coderPlanningStream) emitTaskTerminal(task *contracts.PlanTask, status 
 
 func (s *coderPlanningStream) emitTaskFailure(task *contracts.PlanTask, message string) {
 	task.Status = "failed"
+	s.execCtx.PlanState.ActiveTaskID = ""
+	s.persistPlanTasksSnapshot()
 	s.pending = append(s.pending, contracts.DeltaPlanUpdate{
 		PlanID: s.execCtx.PlanState.PlanID,
 		ChatID: s.session.ChatID,
@@ -883,7 +887,15 @@ func (s *coderPlanningStream) emitTaskFailure(task *contracts.PlanTask, message 
 			contracts.ErrorScopeTask, contracts.ErrorCategorySystem, map[string]any{"taskId": task.TaskID}),
 	})
 	s.taskIndex++
-	s.execCtx.PlanState.ActiveTaskID = ""
+}
+
+func (s *coderPlanningStream) persistPlanTasksSnapshot() {
+	if s == nil || s.execCtx == nil {
+		return
+	}
+	if path, err := plantasks.PersistExecutionContext("", s.execCtx); err != nil {
+		log.Printf("[agent][coder] write plan task snapshot failed runId=%s path=%s err=%v", s.session.RunID, path, err)
+	}
 }
 
 func (s *coderPlanningStream) planStageTools() []string {

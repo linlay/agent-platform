@@ -90,9 +90,6 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 			line.ContextWindow = cw
 		}
 	}
-	if w.latestPlan != nil {
-		line.Plan = w.latestPlan
-	}
 	if w.latestArtifact != nil {
 		line.Artifacts = w.latestArtifact
 	}
@@ -198,23 +195,6 @@ func (w *StepWriter) appendTypedEventLine(event stream.EventData, lineType strin
 		Event:     eventPayloadWithoutSeq(event),
 		Type:      lineType,
 	})
-}
-
-func (w *StepWriter) updatePlan(event stream.EventData) {
-	planID := event.String("planId")
-	plan := &PlanState{PlanID: planID, Tasks: []PlanTaskState{}}
-
-	// The "plan" field in plan.update is the tasks array directly.
-	// Runtime type may be []map[string]any (from Go engine) or []any (from JSON).
-	rawPlan := event.Value("plan")
-	for _, mapped := range toMapSlice(rawPlan) {
-		plan.Tasks = append(plan.Tasks, PlanTaskState{
-			TaskID:      stringVal(mapped["taskId"]),
-			Description: stringVal(mapped["description"]),
-			Status:      stringVal(mapped["status"]),
-		})
-	}
-	w.latestPlan = plan
 }
 
 func (w *StepWriter) updateArtifact(event stream.EventData) {

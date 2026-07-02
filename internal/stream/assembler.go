@@ -24,6 +24,7 @@ type StreamRequest struct {
 	Created            bool
 	ContinueRun        bool
 	InitialSeq         int64
+	BootstrapSynthetic *SyntheticQuery
 	MemoryUsageSummary map[string]any
 }
 
@@ -120,7 +121,11 @@ func (a *StreamEventAssembler) BootstrapWithRaw() ([]StreamEvent, []StreamEvent)
 		}))
 	}
 	if !a.request.ContinueRun {
-		events = append(events, NewEvent("request.query", queryPayload))
+		if a.request.BootstrapSynthetic != nil {
+			events = append(events, NewEvent("request.query", syntheticQueryPayload(a.request, *a.request.BootstrapSynthetic)))
+		} else {
+			events = append(events, NewEvent("request.query", queryPayload))
+		}
 	}
 	events = append(events, NewEvent("run.start", map[string]any{
 		"runId":    a.request.RunID,
@@ -129,6 +134,33 @@ func (a *StreamEventAssembler) BootstrapWithRaw() ([]StreamEvent, []StreamEvent)
 	}))
 	raw := a.stamp(events)
 	return raw, a.normalizer.Normalize(raw)
+}
+
+func syntheticQueryPayload(request StreamRequest, value SyntheticQuery) map[string]any {
+	chatID := value.ChatID
+	if chatID == "" {
+		chatID = request.ChatID
+	}
+	payload := map[string]any{
+		"runId":     request.RunID,
+		"chatId":    chatID,
+		"role":      value.Role,
+		"message":   value.Message,
+		"synthetic": true,
+	}
+	if value.Stage != "" {
+		payload["stage"] = value.Stage
+	}
+	if value.Source != "" {
+		payload["source"] = value.Source
+	}
+	if len(value.Messages) > 0 {
+		payload["messages"] = cloneMessagePayloads(value.Messages)
+	}
+	if len(value.Systems) > 0 {
+		payload["systems"] = cloneMessagePayloads(value.Systems)
+	}
+	return payload
 }
 
 func isEmptyValue(value any) bool {

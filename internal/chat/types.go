@@ -1,13 +1,16 @@
 package chat
 
-import "agent-platform/internal/stream"
+import (
+	"agent-platform/internal/plantasks"
+	"agent-platform/internal/stream"
+)
 
 const (
-	ToolRootDirName      = ".tools"
+	ToolRootDirName      = plantasks.ToolRootDirName
 	ToolResultsDirName   = "results"
 	ToolStateDirName     = "state"
 	ToolPlansDirName     = "plans"
-	ToolPlanTasksDirName = "plan-tasks"
+	ToolPlanTasksDirName = plantasks.DirName
 	FileVersionsFileName = "file-versions.json"
 )
 
@@ -166,9 +169,10 @@ type StepLine struct {
 	Type            string                `json:"_type"`
 	Stage           string                `json:"stage,omitempty"`
 	Seq             int                   `json:"seq,omitempty"`
-	Plan            *PlanState            `json:"plan,omitempty"`
-	Artifacts       *ArtifactState        `json:"artifacts,omitempty"`
-	Sources         *SourceState          `json:"sources,omitempty"`
+	// Plan is retained for legacy JSONL compatibility. New writes store plan task state in .tools/plan-tasks.
+	Plan      *PlanState     `json:"plan,omitempty"`
+	Artifacts *ArtifactState `json:"artifacts,omitempty"`
+	Sources   *SourceState   `json:"sources,omitempty"`
 }
 
 type StepApproval struct {

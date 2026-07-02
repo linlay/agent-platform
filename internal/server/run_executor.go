@@ -508,34 +508,25 @@ func runExecutor(params RunExecutorParams) {
 	}
 	tracker := &awaitingTracker{}
 	var (
-		persisted             bool
-		completion            chat.RunCompletion
-		continuation          *contracts.DeltaRunContinuation
-		completionCallbackRun bool
+		persisted    bool
+		completion   chat.RunCompletion
+		continuation *contracts.DeltaRunContinuation
 	)
 	defer func() {
 		maybeBroadcastInterruptedAwaiting(params, tracker)
 		if params.StepWriter != nil {
 			params.StepWriter.Flush()
 		}
-		if shouldStartRunContinuation(persisted, completion, continuation) {
-			if params.OnComplete != nil {
-				params.OnComplete(params.Session.RunID)
-				completionCallbackRun = true
-			}
-			if params.OnContinuation != nil {
-				if nextRunID, err := params.OnContinuation(*continuation); err != nil {
-					log.Printf("[server][run] start continuation failed sourceRunId=%s continuationRunId=%s err=%v", params.Session.RunID, continuation.RunID, err)
-				} else if strings.TrimSpace(nextRunID) != "" {
-					publishRunContinuationStart(params, *continuation, nextRunID)
-				}
-			}
-		}
 		if params.EventBus != nil {
 			params.EventBus.FreezeAndWait()
 		}
-		if params.OnComplete != nil && !completionCallbackRun {
+		if params.OnComplete != nil {
 			params.OnComplete(params.Session.RunID)
+		}
+		if shouldStartRunContinuation(persisted, completion, continuation) && params.OnContinuation != nil {
+			if _, err := params.OnContinuation(*continuation); err != nil {
+				log.Printf("[server][run] start continuation failed sourceRunId=%s continuationRunId=%s err=%v", params.Session.RunID, continuation.RunID, err)
+			}
 		}
 		if persisted {
 			broadcastRunCompletion(params, completion)
@@ -672,23 +663,6 @@ func shouldStartRunContinuation(persisted bool, completion chat.RunCompletion, c
 		continuation != nil &&
 		strings.TrimSpace(continuation.RunID) != "" &&
 		strings.EqualFold(strings.TrimSpace(completion.FinishReason), "complete")
-}
-
-func publishRunContinuationStart(params RunExecutorParams, continuation contracts.DeltaRunContinuation, runID string) {
-	if params.EventBus == nil {
-		return
-	}
-	payload := map[string]any{
-		"runId":    strings.TrimSpace(runID),
-		"chatId":   firstNonBlank(continuation.ChatID, params.Session.ChatID),
-		"agentKey": firstNonBlank(continuation.AgentKey, params.Session.AgentKey),
-	}
-	params.EventBus.Publish(stream.EventData{
-		Seq:       params.EventBus.LatestSeq() + 1,
-		Type:      "run.start",
-		Timestamp: time.Now().UnixMilli(),
-		Payload:   payload,
-	})
 }
 
 func handleAwaitingLifecycle(params RunExecutorParams, data stream.EventData, tracker *awaitingTracker) {
