@@ -85,6 +85,43 @@ func TestBuildSystemPromptIncludesStableReferenceProtocol(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPromptIncludesCurrentPlanTasksWhenPlanToolsAvailable(t *testing.T) {
+	context := "Runtime Context: Current Plan Tasks\nplanId: old_plan\ntasks:\n- task_1 | in_progress | resume"
+	prompt := buildSystemPrompt(QuerySession{
+		AgentKey:        "coder",
+		Mode:            "CODER",
+		PlanTaskContext: context,
+	}, api.QueryRequest{}, "", PromptBuildOptions{
+		Stage: "coder",
+		ToolDefinitions: []api.ToolDetailResponse{
+			{Name: PlanGetTasksToolName},
+			{Name: "bash"},
+		},
+	})
+
+	if !strings.Contains(prompt, context) {
+		t.Fatalf("expected current plan task context in prompt, got %q", prompt)
+	}
+}
+
+func TestBuildSystemPromptSkipsCurrentPlanTasksForPlanningStage(t *testing.T) {
+	context := "Runtime Context: Current Plan Tasks\nplanId: old_plan\ntasks:\n- task_1 | in_progress | resume"
+	prompt := buildSystemPrompt(QuerySession{
+		AgentKey:        "coder",
+		Mode:            "CODER",
+		PlanTaskContext: context,
+	}, api.QueryRequest{}, "", PromptBuildOptions{
+		Stage: "coder-plan",
+		ToolDefinitions: []api.ToolDetailResponse{
+			{Name: PlanGetTasksToolName},
+		},
+	})
+
+	if strings.Contains(prompt, context) {
+		t.Fatalf("did not expect current plan task context in planning prompt, got %q", prompt)
+	}
+}
+
 func TestBuildSystemPromptIncludesAdvancedUserPromptProtocolWhenEnabled(t *testing.T) {
 	prompt := buildSystemPrompt(QuerySession{
 		AgentKey:           "demo",

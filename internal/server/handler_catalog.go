@@ -195,7 +195,7 @@ func (s *Server) handleSkills(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, api.Success(s.listTools(r.URL.Query().Get("kind"), r.URL.Query().Get("sourceCategory"), "")))
+	writeJSON(w, http.StatusOK, api.Success(s.listTools()))
 }
 
 func (s *Server) agentEditor() (editableAgentRegistry, error) {

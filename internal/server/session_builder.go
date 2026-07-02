@@ -14,6 +14,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/memory"
+	"agent-platform/internal/plantasks"
 	"agent-platform/internal/querymessages"
 )
 
@@ -177,6 +178,9 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		SkillHookDirs:          skillHookDirs,
 		RuntimeEnvOverrides:    runtimeEnvOverrides,
 	}
+	if shouldLoadPlanTaskContext(session) {
+		session.PlanTaskContext = s.loadPlanTaskContext(req.ChatID)
+	}
 	if session.AgentHasRuntimeSandbox && !s.deps.Config.ContainerHub.Enabled {
 		return contracts.QuerySession{}, fmt.Errorf("agent %q requires sandbox but container-hub is disabled", req.AgentKey)
 	}
@@ -202,6 +206,31 @@ func (s *Server) buildCurrentMessages(req api.QueryRequest, session contracts.Qu
 		TeamID:             session.TeamID,
 		Scene:              req.Scene,
 	})
+}
+
+func shouldLoadPlanTaskContext(session contracts.QuerySession) bool {
+	if session.PlanningMode {
+		return false
+	}
+	for _, name := range session.ToolNames {
+		switch strings.ToLower(strings.TrimSpace(name)) {
+		case contracts.PlanGetTasksToolName, contracts.PlanUpdateTaskToolName:
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) loadPlanTaskContext(chatID string) string {
+	if s == nil {
+		return ""
+	}
+	state, err := plantasks.LoadLatestStateForChat(s.deps.Config.Paths.ChatsDir, chatID)
+	if err != nil {
+		log.Printf("[server][plan] load plan task context failed chatId=%s err=%v", chatID, err)
+		return ""
+	}
+	return plantasks.FormatStateContext(state)
 }
 
 func coderSystemPrompt(mode string, prompt string) string {

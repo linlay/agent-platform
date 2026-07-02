@@ -16,7 +16,7 @@ import (
 	gws "github.com/gorilla/websocket"
 )
 
-func TestCatalogTagParametersAreIgnored(t *testing.T) {
+func TestCatalogQueryParametersAreIgnored(t *testing.T) {
 	fixture := newTestFixture(t)
 
 	skills := getAPIData[[]api.SkillSummary](t, fixture.server, http.MethodGet, "/api/admin/skills", nil)
@@ -34,9 +34,13 @@ func TestCatalogTagParametersAreIgnored(t *testing.T) {
 	if len(tools) != len(toolsWithSource) {
 		t.Fatalf("expected tools source alias to be ignored: all=%d source=%d", len(tools), len(toolsWithSource))
 	}
+	toolsWithSourceCategory := getAPIData[[]api.ToolSummary](t, fixture.server, http.MethodGet, "/api/admin/tools?sourceCategory=does-not-filter", nil)
+	if len(tools) != len(toolsWithSourceCategory) {
+		t.Fatalf("expected tools sourceCategory parameter to be ignored: all=%d sourceCategory=%d", len(tools), len(toolsWithSourceCategory))
+	}
 	kindTools := getAPIData[[]api.ToolSummary](t, fixture.server, http.MethodGet, "/api/admin/tools?kind=does-not-exist", nil)
-	if len(kindTools) != 0 || len(kindTools) > len(tools) {
-		t.Fatalf("expected kind filter to remain active: all=%d kind=%d", len(tools), len(kindTools))
+	if len(tools) != len(kindTools) {
+		t.Fatalf("expected tools kind parameter to be ignored: all=%d kind=%d", len(tools), len(kindTools))
 	}
 }
 

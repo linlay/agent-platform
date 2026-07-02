@@ -220,6 +220,39 @@ func TestPlanGetTasksReturnsEmptySnapshotBeforeTasksExist(t *testing.T) {
 	}
 }
 
+func TestPlanGetTasksRestoresLatestSnapshot(t *testing.T) {
+	root := t.TempDir()
+	writePlanTasksSnapshotForTest(t, root, "chat_1", "run_old", `{"version":1,"chatId":"chat_1","runId":"run_old","planId":"old_plan","currentTaskId":"task_2","updatedAt":200,"tasks":[{"taskId":"task_1","description":"done","status":"completed"},{"taskId":"task_2","description":"next","status":"in_progress"}]}`)
+	executor := &RuntimeToolExecutor{cfg: config.Config{Paths: config.PathsConfig{ChatsDir: root}}}
+	execCtx := &ExecutionContext{
+		Session: QuerySession{
+			RunID:  "run_new",
+			ChatID: "chat_1",
+		},
+	}
+
+	result, err := executor.Invoke(context.Background(), PlanGetTasksToolName, map[string]any{}, execCtx)
+	if err != nil {
+		t.Fatalf("invoke plan_get_tasks: %v", err)
+	}
+	if result.ExitCode != 0 || result.Error != "" {
+		t.Fatalf("expected restored plan snapshot success, got %#v", result)
+	}
+	if got := AnyStringNode(result.Structured["planId"]); got != "old_plan" {
+		t.Fatalf("planId=%q want old_plan", got)
+	}
+	if got := AnyStringNode(result.Structured["currentTaskId"]); got != "task_2" {
+		t.Fatalf("currentTaskId=%q want task_2", got)
+	}
+	plan, _ := result.Structured["plan"].([]map[string]any)
+	if len(plan) != 2 || AnyStringNode(plan[1]["taskId"]) != "task_2" {
+		t.Fatalf("unexpected restored plan: %#v", result.Structured["plan"])
+	}
+	if execCtx.PlanState == nil || execCtx.PlanState.PlanID != "old_plan" || execCtx.PlanState.ActiveTaskID != "task_2" {
+		t.Fatalf("expected execCtx plan state to be restored, got %#v", execCtx.PlanState)
+	}
+}
+
 func TestPlanAddTasksPersistsPlanTaskSnapshot(t *testing.T) {
 	root := t.TempDir()
 	executor := &RuntimeToolExecutor{cfg: config.Config{Paths: config.PathsConfig{ChatsDir: root}}}
@@ -253,6 +286,34 @@ func TestPlanAddTasksPersistsPlanTaskSnapshot(t *testing.T) {
 	if len(snapshot.Tasks) != 2 || snapshot.Tasks[0].TaskID != "task_1" || snapshot.Tasks[0].Status != "init" ||
 		snapshot.Tasks[1].TaskID != "task_2" || snapshot.Tasks[1].Status != "in_progress" {
 		t.Fatalf("unexpected snapshot tasks: %#v", snapshot.Tasks)
+	}
+}
+
+func TestPlanUpdateTaskRestoresSnapshotAndWritesNewRunSnapshot(t *testing.T) {
+	root := t.TempDir()
+	writePlanTasksSnapshotForTest(t, root, "chat_1", "run_old", `{"version":1,"chatId":"chat_1","runId":"run_old","planId":"old_plan","updatedAt":200,"tasks":[{"taskId":"task_1","description":"first","status":"init"}]}`)
+	executor := &RuntimeToolExecutor{cfg: config.Config{Paths: config.PathsConfig{ChatsDir: root}}}
+	execCtx := &ExecutionContext{
+		Session: QuerySession{
+			RunID:  "run_new",
+			ChatID: "chat_1",
+		},
+	}
+
+	result, err := executor.Invoke(context.Background(), PlanUpdateTaskToolName, map[string]any{
+		"taskId": "task_1",
+		"status": "completed",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invoke plan_update_task: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("expected plan_update_task success, got %#v", result)
+	}
+
+	snapshot := readPlanTasksSnapshotForTest(t, root, "chat_1", "run_new")
+	if snapshot.RunID != "run_new" || snapshot.PlanID != "old_plan" || len(snapshot.Tasks) != 1 || snapshot.Tasks[0].Status != "completed" {
+		t.Fatalf("unexpected new run snapshot: %#v", snapshot)
 	}
 }
 
@@ -443,6 +504,18 @@ func readPlanTasksSnapshotForTest(t *testing.T, root string, chatID string, runI
 		t.Fatalf("decode plan tasks snapshot %s: %v", path, err)
 	}
 	return snapshot
+}
+
+func writePlanTasksSnapshotForTest(t *testing.T, root string, chatID string, runID string, content string) {
+	t.Helper()
+	dir := filepath.Join(root, chatID, chat.ToolRootDirName, chat.ToolPlanTasksDirName)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir plan tasks snapshot dir: %v", err)
+	}
+	path := filepath.Join(dir, runID+"_plan.json")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write plan tasks snapshot %s: %v", path, err)
+	}
 }
 
 func standardPlanningMarkdown(title string) string {

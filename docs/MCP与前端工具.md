@@ -23,7 +23,7 @@ AP_RUNTIME_REGISTRIES_DIR/mcp-servers
 
 - `AP_RUNTIME_REGISTRIES_DIR`：registry 根目录。
 - `configs/runtime.yml` 的 `paths.tools-dir`：自定义 frontend tool YAML 目录。
-- `/api/admin/tools`：工具列表，支持 `kind` 与 `sourceCategory` 过滤；响应只返回 `key`、`name`、`label`、`description`、`kind`、`sourceType`、`sourceCategory`、`serverKey`，不透出内部 `meta`。
+- `/api/admin/tools`：工具列表，无 query 过滤参数；响应只返回 `key`、`name`、`label`、`description`、`kind`、`sourceType`、`sourceCategory`、`serverKey`，不透出内部 `meta`。
 - `desktop_action`：Desktop bridge 动作入口。
 - `ask_user_question`：内置 HITL question 工具。
 

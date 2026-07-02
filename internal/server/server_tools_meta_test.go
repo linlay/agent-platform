@@ -23,7 +23,7 @@ func (s adminToolsStubExecutor) Invoke(context.Context, string, map[string]any, 
 	return contracts.ToolExecutionResult{}, nil
 }
 
-func TestAdminToolsSourceCategoryFiltering(t *testing.T) {
+func TestAdminToolsListIgnoresQueryAndFlattensMetadata(t *testing.T) {
 	server := &Server{deps: Dependencies{Tools: adminToolsStubExecutor{defs: []api.ToolDetailResponse{
 		{
 			Key:  "bash",
@@ -65,10 +65,11 @@ func TestAdminToolsSourceCategoryFiltering(t *testing.T) {
 	assertAdminToolsResponseOmitsMeta(t, server, "/api/admin/tools")
 
 	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?source=mcp"), []string{"bash", "qs_read", "remote_tool"})
-	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?sourceCategory=mcp"), []string{"remote_tool"})
-	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?kind=external"), []string{"qs_read"})
-	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?kind=external&sourceCategory=mcp"), nil)
-	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?sourceCategory=does-not-exist"), nil)
+	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?sourceCategory=mcp"), []string{"bash", "qs_read", "remote_tool"})
+	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?kind=external"), []string{"bash", "qs_read", "remote_tool"})
+	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?kind=external&sourceCategory=mcp"), []string{"bash", "qs_read", "remote_tool"})
+	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?sourceCategory=does-not-exist"), []string{"bash", "qs_read", "remote_tool"})
+	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?tag=remote"), []string{"bash", "qs_read", "remote_tool"})
 }
 
 func requestAdminTools(t *testing.T, server *Server, path string) []api.ToolSummary {

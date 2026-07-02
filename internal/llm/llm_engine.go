@@ -91,12 +91,6 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	allowedTools = coderRuntimeToolNamesForStage(session, options.Stage, allowedTools)
 	effectiveDefs := effectiveToolDefinitions(e.tools.Definitions(), allowedTools, session.AgentHasRuntimeSandbox)
 	toolSpecs := toOpenAIToolSpecs(effectiveDefs)
-	cacheKey := SystemInitCacheKey(session.Mode, options.Stage)
-	cachedSystem, cachedTools, cacheOK := resolveCachedSystemInit(session, cacheKey)
-	useCachedSystemInit := cacheOK && !(len(options.Messages) > 0 && options.PreserveProvidedSystemPrompt)
-	if useCachedSystemInit {
-		toolSpecs = cachedTools
-	}
 	execCtx := options.ExecCtx
 	if execCtx == nil {
 		execCtx = &ExecutionContext{
@@ -122,6 +116,16 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	}
 	if execCtx.StartedAt.IsZero() {
 		execCtx.StartedAt = time.Now()
+	}
+	e.restorePlanTasksForRun(execCtx, &session, options.Stage, effectiveDefs)
+	cacheKey := SystemInitCacheKey(session.Mode, options.Stage)
+	cachedSystem, cachedTools, cacheOK := resolveCachedSystemInit(session, cacheKey)
+	if cacheOK && !cachedSystemInitHasPlanTaskContext(cachedSystem, session.PlanTaskContext) {
+		cacheOK = false
+	}
+	useCachedSystemInit := cacheOK && !(len(options.Messages) > 0 && options.PreserveProvidedSystemPrompt)
+	if useCachedSystemInit {
+		toolSpecs = cachedTools
 	}
 	if execCtx.RunControl != nil {
 		execCtx.RunControl.TransitionState(RunLoopStateModelStreaming)

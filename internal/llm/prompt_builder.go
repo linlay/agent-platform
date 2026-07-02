@@ -91,6 +91,7 @@ func buildSystemPromptSections(session QuerySession, req api.QueryRequest, optio
 		appendSection("advanced-user-prompt-protocol", "Advanced User Prompt Protocol", "query.advanced_user_prompt", querymessages.AdvancedUserPromptSystemPrompt)
 	}
 	appendRuntimeSystemPromptSections(&sections, session, req)
+	appendSection("runtime-plan-tasks", "Runtime Context: Current Plan Tasks", "runtime.plan_tasks", buildPlanTaskContextSection(session, toolNames, options.Stage))
 	appendSection("stage-instructions", "Stage Instructions Prompt", "stage.instructions", stageInstructionsPrompt)
 	appendSection("stage-system", "Stage System Prompt", "stage.system", stageSystemPrompt)
 	appendSection("skill-catalog", "Skill Catalog Prompt", "skills.catalog", strings.TrimSpace(session.SkillCatalogPrompt))
@@ -170,6 +171,14 @@ func appendRuntimeMemorySystemPromptSections(sections *[]systemPromptSection, se
 	if len(*sections) == before {
 		appendSection("memory-agent", "Runtime Context: Agent Memory", "memory.agent", buildMemorySection(session, req))
 	}
+}
+
+func buildPlanTaskContextSection(session QuerySession, toolNames []string, stage string) string {
+	context := strings.TrimSpace(session.PlanTaskContext)
+	if context == "" || !shouldUsePlanTaskContextForStage(stage, toolNames, session.PlanningMode) {
+		return ""
+	}
+	return context
 }
 
 func buildCoderSystemPromptSection(session QuerySession, req api.QueryRequest, toolNames []string, stage string) string {

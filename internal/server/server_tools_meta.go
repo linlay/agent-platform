@@ -49,14 +49,7 @@ func (s *Server) toolLookup() contracts.ToolDefinitionLookup {
 	return s.deps.Registry
 }
 
-func (s *Server) listTools(kind string, sourceCategoryFilter string, tag string) []api.ToolSummary {
-	needleKind := strings.ToLower(strings.TrimSpace(kind))
-	needleSourceRaw := strings.TrimSpace(sourceCategoryFilter)
-	needleSource := normalizeToolSourceCategory(needleSourceRaw)
-	if needleSourceRaw != "" && needleSource == "" {
-		return []api.ToolSummary{}
-	}
-	needleTag := strings.ToLower(strings.TrimSpace(tag))
+func (s *Server) listTools() []api.ToolSummary {
 	defs := s.deps.Tools.Definitions()
 	items := make([]api.ToolSummary, 0, len(defs))
 	seen := map[string]struct{}{}
@@ -67,16 +60,7 @@ func (s *Server) listTools(kind string, sourceCategoryFilter string, tag string)
 		}
 		tool = canonical
 		metaKind, _ := tool.Meta["kind"].(string)
-		if needleKind != "" && strings.ToLower(strings.TrimSpace(metaKind)) != needleKind {
-			continue
-		}
 		sourceCategory := toolSourceCategory(tool)
-		if needleSource != "" && sourceCategory != needleSource {
-			continue
-		}
-		if needleTag != "" && !matchesToolTag(tool, needleTag) {
-			continue
-		}
 		normalized := strings.ToLower(strings.TrimSpace(tool.Name))
 		if _, ok := seen[normalized]; ok {
 			continue
@@ -131,25 +115,6 @@ func toolSourceCategory(tool api.ToolDetailResponse) string {
 		return "external"
 	}
 	return ""
-}
-
-func matchesToolTag(tool api.ToolDetailResponse, needle string) bool {
-	fields := []string{
-		tool.Key,
-		tool.Name,
-		tool.Label,
-		tool.Description,
-		tool.AfterCallHint,
-		anyStringValue(tool.Meta["kind"]),
-		anyStringValue(tool.Meta["viewportType"]),
-		anyStringValue(tool.Meta["viewportKey"]),
-	}
-	for _, field := range fields {
-		if strings.Contains(strings.ToLower(field), needle) {
-			return true
-		}
-	}
-	return false
 }
 
 func summaryAgentKey(summary *chat.Summary) string {

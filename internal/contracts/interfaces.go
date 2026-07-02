@@ -219,6 +219,7 @@ type QuerySession struct {
 	SessionMemoryContext  string
 	ObservationContext    string
 	WorkflowContext       string
+	PlanTaskContext       string
 	MemoryUsageSummary    *api.MemoryUsageSummary
 	RuntimeContext        RuntimeRequestContext
 	PromptAppend          PromptAppendConfig

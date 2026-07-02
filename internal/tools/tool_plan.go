@@ -69,14 +69,14 @@ func (t *RuntimeToolExecutor) invokePlanGetTasks(execCtx *ExecutionContext) (Too
 		payload := NewErrorPayload("plan_context_unavailable", "Plan context is unavailable in direct invocation", ErrorScopeRun, ErrorCategorySystem, nil)
 		return ToolExecutionResult{Output: MarshalJSON(payload), Structured: payload, Error: "plan_context_unavailable", ExitCode: -1}, nil
 	}
-	return structuredResult(planStatePayload(ensurePlanState(execCtx))), nil
+	return structuredResult(planStatePayload(t.ensureRestoredPlanState(execCtx))), nil
 }
 
 func (t *RuntimeToolExecutor) invokePlanUpdateTask(args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	if execCtx == nil {
 		return ToolExecutionResult{Output: "失败: 缺少执行上下文", Error: "plan_context_unavailable", ExitCode: -1}, nil
 	}
-	state := ensurePlanState(execCtx)
+	state := t.ensureRestoredPlanState(execCtx)
 	taskID := AnyStringNode(args["taskId"])
 	if strings.TrimSpace(taskID) == "" {
 		return ToolExecutionResult{Output: "失败: 缺少 taskId", Error: "missing_task_id", ExitCode: -1}, nil
