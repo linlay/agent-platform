@@ -176,20 +176,28 @@ Provider `apiKey` 按明文字符串读取：
 本仓库保留与参考仓库一致的结构化配置入口：
 
 - `configs/ai-tools.example.yml`
-- `configs/tools.example.yml`
-- `configs/local-public-key.example.pem`
 - `configs/channels.example.yml`
+- `configs/coder-prompts.example.yml`
+- `configs/coder-settings.example.yml`
+- `configs/kbase-prompts.example.yml`
+- `configs/kbase-settings.example.yml`
+- `configs/local-public-key.example.pem`
 - `configs/prompts.example.yml`
 - `configs/runtime.example.yml`
+- `configs/tools.example.yml`
 
 当前 Go runtime 实际会读取：
 
 - `configs/ai-tools.yml`
 - `configs/channels.yml`
-- `configs/tools.yml`
+- `configs/coder-prompts.yml`
+- `configs/coder-settings.yml`
+- `configs/kbase-prompts.yml`
+- `configs/kbase-settings.yml`
 - `configs/local-public-key.pem`
 - `configs/prompts.yml`
 - `configs/runtime.yml`
+- `configs/tools.yml`
 
 `configs/` 不是可配置目录，固定使用 runtime 根目录下的 `./configs`；容器内固定挂载到 `/opt/configs`。
 

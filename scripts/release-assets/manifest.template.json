@@ -63,6 +63,27 @@
       "required": false
     },
     {
+      "key": "coder-prompts",
+      "label": "configs/coder-prompts.yml",
+      "relativePath": "configs/coder-prompts.yml",
+      "templateRelativePath": "configs/coder-prompts.example.yml",
+      "required": false
+    },
+    {
+      "key": "kbase-settings",
+      "label": "configs/kbase-settings.yml",
+      "relativePath": "configs/kbase-settings.yml",
+      "templateRelativePath": "configs/kbase-settings.example.yml",
+      "required": false
+    },
+    {
+      "key": "kbase-prompts",
+      "label": "configs/kbase-prompts.yml",
+      "relativePath": "configs/kbase-prompts.yml",
+      "templateRelativePath": "configs/kbase-prompts.example.yml",
+      "required": false
+    },
+    {
       "key": "local-public-key",
       "label": "configs/local-public-key.pem",
       "relativePath": "configs/local-public-key.pem",
