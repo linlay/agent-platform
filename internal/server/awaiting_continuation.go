@@ -7,6 +7,7 @@ import (
 	"log"
 	"strings"
 
+	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
@@ -49,7 +50,17 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 	}
 
 	originalQuery, _ := s.deps.Chats.LoadRunQuery(chatID, runID)
-	req := queryRequestForAwaitingContinuation(originalQuery, submitReq, *summary, agentDef, mode, answer, s.awaitingContinuationPlanMarkdown(chatID, mode))
+	planMarkdown := s.awaitingContinuationPlanMarkdown(chatID, mode)
+	planDecision := planContinuationDecision(mode, answer)
+	planApprove := agentcoder.IsMode(agentDef.Mode) && planDecision == "approve"
+	planReject := agentcoder.IsMode(agentDef.Mode) && planDecision == "reject"
+	req := queryRequestForAwaitingContinuation(originalQuery, submitReq, *summary, agentDef, mode, answer, planMarkdown)
+	if planApprove {
+		req = queryRequestForPlanApproveContinuation(originalQuery, submitReq, *summary, agentDef, planMarkdown)
+	} else if planReject {
+		planningMode := true
+		req.PlanningMode = &planningMode
+	}
 	session, err := s.BuildQuerySession(context.Background(), req, *summary, agentDef, querySessionBuildOptions{
 		Created:           false,
 		Locale:            submitReq.Locale,
@@ -66,10 +77,17 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 	if catalog.AgentUsesACPCoderBackend(agentDef) {
 		req.Model = s.acpCoderModelOptions(session, req.Model)
 	}
-	if systemInitLines, err := s.prepareSystemInitCache(req, &session, false); err == nil {
-		_ = systemInitLines
+	if planApprove {
+		if err := s.preparePlanApproveContinuation(req, originalQuery, &session); err != nil {
+			log.Printf("[server][awaiting] prepare plan approve continuation failed chatId=%s runId=%s err=%v", chatID, runID, err)
+			return false, err
+		}
 	} else {
-		log.Printf("[server][awaiting] prepare continuation system init failed chatId=%s runId=%s err=%v", chatID, runID, err)
+		if systemInitLines, err := s.prepareSystemInitCache(req, &session, false); err == nil {
+			_ = systemInitLines
+		} else {
+			log.Printf("[server][awaiting] prepare continuation system init failed chatId=%s runId=%s err=%v", chatID, runID, err)
+		}
 	}
 	session.HistoryMessages = awaitingContinuationHistory(session.HistoryMessages, runID, submitReq.AwaitingID, mode, answer)
 
@@ -80,6 +98,7 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 		agentDef:    agentDef,
 		session:     session,
 		continueRun: true,
+		initialSeq:  s.persistedRunLiveSeq(chatID, runID),
 	}
 	registered, statusErr := s.registerQueryRun(context.Background(), prepared)
 	if statusErr != nil {
@@ -144,6 +163,14 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 	return true, nil
 }
 
+func planContinuationDecision(mode string, answer map[string]any) string {
+	if !strings.EqualFold(strings.TrimSpace(mode), "plan") {
+		return ""
+	}
+	plan := contracts.AnyMapNode(answer["plan"])
+	return strings.ToLower(strings.TrimSpace(stringValue(plan["decision"])))
+}
+
 func queryRequestForAwaitingContinuation(original *chat.QueryLine, submitReq api.SubmitRequest, summary chat.Summary, agentDef catalog.AgentDefinition, mode string, answer map[string]any, planMarkdown string) api.QueryRequest {
 	var req api.QueryRequest
 	if original != nil && len(original.Query) > 0 {
@@ -165,6 +192,87 @@ func queryRequestForAwaitingContinuation(original *chat.QueryLine, submitReq api
 		req.AccessLevel = contracts.AccessLevelDefault
 	}
 	return req
+}
+
+func queryRequestForPlanApproveContinuation(original *chat.QueryLine, submitReq api.SubmitRequest, summary chat.Summary, agentDef catalog.AgentDefinition, planMarkdown string) api.QueryRequest {
+	var req api.QueryRequest
+	if original != nil && len(original.Query) > 0 {
+		data, _ := json.Marshal(original.Query)
+		_ = json.Unmarshal(data, &req)
+	}
+	originalMessage := strings.TrimSpace(req.Message)
+	req.ChatID = firstNonBlank(req.ChatID, submitReq.ChatID, summary.ChatID)
+	req.RunID = firstNonBlank(submitReq.RunID, req.RunID)
+	req.RequestID = firstNonBlank(req.RequestID, submitReq.SubmitID, req.RunID)
+	req.AgentKey = firstNonBlank(submitReq.AgentKey, req.AgentKey, summary.AgentKey, agentDef.Key)
+	req.TeamID = firstNonBlank(req.TeamID, summary.TeamID)
+	req.Role = api.QueryRoleSystem
+	planningMode := false
+	req.PlanningMode = &planningMode
+	req.Message = agentcoder.PlanApproveExecutePrompt(originalMessage, planMarkdown)
+	req.Params = agentcoder.MarkPlanApproveContinuationParams(contracts.CloneMap(req.Params))
+	if strings.TrimSpace(req.AccessLevel) == "" {
+		req.AccessLevel = contracts.AccessLevelDefault
+	}
+	return req
+}
+
+func (s *Server) preparePlanApproveContinuation(req api.QueryRequest, original *chat.QueryLine, session *contracts.QuerySession) error {
+	if session == nil || s == nil || s.deps.SystemInits == nil || s.deps.Tools == nil {
+		return nil
+	}
+	profileReq := req
+	if original != nil && len(original.Query) > 0 {
+		if message := strings.TrimSpace(stringValue(original.Query["message"])); message != "" {
+			profileReq.Message = message
+		}
+	}
+	planningSession := *session
+	planningSession.PlanningMode = true
+	profiles := s.deps.SystemInits.BuildSystemInitProfiles(
+		planningSession,
+		profileReq,
+		s.deps.Tools.Definitions(),
+		s.deps.Config.Defaults.Plan.MaxSteps,
+		s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask,
+		s.deps.Config.Prompts,
+	)
+	var executeSystem chat.QueryLineSystemInit
+	for _, profile := range profiles {
+		if strings.TrimSpace(profile.CacheKey) != "coder:execute" {
+			continue
+		}
+		executeSystem = queryLineSystemInitFromProfile(profile)
+		break
+	}
+	if strings.TrimSpace(executeSystem.CacheKey) == "" || strings.TrimSpace(executeSystem.Fingerprint) == "" {
+		return fmt.Errorf("coder execute system init profile unavailable")
+	}
+	session.PlanningMode = false
+	session.SystemInitCache = map[string]contracts.SystemInitSnapshot{
+		executeSystem.CacheKey: systemInitSnapshotFromLine(executeSystem),
+	}
+	executeTools := agentcoder.PlanningExecuteToolsForStage(session.ResolvedStageSettings.Execute, session.ToolNames)
+	session.ToolNames = append([]string(nil), executeTools...)
+	if modelKey := strings.TrimSpace(session.ResolvedStageSettings.Execute.ModelKey); modelKey != "" {
+		session.ModelKey = modelKey
+	}
+	session.CurrentMessages = []map[string]any{{
+		"role":    api.QueryRoleUser,
+		"content": req.Message,
+	}}
+	return nil
+}
+
+func (s *Server) persistedRunLiveSeq(chatID string, runID string) int64 {
+	if s == nil || s.deps.Chats == nil {
+		return 0
+	}
+	detail, err := s.deps.Chats.LoadChat(chatID)
+	if err != nil {
+		return 0
+	}
+	return persistedLiveSeqCursor(detail.Events, runID)
 }
 
 func awaitingContinuationHistory(history []map[string]any, runID string, awaitingID string, mode string, answer map[string]any) []map[string]any {

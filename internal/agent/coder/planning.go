@@ -8,6 +8,8 @@ import (
 
 const AskUserQuestionToolName = "ask_user_question"
 
+const PlanApproveContinuationParam = "_coderPlanApproveContinuation"
+
 var planningModePlanTools = []string{
 	"file_read",
 	"file_glob",
@@ -37,6 +39,36 @@ func IsNativeBackend(mode string, acpProxyID string) bool {
 
 func PlanningModeEnabled(mode string, requested bool) bool {
 	return requested && IsMode(mode)
+}
+
+func IsPlanApproveContinuationParams(params map[string]any) bool {
+	if len(params) == 0 {
+		return false
+	}
+	value, ok := params[PlanApproveContinuationParam]
+	if !ok {
+		return false
+	}
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		return strings.EqualFold(strings.TrimSpace(typed), "true")
+	default:
+		return false
+	}
+}
+
+func MarkPlanApproveContinuationParams(params map[string]any) map[string]any {
+	if params == nil {
+		params = map[string]any{}
+	}
+	params[PlanApproveContinuationParam] = true
+	return params
+}
+
+func PlanApproveExecutePrompt(originalRequest string, planMarkdown string) string {
+	return "Execute the confirmed CODER plan.\n\nOriginal request:\n" + originalRequest + "\n\nConfirmed plan:\n" + planMarkdown
 }
 
 func SystemPromptForMode(mode string, prompt string) string {

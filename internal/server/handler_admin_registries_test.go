@@ -22,6 +22,35 @@ func setupAdminRegistriesFixture(t *testing.T) testFixture {
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
 	}, testFixtureOptions{
 		notifications: ws.NewHub(),
+		mcpTools: stubMCPToolCatalog{defs: []api.ToolDetailResponse{
+			{
+				Key:  "demo_search",
+				Name: "demo_search",
+				Meta: map[string]any{
+					"kind":           "backend",
+					"sourceCategory": "mcp",
+					"sourceKey":      "demo-mcp",
+				},
+			},
+			{
+				Key:  "demo_read",
+				Name: "demo_read",
+				Meta: map[string]any{
+					"kind":           "frontend",
+					"sourceCategory": "mcp",
+					"serverKey":      "demo-mcp",
+				},
+			},
+			{
+				Key:  "other_tool",
+				Name: "other_tool",
+				Meta: map[string]any{
+					"kind":           "backend",
+					"sourceCategory": "mcp",
+					"sourceKey":      "other-mcp",
+				},
+			},
+		}},
 		configure: func(cfg *config.Config) {
 			cfg.WebSocket.WriteQueueSize = 4
 			cfg.WebSocket.PingInterval = 30000
@@ -37,6 +66,9 @@ func setupAdminRegistriesFixture(t *testing.T) testFixture {
 			}
 			if err := os.WriteFile(filepath.Join(mcpDir, "invalid-yaml.yml"), []byte("serverKey: broken\n  baseUrl: bad\n"), 0o644); err != nil {
 				t.Fatalf("write invalid mcp registry: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(mcpDir, "demo.yml"), []byte("serverKey: demo-mcp\nbaseUrl: http://localhost:11969\n"), 0o644); err != nil {
+				t.Fatalf("write demo mcp registry: %v", err)
 			}
 			if err := os.WriteFile(filepath.Join(viewportDir, "missing-base.yml"), []byte("serverKey: missing-base\nendpointPath: /mcp\n"), 0o644); err != nil {
 				t.Fatalf("write invalid viewport registry: %v", err)
@@ -57,6 +89,19 @@ func setupAdminRegistriesFixture(t *testing.T) testFixture {
 				"modelId: gpt-5-codex",
 			}, "\n")), 0o644); err != nil {
 				t.Fatalf("write acp passthrough model: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "capability-model.yml"), []byte(strings.Join([]string{
+				"key: capability-model",
+				"name: Capability Model",
+				"provider: mock",
+				"type: chat",
+				"protocol: OPENAI",
+				"modelId: capability-model-id",
+				"isVision: true",
+				"isReasoner: true",
+				"isFunction: true",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write capability model: %v", err)
 			}
 			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "providers", "warning-only.yml"), []byte(strings.Join([]string{
 				"key: warning-only",
@@ -89,6 +134,9 @@ func TestAdminRegistriesEndpointIncludesInvalidFiles(t *testing.T) {
 	if byFile["providers/mock.yml"].Status != "ready" {
 		t.Fatalf("mock provider should be ready: %#v", byFile["providers/mock.yml"])
 	}
+	if item := byFile["providers/mock.yml"]; item.Summary["baseUrl"] == "" {
+		t.Fatalf("provider list summary should expose baseUrl: %#v", item)
+	}
 	if item := byFile["mcp-servers/invalid-yaml.yml"]; item.Status != "invalid" || item.Diagnostic == nil || item.Diagnostic.Code != "invalid_yaml" || item.DiagnosticCount != 1 {
 		t.Fatalf("invalid yaml diagnostic summary missing: %#v", item)
 	}
@@ -98,11 +146,33 @@ func TestAdminRegistriesEndpointIncludesInvalidFiles(t *testing.T) {
 	if item := byFile["models/acp-passthrough.yml"]; item.Status != "ready" || item.Diagnostic != nil || item.DiagnosticCount != 0 {
 		t.Fatalf("acp passthrough providerless model should be ready: %#v", item)
 	}
+	if item := byFile["models/capability-model.yml"]; item.Status != "ready" || item.Name != "Capability Model" || item.Summary["type"] != "chat" || item.Summary["provider"] != "mock" || item.Summary["protocol"] != "OPENAI" || item.Summary["isVision"] != true || item.Summary["isReasoner"] != true || item.Summary["isFunction"] != true {
+		t.Fatalf("capability model list summary missing display fields: %#v", item)
+	}
+	if item := byFile["mcp-servers/demo.yml"]; item.Status != "ready" || item.Key != "demo-mcp" || item.Summary["baseUrl"] != "http://localhost:11969" || intFromAny(item.Summary["toolCount"]) != 2 {
+		t.Fatalf("mcp server list summary should expose runtime tool count: %#v", item)
+	}
 	if item := byFile["viewport-servers/missing-base.yml"]; item.Status != "invalid" || item.Diagnostic == nil || item.Diagnostic.Code != "missing_base_url" || item.DiagnosticCount != 1 {
 		t.Fatalf("viewport diagnostic summary missing: %#v", item)
 	}
+	if item := byFile["viewport-servers/missing-base.yml"]; item.Summary != nil {
+		if _, ok := item.Summary["viewportCount"]; ok {
+			t.Fatalf("viewport server list summary should not expose viewport count: %#v", item)
+		}
+	}
 	if item := byFile["providers/warning-only.yml"]; item.Status != "ready" || item.Diagnostic == nil || item.Diagnostic.Severity != "warning" || item.Diagnostic.Code != "missing_api_key" || item.DiagnosticCount != 1 {
 		t.Fatalf("warning-only provider diagnostic summary missing: %#v", item)
+	}
+}
+
+func intFromAny(value any) int {
+	switch typed := value.(type) {
+	case int:
+		return typed
+	case float64:
+		return int(typed)
+	default:
+		return 0
 	}
 }
 

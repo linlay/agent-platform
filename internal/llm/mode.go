@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"io"
 	"strings"
 
 	agentcoder "agent-platform/internal/agent/coder"
@@ -42,9 +43,107 @@ func (coderMode) Start(engine *LLMAgentEngine, ctx context.Context, req api.Quer
 	if session.PlanningMode {
 		return agentcoder.NewPlanningStream(engine, ctx, req, session)
 	}
+	if agentcoder.IsPlanApproveContinuationParams(req.Params) {
+		settings := session.ResolvedStageSettings
+		executeTools := agentcoder.PlanningExecuteToolsForStage(settings.Execute, session.ToolNames)
+		stageSession := session
+		stageSession.ToolNames = append([]string(nil), executeTools...)
+		if modelKey := strings.TrimSpace(settings.Execute.ModelKey); modelKey != "" {
+			stageSession.ModelKey = modelKey
+		}
+		stream, err := engine.newRunStreamWithOptions(ctx, req, stageSession, true, runStreamOptions{
+			ToolNames: executeTools,
+			ModelKey:  strings.TrimSpace(settings.Execute.ModelKey),
+			Stage:     "coder-execute",
+		})
+		if err != nil {
+			return nil, err
+		}
+		return &prefixedAgentStream{
+			pending: []AgentDelta{
+				DeltaStageMarker{Stage: "coder-execute"},
+				DeltaSyntheticQuery{
+					ChatID:   session.ChatID,
+					Role:     api.QueryRoleUser,
+					Message:  agentcoder.ExecuteSyntheticQueryMessage(session.Locale),
+					Stage:    "coder-execute",
+					Source:   "coder-plan-approve",
+					Messages: cloneRawMessageMaps(session.CurrentMessages),
+					Systems:  systemPayloadsFromCache(session.SystemInitCache, "coder:execute"),
+				},
+			},
+			stream: stream,
+		}, nil
+	}
 	return engine.newRunStreamWithOptions(ctx, req, session, true, runStreamOptions{
 		Stage: "coder",
 	})
+}
+
+type prefixedAgentStream struct {
+	pending []AgentDelta
+	stream  AgentStream
+}
+
+func (s *prefixedAgentStream) Next() (AgentDelta, error) {
+	if s == nil {
+		return nil, io.EOF
+	}
+	if len(s.pending) > 0 {
+		next := s.pending[0]
+		s.pending = s.pending[1:]
+		return next, nil
+	}
+	if s.stream == nil {
+		return nil, io.EOF
+	}
+	return s.stream.Next()
+}
+
+func (s *prefixedAgentStream) Close() error {
+	if s == nil || s.stream == nil {
+		return nil
+	}
+	return s.stream.Close()
+}
+
+func systemPayloadsFromCache(cache map[string]SystemInitSnapshot, cacheKeys ...string) []map[string]any {
+	if len(cache) == 0 || len(cacheKeys) == 0 {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(cacheKeys))
+	for _, cacheKey := range cacheKeys {
+		cacheKey = strings.TrimSpace(cacheKey)
+		snapshot, ok := cache[cacheKey]
+		if !ok || strings.TrimSpace(snapshot.Fingerprint) == "" {
+			continue
+		}
+		out = append(out, map[string]any{
+			"cacheKey":       cacheKey,
+			"fingerprint":    snapshot.Fingerprint,
+			"systemMessage":  cloneAnyMapViaJSON(snapshot.SystemMessage),
+			"tools":          cloneAnySliceViaJSON(snapshot.Tools),
+			"model":          cloneAnyMapViaJSON(snapshot.Model),
+			"toolChoice":     snapshot.ToolChoice,
+			"requestOptions": cloneAnyMapViaJSON(snapshot.RequestOptions),
+		})
+	}
+	return out
+}
+
+func cloneAnySliceViaJSON(values []any) []any {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]any, 0, len(values))
+	for _, value := range values {
+		if mapped, ok := value.(map[string]any); ok {
+			out = append(out, cloneAnyMapViaJSON(mapped))
+			continue
+		}
+		out = append(out, value)
+	}
+	return out
 }
 
 type kbaseMode struct{}

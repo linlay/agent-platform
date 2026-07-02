@@ -97,7 +97,7 @@ func (s *Server) listAdminRegistries() (api.AdminRegistryListResponse, error) {
 				summary.UpdatedAt = info.ModTime().UnixMilli()
 				summary.Size = info.Size()
 			}
-			items = append(items, adminRegistryListItem(summary))
+			items = append(items, adminRegistryListItem(s.adminRegistryListSummary(summary)))
 		}
 	}
 	sort.SliceStable(items, func(i, j int) bool {
@@ -107,6 +107,54 @@ func (s *Server) listAdminRegistries() (api.AdminRegistryListResponse, error) {
 		return items[i].File < items[j].File
 	})
 	return api.AdminRegistryListResponse{Items: items, Total: len(items)}, nil
+}
+
+func (s *Server) adminRegistryListSummary(summary api.AdminRegistrySummary) api.AdminRegistrySummary {
+	if summary.Category != "mcp-servers" {
+		return summary
+	}
+	if summary.Summary == nil {
+		summary.Summary = map[string]any{}
+	}
+	summary.Summary["toolCount"] = s.adminRegistryMCPToolCount(summary.Key)
+	return summary
+}
+
+func (s *Server) adminRegistryMCPToolCount(serverKey string) int {
+	serverKey = strings.TrimSpace(serverKey)
+	if s == nil || s.deps.Tools == nil || serverKey == "" {
+		return 0
+	}
+	count := 0
+	seen := map[string]struct{}{}
+	for _, tool := range s.deps.Tools.Definitions() {
+		if canonical, ok := canonicalizePublicToolDefinition(tool); ok {
+			tool = canonical
+		}
+		if toolSourceCategory(tool) != "mcp" {
+			continue
+		}
+		sourceKey := strings.TrimSpace(anyStringValue(tool.Meta["sourceKey"]))
+		if sourceKey == "" {
+			sourceKey = strings.TrimSpace(anyStringValue(tool.Meta["serverKey"]))
+		}
+		if !strings.EqualFold(sourceKey, serverKey) {
+			continue
+		}
+		name := strings.ToLower(strings.TrimSpace(tool.Name))
+		if name == "" {
+			name = strings.ToLower(strings.TrimSpace(tool.Key))
+		}
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		count++
+	}
+	return count
 }
 
 func adminRegistryListItem(summary api.AdminRegistrySummary) api.AdminRegistryListItem {

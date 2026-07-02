@@ -23,6 +23,7 @@ type StreamRequest struct {
 	AccessLevel        string
 	Created            bool
 	ContinueRun        bool
+	InitialSeq         int64
 	MemoryUsageSummary map[string]any
 }
 
@@ -56,11 +57,15 @@ type StreamEventAssembler struct {
 }
 
 func NewAssembler(request StreamRequest) *StreamEventAssembler {
-	return &StreamEventAssembler{
+	assembler := &StreamEventAssembler{
 		dispatcher: NewDispatcher(request),
 		normalizer: NewNormalizer(),
 		request:    request,
 	}
+	if request.InitialSeq > 0 {
+		assembler.seq.Store(request.InitialSeq)
+	}
+	return assembler
 }
 
 // RegisterHiddenTools marks tools as clientVisible=false so their

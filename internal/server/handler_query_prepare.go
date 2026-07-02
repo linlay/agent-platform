@@ -29,6 +29,7 @@ type preparedQuery struct {
 	resourceBaseURL    string
 	release            queryReleaseFunc
 	continueRun        bool
+	initialSeq         int64
 }
 
 type queryAdmission struct {
@@ -643,6 +644,7 @@ func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEv
 		AccessLevel:        prepared.session.AccessLevel,
 		Created:            prepared.created,
 		ContinueRun:        prepared.continueRun,
+		InitialSeq:         prepared.initialSeq,
 		MemoryUsageSummary: memoryUsageEventPayload(prepared.memoryUsageSummary, prepared.req.ChatID, prepared.req.RunID, prepared.req.AgentKey),
 	})
 	if s.deps.Tools != nil {

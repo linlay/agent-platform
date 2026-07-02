@@ -3,22 +3,138 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
+	"agent-platform/internal/contracts"
 	"agent-platform/internal/llm"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
 )
+
+func TestDeferredPlanApproveContinuationUsesCoderExecuteSystem(t *testing.T) {
+	var providerCallCount atomic.Int32
+	notifications := &recordingNotificationSink{}
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode model request: %v", err)
+		}
+		if call := providerCallCount.Add(1); call != 1 {
+			t.Fatalf("unexpected provider call %d payload=%#v", call, payload)
+		}
+		toolNames := providerRequestToolNames(payload["tools"])
+		assertStringSliceContains(t, toolNames, "bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex", "plan_add_tasks", "plan_get_tasks", "plan_update_task")
+		assertStringSliceExcludes(t, toolNames, contracts.FinalizePlanningToolName, "ask_user_question")
+		assertProviderMessagesContainToolResult(t, payload, "tool_plan", contracts.FinalizePlanningToolName, "approve")
+		if !providerMessagesContainText(payload, "Execute the confirmed CODER plan.\n\nOriginal request:\nplease plan first") ||
+			!providerMessagesContainText(payload, "Confirmed plan:\n# Deferred Coder Plan") {
+			t.Fatalf("expected execute prompt in provider messages, got %#v", payload["messages"])
+		}
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"deferred execution completed"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{
+		notifications: notifications,
+		setupRuntime: func(root string, cfg *config.Config) {
+			workspace := filepath.Join(root, "workspace")
+			agentDir := filepath.Join(cfg.Paths.AgentsDir, "coder-app")
+			if err := os.MkdirAll(agentDir, 0o755); err != nil {
+				t.Fatalf("mkdir coder agent: %v", err)
+			}
+			if err := os.MkdirAll(workspace, 0o755); err != nil {
+				t.Fatalf("mkdir workspace: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(strings.Join([]string{
+				"key: coder-app",
+				"name: Coder App",
+				"mode: CODER",
+				"modelConfig:",
+				"  modelKey: mock-model",
+				"runtimeConfig:",
+				"  workspaceRoot: " + filepath.ToSlash(workspace),
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write coder agent: %v", err)
+			}
+		},
+	})
+
+	chatID := "chat-deferred-coder-plan"
+	runID := "run-deferred-coder-plan"
+	awaitingID := "tool_plan"
+	seedCoderPlanAwaitingForDeferredSubmit(t, fixture.chats, chatID, runID, awaitingID, fixture.cfg.Paths.ChatsDir)
+
+	restartedRuns := contracts.NewInMemoryRunManager()
+	restarted, err := New(Dependencies{
+		Config:          fixture.cfg,
+		Chats:           fixture.chats,
+		Memory:          fixture.memories,
+		Registry:        fixture.registry,
+		Models:          fixture.modelRegistry,
+		Runs:            restartedRuns,
+		Agent:           fixture.agent,
+		Tools:           fixture.tools,
+		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
+		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
+		Sandbox:         fixture.sandbox,
+		MCP:             fixture.mcp,
+		Viewport:        fixture.viewport,
+		CatalogReloader: fixture.catalogReloader,
+		Notifications:   notifications,
+	})
+	if err != nil {
+		t.Fatalf("new restarted server: %v", err)
+	}
+
+	params, err := api.EncodeSubmitParams([]map[string]any{{"id": "confirm", "decision": "approve"}})
+	if err != nil {
+		t.Fatalf("encode submit params: %v", err)
+	}
+	body, err := json.Marshal(api.SubmitRequest{
+		ChatID:     chatID,
+		RunID:      runID,
+		AgentKey:   "coder-app",
+		AwaitingID: awaitingID,
+		SubmitID:   "submit-deferred-plan",
+		Params:     params,
+	})
+	if err != nil {
+		t.Fatalf("marshal submit request: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	restarted.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("submit expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var response api.ApiResponse[api.SubmitResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode submit response: %v", err)
+	}
+	if !response.Data.Accepted || !response.Data.Continued {
+		t.Fatalf("expected continued submit response, got %#v", response.Data)
+	}
+
+	waitForRecordedNotificationType(t, notifications, "run.finished")
+	if got := providerCallCount.Load(); got != 1 {
+		t.Fatalf("expected one provider call, got %d", got)
+	}
+	assertDeferredPlanApproveJSONL(t, fixture.chats, chatID, awaitingID)
+}
 
 func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
 	notifications := &recordingNotificationSink{}
@@ -837,6 +953,202 @@ func seedDeferredAwaitingPayload(t *testing.T, store chat.Store, chatID string, 
 		CreatedAt:  createdAt,
 	}); err != nil {
 		t.Fatalf("set pending awaiting: %v", err)
+	}
+}
+
+func seedCoderPlanAwaitingForDeferredSubmit(t *testing.T, store chat.Store, chatID string, runID string, awaitingID string, chatsDir string) {
+	t.Helper()
+	if _, _, err := store.EnsureChat(chatID, "coder-app", "", "please plan first"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := store.AppendQueryLine(chatID, chat.QueryLine{
+		ChatID:    chatID,
+		RunID:     runID,
+		UpdatedAt: 1701,
+		LiveSeq:   1,
+		Query: map[string]any{
+			"requestId":    runID,
+			"runId":        runID,
+			"chatId":       chatID,
+			"agentKey":     "coder-app",
+			"role":         "user",
+			"message":      "please plan first",
+			"planningMode": true,
+			"accessLevel":  contracts.AccessLevelDefault,
+		},
+		Type: "query",
+	}); err != nil {
+		t.Fatalf("append query line: %v", err)
+	}
+
+	planningID := runID + "_planning_1"
+	planningFile := filepath.Join(chatsDir, chatID, chat.ToolRootDirName, chat.ToolPlansDirName, planningID+".md")
+	if err := os.MkdirAll(filepath.Dir(planningFile), 0o755); err != nil {
+		t.Fatalf("mkdir planning dir: %v", err)
+	}
+	markdown := "# Deferred Coder Plan\n\n## Summary\nExecute after restart."
+	if err := os.WriteFile(planningFile, []byte(markdown), 0o644); err != nil {
+		t.Fatalf("write planning file: %v", err)
+	}
+	assistantTs := int64(1702)
+	awaiting := map[string]any{
+		"type":         "awaiting.ask",
+		"awaitingId":   awaitingID,
+		"runId":        runID,
+		"mode":         "plan",
+		"timeout":      0,
+		"viewportType": "builtin",
+		"viewportKey":  "plan",
+		"plan": map[string]any{
+			"id":           "confirm",
+			"planningId":   planningID,
+			"planningFile": planningFile,
+			"options": []any{
+				map[string]any{"decision": "approve"},
+				map[string]any{"decision": "reject"},
+			},
+		},
+	}
+	if err := store.AppendStepLine(chatID, chat.StepLine{
+		ChatID:    chatID,
+		RunID:     runID,
+		UpdatedAt: assistantTs,
+		LiveSeq:   7,
+		Type:      chat.StepLineTypeReact,
+		Seq:       1,
+		Messages: []chat.StoredMessage{{
+			Role: "assistant",
+			ToolCalls: []chat.StoredToolCall{{
+				ID:   awaitingID,
+				Type: "function",
+				Function: chat.StoredFunction{
+					Name:      contracts.FinalizePlanningToolName,
+					Arguments: `{"markdown":"` + strings.ReplaceAll(markdown, "\n", "\\n") + `"}`,
+				},
+			}},
+			ToolID: awaitingID,
+			MsgID:  "msg-plan",
+			Ts:     &assistantTs,
+		}},
+		Awaiting: []map[string]any{awaiting},
+	}); err != nil {
+		t.Fatalf("append awaiting step line: %v", err)
+	}
+	if err := store.SetPendingAwaiting(chatID, chat.PendingAwaiting{
+		AwaitingID: awaitingID,
+		RunID:      runID,
+		Mode:       "plan",
+		CreatedAt:  assistantTs,
+	}); err != nil {
+		t.Fatalf("set pending awaiting: %v", err)
+	}
+}
+
+func providerMessagesContainText(payload map[string]any, want string) bool {
+	messages, _ := payload["messages"].([]any)
+	for _, raw := range messages {
+		message, _ := raw.(map[string]any)
+		if strings.Contains(textFromJSONLMessageContentForServerTest(message["content"]), want) {
+			return true
+		}
+	}
+	return false
+}
+
+func assertDeferredPlanApproveJSONL(t *testing.T, store chat.Store, chatID string, awaitingID string) {
+	t.Helper()
+	content, err := store.LoadJSONLContent(chatID)
+	if err != nil {
+		t.Fatalf("load jsonl: %v", err)
+	}
+	decoder := json.NewDecoder(strings.NewReader(content))
+	lines := []map[string]any{}
+	for {
+		var line map[string]any
+		if err := decoder.Decode(&line); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			t.Fatalf("decode jsonl: %v\n%s", err, content)
+		}
+		lines = append(lines, line)
+	}
+	syntheticIndex := -1
+	for index, line := range lines {
+		if stringValue(line["_type"]) != "query" {
+			continue
+		}
+		query, _ := line["query"].(map[string]any)
+		if query["synthetic"] == true && stringValue(query["stage"]) == "coder-execute" && stringValue(query["source"]) == "coder-plan-approve" {
+			syntheticIndex = index
+			break
+		}
+	}
+	if syntheticIndex < 0 {
+		t.Fatalf("expected coder execute synthetic query in:\n%s", content)
+	}
+	synthetic := lines[syntheticIndex]
+	if liveSeq := testInt64Value(synthetic["liveSeq"]); liveSeq <= 7 {
+		t.Fatalf("expected synthetic query liveSeq to continue after 7, got %#v in:\n%s", synthetic["liveSeq"], content)
+	}
+	query, _ := synthetic["query"].(map[string]any)
+	if _, ok := query["systems"]; ok {
+		t.Fatalf("did not expect nested systems in synthetic query payload: %#v", query)
+	}
+	rawSystems, _ := synthetic["systems"].([]any)
+	if len(rawSystems) != 1 {
+		t.Fatalf("expected one synthetic query system, got %#v in:\n%s", synthetic, content)
+	}
+	system, _ := rawSystems[0].(map[string]any)
+	if system["cacheKey"] != "coder:execute" {
+		t.Fatalf("expected coder:execute system, got %#v in:\n%s", system, content)
+	}
+	rawMessages, _ := synthetic["messages"].([]any)
+	if len(rawMessages) != 1 {
+		t.Fatalf("expected one synthetic query message, got %#v in:\n%s", synthetic, content)
+	}
+	message, _ := rawMessages[0].(map[string]any)
+	if stringValue(message["role"]) != "user" ||
+		!strings.Contains(textFromJSONLMessageContentForServerTest(message["content"]), "Execute the confirmed CODER plan.") ||
+		!strings.Contains(textFromJSONLMessageContentForServerTest(message["content"]), "Confirmed plan:\n# Deferred Coder Plan") {
+		t.Fatalf("unexpected synthetic query message %#v in:\n%s", message, content)
+	}
+
+	for _, line := range lines[syntheticIndex+1:] {
+		if stringValue(line["_type"]) != chat.StepLineTypeReact {
+			continue
+		}
+		systemRef, _ := line["systemRef"].(map[string]any)
+		if len(systemRef) == 0 {
+			continue
+		}
+		if systemRef["cacheKey"] != "coder:execute" {
+			t.Fatalf("expected execute react systemRef coder:execute, got %#v in:\n%s", systemRef, content)
+		}
+		if systemRef["cacheKey"] == "coder:main" {
+			t.Fatalf("did not expect coder:main systemRef in:\n%s", content)
+		}
+		if liveSeq := testInt64Value(line["liveSeq"]); liveSeq <= testInt64Value(synthetic["liveSeq"]) {
+			t.Fatalf("expected execute step liveSeq after synthetic query, got line=%#v synthetic=%#v", line["liveSeq"], synthetic["liveSeq"])
+		}
+		return
+	}
+	t.Fatalf("expected execute react after synthetic query for awaiting %s in:\n%s", awaitingID, content)
+}
+
+func testInt64Value(value any) int64 {
+	switch typed := value.(type) {
+	case int64:
+		return typed
+	case int:
+		return int64(typed)
+	case float64:
+		return int64(typed)
+	case json.Number:
+		n, _ := typed.Int64()
+		return n
+	default:
+		return 0
 	}
 }
 
