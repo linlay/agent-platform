@@ -59,7 +59,7 @@ func (s *Server) handleAdminRegistryValidate(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Server) listAdminRegistries() (api.AdminRegistryListResponse, error) {
-	items := []api.AdminRegistrySummary{}
+	items := []api.AdminRegistryListItem{}
 	for _, category := range adminRegistryCategories {
 		dir, err := s.adminRegistryCategoryDir(category)
 		if err != nil {
@@ -81,7 +81,7 @@ func (s *Server) listAdminRegistries() (api.AdminRegistryListResponse, error) {
 			content, readErr := os.ReadFile(path)
 			info, statErr := entry.Info()
 			if readErr != nil {
-				items = append(items, api.AdminRegistrySummary{
+				items = append(items, adminRegistryListItem(api.AdminRegistrySummary{
 					Category: category,
 					File:     name,
 					Status:   adminRegistryStatusInvalid,
@@ -89,7 +89,7 @@ func (s *Server) listAdminRegistries() (api.AdminRegistryListResponse, error) {
 						"error", "read_failed", readErr.Error(), path,
 					)},
 					Source: adminRegistrySource(category, path),
-				})
+				}))
 				continue
 			}
 			summary, _, _ := s.analyzeAdminRegistry(category, name, content, path)
@@ -97,7 +97,7 @@ func (s *Server) listAdminRegistries() (api.AdminRegistryListResponse, error) {
 				summary.UpdatedAt = info.ModTime().UnixMilli()
 				summary.Size = info.Size()
 			}
-			items = append(items, summary)
+			items = append(items, adminRegistryListItem(summary))
 		}
 	}
 	sort.SliceStable(items, func(i, j int) bool {
@@ -107,6 +107,28 @@ func (s *Server) listAdminRegistries() (api.AdminRegistryListResponse, error) {
 		return items[i].File < items[j].File
 	})
 	return api.AdminRegistryListResponse{Items: items, Total: len(items)}, nil
+}
+
+func adminRegistryListItem(summary api.AdminRegistrySummary) api.AdminRegistryListItem {
+	item := api.AdminRegistryListItem{
+		Category:  summary.Category,
+		File:      summary.File,
+		Key:       summary.Key,
+		Name:      summary.Name,
+		Status:    summary.Status,
+		Summary:   summary.Summary,
+		UpdatedAt: summary.UpdatedAt,
+	}
+	if len(summary.Diagnostics) > 0 {
+		first := summary.Diagnostics[0]
+		item.Diagnostic = &api.AdminRegistryListDiagnostic{
+			Severity: first.Severity,
+			Code:     first.Code,
+			Message:  first.Message,
+		}
+		item.DiagnosticCount = len(summary.Diagnostics)
+	}
+	return item
 }
 
 func (s *Server) readAdminRegistryDetail(category string, file string) (api.AdminRegistryDetailResponse, error) {

@@ -552,9 +552,27 @@ type AdminRegistrySummary struct {
 	Size        int64                  `json:"size,omitempty"`
 }
 
+type AdminRegistryListDiagnostic struct {
+	Severity string `json:"severity"`
+	Code     string `json:"code"`
+	Message  string `json:"message"`
+}
+
+type AdminRegistryListItem struct {
+	Category        string                       `json:"category"`
+	File            string                       `json:"file"`
+	Key             string                       `json:"key,omitempty"`
+	Name            string                       `json:"name,omitempty"`
+	Status          string                       `json:"status"`
+	Summary         map[string]any               `json:"summary,omitempty"`
+	Diagnostic      *AdminRegistryListDiagnostic `json:"diagnostic,omitempty"`
+	DiagnosticCount int                          `json:"diagnosticCount,omitempty"`
+	UpdatedAt       int64                        `json:"updatedAt,omitempty"`
+}
+
 type AdminRegistryListResponse struct {
-	Items []AdminRegistrySummary `json:"items"`
-	Total int                    `json:"total"`
+	Items []AdminRegistryListItem `json:"items"`
+	Total int                     `json:"total"`
 }
 
 type AdminRegistryDetailResponse struct {
