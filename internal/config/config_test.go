@@ -751,62 +751,66 @@ func TestLoadPromptsConfigFromFile(t *testing.T) {
 			"    custom memory user\n" +
 			"    {{source_text}}\n"
 		withProjectFileContents(t, filepath.Join("configs", "prompts.yml"), &content, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			want := "custom skill instructions\nsecond line"
-			if cfg.Prompts.Skill.InstructionsPrompt != want {
-				t.Fatalf("expected prompts override %q, got %q", want, cfg.Prompts.Skill.InstructionsPrompt)
-			}
-			if cfg.Prompts.Skill.CatalogHeader != "custom skills header" {
-				t.Fatalf("expected catalog header override, got %q", cfg.Prompts.Skill.CatalogHeader)
-			}
-			if cfg.Prompts.Skill.DisclosureHeader != "custom disclosure" {
-				t.Fatalf("expected disclosure header override, got %q", cfg.Prompts.Skill.DisclosureHeader)
-			}
-			if cfg.Prompts.Skill.InstructionsLabel != "custom label" {
-				t.Fatalf("expected instructions label override, got %q", cfg.Prompts.Skill.InstructionsLabel)
-			}
-			if cfg.Prompts.ToolAppendix.ToolDescriptionTitle != "custom tool title" {
-				t.Fatalf("expected tool description title override, got %q", cfg.Prompts.ToolAppendix.ToolDescriptionTitle)
-			}
-			if cfg.Prompts.ToolAppendix.AfterCallHintTitle != "custom hint title" {
-				t.Fatalf("expected after call hint title override, got %q", cfg.Prompts.ToolAppendix.AfterCallHintTitle)
-			}
-			if cfg.Prompts.PlanExecute.TaskExecutionPromptTemplate != "custom task {{task_id}}" {
-				t.Fatalf("expected task prompt override, got %q", cfg.Prompts.PlanExecute.TaskExecutionPromptTemplate)
-			}
-			if cfg.Prompts.PlanExecute.PlanUserPromptTemplate != "custom plan {{user_request}}" {
-				t.Fatalf("expected plan user prompt override, got %q", cfg.Prompts.PlanExecute.PlanUserPromptTemplate)
-			}
-			if cfg.Prompts.PlanExecute.SummarySystemPrompt != "custom summary system" {
-				t.Fatalf("expected summary system prompt override, got %q", cfg.Prompts.PlanExecute.SummarySystemPrompt)
-			}
-			if cfg.Prompts.PlanExecute.SummaryUserPromptTemplate != "custom summary {{task_results}}" {
-				t.Fatalf("expected summary user prompt override, got %q", cfg.Prompts.PlanExecute.SummaryUserPromptTemplate)
-			}
-			if cfg.CoderPrompts.SystemPrompt != "custom coder system\nread before editing" {
-				t.Fatalf("expected coder system prompt override, got %q", cfg.CoderPrompts.SystemPrompt)
-			}
-			if cfg.CoderPrompts.PlanningPrompt != "custom coder planning\nuse finalize_planning only" {
-				t.Fatalf("expected coder planning prompt override, got %q", cfg.CoderPrompts.PlanningPrompt)
-			}
-			if cfg.CoderPrompts.SummarySystemPrompt != "custom coder summary system" {
-				t.Fatalf("expected coder summary system prompt override, got %q", cfg.CoderPrompts.SummarySystemPrompt)
-			}
-			if cfg.CoderPrompts.SummaryUserPromptTemplate != "custom coder summary {{confirmed_plan}}" {
-				t.Fatalf("expected coder summary user prompt override, got %q", cfg.CoderPrompts.SummaryUserPromptTemplate)
-			}
-			if cfg.KBasePrompts.SystemPrompt != "custom kbase system\ncite sources" {
-				t.Fatalf("expected kbase system prompt override, got %q", cfg.KBasePrompts.SystemPrompt)
-			}
-			if cfg.MemoryPrompts.SystemPromptTemplate != "custom memory system\n{{task_instruction}}" {
-				t.Fatalf("expected memory system prompt override, got %q", cfg.MemoryPrompts.SystemPromptTemplate)
-			}
-			if cfg.MemoryPrompts.UserPromptTemplate != "custom memory user\n{{source_text}}" {
-				t.Fatalf("expected memory user prompt override, got %q", cfg.MemoryPrompts.UserPromptTemplate)
-			}
+			withProjectFileContents(t, filepath.Join("configs", "coder-prompts.yml"), nil, func() {
+				withProjectFileContents(t, filepath.Join("configs", "kbase-prompts.yml"), nil, func() {
+					cfg, err := Load()
+					if err != nil {
+						t.Fatalf("load config: %v", err)
+					}
+					want := "custom skill instructions\nsecond line"
+					if cfg.Prompts.Skill.InstructionsPrompt != want {
+						t.Fatalf("expected prompts override %q, got %q", want, cfg.Prompts.Skill.InstructionsPrompt)
+					}
+					if cfg.Prompts.Skill.CatalogHeader != "custom skills header" {
+						t.Fatalf("expected catalog header override, got %q", cfg.Prompts.Skill.CatalogHeader)
+					}
+					if cfg.Prompts.Skill.DisclosureHeader != "custom disclosure" {
+						t.Fatalf("expected disclosure header override, got %q", cfg.Prompts.Skill.DisclosureHeader)
+					}
+					if cfg.Prompts.Skill.InstructionsLabel != "custom label" {
+						t.Fatalf("expected instructions label override, got %q", cfg.Prompts.Skill.InstructionsLabel)
+					}
+					if cfg.Prompts.ToolAppendix.ToolDescriptionTitle != "custom tool title" {
+						t.Fatalf("expected tool description title override, got %q", cfg.Prompts.ToolAppendix.ToolDescriptionTitle)
+					}
+					if cfg.Prompts.ToolAppendix.AfterCallHintTitle != "custom hint title" {
+						t.Fatalf("expected after call hint title override, got %q", cfg.Prompts.ToolAppendix.AfterCallHintTitle)
+					}
+					if cfg.Prompts.PlanExecute.TaskExecutionPromptTemplate != "custom task {{task_id}}" {
+						t.Fatalf("expected task prompt override, got %q", cfg.Prompts.PlanExecute.TaskExecutionPromptTemplate)
+					}
+					if cfg.Prompts.PlanExecute.PlanUserPromptTemplate != "custom plan {{user_request}}" {
+						t.Fatalf("expected plan user prompt override, got %q", cfg.Prompts.PlanExecute.PlanUserPromptTemplate)
+					}
+					if cfg.Prompts.PlanExecute.SummarySystemPrompt != "custom summary system" {
+						t.Fatalf("expected summary system prompt override, got %q", cfg.Prompts.PlanExecute.SummarySystemPrompt)
+					}
+					if cfg.Prompts.PlanExecute.SummaryUserPromptTemplate != "custom summary {{task_results}}" {
+						t.Fatalf("expected summary user prompt override, got %q", cfg.Prompts.PlanExecute.SummaryUserPromptTemplate)
+					}
+					if cfg.CoderPrompts.SystemPrompt != "custom coder system\nread before editing" {
+						t.Fatalf("expected coder system prompt override, got %q", cfg.CoderPrompts.SystemPrompt)
+					}
+					if cfg.CoderPrompts.PlanningPrompt != "custom coder planning\nuse finalize_planning only" {
+						t.Fatalf("expected coder planning prompt override, got %q", cfg.CoderPrompts.PlanningPrompt)
+					}
+					if cfg.CoderPrompts.SummarySystemPrompt != "custom coder summary system" {
+						t.Fatalf("expected coder summary system prompt override, got %q", cfg.CoderPrompts.SummarySystemPrompt)
+					}
+					if cfg.CoderPrompts.SummaryUserPromptTemplate != "custom coder summary {{confirmed_plan}}" {
+						t.Fatalf("expected coder summary user prompt override, got %q", cfg.CoderPrompts.SummaryUserPromptTemplate)
+					}
+					if cfg.KBasePrompts.SystemPrompt != "custom kbase system\ncite sources" {
+						t.Fatalf("expected kbase system prompt override, got %q", cfg.KBasePrompts.SystemPrompt)
+					}
+					if cfg.MemoryPrompts.SystemPromptTemplate != "custom memory system\n{{task_instruction}}" {
+						t.Fatalf("expected memory system prompt override, got %q", cfg.MemoryPrompts.SystemPromptTemplate)
+					}
+					if cfg.MemoryPrompts.UserPromptTemplate != "custom memory user\n{{source_text}}" {
+						t.Fatalf("expected memory user prompt override, got %q", cfg.MemoryPrompts.UserPromptTemplate)
+					}
+				})
+			})
 		})
 	})
 }
@@ -814,17 +818,16 @@ func TestLoadPromptsConfigFromFile(t *testing.T) {
 func TestLoadCoderPromptsConfigFromFile(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "" +
-			"coder:\n" +
-			"  system-prompt: |\n" +
-			"    custom coder system\n" +
-			"    read before editing\n" +
-			"  planning-prompt: |\n" +
-			"    custom coder planning\n" +
-			"    use finalize_planning only\n" +
-			"  summary-system-prompt: custom coder summary system\n" +
-			"  summary-user-prompt-template: |\n" +
-			"    custom coder summary {{confirmed_plan}}\n"
-		withProjectFileContents(t, filepath.Join("configs", "prompts.yml"), &content, func() {
+			"system-prompt: |\n" +
+			"  custom coder system\n" +
+			"  read before editing\n" +
+			"planning-prompt: |\n" +
+			"  custom coder planning\n" +
+			"  use finalize_planning only\n" +
+			"summary-system-prompt: custom coder summary system\n" +
+			"summary-user-prompt-template: |\n" +
+			"  custom coder summary {{confirmed_plan}}\n"
+		withProjectFileContents(t, filepath.Join("configs", "coder-prompts.yml"), &content, func() {
 			cfg, err := Load()
 			if err != nil {
 				t.Fatalf("load config: %v", err)
@@ -1718,65 +1721,67 @@ func TestLoadRuntimePathsFromYAML(t *testing.T) {
 		"      include-notes: false\n"
 	withIsolatedEnv(t, nil, func() {
 		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &runtimeConfig, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if cfg.Paths.RegistriesDir != filepath.Join("var", "yaml-registries") {
-				t.Fatalf("unexpected registries dir: %q", cfg.Paths.RegistriesDir)
-			}
-			if cfg.Paths.ToolsDir != filepath.Join("var", "yaml-tools") {
-				t.Fatalf("unexpected tools dir: %q", cfg.Paths.ToolsDir)
-			}
-			if cfg.Paths.OwnerDir != filepath.Join("var", "yaml-owner") {
-				t.Fatalf("unexpected owner dir: %q", cfg.Paths.OwnerDir)
-			}
-			if cfg.Paths.AgentsDir != filepath.Join("var", "yaml-agents") {
-				t.Fatalf("unexpected agents dir: %q", cfg.Paths.AgentsDir)
-			}
-			if cfg.Paths.TeamsDir != filepath.Join("var", "yaml-teams") {
-				t.Fatalf("unexpected teams dir: %q", cfg.Paths.TeamsDir)
-			}
-			if cfg.Paths.RootDir != filepath.Join("var", "yaml-root") {
-				t.Fatalf("unexpected root dir: %q", cfg.Paths.RootDir)
-			}
-			if cfg.Paths.AutomationsDir != filepath.Join("var", "yaml-automations") {
-				t.Fatalf("unexpected automations dir: %q", cfg.Paths.AutomationsDir)
-			}
-			if cfg.Paths.ChatsDir != filepath.Join("var", "yaml-chats") {
-				t.Fatalf("unexpected chats dir: %q", cfg.Paths.ChatsDir)
-			}
-			if cfg.Paths.MemoryDir != filepath.Join("var", "yaml-memory") {
-				t.Fatalf("unexpected memory dir: %q", cfg.Paths.MemoryDir)
-			}
-			if cfg.Paths.KBaseDir != filepath.Join("var", "yaml-kbase") {
-				t.Fatalf("unexpected kbase dir: %q", cfg.Paths.KBaseDir)
-			}
-			if cfg.Paths.PanDir != filepath.Join("var", "yaml-pan") {
-				t.Fatalf("unexpected pan dir: %q", cfg.Paths.PanDir)
-			}
-			if cfg.Paths.SkillsMarketDir != filepath.Join("var", "yaml-skills-market") {
-				t.Fatalf("unexpected skills market dir: %q", cfg.Paths.SkillsMarketDir)
-			}
-			if cfg.Providers.ExternalDir != filepath.Join("var", "yaml-registries", "providers") {
-				t.Fatalf("unexpected providers dir: %q", cfg.Providers.ExternalDir)
-			}
-			if cfg.Logging.LLMInteraction.RecordDir != filepath.Join("var", "yaml-chats") {
-				t.Fatalf("unexpected llm chat record dir: %q", cfg.Logging.LLMInteraction.RecordDir)
-			}
-			if cfg.Memory.StorageDir != filepath.Join("var", "yaml-memory") {
-				t.Fatalf("unexpected memory storage dir: %q", cfg.Memory.StorageDir)
-			}
-			if cfg.KBase.Refresh.Debounce.String() != "3s" || cfg.KBase.Refresh.ReconcileInterval.String() != "11m0s" {
-				t.Fatalf("unexpected kbase refresh config: %#v", cfg.KBase.Refresh)
-			}
-			if cfg.KBase.Extraction.Timeout.String() != "45s" ||
-				cfg.KBase.Extraction.MaxFileBytes != 123456 ||
-				cfg.KBase.Extraction.PDF.Enabled ||
-				cfg.KBase.Extraction.PDF.Binary != "custom-pdftotext" ||
-				cfg.KBase.Extraction.PPTX.IncludeNotes {
-				t.Fatalf("unexpected kbase extraction config: %#v", cfg.KBase.Extraction)
-			}
+			withProjectFileContents(t, filepath.Join("configs", "kbase-settings.yml"), nil, func() {
+				cfg, err := Load()
+				if err != nil {
+					t.Fatalf("load config: %v", err)
+				}
+				if cfg.Paths.RegistriesDir != filepath.Join("var", "yaml-registries") {
+					t.Fatalf("unexpected registries dir: %q", cfg.Paths.RegistriesDir)
+				}
+				if cfg.Paths.ToolsDir != filepath.Join("var", "yaml-tools") {
+					t.Fatalf("unexpected tools dir: %q", cfg.Paths.ToolsDir)
+				}
+				if cfg.Paths.OwnerDir != filepath.Join("var", "yaml-owner") {
+					t.Fatalf("unexpected owner dir: %q", cfg.Paths.OwnerDir)
+				}
+				if cfg.Paths.AgentsDir != filepath.Join("var", "yaml-agents") {
+					t.Fatalf("unexpected agents dir: %q", cfg.Paths.AgentsDir)
+				}
+				if cfg.Paths.TeamsDir != filepath.Join("var", "yaml-teams") {
+					t.Fatalf("unexpected teams dir: %q", cfg.Paths.TeamsDir)
+				}
+				if cfg.Paths.RootDir != filepath.Join("var", "yaml-root") {
+					t.Fatalf("unexpected root dir: %q", cfg.Paths.RootDir)
+				}
+				if cfg.Paths.AutomationsDir != filepath.Join("var", "yaml-automations") {
+					t.Fatalf("unexpected automations dir: %q", cfg.Paths.AutomationsDir)
+				}
+				if cfg.Paths.ChatsDir != filepath.Join("var", "yaml-chats") {
+					t.Fatalf("unexpected chats dir: %q", cfg.Paths.ChatsDir)
+				}
+				if cfg.Paths.MemoryDir != filepath.Join("var", "yaml-memory") {
+					t.Fatalf("unexpected memory dir: %q", cfg.Paths.MemoryDir)
+				}
+				if cfg.Paths.KBaseDir != filepath.Join("var", "yaml-kbase") {
+					t.Fatalf("unexpected kbase dir: %q", cfg.Paths.KBaseDir)
+				}
+				if cfg.Paths.PanDir != filepath.Join("var", "yaml-pan") {
+					t.Fatalf("unexpected pan dir: %q", cfg.Paths.PanDir)
+				}
+				if cfg.Paths.SkillsMarketDir != filepath.Join("var", "yaml-skills-market") {
+					t.Fatalf("unexpected skills market dir: %q", cfg.Paths.SkillsMarketDir)
+				}
+				if cfg.Providers.ExternalDir != filepath.Join("var", "yaml-registries", "providers") {
+					t.Fatalf("unexpected providers dir: %q", cfg.Providers.ExternalDir)
+				}
+				if cfg.Logging.LLMInteraction.RecordDir != filepath.Join("var", "yaml-chats") {
+					t.Fatalf("unexpected llm chat record dir: %q", cfg.Logging.LLMInteraction.RecordDir)
+				}
+				if cfg.Memory.StorageDir != filepath.Join("var", "yaml-memory") {
+					t.Fatalf("unexpected memory storage dir: %q", cfg.Memory.StorageDir)
+				}
+				if cfg.KBase.Refresh.Debounce.String() != "3s" || cfg.KBase.Refresh.ReconcileInterval.String() != "11m0s" {
+					t.Fatalf("unexpected kbase refresh config: %#v", cfg.KBase.Refresh)
+				}
+				if cfg.KBase.Extraction.Timeout.String() != "45s" ||
+					cfg.KBase.Extraction.MaxFileBytes != 123456 ||
+					cfg.KBase.Extraction.PDF.Enabled ||
+					cfg.KBase.Extraction.PDF.Binary != "custom-pdftotext" ||
+					cfg.KBase.Extraction.PPTX.IncludeNotes {
+					t.Fatalf("unexpected kbase extraction config: %#v", cfg.KBase.Extraction)
+				}
+			})
 		})
 	})
 }
