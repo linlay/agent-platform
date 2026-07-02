@@ -292,12 +292,11 @@ func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) 
 		}
 	}
 	item := map[string]any{
-		"id":                  invocation.toolID,
-		"command":             command,
-		"description":         description,
-		"options":             s.approvalOptionsForInvocation(invocation),
-		"allowFreeText":       true,
-		"freeTextPlaceholder": "拒绝，请告知如何调整",
+		"id":            invocation.toolID,
+		"command":       command,
+		"description":   description,
+		"options":       s.approvalOptionsForInvocation(invocation),
+		"allowFreeText": true,
 	}
 	result := hitl.InterceptResult{}
 	if combinedWriteApproval {
@@ -376,14 +375,10 @@ func (s *llmRunStream) approvalOptionsForInvocation(invocation *preparedToolInvo
 func buildApprovalOptions() []any {
 	return []any{
 		map[string]any{
-			"label":       "同意",
-			"decision":    "approve",
-			"description": "只本次放行这条命令",
+			"decision": "approve",
 		},
 		map[string]any{
-			"label":       "同意（本次运行同规则都放行）",
-			"decision":    "approve_rule_run",
-			"description": "本次 run 内所有同一拦截规则命中的命令自动放行，不再询问",
+			"decision": "approve_rule_run",
 		},
 	}
 }
@@ -391,14 +386,10 @@ func buildApprovalOptions() []any {
 func buildFileAccessApprovalOptions() []any {
 	return []any{
 		map[string]any{
-			"label":       "同意",
-			"decision":    "approve",
-			"description": "只本次放行这条路径",
+			"decision": "approve",
 		},
 		map[string]any{
-			"label":       "同意（本次运行同规则都放行）",
-			"decision":    "approve_rule_run",
-			"description": "本次 run 内同一拦截规则命中的文件访问自动放行，不再询问",
+			"decision": "approve_rule_run",
 		},
 	}
 }

@@ -447,18 +447,9 @@ func (s *coderPlanningStream) planConfirmationAsk() contracts.DeltaAwaitAsk {
 			"id":           "confirm",
 			"planningId":   planningID,
 			"planningFile": planningFile,
-			"title":        "实施此计划？",
 			"options": []any{
-				map[string]any{"label": "是，实施此计划", "decision": "approve"},
-				map[string]any{
-					"label":    "否，请告知如何调整",
-					"decision": "reject",
-					"input": map[string]any{
-						"type":        "text",
-						"placeholder": "请告知如何调整",
-						"required":    false,
-					},
-				},
+				map[string]any{"decision": "approve"},
+				map[string]any{"decision": "reject"},
 			},
 		},
 	}

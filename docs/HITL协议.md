@@ -43,6 +43,7 @@ assistant tool_calls[]
 - `params` 顶层永远是数组。
 - `params[i]` 固定对应 `awaiting.ask.questions|approvals|forms` 的第 `i` 项；`mode=plan` 固定只接受 1 项，对应单个 `awaiting.ask.plan`。
 - `params` 每项允许带 `id`，但 `id` 只用于审计或日志，不用于分发。
+- `approval.options[]` 与 `plan.options[]` 的内置动作只下发 `decision` code，按钮文案由 webclient 按当前语言本地化；`question.options[].label` 仍是用户可见答案文本与答案匹配值，`form.title/form` 仍是业务或工具内容。
 - `awaiting.ask.timeout == 0` 表示无限等待、不自动超时；`timeout > 0` 表示后端从发出等待项开始按真实时间独立倒计时。前端倒计时只展示同一语义，observer / attach / detach 状态不会暂停或延长后端超时。
 - `awaiting.answer.error.code == "timeout"` 时，`error.message` 会包含超时秒数与详细原因，并可携带 `timeoutSeconds`、`elapsedSeconds`、`reason:"submit_not_received_before_timeout"`。
 - `awaiting.payload` 已删除，问题、审批项、表单定义直接内联在 `awaiting.ask`。

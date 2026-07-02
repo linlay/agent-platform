@@ -642,12 +642,11 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithQuestions(t *testing.T) {
 		RunID:      "run_1",
 		Approvals: []any{
 			map[string]any{
-				"id":                  "cmd-1",
-				"command":             "git push origin main",
-				"description":         "推送主分支",
-				"options":             []any{map[string]any{"label": "同意", "decision": "approve"}},
-				"allowFreeText":       true,
-				"freeTextPlaceholder": "拒绝，请告知如何调整",
+				"id":            "cmd-1",
+				"command":       "git push origin main",
+				"description":   "推送主分支",
+				"options":       []any{map[string]any{"decision": "approve"}},
+				"allowFreeText": true,
 			},
 		},
 	})
@@ -702,7 +701,6 @@ func TestDispatcherEmitsPlanModeAwaitAsk(t *testing.T) {
 		Plan: map[string]any{
 			"id":         "confirm",
 			"planningId": "run_1_planning_1",
-			"title":      "实施此计划？",
 		},
 	})
 	assertEventTypes(t, events, "awaiting.ask")
@@ -732,12 +730,11 @@ func TestDispatcherSkipsDuplicateAwaitAskForSameAwaitingID(t *testing.T) {
 		RunID:      "run_1",
 		Approvals: []any{
 			map[string]any{
-				"id":                  "tool_1",
-				"command":             "chmod 777 ~/a.sh",
-				"description":         "放开 a.sh 权限",
-				"options":             []any{map[string]any{"label": "同意", "decision": "approve"}},
-				"allowFreeText":       true,
-				"freeTextPlaceholder": "拒绝，请告知如何调整",
+				"id":            "tool_1",
+				"command":       "chmod 777 ~/a.sh",
+				"description":   "放开 a.sh 权限",
+				"options":       []any{map[string]any{"decision": "approve"}},
+				"allowFreeText": true,
 			},
 		},
 	})
@@ -750,12 +747,11 @@ func TestDispatcherSkipsDuplicateAwaitAskForSameAwaitingID(t *testing.T) {
 		RunID:      "run_1",
 		Approvals: []any{
 			map[string]any{
-				"id":                  "tool_1",
-				"command":             "chmod 777 ~/a.sh",
-				"description":         "放开 a.sh 权限",
-				"options":             []any{map[string]any{"label": "同意", "decision": "approve"}},
-				"allowFreeText":       true,
-				"freeTextPlaceholder": "拒绝，请告知如何调整",
+				"id":            "tool_1",
+				"command":       "chmod 777 ~/a.sh",
+				"description":   "放开 a.sh 权限",
+				"options":       []any{map[string]any{"decision": "approve"}},
+				"allowFreeText": true,
 			},
 		},
 	})

@@ -1168,12 +1168,11 @@ func TestAwaitHITLSubmitAndExecuteUsesRuleTimeoutOverride(t *testing.T) {
 			"mode": "approval",
 			"approvals": []any{
 				map[string]any{
-					"id":                  "tool_1",
-					"command":             "docker rmi nginx:latest",
-					"description":         "删除镜像",
-					"options":             buildApprovalOptions(),
-					"allowFreeText":       true,
-					"freeTextPlaceholder": "拒绝，请告知如何调整",
+					"id":            "tool_1",
+					"command":       "docker rmi nginx:latest",
+					"description":   "删除镜像",
+					"options":       buildApprovalOptions(),
+					"allowFreeText": true,
 				},
 			},
 		},
@@ -2010,13 +2009,25 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 				}
 				options, _ := firstApproval["options"].([]any)
 				if len(options) != 2 {
-					t.Fatalf("expected 3 approval options, got %#v", firstApproval)
+					t.Fatalf("expected 2 approval options, got %#v", firstApproval)
 				}
 				if option, ok := options[0].(map[string]any); !ok || option["decision"] != "approve" {
 					t.Fatalf("expected approval options to use decision field, got %#v", options)
 				}
-				if firstApproval["allowFreeText"] != true || firstApproval["freeTextPlaceholder"] == "" {
+				for _, rawOption := range options {
+					option, _ := rawOption.(map[string]any)
+					if _, ok := option["label"]; ok {
+						t.Fatalf("did not expect approval option label in platform payload, got %#v", options)
+					}
+					if _, ok := option["description"]; ok {
+						t.Fatalf("did not expect approval option description in platform payload, got %#v", options)
+					}
+				}
+				if firstApproval["allowFreeText"] != true {
 					t.Fatalf("expected free text approval metadata, got %#v", firstApproval)
+				}
+				if _, ok := firstApproval["freeTextPlaceholder"]; ok {
+					t.Fatalf("did not expect approval freeTextPlaceholder in platform payload, got %#v", firstApproval)
 				}
 			}
 
@@ -4281,12 +4292,11 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 			"mode": "approval",
 			"approvals": []any{
 				map[string]any{
-					"id":                  "tool_1",
-					"command":             "docker rmi nginx:latest",
-					"description":         "删除镜像",
-					"options":             buildApprovalOptions(),
-					"allowFreeText":       true,
-					"freeTextPlaceholder": "拒绝，请告知如何调整",
+					"id":            "tool_1",
+					"command":       "docker rmi nginx:latest",
+					"description":   "删除镜像",
+					"options":       buildApprovalOptions(),
+					"allowFreeText": true,
 				},
 			},
 		},

@@ -1371,7 +1371,7 @@ Plan first, then check the current time before reporting.
 		t.Fatalf("expected live request.query planningMode=true, got %s", body)
 	}
 	planIndex := strings.LastIndex(body, `"type":"planning.delta"`)
-	confirmIndex := strings.Index(body, `实施此计划？`)
+	confirmIndex := strings.Index(body, `"mode":"plan"`)
 	executionIndex := strings.Index(body, `execution completed`)
 	if !(planIndex >= 0 && confirmIndex > planIndex && executionIndex > confirmIndex) {
 		t.Fatalf("expected planning.delta before confirmation and execution content after confirmation, got %s", body)
@@ -1915,7 +1915,7 @@ func assertPlanningLifecycleBeforePlanAwaiting(t *testing.T, body string, runID 
 	startIndex := strings.Index(body, `"type":"planning.start"`)
 	deltaIndex := strings.Index(body, `"type":"planning.delta"`)
 	endIndex := strings.LastIndex(body, `"type":"planning.end"`)
-	awaitingIndex := strings.Index(body, "实施此计划？")
+	awaitingIndex := strings.Index(body, `"mode":"plan"`)
 	if !(startIndex >= 0 && deltaIndex > startIndex && endIndex > deltaIndex && awaitingIndex > endIndex) {
 		t.Fatalf("expected planning.start < planning.delta < planning.end < plan awaiting, got %s", body)
 	}

@@ -183,8 +183,11 @@ func TestCoderPlanningConfirmationUsesPlanMode(t *testing.T) {
 		t.Fatalf("expected one plan and no questions/approvals, got %#v", ask)
 	}
 	if ask.Plan["id"] != "confirm" || ask.Plan["planningId"] != "run_1_planning_1" ||
-		ask.Plan["planningFile"] != "/tmp/chat_1/.tools/plans/run_1_planning_1.md" || ask.Plan["title"] != "实施此计划？" {
+		ask.Plan["planningFile"] != "/tmp/chat_1/.tools/plans/run_1_planning_1.md" {
 		t.Fatalf("unexpected plan item %#v", ask.Plan)
+	}
+	if _, ok := ask.Plan["title"]; ok {
+		t.Fatalf("did not expect builtin plan title in platform payload, got %#v", ask.Plan)
 	}
 	options, _ := ask.Plan["options"].([]any)
 	if len(options) != 2 {
@@ -192,12 +195,17 @@ func TestCoderPlanningConfirmationUsesPlanMode(t *testing.T) {
 	}
 	first, _ := options[0].(map[string]any)
 	second, _ := options[1].(map[string]any)
-	if first["label"] != "是，实施此计划" || first["decision"] != "approve" || second["label"] != "否，请告知如何调整" || second["decision"] != "reject" {
+	if first["decision"] != "approve" || second["decision"] != "reject" {
 		t.Fatalf("expected explicit plan decisions, got %#v", options)
 	}
-	input, _ := second["input"].(map[string]any)
-	if input["placeholder"] != "请告知如何调整" {
-		t.Fatalf("expected reject feedback input, got %#v", second)
+	for _, rawOption := range options {
+		option, _ := rawOption.(map[string]any)
+		if _, ok := option["label"]; ok {
+			t.Fatalf("did not expect builtin plan option label in platform payload, got %#v", options)
+		}
+		if _, ok := option["input"]; ok {
+			t.Fatalf("did not expect builtin plan option input in platform payload, got %#v", options)
+		}
 	}
 }
 
