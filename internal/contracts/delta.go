@@ -1,6 +1,9 @@
 package contracts
 
-import "agent-platform/internal/stream"
+import (
+	"agent-platform/internal/api"
+	"agent-platform/internal/stream"
+)
 
 type AgentDelta interface {
 	agentDeltaTag()
@@ -68,6 +71,21 @@ type DeltaFinishReason struct {
 }
 
 func (DeltaFinishReason) agentDeltaTag() {}
+
+type DeltaRunContinuation struct {
+	SourceRunID string
+	RunID       string
+	ChatID      string
+	AgentKey    string
+	AwaitingID  string
+	SubmitID    string
+	Locale      string
+	Mode        string
+	Params      api.SubmitParams
+	Answer      map[string]any
+}
+
+func (DeltaRunContinuation) agentDeltaTag() {}
 
 type DeltaError struct {
 	Error map[string]any

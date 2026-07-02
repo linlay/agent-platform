@@ -519,6 +519,9 @@ func (s *coderPlanningStream) awaitPlanConfirmation() error {
 	}
 	switch confirmationDecision(normalized) {
 	case "approve":
+		if s.preparePlanApproveContinuation(submitResult.Request, awaitingID, normalized) {
+			return nil
+		}
 		return nil
 	case "reject":
 		s.preparePlanningFeedback(normalized)
@@ -527,6 +530,29 @@ func (s *coderPlanningStream) awaitPlanConfirmation() error {
 		s.cancelUnstartedPlan("已取消执行计划。")
 		return nil
 	}
+}
+
+func (s *coderPlanningStream) preparePlanApproveContinuation(submitReq api.SubmitRequest, awaitingID string, normalized map[string]any) bool {
+	continuationRunID := strings.TrimSpace(submitReq.ContinuationRunID)
+	if continuationRunID == "" {
+		return false
+	}
+	s.pending = append(s.pending, contracts.DeltaRunContinuation{
+		SourceRunID: s.session.RunID,
+		RunID:       continuationRunID,
+		ChatID:      s.session.ChatID,
+		AgentKey:    s.session.AgentKey,
+		AwaitingID:  awaitingID,
+		SubmitID:    submitReq.SubmitID,
+		Locale:      s.session.Locale,
+		Mode:        "plan",
+		Params:      submitReq.Params,
+		Answer:      contracts.CloneMap(normalized),
+	})
+	s.executionDone = true
+	s.summaryDone = true
+	s.completed = true
+	return true
 }
 
 func (s *coderPlanningStream) appendPlanConfirmationToolResult(normalized map[string]any) {

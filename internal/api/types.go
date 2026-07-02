@@ -177,13 +177,14 @@ func (r *Reference) UnmarshalJSON(data []byte) error {
 }
 
 type SubmitRequest struct {
-	ChatID     string       `json:"chatId,omitempty"`
-	RunID      string       `json:"runId"`
-	AgentKey   string       `json:"agentKey"`
-	AwaitingID string       `json:"awaitingId"`
-	SubmitID   string       `json:"submitId,omitempty"`
-	Locale     string       `json:"locale,omitempty"`
-	Params     SubmitParams `json:"params"`
+	ChatID            string       `json:"chatId,omitempty"`
+	RunID             string       `json:"runId"`
+	AgentKey          string       `json:"agentKey"`
+	AwaitingID        string       `json:"awaitingId"`
+	SubmitID          string       `json:"submitId,omitempty"`
+	Locale            string       `json:"locale,omitempty"`
+	Params            SubmitParams `json:"params"`
+	ContinuationRunID string       `json:"-"`
 }
 
 type SubmitParams []json.RawMessage

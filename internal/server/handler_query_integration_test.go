@@ -1372,9 +1372,9 @@ Plan first, then check the current time before reporting.
 	}
 	planIndex := strings.LastIndex(body, `"type":"planning.delta"`)
 	confirmIndex := strings.Index(body, `"mode":"plan"`)
-	executionIndex := strings.Index(body, `execution completed`)
-	if !(planIndex >= 0 && confirmIndex > planIndex && executionIndex > confirmIndex) {
-		t.Fatalf("expected planning.delta before confirmation and execution content after confirmation, got %s", body)
+	completeIndex := strings.LastIndex(body, `"type":"run.complete","runId":"`+runID+`"`)
+	if !(planIndex >= 0 && confirmIndex > planIndex && completeIndex > confirmIndex) {
+		t.Fatalf("expected planning.delta before confirmation and old run.complete after confirmation, got %s", body)
 	}
 	if !strings.Contains(body, `"mode":"plan"`) || !strings.Contains(body, `"decision":"approve"`) {
 		t.Fatalf("expected confirmation plan answer in stream, got %s", body)
@@ -1386,12 +1386,15 @@ Plan first, then check the current time before reporting.
 	if got := strings.Count(body, `"type":"planning.delta"`); got <= 1 {
 		t.Fatalf("expected multiple live planning.delta events, got %d in %s", got, body)
 	}
-	if !strings.Contains(body, "execution completed") {
-		t.Fatalf("expected confirmed execution to complete, got %s", body)
+	if strings.Contains(body, "execution completed") {
+		t.Fatalf("did not expect execution content bridged into planning stream, got %s", body)
 	}
 	if strings.Contains(body, "confirmed plan completed") || strings.Contains(body, "coder-summary") {
 		t.Fatalf("did not expect a separate coder summary stage, got %s", body)
 	}
+	executionRunID := handoffRunIDAfterComplete(t, body, runID, chatID, "coder-app")
+	executionBody := attachRunSSE(t, httpServer.URL, "coder-app", executionRunID)
+	assertAttachedCoderExecuteRun(t, executionBody, executionRunID, chatID, "coder-app", "execution completed")
 	if got := providerCallCount.Load(); got != 5 {
 		t.Fatalf("provider calls = %d, want 5", got)
 	}
@@ -1790,6 +1793,9 @@ Revised plan with explicit test coverage.
 	if !strings.Contains(streamBody.String(), runID+`_planning_2`) || !strings.Contains(streamBody.String(), `"awaitingId":"tool_plan_v2"`) {
 		t.Fatalf("expected second planning revision and confirmation, got %s", streamBody.String())
 	}
+	if got := countRunStartsForDifferentRun(t, streamBody.String(), runID); got != 0 {
+		t.Fatalf("reject should not start a new run before revised plan approval, got %d handoff starts in %s", got, streamBody.String())
+	}
 	secondPlanningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, chat.ToolRootDirName, chat.ToolPlansDirName, runID+"_planning_2.md")
 	secondPlanningBytes, readErr := os.ReadFile(secondPlanningFile)
 	if readErr != nil {
@@ -1802,12 +1808,15 @@ Revised plan with explicit test coverage.
 	readRemainingSSEUntilEOF(t, reader, &streamBody)
 
 	body := streamBody.String()
-	if !strings.Contains(body, "executed revised plan") {
-		t.Fatalf("expected revised plan execution, got %s", body)
+	if strings.Contains(body, "executed revised plan") {
+		t.Fatalf("did not expect revised plan execution bridged into planning stream, got %s", body)
 	}
 	if strings.Contains(body, "summary for revised plan") || strings.Contains(body, "coder-summary") {
 		t.Fatalf("did not expect a separate coder summary stage, got %s", body)
 	}
+	executionRunID := handoffRunIDAfterComplete(t, body, runID, chatID, "coder-app")
+	executionBody := attachRunSSE(t, httpServer.URL, "coder-app", executionRunID)
+	assertAttachedCoderExecuteRun(t, executionBody, executionRunID, chatID, "coder-app", "executed revised plan")
 	if got := providerCallCount.Load(); got != 3 {
 		t.Fatalf("provider calls = %d, want 3", got)
 	}
@@ -1932,6 +1941,95 @@ func readRemainingSSEUntilEOF(t *testing.T, reader *bufio.Reader, streamBody *st
 		if readErr != nil {
 			t.Fatalf("read remaining stream: %v", readErr)
 		}
+	}
+}
+
+func handoffRunIDAfterComplete(t *testing.T, body string, oldRunID string, wantChatID string, wantAgentKey string) string {
+	t.Helper()
+	seenOldComplete := false
+	for _, message := range decodeSSEMessages(t, body) {
+		eventType := stringValue(message["type"])
+		runID := stringValue(message["runId"])
+		if eventType == "run.complete" && runID == oldRunID {
+			seenOldComplete = true
+			continue
+		}
+		if !seenOldComplete || eventType != "run.start" || runID == "" || runID == oldRunID {
+			continue
+		}
+		if got := stringValue(message["chatId"]); got != wantChatID {
+			t.Fatalf("handoff run.start chatId = %q, want %q in %#v", got, wantChatID, message)
+		}
+		if got := stringValue(message["agentKey"]); got != wantAgentKey {
+			t.Fatalf("handoff run.start agentKey = %q, want %q in %#v", got, wantAgentKey, message)
+		}
+		return runID
+	}
+	t.Fatalf("expected new run.start after old run.complete for %s, got %s", oldRunID, body)
+	return ""
+}
+
+func countRunStartsForDifferentRun(t *testing.T, body string, oldRunID string) int {
+	t.Helper()
+	count := 0
+	for _, message := range decodeSSEMessages(t, body) {
+		if message["type"] == "run.start" {
+			runID := stringValue(message["runId"])
+			if runID != "" && runID != oldRunID {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+func attachRunSSE(t *testing.T, baseURL string, agentKey string, runID string) string {
+	t.Helper()
+	resp, err := http.Get(baseURL + "/api/attach?agentKey=" + agentKey + "&runId=" + runID)
+	if err != nil {
+		t.Fatalf("attach run %s: %v", runID, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(resp.Body)
+		t.Fatalf("attach run %s expected 200, got %d: %s", runID, resp.StatusCode, string(data))
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read attach run %s: %v", runID, err)
+	}
+	return string(data)
+}
+
+func assertAttachedCoderExecuteRun(t *testing.T, body string, runID string, chatID string, agentKey string, wantContent string) {
+	t.Helper()
+	if !strings.Contains(body, wantContent) {
+		t.Fatalf("expected attached execution content %q, got %s", wantContent, body)
+	}
+	if !strings.Contains(body, `"source":"coder-plan-approve"`) || !strings.Contains(body, `"stage":"coder-execute"`) {
+		t.Fatalf("expected attached synthetic execute query metadata, got %s", body)
+	}
+	foundStart := false
+	foundComplete := false
+	for _, message := range decodeSSEMessages(t, body) {
+		if stringValue(message["runId"]) != runID {
+			continue
+		}
+		switch message["type"] {
+		case "run.start":
+			foundStart = true
+			if got := stringValue(message["chatId"]); got != chatID {
+				t.Fatalf("attached run.start chatId = %q, want %q in %#v", got, chatID, message)
+			}
+			if got := stringValue(message["agentKey"]); got != agentKey {
+				t.Fatalf("attached run.start agentKey = %q, want %q in %#v", got, agentKey, message)
+			}
+		case "run.complete":
+			foundComplete = true
+		}
+	}
+	if !foundStart || !foundComplete {
+		t.Fatalf("expected attached run.start and run.complete for %s, got %s", runID, body)
 	}
 }
 
@@ -2267,13 +2365,22 @@ func assertJSONLCoderExecuteSyntheticQuery(t *testing.T, store chat.Store, chatI
 		if stringValue(line["_type"]) != chat.StepLineTypeReactTool || !lineHasFinalizePlanningToolResultForServerTest(line) {
 			continue
 		}
-		if index+2 >= len(lines) {
-			t.Fatalf("expected synthetic query and execute react after react-tool in:\n%s", content)
+		queryIndex := -1
+		var queryLine map[string]any
+		for scan := index + 1; scan < len(lines); scan++ {
+			candidate := lines[scan]
+			if stringValue(candidate["_type"]) != "query" {
+				continue
+			}
+			query, _ := candidate["query"].(map[string]any)
+			if query["synthetic"] == true && stringValue(query["stage"]) == "coder-execute" && stringValue(query["source"]) == "coder-plan-approve" {
+				queryIndex = scan
+				queryLine = candidate
+				break
+			}
 		}
-		queryLine := lines[index+1]
-		executeLine := lines[index+2]
-		if stringValue(queryLine["_type"]) != "query" {
-			t.Fatalf("expected synthetic query after react-tool, got %#v in:\n%s", queryLine, content)
+		if queryIndex < 0 {
+			t.Fatalf("expected synthetic query after react-tool, got none in:\n%s", content)
 		}
 		query, _ := queryLine["query"].(map[string]any)
 		if query["synthetic"] != true || stringValue(query["message"]) != wantMessage ||
@@ -2309,6 +2416,22 @@ func assertJSONLCoderExecuteSyntheticQuery(t *testing.T, store chat.Store, chatI
 			!strings.Contains(executePrompt, "Original request:\nplease plan first") ||
 			!strings.Contains(executePrompt, "Confirmed plan:\n# Confirm Coder Plan") {
 			t.Fatalf("unexpected synthetic query model message %#v", message)
+		}
+		queryRunID := stringValue(queryLine["runId"])
+		var executeLine map[string]any
+		for scan := queryIndex + 1; scan < len(lines); scan++ {
+			candidate := lines[scan]
+			if stringValue(candidate["_type"]) != chat.StepLineTypeReact {
+				continue
+			}
+			if queryRunID != "" && stringValue(candidate["runId"]) != queryRunID {
+				continue
+			}
+			executeLine = candidate
+			break
+		}
+		if executeLine == nil {
+			t.Fatalf("expected execute react after synthetic query, got none in:\n%s", content)
 		}
 		if stringValue(executeLine["_type"]) != chat.StepLineTypeReact {
 			t.Fatalf("expected execute react after synthetic query, got %#v in:\n%s", executeLine, content)

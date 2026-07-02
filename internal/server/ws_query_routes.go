@@ -125,6 +125,7 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		OnPersisted: func(completion chat.RunCompletion) {
 			s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
 		},
+		OnContinuation: s.startRunContinuation,
 		OnComplete: func(runID string) {
 			releaseQuery(prepared.release)
 			s.deps.Runs.Finish(runID)

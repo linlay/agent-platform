@@ -22,13 +22,14 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 	if !isContinuableDeferredAwaitingMode(mode) {
 		return false, nil
 	}
-	runID := strings.TrimSpace(submitReq.RunID)
-	if runID == "" {
-		runID = strings.TrimSpace(deferred.RunID)
+	sourceRunID := strings.TrimSpace(submitReq.RunID)
+	if sourceRunID == "" {
+		sourceRunID = strings.TrimSpace(deferred.RunID)
 	}
-	if runID == "" {
+	if sourceRunID == "" {
 		return false, fmt.Errorf("runId is required")
 	}
+	runID := firstNonBlank(submitReq.ContinuationRunID, sourceRunID)
 	if _, ok := s.deps.Runs.RunStatus(runID); ok {
 		return true, nil
 	}
@@ -49,7 +50,7 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 		return false, fmt.Errorf("agent not found: %s", agentKey)
 	}
 
-	originalQuery, _ := s.deps.Chats.LoadRunQuery(chatID, runID)
+	originalQuery, _ := s.deps.Chats.LoadRunQuery(chatID, sourceRunID)
 	planMarkdown := s.awaitingContinuationPlanMarkdown(chatID, mode)
 	planDecision := planContinuationDecision(mode, answer)
 	planApprove := agentcoder.IsMode(agentDef.Mode) && planDecision == "approve"
@@ -89,7 +90,7 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 			log.Printf("[server][awaiting] prepare continuation system init failed chatId=%s runId=%s err=%v", chatID, runID, err)
 		}
 	}
-	session.HistoryMessages = awaitingContinuationHistory(session.HistoryMessages, runID, submitReq.AwaitingID, mode, answer)
+	session.HistoryMessages = awaitingContinuationHistory(session.HistoryMessages, sourceRunID, submitReq.AwaitingID, mode, answer)
 
 	prepared := preparedQuery{
 		req:         req,
@@ -98,7 +99,7 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 		agentDef:    agentDef,
 		session:     session,
 		continueRun: true,
-		initialSeq:  s.persistedRunLiveSeq(chatID, runID),
+		initialSeq:  s.continuationInitialSeq(chatID, sourceRunID, runID),
 	}
 	registered, statusErr := s.registerQueryRun(context.Background(), prepared)
 	if statusErr != nil {
@@ -145,6 +146,7 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 		PrepareSystemInits: s.prepareSystemInitCache,
 		BuildChildSystems:  s.buildSystemInitsForChildTask,
 		Notifications:      s.deps.Notifications,
+		OnContinuation:     s.startRunContinuation,
 		OnUnreadChanged: func(summary chat.Summary) {
 			agentUnreadCount, err := s.agentUnreadCount(summary.AgentKey)
 			if err != nil {
@@ -163,12 +165,59 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 	return true, nil
 }
 
+func (s *Server) continuationInitialSeq(chatID string, sourceRunID string, runID string) int64 {
+	if strings.TrimSpace(sourceRunID) == "" || strings.TrimSpace(runID) == "" ||
+		strings.TrimSpace(sourceRunID) != strings.TrimSpace(runID) {
+		return 0
+	}
+	return s.persistedRunLiveSeq(chatID, runID)
+}
+
 func planContinuationDecision(mode string, answer map[string]any) string {
 	if !strings.EqualFold(strings.TrimSpace(mode), "plan") {
 		return ""
 	}
 	plan := contracts.AnyMapNode(answer["plan"])
 	return strings.ToLower(strings.TrimSpace(stringValue(plan["decision"])))
+}
+
+func (s *Server) startRunContinuation(continuation contracts.DeltaRunContinuation) (string, error) {
+	runID := strings.TrimSpace(continuation.RunID)
+	if runID == "" {
+		return "", fmt.Errorf("continuation runId is required")
+	}
+	sourceRunID := strings.TrimSpace(continuation.SourceRunID)
+	if sourceRunID == "" {
+		return "", fmt.Errorf("source runId is required")
+	}
+	chatID := strings.TrimSpace(continuation.ChatID)
+	if chatID == "" {
+		return "", fmt.Errorf("chatId is required")
+	}
+	mode := firstNonBlank(continuation.Mode, stringValue(continuation.Answer["mode"]))
+	submitReq := api.SubmitRequest{
+		ChatID:            chatID,
+		RunID:             sourceRunID,
+		AgentKey:          strings.TrimSpace(continuation.AgentKey),
+		AwaitingID:        strings.TrimSpace(continuation.AwaitingID),
+		SubmitID:          strings.TrimSpace(continuation.SubmitID),
+		Locale:            strings.TrimSpace(continuation.Locale),
+		Params:            continuation.Params,
+		ContinuationRunID: runID,
+	}
+	continued, err := s.startAwaitingContinuation(DeferredAwaiting{
+		ChatID:     chatID,
+		RunID:      sourceRunID,
+		AwaitingID: submitReq.AwaitingID,
+		Mode:       mode,
+	}, submitReq, contracts.CloneMap(continuation.Answer))
+	if err != nil {
+		return "", err
+	}
+	if !continued {
+		return "", fmt.Errorf("continuation was not started")
+	}
+	return runID, nil
 }
 
 func queryRequestForAwaitingContinuation(original *chat.QueryLine, submitReq api.SubmitRequest, summary chat.Summary, agentDef catalog.AgentDefinition, mode string, answer map[string]any, planMarkdown string) api.QueryRequest {
@@ -178,8 +227,8 @@ func queryRequestForAwaitingContinuation(original *chat.QueryLine, submitReq api
 		_ = json.Unmarshal(data, &req)
 	}
 	req.ChatID = firstNonBlank(req.ChatID, submitReq.ChatID, summary.ChatID)
-	req.RunID = firstNonBlank(submitReq.RunID, req.RunID)
-	req.RequestID = firstNonBlank(req.RequestID, submitReq.SubmitID, req.RunID)
+	req.RunID = firstNonBlank(submitReq.ContinuationRunID, submitReq.RunID, req.RunID)
+	req.RequestID = firstNonBlank(submitReq.SubmitID, req.RequestID, req.RunID)
 	req.AgentKey = firstNonBlank(submitReq.AgentKey, req.AgentKey, summary.AgentKey, agentDef.Key)
 	req.TeamID = firstNonBlank(req.TeamID, summary.TeamID)
 	req.Role = api.QueryRoleSystem
@@ -202,8 +251,8 @@ func queryRequestForPlanApproveContinuation(original *chat.QueryLine, submitReq 
 	}
 	originalMessage := strings.TrimSpace(req.Message)
 	req.ChatID = firstNonBlank(req.ChatID, submitReq.ChatID, summary.ChatID)
-	req.RunID = firstNonBlank(submitReq.RunID, req.RunID)
-	req.RequestID = firstNonBlank(req.RequestID, submitReq.SubmitID, req.RunID)
+	req.RunID = firstNonBlank(submitReq.ContinuationRunID, submitReq.RunID, req.RunID)
+	req.RequestID = firstNonBlank(submitReq.SubmitID, req.RequestID, req.RunID)
 	req.AgentKey = firstNonBlank(submitReq.AgentKey, req.AgentKey, summary.AgentKey, agentDef.Key)
 	req.TeamID = firstNonBlank(req.TeamID, summary.TeamID)
 	req.Role = api.QueryRoleSystem

@@ -25,6 +25,8 @@ assistant tool_calls[]
 - `form`：来自 Bash HITL html form，approve 时提交修改后的 `form`，reject 可带 `reason`。
 - `plan`：来自 CODER planning 确认，`awaiting.ask.plan` 是单个对象；用户只能 `approve` 或 `reject`，reject 可带 `reason`。
 
+native CODER planning 的 `plan approve` 有独立 run 边界：后端先在当前 planning run 中记录 `request.submit` / `awaiting.answer` / `finalize_planning` tool result，并发布当前 run 的 `run.complete`；随后启动新的 execute run，并在旧 live stream 末尾追加一个现有格式的 `run.start` 作为 handoff 信号，payload 中 `runId` 是新 run，`chatId` / `agentKey` 与原 run 相同。旧 live stream 不桥接新 run 的 content/tool 事件，webclient 看到该 handoff `run.start` 后应 attach 新 `runId` 获取执行流。`plan reject` 不启动新 run，仍留在当前 planning run 中生成下一版 plan 或结束。
+
 同一 assistant turn 的 `tool_calls[]` 是 awaiting 原子批次：只要其中任意工具需要 `question` / `approval` / `form` / `plan` 等等待态，整组工具都会暂停，确认前不执行任何 sibling tool。`approval` 类型的 builtin 等待项可合并为一个 `awaiting.ask(mode:"approval", approvals:[...])`；不同 mode 的等待项按原始 `tool_calls[]` 顺序逐个等待。全部等待项进入终态后，后端才开始执行本组工具：approve 的工具与无需确认的 sibling 正常执行，reject / timeout 的工具生成 synthetic tool result。
 
 整批取消统一提交 `params: []`，后端归一化为 `status:"error"` 与 `error.code:"user_dismissed"`。

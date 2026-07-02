@@ -133,7 +133,7 @@ func TestDeferredPlanApproveContinuationUsesCoderExecuteSystem(t *testing.T) {
 	if got := providerCallCount.Load(); got != 1 {
 		t.Fatalf("expected one provider call, got %d", got)
 	}
-	assertDeferredPlanApproveJSONL(t, fixture.chats, chatID, awaitingID)
+	assertDeferredPlanApproveJSONL(t, fixture.chats, chatID, runID, awaitingID)
 }
 
 func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
@@ -1055,7 +1055,7 @@ func providerMessagesContainText(payload map[string]any, want string) bool {
 	return false
 }
 
-func assertDeferredPlanApproveJSONL(t *testing.T, store chat.Store, chatID string, awaitingID string) {
+func assertDeferredPlanApproveJSONL(t *testing.T, store chat.Store, chatID string, sourceRunID string, awaitingID string) {
 	t.Helper()
 	content, err := store.LoadJSONLContent(chatID)
 	if err != nil {
@@ -1073,8 +1073,12 @@ func assertDeferredPlanApproveJSONL(t *testing.T, store chat.Store, chatID strin
 		}
 		lines = append(lines, line)
 	}
+	foundSourcePlanResult := false
 	syntheticIndex := -1
 	for index, line := range lines {
+		if stringValue(line["_type"]) == chat.StepLineTypeReactTool && stringValue(line["runId"]) == sourceRunID && lineHasFinalizePlanningToolResultForServerTest(line) {
+			foundSourcePlanResult = true
+		}
 		if stringValue(line["_type"]) != "query" {
 			continue
 		}
@@ -1087,9 +1091,16 @@ func assertDeferredPlanApproveJSONL(t *testing.T, store chat.Store, chatID strin
 	if syntheticIndex < 0 {
 		t.Fatalf("expected coder execute synthetic query in:\n%s", content)
 	}
+	if !foundSourcePlanResult {
+		t.Fatalf("expected source run %s to keep finalize_planning submit tool result in:\n%s", sourceRunID, content)
+	}
 	synthetic := lines[syntheticIndex]
-	if liveSeq := testInt64Value(synthetic["liveSeq"]); liveSeq <= 7 {
-		t.Fatalf("expected synthetic query liveSeq to continue after 7, got %#v in:\n%s", synthetic["liveSeq"], content)
+	syntheticRunID := stringValue(synthetic["runId"])
+	if syntheticRunID == "" || syntheticRunID == sourceRunID {
+		t.Fatalf("expected synthetic query to use a new execution run id, got %#v in:\n%s", synthetic, content)
+	}
+	if liveSeq := testInt64Value(synthetic["liveSeq"]); liveSeq <= 0 {
+		t.Fatalf("expected synthetic query liveSeq for new run, got %#v in:\n%s", synthetic["liveSeq"], content)
 	}
 	query, _ := synthetic["query"].(map[string]any)
 	if _, ok := query["systems"]; ok {
@@ -1116,6 +1127,9 @@ func assertDeferredPlanApproveJSONL(t *testing.T, store chat.Store, chatID strin
 
 	for _, line := range lines[syntheticIndex+1:] {
 		if stringValue(line["_type"]) != chat.StepLineTypeReact {
+			continue
+		}
+		if stringValue(line["runId"]) != syntheticRunID {
 			continue
 		}
 		systemRef, _ := line["systemRef"].(map[string]any)

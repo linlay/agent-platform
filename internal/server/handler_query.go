@@ -151,6 +151,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 		OnPersisted: func(completion chat.RunCompletion) {
 			s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
 		},
+		OnContinuation: s.startRunContinuation,
 		OnComplete: func(runID string) {
 			releaseQuery(prepared.release)
 			s.deps.Runs.Finish(runID)

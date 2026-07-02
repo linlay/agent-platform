@@ -6,7 +6,9 @@ import (
 	"strings"
 	"time"
 
+	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/api"
+	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/frontendtools"
@@ -87,6 +89,7 @@ func (s *Server) resolveSubmit(req api.SubmitRequest) (api.SubmitResponse, int, 
 		if err := validateSubmitParams(awaiting, req.Params); err != nil {
 			return api.SubmitResponse{}, 0, "", err
 		}
+		req = s.prepareActiveSubmitContinuation(req, awaiting)
 		ack := s.deps.Runs.Submit(req)
 		code := 0
 		msg := "success"
@@ -110,6 +113,42 @@ func (s *Server) resolveSubmit(req api.SubmitRequest) (api.SubmitResponse, int, 
 		return api.SubmitResponse{}, 0, "", err
 	}
 	return response, 0, "success", nil
+}
+
+func (s *Server) prepareActiveSubmitContinuation(req api.SubmitRequest, awaiting contracts.AwaitingSubmitContext) api.SubmitRequest {
+	if !strings.EqualFold(strings.TrimSpace(awaiting.Mode), "plan") {
+		return req
+	}
+	if submitPlanDecision(req.Params) != "approve" {
+		return req
+	}
+	if s == nil || s.deps.Runs == nil || s.deps.Registry == nil {
+		return req
+	}
+	status, ok := s.deps.Runs.RunStatus(req.RunID)
+	if !ok {
+		return req
+	}
+	agentKey := firstNonBlank(req.AgentKey, status.AgentKey)
+	agentDef, ok := s.deps.Registry.AgentDefinition(agentKey)
+	if !ok || !agentcoder.IsMode(agentDef.Mode) || catalog.AgentUsesACPCoderBackend(agentDef) {
+		return req
+	}
+	if strings.TrimSpace(req.ChatID) == "" {
+		req.ChatID = strings.TrimSpace(status.ChatID)
+	}
+	if strings.TrimSpace(req.ContinuationRunID) == "" {
+		req.ContinuationRunID = newRunID()
+	}
+	return req
+}
+
+func submitPlanDecision(params api.SubmitParams) string {
+	items, err := api.DecodeSubmitParams(params)
+	if err != nil || len(items) != 1 {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(stringValue(items[0]["decision"])))
 }
 
 func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitResponse, error) {
@@ -158,6 +197,9 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 	}
 	if !isContinuableDeferredAwaitingMode(deferred.Mode) {
 		return s.resolveNonContinuableDeferredSubmit(deferred, req, normalized)
+	}
+	if s.deferredPlanApproveStartsNewRun(deferred, normalized) && strings.TrimSpace(req.ContinuationRunID) == "" {
+		req.ContinuationRunID = newRunID()
 	}
 
 	resolvedAt := time.Now().UnixMilli()
@@ -213,6 +255,21 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 		Continued:  continued,
 		Detail:     "Frontend submit accepted",
 	}, nil
+}
+
+func (s *Server) deferredPlanApproveStartsNewRun(deferred DeferredAwaiting, normalized map[string]any) bool {
+	if planContinuationDecision(deferred.Mode, normalized) != "approve" {
+		return false
+	}
+	if s == nil || s.deps.Chats == nil || s.deps.Registry == nil {
+		return false
+	}
+	summary, err := s.deps.Chats.Summary(deferred.ChatID)
+	if err != nil || summary == nil {
+		return false
+	}
+	agentDef, ok := s.deps.Registry.AgentDefinition(summary.AgentKey)
+	return ok && agentcoder.IsMode(agentDef.Mode) && !catalog.AgentUsesACPCoderBackend(agentDef)
 }
 
 func (s *Server) resolveNonContinuableDeferredSubmit(deferred DeferredAwaiting, req api.SubmitRequest, normalized map[string]any) (api.SubmitResponse, error) {
