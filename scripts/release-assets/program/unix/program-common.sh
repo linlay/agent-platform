@@ -223,6 +223,11 @@ program_set_env_value() {
   mv "$tmp" "$file"
 }
 
+program_sync_deploy_env_values() {
+  program_set_env_value "$ENV_FILE" "AP_RUNTIME_DIR" "$DEPLOY_AP_RUNTIME_DIR"
+  program_set_env_value "$ENV_FILE" "AP_CONTAINER_HUB_BASE_URL" "$DEPLOY_CONTAINER_HUB_BASE_URL"
+}
+
 program_render_env_file() {
   local target="$1"
 
@@ -346,14 +351,15 @@ program_render_coder_settings_file() {
 program_install_local_public_key() {
   local target="$CONFIG_DIR/local-public-key.pem"
 
-  [[ -f "$target" ]] || cp "$DEPLOY_PUBLIC_KEY_SOURCE_FILE" "$target"
+  cp "$DEPLOY_PUBLIC_KEY_SOURCE_FILE" "$target"
 }
 
 program_initialize_deploy_config() {
   mkdir -p "$CONFIG_DIR"
   if [[ ! -f "$ENV_FILE" ]]; then
-    program_render_env_file "$ENV_FILE"
+    cp "$ENV_EXAMPLE_FILE" "$ENV_FILE"
   fi
+  program_sync_deploy_env_values
   if [[ -d "$BUNDLE_ROOT/configs" ]]; then
     local example source target name
     for example in "$BUNDLE_ROOT"/configs/*.example.yml; do

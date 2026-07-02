@@ -198,6 +198,11 @@ function Set-ProgramEnvValue([string]$Path, [string]$Name, [string]$Value) {
   Write-ProgramTextFile $Path $lines.ToArray()
 }
 
+function Sync-ProgramDeployEnvValues {
+  Set-ProgramEnvValue $Script:EnvFile 'AP_RUNTIME_DIR' $Script:DeployAPRuntimeDir
+  Set-ProgramEnvValue $Script:EnvFile 'AP_CONTAINER_HUB_BASE_URL' $Script:DeployContainerHubBaseUrl
+}
+
 function New-ProgramDeployEnvFile([string]$Target) {
   Copy-Item -LiteralPath $Script:EnvExampleFile -Destination $Target
   Set-ProgramEnvValue $Target 'AP_RUNTIME_DIR' $Script:DeployAPRuntimeDir
@@ -285,16 +290,15 @@ function New-ProgramDeployCoderSettingsFile([string]$Source, [string]$Target) {
 
 function Install-ProgramDeployLocalPublicKey {
   $target = Join-Path $Script:ConfigDir 'local-public-key.pem'
-  if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
-    Copy-Item -LiteralPath $Script:DeployPublicKeySourceFile -Destination $target
-  }
+  Copy-Item -LiteralPath $Script:DeployPublicKeySourceFile -Destination $target -Force
 }
 
 function Initialize-ProgramDeployConfig {
   New-Item -ItemType Directory -Force -Path $Script:ConfigDir | Out-Null
   if (-not (Test-Path -LiteralPath $Script:EnvFile -PathType Leaf)) {
-    New-ProgramDeployEnvFile $Script:EnvFile
+    Copy-Item -LiteralPath $Script:EnvExampleFile -Destination $Script:EnvFile
   }
+  Sync-ProgramDeployEnvValues
   $bundleConfigDir = Join-Path $Script:BundleRoot 'configs'
   if (Test-Path -LiteralPath $bundleConfigDir -PathType Container) {
     foreach ($example in Get-ChildItem -LiteralPath $bundleConfigDir -Filter '*.example.yml' -File) {

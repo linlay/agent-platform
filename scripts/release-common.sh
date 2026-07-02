@@ -288,30 +288,9 @@ ${error_log_json}
     "autoStart": true,
     "assetFileName": "$asset_file_name",
     "bundleTopLevelDir": "$APP_NAME",
-    "envBindings": [
-      {
-        "key": "AP_CONTAINER_HUB_BASE_URL",
-        "fromService": "agent-container-hub",
-        "template": "http://127.0.0.1:{{port}}",
-        "onlyIfDefault": true,
-        "defaults": [
-          "",
-          "http://127.0.0.1:11960",
-          "http://localhost:11960",
-          "http://host.docker.internal:11960"
-        ]
-      }
-    ],
     "capabilities": {
       "provides": [],
-      "requires": [
-        {
-          "phase": "preStart",
-          "capability": "auth.publicKey",
-          "action": "copyFile",
-          "target": "configs/local-public-key.pem"
-        }
-      ]
+      "requires": []
     }
   }
 }
