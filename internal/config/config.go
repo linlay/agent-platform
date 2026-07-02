@@ -161,6 +161,7 @@ type KBaseDefaultAgentConfig struct {
 }
 
 type KBaseEmbeddingConfig struct {
+	ModelKey    string
 	ProviderKey string
 	Model       string
 	Dimension   int

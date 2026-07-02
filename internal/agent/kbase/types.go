@@ -43,10 +43,12 @@ type FileStats struct {
 }
 
 type EmbeddingSnapshot struct {
-	ProviderKey string `json:"providerKey"`
-	Model       string `json:"model"`
-	Dimension   int    `json:"dimension"`
-	Timeout     int    `json:"timeout"`
+	ModelKey     string `json:"modelKey,omitempty"`
+	ProviderKey  string `json:"providerKey"`
+	Model        string `json:"model"`
+	Dimension    int    `json:"dimension"`
+	Timeout      int    `json:"timeout"`
+	EndpointPath string `json:"endpointPath,omitempty"`
 }
 
 type SearchOptions struct {

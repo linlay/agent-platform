@@ -280,11 +280,11 @@ func (s *Server) validateQueryModelOptions(options *api.QueryModelOptions, agent
 				if !agentcoder.ModelKeyInOptions(modelKey, options) {
 					return &statusError{status: http.StatusBadRequest, message: "model " + modelKey + " is not available for ACP CODER"}
 				}
-			} else if _, err := s.deps.Models.GetModel(modelKey); err != nil {
+			} else if err := s.validateLocalChatModelKey(modelKey, false); err != nil {
 				return &statusError{status: http.StatusBadRequest, message: err.Error()}
 			}
 		} else {
-			if _, _, err := s.deps.Models.Get(modelKey); err != nil {
+			if err := s.validateLocalChatModelKey(modelKey, true); err != nil {
 				return &statusError{status: http.StatusBadRequest, message: err.Error()}
 			}
 		}

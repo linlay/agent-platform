@@ -62,6 +62,10 @@ func newKBaseTestModelRegistry(t *testing.T, root string, handler http.HandlerFu
 	if err := os.MkdirAll(providersDir, 0o755); err != nil {
 		t.Fatalf("mkdir providers: %v", err)
 	}
+	modelsDir := filepath.Join(registriesDir, "models")
+	if err := os.MkdirAll(modelsDir, 0o755); err != nil {
+		t.Fatalf("mkdir models: %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(providersDir, "mock.yml"), []byte(strings.Join([]string{
 		"key: mock",
 		"baseUrl: " + server.URL,
@@ -72,6 +76,18 @@ func newKBaseTestModelRegistry(t *testing.T, root string, handler http.HandlerFu
 		"  timeout: 5",
 	}, "\n")), 0o644); err != nil {
 		t.Fatalf("write provider: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(modelsDir, "mock-embedding-key.yml"), []byte(strings.Join([]string{
+		"key: mock-embedding-key",
+		"provider: mock",
+		"type: embedding",
+		"modelId: mock-embedding-from-model-key",
+		"embedding:",
+		"  dimension: 3",
+		"  timeout: 7",
+		"  endpointPath: /custom/embeddings",
+	}, "\n")), 0o644); err != nil {
+		t.Fatalf("write embedding model: %v", err)
 	}
 	modelRegistry, err := models.LoadModelRegistry(registriesDir)
 	if err != nil {
@@ -264,6 +280,86 @@ func TestManagerResolveUsesKBaseEmbeddingDefaults(t *testing.T) {
 	}
 	if embedder == nil || embedder.Model != "settings-embedding" || embedder.Dimension != 1024 || embedder.Timeout != 60 {
 		t.Fatalf("unexpected embedder defaults: %#v", embedder)
+	}
+}
+
+func TestManagerResolveUsesKBaseEmbeddingModelKey(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "docs")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	modelRegistry := newKBaseTestModelRegistry(t, root, testEmbeddingHandler(t, nil))
+	def := testKBaseAgent("docs", workspace, "runtime")
+	def.KBaseConfig.Embedding = catalog.AgentKBaseEmbeddingConfig{
+		ModelKey:    "mock-embedding-key",
+		ProviderKey: "legacy-provider",
+		Model:       "legacy-model",
+		Dimension:   999,
+		Timeout:     99,
+	}
+	cfg := config.Config{
+		KBase: config.KBaseConfig{
+			Embedding: config.KBaseEmbeddingConfig{
+				ModelKey:    "settings-embedding-key",
+				ProviderKey: "settings-provider",
+				Model:       "settings-model",
+				Dimension:   512,
+				Timeout:     60,
+			},
+		},
+	}
+	cfg.Paths.KBaseDir = filepath.Join(root, "kbase")
+	manager := NewManager(cfg, stubRegistry{agents: map[string]catalog.AgentDefinition{"docs": def}}, modelRegistry)
+
+	resolved, embedder, err := manager.resolve("docs")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if resolved.Embedding.ModelKey != "mock-embedding-key" ||
+		resolved.Embedding.ProviderKey != "mock" ||
+		resolved.Embedding.Model != "mock-embedding-from-model-key" ||
+		resolved.Embedding.Dimension != 3 ||
+		resolved.Embedding.Timeout != 7 ||
+		resolved.Embedding.EndpointPath != "/custom/embeddings" {
+		t.Fatalf("unexpected resolved embedding modelKey config: %#v", resolved.Embedding)
+	}
+	if embedder == nil ||
+		embedder.Model != "mock-embedding-from-model-key" ||
+		embedder.Dimension != 3 ||
+		embedder.Timeout != 7 ||
+		embedder.EndpointPath != "/custom/embeddings" {
+		t.Fatalf("unexpected embedder modelKey config: %#v", embedder)
+	}
+}
+
+func TestManagerResolveRejectsNonEmbeddingModelKey(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "docs")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	modelRegistry := newKBaseTestModelRegistry(t, root, testEmbeddingHandler(t, nil))
+	modelsDir := filepath.Join(root, "registries", "models")
+	if err := os.WriteFile(filepath.Join(modelsDir, "chat-model.yml"), []byte(strings.Join([]string{
+		"key: chat-model",
+		"provider: mock",
+		"type: chat",
+		"modelId: chat-model-id",
+	}, "\n")), 0o644); err != nil {
+		t.Fatalf("write chat model: %v", err)
+	}
+	if err := modelRegistry.ReloadModels(); err != nil {
+		t.Fatalf("reload models: %v", err)
+	}
+	def := testKBaseAgent("docs", workspace, "runtime")
+	def.KBaseConfig.Embedding = catalog.AgentKBaseEmbeddingConfig{ModelKey: "chat-model"}
+	cfg := config.Config{}
+	cfg.Paths.KBaseDir = filepath.Join(root, "kbase")
+	manager := NewManager(cfg, stubRegistry{agents: map[string]catalog.AgentDefinition{"docs": def}}, modelRegistry)
+
+	if _, _, err := manager.resolve("docs"); err == nil || !strings.Contains(err.Error(), "want embedding") {
+		t.Fatalf("expected non-embedding modelKey error, got %v", err)
 	}
 }
 

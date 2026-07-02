@@ -127,6 +127,7 @@ func (c *Config) applyKBaseValues(values map[string]any) {
 	}
 	embedding, _ := values["embedding"].(map[string]any)
 	if len(embedding) > 0 {
+		c.KBase.Embedding.ModelKey = stringValue(anyValue(embedding["modelKey"], c.KBase.Embedding.ModelKey), c.KBase.Embedding.ModelKey)
 		c.KBase.Embedding.ProviderKey = stringValue(anyValue(embedding["providerKey"], c.KBase.Embedding.ProviderKey), c.KBase.Embedding.ProviderKey)
 		c.KBase.Embedding.Model = stringValue(anyValue(embedding["model"], c.KBase.Embedding.Model), c.KBase.Embedding.Model)
 		c.KBase.Embedding.Dimension = intValue(anyValue(embedding["dimension"], c.KBase.Embedding.Dimension), c.KBase.Embedding.Dimension)
@@ -836,7 +837,6 @@ func parseWebFetchProfileConfig(raw any, fallback WebFetchProfileConfig) WebFetc
 
 func defaultImageGenerateProfileConfig() ImageGenerateProfileConfig {
 	return ImageGenerateProfileConfig{
-		Timeout:         120,
 		Size:            "1024x1024",
 		ResponseFormat:  "b64_json",
 		OutputMimeType:  "image/png",

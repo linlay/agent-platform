@@ -210,6 +210,95 @@ func TestLoadModelRegistryParsesModelPricing(t *testing.T) {
 	}
 }
 
+func TestLoadModelRegistryParsesTypedModels(t *testing.T) {
+	root := t.TempDir()
+	writeTestProviderAndModel(t, root, "apiKey: plain-text")
+	modelsDir := filepath.Join(root, "models")
+	if err := os.WriteFile(filepath.Join(modelsDir, "embedding.yml"), []byte(strings.Join([]string{
+		"key: embedding-model",
+		"provider: mock",
+		"type: embedding",
+		"modelId: text-embedding-v4",
+		"embedding:",
+		"  dimension: 1024",
+		"  timeout: 60",
+		"  endpointPath: /v1/embeddings",
+	}, "\n")), 0o644); err != nil {
+		t.Fatalf("write embedding model: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(modelsDir, "image.yml"), []byte(strings.Join([]string{
+		"key: image-model",
+		"provider: mock",
+		"type: image-generation",
+		"modelId: gpt-image-1",
+		"image:",
+		"  endpointPath: /v1/images/generations",
+		"  timeout: 120",
+		"  defaultSize: 1024x1024",
+		"  responseFormats:",
+		"    - b64_json",
+		"    - url",
+	}, "\n")), 0o644); err != nil {
+		t.Fatalf("write image model: %v", err)
+	}
+
+	registry, err := LoadModelRegistry(root)
+	if err != nil {
+		t.Fatalf("LoadModelRegistry returned error: %v", err)
+	}
+
+	chat, _, err := registry.Get("mock-model")
+	if err != nil {
+		t.Fatalf("Get chat model returned error: %v", err)
+	}
+	if chat.Type != ModelTypeChat {
+		t.Fatalf("expected default chat type, got %#v", chat)
+	}
+	embedding, _, err := registry.GetEmbedding("embedding-model")
+	if err != nil {
+		t.Fatalf("GetEmbedding returned error: %v", err)
+	}
+	if embedding.Type != ModelTypeEmbedding ||
+		embedding.ModelID != "text-embedding-v4" ||
+		embedding.Embedding.Dimension != 1024 ||
+		embedding.Embedding.Timeout != 60 ||
+		embedding.Embedding.EndpointPath != "/v1/embeddings" {
+		t.Fatalf("unexpected embedding model: %#v", embedding)
+	}
+	image, _, err := registry.GetImageGeneration("image-model")
+	if err != nil {
+		t.Fatalf("GetImageGeneration returned error: %v", err)
+	}
+	if image.Type != ModelTypeImageGeneration ||
+		image.Image.EndpointPath != "/v1/images/generations" ||
+		image.Image.Timeout != 120 ||
+		image.Image.DefaultSize != "1024x1024" ||
+		len(image.Image.ResponseFormats) != 2 ||
+		image.Image.ResponseFormats[1] != "url" {
+		t.Fatalf("unexpected image model: %#v", image)
+	}
+	if _, _, err := registry.Get("embedding-model"); err == nil || !strings.Contains(err.Error(), "want chat") {
+		t.Fatalf("expected chat Get to reject embedding model, got %v", err)
+	}
+	defaultModel, _, err := registry.Default()
+	if err != nil {
+		t.Fatalf("Default returned error: %v", err)
+	}
+	if defaultModel.Key != "mock-model" {
+		t.Fatalf("expected default to skip non-chat models, got %#v", defaultModel)
+	}
+}
+
+func TestLoadModelRegistryRejectsInvalidModelType(t *testing.T) {
+	root := t.TempDir()
+	writeTestProviderAndModel(t, root, "apiKey: plain-text", "type: audio")
+
+	_, err := LoadModelRegistry(root)
+	if err == nil || !strings.Contains(err.Error(), "invalid type") {
+		t.Fatalf("expected invalid type error, got %v", err)
+	}
+}
+
 func TestProviderlessModelCanBeListedAndReadWithoutProvider(t *testing.T) {
 	root := t.TempDir()
 	writeTestProviderAndModel(t, root, "apiKey: plain-text")

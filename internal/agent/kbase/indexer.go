@@ -192,6 +192,9 @@ func indexWorkspace(ctx context.Context, store *Store, cfg resolvedConfig, embed
 	if err := store.SetMeta("configHash", cfg.ConfigHash); err != nil {
 		return err
 	}
+	if err := store.SetMeta("embeddingModelKey", cfg.Embedding.ModelKey); err != nil {
+		return err
+	}
 	if err := store.SetMeta("embeddingProviderKey", cfg.Embedding.ProviderKey); err != nil {
 		return err
 	}

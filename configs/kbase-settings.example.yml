@@ -7,10 +7,9 @@ default-agent:
   reasoningEffort:
 
 embedding:
-  providerKey: babelark
-  model: text-embedding-v4
-  dimension: 1024
-  timeout: 60
+  # Default embedding modelKey for new KBASE agents. This must reference a
+  # runtime/registries/models/*.yml model with type: embedding.
+  modelKey: babelark-text-embedding-v4
 
 refresh:
   debounce: 2s

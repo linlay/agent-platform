@@ -215,10 +215,9 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 		"  # Optional default reasoning effort for new KBASE agents; leave empty to require explicit configuration.\n",
 		"  reasoningEffort:\n",
 		"embedding:\n",
-		"  providerKey: babelark\n",
-		"  model: text-embedding-v4\n",
-		"  dimension: 1024\n",
-		"  timeout: 60\n",
+		"  # Default embedding modelKey for new KBASE agents. This must reference a\n",
+		"  # runtime/registries/models/*.yml model with type: embedding.\n",
+		"  modelKey: babelark-text-embedding-v4\n",
 		"refresh:\n",
 		"  debounce: 2s\n",
 		"  reconcile-interval: 10m\n",
@@ -1021,7 +1020,7 @@ func TestLoadKBaseSettingsMissingFileUsesDefaults(t *testing.T) {
 				if cfg.KBase.DefaultAgent.ModelKey != "" || cfg.KBase.DefaultAgent.ReasoningEffort != "" {
 					t.Fatalf("expected empty kbase default agent config, got %#v", cfg.KBase.DefaultAgent)
 				}
-				if cfg.KBase.Embedding.ProviderKey != "" || cfg.KBase.Embedding.Model != "" ||
+				if cfg.KBase.Embedding.ModelKey != "" || cfg.KBase.Embedding.ProviderKey != "" || cfg.KBase.Embedding.Model != "" ||
 					cfg.KBase.Embedding.Dimension != 0 || cfg.KBase.Embedding.Timeout != 0 {
 					t.Fatalf("expected empty kbase embedding config, got %#v", cfg.KBase.Embedding)
 				}
@@ -1046,6 +1045,7 @@ func TestLoadRuntimeKBaseCompatibility(t *testing.T) {
 			"    modelKey: runtime-kbase-model\n" +
 			"    reasoningEffort: LOW\n" +
 			"  embedding:\n" +
+			"    modelKey: runtime-embedding-model-key\n" +
 			"    providerKey: runtime-embedding-provider\n" +
 			"    model: runtime-embedding-model\n" +
 			"    dimension: 512\n" +
@@ -1074,7 +1074,8 @@ func TestLoadRuntimeKBaseCompatibility(t *testing.T) {
 				if cfg.KBase.DefaultAgent.ModelKey != "runtime-kbase-model" || cfg.KBase.DefaultAgent.ReasoningEffort != "LOW" {
 					t.Fatalf("unexpected runtime kbase default agent config: %#v", cfg.KBase.DefaultAgent)
 				}
-				if cfg.KBase.Embedding.ProviderKey != "runtime-embedding-provider" ||
+				if cfg.KBase.Embedding.ModelKey != "runtime-embedding-model-key" ||
+					cfg.KBase.Embedding.ProviderKey != "runtime-embedding-provider" ||
 					cfg.KBase.Embedding.Model != "runtime-embedding-model" ||
 					cfg.KBase.Embedding.Dimension != 512 ||
 					cfg.KBase.Embedding.Timeout != 30 {
@@ -1100,6 +1101,7 @@ func TestLoadKBaseSettingsOverridesRuntimeKBase(t *testing.T) {
 			"    modelKey: runtime-kbase-model\n" +
 			"    reasoningEffort: LOW\n" +
 			"  embedding:\n" +
+			"    modelKey: runtime-embedding-model-key\n" +
 			"    providerKey: runtime-embedding-provider\n" +
 			"    model: runtime-embedding-model\n" +
 			"    dimension: 512\n" +
@@ -1121,6 +1123,7 @@ func TestLoadKBaseSettingsOverridesRuntimeKBase(t *testing.T) {
 			"  modelKey: settings-kbase-model\n" +
 			"  reasoningEffort: HIGH\n" +
 			"embedding:\n" +
+			"  modelKey: settings-embedding-model-key\n" +
 			"  providerKey: settings-embedding-provider\n" +
 			"  model: settings-embedding-model\n" +
 			"  dimension: 1024\n" +
@@ -1147,7 +1150,8 @@ func TestLoadKBaseSettingsOverridesRuntimeKBase(t *testing.T) {
 				if cfg.KBase.DefaultAgent.ModelKey != "settings-kbase-model" || cfg.KBase.DefaultAgent.ReasoningEffort != "HIGH" {
 					t.Fatalf("unexpected kbase default agent precedence: %#v", cfg.KBase.DefaultAgent)
 				}
-				if cfg.KBase.Embedding.ProviderKey != "settings-embedding-provider" ||
+				if cfg.KBase.Embedding.ModelKey != "settings-embedding-model-key" ||
+					cfg.KBase.Embedding.ProviderKey != "settings-embedding-provider" ||
 					cfg.KBase.Embedding.Model != "settings-embedding-model" ||
 					cfg.KBase.Embedding.Dimension != 1024 ||
 					cfg.KBase.Embedding.Timeout != 60 {
@@ -1324,7 +1328,7 @@ func TestLoadImageGenerateConfigFromFile(t *testing.T) {
 			}
 			profile := cfg.ImageGenerate.Profiles["general"]
 			if profile.ModelKey != "babelark-gemini-3_1-flash-image-preview" ||
-				profile.Timeout != 120 ||
+				profile.Timeout != 0 ||
 				profile.Size != "1024x1024" ||
 				profile.ResponseFormat != "b64_json" ||
 				profile.OutputMimeType != "image/png" ||

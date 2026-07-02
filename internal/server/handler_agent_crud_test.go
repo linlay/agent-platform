@@ -241,10 +241,7 @@ func TestAgentCreateKBaseAppliesDefaultModelConfig(t *testing.T) {
 				ReasoningEffort: "MEDIUM",
 			}
 			cfg.KBase.Embedding = config.KBaseEmbeddingConfig{
-				ProviderKey: "mock-embedding-provider",
-				Model:       "mock-embedding-model",
-				Dimension:   1024,
-				Timeout:     60,
+				ModelKey: "mock-embedding-model-key",
 			}
 		},
 	})
@@ -274,8 +271,14 @@ func TestAgentCreateKBaseAppliesDefaultModelConfig(t *testing.T) {
 	}
 	kbaseConfig, _ := created.Definition["kbaseConfig"].(map[string]any)
 	embedding, _ := kbaseConfig["embedding"].(map[string]any)
-	if embedding["providerKey"] != "mock-embedding-provider" || embedding["model"] != "mock-embedding-model" {
-		t.Fatalf("expected kbase default embedding provider/model, got %#v", kbaseConfig)
+	if embedding["modelKey"] != "mock-embedding-model-key" {
+		t.Fatalf("expected kbase default embedding modelKey, got %#v", kbaseConfig)
+	}
+	if _, ok := embedding["providerKey"]; ok {
+		t.Fatalf("expected kbase default embedding providerKey not to be persisted, got %#v", embedding)
+	}
+	if _, ok := embedding["model"]; ok {
+		t.Fatalf("expected kbase default embedding model not to be persisted, got %#v", embedding)
 	}
 	if _, ok := embedding["dimension"]; ok {
 		t.Fatalf("expected kbase default embedding dimension not to be persisted, got %#v", embedding)
@@ -307,10 +310,7 @@ func TestAgentCreateKBasePreservesExplicitModelConfig(t *testing.T) {
 				ReasoningEffort: "MEDIUM",
 			}
 			cfg.KBase.Embedding = config.KBaseEmbeddingConfig{
-				ProviderKey: "default-embedding-provider",
-				Model:       "default-embedding-model",
-				Dimension:   1024,
-				Timeout:     60,
+				ModelKey: "default-embedding-model-key",
 			}
 		},
 	})
@@ -352,6 +352,9 @@ func TestAgentCreateKBasePreservesExplicitModelConfig(t *testing.T) {
 	if embedding["providerKey"] != "explicit-embedding-provider" || embedding["model"] != "explicit-embedding-model" {
 		t.Fatalf("expected explicit kbase embedding provider/model to win, got %#v", kbaseConfig)
 	}
+	if _, ok := embedding["modelKey"]; ok {
+		t.Fatalf("expected explicit legacy kbase embedding to avoid default modelKey, got %#v", kbaseConfig)
+	}
 }
 
 func TestAgentCreateKBaseReplacesIncompleteExplicitEmbeddingConfig(t *testing.T) {
@@ -367,10 +370,7 @@ func TestAgentCreateKBaseReplacesIncompleteExplicitEmbeddingConfig(t *testing.T)
 				ReasoningEffort: "MEDIUM",
 			}
 			cfg.KBase.Embedding = config.KBaseEmbeddingConfig{
-				ProviderKey: "default-embedding-provider",
-				Model:       "default-embedding-model",
-				Dimension:   1024,
-				Timeout:     60,
+				ModelKey: "default-embedding-model-key",
 			}
 		},
 	})
@@ -394,8 +394,11 @@ func TestAgentCreateKBaseReplacesIncompleteExplicitEmbeddingConfig(t *testing.T)
 	})
 	kbaseConfig, _ := created.Definition["kbaseConfig"].(map[string]any)
 	embedding, _ := kbaseConfig["embedding"].(map[string]any)
-	if embedding["providerKey"] != "default-embedding-provider" || embedding["model"] != "default-embedding-model" {
-		t.Fatalf("expected incomplete explicit kbase embedding to use defaults, got %#v", kbaseConfig)
+	if embedding["modelKey"] != "default-embedding-model-key" {
+		t.Fatalf("expected incomplete explicit kbase embedding to use default modelKey, got %#v", kbaseConfig)
+	}
+	if _, ok := embedding["providerKey"]; ok {
+		t.Fatalf("expected incomplete explicit providerKey to be replaced, got %#v", kbaseConfig)
 	}
 }
 

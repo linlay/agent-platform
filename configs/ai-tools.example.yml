@@ -44,13 +44,11 @@ image-generate:
   profiles:
     general:
       model-key:
-      timeout: 120
       size: 1024x1024
       response-format: b64_json
       output-mime-type: image/png
       max-prompt-chars: 4000
       persist-artifact: true
-      endpoint-path: /v1/images/generations
 
 speech:
   speech-to-text:

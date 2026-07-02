@@ -124,6 +124,9 @@ func (s *Server) shouldShowModelOption(model models.ModelDefinition) bool {
 	if models.IsACPPassthroughModel(model) {
 		return true
 	}
+	if !models.IsChatModel(model) {
+		return false
+	}
 	providerKey := strings.TrimSpace(model.Provider)
 	if providerKey == "" || s.deps.Models == nil {
 		return false

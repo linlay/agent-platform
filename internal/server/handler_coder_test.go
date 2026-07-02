@@ -80,6 +80,26 @@ func TestCoderModelOptionsHTTP(t *testing.T) {
 	}, testFixtureOptions{
 		setupRuntime: func(_ string, cfg *config.Config) {
 			setupCoderRuntime(t, cfg)
+			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "embedding-model.yml"), []byte(strings.Join([]string{
+				"key: embedding-model",
+				"provider: mock",
+				"type: embedding",
+				"modelId: text-embedding-v4",
+				"embedding:",
+				"  dimension: 1024",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write embedding model config: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "image-model.yml"), []byte(strings.Join([]string{
+				"key: image-model",
+				"provider: mock",
+				"type: image-generation",
+				"modelId: gpt-image-1",
+				"image:",
+				"  endpointPath: /v1/images/generations",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write image model config: %v", err)
+			}
 		},
 	})
 
@@ -106,6 +126,9 @@ func TestCoderModelOptionsHTTP(t *testing.T) {
 	for _, model := range response.Data.Models {
 		if model.Key == "coder-model" && model.Name == "Coder Model" && model.IsReasoner && model.IsVision && model.ContextWindow == 200000 {
 			foundCoderModel = true
+		}
+		if model.Key == "embedding-model" || model.Key == "image-model" {
+			t.Fatalf("non-chat model should not appear in model options: %#v", response.Data.Models)
 		}
 	}
 	if !foundCoderModel {

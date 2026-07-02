@@ -8,17 +8,19 @@ import (
 	"io"
 	"math"
 	"net/http"
+	neturl "net/url"
 	"strings"
 	"time"
 )
 
 type Embedder struct {
-	BaseURL    string
-	APIKey     string
-	Model      string
-	Dimension  int
-	Timeout    int
-	httpClient *http.Client
+	BaseURL      string
+	APIKey       string
+	Model        string
+	Dimension    int
+	Timeout      int
+	EndpointPath string
+	httpClient   *http.Client
 }
 
 const defaultEmbeddingBatchSize = 10
@@ -28,12 +30,13 @@ func NewEmbedder(baseURL, apiKey, model string, dimension, timeout int) *Embedde
 		timeout = 15
 	}
 	return &Embedder{
-		BaseURL:    strings.TrimRight(strings.TrimSpace(baseURL), "/"),
-		APIKey:     strings.TrimSpace(apiKey),
-		Model:      strings.TrimSpace(model),
-		Dimension:  dimension,
-		Timeout:    timeout,
-		httpClient: &http.Client{},
+		BaseURL:      strings.TrimRight(strings.TrimSpace(baseURL), "/"),
+		APIKey:       strings.TrimSpace(apiKey),
+		Model:        strings.TrimSpace(model),
+		Dimension:    dimension,
+		Timeout:      timeout,
+		EndpointPath: "/v1/embeddings",
+		httpClient:   &http.Client{},
 	}
 }
 
@@ -81,7 +84,7 @@ func (e *Embedder) embedBatch(ctx context.Context, texts []string) ([][]float64,
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.BaseURL+"/v1/embeddings", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.endpointURL(), bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -121,6 +124,20 @@ func (e *Embedder) embedBatch(ctx context.Context, texts []string) ([][]float64,
 		}
 	}
 	return vectors, nil
+}
+
+func (e *Embedder) endpointURL() string {
+	endpoint := strings.TrimSpace(e.EndpointPath)
+	if endpoint == "" {
+		endpoint = "/v1/embeddings"
+	}
+	if parsed, err := neturl.Parse(endpoint); err == nil && parsed.Scheme != "" && parsed.Host != "" {
+		return endpoint
+	}
+	if !strings.HasPrefix(endpoint, "/") {
+		endpoint = "/" + endpoint
+	}
+	return strings.TrimRight(e.BaseURL, "/") + endpoint
 }
 
 func (e *Embedder) EmbedSingle(ctx context.Context, text string) ([]float64, error) {

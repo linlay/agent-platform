@@ -83,6 +83,63 @@ func TestImageGenerateProviderConfigInvalid(t *testing.T) {
 	}
 }
 
+func TestImageGenerateRejectsNonImageModel(t *testing.T) {
+	registry := writeImageGenerateRegistryWithType(t, "http://127.0.0.1:1", true, models.ModelTypeChat)
+	executor := imageGenerateTestExecutor(defaultImageGenerateTestConfig(), registry, "")
+	result, err := executor.invokeImageGenerate(context.Background(), map[string]any{
+		"prompt": "draw",
+	}, &contracts.ExecutionContext{})
+	if err != nil {
+		t.Fatalf("invokeImageGenerate: %v", err)
+	}
+	if result.Error != "image_generate_model_not_image_generation" {
+		t.Fatalf("expected model type error, got %#v", result)
+	}
+}
+
+func TestImageGenerateUsesModelImageDefaults(t *testing.T) {
+	var captured map[string]any
+	modelServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/custom/images" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode model request: %v", err)
+		}
+		_, _ = w.Write([]byte(`{"data":[{"url":"https://cdn.example/model-default.png"}]}`))
+	}))
+	defer modelServer.Close()
+
+	registry := writeImageGenerateRegistryWithImageConfig(t, modelServer.URL, true, []string{
+		"  endpointPath: /custom/images",
+		"  timeout: 3",
+		"  defaultSize: 768x768",
+		"  responseFormats:",
+		"    - url",
+	})
+	cfg := defaultImageGenerateTestConfig()
+	cfg.Profiles["general"] = config.ImageGenerateProfileConfig{
+		ModelKey:        "image-model",
+		ResponseFormat:  "url",
+		OutputMimeType:  "image/png",
+		MaxPromptChars:  4000,
+		PersistArtifact: true,
+	}
+	executor := imageGenerateTestExecutor(cfg, registry, t.TempDir())
+	result, err := executor.invokeImageGenerate(context.Background(), map[string]any{
+		"prompt": "draw",
+	}, &contracts.ExecutionContext{Session: contracts.QuerySession{ChatID: "chat-1", RunID: "run-1"}})
+	if err != nil {
+		t.Fatalf("invokeImageGenerate: %v", err)
+	}
+	if result.Error != "" {
+		t.Fatalf("expected successful result, got %#v", result)
+	}
+	if captured["size"] != "768x768" || captured["response_format"] != "url" {
+		t.Fatalf("expected model image defaults in request, got %#v", captured)
+	}
+}
+
 func TestImageGenerateB64ResponsePersistsArtifact(t *testing.T) {
 	imageBytes := []byte("fake image bytes")
 	encoded := base64.StdEncoding.EncodeToString(imageBytes)
@@ -257,6 +314,25 @@ func imageGenerateTestExecutor(cfg config.ImageGenerateConfig, registry *models.
 }
 
 func writeImageGenerateRegistry(t *testing.T, baseURL string, withAPIKey bool) *models.ModelRegistry {
+	return writeImageGenerateRegistryWithType(t, baseURL, withAPIKey, models.ModelTypeImageGeneration)
+}
+
+func writeImageGenerateRegistryWithType(t *testing.T, baseURL string, withAPIKey bool, modelType string) *models.ModelRegistry {
+	return writeImageGenerateRegistryWithModel(t, baseURL, withAPIKey, modelType, []string{
+		"  endpointPath: /v1/images/generations",
+		"  timeout: 120",
+		"  defaultSize: 1024x1024",
+		"  responseFormats:",
+		"    - b64_json",
+		"    - url",
+	})
+}
+
+func writeImageGenerateRegistryWithImageConfig(t *testing.T, baseURL string, withAPIKey bool, imageLines []string) *models.ModelRegistry {
+	return writeImageGenerateRegistryWithModel(t, baseURL, withAPIKey, models.ModelTypeImageGeneration, imageLines)
+}
+
+func writeImageGenerateRegistryWithModel(t *testing.T, baseURL string, withAPIKey bool, modelType string, imageLines []string) *models.ModelRegistry {
 	t.Helper()
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "providers"), 0o755); err != nil {
@@ -282,9 +358,14 @@ func writeImageGenerateRegistry(t *testing.T, baseURL string, withAPIKey bool) *
 	model := strings.Join([]string{
 		"key: image-model",
 		"provider: test",
+		"type: " + modelType,
 		"protocol: OPENAI",
 		"modelId: image-model-id",
+		"image:",
 	}, "\n")
+	if len(imageLines) > 0 {
+		model += "\n" + strings.Join(imageLines, "\n")
+	}
 	if err := os.WriteFile(filepath.Join(root, "models", "image-model.yml"), []byte(model), 0o644); err != nil {
 		t.Fatalf("write model: %v", err)
 	}

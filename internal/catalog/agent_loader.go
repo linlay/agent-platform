@@ -750,6 +750,7 @@ func parseAgentKBaseConfig(value any) AgentKBaseConfig {
 	}
 	embedding := mapNode(node["embedding"])
 	cfg.Embedding = AgentKBaseEmbeddingConfig{
+		ModelKey:    stringNode(embedding["modelKey"]),
 		ProviderKey: stringNode(embedding["providerKey"]),
 		Model:       stringNode(embedding["model"]),
 		Dimension:   intNode(embedding["dimension"]),

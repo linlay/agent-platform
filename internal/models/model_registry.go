@@ -51,6 +51,7 @@ type ModelDefinition struct {
 	Key              string
 	Name             string
 	Provider         string
+	Type             string
 	Protocol         string
 	ModelID          string
 	IsFunction       bool
@@ -62,9 +63,30 @@ type ModelDefinition struct {
 	Compat           map[string]any
 	ReasoningEfforts []string
 	ServiceTiers     []string
+	Embedding        ModelEmbeddingConfig
+	Image            ModelImageConfig
 }
 
-const ProtocolACPPassthrough = "ACP_PASSTHROUGH"
+const (
+	ProtocolACPPassthrough = "ACP_PASSTHROUGH"
+
+	ModelTypeChat            = "chat"
+	ModelTypeEmbedding       = "embedding"
+	ModelTypeImageGeneration = "image-generation"
+)
+
+type ModelEmbeddingConfig struct {
+	Dimension    int
+	Timeout      int
+	EndpointPath string
+}
+
+type ModelImageConfig struct {
+	EndpointPath    string
+	Timeout         int
+	DefaultSize     string
+	ResponseFormats []string
+}
 
 type ModelPricing struct {
 	Currency       string
@@ -102,6 +124,36 @@ func IsACPPassthroughProtocol(protocol string) bool {
 
 func IsACPPassthroughModel(model ModelDefinition) bool {
 	return IsACPPassthroughProtocol(model.Protocol)
+}
+
+func NormalizeModelType(value string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "":
+		return ModelTypeChat, true
+	case ModelTypeChat:
+		return ModelTypeChat, true
+	case ModelTypeEmbedding:
+		return ModelTypeEmbedding, true
+	case ModelTypeImageGeneration:
+		return ModelTypeImageGeneration, true
+	default:
+		return "", false
+	}
+}
+
+func IsChatModel(model ModelDefinition) bool {
+	modelType, ok := NormalizeModelType(model.Type)
+	return ok && modelType == ModelTypeChat
+}
+
+func IsEmbeddingModel(model ModelDefinition) bool {
+	modelType, ok := NormalizeModelType(model.Type)
+	return ok && modelType == ModelTypeEmbedding
+}
+
+func IsImageGenerationModel(model ModelDefinition) bool {
+	modelType, ok := NormalizeModelType(model.Type)
+	return ok && modelType == ModelTypeImageGeneration
 }
 
 func LoadModelRegistry(registriesDir string) (*ModelRegistry, error) {
@@ -145,15 +197,40 @@ func (r *ModelRegistry) ReloadModels() error {
 }
 
 func (r *ModelRegistry) Get(key string) (ModelDefinition, ProviderDefinition, error) {
+	return r.GetTyped(key, ModelTypeChat)
+}
+
+func (r *ModelRegistry) GetEmbedding(key string) (ModelDefinition, ProviderDefinition, error) {
+	return r.GetTyped(key, ModelTypeEmbedding)
+}
+
+func (r *ModelRegistry) GetImageGeneration(key string) (ModelDefinition, ProviderDefinition, error) {
+	return r.GetTyped(key, ModelTypeImageGeneration)
+}
+
+func (r *ModelRegistry) GetTyped(key string, modelType string) (ModelDefinition, ProviderDefinition, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	if strings.TrimSpace(key) == "" {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		if modelType != ModelTypeChat {
+			return ModelDefinition{}, ProviderDefinition{}, fmt.Errorf("%s model key is required", modelType)
+		}
 		return r.defaultLocked()
 	}
 	model, ok := r.models[key]
 	if !ok {
 		return ModelDefinition{}, ProviderDefinition{}, fmt.Errorf("model %s not found", key)
+	}
+	if normalized, ok := NormalizeModelType(model.Type); !ok || normalized != modelType {
+		if !ok {
+			return ModelDefinition{}, ProviderDefinition{}, fmt.Errorf("model %s has invalid type %q", model.Key, model.Type)
+		}
+		return ModelDefinition{}, ProviderDefinition{}, fmt.Errorf("model %s has type %s, want %s", model.Key, normalized, modelType)
+	}
+	if err := validateModelForRuntime(model, modelType); err != nil {
+		return ModelDefinition{}, ProviderDefinition{}, err
 	}
 	if IsACPPassthroughModel(model) {
 		return ModelDefinition{}, ProviderDefinition{}, fmt.Errorf("model %s uses ACP_PASSTHROUGH protocol and cannot be used by native provider runtime", model.Key)
@@ -162,7 +239,17 @@ func (r *ModelRegistry) Get(key string) (ModelDefinition, ProviderDefinition, er
 	if !ok {
 		return ModelDefinition{}, ProviderDefinition{}, fmt.Errorf("provider %s not found for model %s", model.Provider, model.Key)
 	}
-	return model, provider, nil
+	return cloneModelDefinition(model), provider, nil
+}
+
+func validateModelForRuntime(model ModelDefinition, modelType string) error {
+	if strings.TrimSpace(model.ModelID) == "" {
+		return fmt.Errorf("model %s modelId is required", model.Key)
+	}
+	if modelType == ModelTypeEmbedding && model.Embedding.Dimension <= 0 {
+		return fmt.Errorf("model %s embedding.dimension is required", model.Key)
+	}
+	return nil
 }
 
 func (r *ModelRegistry) GetModel(key string) (ModelDefinition, error) {
@@ -178,9 +265,7 @@ func (r *ModelRegistry) GetModel(key string) (ModelDefinition, error) {
 	if !ok {
 		return ModelDefinition{}, fmt.Errorf("model %s not found", key)
 	}
-	model.Headers = stringMapCopy(model.Headers)
-	model.Compat = contracts.CloneAnyMap(model.Compat)
-	return model, nil
+	return cloneModelDefinition(model), nil
 }
 
 func (r *ModelRegistry) List() []ModelDefinition {
@@ -198,12 +283,18 @@ func (r *ModelRegistry) List() []ModelDefinition {
 
 	items := make([]ModelDefinition, 0, len(keys))
 	for _, key := range keys {
-		model := r.models[key]
-		model.Headers = stringMapCopy(model.Headers)
-		model.Compat = contracts.CloneAnyMap(model.Compat)
-		items = append(items, model)
+		items = append(items, cloneModelDefinition(r.models[key]))
 	}
 	return items
+}
+
+func cloneModelDefinition(model ModelDefinition) ModelDefinition {
+	model.Headers = stringMapCopy(model.Headers)
+	model.Compat = contracts.CloneAnyMap(model.Compat)
+	model.ReasoningEfforts = append([]string(nil), model.ReasoningEfforts...)
+	model.ServiceTiers = append([]string(nil), model.ServiceTiers...)
+	model.Image.ResponseFormats = append([]string(nil), model.Image.ResponseFormats...)
+	return model
 }
 
 func stringMapCopy(input map[string]string) map[string]string {
@@ -253,7 +344,7 @@ func (r *ModelRegistry) defaultLocked() (ModelDefinition, ProviderDefinition, er
 			continue
 		}
 		if match, ok := matchProviderDefault(r.models, provider); ok {
-			return match, provider, nil
+			return cloneModelDefinition(match), provider, nil
 		}
 	}
 	modelKeys := make([]string, 0, len(r.models))
@@ -263,12 +354,12 @@ func (r *ModelRegistry) defaultLocked() (ModelDefinition, ProviderDefinition, er
 	sort.Strings(modelKeys)
 	for _, modelKey := range modelKeys {
 		model := r.models[modelKey]
-		if IsACPPassthroughModel(model) {
+		if IsACPPassthroughModel(model) || !IsChatModel(model) {
 			continue
 		}
 		provider, ok := r.providers[model.Provider]
 		if ok && providerHasAPIKey(provider) {
-			return model, provider, nil
+			return cloneModelDefinition(model), provider, nil
 		}
 	}
 	return ModelDefinition{}, ProviderDefinition{}, fmt.Errorf("no provider-backed models loaded from registries")
@@ -279,7 +370,7 @@ func matchProviderDefault(models map[string]ModelDefinition, provider ProviderDe
 		return ModelDefinition{}, false
 	}
 	for _, model := range models {
-		if IsACPPassthroughModel(model) {
+		if IsACPPassthroughModel(model) || !IsChatModel(model) {
 			continue
 		}
 		if model.Provider != provider.Key {
@@ -486,10 +577,15 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 		if key == "" {
 			continue
 		}
+		modelType, ok := NormalizeModelType(stringNode(values["type"]))
+		if !ok {
+			return nil, fmt.Errorf("load model %s: invalid type %q", entry.Name(), stringNode(values["type"]))
+		}
 		result[key] = ModelDefinition{
 			Key:              key,
 			Name:             strings.TrimSpace(stringNode(values["name"])),
 			Provider:         strings.TrimSpace(stringNode(values["provider"])),
+			Type:             modelType,
 			Protocol:         strings.ToUpper(strings.TrimSpace(stringNode(values["protocol"]))),
 			ModelID:          strings.TrimSpace(stringNode(values["modelId"])),
 			IsFunction:       parseTruthy(stringNode(values["isFunction"])),
@@ -501,9 +597,46 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 			Compat:           contracts.CloneAnyMap(contracts.AnyMapNode(values["compat"])),
 			ReasoningEfforts: stringSliceNode(values["reasoningEfforts"]),
 			ServiceTiers:     stringSliceNode(values["serviceTiers"]),
+			Embedding:        loadModelEmbedding(values["embedding"]),
+			Image:            loadModelImage(values["image"]),
 		}
 	}
 	return result, nil
+}
+
+func loadModelEmbedding(raw any) ModelEmbeddingConfig {
+	values := contracts.AnyMapNode(raw)
+	if len(values) == 0 {
+		return ModelEmbeddingConfig{}
+	}
+	return ModelEmbeddingConfig{
+		Dimension:    intNode(values["dimension"]),
+		Timeout:      intNode(values["timeout"]),
+		EndpointPath: strings.TrimSpace(contracts.FirstNonEmptyString(values["endpointPath"], values["endpoint-path"])),
+	}
+}
+
+func loadModelImage(raw any) ModelImageConfig {
+	values := contracts.AnyMapNode(raw)
+	if len(values) == 0 {
+		return ModelImageConfig{}
+	}
+	return ModelImageConfig{
+		EndpointPath:    strings.TrimSpace(contracts.FirstNonEmptyString(values["endpointPath"], values["endpoint-path"])),
+		Timeout:         intNode(values["timeout"]),
+		DefaultSize:     strings.TrimSpace(contracts.FirstNonEmptyString(values["defaultSize"], values["default-size"])),
+		ResponseFormats: firstStringSliceNode(values["responseFormats"], values["response-formats"]),
+	}
+}
+
+func firstStringSliceNode(values ...any) []string {
+	for _, value := range values {
+		items := stringSliceNode(value)
+		if len(items) > 0 {
+			return items
+		}
+	}
+	return nil
 }
 
 func loadModelPricing(raw any) ModelPricing {

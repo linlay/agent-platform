@@ -52,7 +52,14 @@ func (t *RuntimeToolExecutor) invokeImageGenerate(ctx context.Context, args map[
 	if profile.MaxPromptChars > 0 && utf8.RuneCountInString(prompt) > profile.MaxPromptChars {
 		return imageGenerateToolError("image_generate_prompt_too_long", fmt.Sprintf("prompt exceeds max-prompt-chars: %d", profile.MaxPromptChars), map[string]any{"maxPromptChars": profile.MaxPromptChars}), nil
 	}
-	model, provider, err := t.models.Get(profile.ModelKey)
+	modelInfo, err := t.models.GetModel(profile.ModelKey)
+	if err != nil {
+		return imageGenerateToolError("image_generate_model_not_found", err.Error(), map[string]any{"modelKey": profile.ModelKey}), nil
+	}
+	if !models.IsImageGenerationModel(modelInfo) {
+		return imageGenerateToolError("image_generate_model_not_image_generation", "configured model is not type: image-generation", map[string]any{"modelKey": modelInfo.Key, "type": modelInfo.Type}), nil
+	}
+	model, provider, err := t.models.GetImageGeneration(profile.ModelKey)
 	if err != nil {
 		return imageGenerateToolError("image_generate_model_not_found", err.Error(), map[string]any{"modelKey": profile.ModelKey}), nil
 	}
@@ -60,11 +67,11 @@ func (t *RuntimeToolExecutor) invokeImageGenerate(ctx context.Context, args map[
 		return imageGenerateToolError("image_generate_provider_config_invalid", "provider baseUrl and apiKey are required", map[string]any{"provider": provider.Key}), nil
 	}
 
-	size := strings.TrimSpace(FirstNonEmptyString(args["size"], profile.Size))
+	size := strings.TrimSpace(FirstNonEmptyString(args["size"], profile.Size, model.Image.DefaultSize))
 	if size == "" {
 		size = "1024x1024"
 	}
-	responseFormat, ok := resolveImageGenerateResponseFormat(AnyStringNode(args["response_format"]), profile.ResponseFormat)
+	responseFormat, ok := resolveImageGenerateResponseFormat(AnyStringNode(args["response_format"]), profile.ResponseFormat, model.Image.ResponseFormats)
 	if !ok {
 		return imageGenerateToolError("image_generate_response_format_invalid", "response_format must be b64_json or url", nil), nil
 	}
@@ -86,7 +93,7 @@ func (t *RuntimeToolExecutor) invokeImageGenerate(ctx context.Context, args map[
 	body = mergeVisionRequestCompat(body, provider, model)
 
 	start := time.Now()
-	callCtx, cancel := context.WithTimeout(ctx, time.Duration(maxInt(profile.Timeout, 120))*time.Second)
+	callCtx, cancel := context.WithTimeout(ctx, time.Duration(imageGenerateTimeout(model, profile))*time.Second)
 	defer cancel()
 	decoded, err := t.completeImageGenerate(callCtx, model, provider, profile, body)
 	if err != nil {
@@ -142,7 +149,7 @@ func (t *RuntimeToolExecutor) completeImageGenerate(ctx context.Context, model m
 	if err != nil {
 		return imageGenerateResponse{}, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, imageGenerateEndpoint(provider, profile), bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, imageGenerateEndpoint(provider, model, profile), bytes.NewReader(payload))
 	if err != nil {
 		return imageGenerateResponse{}, err
 	}
@@ -177,8 +184,11 @@ func (t *RuntimeToolExecutor) completeImageGenerate(ctx context.Context, model m
 	return decoded, nil
 }
 
-func imageGenerateEndpoint(provider models.ProviderDefinition, profile config.ImageGenerateProfileConfig) string {
+func imageGenerateEndpoint(provider models.ProviderDefinition, model models.ModelDefinition, profile config.ImageGenerateProfileConfig) string {
 	endpoint := strings.TrimSpace(profile.EndpointPath)
+	if endpoint == "" {
+		endpoint = strings.TrimSpace(model.Image.EndpointPath)
+	}
 	if endpoint == "" {
 		endpoint = defaultImageGenerateEndpointPath(provider.BaseURL)
 	}
@@ -191,6 +201,16 @@ func imageGenerateEndpoint(provider models.ProviderDefinition, profile config.Im
 	return strings.TrimRight(provider.BaseURL, "/") + endpoint
 }
 
+func imageGenerateTimeout(model models.ModelDefinition, profile config.ImageGenerateProfileConfig) int {
+	if profile.Timeout > 0 {
+		return profile.Timeout
+	}
+	if model.Image.Timeout > 0 {
+		return model.Image.Timeout
+	}
+	return 120
+}
+
 func defaultImageGenerateEndpointPath(baseURL string) string {
 	if normalizedBasePath(baseURL) == "/v1" {
 		return "/images/generations"
@@ -198,14 +218,28 @@ func defaultImageGenerateEndpointPath(baseURL string) string {
 	return "/v1/images/generations"
 }
 
-func resolveImageGenerateResponseFormat(override string, fallback string) (string, bool) {
+func resolveImageGenerateResponseFormat(override string, fallback string, allowed []string) (string, bool) {
+	var parsed string
 	if strings.TrimSpace(override) != "" {
-		return parseImageGenerateResponseFormat(override)
+		value, ok := parseImageGenerateResponseFormat(override)
+		if !ok {
+			return "", false
+		}
+		parsed = value
+	} else if value, ok := parseImageGenerateResponseFormat(fallback); ok {
+		parsed = value
+	} else {
+		parsed = "b64_json"
 	}
-	if parsed, ok := parseImageGenerateResponseFormat(fallback); ok {
+	if len(allowed) == 0 {
 		return parsed, true
 	}
-	return "b64_json", true
+	for _, item := range allowed {
+		if strings.EqualFold(strings.TrimSpace(item), parsed) {
+			return parsed, true
+		}
+	}
+	return "", false
 }
 
 func parseImageGenerateResponseFormat(value string) (string, bool) {

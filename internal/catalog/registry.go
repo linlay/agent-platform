@@ -125,6 +125,7 @@ type AgentKBaseConfig struct {
 }
 
 type AgentKBaseEmbeddingConfig struct {
+	ModelKey    string
 	ProviderKey string
 	Model       string
 	Dimension   int

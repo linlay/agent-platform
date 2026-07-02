@@ -430,23 +430,13 @@ func (m *Manager) resolve(agentKey string) (resolvedConfig, *Embedder, error) {
 		return resolvedConfig{}, nil, fmt.Errorf("agent %s runtimeConfig.workspaceRoot must be an absolute path for KBASE", agentKey)
 	}
 	embeddingDefaults := m.cfg.KBase.Embedding
-	providerKey := firstNonBlank(def.KBaseConfig.Embedding.ProviderKey, embeddingDefaults.ProviderKey)
-	if providerKey == "" {
-		return resolvedConfig{}, nil, fmt.Errorf("agent %s kbaseConfig.embedding.providerKey is required", agentKey)
-	}
-	provider, err := m.models.GetProvider(providerKey)
+	embedding, provider, err := m.resolveEmbedding(agentKey, def.KBaseConfig.Embedding, embeddingDefaults)
 	if err != nil {
 		return resolvedConfig{}, nil, err
 	}
-	embedding := EmbeddingSnapshot{
-		ProviderKey: providerKey,
-		Model:       firstNonBlank(def.KBaseConfig.Embedding.Model, embeddingDefaults.Model, provider.Embedding.Model),
-		Dimension:   firstPositive(def.KBaseConfig.Embedding.Dimension, embeddingDefaults.Dimension, provider.Embedding.Dimension),
-		Timeout:     firstPositive(def.KBaseConfig.Embedding.Timeout, embeddingDefaults.Timeout, provider.Embedding.Timeout, 15),
-	}
 	baseURL := strings.TrimRight(strings.TrimSpace(provider.BaseURL), "/")
 	if baseURL == "" || embedding.Model == "" || embedding.Dimension <= 0 {
-		return resolvedConfig{}, nil, fmt.Errorf("provider %s embedding requires baseUrl/model/dimension", providerKey)
+		return resolvedConfig{}, nil, fmt.Errorf("provider %s embedding requires baseUrl/model/dimension", provider.Key)
 	}
 	storage := strings.ToLower(strings.TrimSpace(def.KBaseConfig.Storage.Location))
 	if storage == "" {
@@ -474,7 +464,46 @@ func (m *Manager) resolve(agentKey string) (resolvedConfig, *Embedder, error) {
 		Extraction:    m.cfg.KBase.Extraction,
 	}
 	cfg.ConfigHash = computeConfigHash(cfg)
-	return cfg, NewEmbedder(baseURL, provider.APIKey, embedding.Model, embedding.Dimension, embedding.Timeout), nil
+	embedder := NewEmbedder(baseURL, provider.APIKey, embedding.Model, embedding.Dimension, embedding.Timeout)
+	if strings.TrimSpace(embedding.EndpointPath) != "" {
+		embedder.EndpointPath = embedding.EndpointPath
+	}
+	return cfg, embedder, nil
+}
+
+func (m *Manager) resolveEmbedding(agentKey string, agentEmbedding catalog.AgentKBaseEmbeddingConfig, defaults config.KBaseEmbeddingConfig) (EmbeddingSnapshot, models.ProviderDefinition, error) {
+	modelKey := firstNonBlank(agentEmbedding.ModelKey, defaults.ModelKey)
+	if modelKey != "" {
+		model, provider, err := m.models.GetEmbedding(modelKey)
+		if err != nil {
+			return EmbeddingSnapshot{}, models.ProviderDefinition{}, err
+		}
+		embedding := EmbeddingSnapshot{
+			ModelKey:     model.Key,
+			ProviderKey:  provider.Key,
+			Model:        model.ModelID,
+			Dimension:    model.Embedding.Dimension,
+			Timeout:      firstPositive(model.Embedding.Timeout, provider.Embedding.Timeout, 15),
+			EndpointPath: strings.TrimSpace(model.Embedding.EndpointPath),
+		}
+		return embedding, provider, nil
+	}
+
+	providerKey := firstNonBlank(agentEmbedding.ProviderKey, defaults.ProviderKey)
+	if providerKey == "" {
+		return EmbeddingSnapshot{}, models.ProviderDefinition{}, fmt.Errorf("agent %s kbaseConfig.embedding.modelKey or providerKey is required", agentKey)
+	}
+	provider, err := m.models.GetProvider(providerKey)
+	if err != nil {
+		return EmbeddingSnapshot{}, models.ProviderDefinition{}, err
+	}
+	embedding := EmbeddingSnapshot{
+		ProviderKey: providerKey,
+		Model:       firstNonBlank(agentEmbedding.Model, defaults.Model, provider.Embedding.Model),
+		Dimension:   firstPositive(agentEmbedding.Dimension, defaults.Dimension, provider.Embedding.Dimension),
+		Timeout:     firstPositive(agentEmbedding.Timeout, defaults.Timeout, provider.Embedding.Timeout, 15),
+	}
+	return embedding, provider, nil
 }
 
 func (m *Manager) storageLock(storageKey string) *sync.Mutex {

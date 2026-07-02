@@ -480,9 +480,6 @@ func normalizeImageGenerateConfig(cfg ImageGenerateConfig) ImageGenerateConfig {
 
 func normalizeImageGenerateProfileConfig(profile ImageGenerateProfileConfig) ImageGenerateProfileConfig {
 	profile.ModelKey = strings.TrimSpace(profile.ModelKey)
-	if profile.Timeout <= 0 {
-		profile.Timeout = 120
-	}
 	profile.Size = strings.TrimSpace(profile.Size)
 	if profile.Size == "" {
 		profile.Size = "1024x1024"

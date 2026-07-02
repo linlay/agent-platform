@@ -264,7 +264,15 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 		if strings.TrimSpace(contracts.FirstNonEmptyString(root["key"])) == "" {
 			addError("missing_key", "model key is required")
 		}
+		modelType, ok := models.NormalizeModelType(contracts.FirstNonEmptyString(root["type"]))
+		if !ok {
+			addError("invalid_type", "model type must be chat, embedding, or image-generation")
+			modelType = models.ModelTypeChat
+		}
 		protocol := strings.TrimSpace(contracts.FirstNonEmptyString(root["protocol"]))
+		if models.IsACPPassthroughProtocol(protocol) && modelType != models.ModelTypeChat {
+			addError("invalid_protocol", "ACP_PASSTHROUGH is only supported for type: chat")
+		}
 		if !models.IsACPPassthroughProtocol(protocol) {
 			provider := strings.TrimSpace(contracts.FirstNonEmptyString(root["provider"]))
 			if provider == "" {
@@ -275,6 +283,19 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 		}
 		if strings.TrimSpace(contracts.FirstNonEmptyString(root["modelId"], root["model-id"])) == "" {
 			addError("missing_model_id", "modelId is required")
+		}
+		switch modelType {
+		case models.ModelTypeEmbedding:
+			embedding := contracts.AnyMapNode(root["embedding"])
+			if contracts.AnyIntNode(embedding["dimension"]) <= 0 {
+				addError("missing_embedding_dimension", "embedding.dimension must be greater than 0")
+			}
+		case models.ModelTypeImageGeneration:
+			image := contracts.AnyMapNode(root["image"])
+			endpoint := strings.TrimSpace(contracts.FirstNonEmptyString(image["endpointPath"], image["endpoint-path"]))
+			if endpoint == "" {
+				addWarning("missing_image_endpoint", "image.endpointPath is empty; runtime will use the OpenAI-compatible default")
+			}
 		}
 	case "mcp-servers":
 		if adminRegistryKey(category, file, root) == "" {
@@ -418,6 +439,8 @@ func adminRegistryPublicSummary(category string, root map[string]any) map[string
 			out["protocols"] = keys
 		}
 	case "models":
+		modelType, _ := models.NormalizeModelType(contracts.FirstNonEmptyString(root["type"]))
+		put("type", modelType)
 		put("provider", contracts.FirstNonEmptyString(root["provider"]))
 		put("protocol", contracts.FirstNonEmptyString(root["protocol"]))
 		put("modelId", contracts.FirstNonEmptyString(root["modelId"], root["model-id"]))

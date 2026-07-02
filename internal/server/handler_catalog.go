@@ -283,6 +283,7 @@ func (s *Server) applyKBaseDefaultAgentConfig(definition map[string]any) map[str
 	modelKey := strings.TrimSpace(defaults.ModelKey)
 	reasoningEffort := strings.TrimSpace(defaults.ReasoningEffort)
 	embeddingDefaults := s.deps.Config.KBase.Embedding
+	embeddingModelKey := strings.TrimSpace(embeddingDefaults.ModelKey)
 	embeddingProviderKey := strings.TrimSpace(embeddingDefaults.ProviderKey)
 	embeddingModel := strings.TrimSpace(embeddingDefaults.Model)
 
@@ -322,7 +323,7 @@ func (s *Server) applyKBaseDefaultAgentConfig(definition map[string]any) map[str
 			out["modelConfig"] = modelConfig
 		}
 	}
-	if embeddingProviderKey != "" || embeddingModel != "" {
+	if embeddingModelKey != "" || embeddingProviderKey != "" || embeddingModel != "" {
 		kbaseConfig := contracts.CloneMap(contracts.AnyMapNode(out["kbaseConfig"]))
 		if kbaseConfig == nil {
 			kbaseConfig = map[string]any{}
@@ -331,13 +332,19 @@ func (s *Server) applyKBaseDefaultAgentConfig(definition map[string]any) map[str
 		if embedding == nil {
 			embedding = map[string]any{}
 		}
+		modelKeyMissing := strings.TrimSpace(stringValue(embedding["modelKey"])) == ""
 		providerMissing := strings.TrimSpace(stringValue(embedding["providerKey"])) == ""
 		modelMissing := strings.TrimSpace(stringValue(embedding["model"])) == ""
-		if embeddingProviderKey != "" && (providerMissing || modelMissing) {
-			embedding["providerKey"] = embeddingProviderKey
-		}
-		if embeddingModel != "" && (providerMissing || modelMissing) {
-			embedding["model"] = embeddingModel
+		legacyComplete := !providerMissing && !modelMissing
+		if embeddingModelKey != "" && modelKeyMissing && !legacyComplete {
+			embedding = map[string]any{"modelKey": embeddingModelKey}
+		} else if embeddingModelKey == "" && modelKeyMissing {
+			if embeddingProviderKey != "" && (providerMissing || modelMissing) {
+				embedding["providerKey"] = embeddingProviderKey
+			}
+			if embeddingModel != "" && (providerMissing || modelMissing) {
+				embedding["model"] = embeddingModel
+			}
 		}
 		if len(embedding) > 0 {
 			kbaseConfig["embedding"] = embedding
@@ -492,7 +499,7 @@ func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgent
 			if s.deps.Models == nil {
 				return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusServiceUnavailable, "unavailable", "model registry is not configured")
 			}
-			if _, err := s.deps.Models.GetModel(modelKey); err != nil {
+			if err := s.validateLocalChatModelKey(modelKey, false); err != nil {
 				return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", err.Error())
 			}
 		}
@@ -500,7 +507,7 @@ func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgent
 		if s.deps.Models == nil {
 			return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusServiceUnavailable, "unavailable", "model registry is not configured")
 		}
-		if _, err := s.deps.Models.GetModel(modelKey); err != nil {
+		if err := s.validateLocalChatModelKey(modelKey, true); err != nil {
 			return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", err.Error())
 		}
 	}

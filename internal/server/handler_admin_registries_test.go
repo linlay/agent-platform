@@ -231,6 +231,34 @@ func TestAdminRegistryDetailSaveValidateAndPathGuard(t *testing.T) {
 		t.Fatalf("expected ready acp validate response, got %#v", validateResp.Data)
 	}
 
+	validateBody = bytes.NewBufferString(`{"category":"models","file":"draft-embedding.yml","content":"key: draft-embedding\nprovider: mock\nmodelId: text-embedding-v4\ntype: embedding\nembedding:\n  timeout: 60\n"}`)
+	rec = httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/registries/validate", validateBody))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("validate embedding status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	validateResp = api.ApiResponse[api.AdminRegistryValidateResponse]{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &validateResp); err != nil {
+		t.Fatalf("decode embedding validate response: %v", err)
+	}
+	if validateResp.Data.Status != "invalid" || len(validateResp.Data.Diagnostics) == 0 || validateResp.Data.Diagnostics[0].Code != "missing_embedding_dimension" {
+		t.Fatalf("expected embedding dimension diagnostics, got %#v", validateResp.Data)
+	}
+
+	validateBody = bytes.NewBufferString(`{"category":"models","file":"draft-image.yml","content":"key: draft-image\nprovider: mock\nmodelId: gpt-image-1\ntype: image-generation\nimage:\n  endpointPath: /v1/images/generations\n"}`)
+	rec = httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/registries/validate", validateBody))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("validate image status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	validateResp = api.ApiResponse[api.AdminRegistryValidateResponse]{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &validateResp); err != nil {
+		t.Fatalf("decode image validate response: %v", err)
+	}
+	if validateResp.Data.Status != "ready" || validateResp.Data.Summary["type"] != "image-generation" {
+		t.Fatalf("expected ready image validate response, got %#v", validateResp.Data)
+	}
+
 	rec = httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/registries/detail?category=providers&file=../mock.yml", nil))
 	if rec.Code != http.StatusBadRequest {
