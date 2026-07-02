@@ -259,12 +259,12 @@ func applyACPCoderModelMeta(response *api.AgentDetailResponse, modelConfig map[s
 func (s *Server) buildAgentDetailMeta(def catalog.AgentDefinition) (string, map[string]any) {
 	modelName := strings.TrimSpace(def.ModelKey)
 	meta := map[string]any{}
-	if def.ModelKey != "" {
-		meta["modelKey"] = def.ModelKey
-		meta["modelKeys"] = []string{def.ModelKey}
+	if modelName != "" {
+		meta["modelKey"] = modelName
+		meta["modelKeys"] = []string{modelName}
 	}
-	if s.deps.Models != nil {
-		model, provider, err := s.deps.Models.Get(def.ModelKey)
+	if modelName != "" && s.deps.Models != nil {
+		model, provider, err := s.deps.Models.Get(modelName)
 		if err == nil {
 			if strings.TrimSpace(model.ModelID) != "" {
 				modelName = strings.TrimSpace(model.ModelID)

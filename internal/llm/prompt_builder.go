@@ -173,17 +173,7 @@ func appendRuntimeMemorySystemPromptSections(sections *[]systemPromptSection, se
 }
 
 func buildCoderSystemPromptSection(session QuerySession, req api.QueryRequest, toolNames []string, stage string) string {
-	if !strings.EqualFold(strings.TrimSpace(session.Mode), "CODER") {
-		return ""
-	}
-	if !strings.EqualFold(strings.TrimSpace(stage), "coder") {
-		return ""
-	}
-	return agentcoder.RenderPromptTemplate(session.CoderSystemPrompt, agentcoder.PromptTemplateValues(session, req, agentcoder.PromptTemplateData{
-		AvailableTools:    toolNames,
-		PlanStageTools:    agentcoder.PlanningModePlanTools(),
-		ExecuteStageTools: agentcoder.PlanningExecuteTools(toolNames),
-	}))
+	return agentcoder.RenderSystemPrompt(session, req, toolNames, stage)
 }
 
 func toolNamesFromDefinitions(definitions []api.ToolDetailResponse, fallback []string) []string {

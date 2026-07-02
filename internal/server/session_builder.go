@@ -123,9 +123,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	)
 
 	toolNames := buildSessionToolNames(effectiveAgentTools(agentDef), options.AllowInvokeAgents)
-	if strings.EqualFold(agentDef.Mode, catalog.AgentModeCoder) && !catalog.AgentUsesACPCoderBackend(agentDef) {
-		toolNames = agentcoder.RuntimeToolNamesForStage(agentDef.Mode, "coder", toolNames)
-	}
+	toolNames = agentcoder.RuntimeToolNamesForAgent(agentDef.Mode, agentDef.ACPProxyID, "coder", toolNames)
 
 	session := contracts.QuerySession{
 		RequestID:              req.RequestID,
@@ -141,7 +139,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		ModelKey:               agentDef.ModelKey,
 		ToolNames:              toolNames,
 		Mode:                   agentDef.Mode,
-		PlanningMode:           req.PlanningMode != nil && *req.PlanningMode && strings.EqualFold(agentDef.Mode, catalog.AgentModeCoder),
+		PlanningMode:           agentcoder.PlanningModeEnabled(agentDef.Mode, req.PlanningMode != nil && *req.PlanningMode),
 		TeamID:                 req.TeamID,
 		Created:                options.Created,
 		SkillKeys:              append([]string(nil), agentDef.Skills...),
@@ -207,10 +205,7 @@ func (s *Server) buildCurrentMessages(req api.QueryRequest, session contracts.Qu
 }
 
 func coderSystemPrompt(mode string, prompt string) string {
-	if !strings.EqualFold(strings.TrimSpace(mode), catalog.AgentModeCoder) {
-		return ""
-	}
-	return strings.TrimSpace(prompt)
+	return agentcoder.SystemPromptForMode(mode, prompt)
 }
 
 func kbaseSystemPrompt(mode string, prompt string) string {
@@ -221,10 +216,7 @@ func kbaseSystemPrompt(mode string, prompt string) string {
 }
 
 func (s *Server) loadWorkspaceAgentsPrompt(agentDef catalog.AgentDefinition, workspaceRoot string) (string, error) {
-	if !strings.EqualFold(strings.TrimSpace(agentDef.Mode), catalog.AgentModeCoder) {
-		return "", nil
-	}
-	if catalog.AgentUsesACPCoderBackend(agentDef) {
+	if !agentcoder.IsNativeBackend(agentDef.Mode, agentDef.ACPProxyID) {
 		return "", nil
 	}
 	if len(agentDef.Project.PromptFiles) > 0 {
@@ -336,7 +328,7 @@ func resolveProjectPromptPath(agentDef catalog.AgentDefinition, workspaceRoot st
 }
 
 func validateWorkspaceGitConfig(agentDef catalog.AgentDefinition, workspaceRoot string) error {
-	if !strings.EqualFold(strings.TrimSpace(agentDef.Mode), catalog.AgentModeCoder) {
+	if !agentcoder.IsMode(agentDef.Mode) {
 		return nil
 	}
 	expectedBranch := strings.TrimSpace(agentDef.Project.Git.ExpectedBranch)

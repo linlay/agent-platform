@@ -11,6 +11,7 @@ import (
 
 const AgentModeCoder = "CODER"
 const AgentModeKBase = "KBASE"
+const AgentModeProxy = "PROXY"
 const AgentWorkspaceRootChat = "@chat"
 const DefaultCoderAgentIconName = agentcoder.DefaultIconName
 const DefaultKBaseAgentIconName = "kbase"
@@ -65,6 +66,10 @@ func AgentModeForAPI(value string) string {
 	default:
 		return runtimeMode
 	}
+}
+
+func AgentIsProxyMode(mode string) bool {
+	return strings.EqualFold(NormalizeAgentModeForRuntime(mode), AgentModeProxy)
 }
 
 func parseAgentWorkspaceRoot(value any) AgentWorkspaceConfig {
@@ -259,7 +264,7 @@ func ValidateAgentCoderBackend(def AgentDefinition) error {
 }
 
 func ValidateAgentModelConfig(def AgentDefinition) error {
-	if AgentUsesACPCoderBackend(def) {
+	if AgentUsesACPCoderBackend(def) || AgentIsProxyMode(def.Mode) {
 		return nil
 	}
 	if strings.TrimSpace(def.ModelKey) == "" {

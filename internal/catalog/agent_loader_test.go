@@ -255,13 +255,13 @@ func TestParseAgentFileRejectsNonACPAgentsWithoutModelConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "proxy",
+			name: "kbase",
 			lines: []string{
-				"key: proxy-demo",
-				"name: Proxy Demo",
-				"mode: PROXY",
-				"proxyConfig:",
-				"  baseUrl: http://127.0.0.1:3210",
+				"key: kbase-demo",
+				"name: KBase Demo",
+				"mode: KBASE",
+				"runtimeConfig:",
+				"  workspaceRoot: " + filepath.ToSlash(t.TempDir()),
 			},
 		},
 	}
@@ -276,6 +276,43 @@ func TestParseAgentFileRejectsNonACPAgentsWithoutModelConfig(t *testing.T) {
 			_, err := parseAgentFile(path)
 			if err == nil || !strings.Contains(err.Error(), "modelConfig.modelKey is required") {
 				t.Fatalf("expected modelConfig.modelKey error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestParseAgentFileAllowsProxyWithoutModelConfig(t *testing.T) {
+	tests := []struct {
+		name string
+		mode string
+	}{
+		{name: "proxy", mode: "PROXY"},
+		{name: "acp-proxy alias", mode: "ACP-PROXY"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, "agent.yml")
+			content := strings.Join([]string{
+				"key: proxy-demo",
+				"name: Proxy Demo",
+				"mode: " + tc.mode,
+				"proxyConfig:",
+				"  baseUrl: http://127.0.0.1:3210",
+			}, "\n") + "\n"
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatalf("write agent file: %v", err)
+			}
+
+			def, err := parseAgentFile(path)
+			if err != nil {
+				t.Fatalf("parse agent file: %v", err)
+			}
+			if def.Mode != AgentModeProxy || def.ModelKey != "" {
+				t.Fatalf("unexpected proxy def mode=%q model=%q", def.Mode, def.ModelKey)
+			}
+			if def.ProxyConfig == nil || strings.TrimSpace(def.ProxyConfig.BaseURL) == "" {
+				t.Fatalf("expected proxy config, got %#v", def.ProxyConfig)
 			}
 		})
 	}

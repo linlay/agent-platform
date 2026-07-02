@@ -31,6 +31,28 @@ func IsACPBackend(mode string, acpProxyID string) bool {
 	return IsMode(mode) && strings.TrimSpace(acpProxyID) != ""
 }
 
+func IsNativeBackend(mode string, acpProxyID string) bool {
+	return IsMode(mode) && strings.TrimSpace(acpProxyID) == ""
+}
+
+func PlanningModeEnabled(mode string, requested bool) bool {
+	return requested && IsMode(mode)
+}
+
+func SystemPromptForMode(mode string, prompt string) string {
+	if !IsMode(mode) {
+		return ""
+	}
+	return strings.TrimSpace(prompt)
+}
+
+func RuntimeToolNamesForAgent(mode string, acpProxyID string, stage string, toolNames []string) []string {
+	if !IsNativeBackend(mode, acpProxyID) {
+		return append([]string(nil), toolNames...)
+	}
+	return RuntimeToolNamesForStage(mode, stage, toolNames)
+}
+
 func RuntimeToolNamesForStage(mode string, stage string, toolNames []string) []string {
 	out := append([]string(nil), toolNames...)
 	if !IsMode(mode) {

@@ -942,6 +942,22 @@ func TestAgentsSummaryIncludesCatalogFieldsAndFiltersScope(t *testing.T) {
 	if len(items) != 3 {
 		t.Fatalf("default agents = %#v", items)
 	}
+	var invoker *api.AgentSummary
+	for i := range items {
+		if items[i].Key == "invoker" {
+			invoker = &items[i]
+			break
+		}
+	}
+	if invoker == nil {
+		t.Fatalf("expected invoker summary in %#v", items)
+	}
+	if _, exists := invoker.Meta["model"]; exists {
+		t.Fatalf("PROXY summary without model key should omit model meta, got %#v", invoker.Meta)
+	}
+	if _, exists := invoker.Meta["modelKey"]; exists {
+		t.Fatalf("PROXY summary without model key should omit modelKey meta, got %#v", invoker.Meta)
+	}
 	navItems := registry.Agents("nav")
 	if len(navItems) != 1 || navItems[0].Key != "assistant" {
 		t.Fatalf("nav agents = %#v", navItems)

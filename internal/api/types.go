@@ -499,7 +499,7 @@ type AgentDetailResponse struct {
 	Role         string                     `json:"role,omitempty"`
 	Greetings    []string                   `json:"greetings,omitempty"`
 	Wonders      []string                   `json:"wonders,omitempty"`
-	Model        string                     `json:"model"`
+	Model        string                     `json:"model,omitempty"`
 	Mode         string                     `json:"mode"`
 	Tools        []string                   `json:"tools"`
 	Skills       []string                   `json:"skills"`

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/contracts"
@@ -52,7 +53,7 @@ func (s *Server) applyProxyRoutingConfig(def *catalog.AgentDefinition) *statusEr
 }
 
 func (s *Server) acpCoderModelOptions(session contracts.QuerySession, existing *api.QueryModelOptions) *api.QueryModelOptions {
-	if !strings.EqualFold(strings.TrimSpace(session.Mode), catalog.AgentModeCoder) {
+	if !agentcoder.IsMode(session.Mode) {
 		return existing
 	}
 	modelKey := strings.TrimSpace(session.ModelKey)

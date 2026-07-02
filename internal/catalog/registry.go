@@ -327,6 +327,20 @@ func (r *FileRegistry) Agents(scope string) []api.AgentSummary {
 			continue
 		}
 		apiMode := AgentModeForAPI(def.Mode)
+		meta := map[string]any{
+			"mode":        apiMode,
+			"tools":       append([]string(nil), def.Tools...),
+			"toolsCount":  len(def.Tools),
+			"skills":      append([]string(nil), def.Skills...),
+			"skillsCount": len(def.Skills),
+			"visibility": map[string]any{
+				"scopes": EffectiveAgentVisibilityScopes(def),
+			},
+		}
+		if modelKey := strings.TrimSpace(def.ModelKey); modelKey != "" {
+			meta["model"] = modelKey
+			meta["modelKey"] = modelKey
+		}
 		summary := api.AgentSummary{
 			Key:          def.Key,
 			Name:         def.Name,
@@ -335,18 +349,7 @@ func (r *FileRegistry) Agents(scope string) []api.AgentSummary {
 			WorkspaceDir: def.Workspace.Root,
 			Description:  def.Description,
 			Role:         def.Role,
-			Meta: map[string]any{
-				"model":       def.ModelKey,
-				"modelKey":    def.ModelKey,
-				"mode":        apiMode,
-				"tools":       append([]string(nil), def.Tools...),
-				"toolsCount":  len(def.Tools),
-				"skills":      append([]string(nil), def.Skills...),
-				"skillsCount": len(def.Skills),
-				"visibility": map[string]any{
-					"scopes": EffectiveAgentVisibilityScopes(def),
-				},
-			},
+			Meta:         meta,
 		}
 		if strings.TrimSpace(def.ACPProxyID) != "" {
 			summary.Meta["acpProxyId"] = strings.TrimSpace(def.ACPProxyID)

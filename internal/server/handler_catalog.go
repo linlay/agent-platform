@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/contracts"
@@ -468,7 +469,7 @@ func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgent
 	if !ok {
 		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusNotFound, "not_found", "agent not found")
 	}
-	if !strings.EqualFold(strings.TrimSpace(def.Mode), catalog.AgentModeCoder) {
+	if !agentcoder.IsMode(def.Mode) {
 		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "agent model config can only be updated for CODER agents")
 	}
 	isACPCoder := catalog.AgentUsesACPCoderBackend(def)
@@ -481,14 +482,7 @@ func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgent
 			if err != nil {
 				return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadGateway, "upstream_error", "failed to fetch ACP CODER models: "+err.Error())
 			}
-			found := false
-			for _, option := range options {
-				if strings.EqualFold(strings.TrimSpace(option.Key), modelKey) {
-					found = true
-					break
-				}
-			}
-			if !found {
+			if !agentcoder.ModelKeyInOptions(modelKey, options) {
 				return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "model "+modelKey+" is not available for ACP CODER")
 			}
 			if serviceTier != "" && !serviceTierAllowedForACPModel(serviceTier, modelKey, options) {

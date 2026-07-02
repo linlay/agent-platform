@@ -20,6 +20,20 @@ func RenderPromptTemplate(prompt string, values map[string]string) string {
 	return strings.TrimSpace(renderTemplate(prompt, values))
 }
 
+func RenderSystemPrompt(session contracts.QuerySession, req api.QueryRequest, toolNames []string, stage string) string {
+	if !IsMode(session.Mode) {
+		return ""
+	}
+	if !strings.EqualFold(strings.TrimSpace(stage), "coder") {
+		return ""
+	}
+	return RenderPromptTemplate(session.CoderSystemPrompt, PromptTemplateValues(session, req, PromptTemplateData{
+		AvailableTools:    toolNames,
+		PlanStageTools:    PlanningModePlanTools(),
+		ExecuteStageTools: PlanningExecuteTools(toolNames),
+	}))
+}
+
 func PromptTemplateValues(session contracts.QuerySession, req api.QueryRequest, data PromptTemplateData) map[string]string {
 	availableTools := data.AvailableTools
 	if len(availableTools) == 0 {

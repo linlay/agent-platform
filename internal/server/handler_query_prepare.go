@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/channel"
@@ -199,7 +200,9 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 		return preparedQuery{}, err
 	}
 	req.References = session.RuntimeContext.References
-	applyQueryModelOptionsToSession(req.Model, &session)
+	if !isProxyAgentMode(agentDef.Mode) {
+		applyQueryModelOptionsToSession(req.Model, &session)
+	}
 	session.CurrentMessages = s.buildCurrentMessages(req, session)
 	if !created {
 		s.maybeAutoCompact(ctx, req, agentDef, &session)
@@ -255,6 +258,9 @@ func (s *Server) validateQueryModelOptions(options *api.QueryModelOptions, agent
 	if options == nil {
 		return nil
 	}
+	if isProxyAgentMode(agentDef.Mode) {
+		return nil
+	}
 	modelKey := strings.TrimSpace(options.Key)
 	reasoningEffort := strings.TrimSpace(options.ReasoningEffort)
 	serviceTier := strings.TrimSpace(options.ServiceTier)
@@ -271,14 +277,7 @@ func (s *Server) validateQueryModelOptions(options *api.QueryModelOptions, agent
 				if err != nil {
 					return &statusError{status: http.StatusBadGateway, message: "failed to fetch ACP CODER models: " + err.Error()}
 				}
-				found := false
-				for _, option := range options {
-					if strings.EqualFold(strings.TrimSpace(option.Key), modelKey) {
-						found = true
-						break
-					}
-				}
-				if !found {
+				if !agentcoder.ModelKeyInOptions(modelKey, options) {
 					return &statusError{status: http.StatusBadRequest, message: "model " + modelKey + " is not available for ACP CODER"}
 				}
 			} else if _, err := s.deps.Models.GetModel(modelKey); err != nil {
@@ -294,7 +293,7 @@ func (s *Server) validateQueryModelOptions(options *api.QueryModelOptions, agent
 	if !ok {
 		return &statusError{status: http.StatusBadRequest, message: "model.reasoningEffort must be LOW, MEDIUM, HIGH, XHIGH, or MAX; CODER agents also support NONE"}
 	}
-	if reasoningEffort == "NONE" && !strings.EqualFold(strings.TrimSpace(agentDef.Mode), catalog.AgentModeCoder) {
+	if reasoningEffort == "NONE" && !agentcoder.IsMode(agentDef.Mode) {
 		return &statusError{status: http.StatusBadRequest, message: "model.reasoningEffort NONE is only supported for CODER agents"}
 	}
 	if reasoningEffort != "" && reasoningEffort != "NONE" && catalog.AgentUsesACPCoderBackend(agentDef) {
@@ -351,109 +350,19 @@ func applyQueryModelOptionsToSession(options *api.QueryModelOptions, session *co
 }
 
 func normalizeQueryModelReasoningEffort(value string) (string, bool) {
-	switch strings.ToUpper(strings.TrimSpace(value)) {
-	case "":
-		return "", true
-	case "NONE":
-		return "NONE", true
-	case "LOW":
-		return "LOW", true
-	case "MEDIUM":
-		return "MEDIUM", true
-	case "HIGH":
-		return "HIGH", true
-	case "XHIGH", "EXTRA_HIGH":
-		return "XHIGH", true
-	case "MAX":
-		return "MAX", true
-	default:
-		return "", false
-	}
+	return agentcoder.NormalizeReasoningEffort(value)
 }
 
 func normalizeQueryModelServiceTier(value string) (string, bool) {
-	text := strings.ToUpper(strings.TrimSpace(value))
-	switch text {
-	case "", "STANDARD", "DEFAULT", "AUTO":
-		return "", true
-	default:
-		return text, text != ""
-	}
+	return agentcoder.NormalizeServiceTier(value)
 }
 
 func serviceTierAllowedForACPModel(serviceTier string, modelKey string, options []api.CoderModelOption) bool {
-	serviceTier = strings.TrimSpace(serviceTier)
-	if serviceTier == "" {
-		return true
-	}
-	if strings.TrimSpace(modelKey) == "" {
-		for _, option := range options {
-			if serviceTierSupportedByACPModel(serviceTier, option) {
-				return true
-			}
-		}
-		return false
-	}
-	for _, option := range options {
-		if strings.EqualFold(strings.TrimSpace(option.Key), modelKey) {
-			return serviceTierSupportedByACPModel(serviceTier, option)
-		}
-	}
-	return false
-}
-
-func serviceTierSupportedByACPModel(serviceTier string, option api.CoderModelOption) bool {
-	for _, rawTier := range option.ServiceTiers {
-		normalizedTier, ok := normalizeQueryModelServiceTier(rawTier)
-		if !ok || normalizedTier == "" {
-			continue
-		}
-		if strings.EqualFold(normalizedTier, serviceTier) {
-			return true
-		}
-	}
-	return false
+	return agentcoder.ServiceTierAllowedForACPModel(serviceTier, modelKey, options)
 }
 
 func reasoningEffortAllowedForACPModel(reasoningEffort string, modelKey string, options []api.CoderModelOption) bool {
-	reasoningEffort, ok := normalizeQueryModelReasoningEffort(reasoningEffort)
-	if !ok || reasoningEffort == "" || reasoningEffort == "NONE" {
-		return ok
-	}
-	hasDeclaredEfforts := false
-	for _, option := range options {
-		if strings.TrimSpace(modelKey) != "" && !strings.EqualFold(strings.TrimSpace(option.Key), modelKey) {
-			continue
-		}
-		supported := normalizedACPModelReasoningEfforts(option)
-		if len(supported) == 0 {
-			continue
-		}
-		hasDeclaredEfforts = true
-		if supported[reasoningEffort] {
-			return true
-		}
-	}
-	if hasDeclaredEfforts {
-		return false
-	}
-	switch reasoningEffort {
-	case "LOW", "MEDIUM", "HIGH":
-		return true
-	default:
-		return false
-	}
-}
-
-func normalizedACPModelReasoningEfforts(option api.CoderModelOption) map[string]bool {
-	out := map[string]bool{}
-	for _, rawEffort := range option.ReasoningEfforts {
-		effort, ok := normalizeQueryModelReasoningEffort(rawEffort)
-		if ok && effort != "" {
-			out[effort] = true
-		}
-	}
-	return out
+	return agentcoder.ReasoningEffortAllowedForACPModel(reasoningEffort, modelKey, options)
 }
 
 func applyQueryModelOptionsToRawStageSettings(raw map[string]any, modelKey string, reasoningEffort string) map[string]any {

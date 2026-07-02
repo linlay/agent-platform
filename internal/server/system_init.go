@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 
+	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
@@ -142,7 +143,7 @@ func systemInitProfilesForQueryRegistration(session contracts.QuerySession, prof
 }
 
 func shouldRegisterSystemInitProfileOnQuery(session contracts.QuerySession, profile contracts.SystemInitProfile) bool {
-	if session.PlanningMode && strings.EqualFold(strings.TrimSpace(session.Mode), "CODER") {
+	if agentcoder.PlanningModeEnabled(session.Mode, session.PlanningMode) {
 		return strings.TrimSpace(profile.CacheKey) == "coder:plan"
 	}
 	return true

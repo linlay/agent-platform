@@ -80,6 +80,135 @@ func TestProxyQueryForwardsRuntimeWorkspaceRootAsCWD(t *testing.T) {
 	}
 }
 
+func TestProxyQueryPassesThroughUnknownModelOptions(t *testing.T) {
+	captured := make(chan map[string]any, 1)
+	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode upstream payload: %v", err)
+		}
+		captured <- payload
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"type":"run.complete","runId":"upstream-run"}`+"\n\n")
+	}))
+	defer upstream.Close()
+
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		setupRuntime: func(_ string, cfg *config.Config) {
+			writeAgentConfig(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []string{
+				"key: mock-agent",
+				"name: Mock Proxy Agent",
+				"role: 测试代理",
+				"description: proxy test agent",
+				"mode: PROXY",
+				"proxyConfig:",
+				"  baseUrl: " + upstream.URL,
+				"  transport: sse",
+				"  timeout: 30",
+			})
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me","model":{"key":"upstream-only","modelId":"upstream/model","reasoningEffort":"FASTEST","serviceTier":"burst"}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/query", body)
+	req.Header.Set("Content-Type", "application/json")
+	fixture.server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var payload map[string]any
+	select {
+	case payload = <-captured:
+	default:
+		t.Fatalf("expected upstream payload")
+	}
+	model, ok := payload["model"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected model object, got %#v", payload["model"])
+	}
+	if model["key"] != "upstream-only" ||
+		model["modelId"] != "upstream/model" ||
+		model["reasoningEffort"] != "FASTEST" ||
+		model["serviceTier"] != "burst" {
+		t.Fatalf("unexpected upstream model payload %#v", model)
+	}
+}
+
+func TestProxyAgentWithoutModelOmitsModelMetadata(t *testing.T) {
+	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"type":"run.complete","runId":"upstream-run"}`+"\n\n")
+	}))
+	defer upstream.Close()
+
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		setupRuntime: func(_ string, cfg *config.Config) {
+			writeAgentConfig(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []string{
+				"key: mock-agent",
+				"name: Mock Proxy Agent",
+				"role: 测试代理",
+				"description: proxy test agent",
+				"mode: PROXY",
+				"proxyConfig:",
+				"  baseUrl: " + upstream.URL,
+				"  transport: sse",
+			})
+		},
+	})
+
+	detailRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(detailRec, httptest.NewRequest(http.MethodGet, "/api/agent?agentKey=mock-agent", nil))
+	if detailRec.Code != http.StatusOK {
+		t.Fatalf("expected detail 200, got %d: %s", detailRec.Code, detailRec.Body.String())
+	}
+	var detailRaw map[string]any
+	if err := json.Unmarshal(detailRec.Body.Bytes(), &detailRaw); err != nil {
+		t.Fatalf("decode detail response: %v", err)
+	}
+	detailData, ok := detailRaw["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected detail data object, got %#v", detailRaw["data"])
+	}
+	if _, exists := detailData["model"]; exists {
+		t.Fatalf("PROXY detail without model key should omit model, got %#v", detailData)
+	}
+	detailMeta, ok := detailData["meta"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected detail meta object, got %#v", detailData["meta"])
+	}
+	if _, exists := detailMeta["modelKey"]; exists {
+		t.Fatalf("PROXY detail without model key should omit modelKey meta, got %#v", detailMeta)
+	}
+	if _, exists := detailMeta["modelKeys"]; exists {
+		t.Fatalf("PROXY detail without model key should omit modelKeys meta, got %#v", detailMeta)
+	}
+
+	summaryRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(summaryRec, httptest.NewRequest(http.MethodGet, "/api/agents?scope=nav", nil))
+	if summaryRec.Code != http.StatusOK {
+		t.Fatalf("expected summaries 200, got %d: %s", summaryRec.Code, summaryRec.Body.String())
+	}
+	var summaries api.ApiResponse[[]api.AgentSummary]
+	if err := json.Unmarshal(summaryRec.Body.Bytes(), &summaries); err != nil {
+		t.Fatalf("decode summaries response: %v", err)
+	}
+	if len(summaries.Data) != 1 || summaries.Data[0].Key != "mock-agent" {
+		t.Fatalf("expected mock-agent summary, got %#v", summaries.Data)
+	}
+	if _, exists := summaries.Data[0].Meta["model"]; exists {
+		t.Fatalf("PROXY summary without model key should omit model meta, got %#v", summaries.Data[0].Meta)
+	}
+	if _, exists := summaries.Data[0].Meta["modelKey"]; exists {
+		t.Fatalf("PROXY summary without model key should omit modelKey meta, got %#v", summaries.Data[0].Meta)
+	}
+}
+
 func TestProxyQueryNonStreamAggregatesSSEUpstream(t *testing.T) {
 	workspace := t.TempDir()
 	captured := make(chan map[string]any, 1)

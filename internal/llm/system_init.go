@@ -38,10 +38,7 @@ func BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryReques
 		}
 		settings := resolvePlanExecuteRuntimeSettings(session, defaultPlanMaxSteps, defaultPlanMaxWorkRoundsPerTask)
 		session.ResolvedStageSettings = settings
-		return []contracts.SystemInitProfile{
-			buildCoderPlanningPlanSystemInitProfile(session, req, settings, toolDefs),
-			buildCoderPlanningExecuteSystemInitProfile(session, req, settings, toolDefs),
-		}
+		return buildCoderPlanningSystemInitProfiles(session, req, settings, toolDefs)
 	}
 	switch mode {
 	case "plan-execute":
@@ -314,35 +311,39 @@ func buildSummarySystemInitProfile(session contracts.QuerySession, settings cont
 	}
 }
 
-func buildCoderPlanningPlanSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, _ contracts.PlanExecuteSettings, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
-	planTools := agentcoder.PlanningModePlanTools()
-	effectiveDefs := effectiveToolDefinitions(toolDefs, planTools, session.AgentHasRuntimeSandbox)
-	systemPrompt := buildSystemPrompt(session, req, session.ModelKey, PromptBuildOptions{
-		Stage:                 "coder-plan",
-		ToolDefinitions:       effectiveDefs,
-		IncludeAfterCallHints: true,
-	})
-	specs := toOpenAIToolSpecs(effectiveDefs)
-	return contracts.SystemInitProfile{
-		CacheKey:      SystemInitCacheKey(session.Mode, "coder-plan"),
-		Mode:          "coder",
-		Stage:         "plan",
-		Fingerprint:   ComputeSystemInitFingerprint(session, "coder-plan", effectiveDefs),
-		SystemMessage: map[string]any{"role": "system", "content": systemPrompt},
-		Tools:         openAIToolSpecsToAny(specs),
+func buildCoderPlanningSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, settings contracts.PlanExecuteSettings, toolDefs []api.ToolDetailResponse) []contracts.SystemInitProfile {
+	specs := agentcoder.PlanningSystemInitSpecs(session, req, settings)
+	profiles := make([]contracts.SystemInitProfile, 0, len(specs))
+	for _, spec := range specs {
+		profiles = append(profiles, buildCoderPlanningSystemInitProfile(session, req, spec, toolDefs))
 	}
+	return profiles
 }
 
 func buildCoderPlanningExecuteSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, settings contracts.PlanExecuteSettings, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
-	executeTools := agentcoder.PlanningExecuteToolsForStage(settings.Execute, session.ToolNames)
-	effectiveDefs := effectiveToolDefinitions(toolDefs, executeTools, session.AgentHasRuntimeSandbox)
-	systemPrompt := agentcoder.PlanningExecutionSystemPrompt(session, req, settings, agentcoder.PlanningModePlanTools(), executeTools, agentcoder.DefaultExecuteSystemPrompt)
+	return buildCoderPlanningSystemInitProfile(session, req, agentcoder.PlanningExecuteSystemInitSpec(session, req, settings), toolDefs)
+}
+
+func buildCoderPlanningPlanSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, _ contracts.PlanExecuteSettings, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
+	return buildCoderPlanningSystemInitProfile(session, req, agentcoder.PlanningPlanSystemInitSpec(), toolDefs)
+}
+
+func buildCoderPlanningSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, spec agentcoder.SystemInitSpec, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
+	effectiveDefs := effectiveToolDefinitions(toolDefs, spec.ToolNames, session.AgentHasRuntimeSandbox)
+	systemPrompt := strings.TrimSpace(spec.SystemPrompt)
+	if spec.UseSharedSystemPrompt {
+		systemPrompt = buildSystemPrompt(session, req, session.ModelKey, PromptBuildOptions{
+			Stage:                 spec.PromptStage,
+			ToolDefinitions:       effectiveDefs,
+			IncludeAfterCallHints: spec.IncludeAfterCallHints,
+		})
+	}
 	specs := toOpenAIToolSpecs(effectiveDefs)
 	return contracts.SystemInitProfile{
-		CacheKey:      SystemInitCacheKey(session.Mode, "coder-execute"),
-		Mode:          "coder",
-		Stage:         "execute",
-		Fingerprint:   ComputeSystemInitFingerprint(session, "coder-execute", effectiveDefs),
+		CacheKey:      SystemInitCacheKey(session.Mode, spec.CacheStage),
+		Mode:          spec.Mode,
+		Stage:         spec.Stage,
+		Fingerprint:   ComputeSystemInitFingerprint(session, spec.FingerprintStage, effectiveDefs),
 		SystemMessage: map[string]any{"role": "system", "content": systemPrompt},
 		Tools:         openAIToolSpecsToAny(specs),
 	}

@@ -569,7 +569,7 @@ func containsInvokeAgentsTool(toolNames []string) bool {
 }
 
 func isProxyAgentMode(mode string) bool {
-	return strings.EqualFold(strings.TrimSpace(mode), "PROXY")
+	return catalog.AgentIsProxyMode(mode)
 }
 
 func routeChildStreamInput(taskID string, input stream.StreamInput) stream.StreamInput {

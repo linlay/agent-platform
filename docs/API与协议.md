@@ -205,7 +205,7 @@ curl -sS -X POST http://127.0.0.1:11949/api/query \
 }
 ```
 
-`model.key` 必须存在于 model registry；`model.modelId` 由后端转发给 ACP CODER 上游时补齐，优先来自 model registry 的 `modelId`，为空时回退到 key；`model.reasoningEffort` 一般可取 `LOW`、`MEDIUM`、`HIGH`，CODER agent 额外支持 `NONE` 用于关闭本次 run 的 reasoning。该配置只影响当前 run，不写回 agent 配置。
+对于 native agent，`model.key` 必须存在于 model registry；`model.modelId` 由后端转发给 ACP CODER 上游时补齐，优先来自 model registry 的 `modelId`，为空时回退到 key；`model.reasoningEffort` 一般可取 `LOW`、`MEDIUM`、`HIGH`，CODER agent 额外支持 `NONE` 用于关闭本次 run 的 reasoning。PROXY agent 会把 `model` 对象原样透传给上游，platform 不做本地 model registry 校验，也不写入本地 session/stage settings。该配置只影响当前 run，不写回 agent 配置。
 
 `accessLevel` 在 `/api/query` 中作为 run 初始值；运行中可通过 `/api/access-level` 调整：
 

@@ -4,25 +4,15 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
+	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
-	"agent-platform/internal/contracts"
 	"agent-platform/internal/models"
 )
-
-var coderReasoningEfforts = []api.ReasoningEffortOption{
-	{Key: "NONE", Label: "NONE"},
-	{Key: "LOW", Label: "LOW"},
-	{Key: "MEDIUM", Label: "MEDIUM"},
-	{Key: "HIGH", Label: "HIGH"},
-}
-
-var coderReasoningEffortOrder = []string{"NONE", "LOW", "MEDIUM", "HIGH", "XHIGH", "MAX"}
 
 func (s *Server) handleModelOptions(w http.ResponseWriter, r *http.Request) {
 	response := s.buildModelOptionsForAgent(strings.TrimSpace(r.URL.Query().Get("agentKey")))
@@ -49,29 +39,7 @@ func (s *Server) buildModelOptionsForAgent(agentKey string) api.CoderModelOption
 }
 
 func coderModelConfigFromOptions(options api.CoderModelOptionsResponse) map[string]any {
-	modelKey := strings.TrimSpace(options.DefaultModelKey)
-	if modelKey == "" && len(options.Models) > 0 {
-		modelKey = strings.TrimSpace(options.Models[0].Key)
-	}
-	if modelKey == "" {
-		return nil
-	}
-	modelConfig := map[string]any{"modelKey": modelKey}
-	reasoningEffort := strings.TrimSpace(options.DefaultReasoningEffort)
-	if reasoningEffort != "" {
-		reasoning := map[string]any{}
-		if strings.EqualFold(reasoningEffort, "NONE") {
-			reasoning["enabled"] = false
-		} else {
-			reasoning["enabled"] = true
-			reasoning["effort"] = reasoningEffort
-		}
-		modelConfig["reasoning"] = reasoning
-	}
-	if serviceTier := strings.TrimSpace(options.DefaultServiceTier); serviceTier != "" {
-		modelConfig["serviceTier"] = serviceTier
-	}
-	return modelConfig
+	return agentcoder.ModelConfigFromOptions(options)
 }
 
 func modelConfigString(modelConfig map[string]any, key string) string {
@@ -82,11 +50,7 @@ func modelConfigString(modelConfig map[string]any, key string) string {
 }
 
 func coderModelConfigReasoningEffort(modelConfig map[string]any) string {
-	reasoning := contracts.AnyMapNode(modelConfig["reasoning"])
-	if enabled, ok := reasoning["enabled"].(bool); ok && !enabled {
-		return "NONE"
-	}
-	return strings.TrimSpace(stringValue(reasoning["effort"]))
+	return agentcoder.ModelConfigReasoningEffort(modelConfig)
 }
 
 func (s *Server) listModelOptionsForAgent(agentKey string) []api.CoderModelOption {
@@ -153,13 +117,7 @@ func (s *Server) modelOptionsFilterMode(agentKey string) string {
 	if !ok {
 		return ""
 	}
-	if catalog.AgentUsesACPCoderBackend(def) {
-		return "acp-only"
-	}
-	if strings.EqualFold(strings.TrimSpace(def.Mode), catalog.AgentModeCoder) {
-		return "native-only"
-	}
-	return ""
+	return agentcoder.ModelOptionsFilterMode(agentKey, def.Mode, def.ACPProxyID)
 }
 
 func (s *Server) shouldShowModelOption(model models.ModelDefinition) bool {
@@ -181,45 +139,19 @@ func (s *Server) defaultModelOptionKeyForAgent(options []api.CoderModelOption, a
 	if len(options) == 0 {
 		return ""
 	}
-	visible := make(map[string]bool, len(options))
-	normalFallback := ""
-	acpFallback := ""
-	for _, option := range options {
-		key := strings.TrimSpace(option.Key)
-		if key == "" {
-			continue
-		}
-		visible[key] = true
-		if models.IsACPPassthroughProtocol(option.Protocol) {
-			if acpFallback == "" {
-				acpFallback = key
-			}
-			continue
-		}
-		if normalFallback == "" {
-			normalFallback = key
-		}
-	}
+	preferredKey := ""
 	if s.deps.Registry != nil {
 		if def, ok := s.deps.Registry.AgentDefinition(strings.TrimSpace(agentKey)); ok {
-			key := strings.TrimSpace(def.ModelKey)
-			if visible[key] {
-				return key
-			}
+			preferredKey = strings.TrimSpace(def.ModelKey)
 		}
 	}
+	defaultKey := ""
 	if s.deps.Models != nil {
 		if model, _, err := s.deps.Models.Default(); err == nil {
-			key := strings.TrimSpace(model.Key)
-			if visible[key] {
-				return key
-			}
+			defaultKey = strings.TrimSpace(model.Key)
 		}
 	}
-	if normalFallback != "" {
-		return normalFallback
-	}
-	return acpFallback
+	return agentcoder.DefaultModelOptionKey(options, preferredKey, defaultKey)
 }
 
 func (s *Server) defaultServiceTierForAgent(agentKey string, options []api.ServiceTierOption) string {
@@ -228,133 +160,46 @@ func (s *Server) defaultServiceTierForAgent(agentKey string, options []api.Servi
 		return ""
 	}
 	def, ok := s.deps.Registry.AgentDefinition(agentKey)
-	if !ok || !catalog.AgentUsesACPCoderBackend(def) {
+	if !ok {
 		return ""
 	}
-	serviceTier, ok := normalizeQueryModelServiceTier(def.ServiceTier)
-	if !ok || serviceTier == "" {
-		return ""
-	}
-	if !serviceTierInOptions(serviceTier, options) {
-		return ""
-	}
-	return serviceTier
+	return agentcoder.DefaultServiceTier(catalog.AgentUsesACPCoderBackend(def), def.ServiceTier, options)
 }
 
-func (s *Server) serviceTierOptionsForAgent(agentKey string, models []api.CoderModelOption) []api.ServiceTierOption {
-	options := []api.ServiceTierOption{{Key: "STANDARD", Label: "Standard"}}
+func (s *Server) serviceTierOptionsForAgent(agentKey string, modelOptions []api.CoderModelOption) []api.ServiceTierOption {
 	agentKey = strings.TrimSpace(agentKey)
 	if agentKey == "" || s.deps.Registry == nil {
-		return options
+		return agentcoder.ServiceTierOptions(false, modelOptions)
 	}
 	def, ok := s.deps.Registry.AgentDefinition(agentKey)
-	if !ok || !catalog.AgentUsesACPCoderBackend(def) {
-		return options
+	if !ok {
+		return agentcoder.ServiceTierOptions(false, modelOptions)
 	}
-	seen := map[string]struct{}{"STANDARD": {}}
-	extra := make([]string, 0, 4)
-	for _, model := range models {
-		for _, rawTier := range model.ServiceTiers {
-			tier, ok := normalizeQueryModelServiceTier(rawTier)
-			if !ok || tier == "" {
-				continue
-			}
-			if _, exists := seen[tier]; exists {
-				continue
-			}
-			seen[tier] = struct{}{}
-			extra = append(extra, tier)
-		}
-	}
-	sort.Strings(extra)
-	for _, tier := range extra {
-		options = append(options, api.ServiceTierOption{
-			Key:   tier,
-			Label: serviceTierLabel(tier),
-		})
-	}
-	return options
+	return agentcoder.ServiceTierOptions(catalog.AgentUsesACPCoderBackend(def), modelOptions)
 }
 
-func (s *Server) reasoningEffortOptionsForAgent(agentKey string, models []api.CoderModelOption) []api.ReasoningEffortOption {
+func (s *Server) reasoningEffortOptionsForAgent(agentKey string, modelOptions []api.CoderModelOption) []api.ReasoningEffortOption {
 	agentKey = strings.TrimSpace(agentKey)
 	if agentKey == "" || s.deps.Registry == nil {
-		return append([]api.ReasoningEffortOption(nil), coderReasoningEfforts...)
+		return agentcoder.ReasoningEffortOptions(false, modelOptions)
 	}
 	def, ok := s.deps.Registry.AgentDefinition(agentKey)
-	if !ok || !catalog.AgentUsesACPCoderBackend(def) {
-		return append([]api.ReasoningEffortOption(nil), coderReasoningEfforts...)
+	if !ok {
+		return agentcoder.ReasoningEffortOptions(false, modelOptions)
 	}
-	seen := map[string]struct{}{"NONE": {}}
-	hasRuntimeEffort := false
-	for _, model := range models {
-		for _, rawEffort := range model.ReasoningEfforts {
-			effort, ok := normalizeCoderReasoningEffort(rawEffort)
-			if !ok || effort == "" || effort == "NONE" {
-				continue
-			}
-			seen[effort] = struct{}{}
-			hasRuntimeEffort = true
-		}
-	}
-	if !hasRuntimeEffort {
-		return append([]api.ReasoningEffortOption(nil), coderReasoningEfforts...)
-	}
-	options := make([]api.ReasoningEffortOption, 0, len(seen))
-	for _, effort := range coderReasoningEffortOrder {
-		if _, ok := seen[effort]; !ok {
-			continue
-		}
-		options = append(options, api.ReasoningEffortOption{Key: effort, Label: effort})
-	}
-	return options
+	return agentcoder.ReasoningEffortOptions(catalog.AgentUsesACPCoderBackend(def), modelOptions)
 }
 
 func serviceTierInOptions(serviceTier string, options []api.ServiceTierOption) bool {
-	serviceTier = strings.TrimSpace(serviceTier)
-	if serviceTier == "" {
-		return true
-	}
-	for _, option := range options {
-		if strings.EqualFold(strings.TrimSpace(option.Key), serviceTier) {
-			return true
-		}
-	}
-	return false
+	return agentcoder.ServiceTierInOptions(serviceTier, options)
 }
 
 func serviceTierLabel(serviceTier string) string {
-	switch strings.ToUpper(strings.TrimSpace(serviceTier)) {
-	case "STANDARD":
-		return "Standard"
-	case "FAST":
-		return "Fast"
-	case "FLEX":
-		return "Flex"
-	default:
-		return strings.TrimSpace(serviceTier)
-	}
+	return agentcoder.ServiceTierLabel(serviceTier)
 }
 
 func normalizeCoderReasoningEffort(value string) (string, bool) {
-	switch strings.ToUpper(strings.TrimSpace(value)) {
-	case "":
-		return "", true
-	case "NONE":
-		return "NONE", true
-	case "LOW":
-		return "LOW", true
-	case "MEDIUM":
-		return "MEDIUM", true
-	case "HIGH":
-		return "HIGH", true
-	case "XHIGH", "EXTRA_HIGH":
-		return "XHIGH", true
-	case "MAX":
-		return "MAX", true
-	default:
-		return "", false
-	}
+	return agentcoder.NormalizeReasoningEffort(value)
 }
 
 type acpModelCatalogResponse struct {
