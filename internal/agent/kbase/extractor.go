@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"agent-platform/internal/config"
+	"agent-platform/internal/supportpkg"
 )
 
 type extractedDocument struct {
@@ -104,11 +105,11 @@ func extractionMaxFileBytes(cfg config.KBaseExtractionConfig) int64 {
 	return cfg.MaxFileBytes
 }
 
-func extractDocument(ctx context.Context, fullPath string, rel string, ext string, data []byte, cfg config.KBaseExtractionConfig) (extractedDocument, error) {
+func extractDocument(ctx context.Context, fullPath string, rel string, ext string, data []byte, cfg config.KBaseExtractionConfig, support *supportpkg.Registry) (extractedDocument, error) {
 	cfg = effectiveExtractionConfig(cfg)
 	switch ext {
 	case ".pdf":
-		return extractPDF(ctx, fullPath, cfg)
+		return extractPDF(ctx, fullPath, cfg, support)
 	case ".docx":
 		return extractDOCX(data, cfg)
 	case ".pptx":
@@ -178,7 +179,7 @@ func extractPlainText(rel string, ext string, data []byte) (extractedDocument, e
 	}, nil
 }
 
-func extractPDF(ctx context.Context, fullPath string, cfg config.KBaseExtractionConfig) (extractedDocument, error) {
+func extractPDF(ctx context.Context, fullPath string, cfg config.KBaseExtractionConfig, support *supportpkg.Registry) (extractedDocument, error) {
 	if !cfg.PDF.Enabled {
 		return extractedDocument{}, extractionSkip("pdf_extractor_disabled")
 	}
@@ -189,6 +190,7 @@ func extractPDF(ctx context.Context, fullPath string, cfg config.KBaseExtraction
 	if binary == "" {
 		binary = "pdftotext"
 	}
+	binary = resolvePDFBinary(binary, support)
 	if _, err := exec.LookPath(binary); err != nil {
 		return extractedDocument{}, extractionSkip("pdf_extractor_unavailable")
 	}
@@ -237,6 +239,29 @@ func extractPDF(ctx context.Context, fullPath string, cfg config.KBaseExtraction
 		Metadata:  map[string]any{"pageCount": len(pages)},
 		Blocks:    blocks,
 	}, nil
+}
+
+func resolvePDFBinary(binary string, support *supportpkg.Registry) string {
+	binary = strings.TrimSpace(binary)
+	if !shouldUseSupportPDFBinary(binary) {
+		return binary
+	}
+	if executable, ok := support.Executable("pdftotext"); ok && strings.TrimSpace(executable.Path) != "" {
+		return executable.Path
+	}
+	return binary
+}
+
+func shouldUseSupportPDFBinary(binary string) bool {
+	binary = strings.TrimSpace(binary)
+	if binary == "" {
+		return true
+	}
+	if strings.ContainsAny(binary, `:\/`) {
+		return false
+	}
+	lower := strings.ToLower(binary)
+	return lower == "pdftotext" || lower == "pdftotext.exe"
 }
 
 func extractDOCX(data []byte, cfg config.KBaseExtractionConfig) (extractedDocument, error) {

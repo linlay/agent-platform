@@ -18,6 +18,7 @@ import (
 
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
+	"agent-platform/internal/supportpkg"
 )
 
 const (
@@ -57,6 +58,7 @@ type resolvedConfig struct {
 	Chunk         catalog.AgentKBaseChunkConfig
 	Retrieval     catalog.AgentKBaseRetrievalConfig
 	Extraction    config.KBaseExtractionConfig
+	Support       *supportpkg.Registry
 	ConfigHash    string
 }
 
@@ -255,7 +257,7 @@ func indexOneFile(ctx context.Context, store *Store, cfg resolvedConfig, embedde
 		rec.SkipReason = "binary_or_non_utf8"
 		return store.UpsertSkippedFile(rec)
 	}
-	doc, err := extractDocument(ctx, fullPath, rel, ext, data, cfg.Extraction)
+	doc, err := extractDocument(ctx, fullPath, rel, ext, data, cfg.Extraction, cfg.Support)
 	if err != nil {
 		var exErr extractionError
 		if errors.As(err, &exErr) && exErr.skipped {

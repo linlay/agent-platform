@@ -203,6 +203,8 @@ Provider `apiKey` 按明文字符串读取：
 
 **静态配置**：`configs/` 下所有文件都只在进程启动时读取一次；修改 `configs/*.yml` 或 `configs/*.pem` 后必须重启 runtime 才会生效。
 
+**Support package 发现**：启动时会扫描 `agent-platform` 可执行程序同级的 `plugins/*/manifest.json`，只把匹配当前 OS/Arch 且目标文件存在的 `kind: support-package` 声明加载到内存。当前用于 KBASE PDF 抽取发现 `pdftotext`，不写 PATH，不修改 `configs/kbase-settings.yml`；配置里保留 `binary: pdftotext.exe` 或 `binary: pdftotext` 即可。
+
 本地 JWT 公钥规则：
 
 - 本地公钥文件固定为 `configs/local-public-key.pem`

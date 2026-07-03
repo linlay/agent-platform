@@ -5,10 +5,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"agent-platform/internal/config"
+	"agent-platform/internal/supportpkg"
 )
 
 func TestExtractDOCXNativeText(t *testing.T) {
@@ -98,11 +101,67 @@ func TestExtractPDFMissingPopplerSkips(t *testing.T) {
 			Backend: "poppler",
 			Binary:  "definitely-missing-pdftotext-for-kbase-test",
 		},
-	})
+	}, nil)
 	var exErr extractionError
 	if !errors.As(err, &exErr) || !exErr.skipped || exErr.reason != "pdf_extractor_unavailable" {
 		t.Fatalf("expected pdf extractor skip, got %#v %v", exErr, err)
 	}
+}
+
+func TestResolvePDFBinaryUsesSupportPackageForDefaultNames(t *testing.T) {
+	support, binaryPath := supportRegistryFixture(t)
+	for _, configured := range []string{"", "pdftotext", "pdftotext.exe", "PDFTOTEXT.EXE"} {
+		if got := resolvePDFBinary(configured, support); got != binaryPath {
+			t.Fatalf("resolvePDFBinary(%q) = %q, want %q", configured, got, binaryPath)
+		}
+	}
+}
+
+func TestResolvePDFBinaryKeepsExplicitBinary(t *testing.T) {
+	support, _ := supportRegistryFixture(t)
+	explicit := filepath.Join(t.TempDir(), "custom-pdftotext.exe")
+	if got := resolvePDFBinary(explicit, support); got != explicit {
+		t.Fatalf("expected explicit binary to win, got %q want %q", got, explicit)
+	}
+	if got := resolvePDFBinary(`C:\Tools\pdftotext.exe`, support); got != `C:\Tools\pdftotext.exe` {
+		t.Fatalf("expected windows absolute binary to win, got %q", got)
+	}
+}
+
+func TestResolvePDFBinaryFallsBackWithoutSupportPackage(t *testing.T) {
+	if got := resolvePDFBinary("pdftotext.exe", nil); got != "pdftotext.exe" {
+		t.Fatalf("expected original binary without support package, got %q", got)
+	}
+}
+
+func supportRegistryFixture(t *testing.T) (*supportpkg.Registry, string) {
+	t.Helper()
+	root := t.TempDir()
+	pluginDir := filepath.Join(root, "pdf-extractor")
+	binaryPath := filepath.Join(pluginDir, "payload", "windows-amd64", "Library", "bin", "pdftotext.exe")
+	if err := os.MkdirAll(filepath.Dir(binaryPath), 0o755); err != nil {
+		t.Fatalf("mkdir binary dir: %v", err)
+	}
+	if err := os.WriteFile(binaryPath, []byte("fake"), 0o755); err != nil {
+		t.Fatalf("write binary: %v", err)
+	}
+	manifest := `{
+  "kind": "support-package",
+  "id": "pdf-extractor",
+  "version": "v0.3.9",
+  "platform": { "os": "testos", "arch": "testarch" },
+  "executables": {
+    "pdftotext": "payload/windows-amd64/Library/bin/pdftotext.exe"
+  }
+}`
+	if err := os.WriteFile(filepath.Join(pluginDir, supportpkg.ManifestName), []byte(manifest), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	registry, errs := supportpkg.LoadDir(root, supportpkg.Target{OS: "testos", Arch: "testarch"})
+	if len(errs) != 0 {
+		t.Fatalf("load support registry: %v", errs)
+	}
+	return registry, binaryPath
 }
 
 func zipFixture(t *testing.T, files map[string]string) []byte {

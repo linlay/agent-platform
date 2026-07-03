@@ -14,6 +14,7 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
 	"agent-platform/internal/models"
+	"agent-platform/internal/supportpkg"
 	runtimewatch "agent-platform/internal/watch"
 )
 
@@ -21,6 +22,7 @@ type Manager struct {
 	cfg      config.Config
 	registry catalog.Registry
 	models   *models.ModelRegistry
+	support  *supportpkg.Registry
 
 	mu             sync.Mutex
 	locks          map[string]*sync.Mutex
@@ -41,6 +43,14 @@ func NewManager(cfg config.Config, registry catalog.Registry, modelRegistry *mod
 		storageRunning: map[string]bool{},
 		storageQueued:  map[string]bool{},
 	}
+}
+
+func (m *Manager) WithSupportPackages(registry *supportpkg.Registry) *Manager {
+	if m == nil {
+		return nil
+	}
+	m.support = registry
+	return m
 }
 
 func (m *Manager) Start(ctx context.Context) {
@@ -462,6 +472,7 @@ func (m *Manager) resolve(agentKey string) (resolvedConfig, *Embedder, error) {
 		Chunk:         def.KBaseConfig.Chunk,
 		Retrieval:     def.KBaseConfig.Retrieval,
 		Extraction:    m.cfg.KBase.Extraction,
+		Support:       m.support,
 	}
 	cfg.ConfigHash = computeConfigHash(cfg)
 	embedder := NewEmbedder(baseURL, provider.APIKey, embedding.Model, embedding.Dimension, embedding.Timeout)

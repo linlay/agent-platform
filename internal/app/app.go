@@ -32,6 +32,7 @@ import (
 	"agent-platform/internal/sandbox"
 	"agent-platform/internal/server"
 	"agent-platform/internal/skills"
+	"agent-platform/internal/supportpkg"
 	"agent-platform/internal/tools"
 	"agent-platform/internal/viewport"
 	"agent-platform/internal/ws"
@@ -92,6 +93,18 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	)
 	if err := observability.InitMemoryLogger(cfg.Logging.Memory.Enabled, cfg.Logging.Memory.File); err != nil {
 		return nil, fmt.Errorf("init memory logger (%s): %w", cfg.Logging.Memory.File, err)
+	}
+	supportPackages, supportRoot, supportErrors := supportpkg.DiscoverNearExecutable()
+	for _, supportErr := range supportErrors {
+		log.Printf("support package discovery warning: %v", supportErr)
+	}
+	if supportPackages != nil && supportPackages.ExecutableCount() > 0 {
+		log.Printf("support packages ready (root=%s packages=%d executables=%d)", supportRoot, len(supportPackages.Packages()), supportPackages.ExecutableCount())
+		for _, executable := range supportPackages.Executables() {
+			log.Printf("support package executable found (name=%s package=%s version=%s path=%s)", executable.Name, executable.PluginID, executable.Version, executable.Path)
+		}
+	} else {
+		log.Printf("support packages not found (root=%s)", supportRoot)
 	}
 	log.Printf("initializing stores/registries")
 
@@ -190,7 +203,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	if cfg.Memory.Enabled && sqliteMemoryStore != nil {
 		sqliteMemoryStore.SetRuntimeResolver(memoryRuntimeResolver(cfg, registry, modelRegistry))
 	}
-	kbaseManager := kbase.NewManager(cfg, registry, modelRegistry)
+	kbaseManager := kbase.NewManager(cfg, registry, modelRegistry).WithSupportPackages(supportPackages)
 	backendTools.WithKBase(kbaseManager)
 
 	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, frontendRegistry, sandboxClient)
