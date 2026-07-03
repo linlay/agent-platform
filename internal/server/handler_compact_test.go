@@ -304,6 +304,7 @@ func appendServerCompactRun(t *testing.T, store chat.Store, chatID string, runID
 		RunID:     runID,
 		UpdatedAt: 100,
 		Query:     map[string]any{"role": "user", "message": userText},
+		Messages:  []map[string]any{{"role": "user", "content": userText}},
 	}); err != nil {
 		t.Fatalf("AppendQueryLine(%s): %v", runID, err)
 	}

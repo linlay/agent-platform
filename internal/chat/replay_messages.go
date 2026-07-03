@@ -168,24 +168,6 @@ func extractTextFromContent(v any) string {
 	return ""
 }
 
-func parsePlanFromStep(raw map[string]any) *PlanState {
-	planID, _ := raw["planId"].(string)
-	plan := &PlanState{PlanID: planID, Tasks: []PlanTaskState{}}
-	tasks, _ := raw["tasks"].([]any)
-	for _, t := range tasks {
-		tMap, _ := t.(map[string]any)
-		if tMap == nil {
-			continue
-		}
-		plan.Tasks = append(plan.Tasks, PlanTaskState{
-			TaskID:      stringValue(tMap["taskId"]),
-			Description: stringValue(tMap["description"]),
-			Status:      stringValue(tMap["status"]),
-		})
-	}
-	return plan
-}
-
 func planStateFromTaskSnapshot(snapshot *plantasks.Snapshot) *PlanState {
 	if snapshot == nil {
 		return nil

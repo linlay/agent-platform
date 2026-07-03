@@ -200,6 +200,7 @@ func appendDeriveTestRun(t *testing.T, store *FileStore, chatID string, runID st
 			"role":      "user",
 			"message":   userText,
 		},
+		Messages: []map[string]any{{"role": "user", "content": userText}},
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
 	}

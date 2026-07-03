@@ -581,64 +581,6 @@ func TestLoadRuntimeConfigFromFile(t *testing.T) {
 	})
 }
 
-func TestLoadIgnoresResourceTicketTTLEnv(t *testing.T) {
-	apTTLKey := strings.Join([]string{"AP", "CHAT", "RESOURCE", "TICKET", "TTL", "SECONDS"}, "_")
-	legacyTTLKey := strings.Join([]string{"CHAT", "RESOURCE", "TICKET", "TTL", "SECONDS"}, "_")
-	withIsolatedEnv(t, map[string]string{
-		apTTLKey:     "301",
-		legacyTTLKey: "401",
-	}, func() {
-		content := "" +
-			"resource:\n" +
-			"  ticket-ttl-seconds: 123\n"
-		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if cfg.ResourceTicket.TTLSeconds != 123 {
-				t.Fatalf("expected resource ticket ttl to come from runtime.yml, got %d", cfg.ResourceTicket.TTLSeconds)
-			}
-		})
-	})
-}
-
-func TestLoadIgnoresLegacyBudgetHITLEnv(t *testing.T) {
-	withIsolatedEnv(t, map[string]string{
-		"BUDGET_HITL_TIMEOUT":          "710",
-		"BUDGET_HITL_QUESTION_TIMEOUT": "720",
-		"BUDGET_HITL_APPROVAL_TIMEOUT": "730",
-		"BUDGET_HITL_FORM_TIMEOUT":     "740",
-		"BUDGET_HITL_PLAN_TIMEOUT":     "750",
-	}, func() {
-		content := "" +
-			"budget:\n" +
-			"  hitl:\n" +
-			"    timeout: 610\n" +
-			"    question:\n" +
-			"      timeout: 620\n" +
-			"    approval:\n" +
-			"      timeout: 630\n" +
-			"    form:\n" +
-			"      timeout: 640\n" +
-			"    plan:\n" +
-			"      timeout: 650\n"
-		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if cfg.Defaults.Budget.Hitl.Timeout != 610 ||
-				cfg.Defaults.Budget.Hitl.Question.Timeout != 620 ||
-				cfg.Defaults.Budget.Hitl.Approval.Timeout != 630 ||
-				cfg.Defaults.Budget.Hitl.Form.Timeout != 640 ||
-				cfg.Defaults.Budget.Hitl.Plan.Timeout != 650 {
-				t.Fatalf("expected runtime yaml HITL budget config to win, got %#v", cfg.Defaults.Budget.Hitl)
-			}
-		})
-	})
-}
-
 func TestLoadAPContainerHubBaseURLEnvOverridesRuntimeYAMLConfig(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"AP_CONTAINER_HUB_BASE_URL": "http://env-hub",
@@ -660,25 +602,6 @@ func TestLoadAPContainerHubBaseURLEnvOverridesRuntimeYAMLConfig(t *testing.T) {
 					t.Fatalf("expected runtime yaml timeout to remain, got %d", cfg.ContainerHub.RequestTimeout)
 				}
 			})
-		})
-	})
-}
-
-func TestLoadIgnoresLegacyContainerHubBaseURLEnv(t *testing.T) {
-	withIsolatedEnv(t, map[string]string{
-		"CONTAINER_HUB_BASE_URL": "http://legacy-env-hub",
-	}, func() {
-		content := "" +
-			"container-hub:\n" +
-			"  base-url: http://runtime-hub\n"
-		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if cfg.ContainerHub.BaseURL != "http://runtime-hub" {
-				t.Fatalf("expected legacy container hub env to be ignored, got %q", cfg.ContainerHub.BaseURL)
-			}
 		})
 	})
 }
@@ -728,20 +651,6 @@ func TestLoadPromptsConfigFromFile(t *testing.T) {
 			"  summary-system-prompt: custom summary system\n" +
 			"  summary-user-prompt-template: |\n" +
 			"    custom summary {{task_results}}\n" +
-			"coder:\n" +
-			"  system-prompt: |\n" +
-			"    custom coder system\n" +
-			"    read before editing\n" +
-			"  planning-prompt: |\n" +
-			"    custom coder planning\n" +
-			"    use finalize_planning only\n" +
-			"  summary-system-prompt: custom coder summary system\n" +
-			"  summary-user-prompt-template: |\n" +
-			"    custom coder summary {{confirmed_plan}}\n" +
-			"kbase:\n" +
-			"  system-prompt: |\n" +
-			"    custom kbase system\n" +
-			"    cite sources\n" +
 			"memory:\n" +
 			"  system-prompt-template: |\n" +
 			"    custom memory system\n" +
@@ -787,21 +696,6 @@ func TestLoadPromptsConfigFromFile(t *testing.T) {
 					if cfg.Prompts.PlanExecute.SummaryUserPromptTemplate != "custom summary {{task_results}}" {
 						t.Fatalf("expected summary user prompt override, got %q", cfg.Prompts.PlanExecute.SummaryUserPromptTemplate)
 					}
-					if cfg.CoderPrompts.SystemPrompt != "custom coder system\nread before editing" {
-						t.Fatalf("expected coder system prompt override, got %q", cfg.CoderPrompts.SystemPrompt)
-					}
-					if cfg.CoderPrompts.PlanningPrompt != "custom coder planning\nuse finalize_planning only" {
-						t.Fatalf("expected coder planning prompt override, got %q", cfg.CoderPrompts.PlanningPrompt)
-					}
-					if cfg.CoderPrompts.SummarySystemPrompt != "custom coder summary system" {
-						t.Fatalf("expected coder summary system prompt override, got %q", cfg.CoderPrompts.SummarySystemPrompt)
-					}
-					if cfg.CoderPrompts.SummaryUserPromptTemplate != "custom coder summary {{confirmed_plan}}" {
-						t.Fatalf("expected coder summary user prompt override, got %q", cfg.CoderPrompts.SummaryUserPromptTemplate)
-					}
-					if cfg.KBasePrompts.SystemPrompt != "custom kbase system\ncite sources" {
-						t.Fatalf("expected kbase system prompt override, got %q", cfg.KBasePrompts.SystemPrompt)
-					}
 					if cfg.MemoryPrompts.SystemPromptTemplate != "custom memory system\n{{task_instruction}}" {
 						t.Fatalf("expected memory system prompt override, got %q", cfg.MemoryPrompts.SystemPromptTemplate)
 					}
@@ -822,10 +716,7 @@ func TestLoadCoderPromptsConfigFromFile(t *testing.T) {
 			"  read before editing\n" +
 			"planning-prompt: |\n" +
 			"  custom coder planning\n" +
-			"  use finalize_planning only\n" +
-			"summary-system-prompt: custom coder summary system\n" +
-			"summary-user-prompt-template: |\n" +
-			"  custom coder summary {{confirmed_plan}}\n"
+			"  use finalize_planning only\n"
 		withProjectFileContents(t, filepath.Join("configs", "coder-prompts.yml"), &content, func() {
 			cfg, err := Load()
 			if err != nil {
@@ -838,73 +729,24 @@ func TestLoadCoderPromptsConfigFromFile(t *testing.T) {
 			if cfg.CoderPrompts.PlanningPrompt != want {
 				t.Fatalf("expected coder planning prompt %q, got %q", want, cfg.CoderPrompts.PlanningPrompt)
 			}
-			if cfg.CoderPrompts.SummarySystemPrompt != "custom coder summary system" {
-				t.Fatalf("expected coder summary system prompt override, got %q", cfg.CoderPrompts.SummarySystemPrompt)
-			}
-			if cfg.CoderPrompts.SummaryUserPromptTemplate != "custom coder summary {{confirmed_plan}}" {
-				t.Fatalf("expected coder summary user prompt override, got %q", cfg.CoderPrompts.SummaryUserPromptTemplate)
-			}
 		})
 	})
 }
 
-func TestLoadCoderPromptsConfigFromDedicatedFileOverridesPromptsFile(t *testing.T) {
+func TestLoadKBasePromptsConfigFromFile(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
-		promptsContent := "" +
-			"coder:\n" +
-			"  system-prompt: legacy coder system\n" +
-			"  planning-prompt: legacy coder planning\n" +
-			"  summary-system-prompt: legacy coder summary system\n" +
-			"  summary-user-prompt-template: legacy coder summary user\n"
-		coderPromptsContent := "" +
-			"system-prompt: |\n" +
-			"  dedicated coder system\n" +
-			"  read first\n" +
-			"planning-prompt: dedicated coder planning\n" +
-			"summary-system-prompt: dedicated coder summary system\n" +
-			"summary-user-prompt-template: dedicated coder summary user\n"
-		withProjectFileContents(t, filepath.Join("configs", "prompts.yml"), &promptsContent, func() {
-			withProjectFileContents(t, filepath.Join("configs", "coder-prompts.yml"), &coderPromptsContent, func() {
-				cfg, err := Load()
-				if err != nil {
-					t.Fatalf("load config: %v", err)
-				}
-				if cfg.CoderPrompts.SystemPrompt != "dedicated coder system\nread first" {
-					t.Fatalf("expected dedicated coder system prompt, got %q", cfg.CoderPrompts.SystemPrompt)
-				}
-				if cfg.CoderPrompts.PlanningPrompt != "dedicated coder planning" {
-					t.Fatalf("expected dedicated coder planning prompt, got %q", cfg.CoderPrompts.PlanningPrompt)
-				}
-				if cfg.CoderPrompts.SummarySystemPrompt != "dedicated coder summary system" {
-					t.Fatalf("expected dedicated coder summary prompt, got %q", cfg.CoderPrompts.SummarySystemPrompt)
-				}
-				if cfg.CoderPrompts.SummaryUserPromptTemplate != "dedicated coder summary user" {
-					t.Fatalf("expected dedicated coder summary user prompt, got %q", cfg.CoderPrompts.SummaryUserPromptTemplate)
-				}
-			})
-		})
-	})
-}
-
-func TestLoadKBasePromptsConfigFromDedicatedFileOverridesPromptsFile(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		promptsContent := "" +
-			"kbase:\n" +
-			"  system-prompt: legacy kbase system\n"
 		kbasePromptsContent := "" +
 			"system-prompt: |\n" +
 			"  dedicated kbase system\n" +
 			"  cite evidence\n"
-		withProjectFileContents(t, filepath.Join("configs", "prompts.yml"), &promptsContent, func() {
-			withProjectFileContents(t, filepath.Join("configs", "kbase-prompts.yml"), &kbasePromptsContent, func() {
-				cfg, err := Load()
-				if err != nil {
-					t.Fatalf("load config: %v", err)
-				}
-				if cfg.KBasePrompts.SystemPrompt != "dedicated kbase system\ncite evidence" {
-					t.Fatalf("expected dedicated kbase system prompt, got %q", cfg.KBasePrompts.SystemPrompt)
-				}
-			})
+		withProjectFileContents(t, filepath.Join("configs", "kbase-prompts.yml"), &kbasePromptsContent, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if cfg.KBasePrompts.SystemPrompt != "dedicated kbase system\ncite evidence" {
+				t.Fatalf("expected dedicated kbase system prompt, got %q", cfg.KBasePrompts.SystemPrompt)
+			}
 		})
 	})
 }
@@ -1036,75 +878,8 @@ func TestLoadKBaseSettingsMissingFileUsesDefaults(t *testing.T) {
 	})
 }
 
-func TestLoadRuntimeKBaseCompatibility(t *testing.T) {
+func TestLoadKBaseSettingsConfigFromFile(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
-		runtimeConfig := "" +
-			"kbase:\n" +
-			"  default-agent:\n" +
-			"    modelKey: runtime-kbase-model\n" +
-			"    reasoningEffort: LOW\n" +
-			"  embedding:\n" +
-			"    modelKey: runtime-embedding-model-key\n" +
-			"  refresh:\n" +
-			"    debounce: 4s\n" +
-			"    reconcile-interval: 12m\n" +
-			"  extraction:\n" +
-			"    timeout: 44s\n" +
-			"    max-file-bytes: 4444\n" +
-			"    pdf:\n" +
-			"      enabled: false\n" +
-			"      backend: poppler\n" +
-			"      binary: runtime-pdftotext\n" +
-			"    pptx:\n" +
-			"      include-notes: false\n"
-		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &runtimeConfig, func() {
-			withProjectFileContents(t, filepath.Join("configs", "kbase-settings.yml"), nil, func() {
-				cfg, err := Load()
-				if err != nil {
-					t.Fatalf("load config: %v", err)
-				}
-				if cfg.KBase.Refresh.Debounce.String() != "4s" || cfg.KBase.Refresh.ReconcileInterval.String() != "12m0s" {
-					t.Fatalf("unexpected runtime kbase refresh config: %#v", cfg.KBase.Refresh)
-				}
-				if cfg.KBase.DefaultAgent.ModelKey != "runtime-kbase-model" || cfg.KBase.DefaultAgent.ReasoningEffort != "LOW" {
-					t.Fatalf("unexpected runtime kbase default agent config: %#v", cfg.KBase.DefaultAgent)
-				}
-				if cfg.KBase.Embedding.ModelKey != "runtime-embedding-model-key" {
-					t.Fatalf("unexpected runtime kbase embedding config: %#v", cfg.KBase.Embedding)
-				}
-				if cfg.KBase.Extraction.Timeout.String() != "44s" ||
-					cfg.KBase.Extraction.MaxFileBytes != 4444 ||
-					cfg.KBase.Extraction.PDF.Enabled ||
-					cfg.KBase.Extraction.PDF.Binary != "runtime-pdftotext" ||
-					cfg.KBase.Extraction.PPTX.IncludeNotes {
-					t.Fatalf("unexpected runtime kbase extraction config: %#v", cfg.KBase.Extraction)
-				}
-			})
-		})
-	})
-}
-
-func TestLoadKBaseSettingsOverridesRuntimeKBase(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		runtimeConfig := "" +
-			"kbase:\n" +
-			"  default-agent:\n" +
-			"    modelKey: runtime-kbase-model\n" +
-			"    reasoningEffort: LOW\n" +
-			"  embedding:\n" +
-			"    modelKey: runtime-embedding-model-key\n" +
-			"  refresh:\n" +
-			"    debounce: 4s\n" +
-			"    reconcile-interval: 12m\n" +
-			"  extraction:\n" +
-			"    timeout: 44s\n" +
-			"    max-file-bytes: 4444\n" +
-			"    pdf:\n" +
-			"      enabled: false\n" +
-			"      backend: poppler\n" +
-			"      binary: runtime-pdftotext\n" +
-			"    pptx:\n" +
-			"      include-notes: false\n"
 		kbaseSettings := "" +
 			"default-agent:\n" +
 			"  modelKey: settings-kbase-model\n" +
@@ -1121,27 +896,27 @@ func TestLoadKBaseSettingsOverridesRuntimeKBase(t *testing.T) {
 			"    binary: settings-pdftotext\n" +
 			"  pptx:\n" +
 			"    include-notes: true\n"
-		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &runtimeConfig, func() {
+		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), nil, func() {
 			withProjectFileContents(t, filepath.Join("configs", "kbase-settings.yml"), &kbaseSettings, func() {
 				cfg, err := Load()
 				if err != nil {
 					t.Fatalf("load config: %v", err)
 				}
-				if cfg.KBase.Refresh.Debounce.String() != "6s" || cfg.KBase.Refresh.ReconcileInterval.String() != "12m0s" {
-					t.Fatalf("unexpected kbase refresh precedence: %#v", cfg.KBase.Refresh)
+				if cfg.KBase.Refresh.Debounce.String() != "6s" || cfg.KBase.Refresh.ReconcileInterval.String() != "10m0s" {
+					t.Fatalf("unexpected kbase refresh config: %#v", cfg.KBase.Refresh)
 				}
 				if cfg.KBase.DefaultAgent.ModelKey != "settings-kbase-model" || cfg.KBase.DefaultAgent.ReasoningEffort != "HIGH" {
-					t.Fatalf("unexpected kbase default agent precedence: %#v", cfg.KBase.DefaultAgent)
+					t.Fatalf("unexpected kbase default agent config: %#v", cfg.KBase.DefaultAgent)
 				}
 				if cfg.KBase.Embedding.ModelKey != "settings-embedding-model-key" {
-					t.Fatalf("unexpected kbase embedding precedence: %#v", cfg.KBase.Embedding)
+					t.Fatalf("unexpected kbase embedding config: %#v", cfg.KBase.Embedding)
 				}
 				if cfg.KBase.Extraction.Timeout.String() != "1m6s" ||
 					cfg.KBase.Extraction.MaxFileBytes != 6666 ||
 					!cfg.KBase.Extraction.PDF.Enabled ||
 					cfg.KBase.Extraction.PDF.Binary != "settings-pdftotext" ||
 					!cfg.KBase.Extraction.PPTX.IncludeNotes {
-					t.Fatalf("unexpected kbase settings precedence: %#v", cfg.KBase.Extraction)
+					t.Fatalf("unexpected kbase settings config: %#v", cfg.KBase.Extraction)
 				}
 			})
 		})
@@ -1370,10 +1145,7 @@ func TestLoadAIToolsConfigFromFile(t *testing.T) {
 }
 
 func TestLoadAuthLocalPublicKeyPathIsFixed(t *testing.T) {
-	withIsolatedEnv(t, map[string]string{
-		"AP_AUTH_LOCAL_PUBLIC_KEY_FILE": "ap-auth.pem",
-		"AUTH_LOCAL_PUBLIC_KEY_FILE":    "legacy-auth.pem",
-	}, func() {
+	withIsolatedEnv(t, nil, func() {
 		content := "" +
 			"auth:\n" +
 			"  local-public-key-file: configs/runtime-auth.pem\n"
@@ -1418,78 +1190,6 @@ func TestLoadAuthConfigFromRuntimeYAML(t *testing.T) {
 	})
 }
 
-func TestLoadIgnoresAPPrefixedAuthEnv(t *testing.T) {
-	withIsolatedEnv(t, map[string]string{
-		"AP_AUTH_ENABLED":            "false",
-		"AP_AUTH_JWKS_URI":           "https://ap.example/jwks.json",
-		"AP_AUTH_ISSUER":             "ap-issuer",
-		"AP_AUTH_JWKS_CACHE_SECONDS": "46",
-	}, func() {
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("load config: %v", err)
-		}
-		if !cfg.Auth.Enabled ||
-			cfg.Auth.JWKSURI != "" ||
-			cfg.Auth.Issuer != "" ||
-			cfg.Auth.JWKSCacheSeconds != 0 {
-			t.Fatalf("expected AP auth env to be ignored, got %#v", cfg.Auth)
-		}
-	})
-}
-
-func TestLoadIgnoresLegacyAuthEnv(t *testing.T) {
-	withIsolatedEnv(t, map[string]string{
-		"AUTH_ENABLED":            "false",
-		"AUTH_JWKS_URI":           "https://legacy.example/jwks.json",
-		"AUTH_ISSUER":             "legacy-issuer",
-		"AUTH_JWKS_CACHE_SECONDS": "47",
-	}, func() {
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("load config: %v", err)
-		}
-		if !cfg.Auth.Enabled ||
-			cfg.Auth.JWKSURI != "" ||
-			cfg.Auth.Issuer != "" ||
-			cfg.Auth.JWKSCacheSeconds != 0 {
-			t.Fatalf("expected legacy auth env to be ignored, got %#v", cfg.Auth)
-		}
-	})
-}
-
-func TestLoadRuntimeYAMLAuthOverridesIgnoredEnv(t *testing.T) {
-	withIsolatedEnv(t, map[string]string{
-		"AP_AUTH_ENABLED":            "true",
-		"AP_AUTH_JWKS_URI":           "https://ap.example/jwks.json",
-		"AP_AUTH_ISSUER":             "ap-issuer",
-		"AP_AUTH_JWKS_CACHE_SECONDS": "46",
-		"AUTH_ENABLED":               "false",
-		"AUTH_JWKS_URI":              "https://legacy.example/jwks.json",
-		"AUTH_ISSUER":                "legacy-issuer",
-		"AUTH_JWKS_CACHE_SECONDS":    "47",
-	}, func() {
-		content := "" +
-			"auth:\n" +
-			"  enabled: false\n" +
-			"  jwks-uri: https://runtime.example/jwks.json\n" +
-			"  issuer: runtime-issuer\n" +
-			"  jwks-cache-seconds: 48\n"
-		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if cfg.Auth.Enabled ||
-				cfg.Auth.JWKSURI != "https://runtime.example/jwks.json" ||
-				cfg.Auth.Issuer != "runtime-issuer" ||
-				cfg.Auth.JWKSCacheSeconds != 48 {
-				t.Fatalf("expected runtime yaml auth to win, got %#v", cfg.Auth)
-			}
-		})
-	})
-}
-
 func TestLoadUsesConfigDirOptionForStructuredFilesAndAuthKey(t *testing.T) {
 	configDir := t.TempDir()
 	configsDir := filepath.Join(configDir, "configs")
@@ -1498,10 +1198,17 @@ func TestLoadUsesConfigDirOptionForStructuredFilesAndAuthKey(t *testing.T) {
 	}
 	if err := os.WriteFile(
 		filepath.Join(configsDir, "prompts.yml"),
-		[]byte("skill:\n  catalog-header: service config header\ncoder:\n  system-prompt: service coder system\n  planning-prompt: service coder plan\n"),
+		[]byte("skill:\n  catalog-header: service config header\n"),
 		0o644,
 	); err != nil {
 		t.Fatalf("write prompts config: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(configsDir, "coder-prompts.yml"),
+		[]byte("system-prompt: service coder system\nplanning-prompt: service coder plan\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("write coder prompts config: %v", err)
 	}
 	if err := os.WriteFile(
 		filepath.Join(configsDir, "ai-tools.yml"),
@@ -1682,26 +1389,7 @@ func TestLoadRuntimePathsFromYAML(t *testing.T) {
 		"  memory-dir: var/yaml-memory\n" +
 		"  kbase-dir: var/yaml-kbase\n" +
 		"  pan-dir: var/yaml-pan\n" +
-		"  skills-market-dir: var/yaml-skills-market\n" +
-		"kbase:\n" +
-		"  refresh:\n" +
-		"    debounce: 3s\n" +
-		"    reconcile-interval: 11m\n"
-	runtimeConfig += "" +
-		"  extraction:\n" +
-		"    timeout: 45s\n" +
-		"    max-file-bytes: 123456\n" +
-		"    pdf:\n" +
-		"      enabled: false\n" +
-		"      backend: poppler\n" +
-		"      binary: custom-pdftotext\n" +
-		"    docx:\n" +
-		"      enabled: true\n" +
-		"      backend: native\n" +
-		"    pptx:\n" +
-		"      enabled: true\n" +
-		"      backend: native\n" +
-		"      include-notes: false\n"
+		"  skills-market-dir: var/yaml-skills-market\n"
 	withIsolatedEnv(t, nil, func() {
 		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &runtimeConfig, func() {
 			withProjectFileContents(t, filepath.Join("configs", "kbase-settings.yml"), nil, func() {
@@ -1754,89 +1442,8 @@ func TestLoadRuntimePathsFromYAML(t *testing.T) {
 				if cfg.Memory.StorageDir != filepath.Join("var", "yaml-memory") {
 					t.Fatalf("unexpected memory storage dir: %q", cfg.Memory.StorageDir)
 				}
-				if cfg.KBase.Refresh.Debounce.String() != "3s" || cfg.KBase.Refresh.ReconcileInterval.String() != "11m0s" {
-					t.Fatalf("unexpected kbase refresh config: %#v", cfg.KBase.Refresh)
-				}
-				if cfg.KBase.Extraction.Timeout.String() != "45s" ||
-					cfg.KBase.Extraction.MaxFileBytes != 123456 ||
-					cfg.KBase.Extraction.PDF.Enabled ||
-					cfg.KBase.Extraction.PDF.Binary != "custom-pdftotext" ||
-					cfg.KBase.Extraction.PPTX.IncludeNotes {
-					t.Fatalf("unexpected kbase extraction config: %#v", cfg.KBase.Extraction)
-				}
 			})
 		})
-	})
-}
-
-func TestLoadIgnoresRemovedRuntimeDirectoryEnvs(t *testing.T) {
-	withIsolatedEnv(t, map[string]string{
-		removedRuntimeDirectoryEnvKey("RUNTIME"):    filepath.Join("var", "removed-runtime"),
-		removedRuntimeDirectoryEnvKey("REGISTRIES"): filepath.Join("var", "removed-registries"),
-		removedRuntimeDirectoryEnvKey("CHATS"):      filepath.Join("var", "removed-chats"),
-		removedRuntimeDirectoryEnvKey("MEMORY"):     filepath.Join("var", "removed-memory"),
-		removedRuntimeDirectoryEnvKey("PAN"):        filepath.Join("var", "removed-pan"),
-	}, func() {
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("load config: %v", err)
-		}
-		if cfg.Paths.RegistriesDir != filepath.Join("runtime", "registries") {
-			t.Fatalf("unexpected registries dir: %q", cfg.Paths.RegistriesDir)
-		}
-		if cfg.Paths.ChatsDir != filepath.Join("runtime", "chats") {
-			t.Fatalf("unexpected chats dir: %q", cfg.Paths.ChatsDir)
-		}
-		if cfg.Paths.MemoryDir != filepath.Join("runtime", "memory") {
-			t.Fatalf("unexpected memory dir: %q", cfg.Paths.MemoryDir)
-		}
-		if cfg.Paths.KBaseDir != filepath.Join("runtime", "kbase") {
-			t.Fatalf("unexpected kbase dir: %q", cfg.Paths.KBaseDir)
-		}
-		if cfg.Paths.PanDir != filepath.Join("runtime", "pan") {
-			t.Fatalf("unexpected pan dir: %q", cfg.Paths.PanDir)
-		}
-		if cfg.Memory.StorageDir != filepath.Join("runtime", "memory") {
-			t.Fatalf("unexpected memory storage dir: %q", cfg.Memory.StorageDir)
-		}
-	})
-}
-
-func TestLoadIgnoresUnsupportedRuntimePathEnvs(t *testing.T) {
-	withIsolatedEnv(t, map[string]string{
-		"OWNER_DIR":         filepath.Join("var", "env-owner"),
-		"AGENTS_DIR":        filepath.Join("var", "env-agents"),
-		"TEAMS_DIR":         filepath.Join("var", "env-teams"),
-		"ROOT_DIR":          filepath.Join("var", "env-root"),
-		"AUTOMATIONS_DIR":   filepath.Join("var", "env-automations"),
-		"SKILLS_MARKET_DIR": filepath.Join("var", "env-skills-market"),
-		"TOOLS_DIR":         filepath.Join("var", "env-tools"),
-	}, func() {
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("load config: %v", err)
-		}
-		if cfg.Paths.OwnerDir != filepath.Join("runtime", "owner") {
-			t.Fatalf("expected OWNER_DIR to be ignored, got %q", cfg.Paths.OwnerDir)
-		}
-		if cfg.Paths.AgentsDir != filepath.Join("runtime", "agents") {
-			t.Fatalf("expected AGENTS_DIR to be ignored, got %q", cfg.Paths.AgentsDir)
-		}
-		if cfg.Paths.TeamsDir != filepath.Join("runtime", "teams") {
-			t.Fatalf("expected TEAMS_DIR to be ignored, got %q", cfg.Paths.TeamsDir)
-		}
-		if cfg.Paths.RootDir != filepath.Join("runtime", "root") {
-			t.Fatalf("expected ROOT_DIR to be ignored, got %q", cfg.Paths.RootDir)
-		}
-		if cfg.Paths.AutomationsDir != filepath.Join("runtime", "automations") {
-			t.Fatalf("expected AUTOMATIONS_DIR to be ignored, got %q", cfg.Paths.AutomationsDir)
-		}
-		if cfg.Paths.SkillsMarketDir != filepath.Join("runtime", "skills-market") {
-			t.Fatalf("expected SKILLS_MARKET_DIR to be ignored, got %q", cfg.Paths.SkillsMarketDir)
-		}
-		if cfg.Paths.ToolsDir != filepath.Join("runtime", "tools") {
-			t.Fatalf("expected TOOLS_DIR to be ignored, got %q", cfg.Paths.ToolsDir)
-		}
 	})
 }
 
@@ -1913,96 +1520,12 @@ func TestLoadIgnoresLoggingMemoryRuntimeYAML(t *testing.T) {
 	})
 }
 
-func TestLoadRuntimeYAMLReplacesLegacyEnvContract(t *testing.T) {
+func TestLoadAcceptsAPEnvAllowlist(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
-		"AUTH_ENABLED":                            "false",
-		"CHAT_RESOURCE_TICKET_SECRET":             "secret",
-		"AGENT_H2A_RENDER_FLUSH_INTERVAL":         "25",
-		"AGENT_H2A_RENDER_MAX_BUFFERED_CHARS":     "256",
-		"AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS":    "3",
-		"AGENT_H2A_RENDER_HEARTBEAT_PASS_THROUGH": "false",
-		"AGENT_RUN_MAX_BACKGROUND_DURATION":       "601",
-		"AGENT_RUN_MAX_DISCONNECTED_WAIT":         "603",
-		"AGENT_WS_PING_INTERVAL":                  "32",
-		"AGENT_WS_WRITE_TIMEOUT":                  "16",
-		"AGENT_AUTOMATION_ENABLED":                "false",
-		"AGENT_AUTOMATION_DEFAULT_ZONE_ID":        "Asia/Shanghai",
-		"AGENT_AUTOMATION_POOL_SIZE":              "7",
-		"LOGGING_AGENT_REQUEST_ENABLED":           "false",
-	}, func() {
-		content := "" +
-			"auth:\n" +
-			"  enabled: false\n" +
-			"resource:\n" +
-			"  ticket-ttl-seconds: 321\n" +
-			"h2a:\n" +
-			"  render:\n" +
-			"    flush-interval: 25\n" +
-			"    max-buffered-chars: 256\n" +
-			"    max-buffered-events: 3\n" +
-			"    heartbeat-pass-through: false\n" +
-			"i18n:\n" +
-			"  default-locale: zh-CN\n" +
-			"chat-storage:\n" +
-			"  k: 3\n" +
-			"  charset: GBK\n" +
-			"  action-tools: [legacy]\n" +
-			"  index-sqlite-file: legacy.db\n" +
-			"  index-auto-rebuild-on-incompatible-schema: false\n" +
-			"run:\n" +
-			"  max-background-duration: 601\n" +
-			"  max-disconnected-wait: 603\n" +
-			"websocket:\n" +
-			"  ping-interval: 32\n" +
-			"  write-timeout: 16\n" +
-			"automation:\n" +
-			"  enabled: false\n" +
-			"  default-zone-id: Asia/Shanghai\n" +
-			"  pool-size: 7\n" +
-			"logging:\n" +
-			"  request:\n" +
-			"    enabled: false\n"
-		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if cfg.Auth.Enabled {
-				t.Fatalf("expected auth disabled from runtime yaml")
-			}
-			if cfg.ResourceTicket.Secret != "" || cfg.ResourceTicket.TTLSeconds != 321 {
-				t.Fatalf("unexpected resource ticket config: %#v", cfg.ResourceTicket)
-			}
-			if cfg.Run.MaxBackgroundDuration != 0 || cfg.Run.MaxDisconnectedWait != 0 {
-				t.Fatalf("expected runtime yaml run lifecycle config to be ignored, got %#v", cfg.Run)
-			}
-			if cfg.WebSocket.PingInterval != 0 || cfg.WebSocket.WriteTimeout != 0 {
-				t.Fatalf("expected runtime yaml websocket config to be ignored, got %#v", cfg.WebSocket)
-			}
-			if cfg.Automation.Enabled ||
-				cfg.Automation.DefaultZoneID != "Asia/Shanghai" ||
-				cfg.Automation.PoolSize != 7 {
-				t.Fatalf("unexpected automation config: %#v", cfg.Automation)
-			}
-			if !cfg.Logging.Request.Enabled {
-				t.Fatalf("expected runtime yaml logging request config to be ignored")
-			}
-		})
-	})
-}
-
-func TestLoadAcceptsAPPrefixedEnvContract(t *testing.T) {
-	withIsolatedEnv(t, map[string]string{
-		"AP_CHAT_RESOURCE_TICKET_SECRET":          "ap-secret",
-		"AP_DEBUG_LLM_CONSOLE":                    "raw,parsed",
-		"AP_DEBUG_LLM_CHAT_RECORD":                "true",
-		"AP_CONTAINER_HUB_BASE_URL":               "http://ap-hub",
-		"AP_CONTAINER_HUB_AUTH_TOKEN":             "ap-token",
-		"AP_CONTAINER_HUB_DEFAULT_ENVIRONMENT_ID": "ap-env",
-		"AP_CONTAINER_HUB_REQUEST_TIMEOUT":        "302",
-		"AP_CONTAINER_HUB_DEFAULT_SANDBOX_LEVEL":  "AGENT",
-		"AP_CONTAINER_HUB_AGENT_IDLE_TIMEOUT":     "303",
-		"AP_CONTAINER_HUB_DESTROY_QUEUE_DELAY":    "304",
+		"AP_CHAT_RESOURCE_TICKET_SECRET": "ap-secret",
+		"AP_DEBUG_LLM_CONSOLE":           "raw,parsed",
+		"AP_DEBUG_LLM_CHAT_RECORD":       "true",
+		"AP_CONTAINER_HUB_BASE_URL":      "http://ap-hub",
 	}, func() {
 		content := "" +
 			"container-hub:\n" +
@@ -2039,56 +1562,6 @@ func TestLoadAcceptsAPPrefixedEnvContract(t *testing.T) {
 				cfg.ContainerHub.AgentIdleTimeout != 303 ||
 				cfg.ContainerHub.DestroyQueueDelay != 304 {
 				t.Fatalf("unexpected container hub runtime settings: %#v", cfg.ContainerHub)
-			}
-		})
-	})
-}
-
-func TestLoadAPPrefixedEnvOverridesLegacyEnv(t *testing.T) {
-	withIsolatedEnv(t, map[string]string{
-		"AP_CHAT_RESOURCE_TICKET_SECRET":          "ap-secret",
-		"AP_DEBUG_LLM_CONSOLE":                    "raw,parsed",
-		"AP_DEBUG_LLM_CHAT_RECORD":                "true",
-		"AP_CONTAINER_HUB_BASE_URL":               "http://ap-hub",
-		"AP_CONTAINER_HUB_AUTH_TOKEN":             "ap-token",
-		"AP_CONTAINER_HUB_DEFAULT_ENVIRONMENT_ID": "ap-env",
-		"AP_CONTAINER_HUB_REQUEST_TIMEOUT":        "302",
-		"AP_CONTAINER_HUB_DEFAULT_SANDBOX_LEVEL":  "AGENT",
-		"AP_CONTAINER_HUB_AGENT_IDLE_TIMEOUT":     "303",
-		"AP_CONTAINER_HUB_DESTROY_QUEUE_DELAY":    "304",
-		"CHAT_RESOURCE_TICKET_SECRET":             "legacy-secret",
-		"DEBUG_LLM_CONSOLE":                       "none",
-		"DEBUG_LLM_CHAT_RECORD":                   "false",
-		"CONTAINER_HUB_BASE_URL":                  "http://legacy-hub",
-		"CONTAINER_HUB_AUTH_TOKEN":                "legacy-token",
-		"CONTAINER_HUB_DEFAULT_ENVIRONMENT_ID":    "legacy-env",
-		"CONTAINER_HUB_REQUEST_TIMEOUT":           "402",
-		"CONTAINER_HUB_DEFAULT_SANDBOX_LEVEL":     "legacy",
-		"CONTAINER_HUB_AGENT_IDLE_TIMEOUT":        "403",
-		"CONTAINER_HUB_DESTROY_QUEUE_DELAY":       "404",
-	}, func() {
-		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), nil, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if cfg.ResourceTicket.Secret != "ap-secret" || cfg.ResourceTicket.TTLSeconds != 86400 {
-				t.Fatalf("expected AP resource ticket secret to win without changing ttl, got %#v", cfg.ResourceTicket)
-			}
-			if got := strings.Join(cfg.Logging.LLMInteraction.ConsoleCategories, ","); got != "raw,parsed" {
-				t.Fatalf("expected AP llm console categories to win, got %q", got)
-			}
-			if !cfg.Logging.LLMInteraction.RecordEnabled {
-				t.Fatalf("expected AP llm chat record flag to win")
-			}
-			if cfg.ContainerHub.BaseURL != "http://ap-hub" ||
-				cfg.ContainerHub.AuthToken != "" ||
-				cfg.ContainerHub.DefaultEnvironmentID != "" ||
-				cfg.ContainerHub.RequestTimeout != 300 ||
-				cfg.ContainerHub.DefaultSandboxLevel != "run" ||
-				cfg.ContainerHub.AgentIdleTimeout != 600 ||
-				cfg.ContainerHub.DestroyQueueDelay != 5 {
-				t.Fatalf("expected only AP container hub base url env to win, got %#v", cfg.ContainerHub)
 			}
 		})
 	})
@@ -2614,44 +2087,6 @@ func TestLoadLLMChatRecordFromAPDebugEnv(t *testing.T) {
 	})
 }
 
-func TestLoadIgnoresLegacyLLMDebugEnv(t *testing.T) {
-	withIsolatedEnv(t, map[string]string{
-		"DEBUG_LLM_CONSOLE":     "raw,parsed",
-		"DEBUG_LLM_CHAT_RECORD": "true",
-	}, func() {
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("load config: %v", err)
-		}
-		if got := strings.Join(cfg.Logging.LLMInteraction.ConsoleCategories, ","); got != "request,usage" {
-			t.Fatalf("expected legacy llm console env to be ignored, got %q", got)
-		}
-		if cfg.Logging.LLMInteraction.RecordEnabled {
-			t.Fatalf("expected legacy llm chat record env to be ignored")
-		}
-	})
-}
-
-func TestLoadIgnoresOldGatewayEnv(t *testing.T) {
-	withIsolatedEnv(t, map[string]string{
-		"GATEWAY_WS_URL":                        "wss://gw.example.com/ws/agent?key=zenmi&channel=wecom:xiaozhai",
-		"GATEWAY_JWT_TOKEN":                     "jwt-abc",
-		"AGENT_GATEWAY_WS_HANDSHAKE_TIMEOUT_MS": "3210",
-		"AGENT_GATEWAY_WS_RECONNECT_MIN_MS":     "45",
-		"AGENT_GATEWAY_WS_RECONNECT_MAX_MS":     "6789",
-	}, func() {
-		withProjectFileContents(t, filepath.Join("configs", "channels.yml"), nil, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if len(cfg.Gateways) != 0 {
-				t.Fatalf("old gateway env should not synthesize gateways, got %#v", cfg.Gateways)
-			}
-		})
-	})
-}
-
 func TestGatewaysEmptyWhenNoChannelsConfig(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{}, func() {
 		withProjectFileContents(t, filepath.Join("configs", "channels.yml"), nil, func() {
@@ -3034,10 +2469,6 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		}
 	}
 	fn()
-}
-
-func removedRuntimeDirectoryEnvKey(name string) string {
-	return name + "_DIR"
 }
 
 func withProjectFileContents(t *testing.T, relativePath string, content *string, fn func()) {

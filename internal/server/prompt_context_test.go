@@ -341,37 +341,6 @@ func TestBuildRuntimeContextIncludesSandboxContextWhenSandboxConfigured(t *testi
 	}
 }
 
-func TestBuildRuntimeContextIgnoresLegacySandboxTagWithoutSandboxConfig(t *testing.T) {
-	t.Parallel()
-
-	cfg := testPromptContextConfig(t)
-	s := &Server{
-		deps: Dependencies{
-			Config:   cfg,
-			Registry: testCatalogRegistry{},
-		},
-	}
-
-	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
-		agentKey: "demo-agent",
-		teamID:   "team-1",
-		role:     "assistant",
-		chatID:   "chat-1",
-		chatName: "Chat 1",
-		definition: catalog.AgentDefinition{
-			Key:         "demo-agent",
-			AgentDir:    filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
-			ContextTags: []string{"sandbox"},
-		},
-	})
-	if err != nil {
-		t.Fatalf("buildRuntimeRequestContext() error = %v", err)
-	}
-	if context.SandboxContext != nil {
-		t.Fatalf("expected sandbox tag to have no effect, got %#v", context.SandboxContext)
-	}
-}
-
 func TestBuildRuntimeContextKeepsLocalPathsWithoutSandboxConfigInContainerMode(t *testing.T) {
 	t.Parallel()
 

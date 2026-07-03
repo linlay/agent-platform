@@ -84,7 +84,6 @@ func TestRunControlInterruptInfoPreservesFirstCause(t *testing.T) {
 
 func TestRunControlAwaitSubmitTimeoutUsesWallClockWithoutObserver(t *testing.T) {
 	control := NewRunControl(context.Background(), "run_1")
-	control.SetMaxDisconnectedWait(500 * time.Millisecond)
 	control.SetObserverCount(1)
 	control.ExpectSubmit(testAwaitingContext("await_1"))
 
@@ -117,22 +116,6 @@ func TestRunControlAwaitSubmitTimeoutUsesWallClockWithoutObserver(t *testing.T) 
 	})
 	if ack.Accepted || ack.Status != "unmatched" {
 		t.Fatalf("expected late submit after timeout to be unmatched, got %#v", ack)
-	}
-}
-
-func TestRunControlAwaitSubmitIgnoresMaxDisconnectedWait(t *testing.T) {
-	control := NewRunControl(context.Background(), "run_1")
-	control.SetMaxDisconnectedWait(20 * time.Millisecond)
-	control.SetObserverCount(0)
-	control.ExpectSubmit(testAwaitingContext("await_1"))
-
-	startedAt := time.Now()
-	_, err := control.AwaitSubmitWithTimeout(context.Background(), "await_1", 150*time.Millisecond)
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("expected deadline exceeded, got %v", err)
-	}
-	if elapsed := time.Since(startedAt); elapsed < 120*time.Millisecond || elapsed > 600*time.Millisecond {
-		t.Fatalf("expected submit timeout to ignore disconnected wait, elapsed=%s", elapsed)
 	}
 }
 
@@ -182,7 +165,6 @@ func TestRunControlAwaitSubmitNoTimeoutRemainsInfiniteWithoutObserver(t *testing
 
 func TestRunControlAwaitSubmitNoTimeoutFlagIgnoresConfiguredTimeout(t *testing.T) {
 	control := NewRunControl(context.Background(), "run_1")
-	control.SetMaxDisconnectedWait(20 * time.Millisecond)
 	control.SetObserverCount(0)
 	control.ExpectSubmit(AwaitingSubmitContext{
 		AwaitingID: "await_1",

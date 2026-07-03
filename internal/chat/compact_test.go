@@ -151,6 +151,9 @@ func TestRawMessagesSkipCompactedLinesAndInactiveCheckpoints(t *testing.T) {
 			"_type": "query",
 			"runId": "r2",
 			"query": map[string]any{"role": "user", "message": "tail user"},
+			"messages": []any{
+				map[string]any{"role": "user", "content": "tail user"},
+			},
 		},
 	}
 	raw := rawMessagesFromJSONLLines(lines)
@@ -479,6 +482,7 @@ func appendCompactTestRun(t *testing.T, store *FileStore, chatID string, runID s
 		RunID:     runID,
 		UpdatedAt: 100,
 		Query:     map[string]any{"role": "user", "message": userText},
+		Messages:  []map[string]any{{"role": "user", "content": userText}},
 	}); err != nil {
 		t.Fatalf("AppendQueryLine(%s): %v", runID, err)
 	}

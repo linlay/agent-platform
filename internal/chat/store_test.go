@@ -2611,7 +2611,7 @@ func TestStepWriterDoesNotPersistPlanUpdateOnStepLines(t *testing.T) {
 	}
 }
 
-func TestLoadChatPlanPrefersPlanTaskSnapshotOverLegacyJSONL(t *testing.T) {
+func TestLoadChatPlanUsesPlanTaskSnapshot(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
@@ -2620,23 +2620,6 @@ func TestLoadChatPlanPrefersPlanTaskSnapshotOverLegacyJSONL(t *testing.T) {
 	runID := "run-jsonl"
 	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
-	}
-	if err := store.AppendStepLine(chatID, StepLine{
-		Type:      StepLineTypeReact,
-		ChatID:    chatID,
-		RunID:     runID,
-		UpdatedAt: 1001,
-		Messages:  []StoredMessage{},
-		Plan: &PlanState{
-			PlanID: "jsonl_plan",
-			Tasks: []PlanTaskState{{
-				TaskID:      "jsonl_task",
-				Description: "JSONL task",
-				Status:      "completed",
-			}},
-		},
-	}); err != nil {
-		t.Fatalf("append step: %v", err)
 	}
 	snapshotDir := filepath.Join(store.ChatDir(chatID), ToolRootDirName, ToolPlanTasksDirName)
 	if err := os.MkdirAll(snapshotDir, 0o755); err != nil {
@@ -2653,43 +2636,6 @@ func TestLoadChatPlanPrefersPlanTaskSnapshotOverLegacyJSONL(t *testing.T) {
 	}
 	if detail.Plan == nil || detail.Plan.PlanID != "snapshot_plan" || len(detail.Plan.Tasks) != 1 || detail.Plan.Tasks[0].TaskID != "snapshot_task" {
 		t.Fatalf("expected replay plan from plan task snapshot, got %#v", detail.Plan)
-	}
-}
-
-func TestLoadChatPlanFallsBackToLegacyJSONLWhenPlanTaskSnapshotMissing(t *testing.T) {
-	store, err := NewFileStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new file store: %v", err)
-	}
-	chatID := "chat-legacy-jsonl-plan"
-	runID := "run-jsonl"
-	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
-		t.Fatalf("ensure chat: %v", err)
-	}
-	if err := store.AppendStepLine(chatID, StepLine{
-		Type:      StepLineTypeReact,
-		ChatID:    chatID,
-		RunID:     runID,
-		UpdatedAt: 1001,
-		Messages:  []StoredMessage{},
-		Plan: &PlanState{
-			PlanID: "jsonl_plan",
-			Tasks: []PlanTaskState{{
-				TaskID:      "jsonl_task",
-				Description: "JSONL task",
-				Status:      "completed",
-			}},
-		},
-	}); err != nil {
-		t.Fatalf("append step: %v", err)
-	}
-
-	detail, err := store.LoadChat(chatID)
-	if err != nil {
-		t.Fatalf("load chat: %v", err)
-	}
-	if detail.Plan == nil || detail.Plan.PlanID != "jsonl_plan" || len(detail.Plan.Tasks) != 1 || detail.Plan.Tasks[0].TaskID != "jsonl_task" {
-		t.Fatalf("expected legacy JSONL plan fallback, got %#v", detail.Plan)
 	}
 }
 
@@ -3344,6 +3290,7 @@ func TestRawMessagesSkipSystemInitLines(t *testing.T) {
 		RunID:     "run-1",
 		UpdatedAt: 2,
 		Query:     map[string]any{"role": "user", "message": "hello"},
+		Messages:  []map[string]any{{"role": "user", "content": "hello"}},
 		Systems: []QueryLineSystemInit{{
 			Fingerprint:   "sha256:init",
 			CacheKey:      "react:main",
@@ -3359,58 +3306,6 @@ func TestRawMessagesSkipSystemInitLines(t *testing.T) {
 	}
 	if len(messages) != 1 || messages[0]["role"] != "user" || messages[0]["content"] != "hello" {
 		t.Fatalf("expected only query message, got %#v", messages)
-	}
-}
-
-func TestRawMessagesIncludeReferenceContext(t *testing.T) {
-	store, err := NewFileStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new file store: %v", err)
-	}
-	if _, _, err := store.EnsureChat("chat-reference-context", "agent", "", "hello"); err != nil {
-		t.Fatalf("ensure chat: %v", err)
-	}
-	if err := store.AppendQueryLine("chat-reference-context", QueryLine{
-		Type:      "query",
-		ChatID:    "chat-reference-context",
-		RunID:     "run-1",
-		UpdatedAt: 2,
-		Query: map[string]any{
-			"role":    "user",
-			"message": "分析 #{r01}",
-			"references": []map[string]any{{
-				"id":        "r01",
-				"type":      "file",
-				"name":      "sales.csv",
-				"path":      "/workspace/sales.csv",
-				"mimeType":  "text/csv",
-				"sizeBytes": 537,
-			}},
-		},
-	}); err != nil {
-		t.Fatalf("append query: %v", err)
-	}
-	messages, err := store.LoadRawMessages("chat-reference-context", 5)
-	if err != nil {
-		t.Fatalf("load raw messages: %v", err)
-	}
-	if len(messages) != 1 || messages[0]["role"] != "user" {
-		t.Fatalf("expected one user message, got %#v", messages)
-	}
-	content, _ := messages[0]["content"].(string)
-	for _, expected := range []string{
-		"[References]",
-		"id: r01",
-		"type: file",
-		"name: sales.csv",
-		"path: /workspace/sales.csv",
-		"mimeType: text/csv",
-		"sizeBytes: 537",
-		"[User message]\n分析 #{r01}",
-	} {
-		if !strings.Contains(content, expected) {
-			t.Fatalf("expected %q in content, got %q", expected, content)
-		}
 	}
 }
 
@@ -3479,6 +3374,10 @@ func TestLoadRawMessagesMapsAutomationAndSystemQueryRolesToUser(t *testing.T) {
 				"role":    item.role,
 				"message": item.message,
 			},
+			Messages: []map[string]any{{
+				"role":    "user",
+				"content": "[" + item.role + " request]\n" + item.message,
+			}},
 		}); err != nil {
 			t.Fatalf("append query: %v", err)
 		}
@@ -4467,7 +4366,8 @@ func TestLoadRawMessagesFlushesApprovalSummaryBeforeNextRun(t *testing.T) {
 			"role":    "user",
 			"message": "first",
 		},
-		Type: "query",
+		Messages: []map[string]any{{"role": "user", "content": "first"}},
+		Type:     "query",
 	}); err != nil {
 		t.Fatalf("append first query line: %v", err)
 	}
@@ -4500,7 +4400,8 @@ func TestLoadRawMessagesFlushesApprovalSummaryBeforeNextRun(t *testing.T) {
 			"role":    "user",
 			"message": "second",
 		},
-		Type: "query",
+		Messages: []map[string]any{{"role": "user", "content": "second"}},
+		Type:     "query",
 	}); err != nil {
 		t.Fatalf("append second query line: %v", err)
 	}

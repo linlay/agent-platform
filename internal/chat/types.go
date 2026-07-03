@@ -169,10 +169,8 @@ type StepLine struct {
 	Type            string                `json:"_type"`
 	Stage           string                `json:"stage,omitempty"`
 	Seq             int                   `json:"seq,omitempty"`
-	// Plan is retained for legacy JSONL compatibility. New writes store plan task state in .tools/plan-tasks.
-	Plan      *PlanState     `json:"plan,omitempty"`
-	Artifacts *ArtifactState `json:"artifacts,omitempty"`
-	Sources   *SourceState   `json:"sources,omitempty"`
+	Artifacts       *ArtifactState        `json:"artifacts,omitempty"`
+	Sources         *SourceState          `json:"sources,omitempty"`
 }
 
 type StepApproval struct {

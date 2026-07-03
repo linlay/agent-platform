@@ -97,7 +97,6 @@ func (s *FileStore) LoadRunTrace(chatID string, runID string) (RunTrace, error) 
 // ---------------------------------------------------------------------------
 
 func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []map[string]any, chatDir string) (Detail, error) {
-	var legacyPlan *PlanState
 	var planning *PlanningState
 	var artifact *ArtifactState
 
@@ -188,9 +187,6 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			lineLiveSeq := int64FromAny(line["liveSeq"])
 			rd := ensureRun(runs, &runOrder, runID)
 
-			if rawPlan, ok := line["plan"].(map[string]any); ok {
-				legacyPlan = parsePlanFromStep(rawPlan)
-			}
 			if rawArt, ok := line["artifacts"].(map[string]any); ok {
 				artifact = parseArtifactFromStep(rawArt)
 			}
@@ -453,7 +449,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 
 	lastRunID, lastRunUsage := latestReplayRunUsage(runs, runOrder)
 
-	plan := legacyPlan
+	var plan *PlanState
 	if snapshot, err := plantasks.LoadLatest(chatDir); err != nil {
 		return Detail{}, err
 	} else if snapshot != nil {

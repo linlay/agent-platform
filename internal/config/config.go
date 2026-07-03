@@ -111,10 +111,8 @@ type PlanExecutePromptsConfig struct {
 }
 
 type CoderPromptsConfig struct {
-	SystemPrompt              string
-	PlanningPrompt            string
-	SummarySystemPrompt       string
-	SummaryUserPromptTemplate string
+	SystemPrompt   string
+	PlanningPrompt string
 }
 
 type KBasePromptsConfig struct {
@@ -480,7 +478,6 @@ type RunConfig struct {
 	MaxBackgroundDuration int64 // seconds
 	CompletedRetention    int64 // seconds
 	EventBusMaxEvents     int
-	MaxDisconnectedWait   int64 // deprecated; kept for config compatibility
 	MaxObserversPerRun    int
 }
 

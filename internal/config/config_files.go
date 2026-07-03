@@ -202,9 +202,6 @@ func (c *Config) applyRuntimeFile(path string) error {
 	if memory, ok := values["memory"].(map[string]any); ok && len(memory) > 0 {
 		c.applyMemoryValues(memory)
 	}
-	if kbase, ok := values["kbase"].(map[string]any); ok && len(kbase) > 0 {
-		c.applyKBaseValues(kbase)
-	}
 	if budget, ok := values["budget"].(map[string]any); ok && len(budget) > 0 {
 		c.applyRuntimeBudgetValues(budget)
 	}
@@ -580,12 +577,6 @@ func (c *Config) applyPromptsFile(path string) {
 		return
 	}
 	c.applyPromptsValues(values)
-	if coder, ok := values["coder"].(map[string]any); ok && len(coder) > 0 {
-		c.applyCoderPromptsValues(coder)
-	}
-	if kbase, ok := values["kbase"].(map[string]any); ok && len(kbase) > 0 {
-		c.applyKBasePromptsValues(kbase)
-	}
 	if memory, ok := values["memory"].(map[string]any); ok && len(memory) > 0 {
 		c.applyMemoryPromptsValues(memory)
 	}
@@ -616,8 +607,6 @@ func (c *Config) applyPromptsValues(values map[string]any) {
 func (c *Config) applyCoderPromptsValues(values map[string]any) {
 	c.CoderPrompts.SystemPrompt = stringValue(anyValue(values["system-prompt"], c.CoderPrompts.SystemPrompt), c.CoderPrompts.SystemPrompt)
 	c.CoderPrompts.PlanningPrompt = stringValue(anyValue(values["planning-prompt"], c.CoderPrompts.PlanningPrompt), c.CoderPrompts.PlanningPrompt)
-	c.CoderPrompts.SummarySystemPrompt = stringValue(anyValue(values["summary-system-prompt"], c.CoderPrompts.SummarySystemPrompt), c.CoderPrompts.SummarySystemPrompt)
-	c.CoderPrompts.SummaryUserPromptTemplate = stringValue(anyValue(values["summary-user-prompt-template"], c.CoderPrompts.SummaryUserPromptTemplate), c.CoderPrompts.SummaryUserPromptTemplate)
 }
 
 func (c *Config) applyKBasePromptsValues(values map[string]any) {

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -211,6 +212,9 @@ func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (a
 	if err != nil {
 		return api.AgentDetailResponse{}, err
 	}
+	if err := validateCreateAgentDefinition(req.Definition); err != nil {
+		return api.AgentDetailResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_agent_definition", err.Error())
+	}
 	key := strings.TrimSpace(req.Key)
 	definition := s.applyCreateDefaultAgentConfig(req.Definition)
 	key, definition = s.normalizeGeneratedModeCreation(key, definition)
@@ -218,6 +222,21 @@ func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (a
 		return api.AgentDetailResponse{}, mapAgentEditError(err)
 	}
 	return s.reloadAndLoadAgent(ctx, key)
+}
+
+func validateCreateAgentDefinition(definition map[string]any) error {
+	mode := catalog.NormalizeAgentModeForRuntime(stringValue(definition["mode"]))
+	if mode != catalog.AgentModeKBase {
+		return nil
+	}
+	kbaseConfig := contracts.AnyMapNode(definition["kbaseConfig"])
+	embedding := contracts.AnyMapNode(kbaseConfig["embedding"])
+	for _, key := range []string{"providerKey", "model", "dimension", "timeout"} {
+		if _, exists := embedding[key]; exists {
+			return fmt.Errorf("kbaseConfig.embedding.%s is no longer supported; use kbaseConfig.embedding.modelKey", key)
+		}
+	}
+	return nil
 }
 
 func (s *Server) applyCreateDefaultAgentConfig(definition map[string]any) map[string]any {
@@ -317,28 +336,21 @@ func (s *Server) applyKBaseDefaultAgentConfig(definition map[string]any) map[str
 			out["modelConfig"] = modelConfig
 		}
 	}
-	if embeddingModelKey != "" {
-		kbaseConfig := contracts.CloneMap(contracts.AnyMapNode(out["kbaseConfig"]))
+	kbaseConfig := contracts.CloneMap(contracts.AnyMapNode(out["kbaseConfig"]))
+	embedding := contracts.CloneMap(contracts.AnyMapNode(kbaseConfig["embedding"]))
+	explicitEmbeddingModelKey := strings.TrimSpace(stringValue(embedding["modelKey"]))
+	if explicitEmbeddingModelKey != "" || embeddingModelKey != "" {
 		if kbaseConfig == nil {
 			kbaseConfig = map[string]any{}
 		}
-		embedding := contracts.CloneMap(contracts.AnyMapNode(kbaseConfig["embedding"]))
+		if explicitEmbeddingModelKey == "" {
+			explicitEmbeddingModelKey = embeddingModelKey
+		}
 		if embedding == nil {
 			embedding = map[string]any{}
 		}
-		hasRemovedEmbeddingField := false
-		for _, key := range []string{"providerKey", "model", "dimension", "timeout"} {
-			if _, exists := embedding[key]; exists {
-				hasRemovedEmbeddingField = true
-				break
-			}
-		}
-		if strings.TrimSpace(stringValue(embedding["modelKey"])) == "" && !hasRemovedEmbeddingField {
-			embedding = map[string]any{"modelKey": embeddingModelKey}
-		}
-		if len(embedding) > 0 {
-			kbaseConfig["embedding"] = embedding
-		}
+		embedding["modelKey"] = explicitEmbeddingModelKey
+		kbaseConfig["embedding"] = embedding
 		if len(kbaseConfig) > 0 {
 			out["kbaseConfig"] = kbaseConfig
 		}

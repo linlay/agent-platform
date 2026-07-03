@@ -3,9 +3,6 @@ package chat
 import (
 	"encoding/json"
 	"strings"
-
-	"agent-platform/internal/api"
-	"agent-platform/internal/referenceprompt"
 )
 
 // LoadRawMessages loads conversation history from {chatId}.jsonl step lines.
@@ -105,21 +102,7 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 					}
 					messages = append(messages, msg)
 				}
-				continue
 			}
-			query, _ := line["query"].(map[string]any)
-			if query == nil {
-				continue
-			}
-			role, content := api.ProviderSafeQueryMessage(stringValue(query["role"]), stringValue(query["message"]))
-			content = referenceprompt.FormatUserMessage(content, referencesFromQueryValue(query["references"]))
-			msg := map[string]any{
-				"runId":   runID,
-				"role":    role,
-				"content": content,
-				"ts":      line["updatedAt"],
-			}
-			messages = append(messages, msg)
 
 		case StepLineTypeStep, StepLineTypeReact, StepLineTypeReactTool, StepLineTypePlanExecute:
 			if strings.TrimSpace(stringValue(line["taskSubAgentKey"])) != "" {
@@ -181,21 +164,6 @@ func cloneMessageMap(message map[string]any) map[string]any {
 		return cloneStringAnyMap(message)
 	}
 	return cloned
-}
-
-func referencesFromQueryValue(raw any) []api.Reference {
-	if raw == nil {
-		return nil
-	}
-	data, err := json.Marshal(raw)
-	if err != nil {
-		return nil
-	}
-	var references []api.Reference
-	if err := json.Unmarshal(data, &references); err != nil {
-		return nil
-	}
-	return references
 }
 
 func extractStoredMessageText(message StoredMessage) string {

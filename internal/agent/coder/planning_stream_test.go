@@ -386,7 +386,6 @@ func TestPlanningStageHasAssistantText(t *testing.T) {
 
 func TestCoderPlanningConfirmationWaitsWithoutDisconnectedTimeout(t *testing.T) {
 	runControl := contracts.NewRunControl(context.Background(), "run_1")
-	runControl.SetMaxDisconnectedWait(20 * time.Millisecond)
 	runControl.SetObserverCount(0)
 	stream := &coderPlanningStream{
 		session: contracts.QuerySession{RunID: "run_1"},

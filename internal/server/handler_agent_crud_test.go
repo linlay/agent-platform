@@ -1103,30 +1103,6 @@ func TestAgentWSRuntimeModelConfigAndAdminRoutesRejected(t *testing.T) {
 	defer conn.Close()
 	readAutomationConnectedPush(t, conn)
 
-	for _, removed := range []struct {
-		id        string
-		frameType string
-	}{
-		{id: "admin-create", frameType: "/api/admin/agents/create"},
-		{id: "admin-options", frameType: "/api/admin/agents/editor-options"},
-	} {
-		if err := conn.WriteJSON(ws.RequestFrame{
-			Frame: ws.FrameRequest,
-			Type:  removed.frameType,
-			ID:    removed.id,
-		}); err != nil {
-			t.Fatalf("write removed route request: %v", err)
-		}
-		var errFrame ws.ErrorFrame
-		if err := conn.ReadJSON(&errFrame); err != nil {
-			t.Fatalf("read removed route response: %v", err)
-		}
-		if errFrame.Frame != ws.FrameError || errFrame.Type != "invalid_request" || errFrame.ID != removed.id || errFrame.Code != http.StatusBadRequest ||
-			!strings.Contains(errFrame.Msg, "unknown type: "+removed.frameType) {
-			t.Fatalf("unexpected removed route frame for %s: %#v", removed.frameType, errFrame)
-		}
-	}
-
 	if err := conn.WriteJSON(ws.RequestFrame{
 		Frame: ws.FrameRequest,
 		Type:  "/api/agent/model-config",

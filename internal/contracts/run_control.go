@@ -620,11 +620,6 @@ func (c *RunControl) ObserverCount() int32 {
 	return c.observerCnt.Load()
 }
 
-func (c *RunControl) SetMaxDisconnectedWait(wait time.Duration) {
-	// Kept for configuration compatibility; submit waits use wall-clock timeout
-	// and no longer pause or switch budgets when observers detach.
-}
-
 func (c *RunControl) closeWaiters(status string, detail string) {
 	c.mu.Lock()
 	waiters := c.submitWaiters

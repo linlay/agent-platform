@@ -262,6 +262,7 @@ func seedDeriveServerChat(t *testing.T, store chat.Store, chatID string, runID s
 			"message":   userText,
 			"agentKey":  "mock-agent",
 		},
+		Messages: []map[string]any{{"role": "user", "content": userText}},
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
 	}
