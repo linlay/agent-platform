@@ -59,23 +59,53 @@ func DiscoverNearExecutable() (*Registry, string, []error) {
 	if err != nil {
 		return NewRegistry(""), "", []error{fmt.Errorf("resolve executable path: %w", err)}
 	}
-	root := filepath.Join(filepath.Dir(executable), PluginsDir)
-	registry, errs := LoadDir(root, Target{OS: runtime.GOOS, Arch: runtime.GOARCH})
-	return registry, root, errs
+	roots := CandidatePluginRoots(executable)
+	registry, errs := LoadDirs(roots, Target{OS: runtime.GOOS, Arch: runtime.GOARCH})
+	return registry, strings.Join(roots, string(os.PathListSeparator)), errs
+}
+
+func CandidatePluginRoots(executable string) []string {
+	executable = strings.TrimSpace(executable)
+	if executable == "" {
+		return nil
+	}
+	execDir := filepath.Dir(filepath.Clean(executable))
+	roots := make([]string, 0, 2)
+	if strings.EqualFold(filepath.Base(execDir), "backend") {
+		roots = append(roots, filepath.Join(filepath.Dir(execDir), PluginsDir))
+	}
+	roots = append(roots, filepath.Join(execDir, PluginsDir))
+	return uniquePaths(roots)
+}
+
+func LoadDirs(roots []string, target Target) (*Registry, []error) {
+	roots = uniquePaths(roots)
+	registry := NewRegistry(strings.Join(roots, string(os.PathListSeparator)))
+	var errs []error
+	for _, root := range roots {
+		errs = append(errs, loadDirInto(registry, root, target)...)
+	}
+	return registry, errs
 }
 
 func LoadDir(root string, target Target) (*Registry, []error) {
 	root = strings.TrimSpace(root)
 	registry := NewRegistry(root)
+	errs := loadDirInto(registry, root, target)
+	return registry, errs
+}
+
+func loadDirInto(registry *Registry, root string, target Target) []error {
+	root = strings.TrimSpace(root)
 	if root == "" {
-		return registry, nil
+		return nil
 	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return registry, nil
+			return nil
 		}
-		return registry, []error{fmt.Errorf("read plugins dir %s: %w", root, err)}
+		return []error{fmt.Errorf("read plugins dir %s: %w", root, err)}
 	}
 	var errs []error
 	for _, entry := range entries {
@@ -93,7 +123,7 @@ func LoadDir(root string, target Target) (*Registry, []error) {
 		}
 		registry.add(pkg, execs)
 	}
-	return registry, errs
+	return errs
 }
 
 func NewRegistry(root string) *Registry {
@@ -256,4 +286,23 @@ func normalizeExecutableName(name string) string {
 	name = strings.ToLower(strings.TrimSpace(name))
 	name = strings.TrimSuffix(name, ".exe")
 	return name
+}
+
+func uniquePaths(paths []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(paths))
+	for _, value := range paths {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		cleaned := filepath.Clean(value)
+		key := strings.ToLower(cleaned)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, cleaned)
+	}
+	return out
 }
