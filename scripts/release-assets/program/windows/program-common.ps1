@@ -23,6 +23,9 @@ $Script:DeployAIVisionOCRModelKey = ''
 $Script:DeployAIWebFetchModelKey = ''
 $Script:DeployCoderModelKey = ''
 $Script:DeployCoderReasoningEffort = ''
+$Script:DeployKBaseModelKey = ''
+$Script:DeployKBaseReasoningEffort = ''
+$Script:DeployKBaseEmbeddingModelKey = ''
 $Script:DeployPublicKeySourceFile = ''
 $Script:Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
@@ -103,6 +106,14 @@ function Set-ProgramDeployOption([string]$Name, [string]$Value) {
       }
       $Script:DeployCoderReasoningEffort = $Value
     }
+    '--kbase-model-key' { $Script:DeployKBaseModelKey = $Value }
+    '--kbase-reasoning-effort' {
+      if (@('NONE', 'LOW', 'MEDIUM', 'HIGH') -notcontains $Value) {
+        Fail-Program '--kbase-reasoning-effort must be one of NONE, LOW, MEDIUM, HIGH'
+      }
+      $Script:DeployKBaseReasoningEffort = $Value
+    }
+    '--kbase-embedding-model-key' { $Script:DeployKBaseEmbeddingModelKey = $Value }
     '--public-key-source-file' { $Script:DeployPublicKeySourceFile = $Value }
     default { Fail-Program "unsupported deploy argument: $Name" }
   }
@@ -127,6 +138,9 @@ function Set-ProgramDeployArgs([string[]]$Arguments) {
       '--ai-web-fetch-model-key',
       '--coder-model-key',
       '--coder-reasoning-effort',
+      '--kbase-model-key',
+      '--kbase-reasoning-effort',
+      '--kbase-embedding-model-key',
       '--public-key-source-file'
     ) -notcontains $name) {
       Fail-Program "unsupported deploy argument: $name"
@@ -257,15 +271,15 @@ function New-ProgramDeployAIToolsFile([string]$Source, [string]$Target) {
   }
 }
 
-function Set-ProgramCoderDefaultValue([string]$Path, [string]$Name, [string]$Value) {
+function Set-ProgramYamlSectionValue([string]$Path, [string]$Section, [string]$Name, [string]$Value) {
   $lines = [System.Collections.Generic.List[string]]::new()
-  $inDefaultAgent = $false
+  $currentSection = ''
   $replaced = $false
   foreach ($line in [System.IO.File]::ReadAllLines($Path)) {
     if ($line -match '^[^\s#][^:]*:') {
-      $inDefaultAgent = $matches[0] -eq 'default-agent:'
+      $currentSection = $matches[0].TrimEnd(':')
     }
-    if ($inDefaultAgent -and $line -match ("^  {0}:" -f [regex]::Escape($Name))) {
+    if ($currentSection -eq $Section -and $line -match ("^  {0}:" -f [regex]::Escape($Name))) {
       $lines.Add(("  {0}: {1}" -f $Name, $Value))
       $replaced = $true
       continue
@@ -273,7 +287,7 @@ function Set-ProgramCoderDefaultValue([string]$Path, [string]$Name, [string]$Val
     $lines.Add($line)
   }
   if (-not $replaced) {
-    Fail-Program "failed to update default-agent.$Name in $Path"
+    Fail-Program "failed to update $Section.$Name in $Path"
   }
   Write-ProgramTextFile $Path $lines.ToArray()
 }
@@ -281,10 +295,23 @@ function Set-ProgramCoderDefaultValue([string]$Path, [string]$Name, [string]$Val
 function New-ProgramDeployCoderSettingsFile([string]$Source, [string]$Target) {
   Copy-Item -LiteralPath $Source -Destination $Target
   if (-not [string]::IsNullOrWhiteSpace($Script:DeployCoderModelKey)) {
-    Set-ProgramCoderDefaultValue $Target 'modelKey' $Script:DeployCoderModelKey
+    Set-ProgramYamlSectionValue $Target 'default-agent' 'modelKey' $Script:DeployCoderModelKey
   }
   if (-not [string]::IsNullOrWhiteSpace($Script:DeployCoderReasoningEffort)) {
-    Set-ProgramCoderDefaultValue $Target 'reasoningEffort' $Script:DeployCoderReasoningEffort
+    Set-ProgramYamlSectionValue $Target 'default-agent' 'reasoningEffort' $Script:DeployCoderReasoningEffort
+  }
+}
+
+function New-ProgramDeployKBaseSettingsFile([string]$Source, [string]$Target) {
+  Copy-Item -LiteralPath $Source -Destination $Target
+  if (-not [string]::IsNullOrWhiteSpace($Script:DeployKBaseModelKey)) {
+    Set-ProgramYamlSectionValue $Target 'default-agent' 'modelKey' $Script:DeployKBaseModelKey
+  }
+  if (-not [string]::IsNullOrWhiteSpace($Script:DeployKBaseReasoningEffort)) {
+    Set-ProgramYamlSectionValue $Target 'default-agent' 'reasoningEffort' $Script:DeployKBaseReasoningEffort
+  }
+  if (-not [string]::IsNullOrWhiteSpace($Script:DeployKBaseEmbeddingModelKey)) {
+    Set-ProgramYamlSectionValue $Target 'embedding' 'modelKey' $Script:DeployKBaseEmbeddingModelKey
   }
 }
 
@@ -316,6 +343,7 @@ function Initialize-ProgramDeployConfig {
       switch ($name) {
         'ai-tools' { New-ProgramDeployAIToolsFile $example.FullName $target }
         'coder-settings' { New-ProgramDeployCoderSettingsFile $example.FullName $target }
+        'kbase-settings' { New-ProgramDeployKBaseSettingsFile $example.FullName $target }
         default { Copy-Item -LiteralPath $example.FullName -Destination $target }
       }
     }

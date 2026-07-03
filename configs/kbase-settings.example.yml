@@ -9,7 +9,7 @@ default-agent:
 embedding:
   # Default embedding modelKey for new KBASE agents. This must reference a
   # runtime/registries/models/*.yml model with type: embedding.
-  modelKey: babelark-text-embedding-v4
+  modelKey:
 
 refresh:
   debounce: 2s

@@ -24,6 +24,9 @@ DEPLOY_AI_VISION_OCR_MODEL_KEY=""
 DEPLOY_AI_WEB_FETCH_MODEL_KEY=""
 DEPLOY_CODER_MODEL_KEY=""
 DEPLOY_CODER_REASONING_EFFORT=""
+DEPLOY_KBASE_MODEL_KEY=""
+DEPLOY_KBASE_REASONING_EFFORT=""
+DEPLOY_KBASE_EMBEDDING_MODEL_KEY=""
 DEPLOY_PUBLIC_KEY_SOURCE_FILE=""
 
 program_die() {
@@ -142,6 +145,25 @@ program_apply_deploy_flags() {
           NONE|LOW|MEDIUM|HIGH) ;;
           *) program_die "--coder-reasoning-effort must be one of NONE, LOW, MEDIUM, HIGH" ;;
         esac
+        shift 2
+        ;;
+      --kbase-model-key)
+        [[ $# -ge 2 ]] || program_die "missing value for --kbase-model-key"
+        DEPLOY_KBASE_MODEL_KEY="$2"
+        shift 2
+        ;;
+      --kbase-reasoning-effort)
+        [[ $# -ge 2 ]] || program_die "missing value for --kbase-reasoning-effort"
+        DEPLOY_KBASE_REASONING_EFFORT="$2"
+        case "$DEPLOY_KBASE_REASONING_EFFORT" in
+          NONE|LOW|MEDIUM|HIGH) ;;
+          *) program_die "--kbase-reasoning-effort must be one of NONE, LOW, MEDIUM, HIGH" ;;
+        esac
+        shift 2
+        ;;
+      --kbase-embedding-model-key)
+        [[ $# -ge 2 ]] || program_die "missing value for --kbase-embedding-model-key"
+        DEPLOY_KBASE_EMBEDDING_MODEL_KEY="$2"
         shift 2
         ;;
       --public-key-source-file)
@@ -302,22 +324,24 @@ program_render_ai_tools_file() {
   fi
 }
 
-program_set_coder_default_value() {
+program_set_yaml_section_value() {
   local file="$1"
-  local key="$2"
-  local value="$3"
+  local section="$2"
+  local key="$3"
+  local value="$4"
   local tmp
 
   tmp="$file.tmp.$$"
-  if ! awk -v key="$key" -v value="$value" '
+  if ! awk -v section="$section" -v key="$key" -v value="$value" '
     BEGIN {
-      in_default_agent = 0
+      current_section = ""
       replaced = 0
     }
     /^[^[:space:]#][^:]*:/ {
-      in_default_agent = ($1 == "default-agent:")
+      current_section = $1
+      sub(/:$/, "", current_section)
     }
-    in_default_agent && $0 ~ "^  " key ":" {
+    current_section == section && $0 ~ "^  " key ":" {
       print "  " key ": " value
       replaced = 1
       next
@@ -330,7 +354,7 @@ program_set_coder_default_value() {
     }
   ' "$file" >"$tmp"; then
     rm -f "$tmp"
-    program_die "failed to update default-agent.$key in $file"
+    program_die "failed to update $section.$key in $file"
   fi
   mv "$tmp" "$file"
 }
@@ -341,10 +365,26 @@ program_render_coder_settings_file() {
 
   cp "$source" "$target"
   if [[ -n "$DEPLOY_CODER_MODEL_KEY" ]]; then
-    program_set_coder_default_value "$target" "modelKey" "$DEPLOY_CODER_MODEL_KEY"
+    program_set_yaml_section_value "$target" "default-agent" "modelKey" "$DEPLOY_CODER_MODEL_KEY"
   fi
   if [[ -n "$DEPLOY_CODER_REASONING_EFFORT" ]]; then
-    program_set_coder_default_value "$target" "reasoningEffort" "$DEPLOY_CODER_REASONING_EFFORT"
+    program_set_yaml_section_value "$target" "default-agent" "reasoningEffort" "$DEPLOY_CODER_REASONING_EFFORT"
+  fi
+}
+
+program_render_kbase_settings_file() {
+  local source="$1"
+  local target="$2"
+
+  cp "$source" "$target"
+  if [[ -n "$DEPLOY_KBASE_MODEL_KEY" ]]; then
+    program_set_yaml_section_value "$target" "default-agent" "modelKey" "$DEPLOY_KBASE_MODEL_KEY"
+  fi
+  if [[ -n "$DEPLOY_KBASE_REASONING_EFFORT" ]]; then
+    program_set_yaml_section_value "$target" "default-agent" "reasoningEffort" "$DEPLOY_KBASE_REASONING_EFFORT"
+  fi
+  if [[ -n "$DEPLOY_KBASE_EMBEDDING_MODEL_KEY" ]]; then
+    program_set_yaml_section_value "$target" "embedding" "modelKey" "$DEPLOY_KBASE_EMBEDDING_MODEL_KEY"
   fi
 }
 
@@ -379,6 +419,9 @@ program_initialize_deploy_config() {
           ;;
         coder-settings)
           program_render_coder_settings_file "$example" "$target"
+          ;;
+        kbase-settings)
+          program_render_kbase_settings_file "$example" "$target"
           ;;
         *)
           cp "$example" "$target"
