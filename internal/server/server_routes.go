@@ -301,6 +301,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/feedback", s.method(http.MethodPost, s.handleFeedback))
 	s.router.HandleFunc("/api/chat/delete", s.method(http.MethodPost, s.handleChatDelete))
 	s.router.HandleFunc("/api/chat/rename", s.method(http.MethodPost, s.handleChatRename))
+	s.router.HandleFunc("/api/chat/derive", s.method(http.MethodPost, s.handleChatDerive))
 	s.router.HandleFunc("/api/chat/archive", s.method(http.MethodPost, s.handleChatArchive))
 	s.router.HandleFunc("/api/archives", s.method(http.MethodGet, s.handleArchives))
 	s.router.HandleFunc("/api/archive", s.method(http.MethodGet, s.handleArchive))

@@ -11,9 +11,12 @@ import (
 
 var ErrChatNotFound = errors.New("chat not found")
 var ErrRunNotFound = errors.New("run not found")
+var ErrRunIncomplete = errors.New("run is not complete")
+var ErrChatPendingAwaiting = errors.New("chat has pending awaiting")
 
 type Store interface {
 	EnsureChat(chatID string, agentKey string, teamID string, firstMessage string) (Summary, bool, error)
+	DeriveChat(request DeriveChatRequest) (DeriveChatResult, error)
 	RenameChat(chatID string, chatName string) (Summary, error)
 	UpdateAgentKey(chatID string, agentKey string) error
 	SetSourceChannel(chatID string, sourceChannel string) error

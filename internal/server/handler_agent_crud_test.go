@@ -297,7 +297,7 @@ func TestAgentCreateKBaseAppliesDefaultModelConfig(t *testing.T) {
 	}
 }
 
-func TestAgentCreateKBasePreservesExplicitModelConfig(t *testing.T) {
+func TestAgentCreateKBasePreservesExplicitModelAndEmbeddingConfig(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w,
 			`{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
@@ -330,8 +330,7 @@ func TestAgentCreateKBasePreservesExplicitModelConfig(t *testing.T) {
 			},
 			"kbaseConfig": map[string]any{
 				"embedding": map[string]any{
-					"providerKey": "explicit-embedding-provider",
-					"model":       "explicit-embedding-model",
+					"modelKey": "explicit-embedding-model-key",
 				},
 			},
 			"runtimeConfig": map[string]any{
@@ -349,15 +348,12 @@ func TestAgentCreateKBasePreservesExplicitModelConfig(t *testing.T) {
 	}
 	kbaseConfig, _ := created.Definition["kbaseConfig"].(map[string]any)
 	embedding, _ := kbaseConfig["embedding"].(map[string]any)
-	if embedding["providerKey"] != "explicit-embedding-provider" || embedding["model"] != "explicit-embedding-model" {
-		t.Fatalf("expected explicit kbase embedding provider/model to win, got %#v", kbaseConfig)
-	}
-	if _, ok := embedding["modelKey"]; ok {
-		t.Fatalf("expected explicit legacy kbase embedding to avoid default modelKey, got %#v", kbaseConfig)
+	if embedding["modelKey"] != "explicit-embedding-model-key" {
+		t.Fatalf("expected explicit kbase embedding modelKey to win, got %#v", kbaseConfig)
 	}
 }
 
-func TestAgentCreateKBaseReplacesIncompleteExplicitEmbeddingConfig(t *testing.T) {
+func TestAgentCreateKBaseRejectsRemovedExplicitEmbeddingConfig(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w,
 			`{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
@@ -379,7 +375,7 @@ func TestAgentCreateKBaseReplacesIncompleteExplicitEmbeddingConfig(t *testing.T)
 		t.Fatalf("create workspace dir: %v", err)
 	}
 
-	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
+	body, err := json.Marshal(map[string]any{
 		"definition": map[string]any{
 			"mode": "KBASE",
 			"kbaseConfig": map[string]any{
@@ -392,13 +388,16 @@ func TestAgentCreateKBaseReplacesIncompleteExplicitEmbeddingConfig(t *testing.T)
 			},
 		},
 	})
-	kbaseConfig, _ := created.Definition["kbaseConfig"].(map[string]any)
-	embedding, _ := kbaseConfig["embedding"].(map[string]any)
-	if embedding["modelKey"] != "default-embedding-model-key" {
-		t.Fatalf("expected incomplete explicit kbase embedding to use default modelKey, got %#v", kbaseConfig)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
 	}
-	if _, ok := embedding["providerKey"]; ok {
-		t.Fatalf("expected incomplete explicit providerKey to be replaced, got %#v", kbaseConfig)
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/agents/create", bytes.NewReader(body)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "kbaseConfig.embedding.providerKey is no longer supported") {
+		t.Fatalf("expected removed embedding field error, got %s", rec.Body.String())
 	}
 }
 

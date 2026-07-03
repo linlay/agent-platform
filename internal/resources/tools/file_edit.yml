@@ -25,7 +25,7 @@ inputSchema:
       description: Replace every occurrence of old_string. Defaults to false; when false, old_string must match exactly once.
     encoding:
       type: string
-      description: Optional. Override the file encoding when automatic detection is wrong. Automatic detection only covers utf-8, gb18030/gbk, and the current Windows ACP. Explicit values also support big5, shift_jis, euc-kr, common Windows-125x, and OEM code pages such as cp437/cp850/cp866.
+      description: Optional. Override the file encoding when automatic detection is wrong. Supported explicit values are utf-8 and gb18030/gbk. Automatic detection covers utf-8, gb18030/gbk, and the current Windows ACP.
     description:
       type: string
       description: Optional. 这次编辑文件的用途简述（一句话，中文），会在需要人工审批时展示给用户。

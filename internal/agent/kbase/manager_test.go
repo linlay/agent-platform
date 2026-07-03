@@ -102,7 +102,7 @@ func testKBaseAgent(key string, workspace string, storage string) catalog.AgentD
 		Mode:      catalog.AgentModeKBase,
 		Workspace: catalog.AgentWorkspaceConfig{Root: workspace},
 		KBaseConfig: catalog.AgentKBaseConfig{
-			Embedding: catalog.AgentKBaseEmbeddingConfig{ProviderKey: "mock"},
+			Embedding: catalog.AgentKBaseEmbeddingConfig{ModelKey: "mock-embedding-key"},
 			Storage:   catalog.AgentKBaseStorageConfig{Location: storage},
 			Include:   []string{"**/*.md", "**/*.txt"},
 			Exclude:   []string{".git/**", ".kbase/**", "node_modules/**"},
@@ -115,7 +115,7 @@ func testKBaseAgent(key string, workspace string, storage string) catalog.AgentD
 func testEmbeddingHandler(t *testing.T, requests *atomic.Int64) http.HandlerFunc {
 	t.Helper()
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/embeddings" {
+		if r.URL.Path != "/v1/embeddings" && r.URL.Path != "/custom/embeddings" {
 			http.NotFound(w, r)
 			return
 		}
@@ -258,10 +258,7 @@ func TestManagerResolveUsesKBaseEmbeddingDefaults(t *testing.T) {
 	cfg := config.Config{
 		KBase: config.KBaseConfig{
 			Embedding: config.KBaseEmbeddingConfig{
-				ProviderKey: "mock",
-				Model:       "settings-embedding",
-				Dimension:   1024,
-				Timeout:     60,
+				ModelKey: "mock-embedding-key",
 			},
 		},
 	}
@@ -272,13 +269,14 @@ func TestManagerResolveUsesKBaseEmbeddingDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	if resolved.Embedding.ProviderKey != "mock" ||
-		resolved.Embedding.Model != "settings-embedding" ||
-		resolved.Embedding.Dimension != 1024 ||
-		resolved.Embedding.Timeout != 60 {
+	if resolved.Embedding.ModelKey != "mock-embedding-key" ||
+		resolved.Embedding.ProviderKey != "mock" ||
+		resolved.Embedding.Model != "mock-embedding-from-model-key" ||
+		resolved.Embedding.Dimension != 3 ||
+		resolved.Embedding.Timeout != 7 {
 		t.Fatalf("unexpected resolved embedding defaults: %#v", resolved.Embedding)
 	}
-	if embedder == nil || embedder.Model != "settings-embedding" || embedder.Dimension != 1024 || embedder.Timeout != 60 {
+	if embedder == nil || embedder.Model != "mock-embedding-from-model-key" || embedder.Dimension != 3 || embedder.Timeout != 7 {
 		t.Fatalf("unexpected embedder defaults: %#v", embedder)
 	}
 }
@@ -292,20 +290,12 @@ func TestManagerResolveUsesKBaseEmbeddingModelKey(t *testing.T) {
 	modelRegistry := newKBaseTestModelRegistry(t, root, testEmbeddingHandler(t, nil))
 	def := testKBaseAgent("docs", workspace, "runtime")
 	def.KBaseConfig.Embedding = catalog.AgentKBaseEmbeddingConfig{
-		ModelKey:    "mock-embedding-key",
-		ProviderKey: "legacy-provider",
-		Model:       "legacy-model",
-		Dimension:   999,
-		Timeout:     99,
+		ModelKey: "mock-embedding-key",
 	}
 	cfg := config.Config{
 		KBase: config.KBaseConfig{
 			Embedding: config.KBaseEmbeddingConfig{
-				ModelKey:    "settings-embedding-key",
-				ProviderKey: "settings-provider",
-				Model:       "settings-model",
-				Dimension:   512,
-				Timeout:     60,
+				ModelKey: "settings-embedding-key",
 			},
 		},
 	}
@@ -531,7 +521,7 @@ func TestManagerRefreshSerializesSharedStorageDir(t *testing.T) {
 	firstStarted := make(chan struct{})
 	release := make(chan struct{})
 	handler := func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/embeddings" {
+		if r.URL.Path != "/v1/embeddings" && r.URL.Path != "/custom/embeddings" {
 			http.NotFound(w, r)
 			return
 		}
@@ -684,6 +674,10 @@ func TestManagerRefreshSearchReadAndIgnoreKBaseDir(t *testing.T) {
 	if err := os.MkdirAll(providersDir, 0o755); err != nil {
 		t.Fatalf("mkdir providers: %v", err)
 	}
+	modelsDir := filepath.Join(registriesDir, "models")
+	if err := os.MkdirAll(modelsDir, 0o755); err != nil {
+		t.Fatalf("mkdir models: %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(providersDir, "mock.yml"), []byte(strings.Join([]string{
 		"key: mock",
 		"baseUrl: " + embeddingServer.URL,
@@ -694,6 +688,17 @@ func TestManagerRefreshSearchReadAndIgnoreKBaseDir(t *testing.T) {
 		"  timeout: 5",
 	}, "\n")), 0o644); err != nil {
 		t.Fatalf("write provider: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(modelsDir, "mock-embedding-key.yml"), []byte(strings.Join([]string{
+		"key: mock-embedding-key",
+		"provider: mock",
+		"type: embedding",
+		"modelId: mock-embedding",
+		"embedding:",
+		"  dimension: 3",
+		"  timeout: 5",
+	}, "\n")), 0o644); err != nil {
+		t.Fatalf("write embedding model: %v", err)
 	}
 	modelRegistry, err := models.LoadModelRegistry(registriesDir)
 	if err != nil {
@@ -736,7 +741,7 @@ func TestManagerRefreshSearchReadAndIgnoreKBaseDir(t *testing.T) {
 		Mode:      catalog.AgentModeKBase,
 		Workspace: catalog.AgentWorkspaceConfig{Root: workspace},
 		KBaseConfig: catalog.AgentKBaseConfig{
-			Embedding: catalog.AgentKBaseEmbeddingConfig{ProviderKey: "mock"},
+			Embedding: catalog.AgentKBaseEmbeddingConfig{ModelKey: "mock-embedding-key"},
 			Storage:   catalog.AgentKBaseStorageConfig{Location: "runtime"},
 			Include:   []string{"**/*.md", "**/*.txt", "**/*.pptx"},
 			Exclude:   []string{".git/**", ".kbase/**", "node_modules/**"},

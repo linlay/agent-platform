@@ -29,7 +29,7 @@ type Encoding struct {
 
 func DecodeFileText(data []byte, requestedEncoding string, env runtimeenv.Info) (DecodedText, bool, error) {
 	if strings.TrimSpace(requestedEncoding) != "" {
-		encoding, ok := LookupEncoding(requestedEncoding)
+		encoding, ok := LookupFileEncoding(requestedEncoding)
 		if !ok {
 			return DecodedText{}, false, fmt.Errorf("unsupported encoding: %s", requestedEncoding)
 		}
@@ -59,7 +59,7 @@ func DecodeFileText(data []byte, requestedEncoding string, env runtimeenv.Info) 
 }
 
 func EncodeFileText(content string, encodingName string) ([]byte, string, error) {
-	encoding, ok := LookupEncoding(encodingName)
+	encoding, ok := LookupFileEncoding(encodingName)
 	if !ok {
 		return nil, "", fmt.Errorf("unsupported encoding: %s", encodingName)
 	}
@@ -89,6 +89,19 @@ func DecodeSubprocessOutput(output []byte, env runtimeenv.Info) string {
 		}
 	}
 	return strings.ToValidUTF8(string(output), "\uFFFD")
+}
+
+func LookupFileEncoding(name string) (Encoding, bool) {
+	normalized := NormalizeEncodingName(name)
+	if normalized == "" || normalized == "utf8" || normalized == "utf-8" || normalized == "cp65001" || normalized == "65001" {
+		return Encoding{Label: "utf-8"}, true
+	}
+	switch normalized {
+	case "gbk", "gb18030", "gb2312", "cp936", "windows936", "936", "cp54936", "54936":
+		return Encoding{Label: "gb18030", codec: simplifiedchinese.GB18030}, true
+	default:
+		return Encoding{}, false
+	}
 }
 
 func LookupEncoding(name string) (Encoding, bool) {

@@ -94,6 +94,7 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/feedback", s.wsFeedback)
 	handler.RegisterRoute("/api/chat/delete", s.wsChatDelete)
 	handler.RegisterRoute("/api/chat/rename", s.wsChatRename)
+	handler.RegisterRoute("/api/chat/derive", s.wsChatDerive)
 	handler.RegisterRoute("/api/chat/archive", s.wsChatArchive)
 	handler.RegisterRoute("/api/archives", s.wsArchives)
 	handler.RegisterRoute("/api/archive", s.wsArchive)
@@ -471,6 +472,23 @@ func (s *Server) wsChatRename(_ context.Context, conn *ws.Conn, req ws.RequestFr
 	}
 	s.broadcast("chat.renamed", map[string]any{"chatId": summary.ChatID, "chatName": summary.ChatName, "agentKey": summary.AgentKey})
 	conn.SendResponse(req.Type, req.ID, 0, "success", api.RenameChatResponse{ChatID: summary.ChatID, ChatName: summary.ChatName, Updated: true})
+	conn.CompleteRequest(req.ID)
+}
+
+func (s *Server) wsChatDerive(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	payload, err := ws.DecodePayload[api.DeriveChatRequest](req)
+	if err != nil {
+		conn.SendError(req.ID, "invalid_request", 400, "invalid payload", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	response, statusErr := s.deriveChat(payload)
+	if statusErr != nil {
+		s.sendWSStatusError(conn, req.ID, statusErr)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	conn.SendResponse(req.Type, req.ID, 0, "success", response)
 	conn.CompleteRequest(req.ID)
 }
 

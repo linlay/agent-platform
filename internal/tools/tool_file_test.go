@@ -17,9 +17,6 @@ import (
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
 	textencoding "golang.org/x/text/encoding"
-	"golang.org/x/text/encoding/charmap"
-	"golang.org/x/text/encoding/japanese"
-	"golang.org/x/text/encoding/korean"
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/text/transform"
 )
@@ -1326,46 +1323,23 @@ func TestInvokeWritePreservesExistingGB18030EncodingByDefault(t *testing.T) {
 	}
 }
 
-func TestInvokeWriteSupportsExplicitLegacyEncodings(t *testing.T) {
+func TestInvokeWriteRejectsExplicitNonFileEncodings(t *testing.T) {
 	root := t.TempDir()
 	executor := fileToolExecutor(root, false)
-	cases := []struct {
-		name     string
-		encoding string
-		codec    textencoding.Encoding
-		content  string
-	}{
-		{name: "shift_jis", encoding: "shift_jis", codec: japanese.ShiftJIS, content: "名前=テスト\n"},
-		{name: "euc_kr", encoding: "euc-kr", codec: korean.EUCKR, content: "이름=테스트\n"},
-		{name: "cp437", encoding: "cp437", codec: charmap.CodePage437, content: "name=café\n"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			fileName := tc.name + ".txt"
+
+	for _, encoding := range []string{"shift_jis", "euc-kr", "cp437"} {
+		t.Run(encoding, func(t *testing.T) {
 			result, err := executor.invokeWrite(context.Background(), map[string]any{
-				"file_path":   fileName,
-				"content":     tc.content,
-				"encoding":    tc.encoding,
+				"file_path":   encoding + ".txt",
+				"content":     "plain text\n",
+				"encoding":    encoding,
 				"description": "写入指定编码文件",
 			}, &contracts.ExecutionContext{})
 			if err != nil {
 				t.Fatalf("invokeWrite: %v", err)
 			}
-			if result.Error != "" || result.ExitCode != 0 {
-				t.Fatalf("expected write success, got %#v", result)
-			}
-			if result.Structured["encoding"] != tc.encoding {
-				t.Fatalf("expected encoding %q, got %#v", tc.encoding, result.Structured)
-			}
-			raw, err := os.ReadFile(filepath.Join(root, fileName))
-			if err != nil {
-				t.Fatalf("read written file: %v", err)
-			}
-			if utf8.Valid(raw) {
-				t.Fatalf("expected legacy encoded bytes, got UTF-8 %q", string(raw))
-			}
-			if got := decodeTextFixture(t, tc.codec, raw); got != tc.content {
-				t.Fatalf("unexpected decoded content: %q", got)
+			if result.ExitCode == 0 || result.Structured["error"] != "file_write_invalid_encoding" {
+				t.Fatalf("expected unsupported encoding error, got %#v", result)
 			}
 		})
 	}

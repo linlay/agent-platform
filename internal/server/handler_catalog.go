@@ -280,8 +280,6 @@ func (s *Server) applyKBaseDefaultAgentConfig(definition map[string]any) map[str
 	reasoningEffort := strings.TrimSpace(defaults.ReasoningEffort)
 	embeddingDefaults := s.deps.Config.KBase.Embedding
 	embeddingModelKey := strings.TrimSpace(embeddingDefaults.ModelKey)
-	embeddingProviderKey := strings.TrimSpace(embeddingDefaults.ProviderKey)
-	embeddingModel := strings.TrimSpace(embeddingDefaults.Model)
 
 	out := contracts.CloneMap(definition)
 	if isEmptyDefinitionValue(out["icon"]) {
@@ -319,7 +317,7 @@ func (s *Server) applyKBaseDefaultAgentConfig(definition map[string]any) map[str
 			out["modelConfig"] = modelConfig
 		}
 	}
-	if embeddingModelKey != "" || embeddingProviderKey != "" || embeddingModel != "" {
+	if embeddingModelKey != "" {
 		kbaseConfig := contracts.CloneMap(contracts.AnyMapNode(out["kbaseConfig"]))
 		if kbaseConfig == nil {
 			kbaseConfig = map[string]any{}
@@ -328,19 +326,15 @@ func (s *Server) applyKBaseDefaultAgentConfig(definition map[string]any) map[str
 		if embedding == nil {
 			embedding = map[string]any{}
 		}
-		modelKeyMissing := strings.TrimSpace(stringValue(embedding["modelKey"])) == ""
-		providerMissing := strings.TrimSpace(stringValue(embedding["providerKey"])) == ""
-		modelMissing := strings.TrimSpace(stringValue(embedding["model"])) == ""
-		legacyComplete := !providerMissing && !modelMissing
-		if embeddingModelKey != "" && modelKeyMissing && !legacyComplete {
+		hasRemovedEmbeddingField := false
+		for _, key := range []string{"providerKey", "model", "dimension", "timeout"} {
+			if _, exists := embedding[key]; exists {
+				hasRemovedEmbeddingField = true
+				break
+			}
+		}
+		if strings.TrimSpace(stringValue(embedding["modelKey"])) == "" && !hasRemovedEmbeddingField {
 			embedding = map[string]any{"modelKey": embeddingModelKey}
-		} else if embeddingModelKey == "" && modelKeyMissing {
-			if embeddingProviderKey != "" && (providerMissing || modelMissing) {
-				embedding["providerKey"] = embeddingProviderKey
-			}
-			if embeddingModel != "" && (providerMissing || modelMissing) {
-				embedding["model"] = embeddingModel
-			}
 		}
 		if len(embedding) > 0 {
 			kbaseConfig["embedding"] = embedding

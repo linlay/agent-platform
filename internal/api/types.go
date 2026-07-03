@@ -978,6 +978,26 @@ type DeleteChatResponse struct {
 	Deleted bool   `json:"deleted"`
 }
 
+type DeriveChatRequest struct {
+	SourceChatID string `json:"sourceChatId"`
+	SourceRunID  string `json:"sourceRunId,omitempty"`
+	ChatID       string `json:"chatId,omitempty"`
+	ChatName     string `json:"chatName,omitempty"`
+}
+
+type DeriveChatResponse struct {
+	ChatID       string `json:"chatId"`
+	ChatName     string `json:"chatName"`
+	AgentKey     string `json:"agentKey,omitempty"`
+	TeamID       string `json:"teamId,omitempty"`
+	SourceChatID string `json:"sourceChatId"`
+	SourceRunID  string `json:"sourceRunId"`
+	LastRunID    string `json:"lastRunId"`
+	CopiedRuns   int    `json:"copiedRuns"`
+	CreatedAt    int64  `json:"createdAt"`
+	UpdatedAt    int64  `json:"updatedAt"`
+}
+
 type RenameChatRequest struct {
 	ChatID   string `json:"chatId,omitempty"`
 	ChatName string `json:"chatName"`

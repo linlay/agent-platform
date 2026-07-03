@@ -128,10 +128,6 @@ func (c *Config) applyKBaseValues(values map[string]any) {
 	embedding, _ := values["embedding"].(map[string]any)
 	if len(embedding) > 0 {
 		c.KBase.Embedding.ModelKey = stringValue(anyValue(embedding["modelKey"], c.KBase.Embedding.ModelKey), c.KBase.Embedding.ModelKey)
-		c.KBase.Embedding.ProviderKey = stringValue(anyValue(embedding["providerKey"], c.KBase.Embedding.ProviderKey), c.KBase.Embedding.ProviderKey)
-		c.KBase.Embedding.Model = stringValue(anyValue(embedding["model"], c.KBase.Embedding.Model), c.KBase.Embedding.Model)
-		c.KBase.Embedding.Dimension = intValue(anyValue(embedding["dimension"], c.KBase.Embedding.Dimension), c.KBase.Embedding.Dimension)
-		c.KBase.Embedding.Timeout = intValue(anyValue(embedding["timeout"], c.KBase.Embedding.Timeout), c.KBase.Embedding.Timeout)
 	}
 	refresh, _ := values["refresh"].(map[string]any)
 	if len(refresh) > 0 {

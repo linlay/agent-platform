@@ -8,11 +8,7 @@ import (
 	"agent-platform/internal/runtimeenv"
 
 	textencoding "golang.org/x/text/encoding"
-	"golang.org/x/text/encoding/charmap"
-	"golang.org/x/text/encoding/japanese"
-	"golang.org/x/text/encoding/korean"
 	"golang.org/x/text/encoding/simplifiedchinese"
-	"golang.org/x/text/encoding/traditionalchinese"
 	"golang.org/x/text/transform"
 )
 
@@ -75,34 +71,20 @@ func TestDefaultFileEncodingCandidatesAreConservative(t *testing.T) {
 	}
 }
 
-func TestDecodeFileTextSupportsExplicitLegacyEncodings(t *testing.T) {
-	cases := []struct {
-		name     string
-		encoding string
-		codec    textencoding.Encoding
-		content  string
-	}{
-		{name: "big5", encoding: "big5", codec: traditionalchinese.Big5, content: "測試文件\n"},
-		{name: "shift_jis", encoding: "shift_jis", codec: japanese.ShiftJIS, content: "名前=テスト\n"},
-		{name: "euc_kr", encoding: "euc-kr", codec: korean.EUCKR, content: "이름=테스트\n"},
-		{name: "cp437", encoding: "cp437", codec: charmap.CodePage437, content: "name=café\n"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			raw := encodeTextFixture(t, tc.codec, tc.content)
-
-			decoded, ok, err := DecodeFileText(raw, tc.encoding, runtimeenv.Info{GOOS: "darwin"})
-			if err != nil || !ok {
-				t.Fatalf("DecodeFileText explicit failed ok=%v err=%v", ok, err)
+func TestDecodeFileTextRejectsExplicitNonFileEncodings(t *testing.T) {
+	for _, encoding := range []string{"big5", "shift_jis", "euc-kr", "cp437", "windows-1252"} {
+		t.Run(encoding, func(t *testing.T) {
+			if _, ok, err := DecodeFileText([]byte("plain text\n"), encoding, runtimeenv.Info{GOOS: "darwin"}); err == nil || ok {
+				t.Fatalf("expected %q to be rejected, ok=%v err=%v", encoding, ok, err)
 			}
-			if decoded.Encoding != tc.encoding || decoded.Content != tc.content {
-				t.Fatalf("unexpected decoded text: %#v", decoded)
+			if _, _, err := EncodeFileText("plain text\n", encoding); err == nil {
+				t.Fatalf("expected EncodeFileText to reject %q", encoding)
 			}
 		})
 	}
 }
 
-func TestDecodeSubprocessOutputNonWindowsDoesNotGuessLegacy(t *testing.T) {
+func TestDecodeSubprocessOutputNonWindowsDoesNotGuessNonUTF8Codepages(t *testing.T) {
 	raw := []byte{0xB2, 0xE2, 0xCA, 0xD4, '.', 't', 'x', 't'}
 
 	got := DecodeSubprocessOutput(raw, runtimeenv.Info{GOOS: "darwin"})

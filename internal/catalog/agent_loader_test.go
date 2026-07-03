@@ -433,7 +433,7 @@ func TestParseAgentFileReadsVisibility(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileIgnoresLegacyToolConfigBuckets(t *testing.T) {
+func TestParseAgentFileRejectsRemovedToolConfigBuckets(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
@@ -453,22 +453,8 @@ func TestParseAgentFileIgnoresLegacyToolConfigBuckets(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
-	if err != nil {
-		t.Fatalf("parse agent file: %v", err)
-	}
-	for _, tool := range []string{"memory_write", "memory_read", "memory_search"} {
-		if containsString(def.Tools, tool) {
-			t.Fatalf("expected default memory tool %s to stay disabled, got %#v", tool, def.Tools)
-		}
-	}
-	for _, tool := range []string{"datetime", "ask_user_question", "plan_update_task"} {
-		if containsString(def.Tools, tool) {
-			t.Fatalf("expected inactive tool bucket entry %s to stay ignored, got %#v", tool, def.Tools)
-		}
-	}
-	if def.MemoryEnabled {
-		t.Fatalf("expected memory to stay disabled by default, got %#v", def)
+	if _, err := parseAgentFile(path); err == nil || !strings.Contains(err.Error(), "toolConfig.backends is no longer supported") {
+		t.Fatalf("expected removed toolConfig bucket error, got %v", err)
 	}
 }
 
@@ -803,7 +789,7 @@ func TestParseAgentFileKBaseDefaultsAndConfig(t *testing.T) {
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
 		"kbaseConfig:\n" +
 		"  embedding:\n" +
-		"    providerKey: openai\n" +
+		"    modelKey: openai-embedding\n" +
 		"  storage:\n" +
 		"    location: workspace\n" +
 		"  include:\n" +
@@ -840,7 +826,7 @@ func TestParseAgentFileKBaseDefaultsAndConfig(t *testing.T) {
 	if def.MemoryEnabled || def.MemoryConfig.Enabled {
 		t.Fatalf("expected KBASE to ignore memoryConfig, got %#v", def.MemoryConfig)
 	}
-	if def.KBaseConfig.Embedding.ProviderKey != "openai" || def.KBaseConfig.Storage.Location != "workspace" {
+	if def.KBaseConfig.Embedding.ModelKey != "openai-embedding" || def.KBaseConfig.Storage.Location != "workspace" {
 		t.Fatalf("unexpected kbase config: %#v", def.KBaseConfig)
 	}
 	if def.KBaseConfig.Chunk.MaxChars != 2000 || def.KBaseConfig.Chunk.OverlapChars != 100 {
@@ -877,7 +863,7 @@ func TestParseAgentFileKBaseFiltersToolsAndStaticMemory(t *testing.T) {
 		"    - datetime\n" +
 		"kbaseConfig:\n" +
 		"  embedding:\n" +
-		"    providerKey: openai\n" +
+		"    modelKey: openai-embedding\n" +
 		"memoryConfig:\n" +
 		"  enabled: true\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -898,6 +884,29 @@ func TestParseAgentFileKBaseFiltersToolsAndStaticMemory(t *testing.T) {
 		if !containsString(def.KBaseConfig.Include, include) {
 			t.Fatalf("expected KBASE default include to contain %s, got %#v", include, def.KBaseConfig.Include)
 		}
+	}
+}
+
+func TestParseAgentFileRejectsRemovedKBaseEmbeddingFields(t *testing.T) {
+	workspace := t.TempDir()
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: docs\n" +
+		"mode: KBASE\n" +
+		"modelConfig:\n" +
+		"  modelKey: mock-model\n" +
+		"runtimeConfig:\n" +
+		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
+		"kbaseConfig:\n" +
+		"  embedding:\n" +
+		"    providerKey: openai\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	if _, err := parseAgentFile(path); err == nil || !strings.Contains(err.Error(), "kbaseConfig.embedding.providerKey is no longer supported") {
+		t.Fatalf("expected removed kbase embedding field error, got %v", err)
 	}
 }
 
@@ -1516,7 +1525,7 @@ func TestParseAgentFileWithPromptsPlanExecuteFallbackOrder(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileWithPromptsLoadsLegacySoulSections(t *testing.T) {
+func TestParseAgentFileWithPromptsLoadsSoulSections(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	soulPath := filepath.Join(root, "SOUL.md")

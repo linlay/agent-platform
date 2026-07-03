@@ -343,6 +343,15 @@ func parseRuntimePrompts(root map[string]any) AgentRuntimePrompts {
 	}
 }
 
+func validateAgentToolConfig(toolConfig map[string]any) error {
+	for _, key := range []string{"backends", "frontends", "actions", "overrides"} {
+		if _, exists := toolConfig[key]; exists {
+			return fmt.Errorf("toolConfig.%s is no longer supported; use toolConfig.tools", key)
+		}
+	}
+	return nil
+}
+
 func mergeStageSettingsBudgets(budget map[string]any, stageSettings map[string]any) map[string]any {
 	stageBudgets := stageBudgetsFromStageSettings(stageSettings)
 	if len(stageBudgets) == 0 {
@@ -503,6 +512,9 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	def.ModelKey = stringNode(modelConfig["modelKey"])
 	def.ServiceTier = stringNode(modelConfig["serviceTier"])
 	toolConfig := mapNode(root["toolConfig"])
+	if err := validateAgentToolConfig(toolConfig); err != nil {
+		return AgentDefinition{}, nil, err
+	}
 	def.Tools = listStrings(toolConfig["tools"])
 	def.Skills = listStrings(mapNode(root["skillConfig"])["skills"])
 	def.Controls = cloneListMaps(listMaps(root["controls"]))
@@ -559,7 +571,11 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		}
 	}
 	def.Project = parseAgentProjectConfig(root["projectConfig"])
-	def.KBaseConfig = parseAgentKBaseConfig(root["kbaseConfig"])
+	kbaseConfig := mapNode(root["kbaseConfig"])
+	if err := validateAgentKBaseConfigSchema(kbaseConfig); err != nil {
+		return AgentDefinition{}, nil, err
+	}
+	def.KBaseConfig = parseAgentKBaseConfig(kbaseConfig)
 	if err := validateAgentWorkspace(def.Workspace); err != nil {
 		return AgentDefinition{}, nil, err
 	}
@@ -750,11 +766,7 @@ func parseAgentKBaseConfig(value any) AgentKBaseConfig {
 	}
 	embedding := mapNode(node["embedding"])
 	cfg.Embedding = AgentKBaseEmbeddingConfig{
-		ModelKey:    stringNode(embedding["modelKey"]),
-		ProviderKey: stringNode(embedding["providerKey"]),
-		Model:       stringNode(embedding["model"]),
-		Dimension:   intNode(embedding["dimension"]),
-		Timeout:     intNode(embedding["timeout"]),
+		ModelKey: stringNode(embedding["modelKey"]),
 	}
 	storage := mapNode(node["storage"])
 	if location := strings.ToLower(strings.TrimSpace(stringNode(storage["location"]))); location != "" {
@@ -806,6 +818,16 @@ func parseAgentKBaseConfig(value any) AgentKBaseConfig {
 		cfg.Retrieval.FTSWeight = weight
 	}
 	return cfg
+}
+
+func validateAgentKBaseConfigSchema(kbaseConfig map[string]any) error {
+	embedding := mapNode(kbaseConfig["embedding"])
+	for _, key := range []string{"providerKey", "model", "dimension", "timeout"} {
+		if _, exists := embedding[key]; exists {
+			return fmt.Errorf("kbaseConfig.embedding.%s is no longer supported; use kbaseConfig.embedding.modelKey", key)
+		}
+	}
+	return nil
 }
 
 func applyGlobalAgentFlags(def AgentDefinition, globalMemoryEnabled bool) AgentDefinition {

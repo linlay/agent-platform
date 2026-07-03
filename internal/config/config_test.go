@@ -1020,8 +1020,7 @@ func TestLoadKBaseSettingsMissingFileUsesDefaults(t *testing.T) {
 				if cfg.KBase.DefaultAgent.ModelKey != "" || cfg.KBase.DefaultAgent.ReasoningEffort != "" {
 					t.Fatalf("expected empty kbase default agent config, got %#v", cfg.KBase.DefaultAgent)
 				}
-				if cfg.KBase.Embedding.ModelKey != "" || cfg.KBase.Embedding.ProviderKey != "" || cfg.KBase.Embedding.Model != "" ||
-					cfg.KBase.Embedding.Dimension != 0 || cfg.KBase.Embedding.Timeout != 0 {
+				if cfg.KBase.Embedding.ModelKey != "" {
 					t.Fatalf("expected empty kbase embedding config, got %#v", cfg.KBase.Embedding)
 				}
 				if cfg.KBase.Extraction.Timeout.String() != "1m0s" ||
@@ -1046,10 +1045,6 @@ func TestLoadRuntimeKBaseCompatibility(t *testing.T) {
 			"    reasoningEffort: LOW\n" +
 			"  embedding:\n" +
 			"    modelKey: runtime-embedding-model-key\n" +
-			"    providerKey: runtime-embedding-provider\n" +
-			"    model: runtime-embedding-model\n" +
-			"    dimension: 512\n" +
-			"    timeout: 30\n" +
 			"  refresh:\n" +
 			"    debounce: 4s\n" +
 			"    reconcile-interval: 12m\n" +
@@ -1074,11 +1069,7 @@ func TestLoadRuntimeKBaseCompatibility(t *testing.T) {
 				if cfg.KBase.DefaultAgent.ModelKey != "runtime-kbase-model" || cfg.KBase.DefaultAgent.ReasoningEffort != "LOW" {
 					t.Fatalf("unexpected runtime kbase default agent config: %#v", cfg.KBase.DefaultAgent)
 				}
-				if cfg.KBase.Embedding.ModelKey != "runtime-embedding-model-key" ||
-					cfg.KBase.Embedding.ProviderKey != "runtime-embedding-provider" ||
-					cfg.KBase.Embedding.Model != "runtime-embedding-model" ||
-					cfg.KBase.Embedding.Dimension != 512 ||
-					cfg.KBase.Embedding.Timeout != 30 {
+				if cfg.KBase.Embedding.ModelKey != "runtime-embedding-model-key" {
 					t.Fatalf("unexpected runtime kbase embedding config: %#v", cfg.KBase.Embedding)
 				}
 				if cfg.KBase.Extraction.Timeout.String() != "44s" ||
@@ -1102,10 +1093,6 @@ func TestLoadKBaseSettingsOverridesRuntimeKBase(t *testing.T) {
 			"    reasoningEffort: LOW\n" +
 			"  embedding:\n" +
 			"    modelKey: runtime-embedding-model-key\n" +
-			"    providerKey: runtime-embedding-provider\n" +
-			"    model: runtime-embedding-model\n" +
-			"    dimension: 512\n" +
-			"    timeout: 30\n" +
 			"  refresh:\n" +
 			"    debounce: 4s\n" +
 			"    reconcile-interval: 12m\n" +
@@ -1124,10 +1111,6 @@ func TestLoadKBaseSettingsOverridesRuntimeKBase(t *testing.T) {
 			"  reasoningEffort: HIGH\n" +
 			"embedding:\n" +
 			"  modelKey: settings-embedding-model-key\n" +
-			"  providerKey: settings-embedding-provider\n" +
-			"  model: settings-embedding-model\n" +
-			"  dimension: 1024\n" +
-			"  timeout: 60\n" +
 			"refresh:\n" +
 			"  debounce: 6s\n" +
 			"extraction:\n" +
@@ -1150,11 +1133,7 @@ func TestLoadKBaseSettingsOverridesRuntimeKBase(t *testing.T) {
 				if cfg.KBase.DefaultAgent.ModelKey != "settings-kbase-model" || cfg.KBase.DefaultAgent.ReasoningEffort != "HIGH" {
 					t.Fatalf("unexpected kbase default agent precedence: %#v", cfg.KBase.DefaultAgent)
 				}
-				if cfg.KBase.Embedding.ModelKey != "settings-embedding-model-key" ||
-					cfg.KBase.Embedding.ProviderKey != "settings-embedding-provider" ||
-					cfg.KBase.Embedding.Model != "settings-embedding-model" ||
-					cfg.KBase.Embedding.Dimension != 1024 ||
-					cfg.KBase.Embedding.Timeout != 60 {
+				if cfg.KBase.Embedding.ModelKey != "settings-embedding-model-key" {
 					t.Fatalf("unexpected kbase embedding precedence: %#v", cfg.KBase.Embedding)
 				}
 				if cfg.KBase.Extraction.Timeout.String() != "1m6s" ||

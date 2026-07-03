@@ -473,35 +473,20 @@ func (m *Manager) resolve(agentKey string) (resolvedConfig, *Embedder, error) {
 
 func (m *Manager) resolveEmbedding(agentKey string, agentEmbedding catalog.AgentKBaseEmbeddingConfig, defaults config.KBaseEmbeddingConfig) (EmbeddingSnapshot, models.ProviderDefinition, error) {
 	modelKey := firstNonBlank(agentEmbedding.ModelKey, defaults.ModelKey)
-	if modelKey != "" {
-		model, provider, err := m.models.GetEmbedding(modelKey)
-		if err != nil {
-			return EmbeddingSnapshot{}, models.ProviderDefinition{}, err
-		}
-		embedding := EmbeddingSnapshot{
-			ModelKey:     model.Key,
-			ProviderKey:  provider.Key,
-			Model:        model.ModelID,
-			Dimension:    model.Embedding.Dimension,
-			Timeout:      firstPositive(model.Embedding.Timeout, provider.Embedding.Timeout, 15),
-			EndpointPath: strings.TrimSpace(model.Embedding.EndpointPath),
-		}
-		return embedding, provider, nil
+	if modelKey == "" {
+		return EmbeddingSnapshot{}, models.ProviderDefinition{}, fmt.Errorf("agent %s kbaseConfig.embedding.modelKey is required", agentKey)
 	}
-
-	providerKey := firstNonBlank(agentEmbedding.ProviderKey, defaults.ProviderKey)
-	if providerKey == "" {
-		return EmbeddingSnapshot{}, models.ProviderDefinition{}, fmt.Errorf("agent %s kbaseConfig.embedding.modelKey or providerKey is required", agentKey)
-	}
-	provider, err := m.models.GetProvider(providerKey)
+	model, provider, err := m.models.GetEmbedding(modelKey)
 	if err != nil {
 		return EmbeddingSnapshot{}, models.ProviderDefinition{}, err
 	}
 	embedding := EmbeddingSnapshot{
-		ProviderKey: providerKey,
-		Model:       firstNonBlank(agentEmbedding.Model, defaults.Model, provider.Embedding.Model),
-		Dimension:   firstPositive(agentEmbedding.Dimension, defaults.Dimension, provider.Embedding.Dimension),
-		Timeout:     firstPositive(agentEmbedding.Timeout, defaults.Timeout, provider.Embedding.Timeout, 15),
+		ModelKey:     model.Key,
+		ProviderKey:  provider.Key,
+		Model:        model.ModelID,
+		Dimension:    model.Embedding.Dimension,
+		Timeout:      firstPositive(model.Embedding.Timeout, provider.Embedding.Timeout, 15),
+		EndpointPath: strings.TrimSpace(model.Embedding.EndpointPath),
 	}
 	return embedding, provider, nil
 }

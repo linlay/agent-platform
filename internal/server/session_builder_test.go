@@ -153,7 +153,7 @@ func TestBuildQuerySessionInjectsKBaseSystemPrompt(t *testing.T) {
 			"  workspaceRoot: "+filepath.ToSlash(workspace)+"\n"+
 			"kbaseConfig:\n"+
 			"  embedding:\n"+
-			"    providerKey: openai\n",
+			"    modelKey: openai-embedding\n",
 	), 0o644); err != nil {
 		t.Fatalf("write agent config: %v", err)
 	}
