@@ -54,13 +54,24 @@ GET /ws -> request / response / stream / push / error frames
 | POST | `/api/admin/agents/update-name` | body: `key`/`agentKey`、`name` | 更新后的 agent 详情 |
 | POST | `/api/admin/agents/delete` | body: `key`/`agentKey` | 删除结果 |
 | GET | `/api/admin/agents/editor-options` | 无 | agent 编辑器可选项 |
-| GET | `/api/admin/skills` | 无 | skill 列表 |
+| GET | `/api/admin/skills` | 无 | skills-market skill 列表，包含状态、摘要诊断、更新时间、大小与引用 agent |
+| GET | `/api/admin/skills/detail` | query: `key` | skill 详情，包含 `SKILL.md`、目录文件树、完整诊断和来源 |
+| POST | `/api/admin/skills/create` | body: `key`、`skillMd`、`files[]` | 创建后的 skill 详情 |
+| POST | `/api/admin/skills/delete` | body: `key` | 删除结果；仍被 agent 引用时返回 409 和 `usedByAgents` |
+| GET/PUT | `/api/admin/skills/file` | query/body: `key`、`path`、`content`、`baseSha256` | 读取或保存 UTF-8 文本文件 |
+| POST | `/api/admin/skills/file/delete` | body: `key`、`path`、`recursive`、`baseSha256` | 删除 skill 内文件或目录 |
+| POST | `/api/admin/skills/file/mkdir` | body: `key`、`path` | 创建 skill 内目录 |
+| POST | `/api/admin/skills/file/rename` | body: `key`、`fromPath`、`toPath`、`overwrite` | 重命名 skill 内文件或目录 |
+| POST | `/api/admin/skills/file/upload` | multipart: `key`、`path`、`overwrite`、`file` | 上传 skill 内二进制或大文件 |
+| GET | `/api/admin/skills/file/download` | query: `key`、`path` | 下载 skill 内非目录文件 |
 | GET | `/api/admin/tools` | 无 | tool 列表，含扁平化工具来源字段 |
 | GET | `/api/admin/registries` | 无 | registry 文件列表摘要，含状态、脱敏 summary、首条诊断摘要与诊断数量 |
 | GET/PUT | `/api/admin/registries/detail` | query/body: `category`、`file`、`content` | registry 文件详情或保存结果 |
 | POST | `/api/admin/registries/validate` | body: `category`、`file`、`content` | registry 内容校验结果 |
 
 `/api/admin/tools` 中 `kind` 表示调用方式（如 `backend`、`frontend`、`action`、`external`），`sourceType` 表示定义来源类型（如 `local`、`agent-local`、`mcp`），`sourceCategory` 表示来源分类：`platform` 为 runtime 自带工具，`external` 为 `paths.tools-dir` 下通过 RPC / YAML 接入的外部工具，`mcp` 为 MCP registry 同步工具。MCP 工具额外返回 `serverKey`。列表响应只返回 `key`、`name`、`label`、`description`、`kind`、`sourceType`、`sourceCategory`、`serverKey`，不透出内部 tool definition `meta`；接口不接收 query 过滤参数。
+
+`/api/admin/skills` 只编辑 `paths.skills-market-dir` 下的共享 skill 目录，不直接编辑 agent 本地 `skills/` 同步副本。文件路径必须是相对路径，服务端拒绝目录逃逸和 symlink 跟随；JSON 文本读写限制为 UTF-8 且不超过 1 MiB，二进制或大文件通过 upload/download 接口处理。保存、上传、删除或重命名 skill 文件后会触发 `skills` reload 并级联 reload `agents`，使声明该 skill 的 agent 本地副本重新同步。
 
 `/api/admin/registries` 是列表接口，不返回 registry 文件绝对路径、完整 `diagnostics[]` 或文件大小；编辑器应通过 `/api/admin/registries/detail` 获取 `source`、完整诊断、`content`、`parsed` 与 `size`。
 

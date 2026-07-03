@@ -31,12 +31,17 @@ type agentStatusError struct {
 	status  int
 	code    string
 	message string
+	data    map[string]any
 }
 
 func (e agentStatusError) Error() string { return e.message }
 
 func newAgentStatusError(status int, code string, message string) error {
 	return agentStatusError{status: status, code: code, message: message}
+}
+
+func newAgentStatusErrorWithData(status int, code string, message string, data map[string]any) error {
+	return agentStatusError{status: status, code: code, message: message, data: data}
 }
 
 func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
@@ -192,6 +197,11 @@ func (s *Server) handleTeams(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSkills(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.deps.Registry.(adminSkillRegistry); ok {
+		response, err := s.listAdminSkills()
+		s.writeAgentHTTPResponse(w, response, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, api.Success(s.deps.Registry.Skills("")))
 }
 
@@ -793,7 +803,7 @@ func (s *Server) writeAgentHTTPResponse(w http.ResponseWriter, response any, err
 	}
 	var statusErr agentStatusError
 	if errors.As(err, &statusErr) {
-		writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))
+		writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message, statusErr.data))
 		return
 	}
 	writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
@@ -822,7 +832,7 @@ func (s *Server) sendAgentWSResponse(conn *ws.Conn, req ws.RequestFrame, respons
 func (s *Server) sendAgentWSError(conn *ws.Conn, req ws.RequestFrame, err error) {
 	var statusErr agentStatusError
 	if errors.As(err, &statusErr) {
-		conn.SendError(req.ID, statusErr.code, statusErr.status, statusErr.message, nil)
+		conn.SendError(req.ID, statusErr.code, statusErr.status, statusErr.message, statusErr.data)
 		conn.CompleteRequest(req.ID)
 		return
 	}

@@ -748,6 +748,112 @@ type SkillSummary struct {
 	Meta        map[string]any `json:"meta,omitempty"`
 }
 
+type AdminSkillSummary struct {
+	Key             string                       `json:"key"`
+	Name            string                       `json:"name"`
+	Description     string                       `json:"description,omitempty"`
+	Meta            map[string]any               `json:"meta,omitempty"`
+	Status          string                       `json:"status"`
+	Diagnostic      *AdminRegistryListDiagnostic `json:"diagnostic,omitempty"`
+	DiagnosticCount int                          `json:"diagnosticCount,omitempty"`
+	UpdatedAt       int64                        `json:"updatedAt,omitempty"`
+	Size            int64                        `json:"size,omitempty"`
+	UsedByAgents    []string                     `json:"usedByAgents,omitempty"`
+}
+
+type AdminSkillFile struct {
+	Path      string `json:"path"`
+	Name      string `json:"name"`
+	Kind      string `json:"kind"`
+	Size      int64  `json:"size,omitempty"`
+	UpdatedAt int64  `json:"updatedAt,omitempty"`
+	MimeType  string `json:"mimeType,omitempty"`
+	Text      bool   `json:"text"`
+	Binary    bool   `json:"binary"`
+	SHA256    string `json:"sha256,omitempty"`
+}
+
+type AdminSkillDetailResponse struct {
+	AdminSkillSummary
+	Source      *AgentSource           `json:"source,omitempty"`
+	Diagnostics []AdminAgentDiagnostic `json:"diagnostics,omitempty"`
+	SkillMd     string                 `json:"skillMd,omitempty"`
+	Files       []AdminSkillFile       `json:"files,omitempty"`
+}
+
+type AdminSkillInlineFile struct {
+	Path     string `json:"path"`
+	Content  string `json:"content"`
+	Encoding string `json:"encoding,omitempty"`
+}
+
+type CreateAdminSkillRequest struct {
+	Key     string                 `json:"key"`
+	SkillMd string                 `json:"skillMd"`
+	Files   []AdminSkillInlineFile `json:"files,omitempty"`
+}
+
+type DeleteAdminSkillRequest struct {
+	Key string `json:"key"`
+}
+
+type DeleteAdminSkillResponse struct {
+	Key          string   `json:"key"`
+	Deleted      bool     `json:"deleted"`
+	UsedByAgents []string `json:"usedByAgents,omitempty"`
+}
+
+type AdminSkillFileResponse struct {
+	Key       string `json:"key"`
+	Path      string `json:"path"`
+	Content   string `json:"content"`
+	Encoding  string `json:"encoding"`
+	SHA256    string `json:"sha256"`
+	Size      int64  `json:"size"`
+	UpdatedAt int64  `json:"updatedAt,omitempty"`
+}
+
+type WriteAdminSkillFileRequest struct {
+	Key        string `json:"key"`
+	Path       string `json:"path"`
+	Content    string `json:"content"`
+	Encoding   string `json:"encoding,omitempty"`
+	BaseSHA256 string `json:"baseSha256,omitempty"`
+}
+
+type DeleteAdminSkillFileRequest struct {
+	Key        string `json:"key"`
+	Path       string `json:"path"`
+	Recursive  bool   `json:"recursive,omitempty"`
+	BaseSHA256 string `json:"baseSha256,omitempty"`
+}
+
+type MkdirAdminSkillFileRequest struct {
+	Key  string `json:"key"`
+	Path string `json:"path"`
+}
+
+type RenameAdminSkillFileRequest struct {
+	Key       string `json:"key"`
+	FromPath  string `json:"fromPath"`
+	ToPath    string `json:"toPath"`
+	Overwrite bool   `json:"overwrite,omitempty"`
+}
+
+type AdminSkillFileMutationResponse struct {
+	Key          string          `json:"key"`
+	Path         string          `json:"path,omitempty"`
+	FromPath     string          `json:"fromPath,omitempty"`
+	ToPath       string          `json:"toPath,omitempty"`
+	Created      bool            `json:"created,omitempty"`
+	Updated      bool            `json:"updated,omitempty"`
+	Deleted      bool            `json:"deleted,omitempty"`
+	Renamed      bool            `json:"renamed,omitempty"`
+	File         *AdminSkillFile `json:"file,omitempty"`
+	Reloaded     bool            `json:"reloaded,omitempty"`
+	UsedByAgents []string        `json:"usedByAgents,omitempty"`
+}
+
 type ToolSummary struct {
 	Key            string `json:"key"`
 	Name           string `json:"name"`

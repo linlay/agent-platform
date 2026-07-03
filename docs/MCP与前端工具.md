@@ -52,10 +52,11 @@ agent-platform
 plugins/
   pdf-extractor/
     manifest.json
-    bin/pdftotext
+    payload/darwin-arm64/bin/pdftotext
+    payload/darwin-arm64/lib/*.dylib
 ```
 
-macOS manifest 中 `platform.os` 为 `darwin`，`platform.arch` 为 `arm64`，`executables.pdftotext` 可指向包内 `bin/pdftotext` wrapper；wrapper 再复用系统或 Homebrew 安装的 Poppler。
+macOS manifest 中 `platform.os` 为 `darwin`，`platform.arch` 为 `arm64`，`executables.pdftotext` 指向包内 `payload/darwin-arm64/bin/pdftotext`。darwin-arm64 包会携带 Poppler 所需 dylib，Desktop 使用该 support package 时不要求用户额外安装 Homebrew Poppler。
 
 Desktop 内置服务场景下，agent-platform 通常安装在品牌程序数据目录的 `services/agent-platform/<version>/` 下，真实二进制位于 `backend/agent-platform` 或 `backend/agent-platform.exe`。推荐把 support package 放在服务包根目录：
 

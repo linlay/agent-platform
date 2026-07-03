@@ -55,7 +55,7 @@ func NewRuntimeCatalogReloader(registry catalog.Registry, models *models.ModelRe
 //
 //	agents          → reload agents (re-syncs declared skills from skills-market)
 //	teams           → reload teams
-//	skills          → reload skills
+//	skills          → reload skills + reload agents (cascade for synced skills)
 //	models          → reload models + reload agents (cascade for affected agents)
 //	providers       → reload providers only (independent)
 //	tools           → reload runtime tool definitions + reload agents (cascade)
@@ -78,6 +78,10 @@ func (r *RuntimeCatalogReloader) Reload(ctx context.Context, reason string) erro
 		}
 	case "skills":
 		if err := r.reloadCatalog(ctx, "skills"); err != nil {
+			return err
+		}
+		log.Printf("[reload] cascade: skills → agents")
+		if err := r.reloadCatalog(ctx, "agents"); err != nil {
 			return err
 		}
 	case "models":

@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"agent-platform/internal/api"
+	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
 )
 
@@ -109,6 +111,46 @@ func TestMergePendingReloadReasonEscalatesMixedChangesToConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRuntimeCatalogReloaderCascadesSkillsToAgents(t *testing.T) {
+	registry := &recordingRuntimeRegistry{}
+	reloader := NewRuntimeCatalogReloader(registry, nil, nil, nil, "", nil)
+
+	if err := reloader.Reload(context.Background(), "skills"); err != nil {
+		t.Fatalf("reload skills: %v", err)
+	}
+
+	want := []string{"skills", "agents"}
+	if !reflect.DeepEqual(registry.reasons, want) {
+		t.Fatalf("reload reasons = %#v, want %#v", registry.reasons, want)
+	}
+}
+
+type recordingRuntimeRegistry struct {
+	reasons []string
+}
+
+func (r *recordingRuntimeRegistry) Agents(string) []api.AgentSummary       { return nil }
+func (r *recordingRuntimeRegistry) Teams() []api.TeamSummary               { return nil }
+func (r *recordingRuntimeRegistry) Skills(string) []api.SkillSummary       { return nil }
+func (r *recordingRuntimeRegistry) Tools(string, string) []api.ToolSummary { return nil }
+func (r *recordingRuntimeRegistry) Tool(string) (api.ToolDetailResponse, bool) {
+	return api.ToolDetailResponse{}, false
+}
+func (r *recordingRuntimeRegistry) SkillDefinition(string) (catalog.SkillDefinition, bool) {
+	return catalog.SkillDefinition{}, false
+}
+func (r *recordingRuntimeRegistry) DefaultAgentKey() string { return "" }
+func (r *recordingRuntimeRegistry) AgentDefinition(string) (catalog.AgentDefinition, bool) {
+	return catalog.AgentDefinition{}, false
+}
+func (r *recordingRuntimeRegistry) TeamDefinition(string) (catalog.TeamDefinition, bool) {
+	return catalog.TeamDefinition{}, false
+}
+func (r *recordingRuntimeRegistry) Reload(_ context.Context, reason string) error {
+	r.reasons = append(r.reasons, reason)
+	return nil
 }
 
 func assertNoReloadReason(t *testing.T, reasons <-chan string, timeout time.Duration) {
