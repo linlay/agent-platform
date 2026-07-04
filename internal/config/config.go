@@ -40,7 +40,6 @@ type Config struct {
 	Bash            BashConfig
 	SandboxBash     SandboxBashConfig
 	FileTools       FileToolsConfig
-	Run             RunConfig
 	WebSocket       WebSocketConfig
 	// Gateways 是多 gateway 反向连接列表（wecom / feishu / ding / ...）。
 	Gateways []GatewayEntry
@@ -471,14 +470,6 @@ type LSPDiagnosticsHookConfig struct {
 type LSPServerConfig struct {
 	Command string
 	Args    []string
-}
-
-type RunConfig struct {
-	ReaperInterval        int64 // seconds
-	MaxBackgroundDuration int64 // seconds
-	CompletedRetention    int64 // seconds
-	EventBusMaxEvents     int
-	MaxObserversPerRun    int
 }
 
 type WebSocketConfig struct {

@@ -54,8 +54,8 @@ func TestNormalizeBudgetLeavesUnsetHitlTimeoutAtZero(t *testing.T) {
 	if budget.Model.MaxCalls != 100 {
 		t.Fatalf("expected default model max calls 100, got %#v", budget)
 	}
-	if budget.Model.Timeout != 30 {
-		t.Fatalf("expected default model timeout 30, got %#v", budget)
+	if budget.Model.Timeout != 60 {
+		t.Fatalf("expected default model timeout 60, got %#v", budget)
 	}
 	if budget.Tool.MaxCalls != 100 {
 		t.Fatalf("expected default tool max calls 100, got %#v", budget)

@@ -397,10 +397,6 @@ type RunStatusInfo struct {
 	AccessLevelVersion int64
 }
 
-type RunLifecycleConfigurer interface {
-	ConfigureRunLifecycle(cfg config.RunConfig)
-}
-
 type SubmitAck struct {
 	Accepted bool
 	Status   string

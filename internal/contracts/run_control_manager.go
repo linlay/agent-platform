@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/config"
 	"agent-platform/internal/stream"
 )
 
@@ -43,28 +42,6 @@ func NewInMemoryRunManager() *InMemoryRunManager {
 		eventBusMaxEvents:     defaultRunEventBusMaxEvents,
 		maxObserversPerRun:    defaultRunMaxObserversPerRun,
 	}
-}
-
-func (m *InMemoryRunManager) ConfigureRunLifecycle(cfg config.RunConfig) {
-	if m == nil {
-		return
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if cfg.ReaperInterval > 0 {
-		m.reaperInterval = time.Duration(cfg.ReaperInterval) * time.Second
-	}
-	m.maxBackgroundDuration = time.Duration(cfg.MaxBackgroundDuration) * time.Second
-	if cfg.CompletedRetention > 0 {
-		m.completedRetention = time.Duration(cfg.CompletedRetention) * time.Second
-	}
-	if cfg.EventBusMaxEvents > 0 {
-		m.eventBusMaxEvents = cfg.EventBusMaxEvents
-	}
-	if cfg.MaxObserversPerRun > 0 {
-		m.maxObserversPerRun = cfg.MaxObserversPerRun
-	}
-	m.startReaper()
 }
 
 func (m *InMemoryRunManager) Register(_ context.Context, session QuerySession) (context.Context, *RunControl, ActiveRun) {

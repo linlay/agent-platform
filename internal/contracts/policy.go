@@ -132,7 +132,7 @@ func normalizeBudget(b Budget) Budget {
 	if b.MaxSteps <= 0 {
 		b.MaxSteps = 100
 	}
-	b.Model = normalizeRetryPolicy(b.Model, RetryPolicy{MaxCalls: b.MaxSteps, Timeout: 30, RetryCount: 0})
+	b.Model = normalizeRetryPolicy(b.Model, RetryPolicy{MaxCalls: b.MaxSteps, Timeout: 60, RetryCount: 0})
 	b.Model.MaxCalls = b.MaxSteps
 	toolFallbackMaxCalls := 100
 	if hadStepOverride {

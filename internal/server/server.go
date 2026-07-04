@@ -117,9 +117,6 @@ func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 }
 
 func New(deps Dependencies) (*Server, error) {
-	if configurable, ok := deps.Runs.(contracts.RunLifecycleConfigurer); ok {
-		configurable.ConfigureRunLifecycle(deps.Config.Run)
-	}
 	authVerifier := NewJWTVerifier(deps.Config.Auth)
 	if deps.Config.Auth.Enabled {
 		if err := authVerifier.ValidateConfiguration(); err != nil {
