@@ -182,6 +182,24 @@ func TestLoadModelRegistryParsesMaxInputTokensAsContextWindow(t *testing.T) {
 	}
 }
 
+func TestLoadModelRegistryParsesChatModelTimeout(t *testing.T) {
+	root := t.TempDir()
+	writeTestProviderAndModel(t, root, "apiKey: plain-text", "timeout: 300")
+
+	registry, err := LoadModelRegistry(root)
+	if err != nil {
+		t.Fatalf("LoadModelRegistry returned error: %v", err)
+	}
+
+	model, _, err := registry.Get("mock-model")
+	if err != nil {
+		t.Fatalf("registry.Get returned error: %v", err)
+	}
+	if model.Timeout != 300 {
+		t.Fatalf("expected chat model timeout to parse, got %d", model.Timeout)
+	}
+}
+
 func TestLoadModelRegistryParsesModelPricing(t *testing.T) {
 	root := t.TempDir()
 	writeTestProviderAndModel(t, root, "apiKey: plain-text",

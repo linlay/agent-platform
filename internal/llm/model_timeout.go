@@ -17,14 +17,21 @@ type sseFrameReadResult struct {
 }
 
 func (s *llmRunStream) modelStreamIdleTimeout() time.Duration {
-	if s == nil || s.execCtx == nil {
+	if s == nil {
 		return 0
 	}
-	budget := NormalizeBudget(s.execCtx.Budget)
-	if budget.Model.Timeout <= 0 {
+	seconds := 0
+	if s.execCtx != nil {
+		budget := NormalizeBudget(s.execCtx.Budget)
+		seconds = budget.Model.Timeout
+	}
+	if s.model.Timeout > 0 {
+		seconds = s.model.Timeout
+	}
+	if seconds <= 0 {
 		return 0
 	}
-	return budget.Model.TimeoutDuration()
+	return time.Duration(seconds) * time.Second
 }
 
 func (s *llmRunStream) readCurrentSSEFrame() (string, string, error) {

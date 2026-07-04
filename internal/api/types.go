@@ -682,6 +682,7 @@ type AgentEditorModelOption struct {
 	Protocol      string `json:"protocol,omitempty"`
 	IsVision      bool   `json:"isVision"`
 	ContextWindow int    `json:"contextWindow,omitempty"`
+	Timeout       int    `json:"timeout,omitempty"`
 }
 
 type AgentEditorOption struct {
@@ -719,6 +720,7 @@ type CoderModelOption struct {
 	IsReasoner       bool     `json:"isReasoner"`
 	IsVision         bool     `json:"isVision"`
 	ContextWindow    int      `json:"contextWindow,omitempty"`
+	Timeout          int      `json:"timeout,omitempty"`
 	ReasoningEfforts []string `json:"reasoningEfforts,omitempty"`
 	ServiceTiers     []string `json:"serviceTiers,omitempty"`
 }

@@ -266,11 +266,15 @@ func (s *Server) applyCoderDefaultAgentConfig(definition map[string]any) map[str
 	defaults := s.deps.Config.CoderSettings.DefaultAgent
 	modelKey := strings.TrimSpace(defaults.ModelKey)
 	reasoningEffort := strings.TrimSpace(defaults.ReasoningEffort)
-	if modelKey == "" && reasoningEffort == "" {
+	budget := defaults.Budget
+	if modelKey == "" && reasoningEffort == "" && len(budget) == 0 {
 		return definition
 	}
 
 	out := contracts.CloneMap(definition)
+	if _, exists := out["budget"]; !exists && len(budget) > 0 {
+		out["budget"] = contracts.CloneMap(budget)
+	}
 	modelConfig := contracts.CloneMap(contracts.AnyMapNode(out["modelConfig"]))
 	if modelConfig == nil {
 		modelConfig = map[string]any{}
@@ -634,6 +638,7 @@ func (s *Server) buildAgentEditorOptions() api.AgentEditorOptionsResponse {
 				Protocol:      model.Protocol,
 				IsVision:      model.IsVision,
 				ContextWindow: model.ContextWindow,
+				Timeout:       model.Timeout,
 			})
 		}
 	}

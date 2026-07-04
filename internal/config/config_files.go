@@ -652,6 +652,9 @@ func (c *Config) applyCoderSettingsFile(path string) error {
 	if len(defaultAgent) > 0 {
 		c.CoderSettings.DefaultAgent.ModelKey = stringValue(anyValue(defaultAgent["modelKey"], c.CoderSettings.DefaultAgent.ModelKey), c.CoderSettings.DefaultAgent.ModelKey)
 		c.CoderSettings.DefaultAgent.ReasoningEffort = stringValue(anyValue(defaultAgent["reasoningEffort"], c.CoderSettings.DefaultAgent.ReasoningEffort), c.CoderSettings.DefaultAgent.ReasoningEffort)
+		if budget, ok := defaultAgent["budget"].(map[string]any); ok {
+			c.CoderSettings.DefaultAgent.Budget = cloneConfigMap(budget)
+		}
 	}
 	acpProxies, err := parseCoderACPProxies(values["acp-proxies"], c.CoderSettings.ACPProxies)
 	if err != nil {
@@ -665,6 +668,32 @@ func (c *Config) applyCoderSettingsFile(path string) error {
 	c.CoderSettings.WorkspaceAgents.Enabled = boolValue(anyValue(workspaceAgents["enabled"], c.CoderSettings.WorkspaceAgents.Enabled), c.CoderSettings.WorkspaceAgents.Enabled)
 	c.CoderSettings.WorkspaceAgents.File = stringValue(anyValue(workspaceAgents["file"], c.CoderSettings.WorkspaceAgents.File), c.CoderSettings.WorkspaceAgents.File)
 	return nil
+}
+
+func cloneConfigMap(src map[string]any) map[string]any {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]any, len(src))
+	for key, value := range src {
+		dst[key] = cloneConfigValue(value)
+	}
+	return dst
+}
+
+func cloneConfigValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneConfigMap(typed)
+	case []any:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = cloneConfigValue(item)
+		}
+		return out
+	default:
+		return value
+	}
 }
 
 func parseCoderACPProxies(raw any, fallback map[string]CoderACPProxyConfig) (map[string]CoderACPProxyConfig, error) {

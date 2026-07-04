@@ -137,6 +137,7 @@ type CoderWorkspaceAgentsConfig struct {
 type CoderDefaultAgentConfig struct {
 	ModelKey        string
 	ReasoningEffort string
+	Budget          map[string]any
 }
 
 type CoderACPProxyConfig struct {

@@ -23,6 +23,7 @@ import (
 	contracts "agent-platform/internal/contracts"
 	"agent-platform/internal/frontendtools"
 	"agent-platform/internal/hitl"
+	"agent-platform/internal/models"
 	streampkg "agent-platform/internal/stream"
 	runtimetools "agent-platform/internal/tools"
 )
@@ -468,6 +469,19 @@ func TestReadCurrentSSEFrameUsesModelIdleTimeout(t *testing.T) {
 	}
 	if elapsed >= 2*time.Second {
 		t.Fatalf("expected idle timeout near 1s, took %s", elapsed)
+	}
+}
+
+func TestModelStreamIdleTimeoutUsesModelOverride(t *testing.T) {
+	stream := &llmRunStream{
+		model: models.ModelDefinition{Timeout: 300},
+		execCtx: &contracts.ExecutionContext{
+			Budget: contracts.Budget{Model: contracts.RetryPolicy{Timeout: 60}},
+		},
+	}
+
+	if got := stream.modelStreamIdleTimeout(); got != 300*time.Second {
+		t.Fatalf("expected model timeout override 300s, got %s", got)
 	}
 }
 

@@ -5,6 +5,12 @@ default-agent:
   modelKey:
   # Optional default reasoning effort for new CODER agents; leave empty to require explicit configuration.
   reasoningEffort:
+  # Optional default budget written when creating a new CODER agent without an explicit budget.
+  budget:
+    timeout: 3600
+    maxSteps: 240
+    tool:
+      maxCalls: 200
 
 acp-proxies:
   # ACP CODER bridge entries. Codex CLI/proxy settings stay in proxy-acp-codex.

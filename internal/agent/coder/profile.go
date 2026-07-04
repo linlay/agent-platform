@@ -22,7 +22,7 @@ var defaultToolNames = []string{
 var defaultContextTags = []string{"system", "session"}
 
 var defaultBudget = map[string]any{
-	"timeout":  1800,
+	"timeout":  3600,
 	"maxSteps": 240,
 	"tool": map[string]any{
 		"maxCalls": 200,

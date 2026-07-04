@@ -786,7 +786,7 @@ func TestLoadCoderSettingsMissingFileLeavesEmpty(t *testing.T) {
 			if cfg.CoderSettings.WorkspaceAgents.Enabled || cfg.CoderSettings.WorkspaceAgents.File != "" {
 				t.Fatalf("expected empty coder workspace agents config, got %#v", cfg.CoderSettings.WorkspaceAgents)
 			}
-			if cfg.CoderSettings.DefaultAgent.ModelKey != "" || cfg.CoderSettings.DefaultAgent.ReasoningEffort != "" {
+			if cfg.CoderSettings.DefaultAgent.ModelKey != "" || cfg.CoderSettings.DefaultAgent.ReasoningEffort != "" || len(cfg.CoderSettings.DefaultAgent.Budget) != 0 {
 				t.Fatalf("expected empty coder default agent config, got %#v", cfg.CoderSettings.DefaultAgent)
 			}
 			if len(cfg.CoderSettings.ACPProxies) != 0 {
@@ -802,6 +802,11 @@ func TestLoadCoderSettingsConfigFromFile(t *testing.T) {
 			"default-agent:\n" +
 			"  modelKey: deepseek-v4-pro\n" +
 			"  reasoningEffort: MEDIUM\n" +
+			"  budget:\n" +
+			"    timeout: 3600\n" +
+			"    maxSteps: 240\n" +
+			"    tool:\n" +
+			"      maxCalls: 200\n" +
 			"acp-proxies:\n" +
 			"  codex:\n" +
 			"    base-url: http://127.0.0.1:3211\n" +
@@ -822,6 +827,11 @@ func TestLoadCoderSettingsConfigFromFile(t *testing.T) {
 			}
 			if cfg.CoderSettings.DefaultAgent.ModelKey != "deepseek-v4-pro" || cfg.CoderSettings.DefaultAgent.ReasoningEffort != "MEDIUM" {
 				t.Fatalf("unexpected coder default agent override: %#v", cfg.CoderSettings.DefaultAgent)
+			}
+			budget := cfg.CoderSettings.DefaultAgent.Budget
+			tool, _ := budget["tool"].(map[string]any)
+			if intValue(budget["timeout"], 0) != 3600 || intValue(budget["maxSteps"], 0) != 240 || intValue(tool["maxCalls"], 0) != 200 {
+				t.Fatalf("unexpected coder default agent budget: %#v", budget)
 			}
 			if got := cfg.CoderSettings.ACPProxies["codex"]; got.BaseURL != "http://127.0.0.1:3211" || got.AuthToken != "coder-token" || got.Timeout != 300 {
 				t.Fatalf("unexpected codex ACP proxy config: %#v", got)

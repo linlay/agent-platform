@@ -85,6 +85,7 @@ func (s *Server) listModelOptionsForAgent(agentKey string) []api.CoderModelOptio
 			IsReasoner:       model.IsReasoner,
 			IsVision:         model.IsVision,
 			ContextWindow:    model.ContextWindow,
+			Timeout:          model.Timeout,
 			ReasoningEfforts: append([]string(nil), model.ReasoningEfforts...),
 			ServiceTiers:     append([]string(nil), model.ServiceTiers...),
 		})

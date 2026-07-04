@@ -497,6 +497,7 @@ func adminRegistryPublicSummary(category string, root map[string]any) map[string
 		put("isFunction", root["isFunction"])
 		put("maxInputTokens", root["maxInputTokens"])
 		put("maxOutputTokens", root["maxOutputTokens"])
+		put("timeout", root["timeout"])
 	case "mcp-servers":
 		put("baseUrl", contracts.FirstNonEmptyString(root["baseUrl"], root["base-url"], root["url"]))
 		put("endpointPath", contracts.FirstNonEmptyString(root["endpointPath"], root["endpoint-path"], root["path"]))

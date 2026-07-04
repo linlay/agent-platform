@@ -412,6 +412,13 @@ func TestAgentCreateCoderAndOpenWorkspace(t *testing.T) {
 			cfg.CoderSettings.DefaultAgent = config.CoderDefaultAgentConfig{
 				ModelKey:        "mock-model",
 				ReasoningEffort: "MEDIUM",
+				Budget: map[string]any{
+					"timeout":  3600,
+					"maxSteps": 240,
+					"tool": map[string]any{
+						"maxCalls": 200,
+					},
+				},
 			}
 		},
 	})
@@ -467,6 +474,11 @@ func TestAgentCreateCoderAndOpenWorkspace(t *testing.T) {
 	if modelConfig["modelKey"] != "mock-model" || reasoning["effort"] != "MEDIUM" {
 		t.Fatalf("expected coder default model config, got %#v", modelConfig)
 	}
+	budget, _ := created.Definition["budget"].(map[string]any)
+	toolBudget, _ := budget["tool"].(map[string]any)
+	if budget["timeout"] != float64(3600) || budget["maxSteps"] != float64(240) || toolBudget["maxCalls"] != float64(200) {
+		t.Fatalf("expected coder default budget, got %#v", budget)
+	}
 	if _, ok := created.Definition["concurrency"]; ok {
 		t.Fatalf("coder definition should not persist concurrency, got %#v", created.Definition["concurrency"])
 	}
@@ -489,6 +501,9 @@ func TestAgentCreateCoderAndOpenWorkspace(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "\n  name: coder\n") {
 		t.Fatalf("created coder file should persist icon.name: coder:\n%s", data)
+	}
+	if !strings.Contains(string(data), "\nbudget:\n") || !strings.Contains(string(data), "\n  timeout: 3600\n") || !strings.Contains(string(data), "\n    maxCalls: 200\n") {
+		t.Fatalf("created coder file should persist default budget:\n%s", data)
 	}
 
 	updatedDefinition := created.Definition
@@ -565,6 +580,9 @@ func TestAgentCreateCoderAppliesDefaultModelConfig(t *testing.T) {
 	if created.Meta["modelKey"] != "mock-model" {
 		t.Fatalf("expected created coder model key mock-model, got %#v", created.Meta)
 	}
+	if _, ok := created.Definition["budget"]; ok {
+		t.Fatalf("coder create without settings budget should not persist budget, got %#v", created.Definition["budget"])
+	}
 }
 
 func TestAgentCreateCoderPreservesExplicitModelConfig(t *testing.T) {
@@ -578,6 +596,12 @@ func TestAgentCreateCoderPreservesExplicitModelConfig(t *testing.T) {
 			cfg.CoderSettings.DefaultAgent = config.CoderDefaultAgentConfig{
 				ModelKey:        "default-model",
 				ReasoningEffort: "HIGH",
+				Budget: map[string]any{
+					"timeout": 3600,
+					"tool": map[string]any{
+						"maxCalls": 200,
+					},
+				},
 			}
 		},
 	})
@@ -595,6 +619,12 @@ func TestAgentCreateCoderPreservesExplicitModelConfig(t *testing.T) {
 					"effort": "LOW",
 				},
 			},
+			"budget": map[string]any{
+				"timeout": 1800,
+				"tool": map[string]any{
+					"maxCalls": 120,
+				},
+			},
 			"runtimeConfig": map[string]any{
 				"workspaceRoot": workspaceDir,
 			},
@@ -604,6 +634,42 @@ func TestAgentCreateCoderPreservesExplicitModelConfig(t *testing.T) {
 	reasoning, _ := modelConfig["reasoning"].(map[string]any)
 	if modelConfig["modelKey"] != "mock-model" || reasoning["effort"] != "LOW" {
 		t.Fatalf("expected explicit coder model config to win, got %#v", modelConfig)
+	}
+	budget, _ := created.Definition["budget"].(map[string]any)
+	toolBudget, _ := budget["tool"].(map[string]any)
+	if budget["timeout"] != float64(1800) || toolBudget["maxCalls"] != float64(120) {
+		t.Fatalf("expected explicit coder budget to win, got %#v", budget)
+	}
+}
+
+func TestAgentCreateCoderDefaultBudgetDoesNotApplyToNonCoder(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{
+		configure: func(cfg *config.Config) {
+			cfg.CoderSettings.DefaultAgent = config.CoderDefaultAgentConfig{
+				Budget: map[string]any{
+					"timeout": 3600,
+				},
+			}
+		},
+	})
+
+	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
+		"key": "react-no-coder-budget",
+		"definition": map[string]any{
+			"key":         "react-no-coder-budget",
+			"name":        "React No Coder Budget",
+			"mode":        "REACT",
+			"modelConfig": map[string]any{"modelKey": "mock-model"},
+			"toolConfig":  map[string]any{"tools": []any{"datetime"}},
+		},
+	})
+	if _, ok := created.Definition["budget"]; ok {
+		t.Fatalf("non-CODER create should not apply coder default budget, got %#v", created.Definition["budget"])
 	}
 }
 

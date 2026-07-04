@@ -58,6 +58,7 @@ type ModelDefinition struct {
 	IsReasoner       bool
 	IsVision         bool
 	ContextWindow    int
+	Timeout          int
 	Pricing          ModelPricing
 	Headers          map[string]string
 	Compat           map[string]any
@@ -592,6 +593,7 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 			IsReasoner:       parseTruthy(stringNode(values["isReasoner"])),
 			IsVision:         parseTruthyDefault(values["isVision"], false),
 			ContextWindow:    contracts.AnyIntNode(values["maxInputTokens"]),
+			Timeout:          intNode(values["timeout"]),
 			Pricing:          loadModelPricing(values["pricing"]),
 			Headers:          stringMapNode(values["headers"]),
 			Compat:           contracts.CloneAnyMap(contracts.AnyMapNode(values["compat"])),

@@ -695,8 +695,8 @@ func TestParseAgentFileAppliesCoderProfileDefaults(t *testing.T) {
 	if !reflect.DeepEqual(def.ContextTags, wantTags) {
 		t.Fatalf("context tags = %#v, want %#v", def.ContextTags, wantTags)
 	}
-	if got := intNode(def.Budget["timeout"]); got != 1800 {
-		t.Fatalf("timeout = %d, want 1800", got)
+	if got := intNode(def.Budget["timeout"]); got != 3600 {
+		t.Fatalf("timeout = %d, want 3600", got)
 	}
 	if got := intNode(def.Budget["maxSteps"]); got != 240 {
 		t.Fatalf("maxSteps = %d, want 240", got)
