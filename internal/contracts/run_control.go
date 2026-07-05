@@ -121,6 +121,7 @@ type RunControl struct {
 
 	mu              sync.Mutex
 	steerQueue      []api.SteerRequest
+	steerClosed     bool
 	submitWaiters   map[string]*submitWaiter
 	pendingSubmits  map[string]SubmitResult
 	resolvedSubmits map[string]SubmitResult
@@ -207,6 +208,8 @@ func (c *RunControl) Interrupt(info InterruptInfo) bool {
 	info = NormalizeInterruptInfo(info)
 	c.mu.Lock()
 	c.interruptInfo = info
+	c.steerClosed = true
+	c.steerQueue = nil
 	c.mu.Unlock()
 	c.TransitionState(RunLoopStateCancelled)
 	c.cancel()
@@ -225,6 +228,7 @@ func (c *RunControl) Finish() bool {
 	if state != RunLoopStateCancelled && state != RunLoopStateFailed {
 		c.TransitionState(RunLoopStateCompleted)
 	}
+	c.closeSteers()
 	c.cancel()
 	c.closeWaiters("finished", "Run finished before submit arrived")
 	return true
@@ -236,7 +240,7 @@ func (c *RunControl) EnqueueSteer(req api.SteerRequest) bool {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.interrupted.Load() || c.finished.Load() {
+	if c.interrupted.Load() || c.finished.Load() || c.steerClosed {
 		return false
 	}
 	c.steerQueue = append(c.steerQueue, req)
@@ -255,6 +259,35 @@ func (c *RunControl) DrainSteers() []api.SteerRequest {
 	queue := append([]api.SteerRequest(nil), c.steerQueue...)
 	c.steerQueue = nil
 	return queue
+}
+
+func (c *RunControl) DrainSteersBeforeFinish() []api.SteerRequest {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.steerQueue) == 0 {
+		c.steerClosed = true
+		return nil
+	}
+	queue := append([]api.SteerRequest(nil), c.steerQueue...)
+	c.steerQueue = nil
+	return queue
+}
+
+func (c *RunControl) CloseSteers() {
+	if c == nil {
+		return
+	}
+	c.closeSteers()
+}
+
+func (c *RunControl) closeSteers() {
+	c.mu.Lock()
+	c.steerClosed = true
+	c.steerQueue = nil
+	c.mu.Unlock()
 }
 
 func (c *RunControl) AwaitSubmit(ctx context.Context, awaitingID string) (SubmitResult, error) {

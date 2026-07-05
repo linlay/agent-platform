@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"agent-platform/internal/api"
 	. "agent-platform/internal/contracts"
 )
 
@@ -52,6 +53,7 @@ func (s *llmRunStream) prime() error {
 func (s *llmRunStream) fillPending() error {
 	for len(s.pending) == 0 {
 		if err := s.fillNextPendingSource(); err != nil {
+			s.closeSteers()
 			return err
 		}
 	}
@@ -81,7 +83,7 @@ func (s *llmRunStream) fillNextPendingSource() error {
 		return s.invokeQueuedToolCallsAndPostHook()
 	}
 	if s.stopAfterToolBatch {
-		s.finished = true
+		s.closeSteersAndFinish()
 		return nil
 	}
 	if s.currentTurn == nil {
@@ -115,7 +117,7 @@ func (s *llmRunStream) prepareTurnForPending() error {
 			return s.prepareNextTurn()
 		}
 		s.enqueueFallback("Tool execution loop reached the maximum number of steps.")
-		s.finished = true
+		s.closeSteersAndFinish()
 		return nil
 	}
 	return s.prepareNextTurn()
@@ -133,7 +135,7 @@ func (s *llmRunStream) prepareNextTurn() error {
 	}
 	if err := s.checkBudgetBeforeModelCall(); err != nil {
 		s.pending = append(s.pending, DeltaError{Error: err})
-		s.finished = true
+		s.closeSteersAndFinish()
 		return nil
 	}
 	if s.runControl != nil {
@@ -297,7 +299,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 			nil,
 		)})
 		s.currentTurn = nil
-		s.finished = true
+		s.closeSteersAndFinish()
 		return nil
 	}
 	content := turn.content.String()
@@ -316,7 +318,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		if strings.TrimSpace(content) == "" {
 			s.enqueueFallback("Tool execution loop reached the maximum number of steps.")
 		}
-		s.finished = true
+		s.closeSteersAndFinish()
 		return nil
 	}
 	if content != "" || len(toolCalls) > 0 {
@@ -333,6 +335,9 @@ func (s *llmRunStream) finishCurrentTurn() error {
 	s.currentTurn = nil
 
 	if len(toolCalls) == 0 {
+		if s.appendTailSteersBeforeFinish() {
+			return nil
+		}
 		if strings.TrimSpace(content) == "" {
 			s.enqueueFallback("Model returned no assistant content.")
 		}
@@ -350,7 +355,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 			ErrorCategorySystem,
 			nil,
 		)})
-		s.finished = true
+		s.closeSteersAndFinish()
 		return nil
 	}
 
@@ -530,7 +535,23 @@ func (s *llmRunStream) appendPendingSteers() {
 	if s.runControl == nil {
 		return
 	}
-	for _, steer := range s.runControl.DrainSteers() {
+	s.appendSteers(s.runControl.DrainSteers())
+}
+
+func (s *llmRunStream) appendTailSteersBeforeFinish() bool {
+	if s.runControl == nil {
+		return false
+	}
+	steers := s.runControl.DrainSteersBeforeFinish()
+	if len(steers) == 0 {
+		return false
+	}
+	s.appendSteers(steers)
+	return true
+}
+
+func (s *llmRunStream) appendSteers(steers []api.SteerRequest) {
+	for _, steer := range steers {
 		s.pending = append(s.pending, NewSteerDelta(steer))
 		if strings.TrimSpace(steer.Message) != "" {
 			s.pendingSteerInputs = append(s.pendingSteerInputs, map[string]any{
@@ -542,6 +563,17 @@ func (s *llmRunStream) appendPendingSteers() {
 			Role:    "user",
 			Content: steer.Message,
 		})
+	}
+}
+
+func (s *llmRunStream) closeSteersAndFinish() {
+	s.closeSteers()
+	s.finished = true
+}
+
+func (s *llmRunStream) closeSteers() {
+	if s.runControl != nil {
+		s.runControl.CloseSteers()
 	}
 }
 

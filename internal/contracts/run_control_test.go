@@ -82,6 +82,55 @@ func TestRunControlInterruptInfoPreservesFirstCause(t *testing.T) {
 	}
 }
 
+func TestRunControlDrainSteersBeforeFinishClosesEmptyQueue(t *testing.T) {
+	control := NewRunControl(context.Background(), "run_1")
+
+	if steers := control.DrainSteersBeforeFinish(); len(steers) != 0 {
+		t.Fatalf("expected no steers, got %#v", steers)
+	}
+	if control.EnqueueSteer(api.SteerRequest{RunID: "run_1", Message: "too late"}) {
+		t.Fatalf("expected steer to be rejected after finish gate closed")
+	}
+}
+
+func TestRunControlDrainSteersBeforeFinishKeepsGateOpenWhenQueued(t *testing.T) {
+	control := NewRunControl(context.Background(), "run_1")
+	if !control.EnqueueSteer(api.SteerRequest{RunID: "run_1", Message: "first"}) {
+		t.Fatalf("expected first steer to be accepted")
+	}
+
+	steers := control.DrainSteersBeforeFinish()
+	if len(steers) != 1 || steers[0].Message != "first" {
+		t.Fatalf("expected queued steer to drain, got %#v", steers)
+	}
+	if !control.EnqueueSteer(api.SteerRequest{RunID: "run_1", Message: "second"}) {
+		t.Fatalf("expected steer gate to remain open after draining queued steer")
+	}
+	steers = control.DrainSteers()
+	if len(steers) != 1 || steers[0].Message != "second" {
+		t.Fatalf("expected second steer to drain normally, got %#v", steers)
+	}
+}
+
+func TestRunControlDrainSteersBeforeFinishPreservesFIFO(t *testing.T) {
+	control := NewRunControl(context.Background(), "run_1")
+	for _, message := range []string{"first", "second", "third"} {
+		if !control.EnqueueSteer(api.SteerRequest{RunID: "run_1", Message: message}) {
+			t.Fatalf("expected steer %q to be accepted", message)
+		}
+	}
+
+	steers := control.DrainSteersBeforeFinish()
+	if len(steers) != 3 {
+		t.Fatalf("expected three steers, got %#v", steers)
+	}
+	for index, want := range []string{"first", "second", "third"} {
+		if steers[index].Message != want {
+			t.Fatalf("steer[%d] = %q, want %q; all=%#v", index, steers[index].Message, want, steers)
+		}
+	}
+}
+
 func TestRunControlAwaitSubmitTimeoutUsesWallClockWithoutObserver(t *testing.T) {
 	control := NewRunControl(context.Background(), "run_1")
 	control.SetObserverCount(1)
