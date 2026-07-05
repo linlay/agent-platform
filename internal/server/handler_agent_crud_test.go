@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
 	"agent-platform/internal/ws"
 
@@ -286,6 +287,15 @@ func TestAgentCreateKBaseAppliesDefaultModelConfig(t *testing.T) {
 	if _, ok := embedding["timeout"]; ok {
 		t.Fatalf("expected kbase default embedding timeout not to be persisted, got %#v", embedding)
 	}
+	def, ok := fixture.registry.AgentDefinition(created.Key)
+	if !ok {
+		t.Fatalf("expected created kbase agent in registry")
+	}
+	if def.KBaseConfig.Chunk.Unit != catalog.AgentKBaseChunkUnitEstimatedTokens ||
+		def.KBaseConfig.Chunk.MaxTokens != 1000 ||
+		def.KBaseConfig.Chunk.OverlapTokens != 100 {
+		t.Fatalf("expected created kbase to use estimated token chunk defaults, got %#v", def.KBaseConfig.Chunk)
+	}
 	icon, iconOk := created.Definition["icon"].(map[string]any)
 	if !iconOk || icon["name"] != "kbase" {
 		t.Fatalf("expected kbase default icon kbase, got %#v", created.Definition["icon"])
@@ -332,6 +342,11 @@ func TestAgentCreateKBasePreservesExplicitModelAndEmbeddingConfig(t *testing.T) 
 				"embedding": map[string]any{
 					"modelKey": "explicit-embedding-model-key",
 				},
+				"chunk": map[string]any{
+					"unit":          "estimatedTokens",
+					"maxTokens":     1200,
+					"overlapTokens": 120,
+				},
 			},
 			"runtimeConfig": map[string]any{
 				"workspaceRoot": workspaceDir,
@@ -350,6 +365,15 @@ func TestAgentCreateKBasePreservesExplicitModelAndEmbeddingConfig(t *testing.T) 
 	embedding, _ := kbaseConfig["embedding"].(map[string]any)
 	if embedding["modelKey"] != "explicit-embedding-model-key" {
 		t.Fatalf("expected explicit kbase embedding modelKey to win, got %#v", kbaseConfig)
+	}
+	def, ok := fixture.registry.AgentDefinition(created.Key)
+	if !ok {
+		t.Fatalf("expected created kbase agent in registry")
+	}
+	if def.KBaseConfig.Chunk.Unit != catalog.AgentKBaseChunkUnitEstimatedTokens ||
+		def.KBaseConfig.Chunk.MaxTokens != 1200 ||
+		def.KBaseConfig.Chunk.OverlapTokens != 120 {
+		t.Fatalf("expected explicit per-agent token chunk config, got %#v", def.KBaseConfig.Chunk)
 	}
 }
 
@@ -398,6 +422,50 @@ func TestAgentCreateKBaseRejectsRemovedExplicitEmbeddingConfig(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "kbaseConfig.embedding.providerKey is no longer supported") {
 		t.Fatalf("expected removed embedding field error, got %s", rec.Body.String())
+	}
+}
+
+func TestAgentCreateKBaseRejectsInvalidChunkUnit(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{
+		configure: func(cfg *config.Config) {
+			cfg.KBase.DefaultAgent = config.KBaseDefaultAgentConfig{ModelKey: "mock-model"}
+			cfg.KBase.Embedding = config.KBaseEmbeddingConfig{ModelKey: "default-embedding-model-key"}
+		},
+	})
+	workspaceDir := filepath.Join(t.TempDir(), "knowledge-base-alpha")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("create workspace dir: %v", err)
+	}
+
+	body, err := json.Marshal(map[string]any{
+		"definition": map[string]any{
+			"mode": "KBASE",
+			"kbaseConfig": map[string]any{
+				"chunk": map[string]any{
+					"unit":      "exactTokens",
+					"maxTokens": 1000,
+				},
+			},
+			"runtimeConfig": map[string]any{
+				"workspaceRoot": workspaceDir,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/agents/create", bytes.NewReader(body)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "kbaseConfig.chunk.unit must be estimatedTokens or chars") {
+		t.Fatalf("expected chunk unit error, got %s", rec.Body.String())
 	}
 }
 

@@ -829,11 +829,101 @@ func TestParseAgentFileKBaseDefaultsAndConfig(t *testing.T) {
 	if def.KBaseConfig.Embedding.ModelKey != "openai-embedding" || def.KBaseConfig.Storage.Location != "workspace" {
 		t.Fatalf("unexpected kbase config: %#v", def.KBaseConfig)
 	}
-	if def.KBaseConfig.Chunk.MaxChars != 2000 || def.KBaseConfig.Chunk.OverlapChars != 100 {
+	if def.KBaseConfig.Chunk.Unit != AgentKBaseChunkUnitChars ||
+		def.KBaseConfig.Chunk.MaxChars != 2000 ||
+		def.KBaseConfig.Chunk.OverlapChars != 100 {
 		t.Fatalf("unexpected chunk config: %#v", def.KBaseConfig.Chunk)
 	}
 	if def.KBaseConfig.Retrieval.TopK != 3 {
 		t.Fatalf("unexpected retrieval config: %#v", def.KBaseConfig.Retrieval)
+	}
+}
+
+func TestParseAgentFileKBaseDefaultChunkUsesEstimatedTokens(t *testing.T) {
+	workspace := t.TempDir()
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: docs\n" +
+		"mode: KBASE\n" +
+		"modelConfig:\n" +
+		"  modelKey: mock-model\n" +
+		"runtimeConfig:\n" +
+		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if def.KBaseConfig.Chunk.Unit != AgentKBaseChunkUnitEstimatedTokens ||
+		def.KBaseConfig.Chunk.MaxTokens != 1000 ||
+		def.KBaseConfig.Chunk.OverlapTokens != 100 ||
+		def.KBaseConfig.Chunk.MaxChars != 0 ||
+		def.KBaseConfig.Chunk.OverlapChars != 0 {
+		t.Fatalf("unexpected default chunk config: %#v", def.KBaseConfig.Chunk)
+	}
+}
+
+func TestParseAgentFileKBaseTokenChunkConfig(t *testing.T) {
+	workspace := t.TempDir()
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: docs\n" +
+		"mode: KBASE\n" +
+		"modelConfig:\n" +
+		"  modelKey: mock-model\n" +
+		"runtimeConfig:\n" +
+		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
+		"kbaseConfig:\n" +
+		"  chunk:\n" +
+		"    unit: estimatedTokens\n" +
+		"    maxTokens: 1200\n" +
+		"    overlapTokens: 120\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if def.KBaseConfig.Chunk.Unit != AgentKBaseChunkUnitEstimatedTokens ||
+		def.KBaseConfig.Chunk.MaxTokens != 1200 ||
+		def.KBaseConfig.Chunk.OverlapTokens != 120 {
+		t.Fatalf("unexpected token chunk config: %#v", def.KBaseConfig.Chunk)
+	}
+}
+
+func TestParseAgentFileKBaseCapsChunkOverlap(t *testing.T) {
+	workspace := t.TempDir()
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: docs\n" +
+		"mode: KBASE\n" +
+		"modelConfig:\n" +
+		"  modelKey: mock-model\n" +
+		"runtimeConfig:\n" +
+		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
+		"kbaseConfig:\n" +
+		"  chunk:\n" +
+		"    unit: estimatedTokens\n" +
+		"    maxTokens: 100\n" +
+		"    overlapTokens: 100\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if def.KBaseConfig.Chunk.OverlapTokens != 20 {
+		t.Fatalf("expected overlapTokens capped to 20, got %#v", def.KBaseConfig.Chunk)
 	}
 }
 

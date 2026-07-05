@@ -22,139 +22,141 @@ func TestLoadDefaults(t *testing.T) {
 			"    path: /cdp/call\n" +
 			"    request-timeout: 20\n"
 		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &runtimeConfig, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if cfg.Server.Port != "8080" {
-				t.Fatalf("expected default port 8080, got %q", cfg.Server.Port)
-			}
-			if cfg.Paths.RegistriesDir != filepath.Join("runtime", "registries") {
-				t.Fatalf("unexpected registries dir: %q", cfg.Paths.RegistriesDir)
-			}
-			if cfg.Paths.ToolsDir != filepath.Join("runtime", "tools") {
-				t.Fatalf("unexpected tools dir: %q", cfg.Paths.ToolsDir)
-			}
-			if cfg.Paths.KBaseDir != filepath.Join("runtime", "kbase") {
-				t.Fatalf("unexpected kbase dir: %q", cfg.Paths.KBaseDir)
-			}
-			if cfg.KBase.Refresh.Debounce.String() != "2s" || cfg.KBase.Refresh.ReconcileInterval.String() != "10m0s" {
-				t.Fatalf("unexpected kbase refresh defaults: %#v", cfg.KBase.Refresh)
-			}
-			if cfg.KBase.Extraction.Timeout.String() != "1m0s" ||
-				cfg.KBase.Extraction.MaxFileBytes != 50*1024*1024 ||
-				!cfg.KBase.Extraction.PDF.Enabled ||
-				cfg.KBase.Extraction.PDF.Backend != "poppler" ||
-				cfg.KBase.Extraction.PDF.Binary != "pdftotext" ||
-				!cfg.KBase.Extraction.DOCX.Enabled ||
-				cfg.KBase.Extraction.DOCX.Backend != "native" ||
-				!cfg.KBase.Extraction.PPTX.Enabled ||
-				cfg.KBase.Extraction.PPTX.Backend != "native" ||
-				!cfg.KBase.Extraction.PPTX.IncludeNotes {
-				t.Fatalf("unexpected kbase extraction defaults: %#v", cfg.KBase.Extraction)
-			}
-			if !cfg.Auth.Enabled {
-				t.Fatalf("expected auth enabled by default")
-			}
-			if cfg.Auth.LocalPublicKeyFile != ProjectFile(filepath.Join("configs", "local-public-key.pem")) {
-				t.Fatalf("unexpected default auth public key path: %q", cfg.Auth.LocalPublicKeyFile)
-			}
-			if cfg.ResourceTicket.Enabled() {
-				t.Fatalf("expected resource ticket disabled by default")
-			}
-			if cfg.ResourceTicket.TTLSeconds != 86400 {
-				t.Fatalf("expected default resource ticket ttl 86400, got %d", cfg.ResourceTicket.TTLSeconds)
-			}
-			if cfg.Billing.Currency != "CNY" {
-				t.Fatalf("expected default billing currency CNY, got %q", cfg.Billing.Currency)
-			}
-			if cfg.Query.AdvancedUserPrompt {
-				t.Fatalf("expected advanced user prompt disabled by default")
-			}
-			if cfg.SSE.HeartbeatInterval != 30 {
-				t.Fatalf("expected default heartbeat interval 30, got %d", cfg.SSE.HeartbeatInterval)
-			}
-			if !cfg.Logging.Request.Enabled ||
-				!cfg.Logging.Auth.Enabled ||
-				!cfg.Logging.Exception.Enabled ||
-				!cfg.Logging.Tool.Enabled ||
-				!cfg.Logging.Action.Enabled ||
-				!cfg.Logging.Viewport.Enabled ||
-				!cfg.Logging.Memory.Enabled ||
-				!cfg.Logging.LLMInteraction.Enabled {
-				t.Fatalf("expected default logging surfaces enabled, got %#v", cfg.Logging)
-			}
-			if cfg.Logging.SSE.Enabled {
-				t.Fatalf("expected sse logging disabled by default")
-			}
-			if cfg.Logging.Memory.File != filepath.Join("runtime", "memory", "memory.log") {
-				t.Fatalf("unexpected memory log file: %q", cfg.Logging.Memory.File)
-			}
-			if cfg.Logging.LLMInteraction.MaskSensitive {
-				t.Fatalf("expected llm interaction logs to be unmasked by default")
-			}
-			if got, want := strings.Join(cfg.Logging.LLMInteraction.ConsoleCategories, ","), "request,usage"; got != want {
-				t.Fatalf("expected default llm console categories %q, got %q", want, got)
-			}
-			if cfg.Logging.LLMInteraction.RecordEnabled {
-				t.Fatalf("expected llm chat record disabled by default")
-			}
-			if cfg.Logging.LLMInteraction.RecordDir != filepath.Join("runtime", "chats") {
-				t.Fatalf("unexpected llm chat record dir: %q", cfg.Logging.LLMInteraction.RecordDir)
-			}
-			if cfg.ContainerHub.AuthToken != "" || cfg.ContainerHub.DefaultEnvironmentID != "" {
-				t.Fatalf("expected empty container hub token/environment defaults, got %#v", cfg.ContainerHub)
-			}
-			if cfg.ContainerHub.RequestTimeout != 300 ||
-				cfg.ContainerHub.DefaultSandboxLevel != "run" ||
-				cfg.ContainerHub.AgentIdleTimeout != 600 ||
-				cfg.ContainerHub.DestroyQueueDelay != 5 {
-				t.Fatalf("unexpected container hub runtime defaults: %#v", cfg.ContainerHub)
-			}
-			if cfg.Defaults.Budget.Hitl.Timeout != 0 {
-				t.Fatalf("expected default HITL budget timeout 0, got %d", cfg.Defaults.Budget.Hitl.Timeout)
-			}
-			if cfg.Defaults.Budget.Hitl.Question.Timeout != 0 || cfg.Defaults.Budget.Hitl.Approval.Timeout != 0 ||
-				cfg.Defaults.Budget.Hitl.Form.Timeout != 0 || cfg.Defaults.Budget.Hitl.Plan.Timeout != 0 {
-				t.Fatalf("expected default HITL mode timeouts unset, got %#v", cfg.Defaults.Budget.Hitl)
-			}
-			if cfg.Defaults.Budget.Timeout != 3600 {
-				t.Fatalf("expected default budget timeout 3600, got %d", cfg.Defaults.Budget.Timeout)
-			}
-			if cfg.Defaults.Budget.Model.Timeout != 180 {
-				t.Fatalf("expected default model timeout 180, got %d", cfg.Defaults.Budget.Model.Timeout)
-			}
-			if cfg.Defaults.Budget.Model.MaxCalls != 100 {
-				t.Fatalf("expected default model max calls 100, got %d", cfg.Defaults.Budget.Model.MaxCalls)
-			}
-			if cfg.Defaults.Budget.Model.RetryCount != 5 {
-				t.Fatalf("expected default model retry count 5, got %d", cfg.Defaults.Budget.Model.RetryCount)
-			}
-			if cfg.Defaults.Budget.MaxSteps != 100 {
-				t.Fatalf("expected default budget max steps 100, got %d", cfg.Defaults.Budget.MaxSteps)
-			}
-			if cfg.Defaults.Budget.Tool.MaxCalls != 100 {
-				t.Fatalf("expected default tool max calls 100, got %d", cfg.Defaults.Budget.Tool.MaxCalls)
-			}
-			if cfg.Defaults.Budget.Tool.Timeout != 600 {
-				t.Fatalf("expected default tool timeout 600, got %d", cfg.Defaults.Budget.Tool.Timeout)
-			}
-			if !cfg.Memory.Enabled {
-				t.Fatalf("expected memory runtime enabled by default")
-			}
-			if cfg.Desktop.Action.BridgeURL != "http://127.0.0.1:11788/actions/call" {
-				t.Fatalf("unexpected default desktop action bridge url: %q", cfg.Desktop.Action.BridgeURL)
-			}
-			if cfg.Desktop.CDP.BridgeURL != "http://127.0.0.1:11788/cdp/call" {
-				t.Fatalf("unexpected default desktop cdp bridge url: %q", cfg.Desktop.CDP.BridgeURL)
-			}
-			defaultLevel := cfg.AccessPolicy.Levels["default"]
-			if got := strings.Join(defaultLevel.ReadRoots, ","); got != "@workspace,@chat,@agent,@skills" {
-				t.Fatalf("unexpected default access-policy read roots: %#v", defaultLevel.ReadRoots)
-			}
-			if got := strings.Join(defaultLevel.WriteRoots, ","); got != "@workspace,@chat" {
-				t.Fatalf("unexpected default access-policy write roots: %#v", defaultLevel.WriteRoots)
-			}
+			withProjectFileContents(t, filepath.Join("configs", "kbase-settings.yml"), nil, func() {
+				cfg, err := Load()
+				if err != nil {
+					t.Fatalf("load config: %v", err)
+				}
+				if cfg.Server.Port != "8080" {
+					t.Fatalf("expected default port 8080, got %q", cfg.Server.Port)
+				}
+				if cfg.Paths.RegistriesDir != filepath.Join("runtime", "registries") {
+					t.Fatalf("unexpected registries dir: %q", cfg.Paths.RegistriesDir)
+				}
+				if cfg.Paths.ToolsDir != filepath.Join("runtime", "tools") {
+					t.Fatalf("unexpected tools dir: %q", cfg.Paths.ToolsDir)
+				}
+				if cfg.Paths.KBaseDir != filepath.Join("runtime", "kbase") {
+					t.Fatalf("unexpected kbase dir: %q", cfg.Paths.KBaseDir)
+				}
+				if cfg.KBase.Refresh.Debounce.String() != "2s" || cfg.KBase.Refresh.ReconcileInterval.String() != "10m0s" {
+					t.Fatalf("unexpected kbase refresh defaults: %#v", cfg.KBase.Refresh)
+				}
+				if cfg.KBase.Extraction.Timeout.String() != "1m0s" ||
+					cfg.KBase.Extraction.MaxFileBytes != 50*1024*1024 ||
+					!cfg.KBase.Extraction.PDF.Enabled ||
+					cfg.KBase.Extraction.PDF.Backend != "poppler" ||
+					cfg.KBase.Extraction.PDF.Binary != "pdftotext" ||
+					!cfg.KBase.Extraction.DOCX.Enabled ||
+					cfg.KBase.Extraction.DOCX.Backend != "native" ||
+					!cfg.KBase.Extraction.PPTX.Enabled ||
+					cfg.KBase.Extraction.PPTX.Backend != "native" ||
+					!cfg.KBase.Extraction.PPTX.IncludeNotes {
+					t.Fatalf("unexpected kbase extraction defaults: %#v", cfg.KBase.Extraction)
+				}
+				if !cfg.Auth.Enabled {
+					t.Fatalf("expected auth enabled by default")
+				}
+				if cfg.Auth.LocalPublicKeyFile != ProjectFile(filepath.Join("configs", "local-public-key.pem")) {
+					t.Fatalf("unexpected default auth public key path: %q", cfg.Auth.LocalPublicKeyFile)
+				}
+				if cfg.ResourceTicket.Enabled() {
+					t.Fatalf("expected resource ticket disabled by default")
+				}
+				if cfg.ResourceTicket.TTLSeconds != 86400 {
+					t.Fatalf("expected default resource ticket ttl 86400, got %d", cfg.ResourceTicket.TTLSeconds)
+				}
+				if cfg.Billing.Currency != "CNY" {
+					t.Fatalf("expected default billing currency CNY, got %q", cfg.Billing.Currency)
+				}
+				if cfg.Query.AdvancedUserPrompt {
+					t.Fatalf("expected advanced user prompt disabled by default")
+				}
+				if cfg.SSE.HeartbeatInterval != 30 {
+					t.Fatalf("expected default heartbeat interval 30, got %d", cfg.SSE.HeartbeatInterval)
+				}
+				if !cfg.Logging.Request.Enabled ||
+					!cfg.Logging.Auth.Enabled ||
+					!cfg.Logging.Exception.Enabled ||
+					!cfg.Logging.Tool.Enabled ||
+					!cfg.Logging.Action.Enabled ||
+					!cfg.Logging.Viewport.Enabled ||
+					!cfg.Logging.Memory.Enabled ||
+					!cfg.Logging.LLMInteraction.Enabled {
+					t.Fatalf("expected default logging surfaces enabled, got %#v", cfg.Logging)
+				}
+				if cfg.Logging.SSE.Enabled {
+					t.Fatalf("expected sse logging disabled by default")
+				}
+				if cfg.Logging.Memory.File != filepath.Join("runtime", "memory", "memory.log") {
+					t.Fatalf("unexpected memory log file: %q", cfg.Logging.Memory.File)
+				}
+				if cfg.Logging.LLMInteraction.MaskSensitive {
+					t.Fatalf("expected llm interaction logs to be unmasked by default")
+				}
+				if got, want := strings.Join(cfg.Logging.LLMInteraction.ConsoleCategories, ","), "request,usage"; got != want {
+					t.Fatalf("expected default llm console categories %q, got %q", want, got)
+				}
+				if cfg.Logging.LLMInteraction.RecordEnabled {
+					t.Fatalf("expected llm chat record disabled by default")
+				}
+				if cfg.Logging.LLMInteraction.RecordDir != filepath.Join("runtime", "chats") {
+					t.Fatalf("unexpected llm chat record dir: %q", cfg.Logging.LLMInteraction.RecordDir)
+				}
+				if cfg.ContainerHub.AuthToken != "" || cfg.ContainerHub.DefaultEnvironmentID != "" {
+					t.Fatalf("expected empty container hub token/environment defaults, got %#v", cfg.ContainerHub)
+				}
+				if cfg.ContainerHub.RequestTimeout != 300 ||
+					cfg.ContainerHub.DefaultSandboxLevel != "run" ||
+					cfg.ContainerHub.AgentIdleTimeout != 600 ||
+					cfg.ContainerHub.DestroyQueueDelay != 5 {
+					t.Fatalf("unexpected container hub runtime defaults: %#v", cfg.ContainerHub)
+				}
+				if cfg.Defaults.Budget.Hitl.Timeout != 0 {
+					t.Fatalf("expected default HITL budget timeout 0, got %d", cfg.Defaults.Budget.Hitl.Timeout)
+				}
+				if cfg.Defaults.Budget.Hitl.Question.Timeout != 0 || cfg.Defaults.Budget.Hitl.Approval.Timeout != 0 ||
+					cfg.Defaults.Budget.Hitl.Form.Timeout != 0 || cfg.Defaults.Budget.Hitl.Plan.Timeout != 0 {
+					t.Fatalf("expected default HITL mode timeouts unset, got %#v", cfg.Defaults.Budget.Hitl)
+				}
+				if cfg.Defaults.Budget.Timeout != 3600 {
+					t.Fatalf("expected default budget timeout 3600, got %d", cfg.Defaults.Budget.Timeout)
+				}
+				if cfg.Defaults.Budget.Model.Timeout != 180 {
+					t.Fatalf("expected default model timeout 180, got %d", cfg.Defaults.Budget.Model.Timeout)
+				}
+				if cfg.Defaults.Budget.Model.MaxCalls != 100 {
+					t.Fatalf("expected default model max calls 100, got %d", cfg.Defaults.Budget.Model.MaxCalls)
+				}
+				if cfg.Defaults.Budget.Model.RetryCount != 5 {
+					t.Fatalf("expected default model retry count 5, got %d", cfg.Defaults.Budget.Model.RetryCount)
+				}
+				if cfg.Defaults.Budget.MaxSteps != 100 {
+					t.Fatalf("expected default budget max steps 100, got %d", cfg.Defaults.Budget.MaxSteps)
+				}
+				if cfg.Defaults.Budget.Tool.MaxCalls != 100 {
+					t.Fatalf("expected default tool max calls 100, got %d", cfg.Defaults.Budget.Tool.MaxCalls)
+				}
+				if cfg.Defaults.Budget.Tool.Timeout != 600 {
+					t.Fatalf("expected default tool timeout 600, got %d", cfg.Defaults.Budget.Tool.Timeout)
+				}
+				if !cfg.Memory.Enabled {
+					t.Fatalf("expected memory runtime enabled by default")
+				}
+				if cfg.Desktop.Action.BridgeURL != "http://127.0.0.1:11788/actions/call" {
+					t.Fatalf("unexpected default desktop action bridge url: %q", cfg.Desktop.Action.BridgeURL)
+				}
+				if cfg.Desktop.CDP.BridgeURL != "http://127.0.0.1:11788/cdp/call" {
+					t.Fatalf("unexpected default desktop cdp bridge url: %q", cfg.Desktop.CDP.BridgeURL)
+				}
+				defaultLevel := cfg.AccessPolicy.Levels["default"]
+				if got := strings.Join(defaultLevel.ReadRoots, ","); got != "@workspace,@chat,@agent,@skills" {
+					t.Fatalf("unexpected default access-policy read roots: %#v", defaultLevel.ReadRoots)
+				}
+				if got := strings.Join(defaultLevel.WriteRoots, ","); got != "@workspace,@chat" {
+					t.Fatalf("unexpected default access-policy write roots: %#v", defaultLevel.WriteRoots)
+				}
+			})
 		})
 	})
 }
@@ -217,13 +219,13 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 		"embedding:\n",
 		"  # Default embedding modelKey for new KBASE agents. This must reference a\n",
 		"  # runtime/registries/models/*.yml model with type: embedding.\n",
-		"  modelKey: babelark-text-embedding-v4\n",
+		"  modelKey:\n",
 		"refresh:\n",
 		"  debounce: 2s\n",
 		"  reconcile-interval: 10m\n",
 		"extraction:\n",
-		"  timeout: 60s\n",
-		"  max-file-bytes: 52428800\n",
+		"  timeout: 180s\n",
+		"  max-file-bytes: 314572800\n",
 		"  pdf:\n",
 		"    enabled: true\n",
 		"    backend: poppler\n",

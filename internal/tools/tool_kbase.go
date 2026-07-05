@@ -146,6 +146,7 @@ func (t *RuntimeToolExecutor) invokeKBaseStatus(toolName string, execCtx *Execut
 		"files":           status.Files,
 		"chunks":          status.Chunks,
 		"embedding":       status.Embedding,
+		"chunk":           status.Chunk,
 		"lastRun":         status.LastRun,
 		"fileStats":       status.FileStats,
 	}), nil

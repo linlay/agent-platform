@@ -106,7 +106,7 @@ func testKBaseAgent(key string, workspace string, storage string) catalog.AgentD
 			Storage:   catalog.AgentKBaseStorageConfig{Location: storage},
 			Include:   []string{"**/*.md", "**/*.txt"},
 			Exclude:   []string{".git/**", ".kbase/**", "node_modules/**"},
-			Chunk:     catalog.AgentKBaseChunkConfig{MaxChars: 4000, OverlapChars: 600},
+			Chunk:     catalog.AgentKBaseChunkConfig{Unit: catalog.AgentKBaseChunkUnitEstimatedTokens, MaxTokens: 1000, OverlapTokens: 100},
 			Retrieval: catalog.AgentKBaseRetrievalConfig{TopK: 5, VectorWeight: 0.7, FTSWeight: 0.3},
 		},
 	}
@@ -229,6 +229,9 @@ func TestOpenReadStoreAndManagerReadDoNotCreateMissingDB(t *testing.T) {
 	}
 	if !status.Stale || status.Files != 0 || status.Chunks != 0 {
 		t.Fatalf("unexpected status for missing DB: %#v", status)
+	}
+	if status.Chunk.Unit != catalog.AgentKBaseChunkUnitEstimatedTokens || status.Chunk.MaxTokens != 1000 || status.Chunk.OverlapTokens != 100 {
+		t.Fatalf("unexpected status chunk config: %#v", status.Chunk)
 	}
 	if _, statErr := os.Stat(storageDir); !os.IsNotExist(statErr) {
 		t.Fatalf("Status created storage dir, stat err = %v", statErr)
@@ -756,7 +759,7 @@ func TestManagerRefreshSearchReadAndIgnoreKBaseDir(t *testing.T) {
 			Storage:   catalog.AgentKBaseStorageConfig{Location: "runtime"},
 			Include:   []string{"**/*.md", "**/*.txt", "**/*.html", "**/*.htm", "**/*.pptx"},
 			Exclude:   []string{".git/**", ".kbase/**", "node_modules/**"},
-			Chunk:     catalog.AgentKBaseChunkConfig{MaxChars: 4000, OverlapChars: 600},
+			Chunk:     catalog.AgentKBaseChunkConfig{Unit: catalog.AgentKBaseChunkUnitEstimatedTokens, MaxTokens: 1000, OverlapTokens: 100},
 			Retrieval: catalog.AgentKBaseRetrievalConfig{TopK: 5, VectorWeight: 0.7, FTSWeight: 0.3},
 		},
 	}

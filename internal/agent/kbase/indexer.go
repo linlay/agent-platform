@@ -274,7 +274,7 @@ func indexOneFile(ctx context.Context, store *Store, cfg resolvedConfig, embedde
 	rec.Extractor = firstNonBlank(doc.Extractor, rec.Extractor)
 	rec.Metadata = metadataJSON(doc.Metadata)
 	rec.TextSHA256 = shaHex([]byte(extractedText(doc)))
-	chunks := chunkExtractedDocument(rel, doc, cfg.Chunk.MaxChars, cfg.Chunk.OverlapChars, cfg.Embedding.Model, cfg.Embedding.Dimension)
+	chunks := chunkExtractedDocument(rel, doc, cfg.Chunk, cfg.Embedding.Model, cfg.Embedding.Dimension)
 	if len(chunks) > 0 {
 		texts := make([]string, len(chunks))
 		for i := range chunks {
@@ -296,26 +296,18 @@ func indexOneFile(ctx context.Context, store *Store, cfg resolvedConfig, embedde
 	return nil
 }
 
-func chunkText(path string, text string, maxChars int, overlapChars int, embeddingModel string, embeddingDimension int) []chunkRecord {
+func chunkText(path string, text string, chunkCfg catalog.AgentKBaseChunkConfig, embeddingModel string, embeddingDimension int) []chunkRecord {
 	lineCount := countLines(text)
 	return chunkExtractedDocument(path, extractedDocument{Blocks: []extractedBlock{{
 		SourceType: "text",
 		Content:    text,
 		StartLine:  1,
 		EndLine:    lineCount,
-	}}}, maxChars, overlapChars, embeddingModel, embeddingDimension)
+	}}}, chunkCfg, embeddingModel, embeddingDimension)
 }
 
-func chunkExtractedDocument(path string, doc extractedDocument, maxChars int, overlapChars int, embeddingModel string, embeddingDimension int) []chunkRecord {
-	if maxChars <= 0 {
-		maxChars = 4000
-	}
-	if overlapChars < 0 {
-		overlapChars = 0
-	}
-	if overlapChars >= maxChars {
-		overlapChars = maxChars / 5
-	}
+func chunkExtractedDocument(path string, doc extractedDocument, chunkCfg catalog.AgentKBaseChunkConfig, embeddingModel string, embeddingDimension int) []chunkRecord {
+	budget := resolveChunkBudget(chunkCfg)
 	type block struct {
 		content    string
 		startLine  int
@@ -335,51 +327,22 @@ func chunkExtractedDocument(path string, doc extractedDocument, maxChars int, ov
 		}
 		lines := strings.Split(content, "\n")
 		var current strings.Builder
+		currentIsOverlap := false
 		sourceStartLine := source.StartLine
 		if sourceStartLine <= 0 {
 			sourceStartLine = 1
 		}
 		startLine := sourceStartLine
 		heading := source.Heading
-		for i, line := range lines {
-			lineNo := i + 1
-			absoluteLine := sourceStartLine + lineNo - 1
-			if h := markdownHeading(line); h != "" {
-				heading = h
-			}
-			if current.Len() == 0 {
-				startLine = absoluteLine
-			}
-			if current.Len()+len(line)+1 > maxChars && current.Len() > 0 {
-				blocks = append(blocks, block{
-					content:    strings.TrimSpace(current.String()),
-					startLine:  startLine,
-					endLine:    absoluteLine - 1,
-					heading:    heading,
-					sourceType: source.SourceType,
-					pageStart:  source.PageStart,
-					pageEnd:    source.PageEnd,
-					slideStart: source.SlideStart,
-					slideEnd:   source.SlideEnd,
-				})
-				current.Reset()
-				if overlapChars > 0 && len(blocks[len(blocks)-1].content) > overlapChars {
-					overlap := tailByChars(blocks[len(blocks)-1].content, overlapChars)
-					current.WriteString(overlap)
-					current.WriteByte('\n')
-				}
-				startLine = absoluteLine
-			}
-			current.WriteString(line)
-			current.WriteByte('\n')
-		}
-		if strings.TrimSpace(current.String()) != "" {
-			endLine := sourceStartLine + len(lines) - 1
-			if source.EndLine > 0 {
-				endLine = minInt(endLine, source.EndLine)
+		appendCurrent := func(endLine int) {
+			text := strings.TrimSpace(current.String())
+			current.Reset()
+			currentIsOverlap = false
+			if text == "" {
+				return
 			}
 			blocks = append(blocks, block{
-				content:    strings.TrimSpace(current.String()),
+				content:    text,
 				startLine:  startLine,
 				endLine:    endLine,
 				heading:    heading,
@@ -389,6 +352,60 @@ func chunkExtractedDocument(path string, doc extractedDocument, maxChars int, ov
 				slideStart: source.SlideStart,
 				slideEnd:   source.SlideEnd,
 			})
+			if budget.overlap > 0 && measureChunkText(text, budget.unit) > budget.overlap {
+				overlap := tailByBudget(text, budget)
+				if strings.TrimSpace(overlap) != "" {
+					current.WriteString(overlap)
+					current.WriteByte('\n')
+					currentIsOverlap = true
+				}
+			}
+		}
+		for i, line := range lines {
+			lineNo := i + 1
+			absoluteLine := sourceStartLine + lineNo - 1
+			if h := markdownHeading(line); h != "" {
+				heading = h
+			}
+			pieces := splitLineByBudget(line, budget)
+			for pieceIndex, piece := range pieces {
+				segment := piece
+				if pieceIndex == len(pieces)-1 {
+					segment += "\n"
+				}
+				if current.Len() == 0 {
+					startLine = absoluteLine
+				}
+				if strings.TrimSpace(current.String()) != "" && measureChunkText(current.String()+segment, budget.unit) > budget.max {
+					if currentIsOverlap {
+						current.Reset()
+						currentIsOverlap = false
+					} else {
+						endLine := absoluteLine
+						if pieceIndex == 0 {
+							endLine = absoluteLine - 1
+						}
+						appendCurrent(endLine)
+					}
+					startLine = absoluteLine
+					if strings.TrimSpace(current.String()) != "" && measureChunkText(current.String()+segment, budget.unit) > budget.max {
+						current.Reset()
+						currentIsOverlap = false
+					}
+				}
+				if current.Len() == 0 {
+					startLine = absoluteLine
+				}
+				current.WriteString(segment)
+				currentIsOverlap = false
+			}
+		}
+		if strings.TrimSpace(current.String()) != "" && !currentIsOverlap {
+			endLine := sourceStartLine + len(lines) - 1
+			if source.EndLine > 0 {
+				endLine = minInt(endLine, source.EndLine)
+			}
+			appendCurrent(endLine)
 		}
 	}
 	out := make([]chunkRecord, 0, len(blocks))
@@ -478,12 +495,161 @@ func markdownHeading(line string) string {
 	return strings.TrimSpace(trimmed[count:])
 }
 
+type chunkBudget struct {
+	unit    string
+	max     int
+	overlap int
+}
+
+func resolveChunkBudget(cfg catalog.AgentKBaseChunkConfig) chunkBudget {
+	cfg = catalog.NormalizeAgentKBaseChunkConfig(cfg)
+	if cfg.Unit == catalog.AgentKBaseChunkUnitChars {
+		return chunkBudget{
+			unit:    catalog.AgentKBaseChunkUnitChars,
+			max:     cfg.MaxChars,
+			overlap: cfg.OverlapChars,
+		}
+	}
+	return chunkBudget{
+		unit:    catalog.AgentKBaseChunkUnitEstimatedTokens,
+		max:     cfg.MaxTokens,
+		overlap: cfg.OverlapTokens,
+	}
+}
+
+func measureChunkText(text string, unit string) int {
+	if unit == catalog.AgentKBaseChunkUnitChars {
+		return len([]rune(text))
+	}
+	return estimateChunkTokens(text)
+}
+
+func splitLineByBudget(line string, budget chunkBudget) []string {
+	if budget.max <= 0 || measureChunkText(line, budget.unit) <= budget.max {
+		return []string{line}
+	}
+	switch budget.unit {
+	case catalog.AgentKBaseChunkUnitChars:
+		return splitRunesByCount(line, budget.max)
+	default:
+		return splitRunesByEstimatedTokens(line, budget.max)
+	}
+}
+
+func splitRunesByCount(text string, maxRunes int) []string {
+	runes := []rune(text)
+	if maxRunes <= 0 || len(runes) <= maxRunes {
+		return []string{text}
+	}
+	out := make([]string, 0, (len(runes)/maxRunes)+1)
+	for start := 0; start < len(runes); start += maxRunes {
+		end := start + maxRunes
+		if end > len(runes) {
+			end = len(runes)
+		}
+		out = append(out, string(runes[start:end]))
+	}
+	return out
+}
+
+func splitRunesByEstimatedTokens(text string, maxTokens int) []string {
+	if maxTokens <= 0 {
+		return []string{text}
+	}
+	out := []string{}
+	var current strings.Builder
+	state := estimatedTokenState{}
+	for _, r := range text {
+		nextState := state
+		nextState.add(r)
+		if current.Len() > 0 && nextState.tokens > maxTokens {
+			out = append(out, current.String())
+			current.Reset()
+			state = estimatedTokenState{}
+			state.add(r)
+			current.WriteRune(r)
+			continue
+		}
+		state = nextState
+		current.WriteRune(r)
+	}
+	if current.Len() > 0 || len(out) == 0 {
+		out = append(out, current.String())
+	}
+	return out
+}
+
+func tailByBudget(text string, budget chunkBudget) string {
+	if budget.overlap <= 0 {
+		return ""
+	}
+	if budget.unit == catalog.AgentKBaseChunkUnitChars {
+		return tailByChars(text, budget.overlap)
+	}
+	return tailByEstimatedTokens(text, budget.overlap)
+}
+
 func tailByChars(text string, maxChars int) string {
 	runes := []rune(text)
 	if len(runes) <= maxChars {
 		return text
 	}
 	return string(runes[len(runes)-maxChars:])
+}
+
+func tailByEstimatedTokens(text string, maxTokens int) string {
+	runes := []rune(text)
+	if len(runes) == 0 || estimateChunkTokens(text) <= maxTokens {
+		return text
+	}
+	low, high := 0, len(runes)
+	for low < high {
+		mid := (low + high) / 2
+		if estimateChunkTokens(string(runes[mid:])) <= maxTokens {
+			high = mid
+		} else {
+			low = mid + 1
+		}
+	}
+	return string(runes[low:])
+}
+
+type estimatedTokenState struct {
+	tokens         int
+	asciiWordRunes int
+	sawContent     bool
+}
+
+func estimateChunkTokens(text string) int {
+	state := estimatedTokenState{}
+	for _, r := range text {
+		state.add(r)
+	}
+	if state.tokens <= 0 && state.sawContent {
+		return 1
+	}
+	return state.tokens
+}
+
+func (s *estimatedTokenState) add(r rune) {
+	if isASCIILetterOrDigit(r) {
+		s.sawContent = true
+		s.asciiWordRunes++
+		if s.asciiWordRunes%4 == 1 {
+			s.tokens++
+		}
+		return
+	}
+	s.asciiWordRunes = 0
+	if r == ' ' || r == '\n' || r == '\r' || r == '\t' {
+		return
+	}
+	s.sawContent = true
+	s.tokens++
+}
+
+func isASCIILetterOrDigit(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
 }
 
 func shaHex(data []byte) string {

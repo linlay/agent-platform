@@ -132,9 +132,17 @@ type AgentKBaseStorageConfig struct {
 	Location string
 }
 
+const (
+	AgentKBaseChunkUnitChars           = "chars"
+	AgentKBaseChunkUnitEstimatedTokens = "estimatedTokens"
+)
+
 type AgentKBaseChunkConfig struct {
-	MaxChars     int
-	OverlapChars int
+	Unit          string `json:"unit,omitempty"`
+	MaxChars      int    `json:"maxChars,omitempty"`
+	OverlapChars  int    `json:"overlapChars,omitempty"`
+	MaxTokens     int    `json:"maxTokens,omitempty"`
+	OverlapTokens int    `json:"overlapTokens,omitempty"`
 }
 
 type AgentKBaseRetrievalConfig struct {

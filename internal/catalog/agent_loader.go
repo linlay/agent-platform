@@ -753,10 +753,7 @@ func parseAgentKBaseConfig(value any) AgentKBaseConfig {
 			".kbase/**",
 			"node_modules/**",
 		},
-		Chunk: AgentKBaseChunkConfig{
-			MaxChars:     4000,
-			OverlapChars: 600,
-		},
+		Chunk: defaultAgentKBaseChunkConfig(),
 		Retrieval: AgentKBaseRetrievalConfig{
 			TopK:         8,
 			VectorWeight: 0.7,
@@ -780,26 +777,7 @@ func parseAgentKBaseConfig(value any) AgentKBaseConfig {
 	if exclude := listStrings(node["exclude"]); len(exclude) > 0 {
 		cfg.Exclude = exclude
 	}
-	chunk := mapNode(node["chunk"])
-	if maxChars := intNode(chunk["maxChars"]); maxChars > 0 {
-		cfg.Chunk.MaxChars = maxChars
-	}
-	if maxChars := intNode(chunk["max-chars"]); maxChars > 0 {
-		cfg.Chunk.MaxChars = maxChars
-	}
-	if _, exists := chunk["overlapChars"]; exists {
-		if overlapChars := intNode(chunk["overlapChars"]); overlapChars >= 0 {
-			cfg.Chunk.OverlapChars = overlapChars
-		}
-	}
-	if _, exists := chunk["overlap-chars"]; exists {
-		if overlapChars := intNode(chunk["overlap-chars"]); overlapChars >= 0 {
-			cfg.Chunk.OverlapChars = overlapChars
-		}
-	}
-	if cfg.Chunk.OverlapChars >= cfg.Chunk.MaxChars {
-		cfg.Chunk.OverlapChars = cfg.Chunk.MaxChars / 5
-	}
+	cfg.Chunk = parseAgentKBaseChunkConfig(node["chunk"])
 	retrieval := mapNode(node["retrieval"])
 	if topK := intNode(retrieval["topK"]); topK > 0 {
 		cfg.Retrieval.TopK = topK
@@ -822,11 +800,177 @@ func parseAgentKBaseConfig(value any) AgentKBaseConfig {
 	return cfg
 }
 
+func defaultAgentKBaseChunkConfig() AgentKBaseChunkConfig {
+	return AgentKBaseChunkConfig{
+		Unit:          AgentKBaseChunkUnitEstimatedTokens,
+		MaxTokens:     1000,
+		OverlapTokens: 100,
+	}
+}
+
+func defaultAgentKBaseLegacyCharChunkConfig() AgentKBaseChunkConfig {
+	return AgentKBaseChunkConfig{
+		Unit:         AgentKBaseChunkUnitChars,
+		MaxChars:     4000,
+		OverlapChars: 600,
+	}
+}
+
+func parseAgentKBaseChunkConfig(value any) AgentKBaseChunkConfig {
+	chunk := mapNode(value)
+	if len(chunk) == 0 {
+		return defaultAgentKBaseChunkConfig()
+	}
+	hasUnit := false
+	unit := ""
+	for _, key := range []string{"unit"} {
+		if raw, exists := chunk[key]; exists {
+			hasUnit = true
+			unit = strings.TrimSpace(stringNode(raw))
+			break
+		}
+	}
+	hasMaxTokens := hasAnyKey(chunk, "maxTokens", "max-tokens")
+	hasOverlapTokens := hasAnyKey(chunk, "overlapTokens", "overlap-tokens")
+	hasMaxChars := hasAnyKey(chunk, "maxChars", "max-chars")
+	hasOverlapChars := hasAnyKey(chunk, "overlapChars", "overlap-chars")
+	useLegacyChars := !hasUnit && !hasMaxTokens && !hasOverlapTokens && (hasMaxChars || hasOverlapChars)
+
+	cfg := defaultAgentKBaseChunkConfig()
+	if useLegacyChars {
+		cfg = defaultAgentKBaseLegacyCharChunkConfig()
+	}
+	if hasUnit {
+		if normalized, ok := NormalizeAgentKBaseChunkUnit(unit); ok {
+			cfg.Unit = normalized
+		} else {
+			cfg.Unit = unit
+		}
+		if cfg.Unit == AgentKBaseChunkUnitChars {
+			cfg.MaxChars = 4000
+			cfg.OverlapChars = 600
+			cfg.MaxTokens = 0
+			cfg.OverlapTokens = 0
+		}
+	}
+	if maxTokens := intNode(firstAnyValue(chunk, "maxTokens", "max-tokens")); maxTokens > 0 {
+		cfg.MaxTokens = maxTokens
+		if !hasUnit {
+			cfg.Unit = AgentKBaseChunkUnitEstimatedTokens
+		}
+	}
+	if _, exists := firstExistingValue(chunk, "overlapTokens", "overlap-tokens"); exists {
+		if overlapTokens := intNode(firstAnyValue(chunk, "overlapTokens", "overlap-tokens")); overlapTokens >= 0 {
+			cfg.OverlapTokens = overlapTokens
+			if !hasUnit {
+				cfg.Unit = AgentKBaseChunkUnitEstimatedTokens
+			}
+		}
+	}
+	if maxChars := intNode(firstAnyValue(chunk, "maxChars", "max-chars")); maxChars > 0 {
+		cfg.MaxChars = maxChars
+		if !hasUnit && !hasMaxTokens && !hasOverlapTokens {
+			cfg.Unit = AgentKBaseChunkUnitChars
+		}
+	}
+	if _, exists := firstExistingValue(chunk, "overlapChars", "overlap-chars"); exists {
+		if overlapChars := intNode(firstAnyValue(chunk, "overlapChars", "overlap-chars")); overlapChars >= 0 {
+			cfg.OverlapChars = overlapChars
+			if !hasUnit && !hasMaxTokens && !hasOverlapTokens {
+				cfg.Unit = AgentKBaseChunkUnitChars
+			}
+		}
+	}
+	return NormalizeAgentKBaseChunkConfig(cfg)
+}
+
+func NormalizeAgentKBaseChunkConfig(cfg AgentKBaseChunkConfig) AgentKBaseChunkConfig {
+	if strings.TrimSpace(cfg.Unit) == "" && cfg.MaxTokens <= 0 && cfg.OverlapTokens <= 0 && (cfg.MaxChars > 0 || cfg.OverlapChars > 0) {
+		cfg.Unit = AgentKBaseChunkUnitChars
+	}
+	unit, ok := NormalizeAgentKBaseChunkUnit(cfg.Unit)
+	if !ok {
+		unit = AgentKBaseChunkUnitEstimatedTokens
+		if strings.TrimSpace(cfg.Unit) != "" {
+			unit = strings.TrimSpace(cfg.Unit)
+		}
+	}
+	cfg.Unit = unit
+	switch cfg.Unit {
+	case AgentKBaseChunkUnitChars:
+		if cfg.MaxChars <= 0 {
+			cfg.MaxChars = 4000
+		}
+		if cfg.OverlapChars < 0 {
+			cfg.OverlapChars = 0
+		}
+		if cfg.OverlapChars >= cfg.MaxChars {
+			cfg.OverlapChars = cfg.MaxChars / 5
+		}
+		cfg.MaxTokens = 0
+		cfg.OverlapTokens = 0
+	default:
+		if cfg.MaxTokens <= 0 {
+			cfg.MaxTokens = 1000
+		}
+		if cfg.OverlapTokens < 0 {
+			cfg.OverlapTokens = 0
+		}
+		if cfg.OverlapTokens >= cfg.MaxTokens {
+			cfg.OverlapTokens = cfg.MaxTokens / 5
+		}
+		cfg.MaxChars = 0
+		cfg.OverlapChars = 0
+	}
+	return cfg
+}
+
+func NormalizeAgentKBaseChunkUnit(value string) (string, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	normalized = strings.ReplaceAll(normalized, "-", "")
+	normalized = strings.ReplaceAll(normalized, "_", "")
+	normalized = strings.ReplaceAll(normalized, " ", "")
+	switch normalized {
+	case "", "estimatedtokens", "tokens":
+		return AgentKBaseChunkUnitEstimatedTokens, true
+	case "chars", "characters", "runes":
+		return AgentKBaseChunkUnitChars, true
+	default:
+		return "", false
+	}
+}
+
+func hasAnyKey(values map[string]any, keys ...string) bool {
+	_, ok := firstExistingValue(values, keys...)
+	return ok
+}
+
+func firstAnyValue(values map[string]any, keys ...string) any {
+	value, _ := firstExistingValue(values, keys...)
+	return value
+}
+
+func firstExistingValue(values map[string]any, keys ...string) (any, bool) {
+	for _, key := range keys {
+		if value, exists := values[key]; exists {
+			return value, true
+		}
+	}
+	return nil, false
+}
+
 func validateAgentKBaseConfigSchema(kbaseConfig map[string]any) error {
 	embedding := mapNode(kbaseConfig["embedding"])
 	for _, key := range []string{"providerKey", "model", "dimension", "timeout"} {
 		if _, exists := embedding[key]; exists {
 			return fmt.Errorf("kbaseConfig.embedding.%s is no longer supported; use kbaseConfig.embedding.modelKey", key)
+		}
+	}
+	chunk := mapNode(kbaseConfig["chunk"])
+	if rawUnit, exists := chunk["unit"]; exists {
+		unit := strings.TrimSpace(stringNode(rawUnit))
+		if _, ok := NormalizeAgentKBaseChunkUnit(unit); !ok {
+			return fmt.Errorf("kbaseConfig.chunk.unit must be estimatedTokens or chars")
 		}
 	}
 	return nil

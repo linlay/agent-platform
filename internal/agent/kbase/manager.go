@@ -218,6 +218,7 @@ func (m *Manager) Status(agentKey string) (Status, error) {
 		StorageDir:      cfg.StorageDir,
 		WorkspaceRoot:   cfg.WorkspaceRoot,
 		Embedding:       cfg.Embedding,
+		Chunk:           cfg.Chunk,
 		Indexing:        m.isIndexing(cfg.AgentKey, cfg.StorageDir),
 		ConfigHash:      cfg.ConfigHash,
 	}
@@ -469,7 +470,7 @@ func (m *Manager) resolve(agentKey string) (resolvedConfig, *Embedder, error) {
 		Embedding:     embedding,
 		Include:       append([]string(nil), def.KBaseConfig.Include...),
 		Exclude:       append([]string(nil), def.KBaseConfig.Exclude...),
-		Chunk:         def.KBaseConfig.Chunk,
+		Chunk:         catalog.NormalizeAgentKBaseChunkConfig(def.KBaseConfig.Chunk),
 		Retrieval:     def.KBaseConfig.Retrieval,
 		Extraction:    m.cfg.KBase.Extraction,
 		Support:       m.support,

@@ -1,5 +1,7 @@
 package kbase
 
+import "agent-platform/internal/catalog"
+
 type RefreshOptions struct {
 	Force bool
 	Mode  string
@@ -17,21 +19,22 @@ type RefreshResult struct {
 }
 
 type Status struct {
-	AgentKey           string            `json:"agentKey"`
-	Mode               string            `json:"mode"`
-	StorageLocation    string            `json:"storageLocation"`
-	StorageDir         string            `json:"storageDir"`
-	WorkspaceRoot      string            `json:"workspaceRoot"`
-	Indexing           bool              `json:"indexing"`
-	Stale              bool              `json:"stale"`
-	LastIndexedAt      int64             `json:"lastIndexedAt"`
-	Files              int               `json:"files"`
-	Chunks             int               `json:"chunks"`
-	Embedding          EmbeddingSnapshot `json:"embedding"`
-	LastRun            *IndexRun         `json:"lastRun,omitempty"`
-	FileStats          FileStats         `json:"fileStats,omitempty"`
-	ConfigHash         string            `json:"configHash,omitempty"`
-	ManifestConfigHash string            `json:"manifestConfigHash,omitempty"`
+	AgentKey           string                        `json:"agentKey"`
+	Mode               string                        `json:"mode"`
+	StorageLocation    string                        `json:"storageLocation"`
+	StorageDir         string                        `json:"storageDir"`
+	WorkspaceRoot      string                        `json:"workspaceRoot"`
+	Indexing           bool                          `json:"indexing"`
+	Stale              bool                          `json:"stale"`
+	LastIndexedAt      int64                         `json:"lastIndexedAt"`
+	Files              int                           `json:"files"`
+	Chunks             int                           `json:"chunks"`
+	Embedding          EmbeddingSnapshot             `json:"embedding"`
+	Chunk              catalog.AgentKBaseChunkConfig `json:"chunk"`
+	LastRun            *IndexRun                     `json:"lastRun,omitempty"`
+	FileStats          FileStats                     `json:"fileStats,omitempty"`
+	ConfigHash         string                        `json:"configHash,omitempty"`
+	ManifestConfigHash string                        `json:"manifestConfigHash,omitempty"`
 }
 
 type FileStats struct {

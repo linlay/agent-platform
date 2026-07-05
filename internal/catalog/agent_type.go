@@ -279,10 +279,13 @@ func ValidateAgentKBaseConfig(def AgentDefinition) error {
 	}
 	switch strings.ToLower(strings.TrimSpace(def.KBaseConfig.Storage.Location)) {
 	case "", "runtime", "workspace":
-		return nil
 	default:
 		return fmt.Errorf("kbaseConfig.storage.location must be runtime or workspace")
 	}
+	if _, ok := NormalizeAgentKBaseChunkUnit(def.KBaseConfig.Chunk.Unit); !ok {
+		return fmt.Errorf("kbaseConfig.chunk.unit must be estimatedTokens or chars")
+	}
+	return nil
 }
 
 func AgentUsesACPCoderBackend(def AgentDefinition) bool {

@@ -246,6 +246,13 @@ func validateCreateAgentDefinition(definition map[string]any) error {
 			return fmt.Errorf("kbaseConfig.embedding.%s is no longer supported; use kbaseConfig.embedding.modelKey", key)
 		}
 	}
+	chunk := contracts.AnyMapNode(kbaseConfig["chunk"])
+	if rawUnit, exists := chunk["unit"]; exists {
+		unit := strings.TrimSpace(stringValue(rawUnit))
+		if _, ok := catalog.NormalizeAgentKBaseChunkUnit(unit); !ok {
+			return fmt.Errorf("kbaseConfig.chunk.unit must be estimatedTokens or chars")
+		}
+	}
 	return nil
 }
 
