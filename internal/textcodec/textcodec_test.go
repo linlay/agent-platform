@@ -2,6 +2,7 @@ package textcodec
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"unicode/utf8"
 
@@ -28,6 +29,57 @@ func TestDecodeFileTextKeepsUTF8(t *testing.T) {
 	}
 	if decoded.Encoding != "utf-8" || decoded.Content != "标题=测试\n" {
 		t.Fatalf("unexpected decoded text: %#v", decoded)
+	}
+}
+
+func TestHTMLToMarkdownLikeDropsScriptsStylesAndHiddenNodes(t *testing.T) {
+	got := HTMLToMarkdownLike([]byte(`<!doctype html>
+<html>
+<head>
+  <title>Hidden head title</title>
+  <style>.secret { color: red; }</style>
+  <script>window.secret = "token";</script>
+</head>
+<body>
+  <h1>Visible Title</h1>
+  <p>Hello <a href="/private">world</a>.</p>
+  <ul>
+    <li>First item</li>
+    <li hidden>Hidden item</li>
+    <li aria-hidden="true">Aria item</li>
+    <li style="display: none">Display item</li>
+    <li style="visibility:hidden">Visibility item</li>
+    <li>Second item</li>
+  </ul>
+  <template>Template item</template>
+  <canvas>Canvas item</canvas>
+  <noscript>Noscript item</noscript>
+  <!-- Comment item -->
+</body>
+</html>`))
+
+	for _, want := range []string{"# Visible Title", "Hello world.", "- First item", "- Second item"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected extracted HTML to contain %q, got:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{
+		"Hidden head title",
+		"secret",
+		"token",
+		"/private",
+		"Hidden item",
+		"Aria item",
+		"Display item",
+		"Visibility item",
+		"Template item",
+		"Canvas item",
+		"Noscript item",
+		"Comment item",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("expected extracted HTML to omit %q, got:\n%s", forbidden, got)
+		}
 	}
 }
 

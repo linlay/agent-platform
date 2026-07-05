@@ -93,6 +93,42 @@ func TestExtractPPTXNativeSlidesAndNotes(t *testing.T) {
 	}
 }
 
+func TestExtractHTMLNativeTextDropsScriptStyleAndHiddenNodes(t *testing.T) {
+	doc, err := extractHTML([]byte(`<!doctype html>
+<html>
+<head>
+  <title>Head title</title>
+  <style>.noise { color: red; }</style>
+  <script>console.log("secret script")</script>
+</head>
+<body>
+  <h2>Guide Title</h2>
+  <p>Visible alpha content.</p>
+  <ul><li>Visible beta item</li><li hidden>Hidden beta item</li></ul>
+  <p aria-hidden="true">Hidden aria content</p>
+  <p style="display:none">Hidden display content</p>
+  <p style="visibility: hidden">Hidden visibility content</p>
+</body>
+</html>`))
+	if err != nil {
+		t.Fatalf("extract html: %v", err)
+	}
+	if doc.Extractor != "html:native" || doc.Mime != "text/html" || len(doc.Blocks) != 1 || doc.Blocks[0].SourceType != "html" {
+		t.Fatalf("unexpected html metadata: %#v", doc)
+	}
+	text := extractedText(doc)
+	for _, want := range []string{"## Guide Title", "Visible alpha content.", "- Visible beta item"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected html text to contain %q, got:\n%s", want, text)
+		}
+	}
+	for _, forbidden := range []string{"Head title", "noise", "secret script", "Hidden beta item", "Hidden aria content", "Hidden display content", "Hidden visibility content"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("expected html text to omit %q, got:\n%s", forbidden, text)
+		}
+	}
+}
+
 func TestExtractPDFMissingPopplerSkips(t *testing.T) {
 	_, err := extractPDF(context.Background(), "missing.pdf", config.KBaseExtractionConfig{
 		Timeout: 1,

@@ -96,7 +96,7 @@ func TestWebFetchHTMLAppliesPromptWithSmallModel(t *testing.T) {
 	}
 	userMessage, _ := messages[1].(map[string]any)
 	userPrompt := contracts.AnyStringNode(userMessage["content"])
-	if !strings.Contains(userPrompt, "# Title") || !strings.Contains(userPrompt, "Hello link (/next).") {
+	if !strings.Contains(userPrompt, "# Title") || !strings.Contains(userPrompt, "Hello link.") || strings.Contains(userPrompt, "/next") {
 		t.Fatalf("expected markdown-ish content in model prompt, got %q", userPrompt)
 	}
 }

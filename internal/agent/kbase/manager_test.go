@@ -715,6 +715,17 @@ func TestManagerRefreshSearchReadAndIgnoreKBaseDir(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspace, "beta.txt"), []byte("beta reference material"), 0o644); err != nil {
 		t.Fatalf("write beta: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(workspace, "guide.html"), []byte(`<!doctype html>
+<html>
+<head><style>.noise { color: red; }</style><script>delta script noise</script></head>
+<body>
+  <h1>Delta Guide</h1>
+  <p>delta html reference material</p>
+  <p hidden>hidden delta material</p>
+</body>
+</html>`), 0o644); err != nil {
+		t.Fatalf("write guide html: %v", err)
+	}
 	if err := os.MkdirAll(filepath.Join(workspace, "guides", "deep"), 0o755); err != nil {
 		t.Fatalf("mkdir guides: %v", err)
 	}
@@ -743,7 +754,7 @@ func TestManagerRefreshSearchReadAndIgnoreKBaseDir(t *testing.T) {
 		KBaseConfig: catalog.AgentKBaseConfig{
 			Embedding: catalog.AgentKBaseEmbeddingConfig{ModelKey: "mock-embedding-key"},
 			Storage:   catalog.AgentKBaseStorageConfig{Location: "runtime"},
-			Include:   []string{"**/*.md", "**/*.txt", "**/*.pptx"},
+			Include:   []string{"**/*.md", "**/*.txt", "**/*.html", "**/*.htm", "**/*.pptx"},
 			Exclude:   []string{".git/**", ".kbase/**", "node_modules/**"},
 			Chunk:     catalog.AgentKBaseChunkConfig{MaxChars: 4000, OverlapChars: 600},
 			Retrieval: catalog.AgentKBaseRetrievalConfig{TopK: 5, VectorWeight: 0.7, FTSWeight: 0.3},
@@ -757,14 +768,14 @@ func TestManagerRefreshSearchReadAndIgnoreKBaseDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
-	if refresh.Status != "success" || refresh.ScannedFiles != 5 {
+	if refresh.Status != "success" || refresh.ScannedFiles != 6 {
 		t.Fatalf("unexpected refresh result: %#v", refresh)
 	}
 	status, err := manager.Status("docs")
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
-	if status.Files != 5 || status.Chunks == 0 || status.Stale {
+	if status.Files != 6 || status.Chunks == 0 || status.Stale {
 		t.Fatalf("unexpected status: %#v", status)
 	}
 	search, err := manager.Search(context.Background(), "docs", "beta", SearchOptions{Limit: 3})
@@ -780,6 +791,20 @@ func TestManagerRefreshSearchReadAndIgnoreKBaseDir(t *testing.T) {
 	}
 	if !read.Found || !strings.Contains(read.Content, "beta reference") {
 		t.Fatalf("unexpected read result: %#v", read)
+	}
+	htmlSearch, err := manager.Search(context.Background(), "docs", "delta", SearchOptions{Limit: 3, Type: "html"})
+	if err != nil {
+		t.Fatalf("html search: %v", err)
+	}
+	if htmlSearch.Count == 0 || htmlSearch.Results[0].Path != "guide.html" || htmlSearch.Results[0].SourceType != "html" {
+		t.Fatalf("expected guide.html html hit, got %#v", htmlSearch)
+	}
+	htmlRead, err := manager.Read("docs", ReadOptions{ChunkID: htmlSearch.Results[0].ChunkID})
+	if err != nil {
+		t.Fatalf("html read: %v", err)
+	}
+	if !htmlRead.Found || htmlRead.SourceType != "html" || !strings.Contains(htmlRead.Content, "delta html reference material") || strings.Contains(htmlRead.Content, "script noise") || strings.Contains(htmlRead.Content, "hidden delta") {
+		t.Fatalf("unexpected html read result: %#v", htmlRead)
 	}
 	slideSearch, err := manager.Search(context.Background(), "docs", "gamma", SearchOptions{Limit: 3})
 	if err != nil {
@@ -870,7 +895,7 @@ func TestManagerRefreshSearchReadAndIgnoreKBaseDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("active files: %v", err)
 	}
-	if activeFiles.FileCount != 5 || hasKBaseFileEntry(activeFiles.Results, "file", "skip.bin") {
+	if activeFiles.FileCount != 6 || hasKBaseFileEntry(activeFiles.Results, "file", "skip.bin") {
 		t.Fatalf("default files should only include active files: %#v", activeFiles)
 	}
 	allFiles, err := manager.Files("docs", FilesOptions{Status: "all", Type: "bin", HeadLimit: -1})

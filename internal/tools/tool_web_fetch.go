@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -17,13 +16,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/models"
-	"golang.org/x/net/html"
+	"agent-platform/internal/textcodec"
 )
 
 const webFetchMaxRedirects = 10
@@ -255,7 +253,7 @@ func readWebFetchResponse(resp *http.Response, profile config.WebFetchProfileCon
 	}
 	content := string(data)
 	if strings.Contains(contentType, "text/html") || strings.Contains(contentType, "application/xhtml") {
-		content = htmlToMarkdownLike(bytes.NewReader(data))
+		content = textcodec.HTMLToMarkdownLike(data)
 	}
 	return &webFetchContent{
 		Content:       strings.TrimSpace(content),
@@ -472,143 +470,6 @@ func webFetchHostPreapproved(rawURL string, hosts []string) bool {
 		}
 	}
 	return false
-}
-
-func htmlToMarkdownLike(reader io.Reader) string {
-	data, readErr := io.ReadAll(reader)
-	if readErr != nil {
-		return ""
-	}
-	root, err := html.Parse(bytes.NewReader(data))
-	if err != nil {
-		return strings.TrimSpace(string(data))
-	}
-	var builder strings.Builder
-	renderHTMLNode(&builder, root)
-	return cleanupMarkdownWhitespace(builder.String())
-}
-
-func renderHTMLNode(builder *strings.Builder, node *html.Node) {
-	if node == nil {
-		return
-	}
-	if node.Type == html.TextNode {
-		appendMarkdownText(builder, node.Data)
-		return
-	}
-	if node.Type != html.ElementNode && node.Type != html.DocumentNode {
-		for child := node.FirstChild; child != nil; child = child.NextSibling {
-			renderHTMLNode(builder, child)
-		}
-		return
-	}
-	tag := strings.ToLower(node.Data)
-	switch tag {
-	case "script", "style", "noscript", "svg", "canvas":
-		return
-	case "br":
-		ensureMarkdownNewline(builder)
-		return
-	case "p", "div", "section", "article", "main", "header", "footer", "aside", "blockquote", "table", "tr":
-		ensureMarkdownBlock(builder)
-	case "li":
-		ensureMarkdownNewline(builder)
-		builder.WriteString("- ")
-	case "h1", "h2", "h3", "h4", "h5", "h6":
-		ensureMarkdownBlock(builder)
-		level := int(tag[1] - '0')
-		builder.WriteString(strings.Repeat("#", level))
-		builder.WriteString(" ")
-	}
-	for child := node.FirstChild; child != nil; child = child.NextSibling {
-		renderHTMLNode(builder, child)
-	}
-	if tag == "a" {
-		if href := htmlAttr(node, "href"); strings.TrimSpace(href) != "" {
-			builder.WriteString(" (")
-			builder.WriteString(strings.TrimSpace(href))
-			builder.WriteString(")")
-		}
-	}
-	switch tag {
-	case "p", "div", "section", "article", "main", "header", "footer", "aside", "blockquote", "table", "tr", "li", "h1", "h2", "h3", "h4", "h5", "h6":
-		ensureMarkdownBlock(builder)
-	}
-}
-
-func htmlAttr(node *html.Node, key string) string {
-	for _, attr := range node.Attr {
-		if strings.EqualFold(attr.Key, key) {
-			return attr.Val
-		}
-	}
-	return ""
-}
-
-func appendMarkdownText(builder *strings.Builder, text string) {
-	fields := strings.Fields(text)
-	if len(fields) == 0 {
-		return
-	}
-	if needsMarkdownSpace(builder) {
-		builder.WriteByte(' ')
-	}
-	builder.WriteString(strings.Join(fields, " "))
-}
-
-func needsMarkdownSpace(builder *strings.Builder) bool {
-	if builder.Len() == 0 {
-		return false
-	}
-	text := builder.String()
-	last := rune(text[len(text)-1])
-	return !unicode.IsSpace(last) && last != '(' && last != '[' && last != '-'
-}
-
-func ensureMarkdownNewline(builder *strings.Builder) {
-	if builder.Len() == 0 {
-		return
-	}
-	text := builder.String()
-	if !strings.HasSuffix(text, "\n") {
-		builder.WriteByte('\n')
-	}
-}
-
-func ensureMarkdownBlock(builder *strings.Builder) {
-	if builder.Len() == 0 {
-		return
-	}
-	text := builder.String()
-	if strings.HasSuffix(text, "\n\n") {
-		return
-	}
-	if strings.HasSuffix(text, "\n") {
-		builder.WriteByte('\n')
-		return
-	}
-	builder.WriteString("\n\n")
-}
-
-func cleanupMarkdownWhitespace(text string) string {
-	lines := strings.Split(text, "\n")
-	out := make([]string, 0, len(lines))
-	punctuation := strings.NewReplacer(" .", ".", " ,", ",", " ;", ";", " :", ":", " !", "!", " ?", "?")
-	blank := false
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		line = punctuation.Replace(line)
-		if line == "" {
-			if !blank && len(out) > 0 {
-				out = append(out, "")
-				blank = true
-			}
-			continue
-		}
-		out = append(out, line)
-		blank = false
-	}
-	return strings.TrimSpace(strings.Join(out, "\n"))
 }
 
 func webFetchToolError(code string, message string, diagnostics map[string]any) ToolExecutionResult {

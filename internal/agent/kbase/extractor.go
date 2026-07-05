@@ -17,6 +17,7 @@ import (
 
 	"agent-platform/internal/config"
 	"agent-platform/internal/supportpkg"
+	"agent-platform/internal/textcodec"
 )
 
 type extractedDocument struct {
@@ -114,6 +115,8 @@ func extractDocument(ctx context.Context, fullPath string, rel string, ext strin
 		return extractDOCX(data, cfg)
 	case ".pptx":
 		return extractPPTX(data, cfg)
+	case ".html", ".htm":
+		return extractHTML(data)
 	default:
 		if _, ok := supportedTextExtensions[ext]; !ok {
 			return extractedDocument{}, extractionSkip("unsupported_extension")
@@ -131,6 +134,8 @@ func extractorNameForExtension(ext string, cfg config.KBaseExtractionConfig) str
 		return "docx:" + cfg.DOCX.Backend
 	case ".pptx":
 		return "pptx:" + cfg.PPTX.Backend
+	case ".html", ".htm":
+		return "html:native"
 	default:
 		if _, ok := supportedTextExtensions[ext]; ok {
 			return "text:native"
@@ -155,6 +160,8 @@ func mimeForExtension(ext string) string {
 		return "application/yaml"
 	case ".csv":
 		return "text/csv"
+	case ".html", ".htm":
+		return "text/html"
 	default:
 		if _, ok := supportedTextExtensions[ext]; ok {
 			return "text/plain"
@@ -172,6 +179,28 @@ func extractPlainText(rel string, ext string, data []byte) (extractedDocument, e
 		Metadata:  map[string]any{"lineCount": lineCount},
 		Blocks: []extractedBlock{{
 			SourceType: "text",
+			Content:    text,
+			StartLine:  1,
+			EndLine:    lineCount,
+		}},
+	}, nil
+}
+
+func extractHTML(data []byte) (extractedDocument, error) {
+	if looksBinary(data) {
+		return extractedDocument{}, extractionSkip("binary_or_non_utf8")
+	}
+	text := textcodec.HTMLToMarkdownLike(data)
+	if strings.TrimSpace(text) == "" {
+		return extractedDocument{}, extractionSkip("html_no_text")
+	}
+	lineCount := countLines(text)
+	return extractedDocument{
+		Extractor: "html:native",
+		Mime:      mimeForExtension(".html"),
+		Metadata:  map[string]any{"lineCount": lineCount},
+		Blocks: []extractedBlock{{
+			SourceType: "html",
 			Content:    text,
 			StartLine:  1,
 			EndLine:    lineCount,
