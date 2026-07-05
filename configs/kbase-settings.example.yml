@@ -16,8 +16,8 @@ refresh:
   reconcile-interval: 10m
 
 extraction:
-  timeout: 60s
-  max-file-bytes: 52428800
+  timeout: 180s
+  max-file-bytes: 314572800
 
   pdf:
     enabled: true
