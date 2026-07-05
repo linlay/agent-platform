@@ -345,21 +345,20 @@ type InputUsageSnapshot struct {
 
 func (InputUsageSnapshot) streamInputTag() {}
 
-type InputActivitySnapshot struct {
-	TaskID         string
-	ChatID         string
-	Phase          string
-	Status         string
-	Attempt        int
-	MaxAttempts    int
-	Reason         string
-	Message        string
-	TimeoutSeconds int64
-	ElapsedMs      int64
-	Error          map[string]any
+type InputRunActivity struct {
+	TaskID      string
+	ChatID      string
+	Phase       string
+	Status      string
+	Backend     string
+	Key         string
+	Message     string
+	Retry       map[string]any
+	Recovery    map[string]any
+	Degradation map[string]any
 }
 
-func (InputActivitySnapshot) streamInputTag() {}
+func (InputRunActivity) streamInputTag() {}
 
 type RunCancel struct {
 	RunID string

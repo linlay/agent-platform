@@ -382,12 +382,18 @@ func TestParallelToolCallBatchStreamsResultAsEachToolCompletes(t *testing.T) {
 	firstResult := make(chan contracts.AgentDelta, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		delta, err := stream.Next()
-		if err != nil {
-			errCh <- err
+		for {
+			delta, err := stream.Next()
+			if err != nil {
+				errCh <- err
+				return
+			}
+			if _, ok := delta.(contracts.DeltaRunActivity); ok {
+				continue
+			}
+			firstResult <- delta
 			return
 		}
-		firstResult <- delta
 	}()
 
 	started := map[string]bool{}
@@ -637,9 +643,9 @@ func TestModelRetryRetriesProviderTimeoutBeforeVisibleOutput(t *testing.T) {
 			t.Fatalf("stream next: %v", err)
 		}
 		switch typed := delta.(type) {
-		case contracts.DeltaActivitySnapshot:
+		case contracts.DeltaRunActivity:
 			statuses = append(statuses, typed.Status)
-			if typed.MaxAttempts != 4 {
+			if typed.Status == "retrying" && typed.Retry["maxAttempts"] != 4 {
 				t.Fatalf("expected maxAttempts 4, got %#v", typed)
 			}
 		case contracts.DeltaContent:
@@ -649,7 +655,7 @@ func TestModelRetryRetriesProviderTimeoutBeforeVisibleOutput(t *testing.T) {
 	if protocol.openCount != 2 {
 		t.Fatalf("expected 2 provider attempts, got %d", protocol.openCount)
 	}
-	if !reflect.DeepEqual(statuses, []string{"waiting", "retrying"}) {
+	if !reflect.DeepEqual(statuses, []string{"waiting", "retrying", "running", "completed"}) {
 		t.Fatalf("unexpected activity statuses %#v", statuses)
 	}
 	if content != "ok" {
@@ -677,7 +683,7 @@ func TestModelRetryEmitsFailedWhenAttemptsExhausted(t *testing.T) {
 			finalErr = err
 			break
 		}
-		if activity, ok := delta.(contracts.DeltaActivitySnapshot); ok {
+		if activity, ok := delta.(contracts.DeltaRunActivity); ok {
 			statuses = append(statuses, activity.Status)
 		}
 	}
@@ -691,13 +697,13 @@ func TestModelRetryEmitsFailedWhenAttemptsExhausted(t *testing.T) {
 	if protocol.openCount != 4 {
 		t.Fatalf("expected 4 provider attempts, got %d", protocol.openCount)
 	}
-	want := []string{"waiting", "retrying", "retrying", "retrying", "failed"}
+	want := []string{"waiting", "retrying", "retrying", "retrying"}
 	if !reflect.DeepEqual(statuses, want) {
 		t.Fatalf("statuses=%#v want %#v", statuses, want)
 	}
 }
 
-func TestModelRetryDisconnectsAfterVisibleOutput(t *testing.T) {
+func TestModelRetryFailsWithoutActivityAfterVisibleOutput(t *testing.T) {
 	stream := newRetryTestStream(&retryProtocolStub{}, 3)
 	stream.modelCall = &pendingModelCall{attempt: 1, maxAttempts: 4}
 	var content strings.Builder
@@ -716,12 +722,8 @@ func TestModelRetryDisconnectsAfterVisibleOutput(t *testing.T) {
 	if stream.modelCall != nil || stream.currentTurn != nil {
 		t.Fatalf("expected model turn closed, modelCall=%#v currentTurn=%#v", stream.modelCall, stream.currentTurn)
 	}
-	if len(stream.pending) != 1 {
-		t.Fatalf("expected one activity delta, got %#v", stream.pending)
-	}
-	activity, ok := stream.pending[0].(contracts.DeltaActivitySnapshot)
-	if !ok || activity.Status != "disconnecting" || activity.Attempt != 1 {
-		t.Fatalf("expected disconnecting activity, got %#v", stream.pending[0])
+	if len(stream.pending) != 0 {
+		t.Fatalf("did not expect activity delta after terminal model error, got %#v", stream.pending)
 	}
 }
 

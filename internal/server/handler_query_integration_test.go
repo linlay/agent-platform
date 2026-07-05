@@ -45,7 +45,7 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 		t.Fatalf("expected request.query event, got %s", bodyText)
 	}
 	assertLiveSSEExcludesHistoricalSnapshots(t, bodyText)
-	assertStringSliceContains(t, decodeEventTypesFromSSE(t, bodyText), "activity.snapshot")
+	assertStringSliceContains(t, decodeEventTypesFromSSE(t, bodyText), "run.activity")
 	if strings.Contains(bodyText, `"type":"memory.context"`) {
 		t.Fatalf("did not expect memory.context in live sse, got %s", bodyText)
 	}
@@ -878,7 +878,7 @@ func TestQueryAndRunDebugEventsDisabledByDefault(t *testing.T) {
 	body := rec.Body.String()
 	sseTypes := decodeEventTypesFromSSE(t, body)
 	assertStringSliceExcludes(t, sseTypes, "debug.llmChat")
-	assertStringSliceContains(t, sseTypes, "activity.snapshot", "usage.snapshot")
+	assertStringSliceContains(t, sseTypes, "run.activity", "usage.snapshot")
 
 	messages := decodeSSEMessages(t, body)
 	if len(messages) == 0 {
@@ -898,7 +898,7 @@ func TestQueryAndRunDebugEventsDisabledByDefault(t *testing.T) {
 	}
 	runTypes := decodeEventTypesFromSSE(t, runRec.Body.String())
 	assertStringSliceExcludes(t, runTypes, "debug.llmChat")
-	assertStringSliceContains(t, runTypes, "activity.snapshot", "usage.snapshot")
+	assertStringSliceContains(t, runTypes, "run.activity", "usage.snapshot")
 
 	chatRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID, nil))
@@ -908,7 +908,7 @@ func TestQueryAndRunDebugEventsDisabledByDefault(t *testing.T) {
 	}
 	assertEventTypesExclude(t, chatResp.Data.Events, "debug.llmChat")
 	assertEventTypesExclude(t, chatResp.Data.Events, "usage.snapshot")
-	assertEventTypesExclude(t, chatResp.Data.Events, "activity.snapshot")
+	assertEventTypesExclude(t, chatResp.Data.Events, "run.activity")
 	if chatResp.Data.Usage == nil || chatResp.Data.ContextWindow == nil {
 		t.Fatalf("expected outer usage and context window, got usage=%#v contextWindow=%#v", chatResp.Data.Usage, chatResp.Data.ContextWindow)
 	}
@@ -2639,7 +2639,7 @@ func TestQueryStreamsToolPayloadEventsAndPersistsToolSnapshot(t *testing.T) {
 	}
 	body := rec.Body.String()
 	assertLiveSSEExcludesHistoricalSnapshots(t, body)
-	assertStringSliceContains(t, decodeEventTypesFromSSE(t, body), "activity.snapshot")
+	assertStringSliceContains(t, decodeEventTypesFromSSE(t, body), "run.activity")
 	if !strings.Contains(body, `"type":"tool.start"`) || !strings.Contains(body, `"type":"tool.end"`) {
 		t.Fatalf("expected tool lifecycle to remain in stream, got %s", body)
 	}

@@ -224,30 +224,35 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 			d.state.runUsage = runUsageStateFromValues(value.RunPromptTokens, value.RunCompletionTokens, value.RunTotalTokens, value.RunCachedTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens, value.RunLLMChatCompletionCount, value.RunToolCallCount, value.RunFirstTokenLatencyTotalMs, value.RunFirstTokenLatencyCount, value.RunGenerationDurationMs)
 		}
 		return []StreamEvent{usageSnapshotEvent(d.request.RunID, value.TaskID, value.ChatID, value.ModelKey, value.ReasoningEffort, value.ContextWindow, value.CurrentContextSize, value.EstimatedNextCallSize, value.LLMReturnPromptTokens, value.LLMReturnCompletionTokens, value.LLMReturnTotalTokens, value.LLMReturnCachedTokens, value.LLMReturnReasoningTokens, value.LLMReturnPromptCacheHitTokens, value.LLMReturnPromptCacheMissTokens, value.LLMReturnLLMChatCompletionCount, value.LLMReturnToolCallCount, value.LLMReturnFirstTokenLatencyMs, value.LLMReturnGenerationDurationMs, value.RunPromptTokens, value.RunCompletionTokens, value.RunTotalTokens, value.RunCachedTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens, value.RunLLMChatCompletionCount, value.RunToolCallCount, value.RunFirstTokenLatencyTotalMs, value.RunFirstTokenLatencyCount, value.RunGenerationDurationMs)}
-	case InputActivitySnapshot:
+	case InputRunActivity:
 		payload := map[string]any{
-			"runId":       d.request.RunID,
-			"chatId":      value.ChatID,
-			"phase":       value.Phase,
-			"status":      value.Status,
-			"attempt":     value.Attempt,
-			"maxAttempts": value.MaxAttempts,
-			"reason":      value.Reason,
-			"message":     value.Message,
+			"runId":  d.request.RunID,
+			"chatId": value.ChatID,
+			"phase":  value.Phase,
+			"status": value.Status,
 		}
 		if value.TaskID != "" {
 			payload["taskId"] = value.TaskID
 		}
-		if value.TimeoutSeconds > 0 {
-			payload["timeoutSeconds"] = value.TimeoutSeconds
+		if value.Backend != "" {
+			payload["backend"] = value.Backend
 		}
-		if value.ElapsedMs > 0 {
-			payload["elapsedMs"] = value.ElapsedMs
+		if value.Key != "" {
+			payload["key"] = value.Key
 		}
-		if len(value.Error) > 0 {
-			payload["error"] = clonePayload(value.Error)
+		if value.Message != "" {
+			payload["message"] = value.Message
 		}
-		return []StreamEvent{NewEvent("activity.snapshot", payload)}
+		if len(value.Retry) > 0 {
+			payload["retry"] = clonePayload(value.Retry)
+		}
+		if len(value.Recovery) > 0 {
+			payload["recovery"] = clonePayload(value.Recovery)
+		}
+		if len(value.Degradation) > 0 {
+			payload["degradation"] = clonePayload(value.Degradation)
+		}
+		return []StreamEvent{NewEvent("run.activity", payload)}
 	case InputRunComplete:
 		d.state.runFinishReason = value.FinishReason
 		return nil

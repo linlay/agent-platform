@@ -21,7 +21,7 @@ func (s *llmRunStream) modelMaxAttempts() int {
 	return maxAttempts
 }
 
-func (s *llmRunStream) buildModelActivitySnapshot(status string, call *pendingModelCall, err error) DeltaActivitySnapshot {
+func (s *llmRunStream) buildModelRunActivity(status string, call *pendingModelCall, err error) DeltaRunActivity {
 	if call == nil {
 		call = s.modelCall
 	}
@@ -41,23 +41,34 @@ func (s *llmRunStream) buildModelActivitySnapshot(status string, call *pendingMo
 	}
 	payload := modelErrorPayload(err)
 	reason := modelActivityReason(status, payload)
-	return DeltaActivitySnapshot{
-		TaskID:         s.modelActivityTaskID(),
-		ChatID:         s.session.ChatID,
-		Phase:          modelActivityPhase,
-		Status:         status,
-		Attempt:        attempt,
-		MaxAttempts:    maxAttempts,
-		Reason:         reason,
-		Message:        modelActivityMessage(status, reason),
-		TimeoutSeconds: s.modelActivityTimeoutSeconds(payload),
-		ElapsedMs:      modelActivityElapsedMs(startedAt),
-		Error:          payload,
+	activity := DeltaRunActivity{
+		TaskID:  s.modelActivityTaskID(),
+		ChatID:  s.session.ChatID,
+		Phase:   modelActivityPhase,
+		Status:  status,
+		Message: modelActivityMessage(status, reason),
 	}
+	if status == "retrying" {
+		retry := map[string]any{
+			"attempt":     attempt,
+			"maxAttempts": maxAttempts,
+		}
+		if reason != "" {
+			retry["reason"] = reason
+		}
+		if timeoutSeconds := s.modelActivityTimeoutSeconds(payload); timeoutSeconds > 0 {
+			retry["timeoutSeconds"] = timeoutSeconds
+		}
+		if elapsedMs := modelActivityElapsedMs(startedAt); elapsedMs > 0 {
+			retry["elapsedMs"] = elapsedMs
+		}
+		activity.Retry = retry
+	}
+	return activity
 }
 
-func (s *llmRunStream) appendModelActivitySnapshot(status string, err error) {
-	s.pending = append(s.pending, s.buildModelActivitySnapshot(status, s.modelCall, err))
+func (s *llmRunStream) appendModelRunActivity(status string, err error) {
+	s.pending = append(s.pending, s.buildModelRunActivity(status, s.modelCall, err))
 }
 
 func (s *llmRunStream) modelActivityTaskID() string {
@@ -136,10 +147,10 @@ func modelActivityReason(status string, payload map[string]any) string {
 		return "model_call_waiting"
 	case "retrying":
 		return "model_call_retrying"
-	case "disconnecting":
-		return "model_call_disconnecting"
-	case "failed":
-		return "model_call_failed"
+	case "running":
+		return "model_call_running"
+	case "completed":
+		return "model_call_completed"
 	default:
 		return "model_call"
 	}
@@ -151,10 +162,10 @@ func modelActivityMessage(status string, reason string) string {
 		return "正在等待模型响应"
 	case "retrying":
 		return "模型响应超时，正在重试"
-	case "disconnecting":
-		return "模型流已断开"
-	case "failed":
-		return "模型请求失败"
+	case "running":
+		return "模型正在响应"
+	case "completed":
+		return "模型调用完成"
 	default:
 		return reason
 	}
@@ -217,14 +228,9 @@ func (s *llmRunStream) handleModelAttemptError(err error) error {
 		s.closeCurrentProviderTurn()
 		s.modelCall.attempt++
 		s.modelCall.attemptStartedAt = time.Time{}
-		s.appendModelActivitySnapshot("retrying", err)
+		s.appendModelRunActivity("retrying", err)
 		return nil
 	}
-	status := "failed"
-	if !s.currentModelTurnRetrySafe() {
-		status = "disconnecting"
-	}
-	s.appendModelActivitySnapshot(status, err)
 	s.closeCurrentProviderTurn()
 	s.modelCall = nil
 	s.modelTerminalError = err

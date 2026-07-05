@@ -36,13 +36,13 @@ type planningDraftArgs struct {
 
 func (s *llmRunStream) appendToolCallDeltas(deltas []AgentDelta) {
 	for _, delta := range deltas {
-		s.pending = append(s.pending, delta)
 		toolCall, ok := delta.(DeltaToolCall)
+		if ok && strings.TrimSpace(toolCall.ArgsDelta) != "" {
+			s.markFirstVisibleDelta()
+		}
+		s.pending = append(s.pending, delta)
 		if !ok {
 			continue
-		}
-		if strings.TrimSpace(toolCall.ArgsDelta) != "" {
-			s.markFirstVisibleDelta()
 		}
 		s.pending = append(s.pending, s.planningDeltasFromToolCall(toolCall)...)
 	}

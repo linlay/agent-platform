@@ -266,34 +266,33 @@ func TestDeltaMapper_DebugLLMChat(t *testing.T) {
 	}
 }
 
-func TestDeltaMapper_ActivitySnapshot(t *testing.T) {
+func TestDeltaMapper_RunActivity(t *testing.T) {
 	mapper := NewDeltaMapper("run_1", "chat_1", contracts.Budget{}, nil, nil)
 
-	inputs := mapper.Map(contracts.DeltaActivitySnapshot{
-		TaskID:         "task_1",
-		ChatID:         "chat_1",
-		Phase:          "model_call",
-		Status:         "retrying",
-		Attempt:        2,
-		MaxAttempts:    4,
-		Reason:         "model_stream_idle_timeout",
-		Message:        "retrying",
-		TimeoutSeconds: 60,
-		ElapsedMs:      60001,
-		Error:          map[string]any{"code": "provider_timeout"},
+	inputs := mapper.Map(contracts.DeltaRunActivity{
+		TaskID:  "task_1",
+		ChatID:  "chat_1",
+		Phase:   "model_call",
+		Status:  "retrying",
+		Message: "retrying",
+		Retry: map[string]any{
+			"attempt":     2,
+			"maxAttempts": 4,
+			"reason":      "model_stream_idle_timeout",
+		},
 	})
 	if len(inputs) != 1 {
 		t.Fatalf("expected one mapped input, got %#v", inputs)
 	}
-	activity, ok := inputs[0].(stream.InputActivitySnapshot)
+	activity, ok := inputs[0].(stream.InputRunActivity)
 	if !ok {
-		t.Fatalf("expected InputActivitySnapshot, got %#v", inputs[0])
+		t.Fatalf("expected InputRunActivity, got %#v", inputs[0])
 	}
-	if activity.TaskID != "task_1" || activity.Status != "retrying" || activity.Attempt != 2 || activity.MaxAttempts != 4 || activity.TimeoutSeconds != 60 {
-		t.Fatalf("unexpected activity snapshot %#v", activity)
+	if activity.TaskID != "task_1" || activity.Status != "retrying" || activity.Message != "retrying" {
+		t.Fatalf("unexpected run activity %#v", activity)
 	}
-	if activity.Error["code"] != "provider_timeout" {
-		t.Fatalf("expected cloned error payload, got %#v", activity.Error)
+	if activity.Retry["attempt"] != 2 || activity.Retry["maxAttempts"] != 4 {
+		t.Fatalf("expected cloned retry payload, got %#v", activity.Retry)
 	}
 }
 

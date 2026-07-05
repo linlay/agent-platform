@@ -480,7 +480,7 @@ func isClientVisibleEvent(eventType string) bool {
 	if eventType == "usage.snapshot" {
 		return true
 	}
-	if eventType == "activity.snapshot" {
+	if eventType == "run.activity" {
 		return true
 	}
 	return !strings.HasSuffix(eventType, ".snapshot")

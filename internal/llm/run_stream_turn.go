@@ -188,7 +188,7 @@ func (s *llmRunStream) prepareNextTurn() error {
 		attempt:             1,
 		maxAttempts:         s.modelMaxAttempts(),
 	}
-	s.pending = append(s.pending, s.buildModelActivitySnapshot("waiting", s.modelCall, nil))
+	s.pending = append(s.pending, s.buildModelRunActivity("waiting", s.modelCall, nil))
 	return nil
 }
 
@@ -367,6 +367,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 	s.currentTurn = nil
 
 	if len(toolCalls) == 0 {
+		s.pending = append(s.pending, s.buildModelRunActivity("completed", nil, nil))
 		if s.appendTailSteersBeforeFinish() {
 			return nil
 		}
@@ -417,6 +418,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		fileChanges = nil
 	}
 	s.pending = append(s.pending, DeltaToolEnd{ToolIDs: toolIDs, FileChanges: fileChanges})
+	s.pending = append(s.pending, s.buildModelRunActivity("completed", nil, nil))
 	for _, prepared := range preparedCalls {
 		toolCall := prepared.toolCall
 		invocation := prepared.invocation

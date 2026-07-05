@@ -86,36 +86,37 @@ func TestDispatcherEmitsAwaitingAnswerDuration(t *testing.T) {
 	assertDurationMsPresent(t, answerEvents[0])
 }
 
-func TestDispatcherEmitsActivitySnapshot(t *testing.T) {
+func TestDispatcherEmitsRunActivity(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",
 		ChatID: "chat_1",
 	})
 
-	events := dispatcher.Dispatch(InputActivitySnapshot{
-		TaskID:         "task_1",
-		ChatID:         "chat_1",
-		Phase:          "model_call",
-		Status:         "retrying",
-		Attempt:        2,
-		MaxAttempts:    4,
-		Reason:         "model_stream_idle_timeout",
-		Message:        "retrying",
-		TimeoutSeconds: 60,
-		ElapsedMs:      60001,
-		Error:          map[string]any{"code": "provider_timeout"},
+	events := dispatcher.Dispatch(InputRunActivity{
+		TaskID:  "task_1",
+		ChatID:  "chat_1",
+		Phase:   "model_call",
+		Status:  "retrying",
+		Message: "retrying",
+		Retry: map[string]any{
+			"attempt":        2,
+			"maxAttempts":    4,
+			"reason":         "model_stream_idle_timeout",
+			"timeoutSeconds": int64(60),
+			"elapsedMs":      int64(60001),
+		},
 	})
-	assertEventTypes(t, events, "activity.snapshot")
+	assertEventTypes(t, events, "run.activity")
 	data := events[0].ToData()
 	if data["runId"] != "run_1" || data["chatId"] != "chat_1" || data["taskId"] != "task_1" {
 		t.Fatalf("unexpected identity payload %#v", data)
 	}
-	if data["status"] != "retrying" || data["attempt"] != 2 || data["maxAttempts"] != 4 || data["timeoutSeconds"] != int64(60) {
+	if data["status"] != "retrying" || data["message"] != "retrying" {
 		t.Fatalf("unexpected activity payload %#v", data)
 	}
-	errorPayload, _ := data["error"].(map[string]any)
-	if errorPayload["code"] != "provider_timeout" {
-		t.Fatalf("unexpected activity error payload %#v", data)
+	retry, _ := data["retry"].(map[string]any)
+	if retry["attempt"] != 2 || retry["maxAttempts"] != 4 || retry["timeoutSeconds"] != int64(60) {
+		t.Fatalf("unexpected retry payload %#v", data)
 	}
 }
 

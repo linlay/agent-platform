@@ -347,6 +347,7 @@ func (s *llmRunStream) markFirstVisibleDelta() {
 		return
 	}
 	s.currentTurn.firstVisibleAt = time.Now()
+	s.pending = append(s.pending, s.buildModelRunActivity("running", s.modelCall, nil))
 }
 
 func (s *llmRunStream) recordCurrentTurnTiming(completedAt time.Time) {

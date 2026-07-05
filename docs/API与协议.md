@@ -55,7 +55,7 @@ GET /ws -> request / response / stream / push / error frames
 | POST | `/api/admin/agents/delete` | body: `key`/`agentKey` | 删除结果 |
 | GET | `/api/admin/agents/editor-options` | 无 | agent 编辑器可选项 |
 | GET | `/api/admin/skills` | 无 | skills-market skill 列表，包含状态、摘要诊断、更新时间、大小与引用 agent |
-| GET | `/api/admin/skills/detail` | query: `key` | skill 详情，包含 `SKILL.md`、目录文件树、完整诊断和来源 |
+| GET | `/api/admin/skills/detail` | query: `key`/`skillKey`（`key` 为规范参数） | skill 详情，包含 `SKILL.md`、目录文件树、完整诊断和来源 |
 | POST | `/api/admin/skills/create` | body: `key`、`skillMd`、`files[]` | 创建后的 skill 详情 |
 | POST | `/api/admin/skills/delete` | body: `key` | 删除结果；仍被 agent 引用时返回 409 和 `usedByAgents` |
 | GET/PUT | `/api/admin/skills/file` | query/body: `key`、`path`、`content`、`baseSha256` | 读取或保存 UTF-8 文本文件 |
@@ -179,6 +179,8 @@ Automation 摘要和详情中的 `nextFireAt` 是下次触发时间的 epoch mil
 `steam` 不是支持字段；如果误传 `steam:false`，不会触发非流式响应。
 
 实时 SSE / WS stream 的工具事件形状不变：仍按单个工具发送 `tool.snapshot`、`tool.result`、`action.snapshot`、`action.result`。持久化到 `chatId.jsonl` 时，同一 assistant turn 的多个工具调用会合并为一条 assistant message 的 `tool_calls[]`；如果该组存在 awaiting，确认前不会执行任何 sibling tool，确认后的所有结果写入同 `seq` 的 `_type:"react-tool"` continuation。
+
+`run.activity` 是运行中的非终止状态事件，用于展示当前 run 正在等待、运行、重试或完成某个活动阶段。基础字段为 `runId`、`chatId`、`phase`、`status`；可选字段包括 `taskId`、`backend`、`key`、`message`，以及按场景嵌套的 `retry` / `recovery` / `degradation` 对象。当前 native 模型调用使用 `phase:"model_call"`，可恢复重试使用 `status:"retrying"` 且把 `attempt`、`maxAttempts`、`reason`、`timeoutSeconds`、`elapsedMs` 放入 `retry`。`run.activity` 不表示 run 失败；`run.error` 仍是终止事件，发出后不应再出现 content / reasoning / tool 等业务事件，后面只允许传输层 `[DONE]`。`run.activity` 只用于 live / attach，默认不进入 `/api/chat` 历史回放。
 
 可运行的 HTTP JSON 模式 curl：
 

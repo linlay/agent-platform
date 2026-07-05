@@ -32,6 +32,12 @@ func TestAdminSkillsListDetailAndFileEditing(t *testing.T) {
 		t.Fatalf("unexpected skill detail: %#v", detail)
 	}
 
+	aliasDetailPath := "/api/admin/skills/detail?skillKey=" + url.QueryEscape("mock-skill")
+	aliasDetail := getAPIData[api.AdminSkillDetailResponse](t, fixture.server, http.MethodGet, aliasDetailPath, nil)
+	if aliasDetail.Key != "mock-skill" || !strings.Contains(aliasDetail.SkillMd, "# Mock Skill") || len(aliasDetail.Files) == 0 {
+		t.Fatalf("unexpected skill alias detail: %#v", aliasDetail)
+	}
+
 	createBody := mustSkillJSON(t, api.CreateAdminSkillRequest{
 		Key:     "helper-skill",
 		SkillMd: "---\nname: Helper Skill\ndescription: Helps tests\n---\n\nUse carefully.\n",
@@ -125,6 +131,28 @@ func TestDeleteAdminSkillInUseReturnsConflict(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "usedByAgents") || !strings.Contains(rec.Body.String(), "mock-agent") {
 		t.Fatalf("expected usedByAgents in conflict response, got %s", rec.Body.String())
+	}
+}
+
+func TestAdminSkillDetailValidatesKeyAliases(t *testing.T) {
+	fixture := newTestFixture(t)
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/skills/detail?key=mock-skill&skillKey=other-skill", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected key mismatch 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "skillKey mismatch") {
+		t.Fatalf("expected mismatch error, got %s", rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/skills/detail", nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected missing key 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "key or skillKey is required") {
+		t.Fatalf("expected missing key error, got %s", rec.Body.String())
 	}
 }
 

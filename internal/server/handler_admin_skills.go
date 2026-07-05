@@ -53,7 +53,16 @@ func (s *Server) listAdminSkills() ([]api.AdminSkillSummary, error) {
 }
 
 func (s *Server) handleAdminSkillDetail(w http.ResponseWriter, r *http.Request) {
-	response, err := s.adminSkillDetail(r.URL.Query().Get("key"))
+	key, err := queryOrBodyIDAny(r, []string{"key", "skillKey"})
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
+		return
+	}
+	if strings.TrimSpace(key) == "" {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "key or skillKey is required"))
+		return
+	}
+	response, err := s.adminSkillDetail(key)
 	s.writeAgentHTTPResponse(w, response, err)
 }
 

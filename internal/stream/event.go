@@ -271,8 +271,8 @@ func eventPayloadKeyOrder(eventType string) []string {
 		return []string{"runId", "chatId", "taskId", "model", "system", "systemRef", "toolChoice", "requestOptions", "inputMessages"}
 	case "usage.snapshot":
 		return []string{"runId", "chatId", "taskId", "model", "contextWindow", "usage"}
-	case "activity.snapshot":
-		return []string{"runId", "chatId", "taskId", "phase", "status", "attempt", "maxAttempts", "reason", "message", "timeoutSeconds", "elapsedMs", "error"}
+	case "run.activity":
+		return []string{"runId", "chatId", "taskId", "phase", "status", "backend", "key", "message", "retry", "recovery", "degradation"}
 	case "memory.write", "memory.read", "memory.search", "memory.update",
 		"memory.forget", "memory.timeline", "memory.promote", "memory.consolidate":
 		return []string{"runId", "chatId", "data"}
