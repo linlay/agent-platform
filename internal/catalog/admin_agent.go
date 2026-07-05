@@ -26,6 +26,7 @@ type AdminAgent struct {
 	Skills       []string
 	Workspace    AgentWorkspaceConfig
 	Controls     []map[string]any
+	ChannelConfig AgentChannelConfig
 	Meta         map[string]any
 	Status       string
 	Diagnostics  []AdminAgentDiagnostic
@@ -40,6 +41,7 @@ func cloneAdminAgent(src AdminAgent) AdminAgent {
 	dst.Tools = append([]string(nil), src.Tools...)
 	dst.Skills = append([]string(nil), src.Skills...)
 	dst.Controls = cloneListMaps(src.Controls)
+	dst.ChannelConfig = cloneAgentChannelConfig(src.ChannelConfig)
 	dst.Diagnostics = append([]AdminAgentDiagnostic(nil), src.Diagnostics...)
 	dst.Meta = contracts.CloneMap(src.Meta)
 	dst.Definition = contracts.CloneMap(src.Definition)

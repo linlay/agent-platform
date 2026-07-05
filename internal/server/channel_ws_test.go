@@ -139,6 +139,53 @@ func TestWebSocketChannelsRouteRemovedAndAgentsIgnoreChannelFilter(t *testing.T)
 	}
 }
 
+func TestChannelWebSocketRequiresServerModeChannel(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.WriteQueueSize = 4
+			cfg.WebSocket.PingInterval = 30000
+			cfg.Channels = []config.ChannelConfig{
+				{
+					ID:   "public-entry",
+					Mode: config.ChannelModeServer,
+					Endpoint: config.ChannelEndpointConfig{
+						Path: "/ws/channel",
+					},
+				},
+				{
+					ID:   "peer-a",
+					Mode: config.ChannelModeClient,
+				},
+			}
+		},
+	})
+	server := httptest.NewServer(fixture.server)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/channel?channelId=public-entry"
+	conn, _, err := gws.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial channel websocket: %v", err)
+	}
+	readConnectedPush(t, conn)
+	_ = conn.Close()
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ws/channel", nil))
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "channelId is required") {
+		t.Fatalf("expected missing channelId to fail, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ws/channel?channelId=peer-a", nil))
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "server mode") {
+		t.Fatalf("expected client-mode channel to be rejected, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func readConnectedPush(t *testing.T, conn *gws.Conn) {
 	t.Helper()
 	_, raw, err := conn.ReadMessage()

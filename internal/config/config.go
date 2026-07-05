@@ -512,14 +512,54 @@ const (
 	ChannelTypeGateway ChannelType = "gateway"
 )
 
+type ChannelMode string
+
+const (
+	ChannelModeClient ChannelMode = "client"
+	ChannelModeServer ChannelMode = "server"
+)
+
+const (
+	ChannelTransportWebSocket = "websocket"
+	ChannelProtocolPlatformWS = "platform-ws"
+)
+
 type ChannelConfig struct {
 	ID           string
 	Name         string
 	Type         ChannelType
+	Mode         ChannelMode
+	Transport    string
+	Protocol     string
 	DefaultAgent string
 	Agents       []string
 	AllAgents    bool
+	Endpoint     ChannelEndpointConfig
+	Auth         ChannelAuthConfig
+	Heartbeat    ChannelHeartbeatConfig
+	Reconnect    ChannelReconnectConfig
 	Gateway      ChannelGatewayConfig
+}
+
+type ChannelEndpointConfig struct {
+	URL      string
+	Path     string
+	Token    string
+	TokenEnv string
+}
+
+type ChannelAuthConfig struct {
+	Type string
+}
+
+type ChannelHeartbeatConfig struct {
+	Interval int64 // seconds
+}
+
+type ChannelReconnectConfig struct {
+	HandshakeTimeout int64 // seconds
+	Min              int64 // seconds
+	Max              int64 // seconds
 }
 
 type ChannelGatewayConfig struct {

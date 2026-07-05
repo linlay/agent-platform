@@ -269,14 +269,45 @@ func (s *Server) buildAgentDetailMeta(def catalog.AgentDefinition) (string, map[
 	}
 	if def.ProxyConfig != nil {
 		meta["proxy"] = map[string]any{
-			"protocol":  "agw-platform",
+			"protocol":  proxyProtocol(def.ProxyConfig),
 			"transport": proxyUpstreamTransport(def.ProxyConfig),
 		}
+	}
+	if channelMeta := agentChannelConfigResponse(def.ChannelConfig); len(channelMeta) > 0 {
+		meta["channelConfig"] = channelMeta
 	}
 	if hasRuntimeSandbox(def.Runtime) {
 		meta["sandbox"] = normalizedRuntimeMeta(def.Runtime)
 	}
 	return modelName, meta
+}
+
+func agentChannelConfigResponse(cfg catalog.AgentChannelConfig) map[string]any {
+	meta := map[string]any{}
+	if strings.TrimSpace(cfg.ChannelID) != "" {
+		meta["channelId"] = strings.TrimSpace(cfg.ChannelID)
+	}
+	if strings.TrimSpace(cfg.RemoteAgentKey) != "" {
+		meta["remoteAgentKey"] = strings.TrimSpace(cfg.RemoteAgentKey)
+	}
+	if len(cfg.Exports) > 0 {
+		exports := make([]map[string]any, 0, len(cfg.Exports))
+		for _, export := range cfg.Exports {
+			exports = append(exports, map[string]any{
+				"channelId":        strings.TrimSpace(export.ChannelID),
+				"externalAgentKey": strings.TrimSpace(export.ExternalAgentKey),
+				"allow": map[string]any{
+					"query":        export.Allow.Query,
+					"submit":       export.Allow.Submit,
+					"steer":        export.Allow.Steer,
+					"interrupt":    export.Allow.Interrupt,
+					"fileTransfer": export.Allow.FileTransfer,
+				},
+			})
+		}
+		meta["exports"] = exports
+	}
+	return meta
 }
 
 func normalizedAgentTools(def catalog.AgentDefinition) []string {

@@ -143,22 +143,23 @@ func invalidAdminAgent(source EditableAgentSource, key string, definition map[st
 func readyAdminAgent(def AgentDefinition, source EditableAgentSource, definition map[string]any) AdminAgent {
 	apiMode := AgentModeForAPI(def.Mode)
 	item := AdminAgent{
-		Key:          def.Key,
-		Name:         firstNonBlankString(def.Name, def.Key),
-		Icon:         def.Icon,
-		Description:  def.Description,
-		Role:         def.Role,
-		Mode:         apiMode,
-		ModelKey:     def.ModelKey,
-		Tools:        append([]string(nil), def.Tools...),
-		Skills:       append([]string(nil), def.Skills...),
-		Workspace:    def.Workspace,
-		Controls:     cloneListMaps(def.Controls),
-		Status:       AdminAgentStatusReady,
-		Source:       source,
-		Definition:   contracts.CloneMap(definition),
-		SoulPrompt:   def.SoulPrompt,
-		AgentsPrompt: def.AgentsPrompt,
+		Key:           def.Key,
+		Name:          firstNonBlankString(def.Name, def.Key),
+		Icon:          def.Icon,
+		Description:   def.Description,
+		Role:          def.Role,
+		Mode:          apiMode,
+		ModelKey:      def.ModelKey,
+		Tools:         append([]string(nil), def.Tools...),
+		Skills:        append([]string(nil), def.Skills...),
+		Workspace:     def.Workspace,
+		Controls:      cloneListMaps(def.Controls),
+		ChannelConfig: cloneAgentChannelConfig(def.ChannelConfig),
+		Status:        AdminAgentStatusReady,
+		Source:        source,
+		Definition:    contracts.CloneMap(definition),
+		SoulPrompt:    def.SoulPrompt,
+		AgentsPrompt:  def.AgentsPrompt,
 	}
 	item.Meta = adminAgentMeta(item, EffectiveAgentVisibilityScopes(def))
 	return item
@@ -182,28 +183,29 @@ func adminAgentFromDefinition(source EditableAgentSource, key string, definition
 		agentsPrompt = readOptionalMarkdown(filepath.Join(source.AgentDir, "AGENTS.md"))
 	}
 	item := AdminAgent{
-		Key:          key,
-		Name:         firstNonBlankString(stringNode(definition["name"]), key),
-		Icon:         definition["icon"],
-		Description:  stringNode(definition["description"]),
-		Role:         stringNode(definition["role"]),
-		Mode:         mode,
-		ModelKey:     stringNode(modelConfig["modelKey"]),
-		Tools:        listStrings(toolConfig["tools"]),
-		Skills:       listStrings(mapNode(definition["skillConfig"])["skills"]),
-		Workspace:    parseAgentWorkspaceRoot(runtimeConfig["workspaceRoot"]),
-		Controls:     cloneListMaps(listMaps(definition["controls"])),
-		Source:       source,
-		Definition:   contracts.CloneMap(definition),
-		SoulPrompt:   soulPrompt,
-		AgentsPrompt: agentsPrompt,
+		Key:           key,
+		Name:          firstNonBlankString(stringNode(definition["name"]), key),
+		Icon:          definition["icon"],
+		Description:   stringNode(definition["description"]),
+		Role:          stringNode(definition["role"]),
+		Mode:          mode,
+		ModelKey:      stringNode(modelConfig["modelKey"]),
+		Tools:         listStrings(toolConfig["tools"]),
+		Skills:        listStrings(mapNode(definition["skillConfig"])["skills"]),
+		Workspace:     parseAgentWorkspaceRoot(runtimeConfig["workspaceRoot"]),
+		Controls:      cloneListMaps(listMaps(definition["controls"])),
+		ChannelConfig: parseAgentChannelConfig(definition["channelConfig"]),
+		Source:        source,
+		Definition:    contracts.CloneMap(definition),
+		SoulPrompt:    soulPrompt,
+		AgentsPrompt:  agentsPrompt,
 	}
 	item.Meta = adminAgentMeta(item, parseAgentVisibilityScopes(definition["visibility"]))
 	return item
 }
 
 func adminAgentMeta(item AdminAgent, visibilityScopes []string) map[string]any {
-	return map[string]any{
+	meta := map[string]any{
 		"model":       item.ModelKey,
 		"modelKey":    item.ModelKey,
 		"mode":        item.Mode,
@@ -215,6 +217,44 @@ func adminAgentMeta(item AdminAgent, visibilityScopes []string) map[string]any {
 			"scopes": append([]string(nil), visibilityScopes...),
 		},
 	}
+	if channelMeta := agentChannelConfigMeta(item.ChannelConfig); len(channelMeta) > 0 {
+		meta["channelConfig"] = channelMeta
+	}
+	return meta
+}
+
+func cloneAgentChannelConfig(src AgentChannelConfig) AgentChannelConfig {
+	dst := src
+	dst.Exports = append([]AgentChannelExport(nil), src.Exports...)
+	return dst
+}
+
+func agentChannelConfigMeta(cfg AgentChannelConfig) map[string]any {
+	meta := map[string]any{}
+	if strings.TrimSpace(cfg.ChannelID) != "" {
+		meta["channelId"] = strings.TrimSpace(cfg.ChannelID)
+	}
+	if strings.TrimSpace(cfg.RemoteAgentKey) != "" {
+		meta["remoteAgentKey"] = strings.TrimSpace(cfg.RemoteAgentKey)
+	}
+	if len(cfg.Exports) > 0 {
+		exports := make([]map[string]any, 0, len(cfg.Exports))
+		for _, export := range cfg.Exports {
+			exports = append(exports, map[string]any{
+				"channelId":        strings.TrimSpace(export.ChannelID),
+				"externalAgentKey": strings.TrimSpace(export.ExternalAgentKey),
+				"allow": map[string]any{
+					"query":        export.Allow.Query,
+					"submit":       export.Allow.Submit,
+					"steer":        export.Allow.Steer,
+					"interrupt":    export.Allow.Interrupt,
+					"fileTransfer": export.Allow.FileTransfer,
+				},
+			})
+		}
+		meta["exports"] = exports
+	}
+	return meta
 }
 
 func loadAgentPrompts(agentDir string, def *AgentDefinition, root map[string]any) {
@@ -533,18 +573,21 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	def.StageSettings = applyModelSamplingDefaults(def.StageSettings, mapNode(modelConfig["sampling"]))
 	if proxyRaw := mapNode(root["proxyConfig"]); len(proxyRaw) > 0 {
 		def.ProxyConfig = &ProxyConfig{
-			BaseURL:   stringNode(proxyRaw["baseUrl"]),
-			Transport: normalizeProxyTransport(stringNode(proxyRaw["transport"])),
-			AgentKey:  stringNode(proxyRaw["agentKey"]),
-			ChatID:    stringNode(proxyRaw["chatId"]),
-			Token:     resolveProxyToken(proxyRaw),
-			TokenEnv:  stringNode(proxyRaw["tokenEnv"]),
-			Timeout:   intNode(proxyRaw["timeout"]),
+			BaseURL:      stringNode(proxyRaw["baseUrl"]),
+			WebSocketURL: stringNode(firstAnyValue(proxyRaw, "webSocketUrl", "websocketUrl", "wsUrl", "ws-url")),
+			Transport:    normalizeProxyTransport(stringNode(proxyRaw["transport"])),
+			Protocol:     strings.ToLower(stringNode(proxyRaw["protocol"])),
+			AgentKey:     stringNode(proxyRaw["agentKey"]),
+			ChatID:       stringNode(proxyRaw["chatId"]),
+			Token:        resolveProxyToken(proxyRaw),
+			TokenEnv:     stringNode(proxyRaw["tokenEnv"]),
+			Timeout:      intNode(proxyRaw["timeout"]),
 		}
 		if def.ProxyConfig.Timeout <= 0 {
 			def.ProxyConfig.Timeout = 300
 		}
 	}
+	def.ChannelConfig = parseAgentChannelConfig(root["channelConfig"])
 	def.RuntimePrompts = parseRuntimePrompts(mapNode(root["runtimePrompts"]))
 	runtimeConfig := mapNode(root["runtimeConfig"])
 	if len(runtimeConfig) > 0 {
@@ -584,6 +627,9 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		return AgentDefinition{}, nil, err
 	}
 	if err := ValidateAgentCoderBackend(def); err != nil {
+		return AgentDefinition{}, nil, err
+	}
+	if err := ValidateAgentChannelConfig(def); err != nil {
 		return AgentDefinition{}, nil, err
 	}
 	if err := ValidateAgentModelConfig(def); err != nil {
@@ -733,6 +779,60 @@ func parseAgentMemoryConfig(path string, value any) (AgentMemoryConfig, error) {
 	cfg.AutoRemember.ModelKey = stringNode(autoRemember["modelKey"])
 	cfg.AutoRemember.Timeout = int64(intNode(autoRemember["timeout"]))
 	return cfg, nil
+}
+
+func parseAgentChannelConfig(value any) AgentChannelConfig {
+	node := mapNode(value)
+	if len(node) == 0 {
+		return AgentChannelConfig{}
+	}
+	cfg := AgentChannelConfig{
+		ChannelID:      stringNode(node["channelId"]),
+		RemoteAgentKey: stringNode(node["remoteAgentKey"]),
+	}
+	for _, item := range listMaps(node["exports"]) {
+		export := AgentChannelExport{
+			ChannelID:        stringNode(item["channelId"]),
+			ExternalAgentKey: stringNode(item["externalAgentKey"]),
+			Allow:            parseAgentChannelAllow(item["allow"]),
+		}
+		cfg.Exports = append(cfg.Exports, export)
+	}
+	return cfg
+}
+
+func parseAgentChannelAllow(value any) AgentChannelAllow {
+	node := mapNode(value)
+	allow := AgentChannelAllow{Query: true}
+	if raw, ok := node["query"]; ok {
+		allow.Query = boolNode(raw)
+	}
+	if raw, ok := node["submit"]; ok {
+		allow.Submit = boolNode(raw)
+	}
+	if raw, ok := node["steer"]; ok {
+		allow.Steer = boolNode(raw)
+	}
+	if raw, ok := node["interrupt"]; ok {
+		allow.Interrupt = boolNode(raw)
+	}
+	if raw, ok := node["fileTransfer"]; ok {
+		allow.FileTransfer = boolNode(raw)
+	}
+	return allow
+}
+
+func boolNode(value any) bool {
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		return strings.EqualFold(strings.TrimSpace(typed), "true") ||
+			strings.EqualFold(strings.TrimSpace(typed), "yes") ||
+			strings.TrimSpace(typed) == "1"
+	default:
+		return false
+	}
 }
 
 func parseAgentKBaseConfig(value any) AgentKBaseConfig {

@@ -25,6 +25,7 @@ type proxyRunRoute struct {
 	runID    string
 	chatID   string
 	agentKey string
+	protocol string
 	send     chan map[string]any
 	done     chan struct{}
 }
@@ -110,6 +111,7 @@ func (s *Server) wsProxyQuery(
 			runID:    prepared.req.RunID,
 			chatID:   prepared.req.ChatID,
 			agentKey: prepared.req.AgentKey,
+			protocol: proxyProtocol(prepared.agentDef.ProxyConfig),
 			send:     make(chan map[string]any, 16),
 			done:     make(chan struct{}),
 		}
@@ -186,6 +188,7 @@ func (s *Server) handleProxyWebSocketQuery(w http.ResponseWriter, r *http.Reques
 		runID:    prepared.req.RunID,
 		chatID:   prepared.req.ChatID,
 		agentKey: prepared.req.AgentKey,
+		protocol: proxyProtocol(prepared.agentDef.ProxyConfig),
 		send:     make(chan map[string]any, 16),
 		done:     make(chan struct{}),
 	}
@@ -257,6 +260,7 @@ func (s *Server) handleProxyQueryNonStream(w http.ResponseWriter, r *http.Reques
 			runID:    prepared.req.RunID,
 			chatID:   prepared.req.ChatID,
 			agentKey: prepared.req.AgentKey,
+			protocol: proxyProtocol(prepared.agentDef.ProxyConfig),
 			send:     make(chan map[string]any, 16),
 			done:     make(chan struct{}),
 		}

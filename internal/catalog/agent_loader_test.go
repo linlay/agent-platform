@@ -318,6 +318,153 @@ func TestParseAgentFileAllowsProxyWithoutModelConfig(t *testing.T) {
 	}
 }
 
+func TestParseAgentFileAllowsChannelImportWithoutModelConfig(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := strings.Join([]string{
+		"key: remote-coder",
+		"name: Remote Coder",
+		"mode: CHANNEL",
+		"channelConfig:",
+		"  channelId: peer-a",
+		"  remoteAgentKey: coder",
+	}, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if def.Mode != AgentModeChannel || def.ModelKey != "" {
+		t.Fatalf("unexpected channel import def mode=%q model=%q", def.Mode, def.ModelKey)
+	}
+	if def.ChannelConfig.ChannelID != "peer-a" || def.ChannelConfig.RemoteAgentKey != "coder" {
+		t.Fatalf("unexpected channel config: %#v", def.ChannelConfig)
+	}
+}
+
+func TestParseAgentFileValidatesChannelImportConfig(t *testing.T) {
+	tests := []struct {
+		name string
+		body []string
+		want string
+	}{
+		{
+			name: "missing remote agent key",
+			body: []string{
+				"key: remote-coder",
+				"name: Remote Coder",
+				"mode: CHANNEL",
+				"channelConfig:",
+				"  channelId: peer-a",
+			},
+			want: "channelConfig.remoteAgentKey is required",
+		},
+		{
+			name: "exports forbidden",
+			body: []string{
+				"key: remote-coder",
+				"name: Remote Coder",
+				"mode: CHANNEL",
+				"channelConfig:",
+				"  channelId: peer-a",
+				"  remoteAgentKey: coder",
+				"  exports:",
+				"    - channelId: public-entry",
+				"      externalAgentKey: coder",
+			},
+			want: "channelConfig.exports is not supported",
+		},
+		{
+			name: "native remote key forbidden",
+			body: []string{
+				"key: assistant",
+				"name: Assistant",
+				"mode: REACT",
+				"modelConfig:",
+				"  modelKey: mock-model",
+				"channelConfig:",
+				"  remoteAgentKey: coder",
+			},
+			want: "channelConfig.remoteAgentKey is only supported",
+		},
+		{
+			name: "native import channel id forbidden",
+			body: []string{
+				"key: assistant",
+				"name: Assistant",
+				"mode: REACT",
+				"modelConfig:",
+				"  modelKey: mock-model",
+				"channelConfig:",
+				"  channelId: peer-a",
+				"  exports:",
+				"    - channelId: public-entry",
+				"      externalAgentKey: assistant",
+			},
+			want: "channelConfig.channelId is only supported",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, "agent.yml")
+			if err := os.WriteFile(path, []byte(strings.Join(tc.body, "\n")+"\n"), 0o644); err != nil {
+				t.Fatalf("write agent file: %v", err)
+			}
+			_, err := parseAgentFile(path)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected %q error, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+func TestParseAgentFileReadsChannelExportsAndAllowDefaults(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := strings.Join([]string{
+		"key: assistant",
+		"name: Assistant",
+		"mode: REACT",
+		"modelConfig:",
+		"  modelKey: mock-model",
+		"channelConfig:",
+		"  exports:",
+		"    - channelId: public-entry",
+		"      externalAgentKey: assistant",
+		"    - channelId: peer-b",
+		"      externalAgentKey: helper",
+		"      allow:",
+		"        submit: true",
+		"        fileTransfer: true",
+	}, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if len(def.ChannelConfig.Exports) != 2 {
+		t.Fatalf("expected 2 exports, got %#v", def.ChannelConfig.Exports)
+	}
+	first := def.ChannelConfig.Exports[0]
+	if first.ChannelID != "public-entry" || first.ExternalAgentKey != "assistant" {
+		t.Fatalf("unexpected first export: %#v", first)
+	}
+	if !first.Allow.Query || first.Allow.Submit || first.Allow.Steer || first.Allow.Interrupt || first.Allow.FileTransfer {
+		t.Fatalf("unexpected default allow flags: %#v", first.Allow)
+	}
+	second := def.ChannelConfig.Exports[1]
+	if !second.Allow.Query || !second.Allow.Submit || !second.Allow.FileTransfer || second.Allow.Steer || second.Allow.Interrupt {
+		t.Fatalf("unexpected explicit allow flags: %#v", second.Allow)
+	}
+}
+
 func TestParseAgentFileDefaultsModeAndVisibility(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")

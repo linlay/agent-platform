@@ -667,11 +667,12 @@ type OpenAgentWorkspaceResponse struct {
 }
 
 type AgentEditorOptionsResponse struct {
-	Models            []AgentEditorModelOption     `json:"models"`
-	ContextTags       []AgentEditorOption          `json:"contextTags"`
-	VisibilityScopes  []AgentEditorOption          `json:"visibilityScopes"`
-	Modes             []AgentEditorOption          `json:"modes"`
-	ProxyConfigSchema AgentEditorProxyConfigSchema `json:"proxyConfigSchema"`
+	Models              []AgentEditorModelOption       `json:"models"`
+	ContextTags         []AgentEditorOption            `json:"contextTags"`
+	VisibilityScopes    []AgentEditorOption            `json:"visibilityScopes"`
+	Modes               []AgentEditorOption            `json:"modes"`
+	ProxyConfigSchema   AgentEditorProxyConfigSchema   `json:"proxyConfigSchema"`
+	ChannelConfigSchema AgentEditorChannelConfigSchema `json:"channelConfigSchema"`
 }
 
 type AgentEditorModelOption struct {
@@ -700,6 +701,12 @@ type AgentEditorProxyConfigField struct {
 	Label    string `json:"label"`
 	Type     string `json:"type"`
 	Required bool   `json:"required,omitempty"`
+}
+
+type AgentEditorChannelConfigSchema struct {
+	ImportFields []AgentEditorProxyConfigField `json:"importFields"`
+	ExportFields []AgentEditorProxyConfigField `json:"exportFields"`
+	AllowFields  []AgentEditorProxyConfigField `json:"allowFields"`
 }
 
 type CoderModelOptionsResponse struct {

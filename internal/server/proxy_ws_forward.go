@@ -19,10 +19,15 @@ import (
 )
 
 func proxyWebSocketTarget(proxy *catalog.ProxyConfig) (string, http.Header, error) {
-	if proxy == nil || strings.TrimSpace(proxy.BaseURL) == "" {
+	if proxy == nil || (strings.TrimSpace(proxy.BaseURL) == "" && strings.TrimSpace(proxy.WebSocketURL) == "") {
 		return "", nil, fmt.Errorf("PROXY agent missing proxyConfig.baseUrl")
 	}
-	parsed, err := url.Parse(strings.TrimRight(proxy.BaseURL, "/"))
+	rawURL := strings.TrimSpace(proxy.WebSocketURL)
+	directWS := rawURL != ""
+	if rawURL == "" {
+		rawURL = strings.TrimRight(proxy.BaseURL, "/")
+	}
+	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return "", nil, err
 	}
@@ -35,7 +40,9 @@ func proxyWebSocketTarget(proxy *catalog.ProxyConfig) (string, http.Header, erro
 	default:
 		return "", nil, fmt.Errorf("unsupported proxy websocket scheme: %s", parsed.Scheme)
 	}
-	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/ws"
+	if !directWS {
+		parsed.Path = strings.TrimRight(parsed.Path, "/") + "/ws"
+	}
 	query := parsed.Query()
 	if proxy.Token != "" {
 		query.Set("token", proxy.Token)
@@ -83,10 +90,31 @@ func proxyQueryPayload(req api.QueryRequest, proxy *catalog.ProxyConfig, referen
 	}
 	return map[string]any{
 		"frame":   "request",
-		"type":    "request.query",
+		"type":    proxyRequestType(proxy, "query"),
 		"id":      req.RequestID,
 		"payload": payload,
 	}
+}
+
+func proxyRequestType(proxy *catalog.ProxyConfig, name string) string {
+	if strings.EqualFold(strings.TrimSpace(proxyProtocol(proxy)), config.ChannelProtocolPlatformWS) {
+		return "/api/" + strings.TrimSpace(name)
+	}
+	return "request." + strings.TrimSpace(name)
+}
+
+func proxyRouteRequestType(route *proxyRunRoute, name string) string {
+	if route != nil && strings.EqualFold(strings.TrimSpace(route.protocol), config.ChannelProtocolPlatformWS) {
+		return "/api/" + strings.TrimSpace(name)
+	}
+	return "request." + strings.TrimSpace(name)
+}
+
+func proxyProtocol(proxy *catalog.ProxyConfig) string {
+	if proxy == nil || strings.TrimSpace(proxy.Protocol) == "" {
+		return "agw-platform"
+	}
+	return strings.ToLower(strings.TrimSpace(proxy.Protocol))
 }
 
 func proxyQueryPayloadWithWorkspace(req api.QueryRequest, proxy *catalog.ProxyConfig, references []api.Reference, workspaceRoot string) map[string]any {
@@ -204,7 +232,7 @@ func (s *Server) forwardProxySubmit(req api.SubmitRequest) (api.SubmitResponse, 
 	}
 	if !sendProxyRouteMessage(route, map[string]any{
 		"frame":   "request",
-		"type":    "request.submit",
+		"type":    proxyRouteRequestType(route, "submit"),
 		"id":      req.AwaitingID,
 		"payload": payload,
 	}) {
@@ -247,7 +275,7 @@ func (s *Server) forwardProxyAccessLevel(req api.AccessLevelRequest) (api.Access
 	}
 	if !sendProxyRouteMessage(route, map[string]any{
 		"frame":   "request",
-		"type":    "request.access-level",
+		"type":    proxyRouteRequestType(route, "access-level"),
 		"id":      firstNonBlank(strings.TrimSpace(req.RequestID), req.RunID),
 		"payload": payload,
 	}) {
@@ -292,7 +320,7 @@ func (s *Server) forwardProxyInterrupt(req api.InterruptRequest) (api.InterruptR
 	}
 	if !sendProxyRouteMessage(route, map[string]any{
 		"frame":   "request",
-		"type":    "request.interrupt",
+		"type":    proxyRouteRequestType(route, "interrupt"),
 		"id":      forwarded.RequestID,
 		"payload": payload,
 	}) {
@@ -333,7 +361,7 @@ func (s *Server) forwardProxySteer(req api.SteerRequest) (api.SteerResponse, *st
 	}
 	if !sendProxyRouteMessage(route, map[string]any{
 		"frame":   "request",
-		"type":    "request.steer",
+		"type":    proxyRouteRequestType(route, "steer"),
 		"id":      steerID,
 		"payload": payload,
 	}) {

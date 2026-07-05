@@ -15,6 +15,7 @@ import (
 	channelpkg "agent-platform/internal/channel"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
+	platformws "agent-platform/internal/ws"
 )
 
 type channelTestCatalogRegistry struct {
@@ -223,6 +224,109 @@ func TestHandleAgentsIgnoresChannelAndChannelsRouteIsRemoved(t *testing.T) {
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/channels", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("channels route should be removed, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRewriteChannelRequestPayloadMapsExportedAgentAndChecksAllow(t *testing.T) {
+	server, _ := newServerForChannelTests(t)
+	server.deps.Registry = channelTestCatalogRegistry{
+		agents: []api.AgentSummary{
+			{Key: "assistant", Name: "Assistant"},
+		},
+		defs: map[string]catalog.AgentDefinition{
+			"assistant": {
+				Key:      "assistant",
+				Name:     "Assistant",
+				Mode:     catalog.AgentModeProxy,
+				ModelKey: "mock-model",
+				ChannelConfig: catalog.AgentChannelConfig{
+					Exports: []catalog.AgentChannelExport{{
+						ChannelID:        "public-entry",
+						ExternalAgentKey: "assistant-ext",
+						Allow:            catalog.AgentChannelAllow{Query: true},
+					}},
+				},
+			},
+		},
+	}
+	ctx := platformws.WithGatewayContext(context.Background(), platformws.GatewayContext{Channel: "public-entry"})
+
+	rewritten, statusErr := server.rewriteChannelRequestPayload(ctx, "/api/query", json.RawMessage(`{"externalAgentKey":"assistant-ext","message":"hello"}`))
+	if statusErr != nil {
+		t.Fatalf("rewrite query payload: %v", statusErr)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rewritten, &body); err != nil {
+		t.Fatalf("decode rewritten payload: %v", err)
+	}
+	if body["agentKey"] != "assistant" {
+		t.Fatalf("expected local agent key assistant, got %#v", body)
+	}
+	if _, ok := body["externalAgentKey"]; ok {
+		t.Fatalf("expected externalAgentKey to be removed, got %#v", body)
+	}
+
+	_, statusErr = server.rewriteChannelRequestPayload(ctx, "/api/submit", json.RawMessage(`{"agentKey":"assistant-ext","runId":"run-1"}`))
+	if statusErr == nil || statusErr.status != http.StatusForbidden {
+		t.Fatalf("expected submit to be forbidden, got %#v", statusErr)
+	}
+}
+
+func TestRewriteChannelFileTransferRequiresExportAllow(t *testing.T) {
+	server, chats := newServerForChannelTests(t)
+	if _, _, err := chats.EnsureChat("chat-export", "assistant", "", "seed"); err != nil {
+		t.Fatalf("seed chat: %v", err)
+	}
+	server.deps.Registry = channelTestCatalogRegistry{
+		agents: []api.AgentSummary{
+			{Key: "assistant", Name: "Assistant"},
+		},
+		defs: map[string]catalog.AgentDefinition{
+			"assistant": {
+				Key:  "assistant",
+				Name: "Assistant",
+				Mode: "REACT",
+				ChannelConfig: catalog.AgentChannelConfig{
+					Exports: []catalog.AgentChannelExport{{
+						ChannelID:        "public-entry",
+						ExternalAgentKey: "assistant-ext",
+						Allow:            catalog.AgentChannelAllow{Query: true},
+					}},
+				},
+			},
+		},
+	}
+	ctx := platformws.WithGatewayContext(context.Background(), platformws.GatewayContext{Channel: "public-entry"})
+	_, statusErr := server.rewriteChannelRequestPayload(ctx, "/api/upload", json.RawMessage(`{"chatId":"chat-export"}`))
+	if statusErr == nil || statusErr.status != http.StatusForbidden {
+		t.Fatalf("expected upload without fileTransfer allow to be forbidden, got %#v", statusErr)
+	}
+
+	server.deps.Registry = channelTestCatalogRegistry{
+		agents: []api.AgentSummary{
+			{Key: "assistant", Name: "Assistant"},
+		},
+		defs: map[string]catalog.AgentDefinition{
+			"assistant": {
+				Key:  "assistant",
+				Name: "Assistant",
+				Mode: "REACT",
+				ChannelConfig: catalog.AgentChannelConfig{
+					Exports: []catalog.AgentChannelExport{{
+						ChannelID:        "public-entry",
+						ExternalAgentKey: "assistant-ext",
+						Allow: catalog.AgentChannelAllow{
+							Query:        true,
+							FileTransfer: true,
+						},
+					}},
+				},
+			},
+		},
+	}
+	_, statusErr = server.rewriteChannelRequestPayload(ctx, "/api/upload", json.RawMessage(`{"chatId":"chat-export"}`))
+	if statusErr != nil {
+		t.Fatalf("expected upload with fileTransfer allow to pass, got %#v", statusErr)
 	}
 }
 

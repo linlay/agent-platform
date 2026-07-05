@@ -15,6 +15,13 @@ import (
 )
 
 func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	payload, statusErr := s.rewriteChannelRequestPayload(ctx, req.Type, req.Payload)
+	if statusErr != nil {
+		s.sendWSStatusError(conn, req.ID, statusErr)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	req.Payload = payload
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "/api/query", bytes.NewReader(req.Payload))
 	if err != nil {
 		conn.SendError(req.ID, "internal_error", 500, err.Error(), nil)
@@ -212,6 +219,13 @@ func (s *Server) wsDetach(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 }
 
 func (s *Server) wsSubmit(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	payloadData, statusErr := s.rewriteChannelRequestPayload(conn.Context(), req.Type, req.Payload)
+	if statusErr != nil {
+		s.sendWSStatusError(conn, req.ID, statusErr)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	req.Payload = payloadData
 	payload, err := ws.DecodePayload[api.SubmitRequest](req)
 	if err != nil {
 		conn.SendError(req.ID, "invalid_request", 400, "invalid submit payload", nil)
@@ -245,6 +259,13 @@ func (s *Server) wsSubmit(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 }
 
 func (s *Server) wsSteer(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	payloadData, statusErr := s.rewriteChannelRequestPayload(conn.Context(), req.Type, req.Payload)
+	if statusErr != nil {
+		s.sendWSStatusError(conn, req.ID, statusErr)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	req.Payload = payloadData
 	payload, err := ws.DecodePayload[api.SteerRequest](req)
 	if err != nil || strings.TrimSpace(payload.RunID) == "" || strings.TrimSpace(payload.Message) == "" {
 		conn.SendError(req.ID, "invalid_request", 400, "runId and message are required", nil)
@@ -278,6 +299,13 @@ func (s *Server) wsSteer(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 }
 
 func (s *Server) wsInterrupt(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	payloadData, statusErr := s.rewriteChannelRequestPayload(conn.Context(), req.Type, req.Payload)
+	if statusErr != nil {
+		s.sendWSStatusError(conn, req.ID, statusErr)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	req.Payload = payloadData
 	payload, err := ws.DecodePayload[api.InterruptRequest](req)
 	if err != nil || strings.TrimSpace(payload.RunID) == "" {
 		conn.SendError(req.ID, "invalid_request", 400, "runId is required", nil)

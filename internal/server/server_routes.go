@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/config"
 	"agent-platform/internal/i18n"
 	"agent-platform/internal/observability"
 	"agent-platform/internal/stream"
@@ -352,8 +353,39 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/resource", s.method(http.MethodGet, s.handleResource))
 	s.router.HandleFunc("/api/upload", s.method(http.MethodPost, s.handleUpload))
 	if s.wsHandler != nil {
+		s.router.HandleFunc("/ws/channel", s.handleChannelWebSocket)
 		s.router.Handle("/ws", s.wsHandler)
 	}
+}
+
+func (s *Server) handleChannelWebSocket(w http.ResponseWriter, r *http.Request) {
+	if s.wsHandler == nil {
+		http.NotFound(w, r)
+		return
+	}
+	channelID := strings.TrimSpace(r.URL.Query().Get("channelId"))
+	if channelID == "" {
+		channelID = strings.TrimSpace(r.URL.Query().Get("channel"))
+	}
+	if channelID == "" {
+		http.Error(w, "channelId is required", http.StatusBadRequest)
+		return
+	}
+	if s.deps.Channels == nil {
+		http.Error(w, "channel registry is not configured", http.StatusNotFound)
+		return
+	}
+	def, ok := s.deps.Channels.Lookup(channelID)
+	if !ok {
+		http.Error(w, "channel not found", http.StatusNotFound)
+		return
+	}
+	if def.Mode != config.ChannelModeServer {
+		http.Error(w, "channel is not server mode", http.StatusForbidden)
+		return
+	}
+	ctx := ws.WithGatewayContext(r.Context(), ws.GatewayContext{ID: channelID, Channel: channelID})
+	s.wsHandler.ServeHTTP(w, r.WithContext(ctx))
 }
 
 func (s *Server) method(expected string, handler http.HandlerFunc) http.HandlerFunc {

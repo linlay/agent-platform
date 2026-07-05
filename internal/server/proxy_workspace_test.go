@@ -442,6 +442,85 @@ func TestProxyQueryDefaultsToWebSocketAndForwardsRuntimeWorkspaceRootAsCWD(t *te
 	}
 }
 
+func TestChannelImportQueryUsesPlatformWSFrameAndRemoteAgentKey(t *testing.T) {
+	captured := make(chan map[string]any, 1)
+	upgrader := gws.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/ws/channel" {
+			t.Fatalf("expected /ws/channel, got %s", r.URL.Path)
+		}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Fatalf("upgrade upstream websocket: %v", err)
+		}
+		defer conn.Close()
+		var frame map[string]any
+		if err := conn.ReadJSON(&frame); err != nil {
+			t.Fatalf("read upstream websocket frame: %v", err)
+		}
+		captured <- frame
+		if err := conn.WriteJSON(map[string]any{
+			"event": map[string]any{
+				"type":  "run.complete",
+				"runId": "remote-run",
+			},
+		}); err != nil {
+			t.Fatalf("write upstream websocket completion: %v", err)
+		}
+	}))
+	defer upstream.Close()
+
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		configure: func(cfg *config.Config) {
+			cfg.Channels = []config.ChannelConfig{{
+				ID:        "peer-a",
+				Mode:      config.ChannelModeClient,
+				Transport: config.ChannelTransportWebSocket,
+				Protocol:  config.ChannelProtocolPlatformWS,
+				Endpoint: config.ChannelEndpointConfig{
+					URL: "ws" + strings.TrimPrefix(upstream.URL, "http") + "/ws/channel",
+				},
+			}}
+		},
+		setupRuntime: func(_ string, cfg *config.Config) {
+			writeAgentConfig(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []string{
+				"key: mock-agent",
+				"name: Mock Channel Agent",
+				"mode: CHANNEL",
+				"channelConfig:",
+				"  channelId: peer-a",
+				"  remoteAgentKey: coder",
+			})
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me"}`)
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", body))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var frame map[string]any
+	select {
+	case frame = <-captured:
+	default:
+		t.Fatalf("expected upstream websocket frame")
+	}
+	if frame["frame"] != "request" || frame["type"] != "/api/query" {
+		t.Fatalf("expected platform-ws /api/query frame, got %#v", frame)
+	}
+	inner, ok := frame["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected payload object, got %#v", frame["payload"])
+	}
+	if inner["agentKey"] != "coder" {
+		t.Fatalf("expected remote agent key coder, got %#v", inner["agentKey"])
+	}
+}
+
 func TestACPCoderQueryUsesGlobalProxyAndForwardsWorkspaceAndModel(t *testing.T) {
 	workspace := t.TempDir()
 	writeTestGitHead(t, workspace, "main")

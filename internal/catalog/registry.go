@@ -59,6 +59,9 @@ type AgentDefinition struct {
 	// PROXY mode: forward /api/query to a remote AGW-compatible service.
 	ProxyConfig *ProxyConfig
 
+	// CHANNEL mode / exports: import remote agents or expose native agents through channels.
+	ChannelConfig AgentChannelConfig
+
 	// Prompt files loaded from agent directory.
 	SoulPrompt   string // from SOUL.md
 	AgentsPrompt string // resolved from promptFile or AGENTS.md fallback
@@ -159,13 +162,35 @@ type AgentRuntimePrompts struct {
 // ProxyConfig configures PROXY mode: forward /api/query to a remote
 // AGW-compatible service (e.g. claude-code relay-server on port 3210).
 type ProxyConfig struct {
-	BaseURL   string // e.g. http://127.0.0.1:3210
-	Transport string // ws or sse; defaults to ws for bidirectional run control
-	AgentKey  string // optional upstream agentKey override
-	ChatID    string // optional upstream chatId override
-	Token     string // optional Bearer token
-	TokenEnv  string // optional env var name for Bearer token
-	Timeout   int    // default 300 (5 min), seconds
+	BaseURL      string // e.g. http://127.0.0.1:3210
+	WebSocketURL string // optional direct websocket endpoint for CHANNEL imports
+	Transport    string // ws or sse; defaults to ws for bidirectional run control
+	Protocol     string // agw-platform or platform-ws
+	AgentKey     string // optional upstream agentKey override
+	ChatID       string // optional upstream chatId override
+	Token        string // optional Bearer token
+	TokenEnv     string // optional env var name for Bearer token
+	Timeout      int    // default 300 (5 min), seconds
+}
+
+type AgentChannelConfig struct {
+	ChannelID      string
+	RemoteAgentKey string
+	Exports        []AgentChannelExport
+}
+
+type AgentChannelExport struct {
+	ChannelID        string
+	ExternalAgentKey string
+	Allow            AgentChannelAllow
+}
+
+type AgentChannelAllow struct {
+	Query        bool
+	Submit       bool
+	Steer        bool
+	Interrupt    bool
+	FileTransfer bool
 }
 
 type SkillPromptConfig struct {
@@ -377,10 +402,17 @@ func (r *FileRegistry) Agents(scope string) []api.AgentSummary {
 			summary.Meta["project"] = projectMeta
 		}
 		if def.ProxyConfig != nil {
+			protocol := strings.ToLower(strings.TrimSpace(def.ProxyConfig.Protocol))
+			if protocol == "" {
+				protocol = "agw-platform"
+			}
 			summary.Meta["proxy"] = map[string]any{
-				"protocol":  "agw-platform",
+				"protocol":  protocol,
 				"transport": normalizeProxyTransport(def.ProxyConfig.Transport),
 			}
+		}
+		if channelMeta := agentChannelConfigMeta(def.ChannelConfig); len(channelMeta) > 0 {
+			summary.Meta["channelConfig"] = channelMeta
 		}
 		if len(def.ContextTags) > 0 {
 			summary.Meta["contextTags"] = append([]string(nil), def.ContextTags...)

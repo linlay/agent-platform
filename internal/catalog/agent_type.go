@@ -12,6 +12,7 @@ import (
 const AgentModeCoder = "CODER"
 const AgentModeKBase = "KBASE"
 const AgentModeProxy = "PROXY"
+const AgentModeChannel = "CHANNEL"
 const AgentWorkspaceRootChat = "@chat"
 const DefaultCoderAgentIconName = agentcoder.DefaultIconName
 const DefaultKBaseAgentIconName = "kbase"
@@ -70,6 +71,10 @@ func AgentModeForAPI(value string) string {
 
 func AgentIsProxyMode(mode string) bool {
 	return strings.EqualFold(NormalizeAgentModeForRuntime(mode), AgentModeProxy)
+}
+
+func AgentIsChannelMode(mode string) bool {
+	return strings.EqualFold(NormalizeAgentModeForRuntime(mode), AgentModeChannel)
 }
 
 func parseAgentWorkspaceRoot(value any) AgentWorkspaceConfig {
@@ -264,11 +269,42 @@ func ValidateAgentCoderBackend(def AgentDefinition) error {
 }
 
 func ValidateAgentModelConfig(def AgentDefinition) error {
-	if AgentUsesACPCoderBackend(def) || AgentIsProxyMode(def.Mode) {
+	if AgentUsesACPCoderBackend(def) || AgentIsProxyMode(def.Mode) || AgentIsChannelMode(def.Mode) {
 		return nil
 	}
 	if strings.TrimSpace(def.ModelKey) == "" {
 		return fmt.Errorf("modelConfig.modelKey is required")
+	}
+	return nil
+}
+
+func ValidateAgentChannelConfig(def AgentDefinition) error {
+	cfg := def.ChannelConfig
+	if AgentIsChannelMode(def.Mode) {
+		if strings.TrimSpace(cfg.ChannelID) == "" {
+			return fmt.Errorf("channelConfig.channelId is required for mode: CHANNEL")
+		}
+		if strings.TrimSpace(cfg.RemoteAgentKey) == "" {
+			return fmt.Errorf("channelConfig.remoteAgentKey is required for mode: CHANNEL")
+		}
+		if len(cfg.Exports) > 0 {
+			return fmt.Errorf("channelConfig.exports is not supported for mode: CHANNEL")
+		}
+		return nil
+	}
+	if strings.TrimSpace(cfg.RemoteAgentKey) != "" {
+		return fmt.Errorf("channelConfig.remoteAgentKey is only supported for mode: CHANNEL")
+	}
+	if strings.TrimSpace(cfg.ChannelID) != "" {
+		return fmt.Errorf("channelConfig.channelId is only supported for mode: CHANNEL")
+	}
+	for i, export := range cfg.Exports {
+		if strings.TrimSpace(export.ChannelID) == "" {
+			return fmt.Errorf("channelConfig.exports[%d].channelId is required", i)
+		}
+		if strings.TrimSpace(export.ExternalAgentKey) == "" {
+			return fmt.Errorf("channelConfig.exports[%d].externalAgentKey is required", i)
+		}
 	}
 	return nil
 }

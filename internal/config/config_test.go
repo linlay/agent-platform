@@ -2184,6 +2184,72 @@ func TestLoadChannelsConfigFromFile(t *testing.T) {
 	})
 }
 
+func TestLoadChannelsConfigV2ClientServerDefaults(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"PEER_A_TOKEN": "peer-token",
+	}, func() {
+		content := "" +
+			"channels:\n" +
+			"  peer-a:\n" +
+			"    mode: client\n" +
+			"    endpoint:\n" +
+			"      url: ws://peer-a.example.com/ws/channel?channelId=peer-a\n" +
+			"      tokenEnv: PEER_A_TOKEN\n" +
+			"    heartbeat:\n" +
+			"      interval: 20\n" +
+			"    reconnect:\n" +
+			"      handshakeTimeout: 7\n" +
+			"      min: 2\n" +
+			"      max: 40\n" +
+			"  public-entry:\n" +
+			"    mode: server\n" +
+			"    endpoint:\n" +
+			"      path: /ws/channel\n" +
+			"    auth:\n" +
+			"      type: jwt\n"
+		withProjectFileContents(t, filepath.Join("configs", "channels.yml"), &content, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if len(cfg.Channels) != 2 {
+				t.Fatalf("expected 2 channels, got %d", len(cfg.Channels))
+			}
+			byID := map[string]ChannelConfig{}
+			for _, ch := range cfg.Channels {
+				byID[ch.ID] = ch
+			}
+			peer := byID["peer-a"]
+			if peer.Mode != ChannelModeClient || peer.Transport != ChannelTransportWebSocket || peer.Protocol != ChannelProtocolPlatformWS {
+				t.Fatalf("unexpected peer defaults: %#v", peer)
+			}
+			if peer.Endpoint.URL != "ws://peer-a.example.com/ws/channel?channelId=peer-a" || peer.Endpoint.Token != "peer-token" {
+				t.Fatalf("unexpected peer endpoint: %#v", peer.Endpoint)
+			}
+			if peer.Heartbeat.Interval != 20 || peer.Reconnect.HandshakeTimeout != 7 || peer.Reconnect.Min != 2 || peer.Reconnect.Max != 40 {
+				t.Fatalf("unexpected peer connection policy: heartbeat=%#v reconnect=%#v", peer.Heartbeat, peer.Reconnect)
+			}
+			publicEntry := byID["public-entry"]
+			if publicEntry.Mode != ChannelModeServer || publicEntry.Transport != ChannelTransportWebSocket || publicEntry.Protocol != ChannelProtocolPlatformWS {
+				t.Fatalf("unexpected server defaults: %#v", publicEntry)
+			}
+			if publicEntry.Endpoint.Path != "/ws/channel" || publicEntry.Auth.Type != "jwt" {
+				t.Fatalf("unexpected public entry config: %#v", publicEntry)
+			}
+			if len(cfg.Gateways) != 1 {
+				t.Fatalf("expected only client channel to synthesize gateway, got %#v", cfg.Gateways)
+			}
+			if cfg.Gateways[0].ID != "peer-a" || cfg.Gateways[0].Channel != "peer-a" ||
+				cfg.Gateways[0].URL != peer.Endpoint.URL || cfg.Gateways[0].JwtToken != "peer-token" {
+				t.Fatalf("unexpected synthesized gateway: %#v", cfg.Gateways[0])
+			}
+			if cfg.Gateways[0].HandshakeTimeout != 7 || cfg.Gateways[0].ReconnectMin != 2 || cfg.Gateways[0].ReconnectMax != 40 {
+				t.Fatalf("unexpected synthesized gateway reconnect policy: %#v", cfg.Gateways[0])
+			}
+		})
+	})
+}
+
 func TestLoadChannelsConfigAllowsCustomChannelIDForWecomSource(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "" +

@@ -19,6 +19,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
+	channelpkg "agent-platform/internal/channel"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
@@ -369,6 +370,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		Viewport:        viewport,
 		CatalogReloader: reloader,
 		Notifications:   notifications,
+		Channels:        channelpkg.NewRegistry(cfg.Channels),
 	})
 	if err != nil {
 		t.Fatalf("new server: %v", err)

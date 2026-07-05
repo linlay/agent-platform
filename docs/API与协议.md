@@ -476,6 +476,22 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/resource` | `file`、`pushURL` | `response` |
 | `/api/upload` | gateway upload metadata | `response` |
 
+### Channel WebSocket
+
+`/ws/channel` 是 platform / adaptor / peer platform 专用入口，普通 UI 与浏览器客户端继续使用 `/ws`。连接时必须带 `channelId`（或兼容别名 `channel`），并且该 channel 在 `configs/channels.yml` 中必须是 `mode: server`：
+
+```text
+ws://127.0.0.1:11949/ws/channel?channelId=public-entry
+```
+
+Channel WS 复用标准 `platform-ws` 帧：`request`、`response`、`stream`、`push`、`error`。外部调用导出的本地 agent 时，payload 中使用导出名：
+
+```json
+{"frame":"request","type":"/api/query","id":"req-1","payload":{"externalAgentKey":"assistant","message":"hello"}}
+```
+
+服务端会按本地 agent 的 `channelConfig.exports` 将 `externalAgentKey` 映射为本地 `agentKey`，并检查该 channel 的 `allow.query / submit / steer / interrupt / fileTransfer` 权限。
+
 ## 约束与注意事项
 
 - HTTP query 参数在 WS payload 中通常以同名 JSON 字段传入。
@@ -483,7 +499,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 - WS 客户端切换 current chat 时，应先对原 chat 的 active run 发送 `/api/detach`，再对新 chat 的 active run 发送 `/api/attach`；detach 只释放当前 WS 连接上的订阅流，不停止后台 run。
 - WS `/api/resource` 要求 `file + pushURL`，用于将本地资源推给 gateway；`pushURL` 是 gateway HTTP 目的地址，通常为 `/api/push/...`，WS `/api/push` 不存在；HTTP `/api/resource` 直接返回文件字节。
 - `.tools` 是隐藏工具内部目录，不通过 `/api/resource` 或 WS `/api/resource` 暴露；HTTP `/api/tool-result` 接受 `.tools/results/<toolId>.json`。
-- 反向 gateway 配置在 `configs/channels.yml`。
+- 旧反向 gateway 配置仍在 `configs/channels.yml` 兼容解析；新的 platform/adaptor 接入优先使用 channel `mode: client | server` 与 agent `channelConfig`。
 - 完整 DTO 字段以 `internal/api/*.go` 为事实源。
 
 ### Agent Terminal

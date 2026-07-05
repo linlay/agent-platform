@@ -604,22 +604,28 @@ func (c *Config) normalizeChannels() error {
 			return fmt.Errorf("channels config: duplicate channel id %q", channelID)
 		}
 		seenChannelIDs[channelID] = struct{}{}
+		channelCfg = normalizeChannelConfigDefaults(channelCfg)
+		c.Channels = replaceChannelConfig(c.Channels, channelID, channelCfg)
+		if err := validateNormalizedChannelConfig(channelCfg); err != nil {
+			return err
+		}
+		clientURL := strings.TrimSpace(channelClientURL(channelCfg))
+		if clientURL == "" {
+			continue
+		}
 		if _, exists := existingGatewayChannels[channelID]; exists {
 			return fmt.Errorf("channels config: channel %q conflicts with an existing gateway channel", channelID)
 		}
 		if _, exists := existingGatewayIDs[channelID]; exists {
 			return fmt.Errorf("channels config: channel %q conflicts with an existing gateway id", channelID)
 		}
-		if strings.TrimSpace(channelCfg.Gateway.URL) == "" {
-			return fmt.Errorf("channels config: channel %q gateway.url is required", channelID)
-		}
 		c.Gateways = append(c.Gateways, GatewayEntry{
 			ID:               channelID,
 			Channel:          channelID,
-			SourceChannel:    deriveSourceChannelFromURL(channelCfg.Gateway.URL),
-			SourcePrefix:     deriveChannelFromURL(channelCfg.Gateway.URL),
-			URL:              strings.TrimSpace(channelCfg.Gateway.URL),
-			JwtToken:         strings.TrimSpace(channelCfg.Gateway.JwtToken),
+			SourceChannel:    deriveSourceChannelFromURL(clientURL),
+			SourcePrefix:     deriveChannelFromURL(clientURL),
+			URL:              clientURL,
+			JwtToken:         channelClientToken(channelCfg),
 			BaseURL:          strings.TrimSpace(channelCfg.Gateway.BaseURL),
 			HandshakeTimeout: channelCfg.Gateway.HandshakeTimeout,
 			ReconnectMin:     channelCfg.Gateway.ReconnectMin,
@@ -629,6 +635,100 @@ func (c *Config) normalizeChannels() error {
 		existingGatewayChannels[channelID] = struct{}{}
 	}
 	return nil
+}
+
+func normalizeChannelConfigDefaults(channelCfg ChannelConfig) ChannelConfig {
+	if strings.TrimSpace(channelCfg.Transport) == "" {
+		channelCfg.Transport = ChannelTransportWebSocket
+	}
+	channelCfg.Transport = strings.ToLower(strings.TrimSpace(channelCfg.Transport))
+	if strings.TrimSpace(channelCfg.Protocol) == "" {
+		channelCfg.Protocol = ChannelProtocolPlatformWS
+	}
+	channelCfg.Protocol = strings.ToLower(strings.TrimSpace(channelCfg.Protocol))
+	if strings.TrimSpace(string(channelCfg.Mode)) == "" {
+		switch {
+		case strings.TrimSpace(channelCfg.Gateway.URL) != "", strings.TrimSpace(channelCfg.Endpoint.URL) != "":
+			channelCfg.Mode = ChannelModeClient
+		case strings.TrimSpace(channelCfg.Endpoint.Path) != "":
+			channelCfg.Mode = ChannelModeServer
+		default:
+			channelCfg.Mode = ChannelModeClient
+		}
+	}
+	channelCfg.Mode = ChannelMode(strings.ToLower(strings.TrimSpace(string(channelCfg.Mode))))
+	if strings.TrimSpace(channelCfg.Endpoint.URL) == "" && strings.TrimSpace(channelCfg.Gateway.URL) != "" {
+		channelCfg.Endpoint.URL = strings.TrimSpace(channelCfg.Gateway.URL)
+	}
+	if strings.TrimSpace(channelCfg.Endpoint.Token) == "" && strings.TrimSpace(channelCfg.Gateway.JwtToken) != "" {
+		channelCfg.Endpoint.Token = strings.TrimSpace(channelCfg.Gateway.JwtToken)
+	}
+	if channelCfg.Reconnect.HandshakeTimeout == 0 && channelCfg.Gateway.HandshakeTimeout != 0 {
+		channelCfg.Reconnect.HandshakeTimeout = channelCfg.Gateway.HandshakeTimeout
+	}
+	if channelCfg.Reconnect.Min == 0 && channelCfg.Gateway.ReconnectMin != 0 {
+		channelCfg.Reconnect.Min = channelCfg.Gateway.ReconnectMin
+	}
+	if channelCfg.Reconnect.Max == 0 && channelCfg.Gateway.ReconnectMax != 0 {
+		channelCfg.Reconnect.Max = channelCfg.Gateway.ReconnectMax
+	}
+	if channelCfg.Gateway.HandshakeTimeout == 0 && channelCfg.Reconnect.HandshakeTimeout != 0 {
+		channelCfg.Gateway.HandshakeTimeout = channelCfg.Reconnect.HandshakeTimeout
+	}
+	if channelCfg.Gateway.ReconnectMin == 0 && channelCfg.Reconnect.Min != 0 {
+		channelCfg.Gateway.ReconnectMin = channelCfg.Reconnect.Min
+	}
+	if channelCfg.Gateway.ReconnectMax == 0 && channelCfg.Reconnect.Max != 0 {
+		channelCfg.Gateway.ReconnectMax = channelCfg.Reconnect.Max
+	}
+	return channelCfg
+}
+
+func replaceChannelConfig(channels []ChannelConfig, channelID string, normalized ChannelConfig) []ChannelConfig {
+	for i := range channels {
+		if strings.TrimSpace(channels[i].ID) == channelID {
+			channels[i] = normalized
+			return channels
+		}
+	}
+	return channels
+}
+
+func validateNormalizedChannelConfig(channelCfg ChannelConfig) error {
+	channelID := strings.TrimSpace(channelCfg.ID)
+	switch channelCfg.Mode {
+	case ChannelModeClient:
+		if strings.TrimSpace(channelClientURL(channelCfg)) == "" {
+			return fmt.Errorf("channels config: channel %q endpoint.url is required for client mode", channelID)
+		}
+	case ChannelModeServer:
+		if strings.TrimSpace(channelCfg.Endpoint.Path) == "" {
+			return fmt.Errorf("channels config: channel %q endpoint.path is required for server mode", channelID)
+		}
+	default:
+		return fmt.Errorf("channels config: channel %q has invalid mode %q", channelID, channelCfg.Mode)
+	}
+	if channelCfg.Transport != ChannelTransportWebSocket {
+		return fmt.Errorf("channels config: channel %q has unsupported transport %q", channelID, channelCfg.Transport)
+	}
+	if channelCfg.Protocol != ChannelProtocolPlatformWS {
+		return fmt.Errorf("channels config: channel %q has unsupported protocol %q", channelID, channelCfg.Protocol)
+	}
+	return nil
+}
+
+func channelClientURL(channelCfg ChannelConfig) string {
+	if strings.TrimSpace(channelCfg.Endpoint.URL) != "" {
+		return strings.TrimSpace(channelCfg.Endpoint.URL)
+	}
+	return strings.TrimSpace(channelCfg.Gateway.URL)
+}
+
+func channelClientToken(channelCfg ChannelConfig) string {
+	if strings.TrimSpace(channelCfg.Endpoint.Token) != "" {
+		return strings.TrimSpace(channelCfg.Endpoint.Token)
+	}
+	return strings.TrimSpace(channelCfg.Gateway.JwtToken)
 }
 
 func (c *Config) normalizeGateways() error {

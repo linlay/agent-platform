@@ -667,6 +667,7 @@ func (s *Server) buildAgentEditorOptions() api.AgentEditorOptionsResponse {
 			{Key: "REACT", Label: "REACT"},
 			{Key: "PLAN-EXECUTE", Label: "PLAN-EXECUTE"},
 			{Key: "CODER", Label: "CODER"},
+			{Key: "CHANNEL", Label: "CHANNEL"},
 			{Key: "PROXY", Label: "PROXY"},
 		},
 		ProxyConfigSchema: api.AgentEditorProxyConfigSchema{
@@ -678,6 +679,23 @@ func (s *Server) buildAgentEditorOptions() api.AgentEditorOptionsResponse {
 				{Key: "chatId", Label: "Upstream Chat ID", Type: "string"},
 				{Key: "token", Label: "Token", Type: "password"},
 				{Key: "timeout", Label: "Timeout (s)", Type: "number"},
+			},
+		},
+		ChannelConfigSchema: api.AgentEditorChannelConfigSchema{
+			ImportFields: []api.AgentEditorProxyConfigField{
+				{Key: "channelId", Label: "Channel ID", Type: "string", Required: true},
+				{Key: "remoteAgentKey", Label: "Remote Agent Key", Type: "string", Required: true},
+			},
+			ExportFields: []api.AgentEditorProxyConfigField{
+				{Key: "channelId", Label: "Channel ID", Type: "string", Required: true},
+				{Key: "externalAgentKey", Label: "External Agent Key", Type: "string", Required: true},
+			},
+			AllowFields: []api.AgentEditorProxyConfigField{
+				{Key: "query", Label: "Query", Type: "boolean"},
+				{Key: "submit", Label: "Submit", Type: "boolean"},
+				{Key: "steer", Label: "Steer", Type: "boolean"},
+				{Key: "interrupt", Label: "Interrupt", Type: "boolean"},
+				{Key: "fileTransfer", Label: "File Transfer", Type: "boolean"},
 			},
 		},
 	}

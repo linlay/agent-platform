@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 )
@@ -917,12 +918,17 @@ func parseChannelConfig(channelID string, values map[string]any) (ChannelConfig,
 		Name: stringValue(anyValue(values["name"], channelID), channelID),
 	}
 	rawType := strings.ToLower(strings.TrimSpace(stringValue(anyValue(values["type"], ""), "")))
-	switch ChannelType(rawType) {
-	case ChannelTypeBridge, ChannelTypeGateway:
-		cfg.Type = ChannelType(rawType)
-	default:
-		return ChannelConfig{}, fmt.Errorf("channels config: channel %q has invalid type %q", channelID, rawType)
+	if rawType != "" {
+		switch ChannelType(rawType) {
+		case ChannelTypeBridge, ChannelTypeGateway:
+			cfg.Type = ChannelType(rawType)
+		default:
+			return ChannelConfig{}, fmt.Errorf("channels config: channel %q has invalid type %q", channelID, rawType)
+		}
 	}
+	cfg.Mode = ChannelMode(strings.ToLower(strings.TrimSpace(stringValue(anyValue(values["mode"], ""), ""))))
+	cfg.Transport = strings.ToLower(strings.TrimSpace(stringValue(anyValue(values["transport"], ""), "")))
+	cfg.Protocol = strings.ToLower(strings.TrimSpace(stringValue(anyValue(values["protocol"], ""), "")))
 	cfg.DefaultAgent = stringValue(anyValue(values["default-agent"], ""), "")
 	allAgents, agents, err := parseChannelAgents(values["agents"])
 	if err != nil {
@@ -930,19 +936,56 @@ func parseChannelConfig(channelID string, values map[string]any) (ChannelConfig,
 	}
 	cfg.AllAgents = allAgents
 	cfg.Agents = agents
-	gatewayMap, ok := values["gateway"].(map[string]any)
-	if !ok || len(gatewayMap) == 0 {
-		return ChannelConfig{}, fmt.Errorf("channels config: channel %q gateway is required", channelID)
+	if endpointMap, ok := values["endpoint"].(map[string]any); ok && len(endpointMap) > 0 {
+		tokenEnv := stringValue(anyValue(firstAny(endpointMap, "tokenEnv", "token-env"), ""), "")
+		cfg.Endpoint = ChannelEndpointConfig{
+			URL:      stringValue(anyValue(endpointMap["url"], ""), ""),
+			Path:     stringValue(anyValue(endpointMap["path"], ""), ""),
+			Token:    stringValue(anyValue(endpointMap["token"], ""), ""),
+			TokenEnv: tokenEnv,
+		}
+		if cfg.Endpoint.Token == "" && tokenEnv != "" {
+			cfg.Endpoint.Token = strings.TrimSpace(os.Getenv(tokenEnv))
+		}
 	}
-	cfg.Gateway = ChannelGatewayConfig{
-		URL:              stringValue(anyValue(gatewayMap["url"], ""), ""),
-		JwtToken:         stringValue(anyValue(gatewayMap["jwt-token"], ""), ""),
-		BaseURL:          stringValue(anyValue(gatewayMap["base-url"], ""), ""),
-		HandshakeTimeout: int64Value(anyValue(gatewayMap["handshake-timeout"], 0), 0),
-		ReconnectMin:     int64Value(anyValue(gatewayMap["reconnect-min"], 0), 0),
-		ReconnectMax:     int64Value(anyValue(gatewayMap["reconnect-max"], 0), 0),
+	if authMap, ok := values["auth"].(map[string]any); ok && len(authMap) > 0 {
+		cfg.Auth = ChannelAuthConfig{
+			Type: strings.ToLower(stringValue(anyValue(authMap["type"], ""), "")),
+		}
+	}
+	if heartbeatMap, ok := values["heartbeat"].(map[string]any); ok && len(heartbeatMap) > 0 {
+		cfg.Heartbeat = ChannelHeartbeatConfig{
+			Interval: int64Value(anyValue(firstAny(heartbeatMap, "interval", "intervalSeconds", "interval-seconds"), 0), 0),
+		}
+	}
+	if reconnectMap, ok := values["reconnect"].(map[string]any); ok && len(reconnectMap) > 0 {
+		cfg.Reconnect = ChannelReconnectConfig{
+			HandshakeTimeout: int64Value(anyValue(firstAny(reconnectMap, "handshakeTimeout", "handshake-timeout"), 0), 0),
+			Min:              int64Value(anyValue(firstAny(reconnectMap, "min", "minSeconds", "min-seconds"), 0), 0),
+			Max:              int64Value(anyValue(firstAny(reconnectMap, "max", "maxSeconds", "max-seconds"), 0), 0),
+		}
+	}
+	gatewayMap, ok := values["gateway"].(map[string]any)
+	if ok && len(gatewayMap) > 0 {
+		cfg.Gateway = ChannelGatewayConfig{
+			URL:              stringValue(anyValue(gatewayMap["url"], ""), ""),
+			JwtToken:         stringValue(anyValue(gatewayMap["jwt-token"], ""), ""),
+			BaseURL:          stringValue(anyValue(gatewayMap["base-url"], ""), ""),
+			HandshakeTimeout: int64Value(anyValue(gatewayMap["handshake-timeout"], 0), 0),
+			ReconnectMin:     int64Value(anyValue(gatewayMap["reconnect-min"], 0), 0),
+			ReconnectMax:     int64Value(anyValue(gatewayMap["reconnect-max"], 0), 0),
+		}
 	}
 	return cfg, nil
+}
+
+func firstAny(values map[string]any, keys ...string) any {
+	for _, key := range keys {
+		if value, ok := values[key]; ok {
+			return value
+		}
+	}
+	return nil
 }
 
 func parseChannelAgents(value any) (bool, []string, error) {

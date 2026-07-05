@@ -11,8 +11,16 @@ type Definition struct {
 	ID           string
 	Name         string
 	Type         config.ChannelType
+	Mode         config.ChannelMode
+	Transport    string
+	Protocol     string
 	DefaultAgent string
 	AllAgents    bool
+	Endpoint     config.ChannelEndpointConfig
+	Auth         config.ChannelAuthConfig
+	Heartbeat    config.ChannelHeartbeatConfig
+	Reconnect    config.ChannelReconnectConfig
+	Gateway      config.ChannelGatewayConfig
 	agents       map[string]struct{}
 }
 
@@ -31,8 +39,16 @@ func NewRegistry(configs []config.ChannelConfig) *Registry {
 			ID:           strings.TrimSpace(cfg.ID),
 			Name:         strings.TrimSpace(cfg.Name),
 			Type:         cfg.Type,
+			Mode:         cfg.Mode,
+			Transport:    strings.TrimSpace(cfg.Transport),
+			Protocol:     strings.TrimSpace(cfg.Protocol),
 			DefaultAgent: strings.TrimSpace(cfg.DefaultAgent),
 			AllAgents:    cfg.AllAgents,
+			Endpoint:     cfg.Endpoint,
+			Auth:         cfg.Auth,
+			Heartbeat:    cfg.Heartbeat,
+			Reconnect:    cfg.Reconnect,
+			Gateway:      cfg.Gateway,
 			agents:       map[string]struct{}{},
 		}
 		for _, agentKey := range cfg.Agents {

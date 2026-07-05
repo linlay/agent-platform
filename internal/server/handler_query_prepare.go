@@ -260,7 +260,7 @@ func (s *Server) validateQueryModelOptions(options *api.QueryModelOptions, agent
 	if options == nil {
 		return nil
 	}
-	if isProxyAgentMode(agentDef.Mode) {
+	if isProxyAgentMode(agentDef.Mode) || catalog.AgentIsChannelMode(agentDef.Mode) {
 		return nil
 	}
 	modelKey := strings.TrimSpace(options.Key)

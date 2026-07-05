@@ -33,6 +33,13 @@ import (
 // 下载 key 由网关在 upload.url 中下发。下载完的字节复用 /api/upload
 // 内部管线落盘到 {ChatsDir}/{chatId}/，sandbox 会把该目录挂进容器 /workspace。
 func (s *Server) wsDownload(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	payloadData, statusErr := s.rewriteChannelRequestPayload(ctx, req.Type, req.Payload)
+	if statusErr != nil {
+		s.sendWSStatusError(conn, req.ID, statusErr)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	req.Payload = payloadData
 	payload, err := ws.DecodePayload[struct {
 		ChatID    string `json:"chatId"`
 		RequestID string `json:"requestId"`
@@ -131,6 +138,13 @@ func (s *Server) wsDownload(ctx context.Context, conn *ws.Conn, req ws.RequestFr
 // wsResource 处理 WS /api/resource 控制帧：gateway 要求 platform 将本地资源
 // 通过 HTTP POST 推送到 pushURL。pushURL 通常指向 gateway HTTP /api/push/...。
 func (s *Server) wsResource(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	payloadData, statusErr := s.rewriteChannelRequestPayload(ctx, req.Type, req.Payload)
+	if statusErr != nil {
+		s.sendWSStatusError(conn, req.ID, statusErr)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	req.Payload = payloadData
 	payload, err := ws.DecodePayload[struct {
 		File    string `json:"file"`
 		PushURL string `json:"pushURL"`

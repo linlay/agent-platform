@@ -1,3 +1,32 @@
+# Channel only describes the connection. Agent import/export is declared in
+# each agent.yml channelConfig.
+
+# channels:
+#   # Platform actively connects to another platform/adaptor.
+#   peer-a:
+#     mode: client
+#     # transport defaults to websocket.
+#     # protocol defaults to platform-ws, the standard request/response/stream/push/error WS frames.
+#     endpoint:
+#       url: ${PEER_A_WS_URL}
+#       tokenEnv: PEER_A_TOKEN
+#     heartbeat:
+#       interval: 30
+#     reconnect:
+#       handshakeTimeout: 10
+#       min: 1
+#       max: 30
+
+#   # Platform exposes /ws/channel for other platforms/adaptors to connect in.
+#   public-entry:
+#     mode: server
+#     endpoint:
+#       path: /ws/channel
+#     auth:
+#       type: jwt
+
+# Legacy gateway-compatible form. Deprecated for new work; it is still parsed and
+# internally normalized as a client channel plus a gateway entry.
 # channels:
 #   personal-bridge:
 #     name: 个人企业微信 Bridge

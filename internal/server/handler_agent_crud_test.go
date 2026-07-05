@@ -119,6 +119,39 @@ func TestAgentProxyCRUDPersistsProxyConfigWithModelConfig(t *testing.T) {
 	}
 }
 
+func TestAgentChannelCRUDPersistsImportConfigWithoutModelConfig(t *testing.T) {
+	fixture := newTestFixture(t)
+
+	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
+		"key": "remote-coder",
+		"definition": map[string]any{
+			"key":  "remote-coder",
+			"name": "Remote Coder",
+			"mode": "CHANNEL",
+			"channelConfig": map[string]any{
+				"channelId":      "peer-a",
+				"remoteAgentKey": "coder",
+			},
+		},
+	})
+	if created.Mode != "CHANNEL" || created.Definition["mode"] != "CHANNEL" {
+		t.Fatalf("expected CHANNEL create response, got %#v", created)
+	}
+	if _, exists := created.Definition["modelConfig"]; exists {
+		t.Fatalf("CHANNEL agent should not require modelConfig, got %#v", created.Definition["modelConfig"])
+	}
+	channelConfig, _ := created.Definition["channelConfig"].(map[string]any)
+	if channelConfig["channelId"] != "peer-a" || channelConfig["remoteAgentKey"] != "coder" {
+		t.Fatalf("expected editable channelConfig to persist, got %#v", created.Definition)
+	}
+
+	detail := getAdminAgentDetail(t, fixture.server, "remote-coder")
+	detailChannelConfig, _ := detail.Definition["channelConfig"].(map[string]any)
+	if detail.Mode != "CHANNEL" || detailChannelConfig["remoteAgentKey"] != "coder" {
+		t.Fatalf("expected CHANNEL detail with import config, got %#v", detail)
+	}
+}
+
 func TestAgentPlanExecuteCRUDUsesAPIModeContract(t *testing.T) {
 	fixture := newTestFixture(t)
 
@@ -1084,11 +1117,12 @@ func TestAgentEditorOptionsHTTP(t *testing.T) {
 	if len(response.Data.Models) != 1 || response.Data.Models[0].Key != "mock-model" || response.Data.Models[0].Name != "Mock Model" {
 		t.Fatalf("expected mock model option, got %#v", response.Data.Models)
 	}
-	if got := response.Data.Modes; len(got) != 4 ||
+	if got := response.Data.Modes; len(got) != 5 ||
 		got[0].Key != "REACT" || got[0].Label != "REACT" ||
 		got[1].Key != "PLAN-EXECUTE" || got[1].Label != "PLAN-EXECUTE" ||
 		got[2].Key != "CODER" || got[2].Label != "CODER" ||
-		got[3].Key != "PROXY" || got[3].Label != "PROXY" {
+		got[3].Key != "CHANNEL" || got[3].Label != "CHANNEL" ||
+		got[4].Key != "PROXY" || got[4].Label != "PROXY" {
 		t.Fatalf("unexpected modes %#v", got)
 	}
 	if len(response.Data.ContextTags) != 4 || response.Data.ContextTags[0].Key != "system" || response.Data.ContextTags[3].Key != "all-agents" {
@@ -1103,6 +1137,9 @@ func TestAgentEditorOptionsHTTP(t *testing.T) {
 	}
 	if response.Data.ProxyConfigSchema.DefaultTimeout != 300 || len(response.Data.ProxyConfigSchema.Fields) != 6 || !response.Data.ProxyConfigSchema.Fields[0].Required {
 		t.Fatalf("unexpected proxy schema %#v", response.Data.ProxyConfigSchema)
+	}
+	if len(response.Data.ChannelConfigSchema.ImportFields) != 2 || len(response.Data.ChannelConfigSchema.ExportFields) != 2 || len(response.Data.ChannelConfigSchema.AllowFields) != 5 {
+		t.Fatalf("unexpected channel schema %#v", response.Data.ChannelConfigSchema)
 	}
 }
 
