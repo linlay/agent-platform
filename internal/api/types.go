@@ -863,6 +863,117 @@ type AdminSkillFileMutationResponse struct {
 	UsedByAgents []string        `json:"usedByAgents,omitempty"`
 }
 
+type AdminSkillV2Summary struct {
+	Key             string                       `json:"key"`
+	Name            string                       `json:"name"`
+	Description     string                       `json:"description,omitempty"`
+	Meta            map[string]any               `json:"meta,omitempty"`
+	Status          string                       `json:"status"`
+	Diagnostic      *AdminRegistryListDiagnostic `json:"diagnostic,omitempty"`
+	DiagnosticCount int                          `json:"diagnosticCount,omitempty"`
+	UpdatedAt       int64                        `json:"updatedAt,omitempty"`
+	Size            int64                        `json:"size,omitempty"`
+	UsedByAgents    []string                     `json:"usedByAgents,omitempty"`
+	Source          *AgentSource                 `json:"source,omitempty"`
+}
+
+type AdminSkillV2Capabilities struct {
+	MaxTextBytes   int64 `json:"maxTextBytes"`
+	MaxUploadBytes int64 `json:"maxUploadBytes"`
+	CanCreate      bool  `json:"canCreate"`
+	CanRename      bool  `json:"canRename"`
+	CanDelete      bool  `json:"canDelete"`
+	CanUpload      bool  `json:"canUpload"`
+	CanDownload    bool  `json:"canDownload"`
+}
+
+type AdminSkillV2FileManifest struct {
+	Revision        string                  `json:"revision"`
+	DefaultOpenPath string                  `json:"defaultOpenPath,omitempty"`
+	Counts          AdminSkillV2FileCounts  `json:"counts"`
+	Entries         []AdminSkillV2FileEntry `json:"entries"`
+}
+
+type AdminSkillV2FileCounts struct {
+	Files       int   `json:"files"`
+	Directories int   `json:"directories"`
+	TextFiles   int   `json:"textFiles"`
+	BinaryFiles int   `json:"binaryFiles"`
+	TotalSize   int64 `json:"totalSize"`
+}
+
+type AdminSkillV2FileEntry struct {
+	Path         string `json:"path"`
+	Name         string `json:"name"`
+	Kind         string `json:"kind"`
+	ParentPath   string `json:"parentPath"`
+	Depth        int    `json:"depth"`
+	Order        int    `json:"order"`
+	Size         int64  `json:"size,omitempty"`
+	UpdatedAt    int64  `json:"updatedAt,omitempty"`
+	MimeType     string `json:"mimeType,omitempty"`
+	SHA256       string `json:"sha256,omitempty"`
+	ContentKind  string `json:"contentKind"`
+	Language     string `json:"language,omitempty"`
+	Role         string `json:"role,omitempty"`
+	Editable     bool   `json:"editable"`
+	Downloadable bool   `json:"downloadable"`
+	Uploadable   bool   `json:"uploadable"`
+	Renamable    bool   `json:"renamable"`
+	Deletable    bool   `json:"deletable"`
+}
+
+type AdminSkillV2TextFile struct {
+	Key       string `json:"key"`
+	Path      string `json:"path"`
+	Content   string `json:"content"`
+	Encoding  string `json:"encoding"`
+	SHA256    string `json:"sha256"`
+	Size      int64  `json:"size"`
+	UpdatedAt int64  `json:"updatedAt,omitempty"`
+	Editable  bool   `json:"editable"`
+}
+
+type AdminSkillV2DetailResponse struct {
+	SchemaVersion int                      `json:"schemaVersion"`
+	Skill         AdminSkillV2Summary      `json:"skill"`
+	Capabilities  AdminSkillV2Capabilities `json:"capabilities"`
+	FileManifest  AdminSkillV2FileManifest `json:"fileManifest"`
+	Diagnostics   []AdminAgentDiagnostic   `json:"diagnostics,omitempty"`
+	OpenedFile    *AdminSkillV2TextFile    `json:"openedFile,omitempty"`
+}
+
+type CreateAdminSkillV2FileRequest struct {
+	Key      string `json:"key"`
+	Path     string `json:"path"`
+	Content  string `json:"content,omitempty"`
+	Encoding string `json:"encoding,omitempty"`
+}
+
+type AdminSkillV2MutationResponse struct {
+	Key          string                    `json:"key"`
+	Action       string                    `json:"action"`
+	SelectedPath string                    `json:"selectedPath,omitempty"`
+	Entry        *AdminSkillV2FileEntry    `json:"entry,omitempty"`
+	OpenedFile   *AdminSkillV2TextFile     `json:"openedFile,omitempty"`
+	FileManifest *AdminSkillV2FileManifest `json:"fileManifest,omitempty"`
+	Skill        *AdminSkillV2Summary      `json:"skill,omitempty"`
+	Diagnostics  []AdminAgentDiagnostic    `json:"diagnostics,omitempty"`
+	Reloaded     bool                      `json:"reloaded"`
+}
+
+type ValidateAdminSkillV2Request struct {
+	Key string `json:"key"`
+}
+
+type AdminSkillV2ValidateResponse struct {
+	Key         string                 `json:"key"`
+	Status      string                 `json:"status"`
+	Diagnostics []AdminAgentDiagnostic `json:"diagnostics,omitempty"`
+	UpdatedAt   int64                  `json:"updatedAt,omitempty"`
+	Size        int64                  `json:"size,omitempty"`
+}
+
 type ToolSummary struct {
 	Key            string `json:"key"`
 	Name           string `json:"name"`

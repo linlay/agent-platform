@@ -121,6 +121,126 @@ func TestAdminSkillsListDetailAndFileEditing(t *testing.T) {
 	}
 }
 
+func TestAdminSkillsV2ManifestLazyContentAndMutations(t *testing.T) {
+	fixture := newTestFixture(t)
+
+	detailPath := "/api/admin/skills/v2/detail?key=" + url.QueryEscape("mock-skill") + "&openPath=" + url.QueryEscape("SKILL.md")
+	detail := getAPIData[api.AdminSkillV2DetailResponse](t, fixture.server, http.MethodGet, detailPath, nil)
+	if detail.SchemaVersion != 2 || detail.Skill.Key != "mock-skill" || detail.FileManifest.Revision == "" {
+		t.Fatalf("unexpected v2 detail: %#v", detail)
+	}
+	if detail.FileManifest.DefaultOpenPath != "SKILL.md" || detail.OpenedFile == nil || !strings.Contains(detail.OpenedFile.Content, "# Mock Skill") {
+		t.Fatalf("expected lazy-opened SKILL.md, got detail=%#v opened=%#v", detail.FileManifest, detail.OpenedFile)
+	}
+	skillEntry := findAdminSkillV2EntryForTest(detail.FileManifest.Entries, "SKILL.md")
+	if skillEntry == nil || skillEntry.Order != 0 || skillEntry.ParentPath != "" || skillEntry.ContentKind != "text" || skillEntry.Role != "skillMd" {
+		t.Fatalf("unexpected SKILL.md entry: %#v", skillEntry)
+	}
+
+	binaryDetailPath := "/api/admin/skills/v2/detail?key=" + url.QueryEscape("mock-skill") + "&openPath=" + url.QueryEscape("assets/logo.bin")
+	binaryDetail := getAPIData[api.AdminSkillV2DetailResponse](t, fixture.server, http.MethodGet, binaryDetailPath, nil)
+	if binaryDetail.OpenedFile != nil {
+		t.Fatalf("binary or missing openPath should not inline content: %#v", binaryDetail.OpenedFile)
+	}
+
+	createBody := mustSkillJSON(t, api.CreateAdminSkillRequest{
+		Key:     "v2-helper-skill",
+		SkillMd: "---\nname: V2 Helper\ndescription: Helps v2 tests\n---\n\nUse carefully.\n",
+		Files: []api.AdminSkillInlineFile{
+			{Path: "references/guide.md", Content: "first version\n"},
+		},
+	})
+	created := getAPIData[api.AdminSkillV2DetailResponse](t, fixture.server, http.MethodPost, "/api/admin/skills/v2/create", createBody)
+	if created.SchemaVersion != 2 || created.Skill.Key != "v2-helper-skill" || created.Skill.Name != "V2 Helper" {
+		t.Fatalf("unexpected v2 create response: %#v", created)
+	}
+	guideEntry := findAdminSkillV2EntryForTest(created.FileManifest.Entries, "references/guide.md")
+	if guideEntry == nil || guideEntry.ParentPath != "references" || guideEntry.Depth != 1 || guideEntry.Language != "markdown" || guideEntry.Role != "reference" {
+		t.Fatalf("unexpected guide entry: %#v", guideEntry)
+	}
+
+	readPath := "/api/admin/skills/v2/file?key=v2-helper-skill&path=" + url.QueryEscape("references/guide.md")
+	read := getAPIData[api.AdminSkillV2TextFile](t, fixture.server, http.MethodGet, readPath, nil)
+	if read.Content != "first version\n" || read.SHA256 == "" || !read.Editable {
+		t.Fatalf("unexpected v2 file read: %#v", read)
+	}
+
+	writeBody := mustSkillJSON(t, api.WriteAdminSkillFileRequest{
+		Key:        "v2-helper-skill",
+		Path:       "references/guide.md",
+		Content:    "second version\n",
+		BaseSHA256: read.SHA256,
+	})
+	written := getAPIData[api.AdminSkillV2MutationResponse](t, fixture.server, http.MethodPut, "/api/admin/skills/v2/file", writeBody)
+	if written.Action != "save" || written.OpenedFile == nil || written.OpenedFile.Content != "second version\n" || written.FileManifest != nil {
+		t.Fatalf("unexpected v2 write response: %#v", written)
+	}
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/api/admin/skills/v2/file", bytes.NewReader(writeBody)))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected stale v2 base conflict, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	fileCreateBody := mustSkillJSON(t, api.CreateAdminSkillV2FileRequest{
+		Key:     "v2-helper-skill",
+		Path:    "scripts/helper.py",
+		Content: "print('ok')\n",
+	})
+	fileCreated := getAPIData[api.AdminSkillV2MutationResponse](t, fixture.server, http.MethodPost, "/api/admin/skills/v2/file/create", fileCreateBody)
+	if fileCreated.Action != "create" || fileCreated.FileManifest == nil || fileCreated.SelectedPath != "scripts/helper.py" || fileCreated.OpenedFile == nil {
+		t.Fatalf("unexpected v2 file create response: %#v", fileCreated)
+	}
+
+	mkdirBody := mustSkillJSON(t, api.MkdirAdminSkillFileRequest{Key: "v2-helper-skill", Path: "assets"})
+	mkdir := getAPIData[api.AdminSkillV2MutationResponse](t, fixture.server, http.MethodPost, "/api/admin/skills/v2/file/mkdir", mkdirBody)
+	if mkdir.Action != "mkdir" || mkdir.FileManifest == nil || mkdir.SelectedPath != "assets" {
+		t.Fatalf("unexpected v2 mkdir response: %#v", mkdir)
+	}
+
+	renameBody := mustSkillJSON(t, api.RenameAdminSkillFileRequest{Key: "v2-helper-skill", FromPath: "references/guide.md", ToPath: "references/renamed.md"})
+	renamed := getAPIData[api.AdminSkillV2MutationResponse](t, fixture.server, http.MethodPost, "/api/admin/skills/v2/file/rename", renameBody)
+	if renamed.Action != "rename" || renamed.FileManifest == nil || renamed.SelectedPath != "references/renamed.md" {
+		t.Fatalf("unexpected v2 rename response: %#v", renamed)
+	}
+
+	deleteBody := mustSkillJSON(t, api.DeleteAdminSkillFileRequest{Key: "v2-helper-skill", Path: "scripts/helper.py"})
+	deleted := getAPIData[api.AdminSkillV2MutationResponse](t, fixture.server, http.MethodPost, "/api/admin/skills/v2/file/delete", deleteBody)
+	if deleted.Action != "delete" || deleted.FileManifest == nil || deleted.SelectedPath != "SKILL.md" {
+		t.Fatalf("unexpected v2 delete response: %#v", deleted)
+	}
+
+	uploadBody, contentType := skillUploadBody(t, "v2-helper-skill", "assets/blob.bin", []byte{0, 1, 2, 3})
+	uploadRec := httptest.NewRecorder()
+	uploadReq := httptest.NewRequest(http.MethodPost, "/api/admin/skills/v2/file/upload", uploadBody)
+	uploadReq.Header.Set("Content-Type", contentType)
+	fixture.server.ServeHTTP(uploadRec, uploadReq)
+	if uploadRec.Code != http.StatusOK {
+		t.Fatalf("v2 upload expected 200, got %d: %s", uploadRec.Code, uploadRec.Body.String())
+	}
+	var uploadResp api.ApiResponse[api.AdminSkillV2MutationResponse]
+	if err := json.Unmarshal(uploadRec.Body.Bytes(), &uploadResp); err != nil {
+		t.Fatalf("decode v2 upload response: %v", err)
+	}
+	uploadedEntry := findAdminSkillV2EntryForTest(uploadResp.Data.FileManifest.Entries, "assets/blob.bin")
+	if uploadResp.Data.Action != "upload" || uploadedEntry == nil || uploadedEntry.ContentKind != "binary" {
+		t.Fatalf("unexpected v2 upload response: %#v", uploadResp.Data)
+	}
+
+	downloadRec := httptest.NewRecorder()
+	downloadPath := "/api/admin/skills/v2/file/download?key=v2-helper-skill&path=" + url.QueryEscape("assets/blob.bin")
+	fixture.server.ServeHTTP(downloadRec, httptest.NewRequest(http.MethodGet, downloadPath, nil))
+	if downloadRec.Code != http.StatusOK || !bytes.Equal(downloadRec.Body.Bytes(), []byte{0, 1, 2, 3}) {
+		t.Fatalf("unexpected v2 download status=%d body=%v", downloadRec.Code, downloadRec.Body.Bytes())
+	}
+
+	validateBody := mustSkillJSON(t, api.ValidateAdminSkillV2Request{Key: "v2-helper-skill"})
+	validated := getAPIData[api.AdminSkillV2ValidateResponse](t, fixture.server, http.MethodPost, "/api/admin/skills/v2/validate", validateBody)
+	if validated.Key != "v2-helper-skill" || validated.Status == "" {
+		t.Fatalf("unexpected v2 validate response: %#v", validated)
+	}
+}
+
 func TestDeleteAdminSkillInUseReturnsConflict(t *testing.T) {
 	fixture := newTestFixture(t)
 	rec := httptest.NewRecorder()
@@ -159,6 +279,15 @@ func TestAdminSkillDetailValidatesKeyAliases(t *testing.T) {
 func findAdminSkillSummary(items []api.AdminSkillSummary, key string) *api.AdminSkillSummary {
 	for i := range items {
 		if items[i].Key == key {
+			return &items[i]
+		}
+	}
+	return nil
+}
+
+func findAdminSkillV2EntryForTest(items []api.AdminSkillV2FileEntry, path string) *api.AdminSkillV2FileEntry {
+	for i := range items {
+		if items[i].Path == path {
 			return &items[i]
 		}
 	}
