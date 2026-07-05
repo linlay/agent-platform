@@ -86,6 +86,39 @@ func TestDispatcherEmitsAwaitingAnswerDuration(t *testing.T) {
 	assertDurationMsPresent(t, answerEvents[0])
 }
 
+func TestDispatcherEmitsActivitySnapshot(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{
+		RunID:  "run_1",
+		ChatID: "chat_1",
+	})
+
+	events := dispatcher.Dispatch(InputActivitySnapshot{
+		TaskID:         "task_1",
+		ChatID:         "chat_1",
+		Phase:          "model_call",
+		Status:         "retrying",
+		Attempt:        2,
+		MaxAttempts:    4,
+		Reason:         "model_stream_idle_timeout",
+		Message:        "retrying",
+		TimeoutSeconds: 60,
+		ElapsedMs:      60001,
+		Error:          map[string]any{"code": "provider_timeout"},
+	})
+	assertEventTypes(t, events, "activity.snapshot")
+	data := events[0].ToData()
+	if data["runId"] != "run_1" || data["chatId"] != "chat_1" || data["taskId"] != "task_1" {
+		t.Fatalf("unexpected identity payload %#v", data)
+	}
+	if data["status"] != "retrying" || data["attempt"] != 2 || data["maxAttempts"] != 4 || data["timeoutSeconds"] != int64(60) {
+		t.Fatalf("unexpected activity payload %#v", data)
+	}
+	errorPayload, _ := data["error"].(map[string]any)
+	if errorPayload["code"] != "provider_timeout" {
+		t.Fatalf("unexpected activity error payload %#v", data)
+	}
+}
+
 func TestDispatcherEmitsFileChangeOnToolEndAndSnapshot(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",

@@ -799,6 +799,18 @@ func assertEventTypesExclude(t *testing.T, events []stream.EventData, blocked ..
 	assertStringSliceExcludes(t, got, blocked...)
 }
 
+func assertLiveSSEExcludesHistoricalSnapshots(t *testing.T, body string) {
+	t.Helper()
+	eventTypes := decodeEventTypesFromSSE(t, body)
+	assertStringSliceExcludes(t, eventTypes,
+		"reasoning.snapshot",
+		"content.snapshot",
+		"tool.snapshot",
+		"action.snapshot",
+		"planning.snapshot",
+	)
+}
+
 func assertStringSliceContains(t *testing.T, got []string, want ...string) {
 	t.Helper()
 	for _, target := range want {

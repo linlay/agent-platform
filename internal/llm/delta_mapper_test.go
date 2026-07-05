@@ -266,6 +266,37 @@ func TestDeltaMapper_DebugLLMChat(t *testing.T) {
 	}
 }
 
+func TestDeltaMapper_ActivitySnapshot(t *testing.T) {
+	mapper := NewDeltaMapper("run_1", "chat_1", contracts.Budget{}, nil, nil)
+
+	inputs := mapper.Map(contracts.DeltaActivitySnapshot{
+		TaskID:         "task_1",
+		ChatID:         "chat_1",
+		Phase:          "model_call",
+		Status:         "retrying",
+		Attempt:        2,
+		MaxAttempts:    4,
+		Reason:         "model_stream_idle_timeout",
+		Message:        "retrying",
+		TimeoutSeconds: 60,
+		ElapsedMs:      60001,
+		Error:          map[string]any{"code": "provider_timeout"},
+	})
+	if len(inputs) != 1 {
+		t.Fatalf("expected one mapped input, got %#v", inputs)
+	}
+	activity, ok := inputs[0].(stream.InputActivitySnapshot)
+	if !ok {
+		t.Fatalf("expected InputActivitySnapshot, got %#v", inputs[0])
+	}
+	if activity.TaskID != "task_1" || activity.Status != "retrying" || activity.Attempt != 2 || activity.MaxAttempts != 4 || activity.TimeoutSeconds != 60 {
+		t.Fatalf("unexpected activity snapshot %#v", activity)
+	}
+	if activity.Error["code"] != "provider_timeout" {
+		t.Fatalf("expected cloned error payload, got %#v", activity.Error)
+	}
+}
+
 func newQuestionDeltaMapper() *DeltaMapper {
 	tools := stubToolLookup{
 		"ask_user_question": {

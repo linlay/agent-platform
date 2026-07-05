@@ -382,6 +382,21 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			RunFirstTokenLatencyCount:       value.RunFirstTokenLatencyCount,
 			RunGenerationDurationMs:         value.RunGenerationDurationMs,
 		}}
+	case DeltaActivitySnapshot:
+		m.lastKind = ""
+		return []stream.StreamInput{stream.InputActivitySnapshot{
+			TaskID:         value.TaskID,
+			ChatID:         value.ChatID,
+			Phase:          value.Phase,
+			Status:         value.Status,
+			Attempt:        value.Attempt,
+			MaxAttempts:    value.MaxAttempts,
+			Reason:         value.Reason,
+			Message:        value.Message,
+			TimeoutSeconds: value.TimeoutSeconds,
+			ElapsedMs:      value.ElapsedMs,
+			Error:          CloneMap(value.Error),
+		}}
 	case DeltaRunCancel:
 		return []stream.StreamInput{stream.RunCancel{RunID: value.RunID}}
 	default:

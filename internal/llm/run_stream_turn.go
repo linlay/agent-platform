@@ -86,11 +86,22 @@ func (s *llmRunStream) fillNextPendingSource() error {
 		s.closeSteersAndFinish()
 		return nil
 	}
+	if s.modelTerminalError != nil {
+		err := s.modelTerminalError
+		s.modelTerminalError = nil
+		return err
+	}
+	if s.modelCall != nil && s.currentTurn == nil {
+		return s.openPendingModelCall()
+	}
 	if s.currentTurn == nil {
 		return s.prepareTurnForPending()
 	}
 	_, err := s.consumeCurrentTurn()
-	return err
+	if err != nil {
+		return s.handleModelAttemptError(err)
+	}
+	return nil
 }
 
 func (s *llmRunStream) invokeActiveToolCallAndPostHook() error {
@@ -166,12 +177,29 @@ func (s *llmRunStream) prepareNextTurn() error {
 	if err := s.ensureSystemProfileRegistered(preparedRequest, effectiveToolChoice); err != nil {
 		return err
 	}
-	trace := s.newChatTrace(runSeq, preparedRequest, effectiveToolChoice)
 	s.pending = append(s.pending, s.buildLLMRequestDelta(preparedRequest, effectiveToolChoice))
 	s.resetLastCallUsage()
 	s.runLLMChatCompletionCount++
 	s.lastCallLLMChatCompletionCount = 1
+	s.modelCall = &pendingModelCall{
+		prepared:            preparedRequest,
+		effectiveToolChoice: effectiveToolChoice,
+		runSeq:              runSeq,
+		attempt:             1,
+		maxAttempts:         s.modelMaxAttempts(),
+	}
+	s.pending = append(s.pending, s.buildModelActivitySnapshot("waiting", s.modelCall, nil))
+	return nil
+}
+
+func (s *llmRunStream) openPendingModelCall() error {
+	call := s.modelCall
+	if call == nil {
+		return nil
+	}
 	requestSentAt := time.Now()
+	call.attemptStartedAt = requestSentAt
+	trace := s.newChatTrace(call.runSeq, call.prepared, call.effectiveToolChoice)
 	if trace != nil {
 		trace.markSent(requestSentAt)
 	}
@@ -185,22 +213,25 @@ func (s *llmRunStream) prepareNextTurn() error {
 		toolSpecs:      s.toolSpecs,
 		toolChoice:     s.toolChoice,
 		modelTimeout:   s.modelStreamIdleTimeout(),
-	}, preparedRequest)
+	}, call.prepared)
 	if err != nil {
 		if trace != nil {
 			trace.completeError(err)
 		}
-		return err
+		return s.handleModelAttemptError(err)
 	}
 	if trace != nil {
 		trace.markResponseStarted(time.Now())
 		turn.trace = trace
 	}
 	turn.requestSentAt = requestSentAt
-	s.execCtx.ModelCalls++
+	if !call.logicalTurnCounted {
+		s.execCtx.ModelCalls++
+		s.step++
+		call.logicalTurnCounted = true
+	}
 	s.currentTurn = turn
 	s.lastTrace = trace
-	s.step++
 	return nil
 }
 
@@ -283,6 +314,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		turn.cancel()
 	}
 	s.recordCurrentTurnTiming(time.Now())
+	s.modelCall = nil
 
 	toolCalls, err := turn.materializeToolCalls()
 	if err != nil {

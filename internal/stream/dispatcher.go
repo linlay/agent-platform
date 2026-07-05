@@ -224,6 +224,30 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 			d.state.runUsage = runUsageStateFromValues(value.RunPromptTokens, value.RunCompletionTokens, value.RunTotalTokens, value.RunCachedTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens, value.RunLLMChatCompletionCount, value.RunToolCallCount, value.RunFirstTokenLatencyTotalMs, value.RunFirstTokenLatencyCount, value.RunGenerationDurationMs)
 		}
 		return []StreamEvent{usageSnapshotEvent(d.request.RunID, value.TaskID, value.ChatID, value.ModelKey, value.ReasoningEffort, value.ContextWindow, value.CurrentContextSize, value.EstimatedNextCallSize, value.LLMReturnPromptTokens, value.LLMReturnCompletionTokens, value.LLMReturnTotalTokens, value.LLMReturnCachedTokens, value.LLMReturnReasoningTokens, value.LLMReturnPromptCacheHitTokens, value.LLMReturnPromptCacheMissTokens, value.LLMReturnLLMChatCompletionCount, value.LLMReturnToolCallCount, value.LLMReturnFirstTokenLatencyMs, value.LLMReturnGenerationDurationMs, value.RunPromptTokens, value.RunCompletionTokens, value.RunTotalTokens, value.RunCachedTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens, value.RunLLMChatCompletionCount, value.RunToolCallCount, value.RunFirstTokenLatencyTotalMs, value.RunFirstTokenLatencyCount, value.RunGenerationDurationMs)}
+	case InputActivitySnapshot:
+		payload := map[string]any{
+			"runId":       d.request.RunID,
+			"chatId":      value.ChatID,
+			"phase":       value.Phase,
+			"status":      value.Status,
+			"attempt":     value.Attempt,
+			"maxAttempts": value.MaxAttempts,
+			"reason":      value.Reason,
+			"message":     value.Message,
+		}
+		if value.TaskID != "" {
+			payload["taskId"] = value.TaskID
+		}
+		if value.TimeoutSeconds > 0 {
+			payload["timeoutSeconds"] = value.TimeoutSeconds
+		}
+		if value.ElapsedMs > 0 {
+			payload["elapsedMs"] = value.ElapsedMs
+		}
+		if len(value.Error) > 0 {
+			payload["error"] = clonePayload(value.Error)
+		}
+		return []StreamEvent{NewEvent("activity.snapshot", payload)}
 	case InputRunComplete:
 		d.state.runFinishReason = value.FinishReason
 		return nil

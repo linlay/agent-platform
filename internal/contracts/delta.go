@@ -302,6 +302,22 @@ type DeltaUsageSnapshot struct {
 
 func (DeltaUsageSnapshot) agentDeltaTag() {}
 
+type DeltaActivitySnapshot struct {
+	TaskID         string
+	ChatID         string
+	Phase          string
+	Status         string
+	Attempt        int
+	MaxAttempts    int
+	Reason         string
+	Message        string
+	TimeoutSeconds int64
+	ElapsedMs      int64
+	Error          map[string]any
+}
+
+func (DeltaActivitySnapshot) agentDeltaTag() {}
+
 type DeltaRunCancel struct {
 	RunID string
 }

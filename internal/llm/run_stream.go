@@ -41,6 +41,8 @@ type llmRunStream struct {
 	step                int
 	stageToolCalls      int
 	pending             []AgentDelta
+	modelCall           *pendingModelCall
+	modelTerminalError  error
 	currentTurn         *providerTurnStream
 	lastTrace           *llmChatTrace
 	finished            bool
@@ -113,6 +115,16 @@ type providerTurnStream struct {
 	usageCommitted bool
 	requestSentAt  time.Time
 	firstVisibleAt time.Time
+}
+
+type pendingModelCall struct {
+	prepared            preparedProviderRequest
+	effectiveToolChoice string
+	runSeq              int
+	attempt             int
+	maxAttempts         int
+	logicalTurnCounted  bool
+	attemptStartedAt    time.Time
 }
 
 type thinkTagParserState struct {

@@ -227,6 +227,12 @@ func TestLLMChatTraceWritesInterruptInfo(t *testing.T) {
 	if _, err := stream.Next(); err != nil {
 		t.Fatalf("stream first delta: %v", err)
 	}
+	if _, err := stream.Next(); err != nil {
+		t.Fatalf("stream activity delta: %v", err)
+	}
+	if _, err := stream.Next(); err != nil {
+		t.Fatalf("stream partial delta: %v", err)
+	}
 	control.Interrupt(contracts.InterruptInfo{
 		Source:    contracts.InterruptSourceHTTPAPI,
 		Reason:    contracts.InterruptReasonUserCancelled,
@@ -270,8 +276,19 @@ func TestLLMChatTraceWritesProviderError(t *testing.T) {
 
 	engine := newTraceTestEngine(t, recordDir, server.URL, nil)
 	req := api.QueryRequest{ChatID: "chat_1", Message: "Hi"}
-	_, err := engine.newRunStream(context.Background(), req, traceTestSessionWithSystemCache(t, engine, req), false)
-	if err == nil {
+	stream, err := engine.newRunStream(context.Background(), req, traceTestSessionWithSystemCache(t, engine, req), false)
+	if err != nil {
+		t.Fatalf("newRunStream: %v", err)
+	}
+	defer stream.Close()
+	var streamErr error
+	for i := 0; i < 4; i++ {
+		_, streamErr = stream.Next()
+		if streamErr != nil {
+			break
+		}
+	}
+	if streamErr == nil {
 		t.Fatal("expected provider error")
 	}
 	trace := readTraceFile(t, recordDir, 1)

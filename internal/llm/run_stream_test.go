@@ -540,6 +540,191 @@ func TestReadCurrentSSEFrameTimesOutBetweenChunks(t *testing.T) {
 	}
 }
 
+type retryProtocolOutcome struct {
+	chunk string
+	err   error
+}
+
+type retryProtocolStub struct {
+	outcomes  []retryProtocolOutcome
+	openCount int
+}
+
+func (p *retryProtocolStub) PrepareRequest(protocolStreamParams) (preparedProviderRequest, error) {
+	return preparedProviderRequest{
+		Endpoint:        "https://provider.example.test/v1/chat/completions",
+		RequestBody:     map[string]any{"model": "mock-model"},
+		RequestBodyJSON: []byte(`{"model":"mock-model"}`),
+		Headers:         map[string]string{"Content-Type": "application/json"},
+	}, nil
+}
+
+func (p *retryProtocolStub) OpenStream(context.Context, protocolStreamParams, preparedProviderRequest) (*providerTurnStream, error) {
+	p.openCount++
+	index := p.openCount - 1
+	if index >= len(p.outcomes) {
+		return nil, fmt.Errorf("unexpected open attempt %d", p.openCount)
+	}
+	outcome := p.outcomes[index]
+	if outcome.err != nil {
+		return nil, outcome.err
+	}
+	body := io.NopCloser(strings.NewReader("data: " + outcome.chunk + "\n\n"))
+	return &providerTurnStream{
+		body:   body,
+		reader: bufio.NewReader(body),
+	}, nil
+}
+
+func (p *retryProtocolStub) ConsumeChunk(s *llmRunStream, _ string, rawChunk string) (bool, error) {
+	switch rawChunk {
+	case "ok":
+		s.appendCompatContent("ok")
+		s.currentTurn.finishReason = "stop"
+		return true, s.finishCurrentTurn()
+	case "partial":
+		s.appendCompatContent("partial")
+		return false, nil
+	default:
+		return false, fmt.Errorf("unexpected chunk %q", rawChunk)
+	}
+}
+
+func newRetryTestStream(protocol *retryProtocolStub, retryCount int) *llmRunStream {
+	return &llmRunStream{
+		engine:   &LLMAgentEngine{},
+		protocol: protocol,
+		ctx:      context.Background(),
+		session: contracts.QuerySession{
+			RunID:  "run_retry",
+			ChatID: "chat_retry",
+		},
+		model:    models.ModelDefinition{Key: "mock-model", ModelID: "mock-model-id", Protocol: "OPENAI"},
+		provider: models.ProviderDefinition{Key: "mock-provider"},
+		messages: []openAIMessage{{Role: "user", Content: "hello"}},
+		execCtx: &contracts.ExecutionContext{
+			StartedAt: time.Now(),
+			Budget: contracts.Budget{
+				MaxSteps: 10,
+				Model: contracts.RetryPolicy{
+					Timeout:    60,
+					RetryCount: retryCount,
+				},
+			},
+		},
+		maxSteps: 10,
+	}
+}
+
+func TestModelRetryRetriesProviderTimeoutBeforeVisibleOutput(t *testing.T) {
+	protocol := &retryProtocolStub{outcomes: []retryProtocolOutcome{
+		{err: modelStreamIdleTimeoutError(60 * time.Second)},
+		{chunk: "ok"},
+	}}
+	stream := newRetryTestStream(protocol, 3)
+	if err := stream.prepareNextTurn(); err != nil {
+		t.Fatalf("prepareNextTurn: %v", err)
+	}
+
+	var statuses []string
+	var content string
+	for {
+		delta, err := stream.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("stream next: %v", err)
+		}
+		switch typed := delta.(type) {
+		case contracts.DeltaActivitySnapshot:
+			statuses = append(statuses, typed.Status)
+			if typed.MaxAttempts != 4 {
+				t.Fatalf("expected maxAttempts 4, got %#v", typed)
+			}
+		case contracts.DeltaContent:
+			content += typed.Text
+		}
+	}
+	if protocol.openCount != 2 {
+		t.Fatalf("expected 2 provider attempts, got %d", protocol.openCount)
+	}
+	if !reflect.DeepEqual(statuses, []string{"waiting", "retrying"}) {
+		t.Fatalf("unexpected activity statuses %#v", statuses)
+	}
+	if content != "ok" {
+		t.Fatalf("expected retried content ok, got %q", content)
+	}
+}
+
+func TestModelRetryEmitsFailedWhenAttemptsExhausted(t *testing.T) {
+	protocol := &retryProtocolStub{outcomes: []retryProtocolOutcome{
+		{err: modelStreamIdleTimeoutError(60 * time.Second)},
+		{err: modelStreamIdleTimeoutError(60 * time.Second)},
+		{err: modelStreamIdleTimeoutError(60 * time.Second)},
+		{err: modelStreamIdleTimeoutError(60 * time.Second)},
+	}}
+	stream := newRetryTestStream(protocol, 3)
+	if err := stream.prepareNextTurn(); err != nil {
+		t.Fatalf("prepareNextTurn: %v", err)
+	}
+
+	var statuses []string
+	var finalErr error
+	for i := 0; i < 16; i++ {
+		delta, err := stream.Next()
+		if err != nil {
+			finalErr = err
+			break
+		}
+		if activity, ok := delta.(contracts.DeltaActivitySnapshot); ok {
+			statuses = append(statuses, activity.Status)
+		}
+	}
+	if finalErr == nil {
+		t.Fatal("expected terminal provider error")
+	}
+	var appErr *apperrors.Error
+	if !errors.As(finalErr, &appErr) || appErr.Code() != apperrors.CodeProviderTimeout {
+		t.Fatalf("expected provider timeout, got %T %v", finalErr, finalErr)
+	}
+	if protocol.openCount != 4 {
+		t.Fatalf("expected 4 provider attempts, got %d", protocol.openCount)
+	}
+	want := []string{"waiting", "retrying", "retrying", "retrying", "failed"}
+	if !reflect.DeepEqual(statuses, want) {
+		t.Fatalf("statuses=%#v want %#v", statuses, want)
+	}
+}
+
+func TestModelRetryDisconnectsAfterVisibleOutput(t *testing.T) {
+	stream := newRetryTestStream(&retryProtocolStub{}, 3)
+	stream.modelCall = &pendingModelCall{attempt: 1, maxAttempts: 4}
+	var content strings.Builder
+	content.WriteString("partial")
+	stream.currentTurn = &providerTurnStream{
+		hasMeaningful: true,
+		content:       content,
+	}
+	err := modelStreamIdleTimeoutError(60 * time.Second)
+	if got := stream.handleModelAttemptError(err); got != nil {
+		t.Fatalf("handleModelAttemptError returned %v", got)
+	}
+	if stream.modelTerminalError == nil {
+		t.Fatal("expected terminal error after visible output")
+	}
+	if stream.modelCall != nil || stream.currentTurn != nil {
+		t.Fatalf("expected model turn closed, modelCall=%#v currentTurn=%#v", stream.modelCall, stream.currentTurn)
+	}
+	if len(stream.pending) != 1 {
+		t.Fatalf("expected one activity delta, got %#v", stream.pending)
+	}
+	activity, ok := stream.pending[0].(contracts.DeltaActivitySnapshot)
+	if !ok || activity.Status != "disconnecting" || activity.Attempt != 1 {
+		t.Fatalf("expected disconnecting activity, got %#v", stream.pending[0])
+	}
+}
+
 func TestFinishCurrentTurnEstimatesFileWriteChangeOnToolEnd(t *testing.T) {
 	root := t.TempDir()
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{writeToolDefinition()}}
