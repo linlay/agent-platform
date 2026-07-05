@@ -103,8 +103,8 @@ func defaultConfig(options LoadOptions) Config {
 				MaxSteps: 100,
 				Model: RetryBudgetConfig{
 					MaxCalls:   100,
-					Timeout:    60,
-					RetryCount: 3,
+					Timeout:    180,
+					RetryCount: 5,
 				},
 				Tool: RetryBudgetConfig{
 					MaxCalls:   100,

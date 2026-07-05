@@ -121,14 +121,14 @@ func TestLoadDefaults(t *testing.T) {
 			if cfg.Defaults.Budget.Timeout != 3600 {
 				t.Fatalf("expected default budget timeout 3600, got %d", cfg.Defaults.Budget.Timeout)
 			}
-			if cfg.Defaults.Budget.Model.Timeout != 60 {
-				t.Fatalf("expected default model timeout 60, got %d", cfg.Defaults.Budget.Model.Timeout)
+			if cfg.Defaults.Budget.Model.Timeout != 180 {
+				t.Fatalf("expected default model timeout 180, got %d", cfg.Defaults.Budget.Model.Timeout)
 			}
 			if cfg.Defaults.Budget.Model.MaxCalls != 100 {
 				t.Fatalf("expected default model max calls 100, got %d", cfg.Defaults.Budget.Model.MaxCalls)
 			}
-			if cfg.Defaults.Budget.Model.RetryCount != 3 {
-				t.Fatalf("expected default model retry count 3, got %d", cfg.Defaults.Budget.Model.RetryCount)
+			if cfg.Defaults.Budget.Model.RetryCount != 5 {
+				t.Fatalf("expected default model retry count 5, got %d", cfg.Defaults.Budget.Model.RetryCount)
 			}
 			if cfg.Defaults.Budget.MaxSteps != 100 {
 				t.Fatalf("expected default budget max steps 100, got %d", cfg.Defaults.Budget.MaxSteps)
