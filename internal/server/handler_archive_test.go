@@ -103,7 +103,8 @@ func TestHandleChatArchiveReportsActiveRunConflictPerItem(t *testing.T) {
 }
 
 func TestHandleArchiveRestoreRestoresChat(t *testing.T) {
-	server, active, archiveStore := newArchiveHandlerTestServer(t, nil)
+	notifications := &recordingNotificationSink{}
+	server, active, archiveStore := newArchiveHandlerTestServerWithNotifications(t, nil, notifications)
 	seedArchiveHandlerChat(t, active, "chat-http-restore")
 
 	archiveRec := httptest.NewRecorder()
@@ -134,6 +135,23 @@ func TestHandleArchiveRestoreRestoresChat(t *testing.T) {
 	}
 	if _, err := archiveStore.LoadArchived("chat-http-restore"); !errors.Is(err, chat.ErrChatNotFound) {
 		t.Fatalf("expected archive removed, got %v", err)
+	}
+	events := notifications.EventTypes()
+	if len(events) != 2 || events[0] != "chat.archived" || events[1] != "archive.restored" {
+		t.Fatalf("unexpected broadcast events: %#v", events)
+	}
+	for _, event := range events {
+		if event == "chat.restored" {
+			t.Fatalf("legacy chat.restored should not be broadcast: %#v", events)
+		}
+	}
+	payloads := notifications.Payloads()
+	if len(payloads) != 2 {
+		t.Fatalf("unexpected broadcast payload count: %#v", payloads)
+	}
+	restorePayload := payloads[1]
+	if restorePayload["chatId"] != "chat-http-restore" || restorePayload["agentKey"] != "agent-a" || restorePayload["summary"] == nil {
+		t.Fatalf("unexpected archive.restored payload: %#v", restorePayload)
 	}
 }
 
@@ -176,6 +194,10 @@ func TestHandleArchiveRestoreReportsActiveConflictPerItem(t *testing.T) {
 }
 
 func newArchiveHandlerTestServer(t *testing.T, runs contracts.RunManager) (*Server, *chat.FileStore, *chat.ArchiveStore) {
+	return newArchiveHandlerTestServerWithNotifications(t, runs, nil)
+}
+
+func newArchiveHandlerTestServerWithNotifications(t *testing.T, runs contracts.RunManager, notifications contracts.NotificationSink) (*Server, *chat.FileStore, *chat.ArchiveStore) {
 	t.Helper()
 	root := t.TempDir()
 	active, err := chat.NewFileStore(filepath.Join(root, "chats"))
@@ -187,11 +209,12 @@ func newArchiveHandlerTestServer(t *testing.T, runs contracts.RunManager) (*Serv
 		t.Fatalf("new archive store: %v", err)
 	}
 	server, err := New(Dependencies{
-		Config:   config.Config{},
-		Chats:    active,
-		Archives: archiveStore,
-		Archiver: chat.NewArchiver(active, archiveStore),
-		Runs:     runs,
+		Config:        config.Config{},
+		Chats:         active,
+		Archives:      archiveStore,
+		Archiver:      chat.NewArchiver(active, archiveStore),
+		Runs:          runs,
+		Notifications: notifications,
 	})
 	if err != nil {
 		t.Fatalf("new server: %v", err)

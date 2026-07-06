@@ -203,7 +203,7 @@ func (s *Server) restoreArchives(chatIDs []string) (api.ArchiveRestoreResponse, 
 		apiSummary := mapChatSummaries([]chat.Summary{summary})[0]
 		result.Summary = &apiSummary
 		results = append(results, result)
-		s.broadcast("chat.restored", map[string]any{"chatId": chatID, "agentKey": summary.AgentKey, "summary": apiSummary})
+		s.broadcast("archive.restored", map[string]any{"chatId": chatID, "agentKey": summary.AgentKey, "summary": apiSummary})
 	}
 	return api.ArchiveRestoreResponse{Results: results}, nil
 }

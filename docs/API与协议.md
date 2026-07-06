@@ -412,6 +412,7 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 | `chat.deleted` | `chatId` |
 | `chat.renamed` | `chatId`、`chatName`、`agentKey` |
 | `chat.archived` | `chatId`、`agentKey` |
+| `archive.restored` | `chatId`、`agentKey`、`summary` |
 | `archive.deleted` | `chatId` |
 | `catalog.updated` | `reason`、可选 `timestamp` |
 | `awaiting.asking` | `chatId`、`runId`、`agentKey`、`awaitingId`、`mode`、`timeout`、`createdAt`、可选 `viewportType` / `viewportKey` |
