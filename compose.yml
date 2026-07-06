@@ -1,5 +1,6 @@
 services:
   agent-platform:
+    image: agent-platform:${VERSION:-latest}
     build:
       context: .
       dockerfile: Dockerfile

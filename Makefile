@@ -67,13 +67,13 @@ test-integration:
 	GOCACHE=$$(mktemp -d) CGO_ENABLED=$(CGO_ENABLED) RUN_SOCKET_TESTS=1 go test -p 1 -run TestQueryStreamsBeforeRunCompleteOverHTTP -v ./internal/server
 
 docker-build:
-	docker compose -f $(COMPOSE_FILE) build
+	VERSION=$(VERSION) docker compose -f $(COMPOSE_FILE) build
 
 docker-up:
-	docker compose -f $(COMPOSE_FILE) up -d --build
+	VERSION=$(VERSION) docker compose -f $(COMPOSE_FILE) up -d --build
 
 docker-down:
-	docker compose -f $(COMPOSE_FILE) down
+	VERSION=$(VERSION) docker compose -f $(COMPOSE_FILE) down
 
 release:
 	$(MAKE) release-program VERSION=$(VERSION) ARCH=$(ARCH) $(PASS_PROGRAM_TARGETS) $(PASS_PROGRAM_TARGET_MATRIX)

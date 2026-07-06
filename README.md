@@ -232,19 +232,19 @@ Provider `apiKey` 按明文字符串读取：
 ### 容器构建
 
 ```bash
-docker build -t agent-platform:latest .
+docker build -t agent-platform:$(cat VERSION) .
 ```
 
 ### 本地编排
 
 ```bash
 cp .env.example .env
-docker compose config
-docker compose up --build
+make docker-up
 ```
 
 `compose.yml` 使用同样的 runtime 根目录工作流：
 
+- 镜像名默认为 `agent-platform:<VERSION>`，`make docker-up` 会读取根目录 `VERSION` 并注入给 Compose
 - 使用 `env_file: .env`
 - 本地 `make run` 使用 `SERVER_PORT` 作为监听端口
 - 宿主机端口映射为 `${SERVER_PORT}:8080`
