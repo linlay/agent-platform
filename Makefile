@@ -25,24 +25,22 @@ LOCAL_PLUGINS_DIR := $(LOCAL_RELEASE_ROOT)/plugins
 .PHONY: run build-local run-local test test-integration docker-build docker-up docker-down release release-program clean
 
 ifeq ($(OS),Windows_NT)
-run:
-	@Get-Content .env -ErrorAction SilentlyContinue | ForEach-Object { $$l = $$_.Trim(); if ($$l -and -not $$l.StartsWith('#')) { $$i = $$l.IndexOf('='); if ($$i -gt 0) { [System.Environment]::SetEnvironmentVariable($$l.Substring(0,$$i).Trim(), $$l.Substring($$i+1).Trim(), 'Process') } } }; if ([string]::IsNullOrWhiteSpace($$env:SERVER_PORT)) { $$env:SERVER_PORT = '11949' }; $$env:CGO_ENABLED = '$(CGO_ENABLED)'; go run ./cmd/agent-platform
+run: run-local
 
 build-local:
 	@New-Item -ItemType Directory -Path '$(LOCAL_BACKEND_DIR)' -Force | Out-Null; New-Item -ItemType Directory -Path '$(LOCAL_PLUGINS_DIR)' -Force | Out-Null; $$env:CGO_ENABLED = '$(CGO_ENABLED)'; go build -o '$(LOCAL_BACKEND_BIN)' ./cmd/agent-platform
 
 run-local: build-local
-	@Get-Content .env -ErrorAction SilentlyContinue | ForEach-Object { $$l = $$_.Trim(); if ($$l -and -not $$l.StartsWith('#')) { $$i = $$l.IndexOf('='); if ($$i -gt 0) { [System.Environment]::SetEnvironmentVariable($$l.Substring(0,$$i).Trim(), $$l.Substring($$i+1).Trim(), 'Process') } } }; if ([string]::IsNullOrWhiteSpace($$env:SERVER_PORT)) { $$env:SERVER_PORT = '11949' }; & '$(LOCAL_BACKEND_BIN)' --config-dir ./configs
+	@Get-Content .env -ErrorAction SilentlyContinue | ForEach-Object { $$l = $$_.Trim(); if ($$l -and -not $$l.StartsWith('#')) { $$i = $$l.IndexOf('='); if ($$i -gt 0) { [System.Environment]::SetEnvironmentVariable($$l.Substring(0,$$i).Trim(), $$l.Substring($$i+1).Trim(), 'Process') } } }; if ([string]::IsNullOrWhiteSpace($$env:SERVER_PORT)) { $$env:SERVER_PORT = '11949' }; & '$(LOCAL_BACKEND_BIN)' --config-dir .
 else
-run:
-	set -a; [ ! -f .env ] || . ./.env; set +a; SERVER_PORT="$${SERVER_PORT:-11949}" CGO_ENABLED=$(CGO_ENABLED) go run ./cmd/agent-platform
+run: run-local
 
 build-local:
 	mkdir -p "$(LOCAL_BACKEND_DIR)" "$(LOCAL_PLUGINS_DIR)"
 	CGO_ENABLED=$(CGO_ENABLED) go build -o "$(LOCAL_BACKEND_BIN)" ./cmd/agent-platform
 
 run-local: build-local
-	set -a; [ ! -f .env ] || . ./.env; set +a; SERVER_PORT="$${SERVER_PORT:-11949}" "$(LOCAL_BACKEND_BIN)" --config-dir ./configs
+	set -a; [ ! -f .env ] || . ./.env; set +a; SERVER_PORT="$${SERVER_PORT:-11949}" "$(LOCAL_BACKEND_BIN)" --config-dir .
 endif
 
 test:

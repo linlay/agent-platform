@@ -68,9 +68,9 @@ cp .env.example .env
 make run
 ```
 
-`make run` 会先加载根目录 `.env`，并使用 `SERVER_PORT` 作为本地监听端口；未设置时默认监听 `11949`。`make run` 还会默认带上 `CGO_ENABLED=0`，以规避当前 macOS 环境里 `CGO=1` 的 `net/http` 二进制在进入 `main()` 前被系统直接 `signal: killed` 的问题。直接执行 `go run ./cmd/agent-platform` 不会自动加载 `.env`，未设置 `SERVER_PORT` 或 `--port` 时应用代码默认监听 `8080`。
+`make run` 会先构建本机 release 镜像目录，再加载根目录 `.env` 并从 `release-local/backend/agent-platform` 启动；未设置 `SERVER_PORT` 时默认监听 `11949`。本机插件放在 `release-local/plugins/`，启动时会按 Desktop 服务包形态扫描该目录。直接执行 `go run ./cmd/agent-platform` 不会自动加载 `.env`，也不会扫描 `release-local/plugins/`；未设置 `SERVER_PORT` 或 `--port` 时应用代码默认监听 `8080`。
 
-本机验证 support package / plugins 时，不使用 `make run`，而使用与 Desktop 服务包一致的 `release-local/` 镜像目录：
+也可以显式拆开构建与启动：
 
 ```bash
 make build-local
