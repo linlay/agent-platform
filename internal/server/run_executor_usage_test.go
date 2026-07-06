@@ -740,6 +740,7 @@ func TestProxyEventRecorderPersistsDecoratedUsageSnapshotCost(t *testing.T) {
 		store,
 		stepWriter,
 		nil,
+		nil,
 		chat.UsageData{},
 		writeUsageCostRegistry(t),
 		config.BillingConfig{Currency: "CNY"},

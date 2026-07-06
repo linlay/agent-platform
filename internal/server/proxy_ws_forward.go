@@ -155,18 +155,65 @@ func proxyAgentKey(proxy *catalog.ProxyConfig, fallback string) string {
 	return strings.TrimSpace(fallback)
 }
 
-func decodeProxyEvent(data []byte) (stream.EventData, bool) {
+type proxyDecodedFrame struct {
+	Frame    string
+	ID       string
+	StreamID string
+	Reason   string
+	LastSeq  int64
+	Event    stream.EventData
+	HasEvent bool
+}
+
+func decodeProxyFrame(data []byte) (proxyDecodedFrame, bool) {
 	var raw map[string]any
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return stream.EventData{}, false
+		return proxyDecodedFrame{}, false
 	}
-	if raw["event"] != nil {
-		if nested, ok := raw["event"].(map[string]any); ok {
-			raw = nested
+	decoded := proxyDecodedFrame{
+		Frame:    strings.TrimSpace(contracts.AnyStringNode(raw["frame"])),
+		ID:       strings.TrimSpace(contracts.AnyStringNode(raw["id"])),
+		StreamID: strings.TrimSpace(contracts.AnyStringNode(raw["streamId"])),
+		Reason:   strings.TrimSpace(contracts.AnyStringNode(raw["reason"])),
+		LastSeq:  int64(contracts.AnyIntNode(raw["lastSeq"])),
+	}
+	if decoded.Frame != "" && !strings.EqualFold(decoded.Frame, "stream") {
+		return decoded, decoded.Frame != ""
+	}
+	eventNode := contracts.AnyMapNode(raw["event"])
+	if len(eventNode) == 0 && decoded.Frame == "" {
+		eventNode = raw
+	}
+	if len(eventNode) > 0 {
+		event := stream.EventDataFromMap(eventNode)
+		if strings.TrimSpace(event.Type) != "" {
+			decoded.Event = event
+			decoded.HasEvent = true
 		}
 	}
-	event := stream.EventDataFromMap(raw)
-	return event, strings.TrimSpace(event.Type) != ""
+	if decoded.Frame == "" && !decoded.HasEvent {
+		return proxyDecodedFrame{}, false
+	}
+	return decoded, decoded.Frame != "" || decoded.HasEvent
+}
+
+func proxyFrameMatchesRequest(frame proxyDecodedFrame, requestID string) bool {
+	if strings.TrimSpace(frame.Frame) == "" {
+		return true
+	}
+	if !strings.EqualFold(strings.TrimSpace(frame.Frame), "stream") {
+		return false
+	}
+	frameID := strings.TrimSpace(frame.ID)
+	return frameID != "" && frameID == strings.TrimSpace(requestID)
+}
+
+func decodeProxyEvent(data []byte) (stream.EventData, bool) {
+	frame, ok := decodeProxyFrame(data)
+	if !ok || !frame.HasEvent {
+		return stream.EventData{}, false
+	}
+	return frame.Event, true
 }
 
 func normalizeProxyEventIdentity(event stream.EventData, req api.QueryRequest) stream.EventData {
@@ -402,7 +449,9 @@ type proxyEventRecorder struct {
 	chatStore     chat.Store
 	stepWriter    *chat.StepWriter
 	control       *contracts.RunControl
+	notifications contracts.NotificationSink
 	usageTracker  *proxyUsageTracker
+	awaiting      awaitingTracker
 	assistantText strings.Builder
 	startedAt     int64
 	finishReason  string
@@ -429,6 +478,7 @@ func newProxyEventRecorder(
 	chatStore chat.Store,
 	stepWriter *chat.StepWriter,
 	control *contracts.RunControl,
+	notifications contracts.NotificationSink,
 	chatUsage chat.UsageData,
 	models *models.ModelRegistry,
 	billing config.BillingConfig,
@@ -459,15 +509,16 @@ func newProxyEventRecorder(
 		Payload:   queryPayload,
 	})
 	recorder := &proxyEventRecorder{
-		req:        req,
-		agentDef:   agentDef,
-		chatStore:  chatStore,
-		stepWriter: stepWriter,
-		control:    control,
-		startedAt:  time.Now().UnixMilli(),
-		contents:   map[string]*proxyContentBucket{},
-		reasonings: map[string]*proxyContentBucket{},
-		tools:      map[string]*proxyToolBucket{},
+		req:           req,
+		agentDef:      agentDef,
+		chatStore:     chatStore,
+		stepWriter:    stepWriter,
+		control:       control,
+		notifications: notifications,
+		startedAt:     time.Now().UnixMilli(),
+		contents:      map[string]*proxyContentBucket{},
+		reasonings:    map[string]*proxyContentBucket{},
+		tools:         map[string]*proxyToolBucket{},
 	}
 	recorder.usageTracker = newProxyUsageTracker(chatUsage, &recorder.runUsage, models, billing)
 	return recorder
@@ -595,25 +646,115 @@ func (r *proxyEventRecorder) OnEvent(event stream.EventData) {
 	case "usage.snapshot":
 		r.stepWriter.OnEvent(event)
 	case "awaiting.ask":
-		if r.control != nil {
-			r.control.ExpectSubmit(awaitingContextFromProxyEvent(event))
-		}
+		r.handleLiveLifecycle(event)
+		r.stepWriter.OnEvent(event)
+	case "awaiting.answer":
+		r.handleLiveLifecycle(event)
 		r.stepWriter.OnEvent(event)
 	case "run.complete":
 		r.finishReason = "complete"
 		r.stepWriter.OnEvent(event)
 	case "run.cancel":
+		r.maybeResolvePendingAwaiting()
 		r.finishReason = "cancel"
 		r.stepWriter.OnEvent(event)
 	case "run.error":
+		r.maybeResolvePendingAwaiting()
 		r.finishReason = "error"
 		r.stepWriter.OnEvent(event)
+	case "artifact.publish":
+		r.stepWriter.OnEvent(event)
+		r.broadcastResourcePushed(event)
 	case "tool.result",
 		"task.start", "task.complete", "task.cancel", "task.error",
-		"plan.create", "plan.update", "artifact.publish", "source.publish",
+		"plan.create", "plan.update", "source.publish",
 		"planning.start", "planning.delta", "planning.end", "planning.snapshot",
-		"request.submit", "awaiting.answer", "request.steer":
+		"request.submit", "request.steer":
 		r.stepWriter.OnEvent(event)
+	}
+}
+
+func (r *proxyEventRecorder) handleLiveLifecycle(event stream.EventData) {
+	if r == nil {
+		return
+	}
+	handleAwaitingLifecycle(RunExecutorParams{
+		Session: contracts.QuerySession{
+			ChatID:   r.req.ChatID,
+			RunID:    r.req.RunID,
+			AgentKey: r.req.AgentKey,
+			TeamID:   r.req.TeamID,
+		},
+		Chats:         r.chatStore,
+		RunControl:    r.control,
+		Notifications: r.notifications,
+	}, event, &r.awaiting)
+}
+
+func (r *proxyEventRecorder) maybeResolvePendingAwaiting() {
+	if r == nil {
+		return
+	}
+	maybeBroadcastInterruptedAwaiting(RunExecutorParams{
+		Session: contracts.QuerySession{
+			ChatID:   r.req.ChatID,
+			RunID:    r.req.RunID,
+			AgentKey: r.req.AgentKey,
+			TeamID:   r.req.TeamID,
+		},
+		Chats:         r.chatStore,
+		Notifications: r.notifications,
+	}, &r.awaiting)
+}
+
+func (r *proxyEventRecorder) broadcastResourcePushed(event stream.EventData) {
+	if r == nil || r.notifications == nil {
+		return
+	}
+	chatID := strings.TrimSpace(event.String("chatId"))
+	if chatID == "" {
+		chatID = r.req.ChatID
+	}
+	if chatID == "" {
+		return
+	}
+	timestamp := event.Timestamp
+	if timestamp <= 0 {
+		timestamp = time.Now().UnixMilli()
+	}
+	for _, artifact := range proxyArtifactItems(event.Value("artifacts")) {
+		artifactID := strings.TrimSpace(contracts.AnyStringNode(artifact["artifactId"]))
+		name := strings.TrimSpace(contracts.AnyStringNode(artifact["name"]))
+		if artifactID == "" && name == "" {
+			continue
+		}
+		payload := map[string]any{
+			"chatId":     chatID,
+			"artifactId": artifactID,
+			"name":       name,
+			"mimeType":   strings.TrimSpace(contracts.AnyStringNode(artifact["mimeType"])),
+			"sha256":     strings.TrimSpace(contracts.AnyStringNode(artifact["sha256"])),
+			"sizeBytes":  contracts.AnyIntNode(artifact["sizeBytes"]),
+			"timestamp":  timestamp,
+		}
+		r.notifications.Broadcast("resource.pushed", payload)
+	}
+}
+
+func proxyArtifactItems(value any) []map[string]any {
+	switch typed := value.(type) {
+	case []map[string]any:
+		return typed
+	case []any:
+		items := make([]map[string]any, 0, len(typed))
+		for _, raw := range typed {
+			if item := contracts.AnyMapNode(raw); len(item) > 0 {
+				items = append(items, item)
+			}
+		}
+		return items
+	default:
+		return nil
 	}
 }
 

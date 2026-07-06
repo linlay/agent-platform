@@ -129,7 +129,7 @@ func (s *Server) wsProxyQuery(
 	if prepared.summary.Usage != nil {
 		chatUsage = *prepared.summary.Usage
 	}
-	recorder := newProxyEventRecorder(prepared.req, prepared.agentDef, s.deps.Chats, stepWriter, proxyControl, chatUsage, s.deps.Models, s.deps.Config.Billing)
+	recorder := newProxyEventRecorder(prepared.req, prepared.agentDef, s.deps.Chats, stepWriter, proxyControl, s.deps.Notifications, chatUsage, s.deps.Models, s.deps.Config.Billing)
 
 	go s.runProxyWebSocket(runCtx, prepared, route, eventBus, recorder)
 	conn.StartStreamForward(req.ID, observer)
@@ -201,7 +201,7 @@ func (s *Server) handleProxyWebSocketQuery(w http.ResponseWriter, r *http.Reques
 	if prepared.summary.Usage != nil {
 		chatUsage = *prepared.summary.Usage
 	}
-	recorder := newProxyEventRecorder(prepared.req, prepared.agentDef, s.deps.Chats, stepWriter, control, chatUsage, s.deps.Models, s.deps.Config.Billing)
+	recorder := newProxyEventRecorder(prepared.req, prepared.agentDef, s.deps.Chats, stepWriter, control, s.deps.Notifications, chatUsage, s.deps.Models, s.deps.Config.Billing)
 	go s.runProxyWebSocket(runCtx, prepared, route, eventBus, recorder)
 
 	for {
@@ -278,7 +278,7 @@ func (s *Server) handleProxyQueryNonStream(w http.ResponseWriter, r *http.Reques
 	if prepared.summary.Usage != nil {
 		chatUsage = *prepared.summary.Usage
 	}
-	recorder := newProxyEventRecorder(prepared.req, prepared.agentDef, s.deps.Chats, stepWriter, proxyControl, chatUsage, s.deps.Models, s.deps.Config.Billing)
+	recorder := newProxyEventRecorder(prepared.req, prepared.agentDef, s.deps.Chats, stepWriter, proxyControl, s.deps.Notifications, chatUsage, s.deps.Models, s.deps.Config.Billing)
 	go s.runProxyWebSocket(runCtx, prepared, route, eventBus, recorder)
 
 	collector := newQueryEventCollector(prepared.req.IncludeFullText)
@@ -406,10 +406,18 @@ func (s *Server) runProxyWebSocket(
 			}
 			return
 		}
-		event, ok := decodeProxyEvent(data)
-		if !ok {
+		frame, ok := decodeProxyFrame(data)
+		if !ok || !proxyFrameMatchesRequest(frame, prepared.req.RequestID) {
 			continue
 		}
+		if !frame.HasEvent {
+			if strings.EqualFold(frame.Frame, "stream") && frame.Reason != "" {
+				terminalSeen = true
+				return
+			}
+			continue
+		}
+		event := frame.Event
 		event = normalizeProxyEventIdentity(event, prepared.req)
 		if event.Seq <= 0 {
 			seq++
