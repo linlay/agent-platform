@@ -3,11 +3,8 @@ package stream
 import "strings"
 
 func (d *StreamEventDispatcher) handleToolArgs(input ToolArgs) []StreamEvent {
-	events := d.closeForSwitch("tool")
-	taskID := input.TaskID
-	if strings.TrimSpace(taskID) == "" && d.state.activeTaskID != "" {
-		taskID = d.state.activeTaskID
-	}
+	taskID := d.resolveTaskID(input.TaskID)
+	events := d.closeForSwitch("tool", taskID)
 	if _, ok := d.state.openTools[input.ToolID]; !ok {
 		d.state.openTools[input.ToolID] = toolBlockState{
 			TaskID:      taskID,
@@ -117,6 +114,19 @@ func (d *StreamEventDispatcher) closeAllTools() []StreamEvent {
 	var events []StreamEvent
 	for toolID := range d.state.openTools {
 		events = append(events, d.closeTool(toolID, nil)...)
+	}
+	return events
+}
+
+func (d *StreamEventDispatcher) closeAllToolsForScope(scope string) []StreamEvent {
+	if len(d.state.openTools) == 0 {
+		return nil
+	}
+	var events []StreamEvent
+	for toolID, block := range d.state.openTools {
+		if taskScope(block.TaskID) == scope {
+			events = append(events, d.closeTool(toolID, nil)...)
+		}
 	}
 	return events
 }

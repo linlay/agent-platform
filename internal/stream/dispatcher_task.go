@@ -32,7 +32,7 @@ func (d *StreamEventDispatcher) handleTaskStart(input TaskStart) []StreamEvent {
 }
 
 func (d *StreamEventDispatcher) handleTaskComplete(input TaskComplete) []StreamEvent {
-	events := d.closeOpenBlocks()
+	events := d.closeOpenBlocksForTask(input.TaskID)
 	if d.state.activeTaskID == input.TaskID {
 		d.state.activeTaskID = ""
 	}
@@ -43,7 +43,7 @@ func (d *StreamEventDispatcher) handleTaskComplete(input TaskComplete) []StreamE
 }
 
 func (d *StreamEventDispatcher) handleTaskCancel(input TaskCancel) []StreamEvent {
-	events := d.closeOpenBlocks()
+	events := d.closeOpenBlocksForTask(input.TaskID)
 	if d.state.activeTaskID == input.TaskID {
 		d.state.activeTaskID = ""
 	}
@@ -55,7 +55,7 @@ func (d *StreamEventDispatcher) handleTaskCancel(input TaskCancel) []StreamEvent
 }
 
 func (d *StreamEventDispatcher) handleTaskError(input TaskError) []StreamEvent {
-	events := d.closeOpenBlocks()
+	events := d.closeOpenBlocksForTask(input.TaskID)
 	if d.state.activeTaskID == input.TaskID {
 		d.state.activeTaskID = ""
 	}

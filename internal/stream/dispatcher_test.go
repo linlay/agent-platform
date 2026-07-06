@@ -277,6 +277,99 @@ func TestDispatcherClosesContentBeforeTaskComplete(t *testing.T) {
 	}
 }
 
+func TestDispatcherKeepsTaskContentOpenAcrossOtherTaskTerminal(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{
+		RunID:  "run_1",
+		ChatID: "chat_1",
+	})
+	dispatcher.Dispatch(TaskStart{
+		TaskID:      "task_1",
+		RunID:       "run_1",
+		TaskName:    "检查",
+		SubAgentKey: "reviewer",
+		MainToolID:  "tool_main_1",
+	})
+	dispatcher.Dispatch(TaskStart{
+		TaskID:      "task_2",
+		RunID:       "run_1",
+		TaskName:    "写作",
+		SubAgentKey: "writer",
+		MainToolID:  "tool_main_1",
+	})
+	events := dispatcher.Dispatch(ContentDelta{
+		ContentID: "task_2_c_1",
+		TaskID:    "task_2",
+		Delta:     "前半句",
+	})
+	assertEventTypes(t, events, "content.start", "content.delta")
+
+	events = dispatcher.Dispatch(ToolArgs{
+		ToolID:     "tool_task_1",
+		TaskID:     "task_1",
+		ToolName:   "datetime",
+		Delta:      "{}",
+		ChunkIndex: 0,
+	})
+	assertEventTypes(t, events, "tool.start", "tool.args")
+
+	events = dispatcher.Dispatch(TaskComplete{TaskID: "task_1"})
+	assertEventTypes(t, events, "tool.end", "tool.snapshot", "task.complete")
+
+	events = dispatcher.Dispatch(ContentDelta{
+		ContentID: "task_2_c_1",
+		TaskID:    "task_2",
+		Delta:     "后半句",
+	})
+	assertEventTypes(t, events, "content.delta")
+	if events[0].Data().String("contentId") != "task_2_c_1" {
+		t.Fatalf("expected continued task_2 content delta, got %#v", events[0].ToData())
+	}
+}
+
+func TestDispatcherKeepsMainContentOpenAcrossChildTaskTerminal(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{
+		RunID:  "run_1",
+		ChatID: "chat_1",
+	})
+	events := dispatcher.Dispatch(ContentDelta{
+		ContentID: "run_1_c_1",
+		Delta:     "主输出",
+	})
+	assertEventTypes(t, events, "content.start", "content.delta")
+
+	dispatcher.Dispatch(TaskStart{
+		TaskID:      "task_child",
+		RunID:       "run_1",
+		TaskName:    "子任务",
+		SubAgentKey: "writer",
+		MainToolID:  "tool_main_1",
+	})
+	events = dispatcher.Dispatch(ContentDelta{
+		ContentID: "task_child:final",
+		TaskID:    "task_child",
+		Delta:     "子输出",
+	})
+	assertEventTypes(t, events, "content.start", "content.delta")
+
+	events = dispatcher.Dispatch(TaskComplete{TaskID: "task_child"})
+	assertEventTypes(t, events, "content.end", "content.snapshot", "task.complete")
+
+	events = dispatcher.Dispatch(ContentDelta{
+		ContentID: "run_1_c_1",
+		Delta:     "继续",
+	})
+	assertEventTypes(t, events, "content.delta")
+	if events[0].Data().String("contentId") != "run_1_c_1" {
+		t.Fatalf("expected continued main content delta, got %#v", events[0].ToData())
+	}
+
+	events = dispatcher.Complete()
+	assertEventTypes(t, events, "content.end", "content.snapshot", "run.complete")
+	if got := events[1].Data().String("text"); got != "主输出继续" {
+		t.Fatalf("expected main content snapshot to include both deltas, got %#v", events[1].ToData())
+	}
+}
+
 func TestDispatcherTaskTerminalPayloads(t *testing.T) {
 	t.Run("complete", func(t *testing.T) {
 		dispatcher := NewDispatcher(StreamRequest{RunID: "run_1", ChatID: "chat_1"})

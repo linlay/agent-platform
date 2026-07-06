@@ -1,13 +1,8 @@
 package stream
 
-import "strings"
-
 func (d *StreamEventDispatcher) handleActionArgs(input ActionArgs) []StreamEvent {
-	events := d.closeForSwitch("action")
-	taskID := input.TaskID
-	if strings.TrimSpace(taskID) == "" && d.state.activeTaskID != "" {
-		taskID = d.state.activeTaskID
-	}
+	taskID := d.resolveTaskID(input.TaskID)
+	events := d.closeForSwitch("action", taskID)
 	if _, ok := d.state.openActions[input.ActionID]; !ok {
 		d.state.openActions[input.ActionID] = actionBlockState{
 			TaskID:      taskID,
@@ -50,6 +45,19 @@ func (d *StreamEventDispatcher) closeAllActions() []StreamEvent {
 	var events []StreamEvent
 	for actionID := range d.state.openActions {
 		events = append(events, d.closeAction(actionID)...)
+	}
+	return events
+}
+
+func (d *StreamEventDispatcher) closeAllActionsForScope(scope string) []StreamEvent {
+	if len(d.state.openActions) == 0 {
+		return nil
+	}
+	var events []StreamEvent
+	for actionID, block := range d.state.openActions {
+		if taskScope(block.TaskID) == scope {
+			events = append(events, d.closeAction(actionID)...)
+		}
 	}
 	return events
 }

@@ -1,6 +1,10 @@
 package stream
 
-import "agent-platform/internal/apperrors"
+import (
+	"strings"
+
+	"agent-platform/internal/apperrors"
+)
 
 func (d *StreamEventDispatcher) Complete() []StreamEvent {
 	if d.state.terminated {
@@ -54,19 +58,43 @@ func (d *StreamEventDispatcher) Fail(err error) []StreamEvent {
 	return events
 }
 
-func (d *StreamEventDispatcher) closeForSwitch(next string) []StreamEvent {
+func (d *StreamEventDispatcher) closeForSwitch(next string, taskID string) []StreamEvent {
+	scope := taskScope(taskID)
 	switch next {
 	case "reasoning":
-		return append(d.closeContent(), append(d.closeAllTools(), d.closeAllActions()...)...)
+		events := d.closeContentScope(scope)
+		events = append(events, d.closeAllToolsForScope(scope)...)
+		events = append(events, d.closeAllActionsForScope(scope)...)
+		return events
 	case "content":
-		return append(d.closeReasoning(), append(d.closeAllTools(), d.closeAllActions()...)...)
+		events := d.closeReasoningScope(scope)
+		events = append(events, d.closeAllToolsForScope(scope)...)
+		events = append(events, d.closeAllActionsForScope(scope)...)
+		return events
 	case "tool":
-		return append(d.closeReasoning(), append(d.closeContent(), d.closeAllActions()...)...)
+		events := d.closeReasoningScope(scope)
+		events = append(events, d.closeContentScope(scope)...)
+		events = append(events, d.closeAllActionsForScope(scope)...)
+		return events
 	case "action":
-		return append(d.closeReasoning(), append(d.closeContent(), d.closeAllTools()...)...)
+		events := d.closeReasoningScope(scope)
+		events = append(events, d.closeContentScope(scope)...)
+		events = append(events, d.closeAllToolsForScope(scope)...)
+		return events
 	default:
 		return d.closeOpenBlocks()
 	}
+}
+
+func (d *StreamEventDispatcher) resolveTaskID(taskID string) string {
+	if strings.TrimSpace(taskID) == "" && d.state.activeTaskID != "" {
+		return d.state.activeTaskID
+	}
+	return taskID
+}
+
+func taskScope(taskID string) string {
+	return strings.TrimSpace(taskID)
 }
 
 func (d *StreamEventDispatcher) usagePayload() map[string]any {
@@ -181,6 +209,15 @@ func (d *StreamEventDispatcher) closeOpenBlocks() []StreamEvent {
 	events = append(events, d.closeContent()...)
 	events = append(events, d.closeAllTools()...)
 	events = append(events, d.closeAllActions()...)
+	return events
+}
+
+func (d *StreamEventDispatcher) closeOpenBlocksForTask(taskID string) []StreamEvent {
+	scope := taskScope(taskID)
+	events := d.closeReasoningScope(scope)
+	events = append(events, d.closeContentScope(scope)...)
+	events = append(events, d.closeAllToolsForScope(scope)...)
+	events = append(events, d.closeAllActionsForScope(scope)...)
 	return events
 }
 

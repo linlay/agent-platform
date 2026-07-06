@@ -1,17 +1,16 @@
 package stream
 
-import "strings"
-
 func (d *StreamEventDispatcher) handleReasoningDelta(input ReasoningDelta) []StreamEvent {
-	events := d.closeForSwitch("reasoning")
-	taskID := input.TaskID
-	if strings.TrimSpace(taskID) == "" && d.state.activeTaskID != "" {
-		taskID = d.state.activeTaskID
-	}
+	taskID := d.resolveTaskID(input.TaskID)
+	scope := taskScope(taskID)
+	events := d.closeForSwitch("reasoning", taskID)
 	reasoningLabel := ReasoningLabelForID(input.ReasoningID)
-	if d.state.activeReasoningID == "" || d.state.activeReasoningID != input.ReasoningID {
-		d.state.activeReasoningID = input.ReasoningID
-		d.state.activeReasoning = reasoningBlockState{TaskID: taskID, Label: reasoningLabel}
+	active, ok := d.state.activeReasonings[scope]
+	if !ok || active.ID != input.ReasoningID {
+		d.state.activeReasonings[scope] = activeReasoningState{
+			ID:    input.ReasoningID,
+			Block: reasoningBlockState{TaskID: taskID, Label: reasoningLabel},
+		}
 		events = append(events, NewEvent("reasoning.start", map[string]any{
 			"runId":          d.request.RunID,
 			"reasoningId":    input.ReasoningID,
@@ -31,13 +30,24 @@ func (d *StreamEventDispatcher) handleReasoningDelta(input ReasoningDelta) []Str
 }
 
 func (d *StreamEventDispatcher) closeReasoning() []StreamEvent {
-	if d.state.activeReasoningID == "" {
+	if len(d.state.activeReasonings) == 0 {
 		return nil
 	}
-	reasoningID := d.state.activeReasoningID
-	block := d.state.activeReasoning
-	d.state.activeReasoningID = ""
-	d.state.activeReasoning = reasoningBlockState{}
+	var events []StreamEvent
+	for scope := range d.state.activeReasonings {
+		events = append(events, d.closeReasoningScope(scope)...)
+	}
+	return events
+}
+
+func (d *StreamEventDispatcher) closeReasoningScope(scope string) []StreamEvent {
+	active, ok := d.state.activeReasonings[scope]
+	if !ok {
+		return nil
+	}
+	delete(d.state.activeReasonings, scope)
+	reasoningID := active.ID
+	block := active.Block
 	events := []StreamEvent{NewEvent("reasoning.end", map[string]any{
 		"reasoningId": reasoningID,
 	})}

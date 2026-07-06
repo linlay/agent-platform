@@ -1,16 +1,15 @@
 package stream
 
-import "strings"
-
 func (d *StreamEventDispatcher) handleContentDelta(input ContentDelta) []StreamEvent {
-	events := d.closeForSwitch("content")
-	taskID := input.TaskID
-	if strings.TrimSpace(taskID) == "" && d.state.activeTaskID != "" {
-		taskID = d.state.activeTaskID
-	}
-	if d.state.activeContentID == "" || d.state.activeContentID != input.ContentID {
-		d.state.activeContentID = input.ContentID
-		d.state.activeContent = contentBlockState{TaskID: taskID}
+	taskID := d.resolveTaskID(input.TaskID)
+	scope := taskScope(taskID)
+	events := d.closeForSwitch("content", taskID)
+	active, ok := d.state.activeContents[scope]
+	if !ok || active.ID != input.ContentID {
+		d.state.activeContents[scope] = activeContentState{
+			ID:    input.ContentID,
+			Block: contentBlockState{TaskID: taskID},
+		}
 		d.state.lastContentID = input.ContentID
 		events = append(events, NewEvent("content.start", map[string]any{
 			"contentId": input.ContentID,
@@ -30,13 +29,24 @@ func (d *StreamEventDispatcher) handleContentDelta(input ContentDelta) []StreamE
 }
 
 func (d *StreamEventDispatcher) closeContent() []StreamEvent {
-	if d.state.activeContentID == "" {
+	if len(d.state.activeContents) == 0 {
 		return nil
 	}
-	contentID := d.state.activeContentID
-	block := d.state.activeContent
-	d.state.activeContentID = ""
-	d.state.activeContent = contentBlockState{}
+	var events []StreamEvent
+	for scope := range d.state.activeContents {
+		events = append(events, d.closeContentScope(scope)...)
+	}
+	return events
+}
+
+func (d *StreamEventDispatcher) closeContentScope(scope string) []StreamEvent {
+	active, ok := d.state.activeContents[scope]
+	if !ok {
+		return nil
+	}
+	delete(d.state.activeContents, scope)
+	contentID := active.ID
+	block := active.Block
 	events := []StreamEvent{NewEvent("content.end", map[string]any{
 		"contentId": contentID,
 	})}

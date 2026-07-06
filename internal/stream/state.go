@@ -1,10 +1,8 @@
 package stream
 
 type StreamEventStateData struct {
-	activeReasoningID string
-	activeReasoning   reasoningBlockState
-	activeContentID   string
-	activeContent     contentBlockState
+	activeReasonings  map[string]activeReasoningState
+	activeContents    map[string]activeContentState
 	planID            string
 	activeTaskID      string
 	openTools         map[string]toolBlockState
@@ -48,8 +46,18 @@ type reasoningBlockState struct {
 	Label  string
 }
 
+type activeReasoningState struct {
+	ID    string
+	Block reasoningBlockState
+}
+
 type contentBlockState struct {
 	TaskID string
+}
+
+type activeContentState struct {
+	ID    string
+	Block contentBlockState
 }
 
 type toolBlockState struct {
@@ -67,6 +75,8 @@ type actionBlockState struct {
 
 func NewStateData() *StreamEventStateData {
 	return &StreamEventStateData{
+		activeReasonings:  map[string]activeReasoningState{},
+		activeContents:    map[string]activeContentState{},
 		openTools:         map[string]toolBlockState{},
 		openActions:       map[string]actionBlockState{},
 		reasoningBuffer:   map[string]string{},
