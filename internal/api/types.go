@@ -58,10 +58,8 @@ const (
 
 	QueryRoleValidationMessage = "role must be user, assistant, automation, or system"
 
-	ChatSourceHumanQuery       = "human:query"
-	ChatSourceHumanUpload      = "human:upload"
-	ChatSourceInternalQuery    = "internal:query"
-	ChatSourceInternalDerive   = "internal:derive"
+	ChatSourceQuery            = "query"
+	ChatSourceQueryPrefix      = "query:"
 	ChatSourceAutomationPrefix = "automation:"
 )
 
@@ -115,13 +113,16 @@ func ProviderSafeQueryMessage(role string, message string) (string, string) {
 }
 
 type QueryRequest struct {
-	RequestID       string             `json:"requestId,omitempty"`
-	RunID           string             `json:"runId,omitempty"`
-	ChatID          string             `json:"chatId,omitempty"`
-	AgentKey        string             `json:"agentKey,omitempty"`
-	TeamID          string             `json:"teamId,omitempty"`
-	Role            string             `json:"role,omitempty"`
-	Message         string             `json:"message"`
+	RequestID string `json:"requestId,omitempty"`
+	RunID     string `json:"runId,omitempty"`
+	ChatID    string `json:"chatId,omitempty"`
+	AgentKey  string `json:"agentKey,omitempty"`
+	TeamID    string `json:"teamId,omitempty"`
+	Role      string `json:"role,omitempty"`
+	Message   string `json:"message"`
+	// Trusted channel hint for the remote actor. Ignored outside gateway
+	// contexts when deriving chat summary source.
+	SourceUser      string             `json:"sourceUser,omitempty"`
 	References      []Reference        `json:"references,omitempty"`
 	Params          map[string]any     `json:"params,omitempty"`
 	Scene           *Scene             `json:"scene,omitempty"`
@@ -1179,6 +1180,7 @@ type MarkChatReadResponse struct {
 type ChatDetailResponse struct {
 	ChatID         string              `json:"chatId"`
 	ChatName       string              `json:"chatName"`
+	Source         string              `json:"source,omitempty"`
 	ResourceTicket string              `json:"resourceTicket,omitempty"`
 	RawMessages    []map[string]any    `json:"rawMessages,omitempty"`
 	Events         []stream.EventData  `json:"events"`

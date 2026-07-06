@@ -75,8 +75,8 @@ func TestUploadAndResourceRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("summary: %v", err)
 	}
-	if summary == nil || summary.Source != api.ChatSourceHumanUpload {
-		t.Fatalf("expected upload chat source, got %#v", summary)
+	if summary == nil || summary.Source != "" {
+		t.Fatalf("expected upload-created chat to omit source, got %#v", summary)
 	}
 	wantUploadPath := filepath.Join(fixture.cfg.Paths.ChatsDir, response.Data.ChatID, "notes.txt")
 	if response.Data.Upload.Path != wantUploadPath {

@@ -16,6 +16,7 @@ import (
 	"agent-platform/internal/i18n"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/stream"
+	platformws "agent-platform/internal/ws"
 )
 
 type preparedQuery struct {
@@ -232,10 +233,58 @@ func queryChatSource(ctx context.Context, req api.QueryRequest) string {
 	if source != "" {
 		return source
 	}
-	if isSyncQueryContext(ctx) {
-		return api.ChatSourceInternalQuery
+	return queryChatSourceForUser(querySourceUser(ctx, req))
+}
+
+func queryChatSourceForUser(user string) string {
+	user = normalizeChatSourcePart(user)
+	if user == "" {
+		return api.ChatSourceQuery
 	}
-	return api.ChatSourceHumanQuery
+	return api.ChatSourceQueryPrefix + user
+}
+
+func querySourceUser(ctx context.Context, req api.QueryRequest) string {
+	if _, ok := platformws.GatewayFromContext(ctx); ok {
+		if user := strings.TrimSpace(req.SourceUser); user != "" {
+			return user
+		}
+		if user := channelUserFromChatID(req.ChatID); user != "" {
+			return user
+		}
+	}
+	if principal := PrincipalFromContext(ctx); principal != nil && strings.TrimSpace(principal.Subject) != "" {
+		return principal.Subject
+	}
+	if user := channelUserFromChatID(req.ChatID); user != "" {
+		return user
+	}
+	return ""
+}
+
+func channelUserFromChatID(chatID string) string {
+	chatID = strings.TrimSpace(chatID)
+	if chatID == "" || channel.ChannelForChatID(chatID) == "" {
+		return ""
+	}
+	parts := strings.Split(chatID, "#")
+	if len(parts) < 3 {
+		return ""
+	}
+	return strings.TrimSpace(parts[2])
+}
+
+func normalizeChatSourcePart(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	value = strings.Join(strings.Fields(value), " ")
+	runes := []rune(value)
+	if len(runes) > 160 {
+		value = string(runes[:160])
+	}
+	return strings.TrimSpace(value)
 }
 
 func buildMemoryUsageSummary(staticMemoryPrompt string, bundle memory.ContextBundle) *api.MemoryUsageSummary {

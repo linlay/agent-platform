@@ -89,6 +89,7 @@ func (s *Server) loadChatDetail(ctx context.Context, chatID string, includeRawMe
 	response := api.ChatDetailResponse{
 		ChatID:        detail.ChatID,
 		ChatName:      detail.ChatName,
+		Source:        summary.Source,
 		Events:        detail.Events,
 		ContextWindow: mapChatContextWindow(detail.ContextWindow),
 		References:    nil,

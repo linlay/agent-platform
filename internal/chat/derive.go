@@ -167,7 +167,7 @@ func (s *FileStore) DeriveChat(request DeriveChatRequest) (DeriveChatResult, err
 			USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
 			USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		targetChatID, chatName, sourceSummary.AgentKey, nilIfEmpty(sourceSummary.TeamID), "internal:derive", now, now, targetRunID, targetSourceRun.AssistantText, readRunID, now,
+		targetChatID, chatName, sourceSummary.AgentKey, nilIfEmpty(sourceSummary.TeamID), "", now, now, targetRunID, targetSourceRun.AssistantText, readRunID, now,
 		usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, usage.CachedTokens, usage.ReasoningTokens,
 		usage.PromptCacheHitTokens, usage.PromptCacheMissTokens,
 		usage.EstimatedCostCurrency, usage.EstimatedCostInputHit, usage.EstimatedCostInputMiss, usage.EstimatedCostOutput, usage.EstimatedCostTotal,

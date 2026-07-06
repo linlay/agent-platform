@@ -143,7 +143,7 @@ func TestFileStoreEnsureChatWithSourcePersistsIntoSummaries(t *testing.T) {
 		t.Fatalf("expected source on created summary, created=%v summary=%#v", created, summary)
 	}
 
-	summary, created, err = store.EnsureChatWithSource("chat-source", "agent", "", "ignored", "human:query")
+	summary, created, err = store.EnsureChatWithSource("chat-source", "agent", "", "ignored", "query:alice")
 	if err != nil {
 		t.Fatalf("ensure existing chat with source: %v", err)
 	}

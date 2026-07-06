@@ -22,6 +22,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/stream"
+	platformws "agent-platform/internal/ws"
 )
 
 func TestQuerySSEPersistsChatHistory(t *testing.T) {
@@ -67,8 +68,8 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	if len(chatsResp.Data) != 1 {
 		t.Fatalf("expected 1 chat, got %d", len(chatsResp.Data))
 	}
-	if chatsResp.Data[0].Source != api.ChatSourceHumanQuery {
-		t.Fatalf("expected human query chat source, got %#v", chatsResp.Data[0])
+	if chatsResp.Data[0].Source != api.ChatSourceQuery {
+		t.Fatalf("expected query chat source, got %#v", chatsResp.Data[0])
 	}
 	chatID := chatsResp.Data[0].ChatID
 	assertUUIDLike(t, chatID)
@@ -80,6 +81,9 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	var chatResp api.ApiResponse[api.ChatDetailResponse]
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat response: %v", err)
+	}
+	if chatResp.Data.Source != api.ChatSourceQuery {
+		t.Fatalf("expected /api/chat source, got %#v", chatResp.Data)
 	}
 	if len(chatResp.Data.Events) < 4 {
 		t.Fatalf("expected persisted events, got %#v", chatResp.Data.Events)
@@ -109,7 +113,7 @@ func TestQueryChatSourceCannotBeSpoofedByExternalPayload(t *testing.T) {
 	fixture := newTestFixture(t)
 	server := fixture.server
 
-	body := bytes.NewBufferString(`{"chatId":"chat-source-spoof","message":"hello","agentKey":"mock-agent","role":"automation","source":"automation:evil"}`)
+	body := bytes.NewBufferString(`{"chatId":"chat-source-spoof","message":"hello","agentKey":"mock-agent","role":"automation","source":"automation:evil","sourceUser":"mallory"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/query", body)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -122,8 +126,70 @@ func TestQueryChatSourceCannotBeSpoofedByExternalPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("summary: %v", err)
 	}
-	if summary == nil || summary.Source != api.ChatSourceHumanQuery {
-		t.Fatalf("expected external payload to create human query source, got %#v", summary)
+	if summary == nil || summary.Source != api.ChatSourceQuery {
+		t.Fatalf("expected external payload to create query source, got %#v", summary)
+	}
+}
+
+func TestQueryChatSourceUsesPrincipalSubject(t *testing.T) {
+	fixture := newTestFixture(t)
+	server := fixture.server
+
+	body := bytes.NewBufferString(`{"chatId":"chat-source-principal","message":"hello","agentKey":"mock-agent"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/query", body)
+	req = req.WithContext(WithPrincipal(req.Context(), &Principal{Subject: "alice"}))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	summary, err := fixture.chats.Summary("chat-source-principal")
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+	if summary == nil || summary.Source != "query:alice" {
+		t.Fatalf("expected principal query source, got %#v", summary)
+	}
+}
+
+func TestQueryChatSourceUsesChannelUser(t *testing.T) {
+	fixture := newTestFixture(t)
+	server := fixture.server
+
+	ctx := platformws.WithGatewayContext(context.Background(), platformws.GatewayContext{Channel: "wecom"})
+	body := bytes.NewBufferString(`{"chatId":"wecom#single#u1#1","message":"hello","agentKey":"mock-agent"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/query", body).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	summary, err := fixture.chats.Summary("wecom#single#u1#1")
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+	if summary == nil || summary.Source != "query:u1" {
+		t.Fatalf("expected channel chat source user, got %#v", summary)
+	}
+
+	body = bytes.NewBufferString(`{"chatId":"wecom#single#u2#1","message":"hello","agentKey":"mock-agent","sourceUser":"remote-user"}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/query", body).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	summary, err = fixture.chats.Summary("wecom#single#u2#1")
+	if err != nil {
+		t.Fatalf("summary sourceUser: %v", err)
+	}
+	if summary == nil || summary.Source != "query:remote-user" {
+		t.Fatalf("expected explicit channel source user, got %#v", summary)
 	}
 }
 
@@ -166,7 +232,7 @@ func TestExecuteInternalQueryPreservesTrustedChatSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("summary: %v", err)
 	}
-	if summary == nil || summary.Source != api.ChatSourceInternalQuery {
+	if summary == nil || summary.Source != api.ChatSourceQuery {
 		t.Fatalf("expected default internal query source, got %#v", summary)
 	}
 }

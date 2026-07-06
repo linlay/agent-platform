@@ -196,7 +196,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		chatID = newChatID()
 	}
 	agentKey := strings.TrimSpace(r.FormValue("agentKey"))
-	summary, created, err := s.deps.Chats.EnsureChatWithSource(chatID, agentKey, "", r.FormValue("name"), api.ChatSourceHumanUpload)
+	summary, created, err := s.deps.Chats.EnsureChat(chatID, agentKey, "", r.FormValue("name"))
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
