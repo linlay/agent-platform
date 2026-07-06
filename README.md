@@ -70,6 +70,15 @@ make run
 
 `make run` 会先加载根目录 `.env`，并使用 `SERVER_PORT` 作为本地监听端口；未设置时默认监听 `11949`。`make run` 还会默认带上 `CGO_ENABLED=0`，以规避当前 macOS 环境里 `CGO=1` 的 `net/http` 二进制在进入 `main()` 前被系统直接 `signal: killed` 的问题。直接执行 `go run ./cmd/agent-platform` 不会自动加载 `.env`，未设置 `SERVER_PORT` 或 `--port` 时应用代码默认监听 `8080`。
 
+本机验证 support package / plugins 时，不使用 `make run`，而使用与 Desktop 服务包一致的 `release-local/` 镜像目录：
+
+```bash
+make build-local
+make run-local
+```
+
+`make build-local` 会把二进制写到 `release-local/agent-platform/backend/agent-platform`，并创建本机插件目录 `release-local/agent-platform/plugins/`。由于二进制位于 `backend/` 下，启动时会优先扫描服务包根目录的 `plugins/`，与 Desktop 的 `~/Library/Application Support/ZenMind/services/agent-platform/<version>/plugins` 目录形态一致。`runtime/` 仍只用于 agents、chats、skills-market、registries、memory 等运行数据。
+
 常用验证：
 
 ```bash
