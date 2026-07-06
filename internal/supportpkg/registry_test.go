@@ -41,12 +41,11 @@ func TestLoadDirLoadsMatchingSupportPackageExecutable(t *testing.T) {
 	}
 }
 
-func TestCandidatePluginRootsPrefersBundleRootWhenExecutableIsInBackend(t *testing.T) {
+func TestCandidatePluginRootsUsesOnlyBundleRootWhenExecutableIsInBackend(t *testing.T) {
 	executable := filepath.Join("Users", "me", "Library", "Application Support", "ZenMind", "services", "agent-platform", "v0.3.12", "backend", "agent-platform")
 	roots := CandidatePluginRoots(executable)
 	want := []string{
 		filepath.Join("Users", "me", "Library", "Application Support", "ZenMind", "services", "agent-platform", "v0.3.12", PluginsDir),
-		filepath.Join("Users", "me", "Library", "Application Support", "ZenMind", "services", "agent-platform", "v0.3.12", "backend", PluginsDir),
 	}
 	if len(roots) != len(want) {
 		t.Fatalf("unexpected roots: got %#v want %#v", roots, want)

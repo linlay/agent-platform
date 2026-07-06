@@ -72,7 +72,7 @@ func CandidatePluginRoots(executable string) []string {
 	execDir := filepath.Dir(filepath.Clean(executable))
 	roots := make([]string, 0, 2)
 	if strings.EqualFold(filepath.Base(execDir), "backend") {
-		roots = append(roots, filepath.Join(filepath.Dir(execDir), PluginsDir))
+		return uniquePaths([]string{filepath.Join(filepath.Dir(execDir), PluginsDir)})
 	}
 	roots = append(roots, filepath.Join(execDir, PluginsDir))
 	return uniquePaths(roots)

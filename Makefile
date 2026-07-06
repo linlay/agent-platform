@@ -1,7 +1,7 @@
 COMPOSE_FILE ?= compose.yml
 CGO_ENABLED ?= 0
 VERSION := $(shell cat VERSION 2>/dev/null || echo "dev")
-LOCAL_RELEASE_ROOT ?= release-local/agent-platform
+LOCAL_RELEASE_ROOT ?= release-local
 
 # ARCH detection: use uname on Unix, default to amd64 on Windows
 ARCH_DETECT := $(shell command -v uname >/dev/null 2>&1 && uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/' || echo "amd64")

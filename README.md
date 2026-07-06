@@ -77,7 +77,7 @@ make build-local
 make run-local
 ```
 
-`make build-local` 会把二进制写到 `release-local/agent-platform/backend/agent-platform`，并创建本机插件目录 `release-local/agent-platform/plugins/`。由于二进制位于 `backend/` 下，启动时会优先扫描服务包根目录的 `plugins/`，与 Desktop 的 `~/Library/Application Support/ZenMind/services/agent-platform/<version>/plugins` 目录形态一致。`runtime/` 仍只用于 agents、chats、skills-market、registries、memory 等运行数据。
+`make build-local` 会把二进制写到 `release-local/backend/agent-platform`，并创建本机插件目录 `release-local/plugins/`。由于二进制位于 `backend/` 下，启动时只扫描服务包根目录的 `plugins/`，与 Desktop 的 `~/Library/Application Support/ZenMind/services/agent-platform/<version>/plugins` 目录形态一致。`runtime/` 仍只用于 agents、chats、skills-market、registries、memory 等运行数据。
 
 常用验证：
 
@@ -212,7 +212,7 @@ Provider `apiKey` 按明文字符串读取：
 
 **静态配置**：`configs/` 下所有文件都只在进程启动时读取一次；修改 `configs/*.yml` 或 `configs/*.pem` 后必须重启 runtime 才会生效。
 
-**Support package 发现**：启动时会扫描 `agent-platform` 可执行程序同级的 `plugins/*/manifest.json`，如果可执行程序位于服务包的 `backend/` 目录下，也会优先扫描服务包根目录的 `plugins/*/manifest.json`。当前用于 KBASE PDF 抽取发现 `pdftotext`，不写 PATH，不修改 `configs/kbase-settings.yml`；配置里保留 `binary: pdftotext.exe` 或 `binary: pdftotext` 即可。
+**Support package 发现**：启动时会扫描 `agent-platform` 可执行程序旁的 `plugins/*/manifest.json`；如果可执行程序位于服务包的 `backend/` 目录下，则只扫描服务包根目录的 `plugins/*/manifest.json`。当前用于 KBASE PDF 抽取发现 `pdftotext`，不写 PATH，不修改 `configs/kbase-settings.yml`；配置里保留 `binary: pdftotext.exe` 或 `binary: pdftotext` 即可。
 
 本地 JWT 公钥规则：
 
