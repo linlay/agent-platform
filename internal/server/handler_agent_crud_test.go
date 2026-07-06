@@ -1125,7 +1125,7 @@ func TestAgentEditorOptionsHTTP(t *testing.T) {
 		got[4].Key != "PROXY" || got[4].Label != "PROXY" {
 		t.Fatalf("unexpected modes %#v", got)
 	}
-	if len(response.Data.ContextTags) != 4 || response.Data.ContextTags[0].Key != "system" || response.Data.ContextTags[3].Key != "all-agents" {
+	if len(response.Data.ContextTags) != 4 || response.Data.ContextTags[0].Key != "system" || response.Data.ContextTags[3].Key != "agents" {
 		t.Fatalf("unexpected context tags %#v", response.Data.ContextTags)
 	}
 	if got := response.Data.VisibilityScopes; len(got) != 4 ||

@@ -655,7 +655,7 @@ func (s *Server) buildAgentEditorOptions() api.AgentEditorOptionsResponse {
 			{Key: "system", Label: "system"},
 			{Key: "session", Label: "session"},
 			{Key: "owner", Label: "owner"},
-			{Key: "all-agents", Label: "all-agents"},
+			{Key: "agents", Label: "agents"},
 		},
 		VisibilityScopes: []api.AgentEditorOption{
 			{Key: "nav", Label: "nav"},

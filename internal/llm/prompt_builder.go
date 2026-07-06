@@ -16,7 +16,7 @@ import (
 	"agent-platform/internal/referenceprompt"
 )
 
-const allAgentsPromptMaxChars = 12000
+const agentsPromptMaxChars = 12000
 
 const defaultKBaseSystemPrompt = `KBASE Mode
 You answer using the workspace knowledge base for this agent.
@@ -138,8 +138,8 @@ func appendRuntimeSystemPromptSections(sections *[]systemPromptSection, session 
 			appendSection("runtime-session", "Runtime Context: Session", "runtime.session", buildSessionSection(session, req))
 		case "owner":
 			appendSection("runtime-owner", "Runtime Context: Owner", "runtime.owner", buildOwnerSection(session.RuntimeContext.LocalPaths))
-		case "all-agents":
-			appendSection("runtime-all-agents", "Runtime Context: All Agents", "runtime.all_agents", buildAllAgentsSection(session.RuntimeContext.AgentDigests))
+		case "agents", "all-agents":
+			appendSection("runtime-agents", "Runtime Context: Agents", "runtime.agents", buildAgentsSection(session.RuntimeContext.AgentDigests))
 		}
 	}
 	if session.AgentHasRuntimeSandbox || session.RuntimeContext.SandboxContext != nil {
@@ -468,7 +468,7 @@ func buildSandboxSection(context *SandboxContext) string {
 	return strings.Join(lines, "\n")
 }
 
-func buildAllAgentsSection(digests []AgentDigest) string {
+func buildAgentsSection(digests []AgentDigest) string {
 	if len(digests) == 0 {
 		return ""
 	}
@@ -493,7 +493,7 @@ func buildAllAgentsSection(digests []AgentDigest) string {
 		if len(blocks) > 0 {
 			projected += len("\n---\n")
 		}
-		if projected > allAgentsPromptMaxChars {
+		if projected > agentsPromptMaxChars {
 			break
 		}
 		blocks = append(blocks, block)
@@ -504,11 +504,11 @@ func buildAllAgentsSection(digests []AgentDigest) string {
 		return ""
 	}
 	builder := strings.Builder{}
-	builder.WriteString("Runtime Context: All Agents\n")
+	builder.WriteString("Runtime Context: Agents\n")
 	builder.WriteString("以下是平台已注册的智能体摘要。如需了解某个智能体的完整配置，可以自行查看 agents 目录下对应的 agent.yml。\n")
 	builder.WriteString(strings.Join(blocks, "\n---\n"))
 	if included < total {
-		builder.WriteString(fmt.Sprintf("\n[TRUNCATED: all-agents exceeds max chars=%d, included=%d/%d]", allAgentsPromptMaxChars, included, total))
+		builder.WriteString(fmt.Sprintf("\n[TRUNCATED: agents exceeds max chars=%d, included=%d/%d]", agentsPromptMaxChars, included, total))
 	}
 	return builder.String()
 }

@@ -272,7 +272,7 @@ Container Hub 默认基础挂载当前最多 7 个：
 
 `configs/runtime.example.yml` 的 `container-hub` 节展开 `base-url`、默认 environment 和运行策略默认值；代码默认值仍作为未配置时的兜底。除 `AP_CONTAINER_HUB_BASE_URL` 外，Container Hub token、environment id、超时和 sandbox 策略统一写入 `container-hub.*`，用于对接 `agent-container-hub` 的 `AUTH_TOKEN` Bearer 鉴权。
 
-`context tags` 不是全局默认集合，而是每个 agent 从 `contextConfig.tags` 或 `contextTags` 读取。当前支持/归一化后的标签有 `system`、`context`、`owner`、`auth`、`all-agents`、`memory`；其中 `agent_identity`、`run_session`、`scene`、`references`、`execution_policy`、`skills` 会归一化为 `context`，`memory_context` 会归一化为 `memory`。
+`context tags` 不是全局默认集合，而是每个 agent 从 `contextConfig.tags` 读取。当前支持/归一化后的标签有 `system`、`session`、`owner`、`agents`；旧 `all-agents` 会兼容归一化为 `agents`。`agents` 只表示向 prompt 注入 agent 摘要上下文，不授予 `agent_invoke`、channel 或 catalog 权限；`contextConfig.agents` 缺省时表示全部，也可用 YAML list 或逗号字符串指定部分 agent key。
 
 `sandbox` 不再属于 `context tags`。只要 agent 声明了 `runtimeConfig.environmentId`，运行时就会自动注入 sandbox context。
 

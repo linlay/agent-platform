@@ -306,6 +306,118 @@ func TestBuildRuntimeContextSkipsSandboxContextWhenHubDisabled(t *testing.T) {
 	}
 }
 
+func TestBuildRuntimeContextFiltersAgentDigestsByContextAgents(t *testing.T) {
+	t.Parallel()
+
+	cfg := testPromptContextConfig(t)
+	s := &Server{
+		deps: Dependencies{
+			Config:   cfg,
+			Registry: testCatalogRegistry{agents: testContextAgentSummaries()},
+		},
+	}
+
+	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
+		agentKey: "router",
+		chatID:   "chat-router",
+		definition: catalog.AgentDefinition{
+			Key:           "router",
+			AgentDir:      filepath.Join(cfg.Paths.AgentsDir, "router"),
+			ContextTags:   []string{"agents"},
+			ContextAgents: []string{"planner", "coder"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildRuntimeRequestContext() error = %v", err)
+	}
+	if len(context.AgentDigests) != 2 || context.AgentDigests[0].Key != "planner" || context.AgentDigests[1].Key != "coder" {
+		t.Fatalf("agent digests = %#v, want planner/coder", context.AgentDigests)
+	}
+}
+
+func TestBuildRuntimeContextIncludesAllAgentDigestsWhenAgentsTagHasNoSelector(t *testing.T) {
+	t.Parallel()
+
+	cfg := testPromptContextConfig(t)
+	s := &Server{
+		deps: Dependencies{
+			Config:   cfg,
+			Registry: testCatalogRegistry{agents: testContextAgentSummaries()},
+		},
+	}
+
+	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
+		agentKey: "router",
+		chatID:   "chat-router",
+		definition: catalog.AgentDefinition{
+			Key:         "router",
+			AgentDir:    filepath.Join(cfg.Paths.AgentsDir, "router"),
+			ContextTags: []string{"agents"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildRuntimeRequestContext() error = %v", err)
+	}
+	if len(context.AgentDigests) != 3 {
+		t.Fatalf("agent digests = %#v, want all three", context.AgentDigests)
+	}
+}
+
+func TestBuildRuntimeContextSkipsAgentDigestsWithoutAgentsTag(t *testing.T) {
+	t.Parallel()
+
+	cfg := testPromptContextConfig(t)
+	s := &Server{
+		deps: Dependencies{
+			Config:   cfg,
+			Registry: testCatalogRegistry{agents: testContextAgentSummaries()},
+		},
+	}
+
+	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
+		agentKey: "router",
+		chatID:   "chat-router",
+		definition: catalog.AgentDefinition{
+			Key:           "router",
+			AgentDir:      filepath.Join(cfg.Paths.AgentsDir, "router"),
+			ContextTags:   []string{"system"},
+			ContextAgents: []string{"coder"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildRuntimeRequestContext() error = %v", err)
+	}
+	if len(context.AgentDigests) != 0 {
+		t.Fatalf("agent digests = %#v, want none", context.AgentDigests)
+	}
+}
+
+func TestBuildRuntimeContextRejectsUnknownContextAgent(t *testing.T) {
+	t.Parallel()
+
+	cfg := testPromptContextConfig(t)
+	s := &Server{
+		deps: Dependencies{
+			Config:   cfg,
+			Registry: testCatalogRegistry{agents: testContextAgentSummaries()},
+		},
+	}
+
+	_, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
+		agentKey: "router",
+		chatID:   "chat-router",
+		definition: catalog.AgentDefinition{
+			Key:           "router",
+			AgentDir:      filepath.Join(cfg.Paths.AgentsDir, "router"),
+			ContextTags:   []string{"agents"},
+			ContextAgents: []string{"missing-agent"},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), `contextConfig.agents contains unknown agent key "missing-agent"`) {
+		t.Fatalf("expected unknown context agent error, got %v", err)
+	}
+}
+
 func TestBuildRuntimeContextIncludesSandboxContextWhenSandboxConfigured(t *testing.T) {
 	t.Parallel()
 
@@ -761,9 +873,13 @@ func absTestPath(t *testing.T, path string) string {
 	return absolute
 }
 
-type testCatalogRegistry struct{}
+type testCatalogRegistry struct {
+	agents []api.AgentSummary
+}
 
-func (testCatalogRegistry) Agents(string) []api.AgentSummary { return nil }
+func (r testCatalogRegistry) Agents(string) []api.AgentSummary {
+	return append([]api.AgentSummary(nil), r.agents...)
+}
 func (testCatalogRegistry) Teams() []api.TeamSummary         { return nil }
 func (testCatalogRegistry) Skills(string) []api.SkillSummary { return nil }
 func (testCatalogRegistry) SkillDefinition(string) (catalog.SkillDefinition, bool) {
@@ -783,3 +899,11 @@ func (testCatalogRegistry) TeamDefinition(string) (catalog.TeamDefinition, bool)
 func (testCatalogRegistry) Reload(context.Context, string) error { return nil }
 
 var _ catalog.Registry = testCatalogRegistry{}
+
+func testContextAgentSummaries() []api.AgentSummary {
+	return []api.AgentSummary{
+		{Key: "coder", Name: "Coder", Role: "code", Description: "writes code"},
+		{Key: "planner", Name: "Planner", Role: "plan", Description: "plans work"},
+		{Key: "customer-service", Name: "Customer Service", Role: "support", Description: "helps customers"},
+	}
+}

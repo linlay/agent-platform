@@ -354,12 +354,12 @@ func memoryPreviewRuntimeSections(context contracts.RuntimeRequestContext, agent
 			content:  memoryPreviewOwnerContext(context.LocalPaths.OwnerDir),
 		})
 	}
-	if hasTag("all-agents") {
+	if hasTag("agents") || hasTag("all-agents") {
 		sections = append(sections, memoryPreviewRuntimeSection{
-			category: "runtime.all_agents",
+			category: "runtime.agents",
 			source:   "runtime.context",
-			title:    "Runtime Context: All Agents",
-			content:  memoryPreviewAllAgentsContext(context.AgentDigests),
+			title:    "Runtime Context: Agents",
+			content:  memoryPreviewAgentsContext(context.AgentDigests),
 		})
 	}
 	if hasRuntimeSandbox(agentDef.Runtime) || context.SandboxContext != nil {
@@ -442,11 +442,11 @@ func memoryPreviewOwnerContext(ownerDir string) string {
 	return "owner_dir: " + ownerDir
 }
 
-func memoryPreviewAllAgentsContext(digests []contracts.AgentDigest) string {
+func memoryPreviewAgentsContext(digests []contracts.AgentDigest) string {
 	if len(digests) == 0 {
 		return ""
 	}
-	lines := []string{"Runtime Context: All Agents"}
+	lines := []string{"Runtime Context: Agents"}
 	for _, digest := range digests {
 		if strings.TrimSpace(digest.Key) == "" {
 			continue

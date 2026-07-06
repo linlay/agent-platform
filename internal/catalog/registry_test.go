@@ -300,12 +300,46 @@ func TestParseAgentFileReadsOnlyContextConfigTags(t *testing.T) {
 	}
 }
 
+func TestParseAgentFileReadsContextAgents(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	if err := os.WriteFile(path, []byte(
+		"key: router\n"+
+			"name: Router\n"+
+			"mode: REACT\n"+
+			"modelConfig:\n"+
+			"  modelKey: demo-model\n"+
+			"contextConfig:\n"+
+			"  tags:\n"+
+			"    - system\n"+
+			"    - agents\n"+
+			"  agents:\n"+
+			"    - coder\n"+
+			"    - planner\n"+
+			"    - coder\n",
+	), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if got := strings.Join(def.ContextTags, ","); got != "system,agents" {
+		t.Fatalf("expected agents context tag, got %q", got)
+	}
+	if !reflect.DeepEqual(def.ContextAgents, []string{"coder", "planner"}) {
+		t.Fatalf("context agents = %#v, want coder/planner", def.ContextAgents)
+	}
+}
+
 func TestNormalizeContextTagOnlyAcceptsModernTags(t *testing.T) {
 	cases := map[string]string{
 		"system":           "system",
 		"session":          "session",
 		"owner":            "owner",
-		"all-agents":       "all-agents",
+		"agents":           "agents",
+		"all-agents":       "agents",
 		" SYSTEM ":         "system",
 		"context":          "",
 		"auth":             "",
@@ -327,9 +361,56 @@ func TestNormalizeContextTagOnlyAcceptsModernTags(t *testing.T) {
 }
 
 func TestNormalizeContextTagsDeduplicatesModernTags(t *testing.T) {
-	got := normalizeContextTags([]string{"system", "SYSTEM", "session", "context"})
-	if !reflect.DeepEqual(got, []string{"system", "session"}) {
-		t.Fatalf("normalizeContextTags() = %#v, want %#v", got, []string{"system", "session"})
+	got := normalizeContextTags([]string{"system", "SYSTEM", "session", "agents", "all-agents", "context"})
+	if !reflect.DeepEqual(got, []string{"system", "session", "agents"}) {
+		t.Fatalf("normalizeContextTags() = %#v, want %#v", got, []string{"system", "session", "agents"})
+	}
+}
+
+func TestParseContextAgentsSupportsListCommaStringStarAndDedupe(t *testing.T) {
+	cases := []struct {
+		name  string
+		value any
+		want  []string
+	}{
+		{
+			name:  "missing means all",
+			value: nil,
+			want:  nil,
+		},
+		{
+			name:  "star means all",
+			value: "*",
+			want:  nil,
+		},
+		{
+			name:  "comma string",
+			value: "coder, planner,customer-service,coder",
+			want:  []string{"coder", "planner", "customer-service"},
+		},
+		{
+			name:  "yaml list",
+			value: []any{"coder", "planner", "coder", "customer-service"},
+			want:  []string{"coder", "planner", "customer-service"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseContextAgents(tc.value)
+			if err != nil {
+				t.Fatalf("parseContextAgents() error = %v", err)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("parseContextAgents() = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseContextAgentsRejectsInvalidType(t *testing.T) {
+	_, err := parseContextAgents(map[string]any{"key": "coder"})
+	if err == nil || !strings.Contains(err.Error(), "contextConfig.agents must be") {
+		t.Fatalf("expected invalid context agents error, got %v", err)
 	}
 }
 

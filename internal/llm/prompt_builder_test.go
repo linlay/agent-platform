@@ -796,6 +796,43 @@ func TestBuildSystemPromptSeparatesSystemEnvironmentAndSessionContext(t *testing
 	}
 }
 
+func TestBuildSystemPromptIncludesAgentsContext(t *testing.T) {
+	prompt := buildSystemPrompt(QuerySession{
+		ContextTags: []string{"agents"},
+		RuntimeContext: RuntimeRequestContext{
+			AgentDigests: []AgentDigest{
+				{Key: "coder", Name: "Coder", Role: "code", Description: "writes code"},
+				{Key: "planner", Name: "Planner", Role: "plan", Description: "plans work"},
+			},
+		},
+	}, api.QueryRequest{}, "", PromptBuildOptions{})
+
+	if !strings.Contains(prompt, "Runtime Context: Agents") {
+		t.Fatalf("expected agents context header, got %q", prompt)
+	}
+	if !strings.Contains(prompt, "key: coder") || !strings.Contains(prompt, "key: planner") {
+		t.Fatalf("expected selected agent digests, got %q", prompt)
+	}
+	if strings.Contains(prompt, "Runtime Context: All Agents") {
+		t.Fatalf("expected new agents context header, got %q", prompt)
+	}
+}
+
+func TestBuildSystemPromptKeepsLegacyAllAgentsTagCompatible(t *testing.T) {
+	prompt := buildSystemPrompt(QuerySession{
+		ContextTags: []string{"all-agents"},
+		RuntimeContext: RuntimeRequestContext{
+			AgentDigests: []AgentDigest{
+				{Key: "coder", Name: "Coder"},
+			},
+		},
+	}, api.QueryRequest{}, "", PromptBuildOptions{})
+
+	if !strings.Contains(prompt, "Runtime Context: Agents") || !strings.Contains(prompt, "key: coder") {
+		t.Fatalf("expected legacy all-agents tag to build agents context, got %q", prompt)
+	}
+}
+
 func TestBuildToolAppendixIncludesOnlyAfterCallHints(t *testing.T) {
 	appendix := buildToolAppendix([]api.ToolDetailResponse{
 		{

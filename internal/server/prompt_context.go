@@ -85,8 +85,12 @@ func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (c
 		References:   s.normalizeReferencePathsForAgent(input.references, input.chatID, input.definition),
 		LocalPaths:   localPaths,
 		SandboxPaths: resolveSandboxPaths(s.deps.Config, input.definition, input.chatID),
-		AgentDigests: buildAgentDigests(s.deps.Registry),
 	}
+	agentDigests, err := buildContextAgentDigests(s.deps.Registry, input.definition)
+	if err != nil {
+		return contracts.RuntimeRequestContext{}, err
+	}
+	context.AgentDigests = agentDigests
 	if input.principal != nil {
 		context.AuthIdentity = buildAuthIdentity(input.principal)
 	}
@@ -469,6 +473,53 @@ func buildAgentDigests(registry catalog.Registry) []contracts.AgentDigest {
 		digests = append(digests, digest)
 	}
 	return digests
+}
+
+func buildContextAgentDigests(registry catalog.Registry, def catalog.AgentDefinition) ([]contracts.AgentDigest, error) {
+	if !agentHasContextTag(def, "agents") {
+		return nil, nil
+	}
+	digests := buildAgentDigests(registry)
+	if len(def.ContextAgents) == 0 {
+		return digests, nil
+	}
+	byKey := make(map[string]contracts.AgentDigest, len(digests))
+	for _, digest := range digests {
+		key := strings.TrimSpace(digest.Key)
+		if key != "" {
+			byKey[key] = digest
+		}
+	}
+	filtered := make([]contracts.AgentDigest, 0, len(def.ContextAgents))
+	for _, agentKey := range def.ContextAgents {
+		agentKey = strings.TrimSpace(agentKey)
+		if agentKey == "" {
+			continue
+		}
+		digest, ok := byKey[agentKey]
+		if !ok {
+			return nil, fmt.Errorf("contextConfig.agents contains unknown agent key %q", agentKey)
+		}
+		filtered = append(filtered, digest)
+	}
+	return filtered, nil
+}
+
+func agentHasContextTag(def catalog.AgentDefinition, tag string) bool {
+	tag = strings.ToLower(strings.TrimSpace(tag))
+	if tag == "" {
+		return false
+	}
+	for _, configured := range def.ContextTags {
+		configured = strings.ToLower(strings.TrimSpace(configured))
+		if configured == "all-agents" {
+			configured = "agents"
+		}
+		if configured == tag {
+			return true
+		}
+	}
+	return false
 }
 
 func buildAuthIdentity(principal *Principal) *contracts.AuthIdentity {

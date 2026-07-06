@@ -51,6 +51,7 @@ type AgentDefinition struct {
 	Project          AgentProjectConfig
 	KBaseConfig      AgentKBaseConfig
 	ContextTags      []string
+	ContextAgents    []string
 	Budget           map[string]any
 	StageSettings    map[string]any
 	RuntimePrompts   AgentRuntimePrompts
@@ -417,6 +418,9 @@ func (r *FileRegistry) Agents(scope string) []api.AgentSummary {
 		}
 		if len(def.ContextTags) > 0 {
 			summary.Meta["contextTags"] = append([]string(nil), def.ContextTags...)
+		}
+		if len(def.ContextAgents) > 0 {
+			summary.Meta["contextAgents"] = append([]string(nil), def.ContextAgents...)
 		}
 		if def.Budget != nil {
 			summary.Meta["budget"] = contracts.CloneMap(def.Budget)
