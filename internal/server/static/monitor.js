@@ -3,6 +3,7 @@
 
   var ENDPOINTS = {
     overview: "/api/monitor?messageLimit=50",
+    channels: "/api/monitor/channels",
     connections: "/api/monitor/ws/connections?limit=100",
     messages: "/api/monitor/ws/messages?limit=50",
   };
@@ -11,8 +12,14 @@
     loading: false,
     selectedSessionId: "",
     connectionView: "active",
+    channelModeFilter: "",
+    channelStatusFilter: "",
+    channelSearch: "",
+    selectedChannelId: "",
     knownSessionIds: [],
     overview: null,
+    channelsSnapshot: null,
+    channelsError: "",
     connectionsSnapshot: null,
     messagesSnapshot: null,
   };
@@ -29,6 +36,15 @@
       errorBanner: document.getElementById("error-banner"),
       generatedAt: document.getElementById("generated-at"),
       overviewGrid: document.getElementById("overview-grid"),
+      channelsCount: document.getElementById("channels-count"),
+      channelsError: document.getElementById("channels-error"),
+      channelsSummary: document.getElementById("channels-summary"),
+      channelModeFilter: document.getElementById("channel-mode-filter"),
+      channelStatusFilter: document.getElementById("channel-status-filter"),
+      channelSearch: document.getElementById("channel-search"),
+      channelsBody: document.getElementById("channels-body"),
+      channelsEmpty: document.getElementById("channels-empty"),
+      channelDetail: document.getElementById("channel-detail"),
       connectionsCount: document.getElementById("connections-count"),
       connectionsBody: document.getElementById("connections-body"),
       connectionsEmpty: document.getElementById("connections-empty"),
@@ -48,6 +64,18 @@
     dom.sessionSelect.addEventListener("change", function (event) {
       state.selectedSessionId = event.target.value;
       loadDashboard();
+    });
+    dom.channelModeFilter.addEventListener("change", function (event) {
+      state.channelModeFilter = event.target.value;
+      renderChannels();
+    });
+    dom.channelStatusFilter.addEventListener("change", function (event) {
+      state.channelStatusFilter = event.target.value;
+      renderChannels();
+    });
+    dom.channelSearch.addEventListener("input", function (event) {
+      state.channelSearch = event.target.value;
+      renderChannels();
     });
     dom.connectionViewInputs.forEach(function (input) {
       input.addEventListener("change", function (event) {
@@ -101,17 +129,30 @@
     try {
       var sessionId = state.selectedSessionId;
       var overviewURL = ENDPOINTS.overview;
+      var channelsURL = ENDPOINTS.channels;
       var connectionsURL = withSession(ENDPOINTS.connections, sessionId);
       var messagesURL = withSession(ENDPOINTS.messages, sessionId);
       var results = await Promise.all([
         requestJSON(overviewURL),
+        requestJSON(channelsURL).then(function (data) {
+          return { data: data };
+        }).catch(function (error) {
+          return { error: error };
+        }),
         requestJSON(connectionsURL),
         requestJSON(messagesURL),
       ]);
 
       state.overview = results[0] || {};
-      state.connectionsSnapshot = results[1] || {};
-      state.messagesSnapshot = results[2] || {};
+      if (results[1] && results[1].error) {
+        state.channelsSnapshot = { items: [], total: 0 };
+        state.channelsError = readableError(results[1].error);
+      } else {
+        state.channelsSnapshot = results[1].data || {};
+        state.channelsError = "";
+      }
+      state.connectionsSnapshot = results[2] || {};
+      state.messagesSnapshot = results[3] || {};
       updateKnownSessionIds();
       renderAll();
     } catch (error) {
@@ -131,6 +172,7 @@
 
   function renderEmptyShell() {
     renderOverview({});
+    renderChannels();
     renderSessionSelect();
     renderConnectionViewControls();
     renderConnections([], 0);
@@ -141,6 +183,7 @@
     var connections = getConnections();
     var messages = getMessages();
     renderOverview(state.overview || {});
+    renderChannels();
     renderSessionSelect();
     renderConnectionViewControls();
     renderConnections(getVisibleConnections(connections), connections.length);
@@ -194,6 +237,252 @@
       setText(value, normalizeDisplayValue(metric.value));
       item.append(label, value);
       dom.overviewGrid.appendChild(item);
+    });
+  }
+
+  function renderChannels() {
+    var channels = getChannels();
+    var visibleChannels = getVisibleChannels(channels);
+    renderChannelError();
+    renderChannelSummary(channels);
+    renderChannelFilters();
+    renderChannelList(visibleChannels, channels.length);
+    renderChannelDetail(channels, visibleChannels);
+  }
+
+  function renderChannelError() {
+    if (!dom.channelsError) {
+      return;
+    }
+    if (!state.channelsError) {
+      dom.channelsError.hidden = true;
+      setText(dom.channelsError, "");
+      return;
+    }
+    dom.channelsError.hidden = false;
+    setText(dom.channelsError, "Channels 加载失败：" + state.channelsError);
+  }
+
+  function renderChannelSummary(channels) {
+    var counts = channelCounts(channels);
+    setText(dom.channelsCount, channels.length + " 条");
+    dom.channelsSummary.replaceChildren();
+    [
+      { label: "channel 总数", value: channels.length },
+      { label: "connected", value: counts.connected, tone: counts.connected ? "ok" : "" },
+      { label: "client", value: counts.client },
+      { label: "server", value: counts.server },
+      { label: "active connections", value: counts.activeConnections },
+      { label: "imports / exports", value: counts.imports + " / " + counts.exports },
+    ].forEach(function (metric) {
+      var item = create("div", "channel-summary-item");
+      var label = create("div", "metric-label");
+      var value = create("div", "metric-value");
+      if (metric.tone === "ok") {
+        value.classList.add("ok");
+      }
+      setText(label, metric.label);
+      setText(value, metric.value);
+      item.append(label, value);
+      dom.channelsSummary.appendChild(item);
+    });
+  }
+
+  function renderChannelFilters() {
+    dom.channelModeFilter.value = state.channelModeFilter;
+    dom.channelStatusFilter.value = state.channelStatusFilter;
+    dom.channelSearch.value = state.channelSearch;
+    dom.channelModeFilter.disabled = state.loading;
+    dom.channelStatusFilter.disabled = state.loading;
+    dom.channelSearch.disabled = state.loading;
+  }
+
+  function renderChannelList(channels, totalCount) {
+    dom.channelsBody.replaceChildren();
+    setText(dom.channelsCount, channels.length + " / " + totalCount + " 条");
+    dom.channelsEmpty.hidden = channels.length !== 0;
+    channels.forEach(function (channel) {
+      var row = document.createElement("tr");
+      row.className = "channel-row";
+      if (String(channel.id || "") === state.selectedChannelId) {
+        row.classList.add("is-selected");
+      }
+      row.tabIndex = 0;
+      row.addEventListener("click", function () {
+        state.selectedChannelId = String(channel.id || "");
+        renderChannels();
+      });
+      row.addEventListener("keydown", function (event) {
+        if (event.key !== "Enter" && event.key !== " ") {
+          return;
+        }
+        event.preventDefault();
+        state.selectedChannelId = String(channel.id || "");
+        renderChannels();
+      });
+      appendStackCell(row, [
+        ["id", channel.id],
+        ["name", channel.name],
+        ["type", channel.type],
+        ["protocol", channel.protocol],
+      ]);
+      appendCell(row, channel.mode, "mono");
+      appendChannelStatusCell(row, channel.status);
+      appendStackCell(row, [
+        ["active", objectValue(channel.connection).activeCount],
+        ["latest", objectValue(channel.connection).latestSessionId],
+      ]);
+      appendStackCell(row, [
+        ["allowed", objectValue(channel.agents).allowedCount],
+        ["imports", objectValue(channel.agents).importCount],
+        ["exports", objectValue(channel.agents).exportCount],
+      ]);
+      dom.channelsBody.appendChild(row);
+    });
+  }
+
+  function renderChannelDetail(allChannels, visibleChannels) {
+    var selected = findChannelById(allChannels, state.selectedChannelId);
+    if (!selected && visibleChannels.length > 0) {
+      selected = visibleChannels[0];
+      state.selectedChannelId = String(selected.id || "");
+    }
+    dom.channelDetail.replaceChildren();
+    if (!selected) {
+      var empty = create("div", "empty-state");
+      setText(empty, "选择一个 channel 查看详情");
+      dom.channelDetail.appendChild(empty);
+      return;
+    }
+    var connection = objectValue(selected.connection);
+    var agents = objectValue(selected.agents);
+    var config = objectValue(selected.config);
+    var head = create("div", "channel-detail-head");
+    var title = create("div", "");
+    var h3 = document.createElement("h3");
+    var subtitle = create("span", "muted");
+    setText(h3, firstValue(selected.name, selected.id));
+    setText(subtitle, "id: " + normalizeDisplayValue(selected.id));
+    title.append(h3, subtitle);
+    var chip = create("span", "chip");
+    chip.classList.add(channelStatusClass(selected.status));
+    setText(chip, selected.status);
+    head.append(title, chip);
+    dom.channelDetail.appendChild(head);
+
+    dom.channelDetail.appendChild(detailBlock("连接", [
+      ["mode", selected.mode],
+      ["connected", connection.connected],
+      ["activeCount", connection.activeCount],
+      ["latestSessionId", connection.latestSessionId],
+      ["connectedAt", formatOptionalTime(connection.connectedAt)],
+      ["lastSeenAt", formatOptionalTime(connection.lastSeenAt)],
+    ]));
+    dom.channelDetail.appendChild(detailBlock("配置摘要", [
+      ["endpointUrl", config.endpointUrl],
+      ["endpointPath", config.endpointPath],
+      ["authType", config.authType],
+      ["heartbeat", formatSeconds(config.heartbeatIntervalSeconds)],
+      ["reconnectHandshake", formatSeconds(config.reconnectHandshakeTimeoutSeconds)],
+      ["reconnectMin", formatSeconds(config.reconnectMinSeconds)],
+      ["reconnectMax", formatSeconds(config.reconnectMaxSeconds)],
+    ]));
+    dom.channelDetail.appendChild(detailBlock("Agents", [
+      ["allowedAllAgents", agents.allowedAllAgents],
+      ["allowedCount", agents.allowedCount],
+      ["importCount", agents.importCount],
+      ["exportCount", agents.exportCount],
+    ]));
+    dom.channelDetail.appendChild(agentListBlock("导入 agent", arrayValue(agents.imports), formatChannelImport));
+    dom.channelDetail.appendChild(agentListBlock("导出 agent", arrayValue(agents.exports), formatChannelExport));
+    dom.channelDetail.appendChild(agentListBlock("允许 agent", arrayValue(agents.allowedAgentKeys), function (key) {
+      return String(key || "");
+    }));
+  }
+
+  function appendChannelStatusCell(row, status) {
+    var cell = document.createElement("td");
+    var chip = create("span", "chip");
+    chip.classList.add(channelStatusClass(status));
+    setText(chip, status || "unknown");
+    cell.appendChild(chip);
+    row.appendChild(cell);
+  }
+
+  function channelStatusClass(status) {
+    var normalized = String(status || "").toLowerCase();
+    if (normalized === "connected") {
+      return "chip-active";
+    }
+    if (normalized === "unavailable") {
+      return "chip-unavailable";
+    }
+    return "chip-closed";
+  }
+
+  function detailBlock(title, rows) {
+    var block = create("section", "channel-detail-block");
+    var heading = document.createElement("h4");
+    var list = create("div", "channel-detail-lines");
+    setText(heading, title);
+    rows.forEach(function (row) {
+      var line = create("div", "channel-detail-line");
+      var label = create("span", "muted");
+      var value = create("strong", "mono");
+      setText(label, row[0]);
+      setText(value, row[1]);
+      line.append(label, value);
+      list.appendChild(line);
+    });
+    block.append(heading, list);
+    return block;
+  }
+
+  function agentListBlock(title, values, formatter) {
+    var block = create("section", "channel-detail-block");
+    var heading = document.createElement("h4");
+    var list = create("div", "channel-agent-list");
+    setText(heading, title + " (" + values.length + ")");
+    if (!values.length) {
+      var empty = create("div", "muted");
+      setText(empty, "无");
+      list.appendChild(empty);
+    } else {
+      values.slice(0, 80).forEach(function (item) {
+        var pill = create("span", "channel-agent-pill mono");
+        setText(pill, formatter(item));
+        list.appendChild(pill);
+      });
+      if (values.length > 80) {
+        var more = create("span", "channel-agent-pill mono");
+        setText(more, "+" + (values.length - 80));
+        list.appendChild(more);
+      }
+    }
+    block.append(heading, list);
+    return block;
+  }
+
+  function formatChannelImport(item) {
+    item = objectValue(item);
+    return [
+      firstValue(item.name, item.agentKey),
+      item.remoteAgentKey ? "remote=" + item.remoteAgentKey : "",
+    ].filter(Boolean).join(" · ");
+  }
+
+  function formatChannelExport(item) {
+    item = objectValue(item);
+    return [
+      firstValue(item.name, item.agentKey),
+      item.externalAgentKey ? "external=" + item.externalAgentKey : "",
+      "allow=" + allowedOperations(objectValue(item.allow)).join(","),
+    ].filter(Boolean).join(" · ");
+  }
+
+  function allowedOperations(allow) {
+    return ["query", "submit", "steer", "interrupt", "fileTransfer"].filter(function (key) {
+      return parseBooleanFlag(allow[key]) === true;
     });
   }
 
@@ -486,6 +775,84 @@
     return arrayValue(firstValue(snapshot.connections, snapshot.items, snapshot.list));
   }
 
+  function getChannels() {
+    var snapshot = state.channelsSnapshot || {};
+    return arrayValue(firstValue(snapshot.items, snapshot.channels, snapshot.list));
+  }
+
+  function getVisibleChannels(channels) {
+    var mode = String(state.channelModeFilter || "").toLowerCase();
+    var status = String(state.channelStatusFilter || "").toLowerCase();
+    var query = String(state.channelSearch || "").trim().toLowerCase();
+    return channels.filter(function (channel) {
+      var channelMode = String(channel.mode || "").toLowerCase();
+      var channelStatus = String(channel.status || "").toLowerCase();
+      if (mode && channelMode !== mode) {
+        return false;
+      }
+      if (status && channelStatus !== status) {
+        return false;
+      }
+      if (!query) {
+        return true;
+      }
+      var haystack = [
+        channel.id,
+        channel.name,
+        channel.type,
+        channel.mode,
+        channel.transport,
+        channel.protocol,
+        objectValue(channel.config).endpointUrl,
+        objectValue(channel.config).endpointPath,
+      ].map(function (value) {
+        return String(value || "").toLowerCase();
+      }).join(" ");
+      return haystack.indexOf(query) !== -1;
+    });
+  }
+
+  function channelCounts(channels) {
+    return channels.reduce(function (counts, channel) {
+      var mode = String(channel.mode || "").toLowerCase();
+      var status = String(channel.status || "").toLowerCase();
+      var connection = objectValue(channel.connection);
+      var agents = objectValue(channel.agents);
+      if (mode === "client") {
+        counts.client += 1;
+      } else if (mode === "server") {
+        counts.server += 1;
+      }
+      if (status === "connected") {
+        counts.connected += 1;
+      }
+      counts.activeConnections += numericValue(connection.activeCount);
+      counts.imports += numericValue(agents.importCount);
+      counts.exports += numericValue(agents.exportCount);
+      return counts;
+    }, {
+      client: 0,
+      connected: 0,
+      server: 0,
+      activeConnections: 0,
+      imports: 0,
+      exports: 0,
+    });
+  }
+
+  function findChannelById(channels, channelId) {
+    var target = String(channelId || "");
+    if (!target) {
+      return null;
+    }
+    for (var i = 0; i < channels.length; i += 1) {
+      if (String(channels[i].id || "") === target) {
+        return channels[i];
+      }
+    }
+    return null;
+  }
+
   function getVisibleConnections(connections) {
     if (state.connectionView === "all") {
       return connections;
@@ -540,6 +907,15 @@
     dom.refreshButton.disabled = loading;
     dom.sessionSelect.disabled = loading;
     dom.clearFilter.disabled = loading || !state.selectedSessionId;
+    if (dom.channelModeFilter) {
+      dom.channelModeFilter.disabled = loading;
+    }
+    if (dom.channelStatusFilter) {
+      dom.channelStatusFilter.disabled = loading;
+    }
+    if (dom.channelSearch) {
+      dom.channelSearch.disabled = loading;
+    }
     renderConnectionViewControls();
   }
 
@@ -600,6 +976,11 @@
     return String(value);
   }
 
+  function numericValue(value) {
+    var number = Number(value);
+    return Number.isFinite(number) && number > 0 ? number : 0;
+  }
+
   function readableError(error) {
     if (!error) {
       return "未知错误";
@@ -609,6 +990,14 @@
 
   function formatOptionalTime(value) {
     return value ? formatTime(value) : "未提供";
+  }
+
+  function formatSeconds(value) {
+    var seconds = Number(value);
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+      return "未提供";
+    }
+    return seconds + "s";
   }
 
   function formatTime(value) {

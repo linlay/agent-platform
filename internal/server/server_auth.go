@@ -78,7 +78,7 @@ func isPublicMonitorRequest(r *http.Request) bool {
 		return false
 	}
 	switch r.URL.Path {
-	case "/api/monitor", "/api/monitor/ws/connections", "/api/monitor/ws/messages":
+	case "/api/monitor", "/api/monitor/channels", "/api/monitor/ws/connections", "/api/monitor/ws/messages":
 		return true
 	default:
 		return false

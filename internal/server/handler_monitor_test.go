@@ -136,6 +136,7 @@ func TestMonitorEndpointsBypassHTTPAuth(t *testing.T) {
 
 	for _, path := range []string{
 		"/api/monitor",
+		"/api/monitor/channels",
 		"/api/monitor/ws/connections",
 		"/api/monitor/ws/messages",
 	} {

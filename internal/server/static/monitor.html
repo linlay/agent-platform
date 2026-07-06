@@ -34,6 +34,60 @@
           <div id="overview-grid" class="metric-grid"></div>
         </section>
 
+        <section class="panel channels-panel" aria-labelledby="channels-title">
+          <div class="section-head">
+            <h2 id="channels-title">Channels</h2>
+            <span id="channels-count" class="muted">0 条</span>
+          </div>
+          <div id="channels-error" class="inline-error" role="alert" hidden></div>
+          <div id="channels-summary" class="channel-summary-grid"></div>
+          <div class="filterbar channel-filterbar" aria-label="Channel 筛选">
+            <label class="field">
+              <span>mode</span>
+              <select id="channel-mode-filter">
+                <option value="">全部 mode</option>
+                <option value="client">client</option>
+                <option value="server">server</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>status</span>
+              <select id="channel-status-filter">
+                <option value="">全部 status</option>
+                <option value="connected">connected</option>
+                <option value="disconnected">disconnected</option>
+                <option value="unavailable">unavailable</option>
+              </select>
+            </label>
+            <label class="field channel-search-field">
+              <span>搜索</span>
+              <input id="channel-search" type="search" placeholder="channel id / name">
+            </label>
+          </div>
+          <div class="channels-layout">
+            <div>
+              <div class="table-wrap">
+                <table class="channels-table">
+                  <thead>
+                    <tr>
+                      <th>channel</th>
+                      <th>mode</th>
+                      <th>status</th>
+                      <th>connections</th>
+                      <th>agents</th>
+                    </tr>
+                  </thead>
+                  <tbody id="channels-body"></tbody>
+                </table>
+              </div>
+              <div id="channels-empty" class="empty-state" hidden>暂无 channel</div>
+            </div>
+            <aside id="channel-detail" class="channel-detail" aria-label="Channel 详情">
+              <div class="empty-state">选择一个 channel 查看详情</div>
+            </aside>
+          </div>
+        </section>
+
         <section class="filterbar panel" aria-label="连接筛选">
           <label class="field session-field">
             <span>sessionId</span>

@@ -75,6 +75,10 @@ type ChannelConnectionProvider interface {
 	GatewayConnection(channelID string) (*ws.Conn, bool)
 }
 
+type ChannelConnectionSnapshotProvider interface {
+	GatewayConnections(channelID string) []ws.MonitorConnection
+}
+
 type Server struct {
 	router            *http.ServeMux
 	deps              Dependencies

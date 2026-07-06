@@ -3,6 +3,9 @@ package ws
 import (
 	"context"
 	"testing"
+	"time"
+
+	"agent-platform/internal/config"
 
 	gws "github.com/gorilla/websocket"
 )
@@ -87,5 +90,37 @@ func TestHubGatewayConnectionUsesLatestAndFallsBack(t *testing.T) {
 	hub.unregister(first)
 	if got, ok := hub.GatewayConnection("public-entry"); ok || got != nil {
 		t.Fatalf("expected no gateway connection, got %#v ok=%v", got, ok)
+	}
+}
+
+func TestHubGatewayConnectionsReturnsActiveSnapshots(t *testing.T) {
+	hub := NewHub()
+	ctx := WithGatewayContext(context.Background(), GatewayContext{
+		ID:      "public-entry",
+		Channel: "public-entry",
+	})
+	first := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{Context: ctx, Subject: "peer-a"})
+	first.SetClientInfo("127.0.0.1:1000", "peer-agent/1")
+	second := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{Context: ctx, Subject: "peer-b"})
+	second.SetClientInfo("127.0.0.1:1001", "peer-agent/2")
+
+	hub.register(first)
+	hub.register(second)
+
+	snapshots := hub.GatewayConnections("public-entry")
+	if len(snapshots) != 2 {
+		t.Fatalf("expected two active gateway snapshots, got %#v", snapshots)
+	}
+	if snapshots[0].SessionID != second.SessionID() || snapshots[1].SessionID != first.SessionID() {
+		t.Fatalf("expected latest connection first, got %#v", snapshots)
+	}
+	if snapshots[0].Channel != "public-entry" || snapshots[0].GatewayID != "public-entry" || !snapshots[0].Active {
+		t.Fatalf("unexpected latest snapshot: %#v", snapshots[0])
+	}
+
+	hub.unregister(second)
+	snapshots = hub.GatewayConnections("public-entry")
+	if len(snapshots) != 1 || snapshots[0].SessionID != first.SessionID() {
+		t.Fatalf("expected first connection after unregister, got %#v", snapshots)
 	}
 }

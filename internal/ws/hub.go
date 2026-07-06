@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"sort"
 	"strings"
 	"sync"
 )
@@ -127,4 +128,67 @@ func (h *Hub) GatewayConnection(channelID string) (*Conn, bool) {
 		return nil, false
 	}
 	return conn, true
+}
+
+func (h *Hub) GatewayConnections(channelID string) []MonitorConnection {
+	channelID = strings.TrimSpace(channelID)
+	if h == nil || channelID == "" {
+		return nil
+	}
+	type activeGatewayConn struct {
+		conn *Conn
+		seq  int64
+	}
+	h.mu.RLock()
+	active := make([]activeGatewayConn, 0)
+	for conn, state := range h.gatewayConnMeta {
+		if state.channel != channelID || conn == nil || conn.isClosed() {
+			continue
+		}
+		active = append(active, activeGatewayConn{conn: conn, seq: state.seq})
+	}
+	h.mu.RUnlock()
+	sort.Slice(active, func(i, j int) bool {
+		return active[i].seq > active[j].seq
+	})
+	if len(active) == 0 {
+		return nil
+	}
+
+	h.monitorMu.RLock()
+	defer h.monitorMu.RUnlock()
+	connections := make([]MonitorConnection, 0, len(active))
+	for _, item := range active {
+		if item.conn == nil {
+			continue
+		}
+		sessionID := item.conn.SessionID()
+		var snapshot MonitorConnection
+		if state := h.monitorConns[sessionID]; state != nil {
+			snapshot = state.snapshot()
+		} else {
+			kind, subject, gatewayID, channel := item.conn.monitorIdentity()
+			remoteAddr, userAgent, source, deviceID := item.conn.monitorClientInfo()
+			snapshot = MonitorConnection{
+				SessionID:   sessionID,
+				Kind:        kind,
+				Active:      true,
+				Subject:     monitorSanitizeText(subject, monitorUserAgentMaxRunes),
+				GatewayID:   monitorSanitizeText(gatewayID, monitorUserAgentMaxRunes),
+				Channel:     monitorSanitizeText(channel, monitorUserAgentMaxRunes),
+				Source:      monitorNormalizeSource(source),
+				DeviceID:    monitorNormalizeDeviceID(deviceID),
+				RemoteAddr:  monitorSanitizeRemoteAddr(remoteAddr),
+				UserAgent:   monitorSanitizeText(userAgent, monitorUserAgentMaxRunes),
+				ConnectedAt: 0,
+				LastSeenAt:  0,
+			}
+		}
+		details := item.conn.monitorRuntimeDetails()
+		snapshot.InflightRequests = details.InflightRequests
+		snapshot.ActiveStreams = details.ActiveStreams
+		snapshot.WriteQueueDepth = details.WriteQueueDepth
+		connections = append(connections, snapshot)
+	}
+	return connections
 }

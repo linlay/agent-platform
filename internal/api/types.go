@@ -615,6 +615,73 @@ type AdminRegistryValidateResponse struct {
 	Parsed      map[string]any         `json:"parsed,omitempty"`
 }
 
+type AdminChannelListResponse struct {
+	Items []AdminChannelSummary `json:"items"`
+	Total int                   `json:"total"`
+}
+
+type AdminChannelSummary struct {
+	ID         string                        `json:"id"`
+	Name       string                        `json:"name,omitempty"`
+	Type       string                        `json:"type,omitempty"`
+	Mode       string                        `json:"mode,omitempty"`
+	Transport  string                        `json:"transport,omitempty"`
+	Protocol   string                        `json:"protocol,omitempty"`
+	Status     string                        `json:"status"`
+	Connection AdminChannelConnectionSummary `json:"connection"`
+	Agents     AdminChannelAgentSummary      `json:"agents"`
+	Config     AdminChannelConfigSummary     `json:"config"`
+}
+
+type AdminChannelConnectionSummary struct {
+	Connected       bool   `json:"connected"`
+	ActiveCount     int    `json:"activeCount"`
+	LatestSessionID string `json:"latestSessionId,omitempty"`
+	ConnectedAt     int64  `json:"connectedAt,omitempty"`
+	LastSeenAt      int64  `json:"lastSeenAt,omitempty"`
+}
+
+type AdminChannelAgentSummary struct {
+	AllowedAllAgents bool                      `json:"allowedAllAgents"`
+	AllowedCount     int                       `json:"allowedCount"`
+	AllowedAgentKeys []string                  `json:"allowedAgentKeys,omitempty"`
+	ImportCount      int                       `json:"importCount"`
+	ExportCount      int                       `json:"exportCount"`
+	Imports          []AdminChannelAgentImport `json:"imports,omitempty"`
+	Exports          []AdminChannelAgentExport `json:"exports,omitempty"`
+}
+
+type AdminChannelAgentImport struct {
+	AgentKey       string `json:"agentKey"`
+	Name           string `json:"name,omitempty"`
+	RemoteAgentKey string `json:"remoteAgentKey,omitempty"`
+}
+
+type AdminChannelAgentExport struct {
+	AgentKey         string                 `json:"agentKey"`
+	Name             string                 `json:"name,omitempty"`
+	ExternalAgentKey string                 `json:"externalAgentKey,omitempty"`
+	Allow            AdminChannelAllowFlags `json:"allow"`
+}
+
+type AdminChannelAllowFlags struct {
+	Query        bool `json:"query"`
+	Submit       bool `json:"submit"`
+	Steer        bool `json:"steer"`
+	Interrupt    bool `json:"interrupt"`
+	FileTransfer bool `json:"fileTransfer"`
+}
+
+type AdminChannelConfigSummary struct {
+	EndpointURL                      string `json:"endpointUrl,omitempty"`
+	EndpointPath                     string `json:"endpointPath,omitempty"`
+	AuthType                         string `json:"authType,omitempty"`
+	HeartbeatIntervalSeconds         int64  `json:"heartbeatIntervalSeconds,omitempty"`
+	ReconnectHandshakeTimeoutSeconds int64  `json:"reconnectHandshakeTimeoutSeconds,omitempty"`
+	ReconnectMinSeconds              int64  `json:"reconnectMinSeconds,omitempty"`
+	ReconnectMaxSeconds              int64  `json:"reconnectMaxSeconds,omitempty"`
+}
+
 type CreateAgentRequest struct {
 	Key          string         `json:"key,omitempty"`
 	Definition   map[string]any `json:"definition"`
