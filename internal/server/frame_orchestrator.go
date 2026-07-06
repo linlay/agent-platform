@@ -122,8 +122,8 @@ func (o *frameOrchestrator) handleSubAgentBatch(mainStream contracts.AgentStream
 			o.injectMainToolError(main, invoke.MainToolID, fmt.Sprintf("sub-agent not found: %s", subAgentKey))
 			return nil
 		}
-		if !canUseInvokeAgentsTool(agentDef.Mode) && !isProxyAgentMode(agentDef.Mode) {
-			o.injectMainToolError(main, invoke.MainToolID, "sub-agent must be REACT/ONESHOT/CODER/PROXY")
+		if !canRunAsSubAgent(agentDef.Mode) {
+			o.injectMainToolError(main, invoke.MainToolID, "sub-agent must be REACT/ONESHOT/CODER/KBASE/PROXY")
 			return nil
 		}
 		if !catalog.AgentInvocable(agentDef) {
@@ -570,6 +570,13 @@ func containsInvokeAgentsTool(toolNames []string) bool {
 
 func isProxyAgentMode(mode string) bool {
 	return catalog.AgentIsProxyMode(mode)
+}
+
+func canRunAsSubAgent(mode string) bool {
+	if canUseInvokeAgentsTool(mode) || isProxyAgentMode(mode) {
+		return true
+	}
+	return strings.EqualFold(catalog.NormalizeAgentModeForRuntime(mode), catalog.AgentModeKBase)
 }
 
 func routeChildStreamInput(taskID string, input stream.StreamInput) stream.StreamInput {

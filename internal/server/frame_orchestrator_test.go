@@ -238,8 +238,39 @@ func TestFrameOrchestratorRejectsInvalidSubAgentMode(t *testing.T) {
 	if len(emitted) != 0 {
 		t.Fatalf("expected no task lifecycle deltas on invalid mode reject, got %#v", emitted)
 	}
-	if len(mainStream.injected) != 1 || !mainStream.injected[0].isError || mainStream.injected[0].text != "sub-agent must be REACT/ONESHOT/CODER/PROXY" {
+	if len(mainStream.injected) != 1 || !mainStream.injected[0].isError || mainStream.injected[0].text != "sub-agent must be REACT/ONESHOT/CODER/KBASE/PROXY" {
 		t.Fatalf("expected error tool result injected into main stream, got %#v", mainStream.injected)
+	}
+}
+
+func TestFrameOrchestratorAllowsKBaseSubAgent(t *testing.T) {
+	mainStream := &stubOrchestratableStream{
+		deltas: []contracts.AgentDelta{
+			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{
+				SubAgentKey: "docs-kbase",
+				TaskText:    "检索 AI 建设材料",
+				TaskName:    "AI 建设文档",
+			}),
+		},
+	}
+	var emitted []contracts.AgentDelta
+	child := &stubOrchestratableStream{
+		deltas:    []contracts.AgentDelta{contracts.DeltaContent{Text: "命中 3 条材料"}},
+		finalText: "AI 建设文档检索完成",
+	}
+	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{streams: []contracts.AgentStream{child}}, map[string]catalog.AgentDefinition{
+		"docs-kbase": {Key: "docs-kbase", Mode: catalog.AgentModeKBase, VisibilityScopes: []string{"invoke"}},
+	}, &emitted, nil)
+
+	streamFailed, streamInterrupted, err := orchestrator.Run(mainStream)
+	if err != nil || streamFailed || streamInterrupted {
+		t.Fatalf("unexpected orchestrator result err=%v failed=%v interrupted=%v", err, streamFailed, streamInterrupted)
+	}
+	if len(mainStream.injected) != 1 || mainStream.injected[0].isError {
+		t.Fatalf("expected KBASE sub-agent result, got %#v", mainStream.injected)
+	}
+	if !strings.Contains(mainStream.injected[0].text, "AI 建设文档检索完成") {
+		t.Fatalf("expected KBASE final text in aggregation, got %q", mainStream.injected[0].text)
 	}
 }
 
