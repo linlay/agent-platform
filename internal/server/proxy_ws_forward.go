@@ -157,7 +157,10 @@ func proxyAgentKey(proxy *catalog.ProxyConfig, fallback string) string {
 
 type proxyDecodedFrame struct {
 	Frame    string
+	Type     string
 	ID       string
+	Code     int
+	Msg      string
 	StreamID string
 	Reason   string
 	LastSeq  int64
@@ -172,7 +175,10 @@ func decodeProxyFrame(data []byte) (proxyDecodedFrame, bool) {
 	}
 	decoded := proxyDecodedFrame{
 		Frame:    strings.TrimSpace(contracts.AnyStringNode(raw["frame"])),
+		Type:     strings.TrimSpace(contracts.AnyStringNode(raw["type"])),
 		ID:       strings.TrimSpace(contracts.AnyStringNode(raw["id"])),
+		Code:     contracts.AnyIntNode(raw["code"]),
+		Msg:      strings.TrimSpace(contracts.AnyStringNode(raw["msg"])),
 		StreamID: strings.TrimSpace(contracts.AnyStringNode(raw["streamId"])),
 		Reason:   strings.TrimSpace(contracts.AnyStringNode(raw["reason"])),
 		LastSeq:  int64(contracts.AnyIntNode(raw["lastSeq"])),
@@ -201,11 +207,40 @@ func proxyFrameMatchesRequest(frame proxyDecodedFrame, requestID string) bool {
 	if strings.TrimSpace(frame.Frame) == "" {
 		return true
 	}
-	if !strings.EqualFold(strings.TrimSpace(frame.Frame), "stream") {
+	frameName := strings.ToLower(strings.TrimSpace(frame.Frame))
+	switch frameName {
+	case "stream", "response", "error":
+	default:
 		return false
 	}
 	frameID := strings.TrimSpace(frame.ID)
 	return frameID != "" && frameID == strings.TrimSpace(requestID)
+}
+
+func proxyFrameError(frame proxyDecodedFrame) error {
+	frameName := strings.ToLower(strings.TrimSpace(frame.Frame))
+	switch frameName {
+	case "error":
+		msg := strings.TrimSpace(frame.Msg)
+		if msg == "" {
+			msg = "upstream websocket returned error"
+		}
+		if frame.Code > 0 {
+			return fmt.Errorf("%s (%d)", msg, frame.Code)
+		}
+		return fmt.Errorf("%s", msg)
+	case "response":
+		if frame.Code == 0 {
+			return nil
+		}
+		msg := strings.TrimSpace(frame.Msg)
+		if msg == "" {
+			msg = "upstream websocket request failed"
+		}
+		return fmt.Errorf("%s (%d)", msg, frame.Code)
+	default:
+		return nil
+	}
 }
 
 func decodeProxyEvent(data []byte) (stream.EventData, bool) {

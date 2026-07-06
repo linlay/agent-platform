@@ -46,6 +46,49 @@ type DetachedStream struct {
 	LastSeq         int64
 }
 
+type outboundRequest struct {
+	mu     sync.Mutex
+	ch     chan []byte
+	closed bool
+}
+
+func newOutboundRequest(buffer int) *outboundRequest {
+	if buffer <= 0 {
+		buffer = 1
+	}
+	return &outboundRequest{ch: make(chan []byte, buffer)}
+}
+
+func (r *outboundRequest) deliver(data []byte, closed <-chan struct{}) bool {
+	if r == nil {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return true
+	}
+	select {
+	case <-closed:
+		return true
+	case r.ch <- append([]byte(nil), data...):
+		return true
+	}
+}
+
+func (r *outboundRequest) close() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return
+	}
+	r.closed = true
+	close(r.ch)
+}
+
 type Conn struct {
 	sessionID           string
 	socket              *gws.Conn
@@ -73,6 +116,7 @@ type Conn struct {
 
 	mu               sync.Mutex
 	inflightRequests map[string]struct{}
+	outboundRequests map[string]*outboundRequest
 	activeStreams    map[string]*streamEntry
 	cancelledStreams map[string]struct{}
 	observingRuns    map[string]string
@@ -142,6 +186,7 @@ func NewConn(socket *gws.Conn, hub *Hub, cfg config.WebSocketConfig, heartbeatIn
 		locale:              i18n.DefaultLocale,
 		auth:                auth,
 		inflightRequests:    map[string]struct{}{},
+		outboundRequests:    map[string]*outboundRequest{},
 		activeStreams:       map[string]*streamEntry{},
 		cancelledStreams:    map[string]struct{}{},
 		observingRuns:       map[string]string{},
@@ -260,6 +305,10 @@ func (c *Conn) Run(dispatch RouteHandler) {
 			continue
 		}
 		if req.Frame != FrameRequest {
+			if c.deliverOutboundFrame(req.ID, data) {
+				c.recordInboundMessage(data, req, "")
+				continue
+			}
 			// silent 模式（反向连到网关）下，网关会按 Java DownstreamAgentPush 协议
 			// 主动发 push.connected / push.heartbeat 等 server-push 帧。platform 只是
 			// 反向被动端，不需要主动消费 push，但也不应回 invalid_request 污染连接。
@@ -296,6 +345,70 @@ func (c *Conn) Run(dispatch RouteHandler) {
 		}
 		c.recordInboundMessage(data, req, "")
 		go dispatch(c.Context(), c, req)
+	}
+}
+
+func (c *Conn) OpenOutboundRequest(req RequestFrame) (<-chan []byte, func(), error) {
+	if c == nil {
+		return nil, nil, fmt.Errorf("connection is nil")
+	}
+	req.Frame = FrameRequest
+	req.ID = strings.TrimSpace(req.ID)
+	req.Type = strings.TrimSpace(req.Type)
+	if req.ID == "" {
+		return nil, nil, fmt.Errorf("id is required")
+	}
+	if req.Type == "" {
+		return nil, nil, fmt.Errorf("type is required")
+	}
+	outbound := newOutboundRequest(128)
+	c.mu.Lock()
+	if _, exists := c.outboundRequests[req.ID]; exists {
+		c.mu.Unlock()
+		return nil, nil, fmt.Errorf("outbound request id is already in flight")
+	}
+	c.outboundRequests[req.ID] = outbound
+	c.mu.Unlock()
+	cleanup := func() {
+		c.closeOutboundRequest(req.ID)
+	}
+	if !c.SendFrame(req) {
+		cleanup()
+		return nil, nil, fmt.Errorf("websocket write queue is closed")
+	}
+	return outbound.ch, cleanup, nil
+}
+
+func (c *Conn) SendFrame(frame any) bool {
+	return c.enqueue(outboundMessage{
+		frame:   frame,
+		msgType: gws.TextMessage,
+	})
+}
+
+func (c *Conn) deliverOutboundFrame(id string, data []byte) bool {
+	if c == nil || strings.TrimSpace(id) == "" {
+		return false
+	}
+	c.mu.Lock()
+	outbound := c.outboundRequests[strings.TrimSpace(id)]
+	c.mu.Unlock()
+	if outbound == nil {
+		return false
+	}
+	return outbound.deliver(data, c.closed)
+}
+
+func (c *Conn) closeOutboundRequest(id string) {
+	if c == nil || strings.TrimSpace(id) == "" {
+		return
+	}
+	c.mu.Lock()
+	outbound := c.outboundRequests[strings.TrimSpace(id)]
+	delete(c.outboundRequests, strings.TrimSpace(id))
+	c.mu.Unlock()
+	if outbound != nil {
+		outbound.close()
 	}
 }
 
@@ -794,7 +907,15 @@ func (c *Conn) close(code int, text string) {
 		c.activeStreams = map[string]*streamEntry{}
 		c.observingRuns = map[string]string{}
 		c.inflightRequests = map[string]struct{}{}
+		outbound := make([]*outboundRequest, 0, len(c.outboundRequests))
+		for _, req := range c.outboundRequests {
+			outbound = append(outbound, req)
+		}
+		c.outboundRequests = map[string]*outboundRequest{}
 		c.mu.Unlock()
+		for _, req := range outbound {
+			req.close()
+		}
 		for _, entry := range streams {
 			if entry != nil && entry.detach != nil {
 				entry.detachOnce.Do(entry.detach)

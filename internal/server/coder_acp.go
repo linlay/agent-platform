@@ -75,6 +75,23 @@ func (s *Server) applyChannelImportRoutingConfig(def *catalog.AgentDefinition) *
 	if !ok {
 		return &statusError{status: http.StatusServiceUnavailable, message: "channel " + channelID + " is not configured"}
 	}
+	if channelDef.Mode == config.ChannelModeServer {
+		provider, ok := s.deps.Notifications.(ChannelConnectionProvider)
+		if !ok || provider == nil {
+			return &statusError{status: http.StatusServiceUnavailable, message: "channel " + channelID + " is not connected"}
+		}
+		if _, ok := provider.GatewayConnection(channelID); !ok {
+			return &statusError{status: http.StatusServiceUnavailable, message: "channel " + channelID + " is not connected"}
+		}
+		def.ProxyConfig = &catalog.ProxyConfig{
+			Transport: "ws",
+			Protocol:  config.ChannelProtocolPlatformWS,
+			AgentKey:  remoteAgentKey,
+			ChannelID: channelID,
+			Timeout:   300,
+		}
+		return nil
+	}
 	if channelDef.Mode != config.ChannelModeClient {
 		return &statusError{status: http.StatusServiceUnavailable, message: "channel " + channelID + " is not client mode"}
 	}

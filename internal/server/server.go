@@ -71,6 +71,10 @@ type ChannelStatusProvider interface {
 	Connected(channelID string) bool
 }
 
+type ChannelConnectionProvider interface {
+	GatewayConnection(channelID string) (*ws.Conn, bool)
+}
+
 type Server struct {
 	router            *http.ServeMux
 	deps              Dependencies

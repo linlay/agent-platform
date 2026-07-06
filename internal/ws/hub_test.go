@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"context"
 	"testing"
 
 	gws "github.com/gorilla/websocket"
@@ -51,5 +52,40 @@ func TestHubCloseAllClosesRegisteredConnections(t *testing.T) {
 	}
 	if got := len(hub.conns); got != 0 {
 		t.Fatalf("expected hub to be empty after CloseAll, got %d", got)
+	}
+}
+
+func TestHubGatewayConnectionUsesLatestAndFallsBack(t *testing.T) {
+	hub := NewHub()
+	ctx := WithGatewayContext(context.Background(), GatewayContext{Channel: "public-entry"})
+	first := &Conn{
+		auth:       AuthSession{Context: ctx},
+		writeQueue: make(chan outboundMessage, 1),
+		closed:     make(chan struct{}),
+	}
+	second := &Conn{
+		auth:       AuthSession{Context: ctx},
+		writeQueue: make(chan outboundMessage, 1),
+		closed:     make(chan struct{}),
+	}
+
+	hub.register(first)
+	if got, ok := hub.GatewayConnection("public-entry"); !ok || got != first {
+		t.Fatalf("expected first gateway connection, got %#v ok=%v", got, ok)
+	}
+
+	hub.register(second)
+	if got, ok := hub.GatewayConnection("public-entry"); !ok || got != second {
+		t.Fatalf("expected latest gateway connection, got %#v ok=%v", got, ok)
+	}
+
+	hub.unregister(second)
+	if got, ok := hub.GatewayConnection("public-entry"); !ok || got != first {
+		t.Fatalf("expected fallback gateway connection, got %#v ok=%v", got, ok)
+	}
+
+	hub.unregister(first)
+	if got, ok := hub.GatewayConnection("public-entry"); ok || got != nil {
+		t.Fatalf("expected no gateway connection, got %#v ok=%v", got, ok)
 	}
 }

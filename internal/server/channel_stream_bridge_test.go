@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -13,6 +14,192 @@ import (
 
 	gws "github.com/gorilla/websocket"
 )
+
+func TestChannelImportQueryUsesServerModeInboundChannel(t *testing.T) {
+	const (
+		queryID = "req_server_channel_import"
+		runID   = "run_server_channel_import"
+		chatID  = "chat_server_channel_import"
+	)
+
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.WriteQueueSize = 16
+			cfg.WebSocket.PingInterval = 30000
+			cfg.Channels = []config.ChannelConfig{{
+				ID:        "public-entry",
+				Mode:      config.ChannelModeServer,
+				Transport: config.ChannelTransportWebSocket,
+				Protocol:  config.ChannelProtocolPlatformWS,
+				Endpoint:  config.ChannelEndpointConfig{Path: "/ws/channel"},
+			}}
+		},
+		setupRuntime: func(_ string, cfg *config.Config) {
+			writeAgentConfig(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []string{
+				"key: mock-agent",
+				"name: Mock Server Channel Agent",
+				"mode: CHANNEL",
+				"channelConfig:",
+				"  channelId: public-entry",
+				"  remoteAgentKey: kbase-thqhcs",
+			})
+		},
+	})
+
+	server := httptest.NewServer(fixture.server)
+	defer server.Close()
+
+	peer, _, err := gws.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/ws/channel?channelId=public-entry", nil)
+	if err != nil {
+		t.Fatalf("dial channel websocket: %v", err)
+	}
+	defer peer.Close()
+	readConnectedPush(t, peer)
+
+	queryDone := make(chan struct {
+		status int
+		body   string
+	}, 1)
+	go func() {
+		body := bytes.NewBufferString(`{
+			"requestId":"` + queryID + `",
+			"runId":"` + runID + `",
+			"chatId":"` + chatID + `",
+			"agentKey":"mock-agent",
+			"message":"hello channel",
+			"stream":false,
+			"includeFullText":true
+		}`)
+		req, err := http.NewRequest(http.MethodPost, server.URL+"/api/query", body)
+		if err != nil {
+			queryDone <- struct {
+				status int
+				body   string
+			}{status: 0, body: err.Error()}
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			queryDone <- struct {
+				status int
+				body   string
+			}{status: 0, body: err.Error()}
+			return
+		}
+		defer resp.Body.Close()
+		buf := new(bytes.Buffer)
+		_, _ = buf.ReadFrom(resp.Body)
+		queryDone <- struct {
+			status int
+			body   string
+		}{status: resp.StatusCode, body: buf.String()}
+	}()
+
+	queryFrame := readChannelRequestFrame(t, peer, "/api/query", queryID)
+	if queryFrame["frame"] != "request" || queryFrame["type"] != "/api/query" || queryFrame["id"] != queryID {
+		t.Fatalf("unexpected channel query frame %#v", queryFrame)
+	}
+	payload, ok := queryFrame["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected query payload object, got %#v", queryFrame["payload"])
+	}
+	if payload["agentKey"] != "kbase-thqhcs" {
+		t.Fatalf("expected remote agent key kbase-thqhcs, got %#v", payload["agentKey"])
+	}
+
+	steerBody := bytes.NewBufferString(`{
+		"runId":"` + runID + `",
+		"agentKey":"mock-agent",
+		"message":"focus",
+		"steerId":"steer-server-channel"
+	}`)
+	steerReq, err := http.NewRequest(http.MethodPost, server.URL+"/api/steer", steerBody)
+	if err != nil {
+		t.Fatalf("new steer request: %v", err)
+	}
+	steerReq.Header.Set("Content-Type", "application/json")
+	steerResp, err := http.DefaultClient.Do(steerReq)
+	if err != nil {
+		t.Fatalf("post steer: %v", err)
+	}
+	defer steerResp.Body.Close()
+	if steerResp.StatusCode != http.StatusOK {
+		buf := new(bytes.Buffer)
+		_, _ = buf.ReadFrom(steerResp.Body)
+		t.Fatalf("expected steer 200, got %d: %s", steerResp.StatusCode, buf.String())
+	}
+
+	steerFrame := readChannelRequestFrame(t, peer, "/api/steer", "steer-server-channel")
+	if steerFrame["frame"] != "request" || steerFrame["type"] != "/api/steer" || steerFrame["id"] != "steer-server-channel" {
+		t.Fatalf("unexpected steer frame %#v", steerFrame)
+	}
+
+	writeUpstreamStreamFrame(t, peer, queryID, "s_"+runID, map[string]any{
+		"seq":   1,
+		"type":  "content.delta",
+		"runId": "remote-run",
+		"delta": "server channel answer",
+	}, "")
+	writeUpstreamStreamFrame(t, peer, queryID, "s_"+runID, map[string]any{
+		"seq":   2,
+		"type":  "run.complete",
+		"runId": "remote-run",
+	}, "")
+	writeUpstreamStreamFrame(t, peer, queryID, "s_"+runID, nil, "done")
+
+	select {
+	case result := <-queryDone:
+		if result.status != http.StatusOK {
+			t.Fatalf("expected query 200, got %d: %s", result.status, result.body)
+		}
+		if !strings.Contains(result.body, "server channel answer") {
+			t.Fatalf("expected query body to contain channel answer, got %s", result.body)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for query response")
+	}
+}
+
+func TestChannelImportServerModeRequiresConnectedPeer(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.Channels = []config.ChannelConfig{{
+				ID:        "public-entry",
+				Mode:      config.ChannelModeServer,
+				Transport: config.ChannelTransportWebSocket,
+				Protocol:  config.ChannelProtocolPlatformWS,
+				Endpoint:  config.ChannelEndpointConfig{Path: "/ws/channel"},
+			}}
+		},
+		setupRuntime: func(_ string, cfg *config.Config) {
+			writeAgentConfig(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []string{
+				"key: mock-agent",
+				"name: Mock Server Channel Agent",
+				"mode: CHANNEL",
+				"channelConfig:",
+				"  channelId: public-entry",
+				"  remoteAgentKey: kbase-thqhcs",
+			})
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"hello"}`)
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", body))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "channel public-entry is not connected") {
+		t.Fatalf("expected not connected message, got %s", rec.Body.String())
+	}
+}
 
 func TestChannelImportStreamOnlySynthesizesControlPushes(t *testing.T) {
 	const (
@@ -251,4 +438,23 @@ func writeUpstreamStreamFrame(t *testing.T, conn *gws.Conn, id string, streamID 
 	if err := conn.WriteJSON(frame); err != nil {
 		t.Fatalf("write upstream stream frame: %v", err)
 	}
+}
+
+func readChannelRequestFrame(t *testing.T, conn *gws.Conn, frameType string, id string) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			t.Fatalf("set channel websocket read deadline: %v", err)
+		}
+		var frame map[string]any
+		if err := conn.ReadJSON(&frame); err != nil {
+			t.Fatalf("read channel websocket frame: %v", err)
+		}
+		if frame["frame"] == "request" && frame["type"] == frameType && frame["id"] == id {
+			return frame
+		}
+	}
+	t.Fatalf("timed out waiting for channel request frame type=%s id=%s", frameType, id)
+	return nil
 }

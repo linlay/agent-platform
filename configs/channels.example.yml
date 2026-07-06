@@ -18,6 +18,8 @@
 #       max: 30
 
 #   # Platform exposes /ws/channel for other platforms/adaptors to connect in.
+#   # A mode: CHANNEL agent may reuse the latest active connection on this
+#   # channel; if no peer is connected, query returns 503.
 #   public-entry:
 #     mode: server
 #     endpoint:

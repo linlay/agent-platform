@@ -339,6 +339,11 @@ func (s *Server) runProxyWebSocket(
 		return
 	}
 
+	if strings.TrimSpace(prepared.agentDef.ProxyConfig.ChannelID) != "" {
+		s.runProxyInboundChannel(runCtx, prepared, route, eventBus, recorder)
+		return
+	}
+
 	upstreamURL, header, err := proxyWebSocketTarget(prepared.agentDef.ProxyConfig)
 	if err != nil {
 		s.publishProxyError(eventBus, recorder, prepared.req, err)
@@ -410,6 +415,11 @@ func (s *Server) runProxyWebSocket(
 		if !ok || !proxyFrameMatchesRequest(frame, prepared.req.RequestID) {
 			continue
 		}
+		if err := proxyFrameError(frame); err != nil {
+			terminalSeen = true
+			s.publishProxyError(eventBus, recorder, prepared.req, err)
+			return
+		}
 		if !frame.HasEvent {
 			if strings.EqualFold(frame.Frame, "stream") && frame.Reason != "" {
 				terminalSeen = true
@@ -437,6 +447,140 @@ func (s *Server) runProxyWebSocket(
 		case "run.complete", "run.error", "run.cancel":
 			terminalSeen = true
 			return
+		}
+	}
+}
+
+func (s *Server) runProxyInboundChannel(
+	runCtx context.Context,
+	prepared preparedQuery,
+	route *proxyRunRoute,
+	eventBus *stream.RunEventBus,
+	recorder *proxyEventRecorder,
+) {
+	proxy := prepared.agentDef.ProxyConfig
+	if proxy == nil || strings.TrimSpace(proxy.ChannelID) == "" {
+		s.publishProxyError(eventBus, recorder, prepared.req, fmt.Errorf("CHANNEL agent missing channelConfig.channelId"))
+		return
+	}
+	hub, ok := s.deps.Notifications.(ChannelConnectionProvider)
+	if !ok || hub == nil {
+		s.publishProxyError(eventBus, recorder, prepared.req, fmt.Errorf("channel %s connection provider is not configured", proxy.ChannelID))
+		return
+	}
+	upstream, ok := hub.GatewayConnection(proxy.ChannelID)
+	if !ok || upstream == nil {
+		s.publishProxyError(eventBus, recorder, prepared.req, fmt.Errorf("channel %s is not connected", proxy.ChannelID))
+		return
+	}
+
+	proxyReferences, err := prepareProxyReferences(s.deps.Chats, s.ticketService, proxyReferenceOptions{
+		ChatID:          prepared.req.ChatID,
+		RunID:           prepared.req.RunID,
+		Subject:         prepared.session.Subject,
+		ResourceBaseURL: prepared.resourceBaseURL,
+		References:      prepared.req.References,
+	})
+	if err != nil {
+		s.publishProxyError(eventBus, recorder, prepared.req, err)
+		return
+	}
+
+	initial := proxyQueryPayloadWithWorkspace(prepared.req, proxy, proxyReferences, prepared.session.WorkspaceRoot)
+	raw, err := json.Marshal(initial)
+	if err != nil {
+		s.publishProxyError(eventBus, recorder, prepared.req, err)
+		return
+	}
+	var reqFrame platformws.RequestFrame
+	if err := json.Unmarshal(raw, &reqFrame); err != nil {
+		s.publishProxyError(eventBus, recorder, prepared.req, err)
+		return
+	}
+	frames, cleanup, err := upstream.OpenOutboundRequest(reqFrame)
+	if err != nil {
+		s.publishProxyError(eventBus, recorder, prepared.req, fmt.Errorf("channel %s request failed: %w", proxy.ChannelID, err))
+		return
+	}
+	defer cleanup()
+
+	writeDone := make(chan error, 1)
+	go func() {
+		for {
+			select {
+			case <-runCtx.Done():
+				writeDone <- runCtx.Err()
+				return
+			case <-route.done:
+				writeDone <- nil
+				return
+			case msg := <-route.send:
+				if !upstream.SendFrame(msg) {
+					writeDone <- fmt.Errorf("channel %s write failed", proxy.ChannelID)
+					return
+				}
+			}
+		}
+	}()
+
+	var seq int64
+	terminalSeen := false
+	for {
+		select {
+		case err := <-writeDone:
+			if err != nil && !terminalSeen {
+				s.publishProxyError(eventBus, recorder, prepared.req, fmt.Errorf("channel websocket write loop failed: %w", err))
+			}
+			return
+		case <-runCtx.Done():
+			if !terminalSeen {
+				s.publishProxyError(eventBus, recorder, prepared.req, runCtx.Err())
+			}
+			return
+		case data, ok := <-frames:
+			if !ok {
+				if !terminalSeen {
+					s.publishProxyError(eventBus, recorder, prepared.req, fmt.Errorf("channel %s disconnected", proxy.ChannelID))
+				}
+				return
+			}
+			frame, ok := decodeProxyFrame(data)
+			if !ok || !proxyFrameMatchesRequest(frame, prepared.req.RequestID) {
+				continue
+			}
+			if err := proxyFrameError(frame); err != nil {
+				terminalSeen = true
+				s.publishProxyError(eventBus, recorder, prepared.req, err)
+				return
+			}
+			if !frame.HasEvent {
+				if strings.EqualFold(frame.Frame, "stream") && frame.Reason != "" {
+					terminalSeen = true
+					return
+				}
+				continue
+			}
+			event := frame.Event
+			event = normalizeProxyEventIdentity(event, prepared.req)
+			if event.Seq <= 0 {
+				seq++
+				event.Seq = seq
+			}
+			if event.Timestamp <= 0 {
+				event.Timestamp = time.Now().UnixMilli()
+			}
+			if recorder != nil {
+				recorder.DecorateEvent(&event)
+			}
+			eventBus.Publish(event)
+			if recorder != nil {
+				recorder.OnEvent(event)
+			}
+			switch event.Type {
+			case "run.complete", "run.error", "run.cancel":
+				terminalSeen = true
+				return
+			}
 		}
 	}
 }

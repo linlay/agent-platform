@@ -272,6 +272,29 @@ func TestRewriteChannelRequestPayloadMapsExportedAgentAndChecksAllow(t *testing.
 	}
 }
 
+func TestRewriteChannelRequestPayloadRejectsMissingExport(t *testing.T) {
+	server, _ := newServerForChannelTests(t)
+	server.deps.Registry = channelTestCatalogRegistry{
+		agents: []api.AgentSummary{
+			{Key: "assistant", Name: "Assistant"},
+		},
+		defs: map[string]catalog.AgentDefinition{
+			"assistant": {
+				Key:      "assistant",
+				Name:     "Assistant",
+				Mode:     "REACT",
+				ModelKey: "mock-model",
+			},
+		},
+	}
+	ctx := platformws.WithGatewayContext(context.Background(), platformws.GatewayContext{Channel: "public-entry"})
+
+	_, statusErr := server.rewriteChannelRequestPayload(ctx, "/api/query", json.RawMessage(`{"externalAgentKey":"assistant","message":"hello"}`))
+	if statusErr == nil || statusErr.status != http.StatusForbidden || statusErr.message != "agent is not exported on channel" {
+		t.Fatalf("expected missing export to be forbidden, got %#v", statusErr)
+	}
+}
+
 func TestRewriteChannelFileTransferRequiresExportAllow(t *testing.T) {
 	server, chats := newServerForChannelTests(t)
 	if _, _, err := chats.EnsureChat("chat-export", "assistant", "", "seed"); err != nil {

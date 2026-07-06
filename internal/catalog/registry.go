@@ -167,6 +167,7 @@ type ProxyConfig struct {
 	Transport    string // ws or sse; defaults to ws for bidirectional run control
 	Protocol     string // agw-platform or platform-ws
 	AgentKey     string // optional upstream agentKey override
+	ChannelID    string // optional inbound server-mode channel to reuse for CHANNEL imports
 	ChatID       string // optional upstream chatId override
 	Token        string // optional Bearer token
 	TokenEnv     string // optional env var name for Bearer token
