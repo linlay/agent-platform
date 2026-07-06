@@ -57,6 +57,9 @@ func TestDispatcherBuildsStructuredQueryRequest(t *testing.T) {
 	if got.Params["existing"] != "value" {
 		t.Fatalf("expected existing params, got %#v", got.Params)
 	}
+	if got.ChatSource != "automation:daily" {
+		t.Fatalf("expected automation chat source, got %#v", got)
+	}
 	if _, ok := got.Params["__automation"]; ok {
 		t.Fatalf("expected automation dispatch not to inject __automation metadata, got %#v", got.Params)
 	}

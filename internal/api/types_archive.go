@@ -25,6 +25,7 @@ type ArchivedSummaryResponse struct {
 	ChatName       string         `json:"chatName"`
 	AgentKey       string         `json:"agentKey,omitempty"`
 	TeamID         string         `json:"teamId,omitempty"`
+	Source         string         `json:"source,omitempty"`
 	CreatedAt      int64          `json:"createdAt"`
 	UpdatedAt      int64          `json:"updatedAt"`
 	LastRunAt      int64          `json:"lastRunAt"`

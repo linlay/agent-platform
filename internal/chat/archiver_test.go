@@ -186,7 +186,7 @@ func TestArchiverRestoresArchivedChatAndRemovesArchive(t *testing.T) {
 	}
 	archiver := NewArchiver(active, archive)
 
-	if _, _, err := active.EnsureChat("chat-restore", "agent-a", "team-a", "hello restore"); err != nil {
+	if _, _, err := active.EnsureChatWithSource("chat-restore", "agent-a", "team-a", "hello restore", "automation:daily"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := active.SetSourceChannel("chat-restore", "desktop"); err != nil {
@@ -232,7 +232,7 @@ func TestArchiverRestoresArchivedChatAndRemovesArchive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("restore chat: %v", err)
 	}
-	if summary.ChatID != "chat-restore" || summary.AgentKey != "agent-a" || summary.TeamID != "team-a" || summary.SourceChannel != "desktop" {
+	if summary.ChatID != "chat-restore" || summary.AgentKey != "agent-a" || summary.TeamID != "team-a" || summary.Source != "automation:daily" || summary.SourceChannel != "desktop" {
 		t.Fatalf("unexpected restored summary: %#v", summary)
 	}
 	if summary.Read.IsRead {

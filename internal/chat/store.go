@@ -16,6 +16,7 @@ var ErrChatPendingAwaiting = errors.New("chat has pending awaiting")
 
 type Store interface {
 	EnsureChat(chatID string, agentKey string, teamID string, firstMessage string) (Summary, bool, error)
+	EnsureChatWithSource(chatID string, agentKey string, teamID string, firstMessage string, source string) (Summary, bool, error)
 	DeriveChat(request DeriveChatRequest) (DeriveChatResult, error)
 	RenameChat(chatID string, chatName string) (Summary, error)
 	UpdateAgentKey(chatID string, agentKey string) error

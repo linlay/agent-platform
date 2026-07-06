@@ -130,6 +130,49 @@ func TestFileStoreSetSourceChannelPersistsIntoSummaryAndListChats(t *testing.T) 
 	}
 }
 
+func TestFileStoreEnsureChatWithSourcePersistsIntoSummaries(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	summary, created, err := store.EnsureChatWithSource("chat-source", "agent", "", "hello", "automation:daily")
+	if err != nil {
+		t.Fatalf("ensure chat with source: %v", err)
+	}
+	if !created || summary.Source != "automation:daily" {
+		t.Fatalf("expected source on created summary, created=%v summary=%#v", created, summary)
+	}
+
+	summary, created, err = store.EnsureChatWithSource("chat-source", "agent", "", "ignored", "human:query")
+	if err != nil {
+		t.Fatalf("ensure existing chat with source: %v", err)
+	}
+	if created || summary.Source != "automation:daily" {
+		t.Fatalf("expected existing source not overwritten, created=%v summary=%#v", created, summary)
+	}
+	loaded, err := store.Summary("chat-source")
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+	if loaded == nil || loaded.Source != "automation:daily" {
+		t.Fatalf("expected source in loaded summary, got %#v", loaded)
+	}
+	items, err := store.ListChats("", "")
+	if err != nil {
+		t.Fatalf("list chats: %v", err)
+	}
+	if len(items) != 1 || items[0].Source != "automation:daily" {
+		t.Fatalf("expected source in list, got %#v", items)
+	}
+	recent, err := store.RecentChatsByAgent("agent", 1)
+	if err != nil {
+		t.Fatalf("recent chats: %v", err)
+	}
+	if len(recent) != 1 || recent[0].Source != "automation:daily" {
+		t.Fatalf("expected source in recent chats, got %#v", recent)
+	}
+}
+
 func TestFileStoreClearPendingAwaitingClearsMatchingAwaitingID(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {

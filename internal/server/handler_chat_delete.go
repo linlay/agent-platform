@@ -130,12 +130,7 @@ func (s *Server) deriveChat(req api.DeriveChatRequest) (api.DeriveChatResponse, 
 		return api.DeriveChatResponse{}, &statusError{status: http.StatusInternalServerError, code: "internal_error", message: err.Error()}
 	}
 	response := mapDeriveChatResponse(result)
-	s.broadcast("chat.created", map[string]any{
-		"chatId":    response.ChatID,
-		"chatName":  response.ChatName,
-		"agentKey":  response.AgentKey,
-		"timestamp": response.CreatedAt,
-	})
+	s.broadcast("chat.created", chatCreatedPayload(response.ChatID, response.ChatName, response.AgentKey, response.CreatedAt, response.Source))
 	s.broadcast("chat.updated", map[string]any{
 		"chatId":         response.ChatID,
 		"lastRunId":      response.LastRunID,
@@ -151,6 +146,7 @@ func mapDeriveChatResponse(result chat.DeriveChatResult) api.DeriveChatResponse 
 		ChatName:     result.Summary.ChatName,
 		AgentKey:     result.Summary.AgentKey,
 		TeamID:       result.Summary.TeamID,
+		Source:       result.Summary.Source,
 		SourceChatID: result.SourceChatID,
 		SourceRunID:  result.SourceRunID,
 		LastRunID:    result.LastRunID,

@@ -26,6 +26,7 @@ func (s *FileStore) initDB() error {
 			CHAT_NAME_        TEXT NOT NULL,
 			AGENT_KEY_        TEXT NOT NULL DEFAULT '',
 			TEAM_ID_          TEXT,
+			SOURCE_           TEXT NOT NULL DEFAULT '',
 			SOURCE_CHANNEL_   TEXT NOT NULL DEFAULT '',
 			CREATED_AT_       INTEGER NOT NULL,
 			UPDATED_AT_       INTEGER NOT NULL,
@@ -101,6 +102,7 @@ func (s *FileStore) initDB() error {
 	if err := s.migrateReadStateColumns(); err != nil {
 		return err
 	}
+	s.migrateSourceColumn()
 	s.migrateSourceChannelColumn()
 	s.migrateDetailedUsageColumns()
 	return nil
@@ -149,6 +151,10 @@ func (s *FileStore) migrateDetailedUsageColumns() {
 
 func (s *FileStore) migrateSourceChannelColumn() {
 	_, _ = s.db.Exec("ALTER TABLE CHATS ADD COLUMN SOURCE_CHANNEL_ TEXT NOT NULL DEFAULT ''")
+}
+
+func (s *FileStore) migrateSourceColumn() {
+	_, _ = s.db.Exec("ALTER TABLE CHATS ADD COLUMN SOURCE_ TEXT NOT NULL DEFAULT ''")
 }
 
 func (s *FileStore) migrateAwaitingColumns() error {

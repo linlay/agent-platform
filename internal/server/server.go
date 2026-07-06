@@ -89,6 +89,7 @@ type Server struct {
 }
 
 type syncQueryContextKey struct{}
+type chatSourceContextKey struct{}
 
 type statusRecorder struct {
 	http.ResponseWriter

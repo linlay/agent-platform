@@ -81,6 +81,7 @@ func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (qu
 	} else {
 		return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: api.QueryRoleValidationMessage}
 	}
+	req.ChatSource = chatSourceFromContext(r.Context())
 	accessLevel, ok := contracts.NormalizeAccessLevel(req.AccessLevel)
 	if !ok {
 		return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: "accessLevel must be default, auto_approve, or full_access"}
@@ -173,7 +174,8 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 	agentDef := admission.agentDef
 	chatID := req.ChatID
 	agentKey := req.AgentKey
-	summary, created, err := s.deps.Chats.EnsureChat(chatID, agentKey, req.TeamID, req.Message)
+	chatSource := queryChatSource(ctx, req)
+	summary, created, err := s.deps.Chats.EnsureChatWithSource(chatID, agentKey, req.TeamID, req.Message, chatSource)
 	if err != nil {
 		return preparedQuery{}, err
 	}
@@ -184,12 +186,7 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 	if created {
 		// automation/system role 只影响 chat 内部 request.query 的展示语义，
 		// 不影响会话在列表里的可见性。
-		s.broadcast("chat.created", map[string]any{
-			"chatId":    chatID,
-			"chatName":  summary.ChatName,
-			"agentKey":  agentKey,
-			"timestamp": summary.CreatedAt,
-		})
+		s.broadcast("chat.created", chatCreatedPayload(chatID, summary.ChatName, agentKey, summary.CreatedAt, summary.Source))
 	}
 	session, err := s.BuildQuerySession(ctx, req, summary, agentDef, querySessionBuildOptions{
 		Created:           created,
@@ -228,6 +225,17 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 		resourceBaseURL:    admission.resourceBaseURL,
 		release:            release,
 	}, nil
+}
+
+func queryChatSource(ctx context.Context, req api.QueryRequest) string {
+	source := strings.TrimSpace(req.ChatSource)
+	if source != "" {
+		return source
+	}
+	if isSyncQueryContext(ctx) {
+		return api.ChatSourceInternalQuery
+	}
+	return api.ChatSourceHumanQuery
 }
 
 func buildMemoryUsageSummary(staticMemoryPrompt string, bundle memory.ContextBundle) *api.MemoryUsageSummary {

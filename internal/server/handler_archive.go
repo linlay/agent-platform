@@ -356,6 +356,7 @@ func mapArchivedSummary(item chat.ArchivedSummary) api.ArchivedSummaryResponse {
 		ChatName:       item.ChatName,
 		AgentKey:       item.AgentKey,
 		TeamID:         item.TeamID,
+		Source:         item.Source,
 		CreatedAt:      item.CreatedAt,
 		UpdatedAt:      item.UpdatedAt,
 		LastRunAt:      item.LastRunAt,

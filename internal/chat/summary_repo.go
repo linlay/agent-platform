@@ -7,15 +7,20 @@ import (
 	"time"
 )
 
-const summarySelectColumns = `CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), COALESCE(SOURCE_CHANNEL_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_,
+const summarySelectColumns = `CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), COALESCE(SOURCE_,''), COALESCE(SOURCE_CHANNEL_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_,
 	USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, USAGE_CACHED_TOKENS_, USAGE_REASONING_TOKENS_, USAGE_PROMPT_CACHE_HIT_TOKENS_, USAGE_PROMPT_CACHE_MISS_TOKENS_, USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
 	USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_,
 	USAGE_ESTIMATED_COST_CURRENCY_, USAGE_ESTIMATED_COST_INPUT_CACHE_HIT_, USAGE_ESTIMATED_COST_INPUT_CACHE_MISS_, USAGE_ESTIMATED_COST_OUTPUT_, USAGE_ESTIMATED_COST_TOTAL_,
 	AWAITING_ID_, AWAITING_RUN_ID_, AWAITING_MODE_, AWAITING_CREATED_AT_`
 
 func (s *FileStore) EnsureChat(chatID string, agentKey string, teamID string, firstMessage string) (Summary, bool, error) {
+	return s.EnsureChatWithSource(chatID, agentKey, teamID, firstMessage, "")
+}
+
+func (s *FileStore) EnsureChatWithSource(chatID string, agentKey string, teamID string, firstMessage string, source string) (Summary, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	source = strings.TrimSpace(source)
 
 	// Check if exists
 	var existing Summary
@@ -23,7 +28,7 @@ func (s *FileStore) EnsureChat(chatID string, agentKey string, teamID string, fi
 	var pendingAwaitingID, pendingRunID, pendingMode string
 	var pendingCreatedAt int64
 	err := s.db.QueryRow("SELECT "+summarySelectColumns+" FROM CHATS WHERE CHAT_ID_=?", chatID).
-		Scan(&existing.ChatID, &existing.ChatName, &existing.AgentKey, &existing.TeamID, &existing.SourceChannel, &existing.CreatedAt, &existing.UpdatedAt, &existing.LastRunID, &existing.LastRunContent, &existing.Read.ReadRunID, &existing.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt)
+		Scan(&existing.ChatID, &existing.ChatName, &existing.AgentKey, &existing.TeamID, &existing.Source, &existing.SourceChannel, &existing.CreatedAt, &existing.UpdatedAt, &existing.LastRunID, &existing.LastRunContent, &existing.Read.ReadRunID, &existing.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt)
 	if err == nil {
 		applyDerivedReadState(&existing)
 		if hasUsageData(usage) {
@@ -39,15 +44,16 @@ func (s *FileStore) EnsureChat(chatID string, agentKey string, teamID string, fi
 		ChatName:  defaultChatName(firstMessage),
 		AgentKey:  agentKey,
 		TeamID:    teamID,
+		Source:    source,
 		CreatedAt: now,
 		UpdatedAt: now,
 		Read: ChatReadState{
 			IsRead: true,
 		},
 	}
-	_, err = s.db.Exec(`INSERT INTO CHATS (CHAT_ID_, CHAT_NAME_, AGENT_KEY_, TEAM_ID_, CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_)
-		VALUES (?, ?, ?, ?, ?, ?, '', '', '')`,
-		chatID, summary.ChatName, agentKey, nilIfEmpty(teamID), now, now)
+	_, err = s.db.Exec(`INSERT INTO CHATS (CHAT_ID_, CHAT_NAME_, AGENT_KEY_, TEAM_ID_, SOURCE_, CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_)
+		VALUES (?, ?, ?, ?, ?, ?, ?, '', '', '')`,
+		chatID, summary.ChatName, agentKey, nilIfEmpty(teamID), source, now, now)
 	if err != nil {
 		return Summary{}, false, err
 	}
@@ -132,7 +138,7 @@ func (s *FileStore) loadSummary(chatID string) (*Summary, error) {
 	var pendingAwaitingID, pendingRunID, pendingMode string
 	var pendingCreatedAt int64
 	err := s.db.QueryRow("SELECT "+summarySelectColumns+" FROM CHATS WHERE CHAT_ID_=?", chatID).
-		Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.TeamID, &sum.SourceChannel, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID, &sum.LastRunContent, &sum.Read.ReadRunID, &sum.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt)
+		Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.TeamID, &sum.Source, &sum.SourceChannel, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID, &sum.LastRunContent, &sum.Read.ReadRunID, &sum.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -234,7 +240,7 @@ func (s *FileStore) ListChats(lastRunID string, agentKey string) ([]Summary, err
 		var usage UsageData
 		var pendingAwaitingID, pendingRunID, pendingMode string
 		var pendingCreatedAt int64
-		if err := rows.Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.TeamID, &sum.SourceChannel, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID, &sum.LastRunContent, &sum.Read.ReadRunID, &sum.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt); err != nil {
+		if err := rows.Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.TeamID, &sum.Source, &sum.SourceChannel, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID, &sum.LastRunContent, &sum.Read.ReadRunID, &sum.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt); err != nil {
 			return nil, err
 		}
 		if hasUsageData(usage) {
@@ -269,7 +275,7 @@ func (s *FileStore) RecentChatsByAgent(agentKey string, limit int) ([]Summary, e
 		var usage UsageData
 		var pendingAwaitingID, pendingRunID, pendingMode string
 		var pendingCreatedAt int64
-		if err := rows.Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.TeamID, &sum.SourceChannel, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID, &sum.LastRunContent, &sum.Read.ReadRunID, &sum.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt); err != nil {
+		if err := rows.Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.TeamID, &sum.Source, &sum.SourceChannel, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID, &sum.LastRunContent, &sum.Read.ReadRunID, &sum.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt); err != nil {
 			return nil, err
 		}
 		if hasUsageData(usage) {

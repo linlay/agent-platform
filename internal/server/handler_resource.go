@@ -196,18 +196,13 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		chatID = newChatID()
 	}
 	agentKey := strings.TrimSpace(r.FormValue("agentKey"))
-	summary, created, err := s.deps.Chats.EnsureChat(chatID, agentKey, "", r.FormValue("name"))
+	summary, created, err := s.deps.Chats.EnsureChatWithSource(chatID, agentKey, "", r.FormValue("name"), api.ChatSourceHumanUpload)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
 	if created {
-		s.broadcast("chat.created", map[string]any{
-			"chatId":    chatID,
-			"chatName":  summary.ChatName,
-			"agentKey":  agentKey,
-			"timestamp": summary.CreatedAt,
-		})
+		s.broadcast("chat.created", chatCreatedPayload(chatID, summary.ChatName, agentKey, summary.CreatedAt, summary.Source))
 	}
 	file, header, err := pickUploadFile(r.MultipartForm)
 	if err != nil {

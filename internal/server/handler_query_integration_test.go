@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -66,6 +67,9 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	if len(chatsResp.Data) != 1 {
 		t.Fatalf("expected 1 chat, got %d", len(chatsResp.Data))
 	}
+	if chatsResp.Data[0].Source != api.ChatSourceHumanQuery {
+		t.Fatalf("expected human query chat source, got %#v", chatsResp.Data[0])
+	}
 	chatID := chatsResp.Data[0].ChatID
 	assertUUIDLike(t, chatID)
 
@@ -98,6 +102,72 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	})
 	if len(chatResp.Data.RawMessages) != 2 {
 		t.Fatalf("expected 2 raw messages, got %#v", chatResp.Data.RawMessages)
+	}
+}
+
+func TestQueryChatSourceCannotBeSpoofedByExternalPayload(t *testing.T) {
+	fixture := newTestFixture(t)
+	server := fixture.server
+
+	body := bytes.NewBufferString(`{"chatId":"chat-source-spoof","message":"hello","agentKey":"mock-agent","role":"automation","source":"automation:evil"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/query", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	summary, err := fixture.chats.Summary("chat-source-spoof")
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+	if summary == nil || summary.Source != api.ChatSourceHumanQuery {
+		t.Fatalf("expected external payload to create human query source, got %#v", summary)
+	}
+}
+
+func TestExecuteInternalQueryPreservesTrustedChatSource(t *testing.T) {
+	fixture := newTestFixture(t)
+	server := fixture.server
+
+	status, body, err := server.ExecuteInternalQuery(context.Background(), api.QueryRequest{
+		ChatID:     "chat-automation-source",
+		Message:    "internal automation run",
+		AgentKey:   "mock-agent",
+		ChatSource: api.ChatSourceAutomationPrefix + "daily",
+	})
+	if err != nil {
+		t.Fatalf("execute internal query: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", status, body)
+	}
+	summary, err := fixture.chats.Summary("chat-automation-source")
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+	if summary == nil || summary.Source != "automation:daily" {
+		t.Fatalf("expected trusted automation source, got %#v", summary)
+	}
+
+	status, body, err = server.ExecuteInternalQuery(context.Background(), api.QueryRequest{
+		ChatID:   "chat-internal-source",
+		Message:  "internal run",
+		AgentKey: "mock-agent",
+	})
+	if err != nil {
+		t.Fatalf("execute internal query without source: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", status, body)
+	}
+	summary, err = fixture.chats.Summary("chat-internal-source")
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+	if summary == nil || summary.Source != api.ChatSourceInternalQuery {
+		t.Fatalf("expected default internal query source, got %#v", summary)
 	}
 }
 

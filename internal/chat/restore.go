@@ -47,14 +47,14 @@ func (s *FileStore) RestoreArchivedChat(archived ArchivedChat) (Summary, error) 
 	}()
 
 	_, err = tx.Exec(`INSERT INTO CHATS (
-			CHAT_ID_, CHAT_NAME_, AGENT_KEY_, TEAM_ID_, SOURCE_CHANNEL_, CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_,
+			CHAT_ID_, CHAT_NAME_, AGENT_KEY_, TEAM_ID_, SOURCE_, SOURCE_CHANNEL_, CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_,
 			USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, USAGE_CACHED_TOKENS_, USAGE_REASONING_TOKENS_,
 			USAGE_PROMPT_CACHE_HIT_TOKENS_, USAGE_PROMPT_CACHE_MISS_TOKENS_,
 			USAGE_ESTIMATED_COST_CURRENCY_, USAGE_ESTIMATED_COST_INPUT_CACHE_HIT_, USAGE_ESTIMATED_COST_INPUT_CACHE_MISS_, USAGE_ESTIMATED_COST_OUTPUT_, USAGE_ESTIMATED_COST_TOTAL_,
 			USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
 			USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		chatID, archived.Summary.ChatName, archived.Summary.AgentKey, nilIfEmpty(archived.Summary.TeamID), archived.Summary.SourceChannel,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		chatID, archived.Summary.ChatName, archived.Summary.AgentKey, nilIfEmpty(archived.Summary.TeamID), archived.Summary.Source, archived.Summary.SourceChannel,
 		archived.Summary.CreatedAt, archived.Summary.UpdatedAt, archived.Summary.LastRunID, archived.Summary.LastRunContent, readRunID, readAt,
 		usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, usage.CachedTokens, usage.ReasoningTokens,
 		usage.PromptCacheHitTokens, usage.PromptCacheMissTokens,

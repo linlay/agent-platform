@@ -36,6 +36,7 @@ func mapChatSummariesWithUsage(items []chat.Summary, includeUsage bool) []api.Ch
 			ChatName:       item.ChatName,
 			AgentKey:       item.AgentKey,
 			TeamID:         item.TeamID,
+			Source:         item.Source,
 			CreatedAt:      item.CreatedAt,
 			UpdatedAt:      item.UpdatedAt,
 			LastRunID:      item.LastRunID,
@@ -58,6 +59,19 @@ func mapChatSummariesWithUsage(items []chat.Summary, includeUsage bool) []api.Ch
 		response = append(response, resp)
 	}
 	return response
+}
+
+func chatCreatedPayload(chatID string, chatName string, agentKey string, timestamp int64, source string) map[string]any {
+	payload := map[string]any{
+		"chatId":    chatID,
+		"chatName":  chatName,
+		"agentKey":  agentKey,
+		"timestamp": timestamp,
+	}
+	if strings.TrimSpace(source) != "" {
+		payload["source"] = strings.TrimSpace(source)
+	}
+	return payload
 }
 
 func (s *Server) loadChatDetail(ctx context.Context, chatID string, includeRawMessages bool) (api.ChatDetailResponse, error) {

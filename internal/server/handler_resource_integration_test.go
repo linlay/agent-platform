@@ -71,6 +71,13 @@ func TestUploadAndResourceRoundTrip(t *testing.T) {
 		t.Fatalf("decode upload response: %v", err)
 	}
 	assertUUIDLike(t, response.Data.ChatID)
+	summary, err := fixture.chats.Summary(response.Data.ChatID)
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+	if summary == nil || summary.Source != api.ChatSourceHumanUpload {
+		t.Fatalf("expected upload chat source, got %#v", summary)
+	}
 	wantUploadPath := filepath.Join(fixture.cfg.Paths.ChatsDir, response.Data.ChatID, "notes.txt")
 	if response.Data.Upload.Path != wantUploadPath {
 		t.Fatalf("upload path = %q, want %q", response.Data.Upload.Path, wantUploadPath)

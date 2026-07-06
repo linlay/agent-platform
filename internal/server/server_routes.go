@@ -98,6 +98,9 @@ func (s *Server) ExecuteInternalQuery(ctx context.Context, req api.QueryRequest)
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if req.ChatSource != "" {
+		ctx = withChatSourceContext(ctx, req.ChatSource)
+	}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return 0, "", err
@@ -122,6 +125,9 @@ func (s *Server) ExecuteInternalQueryStream(
 ) error {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if req.ChatSource != "" {
+		ctx = withChatSourceContext(ctx, req.ChatSource)
 	}
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -267,6 +273,22 @@ func isSyncQueryContext(ctx context.Context) bool {
 	}
 	value, _ := ctx.Value(syncQueryContextKey{}).(bool)
 	return value
+}
+
+func withChatSourceContext(ctx context.Context, source string) context.Context {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, chatSourceContextKey{}, source)
+}
+
+func chatSourceFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	source, _ := ctx.Value(chatSourceContextKey{}).(string)
+	return strings.TrimSpace(source)
 }
 
 func (s *Server) routes() {

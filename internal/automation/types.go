@@ -57,6 +57,10 @@ type Query struct {
 
 func (d Definition) ToQueryRequest() api.QueryRequest {
 	params := contracts.CloneMap(d.Query.Params)
+	chatSource := ""
+	if id := strings.TrimSpace(d.ID); id != "" {
+		chatSource = api.ChatSourceAutomationPrefix + id
+	}
 
 	return api.QueryRequest{
 		RequestID:  d.Query.RequestID,
@@ -68,6 +72,7 @@ func (d Definition) ToQueryRequest() api.QueryRequest {
 		References: append([]api.Reference(nil), d.Query.References...),
 		Params:     params,
 		Scene:      cloneScene(d.Query.Scene),
+		ChatSource: chatSource,
 	}
 }
 

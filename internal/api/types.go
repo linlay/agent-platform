@@ -57,6 +57,12 @@ const (
 	QueryRoleSystem     = "system"
 
 	QueryRoleValidationMessage = "role must be user, assistant, automation, or system"
+
+	ChatSourceHumanQuery       = "human:query"
+	ChatSourceHumanUpload      = "human:upload"
+	ChatSourceInternalQuery    = "internal:query"
+	ChatSourceInternalDerive   = "internal:derive"
+	ChatSourceAutomationPrefix = "automation:"
 )
 
 func NormalizeQueryRole(role string) (string, bool) {
@@ -129,6 +135,10 @@ type QueryRequest struct {
 	// Internal runtime hint: the stream bootstrap already emitted the synthetic
 	// request.query for this run, so agent mode prefixes must not emit it again.
 	SyntheticQueryBootstrapped bool `json:"-"`
+
+	// Internal runtime hint for the chat creation source. External JSON input
+	// cannot set this field.
+	ChatSource string `json:"-"`
 }
 
 type QueryResponse struct {
@@ -1000,6 +1010,7 @@ type ChatSummaryResponse struct {
 	ChatName       string         `json:"chatName"`
 	AgentKey       string         `json:"agentKey,omitempty"`
 	TeamID         string         `json:"teamId,omitempty"`
+	Source         string         `json:"source,omitempty"`
 	CreatedAt      int64          `json:"createdAt"`
 	UpdatedAt      int64          `json:"updatedAt"`
 	LastRunID      string         `json:"lastRunId,omitempty"`
@@ -1216,6 +1227,7 @@ type DeriveChatResponse struct {
 	ChatName     string `json:"chatName"`
 	AgentKey     string `json:"agentKey,omitempty"`
 	TeamID       string `json:"teamId,omitempty"`
+	Source       string `json:"source,omitempty"`
 	SourceChatID string `json:"sourceChatId"`
 	SourceRunID  string `json:"sourceRunId"`
 	LastRunID    string `json:"lastRunId"`
