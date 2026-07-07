@@ -502,6 +502,45 @@ func TestAgentCreateKBaseRejectsInvalidChunkUnit(t *testing.T) {
 	}
 }
 
+func TestAgentCreateKBaseWithExplicitNamePreservesUserValue(t *testing.T) {
+	fixture := newTestFixture(t)
+	workspaceDir := filepath.Join(t.TempDir(), "knowledge-base-alpha")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("create workspace dir: %v", err)
+	}
+
+	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
+		"definition": map[string]any{
+			"name": "我的自定义知识库",
+			"mode": "KBASE",
+			"modelConfig": map[string]any{
+				"modelKey": "mock-model",
+			},
+			"runtimeConfig": map[string]any{
+				"workspaceRoot": workspaceDir,
+			},
+		},
+	})
+	name, nameOk := created.Definition["name"].(string)
+	if !nameOk || name != "我的自定义知识库" {
+		t.Fatalf("kbase definition name = %#v, want %q", created.Definition["name"], "我的自定义知识库")
+	}
+	if name == filepath.Base(workspaceDir) {
+		t.Fatalf("kbase definition name should not be derived from workspaceRoot when user explicitly provides name, got %q", name)
+	}
+	if created.Source == nil {
+		t.Fatalf("expected created source")
+	}
+	data, err := os.ReadFile(created.Source.Path)
+	if err != nil {
+		t.Fatalf("read created agent file: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if lines[1] != "name: 我的自定义知识库" {
+		t.Fatalf("expected YAML name to be preserved, got line 2=%q", lines[1])
+	}
+}
+
 func TestAgentCreateCoderAndOpenWorkspace(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w,
@@ -740,6 +779,54 @@ func TestAgentCreateCoderPreservesExplicitModelConfig(t *testing.T) {
 	toolBudget, _ := budget["tool"].(map[string]any)
 	if budget["timeout"] != float64(1800) || toolBudget["maxCalls"] != float64(120) {
 		t.Fatalf("expected explicit coder budget to win, got %#v", budget)
+	}
+}
+
+func TestAgentCreateCoderWithExplicitNamePreservesUserValue(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{
+		configure: func(cfg *config.Config) {
+			cfg.CoderSettings.DefaultAgent = config.CoderDefaultAgentConfig{
+				ModelKey:        "mock-model",
+				ReasoningEffort: "MEDIUM",
+			}
+		},
+	})
+	workspaceDir := filepath.Join(t.TempDir(), "project-alpha")
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("create workspace dir: %v", err)
+	}
+
+	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
+		"definition": map[string]any{
+			"name": "我的自定义CODER",
+			"mode": "CODER",
+			"runtimeConfig": map[string]any{
+				"workspaceRoot": workspaceDir,
+			},
+		},
+	})
+	name, nameOk := created.Definition["name"].(string)
+	if !nameOk || name != "我的自定义CODER" {
+		t.Fatalf("coder definition name = %#v, want %q", created.Definition["name"], "我的自定义CODER")
+	}
+	if name == filepath.Base(workspaceDir) {
+		t.Fatalf("coder definition name should not be derived from workspaceRoot when user explicitly provides name, got %q", name)
+	}
+	if created.Source == nil {
+		t.Fatalf("expected created source")
+	}
+	data, err := os.ReadFile(created.Source.Path)
+	if err != nil {
+		t.Fatalf("read created agent file: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if lines[1] != "name: 我的自定义CODER" {
+		t.Fatalf("expected YAML name to be preserved, got line 2=%q", lines[1])
 	}
 }
 

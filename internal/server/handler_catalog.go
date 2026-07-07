@@ -426,7 +426,10 @@ func (s *Server) normalizeGeneratedModeCreation(key string, definition map[strin
 	runtimeCfg := contracts.AnyMapNode(out["runtimeConfig"])
 	wsRoot := strings.TrimSpace(stringValue(runtimeCfg["workspaceRoot"]))
 	if wsRoot != "" {
-		out["name"] = filepath.Base(wsRoot)
+		existingName := strings.TrimSpace(stringValue(out["name"]))
+		if existingName == "" {
+			out["name"] = filepath.Base(wsRoot)
+		}
 	}
 	return newKey, out
 }
