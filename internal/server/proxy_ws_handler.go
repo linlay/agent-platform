@@ -427,22 +427,7 @@ func (s *Server) runProxyWebSocket(
 			}
 			continue
 		}
-		event := frame.Event
-		event = normalizeProxyEventIdentity(event, prepared.req)
-		if event.Seq <= 0 {
-			seq++
-			event.Seq = seq
-		}
-		if event.Timestamp <= 0 {
-			event.Timestamp = time.Now().UnixMilli()
-		}
-		if recorder != nil {
-			recorder.DecorateEvent(&event)
-		}
-		eventBus.Publish(event)
-		if recorder != nil {
-			recorder.OnEvent(event)
-		}
+		event := publishProxyLiveEvent(eventBus, recorder, prepared.req, &seq, frame.Event)
 		switch event.Type {
 		case "run.complete", "run.error", "run.cancel":
 			terminalSeen = true
@@ -560,22 +545,7 @@ func (s *Server) runProxyInboundChannel(
 				}
 				continue
 			}
-			event := frame.Event
-			event = normalizeProxyEventIdentity(event, prepared.req)
-			if event.Seq <= 0 {
-				seq++
-				event.Seq = seq
-			}
-			if event.Timestamp <= 0 {
-				event.Timestamp = time.Now().UnixMilli()
-			}
-			if recorder != nil {
-				recorder.DecorateEvent(&event)
-			}
-			eventBus.Publish(event)
-			if recorder != nil {
-				recorder.OnEvent(event)
-			}
+			event := publishProxyLiveEvent(eventBus, recorder, prepared.req, &seq, frame.Event)
 			switch event.Type {
 			case "run.complete", "run.error", "run.cancel":
 				terminalSeen = true
@@ -672,23 +642,7 @@ func (s *Server) runProxySSE(
 		if !ok {
 			continue
 		}
-		event = normalizeProxyEventIdentity(event, prepared.req)
-		if event.Seq <= 0 {
-			seq++
-			event.Seq = seq
-		}
-		if event.Timestamp <= 0 {
-			event.Timestamp = time.Now().UnixMilli()
-		}
-		if recorder != nil {
-			recorder.DecorateEvent(&event)
-		}
-		if eventBus != nil {
-			eventBus.Publish(event)
-		}
-		if recorder != nil {
-			recorder.OnEvent(event)
-		}
+		event = publishProxyLiveEvent(eventBus, recorder, prepared.req, &seq, event)
 		switch event.Type {
 		case "run.complete", "run.error", "run.cancel":
 			terminalSeen = true

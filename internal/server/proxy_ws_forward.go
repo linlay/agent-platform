@@ -479,21 +479,22 @@ func sendProxyRouteMessage(route *proxyRunRoute, payload map[string]any) bool {
 }
 
 type proxyEventRecorder struct {
-	req           api.QueryRequest
-	agentDef      catalog.AgentDefinition
-	chatStore     chat.Store
-	stepWriter    *chat.StepWriter
-	control       *contracts.RunControl
-	notifications contracts.NotificationSink
-	usageTracker  *proxyUsageTracker
-	awaiting      awaitingTracker
-	assistantText strings.Builder
-	startedAt     int64
-	finishReason  string
-	runUsage      chat.UsageData
-	contents      map[string]*proxyContentBucket
-	reasonings    map[string]*proxyContentBucket
-	tools         map[string]*proxyToolBucket
+	req               api.QueryRequest
+	agentDef          catalog.AgentDefinition
+	chatStore         chat.Store
+	stepWriter        *chat.StepWriter
+	control           *contracts.RunControl
+	notifications     contracts.NotificationSink
+	usageTracker      *proxyUsageTracker
+	awaiting          awaitingTracker
+	assistantText     strings.Builder
+	startedAt         int64
+	finishReason      string
+	runUsage          chat.UsageData
+	contents          map[string]*proxyContentBucket
+	reasonings        map[string]*proxyContentBucket
+	tools             map[string]*proxyToolBucket
+	planningSnapshots map[string]bool
 }
 
 type proxyContentBucket struct {
@@ -544,16 +545,17 @@ func newProxyEventRecorder(
 		Payload:   queryPayload,
 	})
 	recorder := &proxyEventRecorder{
-		req:           req,
-		agentDef:      agentDef,
-		chatStore:     chatStore,
-		stepWriter:    stepWriter,
-		control:       control,
-		notifications: notifications,
-		startedAt:     time.Now().UnixMilli(),
-		contents:      map[string]*proxyContentBucket{},
-		reasonings:    map[string]*proxyContentBucket{},
-		tools:         map[string]*proxyToolBucket{},
+		req:               req,
+		agentDef:          agentDef,
+		chatStore:         chatStore,
+		stepWriter:        stepWriter,
+		control:           control,
+		notifications:     notifications,
+		startedAt:         time.Now().UnixMilli(),
+		contents:          map[string]*proxyContentBucket{},
+		reasonings:        map[string]*proxyContentBucket{},
+		tools:             map[string]*proxyToolBucket{},
+		planningSnapshots: map[string]bool{},
 	}
 	recorder.usageTracker = newProxyUsageTracker(chatUsage, &recorder.runUsage, models, billing)
 	return recorder
@@ -566,9 +568,121 @@ func (r *proxyEventRecorder) DecorateEvent(event *stream.EventData) {
 	r.usageTracker.Decorate(event)
 }
 
+func publishProxyLiveEvent(eventBus *stream.RunEventBus, recorder *proxyEventRecorder, req api.QueryRequest, seq *int64, event stream.EventData) stream.EventData {
+	event = normalizeProxyEventIdentity(event, req)
+	if event.Timestamp <= 0 {
+		event.Timestamp = time.Now().UnixMilli()
+	}
+	if snapshot, ok := recorder.syntheticPlanningSnapshotBeforeAwaiting(event); ok {
+		assignProxySyntheticSeq(&snapshot, seq, event.Seq)
+		publishProxyEventData(eventBus, recorder, snapshot)
+	}
+	assignProxyEventSeq(&event, seq)
+	publishProxyEventData(eventBus, recorder, event)
+	return event
+}
+
+func assignProxyEventSeq(event *stream.EventData, seq *int64) {
+	if event == nil || seq == nil {
+		return
+	}
+	if event.Seq <= 0 || event.Seq <= *seq {
+		*seq = *seq + 1
+		event.Seq = *seq
+		return
+	}
+	*seq = event.Seq
+}
+
+func assignProxySyntheticSeq(event *stream.EventData, seq *int64, beforeSeq int64) {
+	if event == nil || seq == nil {
+		return
+	}
+	if beforeSeq > 0 && beforeSeq > *seq {
+		event.Seq = beforeSeq
+		*seq = beforeSeq
+		return
+	}
+	*seq = *seq + 1
+	event.Seq = *seq
+}
+
+func publishProxyEventData(eventBus *stream.RunEventBus, recorder *proxyEventRecorder, event stream.EventData) {
+	if recorder != nil {
+		recorder.DecorateEvent(&event)
+	}
+	if eventBus != nil {
+		eventBus.Publish(event)
+	}
+	if recorder != nil {
+		recorder.OnEvent(event)
+	}
+}
+
+func (r *proxyEventRecorder) syntheticPlanningSnapshotBeforeAwaiting(event stream.EventData) (stream.EventData, bool) {
+	if r == nil || event.Type != "awaiting.ask" || !strings.EqualFold(strings.TrimSpace(event.String("mode")), "plan") {
+		return stream.EventData{}, false
+	}
+	plan := contracts.AnyMapNode(event.Value("plan"))
+	if strings.TrimSpace(contracts.AnyStringNode(plan["text"])) == "" {
+		return stream.EventData{}, false
+	}
+	chatDir := ""
+	if r.chatStore != nil {
+		chatDir = r.chatStore.ChatDir(r.req.ChatID)
+	}
+	state, snapshot := chat.PlanningSnapshotFromAwaitingItem(eventPayloadWithType(event), r.req.ChatID, r.req.RunID, chatDir, event.Timestamp)
+	if state == nil || snapshot == nil || strings.TrimSpace(state.Markdown) == "" || r.hasPlanningSnapshot(state.PlanningID) {
+		return stream.EventData{}, false
+	}
+	if snapshot.Timestamp <= 0 {
+		snapshot.Timestamp = event.Timestamp
+	}
+	return *snapshot, true
+}
+
+func (r *proxyEventRecorder) hasPlanningSnapshot(planningID string) bool {
+	if r == nil || strings.TrimSpace(planningID) == "" {
+		return false
+	}
+	return r.planningSnapshots[strings.TrimSpace(planningID)]
+}
+
+func (r *proxyEventRecorder) markPlanningSnapshot(event stream.EventData) {
+	if r == nil {
+		return
+	}
+	planningID := strings.TrimSpace(event.String("planningId"))
+	if planningID == "" {
+		return
+	}
+	if r.planningSnapshots == nil {
+		r.planningSnapshots = map[string]bool{}
+	}
+	r.planningSnapshots[planningID] = true
+}
+
+func eventPayloadWithType(event stream.EventData) map[string]any {
+	payload := make(map[string]any, len(event.Payload)+3)
+	for key, value := range event.Payload {
+		payload[key] = value
+	}
+	payload["type"] = event.Type
+	if event.Seq > 0 {
+		payload["seq"] = event.Seq
+	}
+	if event.Timestamp > 0 {
+		payload["timestamp"] = event.Timestamp
+	}
+	return payload
+}
+
 func (r *proxyEventRecorder) OnEvent(event stream.EventData) {
 	if r == nil || r.stepWriter == nil {
 		return
+	}
+	if event.Type == "planning.snapshot" {
+		r.markPlanningSnapshot(event)
 	}
 	switch event.Type {
 	case "content.start":

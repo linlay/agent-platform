@@ -2750,6 +2750,67 @@ func TestLoadChatRestoresPlanningFromReactAwaitingPlan(t *testing.T) {
 	}
 }
 
+func TestLoadChatRestoresPlanningFromTextOnlyAwaitingPlan(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-awaiting-plan-text-only"
+	runID := "run-planning"
+	planningID := "run-planning_planning_1"
+	planningText := "# Text Only Plan\n\nBody"
+	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := store.AppendStepLine(chatID, StepLine{
+		ChatID:    chatID,
+		RunID:     runID,
+		UpdatedAt: 1004,
+		Messages:  []StoredMessage{},
+		Awaiting: []map[string]any{
+			{
+				"type":       "awaiting.ask",
+				"awaitingId": "run-planning_coder_plan_confirm_1",
+				"mode":       "plan",
+				"timeout":    0,
+				"plan": map[string]any{
+					"id":         "confirm",
+					"planningId": planningID,
+					"text":       planningText,
+				},
+			},
+		},
+		Type: "react",
+		Seq:  1,
+	}); err != nil {
+		t.Fatalf("append step line: %v", err)
+	}
+
+	detail, err := store.LoadChat(chatID)
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+	planningFile := filepath.Join(store.ChatDir(chatID), ToolRootDirName, ToolPlansDirName, planningID+".md")
+	if detail.Planning == nil || detail.Planning.PlanningID != planningID ||
+		detail.Planning.PlanningFile != planningFile || detail.Planning.Markdown != planningText {
+		t.Fatalf("expected planning state from text-only awaiting plan, got planning=%#v events=%#v", detail.Planning, detail.Events)
+	}
+	if detailEventTypeCount(detail.Events, "planning.snapshot") != 1 {
+		t.Fatalf("expected text-only awaiting plan to synthesize one planning.snapshot, got %#v", detail.Events)
+	}
+	snapshot := detailEventByType(detail.Events, "planning.snapshot")
+	if snapshot.String("planningId") != planningID ||
+		snapshot.String("planningFile") != planningFile ||
+		snapshot.String("text") != planningText {
+		t.Fatalf("unexpected synthesized planning.snapshot: %#v", snapshot)
+	}
+	snapshotIndex := detailEventTypeIndex(detail.Events, "planning.snapshot")
+	awaitingIndex := detailEventTypeIndex(detail.Events, "awaiting.ask")
+	if snapshotIndex < 0 || awaitingIndex < 0 || snapshotIndex >= awaitingIndex {
+		t.Fatalf("expected planning.snapshot before awaiting.ask, got %#v", detail.Events)
+	}
+}
+
 func TestLoadChatSynthesizesPlanningSnapshotsForMultipleAwaitingPlans(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {

@@ -8,6 +8,12 @@ import (
 	"agent-platform/internal/stream"
 )
 
+// PlanningSnapshotFromAwaitingItem builds planning state and a replay/live snapshot
+// from a persisted or proxied plan awaiting event.
+func PlanningSnapshotFromAwaitingItem(item map[string]any, chatID string, runID string, chatDir string, fallbackTimestamp int64) (*PlanningState, *stream.EventData) {
+	return planningSnapshotFromAwaitingItem(item, chatID, runID, chatDir, fallbackTimestamp)
+}
+
 func planningSnapshotFromAwaitingItem(item map[string]any, chatID string, runID string, chatDir string, fallbackTimestamp int64) (*PlanningState, *stream.EventData) {
 	if strings.TrimSpace(stringFromAny(item["type"])) != "awaiting.ask" ||
 		!strings.EqualFold(strings.TrimSpace(stringFromAny(item["mode"])), "plan") {
@@ -17,12 +23,7 @@ func planningSnapshotFromAwaitingItem(item map[string]any, chatID string, runID 
 	if len(plan) == 0 {
 		return nil, nil
 	}
-	state := planningStateFromRef(
-		strings.TrimSpace(stringFromAny(plan["planningId"])),
-		strings.TrimSpace(stringFromAny(plan["planningFile"])),
-		"",
-		chatDir,
-	)
+	state := planningStateFromPlan(plan, chatDir)
 	if state == nil {
 		return nil, nil
 	}
@@ -71,17 +72,28 @@ func planningStateFromAwaitingPlan(rawAwaiting any, chatDir string) *PlanningSta
 		if len(plan) == 0 {
 			continue
 		}
-		state := planningStateFromRef(
-			strings.TrimSpace(stringFromAny(plan["planningId"])),
-			strings.TrimSpace(stringFromAny(plan["planningFile"])),
-			"",
-			chatDir,
-		)
+		state := planningStateFromPlan(plan, chatDir)
 		if state != nil {
 			latest = state
 		}
 	}
 	return latest
+}
+
+func planningStateFromPlan(plan map[string]any, chatDir string) *PlanningState {
+	if len(plan) == 0 {
+		return nil
+	}
+	planningID := strings.TrimSpace(stringFromAny(plan["planningId"]))
+	if planningID == "" {
+		planningID = strings.TrimSpace(stringFromAny(plan["id"]))
+	}
+	return planningStateFromRef(
+		planningID,
+		strings.TrimSpace(stringFromAny(plan["planningFile"])),
+		stringFromAny(plan["text"]),
+		chatDir,
+	)
 }
 
 func planningStateFromRef(planningID string, planningFile string, markdown string, chatDir string) *PlanningState {
