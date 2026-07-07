@@ -147,7 +147,7 @@ func (s *Server) adminChannelAgentSummary(def *channelpkg.Definition, summaries 
 			exports = append(exports, api.AdminChannelAgentExport{
 				AgentKey:         agentKey,
 				Name:             name,
-				ExternalAgentKey: strings.TrimSpace(export.ExternalAgentKey),
+				ExternalAgentKey: catalog.EffectiveChannelExportExternalKey(agentKey, export),
 				Allow: api.AdminChannelAllowFlags{
 					Query:        export.Allow.Query,
 					Submit:       export.Allow.Submit,

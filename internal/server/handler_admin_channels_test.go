@@ -159,6 +159,57 @@ func TestAdminChannelsReportsServerConnectionsAndAgentRelations(t *testing.T) {
 	}
 }
 
+func TestAdminChannelsReturnsEffectiveExternalAgentKeyForOmittedAlias(t *testing.T) {
+	server, _ := newServerForChannelTests(t)
+	server.deps.Notifications = channelConnectionSnapshotStub{}
+	server.deps.Channels = channelpkg.NewRegistry([]config.ChannelConfig{{
+		ID:        "public-entry",
+		Name:      "Public Entry",
+		Type:      config.ChannelTypeGateway,
+		Mode:      config.ChannelModeServer,
+		Transport: config.ChannelTransportWebSocket,
+		Protocol:  config.ChannelProtocolPlatformWS,
+		AllAgents: true,
+	}})
+	server.deps.Registry = channelTestCatalogRegistry{
+		agents: []api.AgentSummary{
+			{Key: "kbaseOrchestrator", Name: "KB Orchestrator"},
+		},
+		defs: map[string]catalog.AgentDefinition{
+			"kbaseOrchestrator": {
+				Key:      "kbaseOrchestrator",
+				Name:     "KB Orchestrator",
+				Mode:     "KBASE",
+				ModelKey: "mock-model",
+				ChannelConfig: catalog.AgentChannelConfig{
+					Exports: []catalog.AgentChannelExport{{
+						ChannelID: "public-entry",
+						Allow:     catalog.AgentChannelAllow{Query: true},
+					}},
+				},
+			},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	server.handleMonitorChannels(rec, httptest.NewRequest(http.MethodGet, "/api/monitor/channels", nil))
+	response := decodeAdminChannelsResponse(t, rec)
+	if response.Data.Total != 1 {
+		t.Fatalf("expected one channel, got %#v", response.Data)
+	}
+	item := response.Data.Items[0]
+	if item.Agents.ExportCount != 1 {
+		t.Fatalf("expected 1 export, got %d", item.Agents.ExportCount)
+	}
+	exp := item.Agents.Exports[0]
+	if exp.ExternalAgentKey != "kbaseOrchestrator" {
+		t.Fatalf("expected effective key kbaseOrchestrator, got %q", exp.ExternalAgentKey)
+	}
+	if exp.AgentKey != "kbaseOrchestrator" {
+		t.Fatalf("expected local agent key kbaseOrchestrator, got %q", exp.AgentKey)
+	}
+}
+
 func decodeAdminChannelsResponse(t *testing.T, rec *httptest.ResponseRecorder) api.ApiResponse[api.AdminChannelListResponse] {
 	t.Helper()
 	if rec.Code != http.StatusOK {

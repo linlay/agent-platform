@@ -507,7 +507,7 @@ Channel WS 复用标准 `platform-ws` 帧：`request`、`response`、`stream`、
 {"frame":"request","type":"/api/query","id":"req-1","payload":{"externalAgentKey":"assistant","message":"hello"}}
 ```
 
-服务端会按本地 agent 的 `channelConfig.exports` 将 `externalAgentKey` 映射为本地 `agentKey`，并检查该 channel 的 `allow.query / submit / steer / interrupt / fileTransfer` 权限。
+服务端会按本地 agent 的 `channelConfig.exports` 将 `externalAgentKey`（如未显式配置则默认等于本地 agent 的 `key`）映射为本地 `agentKey`，并检查该 channel 的 `allow.query / submit / steer / interrupt / fileTransfer` 权限。
 
 当本地 `mode: CHANNEL` agent 引用 `mode: server` channel 时，运行时会复用该 channel 已接入的 `/ws/channel?channelId=...` 连接向对端发送 `request` 帧，并按相同 `id` 收回 `stream / response / error` 帧。`mode: client` 与 `mode: server` 只表示连接建立方向，不表示 agent 的拥有方；server channel 未连接时会返回 `503 channel <channelId> is not connected`。
 

@@ -107,7 +107,7 @@ func (s *Server) lookupChannelExport(channelID, externalAgentKey string) (string
 			continue
 		}
 		for _, export := range def.ChannelConfig.Exports {
-			if strings.TrimSpace(export.ChannelID) == channelID && strings.TrimSpace(export.ExternalAgentKey) == externalAgentKey {
+			if strings.TrimSpace(export.ChannelID) == channelID && catalog.EffectiveChannelExportExternalKey(def.Key, export) == externalAgentKey {
 				return def.Key, export, true
 			}
 		}

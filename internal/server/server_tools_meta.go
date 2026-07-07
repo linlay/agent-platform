@@ -273,7 +273,7 @@ func (s *Server) buildAgentDetailMeta(def catalog.AgentDefinition) (string, map[
 			"transport": proxyUpstreamTransport(def.ProxyConfig),
 		}
 	}
-	if channelMeta := agentChannelConfigResponse(def.ChannelConfig); len(channelMeta) > 0 {
+	if channelMeta := agentChannelConfigResponse(def.ChannelConfig, def.Key); len(channelMeta) > 0 {
 		meta["channelConfig"] = channelMeta
 	}
 	if hasRuntimeSandbox(def.Runtime) {
@@ -282,7 +282,7 @@ func (s *Server) buildAgentDetailMeta(def catalog.AgentDefinition) (string, map[
 	return modelName, meta
 }
 
-func agentChannelConfigResponse(cfg catalog.AgentChannelConfig) map[string]any {
+func agentChannelConfigResponse(cfg catalog.AgentChannelConfig, localAgentKey string) map[string]any {
 	meta := map[string]any{}
 	if strings.TrimSpace(cfg.ChannelID) != "" {
 		meta["channelId"] = strings.TrimSpace(cfg.ChannelID)
@@ -295,7 +295,7 @@ func agentChannelConfigResponse(cfg catalog.AgentChannelConfig) map[string]any {
 		for _, export := range cfg.Exports {
 			exports = append(exports, map[string]any{
 				"channelId":        strings.TrimSpace(export.ChannelID),
-				"externalAgentKey": strings.TrimSpace(export.ExternalAgentKey),
+				"externalAgentKey": catalog.EffectiveChannelExportExternalKey(localAgentKey, export),
 				"allow": map[string]any{
 					"query":        export.Allow.Query,
 					"submit":       export.Allow.Submit,

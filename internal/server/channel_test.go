@@ -353,6 +353,112 @@ func TestRewriteChannelFileTransferRequiresExportAllow(t *testing.T) {
 	}
 }
 
+func TestRewriteChannelRequestPayloadOmittedAliasMatchesLocalKey(t *testing.T) {
+	server, _ := newServerForChannelTests(t)
+	server.deps.Registry = channelTestCatalogRegistry{
+		agents: []api.AgentSummary{
+			{Key: "kbaseOrchestrator", Name: "KB Orchestrator"},
+		},
+		defs: map[string]catalog.AgentDefinition{
+			"kbaseOrchestrator": {
+				Key:      "kbaseOrchestrator",
+				Name:     "KB Orchestrator",
+				Mode:     "KBASE",
+				ModelKey: "mock-model",
+				ChannelConfig: catalog.AgentChannelConfig{
+					Exports: []catalog.AgentChannelExport{{
+						ChannelID: "public-entry",
+						Allow:     catalog.AgentChannelAllow{Query: true},
+					}},
+				},
+			},
+		},
+	}
+	ctx := platformws.WithGatewayContext(context.Background(), platformws.GatewayContext{Channel: "public-entry"})
+
+	// Match via externalAgentKey with local agent key
+	rewritten, statusErr := server.rewriteChannelRequestPayload(ctx, "/api/query", json.RawMessage(`{"externalAgentKey":"kbaseOrchestrator","message":"hello"}`))
+	if statusErr != nil {
+		t.Fatalf("rewrite query payload: %v", statusErr)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rewritten, &body); err != nil {
+		t.Fatalf("decode rewritten payload: %v", err)
+	}
+	if body["agentKey"] != "kbaseOrchestrator" {
+		t.Fatalf("expected local agent key kbaseOrchestrator, got %#v", body)
+	}
+	if _, ok := body["externalAgentKey"]; ok {
+		t.Fatalf("expected externalAgentKey to be removed, got %#v", body)
+	}
+}
+
+func TestRewriteChannelRequestPayloadFallbackAgentKeyMatches(t *testing.T) {
+	server, _ := newServerForChannelTests(t)
+	server.deps.Registry = channelTestCatalogRegistry{
+		agents: []api.AgentSummary{
+			{Key: "kbaseOrchestrator", Name: "KB Orchestrator"},
+		},
+		defs: map[string]catalog.AgentDefinition{
+			"kbaseOrchestrator": {
+				Key:      "kbaseOrchestrator",
+				Name:     "KB Orchestrator",
+				Mode:     "KBASE",
+				ModelKey: "mock-model",
+				ChannelConfig: catalog.AgentChannelConfig{
+					Exports: []catalog.AgentChannelExport{{
+						ChannelID: "public-entry",
+						Allow:     catalog.AgentChannelAllow{Query: true},
+					}},
+				},
+			},
+		},
+	}
+	ctx := platformws.WithGatewayContext(context.Background(), platformws.GatewayContext{Channel: "public-entry"})
+
+	// Match via agentKey (fallback) without externalAgentKey
+	rewritten, statusErr := server.rewriteChannelRequestPayload(ctx, "/api/query", json.RawMessage(`{"agentKey":"kbaseOrchestrator","message":"hello"}`))
+	if statusErr != nil {
+		t.Fatalf("rewrite query payload via agentKey: %v", statusErr)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rewritten, &body); err != nil {
+		t.Fatalf("decode rewritten payload: %v", err)
+	}
+	if body["agentKey"] != "kbaseOrchestrator" {
+		t.Fatalf("expected local agent key kbaseOrchestrator, got %#v", body)
+	}
+}
+
+func TestRewriteChannelRequestPayloadNonMatchingExternalKeyForbidden(t *testing.T) {
+	server, _ := newServerForChannelTests(t)
+	server.deps.Registry = channelTestCatalogRegistry{
+		agents: []api.AgentSummary{
+			{Key: "kbaseOrchestrator", Name: "KB Orchestrator"},
+		},
+		defs: map[string]catalog.AgentDefinition{
+			"kbaseOrchestrator": {
+				Key:      "kbaseOrchestrator",
+				Name:     "KB Orchestrator",
+				Mode:     "KBASE",
+				ModelKey: "mock-model",
+				ChannelConfig: catalog.AgentChannelConfig{
+					Exports: []catalog.AgentChannelExport{{
+						ChannelID: "public-entry",
+						Allow:     catalog.AgentChannelAllow{Query: true},
+					}},
+				},
+			},
+		},
+	}
+	ctx := platformws.WithGatewayContext(context.Background(), platformws.GatewayContext{Channel: "public-entry"})
+
+	_, statusErr := server.rewriteChannelRequestPayload(ctx, "/api/query", json.RawMessage(`{"externalAgentKey":"nonexistent","message":"hello"}`))
+	if statusErr == nil || statusErr.status != http.StatusForbidden {
+		t.Fatalf("expected 403 for non-matching external key, got %#v", statusErr)
+	}
+}
+
 func newServerForChannelTests(t *testing.T) (*Server, *chat.FileStore) {
 	t.Helper()
 	chats, err := chat.NewFileStore(t.TempDir())

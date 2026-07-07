@@ -1819,3 +1819,80 @@ func TestParseAgentFileWithPromptsLoadsWithoutSoulFile(t *testing.T) {
 		t.Fatalf("expected identity fields from agent.yml, got %#v", def)
 	}
 }
+
+func TestParseAgentFileExportsWithoutExternalAgentKey(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := strings.Join([]string{
+		"key: demo-agent",
+		"name: Demo",
+		"mode: REACT",
+		"modelConfig:",
+		"  modelKey: demo-model",
+		"channelConfig:",
+		"  exports:",
+		"    - channelId: public-entry",
+	}, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if len(def.ChannelConfig.Exports) != 1 {
+		t.Fatalf("expected 1 export, got %d", len(def.ChannelConfig.Exports))
+	}
+	exp := def.ChannelConfig.Exports[0]
+	if exp.ChannelID != "public-entry" {
+		t.Fatalf("expected channelId public-entry, got %q", exp.ChannelID)
+	}
+	if exp.ExternalAgentKey != "" {
+		t.Fatalf("expected blank ExternalAgentKey, got %q", exp.ExternalAgentKey)
+	}
+	if got := EffectiveChannelExportExternalKey(def.Key, exp); got != "demo-agent" {
+		t.Fatalf("expected effective key demo-agent, got %q", got)
+	}
+}
+
+func TestParseAgentFileExportWithoutChannelIdFails(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := strings.Join([]string{
+		"key: demo-agent",
+		"name: Demo",
+		"mode: REACT",
+		"modelConfig:",
+		"  modelKey: demo-model",
+		"channelConfig:",
+		"  exports:",
+		"    - externalAgentKey: alias",
+	}, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	_, err := parseAgentFile(path)
+	if err == nil || !strings.Contains(err.Error(), "channelConfig.exports[0].channelId is required") {
+		t.Fatalf("expected channelId required error, got %v", err)
+	}
+}
+
+func TestEffectiveChannelExportExternalKey(t *testing.T) {
+	exp := AgentChannelExport{
+		ExternalAgentKey: "assistant-ext",
+	}
+	if got := EffectiveChannelExportExternalKey("assistant", exp); got != "assistant-ext" {
+		t.Fatalf("expected explicit key assistant-ext, got %q", got)
+	}
+
+	exp.ExternalAgentKey = ""
+	if got := EffectiveChannelExportExternalKey("assistant", exp); got != "assistant" {
+		t.Fatalf("expected fallback key assistant, got %q", got)
+	}
+
+	if got := EffectiveChannelExportExternalKey("  kbaseOrchestrator  ", exp); got != "kbaseOrchestrator" {
+		t.Fatalf("expected trimmed fallback key, got %q", got)
+	}
+}

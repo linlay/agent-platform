@@ -691,7 +691,7 @@ func (s *Server) buildAgentEditorOptions() api.AgentEditorOptionsResponse {
 			},
 			ExportFields: []api.AgentEditorProxyConfigField{
 				{Key: "channelId", Label: "Channel ID", Type: "string", Required: true},
-				{Key: "externalAgentKey", Label: "External Agent Key", Type: "string", Required: true},
+				{Key: "externalAgentKey", Label: "External Agent Key", Type: "string"},
 			},
 			AllowFields: []api.AgentEditorProxyConfigField{
 				{Key: "query", Label: "Query", Type: "boolean"},

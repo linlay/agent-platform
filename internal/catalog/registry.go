@@ -413,7 +413,7 @@ func (r *FileRegistry) Agents(scope string) []api.AgentSummary {
 				"transport": normalizeProxyTransport(def.ProxyConfig.Transport),
 			}
 		}
-		if channelMeta := agentChannelConfigMeta(def.ChannelConfig); len(channelMeta) > 0 {
+		if channelMeta := agentChannelConfigMeta(def.ChannelConfig, def.Key); len(channelMeta) > 0 {
 			summary.Meta["channelConfig"] = channelMeta
 		}
 		if len(def.ContextTags) > 0 {

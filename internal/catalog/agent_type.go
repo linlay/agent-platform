@@ -302,11 +302,18 @@ func ValidateAgentChannelConfig(def AgentDefinition) error {
 		if strings.TrimSpace(export.ChannelID) == "" {
 			return fmt.Errorf("channelConfig.exports[%d].channelId is required", i)
 		}
-		if strings.TrimSpace(export.ExternalAgentKey) == "" {
-			return fmt.Errorf("channelConfig.exports[%d].externalAgentKey is required", i)
-		}
 	}
 	return nil
+}
+
+// EffectiveChannelExportExternalKey returns the callable external agent key for an export.
+// When export.ExternalAgentKey is explicitly set (non-blank) it is used as-is;
+// otherwise the local agent key serves as the default external key.
+func EffectiveChannelExportExternalKey(localAgentKey string, export AgentChannelExport) string {
+	if ext := strings.TrimSpace(export.ExternalAgentKey); ext != "" {
+		return ext
+	}
+	return strings.TrimSpace(localAgentKey)
 }
 
 func ValidateAgentKBaseConfig(def AgentDefinition) error {
