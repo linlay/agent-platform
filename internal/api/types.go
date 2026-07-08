@@ -19,6 +19,26 @@ type FileHistoryResponse struct {
 	Content string `json:"content"`
 }
 
+type AgentFileResponse struct {
+	AgentKey       string `json:"agentKey"`
+	WorkspaceRoot  string `json:"workspaceRoot"`
+	RequestedPath  string `json:"requestedPath"`
+	Path           string `json:"path"`
+	AbsolutePath   string `json:"absolutePath"`
+	Name           string `json:"name"`
+	Kind           string `json:"kind"`
+	ContentKind    string `json:"contentKind"`
+	MimeType       string `json:"mimeType,omitempty"`
+	Encoding       string `json:"encoding,omitempty"`
+	Content        string `json:"content,omitempty"`
+	SizeBytes      int64  `json:"sizeBytes"`
+	ReadBytes      int    `json:"readBytes,omitempty"`
+	SHA256         string `json:"sha256,omitempty"`
+	ModifiedUnixMs int64  `json:"modifiedUnixMs,omitempty"`
+	Truncated      bool   `json:"truncated"`
+	ContentURL     string `json:"contentUrl,omitempty"`
+}
+
 func Success[T any](data T) ApiResponse[T] {
 	return ApiResponse[T]{
 		Code: 0,

@@ -383,6 +383,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/memory/history", s.method(http.MethodGet, s.handleMemoryHistory))
 	s.router.HandleFunc("/api/memory/record/detail", s.method(http.MethodGet, s.handleMemoryRecord))
 	s.router.HandleFunc("/api/memory/record/timeline", s.method(http.MethodGet, s.handleMemoryRecordTimeline))
+	s.router.HandleFunc("/api/file", s.method(http.MethodGet, s.handleAgentFile))
 	s.router.HandleFunc("/api/file/history", s.method(http.MethodGet, s.handleFileHistory))
 	s.router.HandleFunc("/api/viewport", s.method(http.MethodGet, s.handleViewport))
 	s.router.HandleFunc("/api/tool-result", s.method(http.MethodGet, s.handleToolResult))

@@ -308,10 +308,13 @@ curl -sS -X POST http://127.0.0.1:11949/api/kbase/docs_kbase/refresh \
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
+| GET | `/api/file` | query: `agentKey`、`path`、`response` 可选 | agent workspace 文件；默认 JSON metadata/text，`response=content` 返回文件内容流 |
 | GET | `/api/viewport` | query: `viewportKey`、`viewportType` | viewport 模板或 fallback |
 | GET | `/api/resource` | query: `file`、`t` | chat 资源文件；`t` 为可选 resource ticket |
 | GET | `/api/tool-result` | query: `chatId`、`path`、`t` | `.tools/results/<toolId>.json` 完整工具结果；`t` 为可选 resource ticket |
 | POST | `/api/upload` | multipart: `requestId`、`chatId`、`file` | upload ticket 与资源访问信息 |
+
+`/api/file` 读取当前 agent 的真实 `runtimeConfig.workspaceRoot` 文件，供 CODER / KBASE 等界面预览 Markdown、PDF、图片或普通文件。`path` 可以是 workspace 相对路径，也可以是宿主机绝对路径；绝对路径经 canonical 解析后必须仍位于当前 agent workspace 内，`..` 与 symlink escape 会返回 forbidden。默认响应使用统一 JSON 包裹，文本文件内联 `content`，二进制/PDF/图片只返回 metadata 与 `contentUrl`；`response=content` 时直接返回文件字节流，不使用 JSON 包裹。该接口不读取 KBASE 索引库，也不暴露 `hostAccess.readRoots` 之外的文件。
 
 resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界.md)。
 
