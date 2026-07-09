@@ -127,7 +127,7 @@ func TestMonitorEndpointsBypassHTTPAuth(t *testing.T) {
 			cfg.Auth = config.AuthConfig{
 				Enabled:            true,
 				LocalPublicKeyFile: publicKeyPath,
-				Issuer:             "zenmind-local",
+				Issuer:             "agent-platform-local",
 			}
 		},
 	})

@@ -1,6 +1,6 @@
 name: desktop_action
 label: 桌面端动作
-description: Call the local ZenMind Desktop Action Bridge to read, validate, preview, or execute allowlisted Desktop actions.
+description: Call the local Desktop Action Bridge to read, validate, preview, or execute allowlisted Desktop actions.
 submitResultFormat: json-compact
 type: function
 inputSchema:

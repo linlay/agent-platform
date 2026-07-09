@@ -77,7 +77,7 @@ make build-local
 make run-local
 ```
 
-`make build-local` 会把二进制写到 `release-local/backend/agent-platform`，并创建本机插件目录 `release-local/plugins/`。由于二进制位于 `backend/` 下，启动时只扫描服务包根目录的 `plugins/`，与 Desktop 的 `~/Library/Application Support/ZenMind/services/agent-platform/<version>/plugins` 目录形态一致。`runtime/` 仍只用于 agents、chats、skills-market、registries、memory 等运行数据。
+`make build-local` 会把二进制写到 `release-local/backend/agent-platform`，并创建本机插件目录 `release-local/plugins/`。由于二进制位于 `backend/` 下，启动时只扫描服务包根目录的 `plugins/`，与 Desktop 的 `~/Library/Application Support/<BRAND>/services/agent-platform/<version>/plugins` 目录形态一致。`runtime/` 仍只用于 agents、chats、skills-market、registries、memory 等运行数据。
 
 常用验证：
 
@@ -135,7 +135,7 @@ channels:
 
 - `JWT.sub` 必须和 `gateway.url` 中的 `userId` 完全一致；上例要求 `sub=local`
 - `configs/gateway-private-key.pem` 和真实 `configs/channels.yml` 都是本地文件，不提交
-- `zenmind-gateway-server` 本地联调时请使用 `make run`；`.env` 只保留启动/部署 allowlist，不再作为 channel token 配置入口
+- `.env` 只保留启动/部署 allowlist，不再作为 channel token 配置入口
 
 ### 测试
 
@@ -280,16 +280,15 @@ Container Hub 默认基础挂载当前最多 7 个：
 
 ### 版本化打包
 
-面向 `zenmind-desktop` builtin 分发时，使用 program bundle 发布链路：
+面向 desktop builtin 分发时，使用 program bundle 发布链路：
 
 ```bash
 make release-program
 ```
 
-产物写入 `dist/release/`，包含 Go 二进制、配置模板、runtime 目录骨架和启停脚本。Desktop 集成时再到 `zenmind-desktop` 执行资源同步：
+产物写入 `dist/release/`，包含 Go 二进制、配置模板、runtime 目录骨架和启停脚本。Desktop 宿主集成时执行资源同步：
 
 ```bash
-cd ../zenmind-desktop
 npm run sync:assets
 ```
 

@@ -58,7 +58,7 @@ func TestWebSocketUpgradeAcceptsValidTokenThroughStatusRecorder(t *testing.T) {
 			cfg.Auth = config.AuthConfig{
 				Enabled:            true,
 				LocalPublicKeyFile: publicKeyPath,
-				Issuer:             "zenmind-local",
+				Issuer:             "agent-platform-local",
 			}
 			cfg.WebSocket.WriteQueueSize = 4
 			cfg.WebSocket.PingInterval = 30000
@@ -70,7 +70,7 @@ func TestWebSocketUpgradeAcceptsValidTokenThroughStatusRecorder(t *testing.T) {
 
 	token := mustSignRS256JWT(t, privateKey, map[string]any{
 		"sub": "tester",
-		"iss": "zenmind-local",
+		"iss": "agent-platform-local",
 		"exp": float64(4102444800),
 	})
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws?token=" + url.QueryEscape(token)

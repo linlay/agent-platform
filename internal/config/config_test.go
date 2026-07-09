@@ -2259,7 +2259,7 @@ func TestLoadChannelsConfigAllowsCustomChannelIDForWecomSource(t *testing.T) {
 			"    type: bridge\n" +
 			"    agents: \"*\"\n" +
 			"    gateway:\n" +
-			"      url: ws://zwy.zenmind.cc/ws/agent?agentKey=zenmi&channel=wecom:langyage\n" +
+			"      url: ws://example-gateway.local/ws/agent?agentKey=demo-agent&channel=wecom:langyage\n" +
 			"      jwt-token: token\n"
 		withProjectFileContents(t, filepath.Join("configs", "channels.yml"), &content, func() {
 			cfg, err := Load()

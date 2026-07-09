@@ -496,7 +496,7 @@ func TestQueryAcceptsValidLocalJWT(t *testing.T) {
 	fixture.cfg.Auth = config.AuthConfig{
 		Enabled:            true,
 		LocalPublicKeyFile: publicKeyPath,
-		Issuer:             "zenmind-local",
+		Issuer:             "agent-platform-local",
 	}
 	server, err := New(Dependencies{
 		Config:          fixture.cfg,
@@ -522,7 +522,7 @@ func TestQueryAcceptsValidLocalJWT(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+mustSignRS256JWT(t, privateKey, map[string]any{
 		"sub": "tester",
-		"iss": "zenmind-local",
+		"iss": "agent-platform-local",
 		"exp": float64(4102444800),
 	}))
 	rec := httptest.NewRecorder()
@@ -543,7 +543,7 @@ func TestQueryRejectsInvalidLocalJWT(t *testing.T) {
 	fixture.cfg.Auth = config.AuthConfig{
 		Enabled:            true,
 		LocalPublicKeyFile: publicKeyPath,
-		Issuer:             "zenmind-local",
+		Issuer:             "agent-platform-local",
 	}
 	server, err := New(Dependencies{
 		Config:          fixture.cfg,
@@ -590,7 +590,7 @@ func TestQueryRejectsMissingBearerWhenLocalJWTEnabled(t *testing.T) {
 	fixture.cfg.Auth = config.AuthConfig{
 		Enabled:            true,
 		LocalPublicKeyFile: publicKeyPath,
-		Issuer:             "zenmind-local",
+		Issuer:             "agent-platform-local",
 	}
 	server := newServerFromFixture(t, fixture)
 
@@ -614,7 +614,7 @@ func TestExecuteInternalQueryBypassesHTTPAuth(t *testing.T) {
 	fixture.cfg.Auth = config.AuthConfig{
 		Enabled:            true,
 		LocalPublicKeyFile: publicKeyPath,
-		Issuer:             "zenmind-local",
+		Issuer:             "agent-platform-local",
 	}
 	server := newServerFromFixture(t, fixture)
 

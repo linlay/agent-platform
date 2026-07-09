@@ -428,7 +428,7 @@ func TestBuildRuntimeContextPromptIgnoresDesktopParams(t *testing.T) {
 	})
 
 	for _, unexpected := range []string{
-		"Runtime Context: ZenMind Desktop",
+		"Runtime Context: Desktop",
 		"desktop_action",
 		"desktop_cdp",
 		"pageContext is only a snapshot",
@@ -456,7 +456,7 @@ func TestBuildSessionSectionMergesContextAndAuth(t *testing.T) {
 		RuntimeContext: RuntimeRequestContext{
 			TeamID:    "team-1",
 			LocalMode: false,
-			Scene:     &api.Scene{Title: "ZenMind", URL: "https://example.com"},
+			Scene:     &api.Scene{Title: "BrandApp", URL: "https://example.com"},
 			AuthIdentity: &AuthIdentity{
 				Subject:   "user-1",
 				DeviceID:  "device-1",
@@ -468,14 +468,14 @@ func TestBuildSessionSectionMergesContextAndAuth(t *testing.T) {
 				{ID: "ref-1", Name: "doc.md", Path: "/workspace/doc.md"},
 			},
 			LocalPaths: LocalPaths{
-				WorkingDirectory: "/Users/linlay/Project/zenmind/agent-platform",
-				RootDir:          "/Users/linlay/Project/zenmind/zenmind-env",
-				PanDir:           "/Users/linlay/Project/zenmind/pan",
-				AgentDir:         "/Users/linlay/Project/zenmind/zenmind-env/agents/zenmi",
-				OwnerDir:         "/Users/linlay/Project/zenmind/zenmind-env/owner",
-				MemoryDir:        "/Users/linlay/Project/zenmind/zenmind-env/memory",
-				SkillsDir:        "/Users/linlay/Project/zenmind/zenmind-env/agents/zenmi/skills",
-				SkillsMarketDir:  "/Users/linlay/Project/zenmind/zenmind-env/skills-market",
+				WorkingDirectory: "/Users/tester/Project/app/agent-platform",
+				RootDir:          "/Users/tester/Project/app/runtime",
+				PanDir:           "/Users/tester/Project/app/pan",
+				AgentDir:         "/Users/tester/Project/app/runtime/agents/demo-agent",
+				OwnerDir:         "/Users/tester/Project/app/runtime/owner",
+				MemoryDir:        "/Users/tester/Project/app/runtime/memory",
+				SkillsDir:        "/Users/tester/Project/app/runtime/agents/demo-agent/skills",
+				SkillsMarketDir:  "/Users/tester/Project/app/runtime/skills-market",
 			},
 			SandboxPaths: SandboxPaths{
 				WorkspaceDir: "/workspace",
@@ -498,7 +498,7 @@ func TestBuildSessionSectionMergesContextAndAuth(t *testing.T) {
 	if strings.Contains(section, "runId:") || strings.Contains(section, "requestId:") {
 		t.Fatalf("expected session section to exclude volatile run identifiers, got %q", section)
 	}
-	if !strings.Contains(section, "teamId: team-1") || !strings.Contains(section, "scene: title=ZenMind, url=https://example.com") {
+	if !strings.Contains(section, "teamId: team-1") || !strings.Contains(section, "scene: title=BrandApp, url=https://example.com") {
 		t.Fatalf("expected team and scene in session section, got %q", section)
 	}
 	for _, expected := range []string{
@@ -538,26 +538,26 @@ func TestBuildSystemEnvironmentSectionUsesLocalPathsWithoutSandbox(t *testing.T)
 		RuntimeContext: RuntimeRequestContext{
 			LocalMode: false,
 			LocalPaths: LocalPaths{
-				WorkspaceDir:       "/Users/linlay/Project/zenmind/zenmind-env/chats/chat-1",
-				WorkingDirectory:   "/Users/linlay/Project/zenmind/agent-platform",
-				ChatAttachmentsDir: "/Users/linlay/Project/zenmind/zenmind-env/chats/chat-1",
-				RootDir:            "/Users/linlay/Project/zenmind/zenmind-env/root",
-				SkillsDir:          "/Users/linlay/Project/zenmind/zenmind-env/agents/zenmi/skills",
-				AgentDir:           "/Users/linlay/Project/zenmind/zenmind-env/agents/zenmi",
-				OwnerDir:           "/Users/linlay/Project/zenmind/zenmind-env/owner",
-				SkillsMarketDir:    "/Users/linlay/Project/zenmind/zenmind-env/skills-market",
-				AgentsDir:          "/Users/linlay/Project/zenmind/zenmind-env/agents",
-				TeamsDir:           "/Users/linlay/Project/zenmind/zenmind-env/teams",
-				AutomationsDir:     "/Users/linlay/Project/zenmind/zenmind-env/automations",
-				ChatsDir:           "/Users/linlay/Project/zenmind/zenmind-env/chats",
-				MemoryDir:          "/Users/linlay/Project/zenmind/zenmind-env/memory",
-				ModelsDir:          "/Users/linlay/Project/zenmind/zenmind-env/registries/models",
-				ProvidersDir:       "/Users/linlay/Project/zenmind/zenmind-env/registries/providers",
-				MCPServersDir:      "/Users/linlay/Project/zenmind/zenmind-env/registries/mcp-servers",
-				ViewportServersDir: "/Users/linlay/Project/zenmind/zenmind-env/registries/viewport-servers",
-				ToolsDir:           "/Users/linlay/Project/zenmind/zenmind-env/tools",
-				ViewportsDir:       "/Users/linlay/Project/zenmind/zenmind-env/viewports",
-				PanDir:             "/Users/linlay/Server/zenmind-pan",
+				WorkspaceDir:       "/Users/tester/Project/app/runtime/chats/chat-1",
+				WorkingDirectory:   "/Users/tester/Project/app/agent-platform",
+				ChatAttachmentsDir: "/Users/tester/Project/app/runtime/chats/chat-1",
+				RootDir:            "/Users/tester/Project/app/runtime/root",
+				SkillsDir:          "/Users/tester/Project/app/runtime/agents/demo-agent/skills",
+				AgentDir:           "/Users/tester/Project/app/runtime/agents/demo-agent",
+				OwnerDir:           "/Users/tester/Project/app/runtime/owner",
+				SkillsMarketDir:    "/Users/tester/Project/app/runtime/skills-market",
+				AgentsDir:          "/Users/tester/Project/app/runtime/agents",
+				TeamsDir:           "/Users/tester/Project/app/runtime/teams",
+				AutomationsDir:     "/Users/tester/Project/app/runtime/automations",
+				ChatsDir:           "/Users/tester/Project/app/runtime/chats",
+				MemoryDir:          "/Users/tester/Project/app/runtime/memory",
+				ModelsDir:          "/Users/tester/Project/app/runtime/registries/models",
+				ProvidersDir:       "/Users/tester/Project/app/runtime/registries/providers",
+				MCPServersDir:      "/Users/tester/Project/app/runtime/registries/mcp-servers",
+				ViewportServersDir: "/Users/tester/Project/app/runtime/registries/viewport-servers",
+				ToolsDir:           "/Users/tester/Project/app/runtime/tools",
+				ViewportsDir:       "/Users/tester/Project/app/runtime/viewports",
+				PanDir:             "/Users/tester/Server/pan",
 			},
 			SandboxPaths: SandboxPaths{
 				WorkspaceDir: "/workspace",
@@ -570,10 +570,10 @@ func TestBuildSystemEnvironmentSectionUsesLocalPathsWithoutSandbox(t *testing.T)
 	if !strings.Contains(section, "Runtime Context: System Environment") {
 		t.Fatalf("expected system environment header, got %q", section)
 	}
-	if !strings.Contains(section, "workspace_dir: /Users/linlay/Project/zenmind/zenmind-env/chats/chat-1") {
+	if !strings.Contains(section, "workspace_dir: /Users/tester/Project/app/runtime/chats/chat-1") {
 		t.Fatalf("expected chat workspace path in system environment, got %q", section)
 	}
-	if !strings.Contains(section, "chat_dir: /Users/linlay/Project/zenmind/zenmind-env/chats/chat-1") {
+	if !strings.Contains(section, "chat_dir: /Users/tester/Project/app/runtime/chats/chat-1") {
 		t.Fatalf("expected chat dir in system environment, got %q", section)
 	}
 	if strings.Contains(section, "workspace_dir: /workspace") {
@@ -605,7 +605,7 @@ func TestBuildSystemEnvironmentSectionSeparatesExplicitWorkspaceAndChatDir(t *te
 			LocalPaths: LocalPaths{
 				WorkspaceDir:       "/",
 				WorkingDirectory:   "/",
-				ChatAttachmentsDir: "/Users/linlay/Project/zenmind/zenmind-env/chats/chat-1",
+				ChatAttachmentsDir: "/Users/tester/Project/app/runtime/chats/chat-1",
 			},
 		},
 	})
@@ -613,10 +613,10 @@ func TestBuildSystemEnvironmentSectionSeparatesExplicitWorkspaceAndChatDir(t *te
 	if !strings.Contains(section, "workspace_dir: / # 工具默认工作目录 / 权限工作根") {
 		t.Fatalf("expected explicit workspace root in system environment, got %q", section)
 	}
-	if !strings.Contains(section, "chat_dir: /Users/linlay/Project/zenmind/zenmind-env/chats/chat-1") {
+	if !strings.Contains(section, "chat_dir: /Users/tester/Project/app/runtime/chats/chat-1") {
 		t.Fatalf("expected separate chat dir in system environment, got %q", section)
 	}
-	if strings.Contains(section, "workspace_dir: /Users/linlay/Project/zenmind/agent-platform") {
+	if strings.Contains(section, "workspace_dir: /Users/tester/Project/app/agent-platform") {
 		t.Fatalf("expected process cwd not to be used as workspace_dir, got %q", section)
 	}
 }
@@ -627,8 +627,8 @@ func TestBuildSystemEnvironmentSectionUsesSandboxPathsWhenSandboxEnabled(t *test
 		RuntimeContext: RuntimeRequestContext{
 			LocalMode: false,
 			LocalPaths: LocalPaths{
-				ChatAttachmentsDir: "/Users/linlay/Project/zenmind/zenmind-env/chats/chat-1",
-				AgentDir:           "/Users/linlay/Project/zenmind/zenmind-env/agents/zenmi",
+				ChatAttachmentsDir: "/Users/tester/Project/app/runtime/chats/chat-1",
+				AgentDir:           "/Users/tester/Project/app/runtime/agents/demo-agent",
 			},
 			SandboxPaths: SandboxPaths{
 				WorkspaceDir:       "/workspace",
@@ -659,7 +659,7 @@ func TestBuildSystemEnvironmentSectionUsesSandboxPathsWhenSandboxEnabled(t *test
 	if !strings.Contains(section, "chat_dir: /workspace") {
 		t.Fatalf("expected sandbox chat dir in system environment, got %q", section)
 	}
-	if strings.Contains(section, "/Users/linlay/Project/zenmind/agent-platform") {
+	if strings.Contains(section, "/Users/tester/Project/app/agent-platform") {
 		t.Fatalf("expected sandbox paths to win when sandbox is enabled, got %q", section)
 	}
 	if strings.Contains(section, "tools_dir:") || strings.Contains(section, "viewports_dir:") {
@@ -748,10 +748,10 @@ func TestBuildSystemPromptSeparatesSystemEnvironmentAndSessionContext(t *testing
 			LocalMode: false,
 			TeamID:    "team-1",
 			LocalPaths: LocalPaths{
-				WorkspaceDir:       "/Users/linlay/Project/zenmind/zenmind-env/chats/chat-1",
-				WorkingDirectory:   "/Users/linlay/Project/zenmind/agent-platform",
-				ChatAttachmentsDir: "/Users/linlay/Project/zenmind/zenmind-env/chats/chat-1",
-				AgentDir:           "/Users/linlay/Project/zenmind/zenmind-env/agents/zenmi",
+				WorkspaceDir:       "/Users/tester/Project/app/runtime/chats/chat-1",
+				WorkingDirectory:   "/Users/tester/Project/app/agent-platform",
+				ChatAttachmentsDir: "/Users/tester/Project/app/runtime/chats/chat-1",
+				AgentDir:           "/Users/tester/Project/app/runtime/agents/demo-agent",
 			},
 			SandboxPaths: SandboxPaths{
 				WorkspaceDir: "/workspace",
@@ -768,10 +768,10 @@ func TestBuildSystemPromptSeparatesSystemEnvironmentAndSessionContext(t *testing
 	if strings.Contains(prompt, "Runtime Context: Context") {
 		t.Fatalf("expected old context header to be removed, got %q", prompt)
 	}
-	if !strings.Contains(prompt, "workspace_dir: /Users/linlay/Project/zenmind/zenmind-env/chats/chat-1") {
+	if !strings.Contains(prompt, "workspace_dir: /Users/tester/Project/app/runtime/chats/chat-1") {
 		t.Fatalf("expected final prompt to include chat workspace dir, got %q", prompt)
 	}
-	if !strings.Contains(prompt, "chat_dir: /Users/linlay/Project/zenmind/zenmind-env/chats/chat-1") {
+	if !strings.Contains(prompt, "chat_dir: /Users/tester/Project/app/runtime/chats/chat-1") {
 		t.Fatalf("expected final prompt to include chat dir, got %q", prompt)
 	}
 	if !strings.Contains(prompt, "chatId: chat-1") {

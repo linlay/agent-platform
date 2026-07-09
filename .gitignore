@@ -14,7 +14,6 @@ coverage.out
 # Runtime generated directories (generated/overridden locally)
 /runtime/
 /run/
-/zenmind/
 /agents/
 /teams/
 /chats/

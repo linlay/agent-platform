@@ -68,7 +68,7 @@ Desktop 内置服务场景下，agent-platform 通常安装在品牌程序数据
       manifest.json
 ```
 
-ZenMind 默认 program data root 是 macOS `~/Library/Application Support/ZenMind/`、Windows `%APPDATA%\ZenMind\`；CuteJ 对应为 `CuteJ`。不推荐放到 Desktop 的运行数据目录 `~/.zenmind/.desktop/` 或 `%USERPROFILE%\.zenmind\.desktop\`。
+`<program-data-root>` 由 Desktop 宿主按品牌解析，例如 macOS `~/Library/Application Support/<BRAND>/`、Windows `%APPDATA%\<BRAND>\`。support package 只依赖 Desktop 部署传入的服务包位置；platform 不需要内置具体品牌名，也不应把 support package 放进运行态数据目录。
 
 本机源码验证 support package 时使用 `release-local/` 作为 Desktop 服务包镜像，不使用 `runtime/`。`make run` 会先构建并从 `release-local/backend/agent-platform` 启动；插件放在 `release-local/plugins/`。`runtime/` 继续作为 agents、chats、skills-market、registries、memory 等运行数据目录。
 
