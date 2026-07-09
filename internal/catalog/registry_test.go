@@ -339,7 +339,6 @@ func TestNormalizeContextTagOnlyAcceptsModernTags(t *testing.T) {
 		"session":          "session",
 		"owner":            "owner",
 		"agents":           "agents",
-		"all-agents":       "agents",
 		" SYSTEM ":         "system",
 		"context":          "",
 		"auth":             "",
@@ -361,7 +360,7 @@ func TestNormalizeContextTagOnlyAcceptsModernTags(t *testing.T) {
 }
 
 func TestNormalizeContextTagsDeduplicatesModernTags(t *testing.T) {
-	got := normalizeContextTags([]string{"system", "SYSTEM", "session", "agents", "all-agents", "context"})
+	got := normalizeContextTags([]string{"system", "SYSTEM", "session", "agents", "context"})
 	if !reflect.DeepEqual(got, []string{"system", "session", "agents"}) {
 		t.Fatalf("normalizeContextTags() = %#v, want %#v", got, []string{"system", "session", "agents"})
 	}

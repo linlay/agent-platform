@@ -818,21 +818,6 @@ func TestBuildSystemPromptIncludesAgentsContext(t *testing.T) {
 	}
 }
 
-func TestBuildSystemPromptKeepsLegacyAllAgentsTagCompatible(t *testing.T) {
-	prompt := buildSystemPrompt(QuerySession{
-		ContextTags: []string{"all-agents"},
-		RuntimeContext: RuntimeRequestContext{
-			AgentDigests: []AgentDigest{
-				{Key: "coder", Name: "Coder"},
-			},
-		},
-	}, api.QueryRequest{}, "", PromptBuildOptions{})
-
-	if !strings.Contains(prompt, "Runtime Context: Agents") || !strings.Contains(prompt, "key: coder") {
-		t.Fatalf("expected legacy all-agents tag to build agents context, got %q", prompt)
-	}
-}
-
 func TestBuildToolAppendixIncludesOnlyAfterCallHints(t *testing.T) {
 	appendix := buildToolAppendix([]api.ToolDetailResponse{
 		{

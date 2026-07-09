@@ -354,7 +354,7 @@ func memoryPreviewRuntimeSections(context contracts.RuntimeRequestContext, agent
 			content:  memoryPreviewOwnerContext(context.LocalPaths.OwnerDir),
 		})
 	}
-	if hasTag("agents") || hasTag("all-agents") {
+	if hasTag("agents") {
 		sections = append(sections, memoryPreviewRuntimeSection{
 			category: "runtime.agents",
 			source:   "runtime.context",

@@ -356,8 +356,6 @@ func normalizeContextTag(raw string) string {
 	switch tag {
 	case "system", "session", "owner", "agents":
 		return tag
-	case "all-agents":
-		return "agents"
 	default:
 		return ""
 	}

@@ -138,7 +138,7 @@ func appendRuntimeSystemPromptSections(sections *[]systemPromptSection, session 
 			appendSection("runtime-session", "Runtime Context: Session", "runtime.session", buildSessionSection(session, req))
 		case "owner":
 			appendSection("runtime-owner", "Runtime Context: Owner", "runtime.owner", buildOwnerSection(session.RuntimeContext.LocalPaths))
-		case "agents", "all-agents":
+		case "agents":
 			appendSection("runtime-agents", "Runtime Context: Agents", "runtime.agents", buildAgentsSection(session.RuntimeContext.AgentDigests))
 		}
 	}

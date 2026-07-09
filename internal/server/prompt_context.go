@@ -512,9 +512,6 @@ func agentHasContextTag(def catalog.AgentDefinition, tag string) bool {
 	}
 	for _, configured := range def.ContextTags {
 		configured = strings.ToLower(strings.TrimSpace(configured))
-		if configured == "all-agents" {
-			configured = "agents"
-		}
 		if configured == tag {
 			return true
 		}

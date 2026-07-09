@@ -62,7 +62,7 @@ func TestRegistryIsAgentAllowed(t *testing.T) {
 		t.Fatalf("customer-service should not be allowed on feishu")
 	}
 	if !r.IsAgentAllowed("mobile", "anything") {
-		t.Fatalf("all-agents channel should allow any agent")
+		t.Fatalf("wildcard channel should allow any agent")
 	}
 	if !r.IsAgentAllowed("unknown", "anything") {
 		t.Fatalf("unknown channel should stay compatible")
