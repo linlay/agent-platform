@@ -13,7 +13,10 @@ func (t *RuntimeToolExecutor) invokePlanAddTasks(args map[string]any, execCtx *E
 	if execCtx == nil {
 		return ToolExecutionResult{Output: "失败: 缺少执行上下文", Error: "plan_context_unavailable", ExitCode: -1}, nil
 	}
-	state := ensurePlanState(execCtx)
+	mode := normalizePlanAddTasksMode(AnyStringNode(args["mode"]))
+	if mode == "" {
+		return ToolExecutionResult{Output: "失败: 非法 mode，仅支持 append/new", Error: "invalid_plan_mode", ExitCode: -1}, nil
+	}
 	var tasks []PlanTask
 	if rawTasks, ok := args["tasks"].([]any); ok {
 		for _, item := range rawTasks {
@@ -47,6 +50,11 @@ func (t *RuntimeToolExecutor) invokePlanAddTasks(args map[string]any, execCtx *E
 			Description: strings.TrimSpace(description),
 			Status:      NormalizePlanTaskStatus(AnyStringNode(args["status"])),
 		})
+	}
+	state := ensurePlanState(execCtx)
+	if mode == "new" {
+		state = &PlanRuntimeState{PlanID: newPlanID(execCtx.Session.RunID)}
+		execCtx.PlanState = state
 	}
 	if state.PlanID == "" {
 		state.PlanID = execCtx.Session.RunID + "_plan"
@@ -132,6 +140,27 @@ func planStatePayload(state *PlanRuntimeState) map[string]any {
 }
 
 var planTaskCounter atomic.Int64
+var planIDCounter atomic.Int64
+
+func normalizePlanAddTasksMode(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "append":
+		return "append"
+	case "new":
+		return "new"
+	default:
+		return ""
+	}
+}
+
+func newPlanID(runID string) string {
+	base := strings.TrimSpace(runID)
+	if base == "" {
+		base = "run"
+	}
+	seq := planIDCounter.Add(1)
+	return fmt.Sprintf("%s_plan_%d_%d", base, time.Now().UnixMilli(), seq)
+}
 
 func shortPlanID() string {
 	seq := planTaskCounter.Add(1)

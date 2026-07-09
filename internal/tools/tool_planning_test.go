@@ -289,6 +289,125 @@ func TestPlanAddTasksPersistsPlanTaskSnapshot(t *testing.T) {
 	}
 }
 
+func TestPlanAddTasksDefaultAppendKeepsExistingPlanID(t *testing.T) {
+	root := t.TempDir()
+	executor := &RuntimeToolExecutor{cfg: config.Config{Paths: config.PathsConfig{ChatsDir: root}}}
+	execCtx := &ExecutionContext{
+		Session: QuerySession{
+			RunID:  "run_new",
+			ChatID: "chat_1",
+		},
+		PlanState: &PlanRuntimeState{
+			PlanID:       "old_plan",
+			ActiveTaskID: "task_old",
+			Tasks: []PlanTask{{
+				TaskID:      "task_old",
+				Description: "old task",
+				Status:      "in_progress",
+			}},
+		},
+	}
+
+	result, err := executor.Invoke(context.Background(), PlanAddTasksToolName, map[string]any{
+		"tasks": []any{map[string]any{"taskId": "task_new", "description": "new task"}},
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invoke plan_add_tasks: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("expected plan_add_tasks success, got %#v", result)
+	}
+	if got := AnyStringNode(result.Structured["planId"]); got != "old_plan" {
+		t.Fatalf("planId=%q want old_plan", got)
+	}
+
+	snapshot := readPlanTasksSnapshotForTest(t, root, "chat_1", "run_new")
+	if snapshot.PlanID != "old_plan" || snapshot.CurrentTaskID != "task_old" || len(snapshot.Tasks) != 2 ||
+		snapshot.Tasks[0].TaskID != "task_old" || snapshot.Tasks[1].TaskID != "task_new" {
+		t.Fatalf("unexpected appended snapshot: %#v", snapshot)
+	}
+}
+
+func TestPlanAddTasksNewModeCreatesNewPlan(t *testing.T) {
+	root := t.TempDir()
+	executor := &RuntimeToolExecutor{cfg: config.Config{Paths: config.PathsConfig{ChatsDir: root}}}
+	execCtx := &ExecutionContext{
+		Session: QuerySession{
+			RunID:  "run_new",
+			ChatID: "chat_1",
+		},
+		PlanState: &PlanRuntimeState{
+			PlanID:       "old_plan",
+			ActiveTaskID: "task_old",
+			Tasks: []PlanTask{{
+				TaskID:      "task_old",
+				Description: "old task",
+				Status:      "in_progress",
+			}},
+		},
+	}
+
+	result, err := executor.Invoke(context.Background(), PlanAddTasksToolName, map[string]any{
+		"mode":  "new",
+		"tasks": []any{map[string]any{"taskId": "task_new", "description": "new task"}},
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invoke plan_add_tasks: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("expected plan_add_tasks success, got %#v", result)
+	}
+	planID := AnyStringNode(result.Structured["planId"])
+	if !strings.HasPrefix(planID, "run_new_plan_") || planID == "old_plan" {
+		t.Fatalf("unexpected new planId %q", planID)
+	}
+	if execCtx.PlanState == nil || execCtx.PlanState.PlanID != planID || execCtx.PlanState.ActiveTaskID != "" || len(execCtx.PlanState.Tasks) != 1 ||
+		execCtx.PlanState.Tasks[0].TaskID != "task_new" {
+		t.Fatalf("unexpected new plan state: %#v", execCtx.PlanState)
+	}
+
+	snapshot := readPlanTasksSnapshotForTest(t, root, "chat_1", "run_new")
+	if snapshot.PlanID != planID || snapshot.CurrentTaskID != "" || len(snapshot.Tasks) != 1 || snapshot.Tasks[0].TaskID != "task_new" {
+		t.Fatalf("unexpected new plan snapshot: %#v", snapshot)
+	}
+}
+
+func TestPlanAddTasksNewModeCreatesDistinctPlanIDs(t *testing.T) {
+	root := t.TempDir()
+	executor := &RuntimeToolExecutor{cfg: config.Config{Paths: config.PathsConfig{ChatsDir: root}}}
+	execCtx := &ExecutionContext{
+		Session: QuerySession{
+			RunID:  "run_tasks",
+			ChatID: "chat_1",
+		},
+	}
+
+	first, err := executor.Invoke(context.Background(), PlanAddTasksToolName, map[string]any{
+		"mode":  "new",
+		"tasks": []any{map[string]any{"taskId": "task_1", "description": "first task"}},
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invoke first plan_add_tasks: %v", err)
+	}
+	second, err := executor.Invoke(context.Background(), PlanAddTasksToolName, map[string]any{
+		"mode":  "new",
+		"tasks": []any{map[string]any{"taskId": "task_2", "description": "second task"}},
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invoke second plan_add_tasks: %v", err)
+	}
+	firstPlanID := AnyStringNode(first.Structured["planId"])
+	secondPlanID := AnyStringNode(second.Structured["planId"])
+	if firstPlanID == "" || secondPlanID == "" || firstPlanID == secondPlanID {
+		t.Fatalf("expected distinct plan ids, first=%q second=%q", firstPlanID, secondPlanID)
+	}
+
+	snapshot := readPlanTasksSnapshotForTest(t, root, "chat_1", "run_tasks")
+	if snapshot.PlanID != secondPlanID || len(snapshot.Tasks) != 1 || snapshot.Tasks[0].TaskID != "task_2" {
+		t.Fatalf("unexpected latest new plan snapshot: %#v", snapshot)
+	}
+}
+
 func TestPlanUpdateTaskRestoresSnapshotAndWritesNewRunSnapshot(t *testing.T) {
 	root := t.TempDir()
 	writePlanTasksSnapshotForTest(t, root, "chat_1", "run_old", `{"version":1,"chatId":"chat_1","runId":"run_old","planId":"old_plan","updatedAt":200,"tasks":[{"taskId":"task_1","description":"first","status":"init"}]}`)

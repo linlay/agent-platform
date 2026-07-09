@@ -2682,6 +2682,38 @@ func TestLoadChatPlanUsesPlanTaskSnapshot(t *testing.T) {
 	}
 }
 
+func TestLoadChatPlanUsesLatestNewPlanSnapshot(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-plan-task-latest-new"
+	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	snapshotDir := filepath.Join(store.ChatDir(chatID), ToolRootDirName, ToolPlanTasksDirName)
+	if err := os.MkdirAll(snapshotDir, 0o755); err != nil {
+		t.Fatalf("mkdir snapshot dir: %v", err)
+	}
+	oldSnapshot := `{"version":1,"chatId":"chat-plan-task-latest-new","runId":"run-old","planId":"old_plan","updatedAt":100,"tasks":[{"taskId":"old_task","description":"Old task","status":"init"}]}`
+	newSnapshot := `{"version":1,"chatId":"chat-plan-task-latest-new","runId":"run-new","planId":"run-new_plan_200_1","updatedAt":200,"tasks":[{"taskId":"new_task","description":"New task","status":"in_progress"}]}`
+	if err := os.WriteFile(filepath.Join(snapshotDir, "run-old_plan.json"), []byte(oldSnapshot), 0o644); err != nil {
+		t.Fatalf("write old snapshot: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(snapshotDir, "run-new_plan.json"), []byte(newSnapshot), 0o644); err != nil {
+		t.Fatalf("write new snapshot: %v", err)
+	}
+
+	detail, err := store.LoadChat(chatID)
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+	if detail.Plan == nil || detail.Plan.PlanID != "run-new_plan_200_1" || len(detail.Plan.Tasks) != 1 ||
+		detail.Plan.Tasks[0].TaskID != "new_task" {
+		t.Fatalf("expected latest new plan snapshot, got %#v", detail.Plan)
+	}
+}
+
 func TestLoadChatRestoresPlanningFromReactAwaitingPlan(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
