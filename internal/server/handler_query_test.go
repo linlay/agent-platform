@@ -694,14 +694,12 @@ func TestPrepareQueryDesktopParamsDoNotGrantToolsOrRuntimeEnv(t *testing.T) {
 	if !reflect.DeepEqual(prepared.session.ToolNames, []string{"datetime", "bash"}) {
 		t.Fatalf("unexpected tool names: %#v", prepared.session.ToolNames)
 	}
-	if _, ok := prepared.session.RuntimeEnvOverrides["ZENMIND_CDP_AGENT_KEY"]; ok {
-		t.Fatalf("did not expect ZENMIND_CDP_AGENT_KEY injection: %#v", prepared.session.RuntimeEnvOverrides)
+	expectedRuntimeEnv := map[string]string{
+		"CDP_HOST": "127.0.0.1",
+		"CDP_PORT": "11789",
 	}
-	if _, ok := prepared.session.RuntimeEnvOverrides["ZENMIND_CDP_SURFACE_ID"]; ok {
-		t.Fatalf("did not expect ZENMIND_CDP_SURFACE_ID injection: %#v", prepared.session.RuntimeEnvOverrides)
-	}
-	if prepared.session.RuntimeEnvOverrides["CDP_PORT"] != "11789" {
-		t.Fatalf("expected explicit CDP_PORT to remain unchanged, got %#v", prepared.session.RuntimeEnvOverrides)
+	if !reflect.DeepEqual(prepared.session.RuntimeEnvOverrides, expectedRuntimeEnv) {
+		t.Fatalf("unexpected runtime env overrides: %#v", prepared.session.RuntimeEnvOverrides)
 	}
 }
 
