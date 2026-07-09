@@ -129,7 +129,7 @@ func TestBuildSystemPromptIncludesAdvancedUserPromptProtocolWhenEnabled(t *testi
 		AdvancedUserPrompt: true,
 	}, api.QueryRequest{}, "", PromptBuildOptions{})
 
-	if !strings.Contains(prompt, `<advanced_user_prompt schema="zenmind.user_prompt.v1">`) ||
+	if !strings.Contains(prompt, `<advanced_user_prompt schema="agent_platform.user_prompt.v1">`) ||
 		!strings.Contains(prompt, "The user's actual request is inside <user_message>.") {
 		t.Fatalf("expected advanced user prompt protocol in system prompt, got %q", prompt)
 	}
@@ -138,7 +138,7 @@ func TestBuildSystemPromptIncludesAdvancedUserPromptProtocolWhenEnabled(t *testi
 		AgentKey: "demo",
 		Mode:     "REACT",
 	}, api.QueryRequest{}, "", PromptBuildOptions{})
-	if strings.Contains(disabled, `<advanced_user_prompt schema="zenmind.user_prompt.v1">`) {
+	if strings.Contains(disabled, `<advanced_user_prompt schema="agent_platform.user_prompt.v1">`) {
 		t.Fatalf("did not expect advanced user prompt protocol when disabled, got %q", disabled)
 	}
 }

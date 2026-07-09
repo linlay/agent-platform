@@ -40,7 +40,7 @@ func TestBuildContentAdvancedUserPrompt(t *testing.T) {
 		t.Fatalf("expected text content, got %T", content)
 	}
 	for _, expected := range []string{
-		`<advanced_user_prompt schema="zenmind.user_prompt.v1">`,
+		`<advanced_user_prompt schema="agent_platform.user_prompt.v1">`,
 		"<run_context>",
 		"runId: run_xxx",
 		"requestId: req_xxx",
