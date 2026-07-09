@@ -712,6 +712,80 @@ func TestFrameOrchestratorSubAgentRequestsShareRunIDWithUniqueRequestIDs(t *test
 	}
 }
 
+func TestFrameOrchestratorRoutesSubAgentAwaitingWithParentRunAndTaskID(t *testing.T) {
+	mainStream := &stubOrchestratableStream{
+		deltas: []contracts.AgentDelta{
+			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{SubAgentKey: "writer", TaskText: "ask user", TaskName: "提问"}),
+		},
+	}
+	child := &stubOrchestratableStream{
+		deltas: []contracts.AgentDelta{
+			contracts.DeltaAwaitAsk{
+				AwaitingID: "raw_await",
+				Mode:       "question",
+				RunID:      "run_1",
+				Questions:  []any{map[string]any{"id": "q1", "question": "Pick", "type": "text"}},
+			},
+			contracts.DeltaRequestSubmit{
+				RequestID:  "req_child",
+				ChatID:     "chat_1",
+				RunID:      "run_1",
+				AwaitingID: "raw_await",
+				SubmitID:   "submit_1",
+				Params:     []any{map[string]any{"id": "q1", "answer": "ok"}},
+			},
+			contracts.DeltaAwaitingAnswer{
+				AwaitingID: "raw_await",
+				Answer: map[string]any{
+					"mode":   "question",
+					"status": "answered",
+					"answers": []any{
+						map[string]any{"id": "q1", "question": "Pick", "answer": "ok"},
+					},
+				},
+			},
+		},
+		finalText: "child done",
+	}
+	var routed []stream.StreamInput
+	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{streamsByAgentKey: map[string]contracts.AgentStream{
+		"writer": child,
+	}}, map[string]catalog.AgentDefinition{
+		"writer": {Key: "writer", Name: "Writer", Mode: "REACT"},
+	}, nil, &routed)
+
+	streamFailed, streamInterrupted, err := orchestrator.Run(mainStream)
+	if err != nil || streamFailed || streamInterrupted {
+		t.Fatalf("unexpected orchestrator result err=%v failed=%v interrupted=%v", err, streamFailed, streamInterrupted)
+	}
+
+	var awaitAsk *stream.AwaitAsk
+	var requestSubmit *stream.RequestSubmit
+	var awaitingAnswer *stream.AwaitingAnswer
+	for index := range routed {
+		switch value := routed[index].(type) {
+		case stream.AwaitAsk:
+			copied := value
+			awaitAsk = &copied
+		case stream.RequestSubmit:
+			copied := value
+			requestSubmit = &copied
+		case stream.AwaitingAnswer:
+			copied := value
+			awaitingAnswer = &copied
+		}
+	}
+	if awaitAsk == nil || awaitAsk.RunID != "run_1" || awaitAsk.TaskID != "run_1_t_1" || awaitAsk.AwaitingID != "run_1_t_1:raw_await" {
+		t.Fatalf("unexpected routed awaiting ask %#v", awaitAsk)
+	}
+	if requestSubmit == nil || requestSubmit.RunID != "run_1" || requestSubmit.TaskID != "run_1_t_1" || requestSubmit.AwaitingID != "run_1_t_1:raw_await" {
+		t.Fatalf("unexpected routed request submit %#v", requestSubmit)
+	}
+	if awaitingAnswer == nil || awaitingAnswer.TaskID != "run_1_t_1" || awaitingAnswer.AwaitingID != "run_1_t_1:raw_await" {
+		t.Fatalf("unexpected routed awaiting answer %#v", awaitingAnswer)
+	}
+}
+
 func TestFrameOrchestratorSubAgentRequestIDsFallbackWhenParentMissing(t *testing.T) {
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{

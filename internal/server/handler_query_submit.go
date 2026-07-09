@@ -14,6 +14,7 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Locale = requestLocale(r, responseLocale(w))
+	req = s.normalizeActiveSubmitRun(req)
 	if statusErr := s.validateSubmitAgentKey(req); statusErr != nil {
 		writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))
 		return

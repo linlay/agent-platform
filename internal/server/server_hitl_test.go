@@ -303,6 +303,173 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	}
 }
 
+func TestSubAgentAwaitingSubmitRoutesPublicAwaitingID(t *testing.T) {
+	runSubAgentAwaitingSubmitRoutingTest(t, false)
+}
+
+func TestSubAgentAwaitingSubmitAcceptsTaskRunIDCompatibility(t *testing.T) {
+	runSubAgentAwaitingSubmitRoutingTest(t, true)
+}
+
+func runSubAgentAwaitingSubmitRoutingTest(t *testing.T, useTaskRunID bool) {
+	t.Helper()
+	var providerCallCount atomic.Int32
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		call := providerCallCount.Add(1)
+		switch call {
+		case 1:
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_main_invoke","type":"function","function":{"name":"agent_invoke","arguments":"{\"tasks\":[{\"subAgentKey\":\"child-agent\",\"task\":\"ask the user to choose\",\"taskName\":\"Child Ask\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`[DONE]`,
+			)
+		case 2:
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"raw_child_await","type":"function","function":{"name":"ask_user_question","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Pick route\",\"type\":\"select\",\"options\":[{\"label\":\"Approve\",\"description\":\"Continue\"}]}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`[DONE]`,
+			)
+		case 3:
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"content":"child accepted"},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+		case 4:
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"content":"main summarized"},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+		default:
+			t.Fatalf("unexpected provider call %d", call)
+		}
+	}, testFixtureOptions{
+		setupRuntime: func(_ string, cfg *config.Config) {
+			mainDir := filepath.Join(cfg.Paths.AgentsDir, "main-agent")
+			childDir := filepath.Join(cfg.Paths.AgentsDir, "child-agent")
+			if err := os.MkdirAll(mainDir, 0o755); err != nil {
+				t.Fatalf("mkdir main agent: %v", err)
+			}
+			if err := os.MkdirAll(childDir, 0o755); err != nil {
+				t.Fatalf("mkdir child agent: %v", err)
+			}
+			writeAgentConfig(t, filepath.Join(mainDir, "agent.yml"), []string{
+				"key: main-agent",
+				"name: Main Agent",
+				"role: orchestrator",
+				"description: test orchestrator",
+				"modelConfig:",
+				"  modelKey: mock-model",
+				"toolConfig:",
+				"  tools:",
+				"    - agent_invoke",
+				"mode: REACT",
+				"react:",
+				"  maxSteps: 6",
+			})
+			writeAgentConfig(t, filepath.Join(childDir, "agent.yml"), []string{
+				"key: child-agent",
+				"name: Child Agent",
+				"role: child",
+				"description: test child",
+				"visibility:",
+				"  scopes:",
+				"    - invoke",
+				"modelConfig:",
+				"  modelKey: mock-model",
+				"toolConfig:",
+				"  tools:",
+				"    - ask_user_question",
+				"mode: REACT",
+				"react:",
+				"  maxSteps: 6",
+				"budget:",
+				"  hitl:",
+				"    timeout: 60",
+			})
+		},
+	})
+	httpServer := newLoopbackServer(t, fixture.server)
+	defer httpServer.Close()
+
+	chatID := "chat-subagent-hitl"
+	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"chatId":"`+chatID+`","agentKey":"main-agent","message":"delegate"}`))
+	if err != nil {
+		t.Fatalf("post query: %v", err)
+	}
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+	var streamBody strings.Builder
+	var runID string
+	var taskID string
+	var awaitingID string
+	for {
+		line, readErr := reader.ReadString('\n')
+		streamBody.WriteString(line)
+		if strings.HasPrefix(line, "data: {") {
+			payload := decodeSSELine(t, line)
+			if payload["type"] == "awaiting.ask" {
+				runID, _ = payload["runId"].(string)
+				taskID, _ = payload["taskId"].(string)
+				awaitingID, _ = payload["awaitingId"].(string)
+				if runID != "" || taskID != "" || awaitingID != "" {
+					break
+				}
+			}
+		}
+		if readErr != nil {
+			t.Fatalf("read query stream before child awaiting: %v\n%s", readErr, streamBody.String())
+		}
+	}
+	if runID == "" || taskID == "" || awaitingID == "" {
+		t.Fatalf("expected child awaiting identifiers, got run=%q task=%q awaiting=%q stream=%s", runID, taskID, awaitingID, streamBody.String())
+	}
+	if taskID != runID+"_t_1" {
+		t.Fatalf("expected taskId to derive from parent run, run=%q task=%q", runID, taskID)
+	}
+	if awaitingID != taskID+":raw_child_await" {
+		t.Fatalf("expected namespaced awaiting id, got %q", awaitingID)
+	}
+
+	submitRunID := runID
+	if useTaskRunID {
+		submitRunID = taskID
+	}
+	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"chatId":"`+chatID+`","agentKey":"main-agent","runId":"`+submitRunID+`","awaitingId":"`+awaitingID+`","submitId":"submit_child_1","params":[{"id":"q1","answer":"Approve"}]}`))
+	submitReq.Header.Set("Content-Type", "application/json")
+	submitRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(submitRec, submitReq)
+	if submitRec.Code != http.StatusOK {
+		t.Fatalf("submit expected 200, got %d: %s\nstream=%s", submitRec.Code, submitRec.Body.String(), streamBody.String())
+	}
+	var submitResp api.ApiResponse[api.SubmitResponse]
+	if err := json.Unmarshal(submitRec.Body.Bytes(), &submitResp); err != nil {
+		t.Fatalf("decode submit response: %v", err)
+	}
+	if !submitResp.Data.Accepted || submitResp.Data.Status != "accepted" || submitResp.Data.AwaitingID != awaitingID || submitResp.Data.RunID != runID {
+		t.Fatalf("unexpected submit response %#v", submitResp.Data)
+	}
+
+	for {
+		line, readErr := reader.ReadString('\n')
+		streamBody.WriteString(line)
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			t.Fatalf("read query stream after submit: %v", readErr)
+		}
+	}
+	body := streamBody.String()
+	if !strings.Contains(body, `"type":"request.submit"`) || !strings.Contains(body, `"taskId":"`+taskID+`"`) || !strings.Contains(body, `"awaitingId":"`+awaitingID+`"`) {
+		t.Fatalf("expected public child request.submit, got %s", body)
+	}
+	if !strings.Contains(body, `"type":"awaiting.answer"`) || !strings.Contains(body, `"taskId":"`+taskID+`"`) || !strings.Contains(body, `"awaitingId":"`+awaitingID+`"`) {
+		t.Fatalf("expected public child awaiting.answer, got %s", body)
+	}
+	if !strings.Contains(body, "child accepted") || !strings.Contains(body, "main summarized") {
+		t.Fatalf("expected child and main final content, got %s", body)
+	}
+}
+
 func TestAwaitingChatDetailExposesReplayUsageWithoutUsageSnapshotEvent(t *testing.T) {
 	var providerCallCount atomic.Int32
 

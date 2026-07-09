@@ -341,7 +341,7 @@ func (o *frameOrchestrator) runChildTask(index int, task preparedSubTask, princi
 			return result
 		default:
 			for _, input := range childMapper.Map(delta) {
-				route(routeChildStreamInput(task.taskID, input))
+				route(routeChildStreamInput(o.session.RunID, task.taskID, input))
 			}
 		}
 	}
@@ -360,7 +360,7 @@ func (o *frameOrchestrator) runChildTask(index int, task preparedSubTask, princi
 		result.Error = result.Text
 		return result
 	}
-	route(routeChildStreamInput(task.taskID, stream.ContentDelta{
+	route(routeChildStreamInput(o.session.RunID, task.taskID, stream.ContentDelta{
 		ContentID: task.taskID + ":final",
 		TaskID:    task.taskID,
 		Delta:     text,
@@ -453,7 +453,7 @@ func (o *frameOrchestrator) runProxyChildTask(result *childTaskResult, subReq ap
 			} else {
 				contentID = namespaceChildID(task.taskID, contentID)
 			}
-			route(routeChildStreamInput(task.taskID, stream.ContentDelta{
+			route(routeChildStreamInput(o.session.RunID, task.taskID, stream.ContentDelta{
 				ContentID: contentID,
 				TaskID:    task.taskID,
 				Delta:     delta,
@@ -585,7 +585,7 @@ func canRunAsSubAgent(mode string) bool {
 	return strings.EqualFold(catalog.NormalizeAgentModeForRuntime(mode), catalog.AgentModeKBase)
 }
 
-func routeChildStreamInput(taskID string, input stream.StreamInput) stream.StreamInput {
+func routeChildStreamInput(parentRunID string, taskID string, input stream.StreamInput) stream.StreamInput {
 	switch value := input.(type) {
 	case stream.ReasoningDelta:
 		value.TaskID = taskID
@@ -598,6 +598,8 @@ func routeChildStreamInput(taskID string, input stream.StreamInput) stream.Strea
 		value.ToolID = namespaceChildID(taskID, value.ToolID)
 		if value.AwaitAsk != nil {
 			awaitCopy := *value.AwaitAsk
+			awaitCopy.RunID = firstNonEmpty(parentRunID, awaitCopy.RunID)
+			awaitCopy.TaskID = taskID
 			awaitCopy.AwaitingID = namespaceChildID(taskID, awaitCopy.AwaitingID)
 			value.AwaitAsk = &awaitCopy
 		}
@@ -624,12 +626,17 @@ func routeChildStreamInput(taskID string, input stream.StreamInput) stream.Strea
 		value.ToolID = namespaceChildID(taskID, value.ToolID)
 		return value
 	case stream.AwaitAsk:
+		value.RunID = firstNonEmpty(parentRunID, value.RunID)
+		value.TaskID = taskID
 		value.AwaitingID = namespaceChildID(taskID, value.AwaitingID)
 		return value
 	case stream.RequestSubmit:
+		value.RunID = firstNonEmpty(parentRunID, value.RunID)
+		value.TaskID = taskID
 		value.AwaitingID = namespaceChildID(taskID, value.AwaitingID)
 		return value
 	case stream.AwaitingAnswer:
+		value.TaskID = taskID
 		value.AwaitingID = namespaceChildID(taskID, value.AwaitingID)
 		return value
 	case stream.InputDebugLLMChat:

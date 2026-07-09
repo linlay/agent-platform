@@ -353,20 +353,24 @@ type SubmitInfo struct {
 }
 
 type AwaitingSubmitContext struct {
-	AwaitingID string
-	Mode       string
-	ItemCount  int
-	NoTimeout  bool
-	Timeout    int64
+	AwaitingID       string
+	PublicAwaitingID string
+	TaskID           string
+	Mode             string
+	ItemCount        int
+	NoTimeout        bool
+	Timeout          int64
 }
 
 func (c AwaitingSubmitContext) Clone() AwaitingSubmitContext {
 	return AwaitingSubmitContext{
-		AwaitingID: c.AwaitingID,
-		Mode:       c.Mode,
-		ItemCount:  c.ItemCount,
-		NoTimeout:  c.NoTimeout,
-		Timeout:    c.Timeout,
+		AwaitingID:       c.AwaitingID,
+		PublicAwaitingID: c.PublicAwaitingID,
+		TaskID:           c.TaskID,
+		Mode:             c.Mode,
+		ItemCount:        c.ItemCount,
+		NoTimeout:        c.NoTimeout,
+		Timeout:          c.Timeout,
 	}
 }
 

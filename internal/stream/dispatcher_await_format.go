@@ -18,6 +18,9 @@ func newAwaitingAnswerEvent(input AwaitingAnswer) StreamEvent {
 		"awaitingId": input.AwaitingID,
 		"mode":       mode,
 	}
+	if taskID := strings.TrimSpace(input.TaskID); taskID != "" {
+		payload["taskId"] = taskID
+	}
 	if submitID := strings.TrimSpace(anyString(answer["submitId"])); submitID != "" {
 		payload["submitId"] = submitID
 	}
@@ -256,6 +259,9 @@ func (d *StreamEventDispatcher) newAwaitAskEvent(input AwaitAsk) StreamEvent {
 		"mode":       input.Mode,
 		"timeout":    input.Timeout,
 		"runId":      input.RunID,
+	}
+	if taskID := strings.TrimSpace(input.TaskID); taskID != "" {
+		payload["taskId"] = taskID
 	}
 	if agentKey := strings.TrimSpace(d.request.AgentKey); agentKey != "" {
 		payload["agentKey"] = agentKey

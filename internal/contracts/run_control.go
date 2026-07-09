@@ -126,6 +126,7 @@ type RunControl struct {
 	pendingSubmits  map[string]SubmitResult
 	resolvedSubmits map[string]SubmitResult
 	awaitingSubmits map[string]AwaitingSubmitContext
+	awaitingAliases map[string]string
 	interruptInfo   InterruptInfo
 	state           RunLoopState
 	accessLevel     string
@@ -147,6 +148,7 @@ func NewRunControl(parent context.Context, runID string) *RunControl {
 		pendingSubmits:     map[string]SubmitResult{},
 		resolvedSubmits:    map[string]SubmitResult{},
 		awaitingSubmits:    map[string]AwaitingSubmitContext{},
+		awaitingAliases:    map[string]string{},
 		state:              RunLoopStateIdle,
 		accessLevel:        AccessLevelDefault,
 		accessVersion:      1,
@@ -492,8 +494,12 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 	if c == nil {
 		return SubmitAck{Accepted: false, Status: "unmatched", SubmitID: req.SubmitID, Detail: "No active run found"}
 	}
+	publicAwaitingID := strings.TrimSpace(req.AwaitingID)
 	c.mu.Lock()
-	if resolved, exists := c.resolvedSubmits[req.AwaitingID]; exists {
+	awaitingID := c.resolveAwaitingAliasLocked(publicAwaitingID)
+	deliverReq := req
+	deliverReq.AwaitingID = awaitingID
+	if resolved, exists := c.lookupResolvedSubmitLocked(publicAwaitingID, awaitingID); exists {
 		c.mu.Unlock()
 		if strings.TrimSpace(req.SubmitID) != "" && strings.TrimSpace(resolved.Request.SubmitID) == strings.TrimSpace(req.SubmitID) {
 			detail := resolved.Detail
@@ -508,25 +514,28 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 		}
 		return SubmitAck{Accepted: false, Status: "already_resolved", SubmitID: firstNonBlankSubmitID(resolved.Request.SubmitID, req.SubmitID), Detail: detail}
 	}
-	waiter, ok := c.submitWaiters[req.AwaitingID]
+	waiter, ok := c.submitWaiters[awaitingID]
 	if ok {
-		delete(c.submitWaiters, req.AwaitingID)
-		delete(c.awaitingSubmits, req.AwaitingID)
-		c.resolvedSubmits[req.AwaitingID] = SubmitResult{
-			Request: req,
+		delete(c.submitWaiters, awaitingID)
+		delete(c.awaitingSubmits, awaitingID)
+		resolved := SubmitResult{
+			Request: deliverReq,
 			Status:  "accepted",
 			Detail:  "Frontend submit accepted",
 		}
+		c.recordResolvedSubmitLocked(publicAwaitingID, awaitingID, resolved)
+		c.deleteAwaitingAliasesLocked(awaitingID)
 	}
-	if _, exists := c.awaitingSubmits[req.AwaitingID]; !ok && req.AwaitingID != "" && exists && !c.interrupted.Load() && !c.finished.Load() {
+	if _, exists := c.awaitingSubmits[awaitingID]; !ok && awaitingID != "" && exists && !c.interrupted.Load() && !c.finished.Load() {
 		accepted := SubmitResult{
-			Request: req,
+			Request: deliverReq,
 			Status:  "accepted",
 			Detail:  "Frontend submit accepted",
 		}
-		c.pendingSubmits[req.AwaitingID] = accepted
-		c.resolvedSubmits[req.AwaitingID] = accepted
-		delete(c.awaitingSubmits, req.AwaitingID)
+		c.pendingSubmits[awaitingID] = accepted
+		c.recordResolvedSubmitLocked(publicAwaitingID, awaitingID, accepted)
+		delete(c.awaitingSubmits, awaitingID)
+		c.deleteAwaitingAliasesLocked(awaitingID)
 		c.mu.Unlock()
 		return SubmitAck{Accepted: true, Status: "accepted", SubmitID: req.SubmitID, Detail: "Frontend submit accepted"}
 	}
@@ -535,7 +544,7 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 		return SubmitAck{Accepted: false, Status: "unmatched", SubmitID: req.SubmitID, Detail: "No pending frontend submit waiter found"}
 	}
 	if !waiter.deliver(SubmitResult{
-		Request: req,
+		Request: deliverReq,
 		Status:  "accepted",
 		Detail:  "Frontend submit accepted",
 	}) {
@@ -550,7 +559,8 @@ func (c *RunControl) LookupAwaiting(awaitingID string) (AwaitingSubmitContext, b
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	ctx, ok := c.awaitingSubmits[awaitingID]
+	rawAwaitingID := c.resolveAwaitingAliasLocked(strings.TrimSpace(awaitingID))
+	ctx, ok := c.awaitingSubmits[rawAwaitingID]
 	if !ok {
 		return AwaitingSubmitContext{}, false
 	}
@@ -577,7 +587,8 @@ func (c *RunControl) LookupResolvedSubmit(awaitingID string) (SubmitAck, bool) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	resolved, ok := c.resolvedSubmits[awaitingID]
+	rawAwaitingID := c.resolveAwaitingAliasLocked(strings.TrimSpace(awaitingID))
+	resolved, ok := c.lookupResolvedSubmitLocked(strings.TrimSpace(awaitingID), rawAwaitingID)
 	if !ok {
 		return SubmitAck{}, false
 	}
@@ -602,12 +613,71 @@ func firstNonBlankSubmitID(values ...string) string {
 	return ""
 }
 
+func (c *RunControl) resolveAwaitingAliasLocked(awaitingID string) string {
+	awaitingID = strings.TrimSpace(awaitingID)
+	if c == nil || awaitingID == "" {
+		return awaitingID
+	}
+	if raw := strings.TrimSpace(c.awaitingAliases[awaitingID]); raw != "" {
+		return raw
+	}
+	return awaitingID
+}
+
+func (c *RunControl) lookupResolvedSubmitLocked(publicAwaitingID string, rawAwaitingID string) (SubmitResult, bool) {
+	if c == nil {
+		return SubmitResult{}, false
+	}
+	if rawAwaitingID != "" {
+		if resolved, exists := c.resolvedSubmits[rawAwaitingID]; exists {
+			return resolved, true
+		}
+	}
+	if publicAwaitingID != "" && publicAwaitingID != rawAwaitingID {
+		if resolved, exists := c.resolvedSubmits[publicAwaitingID]; exists {
+			return resolved, true
+		}
+	}
+	return SubmitResult{}, false
+}
+
+func (c *RunControl) recordResolvedSubmitLocked(publicAwaitingID string, rawAwaitingID string, result SubmitResult) {
+	if c == nil {
+		return
+	}
+	rawAwaitingID = strings.TrimSpace(rawAwaitingID)
+	publicAwaitingID = strings.TrimSpace(publicAwaitingID)
+	if rawAwaitingID != "" {
+		c.resolvedSubmits[rawAwaitingID] = result
+	}
+	if publicAwaitingID != "" && publicAwaitingID != rawAwaitingID {
+		c.resolvedSubmits[publicAwaitingID] = result
+	}
+}
+
+func (c *RunControl) deleteAwaitingAliasesLocked(rawAwaitingID string) {
+	if c == nil {
+		return
+	}
+	rawAwaitingID = strings.TrimSpace(rawAwaitingID)
+	for public, raw := range c.awaitingAliases {
+		if strings.TrimSpace(raw) == rawAwaitingID || strings.TrimSpace(public) == rawAwaitingID {
+			delete(c.awaitingAliases, public)
+		}
+	}
+}
+
 func (c *RunControl) ExpectSubmit(ctx AwaitingSubmitContext) {
+	ctx.AwaitingID = strings.TrimSpace(ctx.AwaitingID)
+	ctx.PublicAwaitingID = strings.TrimSpace(ctx.PublicAwaitingID)
 	if c == nil || ctx.AwaitingID == "" {
 		return
 	}
 	c.mu.Lock()
 	c.awaitingSubmits[ctx.AwaitingID] = ctx.Clone()
+	if ctx.PublicAwaitingID != "" && ctx.PublicAwaitingID != ctx.AwaitingID {
+		c.awaitingAliases[ctx.PublicAwaitingID] = ctx.AwaitingID
+	}
 	c.mu.Unlock()
 }
 
@@ -616,7 +686,9 @@ func (c *RunControl) ClearExpectedSubmit(awaitingID string) {
 		return
 	}
 	c.mu.Lock()
-	delete(c.awaitingSubmits, awaitingID)
+	rawAwaitingID := c.resolveAwaitingAliasLocked(strings.TrimSpace(awaitingID))
+	delete(c.awaitingSubmits, rawAwaitingID)
+	c.deleteAwaitingAliasesLocked(rawAwaitingID)
 	c.mu.Unlock()
 }
 
@@ -629,6 +701,7 @@ func (c *RunControl) clearTimedOutSubmit(awaitingID string, waiter *submitWaiter
 		delete(c.submitWaiters, awaitingID)
 	}
 	delete(c.awaitingSubmits, awaitingID)
+	c.deleteAwaitingAliasesLocked(awaitingID)
 	c.mu.Unlock()
 }
 
@@ -658,6 +731,7 @@ func (c *RunControl) closeWaiters(status string, detail string) {
 	waiters := c.submitWaiters
 	c.submitWaiters = map[string]*submitWaiter{}
 	c.awaitingSubmits = map[string]AwaitingSubmitContext{}
+	c.awaitingAliases = map[string]string{}
 	c.mu.Unlock()
 	for _, waiter := range waiters {
 		waiter.deliver(SubmitResult{Status: status, Detail: detail})

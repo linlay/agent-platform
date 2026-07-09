@@ -691,11 +691,20 @@ func handleAwaitingLifecycle(params RunExecutorParams, data stream.EventData, tr
 			_ = params.Chats.SetPendingAwaiting(params.Session.ChatID, pending)
 		}
 		if params.RunControl != nil {
+			taskID := strings.TrimSpace(data.String("taskId"))
+			internalAwaitingID := awaitingID
+			publicAwaitingID := ""
+			if rawAwaitingID := rawAwaitingIDForTask(taskID, awaitingID); rawAwaitingID != "" && rawAwaitingID != awaitingID {
+				internalAwaitingID = rawAwaitingID
+				publicAwaitingID = awaitingID
+			}
 			params.RunControl.ExpectSubmit(contracts.AwaitingSubmitContext{
-				AwaitingID: awaitingID,
-				Mode:       mode,
-				ItemCount:  awaitingEventItemCount(data),
-				Timeout:    int64(contracts.AnyIntNode(data.Value("timeout"))),
+				AwaitingID:       internalAwaitingID,
+				PublicAwaitingID: publicAwaitingID,
+				TaskID:           taskID,
+				Mode:             mode,
+				ItemCount:        awaitingEventItemCount(data),
+				Timeout:          int64(contracts.AnyIntNode(data.Value("timeout"))),
 			})
 		}
 		tracker.pendingAwaitingID = awaitingID
@@ -784,6 +793,19 @@ func awaitingPayloadItemCount(value any) int {
 	default:
 		return 0
 	}
+}
+
+func rawAwaitingIDForTask(taskID string, awaitingID string) string {
+	taskID = strings.TrimSpace(taskID)
+	awaitingID = strings.TrimSpace(awaitingID)
+	if taskID == "" || awaitingID == "" {
+		return awaitingID
+	}
+	prefix := taskID + ":"
+	if !strings.HasPrefix(awaitingID, prefix) {
+		return awaitingID
+	}
+	return strings.TrimSpace(strings.TrimPrefix(awaitingID, prefix))
 }
 
 func awaitingAnswerErrorCode(data stream.EventData) string {

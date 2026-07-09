@@ -1,5 +1,7 @@
 package stream
 
+import "strings"
+
 type StreamEventDispatcher struct {
 	request StreamRequest
 	state   *StreamEventStateData
@@ -77,14 +79,18 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		}
 		return []StreamEvent{event}
 	case RequestSubmit:
-		return []StreamEvent{NewEvent("request.submit", map[string]any{
+		payload := map[string]any{
 			"requestId":  value.RequestID,
 			"chatId":     value.ChatID,
 			"runId":      value.RunID,
 			"awaitingId": value.AwaitingID,
 			"submitId":   value.SubmitID,
 			"params":     value.Params,
-		})}
+		}
+		if taskID := strings.TrimSpace(value.TaskID); taskID != "" {
+			payload["taskId"] = taskID
+		}
+		return []StreamEvent{NewEvent("request.submit", payload)}
 	case AwaitingAnswer:
 		event := newAwaitingAnswerEvent(value)
 		if event.Type == "" {

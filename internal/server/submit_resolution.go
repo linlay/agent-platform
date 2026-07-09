@@ -81,6 +81,7 @@ func (s *Server) hydrateDeferredAwaitings() {
 }
 
 func (s *Server) resolveSubmit(req api.SubmitRequest) (api.SubmitResponse, int, string, error) {
+	req = s.normalizeActiveSubmitRun(req)
 	if err := validateSubmitIdentity(req); err != nil {
 		return api.SubmitResponse{}, 0, "", err
 	}
@@ -108,11 +109,43 @@ func (s *Server) resolveSubmit(req api.SubmitRequest) (api.SubmitResponse, int, 
 		}, code, msg, nil
 	}
 
+	if response, code, msg, ok := s.resolveAlreadyHandledActiveSubmit(req); ok {
+		return response, code, msg, nil
+	}
+
 	response, err := s.resolveDeferredSubmit(req)
 	if err != nil {
 		return api.SubmitResponse{}, 0, "", err
 	}
 	return response, 0, "success", nil
+}
+
+func (s *Server) resolveAlreadyHandledActiveSubmit(req api.SubmitRequest) (api.SubmitResponse, int, string, bool) {
+	if s == nil || s.deps.Runs == nil {
+		return api.SubmitResponse{}, 0, "", false
+	}
+	if _, ok := s.deps.Runs.RunStatus(req.RunID); !ok {
+		return api.SubmitResponse{}, 0, "", false
+	}
+	ack := s.deps.Runs.Submit(req)
+	if ack.Status != "already_resolved" && !(ack.Accepted && ack.Status == "accepted") {
+		return api.SubmitResponse{}, 0, "", false
+	}
+	code := 0
+	msg := "success"
+	if ack.Status == "already_resolved" {
+		code = 409
+		msg = "already_resolved"
+	}
+	return api.SubmitResponse{
+		Accepted:   ack.Accepted,
+		Status:     ack.Status,
+		ChatID:     activeSubmitChatID(s, req),
+		RunID:      req.RunID,
+		AwaitingID: req.AwaitingID,
+		SubmitID:   ack.SubmitID,
+		Detail:     ack.Detail,
+	}, code, msg, true
 }
 
 func (s *Server) prepareActiveSubmitContinuation(req api.SubmitRequest, awaiting contracts.AwaitingSubmitContext) api.SubmitRequest {

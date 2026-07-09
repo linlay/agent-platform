@@ -233,6 +233,7 @@ func (s *Server) wsSubmit(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 		return
 	}
 	payload.Locale = conn.Locale()
+	payload = s.normalizeActiveSubmitRun(payload)
 	if statusErr := s.validateSubmitAgentKey(payload); statusErr != nil {
 		s.sendWSStatusError(conn, req.ID, statusErr)
 		conn.CompleteRequest(req.ID)

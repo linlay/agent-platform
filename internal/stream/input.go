@@ -214,6 +214,7 @@ type AwaitAsk struct {
 	Mode         string
 	Timeout      int64
 	RunID        string
+	TaskID       string
 	ViewportType string
 	ViewportKey  string
 	Questions    []any
@@ -228,6 +229,7 @@ type RequestSubmit struct {
 	RequestID  string
 	ChatID     string
 	RunID      string
+	TaskID     string
 	AwaitingID string
 	SubmitID   string
 	Params     any
@@ -237,6 +239,7 @@ func (RequestSubmit) streamInputTag() {}
 
 type AwaitingAnswer struct {
 	AwaitingID string
+	TaskID     string
 	Answer     map[string]any
 }
 

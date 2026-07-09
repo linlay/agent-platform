@@ -284,6 +284,61 @@ func TestRunControlResolveSubmitMarksAlreadyResolved(t *testing.T) {
 	}
 }
 
+func TestRunControlResolveSubmitAliasDeliversRawAwaitingID(t *testing.T) {
+	control := NewRunControl(context.Background(), "run_1")
+	control.ExpectSubmit(AwaitingSubmitContext{
+		AwaitingID:       "raw_await",
+		PublicAwaitingID: "task_1:raw_await",
+		TaskID:           "task_1",
+		Mode:             "question",
+		ItemCount:        1,
+	})
+	if ctx, ok := control.LookupAwaiting("task_1:raw_await"); !ok || ctx.AwaitingID != "raw_await" || ctx.PublicAwaitingID != "task_1:raw_await" {
+		t.Fatalf("expected public awaiting lookup to return raw context, got %#v ok=%v", ctx, ok)
+	}
+
+	resultCh := make(chan SubmitResult, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		result, err := control.AwaitSubmitWithTimeout(context.Background(), "raw_await", time.Second)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		resultCh <- result
+	}()
+
+	ack := control.ResolveSubmit(api.SubmitRequest{
+		RunID:      "run_1",
+		AwaitingID: "task_1:raw_await",
+		SubmitID:   "submit_alias_1",
+		Params:     testSubmitParams(t, []map[string]any{{"id": "q1", "answer": "ok"}}),
+	})
+	if !ack.Accepted || ack.Status != "accepted" {
+		t.Fatalf("expected aliased submit accepted, got %#v", ack)
+	}
+	select {
+	case err := <-errCh:
+		t.Fatalf("expected raw submit result, got err %v", err)
+	case result := <-resultCh:
+		if result.Request.AwaitingID != "raw_await" {
+			t.Fatalf("expected delivered request to use raw awaiting id, got %#v", result.Request)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for raw awaiting result")
+	}
+
+	duplicate := control.ResolveSubmit(api.SubmitRequest{
+		RunID:      "run_1",
+		AwaitingID: "task_1:raw_await",
+		SubmitID:   "submit_alias_2",
+		Params:     testSubmitParams(t, []map[string]any{{"id": "q1", "answer": "again"}}),
+	})
+	if duplicate.Accepted || duplicate.Status != "already_resolved" || duplicate.SubmitID != "submit_alias_1" {
+		t.Fatalf("expected duplicate aliased submit to be already resolved, got %#v", duplicate)
+	}
+}
+
 func TestInMemoryRunManagerActiveRunForChatReturnsSingleActiveRun(t *testing.T) {
 	manager := NewInMemoryRunManager()
 	_, _, _ = manager.Register(context.Background(), QuerySession{
