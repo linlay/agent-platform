@@ -784,6 +784,9 @@ func TestFrameOrchestratorWritesSubAgentQueryAndSystemLines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
+	if _, _, err := store.EnsureChat("chat_1", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
 			newInvokeAgentsDelta(
@@ -797,7 +800,24 @@ func TestFrameOrchestratorWritesSubAgentQueryAndSystemLines(t *testing.T) {
 	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{streams: []contracts.AgentStream{childOne, childTwo}}, map[string]catalog.AgentDefinition{
 		"writer": {Key: "writer", Name: "Writer", Mode: "REACT"},
 	}, nil, nil)
+	assembler := stream.NewAssembler(stream.StreamRequest{RunID: "run_1", ChatID: "chat_1"})
+	writer := chat.NewStepWriter(store, "chat_1", "run_1", "react")
 	orchestrator.chats = store
+	orchestrator.nextLiveSeq = assembler.NextSeq
+	orchestrator.emitDelta = func(delta contracts.AgentDelta) {
+		for _, input := range orchestrator.mapper.Map(delta) {
+			for _, event := range assembler.Consume(input) {
+				writer.OnEvent(event.Data())
+			}
+		}
+	}
+	orchestrator.emitInputs = func(inputs ...stream.StreamInput) {
+		for _, input := range inputs {
+			for _, event := range assembler.Consume(input) {
+				writer.OnEvent(event.Data())
+			}
+		}
+	}
 	orchestrator.prepareSystemInits = func(req api.QueryRequest, session *contracts.QuerySession, _ bool) ([]chat.QueryLineSystemInit, error) {
 		return []chat.QueryLineSystemInit{{
 			CacheKey:    "react:writer",
@@ -823,18 +843,36 @@ func TestFrameOrchestratorWritesSubAgentQueryAndSystemLines(t *testing.T) {
 	if err != nil || streamFailed || streamInterrupted {
 		t.Fatalf("unexpected orchestrator result err=%v failed=%v interrupted=%v", err, streamFailed, streamInterrupted)
 	}
+	writer.Flush()
 
 	lines, err := readServerTestJSONLines(store, "chat_1")
 	if err != nil {
 		t.Fatalf("read chat jsonl: %v", err)
 	}
 	var queryCount, embeddedSystemCount, standaloneSystemCount int
+	queryLiveSeqs := map[int64]bool{}
+	allLiveSeqs := map[int64]string{}
 	for _, line := range lines {
+		if liveSeq := testInt64Value(line["liveSeq"]); liveSeq > 0 {
+			if previous, ok := allLiveSeqs[liveSeq]; ok {
+				t.Fatalf("duplicate liveSeq %d on %s and %#v", liveSeq, previous, line)
+			}
+			lineType, _ := line["_type"].(string)
+			allLiveSeqs[liveSeq] = lineType
+		}
 		switch line["_type"] {
 		case "query":
 			if line["taskId"] == "" || line["subAgentKey"] != "writer" || line["taskToolId"] != "tool_main_1" {
 				t.Fatalf("unexpected child query line %#v", line)
 			}
+			liveSeq := testInt64Value(line["liveSeq"])
+			if liveSeq <= 0 {
+				t.Fatalf("expected child query to carry positive liveSeq, got %#v", line)
+			}
+			if queryLiveSeqs[liveSeq] {
+				t.Fatalf("duplicate child query liveSeq %d in %#v", liveSeq, line)
+			}
+			queryLiveSeqs[liveSeq] = true
 			if _, ok := line["taskGroupId"]; ok {
 				t.Fatalf("did not expect taskGroupId on child query line %#v", line)
 			}

@@ -216,9 +216,14 @@ func (a *StreamEventAssembler) FailWithRaw(err error) ([]StreamEvent, []StreamEv
 	return raw, a.normalizer.Normalize(raw)
 }
 
+// NextSeq reserves the next run-local live sequence number.
+func (a *StreamEventAssembler) NextSeq() int64 {
+	return a.seq.Add(1)
+}
+
 func (a *StreamEventAssembler) stamp(events []StreamEvent) []StreamEvent {
 	for idx := range events {
-		events[idx].Seq = a.seq.Add(1)
+		events[idx].Seq = a.NextSeq()
 	}
 	return events
 }

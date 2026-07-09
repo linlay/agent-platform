@@ -37,6 +37,7 @@ type frameOrchestrator struct {
 	mapper             contracts.StreamDeltaMapper
 	emitDelta          func(contracts.AgentDelta)
 	emitInputs         func(...stream.StreamInput)
+	nextLiveSeq        func() int64
 	taskCounter        int
 }
 
@@ -526,11 +527,16 @@ func (o *frameOrchestrator) writeChildTaskQueryAndSystem(subReq api.QueryRequest
 			systems = o.buildChildSystems(subReq, subSession)
 		}
 	}
+	var liveSeq int64
+	if o.nextLiveSeq != nil {
+		liveSeq = o.nextLiveSeq()
+	}
 	_ = o.chats.AppendQueryLine(o.summary.ChatID, chat.QueryLine{
 		Type:        "query",
 		ChatID:      o.summary.ChatID,
 		RunID:       o.session.RunID,
 		UpdatedAt:   time.Now().UnixMilli(),
+		LiveSeq:     liveSeq,
 		TaskID:      task.taskID,
 		TaskName:    task.spec.TaskName,
 		TaskToolID:  task.mainToolID,

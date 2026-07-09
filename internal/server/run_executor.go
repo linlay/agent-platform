@@ -637,6 +637,7 @@ func runExecutor(params RunExecutorParams) {
 		mapper:             params.Mapper,
 		emitDelta:          emitDelta,
 		emitInputs:         emitInputs,
+		nextLiveSeq:        params.Assembler.NextSeq,
 	}
 
 	streamFailed, streamInterrupted, orchestrateErr := orchestrator.Run(agentStream)
