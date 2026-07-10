@@ -18,31 +18,30 @@ import (
 )
 
 type RunExecutorParams struct {
-	RunCtx             context.Context
-	Request            api.QueryRequest
-	Session            contracts.QuerySession
-	StartedAtMillis    int64
-	Summary            chat.Summary
-	Agent              contracts.AgentEngine
-	Registry           catalog.Registry
-	Assembler          *stream.StreamEventAssembler
-	Mapper             contracts.StreamDeltaMapper
-	Billing            config.BillingConfig
-	StepWriter         *chat.StepWriter
-	EventBus           *stream.RunEventBus
-	Chats              chat.Store
-	Models             *models.ModelRegistry
-	RunControl         *contracts.RunControl
-	ResourceBaseURL    string
-	ResourceTickets    *ResourceTicketService
-	BuildQuerySession  func(context.Context, api.QueryRequest, chat.Summary, catalog.AgentDefinition, querySessionBuildOptions) (contracts.QuerySession, error)
-	PrepareSystemInits func(api.QueryRequest, *contracts.QuerySession, bool) ([]chat.QueryLineSystemInit, error)
-	BuildChildSystems  func(api.QueryRequest, *contracts.QuerySession) []chat.QueryLineSystemInit
-	Notifications      contracts.NotificationSink
-	OnUnreadChanged    func(chat.Summary)
-	OnPersisted        func(chat.RunCompletion)
-	OnContinuation     func(contracts.DeltaRunContinuation) (string, error)
-	OnComplete         func(string)
+	RunCtx            context.Context
+	Request           api.QueryRequest
+	Session           contracts.QuerySession
+	StartedAtMillis   int64
+	Summary           chat.Summary
+	Agent             contracts.AgentEngine
+	Registry          catalog.Registry
+	Assembler         *stream.StreamEventAssembler
+	Mapper            contracts.StreamDeltaMapper
+	Billing           config.BillingConfig
+	StepWriter        *chat.StepWriter
+	EventBus          *stream.RunEventBus
+	Chats             chat.Store
+	Models            *models.ModelRegistry
+	RunControl        *contracts.RunControl
+	ResourceBaseURL   string
+	ResourceTickets   *ResourceTicketService
+	BuildQuerySession func(context.Context, api.QueryRequest, chat.Summary, catalog.AgentDefinition, querySessionBuildOptions) (contracts.QuerySession, error)
+	PrepareSystemInit func(api.QueryRequest, *contracts.QuerySession, bool) (*chat.QueryLineSystemInit, error)
+	Notifications     contracts.NotificationSink
+	OnUnreadChanged   func(chat.Summary)
+	OnPersisted       func(chat.RunCompletion)
+	OnContinuation    func(contracts.DeltaRunContinuation) (string, error)
+	OnComplete        func(string)
 }
 
 type runEventProcessor struct {
@@ -67,7 +66,7 @@ func (p *runEventProcessor) Consume(event stream.StreamEvent) (stream.EventData,
 	if p.stepWriter != nil {
 		p.stepWriter.OnEvent(data)
 	}
-	return data, isClientVisibleEvent(event.Type)
+	return data, shouldPublishClientEvent(data)
 }
 
 func (p *runEventProcessor) decorate(data *stream.EventData) {
@@ -486,13 +485,20 @@ func isClientVisibleEvent(eventType string) bool {
 	return !strings.HasSuffix(eventType, ".snapshot")
 }
 
+func shouldPublishClientEvent(data stream.EventData) bool {
+	if data.Type == "request.query" && strings.TrimSpace(data.String("kind")) == "system-init" {
+		return false
+	}
+	return isClientVisibleEvent(data.Type)
+}
+
 func clientVisibleEventData(data stream.EventData) stream.EventData {
 	if data.Type != "request.query" || len(data.Payload) == 0 {
 		return data
 	}
 	payload := make(map[string]any, len(data.Payload))
 	for key, value := range data.Payload {
-		if key == "messages" || key == "systems" {
+		if key == "messages" || key == "system" || key == "systems" {
 			continue
 		}
 		payload[key] = value
@@ -574,7 +580,7 @@ func runExecutor(params RunExecutorParams) {
 				data, _ = processor.Consume(event)
 				handleAwaitingLifecycle(params, data, tracker)
 			}
-			if isClientVisibleEvent(data.Type) && params.EventBus != nil {
+			if shouldPublishClientEvent(data) && params.EventBus != nil {
 				params.EventBus.Publish(clientVisibleEventData(data))
 			}
 		}
@@ -622,22 +628,21 @@ func runExecutor(params RunExecutorParams) {
 	}
 
 	orchestrator := &frameOrchestrator{
-		runCtx:             runCtx,
-		request:            params.Request,
-		session:            params.Session,
-		summary:            params.Summary,
-		agent:              params.Agent,
-		registry:           params.Registry,
-		buildQuerySession:  params.BuildQuerySession,
-		chats:              params.Chats,
-		resourceBaseURL:    params.ResourceBaseURL,
-		resourceTickets:    params.ResourceTickets,
-		prepareSystemInits: params.PrepareSystemInits,
-		buildChildSystems:  params.BuildChildSystems,
-		mapper:             params.Mapper,
-		emitDelta:          emitDelta,
-		emitInputs:         emitInputs,
-		nextLiveSeq:        params.Assembler.NextSeq,
+		runCtx:            runCtx,
+		request:           params.Request,
+		session:           params.Session,
+		summary:           params.Summary,
+		agent:             params.Agent,
+		registry:          params.Registry,
+		buildQuerySession: params.BuildQuerySession,
+		chats:             params.Chats,
+		resourceBaseURL:   params.ResourceBaseURL,
+		resourceTickets:   params.ResourceTickets,
+		prepareSystemInit: params.PrepareSystemInit,
+		mapper:            params.Mapper,
+		emitDelta:         emitDelta,
+		emitInputs:        emitInputs,
+		nextLiveSeq:       params.Assembler.NextSeq,
 	}
 
 	streamFailed, streamInterrupted, orchestrateErr := orchestrator.Run(agentStream)

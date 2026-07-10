@@ -18,6 +18,7 @@ func TestBuildLLMChatFromJSONLUsesSystemFingerprint(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	oldSystem := QueryLineSystemInit{
+		AgentKey:      "agent",
 		CacheKey:      "react:main",
 		Fingerprint:   "sha256:old",
 		SystemMessage: map[string]any{"role": "system", "content": "old system"},
@@ -39,6 +40,7 @@ func TestBuildLLMChatFromJSONLUsesSystemFingerprint(t *testing.T) {
 		RequestOptions: map[string]any{"stream": true, "temperature": 0},
 	}
 	newSystem := QueryLineSystemInit{
+		AgentKey:      "agent",
 		CacheKey:      "react:main",
 		Fingerprint:   "sha256:new",
 		SystemMessage: map[string]any{"role": "system", "content": "new system"},
@@ -66,9 +68,19 @@ func TestBuildLLMChatFromJSONLUsesSystemFingerprint(t *testing.T) {
 		UpdatedAt: 1,
 		Query:     map[string]any{"role": "user", "message": "hello"},
 		Messages:  []map[string]any{{"role": "user", "content": "hello"}},
-		Systems:   []QueryLineSystemInit{oldSystem, newSystem},
+		System:    &oldSystem,
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
+	}
+	if err := store.AppendQueryLine(chatID, QueryLine{
+		Type:      "query",
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: 1,
+		Query:     map[string]any{"role": "system", "kind": "system-init", "hidden": true, "agentKey": "agent"},
+		System:    &newSystem,
+	}); err != nil {
+		t.Fatalf("append system registration query: %v", err)
 	}
 	if err := store.AppendStepLine(chatID, StepLine{
 		Type:      StepLineTypeReact,
@@ -123,6 +135,7 @@ func TestBuildLLMChatFromJSONLIgnoresStepSourcesSidecar(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	system := QueryLineSystemInit{
+		AgentKey:      "agent",
 		CacheKey:      "react:main",
 		Fingerprint:   "sha256:system",
 		SystemMessage: map[string]any{"role": "system", "content": "system"},
@@ -143,7 +156,7 @@ func TestBuildLLMChatFromJSONLIgnoresStepSourcesSidecar(t *testing.T) {
 		UpdatedAt: 1,
 		Query:     map[string]any{"role": "user", "message": "hello"},
 		Messages:  []map[string]any{{"role": "user", "content": "hello"}},
-		Systems:   []QueryLineSystemInit{system},
+		System:    &system,
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
 	}
@@ -414,6 +427,7 @@ func TestBuildLLMChatFromJSONLReplaysSteerWithoutInputMessages(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	system := QueryLineSystemInit{
+		AgentKey:      "agent",
 		CacheKey:      "react:main",
 		Fingerprint:   "sha256:react",
 		SystemMessage: map[string]any{"role": "system", "content": "react system"},
@@ -434,7 +448,7 @@ func TestBuildLLMChatFromJSONLReplaysSteerWithoutInputMessages(t *testing.T) {
 		UpdatedAt: 1,
 		Query:     map[string]any{"role": "user", "message": "original"},
 		Messages:  []map[string]any{{"role": "user", "content": "original"}},
-		Systems:   []QueryLineSystemInit{system},
+		System:    &system,
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
 	}
@@ -516,6 +530,7 @@ func TestBuildLLMChatFromJSONLUsesReactToolAuditMessageOnce(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	system := QueryLineSystemInit{
+		AgentKey:      "agent",
 		CacheKey:      "react:main",
 		Fingerprint:   "sha256:system",
 		SystemMessage: map[string]any{"role": "system", "content": "system"},
@@ -540,7 +555,7 @@ The tool results above already reflect these decisions; do not re-prompt for app
 		UpdatedAt: 1,
 		Query:     map[string]any{"role": "user", "message": "hello"},
 		Messages:  []map[string]any{{"role": "user", "content": "hello"}},
-		Systems:   []QueryLineSystemInit{system},
+		System:    &system,
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
 	}
@@ -606,7 +621,8 @@ func TestStepWriterKeepsLLMRequestProfileOutOfStepLines(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	writer := NewStepWriter(store, chatID, "run-1", "REACT")
-	writer.SetPendingSystemInits([]QueryLineSystemInit{{
+	pendingSystem := QueryLineSystemInit{
+		AgentKey:      "agent",
 		CacheKey:      "react:main",
 		Fingerprint:   "sha256:system",
 		SystemMessage: map[string]any{"role": "system", "content": "system"},
@@ -619,7 +635,8 @@ func TestStepWriterKeepsLLMRequestProfileOutOfStepLines(t *testing.T) {
 		},
 		ToolChoice:     "auto",
 		RequestOptions: map[string]any{"stream": true, "temperature": 0},
-	}})
+	}
+	writer.SetPendingSystemInit(&pendingSystem)
 	writer.SetPendingQueryMessages([]map[string]any{{"role": "user", "content": "hello"}})
 	writer.OnEvent(stream.NewEvent("request.query", map[string]any{
 		"role":    "user",
@@ -655,11 +672,10 @@ func TestStepWriterKeepsLLMRequestProfileOutOfStepLines(t *testing.T) {
 		t.Fatalf("expected query and step lines, got %#v", lines)
 	}
 	query := lines[0]
-	systems, _ := query["systems"].([]any)
-	if len(systems) != 1 {
+	profile, _ := query["system"].(map[string]any)
+	if len(profile) == 0 {
 		t.Fatalf("expected query system profile, got %#v", query)
 	}
-	profile, _ := systems[0].(map[string]any)
 	if profile["toolChoice"] != "auto" {
 		t.Fatalf("expected query system toolChoice, got %#v", profile)
 	}
@@ -831,13 +847,14 @@ func TestBuildLLMChatFromJSONLRejectsMissingSystemRef(t *testing.T) {
 		UpdatedAt: 1,
 		Query:     map[string]any{"role": "user", "message": "hello"},
 		Messages:  []map[string]any{{"role": "user", "content": "hello"}},
-		Systems: []QueryLineSystemInit{{
+		System: &QueryLineSystemInit{
+			AgentKey:      "agent",
 			CacheKey:      "react:main",
 			Fingerprint:   "sha256:system",
 			SystemMessage: map[string]any{"role": "system", "content": "system"},
 			Tools:         []any{},
 			Model:         map[string]any{"key": "model-key"},
-		}},
+		},
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
 	}
@@ -917,13 +934,14 @@ func TestBuildLLMChatFromJSONLRejectsSystemSnapshotWithoutModelKey(t *testing.T)
 		UpdatedAt: 1,
 		Query:     map[string]any{"role": "user", "message": "hello"},
 		Messages:  []map[string]any{{"role": "user", "content": "hello"}},
-		Systems: []QueryLineSystemInit{{
+		System: &QueryLineSystemInit{
+			AgentKey:      "agent",
 			CacheKey:      "react:main",
 			Fingerprint:   "sha256:system",
 			SystemMessage: map[string]any{"role": "system", "content": "system"},
 			Tools:         []any{},
 			Model:         map[string]any{"id": "model-id"},
-		}},
+		},
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
 	}

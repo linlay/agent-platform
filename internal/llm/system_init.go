@@ -245,6 +245,7 @@ func buildDefaultSystemInitProfile(session contracts.QuerySession, req api.Query
 	})
 	specs := toOpenAIToolSpecs(effectiveDefs)
 	return contracts.SystemInitProfile{
+		AgentKey:      strings.TrimSpace(session.AgentKey),
 		CacheKey:      SystemInitCacheKey(session.Mode, stage),
 		Mode:          normalizedSystemInitMode(session.Mode),
 		Stage:         "main",
@@ -264,6 +265,7 @@ func buildPlanSystemInitProfile(session contracts.QuerySession, req api.QueryReq
 	})
 	specs := toOpenAIToolSpecs(effectiveDefs)
 	return contracts.SystemInitProfile{
+		AgentKey:      strings.TrimSpace(session.AgentKey),
 		CacheKey:      SystemInitCacheKey(session.Mode, "plan"),
 		Mode:          "plan-execute",
 		Stage:         "plan",
@@ -282,6 +284,7 @@ func buildExecuteSystemInitProfile(session contracts.QuerySession, settings cont
 	}
 	specs := toOpenAIToolSpecs(effectiveDefs)
 	return contracts.SystemInitProfile{
+		AgentKey:      strings.TrimSpace(session.AgentKey),
 		CacheKey:      SystemInitCacheKey(session.Mode, "execute"),
 		Mode:          "plan-execute",
 		Stage:         "execute",
@@ -302,6 +305,7 @@ func buildSummarySystemInitProfile(session contracts.QuerySession, settings cont
 	fingerprintSession := session
 	fingerprintSession.SummaryPrompt = strings.TrimSpace(strings.Join([]string{fingerprintSession.SummaryPrompt, systemPrompt}, "\n"))
 	return contracts.SystemInitProfile{
+		AgentKey:      strings.TrimSpace(session.AgentKey),
 		CacheKey:      SystemInitCacheKey(session.Mode, "summary"),
 		Mode:          "plan-execute",
 		Stage:         "summary",
@@ -340,6 +344,7 @@ func buildCoderPlanningSystemInitProfile(session contracts.QuerySession, req api
 	}
 	specs := toOpenAIToolSpecs(effectiveDefs)
 	return contracts.SystemInitProfile{
+		AgentKey:      strings.TrimSpace(session.AgentKey),
 		CacheKey:      SystemInitCacheKey(session.Mode, spec.CacheStage),
 		Mode:          spec.Mode,
 		Stage:         spec.Stage,

@@ -2593,20 +2593,15 @@ func assertJSONLCoderExecuteBootstrapQuery(t *testing.T, store chat.Store, chatI
 		if _, ok := query["messages"]; ok {
 			t.Fatalf("did not expect messages inside execute bootstrap query payload %#v", query)
 		}
-		if _, ok := query["systems"]; ok {
-			t.Fatalf("did not expect systems inside execute bootstrap query payload %#v", query)
+		if _, ok := query["system"]; ok {
+			t.Fatalf("did not expect system inside execute bootstrap query payload %#v", query)
 		}
-		rawSystems, _ := queryLine["systems"].([]any)
-		if len(rawSystems) != 1 {
+		system, _ := queryLine["system"].(map[string]any)
+		if len(system) == 0 {
 			t.Fatalf("expected execute system on bootstrap query, got %#v", queryLine)
 		}
-		systemKeys := map[string]bool{}
-		for _, rawSystem := range rawSystems {
-			system, _ := rawSystem.(map[string]any)
-			systemKeys[stringValue(system["cacheKey"])] = true
-		}
-		if !systemKeys["coder:execute"] {
-			t.Fatalf("expected coder execute system keys, got %#v in %#v", systemKeys, queryLine)
+		if stringValue(system["cacheKey"]) != "coder:execute" || stringValue(system["agentKey"]) == "" {
+			t.Fatalf("expected coder execute system identity, got %#v in %#v", system, queryLine)
 		}
 		rawMessages, _ := queryLine["messages"].([]any)
 		if len(rawMessages) != 1 {
@@ -2644,6 +2639,9 @@ func assertJSONLCoderExecuteBootstrapQuery(t *testing.T, store chat.Store, chatI
 		systemRef, _ := executeLine["systemRef"].(map[string]any)
 		if systemRef["cacheKey"] != "coder:execute" {
 			t.Fatalf("expected execute react to keep coder:execute systemRef, got %#v", executeLine)
+		}
+		if stringValue(systemRef["agentKey"]) == "" {
+			t.Fatalf("expected execute react systemRef agentKey, got %#v", executeLine)
 		}
 		if _, ok := executeLine["systems"]; ok {
 			t.Fatalf("did not expect execute react systems, got %#v", executeLine)

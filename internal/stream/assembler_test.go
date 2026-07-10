@@ -75,10 +75,11 @@ func TestAssemblerBootstrapCanUseSyntheticQuery(t *testing.T) {
 				"role":    "user",
 				"content": "Execute the confirmed CODER plan.",
 			}},
-			Systems: []map[string]any{{
+			System: map[string]any{
+				"agentKey":    "coder",
 				"cacheKey":    "coder:execute",
 				"fingerprint": "fp_1",
-			}},
+			},
 		},
 	})
 
@@ -97,8 +98,34 @@ func TestAssemblerBootstrapCanUseSyntheticQuery(t *testing.T) {
 	if _, ok := query["messages"]; !ok {
 		t.Fatalf("expected synthetic bootstrap query to carry messages for persistence: %#v", query)
 	}
-	if _, ok := query["systems"]; !ok {
-		t.Fatalf("expected synthetic bootstrap query to carry systems for persistence: %#v", query)
+	if _, ok := query["system"]; !ok {
+		t.Fatalf("expected synthetic bootstrap query to carry system for persistence: %#v", query)
+	}
+}
+
+func TestAssemblerContinuationCanBootstrapSystemRegistrationQuery(t *testing.T) {
+	assembler := NewAssembler(StreamRequest{
+		RunID:       "run_continue",
+		ChatID:      "chat_1",
+		ContinueRun: true,
+		BootstrapSynthetic: &SyntheticQuery{
+			ChatID: "chat_1",
+			Role:   "system",
+			Kind:   "system-init",
+			Hidden: true,
+			System: map[string]any{
+				"agentKey":    "agent",
+				"cacheKey":    "react:main",
+				"fingerprint": "sha256:changed",
+			},
+		},
+	})
+
+	bootstrap := assembler.Bootstrap()
+	assertStampedTypes(t, bootstrap, "request.query", "run.start")
+	query := bootstrap[0].ToData()
+	if query["kind"] != "system-init" || query["hidden"] != true {
+		t.Fatalf("unexpected continuation system registration %#v", query)
 	}
 }
 

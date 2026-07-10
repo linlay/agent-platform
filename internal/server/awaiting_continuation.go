@@ -80,6 +80,7 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 	if catalog.AgentUsesACPCoderBackend(agentDef) {
 		req.Model = s.acpCoderModelOptions(session, req.Model)
 	}
+	var continuationSystem *chat.QueryLineSystemInit
 	if planApprove {
 		if err := s.preparePlanApproveContinuation(req, originalQuery, &session); err != nil {
 			log.Printf("[server][awaiting] prepare plan approve continuation failed chatId=%s runId=%s err=%v", chatID, runID, err)
@@ -89,8 +90,8 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 			req.SyntheticQueryBootstrapped = true
 		}
 	} else {
-		if systemInitLines, err := s.prepareSystemInitCache(req, &session, false); err == nil {
-			_ = systemInitLines
+		if systemInitLine, err := s.prepareSystemInitCache(req, &session, false); err == nil {
+			continuationSystem = systemInitLine
 		} else {
 			log.Printf("[server][awaiting] prepare continuation system init failed chatId=%s runId=%s err=%v", chatID, runID, err)
 		}
@@ -108,6 +109,8 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 	}
 	if newExecutionRun {
 		prepared.syntheticBootstrap = coderPlanApproveSyntheticBootstrap(session)
+	} else if continuationSystem != nil {
+		prepared.syntheticBootstrap = systemInitSyntheticBootstrap(session.ChatID, *continuationSystem)
 	}
 	registered, statusErr := s.registerQueryRun(context.Background(), prepared)
 	if statusErr != nil {
@@ -133,28 +136,27 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 		startedAt = parsed
 	}
 	StartRunExecutor(RunExecutorParams{
-		RunCtx:             runCtx,
-		Request:            req,
-		Session:            session,
-		StartedAtMillis:    startedAt,
-		Summary:            *summary,
-		Agent:              s.deps.Agent,
-		Registry:           s.deps.Registry,
-		Assembler:          assembler,
-		Mapper:             mapper,
-		Billing:            s.deps.Config.Billing,
-		StepWriter:         stepWriter,
-		EventBus:           eventBus,
-		Chats:              s.deps.Chats,
-		Models:             s.deps.Models,
-		RunControl:         control,
-		ResourceBaseURL:    "",
-		ResourceTickets:    s.ticketService,
-		BuildQuerySession:  s.BuildQuerySession,
-		PrepareSystemInits: s.prepareSystemInitCache,
-		BuildChildSystems:  s.buildSystemInitsForChildTask,
-		Notifications:      s.deps.Notifications,
-		OnContinuation:     s.startRunContinuation,
+		RunCtx:            runCtx,
+		Request:           req,
+		Session:           session,
+		StartedAtMillis:   startedAt,
+		Summary:           *summary,
+		Agent:             s.deps.Agent,
+		Registry:          s.deps.Registry,
+		Assembler:         assembler,
+		Mapper:            mapper,
+		Billing:           s.deps.Config.Billing,
+		StepWriter:        stepWriter,
+		EventBus:          eventBus,
+		Chats:             s.deps.Chats,
+		Models:            s.deps.Models,
+		RunControl:        control,
+		ResourceBaseURL:   "",
+		ResourceTickets:   s.ticketService,
+		BuildQuerySession: s.BuildQuerySession,
+		PrepareSystemInit: s.prepareSystemInitCache,
+		Notifications:     s.deps.Notifications,
+		OnContinuation:    s.startRunContinuation,
 		OnUnreadChanged: func(summary chat.Summary) {
 			agentUnreadCount, err := s.agentUnreadCount(summary.AgentKey)
 			if err != nil {
@@ -171,6 +173,30 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 		},
 	})
 	return true, nil
+}
+
+func systemInitSyntheticBootstrap(chatID string, system chat.QueryLineSystemInit) *stream.SyntheticQuery {
+	stage := ""
+	if _, parsedStage, ok := strings.Cut(strings.TrimSpace(system.CacheKey), ":"); ok {
+		stage = strings.TrimSpace(parsedStage)
+	}
+	return &stream.SyntheticQuery{
+		ChatID: chatID,
+		Role:   api.QueryRoleSystem,
+		System: map[string]any{
+			"agentKey":       system.AgentKey,
+			"cacheKey":       system.CacheKey,
+			"fingerprint":    system.Fingerprint,
+			"systemMessage":  cloneMap(system.SystemMessage),
+			"tools":          cloneAnySlice(system.Tools),
+			"model":          cloneMap(system.Model),
+			"toolChoice":     system.ToolChoice,
+			"requestOptions": cloneMap(system.RequestOptions),
+		},
+		Kind:   "system-init",
+		Stage:  stage,
+		Hidden: true,
+	}
 }
 
 func (s *Server) continuationInitialSeq(chatID string, sourceRunID string, runID string) int64 {
@@ -309,6 +335,14 @@ func (s *Server) preparePlanApproveContinuation(req api.QueryRequest, original *
 	session.SystemInitCache = map[string]contracts.SystemInitSnapshot{
 		executeSystem.CacheKey: systemInitSnapshotFromLine(executeSystem),
 	}
+	session.PendingSystemInitKeys = map[string]bool{executeSystem.CacheKey: true}
+	if s.deps.Chats != nil {
+		if systemInits, err := s.deps.Chats.LoadAllSystemInits(req.ChatID); err == nil {
+			if existing := systemInits.Lookup(executeSystem.AgentKey, executeSystem.CacheKey); existing != nil && sameSystemInitPayload(existing, executeSystem) {
+				session.PendingSystemInitKeys = nil
+			}
+		}
+	}
 	executeTools := agentcoder.PlanningExecuteToolsForStage(session.ResolvedStageSettings.Execute, session.ToolNames)
 	session.ToolNames = append([]string(nil), executeTools...)
 	if modelKey := strings.TrimSpace(session.ResolvedStageSettings.Execute.ModelKey); modelKey != "" {
@@ -327,32 +361,29 @@ func coderPlanApproveSyntheticBootstrap(session contracts.QuerySession) *stream.
 		Role:     api.QueryRoleUser,
 		Message:  agentcoder.ExecuteSyntheticQueryMessage(session.Locale),
 		Messages: cloneMessageMapsForSyntheticBootstrap(session.CurrentMessages),
-		Systems:  systemPayloadsFromSessionCache(session.SystemInitCache, "coder:execute"),
+		System:   takePendingSystemPayloadFromSession(&session, "coder:execute"),
 	}
 }
 
-func systemPayloadsFromSessionCache(cache map[string]contracts.SystemInitSnapshot, cacheKeys ...string) []map[string]any {
-	if len(cache) == 0 || len(cacheKeys) == 0 {
+func takePendingSystemPayloadFromSession(session *contracts.QuerySession, cacheKey string) map[string]any {
+	if session == nil || !session.PendingSystemInitKeys[cacheKey] {
 		return nil
 	}
-	out := make([]map[string]any, 0, len(cacheKeys))
-	for _, cacheKey := range cacheKeys {
-		cacheKey = strings.TrimSpace(cacheKey)
-		snapshot, ok := cache[cacheKey]
-		if !ok || strings.TrimSpace(snapshot.Fingerprint) == "" {
-			continue
-		}
-		out = append(out, map[string]any{
-			"cacheKey":       cacheKey,
-			"fingerprint":    snapshot.Fingerprint,
-			"systemMessage":  cloneMap(snapshot.SystemMessage),
-			"tools":          cloneAnySlice(snapshot.Tools),
-			"model":          cloneMap(snapshot.Model),
-			"toolChoice":     snapshot.ToolChoice,
-			"requestOptions": cloneMap(snapshot.RequestOptions),
-		})
+	snapshot, ok := session.SystemInitCache[cacheKey]
+	if !ok || strings.TrimSpace(snapshot.Fingerprint) == "" {
+		return nil
 	}
-	return out
+	delete(session.PendingSystemInitKeys, cacheKey)
+	return map[string]any{
+		"agentKey":       snapshot.AgentKey,
+		"cacheKey":       cacheKey,
+		"fingerprint":    snapshot.Fingerprint,
+		"systemMessage":  cloneMap(snapshot.SystemMessage),
+		"tools":          cloneAnySlice(snapshot.Tools),
+		"model":          cloneMap(snapshot.Model),
+		"toolChoice":     snapshot.ToolChoice,
+		"requestOptions": cloneMap(snapshot.RequestOptions),
+	}
 }
 
 func cloneMessageMapsForSyntheticBootstrap(messages []map[string]any) []map[string]any {

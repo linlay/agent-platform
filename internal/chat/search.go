@@ -148,6 +148,9 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 		}
 		switch lineType {
 		case "query":
+			if lineIsSystemInitQuery(line) {
+				continue
+			}
 			payload, _ := line["query"].(map[string]any)
 			role := defaultSearchRole(stringValue(payload["role"]))
 			if !api.QueryRoleVisible(role) {

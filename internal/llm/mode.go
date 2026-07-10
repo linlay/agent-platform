@@ -68,7 +68,7 @@ func (coderMode) Start(engine *LLMAgentEngine, ctx context.Context, req api.Quer
 				Role:     api.QueryRoleUser,
 				Message:  agentcoder.ExecuteSyntheticQueryMessage(session.Locale),
 				Messages: cloneRawMessageMaps(session.CurrentMessages),
-				Systems:  systemPayloadsFromCache(session.SystemInitCache, "coder:execute"),
+				System:   takePendingSystemPayload(&session, "coder:execute"),
 			})
 		}
 		return &prefixedAgentStream{
@@ -108,28 +108,25 @@ func (s *prefixedAgentStream) Close() error {
 	return s.stream.Close()
 }
 
-func systemPayloadsFromCache(cache map[string]SystemInitSnapshot, cacheKeys ...string) []map[string]any {
-	if len(cache) == 0 || len(cacheKeys) == 0 {
+func takePendingSystemPayload(session *QuerySession, cacheKey string) map[string]any {
+	if session == nil || !session.PendingSystemInitKeys[cacheKey] {
 		return nil
 	}
-	out := make([]map[string]any, 0, len(cacheKeys))
-	for _, cacheKey := range cacheKeys {
-		cacheKey = strings.TrimSpace(cacheKey)
-		snapshot, ok := cache[cacheKey]
-		if !ok || strings.TrimSpace(snapshot.Fingerprint) == "" {
-			continue
-		}
-		out = append(out, map[string]any{
-			"cacheKey":       cacheKey,
-			"fingerprint":    snapshot.Fingerprint,
-			"systemMessage":  cloneAnyMapViaJSON(snapshot.SystemMessage),
-			"tools":          cloneAnySliceViaJSON(snapshot.Tools),
-			"model":          cloneAnyMapViaJSON(snapshot.Model),
-			"toolChoice":     snapshot.ToolChoice,
-			"requestOptions": cloneAnyMapViaJSON(snapshot.RequestOptions),
-		})
+	snapshot, ok := session.SystemInitCache[cacheKey]
+	if !ok || strings.TrimSpace(snapshot.Fingerprint) == "" {
+		return nil
 	}
-	return out
+	delete(session.PendingSystemInitKeys, cacheKey)
+	return map[string]any{
+		"agentKey":       snapshot.AgentKey,
+		"cacheKey":       cacheKey,
+		"fingerprint":    snapshot.Fingerprint,
+		"systemMessage":  cloneAnyMapViaJSON(snapshot.SystemMessage),
+		"tools":          cloneAnySliceViaJSON(snapshot.Tools),
+		"model":          cloneAnyMapViaJSON(snapshot.Model),
+		"toolChoice":     snapshot.ToolChoice,
+		"requestOptions": cloneAnyMapViaJSON(snapshot.RequestOptions),
+	}
 }
 
 func cloneAnySliceViaJSON(values []any) []any {

@@ -124,7 +124,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
 	stepWriter := chat.NewStepWriter(execution.StepLineStore, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
-	stepWriter.SetPendingSystemInits(prepared.systemInitLines)
+	stepWriter.SetPendingSystemInit(prepared.systemInitLine)
 	stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
 	var onUnreadChanged func(chat.Summary)
 	var onPersisted func(chat.RunCompletion)
@@ -147,29 +147,28 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 	}
 
 	StartRunExecutor(RunExecutorParams{
-		RunCtx:             runCtx,
-		Request:            prepared.req,
-		Session:            prepared.session,
-		Summary:            prepared.summary,
-		Agent:              s.deps.Agent,
-		Registry:           s.deps.Registry,
-		Assembler:          assembler,
-		Mapper:             mapper,
-		Billing:            s.deps.Config.Billing,
-		StepWriter:         stepWriter,
-		EventBus:           eventBus,
-		Chats:              execution.CompletionStore,
-		Models:             s.deps.Models,
-		RunControl:         control,
-		ResourceBaseURL:    prepared.resourceBaseURL,
-		ResourceTickets:    s.ticketService,
-		BuildQuerySession:  s.BuildQuerySession,
-		PrepareSystemInits: s.prepareSystemInitCache,
-		BuildChildSystems:  s.buildSystemInitsForChildTask,
-		Notifications:      notifications,
-		OnUnreadChanged:    onUnreadChanged,
-		OnPersisted:        onPersisted,
-		OnContinuation:     onContinuation,
+		RunCtx:            runCtx,
+		Request:           prepared.req,
+		Session:           prepared.session,
+		Summary:           prepared.summary,
+		Agent:             s.deps.Agent,
+		Registry:          s.deps.Registry,
+		Assembler:         assembler,
+		Mapper:            mapper,
+		Billing:           s.deps.Config.Billing,
+		StepWriter:        stepWriter,
+		EventBus:          eventBus,
+		Chats:             execution.CompletionStore,
+		Models:            s.deps.Models,
+		RunControl:        control,
+		ResourceBaseURL:   prepared.resourceBaseURL,
+		ResourceTickets:   s.ticketService,
+		BuildQuerySession: s.BuildQuerySession,
+		PrepareSystemInit: s.prepareSystemInitCache,
+		Notifications:     notifications,
+		OnUnreadChanged:   onUnreadChanged,
+		OnPersisted:       onPersisted,
+		OnContinuation:    onContinuation,
 		OnComplete: func(runID string) {
 			releaseQuery(prepared.release)
 			s.deps.Runs.Finish(runID)
@@ -689,7 +688,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		chatUsage:     chatUsage,
 		runUsage:      &runUsage,
 	}
-	processor.stepWriter.SetPendingSystemInits(prepared.systemInitLines)
+	processor.stepWriter.SetPendingSystemInit(prepared.systemInitLine)
 	processor.stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
 	runCtx = chat.WithApprovalSummarySink(runCtx, processor.stepWriter.RecordApproval)
 	writeEvent := func(event stream.StreamEvent) error {
@@ -807,14 +806,13 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 func syncRunExecutorParams(s *Server, prepared preparedQuery, control *contracts.RunControl, principal *Principal) RunExecutorParams {
 	execution := s.resolvedQueryExecution(prepared)
 	params := RunExecutorParams{
-		Request:            prepared.req,
-		Session:            prepared.session,
-		Chats:              execution.CompletionStore,
-		RunControl:         control,
-		ResourceBaseURL:    prepared.resourceBaseURL,
-		ResourceTickets:    s.ticketService,
-		PrepareSystemInits: s.prepareSystemInitCache,
-		BuildChildSystems:  s.buildSystemInitsForChildTask,
+		Request:           prepared.req,
+		Session:           prepared.session,
+		Chats:             execution.CompletionStore,
+		RunControl:        control,
+		ResourceBaseURL:   prepared.resourceBaseURL,
+		ResourceTickets:   s.ticketService,
+		PrepareSystemInit: s.prepareSystemInitCache,
 	}
 	if execution.HiddenRun {
 		return params

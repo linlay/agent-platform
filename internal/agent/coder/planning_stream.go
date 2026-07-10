@@ -695,6 +695,9 @@ func (s *coderPlanningStream) startExecutionStage() error {
 	}
 	executePrompt := PlanApproveExecutePrompt(s.req.Message, planningMarkdown)
 	executeProfiles := s.executeSystemInitProfiles()
+	stageSession := s.sessionForStage(s.settings.Execute, s.executeStageTools())
+	stageSession.SystemInitCache = mergeSystemInitProfileCache(stageSession.SystemInitCache, executeProfiles)
+	executeSystem := takePendingSystemInitPayload(&stageSession, "coder:execute")
 	s.pending = append(s.pending,
 		contracts.DeltaStageMarker{Stage: "coder-execute"},
 		contracts.DeltaSyntheticQuery{
@@ -705,7 +708,7 @@ func (s *coderPlanningStream) startExecutionStage() error {
 				"role":    "user",
 				"content": executePrompt,
 			}},
-			Systems: systemInitProfilePayloads(executeProfiles),
+			System: executeSystem,
 		},
 	)
 	messages := make([]contracts.ModelMessage, 0, len(s.executeMessages)+2)
@@ -716,8 +719,6 @@ func (s *coderPlanningStream) startExecutionStage() error {
 
 	req := s.req
 	req.Message = executePrompt
-	stageSession := s.sessionForStage(s.settings.Execute, s.executeStageTools())
-	stageSession.SystemInitCache = mergeSystemInitProfileCache(stageSession.SystemInitCache, executeProfiles)
 	stageSession.CurrentMessages = []map[string]any{{
 		"role":    "user",
 		"content": executePrompt,
@@ -736,6 +737,27 @@ func (s *coderPlanningStream) startExecutionStage() error {
 	return nil
 }
 
+func takePendingSystemInitPayload(session *contracts.QuerySession, cacheKey string) map[string]any {
+	if session == nil || !session.PendingSystemInitKeys[cacheKey] {
+		return nil
+	}
+	snapshot, ok := session.SystemInitCache[cacheKey]
+	if !ok || strings.TrimSpace(snapshot.Fingerprint) == "" {
+		return nil
+	}
+	delete(session.PendingSystemInitKeys, cacheKey)
+	return map[string]any{
+		"agentKey":       snapshot.AgentKey,
+		"cacheKey":       cacheKey,
+		"fingerprint":    snapshot.Fingerprint,
+		"systemMessage":  cloneAnyMapViaJSON(snapshot.SystemMessage),
+		"tools":          cloneAnySlice(snapshot.Tools),
+		"model":          cloneAnyMapViaJSON(snapshot.Model),
+		"toolChoice":     snapshot.ToolChoice,
+		"requestOptions": cloneAnyMapViaJSON(snapshot.RequestOptions),
+	}
+}
+
 func (s *coderPlanningStream) executeSystemInitProfiles() []contracts.SystemInitProfile {
 	if s == nil || s.runtime == nil {
 		return nil
@@ -743,29 +765,6 @@ func (s *coderPlanningStream) executeSystemInitProfiles() []contracts.SystemInit
 	session := s.session
 	session.ResolvedStageSettings = s.settings
 	return s.runtime.BuildExecuteSystemInitProfiles(session, s.req, s.settings)
-}
-
-func systemInitProfilePayloads(profiles []contracts.SystemInitProfile) []map[string]any {
-	if len(profiles) == 0 {
-		return nil
-	}
-	out := make([]map[string]any, 0, len(profiles))
-	for _, profile := range profiles {
-		out = append(out, systemInitProfilePayload(profile))
-	}
-	return out
-}
-
-func systemInitProfilePayload(profile contracts.SystemInitProfile) map[string]any {
-	return map[string]any{
-		"cacheKey":       profile.CacheKey,
-		"fingerprint":    profile.Fingerprint,
-		"systemMessage":  cloneAnyMapViaJSON(profile.SystemMessage),
-		"tools":          cloneAnySlice(profile.Tools),
-		"model":          cloneAnyMapViaJSON(profile.Model),
-		"toolChoice":     profile.ToolChoice,
-		"requestOptions": cloneAnyMapViaJSON(profile.RequestOptions),
-	}
 }
 
 func mergeSystemInitProfileCache(base map[string]contracts.SystemInitSnapshot, profiles []contracts.SystemInitProfile) map[string]contracts.SystemInitSnapshot {
@@ -781,6 +780,7 @@ func mergeSystemInitProfileCache(base map[string]contracts.SystemInitSnapshot, p
 			continue
 		}
 		out[profile.CacheKey] = contracts.SystemInitSnapshot{
+			AgentKey:       profile.AgentKey,
 			Fingerprint:    profile.Fingerprint,
 			SystemMessage:  cloneAnyMapViaJSON(profile.SystemMessage),
 			Tools:          cloneAnySlice(profile.Tools),

@@ -60,10 +60,13 @@ func (s *FileStore) LoadRunTrace(chatID string, runID string) (RunTrace, error) 
 		lineType, _ := line["_type"].(string)
 		switch lineType {
 		case "query":
+			if lineIsSystemInitQuery(line) {
+				continue
+			}
 			data, _ := json.Marshal(line)
 			var query QueryLine
 			if err := json.Unmarshal(data, &query); err == nil {
-				if strings.TrimSpace(query.TaskID) == "" {
+				if strings.TrimSpace(query.TaskID) == "" && trace.Query == nil {
 					trace.Query = &query
 				}
 			}
@@ -122,6 +125,9 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 		if lineType, _ := line["_type"].(string); lineType != "query" {
 			continue
 		}
+		if lineIsSystemInitQuery(line) {
+			continue
+		}
 		runID, _ := line["runId"].(string)
 		taskID, _ := line["taskId"].(string)
 		if strings.TrimSpace(taskID) == "" {
@@ -144,6 +150,9 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 
 		switch lineType {
 		case "query":
+			if lineIsSystemInitQuery(line) {
+				continue
+			}
 			lineLiveSeq := int64FromAny(line["liveSeq"])
 			query, _ := line["query"].(map[string]any)
 			if query == nil {

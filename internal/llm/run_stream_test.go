@@ -135,6 +135,31 @@ func TestRunStreamRequiresRegisteredSystemProfile(t *testing.T) {
 	}
 }
 
+func TestRunStreamSystemRefIncludesAgentKey(t *testing.T) {
+	stream := &llmRunStream{
+		session: contracts.QuerySession{
+			AgentKey: "agent-a",
+			Mode:     "REACT",
+			SystemInitCache: map[string]contracts.SystemInitSnapshot{
+				"react:main": {
+					AgentKey:      "agent-a",
+					Fingerprint:   "sha256:system",
+					SystemMessage: map[string]any{"role": "system", "content": "system prompt"},
+					Tools:         []any{},
+				},
+			},
+		},
+		systemInitCacheKey:  "react:main",
+		systemInitCacheUsed: true,
+		messages:            []openAIMessage{{Role: "system", Content: "system prompt"}},
+	}
+
+	ref := stream.currentSystemRef()
+	if ref["agentKey"] != "agent-a" || ref["cacheKey"] != "react:main" || ref["fingerprint"] != "sha256:system" {
+		t.Fatalf("unexpected systemRef %#v", ref)
+	}
+}
+
 type recordedToolInvocation struct {
 	name string
 	args map[string]any

@@ -190,7 +190,10 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			Role:     value.Role,
 			Message:  value.Message,
 			Messages: cloneRawMessageMaps(value.Messages),
-			Systems:  cloneRawMessageMaps(value.Systems),
+			System:   cloneAnyMapViaJSON(value.System),
+			Kind:     value.Kind,
+			Stage:    value.Stage,
+			Hidden:   value.Hidden,
 		}}
 	case DeltaFinishReason:
 		m.lastKind = ""

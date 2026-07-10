@@ -82,6 +82,7 @@ func (s *llmRunStream) currentInlineSystemSnapshot(prepared preparedProviderRequ
 		return nil
 	}
 	out := map[string]any{
+		"agentKey":      strings.TrimSpace(s.session.AgentKey),
 		"cacheKey":      s.currentSystemCacheKey(),
 		"systemMessage": systemMessage,
 		"tools":         openAIToolSpecsToAny(s.toolSpecs),

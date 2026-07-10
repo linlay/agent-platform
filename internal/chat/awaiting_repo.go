@@ -181,6 +181,9 @@ func loadRunQueryFromLines(lines []map[string]any, chatID string, runID string) 
 		if strings.TrimSpace(stringValue(line["_type"])) != "query" {
 			continue
 		}
+		if lineIsSystemInitQuery(line) {
+			continue
+		}
 		if strings.TrimSpace(stringValue(line["runId"])) != runID {
 			continue
 		}

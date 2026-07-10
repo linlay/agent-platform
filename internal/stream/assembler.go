@@ -127,12 +127,10 @@ func (a *StreamEventAssembler) BootstrapWithRaw() ([]StreamEvent, []StreamEvent)
 			"chatName": a.request.ChatName,
 		}))
 	}
-	if !a.request.ContinueRun {
-		if a.request.BootstrapSynthetic != nil {
-			events = append(events, NewEvent("request.query", syntheticQueryPayload(a.request, *a.request.BootstrapSynthetic)))
-		} else {
-			events = append(events, NewEvent("request.query", queryPayload))
-		}
+	if a.request.BootstrapSynthetic != nil {
+		events = append(events, NewEvent("request.query", syntheticQueryPayload(a.request, *a.request.BootstrapSynthetic)))
+	} else if !a.request.ContinueRun {
+		events = append(events, NewEvent("request.query", queryPayload))
 	}
 	events = append(events, NewEvent("run.start", map[string]any{
 		"runId":    a.request.RunID,
@@ -162,8 +160,17 @@ func syntheticQueryPayload(request StreamRequest, value SyntheticQuery) map[stri
 	if len(value.Messages) > 0 {
 		payload["messages"] = cloneMessagePayloads(value.Messages)
 	}
-	if len(value.Systems) > 0 {
-		payload["systems"] = cloneMessagePayloads(value.Systems)
+	if len(value.System) > 0 {
+		payload["system"] = clonePayload(value.System)
+	}
+	if value.Kind != "" {
+		payload["kind"] = value.Kind
+	}
+	if value.Stage != "" {
+		payload["stage"] = value.Stage
+	}
+	if value.Hidden {
+		payload["hidden"] = true
 	}
 	for key, item := range request.QueryMetadata {
 		if _, reserved := payload[key]; reserved {

@@ -143,6 +143,54 @@ func TestPlanExecuteAgentTaskTemplateOverridesGlobal(t *testing.T) {
 	}
 }
 
+func TestPlanExecuteRegistersPendingStageSystemsOnce(t *testing.T) {
+	stream := &planPipelineStream{
+		session: contracts.QuerySession{
+			ChatID: "chat-plan",
+			SystemInitCache: map[string]contracts.SystemInitSnapshot{
+				"plan-execute:execute": {
+					AgentKey:      "planner",
+					Fingerprint:   "sha256:execute",
+					SystemMessage: map[string]any{"role": "system", "content": "execute"},
+					Tools:         []any{},
+					Model:         map[string]any{"key": "mock-model"},
+				},
+				"plan-execute:summary": {
+					AgentKey:      "planner",
+					Fingerprint:   "sha256:summary",
+					SystemMessage: map[string]any{"role": "system", "content": "summary"},
+					Tools:         []any{},
+					Model:         map[string]any{"key": "mock-model"},
+				},
+			},
+			PendingSystemInitKeys: map[string]bool{
+				"plan-execute:execute": true,
+				"plan-execute:summary": true,
+			},
+		},
+	}
+
+	stream.appendPendingSystemInitQuery("plan-execute:execute", "execute")
+	stream.appendPendingSystemInitQuery("plan-execute:execute", "execute")
+	stream.appendPendingSystemInitQuery("plan-execute:summary", "summary")
+
+	if len(stream.pending) != 2 {
+		t.Fatalf("expected one registration per pending stage, got %#v", stream.pending)
+	}
+	for index, wantStage := range []string{"execute", "summary"} {
+		query, ok := stream.pending[index].(contracts.DeltaSyntheticQuery)
+		if !ok || query.Kind != "system-init" || query.Stage != wantStage || !query.Hidden || query.Role != api.QueryRoleSystem {
+			t.Fatalf("unexpected stage registration %#v", stream.pending[index])
+		}
+		if query.System["agentKey"] != "planner" || query.System["cacheKey"] != "plan-execute:"+wantStage {
+			t.Fatalf("unexpected singular system payload %#v", query.System)
+		}
+	}
+	if len(stream.session.PendingSystemInitKeys) != 0 {
+		t.Fatalf("expected pending systems to be consumed, got %#v", stream.session.PendingSystemInitKeys)
+	}
+}
+
 func TestNonSystemMessagesFiltersSystemMessages(t *testing.T) {
 	messages := []openAIMessage{
 		{Role: "system", Content: "first system"},

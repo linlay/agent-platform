@@ -24,6 +24,9 @@ type LLMChat struct {
 }
 
 type llmSystemSnapshot struct {
+	AgentKey       string
+	CacheKey       string
+	Fingerprint    string
 	SystemMessage  map[string]any
 	Tools          []any
 	Model          map[string]any
@@ -168,19 +171,20 @@ func buildLLMSystemCache(lines []map[string]any) map[string]llmSystemSnapshot {
 		if lineType != "query" && !lineIsStep(line) {
 			continue
 		}
-		for _, raw := range anySlice(line["systems"]) {
-			system := anyMap(raw)
-			cacheKey := strings.TrimSpace(stringValue(system["cacheKey"]))
-			fingerprint := strings.TrimSpace(stringValue(system["fingerprint"]))
-			if cacheKey == "" || fingerprint == "" {
-				continue
-			}
-			cache[systemCacheID(cacheKey, fingerprint)] = llmSystemSnapshot{
-				SystemMessage:  cloneMapDeep(anyMap(system["systemMessage"])),
-				Tools:          cloneAnySliceDeep(anySlice(system["tools"])),
-				Model:          cloneMapDeep(anyMap(system["model"])),
-				ToolChoice:     strings.TrimSpace(stringValue(system["toolChoice"])),
-				RequestOptions: cloneMapDeep(anyMap(system["requestOptions"])),
+		systems, err := queryLineSystemInitsFromJSONL(line)
+		if err != nil {
+			continue
+		}
+		for _, system := range systems {
+			cache[systemCacheID(system.AgentKey, system.CacheKey, system.Fingerprint)] = llmSystemSnapshot{
+				AgentKey:       system.AgentKey,
+				CacheKey:       system.CacheKey,
+				Fingerprint:    system.Fingerprint,
+				SystemMessage:  cloneMapDeep(system.SystemMessage),
+				Tools:          cloneAnySliceDeep(system.Tools),
+				Model:          cloneMapDeep(system.Model),
+				ToolChoice:     strings.TrimSpace(system.ToolChoice),
+				RequestOptions: cloneMapDeep(system.RequestOptions),
 			}
 		}
 	}
@@ -197,15 +201,35 @@ func resolveLLMChatSystem(target map[string]any, cache map[string]llmSystemSnaps
 	if cacheKey == "" || fingerprint == "" {
 		return nil, nil, systemRef, llmSystemSnapshot{}, fmt.Errorf("llm chat target has incomplete systemRef")
 	}
-	snapshot, ok := cache[systemCacheID(cacheKey, fingerprint)]
-	if !ok {
+	agentKey := strings.TrimSpace(stringValue(systemRef["agentKey"]))
+	if agentKey != "" {
+		if snapshot, ok := cache[systemCacheID(agentKey, cacheKey, fingerprint)]; ok {
+			return cloneMapDeep(snapshot.SystemMessage), cloneAnySliceDeep(snapshot.Tools), systemRef, snapshot, nil
+		}
+		if snapshot, ok := cache[systemCacheID("", cacheKey, fingerprint)]; ok {
+			return cloneMapDeep(snapshot.SystemMessage), cloneAnySliceDeep(snapshot.Tools), systemRef, snapshot, nil
+		}
 		return nil, nil, systemRef, llmSystemSnapshot{}, fmt.Errorf("llm chat system snapshot not found")
 	}
-	return cloneMapDeep(snapshot.SystemMessage), cloneAnySliceDeep(snapshot.Tools), systemRef, snapshot, nil
+	var matched *llmSystemSnapshot
+	for _, snapshot := range cache {
+		if strings.TrimSpace(snapshot.CacheKey) != cacheKey || strings.TrimSpace(snapshot.Fingerprint) != fingerprint {
+			continue
+		}
+		candidate := snapshot
+		if matched != nil && matched.AgentKey != candidate.AgentKey {
+			return nil, nil, systemRef, llmSystemSnapshot{}, fmt.Errorf("llm chat systemRef is ambiguous across agents")
+		}
+		matched = &candidate
+	}
+	if matched == nil {
+		return nil, nil, systemRef, llmSystemSnapshot{}, fmt.Errorf("llm chat system snapshot not found")
+	}
+	return cloneMapDeep(matched.SystemMessage), cloneAnySliceDeep(matched.Tools), systemRef, *matched, nil
 }
 
-func systemCacheID(cacheKey string, fingerprint string) string {
-	return strings.TrimSpace(cacheKey) + "\x00" + strings.TrimSpace(fingerprint)
+func systemCacheID(agentKey string, cacheKey string, fingerprint string) string {
+	return strings.TrimSpace(agentKey) + "\x00" + strings.TrimSpace(cacheKey) + "\x00" + strings.TrimSpace(fingerprint)
 }
 
 func messageMapsFromAny(value any) []map[string]any {

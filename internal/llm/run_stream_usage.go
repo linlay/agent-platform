@@ -80,6 +80,7 @@ func (s *llmRunStream) currentSystemRef() map[string]any {
 		return nil
 	}
 	return map[string]any{
+		"agentKey":    strings.TrimSpace(snapshot.AgentKey),
 		"cacheKey":    cacheKey,
 		"fingerprint": snapshot.Fingerprint,
 	}
@@ -94,6 +95,7 @@ func (s *llmRunStream) currentSystemRefForCall(prepared preparedProviderRequest,
 		return nil
 	}
 	return map[string]any{
+		"agentKey":    strings.TrimSpace(snapshot.AgentKey),
 		"cacheKey":    cacheKey,
 		"fingerprint": snapshot.Fingerprint,
 	}

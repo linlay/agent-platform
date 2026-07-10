@@ -1210,15 +1210,14 @@ func assertDeferredPlanApproveJSONL(t *testing.T, store chat.Store, chatID strin
 			t.Fatalf("did not expect %s in execute query payload: %#v", field, query)
 		}
 	}
-	if _, ok := query["systems"]; ok {
-		t.Fatalf("did not expect nested systems in execute query payload: %#v", query)
+	if _, ok := query["system"]; ok {
+		t.Fatalf("did not expect nested system in execute query payload: %#v", query)
 	}
-	rawSystems, _ := executeQueryLine["systems"].([]any)
-	if len(rawSystems) != 1 {
+	system, _ := executeQueryLine["system"].(map[string]any)
+	if len(system) == 0 {
 		t.Fatalf("expected one execute query system, got %#v in:\n%s", executeQueryLine, content)
 	}
-	system, _ := rawSystems[0].(map[string]any)
-	if system["cacheKey"] != "coder:execute" {
+	if system["cacheKey"] != "coder:execute" || stringValue(system["agentKey"]) == "" {
 		t.Fatalf("expected coder:execute system, got %#v in:\n%s", system, content)
 	}
 	rawMessages, _ := executeQueryLine["messages"].([]any)
@@ -1245,6 +1244,9 @@ func assertDeferredPlanApproveJSONL(t *testing.T, store chat.Store, chatID strin
 		}
 		if systemRef["cacheKey"] != "coder:execute" {
 			t.Fatalf("expected execute react systemRef coder:execute, got %#v in:\n%s", systemRef, content)
+		}
+		if stringValue(systemRef["agentKey"]) == "" {
+			t.Fatalf("expected execute systemRef agentKey, got %#v in:\n%s", systemRef, content)
 		}
 		if systemRef["cacheKey"] == "coder:main" {
 			t.Fatalf("did not expect coder:main systemRef in:\n%s", content)

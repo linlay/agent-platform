@@ -26,7 +26,7 @@ type preparedQuery struct {
 	agentDef           catalog.AgentDefinition
 	session            contracts.QuerySession
 	memoryUsageSummary *api.MemoryUsageSummary
-	systemInitLines    []chat.QueryLineSystemInit
+	systemInitLine     *chat.QueryLineSystemInit
 	resourceBaseURL    string
 	release            queryReleaseFunc
 	continueRun        bool
@@ -234,7 +234,7 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 	if catalog.AgentUsesACPCoderBackend(agentDef) {
 		req.Model = s.acpCoderModelOptions(session, req.Model)
 	}
-	systemInitLines, err := s.prepareSystemInitCache(req, &session, created)
+	systemInitLine, err := s.prepareSystemInitCache(req, &session, created)
 	if err != nil {
 		return preparedQuery{}, err
 	}
@@ -246,7 +246,7 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 		agentDef:           agentDef,
 		session:            session,
 		memoryUsageSummary: session.MemoryUsageSummary,
-		systemInitLines:    systemInitLines,
+		systemInitLine:     systemInitLine,
 		resourceBaseURL:    admission.resourceBaseURL,
 		release:            release,
 	}, nil

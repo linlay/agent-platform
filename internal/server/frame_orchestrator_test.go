@@ -892,25 +892,16 @@ func TestFrameOrchestratorWritesSubAgentQueryAndSystemLines(t *testing.T) {
 			}
 		}
 	}
-	orchestrator.prepareSystemInits = func(req api.QueryRequest, session *contracts.QuerySession, _ bool) ([]chat.QueryLineSystemInit, error) {
-		return []chat.QueryLineSystemInit{{
+	orchestrator.prepareSystemInit = func(req api.QueryRequest, session *contracts.QuerySession, _ bool) (*chat.QueryLineSystemInit, error) {
+		return &chat.QueryLineSystemInit{
+			AgentKey:    "writer",
 			CacheKey:    "react:writer",
 			Fingerprint: "sha256:writer",
 			SystemMessage: map[string]any{
 				"role":    "system",
 				"content": "writer system",
 			},
-		}}, nil
-	}
-	orchestrator.buildChildSystems = func(api.QueryRequest, *contracts.QuerySession) []chat.QueryLineSystemInit {
-		return []chat.QueryLineSystemInit{{
-			CacheKey:    "react:writer",
-			Fingerprint: "sha256:writer",
-			SystemMessage: map[string]any{
-				"role":    "system",
-				"content": "writer system",
-			},
-		}}
+		}, nil
 	}
 
 	streamFailed, streamInterrupted, err := orchestrator.Run(mainStream)
@@ -950,19 +941,19 @@ func TestFrameOrchestratorWritesSubAgentQueryAndSystemLines(t *testing.T) {
 			if _, ok := line["taskGroupId"]; ok {
 				t.Fatalf("did not expect taskGroupId on child query line %#v", line)
 			}
-			systems, _ := line["systems"].([]any)
-			if len(systems) == 0 {
-				t.Fatalf("expected every child query line to carry systems, got %#v", line)
+			system, _ := line["system"].(map[string]any)
+			if len(system) == 0 {
+				t.Fatalf("expected every child query line to carry system, got %#v", line)
 			}
-			for _, rawSystem := range systems {
-				system, _ := rawSystem.(map[string]any)
-				for _, field := range []string{"mode", "stage", "agentKey"} {
-					if _, ok := system[field]; ok {
-						t.Fatalf("did not expect %s on child system init %#v", field, system)
-					}
+			for _, field := range []string{"mode", "stage"} {
+				if _, ok := system[field]; ok {
+					t.Fatalf("did not expect %s on child system init %#v", field, system)
 				}
 			}
-			embeddedSystemCount += len(systems)
+			if system["agentKey"] != "writer" {
+				t.Fatalf("expected child system agentKey writer, got %#v", system)
+			}
+			embeddedSystemCount++
 			queryCount++
 		case "system":
 			standaloneSystemCount++

@@ -21,24 +21,23 @@ import (
 )
 
 type frameOrchestrator struct {
-	runCtx             context.Context
-	request            api.QueryRequest
-	session            contracts.QuerySession
-	summary            chat.Summary
-	agent              contracts.AgentEngine
-	registry           catalog.Registry
-	buildQuerySession  func(context.Context, api.QueryRequest, chat.Summary, catalog.AgentDefinition, querySessionBuildOptions) (contracts.QuerySession, error)
-	chats              chat.Store
-	resourceBaseURL    string
-	resourceTickets    *ResourceTicketService
-	prepareSystemInits func(api.QueryRequest, *contracts.QuerySession, bool) ([]chat.QueryLineSystemInit, error)
-	buildChildSystems  func(api.QueryRequest, *contracts.QuerySession) []chat.QueryLineSystemInit
-	systemInitMu       sync.Mutex
-	mapper             contracts.StreamDeltaMapper
-	emitDelta          func(contracts.AgentDelta)
-	emitInputs         func(...stream.StreamInput)
-	nextLiveSeq        func() int64
-	taskCounter        int
+	runCtx            context.Context
+	request           api.QueryRequest
+	session           contracts.QuerySession
+	summary           chat.Summary
+	agent             contracts.AgentEngine
+	registry          catalog.Registry
+	buildQuerySession func(context.Context, api.QueryRequest, chat.Summary, catalog.AgentDefinition, querySessionBuildOptions) (contracts.QuerySession, error)
+	chats             chat.Store
+	resourceBaseURL   string
+	resourceTickets   *ResourceTicketService
+	prepareSystemInit func(api.QueryRequest, *contracts.QuerySession, bool) (*chat.QueryLineSystemInit, error)
+	systemInitMu      sync.Mutex
+	mapper            contracts.StreamDeltaMapper
+	emitDelta         func(contracts.AgentDelta)
+	emitInputs        func(...stream.StreamInput)
+	nextLiveSeq       func() int64
+	taskCounter       int
 }
 
 func (o *frameOrchestrator) Run(mainStream contracts.AgentStream) (bool, bool, error) {
@@ -512,16 +511,11 @@ func (o *frameOrchestrator) writeChildTaskQueryAndSystem(subReq api.QueryRequest
 	if o.chats == nil {
 		return
 	}
-	var systems []chat.QueryLineSystemInit
-	if subSession != nil && (o.prepareSystemInits != nil || o.buildChildSystems != nil) {
+	var system *chat.QueryLineSystemInit
+	if subSession != nil && o.prepareSystemInit != nil {
 		o.systemInitMu.Lock()
 		defer o.systemInitMu.Unlock()
-		if o.prepareSystemInits != nil {
-			_, _ = o.prepareSystemInits(subReq, subSession, false)
-		}
-		if o.buildChildSystems != nil {
-			systems = o.buildChildSystems(subReq, subSession)
-		}
+		system, _ = o.prepareSystemInit(subReq, subSession, false)
 	}
 	var liveSeq int64
 	if o.nextLiveSeq != nil {
@@ -546,7 +540,7 @@ func (o *frameOrchestrator) writeChildTaskQueryAndSystem(subReq api.QueryRequest
 			"role":      "user",
 		},
 		Messages: currentMessagesFromSession(subSession),
-		Systems:  systems,
+		System:   system,
 	})
 }
 

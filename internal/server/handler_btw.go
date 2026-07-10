@@ -157,7 +157,7 @@ func (s *Server) prepareBTWQuery(r *http.Request) (preparedQuery, *statusError) 
 	if loadErr != nil {
 		return preparedQuery{}, btwStatusError(http.StatusInternalServerError, "btw_system_cache_failed", loadErr.Error())
 	}
-	pendingSystems, cacheErr := s.prepareSystemInitCacheFrom(req, &session, systemInits)
+	pendingSystem, cacheErr := s.prepareSystemInitCacheFrom(req, &session, systemInits)
 	if cacheErr != nil {
 		return preparedQuery{}, btwStatusError(http.StatusInternalServerError, "btw_system_cache_failed", cacheErr.Error())
 	}
@@ -172,7 +172,7 @@ func (s *Server) prepareBTWQuery(r *http.Request) (preparedQuery, *statusError) 
 		agentDef:           agentDef,
 		session:            session,
 		memoryUsageSummary: session.MemoryUsageSummary,
-		systemInitLines:    pendingSystems,
+		systemInitLine:     pendingSystem,
 		resourceBaseURL:    requestBaseURL(r),
 		execution: &queryExecutionOptions{
 			StepLineStore:   branch,

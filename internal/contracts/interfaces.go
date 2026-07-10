@@ -71,6 +71,7 @@ type StreamDeltaMapperFactory interface {
 }
 
 type SystemInitProfile struct {
+	AgentKey       string
 	CacheKey       string
 	Mode           string
 	Stage          string
@@ -239,6 +240,7 @@ type QuerySession struct {
 	StaticMemoryPrompt    string
 	SkillCatalogPrompt    string
 	SystemInitCache       map[string]SystemInitSnapshot
+	PendingSystemInitKeys map[string]bool
 
 	// Prompt files loaded from agent directory.
 	SoulPrompt            string
@@ -267,6 +269,7 @@ type QuerySession struct {
 }
 
 type SystemInitSnapshot struct {
+	AgentKey       string
 	Fingerprint    string
 	SystemMessage  map[string]any
 	Tools          []any

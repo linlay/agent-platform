@@ -3274,6 +3274,7 @@ func TestFileStoreLoadsLatestSystemInitByCacheKey(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	first := QueryLineSystemInit{
+		AgentKey:      "agent",
 		Fingerprint:   "sha256:first",
 		CacheKey:      "react:main",
 		SystemMessage: map[string]any{"role": "system", "content": "first"},
@@ -3294,7 +3295,15 @@ func TestFileStoreLoadsLatestSystemInitByCacheKey(t *testing.T) {
 			RunID:     "run-1",
 			UpdatedAt: 1,
 			Query:     map[string]any{"role": "user", "message": "first"},
-			Systems:   []QueryLineSystemInit{first, other},
+			System:    &first,
+		},
+		{
+			Type:      "query",
+			ChatID:    "chat-system-init",
+			RunID:     "run-1",
+			UpdatedAt: 1,
+			Query:     map[string]any{"role": "system", "kind": "system-init", "agentKey": "agent"},
+			System:    &other,
 		},
 		{
 			Type:      "query",
@@ -3302,7 +3311,7 @@ func TestFileStoreLoadsLatestSystemInitByCacheKey(t *testing.T) {
 			RunID:     "run-2",
 			UpdatedAt: 2,
 			Query:     map[string]any{"role": "user", "message": "second"},
-			Systems:   []QueryLineSystemInit{second},
+			System:    &second,
 		},
 	} {
 		if err := store.AppendQueryLine("chat-system-init", line); err != nil {
@@ -3310,7 +3319,7 @@ func TestFileStoreLoadsLatestSystemInitByCacheKey(t *testing.T) {
 		}
 	}
 
-	loaded, err := store.LoadSystemInit("chat-system-init", "react:main")
+	loaded, err := store.LoadSystemInit("chat-system-init", SystemInitKey{AgentKey: "agent", CacheKey: "react:main"})
 	if err != nil {
 		t.Fatalf("load system init: %v", err)
 	}
@@ -3333,16 +3342,17 @@ func TestFileStoreLoadsLatestSystemInitByCacheKey(t *testing.T) {
 	if len(all) != 2 {
 		t.Fatalf("expected two cache keys, got %#v", all)
 	}
-	if got := all["react:main"]; got == nil || got.Fingerprint != "sha256:second" {
+	if got := all.Lookup("agent", "react:main"); got == nil || got.Fingerprint != "sha256:second" {
 		t.Fatalf("expected latest react profile, got %#v", got)
 	}
-	if got := all["plan-execute:plan"]; got == nil || got.Fingerprint != "sha256:other" {
+	if got := all.Lookup("agent", "plan-execute:plan"); got == nil || got.Fingerprint != "sha256:other" {
 		t.Fatalf("expected plan profile, got %#v", got)
 	}
 }
 
-func TestQueryLineSystemInitOmitsModeStageAgentKey(t *testing.T) {
+func TestQueryLineSystemInitIncludesAgentKeyAndOmitsModeStage(t *testing.T) {
 	raw, err := json.Marshal(QueryLineSystemInit{
+		AgentKey:      "agent",
 		CacheKey:      "react:main",
 		Fingerprint:   "sha256:init",
 		SystemMessage: map[string]any{"role": "system", "content": "system"},
@@ -3355,12 +3365,12 @@ func TestQueryLineSystemInitOmitsModeStageAgentKey(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatalf("unmarshal query system init: %v", err)
 	}
-	for _, field := range []string{"mode", "stage", "agentKey"} {
+	for _, field := range []string{"mode", "stage"} {
 		if _, ok := got[field]; ok {
 			t.Fatalf("did not expect %s in serialized system init: %s", field, raw)
 		}
 	}
-	for _, field := range []string{"cacheKey", "fingerprint", "systemMessage", "tools"} {
+	for _, field := range []string{"agentKey", "cacheKey", "fingerprint", "systemMessage", "tools"} {
 		if _, ok := got[field]; !ok {
 			t.Fatalf("expected %s in serialized system init: %s", field, raw)
 		}
@@ -3377,12 +3387,14 @@ func TestLoadSystemInitsParsesCacheKeyToModeStage(t *testing.T) {
 	}
 	for _, system := range []QueryLineSystemInit{
 		{
+			AgentKey:      "agent",
 			CacheKey:      "react:main",
 			Fingerprint:   "sha256:react",
 			SystemMessage: map[string]any{"role": "system", "content": "react"},
 			Tools:         []any{},
 		},
 		{
+			AgentKey:      "agent",
 			CacheKey:      "plan-execute:execute",
 			Fingerprint:   "sha256:execute",
 			SystemMessage: map[string]any{"role": "system", "content": "execute"},
@@ -3395,7 +3407,7 @@ func TestLoadSystemInitsParsesCacheKeyToModeStage(t *testing.T) {
 			RunID:     "run-1",
 			UpdatedAt: 1,
 			Query:     map[string]any{"role": "user", "message": "hello", "agentKey": "agent"},
-			Systems:   []QueryLineSystemInit{system},
+			System:    &system,
 		}); err != nil {
 			t.Fatalf("append query line: %v", err)
 		}
@@ -3404,10 +3416,10 @@ func TestLoadSystemInitsParsesCacheKeyToModeStage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load all system inits: %v", err)
 	}
-	if got := all["react:main"]; got == nil || got.Mode != "react" || got.Stage != "main" {
+	if got := all.Lookup("agent", "react:main"); got == nil || got.Mode != "react" || got.Stage != "main" {
 		t.Fatalf("expected react:main to parse mode/stage, got %#v", got)
 	}
-	if got := all["plan-execute:execute"]; got == nil || got.Mode != "plan-execute" || got.Stage != "execute" {
+	if got := all.Lookup("agent", "plan-execute:execute"); got == nil || got.Mode != "plan-execute" || got.Stage != "execute" {
 		t.Fatalf("expected plan-execute:execute to parse mode/stage, got %#v", got)
 	}
 }
@@ -3427,12 +3439,13 @@ func TestRawMessagesSkipSystemInitLines(t *testing.T) {
 		UpdatedAt: 2,
 		Query:     map[string]any{"role": "user", "message": "hello"},
 		Messages:  []map[string]any{{"role": "user", "content": "hello"}},
-		Systems: []QueryLineSystemInit{{
+		System: &QueryLineSystemInit{
+			AgentKey:      "agent",
 			Fingerprint:   "sha256:init",
 			CacheKey:      "react:main",
 			SystemMessage: map[string]any{"role": "system", "content": "frozen"},
 			Tools:         []any{},
-		}},
+		},
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
 	}
@@ -3620,13 +3633,14 @@ func TestStepWriterPersistsSyntheticQueryAfterInitialQuery(t *testing.T) {
 				"role":    "user",
 				"content": "Execute the confirmed CODER plan.\n\nConfirmed plan:\n# Plan",
 			}},
-			"systems": []any{map[string]any{
+			"system": map[string]any{
+				"agentKey":      "agent",
 				"cacheKey":      "coder:execute",
 				"fingerprint":   "sha256:execute",
 				"systemMessage": map[string]any{"role": "system", "content": "execute system"},
 				"tools":         []any{},
 				"model":         map[string]any{"key": "mock-model"},
-			}},
+			},
 		},
 	})
 
@@ -3649,14 +3663,13 @@ func TestStepWriterPersistsSyntheticQueryAfterInitialQuery(t *testing.T) {
 	if _, ok := query["messages"]; ok {
 		t.Fatalf("did not expect messages inside query payload, got %#v", query)
 	}
-	if _, ok := query["systems"]; ok {
-		t.Fatalf("did not expect systems inside query payload, got %#v", query)
+	if _, ok := query["system"]; ok {
+		t.Fatalf("did not expect system inside query payload, got %#v", query)
 	}
-	rawSystems, _ := synthetic["systems"].([]any)
-	if len(rawSystems) != 1 {
-		t.Fatalf("expected top-level synthetic query systems, got %#v", synthetic)
+	system, _ := synthetic["system"].(map[string]any)
+	if len(system) == 0 {
+		t.Fatalf("expected top-level synthetic query system, got %#v", synthetic)
 	}
-	system, _ := rawSystems[0].(map[string]any)
 	if system["cacheKey"] != "coder:execute" || system["fingerprint"] != "sha256:execute" {
 		t.Fatalf("unexpected synthetic query system %#v", system)
 	}
@@ -3680,12 +3693,14 @@ func TestStepWriterWritesSystemInitAfterQuery(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-query-system-init", "run-1", "react")
-	writer.SetPendingSystemInits([]QueryLineSystemInit{{
+	pendingSystem := QueryLineSystemInit{
+		AgentKey:      "agent",
 		Fingerprint:   "sha256:first",
 		CacheKey:      "react:main",
 		SystemMessage: map[string]any{"role": "system", "content": "system"},
 		Tools:         []any{map[string]any{"type": "function"}},
-	}})
+	}
+	writer.SetPendingSystemInit(&pendingSystem)
 	writer.OnEvent(stream.EventData{
 		Type:      "request.query",
 		Timestamp: 1001,
@@ -3701,16 +3716,15 @@ func TestStepWriterWritesSystemInitAfterQuery(t *testing.T) {
 		t.Fatalf("read chat jsonl: %v", err)
 	}
 	if len(lines) != 1 {
-		t.Fatalf("expected one query line with inline systems, got %#v", lines)
+		t.Fatalf("expected one query line with inline system, got %#v", lines)
 	}
 	if lines[0]["_type"] != "query" {
 		t.Fatalf("expected query line, got %#v", lines)
 	}
-	systems, _ := lines[0]["systems"].([]any)
-	if len(systems) != 1 {
+	system, _ := lines[0]["system"].(map[string]any)
+	if len(system) == 0 {
 		t.Fatalf("expected inline system cache on query line, got %#v", lines[0])
 	}
-	system, _ := systems[0].(map[string]any)
 	if system["cacheKey"] != "react:main" || system["fingerprint"] != "sha256:first" {
 		t.Fatalf("unexpected inline system cache %#v", system)
 	}
@@ -3726,12 +3740,14 @@ func TestStepWriterPersistsQueryWithSystemInitsWithoutHiddenFlag(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-query-system-init-no-hidden", "run-system", "react")
-	writer.SetPendingSystemInits([]QueryLineSystemInit{{
+	pendingSystem := QueryLineSystemInit{
+		AgentKey:      "agent",
 		Fingerprint:   "sha256:system",
 		CacheKey:      "react:main",
 		SystemMessage: map[string]any{"role": "system", "content": "system"},
 		Tools:         []any{map[string]any{"type": "function"}},
-	}})
+	}
+	writer.SetPendingSystemInit(&pendingSystem)
 	writer.OnEvent(stream.EventData{
 		Type:      "request.query",
 		Timestamp: 1001,
@@ -3757,11 +3773,10 @@ func TestStepWriterPersistsQueryWithSystemInitsWithoutHiddenFlag(t *testing.T) {
 	if _, ok := lines[0]["hidden"]; ok {
 		t.Fatalf("did not expect hidden on query line, got %#v", lines[0])
 	}
-	systems, _ := lines[0]["systems"].([]any)
-	if len(systems) != 1 {
+	system, _ := lines[0]["system"].(map[string]any)
+	if len(system) == 0 {
 		t.Fatalf("expected query to keep inline systems, got %#v", lines[0])
 	}
-	system, _ := systems[0].(map[string]any)
 	if system["cacheKey"] != "react:main" || system["fingerprint"] != "sha256:system" {
 		t.Fatalf("unexpected inline system cache %#v", system)
 	}
@@ -3819,8 +3834,8 @@ func TestStepWriterOmitsSystemsWhenNoPendingSystemInits(t *testing.T) {
 	if len(lines) != 1 || lines[0]["_type"] != "query" {
 		t.Fatalf("expected one query line, got %#v", lines)
 	}
-	if _, ok := lines[0]["systems"]; ok {
-		t.Fatalf("did not expect systems on cache-hit/no-pending query, got %#v", lines[0])
+	if _, ok := lines[0]["system"]; ok {
+		t.Fatalf("did not expect system on cache-hit/no-pending query, got %#v", lines[0])
 	}
 }
 

@@ -106,6 +106,30 @@ func TestRunEventProcessorDecoratesTerminalUsage(t *testing.T) {
 	}
 }
 
+func TestSystemInitQueryIsNotPublishedToClients(t *testing.T) {
+	event := stream.EventData{
+		Type: "request.query",
+		Payload: map[string]any{
+			"kind":   "system-init",
+			"hidden": true,
+			"system": map[string]any{"agentKey": "agent", "cacheKey": "react:main", "fingerprint": "sha256:test"},
+		},
+	}
+	if shouldPublishClientEvent(event) {
+		t.Fatalf("system-init query must remain storage-only: %#v", event)
+	}
+	visible := clientVisibleEventData(stream.EventData{
+		Type: "request.query",
+		Payload: map[string]any{
+			"message": "hello",
+			"system":  map[string]any{"secret": true},
+		},
+	})
+	if _, ok := visible.Payload["system"]; ok || visible.String("message") != "hello" {
+		t.Fatalf("client query filtering failed: %#v", visible)
+	}
+}
+
 func TestRunEventProcessorKeepsTerminalUsageWhenOnlyLLMChatCompletionCountKnown(t *testing.T) {
 	runUsage := chat.UsageData{}
 	processor := &runEventProcessor{

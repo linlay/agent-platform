@@ -242,10 +242,14 @@ func (s *llmRunStream) ensureSystemProfileRegistered(prepared preparedProviderRe
 	if len(firstSystemMessageSnapshot(s.messages)) == 0 && len(s.toolSpecs) == 0 {
 		return nil
 	}
+	cacheKey := s.currentSystemCacheKey()
+	if s.session.PendingSystemInitKeys[cacheKey] {
+		return fmt.Errorf("system profile not registered on query: runId=%s stage=%s cacheKey=%s", strings.TrimSpace(s.session.RunID), strings.TrimSpace(s.promptBuildOptions.Stage), cacheKey)
+	}
 	if len(s.currentSystemRefForCall(prepared, effectiveToolChoice)) > 0 {
 		return nil
 	}
-	return fmt.Errorf("system profile not registered on query: runId=%s stage=%s cacheKey=%s", strings.TrimSpace(s.session.RunID), strings.TrimSpace(s.promptBuildOptions.Stage), s.currentSystemCacheKey())
+	return fmt.Errorf("system profile not registered on query: runId=%s stage=%s cacheKey=%s", strings.TrimSpace(s.session.RunID), strings.TrimSpace(s.promptBuildOptions.Stage), cacheKey)
 }
 
 func (s *llmRunStream) prepareFinalAnswerTurn() {

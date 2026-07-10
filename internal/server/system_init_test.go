@@ -56,12 +56,13 @@ func TestPrepareSystemInitCacheWritesFreshSystemMessageOnPayloadChange(t *testin
 		RunID:     oldSession.RunID,
 		UpdatedAt: 1001,
 		Query:     map[string]any{"role": "user", "message": "hello", "agentKey": oldSession.AgentKey},
-		Systems: []chat.QueryLineSystemInit{{
+		System: &chat.QueryLineSystemInit{
+			AgentKey:      oldSession.AgentKey,
 			Fingerprint:   oldProfiles[0].Fingerprint,
 			CacheKey:      oldProfiles[0].CacheKey,
 			SystemMessage: oldProfiles[0].SystemMessage,
 			Tools:         oldProfiles[0].Tools,
-		}},
+		},
 	}); err != nil {
 		t.Fatalf("append system init: %v", err)
 	}
@@ -81,11 +82,11 @@ func TestPrepareSystemInitCacheWritesFreshSystemMessageOnPayloadChange(t *testin
 	if err != nil {
 		t.Fatalf("prepare system init cache: %v", err)
 	}
-	if len(pending) != 1 {
+	if pending == nil {
 		t.Fatalf("expected changed system payload to append one system cache line, got %#v", pending)
 	}
-	if pending[0].Fingerprint != oldProfiles[0].Fingerprint {
-		t.Fatalf("expected same fingerprint to be retained, got %#v", pending[0])
+	if pending.Fingerprint != oldProfiles[0].Fingerprint {
+		t.Fatalf("expected same fingerprint to be retained, got %#v", pending)
 	}
 	snapshot, ok := newSession.SystemInitCache["react:main"]
 	if !ok {
@@ -95,12 +96,12 @@ func TestPrepareSystemInitCacheWritesFreshSystemMessageOnPayloadChange(t *testin
 	if !strings.Contains(content, "fresh session memory") || strings.Contains(content, "stale session memory") {
 		t.Fatalf("expected fresh dynamic system message, got %q", content)
 	}
-	pendingContent, _ := pending[0].SystemMessage["content"].(string)
+	pendingContent, _ := pending.SystemMessage["content"].(string)
 	if pendingContent != content {
 		t.Fatalf("expected pending system to match session cache, pending=%q cache=%q", pendingContent, content)
 	}
-	if !reflect.DeepEqual(snapshot.Tools, pending[0].Tools) {
-		t.Fatalf("expected session cache tools to match pending tools, pending=%#v cache=%#v", pending[0].Tools, snapshot.Tools)
+	if !reflect.DeepEqual(snapshot.Tools, pending.Tools) {
+		t.Fatalf("expected session cache tools to match pending tools, pending=%#v cache=%#v", pending.Tools, snapshot.Tools)
 	}
 }
 
@@ -135,16 +136,16 @@ func TestPrepareSystemInitCacheReturnsPendingLineOnFingerprintChange(t *testing.
 	if err != nil {
 		t.Fatalf("prepare system init cache: %v", err)
 	}
-	if len(pending) != 1 {
+	if pending == nil {
 		t.Fatalf("expected one pending system cache line, got %#v", pending)
 	}
-	if pending[0].CacheKey != "react:main" || pending[0].Fingerprint == "" {
-		t.Fatalf("unexpected pending system cache line %#v", pending[0])
+	if pending.CacheKey != "react:main" || pending.Fingerprint == "" || pending.AgentKey != session.AgentKey {
+		t.Fatalf("unexpected pending system cache line %#v", pending)
 	}
 	if _, ok := session.SystemInitCache["react:main"]; !ok {
 		t.Fatalf("expected session cache to be populated, got %#v", session.SystemInitCache)
 	}
-	loaded, err := store.LoadSystemInit(req.ChatID, "react:main")
+	loaded, err := store.LoadSystemInit(req.ChatID, chat.SystemInitKey{AgentKey: session.AgentKey, CacheKey: "react:main"})
 	if err != nil {
 		t.Fatalf("load system init: %v", err)
 	}
@@ -181,11 +182,11 @@ func TestPrepareSystemInitCacheRegistersPlanExecuteProfiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare system init cache: %v", err)
 	}
-	if len(pending) != 3 {
-		t.Fatalf("expected plan/execute/summary profiles in query systems, got %#v", pending)
+	if pending == nil || pending.CacheKey != "plan-execute:plan" {
+		t.Fatalf("expected only plan profile on the initial query, got %#v", pending)
 	}
-	if pending[0].CacheKey != "plan-execute:plan" {
-		t.Fatalf("expected plan profile first, got %#v", pending[0])
+	if !session.PendingSystemInitKeys["plan-execute:execute"] || !session.PendingSystemInitKeys["plan-execute:summary"] {
+		t.Fatalf("expected execute and summary profiles to remain pending, got %#v", session.PendingSystemInitKeys)
 	}
 	if _, ok := session.SystemInitCache["plan-execute:plan"]; !ok {
 		t.Fatalf("expected plan profile cached, got %#v", session.SystemInitCache)
@@ -226,10 +227,10 @@ func TestMainQueryDedupsSystemsOnlyWhenPayloadMatches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first prepare system init cache: %v", err)
 	}
-	if len(firstPending) != 1 {
+	if firstPending == nil {
 		t.Fatalf("expected first main query to carry one system init, got %#v", firstPending)
 	}
-	if firstPending[0].CacheKey != "react:main" {
+	if firstPending.CacheKey != "react:main" {
 		t.Fatalf("unexpected first system init cache keys %#v", firstPending)
 	}
 	if err := store.AppendQueryLine(req.ChatID, chat.QueryLine{
@@ -238,7 +239,7 @@ func TestMainQueryDedupsSystemsOnlyWhenPayloadMatches(t *testing.T) {
 		RunID:     session.RunID,
 		UpdatedAt: 1001,
 		Query:     map[string]any{"role": "user", "message": req.Message, "agentKey": session.AgentKey},
-		Systems:   firstPending,
+		System:    firstPending,
 	}); err != nil {
 		t.Fatalf("append first query: %v", err)
 	}
@@ -249,7 +250,7 @@ func TestMainQueryDedupsSystemsOnlyWhenPayloadMatches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second prepare system init cache: %v", err)
 	}
-	if len(secondPending) != 0 {
+	if secondPending != nil {
 		t.Fatalf("expected second main query to dedup unchanged system init, got %#v", secondPending)
 	}
 }
@@ -298,10 +299,10 @@ func TestMainQueryDedupsSystemsWhenOnlyReferencesChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first prepare system init cache: %v", err)
 	}
-	if len(firstPending) != 1 {
+	if firstPending == nil {
 		t.Fatalf("expected first main query to carry one system init, got %#v", firstPending)
 	}
-	if firstPending[0].CacheKey != "react:main" {
+	if firstPending.CacheKey != "react:main" {
 		t.Fatalf("unexpected first system init cache keys %#v", firstPending)
 	}
 	if err := store.AppendQueryLine(req.ChatID, chat.QueryLine{
@@ -315,7 +316,7 @@ func TestMainQueryDedupsSystemsWhenOnlyReferencesChange(t *testing.T) {
 			"agentKey":   session.AgentKey,
 			"references": req.References,
 		},
-		Systems: firstPending,
+		System: firstPending,
 	}); err != nil {
 		t.Fatalf("append first query: %v", err)
 	}
@@ -336,7 +337,58 @@ func TestMainQueryDedupsSystemsWhenOnlyReferencesChange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second prepare system init cache: %v", err)
 	}
-	if len(secondPending) != 0 {
+	if secondPending != nil {
 		t.Fatalf("expected references-only change to dedup unchanged system init, got %#v", secondPending)
+	}
+}
+
+func TestSystemInitDedupIsScopedByAgentKey(t *testing.T) {
+	store, err := chat.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+	server := &Server{deps: Dependencies{
+		Config:      config.Config{},
+		Chats:       store,
+		Tools:       systemInitStaticToolExecutor{},
+		SystemInits: llm.SystemInitProfileBuilder{},
+	}}
+	const chatID = "chat-agent-systems"
+	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	register := func(agentKey, runID string) *chat.QueryLineSystemInit {
+		session := contracts.QuerySession{
+			RunID:        runID,
+			ChatID:       chatID,
+			AgentKey:     agentKey,
+			ModelKey:     "mock-model",
+			Mode:         "REACT",
+			PromptAppend: contracts.DefaultPromptAppendConfig(),
+		}
+		system, err := server.prepareSystemInitCache(api.QueryRequest{ChatID: chatID, Message: "hello", AgentKey: agentKey}, &session, false)
+		if err != nil {
+			t.Fatalf("prepare %s: %v", agentKey, err)
+		}
+		return system
+	}
+	for _, item := range []struct{ agentKey, runID string }{{"agent-a", "run-a"}, {"agent-b", "run-b"}} {
+		system := register(item.agentKey, item.runID)
+		if system == nil || system.AgentKey != item.agentKey {
+			t.Fatalf("expected new system for %s, got %#v", item.agentKey, system)
+		}
+		if err := store.AppendQueryLine(chatID, chat.QueryLine{
+			Type:      "query",
+			ChatID:    chatID,
+			RunID:     item.runID,
+			UpdatedAt: 1,
+			Query:     map[string]any{"role": "user", "message": "hello", "agentKey": item.agentKey},
+			System:    system,
+		}); err != nil {
+			t.Fatalf("append %s query: %v", item.agentKey, err)
+		}
+	}
+	if system := register("agent-a", "run-a2"); system != nil {
+		t.Fatalf("expected agent-a to reuse its own cached system after agent-b, got %#v", system)
 	}
 }

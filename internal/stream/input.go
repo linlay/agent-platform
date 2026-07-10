@@ -91,7 +91,10 @@ type SyntheticQuery struct {
 	Role     string
 	Message  string
 	Messages []map[string]any
-	Systems  []map[string]any
+	System   map[string]any
+	Kind     string
+	Stage    string
+	Hidden   bool
 }
 
 func (SyntheticQuery) streamInputTag() {}

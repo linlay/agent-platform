@@ -226,7 +226,7 @@ func (b *BTWBranchStore) LoadRawMessages(k int) ([]map[string]any, error) {
 	return loadRawMessagesFromPath(b.path, k)
 }
 
-func (b *BTWBranchStore) LoadAllSystemInits() (map[string]*SystemInitLine, error) {
+func (b *BTWBranchStore) LoadAllSystemInits() (SystemInitIndex, error) {
 	if b == nil {
 		return nil, ErrBTWNotFound
 	}

@@ -93,6 +93,9 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 				"ts":      line["updatedAt"],
 			})
 		case "query":
+			if lineIsSystemInitQuery(line) {
+				continue
+			}
 			if rawMsgs, _ := line["messages"].([]any); len(rawMsgs) > 0 {
 				for _, raw := range rawMsgs {
 					m, _ := raw.(map[string]any)

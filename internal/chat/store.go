@@ -39,8 +39,8 @@ type Store interface {
 	SetPendingAwaiting(chatID string, pending PendingAwaiting) error
 	ClearPendingAwaiting(chatID string, awaitingID string) error
 	AppendEvent(chatID string, event stream.EventData) error
-	LoadSystemInit(chatID string, cacheKey string) (*SystemInitLine, error)
-	LoadAllSystemInits(chatID string) (map[string]*SystemInitLine, error)
+	LoadSystemInit(chatID string, key SystemInitKey) (*SystemInitLine, error)
+	LoadAllSystemInits(chatID string) (SystemInitIndex, error)
 	LoadRawMessages(chatID string, k int) ([]map[string]any, error)
 	LoadJSONLContent(chatID string) (string, error)
 	OnRunCompleted(completion RunCompletion) error

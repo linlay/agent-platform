@@ -166,14 +166,15 @@ func (s *planPipelineStream) advanceTaskExecution() error {
 	s.execCtx.PlanState.ActiveTaskID = task.TaskID
 	s.pending = append(s.pending,
 		DeltaStageMarker{Stage: fmt.Sprintf("execute-task-%d", s.taskIndex+1)},
-		DeltaTaskLifecycle{
-			Kind:        "start",
-			TaskID:      task.TaskID,
-			RunID:       s.session.RunID,
-			TaskName:    task.TaskID,
-			Description: task.Description,
-		},
 	)
+	s.appendPendingSystemInitQuery("plan-execute:execute", "execute")
+	s.pending = append(s.pending, DeltaTaskLifecycle{
+		Kind:        "start",
+		TaskID:      task.TaskID,
+		RunID:       s.session.RunID,
+		TaskName:    task.TaskID,
+		Description: task.Description,
+	})
 
 	return s.startTaskStream(task)
 }
@@ -341,6 +342,7 @@ func (s *planPipelineStream) startPlanStage() error {
 
 func (s *planPipelineStream) startSummaryStage() error {
 	s.pending = append(s.pending, DeltaStageMarker{Stage: "summary"})
+	s.appendPendingSystemInitQuery("plan-execute:summary", "summary")
 
 	// Build summary messages from accumulated execute history (Java: context.executeMessages())
 	summaryMessages := make([]openAIMessage, 0, len(s.executeMessages)+2)
@@ -371,6 +373,24 @@ func (s *planPipelineStream) startSummaryStage() error {
 	}
 	s.current = stream
 	return nil
+}
+
+func (s *planPipelineStream) appendPendingSystemInitQuery(cacheKey string, stage string) {
+	if s == nil {
+		return
+	}
+	system := takePendingSystemPayload(&s.session, cacheKey)
+	if len(system) == 0 {
+		return
+	}
+	s.pending = append(s.pending, DeltaSyntheticQuery{
+		ChatID: s.session.ChatID,
+		Role:   api.QueryRoleSystem,
+		System: system,
+		Kind:   "system-init",
+		Stage:  stage,
+		Hidden: true,
+	})
 }
 
 // buildExecuteToolDescriptions returns a prompt section describing execute-stage
