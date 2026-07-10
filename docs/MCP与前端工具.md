@@ -6,6 +6,8 @@ Go runtime 已具备 MCP registry、availability gate、client、reconnect 与 t
 
 frontend tools 目前以 builtin tool definitions、viewport、HITL 和 desktop bridge 能力为主，完整 Java 版 frontend tool 闭环仍未完全对齐。
 
+服务包根目录的 `bin/{rg,dbx,httpx}` 属于 Host builtin executable，由 agent-platform 发布锁文件管理；它们不是 MCP server，也不是 support package。结构化 `file_grep/file_glob` 包装 rg，dbx/httpx 首版保持 CLI 架构并可由 Host Bash 调用。
+
 ## 核心流程
 
 ```text
@@ -87,6 +89,7 @@ Desktop 内置服务场景下，agent-platform 通常安装在品牌程序数据
 - MCP tool 名称与本地工具冲突时，本地工具优先。
 - MCP server 暂时不可用时，调用会返回结构化 MCP 错误。
 - support package 只读取已解压目录下的 manifest，不自动安装或解压 zip。
+- Host builtins 与 support package 分开：`bin/` 进入进程级 PATH，`plugins/` 只按 manifest 解析绝对 executable；两者均不会自动进入 sandbox。
 - frontend tool 完整闭环仍属于待对齐能力，不能写成已完成能力。
 - HITL viewport 细节见 [HITL协议](HITL协议.md)。
 

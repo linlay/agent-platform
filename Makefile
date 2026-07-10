@@ -14,8 +14,10 @@ ifeq ($(OS),Windows_NT)
 SHELL := powershell.exe
 .SHELLFLAGS := -NoProfile -Command
 LOCAL_BINARY := agent-platform.exe
+LOCAL_GOOS := windows
 else
 LOCAL_BINARY := agent-platform
+LOCAL_GOOS := $(shell uname -s | tr '[:upper:]' '[:lower:]')
 endif
 
 LOCAL_BACKEND_DIR := $(LOCAL_RELEASE_ROOT)/backend
@@ -28,7 +30,7 @@ ifeq ($(OS),Windows_NT)
 run: run-local
 
 build-local:
-	@New-Item -ItemType Directory -Path '$(LOCAL_BACKEND_DIR)' -Force | Out-Null; New-Item -ItemType Directory -Path '$(LOCAL_PLUGINS_DIR)' -Force | Out-Null; $$env:CGO_ENABLED = '$(CGO_ENABLED)'; go build -o '$(LOCAL_BACKEND_BIN)' ./cmd/agent-platform
+	@New-Item -ItemType Directory -Path '$(LOCAL_BACKEND_DIR)' -Force | Out-Null; New-Item -ItemType Directory -Path '$(LOCAL_PLUGINS_DIR)' -Force | Out-Null; $$env:CGO_ENABLED = '$(CGO_ENABLED)'; go build -o '$(LOCAL_BACKEND_BIN)' ./cmd/agent-platform; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE }; powershell -ExecutionPolicy Bypass -File scripts/stage-builtins.ps1 -OutputDir '$(LOCAL_RELEASE_ROOT)' -TargetOS '$(LOCAL_GOOS)' -TargetArch '$(ARCH)'
 
 run-local: build-local
 	@Get-Content .env -ErrorAction SilentlyContinue | ForEach-Object { $$l = $$_.Trim(); if ($$l -and -not $$l.StartsWith('#')) { $$i = $$l.IndexOf('='); if ($$i -gt 0) { [System.Environment]::SetEnvironmentVariable($$l.Substring(0,$$i).Trim(), $$l.Substring($$i+1).Trim(), 'Process') } } }; if ([string]::IsNullOrWhiteSpace($$env:SERVER_PORT)) { $$env:SERVER_PORT = '11949' }; & '$(LOCAL_BACKEND_BIN)' --config-dir .
@@ -38,6 +40,7 @@ run: run-local
 build-local:
 	mkdir -p "$(LOCAL_BACKEND_DIR)" "$(LOCAL_PLUGINS_DIR)"
 	CGO_ENABLED=$(CGO_ENABLED) go build -o "$(LOCAL_BACKEND_BIN)" ./cmd/agent-platform
+	scripts/stage-builtins.sh --output "$(LOCAL_RELEASE_ROOT)" --os "$(LOCAL_GOOS)" --arch "$(ARCH)"
 
 run-local: build-local
 	set -a; [ ! -f .env ] || . ./.env; set +a; SERVER_PORT="$${SERVER_PORT:-11949}" "$(LOCAL_BACKEND_BIN)" --config-dir .

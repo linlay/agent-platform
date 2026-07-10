@@ -13,6 +13,7 @@ import (
 
 	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/bashsec"
+	"agent-platform/internal/builtins"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
@@ -330,7 +331,7 @@ func stringMapArg(args map[string]any, key string) map[string]string {
 func mergeCommandEnv(execCtx *ExecutionContext) []string {
 	env := append([]string(nil), os.Environ()...)
 	if execCtx == nil || len(execCtx.RuntimeEnvOverrides) == 0 {
-		return env
+		return builtins.EnsureBinInEnv(env)
 	}
 	for key, value := range execCtx.RuntimeEnvOverrides {
 		found := false
@@ -346,7 +347,7 @@ func mergeCommandEnv(execCtx *ExecutionContext) []string {
 			env = append(env, prefix+value)
 		}
 	}
-	return env
+	return builtins.EnsureBinInEnv(env)
 }
 
 func containsString(values []string, needle string) bool {

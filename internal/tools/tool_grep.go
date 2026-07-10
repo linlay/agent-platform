@@ -20,9 +20,8 @@ import (
 )
 
 const (
-	defaultGrepHeadLimit  = 250
-	maxGrepRawBytes       = 8 * 1024
-	bundledRipgrepVersion = "15.1.0"
+	defaultGrepHeadLimit = 250
+	maxGrepRawBytes      = 8 * 1024
 )
 
 func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
@@ -174,21 +173,12 @@ func resolveRipgrepPath() (string, error) {
 	if err == nil {
 		binaryDir = filepath.Dir(exePath)
 	}
-	workingDir, err := os.Getwd()
-	if err != nil {
-		workingDir = ""
-	}
-	return findRipgrepPath(binaryDir, workingDir, "rg")
+	return findRipgrepPath(binaryDir, "rg")
 }
 
-func findRipgrepPath(binaryDir string, workingDir string, pathCommand string) (string, error) {
+func findRipgrepPath(binaryDir string, pathCommand string) (string, error) {
 	if strings.TrimSpace(binaryDir) != "" {
 		if path, err := findBundledRipgrep(binaryDir); err == nil {
-			return path, nil
-		}
-	}
-	if strings.TrimSpace(workingDir) != "" {
-		if path, err := findVendoredRipgrep(workingDir); err == nil {
 			return path, nil
 		}
 	}
@@ -220,50 +210,6 @@ func findBundledRipgrep(binaryDir string) (string, error) {
 		return candidate, nil
 	}
 	return "", exec.ErrNotFound
-}
-
-func findVendoredRipgrep(startDir string) (string, error) {
-	name := "rg"
-	if runtime.GOOS == "windows" {
-		name = "rg.exe"
-	}
-	platformDir, err := ripgrepPlatformDir(runtime.GOOS, runtime.GOARCH)
-	if err != nil {
-		return "", err
-	}
-	current, err := filepath.Abs(startDir)
-	if err != nil {
-		return "", err
-	}
-	for {
-		candidate := filepath.Join(current, "third_party", "ripgrep", bundledRipgrepVersion, platformDir, name)
-		info, err := os.Stat(candidate)
-		if err == nil && !info.IsDir() {
-			if runtime.GOOS == "windows" || info.Mode()&0o111 != 0 {
-				return candidate, nil
-			}
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			break
-		}
-		current = parent
-	}
-	return "", exec.ErrNotFound
-}
-
-func ripgrepPlatformDir(goos string, goarch string) (string, error) {
-	switch goos {
-	case "darwin", "linux", "windows":
-	default:
-		return "", exec.ErrNotFound
-	}
-	switch goarch {
-	case "amd64", "arm64":
-	default:
-		return "", exec.ErrNotFound
-	}
-	return goos + "-" + goarch, nil
 }
 
 func splitOutputLines(out string) []string {

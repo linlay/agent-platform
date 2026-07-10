@@ -1,10 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="${RIPGREP_VERSION:-15.1.0}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-VENDOR_DIR="$REPO_ROOT/third_party/ripgrep/$VERSION"
+component_info="$(
+  cd "$REPO_ROOT"
+  go run ./cmd/stage-builtins \
+    --repo-root "$REPO_ROOT" \
+    --resolve-component rg
+)"
+IFS=$'\t' read -r VERSION RIPGREP_REPO <<<"$component_info"
+[[ -n "$VERSION" ]] || {
+  echo "ripgrep version is missing from builtins lock" >&2
+  exit 1
+}
+[[ -n "$RIPGREP_REPO" ]] || {
+  echo "ripgrep repository path is missing from builtins lock" >&2
+  exit 1
+}
+VENDOR_DIR="$RIPGREP_REPO/$VERSION"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/agent-platform-ripgrep.XXXXXX")"
 
 trap 'rm -rf "$TMP_DIR"' EXIT

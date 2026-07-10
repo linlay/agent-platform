@@ -277,14 +277,10 @@ func TestFindBundledRipgrep(t *testing.T) {
 func TestFindRipgrepPathPrefersBundledRipgrep(t *testing.T) {
 	root := t.TempDir()
 	binaryDir := filepath.Join(root, "backend")
-	binDir := filepath.Join(binaryDir, "bin")
-	workspaceDir := filepath.Join(root, "workspace", "nested")
+	binDir := filepath.Join(root, "bin")
 	pathDir := filepath.Join(root, "path")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		t.Fatalf("mkdir bundled bin dir: %v", err)
-	}
-	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
-		t.Fatalf("mkdir workspace dir: %v", err)
 	}
 	if err := os.MkdirAll(pathDir, 0o755); err != nil {
 		t.Fatalf("mkdir path dir: %v", err)
@@ -294,7 +290,6 @@ func TestFindRipgrepPathPrefersBundledRipgrep(t *testing.T) {
 		name = "rg.exe"
 	}
 	bundledPath := filepath.Join(binDir, name)
-	vendoredPath := mustWriteVendoredRipgrep(t, root, name)
 	pathRg := filepath.Join(pathDir, name)
 	mustWriteFile(t, bundledPath, "#!/bin/sh\n")
 	mustWriteFile(t, pathRg, "#!/bin/sh\n")
@@ -306,22 +301,18 @@ func TestFindRipgrepPathPrefersBundledRipgrep(t *testing.T) {
 	}
 	t.Setenv("PATH", pathDir)
 
-	got, err := findRipgrepPath(binaryDir, workspaceDir, "rg")
+	got, err := findRipgrepPath(binaryDir, "rg")
 	if err != nil {
 		t.Fatalf("findRipgrepPath: %v", err)
 	}
 	if got != bundledPath {
-		t.Fatalf("expected bundled rg %s before vendored %s, got %s", bundledPath, vendoredPath, got)
+		t.Fatalf("expected bundled rg %s before PATH %s, got %s", bundledPath, pathRg, got)
 	}
 }
 
-func TestFindRipgrepPathUsesVendoredRipgrepBeforePath(t *testing.T) {
+func TestFindRipgrepPathUsesPathWhenBundleMissing(t *testing.T) {
 	root := t.TempDir()
-	workspaceDir := filepath.Join(root, "workspace", "nested")
 	pathDir := filepath.Join(root, "path")
-	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
-		t.Fatalf("mkdir workspace dir: %v", err)
-	}
 	if err := os.MkdirAll(pathDir, 0o755); err != nil {
 		t.Fatalf("mkdir path dir: %v", err)
 	}
@@ -329,7 +320,6 @@ func TestFindRipgrepPathUsesVendoredRipgrepBeforePath(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		name = "rg.exe"
 	}
-	vendoredPath := mustWriteVendoredRipgrep(t, root, name)
 	pathRg := filepath.Join(pathDir, name)
 	mustWriteFile(t, pathRg, "#!/bin/sh\n")
 	if err := os.Chmod(pathRg, 0o755); err != nil {
@@ -337,12 +327,12 @@ func TestFindRipgrepPathUsesVendoredRipgrepBeforePath(t *testing.T) {
 	}
 	t.Setenv("PATH", pathDir)
 
-	got, err := findRipgrepPath(filepath.Join(root, "missing-backend"), workspaceDir, "rg")
+	got, err := findRipgrepPath(filepath.Join(root, "missing-backend"), "rg")
 	if err != nil {
 		t.Fatalf("findRipgrepPath: %v", err)
 	}
-	if got != vendoredPath {
-		t.Fatalf("expected vendored rg %s before PATH %s, got %s", vendoredPath, pathRg, got)
+	if got != pathRg {
+		t.Fatalf("expected PATH rg %s, got %s", pathRg, got)
 	}
 }
 
@@ -358,23 +348,6 @@ func mustWriteFile(t *testing.T, path string, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write fixture %s: %v", path, err)
 	}
-}
-
-func mustWriteVendoredRipgrep(t *testing.T, repoRoot string, name string) string {
-	t.Helper()
-	platformDir, err := ripgrepPlatformDir(runtime.GOOS, runtime.GOARCH)
-	if err != nil {
-		t.Fatalf("ripgrepPlatformDir: %v", err)
-	}
-	path := filepath.Join(repoRoot, "third_party", "ripgrep", bundledRipgrepVersion, platformDir, name)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("mkdir vendored rg dir: %v", err)
-	}
-	mustWriteFile(t, path, "#!/bin/sh\n")
-	if err := os.Chmod(path, 0o755); err != nil {
-		t.Fatalf("chmod vendored rg: %v", err)
-	}
-	return path
 }
 
 func stringSliceResult(t *testing.T, value any) []string {

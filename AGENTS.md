@@ -10,6 +10,7 @@
 - 已具备 chat 摘要、事件流、raw messages、上传资源落盘、归档与搜索。
 - 已具备目录驱动的 agents / teams / skills / tools catalog。
 - 已具备 OpenAI / Anthropic 协议模型调用、backend tools、Container Hub sandbox 与 tools。
+- 已具备由 platform 锁定并随服务包分发的 Host builtins（rg/dbx/httpx）；`file_grep/file_glob` 稳定包装 rg，dbx/httpx 保持 CLI。
 - 已具备 HITL question / approval / form、运行中 submit / steer / interrupt 协议入口。
 - 已具备 SQLite memory、FTS、可选 embedding、learn / consolidate / feedback 与 memory tools。
 - 已具备 automation、`agent_invoke` 子智能体调度、MCP tool sync、WebSocket 控制面等能力骨架。

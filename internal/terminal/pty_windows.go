@@ -12,6 +12,8 @@ import (
 	"unicode/utf16"
 	"unsafe"
 
+	"agent-platform/internal/builtins"
+
 	"golang.org/x/sys/windows"
 )
 
@@ -111,7 +113,7 @@ func (p *windowsPTYProcess) startShell(req startPTYRequest) error {
 			return err
 		}
 	}
-	env, err := windowsEnvBlock(append(os.Environ(), req.Env...))
+	env, err := windowsEnvBlock(builtins.EnsureBinInEnv(append(os.Environ(), req.Env...)))
 	if err != nil {
 		return err
 	}

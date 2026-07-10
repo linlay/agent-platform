@@ -60,6 +60,7 @@
 - Go 1.22 或更新版本
 - Docker / Docker Compose（如需容器运行）
 - 可用的 provider / model 注册文件（放在 `runtime/registries/`）
+- 相邻的 `../agent-platform-builtins/{ripgrep,dbx,httpx}` 本地产物仓库集合；可用绝对路径环境变量 `BUILTINS_ROOT` 覆盖
 
 ### 本地启动
 
@@ -68,7 +69,7 @@ cp .env.example .env
 make run
 ```
 
-`make run` 会先构建本机 release 镜像目录，再加载根目录 `.env` 并从 `release-local/backend/agent-platform` 启动；未设置 `SERVER_PORT` 时默认监听 `11949`。本机插件放在 `release-local/plugins/`，启动时会按 Desktop 服务包形态扫描该目录。直接执行 `go run ./cmd/agent-platform` 不会自动加载 `.env`，也不会扫描 `release-local/plugins/`；未设置 `SERVER_PORT` 或 `--port` 时应用代码默认监听 `8080`。
+`make run` 会先构建本机 release 镜像目录、校验并装入 rg/dbx/httpx，再加载根目录 `.env` 并从 `release-local/backend/agent-platform` 启动；未设置 `SERVER_PORT` 时默认监听 `11949`。内置程序位于 `release-local/bin/`，本机插件位于 `release-local/plugins/`。直接执行 `go run ./cmd/agent-platform` 不会自动加载 `.env`、装入 builtins 或扫描 `release-local/plugins/`；未设置 `SERVER_PORT` 或 `--port` 时应用代码默认监听 `8080`。
 
 也可以显式拆开构建与启动：
 
@@ -77,7 +78,7 @@ make build-local
 make run-local
 ```
 
-`make build-local` 会把二进制写到 `release-local/backend/agent-platform`，并创建本机插件目录 `release-local/plugins/`。由于二进制位于 `backend/` 下，启动时只扫描服务包根目录的 `plugins/`，与 Desktop 的 `~/Library/Application Support/<BRAND>/services/agent-platform/<version>/plugins` 目录形态一致。`runtime/` 仍只用于 agents、chats、skills-market、registries、memory 等运行数据。
+`make build-local` 会把 runtime 写到 `release-local/backend/agent-platform`，按 `scripts/release-assets/builtins.lock.json` 把对应平台的 rg/dbx/httpx 写到 `release-local/bin/`，并创建本机插件目录 `release-local/plugins/`。builtins 缺失或 SHA-256 不匹配时构建失败。由于 runtime 位于 `backend/` 下，启动时只扫描服务包根目录的 `plugins/`，与 Desktop 服务包形态一致。`runtime/` 仍只用于 agents、chats、skills-market、registries、memory 等运行数据。
 
 常用验证：
 
@@ -288,7 +289,7 @@ Container Hub 默认基础挂载当前最多 7 个：
 make release-program
 ```
 
-产物写入 `dist/release/`，包含 Go 二进制、配置模板、runtime 目录骨架和启停脚本。Desktop 宿主集成时执行资源同步：
+产物写入 `dist/release/`，包含 Go runtime、配置模板、启停脚本、`bin/{rg,dbx,httpx}`、builtins manifest 和 ripgrep 许可证。Desktop 宿主集成时执行资源同步：
 
 ```bash
 npm run sync:assets

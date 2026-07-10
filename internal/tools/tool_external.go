@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/builtins"
 	. "agent-platform/internal/contracts"
 )
 
@@ -286,7 +287,7 @@ func (s *externalToolService) ensureStarted(ctx context.Context) error {
 	if strings.TrimSpace(s.cfg.WorkingDir) != "" {
 		cmd.Dir = s.cfg.WorkingDir
 	}
-	cmd.Env = append(os.Environ(), stringMapEnv(s.cfg.Env)...)
+	cmd.Env = builtins.EnsureBinInEnv(append(os.Environ(), stringMapEnv(s.cfg.Env)...))
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		s.lastErr = err

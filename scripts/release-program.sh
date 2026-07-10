@@ -4,7 +4,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROGRAM_RELEASE_ASSETS_DIR="$SCRIPT_DIR/release-assets/program"
-BUNDLED_RIPGREP_VERSION="${BUNDLED_RIPGREP_VERSION:-15.1.0}"
 
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/release-common.sh"
@@ -22,6 +21,8 @@ require_file "$PROGRAM_RELEASE_ASSETS_DIR/windows/start.ps1"
 require_file "$PROGRAM_RELEASE_ASSETS_DIR/windows/stop.ps1"
 require_file "$PROGRAM_RELEASE_ASSETS_DIR/windows/program-common.ps1"
 require_file "$PROGRAM_RELEASE_ASSETS_DIR/windows/tools.example.yml"
+require_file "$SCRIPT_DIR/release-assets/builtins.lock.json"
+require_file "$SCRIPT_DIR/stage-builtins.sh"
 require_file "$REPO_ROOT/.env.example"
 require_dir "$REPO_ROOT/configs"
 cd "$REPO_ROOT"
@@ -35,73 +36,6 @@ copy_config_templates() {
     cp "$asset" "$bundle_root/configs/"
   done
   shopt -u nullglob
-}
-
-host_os() {
-  case "$(uname -s)" in
-    Darwin) printf 'darwin\n' ;;
-    Linux) printf 'linux\n' ;;
-    MINGW*|MSYS*|CYGWIN*) printf 'windows\n' ;;
-    *) printf 'unknown\n' ;;
-  esac
-}
-
-resolve_bundled_rg_path() {
-  local target_os="$1"
-  local target_arch="$2"
-  local key
-  local path
-  local rg_name="rg"
-  if [[ "$target_os" == "windows" ]]; then
-    rg_name="rg.exe"
-  fi
-
-  path="$REPO_ROOT/third_party/ripgrep/$BUNDLED_RIPGREP_VERSION/$target_os-$target_arch/$rg_name"
-  if [[ -f "$path" ]]; then
-    printf '%s\n' "$path"
-    return
-  fi
-
-  key="BUNDLED_RG_PATH_$(printf '%s_%s' "$target_os" "$target_arch" | tr '[:lower:]-' '[:upper:]_')"
-  path="${!key:-}"
-  if [[ -n "$path" ]]; then
-    [[ -f "$path" ]] || die "$key points to a missing file: $path"
-    printf '%s\n' "$path"
-    return
-  fi
-
-  if [[ -n "${BUNDLED_RG_PATH:-}" ]]; then
-    [[ -f "$BUNDLED_RG_PATH" ]] || die "BUNDLED_RG_PATH points to a missing file: $BUNDLED_RG_PATH"
-    printf '%s\n' "$BUNDLED_RG_PATH"
-    return
-  fi
-
-  if [[ "$(host_os)" == "$target_os" && "$(detect_arch)" == "$target_arch" ]] && command -v rg >/dev/null 2>&1; then
-    command -v rg
-  fi
-}
-
-copy_bundled_rg() {
-  local bundle_root="$1"
-  local target_os="$2"
-  local target_arch="$3"
-  local rg_path
-  local rg_name="rg"
-
-  rg_path="$(resolve_bundled_rg_path "$target_os" "$target_arch" || true)"
-  if [[ -z "$rg_path" ]]; then
-    echo "[release] warning: no bundled rg found for $target_os/$target_arch; file_grep will require rg on PATH"
-    return
-  fi
-  if [[ "$target_os" == "windows" ]]; then
-    rg_name="rg.exe"
-  fi
-  mkdir -p "$bundle_root/backend/bin"
-  cp "$rg_path" "$bundle_root/backend/bin/$rg_name"
-  if [[ "$target_os" != "windows" ]]; then
-    chmod +x "$bundle_root/backend/bin/$rg_name"
-  fi
-  echo "[release] bundled rg: $rg_path"
 }
 
 build_program_bundle() {
@@ -149,7 +83,10 @@ build_program_bundle() {
   if [[ "$target_os" == "windows" ]]; then
     cp "$PROGRAM_RELEASE_ASSETS_DIR/windows/tools.example.yml" "$bundle_root/configs/tools.example.yml"
   fi
-  copy_bundled_rg "$bundle_root" "$target_os" "$target_arch"
+  "$SCRIPT_DIR/stage-builtins.sh" \
+    --output "$bundle_root" \
+    --os "$target_os" \
+    --arch "$target_arch"
 
   if [[ "$target_os" == "windows" ]]; then
     cp "$PROGRAM_RELEASE_ASSETS_DIR/windows/deploy.ps1" "$bundle_root/deploy.ps1"

@@ -17,6 +17,7 @@ import (
 	_ "time/tzdata"
 
 	"agent-platform/internal/app"
+	"agent-platform/internal/builtins"
 	"agent-platform/internal/config"
 )
 
@@ -30,6 +31,11 @@ type shutdownServer interface {
 func main() {
 	startedAt := time.Now()
 	log.Printf("starting runtime: pid=%d", os.Getpid())
+	if binDir, err := builtins.ConfigureProcessPath(); err != nil {
+		log.Printf("configure builtin PATH: %v", err)
+	} else if binDir != "" {
+		log.Printf("builtin PATH enabled: %s", binDir)
+	}
 
 	configOptions, err := parseConfigOptions(os.Args[1:])
 	if err != nil {

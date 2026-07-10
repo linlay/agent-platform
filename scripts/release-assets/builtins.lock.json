@@ -1,0 +1,158 @@
+{
+  "schemaVersion": 1,
+  "defaultRoot": "../agent-platform-builtins",
+  "components": [
+    {
+      "name": "rg",
+      "version": "15.1.0",
+      "repository": "ripgrep",
+      "source": "https://github.com/BurntSushi/ripgrep",
+      "commit": "af60c2de9d",
+      "kind": "file",
+      "required": true,
+      "licenseDirectory": "ripgrep",
+      "licenses": [
+        "15.1.0/LICENSE-MIT",
+        "15.1.0/UNLICENSE"
+      ],
+      "targets": {
+        "darwin-amd64": {
+          "path": "15.1.0/darwin-amd64/rg",
+          "output": "rg",
+          "sha256": "3bafa7e6ee51ba3ac4ed065883484a309be09b26ea6dad561ae4049bfe049c50"
+        },
+        "darwin-arm64": {
+          "path": "15.1.0/darwin-arm64/rg",
+          "output": "rg",
+          "sha256": "4fdf1d8365af224bc70e3c1490d8461d859c37cc70e739a11e987af0215f3e94"
+        },
+        "linux-amd64": {
+          "path": "15.1.0/linux-amd64/rg",
+          "output": "rg",
+          "sha256": "ebeaf56f8a25e102e9419933423738b3a2a613a444fd749d695e15eba53f71f2"
+        },
+        "linux-arm64": {
+          "path": "15.1.0/linux-arm64/rg",
+          "output": "rg",
+          "sha256": "968cabe8efed72fd8fd482cb76b6084fcb695fc5293af7fb62296b02f487fb69"
+        },
+        "windows-amd64": {
+          "path": "15.1.0/windows-amd64/rg.exe",
+          "output": "rg.exe",
+          "sha256": "decdd4992f3f1b9a5ef9898f1b40ab16886d579d6516b4efd3d5eaa19364e408"
+        },
+        "windows-arm64": {
+          "path": "15.1.0/windows-arm64/rg.exe",
+          "output": "rg.exe",
+          "sha256": "f7799d737b520e00b10dfa72def23904fe66fb03315636a7b78549845ee9609c"
+        }
+      }
+    },
+    {
+      "name": "dbx",
+      "version": "v0.1.0",
+      "repository": "dbx",
+      "source": "https://github.com/linlay/cli-dbx.git",
+      "commit": "f2cbec46507cc09cac0e19fffc940dd78aabdae4",
+      "kind": "archive",
+      "required": true,
+      "targets": {
+        "darwin-amd64": {
+          "path": "dist/v0.1.0/dbx_v0.1.0_darwin_amd64.tar.gz",
+          "format": "tar.gz",
+          "entry": "dbx",
+          "output": "dbx",
+          "sha256": "49e40859865bfbe124e6472b2d68a45c8dd083aeecedff7ec8b099750c3dbab5"
+        },
+        "darwin-arm64": {
+          "path": "dist/v0.1.0/dbx_v0.1.0_darwin_arm64.tar.gz",
+          "format": "tar.gz",
+          "entry": "dbx",
+          "output": "dbx",
+          "sha256": "491a6eee535019dbb18d38f45141029ff38fedd401618fc7effde125dbc1676d"
+        },
+        "linux-amd64": {
+          "path": "dist/v0.1.0/dbx_v0.1.0_linux_amd64.tar.gz",
+          "format": "tar.gz",
+          "entry": "dbx",
+          "output": "dbx",
+          "sha256": "8658fd3f2b3ece38d517f0d75bebb41be9ff46fa71eaa8a672c522da45e9c8eb"
+        },
+        "linux-arm64": {
+          "path": "dist/v0.1.0/dbx_v0.1.0_linux_arm64.tar.gz",
+          "format": "tar.gz",
+          "entry": "dbx",
+          "output": "dbx",
+          "sha256": "2968741f42596bf7a147ea7a23b6057a9c44c0b2971dfc5233b64ac4b5937f3b"
+        },
+        "windows-amd64": {
+          "path": "dist/v0.1.0/dbx_v0.1.0_windows_amd64.zip",
+          "format": "zip",
+          "entry": "dbx.exe",
+          "output": "dbx.exe",
+          "sha256": "eb536095c29e017f855f1693ace50844f25f1dd357f832a0e0bf68e2ed2fca4a"
+        },
+        "windows-arm64": {
+          "path": "dist/v0.1.0/dbx_v0.1.0_windows_arm64.zip",
+          "format": "zip",
+          "entry": "dbx.exe",
+          "output": "dbx.exe",
+          "sha256": "17bff1d2859050a0b728e92535cb76e6b1da54de861c9969c6f30e9b88ccd3a1"
+        }
+      }
+    },
+    {
+      "name": "httpx",
+      "version": "v0.1.1",
+      "repository": "httpx",
+      "source": "https://github.com/linlay/cli-httpx.git",
+      "commit": "9ae78b3aa8a928dadce57566bf8d92667ae5eeee",
+      "kind": "archive",
+      "required": true,
+      "targets": {
+        "darwin-amd64": {
+          "path": "dist/v0.1.1/httpx_v0.1.1_darwin_amd64.tar.gz",
+          "format": "tar.gz",
+          "entry": "httpx",
+          "output": "httpx",
+          "sha256": "74dbd15fb6038ec7e7ffaec66b851385c4844691e485fbd7682325dc48cb6fe6"
+        },
+        "darwin-arm64": {
+          "path": "dist/v0.1.1/httpx_v0.1.1_darwin_arm64.tar.gz",
+          "format": "tar.gz",
+          "entry": "httpx",
+          "output": "httpx",
+          "sha256": "0e142b200c2230479d8133c0290aa2928aeebcd093ff4fecf2aa69c51fdb0547"
+        },
+        "linux-amd64": {
+          "path": "dist/v0.1.1/httpx_v0.1.1_linux_amd64.tar.gz",
+          "format": "tar.gz",
+          "entry": "httpx",
+          "output": "httpx",
+          "sha256": "7707ee95bff6aaac861a920042378012772c57ec3d31edd4a46de79b8d8fb8c6"
+        },
+        "linux-arm64": {
+          "path": "dist/v0.1.1/httpx_v0.1.1_linux_arm64.tar.gz",
+          "format": "tar.gz",
+          "entry": "httpx",
+          "output": "httpx",
+          "sha256": "186214fd85c7228ab7618ef00e1ccc032c3d524a5cd7f2d5e3c72943927bb969"
+        },
+        "windows-amd64": {
+          "path": "dist/v0.1.1/httpx_v0.1.1_windows_amd64.zip",
+          "format": "zip",
+          "entry": "httpx.exe",
+          "output": "httpx.exe",
+          "sha256": "abccf98ea7ef694c17061a23c9b62d771099d80810b14fc7dd022956a4044b1a"
+        },
+        "windows-arm64": {
+          "path": "dist/v0.1.1/httpx_v0.1.1_windows_arm64.zip",
+          "format": "zip",
+          "entry": "httpx.exe",
+          "output": "httpx.exe",
+          "sha256": "835c5421f10fe8d2a93f66abe85fdc8eac6a344740429b87d7c2a29a0a9f1539"
+        }
+      }
+    }
+  ]
+}
