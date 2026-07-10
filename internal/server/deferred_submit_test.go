@@ -226,6 +226,105 @@ func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
 	}
 }
 
+func TestDeferredQuestionSubmitRejectsInvalidAnswerAndAllowsRetry(t *testing.T) {
+	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	})
+	chatID := "chat-deferred-multi-select"
+	runID := "run-deferred-multi-select"
+	awaitingID := "await-deferred-multi-select"
+	seedDeferredAwaitingPayload(t, fixture.chats, chatID, runID, awaitingID, "question", 600, time.Now().UnixMilli(), map[string]any{
+		"questions": []any{map[string]any{
+			"id":       "q1",
+			"question": "生活习惯",
+			"type":     "multi-select",
+			"options":  []any{map[string]any{"label": "A"}},
+		}},
+	})
+
+	restarted, err := New(Dependencies{
+		Config:          fixture.cfg,
+		Chats:           fixture.chats,
+		Memory:          fixture.memories,
+		Registry:        fixture.registry,
+		Models:          fixture.modelRegistry,
+		Runs:            fixture.runs,
+		Agent:           fixture.agent,
+		Tools:           fixture.tools,
+		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
+		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
+		Sandbox:         fixture.sandbox,
+		MCP:             fixture.mcp,
+		Viewport:        fixture.viewport,
+		CatalogReloader: fixture.catalogReloader,
+	})
+	if err != nil {
+		t.Fatalf("new restarted server: %v", err)
+	}
+
+	invalidParams := mustEncodeSubmitParams(t, []map[string]any{{"id": "q1", "answer": "A"}})
+	invalidBody, err := json.Marshal(api.SubmitRequest{
+		ChatID:     chatID,
+		AgentKey:   "mock-agent",
+		RunID:      runID,
+		AwaitingID: awaitingID,
+		Params:     invalidParams,
+	})
+	if err != nil {
+		t.Fatalf("marshal invalid submit request: %v", err)
+	}
+	invalidRec := httptest.NewRecorder()
+	invalidReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewReader(invalidBody))
+	invalidReq.Header.Set("Content-Type", "application/json")
+	restarted.ServeHTTP(invalidRec, invalidReq)
+	if invalidRec.Code != http.StatusOK {
+		t.Fatalf("invalid submit expected 200, got %d: %s", invalidRec.Code, invalidRec.Body.String())
+	}
+	var invalidResponse api.ApiResponse[api.SubmitResponse]
+	if err := json.Unmarshal(invalidRec.Body.Bytes(), &invalidResponse); err != nil {
+		t.Fatalf("decode invalid submit response: %v", err)
+	}
+	if invalidResponse.Code != 0 || invalidResponse.Data.Accepted || invalidResponse.Data.Status != "invalid" || !strings.Contains(invalidResponse.Data.Detail, "answers is required") {
+		t.Fatalf("expected rejected deferred question submit, got %#v", invalidResponse)
+	}
+	if _, ok := restarted.deferredAwaitings.Lookup(awaitingID); !ok {
+		t.Fatal("invalid deferred submit must leave the awaiting item active")
+	}
+	summary, err := fixture.chats.Summary(chatID)
+	if err != nil {
+		t.Fatalf("load chat summary: %v", err)
+	}
+	if summary.PendingAwaiting == nil || summary.PendingAwaiting.AwaitingID != awaitingID {
+		t.Fatalf("invalid deferred submit must preserve pending awaiting, got %#v", summary)
+	}
+
+	validParams := mustEncodeSubmitParams(t, []map[string]any{{"id": "q1", "answers": []string{"A"}}})
+	validBody, err := json.Marshal(api.SubmitRequest{
+		ChatID:     chatID,
+		AgentKey:   "mock-agent",
+		RunID:      runID,
+		AwaitingID: awaitingID,
+		Params:     validParams,
+	})
+	if err != nil {
+		t.Fatalf("marshal valid submit request: %v", err)
+	}
+	validRec := httptest.NewRecorder()
+	validReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewReader(validBody))
+	validReq.Header.Set("Content-Type", "application/json")
+	restarted.ServeHTTP(validRec, validReq)
+	if validRec.Code != http.StatusOK {
+		t.Fatalf("valid submit expected 200, got %d: %s", validRec.Code, validRec.Body.String())
+	}
+	var validResponse api.ApiResponse[api.SubmitResponse]
+	if err := json.Unmarshal(validRec.Body.Bytes(), &validResponse); err != nil {
+		t.Fatalf("decode valid submit response: %v", err)
+	}
+	if !validResponse.Data.Accepted || validResponse.Data.Status != "accepted" {
+		t.Fatalf("expected accepted deferred question submit, got %#v", validResponse.Data)
+	}
+}
+
 func TestPersistDeferredAwaitingToolAnswerWritesReactToolLine(t *testing.T) {
 	root := t.TempDir()
 	store, err := chat.NewFileStore(root)

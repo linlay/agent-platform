@@ -148,9 +148,33 @@ func TestValidateSubmitParamsValidatesQuestionDefinitions(t *testing.T) {
 		ItemCount:  len(questions),
 		Questions:  questions,
 	}
+	singleSelectContext := contracts.AwaitingSubmitContext{
+		AwaitingID: "await_select",
+		Mode:       "question",
+		ItemCount:  1,
+		Questions: []any{map[string]any{
+			"id":       "q1",
+			"question": "通勤方式",
+			"type":     "select",
+			"options":  []any{map[string]any{"label": "步行"}},
+		}},
+	}
+	freeTextContext := contracts.AwaitingSubmitContext{
+		AwaitingID: "await_free_text",
+		Mode:       "question",
+		ItemCount:  1,
+		Questions: []any{map[string]any{
+			"id":            "q1",
+			"question":      "其他习惯",
+			"type":          "multi-select",
+			"allowFreeText": true,
+			"options":       []any{map[string]any{"label": "早睡"}},
+		}},
+	}
 
 	tests := []struct {
 		name       string
+		context    contracts.AwaitingSubmitContext
 		params     any
 		wantSubstr string
 	}{
@@ -168,6 +192,14 @@ func TestValidateSubmitParamsValidatesQuestionDefinitions(t *testing.T) {
 				{"answer": 3},
 			},
 			wantSubstr: "生活习惯: answers is required for multi-select questions",
+		},
+		{
+			name:    "single-select rejects answers",
+			context: singleSelectContext,
+			params: []map[string]any{
+				{"answers": []string{"步行"}},
+			},
+			wantSubstr: "通勤方式: answers is only allowed for multi-select questions",
 		},
 		{
 			name: "multi-select rejects both fields",
@@ -201,6 +233,22 @@ func TestValidateSubmitParamsValidatesQuestionDefinitions(t *testing.T) {
 			wantSubstr: "expected 2 submit items, got 1",
 		},
 		{
+			name: "rejects too many answers",
+			params: []map[string]any{
+				{"answers": []string{"早睡"}},
+				{"answer": 3},
+				{"answer": "extra"},
+			},
+			wantSubstr: "expected 2 submit items, got 3",
+		},
+		{
+			name:    "free text accepts unlisted option",
+			context: freeTextContext,
+			params: []map[string]any{
+				{"answers": []string{"午休"}},
+			},
+		},
+		{
 			name:   "batch cancel remains valid",
 			params: []map[string]any{},
 		},
@@ -208,7 +256,11 @@ func TestValidateSubmitParamsValidatesQuestionDefinitions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateSubmitParams(context, mustEncodeSubmitParams(t, tt.params))
+			awaitingContext := context
+			if tt.context.AwaitingID != "" {
+				awaitingContext = tt.context
+			}
+			err := validateSubmitParams(awaitingContext, mustEncodeSubmitParams(t, tt.params))
 			if tt.wantSubstr == "" {
 				if err != nil {
 					t.Fatalf("validateSubmitParams returned error: %v", err)
