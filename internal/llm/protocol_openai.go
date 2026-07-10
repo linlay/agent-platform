@@ -41,6 +41,7 @@ type openAIStreamResponse struct {
 		Delta struct {
 			Content          string                  `json:"content"`
 			ReasoningContent string                  `json:"reasoning_content"`
+			Reasoning        string                  `json:"reasoning"`
 			ReasoningDetails []map[string]any        `json:"reasoning_details"`
 			ToolCalls        []openAIStreamToolDelta `json:"tool_calls"`
 		} `json:"delta"`
@@ -190,7 +191,11 @@ func (p *openAIProtocol) ConsumeChunk(s *llmRunStream, _ string, rawChunk string
 	}
 
 	for _, choice := range decoded.Choices {
-		s.appendCompatReasoningFromOpenAI(choice.Delta.ReasoningContent, choice.Delta.ReasoningDetails)
+		reasoningContent := choice.Delta.ReasoningContent
+		if reasoningContent == "" {
+			reasoningContent = choice.Delta.Reasoning
+		}
+		s.appendCompatReasoningFromOpenAI(reasoningContent, choice.Delta.ReasoningDetails)
 		s.appendCompatContent(choice.Delta.Content)
 		if len(choice.Delta.ToolCalls) > 0 {
 			s.currentTurn.hasMeaningful = true

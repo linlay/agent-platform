@@ -178,27 +178,63 @@ func TestLLMChatTraceWritesToolLoopFiles(t *testing.T) {
 	}
 }
 
-func TestLLMChatTraceWritesReasoningContent(t *testing.T) {
-	recordDir := t.TempDir()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"thinking\"}}]}\n\n"))
-		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"...\",\"content\":\"answer\"},\"finish_reason\":\"stop\"}]}\n\n"))
-	}))
-	defer server.Close()
-
-	engine := newTraceTestEngine(t, recordDir, server.URL, nil)
-	req := api.QueryRequest{ChatID: "chat_1", Message: "Hi"}
-	stream, err := engine.newRunStream(context.Background(), req, traceTestSessionWithSystemCache(t, engine, req), false)
-	if err != nil {
-		t.Fatalf("newRunStream: %v", err)
+func TestLLMChatTraceNormalizesOpenAIReasoningFields(t *testing.T) {
+	tests := []struct {
+		name   string
+		chunks []string
+		want   string
+	}{
+		{
+			name: "reasoning content",
+			chunks: []string{
+				"data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"thinking\"}}]}\n\n",
+				"data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"...\",\"content\":\"answer\"},\"finish_reason\":\"stop\"}]}\n\n",
+			},
+			want: "thinking...",
+		},
+		{
+			name: "reasoning alias",
+			chunks: []string{
+				"data: {\"choices\":[{\"delta\":{\"reasoning\":\"thinking\"}}]}\n\n",
+				"data: {\"choices\":[{\"delta\":{\"reasoning\":\"...\",\"content\":\"answer\"},\"finish_reason\":\"stop\"}]}\n\n",
+			},
+			want: "thinking...",
+		},
+		{
+			name: "reasoning content takes precedence",
+			chunks: []string{
+				"data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"thinking\",\"reasoning\":\"ignored\"}}]}\n\n",
+				"data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"...\",\"reasoning\":\"ignored\",\"content\":\"answer\"},\"finish_reason\":\"stop\"}]}\n\n",
+			},
+			want: "thinking...",
+		},
 	}
-	drainTraceTestStream(t, stream)
 
-	trace := readTraceFile(t, recordDir, 1)
-	response := trace["response"].(map[string]any)
-	if response["content"] != "answer" || response["reasoning_content"] != "thinking..." {
-		t.Fatalf("unexpected response with reasoning: %#v", response)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			recordDir := t.TempDir()
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				for _, chunk := range tc.chunks {
+					_, _ = w.Write([]byte(chunk))
+				}
+			}))
+			defer server.Close()
+
+			engine := newTraceTestEngine(t, recordDir, server.URL, nil)
+			req := api.QueryRequest{ChatID: "chat_1", Message: "Hi"}
+			stream, err := engine.newRunStream(context.Background(), req, traceTestSessionWithSystemCache(t, engine, req), false)
+			if err != nil {
+				t.Fatalf("newRunStream: %v", err)
+			}
+			drainTraceTestStream(t, stream)
+
+			trace := readTraceFile(t, recordDir, 1)
+			response := trace["response"].(map[string]any)
+			if response["content"] != "answer" || response["reasoning_content"] != tc.want {
+				t.Fatalf("unexpected normalized reasoning response: %#v", response)
+			}
+		})
 	}
 }
 

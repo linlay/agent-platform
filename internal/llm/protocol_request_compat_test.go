@@ -24,6 +24,11 @@ func TestCompatRequestOverridesMergeAlwaysAndReasoningScopedEntries(t *testing.T
 						"whenReasoningEnabled": map[string]any{
 							"providerReasoning": true,
 							"shared":            "provider-reasoning",
+							"chat_template_kwargs": map[string]any{
+								"thinking":         false,
+								"provider_only":    "provider-value",
+								"return_reasoning": false,
+							},
 						},
 					},
 				},
@@ -41,6 +46,9 @@ func TestCompatRequestOverridesMergeAlwaysAndReasoningScopedEntries(t *testing.T
 				"whenReasoningEnabled": map[string]any{
 					"modelReasoning": true,
 					"shared":         "model-reasoning",
+					"chat_template_kwargs": map[string]any{
+						"thinking": true,
+					},
 				},
 			},
 		},
@@ -68,6 +76,10 @@ func TestCompatRequestOverridesMergeAlwaysAndReasoningScopedEntries(t *testing.T
 	}
 	if got["shared"] != "model-reasoning" {
 		t.Fatalf("expected reasoning-scoped model override to win when enabled, got %#v", got)
+	}
+	kwargs := AnyMapNode(got["chat_template_kwargs"])
+	if kwargs["thinking"] != true || kwargs["provider_only"] != "provider-value" || kwargs["return_reasoning"] != false {
+		t.Fatalf("expected model nested override plus provider defaults, got %#v", kwargs)
 	}
 }
 
@@ -389,6 +401,57 @@ func TestOpenAIProtocolPrepareRequestExposesDebugPayload(t *testing.T) {
 			}
 			if tools, _ := prepared.RequestBody["tools"].([]any); len(tools) != 1 {
 				t.Fatalf("expected one tool in request body, got %#v", prepared.RequestBody)
+			}
+		})
+	}
+}
+
+func TestOpenAIProtocolPrepareRequestAppliesReasoningScopedChatTemplateKwargs(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		reasoningEnabled bool
+	}{
+		{name: "reasoning disabled", reasoningEnabled: false},
+		{name: "reasoning enabled", reasoningEnabled: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			protocol := &openAIProtocol{engine: NewLLMAgentEngineWithHTTPClient(config.Config{}, nil, nil, nil, nil, &http.Client{})}
+			prepared, err := protocol.PrepareRequest(protocolStreamParams{
+				provider: ProviderDefinition{Key: "mock", BaseURL: "https://example.com", APIKey: "token"},
+				model:    ModelDefinition{Protocol: "OPENAI", ModelID: "mock-model"},
+				protocolConfig: protocolRuntimeConfig{
+					EndpointPath: "/v1/chat/completions",
+					Compat: map[string]any{
+						"request": map[string]any{
+							"whenReasoningEnabled": map[string]any{
+								"chat_template_kwargs": map[string]any{
+									"thinking":         true,
+									"return_reasoning": true,
+								},
+							},
+						},
+					},
+				},
+				stageSettings: StageSettings{ReasoningEnabled: tc.reasoningEnabled},
+				messages: []openAIMessage{
+					{Role: "system", Content: "system prompt"},
+					{Role: "user", Content: "hi"},
+				},
+			})
+			if err != nil {
+				t.Fatalf("PrepareRequest returned error: %v", err)
+			}
+
+			kwargs, exists := prepared.RequestBody["chat_template_kwargs"]
+			if !tc.reasoningEnabled {
+				if exists {
+					t.Fatalf("expected no chat_template_kwargs when reasoning is disabled, got %#v", kwargs)
+				}
+				return
+			}
+			values := AnyMapNode(kwargs)
+			if values["thinking"] != true || values["return_reasoning"] != true {
+				t.Fatalf("expected reasoning chat template kwargs, got %#v", values)
 			}
 		})
 	}
