@@ -9,6 +9,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/frontendtools"
 )
 
 func validateSubmitIdentity(req api.SubmitRequest) error {
@@ -109,6 +110,13 @@ func validateSubmitParams(ctx contracts.AwaitingSubmitContext, params api.Submit
 	}
 	for index, item := range items {
 		if err := validateSubmitItem(ctx.Mode, index, item); err != nil {
+			return err
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(ctx.Mode), "question") && len(ctx.Questions) > 0 {
+		if _, err := frontendtools.NewAskUserQuestionHandler().NormalizeSubmit(map[string]any{
+			"questions": ctx.Questions,
+		}, params); err != nil {
 			return err
 		}
 	}

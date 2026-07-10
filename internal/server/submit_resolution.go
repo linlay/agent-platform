@@ -88,6 +88,9 @@ func (s *Server) resolveSubmit(req api.SubmitRequest) (api.SubmitResponse, int, 
 
 	if awaiting, ok := s.lookupActiveAwaiting(req); ok {
 		if err := validateSubmitParams(awaiting, req.Params); err != nil {
+			if strings.EqualFold(strings.TrimSpace(awaiting.Mode), "question") {
+				return invalidQuestionSubmitResponse(req, activeSubmitChatID(s, req), err), 0, "success", nil
+			}
 			return api.SubmitResponse{}, 0, "", err
 		}
 		req = s.prepareActiveSubmitContinuation(req, awaiting)
@@ -210,6 +213,9 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 		return api.SubmitResponse{}, fmt.Errorf("awaiting has expired")
 	}
 	if err := validateDeferredSubmitParams(deferred.Mode, req.Params); err != nil {
+		if strings.EqualFold(strings.TrimSpace(deferred.Mode), "question") {
+			return invalidQuestionSubmitResponse(req, deferred.ChatID, err), nil
+		}
 		return api.SubmitResponse{}, err
 	}
 	if response, handled, err := s.resolvePersistedAwaitingSubmit(api.SubmitRequest{
@@ -226,6 +232,9 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 
 	normalized, err := s.normalizeDeferredSubmit(deferred, req.Params)
 	if err != nil {
+		if strings.EqualFold(strings.TrimSpace(deferred.Mode), "question") {
+			return invalidQuestionSubmitResponse(req, deferred.ChatID, err), nil
+		}
 		return api.SubmitResponse{}, err
 	}
 	if !isContinuableDeferredAwaitingMode(deferred.Mode) {
@@ -288,6 +297,22 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 		Continued:  continued,
 		Detail:     "Frontend submit accepted",
 	}, nil
+}
+
+func invalidQuestionSubmitResponse(req api.SubmitRequest, chatID string, err error) api.SubmitResponse {
+	detail := "invalid question submit"
+	if err != nil {
+		detail = err.Error()
+	}
+	return api.SubmitResponse{
+		Accepted:   false,
+		Status:     "invalid",
+		ChatID:     chatID,
+		RunID:      req.RunID,
+		AwaitingID: req.AwaitingID,
+		SubmitID:   req.SubmitID,
+		Detail:     detail,
+	}
 }
 
 func (s *Server) deferredPlanApproveStartsNewRun(deferred DeferredAwaiting, normalized map[string]any) bool {

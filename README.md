@@ -22,6 +22,7 @@
 - `GET /api/archive?chatId=...`
 - `POST /api/archives/search`
 - `POST /api/query`
+- `POST /api/btw`
 - `POST /api/submit`
 - `POST /api/steer`
 - `POST /api/interrupt`
@@ -33,6 +34,7 @@
 返回格式约定：
 
 - `POST /api/query` 成功时默认返回真实流式 SSE event stream，服务端会按 provider 原始流式 chunk 逐步透传 `content.delta`，结束时追加 `data: [DONE]`；请求体传 `stream:false` 时返回普通 JSON，默认 `data` 只包含 `content`，可用 `includeUsage:true` / `includeFullText:true` 追加 `usage` / `fullText`，错拼字段 `steam` 不会被识别。
+- `POST /api/btw` 在已有 chat 下创建或继续隐藏只读分支，复用 `/api/query` 的 ReAct 与 SSE 协议，不更新父 chat JSONL、摘要、未读或后续上下文；扩展工具只有显式声明 `readOnly` 时才可执行。
 - 其余 JSON 接口统一返回：
 
 ```json

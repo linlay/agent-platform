@@ -57,12 +57,12 @@ func (m *InMemoryRunManager) RegisterExclusiveForChat(_ context.Context, session
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	chatID := strings.TrimSpace(session.ChatID)
-	if chatID != "" {
-		match, runIDs := m.activeRunMatchLocked(chatID)
+	scopeID := querySessionRunScopeID(session)
+	if scopeID != "" {
+		match, runIDs := m.activeRunMatchLocked(scopeID)
 		if len(runIDs) > 1 {
 			return ExclusiveRunRegistration{}, &ActiveRunConflictError{
-				ChatID: chatID,
+				ChatID: strings.TrimSpace(session.ChatID),
 				RunIDs: append([]string(nil), runIDs...),
 			}
 		}
@@ -85,7 +85,12 @@ func (m *InMemoryRunManager) RegisterExclusiveForChat(_ context.Context, session
 func (m *InMemoryRunManager) registerLocked(session QuerySession) (context.Context, *RunControl, ActiveRun) {
 	control := NewRunControl(context.Background(), session.RunID)
 	control.SetInitialAccessLevel(session.AccessLevel)
-	run := ActiveRun{RunID: session.RunID, ChatID: session.ChatID, AgentKey: session.AgentKey}
+	run := ActiveRun{
+		RunID:    session.RunID,
+		ChatID:   session.ChatID,
+		AgentKey: session.AgentKey,
+		ScopeID:  strings.TrimSpace(session.RunScopeID),
+	}
 	eventBus := stream.NewRunEventBus(m.eventBusMaxEvents, m.maxObserversPerRun, func(count int) {
 		control.SetObserverCount(int32(count))
 	})
@@ -279,7 +284,7 @@ func (m *InMemoryRunManager) activeRunMatchLocked(chatID string) (*managedRun, [
 		if state == nil || state.eventBus == nil || !state.completedAt.IsZero() {
 			continue
 		}
-		if strings.TrimSpace(state.run.ChatID) != chatID {
+		if activeRunScopeID(state.run) != chatID {
 			continue
 		}
 		runIDs = append(runIDs, state.run.RunID)
@@ -288,6 +293,20 @@ func (m *InMemoryRunManager) activeRunMatchLocked(chatID string) (*managedRun, [
 		}
 	}
 	return match, runIDs
+}
+
+func querySessionRunScopeID(session QuerySession) string {
+	if scopeID := strings.TrimSpace(session.RunScopeID); scopeID != "" {
+		return scopeID
+	}
+	return strings.TrimSpace(session.ChatID)
+}
+
+func activeRunScopeID(run ActiveRun) string {
+	if scopeID := strings.TrimSpace(run.ScopeID); scopeID != "" {
+		return scopeID
+	}
+	return strings.TrimSpace(run.ChatID)
 }
 
 func runStatusInfoFromManagedRun(state *managedRun) RunStatusInfo {

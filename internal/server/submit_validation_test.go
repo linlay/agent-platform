@@ -3,6 +3,8 @@ package server
 import (
 	"strings"
 	"testing"
+
+	"agent-platform/internal/contracts"
 )
 
 func TestValidateDeferredSubmitParamsAcceptsDismissAndValidShapes(t *testing.T) {
@@ -116,6 +118,103 @@ func TestValidateDeferredSubmitParamsRejectsInvalidShape(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validateDeferredSubmitParams("form", mustEncodeSubmitParams(t, tt.params))
+			if err == nil || !strings.Contains(err.Error(), tt.wantSubstr) {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateSubmitParamsValidatesQuestionDefinitions(t *testing.T) {
+	questions := []any{
+		map[string]any{
+			"id":       "q1",
+			"question": "生活习惯",
+			"type":     "multi-select",
+			"options": []any{
+				map[string]any{"label": "早睡"},
+				map[string]any{"label": "运动"},
+			},
+		},
+		map[string]any{
+			"id":       "q2",
+			"question": "每周运动次数",
+			"type":     "number",
+		},
+	}
+	context := contracts.AwaitingSubmitContext{
+		AwaitingID: "await_1",
+		Mode:       "question",
+		ItemCount:  len(questions),
+		Questions:  questions,
+	}
+
+	tests := []struct {
+		name       string
+		params     any
+		wantSubstr string
+	}{
+		{
+			name: "valid multi-select and number",
+			params: []map[string]any{
+				{"id": "wrong-id", "answers": []string{"早睡", "运动"}},
+				{"answer": 3},
+			},
+		},
+		{
+			name: "multi-select rejects answer",
+			params: []map[string]any{
+				{"answer": "早睡"},
+				{"answer": 3},
+			},
+			wantSubstr: "生活习惯: answers is required for multi-select questions",
+		},
+		{
+			name: "multi-select rejects both fields",
+			params: []map[string]any{
+				{"answer": "早睡", "answers": []string{"早睡"}},
+				{"answer": 3},
+			},
+			wantSubstr: "items[0]: question items require exactly one of answer or answers",
+		},
+		{
+			name: "multi-select rejects invalid option",
+			params: []map[string]any{
+				{"answers": []string{"熬夜"}},
+				{"answer": 3},
+			},
+			wantSubstr: `生活习惯: answer item "熬夜" is not an allowed option`,
+		},
+		{
+			name: "number rejects string",
+			params: []map[string]any{
+				{"answers": []string{"早睡"}},
+				{"answer": "three"},
+			},
+			wantSubstr: "每周运动次数: answer must be a number",
+		},
+		{
+			name: "rejects too few answers",
+			params: []map[string]any{
+				{"answers": []string{"早睡"}},
+			},
+			wantSubstr: "expected 2 submit items, got 1",
+		},
+		{
+			name:   "batch cancel remains valid",
+			params: []map[string]any{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateSubmitParams(context, mustEncodeSubmitParams(t, tt.params))
+			if tt.wantSubstr == "" {
+				if err != nil {
+					t.Fatalf("validateSubmitParams returned error: %v", err)
+				}
+				return
+			}
 			if err == nil || !strings.Contains(err.Error(), tt.wantSubstr) {
 				t.Fatalf("unexpected error: %v", err)
 			}

@@ -49,6 +49,9 @@ func (s *llmRunStream) appendToolCallDeltas(deltas []AgentDelta) {
 }
 
 func (s *llmRunStream) planningDeltasFromToolCall(delta DeltaToolCall) []AgentDelta {
+	if s != nil && s.execCtx != nil && IsReadOnlyToolExecutionPolicy(s.execCtx.ToolExecutionPolicy) {
+		return nil
+	}
 	toolID := strings.TrimSpace(delta.ID)
 	if toolID == "" {
 		return nil

@@ -26,6 +26,7 @@ type StreamRequest struct {
 	InitialSeq         int64
 	BootstrapSynthetic *SyntheticQuery
 	MemoryUsageSummary map[string]any
+	QueryMetadata      map[string]any
 }
 
 type SceneRef struct {
@@ -113,6 +114,12 @@ func (a *StreamEventAssembler) BootstrapWithRaw() ([]StreamEvent, []StreamEvent)
 	if scene := a.request.Scene.ToMap(); scene != nil {
 		queryPayload["scene"] = scene
 	}
+	for key, value := range a.request.QueryMetadata {
+		if _, reserved := queryPayload[key]; reserved {
+			continue
+		}
+		queryPayload[key] = value
+	}
 	events := []StreamEvent{}
 	if !a.request.ContinueRun && a.request.Created {
 		events = append(events, NewEvent("chat.start", map[string]any{
@@ -157,6 +164,12 @@ func syntheticQueryPayload(request StreamRequest, value SyntheticQuery) map[stri
 	}
 	if len(value.Systems) > 0 {
 		payload["systems"] = cloneMessagePayloads(value.Systems)
+	}
+	for key, item := range request.QueryMetadata {
+		if _, reserved := payload[key]; reserved {
+			continue
+		}
+		payload[key] = item
 	}
 	return payload
 }

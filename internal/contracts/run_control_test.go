@@ -359,6 +359,39 @@ func TestInMemoryRunManagerActiveRunForChatReturnsSingleActiveRun(t *testing.T) 
 	}
 }
 
+func TestInMemoryRunManagerRunScopeDoesNotBlockParentChat(t *testing.T) {
+	manager := NewInMemoryRunManager()
+	btw, err := manager.RegisterExclusiveForChat(context.Background(), QuerySession{
+		RunID:      "run_btw",
+		ChatID:     "chat_1",
+		RunScopeID: "btw:chat_1:btw_1",
+		AgentKey:   "agent_1",
+	})
+	if err != nil || !btw.Registered {
+		t.Fatalf("register BTW run: %#v err=%v", btw, err)
+	}
+	main, err := manager.RegisterExclusiveForChat(context.Background(), QuerySession{
+		RunID:    "run_main",
+		ChatID:   "chat_1",
+		AgentKey: "agent_1",
+	})
+	if err != nil || !main.Registered {
+		t.Fatalf("register parent run: %#v err=%v", main, err)
+	}
+	blocked, err := manager.RegisterExclusiveForChat(context.Background(), QuerySession{
+		RunID:      "run_btw_2",
+		ChatID:     "chat_1",
+		RunScopeID: "btw:chat_1:btw_1",
+		AgentKey:   "agent_1",
+	})
+	if err != nil {
+		t.Fatalf("register duplicate BTW: %v", err)
+	}
+	if blocked.Registered || blocked.ActiveRun.RunID != "run_btw" || blocked.ActiveRun.ChatID != "chat_1" {
+		t.Fatalf("expected same BTW scope to be blocked, got %#v", blocked)
+	}
+}
+
 func TestInMemoryRunManagerActiveRunForChatReturnsConflictForMultipleRuns(t *testing.T) {
 	manager := NewInMemoryRunManager()
 	_, _, _ = manager.Register(context.Background(), QuerySession{

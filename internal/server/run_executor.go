@@ -704,6 +704,7 @@ func handleAwaitingLifecycle(params RunExecutorParams, data stream.EventData, tr
 				TaskID:           taskID,
 				Mode:             mode,
 				ItemCount:        awaitingEventItemCount(data),
+				Questions:        awaitingEventQuestions(data),
 				Timeout:          int64(contracts.AnyIntNode(data.Value("timeout"))),
 			})
 		}
@@ -781,6 +782,24 @@ func awaitingEventItemCount(data stream.EventData) int {
 		return 0
 	default:
 		return 0
+	}
+}
+
+func awaitingEventQuestions(data stream.EventData) []any {
+	if !strings.EqualFold(strings.TrimSpace(data.String("mode")), "question") {
+		return nil
+	}
+	switch questions := data.Value("questions").(type) {
+	case []any:
+		return append([]any(nil), questions...)
+	case []map[string]any:
+		result := make([]any, 0, len(questions))
+		for _, question := range questions {
+			result = append(result, question)
+		}
+		return result
+	default:
+		return nil
 	}
 }
 

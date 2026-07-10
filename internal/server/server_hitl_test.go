@@ -734,6 +734,153 @@ questionSubmit:
 	}
 }
 
+func TestQuestionSubmitRejectsMultiSelectAnswerAndAllowsRetry(t *testing.T) {
+	var providerCallCount atomic.Int32
+	secondTurnStarted := make(chan struct{}, 1)
+	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		switch providerCallCount.Add(1) {
+		case 1:
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_lifestyle_question","type":"function","function":{"name":"ask_user_question","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"你有哪些生活习惯？\",\"type\":\"multi-select\",\"options\":[{\"label\":\"A\",\"description\":\"早睡早起\"},{\"label\":\"B\",\"description\":\"规律运动\"}],\"allowFreeText\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`[DONE]`,
+			)
+		case 2:
+			secondTurnStarted <- struct{}{}
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"content":"生活习惯已记录"},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+		default:
+			t.Fatalf("unexpected provider call %d", providerCallCount.Load())
+		}
+	})
+
+	httpServer := newLoopbackServer(t, fixture.server)
+	defer httpServer.Close()
+
+	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"问我一个关于生活习惯方面的问题，类型为多选"}`))
+	if err != nil {
+		t.Fatalf("post query: %v", err)
+	}
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+	var streamBody strings.Builder
+	var awaitQuestion map[string]any
+	for {
+		line, readErr := reader.ReadString('\n')
+		streamBody.WriteString(line)
+		if strings.HasPrefix(line, "data: {") {
+			payload := decodeSSELine(t, line)
+			if payload["type"] == "awaiting.ask" {
+				awaitQuestion = payload
+				break
+			}
+		}
+		if readErr != nil {
+			t.Fatalf("read query stream before submit: %v", readErr)
+		}
+	}
+
+	if awaitQuestion == nil {
+		t.Fatalf("expected question awaiting.ask, got %s", streamBody.String())
+	}
+	runID, _ := awaitQuestion["runId"].(string)
+	awaitingID, _ := awaitQuestion["awaitingId"].(string)
+	agentKey, _ := awaitQuestion["agentKey"].(string)
+	questions, _ := awaitQuestion["questions"].([]any)
+	if runID == "" || awaitingID == "" || agentKey == "" || len(questions) != 1 {
+		t.Fatalf("unexpected awaiting question %#v", awaitQuestion)
+	}
+	question, _ := questions[0].(map[string]any)
+	questionID, _ := question["id"].(string)
+	if questionID == "" || question["type"] != "multi-select" {
+		t.Fatalf("expected multi-select question with id, got %#v", question)
+	}
+
+	invalidParams, err := api.EncodeSubmitParams([]map[string]any{{"id": questionID, "answer": "A"}})
+	if err != nil {
+		t.Fatalf("encode invalid submit params: %v", err)
+	}
+	invalidBody, err := json.Marshal(api.SubmitRequest{
+		AgentKey:   agentKey,
+		RunID:      runID,
+		AwaitingID: awaitingID,
+		Params:     invalidParams,
+	})
+	if err != nil {
+		t.Fatalf("marshal invalid submit request: %v", err)
+	}
+	invalidRec := httptest.NewRecorder()
+	invalidReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewReader(invalidBody))
+	invalidReq.Header.Set("Content-Type", "application/json")
+	fixture.server.ServeHTTP(invalidRec, invalidReq)
+	if invalidRec.Code != http.StatusOK {
+		t.Fatalf("invalid submit expected 200, got %d: %s", invalidRec.Code, invalidRec.Body.String())
+	}
+	var invalidResponse api.ApiResponse[api.SubmitResponse]
+	if err := json.Unmarshal(invalidRec.Body.Bytes(), &invalidResponse); err != nil {
+		t.Fatalf("decode invalid submit response: %v", err)
+	}
+	if invalidResponse.Code != 0 || invalidResponse.Data.Accepted || invalidResponse.Data.Status != "invalid" || !strings.Contains(invalidResponse.Data.Detail, "answers is required") {
+		t.Fatalf("expected rejected multi-select submit, got %#v", invalidResponse)
+	}
+	if providerCallCount.Load() != 1 {
+		t.Fatalf("invalid submit must not continue the model, got %d provider calls", providerCallCount.Load())
+	}
+	if _, ok := fixture.runs.LookupAwaiting(runID, awaitingID); !ok {
+		t.Fatal("invalid submit must leave the awaiting item active")
+	}
+
+	validParams, err := api.EncodeSubmitParams([]map[string]any{{"id": questionID, "answers": []string{"A"}}})
+	if err != nil {
+		t.Fatalf("encode valid submit params: %v", err)
+	}
+	validBody, err := json.Marshal(api.SubmitRequest{
+		AgentKey:   agentKey,
+		RunID:      runID,
+		AwaitingID: awaitingID,
+		Params:     validParams,
+	})
+	if err != nil {
+		t.Fatalf("marshal valid submit request: %v", err)
+	}
+	validRec := httptest.NewRecorder()
+	validReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewReader(validBody))
+	validReq.Header.Set("Content-Type", "application/json")
+	fixture.server.ServeHTTP(validRec, validReq)
+	if validRec.Code != http.StatusOK {
+		t.Fatalf("valid submit expected 200, got %d: %s", validRec.Code, validRec.Body.String())
+	}
+	var validResponse api.ApiResponse[api.SubmitResponse]
+	if err := json.Unmarshal(validRec.Body.Bytes(), &validResponse); err != nil {
+		t.Fatalf("decode valid submit response: %v", err)
+	}
+	if !validResponse.Data.Accepted || validResponse.Data.Status != "accepted" {
+		t.Fatalf("expected accepted multi-select submit, got %#v", validResponse.Data)
+	}
+
+	for {
+		line, readErr := reader.ReadString('\n')
+		streamBody.WriteString(line)
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			t.Fatalf("read query stream after submit: %v", readErr)
+		}
+	}
+	select {
+	case <-secondTurnStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("valid submit did not continue the model")
+	}
+	body := streamBody.String()
+	if strings.Count(body, `"type":"request.submit"`) != 1 || strings.Count(body, `"type":"awaiting.answer"`) != 1 {
+		t.Fatalf("invalid submit must not produce submit events, got %s", body)
+	}
+}
+
 func TestQuestionChunkedArgsEmitAwaitAfterToolEnd(t *testing.T) {
 	var providerCallCount atomic.Int32
 	secondTurnMessages := make(chan []map[string]any, 1)

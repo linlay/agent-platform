@@ -199,7 +199,7 @@ func chatDirHasAttachments(dir string) (bool, error) {
 	}
 	for _, entry := range entries {
 		name := strings.TrimSpace(entry.Name())
-		if name == ToolRootDirName {
+		if name == ToolRootDirName || name == BTWRootDirName {
 			continue
 		}
 		return true, nil

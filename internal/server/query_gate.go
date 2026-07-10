@@ -162,7 +162,11 @@ func (s *Server) registerQueryRun(ctx context.Context, prepared preparedQuery) (
 		return registeredQueryRun{RunCtx: registration.Context, Control: registration.Control, Managed: true}, nil
 	}
 
-	activeRun, ok, activeErr := s.deps.Runs.ActiveRunForChat(prepared.req.ChatID)
+	runScopeID := strings.TrimSpace(prepared.session.RunScopeID)
+	if runScopeID == "" {
+		runScopeID = prepared.req.ChatID
+	}
+	activeRun, ok, activeErr := s.deps.Runs.ActiveRunForChat(runScopeID)
 	var conflictErr *contracts.ActiveRunConflictError
 	if errors.As(activeErr, &conflictErr) {
 		return registeredQueryRun{}, &statusError{

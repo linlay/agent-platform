@@ -441,7 +441,7 @@ func (s *ArchiveStore) ResolveResource(chatID, file string) (string, error) {
 	if clean == "." || filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
 		return "", os.ErrPermission
 	}
-	if IsToolInternalPath(clean) {
+	if IsToolInternalPath(clean) || IsBTWInternalPath(clean) {
 		return "", os.ErrPermission
 	}
 	path := filepath.Join(s.ChatDir(chatID), clean)

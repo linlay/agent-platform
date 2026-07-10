@@ -14,7 +14,15 @@ var ErrRunNotFound = errors.New("run not found")
 var ErrRunIncomplete = errors.New("run is not complete")
 var ErrChatPendingAwaiting = errors.New("chat has pending awaiting")
 
+type StepLineStore interface {
+	AppendQueryLine(chatID string, line QueryLine) error
+	AppendStepLine(chatID string, line StepLine) error
+	AppendEventLine(chatID string, line EventLine) error
+	AppendSubmitLine(chatID string, line SubmitLine) error
+}
+
 type Store interface {
+	StepLineStore
 	EnsureChat(chatID string, agentKey string, teamID string, firstMessage string) (Summary, bool, error)
 	EnsureChatWithSource(chatID string, agentKey string, teamID string, firstMessage string, source string) (Summary, bool, error)
 	DeriveChat(request DeriveChatRequest) (DeriveChatResult, error)
@@ -31,10 +39,6 @@ type Store interface {
 	SetPendingAwaiting(chatID string, pending PendingAwaiting) error
 	ClearPendingAwaiting(chatID string, awaitingID string) error
 	AppendEvent(chatID string, event stream.EventData) error
-	AppendQueryLine(chatID string, line QueryLine) error
-	AppendStepLine(chatID string, line StepLine) error
-	AppendEventLine(chatID string, line EventLine) error
-	AppendSubmitLine(chatID string, line SubmitLine) error
 	LoadSystemInit(chatID string, cacheKey string) (*SystemInitLine, error)
 	LoadAllSystemInits(chatID string) (map[string]*SystemInitLine, error)
 	LoadRawMessages(chatID string, k int) ([]map[string]any, error)

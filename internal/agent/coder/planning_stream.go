@@ -66,13 +66,14 @@ func NewPlanningStream(runtime Runtime, ctx context.Context, req api.QueryReques
 	runtimeSettings := runtime.Settings()
 	settings := resolvePlanExecuteRuntimeSettings(session, runtimeSettings.DefaultPlanMaxSteps, runtimeSettings.DefaultPlanMaxWorkRoundsPerTask)
 	execCtx := &contracts.ExecutionContext{
-		Request:          req,
-		Session:          session,
-		RunControl:       contracts.RunControlFromContext(ctx),
-		Budget:           contracts.NormalizeBudget(session.ResolvedBudget),
-		StageSettings:    settings,
-		RunLoopState:     contracts.RunLoopStateIdle,
-		PlanningRevision: 1,
+		Request:             req,
+		Session:             session,
+		RunControl:          contracts.RunControlFromContext(ctx),
+		Budget:              contracts.NormalizeBudget(session.ResolvedBudget),
+		StageSettings:       settings,
+		RunLoopState:        contracts.RunLoopStateIdle,
+		PlanningRevision:    1,
+		ToolExecutionPolicy: session.ToolExecutionPolicy,
 	}
 	return &coderPlanningStream{
 		runtime:  runtime,
@@ -888,7 +889,7 @@ func (s *coderPlanningStream) emitTaskFailure(task *contracts.PlanTask, message 
 }
 
 func (s *coderPlanningStream) persistPlanTasksSnapshot() {
-	if s == nil || s.execCtx == nil {
+	if s == nil || s.execCtx == nil || contracts.IsReadOnlyToolExecutionPolicy(s.execCtx.ToolExecutionPolicy) {
 		return
 	}
 	if path, err := plantasks.PersistExecutionContext("", s.execCtx); err != nil {
@@ -1057,6 +1058,7 @@ func awaitingContextFromDeltaAsk(awaitAsk contracts.DeltaAwaitAsk) contracts.Awa
 		AwaitingID: awaitAsk.AwaitingID,
 		Mode:       awaitAsk.Mode,
 		ItemCount:  awaitItemCount(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals, awaitAsk.Forms, awaitAsk.Plan),
+		Questions:  append([]any(nil), awaitAsk.Questions...),
 		Timeout:    awaitAsk.Timeout,
 	}
 }

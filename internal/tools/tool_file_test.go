@@ -1109,6 +1109,32 @@ func TestInvokeWriteAllowsChatScopedSnapshotAcrossRuns(t *testing.T) {
 	}
 }
 
+func TestInvokeReadDoesNotPersistChatLedgerInReadOnlyMode(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "owner.md"), []byte("old"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, false)
+	store, err := chat.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	executor.chats = store
+	executor.cfg.FileTools.ReadBeforeWriteScope = "chat"
+	execCtx := &contracts.ExecutionContext{
+		Session:             contracts.QuerySession{ChatID: "chat-btw-file-read", RunID: "run-btw"},
+		ToolExecutionPolicy: contracts.ToolExecutionPolicyReadOnly,
+	}
+	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, execCtx); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	ledgerPath := filepath.Join(store.ChatDir("chat-btw-file-read"), chat.ToolRootDirName, chat.ToolStateDirName, chat.FileVersionsFileName)
+	if _, err := os.Stat(ledgerPath); !os.IsNotExist(err) {
+		t.Fatalf("read-only read wrote chat ledger: %v", err)
+	}
+}
+
 func TestInvokeWriteDoesNotReuseChatSnapshotForDifferentChat(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "owner.md"), []byte("old"), 0o644); err != nil {

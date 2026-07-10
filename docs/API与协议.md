@@ -21,6 +21,7 @@
 ```text
 普通 JSON API -> ApiResponse envelope
 POST /api/query -> SSE message events -> data: [DONE]
+POST /api/btw -> hidden read-only branch -> same SSE message events
 GET /ws -> request / response / stream / push / error frames
 文件上传下载 -> HTTP 数据面
 ```
@@ -152,6 +153,7 @@ Automation 摘要和详情中的 `nextFireAt` 是下次触发时间的 epoch mil
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
 | POST | `/api/query` | body: `message`、`agentKey`、`teamId`、`chatId`、`runId`、`requestId`、`role`、`references`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`planningMode`、`accessLevel`、`model` | 默认 SSE stream；`stream:false` 时返回 JSON |
+| POST | `/api/btw` | body: `chatId`、`message`、可选 `btwId`、`runId`、`requestId`、`references`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`accessLevel`、`model` | 创建或继续隐藏只读分支；复用 query SSE，`stream:false` 返回带 `btwId` 的 JSON |
 | GET | `/api/attach` | query: `runId`、`agentKey`、`lastSeq` | 续接 run 的 SSE stream |
 | POST | `/api/submit` | body: `agentKey`、`runId`、`awaitingId`、`params` | HITL submit ack |
 | POST | `/api/steer` | body: `agentKey`、`runId`、`message`、`requestId`、`chatId`、`teamId`、`steerId` | steer ack |
@@ -159,6 +161,27 @@ Automation 摘要和详情中的 `nextFireAt` 是下次触发时间的 epoch mil
 | POST | `/api/access-level` | body: `agentKey`、`runId`、`accessLevel`、`requestId`、`reason` | 动态更新 native run 的 accessLevel |
 
 `/api/query` 的 `stream` 是 JSON body 字段；省略或传 `true` 时返回 SSE，结束帧为 `data: [DONE]`。传 `false` 时服务端仍执行完整 run、持久化 chat，并在结束后返回普通 JSON。默认只返回最终回答：
+
+`/api/btw` 用于“顺便问”：`chatId` 必须指向已有 active chat；不传 `btwId` 时从当前主 JSONL 创建隐藏快照并在响应头 `X-Btw-Id` 与首个 `request.query.btwId` 返回分支 ID，传 `btwId` 时继续该分支。BTW 固定继承父 chat 的 agent/team，固定 `role:user` 且关闭 planning mode。主 chat 的 active run、pending awaiting、摘要、未读、搜索、自动 learn 和 JSONL 都不会被 BTW 更新。
+
+BTW 与普通 query 使用同一 Agent/ReAct、模型协议、SSE assembler、attach/interrupt 和 StepWriter；`request.query` 额外包含 `kind:"btw"`、`btwId`、`parentChatId`、`hidden:true`，不新增 event type，也不发送 `chat.start` / `chat.updated`。同一个 `btwId` 只允许一个 active run，父 chat 与不同 BTW 分支可以并行。
+
+BTW 发给 provider 的 system、tools、tool choice 和 cache key 与普通 chat 保持一致；只读说明放在本次 user message。平台内置查询工具可执行，写文件、Bash、memory mutation、plan mutation、agent invoke、artifact/image、desktop、frontend/action 等工具返回 `btw_tool_disabled` 且不会进入 HITL。MCP / agent-local / external 工具只有 `meta.readOnly:true` 时可执行；MCP `annotations.readOnlyHint:true` 会映射为该字段。proxy/channel/ACP coder 因工具执行不经过本地门禁，返回 `btw_backend_unsupported`。
+
+`stream:false` 的 BTW 响应为：
+
+```json
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "btwId": "btw_xxx",
+    "parentChatId": "chat_xxx",
+    "runId": "run_xxx",
+    "content": "最终回答"
+  }
+}
+```
 
 `references` 中的文件引用使用 `path` 表示当前目标智能体可直接访问的执行路径。服务端会按 agent 运行位置生成或归一化该字段：本地运行时为宿主机绝对路径，容器运行时为 `/workspace/...`。`url` 只用于平台资源下载、ticket 与 gateway 数据面，不进入模型 prompt。
 

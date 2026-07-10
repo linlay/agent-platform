@@ -14,7 +14,19 @@ func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts
 	if session == nil || s.deps.Chats == nil || s.deps.Tools == nil {
 		return nil, nil
 	}
-	if s.deps.SystemInits == nil {
+	systemInits := map[string]*chat.SystemInitLine{}
+	if !created {
+		var err error
+		systemInits, err = s.deps.Chats.LoadAllSystemInits(req.ChatID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return s.prepareSystemInitCacheFrom(req, session, systemInits)
+}
+
+func (s *Server) prepareSystemInitCacheFrom(req api.QueryRequest, session *contracts.QuerySession, systemInits map[string]*chat.SystemInitLine) ([]chat.QueryLineSystemInit, error) {
+	if session == nil || s.deps.Tools == nil || s.deps.SystemInits == nil {
 		return nil, nil
 	}
 	toolDefs := s.deps.Tools.Definitions()
@@ -30,14 +42,8 @@ func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts
 		return nil, nil
 	}
 	profiles = systemInitProfilesForQueryRegistration(*session, profiles)
-
-	systemInits := map[string]*chat.SystemInitLine{}
-	if !created {
-		var err error
-		systemInits, err = s.deps.Chats.LoadAllSystemInits(req.ChatID)
-		if err != nil {
-			return nil, err
-		}
+	if systemInits == nil {
+		systemInits = map[string]*chat.SystemInitLine{}
 	}
 	cache := make(map[string]contracts.SystemInitSnapshot, len(profiles))
 	pendingSystems := make([]chat.QueryLineSystemInit, 0, len(profiles))

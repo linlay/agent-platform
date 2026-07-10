@@ -60,6 +60,32 @@ func TestFinalizePlanningArgumentsStreamPlanningDeltas(t *testing.T) {
 	}
 }
 
+func TestFinalizePlanningDoesNotWriteDraftInReadOnlyMode(t *testing.T) {
+	chatsDir := t.TempDir()
+	stream := &llmRunStream{
+		execCtx: &contracts.ExecutionContext{ToolExecutionPolicy: contracts.ToolExecutionPolicyReadOnly},
+		session: contracts.QuerySession{
+			ChatID: "chat_btw",
+			RunID:  "run_btw",
+			RuntimeContext: contracts.RuntimeRequestContext{
+				LocalPaths: contracts.LocalPaths{ChatsDir: chatsDir},
+			},
+		},
+	}
+	stream.appendToolCallDeltas([]contracts.AgentDelta{contracts.DeltaToolCall{
+		ID:        "tool_plan",
+		Name:      contracts.FinalizePlanningToolName,
+		ArgsDelta: `{"markdown":"# Must Not Be Written"}`,
+	}})
+	if len(stream.pending) != 1 {
+		t.Fatalf("expected only original tool delta, got %#v", stream.pending)
+	}
+	planningFile := planutil.PlanningFileForChat(chatsDir, "chat_btw", "run_btw_planning_1")
+	if _, err := os.Stat(planningFile); !os.IsNotExist(err) {
+		t.Fatalf("read-only mode wrote planning draft: %v", err)
+	}
+}
+
 func TestFinalizePlanningStreamsPartialStringsAndDraftFile(t *testing.T) {
 	chatsDir := t.TempDir()
 	stream := &llmRunStream{

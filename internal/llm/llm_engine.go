@@ -94,17 +94,19 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	execCtx := options.ExecCtx
 	if execCtx == nil {
 		execCtx = &ExecutionContext{
-			Request:       req,
-			Session:       session,
-			Budget:        session.ResolvedBudget,
-			StageSettings: session.ResolvedStageSettings,
-			AccessLevel:   session.AccessLevel,
-			RunLoopState:  RunLoopStateIdle,
+			Request:             req,
+			Session:             session,
+			Budget:              session.ResolvedBudget,
+			StageSettings:       session.ResolvedStageSettings,
+			AccessLevel:         session.AccessLevel,
+			ToolExecutionPolicy: session.ToolExecutionPolicy,
+			RunLoopState:        RunLoopStateIdle,
 		}
 	}
 	execCtx.Request = req
 	execCtx.Session = session
 	execCtx.AccessLevel = session.AccessLevel
+	execCtx.ToolExecutionPolicy = session.ToolExecutionPolicy
 	if len(execCtx.RuntimeEnvOverrides) == 0 {
 		execCtx.RuntimeEnvOverrides = CloneStringMap(session.RuntimeEnvOverrides)
 	}

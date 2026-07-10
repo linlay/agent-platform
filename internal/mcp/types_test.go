@@ -29,3 +29,14 @@ func TestToolDefinitionToAPIToolUsesViewportTypeMeta(t *testing.T) {
 		t.Fatalf("did not expect toolType meta, got %#v", apiTool.Meta)
 	}
 }
+
+func TestToolDefinitionMapsReadOnlyAnnotationToMeta(t *testing.T) {
+	var tool ToolDefinition
+	if err := json.Unmarshal([]byte(`{"name":"lookup","annotations":{"readOnlyHint":true}}`), &tool); err != nil {
+		t.Fatalf("unmarshal tool definition: %v", err)
+	}
+	apiTool := tool.ToAPITool("demo")
+	if apiTool.Meta["readOnly"] != true {
+		t.Fatalf("expected readOnly metadata, got %#v", apiTool.Meta)
+	}
+}

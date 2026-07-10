@@ -1673,6 +1673,36 @@ func TestPrepareToolCall_InvokeAgentsReturnsBatchPrelude(t *testing.T) {
 	}
 }
 
+func TestPrepareToolCallReadOnlyPolicyBlocksBeforeInvocationPreparation(t *testing.T) {
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{{
+		Name: "file_write",
+		Meta: map[string]any{"kind": "backend"},
+	}}}
+	stream := &llmRunStream{
+		engine:  &LLMAgentEngine{tools: executor, frontend: frontendtools.NewDefaultRegistry()},
+		session: contracts.QuerySession{RunID: "run_btw"},
+		execCtx: &contracts.ExecutionContext{ToolExecutionPolicy: contracts.ToolExecutionPolicyReadOnly},
+	}
+	invocation, deltas, toolMsg := stream.prepareToolCall(openAIToolCall{
+		ID:   "tool_write",
+		Type: "function",
+		Function: openAIFunctionCall{
+			Name:      "file_write",
+			Arguments: `{"file_path":"x.txt","content":"x"}`,
+		},
+	})
+	if invocation != nil || toolMsg == nil || len(deltas) != 1 {
+		t.Fatalf("expected immediate disabled result, invocation=%#v deltas=%#v message=%#v", invocation, deltas, toolMsg)
+	}
+	result, ok := deltas[0].(contracts.DeltaToolResult)
+	if !ok || result.Result.Error != "btw_tool_disabled" {
+		t.Fatalf("unexpected disabled delta %#v", deltas[0])
+	}
+	if len(executor.invocations) != 0 {
+		t.Fatalf("disabled tool reached executor: %#v", executor.invocations)
+	}
+}
+
 func TestPrepareToolCall_InvokeAgentsAcceptsMaxTasks(t *testing.T) {
 	stream := &llmRunStream{
 		engine: &LLMAgentEngine{

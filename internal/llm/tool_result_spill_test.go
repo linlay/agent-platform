@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -98,6 +99,28 @@ func TestMaybeSpillToolResultWritesFullResultAndReturnsPreview(t *testing.T) {
 	}
 	if decoded["content"] != content {
 		t.Fatalf("spilled content mismatch")
+	}
+}
+
+func TestMaybeSpillToolResultStaysInlineInReadOnlyMode(t *testing.T) {
+	chatDir := t.TempDir()
+	stream := &llmRunStream{
+		execCtx: &contracts.ExecutionContext{ToolExecutionPolicy: contracts.ToolExecutionPolicyReadOnly},
+		session: contracts.QuerySession{
+			ChatID: "chat-btw-large",
+			RuntimeContext: contracts.RuntimeRequestContext{
+				LocalPaths: contracts.LocalPaths{ChatAttachmentsDir: chatDir},
+			},
+		},
+	}
+	content := strings.Repeat("x", toolResultSpillThresholdBytes+1024)
+	result := contracts.ToolExecutionResult{Output: content, Structured: map[string]any{"content": content}}
+	got := stream.maybeSpillToolResult(&preparedToolInvocation{toolID: "call_large", toolName: "file_read"}, result)
+	if !reflect.DeepEqual(got.Structured, result.Structured) {
+		t.Fatalf("expected full inline result, got %#v", got.Structured)
+	}
+	if _, err := os.Stat(filepath.Join(chatDir, chat.ToolRootDirName)); !os.IsNotExist(err) {
+		t.Fatalf("read-only mode wrote tool result spill: %v", err)
 	}
 }
 

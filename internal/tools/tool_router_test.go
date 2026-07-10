@@ -18,6 +18,43 @@ func (s stubBackendToolExecutor) Definitions() []api.ToolDetailResponse {
 	return append([]api.ToolDetailResponse(nil), s.defs...)
 }
 
+type recordingPolicyBackend struct {
+	defs  []api.ToolDetailResponse
+	calls []string
+}
+
+func (b *recordingPolicyBackend) Definitions() []api.ToolDetailResponse {
+	return append([]api.ToolDetailResponse(nil), b.defs...)
+}
+
+func (b *recordingPolicyBackend) Invoke(_ context.Context, name string, _ map[string]any, _ *ExecutionContext) (ToolExecutionResult, error) {
+	b.calls = append(b.calls, name)
+	return ToolExecutionResult{Output: "ok", ExitCode: 0}, nil
+}
+
+func TestToolRouterEnforcesReadOnlyExecutionPolicy(t *testing.T) {
+	backend := &recordingPolicyBackend{defs: []api.ToolDetailResponse{
+		{Name: "file_read", Meta: map[string]any{"kind": "backend", "sourceCategory": "platform"}},
+		{Name: "file_write", Meta: map[string]any{"kind": "backend", "sourceCategory": "platform"}},
+	}}
+	router := NewToolRouter(backend, nil, nil, nil, nil)
+	execCtx := &ExecutionContext{ToolExecutionPolicy: ToolExecutionPolicyReadOnly}
+	denied, err := router.Invoke(context.Background(), "file_write", map[string]any{}, execCtx)
+	if err != nil {
+		t.Fatalf("invoke denied tool: %v", err)
+	}
+	if denied.Error != "btw_tool_disabled" || len(backend.calls) != 0 {
+		t.Fatalf("write tool reached backend: result=%#v calls=%#v", denied, backend.calls)
+	}
+	allowed, err := router.Invoke(context.Background(), "file_read", map[string]any{}, execCtx)
+	if err != nil || allowed.Error != "" {
+		t.Fatalf("invoke read tool: result=%#v err=%v", allowed, err)
+	}
+	if len(backend.calls) != 1 || backend.calls[0] != "file_read" {
+		t.Fatalf("expected only read invocation, got %#v", backend.calls)
+	}
+}
+
 func (s stubBackendToolExecutor) Invoke(context.Context, string, map[string]any, *ExecutionContext) (ToolExecutionResult, error) {
 	return ToolExecutionResult{}, nil
 }
@@ -146,6 +183,7 @@ func TestToolRouterReloadRuntimeExternalToolDefinitions(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "qs_read.yml"), []byte(`
 name: qs_read
 description: Read Qiuer method.
+readOnly: true
 external:
   transport: stdio-jsonrpc
   serviceKey: qiuerscript
@@ -167,7 +205,7 @@ inputSchema:
 	if !ok {
 		t.Fatal("expected runtime external tool after reload")
 	}
-	if tool.Meta["kind"] != "external" || tool.Meta["serviceKey"] != "qiuerscript" {
+	if tool.Meta["kind"] != "external" || tool.Meta["serviceKey"] != "qiuerscript" || tool.Meta["readOnly"] != true {
 		t.Fatalf("unexpected runtime tool metadata %#v", tool.Meta)
 	}
 	if tool.Meta["sourceCategory"] != "external" {

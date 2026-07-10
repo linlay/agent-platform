@@ -168,6 +168,31 @@ type QueryResponse struct {
 	Usage    *ChatUsageData `json:"usage,omitempty"`
 }
 
+type BTWRequest struct {
+	RequestID       string             `json:"requestId,omitempty"`
+	RunID           string             `json:"runId,omitempty"`
+	ChatID          string             `json:"chatId"`
+	BTWID           string             `json:"btwId,omitempty"`
+	Message         string             `json:"message"`
+	References      []Reference        `json:"references,omitempty"`
+	Params          map[string]any     `json:"params,omitempty"`
+	Scene           *Scene             `json:"scene,omitempty"`
+	Stream          *bool              `json:"stream,omitempty"`
+	IncludeUsage    bool               `json:"includeUsage,omitempty"`
+	IncludeFullText bool               `json:"includeFullText,omitempty"`
+	AccessLevel     string             `json:"accessLevel,omitempty"`
+	Model           *QueryModelOptions `json:"model,omitempty"`
+}
+
+type BTWResponse struct {
+	BTWID        string         `json:"btwId"`
+	ParentChatID string         `json:"parentChatId"`
+	RunID        string         `json:"runId"`
+	Content      string         `json:"content"`
+	FullText     *string        `json:"fullText,omitempty"`
+	Usage        *ChatUsageData `json:"usage,omitempty"`
+}
+
 type QueryModelOptions struct {
 	Key             string `json:"key,omitempty"`
 	ModelID         string `json:"modelId,omitempty"`

@@ -36,6 +36,7 @@ func (t *RuntimeToolExecutor) chatReadBeforeWriteEnabled(execCtx *ExecutionConte
 		t.chats != nil &&
 		strings.EqualFold(strings.TrimSpace(t.cfg.FileTools.ReadBeforeWriteScope), "chat") &&
 		execCtx != nil &&
+		!IsReadOnlyToolExecutionPolicy(execCtx.ToolExecutionPolicy) &&
 		strings.TrimSpace(execCtx.Session.ChatID) != ""
 }
 

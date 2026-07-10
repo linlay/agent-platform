@@ -9,6 +9,7 @@ import (
 	"agent-platform/internal/api"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/observability"
+	"agent-platform/internal/toolpolicy"
 )
 
 type toolCatalog interface {
@@ -120,6 +121,9 @@ func (r *ToolRouter) ReadFileHistory(chatID string, runID string, filePath strin
 
 func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	def, ok := r.lookup(toolName)
+	if execCtx != nil && IsReadOnlyToolExecutionPolicy(execCtx.ToolExecutionPolicy) && !toolpolicy.AllowsReadOnly(def, ok) {
+		return toolpolicy.DisabledResult(toolName), nil
+	}
 	if !ok {
 		return r.invokeWithPolicy(ctx, toolName, execCtx, func(callCtx context.Context) (ToolExecutionResult, error) {
 			return r.backend.Invoke(callCtx, toolName, args, execCtx)

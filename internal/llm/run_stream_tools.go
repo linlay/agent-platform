@@ -16,6 +16,7 @@ import (
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/hitl"
 	"agent-platform/internal/stream"
+	"agent-platform/internal/toolpolicy"
 )
 
 func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolInvocation, []AgentDelta, *openAIMessage) {
@@ -44,6 +45,12 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 		return nil, deltas, message
 	}
 	args, _ = expandedArgs.(map[string]any)
+
+	if s.readOnlyToolDenied(toolCall.Function.Name) {
+		result := toolpolicy.DisabledResult(toolCall.Function.Name)
+		deltas, message := preparedToolResultMessage(toolID, toolCall.Function.Name, result, result.Output)
+		return nil, deltas, message
+	}
 
 	if validationErr := s.validateFrontendToolArgs(toolCall.Function.Name, args); validationErr != nil {
 		deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, "invalid tool arguments: "+validationErr.Error(), "invalid_tool_arguments")
@@ -1338,4 +1345,12 @@ func (s *llmRunStream) lookupToolDefinition(toolName string) (api.ToolDetailResp
 		}
 	}
 	return api.ToolDetailResponse{}, false
+}
+
+func (s *llmRunStream) readOnlyToolDenied(toolName string) bool {
+	if s == nil || s.execCtx == nil || !IsReadOnlyToolExecutionPolicy(s.execCtx.ToolExecutionPolicy) {
+		return false
+	}
+	def, found := s.lookupToolDefinition(toolName)
+	return !toolpolicy.AllowsReadOnly(def, found)
 }

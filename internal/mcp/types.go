@@ -60,6 +60,7 @@ func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
 		ViewportKey   string         `json:"viewportKey"`
 		Aliases       []string       `json:"aliases"`
 		Meta          map[string]any `json:"meta"`
+		Annotations   map[string]any `json:"annotations"`
 	}
 	var raw rawToolDefinition
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -68,6 +69,13 @@ func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
 	parameters := raw.InputSchema
 	if len(parameters) == 0 {
 		parameters = raw.Parameters
+	}
+	meta := contracts.CloneMap(raw.Meta)
+	if readOnlyHint, ok := raw.Annotations["readOnlyHint"].(bool); ok && readOnlyHint {
+		if meta == nil {
+			meta = map[string]any{}
+		}
+		meta["readOnly"] = true
 	}
 	*t = ToolDefinition{
 		Key:           raw.Key,
@@ -80,7 +88,7 @@ func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
 		ViewportType:  strings.TrimSpace(raw.ViewportType),
 		ViewportKey:   raw.ViewportKey,
 		Aliases:       append([]string(nil), raw.Aliases...),
-		Meta:          contracts.CloneMap(raw.Meta),
+		Meta:          meta,
 	}
 	return nil
 }

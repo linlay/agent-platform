@@ -527,6 +527,12 @@ func copyDerivedChatDir(sourceDir string, targetDir string) error {
 		if rel == "." {
 			return os.MkdirAll(targetBase, 0o755)
 		}
+		if filepath.ToSlash(rel) == BTWRootDirName {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		if filepath.ToSlash(rel) == filepath.ToSlash(filepath.Join(ToolRootDirName, ToolStateDirName)) {
 			if entry.IsDir() {
 				return filepath.SkipDir

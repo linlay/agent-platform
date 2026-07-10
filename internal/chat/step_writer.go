@@ -18,7 +18,7 @@ import (
 //   - request.submit + awaiting.answer are merged into SubmitLines
 //   - request.steer becomes a typed EventLine so chat detail can replay it
 type StepWriter struct {
-	store  Store
+	store  StepLineStore
 	chatID string
 	runID  string
 	mode   string // "REACT" / "PLAN_EXECUTE" / "ONESHOT" / "CODER"
@@ -66,7 +66,7 @@ type StepWriter struct {
 type StepWriterOption func(*StepWriter)
 
 // NewStepWriter creates a StepWriter for a single run.
-func NewStepWriter(store Store, chatID, runID, mode string, opts ...StepWriterOption) *StepWriter {
+func NewStepWriter(store StepLineStore, chatID, runID, mode string, opts ...StepWriterOption) *StepWriter {
 	w := &StepWriter{
 		store:         store,
 		chatID:        chatID,

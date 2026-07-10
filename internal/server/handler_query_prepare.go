@@ -32,6 +32,30 @@ type preparedQuery struct {
 	continueRun        bool
 	initialSeq         int64
 	syntheticBootstrap *stream.SyntheticQuery
+	execution          *queryExecutionOptions
+}
+
+type queryExecutionOptions struct {
+	StepLineStore   chat.StepLineStore
+	CompletionStore chat.Store
+	HiddenRun       bool
+	QueryMetadata   map[string]any
+	BTWID           string
+	ParentChatID    string
+}
+
+func (s *Server) resolvedQueryExecution(prepared preparedQuery) queryExecutionOptions {
+	if prepared.execution == nil {
+		return queryExecutionOptions{
+			StepLineStore:   s.deps.Chats,
+			CompletionStore: s.deps.Chats,
+		}
+	}
+	resolved := *prepared.execution
+	if resolved.StepLineStore == nil {
+		resolved.StepLineStore = s.deps.Chats
+	}
+	return resolved
 }
 
 type queryAdmission struct {
@@ -676,6 +700,7 @@ func sortedStringKeys(values map[string]string) []string {
 }
 
 func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEventAssembler, contracts.StreamDeltaMapper) {
+	execution := s.resolvedQueryExecution(prepared)
 	role, _ := normalizeQueryRole(prepared.req.Role)
 	sceneRef := (*stream.SceneRef)(nil)
 	if prepared.req.Scene != nil {
@@ -705,6 +730,7 @@ func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEv
 		InitialSeq:         prepared.initialSeq,
 		BootstrapSynthetic: prepared.syntheticBootstrap,
 		MemoryUsageSummary: memoryUsageEventPayload(prepared.memoryUsageSummary, prepared.req.ChatID, prepared.req.RunID, prepared.req.AgentKey),
+		QueryMetadata:      contracts.CloneMap(execution.QueryMetadata),
 	})
 	if s.deps.Tools != nil {
 		for _, toolDef := range s.deps.Tools.Definitions() {

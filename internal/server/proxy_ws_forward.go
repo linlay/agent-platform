@@ -947,6 +947,25 @@ func awaitingContextFromProxyEvent(event stream.EventData) contracts.AwaitingSub
 		AwaitingID: awaitingID,
 		Mode:       mode,
 		ItemCount:  proxyAwaitItemCount(mode, event.Payload["questions"], event.Payload["approvals"], event.Payload["forms"], event.Payload["plan"]),
+		Questions:  proxyAwaitQuestions(mode, event.Payload["questions"]),
+	}
+}
+
+func proxyAwaitQuestions(mode string, value any) []any {
+	if !strings.EqualFold(strings.TrimSpace(mode), "question") {
+		return nil
+	}
+	switch questions := value.(type) {
+	case []any:
+		return append([]any(nil), questions...)
+	case []map[string]any:
+		result := make([]any, 0, len(questions))
+		for _, question := range questions {
+			result = append(result, question)
+		}
+		return result
+	default:
+		return nil
 	}
 }
 

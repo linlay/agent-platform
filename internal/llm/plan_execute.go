@@ -65,12 +65,13 @@ type planPipelineStream struct {
 func newPlanPipelineStream(engine *LLMAgentEngine, ctx context.Context, req api.QueryRequest, session QuerySession) (AgentStream, error) {
 	settings := resolvePlanExecuteRuntimeSettings(session, engine.cfg.Defaults.Plan.MaxSteps, engine.cfg.Defaults.Plan.MaxWorkRoundsPerTask)
 	execCtx := &ExecutionContext{
-		Request:       req,
-		Session:       session,
-		RunControl:    RunControlFromContext(ctx),
-		Budget:        NormalizeBudget(session.ResolvedBudget),
-		StageSettings: settings,
-		RunLoopState:  RunLoopStateIdle,
+		Request:             req,
+		Session:             session,
+		RunControl:          RunControlFromContext(ctx),
+		Budget:              NormalizeBudget(session.ResolvedBudget),
+		StageSettings:       settings,
+		RunLoopState:        RunLoopStateIdle,
+		ToolExecutionPolicy: session.ToolExecutionPolicy,
 		PlanState: &PlanRuntimeState{
 			PlanID: session.RunID + "_plan",
 		},
@@ -306,7 +307,7 @@ func (s *planPipelineStream) emitTaskFailure(task *PlanTask, message string) {
 }
 
 func (s *planPipelineStream) persistPlanTasksSnapshot() {
-	if s == nil || s.execCtx == nil {
+	if s == nil || s.execCtx == nil || IsReadOnlyToolExecutionPolicy(s.execCtx.ToolExecutionPolicy) {
 		return
 	}
 	if path, err := plantasks.PersistExecutionContext("", s.execCtx); err != nil {

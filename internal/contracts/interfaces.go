@@ -17,6 +17,15 @@ const (
 )
 
 const (
+	ToolExecutionPolicyDefault  = "default"
+	ToolExecutionPolicyReadOnly = "read_only"
+)
+
+func IsReadOnlyToolExecutionPolicy(value string) bool {
+	return strings.EqualFold(strings.TrimSpace(value), ToolExecutionPolicyReadOnly)
+}
+
+const (
 	FinalizePlanningToolName = "finalize_planning"
 )
 
@@ -188,6 +197,9 @@ type CatalogReloader interface {
 type QuerySession struct {
 	RequestID string
 	RunID     string
+	// RunScopeID isolates run admission without changing ChatID, which remains
+	// the resource and conversation identity exposed to tools and events.
+	RunScopeID string
 	// SubTaskID, when non-empty, isolates sandbox session for a sub-agent
 	// child task within the same run. Empty for main-agent sessions so they
 	// share the run-level sandbox.
@@ -249,6 +261,9 @@ type QuerySession struct {
 	SkillHookDirs          []string
 	// RuntimeEnvOverrides carries agent/skill-level env defaults for both sandbox and host bash execution.
 	RuntimeEnvOverrides map[string]string
+	// ToolExecutionPolicy constrains execution without changing the tool specs
+	// sent to the model.
+	ToolExecutionPolicy string
 }
 
 type SystemInitSnapshot struct {
@@ -303,6 +318,7 @@ type ExecutionContext struct {
 	// RuntimeEnvOverrides is reused by host bash as agent/skill-level env defaults.
 	RuntimeEnvOverrides map[string]string
 	AccessLevel         string
+	ToolExecutionPolicy string
 	// AccessPolicyApprovals stores one-shot approvals for exact host bash access-policy fingerprints.
 	AccessPolicyApprovals map[string]int
 	// AccessPolicyRuleApprovals stores run-scoped approvals for host bash access-policy rules.
@@ -358,8 +374,11 @@ type AwaitingSubmitContext struct {
 	TaskID           string
 	Mode             string
 	ItemCount        int
-	NoTimeout        bool
-	Timeout          int64
+	// Questions preserves the question definitions emitted with a question-mode
+	// awaiting event so submit validation can pair each response with its type.
+	Questions []any
+	NoTimeout bool
+	Timeout   int64
 }
 
 func (c AwaitingSubmitContext) Clone() AwaitingSubmitContext {
@@ -369,6 +388,7 @@ func (c AwaitingSubmitContext) Clone() AwaitingSubmitContext {
 		TaskID:           c.TaskID,
 		Mode:             c.Mode,
 		ItemCount:        c.ItemCount,
+		Questions:        append([]any(nil), c.Questions...),
 		NoTimeout:        c.NoTimeout,
 		Timeout:          c.Timeout,
 	}
@@ -385,6 +405,7 @@ type ActiveRun struct {
 	RunID    string
 	ChatID   string
 	AgentKey string
+	ScopeID  string
 }
 
 type RunStatusInfo struct {

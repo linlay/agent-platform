@@ -24,7 +24,11 @@ func (s *FileStore) LoadAllSystemInits(chatID string) (map[string]*SystemInitLin
 }
 
 func (s *FileStore) loadSystemInits(chatID string) (map[string]*SystemInitLine, *SystemInitLine, error) {
-	lines, err := readJSONLines(s.chatJSONLPath(chatID))
+	return loadSystemInitsFromPath(s.chatJSONLPath(chatID))
+}
+
+func loadSystemInitsFromPath(path string) (map[string]*SystemInitLine, *SystemInitLine, error) {
+	lines, err := readJSONLines(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return map[string]*SystemInitLine{}, nil, nil

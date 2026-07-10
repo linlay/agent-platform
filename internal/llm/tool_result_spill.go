@@ -18,6 +18,9 @@ const toolResultSpillThresholdBytes = 64 * 1024
 const toolResultPreviewBytes = 2000
 
 func (s *llmRunStream) maybeSpillToolResult(invocation *preparedToolInvocation, result ToolExecutionResult) ToolExecutionResult {
+	if s != nil && s.execCtx != nil && IsReadOnlyToolExecutionPolicy(s.execCtx.ToolExecutionPolicy) {
+		return result
+	}
 	if invocation == nil || !toolResultSpillEligible(invocation.toolName) {
 		return result
 	}
