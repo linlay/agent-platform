@@ -12,12 +12,12 @@ default-agent:
     tool:
       maxCalls: 200
 
-acp-proxies:
-  # ACP CODER bridge entries. Codex CLI/proxy settings stay in proxy-acp-codex.
+acp-bridges:
+  # ACP CODER bridge entries. Codex CLI settings stay in codex-acp-bridge.
   # codex:
   #   base-url: http://127.0.0.1:17071
-  #   timeout: 300
-  #   auth-token: ${CODEX_ACP_PROXY_TOKEN:}
+  #   timeout-ms: 300000
+  #   auth-token: ${CODEX_ACP_BRIDGE_AUTH_TOKEN:}
 
 workspace-agents:
   # When enabled, CODER sessions read the workspace rules file from

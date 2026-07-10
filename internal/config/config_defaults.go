@@ -50,7 +50,7 @@ func defaultConfig(options LoadOptions) Config {
 			DefaultProfile: "general",
 		},
 		CoderSettings: CoderSettingsConfig{
-			ACPProxies: map[string]CoderACPProxyConfig{},
+			ACPBridges: map[string]CoderACPBridgeConfig{},
 		},
 		KBase: KBaseConfig{
 			Refresh: KBaseRefreshConfig{

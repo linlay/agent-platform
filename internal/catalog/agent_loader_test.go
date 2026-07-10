@@ -713,7 +713,7 @@ func TestParseAgentFileSupportsCoderWorkspace(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileSupportsACPCoderProxyID(t *testing.T) {
+func TestParseAgentFileSupportsACPCoderBridgeID(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "project")
 	path := filepath.Join(root, "agent.yml")
@@ -721,7 +721,7 @@ func TestParseAgentFileSupportsACPCoderProxyID(t *testing.T) {
 		"key: coder\n" +
 		"mode: CODER\n" +
 		"runtimeConfig:\n" +
-		"  acpProxyId: codex\n" +
+		"  acpBridgeId: codex\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
 		"projectConfig:\n" +
 		"  git:\n" +
@@ -737,8 +737,8 @@ func TestParseAgentFileSupportsACPCoderProxyID(t *testing.T) {
 	if def.Mode != AgentModeCoder {
 		t.Fatalf("mode = %q, want CODER", def.Mode)
 	}
-	if def.ACPProxyID != "codex" {
-		t.Fatalf("acpProxyId = %q, want codex", def.ACPProxyID)
+	if def.ACPBridgeID != "codex" {
+		t.Fatalf("acpBridgeId = %q, want codex", def.ACPBridgeID)
 	}
 	if !AgentUsesACPCoderBackend(def) {
 		t.Fatalf("expected ACP CODER backend")
@@ -755,7 +755,7 @@ func TestParseAgentFileRejectsACPCoderPromptFiles(t *testing.T) {
 		"key: coder\n" +
 		"mode: CODER\n" +
 		"runtimeConfig:\n" +
-		"  acpProxyId: codex\n" +
+		"  acpBridgeId: codex\n" +
 		"projectConfig:\n" +
 		"  promptFiles:\n" +
 		"    - AGENTS.md\n"
@@ -776,7 +776,7 @@ func TestParseAgentFileRejectsACPCoderProxyConfig(t *testing.T) {
 		"key: coder\n" +
 		"mode: CODER\n" +
 		"runtimeConfig:\n" +
-		"  acpProxyId: codex\n" +
+		"  acpBridgeId: codex\n" +
 		"proxyConfig:\n" +
 		"  baseUrl: http://127.0.0.1:3211\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -789,7 +789,7 @@ func TestParseAgentFileRejectsACPCoderProxyConfig(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileUsesACPBackendFromProxyID(t *testing.T) {
+func TestParseAgentFileUsesACPBackendFromBridgeID(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "project")
 	path := filepath.Join(root, "agent.yml")
@@ -797,7 +797,7 @@ func TestParseAgentFileUsesACPBackendFromProxyID(t *testing.T) {
 		"key: coder\n" +
 		"mode: CODER\n" +
 		"runtimeConfig:\n" +
-		"  acpProxyId: codex\n" +
+		"  acpBridgeId: codex\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
@@ -807,11 +807,24 @@ func TestParseAgentFileUsesACPBackendFromProxyID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if def.ACPProxyID != "codex" {
-		t.Fatalf("acpProxyId = %q, want codex", def.ACPProxyID)
+	if def.ACPBridgeID != "codex" {
+		t.Fatalf("acpBridgeId = %q, want codex", def.ACPBridgeID)
 	}
 	if !AgentUsesACPCoderBackend(def) {
 		t.Fatalf("expected ACP CODER backend")
+	}
+}
+
+func TestParseAgentFileRejectsLegacyACPProxyID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent.yml")
+	content := "key: coder\nmode: CODER\nruntimeConfig:\n  acpProxyId: codex\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	_, err := parseAgentFile(path)
+	if err == nil || !strings.Contains(err.Error(), "runtimeConfig.acpProxyId was removed; use runtimeConfig.acpBridgeId") {
+		t.Fatalf("expected legacy ACP proxy id rejection, got %v", err)
 	}
 }
 

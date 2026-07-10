@@ -10,7 +10,6 @@ import (
 	"log"
 	"net/http"
 	"strings"
-	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
@@ -598,8 +597,7 @@ func (s *Server) runProxySSE(
 		return
 	}
 
-	timeout := time.Duration(proxy.Timeout) * time.Second
-	client := &http.Client{Timeout: timeout}
+	client := &http.Client{Timeout: proxyRequestTimeout(proxy)}
 	proxyReq, err := http.NewRequestWithContext(runCtx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
 		s.publishProxyError(eventBus, recorder, prepared.req, fmt.Errorf("failed to create proxy sse request: %w", err))

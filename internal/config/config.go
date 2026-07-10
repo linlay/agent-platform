@@ -126,7 +126,7 @@ type MemoryPromptsConfig struct {
 type CoderSettingsConfig struct {
 	WorkspaceAgents CoderWorkspaceAgentsConfig
 	DefaultAgent    CoderDefaultAgentConfig
-	ACPProxies      map[string]CoderACPProxyConfig
+	ACPBridges      map[string]CoderACPBridgeConfig
 }
 
 type CoderWorkspaceAgentsConfig struct {
@@ -140,10 +140,10 @@ type CoderDefaultAgentConfig struct {
 	Budget          map[string]any
 }
 
-type CoderACPProxyConfig struct {
+type CoderACPBridgeConfig struct {
 	BaseURL   string
 	AuthToken string
-	Timeout   int // seconds
+	TimeoutMS int
 }
 
 type KBaseConfig struct {

@@ -25,36 +25,37 @@ func (s *Server) applyProxyRoutingConfig(def *catalog.AgentDefinition) *statusEr
 	if !catalog.AgentUsesACPCoderBackend(*def) {
 		return nil
 	}
-	proxyID := strings.TrimSpace(def.ACPProxyID)
-	if proxyID == "" {
+	bridgeID := strings.TrimSpace(def.ACPBridgeID)
+	if bridgeID == "" {
 		return &statusError{
 			status:  http.StatusServiceUnavailable,
-			message: "runtimeConfig.acpProxyId is required for ACP CODER",
+			message: "runtimeConfig.acpBridgeId is required for ACP CODER",
 		}
 	}
-	proxy, ok := s.deps.Config.CoderSettings.ACPProxies[proxyID]
+	bridge, ok := s.deps.Config.CoderSettings.ACPBridges[bridgeID]
 	if !ok {
 		return &statusError{
 			status:  http.StatusServiceUnavailable,
-			message: "ACP proxy " + `"` + proxyID + `" is not configured in configs/coder-settings.yml acp-proxies`,
+			message: "ACP bridge " + `"` + bridgeID + `" is not configured in configs/coder-settings.yml acp-bridges`,
 		}
 	}
-	baseURL := strings.TrimSpace(proxy.BaseURL)
+	baseURL := strings.TrimSpace(bridge.BaseURL)
 	if baseURL == "" {
 		return &statusError{
 			status:  http.StatusServiceUnavailable,
-			message: "ACP proxy " + `"` + proxyID + `" is missing base-url in configs/coder-settings.yml acp-proxies`,
+			message: "ACP bridge " + `"` + bridgeID + `" is missing base-url in configs/coder-settings.yml acp-bridges`,
 		}
 	}
-	timeout := proxy.Timeout
-	if timeout <= 0 {
-		timeout = 300
+	timeoutMS := bridge.TimeoutMS
+	if timeoutMS <= 0 {
+		timeoutMS = 300000
 	}
 	def.ProxyConfig = &catalog.ProxyConfig{
 		BaseURL:   baseURL,
 		Transport: "ws",
-		Token:     strings.TrimSpace(proxy.AuthToken),
-		Timeout:   timeout,
+		Token:     strings.TrimSpace(bridge.AuthToken),
+		Timeout:   (timeoutMS + 999) / 1000,
+		TimeoutMS: timeoutMS,
 	}
 	return nil
 }

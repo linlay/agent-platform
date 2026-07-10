@@ -657,11 +657,14 @@ func (c *Config) applyCoderSettingsFile(path string) error {
 			c.CoderSettings.DefaultAgent.Budget = cloneConfigMap(budget)
 		}
 	}
-	acpProxies, err := parseCoderACPProxies(values["acp-proxies"], c.CoderSettings.ACPProxies)
+	if _, exists := values["acp-proxies"]; exists {
+		return fmt.Errorf("coder-settings config: acp-proxies was removed; use acp-bridges")
+	}
+	acpBridges, err := parseCoderACPBridges(values["acp-bridges"], c.CoderSettings.ACPBridges)
 	if err != nil {
 		return err
 	}
-	c.CoderSettings.ACPProxies = acpProxies
+	c.CoderSettings.ACPBridges = acpBridges
 	workspaceAgents, _ := values["workspace-agents"].(map[string]any)
 	if len(workspaceAgents) == 0 {
 		return nil
@@ -697,36 +700,49 @@ func cloneConfigValue(value any) any {
 	}
 }
 
-func parseCoderACPProxies(raw any, fallback map[string]CoderACPProxyConfig) (map[string]CoderACPProxyConfig, error) {
-	out := make(map[string]CoderACPProxyConfig, len(fallback))
+func parseCoderACPBridges(raw any, fallback map[string]CoderACPBridgeConfig) (map[string]CoderACPBridgeConfig, error) {
+	out := make(map[string]CoderACPBridgeConfig, len(fallback))
 	for key, value := range fallback {
 		out[strings.TrimSpace(key)] = value
 	}
-	values, _ := raw.(map[string]any)
+	if raw == nil {
+		return out, nil
+	}
+	values, ok := raw.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("coder-settings config: acp-bridges must be an object")
+	}
 	if len(values) == 0 {
 		return out, nil
 	}
 	for rawID, rawValue := range values {
 		id := strings.TrimSpace(rawID)
 		if id == "" {
-			return nil, fmt.Errorf("coder-settings config: acp-proxies id must not be empty")
+			return nil, fmt.Errorf("coder-settings config: acp-bridges id must not be empty")
 		}
-		proxyValues, ok := rawValue.(map[string]any)
+		bridgeValues, ok := rawValue.(map[string]any)
 		if !ok {
-			return nil, fmt.Errorf("coder-settings config: acp-proxies.%s must be an object", id)
+			return nil, fmt.Errorf("coder-settings config: acp-bridges.%s must be an object", id)
 		}
-		cfg := CoderACPProxyConfig{}
+		cfg := CoderACPBridgeConfig{TimeoutMS: 300000}
 		if existing, ok := out[id]; ok {
 			cfg = existing
 		}
-		cfg.BaseURL = stringValue(anyValue(proxyValues["base-url"], cfg.BaseURL), cfg.BaseURL)
-		cfg.AuthToken = stringValue(anyValue(proxyValues["auth-token"], cfg.AuthToken), cfg.AuthToken)
-		cfg.Timeout = intValue(anyValue(proxyValues["timeout"], cfg.Timeout), cfg.Timeout)
-		if cfg.Timeout <= 0 {
-			cfg.Timeout = 300
+		cfg.BaseURL = stringValue(anyValue(bridgeValues["base-url"], cfg.BaseURL), cfg.BaseURL)
+		cfg.AuthToken = stringValue(anyValue(bridgeValues["auth-token"], cfg.AuthToken), cfg.AuthToken)
+		if _, exists := bridgeValues["timeout"]; exists {
+			return nil, fmt.Errorf("coder-settings config: acp-bridges.%s.timeout was removed; use timeout-ms", id)
+		}
+		if rawTimeoutMS, exists := bridgeValues["timeout-ms"]; exists {
+			cfg.TimeoutMS = intValue(rawTimeoutMS, 0)
+			if cfg.TimeoutMS <= 0 {
+				return nil, fmt.Errorf("coder-settings config: acp-bridges.%s.timeout-ms must be a positive integer", id)
+			}
+		} else if cfg.TimeoutMS <= 0 {
+			cfg.TimeoutMS = 300000
 		}
 		if strings.TrimSpace(cfg.BaseURL) == "" {
-			return nil, fmt.Errorf("coder-settings config: acp-proxies.%s.base-url is required", id)
+			return nil, fmt.Errorf("coder-settings config: acp-bridges.%s.base-url is required", id)
 		}
 		out[id] = cfg
 	}

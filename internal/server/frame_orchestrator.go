@@ -398,11 +398,7 @@ func (o *frameOrchestrator) runProxyChildTask(result *childTaskResult, subReq ap
 		return result
 	}
 
-	timeout := time.Duration(proxy.Timeout) * time.Second
-	if timeout <= 0 {
-		timeout = 5 * time.Minute
-	}
-	client := &http.Client{Timeout: timeout}
+	client := &http.Client{Timeout: proxyRequestTimeout(proxy)}
 	req, err := http.NewRequestWithContext(o.runCtx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
 		result.Status = "failed"

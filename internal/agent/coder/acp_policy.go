@@ -56,11 +56,11 @@ func ModelConfigReasoningEffort(modelConfig map[string]any) string {
 	return strings.TrimSpace(contracts.AnyStringNode(reasoning["effort"]))
 }
 
-func ModelOptionsFilterMode(agentKey string, mode string, acpProxyID string) string {
+func ModelOptionsFilterMode(agentKey string, mode string, acpBridgeID string) string {
 	if strings.TrimSpace(agentKey) == "" {
 		return "native-only"
 	}
-	if IsACPBackend(mode, acpProxyID) {
+	if IsACPBackend(mode, acpBridgeID) {
 		return "acp-only"
 	}
 	if IsMode(mode) {

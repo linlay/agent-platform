@@ -236,6 +236,18 @@ func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (a
 
 func validateCreateAgentDefinition(definition map[string]any) error {
 	mode := catalog.NormalizeAgentModeForRuntime(stringValue(definition["mode"]))
+	runtimeConfig := contracts.AnyMapNode(definition["runtimeConfig"])
+	if _, exists := runtimeConfig["acpProxyId"]; exists {
+		return fmt.Errorf("runtimeConfig.acpProxyId was removed; use runtimeConfig.acpBridgeId")
+	}
+	if acpBridgeID := strings.TrimSpace(contracts.AnyStringNode(runtimeConfig["acpBridgeId"])); acpBridgeID != "" {
+		if mode != catalog.AgentModeCoder {
+			return fmt.Errorf("runtimeConfig.acpBridgeId is only supported for mode: CODER")
+		}
+		if len(contracts.AnyMapNode(definition["proxyConfig"])) > 0 {
+			return fmt.Errorf("proxyConfig is not supported for ACP CODER; configure configs/coder-settings.yml acp-bridges and runtimeConfig.acpBridgeId")
+		}
+	}
 	if mode != catalog.AgentModeKBase {
 		return nil
 	}
@@ -438,6 +450,9 @@ func (s *Server) updateAgent(ctx context.Context, req api.UpdateAgentRequest) (a
 	editor, err := s.agentEditor()
 	if err != nil {
 		return api.AgentDetailResponse{}, err
+	}
+	if err := validateCreateAgentDefinition(req.Definition); err != nil {
+		return api.AgentDetailResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_agent_definition", err.Error())
 	}
 	key := firstNonBlank(req.Key, req.AgentKey)
 	if _, err := editor.UpdateEditableAgent(key, req.Definition, req.SoulPrompt, req.AgentsPrompt); err != nil {

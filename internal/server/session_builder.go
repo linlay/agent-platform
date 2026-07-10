@@ -124,7 +124,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	)
 
 	toolNames := buildSessionToolNames(effectiveAgentTools(agentDef), options.AllowInvokeAgents)
-	toolNames = agentcoder.RuntimeToolNamesForAgent(agentDef.Mode, agentDef.ACPProxyID, "coder", toolNames)
+	toolNames = agentcoder.RuntimeToolNamesForAgent(agentDef.Mode, agentDef.ACPBridgeID, "coder", toolNames)
 
 	session := contracts.QuerySession{
 		RequestID:              req.RequestID,
@@ -245,7 +245,7 @@ func kbaseSystemPrompt(mode string, prompt string) string {
 }
 
 func (s *Server) loadWorkspaceAgentsPrompt(agentDef catalog.AgentDefinition, workspaceRoot string) (string, error) {
-	if !agentcoder.IsNativeBackend(agentDef.Mode, agentDef.ACPProxyID) {
+	if !agentcoder.IsNativeBackend(agentDef.Mode, agentDef.ACPBridgeID) {
 		return "", nil
 	}
 	if len(agentDef.Project.PromptFiles) > 0 {

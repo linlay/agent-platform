@@ -10,21 +10,21 @@ import (
 
 func TestModelOptionsFilterModeKeepsACPScopedToCoder(t *testing.T) {
 	tests := []struct {
-		name       string
-		agentKey   string
-		mode       string
-		acpProxyID string
-		want       string
+		name        string
+		agentKey    string
+		mode        string
+		acpBridgeID string
+		want        string
 	}{
-		{name: "empty agent key", mode: "CODER", acpProxyID: "codex", want: "native-only"},
+		{name: "empty agent key", mode: "CODER", acpBridgeID: "codex", want: "native-only"},
 		{name: "native coder", agentKey: "coder", mode: "CODER", want: "native-only"},
-		{name: "acp coder", agentKey: "coder", mode: "CODER", acpProxyID: "codex", want: "acp-only"},
-		{name: "ordinary proxy", agentKey: "proxy", mode: "PROXY", acpProxyID: "codex", want: ""},
+		{name: "acp coder", agentKey: "coder", mode: "CODER", acpBridgeID: "codex", want: "acp-only"},
+		{name: "ordinary proxy", agentKey: "proxy", mode: "PROXY", acpBridgeID: "codex", want: ""},
 		{name: "react", agentKey: "react", mode: "REACT", want: ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := ModelOptionsFilterMode(tc.agentKey, tc.mode, tc.acpProxyID); got != tc.want {
+			if got := ModelOptionsFilterMode(tc.agentKey, tc.mode, tc.acpBridgeID); got != tc.want {
 				t.Fatalf("ModelOptionsFilterMode()=%q want %q", got, tc.want)
 			}
 		})

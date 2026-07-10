@@ -91,6 +91,106 @@ func TestAgentHTTPCRUDAndEditableDetail(t *testing.T) {
 	}
 }
 
+func TestAgentCRUDRejectsLegacyACPProxyID(t *testing.T) {
+	fixture := newTestFixture(t)
+	legacyDefinition := map[string]any{
+		"key":  "legacy-acp-agent",
+		"mode": "CODER",
+		"runtimeConfig": map[string]any{
+			"acpProxyId": "codex",
+		},
+	}
+	legacyBody, err := json.Marshal(map[string]any{
+		"key":        "legacy-acp-agent",
+		"definition": legacyDefinition,
+	})
+	if err != nil {
+		t.Fatalf("marshal legacy create: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/agents/create", bytes.NewReader(legacyBody)))
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "runtimeConfig.acpProxyId was removed") {
+		t.Fatalf("expected legacy create rejection, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
+		"key": "bridge-agent",
+		"definition": map[string]any{
+			"key":  "bridge-agent",
+			"mode": "CODER",
+			"runtimeConfig": map[string]any{
+				"acpBridgeId": "codex",
+			},
+		},
+	})
+	if created.Key == "" || created.Meta["acpBridgeId"] != "codex" {
+		t.Fatalf("unexpected bridge agent creation %#v", created)
+	}
+
+	legacyBody, err = json.Marshal(map[string]any{
+		"key":        created.Key,
+		"definition": legacyDefinition,
+	})
+	if err != nil {
+		t.Fatalf("marshal legacy update: %v", err)
+	}
+	rec = httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/agents/update", bytes.NewReader(legacyBody)))
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "runtimeConfig.acpProxyId was removed") {
+		t.Fatalf("expected legacy update rejection, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAgentCreateRejectsInvalidACPBridgeDefinition(t *testing.T) {
+	fixture := newTestFixture(t)
+	for _, tc := range []struct {
+		name       string
+		definition map[string]any
+		want       string
+	}{
+		{
+			name: "non coder",
+			definition: map[string]any{
+				"key":  "bridge-react-agent",
+				"mode": "REACT",
+				"runtimeConfig": map[string]any{
+					"acpBridgeId": "codex",
+				},
+			},
+			want: "runtimeConfig.acpBridgeId is only supported for mode: CODER",
+		},
+		{
+			name: "proxy config conflict",
+			definition: map[string]any{
+				"key":  "bridge-conflict-agent",
+				"mode": "CODER",
+				"runtimeConfig": map[string]any{
+					"acpBridgeId": "codex",
+				},
+				"proxyConfig": map[string]any{
+					"baseUrl": "http://127.0.0.1:3211",
+				},
+			},
+			want: "proxyConfig is not supported for ACP CODER",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body, err := json.Marshal(map[string]any{
+				"key":        tc.definition["key"],
+				"definition": tc.definition,
+			})
+			if err != nil {
+				t.Fatalf("marshal request: %v", err)
+			}
+			rec := httptest.NewRecorder()
+			fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/agents/create", bytes.NewReader(body)))
+			if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), tc.want) {
+				t.Fatalf("expected invalid ACP bridge rejection, got %d: %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestAgentProxyCRUDPersistsProxyConfigWithModelConfig(t *testing.T) {
 	fixture := newTestFixture(t)
 
@@ -1009,8 +1109,8 @@ func TestAgentModelConfigUpdatePersistsACPServiceTierFromProxyModels(t *testing.
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
-			cfg.CoderSettings.ACPProxies = map[string]config.CoderACPProxyConfig{
-				"codex": {BaseURL: upstream.URL, Timeout: 5},
+			cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{
+				"codex": {BaseURL: upstream.URL, TimeoutMS: 5000},
 			}
 		},
 		setupRuntime: func(_ string, cfg *config.Config) {
@@ -1023,7 +1123,7 @@ func TestAgentModelConfigUpdatePersistsACPServiceTierFromProxyModels(t *testing.
 				"name: Codex Agent",
 				"mode: CODER",
 				"runtimeConfig:",
-				"  acpProxyId: codex",
+				"  acpBridgeId: codex",
 			}, "\n")), 0o644); err != nil {
 				t.Fatalf("write acp agent: %v", err)
 			}
@@ -1088,8 +1188,8 @@ func TestAgentModelConfigUpdateRejectsUnsupportedACPServiceTier(t *testing.T) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
-			cfg.CoderSettings.ACPProxies = map[string]config.CoderACPProxyConfig{
-				"codex": {BaseURL: upstream.URL, Timeout: 5},
+			cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{
+				"codex": {BaseURL: upstream.URL, TimeoutMS: 5000},
 			}
 		},
 		setupRuntime: func(_ string, cfg *config.Config) {
@@ -1102,7 +1202,7 @@ func TestAgentModelConfigUpdateRejectsUnsupportedACPServiceTier(t *testing.T) {
 				"name: Codex Agent",
 				"mode: CODER",
 				"runtimeConfig:",
-				"  acpProxyId: codex",
+				"  acpBridgeId: codex",
 			}, "\n")), 0o644); err != nil {
 				t.Fatalf("write acp agent: %v", err)
 			}

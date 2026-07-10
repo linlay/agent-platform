@@ -630,7 +630,10 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	def.RuntimePrompts = parseRuntimePrompts(mapNode(root["runtimePrompts"]))
 	runtimeConfig := mapNode(root["runtimeConfig"])
 	if len(runtimeConfig) > 0 {
-		def.ACPProxyID = stringNode(runtimeConfig["acpProxyId"])
+		if _, exists := runtimeConfig["acpProxyId"]; exists {
+			return AgentDefinition{}, nil, fmt.Errorf("runtimeConfig.acpProxyId was removed; use runtimeConfig.acpBridgeId")
+		}
+		def.ACPBridgeID = stringNode(runtimeConfig["acpBridgeId"])
 		def.Runtime = map[string]any{
 			"environmentId": stringNode(runtimeConfig["environmentId"]),
 			"level":         strings.ToLower(stringNode(runtimeConfig["level"])),

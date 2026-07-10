@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
@@ -573,8 +574,8 @@ func TestACPCoderQueryUsesGlobalProxyAndForwardsWorkspaceAndModel(t *testing.T) 
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
-			cfg.CoderSettings.ACPProxies = map[string]config.CoderACPProxyConfig{
-				"codex": {BaseURL: upstream.URL, AuthToken: "coder-token", Timeout: 420},
+			cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{
+				"codex": {BaseURL: upstream.URL, AuthToken: "coder-token", TimeoutMS: 420000},
 			}
 		},
 		setupRuntime: func(_ string, cfg *config.Config) {
@@ -587,7 +588,7 @@ func TestACPCoderQueryUsesGlobalProxyAndForwardsWorkspaceAndModel(t *testing.T) 
 				"modelConfig:",
 				"  modelKey: mock-model",
 				"runtimeConfig:",
-				"  acpProxyId: codex",
+				"  acpBridgeId: codex",
 				"  workspaceRoot: " + filepath.ToSlash(workspace),
 				"projectConfig:",
 				"  git:",
@@ -678,7 +679,7 @@ func TestACPCoderForwardsProviderlessModel(t *testing.T) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
-			cfg.CoderSettings.ACPProxies = map[string]config.CoderACPProxyConfig{
+			cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{
 				"codex": {BaseURL: upstream.URL},
 			}
 		},
@@ -700,7 +701,7 @@ func TestACPCoderForwardsProviderlessModel(t *testing.T) {
 				"modelConfig:",
 				"  modelKey: gpt-5-codex",
 				"runtimeConfig:",
-				"  acpProxyId: codex",
+				"  acpBridgeId: codex",
 				"  workspaceRoot: " + filepath.ToSlash(workspace),
 				"projectConfig:",
 				"  git:",
@@ -745,7 +746,7 @@ func TestACPCoderRejectsRequestCWDParam(t *testing.T) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
-			cfg.CoderSettings.ACPProxies = map[string]config.CoderACPProxyConfig{
+			cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{
 				"codex": {BaseURL: upstream.URL},
 			}
 		},
@@ -754,7 +755,7 @@ func TestACPCoderRejectsRequestCWDParam(t *testing.T) {
 				"key: mock-agent",
 				"mode: CODER",
 				"runtimeConfig:",
-				"  acpProxyId: codex",
+				"  acpBridgeId: codex",
 				"  workspaceRoot: " + filepath.ToSlash(t.TempDir()),
 			})
 		},
@@ -823,7 +824,7 @@ func TestACPCoderForwardsPlanningMode(t *testing.T) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
-			cfg.CoderSettings.ACPProxies = map[string]config.CoderACPProxyConfig{
+			cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{
 				"codex": {BaseURL: upstream.URL},
 			}
 		},
@@ -834,7 +835,7 @@ func TestACPCoderForwardsPlanningMode(t *testing.T) {
 				"modelConfig:",
 				"  modelKey: gpt-5-codex",
 				"runtimeConfig:",
-				"  acpProxyId: codex",
+				"  acpBridgeId: codex",
 				"  workspaceRoot: " + filepath.ToSlash(workspace),
 				"projectConfig:",
 				"  git:",
@@ -870,7 +871,7 @@ func TestACPCoderRejectsUnknownProxyID(t *testing.T) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
-			cfg.CoderSettings.ACPProxies = map[string]config.CoderACPProxyConfig{
+			cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{
 				"other": {BaseURL: "http://127.0.0.1:3211"},
 			}
 		},
@@ -879,7 +880,7 @@ func TestACPCoderRejectsUnknownProxyID(t *testing.T) {
 				"key: mock-agent",
 				"mode: CODER",
 				"runtimeConfig:",
-				"  acpProxyId: codex",
+				"  acpBridgeId: codex",
 				"  workspaceRoot: " + filepath.ToSlash(t.TempDir()),
 			})
 		},
@@ -888,8 +889,17 @@ func TestACPCoderRejectsUnknownProxyID(t *testing.T) {
 	rec := httptest.NewRecorder()
 	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy"}`)
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", body))
-	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "ACP proxy") {
-		t.Fatalf("expected ACP proxy config error, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "ACP bridge") {
+		t.Fatalf("expected ACP bridge config error, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestProxyRequestTimeoutUsesACPBridgeMilliseconds(t *testing.T) {
+	if got := proxyRequestTimeout(&catalog.ProxyConfig{Timeout: 1, TimeoutMS: 250}); got != 250*time.Millisecond {
+		t.Fatalf("ACP bridge timeout = %s, want 250ms", got)
+	}
+	if got := proxyRequestTimeout(&catalog.ProxyConfig{Timeout: 2}); got != 2*time.Second {
+		t.Fatalf("ordinary proxy timeout = %s, want 2s", got)
 	}
 }
 

@@ -249,16 +249,16 @@ func validateAgentModeWorkspace(mode string, workspace AgentWorkspaceConfig, has
 }
 
 func ValidateAgentCoderBackend(def AgentDefinition) error {
-	acpProxyID := strings.TrimSpace(def.ACPProxyID)
-	if acpProxyID != "" {
+	acpBridgeID := strings.TrimSpace(def.ACPBridgeID)
+	if acpBridgeID != "" {
 		if !agentcoder.IsMode(def.Mode) {
-			return fmt.Errorf("runtimeConfig.acpProxyId is only supported for mode: CODER")
+			return fmt.Errorf("runtimeConfig.acpBridgeId is only supported for mode: CODER")
 		}
-		if acpProxyID == "" {
-			return fmt.Errorf("runtimeConfig.acpProxyId is required for ACP CODER")
+		if acpBridgeID == "" {
+			return fmt.Errorf("runtimeConfig.acpBridgeId is required for ACP CODER")
 		}
 		if def.ProxyConfig != nil {
-			return fmt.Errorf("proxyConfig is not supported for ACP CODER; configure configs/coder-settings.yml acp-proxies and runtimeConfig.acpProxyId")
+			return fmt.Errorf("proxyConfig is not supported for ACP CODER; configure configs/coder-settings.yml acp-bridges and runtimeConfig.acpBridgeId")
 		}
 		if len(def.Project.PromptFiles) > 0 {
 			return fmt.Errorf("projectConfig.promptFiles is not supported for ACP CODER")
@@ -332,7 +332,7 @@ func ValidateAgentKBaseConfig(def AgentDefinition) error {
 }
 
 func AgentUsesACPCoderBackend(def AgentDefinition) bool {
-	return agentcoder.IsACPBackend(def.Mode, def.ACPProxyID)
+	return agentcoder.IsACPBackend(def.Mode, def.ACPBridgeID)
 }
 
 func applyAgentModeProfileDefaults(def AgentDefinition) AgentDefinition {

@@ -255,8 +255,8 @@ func (s *Server) buildAgentDetailMeta(def catalog.AgentDefinition) (string, map[
 	if len(def.Skills) > 0 {
 		meta["perAgentSkills"] = append([]string(nil), def.Skills...)
 	}
-	if strings.TrimSpace(def.ACPProxyID) != "" {
-		meta["acpProxyId"] = strings.TrimSpace(def.ACPProxyID)
+	if strings.TrimSpace(def.ACPBridgeID) != "" {
+		meta["acpBridgeId"] = strings.TrimSpace(def.ACPBridgeID)
 	}
 	if strings.TrimSpace(def.Workspace.Root) != "" {
 		workspaceMeta := map[string]any{

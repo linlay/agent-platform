@@ -29,12 +29,12 @@ func IsMode(mode string) bool {
 	return strings.EqualFold(strings.TrimSpace(mode), "CODER")
 }
 
-func IsACPBackend(mode string, acpProxyID string) bool {
-	return IsMode(mode) && strings.TrimSpace(acpProxyID) != ""
+func IsACPBackend(mode string, acpBridgeID string) bool {
+	return IsMode(mode) && strings.TrimSpace(acpBridgeID) != ""
 }
 
-func IsNativeBackend(mode string, acpProxyID string) bool {
-	return IsMode(mode) && strings.TrimSpace(acpProxyID) == ""
+func IsNativeBackend(mode string, acpBridgeID string) bool {
+	return IsMode(mode) && strings.TrimSpace(acpBridgeID) == ""
 }
 
 func PlanningModeEnabled(mode string, requested bool) bool {
@@ -78,8 +78,8 @@ func SystemPromptForMode(mode string, prompt string) string {
 	return strings.TrimSpace(prompt)
 }
 
-func RuntimeToolNamesForAgent(mode string, acpProxyID string, stage string, toolNames []string) []string {
-	if !IsNativeBackend(mode, acpProxyID) {
+func RuntimeToolNamesForAgent(mode string, acpBridgeID string, stage string, toolNames []string) []string {
+	if !IsNativeBackend(mode, acpBridgeID) {
 		return append([]string(nil), toolNames...)
 	}
 	return RuntimeToolNamesForStage(mode, stage, toolNames)

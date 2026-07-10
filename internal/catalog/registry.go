@@ -40,7 +40,7 @@ type AgentDefinition struct {
 	ModelKey         string
 	ServiceTier      string
 	Mode             string
-	ACPProxyID       string
+	ACPBridgeID      string
 	VisibilityScopes []string
 	Tools            []string
 	Skills           []string
@@ -173,6 +173,7 @@ type ProxyConfig struct {
 	Token        string // optional Bearer token
 	TokenEnv     string // optional env var name for Bearer token
 	Timeout      int    // default 300 (5 min), seconds
+	TimeoutMS    int    // ACP bridge override, milliseconds
 }
 
 type AgentChannelConfig struct {
@@ -383,8 +384,8 @@ func (r *FileRegistry) Agents(scope string) []api.AgentSummary {
 			Role:         def.Role,
 			Meta:         meta,
 		}
-		if strings.TrimSpace(def.ACPProxyID) != "" {
-			summary.Meta["acpProxyId"] = strings.TrimSpace(def.ACPProxyID)
+		if strings.TrimSpace(def.ACPBridgeID) != "" {
+			summary.Meta["acpBridgeId"] = strings.TrimSpace(def.ACPBridgeID)
 		}
 		if strings.TrimSpace(def.Workspace.Root) != "" {
 			summary.Meta["workspace"] = map[string]any{

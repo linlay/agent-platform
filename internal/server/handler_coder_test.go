@@ -235,7 +235,7 @@ func TestCoderModelOptionsForACPCoderAgentOnlyShowsACPPassthrough(t *testing.T) 
 				"modelConfig:",
 				"  modelKey: gpt-5.5",
 				"runtimeConfig:",
-				"  acpProxyId: codex",
+				"  acpBridgeId: codex",
 			}, "\n")), 0o644); err != nil {
 				t.Fatalf("write acp agent: %v", err)
 			}
@@ -307,8 +307,8 @@ func TestCoderModelOptionsForACPCoderAgentUsesProxyModelDiscovery(t *testing.T) 
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
-			cfg.CoderSettings.ACPProxies = map[string]config.CoderACPProxyConfig{
-				"codex": {BaseURL: upstream.URL, Timeout: 5},
+			cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{
+				"codex": {BaseURL: upstream.URL, TimeoutMS: 5000},
 			}
 		},
 		setupRuntime: func(_ string, cfg *config.Config) {
@@ -323,7 +323,7 @@ func TestCoderModelOptionsForACPCoderAgentUsesProxyModelDiscovery(t *testing.T) 
 				"modelConfig:",
 				"  modelKey: claude-opus-4-6",
 				"runtimeConfig:",
-				"  acpProxyId: codex",
+				"  acpBridgeId: codex",
 			}, "\n")), 0o644); err != nil {
 				t.Fatalf("write acp agent: %v", err)
 			}
@@ -408,8 +408,8 @@ func TestAgentDetailIncludesModelOptionsOnlyForACPCoder(t *testing.T) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
-			cfg.CoderSettings.ACPProxies = map[string]config.CoderACPProxyConfig{
-				"codex": {BaseURL: upstream.URL, Timeout: 5},
+			cfg.CoderSettings.ACPBridges = map[string]config.CoderACPBridgeConfig{
+				"codex": {BaseURL: upstream.URL, TimeoutMS: 5000},
 			}
 		},
 		setupRuntime: func(_ string, cfg *config.Config) {
@@ -421,7 +421,7 @@ func TestAgentDetailIncludesModelOptionsOnlyForACPCoder(t *testing.T) {
 					"modelConfig:",
 					"  modelKey: claude-opus-4-6",
 					"runtimeConfig:",
-					"  acpProxyId: codex",
+					"  acpBridgeId: codex",
 				}, "\n"),
 				"native-agent": strings.Join([]string{
 					"key: native-agent",

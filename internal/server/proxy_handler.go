@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/stream"
 )
@@ -27,6 +28,16 @@ import (
 // tool.result, run.complete). StepWriter only consumes snapshot-style events
 // (content.snapshot, reasoning.snapshot, tool.snapshot, tool.result, …), so
 // we accumulate per-id buffers and synthesise snapshot events at *.end.
+func proxyRequestTimeout(proxy *catalog.ProxyConfig) time.Duration {
+	if proxy != nil && proxy.TimeoutMS > 0 {
+		return time.Duration(proxy.TimeoutMS) * time.Millisecond
+	}
+	if proxy != nil && proxy.Timeout > 0 {
+		return time.Duration(proxy.Timeout) * time.Second
+	}
+	return 5 * time.Minute
+}
+
 func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepared preparedQuery) {
 	defer releaseQuery(prepared.release)
 	req := prepared.req
@@ -73,8 +84,7 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 		return
 	}
 
-	timeout := time.Duration(proxy.Timeout) * time.Second
-	client := &http.Client{Timeout: timeout}
+	client := &http.Client{Timeout: proxyRequestTimeout(proxy)}
 
 	proxyReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {

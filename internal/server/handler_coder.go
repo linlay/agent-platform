@@ -94,11 +94,11 @@ func (s *Server) listModelOptionsForAgent(agentKey string) []api.CoderModelOptio
 }
 
 func (s *Server) listACPCoderModelOptions(agentKey string) ([]api.CoderModelOption, error, bool) {
-	proxy, ok := s.acpProxyConfigForAgent(agentKey)
+	bridge, ok := s.acpBridgeConfigForAgent(agentKey)
 	if !ok {
 		return nil, nil, false
 	}
-	options, err := fetchACPCoderModelOptions(proxy)
+	options, err := fetchACPCoderModelOptions(bridge)
 	if err != nil {
 		log.Printf("[coder-model-options] fetch acp models for agent %s failed: %v", strings.TrimSpace(agentKey), err)
 		return nil, err, true
@@ -118,7 +118,7 @@ func (s *Server) modelOptionsFilterMode(agentKey string) string {
 	if !ok {
 		return ""
 	}
-	return agentcoder.ModelOptionsFilterMode(agentKey, def.Mode, def.ACPProxyID)
+	return agentcoder.ModelOptionsFilterMode(agentKey, def.Mode, def.ACPBridgeID)
 }
 
 func (s *Server) shouldShowModelOption(model models.ModelDefinition) bool {
@@ -221,41 +221,41 @@ type acpModelCatalogResponse struct {
 	} `json:"data"`
 }
 
-func (s *Server) acpProxyConfigForAgent(agentKey string) (config.CoderACPProxyConfig, bool) {
+func (s *Server) acpBridgeConfigForAgent(agentKey string) (config.CoderACPBridgeConfig, bool) {
 	agentKey = strings.TrimSpace(agentKey)
 	if agentKey == "" || s.deps.Registry == nil {
-		return config.CoderACPProxyConfig{}, false
+		return config.CoderACPBridgeConfig{}, false
 	}
 	def, ok := s.deps.Registry.AgentDefinition(agentKey)
 	if !ok || !catalog.AgentUsesACPCoderBackend(def) {
-		return config.CoderACPProxyConfig{}, false
+		return config.CoderACPBridgeConfig{}, false
 	}
-	proxyID := strings.TrimSpace(def.ACPProxyID)
-	if proxyID == "" {
-		return config.CoderACPProxyConfig{}, false
+	bridgeID := strings.TrimSpace(def.ACPBridgeID)
+	if bridgeID == "" {
+		return config.CoderACPBridgeConfig{}, false
 	}
-	proxy, ok := s.deps.Config.CoderSettings.ACPProxies[proxyID]
-	if !ok || strings.TrimSpace(proxy.BaseURL) == "" {
-		return config.CoderACPProxyConfig{}, false
+	bridge, ok := s.deps.Config.CoderSettings.ACPBridges[bridgeID]
+	if !ok || strings.TrimSpace(bridge.BaseURL) == "" {
+		return config.CoderACPBridgeConfig{}, false
 	}
-	return proxy, true
+	return bridge, true
 }
 
-func fetchACPCoderModelOptions(proxy config.CoderACPProxyConfig) ([]api.CoderModelOption, error) {
-	baseURL := strings.TrimRight(strings.TrimSpace(proxy.BaseURL), "/")
+func fetchACPCoderModelOptions(bridge config.CoderACPBridgeConfig) ([]api.CoderModelOption, error) {
+	baseURL := strings.TrimRight(strings.TrimSpace(bridge.BaseURL), "/")
 	if baseURL == "" {
 		return nil, nil
 	}
-	timeout := time.Duration(proxy.Timeout) * time.Second
+	timeout := time.Duration(bridge.TimeoutMS) * time.Millisecond
 	if timeout <= 0 {
-		timeout = 5 * time.Second
+		timeout = 5 * time.Minute
 	}
 	client := &http.Client{Timeout: timeout}
 	req, err := http.NewRequest(http.MethodGet, baseURL+"/api/models", nil)
 	if err != nil {
 		return nil, err
 	}
-	if token := strings.TrimSpace(proxy.AuthToken); token != "" {
+	if token := strings.TrimSpace(bridge.AuthToken); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	resp, err := client.Do(req)

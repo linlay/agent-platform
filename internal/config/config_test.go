@@ -791,15 +791,15 @@ func TestLoadCoderSettingsMissingFileLeavesEmpty(t *testing.T) {
 			if cfg.CoderSettings.DefaultAgent.ModelKey != "" || cfg.CoderSettings.DefaultAgent.ReasoningEffort != "" || len(cfg.CoderSettings.DefaultAgent.Budget) != 0 {
 				t.Fatalf("expected empty coder default agent config, got %#v", cfg.CoderSettings.DefaultAgent)
 			}
-			if len(cfg.CoderSettings.ACPProxies) != 0 {
-				t.Fatalf("expected empty coder ACP proxies config, got %#v", cfg.CoderSettings.ACPProxies)
+			if len(cfg.CoderSettings.ACPBridges) != 0 {
+				t.Fatalf("expected empty coder ACP bridges config, got %#v", cfg.CoderSettings.ACPBridges)
 			}
 		})
 	})
 }
 
 func TestLoadCoderSettingsConfigFromFile(t *testing.T) {
-	withIsolatedEnv(t, map[string]string{"CODEX_ACP_PROXY_TOKEN": "coder-token"}, func() {
+	withIsolatedEnv(t, map[string]string{"CODEX_ACP_BRIDGE_AUTH_TOKEN": "coder-token"}, func() {
 		content := "" +
 			"default-agent:\n" +
 			"  modelKey: deepseek-v4-pro\n" +
@@ -809,13 +809,13 @@ func TestLoadCoderSettingsConfigFromFile(t *testing.T) {
 			"    maxSteps: 240\n" +
 			"    tool:\n" +
 			"      maxCalls: 200\n" +
-			"acp-proxies:\n" +
+			"acp-bridges:\n" +
 			"  codex:\n" +
 			"    base-url: http://127.0.0.1:3211\n" +
-			"    auth-token: ${CODEX_ACP_PROXY_TOKEN:}\n" +
+			"    auth-token: ${CODEX_ACP_BRIDGE_AUTH_TOKEN:}\n" +
 			"  codex-alt:\n" +
 			"    base-url: http://127.0.0.1:3212\n" +
-			"    timeout: 420\n" +
+			"    timeout-ms: 420000\n" +
 			"workspace-agents:\n" +
 			"  enabled: true\n" +
 			"  file: RULES.md\n"
@@ -835,26 +835,54 @@ func TestLoadCoderSettingsConfigFromFile(t *testing.T) {
 			if intValue(budget["timeout"], 0) != 3600 || intValue(budget["maxSteps"], 0) != 240 || intValue(tool["maxCalls"], 0) != 200 {
 				t.Fatalf("unexpected coder default agent budget: %#v", budget)
 			}
-			if got := cfg.CoderSettings.ACPProxies["codex"]; got.BaseURL != "http://127.0.0.1:3211" || got.AuthToken != "coder-token" || got.Timeout != 300 {
-				t.Fatalf("unexpected codex ACP proxy config: %#v", got)
+			if got := cfg.CoderSettings.ACPBridges["codex"]; got.BaseURL != "http://127.0.0.1:3211" || got.AuthToken != "coder-token" || got.TimeoutMS != 300000 {
+				t.Fatalf("unexpected codex ACP bridge config: %#v", got)
 			}
-			if got := cfg.CoderSettings.ACPProxies["codex-alt"]; got.BaseURL != "http://127.0.0.1:3212" || got.Timeout != 420 {
-				t.Fatalf("unexpected codex-alt ACP proxy config: %#v", got)
+			if got := cfg.CoderSettings.ACPBridges["codex-alt"]; got.BaseURL != "http://127.0.0.1:3212" || got.TimeoutMS != 420000 {
+				t.Fatalf("unexpected codex-alt ACP bridge config: %#v", got)
 			}
 		})
 	})
 }
 
-func TestLoadCoderSettingsRejectsACPProxyWithoutBaseURL(t *testing.T) {
+func TestLoadCoderSettingsRejectsACPBridgeWithoutBaseURL(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "" +
-			"acp-proxies:\n" +
+			"acp-bridges:\n" +
 			"  codex:\n" +
-			"    timeout: 300\n"
+			"    timeout-ms: 300000\n"
 		withProjectFileContents(t, filepath.Join("configs", "coder-settings.yml"), &content, func() {
 			_, err := Load()
-			if err == nil || !strings.Contains(err.Error(), "acp-proxies.codex.base-url is required") {
+			if err == nil || !strings.Contains(err.Error(), "acp-bridges.codex.base-url is required") {
 				t.Fatalf("expected missing base-url error, got %v", err)
+			}
+		})
+	})
+}
+
+func TestLoadCoderSettingsRejectsLegacyACPProxiesAndInvalidBridgeTimeout(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		legacy := "acp-proxies:\n  codex:\n    base-url: http://127.0.0.1:17071\n"
+		withProjectFileContents(t, filepath.Join("configs", "coder-settings.yml"), &legacy, func() {
+			_, err := Load()
+			if err == nil || !strings.Contains(err.Error(), "acp-proxies was removed; use acp-bridges") {
+				t.Fatalf("expected legacy ACP proxies rejection, got %v", err)
+			}
+		})
+
+		invalidTimeout := "acp-bridges:\n  codex:\n    base-url: http://127.0.0.1:17071\n    timeout-ms: 0\n"
+		withProjectFileContents(t, filepath.Join("configs", "coder-settings.yml"), &invalidTimeout, func() {
+			_, err := Load()
+			if err == nil || !strings.Contains(err.Error(), "acp-bridges.codex.timeout-ms must be a positive integer") {
+				t.Fatalf("expected invalid bridge timeout rejection, got %v", err)
+			}
+		})
+
+		legacyTimeout := "acp-bridges:\n  codex:\n    base-url: http://127.0.0.1:17071\n    timeout: 300\n"
+		withProjectFileContents(t, filepath.Join("configs", "coder-settings.yml"), &legacyTimeout, func() {
+			_, err := Load()
+			if err == nil || !strings.Contains(err.Error(), "acp-bridges.codex.timeout was removed; use timeout-ms") {
+				t.Fatalf("expected legacy bridge timeout rejection, got %v", err)
 			}
 		})
 	})
