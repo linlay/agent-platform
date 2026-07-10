@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"agent-platform/internal/accesspolicy"
+	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/bashsec"
 	"agent-platform/internal/builtins"
 	"agent-platform/internal/config"
@@ -273,10 +274,13 @@ func consumeBashSecurityApproval(execCtx *ExecutionContext, fingerprint string) 
 }
 
 func bashSecurityKnownVariables(execCtx *ExecutionContext) map[string]string {
-	if execCtx == nil || len(execCtx.RuntimeEnvOverrides) == 0 {
+	if execCtx == nil {
 		return nil
 	}
-	return execCtx.RuntimeEnvOverrides
+	return agentconfig.Merge(
+		agentconfig.Environment(execCtx.Session.RuntimeContext.LocalPaths.AgentDir),
+		execCtx.RuntimeEnvOverrides,
+	)
 }
 
 var unsupportedBashCommands = map[string]bool{
@@ -330,10 +334,17 @@ func stringMapArg(args map[string]any, key string) map[string]string {
 
 func mergeCommandEnv(execCtx *ExecutionContext) []string {
 	env := append([]string(nil), os.Environ()...)
-	if execCtx == nil || len(execCtx.RuntimeEnvOverrides) == 0 {
+	var agentDir string
+	var runtimeEnv map[string]string
+	if execCtx != nil {
+		agentDir = execCtx.Session.RuntimeContext.LocalPaths.AgentDir
+		runtimeEnv = execCtx.RuntimeEnvOverrides
+	}
+	overrides := agentconfig.Merge(agentconfig.Environment(agentDir), runtimeEnv)
+	if len(overrides) == 0 {
 		return builtins.EnsureBinInEnv(env)
 	}
-	for key, value := range execCtx.RuntimeEnvOverrides {
+	for key, value := range overrides {
 		found := false
 		prefix := key + "="
 		for idx, item := range env {

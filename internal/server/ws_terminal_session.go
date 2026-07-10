@@ -6,8 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
+	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/catalog"
 	terminalpkg "agent-platform/internal/terminal"
 )
@@ -44,7 +46,7 @@ func (s *Server) openTerminalSession(payload terminalOpenPayload, ownerKey strin
 		Shell:       resolveTerminalShell(s.deps.Config.Bash.ShellExecutable),
 		Cols:        payload.Cols,
 		Rows:        payload.Rows,
-		Env:         []string{"TERM=xterm-256color", "COLORTERM=truecolor"},
+		Env:         terminalEnvironment(def),
 	})
 	if openErr != nil {
 		if errors.Is(openErr, terminalpkg.ErrUnsupported) {
@@ -62,6 +64,23 @@ func (s *Server) openTerminalSession(payload terminalOpenPayload, ownerKey strin
 		return terminalpkg.OpenResult{}, &statusError{status: http.StatusInternalServerError, message: openErr.Error()}
 	}
 	return result, nil
+}
+
+func terminalEnvironment(def catalog.AgentDefinition) []string {
+	env := agentconfig.Merge(
+		agentconfig.Environment(def.AgentDir),
+		runtimeAgentEnv(def.Runtime["env"]),
+	)
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	entries := make([]string, 0, len(keys)+2)
+	for _, key := range keys {
+		entries = append(entries, key+"="+env[key])
+	}
+	return append(entries, "TERM=xterm-256color", "COLORTERM=truecolor")
 }
 
 func (s *Server) resolveTerminalWorkspace(def catalog.AgentDefinition) (string, *statusError) {

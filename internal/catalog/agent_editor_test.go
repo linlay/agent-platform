@@ -44,3 +44,29 @@ func TestEditableAgentSkipsDirectoriesWithoutAgentConfig(t *testing.T) {
 		t.Fatalf("unexpected editable source path %q", files.Source.Path)
 	}
 }
+
+func TestCreateEditableAgentCreatesPrivateConfigDirectory(t *testing.T) {
+	root := t.TempDir()
+	agentsDir := filepath.Join(root, "agents")
+	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{AgentsDir: agentsDir}}}
+
+	if _, err := registry.CreateEditableAgent("reader", map[string]any{
+		"key":         "reader",
+		"name":        "Reader",
+		"mode":        "ONESHOT",
+		"modelConfig": map[string]any{"modelKey": "test-model"},
+	}, nil, nil); err != nil {
+		t.Fatalf("CreateEditableAgent returned error: %v", err)
+	}
+	configDir := filepath.Join(agentsDir, "reader", ".config")
+	info, err := os.Stat(configDir)
+	if err != nil {
+		t.Fatalf("stat config directory: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("agent config path is not a directory: %s", configDir)
+	}
+	if info.Mode().Perm() != 0o700 {
+		t.Fatalf("agent config directory permissions = %o, want 700", info.Mode().Perm())
+	}
+}

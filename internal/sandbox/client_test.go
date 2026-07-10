@@ -124,6 +124,31 @@ func TestRunLevelSandboxSessionIDUsesSubTaskID(t *testing.T) {
 	}
 }
 
+func TestSandboxEnvironmentUsesContainerAgentPathAndInvocationOverride(t *testing.T) {
+	env := sandboxEnvironment(&contracts.ExecutionContext{
+		Session: contracts.QuerySession{
+			RuntimeContext: contracts.RuntimeRequestContext{
+				LocalPaths:   contracts.LocalPaths{AgentDir: "/host/runtime/agents/reader"},
+				SandboxPaths: contracts.SandboxPaths{AgentDir: "/agent"},
+			},
+		},
+		RuntimeEnvOverrides: map[string]string{"HTTP_PROXY": "http://agent-proxy"},
+	}, map[string]string{"HTTP_PROXY": "http://call-proxy"})
+
+	if got, want := env["XDG_CONFIG_HOME"], "/agent/.config"; got != want {
+		t.Fatalf("XDG_CONFIG_HOME = %q, want %q", got, want)
+	}
+	if got, want := env["AP_AGENT_CONFIG_HOME"], "/agent/.config"; got != want {
+		t.Fatalf("AP_AGENT_CONFIG_HOME = %q, want %q", got, want)
+	}
+	if got, want := env["HTTP_PROXY"], "http://call-proxy"; got != want {
+		t.Fatalf("HTTP_PROXY = %q, want %q", got, want)
+	}
+	if strings.Contains(env["XDG_CONFIG_HOME"], "/host/") {
+		t.Fatalf("sandbox config path leaked host path: %#v", env)
+	}
+}
+
 func sandboxTestExecutionContext(runID string, requestID string) *contracts.ExecutionContext {
 	return sandboxTestExecutionContextWithSubTaskID(runID, requestID, "")
 }

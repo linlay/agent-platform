@@ -21,7 +21,7 @@ type unixPTYProcess struct {
 func startPTY(req startPTYRequest) (ptyProcess, error) {
 	cmd := exec.Command(req.Shell)
 	cmd.Dir = req.CWD
-	cmd.Env = builtins.EnsureBinInEnv(append(os.Environ(), req.Env...))
+	cmd.Env = builtins.EnsureBinInEnv(mergeEnvironment(os.Environ(), req.Env))
 	file, err := pty.StartWithSize(cmd, &pty.Winsize{
 		Rows: uint16(req.Rows),
 		Cols: uint16(req.Cols),

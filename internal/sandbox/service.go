@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 )
@@ -106,8 +107,8 @@ func (s *ContainerHubSandboxService) Execute(ctx context.Context, execCtx *contr
 	if timeout > 0 {
 		payload["timeout"] = timeout
 	}
-	if len(env) > 0 {
-		payload["env"] = contracts.CloneStringMap(env)
+	if executionEnv := sandboxEnvironment(execCtx, env); len(executionEnv) > 0 {
+		payload["env"] = executionEnv
 	}
 	rawText, isJSON, err := s.client.ExecuteSessionRaw(ctx, execCtx.SandboxSession.SessionID, payload)
 	if err != nil {
@@ -341,8 +342,8 @@ func (s *ContainerHubSandboxService) createAndBind(ctx context.Context, execCtx 
 			"agentKey": execCtx.Session.AgentKey,
 		},
 	}
-	if len(execCtx.RuntimeEnvOverrides) > 0 {
-		payload["env"] = contracts.CloneStringMap(execCtx.RuntimeEnvOverrides)
+	if sessionEnv := sandboxEnvironment(execCtx, nil); len(sessionEnv) > 0 {
+		payload["env"] = sessionEnv
 	}
 	response, err := s.client.CreateSession(ctx, payload)
 	if err != nil {
@@ -363,6 +364,17 @@ func (s *ContainerHubSandboxService) createAndBind(ctx context.Context, execCtx 
 		Level:         level,
 	}
 	return nil
+}
+
+func sandboxEnvironment(execCtx *contracts.ExecutionContext, invocationEnv map[string]string) map[string]string {
+	if execCtx == nil {
+		return contracts.CloneStringMap(invocationEnv)
+	}
+	return agentconfig.Merge(
+		agentconfig.ContainerEnvironment(execCtx.Session.RuntimeContext.SandboxPaths.AgentDir),
+		execCtx.RuntimeEnvOverrides,
+		invocationEnv,
+	)
 }
 
 func stringValue(value any) string {

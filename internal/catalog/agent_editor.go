@@ -321,6 +321,11 @@ func persistEditableAgent(source EditableAgentSource, definition map[string]any,
 	if source.Path == "" {
 		return fmt.Errorf("agent path is required")
 	}
+	if source.Kind == "directory" {
+		if err := ensureAgentConfigDir(source.AgentDir); err != nil {
+			return err
+		}
+	}
 	if err := writeFileAtomic(source.Path, renderYAMLMap(definition), 0o644); err != nil {
 		return err
 	}
@@ -331,6 +336,27 @@ func persistEditableAgent(source EditableAgentSource, definition map[string]any,
 		return err
 	}
 	return writeOptionalPrompt(filepath.Join(source.AgentDir, "AGENTS.md"), agentsPrompt)
+}
+
+func ensureAgentConfigDir(agentDir string) error {
+	configDir := filepath.Join(agentDir, ".config")
+	info, err := os.Stat(configDir)
+	if err == nil {
+		if !info.IsDir() {
+			return fmt.Errorf("agent config path %q is not a directory", configDir)
+		}
+		return nil
+	}
+	if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		return err
+	}
+	if err := os.Mkdir(configDir, 0o700); err != nil && !os.IsExist(err) {
+		return err
+	}
+	return os.Chmod(configDir, 0o700)
 }
 
 func writeOptionalPrompt(path string, value *string) error {
