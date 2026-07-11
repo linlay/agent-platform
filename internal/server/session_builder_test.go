@@ -39,6 +39,29 @@ func TestBuildSessionToolNamesFiltersInvokeAgentsWhenDisallowed(t *testing.T) {
 	}
 }
 
+func TestDefaultSessionToolNamesWithoutInvokeMaterializesSafeDefaults(t *testing.T) {
+	got := defaultSessionToolNamesWithoutInvoke([]api.ToolDetailResponse{
+		{Name: "file_read"},
+		{Name: contracts.InvokeAgentsToolName},
+		{Name: "private_tool", Meta: map[string]any{"explicitOnly": true}},
+	})
+	want := []string{"file_read"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("defaultSessionToolNamesWithoutInvoke() = %#v, want %#v", got, want)
+	}
+}
+
+func TestExcludeHistoryRunPreventsDuplicateTeamMemberUserMessage(t *testing.T) {
+	messages := []map[string]any{
+		{"role": "user", "content": "previous", "runId": "run-old"},
+		{"role": "user", "content": "current", "runId": "run-current"},
+	}
+	got := excludeHistoryRun(messages, "run-current")
+	if len(got) != 1 || got[0]["content"] != "previous" {
+		t.Fatalf("excludeHistoryRun()=%#v", got)
+	}
+}
+
 func TestBuildSessionToolNamesDoesNotAutoAddDesktopTools(t *testing.T) {
 	got := buildSessionToolNames([]string{"datetime"}, true)
 	want := []string{"datetime"}

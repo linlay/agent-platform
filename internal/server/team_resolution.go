@@ -79,6 +79,38 @@ func resolveQueryTeam(
 			message: fmt.Sprintf("team %q not found", teamID),
 		}
 	}
+	if strings.EqualFold(snapshot.RuntimeMode, catalog.TeamRuntimeModeOrchestrated) {
+		if requestedAgentKey != "" {
+			return "", "", nil, &statusError{
+				status:  http.StatusBadRequest,
+				code:    "invalid_request",
+				message: "agentKey must be omitted for an orchestrated Team",
+			}
+		}
+		if len(snapshot.AgentKeys) == 0 || len(snapshot.InvalidAgentKeys) > 0 || len(snapshot.ValidAgentKeys) != len(snapshot.AgentKeys) {
+			return "", "", nil, &statusError{
+				status:  http.StatusServiceUnavailable,
+				code:    "unavailable",
+				message: fmt.Sprintf("orchestrated Team %q has unavailable members: %v", teamID, snapshot.InvalidAgentKeys),
+			}
+		}
+		var unrunnable []string
+		for _, memberKey := range snapshot.ValidAgentKeys {
+			member, exists := snapshot.AgentDefinition(memberKey)
+			if !exists || catalog.AgentUsesACPCoderBackend(member) || !resolvedModeCapabilities(member).RunAsChild {
+				unrunnable = append(unrunnable, memberKey)
+			}
+		}
+		if len(unrunnable) > 0 {
+			return "", "", nil, &statusError{
+				status:  http.StatusServiceUnavailable,
+				code:    "unavailable",
+				message: fmt.Sprintf("orchestrated Team %q has members that cannot run as children: %v", teamID, unrunnable),
+			}
+		}
+		copy := snapshot
+		return teamID, "", &copy, nil
+	}
 	if !snapshot.DefaultAgentValid {
 		return "", "", nil, invalidTeamDefaultError(snapshot)
 	}

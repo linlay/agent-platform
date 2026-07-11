@@ -78,6 +78,7 @@ type DeltaRunContinuation struct {
 	RunID       string
 	ChatID      string
 	AgentKey    string
+	TeamID      string
 	AwaitingID  string
 	SubmitID    string
 	Locale      string
@@ -125,15 +126,17 @@ type DeltaPlanningEnd struct {
 func (DeltaPlanningEnd) agentDeltaTag() {}
 
 type DeltaTaskLifecycle struct {
-	Kind        string
-	TaskID      string
-	RunID       string
-	TaskName    string
-	Description string
-	SubAgentKey string
-	MainToolID  string
-	Reason      string
-	Error       map[string]any
+	Kind         string
+	TaskID       string
+	RunID        string
+	TaskName     string
+	Description  string
+	SubAgentKey  string
+	MainToolID   string
+	TeamID       string
+	Presentation string
+	Reason       string
+	Error        map[string]any
 }
 
 func (DeltaTaskLifecycle) agentDeltaTag() {}
@@ -151,6 +154,18 @@ type DeltaInvokeSubAgents struct {
 }
 
 func (DeltaInvokeSubAgents) agentDeltaTag() {}
+
+// DeltaTeamDispatch is emitted only by the hidden TEAM coordinator tools.
+// The server owns member execution because it has the frozen TeamSnapshot,
+// chat store, resource tickets and stream event bus.
+type DeltaTeamDispatch struct {
+	MainToolID   string
+	Kind         string
+	DelegateMode string
+	Tasks        []SubAgentTaskSpec
+}
+
+func (DeltaTeamDispatch) agentDeltaTag() {}
 
 type DeltaArtifactPublish struct {
 	ChatID        string

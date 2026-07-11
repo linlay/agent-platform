@@ -22,7 +22,7 @@ func (r *FileRegistry) Teams() []api.TeamSummary {
 	for _, key := range keys {
 		team := r.teams[key]
 		snapshot := resolveTeamSnapshotLocked(team, r.agents)
-		icon := team.Icon
+		icon := snapshot.Icon
 		for _, agentKey := range snapshot.ValidAgentKeys {
 			agent, ok := agentsByID[agentKey]
 			if !ok {
@@ -35,16 +35,25 @@ func (r *FileRegistry) Teams() []api.TeamSummary {
 		if len(snapshot.InvalidAgentKeys) > 0 {
 			log.Printf("[catalog][teams] team=%s invalidAgentKeys=%v", team.TeamID, snapshot.InvalidAgentKeys)
 		}
+		meta := map[string]any{
+			"validAgentKeys":   append([]string(nil), snapshot.ValidAgentKeys...),
+			"invalidAgentKeys": append([]string(nil), snapshot.InvalidAgentKeys...),
+			"orchestrated":     snapshot.RuntimeMode == TeamRuntimeModeOrchestrated,
+		}
+		if snapshot.RuntimeMode == TeamRuntimeModeLegacy {
+			meta["defaultAgentKey"] = snapshot.DefaultAgentKey
+			meta["defaultAgentKeyValid"] = snapshot.DefaultAgentValid
+		} else {
+			meta["maxParallel"] = snapshot.Orchestrator.MaxParallel
+		}
 		items = append(items, api.TeamSummary{
-			TeamID:    team.TeamID,
-			Name:      team.Name,
-			Icon:      icon,
-			AgentKeys: append([]string(nil), snapshot.AgentKeys...),
-			Meta: map[string]any{
-				"invalidAgentKeys":     append([]string(nil), snapshot.InvalidAgentKeys...),
-				"defaultAgentKey":      snapshot.DefaultAgentKey,
-				"defaultAgentKeyValid": snapshot.DefaultAgentValid,
-			},
+			TeamID:      snapshot.TeamID,
+			Name:        snapshot.Name,
+			Description: snapshot.Description,
+			RuntimeMode: snapshot.RuntimeMode,
+			Icon:        cloneAgentSnapshotValue(icon),
+			AgentKeys:   append([]string(nil), snapshot.AgentKeys...),
+			Meta:        meta,
 		})
 	}
 	return items

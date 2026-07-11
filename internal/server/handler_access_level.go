@@ -23,15 +23,15 @@ func (s *Server) handleAccessLevel(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateAccessLevel(req api.AccessLevelRequest) (api.AccessLevelResponse, *statusError) {
-	if strings.TrimSpace(req.RunID) == "" || strings.TrimSpace(req.AgentKey) == "" {
-		return api.AccessLevelResponse{}, &statusError{status: http.StatusBadRequest, message: "runId and agentKey are required"}
+	if strings.TrimSpace(req.RunID) == "" {
+		return api.AccessLevelResponse{}, &statusError{status: http.StatusBadRequest, message: "runId is required"}
 	}
 	accessLevel, ok := contracts.NormalizeAccessLevel(req.AccessLevel)
 	if !ok {
 		return api.AccessLevelResponse{}, &statusError{status: http.StatusBadRequest, message: "accessLevel must be default, auto_approve, or full_access"}
 	}
 	req.AccessLevel = accessLevel
-	if statusErr := s.validateRunAgentKey(req.RunID, req.AgentKey); statusErr != nil {
+	if statusErr := s.validateRunOwner(req.RunID, req.AgentKey, req.TeamID); statusErr != nil {
 		return api.AccessLevelResponse{}, statusErr
 	}
 	if response, statusErr, ok := s.forwardProxyAccessLevel(req); ok {

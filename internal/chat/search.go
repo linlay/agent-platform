@@ -126,6 +126,8 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 	if limit <= 0 {
 		limit = 10
 	}
+	orchestratedTeam := strings.EqualFold(strings.TrimSpace(sum.OwnerType), "team") ||
+		(strings.TrimSpace(sum.TeamID) != "" && strings.TrimSpace(sum.AgentKey) == "")
 
 	lines, err := readJSONLines(s.chatJSONLPath(chatID))
 	if err != nil {
@@ -151,6 +153,9 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 			if lineIsSystemInitQuery(line) {
 				continue
 			}
+			if strings.TrimSpace(stringValue(line["taskId"])) != "" || strings.TrimSpace(stringValue(line["subAgentKey"])) != "" {
+				continue
+			}
 			payload, _ := line["query"].(map[string]any)
 			role := defaultSearchRole(stringValue(payload["role"]))
 			if !api.QueryRoleVisible(role) {
@@ -170,6 +175,7 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 			}
 		case StepLineTypeReact, StepLineTypeReactTool, StepLineTypePlanExecute, StepLineTypeStep:
 			stage := stringValue(line["stage"])
+			rootTeamCoordinator := orchestratedTeam && strings.TrimSpace(stringValue(line["taskId"])) == "" && strings.TrimSpace(stringValue(line["taskSubAgentKey"])) == ""
 			messages, _ := line["messages"].([]any)
 			for _, raw := range messages {
 				msg, _ := raw.(map[string]any)
@@ -178,6 +184,9 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 				}
 				role := stringValue(msg["role"])
 				text := searchMessageText(msg)
+				if rootTeamCoordinator {
+					text = teamVisibleSearchMessageText(msg)
+				}
 				if approval, ok := msg["approval"].(map[string]any); ok {
 					approvalText := strings.TrimSpace(strings.Join([]string{
 						text,
@@ -296,6 +305,13 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 		hits = hits[:limit]
 	}
 	return hits, nil
+}
+
+func teamVisibleSearchMessageText(msg map[string]any) string {
+	if !strings.EqualFold(strings.TrimSpace(stringValue(msg["role"])), "assistant") {
+		return ""
+	}
+	return strings.TrimSpace(extractTextFromContent(msg["content"]))
 }
 
 func searchMessageText(msg map[string]any) string {

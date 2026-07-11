@@ -200,7 +200,12 @@ func localTimezoneName() string {
 
 func buildAgentIdentitySection(session QuerySession) string {
 	lines := []string{"Agent Identity"}
-	appendKeyValue(&lines, "key", session.AgentKey)
+	// TEAM executes through a synthetic AgentKey so it can reuse the ordinary
+	// engine contract. That key is deliberately runtime-only and must not enter
+	// persisted prompts or any model-visible/public diagnostics.
+	if session.TeamRuntime == nil {
+		appendKeyValue(&lines, "key", session.AgentKey)
+	}
 	appendKeyValue(&lines, "name", session.AgentName)
 	appendKeyValue(&lines, "role", session.AgentRole)
 	appendKeyValue(&lines, "description", session.AgentDescription)

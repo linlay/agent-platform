@@ -90,7 +90,8 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		allowedTools = options.ToolNames
 	}
 	allowedTools = coderRuntimeToolNamesForStage(session, options.Stage, allowedTools)
-	effectiveDefs := effectiveToolDefinitions(e.tools.Definitions(), allowedTools, session.AgentHasRuntimeSandbox)
+	allToolDefs := mergeToolDefinitions(e.tools.Definitions(), session.ModeToolDefinitions)
+	effectiveDefs := effectiveToolDefinitions(allToolDefs, allowedTools, session.AgentHasRuntimeSandbox)
 	toolSpecs := toOpenAIToolSpecs(effectiveDefs)
 	execCtx := options.ExecCtx
 	if execCtx == nil {
@@ -379,6 +380,36 @@ func effectiveToolDefinitions(defs []api.ToolDetailResponse, allowed []string, u
 			continue
 		}
 		out = append(out, def)
+	}
+	return out
+}
+
+func mergeToolDefinitions(base []api.ToolDetailResponse, local []api.ToolDetailResponse) []api.ToolDetailResponse {
+	if len(local) == 0 {
+		return append([]api.ToolDetailResponse(nil), base...)
+	}
+	out := make([]api.ToolDetailResponse, 0, len(base)+len(local))
+	index := map[string]int{}
+	appendDef := func(def api.ToolDetailResponse) {
+		key := strings.ToLower(strings.TrimSpace(def.Name))
+		if key == "" {
+			key = strings.ToLower(strings.TrimSpace(def.Key))
+		}
+		if key == "" {
+			return
+		}
+		if pos, ok := index[key]; ok {
+			out[pos] = def
+			return
+		}
+		index[key] = len(out)
+		out = append(out, def)
+	}
+	for _, def := range base {
+		appendDef(def)
+	}
+	for _, def := range local {
+		appendDef(def)
 	}
 	return out
 }

@@ -160,14 +160,14 @@ func (s *FileStore) DeriveChat(request DeriveChatRequest) (DeriveChatResult, err
 	}()
 
 	_, err = tx.Exec(`INSERT INTO CHATS (
-			CHAT_ID_, CHAT_NAME_, AGENT_KEY_, TEAM_ID_, SOURCE_, CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_,
+			CHAT_ID_, CHAT_NAME_, OWNER_TYPE_, AGENT_KEY_, TEAM_ID_, SOURCE_, CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_,
 			USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, USAGE_CACHED_TOKENS_, USAGE_REASONING_TOKENS_,
 			USAGE_PROMPT_CACHE_HIT_TOKENS_, USAGE_PROMPT_CACHE_MISS_TOKENS_,
 			USAGE_ESTIMATED_COST_CURRENCY_, USAGE_ESTIMATED_COST_INPUT_CACHE_HIT_, USAGE_ESTIMATED_COST_INPUT_CACHE_MISS_, USAGE_ESTIMATED_COST_OUTPUT_, USAGE_ESTIMATED_COST_TOTAL_,
 			USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
 			USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		targetChatID, chatName, sourceSummary.AgentKey, nilIfEmpty(sourceSummary.TeamID), "", now, now, targetRunID, targetSourceRun.AssistantText, readRunID, now,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		targetChatID, chatName, normalizedStoredOwnerType(sourceSummary.OwnerType, sourceSummary.AgentKey, sourceSummary.TeamID), sourceSummary.AgentKey, nilIfEmpty(sourceSummary.TeamID), "", now, now, targetRunID, targetSourceRun.AssistantText, readRunID, now,
 		usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, usage.CachedTokens, usage.ReasoningTokens,
 		usage.PromptCacheHitTokens, usage.PromptCacheMissTokens,
 		usage.EstimatedCostCurrency, usage.EstimatedCostInputHit, usage.EstimatedCostInputMiss, usage.EstimatedCostOutput, usage.EstimatedCostTotal,
@@ -180,15 +180,15 @@ func (s *FileStore) DeriveChat(request DeriveChatRequest) (DeriveChatResult, err
 		sourceRun := sourceRunByID[sourceID]
 		mappedRunID := runIDs[sourceID]
 		_, err = tx.Exec(`INSERT INTO RUNS (
-				RUN_ID_, CHAT_ID_, AGENT_KEY_, INITIAL_MESSAGE_, ASSISTANT_TEXT_, FINISH_REASON_,
+				RUN_ID_, CHAT_ID_, OWNER_TYPE_, AGENT_KEY_, TEAM_ID_, INITIAL_MESSAGE_, ASSISTANT_TEXT_, FINISH_REASON_,
 				STARTED_AT_, COMPLETED_AT_,
 				USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, USAGE_CACHED_TOKENS_, USAGE_REASONING_TOKENS_,
 				USAGE_PROMPT_CACHE_HIT_TOKENS_, USAGE_PROMPT_CACHE_MISS_TOKENS_,
 				USAGE_ESTIMATED_COST_CURRENCY_, USAGE_ESTIMATED_COST_INPUT_CACHE_HIT_, USAGE_ESTIMATED_COST_INPUT_CACHE_MISS_, USAGE_ESTIMATED_COST_OUTPUT_, USAGE_ESTIMATED_COST_TOTAL_, USAGE_MODEL_KEY_,
 				USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
 				USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			mappedRunID, targetChatID, sourceRun.AgentKey, sourceRun.InitialMessage, sourceRun.AssistantText, sourceRun.FinishReason,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			mappedRunID, targetChatID, normalizedStoredOwnerType(sourceRun.OwnerType, sourceRun.AgentKey, sourceRun.TeamID), sourceRun.AgentKey, nilIfEmpty(sourceRun.TeamID), sourceRun.InitialMessage, sourceRun.AssistantText, sourceRun.FinishReason,
 			now, now,
 			sourceRun.Usage.PromptTokens, sourceRun.Usage.CompletionTokens, sourceRun.Usage.TotalTokens, sourceRun.Usage.CachedTokens, sourceRun.Usage.ReasoningTokens,
 			sourceRun.Usage.PromptCacheHitTokens, sourceRun.Usage.PromptCacheMissTokens,
@@ -231,7 +231,7 @@ func (s *FileStore) DeriveChat(request DeriveChatRequest) (DeriveChatResult, err
 }
 
 func (s *FileStore) listRunsLocked(chatID string) ([]RunSummary, error) {
-	rows, err := s.db.Query(`SELECT RUN_ID_, CHAT_ID_, AGENT_KEY_, INITIAL_MESSAGE_, ASSISTANT_TEXT_, FINISH_REASON_,
+	rows, err := s.db.Query(`SELECT RUN_ID_, CHAT_ID_, COALESCE(OWNER_TYPE_,''), AGENT_KEY_, COALESCE(TEAM_ID_,''), INITIAL_MESSAGE_, ASSISTANT_TEXT_, FINISH_REASON_,
 		STARTED_AT_, COMPLETED_AT_,
 		USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, USAGE_CACHED_TOKENS_, USAGE_REASONING_TOKENS_, USAGE_PROMPT_CACHE_HIT_TOKENS_, USAGE_PROMPT_CACHE_MISS_TOKENS_, USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
 		USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_,
@@ -247,7 +247,7 @@ func (s *FileStore) listRunsLocked(chatID string) ([]RunSummary, error) {
 	for rows.Next() {
 		var item RunSummary
 		if err := rows.Scan(
-			&item.RunID, &item.ChatID, &item.AgentKey, &item.InitialMessage, &item.AssistantText, &item.FinishReason,
+			&item.RunID, &item.ChatID, &item.OwnerType, &item.AgentKey, &item.TeamID, &item.InitialMessage, &item.AssistantText, &item.FinishReason,
 			&item.StartedAt, &item.CompletedAt,
 			&item.Usage.PromptTokens, &item.Usage.CompletionTokens, &item.Usage.TotalTokens, &item.Usage.CachedTokens, &item.Usage.ReasoningTokens, &item.Usage.PromptCacheHitTokens, &item.Usage.PromptCacheMissTokens, &item.Usage.LlmChatCompletionCount, &item.Usage.ToolCallCount,
 			&item.Usage.FirstTokenLatencyTotalMs, &item.Usage.FirstTokenLatencyCount, &item.Usage.GenerationDurationMs,
@@ -256,6 +256,7 @@ func (s *FileStore) listRunsLocked(chatID string) ([]RunSummary, error) {
 		); err != nil {
 			return nil, err
 		}
+		item.OwnerType = normalizedStoredOwnerType(item.OwnerType, item.AgentKey, item.TeamID)
 		items = append(items, item)
 	}
 	return items, rows.Err()

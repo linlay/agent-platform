@@ -13,7 +13,8 @@ import (
 func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 	runID := strings.TrimSpace(r.URL.Query().Get("runId"))
 	agentKey := strings.TrimSpace(r.URL.Query().Get("agentKey"))
-	if statusErr := s.validateRunAgentKey(runID, agentKey); statusErr != nil {
+	teamID := strings.TrimSpace(r.URL.Query().Get("teamId"))
+	if statusErr := s.validateRunOwner(runID, agentKey, teamID); statusErr != nil {
 		writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))
 		return
 	}

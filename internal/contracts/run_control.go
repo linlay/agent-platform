@@ -674,6 +674,13 @@ func (c *RunControl) ExpectSubmit(ctx AwaitingSubmitContext) {
 		return
 	}
 	c.mu.Lock()
+	// The run executor observes the emitted awaiting.ask after the Team
+	// coordinator has registered its reversible child routes. Preserve that
+	// internal routing metadata when the generic lifecycle registration for the
+	// same public awaiting arrives.
+	if existing, ok := c.awaitingSubmits[ctx.AwaitingID]; ok && len(ctx.Routes) == 0 && len(existing.Routes) > 0 {
+		ctx.Routes = cloneAwaitingSubmitRoutes(existing.Routes)
+	}
 	c.awaitingSubmits[ctx.AwaitingID] = ctx.Clone()
 	if ctx.PublicAwaitingID != "" && ctx.PublicAwaitingID != ctx.AwaitingID {
 		c.awaitingAliases[ctx.PublicAwaitingID] = ctx.AwaitingID

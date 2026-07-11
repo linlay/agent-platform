@@ -38,39 +38,40 @@ type llmRunStream struct {
 	postToolHook       func(string, string) PostToolHookResult
 	checker            hitl.Checker
 
-	step                int
-	stageToolCalls      int
-	pending             []AgentDelta
-	modelCall           *pendingModelCall
-	modelTerminalError  error
-	currentTurn         *providerTurnStream
-	lastTrace           *llmChatTrace
-	finished            bool
-	closed              bool
-	fallbackSent        bool
-	cancelSent          bool
-	finalTurnAttempted  bool
-	allowToolUse        bool
-	previousToolResult  any
-	queuedToolCalls     []*preparedToolInvocation
-	activeToolCall      *preparedToolInvocation
-	activeToolBatch     *activeToolBatch
-	stopAfterToolBatch  bool
-	promptBuildOptions  PromptBuildOptions
-	hitlPendingBatch    *pendingHITLApprovalBatch
-	hitlPendingCall     *preparedToolInvocation
-	hitlMatch           *hitl.InterceptResult
-	hitlAwaitingID      string
-	hitlAwaitArgs       map[string]any
-	hitlRuleWhitelist   map[string]struct{}
-	pendingHITLNotices  []hitlNoticeEntry
-	skipPostToolHook    bool
-	onApprovalSummary   func(chat.StepApproval)
-	planningWrites      map[string]*planningWriteStreamState
-	accessLevelVersion  int64
-	systemInitCacheKey  string
-	systemInitCacheUsed bool
-	pendingSteerInputs  []map[string]any
+	step                 int
+	stageToolCalls       int
+	pending              []AgentDelta
+	modelCall            *pendingModelCall
+	modelTerminalError   error
+	currentTurn          *providerTurnStream
+	lastTrace            *llmChatTrace
+	finished             bool
+	closed               bool
+	fallbackSent         bool
+	cancelSent           bool
+	finalTurnAttempted   bool
+	teamRouteCorrections int
+	allowToolUse         bool
+	previousToolResult   any
+	queuedToolCalls      []*preparedToolInvocation
+	activeToolCall       *preparedToolInvocation
+	activeToolBatch      *activeToolBatch
+	stopAfterToolBatch   bool
+	promptBuildOptions   PromptBuildOptions
+	hitlPendingBatch     *pendingHITLApprovalBatch
+	hitlPendingCall      *preparedToolInvocation
+	hitlMatch            *hitl.InterceptResult
+	hitlAwaitingID       string
+	hitlAwaitArgs        map[string]any
+	hitlRuleWhitelist    map[string]struct{}
+	pendingHITLNotices   []hitlNoticeEntry
+	skipPostToolHook     bool
+	onApprovalSummary    func(chat.StepApproval)
+	planningWrites       map[string]*planningWriteStreamState
+	accessLevelVersion   int64
+	systemInitCacheKey   string
+	systemInitCacheUsed  bool
+	pendingSteerInputs   []map[string]any
 
 	lastCallPromptTokens           int
 	lastCallCompletionTokens       int

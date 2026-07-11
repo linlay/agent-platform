@@ -149,10 +149,10 @@ func (r *Registry) parseDefinition(path string) (Definition, error) {
 	}
 
 	agentKey := stringNode(root["agentKey"])
-	if agentKey == "" {
+	teamID := stringNode(root["teamId"])
+	if agentKey == "" && teamID == "" {
 		return Definition{}, fmt.Errorf("agentKey is required")
 	}
-	teamID := stringNode(root["teamId"])
 	if err := r.validateTeam(agentKey, teamID); err != nil {
 		return Definition{}, err
 	}
@@ -193,12 +193,32 @@ func (r *Registry) parseDefinition(path string) (Definition, error) {
 }
 
 func (r *Registry) validateTeam(agentKey string, teamID string) error {
-	if teamID == "" || r == nil || r.teams == nil {
+	agentKey = strings.TrimSpace(agentKey)
+	teamID = strings.TrimSpace(teamID)
+	if teamID == "" {
+		if agentKey == "" {
+			return fmt.Errorf("agentKey is required")
+		}
 		return nil
+	}
+	if r == nil || r.teams == nil {
+		return fmt.Errorf("team %q cannot be validated", teamID)
 	}
 	team, ok := r.teams.ResolveTeam(teamID)
 	if !ok {
 		return fmt.Errorf("team %q not found", teamID)
+	}
+	if strings.EqualFold(strings.TrimSpace(team.RuntimeMode), catalog.TeamRuntimeModeOrchestrated) {
+		if agentKey != "" {
+			return fmt.Errorf("agentKey must be omitted for orchestrated team %q", teamID)
+		}
+		if len(team.AgentKeys) == 0 || len(team.InvalidAgentKeys) > 0 || len(team.ValidAgentKeys) != len(team.AgentKeys) {
+			return fmt.Errorf("orchestrated team %q has unavailable members: %v", teamID, team.InvalidAgentKeys)
+		}
+		return nil
+	}
+	if agentKey == "" {
+		return fmt.Errorf("agentKey is required for legacy team %q", teamID)
 	}
 	if !team.DefaultAgentValid {
 		return fmt.Errorf("team %q has invalid default agent %q (%s)", teamID, team.DefaultAgentKey, team.DefaultAgentState)
@@ -337,7 +357,7 @@ func (r *Registry) Validate(def Definition) error {
 	if def.RemainingRuns != nil && *def.RemainingRuns <= 0 {
 		return fmt.Errorf("remainingRuns must be a positive integer")
 	}
-	if strings.TrimSpace(def.AgentKey) == "" {
+	if strings.TrimSpace(def.AgentKey) == "" && strings.TrimSpace(def.TeamID) == "" {
 		return fmt.Errorf("agentKey is required")
 	}
 	if err := r.validateTeam(strings.TrimSpace(def.AgentKey), strings.TrimSpace(def.TeamID)); err != nil {

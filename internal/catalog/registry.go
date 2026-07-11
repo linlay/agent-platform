@@ -182,9 +182,32 @@ type ToolAppendixPromptConfig struct {
 type TeamDefinition struct {
 	TeamID          string
 	Name            string
+	Description     string
 	Icon            any
 	AgentKeys       []string
 	DefaultAgentKey string
+	RuntimeMode     string
+	Orchestrator    TeamOrchestratorConfig
+	SoulPrompt      string
+	AgentsPrompt    string
+	TeamDir         string
+}
+
+const (
+	TeamRuntimeModeLegacy       = "legacy"
+	TeamRuntimeModeOrchestrated = "orchestrated"
+	TeamDefaultMaxParallel      = 5
+)
+
+// TeamOrchestratorConfig is the catalog-owned, immutable configuration used
+// to synthesize the hidden TEAM runtime agent. It deliberately contains no
+// public agent key and is never registered in the ordinary agent catalog.
+type TeamOrchestratorConfig struct {
+	ModelKey      string
+	ServiceTier   string
+	Budget        map[string]any
+	MaxParallel   int
+	StageSettings map[string]any
 }
 
 const (
@@ -199,14 +222,23 @@ const (
 // snapshot for the lifetime of a run instead of consulting the hot-reloaded
 // registry again.
 type TeamSnapshot struct {
-	TeamID            string
-	Name              string
-	AgentKeys         []string
-	ValidAgentKeys    []string
-	InvalidAgentKeys  []string
-	DefaultAgentKey   string
-	DefaultAgentValid bool
-	DefaultAgentState string
+	TeamID                  string
+	Name                    string
+	Description             string
+	Icon                    any
+	AgentKeys               []string
+	ValidAgentKeys          []string
+	InvalidAgentKeys        []string
+	DefaultAgentKey         string
+	DefaultAgentValid       bool
+	DefaultAgentState       string
+	RuntimeMode             string
+	Orchestrator            TeamOrchestratorConfig
+	SoulPrompt              string
+	AgentsPrompt            string
+	RosterFingerprint       string
+	ToolSchemaFingerprint   string
+	OrchestratorFingerprint string
 
 	agentDefinitions map[string]AgentDefinition
 }
@@ -637,7 +669,10 @@ func (r *FileRegistry) TeamDefinition(teamID string) (TeamDefinition, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	def, ok := r.teams[teamID]
-	return def, ok
+	if !ok {
+		return TeamDefinition{}, false
+	}
+	return cloneTeamDefinitionSnapshot(def), true
 }
 
 // ResolveTeam atomically resolves a team definition together with the current
@@ -658,7 +693,13 @@ func resolveTeamSnapshotLocked(team TeamDefinition, agents map[string]AgentDefin
 	snapshot := TeamSnapshot{
 		TeamID:           strings.TrimSpace(team.TeamID),
 		Name:             strings.TrimSpace(team.Name),
+		Description:      strings.TrimSpace(team.Description),
+		Icon:             cloneAgentSnapshotValue(team.Icon),
 		DefaultAgentKey:  strings.TrimSpace(team.DefaultAgentKey),
+		RuntimeMode:      normalizeTeamRuntimeMode(team.RuntimeMode),
+		Orchestrator:     cloneTeamOrchestratorConfig(team.Orchestrator),
+		SoulPrompt:       strings.TrimSpace(team.SoulPrompt),
+		AgentsPrompt:     strings.TrimSpace(team.AgentsPrompt),
 		agentDefinitions: make(map[string]AgentDefinition),
 	}
 	seen := make(map[string]struct{}, len(team.AgentKeys))
@@ -691,6 +732,11 @@ func resolveTeamSnapshotLocked(team TeamDefinition, agents map[string]AgentDefin
 		snapshot.DefaultAgentState = TeamDefaultAgentValid
 		snapshot.DefaultAgentValid = true
 	}
+	snapshot.RosterFingerprint = teamRosterFingerprint(snapshot)
+	if snapshot.RuntimeMode == TeamRuntimeModeOrchestrated {
+		snapshot.ToolSchemaFingerprint = teamHiddenToolSchemaFingerprint(snapshot)
+		snapshot.OrchestratorFingerprint = teamOrchestratorFingerprint(snapshot)
+	}
 	return snapshot
 }
 
@@ -700,6 +746,28 @@ func resolveTeamSnapshotLocked(team TeamDefinition, agents map[string]AgentDefin
 // adapters and tests that cannot implement that atomic interface.
 func NewTeamSnapshot(team TeamDefinition, agents map[string]AgentDefinition) TeamSnapshot {
 	return resolveTeamSnapshotLocked(team, agents)
+}
+
+func normalizeTeamRuntimeMode(mode string) string {
+	if strings.EqualFold(strings.TrimSpace(mode), TeamRuntimeModeOrchestrated) {
+		return TeamRuntimeModeOrchestrated
+	}
+	return TeamRuntimeModeLegacy
+}
+
+func cloneTeamOrchestratorConfig(src TeamOrchestratorConfig) TeamOrchestratorConfig {
+	dst := src
+	dst.Budget = cloneAgentSnapshotMap(src.Budget)
+	dst.StageSettings = cloneAgentSnapshotMap(src.StageSettings)
+	return dst
+}
+
+func cloneTeamDefinitionSnapshot(src TeamDefinition) TeamDefinition {
+	dst := src
+	dst.Icon = cloneAgentSnapshotValue(src.Icon)
+	dst.AgentKeys = append([]string(nil), src.AgentKeys...)
+	dst.Orchestrator = cloneTeamOrchestratorConfig(src.Orchestrator)
+	return dst
 }
 
 func cloneAgentDefinitionSnapshot(src AgentDefinition) AgentDefinition {

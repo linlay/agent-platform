@@ -354,6 +354,7 @@ func mapArchivedSummary(item chat.ArchivedSummary) api.ArchivedSummaryResponse {
 	resp := api.ArchivedSummaryResponse{
 		ChatID:         item.ChatID,
 		ChatName:       item.ChatName,
+		OwnerType:      item.OwnerType,
 		AgentKey:       item.AgentKey,
 		TeamID:         item.TeamID,
 		Source:         item.Source,
@@ -377,7 +378,9 @@ func mapRunSummary(run chat.RunSummary) api.RunSummary {
 	return api.RunSummary{
 		RunID:           run.RunID,
 		ChatID:          run.ChatID,
+		OwnerType:       run.OwnerType,
 		AgentKey:        run.AgentKey,
+		TeamID:          run.TeamID,
 		InitialMessage:  run.InitialMessage,
 		AssistantText:   run.AssistantText,
 		FinishReason:    run.FinishReason,

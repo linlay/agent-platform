@@ -12,6 +12,7 @@ import (
 	agentcontract "agent-platform/internal/agent"
 	agentbuiltin "agent-platform/internal/agent/builtin"
 	agentcoder "agent-platform/internal/agent/coder"
+	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
@@ -79,6 +80,7 @@ func validateSystemInitProfiles(profiles []contracts.SystemInitProfile) error {
 }
 
 func BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, defaultPlanMaxSteps int, defaultPlanMaxWorkRoundsPerTask int, prompts config.PromptsConfig) []contracts.SystemInitProfile {
+	toolDefs = mergeToolDefinitions(toolDefs, session.ModeToolDefinitions)
 	mode := normalizedSystemInitMode(session.Mode)
 	if session.PlanningMode {
 		if mode != agentcoder.MainStage {
@@ -132,6 +134,10 @@ func (b SystemInitProfileBuilder) applyRequestProfile(profile *contracts.SystemI
 	protocolConfig := resolveProtocolRuntimeConfig(provider, model)
 	toolSpecs := openAIToolSpecsFromAny(profile.Tools)
 	messages := profileMessages(profile.SystemMessage)
+	toolChoice := "auto"
+	if strings.EqualFold(strings.TrimSpace(session.Mode), agentteam.Mode) && strings.EqualFold(strings.TrimSpace(stage), agentteam.MainStage) {
+		toolChoice = "required"
+	}
 	prepared, err := protocol.PrepareRequest(protocolStreamParams{
 		runID:          req.RunID,
 		provider:       provider,
@@ -140,13 +146,13 @@ func (b SystemInitProfileBuilder) applyRequestProfile(profile *contracts.SystemI
 		stageSettings:  stageSettings,
 		messages:       messages,
 		toolSpecs:      toolSpecs,
-		toolChoice:     "auto",
+		toolChoice:     toolChoice,
 	})
 	if err != nil {
 		return
 	}
 	profile.Model = modelSnapshotFromDefinition(model, provider, prepared.Endpoint, strings.TrimSpace(stageSettings.ReasoningEffort))
-	profile.ToolChoice = effectiveTraceToolChoice("auto", toolSpecs)
+	profile.ToolChoice = effectiveTraceToolChoice(toolChoice, toolSpecs)
 	profile.RequestOptions = requestOptionsFromPreparedBody(prepared.RequestBody)
 }
 
@@ -284,6 +290,7 @@ func ComputeSystemInitFingerprint(session contracts.QuerySession, stage string, 
 		"skillHookDirs":          sortedStrings(session.SkillHookDirs),
 		"runtimeEnvOverrides":    session.RuntimeEnvOverrides,
 		"toolDefinitions":        stableToolDefinitions(toolDefs),
+		"teamRuntime":            session.TeamRuntime,
 	}
 	raw, _ := json.Marshal(payload)
 	sum := sha256.Sum256(raw)

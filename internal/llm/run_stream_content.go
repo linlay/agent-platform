@@ -48,6 +48,11 @@ func (s *llmRunStream) appendContentDelta(text string) {
 	s.currentTurn.hasMeaningful = true
 	s.currentTurn.content.WriteString(text)
 	s.engine.logParsedDelta(s.session.RunID, "content", text)
+	if s.teamRouteRequired() {
+		// Initial coordinator text is not a valid route and must never flash in
+		// the client before we know whether the turn contains a Team tool call.
+		return
+	}
 	s.pending = append(s.pending, s.newContentDeltaEvent(text))
 }
 

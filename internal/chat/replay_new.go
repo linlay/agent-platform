@@ -106,6 +106,8 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 	runs := map[string]*chatRunData{}
 	var runOrder []string
 	var chatStartEvent *stream.EventData
+	orchestratedTeam := strings.EqualFold(strings.TrimSpace(summary.OwnerType), "team") ||
+		(strings.TrimSpace(summary.TeamID) != "" && strings.TrimSpace(summary.AgentKey) == "")
 
 	seq := int64(0)
 	nextSeq := func() int64 { seq++; return seq }
@@ -135,11 +137,14 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 		}
 		query, _ := line["query"].(map[string]any)
 		taskQueries[replayedTaskQueryKey(runID, taskID)] = replayedSubTaskQuery{
-			TaskID:      taskID,
-			TaskName:    stringFromAny(line["taskName"]),
-			TaskDesc:    stringFromAny(query["message"]),
-			SubAgentKey: stringFromAny(line["subAgentKey"]),
-			MainToolID:  taskToolIDFromLine(line),
+			TaskID:       taskID,
+			TaskName:     stringFromAny(line["taskName"]),
+			TaskDesc:     stringFromAny(query["message"]),
+			SubAgentKey:  stringFromAny(line["subAgentKey"]),
+			MainToolID:   taskToolIDFromLine(line),
+			TeamID:       stringFromAny(line["teamId"]),
+			Presentation: stringFromAny(line["presentation"]),
+			RootContent:  boolFromAny(line["rootContent"]),
 		}
 	}
 
@@ -166,6 +171,11 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				payload[k] = v
 			}
 			taskID, _ := line["taskId"].(string)
+			if rootContent := boolFromAny(line["rootContent"]); strings.TrimSpace(taskID) != "" && rootContent {
+				// Direct delegation is presented as the root reply. Its internal child
+				// query must not reappear as a task-scoped request during replay.
+				continue
+			}
 			if strings.TrimSpace(taskID) != "" {
 				payload["taskId"] = taskID
 			}
@@ -182,6 +192,9 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				taskSubAgentKey := stringFromAny(line["subAgentKey"])
 				taskMainToolID := taskToolIDFromLine(line)
 				if events := beginReplayedSubTask(rd, runID, taskID, taskName, taskDescription, taskSubAgentKey, taskMainToolID, ts, nextSeq); len(events) > 0 {
+					if orchestratedTeam {
+						events = decorateReplayedTeamTaskEvents(events, firstNonEmptyReplayString(stringFromAny(line["teamId"]), summary.TeamID), taskSubAgentKey, stringFromAny(line["presentation"]))
+					}
 					rd.events = append(rd.events, events...)
 				}
 			}
@@ -207,6 +220,9 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			taskStatus, _ := line["taskStatus"].(string)
 			taskSubAgentKey, _ := line["taskSubAgentKey"].(string)
 			taskMainToolID := taskToolIDFromLine(line)
+			teamID := stringFromAny(line["teamId"])
+			presentation := stringFromAny(line["presentation"])
+			rootContent := false
 			if meta, ok := taskQueries[replayedTaskQueryKey(runID, taskID)]; ok {
 				if strings.TrimSpace(taskName) == "" {
 					taskName = meta.TaskName
@@ -220,10 +236,18 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				if strings.TrimSpace(taskMainToolID) == "" {
 					taskMainToolID = meta.MainToolID
 				}
+				teamID = firstNonEmptyReplayString(teamID, meta.TeamID)
+				presentation = firstNonEmptyReplayString(presentation, meta.Presentation)
+				rootContent = meta.RootContent
 			}
 			ts := int64FromAny(line["updatedAt"])
-			if events := beginReplayedSubTask(rd, runID, taskID, taskName, taskDescription, taskSubAgentKey, taskMainToolID, ts, nextSeq); len(events) > 0 {
-				rd.events = append(rd.events, events...)
+			if !rootContent {
+				if events := beginReplayedSubTask(rd, runID, taskID, taskName, taskDescription, taskSubAgentKey, taskMainToolID, ts, nextSeq); len(events) > 0 {
+					if orchestratedTeam {
+						events = decorateReplayedTeamTaskEvents(events, firstNonEmptyReplayString(teamID, summary.TeamID), taskSubAgentKey, presentation)
+					}
+					rd.events = append(rd.events, events...)
+				}
 			}
 			msgs, _ := line["messages"].([]any)
 			awaitingReplay := newStepAwaitingReplay(line["awaiting"], chatID, runID, chatDir, lineLiveSeq, int64FromAny(line["updatedAt"]))
@@ -242,7 +266,23 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				if msgMap == nil {
 					continue
 				}
-				for _, ev := range storedMessageToEvents(msgMap, runID, taskID, stage, lineLiveSeq, nextSeq) {
+				options := replayMessageOptions{}
+				if orchestratedTeam {
+					options.TeamID = firstNonEmptyReplayString(teamID, summary.TeamID)
+					options.Presentation = presentation
+					if strings.TrimSpace(taskID) != "" {
+						options.ActorType = "agent"
+						options.AgentKey = taskSubAgentKey
+						if strings.TrimSpace(options.Presentation) == "" {
+							options.Presentation = "task"
+						}
+					} else {
+						options.ActorType = "team"
+						options.Presentation = "reply"
+						options.HideTeamCoordinatorInternals = true
+					}
+				}
+				for _, ev := range storedMessageToEventsWithOptions(msgMap, runID, taskID, stage, lineLiveSeq, nextSeq, options) {
 					rd.events = append(rd.events, ev)
 					if ev.Type == "tool.snapshot" {
 						rd.events = append(rd.events, awaitingReplay.consumeForTool(ev.String("toolId"))...)
@@ -317,6 +357,9 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				chatTotalEstimatedCostTotal += total
 			}
 			if events := finishReplayedSubTaskIfTerminal(rd, runID, taskID, taskStatus, ts, nextSeq); len(events) > 0 {
+				if orchestratedTeam {
+					events = decorateReplayedTeamTaskEvents(events, firstNonEmptyReplayString(teamID, summary.TeamID), taskSubAgentKey, presentation)
+				}
 				rd.events = append(rd.events, events...)
 			}
 		case CompactCheckpointLineType:
@@ -498,6 +541,15 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 		Planning: planning,
 		Artifact: artifact,
 	}, nil
+}
+
+func firstNonEmptyReplayString(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func replayRunStartTimestamp(events []stream.EventData) int64 {

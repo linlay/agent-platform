@@ -13,6 +13,8 @@ type taskStepBuffer struct {
 	taskStage               string
 	taskStatus              string
 	taskSubAgentKey         string
+	teamID                  string
+	presentation            string
 	messages                []StoredMessage
 	sources                 *SourceState
 	liveSeq                 int64
@@ -74,6 +76,8 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 		TaskID:          buffer.taskID,
 		TaskStatus:      buffer.taskStatus,
 		TaskSubAgentKey: buffer.taskSubAgentKey,
+		TeamID:          buffer.teamID,
+		Presentation:    buffer.presentation,
 		Messages:        canonicalizeStoredToolResultOrder(append([]StoredMessage(nil), buffer.messages...)),
 	}
 	if buffer.pendingUsage != nil {

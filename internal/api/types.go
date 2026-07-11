@@ -239,7 +239,8 @@ func (r *Reference) UnmarshalJSON(data []byte) error {
 type SubmitRequest struct {
 	ChatID            string       `json:"chatId,omitempty"`
 	RunID             string       `json:"runId"`
-	AgentKey          string       `json:"agentKey"`
+	AgentKey          string       `json:"agentKey,omitempty"`
+	TeamID            string       `json:"teamId,omitempty"`
 	AwaitingID        string       `json:"awaitingId"`
 	SubmitID          string       `json:"submitId,omitempty"`
 	Locale            string       `json:"locale,omitempty"`
@@ -388,7 +389,8 @@ type CompactResponse struct {
 
 type DetachRequest struct {
 	RunID    string `json:"runId"`
-	AgentKey string `json:"agentKey"`
+	AgentKey string `json:"agentKey,omitempty"`
+	TeamID   string `json:"teamId,omitempty"`
 	Reason   string `json:"reason,omitempty"`
 }
 
@@ -405,7 +407,8 @@ type DetachResponse struct {
 type AccessLevelRequest struct {
 	RequestID   string `json:"requestId,omitempty"`
 	RunID       string `json:"runId"`
-	AgentKey    string `json:"agentKey"`
+	AgentKey    string `json:"agentKey,omitempty"`
+	TeamID      string `json:"teamId,omitempty"`
 	AccessLevel string `json:"accessLevel"`
 	Reason      string `json:"reason,omitempty"`
 }
@@ -867,11 +870,13 @@ type ServiceTierOption struct {
 }
 
 type TeamSummary struct {
-	TeamID    string         `json:"teamId"`
-	Name      string         `json:"name"`
-	Icon      any            `json:"icon,omitempty"`
-	AgentKeys []string       `json:"agentKeys"`
-	Meta      map[string]any `json:"meta,omitempty"`
+	TeamID      string         `json:"teamId"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	RuntimeMode string         `json:"runtimeMode"`
+	Icon        any            `json:"icon,omitempty"`
+	AgentKeys   []string       `json:"agentKeys"`
+	Meta        map[string]any `json:"meta,omitempty"`
 }
 
 type SkillSummary struct {
@@ -1122,6 +1127,7 @@ type ToolDetailResponse struct {
 type ChatSummaryResponse struct {
 	ChatID         string         `json:"chatId"`
 	ChatName       string         `json:"chatName"`
+	OwnerType      string         `json:"ownerType,omitempty"`
 	AgentKey       string         `json:"agentKey,omitempty"`
 	TeamID         string         `json:"teamId,omitempty"`
 	Source         string         `json:"source,omitempty"`
@@ -1261,7 +1267,9 @@ type ArchivedChatDetailResponse struct {
 type RunSummary struct {
 	RunID           string        `json:"runId"`
 	ChatID          string        `json:"chatId"`
+	OwnerType       string        `json:"ownerType,omitempty"`
 	AgentKey        string        `json:"agentKey,omitempty"`
+	TeamID          string        `json:"teamId,omitempty"`
 	InitialMessage  string        `json:"initialMessage,omitempty"`
 	AssistantText   string        `json:"assistantText,omitempty"`
 	FinishReason    string        `json:"finishReason,omitempty"`
@@ -1275,6 +1283,9 @@ type RunSummary struct {
 
 type ActiveRunInfo struct {
 	RunID        string `json:"runId"`
+	OwnerType    string `json:"ownerType,omitempty"`
+	AgentKey     string `json:"agentKey,omitempty"`
+	TeamID       string `json:"teamId,omitempty"`
 	State        string `json:"state"`
 	LastSeq      int64  `json:"lastSeq"`
 	OldestSeq    int64  `json:"oldestSeq"`

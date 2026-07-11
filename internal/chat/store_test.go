@@ -458,6 +458,8 @@ func TestFileStoreAddsRunsUsageColumns(t *testing.T) {
 	defer db.Close()
 	columns := sqliteColumnNames(t, db, "RUNS")
 	for _, col := range []string{
+		"OWNER_TYPE_",
+		"TEAM_ID_",
 		"USAGE_MODEL_KEY_",
 		"USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_",
 		"USAGE_FIRST_TOKEN_LATENCY_COUNT_",
@@ -512,6 +514,7 @@ func TestFileStoreAddsChatsUsageTimingColumns(t *testing.T) {
 	defer db.Close()
 	columns := sqliteColumnNames(t, db, "CHATS")
 	for _, col := range []string{
+		"OWNER_TYPE_",
 		"USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_",
 		"USAGE_FIRST_TOKEN_LATENCY_COUNT_",
 		"USAGE_GENERATION_DURATION_MS_",

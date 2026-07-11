@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
 	. "agent-platform/internal/contracts"
 )
@@ -249,6 +250,14 @@ func (s *llmRunStream) ensureSystemProfileRegistered(prepared preparedProviderRe
 	if len(s.currentSystemRefForCall(prepared, effectiveToolChoice)) > 0 {
 		return nil
 	}
+	// TEAM starts from a registered tool-required profile. After the first
+	// dispatch, the same stream intentionally switches to auto (team_invoke)
+	// or none (fanout summary). Those dynamic continuation profiles are stored
+	// inline on llm.request and must not invalidate the initial system profile.
+	if strings.EqualFold(strings.TrimSpace(s.session.Mode), agentteam.Mode) &&
+		!strings.EqualFold(strings.TrimSpace(effectiveToolChoice), "required") {
+		return nil
+	}
 	return fmt.Errorf("system profile not registered on query: runId=%s stage=%s cacheKey=%s", strings.TrimSpace(s.session.RunID), strings.TrimSpace(s.promptBuildOptions.Stage), cacheKey)
 }
 
@@ -339,6 +348,30 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		return nil
 	}
 	content := turn.content.String()
+	if s.teamRouteRequired() && len(toolCalls) == 0 {
+		if turn.trace != nil {
+			turn.trace.completeOK(content, turn.reasoning.String(), nil, strings.TrimSpace(turn.finishReason), turn.usage)
+		}
+		s.emitPendingUsageDelta()
+		s.emitDebugLLMChatDelta(turn.trace)
+		s.currentTurn = nil
+		s.pending = append(s.pending, s.buildModelRunActivity("completed", nil, nil))
+		if s.teamRouteCorrections < agentteam.MaxRoutingRetries {
+			s.teamRouteCorrections++
+			s.messages = append(s.messages, openAIMessage{
+				Role:    "user",
+				Content: "The previous response did not perform the mandatory Team routing step. Call exactly one of team_delegate or team_invoke now; do not answer with ordinary text.",
+			})
+			return nil
+		}
+		s.modelTerminalError = fmt.Errorf("TEAM coordinator did not produce a valid routing tool call after one correction")
+		return nil
+	}
+	if s.teamRouteRequired() {
+		// A provider may send an explanatory preamble together with a valid
+		// routing call. The routing phase is hidden, so retain only the tool call.
+		content = ""
+	}
 	if s.finalTurnAttempted && len(toolCalls) > 0 {
 		if strings.TrimSpace(content) != "" {
 			msg := s.newAssistantTurnMessage(turn, content, nil)
@@ -451,6 +484,10 @@ func (s *llmRunStream) finishCurrentTurn() error {
 	}
 	s.queuedToolCalls = s.prioritizeAwaitingToolCalls(s.queuedToolCalls)
 	return nil
+}
+
+func (s *llmRunStream) teamRouteRequired() bool {
+	return s != nil && s.session.TeamRuntime != nil && strings.EqualFold(strings.TrimSpace(s.toolChoice), "required")
 }
 
 func (s *llmRunStream) newAssistantTurnMessage(turn *providerTurnStream, content string, toolCalls []openAIToolCall) openAIMessage {
@@ -567,6 +604,24 @@ func (s *llmRunStream) FinalAssistantContent() (string, bool) {
 		return text, true
 	}
 	return "", false
+}
+
+func (s *llmRunStream) RequireFinalResponse() {
+	if s == nil {
+		return
+	}
+	s.allowToolUse = false
+	s.toolSpecs = nil
+	s.requestedToolNames = nil
+	s.toolChoice = "none"
+}
+
+func (s *llmRunStream) AllowOptionalTools() {
+	if s == nil {
+		return
+	}
+	s.allowToolUse = true
+	s.toolChoice = "auto"
 }
 
 func (s *llmRunStream) appendPendingSteers() {

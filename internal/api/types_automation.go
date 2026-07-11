@@ -19,7 +19,7 @@ type AutomationSummaryResponse struct {
 	Name          string                    `json:"name"`
 	Description   string                    `json:"description"`
 	Cron          string                    `json:"cron"`
-	AgentKey      string                    `json:"agentKey"`
+	AgentKey      string                    `json:"agentKey,omitempty"`
 	Enabled       bool                      `json:"enabled"`
 	TeamID        string                    `json:"teamId,omitempty"`
 	ZoneID        string                    `json:"zoneId,omitempty"`
@@ -58,8 +58,8 @@ type AutomationExecutionResponse struct {
 	AutomationID   string `json:"automationId"`
 	AutomationName string `json:"automationName"`
 	SourceFile     string `json:"sourceFile"`
-	AgentKey       string `json:"agentKey"`
-	TeamID         string `json:"teamId"`
+	AgentKey       string `json:"agentKey,omitempty"`
+	TeamID         string `json:"teamId,omitempty"`
 	Status         string `json:"status"`
 	Error          string `json:"error"`
 	StartedAt      int64  `json:"startedAt"`
@@ -73,7 +73,7 @@ type CreateAutomationRequest struct {
 	Name          string                 `json:"name"`
 	Description   string                 `json:"description"`
 	Cron          string                 `json:"cron"`
-	AgentKey      string                 `json:"agentKey"`
+	AgentKey      string                 `json:"agentKey,omitempty"`
 	Enabled       *bool                  `json:"enabled,omitempty"`
 	TeamID        string                 `json:"teamId,omitempty"`
 	ZoneID        string                 `json:"zoneId,omitempty"`

@@ -293,6 +293,7 @@ func (s *Server) startRunContinuation(continuation contracts.DeltaRunContinuatio
 		ChatID:            chatID,
 		RunID:             sourceRunID,
 		AgentKey:          strings.TrimSpace(continuation.AgentKey),
+		TeamID:            strings.TrimSpace(continuation.TeamID),
 		AwaitingID:        strings.TrimSpace(continuation.AwaitingID),
 		SubmitID:          strings.TrimSpace(continuation.SubmitID),
 		Locale:            strings.TrimSpace(continuation.Locale),

@@ -85,11 +85,15 @@ func (m *InMemoryRunManager) RegisterExclusiveForChat(_ context.Context, session
 func (m *InMemoryRunManager) registerLocked(session QuerySession) (context.Context, *RunControl, ActiveRun) {
 	control := NewRunControl(context.Background(), session.RunID)
 	control.SetInitialAccessLevel(session.AccessLevel)
+	owner := ResolveRunOwner(session.RunOwner, session.AgentKey, session.TeamID)
 	run := ActiveRun{
-		RunID:    session.RunID,
-		ChatID:   session.ChatID,
-		AgentKey: session.AgentKey,
-		ScopeID:  strings.TrimSpace(session.RunScopeID),
+		RunID:             session.RunID,
+		ChatID:            session.ChatID,
+		OwnerType:         owner.Type,
+		AgentKey:          owner.AgentKey,
+		TeamID:            owner.TeamID,
+		ExecutionAgentKey: owner.ExecutionAgentKey,
+		ScopeID:           strings.TrimSpace(session.RunScopeID),
 	}
 	eventBus := stream.NewRunEventBus(m.eventBusMaxEvents, m.maxObserversPerRun, func(count int) {
 		control.SetObserverCount(int32(count))
@@ -235,14 +239,17 @@ func (m *InMemoryRunManager) RunStatus(runID string) (RunStatusInfo, bool) {
 		return RunStatusInfo{}, false
 	}
 	info := RunStatusInfo{
-		RunID:         state.run.RunID,
-		ChatID:        state.run.ChatID,
-		AgentKey:      state.run.AgentKey,
-		State:         state.control.State(),
-		LastSeq:       state.eventBus.LatestSeq(),
-		OldestSeq:     state.eventBus.OldestSeq(),
-		ObserverCount: state.eventBus.ObserverCount(),
-		StartedAt:     state.startedAt.UnixMilli(),
+		RunID:             state.run.RunID,
+		ChatID:            state.run.ChatID,
+		OwnerType:         state.run.OwnerType,
+		AgentKey:          state.run.AgentKey,
+		TeamID:            state.run.TeamID,
+		ExecutionAgentKey: state.run.ExecutionAgentKey,
+		State:             state.control.State(),
+		LastSeq:           state.eventBus.LatestSeq(),
+		OldestSeq:         state.eventBus.OldestSeq(),
+		ObserverCount:     state.eventBus.ObserverCount(),
+		StartedAt:         state.startedAt.UnixMilli(),
 	}
 	info.AccessLevel, info.AccessLevelVersion = state.control.AccessLevelSnapshot()
 	if !state.completedAt.IsZero() {
@@ -314,14 +321,17 @@ func runStatusInfoFromManagedRun(state *managedRun) RunStatusInfo {
 		return RunStatusInfo{}
 	}
 	info := RunStatusInfo{
-		RunID:         state.run.RunID,
-		ChatID:        state.run.ChatID,
-		AgentKey:      state.run.AgentKey,
-		State:         state.control.State(),
-		LastSeq:       state.eventBus.LatestSeq(),
-		OldestSeq:     state.eventBus.OldestSeq(),
-		ObserverCount: state.eventBus.ObserverCount(),
-		StartedAt:     state.startedAt.UnixMilli(),
+		RunID:             state.run.RunID,
+		ChatID:            state.run.ChatID,
+		OwnerType:         state.run.OwnerType,
+		AgentKey:          state.run.AgentKey,
+		TeamID:            state.run.TeamID,
+		ExecutionAgentKey: state.run.ExecutionAgentKey,
+		State:             state.control.State(),
+		LastSeq:           state.eventBus.LatestSeq(),
+		OldestSeq:         state.eventBus.OldestSeq(),
+		ObserverCount:     state.eventBus.ObserverCount(),
+		StartedAt:         state.startedAt.UnixMilli(),
 	}
 	info.AccessLevel, info.AccessLevelVersion = state.control.AccessLevelSnapshot()
 	if !state.completedAt.IsZero() {

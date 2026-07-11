@@ -225,6 +225,8 @@ func shouldOmitPayloadField(eventType string, key string, value any) bool {
 	switch eventType {
 	case "request.query":
 		return key == "agentKey" || key == "teamId"
+	case "run.start":
+		return key == "agentKey" || key == "teamId" || key == "ownerType"
 	case "request.steer":
 		return key == "requestId"
 	case "chat.start":

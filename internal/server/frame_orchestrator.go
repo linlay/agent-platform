@@ -39,6 +39,7 @@ type frameOrchestrator struct {
 	emitInputs        func(...stream.StreamInput)
 	nextLiveSeq       func() int64
 	taskCounter       int
+	teamAwaitCounter  int
 }
 
 func (o *frameOrchestrator) Run(mainStream contracts.AgentStream) (bool, bool, error) {
@@ -54,13 +55,21 @@ func (o *frameOrchestrator) Run(mainStream contracts.AgentStream) (bool, bool, e
 			return true, false, nextErr
 		}
 
-		invoke, ok := delta.(contracts.DeltaInvokeSubAgents)
-		if !ok {
+		switch value := delta.(type) {
+		case contracts.DeltaInvokeSubAgents:
+			if err := o.handleSubAgentBatch(mainStream, value); err != nil {
+				return true, false, err
+			}
+		case contracts.DeltaTeamDispatch:
+			terminal, err := o.handleTeamDispatch(mainStream, value)
+			if err != nil {
+				return true, false, err
+			}
+			if terminal {
+				return false, false, nil
+			}
+		default:
 			o.emitDelta(delta)
-			continue
-		}
-		if err := o.handleSubAgentBatch(mainStream, invoke); err != nil {
-			return true, false, err
 		}
 	}
 }
@@ -76,17 +85,49 @@ type childTaskResult struct {
 }
 
 type childRouteEvent struct {
-	input  stream.StreamInput
-	result *childTaskResult
+	input        stream.StreamInput
+	result       *childTaskResult
+	awaiting     *teamChildAwaiting
+	awaitingDone string
 }
 
 type preparedSubTask struct {
-	spec       contracts.SubAgentTaskSpec
-	agentDef   catalog.AgentDefinition
-	taskID     string
-	requestID  string
-	subTaskID  string
-	mainToolID string
+	spec         contracts.SubAgentTaskSpec
+	agentDef     catalog.AgentDefinition
+	taskID       string
+	requestID    string
+	subTaskID    string
+	mainToolID   string
+	teamID       string
+	presentation string
+	rootContent  bool
+}
+
+type childRunOptions struct {
+	UseOriginalRequest     bool
+	IncludeHistory         bool
+	Presentation           string
+	RootContent            bool
+	SuppressFinalDuplicate bool
+	RunControl             *contracts.RunControl
+}
+
+type teamChildAwaiting struct {
+	Task     preparedSubTask
+	Control  *contracts.RunControl
+	Ask      stream.AwaitAsk
+	RawID    string
+	PublicID string
+}
+
+type teamMergedHITLBatch struct {
+	orchestrator *frameOrchestrator
+	tasks        []preparedSubTask
+	enabled      bool
+	waveSize     int
+	controls     map[string]*contracts.RunControl
+	waiting      map[string]*teamChildAwaiting
+	completed    map[string]bool
 }
 
 func (o *frameOrchestrator) handleSubAgentBatch(mainStream contracts.AgentStream, invoke contracts.DeltaInvokeSubAgents) error {
@@ -185,17 +226,23 @@ func (o *frameOrchestrator) handleSubAgentBatch(mainStream contracts.AgentStream
 
 	for index := range prepared {
 		prepared[index].mainToolID = invoke.MainToolID
+		if o.session.TeamRuntime != nil {
+			prepared[index].teamID = o.session.TeamID
+			prepared[index].presentation = "task"
+		}
 	}
 
 	for _, task := range prepared {
 		o.emitDelta(contracts.DeltaTaskLifecycle{
-			Kind:        "start",
-			TaskID:      task.taskID,
-			RunID:       o.session.RunID,
-			TaskName:    task.spec.TaskName,
-			Description: task.spec.TaskText,
-			SubAgentKey: task.spec.SubAgentKey,
-			MainToolID:  invoke.MainToolID,
+			Kind:         "start",
+			TaskID:       task.taskID,
+			RunID:        o.session.RunID,
+			TaskName:     task.spec.TaskName,
+			Description:  task.spec.TaskText,
+			SubAgentKey:  task.spec.SubAgentKey,
+			MainToolID:   invoke.MainToolID,
+			TeamID:       task.teamID,
+			Presentation: task.presentation,
 		})
 	}
 
@@ -206,15 +253,39 @@ func (o *frameOrchestrator) handleSubAgentBatch(mainStream contracts.AgentStream
 
 	results := make([]childTaskResult, len(prepared))
 	routedCh := make(chan childRouteEvent, 32)
+	teamMaxParallel := len(prepared)
+	var teamSem chan struct{}
+	if o.session.TeamRuntime != nil {
+		teamMaxParallel = o.session.TeamRuntime.MaxParallel
+		if teamMaxParallel < 1 || teamMaxParallel > len(prepared) {
+			teamMaxParallel = len(prepared)
+		}
+		teamSem = make(chan struct{}, teamMaxParallel)
+	}
+	hitlBatch := newTeamMergedHITLBatch(o, prepared, o.session.TeamRuntime != nil, teamMaxParallel)
 	var wg sync.WaitGroup
 
 	for index, task := range prepared {
 		wg.Add(1)
 		go func(index int, task preparedSubTask) {
 			defer wg.Done()
-			routedCh <- childRouteEvent{result: o.runChildTask(index, task, principal, func(input stream.StreamInput) {
+			if teamSem != nil {
+				select {
+				case teamSem <- struct{}{}:
+					defer func() { <-teamSem }()
+				case <-o.runCtx.Done():
+					routedCh <- childRouteEvent{result: &childTaskResult{Index: index, TaskID: task.taskID, TaskName: task.spec.TaskName, SubAgentKey: task.spec.SubAgentKey, Status: "cancelled", Text: "Team member interrupted"}}
+					return
+				}
+			}
+			options := childRunOptions{RunControl: hitlBatch.controlFor(task)}
+			routedCh <- childRouteEvent{result: o.runChildTaskWithOptions(index, task, principal, func(input stream.StreamInput) {
+				if event, captured := hitlBatch.capture(task, input); captured {
+					routedCh <- event
+					return
+				}
 				routedCh <- childRouteEvent{input: input}
-			})}
+			}, options)}
 		}(index, task)
 	}
 	go func() {
@@ -227,9 +298,11 @@ func (o *frameOrchestrator) handleSubAgentBatch(mainStream contracts.AgentStream
 			o.emitInputs(routed.input)
 		}
 		if routed.result == nil {
+			hitlBatch.observe(routed)
 			continue
 		}
 		results[routed.result.Index] = *routed.result
+		task := prepared[routed.result.Index]
 		terminalKind := "complete"
 		if routed.result.Status == "failed" {
 			terminalKind = "error"
@@ -237,13 +310,17 @@ func (o *frameOrchestrator) handleSubAgentBatch(mainStream contracts.AgentStream
 			terminalKind = "cancel"
 		}
 		lifecycle := contracts.DeltaTaskLifecycle{
-			Kind:   terminalKind,
-			TaskID: routed.result.TaskID,
+			Kind:         terminalKind,
+			TaskID:       routed.result.TaskID,
+			SubAgentKey:  routed.result.SubAgentKey,
+			TeamID:       task.teamID,
+			Presentation: task.presentation,
 		}
 		if terminalKind == "error" {
 			lifecycle.Error = contracts.NewErrorPayload("sub_agent_failed", firstNonEmpty(routed.result.Error, routed.result.Text), contracts.ErrorScopeTask, contracts.ErrorCategorySystem, nil)
 		}
 		o.emitDelta(lifecycle)
+		hitlBatch.observe(routed)
 	}
 
 	aggregated, err := json.Marshal(results)
@@ -262,7 +339,540 @@ func (o *frameOrchestrator) handleSubAgentBatch(mainStream contracts.AgentStream
 	return nil
 }
 
+func (o *frameOrchestrator) handleTeamDispatch(mainStream contracts.AgentStream, dispatch contracts.DeltaTeamDispatch) (bool, error) {
+	main, ok := mainStream.(contracts.OrchestratableAgentStream)
+	if !ok {
+		return false, fmt.Errorf("TEAM coordinator stream does not support orchestration")
+	}
+	if o.teamSnapshot == nil {
+		o.injectMainToolError(main, dispatch.MainToolID, "TEAM snapshot is unavailable")
+		return false, nil
+	}
+	if strings.EqualFold(strings.TrimSpace(dispatch.Kind), "invoke") {
+		err := o.handleSubAgentBatch(mainStream, contracts.DeltaInvokeSubAgents{
+			MainToolID: dispatch.MainToolID,
+			Tasks:      append([]contracts.SubAgentTaskSpec(nil), dispatch.Tasks...),
+		})
+		if err == nil {
+			if optional, ok := mainStream.(contracts.OptionalToolAgentStream); ok {
+				optional.AllowOptionalTools()
+			}
+		}
+		return false, err
+	}
+	mode := strings.ToLower(strings.TrimSpace(dispatch.DelegateMode))
+	if mode != "direct" && mode != "fanout" {
+		o.injectMainToolError(main, dispatch.MainToolID, "invalid team_delegate mode")
+		return false, nil
+	}
+	if mode == "direct" && len(dispatch.Tasks) != 1 {
+		o.injectMainToolError(main, dispatch.MainToolID, "direct delegation requires exactly one member")
+		return false, nil
+	}
+	if mode == "fanout" && len(dispatch.Tasks) != len(o.teamSnapshot.ValidAgentKeys) {
+		o.injectMainToolError(main, dispatch.MainToolID, "fanout must include every available Team member")
+		return false, nil
+	}
+	if mode == "fanout" {
+		expected := make(map[string]struct{}, len(o.teamSnapshot.ValidAgentKeys))
+		for _, key := range o.teamSnapshot.ValidAgentKeys {
+			expected[strings.TrimSpace(key)] = struct{}{}
+		}
+		seen := make(map[string]struct{}, len(dispatch.Tasks))
+		for _, spec := range dispatch.Tasks {
+			memberKey := strings.TrimSpace(spec.SubAgentKey)
+			if _, ok := expected[memberKey]; !ok {
+				o.injectMainToolError(main, dispatch.MainToolID, "fanout must include every available Team member exactly once")
+				return false, nil
+			}
+			if _, duplicate := seen[memberKey]; duplicate {
+				o.injectMainToolError(main, dispatch.MainToolID, "fanout must include every available Team member exactly once")
+				return false, nil
+			}
+			seen[memberKey] = struct{}{}
+		}
+	}
+
+	prepared := make([]preparedSubTask, 0, len(dispatch.Tasks))
+	for _, spec := range dispatch.Tasks {
+		memberKey := strings.TrimSpace(spec.SubAgentKey)
+		if !o.teamSnapshot.HasAgent(memberKey) {
+			o.injectMainToolError(main, dispatch.MainToolID, fmt.Sprintf("member %q is unavailable in Team %q", memberKey, o.teamSnapshot.TeamID))
+			return false, nil
+		}
+		def, found := o.teamSnapshot.AgentDefinition(memberKey)
+		if !found {
+			o.injectMainToolError(main, dispatch.MainToolID, fmt.Sprintf("member %q is unavailable in Team %q", memberKey, o.teamSnapshot.TeamID))
+			return false, nil
+		}
+		if !catalog.AgentUsesACPCoderBackend(def) && !resolvedModeCapabilities(def).RunAsChild {
+			o.injectMainToolError(main, dispatch.MainToolID, fmt.Sprintf("member %q cannot run as a Team child", memberKey))
+			return false, nil
+		}
+		o.taskCounter++
+		index := o.taskCounter
+		requestID := fmt.Sprintf("%s_team_%d", firstNonEmpty(o.session.RequestID, o.session.RunID), index)
+		taskName := strings.TrimSpace(spec.TaskName)
+		if taskName == "" {
+			taskName = firstNonEmpty(def.Name, memberKey)
+		}
+		prepared = append(prepared, preparedSubTask{
+			spec: contracts.SubAgentTaskSpec{
+				SubAgentKey: memberKey,
+				TaskText:    o.request.Message,
+				TaskName:    taskName,
+			},
+			agentDef:     def,
+			taskID:       fmt.Sprintf("%s_team_t_%d", strings.TrimSpace(o.session.RunID), index),
+			requestID:    requestID,
+			subTaskID:    fmt.Sprintf("team_%d", index),
+			mainToolID:   dispatch.MainToolID,
+			teamID:       o.teamSnapshot.TeamID,
+			presentation: "reply",
+			rootContent:  mode == "direct",
+		})
+	}
+
+	emitLifecycle := mode == "fanout"
+	if emitLifecycle {
+		for _, task := range prepared {
+			o.emitDelta(contracts.DeltaTaskLifecycle{
+				Kind:         "start",
+				TaskID:       task.taskID,
+				RunID:        o.session.RunID,
+				TaskName:     task.spec.TaskName,
+				Description:  task.spec.TaskText,
+				SubAgentKey:  task.spec.SubAgentKey,
+				MainToolID:   dispatch.MainToolID,
+				TeamID:       o.teamSnapshot.TeamID,
+				Presentation: "reply",
+			})
+		}
+	}
+
+	var principal *Principal
+	if strings.TrimSpace(o.session.Subject) != "" {
+		principal = &Principal{Subject: o.session.Subject}
+	}
+	maxParallel := o.teamSnapshot.Orchestrator.MaxParallel
+	if maxParallel < 1 || maxParallel > contracts.MaxInvokeAgentTasks {
+		maxParallel = contracts.MaxInvokeAgentTasks
+	}
+	sem := make(chan struct{}, maxParallel)
+	results := make([]childTaskResult, len(prepared))
+	routedCh := make(chan childRouteEvent, 32)
+	hitlBatch := newTeamMergedHITLBatch(o, prepared, mode == "fanout", maxParallel)
+	var wg sync.WaitGroup
+	for index, task := range prepared {
+		wg.Add(1)
+		go func(index int, task preparedSubTask) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-o.runCtx.Done():
+				routedCh <- childRouteEvent{result: &childTaskResult{Index: index, TaskID: task.taskID, TaskName: task.spec.TaskName, SubAgentKey: task.spec.SubAgentKey, Status: "cancelled", Text: "Team member interrupted"}}
+				return
+			}
+			options := childRunOptions{UseOriginalRequest: true, IncludeHistory: true, Presentation: "reply", RootContent: mode == "direct", SuppressFinalDuplicate: true, RunControl: hitlBatch.controlFor(task)}
+			routedCh <- childRouteEvent{result: o.runChildTaskWithOptions(index, task, principal, func(input stream.StreamInput) {
+				if event, captured := hitlBatch.capture(task, input); captured {
+					routedCh <- event
+					return
+				}
+				routedCh <- childRouteEvent{input: routeTeamChildStreamInput(o.session.RunID, o.teamSnapshot.TeamID, task, input, options)}
+			}, options)}
+		}(index, task)
+	}
+	go func() {
+		wg.Wait()
+		close(routedCh)
+	}()
+	for routed := range routedCh {
+		if routed.input != nil && o.emitInputs != nil {
+			o.emitInputs(routed.input)
+		}
+		if routed.result == nil {
+			hitlBatch.observe(routed)
+			continue
+		}
+		results[routed.result.Index] = *routed.result
+		task := prepared[routed.result.Index]
+		if emitLifecycle {
+			terminalKind := "complete"
+			if routed.result.Status == "failed" {
+				terminalKind = "error"
+			} else if routed.result.Status == "cancelled" {
+				terminalKind = "cancel"
+			}
+			lifecycle := contracts.DeltaTaskLifecycle{Kind: terminalKind, TaskID: routed.result.TaskID, SubAgentKey: routed.result.SubAgentKey, TeamID: task.teamID, Presentation: task.presentation}
+			if terminalKind == "error" {
+				lifecycle.Error = contracts.NewErrorPayload("team_member_failed", firstNonEmpty(routed.result.Error, routed.result.Text), contracts.ErrorScopeTask, contracts.ErrorCategorySystem, nil)
+			}
+			o.emitDelta(lifecycle)
+		}
+		hitlBatch.observe(routed)
+	}
+
+	if mode == "direct" && len(results) == 1 && results[0].Status == "completed" {
+		return true, nil
+	}
+	aggregated, err := json.Marshal(results)
+	if err != nil {
+		o.injectMainToolError(main, dispatch.MainToolID, err.Error())
+		return false, nil
+	}
+	anyFailed := false
+	for _, result := range results {
+		if result.Status != "completed" {
+			anyFailed = true
+			break
+		}
+	}
+	if !main.InjectToolResult(dispatch.MainToolID, string(aggregated), anyFailed) {
+		return false, fmt.Errorf("TEAM coordinator rejected dispatch result")
+	}
+	if mode == "fanout" {
+		if finalizer, ok := mainStream.(contracts.FinalResponseAgentStream); ok {
+			finalizer.RequireFinalResponse()
+		}
+	} else if optional, ok := mainStream.(contracts.OptionalToolAgentStream); ok {
+		optional.AllowOptionalTools()
+	}
+	return false, nil
+}
+
+func newTeamMergedHITLBatch(o *frameOrchestrator, tasks []preparedSubTask, enabled bool, maxParallel int) *teamMergedHITLBatch {
+	if maxParallel < 1 || maxParallel > len(tasks) {
+		maxParallel = len(tasks)
+	}
+	batch := &teamMergedHITLBatch{
+		orchestrator: o,
+		tasks:        append([]preparedSubTask(nil), tasks...),
+		waveSize:     maxParallel,
+		controls:     map[string]*contracts.RunControl{},
+		waiting:      map[string]*teamChildAwaiting{},
+		completed:    map[string]bool{},
+	}
+	if !enabled || o == nil || contracts.RunControlFromContext(o.runCtx) == nil {
+		return batch
+	}
+	batch.enabled = true
+	for _, task := range tasks {
+		control := contracts.NewRunControl(o.runCtx, task.taskID)
+		control.SetInitialAccessLevel(o.session.AccessLevel)
+		batch.controls[task.taskID] = control
+	}
+	return batch
+}
+
+func (b *teamMergedHITLBatch) controlFor(task preparedSubTask) *contracts.RunControl {
+	if b == nil || !b.enabled {
+		return nil
+	}
+	return b.controls[task.taskID]
+}
+
+func (b *teamMergedHITLBatch) capture(task preparedSubTask, input stream.StreamInput) (childRouteEvent, bool) {
+	if b == nil || !b.enabled {
+		return childRouteEvent{}, false
+	}
+	switch value := input.(type) {
+	case stream.AwaitAsk:
+		rawID := rawAwaitingIDForTask(task.taskID, value.AwaitingID)
+		publicID := namespaceChildID(task.taskID, rawID)
+		if publicID == "" || rawID == "" {
+			return childRouteEvent{}, false
+		}
+		return childRouteEvent{awaiting: &teamChildAwaiting{
+			Task:     task,
+			Control:  b.controls[task.taskID],
+			Ask:      value,
+			RawID:    rawID,
+			PublicID: publicID,
+		}}, true
+	case stream.RequestSubmit:
+		// The Team-level request.submit is the sole public submit event. Child
+		// submits remain local to their isolated controls.
+		return childRouteEvent{}, true
+	case stream.AwaitingAnswer:
+		rawID := rawAwaitingIDForTask(task.taskID, value.AwaitingID)
+		return childRouteEvent{awaitingDone: namespaceChildID(task.taskID, rawID)}, true
+	default:
+		return childRouteEvent{}, false
+	}
+}
+
+func (b *teamMergedHITLBatch) observe(event childRouteEvent) {
+	if b == nil || !b.enabled {
+		return
+	}
+	if event.awaiting != nil {
+		b.waiting[event.awaiting.Task.taskID] = event.awaiting
+	}
+	if doneID := strings.TrimSpace(event.awaitingDone); doneID != "" {
+		for taskID, pending := range b.waiting {
+			if pending != nil && pending.PublicID == doneID {
+				delete(b.waiting, taskID)
+				break
+			}
+		}
+	}
+	if event.result != nil {
+		b.completed[event.result.TaskID] = true
+		delete(b.waiting, event.result.TaskID)
+	}
+	readyWave := b.waveSize > 0 && len(b.waiting) >= b.waveSize
+	allSettled := len(b.completed)+len(b.waiting) == len(b.tasks)
+	if len(b.waiting) == 0 || (!readyWave && !allSettled) {
+		return
+	}
+	b.resolveWaiting()
+}
+
+func (b *teamMergedHITLBatch) resolveWaiting() {
+	if b == nil || !b.enabled || b.orchestrator == nil {
+		return
+	}
+	pending := make([]*teamChildAwaiting, 0, len(b.waiting))
+	for _, task := range b.tasks {
+		if item := b.waiting[task.taskID]; item != nil {
+			pending = append(pending, item)
+		}
+	}
+	if len(pending) == 0 {
+		return
+	}
+	for _, item := range pending {
+		delete(b.waiting, item.Task.taskID)
+	}
+
+	o := b.orchestrator
+	parentControl := contracts.RunControlFromContext(o.runCtx)
+	if parentControl == nil {
+		return
+	}
+	o.teamAwaitCounter++
+	mergedID := fmt.Sprintf("%s_team_await_%d", strings.TrimSpace(o.session.RunID), o.teamAwaitCounter)
+	forms, routes, timeoutSeconds := teamMergedAwaitingDefinition(pending)
+	parentControl.ExpectSubmit(contracts.AwaitingSubmitContext{
+		AwaitingID: mergedID,
+		Mode:       "form",
+		ItemCount:  len(routes),
+		Routes:     routes,
+		NoTimeout:  timeoutSeconds == 0,
+		Timeout:    timeoutSeconds,
+	})
+	parentControl.TransitionState(contracts.RunLoopStateWaitingSubmit)
+	if o.emitInputs != nil {
+		o.emitInputs(stream.AwaitAsk{
+			AwaitingID:   mergedID,
+			Mode:         "form",
+			Timeout:      timeoutSeconds,
+			RunID:        o.session.RunID,
+			ViewportType: "html",
+			ViewportKey:  "team-hitl",
+			Forms:        forms,
+		})
+	}
+
+	startedAt := time.Now()
+	wait := time.Duration(timeoutSeconds) * time.Second
+	result, err := parentControl.AwaitSubmitWithTimeout(o.runCtx, mergedID, wait)
+	if err != nil {
+		if errors.Is(err, contracts.ErrRunInterrupted) || errors.Is(err, context.Canceled) {
+			return
+		}
+		if o.emitInputs != nil {
+			o.emitInputs(stream.AwaitingAnswer{
+				AwaitingID: mergedID,
+				Answer:     contracts.AwaitingTimeoutAnswer("form", timeoutSeconds, int64(time.Since(startedAt).Seconds())),
+			})
+		}
+		teamDistributeMergedSubmit(pending, nil, api.SubmitRequest{RunID: o.session.RunID, TeamID: o.session.TeamID})
+		parentControl.TransitionState(contracts.RunLoopStateToolExecuting)
+		return
+	}
+
+	if o.emitInputs != nil {
+		o.emitInputs(stream.RequestSubmit{
+			RequestID:  o.session.RequestID,
+			ChatID:     o.session.ChatID,
+			RunID:      o.session.RunID,
+			AwaitingID: mergedID,
+			SubmitID:   result.Request.SubmitID,
+			Params:     result.Request.Params,
+		})
+		o.emitInputs(stream.AwaitingAnswer{
+			AwaitingID: mergedID,
+			Answer:     teamMergedAwaitingAnswer(result.Request.Params, result.Request.SubmitID),
+		})
+	}
+	teamDistributeMergedSubmit(pending, result.Request.Params, result.Request)
+	parentControl.TransitionState(contracts.RunLoopStateToolExecuting)
+}
+
+func teamMergedAwaitingDefinition(pending []*teamChildAwaiting) ([]any, []contracts.AwaitingSubmitRoute, int64) {
+	forms := make([]any, 0, len(pending))
+	routes := make([]contracts.AwaitingSubmitRoute, 0, len(pending))
+	var timeoutSeconds int64
+	for _, item := range pending {
+		if item == nil {
+			continue
+		}
+		definition := map[string]any{
+			"taskId":     item.Task.taskID,
+			"awaitingId": item.RawID,
+			"mode":       item.Ask.Mode,
+		}
+		if len(item.Ask.Questions) > 0 {
+			definition["questions"] = append([]any(nil), item.Ask.Questions...)
+		}
+		if len(item.Ask.Approvals) > 0 {
+			definition["approvals"] = append([]any(nil), item.Ask.Approvals...)
+		}
+		if len(item.Ask.Forms) > 0 {
+			definition["forms"] = append([]any(nil), item.Ask.Forms...)
+		}
+		if len(item.Ask.Plan) > 0 {
+			definition["plan"] = contracts.CloneMap(item.Ask.Plan)
+		}
+		forms = append(forms, map[string]any{
+			"id":         item.PublicID,
+			"title":      firstNonEmpty(item.Task.spec.TaskName, item.Task.spec.SubAgentKey),
+			"taskId":     item.Task.taskID,
+			"awaitingId": item.RawID,
+			"mode":       item.Ask.Mode,
+			"form":       definition,
+		})
+		routes = append(routes, contracts.AwaitingSubmitRoute{
+			FieldID:    item.PublicID,
+			TaskID:     item.Task.taskID,
+			AwaitingID: item.RawID,
+			Mode:       item.Ask.Mode,
+			ItemCount:  teamAwaitingItemCount(item.Ask),
+			Questions:  append([]any(nil), item.Ask.Questions...),
+		})
+		if item.Ask.Timeout > 0 && (timeoutSeconds == 0 || item.Ask.Timeout < timeoutSeconds) {
+			timeoutSeconds = item.Ask.Timeout
+		}
+	}
+	return forms, routes, timeoutSeconds
+}
+
+func teamAwaitingItemCount(ask stream.AwaitAsk) int {
+	switch strings.ToLower(strings.TrimSpace(ask.Mode)) {
+	case "question":
+		return len(ask.Questions)
+	case "approval":
+		return len(ask.Approvals)
+	case "form":
+		return len(ask.Forms)
+	case "plan":
+		if len(ask.Plan) > 0 {
+			return 1
+		}
+	}
+	return 0
+}
+
+func teamDistributeMergedSubmit(pending []*teamChildAwaiting, merged api.SubmitParams, parent api.SubmitRequest) {
+	items, _ := api.DecodeSubmitParams(merged)
+	for index, child := range pending {
+		if child == nil || child.Control == nil {
+			continue
+		}
+		var params api.SubmitParams
+		if index < len(items) {
+			params = teamChildSubmitParams(child.Ask, items[index])
+		}
+		child.Control.ResolveSubmit(api.SubmitRequest{
+			ChatID:     parent.ChatID,
+			RunID:      parent.RunID,
+			AgentKey:   child.Task.spec.SubAgentKey,
+			TeamID:     parent.TeamID,
+			AwaitingID: child.RawID,
+			SubmitID:   parent.SubmitID,
+			Locale:     parent.Locale,
+			Params:     params,
+		})
+	}
+}
+
+func teamChildSubmitParams(ask stream.AwaitAsk, item map[string]any) api.SubmitParams {
+	decision := strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(item["decision"])))
+	if decision == "approve" {
+		form := contracts.AnyMapNode(item["form"])
+		params, err := api.EncodeSubmitParams(form["params"])
+		if err == nil {
+			return params
+		}
+		return nil
+	}
+	return teamRejectedChildParams(ask)
+}
+
+func teamRejectedChildParams(ask stream.AwaitAsk) api.SubmitParams {
+	var items []map[string]any
+	appendRejected := func(raw []any) {
+		for _, value := range raw {
+			definition := contracts.AnyMapNode(value)
+			item := map[string]any{"decision": "reject"}
+			if id := strings.TrimSpace(contracts.AnyStringNode(definition["id"])); id != "" {
+				item["id"] = id
+			}
+			items = append(items, item)
+		}
+	}
+	switch strings.ToLower(strings.TrimSpace(ask.Mode)) {
+	case "approval":
+		appendRejected(ask.Approvals)
+	case "form":
+		appendRejected(ask.Forms)
+	case "plan":
+		item := map[string]any{"decision": "reject"}
+		if id := strings.TrimSpace(contracts.AnyStringNode(ask.Plan["id"])); id != "" {
+			item["id"] = id
+		}
+		items = append(items, item)
+	default:
+		return nil
+	}
+	params, err := api.EncodeSubmitParams(items)
+	if err != nil {
+		return nil
+	}
+	return params
+}
+
+func teamMergedAwaitingAnswer(params api.SubmitParams, submitID string) map[string]any {
+	items, _ := api.DecodeSubmitParams(params)
+	if len(items) == 0 {
+		return contracts.AwaitingErrorAnswer("form", "user_dismissed", "用户关闭等待项")
+	}
+	forms := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		entry := map[string]any{
+			"id":       strings.TrimSpace(contracts.AnyStringNode(item["id"])),
+			"decision": strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(item["decision"]))),
+		}
+		if form := contracts.AnyMapNode(item["form"]); len(form) > 0 {
+			entry["form"] = form
+		}
+		forms = append(forms, entry)
+	}
+	answer := map[string]any{"mode": "form", "status": "answered", "forms": forms}
+	if strings.TrimSpace(submitID) != "" {
+		answer["submitId"] = strings.TrimSpace(submitID)
+	}
+	return answer
+}
+
 func (o *frameOrchestrator) runChildTask(index int, task preparedSubTask, principal *Principal, route func(stream.StreamInput)) *childTaskResult {
+	return o.runChildTaskWithOptions(index, task, principal, route, childRunOptions{})
+}
+
+func (o *frameOrchestrator) runChildTaskWithOptions(index int, task preparedSubTask, principal *Principal, route func(stream.StreamInput), options childRunOptions) *childTaskResult {
 	result := &childTaskResult{
 		Index:       index,
 		TaskID:      task.taskID,
@@ -288,28 +898,48 @@ func (o *frameOrchestrator) runChildTask(index int, task preparedSubTask, princi
 		Message:     task.spec.TaskText,
 		AccessLevel: o.session.AccessLevel,
 	}
-	references, err := prepareProxyReferences(o.chats, o.resourceTickets, proxyReferenceOptions{
-		ChatID:          subReq.ChatID,
-		RunID:           subReq.RunID,
-		Subject:         o.session.Subject,
-		ResourceBaseURL: o.resourceBaseURL,
-		Files:           task.spec.Files,
-	})
-	if err != nil {
-		result.Status = "failed"
-		result.Text = err.Error()
-		result.Error = err.Error()
-		return result
+	if options.UseOriginalRequest {
+		subReq.Role = o.request.Role
+		if strings.TrimSpace(subReq.Role) == "" {
+			subReq.Role = api.QueryRoleUser
+		}
+		subReq.Message = o.request.Message
+		subReq.References = append([]api.Reference(nil), o.request.References...)
+		subReq.Scene = o.request.Scene
+	} else {
+		references, err := prepareProxyReferences(o.chats, o.resourceTickets, proxyReferenceOptions{
+			ChatID:          subReq.ChatID,
+			RunID:           subReq.RunID,
+			Subject:         o.session.Subject,
+			ResourceBaseURL: o.resourceBaseURL,
+			Files:           task.spec.Files,
+		})
+		if err != nil {
+			result.Status = "failed"
+			result.Text = err.Error()
+			result.Error = err.Error()
+			return result
+		}
+		subReq.References = references
 	}
-	subReq.References = references
 
-	subSession, err := o.buildQuerySession(o.runCtx, subReq, o.summary, task.agentDef, querySessionBuildOptions{
+	childRunCtx := o.runCtx
+	if options.RunControl != nil {
+		childRunCtx = contracts.WithRunControl(options.RunControl.Context(), options.RunControl)
+	}
+	subSession, err := o.buildQuerySession(childRunCtx, subReq, o.summary, task.agentDef, querySessionBuildOptions{
 		Created:           false,
-		IncludeHistory:    false,
+		IncludeHistory:    options.IncludeHistory,
 		IncludeMemory:     false,
 		AllowInvokeAgents: false,
 		SubTaskID:         task.subTaskID,
 		Principal:         principal,
+		TeamHistoryAgentKey: func() string {
+			if options.UseOriginalRequest {
+				return task.spec.SubAgentKey
+			}
+			return ""
+		}(),
 	})
 	if err != nil {
 		result.Status = "failed"
@@ -326,7 +956,7 @@ func (o *frameOrchestrator) runChildTask(index int, task preparedSubTask, princi
 		return o.runProxyChildTask(result, subReq, subSession.WorkspaceRoot, task, route)
 	}
 
-	subStream, err := o.agent.Stream(o.runCtx, subReq, subSession)
+	subStream, err := o.agent.Stream(childRunCtx, subReq, subSession)
 	if err != nil {
 		result.Status = "failed"
 		result.Text = err.Error()
@@ -343,6 +973,7 @@ func (o *frameOrchestrator) runChildTask(index int, task preparedSubTask, princi
 		return result
 	}
 
+	sawContent := false
 	for {
 		delta, nextErr := subStream.Next()
 		if errors.Is(nextErr, io.EOF) {
@@ -375,6 +1006,9 @@ func (o *frameOrchestrator) runChildTask(index int, task preparedSubTask, princi
 			return result
 		default:
 			for _, input := range childMapper.Map(delta) {
+				if _, ok := input.(stream.ContentDelta); ok {
+					sawContent = true
+				}
 				route(routeChildStreamInput(o.session.RunID, task.taskID, input))
 			}
 		}
@@ -394,11 +1028,13 @@ func (o *frameOrchestrator) runChildTask(index int, task preparedSubTask, princi
 		result.Error = result.Text
 		return result
 	}
-	route(routeChildStreamInput(o.session.RunID, task.taskID, stream.ContentDelta{
-		ContentID: task.taskID + ":final",
-		TaskID:    task.taskID,
-		Delta:     text,
-	}))
+	if !options.SuppressFinalDuplicate || !sawContent {
+		route(routeChildStreamInput(o.session.RunID, task.taskID, stream.ContentDelta{
+			ContentID: task.taskID + ":final",
+			TaskID:    task.taskID,
+			Delta:     text,
+		}))
+	}
 	result.Text = text
 	return result
 }
@@ -557,15 +1193,18 @@ func (o *frameOrchestrator) writeChildTaskQueryAndSystem(subReq api.QueryRequest
 		liveSeq = o.nextLiveSeq()
 	}
 	_ = o.chats.AppendQueryLine(o.summary.ChatID, chat.QueryLine{
-		Type:        "query",
-		ChatID:      o.summary.ChatID,
-		RunID:       o.session.RunID,
-		UpdatedAt:   time.Now().UnixMilli(),
-		LiveSeq:     liveSeq,
-		TaskID:      task.taskID,
-		TaskName:    task.spec.TaskName,
-		TaskToolID:  task.mainToolID,
-		SubAgentKey: task.spec.SubAgentKey,
+		Type:         "query",
+		ChatID:       o.summary.ChatID,
+		RunID:        o.session.RunID,
+		UpdatedAt:    time.Now().UnixMilli(),
+		LiveSeq:      liveSeq,
+		TaskID:       task.taskID,
+		TaskName:     task.spec.TaskName,
+		TaskToolID:   task.mainToolID,
+		SubAgentKey:  task.spec.SubAgentKey,
+		TeamID:       task.teamID,
+		Presentation: task.presentation,
+		RootContent:  task.rootContent,
 		Query: map[string]any{
 			"message":   task.spec.TaskText,
 			"agentKey":  task.spec.SubAgentKey,
@@ -659,6 +1298,37 @@ func routeChildStreamInput(parentRunID string, taskID string, input stream.Strea
 		return value
 	case stream.InputDebugLLMChat:
 		value.TaskID = taskID
+		return value
+	case stream.InputLLMRequest:
+		value.TaskID = taskID
+		return value
+	case stream.InputUsageSnapshot:
+		value.TaskID = taskID
+		return value
+	case stream.InputRunActivity:
+		value.TaskID = taskID
+		return value
+	default:
+		return input
+	}
+}
+
+func routeTeamChildStreamInput(_ string, teamID string, task preparedSubTask, input stream.StreamInput, options childRunOptions) stream.StreamInput {
+	switch value := input.(type) {
+	case stream.ContentDelta:
+		if options.RootContent {
+			value.TaskID = ""
+		}
+		value.ActorType = "agent"
+		value.TeamID = strings.TrimSpace(teamID)
+		value.AgentKey = strings.TrimSpace(task.spec.SubAgentKey)
+		value.Presentation = firstNonEmpty(options.Presentation, "task")
+		return value
+	case stream.InputLLMRequest:
+		value.ActorType = "agent"
+		value.TeamID = strings.TrimSpace(teamID)
+		value.AgentKey = strings.TrimSpace(task.spec.SubAgentKey)
+		value.Presentation = firstNonEmpty(options.Presentation, "task")
 		return value
 	default:
 		return input

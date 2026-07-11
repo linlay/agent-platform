@@ -24,6 +24,7 @@ func (s *FileStore) initDB() error {
 		CREATE TABLE IF NOT EXISTS CHATS (
 			CHAT_ID_          TEXT PRIMARY KEY,
 			CHAT_NAME_        TEXT NOT NULL,
+			OWNER_TYPE_       TEXT NOT NULL DEFAULT '',
 			AGENT_KEY_        TEXT NOT NULL DEFAULT '',
 			TEAM_ID_          TEXT,
 			SOURCE_           TEXT NOT NULL DEFAULT '',
@@ -61,7 +62,9 @@ func (s *FileStore) initDB() error {
 		CREATE TABLE IF NOT EXISTS RUNS (
 			RUN_ID_                  TEXT PRIMARY KEY,
 			CHAT_ID_                 TEXT NOT NULL,
+			OWNER_TYPE_              TEXT NOT NULL DEFAULT '',
 			AGENT_KEY_               TEXT NOT NULL DEFAULT '',
+			TEAM_ID_                 TEXT,
 			INITIAL_MESSAGE_         TEXT NOT NULL DEFAULT '',
 			ASSISTANT_TEXT_          TEXT NOT NULL DEFAULT '',
 			FINISH_REASON_           TEXT NOT NULL DEFAULT '',
@@ -95,6 +98,7 @@ func (s *FileStore) initDB() error {
 		return fmt.Errorf("create chats table: %w", err)
 	}
 
+	s.migrateRunOwnerColumns()
 	s.migrateAddUsageColumns()
 	if err := s.migrateAwaitingColumns(); err != nil {
 		return err
@@ -106,6 +110,23 @@ func (s *FileStore) initDB() error {
 	s.migrateSourceChannelColumn()
 	s.migrateDetailedUsageColumns()
 	return nil
+}
+
+func (s *FileStore) migrateRunOwnerColumns() {
+	_, _ = s.db.Exec("ALTER TABLE CHATS ADD COLUMN OWNER_TYPE_ TEXT NOT NULL DEFAULT ''")
+	_, _ = s.db.Exec("ALTER TABLE RUNS ADD COLUMN OWNER_TYPE_ TEXT NOT NULL DEFAULT ''")
+	_, _ = s.db.Exec("ALTER TABLE RUNS ADD COLUMN TEAM_ID_ TEXT")
+	_, _ = s.db.Exec(`UPDATE CHATS SET OWNER_TYPE_=CASE
+		WHEN TRIM(COALESCE(AGENT_KEY_,''))='' AND TRIM(COALESCE(TEAM_ID_,''))<>'' THEN 'team'
+		ELSE 'agent' END
+		WHERE TRIM(COALESCE(OWNER_TYPE_,''))=''`)
+	_, _ = s.db.Exec(`UPDATE RUNS SET TEAM_ID_=(SELECT TEAM_ID_ FROM CHATS WHERE CHATS.CHAT_ID_=RUNS.CHAT_ID_)
+		WHERE TRIM(COALESCE(TEAM_ID_,''))=''`)
+	_, _ = s.db.Exec(`UPDATE RUNS SET OWNER_TYPE_=COALESCE((SELECT CASE
+		WHEN TRIM(COALESCE(CHATS.OWNER_TYPE_,''))<>'' THEN CHATS.OWNER_TYPE_
+		WHEN TRIM(COALESCE(CHATS.AGENT_KEY_,''))='' AND TRIM(COALESCE(CHATS.TEAM_ID_,''))<>'' THEN 'team'
+		ELSE 'agent' END FROM CHATS WHERE CHATS.CHAT_ID_=RUNS.CHAT_ID_), 'agent')
+		WHERE TRIM(COALESCE(OWNER_TYPE_,''))=''`)
 }
 
 func (s *FileStore) migrateAddUsageColumns() {

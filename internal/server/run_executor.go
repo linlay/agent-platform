@@ -46,14 +46,16 @@ type RunExecutorParams struct {
 }
 
 type runEventProcessor struct {
-	assistantText *strings.Builder
-	stepWriter    *chat.StepWriter
-	billing       config.BillingConfig
-	models        *models.ModelRegistry
-	chatUsage     chat.UsageData
-	runUsage      *chat.UsageData
-	runModelKey   string
-	runModelMixed bool
+	assistantText        *strings.Builder
+	stepWriter           *chat.StepWriter
+	billing              config.BillingConfig
+	models               *models.ModelRegistry
+	chatUsage            chat.UsageData
+	runUsage             *chat.UsageData
+	runModelKey          string
+	runModelMixed        bool
+	aggregateUsageByTask bool
+	taskRunUsage         map[string]chat.UsageData
 }
 
 type awaitingTracker struct {
@@ -76,12 +78,18 @@ func (p *runEventProcessor) decorate(data *stream.EventData) {
 	}
 	switch data.Type {
 	case "content.delta":
+		if strings.TrimSpace(data.String("taskId")) != "" {
+			return
+		}
 		if p.assistantText != nil {
 			if delta := data.String("delta"); delta != "" {
 				p.assistantText.WriteString(delta)
 			}
 		}
 	case "content.snapshot":
+		if strings.TrimSpace(data.String("taskId")) != "" {
+			return
+		}
 		if p.assistantText != nil {
 			if text := data.String("text"); text != "" {
 				p.assistantText.Reset()
@@ -99,7 +107,7 @@ func (p *runEventProcessor) decorate(data *stream.EventData) {
 			inner["usage"] = usage
 		}
 		(usageCostDecorator{models: p.models, billing: p.billing}).decorateDebugLLMReturnUsage(inner)
-		if p.runUsage != nil {
+		if p.runUsage != nil && !p.aggregateUsageByTask {
 			if ru, ok := usage["runUsage"].(map[string]any); ok {
 				mergeUsageMapIntoRunData(p.runUsage, ru)
 				p.applyRunModelKey()
@@ -122,7 +130,7 @@ func (p *runEventProcessor) decorate(data *stream.EventData) {
 			usage["chat"] = usageDataMapForSnapshot(chatUsage)
 		}
 	case "run.complete", "run.error", "run.cancel":
-		if p.runUsage != nil {
+		if p.runUsage != nil && !p.aggregateUsageByTask {
 			if usage, ok := data.Payload["usage"].(map[string]any); ok {
 				if run, ok := usage["run"].(map[string]any); ok {
 					mergeUsageMapIntoRunData(p.runUsage, run)
@@ -153,6 +161,10 @@ func (p *runEventProcessor) decorateUsageSnapshot(data *stream.EventData) {
 			p.recordRunModelKey(modelKey)
 		}
 	}
+	if p.aggregateUsageByTask {
+		p.decorateAggregatedTaskUsageSnapshot(data, usage, currentUsage)
+		return
+	}
 	if run, _ := usage["run"].(map[string]any); run != nil {
 		if p.runUsage != nil {
 			if usageEstimatedCostFromData(currentUsage) != nil {
@@ -171,6 +183,39 @@ func (p *runEventProcessor) decorateUsageSnapshot(data *stream.EventData) {
 		runUsage.ModelKey = ""
 		usage["run"] = usageDataMapForSnapshot(runUsage)
 	}
+}
+
+func (p *runEventProcessor) decorateAggregatedTaskUsageSnapshot(data *stream.EventData, usage map[string]any, currentUsage chat.UsageData) {
+	if p == nil || p.runUsage == nil || data == nil || usage == nil {
+		return
+	}
+	if p.taskRunUsage == nil {
+		p.taskRunUsage = map[string]chat.UsageData{}
+	}
+	key := strings.TrimSpace(data.String("taskId"))
+	if key == "" {
+		key = "__team_coordinator__"
+	}
+	accumulated := p.taskRunUsage[key]
+	if usageEstimatedCostFromData(currentUsage) != nil {
+		addEstimatedUsageCost(&accumulated, currentUsage)
+	}
+	if run, _ := usage["run"].(map[string]any); run != nil {
+		mergeRunUsageData(&accumulated, usageDataFromMap(run))
+	} else {
+		accumulated = addUsageData(accumulated, currentUsage)
+	}
+	p.taskRunUsage[key] = accumulated
+
+	total := chat.UsageData{}
+	for _, taskUsage := range p.taskRunUsage {
+		total = addUsageData(total, taskUsage)
+	}
+	*p.runUsage = total
+	p.applyRunModelKey()
+	runUsage := *p.runUsage
+	runUsage.ModelKey = ""
+	usage["run"] = usageDataMapForSnapshot(runUsage)
 }
 
 func (p *runEventProcessor) recordRunModelKey(modelKey string) {
@@ -552,12 +597,13 @@ func runExecutor(params RunExecutorParams) {
 		chatUsage = *params.Summary.Usage
 	}
 	processor := &runEventProcessor{
-		assistantText: &assistantText,
-		stepWriter:    params.StepWriter,
-		billing:       params.Billing,
-		models:        params.Models,
-		chatUsage:     chatUsage,
-		runUsage:      &runUsage,
+		assistantText:        &assistantText,
+		stepWriter:           params.StepWriter,
+		billing:              params.Billing,
+		models:               params.Models,
+		chatUsage:            chatUsage,
+		runUsage:             &runUsage,
+		aggregateUsageByTask: params.Session.TeamRuntime != nil,
 	}
 
 	runCtx := params.RunCtx
@@ -605,6 +651,15 @@ func runExecutor(params RunExecutorParams) {
 	defer agentStream.Close()
 
 	emitDelta := func(delta contracts.AgentDelta) {
+		// The TEAM coordinator is a hidden runtime actor. Its reasoning is part of
+		// the routing implementation, not user-visible conversation content.
+		// Child-agent reasoning is routed through emitInputs below and remains
+		// task-scoped, so this only suppresses the coordinator's own reasoning.
+		if params.Session.TeamRuntime != nil {
+			if _, ok := delta.(contracts.DeltaReasoning); ok {
+				return
+			}
+		}
 		if value, ok := delta.(contracts.DeltaRunContinuation); ok {
 			cloned := value
 			cloned.Answer = contracts.CloneMap(value.Answer)
@@ -613,6 +668,13 @@ func runExecutor(params RunExecutorParams) {
 		}
 		inputs := params.Mapper.Map(delta)
 		for _, input := range inputs {
+			if content, ok := input.(stream.ContentDelta); ok && params.Session.TeamRuntime != nil {
+				content.ActorType = "team"
+				content.TeamID = strings.TrimSpace(params.Session.TeamID)
+				content.AgentKey = ""
+				content.Presentation = "reply"
+				input = content
+			}
 			if marker, ok := input.(stream.StageMarker); ok && params.StepWriter != nil {
 				params.StepWriter.OnStageMarker(marker.Stage)
 			}
@@ -721,12 +783,12 @@ func handleAwaitingLifecycle(params RunExecutorParams, data stream.EventData, tr
 			payload := map[string]any{
 				"chatId":     params.Session.ChatID,
 				"runId":      runID,
-				"agentKey":   params.Session.AgentKey,
 				"awaitingId": awaitingID,
 				"mode":       mode,
 				"timeout":    contracts.AnyIntNode(data.Value("timeout")),
 				"createdAt":  data.Timestamp,
 			}
+			decorateNotificationRunOwner(payload, params.Session)
 			if viewportType := strings.TrimSpace(data.String("viewportType")); viewportType != "" {
 				payload["viewportType"] = viewportType
 			}
@@ -759,6 +821,7 @@ func handleAwaitingLifecycle(params RunExecutorParams, data stream.EventData, tr
 			"status":     strings.TrimSpace(data.String("status")),
 			"resolvedAt": data.Timestamp,
 		}
+		decorateNotificationRunOwner(payload, params.Session)
 		if submitID := strings.TrimSpace(data.String("submitId")); submitID != "" {
 			payload["submitId"] = submitID
 		}
@@ -771,6 +834,22 @@ func handleAwaitingLifecycle(params RunExecutorParams, data stream.EventData, tr
 		if params.Notifications != nil {
 			params.Notifications.Broadcast("awaiting.answered", payload)
 		}
+	}
+}
+
+func decorateNotificationRunOwner(payload map[string]any, session contracts.QuerySession) {
+	if payload == nil {
+		return
+	}
+	owner := contracts.ResolveRunOwner(session.RunOwner, session.AgentKey, session.TeamID)
+	payload["ownerType"] = string(owner.Type)
+	if owner.Type == contracts.RunOwnerTypeTeam {
+		payload["teamId"] = owner.TeamID
+		return
+	}
+	payload["agentKey"] = owner.AgentKey
+	if owner.TeamID != "" {
+		payload["teamId"] = owner.TeamID
 	}
 }
 
@@ -850,7 +929,7 @@ func maybeBroadcastInterruptedAwaiting(params RunExecutorParams, tracker *awaiti
 		_ = params.Chats.ClearPendingAwaiting(params.Session.ChatID, tracker.pendingAwaitingID)
 	}
 	if params.Notifications != nil {
-		params.Notifications.Broadcast("awaiting.answered", map[string]any{
+		payload := map[string]any{
 			"chatId":     params.Session.ChatID,
 			"runId":      params.Session.RunID,
 			"awaitingId": tracker.pendingAwaitingID,
@@ -858,7 +937,9 @@ func maybeBroadcastInterruptedAwaiting(params RunExecutorParams, tracker *awaiti
 			"status":     "error",
 			"errorCode":  "run_interrupted",
 			"resolvedAt": time.Now().UnixMilli(),
-		})
+		}
+		decorateNotificationRunOwner(payload, params.Session)
+		params.Notifications.Broadcast("awaiting.answered", payload)
 	}
 	tracker.pendingAwaitingID = ""
 	tracker.pendingMode = ""
@@ -876,10 +957,13 @@ func persistRunCompletionWithReason(params RunExecutorParams, assistantText stri
 			params.StartedAtMillis = now
 		}
 	}
+	owner := contracts.ResolveRunOwner(params.Session.RunOwner, params.Session.AgentKey, params.Session.TeamID)
 	completion := chat.RunCompletion{
 		ChatID:          params.Session.ChatID,
 		RunID:           params.Session.RunID,
-		AgentKey:        params.Session.AgentKey,
+		OwnerType:       string(owner.Type),
+		AgentKey:        owner.AgentKey,
+		TeamID:          owner.TeamID,
 		AssistantText:   assistantText,
 		InitialMessage:  params.Request.Message,
 		FinishReason:    finishReason,

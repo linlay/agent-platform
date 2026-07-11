@@ -61,6 +61,19 @@ type OrchestratableAgentStream interface {
 	FinalAssistantContent() (string, bool)
 }
 
+// FinalResponseAgentStream lets an orchestrator turn an external-tool result
+// into a mandatory, tool-free synthesis turn (used after TEAM fanout).
+type FinalResponseAgentStream interface {
+	RequireFinalResponse()
+}
+
+// OptionalToolAgentStream releases TEAM's initial tool-required routing gate
+// after the first dispatch result so the coordinator may either invoke a
+// later batch or produce its final answer.
+type OptionalToolAgentStream interface {
+	AllowOptionalTools()
+}
+
 type StreamDeltaMapper interface {
 	Map(delta AgentDelta) []stream.StreamInput
 	CloneIsolated(runID string, chatID string) StreamDeltaMapper
@@ -211,10 +224,18 @@ type QuerySession struct {
 	// SubTaskID, when non-empty, isolates sandbox session for a sub-agent
 	// child task within the same run. Empty for main-agent sessions so they
 	// share the run-level sandbox.
-	SubTaskID             string
-	ChatID                string
-	ChatName              string
-	AgentKey              string
+	SubTaskID string
+	ChatID    string
+	ChatName  string
+	AgentKey  string
+	// RunOwner is the public run owner. It is optional for compatibility: an
+	// empty value resolves to the existing AgentKey/TeamID legacy identity.
+	RunOwner RunOwner
+	// TeamRuntime is populated only for an orchestrated Team-owned run.
+	TeamRuntime *TeamRuntimeContext
+	// ModeToolDefinitions are session-local tools owned by a built-in mode.
+	// They are included in model/system-init schemas but never enter catalog.
+	ModeToolDefinitions   []api.ToolDetailResponse
 	AgentName             string
 	AgentRole             string
 	AgentDescription      string
@@ -388,8 +409,21 @@ type AwaitingSubmitContext struct {
 	// Questions preserves the question definitions emitted with a question-mode
 	// awaiting event so submit validation can pair each response with its type.
 	Questions []any
+	// Routes is populated only for a Team-level merged form. Each outer form
+	// item maps to one child awaiting and carries enough schema to validate and
+	// reverse the single public submit before waking isolated child controls.
+	Routes    []AwaitingSubmitRoute
 	NoTimeout bool
 	Timeout   int64
+}
+
+type AwaitingSubmitRoute struct {
+	FieldID    string
+	TaskID     string
+	AwaitingID string
+	Mode       string
+	ItemCount  int
+	Questions  []any
 }
 
 func (c AwaitingSubmitContext) Clone() AwaitingSubmitContext {
@@ -400,9 +434,37 @@ func (c AwaitingSubmitContext) Clone() AwaitingSubmitContext {
 		Mode:             c.Mode,
 		ItemCount:        c.ItemCount,
 		Questions:        append([]any(nil), c.Questions...),
+		Routes:           cloneAwaitingSubmitRoutes(c.Routes),
 		NoTimeout:        c.NoTimeout,
 		Timeout:          c.Timeout,
 	}
+}
+
+func cloneAwaitingSubmitRoutes(routes []AwaitingSubmitRoute) []AwaitingSubmitRoute {
+	if len(routes) == 0 {
+		return nil
+	}
+	out := make([]AwaitingSubmitRoute, len(routes))
+	for index, route := range routes {
+		out[index] = route
+		out[index].Questions = cloneAwaitingSubmitValues(route.Questions)
+	}
+	return out
+}
+
+func cloneAwaitingSubmitValues(values []any) []any {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]any, len(values))
+	for index, value := range values {
+		if mapped, ok := value.(map[string]any); ok {
+			out[index] = CloneMap(mapped)
+			continue
+		}
+		out[index] = value
+	}
+	return out
 }
 
 type SandboxExecutionResult struct {
@@ -413,16 +475,22 @@ type SandboxExecutionResult struct {
 }
 
 type ActiveRun struct {
-	RunID    string
-	ChatID   string
-	AgentKey string
-	ScopeID  string
+	RunID             string
+	ChatID            string
+	OwnerType         RunOwnerType
+	AgentKey          string
+	TeamID            string
+	ExecutionAgentKey string
+	ScopeID           string
 }
 
 type RunStatusInfo struct {
 	RunID              string
 	ChatID             string
+	OwnerType          RunOwnerType
 	AgentKey           string
+	TeamID             string
+	ExecutionAgentKey  string
 	State              RunLoopState
 	LastSeq            int64
 	OldestSeq          int64

@@ -129,6 +129,18 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		if value.TaskID != "" {
 			payload["taskId"] = value.TaskID
 		}
+		if value.ActorType != "" {
+			payload["actorType"] = value.ActorType
+		}
+		if value.TeamID != "" {
+			payload["teamId"] = value.TeamID
+		}
+		if value.AgentKey != "" {
+			payload["agentKey"] = value.AgentKey
+		}
+		if value.Presentation != "" {
+			payload["presentation"] = value.Presentation
+		}
 		if len(value.Model) > 0 {
 			payload["model"] = clonePayload(value.Model)
 		} else if value.ModelKey != "" || value.ReasoningEffort != "" {

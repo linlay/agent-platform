@@ -39,7 +39,7 @@ GET /ws -> request / response / stream / push / error frames
 | GET | `/api/agents` | query: `includeChats` | agent 列表，可附带最近 chat 摘要 |
 | GET | `/api/agent` | query: `agentKey` | 单个运行时 agent 详情，不返回编辑专用字段 |
 | POST | `/api/agent/model-config` | body: `agentKey`/`key`、`modelKey`、`reasoningEffort` | 更新 CODER agent 的运行时默认模型配置 |
-| GET | `/api/teams` | 无 | team 列表 |
+| GET | `/api/teams` | 无 | team 列表，区分 `runtimeMode: legacy | orchestrated` |
 | GET | `/api/skill-candidates` | query: `agentKey` | skill candidate 列表 |
 | GET | `/api/model-options` | 无 | 聊天运行时可选模型与思考深度 |
 
@@ -89,6 +89,8 @@ GET /ws -> request / response / stream / push / error frames
 `/api/admin/registries` 是列表接口，不返回 registry 文件绝对路径、完整 `diagnostics[]` 或文件大小；编辑器应通过 `/api/admin/registries/detail` 获取 `source`、完整诊断、`content`、`parsed` 与 `size`。
 
 Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `baseUrl`；model 暴露 `provider/protocol/type/isVision/isReasoner/isFunction/maxInputTokens/maxOutputTokens/timeout`；MCP server 暴露 `baseUrl/toolCount`，其中 `toolCount` 是当前已同步注册的 MCP 工具数量；viewport server 仅暴露 `baseUrl`，当前不返回 viewport 数量。
+
+`/api/teams` 每项返回 `teamId`、`name`、可选 `description/icon`、`runtimeMode`、`agentKeys` 与安全摘要 `meta`。`meta` 包含 `validAgentKeys`、`invalidAgentKeys`、`orchestrated`；legacy Team 额外返回 `defaultAgentKey/defaultAgentKeyValid`，orchestrated Team 只额外返回 `maxParallel`。接口不会返回隐藏协调器 key、协调器模型配置、system prompt、`SOUL.md/AGENTS.md` 内容或 `team_delegate/team_invoke` 定义。
 
 ### Chat
 
@@ -148,30 +150,39 @@ Archive 摘要、详情和搜索结果都会返回时间字段：`createdAt` 为
 
 Automation 摘要和详情中的 `nextFireAt` 是下次触发时间的 epoch milliseconds；`nextFireTime` 是按 automation `zoneId` 格式化的 RFC3339 展示时间。`lastExecution` 与 execution history 中的 `startedAt`、`completedAt` 为 epoch milliseconds；对应的 `startedTime`、`completedTime` 为按 automation 时区格式化的 RFC3339Nano 可读时间。
 
+Automation 的 Team 身份规则与 query 一致：legacy Team 配置 `teamId + agentKey`；orchestrated Team 只配置 `teamId`，同时传 `agentKey` 会被拒绝。后者触发时由隐藏协调器接管，不会选择或回显虚拟 Agent key。
+
 ### Run
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
 | POST | `/api/query` | body: `message`、`agentKey`、`teamId`、`chatId`、`runId`、`requestId`、`role`、`references`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`planningMode`、`accessLevel`、`model` | 默认 SSE stream；`stream:false` 时返回 JSON |
 | POST | `/api/btw` | body: `chatId`、`message`、可选 `btwId`、`runId`、`requestId`、`references`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`accessLevel`、`model` | 创建或继续隐藏只读分支；复用 query SSE，`stream:false` 返回带 `btwId` 的 JSON |
-| GET | `/api/attach` | query: `runId`、`agentKey`、`lastSeq` | 续接 run 的 SSE stream |
-| POST | `/api/submit` | body: `agentKey`、`runId`、`awaitingId`、`params` | HITL submit ack |
-| POST | `/api/steer` | body: `agentKey`、`runId`、`message`、`requestId`、`chatId`、`teamId`、`steerId` | steer ack |
-| POST | `/api/interrupt` | body: `agentKey`、`runId`、`message`、`requestId`、`chatId`、`teamId` | interrupt ack |
-| POST | `/api/access-level` | body: `agentKey`、`runId`、`accessLevel`、`requestId`、`reason` | 动态更新 native run 的 accessLevel |
+| GET | `/api/attach` | query: `runId`、`agentKey` 或 `teamId`、`lastSeq` | 按公开 owner 续接 run 的 SSE stream |
+| POST | `/api/submit` | body: `agentKey` 或 `teamId`、`runId`、`awaitingId`、`params` | HITL submit ack |
+| POST | `/api/steer` | body: `agentKey` 或 `teamId`、`runId`、`message`、`requestId`、`chatId`、`steerId` | steer ack |
+| POST | `/api/interrupt` | body: `agentKey` 或 `teamId`、`runId`、`message`、`requestId`、`chatId` | interrupt ack |
+| POST | `/api/access-level` | body: `agentKey` 或 `teamId`、`runId`、`accessLevel`、`requestId`、`reason` | 动态更新 native run 的 accessLevel |
 
-`/api/query` 的 `stream` 是 JSON body 字段；省略或传 `true` 时返回 SSE，结束帧为 `data: [DONE]`。传 `false` 时服务端仍执行完整 run、持久化 chat，并在结束后返回普通 JSON。默认只返回最终回答：
+`/api/query` 的 `stream` 是 JSON body 字段；省略或传 `true` 时返回 SSE，结束帧为 `data: [DONE]`。传 `false` 时服务端仍执行完整 run、持久化 chat，并在结束后返回普通 JSON。默认只返回最终回答，响应示例见下文。
 
-`teamId` 的 HTTP、WebSocket、Automation、submit continuation、BTW/compact 旁路与子智能体准入共享同一 resolver。Team 不是 agent mode；chat 创建后 `teamId` 固定，同一 Team 内可以切换有效成员：
+`teamId` 的 HTTP、WebSocket、Automation、submit continuation 与子智能体准入共享同一 resolver。chat 创建后 `teamId` 固定，但两种 Team 的请求身份不同：
+
+- legacy Team：公开 owner 是所选成员，query 使用 `teamId + agentKey`；同一 Team chat 内可切换有效成员。
+- orchestrated Team：公开 owner 是 Team，query 只使用 `teamId`；运行时在 run 内合成内部 `TEAM` 协调器，任何 `agentKey` 都会被视为绕过调度器。
 
 | 场景 | HTTP 结果 |
 |---|---|
-| 未知 `teamId` | 400 |
-| `agentKey` 不属于 Team | 403 |
+| 新请求使用未知 `teamId` | 400 |
+| 已有 Team chat 对应的 Team 已不存在 | 503 |
+| legacy Team 的 `agentKey` 不属于 Team | 403 |
+| orchestrated Team 同时传入 `agentKey` | 400 |
 | 已有 chat 传入不同 Team；包括为无 Team chat 补传 Team | 409 |
-| Team 默认 agent 无效，或已有 chat 当前 agent 因 catalog 漂移失效 | 503 |
+| legacy Team 默认/当前成员无效，或 orchestrated Team 成员为空/存在失效成员 | 503 |
 
-WebSocket 使用现有错误 envelope 表达相同语义。Team 默认成员无效时不会回退全局或 channel 默认 agent；run 开始后使用已解析的 Team 成员与 `AgentDefinition` 快照，不受本轮 catalog 热重载影响。需要启动新执行 run 的 active/deferred submit 会在消费 awaiting 前重新准入，失败时保留 awaiting。
+WebSocket 使用现有错误 envelope 表达相同语义。Team 无效时不会回退全局或 channel 默认 agent；run 开始后使用已解析的成员、成员 `AgentDefinition`、协调器配置与 prompt 快照，不受本轮 catalog 热重载影响。需要启动新执行 run 的 active/deferred submit 会在消费 awaiting 前重新准入，失败时保留 awaiting。
+
+run 控制接口按 `ownerType` 校验互斥身份：Agent-owned run 必须传 `agentKey`；Team-owned run 必须只传 `teamId`，漏传返回 400，错 Team 返回 403，同时传 `agentKey` 也返回 400。orchestrated Team 的 `request.query` 携带 `teamId` 且 `agentKey` 为空；`run.start` 与 chat/run summary 额外使用 `ownerType:"team"` 表达公开归属。虚拟协调器 key 不是公共 API 身份。
 
 `/api/btw` 用于“顺便问”：`chatId` 必须指向已有 active chat；不传 `btwId` 时从当前主 JSONL 创建隐藏快照并在响应头 `X-Btw-Id` 与首个 `request.query.btwId` 返回分支 ID，传 `btwId` 时继续该分支。BTW 固定继承父 chat 的 agent/team，固定 `role:user` 且关闭 planning mode。主 chat 的 active run、pending awaiting、摘要、未读、搜索、自动 learn 和 JSONL 都不会被 BTW 更新。
 
@@ -195,6 +206,8 @@ BTW 发给 provider 的 system、tools、tool choice 和 cache key 与普通 cha
 ```
 
 `references` 中的文件引用使用 `path` 表示当前目标智能体可直接访问的执行路径。服务端会按 agent 运行位置生成或归一化该字段：本地运行时为宿主机绝对路径，容器运行时为 `/workspace/...`。`url` 只用于平台资源下载、ticket 与 gateway 数据面，不进入模型 prompt。
+
+普通非流式 query 的默认响应：
 
 ```json
 {
@@ -227,6 +240,8 @@ BTW 发给 provider 的 system、tools、tool choice 和 cache key 与普通 cha
 `steam` 不是支持字段；如果误传 `steam:false`，不会触发非流式响应。
 
 实时 SSE / WS stream 的工具事件形状不变：仍按单个工具发送 `tool.snapshot`、`tool.result`、`action.snapshot`、`action.result`。持久化到 `chatId.jsonl` 时，同一 assistant turn 的多个工具调用会合并为一条 assistant message 的 `tool_calls[]`；如果该组存在 awaiting，确认前不会执行任何 sibling tool，确认后的所有结果写入同 `seq` 的 `_type:"react-tool"` continuation。
+
+orchestrated Team 的协调器 reasoning 和 `team_delegate/team_invoke` 工具事件会被过滤，不进入客户端事件流。成员输出继续使用现有 `task.*` 与 `content.*`：成员事件可带 `teamId`、成员 `agentKey`、`presentation:"reply" | "task"`，并在 `actor` 中标记 `type:"agent"`。direct 成员正文没有 `taskId`，作为根回答；fanout 成员回复带 task 归属并在 Team 总结前展示；`team_invoke` 中间输出保持 task 展示。最终非流式 `content` 与 run summary 只取 direct 成员根回答或协调器最终正文，不拼接 fanout/invoke 的 task 内容。
 
 `run.activity` 是运行中的非终止状态事件，用于展示当前 run 正在等待、运行、重试或完成某个活动阶段。基础字段为 `runId`、`chatId`、`phase`、`status`；可选字段包括 `taskId`、`backend`、`key`、`message`，以及按场景嵌套的 `retry` / `recovery` / `degradation` 对象。当前 native 模型调用使用 `phase:"model_call"`，可恢复重试使用 `status:"retrying"` 且把 `attempt`、`maxAttempts`、`reason`、`timeoutSeconds`、`elapsedMs` 放入 `retry`。`run.activity` 不表示 run 失败；`run.error` 仍是终止事件，发出后不应再出现 content / reasoning / tool 等业务事件，后面只允许传输层 `[DONE]`。`run.activity` 只用于 live / attach，默认不进入 `/api/chat` 历史回放。
 
@@ -454,8 +469,8 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 | `archive.restored` | `chatId`、`agentKey`、`summary` |
 | `archive.deleted` | `chatId` |
 | `catalog.updated` | `reason`、可选 `timestamp` |
-| `awaiting.asking` | `chatId`、`runId`、`agentKey`、`awaitingId`、`mode`、`timeout`、`createdAt`、可选 `viewportType` / `viewportKey` |
-| `awaiting.answered` | `chatId`、`runId`、`awaitingId`、`mode`、`status`、`resolvedAt`、可选 `errorCode` / `submitId` |
+| `awaiting.asking` | `chatId`、`runId`、`ownerType`、`agentKey` 或 `teamId`、`awaitingId`、`mode`、`timeout`、`createdAt`、可选 `viewportType` / `viewportKey` |
+| `awaiting.answered` | `chatId`、`runId`、`ownerType`、`agentKey` 或 `teamId`、`awaitingId`、`mode`、`status`、`resolvedAt`、可选 `errorCode` / `submitId` |
 | `resource.pushed` | `chatId`、`artifactId`、`name`、`mimeType`、`sha256`、`sizeBytes`、`timestamp` |
 
 `awaiting.asking.timeout` 与 stream 中的 `awaiting.ask.timeout` 语义一致：`0` 表示无限等待、不自动超时；大于 `0` 时由后端按真实时间独立倒计时，observer / attach / detach 状态不会暂停或延长后端超时。
@@ -507,8 +522,8 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/automation/executions` | `id` 或 `automationId`、`limit`、`offset` | `response` |
 | `/api/chats/search` | `query`、`agentKey`、`teamId`、`limit` | `response` |
 | `/api/query` | `QueryRequest` | `stream` |
-| `/api/attach` | `runId`、`agentKey`、`lastSeq` | `stream` |
-| `/api/detach` | `runId`、`agentKey`、`reason` | `response`；关闭当前 WS 连接上该 run 的 observer，不中断 run |
+| `/api/attach` | `runId`、`agentKey` 或 `teamId`、`lastSeq` | `stream` |
+| `/api/detach` | `runId`、`agentKey` 或 `teamId`、`reason` | `response`；关闭当前 WS 连接上该 run 的 observer，不中断 run |
 | `/api/terminal/open` | `agentKey`、可选 `terminalKey`、`cols`、`rows` | `stream`；agent scope attach-or-create |
 | `/api/terminal/input` | `terminalId`、`data` | `response` |
 | `/api/terminal/resize` | `terminalId`、`cols`、`rows` | `response` |
@@ -551,7 +566,7 @@ Channel WS 复用标准 `platform-ws` 帧：`request`、`response`、`stream`、
 ## 约束与注意事项
 
 - HTTP query 参数在 WS payload 中通常以同名 JSON 字段传入。
-- `GET /api/attach`、WS `/api/detach`、`POST /api/submit`、`POST /api/steer`、`POST /api/interrupt` 都要求 `agentKey`，并校验 run 归属。
+- `GET /api/attach`、WS `/api/detach`、`POST /api/submit`、`POST /api/steer`、`POST /api/interrupt` 按 run 的公开 owner 校验 `agentKey` 或 `teamId`；二者不能用隐藏执行身份互相替代。
 - WS 客户端切换 current chat 时，应先对原 chat 的 active run 发送 `/api/detach`，再对新 chat 的 active run 发送 `/api/attach`；detach 只释放当前 WS 连接上的订阅流，不停止后台 run。
 - WS `/api/resource` 要求 `file + pushURL`，用于将本地资源推给 gateway；`pushURL` 是 gateway HTTP 目的地址，通常为 `/api/push/...`，WS `/api/push` 不存在；HTTP `/api/resource` 直接返回文件字节。
 - `.tools` 是隐藏工具内部目录，不通过 `/api/resource` 或 WS `/api/resource` 暴露；HTTP `/api/tool-result` 接受 `.tools/results/<toolId>.json`。

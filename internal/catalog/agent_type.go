@@ -10,6 +10,7 @@ import (
 	agentbuiltin "agent-platform/internal/agent/builtin"
 	agentcoder "agent-platform/internal/agent/coder"
 	agentkbase "agent-platform/internal/agent/kbase"
+	agentteam "agent-platform/internal/agent/team"
 )
 
 const AgentModeCoder = agentcoder.Mode
@@ -236,6 +237,9 @@ func ValidateAgentCoderBackend(def AgentDefinition) error {
 }
 
 func ValidateAgentModelConfig(def AgentDefinition) error {
+	if strings.EqualFold(strings.TrimSpace(def.Mode), agentteam.Mode) {
+		return fmt.Errorf("mode TEAM is internal and can only be configured through a Team directory")
+	}
 	if AgentUsesACPCoderBackend(def) || AgentIsProxyMode(def.Mode) || AgentIsChannelMode(def.Mode) {
 		return nil
 	}

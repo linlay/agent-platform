@@ -145,7 +145,8 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 func (s *Server) wsAttach(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	payload, err := ws.DecodePayload[struct {
 		RunID    string `json:"runId"`
-		AgentKey string `json:"agentKey"`
+		AgentKey string `json:"agentKey,omitempty"`
+		TeamID   string `json:"teamId,omitempty"`
 		LastSeq  int64  `json:"lastSeq"`
 	}](req)
 	if err != nil {
@@ -153,7 +154,7 @@ func (s *Server) wsAttach(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	if statusErr := s.validateRunAgentKey(payload.RunID, payload.AgentKey); statusErr != nil {
+	if statusErr := s.validateRunOwner(payload.RunID, payload.AgentKey, payload.TeamID); statusErr != nil {
 		s.sendWSStatusError(conn, req.ID, statusErr)
 		conn.CompleteRequest(req.ID)
 		return
@@ -190,7 +191,7 @@ func (s *Server) wsDetach(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	if statusErr := s.validateRunAgentKey(payload.RunID, payload.AgentKey); statusErr != nil {
+	if statusErr := s.validateRunOwner(payload.RunID, payload.AgentKey, payload.TeamID); statusErr != nil {
 		s.sendWSStatusError(conn, req.ID, statusErr)
 		conn.CompleteRequest(req.ID)
 		return
@@ -278,7 +279,7 @@ func (s *Server) wsSteer(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	if statusErr := s.validateRunAgentKey(payload.RunID, payload.AgentKey); statusErr != nil {
+	if statusErr := s.validateRunOwner(payload.RunID, payload.AgentKey, payload.TeamID); statusErr != nil {
 		s.sendWSStatusError(conn, req.ID, statusErr)
 		conn.CompleteRequest(req.ID)
 		return
@@ -318,7 +319,7 @@ func (s *Server) wsInterrupt(_ context.Context, conn *ws.Conn, req ws.RequestFra
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	if statusErr := s.validateRunAgentKey(payload.RunID, payload.AgentKey); statusErr != nil {
+	if statusErr := s.validateRunOwner(payload.RunID, payload.AgentKey, payload.TeamID); statusErr != nil {
 		s.sendWSStatusError(conn, req.ID, statusErr)
 		conn.CompleteRequest(req.ID)
 		return

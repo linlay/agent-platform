@@ -8,6 +8,7 @@ import (
 	agentcontract "agent-platform/internal/agent"
 	"agent-platform/internal/agent/coder"
 	"agent-platform/internal/agent/kbase"
+	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
 )
@@ -18,6 +19,8 @@ func Lookup(mode string) (agentcontract.ModeDescriptor, bool) {
 		return coder.Descriptor().Clone(), true
 	case kbase.Mode:
 		return kbase.Descriptor().Clone(), true
+	case agentteam.Mode:
+		return agentteam.Descriptor().Clone(), true
 	default:
 		return agentcontract.ModeDescriptor{}, false
 	}
@@ -29,6 +32,8 @@ func MainSystemInitSpec(mode string) (agentcontract.SystemInitSpec, bool) {
 		return coder.MainSystemInitSpec(), true
 	case kbase.Mode:
 		return kbase.MainSystemInitSpec(), true
+	case agentteam.Mode:
+		return agentteam.MainSystemInitSpec(), true
 	default:
 		return agentcontract.SystemInitSpec{}, false
 	}
@@ -40,6 +45,8 @@ func ConfiguredSystemPrompt(mode string, coderPrompt string, kbasePrompt string)
 		return strings.TrimSpace(coderPrompt)
 	case kbase.Mode:
 		return strings.TrimSpace(kbasePrompt)
+	case agentteam.Mode:
+		return agentteam.DefaultSystemPrompt
 	default:
 		return ""
 	}
@@ -51,6 +58,8 @@ func RenderSystemPrompt(session contracts.QuerySession, req api.QueryRequest, to
 		return coder.RenderSystemPrompt(session, req, toolNames, stage)
 	case kbase.Mode:
 		return kbase.RenderSystemPrompt(session, req, toolNames, stage)
+	case agentteam.Mode:
+		return agentteam.RenderSystemPrompt(session, req, toolNames, stage)
 	default:
 		return ""
 	}

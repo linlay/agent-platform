@@ -18,7 +18,9 @@ func renderDefinition(def Definition) []byte {
 	if def.RemainingRuns != nil {
 		writeYAMLKeyValue(&b, 0, "remainingRuns", *def.RemainingRuns)
 	}
-	writeYAMLKeyValue(&b, 0, "agentKey", def.AgentKey)
+	if strings.TrimSpace(def.AgentKey) != "" {
+		writeYAMLKeyValue(&b, 0, "agentKey", def.AgentKey)
+	}
 	if strings.TrimSpace(def.TeamID) != "" {
 		writeYAMLKeyValue(&b, 0, "teamId", def.TeamID)
 	}

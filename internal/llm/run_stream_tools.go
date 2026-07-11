@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"agent-platform/internal/accesspolicy"
+	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
 	"agent-platform/internal/bashsec"
 	. "agent-platform/internal/contracts"
@@ -60,6 +61,46 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 	if validationErr := validateWriteToolArgs(toolCall.Function.Name, args); validationErr != nil {
 		deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, "invalid tool arguments: "+validationErr.Error(), "invalid_tool_arguments")
 		return nil, deltas, message
+	}
+
+	if agentteam.IsHiddenTool(toolCall.Function.Name) {
+		members := make([]agentteam.MemberSpec, 0)
+		maxParallel := agentteam.DefaultMaxParallel
+		if s.session.TeamRuntime != nil {
+			maxParallel = s.session.TeamRuntime.MaxParallel
+			members = make([]agentteam.MemberSpec, 0, len(s.session.TeamRuntime.Members))
+			for _, member := range s.session.TeamRuntime.Members {
+				members = append(members, agentteam.MemberSpec{
+					Key: member.Key, Name: member.Name, Role: member.Role, Description: member.Description,
+				})
+			}
+		}
+		dispatch, parseErr := agentteam.ParseDispatch(toolCall.Function.Name, args, members, maxParallel)
+		if parseErr != nil {
+			deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, "invalid Team dispatch: "+parseErr.Error(), "invalid_tool_arguments")
+			return nil, deltas, message
+		}
+		tasks := make([]SubAgentTaskSpec, 0, len(dispatch.Tasks))
+		for _, task := range dispatch.Tasks {
+			tasks = append(tasks, SubAgentTaskSpec{
+				SubAgentKey: task.MemberKey,
+				TaskText:    task.Task,
+				TaskName:    task.TaskName,
+				Files:       append([]string(nil), task.Files...),
+			})
+		}
+		return &preparedToolInvocation{
+			toolID:              toolID,
+			toolName:            toolCall.Function.Name,
+			args:                args,
+			awaitExternalResult: true,
+			prelude: []AgentDelta{DeltaTeamDispatch{
+				MainToolID:   toolID,
+				Kind:         dispatch.Kind,
+				DelegateMode: dispatch.DelegateMode,
+				Tasks:        tasks,
+			}},
+		}, nil, nil
 	}
 
 	if strings.EqualFold(strings.TrimSpace(toolCall.Function.Name), InvokeAgentsToolName) {
@@ -1155,6 +1196,12 @@ func (s *llmRunStream) preToolInvocationDeltas(toolID string, toolName string, p
 func (s *llmRunStream) lookupToolDefinition(toolName string) (api.ToolDetailResponse, bool) {
 	if s.checker != nil {
 		if tool, ok := s.checker.Tool(toolName); ok {
+			return tool, true
+		}
+	}
+	for _, tool := range s.session.ModeToolDefinitions {
+		if strings.EqualFold(strings.TrimSpace(tool.Name), strings.TrimSpace(toolName)) ||
+			strings.EqualFold(strings.TrimSpace(tool.Key), strings.TrimSpace(toolName)) {
 			return tool, true
 		}
 	}

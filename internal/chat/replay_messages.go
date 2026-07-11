@@ -3,18 +3,32 @@ package chat
 import (
 	"strings"
 
+	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/plantasks"
 	"agent-platform/internal/stream"
 )
 
+type replayMessageOptions struct {
+	HideTeamCoordinatorInternals bool
+	ActorType                    string
+	TeamID                       string
+	AgentKey                     string
+	Presentation                 string
+}
+
 func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, liveSeq int64, nextSeq func() int64) []stream.EventData {
+	return storedMessageToEventsWithOptions(msg, runID, taskID, stage, liveSeq, nextSeq, replayMessageOptions{})
+}
+
+func storedMessageToEventsWithOptions(msg map[string]any, runID, taskID, stage string, liveSeq int64, nextSeq func() int64, options replayMessageOptions) []stream.EventData {
 	role, _ := msg["role"].(string)
 	ts := int64FromAny(msg["ts"])
 	var events []stream.EventData
+	options = replayMessageActorOptions(msg, options)
 
 	switch role {
 	case "assistant":
-		if rc, ok := msg["reasoning_content"]; ok {
+		if rc, ok := msg["reasoning_content"]; ok && !options.HideTeamCoordinatorInternals {
 			text := extractTextFromContent(rc)
 			if text != "" {
 				reasoningID, _ := msg["_reasoningId"].(string)
@@ -25,6 +39,7 @@ func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, live
 					"taskId":         taskID,
 					"reasoningLabel": stream.ReasoningLabelForID(reasoningID),
 				}
+				decorateReplayActor(payload, options)
 				addReplayLiveSeq(payload, liveSeq)
 				events = append(events, stream.EventData{
 					Seq:       nextSeq(),
@@ -44,6 +59,7 @@ func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, live
 					"text":      text,
 					"taskId":    taskID,
 				}
+				decorateReplayActor(payload, options)
 				addReplayLiveSeq(payload, liveSeq)
 				events = append(events, stream.EventData{
 					Seq:       nextSeq(),
@@ -65,6 +81,9 @@ func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, live
 				}
 				callID, _ := tcMap["id"].(string)
 				fnName, _ := fn["name"].(string)
+				if options.HideTeamCoordinatorInternals || agentteam.IsHiddenTool(fnName) {
+					continue
+				}
 				fnArgs, _ := fn["arguments"].(string)
 				actionID, _ := tcMap["_actionId"].(string)
 				toolID, _ := tcMap["_toolId"].(string)
@@ -108,6 +127,9 @@ func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, live
 		}
 
 	case "tool":
+		if options.HideTeamCoordinatorInternals || agentteam.IsHiddenTool(stringFromAny(msg["name"])) {
+			return nil
+		}
 		text := extractTextFromContent(msg["content"])
 		actionID, _ := msg["_actionId"].(string)
 		toolID, _ := msg["_toolId"].(string)
@@ -148,6 +170,41 @@ func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, live
 	}
 
 	return events
+}
+
+func replayMessageActorOptions(msg map[string]any, options replayMessageOptions) replayMessageOptions {
+	if value := strings.TrimSpace(stringFromAny(msg["actorType"])); value != "" {
+		options.ActorType = value
+	}
+	if value := strings.TrimSpace(stringFromAny(msg["teamId"])); value != "" {
+		options.TeamID = value
+	}
+	if value := strings.TrimSpace(stringFromAny(msg["agentKey"])); value != "" {
+		options.AgentKey = value
+	}
+	if value := strings.TrimSpace(stringFromAny(msg["presentation"])); value != "" {
+		options.Presentation = value
+	}
+	return options
+}
+
+func decorateReplayActor(payload map[string]any, options replayMessageOptions) {
+	if payload == nil || strings.TrimSpace(options.ActorType) == "" {
+		return
+	}
+	actor := map[string]any{"type": strings.TrimSpace(options.ActorType)}
+	if strings.TrimSpace(options.TeamID) != "" {
+		actor["teamId"] = strings.TrimSpace(options.TeamID)
+		payload["teamId"] = strings.TrimSpace(options.TeamID)
+	}
+	if strings.TrimSpace(options.AgentKey) != "" {
+		actor["agentKey"] = strings.TrimSpace(options.AgentKey)
+		payload["agentKey"] = strings.TrimSpace(options.AgentKey)
+	}
+	payload["actor"] = actor
+	if strings.TrimSpace(options.Presentation) != "" {
+		payload["presentation"] = strings.TrimSpace(options.Presentation)
+	}
 }
 
 func extractTextFromContent(v any) string {

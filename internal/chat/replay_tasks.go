@@ -53,11 +53,39 @@ type replayedSubTask struct {
 }
 
 type replayedSubTaskQuery struct {
-	TaskID      string
-	TaskName    string
-	TaskDesc    string
-	SubAgentKey string
-	MainToolID  string
+	TaskID       string
+	TaskName     string
+	TaskDesc     string
+	SubAgentKey  string
+	MainToolID   string
+	TeamID       string
+	Presentation string
+	RootContent  bool
+}
+
+func decorateReplayedTeamTaskEvents(events []stream.EventData, teamID string, agentKey string, presentation string) []stream.EventData {
+	teamID = strings.TrimSpace(teamID)
+	agentKey = strings.TrimSpace(agentKey)
+	presentation = strings.TrimSpace(presentation)
+	if teamID == "" {
+		return events
+	}
+	if presentation == "" {
+		presentation = "task"
+	}
+	for index := range events {
+		if events[index].Payload == nil {
+			events[index].Payload = map[string]any{}
+		}
+		events[index].Payload["teamId"] = teamID
+		events[index].Payload["presentation"] = presentation
+		actor := map[string]any{"type": "agent", "teamId": teamID}
+		if agentKey != "" {
+			actor["agentKey"] = agentKey
+		}
+		events[index].Payload["actor"] = actor
+	}
+	return events
 }
 
 func replayedTaskQueryKey(runID string, taskID string) string {

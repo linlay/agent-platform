@@ -51,8 +51,9 @@ func (s *Server) prepareSystemInitCacheFrom(req api.QueryRequest, session *contr
 			initialCacheKey = profile.CacheKey
 		}
 		system := queryLineSystemInitFromProfile(profile)
+		sanitizeTeamCoordinatorSystemInit(session, &system)
 		systemsByCacheKey[profile.CacheKey] = system
-		initLine := systemInits.Lookup(profile.AgentKey, profile.CacheKey)
+		initLine := systemInits.Lookup(system.AgentKey, profile.CacheKey)
 		if initLine != nil && sameSystemInitPayload(initLine, system) {
 			cache[profile.CacheKey] = systemInitSnapshotFromLine(chat.QueryLineSystemInit{
 				AgentKey:       initLine.AgentKey,
@@ -120,10 +121,22 @@ func (s *Server) hydrateSystemInitCache(req api.QueryRequest, session *contracts
 	cache := make(map[string]contracts.SystemInitSnapshot, len(profiles))
 	for _, profile := range profiles {
 		line := queryLineSystemInitFromProfile(profile)
+		sanitizeTeamCoordinatorSystemInit(session, &line)
 		cache[line.CacheKey] = systemInitSnapshotFromLine(line)
 	}
 	session.SystemInitCache = cache
 	session.PendingSystemInitKeys = nil
+}
+
+// The coordinator's AgentKey exists only inside the run so the model and
+// sandbox code can use the ordinary Agent contract. Persisted system-init
+// records belong to the public Team owner and must never expose that synthetic
+// execution key through chat JSONL, archives, replay, or export APIs.
+func sanitizeTeamCoordinatorSystemInit(session *contracts.QuerySession, line *chat.QueryLineSystemInit) {
+	if session == nil || line == nil || session.TeamRuntime == nil {
+		return
+	}
+	line.AgentKey = ""
 }
 
 func queryLineSystemInitFromProfile(profile contracts.SystemInitProfile) chat.QueryLineSystemInit {

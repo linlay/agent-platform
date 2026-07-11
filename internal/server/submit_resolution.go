@@ -221,6 +221,7 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 		ChatID:     firstNonBlank(req.ChatID, deferred.ChatID),
 		RunID:      req.RunID,
 		AgentKey:   req.AgentKey,
+		TeamID:     req.TeamID,
 		AwaitingID: req.AwaitingID,
 		SubmitID:   req.SubmitID,
 		Locale:     req.Locale,

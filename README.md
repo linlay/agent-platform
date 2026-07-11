@@ -1,8 +1,8 @@
 # agent-platform
 
-本仓库是 `agent-platform` 的 Go 版运行时实现，当前以 Java runtime 的 `.env` / `application.yml` 契约为事实源，支持目录驱动的 agents / teams / skills catalog、JWT 鉴权、resource ticket、chat 文件落盘、memory learn、Container Hub sandbox，以及最小 OpenAI 协议模型与 backend tool loop。
+本仓库是 `agent-platform` 的 Go 版运行时实现，当前以 Java runtime 的 `.env` / `application.yml` 契约为事实源，支持目录驱动的 agents / teams / skills catalog、带隐藏协调器的 orchestrated Team、JWT 鉴权、resource ticket、chat 文件落盘、memory learn、Container Hub sandbox，以及最小 OpenAI 协议模型与 backend tool loop。
 
-> 项目事实、架构与开发约束见 [CLAUDE.md](./CLAUDE.md)，补充说明见 [docs/](./docs)。
+> 项目事实、架构与开发约束见 [AGENTS.md](./AGENTS.md)，补充说明见 [docs/](./docs)。
 
 ## 1. 项目简介
 
@@ -48,8 +48,8 @@
 - `code = 0` 表示成功，失败时 `code` 使用 HTTP 状态码数值。
 - `GET /api/chat` 默认返回 `events`，`includeRawMessages=true` 时追加 `rawMessages`。
 - `GET /api/viewport` 会先读取 `runtime/viewports` 下的本地 `.html/.qlc` 模板，再尝试 `registries/viewport-servers` 中注册的远端 viewport server，命中失败时才返回 fallback 占位结果。
-- `GET /api/attach` 与 `POST /api/submit` / `steer` / `interrupt` 都必须携带 `agentKey`，服务端按 `runId` 定位 run 后校验 `agentKey` 匹配。
-- `POST /api/submit` 使用 awaiting 协议：请求体必须包含 `agentKey`、`runId` 与 `awaitingId`。
+- `GET /api/attach` 与 `POST /api/submit` / `steer` / `interrupt` 按公开 run owner 校验：普通 Agent 与 legacy Team 携带 `agentKey`，orchestrated Team 只携带 `teamId`，不得提交隐藏协调器 key。
+- `POST /api/submit` 使用 awaiting 协议：请求体必须包含 `runId`、`awaitingId`，并按 run 类型携带 `agentKey` 或 `teamId`。
 - 文件传输按“HTTP 数据面 + WebSocket 控制面”划分：浏览器上传继续使用 `POST /api/upload`，下载继续使用 `GET /api/resource?file=...`；upload ticket 中的 `path` 是智能体执行环境内的可读路径，`url` 只用于平台资源访问；`/ws` 只传文件引用与状态，不承载文件字节。当前 `/ws` 的 `/api/upload` 仅支持网关发送 `url + metadata`，由 platform 再通过 HTTP 拉取文件并落盘。
 - 文件工具的 `file_read` / `file_glob` / `file_grep` 与 `file_write` / `file_edit` 白名单独立于 bash allowed paths，默认均为 `.,/tmp`；越权访问会走 `mode=approval`，可单次批准或用 `approve_rule_run` 在当前 run 内批准同一规则。
 
@@ -232,6 +232,34 @@ Provider `apiKey` 按明文字符串读取：
 
 详细配置见 [配置化说明](./docs/配置化说明.md)。
 
+### Team 配置
+
+`runtime/teams/*.yml` 保留为 legacy Team：请求使用 `teamId + agentKey`，未指定成员时使用 `defaultAgentKey`。
+
+```yaml
+name: Support
+defaultAgentKey: support_agent
+agentKeys:
+  - support_agent
+  - billing_agent
+```
+
+目录式 `runtime/teams/<teamId>/team.yml` 是 orchestrated Team，由运行时为每个 run 合成内部 `TEAM` 协调器：
+
+```yaml
+name: Research
+description: 多角色研究与复核
+agentKeys:
+  - researcher
+  - reviewer
+orchestrator:
+  modelConfig:
+    modelKey: qwen3-max
+  maxParallel: 2
+```
+
+目录中可选的 `SOUL.md` 与 `AGENTS.md` 只补充 Team 人格和工作规则，不能覆盖内置调度约束。orchestrated Team 请求只传 `teamId`；明确成员时协调器直接委派，意图不明确时广播全部成员并总结，也可通过隐藏的 `team_invoke` 分批并行、跨批串行。协调器 key 和两个隐藏工具不进入普通 Agent/Tool catalog，也不作为公开 run 身份返回。完整配置和协议见 [智能体配置说明](./docs/智能体配置说明.md)、[子智能体调度](./docs/子智能体调度.md) 与 [API与协议](./docs/API与协议.md)。
+
 ## 4. 部署
 
 ### 容器构建
@@ -336,7 +364,7 @@ docker compose logs -f
 - [API与协议](./docs/API与协议.md)
 - [HITL协议](./docs/HITL协议.md)
 - [自动化](./docs/自动化.md)
-- [子智能体调度](./docs/子智能体调度.md)
+- [子智能体调度（含 TEAM 隐藏调度）](./docs/子智能体调度.md)
 - [MCP与前端工具](./docs/MCP与前端工具.md)
 - [会话存储与回放](./docs/会话存储与回放.md)
 - [鉴权与安全边界](./docs/鉴权与安全边界.md)

@@ -229,19 +229,21 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		switch strings.ToLower(value.Kind) {
 		case "start":
 			return []stream.StreamInput{stream.TaskStart{
-				TaskID:      value.TaskID,
-				RunID:       value.RunID,
-				TaskName:    value.TaskName,
-				Description: value.Description,
-				SubAgentKey: value.SubAgentKey,
-				MainToolID:  value.MainToolID,
+				TaskID:       value.TaskID,
+				RunID:        value.RunID,
+				TaskName:     value.TaskName,
+				Description:  value.Description,
+				SubAgentKey:  value.SubAgentKey,
+				MainToolID:   value.MainToolID,
+				TeamID:       value.TeamID,
+				Presentation: value.Presentation,
 			}}
 		case "complete":
-			return []stream.StreamInput{stream.TaskComplete{TaskID: value.TaskID}}
+			return []stream.StreamInput{stream.TaskComplete{TaskID: value.TaskID, TeamID: value.TeamID, AgentKey: value.SubAgentKey, Presentation: value.Presentation}}
 		case "cancel":
-			return []stream.StreamInput{stream.TaskCancel{TaskID: value.TaskID, Reason: value.Reason}}
+			return []stream.StreamInput{stream.TaskCancel{TaskID: value.TaskID, Reason: value.Reason, TeamID: value.TeamID, AgentKey: value.SubAgentKey, Presentation: value.Presentation}}
 		case "error":
-			return []stream.StreamInput{stream.TaskError{TaskID: value.TaskID, Error: value.Error}}
+			return []stream.StreamInput{stream.TaskError{TaskID: value.TaskID, Error: value.Error, TeamID: value.TeamID, AgentKey: value.SubAgentKey, Presentation: value.Presentation}}
 		default:
 			return nil
 		}

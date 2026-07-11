@@ -61,12 +61,13 @@ func (s *Server) resolvedQueryExecution(prepared preparedQuery) queryExecutionOp
 }
 
 type queryAdmission struct {
-	req             api.QueryRequest
-	existingSummary *chat.Summary
-	agentDef        catalog.AgentDefinition
-	teamSnapshot    *catalog.TeamSnapshot
-	resourceBaseURL string
-	locale          string
+	req              api.QueryRequest
+	existingSummary  *chat.Summary
+	agentDef         catalog.AgentDefinition
+	teamSnapshot     *catalog.TeamSnapshot
+	orchestratedTeam bool
+	resourceBaseURL  string
+	locale           string
 }
 
 type statusError struct {
@@ -144,11 +145,12 @@ func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (qu
 	if teamErr != nil {
 		return queryAdmission{}, teamErr
 	}
+	orchestratedTeam := teamSnapshot != nil && strings.EqualFold(teamSnapshot.RuntimeMode, catalog.TeamRuntimeModeOrchestrated)
 	usedGlobalDefault := false
-	if agentKey == "" && existingSummary != nil {
+	if !orchestratedTeam && agentKey == "" && existingSummary != nil {
 		agentKey = existingSummary.AgentKey
 	}
-	if agentKey == "" {
+	if !orchestratedTeam && agentKey == "" {
 		agentKey = s.deps.Registry.DefaultAgentKey()
 		usedGlobalDefault = agentKey != ""
 	}
@@ -160,7 +162,10 @@ func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (qu
 	}
 	var agentDef catalog.AgentDefinition
 	var found bool
-	if teamSnapshot != nil {
+	if orchestratedTeam {
+		agentDef = buildTeamCoordinatorDefinition(*teamSnapshot)
+		found = true
+	} else if teamSnapshot != nil {
 		agentDef, found = teamSnapshot.AgentDefinition(agentKey)
 		if !found {
 			return queryAdmission{}, &statusError{
@@ -187,7 +192,7 @@ func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (qu
 	if err := s.validateQueryModelOptions(req.Model, agentDef); err != nil {
 		return queryAdmission{}, err
 	}
-	if channelID != "" && s.deps.Channels != nil && !s.deps.Channels.IsAgentAllowed(channelID, agentKey) {
+	if !orchestratedTeam && channelID != "" && s.deps.Channels != nil && !s.deps.Channels.IsAgentAllowed(channelID, agentKey) {
 		return queryAdmission{}, &statusError{
 			status:  http.StatusForbidden,
 			message: "agent " + `"` + agentKey + `" is not allowed on channel "` + channelID + `"`,
@@ -201,12 +206,13 @@ func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (qu
 	req.TeamID = teamID
 
 	return queryAdmission{
-		req:             req,
-		existingSummary: existingSummary,
-		agentDef:        agentDef,
-		teamSnapshot:    teamSnapshot,
-		resourceBaseURL: requestBaseURL(r),
-		locale:          locale,
+		req:              req,
+		existingSummary:  existingSummary,
+		agentDef:         agentDef,
+		teamSnapshot:     teamSnapshot,
+		orchestratedTeam: orchestratedTeam,
+		resourceBaseURL:  requestBaseURL(r),
+		locale:           locale,
 	}, nil
 }
 
@@ -227,7 +233,7 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 			message: "teamId does not match chat",
 		}
 	}
-	if !created && agentKey != "" && agentKey != summary.AgentKey {
+	if !admission.orchestratedTeam && !created && agentKey != "" && agentKey != summary.AgentKey {
 		_ = s.deps.Chats.UpdateAgentKey(chatID, agentKey)
 		summary.AgentKey = agentKey
 	}
@@ -236,28 +242,37 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 		// 不影响会话在列表里的可见性。
 		s.broadcast("chat.created", chatCreatedPayload(chatID, summary.ChatName, agentKey, summary.CreatedAt, summary.Source))
 	}
-	session, err := s.BuildQuerySession(ctx, req, summary, agentDef, querySessionBuildOptions{
-		Created:           created,
-		Locale:            admission.locale,
-		IncludeHistory:    !created,
-		IncludeMemory:     true,
-		AllowInvokeAgents: resolvedModeCapabilities(agentDef).InvokeChildren,
+	sessionReq := req
+	if admission.orchestratedTeam {
+		sessionReq.AgentKey = agentDef.Key
+	}
+	session, err := s.BuildQuerySession(ctx, sessionReq, summary, agentDef, querySessionBuildOptions{
+		Created:                created,
+		Locale:                 admission.locale,
+		IncludeHistory:         !created,
+		IncludeMemory:          true,
+		AllowInvokeAgents:      resolvedModeCapabilities(agentDef).InvokeChildren,
+		TeamCoordinatorHistory: admission.orchestratedTeam,
 	})
 	if err != nil {
 		return preparedQuery{}, err
+	}
+	if admission.orchestratedTeam && admission.teamSnapshot != nil {
+		configureTeamCoordinatorSession(&session, *admission.teamSnapshot)
 	}
 	req.References = session.RuntimeContext.References
 	if !isProxyAgentMode(agentDef.Mode) {
 		applyQueryModelOptionsToSession(req.Model, &session)
 	}
-	session.CurrentMessages = s.buildCurrentMessages(req, session)
+	sessionReq.References = req.References
+	session.CurrentMessages = s.buildCurrentMessages(sessionReq, session)
 	if !created {
 		s.maybeAutoCompact(ctx, req, agentDef, &session)
 	}
 	if catalog.AgentUsesACPCoderBackend(agentDef) {
 		req.Model = s.acpCoderModelOptions(session, req.Model)
 	}
-	systemInitLine, err := s.prepareSystemInitCache(req, &session, created)
+	systemInitLine, err := s.prepareSystemInitCache(sessionReq, &session, created)
 	if err != nil {
 		return preparedQuery{}, err
 	}
@@ -733,12 +748,15 @@ func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEv
 			Title: prepared.req.Scene.Title,
 		}
 	}
+	owner := contracts.ResolveRunOwner(prepared.session.RunOwner, prepared.session.AgentKey, prepared.session.TeamID)
 	assembler := stream.NewAssembler(stream.StreamRequest{
 		RequestID:          prepared.req.RequestID,
 		RunID:              prepared.req.RunID,
 		ChatID:             prepared.req.ChatID,
 		ChatName:           prepared.summary.ChatName,
 		AgentKey:           prepared.req.AgentKey,
+		TeamID:             prepared.req.TeamID,
+		OwnerType:          string(owner.Type),
 		Message:            prepared.req.Message,
 		Role:               role,
 		Scene:              sceneRef,
@@ -761,6 +779,11 @@ func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEv
 			if cv, ok := toolDef.Meta["clientVisible"].(bool); ok && !cv {
 				assembler.RegisterHiddenTools(toolDef.Name, toolDef.Key)
 			}
+		}
+	}
+	for _, toolDef := range prepared.session.ModeToolDefinitions {
+		if cv, ok := toolDef.Meta["clientVisible"].(bool); ok && !cv {
+			assembler.RegisterHiddenTools(toolDef.Name, toolDef.Key)
 		}
 	}
 	var mapper contracts.StreamDeltaMapper

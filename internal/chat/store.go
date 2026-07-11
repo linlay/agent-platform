@@ -60,6 +60,19 @@ type Store interface {
 	ChatDir(chatID string) string
 }
 
+// TeamHistoryReader builds a member-scoped history view. Root coordinator
+// tool chains and other members' tool/reasoning messages are excluded.
+type TeamHistoryReader interface {
+	LoadTeamMemberRawMessages(chatID string, k int, memberAgentKey string) ([]map[string]any, error)
+}
+
+// TeamCoordinatorHistoryReader builds the coordinator's actor-scoped view.
+// It keeps root user messages, Team summaries, and final member bodies while
+// excluding child prompts, reasoning, tools, and raw intermediate results.
+type TeamCoordinatorHistoryReader interface {
+	LoadTeamCoordinatorRawMessages(chatID string, k int) ([]map[string]any, error)
+}
+
 type FileStore struct {
 	root string
 	mu   sync.Mutex

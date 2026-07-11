@@ -26,6 +26,9 @@ func toAPIAgentStats(state chat.AgentChatStats) api.AgentChatStats {
 func toAPIActiveRunInfo(activeRun contracts.RunStatusInfo) *api.ActiveRunInfo {
 	return &api.ActiveRunInfo{
 		RunID:     activeRun.RunID,
+		OwnerType: string(activeRun.OwnerType),
+		AgentKey:  activeRun.AgentKey,
+		TeamID:    activeRun.TeamID,
 		State:     string(activeRun.State),
 		LastSeq:   activeRun.LastSeq,
 		OldestSeq: activeRun.OldestSeq,

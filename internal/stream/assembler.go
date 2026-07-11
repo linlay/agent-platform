@@ -11,6 +11,8 @@ type StreamRequest struct {
 	ChatID             string
 	ChatName           string
 	AgentKey           string
+	TeamID             string
+	OwnerType          string
 	Message            string
 	Role               string
 	Scene              *SceneRef
@@ -87,6 +89,7 @@ func (a *StreamEventAssembler) BootstrapWithRaw() ([]StreamEvent, []StreamEvent)
 		"runId":     a.request.RunID,
 		"chatId":    a.request.ChatID,
 		"agentKey":  a.request.AgentKey,
+		"teamId":    a.request.TeamID,
 		"role":      a.request.Role,
 		"message":   a.request.Message,
 	}
@@ -132,11 +135,16 @@ func (a *StreamEventAssembler) BootstrapWithRaw() ([]StreamEvent, []StreamEvent)
 	} else if !a.request.ContinueRun {
 		events = append(events, NewEvent("request.query", queryPayload))
 	}
-	events = append(events, NewEvent("run.start", map[string]any{
+	runStart := map[string]any{
 		"runId":    a.request.RunID,
 		"chatId":   a.request.ChatID,
 		"agentKey": a.request.AgentKey,
-	}))
+		"teamId":   a.request.TeamID,
+	}
+	if a.request.OwnerType != "" {
+		runStart["ownerType"] = a.request.OwnerType
+	}
+	events = append(events, NewEvent("run.start", runStart))
 	raw := a.stamp(events)
 	return raw, a.normalizer.Normalize(raw)
 }
@@ -154,6 +162,7 @@ func syntheticQueryPayload(request StreamRequest, value SyntheticQuery) map[stri
 		"requestId": requestID,
 		"runId":     request.RunID,
 		"chatId":    chatID,
+		"teamId":    request.TeamID,
 		"role":      value.Role,
 		"message":   value.Message,
 	}

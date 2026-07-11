@@ -339,6 +339,42 @@ func TestRunControlResolveSubmitAliasDeliversRawAwaitingID(t *testing.T) {
 	}
 }
 
+func TestRunControlPreservesMergedAwaitingRoutesOnLifecycleRefresh(t *testing.T) {
+	control := NewRunControl(context.Background(), "run_1")
+	control.ExpectSubmit(AwaitingSubmitContext{
+		AwaitingID: "run_1_team_await_1",
+		Mode:       "form",
+		ItemCount:  1,
+		Routes: []AwaitingSubmitRoute{{
+			FieldID:    "run_1_team_t_1:raw_await",
+			TaskID:     "run_1_team_t_1",
+			AwaitingID: "raw_await",
+			Mode:       "question",
+			ItemCount:  1,
+			Questions:  []any{map[string]any{"id": "q1"}},
+		}},
+	})
+	// The generic run lifecycle observes the public awaiting event later and
+	// re-registers it without internal routing metadata.
+	control.ExpectSubmit(AwaitingSubmitContext{
+		AwaitingID: "run_1_team_await_1",
+		Mode:       "form",
+		ItemCount:  1,
+	})
+	got, ok := control.LookupAwaiting("run_1_team_await_1")
+	if !ok || len(got.Routes) != 1 {
+		t.Fatalf("merged routes were lost: %#v ok=%v", got, ok)
+	}
+	if got.Routes[0].FieldID != "run_1_team_t_1:raw_await" || got.Routes[0].AwaitingID != "raw_await" {
+		t.Fatalf("unexpected merged route %#v", got.Routes[0])
+	}
+	got.Routes[0].Questions[0].(map[string]any)["id"] = "mutated"
+	again, _ := control.LookupAwaiting("run_1_team_await_1")
+	if again.Routes[0].Questions[0].(map[string]any)["id"] != "q1" {
+		t.Fatalf("LookupAwaiting leaked mutable route data: %#v", again.Routes)
+	}
+}
+
 func TestInMemoryRunManagerActiveRunForChatReturnsSingleActiveRun(t *testing.T) {
 	manager := NewInMemoryRunManager()
 	_, _, _ = manager.Register(context.Background(), QuerySession{

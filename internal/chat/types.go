@@ -88,18 +88,21 @@ type QueryLineSystemInit struct {
 // QueryLine represents a _type:"query" line in chatId.jsonl.
 // Field order matches Java: chatId, runId, updatedAt, liveSeq, query, system, _type.
 type QueryLine struct {
-	ChatID      string               `json:"chatId"`
-	RunID       string               `json:"runId"`
-	UpdatedAt   int64                `json:"updatedAt"`
-	LiveSeq     int64                `json:"liveSeq,omitempty"`
-	TaskID      string               `json:"taskId,omitempty"`
-	TaskName    string               `json:"taskName,omitempty"`
-	TaskToolID  string               `json:"taskToolId,omitempty"`
-	SubAgentKey string               `json:"subAgentKey,omitempty"`
-	Query       map[string]any       `json:"query"`
-	Messages    []map[string]any     `json:"messages,omitempty"`
-	System      *QueryLineSystemInit `json:"system,omitempty"`
-	Type        string               `json:"_type"`
+	ChatID       string               `json:"chatId"`
+	RunID        string               `json:"runId"`
+	UpdatedAt    int64                `json:"updatedAt"`
+	LiveSeq      int64                `json:"liveSeq,omitempty"`
+	TaskID       string               `json:"taskId,omitempty"`
+	TaskName     string               `json:"taskName,omitempty"`
+	TaskToolID   string               `json:"taskToolId,omitempty"`
+	SubAgentKey  string               `json:"subAgentKey,omitempty"`
+	TeamID       string               `json:"teamId,omitempty"`
+	Presentation string               `json:"presentation,omitempty"`
+	RootContent  bool                 `json:"rootContent,omitempty"`
+	Query        map[string]any       `json:"query"`
+	Messages     []map[string]any     `json:"messages,omitempty"`
+	System       *QueryLineSystemInit `json:"system,omitempty"`
+	Type         string               `json:"_type"`
 }
 
 const (
@@ -159,6 +162,8 @@ type StepLine struct {
 	TaskID          string                `json:"taskId,omitempty"`
 	TaskStatus      string                `json:"taskStatus,omitempty"`
 	TaskSubAgentKey string                `json:"taskSubAgentKey,omitempty"`
+	TeamID          string                `json:"teamId,omitempty"`
+	Presentation    string                `json:"presentation,omitempty"`
 	SystemRef       map[string]any        `json:"systemRef,omitempty"`
 	Systems         []QueryLineSystemInit `json:"systems,omitempty"`
 	Debug           map[string]any        `json:"debug,omitempty"`
@@ -228,6 +233,10 @@ type StoredMessage struct {
 	MsgID            string           `json:"_msgId,omitempty"`
 	ToolID           string           `json:"_toolId,omitempty"`
 	ActionID         string           `json:"_actionId,omitempty"`
+	ActorType        string           `json:"actorType,omitempty"`
+	TeamID           string           `json:"teamId,omitempty"`
+	AgentKey         string           `json:"agentKey,omitempty"`
+	Presentation     string           `json:"presentation,omitempty"`
 }
 
 type ContentPart struct {
@@ -255,6 +264,7 @@ type StoredFunction struct {
 type Summary struct {
 	ChatID          string           `json:"chatId"`
 	ChatName        string           `json:"chatName"`
+	OwnerType       string           `json:"ownerType,omitempty"`
 	AgentKey        string           `json:"agentKey,omitempty"`
 	TeamID          string           `json:"teamId,omitempty"`
 	Source          string           `json:"source,omitempty"`
@@ -354,7 +364,9 @@ type UsageData struct {
 type RunCompletion struct {
 	ChatID          string
 	RunID           string
+	OwnerType       string
 	AgentKey        string
+	TeamID          string
 	AssistantText   string
 	InitialMessage  string
 	FinishReason    string
@@ -366,7 +378,9 @@ type RunCompletion struct {
 type RunSummary struct {
 	RunID           string
 	ChatID          string
+	OwnerType       string
 	AgentKey        string
+	TeamID          string
 	InitialMessage  string
 	AssistantText   string
 	FinishReason    string

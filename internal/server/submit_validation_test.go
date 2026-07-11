@@ -273,3 +273,53 @@ func TestValidateSubmitParamsValidatesQuestionDefinitions(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateTeamMergedSubmitParamsUsesReversibleFieldRoutes(t *testing.T) {
+	ctx := contracts.AwaitingSubmitContext{
+		AwaitingID: "run_1_team_await_1",
+		Mode:       "form",
+		ItemCount:  2,
+		Routes: []contracts.AwaitingSubmitRoute{
+			{
+				FieldID: "run_1_team_t_1:raw_await", TaskID: "run_1_team_t_1", AwaitingID: "raw_await",
+				Mode: "question", ItemCount: 1,
+				Questions: []any{map[string]any{"id": "q1", "question": "Pick", "type": "select", "options": []any{map[string]any{"label": "yes"}}}},
+			},
+			{
+				FieldID: "run_1_team_t_2:raw_await", TaskID: "run_1_team_t_2", AwaitingID: "raw_await",
+				Mode: "approval", ItemCount: 1,
+			},
+		},
+	}
+	valid := []map[string]any{
+		{
+			"id": "run_1_team_t_1:raw_await", "decision": "approve",
+			"form": map[string]any{"params": []any{map[string]any{"answer": "yes"}}},
+		},
+		{
+			"id": "run_1_team_t_2:raw_await", "decision": "approve",
+			"form": map[string]any{"params": []any{map[string]any{"decision": "approve"}}},
+		},
+	}
+	if err := validateSubmitParams(ctx, mustEncodeSubmitParams(t, valid)); err != nil {
+		t.Fatalf("valid merged submit rejected: %v", err)
+	}
+
+	wrongID := append([]map[string]any(nil), valid...)
+	wrongID[0] = map[string]any{
+		"id": "raw_await", "decision": "approve",
+		"form": map[string]any{"params": []any{map[string]any{"answer": "yes"}}},
+	}
+	if err := validateSubmitParams(ctx, mustEncodeSubmitParams(t, wrongID)); err == nil || !strings.Contains(err.Error(), "id must be") {
+		t.Fatalf("expected reversible field id validation, got %v", err)
+	}
+
+	invalidChild := append([]map[string]any(nil), valid...)
+	invalidChild[0] = map[string]any{
+		"id": "run_1_team_t_1:raw_await", "decision": "approve",
+		"form": map[string]any{"params": []any{map[string]any{"answer": "no"}}},
+	}
+	if err := validateSubmitParams(ctx, mustEncodeSubmitParams(t, invalidChild)); err == nil || !strings.Contains(err.Error(), "answer is not an allowed option") {
+		t.Fatalf("expected child question validation, got %v", err)
+	}
+}

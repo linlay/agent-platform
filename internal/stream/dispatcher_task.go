@@ -28,6 +28,19 @@ func (d *StreamEventDispatcher) handleTaskStart(input TaskStart) []StreamEvent {
 		"subAgentKey":    input.SubAgentKey,
 		"invokingToolId": input.MainToolID,
 	}
+	if input.TeamID != "" {
+		payload["teamId"] = input.TeamID
+	}
+	if input.Presentation != "" {
+		payload["presentation"] = input.Presentation
+	}
+	if input.SubAgentKey != "" || input.TeamID != "" {
+		payload["actor"] = map[string]any{
+			"type":     "agent",
+			"teamId":   input.TeamID,
+			"agentKey": input.SubAgentKey,
+		}
+	}
 	return []StreamEvent{NewEvent("task.start", payload)}
 }
 
@@ -36,9 +49,11 @@ func (d *StreamEventDispatcher) handleTaskComplete(input TaskComplete) []StreamE
 	if d.state.activeTaskID == input.TaskID {
 		d.state.activeTaskID = ""
 	}
-	events = append(events, NewEvent("task.complete", map[string]any{
+	payload := map[string]any{
 		"taskId": input.TaskID,
-	}))
+	}
+	decorateTaskActorPayload(payload, input.TeamID, input.AgentKey, input.Presentation)
+	events = append(events, NewEvent("task.complete", payload))
 	return events
 }
 
@@ -47,10 +62,12 @@ func (d *StreamEventDispatcher) handleTaskCancel(input TaskCancel) []StreamEvent
 	if d.state.activeTaskID == input.TaskID {
 		d.state.activeTaskID = ""
 	}
-	events = append(events, NewEvent("task.cancel", map[string]any{
+	payload := map[string]any{
 		"taskId": input.TaskID,
 		"reason": input.Reason,
-	}))
+	}
+	decorateTaskActorPayload(payload, input.TeamID, input.AgentKey, input.Presentation)
+	events = append(events, NewEvent("task.cancel", payload))
 	return events
 }
 
@@ -59,11 +76,28 @@ func (d *StreamEventDispatcher) handleTaskError(input TaskError) []StreamEvent {
 	if d.state.activeTaskID == input.TaskID {
 		d.state.activeTaskID = ""
 	}
-	events = append(events, NewEvent("task.error", map[string]any{
+	payload := map[string]any{
 		"taskId": input.TaskID,
 		"error":  normalizeErrorMap(input.Error, "task_failed", "task", "runtime"),
-	}))
+	}
+	decorateTaskActorPayload(payload, input.TeamID, input.AgentKey, input.Presentation)
+	events = append(events, NewEvent("task.error", payload))
 	return events
+}
+
+func decorateTaskActorPayload(payload map[string]any, teamID string, agentKey string, presentation string) {
+	teamID = strings.TrimSpace(teamID)
+	agentKey = strings.TrimSpace(agentKey)
+	presentation = strings.TrimSpace(presentation)
+	if teamID != "" {
+		payload["teamId"] = teamID
+	}
+	if presentation != "" {
+		payload["presentation"] = presentation
+	}
+	if teamID != "" || agentKey != "" {
+		payload["actor"] = map[string]any{"type": "agent", "teamId": teamID, "agentKey": agentKey}
+	}
 }
 
 func (d *StreamEventDispatcher) handleSourcePublish(input SourcePublish) []StreamEvent {

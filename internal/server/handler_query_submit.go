@@ -45,7 +45,7 @@ func (s *Server) handleSteer(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "runId and message are required"))
 		return
 	}
-	if statusErr := s.validateRunAgentKey(req.RunID, req.AgentKey); statusErr != nil {
+	if statusErr := s.validateRunOwner(req.RunID, req.AgentKey, req.TeamID); statusErr != nil {
 		writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))
 		return
 	}
@@ -73,7 +73,7 @@ func (s *Server) handleInterrupt(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "runId is required"))
 		return
 	}
-	if statusErr := s.validateRunAgentKey(req.RunID, req.AgentKey); statusErr != nil {
+	if statusErr := s.validateRunOwner(req.RunID, req.AgentKey, req.TeamID); statusErr != nil {
 		writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))
 		return
 	}

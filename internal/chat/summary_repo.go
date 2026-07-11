@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-const summarySelectColumns = `CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), COALESCE(SOURCE_,''), COALESCE(SOURCE_CHANNEL_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_,
+const summarySelectColumns = `CHAT_ID_, CHAT_NAME_, COALESCE(OWNER_TYPE_,''), AGENT_KEY_, COALESCE(TEAM_ID_,''), COALESCE(SOURCE_,''), COALESCE(SOURCE_CHANNEL_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_,
 	USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, USAGE_CACHED_TOKENS_, USAGE_REASONING_TOKENS_, USAGE_PROMPT_CACHE_HIT_TOKENS_, USAGE_PROMPT_CACHE_MISS_TOKENS_, USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
 	USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_,
 	USAGE_ESTIMATED_COST_CURRENCY_, USAGE_ESTIMATED_COST_INPUT_CACHE_HIT_, USAGE_ESTIMATED_COST_INPUT_CACHE_MISS_, USAGE_ESTIMATED_COST_OUTPUT_, USAGE_ESTIMATED_COST_TOTAL_,
@@ -28,8 +28,9 @@ func (s *FileStore) EnsureChatWithSource(chatID string, agentKey string, teamID 
 	var pendingAwaitingID, pendingRunID, pendingMode string
 	var pendingCreatedAt int64
 	err := s.db.QueryRow("SELECT "+summarySelectColumns+" FROM CHATS WHERE CHAT_ID_=?", chatID).
-		Scan(&existing.ChatID, &existing.ChatName, &existing.AgentKey, &existing.TeamID, &existing.Source, &existing.SourceChannel, &existing.CreatedAt, &existing.UpdatedAt, &existing.LastRunID, &existing.LastRunContent, &existing.Read.ReadRunID, &existing.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt)
+		Scan(&existing.ChatID, &existing.ChatName, &existing.OwnerType, &existing.AgentKey, &existing.TeamID, &existing.Source, &existing.SourceChannel, &existing.CreatedAt, &existing.UpdatedAt, &existing.LastRunID, &existing.LastRunContent, &existing.Read.ReadRunID, &existing.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt)
 	if err == nil {
+		existing.OwnerType = normalizedStoredOwnerType(existing.OwnerType, existing.AgentKey, existing.TeamID)
 		applyDerivedReadState(&existing)
 		if hasUsageData(usage) {
 			existing.Usage = &usage
@@ -39,9 +40,11 @@ func (s *FileStore) EnsureChatWithSource(chatID string, agentKey string, teamID 
 	}
 
 	now := time.Now().UnixMilli()
+	ownerType := normalizedStoredOwnerType("", agentKey, teamID)
 	summary := Summary{
 		ChatID:    chatID,
 		ChatName:  defaultChatName(firstMessage),
+		OwnerType: ownerType,
 		AgentKey:  agentKey,
 		TeamID:    teamID,
 		Source:    source,
@@ -51,9 +54,9 @@ func (s *FileStore) EnsureChatWithSource(chatID string, agentKey string, teamID 
 			IsRead: true,
 		},
 	}
-	_, err = s.db.Exec(`INSERT INTO CHATS (CHAT_ID_, CHAT_NAME_, AGENT_KEY_, TEAM_ID_, SOURCE_, CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_)
-		VALUES (?, ?, ?, ?, ?, ?, ?, '', '', '')`,
-		chatID, summary.ChatName, agentKey, nilIfEmpty(teamID), source, now, now)
+	_, err = s.db.Exec(`INSERT INTO CHATS (CHAT_ID_, CHAT_NAME_, OWNER_TYPE_, AGENT_KEY_, TEAM_ID_, SOURCE_, CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', '', '')`,
+		chatID, summary.ChatName, ownerType, agentKey, nilIfEmpty(teamID), source, now, now)
 	if err != nil {
 		return Summary{}, false, err
 	}
@@ -96,7 +99,7 @@ func (s *FileStore) UpdateAgentKey(chatID string, agentKey string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	_, err := s.db.Exec("UPDATE CHATS SET AGENT_KEY_=?, UPDATED_AT_=? WHERE CHAT_ID_=?", agentKey, time.Now().UnixMilli(), chatID)
+	_, err := s.db.Exec("UPDATE CHATS SET AGENT_KEY_=?, OWNER_TYPE_=CASE WHEN TRIM(?)<>'' THEN 'agent' ELSE OWNER_TYPE_ END, UPDATED_AT_=? WHERE CHAT_ID_=?", agentKey, agentKey, time.Now().UnixMilli(), chatID)
 	return err
 }
 
@@ -138,13 +141,14 @@ func (s *FileStore) loadSummary(chatID string) (*Summary, error) {
 	var pendingAwaitingID, pendingRunID, pendingMode string
 	var pendingCreatedAt int64
 	err := s.db.QueryRow("SELECT "+summarySelectColumns+" FROM CHATS WHERE CHAT_ID_=?", chatID).
-		Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.TeamID, &sum.Source, &sum.SourceChannel, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID, &sum.LastRunContent, &sum.Read.ReadRunID, &sum.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt)
+		Scan(&sum.ChatID, &sum.ChatName, &sum.OwnerType, &sum.AgentKey, &sum.TeamID, &sum.Source, &sum.SourceChannel, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID, &sum.LastRunContent, &sum.Read.ReadRunID, &sum.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	sum.OwnerType = normalizedStoredOwnerType(sum.OwnerType, sum.AgentKey, sum.TeamID)
 	if hasUsageData(usage) {
 		sum.Usage = &usage
 	}
@@ -177,6 +181,20 @@ func hasUsageData(usage UsageData) bool {
 		usage.FirstTokenLatencyTotalMs > 0 || usage.FirstTokenLatencyCount > 0 || usage.GenerationDurationMs > 0
 }
 
+func normalizedStoredOwnerType(ownerType string, agentKey string, teamID string) string {
+	ownerType = strings.ToLower(strings.TrimSpace(ownerType))
+	if ownerType == "team" {
+		return "team"
+	}
+	if ownerType == "agent" {
+		return "agent"
+	}
+	if strings.TrimSpace(agentKey) == "" && strings.TrimSpace(teamID) != "" {
+		return "team"
+	}
+	return "agent"
+}
+
 func (s *FileStore) ListRuns(chatID string) ([]RunSummary, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -186,7 +204,7 @@ func (s *FileStore) ListRuns(chatID string) ([]RunSummary, error) {
 	} else if sum == nil {
 		return nil, ErrChatNotFound
 	}
-	rows, err := s.db.Query(`SELECT RUN_ID_, CHAT_ID_, AGENT_KEY_, INITIAL_MESSAGE_, ASSISTANT_TEXT_, FINISH_REASON_,
+	rows, err := s.db.Query(`SELECT RUN_ID_, CHAT_ID_, COALESCE(OWNER_TYPE_,''), AGENT_KEY_, COALESCE(TEAM_ID_,''), INITIAL_MESSAGE_, ASSISTANT_TEXT_, FINISH_REASON_,
 		STARTED_AT_, COMPLETED_AT_,
 		USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, USAGE_CACHED_TOKENS_, USAGE_REASONING_TOKENS_, USAGE_PROMPT_CACHE_HIT_TOKENS_, USAGE_PROMPT_CACHE_MISS_TOKENS_, USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
 		USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_,
@@ -202,7 +220,7 @@ func (s *FileStore) ListRuns(chatID string) ([]RunSummary, error) {
 	for rows.Next() {
 		var item RunSummary
 		if err := rows.Scan(
-			&item.RunID, &item.ChatID, &item.AgentKey, &item.InitialMessage, &item.AssistantText, &item.FinishReason,
+			&item.RunID, &item.ChatID, &item.OwnerType, &item.AgentKey, &item.TeamID, &item.InitialMessage, &item.AssistantText, &item.FinishReason,
 			&item.StartedAt, &item.CompletedAt,
 			&item.Usage.PromptTokens, &item.Usage.CompletionTokens, &item.Usage.TotalTokens, &item.Usage.CachedTokens, &item.Usage.ReasoningTokens, &item.Usage.PromptCacheHitTokens, &item.Usage.PromptCacheMissTokens, &item.Usage.LlmChatCompletionCount, &item.Usage.ToolCallCount,
 			&item.Usage.FirstTokenLatencyTotalMs, &item.Usage.FirstTokenLatencyCount, &item.Usage.GenerationDurationMs,
@@ -211,6 +229,7 @@ func (s *FileStore) ListRuns(chatID string) ([]RunSummary, error) {
 		); err != nil {
 			return nil, err
 		}
+		item.OwnerType = normalizedStoredOwnerType(item.OwnerType, item.AgentKey, item.TeamID)
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -240,9 +259,10 @@ func (s *FileStore) ListChats(lastRunID string, agentKey string) ([]Summary, err
 		var usage UsageData
 		var pendingAwaitingID, pendingRunID, pendingMode string
 		var pendingCreatedAt int64
-		if err := rows.Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.TeamID, &sum.Source, &sum.SourceChannel, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID, &sum.LastRunContent, &sum.Read.ReadRunID, &sum.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt); err != nil {
+		if err := rows.Scan(&sum.ChatID, &sum.ChatName, &sum.OwnerType, &sum.AgentKey, &sum.TeamID, &sum.Source, &sum.SourceChannel, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID, &sum.LastRunContent, &sum.Read.ReadRunID, &sum.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt); err != nil {
 			return nil, err
 		}
+		sum.OwnerType = normalizedStoredOwnerType(sum.OwnerType, sum.AgentKey, sum.TeamID)
 		if hasUsageData(usage) {
 			sum.Usage = &usage
 		}
@@ -275,9 +295,10 @@ func (s *FileStore) RecentChatsByAgent(agentKey string, limit int) ([]Summary, e
 		var usage UsageData
 		var pendingAwaitingID, pendingRunID, pendingMode string
 		var pendingCreatedAt int64
-		if err := rows.Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.TeamID, &sum.Source, &sum.SourceChannel, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID, &sum.LastRunContent, &sum.Read.ReadRunID, &sum.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt); err != nil {
+		if err := rows.Scan(&sum.ChatID, &sum.ChatName, &sum.OwnerType, &sum.AgentKey, &sum.TeamID, &sum.Source, &sum.SourceChannel, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID, &sum.LastRunContent, &sum.Read.ReadRunID, &sum.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt); err != nil {
 			return nil, err
 		}
+		sum.OwnerType = normalizedStoredOwnerType(sum.OwnerType, sum.AgentKey, sum.TeamID)
 		if hasUsageData(usage) {
 			sum.Usage = &usage
 		}

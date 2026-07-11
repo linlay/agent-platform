@@ -14,9 +14,13 @@ type ReasoningDelta struct {
 func (ReasoningDelta) streamInputTag() {}
 
 type ContentDelta struct {
-	ContentID string
-	Delta     string
-	TaskID    string
+	ContentID    string
+	Delta        string
+	TaskID       string
+	ActorType    string
+	TeamID       string
+	AgentKey     string
+	Presentation string
 }
 
 func (ContentDelta) streamInputTag() {}
@@ -127,32 +131,43 @@ type PlanningEnd struct {
 func (PlanningEnd) streamInputTag() {}
 
 type TaskStart struct {
-	TaskID      string
-	RunID       string
-	TaskName    string
-	Description string
-	SubAgentKey string
-	MainToolID  string
+	TaskID       string
+	RunID        string
+	TaskName     string
+	Description  string
+	SubAgentKey  string
+	MainToolID   string
+	TeamID       string
+	Presentation string
 }
 
 func (TaskStart) streamInputTag() {}
 
 type TaskComplete struct {
-	TaskID string
+	TaskID       string
+	TeamID       string
+	AgentKey     string
+	Presentation string
 }
 
 func (TaskComplete) streamInputTag() {}
 
 type TaskCancel struct {
-	TaskID string
-	Reason string
+	TaskID       string
+	Reason       string
+	TeamID       string
+	AgentKey     string
+	Presentation string
 }
 
 func (TaskCancel) streamInputTag() {}
 
 type TaskError struct {
-	TaskID string
-	Error  map[string]any
+	TaskID       string
+	Error        map[string]any
+	TeamID       string
+	AgentKey     string
+	Presentation string
 }
 
 func (TaskError) streamInputTag() {}
@@ -304,6 +319,10 @@ func (InputDebugLLMChat) streamInputTag() {}
 type InputLLMRequest struct {
 	TaskID          string
 	ChatID          string
+	ActorType       string
+	TeamID          string
+	AgentKey        string
+	Presentation    string
 	Model           map[string]any
 	ModelKey        string
 	ReasoningEffort string

@@ -52,7 +52,11 @@ type activeReasoningState struct {
 }
 
 type contentBlockState struct {
-	TaskID string
+	TaskID       string
+	ActorType    string
+	TeamID       string
+	AgentKey     string
+	Presentation string
 }
 
 type activeContentState struct {

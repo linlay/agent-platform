@@ -73,10 +73,12 @@ type injectedToolResult struct {
 }
 
 type stubOrchestratableStream struct {
-	deltas    []contracts.AgentDelta
-	index     int
-	injected  []injectedToolResult
-	finalText string
+	deltas                []contracts.AgentDelta
+	index                 int
+	injected              []injectedToolResult
+	finalText             string
+	finalResponseRequired bool
+	optionalToolsAllowed  bool
 }
 
 func (s *stubOrchestratableStream) Next() (contracts.AgentDelta, error) {
@@ -102,6 +104,9 @@ func (s *stubOrchestratableStream) FinalAssistantContent() (string, bool) {
 	return s.finalText, true
 }
 
+func (s *stubOrchestratableStream) RequireFinalResponse() { s.finalResponseRequired = true }
+func (s *stubOrchestratableStream) AllowOptionalTools()   { s.optionalToolsAllowed = true }
+
 type blockingOrchestratableStream struct {
 	ctx context.Context
 }
@@ -122,6 +127,8 @@ func (s *blockingOrchestratableStream) FinalAssistantContent() (string, bool) {
 }
 
 var _ contracts.OrchestratableAgentStream = (*stubOrchestratableStream)(nil)
+var _ contracts.FinalResponseAgentStream = (*stubOrchestratableStream)(nil)
+var _ contracts.OptionalToolAgentStream = (*stubOrchestratableStream)(nil)
 var _ contracts.OrchestratableAgentStream = (*blockingOrchestratableStream)(nil)
 
 func readServerTestJSONLines(store *chat.FileStore, chatID string) ([]map[string]any, error) {
