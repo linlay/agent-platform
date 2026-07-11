@@ -145,10 +145,10 @@ func TestBuildSystemPromptIncludesAdvancedUserPromptProtocolWhenEnabled(t *testi
 
 func TestBuildSystemPromptAddsCoderSystemPromptOnlyForMainCoderStage(t *testing.T) {
 	session := QuerySession{
-		AgentKey:          "coder",
-		AgentName:         "Coder",
-		Mode:              "CODER",
-		CoderSystemPrompt: "main coder system prompt",
+		AgentKey:         "coder",
+		AgentName:        "Coder",
+		Mode:             "CODER",
+		ModeSystemPrompt: "main coder system prompt",
 	}
 	main := buildSystemPrompt(session, api.QueryRequest{}, "", PromptBuildOptions{Stage: "coder"})
 	if !strings.Contains(main, "main coder system prompt") {
@@ -166,12 +166,12 @@ func TestBuildSystemPromptAddsCoderSystemPromptOnlyForMainCoderStage(t *testing.
 
 func TestBuildSystemPromptRendersCoderSystemPromptPlaceholders(t *testing.T) {
 	prompt := buildSystemPrompt(QuerySession{
-		AgentKey:          "coder",
-		AgentName:         "Coder",
-		Mode:              "CODER",
-		PlanningMode:      false,
-		ToolNames:         []string{"bash", "file_read", "file_write", "file_edit", "ask_user_question", "plan_add_tasks", "plan_get_tasks", "plan_update_task"},
-		CoderSystemPrompt: "CODER {{agent_key}} {{agent_name}} {{planning_mode}} {{workspace_dir}} {{available_tools}} {{plan_stage_tools}} {{execute_stage_tools}} {{file_read_tool_name}} {{ask_user_question_tool_name}}",
+		AgentKey:         "coder",
+		AgentName:        "Coder",
+		Mode:             "CODER",
+		PlanningMode:     false,
+		ToolNames:        []string{"bash", "file_read", "file_write", "file_edit", "ask_user_question", "plan_add_tasks", "plan_get_tasks", "plan_update_task"},
+		ModeSystemPrompt: "CODER {{agent_key}} {{agent_name}} {{planning_mode}} {{workspace_dir}} {{available_tools}} {{plan_stage_tools}} {{execute_stage_tools}} {{file_read_tool_name}} {{ask_user_question_tool_name}}",
 		RuntimeContext: RuntimeRequestContext{
 			LocalPaths: LocalPaths{WorkspaceDir: "/workspace"},
 		},
@@ -207,11 +207,11 @@ func TestBuildSystemPromptRendersCoderSystemPromptPlaceholders(t *testing.T) {
 
 func TestBuildSystemPromptAddsKBaseSystemPromptOnlyForKBaseStage(t *testing.T) {
 	session := QuerySession{
-		AgentKey:          "docs",
-		AgentName:         "Docs",
-		Mode:              "KBASE",
-		ToolNames:         []string{"kbase_search", "kbase_read", "datetime"},
-		KBaseSystemPrompt: "KBASE {{agent_key}} {{agent_name}} {{mode}} {{workspace_dir}} {{available_tools}}",
+		AgentKey:         "docs",
+		AgentName:        "Docs",
+		Mode:             "KBASE",
+		ToolNames:        []string{"kbase_search", "kbase_read", "datetime"},
+		ModeSystemPrompt: "KBASE {{agent_key}} {{agent_name}} {{mode}} {{workspace_dir}} {{available_tools}}",
 		RuntimeContext: RuntimeRequestContext{
 			LocalPaths: LocalPaths{WorkspaceDir: "/docs"},
 		},
@@ -235,10 +235,10 @@ func TestBuildSystemPromptAddsKBaseSystemPromptOnlyForKBaseStage(t *testing.T) {
 		t.Fatalf("expected non-kbase stage to skip KBASE system prompt, got %q", otherStage)
 	}
 	react := buildSystemPrompt(QuerySession{
-		AgentKey:          "docs",
-		AgentName:         "Docs",
-		Mode:              "REACT",
-		KBaseSystemPrompt: "KBASE {{agent_key}}",
+		AgentKey:         "docs",
+		AgentName:        "Docs",
+		Mode:             "REACT",
+		ModeSystemPrompt: "KBASE {{agent_key}}",
 	}, api.QueryRequest{}, "", PromptBuildOptions{Stage: "kbase"})
 	if strings.Contains(react, "KBASE docs") {
 		t.Fatalf("expected non-KBASE mode to skip KBASE system prompt, got %q", react)

@@ -27,6 +27,7 @@ type frameOrchestrator struct {
 	summary           chat.Summary
 	agent             contracts.AgentEngine
 	registry          catalog.Registry
+	teamSnapshot      *catalog.TeamSnapshot
 	buildQuerySession func(context.Context, api.QueryRequest, chat.Summary, catalog.AgentDefinition, querySessionBuildOptions) (contracts.QuerySession, error)
 	chats             chat.Store
 	resourceBaseURL   string
@@ -97,13 +98,21 @@ func (o *frameOrchestrator) handleSubAgentBatch(mainStream contracts.AgentStream
 		o.injectMainToolError(main, invoke.MainToolID, "sub-agent orchestration is not configured")
 		return nil
 	}
-	if !canUseInvokeAgentsTool(o.session.Mode) {
+	if !o.session.ModeCapabilities.InvokeChildren {
 		o.injectMainToolError(main, invoke.MainToolID, "sub-agent orchestration is only supported for REACT/ONESHOT/CODER main agents")
 		return nil
 	}
 	if len(invoke.Tasks) < 1 || len(invoke.Tasks) > contracts.MaxInvokeAgentTasks {
 		o.injectMainToolError(main, invoke.MainToolID, fmt.Sprintf("invalid agent_invoke call: tasks must contain between 1 and %d items", contracts.MaxInvokeAgentTasks))
 		return nil
+	}
+	if strings.TrimSpace(o.session.TeamID) != "" && o.teamSnapshot == nil {
+		resolved, found := resolveCatalogTeam(o.registry, o.session.TeamID)
+		if !found {
+			o.injectMainToolError(main, invoke.MainToolID, fmt.Sprintf("team is unavailable: %s", o.session.TeamID))
+			return nil
+		}
+		o.teamSnapshot = &resolved
 	}
 	prepared := make([]preparedSubTask, 0, len(invoke.Tasks))
 	for _, task := range invoke.Tasks {
@@ -117,12 +126,30 @@ func (o *frameOrchestrator) handleSubAgentBatch(mainStream contracts.AgentStream
 			o.injectMainToolError(main, invoke.MainToolID, "invalid agent_invoke call: every task requires subAgentKey and task")
 			return nil
 		}
-		agentDef, found := o.registry.AgentDefinition(subAgentKey)
-		if !found {
-			o.injectMainToolError(main, invoke.MainToolID, fmt.Sprintf("sub-agent not found: %s", subAgentKey))
-			return nil
+		var agentDef catalog.AgentDefinition
+		var found bool
+		if o.teamSnapshot != nil {
+			if !o.teamSnapshot.HasAgent(subAgentKey) {
+				message := fmt.Sprintf("sub-agent %q is not in team %q", subAgentKey, o.teamSnapshot.TeamID)
+				if o.teamSnapshot.DeclaresAgent(subAgentKey) {
+					message = fmt.Sprintf("sub-agent %q is unavailable in team %q", subAgentKey, o.teamSnapshot.TeamID)
+				}
+				o.injectMainToolError(main, invoke.MainToolID, message)
+				return nil
+			}
+			agentDef, found = o.teamSnapshot.AgentDefinition(subAgentKey)
+			if !found {
+				o.injectMainToolError(main, invoke.MainToolID, fmt.Sprintf("sub-agent %q is unavailable in team %q", subAgentKey, o.teamSnapshot.TeamID))
+				return nil
+			}
+		} else {
+			agentDef, found = o.registry.AgentDefinition(subAgentKey)
+			if !found {
+				o.injectMainToolError(main, invoke.MainToolID, fmt.Sprintf("sub-agent not found: %s", subAgentKey))
+				return nil
+			}
 		}
-		if !canRunAsSubAgent(agentDef.Mode) {
+		if !catalog.AgentUsesACPCoderBackend(agentDef) && !resolvedModeCapabilities(agentDef).RunAsChild {
 			o.injectMainToolError(main, invoke.MainToolID, "sub-agent must be REACT/ONESHOT/CODER/KBASE/PROXY")
 			return nil
 		}
@@ -244,20 +271,28 @@ func (o *frameOrchestrator) runChildTask(index int, task preparedSubTask, princi
 		Status:      "completed",
 	}
 
-	subReq := o.request
-	subReq.RequestID = task.requestID
-	subReq.RunID = o.session.RunID
-	subReq.AgentKey = task.spec.SubAgentKey
-	subReq.Message = task.spec.TaskText
-	if strings.TrimSpace(subReq.Role) == "" {
-		subReq.Role = "user"
+	if catalog.AgentUsesACPCoderBackend(task.agentDef) {
+		result.Status = "failed"
+		result.Text = "ACP CODER sub-agent is not supported"
+		result.Error = result.Text
+		return result
+	}
+
+	subReq := api.QueryRequest{
+		RequestID:   task.requestID,
+		RunID:       o.session.RunID,
+		ChatID:      o.session.ChatID,
+		AgentKey:    task.spec.SubAgentKey,
+		TeamID:      o.session.TeamID,
+		Role:        api.QueryRoleUser,
+		Message:     task.spec.TaskText,
+		AccessLevel: o.session.AccessLevel,
 	}
 	references, err := prepareProxyReferences(o.chats, o.resourceTickets, proxyReferenceOptions{
 		ChatID:          subReq.ChatID,
 		RunID:           subReq.RunID,
 		Subject:         o.session.Subject,
 		ResourceBaseURL: o.resourceBaseURL,
-		References:      subReq.References,
 		Files:           task.spec.Files,
 	})
 	if err != nil {
@@ -566,13 +601,6 @@ func containsInvokeAgentsTool(toolNames []string) bool {
 
 func isProxyAgentMode(mode string) bool {
 	return catalog.AgentIsProxyMode(mode)
-}
-
-func canRunAsSubAgent(mode string) bool {
-	if canUseInvokeAgentsTool(mode) || isProxyAgentMode(mode) {
-		return true
-	}
-	return strings.EqualFold(catalog.NormalizeAgentModeForRuntime(mode), catalog.AgentModeKBase)
 }
 
 func routeChildStreamInput(parentRunID string, taskID string, input stream.StreamInput) stream.StreamInput {

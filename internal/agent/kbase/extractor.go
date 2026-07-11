@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"agent-platform/internal/config"
 	"agent-platform/internal/supportpkg"
 	"agent-platform/internal/textcodec"
 )
@@ -63,18 +62,18 @@ func extractionFailure(reason string, err error) error {
 	return extractionError{reason: reason, message: err.Error()}
 }
 
-func effectiveExtractionConfig(cfg config.KBaseExtractionConfig) config.KBaseExtractionConfig {
+func effectiveExtractionConfig(cfg ExtractionConfig) ExtractionConfig {
 	if cfg.Timeout <= 0 &&
 		cfg.MaxFileBytes <= 0 &&
 		cfg.PDF.Backend == "" && cfg.PDF.Binary == "" && !cfg.PDF.Enabled &&
 		cfg.DOCX.Backend == "" && !cfg.DOCX.Enabled &&
 		cfg.PPTX.Backend == "" && !cfg.PPTX.Enabled && !cfg.PPTX.IncludeNotes {
-		cfg = config.KBaseExtractionConfig{
+		cfg = ExtractionConfig{
 			Timeout:      60 * time.Second,
 			MaxFileBytes: defaultMaxFileBytes,
-			PDF:          config.KBasePDFExtractionConfig{Enabled: true, Backend: "poppler", Binary: "pdftotext"},
-			DOCX:         config.KBaseDOCXExtractionConfig{Enabled: true, Backend: "native"},
-			PPTX:         config.KBasePPTXExtractionConfig{Enabled: true, Backend: "native", IncludeNotes: true},
+			PDF:          PDFExtractionConfig{Enabled: true, Backend: "poppler", Binary: "pdftotext"},
+			DOCX:         DOCXExtractionConfig{Enabled: true, Backend: "native"},
+			PPTX:         PPTXExtractionConfig{Enabled: true, Backend: "native", IncludeNotes: true},
 		}
 	}
 	if cfg.Timeout <= 0 {
@@ -101,12 +100,12 @@ func effectiveExtractionConfig(cfg config.KBaseExtractionConfig) config.KBaseExt
 	return cfg
 }
 
-func extractionMaxFileBytes(cfg config.KBaseExtractionConfig) int64 {
+func extractionMaxFileBytes(cfg ExtractionConfig) int64 {
 	cfg = effectiveExtractionConfig(cfg)
 	return cfg.MaxFileBytes
 }
 
-func extractDocument(ctx context.Context, fullPath string, rel string, ext string, data []byte, cfg config.KBaseExtractionConfig, support *supportpkg.Registry) (extractedDocument, error) {
+func extractDocument(ctx context.Context, fullPath string, rel string, ext string, data []byte, cfg ExtractionConfig, support *supportpkg.Registry) (extractedDocument, error) {
 	cfg = effectiveExtractionConfig(cfg)
 	switch ext {
 	case ".pdf":
@@ -125,7 +124,7 @@ func extractDocument(ctx context.Context, fullPath string, rel string, ext strin
 	}
 }
 
-func extractorNameForExtension(ext string, cfg config.KBaseExtractionConfig) string {
+func extractorNameForExtension(ext string, cfg ExtractionConfig) string {
 	cfg = effectiveExtractionConfig(cfg)
 	switch ext {
 	case ".pdf":
@@ -208,7 +207,7 @@ func extractHTML(data []byte) (extractedDocument, error) {
 	}, nil
 }
 
-func extractPDF(ctx context.Context, fullPath string, cfg config.KBaseExtractionConfig, support *supportpkg.Registry) (extractedDocument, error) {
+func extractPDF(ctx context.Context, fullPath string, cfg ExtractionConfig, support *supportpkg.Registry) (extractedDocument, error) {
 	if !cfg.PDF.Enabled {
 		return extractedDocument{}, extractionSkip("pdf_extractor_disabled")
 	}
@@ -293,7 +292,7 @@ func shouldUseSupportPDFBinary(binary string) bool {
 	return lower == "pdftotext" || lower == "pdftotext.exe"
 }
 
-func extractDOCX(data []byte, cfg config.KBaseExtractionConfig) (extractedDocument, error) {
+func extractDOCX(data []byte, cfg ExtractionConfig) (extractedDocument, error) {
 	if !cfg.DOCX.Enabled {
 		return extractedDocument{}, extractionSkip("docx_extractor_disabled")
 	}
@@ -333,7 +332,7 @@ func extractDOCX(data []byte, cfg config.KBaseExtractionConfig) (extractedDocume
 	}, nil
 }
 
-func extractPPTX(data []byte, cfg config.KBaseExtractionConfig) (extractedDocument, error) {
+func extractPPTX(data []byte, cfg ExtractionConfig) (extractedDocument, error) {
 	if !cfg.PPTX.Enabled {
 		return extractedDocument{}, extractionSkip("pptx_extractor_disabled")
 	}

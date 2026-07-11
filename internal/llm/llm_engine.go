@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
@@ -297,14 +298,14 @@ func budgetStageForName(session QuerySession, stage string) string {
 	if strings.Contains(normalized, "plan") {
 		return "plan"
 	}
-	if strings.Contains(normalized, "execute") || normalized == "coder" {
+	if strings.Contains(normalized, "execute") || normalized == agentcoder.MainStage {
 		return "execute"
 	}
 	if normalized == "" {
 		normalized = strings.ToLower(strings.TrimSpace(session.Mode))
 	}
 	switch normalized {
-	case "coder":
+	case agentcoder.MainStage:
 		return "execute"
 	case "react", "oneshot", "":
 		return "react"

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	agentkbase "agent-platform/internal/agent/kbase"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 )
@@ -989,7 +990,7 @@ func TestParseAgentFileKBaseDefaultsAndConfig(t *testing.T) {
 	if def.KBaseConfig.Embedding.ModelKey != "openai-embedding" || def.KBaseConfig.Storage.Location != "workspace" {
 		t.Fatalf("unexpected kbase config: %#v", def.KBaseConfig)
 	}
-	if def.KBaseConfig.Chunk.Unit != AgentKBaseChunkUnitChars ||
+	if def.KBaseConfig.Chunk.Unit != agentkbase.ChunkUnitChars ||
 		def.KBaseConfig.Chunk.MaxChars != 2000 ||
 		def.KBaseConfig.Chunk.OverlapChars != 100 {
 		t.Fatalf("unexpected chunk config: %#v", def.KBaseConfig.Chunk)
@@ -1018,7 +1019,7 @@ func TestParseAgentFileKBaseDefaultChunkUsesEstimatedTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if def.KBaseConfig.Chunk.Unit != AgentKBaseChunkUnitEstimatedTokens ||
+	if def.KBaseConfig.Chunk.Unit != agentkbase.ChunkUnitEstimatedTokens ||
 		def.KBaseConfig.Chunk.MaxTokens != 1000 ||
 		def.KBaseConfig.Chunk.OverlapTokens != 100 ||
 		def.KBaseConfig.Chunk.MaxChars != 0 ||
@@ -1051,7 +1052,7 @@ func TestParseAgentFileKBaseTokenChunkConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if def.KBaseConfig.Chunk.Unit != AgentKBaseChunkUnitEstimatedTokens ||
+	if def.KBaseConfig.Chunk.Unit != agentkbase.ChunkUnitEstimatedTokens ||
 		def.KBaseConfig.Chunk.MaxTokens != 1200 ||
 		def.KBaseConfig.Chunk.OverlapTokens != 120 {
 		t.Fatalf("unexpected token chunk config: %#v", def.KBaseConfig.Chunk)

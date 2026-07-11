@@ -30,24 +30,33 @@ type RuntimeToolReloader interface {
 	ReloadRuntimeToolDefinitions(root string) error
 }
 
-type RuntimeCatalogReloader struct {
-	registry      catalog.Registry
-	models        *models.ModelRegistry
-	mcp           McpRegistryReloader
-	tools         RuntimeToolReloader
-	toolsDir      string
-	notifications contracts.NotificationSink
-	lastReloadNs  atomic.Int64
+// AgentCatalogReconciler observes a completed agent catalog reload. KBASE uses
+// this hook to rebind workspace watchers immediately without coupling the
+// generic reloader to the KBASE package.
+type AgentCatalogReconciler interface {
+	ReconcileWatchers(ctx context.Context)
 }
 
-func NewRuntimeCatalogReloader(registry catalog.Registry, models *models.ModelRegistry, mcpRegistry McpRegistryReloader, tools RuntimeToolReloader, toolsDir string, notifications contracts.NotificationSink) *RuntimeCatalogReloader {
+type RuntimeCatalogReloader struct {
+	registry         catalog.Registry
+	models           *models.ModelRegistry
+	mcp              McpRegistryReloader
+	tools            RuntimeToolReloader
+	toolsDir         string
+	notifications    contracts.NotificationSink
+	agentReconcilers []AgentCatalogReconciler
+	lastReloadNs     atomic.Int64
+}
+
+func NewRuntimeCatalogReloader(registry catalog.Registry, models *models.ModelRegistry, mcpRegistry McpRegistryReloader, tools RuntimeToolReloader, toolsDir string, notifications contracts.NotificationSink, agentReconcilers ...AgentCatalogReconciler) *RuntimeCatalogReloader {
 	return &RuntimeCatalogReloader{
-		registry:      registry,
-		models:        models,
-		mcp:           mcpRegistry,
-		tools:         tools,
-		toolsDir:      toolsDir,
-		notifications: notifications,
+		registry:         registry,
+		models:           models,
+		mcp:              mcpRegistry,
+		tools:            tools,
+		toolsDir:         toolsDir,
+		notifications:    notifications,
+		agentReconcilers: append([]AgentCatalogReconciler(nil), agentReconcilers...),
 	}
 }
 
@@ -169,7 +178,23 @@ func (r *RuntimeCatalogReloader) reloadCatalog(ctx context.Context, reason strin
 		log.Printf("[reload] %s catalog reload failed: %v", reason, err)
 		return err
 	}
+	if catalogReloadIncludesAgents(reason) {
+		for _, reconciler := range r.agentReconcilers {
+			if reconciler != nil {
+				reconciler.ReconcileWatchers(ctx)
+			}
+		}
+	}
 	return nil
+}
+
+func catalogReloadIncludesAgents(reason string) bool {
+	switch strings.ToLower(strings.TrimSpace(reason)) {
+	case "teams", "skills":
+		return false
+	default:
+		return true
+	}
 }
 
 type watchEntry struct {

@@ -4,10 +4,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"sort"
 	"strings"
 
+	agentcontract "agent-platform/internal/agent"
+	agentbuiltin "agent-platform/internal/agent/builtin"
 	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
@@ -16,24 +19,69 @@ import (
 )
 
 type SystemInitProfileBuilder struct {
-	Models *models.ModelRegistry
+	Models   *models.ModelRegistry
+	Defaults SystemInitDefaults
 }
 
-func (b SystemInitProfileBuilder) BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, defaultPlanMaxSteps int, defaultPlanMaxWorkRoundsPerTask int, prompts config.PromptsConfig) []contracts.SystemInitProfile {
-	profiles := BuildSystemInitProfiles(session, req, toolDefs, defaultPlanMaxSteps, defaultPlanMaxWorkRoundsPerTask, prompts)
-	if b.Models == nil {
-		return profiles
+type SystemInitDefaults struct {
+	PlanMaxSteps             int
+	PlanMaxWorkRoundsPerTask int
+	Prompts                  config.PromptsConfig
+}
+
+func NewSystemInitProfileBuilder(models *models.ModelRegistry, defaults SystemInitDefaults) SystemInitProfileBuilder {
+	return SystemInitProfileBuilder{Models: models, Defaults: defaults}
+}
+
+func (b SystemInitProfileBuilder) BuildSystemInitProfiles(input contracts.SystemInitBuildInput) ([]contracts.SystemInitProfile, error) {
+	profiles := BuildSystemInitProfiles(
+		input.Session,
+		input.Request,
+		input.ToolDefinitions,
+		b.Defaults.PlanMaxSteps,
+		b.Defaults.PlanMaxWorkRoundsPerTask,
+		b.Defaults.Prompts,
+	)
+	if b.Models != nil {
+		for i := range profiles {
+			b.applyRequestProfile(&profiles[i], input.Session, input.Request)
+		}
 	}
-	for i := range profiles {
-		b.applyRequestProfile(&profiles[i], session, req)
+	if err := validateSystemInitProfiles(profiles); err != nil {
+		return nil, err
 	}
-	return profiles
+	return profiles, nil
+}
+
+func validateSystemInitProfiles(profiles []contracts.SystemInitProfile) error {
+	if len(profiles) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(profiles))
+	initialCount := 0
+	for _, profile := range profiles {
+		key := strings.TrimSpace(profile.CacheKey)
+		if key == "" {
+			return fmt.Errorf("system-init profile cache key is required")
+		}
+		if _, exists := seen[key]; exists {
+			return fmt.Errorf("duplicate system-init cache key %q", key)
+		}
+		seen[key] = struct{}{}
+		if profile.Initial {
+			initialCount++
+		}
+	}
+	if initialCount != 1 {
+		return fmt.Errorf("system-init profiles require exactly one initial profile, got %d", initialCount)
+	}
+	return nil
 }
 
 func BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, defaultPlanMaxSteps int, defaultPlanMaxWorkRoundsPerTask int, prompts config.PromptsConfig) []contracts.SystemInitProfile {
 	mode := normalizedSystemInitMode(session.Mode)
 	if session.PlanningMode {
-		if mode != "coder" {
+		if mode != agentcoder.MainStage {
 			return nil
 		}
 		settings := resolvePlanExecuteRuntimeSettings(session, defaultPlanMaxSteps, defaultPlanMaxWorkRoundsPerTask)
@@ -51,11 +99,10 @@ func BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryReques
 		}
 	case "oneshot":
 		return []contracts.SystemInitProfile{buildDefaultSystemInitProfile(session, req, toolDefs, "oneshot")}
-	case "coder":
-		return []contracts.SystemInitProfile{buildDefaultSystemInitProfile(session, req, toolDefs, "coder")}
-	case "kbase":
-		return []contracts.SystemInitProfile{buildDefaultSystemInitProfile(session, req, toolDefs, "kbase")}
 	default:
+		if descriptor, ok := agentbuiltin.Lookup(session.Mode); ok {
+			return []contracts.SystemInitProfile{buildDefaultSystemInitProfile(session, req, toolDefs, descriptor.MainStage)}
+		}
 		stage := "react"
 		if strings.TrimSpace(session.Mode) == "" {
 			stage = "oneshot"
@@ -107,22 +154,28 @@ func profileRuntimeStage(session contracts.QuerySession, profile contracts.Syste
 	stage := strings.ToLower(strings.TrimSpace(profile.Stage))
 	mode := strings.ToLower(strings.TrimSpace(profile.Mode))
 	if stage == "" || stage == "main" {
+		if descriptor, ok := agentbuiltin.Lookup(mode); ok {
+			return descriptor.MainStage
+		}
 		switch mode {
-		case "oneshot", "coder", "kbase", "react":
+		case "oneshot", "react":
 			return mode
 		}
 		normalizedMode := normalizedSystemInitMode(session.Mode)
-		if normalizedMode == "oneshot" || normalizedMode == "coder" || normalizedMode == "kbase" || normalizedMode == "react" {
+		if descriptor, ok := agentbuiltin.Lookup(normalizedMode); ok {
+			return descriptor.MainStage
+		}
+		if normalizedMode == "oneshot" || normalizedMode == "react" {
 			return normalizedMode
 		}
 		return "react"
 	}
-	if mode == "coder" {
+	if mode == agentcoder.MainStage {
 		switch stage {
 		case "plan":
-			return "coder-plan"
+			return agentcoder.PlanStage
 		case "execute":
-			return "coder-execute"
+			return agentcoder.ExecuteStage
 		}
 	}
 	return stage
@@ -189,8 +242,11 @@ func SystemInitCacheKey(mode string, stage string) string {
 	if normalizedMode == "plan-execute" {
 		return normalizedMode + ":" + normalizedPlanExecuteStage(stage)
 	}
-	if normalizedMode == "coder" {
-		return normalizedMode + ":" + normalizedCoderStage(stage)
+	if normalizedMode == agentcoder.MainStage {
+		return agentcoder.SystemInitCacheKey(stage)
+	}
+	if descriptor, ok := agentbuiltin.Lookup(mode); ok {
+		return descriptor.MainCacheKey
 	}
 	return normalizedMode + ":main"
 }
@@ -219,8 +275,7 @@ func ComputeSystemInitFingerprint(session contracts.QuerySession, stage string, 
 		"planPrompt":             session.PlanPrompt,
 		"executePrompt":          session.ExecutePrompt,
 		"summaryPrompt":          session.SummaryPrompt,
-		"coderSystemPrompt":      session.CoderSystemPrompt,
-		"kbaseSystemPrompt":      session.KBaseSystemPrompt,
+		"modeSystemPrompt":       session.ModeSystemPrompt,
 		"runtimeEnvironmentID":   session.RuntimeEnvironmentID,
 		"runtimeLevel":           session.RuntimeLevel,
 		"runtimeExtraMounts":     session.RuntimeExtraMounts,
@@ -244,7 +299,7 @@ func buildDefaultSystemInitProfile(session contracts.QuerySession, req api.Query
 		IncludeAfterCallHints: true,
 	})
 	specs := toOpenAIToolSpecs(effectiveDefs)
-	return contracts.SystemInitProfile{
+	profile := contracts.SystemInitProfile{
 		AgentKey:      strings.TrimSpace(session.AgentKey),
 		CacheKey:      SystemInitCacheKey(session.Mode, stage),
 		Mode:          normalizedSystemInitMode(session.Mode),
@@ -252,7 +307,15 @@ func buildDefaultSystemInitProfile(session contracts.QuerySession, req api.Query
 		Fingerprint:   ComputeSystemInitFingerprint(session, "main", effectiveDefs),
 		SystemMessage: map[string]any{"role": "system", "content": systemPrompt},
 		Tools:         openAIToolSpecsToAny(specs),
+		Initial:       true,
 	}
+	if spec, ok := agentbuiltin.MainSystemInitSpec(session.Mode); ok {
+		profile.CacheKey = spec.CacheKey
+		profile.Mode = spec.Mode
+		profile.Stage = spec.Stage
+		profile.Initial = spec.Initial
+	}
+	return profile
 }
 
 func buildPlanSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, settings contracts.PlanExecuteSettings, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
@@ -272,6 +335,7 @@ func buildPlanSystemInitProfile(session contracts.QuerySession, req api.QueryReq
 		Fingerprint:   ComputeSystemInitFingerprint(session, "plan", effectiveDefs),
 		SystemMessage: map[string]any{"role": "system", "content": systemPrompt},
 		Tools:         openAIToolSpecsToAny(specs),
+		Initial:       true,
 	}
 }
 
@@ -332,7 +396,7 @@ func buildCoderPlanningPlanSystemInitProfile(session contracts.QuerySession, req
 	return buildCoderPlanningSystemInitProfile(session, req, agentcoder.PlanningPlanSystemInitSpec(), toolDefs)
 }
 
-func buildCoderPlanningSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, spec agentcoder.SystemInitSpec, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
+func buildCoderPlanningSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, spec agentcontract.SystemInitSpec, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
 	effectiveDefs := effectiveToolDefinitions(toolDefs, spec.ToolNames, session.AgentHasRuntimeSandbox)
 	systemPrompt := strings.TrimSpace(spec.SystemPrompt)
 	if spec.UseSharedSystemPrompt {
@@ -345,12 +409,13 @@ func buildCoderPlanningSystemInitProfile(session contracts.QuerySession, req api
 	specs := toOpenAIToolSpecs(effectiveDefs)
 	return contracts.SystemInitProfile{
 		AgentKey:      strings.TrimSpace(session.AgentKey),
-		CacheKey:      SystemInitCacheKey(session.Mode, spec.CacheStage),
+		CacheKey:      spec.CacheKey,
 		Mode:          spec.Mode,
 		Stage:         spec.Stage,
 		Fingerprint:   ComputeSystemInitFingerprint(session, spec.FingerprintStage, effectiveDefs),
 		SystemMessage: map[string]any{"role": "system", "content": systemPrompt},
 		Tools:         openAIToolSpecsToAny(specs),
+		Initial:       spec.Initial,
 	}
 }
 
@@ -370,15 +435,14 @@ func planSystemInitTools(stage contracts.StageSettings) []string {
 }
 
 func normalizedSystemInitMode(mode string) string {
+	if descriptor, ok := agentbuiltin.Lookup(mode); ok {
+		return strings.ToLower(descriptor.NormalizedMode())
+	}
 	switch strings.ToUpper(strings.TrimSpace(mode)) {
 	case "ONESHOT":
 		return "oneshot"
 	case "PLAN_EXECUTE", "PLAN-EXECUTE":
 		return "plan-execute"
-	case "CODER":
-		return "coder"
-	case "KBASE":
-		return "kbase"
 	default:
 		return "react"
 	}
@@ -395,20 +459,6 @@ func normalizedPlanExecuteStage(stage string) string {
 		return "execute"
 	default:
 		return "execute"
-	}
-}
-
-func normalizedCoderStage(stage string) string {
-	value := strings.ToLower(strings.TrimSpace(stage))
-	switch {
-	case value == "coder":
-		return "main"
-	case strings.HasPrefix(value, "coder-plan"):
-		return "plan"
-	case strings.HasPrefix(value, "coder-execute"):
-		return "execute"
-	default:
-		return "main"
 	}
 }
 

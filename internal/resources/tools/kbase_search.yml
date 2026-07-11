@@ -4,6 +4,7 @@ description: Search the current KBASE agent knowledge base. Results include sour
 submitResultFormat: json-compact
 type: function
 clientVisible: true
+readOnly: true
 inputSchema:
   type: object
   properties:

@@ -8,7 +8,12 @@ import (
 	"agent-platform/internal/contracts"
 )
 
-func (e *LLMAgentEngine) Settings() agentcoder.RuntimeSettings {
+type coderRuntimeAdapter struct {
+	engine *LLMAgentEngine
+}
+
+func (a coderRuntimeAdapter) Settings() agentcoder.RuntimeSettings {
+	e := a.engine
 	if e == nil {
 		return agentcoder.RuntimeSettings{}
 	}
@@ -19,7 +24,8 @@ func (e *LLMAgentEngine) Settings() agentcoder.RuntimeSettings {
 	}
 }
 
-func (e *LLMAgentEngine) NewStageRunStream(ctx context.Context, req api.QueryRequest, session contracts.QuerySession, allowToolUse bool, options agentcoder.StageRunOptions) (contracts.AgentStream, error) {
+func (a coderRuntimeAdapter) NewStageRunStream(ctx context.Context, req api.QueryRequest, session contracts.QuerySession, allowToolUse bool, options agentcoder.StageRunOptions) (contracts.AgentStream, error) {
+	e := a.engine
 	return e.newRunStreamWithOptions(ctx, req, session, allowToolUse, runStreamOptions{
 		ExecCtx:                      options.ExecCtx,
 		Messages:                     options.Messages,
@@ -33,23 +39,26 @@ func (e *LLMAgentEngine) NewStageRunStream(ctx context.Context, req api.QueryReq
 	})
 }
 
-func (e *LLMAgentEngine) BuildCurrentMessagesForRequest(req api.QueryRequest, session contracts.QuerySession, fallbackVision bool) []map[string]any {
+func (a coderRuntimeAdapter) BuildCurrentMessagesForRequest(req api.QueryRequest, session contracts.QuerySession, fallbackVision bool) []map[string]any {
+	e := a.engine
 	return e.buildCurrentMessagesForRequest(req, session, fallbackVision)
 }
 
-func (e *LLMAgentEngine) ToolDefinitions() []api.ToolDetailResponse {
+func (a coderRuntimeAdapter) ToolDefinitions() []api.ToolDetailResponse {
+	e := a.engine
 	if e == nil || e.tools == nil {
 		return nil
 	}
 	return e.tools.Definitions()
 }
 
-func (e *LLMAgentEngine) BuildExecuteSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, settings contracts.PlanExecuteSettings) []contracts.SystemInitProfile {
+func (a coderRuntimeAdapter) BuildExecuteSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, settings contracts.PlanExecuteSettings) []contracts.SystemInitProfile {
+	e := a.engine
 	if e == nil {
 		return nil
 	}
 	session.ResolvedStageSettings = settings
-	profile := buildCoderPlanningExecuteSystemInitProfile(session, req, settings, e.ToolDefinitions())
+	profile := buildCoderPlanningExecuteSystemInitProfile(session, req, settings, a.ToolDefinitions())
 	(SystemInitProfileBuilder{Models: e.models}).applyRequestProfile(&profile, session, req)
 	return []contracts.SystemInitProfile{profile}
 }

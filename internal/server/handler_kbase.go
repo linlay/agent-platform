@@ -6,7 +6,6 @@ import (
 
 	"agent-platform/internal/agent/kbase"
 	"agent-platform/internal/api"
-	"agent-platform/internal/catalog"
 )
 
 type kbaseRefreshRequest struct {
@@ -23,13 +22,9 @@ func (s *Server) handleKBase(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, api.Failure(http.StatusServiceUnavailable, "kbase is not configured"))
 		return
 	}
-	def, exists := s.deps.Registry.AgentDefinition(agentKey)
-	if !exists {
-		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "agent not found"))
-		return
-	}
-	if !strings.EqualFold(strings.TrimSpace(def.Mode), catalog.AgentModeKBase) {
-		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "agent is not mode: KBASE"))
+	if err := s.deps.KBase.ValidateAgent(agentKey); err != nil {
+		statusCode := kbaseErrorStatus(err)
+		writeJSON(w, statusCode, api.Failure(statusCode, kbaseErrorMessage(err)))
 		return
 	}
 	switch action {
@@ -41,7 +36,8 @@ func (s *Server) handleKBase(w http.ResponseWriter, r *http.Request) {
 		}
 		status, err := s.deps.KBase.Status(agentKey)
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
+			statusCode := kbaseErrorStatus(err)
+			writeJSON(w, statusCode, api.Failure(statusCode, kbaseErrorMessage(err)))
 			return
 		}
 		writeJSON(w, http.StatusOK, api.Success(status))
@@ -60,12 +56,37 @@ func (s *Server) handleKBase(w http.ResponseWriter, r *http.Request) {
 		}
 		result, err := s.deps.KBase.Refresh(r.Context(), agentKey, kbase.RefreshOptions{Force: req.Force, Mode: "manual"})
 		if err != nil {
-			writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
+			statusCode := kbaseErrorStatus(err)
+			writeJSON(w, statusCode, api.Failure(statusCode, kbaseErrorMessage(err)))
 			return
 		}
 		writeJSON(w, http.StatusOK, api.Success(result))
 	default:
 		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "not found"))
+	}
+}
+
+func kbaseErrorStatus(err error) int {
+	switch kbase.KindOf(err) {
+	case kbase.ErrorUnavailable:
+		return http.StatusServiceUnavailable
+	case kbase.ErrorNotFound:
+		return http.StatusNotFound
+	case kbase.ErrorWrongMode:
+		return http.StatusForbidden
+	default:
+		return http.StatusBadRequest
+	}
+}
+
+func kbaseErrorMessage(err error) string {
+	switch kbase.KindOf(err) {
+	case kbase.ErrorNotFound:
+		return "agent not found"
+	case kbase.ErrorWrongMode:
+		return "agent is not mode: KBASE"
+	default:
+		return err.Error()
 	}
 }
 

@@ -84,6 +84,9 @@ type DeltaRunContinuation struct {
 	Mode        string
 	Params      api.SubmitParams
 	Answer      map[string]any
+	// ContinuationState carries server-owned, in-memory admission state from
+	// submit to the asynchronous continuation callback. It is never serialized.
+	ContinuationState any
 }
 
 func (DeltaRunContinuation) agentDeltaTag() {}

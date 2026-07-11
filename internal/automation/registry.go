@@ -31,7 +31,7 @@ var (
 )
 
 type TeamLookup interface {
-	TeamDefinition(teamID string) (catalog.TeamDefinition, bool)
+	ResolveTeam(teamID string) (catalog.TeamSnapshot, bool)
 }
 
 type Registry struct {
@@ -196,14 +196,18 @@ func (r *Registry) validateTeam(agentKey string, teamID string) error {
 	if teamID == "" || r == nil || r.teams == nil {
 		return nil
 	}
-	team, ok := r.teams.TeamDefinition(teamID)
+	team, ok := r.teams.ResolveTeam(teamID)
 	if !ok {
 		return fmt.Errorf("team %q not found", teamID)
 	}
-	for _, key := range team.AgentKeys {
-		if key == agentKey {
-			return nil
-		}
+	if !team.DefaultAgentValid {
+		return fmt.Errorf("team %q has invalid default agent %q (%s)", teamID, team.DefaultAgentKey, team.DefaultAgentState)
+	}
+	if team.HasAgent(agentKey) {
+		return nil
+	}
+	if team.DeclaresAgent(agentKey) {
+		return fmt.Errorf("agentKey %q is unavailable in team %q", agentKey, teamID)
 	}
 	return fmt.Errorf("agentKey %q is not in team %q", agentKey, teamID)
 }

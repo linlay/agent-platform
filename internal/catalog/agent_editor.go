@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 
+	agentcoder "agent-platform/internal/agent/coder"
+	agentkbase "agent-platform/internal/agent/kbase"
 	configpkg "agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 )
@@ -250,50 +252,13 @@ func normalizeEditableDefinition(definition map[string]any) map[string]any {
 		normalized["mode"] = AgentModeForAPI(stringNode(normalized["mode"]))
 	}
 	if mode == AgentModeCoder {
-		if isEmptyEditableValue(normalized["icon"]) {
-			normalized["icon"] = map[string]any{"name": DefaultCoderAgentIconName}
-		}
+		normalized = agentcoder.ApplyCreateDefaults(normalized, agentcoder.CreateDefaults{})
 		delete(normalized, "workspace")
-		normalizeEditableCoderVisibility(normalized)
+	}
+	if mode == AgentModeKBase {
+		normalized = agentkbase.ApplyCreateDefaults(normalized, agentkbase.CreateDefaults{})
 	}
 	return normalized
-}
-
-func isEmptyEditableValue(value any) bool {
-	if value == nil {
-		return true
-	}
-	text, ok := value.(string)
-	return ok && strings.TrimSpace(text) == ""
-}
-
-func normalizeEditableCoderVisibility(definition map[string]any) {
-	visibility := mapNode(definition["visibility"])
-	scopes := normalizeEditableVisibilityScopes(listStrings(visibility["scopes"]))
-	for _, scope := range scopes {
-		if scope == "invoke" || scope == "internal" {
-			definition["visibility"] = map[string]any{"scopes": scopes}
-			return
-		}
-	}
-	definition["visibility"] = map[string]any{"scopes": []any{"nav"}}
-}
-
-func normalizeEditableVisibilityScopes(rawScopes []string) []string {
-	out := make([]string, 0, len(rawScopes))
-	seen := map[string]struct{}{}
-	for _, raw := range rawScopes {
-		scope := normalizeAgentVisibilityScope(raw)
-		if scope == "" {
-			continue
-		}
-		if _, ok := seen[scope]; ok {
-			continue
-		}
-		seen[scope] = struct{}{}
-		out = append(out, scope)
-	}
-	return out
 }
 
 func writeValidationAgentFile(data []byte) (string, error) {

@@ -13,7 +13,9 @@ import (
 	"strings"
 	"time"
 
+	agentbuiltin "agent-platform/internal/agent/builtin"
 	agentcoder "agent-platform/internal/agent/coder"
+	agentkbase "agent-platform/internal/agent/kbase"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/contracts"
@@ -251,21 +253,7 @@ func validateCreateAgentDefinition(definition map[string]any) error {
 	if mode != catalog.AgentModeKBase {
 		return nil
 	}
-	kbaseConfig := contracts.AnyMapNode(definition["kbaseConfig"])
-	embedding := contracts.AnyMapNode(kbaseConfig["embedding"])
-	for _, key := range []string{"providerKey", "model", "dimension", "timeout"} {
-		if _, exists := embedding[key]; exists {
-			return fmt.Errorf("kbaseConfig.embedding.%s is no longer supported; use kbaseConfig.embedding.modelKey", key)
-		}
-	}
-	chunk := contracts.AnyMapNode(kbaseConfig["chunk"])
-	if rawUnit, exists := chunk["unit"]; exists {
-		unit := strings.TrimSpace(stringValue(rawUnit))
-		if _, ok := catalog.NormalizeAgentKBaseChunkUnit(unit); !ok {
-			return fmt.Errorf("kbaseConfig.chunk.unit must be estimatedTokens or chars")
-		}
-	}
-	return nil
+	return agentkbase.ValidateAgentConfigSchema(contracts.AnyMapNode(definition["kbaseConfig"]))
 }
 
 func (s *Server) applyCreateDefaultAgentConfig(definition map[string]any) map[string]any {
@@ -283,40 +271,9 @@ func (s *Server) applyCoderDefaultAgentConfig(definition map[string]any) map[str
 		return definition
 	}
 	defaults := s.deps.Config.CoderSettings.DefaultAgent
-	modelKey := strings.TrimSpace(defaults.ModelKey)
-	reasoningEffort := strings.TrimSpace(defaults.ReasoningEffort)
-	budget := defaults.Budget
-	if modelKey == "" && reasoningEffort == "" && len(budget) == 0 {
-		return definition
-	}
-
-	out := contracts.CloneMap(definition)
-	if _, exists := out["budget"]; !exists && len(budget) > 0 {
-		out["budget"] = contracts.CloneMap(budget)
-	}
-	modelConfig := contracts.CloneMap(contracts.AnyMapNode(out["modelConfig"]))
-	if modelConfig == nil {
-		modelConfig = map[string]any{}
-	}
-	if modelKey != "" && strings.TrimSpace(stringValue(modelConfig["modelKey"])) == "" {
-		modelConfig["modelKey"] = modelKey
-	}
-	if reasoningEffort != "" {
-		reasoning := contracts.CloneMap(contracts.AnyMapNode(modelConfig["reasoning"]))
-		if reasoning == nil {
-			reasoning = map[string]any{}
-		}
-		if strings.TrimSpace(stringValue(reasoning["effort"])) == "" {
-			reasoning["effort"] = reasoningEffort
-		}
-		if len(reasoning) > 0 {
-			modelConfig["reasoning"] = reasoning
-		}
-	}
-	if len(modelConfig) > 0 {
-		out["modelConfig"] = modelConfig
-	}
-	return out
+	return agentcoder.ApplyCreateDefaults(definition, agentcoder.CreateDefaults{
+		ModelKey: defaults.ModelKey, ReasoningEffort: defaults.ReasoningEffort, Budget: defaults.Budget,
+	})
 }
 
 func (s *Server) applyKBaseDefaultAgentConfig(definition map[string]any) map[string]any {
@@ -328,93 +285,10 @@ func (s *Server) applyKBaseDefaultAgentConfig(definition map[string]any) map[str
 		return definition
 	}
 	defaults := s.deps.Config.KBase.DefaultAgent
-	modelKey := strings.TrimSpace(defaults.ModelKey)
-	reasoningEffort := strings.TrimSpace(defaults.ReasoningEffort)
-	embeddingDefaults := s.deps.Config.KBase.Embedding
-	embeddingModelKey := strings.TrimSpace(embeddingDefaults.ModelKey)
-
-	out := contracts.CloneMap(definition)
-	if isEmptyDefinitionValue(out["icon"]) {
-		out["icon"] = map[string]any{"name": catalog.DefaultKBaseAgentIconName}
-	}
-	visibility := contracts.CloneMap(contracts.AnyMapNode(out["visibility"]))
-	if visibility == nil {
-		visibility = map[string]any{}
-	}
-	if !hasNonBlankStringList(visibility["scopes"]) {
-		visibility["scopes"] = []any{"nav"}
-		out["visibility"] = visibility
-	}
-	if modelKey != "" || reasoningEffort != "" {
-		modelConfig := contracts.CloneMap(contracts.AnyMapNode(out["modelConfig"]))
-		if modelConfig == nil {
-			modelConfig = map[string]any{}
-		}
-		if modelKey != "" && strings.TrimSpace(stringValue(modelConfig["modelKey"])) == "" {
-			modelConfig["modelKey"] = modelKey
-		}
-		if reasoningEffort != "" {
-			reasoning := contracts.CloneMap(contracts.AnyMapNode(modelConfig["reasoning"]))
-			if reasoning == nil {
-				reasoning = map[string]any{}
-			}
-			if strings.TrimSpace(stringValue(reasoning["effort"])) == "" {
-				reasoning["effort"] = reasoningEffort
-			}
-			if len(reasoning) > 0 {
-				modelConfig["reasoning"] = reasoning
-			}
-		}
-		if len(modelConfig) > 0 {
-			out["modelConfig"] = modelConfig
-		}
-	}
-	kbaseConfig := contracts.CloneMap(contracts.AnyMapNode(out["kbaseConfig"]))
-	embedding := contracts.CloneMap(contracts.AnyMapNode(kbaseConfig["embedding"]))
-	explicitEmbeddingModelKey := strings.TrimSpace(stringValue(embedding["modelKey"]))
-	if explicitEmbeddingModelKey != "" || embeddingModelKey != "" {
-		if kbaseConfig == nil {
-			kbaseConfig = map[string]any{}
-		}
-		if explicitEmbeddingModelKey == "" {
-			explicitEmbeddingModelKey = embeddingModelKey
-		}
-		if embedding == nil {
-			embedding = map[string]any{}
-		}
-		embedding["modelKey"] = explicitEmbeddingModelKey
-		kbaseConfig["embedding"] = embedding
-		if len(kbaseConfig) > 0 {
-			out["kbaseConfig"] = kbaseConfig
-		}
-	}
-	return out
-}
-
-func isEmptyDefinitionValue(value any) bool {
-	if value == nil {
-		return true
-	}
-	text, ok := value.(string)
-	return ok && strings.TrimSpace(text) == ""
-}
-
-func hasNonBlankStringList(value any) bool {
-	switch items := value.(type) {
-	case []any:
-		for _, item := range items {
-			if strings.TrimSpace(stringValue(item)) != "" {
-				return true
-			}
-		}
-	case []string:
-		for _, item := range items {
-			if strings.TrimSpace(item) != "" {
-				return true
-			}
-		}
-	}
-	return false
+	return agentkbase.ApplyCreateDefaults(definition, agentkbase.CreateDefaults{
+		ModelKey: defaults.ModelKey, ReasoningEffort: defaults.ReasoningEffort,
+		EmbeddingModelKey: s.deps.Config.KBase.Embedding.ModelKey,
+	})
 }
 
 func (s *Server) normalizeGeneratedModeCreation(key string, definition map[string]any) (string, map[string]any) {
@@ -422,16 +296,11 @@ func (s *Server) normalizeGeneratedModeCreation(key string, definition map[strin
 		return key, definition
 	}
 	mode := catalog.NormalizeAgentModeForRuntime(stringValue(definition["mode"]))
-	prefix := ""
-	switch mode {
-	case catalog.AgentModeCoder:
-		prefix = "coder"
-	case catalog.AgentModeKBase:
-		prefix = "kbase"
-	default:
+	descriptor, ok := agentbuiltin.Lookup(mode)
+	if !ok || strings.TrimSpace(descriptor.CreatePrefix) == "" {
 		return key, definition
 	}
-	newKey := prefix + "-" + strconv.FormatInt(time.Now().Unix(), 36)
+	newKey := descriptor.CreatePrefix + "-" + strconv.FormatInt(time.Now().Unix(), 36)
 	out := contracts.CloneMap(definition)
 	out["key"] = newKey
 
@@ -583,10 +452,8 @@ func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgent
 	if _, err := editor.UpdateEditableAgent(key, definition, &files.SoulPrompt, &files.AgentsPrompt); err != nil {
 		return api.AgentModelConfigResponse{}, mapAgentEditError(err)
 	}
-	if s.deps.Registry != nil {
-		if err := s.deps.Registry.Reload(ctx, "agents"); err != nil {
-			return api.AgentModelConfigResponse{}, err
-		}
+	if err := s.reloadAgentCatalog(ctx); err != nil {
+		return api.AgentModelConfigResponse{}, err
 	}
 	return api.AgentModelConfigResponse{
 		Key:         key,
@@ -603,10 +470,8 @@ func (s *Server) deleteAgent(ctx context.Context, req api.DeleteAgentRequest) (m
 	if err := editor.DeleteEditableAgent(key); err != nil {
 		return nil, mapAgentEditError(err)
 	}
-	if s.deps.Registry != nil {
-		if err := s.deps.Registry.Reload(ctx, "agents"); err != nil {
-			return nil, err
-		}
+	if err := s.reloadAgentCatalog(ctx); err != nil {
+		return nil, err
 	}
 	return map[string]any{"key": key, "deleted": true}, nil
 }
@@ -720,10 +585,8 @@ func (s *Server) buildAgentEditorOptions() api.AgentEditorOptionsResponse {
 }
 
 func (s *Server) reloadAndLoadAgent(ctx context.Context, key string) (api.AgentDetailResponse, error) {
-	if s.deps.Registry != nil {
-		if err := s.deps.Registry.Reload(ctx, "agents"); err != nil {
-			return api.AgentDetailResponse{}, err
-		}
+	if err := s.reloadAgentCatalog(ctx); err != nil {
+		return api.AgentDetailResponse{}, err
 	}
 	def, ok := s.deps.Registry.AgentDefinition(key)
 	if !ok {

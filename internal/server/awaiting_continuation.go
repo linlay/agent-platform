@@ -15,7 +15,65 @@ import (
 	"agent-platform/internal/stream"
 )
 
+type awaitingContinuationAdmission struct {
+	summary      chat.Summary
+	teamID       string
+	agentKey     string
+	teamSnapshot *catalog.TeamSnapshot
+	agentDef     catalog.AgentDefinition
+}
+
+func (s *Server) resolveAwaitingContinuationAdmission(chatID string, requestedAgentKey string) (awaitingContinuationAdmission, error) {
+	chatID = strings.TrimSpace(chatID)
+	if s == nil || s.deps.Chats == nil || s.deps.Registry == nil {
+		return awaitingContinuationAdmission{}, fmt.Errorf("continuation admission is not configured")
+	}
+	summary, err := s.deps.Chats.Summary(chatID)
+	if err != nil {
+		return awaitingContinuationAdmission{}, err
+	}
+	if summary == nil {
+		return awaitingContinuationAdmission{}, chat.ErrChatNotFound
+	}
+	teamID, agentKey, teamSnapshot, teamErr := resolveQueryTeam(
+		s.deps.Registry,
+		strings.TrimSpace(summary.TeamID),
+		strings.TrimSpace(requestedAgentKey),
+		summary,
+	)
+	if teamErr != nil {
+		return awaitingContinuationAdmission{}, teamErr
+	}
+	var agentDef catalog.AgentDefinition
+	var ok bool
+	if teamSnapshot != nil {
+		agentDef, ok = teamSnapshot.AgentDefinition(agentKey)
+	} else {
+		agentKey = firstNonBlank(agentKey, summary.AgentKey)
+		agentDef, ok = s.deps.Registry.AgentDefinition(agentKey)
+	}
+	if !ok {
+		return awaitingContinuationAdmission{}, fmt.Errorf("agent not found: %s", agentKey)
+	}
+	return awaitingContinuationAdmission{
+		summary:      *summary,
+		teamID:       teamID,
+		agentKey:     agentKey,
+		teamSnapshot: teamSnapshot,
+		agentDef:     agentDef,
+	}, nil
+}
+
 func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq api.SubmitRequest, answer map[string]any) (bool, error) {
+	return s.startAwaitingContinuationWithAdmission(deferred, submitReq, answer, nil)
+}
+
+func (s *Server) startAwaitingContinuationWithAdmission(
+	deferred DeferredAwaiting,
+	submitReq api.SubmitRequest,
+	answer map[string]any,
+	admission *awaitingContinuationAdmission,
+) (bool, error) {
 	if s == nil || s.deps.Runs == nil || s.deps.Chats == nil || s.deps.Agent == nil || s.deps.Registry == nil {
 		return false, nil
 	}
@@ -38,38 +96,46 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 	if chatID == "" {
 		return false, fmt.Errorf("chatId is required")
 	}
-	summary, err := s.deps.Chats.Summary(chatID)
-	if err != nil {
-		return false, err
+	if admission == nil {
+		resolved, err := s.resolveAwaitingContinuationAdmission(chatID, submitReq.AgentKey)
+		if err != nil {
+			return false, err
+		}
+		admission = &resolved
+	} else if admission.summary.ChatID != "" && strings.TrimSpace(admission.summary.ChatID) != chatID {
+		return false, fmt.Errorf("continuation admission chatId does not match")
 	}
-	if summary == nil {
-		return false, chat.ErrChatNotFound
-	}
-	agentKey := firstNonBlank(submitReq.AgentKey, summary.AgentKey)
-	agentDef, ok := s.deps.Registry.AgentDefinition(agentKey)
-	if !ok {
-		return false, fmt.Errorf("agent not found: %s", agentKey)
-	}
+	summary := admission.summary
+	teamID := admission.teamID
+	agentKey := admission.agentKey
+	teamSnapshot := admission.teamSnapshot
+	agentDef := admission.agentDef
 
 	originalQuery, _ := s.deps.Chats.LoadRunQuery(chatID, sourceRunID)
 	planMarkdown := s.awaitingContinuationPlanMarkdown(chatID, mode)
-	planDecision := planContinuationDecision(mode, answer)
+	planDecision := agentcoder.PlanContinuationDecision(mode, answer)
 	planApprove := agentcoder.IsMode(agentDef.Mode) && planDecision == "approve"
 	planReject := agentcoder.IsMode(agentDef.Mode) && planDecision == "reject"
 	newExecutionRun := planApprove && strings.TrimSpace(runID) != strings.TrimSpace(sourceRunID)
-	req := queryRequestForAwaitingContinuation(originalQuery, submitReq, *summary, agentDef, mode, answer, planMarkdown)
+	continuationInput := coderContinuationRequestInput(originalQuery, submitReq, summary, agentDef, mode, answer, planMarkdown)
+	req := agentcoder.BuildContinuationRequest(continuationInput)
 	if planApprove {
-		req = queryRequestForPlanApproveContinuation(originalQuery, submitReq, *summary, agentDef, planMarkdown)
+		req = agentcoder.BuildPlanApproveContinuationRequest(continuationInput)
 	} else if planReject {
 		planningMode := true
 		req.PlanningMode = &planningMode
 	}
-	session, err := s.BuildQuerySession(context.Background(), req, *summary, agentDef, querySessionBuildOptions{
+	// The chat's team is fixed and the selected member definition was frozen
+	// above. Do not allow persisted query fields to reintroduce a stale team or
+	// agent after admission.
+	req.TeamID = teamID
+	req.AgentKey = agentKey
+	session, err := s.BuildQuerySession(context.Background(), req, summary, agentDef, querySessionBuildOptions{
 		Created:           false,
 		Locale:            submitReq.Locale,
 		IncludeHistory:    true,
 		IncludeMemory:     true,
-		AllowInvokeAgents: canUseInvokeAgentsTool(agentDef.Mode),
+		AllowInvokeAgents: resolvedModeCapabilities(agentDef).InvokeChildren,
 	})
 	if err != nil {
 		return false, err
@@ -77,7 +143,7 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 	if !isProxyAgentMode(agentDef.Mode) {
 		applyQueryModelOptionsToSession(req.Model, &session)
 	}
-	if catalog.AgentUsesACPCoderBackend(agentDef) {
+	if agentcoder.IsACPBackend(agentDef.Mode, agentDef.ACPBridgeID) {
 		req.Model = s.acpCoderModelOptions(session, req.Model)
 	}
 	var continuationSystem *chat.QueryLineSystemInit
@@ -99,13 +165,14 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 	session.HistoryMessages = awaitingContinuationHistory(session.HistoryMessages, sourceRunID, submitReq.AwaitingID, mode, answer)
 
 	prepared := preparedQuery{
-		req:         req,
-		summary:     *summary,
-		created:     false,
-		agentDef:    agentDef,
-		session:     session,
-		continueRun: !newExecutionRun,
-		initialSeq:  s.continuationInitialSeq(chatID, sourceRunID, runID),
+		req:          req,
+		summary:      summary,
+		created:      false,
+		agentDef:     agentDef,
+		teamSnapshot: teamSnapshot,
+		session:      session,
+		continueRun:  !newExecutionRun,
+		initialSeq:   s.continuationInitialSeq(chatID, sourceRunID, runID),
 	}
 	if newExecutionRun {
 		prepared.syntheticBootstrap = coderPlanApproveSyntheticBootstrap(session)
@@ -140,9 +207,10 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 		Request:           req,
 		Session:           session,
 		StartedAtMillis:   startedAt,
-		Summary:           *summary,
+		Summary:           summary,
 		Agent:             s.deps.Agent,
 		Registry:          s.deps.Registry,
+		TeamSnapshot:      teamSnapshot,
 		Assembler:         assembler,
 		Mapper:            mapper,
 		Billing:           s.deps.Config.Billing,
@@ -207,14 +275,6 @@ func (s *Server) continuationInitialSeq(chatID string, sourceRunID string, runID
 	return s.persistedRunLiveSeq(chatID, runID)
 }
 
-func planContinuationDecision(mode string, answer map[string]any) string {
-	if !strings.EqualFold(strings.TrimSpace(mode), "plan") {
-		return ""
-	}
-	plan := contracts.AnyMapNode(answer["plan"])
-	return strings.ToLower(strings.TrimSpace(stringValue(plan["decision"])))
-}
-
 func (s *Server) startRunContinuation(continuation contracts.DeltaRunContinuation) (string, error) {
 	runID := strings.TrimSpace(continuation.RunID)
 	if runID == "" {
@@ -239,12 +299,13 @@ func (s *Server) startRunContinuation(continuation contracts.DeltaRunContinuatio
 		Params:            continuation.Params,
 		ContinuationRunID: runID,
 	}
-	continued, err := s.startAwaitingContinuation(DeferredAwaiting{
+	admission, _ := continuation.ContinuationState.(*awaitingContinuationAdmission)
+	continued, err := s.startAwaitingContinuationWithAdmission(DeferredAwaiting{
 		ChatID:     chatID,
 		RunID:      sourceRunID,
 		AwaitingID: submitReq.AwaitingID,
 		Mode:       mode,
-	}, submitReq, contracts.CloneMap(continuation.Answer))
+	}, submitReq, contracts.CloneMap(continuation.Answer), admission)
 	if err != nil {
 		return "", err
 	}
@@ -254,50 +315,23 @@ func (s *Server) startRunContinuation(continuation contracts.DeltaRunContinuatio
 	return runID, nil
 }
 
-func queryRequestForAwaitingContinuation(original *chat.QueryLine, submitReq api.SubmitRequest, summary chat.Summary, agentDef catalog.AgentDefinition, mode string, answer map[string]any, planMarkdown string) api.QueryRequest {
-	var req api.QueryRequest
+func coderContinuationRequestInput(original *chat.QueryLine, submitReq api.SubmitRequest, summary chat.Summary, agentDef catalog.AgentDefinition, mode string, answer map[string]any, planMarkdown string) agentcoder.ContinuationRequestInput {
+	var originalRequest api.QueryRequest
 	if original != nil && len(original.Query) > 0 {
 		data, _ := json.Marshal(original.Query)
-		_ = json.Unmarshal(data, &req)
+		_ = json.Unmarshal(data, &originalRequest)
 	}
-	req.ChatID = firstNonBlank(req.ChatID, submitReq.ChatID, summary.ChatID)
-	req.RunID = firstNonBlank(submitReq.ContinuationRunID, submitReq.RunID, req.RunID)
-	req.RequestID = firstNonBlank(submitReq.SubmitID, req.RunID)
-	req.AgentKey = firstNonBlank(submitReq.AgentKey, req.AgentKey, summary.AgentKey, agentDef.Key)
-	req.TeamID = firstNonBlank(req.TeamID, summary.TeamID)
-	req.Role = api.QueryRoleSystem
-	if strings.EqualFold(mode, "plan") {
-		planningMode := false
-		req.PlanningMode = &planningMode
+	return agentcoder.ContinuationRequestInput{
+		Original:           originalRequest,
+		Submit:             submitReq,
+		SummaryChatID:      summary.ChatID,
+		SummaryTeamID:      summary.TeamID,
+		SummaryAgentKey:    summary.AgentKey,
+		DefinitionAgentKey: agentDef.Key,
+		Mode:               mode,
+		Answer:             answer,
+		PlanMarkdown:       planMarkdown,
 	}
-	req.Message = awaitingContinuationPrompt(mode, submitReq.AwaitingID, answer, planMarkdown)
-	if strings.TrimSpace(req.AccessLevel) == "" {
-		req.AccessLevel = contracts.AccessLevelDefault
-	}
-	return req
-}
-
-func queryRequestForPlanApproveContinuation(original *chat.QueryLine, submitReq api.SubmitRequest, summary chat.Summary, agentDef catalog.AgentDefinition, planMarkdown string) api.QueryRequest {
-	var req api.QueryRequest
-	if original != nil && len(original.Query) > 0 {
-		data, _ := json.Marshal(original.Query)
-		_ = json.Unmarshal(data, &req)
-	}
-	originalMessage := strings.TrimSpace(req.Message)
-	req.ChatID = firstNonBlank(req.ChatID, submitReq.ChatID, summary.ChatID)
-	req.RunID = firstNonBlank(submitReq.ContinuationRunID, submitReq.RunID, req.RunID)
-	req.RequestID = firstNonBlank(submitReq.SubmitID, req.RunID)
-	req.AgentKey = firstNonBlank(submitReq.AgentKey, req.AgentKey, summary.AgentKey, agentDef.Key)
-	req.TeamID = firstNonBlank(req.TeamID, summary.TeamID)
-	req.Role = api.QueryRoleSystem
-	planningMode := false
-	req.PlanningMode = &planningMode
-	req.Message = agentcoder.PlanApproveExecutePrompt(originalMessage, planMarkdown)
-	req.Params = agentcoder.MarkPlanApproveContinuationParams(contracts.CloneMap(req.Params))
-	if strings.TrimSpace(req.AccessLevel) == "" {
-		req.AccessLevel = contracts.AccessLevelDefault
-	}
-	return req
 }
 
 func (s *Server) preparePlanApproveContinuation(req api.QueryRequest, original *chat.QueryLine, session *contracts.QuerySession) error {
@@ -312,17 +346,15 @@ func (s *Server) preparePlanApproveContinuation(req api.QueryRequest, original *
 	}
 	planningSession := *session
 	planningSession.PlanningMode = true
-	profiles := s.deps.SystemInits.BuildSystemInitProfiles(
-		planningSession,
-		profileReq,
-		s.deps.Tools.Definitions(),
-		s.deps.Config.Defaults.Plan.MaxSteps,
-		s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask,
-		s.deps.Config.Prompts,
-	)
+	profiles, err := s.deps.SystemInits.BuildSystemInitProfiles(contracts.SystemInitBuildInput{
+		Session: planningSession, Request: profileReq, ToolDefinitions: s.deps.Tools.Definitions(),
+	})
+	if err != nil {
+		return err
+	}
 	var executeSystem chat.QueryLineSystemInit
 	for _, profile := range profiles {
-		if strings.TrimSpace(profile.CacheKey) != "coder:execute" {
+		if strings.TrimSpace(profile.CacheKey) != agentcoder.ExecuteCacheKey {
 			continue
 		}
 		executeSystem = queryLineSystemInitFromProfile(profile)
@@ -361,28 +393,7 @@ func coderPlanApproveSyntheticBootstrap(session contracts.QuerySession) *stream.
 		Role:     api.QueryRoleUser,
 		Message:  agentcoder.ExecuteSyntheticQueryMessage(session.Locale),
 		Messages: cloneMessageMapsForSyntheticBootstrap(session.CurrentMessages),
-		System:   takePendingSystemPayloadFromSession(&session, "coder:execute"),
-	}
-}
-
-func takePendingSystemPayloadFromSession(session *contracts.QuerySession, cacheKey string) map[string]any {
-	if session == nil || !session.PendingSystemInitKeys[cacheKey] {
-		return nil
-	}
-	snapshot, ok := session.SystemInitCache[cacheKey]
-	if !ok || strings.TrimSpace(snapshot.Fingerprint) == "" {
-		return nil
-	}
-	delete(session.PendingSystemInitKeys, cacheKey)
-	return map[string]any{
-		"agentKey":       snapshot.AgentKey,
-		"cacheKey":       cacheKey,
-		"fingerprint":    snapshot.Fingerprint,
-		"systemMessage":  cloneMap(snapshot.SystemMessage),
-		"tools":          cloneAnySlice(snapshot.Tools),
-		"model":          cloneMap(snapshot.Model),
-		"toolChoice":     snapshot.ToolChoice,
-		"requestOptions": cloneMap(snapshot.RequestOptions),
+		System:   contracts.TakePendingSystemInitPayload(&session, agentcoder.ExecuteCacheKey),
 	}
 }
 
@@ -528,26 +539,6 @@ func toolCallNameFromMap(call map[string]any, awaitingID string) string {
 	}
 	fn, _ := call["function"].(map[string]any)
 	return strings.TrimSpace(stringValue(fn["name"]))
-}
-
-func awaitingContinuationPrompt(mode string, awaitingID string, answer map[string]any, planMarkdown string) string {
-	answerJSON, _ := json.MarshalIndent(answer, "", "  ")
-	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "plan":
-		decision := strings.ToLower(strings.TrimSpace(stringValue(contracts.AnyMapNode(answer["plan"])["decision"])))
-		prefix := "继续处理刚收到的计划确认结果，不要再次请求同一个计划确认。"
-		if decision == "approve" {
-			prefix = "用户已经批准计划。请基于已确认计划继续执行，不要再次请求确认。"
-		} else if decision == "reject" {
-			prefix = "用户已经拒绝计划。请根据反馈修订方案或给出下一步，不要执行被拒绝的计划。"
-		}
-		if strings.TrimSpace(planMarkdown) != "" {
-			return strings.TrimSpace(prefix + "\n\nAwaiting ID: " + awaitingID + "\n\nPlan:\n" + planMarkdown + "\n\nAnswer:\n" + string(answerJSON))
-		}
-		return strings.TrimSpace(prefix + "\n\nAwaiting ID: " + awaitingID + "\n\nAnswer:\n" + string(answerJSON))
-	default:
-		return strings.TrimSpace("继续处理刚收到的等待项答案。不要重复提问同一个问题，直接根据答案继续完成原请求。\n\nAwaiting ID: " + awaitingID + "\n\nAnswer:\n" + string(answerJSON))
-	}
 }
 
 func (s *Server) awaitingContinuationPlanMarkdown(chatID string, mode string) string {

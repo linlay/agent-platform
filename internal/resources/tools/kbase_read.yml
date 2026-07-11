@@ -4,6 +4,7 @@ description: Read a KBASE chunk by chunkId, or read indexed chunks for a source 
 submitResultFormat: json-compact
 type: function
 clientVisible: true
+readOnly: true
 inputSchema:
   type: object
   properties:

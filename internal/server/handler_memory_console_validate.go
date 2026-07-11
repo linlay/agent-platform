@@ -262,7 +262,7 @@ func (s *Server) memoryContextPreviewContexts(ctx context.Context, req api.Memor
 	})
 	promptAppend := buildPromptAppendConfig(s.deps.Config.Prompts, agentDef)
 	stageSettings := contracts.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask)
-	toolNames := buildSessionToolNames(effectiveAgentTools(agentDef), canUseInvokeAgentsTool(agentDef.Mode))
+	toolNames := buildSessionToolNames(effectiveAgentTools(agentDef), resolvedModeCapabilities(agentDef).InvokeChildren)
 	skillCatalogPrompt := buildSkillCatalogPrompt(agentDef, s.deps.Config.Paths.SkillsMarketDir, promptAppend)
 
 	sections := make([]api.MemoryContextPreviewContextSection, 0, 24)

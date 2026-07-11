@@ -956,6 +956,105 @@ func TestTeamsLogsInvalidAgentKeys(t *testing.T) {
 	}
 }
 
+func TestResolveTeamReturnsAtomicDeduplicatedSnapshot(t *testing.T) {
+	registry := &FileRegistry{
+		agents: map[string]AgentDefinition{
+			"agent-a": {
+				Key:   "agent-a",
+				Mode:  "REACT",
+				Tools: []string{"old-tool"},
+				Runtime: map[string]any{
+					"sandboxMounts": []map[string]any{{"source": "/old"}},
+				},
+			},
+			"agent-b": {Key: "agent-b"},
+		},
+		teams: map[string]TeamDefinition{
+			"team-a": {
+				TeamID:          "team-a",
+				Name:            "Team A",
+				AgentKeys:       []string{"agent-a", "agent-a", " missing ", "agent-b"},
+				DefaultAgentKey: "agent-a",
+			},
+		},
+	}
+
+	snapshot, ok := registry.ResolveTeam(" team-a ")
+	if !ok {
+		t.Fatal("expected team snapshot")
+	}
+	if got, want := snapshot.AgentKeys, []string{"agent-a", "missing", "agent-b"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("AgentKeys = %#v, want %#v", got, want)
+	}
+	if got, want := snapshot.ValidAgentKeys, []string{"agent-a", "agent-b"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ValidAgentKeys = %#v, want %#v", got, want)
+	}
+	if got, want := snapshot.InvalidAgentKeys, []string{"missing"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("InvalidAgentKeys = %#v, want %#v", got, want)
+	}
+	if !snapshot.DefaultAgentValid || snapshot.DefaultAgentState != TeamDefaultAgentValid {
+		t.Fatalf("unexpected default state: %#v", snapshot)
+	}
+	frozen, ok := snapshot.AgentDefinition("agent-a")
+	if !ok || frozen.Mode != "REACT" || !reflect.DeepEqual(frozen.Tools, []string{"old-tool"}) {
+		t.Fatalf("unexpected frozen agent definition: %#v", frozen)
+	}
+	frozen.Tools[0] = "mutated-by-caller"
+	frozen.Runtime["sandboxMounts"].([]map[string]any)[0]["source"] = "/mutated"
+	frozenAgain, _ := snapshot.AgentDefinition("agent-a")
+	if !reflect.DeepEqual(frozenAgain.Tools, []string{"old-tool"}) {
+		t.Fatalf("snapshot definition was mutated through accessor: %#v", frozenAgain)
+	}
+	if mounts := frozenAgain.Runtime["sandboxMounts"].([]map[string]any); mounts[0]["source"] != "/old" {
+		t.Fatalf("snapshot nested runtime definition was mutated through accessor: %#v", mounts)
+	}
+
+	registry.mu.Lock()
+	registry.agents["agent-a"] = AgentDefinition{Key: "agent-a", Mode: "KBASE", Tools: []string{"new-tool"}}
+	registry.mu.Unlock()
+	if !snapshot.HasAgent("agent-a") {
+		t.Fatal("run-scoped snapshot changed after catalog mutation")
+	}
+	frozenAfterReload, _ := snapshot.AgentDefinition("agent-a")
+	if frozenAfterReload.Mode != "REACT" || !reflect.DeepEqual(frozenAfterReload.Tools, []string{"old-tool"}) {
+		t.Fatalf("run-scoped member definition changed after catalog mutation: %#v", frozenAfterReload)
+	}
+	registry.mu.Lock()
+	delete(registry.agents, "agent-a")
+	registry.mu.Unlock()
+	refreshed, _ := registry.ResolveTeam("team-a")
+	if refreshed.HasAgent("agent-a") || refreshed.DefaultAgentState != TeamDefaultAgentUnavailable {
+		t.Fatalf("expected refreshed snapshot to see catalog drift: %#v", refreshed)
+	}
+}
+
+func TestResolveTeamReportsInvalidDefaultStates(t *testing.T) {
+	tests := []struct {
+		name       string
+		defaultKey string
+		members    []string
+		wantState  string
+	}{
+		{name: "missing", wantState: TeamDefaultAgentMissing},
+		{name: "not member", defaultKey: "agent-b", members: []string{"agent-a"}, wantState: TeamDefaultAgentNotMember},
+		{name: "unavailable", defaultKey: "agent-b", members: []string{"agent-a", "agent-b"}, wantState: TeamDefaultAgentUnavailable},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			registry := &FileRegistry{
+				agents: map[string]AgentDefinition{"agent-a": {Key: "agent-a"}},
+				teams: map[string]TeamDefinition{
+					"team-a": {TeamID: "team-a", AgentKeys: tt.members, DefaultAgentKey: tt.defaultKey},
+				},
+			}
+			snapshot, ok := registry.ResolveTeam("team-a")
+			if !ok || snapshot.DefaultAgentValid || snapshot.DefaultAgentState != tt.wantState {
+				t.Fatalf("snapshot = %#v, want state %q", snapshot, tt.wantState)
+			}
+		})
+	}
+}
+
 func TestAgentsSummaryIncludesCatalogFieldsAndFiltersScope(t *testing.T) {
 	workspace := filepath.Join(t.TempDir(), "project")
 	registry := &FileRegistry{

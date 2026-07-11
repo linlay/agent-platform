@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"sort"
@@ -24,6 +25,7 @@ type preparedQuery struct {
 	summary            chat.Summary
 	created            bool
 	agentDef           catalog.AgentDefinition
+	teamSnapshot       *catalog.TeamSnapshot
 	session            contracts.QuerySession
 	memoryUsageSummary *api.MemoryUsageSummary
 	systemInitLine     *chat.QueryLineSystemInit
@@ -62,6 +64,7 @@ type queryAdmission struct {
 	req             api.QueryRequest
 	existingSummary *chat.Summary
 	agentDef        catalog.AgentDefinition
+	teamSnapshot    *catalog.TeamSnapshot
 	resourceBaseURL string
 	locale          string
 }
@@ -132,19 +135,18 @@ func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (qu
 	if gateErr := s.awaitingQueryGateError(chatID, existingSummary); gateErr != nil {
 		return queryAdmission{}, gateErr
 	}
-	teamID := strings.TrimSpace(req.TeamID)
-	if teamID == "" && existingSummary != nil {
-		teamID = existingSummary.TeamID
+	teamID, agentKey, teamSnapshot, teamErr := resolveQueryTeam(
+		s.deps.Registry,
+		req.TeamID,
+		req.AgentKey,
+		existingSummary,
+	)
+	if teamErr != nil {
+		return queryAdmission{}, teamErr
 	}
-	agentKey := strings.TrimSpace(req.AgentKey)
 	usedGlobalDefault := false
 	if agentKey == "" && existingSummary != nil {
 		agentKey = existingSummary.AgentKey
-	}
-	if agentKey == "" && teamID != "" {
-		if team, ok := s.deps.Registry.TeamDefinition(teamID); ok && team.DefaultAgentKey != "" {
-			agentKey = team.DefaultAgentKey
-		}
 	}
 	if agentKey == "" {
 		agentKey = s.deps.Registry.DefaultAgentKey()
@@ -156,9 +158,22 @@ func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (qu
 			agentKey = channelDefault
 		}
 	}
-	agentDef, ok := s.deps.Registry.AgentDefinition(agentKey)
-	if !ok {
-		return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: "agent not found"}
+	var agentDef catalog.AgentDefinition
+	var found bool
+	if teamSnapshot != nil {
+		agentDef, found = teamSnapshot.AgentDefinition(agentKey)
+		if !found {
+			return queryAdmission{}, &statusError{
+				status:  http.StatusServiceUnavailable,
+				code:    "unavailable",
+				message: fmt.Sprintf("team %q current agent %q is unavailable", teamID, agentKey),
+			}
+		}
+	} else {
+		agentDef, found = s.deps.Registry.AgentDefinition(agentKey)
+		if !found {
+			return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: "agent not found"}
+		}
 	}
 	if isProxyRoutedAgent(agentDef) && proxyRequestHasReservedCWD(req.Params) {
 		return queryAdmission{}, &statusError{
@@ -189,6 +204,7 @@ func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (qu
 		req:             req,
 		existingSummary: existingSummary,
 		agentDef:        agentDef,
+		teamSnapshot:    teamSnapshot,
 		resourceBaseURL: requestBaseURL(r),
 		locale:          locale,
 	}, nil
@@ -204,6 +220,13 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 	if err != nil {
 		return preparedQuery{}, err
 	}
+	if !created && strings.TrimSpace(summary.TeamID) != strings.TrimSpace(req.TeamID) {
+		return preparedQuery{}, &statusError{
+			status:  http.StatusConflict,
+			code:    "team_conflict",
+			message: "teamId does not match chat",
+		}
+	}
 	if !created && agentKey != "" && agentKey != summary.AgentKey {
 		_ = s.deps.Chats.UpdateAgentKey(chatID, agentKey)
 		summary.AgentKey = agentKey
@@ -218,7 +241,7 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 		Locale:            admission.locale,
 		IncludeHistory:    !created,
 		IncludeMemory:     true,
-		AllowInvokeAgents: canUseInvokeAgentsTool(agentDef.Mode),
+		AllowInvokeAgents: resolvedModeCapabilities(agentDef).InvokeChildren,
 	})
 	if err != nil {
 		return preparedQuery{}, err
@@ -244,6 +267,7 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 		summary:            summary,
 		created:            created,
 		agentDef:           agentDef,
+		teamSnapshot:       admission.teamSnapshot,
 		session:            session,
 		memoryUsageSummary: session.MemoryUsageSummary,
 		systemInitLine:     systemInitLine,

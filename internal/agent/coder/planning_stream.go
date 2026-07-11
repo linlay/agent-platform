@@ -6,28 +6,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"strings"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
 	hitlplan "agent-platform/internal/hitl/plan"
 	"agent-platform/internal/i18n"
-	"agent-platform/internal/plantasks"
 )
 
 const DefaultExecuteSystemPrompt = `Execute the confirmed CODER plan for the user.`
 
 const defaultCoderExecuteSystemPrompt = DefaultExecuteSystemPrompt
-
-const defaultTaskExecutionPromptTemplate = `Task list:
-{{task_list}}
-Current task ID: {{task_id}}
-Current task description: {{task_description}}
-Execution rules:
-1) Call at most one tool per round.
-2) You may call any available tool as needed.
-3) Before finishing this task, you MUST call plan_update_task to update its status.`
 
 type coderPlanningStream struct {
 	runtime Runtime
@@ -40,7 +29,6 @@ type coderPlanningStream struct {
 	pending  []contracts.AgentDelta
 	current  contracts.AgentStream
 
-	taskIndex             int
 	planDone              bool
 	executionDone         bool
 	confirmationPending   bool
@@ -48,7 +36,6 @@ type coderPlanningStream struct {
 	summaryDone           bool
 	completed             bool
 	closed                bool
-	taskLifecycle         bool
 	nextPlanIsFeedback    bool
 	currentPlanIsFeedback bool
 
@@ -312,7 +299,7 @@ func PlanningExecutionSystemPrompt(session contracts.QuerySession, req api.Query
 		stagePrompt = fallback
 	}
 	stagePrompt = RenderPromptTemplate(stagePrompt, values)
-	coderPrompt := RenderPromptTemplate(session.CoderSystemPrompt, values)
+	coderPrompt := RenderPromptTemplate(session.ModeSystemPrompt, values)
 	return joinNonEmptyPrompts(coderPrompt, stagePrompt)
 }
 
@@ -541,16 +528,17 @@ func (s *coderPlanningStream) preparePlanApproveContinuation(submitReq api.Submi
 		return false
 	}
 	s.pending = append(s.pending, contracts.DeltaRunContinuation{
-		SourceRunID: s.session.RunID,
-		RunID:       continuationRunID,
-		ChatID:      s.session.ChatID,
-		AgentKey:    s.session.AgentKey,
-		AwaitingID:  awaitingID,
-		SubmitID:    submitReq.SubmitID,
-		Locale:      s.session.Locale,
-		Mode:        "plan",
-		Params:      submitReq.Params,
-		Answer:      contracts.CloneMap(normalized),
+		SourceRunID:       s.session.RunID,
+		RunID:             continuationRunID,
+		ChatID:            s.session.ChatID,
+		AgentKey:          s.session.AgentKey,
+		AwaitingID:        awaitingID,
+		SubmitID:          submitReq.SubmitID,
+		Locale:            s.session.Locale,
+		Mode:              "plan",
+		Params:            submitReq.Params,
+		Answer:            contracts.CloneMap(normalized),
+		ContinuationState: submitReq.ContinuationState,
 	})
 	s.executionDone = true
 	s.summaryDone = true
@@ -697,7 +685,7 @@ func (s *coderPlanningStream) startExecutionStage() error {
 	executeProfiles := s.executeSystemInitProfiles()
 	stageSession := s.sessionForStage(s.settings.Execute, s.executeStageTools())
 	stageSession.SystemInitCache = mergeSystemInitProfileCache(stageSession.SystemInitCache, executeProfiles)
-	executeSystem := takePendingSystemInitPayload(&stageSession, "coder:execute")
+	executeSystem := contracts.TakePendingSystemInitPayload(&stageSession, ExecuteCacheKey)
 	s.pending = append(s.pending,
 		contracts.DeltaStageMarker{Stage: "coder-execute"},
 		contracts.DeltaSyntheticQuery{
@@ -737,27 +725,6 @@ func (s *coderPlanningStream) startExecutionStage() error {
 	return nil
 }
 
-func takePendingSystemInitPayload(session *contracts.QuerySession, cacheKey string) map[string]any {
-	if session == nil || !session.PendingSystemInitKeys[cacheKey] {
-		return nil
-	}
-	snapshot, ok := session.SystemInitCache[cacheKey]
-	if !ok || strings.TrimSpace(snapshot.Fingerprint) == "" {
-		return nil
-	}
-	delete(session.PendingSystemInitKeys, cacheKey)
-	return map[string]any{
-		"agentKey":       snapshot.AgentKey,
-		"cacheKey":       cacheKey,
-		"fingerprint":    snapshot.Fingerprint,
-		"systemMessage":  cloneAnyMapViaJSON(snapshot.SystemMessage),
-		"tools":          cloneAnySlice(snapshot.Tools),
-		"model":          cloneAnyMapViaJSON(snapshot.Model),
-		"toolChoice":     snapshot.ToolChoice,
-		"requestOptions": cloneAnyMapViaJSON(snapshot.RequestOptions),
-	}
-}
-
 func (s *coderPlanningStream) executeSystemInitProfiles() []contracts.SystemInitProfile {
 	if s == nil || s.runtime == nil {
 		return nil
@@ -790,111 +757,6 @@ func mergeSystemInitProfileCache(base map[string]contracts.SystemInitSnapshot, p
 		}
 	}
 	return out
-}
-
-func (s *coderPlanningStream) advanceTaskExecution() error {
-	task := &s.execCtx.PlanState.Tasks[s.taskIndex]
-	if task.Status == "" || task.Status == "init" {
-		task.Status = "in_progress"
-	}
-	s.execCtx.PlanState.ActiveTaskID = task.TaskID
-	s.pending = append(s.pending,
-		contracts.DeltaStageMarker{Stage: fmt.Sprintf("coder-execute-task-%d", s.taskIndex+1)},
-		contracts.DeltaTaskLifecycle{
-			Kind:        "start",
-			TaskID:      task.TaskID,
-			RunID:       s.session.RunID,
-			TaskName:    task.TaskID,
-			Description: task.Description,
-		},
-	)
-	return s.startTaskStream(task)
-}
-
-func (s *coderPlanningStream) startTaskStream(task *contracts.PlanTask) error {
-	beforeStatus := contracts.NormalizePlanTaskStatus(task.Status)
-	taskPrompt := renderTemplate(defaultTaskTemplate(s.settings), map[string]string{
-		"task_list":        formatTaskList(s.execCtx.PlanState.Tasks),
-		"task_id":          task.TaskID,
-		"task_description": task.Description,
-	})
-	messages := make([]contracts.ModelMessage, 0, len(s.executeMessages)+2)
-	systemPrompt := s.executionSystemPrompt(defaultCoderExecuteSystemPrompt)
-	messages = append(messages, contracts.ModelMessage{Role: "system", Content: systemPrompt})
-	messages = append(messages, s.executeMessages...)
-	messages = append(messages, contracts.ModelMessage{Role: "user", Content: taskPrompt})
-
-	req := s.req
-	req.Message = taskPrompt
-	stream, err := s.runtime.NewStageRunStream(s.ctx, req, s.sessionForStage(s.settings.Execute, s.executeStageTools()), true, StageRunOptions{
-		ExecCtx:   s.execCtx,
-		Messages:  messages,
-		ToolNames: s.executeStageTools(),
-		ModelKey:  s.resolveStageModelKey(s.settings.Execute),
-		MaxSteps:  s.settings.MaxWorkRoundsPerTask,
-		Stage:     fmt.Sprintf("coder-execute-step-%d", s.taskIndex+1),
-		PostToolHook: func(toolName string, _ string) contracts.PostToolHookResult {
-			if !isPlanTool(toolName) {
-				return contracts.PostToolContinue
-			}
-			afterStatus := contracts.NormalizePlanTaskStatus(task.Status)
-			if afterStatus != beforeStatus && isTerminalPlanStatus(afterStatus) {
-				return contracts.PostToolStop
-			}
-			return contracts.PostToolContinue
-		},
-	})
-	if err != nil {
-		return err
-	}
-	s.current = stream
-	s.taskLifecycle = true
-	return nil
-}
-
-func (s *coderPlanningStream) emitTaskTerminal(task *contracts.PlanTask, status string) {
-	switch status {
-	case "completed":
-		s.pending = append(s.pending, contracts.DeltaTaskLifecycle{Kind: "complete", TaskID: task.TaskID})
-	case "canceled":
-		s.pending = append(s.pending, contracts.DeltaTaskLifecycle{Kind: "cancel", TaskID: task.TaskID})
-	case "failed":
-		s.pending = append(s.pending, contracts.DeltaTaskLifecycle{
-			Kind:   "error",
-			TaskID: task.TaskID,
-			Error: contracts.NewErrorPayload("task_failed", "Task status updated to failed",
-				contracts.ErrorScopeTask, contracts.ErrorCategorySystem, nil),
-		})
-	}
-	s.taskIndex++
-	s.execCtx.PlanState.ActiveTaskID = ""
-}
-
-func (s *coderPlanningStream) emitTaskFailure(task *contracts.PlanTask, message string) {
-	task.Status = "failed"
-	s.execCtx.PlanState.ActiveTaskID = ""
-	s.persistPlanTasksSnapshot()
-	s.pending = append(s.pending, contracts.DeltaPlanUpdate{
-		PlanID: s.execCtx.PlanState.PlanID,
-		ChatID: s.session.ChatID,
-		Plan:   contracts.PlanTasksArray(s.execCtx.PlanState),
-	})
-	s.pending = append(s.pending, contracts.DeltaTaskLifecycle{
-		Kind:   "error",
-		TaskID: task.TaskID,
-		Error: contracts.NewErrorPayload("task_execution_error", message,
-			contracts.ErrorScopeTask, contracts.ErrorCategorySystem, map[string]any{"taskId": task.TaskID}),
-	})
-	s.taskIndex++
-}
-
-func (s *coderPlanningStream) persistPlanTasksSnapshot() {
-	if s == nil || s.execCtx == nil || contracts.IsReadOnlyToolExecutionPolicy(s.execCtx.ToolExecutionPolicy) {
-		return
-	}
-	if path, err := plantasks.PersistExecutionContext("", s.execCtx); err != nil {
-		log.Printf("[agent][coder] write plan task snapshot failed runId=%s path=%s err=%v", s.session.RunID, path, err)
-	}
 }
 
 func (s *coderPlanningStream) planStageTools() []string {
@@ -989,21 +851,8 @@ func resolvePlanExecuteRuntimeSettings(session contracts.QuerySession, defaultMa
 	return settings
 }
 
-func isPlanTool(name string) bool {
-	return contracts.IsPlanTaskToolName(name)
-}
-
 func isPlanningWriteTool(name string) bool {
 	return contracts.IsFinalizePlanningToolName(name)
-}
-
-func isTerminalPlanStatus(status string) bool {
-	switch status {
-	case "completed", "canceled", "failed":
-		return true
-	default:
-		return false
-	}
 }
 
 func stageToolsOrDefault(stage contracts.StageSettings, fallback []string) []string {
@@ -1021,24 +870,6 @@ func nonSystemMessages(msgs []contracts.ModelMessage) []contracts.ModelMessage {
 		}
 	}
 	return out
-}
-
-func defaultTaskTemplate(settings contracts.PlanExecuteSettings) string {
-	if strings.TrimSpace(settings.TaskExecutionPrompt) != "" {
-		return settings.TaskExecutionPrompt
-	}
-	return defaultTaskExecutionPromptTemplate
-}
-
-func formatTaskList(tasks []contracts.PlanTask) string {
-	if len(tasks) == 0 {
-		return "- (empty)"
-	}
-	lines := make([]string, 0, len(tasks))
-	for _, task := range tasks {
-		lines = append(lines, fmt.Sprintf("- %s | %s | %s", task.TaskID, task.Status, task.Description))
-	}
-	return strings.Join(lines, "\n")
 }
 
 func normalizeHITLPlanSubmit(args map[string]any, params any) (map[string]any, error) {

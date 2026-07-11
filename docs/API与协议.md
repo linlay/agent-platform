@@ -162,6 +162,17 @@ Automation 摘要和详情中的 `nextFireAt` 是下次触发时间的 epoch mil
 
 `/api/query` 的 `stream` 是 JSON body 字段；省略或传 `true` 时返回 SSE，结束帧为 `data: [DONE]`。传 `false` 时服务端仍执行完整 run、持久化 chat，并在结束后返回普通 JSON。默认只返回最终回答：
 
+`teamId` 的 HTTP、WebSocket、Automation、submit continuation、BTW/compact 旁路与子智能体准入共享同一 resolver。Team 不是 agent mode；chat 创建后 `teamId` 固定，同一 Team 内可以切换有效成员：
+
+| 场景 | HTTP 结果 |
+|---|---|
+| 未知 `teamId` | 400 |
+| `agentKey` 不属于 Team | 403 |
+| 已有 chat 传入不同 Team；包括为无 Team chat 补传 Team | 409 |
+| Team 默认 agent 无效，或已有 chat 当前 agent 因 catalog 漂移失效 | 503 |
+
+WebSocket 使用现有错误 envelope 表达相同语义。Team 默认成员无效时不会回退全局或 channel 默认 agent；run 开始后使用已解析的 Team 成员与 `AgentDefinition` 快照，不受本轮 catalog 热重载影响。需要启动新执行 run 的 active/deferred submit 会在消费 awaiting 前重新准入，失败时保留 awaiting。
+
 `/api/btw` 用于“顺便问”：`chatId` 必须指向已有 active chat；不传 `btwId` 时从当前主 JSONL 创建隐藏快照并在响应头 `X-Btw-Id` 与首个 `request.query.btwId` 返回分支 ID，传 `btwId` 时继续该分支。BTW 固定继承父 chat 的 agent/team，固定 `role:user` 且关闭 planning mode。主 chat 的 active run、pending awaiting、摘要、未读、搜索、自动 learn 和 JSONL 都不会被 BTW 更新。
 
 BTW 与普通 query 使用同一 Agent/ReAct、模型协议、SSE assembler、attach/interrupt 和 StepWriter；`request.query` 额外包含 `kind:"btw"`、`btwId`、`parentChatId`、`hidden:true`，不新增 event type，也不发送 `chat.start` / `chat.updated`。同一个 `btwId` 只允许一个 active run，父 chat 与不同 BTW 分支可以并行。
@@ -292,7 +303,7 @@ HITL 三态细节见 [HITL协议](HITL协议.md)。真流式、heartbeat、attac
 
 ### KBASE
 
-KBASE API 只接受 `mode: KBASE` agent；非 KBASE agent 会返回 forbidden/unsupported。手工 refresh 与运行时工具 `kbase_refresh` 调用同一个后端入口。
+KBASE API 只接受 `mode: KBASE` agent；非 KBASE agent 会返回 forbidden/unsupported。手工 refresh 与运行时工具 `kbase_refresh` 调用同一个后端入口。KBASE 的 search/files/read/status 工具声明为只读，BTW/read-only policy 下仍可使用；refresh 是变更索引状态的操作，在只读 policy 下禁用。agent catalog 热重载完成后会立即重绑相应 workspace watcher；agent 删除或 workspace/config 变化不会继续沿用旧 watcher，周期 reconcile 仅作为兜底。
 
 KBASE agent 在运行时调用 `kbase_search` 且召回到内容时，会额外通过 live stream 发布 `source.publish` 事件。事件包含 `kind: "kbase"`、`query`、`sourceCount`、`chunkCount` 与按 source 聚合的 `sources[].chunks[]`，chunk 可携带 `path`、行号、页码、slide、`sourceType`、`matchType`、`score` 等定位字段；新写入的 chat JSONL 会把该事件作为对应 `react-tool` step 的顶层 `sources.items[]` sidecar 持久化，`/api/chat` replay 时再合成 `source.publish` 事件并保留原始 `liveSeq`，供时间线与 `/api/attach.lastSeq` 使用。历史 JSONL 中独立 `_type:"event"` 的 `source.publish` 仍保持可回放。
 

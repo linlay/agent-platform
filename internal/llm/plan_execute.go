@@ -379,7 +379,7 @@ func (s *planPipelineStream) appendPendingSystemInitQuery(cacheKey string, stage
 	if s == nil {
 		return
 	}
-	system := takePendingSystemPayload(&s.session, cacheKey)
+	system := TakePendingSystemInitPayload(&s.session, cacheKey)
 	if len(system) == 0 {
 		return
 	}

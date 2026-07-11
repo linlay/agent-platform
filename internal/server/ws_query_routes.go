@@ -108,6 +108,7 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		Summary:           prepared.summary,
 		Agent:             s.deps.Agent,
 		Registry:          s.deps.Registry,
+		TeamSnapshot:      prepared.teamSnapshot,
 		Assembler:         assembler,
 		Mapper:            mapper,
 		Billing:           s.deps.Config.Billing,
@@ -250,6 +251,11 @@ func (s *Server) wsSubmit(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 	}
 	response, code, msg, err := s.resolveSubmit(payload)
 	if err != nil {
+		if statusErr, ok := err.(*statusError); ok {
+			s.sendWSStatusError(conn, req.ID, statusErr)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		conn.SendError(req.ID, "invalid_request", 400, err.Error(), nil)
 		conn.CompleteRequest(req.ID)
 		return

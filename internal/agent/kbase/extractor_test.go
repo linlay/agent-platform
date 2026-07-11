@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"agent-platform/internal/config"
 	"agent-platform/internal/supportpkg"
 )
 
@@ -25,8 +24,8 @@ func TestExtractDOCXNativeText(t *testing.T) {
   </w:body>
 </w:document>`,
 	})
-	doc, err := extractDOCX(docx, config.KBaseExtractionConfig{
-		DOCX: config.KBaseDOCXExtractionConfig{Enabled: true, Backend: "native"},
+	doc, err := extractDOCX(docx, ExtractionConfig{
+		DOCX: DOCXExtractionConfig{Enabled: true, Backend: "native"},
 	})
 	if err != nil {
 		t.Fatalf("extract docx: %v", err)
@@ -73,8 +72,8 @@ func TestExtractPPTXNativeSlidesAndNotes(t *testing.T) {
   <p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>Speaker note text</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld>
 </p:notes>`,
 	})
-	doc, err := extractPPTX(pptx, config.KBaseExtractionConfig{
-		PPTX: config.KBasePPTXExtractionConfig{Enabled: true, Backend: "native", IncludeNotes: true},
+	doc, err := extractPPTX(pptx, ExtractionConfig{
+		PPTX: PPTXExtractionConfig{Enabled: true, Backend: "native", IncludeNotes: true},
 	})
 	if err != nil {
 		t.Fatalf("extract pptx: %v", err)
@@ -130,9 +129,9 @@ func TestExtractHTMLNativeTextDropsScriptStyleAndHiddenNodes(t *testing.T) {
 }
 
 func TestExtractPDFMissingPopplerSkips(t *testing.T) {
-	_, err := extractPDF(context.Background(), "missing.pdf", config.KBaseExtractionConfig{
+	_, err := extractPDF(context.Background(), "missing.pdf", ExtractionConfig{
 		Timeout: 1,
-		PDF: config.KBasePDFExtractionConfig{
+		PDF: PDFExtractionConfig{
 			Enabled: true,
 			Backend: "poppler",
 			Binary:  "definitely-missing-pdftotext-for-kbase-test",

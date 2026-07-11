@@ -3,13 +3,11 @@ package kbase
 import (
 	"strings"
 	"testing"
-
-	"agent-platform/internal/catalog"
 )
 
 func TestChunkTextEstimatedTokensSplitsLongEnglishLine(t *testing.T) {
-	chunks := chunkText("docs/long.txt", strings.Repeat("abcd", 30), catalog.AgentKBaseChunkConfig{
-		Unit:          catalog.AgentKBaseChunkUnitEstimatedTokens,
+	chunks := chunkText("docs/long.txt", strings.Repeat("abcd", 30), ChunkConfig{
+		Unit:          ChunkUnitEstimatedTokens,
 		MaxTokens:     10,
 		OverlapTokens: 0,
 	}, "embedding", 1024)
@@ -26,8 +24,8 @@ func TestChunkTextEstimatedTokensSplitsLongEnglishLine(t *testing.T) {
 
 func TestChunkTextEstimatedTokensSplitsChineseAndKeepsOverlap(t *testing.T) {
 	text := "一二三四五\n六七八九十\n甲乙丙丁戊\n"
-	chunks := chunkText("docs/zh.txt", text, catalog.AgentKBaseChunkConfig{
-		Unit:          catalog.AgentKBaseChunkUnitEstimatedTokens,
+	chunks := chunkText("docs/zh.txt", text, ChunkConfig{
+		Unit:          ChunkUnitEstimatedTokens,
 		MaxTokens:     10,
 		OverlapTokens: 2,
 	}, "embedding", 1024)
@@ -46,8 +44,8 @@ func TestChunkTextEstimatedTokensSplitsChineseAndKeepsOverlap(t *testing.T) {
 }
 
 func TestChunkTextCharsUsesRunesAndSplitsLongLine(t *testing.T) {
-	chunks := chunkText("docs/mixed.txt", "你好世界ABCDE", catalog.AgentKBaseChunkConfig{
-		Unit:         catalog.AgentKBaseChunkUnitChars,
+	chunks := chunkText("docs/mixed.txt", "你好世界ABCDE", ChunkConfig{
+		Unit:         ChunkUnitChars,
 		MaxChars:     4,
 		OverlapChars: 1,
 	}, "embedding", 1024)
@@ -66,14 +64,14 @@ func TestChunkTextCharsUsesRunesAndSplitsLongLine(t *testing.T) {
 }
 
 func TestChunkTextCapsEstimatedTokenOverlap(t *testing.T) {
-	chunks := chunkText("docs/overlap.txt", "一二三四五\n六七八九十\n甲乙丙丁戊\n", catalog.AgentKBaseChunkConfig{
-		Unit:          catalog.AgentKBaseChunkUnitEstimatedTokens,
+	chunks := chunkText("docs/overlap.txt", "一二三四五\n六七八九十\n甲乙丙丁戊\n", ChunkConfig{
+		Unit:          ChunkUnitEstimatedTokens,
 		MaxTokens:     10,
 		OverlapTokens: 10,
 	}, "embedding", 1024)
 
-	normalized := catalog.NormalizeAgentKBaseChunkConfig(catalog.AgentKBaseChunkConfig{
-		Unit:          catalog.AgentKBaseChunkUnitEstimatedTokens,
+	normalized := NormalizeChunkConfig(ChunkConfig{
+		Unit:          ChunkUnitEstimatedTokens,
 		MaxTokens:     10,
 		OverlapTokens: 10,
 	})

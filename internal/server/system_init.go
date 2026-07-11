@@ -1,10 +1,10 @@
 package server
 
 import (
+	"log"
 	"reflect"
 	"strings"
 
-	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
@@ -30,14 +30,12 @@ func (s *Server) prepareSystemInitCacheFrom(req api.QueryRequest, session *contr
 		return nil, nil
 	}
 	toolDefs := s.deps.Tools.Definitions()
-	profiles := s.deps.SystemInits.BuildSystemInitProfiles(
-		*session,
-		req,
-		toolDefs,
-		s.deps.Config.Defaults.Plan.MaxSteps,
-		s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask,
-		s.deps.Config.Prompts,
-	)
+	profiles, err := s.deps.SystemInits.BuildSystemInitProfiles(contracts.SystemInitBuildInput{
+		Session: *session, Request: req, ToolDefinitions: toolDefs,
+	})
+	if err != nil {
+		return nil, err
+	}
 	if len(profiles) == 0 {
 		return nil, nil
 	}
@@ -47,7 +45,11 @@ func (s *Server) prepareSystemInitCacheFrom(req api.QueryRequest, session *contr
 	cache := make(map[string]contracts.SystemInitSnapshot, len(profiles))
 	pendingKeys := make(map[string]bool, len(profiles))
 	systemsByCacheKey := make(map[string]chat.QueryLineSystemInit, len(profiles))
+	initialCacheKey := ""
 	for _, profile := range profiles {
+		if profile.Initial {
+			initialCacheKey = profile.CacheKey
+		}
 		system := queryLineSystemInitFromProfile(profile)
 		systemsByCacheKey[profile.CacheKey] = system
 		initLine := systemInits.Lookup(profile.AgentKey, profile.CacheKey)
@@ -70,7 +72,6 @@ func (s *Server) prepareSystemInitCacheFrom(req api.QueryRequest, session *contr
 	if len(cache) > 0 {
 		session.SystemInitCache = cache
 	}
-	initialCacheKey := initialSystemInitCacheKey(*session)
 	var initialSystem *chat.QueryLineSystemInit
 	if pendingKeys[initialCacheKey] {
 		system := systemsByCacheKey[initialCacheKey]
@@ -106,14 +107,13 @@ func (s *Server) hydrateSystemInitCache(req api.QueryRequest, session *contracts
 	if s.deps.Tools != nil {
 		toolDefs = s.deps.Tools.Definitions()
 	}
-	profiles := s.deps.SystemInits.BuildSystemInitProfiles(
-		*session,
-		req,
-		toolDefs,
-		s.deps.Config.Defaults.Plan.MaxSteps,
-		s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask,
-		s.deps.Config.Prompts,
-	)
+	profiles, err := s.deps.SystemInits.BuildSystemInitProfiles(contracts.SystemInitBuildInput{
+		Session: *session, Request: req, ToolDefinitions: toolDefs,
+	})
+	if err != nil {
+		log.Printf("[server][system-init] hydrate profiles failed chatId=%s agentKey=%s: %v", req.ChatID, session.AgentKey, err)
+		return
+	}
 	if len(profiles) == 0 {
 		return
 	}
@@ -124,30 +124,6 @@ func (s *Server) hydrateSystemInitCache(req api.QueryRequest, session *contracts
 	}
 	session.SystemInitCache = cache
 	session.PendingSystemInitKeys = nil
-}
-
-func initialSystemInitCacheKey(session contracts.QuerySession) string {
-	if agentcoder.PlanningModeEnabled(session.Mode, session.PlanningMode) {
-		return "coder:plan"
-	}
-	if strings.EqualFold(strings.TrimSpace(session.Mode), "PLAN_EXECUTE") || strings.EqualFold(strings.TrimSpace(session.Mode), "PLAN-EXECUTE") {
-		return "plan-execute:plan"
-	}
-	return llmSystemInitCacheKey(session.Mode)
-}
-
-func llmSystemInitCacheKey(mode string) string {
-	mode = strings.ToLower(strings.TrimSpace(mode))
-	switch mode {
-	case "", "oneshot":
-		return "oneshot:main"
-	case "coder":
-		return "coder:main"
-	case "kbase":
-		return "kbase:main"
-	default:
-		return "react:main"
-	}
 }
 
 func queryLineSystemInitFromProfile(profile contracts.SystemInitProfile) chat.QueryLineSystemInit {

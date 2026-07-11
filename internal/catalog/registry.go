@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	agentkbase "agent-platform/internal/agent/kbase"
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
@@ -27,6 +28,13 @@ type Registry interface {
 	AgentDefinition(key string) (AgentDefinition, bool)
 	TeamDefinition(teamID string) (TeamDefinition, bool)
 	Reload(ctx context.Context, reason string) error
+}
+
+// TeamResolver is the atomic team view used by run admission and automation.
+// It is kept separate from Registry so narrow test and integration registries
+// that do not participate in team-scoped execution need not implement it.
+type TeamResolver interface {
+	ResolveTeam(teamID string) (TeamSnapshot, bool)
 }
 
 type AgentDefinition struct {
@@ -49,7 +57,7 @@ type AgentDefinition struct {
 	HostAccess       AgentHostAccessConfig
 	Workspace        AgentWorkspaceConfig
 	Project          AgentProjectConfig
-	KBaseConfig      AgentKBaseConfig
+	KBaseConfig      agentkbase.AgentConfig
 	ContextTags      []string
 	ContextAgents    []string
 	Budget           map[string]any
@@ -119,42 +127,6 @@ type AgentMemoryAutoRememberConfig struct {
 	Timeout  int64
 }
 
-type AgentKBaseConfig struct {
-	Embedding AgentKBaseEmbeddingConfig
-	Storage   AgentKBaseStorageConfig
-	Include   []string
-	Exclude   []string
-	Chunk     AgentKBaseChunkConfig
-	Retrieval AgentKBaseRetrievalConfig
-}
-
-type AgentKBaseEmbeddingConfig struct {
-	ModelKey string
-}
-
-type AgentKBaseStorageConfig struct {
-	Location string
-}
-
-const (
-	AgentKBaseChunkUnitChars           = "chars"
-	AgentKBaseChunkUnitEstimatedTokens = "estimatedTokens"
-)
-
-type AgentKBaseChunkConfig struct {
-	Unit          string `json:"unit,omitempty"`
-	MaxChars      int    `json:"maxChars,omitempty"`
-	OverlapChars  int    `json:"overlapChars,omitempty"`
-	MaxTokens     int    `json:"maxTokens,omitempty"`
-	OverlapTokens int    `json:"overlapTokens,omitempty"`
-}
-
-type AgentKBaseRetrievalConfig struct {
-	TopK         int
-	VectorWeight float64
-	FTSWeight    float64
-}
-
 type AgentRuntimePrompts struct {
 	Skill        SkillPromptConfig
 	ToolAppendix ToolAppendixPromptConfig
@@ -213,6 +185,61 @@ type TeamDefinition struct {
 	Icon            any
 	AgentKeys       []string
 	DefaultAgentKey string
+}
+
+const (
+	TeamDefaultAgentValid       = "valid"
+	TeamDefaultAgentMissing     = "missing"
+	TeamDefaultAgentNotMember   = "not_member"
+	TeamDefaultAgentUnavailable = "unavailable"
+)
+
+// TeamSnapshot is the immutable, run-scoped result of resolving a team and
+// its referenced agents under one catalog read lock. Callers must use this
+// snapshot for the lifetime of a run instead of consulting the hot-reloaded
+// registry again.
+type TeamSnapshot struct {
+	TeamID            string
+	Name              string
+	AgentKeys         []string
+	ValidAgentKeys    []string
+	InvalidAgentKeys  []string
+	DefaultAgentKey   string
+	DefaultAgentValid bool
+	DefaultAgentState string
+
+	agentDefinitions map[string]AgentDefinition
+}
+
+func (s TeamSnapshot) HasAgent(agentKey string) bool {
+	agentKey = strings.TrimSpace(agentKey)
+	for _, key := range s.ValidAgentKeys {
+		if key == agentKey {
+			return true
+		}
+	}
+	return false
+}
+
+func (s TeamSnapshot) DeclaresAgent(agentKey string) bool {
+	agentKey = strings.TrimSpace(agentKey)
+	for _, key := range s.AgentKeys {
+		if key == agentKey {
+			return true
+		}
+	}
+	return false
+}
+
+// AgentDefinition returns the member definition frozen when the team was
+// resolved. The returned value is cloned so callers cannot mutate the
+// run-scoped snapshot through maps, slices, or pointer fields.
+func (s TeamSnapshot) AgentDefinition(agentKey string) (AgentDefinition, bool) {
+	def, ok := s.agentDefinitions[strings.TrimSpace(agentKey)]
+	if !ok {
+		return AgentDefinition{}, false
+	}
+	return cloneAgentDefinitionSnapshot(def), true
 }
 
 type SkillDefinition struct {
@@ -611,6 +638,138 @@ func (r *FileRegistry) TeamDefinition(teamID string) (TeamDefinition, bool) {
 	defer r.mu.RUnlock()
 	def, ok := r.teams[teamID]
 	return def, ok
+}
+
+// ResolveTeam atomically resolves a team definition together with the current
+// agent catalog. Member keys are normalized and de-duplicated while preserving
+// declaration order.
+func (r *FileRegistry) ResolveTeam(teamID string) (TeamSnapshot, bool) {
+	teamID = strings.TrimSpace(teamID)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	team, ok := r.teams[teamID]
+	if !ok {
+		return TeamSnapshot{}, false
+	}
+	return resolveTeamSnapshotLocked(team, r.agents), true
+}
+
+func resolveTeamSnapshotLocked(team TeamDefinition, agents map[string]AgentDefinition) TeamSnapshot {
+	snapshot := TeamSnapshot{
+		TeamID:           strings.TrimSpace(team.TeamID),
+		Name:             strings.TrimSpace(team.Name),
+		DefaultAgentKey:  strings.TrimSpace(team.DefaultAgentKey),
+		agentDefinitions: make(map[string]AgentDefinition),
+	}
+	seen := make(map[string]struct{}, len(team.AgentKeys))
+	for _, raw := range team.AgentKeys {
+		key := strings.TrimSpace(raw)
+		if key == "" {
+			continue
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		snapshot.AgentKeys = append(snapshot.AgentKeys, key)
+		if def, exists := agents[key]; exists && strings.TrimSpace(def.Key) != "" {
+			snapshot.ValidAgentKeys = append(snapshot.ValidAgentKeys, key)
+			snapshot.agentDefinitions[key] = cloneAgentDefinitionSnapshot(def)
+		} else {
+			snapshot.InvalidAgentKeys = append(snapshot.InvalidAgentKeys, key)
+		}
+	}
+
+	switch {
+	case snapshot.DefaultAgentKey == "":
+		snapshot.DefaultAgentState = TeamDefaultAgentMissing
+	case !snapshot.DeclaresAgent(snapshot.DefaultAgentKey):
+		snapshot.DefaultAgentState = TeamDefaultAgentNotMember
+	case !snapshot.HasAgent(snapshot.DefaultAgentKey):
+		snapshot.DefaultAgentState = TeamDefaultAgentUnavailable
+	default:
+		snapshot.DefaultAgentState = TeamDefaultAgentValid
+		snapshot.DefaultAgentValid = true
+	}
+	return snapshot
+}
+
+// NewTeamSnapshot resolves a standalone team definition against an explicit
+// agent set. FileRegistry.ResolveTeam performs the same operation atomically
+// under its catalog read lock; this constructor is for narrow registry
+// adapters and tests that cannot implement that atomic interface.
+func NewTeamSnapshot(team TeamDefinition, agents map[string]AgentDefinition) TeamSnapshot {
+	return resolveTeamSnapshotLocked(team, agents)
+}
+
+func cloneAgentDefinitionSnapshot(src AgentDefinition) AgentDefinition {
+	dst := src
+	dst.Icon = cloneAgentSnapshotValue(src.Icon)
+	dst.Greetings = append([]string(nil), src.Greetings...)
+	dst.Wonders = append([]string(nil), src.Wonders...)
+	dst.VisibilityScopes = append([]string(nil), src.VisibilityScopes...)
+	dst.Tools = append([]string(nil), src.Tools...)
+	dst.Skills = append([]string(nil), src.Skills...)
+	if len(src.Controls) > 0 {
+		dst.Controls = make([]map[string]any, 0, len(src.Controls))
+		for _, control := range src.Controls {
+			dst.Controls = append(dst.Controls, cloneAgentSnapshotMap(control))
+		}
+	} else {
+		dst.Controls = nil
+	}
+	dst.Runtime = cloneAgentSnapshotMap(src.Runtime)
+	dst.HostAccess.ReadRoots = append([]string(nil), src.HostAccess.ReadRoots...)
+	dst.HostAccess.WriteRoots = append([]string(nil), src.HostAccess.WriteRoots...)
+	dst.Project.PromptFiles = append([]AgentProjectPromptFile(nil), src.Project.PromptFiles...)
+	dst.KBaseConfig.Include = append([]string(nil), src.KBaseConfig.Include...)
+	dst.KBaseConfig.Exclude = append([]string(nil), src.KBaseConfig.Exclude...)
+	dst.ContextTags = append([]string(nil), src.ContextTags...)
+	dst.ContextAgents = append([]string(nil), src.ContextAgents...)
+	dst.Budget = cloneAgentSnapshotMap(src.Budget)
+	dst.StageSettings = cloneAgentSnapshotMap(src.StageSettings)
+	if src.ProxyConfig != nil {
+		proxy := *src.ProxyConfig
+		dst.ProxyConfig = &proxy
+	}
+	dst.ChannelConfig = cloneAgentChannelConfig(src.ChannelConfig)
+	return dst
+}
+
+func cloneAgentSnapshotMap(src map[string]any) map[string]any {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]any, len(src))
+	for key, value := range src {
+		dst[key] = cloneAgentSnapshotValue(value)
+	}
+	return dst
+}
+
+func cloneAgentSnapshotValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneAgentSnapshotMap(typed)
+	case []any:
+		cloned := make([]any, len(typed))
+		for index, item := range typed {
+			cloned[index] = cloneAgentSnapshotValue(item)
+		}
+		return cloned
+	case []map[string]any:
+		cloned := make([]map[string]any, len(typed))
+		for index, item := range typed {
+			cloned[index] = cloneAgentSnapshotMap(item)
+		}
+		return cloned
+	case []string:
+		return append([]string(nil), typed...)
+	case map[string]string:
+		return contracts.CloneStringMap(typed)
+	default:
+		return value
+	}
 }
 
 func sortedKeys[T any](values map[string]T) []string {

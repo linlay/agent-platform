@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	agentcontract "agent-platform/internal/agent"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
@@ -183,7 +184,10 @@ func newTestFrameOrchestratorWithContext(runCtx context.Context, agent contracts
 	return &frameOrchestrator{
 		runCtx:  runCtx,
 		request: api.QueryRequest{RunID: "run_1", ChatID: "chat_1", TeamID: "team_1"},
-		session: contracts.QuerySession{RunID: "run_1", ChatID: "chat_1", Mode: "REACT"},
+		session: contracts.QuerySession{
+			RunID: "run_1", ChatID: "chat_1", Mode: "REACT",
+			ModeCapabilities: agentcontract.ModeCapabilities{InvokeChildren: true, RunAsChild: true},
+		},
 		summary: chat.Summary{ChatID: "chat_1", ChatName: "demo"},
 		agent:   agent,
 		registry: orchestratorRegistry{
@@ -850,6 +854,132 @@ func TestFrameOrchestratorSubAgentRequestIDsFallbackWhenParentMissing(t *testing
 		if !seenRequestIDs[want] {
 			t.Fatalf("expected fallback sub-agent request ID %q in %#v", want, requests)
 		}
+	}
+}
+
+func TestFrameOrchestratorBuildsChildRequestFromExplicitAllowlist(t *testing.T) {
+	mainStream := &stubOrchestratableStream{deltas: []contracts.AgentDelta{
+		newInvokeAgentsDelta(contracts.SubAgentTaskSpec{SubAgentKey: "writer", TaskText: "write", TaskName: "writer"}),
+	}}
+	child := &stubOrchestratableStream{finalText: "done"}
+	orchestrator := newTestFrameOrchestrator(
+		&orchestratorAgentEngine{streamsByAgentKey: map[string]contracts.AgentStream{"writer": child}},
+		map[string]catalog.AgentDefinition{"writer": {Key: "writer", Mode: "UNSUPPORTED"}},
+		nil,
+		nil,
+	)
+	streamFlag := true
+	planningFlag := true
+	orchestrator.request = api.QueryRequest{
+		RequestID:                  "parent-request",
+		RunID:                      "parent-run",
+		ChatID:                     "parent-chat",
+		AgentKey:                   "parent-agent",
+		TeamID:                     "parent-team",
+		Role:                       api.QueryRoleAutomation,
+		Message:                    "parent message",
+		References:                 []api.Reference{{ID: "parent-ref"}},
+		Params:                     map[string]any{"secret": true},
+		Scene:                      &api.Scene{URL: "https://example.test"},
+		Stream:                     &streamFlag,
+		IncludeUsage:               true,
+		IncludeFullText:            true,
+		PlanningMode:               &planningFlag,
+		AccessLevel:                contracts.AccessLevelDefault,
+		Model:                      &api.QueryModelOptions{Key: "parent-model"},
+		SyntheticQueryBootstrapped: true,
+		ChatSource:                 "parent-source",
+	}
+	orchestrator.session.RequestID = "parent-request"
+	orchestrator.session.RunID = "fixed-run"
+	orchestrator.session.ChatID = "fixed-chat"
+	orchestrator.session.TeamID = "fixed-team"
+	orchestrator.session.AccessLevel = contracts.AccessLevelFullAccess
+	teamSnapshot := catalog.NewTeamSnapshot(catalog.TeamDefinition{
+		TeamID:          "fixed-team",
+		AgentKeys:       []string{"writer"},
+		DefaultAgentKey: "writer",
+	}, map[string]catalog.AgentDefinition{
+		"writer": {Key: "writer", Mode: "REACT", VisibilityScopes: []string{"invoke"}},
+	})
+	orchestrator.teamSnapshot = &teamSnapshot
+	var childRequest api.QueryRequest
+	var childDefinition catalog.AgentDefinition
+	orchestrator.buildQuerySession = func(_ context.Context, req api.QueryRequest, _ chat.Summary, def catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
+		childRequest = req
+		childDefinition = def
+		return contracts.QuerySession{RunID: req.RunID, ChatID: req.ChatID, AgentKey: def.Key, Mode: def.Mode}, nil
+	}
+
+	failed, interrupted, err := orchestrator.Run(mainStream)
+	if err != nil || failed || interrupted {
+		t.Fatalf("unexpected result err=%v failed=%v interrupted=%v", err, failed, interrupted)
+	}
+	if childRequest.RequestID != "parent-request_sub_1" || childRequest.RunID != "fixed-run" || childRequest.ChatID != "fixed-chat" {
+		t.Fatalf("child identity fields = %#v", childRequest)
+	}
+	if childRequest.AgentKey != "writer" || childRequest.TeamID != "fixed-team" || childRequest.Role != api.QueryRoleUser || childRequest.Message != "write" {
+		t.Fatalf("child routing fields = %#v", childRequest)
+	}
+	if childRequest.AccessLevel != contracts.AccessLevelFullAccess {
+		t.Fatalf("child accessLevel = %q", childRequest.AccessLevel)
+	}
+	if childDefinition.Mode != "REACT" {
+		t.Fatalf("child definition mode = %q, want frozen team snapshot mode REACT", childDefinition.Mode)
+	}
+	if len(childRequest.References) != 0 || childRequest.Params != nil || childRequest.Model != nil || childRequest.PlanningMode != nil || childRequest.Scene != nil || childRequest.Stream != nil || childRequest.IncludeUsage || childRequest.IncludeFullText || childRequest.SyntheticQueryBootstrapped || childRequest.ChatSource != "" {
+		t.Fatalf("parent-only fields leaked into child request: %#v", childRequest)
+	}
+}
+
+func TestFrameOrchestratorRejectsChildOutsideFixedTeamSnapshot(t *testing.T) {
+	mainStream := &stubOrchestratableStream{deltas: []contracts.AgentDelta{
+		newInvokeAgentsDelta(contracts.SubAgentTaskSpec{SubAgentKey: "reviewer", TaskText: "review"}),
+	}}
+	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{}, map[string]catalog.AgentDefinition{
+		"reviewer": {Key: "reviewer", Mode: "REACT"},
+	}, nil, nil)
+	orchestrator.session.TeamID = "team-a"
+	teamSnapshot := catalog.NewTeamSnapshot(catalog.TeamDefinition{
+		TeamID:          "team-a",
+		AgentKeys:       []string{"writer"},
+		DefaultAgentKey: "writer",
+	}, map[string]catalog.AgentDefinition{
+		"writer": {Key: "writer", Mode: "REACT", VisibilityScopes: []string{"invoke"}},
+	})
+	orchestrator.teamSnapshot = &teamSnapshot
+
+	failed, interrupted, err := orchestrator.Run(mainStream)
+	if err != nil || failed || interrupted {
+		t.Fatalf("unexpected result err=%v failed=%v interrupted=%v", err, failed, interrupted)
+	}
+	if len(mainStream.injected) != 1 || !mainStream.injected[0].isError || !strings.Contains(mainStream.injected[0].text, "not in team") {
+		t.Fatalf("expected team membership tool error, got %#v", mainStream.injected)
+	}
+}
+
+func TestFrameOrchestratorReportsACPCoderChildAsTaskError(t *testing.T) {
+	mainStream := &stubOrchestratableStream{deltas: []contracts.AgentDelta{
+		newInvokeAgentsDelta(contracts.SubAgentTaskSpec{SubAgentKey: "acp-coder", TaskText: "edit"}),
+	}}
+	var emitted []contracts.AgentDelta
+	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{}, map[string]catalog.AgentDefinition{
+		"acp-coder": {Key: "acp-coder", Mode: catalog.AgentModeCoder, ACPBridgeID: "codex"},
+	}, &emitted, nil)
+
+	failed, interrupted, err := orchestrator.Run(mainStream)
+	if err != nil || failed || interrupted {
+		t.Fatalf("unexpected result err=%v failed=%v interrupted=%v", err, failed, interrupted)
+	}
+	if len(emitted) != 2 {
+		t.Fatalf("expected task start and task error, got %#v", emitted)
+	}
+	terminal, ok := emitted[1].(contracts.DeltaTaskLifecycle)
+	if !ok || terminal.Kind != "error" || terminal.Error == nil || !strings.Contains(errorMessage(terminal.Error), "ACP CODER") {
+		t.Fatalf("unexpected ACP task terminal %#v", emitted[1])
+	}
+	if len(mainStream.injected) != 1 || !mainStream.injected[0].isError || !strings.Contains(mainStream.injected[0].text, `"status":"failed"`) {
+		t.Fatalf("expected failed aggregated tool result, got %#v", mainStream.injected)
 	}
 }
 

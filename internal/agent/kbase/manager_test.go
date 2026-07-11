@@ -16,42 +16,25 @@ import (
 	"testing"
 	"time"
 
-	"agent-platform/internal/api"
-	"agent-platform/internal/catalog"
-	"agent-platform/internal/config"
 	"agent-platform/internal/models"
 )
 
-type stubRegistry struct {
-	agents map[string]catalog.AgentDefinition
+type stubAgentSource struct {
+	agents map[string]AgentSpec
 }
 
-func (r stubRegistry) Agents(string) []api.AgentSummary {
-	out := make([]api.AgentSummary, 0, len(r.agents))
+func (r stubAgentSource) Agents() []AgentSpec {
+	out := make([]AgentSpec, 0, len(r.agents))
 	for _, def := range r.agents {
-		out = append(out, api.AgentSummary{Key: def.Key, Mode: catalog.AgentModeForAPI(def.Mode)})
+		out = append(out, def)
 	}
 	return out
 }
 
-func (r stubRegistry) Teams() []api.TeamSummary         { return nil }
-func (r stubRegistry) Skills(string) []api.SkillSummary { return nil }
-func (r stubRegistry) SkillDefinition(string) (catalog.SkillDefinition, bool) {
-	return catalog.SkillDefinition{}, false
-}
-func (r stubRegistry) Tools(string, string) []api.ToolSummary { return nil }
-func (r stubRegistry) Tool(string) (api.ToolDetailResponse, bool) {
-	return api.ToolDetailResponse{}, false
-}
-func (r stubRegistry) DefaultAgentKey() string { return "" }
-func (r stubRegistry) AgentDefinition(key string) (catalog.AgentDefinition, bool) {
+func (r stubAgentSource) Agent(key string) (AgentSpec, bool) {
 	def, ok := r.agents[key]
 	return def, ok
 }
-func (r stubRegistry) TeamDefinition(string) (catalog.TeamDefinition, bool) {
-	return catalog.TeamDefinition{}, false
-}
-func (r stubRegistry) Reload(context.Context, string) error { return nil }
 
 func newKBaseTestModelRegistry(t *testing.T, root string, handler http.HandlerFunc) *models.ModelRegistry {
 	t.Helper()
@@ -96,20 +79,24 @@ func newKBaseTestModelRegistry(t *testing.T, root string, handler http.HandlerFu
 	return modelRegistry
 }
 
-func testKBaseAgent(key string, workspace string, storage string) catalog.AgentDefinition {
-	return catalog.AgentDefinition{
-		Key:       key,
-		Mode:      catalog.AgentModeKBase,
-		Workspace: catalog.AgentWorkspaceConfig{Root: workspace},
-		KBaseConfig: catalog.AgentKBaseConfig{
-			Embedding: catalog.AgentKBaseEmbeddingConfig{ModelKey: "mock-embedding-key"},
-			Storage:   catalog.AgentKBaseStorageConfig{Location: storage},
+func testKBaseAgent(key string, workspace string, storage string) AgentSpec {
+	return AgentSpec{
+		Key:           key,
+		Mode:          Mode,
+		WorkspaceRoot: workspace,
+		Config: AgentConfig{
+			Embedding: EmbeddingConfig{ModelKey: "mock-embedding-key"},
+			Storage:   StorageConfig{Location: storage},
 			Include:   []string{"**/*.md", "**/*.txt"},
 			Exclude:   []string{".git/**", ".kbase/**", "node_modules/**"},
-			Chunk:     catalog.AgentKBaseChunkConfig{Unit: catalog.AgentKBaseChunkUnitEstimatedTokens, MaxTokens: 1000, OverlapTokens: 100},
-			Retrieval: catalog.AgentKBaseRetrievalConfig{TopK: 5, VectorWeight: 0.7, FTSWeight: 0.3},
+			Chunk:     ChunkConfig{Unit: ChunkUnitEstimatedTokens, MaxTokens: 1000, OverlapTokens: 100},
+			Retrieval: RetrievalConfig{TopK: 5, VectorWeight: 0.7, FTSWeight: 0.3},
 		},
 	}
+}
+
+func testManagerOptions(runtimeDir string) ManagerOptions {
+	return ManagerOptions{RuntimeDir: runtimeDir}
 }
 
 func testEmbeddingHandler(t *testing.T, requests *atomic.Int64) http.HandlerFunc {
@@ -218,10 +205,9 @@ func TestOpenReadStoreAndManagerReadDoNotCreateMissingDB(t *testing.T) {
 	}
 	modelRegistry := newKBaseTestModelRegistry(t, root, testEmbeddingHandler(t, nil))
 	def := testKBaseAgent("docs", workspace, "runtime")
-	cfg := config.Config{}
-	cfg.Paths.KBaseDir = filepath.Join(root, "kbase")
-	manager := NewManager(cfg, stubRegistry{agents: map[string]catalog.AgentDefinition{"docs": def}}, modelRegistry)
-	storageDir := filepath.Join(cfg.Paths.KBaseDir, "docs")
+	runtimeDir := filepath.Join(root, "kbase")
+	manager := NewManager(testManagerOptions(runtimeDir), stubAgentSource{agents: map[string]AgentSpec{"docs": def}}, modelRegistry)
+	storageDir := filepath.Join(runtimeDir, "docs")
 
 	status, err := manager.Status("docs")
 	if err != nil {
@@ -230,7 +216,7 @@ func TestOpenReadStoreAndManagerReadDoNotCreateMissingDB(t *testing.T) {
 	if !status.Stale || status.Files != 0 || status.Chunks != 0 {
 		t.Fatalf("unexpected status for missing DB: %#v", status)
 	}
-	if status.Chunk.Unit != catalog.AgentKBaseChunkUnitEstimatedTokens || status.Chunk.MaxTokens != 1000 || status.Chunk.OverlapTokens != 100 {
+	if status.Chunk.Unit != ChunkUnitEstimatedTokens || status.Chunk.MaxTokens != 1000 || status.Chunk.OverlapTokens != 100 {
 		t.Fatalf("unexpected status chunk config: %#v", status.Chunk)
 	}
 	if _, statErr := os.Stat(storageDir); !os.IsNotExist(statErr) {
@@ -257,16 +243,10 @@ func TestManagerResolveUsesKBaseEmbeddingDefaults(t *testing.T) {
 	}
 	modelRegistry := newKBaseTestModelRegistry(t, root, testEmbeddingHandler(t, nil))
 	def := testKBaseAgent("docs", workspace, "runtime")
-	def.KBaseConfig.Embedding = catalog.AgentKBaseEmbeddingConfig{}
-	cfg := config.Config{
-		KBase: config.KBaseConfig{
-			Embedding: config.KBaseEmbeddingConfig{
-				ModelKey: "mock-embedding-key",
-			},
-		},
-	}
-	cfg.Paths.KBaseDir = filepath.Join(root, "kbase")
-	manager := NewManager(cfg, stubRegistry{agents: map[string]catalog.AgentDefinition{"docs": def}}, modelRegistry)
+	def.Config.Embedding = EmbeddingConfig{}
+	options := testManagerOptions(filepath.Join(root, "kbase"))
+	options.DefaultEmbeddingModelKey = "mock-embedding-key"
+	manager := NewManager(options, stubAgentSource{agents: map[string]AgentSpec{"docs": def}}, modelRegistry)
 
 	resolved, embedder, err := manager.resolve("docs")
 	if err != nil {
@@ -292,18 +272,12 @@ func TestManagerResolveUsesKBaseEmbeddingModelKey(t *testing.T) {
 	}
 	modelRegistry := newKBaseTestModelRegistry(t, root, testEmbeddingHandler(t, nil))
 	def := testKBaseAgent("docs", workspace, "runtime")
-	def.KBaseConfig.Embedding = catalog.AgentKBaseEmbeddingConfig{
+	def.Config.Embedding = EmbeddingConfig{
 		ModelKey: "mock-embedding-key",
 	}
-	cfg := config.Config{
-		KBase: config.KBaseConfig{
-			Embedding: config.KBaseEmbeddingConfig{
-				ModelKey: "settings-embedding-key",
-			},
-		},
-	}
-	cfg.Paths.KBaseDir = filepath.Join(root, "kbase")
-	manager := NewManager(cfg, stubRegistry{agents: map[string]catalog.AgentDefinition{"docs": def}}, modelRegistry)
+	options := testManagerOptions(filepath.Join(root, "kbase"))
+	options.DefaultEmbeddingModelKey = "settings-embedding-key"
+	manager := NewManager(options, stubAgentSource{agents: map[string]AgentSpec{"docs": def}}, modelRegistry)
 
 	resolved, embedder, err := manager.resolve("docs")
 	if err != nil {
@@ -346,10 +320,8 @@ func TestManagerResolveRejectsNonEmbeddingModelKey(t *testing.T) {
 		t.Fatalf("reload models: %v", err)
 	}
 	def := testKBaseAgent("docs", workspace, "runtime")
-	def.KBaseConfig.Embedding = catalog.AgentKBaseEmbeddingConfig{ModelKey: "chat-model"}
-	cfg := config.Config{}
-	cfg.Paths.KBaseDir = filepath.Join(root, "kbase")
-	manager := NewManager(cfg, stubRegistry{agents: map[string]catalog.AgentDefinition{"docs": def}}, modelRegistry)
+	def.Config.Embedding = EmbeddingConfig{ModelKey: "chat-model"}
+	manager := NewManager(testManagerOptions(filepath.Join(root, "kbase")), stubAgentSource{agents: map[string]AgentSpec{"docs": def}}, modelRegistry)
 
 	if _, _, err := manager.resolve("docs"); err == nil || !strings.Contains(err.Error(), "want embedding") {
 		t.Fatalf("expected non-embedding modelKey error, got %v", err)
@@ -464,9 +436,7 @@ func TestManagerConcurrentSearchDuringRefreshDoesNotReturnBusy(t *testing.T) {
 		t.Fatalf("write alpha: %v", err)
 	}
 	def := testKBaseAgent("docs", workspace, "runtime")
-	cfg := config.Config{}
-	cfg.Paths.KBaseDir = filepath.Join(root, "kbase")
-	manager := NewManager(cfg, stubRegistry{agents: map[string]catalog.AgentDefinition{"docs": def}}, modelRegistry)
+	manager := NewManager(testManagerOptions(filepath.Join(root, "kbase")), stubAgentSource{agents: map[string]AgentSpec{"docs": def}}, modelRegistry)
 	if _, err := manager.Refresh(context.Background(), "docs", RefreshOptions{Mode: "initial"}); err != nil {
 		t.Fatalf("initial refresh: %v", err)
 	}
@@ -542,9 +512,7 @@ func TestManagerRefreshSerializesSharedStorageDir(t *testing.T) {
 	modelRegistry := newKBaseTestModelRegistry(t, root, handler)
 	defA := testKBaseAgent("docs_a", workspace, "workspace")
 	defB := testKBaseAgent("docs_b", workspace, "workspace")
-	cfg := config.Config{}
-	cfg.Paths.KBaseDir = filepath.Join(root, "kbase")
-	manager := NewManager(cfg, stubRegistry{agents: map[string]catalog.AgentDefinition{
+	manager := NewManager(testManagerOptions(filepath.Join(root, "kbase")), stubAgentSource{agents: map[string]AgentSpec{
 		"docs_a": defA,
 		"docs_b": defB,
 	}}, modelRegistry)
@@ -595,10 +563,9 @@ func TestManagerStaleSearchQueuesSingleRefresh(t *testing.T) {
 		t.Fatalf("write alpha: %v", err)
 	}
 	def := testKBaseAgent("docs", workspace, "runtime")
-	cfg := config.Config{}
-	cfg.Paths.KBaseDir = filepath.Join(root, "kbase")
-	manager := NewManager(cfg, stubRegistry{agents: map[string]catalog.AgentDefinition{"docs": def}}, modelRegistry)
-	storageDir := filepath.Join(cfg.Paths.KBaseDir, "docs")
+	runtimeDir := filepath.Join(root, "kbase")
+	manager := NewManager(testManagerOptions(runtimeDir), stubAgentSource{agents: map[string]AgentSpec{"docs": def}}, modelRegistry)
+	storageDir := filepath.Join(runtimeDir, "docs")
 
 	start := make(chan struct{})
 	errs := make(chan error, 8)
@@ -609,7 +576,10 @@ func TestManagerStaleSearchQueuesSingleRefresh(t *testing.T) {
 			defer wg.Done()
 			<-start
 			result, err := manager.Search(context.Background(), "docs", "alpha", SearchOptions{Limit: 3})
-			if err == nil && (!result.Stale || result.Count != 0) {
+			// The queued refresh may finish before a later concurrent search opens
+			// the store. A missing result must be marked stale; an indexed result is
+			// also valid as long as all callers share the single queued refresh.
+			if err == nil && result.Count == 0 && !result.Stale {
 				err = fmt.Errorf("unexpected missing-index search result: %#v", result)
 			}
 			errs <- err
@@ -750,22 +720,21 @@ func TestManagerRefreshSearchReadAndIgnoreKBaseDir(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspace, ".kbase", "hidden.md"), []byte("hidden beta"), 0o644); err != nil {
 		t.Fatalf("write hidden: %v", err)
 	}
-	def := catalog.AgentDefinition{
-		Key:       "docs",
-		Mode:      catalog.AgentModeKBase,
-		Workspace: catalog.AgentWorkspaceConfig{Root: workspace},
-		KBaseConfig: catalog.AgentKBaseConfig{
-			Embedding: catalog.AgentKBaseEmbeddingConfig{ModelKey: "mock-embedding-key"},
-			Storage:   catalog.AgentKBaseStorageConfig{Location: "runtime"},
+	def := AgentSpec{
+		Key:           "docs",
+		Mode:          Mode,
+		WorkspaceRoot: workspace,
+		Config: AgentConfig{
+			Embedding: EmbeddingConfig{ModelKey: "mock-embedding-key"},
+			Storage:   StorageConfig{Location: "runtime"},
 			Include:   []string{"**/*.md", "**/*.txt", "**/*.html", "**/*.htm", "**/*.pptx"},
 			Exclude:   []string{".git/**", ".kbase/**", "node_modules/**"},
-			Chunk:     catalog.AgentKBaseChunkConfig{Unit: catalog.AgentKBaseChunkUnitEstimatedTokens, MaxTokens: 1000, OverlapTokens: 100},
-			Retrieval: catalog.AgentKBaseRetrievalConfig{TopK: 5, VectorWeight: 0.7, FTSWeight: 0.3},
+			Chunk:     ChunkConfig{Unit: ChunkUnitEstimatedTokens, MaxTokens: 1000, OverlapTokens: 100},
+			Retrieval: RetrievalConfig{TopK: 5, VectorWeight: 0.7, FTSWeight: 0.3},
 		},
 	}
-	cfg := config.Config{}
-	cfg.Paths.KBaseDir = filepath.Join(root, "kbase")
-	manager := NewManager(cfg, stubRegistry{agents: map[string]catalog.AgentDefinition{"docs": def}}, modelRegistry)
+	runtimeDir := filepath.Join(root, "kbase")
+	manager := NewManager(testManagerOptions(runtimeDir), stubAgentSource{agents: map[string]AgentSpec{"docs": def}}, modelRegistry)
 
 	refresh, err := manager.Refresh(context.Background(), "docs", RefreshOptions{Mode: "manual"})
 	if err != nil {
@@ -875,7 +844,7 @@ func TestManagerRefreshSearchReadAndIgnoreKBaseDir(t *testing.T) {
 	if !hasKBaseFileEntry(tree.Results, "dir", "guides/deep/") || !hasKBaseFileEntry(tree.Results, "file", "guides/auth-policy.md") {
 		t.Fatalf("unexpected tree entries: %#v", tree.Results)
 	}
-	store, err := OpenStore(filepath.Join(cfg.Paths.KBaseDir, "docs"))
+	store, err := OpenStore(filepath.Join(runtimeDir, "docs"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

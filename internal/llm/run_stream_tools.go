@@ -4,13 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	"agent-platform/internal/accesspolicy"
-	"agent-platform/internal/agent/kbase"
 	"agent-platform/internal/api"
 	"agent-platform/internal/bashsec"
 	. "agent-platform/internal/contracts"
@@ -413,7 +410,7 @@ func (s *llmRunStream) consumeActiveToolBatch() error {
 
 	s.appendFrontendSubmitDeltas(invocation, prepared.result)
 	s.emitToolResultLive(invocation, prepared.result)
-	appendKBaseSourcePublishDelta(&s.pending, s.session, invocation, prepared.result)
+	appendSourcePublishDelta(&s.pending, s.session, invocation, prepared.result)
 	appendPublishedArtifactDelta(&s.pending, s.session, prepared.result.Structured["publishedArtifacts"])
 
 	if batch.remaining == 0 {
@@ -761,7 +758,7 @@ func (s *llmRunStream) invokeToolAndPublishResult(invocation *preparedToolInvoca
 			Plan:   PlanTasksArray(s.execCtx.PlanState),
 		})
 	}
-	appendKBaseSourcePublishDelta(&s.pending, s.session, invocation, result)
+	appendSourcePublishDelta(&s.pending, s.session, invocation, result)
 	appendPublishedArtifactDelta(&s.pending, s.session, result.Structured["publishedArtifacts"])
 	return nil
 }
@@ -867,199 +864,25 @@ func (s *llmRunStream) stageToolCallLimit(budget Budget) int {
 	return 0
 }
 
-func appendKBaseSourcePublishDelta(pending *[]AgentDelta, session QuerySession, invocation *preparedToolInvocation, result ToolExecutionResult) {
+func appendSourcePublishDelta(pending *[]AgentDelta, session QuerySession, invocation *preparedToolInvocation, result ToolExecutionResult) {
 	if pending == nil || invocation == nil {
-		return
-	}
-	if !strings.EqualFold(strings.TrimSpace(invocation.toolName), "kbase_search") {
 		return
 	}
 	if result.ExitCode != 0 || strings.TrimSpace(result.Error) != "" {
 		return
 	}
-
-	hits := kbaseSearchHits(result.Structured["results"])
-	if len(hits) == 0 {
+	publication := result.SourcePublication
+	if publication == nil || len(publication.Sources) == 0 {
 		return
-	}
-	sources := kbaseSourcePublishSources(hits)
-	if len(sources) == 0 {
-		return
-	}
-
-	query := strings.TrimSpace(AnyStringNode(result.Structured["query"]))
-	if query == "" {
-		query = strings.TrimSpace(mapStringArg(invocation.args, "query"))
 	}
 
 	*pending = append(*pending, DeltaSourcePublish{
 		RunID:   session.RunID,
 		ToolID:  invocation.toolID,
-		Kind:    "kbase",
-		Query:   query,
-		Sources: sources,
+		Kind:    publication.Kind,
+		Query:   publication.Query,
+		Sources: append([]stream.Source(nil), publication.Sources...),
 	})
-}
-
-func kbaseSearchHits(raw any) []kbase.SearchHit {
-	switch typed := raw.(type) {
-	case []kbase.SearchHit:
-		hits := make([]kbase.SearchHit, 0, len(typed))
-		for _, hit := range typed {
-			if normalized, ok := normalizeKBaseSearchHit(hit); ok {
-				hits = append(hits, normalized)
-			}
-		}
-		return hits
-	case []map[string]any:
-		hits := make([]kbase.SearchHit, 0, len(typed))
-		for _, item := range typed {
-			if hit, ok := kbaseSearchHitFromMap(item); ok {
-				hits = append(hits, hit)
-			}
-		}
-		return hits
-	case []any:
-		hits := make([]kbase.SearchHit, 0, len(typed))
-		for _, item := range typed {
-			if hit, ok := kbaseSearchHitFromAny(item); ok {
-				hits = append(hits, hit)
-			}
-		}
-		return hits
-	default:
-		if hit, ok := kbaseSearchHitFromAny(raw); ok {
-			return []kbase.SearchHit{hit}
-		}
-		return nil
-	}
-}
-
-func kbaseSearchHitFromAny(raw any) (kbase.SearchHit, bool) {
-	switch typed := raw.(type) {
-	case kbase.SearchHit:
-		return normalizeKBaseSearchHit(typed)
-	case map[string]any:
-		return kbaseSearchHitFromMap(typed)
-	default:
-		return kbase.SearchHit{}, false
-	}
-}
-
-func kbaseSearchHitFromMap(item map[string]any) (kbase.SearchHit, bool) {
-	if len(item) == 0 {
-		return kbase.SearchHit{}, false
-	}
-	return normalizeKBaseSearchHit(kbase.SearchHit{
-		ChunkID:    strings.TrimSpace(AnyStringNode(item["chunkId"])),
-		Path:       strings.TrimSpace(AnyStringNode(item["path"])),
-		Heading:    strings.TrimSpace(AnyStringNode(item["heading"])),
-		StartLine:  AnyIntNode(item["startLine"]),
-		EndLine:    AnyIntNode(item["endLine"]),
-		PageStart:  AnyIntNode(item["pageStart"]),
-		PageEnd:    AnyIntNode(item["pageEnd"]),
-		SlideStart: AnyIntNode(item["slideStart"]),
-		SlideEnd:   AnyIntNode(item["slideEnd"]),
-		SourceType: strings.TrimSpace(AnyStringNode(item["sourceType"])),
-		Snippet:    strings.TrimSpace(AnyStringNode(item["snippet"])),
-		Score:      anyFloat64(item["score"]),
-		MatchType:  strings.TrimSpace(AnyStringNode(item["matchType"])),
-	})
-}
-
-func normalizeKBaseSearchHit(hit kbase.SearchHit) (kbase.SearchHit, bool) {
-	hit.ChunkID = strings.TrimSpace(hit.ChunkID)
-	hit.Path = strings.TrimSpace(hit.Path)
-	hit.Heading = strings.TrimSpace(hit.Heading)
-	hit.SourceType = strings.TrimSpace(hit.SourceType)
-	hit.Snippet = strings.TrimSpace(hit.Snippet)
-	hit.MatchType = strings.TrimSpace(hit.MatchType)
-	if hit.ChunkID == "" && hit.Path == "" && hit.Snippet == "" {
-		return kbase.SearchHit{}, false
-	}
-	return hit, true
-}
-
-func kbaseSourcePublishSources(hits []kbase.SearchHit) []stream.Source {
-	if len(hits) == 0 {
-		return nil
-	}
-
-	sourceIndexes := map[string]int{}
-	sources := make([]stream.Source, 0, len(hits))
-	for index, hit := range hits {
-		key := hit.Path
-		if key == "" {
-			key = hit.ChunkID
-		}
-		if strings.TrimSpace(key) == "" {
-			continue
-		}
-
-		sourceIndex, ok := sourceIndexes[key]
-		if !ok {
-			name := filepath.Base(hit.Path)
-			if name == "." || name == string(filepath.Separator) || strings.TrimSpace(name) == "" {
-				name = key
-			}
-			title := hit.Path
-			if title == "" {
-				title = hit.Heading
-			}
-			sources = append(sources, stream.Source{
-				ID:             "kbase:" + key,
-				Name:           name,
-				Title:          title,
-				Icon:           "kbase",
-				CollectionName: "KBASE",
-			})
-			sourceIndex = len(sources) - 1
-			sourceIndexes[key] = sourceIndex
-		}
-
-		content := hit.Snippet
-		if strings.TrimSpace(content) == "" {
-			content = hit.Heading
-		}
-		sources[sourceIndex].Chunks = append(sources[sourceIndex].Chunks, stream.SourceChunk{
-			ChunkID:    hit.ChunkID,
-			Index:      index + 1,
-			Content:    content,
-			Score:      hit.Score,
-			Path:       hit.Path,
-			Heading:    hit.Heading,
-			StartLine:  hit.StartLine,
-			EndLine:    hit.EndLine,
-			PageStart:  hit.PageStart,
-			PageEnd:    hit.PageEnd,
-			SlideStart: hit.SlideStart,
-			SlideEnd:   hit.SlideEnd,
-			SourceType: hit.SourceType,
-			MatchType:  hit.MatchType,
-		})
-	}
-	return sources
-}
-
-func anyFloat64(value any) float64 {
-	switch typed := value.(type) {
-	case float64:
-		return typed
-	case float32:
-		return float64(typed)
-	case int:
-		return float64(typed)
-	case int64:
-		return float64(typed)
-	case json.Number:
-		number, _ := typed.Float64()
-		return number
-	case string:
-		number, _ := strconv.ParseFloat(strings.TrimSpace(typed), 64)
-		return number
-	default:
-		return 0
-	}
 }
 
 func appendPublishedArtifactDelta(pending *[]AgentDelta, session QuerySession, raw any) {

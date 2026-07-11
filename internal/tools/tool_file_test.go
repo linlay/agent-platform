@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	agentcontract "agent-platform/internal/agent"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
@@ -911,8 +912,9 @@ func TestInvokeWriteRunsFileChangeHookForCoderWorkspace(t *testing.T) {
 	}}
 	executor := fileToolExecutor(root, false).WithFileChangeHooks(hook)
 	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
-		Mode:          "CODER",
-		WorkspaceRoot: root,
+		Mode:             "CODER",
+		ModeCapabilities: agentcontract.ModeCapabilities{FileChangeHooks: true},
+		WorkspaceRoot:    root,
 	}}
 
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
@@ -949,8 +951,9 @@ func TestInvokeEditRunsFileChangeHookForCoderWorkspace(t *testing.T) {
 	hook := &recordingFileChangeHook{result: contracts.FileChangeHookResult{Name: "lsp_diagnostics", Status: "ok"}}
 	executor := fileToolExecutor(root, false).WithFileChangeHooks(hook)
 	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
-		Mode:          "CODER",
-		WorkspaceRoot: root,
+		Mode:             "CODER",
+		ModeCapabilities: agentcontract.ModeCapabilities{FileChangeHooks: true},
+		WorkspaceRoot:    root,
 	}}
 	if _, err := executor.invokeRead(map[string]any{"file_path": "main.go", "add_line_numbers": false}, execCtx); err != nil {
 		t.Fatalf("read: %v", err)
@@ -994,7 +997,7 @@ func TestFileChangeHookSkipsNonCoderMissingWorkspaceAndFailedWrite(t *testing.T)
 		"file_path":   "notes2.txt",
 		"content":     "hello",
 		"description": "写入普通文件",
-	}, &contracts.ExecutionContext{Session: contracts.QuerySession{Mode: "CODER"}}); err != nil {
+	}, &contracts.ExecutionContext{Session: contracts.QuerySession{Mode: "CODER", ModeCapabilities: agentcontract.ModeCapabilities{FileChangeHooks: true}}}); err != nil {
 		t.Fatalf("invokeWrite missing workspace: %v", err)
 	}
 	if len(hook.events) != 0 {
@@ -1008,7 +1011,7 @@ func TestFileChangeHookSkipsNonCoderMissingWorkspaceAndFailedWrite(t *testing.T)
 		"file_path":   "existing.txt",
 		"content":     "new",
 		"description": "写入已有文件",
-	}, &contracts.ExecutionContext{Session: contracts.QuerySession{Mode: "CODER", WorkspaceRoot: root}})
+	}, &contracts.ExecutionContext{Session: contracts.QuerySession{Mode: "CODER", ModeCapabilities: agentcontract.ModeCapabilities{FileChangeHooks: true}, WorkspaceRoot: root}})
 	if err != nil {
 		t.Fatalf("invokeWrite failed write: %v", err)
 	}

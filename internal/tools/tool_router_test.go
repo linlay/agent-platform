@@ -74,6 +74,70 @@ type captureExternalInvoker struct {
 	args       map[string]any
 }
 
+type captureNamedToolHandler struct {
+	names   []string
+	invoked string
+	args    map[string]any
+}
+
+func (h *captureNamedToolHandler) ToolNames() []string {
+	return append([]string(nil), h.names...)
+}
+
+func (h *captureNamedToolHandler) Invoke(_ context.Context, toolName string, args map[string]any, _ *ExecutionContext) (ToolExecutionResult, error) {
+	h.invoked = toolName
+	h.args = args
+	return ToolExecutionResult{Output: "named", ExitCode: 0}, nil
+}
+
+func TestToolRouterRegisterHandlerRoutesNormalizedBackendName(t *testing.T) {
+	backend := &recordingPolicyBackend{defs: []api.ToolDetailResponse{{
+		Name: "special_lookup",
+		Key:  "special_alias",
+		Meta: map[string]any{"kind": "backend", "sourceCategory": "platform"},
+	}}}
+	router := NewToolRouter(backend, nil, nil, nil, nil)
+	handler := &captureNamedToolHandler{names: []string{"  SPECIAL_LOOKUP  "}}
+	if err := router.RegisterHandler(handler); err != nil {
+		t.Fatalf("register handler: %v", err)
+	}
+
+	result, err := router.Invoke(context.Background(), "special_alias", map[string]any{"query": "docs"}, &ExecutionContext{})
+	if err != nil || result.Output != "named" {
+		t.Fatalf("invoke named handler: result=%#v err=%v", result, err)
+	}
+	if handler.invoked != "special_lookup" || handler.args["query"] != "docs" {
+		t.Fatalf("unexpected named invocation name=%q args=%#v", handler.invoked, handler.args)
+	}
+	if len(backend.calls) != 0 {
+		t.Fatalf("named tool reached fallback backend: %#v", backend.calls)
+	}
+}
+
+func TestToolRouterRegisterHandlerRejectsConflictsAtomically(t *testing.T) {
+	backend := &recordingPolicyBackend{defs: []api.ToolDetailResponse{
+		{Name: "one", Meta: map[string]any{"kind": "backend"}},
+		{Name: "two", Meta: map[string]any{"kind": "backend"}},
+	}}
+	router := NewToolRouter(backend, nil, nil, nil, nil)
+	first := &captureNamedToolHandler{names: []string{"one"}}
+	if err := router.RegisterHandler(first); err != nil {
+		t.Fatalf("register first handler: %v", err)
+	}
+	if err := router.RegisterHandler(&captureNamedToolHandler{names: []string{"ONE"}}); err == nil {
+		t.Fatal("expected handler conflict")
+	}
+
+	partial := &captureNamedToolHandler{names: []string{"two", "missing"}}
+	if err := router.RegisterHandler(partial); err == nil {
+		t.Fatal("expected undefined tool registration error")
+	}
+	second := &captureNamedToolHandler{names: []string{"two"}}
+	if err := router.RegisterHandler(second); err != nil {
+		t.Fatalf("expected failed registration to be atomic: %v", err)
+	}
+}
+
 func (s *captureExternalInvoker) Configure(defs []api.ToolDetailResponse) {
 	s.configured = append([]api.ToolDetailResponse(nil), defs...)
 }

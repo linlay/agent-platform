@@ -4,6 +4,7 @@ description: Trigger a KBASE index refresh for the current KBASE agent. Use forc
 submitResultFormat: json-compact
 type: function
 clientVisible: true
+readOnly: false
 inputSchema:
   type: object
   properties:

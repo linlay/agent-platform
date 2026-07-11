@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
+	agentcontract "agent-platform/internal/agent"
 	"agent-platform/internal/api"
-	"agent-platform/internal/config"
 	"agent-platform/internal/stream"
 )
 
@@ -81,10 +81,17 @@ type SystemInitProfile struct {
 	Model          map[string]any
 	ToolChoice     string
 	RequestOptions map[string]any
+	Initial        bool `json:"-"`
+}
+
+type SystemInitBuildInput struct {
+	Session         QuerySession
+	Request         api.QueryRequest
+	ToolDefinitions []api.ToolDetailResponse
 }
 
 type SystemInitBuilder interface {
-	BuildSystemInitProfiles(session QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, defaultPlanMaxSteps int, defaultPlanMaxWorkRoundsPerTask int, prompts config.PromptsConfig) []SystemInitProfile
+	BuildSystemInitProfiles(input SystemInitBuildInput) ([]SystemInitProfile, error)
 }
 
 type ActiveRunService interface {
@@ -215,6 +222,7 @@ type QuerySession struct {
 	ModelKey              string
 	ToolNames             []string
 	Mode                  string
+	ModeCapabilities      agentcontract.ModeCapabilities
 	PlanningMode          bool
 	TeamID                string
 	Created               bool
@@ -249,8 +257,7 @@ type QuerySession struct {
 	PlanPrompt            string
 	ExecutePrompt         string
 	SummaryPrompt         string
-	CoderSystemPrompt     string
-	KBaseSystemPrompt     string
+	ModeSystemPrompt      string
 
 	RuntimeEnvironmentID   string
 	RuntimeLevel           string
@@ -355,13 +362,14 @@ type SandboxSession struct {
 }
 
 type ToolExecutionResult struct {
-	Output     string
-	Structured map[string]any
-	RawParams  any
-	HITL       map[string]any
-	Error      string
-	ExitCode   int
-	SubmitInfo *SubmitInfo
+	Output            string
+	Structured        map[string]any
+	RawParams         any
+	HITL              map[string]any
+	Error             string
+	ExitCode          int
+	SubmitInfo        *SubmitInfo
+	SourcePublication *SourcePublication `json:"-"`
 }
 
 type SubmitInfo struct {

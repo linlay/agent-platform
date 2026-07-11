@@ -16,8 +16,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"agent-platform/internal/catalog"
-	"agent-platform/internal/config"
 	"agent-platform/internal/supportpkg"
 )
 
@@ -55,26 +53,26 @@ type resolvedConfig struct {
 	Embedding     EmbeddingSnapshot
 	Include       []string
 	Exclude       []string
-	Chunk         catalog.AgentKBaseChunkConfig
-	Retrieval     catalog.AgentKBaseRetrievalConfig
-	Extraction    config.KBaseExtractionConfig
+	Chunk         ChunkConfig
+	Retrieval     RetrievalConfig
+	Extraction    ExtractionConfig
 	Support       *supportpkg.Registry
 	ConfigHash    string
 }
 
 type manifest struct {
-	SchemaVersion string                            `json:"schemaVersion"`
-	AgentKey      string                            `json:"agentKey"`
-	WorkspaceRoot string                            `json:"workspaceRoot"`
-	ConfigHash    string                            `json:"configHash"`
-	Embedding     EmbeddingSnapshot                 `json:"embedding"`
-	Include       []string                          `json:"include"`
-	Exclude       []string                          `json:"exclude"`
-	Chunk         catalog.AgentKBaseChunkConfig     `json:"chunk"`
-	Retrieval     catalog.AgentKBaseRetrievalConfig `json:"retrieval"`
-	Extraction    config.KBaseExtractionConfig      `json:"extraction"`
-	Storage       string                            `json:"storage"`
-	UpdatedAt     int64                             `json:"updatedAt"`
+	SchemaVersion string            `json:"schemaVersion"`
+	AgentKey      string            `json:"agentKey"`
+	WorkspaceRoot string            `json:"workspaceRoot"`
+	ConfigHash    string            `json:"configHash"`
+	Embedding     EmbeddingSnapshot `json:"embedding"`
+	Include       []string          `json:"include"`
+	Exclude       []string          `json:"exclude"`
+	Chunk         ChunkConfig       `json:"chunk"`
+	Retrieval     RetrievalConfig   `json:"retrieval"`
+	Extraction    ExtractionConfig  `json:"extraction"`
+	Storage       string            `json:"storage"`
+	UpdatedAt     int64             `json:"updatedAt"`
 }
 
 func computeConfigHash(cfg resolvedConfig) string {
@@ -126,7 +124,7 @@ func indexWorkspace(ctx context.Context, store *Store, cfg resolvedConfig, embed
 	}
 	seen := map[string]struct{}{}
 	includeMatchers := compileMatchers(cfg.Include)
-	excludeMatchers := compileMatchers(append(defaultExcludes(), cfg.Exclude...))
+	excludeMatchers := compileMatchers(append(DefaultExcludePatterns(), cfg.Exclude...))
 
 	err := filepath.WalkDir(cfg.WorkspaceRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -296,7 +294,7 @@ func indexOneFile(ctx context.Context, store *Store, cfg resolvedConfig, embedde
 	return nil
 }
 
-func chunkText(path string, text string, chunkCfg catalog.AgentKBaseChunkConfig, embeddingModel string, embeddingDimension int) []chunkRecord {
+func chunkText(path string, text string, chunkCfg ChunkConfig, embeddingModel string, embeddingDimension int) []chunkRecord {
 	lineCount := countLines(text)
 	return chunkExtractedDocument(path, extractedDocument{Blocks: []extractedBlock{{
 		SourceType: "text",
@@ -306,7 +304,7 @@ func chunkText(path string, text string, chunkCfg catalog.AgentKBaseChunkConfig,
 	}}}, chunkCfg, embeddingModel, embeddingDimension)
 }
 
-func chunkExtractedDocument(path string, doc extractedDocument, chunkCfg catalog.AgentKBaseChunkConfig, embeddingModel string, embeddingDimension int) []chunkRecord {
+func chunkExtractedDocument(path string, doc extractedDocument, chunkCfg ChunkConfig, embeddingModel string, embeddingDimension int) []chunkRecord {
 	budget := resolveChunkBudget(chunkCfg)
 	type block struct {
 		content    string
@@ -501,24 +499,24 @@ type chunkBudget struct {
 	overlap int
 }
 
-func resolveChunkBudget(cfg catalog.AgentKBaseChunkConfig) chunkBudget {
-	cfg = catalog.NormalizeAgentKBaseChunkConfig(cfg)
-	if cfg.Unit == catalog.AgentKBaseChunkUnitChars {
+func resolveChunkBudget(cfg ChunkConfig) chunkBudget {
+	cfg = NormalizeChunkConfig(cfg)
+	if cfg.Unit == ChunkUnitChars {
 		return chunkBudget{
-			unit:    catalog.AgentKBaseChunkUnitChars,
+			unit:    ChunkUnitChars,
 			max:     cfg.MaxChars,
 			overlap: cfg.OverlapChars,
 		}
 	}
 	return chunkBudget{
-		unit:    catalog.AgentKBaseChunkUnitEstimatedTokens,
+		unit:    ChunkUnitEstimatedTokens,
 		max:     cfg.MaxTokens,
 		overlap: cfg.OverlapTokens,
 	}
 }
 
 func measureChunkText(text string, unit string) int {
-	if unit == catalog.AgentKBaseChunkUnitChars {
+	if unit == ChunkUnitChars {
 		return len([]rune(text))
 	}
 	return estimateChunkTokens(text)
@@ -529,7 +527,7 @@ func splitLineByBudget(line string, budget chunkBudget) []string {
 		return []string{line}
 	}
 	switch budget.unit {
-	case catalog.AgentKBaseChunkUnitChars:
+	case ChunkUnitChars:
 		return splitRunesByCount(line, budget.max)
 	default:
 		return splitRunesByEstimatedTokens(line, budget.max)
@@ -583,7 +581,7 @@ func tailByBudget(text string, budget chunkBudget) string {
 	if budget.overlap <= 0 {
 		return ""
 	}
-	if budget.unit == catalog.AgentKBaseChunkUnitChars {
+	if budget.unit == ChunkUnitChars {
 		return tailByChars(text, budget.overlap)
 	}
 	return tailByEstimatedTokens(text, budget.overlap)
@@ -688,10 +686,6 @@ func shouldSkipDirName(name string) bool {
 	default:
 		return false
 	}
-}
-
-func defaultExcludes() []string {
-	return []string{".git/**", ".kbase/**", "node_modules/**"}
 }
 
 type matcher struct {

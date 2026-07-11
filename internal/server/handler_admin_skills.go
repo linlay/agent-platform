@@ -753,7 +753,7 @@ func (s *Server) reloadAdminSkills(ctx context.Context) error {
 		if err := s.deps.Registry.Reload(ctx, "skills"); err != nil {
 			return err
 		}
-		if err := s.deps.Registry.Reload(ctx, "agents"); err != nil {
+		if err := s.reloadAgentCatalog(ctx); err != nil {
 			return err
 		}
 	}

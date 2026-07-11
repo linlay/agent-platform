@@ -4,6 +4,7 @@ description: List files and compact directory tree entries from the current KBAS
 submitResultFormat: json-compact
 type: function
 clientVisible: true
+readOnly: true
 inputSchema:
   type: object
   properties:

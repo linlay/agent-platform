@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode"
 
+	agentkbase "agent-platform/internal/agent/kbase"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 )
@@ -657,10 +658,10 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	}
 	def.Project = parseAgentProjectConfig(root["projectConfig"])
 	kbaseConfig := mapNode(root["kbaseConfig"])
-	if err := validateAgentKBaseConfigSchema(kbaseConfig); err != nil {
+	def.KBaseConfig, err = agentkbase.ParseAgentConfig(kbaseConfig)
+	if err != nil {
 		return AgentDefinition{}, nil, err
 	}
-	def.KBaseConfig = parseAgentKBaseConfig(kbaseConfig)
 	if err := validateAgentWorkspace(def.Workspace); err != nil {
 		return AgentDefinition{}, nil, err
 	}
@@ -677,12 +678,14 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	if err := ValidateAgentModelConfig(def); err != nil {
 		return AgentDefinition{}, nil, err
 	}
-	if err := ValidateAgentKBaseConfig(def); err != nil {
-		return AgentDefinition{}, nil, err
+	if strings.EqualFold(def.Mode, AgentModeKBase) {
+		if err := agentkbase.ValidateAgentConfig(def.KBaseConfig); err != nil {
+			return AgentDefinition{}, nil, err
+		}
 	}
 	def = applyAgentModeProfileDefaults(def)
 	if strings.EqualFold(def.Mode, AgentModeKBase) {
-		def = enforceKBaseAgentBoundaries(def)
+		def = applyKBaseBoundaryPolicy(def)
 	}
 
 	if err := validateReservedBashToolNames(def.Tools); err != nil {
@@ -874,216 +877,6 @@ func boolNode(value any) bool {
 	}
 }
 
-func parseAgentKBaseConfig(value any) AgentKBaseConfig {
-	node := mapNode(value)
-	cfg := AgentKBaseConfig{
-		Storage: AgentKBaseStorageConfig{Location: "runtime"},
-		Include: []string{
-			"**/*.md",
-			"**/*.txt",
-			"**/*.html",
-			"**/*.htm",
-			"**/*.pdf",
-			"**/*.docx",
-			"**/*.pptx",
-		},
-		Exclude: []string{
-			".git/**",
-			".kbase/**",
-			"node_modules/**",
-		},
-		Chunk: defaultAgentKBaseChunkConfig(),
-		Retrieval: AgentKBaseRetrievalConfig{
-			TopK:         8,
-			VectorWeight: 0.7,
-			FTSWeight:    0.3,
-		},
-	}
-	if len(node) == 0 {
-		return cfg
-	}
-	embedding := mapNode(node["embedding"])
-	cfg.Embedding = AgentKBaseEmbeddingConfig{
-		ModelKey: stringNode(embedding["modelKey"]),
-	}
-	storage := mapNode(node["storage"])
-	if location := strings.ToLower(strings.TrimSpace(stringNode(storage["location"]))); location != "" {
-		cfg.Storage.Location = location
-	}
-	if include := listStrings(node["include"]); len(include) > 0 {
-		cfg.Include = include
-	}
-	if exclude := listStrings(node["exclude"]); len(exclude) > 0 {
-		cfg.Exclude = exclude
-	}
-	cfg.Chunk = parseAgentKBaseChunkConfig(node["chunk"])
-	retrieval := mapNode(node["retrieval"])
-	if topK := intNode(retrieval["topK"]); topK > 0 {
-		cfg.Retrieval.TopK = topK
-	}
-	if topK := intNode(retrieval["top-k"]); topK > 0 {
-		cfg.Retrieval.TopK = topK
-	}
-	if weight := floatNode(retrieval["vectorWeight"]); weight > 0 {
-		cfg.Retrieval.VectorWeight = weight
-	}
-	if weight := floatNode(retrieval["vector-weight"]); weight > 0 {
-		cfg.Retrieval.VectorWeight = weight
-	}
-	if weight := floatNode(retrieval["ftsWeight"]); weight > 0 {
-		cfg.Retrieval.FTSWeight = weight
-	}
-	if weight := floatNode(retrieval["fts-weight"]); weight > 0 {
-		cfg.Retrieval.FTSWeight = weight
-	}
-	return cfg
-}
-
-func defaultAgentKBaseChunkConfig() AgentKBaseChunkConfig {
-	return AgentKBaseChunkConfig{
-		Unit:          AgentKBaseChunkUnitEstimatedTokens,
-		MaxTokens:     1000,
-		OverlapTokens: 100,
-	}
-}
-
-func defaultAgentKBaseLegacyCharChunkConfig() AgentKBaseChunkConfig {
-	return AgentKBaseChunkConfig{
-		Unit:         AgentKBaseChunkUnitChars,
-		MaxChars:     4000,
-		OverlapChars: 600,
-	}
-}
-
-func parseAgentKBaseChunkConfig(value any) AgentKBaseChunkConfig {
-	chunk := mapNode(value)
-	if len(chunk) == 0 {
-		return defaultAgentKBaseChunkConfig()
-	}
-	hasUnit := false
-	unit := ""
-	for _, key := range []string{"unit"} {
-		if raw, exists := chunk[key]; exists {
-			hasUnit = true
-			unit = strings.TrimSpace(stringNode(raw))
-			break
-		}
-	}
-	hasMaxTokens := hasAnyKey(chunk, "maxTokens", "max-tokens")
-	hasOverlapTokens := hasAnyKey(chunk, "overlapTokens", "overlap-tokens")
-	hasMaxChars := hasAnyKey(chunk, "maxChars", "max-chars")
-	hasOverlapChars := hasAnyKey(chunk, "overlapChars", "overlap-chars")
-	useLegacyChars := !hasUnit && !hasMaxTokens && !hasOverlapTokens && (hasMaxChars || hasOverlapChars)
-
-	cfg := defaultAgentKBaseChunkConfig()
-	if useLegacyChars {
-		cfg = defaultAgentKBaseLegacyCharChunkConfig()
-	}
-	if hasUnit {
-		if normalized, ok := NormalizeAgentKBaseChunkUnit(unit); ok {
-			cfg.Unit = normalized
-		} else {
-			cfg.Unit = unit
-		}
-		if cfg.Unit == AgentKBaseChunkUnitChars {
-			cfg.MaxChars = 4000
-			cfg.OverlapChars = 600
-			cfg.MaxTokens = 0
-			cfg.OverlapTokens = 0
-		}
-	}
-	if maxTokens := intNode(firstAnyValue(chunk, "maxTokens", "max-tokens")); maxTokens > 0 {
-		cfg.MaxTokens = maxTokens
-		if !hasUnit {
-			cfg.Unit = AgentKBaseChunkUnitEstimatedTokens
-		}
-	}
-	if _, exists := firstExistingValue(chunk, "overlapTokens", "overlap-tokens"); exists {
-		if overlapTokens := intNode(firstAnyValue(chunk, "overlapTokens", "overlap-tokens")); overlapTokens >= 0 {
-			cfg.OverlapTokens = overlapTokens
-			if !hasUnit {
-				cfg.Unit = AgentKBaseChunkUnitEstimatedTokens
-			}
-		}
-	}
-	if maxChars := intNode(firstAnyValue(chunk, "maxChars", "max-chars")); maxChars > 0 {
-		cfg.MaxChars = maxChars
-		if !hasUnit && !hasMaxTokens && !hasOverlapTokens {
-			cfg.Unit = AgentKBaseChunkUnitChars
-		}
-	}
-	if _, exists := firstExistingValue(chunk, "overlapChars", "overlap-chars"); exists {
-		if overlapChars := intNode(firstAnyValue(chunk, "overlapChars", "overlap-chars")); overlapChars >= 0 {
-			cfg.OverlapChars = overlapChars
-			if !hasUnit && !hasMaxTokens && !hasOverlapTokens {
-				cfg.Unit = AgentKBaseChunkUnitChars
-			}
-		}
-	}
-	return NormalizeAgentKBaseChunkConfig(cfg)
-}
-
-func NormalizeAgentKBaseChunkConfig(cfg AgentKBaseChunkConfig) AgentKBaseChunkConfig {
-	if strings.TrimSpace(cfg.Unit) == "" && cfg.MaxTokens <= 0 && cfg.OverlapTokens <= 0 && (cfg.MaxChars > 0 || cfg.OverlapChars > 0) {
-		cfg.Unit = AgentKBaseChunkUnitChars
-	}
-	unit, ok := NormalizeAgentKBaseChunkUnit(cfg.Unit)
-	if !ok {
-		unit = AgentKBaseChunkUnitEstimatedTokens
-		if strings.TrimSpace(cfg.Unit) != "" {
-			unit = strings.TrimSpace(cfg.Unit)
-		}
-	}
-	cfg.Unit = unit
-	switch cfg.Unit {
-	case AgentKBaseChunkUnitChars:
-		if cfg.MaxChars <= 0 {
-			cfg.MaxChars = 4000
-		}
-		if cfg.OverlapChars < 0 {
-			cfg.OverlapChars = 0
-		}
-		if cfg.OverlapChars >= cfg.MaxChars {
-			cfg.OverlapChars = cfg.MaxChars / 5
-		}
-		cfg.MaxTokens = 0
-		cfg.OverlapTokens = 0
-	default:
-		if cfg.MaxTokens <= 0 {
-			cfg.MaxTokens = 1000
-		}
-		if cfg.OverlapTokens < 0 {
-			cfg.OverlapTokens = 0
-		}
-		if cfg.OverlapTokens >= cfg.MaxTokens {
-			cfg.OverlapTokens = cfg.MaxTokens / 5
-		}
-		cfg.MaxChars = 0
-		cfg.OverlapChars = 0
-	}
-	return cfg
-}
-
-func NormalizeAgentKBaseChunkUnit(value string) (string, bool) {
-	normalized := strings.ToLower(strings.TrimSpace(value))
-	normalized = strings.ReplaceAll(normalized, "-", "")
-	normalized = strings.ReplaceAll(normalized, "_", "")
-	normalized = strings.ReplaceAll(normalized, " ", "")
-	switch normalized {
-	case "", "estimatedtokens", "tokens":
-		return AgentKBaseChunkUnitEstimatedTokens, true
-	case "chars", "characters", "runes":
-		return AgentKBaseChunkUnitChars, true
-	default:
-		return "", false
-	}
-}
-
-func hasAnyKey(values map[string]any, keys ...string) bool {
-	_, ok := firstExistingValue(values, keys...)
-	return ok
-}
-
 func firstAnyValue(values map[string]any, keys ...string) any {
 	value, _ := firstExistingValue(values, keys...)
 	return value
@@ -1098,23 +891,6 @@ func firstExistingValue(values map[string]any, keys ...string) (any, bool) {
 	return nil, false
 }
 
-func validateAgentKBaseConfigSchema(kbaseConfig map[string]any) error {
-	embedding := mapNode(kbaseConfig["embedding"])
-	for _, key := range []string{"providerKey", "model", "dimension", "timeout"} {
-		if _, exists := embedding[key]; exists {
-			return fmt.Errorf("kbaseConfig.embedding.%s is no longer supported; use kbaseConfig.embedding.modelKey", key)
-		}
-	}
-	chunk := mapNode(kbaseConfig["chunk"])
-	if rawUnit, exists := chunk["unit"]; exists {
-		unit := strings.TrimSpace(stringNode(rawUnit))
-		if _, ok := NormalizeAgentKBaseChunkUnit(unit); !ok {
-			return fmt.Errorf("kbaseConfig.chunk.unit must be estimatedTokens or chars")
-		}
-	}
-	return nil
-}
-
 func applyGlobalAgentFlags(def AgentDefinition, globalMemoryEnabled bool) AgentDefinition {
 	if globalMemoryEnabled {
 		return def
@@ -1127,13 +903,13 @@ func applyGlobalAgentFlags(def AgentDefinition, globalMemoryEnabled bool) AgentD
 	return def
 }
 
-func enforceKBaseAgentBoundaries(def AgentDefinition) AgentDefinition {
-	def.StaticMemoryPrompt = ""
-	def.MemoryEnabled = false
-	def.MemoryConfig = AgentMemoryConfig{}
-	def.Tools = filterTools(def.Tools, isKBaseTool)
-	if len(def.Tools) == 0 {
-		def.Tools = append([]string(nil), kbaseAgentProfile.Tools...)
+func applyKBaseBoundaryPolicy(def AgentDefinition) AgentDefinition {
+	policy := agentkbase.ResolveBoundaryPolicy(def.Tools)
+	def.Tools = policy.ToolNames
+	if !policy.MemoryEnabled {
+		def.StaticMemoryPrompt = ""
+		def.MemoryEnabled = false
+		def.MemoryConfig = AgentMemoryConfig{}
 	}
 	return def
 }
@@ -1149,15 +925,6 @@ func filterTools(tools []string, keep func(string) bool) []string {
 		}
 	}
 	return filtered
-}
-
-func isKBaseTool(name string) bool {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "kbase_search", "kbase_files", "kbase_read", "kbase_status", "kbase_refresh", "datetime":
-		return true
-	default:
-		return false
-	}
 }
 
 func isMemoryTool(name string) bool {

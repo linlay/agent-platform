@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +25,16 @@ type channelTestCatalogRegistry struct {
 	agents       []api.AgentSummary
 	defs         map[string]catalog.AgentDefinition
 	teams        map[string]catalog.TeamDefinition
+}
+
+type snapshotChannelTestCatalogRegistry struct {
+	channelTestCatalogRegistry
+	snapshots map[string]catalog.TeamSnapshot
+}
+
+func (r snapshotChannelTestCatalogRegistry) ResolveTeam(teamID string) (catalog.TeamSnapshot, bool) {
+	snapshot, ok := r.snapshots[strings.TrimSpace(teamID)]
+	return snapshot, ok
 }
 
 func (r channelTestCatalogRegistry) Agents(string) []api.AgentSummary {
@@ -481,7 +493,7 @@ func newServerForChannelTests(t *testing.T) (*Server, *chat.FileStore) {
 			"team-agent":       {Key: "team-agent", Name: "Team Agent", ModelKey: "mock-model"},
 		},
 		teams: map[string]catalog.TeamDefinition{
-			"team-a": {TeamID: "team-a", DefaultAgentKey: "team-agent"},
+			"team-a": {TeamID: "team-a", AgentKeys: []string{"team-agent", "assistant"}, DefaultAgentKey: "team-agent"},
 		},
 	}
 	server := &Server{
@@ -492,4 +504,122 @@ func newServerForChannelTests(t *testing.T) (*Server, *chat.FileStore) {
 		ticketService: NewResourceTicketService(config.ResourceTicketConfig{}),
 	}
 	return server, chats
+}
+
+func TestPrepareQueryTeamAdmissionIsStrictAndTeamIsFixed(t *testing.T) {
+	server, chats := newServerForChannelTests(t)
+
+	tests := []struct {
+		name       string
+		body       string
+		wantStatus int
+	}{
+		{name: "unknown team", body: `{"chatId":"new-unknown","teamId":"missing","message":"hello"}`, wantStatus: http.StatusBadRequest},
+		{name: "agent outside team", body: `{"chatId":"new-outside","teamId":"team-a","agentKey":"code-helper","message":"hello"}`, wantStatus: http.StatusForbidden},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(tt.body))
+			_, err := server.prepareQueryAdmission(req, true)
+			var statusErr *statusError
+			if !errors.As(err, &statusErr) || statusErr.status != tt.wantStatus {
+				t.Fatalf("error = %#v, want status %d", err, tt.wantStatus)
+			}
+		})
+	}
+
+	if _, _, err := chats.EnsureChat("plain-chat", "assistant", "", "seed"); err != nil {
+		t.Fatalf("seed plain chat: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"plain-chat","teamId":"team-a","message":"hello"}`))
+	_, err := server.prepareQueryAdmission(req, true)
+	var statusErr *statusError
+	if !errors.As(err, &statusErr) || statusErr.status != http.StatusConflict {
+		t.Fatalf("empty-team chat adoption error = %#v, want 409", err)
+	}
+
+	if _, _, err := chats.EnsureChat("team-chat", "team-agent", "team-a", "seed"); err != nil {
+		t.Fatalf("seed team chat: %v", err)
+	}
+	req = httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"team-chat","teamId":"team-b","message":"hello"}`))
+	_, err = server.prepareQueryAdmission(req, true)
+	if !errors.As(err, &statusErr) || statusErr.status != http.StatusConflict {
+		t.Fatalf("team replacement error = %#v, want 409", err)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"team-chat","agentKey":"assistant","message":"switch"}`))
+	admission, err := server.prepareQueryAdmission(req, true)
+	if err != nil {
+		t.Fatalf("same-team member switch: %v", err)
+	}
+	if admission.req.TeamID != "team-a" || admission.req.AgentKey != "assistant" || admission.teamSnapshot == nil {
+		t.Fatalf("unexpected switched admission: %#v", admission)
+	}
+}
+
+func TestPrepareQueryTeamAdmissionReturnsUnavailableForInvalidDefaultAndDrift(t *testing.T) {
+	server, chats := newServerForChannelTests(t)
+	registry := server.deps.Registry.(channelTestCatalogRegistry)
+	registry.teams["invalid-default"] = catalog.TeamDefinition{
+		TeamID:          "invalid-default",
+		AgentKeys:       []string{"missing-agent"},
+		DefaultAgentKey: "missing-agent",
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"invalid-default-chat","teamId":"invalid-default","message":"hello"}`))
+	_, err := server.prepareQueryAdmission(req, true)
+	var statusErr *statusError
+	if !errors.As(err, &statusErr) || statusErr.status != http.StatusServiceUnavailable {
+		t.Fatalf("invalid default error = %#v, want 503", err)
+	}
+
+	if _, _, err := chats.EnsureChat("drifted-chat", "removed-agent", "team-a", "seed"); err != nil {
+		t.Fatalf("seed drifted chat: %v", err)
+	}
+	req = httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"drifted-chat","message":"hello"}`))
+	_, err = server.prepareQueryAdmission(req, true)
+	if !errors.As(err, &statusErr) || statusErr.status != http.StatusServiceUnavailable {
+		t.Fatalf("drifted current agent error = %#v, want 503", err)
+	}
+}
+
+func TestPrepareQueryTeamAdmissionUsesFrozenMemberDefinition(t *testing.T) {
+	server, _ := newServerForChannelTests(t)
+	registry := server.deps.Registry.(channelTestCatalogRegistry)
+	team := registry.teams["team-a"]
+	snapshot := catalog.NewTeamSnapshot(team, map[string]catalog.AgentDefinition{
+		"team-agent": {Key: "team-agent", Name: "Frozen Team Agent", ModelKey: "mock-model", Mode: "REACT"},
+		"assistant":  registry.defs["assistant"],
+	})
+	delete(registry.defs, "team-agent")
+	server.deps.Registry = snapshotChannelTestCatalogRegistry{
+		channelTestCatalogRegistry: registry,
+		snapshots:                  map[string]catalog.TeamSnapshot{"team-a": snapshot},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"snapshot-chat","teamId":"team-a","message":"hello"}`))
+	admission, err := server.prepareQueryAdmission(req, true)
+	if err != nil {
+		t.Fatalf("prepare admission from frozen snapshot: %v", err)
+	}
+	if admission.agentDef.Name != "Frozen Team Agent" || admission.agentDef.Mode != "REACT" {
+		t.Fatalf("admission did not use frozen team member definition: %#v", admission.agentDef)
+	}
+}
+
+func TestCompleteQueryPreparationRechecksFixedTeamAfterConcurrentChatCreation(t *testing.T) {
+	server, chats := newServerForChannelTests(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"raced-chat","teamId":"team-a","message":"hello"}`))
+	admission, err := server.prepareQueryAdmission(req, true)
+	if err != nil {
+		t.Fatalf("prepare admission: %v", err)
+	}
+	if _, _, err := chats.EnsureChat("raced-chat", "assistant", "", "other creator"); err != nil {
+		t.Fatalf("seed raced chat: %v", err)
+	}
+	_, err = server.completeQueryPreparation(req.Context(), admission, nil)
+	var statusErr *statusError
+	if !errors.As(err, &statusErr) || statusErr.status != http.StatusConflict {
+		t.Fatalf("complete error = %#v, want 409", err)
+	}
 }

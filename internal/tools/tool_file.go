@@ -434,7 +434,7 @@ func (t *RuntimeToolExecutor) appendFileChangeHookResults(ctx context.Context, e
 	if t == nil || len(t.fileChangeHooks) == 0 || execCtx == nil {
 		return
 	}
-	if !strings.EqualFold(strings.TrimSpace(execCtx.Session.Mode), "CODER") {
+	if !execCtx.Session.ModeCapabilities.FileChangeHooks {
 		return
 	}
 	if strings.TrimSpace(event.WorkspaceRoot) == "" {

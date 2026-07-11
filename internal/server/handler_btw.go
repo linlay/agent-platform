@@ -7,6 +7,7 @@ import (
 
 	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/api"
+	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/i18n"
@@ -55,11 +56,24 @@ func (s *Server) prepareBTWQuery(r *http.Request) (preparedQuery, *statusError) 
 	if summary == nil {
 		return preparedQuery{}, btwStatusError(http.StatusNotFound, "chat_not_found", "parent chat not found")
 	}
-	agentKey := strings.TrimSpace(summary.AgentKey)
-	if agentKey == "" {
-		agentKey = s.deps.Registry.DefaultAgentKey()
+	teamID, agentKey, teamSnapshot, teamErr := resolveQueryTeam(
+		s.deps.Registry,
+		strings.TrimSpace(summary.TeamID),
+		"",
+		summary,
+	)
+	if teamErr != nil {
+		return preparedQuery{}, teamErr
 	}
-	agentDef, ok := s.deps.Registry.AgentDefinition(agentKey)
+	var agentDef catalog.AgentDefinition
+	if teamSnapshot != nil {
+		agentDef, ok = teamSnapshot.AgentDefinition(agentKey)
+	} else {
+		if agentKey == "" {
+			agentKey = s.deps.Registry.DefaultAgentKey()
+		}
+		agentDef, ok = s.deps.Registry.AgentDefinition(agentKey)
+	}
 	if !ok {
 		return preparedQuery{}, btwStatusError(http.StatusBadRequest, "agent_not_found", "parent chat agent not found")
 	}
@@ -116,7 +130,7 @@ func (s *Server) prepareBTWQuery(r *http.Request) (preparedQuery, *statusError) 
 		RunID:           runID,
 		ChatID:          input.ChatID,
 		AgentKey:        agentKey,
-		TeamID:          strings.TrimSpace(summary.TeamID),
+		TeamID:          teamID,
 		Role:            api.QueryRoleUser,
 		Message:         input.Message,
 		References:      input.References,
@@ -134,7 +148,7 @@ func (s *Server) prepareBTWQuery(r *http.Request) (preparedQuery, *statusError) 
 		Locale:            requestLocale(r, i18n.DefaultLocale),
 		IncludeHistory:    false,
 		IncludeMemory:     true,
-		AllowInvokeAgents: canUseInvokeAgentsTool(agentDef.Mode),
+		AllowInvokeAgents: resolvedModeCapabilities(agentDef).InvokeChildren,
 	})
 	if buildErr != nil {
 		return preparedQuery{}, btwStatusError(http.StatusInternalServerError, "btw_prepare_failed", buildErr.Error())
@@ -170,6 +184,7 @@ func (s *Server) prepareBTWQuery(r *http.Request) (preparedQuery, *statusError) 
 		summary:            summaryCopy,
 		created:            false,
 		agentDef:           agentDef,
+		teamSnapshot:       teamSnapshot,
 		session:            session,
 		memoryUsageSummary: session.MemoryUsageSummary,
 		systemInitLine:     pendingSystem,

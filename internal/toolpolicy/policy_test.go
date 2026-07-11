@@ -17,6 +17,8 @@ func TestAllowsReadOnlyUsesBuiltinAllowlistAndExplicitMetadata(t *testing.T) {
 		{name: "external cannot impersonate builtin", def: api.ToolDetailResponse{Name: "file_read", Meta: map[string]any{"kind": "external", "sourceCategory": "external"}}, found: true, want: false},
 		{name: "builtin write", def: api.ToolDetailResponse{Name: "file_write", Meta: map[string]any{"kind": "backend", "sourceCategory": "platform"}}, found: true, want: false},
 		{name: "explicit external read", def: api.ToolDetailResponse{Name: "remote_lookup", Meta: map[string]any{"kind": "external", "readOnly": true}}, found: true, want: true},
+		{name: "kbase read uses metadata", def: api.ToolDetailResponse{Name: "kbase_search", Meta: map[string]any{"kind": "backend", "sourceCategory": "platform", "readOnly": true}}, found: true, want: true},
+		{name: "kbase refresh uses metadata", def: api.ToolDetailResponse{Name: "kbase_refresh", Meta: map[string]any{"kind": "backend", "sourceCategory": "platform", "readOnly": false}}, found: true, want: false},
 		{name: "known write cannot opt in", def: api.ToolDetailResponse{Name: "file_write", Meta: map[string]any{"kind": "external", "readOnly": true}}, found: true, want: false},
 		{name: "frontend remains denied", def: api.ToolDetailResponse{Name: "read_form", Meta: map[string]any{"kind": "frontend", "readOnly": true}}, found: true, want: false},
 		{name: "unknown", found: false, want: false},

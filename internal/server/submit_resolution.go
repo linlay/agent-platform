@@ -8,7 +8,6 @@ import (
 
 	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/api"
-	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/frontendtools"
@@ -93,7 +92,11 @@ func (s *Server) resolveSubmit(req api.SubmitRequest) (api.SubmitResponse, int, 
 			}
 			return api.SubmitResponse{}, 0, "", err
 		}
-		req = s.prepareActiveSubmitContinuation(req, awaiting)
+		var err error
+		req, err = s.prepareActiveSubmitContinuation(req, awaiting)
+		if err != nil {
+			return api.SubmitResponse{}, 0, "", err
+		}
 		ack := s.deps.Runs.Submit(req)
 		code := 0
 		msg := "success"
@@ -151,40 +154,36 @@ func (s *Server) resolveAlreadyHandledActiveSubmit(req api.SubmitRequest) (api.S
 	}, code, msg, true
 }
 
-func (s *Server) prepareActiveSubmitContinuation(req api.SubmitRequest, awaiting contracts.AwaitingSubmitContext) api.SubmitRequest {
+func (s *Server) prepareActiveSubmitContinuation(req api.SubmitRequest, awaiting contracts.AwaitingSubmitContext) (api.SubmitRequest, error) {
 	if !strings.EqualFold(strings.TrimSpace(awaiting.Mode), "plan") {
-		return req
+		return req, nil
 	}
-	if submitPlanDecision(req.Params) != "approve" {
-		return req
+	if agentcoder.SubmitPlanDecision(req.Params) != "approve" {
+		return req, nil
 	}
 	if s == nil || s.deps.Runs == nil || s.deps.Registry == nil {
-		return req
+		return req, nil
 	}
 	status, ok := s.deps.Runs.RunStatus(req.RunID)
 	if !ok {
-		return req
+		return req, nil
 	}
 	agentKey := firstNonBlank(req.AgentKey, status.AgentKey)
-	agentDef, ok := s.deps.Registry.AgentDefinition(agentKey)
-	if !ok || !agentcoder.IsMode(agentDef.Mode) || catalog.AgentUsesACPCoderBackend(agentDef) {
-		return req
+	if statusChatID := strings.TrimSpace(status.ChatID); statusChatID != "" {
+		req.ChatID = statusChatID
 	}
-	if strings.TrimSpace(req.ChatID) == "" {
-		req.ChatID = strings.TrimSpace(status.ChatID)
+	admission, err := s.resolveAwaitingContinuationAdmission(req.ChatID, agentKey)
+	if err != nil {
+		return req, err
+	}
+	if !agentcoder.IsNativeBackend(admission.agentDef.Mode, admission.agentDef.ACPBridgeID) {
+		return req, nil
 	}
 	if strings.TrimSpace(req.ContinuationRunID) == "" {
 		req.ContinuationRunID = newRunID()
 	}
-	return req
-}
-
-func submitPlanDecision(params api.SubmitParams) string {
-	items, err := api.DecodeSubmitParams(params)
-	if err != nil || len(items) != 1 {
-		return ""
-	}
-	return strings.ToLower(strings.TrimSpace(stringValue(items[0]["decision"])))
+	req.ContinuationState = &admission
+	return req, nil
 }
 
 func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitResponse, error) {
@@ -240,7 +239,11 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 	if !isContinuableDeferredAwaitingMode(deferred.Mode) {
 		return s.resolveNonContinuableDeferredSubmit(deferred, req, normalized)
 	}
-	if s.deferredPlanApproveStartsNewRun(deferred, normalized) && strings.TrimSpace(req.ContinuationRunID) == "" {
+	continuationAdmission, err := s.resolveAwaitingContinuationAdmission(deferred.ChatID, req.AgentKey)
+	if err != nil {
+		return api.SubmitResponse{}, err
+	}
+	if agentcoder.StartsNewExecutionRun(deferred.Mode, normalized, continuationAdmission.agentDef.Mode, continuationAdmission.agentDef.ACPBridgeID) && strings.TrimSpace(req.ContinuationRunID) == "" {
 		req.ContinuationRunID = newRunID()
 	}
 
@@ -282,7 +285,7 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 	}
 	s.deferredAwaitings.Remove(req.AwaitingID)
 	s.broadcastDeferredAwaitingAnswer(deferred, answerPayload, resolvedAt)
-	continued, continueErr := s.startAwaitingContinuation(deferred, req, answerPayload)
+	continued, continueErr := s.startAwaitingContinuationWithAdmission(deferred, req, answerPayload, &continuationAdmission)
 	if continueErr != nil {
 		log.Printf("[server][awaiting] continue run failed chatId=%s runId=%s awaitingId=%s err=%v", deferred.ChatID, req.RunID, req.AwaitingID, continueErr)
 	}
@@ -313,21 +316,6 @@ func invalidQuestionSubmitResponse(req api.SubmitRequest, chatID string, err err
 		SubmitID:   req.SubmitID,
 		Detail:     detail,
 	}
-}
-
-func (s *Server) deferredPlanApproveStartsNewRun(deferred DeferredAwaiting, normalized map[string]any) bool {
-	if planContinuationDecision(deferred.Mode, normalized) != "approve" {
-		return false
-	}
-	if s == nil || s.deps.Chats == nil || s.deps.Registry == nil {
-		return false
-	}
-	summary, err := s.deps.Chats.Summary(deferred.ChatID)
-	if err != nil || summary == nil {
-		return false
-	}
-	agentDef, ok := s.deps.Registry.AgentDefinition(summary.AgentKey)
-	return ok && agentcoder.IsMode(agentDef.Mode) && !catalog.AgentUsesACPCoderBackend(agentDef)
 }
 
 func (s *Server) resolveNonContinuableDeferredSubmit(deferred DeferredAwaiting, req api.SubmitRequest, normalized map[string]any) (api.SubmitResponse, error) {
@@ -511,6 +499,9 @@ func (s *Server) resolvePersistedAwaitingSubmit(req api.SubmitRequest) (api.Subm
 		}
 		continued, continueErr := s.startAwaitingContinuation(deferred, req, latest.Answer)
 		if continueErr != nil {
+			if _, ok := continueErr.(*statusError); ok {
+				return api.SubmitResponse{}, true, continueErr
+			}
 			log.Printf("[server][awaiting] continue accepted submit failed chatId=%s runId=%s awaitingId=%s submitId=%s err=%v", chatID, req.RunID, req.AwaitingID, req.SubmitID, continueErr)
 		}
 		return api.SubmitResponse{

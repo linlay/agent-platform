@@ -314,6 +314,35 @@ func TestKBaseFilesSchemaIncludesModeAndStatusEnums(t *testing.T) {
 	}
 }
 
+func TestKBaseToolReadOnlyMetadata(t *testing.T) {
+	defs, err := LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatalf("load embedded tool definitions: %v", err)
+	}
+	want := map[string]bool{
+		"kbase_search":  true,
+		"kbase_files":   true,
+		"kbase_read":    true,
+		"kbase_status":  true,
+		"kbase_refresh": false,
+	}
+	seen := map[string]bool{}
+	for _, def := range defs {
+		expected, ok := want[def.Name]
+		if !ok {
+			continue
+		}
+		actual, exists := def.Meta["readOnly"].(bool)
+		if !exists || actual != expected {
+			t.Fatalf("expected %s readOnly=%t, got %#v", def.Name, expected, def.Meta["readOnly"])
+		}
+		seen[def.Name] = true
+	}
+	if len(seen) != len(want) {
+		t.Fatalf("missing KBASE tool definitions: got %#v want %#v", seen, want)
+	}
+}
+
 func TestEmbeddedToolDescriptionsAreEnglishFriendlyAndComplete(t *testing.T) {
 	defs, err := LoadEmbeddedToolDefinitions()
 	if err != nil {

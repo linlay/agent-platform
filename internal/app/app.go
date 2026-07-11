@@ -203,8 +203,10 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	if cfg.Memory.Enabled && sqliteMemoryStore != nil {
 		sqliteMemoryStore.SetRuntimeResolver(memoryRuntimeResolver(cfg, registry, modelRegistry))
 	}
-	kbaseManager := kbase.NewManager(cfg, registry, modelRegistry).WithSupportPackages(supportPackages)
-	backendTools.WithKBase(kbaseManager)
+	kbaseManager := kbase.NewManager(kbaseManagerOptions(cfg), kbaseCatalogSource{registry: registry}, modelRegistry).WithSupportPackages(supportPackages)
+	if err := toolExecutor.RegisterHandler(kbase.NewToolHandler(kbaseManager)); err != nil {
+		return nil, fmt.Errorf("register KBASE tools: %w", err)
+	}
 
 	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, frontendRegistry, sandboxClient)
 	wsHub := ws.NewHub()
@@ -218,7 +220,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		ChatsDir:      cfg.Paths.ChatsDir,
 		Notifications: notifications,
 	}))
-	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcp.NewRegistryReloader(mcpRegistry, mcpToolSync), toolExecutor, cfg.Paths.ToolsDir, notifications)
+	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcp.NewRegistryReloader(mcpRegistry, mcpToolSync), toolExecutor, cfg.Paths.ToolsDir, notifications, kbaseManager)
 	backgroundCtx, backgroundCancel := context.WithCancel(rootCtx)
 	cleanupBackground := true
 	defer func() {
@@ -226,8 +228,8 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			backgroundCancel()
 		}
 	}()
-	reload.StartBackgroundReloaders(backgroundCtx, cfg, reloader)
 	kbaseManager.Start(backgroundCtx)
+	reload.StartBackgroundReloaders(backgroundCtx, cfg, reloader)
 	mcp.NewReconnectLoop(mcpRegistry, mcpToolSync, mcpGate, 10*time.Second).Start(backgroundCtx)
 	log.Printf("background file watchers started (agents=%s teams=%s skills=%s)",
 		cfg.Paths.AgentsDir,
@@ -301,10 +303,14 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Channels:               channelReg,
 		AutomationOrchestrator: automationOrchestrator,
 		DeltaMappers:           llm.DeltaMapperFactory{Frontend: frontendRegistry},
-		SystemInits:            llm.SystemInitProfileBuilder{Models: modelRegistry},
-		AutomationRegistry:     automationRegistry,
-		AutomationExecutions:   automationExecutionStore,
-		GatewayResolver:        gatewayResolver,
+		SystemInits: llm.NewSystemInitProfileBuilder(modelRegistry, llm.SystemInitDefaults{
+			PlanMaxSteps:             cfg.Defaults.Plan.MaxSteps,
+			PlanMaxWorkRoundsPerTask: cfg.Defaults.Plan.MaxWorkRoundsPerTask,
+			Prompts:                  cfg.Prompts,
+		}),
+		AutomationRegistry:   automationRegistry,
+		AutomationExecutions: automationExecutionStore,
+		GatewayResolver:      gatewayResolver,
 	})
 	if err != nil {
 		if automationExecutionStore != nil {

@@ -9,7 +9,6 @@ import (
 
 	"agent-platform/internal/api"
 	contracts "agent-platform/internal/contracts"
-	"agent-platform/internal/plantasks"
 )
 
 type fakePlanningRuntime struct {
@@ -35,41 +34,6 @@ func (f fakePlanningRuntime) ToolDefinitions() []api.ToolDetailResponse {
 
 func (f fakePlanningRuntime) BuildExecuteSystemInitProfiles(contracts.QuerySession, api.QueryRequest, contracts.PlanExecuteSettings) []contracts.SystemInitProfile {
 	return nil
-}
-
-func TestCoderPlanningTaskFailurePersistsPlanTaskSnapshot(t *testing.T) {
-	root := t.TempDir()
-	stream := &coderPlanningStream{
-		session: contracts.QuerySession{RunID: "run_failed", ChatID: "chat_failed"},
-		execCtx: &contracts.ExecutionContext{
-			Session: contracts.QuerySession{
-				RunID:  "run_failed",
-				ChatID: "chat_failed",
-				RuntimeContext: contracts.RuntimeRequestContext{
-					LocalPaths: contracts.LocalPaths{ChatsDir: root},
-				},
-			},
-			PlanState: &contracts.PlanRuntimeState{
-				PlanID:       "run_failed_plan",
-				ActiveTaskID: "task_1",
-				Tasks: []contracts.PlanTask{{
-					TaskID:      "task_1",
-					Description: "first task",
-					Status:      "in_progress",
-				}},
-			},
-		},
-	}
-
-	stream.emitTaskFailure(&stream.execCtx.PlanState.Tasks[0], "boom")
-
-	snapshot, err := plantasks.LoadFile(plantasks.Path(root, "chat_failed", "run_failed"))
-	if err != nil {
-		t.Fatalf("load plan task snapshot: %v", err)
-	}
-	if snapshot.PlanID != "run_failed_plan" || snapshot.CurrentTaskID != "" || len(snapshot.Tasks) != 1 || snapshot.Tasks[0].Status != "failed" {
-		t.Fatalf("unexpected snapshot after task failure: %#v", snapshot)
-	}
 }
 
 func TestCoderPlanningStageToolsAreReadOnlyPlusVisionQuestionsAndPlan(t *testing.T) {
@@ -143,12 +107,12 @@ func TestCoderExecutionSystemPromptIncludesRenderedCoderSystemPrompt(t *testing.
 	stream := &coderPlanningStream{
 		req: api.QueryRequest{Message: "build it"},
 		session: contracts.QuerySession{
-			AgentKey:          "coder",
-			AgentName:         "Coder",
-			Mode:              "CODER",
-			PlanningMode:      true,
-			ToolNames:         []string{"bash", "file_read", contracts.FinalizePlanningToolName, "ask_user_question"},
-			CoderSystemPrompt: "CODER {{agent_key}} {{agent_name}} {{available_tools}} {{execute_stage_tools}} {{bash_tool_name}}",
+			AgentKey:         "coder",
+			AgentName:        "Coder",
+			Mode:             "CODER",
+			PlanningMode:     true,
+			ToolNames:        []string{"bash", "file_read", contracts.FinalizePlanningToolName, "ask_user_question"},
+			ModeSystemPrompt: "CODER {{agent_key}} {{agent_name}} {{available_tools}} {{execute_stage_tools}} {{bash_tool_name}}",
 		},
 		settings: contracts.PlanExecuteSettings{
 			Execute: contracts.StageSettings{
@@ -168,6 +132,31 @@ func TestCoderExecutionSystemPromptIncludesRenderedCoderSystemPrompt(t *testing.
 	}
 	if strings.Contains(got, "{{") || strings.Contains(got, "}}") {
 		t.Fatalf("expected all configured CODER execution placeholders to be rendered, got %q", got)
+	}
+}
+
+func TestPlanApproveContinuationCarriesInMemoryAdmissionState(t *testing.T) {
+	state := &struct{ key string }{key: "frozen"}
+	stream := &coderPlanningStream{session: contracts.QuerySession{
+		RunID:    "source-run",
+		ChatID:   "chat",
+		AgentKey: "coder",
+		Locale:   "zh-CN",
+	}}
+	if !stream.preparePlanApproveContinuation(api.SubmitRequest{
+		ContinuationRunID: "execute-run",
+		SubmitID:          "submit",
+		Params:            api.SubmitParams{[]byte(`{"decision":"approve"}`)},
+		ContinuationState: state,
+	}, "await", map[string]any{"plan": map[string]any{"decision": "approve"}}) {
+		t.Fatal("expected plan approval continuation")
+	}
+	if len(stream.pending) != 1 {
+		t.Fatalf("pending deltas = %#v", stream.pending)
+	}
+	delta, ok := stream.pending[0].(contracts.DeltaRunContinuation)
+	if !ok || delta.ContinuationState != state {
+		t.Fatalf("continuation state was not preserved: %#v", stream.pending[0])
 	}
 }
 

@@ -476,14 +476,16 @@ func traceTestSessionWithSystemCache(t *testing.T, engine *LLMAgentEngine, req a
 	if engine == nil || engine.tools == nil {
 		return session
 	}
-	profiles := (SystemInitProfileBuilder{Models: engine.models}).BuildSystemInitProfiles(
-		session,
-		req,
-		engine.tools.Definitions(),
-		engine.cfg.Defaults.Plan.MaxSteps,
-		engine.cfg.Defaults.Plan.MaxWorkRoundsPerTask,
-		engine.cfg.Prompts,
-	)
+	profiles, err := NewSystemInitProfileBuilder(engine.models, SystemInitDefaults{
+		PlanMaxSteps:             engine.cfg.Defaults.Plan.MaxSteps,
+		PlanMaxWorkRoundsPerTask: engine.cfg.Defaults.Plan.MaxWorkRoundsPerTask,
+		Prompts:                  engine.cfg.Prompts,
+	}).BuildSystemInitProfiles(contracts.SystemInitBuildInput{
+		Session: session, Request: req, ToolDefinitions: engine.tools.Definitions(),
+	})
+	if err != nil {
+		t.Fatalf("build system init profiles: %v", err)
+	}
 	cache := make(map[string]contracts.SystemInitSnapshot, len(profiles))
 	for _, profile := range profiles {
 		cache[profile.CacheKey] = traceSystemInitSnapshot(profile)

@@ -153,6 +153,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 		Summary:           prepared.summary,
 		Agent:             s.deps.Agent,
 		Registry:          s.deps.Registry,
+		TeamSnapshot:      prepared.teamSnapshot,
 		Assembler:         assembler,
 		Mapper:            mapper,
 		Billing:           s.deps.Config.Billing,

@@ -21,31 +21,29 @@ func (r *FileRegistry) Teams() []api.TeamSummary {
 	items := make([]api.TeamSummary, 0, len(keys))
 	for _, key := range keys {
 		team := r.teams[key]
-		invalidAgentKeys := make([]string, 0)
+		snapshot := resolveTeamSnapshotLocked(team, r.agents)
 		icon := team.Icon
-		for _, agentKey := range team.AgentKeys {
+		for _, agentKey := range snapshot.ValidAgentKeys {
 			agent, ok := agentsByID[agentKey]
 			if !ok {
-				invalidAgentKeys = append(invalidAgentKeys, agentKey)
 				continue
 			}
 			if icon == nil {
 				icon = agent.Icon
 			}
 		}
-		defaultValid := team.DefaultAgentKey != "" && containsString(team.AgentKeys, team.DefaultAgentKey) && agentsByID[team.DefaultAgentKey].Key != ""
-		if len(invalidAgentKeys) > 0 {
-			log.Printf("[catalog][teams] team=%s invalidAgentKeys=%v", team.TeamID, invalidAgentKeys)
+		if len(snapshot.InvalidAgentKeys) > 0 {
+			log.Printf("[catalog][teams] team=%s invalidAgentKeys=%v", team.TeamID, snapshot.InvalidAgentKeys)
 		}
 		items = append(items, api.TeamSummary{
 			TeamID:    team.TeamID,
 			Name:      team.Name,
 			Icon:      icon,
-			AgentKeys: append([]string(nil), team.AgentKeys...),
+			AgentKeys: append([]string(nil), snapshot.AgentKeys...),
 			Meta: map[string]any{
-				"invalidAgentKeys":     invalidAgentKeys,
-				"defaultAgentKey":      team.DefaultAgentKey,
-				"defaultAgentKeyValid": defaultValid,
+				"invalidAgentKeys":     append([]string(nil), snapshot.InvalidAgentKeys...),
+				"defaultAgentKey":      snapshot.DefaultAgentKey,
+				"defaultAgentKeyValid": snapshot.DefaultAgentValid,
 			},
 		})
 	}

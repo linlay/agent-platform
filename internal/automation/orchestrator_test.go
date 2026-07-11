@@ -18,10 +18,10 @@ import (
 )
 
 type fakeTeamLookup struct {
-	teams map[string]catalog.TeamDefinition
+	teams map[string]catalog.TeamSnapshot
 }
 
-func (f fakeTeamLookup) TeamDefinition(teamID string) (catalog.TeamDefinition, bool) {
+func (f fakeTeamLookup) ResolveTeam(teamID string) (catalog.TeamSnapshot, bool) {
 	def, ok := f.teams[teamID]
 	return def, ok
 }
@@ -272,8 +272,15 @@ func TestRegistryValidatesTeamScopedAutomation(t *testing.T) {
 		t.Fatalf("write invalid automation: %v", err)
 	}
 
-	teams := fakeTeamLookup{teams: map[string]catalog.TeamDefinition{
-		"team-a": {TeamID: "team-a", AgentKeys: []string{"demo-agent"}},
+	teams := fakeTeamLookup{teams: map[string]catalog.TeamSnapshot{
+		"team-a": {
+			TeamID:            "team-a",
+			AgentKeys:         []string{"demo-agent"},
+			ValidAgentKeys:    []string{"demo-agent"},
+			DefaultAgentKey:   "demo-agent",
+			DefaultAgentValid: true,
+			DefaultAgentState: catalog.TeamDefaultAgentValid,
+		},
 	}}
 	defs, err := NewRegistry(root, teams).Load()
 	if err != nil {

@@ -12,7 +12,7 @@ import (
 )
 
 func isProxyRoutedAgent(def catalog.AgentDefinition) bool {
-	return isProxyAgentMode(def.Mode) || catalog.AgentIsChannelMode(def.Mode) || catalog.AgentUsesACPCoderBackend(def)
+	return isProxyAgentMode(def.Mode) || catalog.AgentIsChannelMode(def.Mode) || agentcoder.IsACPBackend(def.Mode, def.ACPBridgeID)
 }
 
 func (s *Server) applyProxyRoutingConfig(def *catalog.AgentDefinition) *statusError {
@@ -22,40 +22,27 @@ func (s *Server) applyProxyRoutingConfig(def *catalog.AgentDefinition) *statusEr
 	if catalog.AgentIsChannelMode(def.Mode) {
 		return s.applyChannelImportRoutingConfig(def)
 	}
-	if !catalog.AgentUsesACPCoderBackend(*def) {
+	if !agentcoder.IsACPBackend(def.Mode, def.ACPBridgeID) {
 		return nil
 	}
 	bridgeID := strings.TrimSpace(def.ACPBridgeID)
-	if bridgeID == "" {
-		return &statusError{
-			status:  http.StatusServiceUnavailable,
-			message: "runtimeConfig.acpBridgeId is required for ACP CODER",
-		}
-	}
-	bridge, ok := s.deps.Config.CoderSettings.ACPBridges[bridgeID]
-	if !ok {
-		return &statusError{
-			status:  http.StatusServiceUnavailable,
-			message: "ACP bridge " + `"` + bridgeID + `" is not configured in configs/coder-settings.yml acp-bridges`,
-		}
-	}
-	baseURL := strings.TrimSpace(bridge.BaseURL)
-	if baseURL == "" {
-		return &statusError{
-			status:  http.StatusServiceUnavailable,
-			message: "ACP bridge " + `"` + bridgeID + `" is missing base-url in configs/coder-settings.yml acp-bridges`,
-		}
-	}
-	timeoutMS := bridge.TimeoutMS
-	if timeoutMS <= 0 {
-		timeoutMS = 300000
+	routing, err := agentcoder.ResolveACPBridge(bridgeID, func(key string) (agentcoder.ACPBridgeConfig, bool) {
+		bridge, ok := s.deps.Config.CoderSettings.ACPBridges[key]
+		return agentcoder.ACPBridgeConfig{
+			BaseURL:   bridge.BaseURL,
+			AuthToken: bridge.AuthToken,
+			TimeoutMS: bridge.TimeoutMS,
+		}, ok
+	})
+	if err != nil {
+		return &statusError{status: http.StatusServiceUnavailable, message: err.Error()}
 	}
 	def.ProxyConfig = &catalog.ProxyConfig{
-		BaseURL:   baseURL,
-		Transport: "ws",
-		Token:     strings.TrimSpace(bridge.AuthToken),
-		Timeout:   (timeoutMS + 999) / 1000,
-		TimeoutMS: timeoutMS,
+		BaseURL:   routing.BaseURL,
+		Transport: routing.Transport,
+		Token:     routing.Token,
+		Timeout:   routing.Timeout,
+		TimeoutMS: routing.TimeoutMS,
 	}
 	return nil
 }
@@ -116,45 +103,12 @@ func (s *Server) applyChannelImportRoutingConfig(def *catalog.AgentDefinition) *
 }
 
 func (s *Server) acpCoderModelOptions(session contracts.QuerySession, existing *api.QueryModelOptions) *api.QueryModelOptions {
-	if !agentcoder.IsMode(session.Mode) {
-		return existing
-	}
-	modelKey := strings.TrimSpace(session.ModelKey)
-	reasoningEffort := ""
-	serviceTier := ""
-	if existing != nil {
-		reasoningEffort = strings.TrimSpace(existing.ReasoningEffort)
-		serviceTier = strings.TrimSpace(existing.ServiceTier)
-		if strings.TrimSpace(existing.Key) != "" {
-			modelKey = strings.TrimSpace(existing.Key)
+	return agentcoder.ResolveACPModelOptions(session.Mode, session.ModelKey, existing, func(modelKey string) string {
+		if s != nil && s.deps.Models != nil {
+			if model, err := s.deps.Models.GetModel(modelKey); err == nil && strings.TrimSpace(model.ModelID) != "" {
+				return strings.TrimSpace(model.ModelID)
+			}
 		}
-	}
-	if modelKey == "" {
-		if existing == nil || (reasoningEffort == "" && serviceTier == "") {
-			return existing
-		}
-		return &api.QueryModelOptions{
-			ReasoningEffort: reasoningEffort,
-			ServiceTier:     serviceTier,
-		}
-	}
-	return &api.QueryModelOptions{
-		Key:             modelKey,
-		ModelID:         s.modelIDForKey(modelKey),
-		ReasoningEffort: reasoningEffort,
-		ServiceTier:     serviceTier,
-	}
-}
-
-func (s *Server) modelIDForKey(modelKey string) string {
-	modelKey = strings.TrimSpace(modelKey)
-	if modelKey == "" {
 		return ""
-	}
-	if s.deps.Models != nil {
-		if model, err := s.deps.Models.GetModel(modelKey); err == nil && strings.TrimSpace(model.ModelID) != "" {
-			return strings.TrimSpace(model.ModelID)
-		}
-	}
-	return modelKey
+	})
 }

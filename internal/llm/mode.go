@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 
+	agentbuiltin "agent-platform/internal/agent/builtin"
 	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/api"
 	. "agent-platform/internal/contracts"
@@ -15,18 +16,20 @@ type AgentMode interface {
 }
 
 func resolveAgentMode(mode string) AgentMode {
-	switch strings.ToUpper(strings.TrimSpace(mode)) {
+	normalized := strings.ToUpper(strings.TrimSpace(mode))
+	switch normalized {
 	case "ONESHOT":
 		return oneshotMode{}
 	case "PLAN_EXECUTE", "PLAN-EXECUTE":
 		return planPipelineMode{}
-	case "CODER":
+	case agentcoder.Mode:
 		return coderMode{}
-	case "KBASE":
-		return kbaseMode{}
 	case "REACT":
-		fallthrough
+		return reactMode{}
 	default:
+		if descriptor, ok := agentbuiltin.Lookup(normalized); ok {
+			return builtinMode{stage: descriptor.MainStage}
+		}
 		return reactMode{}
 	}
 }
@@ -41,7 +44,7 @@ type coderMode struct{}
 
 func (coderMode) Start(engine *LLMAgentEngine, ctx context.Context, req api.QueryRequest, session QuerySession) (AgentStream, error) {
 	if session.PlanningMode {
-		return agentcoder.NewPlanningStream(engine, ctx, req, session)
+		return agentcoder.NewPlanningStream(coderRuntimeAdapter{engine: engine}, ctx, req, session)
 	}
 	if agentcoder.IsPlanApproveContinuationParams(req.Params) {
 		settings := session.ResolvedStageSettings
@@ -54,13 +57,13 @@ func (coderMode) Start(engine *LLMAgentEngine, ctx context.Context, req api.Quer
 		stream, err := engine.newRunStreamWithOptions(ctx, req, stageSession, true, runStreamOptions{
 			ToolNames: executeTools,
 			ModelKey:  strings.TrimSpace(settings.Execute.ModelKey),
-			Stage:     "coder-execute",
+			Stage:     agentcoder.ExecuteStage,
 		})
 		if err != nil {
 			return nil, err
 		}
 		pending := []AgentDelta{
-			DeltaStageMarker{Stage: "coder-execute"},
+			DeltaStageMarker{Stage: agentcoder.ExecuteStage},
 		}
 		if !req.SyntheticQueryBootstrapped {
 			pending = append(pending, DeltaSyntheticQuery{
@@ -68,7 +71,7 @@ func (coderMode) Start(engine *LLMAgentEngine, ctx context.Context, req api.Quer
 				Role:     api.QueryRoleUser,
 				Message:  agentcoder.ExecuteSyntheticQueryMessage(session.Locale),
 				Messages: cloneRawMessageMaps(session.CurrentMessages),
-				System:   takePendingSystemPayload(&session, "coder:execute"),
+				System:   TakePendingSystemInitPayload(&session, agentcoder.ExecuteCacheKey),
 			})
 		}
 		return &prefixedAgentStream{
@@ -77,7 +80,7 @@ func (coderMode) Start(engine *LLMAgentEngine, ctx context.Context, req api.Quer
 		}, nil
 	}
 	return engine.newRunStreamWithOptions(ctx, req, session, true, runStreamOptions{
-		Stage: "coder",
+		Stage: agentcoder.MainStage,
 	})
 }
 
@@ -108,47 +111,11 @@ func (s *prefixedAgentStream) Close() error {
 	return s.stream.Close()
 }
 
-func takePendingSystemPayload(session *QuerySession, cacheKey string) map[string]any {
-	if session == nil || !session.PendingSystemInitKeys[cacheKey] {
-		return nil
-	}
-	snapshot, ok := session.SystemInitCache[cacheKey]
-	if !ok || strings.TrimSpace(snapshot.Fingerprint) == "" {
-		return nil
-	}
-	delete(session.PendingSystemInitKeys, cacheKey)
-	return map[string]any{
-		"agentKey":       snapshot.AgentKey,
-		"cacheKey":       cacheKey,
-		"fingerprint":    snapshot.Fingerprint,
-		"systemMessage":  cloneAnyMapViaJSON(snapshot.SystemMessage),
-		"tools":          cloneAnySliceViaJSON(snapshot.Tools),
-		"model":          cloneAnyMapViaJSON(snapshot.Model),
-		"toolChoice":     snapshot.ToolChoice,
-		"requestOptions": cloneAnyMapViaJSON(snapshot.RequestOptions),
-	}
-}
+type builtinMode struct{ stage string }
 
-func cloneAnySliceViaJSON(values []any) []any {
-	if len(values) == 0 {
-		return nil
-	}
-	out := make([]any, 0, len(values))
-	for _, value := range values {
-		if mapped, ok := value.(map[string]any); ok {
-			out = append(out, cloneAnyMapViaJSON(mapped))
-			continue
-		}
-		out = append(out, value)
-	}
-	return out
-}
-
-type kbaseMode struct{}
-
-func (kbaseMode) Start(engine *LLMAgentEngine, ctx context.Context, req api.QueryRequest, session QuerySession) (AgentStream, error) {
+func (m builtinMode) Start(engine *LLMAgentEngine, ctx context.Context, req api.QueryRequest, session QuerySession) (AgentStream, error) {
 	return engine.newRunStreamWithOptions(ctx, req, session, true, runStreamOptions{
-		Stage: "kbase",
+		Stage: strings.TrimSpace(m.stage),
 	})
 }
 

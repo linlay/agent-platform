@@ -1,8 +1,21 @@
 package coder
 
-import "agent-platform/internal/contracts"
+import (
+	agentcontract "agent-platform/internal/agent"
+	"agent-platform/internal/contracts"
+)
 
-const DefaultIconName = "coder"
+const (
+	Mode            = "CODER"
+	MainStage       = "coder"
+	PlanStage       = "coder-plan"
+	ExecuteStage    = "coder-execute"
+	MainCacheKey    = "coder:main"
+	PlanCacheKey    = "coder:plan"
+	ExecuteCacheKey = "coder:execute"
+	CreatePrefix    = "coder"
+	DefaultIconName = "coder"
+)
 
 var defaultToolNames = []string{
 	"bash",
@@ -39,4 +52,24 @@ func DefaultContextTags() []string {
 
 func DefaultBudget() map[string]any {
 	return contracts.CloneMap(defaultBudget)
+}
+
+func Descriptor() agentcontract.ModeDescriptor {
+	return agentcontract.ModeDescriptor{
+		Mode:         Mode,
+		MainStage:    MainStage,
+		MainCacheKey: MainCacheKey,
+		CreatePrefix: CreatePrefix,
+		Profile: agentcontract.ModeProfile{
+			IconName:    DefaultIconName,
+			ToolNames:   DefaultToolNames(),
+			ContextTags: DefaultContextTags(),
+			Budget:      DefaultBudget(),
+		},
+		Capabilities: agentcontract.ModeCapabilities{
+			InvokeChildren:  true,
+			RunAsChild:      true,
+			FileChangeHooks: true,
+		},
+	}
 }

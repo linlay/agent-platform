@@ -245,6 +245,7 @@ type SubmitRequest struct {
 	Locale            string       `json:"locale,omitempty"`
 	Params            SubmitParams `json:"params"`
 	ContinuationRunID string       `json:"-"`
+	ContinuationState any          `json:"-"`
 }
 
 type SubmitParams []json.RawMessage

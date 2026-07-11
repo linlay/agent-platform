@@ -84,13 +84,27 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (api.C
 
 	agentKey := strings.TrimSpace(req.AgentKey)
 	explicitAgentKey := agentKey != ""
-	if agentKey == "" {
-		agentKey = strings.TrimSpace(chatSummary.AgentKey)
-	}
 	var agentDef catalog.AgentDefinition
 	agentOK := false
-	if s.deps.Registry != nil && agentKey != "" {
-		agentDef, agentOK = s.deps.Registry.AgentDefinition(agentKey)
+	teamID, resolvedAgentKey, teamSnapshot, teamErr := resolveQueryTeam(
+		s.deps.Registry,
+		strings.TrimSpace(chatSummary.TeamID),
+		agentKey,
+		chatSummary,
+	)
+	if teamErr != nil {
+		return api.CompactResponse{}, teamErr
+	}
+	if teamSnapshot != nil {
+		agentKey = resolvedAgentKey
+		agentDef, agentOK = teamSnapshot.AgentDefinition(agentKey)
+	} else {
+		if agentKey == "" {
+			agentKey = strings.TrimSpace(chatSummary.AgentKey)
+		}
+		if s.deps.Registry != nil && agentKey != "" {
+			agentDef, agentOK = s.deps.Registry.AgentDefinition(agentKey)
+		}
 	}
 	if explicitAgentKey && !agentOK {
 		return api.CompactResponse{}, &statusError{status: http.StatusBadRequest, message: "agent not found"}
@@ -114,7 +128,11 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (api.C
 	compactionUsage := map[string]any{}
 	modelErrDetail := ""
 	if strings.TrimSpace(snapshot.Prompt) != "" && agentOK && s.deps.Agent != nil {
-		modelSummary, usage, err := s.generateCompactSummary(ctx, req, *chatSummary, agentDef, compactID, snapshot.Prompt)
+		resolvedReq := req
+		resolvedReq.AgentKey = agentKey
+		resolvedSummary := *chatSummary
+		resolvedSummary.TeamID = teamID
+		modelSummary, usage, err := s.generateCompactSummary(ctx, resolvedReq, resolvedSummary, agentDef, compactID, snapshot.Prompt)
 		if len(usage) > 0 {
 			compactionUsage = usage
 		}

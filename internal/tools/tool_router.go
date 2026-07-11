@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +32,7 @@ type ToolRouter struct {
 	external    ExternalToolInvoker
 	localDefs   []api.ToolDetailResponse
 	localByName map[string]api.ToolDetailResponse
+	handlers    map[string]NamedToolHandler
 }
 
 func NewToolRouter(backend ToolExecutor, mcp McpClient, mcpTools toolCatalog, frontend frontendSubmitter, action ActionInvoker, extraDefs ...api.ToolDetailResponse) *ToolRouter {
@@ -43,7 +45,59 @@ func NewToolRouter(backend ToolExecutor, mcp McpClient, mcpTools toolCatalog, fr
 		action:      action,
 		localDefs:   localDefs,
 		localByName: localByName,
+		handlers:    map[string]NamedToolHandler{},
 	}
+}
+
+// RegisterHandler atomically assigns every normalized tool name advertised by
+// handler. Definitions remain owned by the catalog; handlers only replace the
+// backend implementation for already-defined backend tools.
+func (r *ToolRouter) RegisterHandler(handler NamedToolHandler) error {
+	if r == nil {
+		return fmt.Errorf("register named tool handler: router is nil")
+	}
+	if handler == nil {
+		return fmt.Errorf("register named tool handler: handler is nil")
+	}
+	names := handler.ToolNames()
+	if len(names) == 0 {
+		return fmt.Errorf("register named tool handler: tool names must not be empty")
+	}
+
+	normalizedNames := make([]string, 0, len(names))
+	seen := make(map[string]struct{}, len(names))
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, name := range names {
+		requestedName := normalizeNamedToolName(name)
+		if requestedName == "" {
+			return fmt.Errorf("register named tool handler: tool name must not be blank")
+		}
+		def, exists := r.localByName[requestedName]
+		if !exists {
+			return fmt.Errorf("register named tool handler: tool %q is not defined", requestedName)
+		}
+		canonicalName := normalizeNamedToolName(def.Name)
+		if canonicalName == "" {
+			canonicalName = requestedName
+		}
+		if _, exists := seen[canonicalName]; exists {
+			return fmt.Errorf("register named tool handler: duplicate tool name %q", canonicalName)
+		}
+		seen[canonicalName] = struct{}{}
+		if _, exists := r.handlers[canonicalName]; exists {
+			return fmt.Errorf("register named tool handler: tool %q already has a handler", canonicalName)
+		}
+		kind, _ := def.Meta["kind"].(string)
+		if normalizedKind := strings.ToLower(strings.TrimSpace(kind)); normalizedKind != "" && normalizedKind != "backend" {
+			return fmt.Errorf("register named tool handler: tool %q is not a backend tool", canonicalName)
+		}
+		normalizedNames = append(normalizedNames, canonicalName)
+	}
+	for _, name := range normalizedNames {
+		r.handlers[name] = handler
+	}
+	return nil
 }
 
 func (r *ToolRouter) WithExternalInvoker(external ExternalToolInvoker) *ToolRouter {
@@ -158,9 +212,26 @@ func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[strin
 		case "backend":
 			fallthrough
 		default:
+			if handler := r.namedHandler(def.Name); handler != nil {
+				return handler.Invoke(callCtx, def.Name, args, execCtx)
+			}
 			return r.backend.Invoke(callCtx, toolName, args, execCtx)
 		}
 	})
+}
+
+func (r *ToolRouter) namedHandler(toolName string) NamedToolHandler {
+	if r == nil {
+		return nil
+	}
+	r.mu.RLock()
+	handler := r.handlers[normalizeNamedToolName(toolName)]
+	r.mu.RUnlock()
+	return handler
+}
+
+func normalizeNamedToolName(toolName string) string {
+	return strings.ToLower(strings.TrimSpace(toolName))
 }
 
 func (r *ToolRouter) Tool(toolName string) (api.ToolDetailResponse, bool) {

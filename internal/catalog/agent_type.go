@@ -6,43 +6,19 @@ import (
 	"path/filepath"
 	"strings"
 
+	agentcontract "agent-platform/internal/agent"
+	agentbuiltin "agent-platform/internal/agent/builtin"
 	agentcoder "agent-platform/internal/agent/coder"
+	agentkbase "agent-platform/internal/agent/kbase"
 )
 
-const AgentModeCoder = "CODER"
-const AgentModeKBase = "KBASE"
+const AgentModeCoder = agentcoder.Mode
+const AgentModeKBase = agentkbase.Mode
 const AgentModeProxy = "PROXY"
 const AgentModeChannel = "CHANNEL"
 const AgentWorkspaceRootChat = "@chat"
-const DefaultCoderAgentIconName = agentcoder.DefaultIconName
-const DefaultKBaseAgentIconName = "kbase"
 
 var defaultAgentVisibilityScopes = []string{"nav"}
-
-var kbaseAgentProfile = agentModeProfile{
-	Tools: []string{
-		"kbase_search",
-		"kbase_files",
-		"kbase_read",
-		"kbase_status",
-		"kbase_refresh",
-		"datetime",
-	},
-	ContextTags: []string{"system", "session"},
-	Budget: map[string]any{
-		"timeout":  900,
-		"maxSteps": 40,
-		"tool": map[string]any{
-			"maxCalls": 80,
-		},
-	},
-}
-
-type agentModeProfile struct {
-	Tools       []string
-	ContextTags []string
-	Budget      map[string]any
-}
 
 func NormalizeAgentModeForRuntime(value string) string {
 	switch strings.ToUpper(strings.TrimSpace(value)) {
@@ -234,16 +210,7 @@ func validateAgentWorkspace(workspace AgentWorkspaceConfig) error {
 
 func validateAgentModeWorkspace(mode string, workspace AgentWorkspaceConfig, hasRuntimeSandbox bool) error {
 	if strings.EqualFold(strings.TrimSpace(mode), AgentModeKBase) {
-		root := strings.TrimSpace(workspace.Root)
-		if root == "" {
-			return fmt.Errorf("runtimeConfig.workspaceRoot is required for mode: KBASE")
-		}
-		if strings.EqualFold(root, AgentWorkspaceRootChat) {
-			return fmt.Errorf("runtimeConfig.workspaceRoot for mode: KBASE must be an absolute path or ~/ path, not %q", AgentWorkspaceRootChat)
-		}
-		if !filepath.IsAbs(root) {
-			return fmt.Errorf("runtimeConfig.workspaceRoot for mode: KBASE must be an absolute path or ~/ path")
-		}
+		return agentkbase.ValidateWorkspace(workspace.Root)
 	}
 	return nil
 }
@@ -316,21 +283,6 @@ func EffectiveChannelExportExternalKey(localAgentKey string, export AgentChannel
 	return strings.TrimSpace(localAgentKey)
 }
 
-func ValidateAgentKBaseConfig(def AgentDefinition) error {
-	if !strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeKBase) {
-		return nil
-	}
-	switch strings.ToLower(strings.TrimSpace(def.KBaseConfig.Storage.Location)) {
-	case "", "runtime", "workspace":
-	default:
-		return fmt.Errorf("kbaseConfig.storage.location must be runtime or workspace")
-	}
-	if _, ok := NormalizeAgentKBaseChunkUnit(def.KBaseConfig.Chunk.Unit); !ok {
-		return fmt.Errorf("kbaseConfig.chunk.unit must be estimatedTokens or chars")
-	}
-	return nil
-}
-
 func AgentUsesACPCoderBackend(def AgentDefinition) bool {
 	return agentcoder.IsACPBackend(def.Mode, def.ACPBridgeID)
 }
@@ -340,8 +292,11 @@ func applyAgentModeProfileDefaults(def AgentDefinition) AgentDefinition {
 	if !ok {
 		return def
 	}
-	if len(def.Tools) == 0 && len(profile.Tools) > 0 {
-		def.Tools = append([]string(nil), profile.Tools...)
+	if agentIconEmpty(def.Icon) && strings.TrimSpace(profile.IconName) != "" {
+		def.Icon = map[string]any{"name": profile.IconName}
+	}
+	if len(def.Tools) == 0 && len(profile.ToolNames) > 0 {
+		def.Tools = append([]string(nil), profile.ToolNames...)
 	}
 	if len(def.ContextTags) == 0 && len(profile.ContextTags) > 0 {
 		def.ContextTags = normalizeContextTags(profile.ContextTags)
@@ -352,19 +307,17 @@ func applyAgentModeProfileDefaults(def AgentDefinition) AgentDefinition {
 	return def
 }
 
-func agentModeProfileFor(mode string) (agentModeProfile, bool) {
-	switch strings.ToUpper(strings.TrimSpace(mode)) {
-	case AgentModeCoder:
-		return agentModeProfile{
-			Tools:       agentcoder.DefaultToolNames(),
-			ContextTags: agentcoder.DefaultContextTags(),
-			Budget:      agentcoder.DefaultBudget(),
-		}, true
-	case AgentModeKBase:
-		return kbaseAgentProfile, true
-	default:
-		return agentModeProfile{}, false
+func agentIconEmpty(value any) bool {
+	if value == nil {
+		return true
 	}
+	text, ok := value.(string)
+	return ok && strings.TrimSpace(text) == ""
+}
+
+func agentModeProfileFor(mode string) (agentcontract.ModeProfile, bool) {
+	descriptor, ok := agentbuiltin.Lookup(mode)
+	return descriptor.Profile, ok
 }
 
 func cloneAgentProfileMap(src map[string]any) map[string]any {

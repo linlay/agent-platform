@@ -25,6 +25,7 @@ type RunExecutorParams struct {
 	Summary           chat.Summary
 	Agent             contracts.AgentEngine
 	Registry          catalog.Registry
+	TeamSnapshot      *catalog.TeamSnapshot
 	Assembler         *stream.StreamEventAssembler
 	Mapper            contracts.StreamDeltaMapper
 	Billing           config.BillingConfig
@@ -634,6 +635,7 @@ func runExecutor(params RunExecutorParams) {
 		summary:           params.Summary,
 		agent:             params.Agent,
 		registry:          params.Registry,
+		teamSnapshot:      params.TeamSnapshot,
 		buildQuerySession: params.BuildQuerySession,
 		chats:             params.Chats,
 		resourceBaseURL:   params.ResourceBaseURL,

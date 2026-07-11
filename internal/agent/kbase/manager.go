@@ -2,6 +2,9 @@ package kbase
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -11,34 +14,60 @@ import (
 	"sync"
 	"time"
 
-	"agent-platform/internal/catalog"
-	"agent-platform/internal/config"
 	"agent-platform/internal/models"
 	"agent-platform/internal/supportpkg"
 	runtimewatch "agent-platform/internal/watch"
 )
 
 type Manager struct {
-	cfg      config.Config
-	registry catalog.Registry
-	models   *models.ModelRegistry
-	support  *supportpkg.Registry
+	options ManagerOptions
+	agents  AgentSource
+	models  *models.ModelRegistry
+	support *supportpkg.Registry
 
-	mu             sync.Mutex
-	locks          map[string]*sync.Mutex
-	watchers       map[string]*runtimewatch.Watcher
-	running        map[string]bool
-	storageRunning map[string]bool
-	storageQueued  map[string]bool
+	mu               sync.Mutex
+	watchReconcileMu sync.Mutex
+	watchContext     context.Context
+	locks            map[string]*sync.Mutex
+	watchers         map[string]watcherBinding
+	running          map[string]bool
+	storageRunning   map[string]bool
+	storageQueued    map[string]bool
 }
 
-func NewManager(cfg config.Config, registry catalog.Registry, modelRegistry *models.ModelRegistry) *Manager {
+type ManagerOptions struct {
+	RuntimeDir               string
+	DefaultEmbeddingModelKey string
+	RefreshDebounce          time.Duration
+	ReconcileInterval        time.Duration
+	Extraction               ExtractionConfig
+}
+
+type AgentSpec struct {
+	Key           string
+	Mode          string
+	WorkspaceRoot string
+	Config        AgentConfig
+}
+
+type AgentSource interface {
+	Agents() []AgentSpec
+	Agent(key string) (AgentSpec, bool)
+}
+
+type watcherBinding struct {
+	watcher   *runtimewatch.Watcher
+	cancel    context.CancelFunc
+	signature string
+}
+
+func NewManager(options ManagerOptions, agents AgentSource, modelRegistry *models.ModelRegistry) *Manager {
 	return &Manager{
-		cfg:            cfg,
-		registry:       registry,
+		options:        options,
+		agents:         agents,
 		models:         modelRegistry,
 		locks:          map[string]*sync.Mutex{},
-		watchers:       map[string]*runtimewatch.Watcher{},
+		watchers:       map[string]watcherBinding{},
 		running:        map[string]bool{},
 		storageRunning: map[string]bool{},
 		storageQueued:  map[string]bool{},
@@ -53,10 +82,27 @@ func (m *Manager) WithSupportPackages(registry *supportpkg.Registry) *Manager {
 	return m
 }
 
+// ValidateAgent applies the KBASE ownership policy without opening storage or
+// resolving model configuration. HTTP adapters use it before method dispatch
+// to preserve the existing not-found/wrong-mode status precedence.
+func (m *Manager) ValidateAgent(agentKey string) error {
+	_, err := m.agentSpec(agentKey)
+	return err
+}
+
 func (m *Manager) Start(ctx context.Context) {
 	if m == nil {
 		return
 	}
+	m.mu.Lock()
+	for key, binding := range m.watchers {
+		if binding.cancel != nil {
+			binding.cancel()
+		}
+		delete(m.watchers, key)
+	}
+	m.watchContext = ctx
+	m.mu.Unlock()
 	m.ensureWatchers(ctx)
 	for _, key := range m.kbaseAgentKeys() {
 		agentKey := key
@@ -66,7 +112,7 @@ func (m *Manager) Start(ctx context.Context) {
 			}
 		}()
 	}
-	interval := m.cfg.KBase.Refresh.ReconcileInterval
+	interval := m.options.ReconcileInterval
 	if interval <= 0 {
 		interval = 10 * time.Minute
 	}
@@ -92,32 +138,74 @@ func (m *Manager) Start(ctx context.Context) {
 	}()
 }
 
+// ReconcileWatchers applies the latest AgentSource snapshot immediately after
+// an agent catalog reload. Once Start has established the manager lifecycle,
+// watcher contexts remain bound to that lifecycle rather than to a short-lived
+// HTTP reload request.
+func (m *Manager) ReconcileWatchers(ctx context.Context) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	if m.watchContext == nil && ctx != nil {
+		m.watchContext = ctx
+	}
+	watchContext := m.watchContext
+	m.mu.Unlock()
+	if watchContext != nil {
+		ctx = watchContext
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	m.ensureWatchers(ctx)
+}
+
 func (m *Manager) ensureWatchers(ctx context.Context) {
-	for _, key := range m.kbaseAgentKeys() {
-		def, ok := m.registry.AgentDefinition(key)
-		if !ok {
+	m.watchReconcileMu.Lock()
+	defer m.watchReconcileMu.Unlock()
+
+	desired := map[string]AgentSpec{}
+	if m != nil && m.agents != nil {
+		for _, spec := range m.agents.Agents() {
+			spec.Key = strings.TrimSpace(spec.Key)
+			spec.WorkspaceRoot = strings.TrimSpace(spec.WorkspaceRoot)
+			if spec.Key == "" || !strings.EqualFold(strings.TrimSpace(spec.Mode), Mode) || spec.WorkspaceRoot == "" {
+				continue
+			}
+			desired[spec.Key] = spec
+		}
+	}
+
+	m.mu.Lock()
+	for key, binding := range m.watchers {
+		spec, ok := desired[key]
+		if ok && binding.signature == watcherSignature(spec) {
+			delete(desired, key)
 			continue
 		}
-		workspace := strings.TrimSpace(def.Workspace.Root)
-		if workspace == "" {
-			continue
+		if binding.cancel != nil {
+			binding.cancel()
 		}
-		m.mu.Lock()
-		_, exists := m.watchers[key]
-		m.mu.Unlock()
-		if exists {
-			continue
-		}
-		m.startWatcher(ctx, key, workspace)
+		delete(m.watchers, key)
+	}
+	m.mu.Unlock()
+
+	for _, spec := range desired {
+		m.startWatcher(ctx, spec)
 	}
 }
 
-func (m *Manager) startWatcher(ctx context.Context, agentKey string, workspace string) {
-	debounce := m.cfg.KBase.Refresh.Debounce
+func (m *Manager) startWatcher(ctx context.Context, spec AgentSpec) {
+	agentKey := strings.TrimSpace(spec.Key)
+	workspace := strings.TrimSpace(spec.WorkspaceRoot)
+	debounce := m.options.RefreshDebounce
 	if debounce <= 0 {
 		debounce = 2 * time.Second
 	}
-	watcher, err := runtimewatch.Start(ctx, runtimewatch.Spec{
+	watchCtx, cancel := context.WithCancel(ctx)
+	matchers := compileMatchers(append(DefaultExcludePatterns(), spec.Config.Exclude...))
+	watcher, err := runtimewatch.Start(watchCtx, runtimewatch.Spec{
 		LogPrefix: "[kbase]",
 		Roots: []runtimewatch.Root{{
 			Path:      workspace,
@@ -135,7 +223,7 @@ func (m *Manager) startWatcher(ctx context.Context, agentKey string, workspace s
 				return true
 			}
 			rel = filepath.ToSlash(rel)
-			return matchesAny(compileMatchers(defaultExcludes()), rel) || strings.HasPrefix(filepath.Base(path), ".DS_Store")
+			return matchesAny(matchers, rel) || strings.HasPrefix(filepath.Base(path), ".DS_Store")
 		},
 		OnDebounce: func(ctx context.Context) error {
 			_, err := m.Refresh(ctx, agentKey, RefreshOptions{Mode: "watcher"})
@@ -143,26 +231,47 @@ func (m *Manager) startWatcher(ctx context.Context, agentKey string, workspace s
 		},
 	})
 	if err != nil {
+		cancel()
 		log.Printf("[kbase] watcher disabled agent=%s workspace=%s: %v", agentKey, workspace, err)
 		return
 	}
 	m.mu.Lock()
-	m.watchers[agentKey] = watcher
+	if existing, ok := m.watchers[agentKey]; ok {
+		if existing.cancel != nil {
+			existing.cancel()
+		}
+	}
+	m.watchers[agentKey] = watcherBinding{watcher: watcher, cancel: cancel, signature: watcherSignature(spec)}
 	m.mu.Unlock()
 }
 
 func (m *Manager) kbaseAgentKeys() []string {
-	if m == nil || m.registry == nil {
+	if m == nil || m.agents == nil {
 		return nil
 	}
-	summaries := m.registry.Agents("all")
-	keys := make([]string, 0, len(summaries))
-	for _, summary := range summaries {
-		if strings.EqualFold(strings.TrimSpace(summary.Mode), catalog.AgentModeKBase) {
-			keys = append(keys, strings.TrimSpace(summary.Key))
+	specs := m.agents.Agents()
+	keys := make([]string, 0, len(specs))
+	for _, spec := range specs {
+		if strings.EqualFold(strings.TrimSpace(spec.Mode), Mode) {
+			if key := strings.TrimSpace(spec.Key); key != "" {
+				keys = append(keys, key)
+			}
 		}
 	}
 	return keys
+}
+
+func watcherSignature(spec AgentSpec) string {
+	payload := struct {
+		WorkspaceRoot string
+		Config        AgentConfig
+	}{
+		WorkspaceRoot: strings.TrimSpace(spec.WorkspaceRoot),
+		Config:        spec.Config,
+	}
+	data, _ := json.Marshal(payload)
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 func (m *Manager) Refresh(ctx context.Context, agentKey string, options RefreshOptions) (RefreshResult, error) {
@@ -209,11 +318,11 @@ func (m *Manager) Refresh(ctx context.Context, agentKey string, options RefreshO
 func (m *Manager) Status(agentKey string) (Status, error) {
 	cfg, _, err := m.resolve(agentKey)
 	if err != nil {
-		return Status{AgentKey: agentKey, Mode: "KBASE"}, err
+		return Status{AgentKey: agentKey, Mode: Mode}, err
 	}
 	status := Status{
 		AgentKey:        cfg.AgentKey,
-		Mode:            "KBASE",
+		Mode:            Mode,
 		StorageLocation: cfg.Storage,
 		StorageDir:      cfg.StorageDir,
 		WorkspaceRoot:   cfg.WorkspaceRoot,
@@ -422,26 +531,22 @@ func (m *Manager) Read(agentKey string, options ReadOptions) (ReadResult, error)
 }
 
 func (m *Manager) resolve(agentKey string) (resolvedConfig, *Embedder, error) {
-	if m == nil || m.registry == nil || m.models == nil {
-		return resolvedConfig{}, nil, fmt.Errorf("kbase manager not configured")
+	if m == nil || m.agents == nil || m.models == nil {
+		return resolvedConfig{}, nil, &PolicyError{Kind: ErrorUnavailable, Message: "kbase manager not configured"}
+	}
+	def, err := m.agentSpec(agentKey)
+	if err != nil {
+		return resolvedConfig{}, nil, err
 	}
 	agentKey = strings.TrimSpace(agentKey)
-	def, ok := m.registry.AgentDefinition(agentKey)
-	if !ok {
-		return resolvedConfig{}, nil, fmt.Errorf("agent %s not found", agentKey)
-	}
-	if !strings.EqualFold(strings.TrimSpace(def.Mode), catalog.AgentModeKBase) {
-		return resolvedConfig{}, nil, fmt.Errorf("agent %s is not mode: KBASE", agentKey)
-	}
-	workspace := strings.TrimSpace(def.Workspace.Root)
-	if workspace == "" || strings.EqualFold(workspace, catalog.AgentWorkspaceRootChat) {
+	workspace := strings.TrimSpace(def.WorkspaceRoot)
+	if workspace == "" || strings.EqualFold(workspace, WorkspaceRootChat) {
 		return resolvedConfig{}, nil, fmt.Errorf("agent %s runtimeConfig.workspaceRoot is required for KBASE", agentKey)
 	}
 	if !filepath.IsAbs(workspace) {
 		return resolvedConfig{}, nil, fmt.Errorf("agent %s runtimeConfig.workspaceRoot must be an absolute path for KBASE", agentKey)
 	}
-	embeddingDefaults := m.cfg.KBase.Embedding
-	embedding, provider, err := m.resolveEmbedding(agentKey, def.KBaseConfig.Embedding, embeddingDefaults)
+	embedding, provider, err := m.resolveEmbedding(agentKey, def.Config.Embedding)
 	if err != nil {
 		return resolvedConfig{}, nil, err
 	}
@@ -449,14 +554,14 @@ func (m *Manager) resolve(agentKey string) (resolvedConfig, *Embedder, error) {
 	if baseURL == "" || embedding.Model == "" || embedding.Dimension <= 0 {
 		return resolvedConfig{}, nil, fmt.Errorf("provider %s embedding requires baseUrl/model/dimension", provider.Key)
 	}
-	storage := strings.ToLower(strings.TrimSpace(def.KBaseConfig.Storage.Location))
+	storage := strings.ToLower(strings.TrimSpace(def.Config.Storage.Location))
 	if storage == "" {
 		storage = "runtime"
 	}
 	var storageDir string
 	switch storage {
 	case "runtime":
-		storageDir = filepath.Join(m.cfg.Paths.KBaseDir, def.Key)
+		storageDir = filepath.Join(m.options.RuntimeDir, def.Key)
 	case "workspace":
 		storageDir = filepath.Join(workspace, ".kbase")
 	default:
@@ -468,11 +573,11 @@ func (m *Manager) resolve(agentKey string) (resolvedConfig, *Embedder, error) {
 		StorageDir:    storageDir,
 		Storage:       storage,
 		Embedding:     embedding,
-		Include:       append([]string(nil), def.KBaseConfig.Include...),
-		Exclude:       append([]string(nil), def.KBaseConfig.Exclude...),
-		Chunk:         catalog.NormalizeAgentKBaseChunkConfig(def.KBaseConfig.Chunk),
-		Retrieval:     def.KBaseConfig.Retrieval,
-		Extraction:    m.cfg.KBase.Extraction,
+		Include:       append([]string(nil), def.Config.Include...),
+		Exclude:       append([]string(nil), def.Config.Exclude...),
+		Chunk:         NormalizeChunkConfig(def.Config.Chunk),
+		Retrieval:     def.Config.Retrieval,
+		Extraction:    m.options.Extraction,
 		Support:       m.support,
 	}
 	cfg.ConfigHash = computeConfigHash(cfg)
@@ -483,8 +588,23 @@ func (m *Manager) resolve(agentKey string) (resolvedConfig, *Embedder, error) {
 	return cfg, embedder, nil
 }
 
-func (m *Manager) resolveEmbedding(agentKey string, agentEmbedding catalog.AgentKBaseEmbeddingConfig, defaults config.KBaseEmbeddingConfig) (EmbeddingSnapshot, models.ProviderDefinition, error) {
-	modelKey := firstNonBlank(agentEmbedding.ModelKey, defaults.ModelKey)
+func (m *Manager) agentSpec(agentKey string) (AgentSpec, error) {
+	if m == nil || m.agents == nil {
+		return AgentSpec{}, &PolicyError{Kind: ErrorUnavailable, Message: "kbase manager not configured"}
+	}
+	agentKey = strings.TrimSpace(agentKey)
+	def, ok := m.agents.Agent(agentKey)
+	if !ok {
+		return AgentSpec{}, &PolicyError{Kind: ErrorNotFound, Message: fmt.Sprintf("agent %s not found", agentKey)}
+	}
+	if !strings.EqualFold(strings.TrimSpace(def.Mode), Mode) {
+		return AgentSpec{}, &PolicyError{Kind: ErrorWrongMode, Message: fmt.Sprintf("agent %s is not mode: KBASE", agentKey)}
+	}
+	return def, nil
+}
+
+func (m *Manager) resolveEmbedding(agentKey string, agentEmbedding EmbeddingConfig) (EmbeddingSnapshot, models.ProviderDefinition, error) {
+	modelKey := firstNonBlank(agentEmbedding.ModelKey, m.options.DefaultEmbeddingModelKey)
 	if modelKey == "" {
 		return EmbeddingSnapshot{}, models.ProviderDefinition{}, fmt.Errorf("agent %s kbaseConfig.embedding.modelKey is required", agentKey)
 	}

@@ -29,6 +29,10 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	response, _, _, err := s.resolveSubmit(req)
 	if err != nil {
+		if statusErr, ok := err.(*statusError); ok {
+			writeStatusError(w, statusErr)
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
 	}

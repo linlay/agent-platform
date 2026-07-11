@@ -67,11 +67,14 @@ func TestSystemInitProfileBuilderAddsRequestProfiles(t *testing.T) {
 		Parameters:  map[string]any{"type": "object"},
 	}}
 
-	profiles := (SystemInitProfileBuilder{Models: registry}).BuildSystemInitProfiles(session, api.QueryRequest{
-		ChatID:  "chat-1",
-		RunID:   "run-1",
-		Message: "hello",
-	}, toolDefs, 0, 0, config.PromptsConfig{})
+	profiles, err := NewSystemInitProfileBuilder(registry, SystemInitDefaults{}).BuildSystemInitProfiles(contracts.SystemInitBuildInput{
+		Session:         session,
+		Request:         api.QueryRequest{ChatID: "chat-1", RunID: "run-1", Message: "hello"},
+		ToolDefinitions: toolDefs,
+	})
+	if err != nil {
+		t.Fatalf("build system init profiles: %v", err)
+	}
 
 	byKey := map[string]contracts.SystemInitProfile{}
 	for _, profile := range profiles {
@@ -98,6 +101,47 @@ func TestSystemInitProfileBuilderAddsRequestProfiles(t *testing.T) {
 
 	if _, ok := byKey["react:main:final"]; ok {
 		t.Fatalf("did not expect unused final profile to be generated: %#v", byKey)
+	}
+}
+
+func TestValidateSystemInitProfilesRequiresUniqueCacheKeysAndInitial(t *testing.T) {
+	tests := []struct {
+		name     string
+		profiles []contracts.SystemInitProfile
+	}{
+		{name: "empty cache key", profiles: []contracts.SystemInitProfile{{Initial: true}}},
+		{name: "duplicate cache key", profiles: []contracts.SystemInitProfile{{CacheKey: "react:main", Initial: true}, {CacheKey: "react:main"}}},
+		{name: "missing initial", profiles: []contracts.SystemInitProfile{{CacheKey: "react:main"}}},
+		{name: "multiple initial", profiles: []contracts.SystemInitProfile{{CacheKey: "coder:plan", Initial: true}, {CacheKey: "coder:execute", Initial: true}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := validateSystemInitProfiles(tt.profiles); err == nil {
+				t.Fatalf("expected invalid profiles to fail: %#v", tt.profiles)
+			}
+		})
+	}
+	if err := validateSystemInitProfiles([]contracts.SystemInitProfile{
+		{CacheKey: "coder:plan", Initial: true},
+		{CacheKey: "coder:execute"},
+	}); err != nil {
+		t.Fatalf("valid profiles rejected: %v", err)
+	}
+}
+
+func TestBuiltSystemInitProfilesHaveExactlyOneInitial(t *testing.T) {
+	sessions := []contracts.QuerySession{
+		{AgentKey: "react", Mode: "REACT"},
+		{AgentKey: "coder", Mode: "CODER"},
+		{AgentKey: "coder-plan", Mode: "CODER", PlanningMode: true},
+		{AgentKey: "kbase", Mode: "KBASE"},
+		{AgentKey: "pipeline", Mode: "PLAN_EXECUTE"},
+	}
+	for _, session := range sessions {
+		profiles := BuildSystemInitProfiles(session, api.QueryRequest{Message: "hello"}, nil, 12, 4, config.PromptsConfig{})
+		if err := validateSystemInitProfiles(profiles); err != nil {
+			t.Fatalf("mode %s produced invalid profiles: %v (%#v)", session.Mode, err, profiles)
+		}
 	}
 }
 
@@ -223,7 +267,7 @@ func TestCoderSystemInitProfileUsesDistinctMode(t *testing.T) {
 func TestCoderSystemInitProfileIncludesCoderSystemPrompt(t *testing.T) {
 	session := fingerprintTestSession()
 	session.Mode = "CODER"
-	session.CoderSystemPrompt = "custom coder system prompt"
+	session.ModeSystemPrompt = "custom coder system prompt"
 	toolDefs := []api.ToolDetailResponse{
 		{Name: "bash", Description: "run shell", Parameters: map[string]any{"type": "object"}},
 		{Name: "datetime", Description: "get time", Parameters: map[string]any{"type": "object"}},
@@ -246,7 +290,7 @@ func TestCoderPlanningModeBuildsPlanAndExecuteSystemInit(t *testing.T) {
 	session := fingerprintTestSession()
 	session.Mode = "CODER"
 	session.PlanningMode = true
-	session.CoderSystemPrompt = "custom coder system prompt"
+	session.ModeSystemPrompt = "custom coder system prompt"
 	session.ResolvedStageSettings = contracts.PlanExecuteSettings{
 		MaxSteps:             12,
 		MaxWorkRoundsPerTask: 4,
@@ -313,10 +357,10 @@ func TestSystemInitCacheKeyMapsCoderPlanningStages(t *testing.T) {
 func TestCoderSystemPromptChangesFingerprint(t *testing.T) {
 	session := fingerprintTestSession()
 	session.Mode = "CODER"
-	session.CoderSystemPrompt = "coder prompt one"
+	session.ModeSystemPrompt = "coder prompt one"
 	toolDefs := []api.ToolDetailResponse{{Name: "bash", Description: "run shell"}}
 	first := ComputeSystemInitFingerprint(session, "main", toolDefs)
-	session.CoderSystemPrompt = "coder prompt two"
+	session.ModeSystemPrompt = "coder prompt two"
 	second := ComputeSystemInitFingerprint(session, "main", toolDefs)
 	if first == second {
 		t.Fatalf("expected coder system prompt change to update fingerprint")
@@ -326,10 +370,10 @@ func TestCoderSystemPromptChangesFingerprint(t *testing.T) {
 func TestKBaseSystemPromptChangesFingerprint(t *testing.T) {
 	session := fingerprintTestSession()
 	session.Mode = "KBASE"
-	session.KBaseSystemPrompt = "kbase prompt one"
+	session.ModeSystemPrompt = "kbase prompt one"
 	toolDefs := []api.ToolDetailResponse{{Name: "kbase_search", Description: "search knowledge base"}}
 	first := ComputeSystemInitFingerprint(session, "main", toolDefs)
-	session.KBaseSystemPrompt = "kbase prompt two"
+	session.ModeSystemPrompt = "kbase prompt two"
 	second := ComputeSystemInitFingerprint(session, "main", toolDefs)
 	if first == second {
 		t.Fatalf("expected kbase system prompt change to update fingerprint")

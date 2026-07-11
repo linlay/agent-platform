@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
 	"strings"
 
+	agentcontract "agent-platform/internal/agent"
+	agentbuiltin "agent-platform/internal/agent/builtin"
 	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
@@ -103,10 +103,22 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 
 	promptAppend := buildPromptAppendConfig(s.deps.Config.Prompts, agentDef)
 	resolvedWorkspaceRoot := strings.TrimSpace(runtimeContext.LocalPaths.WorkspaceDir)
-	if err := validateWorkspaceGitConfig(agentDef, resolvedWorkspaceRoot); err != nil {
+	if err := agentcoder.ValidateWorkspaceGit(agentcoder.WorkspaceGitPolicy{
+		Mode:           agentDef.Mode,
+		WorkspaceRoot:  resolvedWorkspaceRoot,
+		ExpectedBranch: agentDef.Project.Git.ExpectedBranch,
+	}); err != nil {
 		return contracts.QuerySession{}, err
 	}
-	workspaceAgentsPrompt, err := s.loadWorkspaceAgentsPrompt(agentDef, resolvedWorkspaceRoot)
+	workspaceAgentsPrompt, err := agentcoder.LoadWorkspacePrompt(agentcoder.WorkspacePromptPolicy{
+		Mode:                    agentDef.Mode,
+		ACPBridgeID:             agentDef.ACPBridgeID,
+		AgentDir:                agentDef.AgentDir,
+		WorkspaceRoot:           resolvedWorkspaceRoot,
+		ProjectPromptFiles:      coderProjectPromptFiles(agentDef.Project.PromptFiles),
+		WorkspaceAgentsEnabled:  s.deps.Config.CoderSettings.WorkspaceAgents.Enabled,
+		WorkspaceAgentsFileName: s.deps.Config.CoderSettings.WorkspaceAgents.File,
+	})
 	if err != nil {
 		return contracts.QuerySession{}, err
 	}
@@ -124,7 +136,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	)
 
 	toolNames := buildSessionToolNames(effectiveAgentTools(agentDef), options.AllowInvokeAgents)
-	toolNames = agentcoder.RuntimeToolNamesForAgent(agentDef.Mode, agentDef.ACPBridgeID, "coder", toolNames)
+	toolNames = agentcoder.RuntimeToolNamesForAgent(agentDef.Mode, agentDef.ACPBridgeID, agentcoder.MainStage, toolNames)
 
 	session := contracts.QuerySession{
 		RequestID:              req.RequestID,
@@ -140,6 +152,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		ModelKey:               agentDef.ModelKey,
 		ToolNames:              toolNames,
 		Mode:                   agentDef.Mode,
+		ModeCapabilities:       resolvedModeCapabilities(agentDef),
 		PlanningMode:           agentcoder.PlanningModeEnabled(agentDef.Mode, req.PlanningMode != nil && *req.PlanningMode),
 		TeamID:                 req.TeamID,
 		Created:                options.Created,
@@ -165,8 +178,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		PlanPrompt:             agentDef.PlanPrompt,
 		ExecutePrompt:          agentDef.ExecutePrompt,
 		SummaryPrompt:          agentDef.SummaryPrompt,
-		CoderSystemPrompt:      coderSystemPrompt(agentDef.Mode, s.deps.Config.CoderPrompts.SystemPrompt),
-		KBaseSystemPrompt:      kbaseSystemPrompt(agentDef.Mode, s.deps.Config.KBasePrompts.SystemPrompt),
+		ModeSystemPrompt:       agentbuiltin.ConfiguredSystemPrompt(agentDef.Mode, s.deps.Config.CoderPrompts.SystemPrompt, s.deps.Config.KBasePrompts.SystemPrompt),
 		RuntimeEnvironmentID:   extractRuntimeField(agentDef.Runtime, "environmentId"),
 		RuntimeLevel:           extractRuntimeField(agentDef.Runtime, "level"),
 		RuntimeExtraMounts:     runtimeExtraMounts(agentDef.Runtime["sandboxMounts"]),
@@ -233,83 +245,31 @@ func (s *Server) loadPlanTaskContext(chatID string) string {
 	return plantasks.FormatStateContext(state)
 }
 
-func coderSystemPrompt(mode string, prompt string) string {
-	return agentcoder.SystemPromptForMode(mode, prompt)
+func resolvedModeCapabilities(def catalog.AgentDefinition) agentcontract.ModeCapabilities {
+	if descriptor, ok := agentbuiltin.Lookup(def.Mode); ok {
+		capabilities := descriptor.Capabilities
+		if agentcoder.IsACPBackend(def.Mode, def.ACPBridgeID) {
+			capabilities.RunAsChild = false
+		}
+		return capabilities
+	}
+	switch strings.ToUpper(strings.TrimSpace(def.Mode)) {
+	case "REACT", "ONESHOT", catalog.AgentModeProxy:
+		return agentcontract.ModeCapabilities{InvokeChildren: true, RunAsChild: true}
+	default:
+		return agentcontract.ModeCapabilities{}
+	}
 }
 
-func kbaseSystemPrompt(mode string, prompt string) string {
-	if !strings.EqualFold(strings.TrimSpace(mode), catalog.AgentModeKBase) {
-		return ""
+func coderProjectPromptFiles(files []catalog.AgentProjectPromptFile) []agentcoder.ProjectPromptFile {
+	if len(files) == 0 {
+		return nil
 	}
-	return strings.TrimSpace(prompt)
-}
-
-func (s *Server) loadWorkspaceAgentsPrompt(agentDef catalog.AgentDefinition, workspaceRoot string) (string, error) {
-	if !agentcoder.IsNativeBackend(agentDef.Mode, agentDef.ACPBridgeID) {
-		return "", nil
+	out := make([]agentcoder.ProjectPromptFile, 0, len(files))
+	for _, file := range files {
+		out = append(out, agentcoder.ProjectPromptFile{Source: file.Source, Path: file.Path})
 	}
-	if len(agentDef.Project.PromptFiles) > 0 {
-		return loadConfiguredProjectPrompts(agentDef, workspaceRoot)
-	}
-	settings := s.deps.Config.CoderSettings.WorkspaceAgents
-	if !settings.Enabled {
-		return "", nil
-	}
-	workspaceRoot = strings.TrimSpace(workspaceRoot)
-	if workspaceRoot == "" {
-		return "", nil
-	}
-	fileName := strings.TrimSpace(settings.File)
-	if fileName == "" {
-		return "", fmt.Errorf("coder workspace agents file is empty")
-	}
-	if filepath.IsAbs(fileName) {
-		fileName = filepath.Base(fileName)
-	}
-	cleanFileName := filepath.Clean(fileName)
-	if cleanFileName == "." || cleanFileName == ".." || strings.HasPrefix(cleanFileName, ".."+string(os.PathSeparator)) {
-		return "", fmt.Errorf("invalid workspace AGENTS prompt path %q", fileName)
-	}
-	agentsPath := filepath.Join(workspaceRoot, cleanFileName)
-	data, err := os.ReadFile(agentsPath)
-	if err == nil {
-		return strings.TrimSpace(string(data)), nil
-	}
-	if os.IsNotExist(err) {
-		return "", nil
-	}
-	return "", fmt.Errorf("read workspace AGENTS prompt %s: %w", agentsPath, err)
-}
-
-func loadConfiguredProjectPrompts(agentDef catalog.AgentDefinition, workspaceRoot string) (string, error) {
-	workspaceRoot = strings.TrimSpace(workspaceRoot)
-	sections := make([]string, 0, len(agentDef.Project.PromptFiles))
-	for _, promptFile := range agentDef.Project.PromptFiles {
-		source, displayPath, fullPath, err := resolveProjectPromptPath(agentDef, workspaceRoot, promptFile)
-		if err != nil {
-			return "", err
-		}
-		if fullPath == "" {
-			continue
-		}
-		data, err := os.ReadFile(fullPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return "", fmt.Errorf("read %s project prompt %s: %w", source, fullPath, err)
-		}
-		content := strings.TrimSpace(string(data))
-		if content == "" {
-			continue
-		}
-		title := "Workspace " + displayPath
-		if source == "agent" {
-			title = "Agent " + displayPath
-		}
-		sections = append(sections, title+"\n"+content)
-	}
-	return strings.Join(sections, "\n\n"), nil
+	return out
 }
 
 func normalizedAccessLevel(value string) string {
@@ -325,98 +285,6 @@ func runtimeHostAccess(cfg catalog.AgentHostAccessConfig) contracts.HostAccessRo
 		ReadRoots:  append([]string(nil), cfg.ReadRoots...),
 		WriteRoots: append([]string(nil), cfg.WriteRoots...),
 	}
-}
-
-func resolveProjectPromptPath(agentDef catalog.AgentDefinition, workspaceRoot string, promptFile catalog.AgentProjectPromptFile) (string, string, string, error) {
-	rawPath := strings.TrimSpace(promptFile.Path)
-	if rawPath == "" {
-		return "", "", "", nil
-	}
-	source := strings.ToLower(strings.TrimSpace(promptFile.Source))
-	if source == "" {
-		source = "workspace"
-	}
-	root := workspaceRoot
-	displayPath := rawPath
-	if source == "agent" {
-		root = strings.TrimSpace(agentDef.AgentDir)
-	} else if source != "workspace" {
-		return "", "", "", fmt.Errorf("unsupported project prompt source %q for %q", promptFile.Source, rawPath)
-	}
-	if root == "" {
-		return "", "", "", fmt.Errorf("%s project prompt root is empty for %q", source, rawPath)
-	}
-	if filepath.IsAbs(displayPath) {
-		displayPath = filepath.Base(displayPath)
-	}
-	cleanPath := filepath.Clean(displayPath)
-	if cleanPath == "." || cleanPath == ".." || strings.HasPrefix(cleanPath, ".."+string(os.PathSeparator)) {
-		return "", "", "", fmt.Errorf("invalid %s project prompt path %q", source, rawPath)
-	}
-	return source, filepath.ToSlash(cleanPath), filepath.Join(root, cleanPath), nil
-}
-
-func validateWorkspaceGitConfig(agentDef catalog.AgentDefinition, workspaceRoot string) error {
-	if !agentcoder.IsMode(agentDef.Mode) {
-		return nil
-	}
-	expectedBranch := strings.TrimSpace(agentDef.Project.Git.ExpectedBranch)
-	if expectedBranch == "" {
-		return nil
-	}
-	workspaceRoot = strings.TrimSpace(workspaceRoot)
-	if workspaceRoot == "" {
-		return fmt.Errorf("runtimeConfig.workspaceRoot is required when projectConfig.git.expectedBranch is set")
-	}
-	currentBranch, err := readGitCurrentBranch(workspaceRoot)
-	if err != nil {
-		return fmt.Errorf("validate workspace git branch for %s: %w", workspaceRoot, err)
-	}
-	if currentBranch != expectedBranch {
-		return fmt.Errorf("workspace git branch mismatch for %s: current %q, expected %q", workspaceRoot, currentBranch, expectedBranch)
-	}
-	return nil
-}
-
-func readGitCurrentBranch(workspaceRoot string) (string, error) {
-	gitDirPath := filepath.Join(workspaceRoot, ".git")
-	info, err := os.Stat(gitDirPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", fmt.Errorf("not a git repository")
-		}
-		return "", err
-	}
-	if !info.IsDir() {
-		data, err := os.ReadFile(gitDirPath)
-		if err != nil {
-			return "", err
-		}
-		line := strings.TrimSpace(string(data))
-		const gitdirPrefix = "gitdir:"
-		if !strings.HasPrefix(line, gitdirPrefix) {
-			return "", fmt.Errorf("unsupported .git file")
-		}
-		target := strings.TrimSpace(strings.TrimPrefix(line, gitdirPrefix))
-		if !filepath.IsAbs(target) {
-			target = filepath.Join(workspaceRoot, target)
-		}
-		gitDirPath = filepath.Clean(target)
-	}
-	headPath := filepath.Join(gitDirPath, "HEAD")
-	data, err := os.ReadFile(headPath)
-	if err != nil {
-		return "", err
-	}
-	head := strings.TrimSpace(string(data))
-	const refPrefix = "ref: refs/heads/"
-	if strings.HasPrefix(head, refPrefix) {
-		return strings.TrimSpace(strings.TrimPrefix(head, refPrefix)), nil
-	}
-	if head == "" {
-		return "", fmt.Errorf("empty git HEAD")
-	}
-	return "", fmt.Errorf("detached HEAD %q", head)
 }
 
 func buildSessionToolNames(base []string, allowInvokeAgents bool) []string {
@@ -438,13 +306,4 @@ func buildSessionToolNames(base []string, allowInvokeAgents bool) []string {
 		tools = append(tools, name)
 	}
 	return tools
-}
-
-func canUseInvokeAgentsTool(mode string) bool {
-	switch strings.ToUpper(strings.TrimSpace(mode)) {
-	case "REACT", "ONESHOT", catalog.AgentModeCoder:
-		return true
-	default:
-		return false
-	}
 }

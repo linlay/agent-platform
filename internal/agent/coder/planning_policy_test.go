@@ -104,11 +104,11 @@ func TestPlanningSystemInitSpecsPreserveCoderStagesAndTools(t *testing.T) {
 	}
 
 	plan := specs[0]
-	if plan.CacheStage != "coder-plan" || plan.FingerprintStage != "coder-plan" ||
+	if plan.CacheKey != PlanCacheKey || plan.FingerprintStage != "coder-plan" ||
 		plan.PromptStage != "coder-plan" || plan.Mode != "coder" || plan.Stage != "plan" {
 		t.Fatalf("unexpected plan spec stages: %#v", plan)
 	}
-	if !plan.UseSharedSystemPrompt || !plan.IncludeAfterCallHints {
+	if !plan.UseSharedSystemPrompt || !plan.IncludeAfterCallHints || !plan.Initial {
 		t.Fatalf("plan spec should use shared system prompt and after-call hints: %#v", plan)
 	}
 	if !reflect.DeepEqual(plan.ToolNames, PlanningModePlanTools()) {
@@ -123,11 +123,11 @@ func TestPlanningSystemInitSpecsPreserveCoderStagesAndTools(t *testing.T) {
 		contracts.PlanGetTasksToolName,
 		contracts.PlanUpdateTaskToolName,
 	}
-	if execute.CacheStage != "coder-execute" || execute.FingerprintStage != "coder-execute" ||
+	if execute.CacheKey != ExecuteCacheKey || execute.FingerprintStage != "coder-execute" ||
 		execute.PromptStage != "coder-execute" || execute.Mode != "coder" || execute.Stage != "execute" {
 		t.Fatalf("unexpected execute spec stages: %#v", execute)
 	}
-	if execute.UseSharedSystemPrompt || execute.IncludeAfterCallHints {
+	if execute.UseSharedSystemPrompt || execute.IncludeAfterCallHints || execute.Initial {
 		t.Fatalf("execute spec should carry its own rendered prompt without after-call hints: %#v", execute)
 	}
 	if !reflect.DeepEqual(execute.ToolNames, wantExecuteTools) {

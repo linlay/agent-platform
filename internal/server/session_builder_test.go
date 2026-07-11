@@ -118,8 +118,8 @@ func TestBuildQuerySessionUsesCoderProfileDefaults(t *testing.T) {
 	if session.WorkspaceRoot != filepath.Clean(workspace) {
 		t.Fatalf("workspace root = %q, want %q", session.WorkspaceRoot, filepath.Clean(workspace))
 	}
-	if session.CoderSystemPrompt != "configured coder system prompt" {
-		t.Fatalf("coder system prompt = %q, want configured prompt", session.CoderSystemPrompt)
+	if session.ModeSystemPrompt != "configured coder system prompt" {
+		t.Fatalf("coder system prompt = %q, want configured prompt", session.ModeSystemPrompt)
 	}
 	autoSession, err := server.BuildQuerySession(context.Background(), api.QueryRequest{
 		AgentKey:    "coder-app",
@@ -195,11 +195,8 @@ func TestBuildQuerySessionInjectsKBaseSystemPrompt(t *testing.T) {
 	if session.WorkspaceRoot != filepath.Clean(workspace) {
 		t.Fatalf("workspace root = %q, want %q", session.WorkspaceRoot, filepath.Clean(workspace))
 	}
-	if session.CoderSystemPrompt != "" {
-		t.Fatalf("coder system prompt = %q, want empty for KBASE", session.CoderSystemPrompt)
-	}
-	if session.KBaseSystemPrompt != "configured kbase system prompt" {
-		t.Fatalf("kbase system prompt = %q, want configured prompt", session.KBaseSystemPrompt)
+	if session.ModeSystemPrompt != "configured kbase system prompt" {
+		t.Fatalf("kbase system prompt = %q, want configured prompt", session.ModeSystemPrompt)
 	}
 }
 

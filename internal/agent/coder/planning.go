@@ -26,7 +26,7 @@ func PlanningModePlanTools() []string {
 }
 
 func IsMode(mode string) bool {
-	return strings.EqualFold(strings.TrimSpace(mode), "CODER")
+	return strings.EqualFold(strings.TrimSpace(mode), Mode)
 }
 
 func IsACPBackend(mode string, acpBridgeID string) bool {
@@ -91,7 +91,7 @@ func RuntimeToolNamesForStage(mode string, stage string, toolNames []string) []s
 		return out
 	}
 	stage = strings.ToLower(strings.TrimSpace(stage))
-	if stage == "coder" || strings.HasPrefix(stage, "coder-execute") {
+	if stage == MainStage || strings.HasPrefix(stage, ExecuteStage) {
 		return contracts.AppendPlanTaskToolNames(out)
 	}
 	return out
