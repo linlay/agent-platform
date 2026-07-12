@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
@@ -20,6 +21,10 @@ import (
 func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	admission, err := s.prepareQueryAdmission(r, true)
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		var statusErr *statusError
 		if errors.As(err, &statusErr) {
 			writeStatusError(w, statusErr)
@@ -30,6 +35,10 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	prepared, err := s.completeQueryPreparation(r.Context(), admission, nil)
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		var statusErr *statusError
 		if errors.As(err, &statusErr) {
 			writeStatusError(w, statusErr)
@@ -90,9 +99,10 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 	}
 	if !execution.HiddenRun {
 		s.broadcast("run.started", map[string]any{
-			"runId":    prepared.req.RunID,
-			"chatId":   prepared.req.ChatID,
-			"agentKey": prepared.req.AgentKey,
+			"runId":     prepared.req.RunID,
+			"chatId":    prepared.req.ChatID,
+			"agentKey":  prepared.req.AgentKey,
+			"timestamp": registered.StartedAtMillis,
 		})
 	}
 
@@ -150,6 +160,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 		RunCtx:            runCtx,
 		Request:           prepared.req,
 		Session:           prepared.session,
+		StartedAtMillis:   registered.StartedAtMillis,
 		Summary:           prepared.summary,
 		Agent:             s.deps.Agent,
 		Registry:          s.deps.Registry,
@@ -170,18 +181,20 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 		OnUnreadChanged:   onUnreadChanged,
 		OnPersisted:       onPersisted,
 		OnContinuation:    onContinuation,
-		OnComplete: func(runID string) {
+		OnComplete: func(runID string, completedAtMillis int64) {
 			releaseQuery(prepared.release)
 			s.deps.Runs.Finish(runID)
 			if !execution.HiddenRun {
 				s.broadcast("run.finished", map[string]any{
-					"runId":  runID,
-					"chatId": prepared.req.ChatID,
+					"runId":     runID,
+					"chatId":    prepared.req.ChatID,
+					"timestamp": completedAtMillis,
 				})
 			}
 		},
 	})
 
+	lastSeq := int64(0)
 	for {
 		select {
 		case <-r.Context().Done():
@@ -192,8 +205,30 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 				return
 			}
 			if err := sseWriter.WriteJSON("message", localizeStreamEventData(locale, event)); err != nil {
+				if isTimeContractViolation(err) {
+					seq := event.Seq
+					if seq <= lastSeq {
+						seq = lastSeq + 1
+					}
+					local := localTimeContractRunErrorEvent(seq, prepared.req.RunID, prepared.req.ChatID, err)
+					_ = sseWriter.WriteJSON("message", localizeStreamEventData(locale, local))
+					_ = sseWriter.WriteDone()
+					// This is a defensive final boundary (the executor validates
+					// before publishing). If another producer injected a bad event
+					// directly into the bus, still cancel it rather than letting the
+					// upstream run continue after the client has been terminated.
+					if registered.Control != nil {
+						registered.Control.Interrupt(contracts.InterruptInfo{
+							Source: contracts.InterruptSourceHTTPAPI,
+							Reason: contracts.InterruptReasonRunInterrupted,
+							Detail: timeContractViolationMessage,
+						})
+						registered.Control.TransitionState(contracts.RunLoopStateFailed)
+					}
+				}
 				return
 			}
+			lastSeq = event.Seq
 		}
 	}
 }
@@ -220,9 +255,23 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 	defer sseWriter.Close()
 	sseWriter.StartHeartbeat()
 
-	if _, err := s.runQuerySync(ctx, prepared, registered, func(data stream.EventData) error {
-		return sseWriter.WriteJSON("message", localizeStreamEventData(locale, data))
-	}, nil); err == nil {
+	lastSeq := int64(0)
+	_, runErr := s.runQuerySync(ctx, prepared, registered, func(data stream.EventData) error {
+		if err := sseWriter.WriteJSON("message", localizeStreamEventData(locale, data)); err != nil {
+			return err
+		}
+		lastSeq = data.Seq
+		return nil
+	}, nil)
+	if runErr == nil {
+		_ = sseWriter.WriteDone()
+		return
+	}
+	if isTimeContractViolation(runErr) {
+		// Headers have already selected SSE, so this is the streaming equivalent
+		// of HTTP 422: publish one platform-owned error event, then terminate.
+		local := localTimeContractRunErrorEvent(lastSeq+1, prepared.req.RunID, prepared.req.ChatID, runErr)
+		_ = sseWriter.WriteJSON("message", localizeStreamEventData(locale, local))
 		_ = sseWriter.WriteDone()
 	}
 }
@@ -237,6 +286,10 @@ func (s *Server) handleQueryNonStream(w http.ResponseWriter, ctx context.Context
 	collector := newQueryEventCollector(prepared.req.IncludeFullText)
 	result, err := s.runQuerySync(ctx, prepared, registered, nil, collector.Consume)
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
@@ -655,19 +708,34 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		defer s.deps.Runs.Finish(prepared.req.RunID)
 	}
 
+	completedAtMillis := int64(0)
 	if !execution.HiddenRun {
 		s.broadcast("run.started", map[string]any{
-			"runId":    prepared.req.RunID,
-			"chatId":   prepared.req.ChatID,
-			"agentKey": prepared.req.AgentKey,
+			"runId":     prepared.req.RunID,
+			"chatId":    prepared.req.ChatID,
+			"agentKey":  prepared.req.AgentKey,
+			"timestamp": registered.StartedAtMillis,
 		})
-		defer s.broadcast("run.finished", map[string]any{
-			"runId":  prepared.req.RunID,
-			"chatId": prepared.req.ChatID,
-		})
+		defer func() {
+			// If the execution failed before the completion record could be
+			// persisted, this is still a platform-owned finish event.  Capture its
+			// actual finish time instead of manufacturing a time for any upstream
+			// event.
+			if completedAtMillis == 0 {
+				completedAtMillis = time.Now().UnixMilli()
+			}
+			s.broadcast("run.finished", map[string]any{
+				"runId":     prepared.req.RunID,
+				"chatId":    prepared.req.ChatID,
+				"timestamp": completedAtMillis,
+			})
+		}()
 	}
 
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
+	// The synchronous path does not use runExecutor, so bind its bootstrap
+	// run.start event to the same registration clock explicitly.
+	assembler.SetRunStartedAtMillis(registered.StartedAtMillis)
 	principal := &Principal{Subject: prepared.session.Subject}
 	if strings.TrimSpace(principal.Subject) == "" {
 		principal = nil
@@ -692,8 +760,31 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 	processor.stepWriter.SetPendingSystemInit(prepared.systemInitLine)
 	processor.stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
 	runCtx = chat.WithApprovalSummarySink(runCtx, processor.stepWriter.RecordApproval)
+	timeContractAborted := false
+	abortTimeContract := func(err error) {
+		if timeContractAborted {
+			return
+		}
+		timeContractAborted = true
+		control.TransitionState(contracts.RunLoopStateFailed)
+		// Only previously validated events have reached the StepWriter. Flush
+		// them before recording the platform-owned error completion; the bad
+		// event itself is intentionally never passed to persistence.
+		processor.stepWriter.Flush()
+		persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, registered.StartedAtMillis, control, principal), assistantText.String(), runUsage, "error", false)
+		completedAtMillis = completion.UpdatedAtMillis
+		if persisted {
+			syncBroadcastChatUpdated(s.deps.Notifications, completion)
+		}
+	}
 	writeEvent := func(event stream.StreamEvent) error {
-		data, visible := processor.Consume(event)
+		data, visible, err := processor.Consume(event)
+		if err != nil {
+			if isTimeContractViolation(err) {
+				abortTimeContract(err)
+			}
+			return err
+		}
 		if observeEvent != nil {
 			observeEvent(data)
 		}
@@ -703,7 +794,13 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		if emitVisible == nil {
 			return nil
 		}
-		return emitVisible(clientVisibleEventData(data))
+		if err := emitVisible(clientVisibleEventData(data)); err != nil {
+			if isTimeContractViolation(err) {
+				abortTimeContract(err)
+			}
+			return err
+		}
+		return nil
 	}
 
 	for _, event := range assembler.Bootstrap() {
@@ -720,7 +817,8 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 				return queryRunResult{}, writeErr
 			}
 		}
-		persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, control, principal), assistantText.String(), runUsage, "error", false)
+		persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, registered.StartedAtMillis, control, principal), assistantText.String(), runUsage, "error", false)
+		completedAtMillis = completion.UpdatedAtMillis
 		if persisted {
 			syncBroadcastChatUpdated(s.deps.Notifications, completion)
 		}
@@ -777,7 +875,8 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		if streamErr != nil {
 			errorMessage = streamErr.Error()
 		}
-		persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, control, principal), assistantText.String(), runUsage, finishReason, false)
+		persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, registered.StartedAtMillis, control, principal), assistantText.String(), runUsage, finishReason, false)
+		completedAtMillis = completion.UpdatedAtMillis
 		if persisted {
 			syncBroadcastChatUpdated(s.deps.Notifications, completion)
 		}
@@ -795,7 +894,8 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 			return queryRunResult{}, err
 		}
 	}
-	persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, control, principal), assistantText.String(), runUsage, "complete", true)
+	persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, registered.StartedAtMillis, control, principal), assistantText.String(), runUsage, "complete", true)
+	completedAtMillis = completion.UpdatedAtMillis
 	if persisted {
 		syncBroadcastChatUpdated(s.deps.Notifications, completion)
 	}
@@ -804,11 +904,12 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 
 // syncRunExecutorParams 构造 handleQuerySync 三次持久化完成态调用所需参数
 // 调用共用的 RunExecutorParams，避免重复拼装三份 callback。
-func syncRunExecutorParams(s *Server, prepared preparedQuery, control *contracts.RunControl, principal *Principal) RunExecutorParams {
+func syncRunExecutorParams(s *Server, prepared preparedQuery, startedAtMillis int64, control *contracts.RunControl, principal *Principal) RunExecutorParams {
 	execution := s.resolvedQueryExecution(prepared)
 	params := RunExecutorParams{
 		Request:           prepared.req,
 		Session:           prepared.session,
+		StartedAtMillis:   startedAtMillis,
 		Chats:             execution.CompletionStore,
 		RunControl:        control,
 		ResourceBaseURL:   prepared.resourceBaseURL,

@@ -20,16 +20,22 @@ import (
 	"agent-platform/internal/stream"
 )
 
+func wsRegressionEpochMillis(value int64) *int64 {
+	return &value
+}
+
 func TestServerSharedHelpersUseCommonChatAndMemoryStores(t *testing.T) {
 	server, chats, memories := newServerForHelperTests(t)
 
 	if _, _, err := chats.EnsureChat("chat-1", "agent-1", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
+	startedAt := testEpochMillis + 1_001
+	startServerFixtureRun(t, chats, "chat-1", "run-1", startedAt)
 	if err := chats.AppendQueryLine("chat-1", chat.QueryLine{
 		ChatID:    "chat-1",
 		RunID:     "run-1",
-		UpdatedAt: 1001,
+		UpdatedAt: startedAt,
 		Query: map[string]any{
 			"chatId":  "chat-1",
 			"message": "hello",
@@ -41,12 +47,12 @@ func TestServerSharedHelpersUseCommonChatAndMemoryStores(t *testing.T) {
 	if err := chats.AppendStepLine("chat-1", chat.StepLine{
 		ChatID:    "chat-1",
 		RunID:     "run-1",
-		UpdatedAt: 1002,
+		UpdatedAt: startedAt + 1,
 		Type:      "react",
 		Seq:       1,
 		Messages: []chat.StoredMessage{
-			{Role: "user", Content: []chat.ContentPart{{Type: "text", Text: "hello"}}},
-			{Role: "assistant", Content: []chat.ContentPart{{Type: "text", Text: "answer"}}},
+			{Role: "user", Content: []chat.ContentPart{{Type: "text", Text: "hello"}}, Ts: wsRegressionEpochMillis(startedAt + 1)},
+			{Role: "assistant", Content: []chat.ContentPart{{Type: "text", Text: "answer"}}, Ts: wsRegressionEpochMillis(startedAt + 2)},
 		},
 	}); err != nil {
 		t.Fatalf("append step line: %v", err)
@@ -56,7 +62,8 @@ func TestServerSharedHelpersUseCommonChatAndMemoryStores(t *testing.T) {
 		RunID:           "run-1",
 		AssistantText:   "answer",
 		InitialMessage:  "hello",
-		UpdatedAtMillis: time.Now().UnixMilli(),
+		StartedAtMillis: startedAt,
+		UpdatedAtMillis: startedAt + 3,
 		Usage: chat.UsageData{
 			PromptTokens:           3,
 			CompletionTokens:       5,
@@ -149,12 +156,12 @@ func TestLoadChatDetailUsageBreakdownSeparatesLastRunFromChatTotal(t *testing.T)
 	if _, _, err := chats.EnsureChat("chat-usage-breakdown", "agent-1", "", "first"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	if err := chats.OnRunCompleted(chat.RunCompletion{
+	if err := completeServerFixtureRun(t, chats, chat.RunCompletion{
 		ChatID:          "chat-usage-breakdown",
 		RunID:           "run-usage-1",
 		InitialMessage:  "first",
 		AssistantText:   "first answer",
-		UpdatedAtMillis: 1000,
+		UpdatedAtMillis: testEpochMillis + 2_001,
 		Usage: chat.UsageData{
 			PromptTokens:           10,
 			CompletionTokens:       5,
@@ -164,12 +171,12 @@ func TestLoadChatDetailUsageBreakdownSeparatesLastRunFromChatTotal(t *testing.T)
 	}); err != nil {
 		t.Fatalf("complete first run: %v", err)
 	}
-	if err := chats.OnRunCompleted(chat.RunCompletion{
+	if err := completeServerFixtureRun(t, chats, chat.RunCompletion{
 		ChatID:          "chat-usage-breakdown",
 		RunID:           "run-usage-2",
 		InitialMessage:  "second",
 		AssistantText:   "second answer",
-		UpdatedAtMillis: 2000,
+		UpdatedAtMillis: testEpochMillis + 2_003,
 		Usage: chat.UsageData{
 			PromptTokens:           7,
 			CompletionTokens:       3,
@@ -226,10 +233,12 @@ func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) 
 	if _, _, err := chats.EnsureChat("chat-live", "agent-1", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
+	doneStartedAt := testEpochMillis + 10_001
+	startServerFixtureRun(t, chats, "chat-live", "run-done", doneStartedAt)
 	if err := chats.AppendQueryLine("chat-live", chat.QueryLine{
 		ChatID:    "chat-live",
 		RunID:     "run-done",
-		UpdatedAt: 1001,
+		UpdatedAt: doneStartedAt,
 		Query: map[string]any{
 			"chatId":  "chat-live",
 			"message": "completed",
@@ -241,11 +250,11 @@ func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) 
 	if err := chats.AppendStepLine("chat-live", chat.StepLine{
 		ChatID:    "chat-live",
 		RunID:     "run-done",
-		UpdatedAt: 1002,
+		UpdatedAt: doneStartedAt + 1,
 		Type:      "react",
 		Seq:       1,
 		Messages: []chat.StoredMessage{
-			{Role: "assistant", Content: []chat.ContentPart{{Type: "text", Text: "done"}}},
+			{Role: "assistant", Content: []chat.ContentPart{{Type: "text", Text: "done"}}, Ts: wsRegressionEpochMillis(doneStartedAt + 1)},
 		},
 	}); err != nil {
 		t.Fatalf("append completed step line: %v", err)
@@ -255,14 +264,17 @@ func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) 
 		RunID:           "run-done",
 		AssistantText:   "done",
 		InitialMessage:  "completed",
-		UpdatedAtMillis: time.Now().UnixMilli(),
+		StartedAtMillis: doneStartedAt,
+		UpdatedAtMillis: doneStartedAt + 2,
 	}); err != nil {
 		t.Fatalf("complete run-done: %v", err)
 	}
+	liveStartedAt := testEpochMillis + 10_003
+	startServerFixtureRun(t, chats, "chat-live", "run-live", liveStartedAt)
 	if err := chats.AppendQueryLine("chat-live", chat.QueryLine{
 		ChatID:    "chat-live",
 		RunID:     "run-live",
-		UpdatedAt: 1003,
+		UpdatedAt: liveStartedAt,
 		Query: map[string]any{
 			"chatId":       "chat-live",
 			"message":      "still running",
@@ -275,11 +287,11 @@ func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) 
 	if err := chats.AppendStepLine("chat-live", chat.StepLine{
 		ChatID:    "chat-live",
 		RunID:     "run-live",
-		UpdatedAt: 1004,
+		UpdatedAt: liveStartedAt + 1,
 		Type:      "react",
 		Seq:       1,
 		Messages: []chat.StoredMessage{
-			{Role: "assistant", Content: []chat.ContentPart{{Type: "text", Text: "partial"}}},
+			{Role: "assistant", Content: []chat.ContentPart{{Type: "text", Text: "partial"}}, Ts: wsRegressionEpochMillis(liveStartedAt + 1)},
 		},
 	}); err != nil {
 		t.Fatalf("append live step line: %v", err)
@@ -317,10 +329,12 @@ func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) 
 	if _, _, err := chats.EnsureChat("chat-live-plain", "agent-1", "", "hello"); err != nil {
 		t.Fatalf("ensure plain chat: %v", err)
 	}
+	plainStartedAt := testEpochMillis + 10_005
+	startServerFixtureRun(t, chats, "chat-live-plain", "run-live-plain", plainStartedAt)
 	if err := chats.AppendQueryLine("chat-live-plain", chat.QueryLine{
 		ChatID:    "chat-live-plain",
 		RunID:     "run-live-plain",
-		UpdatedAt: 1005,
+		UpdatedAt: plainStartedAt,
 		Query: map[string]any{
 			"chatId":  "chat-live-plain",
 			"message": "plain running",
@@ -372,13 +386,14 @@ func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) 
 func TestActiveRunInPlanningStage(t *testing.T) {
 	planningQuery := &chat.QueryLine{Query: map[string]any{"planningMode": true}}
 	plainQuery := &chat.QueryLine{Query: map[string]any{"message": "plain"}}
-	planAnswer := func(runID string, decision string) stream.EventData {
+	planningAnswer := func(runID string, decision string) stream.EventData {
 		return stream.EventData{
-			Type: "awaiting.answer",
+			Type:      "awaiting.answer",
+			Timestamp: testEpochMillis,
 			Payload: map[string]any{
 				"runId": runID,
-				"mode":  "plan",
-				"plan": map[string]any{
+				"mode":  "planning",
+				"planning": map[string]any{
 					"decision": decision,
 				},
 			},
@@ -398,16 +413,16 @@ func TestActiveRunInPlanningStage(t *testing.T) {
 			runID: "run-plain",
 			query: plainQuery,
 			events: []stream.EventData{
-				planAnswer("run-plain", "reject"),
+				planningAnswer("run-plain", "reject"),
 			},
 			summary: &chat.Summary{PendingAwaiting: &chat.PendingAwaiting{
 				RunID: "run-plain",
-				Mode:  "plan",
+				Mode:  "planning",
 			}},
 			want: false,
 		},
 		{
-			name:  "planning query without plan answer remains planning",
+			name:  "planning query without planning answer remains planning",
 			runID: "run-planning",
 			query: planningQuery,
 			want:  true,
@@ -417,7 +432,7 @@ func TestActiveRunInPlanningStage(t *testing.T) {
 			runID: "run-reject",
 			query: planningQuery,
 			events: []stream.EventData{
-				planAnswer("run-reject", "reject"),
+				planningAnswer("run-reject", "reject"),
 			},
 			want: true,
 		},
@@ -426,8 +441,8 @@ func TestActiveRunInPlanningStage(t *testing.T) {
 			runID: "run-approve",
 			query: planningQuery,
 			events: []stream.EventData{
-				planAnswer("run-approve", "reject"),
-				planAnswer("run-approve", "approve"),
+				planningAnswer("run-approve", "reject"),
+				planningAnswer("run-approve", "approve"),
 			},
 			want: false,
 		},
@@ -436,20 +451,20 @@ func TestActiveRunInPlanningStage(t *testing.T) {
 			runID: "run-current",
 			query: planningQuery,
 			events: []stream.EventData{
-				planAnswer("run-other", "approve"),
+				planningAnswer("run-other", "approve"),
 			},
 			want: true,
 		},
 		{
-			name:  "pending plan awaiting keeps active run in planning",
+			name:  "pending planning awaiting keeps active run in planning",
 			runID: "run-pending",
 			query: planningQuery,
 			events: []stream.EventData{
-				planAnswer("run-pending", "approve"),
+				planningAnswer("run-pending", "approve"),
 			},
 			summary: &chat.Summary{PendingAwaiting: &chat.PendingAwaiting{
 				RunID: "run-pending",
-				Mode:  "plan",
+				Mode:  "planning",
 			}},
 			want: true,
 		},
@@ -464,7 +479,7 @@ func TestActiveRunInPlanningStage(t *testing.T) {
 	}
 }
 
-func TestLoadChatDetailActiveRunPlanningModeReflectsPlanDecision(t *testing.T) {
+func TestLoadChatDetailActiveRunPlanningModeReflectsPlanningDecision(t *testing.T) {
 	server, chats, _ := newServerForHelperTests(t)
 	runs := contracts.NewInMemoryRunManager()
 	server.deps.Runs = runs
@@ -474,10 +489,12 @@ func TestLoadChatDetailActiveRunPlanningModeReflectsPlanDecision(t *testing.T) {
 	if _, _, err := chats.EnsureChat(chatID, "agent-1", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
+	startedAt := testEpochMillis + 20_001
+	startServerFixtureRun(t, chats, chatID, runID, startedAt)
 	if err := chats.AppendQueryLine(chatID, chat.QueryLine{
 		ChatID:    chatID,
 		RunID:     runID,
-		UpdatedAt: 1001,
+		UpdatedAt: startedAt,
 		Query: map[string]any{
 			"chatId":       chatID,
 			"message":      "plan then execute",
@@ -490,21 +507,23 @@ func TestLoadChatDetailActiveRunPlanningModeReflectsPlanDecision(t *testing.T) {
 	if err := chats.AppendSubmitLine(chatID, chat.SubmitLine{
 		ChatID:    chatID,
 		RunID:     runID,
-		UpdatedAt: 1002,
+		UpdatedAt: startedAt + 1,
 		Type:      "submit",
 		Submit: map[string]any{
 			"type":       "request.submit",
+			"timestamp":  startedAt + 1,
 			"chatId":     chatID,
-			"awaitingId": "await-plan",
+			"awaitingId": "await-planning",
 			"params": []any{
 				map[string]any{"id": "confirm", "decision": "approve"},
 			},
 		},
 		Answer: map[string]any{
 			"type":       "awaiting.answer",
-			"awaitingId": "await-plan",
-			"mode":       "plan",
-			"plan": map[string]any{
+			"timestamp":  startedAt + 1,
+			"awaitingId": "await-planning",
+			"mode":       "planning",
+			"planning": map[string]any{
 				"id":         "confirm",
 				"planningId": runID + "_planning_1",
 				"decision":   "approve",
@@ -546,10 +565,12 @@ func TestLoadChatDetailActiveRunLastSeqUsesPersistedLiveSeqCursor(t *testing.T) 
 	if _, _, err := chats.EnsureChat("chat-live-cursor", "agent-1", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
+	cursorStartedAt := testEpochMillis + 30_001
+	startServerFixtureRun(t, chats, "chat-live-cursor", "run-live-cursor", cursorStartedAt)
 	if err := chats.AppendQueryLine("chat-live-cursor", chat.QueryLine{
 		ChatID:    "chat-live-cursor",
 		RunID:     "run-live-cursor",
-		UpdatedAt: 1001,
+		UpdatedAt: cursorStartedAt,
 		LiveSeq:   1,
 		Query: map[string]any{
 			"chatId":  "chat-live-cursor",
@@ -562,7 +583,7 @@ func TestLoadChatDetailActiveRunLastSeqUsesPersistedLiveSeqCursor(t *testing.T) 
 	if err := chats.AppendStepLine("chat-live-cursor", chat.StepLine{
 		ChatID:    "chat-live-cursor",
 		RunID:     "run-live-cursor",
-		UpdatedAt: 1002,
+		UpdatedAt: cursorStartedAt + 1,
 		LiveSeq:   3,
 		Type:      "react",
 		Seq:       1,
@@ -570,6 +591,7 @@ func TestLoadChatDetailActiveRunLastSeqUsesPersistedLiveSeqCursor(t *testing.T) 
 			{
 				Role:    "assistant",
 				Content: []chat.ContentPart{{Type: "text", Text: "partial"}},
+				Ts:      wsRegressionEpochMillis(cursorStartedAt + 1),
 			},
 		},
 	}); err != nil {
@@ -592,7 +614,7 @@ func TestLoadChatDetailActiveRunLastSeqUsesPersistedLiveSeqCursor(t *testing.T) 
 		bus.Publish(stream.EventData{
 			Seq:       seq,
 			Type:      eventType,
-			Timestamp: 2000 + seq,
+			Timestamp: testEpochMillis + 32_000 + seq,
 			Payload:   map[string]any{"runId": "run-live-cursor"},
 		})
 	}
@@ -629,10 +651,12 @@ func TestLoadChatDetailActiveRunLastSeqUsesPersistedLiveSeqCursor(t *testing.T) 
 	if _, _, err := chats.EnsureChat("chat-old-live-cursor", "agent-1", "", "hello"); err != nil {
 		t.Fatalf("ensure old chat: %v", err)
 	}
+	oldCursorStartedAt := testEpochMillis + 33_001
+	startServerFixtureRun(t, chats, "chat-old-live-cursor", "run-old-live-cursor", oldCursorStartedAt)
 	if err := chats.AppendQueryLine("chat-old-live-cursor", chat.QueryLine{
 		ChatID:    "chat-old-live-cursor",
 		RunID:     "run-old-live-cursor",
-		UpdatedAt: 3001,
+		UpdatedAt: oldCursorStartedAt,
 		Query: map[string]any{
 			"chatId":  "chat-old-live-cursor",
 			"message": "running",
@@ -650,7 +674,7 @@ func TestLoadChatDetailActiveRunLastSeqUsesPersistedLiveSeqCursor(t *testing.T) 
 	if !ok {
 		t.Fatal("expected old run event bus")
 	}
-	oldBus.Publish(stream.EventData{Seq: 9, Type: "content.delta", Payload: map[string]any{"runId": "run-old-live-cursor"}})
+	oldBus.Publish(stream.EventData{Seq: 9, Type: "content.delta", Timestamp: oldCursorStartedAt + 1, Payload: map[string]any{"runId": "run-old-live-cursor"}})
 	oldDetail, err := server.loadChatDetail(context.Background(), "chat-old-live-cursor", false)
 	if err != nil {
 		t.Fatalf("load old chat detail: %v", err)
@@ -733,16 +757,16 @@ func TestListAgentSummariesIncludesChatStats(t *testing.T) {
 	if _, _, err := chats.EnsureChat("chat-b1", "agent-b", "", "hello"); err != nil {
 		t.Fatalf("ensure chat-b1: %v", err)
 	}
-	if err := chats.OnRunCompleted(chat.RunCompletion{ChatID: "chat-a2", RunID: "loyw3v20", UpdatedAtMillis: 1000}); err != nil {
+	if err := completeServerFixtureRun(t, chats, chat.RunCompletion{ChatID: "chat-a2", RunID: "loyw3v20", UpdatedAtMillis: testEpochMillis + 40_001}); err != nil {
 		t.Fatalf("complete chat-a2: %v", err)
 	}
 	if _, err := chats.MarkRead("chat-a2", "loyw3v20"); err != nil {
 		t.Fatalf("mark chat-a2 read: %v", err)
 	}
-	if err := chats.OnRunCompleted(chat.RunCompletion{
+	if err := completeServerFixtureRun(t, chats, chat.RunCompletion{
 		ChatID:          "chat-a1",
 		RunID:           "loyw3v28",
-		UpdatedAtMillis: 3000,
+		UpdatedAtMillis: testEpochMillis + 40_003,
 		Usage: chat.UsageData{
 			PromptTokens:     7,
 			CompletionTokens: 3,
@@ -751,7 +775,7 @@ func TestListAgentSummariesIncludesChatStats(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("complete chat-a1: %v", err)
 	}
-	if err := chats.OnRunCompleted(chat.RunCompletion{ChatID: "chat-b1", RunID: "loyw3v2s", UpdatedAtMillis: 2000}); err != nil {
+	if err := completeServerFixtureRun(t, chats, chat.RunCompletion{ChatID: "chat-b1", RunID: "loyw3v2s", UpdatedAtMillis: testEpochMillis + 40_002}); err != nil {
 		t.Fatalf("complete chat-b1: %v", err)
 	}
 	if _, err := chats.MarkRead("chat-b1", "loyw3v2s"); err != nil {

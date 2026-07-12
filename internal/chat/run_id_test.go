@@ -21,3 +21,16 @@ func TestNewRunIDUsesBase36EpochMillis(t *testing.T) {
 		t.Fatalf("expected ParseRunIDMillis to round-trip %q, got millis=%d ok=%v", runID, millis, ok)
 	}
 }
+
+func TestNewRunIDAllocatesDistinctMonotonicValues(t *testing.T) {
+	first := NewRunID()
+	second := NewRunID()
+	firstMillis, firstOK := ParseRunIDMillis(first)
+	secondMillis, secondOK := ParseRunIDMillis(second)
+	if !firstOK || !secondOK {
+		t.Fatalf("expected parseable IDs: first=%q second=%q", first, second)
+	}
+	if secondMillis <= firstMillis {
+		t.Fatalf("run IDs must be monotonic and distinct: first=%d second=%d", firstMillis, secondMillis)
+	}
+}

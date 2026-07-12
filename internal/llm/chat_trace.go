@@ -13,6 +13,7 @@ import (
 
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/observability"
+	"agent-platform/internal/timecontract"
 )
 
 type llmChatTrace struct {
@@ -303,8 +304,11 @@ func setTraceTimeField(payload map[string]any, atKey string, at time.Time) {
 	if payload == nil || strings.TrimSpace(atKey) == "" {
 		return
 	}
-	payload[atKey] = at.UnixMilli()
-	payload[traceReadableTimeKey(atKey)] = at.Format(time.RFC3339Nano)
+	millis := at.UnixMilli()
+	payload[atKey] = millis
+	// The human-readable field must describe exactly the same instant as the
+	// epoch-millisecond field, not the original sub-millisecond clock value.
+	payload[traceReadableTimeKey(atKey)] = time.UnixMilli(millis).In(at.Location()).Format(time.RFC3339Nano)
 }
 
 func traceReadableTimeKey(atKey string) string {
@@ -333,6 +337,15 @@ func (t *llmChatTrace) writeLocked() {
 	dataPayload := t.payload
 	if t.maskSensitive {
 		dataPayload = maskTracePayload(dataPayload)
+	}
+	// A trace is a public, replayable JSON artifact. Validate the original Go
+	// values before json.MarshalIndent: an integral float64 otherwise becomes an
+	// indistinguishable integer token on disk and can bypass the strict historic
+	// read boundary. Trace recording is observational, so a bad tool/upstream
+	// payload is refused and logged rather than being repaired or written.
+	if err := timecontract.ValidateJSONPayload(dataPayload, "llm.trace.write"); err != nil {
+		log.Printf("[llm][trace][warning] time contract violation path=%s err=%v", t.path, err)
+		return
 	}
 	data, err := json.MarshalIndent(dataPayload, "", "  ")
 	if err != nil {

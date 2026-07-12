@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/timecontract"
 
 	_ "modernc.org/sqlite"
 )
@@ -213,10 +214,16 @@ func (s *SQLiteStore) recordHistoryLocked(event HistoryEvent) error {
 		event.ID = generateHistoryID()
 	}
 	if event.Timestamp == 0 {
+		// This is a newly-created local audit record, not an upstream/persisted
+		// event being replayed. Capture the audit occurrence once here; nonzero
+		// invalid values are never repaired below.
 		event.Timestamp = time.Now().UnixMilli()
 	}
 	if strings.TrimSpace(event.Status) == "" {
 		event.Status = HistoryStatusOK
+	}
+	if err := timecontract.ValidateJSONPayload(event, "memory.history.write"); err != nil {
+		return err
 	}
 	_, err := s.db.Exec(
 		`INSERT INTO MEMORY_HISTORY (ID_, TS_, AGENT_KEY_, CHAT_ID_, RUN_ID_, REQUEST_ID_, USER_KEY_,
@@ -276,6 +283,9 @@ func scanHistoryRows(rows *sql.Rows) ([]HistoryEvent, error) {
 		event.After = decodeHistoryJSON(afterJSON)
 		event.Delta = decodeHistoryJSON(deltaJSON)
 		event.Meta = decodeHistoryJSON(metaJSON)
+		if err := validateHistoryTimeContract(event, "memory.sqlite.history"); err != nil {
+			return nil, err
+		}
 		events = append(events, event)
 	}
 	return events, rows.Err()

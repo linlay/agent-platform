@@ -377,6 +377,9 @@ func TestInvokeReadDedupsUnchangedFile(t *testing.T) {
 	if result.Structured["kind"] != "unchanged" {
 		t.Fatalf("expected unchanged payload, got %#v", result.Structured)
 	}
+	if _, exists := result.Structured["modifiedUnixMs"]; exists {
+		t.Fatalf("unchanged file result must omit absent modifiedUnixMs, got %#v", result.Structured)
+	}
 }
 
 func TestInvokeReadDedupRespectsLineNumberOption(t *testing.T) {

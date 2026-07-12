@@ -6,24 +6,25 @@ import (
 	"strings"
 
 	"agent-platform/internal/stream"
+	"agent-platform/internal/timecontract"
 )
 
 // PlanningSnapshotFromAwaitingItem builds planning state and a replay/live snapshot
-// from a persisted or proxied plan awaiting event.
-func PlanningSnapshotFromAwaitingItem(item map[string]any, chatID string, runID string, chatDir string, fallbackTimestamp int64) (*PlanningState, *stream.EventData) {
-	return planningSnapshotFromAwaitingItem(item, chatID, runID, chatDir, fallbackTimestamp)
+// from a persisted or proxied planning awaiting event.
+func PlanningSnapshotFromAwaitingItem(item map[string]any, chatID string, runID string, chatDir string) (*PlanningState, *stream.EventData) {
+	return planningSnapshotFromAwaitingItem(item, chatID, runID, chatDir)
 }
 
-func planningSnapshotFromAwaitingItem(item map[string]any, chatID string, runID string, chatDir string, fallbackTimestamp int64) (*PlanningState, *stream.EventData) {
+func planningSnapshotFromAwaitingItem(item map[string]any, chatID string, runID string, chatDir string) (*PlanningState, *stream.EventData) {
 	if strings.TrimSpace(stringFromAny(item["type"])) != "awaiting.ask" ||
-		!strings.EqualFold(strings.TrimSpace(stringFromAny(item["mode"])), "plan") {
+		!strings.EqualFold(strings.TrimSpace(stringFromAny(item["mode"])), "planning") {
 		return nil, nil
 	}
-	plan, _ := item["plan"].(map[string]any)
-	if len(plan) == 0 {
+	planning, _ := item["planning"].(map[string]any)
+	if len(planning) == 0 {
 		return nil, nil
 	}
-	state := planningStateFromPlan(plan, chatDir)
+	state := planningStateFromPlanning(planning, chatDir)
 	if state == nil {
 		return nil, nil
 	}
@@ -31,9 +32,12 @@ func planningSnapshotFromAwaitingItem(item map[string]any, chatID string, runID 
 		return state, nil
 	}
 
-	timestamp := int64FromAny(item["timestamp"])
-	if timestamp == 0 {
-		timestamp = fallbackTimestamp
+	timestamp, err := timecontract.ParseEpochMillis(item["timestamp"], "timestamp", "chat.awaiting.planning")
+	// Public replay paths validate persisted awaiting items before reaching
+	// this helper. Keep the defensive branch non-repairing for direct callers:
+	// a missing source timestamp must never inherit a line timestamp.
+	if err != nil {
+		return state, nil
 	}
 	if strings.TrimSpace(chatID) == "" {
 		chatID = strings.TrimSpace(stringFromAny(item["chatId"]))
@@ -61,18 +65,18 @@ func planningSnapshotFromAwaitingItem(item map[string]any, chatID string, runID 
 	}
 }
 
-func planningStateFromAwaitingPlan(rawAwaiting any, chatDir string) *PlanningState {
+func planningStateFromAwaitingPlanning(rawAwaiting any, chatDir string) *PlanningState {
 	var latest *PlanningState
 	for _, item := range toMapSlice(rawAwaiting) {
 		if strings.TrimSpace(stringFromAny(item["type"])) != "awaiting.ask" ||
-			!strings.EqualFold(strings.TrimSpace(stringFromAny(item["mode"])), "plan") {
+			!strings.EqualFold(strings.TrimSpace(stringFromAny(item["mode"])), "planning") {
 			continue
 		}
-		plan, _ := item["plan"].(map[string]any)
-		if len(plan) == 0 {
+		planning, _ := item["planning"].(map[string]any)
+		if len(planning) == 0 {
 			continue
 		}
-		state := planningStateFromPlan(plan, chatDir)
+		state := planningStateFromPlanning(planning, chatDir)
 		if state != nil {
 			latest = state
 		}
@@ -80,18 +84,18 @@ func planningStateFromAwaitingPlan(rawAwaiting any, chatDir string) *PlanningSta
 	return latest
 }
 
-func planningStateFromPlan(plan map[string]any, chatDir string) *PlanningState {
-	if len(plan) == 0 {
+func planningStateFromPlanning(planning map[string]any, chatDir string) *PlanningState {
+	if len(planning) == 0 {
 		return nil
 	}
-	planningID := strings.TrimSpace(stringFromAny(plan["planningId"]))
+	planningID := strings.TrimSpace(stringFromAny(planning["planningId"]))
 	if planningID == "" {
-		planningID = strings.TrimSpace(stringFromAny(plan["id"]))
+		planningID = strings.TrimSpace(stringFromAny(planning["id"]))
 	}
 	return planningStateFromRef(
 		planningID,
-		strings.TrimSpace(stringFromAny(plan["planningFile"])),
-		stringFromAny(plan["text"]),
+		strings.TrimSpace(stringFromAny(planning["planningFile"])),
+		stringFromAny(planning["text"]),
 		chatDir,
 	)
 }
@@ -145,7 +149,7 @@ func resolvePlanningFileForReplay(planningFile string, chatDir string, planningI
 		candidates = append(candidates, planningFile)
 	}
 	if chatDir != "" && planningID != "" {
-		candidates = append(candidates, filepath.Join(chatDir, ToolRootDirName, ToolPlansDirName, planningID+".md"))
+		candidates = append(candidates, filepath.Join(chatDir, ToolRootDirName, ToolPlanningDirName, planningID+".md"))
 	}
 	for _, candidate := range candidates {
 		if fileExists(candidate) {
@@ -164,4 +168,20 @@ func fileExists(path string) bool {
 	}
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func containsLegacyPlanningAwaiting(lines []map[string]any) bool {
+	for _, line := range lines {
+		for _, item := range toMapSlice(line["awaiting"]) {
+			if strings.EqualFold(strings.TrimSpace(stringFromAny(item["mode"])), "plan") {
+				return true
+			}
+		}
+		event, _ := line["event"].(map[string]any)
+		if strings.TrimSpace(stringFromAny(event["type"])) == "awaiting.ask" &&
+			strings.EqualFold(strings.TrimSpace(stringFromAny(event["mode"])), "plan") {
+			return true
+		}
+	}
+	return false
 }

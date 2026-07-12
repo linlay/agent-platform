@@ -47,7 +47,7 @@ func (s *FileStore) loadSystemInits(chatID string) (SystemInitIndex, *SystemInit
 }
 
 func loadSystemInitsFromPath(path string) (SystemInitIndex, *SystemInitLine, error) {
-	lines, err := readJSONLines(path)
+	lines, err := readPersistedJSONLines(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return SystemInitIndex{}, nil, nil

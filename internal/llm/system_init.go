@@ -27,6 +27,7 @@ type SystemInitProfileBuilder struct {
 type SystemInitDefaults struct {
 	PlanMaxSteps             int
 	PlanMaxWorkRoundsPerTask int
+	CoderPlanningMaxSteps    int
 	Prompts                  config.PromptsConfig
 }
 
@@ -41,6 +42,7 @@ func (b SystemInitProfileBuilder) BuildSystemInitProfiles(input contracts.System
 		input.ToolDefinitions,
 		b.Defaults.PlanMaxSteps,
 		b.Defaults.PlanMaxWorkRoundsPerTask,
+		b.Defaults.CoderPlanningMaxSteps,
 		b.Defaults.Prompts,
 	)
 	if b.Models != nil {
@@ -79,21 +81,21 @@ func validateSystemInitProfiles(profiles []contracts.SystemInitProfile) error {
 	return nil
 }
 
-func BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, defaultPlanMaxSteps int, defaultPlanMaxWorkRoundsPerTask int, prompts config.PromptsConfig) []contracts.SystemInitProfile {
+func BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, defaultPlanMaxSteps int, defaultPlanMaxWorkRoundsPerTask int, defaultCoderPlanningMaxSteps int, prompts config.PromptsConfig) []contracts.SystemInitProfile {
 	toolDefs = mergeToolDefinitions(toolDefs, session.ModeToolDefinitions)
 	mode := normalizedSystemInitMode(session.Mode)
 	if session.PlanningMode {
 		if mode != agentcoder.MainStage {
 			return nil
 		}
-		settings := resolvePlanExecuteRuntimeSettings(session, defaultPlanMaxSteps, defaultPlanMaxWorkRoundsPerTask)
-		session.ResolvedStageSettings = settings
+		settings := resolveCoderPlanningRuntimeSettings(session, defaultCoderPlanningMaxSteps)
+		session.ResolvedCoderPlanningSettings = settings
 		return buildCoderPlanningSystemInitProfiles(session, req, settings, toolDefs)
 	}
 	switch mode {
 	case "plan-execute":
 		settings := resolvePlanExecuteRuntimeSettings(session, defaultPlanMaxSteps, defaultPlanMaxWorkRoundsPerTask)
-		session.ResolvedStageSettings = settings
+		session.ResolvedPlanExecuteSettings = settings
 		return []contracts.SystemInitProfile{
 			buildPlanSystemInitProfile(session, req, settings, toolDefs),
 			buildExecuteSystemInitProfile(session, settings, toolDefs),
@@ -118,7 +120,7 @@ func (b SystemInitProfileBuilder) applyRequestProfile(profile *contracts.SystemI
 		return
 	}
 	stage := profileRuntimeStage(session, *profile)
-	stageSettings := stageSettingsForName(session.ResolvedStageSettings, stage)
+	stageSettings := stageSettingsForSession(session, stage)
 	modelKey := strings.TrimSpace(stageSettings.ModelKey)
 	if modelKey == "" {
 		modelKey = strings.TrimSpace(session.ModelKey)
@@ -178,8 +180,8 @@ func profileRuntimeStage(session contracts.QuerySession, profile contracts.Syste
 	}
 	if mode == agentcoder.MainStage {
 		switch stage {
-		case "plan":
-			return agentcoder.PlanStage
+		case "planning":
+			return agentcoder.PlanningStage
 		case "execute":
 			return agentcoder.ExecuteStage
 		}
@@ -259,38 +261,39 @@ func SystemInitCacheKey(mode string, stage string) string {
 
 func ComputeSystemInitFingerprint(session contracts.QuerySession, stage string, toolDefs []api.ToolDetailResponse) string {
 	payload := map[string]any{
-		"agentKey":               session.AgentKey,
-		"agentName":              session.AgentName,
-		"agentRole":              session.AgentRole,
-		"agentDescription":       session.AgentDescription,
-		"mode":                   normalizedSystemInitMode(session.Mode),
-		"stage":                  strings.TrimSpace(stage),
-		"modelKey":               session.ModelKey,
-		"toolNames":              sortedStrings(session.ToolNames),
-		"skillKeys":              sortedStrings(session.SkillKeys),
-		"contextTags":            sortedStrings(session.ContextTags),
-		"budget":                 session.Budget,
-		"stageSettings":          session.StageSettings,
-		"resolvedStageSettings":  session.ResolvedStageSettings,
-		"promptAppend":           session.PromptAppend,
-		"staticMemoryPrompt":     session.StaticMemoryPrompt,
-		"skillCatalogPrompt":     session.SkillCatalogPrompt,
-		"soulPrompt":             session.SoulPrompt,
-		"agentsPrompt":           session.AgentsPrompt,
-		"workspaceAgentsPrompt":  session.WorkspaceAgentsPrompt,
-		"planPrompt":             session.PlanPrompt,
-		"executePrompt":          session.ExecutePrompt,
-		"summaryPrompt":          session.SummaryPrompt,
-		"modeSystemPrompt":       session.ModeSystemPrompt,
-		"runtimeEnvironmentID":   session.RuntimeEnvironmentID,
-		"runtimeLevel":           session.RuntimeLevel,
-		"runtimeExtraMounts":     session.RuntimeExtraMounts,
-		"agentHasRuntimeSandbox": session.AgentHasRuntimeSandbox,
-		"agentHasMemoryConfig":   session.AgentHasMemoryConfig,
-		"skillHookDirs":          sortedStrings(session.SkillHookDirs),
-		"runtimeEnvOverrides":    session.RuntimeEnvOverrides,
-		"toolDefinitions":        stableToolDefinitions(toolDefs),
-		"teamRuntime":            session.TeamRuntime,
+		"agentKey":                      session.AgentKey,
+		"agentName":                     session.AgentName,
+		"agentRole":                     session.AgentRole,
+		"agentDescription":              session.AgentDescription,
+		"mode":                          normalizedSystemInitMode(session.Mode),
+		"stage":                         strings.TrimSpace(stage),
+		"modelKey":                      session.ModelKey,
+		"toolNames":                     sortedStrings(session.ToolNames),
+		"skillKeys":                     sortedStrings(session.SkillKeys),
+		"contextTags":                   sortedStrings(session.ContextTags),
+		"budget":                        session.Budget,
+		"stageSettings":                 session.StageSettings,
+		"resolvedPlanExecuteSettings":   session.ResolvedPlanExecuteSettings,
+		"resolvedCoderPlanningSettings": session.ResolvedCoderPlanningSettings,
+		"promptAppend":                  session.PromptAppend,
+		"staticMemoryPrompt":            session.StaticMemoryPrompt,
+		"skillCatalogPrompt":            session.SkillCatalogPrompt,
+		"soulPrompt":                    session.SoulPrompt,
+		"agentsPrompt":                  session.AgentsPrompt,
+		"workspaceAgentsPrompt":         session.WorkspaceAgentsPrompt,
+		"planPrompt":                    session.PlanPrompt,
+		"executePrompt":                 session.ExecutePrompt,
+		"summaryPrompt":                 session.SummaryPrompt,
+		"modeSystemPrompt":              session.ModeSystemPrompt,
+		"runtimeEnvironmentID":          session.RuntimeEnvironmentID,
+		"runtimeLevel":                  session.RuntimeLevel,
+		"runtimeExtraMounts":            session.RuntimeExtraMounts,
+		"agentHasRuntimeSandbox":        session.AgentHasRuntimeSandbox,
+		"agentHasMemoryConfig":          session.AgentHasMemoryConfig,
+		"skillHookDirs":                 sortedStrings(session.SkillHookDirs),
+		"runtimeEnvOverrides":           session.RuntimeEnvOverrides,
+		"toolDefinitions":               stableToolDefinitions(toolDefs),
+		"teamRuntime":                   session.TeamRuntime,
 	}
 	raw, _ := json.Marshal(payload)
 	sum := sha256.Sum256(raw)
@@ -386,7 +389,7 @@ func buildSummarySystemInitProfile(session contracts.QuerySession, settings cont
 	}
 }
 
-func buildCoderPlanningSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, settings contracts.PlanExecuteSettings, toolDefs []api.ToolDetailResponse) []contracts.SystemInitProfile {
+func buildCoderPlanningSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, settings contracts.CoderPlanningSettings, toolDefs []api.ToolDetailResponse) []contracts.SystemInitProfile {
 	specs := agentcoder.PlanningSystemInitSpecs(session, req, settings)
 	profiles := make([]contracts.SystemInitProfile, 0, len(specs))
 	for _, spec := range specs {
@@ -395,12 +398,12 @@ func buildCoderPlanningSystemInitProfiles(session contracts.QuerySession, req ap
 	return profiles
 }
 
-func buildCoderPlanningExecuteSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, settings contracts.PlanExecuteSettings, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
+func buildCoderPlanningExecuteSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, settings contracts.CoderPlanningSettings, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
 	return buildCoderPlanningSystemInitProfile(session, req, agentcoder.PlanningExecuteSystemInitSpec(session, req, settings), toolDefs)
 }
 
-func buildCoderPlanningPlanSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, _ contracts.PlanExecuteSettings, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
-	return buildCoderPlanningSystemInitProfile(session, req, agentcoder.PlanningPlanSystemInitSpec(), toolDefs)
+func buildCoderPlanningPlanningSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, _ contracts.CoderPlanningSettings, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
+	return buildCoderPlanningSystemInitProfile(session, req, agentcoder.PlanningSystemInitSpec(), toolDefs)
 }
 
 func buildCoderPlanningSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, spec agentcontract.SystemInitSpec, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
@@ -427,9 +430,17 @@ func buildCoderPlanningSystemInitProfile(session contracts.QuerySession, req api
 }
 
 func resolvePlanExecuteRuntimeSettings(session contracts.QuerySession, defaultMaxSteps int, defaultMaxWorkRoundsPerTask int) contracts.PlanExecuteSettings {
-	settings := session.ResolvedStageSettings
+	settings := session.ResolvedPlanExecuteSettings
 	if settings.MaxSteps <= 0 || settings.MaxWorkRoundsPerTask <= 0 {
 		settings = contracts.ResolvePlanExecuteSettings(session.StageSettings, defaultMaxSteps, defaultMaxWorkRoundsPerTask)
+	}
+	return settings
+}
+
+func resolveCoderPlanningRuntimeSettings(session contracts.QuerySession, defaultMaxSteps int) contracts.CoderPlanningSettings {
+	settings := session.ResolvedCoderPlanningSettings
+	if settings.MaxSteps <= 0 {
+		settings = contracts.ResolveCoderPlanningSettings(session.StageSettings, defaultMaxSteps)
 	}
 	return settings
 }

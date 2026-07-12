@@ -232,10 +232,22 @@ func (c *Config) applyRuntimeFile(path string) error {
 	if memory, ok := values["memory"].(map[string]any); ok && len(memory) > 0 {
 		c.applyMemoryValues(memory)
 	}
+	if defaults, ok := values["defaults"].(map[string]any); ok && len(defaults) > 0 {
+		c.applyRuntimeDefaultsValues(defaults)
+	}
 	if budget, ok := values["budget"].(map[string]any); ok && len(budget) > 0 {
 		c.applyRuntimeBudgetValues(budget)
 	}
 	return nil
+}
+
+func (c *Config) applyRuntimeDefaultsValues(defaults map[string]any) {
+	planning, _ := defaults["coder-planning"].(map[string]any)
+	if len(planning) == 0 {
+		return
+	}
+	c.Defaults.CoderPlanning.MaxSteps = intValue(anyValue(planning["maxSteps"], c.Defaults.CoderPlanning.MaxSteps), c.Defaults.CoderPlanning.MaxSteps)
+	c.Defaults.CoderPlanning.MaxSteps = intValue(anyValue(planning["max-steps"], c.Defaults.CoderPlanning.MaxSteps), c.Defaults.CoderPlanning.MaxSteps)
 }
 
 func (c *Config) applyKBaseSettingsFile(path string) error {

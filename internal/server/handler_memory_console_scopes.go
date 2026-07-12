@@ -22,6 +22,10 @@ func (s *Server) handleMemoryScopes(w http.ResponseWriter, r *http.Request) {
 	}
 	views, err := memory.BuildScopeSummaries(s.deps.Memory, agentKey, scopeUserKey(r), strings.TrimSpace(r.URL.Query().Get("teamId")))
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
@@ -59,6 +63,10 @@ func (s *Server) handleMemoryScope(w http.ResponseWriter, r *http.Request) {
 		strings.TrimSpace(r.URL.Query().Get("teamId")),
 	)
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
 	}
@@ -116,11 +124,19 @@ func (s *Server) handleMemoryScopeSave(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := memory.SaveScope(s.deps.Memory, input)
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
 	}
 	view, err := memory.BuildScopeView(s.deps.Memory, input.AgentKey, input.ScopeType, input.ScopeKey, input.UserKey, input.TeamID)
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
@@ -197,6 +213,11 @@ func (s *Server) wsMemoryScopes(ctx context.Context, conn *ws.Conn, req ws.Reque
 	}
 	views, err := memory.BuildScopeSummaries(s.deps.Memory, agentKey, scopeUserKeyFromContext(ctx, payload.UserKey), strings.TrimSpace(payload.TeamID))
 	if err != nil {
+		if isTimeContractViolation(err) {
+			sendTimeContractViolation(conn, req.ID, err)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		sendMemoryWSError(conn, req, http.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
@@ -262,6 +283,11 @@ func (s *Server) wsMemoryScopeGet(ctx context.Context, conn *ws.Conn, req ws.Req
 		strings.TrimSpace(teamID),
 	)
 	if err != nil {
+		if isTimeContractViolation(err) {
+			sendTimeContractViolation(conn, req.ID, err)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		sendMemoryWSError(conn, req, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
@@ -314,11 +340,21 @@ func (s *Server) wsMemoryScopeSave(ctx context.Context, conn *ws.Conn, req ws.Re
 	}
 	result, err := memory.SaveScope(s.deps.Memory, input)
 	if err != nil {
+		if isTimeContractViolation(err) {
+			sendTimeContractViolation(conn, req.ID, err)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		sendMemoryWSError(conn, req, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 	view, err := memory.BuildScopeView(s.deps.Memory, input.AgentKey, input.ScopeType, input.ScopeKey, input.UserKey, input.TeamID)
 	if err != nil {
+		if isTimeContractViolation(err) {
+			sendTimeContractViolation(conn, req.ID, err)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		sendMemoryWSError(conn, req, http.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}

@@ -184,3 +184,20 @@ func TestAdminAgentOrderAllowsInvalidKeysAndRuntimeOrderFiltersThem(t *testing.T
 	}
 
 }
+
+func TestAdminAgentOrderOmitsAbsentUpdatedAt(t *testing.T) {
+	fixture := setupAdminAgentsFixture(t)
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/agents/order", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("fresh admin order status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var response api.ApiResponse[api.AgentOrderResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode fresh admin order: %v", err)
+	}
+	if response.Data.UpdatedAt != nil {
+		t.Fatalf("missing order file must omit updatedAt, got %#v", response.Data)
+	}
+}

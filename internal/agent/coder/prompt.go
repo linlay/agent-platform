@@ -10,7 +10,7 @@ import (
 
 type PromptTemplateData struct {
 	AvailableTools          []string
-	PlanStageTools          []string
+	PlanningStageTools      []string
 	ExecuteStageTools       []string
 	ExecuteToolDescriptions string
 }
@@ -27,9 +27,9 @@ func RenderSystemPrompt(session contracts.QuerySession, req api.QueryRequest, to
 		return ""
 	}
 	return RenderPromptTemplate(session.ModeSystemPrompt, PromptTemplateValues(session, req, PromptTemplateData{
-		AvailableTools:    toolNames,
-		PlanStageTools:    PlanningModePlanTools(),
-		ExecuteStageTools: PlanningExecuteTools(toolNames),
+		AvailableTools:     toolNames,
+		PlanningStageTools: PlanningModeTools(),
+		ExecuteStageTools:  PlanningExecuteTools(toolNames),
 	}))
 }
 
@@ -38,9 +38,9 @@ func PromptTemplateValues(session contracts.QuerySession, req api.QueryRequest, 
 	if len(availableTools) == 0 {
 		availableTools = session.ToolNames
 	}
-	planStageTools := data.PlanStageTools
-	if len(planStageTools) == 0 {
-		planStageTools = PlanningModePlanTools()
+	planningStageTools := data.PlanningStageTools
+	if len(planningStageTools) == 0 {
+		planningStageTools = PlanningModeTools()
 	}
 	executeStageTools := data.ExecuteStageTools
 	if len(executeStageTools) == 0 {
@@ -60,7 +60,7 @@ func PromptTemplateValues(session contracts.QuerySession, req api.QueryRequest, 
 		PlanningMode: session.PlanningMode, WorkspaceDir: workspaceDir, ChatDir: chatDir,
 		AvailableTools: availableTools, UserRequest: req.Message,
 	})
-	values["plan_stage_tools"] = strings.Join(agentcontract.NormalizeToolNames(planStageTools), ", ")
+	values["planning_stage_tools"] = strings.Join(agentcontract.NormalizeToolNames(planningStageTools), ", ")
 	values["execute_stage_tools"] = strings.Join(agentcontract.NormalizeToolNames(executeStageTools), ", ")
 	values["execute_tool_descriptions"] = strings.TrimSpace(data.ExecuteToolDescriptions)
 	values["ask_user_question_tool_name"] = AskUserQuestionToolName

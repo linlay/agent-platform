@@ -1103,8 +1103,8 @@ func TestResolveHITLTimeoutUsesHitlBudgetGlobalAndFallback(t *testing.T) {
 			want:   600,
 		},
 		{
-			name: "legacy planning timeout has no mode override",
-			mode: "plan",
+			name: "planning timeout has no mode override",
+			mode: "planning",
 			budget: contracts.Budget{Hitl: contracts.HitlPolicy{
 				Timeout: 600,
 			}},

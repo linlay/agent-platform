@@ -1,8 +1,11 @@
 package server
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path"
@@ -13,6 +16,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/stream"
+	"agent-platform/internal/timecontract"
 )
 
 var errInvalidLLMTraceFile = errors.New("invalid llm trace file")
@@ -24,12 +28,20 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	summary, err := s.deps.Chats.Summary(chatID)
-	if errors.Is(err, chat.ErrChatNotFound) || summary == nil {
+	if errors.Is(err, chat.ErrChatNotFound) {
 		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat not found"))
 		return
 	}
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
+	}
+	if summary == nil {
+		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat not found"))
 		return
 	}
 	detail, err := s.deps.Chats.LoadChat(chatID)
@@ -38,7 +50,15 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
+	}
+	if err := validatePublicTimeContract(detail.Events); err != nil {
+		writeTimeContractViolation(w, err)
 		return
 	}
 
@@ -67,6 +87,10 @@ func (s *Server) handleChatJSONL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
@@ -81,6 +105,12 @@ func (s *Server) loadChatJSONLContent(chatID string) (string, error) {
 	content, err := s.deps.Chats.LoadJSONLContent(chatID)
 	if errors.Is(err, chat.ErrChatNotFound) && s.deps.Archives != nil {
 		content, err = s.deps.Archives.LoadJSONLContent(chatID)
+	}
+	if err != nil {
+		return "", err
+	}
+	if err := validatePersistedJSONLTimeContract(content, "chat.jsonl"); err != nil {
+		return "", err
 	}
 	return content, err
 }
@@ -102,6 +132,10 @@ func (s *Server) handleChatLLMTrace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
@@ -132,7 +166,145 @@ func (s *Server) loadChatLLMTraceContent(fileParam string) (string, string, erro
 	if err != nil {
 		return "", filename, err
 	}
+	if err := validatePersistedTraceTimeContract(data, "llm_trace"); err != nil {
+		return "", filename, err
+	}
 	return string(data), filename, nil
+}
+
+// validatePersistedJSONLTimeContract intentionally only reads old content. It
+// never normalizes, rewrites, or fills a timestamp: incompatible historical
+// records must be surfaced to the caller as a 422 rather than silently made
+// to look current.
+func validatePersistedJSONLTimeContract(content string, baseLocation string) error {
+	decoder := json.NewDecoder(strings.NewReader(content))
+	decoder.UseNumber()
+	for index := 0; ; index++ {
+		var line map[string]any
+		err := decoder.Decode(&line)
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("parse persisted JSONL: %w", err)
+		}
+		location := fmt.Sprintf("%s[%d]", baseLocation, index)
+		if err := timecontract.ValidateJSONPayload(line, location); err != nil {
+			return err
+		}
+		lineType, _ := line["_type"].(string)
+		switch strings.TrimSpace(lineType) {
+		case "query", "react", "react-tool", "plan-execute", "step", "event", "submit", "steer", chat.CompactCheckpointLineType, chat.ToolCompactLineType:
+			if err := validateRequiredJSONEpochMillis(line, "updatedAt", location); err != nil {
+				return err
+			}
+		case "system-init":
+			if err := validateRequiredJSONEpochMillis(line, "createdAt", location); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(lineType) == "event" {
+			event, ok := line["event"].(map[string]any)
+			if !ok {
+				return &timecontract.Violation{Field: "timestamp", Location: location + ".event.timestamp", Reason: "event payload is required"}
+			}
+			if err := validateRequiredJSONEpochMillis(event, "timestamp", location+".event"); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func validateRequiredJSONEpochMillis(object map[string]any, field string, location string) error {
+	value, ok := object[field]
+	if !ok {
+		return &timecontract.Violation{Field: field, Location: location + "." + field, Reason: "is required"}
+	}
+	_, err := timecontract.ParseEpochMillis(value, field, location+"."+field)
+	return err
+}
+
+func validatePersistedTraceTimeContract(data []byte, location string) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var payload any
+	if err := decoder.Decode(&payload); err != nil {
+		return fmt.Errorf("parse persisted llm trace: %w", err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return fmt.Errorf("parse persisted llm trace: multiple JSON values")
+		}
+		return fmt.Errorf("parse persisted llm trace: %w", err)
+	}
+	if err := timecontract.ValidateJSONPayload(payload, location); err != nil {
+		return err
+	}
+	trace, ok := payload.(map[string]any)
+	if !ok {
+		return &timecontract.Violation{Field: "sentAt", Location: location, Reason: "trace must be a JSON object"}
+	}
+	status := strings.ToLower(strings.TrimSpace(stringValue(trace["status"])))
+	finalized := status == "ok" || status == "error" || status == "interrupted" || trace["completedAt"] != nil
+	if finalized {
+		if err := requireTraceTimePair(trace, "sentAt", location); err != nil {
+			return err
+		}
+		if err := requireTraceTimePair(trace, "completedAt", location); err != nil {
+			return err
+		}
+	}
+	if status == "ok" {
+		if err := requireTraceTimePair(trace, "responseStartedAt", location); err != nil {
+			return err
+		}
+	}
+	if rawInterrupt, exists := trace["interrupt"]; exists {
+		interrupt, ok := rawInterrupt.(map[string]any)
+		if !ok {
+			return &timecontract.Violation{Field: "interruptedAt", Location: location + ".interrupt", Reason: "interrupt must be an object"}
+		}
+		if err := requireTraceTimePair(interrupt, "interruptedAt", location+".interrupt"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func requireTraceTimePair(payload map[string]any, atField string, location string) error {
+	value, ok := payload[atField]
+	if !ok {
+		return &timecontract.Violation{Field: atField, Location: location + "." + atField, Reason: "is required"}
+	}
+	millis, err := timecontract.ParseEpochMillis(value, atField, location+"."+atField)
+	if err != nil {
+		return err
+	}
+	timeField := strings.TrimSuffix(atField, "At") + "Time"
+	raw, ok := payload[timeField].(string)
+	if !ok || strings.TrimSpace(raw) == "" {
+		return &timecontract.Violation{Field: timeField, Location: location + "." + timeField, Reason: "is required"}
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil || !hasTraceRFC3339Offset(raw) {
+		return &timecontract.Violation{Field: timeField, Location: location + "." + timeField, Reason: "must be RFC3339/RFC3339Nano with Z or offset"}
+	}
+	if parsed.Nanosecond()%int(time.Millisecond) != 0 || parsed.UnixMilli() != millis {
+		return &timecontract.Violation{Field: timeField, Location: location + "." + timeField, Reason: "must represent the same instant as " + atField}
+	}
+	return nil
+}
+
+func hasTraceRFC3339Offset(value string) bool {
+	if strings.HasSuffix(value, "Z") {
+		return true
+	}
+	if len(value) < len("+00:00") {
+		return false
+	}
+	offset := value[len(value)-6:]
+	return (offset[0] == '+' || offset[0] == '-') && offset[3] == ':'
 }
 
 func validateLLMTraceFileParam(fileParam string) (string, string, error) {

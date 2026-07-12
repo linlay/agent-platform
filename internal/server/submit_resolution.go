@@ -155,10 +155,10 @@ func (s *Server) resolveAlreadyHandledActiveSubmit(req api.SubmitRequest) (api.S
 }
 
 func (s *Server) prepareActiveSubmitContinuation(req api.SubmitRequest, awaiting contracts.AwaitingSubmitContext) (api.SubmitRequest, error) {
-	if !strings.EqualFold(strings.TrimSpace(awaiting.Mode), "plan") {
+	if !strings.EqualFold(strings.TrimSpace(awaiting.Mode), "planning") {
 		return req, nil
 	}
-	if agentcoder.SubmitPlanDecision(req.Params) != "approve" {
+	if agentcoder.SubmitPlanningDecision(req.Params) != "approve" {
 		return req, nil
 	}
 	if s == nil || s.deps.Runs == nil || s.deps.Registry == nil {
@@ -251,6 +251,7 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 	resolvedAt := time.Now().UnixMilli()
 	submitPayload := map[string]any{
 		"type":       "request.submit",
+		"timestamp":  resolvedAt,
 		"chatId":     deferred.ChatID,
 		"runId":      req.RunID,
 		"awaitingId": req.AwaitingID,
@@ -259,6 +260,7 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 	}
 	answerPayload := contracts.CloneMap(normalized)
 	answerPayload["type"] = "awaiting.answer"
+	answerPayload["timestamp"] = resolvedAt
 	answerPayload["awaitingId"] = req.AwaitingID
 	answerPayload["runId"] = req.RunID
 	if strings.TrimSpace(req.SubmitID) != "" {
@@ -289,6 +291,9 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 	continued, continueErr := s.startAwaitingContinuationWithAdmission(deferred, req, answerPayload, &continuationAdmission)
 	if continueErr != nil {
 		log.Printf("[server][awaiting] continue run failed chatId=%s runId=%s awaitingId=%s err=%v", deferred.ChatID, req.RunID, req.AwaitingID, continueErr)
+		if statusErr, ok := continueErr.(*statusError); ok && statusErr.code == "time_contract_violation" {
+			return api.SubmitResponse{}, statusErr
+		}
 	}
 
 	return api.SubmitResponse{
@@ -328,6 +333,7 @@ func (s *Server) resolveNonContinuableDeferredSubmit(deferred DeferredAwaiting, 
 	resolvedAt := time.Now().UnixMilli()
 	submitPayload := map[string]any{
 		"type":       "request.submit",
+		"timestamp":  resolvedAt,
 		"chatId":     deferred.ChatID,
 		"runId":      req.RunID,
 		"awaitingId": req.AwaitingID,
@@ -336,6 +342,7 @@ func (s *Server) resolveNonContinuableDeferredSubmit(deferred DeferredAwaiting, 
 	}
 	answerPayload := contracts.CloneMap(normalized)
 	answerPayload["type"] = "awaiting.answer"
+	answerPayload["timestamp"] = resolvedAt
 	answerPayload["awaitingId"] = req.AwaitingID
 	answerPayload["runId"] = req.RunID
 	if strings.TrimSpace(req.SubmitID) != "" {
@@ -388,7 +395,7 @@ func (s *Server) normalizeDeferredSubmit(deferred DeferredAwaiting, params api.S
 			handler = frontendtools.NewAskUserQuestionHandler()
 		}
 		return handler.NormalizeSubmit(deferred.Ask.Payload, params)
-	case "approval", "form", "plan":
+	case "approval", "form", "planning":
 		return hitl.Normalize(deferred.Ask.Payload, params)
 	default:
 		return nil, fmt.Errorf("unsupported awaiting mode: %s", deferred.Mode)

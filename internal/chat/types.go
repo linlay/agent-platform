@@ -9,7 +9,7 @@ const (
 	ToolRootDirName      = plantasks.ToolRootDirName
 	ToolResultsDirName   = "results"
 	ToolStateDirName     = "state"
-	ToolPlansDirName     = "plans"
+	ToolPlanningDirName  = "planning"
 	ToolPlanTasksDirName = plantasks.DirName
 	FileVersionsFileName = "file-versions.json"
 )
@@ -262,15 +262,19 @@ type StoredFunction struct {
 // ---------------------------------------------------------------------------
 
 type Summary struct {
-	ChatID          string           `json:"chatId"`
-	ChatName        string           `json:"chatName"`
-	OwnerType       string           `json:"ownerType,omitempty"`
-	AgentKey        string           `json:"agentKey,omitempty"`
-	TeamID          string           `json:"teamId,omitempty"`
-	Source          string           `json:"source,omitempty"`
-	SourceChannel   string           `json:"sourceChannel,omitempty"`
-	CreatedAt       int64            `json:"createdAt"`
-	UpdatedAt       int64            `json:"updatedAt"`
+	ChatID        string `json:"chatId"`
+	ChatName      string `json:"chatName"`
+	OwnerType     string `json:"ownerType,omitempty"`
+	AgentKey      string `json:"agentKey,omitempty"`
+	TeamID        string `json:"teamId,omitempty"`
+	Source        string `json:"source,omitempty"`
+	SourceChannel string `json:"sourceChannel,omitempty"`
+	CreatedAt     int64  `json:"createdAt"`
+	UpdatedAt     int64  `json:"updatedAt"`
+	// LastRunAt is kept for archive persistence only. It is captured from the
+	// run completion clock and intentionally not exposed by the active-chat
+	// DTO, whose public contract does not include this field.
+	LastRunAt       int64            `json:"-"`
 	LastRunID       string           `json:"lastRunId,omitempty"`
 	LastRunContent  string           `json:"lastRunContent,omitempty"`
 	Read            ChatReadState    `json:"read"`
@@ -373,6 +377,19 @@ type RunCompletion struct {
 	StartedAtMillis int64
 	UpdatedAtMillis int64
 	Usage           UsageData
+}
+
+// RunStart is the immutable lifecycle record captured immediately after the
+// run manager registers a run. Completion may enrich the row later but may
+// never derive or replace StartedAtMillis.
+type RunStart struct {
+	ChatID          string
+	RunID           string
+	OwnerType       string
+	AgentKey        string
+	TeamID          string
+	InitialMessage  string
+	StartedAtMillis int64
 }
 
 type RunSummary struct {

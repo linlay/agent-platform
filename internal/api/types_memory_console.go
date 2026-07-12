@@ -6,7 +6,7 @@ type MemoryScopeSummary struct {
 	Label       string `json:"label"`
 	FileName    string `json:"fileName"`
 	RecordCount int    `json:"recordCount"`
-	UpdatedAt   int64  `json:"updatedAt"`
+	UpdatedAt   *int64 `json:"updatedAt,omitempty"`
 }
 
 type MemoryScopesResponse struct {

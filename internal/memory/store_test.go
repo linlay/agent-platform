@@ -13,6 +13,8 @@ import (
 	"agent-platform/internal/skills"
 )
 
+const testEpochMillis int64 = 1_700_000_000_000
+
 type mockRememberSummarizer struct {
 	learn func(input LearnSynthesisInput) ([]MemoryDraft, error)
 }
@@ -178,8 +180,8 @@ func TestSQLiteStoreRecordsMemoryHistoryForWriteUpdateAndFeedback(t *testing.T) 
 		Importance: 8,
 		Confidence: 0.9,
 		Status:     StatusActive,
-		CreatedAt:  100,
-		UpdatedAt:  100,
+		CreatedAt:  testEpochMillis + 100,
+		UpdatedAt:  testEpochMillis + 100,
 	}
 	if err := store.Write(item); err != nil {
 		t.Fatalf("write memory: %v", err)
@@ -221,8 +223,8 @@ func TestSQLiteStoreRecordsRecallHistory(t *testing.T) {
 		Importance: 9,
 		Confidence: 0.95,
 		Status:     StatusActive,
-		CreatedAt:  100,
-		UpdatedAt:  100,
+		CreatedAt:  testEpochMillis + 100,
+		UpdatedAt:  testEpochMillis + 100,
 	}); err != nil {
 		t.Fatalf("write memory: %v", err)
 	}
@@ -346,8 +348,8 @@ func runToolQueriesTest(t *testing.T, store Store, expectedMatchType string) {
 			Category:   "general",
 			Importance: 3,
 			Tags:       []string{"alpha"},
-			CreatedAt:  100,
-			UpdatedAt:  100,
+			CreatedAt:  testEpochMillis + 100,
+			UpdatedAt:  testEpochMillis + 100,
 		},
 		{
 			ID:         "mem-2",
@@ -358,8 +360,8 @@ func runToolQueriesTest(t *testing.T, store Store, expectedMatchType string) {
 			Category:   "alerts",
 			Importance: 9,
 			Tags:       []string{"beta", "urgent"},
-			CreatedAt:  200,
-			UpdatedAt:  200,
+			CreatedAt:  testEpochMillis + 200,
+			UpdatedAt:  testEpochMillis + 200,
 		},
 		{
 			ID:         "mem-3",
@@ -370,8 +372,8 @@ func runToolQueriesTest(t *testing.T, store Store, expectedMatchType string) {
 			Category:   "general",
 			Importance: 10,
 			Tags:       []string{"other"},
-			CreatedAt:  300,
-			UpdatedAt:  300,
+			CreatedAt:  testEpochMillis + 300,
+			UpdatedAt:  testEpochMillis + 300,
 		},
 	}
 	for _, item := range items {
@@ -489,8 +491,8 @@ func TestBuildContextBundleSeparatesFactsAndObservations(t *testing.T) {
 					Importance: 9,
 					Confidence: 0.95,
 					Status:     StatusActive,
-					CreatedAt:  100,
-					UpdatedAt:  100,
+					CreatedAt:  testEpochMillis + 100,
+					UpdatedAt:  testEpochMillis + 100,
 				},
 				{
 					ID:         "fact-agent",
@@ -505,8 +507,8 @@ func TestBuildContextBundleSeparatesFactsAndObservations(t *testing.T) {
 					Importance: 8,
 					Confidence: 0.9,
 					Status:     StatusActive,
-					CreatedAt:  200,
-					UpdatedAt:  200,
+					CreatedAt:  testEpochMillis + 200,
+					UpdatedAt:  testEpochMillis + 200,
 				},
 				{
 					ID:         "obs-chat",
@@ -522,8 +524,8 @@ func TestBuildContextBundleSeparatesFactsAndObservations(t *testing.T) {
 					Importance: 8,
 					Confidence: 0.75,
 					Status:     StatusOpen,
-					CreatedAt:  300,
-					UpdatedAt:  300,
+					CreatedAt:  testEpochMillis + 300,
+					UpdatedAt:  testEpochMillis + 300,
 				},
 			}
 			for _, item := range items {
@@ -671,8 +673,8 @@ func TestBuildContextBundleDeduplicatesBeforePromptDisclosure(t *testing.T) {
 			Category:   "platform_rules",
 			Importance: 9,
 			Status:     StatusActive,
-			CreatedAt:  100,
-			UpdatedAt:  100,
+			CreatedAt:  testEpochMillis + 100,
+			UpdatedAt:  testEpochMillis + 100,
 		},
 		{
 			ID:         "fact-2",
@@ -686,8 +688,8 @@ func TestBuildContextBundleDeduplicatesBeforePromptDisclosure(t *testing.T) {
 			Category:   "platform_rules",
 			Importance: 8,
 			Status:     StatusActive,
-			CreatedAt:  101,
-			UpdatedAt:  101,
+			CreatedAt:  testEpochMillis + 101,
+			UpdatedAt:  testEpochMillis + 101,
 		},
 		{
 			ID:         "obs-1",
@@ -702,8 +704,8 @@ func TestBuildContextBundleDeduplicatesBeforePromptDisclosure(t *testing.T) {
 			Category:   "general",
 			Importance: 7,
 			Status:     StatusOpen,
-			CreatedAt:  102,
-			UpdatedAt:  102,
+			CreatedAt:  testEpochMillis + 102,
+			UpdatedAt:  testEpochMillis + 102,
 		},
 		{
 			ID:         "obs-2",
@@ -718,8 +720,8 @@ func TestBuildContextBundleDeduplicatesBeforePromptDisclosure(t *testing.T) {
 			Category:   "general",
 			Importance: 6,
 			Status:     StatusOpen,
-			CreatedAt:  103,
-			UpdatedAt:  103,
+			CreatedAt:  testEpochMillis + 103,
+			UpdatedAt:  testEpochMillis + 103,
 		},
 	}
 
@@ -763,8 +765,8 @@ func TestBuildContextBundleKeepsDistinctStableFactsAcrossCategories(t *testing.T
 			Category:   "platform_rules",
 			Importance: 9,
 			Status:     StatusActive,
-			CreatedAt:  100,
-			UpdatedAt:  100,
+			CreatedAt:  testEpochMillis + 100,
+			UpdatedAt:  testEpochMillis + 100,
 		},
 		{
 			ID:         "fact-2",
@@ -778,8 +780,8 @@ func TestBuildContextBundleKeepsDistinctStableFactsAcrossCategories(t *testing.T
 			Category:   "ops_checklist",
 			Importance: 8,
 			Status:     StatusActive,
-			CreatedAt:  101,
-			UpdatedAt:  101,
+			CreatedAt:  testEpochMillis + 101,
+			UpdatedAt:  testEpochMillis + 101,
 		},
 	}
 
@@ -1092,8 +1094,8 @@ func TestSQLiteStoreSupersedesOlderFactAndCreatesLink(t *testing.T) {
 		Importance: 8,
 		Confidence: 0.9,
 		Status:     StatusActive,
-		CreatedAt:  100,
-		UpdatedAt:  100,
+		CreatedAt:  testEpochMillis + 100,
+		UpdatedAt:  testEpochMillis + 100,
 	}
 	second := api.StoredMemoryResponse{
 		ID:         "fact-new",
@@ -1108,8 +1110,8 @@ func TestSQLiteStoreSupersedesOlderFactAndCreatesLink(t *testing.T) {
 		Importance: 9,
 		Confidence: 0.95,
 		Status:     StatusActive,
-		CreatedAt:  200,
-		UpdatedAt:  200,
+		CreatedAt:  testEpochMillis + 200,
+		UpdatedAt:  testEpochMillis + 200,
 	}
 	if err := store.Write(first); err != nil {
 		t.Fatalf("write first fact: %v", err)
@@ -1255,8 +1257,8 @@ func TestWriteExactDuplicateBumpsExistingRecordInsteadOfCreatingNewOne(t *testin
 				Confidence: 0.7,
 				Status:     StatusOpen,
 				Tags:       []string{"first"},
-				CreatedAt:  100,
-				UpdatedAt:  100,
+				CreatedAt:  testEpochMillis + 100,
+				UpdatedAt:  testEpochMillis + 100,
 			}
 			second := api.StoredMemoryResponse{
 				ID:         "mem-2",
@@ -1273,8 +1275,8 @@ func TestWriteExactDuplicateBumpsExistingRecordInsteadOfCreatingNewOne(t *testin
 				Confidence: 0.9,
 				Status:     StatusOpen,
 				Tags:       []string{"second"},
-				CreatedAt:  200,
-				UpdatedAt:  200,
+				CreatedAt:  testEpochMillis + 200,
+				UpdatedAt:  testEpochMillis + 200,
 			}
 
 			if err := store.Write(first); err != nil {
@@ -1356,8 +1358,8 @@ func TestWriteNearDuplicateFactMergesIntoExistingRecordInsteadOfCreatingNewOne(t
 				Confidence: 0.8,
 				Status:     StatusActive,
 				Tags:       []string{"hours"},
-				CreatedAt:  100,
-				UpdatedAt:  100,
+				CreatedAt:  testEpochMillis + 100,
+				UpdatedAt:  testEpochMillis + 100,
 			}
 			second := api.StoredMemoryResponse{
 				ID:         "fact-2",
@@ -1374,8 +1376,8 @@ func TestWriteNearDuplicateFactMergesIntoExistingRecordInsteadOfCreatingNewOne(t
 				Confidence: 0.9,
 				Status:     StatusActive,
 				Tags:       []string{"automation"},
-				CreatedAt:  200,
-				UpdatedAt:  200,
+				CreatedAt:  testEpochMillis + 200,
+				UpdatedAt:  testEpochMillis + 200,
 			}
 
 			if err := store.Write(first); err != nil {
@@ -1458,8 +1460,8 @@ func TestMemoryWriteRejectsUnsafeContent(t *testing.T) {
 				Category:   "general",
 				Importance: 8,
 				Status:     StatusActive,
-				CreatedAt:  100,
-				UpdatedAt:  100,
+				CreatedAt:  testEpochMillis + 100,
+				UpdatedAt:  testEpochMillis + 100,
 			})
 			if !IsMemorySafetyError(err) {
 				t.Fatalf("expected memory safety error, got %v", err)
@@ -1590,13 +1592,13 @@ func TestBuildContextBundleHybridScoring(t *testing.T) {
 			ID: "obs-low-sim", AgentKey: "a", Kind: KindObservation,
 			ScopeType: ScopeAgent, ScopeKey: "agent:a",
 			Title: "unrelated topic", Summary: "something about weather",
-			Importance: 9, Status: StatusOpen, UpdatedAt: 100,
+			Importance: 9, Status: StatusOpen, UpdatedAt: testEpochMillis + 100,
 		},
 		{
 			ID: "obs-high-sim", AgentKey: "a", Kind: KindObservation,
 			ScopeType: ScopeAgent, ScopeKey: "agent:a",
 			Title: "deployment fix", Summary: "CI pipeline timeout on staging",
-			Importance: 3, Status: StatusOpen, UpdatedAt: 50,
+			Importance: 3, Status: StatusOpen, UpdatedAt: testEpochMillis + 50,
 		},
 	}
 	hp := hybridParams{
@@ -1625,7 +1627,7 @@ func TestBuildContextBundleSelectionTracesOnlyInPreview(t *testing.T) {
 			ID: "obs-high-sim", AgentKey: "a", Kind: KindObservation,
 			ScopeType: ScopeAgent, ScopeKey: "agent:a",
 			Title: "deployment fix", Summary: "CI pipeline timeout on staging",
-			Importance: 3, Status: StatusOpen, UpdatedAt: 50,
+			Importance: 3, Status: StatusOpen, UpdatedAt: testEpochMillis + 50,
 		},
 	}
 	hp := hybridParams{
@@ -1667,13 +1669,13 @@ func TestBuildContextBundleFallbackWithoutEmbedder(t *testing.T) {
 			ID: "obs-a", AgentKey: "a", Kind: KindObservation,
 			ScopeType: ScopeAgent, ScopeKey: "agent:a",
 			Title: "deploy fix", Summary: "deploy issue resolved",
-			Importance: 5, Status: StatusOpen, UpdatedAt: 100,
+			Importance: 5, Status: StatusOpen, UpdatedAt: testEpochMillis + 100,
 		},
 		{
 			ID: "obs-b", AgentKey: "a", Kind: KindObservation,
 			ScopeType: ScopeAgent, ScopeKey: "agent:a",
 			Title: "deploy warning", Summary: "deploy warning noted",
-			Importance: 8, Status: StatusOpen, UpdatedAt: 50,
+			Importance: 8, Status: StatusOpen, UpdatedAt: testEpochMillis + 50,
 		},
 	}
 	bundle := buildContextBundleFromStored(ContextRequest{

@@ -112,7 +112,7 @@ func TestValidateSystemInitProfilesRequiresUniqueCacheKeysAndInitial(t *testing.
 		{name: "empty cache key", profiles: []contracts.SystemInitProfile{{Initial: true}}},
 		{name: "duplicate cache key", profiles: []contracts.SystemInitProfile{{CacheKey: "react:main", Initial: true}, {CacheKey: "react:main"}}},
 		{name: "missing initial", profiles: []contracts.SystemInitProfile{{CacheKey: "react:main"}}},
-		{name: "multiple initial", profiles: []contracts.SystemInitProfile{{CacheKey: "coder:plan", Initial: true}, {CacheKey: "coder:execute", Initial: true}}},
+		{name: "multiple initial", profiles: []contracts.SystemInitProfile{{CacheKey: "coder:planning", Initial: true}, {CacheKey: "coder:execute", Initial: true}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -122,7 +122,7 @@ func TestValidateSystemInitProfilesRequiresUniqueCacheKeysAndInitial(t *testing.
 		})
 	}
 	if err := validateSystemInitProfiles([]contracts.SystemInitProfile{
-		{CacheKey: "coder:plan", Initial: true},
+		{CacheKey: "coder:planning", Initial: true},
 		{CacheKey: "coder:execute"},
 	}); err != nil {
 		t.Fatalf("valid profiles rejected: %v", err)
@@ -133,12 +133,12 @@ func TestBuiltSystemInitProfilesHaveExactlyOneInitial(t *testing.T) {
 	sessions := []contracts.QuerySession{
 		{AgentKey: "react", Mode: "REACT"},
 		{AgentKey: "coder", Mode: "CODER"},
-		{AgentKey: "coder-plan", Mode: "CODER", PlanningMode: true},
+		{AgentKey: "coder-planning", Mode: "CODER", PlanningMode: true},
 		{AgentKey: "kbase", Mode: "KBASE"},
 		{AgentKey: "pipeline", Mode: "PLAN_EXECUTE"},
 	}
 	for _, session := range sessions {
-		profiles := BuildSystemInitProfiles(session, api.QueryRequest{Message: "hello"}, nil, 12, 4, config.PromptsConfig{})
+		profiles := BuildSystemInitProfiles(session, api.QueryRequest{Message: "hello"}, nil, 12, 4, 12, config.PromptsConfig{})
 		if err := validateSystemInitProfiles(profiles); err != nil {
 			t.Fatalf("mode %s produced invalid profiles: %v (%#v)", session.Mode, err, profiles)
 		}
@@ -163,7 +163,7 @@ func TestSystemInitFingerprintChangesWithPromptAndStage(t *testing.T) {
 func TestCachedSystemInitConversions(t *testing.T) {
 	profiles := BuildSystemInitProfiles(fingerprintTestSession(), api.QueryRequest{ChatID: "chat-1", Message: "hello"}, []api.ToolDetailResponse{
 		{Name: "bash", Description: "run shell", Parameters: map[string]any{"type": "object"}},
-	}, 12, 4, config.PromptsConfig{})
+	}, 12, 4, 12, config.PromptsConfig{})
 	if len(profiles) != 1 {
 		t.Fatalf("expected one profile, got %#v", profiles)
 	}
@@ -187,7 +187,7 @@ func TestPlanExecuteSystemInitProfilesUseRuntimeSettings(t *testing.T) {
 	session := fingerprintTestSession()
 	session.Mode = "PLAN_EXECUTE"
 	session.ToolNames = []string{"bash"}
-	session.ResolvedStageSettings = contracts.PlanExecuteSettings{}
+	session.ResolvedPlanExecuteSettings = contracts.PlanExecuteSettings{}
 	session.StageSettings = map[string]any{
 		"plan": map[string]any{
 			"toolConfig": map[string]any{
@@ -217,7 +217,7 @@ func TestPlanExecuteSystemInitProfilesUseRuntimeSettings(t *testing.T) {
 		t.Fatalf("expected runtime defaults to be applied, got %#v", settings)
 	}
 
-	profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, toolDefs, 12, 4, config.PromptsConfig{})
+	profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, toolDefs, 12, 4, 12, config.PromptsConfig{})
 	if len(profiles) != 3 {
 		t.Fatalf("expected plan/execute/summary profiles, got %#v", profiles)
 	}
@@ -252,7 +252,7 @@ func TestCoderSystemInitProfileUsesDistinctMode(t *testing.T) {
 	toolDefs := []api.ToolDetailResponse{
 		{Name: "bash", Description: "run shell", Parameters: map[string]any{"type": "object"}},
 	}
-	profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, toolDefs, 12, 4, config.PromptsConfig{})
+	profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, toolDefs, 12, 4, 12, config.PromptsConfig{})
 	if len(profiles) != 1 {
 		t.Fatalf("expected one CODER profile, got %#v", profiles)
 	}
@@ -275,7 +275,7 @@ func TestCoderSystemInitProfileIncludesCoderSystemPrompt(t *testing.T) {
 		{Name: "plan_get_tasks", Description: "get tasks", Parameters: map[string]any{"type": "object"}},
 		{Name: "plan_update_task", Description: "update task", Parameters: map[string]any{"type": "object"}},
 	}
-	profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, toolDefs, 12, 4, config.PromptsConfig{})
+	profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, toolDefs, 12, 4, 12, config.PromptsConfig{})
 	if len(profiles) != 1 {
 		t.Fatalf("expected one CODER profile, got %#v", profiles)
 	}
@@ -286,16 +286,14 @@ func TestCoderSystemInitProfileIncludesCoderSystemPrompt(t *testing.T) {
 	assertToolNames(t, profiles[0].Tools, []string{"bash", "datetime", "plan_add_tasks", "plan_get_tasks", "plan_update_task"})
 }
 
-func TestCoderPlanningModeBuildsPlanAndExecuteSystemInit(t *testing.T) {
+func TestCoderPlanningModeBuildsPlanningAndExecuteSystemInit(t *testing.T) {
 	session := fingerprintTestSession()
 	session.Mode = "CODER"
 	session.PlanningMode = true
 	session.ModeSystemPrompt = "custom coder system prompt"
-	session.ResolvedStageSettings = contracts.PlanExecuteSettings{
-		MaxSteps:             12,
-		MaxWorkRoundsPerTask: 4,
-		Execute:              contracts.StageSettings{Tools: []string{"bash", "file_read", contracts.FinalizePlanningToolName, "ask_user_question"}},
-		Summary:              contracts.StageSettings{SystemPrompt: "summary must not get a cache profile"},
+	session.ResolvedCoderPlanningSettings = contracts.CoderPlanningSettings{
+		MaxSteps: 12,
+		Execute:  contracts.StageSettings{Tools: []string{"bash", "file_read", contracts.FinalizePlanningToolName, "ask_user_question"}},
 	}
 	toolDefs := []api.ToolDetailResponse{
 		{Name: "bash", Description: "run shell", Parameters: map[string]any{"type": "object"}},
@@ -307,7 +305,7 @@ func TestCoderPlanningModeBuildsPlanAndExecuteSystemInit(t *testing.T) {
 		{Name: "plan_update_task", Description: "update task", Parameters: map[string]any{"type": "object"}},
 	}
 	req := api.QueryRequest{ChatID: "chat-1", Message: "hello"}
-	profiles := BuildSystemInitProfiles(session, req, toolDefs, 12, 4, config.PromptsConfig{})
+	profiles := BuildSystemInitProfiles(session, req, toolDefs, 12, 4, 12, config.PromptsConfig{})
 	if len(profiles) != 2 {
 		t.Fatalf("expected CODER planning plan/execute profiles, got %#v", profiles)
 	}
@@ -315,8 +313,8 @@ func TestCoderPlanningModeBuildsPlanAndExecuteSystemInit(t *testing.T) {
 	for _, profile := range profiles {
 		byKey[profile.CacheKey] = profile
 	}
-	if _, ok := byKey["coder:plan"]; !ok {
-		t.Fatalf("missing coder plan profile %#v", byKey)
+	if _, ok := byKey["coder:planning"]; !ok {
+		t.Fatalf("missing coder planning profile %#v", byKey)
 	}
 	if _, ok := byKey["coder:execute"]; !ok {
 		t.Fatalf("missing coder execute profile %#v", byKey)
@@ -324,10 +322,10 @@ func TestCoderPlanningModeBuildsPlanAndExecuteSystemInit(t *testing.T) {
 	if _, ok := byKey["coder:summary"]; ok {
 		t.Fatalf("did not expect coder summary profile %#v", byKey)
 	}
-	assertToolNames(t, byKey["coder:plan"].Tools, []string{"file_read", "ask_user_question", contracts.FinalizePlanningToolName})
+	assertToolNames(t, byKey["coder:planning"].Tools, []string{"file_read", "ask_user_question", contracts.FinalizePlanningToolName})
 	executeTools := []string{"bash", "file_read", "plan_add_tasks", "plan_get_tasks", "plan_update_task"}
 	assertToolNames(t, byKey["coder:execute"].Tools, executeTools)
-	wantExecuteSystem := agentcoder.PlanningExecutionSystemPrompt(session, req, session.ResolvedStageSettings, agentcoder.PlanningModePlanTools(), executeTools, agentcoder.DefaultExecuteSystemPrompt)
+	wantExecuteSystem := agentcoder.PlanningExecutionSystemPrompt(session, req, session.ResolvedCoderPlanningSettings, agentcoder.PlanningModeTools(), executeTools, agentcoder.DefaultExecuteSystemPrompt)
 	if byKey["coder:execute"].SystemMessage["content"] != wantExecuteSystem {
 		t.Fatalf("unexpected coder execute system message %#v want %q", byKey["coder:execute"].SystemMessage, wantExecuteSystem)
 	}
@@ -340,8 +338,8 @@ func TestSystemInitCacheKeyMapsCoderPlanningStages(t *testing.T) {
 		want  string
 	}{
 		{mode: "CODER", stage: "coder", want: "coder:main"},
-		{mode: "CODER", stage: "coder-plan", want: "coder:plan"},
-		{mode: "CODER", stage: "coder-plan-feedback", want: "coder:plan"},
+		{mode: "CODER", stage: "coder-planning", want: "coder:planning"},
+		{mode: "CODER", stage: "coder-planning-feedback", want: "coder:planning"},
 		{mode: "CODER", stage: "coder-execute", want: "coder:execute"},
 		{mode: "CODER", stage: "coder-execute-step-2", want: "coder:execute"},
 		{mode: "PLAN_EXECUTE", stage: "summary", want: "plan-execute:summary"},
@@ -400,7 +398,7 @@ func fingerprintTestSession() contracts.QuerySession {
 		PlanPrompt:       "plan",
 		ExecutePrompt:    "execute",
 		SummaryPrompt:    "summary",
-		ResolvedStageSettings: contracts.PlanExecuteSettings{
+		ResolvedPlanExecuteSettings: contracts.PlanExecuteSettings{
 			Plan:    contracts.StageSettings{SystemPrompt: "plan system"},
 			Execute: contracts.StageSettings{SystemPrompt: "execute system"},
 			Summary: contracts.StageSettings{SystemPrompt: "summary system"},

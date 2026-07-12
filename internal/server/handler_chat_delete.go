@@ -114,6 +114,8 @@ func (s *Server) deriveChat(req api.DeriveChatRequest) (api.DeriveChatResponse, 
 	})
 	switch {
 	case err == nil:
+	case isTimeContractViolation(err):
+		return api.DeriveChatResponse{}, &statusError{status: http.StatusUnprocessableEntity, code: "time_contract_violation", message: timeContractViolationMessage, data: timeContractErrorData(err)}
 	case errors.Is(err, os.ErrPermission):
 		return api.DeriveChatResponse{}, &statusError{status: http.StatusBadRequest, code: "invalid_request", message: "invalid chatId"}
 	case errors.Is(err, chat.ErrChatNotFound):
@@ -178,6 +180,10 @@ func (s *Server) handleChatRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}

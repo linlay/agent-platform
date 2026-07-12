@@ -14,7 +14,16 @@
 }
 ```
 
-除特别标注为可读展示字段外，API、JSONL 与 trace 中的结构化时间字段统一使用 Unix epoch milliseconds（`int64`）。可读时间字符串使用 RFC3339 / RFC3339Nano 并保留对应时区偏移，主要用于日志、调度展示和人工排障。
+## 统一时间契约（破坏性）
+
+除特别标注为可读展示字段外，API、JSONL、SSE、WebSocket 与 trace 中的结构化时间点统一使用未加引号的 Unix epoch milliseconds JSON 整数（Go `int64`、客户端 `number`）。可接受范围固定为 `1000000000000..9007199254740991`：这既拒绝十位 Unix 秒，也保证 JavaScript number 精确表示。
+
+- 结构化时间点包括 `createdAt`、`updatedAt`、`startedAt`、`completedAt`、`timestamp`、`expiresAt`，以及其他 `*At` / `ts` / 明确 `*UnixMs`、`mtimeMs` 命名的公开时间点。可选时间点缺失时必须省略字段；不得输出 `0`、`null`、数字字符串、ISO 字符串或浮点数。
+- 可读时间只能使用 `*Time` 或 `iso` 命名，必须是带 `Z` 或 offset 的 RFC3339 / RFC3339Nano 字符串；与同一对象中配对的 `*At` 字段必须表示同一毫秒时刻。
+- 任何 producer、历史 JSONL/archive、trace 或上游 child/proxy stream 违反此契约，HTTP/WS 返回 `422`，其 `data.error` 固定含有 `code:"time_contract_violation"`、`field`、`location`、`expected:"epoch_ms_int64"`。已开始的 stream 会先发送平台本地 `run.error` 后结束；服务端绝不以当前时间、run ID 或完成时间修补原事件。
+- 这是立即生效的破坏性切换：不迁移旧记录，也不提供双读、feature flag 或宽松解析。旧不合规 chat/archive/trace 不可读取，旧上游使用字符串、秒值或浮点 timestamp 的流会失败。
+
+JWT `exp` / `iat` 与 resource ticket payload 的 `e` 仍是 token 内部的 NumericDate 秒值；`durationMs`、`timeout`、cron、本地日期拆分、ID、文件名和日志前缀不是结构化时间点。
 
 ## 核心流程
 
@@ -111,13 +120,13 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 
 `/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 摘要，以及 `/api/chat` 详情顶层在新数据中可包含 `source`，表示 chat 首次创建来源。当前只记录 query 与 automation 两类：`query` / `query:<user>` 表示由 query 创建，`automation:<automationId>` 表示由 automation 创建。旧数据为空、上传创建或派生创建时省略。channel 远程用户调用本机智能体仍属于 query source；gateway 可在受信 channel 请求中传 `sourceUser`，否则服务端会从形如 `wecom#single#user1#...` 的 chatId 中取远端用户段作为 `query:<user>`。`sourceChannel` 是 gateway/channel 路由标签，不承载 query / automation 语义。
 
-`/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 以及 `/api/chat` 的 chat 详情，在存在可恢复等待项时都包含顶层 `awaiting`：`awaitingId`、`runId`、`mode`、`status:"awaiting"`、`createdAt`。完整问题、审批项、表单和 plan 定义仍从 chat events 中的 `awaiting.ask` 获取。
+`/api/chat` 详情固定返回顶层 `createdAt` 与 `updatedAt`；Desktop 不得从 runs、events 或本机时间推断它们。每个 `runs[]` 的 `startedAt` 由注册时捕获并持久化；已完成 run 的 `completedAt` 必填，仍在执行的 run 则省略 `completedAt`（绝不输出 `0`）。`activeRun.startedAt` 与对应 `run.started.timestamp` 是同一个已捕获时刻，`run.finished.timestamp` 与完成记录的 `completedAt` 相同。`/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 以及 `/api/chat` 的 chat 详情，在存在可恢复等待项时都包含顶层 `awaiting`：`awaitingId`、`runId`、`mode`、`status:"awaiting"`、`createdAt`。完整问题、审批项、表单和 planning 定义仍从 chat events 中的 `awaiting.ask` 获取。
 
 `POST /api/chat/derive` 只支持 active chat 存储，不从 archive 直接派生。`sourceRunId` 省略时使用 source chat 的 `lastRunId`；source chat 必须没有 active run 和 pending awaiting，且目标 source run 已完成。服务端会创建新的独立 `chatId`，复制截至 source run 的可回放 JSONL 历史与必要资源，并为复制出的历史 run 生成新的 runId；返回 `lastRunId` 是新 chat 中映射后的 runId。派生成功后客户端继续用新 `chatId` 调 `/api/query`，后续运行不会写回原 chat。
 
 `/api/chat` 返回 active run 时，`activeRun.lastSeq` 是本次 chat detail 已返回历史 events 覆盖到的 live stream 游标，客户端应用这些 events 后可把它作为 `/api/attach.lastSeq`。它来自 `chatId.jsonl` 每行顶层 `liveSeq` 的 replay 结果，不是内存 run 当前最新 seq；内存最新 seq 只用于服务端运行状态。
 
-`/api/chat/llm-trace` 返回原始 LLM trace JSON；新写入的 trace 中 `sentAt`、`responseStartedAt`、`completedAt` 以及 `interrupt.interruptedAt` 均为 epoch milliseconds，对应的 `sentTime`、`responseStartedTime`、`completedTime`、`interrupt.interruptedTime` 为 RFC3339Nano 可读时间。历史 trace 文件不迁移，接口会按原始内容返回。
+`/api/chat/jsonl`、chat/archive replay、搜索结果与 `/api/chat/llm-trace` 都在读取前验证已知时间字段。新写入的 trace 中 `sentAt`、`responseStartedAt`、`completedAt` 以及 `interrupt.interruptedAt` 均为 epoch milliseconds，对应的 `sentTime`、`responseStartedTime`、`completedTime`、`interrupt.interruptedTime` 为 RFC3339Nano 可读时间。历史 trace 或 JSONL 不迁移；其中字符串、秒、浮点、零值或缺少必填事件 timestamp 会返回 `422 time_contract_violation`，不会原样透传或补值。
 
 `/api/agents?includeChats=N` 附带的 chat 摘要可能包含局部 `error`，用于展示单个 chat 的可恢复/可诊断异常而不让列表整体失败。当前 `multiple active runs found for chat` 会返回 `error: { "code": "active_run_conflict", "message": "multiple active runs found for chat", "chatId": "...", "runIds": ["..."] }`，此时该 chat 不包含 `activeRun`。
 
@@ -339,8 +348,7 @@ status 中 Lance 字段是可选扩展，旧客户端可忽略：
     "id": "kbg_...",
     "state": "active",
     "tableVersion": 12,
-    "createdAt": 0,
-    "activatedAt": 0
+    "createdAt": 1700000000000
   },
   "migration": {
     "state": "active",
@@ -352,8 +360,7 @@ status 中 Lance 字段是可选扩展，旧客户端可忽略：
   },
   "indexes": {
     "fts": {"type": "FTS/ICU", "ready": true},
-    "vector": {"type": "flat", "ready": true, "unindexedRows": 0},
-    "lastOptimizedAt": 0
+    "vector": {"type": "flat", "ready": true, "unindexedRows": 0}
   },
   "sidecar": {
     "available": true,
@@ -366,6 +373,8 @@ status 中 Lance 字段是可选扩展，旧客户端可忽略：
   "storageDiskUsage": 0
 }
 ```
+
+`lastIndexedAt`、`indexes.lastOptimizedAt` 以及尚未完成的 `lastRun.finishedAt` 都是可选时间点：尚未发生时省略，control DB 中字符串 metadata 只在映射为公开 status 时严格校验，不能透出 `0` 或原始字符串。
 
 `storage.engine: auto` 在没有 active Lance generation 时继续用 SQLite，并在 refresh 后尝试迁移；`lancedb` 要求 generation/sidecar 就绪；`sqlite` 是紧急回滚。generation 构建、建索引或验证失败时 active generation 不会被替换。当前没有新增公开的 generation rollback REST 路由；SQLite 回滚通过配置并重启/refresh 完成，Lance generation 原子回滚能力保留在 KBASE Manager 内部。
 
@@ -499,11 +508,11 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 | `connected` | `sessionId` |
 | `heartbeat` | `timestamp` |
 | `auth.expiring` | `expiresAt` |
-| `run.started` | `runId`、`chatId`、`agentKey` |
-| `run.finished` | `runId`、`chatId` |
+| `run.started` | `runId`、`chatId`、`agentKey`、必填 `timestamp`（等于已捕获的 run `startedAt`） |
+| `run.finished` | `runId`、`chatId`、必填 `timestamp`（等于 run `completedAt`） |
 | `chat.created` | `chatId`、`chatName`、`agentKey`、`timestamp`、`source` |
 | `chat.updated` | `chatId`、`lastRunId`、`lastRunContent`、`updatedAt` |
-| `chat.unread` / `chat.read` | `chatId`、`agentKey`、`lastRunId`、`readAt`、`readRunId`、`agentUnreadCount` |
+| `chat.unread` / `chat.read` | `chatId`、`agentKey`、`lastRunId`、可选 `readAt`、`readRunId`、`agentUnreadCount`；未读/未记录读取时间时省略 `readAt` |
 | `chat.read_all` | `agentKey`、`updatedCount`、`agentUnreadCount` |
 | `chat.deleted` | `chatId` |
 | `chat.renamed` | `chatId`、`chatName`、`agentKey` |
@@ -515,7 +524,9 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 | `awaiting.answered` | `chatId`、`runId`、`ownerType`、`agentKey` 或 `teamId`、`awaitingId`、`mode`、`status`、`resolvedAt`、可选 `errorCode` / `submitId` |
 | `resource.pushed` | `chatId`、`artifactId`、`name`、`mimeType`、`sha256`、`sizeBytes`、`timestamp` |
 
-`awaiting.asking.timeout` 与 stream 中的 `awaiting.ask.timeout` 语义一致：对普通 HITL 等待项，`0` 表示无限等待、不自动超时；大于 `0` 时由后端按真实时间独立倒计时，observer / attach / detach 状态不会暂停或延长后端超时。CODER planning confirmation 保持 `mode:"plan"` 和 `plan` payload 兼容，但永远省略 `timeout`，表示永久等待；它不同于 `plan_*` / plan-tasks 的执行任务计划。
+`auth.refresh` response 在 JWT 存在 `exp` 时才返回 `expiresAt = exp * 1000`；没有 `exp` 时省略字段。`auth.expiring.expiresAt` 同样始终是 epoch milliseconds。客户端不得把缺失 `readAt` / `expiresAt` 解释为 1970 或当前时间。
+
+`awaiting.asking.timeout` 与 stream 中的 `awaiting.ask.timeout` 语义一致：对普通 HITL 等待项，`0` 表示无限等待、不自动超时；大于 `0` 时由后端按真实时间独立倒计时，observer / attach / detach 状态不会暂停或延长后端超时。CODER planning confirmation 使用 `mode:"planning"` 和 `planning` payload，永远省略 `timeout`，表示永久等待；它不同于 `plan_*` / plan-tasks 的执行任务计划。旧 `mode:"plan"` planning 协议不兼容。
 
 stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会显示超时秒数和原因；`error` 可附带 `timeoutSeconds`、`elapsedSeconds`、`reason:"submit_not_received_before_timeout"`。
 

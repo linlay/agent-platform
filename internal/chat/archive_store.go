@@ -10,7 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
+
+	"agent-platform/internal/timecontract"
 
 	_ "modernc.org/sqlite"
 )
@@ -197,6 +198,9 @@ func (s *ArchiveStore) ArchiveChat(chat ArchivedChat) error {
 	if exists {
 		return ErrChatAlreadyArchived
 	}
+	if err := validateArchivedChatTimeContract(chat, "archive.write"); err != nil {
+		return err
+	}
 
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -216,10 +220,6 @@ func (s *ArchiveStore) ArchiveChat(chat ArchivedChat) error {
 	if chat.Summary.HasAttachments {
 		hasAttachments = 1
 	}
-	if chat.Summary.ArchivedAt <= 0 {
-		chat.Summary.ArchivedAt = time.Now().UnixMilli()
-	}
-	chat.Summary.LastRunAt = deriveArchivedLastRunAt(chat.Summary.LastRunAt, chat.Summary.UpdatedAt, chat.Summary.LastRunID, chat.Runs)
 	chat.Summary.OwnerType = normalizedStoredOwnerType(chat.Summary.OwnerType, chat.Summary.AgentKey, chat.Summary.TeamID)
 	if chat.Summary.OwnerType == "team" {
 		chat.Summary.AgentKey = ""
@@ -311,7 +311,7 @@ func (s *ArchiveStore) ListArchived(agentKey string, limit, offset int) ([]Archi
 	}
 
 	queryArgs := append(append([]any(nil), args...), limit, offset)
-	rows, err := s.db.Query(`SELECT c.CHAT_ID_, c.CHAT_NAME_, COALESCE(c.OWNER_TYPE_,''), c.AGENT_KEY_, COALESCE(c.TEAM_ID_,''), COALESCE(c.SOURCE_,''), COALESCE(c.SOURCE_CHANNEL_,''), c.CREATED_AT_, c.UPDATED_AT_, `+archiveLastRunAtSQL("c")+`, c.ARCHIVED_AT_,
+	rows, err := s.db.Query(`SELECT c.CHAT_ID_, c.CHAT_NAME_, COALESCE(c.OWNER_TYPE_,''), c.AGENT_KEY_, COALESCE(c.TEAM_ID_,''), COALESCE(c.SOURCE_,''), COALESCE(c.SOURCE_CHANNEL_,''), c.CREATED_AT_, c.UPDATED_AT_, c.LAST_RUN_AT_, c.ARCHIVED_AT_,
 			c.LAST_RUN_ID_, c.LAST_RUN_CONTENT_, COALESCE(c.READ_RUN_ID_,''), c.READ_AT_, COALESCE(c.READ_STATE_CAPTURED_,0),
 			c.USAGE_PROMPT_TOKENS_, c.USAGE_COMPLETION_TOKENS_, c.USAGE_TOTAL_TOKENS_, c.USAGE_CACHED_TOKENS_, c.USAGE_REASONING_TOKENS_,
 			c.USAGE_PROMPT_CACHE_HIT_TOKENS_, c.USAGE_PROMPT_CACHE_MISS_TOKENS_,
@@ -342,7 +342,7 @@ func (s *ArchiveStore) LoadArchived(chatID string) (*ArchivedChat, error) {
 	if !ValidChatID(chatID) {
 		return nil, os.ErrPermission
 	}
-	row := s.db.QueryRow(`SELECT c.CHAT_ID_, c.CHAT_NAME_, COALESCE(c.OWNER_TYPE_,''), c.AGENT_KEY_, COALESCE(c.TEAM_ID_,''), COALESCE(c.SOURCE_,''), COALESCE(c.SOURCE_CHANNEL_,''), c.CREATED_AT_, c.UPDATED_AT_, `+archiveLastRunAtSQL("c")+`, c.ARCHIVED_AT_,
+	row := s.db.QueryRow(`SELECT c.CHAT_ID_, c.CHAT_NAME_, COALESCE(c.OWNER_TYPE_,''), c.AGENT_KEY_, COALESCE(c.TEAM_ID_,''), COALESCE(c.SOURCE_,''), COALESCE(c.SOURCE_CHANNEL_,''), c.CREATED_AT_, c.UPDATED_AT_, c.LAST_RUN_AT_, c.ARCHIVED_AT_,
 			c.LAST_RUN_ID_, c.LAST_RUN_CONTENT_, COALESCE(c.READ_RUN_ID_,''), c.READ_AT_, COALESCE(c.READ_STATE_CAPTURED_,0),
 			c.USAGE_PROMPT_TOKENS_, c.USAGE_COMPLETION_TOKENS_, c.USAGE_TOTAL_TOKENS_, c.USAGE_CACHED_TOKENS_, c.USAGE_REASONING_TOKENS_,
 			c.USAGE_PROMPT_CACHE_HIT_TOKENS_, c.USAGE_PROMPT_CACHE_MISS_TOKENS_,
@@ -363,13 +363,22 @@ func (s *ArchiveStore) LoadArchived(chatID string) (*ArchivedChat, error) {
 		return nil, err
 	}
 	archived.Runs = runs
-	archived.Summary.LastRunAt = deriveArchivedLastRunAt(archived.Summary.LastRunAt, archived.Summary.UpdatedAt, archived.Summary.LastRunID, archived.Runs)
+	if err := validateArchivedChatTimeContract(*archived, "archive.read"); err != nil {
+		return nil, err
+	}
 
 	lines, err := readJSONLinesContent(archived.JSONLContent)
 	if err != nil {
 		return nil, err
 	}
+	if err := validatePersistedTimeContract(lines, "archive.jsonl"); err != nil {
+		return nil, err
+	}
 	rawMessages := rawMessagesFromJSONLLines(lines)
+	runStartedAt, runCompletedAt, err := replayRunLifecycleTimesByRuns(archived.Runs, "archive.runs")
+	if err != nil {
+		return nil, err
+	}
 	summary := Summary{
 		ChatID:         archived.Summary.ChatID,
 		ChatName:       archived.Summary.ChatName,
@@ -385,7 +394,7 @@ func (s *ArchiveStore) LoadArchived(chatID string) (*ArchivedChat, error) {
 		Read:           archived.Summary.Read,
 		Usage:          archived.Summary.Usage,
 	}
-	archived.Detail, err = parseChatNewFormat(summary, lines, rawMessages, s.ChatDir(chatID))
+	archived.Detail, err = parseChatNewFormat(summary, lines, rawMessages, s.ChatDir(chatID), runStartedAt, runCompletedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -408,6 +417,13 @@ func (s *ArchiveStore) LoadJSONLContent(chatID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	lines, err := readJSONLinesContent(content)
+	if err != nil {
+		return "", err
+	}
+	if err := validatePersistedTimeContract(lines, "archive.jsonl"); err != nil {
+		return "", err
+	}
 	return content, nil
 }
 
@@ -428,6 +444,9 @@ func (s *ArchiveStore) SearchArchived(query, agentKey string, limit int) ([]Arch
 	hits, err := s.searchArchivedFTSLocked(query, agentKey, limit)
 	if err == nil {
 		return hits, nil
+	}
+	if timecontract.IsViolation(err) {
+		return nil, err
 	}
 	return s.searchArchivedLikeLocked(query, agentKey, limit)
 }
@@ -496,43 +515,6 @@ func (s *ArchiveStore) existsLocked(chatID string) (bool, error) {
 	return true, nil
 }
 
-func archiveLastRunAtSQL(alias string) string {
-	prefix := strings.TrimSpace(alias)
-	if prefix != "" {
-		prefix += "."
-	}
-	return fmt.Sprintf(`CASE WHEN COALESCE(%[1]sLAST_RUN_AT_,0)>0 THEN %[1]sLAST_RUN_AT_ ELSE COALESCE((
-			SELECT r.COMPLETED_AT_ FROM ARCHIVED_RUNS r
-			WHERE r.CHAT_ID_=%[1]sCHAT_ID_ AND r.RUN_ID_=%[1]sLAST_RUN_ID_
-			LIMIT 1
-		), (
-			SELECT r.COMPLETED_AT_ FROM ARCHIVED_RUNS r
-			WHERE r.CHAT_ID_=%[1]sCHAT_ID_
-			ORDER BY r.COMPLETED_AT_ DESC, r.RUN_ID_ DESC
-			LIMIT 1
-		), %[1]sUPDATED_AT_) END`, prefix)
-}
-
-func deriveArchivedLastRunAt(existing int64, fallback int64, lastRunID string, runs []RunSummary) int64 {
-	if existing > 0 {
-		return existing
-	}
-	lastRunID = strings.TrimSpace(lastRunID)
-	var latest int64
-	for _, run := range runs {
-		if strings.TrimSpace(run.RunID) == lastRunID && run.CompletedAt > 0 {
-			return run.CompletedAt
-		}
-		if run.CompletedAt > latest {
-			latest = run.CompletedAt
-		}
-	}
-	if latest > 0 {
-		return latest
-	}
-	return fallback
-}
-
 func (s *ArchiveStore) listRunsLocked(chatID string) ([]RunSummary, error) {
 	rows, err := s.db.Query(`SELECT RUN_ID_, CHAT_ID_, COALESCE(OWNER_TYPE_,''), AGENT_KEY_, COALESCE(TEAM_ID_,''), INITIAL_MESSAGE_, ASSISTANT_TEXT_, FINISH_REASON_,
 		STARTED_AT_, COMPLETED_AT_,
@@ -564,6 +546,9 @@ func (s *ArchiveStore) listRunsLocked(chatID string) ([]RunSummary, error) {
 			return nil, err
 		}
 		item.OwnerType = normalizedStoredOwnerType(item.OwnerType, item.AgentKey, item.TeamID)
+		if err := validateArchivedRunTimeContract(item, fmt.Sprintf("archive.runs[%d]", len(items))); err != nil {
+			return nil, err
+		}
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -571,7 +556,7 @@ func (s *ArchiveStore) listRunsLocked(chatID string) ([]RunSummary, error) {
 
 func (s *ArchiveStore) searchArchivedFTSLocked(query, agentKey string, limit int) ([]ArchiveSearchHit, error) {
 	ftsQuery := archiveFTSQuery(query)
-	rows, err := s.db.Query(`SELECT c.CHAT_ID_, c.CHAT_NAME_, c.AGENT_KEY_, COALESCE(c.TEAM_ID_,''), c.CREATED_AT_, `+archiveLastRunAtSQL("c")+`, c.ARCHIVED_AT_,
+	rows, err := s.db.Query(`SELECT c.CHAT_ID_, c.CHAT_NAME_, c.AGENT_KEY_, COALESCE(c.TEAM_ID_,''), c.CREATED_AT_, c.LAST_RUN_AT_, c.ARCHIVED_AT_,
 			c.LAST_RUN_ID_, c.LAST_RUN_CONTENT_, bm25(ARCHIVED_CHATS_FTS)
 		FROM ARCHIVED_CHATS_FTS
 		JOIN ARCHIVED_CHATS c ON c.rowid=ARCHIVED_CHATS_FTS.rowid
@@ -589,6 +574,9 @@ func (s *ArchiveStore) searchArchivedFTSLocked(query, agentKey string, limit int
 		if err := rows.Scan(&hit.ChatID, &hit.ChatName, &hit.AgentKey, &hit.TeamID, &hit.CreatedAt, &hit.LastRunAt, &hit.ArchivedAt, &hit.LastRunID, &hit.LastRunContent, &rank); err != nil {
 			return nil, err
 		}
+		if err := validateArchiveSearchHitTimeContract(hit, fmt.Sprintf("archive.search[%d]", len(hits))); err != nil {
+			return nil, err
+		}
 		hit.Snippet = buildArchiveSnippet(query, hit.ChatName, hit.LastRunContent)
 		hit.Score = int(1000 - rank*100)
 		hits = append(hits, hit)
@@ -598,7 +586,7 @@ func (s *ArchiveStore) searchArchivedFTSLocked(query, agentKey string, limit int
 
 func (s *ArchiveStore) searchArchivedLikeLocked(query, agentKey string, limit int) ([]ArchiveSearchHit, error) {
 	like := "%" + strings.ToLower(query) + "%"
-	rows, err := s.db.Query(`SELECT c.CHAT_ID_, c.CHAT_NAME_, c.AGENT_KEY_, COALESCE(c.TEAM_ID_,''), c.CREATED_AT_, `+archiveLastRunAtSQL("c")+`, c.ARCHIVED_AT_,
+	rows, err := s.db.Query(`SELECT c.CHAT_ID_, c.CHAT_NAME_, c.AGENT_KEY_, COALESCE(c.TEAM_ID_,''), c.CREATED_AT_, c.LAST_RUN_AT_, c.ARCHIVED_AT_,
 			c.LAST_RUN_ID_, c.LAST_RUN_CONTENT_
 		FROM ARCHIVED_CHATS c
 		WHERE (?='' OR c.AGENT_KEY_=?) AND (
@@ -614,6 +602,9 @@ func (s *ArchiveStore) searchArchivedLikeLocked(query, agentKey string, limit in
 	for rows.Next() {
 		var hit ArchiveSearchHit
 		if err := rows.Scan(&hit.ChatID, &hit.ChatName, &hit.AgentKey, &hit.TeamID, &hit.CreatedAt, &hit.LastRunAt, &hit.ArchivedAt, &hit.LastRunID, &hit.LastRunContent); err != nil {
+			return nil, err
+		}
+		if err := validateArchiveSearchHitTimeContract(hit, fmt.Sprintf("archive.search[%d]", len(hits))); err != nil {
 			return nil, err
 		}
 		hit.Snippet = buildArchiveSnippet(query, hit.ChatName, hit.LastRunContent)
@@ -680,7 +671,9 @@ func scanArchivedChatRow(row archivedSummaryScanner) (*ArchivedChat, error) {
 	}
 	applyArchivedReadState(&item.Summary, readStateCaptured)
 	item.Summary.HasAttachments = hasAttachments != 0
-	item.Summary.LastRunAt = deriveArchivedLastRunAt(item.Summary.LastRunAt, item.Summary.UpdatedAt, item.Summary.LastRunID, nil)
+	if err := validateArchivedSummaryTimeContract(item.Summary, "archive.summary"); err != nil {
+		return nil, err
+	}
 	return &item, nil
 }
 
@@ -715,7 +708,9 @@ func scanArchivedSummaries(rows *sql.Rows) ([]ArchivedSummary, error) {
 		}
 		applyArchivedReadState(&item, readStateCaptured)
 		item.HasAttachments = hasAttachments != 0
-		item.LastRunAt = deriveArchivedLastRunAt(item.LastRunAt, item.UpdatedAt, item.LastRunID, nil)
+		if err := validateArchivedSummaryTimeContract(item, fmt.Sprintf("archive.list[%d]", len(items))); err != nil {
+			return nil, err
+		}
 		items = append(items, item)
 	}
 	return items, nil
@@ -727,10 +722,6 @@ func applyArchivedReadState(item *ArchivedSummary, readStateCaptured int) {
 	}
 	if readStateCaptured == 0 {
 		item.Read.ReadRunID = item.LastRunID
-		if item.Read.ReadAt == nil && item.ArchivedAt > 0 {
-			readAt := item.ArchivedAt
-			item.Read.ReadAt = &readAt
-		}
 	}
 	applyArchivedDerivedReadState(item)
 }
@@ -748,6 +739,7 @@ func readJSONLinesContent(content string) ([]map[string]any, error) {
 		return nil, nil
 	}
 	decoder := json.NewDecoder(strings.NewReader(content))
+	decoder.UseNumber()
 	var items []map[string]any
 	for {
 		var payload map[string]any

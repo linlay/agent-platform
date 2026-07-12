@@ -6,26 +6,31 @@ import (
 )
 
 type StreamRequest struct {
-	RequestID          string
-	RunID              string
-	ChatID             string
-	ChatName           string
-	AgentKey           string
-	TeamID             string
-	OwnerType          string
-	Message            string
-	Role               string
-	Scene              *SceneRef
-	References         any
-	Params             map[string]any
-	Model              any
-	PlanningMode       bool
-	IncludeUsage       bool
-	IncludeFullText    bool
-	AccessLevel        string
-	Created            bool
-	ContinueRun        bool
-	InitialSeq         int64
+	RequestID       string
+	RunID           string
+	ChatID          string
+	ChatName        string
+	AgentKey        string
+	TeamID          string
+	OwnerType       string
+	Message         string
+	Role            string
+	Scene           *SceneRef
+	References      any
+	Params          map[string]any
+	Model           any
+	PlanningMode    bool
+	IncludeUsage    bool
+	IncludeFullText bool
+	AccessLevel     string
+	Created         bool
+	ContinueRun     bool
+	InitialSeq      int64
+	// StartedAtMillis is the authoritative lifecycle clock captured by the run
+	// manager. It is intentionally distinct from the timestamps of bootstrap
+	// request/chat events: only run.start must describe that exact registration
+	// instant.
+	StartedAtMillis    int64
 	BootstrapSynthetic *SyntheticQuery
 	MemoryUsageSummary map[string]any
 	QueryMetadata      map[string]any
@@ -76,6 +81,19 @@ func NewAssembler(request StreamRequest) *StreamEventAssembler {
 // SSE tool.* events are suppressed.
 func (a *StreamEventAssembler) RegisterHiddenTools(names ...string) {
 	a.normalizer.RegisterHiddenTools(names...)
+}
+
+// SetRunStartedAtMillis binds a registered run's immutable lifecycle clock
+// before Bootstrap is called. Callers must pass the same value exposed through
+// activeRun.startedAt and the run.started push; this prevents Bootstrap's
+// local wall clock from creating a second, subtly different run.start time.
+// Invalid values are retained rather than repaired so the normal stream
+// contract boundary can reject the producer deterministically.
+func (a *StreamEventAssembler) SetRunStartedAtMillis(value int64) {
+	if a == nil {
+		return
+	}
+	a.request.StartedAtMillis = value
 }
 
 func (a *StreamEventAssembler) Bootstrap() []StreamEvent {
@@ -144,7 +162,14 @@ func (a *StreamEventAssembler) BootstrapWithRaw() ([]StreamEvent, []StreamEvent)
 	if a.request.OwnerType != "" {
 		runStart["ownerType"] = a.request.OwnerType
 	}
-	events = append(events, NewEvent("run.start", runStart))
+	runStartEvent := NewEvent("run.start", runStart)
+	if a.request.StartedAtMillis != 0 {
+		// A valid registered value is verified by the run executor before it
+		// reaches here. Preserve an invalid value too: replacing it with now
+		// would hide an internal contract violation.
+		runStartEvent.Timestamp = a.request.StartedAtMillis
+	}
+	events = append(events, runStartEvent)
 	raw := a.stamp(events)
 	return raw, a.normalizer.Normalize(raw)
 }

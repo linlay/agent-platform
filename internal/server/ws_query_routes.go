@@ -30,6 +30,11 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 	}
 	admission, err := s.prepareQueryAdmission(httpReq, true)
 	if err != nil {
+		if isTimeContractViolation(err) {
+			sendTimeContractViolation(conn, req.ID, err)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		var statusErr *statusError
 		if errors.As(err, &statusErr) {
 			s.sendWSStatusError(conn, req.ID, statusErr)
@@ -49,6 +54,11 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 	}
 	prepared, err := s.completeQueryPreparation(ctx, admission, nil)
 	if err != nil {
+		if isTimeContractViolation(err) {
+			sendTimeContractViolation(conn, req.ID, err)
+			conn.ReleaseStream(req.ID)
+			return
+		}
 		if statusErr, ok := err.(*statusError); ok {
 			s.sendWSStatusError(conn, req.ID, statusErr)
 		} else {
@@ -91,7 +101,7 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 	conn.AttachObserver(req.ID, observer.ID, func() {
 		s.deps.Runs.DetachObserver(prepared.req.RunID, observer.ID)
 	})
-	s.broadcast("run.started", map[string]any{"runId": prepared.req.RunID, "chatId": prepared.req.ChatID, "agentKey": prepared.req.AgentKey})
+	s.broadcast("run.started", map[string]any{"runId": prepared.req.RunID, "chatId": prepared.req.ChatID, "agentKey": prepared.req.AgentKey, "timestamp": registered.StartedAtMillis})
 
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
 	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
@@ -105,6 +115,7 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		RunCtx:            runCtx,
 		Request:           prepared.req,
 		Session:           prepared.session,
+		StartedAtMillis:   registered.StartedAtMillis,
 		Summary:           prepared.summary,
 		Agent:             s.deps.Agent,
 		Registry:          s.deps.Registry,
@@ -133,10 +144,10 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 			s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
 		},
 		OnContinuation: s.startRunContinuation,
-		OnComplete: func(runID string) {
+		OnComplete: func(runID string, completedAtMillis int64) {
 			releaseQuery(prepared.release)
 			s.deps.Runs.Finish(runID)
-			s.broadcast("run.finished", map[string]any{"runId": runID, "chatId": prepared.req.ChatID})
+			s.broadcast("run.finished", map[string]any{"runId": runID, "chatId": prepared.req.ChatID, "timestamp": completedAtMillis})
 		},
 	})
 	conn.StartStreamForward(req.ID, observer)

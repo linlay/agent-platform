@@ -143,7 +143,11 @@ func memoryToolRecordValue(record memory.ToolRecord) map[string]any {
 		"createdAt":      record.CreatedAt,
 		"updatedAt":      record.UpdatedAt,
 		"accessCount":    record.AccessCount,
-		"lastAccessedAt": record.LastAccessedAt,
+	}
+	// lastAccessedAt is optional. A nil pointer must stay absent on the
+	// structured tool/stream payload instead of becoming JSON null.
+	if record.LastAccessedAt != nil {
+		value["lastAccessedAt"] = *record.LastAccessedAt
 	}
 	return value
 }

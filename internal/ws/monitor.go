@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"agent-platform/internal/observability"
+	"agent-platform/internal/timecontract"
 )
 
 const (
@@ -62,10 +63,10 @@ type MonitorConnection struct {
 	DeviceID         string `json:"deviceId"`
 	RemoteAddr       string `json:"remoteAddr"`
 	UserAgent        string `json:"userAgent"`
-	ConnectedAt      int64  `json:"connectedAt"`
-	ClosedAt         int64  `json:"closedAt"`
-	LastSeenAt       int64  `json:"lastSeenAt"`
-	LastMessageAt    int64  `json:"lastMessageAt"`
+	ConnectedAt      int64  `json:"connectedAt,omitempty"`
+	ClosedAt         int64  `json:"closedAt,omitempty"`
+	LastSeenAt       int64  `json:"lastSeenAt,omitempty"`
+	LastMessageAt    int64  `json:"lastMessageAt,omitempty"`
 	ReceivedMessages int64  `json:"receivedMessages"`
 	SentMessages     int64  `json:"sentMessages"`
 	Errors           int64  `json:"errors"`
@@ -247,8 +248,11 @@ func (h *Hub) recordMonitorMessage(msg MonitorMessage) {
 	if h == nil {
 		return
 	}
-	if msg.Timestamp == 0 {
-		msg.Timestamp = time.Now().UnixMilli()
+	// A monitor message is itself a public event. Do not manufacture a time
+	// for an invalid producer: discard it rather than making an apparently
+	// valid observability record that cannot be traced back to its source.
+	if err := timecontract.ValidateEpochMillis(msg.Timestamp, "timestamp", "ws.monitor.message"); err != nil {
+		return
 	}
 	msg.Source = monitorNormalizeSource(msg.Source)
 	msg.DeviceID = monitorNormalizeDeviceID(msg.DeviceID)

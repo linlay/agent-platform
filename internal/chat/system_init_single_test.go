@@ -24,7 +24,7 @@ func TestSystemInitReadersSupportLegacyAndAgentScopedIdentity(t *testing.T) {
 		"_type":     "query",
 		"chatId":    chatID,
 		"runId":     "run-a",
-		"updatedAt": int64(1),
+		"updatedAt": testEpochMillis(1),
 		"query":     map[string]any{"role": "user", "message": "hello", "agentKey": "agent-a"},
 		"systems":   []any{legacySystem},
 	}); err != nil {
@@ -37,11 +37,11 @@ func TestSystemInitReadersSupportLegacyAndAgentScopedIdentity(t *testing.T) {
 		SystemMessage: map[string]any{"role": "system", "content": "agent b"},
 		Tools:         []any{},
 	}
-	if err := store.AppendQueryLine(chatID, QueryLine{
+	if err := appendQueryLineForTest(store, chatID, QueryLine{
 		Type:      "query",
 		ChatID:    chatID,
 		RunID:     "run-b",
-		UpdatedAt: 2,
+		UpdatedAt: testEpochMillis(2),
 		Query:     map[string]any{"role": "user", "message": "hello again", "agentKey": "agent-b"},
 		System:    &agentBSystem,
 	}); err != nil {
@@ -121,7 +121,7 @@ func TestBuildLLMChatRejectsAmbiguousLegacySystemRef(t *testing.T) {
 			query = map[string]any{"role": "user", "message": "hello", "agentKey": agentKey}
 			messages = []map[string]any{{"role": "user", "content": "hello"}}
 		}
-		if err := store.AppendQueryLine(chatID, QueryLine{
+		if err := appendQueryLineForTest(store, chatID, QueryLine{
 			Type:      "query",
 			ChatID:    chatID,
 			RunID:     "run-1",
@@ -133,11 +133,11 @@ func TestBuildLLMChatRejectsAmbiguousLegacySystemRef(t *testing.T) {
 			t.Fatalf("append query: %v", err)
 		}
 	}
-	if err := store.AppendStepLine(chatID, StepLine{
+	if err := appendStepLineForTest(store, chatID, StepLine{
 		Type:      StepLineTypeReact,
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 3,
+		UpdatedAt: testEpochMillis(3),
 		Seq:       1,
 		SystemRef: map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:shared"},
 		Messages:  []StoredMessage{{Role: "assistant", Content: textContent("done")}},
@@ -172,22 +172,22 @@ func TestSystemInitQueryIsStorageOnly(t *testing.T) {
 	executeSystem.CacheKey = "plan-execute:execute"
 	executeSystem.Fingerprint = "sha256:execute"
 	executeSystem.SystemMessage = map[string]any{"role": "system", "content": "execute"}
-	if err := store.AppendQueryLine(chatID, QueryLine{
+	if err := appendQueryLineForTest(store, chatID, QueryLine{
 		Type:      "query",
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 1,
+		UpdatedAt: testEpochMillis(1),
 		Query:     map[string]any{"role": "user", "message": "plan work", "agentKey": "planner"},
 		Messages:  []map[string]any{{"role": "user", "content": "plan work"}},
 		System:    &planSystem,
 	}); err != nil {
 		t.Fatalf("append initial query: %v", err)
 	}
-	if err := store.AppendQueryLine(chatID, QueryLine{
+	if err := appendQueryLineForTest(store, chatID, QueryLine{
 		Type:      "query",
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 2,
+		UpdatedAt: testEpochMillis(2),
 		Query: map[string]any{
 			"role":    "system",
 			"message": "private system registration",

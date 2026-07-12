@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	agentcoder "agent-platform/internal/agent/coder"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
@@ -34,12 +35,20 @@ func (s *Server) handleMemoryContextPreview(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	summary, err := s.deps.Chats.Summary(chatID)
-	if errors.Is(err, chat.ErrChatNotFound) || summary == nil {
+	if errors.Is(err, chat.ErrChatNotFound) {
 		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat not found"))
 		return
 	}
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
+	}
+	if summary == nil {
+		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat not found"))
 		return
 	}
 
@@ -98,6 +107,10 @@ func (s *Server) handleMemoryContextPreview(w http.ResponseWriter, r *http.Reque
 		PreviewOnly:  true,
 	})
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
@@ -130,12 +143,20 @@ func (s *Server) wsMemoryContextPreview(ctx context.Context, conn *ws.Conn, req 
 		return
 	}
 	summary, err := s.deps.Chats.Summary(chatID)
-	if errors.Is(err, chat.ErrChatNotFound) || summary == nil {
+	if errors.Is(err, chat.ErrChatNotFound) {
 		sendMemoryWSError(conn, req, http.StatusNotFound, "not_found", "chat not found")
 		return
 	}
 	if err != nil {
+		if isTimeContractViolation(err) {
+			sendTimeContractViolation(conn, req.ID, err)
+			return
+		}
 		sendMemoryWSError(conn, req, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	if summary == nil {
+		sendMemoryWSError(conn, req, http.StatusNotFound, "not_found", "chat not found")
 		return
 	}
 
@@ -193,6 +214,11 @@ func (s *Server) wsMemoryContextPreview(ctx context.Context, conn *ws.Conn, req 
 		PreviewOnly:  true,
 	})
 	if err != nil {
+		if isTimeContractViolation(err) {
+			sendTimeContractViolation(conn, req.ID, err)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		sendMemoryWSError(conn, req, http.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
@@ -261,7 +287,12 @@ func (s *Server) memoryContextPreviewContexts(ctx context.Context, req api.Memor
 		definition: agentDef,
 	})
 	promptAppend := buildPromptAppendConfig(s.deps.Config.Prompts, agentDef)
-	stageSettings := contracts.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask)
+	stageSystemPrompt := ""
+	if agentcoder.IsMode(agentDef.Mode) {
+		stageSystemPrompt = contracts.ResolveCoderPlanningSettings(agentDef.StageSettings, s.deps.Config.Defaults.CoderPlanning.MaxSteps).Execute.SystemPrompt
+	} else {
+		stageSystemPrompt = contracts.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask).Execute.SystemPrompt
+	}
 	toolNames := buildSessionToolNames(effectiveAgentTools(agentDef), resolvedModeCapabilities(agentDef).InvokeChildren)
 	skillCatalogPrompt := buildSkillCatalogPrompt(agentDef, s.deps.Config.Paths.SkillsMarketDir, promptAppend)
 
@@ -293,7 +324,7 @@ func (s *Server) memoryContextPreviewContexts(ctx context.Context, req api.Memor
 	appendSection("systemPrompt", "system", "memory.session", "memory.context.session", "Runtime Context: Current Session", bundle.SessionPrompt)
 	appendSection("systemPrompt", "system", "memory.observation", "memory.context.observation", "Runtime Context: Relevant Observations", bundle.ObservationPrompt)
 	appendSection("systemPrompt", "system", "stage.instructions", "agent prompt", "Stage Instructions Prompt", agentDef.AgentsPrompt)
-	appendSection("systemPrompt", "system", "stage.system", "stage settings", "Stage System Prompt", stageSettings.Execute.SystemPrompt)
+	appendSection("systemPrompt", "system", "stage.system", "stage settings", "Stage System Prompt", stageSystemPrompt)
 	appendSection("systemPrompt", "system", "skill.catalog", "skills", "Skill Catalog Prompt", skillCatalogPrompt)
 	appendSection("systemPrompt", "system", "tool.catalog", "toolConfig.tools", "Tool Names", strings.Join(toolNames, "\n"))
 

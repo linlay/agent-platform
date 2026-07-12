@@ -13,6 +13,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/automation"
 	"agent-platform/internal/config"
+	"agent-platform/internal/timecontract"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
@@ -150,6 +151,39 @@ func TestAutomationHTTPCRUDAndExecutionHistory(t *testing.T) {
 		t.Fatalf("expected completed timing on history item %#v", history.Items[0])
 	}
 	assertAutomationReadableTime(t, history.Items[0].CompletedTime)
+}
+
+func TestMapAutomationSummaryKeepsNextFireMillisecondPrecision(t *testing.T) {
+	server := &Server{}
+	next := time.Date(2026, time.January, 2, 3, 4, 5, 123_456_000, time.FixedZone("UTC+8", 8*60*60))
+	response, err := server.mapAutomationSummary(automation.Definition{ID: "precision", Name: "Precision", Enabled: true}, &next)
+	if err != nil {
+		t.Fatalf("map automation summary: %v", err)
+	}
+	if response.NextFireAt == nil || response.NextFireTime == nil {
+		t.Fatalf("expected paired next fire values, got %#v", response)
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, *response.NextFireTime)
+	if err != nil {
+		t.Fatalf("parse nextFireTime: %v", err)
+	}
+	if parsed.UnixMilli() != *response.NextFireAt {
+		t.Fatalf("next fire pair lost precision: at=%d time=%q parsed=%d", *response.NextFireAt, *response.NextFireTime, parsed.UnixMilli())
+	}
+	if parsed.Nanosecond()%int(time.Millisecond) != 0 {
+		t.Fatalf("nextFireTime must represent the exact epoch-ms instant, got %q", *response.NextFireTime)
+	}
+}
+
+func TestAutomationTimeContractErrorsUse422(t *testing.T) {
+	server := &Server{}
+	violation := timecontract.ValidateEpochMillis(0, "startedAt", "automation.test")
+	recorder := httptest.NewRecorder()
+	server.writeAutomationHTTPResponse(recorder, nil, violation)
+	if recorder.Code != http.StatusUnprocessableEntity || !strings.Contains(recorder.Body.String(), "time_contract_violation") {
+		t.Fatalf("expected HTTP 422 time contract violation, got %d %s", recorder.Code, recorder.Body.String())
+	}
+
 }
 
 func TestAutomationAdminManagementRoutesRemoved(t *testing.T) {

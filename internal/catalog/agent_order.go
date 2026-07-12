@@ -1,11 +1,16 @@
 package catalog
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
+
+	"agent-platform/internal/timecontract"
 )
 
 const AgentOrderFileName = "agent-order.json"
@@ -36,8 +41,8 @@ func ReadAgentOrderFile(agentsDir string) (AgentOrderFile, error) {
 	if err != nil {
 		return AgentOrderFile{}, err
 	}
-	var file AgentOrderFile
-	if err := json.Unmarshal(data, &file); err != nil {
+	file, err := decodeAgentOrderFile(data, "catalog.agent-order")
+	if err != nil {
 		return AgentOrderFile{}, err
 	}
 	if file.Version == 0 {
@@ -45,6 +50,33 @@ func ReadAgentOrderFile(agentsDir string) (AgentOrderFile, error) {
 	}
 	if file.Order == nil {
 		file.Order = []string{}
+	}
+	return file, nil
+}
+
+// decodeAgentOrderFile checks the original JSON tokens before typed decoding.
+// Otherwise a historical string or float `updatedAt` becomes a generic
+// json.Unmarshal error, obscuring the required public time-contract failure.
+func decodeAgentOrderFile(data []byte, location string) (AgentOrderFile, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var payload map[string]any
+	if err := decoder.Decode(&payload); err != nil {
+		return AgentOrderFile{}, err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return AgentOrderFile{}, fmt.Errorf("agent order contains multiple JSON values")
+		}
+		return AgentOrderFile{}, err
+	}
+	if err := timecontract.ValidateJSONPayload(payload, location); err != nil {
+		return AgentOrderFile{}, err
+	}
+	var file AgentOrderFile
+	if err := json.Unmarshal(data, &file); err != nil {
+		return AgentOrderFile{}, err
 	}
 	return file, nil
 }

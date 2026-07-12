@@ -46,12 +46,20 @@ func (s *Server) handleLearn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	summary, err := s.deps.Chats.Summary(req.ChatID)
-	if errors.Is(err, chat.ErrChatNotFound) || summary == nil {
+	if errors.Is(err, chat.ErrChatNotFound) {
 		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat not found"))
 		return
 	}
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
+	}
+	if summary == nil {
+		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat not found"))
 		return
 	}
 	if !s.memoryEnabledForAgentKey(summary.AgentKey) {
@@ -64,6 +72,10 @@ func (s *Server) handleLearn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
@@ -81,6 +93,10 @@ func (s *Server) handleLearn(w http.ResponseWriter, r *http.Request) {
 		SkillCandidates: s.deps.SkillCandidates,
 	})
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}

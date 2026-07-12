@@ -43,6 +43,10 @@ func (s *Server) handleMemoryRecords(w http.ResponseWriter, r *http.Request) {
 		Cursor:    strings.TrimSpace(r.URL.Query().Get("cursor")),
 	})
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
@@ -65,6 +69,10 @@ func (s *Server) handleMemoryRecord(w http.ResponseWriter, r *http.Request) {
 	}
 	detail, err := memory.ReadConsoleRecord(s.deps.Memory, strings.TrimSpace(r.URL.Query().Get("agentKey")), id)
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
@@ -107,6 +115,10 @@ func (s *Server) handleMemoryRecordTimeline(w http.ResponseWriter, r *http.Reque
 		Cursor:   strings.TrimSpace(r.URL.Query().Get("cursor")),
 	})
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
@@ -167,6 +179,11 @@ func (s *Server) wsMemoryRecords(_ context.Context, conn *ws.Conn, req ws.Reques
 		Cursor:    strings.TrimSpace(payload.Cursor),
 	})
 	if err != nil {
+		if isTimeContractViolation(err) {
+			sendTimeContractViolation(conn, req.ID, err)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		sendMemoryWSError(conn, req, http.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
@@ -198,6 +215,11 @@ func (s *Server) wsMemoryRecord(_ context.Context, conn *ws.Conn, req ws.Request
 	}
 	detail, err := memory.ReadConsoleRecord(s.deps.Memory, strings.TrimSpace(payload.AgentKey), id)
 	if err != nil {
+		if isTimeContractViolation(err) {
+			sendTimeContractViolation(conn, req.ID, err)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		sendMemoryWSError(conn, req, http.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
@@ -219,6 +241,11 @@ func (s *Server) wsMemoryRecord(_ context.Context, conn *ws.Conn, req ws.Request
 }
 
 func sendMemoryWSResponse(conn *ws.Conn, req ws.RequestFrame, response any) {
+	if err := validatePublicTimeContract(response); err != nil {
+		sendTimeContractViolation(conn, req.ID, err)
+		conn.CompleteRequest(req.ID)
+		return
+	}
 	conn.SendResponse(req.Type, req.ID, 0, "success", response)
 	conn.CompleteRequest(req.ID)
 }

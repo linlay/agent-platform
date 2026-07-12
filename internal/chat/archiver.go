@@ -67,6 +67,7 @@ func (a *Archiver) ArchiveChat(chatID string) error {
 			SourceChannel:  summary.SourceChannel,
 			CreatedAt:      summary.CreatedAt,
 			UpdatedAt:      summary.UpdatedAt,
+			LastRunAt:      summary.LastRunAt,
 			ArchivedAt:     time.Now().UnixMilli(),
 			LastRunID:      summary.LastRunID,
 			LastRunContent: summary.LastRunContent,

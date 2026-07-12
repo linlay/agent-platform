@@ -81,8 +81,23 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if err := sseWriter.WriteJSON("message", event); err != nil {
+				if isTimeContractViolation(err) {
+					s.terminateSSEForTimeContractViolation(
+						sseWriter,
+						lastSeq,
+						event,
+						api.InterruptRequest{
+							RunID:    runID,
+							ChatID:   status.ChatID,
+							AgentKey: status.AgentKey,
+							TeamID:   status.TeamID,
+						},
+						err,
+					)
+				}
 				return
 			}
+			lastSeq = event.Seq
 		}
 	}
 }

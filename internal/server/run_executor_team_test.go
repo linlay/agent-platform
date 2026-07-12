@@ -58,7 +58,7 @@ func TestTeamAwaitingNotificationUsesPublicOwner(t *testing.T) {
 			RunOwner: contracts.TeamRunOwner("research", hiddenTeamAgentKey("research")),
 		},
 		Notifications: notifications,
-	}, stream.EventData{Type: "awaiting.ask", Timestamp: 1, Payload: map[string]any{
+	}, stream.EventData{Type: "awaiting.ask", Timestamp: testEpochMillis + 1, Payload: map[string]any{
 		"awaitingId": "await-team", "runId": "run-team", "mode": "form",
 	}}, &awaitingTracker{})
 	payloads := notifications.Payloads()

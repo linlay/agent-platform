@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -90,7 +89,7 @@ func (s *FileStore) DeriveChat(request DeriveChatRequest) (DeriveChatResult, err
 		return DeriveChatResult{}, ErrRunIncomplete
 	}
 
-	lines, err := readJSONLines(s.chatJSONLPath(sourceChatID))
+	lines, err := readPersistedJSONLines(s.chatJSONLPath(sourceChatID))
 	if err != nil {
 		return DeriveChatResult{}, err
 	}
@@ -160,14 +159,14 @@ func (s *FileStore) DeriveChat(request DeriveChatRequest) (DeriveChatResult, err
 	}()
 
 	_, err = tx.Exec(`INSERT INTO CHATS (
-			CHAT_ID_, CHAT_NAME_, OWNER_TYPE_, AGENT_KEY_, TEAM_ID_, SOURCE_, CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_,
+			CHAT_ID_, CHAT_NAME_, OWNER_TYPE_, AGENT_KEY_, TEAM_ID_, SOURCE_, CREATED_AT_, UPDATED_AT_, LAST_RUN_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_,
 			USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, USAGE_CACHED_TOKENS_, USAGE_REASONING_TOKENS_,
 			USAGE_PROMPT_CACHE_HIT_TOKENS_, USAGE_PROMPT_CACHE_MISS_TOKENS_,
 			USAGE_ESTIMATED_COST_CURRENCY_, USAGE_ESTIMATED_COST_INPUT_CACHE_HIT_, USAGE_ESTIMATED_COST_INPUT_CACHE_MISS_, USAGE_ESTIMATED_COST_OUTPUT_, USAGE_ESTIMATED_COST_TOTAL_,
 			USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
 			USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		targetChatID, chatName, normalizedStoredOwnerType(sourceSummary.OwnerType, sourceSummary.AgentKey, sourceSummary.TeamID), sourceSummary.AgentKey, nilIfEmpty(sourceSummary.TeamID), "", now, now, targetRunID, targetSourceRun.AssistantText, readRunID, now,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		targetChatID, chatName, normalizedStoredOwnerType(sourceSummary.OwnerType, sourceSummary.AgentKey, sourceSummary.TeamID), sourceSummary.AgentKey, nilIfEmpty(sourceSummary.TeamID), "", now, now, now, targetRunID, targetSourceRun.AssistantText, readRunID, now,
 		usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, usage.CachedTokens, usage.ReasoningTokens,
 		usage.PromptCacheHitTokens, usage.PromptCacheMissTokens,
 		usage.EstimatedCostCurrency, usage.EstimatedCostInputHit, usage.EstimatedCostInputMiss, usage.EstimatedCostOutput, usage.EstimatedCostTotal,
@@ -237,7 +236,7 @@ func (s *FileStore) listRunsLocked(chatID string) ([]RunSummary, error) {
 		USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_,
 		USAGE_ESTIMATED_COST_CURRENCY_, USAGE_ESTIMATED_COST_INPUT_CACHE_HIT_, USAGE_ESTIMATED_COST_INPUT_CACHE_MISS_, USAGE_ESTIMATED_COST_OUTPUT_, USAGE_ESTIMATED_COST_TOTAL_, COALESCE(USAGE_MODEL_KEY_,''),
 		FEEDBACK_TYPE_, FEEDBACK_COMMENT_, FEEDBACK_AT_
-		FROM RUNS WHERE CHAT_ID_=? ORDER BY COMPLETED_AT_ ASC, RUN_ID_ ASC`, chatID)
+		FROM RUNS WHERE CHAT_ID_=? AND COMPLETED_AT_>0 ORDER BY COMPLETED_AT_ ASC, RUN_ID_ ASC`, chatID)
 	if err != nil {
 		return nil, err
 	}
@@ -257,12 +256,18 @@ func (s *FileStore) listRunsLocked(chatID string) ([]RunSummary, error) {
 			return nil, err
 		}
 		item.OwnerType = normalizedStoredOwnerType(item.OwnerType, item.AgentKey, item.TeamID)
+		if err := validateActiveRunTimeContract(item, fmt.Sprintf("chat.derive.runs[%d]", len(items))); err != nil {
+			return nil, err
+		}
 		items = append(items, item)
 	}
 	return items, rows.Err()
 }
 
 func runSummaryIsComplete(run RunSummary) bool {
+	if run.CompletedAt == 0 {
+		return false
+	}
 	reason := strings.ToLower(strings.TrimSpace(run.FinishReason))
 	return reason == "" || reason == "complete" || reason == "stop"
 }
@@ -322,9 +327,8 @@ func deriveRequestIDMap(lines []map[string]any, runIDs map[string]string) map[st
 }
 
 func (s *FileStore) nextDerivedRunIDLocked(assigned map[string]string) (string, error) {
-	now := time.Now().UnixMilli()
 	for offset := int64(0); offset < 10000; offset++ {
-		candidate := strconv.FormatInt(now+offset, 36)
+		candidate := NewRunID()
 		used := false
 		for _, value := range assigned {
 			if value == candidate {

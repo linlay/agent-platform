@@ -8,6 +8,7 @@ import (
 
 	"agent-platform/internal/stream"
 	terminalpkg "agent-platform/internal/terminal"
+	"agent-platform/internal/timecontract"
 	"agent-platform/internal/ws"
 )
 
@@ -37,7 +38,17 @@ func (s *Server) wsTerminalStatus(_ context.Context, conn *ws.Conn, req ws.Reque
 	var seq int64
 	lastFingerprint := ""
 	sendSnapshot := func() bool {
-		sessions := s.terminals.List(ownerKey)
+		sessions, listErr := s.terminals.ListStrict(ownerKey)
+		if listErr != nil {
+			if timecontract.IsViolation(listErr) {
+				sendTimeContractViolation(conn, req.ID, listErr)
+				conn.FinishStream(req.ID, "error", seq)
+				return false
+			}
+			conn.SendError(req.ID, "internal_error", http.StatusInternalServerError, listErr.Error(), nil)
+			conn.FinishStream(req.ID, "error", seq)
+			return false
+		}
 		fingerprint := terminalStatusFingerprint(sessions)
 		if seq > 0 && fingerprint == lastFingerprint {
 			return true

@@ -30,7 +30,7 @@ func TestStreamFrameMarshalsEventAndEnd(t *testing.T) {
 		Frame:    FrameStream,
 		ID:       "req_1",
 		StreamID: "s_1",
-		Event:    &stream.EventData{Seq: 1, Type: "content.delta"},
+		Event:    &stream.EventData{Seq: 1, Type: "content.delta", Timestamp: 1_700_000_000_000},
 	}
 	data, err := json.Marshal(eventFrame)
 	if err != nil {

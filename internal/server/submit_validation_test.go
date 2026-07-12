@@ -21,10 +21,10 @@ func TestValidateDeferredSubmitParamsAcceptsDismissAndValidShapes(t *testing.T) 
 		{name: "form reject", mode: "form", params: []map[string]any{{"decision": "reject"}}},
 		{name: "form reject with reason", mode: "form", params: []map[string]any{{"decision": "reject", "reason": "不同意"}}},
 		{name: "form reject with form", mode: "form", params: []map[string]any{{"decision": "reject", "reason": "已修改", "form": map[string]any{"days": 1}}}},
-		{name: "plan dismiss", mode: "plan", params: []map[string]any{}},
-		{name: "plan approve", mode: "plan", params: []map[string]any{{"decision": "approve"}}},
-		{name: "plan reject empty reason", mode: "plan", params: []map[string]any{{"decision": "reject", "reason": ""}}},
-		{name: "plan reject reason", mode: "plan", params: []map[string]any{{"decision": "reject", "reason": "请补充测试范围"}}},
+		{name: "planning dismiss", mode: "planning", params: []map[string]any{}},
+		{name: "planning approve", mode: "planning", params: []map[string]any{{"decision": "approve"}}},
+		{name: "planning reject empty reason", mode: "planning", params: []map[string]any{{"decision": "reject", "reason": ""}}},
+		{name: "planning reject reason", mode: "planning", params: []map[string]any{{"decision": "reject", "reason": "请补充测试范围"}}},
 	}
 
 	for _, tt := range tests {
@@ -45,7 +45,7 @@ func TestValidateDeferredSubmitParamsRejectsInvalidApprovalDecision(t *testing.T
 	}
 }
 
-func TestValidateDeferredSubmitParamsRejectsInvalidPlanShape(t *testing.T) {
+func TestValidateDeferredSubmitParamsRejectsInvalidPlanningShape(t *testing.T) {
 	tests := []struct {
 		name       string
 		params     any
@@ -59,26 +59,33 @@ func TestValidateDeferredSubmitParamsRejectsInvalidPlanShape(t *testing.T) {
 		{
 			name:       "invalid decision",
 			params:     []map[string]any{{"decision": "approve_rule_run"}},
-			wantSubstr: `items[0]: unsupported plan decision "approve_rule_run"`,
+			wantSubstr: `items[0]: unsupported planning decision "approve_rule_run"`,
 		},
 		{
 			name:       "answer rejected",
 			params:     []map[string]any{{"decision": "reject", "answer": "no"}},
-			wantSubstr: "items[0]: plan items do not allow answer",
+			wantSubstr: "items[0]: planning items do not allow answer",
 		},
 		{
 			name:       "payload rejected",
 			params:     []map[string]any{{"decision": "reject", "payload": map[string]any{}}},
-			wantSubstr: "items[0]: plan items do not allow payload",
+			wantSubstr: "items[0]: planning items do not allow payload",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateDeferredSubmitParams("plan", mustEncodeSubmitParams(t, tt.params))
+			err := validateDeferredSubmitParams("planning", mustEncodeSubmitParams(t, tt.params))
 			if err == nil || !strings.Contains(err.Error(), tt.wantSubstr) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 		})
+	}
+}
+
+func TestValidateDeferredSubmitParamsRejectsLegacyPlanMode(t *testing.T) {
+	err := validateDeferredSubmitParams("plan", mustEncodeSubmitParams(t, []map[string]any{{"decision": "approve"}}))
+	if err == nil || !strings.Contains(err.Error(), "unsupported awaiting mode: plan") {
+		t.Fatalf("expected legacy plan mode rejection, got %v", err)
 	}
 }
 

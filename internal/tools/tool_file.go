@@ -71,11 +71,13 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 			!snap.Truncated &&
 			snap.LineNumbered == lineNumbered {
 			return structuredResult(map[string]any{
-				"filePath":       resolved.Path,
-				"kind":           "unchanged",
-				"modifiedUnixMs": int64(0),
-				"sizeBytes":      int64(0),
-				"message":        "File unchanged since last read. Refer to the earlier read result in this conversation.",
+				"filePath": resolved.Path,
+				"kind":     "unchanged",
+				// The unchanged marker has no new file observation time. Omit the
+				// optional modifiedUnixMs field instead of leaking a sentinel zero
+				// into a public tool.result stream payload.
+				"sizeBytes": int64(0),
+				"message":   "File unchanged since last read. Refer to the earlier read result in this conversation.",
 			}), nil
 		}
 	}

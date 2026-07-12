@@ -8,14 +8,14 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/timecontract"
 )
 
 func AppendJournal(root string, item api.StoredMemoryResponse) error {
-	createdAt := item.CreatedAt
-	if createdAt <= 0 {
-		createdAt = time.Now().UnixMilli()
+	if err := timecontract.ValidateEpochMillis(item.CreatedAt, "createdAt", "memory.journal"); err != nil {
+		return err
 	}
-	created := time.UnixMilli(createdAt)
+	created := time.UnixMilli(item.CreatedAt)
 	monthDir := filepath.Join(root, "journal", created.Format("2006-01"))
 	if err := os.MkdirAll(monthDir, 0o755); err != nil {
 		return err

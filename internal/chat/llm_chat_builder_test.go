@@ -65,9 +65,9 @@ func TestBuildLLMChatFromJSONLUsesSystemFingerprint(t *testing.T) {
 		Type:      "query",
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 1,
+		UpdatedAt: testEpochMillis(1),
 		Query:     map[string]any{"role": "user", "message": "hello"},
-		Messages:  []map[string]any{{"role": "user", "content": "hello"}},
+		Messages:  []map[string]any{{"role": "user", "content": "hello", "ts": testEpochMillis(1)}},
 		System:    &oldSystem,
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
@@ -76,7 +76,7 @@ func TestBuildLLMChatFromJSONLUsesSystemFingerprint(t *testing.T) {
 		Type:      "query",
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 1,
+		UpdatedAt: testEpochMillis(1),
 		Query:     map[string]any{"role": "system", "kind": "system-init", "hidden": true, "agentKey": "agent"},
 		System:    &newSystem,
 	}); err != nil {
@@ -86,10 +86,11 @@ func TestBuildLLMChatFromJSONLUsesSystemFingerprint(t *testing.T) {
 		Type:      StepLineTypeReact,
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 2,
+		UpdatedAt: testEpochMillis(2),
 		Seq:       1,
 		SystemRef: map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:old"},
 		Messages: []StoredMessage{{
+			Ts:      int64Ptr(testEpochMillis(1)),
 			Role:    "assistant",
 			Content: []ContentPart{{Type: "text", Text: "hi"}},
 		}},
@@ -120,7 +121,7 @@ func TestBuildLLMChatFromJSONLUsesSystemFingerprint(t *testing.T) {
 	if chat.Model["id"] != "model-id" {
 		t.Fatalf("model snapshot not restored: %#v", chat.Model)
 	}
-	if chat.RequestOptions["temperature"] != float64(0) {
+	if chat.RequestOptions["temperature"] != json.Number("0") {
 		t.Fatalf("request options not restored: %#v", chat.RequestOptions)
 	}
 }
@@ -153,9 +154,9 @@ func TestBuildLLMChatFromJSONLIgnoresStepSourcesSidecar(t *testing.T) {
 		Type:      "query",
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 1,
+		UpdatedAt: testEpochMillis(1),
 		Query:     map[string]any{"role": "user", "message": "hello"},
-		Messages:  []map[string]any{{"role": "user", "content": "hello"}},
+		Messages:  []map[string]any{{"role": "user", "content": "hello", "ts": testEpochMillis(1)}},
 		System:    &system,
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
@@ -164,10 +165,11 @@ func TestBuildLLMChatFromJSONLIgnoresStepSourcesSidecar(t *testing.T) {
 		Type:      StepLineTypeReact,
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 2,
+		UpdatedAt: testEpochMillis(2),
 		Seq:       1,
 		SystemRef: map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:system"},
 		Messages: []StoredMessage{{
+			Ts:   int64Ptr(testEpochMillis(1)),
 			Role: "assistant",
 			ToolCalls: []StoredToolCall{{
 				ID:   "call_1",
@@ -186,9 +188,10 @@ func TestBuildLLMChatFromJSONLIgnoresStepSourcesSidecar(t *testing.T) {
 		Type:      StepLineTypeReactTool,
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 3,
+		UpdatedAt: testEpochMillis(3),
 		Seq:       1,
 		Messages: []StoredMessage{{
+			Ts:         int64Ptr(testEpochMillis(1)),
 			Role:       "tool",
 			Name:       "kbase_search",
 			ToolCallID: "call_1",
@@ -198,6 +201,7 @@ func TestBuildLLMChatFromJSONLIgnoresStepSourcesSidecar(t *testing.T) {
 		Sources: &SourceState{Items: []map[string]any{{
 			"publishId": "src_1",
 			"toolId":    "call_1",
+			"timestamp": testEpochMillis(3),
 			"sources": []map[string]any{{
 				"id": "kbase:secret.md",
 				"chunks": []map[string]any{{
@@ -212,10 +216,11 @@ func TestBuildLLMChatFromJSONLIgnoresStepSourcesSidecar(t *testing.T) {
 		Type:      StepLineTypeReact,
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 4,
+		UpdatedAt: testEpochMillis(4),
 		Seq:       2,
 		SystemRef: map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:system"},
 		Messages: []StoredMessage{{
+			Ts:      int64Ptr(testEpochMillis(1)),
 			Role:    "assistant",
 			Content: textContent("done"),
 		}},
@@ -261,9 +266,9 @@ func TestBuildLLMChatFromJSONLAppendsInputMessages(t *testing.T) {
 		Type:      "query",
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 1,
+		UpdatedAt: testEpochMillis(1),
 		Query:     map[string]any{"role": "user", "message": "original"},
-		Messages:  []map[string]any{{"role": "user", "content": "original"}},
+		Messages:  []map[string]any{{"role": "user", "content": "original", "ts": testEpochMillis(1)}},
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
 	}
@@ -271,9 +276,10 @@ func TestBuildLLMChatFromJSONLAppendsInputMessages(t *testing.T) {
 		Type:      StepLineTypeReact,
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 2,
+		UpdatedAt: testEpochMillis(2),
 		Seq:       1,
 		Messages: []StoredMessage{{
+			Ts:      int64Ptr(testEpochMillis(1)),
 			Role:    "assistant",
 			Content: []ContentPart{{Type: "text", Text: "first answer"}},
 		}},
@@ -284,13 +290,14 @@ func TestBuildLLMChatFromJSONLAppendsInputMessages(t *testing.T) {
 		Type:          StepLineTypePlanExecute,
 		ChatID:        chatID,
 		RunID:         "run-1",
-		UpdatedAt:     3,
+		UpdatedAt:     testEpochMillis(3),
 		Stage:         "execute",
 		Seq:           2,
-		InputMessages: []map[string]any{{"role": "user", "content": "execute task"}},
+		InputMessages: []map[string]any{{"role": "user", "content": "execute task", "ts": testEpochMillis(1)}},
 		SystemRef:     map[string]any{"cacheKey": "plan-execute:execute", "fingerprint": "sha256:execute"},
 		Systems:       []QueryLineSystemInit{executeSystem},
 		Messages: []StoredMessage{{
+			Ts:      int64Ptr(testEpochMillis(1)),
 			Role:    "assistant",
 			Content: []ContentPart{{Type: "text", Text: "execute answer"}},
 		}},
@@ -343,9 +350,9 @@ func TestBuildLLMChatFromJSONLUsesSyntheticQueryMessagesOnce(t *testing.T) {
 		Type:      "query",
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 1,
+		UpdatedAt: testEpochMillis(1),
 		Query:     map[string]any{"role": "user", "message": "hello"},
-		Messages:  []map[string]any{{"role": "user", "content": "hello"}},
+		Messages:  []map[string]any{{"role": "user", "content": "hello", "ts": testEpochMillis(1)}},
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
 	}
@@ -353,9 +360,10 @@ func TestBuildLLMChatFromJSONLUsesSyntheticQueryMessagesOnce(t *testing.T) {
 		Type:      StepLineTypeReactTool,
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 2,
+		UpdatedAt: testEpochMillis(2),
 		Seq:       1,
 		Messages: []StoredMessage{{
+			Ts:      int64Ptr(testEpochMillis(1)),
 			Role:    "tool",
 			Name:    "finalize_planning",
 			ToolID:  "tool_plan",
@@ -368,7 +376,7 @@ func TestBuildLLMChatFromJSONLUsesSyntheticQueryMessagesOnce(t *testing.T) {
 		Type:      "query",
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 3,
+		UpdatedAt: testEpochMillis(3),
 		Query: map[string]any{
 			"role":      "user",
 			"message":   "执行计划",
@@ -376,7 +384,7 @@ func TestBuildLLMChatFromJSONLUsesSyntheticQueryMessagesOnce(t *testing.T) {
 			"stage":     "coder-execute",
 			"source":    "coder-plan-approve",
 		},
-		Messages: []map[string]any{{"role": "user", "content": executePrompt}},
+		Messages: []map[string]any{{"role": "user", "content": executePrompt, "ts": testEpochMillis(1)}},
 	}); err != nil {
 		t.Fatalf("append synthetic query: %v", err)
 	}
@@ -384,11 +392,12 @@ func TestBuildLLMChatFromJSONLUsesSyntheticQueryMessagesOnce(t *testing.T) {
 		Type:      StepLineTypeReact,
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 4,
+		UpdatedAt: testEpochMillis(4),
 		Seq:       2,
 		SystemRef: map[string]any{"cacheKey": "coder:execute", "fingerprint": "sha256:execute"},
 		Systems:   []QueryLineSystemInit{executeSystem},
 		Messages: []StoredMessage{{
+			Ts:      int64Ptr(testEpochMillis(1)),
 			Role:    "assistant",
 			Content: []ContentPart{{Type: "text", Text: "done"}},
 		}},
@@ -445,9 +454,9 @@ func TestBuildLLMChatFromJSONLReplaysSteerWithoutInputMessages(t *testing.T) {
 		Type:      "query",
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 1,
+		UpdatedAt: testEpochMillis(1),
 		Query:     map[string]any{"role": "user", "message": "original"},
-		Messages:  []map[string]any{{"role": "user", "content": "original"}},
+		Messages:  []map[string]any{{"role": "user", "content": "original", "ts": testEpochMillis(1)}},
 		System:    &system,
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
@@ -456,9 +465,10 @@ func TestBuildLLMChatFromJSONLReplaysSteerWithoutInputMessages(t *testing.T) {
 		Type:      StepLineTypeReact,
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 2,
+		UpdatedAt: testEpochMillis(2),
 		Seq:       1,
 		Messages: []StoredMessage{{
+			Ts:      int64Ptr(testEpochMillis(1)),
 			Role:    "assistant",
 			Content: []ContentPart{{Type: "text", Text: "first answer"}},
 		}},
@@ -469,7 +479,7 @@ func TestBuildLLMChatFromJSONLReplaysSteerWithoutInputMessages(t *testing.T) {
 		Type:      "steer",
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 3,
+		UpdatedAt: testEpochMillis(3),
 		Event: map[string]any{
 			"type":    "request.steer",
 			"runId":   "run-1",
@@ -485,10 +495,11 @@ func TestBuildLLMChatFromJSONLReplaysSteerWithoutInputMessages(t *testing.T) {
 		Type:      StepLineTypeReact,
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 4,
+		UpdatedAt: testEpochMillis(4),
 		Seq:       2,
 		SystemRef: map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:react"},
 		Messages: []StoredMessage{{
+			Ts:      int64Ptr(testEpochMillis(1)),
 			Role:    "assistant",
 			Content: []ContentPart{{Type: "text", Text: "final answer"}},
 		}},
@@ -552,9 +563,9 @@ The tool results above already reflect these decisions; do not re-prompt for app
 		Type:      "query",
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 1,
+		UpdatedAt: testEpochMillis(1),
 		Query:     map[string]any{"role": "user", "message": "hello"},
-		Messages:  []map[string]any{{"role": "user", "content": "hello"}},
+		Messages:  []map[string]any{{"role": "user", "content": "hello", "ts": testEpochMillis(1)}},
 		System:    &system,
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
@@ -563,16 +574,18 @@ The tool results above already reflect these decisions; do not re-prompt for app
 		Type:      StepLineTypeReactTool,
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 2,
+		UpdatedAt: testEpochMillis(2),
 		Seq:       1,
 		Messages: []StoredMessage{
 			{
+				Ts:         int64Ptr(testEpochMillis(2)),
 				Role:       "tool",
 				Name:       "bash",
 				ToolCallID: "tool-1",
 				Content:    []ContentPart{{Type: "text", Text: "ok"}},
 			},
 			{
+				Ts:      int64Ptr(testEpochMillis(2)),
 				Role:    "user",
 				Content: textContent(auditNotice),
 			},
@@ -584,10 +597,11 @@ The tool results above already reflect these decisions; do not re-prompt for app
 		Type:      StepLineTypeReact,
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 3,
+		UpdatedAt: testEpochMillis(3),
 		Seq:       2,
 		SystemRef: map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:system"},
 		Messages: []StoredMessage{{
+			Ts:      int64Ptr(testEpochMillis(1)),
 			Role:    "assistant",
 			Content: []ContentPart{{Type: "text", Text: "done"}},
 		}},
@@ -637,7 +651,7 @@ func TestStepWriterKeepsLLMRequestProfileOutOfStepLines(t *testing.T) {
 		RequestOptions: map[string]any{"stream": true, "temperature": 0},
 	}
 	writer.SetPendingSystemInit(&pendingSystem)
-	writer.SetPendingQueryMessages([]map[string]any{{"role": "user", "content": "hello"}})
+	writer.SetPendingQueryMessages([]map[string]any{{"role": "user", "content": "hello", "ts": testEpochMillis(1)}})
 	writer.OnEvent(stream.NewEvent("request.query", map[string]any{
 		"role":    "user",
 		"message": "hello",
@@ -726,16 +740,18 @@ The tool results above already reflect these decisions; do not re-prompt for app
 		Type:      StepLineTypeReactTool,
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 1,
+		UpdatedAt: testEpochMillis(1),
 		Seq:       1,
 		Messages: []StoredMessage{
 			{
+				Ts:         int64Ptr(testEpochMillis(1)),
 				Role:       "tool",
 				Name:       "bash",
 				ToolCallID: "tool-1",
 				Content:    []ContentPart{{Type: "text", Text: "ok"}},
 			},
 			{
+				Ts:      int64Ptr(testEpochMillis(1)),
 				Role:    "user",
 				Content: textContent(auditNotice),
 			},
@@ -782,7 +798,7 @@ func TestStepWriterDoesNotPersistInlineProfileAsStepSystems(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	writer := NewStepWriter(store, chatID, "run-1", "REACT")
-	writer.SetPendingQueryMessages([]map[string]any{{"role": "user", "content": "hello"}})
+	writer.SetPendingQueryMessages([]map[string]any{{"role": "user", "content": "hello", "ts": testEpochMillis(1)}})
 	writer.OnEvent(stream.NewEvent("request.query", map[string]any{
 		"role":    "user",
 		"message": "hello",
@@ -844,9 +860,9 @@ func TestBuildLLMChatFromJSONLRejectsMissingSystemRef(t *testing.T) {
 		Type:      "query",
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 1,
+		UpdatedAt: testEpochMillis(1),
 		Query:     map[string]any{"role": "user", "message": "hello"},
-		Messages:  []map[string]any{{"role": "user", "content": "hello"}},
+		Messages:  []map[string]any{{"role": "user", "content": "hello", "ts": testEpochMillis(1)}},
 		System: &QueryLineSystemInit{
 			AgentKey:      "agent",
 			CacheKey:      "react:main",
@@ -862,9 +878,10 @@ func TestBuildLLMChatFromJSONLRejectsMissingSystemRef(t *testing.T) {
 		Type:      StepLineTypeReact,
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 2,
+		UpdatedAt: testEpochMillis(2),
 		Seq:       1,
 		Messages: []StoredMessage{{
+			Ts:      int64Ptr(testEpochMillis(1)),
 			Role:    "assistant",
 			Content: []ContentPart{{Type: "text", Text: "hi"}},
 		}},
@@ -891,9 +908,9 @@ func TestBuildLLMChatFromJSONLRejectsMissingSystemSnapshot(t *testing.T) {
 		Type:      "query",
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 1,
+		UpdatedAt: testEpochMillis(1),
 		Query:     map[string]any{"role": "user", "message": "hello"},
-		Messages:  []map[string]any{{"role": "user", "content": "hello"}},
+		Messages:  []map[string]any{{"role": "user", "content": "hello", "ts": testEpochMillis(1)}},
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
 	}
@@ -901,10 +918,11 @@ func TestBuildLLMChatFromJSONLRejectsMissingSystemSnapshot(t *testing.T) {
 		Type:      StepLineTypeReact,
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 2,
+		UpdatedAt: testEpochMillis(2),
 		Seq:       1,
 		SystemRef: map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:missing"},
 		Messages: []StoredMessage{{
+			Ts:      int64Ptr(testEpochMillis(1)),
 			Role:    "assistant",
 			Content: []ContentPart{{Type: "text", Text: "hi"}},
 		}},
@@ -931,9 +949,9 @@ func TestBuildLLMChatFromJSONLRejectsSystemSnapshotWithoutModelKey(t *testing.T)
 		Type:      "query",
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 1,
+		UpdatedAt: testEpochMillis(1),
 		Query:     map[string]any{"role": "user", "message": "hello"},
-		Messages:  []map[string]any{{"role": "user", "content": "hello"}},
+		Messages:  []map[string]any{{"role": "user", "content": "hello", "ts": testEpochMillis(1)}},
 		System: &QueryLineSystemInit{
 			AgentKey:      "agent",
 			CacheKey:      "react:main",
@@ -949,10 +967,11 @@ func TestBuildLLMChatFromJSONLRejectsSystemSnapshotWithoutModelKey(t *testing.T)
 		Type:      StepLineTypeReact,
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: 2,
+		UpdatedAt: testEpochMillis(2),
 		Seq:       1,
 		SystemRef: map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:system"},
 		Messages: []StoredMessage{{
+			Ts:      int64Ptr(testEpochMillis(1)),
 			Role:    "assistant",
 			Content: []ContentPart{{Type: "text", Text: "hi"}},
 		}},

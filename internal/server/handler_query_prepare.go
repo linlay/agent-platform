@@ -131,7 +131,14 @@ func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (qu
 	}
 	var existingSummary *chat.Summary
 	if s.deps.Chats != nil {
-		existingSummary, _ = s.deps.Chats.Summary(chatID)
+		var summaryErr error
+		existingSummary, summaryErr = s.deps.Chats.Summary(chatID)
+		if summaryErr != nil {
+			// A historical chat is an input to a new run as soon as its owner,
+			// memory scope, or history is resolved. Do not ignore a malformed
+			// timestamp here and accidentally treat the chat as a fresh one.
+			return queryAdmission{}, summaryErr
+		}
 	}
 	if gateErr := s.awaitingQueryGateError(chatID, existingSummary); gateErr != nil {
 		return queryAdmission{}, gateErr
@@ -191,6 +198,9 @@ func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (qu
 	}
 	if err := s.validateQueryModelOptions(req.Model, agentDef); err != nil {
 		return queryAdmission{}, err
+	}
+	if req.PlanningMode != nil && *req.PlanningMode && !agentcoder.IsMode(agentDef.Mode) {
+		return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: "planningMode is only supported for CODER agents"}
 	}
 	if !orchestratedTeam && channelID != "" && s.deps.Channels != nil && !s.deps.Channels.IsAgentAllowed(channelID, agentKey) {
 		return queryAdmission{}, &statusError{
@@ -467,8 +477,9 @@ func applyQueryModelOptionsToSession(options *api.QueryModelOptions, session *co
 	if modelKey != "" {
 		session.ModelKey = modelKey
 	}
-	session.StageSettings = applyQueryModelOptionsToRawStageSettings(session.StageSettings, modelKey, reasoningEffort)
-	session.ResolvedStageSettings = applyQueryModelOptionsToResolvedStageSettings(session.ResolvedStageSettings, modelKey, reasoningEffort)
+	session.StageSettings = applyQueryModelOptionsToRawStageSettings(session.Mode, session.StageSettings, modelKey, reasoningEffort)
+	session.ResolvedPlanExecuteSettings = applyQueryModelOptionsToResolvedPlanExecuteSettings(session.ResolvedPlanExecuteSettings, modelKey, reasoningEffort)
+	session.ResolvedCoderPlanningSettings = applyQueryModelOptionsToResolvedCoderPlanningSettings(session.ResolvedCoderPlanningSettings, modelKey, reasoningEffort)
 }
 
 func normalizeQueryModelReasoningEffort(value string) (string, bool) {
@@ -487,7 +498,7 @@ func reasoningEffortAllowedForACPModel(reasoningEffort string, modelKey string, 
 	return agentcoder.ReasoningEffortAllowedForACPModel(reasoningEffort, modelKey, options)
 }
 
-func applyQueryModelOptionsToRawStageSettings(raw map[string]any, modelKey string, reasoningEffort string) map[string]any {
+func applyQueryModelOptionsToRawStageSettings(mode string, raw map[string]any, modelKey string, reasoningEffort string) map[string]any {
 	out := contracts.CloneMap(raw)
 	if out == nil {
 		out = map[string]any{}
@@ -502,7 +513,11 @@ func applyQueryModelOptionsToRawStageSettings(raw map[string]any, modelKey strin
 		out["reasoningEnabled"] = true
 		out["reasoningEffort"] = reasoningEffort
 	}
-	for _, stage := range []string{"plan", "execute", "summary"} {
+	stages := []string{"plan", "execute", "summary"}
+	if agentcoder.IsMode(mode) {
+		stages = []string{"planning", "execute"}
+	}
+	for _, stage := range stages {
 		nested := contracts.CloneMap(contracts.AnyMapNode(out[stage]))
 		if nested == nil {
 			nested = map[string]any{}
@@ -522,7 +537,7 @@ func applyQueryModelOptionsToRawStageSettings(raw map[string]any, modelKey strin
 	return out
 }
 
-func applyQueryModelOptionsToResolvedStageSettings(settings contracts.PlanExecuteSettings, modelKey string, reasoningEffort string) contracts.PlanExecuteSettings {
+func applyQueryModelOptionsToResolvedPlanExecuteSettings(settings contracts.PlanExecuteSettings, modelKey string, reasoningEffort string) contracts.PlanExecuteSettings {
 	apply := func(stage *contracts.StageSettings) {
 		if modelKey != "" {
 			stage.ModelKey = modelKey
@@ -538,6 +553,24 @@ func applyQueryModelOptionsToResolvedStageSettings(settings contracts.PlanExecut
 	apply(&settings.Plan)
 	apply(&settings.Execute)
 	apply(&settings.Summary)
+	return settings
+}
+
+func applyQueryModelOptionsToResolvedCoderPlanningSettings(settings contracts.CoderPlanningSettings, modelKey string, reasoningEffort string) contracts.CoderPlanningSettings {
+	apply := func(stage *contracts.StageSettings) {
+		if modelKey != "" {
+			stage.ModelKey = modelKey
+		}
+		if reasoningEffort == "NONE" {
+			stage.ReasoningEnabled = false
+			stage.ReasoningEffort = ""
+		} else if reasoningEffort != "" {
+			stage.ReasoningEnabled = true
+			stage.ReasoningEffort = reasoningEffort
+		}
+	}
+	apply(&settings.Planning)
+	apply(&settings.Execute)
 	return settings
 }
 

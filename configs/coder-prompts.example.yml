@@ -89,7 +89,7 @@ planning-prompt: |
   - chat_dir: {{chat_dir}}
   - current_date: {{current_date}}
   - timezone: {{timezone}}
-  - available_plan_tools: {{plan_stage_tools}}
+  - available_planning_tools: {{planning_stage_tools}}
   - available_after_confirmation: {{execute_stage_tools}}
 
   Planning rules:

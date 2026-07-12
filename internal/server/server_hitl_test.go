@@ -2281,24 +2281,24 @@ func TestValidateSubmitParamsAllowsOrderedItemsWithoutIDs(t *testing.T) {
 			}),
 		},
 		{
-			name:      "plan approve",
-			mode:      "plan",
+			name:      "planning approve",
+			mode:      "planning",
 			itemCount: 1,
 			params: mustEncodeSubmitParams(t, []map[string]any{
 				{"decision": "approve"},
 			}),
 		},
 		{
-			name:      "plan reject with empty reason",
-			mode:      "plan",
+			name:      "planning reject with empty reason",
+			mode:      "planning",
 			itemCount: 1,
 			params: mustEncodeSubmitParams(t, []map[string]any{
 				{"decision": "reject", "reason": ""},
 			}),
 		},
 		{
-			name:      "plan reject with reason",
-			mode:      "plan",
+			name:      "planning reject with reason",
+			mode:      "planning",
 			itemCount: 1,
 			params: mustEncodeSubmitParams(t, []map[string]any{
 				{"decision": "reject", "reason": "请补充测试范围"},
@@ -2353,11 +2353,11 @@ func TestValidateSubmitParamsIgnoresSubmittedIDsWhenCountMatches(t *testing.T) {
 			}),
 		},
 		{
-			name:      "plan",
-			mode:      "plan",
+			name:      "planning",
+			mode:      "planning",
 			itemCount: 1,
 			params: mustEncodeSubmitParams(t, []map[string]any{
-				{"id": "wrong-plan", "decision": "approve"},
+				{"id": "wrong-planning", "decision": "approve"},
 			}),
 		},
 	}
@@ -2447,22 +2447,22 @@ func TestValidateSubmitParamsRejectsInvalidShape(t *testing.T) {
 			wantSubstr: "items[0]: form field must be an object",
 		},
 		{
-			name:       "plan missing decision",
-			mode:       "plan",
+			name:       "planning missing decision",
+			mode:       "planning",
 			item:       map[string]any{"reason": "nope"},
-			wantSubstr: "items[0]: plan items require decision",
+			wantSubstr: "items[0]: planning items require decision",
 		},
 		{
-			name:       "plan invalid decision",
-			mode:       "plan",
+			name:       "planning invalid decision",
+			mode:       "planning",
 			item:       map[string]any{"decision": "approve_rule_run"},
-			wantSubstr: `items[0]: unsupported plan decision "approve_rule_run"`,
+			wantSubstr: `items[0]: unsupported planning decision "approve_rule_run"`,
 		},
 		{
-			name:       "plan rejects form",
-			mode:       "plan",
+			name:       "planning rejects form",
+			mode:       "planning",
 			item:       map[string]any{"decision": "reject", "form": map[string]any{}},
-			wantSubstr: "items[0]: plan items do not allow form",
+			wantSubstr: "items[0]: planning items do not allow form",
 		},
 	}
 

@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"strings"
@@ -15,6 +17,7 @@ import (
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/i18n"
 	"agent-platform/internal/observability"
+	"agent-platform/internal/timecontract"
 	"agent-platform/internal/ws"
 )
 
@@ -39,12 +42,60 @@ func (a wsTokenAuthenticator) VerifyToken(ctx context.Context, token string) (ws
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	expiresAt, err := jwtExpiryMillis(principal.Claims)
+	if err != nil {
+		return ws.AuthSession{}, err
+	}
 	return ws.AuthSession{
 		Context:   WithPrincipal(ctx, principal),
 		Subject:   principal.Subject,
 		DeviceID:  firstStringClaim(principal.Claims, "deviceId", "device_id"),
-		ExpiresAt: numericDate(principal.Claims["exp"]) * 1000,
+		ExpiresAt: expiresAt,
 	}, nil
+}
+
+// jwtExpiryMillis keeps JWT NumericDate seconds inside the token boundary,
+// then converts it once for the WebSocket/API contract. The conversion is
+// intentionally strict and overflow-safe: a malformed exp must not become a
+// wrapped, zero, or fabricated public expiresAt value.
+func jwtExpiryMillis(claims map[string]any) (int64, error) {
+	raw, exists := claims["exp"]
+	if !exists || raw == nil {
+		return 0, nil
+	}
+	seconds, err := strictNumericDateSeconds(raw)
+	if err != nil || seconds <= 0 || seconds > timecontract.MaxEpochMillis/1000 {
+		return 0, &timecontract.Violation{
+			Field:    "expiresAt",
+			Location: "ws.auth.exp",
+			Reason:   "JWT exp must be a positive whole NumericDate second convertible to epoch milliseconds",
+		}
+	}
+	millis := seconds * 1000
+	if err := timecontract.ValidateEpochMillis(millis, "expiresAt", "ws.auth.exp"); err != nil {
+		return 0, err
+	}
+	return millis, nil
+}
+
+func strictNumericDateSeconds(value any) (int64, error) {
+	switch typed := value.(type) {
+	case int64:
+		return typed, nil
+	case int:
+		return int64(typed), nil
+	case int32:
+		return int64(typed), nil
+	case float64:
+		if math.IsNaN(typed) || math.IsInf(typed, 0) || math.Trunc(typed) != typed || typed >= float64(math.MaxInt64) || typed < float64(math.MinInt64) {
+			return 0, errors.New("invalid NumericDate")
+		}
+		return int64(typed), nil
+	case json.Number:
+		return typed.Int64()
+	default:
+		return 0, errors.New("invalid NumericDate")
+	}
 }
 
 func (s *Server) newWSHandler(hub *ws.Hub) *ws.Handler {
@@ -157,7 +208,17 @@ func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 	}
 	items, listErr := s.listAgentSummaries(payload.IncludeChats, scope)
 	if listErr != nil {
+		if isTimeContractViolation(listErr) {
+			sendTimeContractViolation(conn, req.ID, listErr)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		conn.SendError(req.ID, "internal_error", 500, listErr.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if err := validatePublicTimeContract(items); err != nil {
+		sendTimeContractViolation(conn, req.ID, err)
 		conn.CompleteRequest(req.ID)
 		return
 	}
@@ -211,7 +272,17 @@ func (s *Server) wsChats(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 	}
 	response, listErr := s.listChatSummaries(payload.LastRunID, payload.AgentKey)
 	if listErr != nil {
+		if isTimeContractViolation(listErr) {
+			sendTimeContractViolation(conn, req.ID, listErr)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		conn.SendError(req.ID, "internal_error", 500, listErr.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if err := validatePublicTimeContract(response); err != nil {
+		sendTimeContractViolation(conn, req.ID, err)
 		conn.CompleteRequest(req.ID)
 		return
 	}
@@ -242,7 +313,17 @@ func (s *Server) wsChat(ctx context.Context, conn *ws.Conn, req ws.RequestFrame)
 		return
 	}
 	if loadErr != nil {
+		if isTimeContractViolation(loadErr) {
+			sendTimeContractViolation(conn, req.ID, loadErr)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		conn.SendError(req.ID, "internal_error", 500, loadErr.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if err := validatePublicTimeContract(response); err != nil {
+		sendTimeContractViolation(conn, req.ID, err)
 		conn.CompleteRequest(req.ID)
 		return
 	}
@@ -273,6 +354,11 @@ func (s *Server) wsChatJSONL(_ context.Context, conn *ws.Conn, req ws.RequestFra
 		return
 	}
 	if loadErr != nil {
+		if isTimeContractViolation(loadErr) {
+			sendTimeContractViolation(conn, req.ID, loadErr)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		conn.SendError(req.ID, "internal_error", 500, loadErr.Error(), nil)
 		conn.CompleteRequest(req.ID)
 		return
@@ -304,6 +390,11 @@ func (s *Server) wsChatLLMTrace(_ context.Context, conn *ws.Conn, req ws.Request
 		return
 	}
 	if loadErr != nil {
+		if isTimeContractViolation(loadErr) {
+			sendTimeContractViolation(conn, req.ID, loadErr)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		conn.SendError(req.ID, "internal_error", 500, loadErr.Error(), nil)
 		conn.CompleteRequest(req.ID)
 		return
@@ -328,6 +419,11 @@ func (s *Server) wsRead(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
 		}
 		updatedCount, markAllErr := s.deps.Chats.MarkAllRead(agentKey)
 		if markAllErr != nil {
+			if isTimeContractViolation(markAllErr) {
+				sendTimeContractViolation(conn, req.ID, markAllErr)
+				conn.CompleteRequest(req.ID)
+				return
+			}
 			conn.SendError(req.ID, "internal_error", 500, markAllErr.Error(), nil)
 			conn.CompleteRequest(req.ID)
 			return
@@ -349,12 +445,22 @@ func (s *Server) wsRead(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
 		return
 	}
 	if markErr != nil {
+		if isTimeContractViolation(markErr) {
+			sendTimeContractViolation(conn, req.ID, markErr)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		conn.SendError(req.ID, "internal_error", 500, markErr.Error(), nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}
 	agentUnreadCount, err := s.agentUnreadCount(summary.AgentKey)
 	if err != nil {
+		if isTimeContractViolation(err) {
+			sendTimeContractViolation(conn, req.ID, err)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		conn.SendError(req.ID, "internal_error", 500, err.Error(), nil)
 		conn.CompleteRequest(req.ID)
 		return
@@ -391,11 +497,22 @@ func (s *Server) wsFeedback(_ context.Context, conn *ws.Conn, req ws.RequestFram
 		return
 	}
 	if setErr != nil {
+		if isTimeContractViolation(setErr) {
+			sendTimeContractViolation(conn, req.ID, setErr)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		conn.SendError(req.ID, "internal_error", 500, setErr.Error(), nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	conn.SendResponse(req.Type, req.ID, 0, "success", api.FeedbackResponse{ChatID: chatID, RunID: runID, Type: feedbackType, SetAt: setAt})
+	response, responseErr := feedbackResponse(chatID, runID, feedbackType, setAt)
+	if responseErr != nil {
+		sendTimeContractViolation(conn, req.ID, responseErr)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	conn.SendResponse(req.Type, req.ID, 0, "success", response)
 	conn.CompleteRequest(req.ID)
 }
 
@@ -466,6 +583,11 @@ func (s *Server) wsChatRename(_ context.Context, conn *ws.Conn, req ws.RequestFr
 		return
 	}
 	if renameErr != nil {
+		if isTimeContractViolation(renameErr) {
+			sendTimeContractViolation(conn, req.ID, renameErr)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		conn.SendError(req.ID, "internal_error", 500, renameErr.Error(), nil)
 		conn.CompleteRequest(req.ID)
 		return
@@ -505,6 +627,11 @@ func (s *Server) wsGlobalSearch(_ context.Context, conn *ws.Conn, req ws.Request
 	}
 	hits, searchErr := s.deps.Chats.SearchGlobal(payload.Query, payload.AgentKey, payload.TeamID, limit)
 	if searchErr != nil {
+		if isTimeContractViolation(searchErr) {
+			sendTimeContractViolation(conn, req.ID, searchErr)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		conn.SendError(req.ID, "internal_error", 500, searchErr.Error(), nil)
 		conn.CompleteRequest(req.ID)
 		return
@@ -524,11 +651,17 @@ func (s *Server) wsGlobalSearch(_ context.Context, conn *ws.Conn, req ws.Request
 			Score:     hit.Score,
 		})
 	}
-	conn.SendResponse(req.Type, req.ID, 0, "success", api.GlobalSearchResponse{
+	response := api.GlobalSearchResponse{
 		Query:   strings.TrimSpace(payload.Query),
 		Count:   len(results),
 		Results: results,
-	})
+	}
+	if err := validatePublicTimeContract(response); err != nil {
+		sendTimeContractViolation(conn, req.ID, err)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	conn.SendResponse(req.Type, req.ID, 0, "success", response)
 	conn.CompleteRequest(req.ID)
 }
 
@@ -557,6 +690,11 @@ func (s *Server) wsCompact(ctx context.Context, conn *ws.Conn, req ws.RequestFra
 	}
 	response, compactErr := s.compactChat(ctx, payload)
 	if compactErr != nil {
+		if isTimeContractViolation(compactErr) {
+			sendTimeContractViolation(conn, req.ID, compactErr)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		var statusErr *statusError
 		if errors.As(compactErr, &statusErr) {
 			conn.SendError(req.ID, compactWSErrorType(statusErr.status), statusErr.status, statusErr.message, nil)

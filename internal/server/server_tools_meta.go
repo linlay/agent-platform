@@ -125,6 +125,16 @@ func summaryAgentKey(summary *chat.Summary) string {
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
+	if status >= http.StatusOK && status < http.StatusMultipleChoices {
+		if err := validatePublicTimeContract(payload); err != nil {
+			writeTimeContractViolation(w, err)
+			return
+		}
+	}
+	writeJSONUnchecked(w, status, payload)
+}
+
+func writeJSONUnchecked(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if locale := responseLocale(w); locale != "" {

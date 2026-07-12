@@ -9,26 +9,26 @@ import (
 	"agent-platform/internal/contracts"
 )
 
-func TestPlanContinuationDecisionAndSubmitDecision(t *testing.T) {
-	answer := map[string]any{"plan": map[string]any{"decision": " Approve "}}
-	if got := PlanContinuationDecision(" PLAN ", answer); got != "approve" {
-		t.Fatalf("PlanContinuationDecision=%q", got)
+func TestPlanningContinuationDecisionAndSubmitDecision(t *testing.T) {
+	answer := map[string]any{"planning": map[string]any{"decision": " Approve "}}
+	if got := PlanningContinuationDecision(" PLANNING ", answer); got != "approve" {
+		t.Fatalf("PlanningContinuationDecision=%q", got)
 	}
-	if got := PlanContinuationDecision("question", answer); got != "" {
-		t.Fatalf("non-plan decision=%q", got)
+	if got := PlanningContinuationDecision("question", answer); got != "" {
+		t.Fatalf("non-planning decision=%q", got)
 	}
 	raw := json.RawMessage(`{"decision":"reject"}`)
-	if got := SubmitPlanDecision(api.SubmitParams{raw}); got != "reject" {
-		t.Fatalf("SubmitPlanDecision=%q", got)
+	if got := SubmitPlanningDecision(api.SubmitParams{raw}); got != "reject" {
+		t.Fatalf("SubmitPlanningDecision=%q", got)
 	}
-	if got := SubmitPlanDecision(api.SubmitParams{raw, raw}); got != "" {
+	if got := SubmitPlanningDecision(api.SubmitParams{raw, raw}); got != "" {
 		t.Fatalf("multiple submit decisions must be rejected, got %q", got)
 	}
-	if !StartsNewExecutionRun("plan", answer, Mode, "") {
-		t.Fatal("approved native CODER plan should start a new execution run")
+	if !StartsNewExecutionRun("planning", answer, Mode, "") {
+		t.Fatal("approved native CODER planning should start a new execution run")
 	}
-	if StartsNewExecutionRun("plan", answer, Mode, "codex") || StartsNewExecutionRun("plan", map[string]any{}, Mode, "") {
-		t.Fatal("ACP CODER or non-approved plan must not start a native execution run")
+	if StartsNewExecutionRun("planning", answer, Mode, "codex") || StartsNewExecutionRun("planning", map[string]any{}, Mode, "") {
+		t.Fatal("ACP CODER or non-approved planning must not start a native execution run")
 	}
 }
 
@@ -57,9 +57,9 @@ func TestBuildContinuationRequestPreservesOriginalAndAppliesIdentityPrecedence(t
 		SummaryTeamID:      "summary-team",
 		SummaryAgentKey:    "summary-agent",
 		DefinitionAgentKey: "definition-agent",
-		Mode:               "plan",
-		Answer:             map[string]any{"plan": map[string]any{"decision": "approve"}},
-		PlanMarkdown:       "# Plan",
+		Mode:               "planning",
+		Answer:             map[string]any{"planning": map[string]any{"decision": "approve"}},
+		PlanningMarkdown:   "# Planning",
 	}
 	req := BuildContinuationRequest(input)
 	if req.ChatID != "original-chat" || req.RunID != "continuation-run" || req.RequestID != "submit-1" || req.AgentKey != "submit-agent" || req.TeamID != "original-team" {
@@ -71,27 +71,27 @@ func TestBuildContinuationRequestPreservesOriginalAndAppliesIdentityPrecedence(t
 	if req.Stream != &stream || !req.IncludeUsage || req.Params["keep"] != true {
 		t.Fatalf("original request fields were not preserved: %#v", req)
 	}
-	if !strings.Contains(req.Message, "用户已经批准计划") || !strings.Contains(req.Message, "# Plan") || !strings.Contains(req.Message, "await-1") {
+	if !strings.Contains(req.Message, "用户已经批准计划") || !strings.Contains(req.Message, "# Planning") || !strings.Contains(req.Message, "await-1") {
 		t.Fatalf("unexpected continuation prompt %q", req.Message)
 	}
 }
 
-func TestBuildPlanApproveContinuationRequestMarksInternalParamsWithoutMutatingOriginal(t *testing.T) {
+func TestBuildPlanningApproveContinuationRequestMarksInternalParamsWithoutMutatingOriginal(t *testing.T) {
 	originalParams := map[string]any{"keep": "value"}
 	input := ContinuationRequestInput{
-		Original:      api.QueryRequest{Message: "build it", Params: originalParams},
-		Submit:        api.SubmitRequest{RunID: "source", ContinuationRunID: "execute", AwaitingID: "await"},
-		SummaryChatID: "chat",
-		PlanMarkdown:  "# Confirmed",
+		Original:         api.QueryRequest{Message: "build it", Params: originalParams},
+		Submit:           api.SubmitRequest{RunID: "source", ContinuationRunID: "execute", AwaitingID: "await"},
+		SummaryChatID:    "chat",
+		PlanningMarkdown: "# Confirmed",
 	}
-	req := BuildPlanApproveContinuationRequest(input)
+	req := BuildPlanningApproveContinuationRequest(input)
 	if req.RunID != "execute" || req.Role != api.QueryRoleSystem || req.PlanningMode == nil || *req.PlanningMode {
 		t.Fatalf("unexpected plan approve request: %#v", req)
 	}
-	if !strings.Contains(req.Message, "Original request:\nbuild it") || !strings.Contains(req.Message, "Confirmed plan:\n# Confirmed") {
+	if !strings.Contains(req.Message, "Original request:\nbuild it") || !strings.Contains(req.Message, "Confirmed planning:\n# Confirmed") {
 		t.Fatalf("unexpected execute prompt %q", req.Message)
 	}
-	if !IsPlanApproveContinuationParams(req.Params) || originalParams[PlanApproveContinuationParam] != nil {
+	if !IsPlanningApproveContinuationParams(req.Params) || originalParams[PlanningApproveContinuationParam] != nil {
 		t.Fatalf("continuation marker must be added to a clone, req=%#v original=%#v", req.Params, originalParams)
 	}
 }

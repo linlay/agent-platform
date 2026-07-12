@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -378,6 +379,9 @@ func TestChannelImportStreamOnlySynthesizesControlPushes(t *testing.T) {
 	if runStarted["runId"] != runID || runStarted["chatId"] != chatID || runStarted["agentKey"] != "mock-agent" {
 		t.Fatalf("unexpected run.started push %#v", runStarted)
 	}
+	if timestamp, ok := runStarted["timestamp"].(float64); !ok || timestamp < 1_000_000_000_000 {
+		t.Fatalf("expected epoch-ms run.started timestamp, got %#v", runStarted)
+	}
 	awaitingAsk := pushFrameDataMap(t, waitForPushFrameType(t, conn, "awaiting.asking"))
 	if awaitingAsk["chatId"] != chatID || awaitingAsk["runId"] != runID || awaitingAsk["agentKey"] != "mock-agent" ||
 		awaitingAsk["awaitingId"] != "await-channel" || awaitingAsk["mode"] != "approval" {
@@ -416,6 +420,9 @@ func TestChannelImportStreamOnlySynthesizesControlPushes(t *testing.T) {
 	if runFinished["runId"] != runID || runFinished["chatId"] != chatID {
 		t.Fatalf("unexpected run.finished push %#v", runFinished)
 	}
+	if timestamp, ok := runFinished["timestamp"].(float64); !ok || timestamp < 1_000_000_000_000 {
+		t.Fatalf("expected epoch-ms run.finished timestamp, got %#v", runFinished)
+	}
 	chatUpdated := pushFrameDataMap(t, waitForPushFrameType(t, conn, "chat.updated"))
 	if chatUpdated["chatId"] != chatID || chatUpdated["lastRunId"] != runID || chatUpdated["lastRunContent"] != "channel answer" {
 		t.Fatalf("unexpected chat.updated push %#v", chatUpdated)
@@ -430,6 +437,12 @@ func writeUpstreamStreamFrame(t *testing.T, conn *gws.Conn, id string, streamID 
 		"streamId": streamID,
 	}
 	if event != nil {
+		// Channel fixtures model a contract-compliant remote producer. Production
+		// must reject missing timestamps rather than applying this default.
+		if _, ok := event["timestamp"]; !ok {
+			event = maps.Clone(event)
+			event["timestamp"] = int64(1_700_000_000_000)
+		}
 		frame["event"] = event
 	}
 	if reason != "" {

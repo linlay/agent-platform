@@ -1,6 +1,12 @@
 package skills
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"agent-platform/internal/timecontract"
+)
 
 func TestFileCandidateStoreWriteAndList(t *testing.T) {
 	store, err := NewFileCandidateStore(t.TempDir())
@@ -39,5 +45,23 @@ func TestFileCandidateStoreWriteAndList(t *testing.T) {
 	}
 	if items[0].Intent != "回滚并验证服务恢复" || len(items[0].Steps) != 3 || len(items[0].SuccessCriteria) != 1 {
 		t.Fatalf("expected workflow fields to persist, got %#v", items[0])
+	}
+}
+
+func TestFileCandidateStoreRejectsInvalidPersistedTimeAsContractViolation(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileCandidateStore(root)
+	if err != nil {
+		t.Fatalf("new candidate store: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "legacy.json"), []byte(`{
+  "id":"legacy",
+  "createdAt":"1700000000000",
+  "updatedAt":1700000000000
+}`), 0o644); err != nil {
+		t.Fatalf("write legacy candidate: %v", err)
+	}
+	if _, err := store.List("", 10); !timecontract.IsViolation(err) {
+		t.Fatalf("expected time contract violation, got %v", err)
 	}
 }

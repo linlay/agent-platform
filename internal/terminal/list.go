@@ -3,6 +3,8 @@ package terminal
 import (
 	"sort"
 	"strings"
+
+	"agent-platform/internal/timecontract"
 )
 
 type SessionInfo struct {
@@ -18,12 +20,24 @@ type SessionInfo struct {
 }
 
 func (m *Manager) List(ownerKey string) []SessionInfo {
+	infos, _ := m.list(ownerKey, false)
+	return infos
+}
+
+// ListStrict is the public-stream boundary. Terminal status has a required
+// startedAt instant, so a malformed in-memory session must fail rather than
+// become a zero/1970 timestamp on the wire.
+func (m *Manager) ListStrict(ownerKey string) ([]SessionInfo, error) {
+	return m.list(ownerKey, true)
+}
+
+func (m *Manager) list(ownerKey string, strict bool) ([]SessionInfo, error) {
 	if m == nil {
-		return nil
+		return nil, nil
 	}
 	ownerKey = strings.TrimSpace(ownerKey)
 	if ownerKey == "" {
-		return nil
+		return nil, nil
 	}
 
 	m.mu.RLock()
@@ -32,9 +46,20 @@ func (m *Manager) List(ownerKey string) []SessionInfo {
 		if session == nil || session.Finished() || session.OwnerKey() != ownerKey {
 			continue
 		}
-		startedAt := int64(0)
-		if !session.startedAt.IsZero() {
-			startedAt = session.startedAt.UnixMilli()
+		if session.startedAt.IsZero() {
+			if strict {
+				m.mu.RUnlock()
+				return nil, &timecontract.Violation{Field: "startedAt", Location: "terminal.sessions." + session.ID(), Reason: "is required"}
+			}
+			continue
+		}
+		startedAt := session.startedAt.UnixMilli()
+		if err := timecontract.ValidateEpochMillis(startedAt, "startedAt", "terminal.sessions."+session.ID()+".startedAt"); err != nil {
+			if strict {
+				m.mu.RUnlock()
+				return nil, err
+			}
+			continue
 		}
 		infos = append(infos, SessionInfo{
 			TerminalID:  session.ID(),
@@ -59,5 +84,5 @@ func (m *Manager) List(ownerKey string) []SessionInfo {
 		}
 		return infos[i].TerminalID < infos[j].TerminalID
 	})
-	return infos
+	return infos, nil
 }

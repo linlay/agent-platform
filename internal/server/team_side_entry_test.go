@@ -47,16 +47,22 @@ func TestTeamSideRunEntriesRejectNonMemberAndCurrentAgentDrift(t *testing.T) {
 	)
 	seedDeferredAwaiting(t, fixture.chats, continuationChat, httpRunID, httpAwaitingID, "question", 600, time.Now().UnixMilli())
 	fixture.server.hydrateDeferredAwaitings()
+	// This test builds an active source run directly rather than through the
+	// query gate. Record the same immutable lifecycle clock the gate would
+	// persist, so its later continuation is a valid restart boundary.
+	activeStartedAt := time.Now().UnixMilli()
 	_, activeControl, _ := fixture.runs.Register(context.Background(), contracts.QuerySession{
-		RunID:    activeRunID,
-		ChatID:   continuationChat,
-		AgentKey: "mock-agent",
-		TeamID:   teamID,
+		RunID:           activeRunID,
+		ChatID:          continuationChat,
+		AgentKey:        "mock-agent",
+		TeamID:          teamID,
+		StartedAtMillis: activeStartedAt,
 	})
+	startServerFixtureRun(t, fixture.chats, continuationChat, activeRunID, activeStartedAt)
 	activeAwaitingContext := contracts.AwaitingSubmitContext{
 		AwaitingID:       activeAwaiting,
 		PublicAwaitingID: activeAwaiting,
-		Mode:             "plan",
+		Mode:             "planning",
 		ItemCount:        1,
 	}
 	activeControl.ExpectSubmit(activeAwaitingContext)
@@ -120,9 +126,9 @@ func TestTeamSideRunEntriesRejectNonMemberAndCurrentAgentDrift(t *testing.T) {
 		ChatID:            continuationChat,
 		AgentKey:          "mock-agent",
 		AwaitingID:        activeAwaiting,
-		Mode:              "plan",
+		Mode:              "planning",
 		Params:            approveParams,
-		Answer:            map[string]any{"mode": "plan", "plan": map[string]any{"decision": "approve"}},
+		Answer:            map[string]any{"mode": "planning", "planning": map[string]any{"decision": "approve"}},
 		ContinuationState: frozenContinuation.ContinuationState,
 	})
 	if continueErr != nil || continuedRunID != frozenContinuation.ContinuationRunID {

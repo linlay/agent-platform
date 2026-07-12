@@ -16,6 +16,7 @@ import (
 
 	"agent-platform/internal/models"
 	"agent-platform/internal/supportpkg"
+	"agent-platform/internal/timecontract"
 	runtimewatch "agent-platform/internal/watch"
 )
 
@@ -500,7 +501,11 @@ func (m *Manager) Status(agentKey string) (Status, error) {
 				status.ManifestConfigHash = active.IndexHash
 				status.Stale = active.IndexHash == "" || active.IndexHash != desiredIndexHash(resolvedLanceConfig(cfg))
 				if last, metaErr := control.Meta(ctx, "lastIndexedAt"); metaErr == nil {
-					status.LastIndexedAt, _ = strconv.ParseInt(last, 10, 64)
+					indexedAt, parseErr := parseOptionalPublicEpochMillis(last, "lastIndexedAt", "kbase.status.metadata")
+					if parseErr != nil {
+						return status, parseErr
+					}
+					status.LastIndexedAt = indexedAt
 				}
 				status.LastRun, _ = control.LastRun(ctx)
 				if pending, pendingErr := control.PendingFileOperations(ctx, active.ID); pendingErr == nil {
@@ -518,10 +523,14 @@ func (m *Manager) Status(agentKey string) (Status, error) {
 					indexes.FTS = IndexStatus{Type: firstNonBlank(stats.FTSIndexType, "FTS/ICU"), Ready: stats.FTSReady}
 					indexes.Vector = VectorIndexStatus{Type: firstNonBlank(stats.VectorIndexType, "flat"), Ready: stats.VectorReady, UnindexedRows: stats.UnindexedRows}
 					lastOptimized, _ := control.Meta(ctx, "lastOptimizedAt")
-					indexes.LastOptimizedAt, _ = strconv.ParseInt(lastOptimized, 10, 64)
+					optimizedAt, parseErr := parseOptionalPublicEpochMillis(lastOptimized, "lastOptimizedAt", "kbase.status.metadata")
+					if parseErr != nil {
+						return status, parseErr
+					}
+					indexes.LastOptimizedAt = optimizedAt
 				}
 				status.Indexes = indexes
-				return status, nil
+				return validatePublicStatusTimes(status)
 			}
 		} else if !os.IsNotExist(controlErr) {
 			return status, controlErr
@@ -532,7 +541,7 @@ func (m *Manager) Status(agentKey string) (Status, error) {
 			status.Stale = true
 			state := m.engine.State()
 			status.Sidecar = &state
-			return status, nil
+			return validatePublicStatusTimes(status)
 		}
 	}
 	status.Engine = "sqlite"
@@ -542,7 +551,7 @@ func (m *Manager) Status(agentKey string) (Status, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			status.Stale = true
-			return status, nil
+			return validatePublicStatusTimes(status)
 		}
 		return status, err
 	}
@@ -554,7 +563,7 @@ func (m *Manager) Status(agentKey string) (Status, error) {
 	status.ManifestConfigHash = legacyIndexHash
 	if legacyIndexHash == "" {
 		status.Stale = true
-		return status, nil
+		return validatePublicStatusTimes(status)
 	}
 	files, chunks, err := store.Counts()
 	if err != nil {
@@ -570,9 +579,59 @@ func (m *Manager) Status(agentKey string) (Status, error) {
 		status.Stale = true
 	}
 	if lastIndexed := store.Meta("lastIndexedAt"); lastIndexed != "" {
-		status.LastIndexedAt, _ = strconv.ParseInt(lastIndexed, 10, 64)
+		indexedAt, parseErr := parseOptionalPublicEpochMillis(lastIndexed, "lastIndexedAt", "kbase.status.metadata")
+		if parseErr != nil {
+			return status, parseErr
+		}
+		status.LastIndexedAt = indexedAt
 	}
 	status.LastRun = store.LastRun()
+	return validatePublicStatusTimes(status)
+}
+
+func parseOptionalPublicEpochMillis(raw string, field string, location string) (*int64, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	value, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return nil, &timecontract.Violation{Field: field, Location: location, Reason: "must be an unquoted epoch-ms integer"}
+	}
+	return timecontract.OptionalEpochMillis(value, field, location)
+}
+
+func validatePublicStatusTimes(status Status) (Status, error) {
+	if status.LastIndexedAt != nil {
+		if err := timecontract.ValidateEpochMillis(*status.LastIndexedAt, "lastIndexedAt", "kbase.status"); err != nil {
+			return status, err
+		}
+	}
+	if status.Generation != nil {
+		if err := timecontract.ValidateEpochMillis(status.Generation.CreatedAt, "createdAt", "kbase.status.generation"); err != nil {
+			return status, err
+		}
+		if status.Generation.ActivatedAt != 0 {
+			if err := timecontract.ValidateEpochMillis(status.Generation.ActivatedAt, "activatedAt", "kbase.status.generation"); err != nil {
+				return status, err
+			}
+		}
+	}
+	if status.Indexes != nil && status.Indexes.LastOptimizedAt != nil {
+		if err := timecontract.ValidateEpochMillis(*status.Indexes.LastOptimizedAt, "lastOptimizedAt", "kbase.status.indexes"); err != nil {
+			return status, err
+		}
+	}
+	if status.LastRun != nil {
+		if err := timecontract.ValidateEpochMillis(status.LastRun.StartedAt, "startedAt", "kbase.status.lastRun"); err != nil {
+			return status, err
+		}
+		if status.LastRun.FinishedAt != 0 {
+			if err := timecontract.ValidateEpochMillis(status.LastRun.FinishedAt, "finishedAt", "kbase.status.lastRun"); err != nil {
+				return status, err
+			}
+		}
+	}
 	return status, nil
 }
 

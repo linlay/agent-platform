@@ -444,6 +444,53 @@ func TestQueryRejectsInvalidAccessLevel(t *testing.T) {
 	}
 }
 
+func TestQueryRejectsPlanningModeForNonCoderAgent(t *testing.T) {
+	fixture := newTestFixture(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"hello","agentKey":"mock-agent","planningMode":true}`))
+
+	_, err := fixture.server.prepareQueryAdmission(req, true)
+	var statusErr *statusError
+	if !errors.As(err, &statusErr) || statusErr.status != http.StatusBadRequest || statusErr.message != "planningMode is only supported for CODER agents" {
+		t.Fatalf("expected non-CODER planningMode rejection, got %#v", err)
+	}
+}
+
+func TestQueryModelOverrideKeepsCoderPlanningStageSettingsSeparate(t *testing.T) {
+	coderSession := &contracts.QuerySession{
+		Mode: "CODER",
+		StageSettings: map[string]any{
+			"planning": map[string]any{},
+			"execute":  map[string]any{},
+		},
+	}
+	applyQueryModelOptionsToSession(&api.QueryModelOptions{Key: "override-model"}, coderSession)
+	if _, exists := coderSession.StageSettings["plan"]; exists {
+		t.Fatalf("CODER model override must not create plan-tasks stage settings: %#v", coderSession.StageSettings)
+	}
+	for _, stage := range []string{"planning", "execute"} {
+		nested := contracts.AnyMapNode(coderSession.StageSettings[stage])
+		if nested["modelKey"] != "override-model" {
+			t.Fatalf("CODER %s override = %#v, want override-model", stage, nested["modelKey"])
+		}
+	}
+
+	planExecuteSession := &contracts.QuerySession{
+		Mode: "PLAN_EXECUTE",
+		StageSettings: map[string]any{
+			"plan":    map[string]any{},
+			"execute": map[string]any{},
+			"summary": map[string]any{},
+		},
+	}
+	applyQueryModelOptionsToSession(&api.QueryModelOptions{Key: "override-model"}, planExecuteSession)
+	if planExecuteSession.StageSettings["planning"] != nil {
+		t.Fatalf("PLAN_EXECUTE model override must not create CODER planning settings: %#v", planExecuteSession.StageSettings)
+	}
+	if nested := contracts.AnyMapNode(planExecuteSession.StageSettings["plan"]); nested["modelKey"] != "override-model" {
+		t.Fatalf("PLAN_EXECUTE plan override = %#v, want override-model", nested["modelKey"])
+	}
+}
+
 func TestQueryRoleValidation(t *testing.T) {
 	fixture := newTestFixture(t)
 	for _, role := range []string{"", "user", "assistant", "automation", "system"} {
@@ -1481,7 +1528,7 @@ Plan first, then check the current time before reporting.
 		t.Fatalf("did not expect live planning.snapshot, got %s", streamBody.String())
 	}
 	assertPlanningLifecycleBeforePlanAwaiting(t, streamBody.String(), runID)
-	planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, chat.ToolRootDirName, chat.ToolPlansDirName, runID+"_planning_1.md")
+	planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, chat.ToolRootDirName, chat.ToolPlanningDirName, runID+"_planning_1.md")
 	planningBytes, readPlanningErr := os.ReadFile(planningFile)
 	if readPlanningErr != nil {
 		t.Fatalf("expected planning markdown file before confirmation: %v", readPlanningErr)
@@ -1507,13 +1554,13 @@ Plan first, then check the current time before reporting.
 		t.Fatalf("expected live request.query planningMode=true, got %s", body)
 	}
 	planIndex := strings.LastIndex(body, `"type":"planning.delta"`)
-	confirmIndex := strings.Index(body, `"mode":"plan"`)
+	confirmIndex := strings.Index(body, `"mode":"planning"`)
 	completeIndex := strings.LastIndex(body, `"type":"run.complete","runId":"`+runID+`"`)
 	if !(planIndex >= 0 && confirmIndex > planIndex && completeIndex > confirmIndex) {
 		t.Fatalf("expected planning.delta before confirmation and old run.complete after confirmation, got %s", body)
 	}
-	if !strings.Contains(body, `"mode":"plan"`) || !strings.Contains(body, `"decision":"approve"`) {
-		t.Fatalf("expected confirmation plan answer in stream, got %s", body)
+	if !strings.Contains(body, `"mode":"planning"`) || !strings.Contains(body, `"decision":"approve"`) {
+		t.Fatalf("expected confirmation planning answer in stream, got %s", body)
 	}
 	if strings.Contains(body, `"type":"planning.snapshot"`) {
 		t.Fatalf("did not expect live planning.snapshot, got %s", body)
@@ -1540,7 +1587,7 @@ Plan first, then check the current time before reporting.
 	}
 	assertPersistedPlanningModeRequestQuery(t, fixture.server)
 	assertJSONLFinalizePlanningHistory(t, fixture.chats, chatID, map[string]string{"tool_plan": "approve"})
-	assertJSONLCoderExecuteBootstrapQuery(t, fixture.chats, chatID, "Execute plan")
+	assertJSONLCoderExecuteBootstrapQuery(t, fixture.chats, chatID, "Execute planning")
 }
 
 func TestFinalizePlanningStreamsDeltasBeforeProviderFinishes(t *testing.T) {
@@ -1651,7 +1698,7 @@ func TestFinalizePlanningStreamsDeltasBeforeProviderFinishes(t *testing.T) {
 	if strings.Contains(streamBody.String(), `"type":"planning.snapshot"`) {
 		t.Fatalf("did not expect live planning.snapshot, got %s", streamBody.String())
 	}
-	planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, chat.ToolRootDirName, chat.ToolPlansDirName, runID+"_planning_1.md")
+	planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, chat.ToolRootDirName, chat.ToolPlanningDirName, runID+"_planning_1.md")
 	draftBytes, readDraftErr := os.ReadFile(planningFile)
 	if readDraftErr != nil {
 		t.Fatalf("expected draft planning file before provider finished: %v", readDraftErr)
@@ -1831,7 +1878,7 @@ Initial plan with too little test coverage.
 - Implement the feature
 
 ## Interfaces
-- Use mode=plan
+- Use mode=planning
 
 ## Test Plan
 - Minimal tests
@@ -1863,7 +1910,7 @@ Revised plan with explicit test coverage.
 - Preserve rejected plan as non-executable
 
 ## Interfaces
-- Use mode=plan
+- Use mode=planning
 
 ## Test Plan
 - Cover approve
@@ -1936,7 +1983,7 @@ Revised plan with explicit test coverage.
 	if got := countRunStartsForDifferentRun(t, streamBody.String(), runID); got != 0 {
 		t.Fatalf("reject should not start a new run before revised plan approval, got %d handoff starts in %s", got, streamBody.String())
 	}
-	secondPlanningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, chat.ToolRootDirName, chat.ToolPlansDirName, runID+"_planning_2.md")
+	secondPlanningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, chat.ToolRootDirName, chat.ToolPlanningDirName, runID+"_planning_2.md")
 	secondPlanningBytes, readErr := os.ReadFile(secondPlanningFile)
 	if readErr != nil {
 		t.Fatalf("expected second planning markdown file: %v", readErr)
@@ -2003,8 +2050,8 @@ func readAwaitingApproval(t *testing.T, reader *bufio.Reader, streamBody *string
 		if strings.HasPrefix(line, "data: {") {
 			payload := decodeSSELine(t, line)
 			if payload["type"] == "awaiting.ask" && awaitingApprovalID(payload) == expectedApprovalID {
-				if payload["mode"] != "plan" || payload["viewportType"] != "builtin" || payload["viewportKey"] != "plan" {
-					t.Fatalf("expected plan awaiting.ask, got %#v", payload)
+				if payload["mode"] != "planning" || payload["viewportType"] != "builtin" || payload["viewportKey"] != "planning" {
+					t.Fatalf("expected planning awaiting.ask, got %#v", payload)
 				}
 				if _, ok := payload["timeout"]; ok {
 					t.Fatalf("did not expect planning confirmation timeout, got %#v", payload)
@@ -2068,7 +2115,7 @@ func assertPlanningLifecycleBeforePlanAwaiting(t *testing.T, body string, runID 
 	startIndex := strings.Index(body, `"type":"planning.start"`)
 	deltaIndex := strings.Index(body, `"type":"planning.delta"`)
 	endIndex := strings.LastIndex(body, `"type":"planning.end"`)
-	awaitingIndex := strings.Index(body, `"mode":"plan"`)
+	awaitingIndex := strings.Index(body, `"mode":"planning"`)
 	if !(startIndex >= 0 && deltaIndex > startIndex && endIndex > deltaIndex && awaitingIndex > endIndex) {
 		t.Fatalf("expected planning.start < planning.delta < planning.end < plan awaiting, got %s", body)
 	}
@@ -2146,7 +2193,7 @@ func jsonLCoderExecuteRunID(t *testing.T, store chat.Store, chatID string, oldRu
 			continue
 		}
 		query, _ := line["query"].(map[string]any)
-		if stringValue(query["message"]) != "Execute plan" {
+		if stringValue(query["message"]) != "Execute planning" {
 			continue
 		}
 		runID := stringValue(line["runId"])
@@ -2185,7 +2232,7 @@ func assertAttachedCoderExecuteRun(t *testing.T, body string, runID string, chat
 		t.Fatalf("expected attached execution replay, got %s", body)
 	}
 	if messages[0]["type"] != "request.query" || stringValue(messages[0]["runId"]) != runID ||
-		stringValue(messages[0]["requestId"]) != runID || stringValue(messages[0]["message"]) != "Execute plan" {
+		stringValue(messages[0]["requestId"]) != runID || stringValue(messages[0]["message"]) != "Execute planning" {
 		t.Fatalf("expected first attached event to be execute request.query, got %#v in %s", messages[0], body)
 	}
 	for _, field := range []string{"synthetic", "stage", "source"} {
@@ -2374,8 +2421,8 @@ func awaitingQuestionText(payload map[string]any) string {
 }
 
 func awaitingApprovalID(payload map[string]any) string {
-	if plan, _ := payload["plan"].(map[string]any); len(plan) > 0 {
-		return strings.TrimSpace(stringValue(plan["id"]))
+	if planning, _ := payload["planning"].(map[string]any); len(planning) > 0 {
+		return strings.TrimSpace(stringValue(planning["id"]))
 	}
 	approvals, _ := payload["approvals"].([]any)
 	if len(approvals) == 0 {
@@ -2610,9 +2657,9 @@ func assertJSONLCoderExecuteBootstrapQuery(t *testing.T, store chat.Store, chatI
 		message, _ := rawMessages[0].(map[string]any)
 		executePrompt := textFromJSONLMessageContentForServerTest(message["content"])
 		if stringValue(message["role"]) != "user" ||
-			!strings.Contains(executePrompt, "Execute the confirmed CODER plan.") ||
+			!strings.Contains(executePrompt, "Execute the confirmed CODER planning.") ||
 			!strings.Contains(executePrompt, "Original request:\nplease plan first") ||
-			!strings.Contains(executePrompt, "Confirmed plan:\n# Confirm Coder Plan") {
+			!strings.Contains(executePrompt, "Confirmed planning:\n# Confirm Coder Plan") {
 			t.Fatalf("unexpected execute query model message %#v", message)
 		}
 		var executeLine map[string]any
@@ -2646,7 +2693,7 @@ func assertJSONLCoderExecuteBootstrapQuery(t *testing.T, store chat.Store, chatI
 		if _, ok := executeLine["systems"]; ok {
 			t.Fatalf("did not expect execute react systems, got %#v", executeLine)
 		}
-		if got := strings.Count(content, "Execute the confirmed CODER plan.\\n\\nOriginal request:"); got != 1 {
+		if got := strings.Count(content, "Execute the confirmed CODER planning.\\n\\nOriginal request:"); got != 1 {
 			t.Fatalf("expected execute prompt persisted once, got %d in:\n%s", got, content)
 		}
 		return
@@ -2694,17 +2741,17 @@ func assertPlanningSnapshotBeforePlanAwaitingForServerTest(t *testing.T, events 
 			snapshotIndex = idx
 			snapshot = event
 		}
-		if event.Type == "awaiting.ask" && strings.EqualFold(strings.TrimSpace(anyString(event.Value("mode"))), "plan") && awaitingIndex < 0 {
+		if event.Type == "awaiting.ask" && strings.EqualFold(strings.TrimSpace(anyString(event.Value("mode"))), "planning") && awaitingIndex < 0 {
 			awaitingIndex = idx
 			awaiting = event
 		}
 	}
 	if snapshotIndex < 0 || awaitingIndex < 0 || snapshotIndex >= awaitingIndex {
-		t.Fatalf("expected planning.snapshot before plan awaiting.ask, got %#v", events)
+		t.Fatalf("expected planning.snapshot before planning awaiting.ask, got %#v", events)
 	}
-	plan, _ := awaiting.Value("plan").(map[string]any)
-	if snapshot.String("planningId") != strings.TrimSpace(anyString(plan["planningId"])) ||
-		snapshot.String("planningFile") != strings.TrimSpace(anyString(plan["planningFile"])) ||
+	planning, _ := awaiting.Value("planning").(map[string]any)
+	if snapshot.String("planningId") != strings.TrimSpace(anyString(planning["planningId"])) ||
+		snapshot.String("planningFile") != strings.TrimSpace(anyString(planning["planningFile"])) ||
 		!strings.Contains(snapshot.String("text"), "#") {
 		t.Fatalf("unexpected replay planning.snapshot=%#v awaiting=%#v", snapshot, awaiting)
 	}
@@ -2712,11 +2759,11 @@ func assertPlanningSnapshotBeforePlanAwaitingForServerTest(t *testing.T, events 
 
 func detailHasPlanAwaitingWithPlanningFileForServerTest(events []stream.EventData) bool {
 	for _, event := range events {
-		if event.Type != "awaiting.ask" || !strings.EqualFold(strings.TrimSpace(anyString(event.Value("mode"))), "plan") {
+		if event.Type != "awaiting.ask" || !strings.EqualFold(strings.TrimSpace(anyString(event.Value("mode"))), "planning") {
 			continue
 		}
-		plan, _ := event.Value("plan").(map[string]any)
-		if strings.TrimSpace(anyString(plan["planningId"])) != "" && strings.TrimSpace(anyString(plan["planningFile"])) != "" {
+		planning, _ := event.Value("planning").(map[string]any)
+		if strings.TrimSpace(anyString(planning["planningId"])) != "" && strings.TrimSpace(anyString(planning["planningFile"])) != "" {
 			return true
 		}
 	}

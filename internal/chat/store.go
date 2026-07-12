@@ -13,12 +13,28 @@ var ErrChatNotFound = errors.New("chat not found")
 var ErrRunNotFound = errors.New("run not found")
 var ErrRunIncomplete = errors.New("run is not complete")
 var ErrChatPendingAwaiting = errors.New("chat has pending awaiting")
+var ErrLegacyPlanningProtocol = errors.New("legacy planning protocol is unsupported")
 
 type StepLineStore interface {
 	AppendQueryLine(chatID string, line QueryLine) error
 	AppendStepLine(chatID string, line StepLine) error
 	AppendEventLine(chatID string, line EventLine) error
 	AppendSubmitLine(chatID string, line SubmitLine) error
+}
+
+// RunStartRecorder persists the authoritative registration clock before a
+// stream can emit or replay run.start. It is deliberately optional so test
+// doubles and non-chat execution stores do not need to implement lifecycle
+// persistence; the production FileStore does.
+type RunStartRecorder interface {
+	OnRunStarted(start RunStart) error
+}
+
+// RunStartReader retrieves the immutable lifecycle clock for a persisted run.
+// It is deliberately separate from Store so non-persistent test doubles do
+// not accidentally claim that a restart can reconstruct a run lifecycle.
+type RunStartReader interface {
+	LoadRunStartedAt(chatID string, runID string) (int64, error)
 }
 
 type Store interface {

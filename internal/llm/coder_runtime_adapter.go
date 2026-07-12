@@ -18,9 +18,8 @@ func (a coderRuntimeAdapter) Settings() agentcoder.RuntimeSettings {
 		return agentcoder.RuntimeSettings{}
 	}
 	return agentcoder.RuntimeSettings{
-		PlanningPrompt:                  e.cfg.CoderPrompts.PlanningPrompt,
-		DefaultPlanMaxSteps:             e.cfg.Defaults.Plan.MaxSteps,
-		DefaultPlanMaxWorkRoundsPerTask: e.cfg.Defaults.Plan.MaxWorkRoundsPerTask,
+		PlanningPrompt:          e.cfg.CoderPrompts.PlanningPrompt,
+		DefaultPlanningMaxSteps: e.cfg.Defaults.CoderPlanning.MaxSteps,
 	}
 }
 
@@ -52,12 +51,12 @@ func (a coderRuntimeAdapter) ToolDefinitions() []api.ToolDetailResponse {
 	return e.tools.Definitions()
 }
 
-func (a coderRuntimeAdapter) BuildExecuteSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, settings contracts.PlanExecuteSettings) []contracts.SystemInitProfile {
+func (a coderRuntimeAdapter) BuildExecuteSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, settings contracts.CoderPlanningSettings) []contracts.SystemInitProfile {
 	e := a.engine
 	if e == nil {
 		return nil
 	}
-	session.ResolvedStageSettings = settings
+	session.ResolvedCoderPlanningSettings = settings
 	profile := buildCoderPlanningExecuteSystemInitProfile(session, req, settings, a.ToolDefinitions())
 	(SystemInitProfileBuilder{Models: e.models}).applyRequestProfile(&profile, session, req)
 	return []contracts.SystemInitProfile{profile}

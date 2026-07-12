@@ -18,7 +18,7 @@ func TestSessionSearchToolUsesCurrentChatByDefault(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := chats.AppendQueryLine("chat-1", chat.QueryLine{
-		ChatID: "chat-1", RunID: "run-1", UpdatedAt: 100, Type: "query",
+		ChatID: "chat-1", RunID: "run-1", UpdatedAt: 1700000000000, Type: "query",
 		Query: map[string]any{"message": "Need rollback notes", "role": "user"},
 	}); err != nil {
 		t.Fatalf("append query: %v", err)

@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -9,6 +10,37 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/observability"
 )
+
+func TestMonitorConnectionOmitsAbsentOptionalTimes(t *testing.T) {
+	encoded, err := json.Marshal(MonitorConnection{
+		SessionID:   "ws_1",
+		ConnectedAt: 1_700_000_000_000,
+	})
+	if err != nil {
+		t.Fatalf("marshal monitor connection: %v", err)
+	}
+	for _, field := range []string{"closedAt", "lastSeenAt", "lastMessageAt"} {
+		if strings.Contains(string(encoded), `"`+field+`"`) {
+			t.Fatalf("expected absent %s to be omitted: %s", field, encoded)
+		}
+	}
+}
+
+func TestHubMonitorDropsMessagesWithoutValidTimestamp(t *testing.T) {
+	hub := NewHub()
+	hub.recordMonitorMessage(MonitorMessage{SessionID: "ws_bad", Timestamp: 0, Direction: "in"})
+	hub.recordMonitorMessage(MonitorMessage{SessionID: "ws_seconds", Timestamp: 1_700_000_000, Direction: "in"})
+	if messages := hub.MonitorMessages(10, MonitorFilter{}).Messages; len(messages) != 0 {
+		t.Fatalf("expected invalid monitor messages to be dropped, got %#v", messages)
+	}
+
+	now := time.Now().UnixMilli()
+	hub.recordMonitorMessage(MonitorMessage{SessionID: "ws_valid", Timestamp: now, Direction: "in"})
+	messages := hub.MonitorMessages(10, MonitorFilter{}).Messages
+	if len(messages) != 1 || messages[0].Timestamp != now {
+		t.Fatalf("expected valid monitor message to remain, got %#v", messages)
+	}
+}
 
 func TestHubMonitorTracksConnectionLifecycle(t *testing.T) {
 	hub := NewHub()

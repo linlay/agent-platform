@@ -95,13 +95,6 @@ func (s *Server) agentUnreadCount(agentKey string) (int, error) {
 	return stats[agentKey].UnreadCount, nil
 }
 
-func chatPushReadAt(state chat.ChatReadState) int64 {
-	if state.ReadAt == nil {
-		return 0
-	}
-	return *state.ReadAt
-}
-
 func (s *Server) buildMarkReadResponse(sum chat.Summary, agentUnreadCount int) api.MarkChatReadResponse {
 	return api.MarkChatReadResponse{
 		ChatID:           sum.ChatID,
@@ -113,12 +106,18 @@ func (s *Server) buildMarkReadResponse(sum chat.Summary, agentUnreadCount int) a
 }
 
 func (s *Server) broadcastChatReadState(eventType string, sum chat.Summary, agentUnreadCount int) {
-	s.broadcast(eventType, map[string]any{
+	payload := map[string]any{
 		"chatId":           sum.ChatID,
 		"agentKey":         sum.AgentKey,
 		"lastRunId":        sum.LastRunID,
-		"readAt":           chatPushReadAt(sum.Read),
 		"readRunId":        sum.Read.ReadRunID,
 		"agentUnreadCount": agentUnreadCount,
-	})
+	}
+	// readAt is optional.  A zero sentinel would be a fabricated 1970 time
+	// under the public contract, so keep it absent until a real read was
+	// recorded.
+	if sum.Read.ReadAt != nil {
+		payload["readAt"] = *sum.Read.ReadAt
+	}
+	s.broadcast(eventType, payload)
 }

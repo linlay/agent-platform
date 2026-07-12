@@ -11,6 +11,7 @@ import (
 
 	"agent-platform/internal/config"
 	"agent-platform/internal/i18n"
+	"agent-platform/internal/timecontract"
 
 	gws "github.com/gorilla/websocket"
 )
@@ -72,6 +73,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		subprotocol = ""
 	}
 	if err != nil {
+		if timecontract.IsViolation(err) {
+			writeHTTPTimeContractViolation(w, err)
+			return
+		}
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -119,12 +124,28 @@ func (h *Handler) routeRequest(ctx context.Context, conn *Conn, req RequestFrame
 		}
 		auth, verifyErr := h.authenticator.VerifyToken(ctx, strings.TrimSpace(payload.Token))
 		if verifyErr != nil {
+			if timecontract.IsViolation(verifyErr) {
+				conn.SendError(req.ID, "time_contract_violation", http.StatusUnprocessableEntity, "time contract violation", timecontract.ErrorData(verifyErr))
+				conn.CompleteRequest(req.ID)
+				return
+			}
 			conn.SendError(req.ID, "unauthorized", 401, "invalid token", nil)
 			conn.CompleteRequest(req.ID)
 			return
 		}
+		data := map[string]any{}
+		if auth.ExpiresAt > 0 {
+			if contractErr := timecontract.ValidateEpochMillis(auth.ExpiresAt, "expiresAt", "ws.auth.refresh"); contractErr != nil {
+				conn.SendError(req.ID, "time_contract_violation", http.StatusUnprocessableEntity, "time contract violation", timecontract.ErrorData(contractErr))
+				conn.CompleteRequest(req.ID)
+				return
+			}
+			data["expiresAt"] = auth.ExpiresAt
+		}
+		// Do not mutate connection auth before every outward time point is
+		// proven valid. A failed refresh must leave the previous session intact.
 		conn.UpdateAuth(auth)
-		conn.SendResponse("auth.refresh", req.ID, 0, "success", map[string]any{"expiresAt": auth.ExpiresAt})
+		conn.SendResponse("auth.refresh", req.ID, 0, "success", data)
 		conn.CompleteRequest(req.ID)
 		return
 	}
@@ -135,6 +156,16 @@ func (h *Handler) routeRequest(ctx context.Context, conn *Conn, req RequestFrame
 		return
 	}
 	route(ctx, conn, req)
+}
+
+func writeHTTPTimeContractViolation(w http.ResponseWriter, err error) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusUnprocessableEntity)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"code": "time_contract_violation",
+		"msg":  "time contract violation",
+		"data": timecontract.ErrorData(err),
+	})
 }
 
 func extractToken(r *http.Request) (string, string, error) {

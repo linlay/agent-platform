@@ -16,13 +16,13 @@ func NormalizeConfirmation(args map[string]any, params any) (map[string]any, err
 		return nil, fmt.Errorf("planning confirmation submit params must be an array")
 	}
 	if len(items) == 0 {
-		return contracts.AwaitingErrorAnswer("plan", "user_dismissed", "用户关闭等待项"), nil
+		return contracts.AwaitingErrorAnswer("planning", "user_dismissed", "用户关闭等待项"), nil
 	}
 	if len(items) != 1 {
 		return nil, fmt.Errorf("expected 1 planning confirmation, got %d", len(items))
 	}
 
-	definition := contracts.AnyMapNode(args["plan"])
+	definition := contracts.AnyMapNode(args["planning"])
 	if len(definition) == 0 {
 		return nil, fmt.Errorf("planning confirmation definition is required")
 	}
@@ -52,9 +52,9 @@ func NormalizeConfirmation(args map[string]any, params any) (map[string]any, err
 		entry["reason"] = reason
 	}
 	return map[string]any{
-		"mode":   "plan",
-		"status": "answered",
-		"plan":   entry,
+		"mode":     "planning",
+		"status":   "answered",
+		"planning": entry,
 	}, nil
 }
 

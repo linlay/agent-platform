@@ -189,6 +189,9 @@ func toIntValue(v any) int {
 		return int(n)
 	case float64:
 		return int(n)
+	case json.Number:
+		value, _ := n.Int64()
+		return int(value)
 	}
 	return 0
 }

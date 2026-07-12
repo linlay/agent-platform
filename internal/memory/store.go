@@ -1,7 +1,10 @@
 package memory
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -10,6 +13,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/skills"
+	"agent-platform/internal/timecontract"
 )
 
 type Store interface {
@@ -166,6 +170,19 @@ func (s *FileStore) Write(item api.StoredMemoryResponse) error {
 		return err
 	}
 	item = normalizeStoredItem(item)
+	now := time.Now().UnixMilli()
+	// A newly produced memory is owned by this runtime, so it receives one
+	// explicit creation clock. Persisted records are validated by readAllStored
+	// before they can reach this path and are never repaired here.
+	if item.CreatedAt == 0 {
+		item.CreatedAt = now
+	}
+	if item.UpdatedAt == 0 {
+		item.UpdatedAt = item.CreatedAt
+	}
+	if err := validateStoredMemoryTimeContract(item, "memory.file.write"); err != nil {
+		return err
+	}
 	if err := validateStoredMemoryItem(item); err != nil {
 		logMemoryWriteRejected("write_rejected", item, err)
 		return err
@@ -177,7 +194,6 @@ func (s *FileStore) Write(item api.StoredMemoryResponse) error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	now := time.Now().UnixMilli()
 	for _, existing := range items {
 		if !isExactDuplicateMemory(existing, item) {
 			continue
@@ -344,13 +360,44 @@ func (s *FileStore) readAllStored() ([]api.StoredMemoryResponse, error) {
 		if err != nil {
 			return nil, err
 		}
-		var item api.StoredMemoryResponse
-		if err := json.Unmarshal(data, &item); err != nil {
+		item, err := decodeStoredMemoryResponse(data, "memory.file["+entry.Name()+"]")
+		if err != nil {
 			return nil, err
 		}
 		items = append(items, normalizeStoredItem(item))
 	}
 	return items, nil
+}
+
+// decodeStoredMemoryResponse keeps the persisted-file boundary strict before
+// typed decoding. In particular, a numeric string, floating point value, or
+// null at a structured time field must remain a time_contract_violation rather
+// than degrading into a generic JSON type error and an HTTP 500 upstream.
+func decodeStoredMemoryResponse(data []byte, location string) (api.StoredMemoryResponse, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var payload map[string]any
+	if err := decoder.Decode(&payload); err != nil {
+		return api.StoredMemoryResponse{}, err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return api.StoredMemoryResponse{}, fmt.Errorf("stored memory contains multiple JSON values")
+		}
+		return api.StoredMemoryResponse{}, err
+	}
+	if err := timecontract.ValidateJSONPayload(payload, location); err != nil {
+		return api.StoredMemoryResponse{}, err
+	}
+	var item api.StoredMemoryResponse
+	if err := json.Unmarshal(data, &item); err != nil {
+		return api.StoredMemoryResponse{}, err
+	}
+	if err := validateStoredMemoryTimeContract(item, location); err != nil {
+		return api.StoredMemoryResponse{}, err
+	}
+	return item, nil
 }
 
 func matchesMemoryNeedle(item api.StoredMemoryResponse, needle string) bool {

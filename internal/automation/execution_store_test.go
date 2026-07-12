@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"agent-platform/internal/timecontract"
 )
 
 func TestExecutionStoreRecordsAndListsExecutions(t *testing.T) {
@@ -100,5 +102,31 @@ func TestExecutionStoreDefaultPagingAndMissingLast(t *testing.T) {
 	}
 	if total != 105 || len(items) != 100 {
 		t.Fatalf("expected capped page of 100/105, got len=%d total=%d", len(items), total)
+	}
+}
+
+func TestExecutionStoreRejectsInvalidPersistedTimes(t *testing.T) {
+	store, err := NewExecutionStore(t.TempDir(), "executions.db")
+	if err != nil {
+		t.Fatalf("new execution store: %v", err)
+	}
+	defer store.Close()
+
+	if _, err := store.db.Exec(`INSERT INTO AUTOMATION_EXECUTIONS (
+		ID_, AUTOMATION_ID_, STARTED_AT_, COMPLETED_AT_
+	) VALUES ('exec_bad', 'daily', 1700000000, 0)`); err != nil {
+		t.Fatalf("insert invalid legacy execution: %v", err)
+	}
+	if _, _, err := store.ListByAutomation("daily", 10, 0); !timecontract.IsViolation(err) {
+		t.Fatalf("expected invalid persisted execution times to fail, got %v", err)
+	}
+	if _, err := store.db.Exec(`UPDATE AUTOMATION_EXECUTIONS SET STARTED_AT_ = ? WHERE ID_ = 'exec_bad'`, time.Now().UnixMilli()); err != nil {
+		t.Fatalf("repair only test start field: %v", err)
+	}
+	if _, err := store.LastExecution("daily"); !timecontract.IsViolation(err) {
+		t.Fatalf("expected zero completedAt to fail instead of becoming absent, got %v", err)
+	}
+	if err := store.RecordComplete("exec_bad", nil); !timecontract.IsViolation(err) {
+		t.Fatalf("expected completion to reject invalid stored start time, got %v", err)
 	}
 }

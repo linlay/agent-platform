@@ -10,6 +10,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/timecontract"
 )
 
 const (
@@ -18,9 +19,10 @@ const (
 )
 
 type registeredQueryRun struct {
-	RunCtx  context.Context
-	Control *contracts.RunControl
-	Managed bool
+	RunCtx          context.Context
+	Control         *contracts.RunControl
+	Managed         bool
+	StartedAtMillis int64
 }
 
 func writeStatusError(w http.ResponseWriter, err *statusError) {
@@ -159,7 +161,7 @@ func (s *Server) registerQueryRun(ctx context.Context, prepared preparedQuery) (
 				data:    activeRunFoundInfo(chatID, runIDs),
 			}
 		}
-		return registeredQueryRun{RunCtx: registration.Context, Control: registration.Control, Managed: true}, nil
+		return s.registeredQueryRun(registration.Context, registration.Control, prepared)
 	}
 
 	runScopeID := strings.TrimSpace(prepared.session.RunScopeID)
@@ -188,7 +190,54 @@ func (s *Server) registerQueryRun(ctx context.Context, prepared preparedQuery) (
 		}
 	}
 	runCtx, control, _ := s.deps.Runs.Register(ctx, prepared.session)
-	return registeredQueryRun{RunCtx: runCtx, Control: control, Managed: true}, nil
+	return s.registeredQueryRun(runCtx, control, prepared)
+}
+
+// registeredQueryRun reads the single authoritative lifecycle timestamp from
+// the run manager immediately after registration.  Every subsequent
+// persistence and push path receives this same value; never infer it from a
+// run ID or a later completion timestamp.
+
+func (s *Server) registeredQueryRun(runCtx context.Context, control *contracts.RunControl, prepared preparedQuery) (registeredQueryRun, *statusError) {
+	runID := prepared.req.RunID
+	status, ok := s.deps.Runs.RunStatus(runID)
+	if !ok {
+		s.deps.Runs.Finish(runID)
+		return registeredQueryRun{}, &statusError{status: http.StatusInternalServerError, code: "internal_error", message: "registered run status is unavailable"}
+	}
+	if err := timecontract.ValidateEpochMillis(status.StartedAt, "startedAt", "run.registration"); err != nil {
+		s.deps.Runs.Finish(runID)
+		return registeredQueryRun{}, &statusError{
+			status:  http.StatusUnprocessableEntity,
+			code:    "time_contract_violation",
+			message: err.Error(),
+			data:    timecontract.ErrorData(err),
+		}
+	}
+	execution := s.resolvedQueryExecution(prepared)
+	if !execution.HiddenRun {
+		recorder, ok := execution.CompletionStore.(chat.RunStartRecorder)
+		if !ok || recorder == nil {
+			s.deps.Runs.Finish(runID)
+			return registeredQueryRun{}, &statusError{status: http.StatusInternalServerError, code: "internal_error", message: "run start recorder is not configured"}
+		}
+		if err := recorder.OnRunStarted(chat.RunStart{
+			ChatID:          prepared.req.ChatID,
+			RunID:           runID,
+			OwnerType:       prepared.summary.OwnerType,
+			AgentKey:        prepared.req.AgentKey,
+			TeamID:          prepared.req.TeamID,
+			InitialMessage:  prepared.req.Message,
+			StartedAtMillis: status.StartedAt,
+		}); err != nil {
+			s.deps.Runs.Finish(runID)
+			if isTimeContractViolation(err) {
+				return registeredQueryRun{}, &statusError{status: http.StatusUnprocessableEntity, code: "time_contract_violation", message: timeContractViolationMessage, data: timeContractErrorData(err)}
+			}
+			return registeredQueryRun{}, &statusError{status: http.StatusInternalServerError, code: "internal_error", message: err.Error()}
+		}
+	}
+	return registeredQueryRun{RunCtx: runCtx, Control: control, Managed: true, StartedAtMillis: status.StartedAt}, nil
 }
 
 func (s *Server) finishRegisteredQueryRun(prepared preparedQuery, registered registeredQueryRun) {
@@ -200,7 +249,7 @@ func (s *Server) finishRegisteredQueryRun(prepared preparedQuery, registered reg
 
 func isAwaitingGateMode(mode string) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "question", "plan", "form", "approval":
+	case "question", "planning", "form", "approval":
 		return true
 	default:
 		return false
@@ -209,7 +258,7 @@ func isAwaitingGateMode(mode string) bool {
 
 func isContinuableDeferredAwaitingMode(mode string) bool {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "question", "plan":
+	case "question", "planning":
 		return true
 	default:
 		return false

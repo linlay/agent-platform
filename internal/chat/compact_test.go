@@ -17,10 +17,11 @@ func TestCompactCommitMarksCoveredLinesAndProjectsSummaryTail(t *testing.T) {
 	ensureCompactTestChat(t, store, chatID)
 
 	if err := store.AppendEventLine(chatID, EventLine{
-		Type:   "event",
-		ChatID: chatID,
-		RunID:  "r1",
-		Event:  map[string]any{"type": "run.note", "message": "event r1"},
+		Type:      "event",
+		ChatID:    chatID,
+		RunID:     "r1",
+		UpdatedAt: testEpochMillis(99),
+		Event:     map[string]any{"type": "run.note", "message": "event r1", "timestamp": testEpochMillis(99)},
 	}); err != nil {
 		t.Fatalf("append event: %v", err)
 	}
@@ -49,7 +50,7 @@ func TestCompactCommitMarksCoveredLinesAndProjectsSummaryTail(t *testing.T) {
 		Type:                       CompactCheckpointLineType,
 		ChatID:                     chatID,
 		CompactID:                  "compact_1",
-		UpdatedAt:                  123,
+		UpdatedAt:                  testEpochMillis(123),
 		Trigger:                    "manual",
 		Summary:                    "summary one",
 		SummarySource:              "model",
@@ -185,7 +186,7 @@ func TestSecondCompactCoversPreviousCheckpoint(t *testing.T) {
 		Type:            CompactCheckpointLineType,
 		ChatID:          chatID,
 		CompactID:       "compact_1",
-		UpdatedAt:       123,
+		UpdatedAt:       testEpochMillis(123),
 		Summary:         "summary one",
 		SummarySource:   "model",
 		CompactionUsage: map[string]any{},
@@ -202,7 +203,7 @@ func TestSecondCompactCoversPreviousCheckpoint(t *testing.T) {
 		Type:            CompactCheckpointLineType,
 		ChatID:          chatID,
 		CompactID:       "compact_2",
-		UpdatedAt:       456,
+		UpdatedAt:       testEpochMillis(456),
 		Summary:         "summary two",
 		SummarySource:   "model",
 		CompactionUsage: map[string]any{},
@@ -260,7 +261,7 @@ func TestCompactCommitDetectsHistoryChanged(t *testing.T) {
 		Type:            CompactCheckpointLineType,
 		ChatID:          chatID,
 		CompactID:       "compact_1",
-		UpdatedAt:       123,
+		UpdatedAt:       testEpochMillis(123),
 		Summary:         "summary one",
 		CompactionUsage: map[string]any{},
 	})
@@ -301,7 +302,7 @@ func TestToolCompactClearsOlderCompactableToolResults(t *testing.T) {
 		Type:                       ToolCompactLineType,
 		ChatID:                     chatID,
 		CompactID:                  "compact_tools_1",
-		UpdatedAt:                  123,
+		UpdatedAt:                  testEpochMillis(123),
 		Trigger:                    "manual",
 		Level:                      "l1_tools",
 		ToolsCleared:               snapshot.ToolsCleared,
@@ -377,7 +378,7 @@ func TestToolCompactCommitDetectsHistoryChanged(t *testing.T) {
 		Type:      ToolCompactLineType,
 		ChatID:    chatID,
 		CompactID: "compact_tools_race",
-		UpdatedAt: 123,
+		UpdatedAt: testEpochMillis(123),
 		Level:     "l1_tools",
 	})
 	if !errors.Is(err, ErrCompactHistoryChanged) {
@@ -419,7 +420,7 @@ func TestSummaryCompactCanCoverToolCompactMetadata(t *testing.T) {
 		Type:      ToolCompactLineType,
 		ChatID:    chatID,
 		CompactID: "compact_tools_1",
-		UpdatedAt: 123,
+		UpdatedAt: testEpochMillis(123),
 		Level:     "l1_tools",
 	}); err != nil {
 		t.Fatalf("CommitToolCompact: %v", err)
@@ -435,7 +436,7 @@ func TestSummaryCompactCanCoverToolCompactMetadata(t *testing.T) {
 		Type:            CompactCheckpointLineType,
 		ChatID:          chatID,
 		CompactID:       "compact_summary_1",
-		UpdatedAt:       456,
+		UpdatedAt:       testEpochMillis(456),
 		Summary:         "summary after tool compact",
 		SummarySource:   "model",
 		CompactionUsage: map[string]any{},
@@ -480,9 +481,9 @@ func appendCompactTestRun(t *testing.T, store *FileStore, chatID string, runID s
 		Type:      "query",
 		ChatID:    chatID,
 		RunID:     runID,
-		UpdatedAt: 100,
+		UpdatedAt: testEpochMillis(100),
 		Query:     map[string]any{"role": "user", "message": userText},
-		Messages:  []map[string]any{{"role": "user", "content": userText}},
+		Messages:  []map[string]any{{"role": "user", "content": userText, "ts": testEpochMillis(100)}},
 	}); err != nil {
 		t.Fatalf("AppendQueryLine(%s): %v", runID, err)
 	}
@@ -490,15 +491,19 @@ func appendCompactTestRun(t *testing.T, store *FileStore, chatID string, runID s
 		Type:      StepLineTypeReact,
 		ChatID:    chatID,
 		RunID:     runID,
-		UpdatedAt: 101,
+		UpdatedAt: testEpochMillis(101),
 		Messages: []StoredMessage{
 			{
 				Role:    "assistant",
 				Content: []ContentPart{{Type: "text", Text: assistantText}},
+				Ts:      int64Ptr(testEpochMillis(101)),
 			},
 		},
 	}); err != nil {
 		t.Fatalf("AppendStepLine(%s): %v", runID, err)
+	}
+	if err := completeRunForTest(store, RunCompletion{ChatID: chatID, RunID: runID, InitialMessage: userText, AssistantText: assistantText, FinishReason: "complete", StartedAtMillis: testEpochMillis(100), UpdatedAtMillis: testEpochMillis(101)}); err != nil {
+		t.Fatalf("complete %s: %v", runID, err)
 	}
 }
 
@@ -508,10 +513,11 @@ func appendCompactTestToolResult(t *testing.T, store *FileStore, chatID string, 
 		Type:      StepLineTypeReact,
 		ChatID:    chatID,
 		RunID:     runID,
-		UpdatedAt: 101,
+		UpdatedAt: testEpochMillis(101),
 		Messages: []StoredMessage{
 			{
 				Role: "assistant",
+				Ts:   int64Ptr(testEpochMillis(101)),
 				ToolCalls: []StoredToolCall{{
 					ID:   toolID,
 					Type: "function",
@@ -526,10 +532,14 @@ func appendCompactTestToolResult(t *testing.T, store *FileStore, chatID string, 
 				Name:       toolName,
 				ToolCallID: toolID,
 				Content:    []ContentPart{{Type: "text", Text: resultText}},
+				Ts:         int64Ptr(testEpochMillis(101)),
 			},
 		},
 	}); err != nil {
 		t.Fatalf("AppendStepLine(%s): %v", runID, err)
+	}
+	if err := completeRunForTest(store, RunCompletion{ChatID: chatID, RunID: runID, FinishReason: "complete", StartedAtMillis: testEpochMillis(100), UpdatedAtMillis: testEpochMillis(101)}); err != nil {
+		t.Fatalf("complete %s: %v", runID, err)
 	}
 }
 

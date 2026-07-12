@@ -26,10 +26,13 @@ func TestHandleLearnStoresObservationFromLatestRun(t *testing.T) {
 	if _, _, err := chats.EnsureChat("chat-1", "agent-a", "team-1", "please fix the memory bug"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
+	startedAt := testEpochMillis + 100
+	stepAt := testEpochMillis + 200
+	startServerFixtureRun(t, chats, "chat-1", "run-1", startedAt)
 	if err := chats.AppendQueryLine("chat-1", chat.QueryLine{
 		ChatID:    "chat-1",
 		RunID:     "run-1",
-		UpdatedAt: 100,
+		UpdatedAt: startedAt,
 		Query: map[string]any{
 			"message": "please fix the memory bug",
 			"role":    "user",
@@ -41,12 +44,13 @@ func TestHandleLearnStoresObservationFromLatestRun(t *testing.T) {
 	if err := chats.AppendStepLine("chat-1", chat.StepLine{
 		ChatID:    "chat-1",
 		RunID:     "run-1",
-		UpdatedAt: 200,
+		UpdatedAt: stepAt,
 		Type:      "react",
 		Messages: []chat.StoredMessage{
 			{
 				Role:    "assistant",
 				Content: []chat.ContentPart{{Type: "text", Text: "Fixed the memory bug and tightened scope handling."}},
+				Ts:      &stepAt,
 				ToolCalls: []chat.StoredToolCall{
 					{
 						ID:   "tool-1",
@@ -66,7 +70,8 @@ func TestHandleLearnStoresObservationFromLatestRun(t *testing.T) {
 		ChatID:          "chat-1",
 		RunID:           "run-1",
 		AssistantText:   "Fixed the memory bug and tightened scope handling.",
-		UpdatedAtMillis: 300,
+		StartedAtMillis: startedAt,
+		UpdatedAtMillis: testEpochMillis + 300,
 	}); err != nil {
 		t.Fatalf("on run completed: %v", err)
 	}

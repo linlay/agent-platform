@@ -128,8 +128,8 @@ func TestLoadDefaults(t *testing.T) {
 				if cfg.Defaults.Budget.Hitl.Timeout != 0 {
 					t.Fatalf("expected default HITL budget timeout 0, got %d", cfg.Defaults.Budget.Hitl.Timeout)
 				}
-					if cfg.Defaults.Budget.Hitl.Question.Timeout != 0 || cfg.Defaults.Budget.Hitl.Approval.Timeout != 0 ||
-						cfg.Defaults.Budget.Hitl.Form.Timeout != 0 {
+				if cfg.Defaults.Budget.Hitl.Question.Timeout != 0 || cfg.Defaults.Budget.Hitl.Approval.Timeout != 0 ||
+					cfg.Defaults.Budget.Hitl.Form.Timeout != 0 {
 					t.Fatalf("expected default HITL mode timeouts unset, got %#v", cfg.Defaults.Budget.Hitl)
 				}
 				if cfg.Defaults.Budget.Timeout != 3600 {
@@ -445,6 +445,21 @@ func TestLoadRuntimeBudgetYAMLIgnoresRemovedAnthropicDefaults(t *testing.T) {
 	})
 }
 
+func TestLoadRuntimeCoderPlanningDefaults(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		content := "defaults:\n  coder-planning:\n    max-steps: 73\n"
+		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if cfg.Defaults.CoderPlanning.MaxSteps != 73 {
+				t.Fatalf("coder planning max steps = %d, want 73", cfg.Defaults.CoderPlanning.MaxSteps)
+			}
+		})
+	})
+}
+
 func TestLoadDesktopConfigMissingFileLeavesBridgeUnconfigured(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), nil, func() {
@@ -600,10 +615,10 @@ func TestLoadRuntimeConfigFromFile(t *testing.T) {
 							cfg.Defaults.Budget.Stages["execute"].Tool.Timeout != 123 {
 							t.Fatalf("unexpected runtime budget config: %#v", cfg.Defaults.Budget)
 						}
-							if cfg.Defaults.Budget.Hitl.Timeout != 610 ||
-								cfg.Defaults.Budget.Hitl.Question.Timeout != 620 ||
-								cfg.Defaults.Budget.Hitl.Approval.Timeout != 630 ||
-								cfg.Defaults.Budget.Hitl.Form.Timeout != 640 {
+						if cfg.Defaults.Budget.Hitl.Timeout != 610 ||
+							cfg.Defaults.Budget.Hitl.Question.Timeout != 620 ||
+							cfg.Defaults.Budget.Hitl.Approval.Timeout != 630 ||
+							cfg.Defaults.Budget.Hitl.Form.Timeout != 640 {
 							t.Fatalf("unexpected runtime HITL budget config: %#v", cfg.Defaults.Budget.Hitl)
 						}
 					})
@@ -1789,9 +1804,9 @@ func TestLoadAPEnvAndRuntimeYAMLWithToolsYAMLConfig(t *testing.T) {
 				if cfg.Defaults.Budget.Hitl.Timeout != 60 {
 					t.Fatalf("unexpected default HITL budget timeout: %d", cfg.Defaults.Budget.Hitl.Timeout)
 				}
-					if cfg.Defaults.Budget.Hitl.Question.Timeout != 70 ||
-						cfg.Defaults.Budget.Hitl.Approval.Timeout != 75 ||
-						cfg.Defaults.Budget.Hitl.Form.Timeout != 76 {
+				if cfg.Defaults.Budget.Hitl.Question.Timeout != 70 ||
+					cfg.Defaults.Budget.Hitl.Approval.Timeout != 75 ||
+					cfg.Defaults.Budget.Hitl.Form.Timeout != 76 {
 					t.Fatalf("unexpected default HITL mode budget timeout: %#v", cfg.Defaults.Budget.Hitl)
 				}
 			})

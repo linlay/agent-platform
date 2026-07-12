@@ -6,6 +6,7 @@ import (
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/plantasks"
 	"agent-platform/internal/stream"
+	"agent-platform/internal/timecontract"
 )
 
 type replayMessageOptions struct {
@@ -16,13 +17,16 @@ type replayMessageOptions struct {
 	Presentation                 string
 }
 
-func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, liveSeq int64, nextSeq func() int64) []stream.EventData {
+func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, liveSeq int64, nextSeq func() int64) ([]stream.EventData, error) {
 	return storedMessageToEventsWithOptions(msg, runID, taskID, stage, liveSeq, nextSeq, replayMessageOptions{})
 }
 
-func storedMessageToEventsWithOptions(msg map[string]any, runID, taskID, stage string, liveSeq int64, nextSeq func() int64, options replayMessageOptions) []stream.EventData {
+func storedMessageToEventsWithOptions(msg map[string]any, runID, taskID, stage string, liveSeq int64, nextSeq func() int64, options replayMessageOptions) ([]stream.EventData, error) {
 	role, _ := msg["role"].(string)
-	ts := int64FromAny(msg["ts"])
+	ts, err := timecontract.ParseEpochMillis(msg["ts"], "ts", "chat.replay.message.ts")
+	if err != nil {
+		return nil, err
+	}
 	var events []stream.EventData
 	options = replayMessageActorOptions(msg, options)
 
@@ -128,7 +132,7 @@ func storedMessageToEventsWithOptions(msg map[string]any, runID, taskID, stage s
 
 	case "tool":
 		if options.HideTeamCoordinatorInternals || agentteam.IsHiddenTool(stringFromAny(msg["name"])) {
-			return nil
+			return nil, nil
 		}
 		text := extractTextFromContent(msg["content"])
 		actionID, _ := msg["_actionId"].(string)
@@ -169,7 +173,7 @@ func storedMessageToEventsWithOptions(msg map[string]any, runID, taskID, stage s
 		}
 	}
 
-	return events
+	return events, nil
 }
 
 func replayMessageActorOptions(msg map[string]any, options replayMessageOptions) replayMessageOptions {

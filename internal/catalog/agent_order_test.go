@@ -49,7 +49,7 @@ func TestFileRegistryAgentsUseAgentOrderFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(agentsDir, AgentOrderFileName), []byte(`{
   "version": 1,
   "order": ["charlie", "missing", "alpha"],
-  "updatedAt": 1000
+  "updatedAt": 1700000000000
 }`), 0o644); err != nil {
 		t.Fatalf("write order: %v", err)
 	}

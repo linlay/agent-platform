@@ -8,9 +8,8 @@ import (
 )
 
 type RuntimeSettings struct {
-	PlanningPrompt                  string
-	DefaultPlanMaxSteps             int
-	DefaultPlanMaxWorkRoundsPerTask int
+	PlanningPrompt          string
+	DefaultPlanningMaxSteps int
 }
 
 type StageRunOptions struct {
@@ -30,7 +29,7 @@ type Runtime interface {
 	NewStageRunStream(ctx context.Context, req api.QueryRequest, session contracts.QuerySession, allowToolUse bool, options StageRunOptions) (contracts.AgentStream, error)
 	BuildCurrentMessagesForRequest(req api.QueryRequest, session contracts.QuerySession, fallbackVision bool) []map[string]any
 	ToolDefinitions() []api.ToolDetailResponse
-	BuildExecuteSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, settings contracts.PlanExecuteSettings) []contracts.SystemInitProfile
+	BuildExecuteSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, settings contracts.CoderPlanningSettings) []contracts.SystemInitProfile
 }
 
 type AccumulatedMessageStream interface {

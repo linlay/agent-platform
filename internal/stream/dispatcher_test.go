@@ -813,7 +813,7 @@ func TestDispatcherDefaultsQuestionAwaitAskViewport(t *testing.T) {
 	}
 }
 
-func TestDispatcherEmitsPlanModeAwaitAsk(t *testing.T) {
+func TestDispatcherEmitsPlanningModeAwaitAsk(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:    "run_1",
 		ChatID:   "chat_1",
@@ -821,28 +821,28 @@ func TestDispatcherEmitsPlanModeAwaitAsk(t *testing.T) {
 	})
 
 	events := dispatcher.Dispatch(AwaitAsk{
-		AwaitingID: "run_1_coder_plan_confirm_1",
-		Mode:       "plan",
+		AwaitingID: "run_1_coder_planning_confirm_1",
+		Mode:       "planning",
 		RunID:      "run_1",
-		Plan: map[string]any{
+		Planning: map[string]any{
 			"id":         "confirm",
 			"planningId": "run_1_planning_1",
 		},
 	})
 	assertEventTypes(t, events, "awaiting.ask")
 	payload := events[0].ToData()
-	if payload["viewportType"] != "builtin" || payload["viewportKey"] != "plan" {
-		t.Fatalf("expected builtin plan viewport metadata, got %#v", payload)
+	if payload["viewportType"] != "builtin" || payload["viewportKey"] != "planning" {
+		t.Fatalf("expected builtin planning viewport metadata, got %#v", payload)
 	}
 	if _, ok := payload["approvals"]; ok {
-		t.Fatalf("did not expect approvals for plan awaiting.ask, got %#v", payload)
+		t.Fatalf("did not expect approvals for planning awaiting.ask, got %#v", payload)
 	}
 	if _, ok := payload["timeout"]; ok {
 		t.Fatalf("did not expect timeout for planning confirmation, got %#v", payload)
 	}
-	plan, _ := payload["plan"].(map[string]any)
-	if plan["id"] != "confirm" || plan["planningId"] != "run_1_planning_1" {
-		t.Fatalf("unexpected plan awaiting.ask payload %#v", payload)
+	planning, _ := payload["planning"].(map[string]any)
+	if planning["id"] != "confirm" || planning["planningId"] != "run_1_planning_1" {
+		t.Fatalf("unexpected planning awaiting.ask payload %#v", payload)
 	}
 }
 
@@ -1262,13 +1262,12 @@ func TestEventDataMarshalsAwaitAskWithFormsBeforeTimestamp(t *testing.T) {
 	}
 }
 
-func TestEventDataMarshalsAwaitAskWithPlanBeforeTimestamp(t *testing.T) {
+func TestEventDataMarshalsAwaitAskWithPlanningBeforeTimestamp(t *testing.T) {
 	event := NewEvent("awaiting.ask", map[string]any{
-		"awaitingId": "run_1_coder_plan_confirm_1",
-		"mode":       "plan",
-		"timeout":    0,
+		"awaitingId": "run_1_coder_planning_confirm_1",
+		"mode":       "planning",
 		"runId":      "run_1",
-		"plan": map[string]any{
+		"planning": map[string]any{
 			"id":         "confirm",
 			"planningId": "run_1_planning_1",
 		},
@@ -1278,10 +1277,13 @@ func TestEventDataMarshalsAwaitAskWithPlanBeforeTimestamp(t *testing.T) {
 		t.Fatalf("marshal event data: %v", err)
 	}
 	text := string(data)
-	planIndex := strings.Index(text, `"plan":{"id":"confirm","planningId":"run_1_planning_1"}`)
+	planningIndex := strings.Index(text, `"planning":{"id":"confirm","planningId":"run_1_planning_1"}`)
 	timestampIndex := strings.Index(text, `"timestamp":`)
-	if planIndex < 0 || timestampIndex < 0 || planIndex >= timestampIndex {
-		t.Fatalf("expected plan before timestamp in %s", text)
+	if planningIndex < 0 || timestampIndex < 0 || planningIndex >= timestampIndex {
+		t.Fatalf("expected planning before timestamp in %s", text)
+	}
+	if strings.Contains(text, `"timeout":`) {
+		t.Fatalf("planning awaiting.ask must omit timeout: %s", text)
 	}
 }
 
@@ -1366,18 +1368,18 @@ func TestDispatcherEmitsAwaitingAnswerForApprovalMode(t *testing.T) {
 	}
 }
 
-func TestDispatcherEmitsAwaitingAnswerForPlanMode(t *testing.T) {
+func TestDispatcherEmitsAwaitingAnswerForPlanningMode(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",
 		ChatID: "chat_1",
 	})
 
 	events := dispatcher.Dispatch(AwaitingAnswer{
-		AwaitingID: "run_1_coder_plan_confirm_1",
+		AwaitingID: "run_1_coder_planning_confirm_1",
 		Answer: map[string]any{
-			"mode":   "plan",
+			"mode":   "planning",
 			"status": "answered",
-			"plan": map[string]any{
+			"planning": map[string]any{
 				"id":         "confirm",
 				"planningId": "run_1_planning_1",
 				"decision":   "reject",
@@ -1387,12 +1389,12 @@ func TestDispatcherEmitsAwaitingAnswerForPlanMode(t *testing.T) {
 	})
 	assertEventTypes(t, events, "awaiting.answer")
 	payload := events[0].ToData()
-	if payload["mode"] != "plan" || payload["status"] != "answered" {
-		t.Fatalf("unexpected plan awaiting.answer payload %#v", payload)
+	if payload["mode"] != "planning" || payload["status"] != "answered" {
+		t.Fatalf("unexpected planning awaiting.answer payload %#v", payload)
 	}
-	plan, _ := payload["plan"].(map[string]any)
-	if plan["id"] != "confirm" || plan["planningId"] != "run_1_planning_1" || plan["decision"] != "reject" || plan["reason"] != "请补充测试范围" {
-		t.Fatalf("unexpected formatted plan answer %#v", payload)
+	planning, _ := payload["planning"].(map[string]any)
+	if planning["id"] != "confirm" || planning["planningId"] != "run_1_planning_1" || planning["decision"] != "reject" || planning["reason"] != "请补充测试范围" {
+		t.Fatalf("unexpected formatted planning answer %#v", payload)
 	}
 }
 
@@ -1632,10 +1634,10 @@ func TestEventDataMarshalsAwaitingAnswerFormSubmitWithContractKeyOrder(t *testin
 
 func TestEventDataMarshalsAwaitingAnswerPlanSubmitWithContractKeyOrder(t *testing.T) {
 	event := NewEvent("awaiting.answer", map[string]any{
-		"awaitingId": "run_1_coder_plan_confirm_1",
-		"mode":       "plan",
+		"awaitingId": "run_1_coder_planning_confirm_1",
+		"mode":       "planning",
 		"status":     "answered",
-		"plan": map[string]any{
+		"planning": map[string]any{
 			"id":         "confirm",
 			"planningId": "run_1_planning_1",
 			"decision":   "approve",
@@ -1650,10 +1652,10 @@ func TestEventDataMarshalsAwaitingAnswerPlanSubmitWithContractKeyOrder(t *testin
 	order := []string{
 		`"seq":14`,
 		`"type":"awaiting.answer"`,
-		`"awaitingId":"run_1_coder_plan_confirm_1"`,
-		`"mode":"plan"`,
+		`"awaitingId":"run_1_coder_planning_confirm_1"`,
+		`"mode":"planning"`,
 		`"status":"answered"`,
-		`"plan":{"decision":"approve","id":"confirm","planningId":"run_1_planning_1"}`,
+		`"planning":{"decision":"approve","id":"confirm","planningId":"run_1_planning_1"}`,
 		`"timestamp":`,
 	}
 	prev := -1

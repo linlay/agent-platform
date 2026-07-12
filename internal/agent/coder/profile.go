@@ -6,15 +6,15 @@ import (
 )
 
 const (
-	Mode            = "CODER"
-	MainStage       = "coder"
-	PlanStage       = "coder-plan"
-	ExecuteStage    = "coder-execute"
-	MainCacheKey    = "coder:main"
-	PlanCacheKey    = "coder:plan"
-	ExecuteCacheKey = "coder:execute"
-	CreatePrefix    = "coder"
-	DefaultIconName = "coder"
+	Mode             = "CODER"
+	MainStage        = "coder"
+	PlanningStage    = "coder-planning"
+	ExecuteStage     = "coder-execute"
+	MainCacheKey     = "coder:main"
+	PlanningCacheKey = "coder:planning"
+	ExecuteCacheKey  = "coder:execute"
+	CreatePrefix     = "coder"
+	DefaultIconName  = "coder"
 )
 
 var defaultToolNames = []string{

@@ -231,10 +231,12 @@ func seedSearchableChat(t *testing.T, store chat.Store, chatID string) {
 	if _, _, err := store.EnsureChat(chatID, "mock-agent", "", "rollback plan"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
+	startedAt := testEpochMillis + 1_000
+	startServerFixtureRun(t, store, chatID, "run-"+chatID, startedAt)
 	if err := store.AppendQueryLine(chatID, chat.QueryLine{
 		ChatID:    chatID,
 		RunID:     "run-" + chatID,
-		UpdatedAt: 1000,
+		UpdatedAt: startedAt,
 		Query:     map[string]any{"role": "user", "message": "rollback plan"},
 		Type:      "query",
 	}); err != nil {
@@ -247,8 +249,8 @@ func seedSearchableChat(t *testing.T, store chat.Store, chatID string) {
 		AssistantText:   "rollback completed",
 		InitialMessage:  "rollback plan",
 		FinishReason:    "complete",
-		StartedAtMillis: 1000,
-		UpdatedAtMillis: 2000,
+		StartedAtMillis: startedAt,
+		UpdatedAtMillis: startedAt + 1_000,
 	}); err != nil {
 		t.Fatalf("complete run: %v", err)
 	}

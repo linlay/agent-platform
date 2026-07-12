@@ -310,6 +310,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		SystemInits: llm.NewSystemInitProfileBuilder(modelRegistry, llm.SystemInitDefaults{
 			PlanMaxSteps:             cfg.Defaults.Plan.MaxSteps,
 			PlanMaxWorkRoundsPerTask: cfg.Defaults.Plan.MaxWorkRoundsPerTask,
+			CoderPlanningMaxSteps:    cfg.Defaults.CoderPlanning.MaxSteps,
 			Prompts:                  cfg.Prompts,
 		}),
 		AutomationRegistry:   automationRegistry,

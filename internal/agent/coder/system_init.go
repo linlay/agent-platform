@@ -11,8 +11,8 @@ import (
 func SystemInitCacheKey(stage string) string {
 	stage = strings.ToLower(strings.TrimSpace(stage))
 	switch {
-	case strings.HasPrefix(stage, PlanStage):
-		return PlanCacheKey
+	case strings.HasPrefix(stage, PlanningStage):
+		return PlanningCacheKey
 	case strings.HasPrefix(stage, ExecuteStage):
 		return ExecuteCacheKey
 	default:
@@ -20,9 +20,9 @@ func SystemInitCacheKey(stage string) string {
 	}
 }
 
-func PlanningSystemInitSpecs(session contracts.QuerySession, req api.QueryRequest, settings contracts.PlanExecuteSettings) []agentcontract.SystemInitSpec {
+func PlanningSystemInitSpecs(session contracts.QuerySession, req api.QueryRequest, settings contracts.CoderPlanningSettings) []agentcontract.SystemInitSpec {
 	return []agentcontract.SystemInitSpec{
-		PlanningPlanSystemInitSpec(),
+		PlanningSystemInitSpec(),
 		PlanningExecuteSystemInitSpec(session, req, settings),
 	}
 }
@@ -40,21 +40,21 @@ func MainSystemInitSpec() agentcontract.SystemInitSpec {
 	}
 }
 
-func PlanningPlanSystemInitSpec() agentcontract.SystemInitSpec {
+func PlanningSystemInitSpec() agentcontract.SystemInitSpec {
 	return agentcontract.SystemInitSpec{
-		CacheKey:              PlanCacheKey,
-		FingerprintStage:      PlanStage,
-		PromptStage:           PlanStage,
+		CacheKey:              PlanningCacheKey,
+		FingerprintStage:      PlanningStage,
+		PromptStage:           PlanningStage,
 		Mode:                  MainStage,
-		Stage:                 "plan",
-		ToolNames:             PlanningModePlanTools(),
+		Stage:                 "planning",
+		ToolNames:             PlanningModeTools(),
 		UseSharedSystemPrompt: true,
 		IncludeAfterCallHints: true,
 		Initial:               true,
 	}
 }
 
-func PlanningExecuteSystemInitSpec(session contracts.QuerySession, req api.QueryRequest, settings contracts.PlanExecuteSettings) agentcontract.SystemInitSpec {
+func PlanningExecuteSystemInitSpec(session contracts.QuerySession, req api.QueryRequest, settings contracts.CoderPlanningSettings) agentcontract.SystemInitSpec {
 	executeTools := PlanningExecuteToolsForStage(settings.Execute, session.ToolNames)
 	return agentcontract.SystemInitSpec{
 		CacheKey:         ExecuteCacheKey,
@@ -63,6 +63,6 @@ func PlanningExecuteSystemInitSpec(session contracts.QuerySession, req api.Query
 		Mode:             MainStage,
 		Stage:            "execute",
 		ToolNames:        executeTools,
-		SystemPrompt:     PlanningExecutionSystemPrompt(session, req, settings, PlanningModePlanTools(), executeTools, DefaultExecuteSystemPrompt),
+		SystemPrompt:     PlanningExecutionSystemPrompt(session, req, settings, PlanningModeTools(), executeTools, DefaultExecuteSystemPrompt),
 	}
 }

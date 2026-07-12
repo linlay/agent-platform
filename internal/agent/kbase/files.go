@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"agent-platform/internal/timecontract"
 )
 
 const (
@@ -42,7 +44,7 @@ func (m *Manager) Files(agentKey string, options FilesOptions) (FilesResult, err
 				if recordsErr != nil {
 					return FilesResult{}, recordsErr
 				}
-				return filesResultFromRecords(result, normalized, records), nil
+				return filesResultFromRecords(result, normalized, records)
 			}
 		} else if !os.IsNotExist(controlErr) {
 			return FilesResult{}, controlErr
@@ -63,26 +65,33 @@ func (m *Manager) Files(agentKey string, options FilesOptions) (FilesResult, err
 	if err != nil {
 		return FilesResult{}, err
 	}
-	return filesResultFromRecords(result, normalized, records), nil
+	return filesResultFromRecords(result, normalized, records)
 }
 
-func filesResultFromRecords(result FilesResult, normalized FilesOptions, records []fileRecord) FilesResult {
+func filesResultFromRecords(result FilesResult, normalized FilesOptions, records []fileRecord) (FilesResult, error) {
 	files := filterFileRecords(records, normalized)
 	result.FileCount = len(files)
 	if normalized.Mode == "tree" {
-		entries := buildFileTreeEntries(files, normalized.Path, normalized.Depth)
+		entries, err := buildFileTreeEntries(files, normalized.Path, normalized.Depth)
+		if err != nil {
+			return FilesResult{}, err
+		}
 		result.DirCount = countDirEntries(entries)
 		result.MatchCount = len(entries)
 		result.Results, result.Truncated = pageFileEntries(entries, normalized.Offset, normalized.HeadLimit)
-		return result
+		return result, nil
 	}
 	entries := make([]FileEntry, 0, len(files))
 	for _, rec := range files {
-		entries = append(entries, fileRecordEntry(rec))
+		entry, err := fileRecordEntry(rec)
+		if err != nil {
+			return FilesResult{}, err
+		}
+		entries = append(entries, entry)
 	}
 	result.MatchCount = len(entries)
 	result.Results, result.Truncated = pageFileEntries(entries, normalized.Offset, normalized.HeadLimit)
-	return result
+	return result, nil
 }
 
 func normalizeFilesOptions(options FilesOptions) (FilesOptions, error) {
@@ -170,13 +179,21 @@ func filterFileRecords(records []fileRecord, options FilesOptions) []fileRecord 
 	return out
 }
 
-func fileRecordEntry(rec fileRecord) FileEntry {
+func fileRecordEntry(rec fileRecord) (FileEntry, error) {
 	path := normalizeIndexedPath(rec.Path)
 	dir := filepath.ToSlash(filepath.Dir(path))
 	if dir == "." {
 		dir = ""
 	} else if dir != "" {
 		dir += "/"
+	}
+	mtimeMs, err := optionalPublicFileEpochMillis(rec.MTimeMS, "mtimeMs", "kbase.files")
+	if err != nil {
+		return FileEntry{}, err
+	}
+	indexedAt, err := optionalPublicFileEpochMillis(rec.IndexedAt, "indexedAt", "kbase.files")
+	if err != nil {
+		return FileEntry{}, err
 	}
 	return FileEntry{
 		Type:       "file",
@@ -186,18 +203,18 @@ func fileRecordEntry(rec fileRecord) FileEntry {
 		Ext:        rec.Ext,
 		Mime:       rec.Mime,
 		Size:       rec.Size,
-		MTimeMS:    rec.MTimeMS,
+		MTimeMS:    mtimeMs,
 		TextSHA256: rec.TextSHA256,
 		Extractor:  rec.Extractor,
 		Status:     rec.Status,
 		SkipReason: rec.SkipReason,
 		Error:      rec.Error,
 		ChunkCount: rec.ChunkCount,
-		IndexedAt:  rec.IndexedAt,
-	}
+		IndexedAt:  indexedAt,
+	}, nil
 }
 
-func buildFileTreeEntries(records []fileRecord, prefix string, depth int) []FileEntry {
+func buildFileTreeEntries(records []fileRecord, prefix string, depth int) ([]FileEntry, error) {
 	dirs := map[string]*FileEntry{}
 	files := []FileEntry{}
 	for _, rec := range records {
@@ -220,7 +237,10 @@ func buildFileTreeEntries(records []fileRecord, prefix string, depth int) []File
 		}
 		fileDepth := len(parts)
 		if fileDepth <= depth {
-			entry := fileRecordEntry(rec)
+			entry, err := fileRecordEntry(rec)
+			if err != nil {
+				return nil, err
+			}
 			entry.Depth = fileDepth
 			files = append(files, entry)
 		}
@@ -236,7 +256,22 @@ func buildFileTreeEntries(records []fileRecord, prefix string, depth int) []File
 		}
 		return entries[i].Type < entries[j].Type
 	})
-	return entries
+	return entries, nil
+}
+
+// KBASE uses 0 for a not-yet-indexed file and -1 as an internal pending
+// recovery marker. Neither represents a public instant, so omit them. Any
+// other invalid persisted value (notably Unix seconds) is corrupt history and
+// must fail instead of being exposed or repaired.
+func optionalPublicFileEpochMillis(value int64, field string, location string) (*int64, error) {
+	if value == 0 || value == -1 {
+		return nil, nil
+	}
+	if err := timecontract.ValidateEpochMillis(value, field, location+"."+field); err != nil {
+		return nil, err
+	}
+	result := value
+	return &result, nil
 }
 
 func joinIndexedPath(prefix string, rel string) string {

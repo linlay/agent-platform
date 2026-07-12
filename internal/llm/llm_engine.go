@@ -83,7 +83,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		return nil, err
 	}
 	protocolConfig := resolveProtocolRuntimeConfig(provider, model)
-	stageSettings := stageSettingsForName(session.ResolvedStageSettings, options.Stage)
+	stageSettings := stageSettingsForSession(session, options.Stage)
 	budgetStage := budgetStageForName(session, options.Stage)
 	allowedTools := session.ToolNames
 	if options.ToolNames != nil {
@@ -96,14 +96,15 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	execCtx := options.ExecCtx
 	if execCtx == nil {
 		execCtx = &ExecutionContext{
-			Request:             req,
-			Session:             session,
-			Budget:              session.ResolvedBudget,
-			StageSettings:       session.ResolvedStageSettings,
-			RunLimits:           session.RunLimits,
-			AccessLevel:         session.AccessLevel,
-			ToolExecutionPolicy: session.ToolExecutionPolicy,
-			RunLoopState:        RunLoopStateIdle,
+			Request:               req,
+			Session:               session,
+			Budget:                session.ResolvedBudget,
+			PlanExecuteSettings:   session.ResolvedPlanExecuteSettings,
+			CoderPlanningSettings: session.ResolvedCoderPlanningSettings,
+			RunLimits:             session.RunLimits,
+			AccessLevel:           session.AccessLevel,
+			ToolExecutionPolicy:   session.ToolExecutionPolicy,
+			RunLoopState:          RunLoopStateIdle,
 		}
 	}
 	execCtx.Request = req
@@ -301,6 +302,9 @@ func budgetStageForName(session QuerySession, stage string) string {
 	if strings.Contains(normalized, "summary") {
 		return "summary"
 	}
+	if strings.Contains(normalized, "planning") {
+		return "planning"
+	}
 	if strings.Contains(normalized, "plan") {
 		return "plan"
 	}
@@ -324,7 +328,20 @@ func normalizeBudgetStageName(stage string) string {
 	return strings.ToLower(strings.TrimSpace(stage))
 }
 
-func stageSettingsForName(settings PlanExecuteSettings, stage string) StageSettings {
+func stageSettingsForSession(session QuerySession, stage string) StageSettings {
+	if agentcoder.IsMode(session.Mode) {
+		normalized := strings.ToLower(strings.TrimSpace(stage))
+		if session.PlanningMode || strings.HasPrefix(normalized, "coder-") || normalized == agentcoder.MainStage {
+			if strings.Contains(normalized, "planning") {
+				return session.ResolvedCoderPlanningSettings.Planning
+			}
+			return session.ResolvedCoderPlanningSettings.Execute
+		}
+	}
+	return planExecuteStageSettingsForName(session.ResolvedPlanExecuteSettings, stage)
+}
+
+func planExecuteStageSettingsForName(settings PlanExecuteSettings, stage string) StageSettings {
 	normalized := strings.ToLower(strings.TrimSpace(stage))
 	switch {
 	case strings.Contains(normalized, "summary"):

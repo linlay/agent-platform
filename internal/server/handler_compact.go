@@ -31,6 +31,10 @@ func (s *Server) handleCompact(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, err := s.compactChat(r.Context(), req)
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		var statusErr *statusError
 		if errors.As(err, &statusErr) {
 			writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))

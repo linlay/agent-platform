@@ -48,6 +48,9 @@ func (s *Server) prepareBTWQuery(r *http.Request) (preparedQuery, *statusError) 
 
 	summary, err := s.deps.Chats.Summary(input.ChatID)
 	if err != nil {
+		if statusErr := timeContractStatusError(err); statusErr != nil {
+			return preparedQuery{}, statusErr
+		}
 		return preparedQuery{}, btwStatusError(http.StatusInternalServerError, "btw_prepare_failed", err.Error())
 	}
 	if summary == nil {
@@ -103,6 +106,9 @@ func (s *Server) prepareBTWQuery(r *http.Request) (preparedQuery, *statusError) 
 		return preparedQuery{}, btwStatusError(http.StatusNotFound, "btw_not_found", "BTW branch not found")
 	}
 	if err != nil {
+		if statusErr := timeContractStatusError(err); statusErr != nil {
+			return preparedQuery{}, statusErr
+		}
 		return preparedQuery{}, btwStatusError(http.StatusInternalServerError, "btw_store_failed", err.Error())
 	}
 	keepBranch := false
@@ -139,7 +145,7 @@ func (s *Server) prepareBTWQuery(r *http.Request) (preparedQuery, *statusError) 
 		AccessLevel:     accessLevel,
 		Model:           input.Model,
 	}
-	delete(req.Params, agentcoder.PlanApproveContinuationParam)
+	delete(req.Params, agentcoder.PlanningApproveContinuationParam)
 	session, buildErr := s.BuildQuerySession(r.Context(), req, *summary, agentDef, querySessionBuildOptions{
 		Created:           false,
 		Locale:            requestLocale(r, i18n.DefaultLocale),
@@ -148,11 +154,17 @@ func (s *Server) prepareBTWQuery(r *http.Request) (preparedQuery, *statusError) 
 		AllowInvokeAgents: resolvedModeCapabilities(agentDef).InvokeChildren,
 	})
 	if buildErr != nil {
+		if statusErr := timeContractStatusError(buildErr); statusErr != nil {
+			return preparedQuery{}, statusErr
+		}
 		return preparedQuery{}, btwStatusError(http.StatusInternalServerError, "btw_prepare_failed", buildErr.Error())
 	}
 	req.References = session.RuntimeContext.References
 	history, loadErr := branch.LoadRawMessages(chat.DefaultHistoryRunWindow)
 	if loadErr != nil {
+		if statusErr := timeContractStatusError(loadErr); statusErr != nil {
+			return preparedQuery{}, statusErr
+		}
 		return preparedQuery{}, btwStatusError(http.StatusInternalServerError, "btw_history_failed", loadErr.Error())
 	}
 	session.HistoryMessages = history
@@ -171,6 +183,9 @@ func (s *Server) prepareBTWQuery(r *http.Request) (preparedQuery, *statusError) 
 
 	systemInits, loadErr := branch.LoadAllSystemInits()
 	if loadErr != nil {
+		if statusErr := timeContractStatusError(loadErr); statusErr != nil {
+			return preparedQuery{}, statusErr
+		}
 		return preparedQuery{}, btwStatusError(http.StatusInternalServerError, "btw_system_cache_failed", loadErr.Error())
 	}
 	pendingSystem, cacheErr := s.prepareSystemInitCacheFrom(req, &session, systemInits)

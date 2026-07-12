@@ -49,8 +49,8 @@ func (coderMode) Start(engine *LLMAgentEngine, ctx context.Context, req api.Quer
 	if session.PlanningMode {
 		return agentcoder.NewPlanningStream(coderRuntimeAdapter{engine: engine}, ctx, req, session)
 	}
-	if agentcoder.IsPlanApproveContinuationParams(req.Params) {
-		settings := session.ResolvedStageSettings
+	if agentcoder.IsPlanningApproveContinuationParams(req.Params) {
+		settings := session.ResolvedCoderPlanningSettings
 		executeTools := agentcoder.PlanningExecuteToolsForStage(settings.Execute, session.ToolNames)
 		stageSession := session
 		stageSession.ToolNames = append([]string(nil), executeTools...)

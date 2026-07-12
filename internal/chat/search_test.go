@@ -10,10 +10,10 @@ func TestSearchSessionFindsQueryMessageAndEvent(t *testing.T) {
 	if _, _, err := store.EnsureChat("chat-1", "agent-a", "", "Need deploy rollback notes"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	if err := store.AppendQueryLine("chat-1", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-1", QueryLine{
 		ChatID:    "chat-1",
 		RunID:     "run-1",
-		UpdatedAt: 100,
+		UpdatedAt: testEpochMillis(100),
 		Query: map[string]any{
 			"message": "Need deploy rollback notes",
 			"role":    "user",
@@ -22,10 +22,10 @@ func TestSearchSessionFindsQueryMessageAndEvent(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
 	}
-	if err := store.AppendStepLine("chat-1", StepLine{
+	if err := appendStepLineForTest(store, "chat-1", StepLine{
 		ChatID:    "chat-1",
 		RunID:     "run-1",
-		UpdatedAt: 200,
+		UpdatedAt: testEpochMillis(200),
 		Type:      "react",
 		Stage:     "execute",
 		Messages: []StoredMessage{
@@ -54,10 +54,10 @@ func TestSearchSessionFindsQueryMessageAndEvent(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append step: %v", err)
 	}
-	if err := store.AppendEventLine("chat-1", EventLine{
+	if err := appendEventLineForTest(store, "chat-1", EventLine{
 		ChatID:    "chat-1",
 		RunID:     "run-1",
-		UpdatedAt: 300,
+		UpdatedAt: testEpochMillis(300),
 		Type:      "event",
 		Event: map[string]any{
 			"type": "source.publish",
@@ -104,10 +104,10 @@ func TestSearchSessionSkipsAutomationQueryButKeepsAssistantMessages(t *testing.T
 	if _, _, err := store.EnsureChat("chat-automation-search", "agent-a", "", "Secret automation prompt"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	if err := store.AppendQueryLine("chat-automation-search", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-automation-search", QueryLine{
 		ChatID:    "chat-automation-search",
 		RunID:     "run-automation",
-		UpdatedAt: 100,
+		UpdatedAt: testEpochMillis(100),
 		Query: map[string]any{
 			"message": "Secret automation prompt",
 			"role":    "automation",
@@ -116,10 +116,10 @@ func TestSearchSessionSkipsAutomationQueryButKeepsAssistantMessages(t *testing.T
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
 	}
-	if err := store.AppendStepLine("chat-automation-search", StepLine{
+	if err := appendStepLineForTest(store, "chat-automation-search", StepLine{
 		ChatID:    "chat-automation-search",
 		RunID:     "run-automation",
-		UpdatedAt: 200,
+		UpdatedAt: testEpochMillis(200),
 		Type:      "react",
 		Stage:     "execute",
 		Messages: []StoredMessage{
@@ -169,16 +169,16 @@ func TestSearchGlobalFiltersAgentAndIncludesChatMetadata(t *testing.T) {
 		if _, _, err := store.EnsureChat(item.chatID, item.agentKey, item.teamID, item.message); err != nil {
 			t.Fatalf("ensure %s: %v", item.chatID, err)
 		}
-		if err := store.AppendQueryLine(item.chatID, QueryLine{
+		if err := appendQueryLineForTest(store, item.chatID, QueryLine{
 			ChatID:    item.chatID,
 			RunID:     item.chatID + "-run",
-			UpdatedAt: 100,
+			UpdatedAt: testEpochMillis(100),
 			Query:     map[string]any{"message": item.message, "role": "user"},
 			Type:      "query",
 		}); err != nil {
 			t.Fatalf("append query %s: %v", item.chatID, err)
 		}
-		if err := store.OnRunCompleted(RunCompletion{ChatID: item.chatID, RunID: item.chatID + "-run", UpdatedAtMillis: 100}); err != nil {
+		if err := completeRunForTest(store, RunCompletion{ChatID: item.chatID, RunID: item.chatID + "-run", UpdatedAtMillis: testEpochMillis(100)}); err != nil {
 			t.Fatalf("complete %s: %v", item.chatID, err)
 		}
 	}

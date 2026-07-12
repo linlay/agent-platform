@@ -10,7 +10,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
@@ -201,13 +200,21 @@ func TestHandleAgentsIgnoresChannelAndChannelsRouteIsRemoved(t *testing.T) {
 	if _, _, err := chats.EnsureChat("chat-a-old", "assistant", "", "old"); err != nil {
 		t.Fatalf("ensure old chat: %v", err)
 	}
-	if err := chats.OnRunCompleted(chat.RunCompletion{ChatID: "chat-a-old", RunID: "loyw3v20", UpdatedAtMillis: 1000}); err != nil {
+	const oldStartedAt = int64(1700000000000)
+	if err := chats.OnRunStarted(chat.RunStart{ChatID: "chat-a-old", RunID: "loyw3v20", StartedAtMillis: oldStartedAt}); err != nil {
+		t.Fatalf("start old chat: %v", err)
+	}
+	if err := chats.OnRunCompleted(chat.RunCompletion{ChatID: "chat-a-old", RunID: "loyw3v20", StartedAtMillis: oldStartedAt, UpdatedAtMillis: oldStartedAt + 1}); err != nil {
 		t.Fatalf("complete old chat: %v", err)
 	}
 	if _, _, err := chats.EnsureChat("chat-a-new", "assistant", "", "new"); err != nil {
 		t.Fatalf("ensure new chat: %v", err)
 	}
-	if err := chats.OnRunCompleted(chat.RunCompletion{ChatID: "chat-a-new", RunID: "loyw3v28", UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
+	const newStartedAt = int64(1700000000002)
+	if err := chats.OnRunStarted(chat.RunStart{ChatID: "chat-a-new", RunID: "loyw3v28", StartedAtMillis: newStartedAt}); err != nil {
+		t.Fatalf("start new chat: %v", err)
+	}
+	if err := chats.OnRunCompleted(chat.RunCompletion{ChatID: "chat-a-new", RunID: "loyw3v28", StartedAtMillis: newStartedAt, UpdatedAtMillis: newStartedAt + 1}); err != nil {
 		t.Fatalf("complete new chat: %v", err)
 	}
 	rec = httptest.NewRecorder()

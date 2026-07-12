@@ -16,6 +16,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
+	"agent-platform/internal/timecontract"
 
 	gws "github.com/gorilla/websocket"
 )
@@ -30,7 +31,7 @@ func TestProxyQueryForwardsRuntimeWorkspaceRootAsCWD(t *testing.T) {
 		}
 		captured <- payload
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(w, `data: {"type":"run.complete","runId":"upstream-run"}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"run.complete","runId":"upstream-run","timestamp":1700000000000}`+"\n\n")
 	}))
 	defer upstream.Close()
 
@@ -90,7 +91,7 @@ func TestProxyQueryPassesThroughUnknownModelOptions(t *testing.T) {
 		}
 		captured <- payload
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(w, `data: {"type":"run.complete","runId":"upstream-run"}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"run.complete","runId":"upstream-run","timestamp":1700000000000}`+"\n\n")
 	}))
 	defer upstream.Close()
 
@@ -139,10 +140,195 @@ func TestProxyQueryPassesThroughUnknownModelOptions(t *testing.T) {
 	}
 }
 
+func TestProxyQueryRejectsInvalidUpstreamTimestampBeforeStreamStarts(t *testing.T) {
+	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"type":"run.complete","runId":"upstream-run","timestamp":"1700000000000"}`+"\n\n")
+	}))
+	defer upstream.Close()
+
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		setupRuntime: func(_ string, cfg *config.Config) {
+			writeAgentConfig(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []string{
+				"key: mock-agent",
+				"name: Mock Proxy Agent",
+				"mode: PROXY",
+				"proxyConfig:",
+				"  baseUrl: " + upstream.URL,
+				"  transport: sse",
+			})
+		},
+	})
+
+	for name, body := range map[string]string{
+		"stream":     `{"agentKey":"mock-agent","message":"proxy me"}`,
+		"non-stream": `{"agentKey":"mock-agent","message":"proxy me","stream":false}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(body)))
+			if rec.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("expected 422, got %d: %s", rec.Code, rec.Body.String())
+			}
+			var response api.ApiResponse[map[string]any]
+			if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			errorData, _ := response.Data["error"].(map[string]any)
+			if response.Msg != "time contract violation" || errorData["code"] != "time_contract_violation" ||
+				errorData["field"] != "timestamp" || errorData["location"] != "proxy.sse.event" ||
+				errorData["expected"] != "epoch_ms_int64" {
+				t.Fatalf("unexpected time contract response %#v", response)
+			}
+		})
+	}
+}
+
+func TestProxyQueryEmitsLocalRunErrorForInvalidTimestampAfterStreamStarts(t *testing.T) {
+	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"seq":4,"type":"content.delta","contentId":"content-1","delta":"first","timestamp":1700000000000}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"seq":5,"type":"run.complete","timestamp":"1700000000001"}`+"\n\n")
+	}))
+	defer upstream.Close()
+
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		setupRuntime: func(_ string, cfg *config.Config) {
+			writeAgentConfig(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []string{
+				"key: mock-agent",
+				"name: Mock Proxy Agent",
+				"mode: PROXY",
+				"proxyConfig:",
+				"  baseUrl: " + upstream.URL,
+				"  transport: sse",
+			})
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me"}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected started SSE response to remain 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "data: [DONE]") {
+		t.Fatalf("expected direct proxy SSE to terminate with [DONE], got %s", body)
+	}
+	messages := decodeSSEMessages(t, body)
+	var localError map[string]any
+	for _, message := range messages {
+		if message["type"] == "run.error" {
+			localError = message
+		}
+		if message["timestamp"] == "1700000000001" {
+			t.Fatalf("invalid upstream event was forwarded: %#v", message)
+		}
+	}
+	if localError == nil {
+		t.Fatalf("expected local run.error, got %#v", messages)
+	}
+	if timestamp, ok := localError["timestamp"].(float64); !ok || timestamp < 1_000_000_000_000 {
+		t.Fatalf("expected local epoch-ms timestamp, got %#v", localError["timestamp"])
+	}
+	if seq, ok := localError["seq"].(float64); !ok || seq != 5 {
+		t.Fatalf("expected local error to continue stream sequence at 5, got %#v", localError["seq"])
+	}
+	errorData, _ := localError["error"].(map[string]any)
+	if localError["code"] != "time_contract_violation" || errorData["field"] != "timestamp" ||
+		errorData["location"] != "proxy.sse.event" || errorData["expected"] != "epoch_ms_int64" {
+		t.Fatalf("unexpected local time contract error %#v", localError)
+	}
+	chatID, _ := localError["chatId"].(string)
+	runID, _ := localError["runId"].(string)
+	runs, err := fixture.chats.ListRuns(chatID)
+	if err != nil || len(runs) != 1 || runs[0].RunID != runID || runs[0].FinishReason != "error" {
+		t.Fatalf("time-contract proxy termination must persist an error completion: runs=%#v err=%v", runs, err)
+	}
+}
+
+func TestProxyQueryStreamingPersistsCapturedRunStartAndLifecyclePushTimes(t *testing.T) {
+	notifications := &recordingNotificationSink{}
+	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"seq":1,"type":"run.complete","runId":"upstream-run","timestamp":1700000000000}`+"\n\n")
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}))
+	defer upstream.Close()
+
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: notifications,
+		setupRuntime: func(_ string, cfg *config.Config) {
+			writeAgentConfig(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []string{
+				"key: mock-agent",
+				"name: Mock Proxy Agent",
+				"mode: PROXY",
+				"modelConfig:",
+				"  modelKey: mock-model",
+				"proxyConfig:",
+				"  baseUrl: " + upstream.URL,
+				"  transport: sse",
+			})
+		},
+	})
+	const (
+		chatID = "chat_proxy_direct_lifecycle"
+		runID  = "run_proxy_direct_lifecycle"
+	)
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{
+		"chatId":"`+chatID+`",
+		"runId":"`+runID+`",
+		"agentKey":"mock-agent",
+		"message":"capture direct proxy lifecycle"
+	}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected started SSE response, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	runs, err := fixture.chats.ListRuns(chatID)
+	if err != nil {
+		t.Fatalf("list persisted runs: %v", err)
+	}
+	if len(runs) != 1 || runs[0].RunID != runID {
+		t.Fatalf("unexpected persisted runs %#v", runs)
+	}
+	if err := timecontract.ValidateEpochMillis(runs[0].StartedAt, "startedAt", "test"); err != nil {
+		t.Fatalf("persisted proxy run start must be epoch-ms: %v", err)
+	}
+	if err := timecontract.ValidateEpochMillis(runs[0].CompletedAt, "completedAt", "test"); err != nil {
+		t.Fatalf("persisted proxy run completion must be epoch-ms: %v", err)
+	}
+	var startedAt, finishedAt int64
+	startedIndex, finishedIndex := -1, -1
+	for index, eventType := range notifications.EventTypes() {
+		payload := notifications.Payloads()[index]
+		switch eventType {
+		case "run.started":
+			startedIndex = index
+			startedAt, _ = payload["timestamp"].(int64)
+		case "run.finished":
+			finishedIndex = index
+			finishedAt, _ = payload["timestamp"].(int64)
+		}
+	}
+	if startedIndex < 0 || finishedIndex < 0 || startedIndex >= finishedIndex {
+		t.Fatalf("expected ordered direct-proxy run lifecycle pushes, got %#v", notifications.EventTypes())
+	}
+	if startedAt != runs[0].StartedAt || finishedAt != runs[0].CompletedAt {
+		t.Fatalf("lifecycle push times must match persistence: started=%d/%d finished=%d/%d", startedAt, runs[0].StartedAt, finishedAt, runs[0].CompletedAt)
+	}
+}
+
 func TestProxyAgentWithoutModelOmitsModelMetadata(t *testing.T) {
 	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(w, `data: {"type":"run.complete","runId":"upstream-run"}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"run.complete","runId":"upstream-run","timestamp":1700000000000}`+"\n\n")
 	}))
 	defer upstream.Close()
 
@@ -220,11 +406,11 @@ func TestProxyQueryNonStreamAggregatesSSEUpstream(t *testing.T) {
 		}
 		captured <- payload
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(w, `data: {"type":"content.start","contentId":"content-1","runId":"upstream-run"}`+"\n\n")
-		_, _ = io.WriteString(w, `data: {"type":"content.delta","contentId":"content-1","delta":"proxy ","runId":"upstream-run"}`+"\n\n")
-		_, _ = io.WriteString(w, `data: {"type":"content.delta","contentId":"content-1","delta":"answer","runId":"upstream-run"}`+"\n\n")
-		_, _ = io.WriteString(w, `data: {"type":"content.end","contentId":"content-1","text":"proxy answer","runId":"upstream-run"}`+"\n\n")
-		_, _ = io.WriteString(w, `data: {"type":"run.complete","runId":"upstream-run","usage":{"run":{"promptTokens":4,"completionTokens":2,"totalTokens":6}}}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"content.start","contentId":"content-1","runId":"upstream-run","timestamp":1700000000000}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"content.delta","contentId":"content-1","delta":"proxy ","runId":"upstream-run","timestamp":1700000000001}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"content.delta","contentId":"content-1","delta":"answer","runId":"upstream-run","timestamp":1700000000002}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"content.end","contentId":"content-1","text":"proxy answer","runId":"upstream-run","timestamp":1700000000003}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"run.complete","runId":"upstream-run","usage":{"run":{"promptTokens":4,"completionTokens":2,"totalTokens":6}},"timestamp":1700000000004}`+"\n\n")
 	}))
 	defer upstream.Close()
 
@@ -385,8 +571,9 @@ func TestProxyQueryDefaultsToWebSocketAndForwardsRuntimeWorkspaceRootAsCWD(t *te
 		captured <- frame
 		if err := conn.WriteJSON(map[string]any{
 			"event": map[string]any{
-				"type":  "run.complete",
-				"runId": "upstream-run",
+				"type":      "run.complete",
+				"runId":     "upstream-run",
+				"timestamp": int64(1_700_000_000_000),
 			},
 		}); err != nil {
 			t.Fatalf("write upstream websocket completion: %v", err)
@@ -462,8 +649,9 @@ func TestChannelImportQueryUsesPlatformWSFrameAndRemoteAgentKey(t *testing.T) {
 		captured <- frame
 		if err := conn.WriteJSON(map[string]any{
 			"event": map[string]any{
-				"type":  "run.complete",
-				"runId": "remote-run",
+				"type":      "run.complete",
+				"runId":     "remote-run",
+				"timestamp": int64(1_700_000_000_000),
 			},
 		}); err != nil {
 			t.Fatalf("write upstream websocket completion: %v", err)

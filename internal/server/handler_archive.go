@@ -33,6 +33,10 @@ func (s *Server) handleChatArchive(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := s.archiveChats(req.ChatIDs)
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusServiceUnavailable, api.Failure(http.StatusServiceUnavailable, err.Error()))
 		return
 	}
@@ -48,6 +52,10 @@ func (s *Server) handleArchives(w http.ResponseWriter, r *http.Request) {
 		Offset:   offset,
 	})
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusServiceUnavailable, api.Failure(http.StatusServiceUnavailable, err.Error()))
 		return
 	}
@@ -66,6 +74,10 @@ func (s *Server) handleArchive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
@@ -80,6 +92,10 @@ func (s *Server) handleArchiveSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := s.searchArchives(req)
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusServiceUnavailable, api.Failure(http.StatusServiceUnavailable, err.Error()))
 		return
 	}
@@ -132,6 +148,10 @@ func (s *Server) handleArchiveRestore(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := s.restoreArchives(req.ChatIDs)
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusServiceUnavailable, api.Failure(http.StatusServiceUnavailable, err.Error()))
 		return
 	}
@@ -160,6 +180,9 @@ func (s *Server) archiveChats(chatIDs []string) (api.ArchiveChatResponse, error)
 			continue
 		}
 		if err := s.deps.Archiver.ArchiveChat(chatID); err != nil {
+			if isTimeContractViolation(err) {
+				return api.ArchiveChatResponse{}, err
+			}
 			result.Error = archiveResultError(err)
 			results = append(results, result)
 			continue
@@ -170,6 +193,8 @@ func (s *Server) archiveChats(chatIDs []string) (api.ArchiveChatResponse, error)
 		if s.deps.Archives != nil {
 			if archived, err := s.deps.Archives.LoadArchived(chatID); err == nil && archived != nil {
 				agentKey = archived.Summary.AgentKey
+			} else if isTimeContractViolation(err) {
+				return api.ArchiveChatResponse{}, err
 			}
 		}
 		s.broadcast("chat.archived", map[string]any{"chatId": chatID, "agentKey": agentKey})
@@ -195,6 +220,9 @@ func (s *Server) restoreArchives(chatIDs []string) (api.ArchiveRestoreResponse, 
 		}
 		summary, err := s.deps.Archiver.RestoreChat(chatID)
 		if err != nil {
+			if isTimeContractViolation(err) {
+				return api.ArchiveRestoreResponse{}, err
+			}
 			result.Error = restoreResultError(err)
 			results = append(results, result)
 			continue
@@ -375,7 +403,7 @@ func mapArchivedSummary(item chat.ArchivedSummary) api.ArchivedSummaryResponse {
 func mapRunSummary(run chat.RunSummary) api.RunSummary {
 	usage := run.Usage
 	usage.ModelKey = ""
-	return api.RunSummary{
+	response := api.RunSummary{
 		RunID:           run.RunID,
 		ChatID:          run.ChatID,
 		OwnerType:       run.OwnerType,
@@ -385,12 +413,16 @@ func mapRunSummary(run chat.RunSummary) api.RunSummary {
 		AssistantText:   run.AssistantText,
 		FinishReason:    run.FinishReason,
 		StartedAt:       run.StartedAt,
-		CompletedAt:     run.CompletedAt,
 		Usage:           mapUsageData(usage),
 		FeedbackType:    run.FeedbackType,
 		FeedbackComment: run.FeedbackComment,
 		FeedbackAt:      run.FeedbackAt,
 	}
+	if run.CompletedAt != 0 {
+		completedAt := run.CompletedAt
+		response.CompletedAt = &completedAt
+	}
+	return response
 }
 
 func (s *Server) wsChatArchive(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
@@ -402,7 +434,17 @@ func (s *Server) wsChatArchive(_ context.Context, conn *ws.Conn, req ws.RequestF
 	}
 	response, archiveErr := s.archiveChats(payload.ChatIDs)
 	if archiveErr != nil {
+		if isTimeContractViolation(archiveErr) {
+			sendTimeContractViolation(conn, req.ID, archiveErr)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		conn.SendError(req.ID, "unavailable", 503, archiveErr.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if err := validatePublicTimeContract(response); err != nil {
+		sendTimeContractViolation(conn, req.ID, err)
 		conn.CompleteRequest(req.ID)
 		return
 	}
@@ -419,7 +461,17 @@ func (s *Server) wsArchives(_ context.Context, conn *ws.Conn, req ws.RequestFram
 	}
 	response, listErr := s.listArchives(payload)
 	if listErr != nil {
+		if isTimeContractViolation(listErr) {
+			sendTimeContractViolation(conn, req.ID, listErr)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		conn.SendError(req.ID, "unavailable", 503, listErr.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if err := validatePublicTimeContract(response); err != nil {
+		sendTimeContractViolation(conn, req.ID, err)
 		conn.CompleteRequest(req.ID)
 		return
 	}
@@ -444,7 +496,17 @@ func (s *Server) wsArchive(ctx context.Context, conn *ws.Conn, req ws.RequestFra
 		return
 	}
 	if loadErr != nil {
+		if isTimeContractViolation(loadErr) {
+			sendTimeContractViolation(conn, req.ID, loadErr)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		conn.SendError(req.ID, "internal_error", 500, loadErr.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if err := validatePublicTimeContract(response); err != nil {
+		sendTimeContractViolation(conn, req.ID, err)
 		conn.CompleteRequest(req.ID)
 		return
 	}
@@ -461,7 +523,17 @@ func (s *Server) wsArchiveSearch(_ context.Context, conn *ws.Conn, req ws.Reques
 	}
 	response, searchErr := s.searchArchives(payload)
 	if searchErr != nil {
+		if isTimeContractViolation(searchErr) {
+			sendTimeContractViolation(conn, req.ID, searchErr)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		conn.SendError(req.ID, "unavailable", 503, searchErr.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if err := validatePublicTimeContract(response); err != nil {
+		sendTimeContractViolation(conn, req.ID, err)
 		conn.CompleteRequest(req.ID)
 		return
 	}
@@ -492,6 +564,11 @@ func (s *Server) wsArchiveDelete(_ context.Context, conn *ws.Conn, req ws.Reques
 		conn.CompleteRequest(req.ID)
 		return
 	}
+	if err := validatePublicTimeContract(response); err != nil {
+		sendTimeContractViolation(conn, req.ID, err)
+		conn.CompleteRequest(req.ID)
+		return
+	}
 	conn.SendResponse(req.Type, req.ID, 0, "success", response)
 	conn.CompleteRequest(req.ID)
 }
@@ -505,7 +582,17 @@ func (s *Server) wsArchiveRestore(_ context.Context, conn *ws.Conn, req ws.Reque
 	}
 	response, restoreErr := s.restoreArchives(payload.ChatIDs)
 	if restoreErr != nil {
+		if isTimeContractViolation(restoreErr) {
+			sendTimeContractViolation(conn, req.ID, restoreErr)
+			conn.CompleteRequest(req.ID)
+			return
+		}
 		conn.SendError(req.ID, "unavailable", 503, restoreErr.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if err := validatePublicTimeContract(response); err != nil {
+		sendTimeContractViolation(conn, req.ID, err)
 		conn.CompleteRequest(req.ID)
 		return
 	}

@@ -60,6 +60,33 @@ func TestAssemblerBootstrapSkipsChatStartForExistingChat(t *testing.T) {
 	assertStampedTypes(t, bootstrap, "request.query", "run.start")
 }
 
+func TestAssemblerBootstrapUsesRegisteredRunStartTimestamp(t *testing.T) {
+	const startedAt = int64(1_700_000_000_123)
+	assembler := NewAssembler(StreamRequest{
+		RequestID: "req_started",
+		RunID:     "run_started",
+		ChatID:    "chat_started",
+		AgentKey:  "agent_1",
+		Message:   "hello",
+		Role:      "user",
+	})
+	assembler.SetRunStartedAtMillis(startedAt)
+
+	found := false
+	for _, event := range assembler.Bootstrap() {
+		if event.Type != "run.start" {
+			continue
+		}
+		found = true
+		if event.Timestamp != startedAt {
+			t.Fatalf("run.start timestamp = %d, want registered %d", event.Timestamp, startedAt)
+		}
+	}
+	if !found {
+		t.Fatal("expected run.start bootstrap event")
+	}
+}
+
 func TestAssemblerBootstrapCanUseSyntheticQuery(t *testing.T) {
 	assembler := NewAssembler(StreamRequest{
 		RequestID: "submit_1",
@@ -70,10 +97,10 @@ func TestAssemblerBootstrapCanUseSyntheticQuery(t *testing.T) {
 		BootstrapSynthetic: &SyntheticQuery{
 			ChatID:  "chat_1",
 			Role:    "user",
-			Message: "Execute plan",
+			Message: "Execute planning",
 			Messages: []map[string]any{{
 				"role":    "user",
-				"content": "Execute the confirmed CODER plan.",
+				"content": "Execute the confirmed CODER planning.",
 			}},
 			System: map[string]any{
 				"agentKey":    "coder",
@@ -87,7 +114,7 @@ func TestAssemblerBootstrapCanUseSyntheticQuery(t *testing.T) {
 	assertStampedTypes(t, bootstrap, "request.query", "run.start")
 	query := bootstrap[0].ToData()
 	if query["requestId"] != "submit_1" || query["runId"] != "run_exec" ||
-		query["message"] != "Execute plan" {
+		query["message"] != "Execute planning" {
 		t.Fatalf("unexpected synthetic bootstrap query %#v", query)
 	}
 	for _, field := range []string{"synthetic", "stage", "source"} {

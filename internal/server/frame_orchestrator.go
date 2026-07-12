@@ -82,6 +82,7 @@ type childTaskResult struct {
 	Status      string `json:"status"`
 	Text        string `json:"text"`
 	Error       string `json:"error,omitempty"`
+	ErrorCode   string `json:"errorCode,omitempty"`
 }
 
 type childRouteEvent struct {
@@ -317,7 +318,7 @@ func (o *frameOrchestrator) handleSubAgentBatch(mainStream contracts.AgentStream
 			Presentation: task.presentation,
 		}
 		if terminalKind == "error" {
-			lifecycle.Error = contracts.NewErrorPayload("sub_agent_failed", firstNonEmpty(routed.result.Error, routed.result.Text), contracts.ErrorScopeTask, contracts.ErrorCategorySystem, nil)
+			lifecycle.Error = contracts.NewErrorPayload(firstNonEmpty(routed.result.ErrorCode, "sub_agent_failed"), firstNonEmpty(routed.result.Error, routed.result.Text), contracts.ErrorScopeTask, contracts.ErrorCategorySystem, nil)
 		}
 		o.emitDelta(lifecycle)
 		hitlBatch.observe(routed)
@@ -507,7 +508,7 @@ func (o *frameOrchestrator) handleTeamDispatch(mainStream contracts.AgentStream,
 			}
 			lifecycle := contracts.DeltaTaskLifecycle{Kind: terminalKind, TaskID: routed.result.TaskID, SubAgentKey: routed.result.SubAgentKey, TeamID: task.teamID, Presentation: task.presentation}
 			if terminalKind == "error" {
-				lifecycle.Error = contracts.NewErrorPayload("team_member_failed", firstNonEmpty(routed.result.Error, routed.result.Text), contracts.ErrorScopeTask, contracts.ErrorCategorySystem, nil)
+				lifecycle.Error = contracts.NewErrorPayload(firstNonEmpty(routed.result.ErrorCode, "team_member_failed"), firstNonEmpty(routed.result.Error, routed.result.Text), contracts.ErrorScopeTask, contracts.ErrorCategorySystem, nil)
 			}
 			o.emitDelta(lifecycle)
 		}
@@ -734,8 +735,8 @@ func teamMergedAwaitingDefinition(pending []*teamChildAwaiting) ([]any, []contra
 		if len(item.Ask.Forms) > 0 {
 			definition["forms"] = append([]any(nil), item.Ask.Forms...)
 		}
-		if len(item.Ask.Plan) > 0 {
-			definition["plan"] = contracts.CloneMap(item.Ask.Plan)
+		if len(item.Ask.Planning) > 0 {
+			definition["planning"] = contracts.CloneMap(item.Ask.Planning)
 		}
 		forms = append(forms, map[string]any{
 			"id":         item.PublicID,
@@ -768,8 +769,8 @@ func teamAwaitingItemCount(ask stream.AwaitAsk) int {
 		return len(ask.Approvals)
 	case "form":
 		return len(ask.Forms)
-	case "plan":
-		if len(ask.Plan) > 0 {
+	case "planning":
+		if len(ask.Planning) > 0 {
 			return 1
 		}
 	}
@@ -829,9 +830,9 @@ func teamRejectedChildParams(ask stream.AwaitAsk) api.SubmitParams {
 		appendRejected(ask.Approvals)
 	case "form":
 		appendRejected(ask.Forms)
-	case "plan":
+	case "planning":
 		item := map[string]any{"decision": "reject"}
-		if id := strings.TrimSpace(contracts.AnyStringNode(ask.Plan["id"])); id != "" {
+		if id := strings.TrimSpace(contracts.AnyStringNode(ask.Planning["id"])); id != "" {
 			item["id"] = id
 		}
 		items = append(items, item)
@@ -1102,7 +1103,14 @@ func (o *frameOrchestrator) runProxyChildTask(result *childTaskResult, subReq ap
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 256*1024), 1024*1024)
 	for scanner.Scan() {
-		event, ok := parseProxySSEDataLine(scanner.Text())
+		event, ok, decodeErr := parseProxySSEDataLineAt(scanner.Text())
+		if decodeErr != nil {
+			result.Status = "failed"
+			result.Text = timeContractViolationMessage
+			result.Error = decodeErr.Error()
+			result.ErrorCode = "time_contract_violation"
+			return result
+		}
 		if !ok {
 			continue
 		}
@@ -1159,23 +1167,20 @@ func (o *frameOrchestrator) runProxyChildTask(result *childTaskResult, subReq ap
 }
 
 func parseProxySSEDataLine(line string) (stream.EventData, bool) {
+	event, ok, _ := parseProxySSEDataLineAt(line)
+	return event, ok
+}
+
+func parseProxySSEDataLineAt(line string) (stream.EventData, bool, error) {
 	line = strings.TrimSpace(line)
 	if !strings.HasPrefix(line, "data:") {
-		return stream.EventData{}, false
+		return stream.EventData{}, false, nil
 	}
 	payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 	if payload == "" || payload == stream.DoneSentinel {
-		return stream.EventData{}, false
+		return stream.EventData{}, false, nil
 	}
-	var raw map[string]any
-	if err := json.Unmarshal([]byte(payload), &raw); err != nil {
-		return stream.EventData{}, false
-	}
-	if nested, ok := raw["event"].(map[string]any); ok {
-		raw = nested
-	}
-	event := stream.EventDataFromMap(raw)
-	return event, strings.TrimSpace(event.Type) != ""
+	return decodeProxyEventAt([]byte(payload), "proxy.child.sse.event")
 }
 
 func (o *frameOrchestrator) writeChildTaskQueryAndSystem(subReq api.QueryRequest, subSession *contracts.QuerySession, task preparedSubTask) {

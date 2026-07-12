@@ -1,20 +1,24 @@
 package chat
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 
 	"agent-platform/internal/stream"
+	"agent-platform/internal/timecontract"
 )
 
 func (s *FileStore) AppendEvent(chatID string, event stream.EventData) error {
-	return s.appendJSONLine(s.chatJSONLPath(chatID), EventLine{
-		Type:    "event",
-		ChatID:  chatID,
-		RunID:   event.String("runId"),
-		LiveSeq: event.Seq,
-		Event:   eventPayloadWithoutSeq(event),
+	return s.AppendEventLine(chatID, EventLine{
+		Type:      "event",
+		ChatID:    chatID,
+		RunID:     event.String("runId"),
+		UpdatedAt: event.Timestamp,
+		LiveSeq:   event.Seq,
+		Event:     eventPayloadWithoutSeq(event),
 	})
 }
 
@@ -47,6 +51,15 @@ func (s *FileStore) appendJSONLine(path string, payload any) error {
 }
 
 func (s *FileStore) appendJSONLineLocked(path string, payload any) error {
+	// Validate the exact JSON representation that will reach disk.  This keeps
+	// decoder semantics (json.Number rather than float64) identical to the
+	// historical read boundary and prevents a new internal writer from creating
+	// a record that a later replay must reject.
+	raw, err := validateJSONLLinePayload(payload, "chat.jsonl.write")
+	if err != nil {
+		return err
+	}
+
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -56,6 +69,33 @@ func (s *FileStore) appendJSONLineLocked(path string, payload any) error {
 	}
 	defer file.Close()
 
-	encoder := json.NewEncoder(file)
-	return encoder.Encode(payload)
+	if _, err := file.Write(raw); err != nil {
+		return err
+	}
+	_, err = file.Write([]byte("\n"))
+	return err
+}
+
+func validateJSONLLinePayload(payload any, location string) ([]byte, error) {
+	// Inspect the original Go value before json.Marshal. An integral float64
+	// would otherwise serialize as an unquoted number and evade the strict
+	// JSON decoder below, despite the contract forbidding all float time
+	// values.
+	if err := timecontract.ValidateJSONPayload(payload, location); err != nil {
+		return nil, err
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	var line map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&line); err != nil {
+		return nil, fmt.Errorf("decode JSONL line for validation: %w", err)
+	}
+	if err := validatePersistedTimeContract([]map[string]any{line}, location); err != nil {
+		return nil, err
+	}
+	return raw, nil
 }

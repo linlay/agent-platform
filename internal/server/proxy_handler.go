@@ -112,11 +112,6 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, "streaming not supported"))
@@ -124,6 +119,46 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 	}
 
 	chatStore := s.deps.Chats
+	// This direct HTTP proxy path does not use the in-memory run manager. Keep
+	// one real platform start time and carry it through the synthetic request
+	// line and completion record; never derive it from upstream traffic or a
+	// later completion.
+	startedAt := time.Now().UnixMilli()
+	if chatStore != nil {
+		recorder, ok := chatStore.(chat.RunStartRecorder)
+		if !ok || recorder == nil {
+			writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, "run start recorder is not configured"))
+			return
+		}
+		if err := recorder.OnRunStarted(chat.RunStart{
+			ChatID:          req.ChatID,
+			RunID:           req.RunID,
+			OwnerType:       prepared.summary.OwnerType,
+			AgentKey:        req.AgentKey,
+			TeamID:          req.TeamID,
+			InitialMessage:  req.Message,
+			StartedAtMillis: startedAt,
+		}); err != nil {
+			if isTimeContractViolation(err) {
+				writeTimeContractViolation(w, err)
+				return
+			}
+			writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+			return
+		}
+	}
+	s.broadcast("run.started", map[string]any{
+		"runId":     req.RunID,
+		"chatId":    req.ChatID,
+		"agentKey":  req.AgentKey,
+		"timestamp": startedAt,
+	})
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
 	var stepWriter *chat.StepWriter
 	var assistantText strings.Builder
 	if chatStore != nil {
@@ -149,7 +184,7 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 		}
 		stepWriter.OnEvent(stream.EventData{
 			Type:      "request.query",
-			Timestamp: time.Now().UnixMilli(),
+			Timestamp: startedAt,
 			Payload:   queryPayload,
 		})
 	}
@@ -166,7 +201,6 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 	contents := map[string]*contentBucket{}
 	reasonings := map[string]*contentBucket{}
 	tools := map[string]*toolBucket{}
-	startedAt := time.Now().UnixMilli()
 	finishReason := "complete"
 	var runUsage chat.UsageData
 	var chatUsage chat.UsageData
@@ -177,15 +211,51 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 256*1024), 1024*1024)
+	streamStarted := false
+	lastSeq := int64(0)
+	var firstTimeContractViolation error
+	terminatedByTimeContractViolation := false
 	for scanner.Scan() {
 		line := scanner.Text()
 		outLine := line
 		var event stream.EventData
 		hasEvent := false
+		terminateStream := false
+		writeLine := true
 		if strings.HasPrefix(line, "data:") {
 			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 			if payload != "" && payload != stream.DoneSentinel {
-				if decoded, ok := decodeProxyEvent([]byte(payload)); ok {
+				decoded, ok, decodeErr := decodeProxyEventAt([]byte(payload), "proxy.sse.event")
+				if decodeErr != nil {
+					if isTimeContractViolation(decodeErr) {
+						// Whether it arrives before or after the first SSE frame, an
+						// invalid upstream time ends this run as an error. Never
+						// persist a local run.error as a successful completion.
+						finishReason = "error"
+					}
+					event = proxyRunErrorEvent(req, decodeErr)
+					hasEvent = true
+					terminateStream = true
+					if !streamStarted {
+						firstTimeContractViolation = decodeErr
+						writeLine = false
+					} else {
+						if isTimeContractViolation(decodeErr) {
+							event = localTimeContractRunErrorEvent(
+								nextLocalTimeContractErrorSeq(lastSeq, event),
+								req.RunID,
+								req.ChatID,
+								decodeErr,
+							)
+							terminatedByTimeContractViolation = true
+						} else {
+							event.Seq = nextLocalTimeContractErrorSeq(lastSeq, event)
+						}
+						if data, err := json.Marshal(event); err == nil {
+							outLine = "data: " + string(data)
+						}
+					}
+				} else if ok {
 					event = normalizeProxyEventIdentity(decoded, req)
 					usageTracker.Decorate(&event)
 					hasEvent = true
@@ -195,12 +265,21 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 				}
 			}
 		}
-		fmt.Fprintf(w, "%s\n", outLine)
-		if outLine == "" || strings.HasPrefix(outLine, "data:") {
-			flusher.Flush()
+		if writeLine {
+			fmt.Fprintf(w, "%s\n", outLine)
+			if outLine == "" || strings.HasPrefix(outLine, "data:") {
+				flusher.Flush()
+			}
+			streamStarted = true
+			if hasEvent && event.Seq > lastSeq {
+				lastSeq = event.Seq
+			}
 		}
 
 		if stepWriter == nil || !hasEvent {
+			if terminateStream {
+				break
+			}
 			continue
 		}
 
@@ -338,29 +417,56 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 			"awaiting.ask", "request.submit", "awaiting.answer", "request.steer":
 			stepWriter.OnEvent(event)
 		}
+		if terminateStream {
+			break
+		}
 	}
 	if err := scanner.Err(); err != nil {
 		log.Printf("[proxy] stream read error: %v", err)
 	}
+	if terminatedByTimeContractViolation {
+		// The local run.error above is terminal, but the direct HTTP proxy path
+		// writes raw SSE frames rather than stream.Writer. Explicitly finish the
+		// SSE protocol so Desktop/web clients do not wait for an upstream [DONE]
+		// that we intentionally stopped reading.
+		_, _ = fmt.Fprintf(w, "event: message\ndata: %s\n\n", stream.DoneSentinel)
+		flusher.Flush()
+	}
 
+	completedAt := time.Now().UnixMilli()
+	var persistedCompletion *chat.RunCompletion
 	if stepWriter != nil {
 		stepWriter.Flush()
 		completion := chat.RunCompletion{
 			ChatID:          req.ChatID,
 			RunID:           req.RunID,
+			OwnerType:       prepared.summary.OwnerType,
 			AgentKey:        req.AgentKey,
+			TeamID:          req.TeamID,
 			AssistantText:   assistantText.String(),
 			InitialMessage:  req.Message,
 			FinishReason:    finishReason,
 			StartedAtMillis: startedAt,
-			UpdatedAtMillis: time.Now().UnixMilli(),
+			UpdatedAtMillis: completedAt,
 			Usage:           runUsage,
 		}
 		if err := chatStore.OnRunCompleted(completion); err != nil {
 			log.Printf("[proxy] OnRunCompleted failed: %v", err)
 		} else {
-			s.broadcastRunCompletionNotifications(completion)
+			persistedCompletion = &completion
 		}
+	}
+	s.broadcast("run.finished", map[string]any{
+		"runId":     req.RunID,
+		"chatId":    req.ChatID,
+		"timestamp": completedAt,
+	})
+	if persistedCompletion != nil {
+		s.broadcastRunCompletionNotifications(*persistedCompletion)
+	}
+	if firstTimeContractViolation != nil {
+		writeTimeContractViolation(w, firstTimeContractViolation)
+		return
 	}
 
 	log.Printf("[proxy] stream completed (agent=%s, chatId=%s)", agentDef.Key, req.ChatID)

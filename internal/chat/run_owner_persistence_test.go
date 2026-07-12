@@ -17,7 +17,7 @@ func TestTeamRunOwnerPersistsWithoutSyntheticAgentKey(t *testing.T) {
 		t.Fatalf("unexpected team summary %#v", summary)
 	}
 
-	if err := store.OnRunCompleted(RunCompletion{
+	if err := completeRunForTest(store, RunCompletion{
 		ChatID:          "chat-team-owner",
 		RunID:           "run-team-owner",
 		OwnerType:       "team",
@@ -25,7 +25,7 @@ func TestTeamRunOwnerPersistsWithoutSyntheticAgentKey(t *testing.T) {
 		TeamID:          "team-a",
 		AssistantText:   "done",
 		FinishReason:    "complete",
-		UpdatedAtMillis: 1000,
+		UpdatedAtMillis: testEpochMillis(1000),
 	}); err != nil {
 		t.Fatalf("complete team run: %v", err)
 	}
@@ -66,14 +66,14 @@ func TestTeamRunOwnerSurvivesArchiveAndRestore(t *testing.T) {
 	if _, _, err := active.EnsureChat("chat-team-archive", "", "team-a", "hello"); err != nil {
 		t.Fatalf("ensure team chat: %v", err)
 	}
-	if err := active.OnRunCompleted(RunCompletion{
+	if err := completeRunForTest(active, RunCompletion{
 		ChatID:          "chat-team-archive",
 		RunID:           "run-team-archive",
 		OwnerType:       "team",
 		TeamID:          "team-a",
 		AssistantText:   "done",
 		FinishReason:    "complete",
-		UpdatedAtMillis: 1000,
+		UpdatedAtMillis: testEpochMillis(1000),
 	}); err != nil {
 		t.Fatalf("complete team run: %v", err)
 	}

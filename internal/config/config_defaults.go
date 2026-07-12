@@ -143,6 +143,7 @@ func defaultConfig(options LoadOptions) Config {
 				MaxSteps:             60,
 				MaxWorkRoundsPerTask: 6,
 			},
+			CoderPlanning: CoderPlanningDefaultsConfig{MaxSteps: 60},
 		},
 		SSE: SSEConfig{
 			HeartbeatInterval: 30, // seconds

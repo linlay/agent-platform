@@ -1,9 +1,7 @@
 package chat
 
 import (
-	"encoding/json"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,17 +97,14 @@ func (s *FileStore) CreateBTWBranch(parentChatID string, btwID string) (*BTWBran
 		return nil, err
 	}
 
-	source, err := os.Open(s.chatJSONLPath(branch.parentChatID))
-	if err == nil {
-		if _, err := io.Copy(tmp, source); err != nil {
-			_ = source.Close()
-			return nil, err
-		}
-		if err := source.Close(); err != nil {
-			return nil, err
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
+	_, parentJSONL, err := readJSONLineRecords(s.chatJSONLPath(branch.parentChatID))
+	if err != nil {
 		return nil, err
+	}
+	if len(parentJSONL) > 0 {
+		if _, err := tmp.Write(parentJSONL); err != nil {
+			return nil, err
+		}
 	}
 	if err := tmp.Sync(); err != nil {
 		return nil, err
@@ -208,15 +203,12 @@ func (b *BTWBranchStore) AppendSubmitLine(_ string, line SubmitLine) error {
 func (b *BTWBranchStore) append(payload any) error {
 	b.owner.mu.Lock()
 	defer b.owner.mu.Unlock()
-	file, err := os.OpenFile(b.path, os.O_WRONLY|os.O_APPEND, 0)
-	if errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(b.path); errors.Is(err, os.ErrNotExist) {
 		return ErrBTWNotFound
-	}
-	if err != nil {
+	} else if err != nil {
 		return err
 	}
-	defer file.Close()
-	return json.NewEncoder(file).Encode(payload)
+	return b.owner.appendJSONLineLocked(b.path, payload)
 }
 
 func (b *BTWBranchStore) LoadRawMessages(k int) ([]map[string]any, error) {

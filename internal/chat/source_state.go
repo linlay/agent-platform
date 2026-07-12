@@ -91,11 +91,10 @@ type stepSourceReplay struct {
 	runID       string
 	taskID      string
 	lineLiveSeq int64
-	lineTS      int64
 	nextSeq     func() int64
 }
 
-func newStepSourceReplay(raw any, runID, taskID string, lineLiveSeq int64, lineTS int64, nextSeq func() int64) *stepSourceReplay {
+func newStepSourceReplay(raw any, runID, taskID string, lineLiveSeq int64, nextSeq func() int64) *stepSourceReplay {
 	items := sourceStateItems(raw)
 	if len(items) == 0 {
 		return nil
@@ -106,7 +105,6 @@ func newStepSourceReplay(raw any, runID, taskID string, lineLiveSeq int64, lineT
 		runID:       runID,
 		taskID:      taskID,
 		lineLiveSeq: lineLiveSeq,
-		lineTS:      lineTS,
 		nextSeq:     nextSeq,
 	}
 }
@@ -144,9 +142,6 @@ func (r *stepSourceReplay) leftoverEvents() []stream.EventData {
 func (r *stepSourceReplay) eventForItem(item map[string]any) stream.EventData {
 	payload := cloneMapDeep(item)
 	timestamp := int64FromAny(payload["timestamp"])
-	if timestamp == 0 {
-		timestamp = r.lineTS
-	}
 	liveSeq := int64FromAny(payload["liveSeq"])
 	if liveSeq == 0 {
 		liveSeq = r.lineLiveSeq

@@ -656,6 +656,6 @@ Write a standard planning document.
 - Run go test
 
 ## Assumptions
-- Use chat .tools/plans
+- Use chat .tools/planning
 `
 }

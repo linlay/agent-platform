@@ -168,7 +168,7 @@ func TestProxyQueryCancelsUpstreamRequestDuringRootContextShutdown(t *testing.T)
 		if !ok {
 			t.Fatalf("expected flusher")
 		}
-		if _, err := io.WriteString(w, "data: "+`{"type":"content.delta","timestamp":1,"payload":{"contentId":"content-1","delta":"hello","runId":"run-proxy","chatId":"chat-proxy"}}`+"\n\n"); err != nil {
+		if _, err := io.WriteString(w, "data: "+`{"type":"content.delta","timestamp":1700000000000,"payload":{"contentId":"content-1","delta":"hello","runId":"run-proxy","chatId":"chat-proxy"}}`+"\n\n"); err != nil {
 			t.Fatalf("write upstream event: %v", err)
 		}
 		flusher.Flush()

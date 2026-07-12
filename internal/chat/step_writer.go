@@ -2,7 +2,6 @@ package chat
 
 import (
 	"strings"
-	"time"
 
 	"agent-platform/internal/stream"
 )
@@ -52,6 +51,7 @@ type StepWriter struct {
 	pendingApproval         *StepApproval
 	pendingSubmit           map[string]any
 	pendingSubmitLiveSeq    int64
+	pendingSubmitTimestamp  int64
 	pendingUsage            map[string]any
 	pendingContextWindowMax int
 	pendingContextCurrent   int
@@ -61,6 +61,14 @@ type StepWriter struct {
 	pendingInputMessages    []map[string]any
 	pendingSystemRef        map[string]any
 	pendingSystemInit       *QueryLineSystemInit
+	// lastTimestamp is carried from the most recent source event. It is used
+	// only to finish an aggregation which already contains that event; it is
+	// never replaced with the wall clock.
+	lastTimestamp int64
+	// persistenceErr is sticky. A JSONL write failure must stop the producer
+	// path rather than silently dropping a request/step and leaving replay with
+	// an apparently valid but incomplete history.
+	persistenceErr error
 }
 
 type StepWriterOption func(*StepWriter)
@@ -102,9 +110,30 @@ func (w *StepWriter) SetPendingQueryMessages(messages []map[string]any) {
 	w.pendingQueryMessages = cloneMessageMaps(messages)
 }
 
+// Err returns the first JSONL persistence failure observed for this run.
+// Callers which own the stream lifecycle must turn a time-contract error into
+// the normal terminal run.error flow instead of continuing with partial
+// history.
+func (w *StepWriter) Err() error {
+	if w == nil {
+		return nil
+	}
+	return w.persistenceErr
+}
+
+func (w *StepWriter) recordPersistenceError(err error) {
+	if w == nil || err == nil || w.persistenceErr != nil {
+		return
+	}
+	w.persistenceErr = err
+}
+
 // OnEvent processes a single SSE event from the stream.
 // It should be called for every event that goes through writeEvent in server.go.
 func (w *StepWriter) OnEvent(event stream.EventData) {
+	if w == nil || w.persistenceErr != nil {
+		return
+	}
 	switch event.Type {
 	case "request.query":
 		w.handleRequestQuery(event)
@@ -282,6 +311,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		buffer.teamID = event.String("teamId")
 		buffer.presentation = event.String("presentation")
 		buffer.liveSeq = maxLiveSeq(buffer.liveSeq, event.Seq)
+		buffer.lastTimestamp = event.Timestamp
 	case "task.complete", "task.cancel", "task.error":
 		taskID := event.String("taskId")
 		if strings.TrimSpace(taskID) == "" {
@@ -297,6 +327,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			buffer.taskStatus = "completed"
 		}
 		buffer.liveSeq = maxLiveSeq(buffer.liveSeq, event.Seq)
+		buffer.lastTimestamp = event.Timestamp
 		w.flushTaskStep(taskID)
 		delete(w.taskBuffers, taskID)
 		w.closedTaskIDs[taskID] = true
@@ -304,6 +335,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 	case "artifact.publish":
 		w.updateArtifact(event)
 		w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
+		w.lastTimestamp = event.Timestamp
 
 	case "source.publish":
 		if !w.appendSourceEvent(event) {
@@ -320,9 +352,11 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 				buffer := w.ensureTaskBuffer(taskID)
 				w.captureTaskDebugData(buffer, inner)
 				buffer.liveSeq = maxLiveSeq(buffer.liveSeq, event.Seq)
+				buffer.lastTimestamp = event.Timestamp
 			} else {
 				w.captureRootDebugData(inner)
 				w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
+				w.lastTimestamp = event.Timestamp
 			}
 		}
 	case "llm.request":
@@ -334,10 +368,12 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			buffer := w.ensureTaskBuffer(taskID)
 			w.captureTaskLLMRequestData(buffer, event)
 			buffer.liveSeq = maxLiveSeq(buffer.liveSeq, event.Seq)
+			buffer.lastTimestamp = event.Timestamp
 		} else {
 			w.flushCurrentStep()
 			w.captureRootLLMRequestData(event)
 			w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
+			w.lastTimestamp = event.Timestamp
 		}
 	case "usage.snapshot":
 		if taskID := w.taskIDForEvent(event); taskID != "" {
@@ -347,9 +383,11 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			buffer := w.ensureTaskBuffer(taskID)
 			w.captureTaskUsageSnapshot(buffer, event)
 			buffer.liveSeq = maxLiveSeq(buffer.liveSeq, event.Seq)
+			buffer.lastTimestamp = event.Timestamp
 		} else {
 			w.captureRootUsageSnapshot(event)
 			w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
+			w.lastTimestamp = event.Timestamp
 		}
 
 	case "run.complete", "run.cancel", "run.error":
@@ -368,6 +406,9 @@ func (w *StepWriter) OnStageMarker(stage string) {
 
 // Flush writes any remaining accumulated step. Call at end of stream.
 func (w *StepWriter) Flush() {
+	if w == nil || w.persistenceErr != nil {
+		return
+	}
 	w.flushCurrentStep()
 	w.flushAllTaskSteps()
 	w.flushPendingSubmit()
@@ -390,6 +431,9 @@ func (w *StepWriter) RecordApproval(approval StepApproval) {
 // ---------------------------------------------------------------------------
 
 func (w *StepWriter) handleRequestQuery(event stream.EventData) {
+	if w == nil || w.store == nil || event.Timestamp <= 0 {
+		return
+	}
 	_, hasMessages := event.Payload["messages"]
 	_, hasSystem := event.Payload["system"]
 	bootstrapQuery := hasMessages || hasSystem
@@ -399,7 +443,6 @@ func (w *StepWriter) handleRequestQuery(event stream.EventData) {
 	if bootstrapQuery {
 		w.flushCurrentStep()
 	}
-	w.queryWritten = true
 
 	query := map[string]any{}
 	// Copy all payload fields into query, excluding seq/type/timestamp
@@ -423,20 +466,40 @@ func (w *StepWriter) handleRequestQuery(event stream.EventData) {
 			system = nil
 		}
 	}
+	stampQueryMessages(messages, event.Timestamp)
 
-	_ = w.store.AppendQueryLine(w.chatID, QueryLine{
+	if err := w.store.AppendQueryLine(w.chatID, QueryLine{
 		Type:      "query",
 		ChatID:    w.chatID,
 		RunID:     w.runID,
-		UpdatedAt: time.Now().UnixMilli(),
+		UpdatedAt: event.Timestamp,
 		LiveSeq:   event.Seq,
 		Query:     query,
 		Messages:  messages,
 		System:    system,
-	})
+	}); err != nil {
+		w.recordPersistenceError(err)
+		return
+	}
+	w.queryWritten = true
 	if !bootstrapQuery {
 		w.pendingSystemInit = nil
 		w.pendingQueryMessages = nil
+	}
+}
+
+// stampQueryMessages assigns the request.query event's already-captured
+// platform timestamp to newly produced model messages. This is not a
+// historical fallback and never calls time.Now: an existing ts, including an
+// invalid one, is preserved so the strict JSONL validator can reject it.
+func stampQueryMessages(messages []map[string]any, timestamp int64) {
+	for _, message := range messages {
+		if message == nil {
+			continue
+		}
+		if _, exists := message["ts"]; !exists {
+			message["ts"] = timestamp
+		}
 	}
 }
 
@@ -466,10 +529,12 @@ func (w *StepWriter) appendStoredMessage(event stream.EventData, message StoredM
 		}
 		buffer.messages = upsertStoredMessage(buffer.messages, message)
 		buffer.liveSeq = maxLiveSeq(buffer.liveSeq, event.Seq)
+		buffer.lastTimestamp = event.Timestamp
 		return
 	}
 	w.messages = upsertStoredMessage(w.messages, message)
 	w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
+	w.lastTimestamp = event.Timestamp
 }
 
 func contentActorFromEvent(event stream.EventData) (string, string, string) {
@@ -504,6 +569,7 @@ func (w *StepWriter) appendSourceEvent(event stream.EventData) bool {
 		}
 		buffer.sources = appendSourceStateItem(buffer.sources, item)
 		buffer.liveSeq = maxLiveSeq(buffer.liveSeq, event.Seq)
+		buffer.lastTimestamp = event.Timestamp
 		return true
 	}
 	if !storedMessagesContainTool(w.messages) {
@@ -511,6 +577,7 @@ func (w *StepWriter) appendSourceEvent(event stream.EventData) bool {
 	}
 	w.pendingSources = appendSourceStateItem(w.pendingSources, item)
 	w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
+	w.lastTimestamp = event.Timestamp
 	return true
 }
 
@@ -707,7 +774,7 @@ func cloneQueryLineSystemInit(profile QueryLineSystemInit) QueryLineSystemInit {
 }
 
 func (w *StepWriter) flushCurrentStep() {
-	w.flushCurrentStepAt(0)
+	w.flushCurrentStepAt(w.lastTimestamp)
 }
 
 func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
@@ -725,7 +792,10 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	}
 
 	if updatedAt <= 0 {
-		updatedAt = time.Now().UnixMilli()
+		// There is no source event time to persist. Do not turn it into a
+		// plausible-looking current time; discard this invalid aggregation.
+		w.clearCurrentStep()
+		return
 	}
 	messages := append([]StoredMessage(nil), w.messages...)
 	if w.pendingApproval != nil && approvalMatchesToolMessages(w.pendingApproval, messages) {
@@ -781,12 +851,24 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	}
 	w.assignReactSeq(&line)
 
-	_ = w.store.AppendStepLine(w.chatID, line)
+	if err := w.store.AppendStepLine(w.chatID, line); err != nil {
+		w.recordPersistenceError(err)
+		return
+	}
 	if order := assistantToolCallOrder(line.Messages); len(order) > 0 {
 		w.lastToolOrder = order
 	}
+	w.clearCurrentStep()
+}
+
+func (w *StepWriter) clearCurrentStep() {
+	if w == nil {
+		return
+	}
 	w.messages = nil
 	w.stepLiveSeq = 0
+	w.pendingAwaiting = nil
+	w.pendingApproval = nil
 	w.pendingUsage = nil
 	w.pendingContextWindowMax = 0
 	w.pendingContextCurrent = 0

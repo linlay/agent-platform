@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -16,6 +17,7 @@ import (
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/models"
 	"agent-platform/internal/stream"
+	"agent-platform/internal/timecontract"
 )
 
 func proxyWebSocketTarget(proxy *catalog.ProxyConfig) (string, http.Header, error) {
@@ -169,9 +171,20 @@ type proxyDecodedFrame struct {
 }
 
 func decodeProxyFrame(data []byte) (proxyDecodedFrame, bool) {
+	decoded, ok, _ := decodeProxyFrameAt(data, "proxy.websocket.event")
+	return decoded, ok
+}
+
+// decodeProxyFrameAt preserves JSON numeric syntax and validates every
+// upstream stream event before it can be forwarded or persisted. A malformed
+// non-event frame retains the historical "ignore it" behavior; a malformed
+// timestamp is a contract violation and must terminate the proxy run.
+func decodeProxyFrameAt(data []byte, eventLocation string) (proxyDecodedFrame, bool, error) {
 	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return proxyDecodedFrame{}, false
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&raw); err != nil {
+		return proxyDecodedFrame{}, false, nil
 	}
 	decoded := proxyDecodedFrame{
 		Frame:    strings.TrimSpace(contracts.AnyStringNode(raw["frame"])),
@@ -184,23 +197,26 @@ func decodeProxyFrame(data []byte) (proxyDecodedFrame, bool) {
 		LastSeq:  int64(contracts.AnyIntNode(raw["lastSeq"])),
 	}
 	if decoded.Frame != "" && !strings.EqualFold(decoded.Frame, "stream") {
-		return decoded, decoded.Frame != ""
+		return decoded, decoded.Frame != "", nil
 	}
 	eventNode := contracts.AnyMapNode(raw["event"])
 	if len(eventNode) == 0 && decoded.Frame == "" {
 		eventNode = raw
 	}
 	if len(eventNode) > 0 {
-		event := stream.EventDataFromMap(eventNode)
+		event, err := stream.ParseEventDataMap(eventNode, eventLocation)
+		if err != nil {
+			return proxyDecodedFrame{}, false, err
+		}
 		if strings.TrimSpace(event.Type) != "" {
 			decoded.Event = event
 			decoded.HasEvent = true
 		}
 	}
 	if decoded.Frame == "" && !decoded.HasEvent {
-		return proxyDecodedFrame{}, false
+		return proxyDecodedFrame{}, false, nil
 	}
-	return decoded, decoded.Frame != "" || decoded.HasEvent
+	return decoded, decoded.Frame != "" || decoded.HasEvent, nil
 }
 
 func proxyFrameMatchesRequest(frame proxyDecodedFrame, requestID string) bool {
@@ -244,11 +260,19 @@ func proxyFrameError(frame proxyDecodedFrame) error {
 }
 
 func decodeProxyEvent(data []byte) (stream.EventData, bool) {
-	frame, ok := decodeProxyFrame(data)
-	if !ok || !frame.HasEvent {
-		return stream.EventData{}, false
+	event, ok, _ := decodeProxyEventAt(data, "proxy.sse.event")
+	return event, ok
+}
+
+func decodeProxyEventAt(data []byte, eventLocation string) (stream.EventData, bool, error) {
+	frame, ok, err := decodeProxyFrameAt(data, eventLocation)
+	if err != nil {
+		return stream.EventData{}, false, err
 	}
-	return frame.Event, true
+	if !ok || !frame.HasEvent {
+		return stream.EventData{}, false, nil
+	}
+	return frame.Event, true, nil
 }
 
 func normalizeProxyEventIdentity(event stream.EventData, req api.QueryRequest) stream.EventData {
@@ -270,23 +294,38 @@ func normalizeProxyEventIdentity(event stream.EventData, req api.QueryRequest) s
 	return event
 }
 
+func proxyRunErrorEvent(req api.QueryRequest, err error) stream.EventData {
+	payload := map[string]any{
+		"runId":   req.RunID,
+		"chatId":  req.ChatID,
+		"message": err.Error(),
+		"error":   err.Error(),
+	}
+	if isTimeContractViolation(err) {
+		contractData := timeContractErrorData(err)
+		payload["message"] = timeContractViolationMessage
+		payload["error"] = contractData
+		for _, key := range []string{"code", "field", "location", "expected"} {
+			if value, ok := contractData[key]; ok {
+				payload[key] = value
+			}
+		}
+	}
+	return stream.EventData{
+		Seq:       1,
+		Type:      "run.error",
+		Timestamp: time.Now().UnixMilli(),
+		Payload:   payload,
+	}
+}
+
 func (s *Server) publishProxyError(
 	eventBus *stream.RunEventBus,
 	recorder *proxyEventRecorder,
 	req api.QueryRequest,
 	err error,
 ) {
-	event := stream.EventData{
-		Seq:       1,
-		Type:      "run.error",
-		Timestamp: time.Now().UnixMilli(),
-		Payload: map[string]any{
-			"runId":   req.RunID,
-			"chatId":  req.ChatID,
-			"message": err.Error(),
-			"error":   err.Error(),
-		},
-	}
+	event := proxyRunErrorEvent(req, err)
 	log.Printf("[proxy][ws] %s", err)
 	if eventBus != nil {
 		eventBus.Publish(event)
@@ -510,6 +549,7 @@ type proxyToolBucket struct {
 
 func newProxyEventRecorder(
 	req api.QueryRequest,
+	startedAtMillis int64,
 	agentDef catalog.AgentDefinition,
 	chatStore chat.Store,
 	stepWriter *chat.StepWriter,
@@ -541,7 +581,7 @@ func newProxyEventRecorder(
 	}
 	stepWriter.OnEvent(stream.EventData{
 		Type:      "request.query",
-		Timestamp: time.Now().UnixMilli(),
+		Timestamp: startedAtMillis,
 		Payload:   queryPayload,
 	})
 	recorder := &proxyEventRecorder{
@@ -551,7 +591,7 @@ func newProxyEventRecorder(
 		stepWriter:        stepWriter,
 		control:           control,
 		notifications:     notifications,
-		startedAt:         time.Now().UnixMilli(),
+		startedAt:         startedAtMillis,
 		contents:          map[string]*proxyContentBucket{},
 		reasonings:        map[string]*proxyContentBucket{},
 		tools:             map[string]*proxyToolBucket{},
@@ -568,10 +608,10 @@ func (r *proxyEventRecorder) DecorateEvent(event *stream.EventData) {
 	r.usageTracker.Decorate(event)
 }
 
-func publishProxyLiveEvent(eventBus *stream.RunEventBus, recorder *proxyEventRecorder, req api.QueryRequest, seq *int64, event stream.EventData) stream.EventData {
+func publishProxyLiveEvent(eventBus *stream.RunEventBus, recorder *proxyEventRecorder, req api.QueryRequest, seq *int64, event stream.EventData) (stream.EventData, error) {
 	event = normalizeProxyEventIdentity(event, req)
-	if event.Timestamp <= 0 {
-		event.Timestamp = time.Now().UnixMilli()
+	if err := timecontract.ValidateEpochMillis(event.Timestamp, "timestamp", "proxy.upstream.event"); err != nil {
+		return stream.EventData{}, err
 	}
 	if snapshot, ok := recorder.syntheticPlanningSnapshotBeforeAwaiting(event); ok {
 		assignProxySyntheticSeq(&snapshot, seq, event.Seq)
@@ -579,7 +619,7 @@ func publishProxyLiveEvent(eventBus *stream.RunEventBus, recorder *proxyEventRec
 	}
 	assignProxyEventSeq(&event, seq)
 	publishProxyEventData(eventBus, recorder, event)
-	return event
+	return event, nil
 }
 
 func assignProxyEventSeq(event *stream.EventData, seq *int64) {
@@ -620,23 +660,20 @@ func publishProxyEventData(eventBus *stream.RunEventBus, recorder *proxyEventRec
 }
 
 func (r *proxyEventRecorder) syntheticPlanningSnapshotBeforeAwaiting(event stream.EventData) (stream.EventData, bool) {
-	if r == nil || event.Type != "awaiting.ask" || !strings.EqualFold(strings.TrimSpace(event.String("mode")), "plan") {
+	if r == nil || event.Type != "awaiting.ask" || !strings.EqualFold(strings.TrimSpace(event.String("mode")), "planning") {
 		return stream.EventData{}, false
 	}
-	plan := contracts.AnyMapNode(event.Value("plan"))
-	if strings.TrimSpace(contracts.AnyStringNode(plan["text"])) == "" {
+	planning := contracts.AnyMapNode(event.Value("planning"))
+	if strings.TrimSpace(contracts.AnyStringNode(planning["text"])) == "" {
 		return stream.EventData{}, false
 	}
 	chatDir := ""
 	if r.chatStore != nil {
 		chatDir = r.chatStore.ChatDir(r.req.ChatID)
 	}
-	state, snapshot := chat.PlanningSnapshotFromAwaitingItem(eventPayloadWithType(event), r.req.ChatID, r.req.RunID, chatDir, event.Timestamp)
+	state, snapshot := chat.PlanningSnapshotFromAwaitingItem(eventPayloadWithType(event), r.req.ChatID, r.req.RunID, chatDir)
 	if state == nil || snapshot == nil || strings.TrimSpace(state.Markdown) == "" || r.hasPlanningSnapshot(state.PlanningID) {
 		return stream.EventData{}, false
-	}
-	if snapshot.Timestamp <= 0 {
-		snapshot.Timestamp = event.Timestamp
 	}
 	return *snapshot, true
 }
@@ -868,8 +905,9 @@ func (r *proxyEventRecorder) broadcastResourcePushed(event stream.EventData) {
 		return
 	}
 	timestamp := event.Timestamp
-	if timestamp <= 0 {
-		timestamp = time.Now().UnixMilli()
+	if err := timecontract.ValidateEpochMillis(timestamp, "timestamp", "proxy.resource.pushed"); err != nil {
+		log.Printf("[proxy][ws] refusing resource.pushed with invalid timestamp: %v", err)
+		return
 	}
 	for _, artifact := range proxyArtifactItems(event.Value("artifacts")) {
 		artifactID := strings.TrimSpace(contracts.AnyStringNode(artifact["artifactId"]))
@@ -908,15 +946,11 @@ func proxyArtifactItems(value any) []map[string]any {
 }
 
 func (r *proxyEventRecorder) Finish() (bool, chat.RunCompletion) {
-	if r == nil || r.stepWriter == nil {
+	if r == nil {
 		return false, chat.RunCompletion{}
 	}
-	r.stepWriter.Flush()
-	if r.req.ChatID == "" || r.req.RunID == "" {
-		return false, chat.RunCompletion{}
-	}
-	if r.chatStore == nil {
-		return false, chat.RunCompletion{}
+	if r.stepWriter != nil {
+		r.stepWriter.Flush()
 	}
 	finishReason := r.finishReason
 	if strings.TrimSpace(finishReason) == "" {
@@ -933,9 +967,15 @@ func (r *proxyEventRecorder) Finish() (bool, chat.RunCompletion) {
 		UpdatedAtMillis: time.Now().UnixMilli(),
 		Usage:           r.runUsage,
 	}
+	if r.req.ChatID == "" || r.req.RunID == "" || r.chatStore == nil {
+		return false, completion
+	}
 	if err := r.chatStore.OnRunCompleted(completion); err != nil {
 		log.Printf("[proxy][ws] OnRunCompleted failed: %v", err)
-		return false, chat.RunCompletion{}
+		// The completion clock was captured before the persistence attempt. Keep
+		// returning it so run.finished carries the same real completion instant
+		// even when storage rejects a historic/invalid record.
+		return false, completion
 	}
 	return true, completion
 }
@@ -946,9 +986,9 @@ func awaitingContextFromProxyEvent(event stream.EventData) contracts.AwaitingSub
 	return contracts.AwaitingSubmitContext{
 		AwaitingID: awaitingID,
 		Mode:       mode,
-		ItemCount:  proxyAwaitItemCount(mode, event.Payload["questions"], event.Payload["approvals"], event.Payload["forms"], event.Payload["plan"]),
+		ItemCount:  proxyAwaitItemCount(mode, event.Payload["questions"], event.Payload["approvals"], event.Payload["forms"], event.Payload["planning"]),
 		Questions:  proxyAwaitQuestions(mode, event.Payload["questions"]),
-		NoTimeout:  strings.EqualFold(strings.TrimSpace(mode), "plan"),
+		NoTimeout:  strings.EqualFold(strings.TrimSpace(mode), "planning"),
 	}
 }
 
@@ -970,7 +1010,7 @@ func proxyAwaitQuestions(mode string, value any) []any {
 	}
 }
 
-func proxyAwaitItemCount(mode string, questions any, approvals any, forms any, plan any) int {
+func proxyAwaitItemCount(mode string, questions any, approvals any, forms any, planning any) int {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "question":
 		return lenAnySlice(questions)
@@ -978,8 +1018,8 @@ func proxyAwaitItemCount(mode string, questions any, approvals any, forms any, p
 		return lenAnySlice(approvals)
 	case "form":
 		return lenAnySlice(forms)
-	case "plan":
-		if lenAnyMap(plan) > 0 {
+	case "planning":
+		if lenAnyMap(planning) > 0 {
 			return 1
 		}
 		return 0

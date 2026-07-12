@@ -200,12 +200,12 @@ func (s *llmRunStream) buildHITLAwaitDelta(awaitingID string, args map[string]an
 		if await.ViewportType == "" {
 			await.ViewportType = "html"
 		}
-	case "plan":
+	case "planning":
 		if await.ViewportType == "" {
 			await.ViewportType = "builtin"
 		}
 		if await.ViewportKey == "" {
-			await.ViewportKey = "plan"
+			await.ViewportKey = "planning"
 		}
 	}
 	if questions := cloneAnySlice(args["questions"]); len(questions) > 0 {
@@ -217,8 +217,8 @@ func (s *llmRunStream) buildHITLAwaitDelta(awaitingID string, args map[string]an
 	if forms := cloneAnySlice(args["forms"]); len(forms) > 0 {
 		await.Forms = sanitizeAwaitAskForms(forms)
 	}
-	if plan := AnyMapNode(args["plan"]); len(plan) > 0 {
-		await.Plan = CloneMap(plan)
+	if planning := AnyMapNode(args["planning"]); len(planning) > 0 {
+		await.Planning = CloneMap(planning)
 	}
 	return await
 }
@@ -284,7 +284,7 @@ func awaitingContextFromStreamAsk(awaitAsk *stream.AwaitAsk) AwaitingSubmitConte
 	return AwaitingSubmitContext{
 		AwaitingID: awaitAsk.AwaitingID,
 		Mode:       awaitAsk.Mode,
-		ItemCount:  awaitItemCount(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals, awaitAsk.Forms, awaitAsk.Plan),
+		ItemCount:  awaitItemCount(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals, awaitAsk.Forms, awaitAsk.Planning),
 		Questions:  append([]any(nil), awaitAsk.Questions...),
 		Timeout:    awaitAsk.Timeout,
 	}
@@ -294,13 +294,13 @@ func awaitingContextFromDeltaAsk(awaitAsk DeltaAwaitAsk) AwaitingSubmitContext {
 	return AwaitingSubmitContext{
 		AwaitingID: awaitAsk.AwaitingID,
 		Mode:       awaitAsk.Mode,
-		ItemCount:  awaitItemCount(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals, awaitAsk.Forms, awaitAsk.Plan),
+		ItemCount:  awaitItemCount(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals, awaitAsk.Forms, awaitAsk.Planning),
 		Questions:  append([]any(nil), awaitAsk.Questions...),
 		Timeout:    awaitAsk.Timeout,
 	}
 }
 
-func awaitItemCount(mode string, questions []any, approvals []any, forms []any, plan map[string]any) int {
+func awaitItemCount(mode string, questions []any, approvals []any, forms []any, planning map[string]any) int {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "question":
 		return len(questions)
@@ -308,8 +308,8 @@ func awaitItemCount(mode string, questions []any, approvals []any, forms []any, 
 		return len(approvals)
 	case "form":
 		return len(forms)
-	case "plan":
-		if len(plan) > 0 {
+	case "planning":
+		if len(planning) > 0 {
 			return 1
 		}
 		return 0

@@ -164,7 +164,7 @@ func (s *FileStore) CommitCompactCheckpoint(chatID string, snapshot CompactSnaps
 		return err
 	}
 
-	checkpointBytes, err := json.Marshal(checkpoint)
+	checkpointBytes, err := validateJSONLLinePayload(checkpoint, "chat.jsonl.compact.write")
 	if err != nil {
 		return err
 	}
@@ -225,6 +225,9 @@ func readJSONLineRecords(path string) ([]jsonLineRecord, []byte, error) {
 			raw, _ = json.Marshal(payload)
 		}
 		if payload != nil {
+			if err := validatePersistedTimeContract([]map[string]any{payload}, "chat.jsonl.compact"); err != nil {
+				return nil, nil, err
+			}
 			records = append(records, jsonLineRecord{Raw: raw, Value: payload})
 		}
 	}

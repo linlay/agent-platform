@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -14,6 +15,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/i18n"
 	"agent-platform/internal/stream"
+	"agent-platform/internal/timecontract"
 
 	gws "github.com/gorilla/websocket"
 )
@@ -656,6 +658,17 @@ func (c *Conn) sendStreamEvent(requestID string, event stream.EventData) bool {
 		return false
 	}
 	event.Payload = i18n.LocalizeEventPayload(c.Locale(), event.Type, event.Payload)
+	// Stream frames bypass SendResponse/SendPush, so validate the exact wire
+	// representation before it reaches the writer. This keeps a bad upstream
+	// timestamp from turning into a JSON-marshal failure that silently closes
+	// the WebSocket.
+	if _, err := json.Marshal(event); err != nil {
+		if timecontract.IsViolation(err) {
+			c.endStreamForTimeContractViolation(requestID, event, err)
+			return false
+		}
+		return false
+	}
 	c.mu.Lock()
 	entry := c.activeStreams[requestID]
 	if entry == nil {
@@ -674,6 +687,57 @@ func (c *Conn) sendStreamEvent(requestID string, event stream.EventData) bool {
 	})
 	c.mu.Unlock()
 	return ok
+}
+
+func (c *Conn) endStreamForTimeContractViolation(requestID string, source stream.EventData, err error) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	entry := c.activeStreams[requestID]
+	if entry == nil {
+		c.mu.Unlock()
+		c.sendTimeContractViolation(requestID, err)
+		return
+	}
+	seq := source.Seq
+	if seq <= entry.lastSeq {
+		seq = entry.lastSeq + 1
+	}
+	if seq <= 0 {
+		seq = 1
+	}
+	entry.lastSeq = seq
+	contractData := timecontract.ErrorData(err)
+	contractData["status"] = http.StatusUnprocessableEntity
+	contractData["message"] = "time contract violation"
+	payload := map[string]any{
+		"runId":   entry.runID,
+		"message": "time contract violation",
+		"error":   contractData,
+	}
+	for _, key := range []string{"code", "field", "location", "expected"} {
+		payload[key] = contractData[key]
+	}
+	local := stream.EventData{
+		Seq:       seq,
+		Type:      "run.error",
+		Timestamp: time.Now().UnixMilli(),
+		Payload:   payload,
+	}
+	ok := c.enqueue(outboundMessage{
+		frame: StreamFrame{
+			Frame:    FrameStream,
+			ID:       requestID,
+			StreamID: entry.streamID,
+			Event:    &local,
+		},
+		msgType: gws.TextMessage,
+	})
+	c.mu.Unlock()
+	if ok {
+		c.finishStream(requestID, "error", seq)
+	}
 }
 
 func (c *Conn) SendStreamEvent(requestID string, event stream.EventData) bool {
@@ -698,6 +762,11 @@ func (c *Conn) Done() <-chan struct{} {
 }
 
 func (c *Conn) SendResponse(frameType string, id string, code int, msg string, data any) bool {
+	if code == 0 && data != nil {
+		if err := timecontract.ValidateJSONPayload(data, "ws.response."+frameType); err != nil {
+			return c.sendTimeContractViolation(id, err)
+		}
+	}
 	if msg == "" {
 		msg = "success"
 	}
@@ -715,6 +784,11 @@ func (c *Conn) SendResponse(frameType string, id string, code int, msg string, d
 }
 
 func (c *Conn) SendPush(frameType string, data any) bool {
+	if data != nil {
+		if err := timecontract.ValidateJSONPayload(data, "ws.push."+frameType); err != nil {
+			return c.sendTimeContractViolation("", err)
+		}
+	}
 	return c.enqueue(outboundMessage{
 		frame: PushFrame{
 			Frame: FramePush,
@@ -723,6 +797,13 @@ func (c *Conn) SendPush(frameType string, data any) bool {
 		},
 		msgType: gws.TextMessage,
 	})
+}
+
+func (c *Conn) sendTimeContractViolation(id string, err error) bool {
+	// Keep the contract diagnostics at the top level of WS error data. Clients
+	// must not need to inspect a nested implementation payload to learn which
+	// producer/storage field violated the public time contract.
+	return c.SendError(id, string(apperrors.CodeTimeContractViolation), http.StatusUnprocessableEntity, "time contract violation", timecontract.ErrorData(err))
 }
 
 func (c *Conn) SendError(id string, frameType string, code int, msg string, data any) bool {

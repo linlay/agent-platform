@@ -11,6 +11,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/stream"
+	"agent-platform/internal/timecontract"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
@@ -87,10 +88,44 @@ func TestHandleChatJSONLValidationAndNotFound(t *testing.T) {
 	}
 }
 
-func TestHandleChatLLMTraceReturnsRawContent(t *testing.T) {
+func TestHandleChatJSONLRejectsHistoricalTimeContractViolation(t *testing.T) {
+	fixture := newTestFixture(t)
+	chatID := "chat-jsonl-invalid-time"
+	if _, _, err := fixture.chats.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	path := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID+".jsonl")
+	if err := os.WriteFile(path, []byte(`{"_type":"query","chatId":"chat-jsonl-invalid-time","runId":"run-1","updatedAt":"1700000000000","query":{}}`+"\n"), 0o644); err != nil {
+		t.Fatalf("write jsonl: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat/jsonl?chatId="+chatID, nil))
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status=%d want=422 body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "time_contract_violation") {
+		t.Fatalf("expected time_contract_violation body=%s", rec.Body.String())
+	}
+}
+
+func TestHandleChatLLMTraceRejectsFinalizedTraceWithoutRequiredTimes(t *testing.T) {
 	fixture := newChatExportWSTestFixture(t)
 	fileParam := "chat-trace/.llm-records/run_trace_001.json"
 	want := `{"runId":"run_trace","status":"ok"}` + "\n"
+	seedLLMTraceFile(t, fixture, fileParam, want)
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat/llm-trace?file=chat-trace%2F.llm-records%2Frun_trace_001.json", nil))
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "time_contract_violation") {
+		t.Fatalf("expected 422 time_contract_violation, status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleChatLLMTraceReturnsStrictRawContent(t *testing.T) {
+	fixture := newChatExportWSTestFixture(t)
+	fileParam := "chat-trace/.llm-records/run_trace_001.json"
+	want := strictCompletedTraceContent("run_trace")
 	seedLLMTraceFile(t, fixture, fileParam, want)
 
 	rec := httptest.NewRecorder()
@@ -130,6 +165,40 @@ func TestHandleChatLLMTraceValidationAndNotFound(t *testing.T) {
 				t.Fatalf("status=%d want=%d body=%s", rec.Code, tc.code, rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestHandleChatLLMTraceRejectsHistoricalTimeContractViolation(t *testing.T) {
+	fixture := newChatExportWSTestFixture(t)
+	fileParam := "chat-trace/.llm-records/run_invalid_001.json"
+	seedLLMTraceFile(t, fixture, fileParam, `{"runId":"run_invalid","sentAt":"2024-01-01T00:00:00Z"}`+"\n")
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat/llm-trace?file=chat-trace%2F.llm-records%2Frun_invalid_001.json", nil))
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status=%d want=422 body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "time_contract_violation") {
+		t.Fatalf("expected time_contract_violation body=%s", rec.Body.String())
+	}
+}
+
+func TestHandleChatLLMTraceRejectsSubMillisecondReadablePair(t *testing.T) {
+	fixture := newChatExportWSTestFixture(t)
+	fileParam := "chat-trace/.llm-records/run_submillisecond_001.json"
+	seedLLMTraceFile(t, fixture, fileParam, `{"runId":"run_submillisecond","status":"ok","sentAt":1700000000000,"sentTime":"2023-11-14T22:13:20.000000001Z","responseStartedAt":1700000000000,"responseStartedTime":"2023-11-14T22:13:20Z","completedAt":1700000000000,"completedTime":"2023-11-14T22:13:20Z"}`+"\n")
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat/llm-trace?file=chat-trace%2F.llm-records%2Frun_submillisecond_001.json", nil))
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "time_contract_violation") {
+		t.Fatalf("expected sub-millisecond trace pair rejection, status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestValidatePersistedJSONLTimeContractRequiresEventTimestamp(t *testing.T) {
+	err := validatePersistedJSONLTimeContract(`{"_type":"event","updatedAt":1700000000000,"event":{"type":"content.delta"}}`, "chat.jsonl")
+	if !timecontract.IsViolation(err) {
+		t.Fatalf("expected time contract violation, got %v", err)
 	}
 }
 
@@ -204,7 +273,7 @@ func TestWSChatJSONLValidationAndNotFound(t *testing.T) {
 	}
 }
 
-func TestWSChatLLMTraceReturnsRawContent(t *testing.T) {
+func TestWSChatLLMTraceRejectsFinalizedTraceWithoutRequiredTimes(t *testing.T) {
 	fixture := newChatExportWSTestFixture(t)
 	fileParam := "chat-trace-ws/.llm-records/run_trace_ws_001.json"
 	want := `{"runId":"run_trace_ws","status":"ok"}` + "\n"
@@ -220,20 +289,17 @@ func TestWSChatLLMTraceReturnsRawContent(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("write request: %v", err)
 	}
-	var frame ws.ResponseFrame
+	var frame ws.ErrorFrame
 	if err := conn.ReadJSON(&frame); err != nil {
-		t.Fatalf("read response: %v", err)
+		t.Fatalf("read error: %v", err)
 	}
-	if frame.Frame != ws.FrameResponse || frame.ID != "req_raw_llm_trace" || frame.Code != 0 {
-		t.Fatalf("unexpected response frame: %#v", frame)
+	if frame.Frame != ws.FrameError || frame.ID != "req_raw_llm_trace" || frame.Code != http.StatusUnprocessableEntity || frame.Type != "time_contract_violation" {
+		t.Fatalf("expected 422 time_contract_violation frame, got %#v", frame)
 	}
-	data, ok := frame.Data.(string)
-	if !ok {
-		t.Fatalf("expected string data, got %#v", frame.Data)
-	}
-	if data != want {
-		t.Fatalf("raw llm trace mismatch\nwant: %q\ngot:  %q", want, data)
-	}
+}
+
+func strictCompletedTraceContent(runID string) string {
+	return `{"runId":"` + runID + `","status":"ok","sentAt":1700000000000,"sentTime":"2023-11-14T22:13:20Z","responseStartedAt":1700000000001,"responseStartedTime":"2023-11-14T22:13:20.001Z","completedAt":1700000000002,"completedTime":"2023-11-14T22:13:20.002Z"}` + "\n"
 }
 
 func TestWSChatLLMTraceValidationAndNotFound(t *testing.T) {
@@ -326,7 +392,7 @@ func TestRenderChatMarkdownSkipsAutomationQuery(t *testing.T) {
 	markdown := renderChatMarkdown("Automation", "agent-a", []stream.EventData{
 		{
 			Type:      "request.query",
-			Timestamp: 100,
+			Timestamp: testEpochMillis + 100,
 			Payload: map[string]any{
 				"message": "Secret automation prompt",
 				"role":    "automation",
@@ -334,7 +400,7 @@ func TestRenderChatMarkdownSkipsAutomationQuery(t *testing.T) {
 		},
 		{
 			Type:      "content.snapshot",
-			Timestamp: 200,
+			Timestamp: testEpochMillis + 200,
 			Payload: map[string]any{
 				"text": "Automation result",
 			},

@@ -17,11 +17,12 @@ func TestBTWBranchCopiesParentAndAppendsIndependently(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := store.AppendQueryLine(chatID, QueryLine{
-		Type:   "query",
-		ChatID: chatID,
-		RunID:  "run-parent",
+		Type:      "query",
+		ChatID:    chatID,
+		RunID:     "run-parent",
+		UpdatedAt: testEpochMillis(100),
 		Messages: []map[string]any{{
-			"role": "user", "content": "parent question",
+			"role": "user", "content": "parent question", "ts": testEpochMillis(100),
 		}},
 	}); err != nil {
 		t.Fatalf("append parent query: %v", err)
@@ -46,11 +47,12 @@ func TestBTWBranchCopiesParentAndAppendsIndependently(t *testing.T) {
 		t.Fatalf("expected BTW JSONL to be hidden from resource API, got %v", err)
 	}
 	if err := branch.AppendQueryLine(chatID, QueryLine{
-		Type:   "query",
-		ChatID: chatID,
-		RunID:  "run-btw",
+		Type:      "query",
+		ChatID:    chatID,
+		RunID:     "run-btw",
+		UpdatedAt: testEpochMillis(101),
 		Messages: []map[string]any{{
-			"role": "user", "content": "side question",
+			"role": "user", "content": "side question", "ts": testEpochMillis(101),
 		}},
 	}); err != nil {
 		t.Fatalf("append branch query: %v", err)

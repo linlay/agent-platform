@@ -359,6 +359,10 @@ func (s *SQLiteStore) writeLocked(item api.StoredMemoryResponse, embedder *Embed
 		item.CreatedAt = item.UpdatedAt
 	}
 	item = normalizeStoredItem(item)
+	if err := validateStoredMemoryTimeContract(item, "memory.sqlite.write"); err != nil {
+		logMemoryWriteRejected("write_rejected", item, err)
+		return err
+	}
 	if err := validateStoredMemoryItem(item); err != nil {
 		logMemoryWriteRejected("write_rejected", item, err)
 		return err

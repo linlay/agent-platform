@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 )
@@ -15,7 +16,7 @@ func loadRawMessagesFromPath(path string, k int) ([]map[string]any, error) {
 		k = DefaultHistoryRunWindow
 	}
 
-	lines, err := readJSONLines(path)
+	lines, err := readPersistedJSONLines(path)
 	if err != nil || len(lines) == 0 {
 		return nil, err
 	}
@@ -30,7 +31,7 @@ func (s *FileStore) LoadTeamMemberRawMessages(chatID string, k int, memberAgentK
 	if k <= 0 {
 		k = DefaultHistoryRunWindow
 	}
-	lines, err := readJSONLines(s.chatJSONLPath(chatID))
+	lines, err := readPersistedJSONLines(s.chatJSONLPath(chatID))
 	if err != nil || len(lines) == 0 {
 		return nil, err
 	}
@@ -42,7 +43,7 @@ func (s *FileStore) LoadTeamCoordinatorRawMessages(chatID string, k int) ([]map[
 	if k <= 0 {
 		k = DefaultHistoryRunWindow
 	}
-	lines, err := readJSONLines(s.chatJSONLPath(chatID))
+	lines, err := readPersistedJSONLines(s.chatJSONLPath(chatID))
 	if err != nil || len(lines) == 0 {
 		return nil, err
 	}
@@ -85,15 +86,6 @@ func limitRawMessagesByRuns(messages []map[string]any, k int, compacted bool) []
 		result = append(result, bucket.messages...)
 	}
 	return result
-}
-
-// loadRawMessagesFromJSONL extracts OpenAI-format messages from step lines.
-func (s *FileStore) loadRawMessagesFromJSONL(chatID string) []map[string]any {
-	lines, err := readJSONLines(s.chatJSONLPath(chatID))
-	if err != nil || len(lines) == 0 {
-		return nil
-	}
-	return rawMessagesFromJSONLLines(lines)
 }
 
 func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
@@ -140,9 +132,6 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 					}
 					msg := cloneMessageMap(m)
 					msg["runId"] = runID
-					if _, ok := msg["ts"]; !ok {
-						msg["ts"] = line["updatedAt"]
-					}
 					messages = append(messages, msg)
 				}
 			}
@@ -208,9 +197,6 @@ func teamMemberRawMessagesFromJSONLLines(lines []map[string]any, memberAgentKey 
 			for _, raw := range anyMessageSlice(line["messages"]) {
 				msg := cloneMessageMap(raw)
 				msg["runId"] = runID
-				if _, ok := msg["ts"]; !ok {
-					msg["ts"] = line["updatedAt"]
-				}
 				messages = append(messages, msg)
 			}
 		case StepLineTypeStep, StepLineTypeReact, StepLineTypeReactTool, StepLineTypePlanExecute:
@@ -251,9 +237,6 @@ func teamCoordinatorRawMessagesFromJSONLLines(lines []map[string]any) []map[stri
 			for _, raw := range anyMessageSlice(line["messages"]) {
 				msg := cloneMessageMap(raw)
 				msg["runId"] = runID
-				if _, ok := msg["ts"]; !ok {
-					msg["ts"] = line["updatedAt"]
-				}
 				messages = append(messages, msg)
 			}
 		case StepLineTypeStep, StepLineTypeReact, StepLineTypeReactTool, StepLineTypePlanExecute:
@@ -411,7 +394,9 @@ func cloneMessageMap(message map[string]any) map[string]any {
 		return cloneStringAnyMap(message)
 	}
 	var cloned map[string]any
-	if err := json.Unmarshal(data, &cloned); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&cloned); err != nil {
 		return cloneStringAnyMap(message)
 	}
 	return cloned

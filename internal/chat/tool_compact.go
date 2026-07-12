@@ -179,7 +179,7 @@ func (s *FileStore) CommitToolCompact(chatID string, snapshot ToolCompactSnapsho
 		return err
 	}
 
-	lineBytes, err := json.Marshal(line)
+	lineBytes, err := validateJSONLLinePayload(line, "chat.jsonl.toolCompact.write")
 	if err != nil {
 		return err
 	}

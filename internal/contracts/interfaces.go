@@ -226,6 +226,10 @@ type RunLimits struct {
 type QuerySession struct {
 	RequestID string
 	RunID     string
+	// StartedAtMillis is an optional lifecycle clock override used only when a
+	// previously persisted run is resumed after a process restart. A zero value
+	// means the run manager captures a fresh registration clock for a new run.
+	StartedAtMillis int64
 	// RunScopeID isolates run admission without changing ChatID, which remains
 	// the resource and conversation identity exposed to tools and events.
 	RunScopeID string
@@ -261,7 +265,8 @@ type QuerySession struct {
 	Budget                map[string]any
 	StageSettings         map[string]any
 	ResolvedBudget        Budget
-	ResolvedStageSettings PlanExecuteSettings
+	ResolvedPlanExecuteSettings PlanExecuteSettings
+	ResolvedCoderPlanningSettings CoderPlanningSettings
 	RunLimits             RunLimits
 	HistoryMessages       []map[string]any
 	CurrentMessages       []map[string]any
@@ -350,7 +355,8 @@ type ExecutionContext struct {
 	AutoApproveLevels map[int]bool
 	SandboxSession    *SandboxSession
 	Budget            Budget
-	StageSettings     PlanExecuteSettings
+	PlanExecuteSettings PlanExecuteSettings
+	CoderPlanningSettings CoderPlanningSettings
 	RunLoopState      RunLoopState
 	PlanState         *PlanRuntimeState
 	PlanningState     *PlanningRuntimeState

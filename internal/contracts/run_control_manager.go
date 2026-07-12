@@ -95,6 +95,13 @@ func (m *InMemoryRunManager) registerLocked(session QuerySession) (context.Conte
 		ExecutionAgentKey: owner.ExecutionAgentKey,
 		ScopeID:           strings.TrimSpace(session.RunScopeID),
 	}
+	startedAt := time.Now()
+	if session.StartedAtMillis != 0 {
+		// The server validates a persisted override before registration. Do not
+		// substitute a new wall clock here: that would sever the run manager from
+		// the immutable lifecycle record after a process restart.
+		startedAt = time.UnixMilli(session.StartedAtMillis)
+	}
 	eventBus := stream.NewRunEventBus(m.eventBusMaxEvents, m.maxObserversPerRun, func(count int) {
 		control.SetObserverCount(int32(count))
 	})
@@ -103,7 +110,7 @@ func (m *InMemoryRunManager) registerLocked(session QuerySession) (context.Conte
 		run:       run,
 		control:   control,
 		eventBus:  eventBus,
-		startedAt: time.Now(),
+		startedAt: startedAt,
 	}
 	return WithRunControl(control.Context(), control), control, run
 }

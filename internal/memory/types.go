@@ -168,12 +168,6 @@ func normalizeStoredItem(item api.StoredMemoryResponse) api.StoredMemoryResponse
 	if strings.TrimSpace(item.RefID) == "" {
 		item.RefID = item.ID
 	}
-	if item.CreatedAt == 0 {
-		item.CreatedAt = item.UpdatedAt
-	}
-	if item.UpdatedAt == 0 {
-		item.UpdatedAt = item.CreatedAt
-	}
 	return item
 }
 

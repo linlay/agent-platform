@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"agent-platform/internal/timecontract"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -111,8 +113,17 @@ func (s *ExecutionStore) RecordComplete(executionID string, execErr error) error
 	defer s.mu.Unlock()
 
 	var startedAt int64
-	if err := s.db.QueryRow(`SELECT STARTED_AT_ FROM AUTOMATION_EXECUTIONS WHERE ID_=?`, executionID).Scan(&startedAt); err != nil {
+	var existingCompletedAt sql.NullInt64
+	if err := s.db.QueryRow(`SELECT STARTED_AT_, COMPLETED_AT_ FROM AUTOMATION_EXECUTIONS WHERE ID_=?`, executionID).Scan(&startedAt, &existingCompletedAt); err != nil {
 		return err
+	}
+	if err := timecontract.ValidateEpochMillis(startedAt, "startedAt", "automation.executions.recordComplete"); err != nil {
+		return err
+	}
+	if existingCompletedAt.Valid {
+		if err := timecontract.ValidateEpochMillis(existingCompletedAt.Int64, "completedAt", "automation.executions.recordComplete"); err != nil {
+			return err
+		}
 	}
 	completedAt := time.Now().UnixMilli()
 	durationMs := completedAt - startedAt
@@ -269,6 +280,14 @@ func scanExecution(scanner executionScanner) (Execution, error) {
 	}
 	if durationMs.Valid {
 		item.DurationMs = &durationMs.Int64
+	}
+	if err := timecontract.ValidateEpochMillis(item.StartedAt, "startedAt", "automation.executions"); err != nil {
+		return Execution{}, err
+	}
+	if item.CompletedAt != nil {
+		if err := timecontract.ValidateEpochMillis(*item.CompletedAt, "completedAt", "automation.executions"); err != nil {
+			return Execution{}, err
+		}
 	}
 	return item, nil
 }

@@ -774,7 +774,7 @@ type UpdateAgentNameRequest struct {
 type AgentOrderResponse struct {
 	Version   int      `json:"version"`
 	Order     []string `json:"order"`
-	UpdatedAt int64    `json:"updatedAt"`
+	UpdatedAt *int64   `json:"updatedAt,omitempty"`
 }
 
 type UpdateAgentOrderRequest struct {
@@ -1232,6 +1232,8 @@ type MarkChatReadResponse struct {
 type ChatDetailResponse struct {
 	ChatID         string              `json:"chatId"`
 	ChatName       string              `json:"chatName"`
+	CreatedAt      int64               `json:"createdAt"`
+	UpdatedAt      int64               `json:"updatedAt"`
 	Source         string              `json:"source,omitempty"`
 	ResourceTicket string              `json:"resourceTicket,omitempty"`
 	RawMessages    []map[string]any    `json:"rawMessages,omitempty"`
@@ -1275,7 +1277,7 @@ type RunSummary struct {
 	AssistantText   string        `json:"assistantText,omitempty"`
 	FinishReason    string        `json:"finishReason,omitempty"`
 	StartedAt       int64         `json:"startedAt"`
-	CompletedAt     int64         `json:"completedAt"`
+	CompletedAt     *int64        `json:"completedAt,omitempty"`
 	Usage           ChatUsageData `json:"usage"`
 	FeedbackType    string        `json:"feedbackType,omitempty"`
 	FeedbackComment string        `json:"feedbackComment,omitempty"`
@@ -1330,7 +1332,7 @@ type FeedbackResponse struct {
 	ChatID string `json:"chatId"`
 	RunID  string `json:"runId"`
 	Type   string `json:"type"`
-	SetAt  int64  `json:"setAt"`
+	SetAt  *int64 `json:"setAt,omitempty"`
 }
 
 type DeleteChatRequest struct {

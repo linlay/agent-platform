@@ -173,7 +173,7 @@ func (h *ToolHandler) invokeStatus(agentKey string) (contracts.ToolExecutionResu
 	if err != nil {
 		return contracts.ToolExecutionResult{}, err
 	}
-	return kbaseStructuredResult(map[string]any{
+	payload := map[string]any{
 		"agentKey":                  status.AgentKey,
 		"mode":                      status.Mode,
 		"storageLocation":           status.StorageLocation,
@@ -181,7 +181,6 @@ func (h *ToolHandler) invokeStatus(agentKey string) (contracts.ToolExecutionResu
 		"workspaceRoot":             status.WorkspaceRoot,
 		"indexing":                  status.Indexing,
 		"stale":                     status.Stale,
-		"lastIndexedAt":             status.LastIndexedAt,
 		"files":                     status.Files,
 		"chunks":                    status.Chunks,
 		"embedding":                 status.Embedding,
@@ -197,7 +196,11 @@ func (h *ToolHandler) invokeStatus(agentKey string) (contracts.ToolExecutionResu
 		"legacyAvailable":           status.LegacyAvailable,
 		"pendingRecoveryOperations": status.PendingRecoveryOps,
 		"storageDiskUsage":          status.StorageDiskUsage,
-	}), nil
+	}
+	if status.LastIndexedAt != nil {
+		payload["lastIndexedAt"] = *status.LastIndexedAt
+	}
+	return kbaseStructuredResult(payload), nil
 }
 
 func (h *ToolHandler) invokeRefresh(ctx context.Context, agentKey string, args map[string]any) (contracts.ToolExecutionResult, error) {

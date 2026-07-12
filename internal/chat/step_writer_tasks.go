@@ -3,7 +3,6 @@ package chat
 import (
 	"sort"
 	"strings"
-	"time"
 
 	"agent-platform/internal/stream"
 )
@@ -18,6 +17,7 @@ type taskStepBuffer struct {
 	messages                []StoredMessage
 	sources                 *SourceState
 	liveSeq                 int64
+	lastTimestamp           int64
 	pendingSystemRef        map[string]any
 	pendingUsage            map[string]any
 	pendingContextWindowMax int
@@ -71,7 +71,7 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 	line := StepLine{
 		ChatID:          w.chatID,
 		RunID:           w.runID,
-		UpdatedAt:       time.Now().UnixMilli(),
+		UpdatedAt:       buffer.lastTimestamp,
 		LiveSeq:         buffer.liveSeq,
 		TaskID:          buffer.taskID,
 		TaskStatus:      buffer.taskStatus,
@@ -110,7 +110,12 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 	}
 	w.assignReactSeq(&line)
 
-	_ = w.store.AppendStepLine(w.chatID, line)
+	if line.UpdatedAt > 0 {
+		if err := w.store.AppendStepLine(w.chatID, line); err != nil {
+			w.recordPersistenceError(err)
+			return
+		}
+	}
 	buffer.messages = nil
 	buffer.sources = nil
 	buffer.liveSeq = 0
@@ -149,56 +154,75 @@ func (w *StepWriter) bufferSubmitEvent(event stream.EventData) {
 	}
 	w.pendingSubmit = eventPayloadWithoutSeq(event)
 	w.pendingSubmitLiveSeq = event.Seq
+	w.pendingSubmitTimestamp = event.Timestamp
 }
 
 func (w *StepWriter) flushPendingSubmit() {
 	if w.store == nil || w.pendingSubmit == nil {
 		return
 	}
-	_ = w.store.AppendSubmitLine(w.chatID, SubmitLine{
-		ChatID:    w.chatID,
-		RunID:     w.runID,
-		UpdatedAt: time.Now().UnixMilli(),
-		LiveSeq:   w.pendingSubmitLiveSeq,
-		Submit:    w.pendingSubmit,
-		Type:      "submit",
-	})
+	if w.pendingSubmitTimestamp > 0 {
+		if err := w.store.AppendSubmitLine(w.chatID, SubmitLine{
+			ChatID:    w.chatID,
+			RunID:     w.runID,
+			UpdatedAt: w.pendingSubmitTimestamp,
+			LiveSeq:   w.pendingSubmitLiveSeq,
+			Submit:    w.pendingSubmit,
+			Type:      "submit",
+		}); err != nil {
+			w.recordPersistenceError(err)
+			return
+		}
+	}
 	w.pendingSubmit = nil
 	w.pendingSubmitLiveSeq = 0
+	w.pendingSubmitTimestamp = 0
 }
 
 func (w *StepWriter) writeSubmitLine(answer stream.EventData) {
 	if w.store == nil {
 		w.pendingSubmit = nil
 		w.pendingSubmitLiveSeq = 0
+		w.pendingSubmitTimestamp = 0
 		return
 	}
 	answerPayload := eventPayloadWithoutSeq(answer)
-	_ = w.store.AppendSubmitLine(w.chatID, SubmitLine{
-		ChatID:    w.chatID,
-		RunID:     w.runID,
-		UpdatedAt: time.Now().UnixMilli(),
-		LiveSeq:   maxLiveSeq(w.pendingSubmitLiveSeq, answer.Seq),
-		Submit:    w.pendingSubmit,
-		Answer:    answerPayload,
-		Type:      "submit",
-	})
+	if answer.Timestamp > 0 {
+		if err := w.store.AppendSubmitLine(w.chatID, SubmitLine{
+			ChatID:    w.chatID,
+			RunID:     w.runID,
+			UpdatedAt: answer.Timestamp,
+			LiveSeq:   maxLiveSeq(w.pendingSubmitLiveSeq, answer.Seq),
+			Submit:    w.pendingSubmit,
+			Answer:    answerPayload,
+			Type:      "submit",
+		}); err != nil {
+			w.recordPersistenceError(err)
+			return
+		}
+	}
 	w.pendingSubmit = nil
 	w.pendingSubmitLiveSeq = 0
+	w.pendingSubmitTimestamp = 0
 }
 
 func (w *StepWriter) appendTypedEventLine(event stream.EventData, lineType string) {
 	if w.store == nil {
 		return
 	}
-	_ = w.store.AppendEventLine(w.chatID, EventLine{
+	if event.Timestamp <= 0 {
+		return
+	}
+	if err := w.store.AppendEventLine(w.chatID, EventLine{
 		ChatID:    w.chatID,
 		RunID:     w.runID,
-		UpdatedAt: time.Now().UnixMilli(),
+		UpdatedAt: event.Timestamp,
 		LiveSeq:   event.Seq,
 		Event:     eventPayloadWithoutSeq(event),
 		Type:      lineType,
-	})
+	}); err != nil {
+		w.recordPersistenceError(err)
+	}
 }
 
 func (w *StepWriter) updateArtifact(event stream.EventData) {

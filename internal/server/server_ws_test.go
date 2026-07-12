@@ -440,10 +440,13 @@ func TestWebSocketPushesChatReadAfterMarkRead(t *testing.T) {
 	if _, _, err := fixture.chats.EnsureChat("chat_ws_read", "mock-agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
+	startedAt := time.Now().UnixMilli()
+	startServerFixtureRun(t, fixture.chats, "chat_ws_read", "loyw3v28", startedAt)
 	if err := fixture.chats.OnRunCompleted(chat.RunCompletion{
 		ChatID:          "chat_ws_read",
 		RunID:           "loyw3v28",
 		AssistantText:   "answer",
+		StartedAtMillis: startedAt,
 		UpdatedAtMillis: time.Now().UnixMilli(),
 	}); err != nil {
 		t.Fatalf("persist run completion: %v", err)
@@ -553,8 +556,8 @@ func TestWebSocketPushesChatUnreadAfterRunCompletion(t *testing.T) {
 	if got, ok := data["agentUnreadCount"].(float64); !ok || got != 1 {
 		t.Fatalf("expected agentUnreadCount 1, got %#v", data)
 	}
-	if got, ok := data["readAt"].(float64); !ok || got != 0 {
-		t.Fatalf("expected readAt 0 for unread chat, got %#v", data)
+	if _, ok := data["readAt"]; ok {
+		t.Fatalf("expected readAt to be omitted for unread chat, got %#v", data)
 	}
 }
 
@@ -650,19 +653,21 @@ func TestWebSocketProxyRunCompletionPushOrdering(t *testing.T) {
 		}
 		if err := conn.WriteJSON(map[string]any{
 			"event": map[string]any{
-				"seq":   1,
-				"type":  "content.delta",
-				"runId": "upstream-run",
-				"delta": "proxy hello",
+				"seq":       1,
+				"type":      "content.delta",
+				"runId":     "upstream-run",
+				"delta":     "proxy hello",
+				"timestamp": int64(1_700_000_000_000),
 			},
 		}); err != nil {
 			t.Fatalf("write upstream websocket delta: %v", err)
 		}
 		if err := conn.WriteJSON(map[string]any{
 			"event": map[string]any{
-				"seq":   2,
-				"type":  "run.complete",
-				"runId": "upstream-run",
+				"seq":       2,
+				"type":      "run.complete",
+				"runId":     "upstream-run",
+				"timestamp": int64(1_700_000_000_001),
 			},
 		}); err != nil {
 			t.Fatalf("write upstream websocket completion: %v", err)
@@ -1032,7 +1037,8 @@ func TestWebSocketDetachedAwaitingQuestionTimesOutAndReplays(t *testing.T) {
 	if runID == "" || awaitingID == "" {
 		t.Fatalf("expected awaiting identifiers, got %#v", awaitAsk.Event)
 	}
-	if timeout, ok := awaitAsk.Event.Value("timeout").(float64); !ok || timeout != 1 {
+	timeout, ok := awaitAsk.Event.Value("timeout").(json.Number)
+	if parsed, err := timeout.Int64(); !ok || err != nil || parsed != 1 {
 		t.Fatalf("expected awaiting.ask timeout 1, got %#v", awaitAsk.Event.Payload)
 	}
 	waitForObserverCount(t, runs, runID, 1, 2*time.Second)
@@ -1544,7 +1550,7 @@ Plan should stream over websocket.
 	if got := countStrings(eventTypes, "planning.delta"); got <= 1 {
 		t.Fatalf("expected multiple websocket planning.delta events, got %d in %#v", got, eventTypes)
 	}
-	planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, chat.ToolRootDirName, chat.ToolPlansDirName, runID+"_planning_1.md")
+	planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, chat.ToolRootDirName, chat.ToolPlanningDirName, runID+"_planning_1.md")
 	planningBytes, readPlanningErr := os.ReadFile(planningFile)
 	if readPlanningErr != nil {
 		t.Fatalf("expected websocket planning markdown file before confirmation: %v", readPlanningErr)
@@ -1830,7 +1836,7 @@ func collectWebSocketEventsUntilPlanningApproval(t *testing.T, conn *gws.Conn, r
 			continue
 		}
 		types = append(types, frame.Event.Type)
-		if frame.Event.Type == "awaiting.ask" && frame.Event.String("mode") == "plan" {
+		if frame.Event.Type == "awaiting.ask" && frame.Event.String("mode") == "planning" {
 			if _, ok := frame.Event.Payload["timeout"]; ok {
 				t.Fatalf("did not expect websocket planning confirmation timeout, got %#v", frame.Event.Payload)
 			}
@@ -1968,7 +1974,7 @@ func assertWebSocketAttachedCoderExecuteRun(t *testing.T, conn *gws.Conn, reques
 	}
 	first := events[0].Event
 	if first.Type != "request.query" || first.Seq != 1 || first.String("runId") != runID ||
-		first.String("requestId") != wantQueryRequestID || first.String("message") != "Execute plan" {
+		first.String("requestId") != wantQueryRequestID || first.String("message") != "Execute planning" {
 		t.Fatalf("expected first attached event execute request.query seq=1, got %#v", first)
 	}
 	for _, field := range []string{"synthetic", "stage", "source"} {

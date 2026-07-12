@@ -309,9 +309,10 @@ type MemoryConfig struct {
 }
 
 type DefaultsConfig struct {
-	Budget BudgetDefaultsConfig
-	React  ReactDefaultsConfig
-	Plan   PlanExecuteDefaultsConfig
+	Budget        BudgetDefaultsConfig
+	React         ReactDefaultsConfig
+	Plan          PlanExecuteDefaultsConfig
+	CoderPlanning CoderPlanningDefaultsConfig
 }
 
 type BudgetDefaultsConfig struct {
@@ -352,6 +353,10 @@ type ReactDefaultsConfig struct {
 type PlanExecuteDefaultsConfig struct {
 	MaxSteps             int
 	MaxWorkRoundsPerTask int
+}
+
+type CoderPlanningDefaultsConfig struct {
+	MaxSteps int
 }
 
 type SSEConfig struct {

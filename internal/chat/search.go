@@ -129,7 +129,7 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 	orchestratedTeam := strings.EqualFold(strings.TrimSpace(sum.OwnerType), "team") ||
 		(strings.TrimSpace(sum.TeamID) != "" && strings.TrimSpace(sum.AgentKey) == "")
 
-	lines, err := readJSONLines(s.chatJSONLPath(chatID))
+	lines, err := readPersistedJSONLines(s.chatJSONLPath(chatID))
 	if err != nil {
 		return nil, err
 	}
@@ -194,9 +194,6 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 					}, "\n"))
 					if score := sessionSearchScore(approvalText, needle); score > 0 {
 						hitTimestamp := int64FromAny(msg["ts"])
-						if hitTimestamp == 0 {
-							hitTimestamp = ts
-						}
 						appendHit(SearchHit{
 							Kind:      "approval",
 							ChatID:    chatID,
@@ -212,9 +209,6 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 				}
 				if score := sessionSearchScore(text, needle); score > 0 {
 					hitTimestamp := int64FromAny(msg["ts"])
-					if hitTimestamp == 0 {
-						hitTimestamp = ts
-					}
 					appendHit(SearchHit{
 						Kind:      "message",
 						ChatID:    chatID,
@@ -234,9 +228,6 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 				text := searchEventText(item)
 				if score := sessionSearchScore(text, needle); score > 0 {
 					hitTimestamp := int64FromAny(item["timestamp"])
-					if hitTimestamp == 0 {
-						hitTimestamp = ts
-					}
 					appendHit(SearchHit{
 						Kind:      "event",
 						ChatID:    chatID,

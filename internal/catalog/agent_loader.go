@@ -449,7 +449,7 @@ func mergeStageSettingsBudgets(budget map[string]any, stageSettings map[string]a
 
 func stageBudgetsFromStageSettings(stageSettings map[string]any) map[string]map[string]any {
 	out := map[string]map[string]any{}
-	for _, stage := range []string{"plan", "execute", "summary"} {
+	for _, stage := range []string{"plan", "planning", "execute", "summary"} {
 		node := mapNode(stageSettings[stage])
 		if len(node) == 0 {
 			continue
@@ -579,6 +579,9 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		Wonders:          normalizeWonderStrings(root["wonders"]),
 		Mode:             NormalizeAgentModeForRuntime(stringNode(root["mode"])),
 		VisibilityScopes: parseAgentVisibilityScopes(root["visibility"]),
+	}
+	if err := validateCoderPlanningConfig(def.Mode, root); err != nil {
+		return AgentDefinition{}, nil, err
 	}
 	modelConfig := mapNode(root["modelConfig"])
 	if err := validateAgentSamplingConfig(path, root); err != nil {
@@ -985,7 +988,7 @@ func validateAgentSamplingConfig(path string, root map[string]any) error {
 	if len(stageSettings) == 0 {
 		return nil
 	}
-	for _, stage := range []string{"plan", "execute", "summary"} {
+	for _, stage := range []string{"plan", "planning", "execute", "summary"} {
 		node := mapNode(stageSettings[stage])
 		if len(node) == 0 {
 			continue
@@ -996,6 +999,19 @@ func validateAgentSamplingConfig(path string, root map[string]any) error {
 				return fmt.Errorf("%s: %w", path, err)
 			}
 		}
+	}
+	return nil
+}
+
+func validateCoderPlanningConfig(mode string, root map[string]any) error {
+	if !strings.EqualFold(strings.TrimSpace(mode), "CODER") {
+		return nil
+	}
+	if _, exists := mapNode(root["stageSettings"])["plan"]; exists {
+		return fmt.Errorf("CODER stageSettings.plan is unsupported; use stageSettings.planning")
+	}
+	if _, exists := mapNode(mapNode(root["budget"])["stages"])["plan"]; exists {
+		return fmt.Errorf("CODER budget.stages.plan is unsupported; use budget.stages.planning")
 	}
 	return nil
 }
@@ -1075,7 +1091,7 @@ func applyModelReasoningDefaults(stageSettings map[string]any, reasoning map[str
 	if stageSettings == nil {
 		stageSettings = map[string]any{}
 	}
-	for _, key := range []string{"plan", "execute", "summary"} {
+	for _, key := range []string{"plan", "planning", "execute", "summary"} {
 		node := cloneMapForWrite(mapNode(stageSettings[key]))
 		applyReasoningDefaultsToStageNode(node, enabled, enabledOK, effort, effortOK)
 		stageSettings[key] = node
@@ -1110,7 +1126,7 @@ func applyModelSamplingDefaults(stageSettings map[string]any, modelSampling map[
 	if stageSettings == nil {
 		stageSettings = map[string]any{}
 	}
-	for _, key := range []string{"plan", "execute", "summary"} {
+	for _, key := range []string{"plan", "planning", "execute", "summary"} {
 		node := cloneMapForWrite(mapNode(stageSettings[key]))
 		modelConfig := cloneMapForWrite(mapNode(node["modelConfig"]))
 		merged := contracts.MergeSamplingSettings(defaults, contracts.ParseSamplingSettings(mapNode(modelConfig["sampling"])))

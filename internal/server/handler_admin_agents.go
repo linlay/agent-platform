@@ -12,6 +12,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/timecontract"
 )
 
 type adminAgentRegistry interface {
@@ -194,10 +195,14 @@ func (s *Server) readAdminAgentOrder() (api.AgentOrderResponse, error) {
 	if err != nil {
 		return api.AgentOrderResponse{}, err
 	}
+	updatedAt, err := timecontract.OptionalEpochMillis(file.UpdatedAt, "updatedAt", "admin.agent-order")
+	if err != nil {
+		return api.AgentOrderResponse{}, err
+	}
 	return api.AgentOrderResponse{
 		Version:   file.Version,
 		Order:     filterKnownAgentOrder(file.Order, keySet(registry.AdminAgentKeys())),
-		UpdatedAt: file.UpdatedAt,
+		UpdatedAt: updatedAt,
 	}, nil
 }
 
@@ -215,10 +220,14 @@ func (s *Server) updateAdminAgentOrder(order []string) (api.AgentOrderResponse, 
 		return api.AgentOrderResponse{}, err
 	}
 	s.broadcast("catalog.updated", map[string]any{"reason": "agents"})
+	updatedAt, err := timecontract.OptionalEpochMillis(file.UpdatedAt, "updatedAt", "admin.agent-order")
+	if err != nil {
+		return api.AgentOrderResponse{}, err
+	}
 	return api.AgentOrderResponse{
 		Version:   file.Version,
 		Order:     append([]string(nil), file.Order...),
-		UpdatedAt: file.UpdatedAt,
+		UpdatedAt: updatedAt,
 	}, nil
 }
 

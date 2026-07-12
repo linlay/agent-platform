@@ -3,10 +3,14 @@ package stream
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"agent-platform/internal/timecontract"
 )
 
 type StreamEvent struct {
@@ -53,27 +57,69 @@ func (e StreamEvent) Data() EventData {
 	}
 }
 
-func EventDataFromMap(data map[string]any) EventData {
+// ParseEventDataMap validates an externally supplied stream event. Callers
+// at JSON/SSE/WebSocket/persisted-replay boundaries must use this:
+// timestamp is a required Unix-epoch-milliseconds JSON integer and is never
+// inferred from the local clock.
+func ParseEventDataMap(data map[string]any, location string) (EventData, error) {
 	payload := clonePayload(data)
 	if payload == nil {
 		payload = map[string]any{}
 	}
+	timestampValue, ok := payload["timestamp"]
+	if !ok {
+		return EventData{}, &timecontract.Violation{
+			Field:    "timestamp",
+			Location: location,
+			Reason:   "is required",
+		}
+	}
+	timestamp, err := timecontract.ParseEpochMillis(timestampValue, "timestamp", location)
+	if err != nil {
+		return EventData{}, err
+	}
 	seq, _ := int64Value(payload["seq"])
-	timestamp, _ := int64Value(payload["timestamp"])
 	eventType, _ := payload["type"].(string)
 	delete(payload, "seq")
 	delete(payload, "type")
 	delete(payload, "timestamp")
 	payload = normalizeAwaitingAskPayload(eventType, payload)
+	if err := validateEventWireTimeContract(seq, eventType, timestamp, payload, location); err != nil {
+		return EventData{}, err
+	}
 	return EventData{
 		Seq:       seq,
 		Type:      eventType,
 		Timestamp: timestamp,
 		Payload:   payload,
+	}, nil
+}
+
+// ParseEventDataJSON decodes an external event with UseNumber so integer
+// syntax is preserved. This prevents a generic json.Unmarshal float64 from
+// masking a fractional timestamp before the contract check runs.
+func ParseEventDataJSON(data []byte, location string) (EventData, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var raw map[string]any
+	if err := decoder.Decode(&raw); err != nil {
+		return EventData{}, err
 	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return EventData{}, errors.New("stream event contains multiple JSON values")
+		}
+		return EventData{}, err
+	}
+	return ParseEventDataMap(raw, location)
 }
 
 func (d EventData) MarshalJSON() ([]byte, error) {
+	payload := normalizedEventWirePayload(d.Type, d.Payload)
+	if err := validateEventWireTimeContract(d.Seq, d.Type, d.Timestamp, payload, "stream.event"); err != nil {
+		return nil, err
+	}
 	var buf bytes.Buffer
 	buf.WriteByte('{')
 	first := true
@@ -103,7 +149,6 @@ func (d EventData) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 
-	payload := normalizeAwaitingAskPayload(d.Type, clonePayload(d.Payload))
 	for _, key := range orderedPayloadKeys(d.Type, payload) {
 		value, ok := payload[key]
 		if !ok {
@@ -143,12 +188,45 @@ func (d EventData) MarshalJSON() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// ValidateEventData validates the exact public representation of an event
+// before a server-side consumer persists it or publishes it to an observer.
+// It deliberately shares MarshalJSON's omission rules, so an omitted optional
+// field is not mistaken for an invalid wire value. This is useful at internal
+// producer boundaries where waiting until the SSE/WS writer would be too late:
+// a malformed nested tool result must never reach chat persistence or the run
+// event bus.
+func ValidateEventData(data EventData, location string) error {
+	payload := normalizedEventWirePayload(data.Type, data.Payload)
+	return validateEventWireTimeContract(data.Seq, data.Type, data.Timestamp, payload, location)
+}
+
+func normalizedEventWirePayload(eventType string, input map[string]any) map[string]any {
+	payload := normalizeAwaitingAskPayload(eventType, clonePayload(input))
+	for key, value := range payload {
+		if shouldOmitPayloadField(eventType, key, value) {
+			delete(payload, key)
+		}
+	}
+	return payload
+}
+
+func validateEventWireTimeContract(seq int64, eventType string, timestamp int64, payload map[string]any, location string) error {
+	wire := clonePayload(payload)
+	if wire == nil {
+		wire = map[string]any{}
+	}
+	wire["seq"] = seq
+	wire["type"] = eventType
+	wire["timestamp"] = timestamp
+	return timecontract.ValidateJSONPayload(wire, location)
+}
+
 func (d *EventData) UnmarshalJSON(data []byte) error {
-	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
+	parsed, err := ParseEventDataJSON(data, "stream.event")
+	if err != nil {
 		return err
 	}
-	*d = EventDataFromMap(raw)
+	*d = parsed
 	return nil
 }
 
@@ -168,7 +246,7 @@ func normalizeAwaitingAskPayload(eventType string, payload map[string]any) map[s
 		return payload
 	}
 	mode, _ := payload["mode"].(string)
-	if strings.EqualFold(strings.TrimSpace(mode), "plan") {
+	if strings.EqualFold(strings.TrimSpace(mode), "planning") {
 		delete(payload, "timeout")
 	}
 	return payload
@@ -269,9 +347,9 @@ func eventPayloadKeyOrder(eventType string) []string {
 	case "request.query":
 		return []string{"requestId", "runId", "chatId", "role", "message", "agentKey", "teamId", "kind", "stage", "btwId", "parentChatId", "hidden", "references", "params", "scene", "stream", "includeUsage", "includeFullText", "messages", "system"}
 	case "awaiting.ask":
-		return []string{"awaitingId", "mode", "viewportType", "viewportKey", "timeout", "runId", "taskId", "agentKey", "questions", "approvals", "forms", "plan"}
+		return []string{"awaitingId", "mode", "viewportType", "viewportKey", "timeout", "runId", "taskId", "agentKey", "questions", "approvals", "forms", "planning"}
 	case "awaiting.answer":
-		return []string{"awaitingId", "taskId", "mode", "status", "submitId", "durationMs", "answers", "approvals", "forms", "plan", "error"}
+		return []string{"awaitingId", "taskId", "mode", "status", "submitId", "durationMs", "answers", "approvals", "forms", "planning", "error"}
 	case "request.submit":
 		return []string{"requestId", "chatId", "runId", "taskId", "awaitingId", "submitId", "params"}
 	case "request.steer":

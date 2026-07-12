@@ -15,6 +15,7 @@ import (
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/models"
 	"agent-platform/internal/stream"
+	"agent-platform/internal/timecontract"
 )
 
 type RunExecutorParams struct {
@@ -42,7 +43,10 @@ type RunExecutorParams struct {
 	OnUnreadChanged   func(chat.Summary)
 	OnPersisted       func(chat.RunCompletion)
 	OnContinuation    func(contracts.DeltaRunContinuation) (string, error)
-	OnComplete        func(string)
+	// OnComplete receives the same completion timestamp that is persisted for
+	// the run.  Callers use it for run.finished rather than inventing a second
+	// wall-clock value while publishing the notification.
+	OnComplete func(runID string, completedAtMillis int64)
 }
 
 type runEventProcessor struct {
@@ -63,13 +67,22 @@ type awaitingTracker struct {
 	pendingMode       string
 }
 
-func (p *runEventProcessor) Consume(event stream.StreamEvent) (stream.EventData, bool) {
+func (p *runEventProcessor) Consume(event stream.StreamEvent) (stream.EventData, bool, error) {
 	data := event.Data()
+	// Validate before decorate/StepWriter. A tool result can carry arbitrary
+	// nested structured data, so deferring this to SSE JSON marshaling would
+	// let an invalid time point leak into JSONL persistence first.
+	if err := stream.ValidateEventData(data, "run.executor.event"); err != nil {
+		return stream.EventData{}, false, err
+	}
 	p.decorate(&data)
 	if p.stepWriter != nil {
 		p.stepWriter.OnEvent(data)
+		if err := p.stepWriter.Err(); err != nil {
+			return stream.EventData{}, false, err
+		}
 	}
-	return data, shouldPublishClientEvent(data)
+	return data, shouldPublishClientEvent(data), nil
 }
 
 func (p *runEventProcessor) decorate(data *stream.EventData) {
@@ -558,9 +571,6 @@ func StartRunExecutor(params RunExecutorParams) {
 }
 
 func runExecutor(params RunExecutorParams) {
-	if params.StartedAtMillis <= 0 {
-		params.StartedAtMillis = time.Now().UnixMilli()
-	}
 	tracker := &awaitingTracker{}
 	var (
 		persisted    bool
@@ -576,7 +586,7 @@ func runExecutor(params RunExecutorParams) {
 			params.EventBus.FreezeAndWait()
 		}
 		if params.OnComplete != nil {
-			params.OnComplete(params.Session.RunID)
+			params.OnComplete(params.Session.RunID, completion.UpdatedAtMillis)
 		}
 		if shouldStartRunContinuation(persisted, completion, continuation) && params.OnContinuation != nil {
 			if _, err := params.OnContinuation(*continuation); err != nil {
@@ -587,6 +597,29 @@ func runExecutor(params RunExecutorParams) {
 			broadcastRunCompletion(params, completion)
 		}
 	}()
+	if err := timecontract.ValidateEpochMillis(params.StartedAtMillis, "startedAt", "run.executor"); err != nil {
+		// This is a local platform failure, so its error event is allowed to use
+		// the platform's actual error time.  Crucially, we do not repair the
+		// invalid start time or continue the run with a guessed value.
+		completion = chat.RunCompletion{
+			ChatID:          params.Session.ChatID,
+			RunID:           params.Session.RunID,
+			FinishReason:    "error",
+			StartedAtMillis: params.StartedAtMillis,
+			UpdatedAtMillis: time.Now().UnixMilli(),
+		}
+		if params.RunControl != nil {
+			params.RunControl.TransitionState(contracts.RunLoopStateFailed)
+		}
+		publishLocalTimeContractRunError(params, err)
+		return
+	}
+	// Bind the assembler to the single timestamp captured by run registration.
+	// Bootstrap must never call its own clock for run.start: Desktop compares
+	// that event with activeRun.startedAt and the run.started notification.
+	if params.Assembler != nil {
+		params.Assembler.SetRunStartedAtMillis(params.StartedAtMillis)
+	}
 
 	var (
 		assistantText strings.Builder
@@ -607,50 +640,90 @@ func runExecutor(params RunExecutorParams) {
 	}
 
 	runCtx := params.RunCtx
+	if runCtx == nil {
+		runCtx = context.Background()
+	}
+	runCtx, cancelExecution := context.WithCancel(runCtx)
+	defer cancelExecution()
 	if params.StepWriter != nil {
 		runCtx = chat.WithApprovalSummarySink(runCtx, params.StepWriter.RecordApproval)
 	}
 
-	publishBatch := func(rawEvents []stream.StreamEvent, normalizedEvents []stream.StreamEvent) {
+	var timeContractErr error
+	publishBatch := func(rawEvents []stream.StreamEvent, normalizedEvents []stream.StreamEvent) error {
+		if timeContractErr != nil {
+			return timeContractErr
+		}
 		if len(rawEvents) == 0 && len(normalizedEvents) == 0 {
-			return
+			return nil
 		}
 		processed := make(map[int64]stream.EventData, len(rawEvents))
 		for _, event := range rawEvents {
-			data, _ := processor.Consume(event)
+			data, _, err := processor.Consume(event)
+			if err != nil {
+				timeContractErr = err
+				// Stop the producer as soon as the bad event is observed. The
+				// subsequent local run.error is platform-owned and is published
+				// below instead of repairing this event.
+				cancelExecution()
+				return err
+			}
 			processed[event.Seq] = data
 			handleAwaitingLifecycle(params, data, tracker)
 		}
 		for _, event := range normalizedEvents {
 			data, ok := processed[event.Seq]
 			if !ok {
-				data, _ = processor.Consume(event)
+				var err error
+				data, _, err = processor.Consume(event)
+				if err != nil {
+					timeContractErr = err
+					cancelExecution()
+					return err
+				}
 				handleAwaitingLifecycle(params, data, tracker)
 			}
 			if shouldPublishClientEvent(data) && params.EventBus != nil {
 				params.EventBus.Publish(clientVisibleEventData(data))
 			}
 		}
+		return nil
 	}
 
-	publishAssembler := func(rawEvents []stream.StreamEvent, normalizedEvents []stream.StreamEvent) {
-		publishBatch(rawEvents, normalizedEvents)
+	publishAssembler := func(rawEvents []stream.StreamEvent, normalizedEvents []stream.StreamEvent) error {
+		return publishBatch(rawEvents, normalizedEvents)
+	}
+	failTimeContract := func(err error) {
+		if params.RunControl != nil {
+			params.RunControl.TransitionState(contracts.RunLoopStateFailed)
+		}
+		publishLocalTimeContractRunError(params, err)
+		persisted, completion = persistRunCompletionWithReason(params, assistantText.String(), runUsage, "error", false)
 	}
 
-	publishAssembler(params.Assembler.BootstrapWithRaw())
+	if err := publishAssembler(params.Assembler.BootstrapWithRaw()); err != nil {
+		failTimeContract(err)
+		return
+	}
 
 	agentStream, err := params.Agent.Stream(runCtx, params.Request, params.Session)
 	if err != nil {
 		if params.RunControl != nil {
 			params.RunControl.TransitionState(contracts.RunLoopStateFailed)
 		}
-		publishAssembler(params.Assembler.FailWithRaw(err))
+		if publishErr := publishAssembler(params.Assembler.FailWithRaw(err)); publishErr != nil {
+			failTimeContract(publishErr)
+			return
+		}
 		persisted, completion = persistRunCompletionWithReason(params, assistantText.String(), runUsage, "error", false)
 		return
 	}
 	defer agentStream.Close()
 
 	emitDelta := func(delta contracts.AgentDelta) {
+		if timeContractErr != nil {
+			return
+		}
 		// The TEAM coordinator is a hidden runtime actor. Its reasoning is part of
 		// the routing implementation, not user-visible conversation content.
 		// Child-agent reasoning is routed through emitInputs below and remains
@@ -668,6 +741,9 @@ func runExecutor(params RunExecutorParams) {
 		}
 		inputs := params.Mapper.Map(delta)
 		for _, input := range inputs {
+			if timeContractErr != nil {
+				return
+			}
 			if content, ok := input.(stream.ContentDelta); ok && params.Session.TeamRuntime != nil {
 				content.ActorType = "team"
 				content.TeamID = strings.TrimSpace(params.Session.TeamID)
@@ -678,15 +754,22 @@ func runExecutor(params RunExecutorParams) {
 			if marker, ok := input.(stream.StageMarker); ok && params.StepWriter != nil {
 				params.StepWriter.OnStageMarker(marker.Stage)
 			}
-			publishAssembler(params.Assembler.ConsumeWithRaw(input))
+			if err := publishAssembler(params.Assembler.ConsumeWithRaw(input)); err != nil {
+				return
+			}
 		}
 	}
 	emitInputs := func(inputs ...stream.StreamInput) {
 		for _, input := range inputs {
+			if timeContractErr != nil {
+				return
+			}
 			if marker, ok := input.(stream.StageMarker); ok && params.StepWriter != nil {
 				params.StepWriter.OnStageMarker(marker.Stage)
 			}
-			publishAssembler(params.Assembler.ConsumeWithRaw(input))
+			if err := publishAssembler(params.Assembler.ConsumeWithRaw(input)); err != nil {
+				return
+			}
 		}
 	}
 
@@ -710,12 +793,19 @@ func runExecutor(params RunExecutorParams) {
 	}
 
 	streamFailed, streamInterrupted, orchestrateErr := orchestrator.Run(agentStream)
+	if timeContractErr != nil {
+		failTimeContract(timeContractErr)
+		return
+	}
 	if orchestrateErr != nil {
 		streamFailed = true
 		if params.RunControl != nil {
 			params.RunControl.TransitionState(contracts.RunLoopStateFailed)
 		}
-		publishAssembler(params.Assembler.FailWithRaw(orchestrateErr))
+		if publishErr := publishAssembler(params.Assembler.FailWithRaw(orchestrateErr)); publishErr != nil {
+			failTimeContract(publishErr)
+			return
+		}
 	}
 
 	if streamFailed || streamInterrupted {
@@ -727,8 +817,23 @@ func runExecutor(params RunExecutorParams) {
 		return
 	}
 
-	publishAssembler(params.Assembler.CompleteWithRaw())
+	if err := publishAssembler(params.Assembler.CompleteWithRaw()); err != nil {
+		failTimeContract(err)
+		return
+	}
 	persisted, completion = persistRunCompletionWithReason(params, assistantText.String(), runUsage, "complete", true)
+}
+
+func publishLocalTimeContractRunError(params RunExecutorParams, err error) {
+	if params.EventBus == nil {
+		return
+	}
+	params.EventBus.Publish(localTimeContractRunErrorEvent(
+		params.EventBus.LatestSeq()+1,
+		params.Session.RunID,
+		params.Session.ChatID,
+		err,
+	))
 }
 
 func shouldStartRunContinuation(persisted bool, completion chat.RunCompletion, continuation *contracts.DeltaRunContinuation) bool {
@@ -774,7 +879,7 @@ func handleAwaitingLifecycle(params RunExecutorParams, data stream.EventData, tr
 				Mode:             mode,
 				ItemCount:        awaitingEventItemCount(data),
 				Questions:        awaitingEventQuestions(data),
-				NoTimeout:        strings.EqualFold(mode, "plan"),
+				NoTimeout:        strings.EqualFold(mode, "planning"),
 				Timeout:          int64(contracts.AnyIntNode(data.Value("timeout"))),
 			})
 		}
@@ -864,8 +969,8 @@ func awaitingEventItemCount(data stream.EventData) int {
 		return awaitingPayloadItemCount(data.Value("approvals"))
 	case "form":
 		return awaitingPayloadItemCount(data.Value("forms"))
-	case "plan":
-		if lenAnyMap(data.Value("plan")) > 0 {
+	case "planning":
+		if lenAnyMap(data.Value("planning")) > 0 {
 			return 1
 		}
 		return 0
@@ -949,17 +1054,7 @@ func maybeBroadcastInterruptedAwaiting(params RunExecutorParams, tracker *awaiti
 }
 
 func persistRunCompletionWithReason(params RunExecutorParams, assistantText string, runUsage chat.UsageData, finishReason string, notifyPersisted bool) (bool, chat.RunCompletion) {
-	if params.Chats == nil {
-		return false, chat.RunCompletion{}
-	}
-	now := time.Now().UnixMilli()
-	if params.StartedAtMillis <= 0 {
-		if startedAt, ok := chat.ParseRunIDMillis(params.Session.RunID); ok {
-			params.StartedAtMillis = startedAt
-		} else {
-			params.StartedAtMillis = now
-		}
-	}
+	completedAtMillis := time.Now().UnixMilli()
 	owner := contracts.ResolveRunOwner(params.Session.RunOwner, params.Session.AgentKey, params.Session.TeamID)
 	completion := chat.RunCompletion{
 		ChatID:          params.Session.ChatID,
@@ -971,11 +1066,17 @@ func persistRunCompletionWithReason(params RunExecutorParams, assistantText stri
 		InitialMessage:  params.Request.Message,
 		FinishReason:    finishReason,
 		StartedAtMillis: params.StartedAtMillis,
-		UpdatedAtMillis: now,
+		UpdatedAtMillis: completedAtMillis,
 		Usage:           runUsage,
 	}
+	if err := timecontract.ValidateEpochMillis(completion.StartedAtMillis, "startedAt", "run.completion"); err != nil {
+		return false, completion
+	}
+	if params.Chats == nil {
+		return false, completion
+	}
 	if err := params.Chats.OnRunCompleted(completion); err != nil {
-		return false, chat.RunCompletion{}
+		return false, completion
 	}
 	if notifyPersisted && finishReason == "complete" && params.OnPersisted != nil {
 		params.OnPersisted(completion)

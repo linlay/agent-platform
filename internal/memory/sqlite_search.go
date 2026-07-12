@@ -219,6 +219,9 @@ func scanScoredRows(rows *sql.Rows) ([]scoredItem, error) {
 		if tags.Valid && tags.String != "" {
 			item.Tags = strings.Split(tags.String, ",")
 		}
+		if err := validateStoredMemoryTimeContract(item, "memory.sqlite.search"); err != nil {
+			return nil, err
+		}
 		item = normalizeStoredItem(item)
 		// BM25 returns negative scores (more negative = better match), convert to positive
 		results = append(results, scoredItem{item: item, score: math.Abs(score)})
@@ -281,6 +284,9 @@ func scanMemoryRow(rows *sql.Rows) (api.StoredMemoryResponse, error) {
 	if lastAccessedAt.Valid {
 		v := lastAccessedAt.Int64
 		item.LastAccessedAt = &v
+	}
+	if err := validateStoredMemoryTimeContract(item, "memory.sqlite.row"); err != nil {
+		return item, err
 	}
 	return normalizeStoredItem(item), nil
 }

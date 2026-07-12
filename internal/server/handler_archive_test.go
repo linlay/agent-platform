@@ -53,7 +53,7 @@ func TestHandleChatArchiveArchivesChatAndBroadcasts(t *testing.T) {
 		t.Fatalf("unexpected archives response: %#v", archives.Data)
 	}
 	archivedSummary := archives.Data.Items[0]
-	if archivedSummary.CreatedAt <= 0 || archivedSummary.LastRunAt != 2000 || archivedSummary.ArchivedAt <= 0 {
+	if archivedSummary.CreatedAt <= 0 || archivedSummary.LastRunAt != testEpochMillis+3_000 || archivedSummary.ArchivedAt <= 0 {
 		t.Fatalf("expected archive timestamps, got %#v", archivedSummary)
 	}
 	usage := archivedSummary.Usage
@@ -73,7 +73,7 @@ func TestHandleChatArchiveArchivesChatAndBroadcasts(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
 		t.Fatalf("decode archive detail: %v", err)
 	}
-	if detail.Data.CreatedAt != archivedSummary.CreatedAt || detail.Data.LastRunAt != 2000 || detail.Data.ArchivedAt != archivedSummary.ArchivedAt {
+	if detail.Data.CreatedAt != archivedSummary.CreatedAt || detail.Data.LastRunAt != testEpochMillis+3_000 || detail.Data.ArchivedAt != archivedSummary.ArchivedAt {
 		t.Fatalf("unexpected archive detail timestamps: %#v", detail.Data)
 	}
 }
@@ -162,13 +162,21 @@ func TestHandleArchiveRestoreReportsActiveConflictPerItem(t *testing.T) {
 			ChatID:         "chat-http-restore-conflict",
 			ChatName:       "Archived conflict",
 			AgentKey:       "agent-a",
-			CreatedAt:      1000,
-			UpdatedAt:      2000,
-			ArchivedAt:     3000,
+			CreatedAt:      testEpochMillis + 1_000,
+			UpdatedAt:      testEpochMillis + 2_000,
+			LastRunAt:      testEpochMillis + 2_000,
+			ArchivedAt:     testEpochMillis + 3_000,
 			LastRunID:      "run-restore-conflict",
 			LastRunContent: "archived",
 		},
-		JSONLContent: `{"chatId":"chat-http-restore-conflict","runId":"run-restore-conflict","updatedAt":1000,"query":{"message":"hello"},"_type":"query"}` + "\n",
+		Runs: []chat.RunSummary{{
+			ChatID:      "chat-http-restore-conflict",
+			RunID:       "run-restore-conflict",
+			AgentKey:    "agent-a",
+			StartedAt:   testEpochMillis + 1_000,
+			CompletedAt: testEpochMillis + 2_000,
+		}},
+		JSONLContent: `{"chatId":"chat-http-restore-conflict","runId":"run-restore-conflict","updatedAt":1700000001000,"query":{"message":"hello"},"_type":"query"}` + "\n",
 	}); err != nil {
 		t.Fatalf("seed archive: %v", err)
 	}
@@ -227,10 +235,12 @@ func seedArchiveHandlerChat(t *testing.T, store *chat.FileStore, chatID string) 
 	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
+	startedAt := testEpochMillis + 2_000
+	startServerFixtureRun(t, store, chatID, "run-"+chatID, startedAt)
 	if err := store.AppendQueryLine(chatID, chat.QueryLine{
 		ChatID:    chatID,
 		RunID:     "run-" + chatID,
-		UpdatedAt: 1000,
+		UpdatedAt: startedAt,
 		Query:     map[string]any{"role": "user", "message": "hello"},
 		Type:      "query",
 	}); err != nil {
@@ -243,8 +253,8 @@ func seedArchiveHandlerChat(t *testing.T, store *chat.FileStore, chatID string) 
 		AssistantText:   "archived response",
 		InitialMessage:  "hello",
 		FinishReason:    "complete",
-		StartedAtMillis: 1000,
-		UpdatedAtMillis: 2000,
+		StartedAtMillis: startedAt,
+		UpdatedAtMillis: startedAt + 1_000,
 		Usage: chat.UsageData{
 			PromptTokens:           3,
 			CompletionTokens:       5,

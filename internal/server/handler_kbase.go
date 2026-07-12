@@ -6,6 +6,7 @@ import (
 
 	"agent-platform/internal/agent/kbase"
 	"agent-platform/internal/api"
+	"agent-platform/internal/timecontract"
 )
 
 type kbaseRefreshRequest struct {
@@ -36,6 +37,10 @@ func (s *Server) handleKBase(w http.ResponseWriter, r *http.Request) {
 		}
 		status, err := s.deps.KBase.Status(agentKey)
 		if err != nil {
+			if timecontract.IsViolation(err) {
+				writeTimeContractViolation(w, err)
+				return
+			}
 			statusCode := kbaseErrorStatus(err)
 			writeJSON(w, statusCode, api.Failure(statusCode, kbaseErrorMessage(err)))
 			return

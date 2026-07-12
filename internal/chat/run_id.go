@@ -3,11 +3,29 @@ package chat
 import (
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
+var lastAllocatedRunIDMillis atomic.Int64
+
 func NewRunID() string {
-	return strconv.FormatInt(time.Now().UnixMilli(), 36)
+	// Run IDs retain their base36 epoch-millisecond form, but concurrent or
+	// immediately adjacent lifecycle operations must not reuse the same ID.
+	// In particular, a derived chat can allocate a copied run in the same
+	// millisecond as the next query.  Advance monotonically instead of relying
+	// on a timestamp collision being unlikely.
+	now := time.Now().UnixMilli()
+	for {
+		last := lastAllocatedRunIDMillis.Load()
+		candidate := now
+		if candidate <= last {
+			candidate = last + 1
+		}
+		if lastAllocatedRunIDMillis.CompareAndSwap(last, candidate) {
+			return strconv.FormatInt(candidate, 36)
+		}
+	}
 }
 
 func ParseRunIDMillis(runID string) (int64, bool) {

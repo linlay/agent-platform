@@ -28,6 +28,10 @@ func (s *Server) handleMemoryHistory(w http.ResponseWriter, r *http.Request) {
 		Cursor:    strings.TrimSpace(r.URL.Query().Get("cursor")),
 	})
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}

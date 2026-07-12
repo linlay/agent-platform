@@ -18,7 +18,7 @@ func Normalize(args map[string]any, params any) (map[string]any, error) {
 		return NormalizeApproval(args, params)
 	case "form":
 		return NormalizeForm(args, params)
-	case "plan":
+	case "planning":
 		return NormalizePlanningConfirmation(args, params)
 	default:
 		return nil, fmt.Errorf("unsupported bash HITL mode: %s", mode)

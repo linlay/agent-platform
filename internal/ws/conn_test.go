@@ -1,6 +1,7 @@
 package ws
 
 import (
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/i18n"
 	"agent-platform/internal/stream"
+	"agent-platform/internal/timecontract"
 )
 
 func TestConnRejectsDuplicateRequestID(t *testing.T) {
@@ -66,8 +68,9 @@ func TestConnLocaleLocalizesStreamErrorWithoutMutatingOriginal(t *testing.T) {
 		t.Fatalf("reserve stream: %v", err)
 	}
 	event := stream.EventData{
-		Seq:  1,
-		Type: "run.error",
+		Seq:       1,
+		Type:      "run.error",
+		Timestamp: time.Now().UnixMilli(),
 		Payload: map[string]any{
 			"error": map[string]any{
 				"code":    "not_found",
@@ -93,6 +96,39 @@ func TestConnLocaleLocalizesStreamErrorWithoutMutatingOriginal(t *testing.T) {
 	}
 }
 
+func TestConnEndsActiveStreamWithLocalErrorForTimeContractViolation(t *testing.T) {
+	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4, MaxObservesPerConn: 2}, time.Second, AuthSession{})
+	if _, err := conn.ReserveStream("req_1", "run_1"); err != nil {
+		t.Fatalf("reserve stream: %v", err)
+	}
+	if conn.SendStreamEvent("req_1", stream.EventData{
+		Seq:       3,
+		Type:      "content.delta",
+		Timestamp: 0,
+	}) {
+		t.Fatal("expected invalid stream event to stop forwarding")
+	}
+
+	message := mustReadQueuedMessage(t, conn.writeQueue)
+	frame, ok := message.frame.(StreamFrame)
+	if !ok || frame.Event == nil || frame.Event.Type != "run.error" {
+		t.Fatalf("expected local run.error stream frame, got %#v", message.frame)
+	}
+	if frame.Event.Timestamp < timecontract.MinEpochMillis {
+		t.Fatalf("expected local error timestamp in epoch milliseconds, got %#v", frame.Event)
+	}
+	errorPayload, _ := frame.Event.Payload["error"].(map[string]any)
+	if errorPayload["code"] != "time_contract_violation" || errorPayload["status"] != http.StatusUnprocessableEntity {
+		t.Fatalf("expected time contract error payload, got %#v", frame.Event.Payload)
+	}
+
+	message = mustReadQueuedMessage(t, conn.writeQueue)
+	frame, ok = message.frame.(StreamFrame)
+	if !ok || frame.Reason != "error" || frame.LastSeq != 3 {
+		t.Fatalf("expected terminal error stream frame, got %#v", message.frame)
+	}
+}
+
 func TestConnDetachRunStreamReleasesObserverAndAllowsReobserve(t *testing.T) {
 	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 8, MaxObservesPerConn: 2}, time.Second, AuthSession{})
 	streamID, err := conn.ReserveStream("req_1", "run_1")
@@ -107,7 +143,7 @@ func TestConnDetachRunStreamReleasesObserverAndAllowsReobserve(t *testing.T) {
 		close(events)
 	})
 	conn.StartStreamForward("req_1", &stream.Observer{Events: events})
-	events <- stream.EventData{Seq: 7, Type: "content.delta"}
+	events <- stream.EventData{Seq: 7, Type: "content.delta", Timestamp: time.Now().UnixMilli()}
 
 	msg := mustReadQueuedMessage(t, conn.writeQueue)
 	frame, ok := msg.frame.(StreamFrame)

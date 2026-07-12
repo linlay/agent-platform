@@ -16,12 +16,12 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	req.Locale = requestLocale(r, responseLocale(w))
 	req = s.normalizeActiveSubmitRun(req)
 	if statusErr := s.validateSubmitAgentKey(req); statusErr != nil {
-		writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))
+		writeStatusError(w, statusErr)
 		return
 	}
 	if response, statusErr, ok := s.forwardProxySubmit(req); ok {
 		if statusErr != nil {
-			writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))
+			writeStatusError(w, statusErr)
 			return
 		}
 		writeJSON(w, http.StatusOK, api.Success(response))
@@ -46,12 +46,12 @@ func (s *Server) handleSteer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if statusErr := s.validateRunOwner(req.RunID, req.AgentKey, req.TeamID); statusErr != nil {
-		writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))
+		writeStatusError(w, statusErr)
 		return
 	}
 	if response, statusErr, ok := s.forwardProxySteer(req); ok {
 		if statusErr != nil {
-			writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))
+			writeStatusError(w, statusErr)
 			return
 		}
 		writeJSON(w, http.StatusOK, api.Success(response))
@@ -74,12 +74,12 @@ func (s *Server) handleInterrupt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if statusErr := s.validateRunOwner(req.RunID, req.AgentKey, req.TeamID); statusErr != nil {
-		writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))
+		writeStatusError(w, statusErr)
 		return
 	}
 	if response, statusErr, ok := s.forwardProxyInterrupt(req); ok {
 		if statusErr != nil {
-			writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))
+			writeStatusError(w, statusErr)
 			return
 		}
 		writeJSON(w, http.StatusOK, api.Success(response))

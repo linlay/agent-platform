@@ -88,8 +88,8 @@ func TestAdminChannelsReportsServerConnectionsAndAgentRelations(t *testing.T) {
 		"public-entry": {{
 			SessionID:   "ws_2",
 			Active:      true,
-			ConnectedAt: 1000,
-			LastSeenAt:  2000,
+			ConnectedAt: 1_700_000_000_000,
+			LastSeenAt:  1_700_000_001_000,
 		}},
 	}
 	server.deps.Channels = channelpkg.NewRegistry([]config.ChannelConfig{{

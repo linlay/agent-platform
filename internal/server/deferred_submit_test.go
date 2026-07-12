@@ -24,7 +24,7 @@ import (
 	gws "github.com/gorilla/websocket"
 )
 
-func TestDeferredPlanApproveContinuationUsesCoderExecuteSystem(t *testing.T) {
+func TestDeferredPlanningApproveContinuationUsesCoderExecuteSystem(t *testing.T) {
 	var providerCallCount atomic.Int32
 	notifications := &recordingNotificationSink{}
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
@@ -39,8 +39,8 @@ func TestDeferredPlanApproveContinuationUsesCoderExecuteSystem(t *testing.T) {
 		assertStringSliceContains(t, toolNames, "bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex", "plan_add_tasks", "plan_get_tasks", "plan_update_task")
 		assertStringSliceExcludes(t, toolNames, contracts.FinalizePlanningToolName, "ask_user_question")
 		assertProviderMessagesContainToolResult(t, payload, "tool_plan", contracts.FinalizePlanningToolName, "approve")
-		if !providerMessagesContainText(payload, "Execute the confirmed CODER plan.\n\nOriginal request:\nplease plan first") ||
-			!providerMessagesContainText(payload, "Confirmed plan:\n# Deferred Coder Plan") {
+		if !providerMessagesContainText(payload, "Execute the confirmed CODER planning.\n\nOriginal request:\nplease plan first") ||
+			!providerMessagesContainText(payload, "Confirmed planning:\n# Deferred Coder Plan") {
 			t.Fatalf("expected execute prompt in provider messages, got %#v", payload["messages"])
 		}
 		writeProviderSSE(t, w,
@@ -72,10 +72,10 @@ func TestDeferredPlanApproveContinuationUsesCoderExecuteSystem(t *testing.T) {
 		},
 	})
 
-	chatID := "chat-deferred-coder-plan"
-	runID := "run-deferred-coder-plan"
+	chatID := "chat-deferred-coder-planning"
+	runID := "run-deferred-coder-planning"
 	awaitingID := "tool_plan"
-	seedCoderPlanAwaitingForDeferredSubmit(t, fixture.chats, chatID, runID, awaitingID, fixture.cfg.Paths.ChatsDir)
+	seedCoderPlanningAwaitingForDeferredSubmit(t, fixture.chats, chatID, runID, awaitingID, fixture.cfg.Paths.ChatsDir)
 
 	restartedRuns := contracts.NewInMemoryRunManager()
 	restarted, err := New(Dependencies{
@@ -108,7 +108,7 @@ func TestDeferredPlanApproveContinuationUsesCoderExecuteSystem(t *testing.T) {
 		RunID:      runID,
 		AgentKey:   "coder-app",
 		AwaitingID: awaitingID,
-		SubmitID:   "submit-deferred-plan",
+		SubmitID:   "submit-deferred-planning",
 		Params:     params,
 	})
 	if err != nil {
@@ -133,7 +133,7 @@ func TestDeferredPlanApproveContinuationUsesCoderExecuteSystem(t *testing.T) {
 	if got := providerCallCount.Load(); got != 1 {
 		t.Fatalf("expected one provider call, got %d", got)
 	}
-	assertDeferredPlanApproveJSONL(t, fixture.chats, chatID, runID, awaitingID, "submit-deferred-plan")
+	assertDeferredPlanningApproveJSONL(t, fixture.chats, chatID, runID, awaitingID, "submit-deferred-planning")
 }
 
 func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
@@ -144,7 +144,15 @@ func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
 		notifications: notifications,
 	})
 
-	seedDeferredAwaiting(t, fixture.chats, "chat-http", "run-http", "await-http", "question", 0, time.Now().UnixMilli())
+	persistedStartedAt := time.Now().UnixMilli()
+	seedDeferredAwaiting(t, fixture.chats, "chat-http", "run-http", "await-http", "question", 0, persistedStartedAt)
+	startReader, ok := fixture.chats.(chat.RunStartReader)
+	if !ok {
+		t.Fatal("fixture chat store must expose persisted run lifecycle starts")
+	}
+	if got, err := startReader.LoadRunStartedAt("chat-http", "run-http"); err != nil || got != persistedStartedAt {
+		t.Fatalf("persisted run start = %d, %v; want %d", got, err, persistedStartedAt)
+	}
 
 	restarted, err := New(Dependencies{
 		Config:          fixture.cfg,
@@ -186,6 +194,13 @@ func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
 	if response.Data.SubmitID != "submit-http" || !response.Data.Continued {
 		t.Fatalf("expected submitId echo and continued response, got %#v", response.Data)
 	}
+	waitForRecordedNotificationType(t, notifications, "run.finished")
+	if status, ok := fixture.runs.RunStatus("run-http"); !ok || status.StartedAt != persistedStartedAt {
+		t.Fatalf("restarted run lifecycle start = %#v; want %d", status, persistedStartedAt)
+	}
+	if runs, err := fixture.chats.ListRuns("chat-http"); err != nil || len(runs) != 1 || runs[0].StartedAt != persistedStartedAt {
+		t.Fatalf("persisted completion changed authoritative start: %#v err=%v want=%d", runs, err, persistedStartedAt)
+	}
 
 	summary, err := fixture.chats.Summary("chat-http")
 	if err != nil {
@@ -210,7 +225,8 @@ func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
 			if event.String("awaitingId") != "await-http" || event.String("status") != "answered" {
 				t.Fatalf("unexpected awaiting.answer %#v", event)
 			}
-			if duration, ok := event.Value("durationMs").(float64); !ok || duration < 0 {
+			durationValue := event.Value("durationMs")
+			if durationValue == nil || contracts.AnyIntNode(durationValue) < 0 {
 				t.Fatalf("expected non-negative durationMs on deferred awaiting.answer, got %#v", event)
 			}
 		}
@@ -337,11 +353,12 @@ func TestPersistDeferredAwaitingToolAnswerWritesReactToolLine(t *testing.T) {
 	if _, _, err := store.EnsureChat(chatID, "mock-agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	assistantTs := int64(1701)
+	assistantTs := int64(1700000001701)
+	startServerFixtureRun(t, store, chatID, runID, assistantTs)
 	if err := store.AppendStepLine(chatID, chat.StepLine{
 		ChatID:    chatID,
 		RunID:     runID,
-		UpdatedAt: 1701,
+		UpdatedAt: 1700000001701,
 		Type:      chat.StepLineTypeReact,
 		Seq:       1,
 		Messages: []chat.StoredMessage{{
@@ -370,7 +387,7 @@ func TestPersistDeferredAwaitingToolAnswerWritesReactToolLine(t *testing.T) {
 		"status":     "answered",
 		"answers":    []any{map[string]any{"id": "q1", "answer": "ok"}},
 	}
-	if err := server.persistDeferredAwaitingToolAnswer(chatID, runID, awaitingID, answer, 1702); err != nil {
+	if err := server.persistDeferredAwaitingToolAnswer(chatID, runID, awaitingID, answer, 1700000001702); err != nil {
 		t.Fatalf("persist deferred awaiting tool answer: %v", err)
 	}
 
@@ -673,12 +690,12 @@ func TestDeferredSubmitRestoresQuestionAndPlanAfterRestart(t *testing.T) {
 			}),
 		},
 		{
-			name:       "plan",
-			mode:       "plan",
-			awaitingID: "await-plan",
+			name:       "planning",
+			mode:       "planning",
+			awaitingID: "await-planning",
 			restorable: true,
 			ask: map[string]any{
-				"plan": map[string]any{"id": "confirm", "planningId": "run-plan_planning_1"},
+				"planning": map[string]any{"id": "confirm", "planningId": "run-planning_planning_1"},
 			},
 			params: mustEncodeSubmitParams(t, []map[string]any{
 				{"id": "confirm", "decision": "approve"},
@@ -933,6 +950,7 @@ func TestHydrationClearsDanglingAndAnsweredAwaitings(t *testing.T) {
 		Type:      "submit",
 		Answer: map[string]any{
 			"type":       "awaiting.answer",
+			"timestamp":  nowMs + 1,
 			"awaitingId": "await-answered",
 			"mode":       "question",
 			"status":     "answered",
@@ -1027,9 +1045,11 @@ func seedDeferredAwaitingPayload(t *testing.T, store chat.Store, chatID string, 
 	if _, _, err := store.EnsureChat(chatID, "mock-agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
+	startServerFixtureRun(t, store, chatID, runID, createdAt)
 	ask := map[string]any{
 		"type":       "awaiting.ask",
 		"awaitingId": awaitingID,
+		"timestamp":  createdAt,
 		"mode":       mode,
 		"timeout":    timeoutSec,
 	}
@@ -1055,15 +1075,17 @@ func seedDeferredAwaitingPayload(t *testing.T, store chat.Store, chatID string, 
 	}
 }
 
-func seedCoderPlanAwaitingForDeferredSubmit(t *testing.T, store chat.Store, chatID string, runID string, awaitingID string, chatsDir string) {
+func seedCoderPlanningAwaitingForDeferredSubmit(t *testing.T, store chat.Store, chatID string, runID string, awaitingID string, chatsDir string) {
 	t.Helper()
+	queryTs := time.Now().UnixMilli()
 	if _, _, err := store.EnsureChat(chatID, "coder-app", "", "please plan first"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
+	startServerFixtureRun(t, store, chatID, runID, queryTs)
 	if err := store.AppendQueryLine(chatID, chat.QueryLine{
 		ChatID:    chatID,
 		RunID:     runID,
-		UpdatedAt: 1701,
+		UpdatedAt: queryTs,
 		LiveSeq:   1,
 		Query: map[string]any{
 			"requestId":    runID,
@@ -1081,7 +1103,7 @@ func seedCoderPlanAwaitingForDeferredSubmit(t *testing.T, store chat.Store, chat
 	}
 
 	planningID := runID + "_planning_1"
-	planningFile := filepath.Join(chatsDir, chatID, chat.ToolRootDirName, chat.ToolPlansDirName, planningID+".md")
+	planningFile := filepath.Join(chatsDir, chatID, chat.ToolRootDirName, chat.ToolPlanningDirName, planningID+".md")
 	if err := os.MkdirAll(filepath.Dir(planningFile), 0o755); err != nil {
 		t.Fatalf("mkdir planning dir: %v", err)
 	}
@@ -1089,16 +1111,16 @@ func seedCoderPlanAwaitingForDeferredSubmit(t *testing.T, store chat.Store, chat
 	if err := os.WriteFile(planningFile, []byte(markdown), 0o644); err != nil {
 		t.Fatalf("write planning file: %v", err)
 	}
-	assistantTs := int64(1702)
+	assistantTs := queryTs + 1
 	awaiting := map[string]any{
 		"type":         "awaiting.ask",
 		"awaitingId":   awaitingID,
 		"runId":        runID,
-		"mode":         "plan",
-		"timeout":      0,
+		"timestamp":    assistantTs,
+		"mode":         "planning",
 		"viewportType": "builtin",
-		"viewportKey":  "plan",
-		"plan": map[string]any{
+		"viewportKey":  "planning",
+		"planning": map[string]any{
 			"id":           "confirm",
 			"planningId":   planningID,
 			"planningFile": planningFile,
@@ -1136,7 +1158,7 @@ func seedCoderPlanAwaitingForDeferredSubmit(t *testing.T, store chat.Store, chat
 	if err := store.SetPendingAwaiting(chatID, chat.PendingAwaiting{
 		AwaitingID: awaitingID,
 		RunID:      runID,
-		Mode:       "plan",
+		Mode:       "planning",
 		CreatedAt:  assistantTs,
 	}); err != nil {
 		t.Fatalf("set pending awaiting: %v", err)
@@ -1154,7 +1176,7 @@ func providerMessagesContainText(payload map[string]any, want string) bool {
 	return false
 }
 
-func assertDeferredPlanApproveJSONL(t *testing.T, store chat.Store, chatID string, sourceRunID string, awaitingID string, submitID string) {
+func assertDeferredPlanningApproveJSONL(t *testing.T, store chat.Store, chatID string, sourceRunID string, awaitingID string, submitID string) {
 	t.Helper()
 	content, err := store.LoadJSONLContent(chatID)
 	if err != nil {
@@ -1172,17 +1194,17 @@ func assertDeferredPlanApproveJSONL(t *testing.T, store chat.Store, chatID strin
 		}
 		lines = append(lines, line)
 	}
-	foundSourcePlanResult := false
+	foundSourcePlanningResult := false
 	executeQueryIndex := -1
 	for index, line := range lines {
 		if stringValue(line["_type"]) == chat.StepLineTypeReactTool && stringValue(line["runId"]) == sourceRunID && lineHasFinalizePlanningToolResultForServerTest(line) {
-			foundSourcePlanResult = true
+			foundSourcePlanningResult = true
 		}
 		if stringValue(line["_type"]) != "query" {
 			continue
 		}
 		query, _ := line["query"].(map[string]any)
-		if stringValue(query["message"]) == "Execute plan" && stringValue(line["runId"]) != sourceRunID {
+		if stringValue(query["message"]) == "Execute planning" && stringValue(line["runId"]) != sourceRunID {
 			executeQueryIndex = index
 			break
 		}
@@ -1190,7 +1212,7 @@ func assertDeferredPlanApproveJSONL(t *testing.T, store chat.Store, chatID strin
 	if executeQueryIndex < 0 {
 		t.Fatalf("expected coder execute query in:\n%s", content)
 	}
-	if !foundSourcePlanResult {
+	if !foundSourcePlanningResult {
 		t.Fatalf("expected source run %s to keep finalize_planning submit tool result in:\n%s", sourceRunID, content)
 	}
 	executeQueryLine := lines[executeQueryIndex]
@@ -1226,8 +1248,8 @@ func assertDeferredPlanApproveJSONL(t *testing.T, store chat.Store, chatID strin
 	}
 	message, _ := rawMessages[0].(map[string]any)
 	if stringValue(message["role"]) != "user" ||
-		!strings.Contains(textFromJSONLMessageContentForServerTest(message["content"]), "Execute the confirmed CODER plan.") ||
-		!strings.Contains(textFromJSONLMessageContentForServerTest(message["content"]), "Confirmed plan:\n# Deferred Coder Plan") {
+		!strings.Contains(textFromJSONLMessageContentForServerTest(message["content"]), "Execute the confirmed CODER planning.") ||
+		!strings.Contains(textFromJSONLMessageContentForServerTest(message["content"]), "Confirmed planning:\n# Deferred Coder Plan") {
 		t.Fatalf("unexpected execute query message %#v in:\n%s", message, content)
 	}
 

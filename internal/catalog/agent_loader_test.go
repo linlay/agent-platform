@@ -152,6 +152,35 @@ func TestParseAgentFileMergesStageSettingsBudgetIntoResolvedBudget(t *testing.T)
 	}
 }
 
+func TestParseCoderUsesPlanningStageAndRejectsLegacyPlanStage(t *testing.T) {
+	root := t.TempDir()
+	planningPath := filepath.Join(root, "planning.yml")
+	planningConfig := "key: coder-planning\nname: Coder Planning\nmode: CODER\nmodelConfig:\n  modelKey: demo-model\nstageSettings:\n  planning:\n    modelConfig:\n      modelKey: planning-model\n    budget:\n      maxSteps: 17\nbudget:\n  stages:\n    planning:\n      maxSteps: 19\n"
+	if err := os.WriteFile(planningPath, []byte(planningConfig), 0o644); err != nil {
+		t.Fatalf("write planning config: %v", err)
+	}
+	def, err := parseAgentFile(planningPath)
+	if err != nil {
+		t.Fatalf("parse planning config: %v", err)
+	}
+	settings := contracts.ResolveCoderPlanningSettings(def.StageSettings, 60)
+	if settings.Planning.ModelKey != "planning-model" {
+		t.Fatalf("planning model key = %q", settings.Planning.ModelKey)
+	}
+	if budget := contracts.ResolveBudget(config.Config{}, def.Budget); budget.Stages["planning"].MaxSteps != 17 {
+		t.Fatalf("planning stage budget = %#v", budget.Stages["planning"])
+	}
+
+	legacyPath := filepath.Join(root, "legacy.yml")
+	legacyConfig := "key: coder-legacy\nname: Coder Legacy\nmode: CODER\nmodelConfig:\n  modelKey: demo-model\nstageSettings:\n  plan: {}\n"
+	if err := os.WriteFile(legacyPath, []byte(legacyConfig), 0o644); err != nil {
+		t.Fatalf("write legacy config: %v", err)
+	}
+	if _, err := parseAgentFile(legacyPath); err == nil || !strings.Contains(err.Error(), "stageSettings.plan is unsupported") {
+		t.Fatalf("expected legacy CODER plan stage rejection, got %v", err)
+	}
+}
+
 func TestParseAgentFileReadsProxyTransport(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")

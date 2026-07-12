@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/timecontract"
 )
 
 func (s *Server) handleSkillCandidates(w http.ResponseWriter, r *http.Request) {
@@ -22,6 +23,10 @@ func (s *Server) handleSkillCandidates(w http.ResponseWriter, r *http.Request) {
 	}
 	items, err := s.deps.SkillCandidates.List(agentKey, limit)
 	if err != nil {
+		if timecontract.IsViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}

@@ -146,6 +146,9 @@ func (s *SQLiteStore) Read(id string) (*api.StoredMemoryResponse, error) {
 	if tags.Valid && tags.String != "" {
 		item.Tags = strings.Split(tags.String, ",")
 	}
+	if err := validateStoredMemoryTimeContract(item, "memory.sqlite.read"); err != nil {
+		return nil, err
+	}
 	item = normalizeStoredItem(item)
 
 	// Update access tracking
@@ -221,6 +224,9 @@ func (s *SQLiteStore) readProjectionByIDLocked(id string) (*api.StoredMemoryResp
 	if tags.Valid && tags.String != "" {
 		item.Tags = strings.Split(tags.String, ",")
 	}
+	if err := validateStoredMemoryTimeContract(item, "memory.sqlite.projection"); err != nil {
+		return nil, err
+	}
 	normalized := normalizeStoredItem(item)
 	return &normalized, nil
 }
@@ -295,6 +301,9 @@ func scanToolRecord(scanner sqlScanner) (ToolRecord, error) {
 		value := lastAccessedAt.Int64
 		record.LastAccessedAt = &value
 	}
+	if err := validateToolRecordTimeContract(record, "memory.sqlite.toolRecord"); err != nil {
+		return record, err
+	}
 	record.Kind = normalizeMemoryKind(record.Kind)
 	record.ScopeType = normalizeScopeType(record.ScopeType)
 	record.Title = normalizeMemoryTitle(record.Title, record.Content)
@@ -358,6 +367,9 @@ func scanToolRecordWithScore(scanner sqlScanner) (ToolRecord, float64, error) {
 	if lastAccessedAt.Valid {
 		value := lastAccessedAt.Int64
 		record.LastAccessedAt = &value
+	}
+	if err := validateToolRecordTimeContract(record, "memory.sqlite.scoredToolRecord"); err != nil {
+		return record, 0, err
 	}
 	record.Kind = normalizeMemoryKind(record.Kind)
 	record.ScopeType = normalizeScopeType(record.ScopeType)

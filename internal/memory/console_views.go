@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/timecontract"
 )
 
 func buildScopeView(agentKey string, scopeType string, scopeKey string, records []api.StoredMemoryResponse) ScopeView {
@@ -26,14 +27,18 @@ func buildScopeView(agentKey string, scopeType string, scopeKey string, records 
 	}
 }
 
-func latestUpdatedAt(records []api.StoredMemoryResponse) int64 {
+func latestUpdatedAt(records []api.StoredMemoryResponse) *int64 {
 	var updatedAt int64
 	for _, item := range records {
 		if item.UpdatedAt > updatedAt {
 			updatedAt = item.UpdatedAt
 		}
 	}
-	return updatedAt
+	if updatedAt == 0 {
+		return nil
+	}
+	value := updatedAt
+	return &value
 }
 
 func scopeFileName(scopeType string) string {
@@ -497,23 +502,24 @@ func (s *SQLiteStore) readSourceFieldsLocked(item api.StoredMemoryResponse) (map
 	if err := row.Scan(&sourceKind, &sourceRef, &dedupeKey, &lastConfirmedAt, &expiresAt); err != nil {
 		return nil, err
 	}
-	var lastConfirmedValue *int64
-	var expiresValue *int64
+	rawFields := map[string]any{
+		"sourceKind": sourceKind,
+		"sourceRef":  sourceRef,
+		"dedupeKey":  dedupeKey,
+	}
 	if lastConfirmedAt.Valid {
-		value := lastConfirmedAt.Int64
-		lastConfirmedValue = &value
+		if err := timecontract.ValidateEpochMillis(lastConfirmedAt.Int64, "lastConfirmedAt", "memory.rawFields"); err != nil {
+			return nil, err
+		}
+		rawFields["lastConfirmedAt"] = lastConfirmedAt.Int64
 	}
 	if expiresAt.Valid {
-		value := expiresAt.Int64
-		expiresValue = &value
+		if err := timecontract.ValidateEpochMillis(expiresAt.Int64, "expiresAt", "memory.rawFields"); err != nil {
+			return nil, err
+		}
+		rawFields["expiresAt"] = expiresAt.Int64
 	}
-	return map[string]any{
-		"sourceKind":      sourceKind,
-		"sourceRef":       sourceRef,
-		"dedupeKey":       dedupeKey,
-		"lastConfirmedAt": lastConfirmedValue,
-		"expiresAt":       expiresValue,
-	}, nil
+	return rawFields, nil
 }
 
 func decodeJSONList(raw string) []any {

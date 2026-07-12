@@ -55,8 +55,8 @@ func awaitingTimeoutActionLabel(mode string) string {
 		return "审批确认"
 	case "form":
 		return "表单提交"
-	case "plan":
-		return "计划确认"
+	case "planning":
+		return "规划确认"
 	default:
 		return "等待项提交"
 	}

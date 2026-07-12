@@ -30,10 +30,10 @@ func TestQueryGateRejectsPendingAwaitingModes(t *testing.T) {
 			},
 		},
 		{
-			mode:       "plan",
-			awaitingID: "await-plan",
+			mode:       "planning",
+			awaitingID: "await-planning",
 			ask: map[string]any{
-				"plan": map[string]any{"id": "confirm-plan", "planningId": "plan-1"},
+				"planning": map[string]any{"id": "confirm-planning", "planningId": "planning-1"},
 			},
 		},
 		{

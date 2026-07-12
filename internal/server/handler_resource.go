@@ -198,6 +198,10 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	agentKey := strings.TrimSpace(r.FormValue("agentKey"))
 	summary, created, err := s.deps.Chats.EnsureChat(chatID, agentKey, "", r.FormValue("name"))
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}

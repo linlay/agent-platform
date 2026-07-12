@@ -46,15 +46,20 @@ func TestPrepareSystemInitCacheWritesFreshSystemMessageOnPayloadChange(t *testin
 		SessionMemoryContext: "Runtime Context: Current Session\n- stale session memory",
 		ObservationContext:   "Runtime Context: Relevant Observations\n- stale observation",
 	}
-	oldProfiles := llm.BuildSystemInitProfiles(oldSession, req, toolDefs, 0, 0, config.PromptsConfig{})
+	oldProfiles := llm.BuildSystemInitProfiles(oldSession, req, toolDefs, 0, 0, 0, config.PromptsConfig{})
 	if len(oldProfiles) != 1 {
 		t.Fatalf("expected one system init profile, got %#v", oldProfiles)
 	}
+	if _, _, err := store.EnsureChat(req.ChatID, oldSession.AgentKey, "", req.Message); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	startedAt := testEpochMillis + 1_001
+	startServerFixtureRun(t, store, req.ChatID, oldSession.RunID, startedAt)
 	if err := store.AppendQueryLine(req.ChatID, chat.QueryLine{
 		Type:      "query",
 		ChatID:    req.ChatID,
 		RunID:     oldSession.RunID,
-		UpdatedAt: 1001,
+		UpdatedAt: startedAt,
 		Query:     map[string]any{"role": "user", "message": "hello", "agentKey": oldSession.AgentKey},
 		System: &chat.QueryLineSystemInit{
 			AgentKey:      oldSession.AgentKey,
@@ -233,11 +238,16 @@ func TestMainQueryDedupsSystemsOnlyWhenPayloadMatches(t *testing.T) {
 	if firstPending.CacheKey != "react:main" {
 		t.Fatalf("unexpected first system init cache keys %#v", firstPending)
 	}
+	if _, _, err := store.EnsureChat(req.ChatID, session.AgentKey, "", req.Message); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	startedAt := testEpochMillis + 2_001
+	startServerFixtureRun(t, store, req.ChatID, session.RunID, startedAt)
 	if err := store.AppendQueryLine(req.ChatID, chat.QueryLine{
 		Type:      "query",
 		ChatID:    req.ChatID,
 		RunID:     session.RunID,
-		UpdatedAt: 1001,
+		UpdatedAt: startedAt,
 		Query:     map[string]any{"role": "user", "message": req.Message, "agentKey": session.AgentKey},
 		System:    firstPending,
 	}); err != nil {
@@ -305,11 +315,16 @@ func TestMainQueryDedupsSystemsWhenOnlyReferencesChange(t *testing.T) {
 	if firstPending.CacheKey != "react:main" {
 		t.Fatalf("unexpected first system init cache keys %#v", firstPending)
 	}
+	if _, _, err := store.EnsureChat(req.ChatID, session.AgentKey, "", req.Message); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	startedAt := testEpochMillis + 3_001
+	startServerFixtureRun(t, store, req.ChatID, session.RunID, startedAt)
 	if err := store.AppendQueryLine(req.ChatID, chat.QueryLine{
 		Type:      "query",
 		ChatID:    req.ChatID,
 		RunID:     session.RunID,
-		UpdatedAt: 1001,
+		UpdatedAt: startedAt,
 		Query: map[string]any{
 			"role":       "user",
 			"message":    req.Message,
@@ -372,16 +387,18 @@ func TestSystemInitDedupIsScopedByAgentKey(t *testing.T) {
 		}
 		return system
 	}
-	for _, item := range []struct{ agentKey, runID string }{{"agent-a", "run-a"}, {"agent-b", "run-b"}} {
+	for index, item := range []struct{ agentKey, runID string }{{"agent-a", "run-a"}, {"agent-b", "run-b"}} {
 		system := register(item.agentKey, item.runID)
 		if system == nil || system.AgentKey != item.agentKey {
 			t.Fatalf("expected new system for %s, got %#v", item.agentKey, system)
 		}
+		startedAt := testEpochMillis + int64(index+1)
+		startServerFixtureRun(t, store, chatID, item.runID, startedAt)
 		if err := store.AppendQueryLine(chatID, chat.QueryLine{
 			Type:      "query",
 			ChatID:    chatID,
 			RunID:     item.runID,
-			UpdatedAt: 1,
+			UpdatedAt: startedAt,
 			Query:     map[string]any{"role": "user", "message": "hello", "agentKey": item.agentKey},
 			System:    system,
 		}); err != nil {

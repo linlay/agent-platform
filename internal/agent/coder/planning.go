@@ -8,9 +8,9 @@ import (
 
 const AskUserQuestionToolName = "ask_user_question"
 
-const PlanApproveContinuationParam = "_coderPlanApproveContinuation"
+const PlanningApproveContinuationParam = "_coderPlanningApproveContinuation"
 
-var planningModePlanTools = []string{
+var planningModeTools = []string{
 	"file_read",
 	"file_glob",
 	"file_grep",
@@ -21,8 +21,8 @@ var planningModePlanTools = []string{
 	contracts.FinalizePlanningToolName,
 }
 
-func PlanningModePlanTools() []string {
-	return append([]string(nil), planningModePlanTools...)
+func PlanningModeTools() []string {
+	return append([]string(nil), planningModeTools...)
 }
 
 func IsMode(mode string) bool {
@@ -41,11 +41,11 @@ func PlanningModeEnabled(mode string, requested bool) bool {
 	return requested && IsMode(mode)
 }
 
-func IsPlanApproveContinuationParams(params map[string]any) bool {
+func IsPlanningApproveContinuationParams(params map[string]any) bool {
 	if len(params) == 0 {
 		return false
 	}
-	value, ok := params[PlanApproveContinuationParam]
+	value, ok := params[PlanningApproveContinuationParam]
 	if !ok {
 		return false
 	}
@@ -59,16 +59,16 @@ func IsPlanApproveContinuationParams(params map[string]any) bool {
 	}
 }
 
-func MarkPlanApproveContinuationParams(params map[string]any) map[string]any {
+func MarkPlanningApproveContinuationParams(params map[string]any) map[string]any {
 	if params == nil {
 		params = map[string]any{}
 	}
-	params[PlanApproveContinuationParam] = true
+	params[PlanningApproveContinuationParam] = true
 	return params
 }
 
-func PlanApproveExecutePrompt(originalRequest string, planMarkdown string) string {
-	return "Execute the confirmed CODER plan.\n\nOriginal request:\n" + originalRequest + "\n\nConfirmed plan:\n" + planMarkdown
+func PlanningApproveExecutePrompt(originalRequest string, planningMarkdown string) string {
+	return "Execute the confirmed CODER planning.\n\nOriginal request:\n" + originalRequest + "\n\nConfirmed planning:\n" + planningMarkdown
 }
 
 func SystemPromptForMode(mode string, prompt string) string {

@@ -75,10 +75,10 @@ func newAwaitingAnswerEvent(input AwaitingAnswer) StreamEvent {
 		if len(formatted) > 0 {
 			payload["forms"] = formatted
 		}
-	case "plan":
-		formatted := formatAwaitingPlan(answer["plan"])
+	case "planning":
+		formatted := formatAwaitingPlanning(answer["planning"])
 		if len(formatted) > 0 {
-			payload["plan"] = formatted
+			payload["planning"] = formatted
 		}
 	default:
 		return StreamEvent{}
@@ -199,7 +199,7 @@ func formatAwaitingForms(raw any) []map[string]any {
 	}
 }
 
-func formatAwaitingPlan(raw any) map[string]any {
+func formatAwaitingPlanning(raw any) map[string]any {
 	plan := anyMap(raw)
 	if len(plan) == 0 {
 		return nil
@@ -257,8 +257,10 @@ func (d *StreamEventDispatcher) newAwaitAskEvent(input AwaitAsk) StreamEvent {
 	payload := map[string]any{
 		"awaitingId": awaitingID,
 		"mode":       input.Mode,
-		"timeout":    input.Timeout,
 		"runId":      input.RunID,
+	}
+	if strings.ToLower(strings.TrimSpace(input.Mode)) != "planning" {
+		payload["timeout"] = input.Timeout
 	}
 	if taskID := strings.TrimSpace(input.TaskID); taskID != "" {
 		payload["taskId"] = taskID
@@ -282,8 +284,8 @@ func (d *StreamEventDispatcher) newAwaitAskEvent(input AwaitAsk) StreamEvent {
 	if len(input.Forms) > 0 {
 		payload["forms"] = input.Forms
 	}
-	if len(input.Plan) > 0 {
-		payload["plan"] = clonePayload(input.Plan)
+	if len(input.Planning) > 0 {
+		payload["planning"] = clonePayload(input.Planning)
 	}
 	event := NewEvent("awaiting.ask", payload)
 	d.state.awaitingAskAtByID[awaitingID] = event.Timestamp
@@ -313,12 +315,12 @@ func awaitAskViewport(input AwaitAsk) (string, string) {
 		if viewportType == "" {
 			viewportType = "html"
 		}
-	case "plan":
+	case "planning":
 		if viewportType == "" {
 			viewportType = "builtin"
 		}
 		if viewportKey == "" {
-			viewportKey = "plan"
+			viewportKey = "planning"
 		}
 	}
 	return viewportType, viewportKey

@@ -1,13 +1,18 @@
 package skills
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"agent-platform/internal/timecontract"
 )
 
 type Candidate struct {
@@ -99,6 +104,9 @@ func (s *FileCandidateStore) Write(input CandidateInput) (Candidate, error) {
 	if strings.TrimSpace(candidate.Procedure) == "" {
 		candidate.Procedure = candidate.Summary
 	}
+	if err := validateCandidateTimeContract(candidate, "skills.candidates.write"); err != nil {
+		return Candidate{}, err
+	}
 	data, err := json.MarshalIndent(candidate, "", "  ")
 	if err != nil {
 		return Candidate{}, err
@@ -126,8 +134,8 @@ func (s *FileCandidateStore) List(agentKey string, limit int) ([]Candidate, erro
 		if err != nil {
 			return nil, err
 		}
-		var item Candidate
-		if err := json.Unmarshal(data, &item); err != nil {
+		item, err := decodePersistedCandidate(data, "skills.candidates["+entry.Name()+"]")
+		if err != nil {
 			return nil, err
 		}
 		if strings.TrimSpace(agentKey) != "" && strings.TrimSpace(item.AgentKey) != strings.TrimSpace(agentKey) {
@@ -145,6 +153,44 @@ func (s *FileCandidateStore) List(agentKey string, limit int) ([]Candidate, erro
 		items = items[:limit]
 	}
 	return items, nil
+}
+
+// decodePersistedCandidate validates the raw JSON representation before
+// decoding it into the typed DTO.  A normal json.Unmarshal would classify a
+// historical numeric string or float as a generic decoding error, causing the
+// public handler to return 500 instead of the required 422 contract error.
+func decodePersistedCandidate(data []byte, location string) (Candidate, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var payload map[string]any
+	if err := decoder.Decode(&payload); err != nil {
+		return Candidate{}, err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return Candidate{}, fmt.Errorf("candidate contains multiple JSON values")
+		}
+		return Candidate{}, err
+	}
+	if err := timecontract.ValidateJSONPayload(payload, location); err != nil {
+		return Candidate{}, err
+	}
+	var item Candidate
+	if err := json.Unmarshal(data, &item); err != nil {
+		return Candidate{}, err
+	}
+	if err := validateCandidateTimeContract(item, location); err != nil {
+		return Candidate{}, err
+	}
+	return item, nil
+}
+
+func validateCandidateTimeContract(item Candidate, location string) error {
+	if err := timecontract.ValidateEpochMillis(item.CreatedAt, "createdAt", location+".createdAt"); err != nil {
+		return err
+	}
+	return timecontract.ValidateEpochMillis(item.UpdatedAt, "updatedAt", location+".updatedAt")
 }
 
 func normalizeText(value string, fallback string) string {

@@ -25,7 +25,7 @@ func TestArchiverMovesChatToArchiveAndPreservesAttachments(t *testing.T) {
 	if err := active.AppendQueryLine("chat-archiver", QueryLine{
 		ChatID:    "chat-archiver",
 		RunID:     "run-archiver",
-		UpdatedAt: 1000,
+		UpdatedAt: testEpochMillis(1000),
 		Query:     map[string]any{"role": "user", "message": "hello archive"},
 		Type:      "query",
 	}); err != nil {
@@ -34,10 +34,11 @@ func TestArchiverMovesChatToArchiveAndPreservesAttachments(t *testing.T) {
 	if err := active.AppendStepLine("chat-archiver", StepLine{
 		ChatID:    "chat-archiver",
 		RunID:     "run-archiver",
-		UpdatedAt: 2000,
+		UpdatedAt: testEpochMillis(2000),
 		Messages: []StoredMessage{{
 			Role:    "assistant",
 			Content: []ContentPart{{Type: "text", Text: "archived response"}},
+			Ts:      int64Ptr(testEpochMillis(2000)),
 		}},
 		Type: "react",
 		Usage: map[string]any{
@@ -48,15 +49,15 @@ func TestArchiverMovesChatToArchiveAndPreservesAttachments(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append step: %v", err)
 	}
-	if err := active.OnRunCompleted(RunCompletion{
+	if err := completeRunForTest(active, RunCompletion{
 		ChatID:          "chat-archiver",
 		RunID:           "run-archiver",
 		AgentKey:        "agent-a",
 		AssistantText:   "archived response",
 		InitialMessage:  "hello archive",
 		FinishReason:    "complete",
-		StartedAtMillis: 1000,
-		UpdatedAtMillis: 2000,
+		StartedAtMillis: testEpochMillis(1000),
+		UpdatedAtMillis: testEpochMillis(2000),
 		Usage: UsageData{
 			ModelKey:               "mock-model",
 			PromptTokens:           1,
@@ -132,22 +133,23 @@ func TestArchiverMovesToolStateWithoutMarkingAttachments(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	if err := active.AppendQueryLine("chat-tool-state", QueryLine{
-		ChatID: "chat-tool-state",
-		RunID:  "loyw3v28",
-		Query:  map[string]any{"message": "hello"},
-		Type:   "query",
+		ChatID:    "chat-tool-state",
+		RunID:     "loyw3v28",
+		UpdatedAt: testEpochMillis(1000),
+		Query:     map[string]any{"message": "hello"},
+		Type:      "query",
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
 	}
-	if err := active.OnRunCompleted(RunCompletion{
+	if err := completeRunForTest(active, RunCompletion{
 		ChatID:          "chat-tool-state",
 		RunID:           "loyw3v28",
 		AgentKey:        "agent-a",
 		AssistantText:   "done",
 		InitialMessage:  "hello",
 		FinishReason:    "complete",
-		StartedAtMillis: 1000,
-		UpdatedAtMillis: 2000,
+		StartedAtMillis: testEpochMillis(1000),
+		UpdatedAtMillis: testEpochMillis(2000),
 	}); err != nil {
 		t.Fatalf("complete run: %v", err)
 	}
@@ -195,21 +197,21 @@ func TestArchiverRestoresArchivedChatAndRemovesArchive(t *testing.T) {
 	if err := active.AppendQueryLine("chat-restore", QueryLine{
 		ChatID:    "chat-restore",
 		RunID:     "run-restore",
-		UpdatedAt: 1000,
+		UpdatedAt: testEpochMillis(1000),
 		Query:     map[string]any{"role": "user", "message": "hello restore"},
 		Type:      "query",
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
 	}
-	if err := active.OnRunCompleted(RunCompletion{
+	if err := completeRunForTest(active, RunCompletion{
 		ChatID:          "chat-restore",
 		RunID:           "run-restore",
 		AgentKey:        "agent-a",
 		AssistantText:   "restored response",
 		InitialMessage:  "hello restore",
 		FinishReason:    "complete",
-		StartedAtMillis: 1000,
-		UpdatedAtMillis: 2000,
+		StartedAtMillis: testEpochMillis(1000),
+		UpdatedAtMillis: testEpochMillis(2000),
 		Usage:           UsageData{PromptTokens: 4, CompletionTokens: 5, TotalTokens: 9},
 	}); err != nil {
 		t.Fatalf("complete run: %v", err)

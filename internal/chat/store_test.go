@@ -50,7 +50,7 @@ func TestFileStoreSetPendingAwaitingPersistsIntoSummaryAndListChats(t *testing.T
 		AwaitingID: "await_1",
 		RunID:      "run_1",
 		Mode:       "question",
-		CreatedAt:  12345,
+		CreatedAt:  testEpochMillis(12345),
 	}
 	if err := store.SetPendingAwaiting("chat-pending", pending); err != nil {
 		t.Fatalf("set pending awaiting: %v", err)
@@ -185,7 +185,7 @@ func TestFileStoreClearPendingAwaitingClearsMatchingAwaitingID(t *testing.T) {
 		AwaitingID: "await_1",
 		RunID:      "run_1",
 		Mode:       "approval",
-		CreatedAt:  45678,
+		CreatedAt:  testEpochMillis(45678),
 	}); err != nil {
 		t.Fatalf("set pending awaiting: %v", err)
 	}
@@ -216,7 +216,7 @@ func TestFileStoreClearPendingAwaitingIgnoresStaleAwaitingID(t *testing.T) {
 		AwaitingID: "await_latest",
 		RunID:      "run_latest",
 		Mode:       "form",
-		CreatedAt:  78901,
+		CreatedAt:  testEpochMillis(78901),
 	}
 	if err := store.SetPendingAwaiting("chat-stale", pending); err != nil {
 		t.Fatalf("set pending awaiting: %v", err)
@@ -250,7 +250,7 @@ func TestFileStoreLoadAllPendingAwaitingsReturnsPersistedRows(t *testing.T) {
 		AwaitingID: "await_a",
 		RunID:      "run_a",
 		Mode:       "question",
-		CreatedAt:  111,
+		CreatedAt:  testEpochMillis(111),
 	}); err != nil {
 		t.Fatalf("set pending a: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestFileStoreLoadAllPendingAwaitingsReturnsPersistedRows(t *testing.T) {
 		AwaitingID: "await_b",
 		RunID:      "run_b",
 		Mode:       "approval",
-		CreatedAt:  222,
+		CreatedAt:  testEpochMillis(222),
 	}); err != nil {
 		t.Fatalf("set pending b: %v", err)
 	}
@@ -284,10 +284,10 @@ func TestFileStoreLoadAwaitingAskUsesCanonicalStepOnly(t *testing.T) {
 	if _, _, err := store.EnsureChat("chat-awaiting-step", "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure step chat: %v", err)
 	}
-	if err := store.AppendStepLine("chat-awaiting-step", StepLine{
+	if err := appendStepLineForTest(store, "chat-awaiting-step", StepLine{
 		ChatID:    "chat-awaiting-step",
 		RunID:     "run-step",
-		UpdatedAt: 100,
+		UpdatedAt: testEpochMillis(100),
 		Type:      "react",
 		Awaiting: []map[string]any{
 			{
@@ -309,10 +309,10 @@ func TestFileStoreLoadAwaitingAskUsesCanonicalStepOnly(t *testing.T) {
 	if ask == nil || ask.AwaitingID != "await_step" || ask.RunID != "run-step" || ask.Mode != "question" {
 		t.Fatalf("unexpected step awaiting ask %#v", ask)
 	}
-	if err := store.AppendSubmitLine("chat-awaiting-step", SubmitLine{
+	if err := appendSubmitLineForTest(store, "chat-awaiting-step", SubmitLine{
 		ChatID:    "chat-awaiting-step",
 		RunID:     "run-step",
-		UpdatedAt: 101,
+		UpdatedAt: testEpochMillis(101),
 		Type:      "submit",
 		Answer: map[string]any{
 			"type":       "awaiting.answer",
@@ -334,10 +334,10 @@ func TestFileStoreLoadAwaitingAskUsesCanonicalStepOnly(t *testing.T) {
 	if _, _, err := store.EnsureChat("chat-awaiting-event", "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure event chat: %v", err)
 	}
-	if err := store.AppendEventLine("chat-awaiting-event", EventLine{
+	if err := appendEventLineForTest(store, "chat-awaiting-event", EventLine{
 		ChatID:    "chat-awaiting-event",
 		RunID:     "run-event",
-		UpdatedAt: 200,
+		UpdatedAt: testEpochMillis(200),
 		Type:      "event",
 		Event: map[string]any{
 			"type":       "awaiting.ask",
@@ -369,7 +369,7 @@ func TestFileStoreMarkReadAdvancesWatermarkAndClampsFutureRunID(t *testing.T) {
 	}
 	run1 := "loyw3v28"
 	run2 := "loyw3v2s"
-	if err := store.OnRunCompleted(RunCompletion{
+	if err := completeRunForTest(store, RunCompletion{
 		ChatID:          "chat-read",
 		RunID:           run1,
 		AssistantText:   "first",
@@ -377,7 +377,7 @@ func TestFileStoreMarkReadAdvancesWatermarkAndClampsFutureRunID(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("complete first run: %v", err)
 	}
-	if err := store.OnRunCompleted(RunCompletion{
+	if err := completeRunForTest(store, RunCompletion{
 		ChatID:          "chat-read",
 		RunID:           run2,
 		AssistantText:   "second",
@@ -559,15 +559,15 @@ func TestFileStoreRunMetadataTruncatesAndFeedbackUpdates(t *testing.T) {
 	}
 	longText := strings.Repeat("界", 250)
 	longInitialMessage := strings.Repeat("问", 250)
-	if err := store.OnRunCompleted(RunCompletion{
+	if err := completeRunForTest(store, RunCompletion{
 		ChatID:          "chat-runs",
 		RunID:           "loyw3v28",
 		AgentKey:        "agent-a",
 		AssistantText:   longText,
 		InitialMessage:  longInitialMessage,
 		FinishReason:    "complete",
-		StartedAtMillis: 100,
-		UpdatedAtMillis: 200,
+		StartedAtMillis: testEpochMillis(100),
+		UpdatedAtMillis: testEpochMillis(200),
 		Usage: UsageData{
 			ModelKey:                 "mock-model",
 			PromptTokens:             1,
@@ -664,7 +664,7 @@ func TestFileStoreMarkAllReadFiltersAgent(t *testing.T) {
 		if _, _, err := store.EnsureChat(item.chatID, item.agentKey, "", "hello"); err != nil {
 			t.Fatalf("ensure %s: %v", item.chatID, err)
 		}
-		if err := store.OnRunCompleted(RunCompletion{ChatID: item.chatID, RunID: item.runID, UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
+		if err := completeRunForTest(store, RunCompletion{ChatID: item.chatID, RunID: item.runID, UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
 			t.Fatalf("complete %s: %v", item.chatID, err)
 		}
 	}
@@ -693,7 +693,7 @@ func TestFileStoreDeleteChatRemovesRowsAndFiles(t *testing.T) {
 	if _, _, err := store.EnsureChat("chat-delete", "agent-a", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	if err := store.AppendQueryLine("chat-delete", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-delete", QueryLine{
 		ChatID: "chat-delete",
 		RunID:  "loyw3v28",
 		Query:  map[string]any{"message": "hello"},
@@ -713,7 +713,7 @@ func TestFileStoreDeleteChatRemovesRowsAndFiles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(store.ChatDir("chat-delete"), ToolRootDirName, ToolResultsDirName, "call_1.json"), []byte(`{"stdout":"x"}`), 0o644); err != nil {
 		t.Fatalf("write tool result: %v", err)
 	}
-	if err := store.OnRunCompleted(RunCompletion{ChatID: "chat-delete", RunID: "loyw3v28", UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
+	if err := completeRunForTest(store, RunCompletion{ChatID: "chat-delete", RunID: "loyw3v28", UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
 		t.Fatalf("complete run: %v", err)
 	}
 	if err := store.DeleteChat("chat-delete"); err != nil {
@@ -746,13 +746,13 @@ func TestFileStoreAgentChatStatsAggregatesUnreadCounts(t *testing.T) {
 	if _, _, err := store.EnsureChat("chat-b1", "agent-b", "", "hello"); err != nil {
 		t.Fatalf("ensure chat-b1: %v", err)
 	}
-	if err := store.OnRunCompleted(RunCompletion{ChatID: "chat-a1", RunID: "loyw3v28", UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
+	if err := completeRunForTest(store, RunCompletion{ChatID: "chat-a1", RunID: "loyw3v28", UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
 		t.Fatalf("complete chat-a1: %v", err)
 	}
-	if err := store.OnRunCompleted(RunCompletion{ChatID: "chat-a2", RunID: "loyw3v2s", UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
+	if err := completeRunForTest(store, RunCompletion{ChatID: "chat-a2", RunID: "loyw3v2s", UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
 		t.Fatalf("complete chat-a2: %v", err)
 	}
-	if err := store.OnRunCompleted(RunCompletion{ChatID: "chat-b1", RunID: "loyw3v34", UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
+	if err := completeRunForTest(store, RunCompletion{ChatID: "chat-b1", RunID: "loyw3v34", UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
 		t.Fatalf("complete chat-b1: %v", err)
 	}
 	if _, err := store.MarkRead("chat-a1", "loyw3v28"); err != nil {
@@ -790,7 +790,7 @@ func TestFileStoreRecentChatsByAgentFiltersLimitsAndSorts(t *testing.T) {
 		if _, _, err := store.EnsureChat(seed.chatID, seed.agent, "", seed.chatID); err != nil {
 			t.Fatalf("ensure %s: %v", seed.chatID, err)
 		}
-		if err := store.OnRunCompleted(RunCompletion{ChatID: seed.chatID, RunID: seed.runID, UpdatedAtMillis: seed.updated}); err != nil {
+		if err := completeRunForTest(store, RunCompletion{ChatID: seed.chatID, RunID: seed.runID, UpdatedAtMillis: seed.updated}); err != nil {
 			t.Fatalf("complete %s: %v", seed.chatID, err)
 		}
 	}
@@ -830,7 +830,7 @@ func TestFileStoreListChatsUsesParsedRunIDCursor(t *testing.T) {
 
 	base36Later := "loyw3v2a"
 	base36Earlier := "loyw3v28"
-	if err := store.OnRunCompleted(RunCompletion{
+	if err := completeRunForTest(store, RunCompletion{
 		ChatID:          "chat-new",
 		RunID:           base36Later,
 		AssistantText:   "later",
@@ -838,7 +838,7 @@ func TestFileStoreListChatsUsesParsedRunIDCursor(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("complete new chat: %v", err)
 	}
-	if err := store.OnRunCompleted(RunCompletion{
+	if err := completeRunForTest(store, RunCompletion{
 		ChatID:          "chat-old",
 		RunID:           base36Earlier,
 		AssistantText:   "earlier",
@@ -858,11 +858,15 @@ func TestFileStoreListChatsUsesParsedRunIDCursor(t *testing.T) {
 
 func TestStoredMessageToEventsAddsReasoningLabel(t *testing.T) {
 	runID := "run_1"
-	events := storedMessageToEvents(map[string]any{
+	events, err := storedMessageToEvents(map[string]any{
 		"role":              "assistant",
 		"_reasoningId":      runID + "_r_2",
 		"reasoning_content": []any{map[string]any{"type": "text", "text": "thinking"}},
+		"ts":                testEpochMillis(1),
 	}, runID, "task_1", "plan", 0, func() int64 { return 1 })
+	if err != nil {
+		t.Fatalf("stored message to events: %v", err)
+	}
 
 	if len(events) != 1 {
 		t.Fatalf("expected one event, got %#v", events)
@@ -876,7 +880,8 @@ func TestStoredMessageToEventsAddsReasoningLabel(t *testing.T) {
 }
 
 func TestStoredMessageToEventsPreservesTimestamp(t *testing.T) {
-	const ts int64 = 12345
+	const offset int64 = 12345
+	ts := testEpochMillis(offset)
 
 	testCases := []struct {
 		name     string
@@ -966,7 +971,10 @@ func TestStoredMessageToEventsPreservesTimestamp(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			events := storedMessageToEvents(tc.msg, "run_1", "task_1", "execute", 0, func() int64 { return 1 })
+			events, err := storedMessageToEvents(tc.msg, "run_1", "task_1", "execute", 0, func() int64 { return 1 })
+			if err != nil {
+				t.Fatalf("stored message to events: %v", err)
+			}
 			if len(events) != 1 {
 				t.Fatalf("expected one event, got %#v", events)
 			}
@@ -993,10 +1001,10 @@ func TestLoadChatSynthesizesRunBoundaryTimestamps(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	if err := store.AppendQueryLine("chat-ts", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-ts", QueryLine{
 		ChatID:    "chat-ts",
 		RunID:     "run-ts",
-		UpdatedAt: 1001,
+		UpdatedAt: testEpochMillis(1001),
 		Query: map[string]any{
 			"chatId":  "chat-ts",
 			"message": "hello",
@@ -1006,10 +1014,10 @@ func TestLoadChatSynthesizesRunBoundaryTimestamps(t *testing.T) {
 		t.Fatalf("append query line: %v", err)
 	}
 
-	if err := store.AppendStepLine("chat-ts", StepLine{
+	if err := appendStepLineForTest(store, "chat-ts", StepLine{
 		ChatID:    "chat-ts",
 		RunID:     "run-ts",
-		UpdatedAt: 1002,
+		UpdatedAt: testEpochMillis(1002),
 		Type:      "react",
 		Seq:       1,
 		Messages: []StoredMessage{
@@ -1030,23 +1038,23 @@ func TestLoadChatSynthesizesRunBoundaryTimestamps(t *testing.T) {
 		t.Fatalf("load chat: %v", err)
 	}
 
-	var runStart, runComplete *stream.EventData
+	var runStart *stream.EventData
 	for i := range detail.Events {
 		switch detail.Events[i].Type {
 		case "run.start":
 			runStart = &detail.Events[i]
-		case "run.complete":
-			runComplete = &detail.Events[i]
 		}
 	}
-	if runStart == nil || runComplete == nil {
-		t.Fatalf("expected synthesized run boundaries, got %#v", detail.Events)
+	if runStart == nil {
+		t.Fatalf("expected authoritative run.start, got %#v", detail.Events)
 	}
-	if runStart.Timestamp != 1001 {
-		t.Fatalf("expected run.start timestamp 1001, got %#v", runStart)
+	if runStart.Timestamp != testEpochMillis(1001) {
+		t.Fatalf("expected run.start timestamp %d, got %#v", testEpochMillis(1001), runStart)
 	}
-	if runComplete.Timestamp != 2002 {
-		t.Fatalf("expected run.complete timestamp 2002, got %#v", runComplete)
+	for _, event := range detail.Events {
+		if event.Type == "run.complete" && event.String("runId") == "run-ts" {
+			t.Fatalf("active run must not synthesize run.complete: %#v", detail.Events)
+		}
 	}
 }
 
@@ -1060,10 +1068,10 @@ func TestLoadChatSynthesizedRunStartContainsAgentKey(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	if err := store.AppendQueryLine("chat-ak", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-ak", QueryLine{
 		ChatID:    "chat-ak",
 		RunID:     "run-ak",
-		UpdatedAt: 1001,
+		UpdatedAt: testEpochMillis(1001),
 		Query: map[string]any{
 			"chatId":  "chat-ak",
 			"message": "hello",
@@ -1073,10 +1081,10 @@ func TestLoadChatSynthesizedRunStartContainsAgentKey(t *testing.T) {
 		t.Fatalf("append query line: %v", err)
 	}
 
-	if err := store.AppendStepLine("chat-ak", StepLine{
+	if err := appendStepLineForTest(store, "chat-ak", StepLine{
 		ChatID:    "chat-ak",
 		RunID:     "run-ak",
-		UpdatedAt: 1002,
+		UpdatedAt: testEpochMillis(1002),
 		Type:      "react",
 		Seq:       1,
 		Messages: []StoredMessage{
@@ -1129,9 +1137,9 @@ func TestStepWriterActionSnapshotPersistsTsAndReplaysTimestamp(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-action-ts", "run-action-ts", "react")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "action.snapshot",
-		Timestamp: 3456,
+		Timestamp: testEpochMillis(3456),
 		Payload: map[string]any{
 			"actionId":   "action-1",
 			"actionName": "approval_action",
@@ -1153,8 +1161,8 @@ func TestStepWriterActionSnapshotPersistsTsAndReplaysTimestamp(t *testing.T) {
 		t.Fatalf("expected one persisted message, got %#v", lines[0])
 	}
 	msg, _ := messages[0].(map[string]any)
-	if got := int64FromAny(msg["ts"]); got != 3456 {
-		t.Fatalf("expected persisted ts=3456, got %#v", msg)
+	if got := int64FromAny(msg["ts"]); got != testEpochMillis(3456) {
+		t.Fatalf("expected persisted ts=%d, got %#v", testEpochMillis(3456), msg)
 	}
 
 	detail, err := store.LoadChat("chat-action-ts")
@@ -1166,8 +1174,8 @@ func TestStepWriterActionSnapshotPersistsTsAndReplaysTimestamp(t *testing.T) {
 	for _, event := range detail.Events {
 		if event.Type == "action.snapshot" {
 			found = true
-			if event.Timestamp != 3456 {
-				t.Fatalf("expected replayed action.snapshot timestamp 3456, got %#v", event)
+			if event.Timestamp != testEpochMillis(3456) {
+				t.Fatalf("expected replayed action.snapshot timestamp %d, got %#v", testEpochMillis(3456), event)
 			}
 		}
 	}
@@ -1186,58 +1194,58 @@ func TestStepWriterPersistsLiveSeqAndReplaysIt(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-live-seq", "run-live-seq", "react")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Seq:       1,
 		Type:      "request.query",
-		Timestamp: 1000,
+		Timestamp: testEpochMillis(1000),
 		Payload: map[string]any{
 			"runId":   "run-live-seq",
 			"chatId":  "chat-live-seq",
 			"message": "hello",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Seq:       2,
 		Type:      "content.snapshot",
-		Timestamp: 1001,
+		Timestamp: testEpochMillis(1001),
 		Payload: map[string]any{
 			"contentId": "content-1",
 			"text":      "partial",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Seq:       3,
 		Type:      "tool.snapshot",
-		Timestamp: 1002,
+		Timestamp: testEpochMillis(1002),
 		Payload: map[string]any{
 			"toolId":    "tool-1",
 			"toolName":  "bash",
 			"arguments": `{"command":"date"}`,
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Seq:       4,
 		Type:      "awaiting.ask",
-		Timestamp: 1003,
+		Timestamp: testEpochMillis(1003),
 		Payload: map[string]any{
 			"awaitingId": "tool-1",
 			"runId":      "run-live-seq",
 			"mode":       "approval",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Seq:       5,
 		Type:      "tool.result",
-		Timestamp: 1004,
+		Timestamp: testEpochMillis(1004),
 		Payload: map[string]any{
 			"toolId": "tool-1",
 			"result": "ok",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Seq:       6,
 		Type:      "request.submit",
-		Timestamp: 1005,
+		Timestamp: testEpochMillis(1005),
 		Payload: map[string]any{
 			"runId":      "run-live-seq",
 			"chatId":     "chat-live-seq",
@@ -1245,10 +1253,10 @@ func TestStepWriterPersistsLiveSeqAndReplaysIt(t *testing.T) {
 			"submitId":   "submit-1",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Seq:       7,
 		Type:      "awaiting.answer",
-		Timestamp: 1006,
+		Timestamp: testEpochMillis(1006),
 		Payload: map[string]any{
 			"awaitingId": "tool-1",
 			"runId":      "run-live-seq",
@@ -1257,10 +1265,10 @@ func TestStepWriterPersistsLiveSeqAndReplaysIt(t *testing.T) {
 			"submitId":   "submit-1",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Seq:       8,
 		Type:      "request.steer",
-		Timestamp: 1007,
+		Timestamp: testEpochMillis(1007),
 		Payload: map[string]any{
 			"runId":   "run-live-seq",
 			"chatId":  "chat-live-seq",
@@ -1406,18 +1414,18 @@ func TestStepWriterEmbedsAwaitingInStepLine(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-awaiting-step", "run-awaiting-step", "react")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "tool.snapshot",
-		Timestamp: 1001,
+		Timestamp: testEpochMillis(1001),
 		Payload: map[string]any{
 			"toolId":    "tool-1",
 			"toolName":  "ask_user",
 			"arguments": "{\"question\":\"How many?\"}",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "awaiting.ask",
-		Timestamp: 1002,
+		Timestamp: testEpochMillis(1002),
 		Payload: map[string]any{
 			"awaitingId": "tool-1",
 			"mode":       "question",
@@ -1432,9 +1440,9 @@ func TestStepWriterEmbedsAwaitingInStepLine(t *testing.T) {
 			},
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "request.submit",
-		Timestamp: 1004,
+		Timestamp: testEpochMillis(1004),
 		Payload: map[string]any{
 			"requestId":  "req-1",
 			"chatId":     "chat-awaiting-step",
@@ -1458,8 +1466,8 @@ func TestStepWriterEmbedsAwaitingInStepLine(t *testing.T) {
 	if got := lines[0]["_type"]; got != "react" {
 		t.Fatalf("expected first persisted line to be step, got %#v", lines[0])
 	}
-	if got := toIntValue(lines[0]["updatedAt"]); got != 1002 {
-		t.Fatalf("expected awaiting step updatedAt=1002, got %#v", lines[0])
+	if got := toIntValue(lines[0]["updatedAt"]); got != int(testEpochMillis(1002)) {
+		t.Fatalf("expected awaiting step updatedAt=%d, got %#v", testEpochMillis(1002), lines[0])
 	}
 	awaiting, _ := lines[0]["awaiting"].([]any)
 	if len(awaiting) != 1 {
@@ -1498,18 +1506,18 @@ func TestStepWriterMergesParallelToolSnapshotsIntoAssistantToolCalls(t *testing.
 	}
 
 	writer := NewStepWriter(store, "chat-tool-call-merge", "run-tool-call-merge", "react")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "tool.snapshot",
-		Timestamp: 1001,
+		Timestamp: testEpochMillis(1001),
 		Payload: map[string]any{
 			"toolId":    "call_00",
 			"toolName":  "file_read",
 			"arguments": `{"file_path":"/tmp/a.txt"}`,
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "tool.snapshot",
-		Timestamp: 1002,
+		Timestamp: testEpochMillis(1002),
 		Payload: map[string]any{
 			"toolId":    "call_01",
 			"toolName":  "file_glob",
@@ -1539,7 +1547,7 @@ func TestStepWriterMergesParallelToolSnapshotsIntoAssistantToolCalls(t *testing.
 	if _, ok := assistant["_actionId"]; ok {
 		t.Fatalf("did not expect outer _actionId on assistant message, got %#v", assistant)
 	}
-	if assistant["_msgId"] == "" || toIntValue(assistant["ts"]) != 1001 {
+	if assistant["_msgId"] == "" || toIntValue(assistant["ts"]) != int(testEpochMillis(1001)) {
 		t.Fatalf("expected outer _msgId and first snapshot ts, got %#v", assistant)
 	}
 	calls, _ := assistant["tool_calls"].([]any)
@@ -1564,9 +1572,9 @@ func TestStepWriterMergesSubmitAndAnswer(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-submit-merge", "run-submit-merge", "react")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "request.submit",
-		Timestamp: 1001,
+		Timestamp: testEpochMillis(1001),
 		Payload: map[string]any{
 			"type":       "request.submit",
 			"requestId":  "req-1",
@@ -1578,10 +1586,10 @@ func TestStepWriterMergesSubmitAndAnswer(t *testing.T) {
 			},
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "awaiting.answer",
 		Seq:       34,
-		Timestamp: 1002,
+		Timestamp: testEpochMillis(1002),
 		Payload: map[string]any{
 			"type":       "awaiting.answer",
 			"awaitingId": "tool-1",
@@ -1623,18 +1631,18 @@ func TestStepWriterTimeoutAnswerDoesNotSplitToolStep(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-timeout-submit", "run-timeout-submit", "react")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "tool.snapshot",
-		Timestamp: 1001,
+		Timestamp: testEpochMillis(1001),
 		Payload: map[string]any{
 			"toolId":    "tool-1",
 			"toolName":  "bash",
 			"arguments": `{"command":"mock create-leave"}`,
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "awaiting.ask",
-		Timestamp: 1002,
+		Timestamp: testEpochMillis(1002),
 		Payload: map[string]any{
 			"awaitingId": "tool-1",
 			"mode":       "approval",
@@ -1642,10 +1650,10 @@ func TestStepWriterTimeoutAnswerDoesNotSplitToolStep(t *testing.T) {
 			"runId":      "run-timeout-submit",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "awaiting.answer",
 		Seq:       12,
-		Timestamp: 1003,
+		Timestamp: testEpochMillis(1003),
 		Payload: map[string]any{
 			"type":       "awaiting.answer",
 			"awaitingId": "tool-1",
@@ -1656,9 +1664,9 @@ func TestStepWriterTimeoutAnswerDoesNotSplitToolStep(t *testing.T) {
 			},
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "tool.result",
-		Timestamp: 1004,
+		Timestamp: testEpochMillis(1004),
 		Payload: map[string]any{
 			"toolId": "tool-1",
 			"result": map[string]any{
@@ -1678,7 +1686,7 @@ func TestStepWriterTimeoutAnswerDoesNotSplitToolStep(t *testing.T) {
 	awaitingStep := lines[0]
 	submitLine := lines[1]
 	toolResultStep := lines[2]
-	if awaitingStep["_type"] != "react" || toIntValue(awaitingStep["seq"]) != 1 || toIntValue(awaitingStep["updatedAt"]) != 1002 {
+	if awaitingStep["_type"] != "react" || toIntValue(awaitingStep["seq"]) != 1 || toIntValue(awaitingStep["updatedAt"]) != int(testEpochMillis(1002)) {
 		t.Fatalf("expected awaiting step seq=1 updatedAt=1002, got %#v", awaitingStep)
 	}
 	awaiting, _ := awaitingStep["awaiting"].([]any)
@@ -1712,9 +1720,9 @@ func TestStepWriterReusesReactSeqForSplitHITLToolResult(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-hitl-seq", "run-hitl-seq", "react")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "usage.snapshot",
-		Timestamp: 1000,
+		Timestamp: testEpochMillis(1000),
 		Payload: map[string]any{
 			"usage": map[string]any{
 				"current": map[string]any{
@@ -1725,18 +1733,18 @@ func TestStepWriterReusesReactSeqForSplitHITLToolResult(t *testing.T) {
 			},
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "tool.snapshot",
-		Timestamp: 1001,
+		Timestamp: testEpochMillis(1001),
 		Payload: map[string]any{
 			"toolId":    "tool-1",
 			"toolName":  "bash",
 			"arguments": `{"command":"git push origin main"}`,
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "awaiting.ask",
-		Timestamp: 1002,
+		Timestamp: testEpochMillis(1002),
 		Payload: map[string]any{
 			"awaitingId": "tool-1",
 			"mode":       "approval",
@@ -1754,9 +1762,9 @@ func TestStepWriterReusesReactSeqForSplitHITLToolResult(t *testing.T) {
 			RuleKey:  "git::push",
 		}},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "request.submit",
-		Timestamp: 1003,
+		Timestamp: testEpochMillis(1003),
 		Payload: map[string]any{
 			"requestId":  "req-1",
 			"chatId":     "chat-hitl-seq",
@@ -1765,9 +1773,9 @@ func TestStepWriterReusesReactSeqForSplitHITLToolResult(t *testing.T) {
 			"params":     []any{map[string]any{"id": "tool-1", "decision": "approve"}},
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "awaiting.answer",
-		Timestamp: 1004,
+		Timestamp: testEpochMillis(1004),
 		Payload: map[string]any{
 			"awaitingId": "tool-1",
 			"mode":       "approval",
@@ -1775,18 +1783,18 @@ func TestStepWriterReusesReactSeqForSplitHITLToolResult(t *testing.T) {
 			"approvals":  []any{map[string]any{"id": "tool-1", "decision": "approve"}},
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "tool.result",
-		Timestamp: 1005,
+		Timestamp: testEpochMillis(1005),
 		Payload: map[string]any{
 			"toolId": "tool-1",
 			"result": "pushed",
 		},
 	})
 	writer.OnStageMarker("react-step-2")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "usage.snapshot",
-		Timestamp: 1007,
+		Timestamp: testEpochMillis(1007),
 		Payload: map[string]any{
 			"usage": map[string]any{
 				"current": map[string]any{
@@ -1797,9 +1805,9 @@ func TestStepWriterReusesReactSeqForSplitHITLToolResult(t *testing.T) {
 			},
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "content.snapshot",
-		Timestamp: 1008,
+		Timestamp: testEpochMillis(1008),
 		Payload: map[string]any{
 			"contentId": "run-hitl-seq_c_2",
 			"text":      "done",
@@ -1815,7 +1823,7 @@ func TestStepWriterReusesReactSeqForSplitHITLToolResult(t *testing.T) {
 		t.Fatalf("expected assistant awaiting step, submit line, tool step, final assistant step; got %#v", lines)
 	}
 	firstStep := lines[0]
-	if firstStep["_type"] != "react" || toIntValue(firstStep["seq"]) != 1 || toIntValue(firstStep["updatedAt"]) != 1002 {
+	if firstStep["_type"] != "react" || toIntValue(firstStep["seq"]) != 1 || toIntValue(firstStep["updatedAt"]) != int(testEpochMillis(1002)) {
 		t.Fatalf("expected first react step seq=1 updatedAt=1002, got %#v", firstStep)
 	}
 	awaiting, _ := firstStep["awaiting"].([]any)
@@ -1861,18 +1869,18 @@ func TestStepWriterFormatsStructuredToolResultAsJSON(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-tool-result-json", "run-tool-result-json", "react")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "tool.snapshot",
-		Timestamp: 1001,
+		Timestamp: testEpochMillis(1001),
 		Payload: map[string]any{
 			"toolId":    "tool-1",
 			"toolName":  "bash",
 			"arguments": `{"command":"echo hi"}`,
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "tool.result",
-		Timestamp: 1002,
+		Timestamp: testEpochMillis(1002),
 		Payload: map[string]any{
 			"toolId":     "tool-1",
 			"durationMs": int64(77),
@@ -1935,38 +1943,38 @@ func TestStepWriterSplitsEachLLMRequestIntoReactStep(t *testing.T) {
 
 	writer := NewStepWriter(store, "chat-llm-step-boundary", "run-llm-step-boundary", "PLAN_EXECUTE")
 	writer.OnStageMarker("execute-task-1")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type: "llm.request",
 		Payload: map[string]any{
 			"inputMessages": []any{map[string]any{"role": "user", "content": "call one"}},
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "tool.snapshot",
-		Timestamp: 1001,
+		Timestamp: testEpochMillis(1001),
 		Payload: map[string]any{
 			"toolId":    "tool-1",
 			"toolName":  "bash",
 			"arguments": `{"command":"echo one"}`,
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "tool.result",
-		Timestamp: 1002,
+		Timestamp: testEpochMillis(1002),
 		Payload: map[string]any{
 			"toolId": "tool-1",
 			"result": "one",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type: "llm.request",
 		Payload: map[string]any{
 			"inputMessages": []any{map[string]any{"role": "user", "content": "call two"}},
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "content.snapshot",
-		Timestamp: 1003,
+		Timestamp: testEpochMillis(1003),
 		Payload: map[string]any{
 			"contentId": "content-2",
 			"text":      "done",
@@ -2015,17 +2023,17 @@ func TestStepWriterEmbedsUsageAtStepLevel(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-usage-step", "run-usage-step", "react")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "content.snapshot",
-		Timestamp: 2001,
+		Timestamp: testEpochMillis(2001),
 		Payload: map[string]any{
 			"contentId": "content-1",
 			"text":      "hello",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "debug.llmChat",
-		Timestamp: 2002,
+		Timestamp: testEpochMillis(2002),
 		Payload: map[string]any{
 			"data": map[string]any{
 				"contextWindow": map[string]any{
@@ -2055,7 +2063,7 @@ func TestStepWriterEmbedsUsageAtStepLevel(t *testing.T) {
 			},
 		},
 	})
-	writer.OnEvent(stream.EventData{Type: "run.complete", Timestamp: 2003})
+	onEventForTest(writer, stream.EventData{Type: "run.complete", Timestamp: testEpochMillis(2003)})
 
 	lines, err := readJSONLines(store.chatJSONLPath("chat-usage-step"))
 	if err != nil {
@@ -2133,7 +2141,7 @@ func TestStepWriterPersistsSystemRefWithoutDebugPayload(t *testing.T) {
 	}
 
 	emitDebugLLMChat := func(request map[string]any) {
-		writer.OnEvent(stream.EventData{
+		onEventForTest(writer, stream.EventData{
 			Type: "debug.llmChat",
 			Payload: map[string]any{
 				"data": map[string]any{
@@ -2156,7 +2164,7 @@ func TestStepWriterPersistsSystemRefWithoutDebugPayload(t *testing.T) {
 		})
 	}
 	emitContent := func(contentID string, text string) {
-		writer.OnEvent(stream.EventData{
+		onEventForTest(writer, stream.EventData{
 			Type: "content.snapshot",
 			Payload: map[string]any{
 				"contentId": contentID,
@@ -2167,7 +2175,7 @@ func TestStepWriterPersistsSystemRefWithoutDebugPayload(t *testing.T) {
 
 	emitDebugLLMChat(requestBody)
 	emitContent("content-1", "first")
-	writer.OnEvent(stream.EventData{Type: "run.complete"})
+	onEventForTest(writer, stream.EventData{Type: "run.complete"})
 
 	lines, err := readJSONLines(store.chatJSONLPath("chat-system-snapshot"))
 	if err != nil {
@@ -2213,7 +2221,7 @@ func TestStepWriterCapturesDebugLLMChatMetadata(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-llm-call", "run-llm-chat", "react")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type: "debug.llmChat",
 		Payload: map[string]any{
 			"data": map[string]any{
@@ -2248,14 +2256,14 @@ func TestStepWriterCapturesDebugLLMChatMetadata(t *testing.T) {
 			},
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type: "content.snapshot",
 		Payload: map[string]any{
 			"contentId": "content-1",
 			"text":      "hello",
 		},
 	})
-	writer.OnEvent(stream.EventData{Type: "run.complete"})
+	onEventForTest(writer, stream.EventData{Type: "run.complete"})
 
 	lines, err := readJSONLines(store.chatJSONLPath("chat-llm-call"))
 	if err != nil {
@@ -2307,7 +2315,7 @@ func TestStepWriterPersistsLLMChatMetadataWithoutDebugPayload(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-debug-disabled", "run-debug-disabled", "react")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type: "debug.llmChat",
 		Payload: map[string]any{
 			"data": map[string]any{
@@ -2328,14 +2336,14 @@ func TestStepWriterPersistsLLMChatMetadataWithoutDebugPayload(t *testing.T) {
 			},
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type: "content.snapshot",
 		Payload: map[string]any{
 			"contentId": "content-1",
 			"text":      "hello",
 		},
 	})
-	writer.OnEvent(stream.EventData{Type: "run.complete"})
+	onEventForTest(writer, stream.EventData{Type: "run.complete"})
 
 	lines, err := readJSONLines(store.chatJSONLPath("chat-debug-disabled"))
 	if err != nil {
@@ -2367,14 +2375,14 @@ func TestStepWriterPersistsUsageSnapshotWhenDebugEventsDisabled(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-usage-snapshot", "run-usage-snapshot", "react")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type: "content.snapshot",
 		Payload: map[string]any{
 			"contentId": "content-1",
 			"text":      "hello",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type: "usage.snapshot",
 		Payload: map[string]any{
 			"model": map[string]any{
@@ -2413,7 +2421,7 @@ func TestStepWriterPersistsUsageSnapshotWhenDebugEventsDisabled(t *testing.T) {
 			},
 		},
 	})
-	writer.OnEvent(stream.EventData{Type: "run.complete"})
+	onEventForTest(writer, stream.EventData{Type: "run.complete"})
 
 	lines, err := readJSONLines(store.chatJSONLPath("chat-usage-snapshot"))
 	if err != nil {
@@ -2470,14 +2478,14 @@ func TestStepWriterPersistsPlanExecuteMetadataOnReactStep(t *testing.T) {
 
 	writer := NewStepWriter(store, "chat-plan-execute-model", "run-plan-execute-model", "PLAN_EXECUTE")
 	writer.OnStageMarker("execute-task-1")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type: "content.snapshot",
 		Payload: map[string]any{
 			"contentId": "content-1",
 			"text":      "execute result",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type: "usage.snapshot",
 		Payload: map[string]any{
 			"contextWindow": map[string]any{
@@ -2496,7 +2504,7 @@ func TestStepWriterPersistsPlanExecuteMetadataOnReactStep(t *testing.T) {
 			},
 		},
 	})
-	writer.OnEvent(stream.EventData{Type: "run.complete"})
+	onEventForTest(writer, stream.EventData{Type: "run.complete"})
 
 	lines, err := readJSONLines(store.chatJSONLPath("chat-plan-execute-model"))
 	if err != nil {
@@ -2531,14 +2539,14 @@ func TestStepWriterIgnoresEmptyUsageSnapshot(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-empty-usage-snapshot", "run-empty-usage-snapshot", "react")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type: "content.snapshot",
 		Payload: map[string]any{
 			"contentId": "content-1",
 			"text":      "hello",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type: "usage.snapshot",
 		Payload: map[string]any{
 			"contextWindow": map[string]any{
@@ -2556,7 +2564,7 @@ func TestStepWriterIgnoresEmptyUsageSnapshot(t *testing.T) {
 			},
 		},
 	})
-	writer.OnEvent(stream.EventData{Type: "run.complete"})
+	onEventForTest(writer, stream.EventData{Type: "run.complete"})
 
 	lines, err := readJSONLines(store.chatJSONLPath("chat-empty-usage-snapshot"))
 	if err != nil {
@@ -2608,30 +2616,30 @@ func TestStepWriterDoesNotPersistPlanUpdateOnStepLines(t *testing.T) {
 	}
 	chatID := "chat-plan-update-live-only"
 	writer := NewStepWriter(store, chatID, "run-plan-update-live-only", "react")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Seq:       10,
 		Type:      "tool.snapshot",
-		Timestamp: 1001,
+		Timestamp: testEpochMillis(1001),
 		Payload: map[string]any{
 			"toolId":    "tool_plan",
 			"toolName":  "plan_add_tasks",
 			"arguments": `{"description":"first task"}`,
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Seq:       11,
 		Type:      "tool.result",
-		Timestamp: 1002,
+		Timestamp: testEpochMillis(1002),
 		Payload: map[string]any{
 			"toolId":   "tool_plan",
 			"toolName": "plan_add_tasks",
 			"result":   "OK",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Seq:       12,
 		Type:      "plan.update",
-		Timestamp: 1003,
+		Timestamp: testEpochMillis(1003),
 		Payload: map[string]any{
 			"planId": "run-plan-update-live-only_plan",
 			"plan": []map[string]any{{
@@ -2698,8 +2706,8 @@ func TestLoadChatPlanUsesLatestNewPlanSnapshot(t *testing.T) {
 	if err := os.MkdirAll(snapshotDir, 0o755); err != nil {
 		t.Fatalf("mkdir snapshot dir: %v", err)
 	}
-	oldSnapshot := `{"version":1,"chatId":"chat-plan-task-latest-new","runId":"run-old","planId":"old_plan","updatedAt":100,"tasks":[{"taskId":"old_task","description":"Old task","status":"init"}]}`
-	newSnapshot := `{"version":1,"chatId":"chat-plan-task-latest-new","runId":"run-new","planId":"run-new_plan_200_1","updatedAt":200,"tasks":[{"taskId":"new_task","description":"New task","status":"in_progress"}]}`
+	oldSnapshot := `{"version":1,"chatId":"chat-plan-task-latest-new","runId":"run-old","planId":"old_plan","updatedAt":1700000000100,"tasks":[{"taskId":"old_task","description":"Old task","status":"init"}]}`
+	newSnapshot := `{"version":1,"chatId":"chat-plan-task-latest-new","runId":"run-new","planId":"run-new_plan_200_1","updatedAt":1700000000200,"tasks":[{"taskId":"new_task","description":"New task","status":"in_progress"}]}`
 	if err := os.WriteFile(filepath.Join(snapshotDir, "run-old_plan.json"), []byte(oldSnapshot), 0o644); err != nil {
 		t.Fatalf("write old snapshot: %v", err)
 	}
@@ -2727,25 +2735,24 @@ func TestLoadChatRestoresPlanningFromReactAwaitingPlan(t *testing.T) {
 	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	planningFile := filepath.Join(store.ChatDir(chatID), ToolRootDirName, ToolPlansDirName, "run-planning_planning_1.md")
+	planningFile := filepath.Join(store.ChatDir(chatID), ToolRootDirName, ToolPlanningDirName, "run-planning_planning_1.md")
 	if err := os.MkdirAll(filepath.Dir(planningFile), 0o755); err != nil {
 		t.Fatalf("mkdir planning dir: %v", err)
 	}
 	if err := os.WriteFile(planningFile, []byte("# Awaiting Plan\n\nBody"), 0o644); err != nil {
 		t.Fatalf("write planning file: %v", err)
 	}
-	if err := store.AppendStepLine(chatID, StepLine{
+	if err := appendStepLineForTest(store, chatID, StepLine{
 		ChatID:    chatID,
 		RunID:     runID,
-		UpdatedAt: 1004,
+		UpdatedAt: testEpochMillis(1004),
 		Messages:  []StoredMessage{},
 		Awaiting: []map[string]any{
 			{
 				"type":       "awaiting.ask",
-				"awaitingId": "run-planning_coder_plan_confirm_1",
-				"mode":       "plan",
-				"timeout":    0,
-				"plan": map[string]any{
+				"awaitingId": "run-planning_coder_planning_confirm_1",
+				"mode":       "planning",
+				"planning": map[string]any{
 					"id":           "confirm",
 					"planningId":   "run-planning_planning_1",
 					"planningFile": planningFile,
@@ -2788,6 +2795,31 @@ func TestLoadChatRestoresPlanningFromReactAwaitingPlan(t *testing.T) {
 	}
 }
 
+func TestLoadChatRejectsLegacyPlanPlanningAwaiting(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-legacy-planning"
+	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := appendStepLineForTest(store, chatID, StepLine{
+		ChatID:   chatID,
+		RunID:    "run-legacy",
+		Messages: []StoredMessage{},
+		Awaiting: []map[string]any{{
+			"type": "awaiting.ask", "mode": "plan", "plan": map[string]any{"id": "confirm"},
+		}},
+		Type: StepLineTypeReact,
+	}); err != nil {
+		t.Fatalf("append legacy awaiting: %v", err)
+	}
+	if _, err := store.LoadChat(chatID); !errors.Is(err, ErrLegacyPlanningProtocol) {
+		t.Fatalf("expected legacy planning protocol error, got %v", err)
+	}
+}
+
 func TestLoadChatRestoresPlanningFromTextOnlyAwaitingPlan(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
@@ -2800,18 +2832,17 @@ func TestLoadChatRestoresPlanningFromTextOnlyAwaitingPlan(t *testing.T) {
 	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	if err := store.AppendStepLine(chatID, StepLine{
+	if err := appendStepLineForTest(store, chatID, StepLine{
 		ChatID:    chatID,
 		RunID:     runID,
-		UpdatedAt: 1004,
+		UpdatedAt: testEpochMillis(1004),
 		Messages:  []StoredMessage{},
 		Awaiting: []map[string]any{
 			{
 				"type":       "awaiting.ask",
-				"awaitingId": "run-planning_coder_plan_confirm_1",
-				"mode":       "plan",
-				"timeout":    0,
-				"plan": map[string]any{
+				"awaitingId": "run-planning_coder_planning_confirm_1",
+				"mode":       "planning",
+				"planning": map[string]any{
 					"id":         "confirm",
 					"planningId": planningID,
 					"text":       planningText,
@@ -2828,7 +2859,7 @@ func TestLoadChatRestoresPlanningFromTextOnlyAwaitingPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load chat: %v", err)
 	}
-	planningFile := filepath.Join(store.ChatDir(chatID), ToolRootDirName, ToolPlansDirName, planningID+".md")
+	planningFile := filepath.Join(store.ChatDir(chatID), ToolRootDirName, ToolPlanningDirName, planningID+".md")
 	if detail.Planning == nil || detail.Planning.PlanningID != planningID ||
 		detail.Planning.PlanningFile != planningFile || detail.Planning.Markdown != planningText {
 		t.Fatalf("expected planning state from text-only awaiting plan, got planning=%#v events=%#v", detail.Planning, detail.Events)
@@ -2860,8 +2891,8 @@ func TestLoadChatSynthesizesPlanningSnapshotsForMultipleAwaitingPlans(t *testing
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	firstFile := filepath.Join(store.ChatDir(chatID), ToolRootDirName, ToolPlansDirName, "run-planning_planning_1.md")
-	secondFile := filepath.Join(store.ChatDir(chatID), ToolRootDirName, ToolPlansDirName, "run-planning_planning_2.md")
+	firstFile := filepath.Join(store.ChatDir(chatID), ToolRootDirName, ToolPlanningDirName, "run-planning_planning_1.md")
+	secondFile := filepath.Join(store.ChatDir(chatID), ToolRootDirName, ToolPlanningDirName, "run-planning_planning_2.md")
 	if err := os.MkdirAll(filepath.Dir(firstFile), 0o755); err != nil {
 		t.Fatalf("mkdir planning dir: %v", err)
 	}
@@ -2872,8 +2903,8 @@ func TestLoadChatSynthesizesPlanningSnapshotsForMultipleAwaitingPlans(t *testing
 		t.Fatalf("write second planning file: %v", err)
 	}
 
-	appendPlanAwaitingStepForTest(t, store, chatID, runID, 1004, "run-planning_coder_plan_confirm_1", "run-planning_planning_1", firstFile)
-	appendPlanAwaitingStepForTest(t, store, chatID, runID, 1008, "run-planning_coder_plan_confirm_2", "run-planning_planning_2", secondFile)
+	appendPlanningAwaitingStepForTest(t, store, chatID, runID, 1004, "run-planning_coder_planning_confirm_1", "run-planning_planning_1", firstFile)
+	appendPlanningAwaitingStepForTest(t, store, chatID, runID, 1008, "run-planning_coder_planning_confirm_2", "run-planning_planning_2", secondFile)
 
 	detail, err := store.LoadChat(chatID)
 	if err != nil {
@@ -2888,9 +2919,9 @@ func TestLoadChatSynthesizesPlanningSnapshotsForMultipleAwaitingPlans(t *testing
 	}
 
 	firstSnapshotIndex := detailEventIndexByTypeAndString(detail.Events, "planning.snapshot", "planningId", "run-planning_planning_1")
-	firstAwaitingIndex := detailEventIndexByTypeAndString(detail.Events, "awaiting.ask", "awaitingId", "run-planning_coder_plan_confirm_1")
+	firstAwaitingIndex := detailEventIndexByTypeAndString(detail.Events, "awaiting.ask", "awaitingId", "run-planning_coder_planning_confirm_1")
 	secondSnapshotIndex := detailEventIndexByTypeAndString(detail.Events, "planning.snapshot", "planningId", "run-planning_planning_2")
-	secondAwaitingIndex := detailEventIndexByTypeAndString(detail.Events, "awaiting.ask", "awaitingId", "run-planning_coder_plan_confirm_2")
+	secondAwaitingIndex := detailEventIndexByTypeAndString(detail.Events, "awaiting.ask", "awaitingId", "run-planning_coder_planning_confirm_2")
 	if firstSnapshotIndex < 0 || firstAwaitingIndex < 0 || secondSnapshotIndex < 0 || secondAwaitingIndex < 0 ||
 		firstSnapshotIndex >= firstAwaitingIndex || firstAwaitingIndex >= secondSnapshotIndex || secondSnapshotIndex >= secondAwaitingIndex {
 		t.Fatalf("unexpected planning snapshot/awaiting ordering: %#v", detail.Events)
@@ -2898,26 +2929,26 @@ func TestLoadChatSynthesizesPlanningSnapshotsForMultipleAwaitingPlans(t *testing
 }
 
 func emitPlanningLifecycleForTest(writer *StepWriter, chatID string) {
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "planning.delta",
-		Timestamp: 1002,
+		Timestamp: testEpochMillis(1002),
 		Payload: map[string]any{
 			"planningId": "plan-run-planning",
 			"delta":      "# Plan\n\nBody",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "planning.end",
-		Timestamp: 1003,
+		Timestamp: testEpochMillis(1003),
 		Payload: map[string]any{
 			"planningId": "plan-run-planning",
 		},
 	})
 }
 
-func appendPlanAwaitingStepForTest(t *testing.T, store *FileStore, chatID string, runID string, updatedAt int64, awaitingID string, planningID string, planningFile string) {
+func appendPlanningAwaitingStepForTest(t *testing.T, store *FileStore, chatID string, runID string, updatedAt int64, awaitingID string, planningID string, planningFile string) {
 	t.Helper()
-	if err := store.AppendStepLine(chatID, StepLine{
+	if err := appendStepLineForTest(store, chatID, StepLine{
 		ChatID:    chatID,
 		RunID:     runID,
 		UpdatedAt: updatedAt,
@@ -2926,9 +2957,8 @@ func appendPlanAwaitingStepForTest(t *testing.T, store *FileStore, chatID string
 			{
 				"type":       "awaiting.ask",
 				"awaitingId": awaitingID,
-				"mode":       "plan",
-				"timeout":    0,
-				"plan": map[string]any{
+				"mode":       "planning",
+				"planning": map[string]any{
 					"id":           "confirm",
 					"planningId":   planningID,
 					"planningFile": planningFile,
@@ -3003,7 +3033,7 @@ func TestStepWriterPersistsTaskScopedUsageAndSlimMetadataWithoutDebugPayload(t *
 	}
 
 	writer := NewStepWriter(store, "chat-task-debug", "run-task-debug", "react")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type: "task.start",
 		Payload: map[string]any{
 			"taskId":         "task_1",
@@ -3013,7 +3043,7 @@ func TestStepWriterPersistsTaskScopedUsageAndSlimMetadataWithoutDebugPayload(t *
 			"invokingToolId": "tool_main_1",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type: "debug.llmChat",
 		Payload: map[string]any{
 			"taskId": "task_1",
@@ -3033,7 +3063,7 @@ func TestStepWriterPersistsTaskScopedUsageAndSlimMetadataWithoutDebugPayload(t *
 			},
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type: "content.snapshot",
 		Payload: map[string]any{
 			"taskId":    "task_1",
@@ -3041,7 +3071,7 @@ func TestStepWriterPersistsTaskScopedUsageAndSlimMetadataWithoutDebugPayload(t *
 			"text":      "child result",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type: "debug.llmChat",
 		Payload: map[string]any{
 			"taskId": "task_1",
@@ -3062,20 +3092,20 @@ func TestStepWriterPersistsTaskScopedUsageAndSlimMetadataWithoutDebugPayload(t *
 			},
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type: "task.complete",
 		Payload: map[string]any{
 			"taskId": "task_1",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type: "content.snapshot",
 		Payload: map[string]any{
 			"contentId": "root_1",
 			"text":      "root result",
 		},
 	})
-	writer.OnEvent(stream.EventData{Type: "run.complete"})
+	onEventForTest(writer, stream.EventData{Type: "run.complete"})
 
 	lines, err := readJSONLines(store.chatJSONLPath("chat-task-debug"))
 	if err != nil {
@@ -3128,7 +3158,7 @@ func TestStepWriterSubTaskReactFlushOrder(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-task-order", "run-task-order", "react")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type: "tool.snapshot",
 		Payload: map[string]any{
 			"toolId":    "tool_main_1",
@@ -3136,14 +3166,14 @@ func TestStepWriterSubTaskReactFlushOrder(t *testing.T) {
 			"arguments": `{"tasks":[]}`,
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type: "task.start",
 		Payload: map[string]any{
 			"taskId":      "task_1",
 			"subAgentKey": "analyzer",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type: "content.snapshot",
 		Payload: map[string]any{
 			"taskId":    "task_1",
@@ -3151,20 +3181,20 @@ func TestStepWriterSubTaskReactFlushOrder(t *testing.T) {
 			"text":      "child done",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type: "task.complete",
 		Payload: map[string]any{
 			"taskId": "task_1",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type: "tool.result",
 		Payload: map[string]any{
 			"toolId": "tool_main_1",
 			"result": "aggregate",
 		},
 	})
-	writer.OnEvent(stream.EventData{Type: "run.complete"})
+	onEventForTest(writer, stream.EventData{Type: "run.complete"})
 
 	lines, err := readJSONLines(store.chatJSONLPath("chat-task-order"))
 	if err != nil {
@@ -3190,10 +3220,10 @@ func TestQueryLineTaskToolIDFieldName(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	if err := store.AppendQueryLine("chat-task-query", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-task-query", QueryLine{
 		ChatID:      "chat-task-query",
 		RunID:       "run-task-query",
-		UpdatedAt:   1001,
+		UpdatedAt:   testEpochMillis(1001),
 		TaskID:      "task_1",
 		TaskName:    "分析",
 		TaskToolID:  "tool_main_1",
@@ -3236,10 +3266,10 @@ func TestLoadRunTraceKeepsMainQueryWhenSubTaskQueriesExist(t *testing.T) {
 	if _, _, err := store.EnsureChat("chat-run-trace-query", "agent", "", "main prompt"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	if err := store.AppendQueryLine("chat-run-trace-query", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-run-trace-query", QueryLine{
 		ChatID:    "chat-run-trace-query",
 		RunID:     "run_1",
-		UpdatedAt: 1001,
+		UpdatedAt: testEpochMillis(1001),
 		Query: map[string]any{
 			"message": "main prompt",
 		},
@@ -3247,10 +3277,10 @@ func TestLoadRunTraceKeepsMainQueryWhenSubTaskQueriesExist(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append main query line: %v", err)
 	}
-	if err := store.AppendQueryLine("chat-run-trace-query", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-run-trace-query", QueryLine{
 		ChatID:      "chat-run-trace-query",
 		RunID:       "run_1",
-		UpdatedAt:   1002,
+		UpdatedAt:   testEpochMillis(1002),
 		TaskID:      "task_1",
 		SubAgentKey: "analyzer",
 		Query: map[string]any{
@@ -3299,7 +3329,7 @@ func TestFileStoreLoadsLatestSystemInitByCacheKey(t *testing.T) {
 			Type:      "query",
 			ChatID:    "chat-system-init",
 			RunID:     "run-1",
-			UpdatedAt: 1,
+			UpdatedAt: testEpochMillis(1),
 			Query:     map[string]any{"role": "user", "message": "first"},
 			System:    &first,
 		},
@@ -3307,7 +3337,7 @@ func TestFileStoreLoadsLatestSystemInitByCacheKey(t *testing.T) {
 			Type:      "query",
 			ChatID:    "chat-system-init",
 			RunID:     "run-1",
-			UpdatedAt: 1,
+			UpdatedAt: testEpochMillis(1),
 			Query:     map[string]any{"role": "system", "kind": "system-init", "agentKey": "agent"},
 			System:    &other,
 		},
@@ -3315,12 +3345,12 @@ func TestFileStoreLoadsLatestSystemInitByCacheKey(t *testing.T) {
 			Type:      "query",
 			ChatID:    "chat-system-init",
 			RunID:     "run-2",
-			UpdatedAt: 2,
+			UpdatedAt: testEpochMillis(2),
 			Query:     map[string]any{"role": "user", "message": "second"},
 			System:    &second,
 		},
 	} {
-		if err := store.AppendQueryLine("chat-system-init", line); err != nil {
+		if err := appendQueryLineForTest(store, "chat-system-init", line); err != nil {
 			t.Fatalf("append query line: %v", err)
 		}
 	}
@@ -3335,7 +3365,7 @@ func TestFileStoreLoadsLatestSystemInitByCacheKey(t *testing.T) {
 	if loaded.SystemMessage["content"] != "second" {
 		t.Fatalf("unexpected system message %#v", loaded.SystemMessage)
 	}
-	if loaded.ChatID != "chat-system-init" || loaded.RunID != "run-2" || loaded.CreatedAt != 2 {
+	if loaded.ChatID != "chat-system-init" || loaded.RunID != "run-2" || loaded.CreatedAt != testEpochMillis(2) {
 		t.Fatalf("expected container query metadata on system init, got %#v", loaded)
 	}
 	if loaded.Mode != "react" || loaded.Stage != "main" {
@@ -3407,11 +3437,11 @@ func TestLoadSystemInitsParsesCacheKeyToModeStage(t *testing.T) {
 			Tools:         []any{},
 		},
 	} {
-		if err := store.AppendQueryLine("chat-system-cache-key", QueryLine{
+		if err := appendQueryLineForTest(store, "chat-system-cache-key", QueryLine{
 			Type:      "query",
 			ChatID:    "chat-system-cache-key",
 			RunID:     "run-1",
-			UpdatedAt: 1,
+			UpdatedAt: testEpochMillis(1),
 			Query:     map[string]any{"role": "user", "message": "hello", "agentKey": "agent"},
 			System:    &system,
 		}); err != nil {
@@ -3438,11 +3468,11 @@ func TestRawMessagesSkipSystemInitLines(t *testing.T) {
 	if _, _, err := store.EnsureChat("chat-system-init-raw", "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	if err := store.AppendQueryLine("chat-system-init-raw", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-system-init-raw", QueryLine{
 		Type:      "query",
 		ChatID:    "chat-system-init-raw",
 		RunID:     "run-1",
-		UpdatedAt: 2,
+		UpdatedAt: testEpochMillis(2),
 		Query:     map[string]any{"role": "user", "message": "hello"},
 		Messages:  []map[string]any{{"role": "user", "content": "hello"}},
 		System: &QueryLineSystemInit{
@@ -3472,11 +3502,11 @@ func TestRawMessagesPreferQueryMessages(t *testing.T) {
 	if _, _, err := store.EnsureChat("chat-query-messages", "agent", "", "raw"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	if err := store.AppendQueryLine("chat-query-messages", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-query-messages", QueryLine{
 		Type:      "query",
 		ChatID:    "chat-query-messages",
 		RunID:     "run-1",
-		UpdatedAt: 2,
+		UpdatedAt: testEpochMillis(2),
 		Query: map[string]any{
 			"role":    "user",
 			"message": "raw user text",
@@ -3520,7 +3550,7 @@ func TestLoadRawMessagesMapsAutomationAndSystemQueryRolesToUser(t *testing.T) {
 		{runID: "run-auto", role: "automation", message: "automation hello"},
 		{runID: "run-system", role: "system", message: "system hello"},
 	} {
-		if err := store.AppendQueryLine("chat-role-raw", QueryLine{
+		if err := appendQueryLineForTest(store, "chat-role-raw", QueryLine{
 			Type:      "query",
 			ChatID:    "chat-role-raw",
 			RunID:     item.runID,
@@ -3565,10 +3595,11 @@ func TestStepWriterPersistsQueryMessages(t *testing.T) {
 	writer.SetPendingQueryMessages([]map[string]any{{
 		"role":    "user",
 		"content": "[References]\n- id: r01\n  name: sales.csv\n\n[User message]\nraw user text",
+		"ts":      testEpochMillis(1001),
 	}})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "request.query",
-		Timestamp: 1001,
+		Timestamp: testEpochMillis(1001),
 		Payload: map[string]any{
 			"chatId":  "chat-query-current-messages",
 			"runId":   "run-1",
@@ -3612,10 +3643,10 @@ func TestStepWriterPersistsSyntheticQueryAfterInitialQuery(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, chatID, "run-1", "react")
-	writer.SetPendingQueryMessages([]map[string]any{{"role": "user", "content": "raw user text"}})
-	writer.OnEvent(stream.EventData{
+	writer.SetPendingQueryMessages([]map[string]any{{"role": "user", "content": "raw user text", "ts": testEpochMillis(1001)}})
+	onEventForTest(writer, stream.EventData{
 		Type:      "request.query",
-		Timestamp: 1001,
+		Timestamp: testEpochMillis(1001),
 		Payload: map[string]any{
 			"chatId":  chatID,
 			"runId":   "run-1",
@@ -3623,10 +3654,10 @@ func TestStepWriterPersistsSyntheticQueryAfterInitialQuery(t *testing.T) {
 			"message": "raw user text",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Seq:       42,
 		Type:      "request.query",
-		Timestamp: 1002,
+		Timestamp: testEpochMillis(1002),
 		Payload: map[string]any{
 			"chatId":    chatID,
 			"runId":     "run-1",
@@ -3707,9 +3738,9 @@ func TestStepWriterWritesSystemInitAfterQuery(t *testing.T) {
 		Tools:         []any{map[string]any{"type": "function"}},
 	}
 	writer.SetPendingSystemInit(&pendingSystem)
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "request.query",
-		Timestamp: 1001,
+		Timestamp: testEpochMillis(1001),
 		Payload: map[string]any{
 			"chatId":  "chat-query-system-init",
 			"runId":   "run-1",
@@ -3754,9 +3785,9 @@ func TestStepWriterPersistsQueryWithSystemInitsWithoutHiddenFlag(t *testing.T) {
 		Tools:         []any{map[string]any{"type": "function"}},
 	}
 	writer.SetPendingSystemInit(&pendingSystem)
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "request.query",
-		Timestamp: 1001,
+		Timestamp: testEpochMillis(1001),
 		Payload: map[string]any{
 			"chatId":  "chat-query-system-init-no-hidden",
 			"runId":   "run-system",
@@ -3823,9 +3854,9 @@ func TestStepWriterOmitsSystemsWhenNoPendingSystemInits(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-query-no-system-init", "run-1", "react")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "request.query",
-		Timestamp: 1001,
+		Timestamp: testEpochMillis(1001),
 		Payload: map[string]any{
 			"chatId":  "chat-query-no-system-init",
 			"runId":   "run-1",
@@ -3852,9 +3883,9 @@ func TestStepWriterPersistsAwaitingWithoutMessages(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-awaiting-standalone", "run-awaiting-standalone", "react")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "awaiting.ask",
-		Timestamp: 3001,
+		Timestamp: testEpochMillis(3001),
 		Payload: map[string]any{
 			"awaitingId": "tool-1",
 			"mode":       "question",
@@ -3874,8 +3905,8 @@ func TestStepWriterPersistsAwaitingWithoutMessages(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("expected standalone awaiting step line, got %#v", lines)
 	}
-	if lines[0]["_type"] != "react" || toIntValue(lines[0]["updatedAt"]) != 3001 {
-		t.Fatalf("expected awaiting step line updatedAt=3001, got %#v", lines[0])
+	if lines[0]["_type"] != "react" || toIntValue(lines[0]["updatedAt"]) != int(testEpochMillis(3001)) {
+		t.Fatalf("expected awaiting step line updatedAt=%d, got %#v", testEpochMillis(3001), lines[0])
 	}
 	awaiting, _ := lines[0]["awaiting"].([]any)
 	if len(awaiting) != 1 {
@@ -3931,9 +3962,9 @@ func TestStepWriterFlushesAwaitingAskImmediatelyForAllModes(t *testing.T) {
 			"runId":      runID,
 			tc.key:       tc.data,
 		}
-		writer.OnEvent(stream.EventData{
+		onEventForTest(writer, stream.EventData{
 			Type:      "awaiting.ask",
-			Timestamp: 4000,
+			Timestamp: testEpochMillis(4000),
 			Payload:   payload,
 		})
 
@@ -3965,18 +3996,18 @@ func TestStepWriterPersistsInlineApprovalMessage(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-approval-step", "run-approval-step", "react")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "tool.snapshot",
-		Timestamp: 4001,
+		Timestamp: testEpochMillis(4001),
 		Payload: map[string]any{
 			"toolId":    "tool-1",
 			"toolName":  "bash",
 			"arguments": `{"command":"chmod 777 ~/a.sh"}`,
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "tool.result",
-		Timestamp: 4002,
+		Timestamp: testEpochMillis(4002),
 		Payload: map[string]any{
 			"toolId": "tool-1",
 			"result": "",
@@ -4046,18 +4077,18 @@ func TestStepWriterPersistsFormApprovalDecisionPayload(t *testing.T) {
 		"leave_type":   "annual",
 	}
 	writer := NewStepWriter(store, "chat-form-approval-step", "run-form-approval-step", "react")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "tool.snapshot",
-		Timestamp: 4101,
+		Timestamp: testEpochMillis(4101),
 		Payload: map[string]any{
 			"toolId":    "tool-1",
 			"toolName":  "bash",
 			"arguments": `{"command":"mock create-leave --payload '{...}'"}`,
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "tool.result",
-		Timestamp: 4102,
+		Timestamp: testEpochMillis(4102),
 		Payload: map[string]any{
 			"toolId": "tool-1",
 			"result": "executed",
@@ -4152,10 +4183,10 @@ The tool results above already reflect these decisions; do not re-prompt for app
 			RuleKey:  "dangerous-commands::chmod",
 		}},
 	}
-	if err := store.AppendStepLine("chat-approval-raw", StepLine{
+	if err := appendStepLineForTest(store, "chat-approval-raw", StepLine{
 		ChatID:    "chat-approval-raw",
 		RunID:     "run-approval-raw",
-		UpdatedAt: 5003,
+		UpdatedAt: testEpochMillis(5003),
 		Type:      "react",
 		Seq:       1,
 		Messages: []StoredMessage{
@@ -4252,10 +4283,10 @@ The tool results above already reflect these automatic approvals; do not re-prom
 			Mode:     "approval",
 		}},
 	}
-	if err := store.AppendStepLine("chat-auto-approval-raw", StepLine{
+	if err := appendStepLineForTest(store, "chat-auto-approval-raw", StepLine{
 		ChatID:    "chat-auto-approval-raw",
 		RunID:     "run-auto-approval-raw",
-		UpdatedAt: 6003,
+		UpdatedAt: testEpochMillis(6003),
 		Type:      "react",
 		Seq:       1,
 		Messages: []StoredMessage{
@@ -4342,10 +4373,10 @@ The tool results above already reflect these decisions; do not re-prompt for app
 			RuleKey:  "leave::create",
 		}},
 	}
-	if err := store.AppendStepLine("chat-approval-split", StepLine{
+	if err := appendStepLineForTest(store, "chat-approval-split", StepLine{
 		ChatID:    "chat-approval-split",
 		RunID:     "run-approval-split",
-		UpdatedAt: 5003,
+		UpdatedAt: testEpochMillis(5003),
 		Type:      "react",
 		Seq:       1,
 		Messages: []StoredMessage{{
@@ -4365,10 +4396,10 @@ The tool results above already reflect these decisions; do not re-prompt for app
 	}); err != nil {
 		t.Fatalf("append assistant step line: %v", err)
 	}
-	if err := store.AppendStepLine("chat-approval-split", StepLine{
+	if err := appendStepLineForTest(store, "chat-approval-split", StepLine{
 		ChatID:    "chat-approval-split",
 		RunID:     "run-approval-split",
-		UpdatedAt: 5004,
+		UpdatedAt: testEpochMillis(5004),
 		Type:      "react",
 		Seq:       2,
 		Messages: []StoredMessage{{
@@ -4426,10 +4457,10 @@ func TestReactToolResultLinesReplay(t *testing.T) {
 
 			assistantTs := int64(6101)
 			resultTs := int64(6102)
-			if err := store.AppendStepLine(chatID, StepLine{
+			if err := appendStepLineForTest(store, chatID, StepLine{
 				ChatID:    chatID,
 				RunID:     runID,
-				UpdatedAt: 6101,
+				UpdatedAt: testEpochMillis(6101),
 				LiveSeq:   7,
 				Type:      StepLineTypeReact,
 				Seq:       1,
@@ -4450,10 +4481,10 @@ func TestReactToolResultLinesReplay(t *testing.T) {
 			}); err != nil {
 				t.Fatalf("append assistant step: %v", err)
 			}
-			if err := store.AppendStepLine(chatID, StepLine{
+			if err := appendStepLineForTest(store, chatID, StepLine{
 				ChatID:    chatID,
 				RunID:     runID,
-				UpdatedAt: 6102,
+				UpdatedAt: testEpochMillis(6102),
 				LiveSeq:   8,
 				Type:      tc.lineType,
 				Seq:       1,
@@ -4515,10 +4546,10 @@ func TestLoadRawMessagesFlushesApprovalSummaryBeforeNextRun(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	if err := store.AppendQueryLine("chat-approval-multirun", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-approval-multirun", QueryLine{
 		ChatID:    "chat-approval-multirun",
 		RunID:     "run-1",
-		UpdatedAt: 1000,
+		UpdatedAt: testEpochMillis(1000),
 		Query: map[string]any{
 			"role":    "user",
 			"message": "first",
@@ -4528,10 +4559,10 @@ func TestLoadRawMessagesFlushesApprovalSummaryBeforeNextRun(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append first query line: %v", err)
 	}
-	if err := store.AppendStepLine("chat-approval-multirun", StepLine{
+	if err := appendStepLineForTest(store, "chat-approval-multirun", StepLine{
 		ChatID:    "chat-approval-multirun",
 		RunID:     "run-1",
-		UpdatedAt: 1001,
+		UpdatedAt: testEpochMillis(1001),
 		Type:      "react",
 		Seq:       1,
 		Messages: []StoredMessage{{
@@ -4549,10 +4580,10 @@ func TestLoadRawMessagesFlushesApprovalSummaryBeforeNextRun(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append first step line: %v", err)
 	}
-	if err := store.AppendQueryLine("chat-approval-multirun", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-approval-multirun", QueryLine{
 		ChatID:    "chat-approval-multirun",
 		RunID:     "run-2",
-		UpdatedAt: 1002,
+		UpdatedAt: testEpochMillis(1002),
 		Query: map[string]any{
 			"role":    "user",
 			"message": "second",
@@ -4562,10 +4593,10 @@ func TestLoadRawMessagesFlushesApprovalSummaryBeforeNextRun(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append second query line: %v", err)
 	}
-	if err := store.AppendStepLine("chat-approval-multirun", StepLine{
+	if err := appendStepLineForTest(store, "chat-approval-multirun", StepLine{
 		ChatID:    "chat-approval-multirun",
 		RunID:     "run-2",
-		UpdatedAt: 1003,
+		UpdatedAt: testEpochMillis(1003),
 		Type:      "react",
 		Seq:       1,
 		Messages: []StoredMessage{{
@@ -4602,17 +4633,17 @@ func TestStepWriterSubAgentStepsAreExcludedFromRawMessages(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-subagent-raw", "run-subagent-raw", "react")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "content.snapshot",
-		Timestamp: 1001,
+		Timestamp: testEpochMillis(1001),
 		Payload: map[string]any{
 			"contentId": "root_1",
 			"text":      "root",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "task.start",
-		Timestamp: 1002,
+		Timestamp: testEpochMillis(1002),
 		Payload: map[string]any{
 			"taskId":         "task_1",
 			"runId":          "run-subagent-raw",
@@ -4622,25 +4653,25 @@ func TestStepWriterSubAgentStepsAreExcludedFromRawMessages(t *testing.T) {
 			"invokingToolId": "tool_main_1",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "content.snapshot",
-		Timestamp: 1003,
+		Timestamp: testEpochMillis(1003),
 		Payload: map[string]any{
 			"contentId": "child_1",
 			"taskId":    "task_1",
 			"text":      "child",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "task.complete",
-		Timestamp: 1004,
+		Timestamp: testEpochMillis(1004),
 		Payload: map[string]any{
 			"taskId": "task_1",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "content.snapshot",
-		Timestamp: 1005,
+		Timestamp: testEpochMillis(1005),
 		Payload: map[string]any{
 			"contentId": "root_2",
 			"text":      "root again",
@@ -4686,9 +4717,9 @@ func TestStepWriterTaskSnapshotsUpsertAfterComplete(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-task-upsert", "run-task-upsert", "react")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "task.start",
-		Timestamp: 1001,
+		Timestamp: testEpochMillis(1001),
 		Payload: map[string]any{
 			"taskId":         "task_1",
 			"taskName":       "讲故事",
@@ -4696,25 +4727,25 @@ func TestStepWriterTaskSnapshotsUpsertAfterComplete(t *testing.T) {
 			"invokingToolId": "tool_main_1",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "content.snapshot",
-		Timestamp: 1002,
+		Timestamp: testEpochMillis(1002),
 		Payload: map[string]any{
 			"contentId": "content_1",
 			"taskId":    "task_1",
 			"text":      "标题",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "task.complete",
-		Timestamp: 1003,
+		Timestamp: testEpochMillis(1003),
 		Payload: map[string]any{
 			"taskId": "task_1",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "content.snapshot",
-		Timestamp: 1004,
+		Timestamp: testEpochMillis(1004),
 		Payload: map[string]any{
 			"contentId": "content_1",
 			"taskId":    "task_1",
@@ -4750,17 +4781,17 @@ func TestStepWriterRootSnapshotsUpsertByContentID(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-root-upsert", "run-root-upsert", "react")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "content.snapshot",
-		Timestamp: 1001,
+		Timestamp: testEpochMillis(1001),
 		Payload: map[string]any{
 			"contentId": "content_1",
 			"text":      "short",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "content.snapshot",
-		Timestamp: 1002,
+		Timestamp: testEpochMillis(1002),
 		Payload: map[string]any{
 			"contentId": "content_1",
 			"text":      "short and complete",
@@ -4795,26 +4826,26 @@ func TestStepWriterDoesNotInferTaskForUntargetedContent(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-subagent-no-infer", "run-subagent-no-infer", "react")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "task.start",
-		Timestamp: 1001,
+		Timestamp: testEpochMillis(1001),
 		Payload: map[string]any{
 			"taskId":      "task_1",
 			"taskName":    "分析",
 			"subAgentKey": "analyzer",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "content.snapshot",
-		Timestamp: 1002,
+		Timestamp: testEpochMillis(1002),
 		Payload: map[string]any{
 			"contentId": "root_1",
 			"text":      "root final",
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "task.complete",
-		Timestamp: 1003,
+		Timestamp: testEpochMillis(1003),
 		Payload: map[string]any{
 			"taskId": "task_1",
 		},
@@ -4860,10 +4891,10 @@ func TestLoadChatSynthesizesTaskLifecycleFromSubAgentSteps(t *testing.T) {
 	}
 
 	contentTs := int64(2001)
-	if err := store.AppendQueryLine("chat-subagent-replay", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-subagent-replay", QueryLine{
 		ChatID:      "chat-subagent-replay",
 		RunID:       "run-subagent-replay",
-		UpdatedAt:   2000,
+		UpdatedAt:   testEpochMillis(2000),
 		TaskID:      "task_1",
 		TaskName:    "分析",
 		TaskToolID:  "tool_main_1",
@@ -4879,10 +4910,10 @@ func TestLoadChatSynthesizesTaskLifecycleFromSubAgentSteps(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append sub-agent query line: %v", err)
 	}
-	if err := store.AppendStepLine("chat-subagent-replay", StepLine{
+	if err := appendStepLineForTest(store, "chat-subagent-replay", StepLine{
 		ChatID:          "chat-subagent-replay",
 		RunID:           "run-subagent-replay",
-		UpdatedAt:       2002,
+		UpdatedAt:       testEpochMillis(2002),
 		Type:            "react",
 		Seq:             1,
 		TaskID:          "task_1",
@@ -4909,10 +4940,10 @@ func TestLoadChatSynthesizesTaskLifecycleFromSubAgentSteps(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append sub-agent step line: %v", err)
 	}
-	if err := store.AppendStepLine("chat-subagent-replay", StepLine{
+	if err := appendStepLineForTest(store, "chat-subagent-replay", StepLine{
 		ChatID:    "chat-subagent-replay",
 		RunID:     "run-subagent-replay",
-		UpdatedAt: 2003,
+		UpdatedAt: testEpochMillis(2003),
 		Type:      "react",
 		Seq:       2,
 		Messages: []StoredMessage{{
@@ -4985,10 +5016,10 @@ func TestReplayedSubQueryTaskStartPrecedesRequestQuery(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	if err := store.AppendQueryLine("chat-sub-query-order", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-sub-query-order", QueryLine{
 		ChatID:      "chat-sub-query-order",
 		RunID:       "run-sub-query-order",
-		UpdatedAt:   1000,
+		UpdatedAt:   testEpochMillis(1000),
 		TaskID:      "task_1",
 		TaskName:    "分析",
 		TaskToolID:  "tool_main_1",
@@ -5004,10 +5035,10 @@ func TestReplayedSubQueryTaskStartPrecedesRequestQuery(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append sub-agent query line: %v", err)
 	}
-	if err := store.AppendStepLine("chat-sub-query-order", StepLine{
+	if err := appendStepLineForTest(store, "chat-sub-query-order", StepLine{
 		ChatID:          "chat-sub-query-order",
 		RunID:           "run-sub-query-order",
-		UpdatedAt:       1001,
+		UpdatedAt:       testEpochMillis(1001),
 		Type:            "react",
 		TaskID:          "task_1",
 		TaskStatus:      "completed",
@@ -5058,10 +5089,10 @@ func TestReplayedSubQueryWithoutTaskIDUnchanged(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	if err := store.AppendQueryLine("chat-root-query-no-task", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-root-query-no-task", QueryLine{
 		ChatID:    "chat-root-query-no-task",
 		RunID:     "run-root-query-no-task",
-		UpdatedAt: 1000,
+		UpdatedAt: testEpochMillis(1000),
 		Query: map[string]any{
 			"chatId":  "chat-root-query-no-task",
 			"runId":   "run-root-query-no-task",
@@ -5107,10 +5138,10 @@ func TestLoadChatIgnoresQuestionAwaitingAskEventLines(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	if err := store.AppendQueryLine("chat-1", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-1", QueryLine{
 		ChatID:    "chat-1",
 		RunID:     "run-1",
-		UpdatedAt: 1000,
+		UpdatedAt: testEpochMillis(1000),
 		Query: map[string]any{
 			"chatId":  "chat-1",
 			"message": "please ask me",
@@ -5120,10 +5151,10 @@ func TestLoadChatIgnoresQuestionAwaitingAskEventLines(t *testing.T) {
 		t.Fatalf("append query line: %v", err)
 	}
 
-	if err := store.AppendEventLine("chat-1", EventLine{
+	if err := appendEventLineForTest(store, "chat-1", EventLine{
 		ChatID:    "chat-1",
 		RunID:     "run-1",
-		UpdatedAt: 1001,
+		UpdatedAt: testEpochMillis(1001),
 		Type:      "event",
 		Event: map[string]any{
 			"type":       "awaiting.ask",
@@ -5148,10 +5179,10 @@ func TestLoadChatIgnoresQuestionAwaitingAskEventLines(t *testing.T) {
 		t.Fatalf("append await ask line: %v", err)
 	}
 
-	if err := store.AppendEventLine("chat-1", EventLine{
+	if err := appendEventLineForTest(store, "chat-1", EventLine{
 		ChatID:    "chat-1",
 		RunID:     "run-1",
-		UpdatedAt: 1003,
+		UpdatedAt: testEpochMillis(1003),
 		Type:      "event",
 		Event: map[string]any{
 			"type":       "request.submit",
@@ -5174,10 +5205,10 @@ func TestLoadChatIgnoresQuestionAwaitingAskEventLines(t *testing.T) {
 		t.Fatalf("append request submit line: %v", err)
 	}
 
-	if err := store.AppendEventLine("chat-1", EventLine{
+	if err := appendEventLineForTest(store, "chat-1", EventLine{
 		ChatID:    "chat-1",
 		RunID:     "run-1",
-		UpdatedAt: 1004,
+		UpdatedAt: testEpochMillis(1004),
 		Type:      "event",
 		Event: map[string]any{
 			"type":       "awaiting.answer",
@@ -5205,17 +5236,15 @@ func TestLoadChatIgnoresQuestionAwaitingAskEventLines(t *testing.T) {
 		t.Fatalf("load chat: %v", err)
 	}
 
-	if len(detail.Events) != 6 {
-		t.Fatalf("expected 6 replayed events, got %d: %#v", len(detail.Events), detail.Events)
-	}
-
 	expectedTypes := []string{
 		"chat.start",
 		"request.query",
 		"run.start",
 		"request.submit",
 		"awaiting.answer",
-		"run.complete",
+	}
+	if len(detail.Events) != len(expectedTypes) {
+		t.Fatalf("expected %d replayed events, got %d: %#v", len(expectedTypes), len(detail.Events), detail.Events)
 	}
 	for i, eventType := range expectedTypes {
 		if detail.Events[i].Type != eventType {
@@ -5245,10 +5274,10 @@ func TestLoadChatReplaysSubmitLine(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	if err := store.AppendQueryLine("chat-submit-replay", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-submit-replay", QueryLine{
 		ChatID:    "chat-submit-replay",
 		RunID:     "run-submit-replay",
-		UpdatedAt: 1000,
+		UpdatedAt: testEpochMillis(1000),
 		Query: map[string]any{
 			"chatId":  "chat-submit-replay",
 			"message": "please ask me",
@@ -5258,10 +5287,10 @@ func TestLoadChatReplaysSubmitLine(t *testing.T) {
 		t.Fatalf("append query line: %v", err)
 	}
 
-	if err := store.AppendSubmitLine("chat-submit-replay", SubmitLine{
+	if err := appendSubmitLineForTest(store, "chat-submit-replay", SubmitLine{
 		ChatID:    "chat-submit-replay",
 		RunID:     "run-submit-replay",
-		UpdatedAt: 1001,
+		UpdatedAt: testEpochMillis(1001),
 		Type:      "submit",
 		Submit: map[string]any{
 			"type":       "request.submit",
@@ -5296,7 +5325,6 @@ func TestLoadChatReplaysSubmitLine(t *testing.T) {
 		"run.start",
 		"request.submit",
 		"awaiting.answer",
-		"run.complete",
 	}
 	if len(detail.Events) != len(expectedTypes) {
 		t.Fatalf("expected %d replayed events, got %d: %#v", len(expectedTypes), len(detail.Events), detail.Events)
@@ -5312,7 +5340,7 @@ func TestLoadChatReplaysSubmitLine(t *testing.T) {
 	if detail.Events[4].String("runId") != "run-submit-replay" {
 		t.Fatalf("expected runId to be backfilled on awaiting.answer, got %#v", detail.Events[4])
 	}
-	if detail.Events[4].Value("durationMs") != float64(88) {
+	if int64FromAny(detail.Events[4].Value("durationMs")) != 88 {
 		t.Fatalf("expected awaiting.answer durationMs to replay, got %#v", detail.Events[4])
 	}
 }
@@ -5327,10 +5355,10 @@ func TestLoadChatReplaysAwaitingFromStepLine(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	if err := store.AppendQueryLine("chat-awaiting-replay", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-awaiting-replay", QueryLine{
 		ChatID:    "chat-awaiting-replay",
 		RunID:     "run-awaiting-replay",
-		UpdatedAt: 1000,
+		UpdatedAt: testEpochMillis(1000),
 		Query: map[string]any{
 			"chatId":  "chat-awaiting-replay",
 			"message": "please ask me",
@@ -5342,10 +5370,10 @@ func TestLoadChatReplaysAwaitingFromStepLine(t *testing.T) {
 
 	toolTs := int64(1001)
 	resultTs := int64(1003)
-	if err := store.AppendStepLine("chat-awaiting-replay", StepLine{
+	if err := appendStepLineForTest(store, "chat-awaiting-replay", StepLine{
 		ChatID:    "chat-awaiting-replay",
 		RunID:     "run-awaiting-replay",
-		UpdatedAt: 1004,
+		UpdatedAt: testEpochMillis(1004),
 		Type:      "react",
 		Seq:       1,
 		Messages: []StoredMessage{
@@ -5375,7 +5403,7 @@ func TestLoadChatReplaysAwaitingFromStepLine(t *testing.T) {
 		Awaiting: []map[string]any{
 			{
 				"type":       "awaiting.ask",
-				"timestamp":  1002,
+				"timestamp":  (1700000000000 + 1002),
 				"awaitingId": "tool-1",
 				"mode":       "question",
 				"timeout":    120,
@@ -5404,7 +5432,6 @@ func TestLoadChatReplaysAwaitingFromStepLine(t *testing.T) {
 		"tool.snapshot",
 		"awaiting.ask",
 		"tool.result",
-		"run.complete",
 	}
 	if len(detail.Events) != len(expectedTypes) {
 		t.Fatalf("expected %d replayed events, got %d: %#v", len(expectedTypes), len(detail.Events), detail.Events)
@@ -5430,10 +5457,10 @@ func TestLoadChatIgnoresEventLineAwaitingAsk(t *testing.T) {
 	if _, _, err := store.EnsureChat("chat-awaiting-event-ignored", "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	if err := store.AppendQueryLine("chat-awaiting-event-ignored", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-awaiting-event-ignored", QueryLine{
 		ChatID:    "chat-awaiting-event-ignored",
 		RunID:     "run-awaiting-event-ignored",
-		UpdatedAt: 1000,
+		UpdatedAt: testEpochMillis(1000),
 		Query: map[string]any{
 			"chatId":  "chat-awaiting-event-ignored",
 			"message": "please ask me",
@@ -5442,10 +5469,10 @@ func TestLoadChatIgnoresEventLineAwaitingAsk(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append query line: %v", err)
 	}
-	if err := store.AppendEventLine("chat-awaiting-event-ignored", EventLine{
+	if err := appendEventLineForTest(store, "chat-awaiting-event-ignored", EventLine{
 		ChatID:    "chat-awaiting-event-ignored",
 		RunID:     "run-awaiting-event-ignored",
-		UpdatedAt: 1001,
+		UpdatedAt: testEpochMillis(1001),
 		Type:      "event",
 		Event: map[string]any{
 			"type":       "awaiting.ask",
@@ -5480,10 +5507,10 @@ func TestLoadChatDoesNotSynthesizeRunCompleteForPendingAwaiting(t *testing.T) {
 	if _, _, err := store.EnsureChat("chat-awaiting-pending", "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	if err := store.AppendQueryLine("chat-awaiting-pending", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-awaiting-pending", QueryLine{
 		ChatID:    "chat-awaiting-pending",
 		RunID:     "run-awaiting-pending",
-		UpdatedAt: 1000,
+		UpdatedAt: testEpochMillis(1000),
 		Query: map[string]any{
 			"chatId":  "chat-awaiting-pending",
 			"runId":   "run-awaiting-pending",
@@ -5493,14 +5520,14 @@ func TestLoadChatDoesNotSynthesizeRunCompleteForPendingAwaiting(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append query line: %v", err)
 	}
-	if err := store.AppendStepLine("chat-awaiting-pending", StepLine{
+	if err := appendStepLineForTest(store, "chat-awaiting-pending", StepLine{
 		ChatID:    "chat-awaiting-pending",
 		RunID:     "run-awaiting-pending",
-		UpdatedAt: 1001,
+		UpdatedAt: testEpochMillis(1001),
 		Type:      "react",
 		Awaiting: []map[string]any{{
 			"type":       "awaiting.ask",
-			"timestamp":  1001,
+			"timestamp":  (1700000000000 + 1001),
 			"awaitingId": "tool-1",
 			"runId":      "run-awaiting-pending",
 			"mode":       "question",
@@ -5516,7 +5543,7 @@ func TestLoadChatDoesNotSynthesizeRunCompleteForPendingAwaiting(t *testing.T) {
 		AwaitingID: "tool-1",
 		RunID:      "run-awaiting-pending",
 		Mode:       "question",
-		CreatedAt:  1001,
+		CreatedAt:  testEpochMillis(1001),
 	}); err != nil {
 		t.Fatalf("set pending awaiting: %v", err)
 	}
@@ -5552,10 +5579,10 @@ func TestLoadChatReplaysAwaitingAfterMatchingToolSnapshotInMultiToolStep(t *test
 	assistantTs := int64(1001)
 	toolATs := int64(1002)
 	toolBTs := int64(1003)
-	if err := store.AppendStepLine("chat-awaiting-multi", StepLine{
+	if err := appendStepLineForTest(store, "chat-awaiting-multi", StepLine{
 		ChatID:    "chat-awaiting-multi",
 		RunID:     "run-awaiting-multi",
-		UpdatedAt: 1005,
+		UpdatedAt: testEpochMillis(1005),
 		Type:      "react",
 		Seq:       1,
 		Messages: []StoredMessage{
@@ -5602,14 +5629,14 @@ func TestLoadChatReplaysAwaitingAfterMatchingToolSnapshotInMultiToolStep(t *test
 		Awaiting: []map[string]any{
 			{
 				"type":       "awaiting.ask",
-				"timestamp":  1001,
+				"timestamp":  (1700000000000 + 1001),
 				"awaitingId": "tool-b",
 				"mode":       "question",
 				"questions":  []any{map[string]any{"id": "qb", "question": "B?"}},
 			},
 			{
 				"type":       "awaiting.ask",
-				"timestamp":  1001,
+				"timestamp":  (1700000000000 + 1001),
 				"awaitingId": "tool-a",
 				"mode":       "question",
 				"questions":  []any{map[string]any{"id": "qa", "question": "A?"}},
@@ -5633,7 +5660,6 @@ func TestLoadChatReplaysAwaitingAfterMatchingToolSnapshotInMultiToolStep(t *test
 		"awaiting.ask",
 		"tool.result",
 		"tool.result",
-		"run.complete",
 	}
 	if len(detail.Events) != len(expectedTypes) {
 		t.Fatalf("expected %d replayed events, got %d: %#v", len(expectedTypes), len(detail.Events), detail.Events)
@@ -5663,10 +5689,10 @@ func TestLoadChatReplaysUnmatchedAwaitingAtStepEnd(t *testing.T) {
 
 	toolTs := int64(1001)
 	resultTs := int64(1002)
-	if err := store.AppendStepLine("chat-awaiting-fallback", StepLine{
+	if err := appendStepLineForTest(store, "chat-awaiting-fallback", StepLine{
 		ChatID:    "chat-awaiting-fallback",
 		RunID:     "run-awaiting-fallback",
-		UpdatedAt: 1004,
+		UpdatedAt: testEpochMillis(1004),
 		Type:      "react",
 		Seq:       1,
 		Messages: []StoredMessage{
@@ -5696,7 +5722,7 @@ func TestLoadChatReplaysUnmatchedAwaitingAtStepEnd(t *testing.T) {
 		Awaiting: []map[string]any{
 			{
 				"type":       "awaiting.ask",
-				"timestamp":  1003,
+				"timestamp":  (1700000000000 + 1003),
 				"awaitingId": "tool-missing",
 				"mode":       "question",
 				"questions":  []any{map[string]any{"id": "q1", "question": "How many?"}},
@@ -5717,7 +5743,6 @@ func TestLoadChatReplaysUnmatchedAwaitingAtStepEnd(t *testing.T) {
 		"tool.snapshot",
 		"tool.result",
 		"awaiting.ask",
-		"run.complete",
 	}
 	if len(detail.Events) != len(expectedTypes) {
 		t.Fatalf("expected %d replayed events, got %d: %#v", len(expectedTypes), len(detail.Events), detail.Events)
@@ -5742,10 +5767,10 @@ func TestLoadChatReplaysSteerLine(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	if err := store.AppendQueryLine("chat-steer", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-steer", QueryLine{
 		ChatID:    "chat-steer",
 		RunID:     "run-steer",
-		UpdatedAt: 1000,
+		UpdatedAt: testEpochMillis(1000),
 		Query: map[string]any{
 			"chatId":  "chat-steer",
 			"message": "hello",
@@ -5755,10 +5780,10 @@ func TestLoadChatReplaysSteerLine(t *testing.T) {
 		t.Fatalf("append query line: %v", err)
 	}
 
-	if err := store.AppendEventLine("chat-steer", EventLine{
+	if err := appendEventLineForTest(store, "chat-steer", EventLine{
 		ChatID:    "chat-steer",
 		RunID:     "run-steer",
-		UpdatedAt: 1001,
+		UpdatedAt: testEpochMillis(1001),
 		Type:      "steer",
 		Event: map[string]any{
 			"type":      "request.steer",
@@ -5781,7 +5806,6 @@ func TestLoadChatReplaysSteerLine(t *testing.T) {
 		"request.query",
 		"run.start",
 		"request.steer",
-		"run.complete",
 	}
 	if len(detail.Events) != len(expectedTypes) {
 		t.Fatalf("expected %d replayed events, got %d: %#v", len(expectedTypes), len(detail.Events), detail.Events)
@@ -5806,10 +5830,10 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	if err := store.AppendQueryLine("chat-step-usage", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-step-usage", QueryLine{
 		ChatID:    "chat-step-usage",
 		RunID:     "run-step-usage",
-		UpdatedAt: 1000,
+		UpdatedAt: testEpochMillis(1000),
 		Query: map[string]any{
 			"chatId":  "chat-step-usage",
 			"message": "hello",
@@ -5820,10 +5844,10 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 	}
 
 	contentTs := int64(1002)
-	if err := store.AppendStepLine("chat-step-usage", StepLine{
+	if err := appendStepLineForTest(store, "chat-step-usage", StepLine{
 		ChatID:          "chat-step-usage",
 		RunID:           "run-step-usage",
-		UpdatedAt:       1003,
+		UpdatedAt:       testEpochMillis(1003),
 		ModelKey:        "line-model",
 		ReasoningEffort: "HIGH",
 		Type:            "react",
@@ -5851,6 +5875,9 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 		},
 	}); err != nil {
 		t.Fatalf("append step line: %v", err)
+	}
+	if err := completeRunForTest(store, RunCompletion{ChatID: "chat-step-usage", RunID: "run-step-usage", UpdatedAtMillis: testEpochMillis(1004)}); err != nil {
+		t.Fatalf("complete run: %v", err)
 	}
 
 	detail, err := store.LoadChat("chat-step-usage")
@@ -5907,10 +5934,10 @@ func TestLoadChatDoesNotSynthesizeEmptyUsageSnapshot(t *testing.T) {
 	if _, _, err := store.EnsureChat("chat-empty-step-usage", "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	if err := store.AppendQueryLine("chat-empty-step-usage", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-empty-step-usage", QueryLine{
 		ChatID:    "chat-empty-step-usage",
 		RunID:     "run-empty-step-usage",
-		UpdatedAt: 1000,
+		UpdatedAt: testEpochMillis(1000),
 		Query:     map[string]any{"chatId": "chat-empty-step-usage", "message": "hello"},
 		Type:      "query",
 	}); err != nil {
@@ -5918,10 +5945,10 @@ func TestLoadChatDoesNotSynthesizeEmptyUsageSnapshot(t *testing.T) {
 	}
 
 	contentTs := int64(1002)
-	if err := store.AppendStepLine("chat-empty-step-usage", StepLine{
+	if err := appendStepLineForTest(store, "chat-empty-step-usage", StepLine{
 		ChatID:    "chat-empty-step-usage",
 		RunID:     "run-empty-step-usage",
-		UpdatedAt: 1003,
+		UpdatedAt: testEpochMillis(1003),
 		Type:      "react",
 		Seq:       1,
 		Messages: []StoredMessage{{
@@ -5943,6 +5970,9 @@ func TestLoadChatDoesNotSynthesizeEmptyUsageSnapshot(t *testing.T) {
 		},
 	}); err != nil {
 		t.Fatalf("append step line: %v", err)
+	}
+	if err := completeRunForTest(store, RunCompletion{ChatID: "chat-empty-step-usage", RunID: "run-empty-step-usage", UpdatedAtMillis: testEpochMillis(1004)}); err != nil {
+		t.Fatalf("complete run: %v", err)
 	}
 
 	detail, err := store.LoadChat("chat-empty-step-usage")
@@ -5979,20 +6009,20 @@ func TestLoadChatReadsEstimatedCostFromStepLevel(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	if err := store.AppendQueryLine("chat-step-cost", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-step-cost", QueryLine{
 		ChatID:    "chat-step-cost",
 		RunID:     "run-step-cost",
-		UpdatedAt: 1000,
+		UpdatedAt: testEpochMillis(1000),
 		Query:     map[string]any{"chatId": "chat-step-cost", "message": "hello"},
 		Type:      "query",
 	}); err != nil {
 		t.Fatalf("append query line: %v", err)
 	}
 
-	if err := store.AppendStepLine("chat-step-cost", StepLine{
+	if err := appendStepLineForTest(store, "chat-step-cost", StepLine{
 		ChatID:    "chat-step-cost",
 		RunID:     "run-step-cost",
-		UpdatedAt: 1003,
+		UpdatedAt: testEpochMillis(1003),
 		Type:      "react",
 		Seq:       1,
 		Messages: []StoredMessage{{
@@ -6014,6 +6044,9 @@ func TestLoadChatReadsEstimatedCostFromStepLevel(t *testing.T) {
 		},
 	}); err != nil {
 		t.Fatalf("append step line: %v", err)
+	}
+	if err := completeRunForTest(store, RunCompletion{ChatID: "chat-step-cost", RunID: "run-step-cost", UpdatedAtMillis: testEpochMillis(1004)}); err != nil {
+		t.Fatalf("complete run: %v", err)
 	}
 
 	detail, err := store.LoadChat("chat-step-cost")
@@ -6057,10 +6090,10 @@ func TestLoadChatAccumulatesMultipleStepEstimatedCosts(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	if err := store.AppendQueryLine("chat-multi-cost", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-multi-cost", QueryLine{
 		ChatID:    "chat-multi-cost",
 		RunID:     "run-multi-cost",
-		UpdatedAt: 1000,
+		UpdatedAt: testEpochMillis(1000),
 		Query:     map[string]any{"chatId": "chat-multi-cost", "message": "hello"},
 		Type:      "query",
 	}); err != nil {
@@ -6071,7 +6104,7 @@ func TestLoadChatAccumulatesMultipleStepEstimatedCosts(t *testing.T) {
 		{"currency": "USD", "inputCacheHit": 0.005, "inputCacheMiss": 0.01, "output": 0.02, "total": 0.035},
 		{"currency": "USD", "inputCacheHit": 0.003, "inputCacheMiss": 0.005, "output": 0.01, "total": 0.018},
 	} {
-		if err := store.AppendStepLine("chat-multi-cost", StepLine{
+		if err := appendStepLineForTest(store, "chat-multi-cost", StepLine{
 			ChatID:    "chat-multi-cost",
 			RunID:     "run-multi-cost",
 			UpdatedAt: int64(1004 + i),
@@ -6091,6 +6124,9 @@ func TestLoadChatAccumulatesMultipleStepEstimatedCosts(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("append step line %d: %v", i, err)
 		}
+	}
+	if err := completeRunForTest(store, RunCompletion{ChatID: "chat-multi-cost", RunID: "run-multi-cost", UpdatedAtMillis: testEpochMillis(1007)}); err != nil {
+		t.Fatalf("complete run: %v", err)
 	}
 
 	detail, err := store.LoadChat("chat-multi-cost")
@@ -6131,10 +6167,10 @@ func TestLoadChatAccumulatesEstimatedCostWithoutTokens(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	if err := store.AppendQueryLine("chat-cost-only", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-cost-only", QueryLine{
 		ChatID:    "chat-cost-only",
 		RunID:     "run-cost-only",
-		UpdatedAt: 1000,
+		UpdatedAt: testEpochMillis(1000),
 		Query:     map[string]any{"chatId": "chat-cost-only", "message": "hello"},
 		Type:      "query",
 	}); err != nil {
@@ -6142,10 +6178,10 @@ func TestLoadChatAccumulatesEstimatedCostWithoutTokens(t *testing.T) {
 	}
 
 	// Step with ONLY estimatedCost (no provider tokens)
-	if err := store.AppendStepLine("chat-cost-only", StepLine{
+	if err := appendStepLineForTest(store, "chat-cost-only", StepLine{
 		ChatID:    "chat-cost-only",
 		RunID:     "run-cost-only",
-		UpdatedAt: 1003,
+		UpdatedAt: testEpochMillis(1003),
 		Type:      "react",
 		Seq:       1,
 		Messages: []StoredMessage{{
@@ -6163,6 +6199,9 @@ func TestLoadChatAccumulatesEstimatedCostWithoutTokens(t *testing.T) {
 		},
 	}); err != nil {
 		t.Fatalf("append step line: %v", err)
+	}
+	if err := completeRunForTest(store, RunCompletion{ChatID: "chat-cost-only", RunID: "run-cost-only", UpdatedAtMillis: testEpochMillis(1004)}); err != nil {
+		t.Fatalf("complete run: %v", err)
 	}
 
 	detail, err := store.LoadChat("chat-cost-only")
@@ -6203,10 +6242,10 @@ func TestLoadChatIgnoresApprovalAwaitingAskEventLines(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	if err := store.AppendQueryLine("chat-approval", QueryLine{
+	if err := appendQueryLineForTest(store, "chat-approval", QueryLine{
 		ChatID:    "chat-approval",
 		RunID:     "run-approval",
-		UpdatedAt: 1000,
+		UpdatedAt: testEpochMillis(1000),
 		Query: map[string]any{
 			"chatId":  "chat-approval",
 			"message": "please approve",
@@ -6216,10 +6255,10 @@ func TestLoadChatIgnoresApprovalAwaitingAskEventLines(t *testing.T) {
 		t.Fatalf("append query line: %v", err)
 	}
 
-	if err := store.AppendEventLine("chat-approval", EventLine{
+	if err := appendEventLineForTest(store, "chat-approval", EventLine{
 		ChatID:    "chat-approval",
 		RunID:     "run-approval",
-		UpdatedAt: 1001,
+		UpdatedAt: testEpochMillis(1001),
 		Type:      "event",
 		Event: map[string]any{
 			"type":       "awaiting.ask",
@@ -6239,10 +6278,10 @@ func TestLoadChatIgnoresApprovalAwaitingAskEventLines(t *testing.T) {
 		t.Fatalf("append approval await ask line: %v", err)
 	}
 
-	if err := store.AppendEventLine("chat-approval", EventLine{
+	if err := appendEventLineForTest(store, "chat-approval", EventLine{
 		ChatID:    "chat-approval",
 		RunID:     "run-approval",
-		UpdatedAt: 1002,
+		UpdatedAt: testEpochMillis(1002),
 		Type:      "event",
 		Event: map[string]any{
 			"type":       "request.submit",
@@ -6258,10 +6297,10 @@ func TestLoadChatIgnoresApprovalAwaitingAskEventLines(t *testing.T) {
 		t.Fatalf("append approval request submit line: %v", err)
 	}
 
-	if err := store.AppendEventLine("chat-approval", EventLine{
+	if err := appendEventLineForTest(store, "chat-approval", EventLine{
 		ChatID:    "chat-approval",
 		RunID:     "run-approval",
-		UpdatedAt: 1003,
+		UpdatedAt: testEpochMillis(1003),
 		Type:      "event",
 		Event: map[string]any{
 			"type":       "awaiting.answer",
@@ -6315,11 +6354,14 @@ func TestLoadChatReplaysSourcePublishEvent(t *testing.T) {
 	if _, _, err := store.EnsureChat("chat-source-current", "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
+	if err := store.OnRunStarted(RunStart{ChatID: "chat-source-current", RunID: "run-source-current", StartedAtMillis: testEpochMillis(1002)}); err != nil {
+		t.Fatalf("register source run: %v", err)
+	}
 
 	events := []stream.EventData{
 		{
 			Type:      "chat.start",
-			Timestamp: 1000,
+			Timestamp: testEpochMillis(1000),
 			Payload: map[string]any{
 				"chatId":   "chat-source-current",
 				"chatName": "hello",
@@ -6327,7 +6369,7 @@ func TestLoadChatReplaysSourcePublishEvent(t *testing.T) {
 		},
 		{
 			Type:      "request.query",
-			Timestamp: 1001,
+			Timestamp: testEpochMillis(1001),
 			Payload: map[string]any{
 				"chatId":  "chat-source-current",
 				"runId":   "run-source-current",
@@ -6336,7 +6378,7 @@ func TestLoadChatReplaysSourcePublishEvent(t *testing.T) {
 		},
 		{
 			Type:      "run.start",
-			Timestamp: 1002,
+			Timestamp: testEpochMillis(1002),
 			Payload: map[string]any{
 				"chatId": "chat-source-current",
 				"runId":  "run-source-current",
@@ -6344,7 +6386,7 @@ func TestLoadChatReplaysSourcePublishEvent(t *testing.T) {
 		},
 		{
 			Type:      "source.publish",
-			Timestamp: 1003,
+			Timestamp: testEpochMillis(1003),
 			Payload: map[string]any{
 				"publishId":   "src-current",
 				"runId":       "run-source-current",
@@ -6370,7 +6412,7 @@ func TestLoadChatReplaysSourcePublishEvent(t *testing.T) {
 		},
 		{
 			Type:      "content.snapshot",
-			Timestamp: 1004,
+			Timestamp: testEpochMillis(1004),
 			Payload: map[string]any{
 				"contentId": "run-source-current_c_1",
 				"runId":     "run-source-current",
@@ -6379,7 +6421,7 @@ func TestLoadChatReplaysSourcePublishEvent(t *testing.T) {
 		},
 		{
 			Type:      "run.complete",
-			Timestamp: 1005,
+			Timestamp: testEpochMillis(1005),
 			Payload: map[string]any{
 				"runId": "run-source-current",
 			},
@@ -6391,6 +6433,9 @@ func TestLoadChatReplaysSourcePublishEvent(t *testing.T) {
 		if err := store.AppendEvent("chat-source-current", events[idx]); err != nil {
 			t.Fatalf("append event: %v", err)
 		}
+	}
+	if err := store.OnRunCompleted(RunCompletion{ChatID: "chat-source-current", RunID: "run-source-current", StartedAtMillis: testEpochMillis(1002), UpdatedAtMillis: testEpochMillis(1005)}); err != nil {
+		t.Fatalf("complete source run: %v", err)
 	}
 
 	detail, err := store.LoadChat("chat-source-current")
@@ -6436,20 +6481,20 @@ func TestStepWriterPersistsSourcePublishOnReactToolStep(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, chatID, runID, "REACT")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Seq:       19,
 		Type:      "tool.snapshot",
-		Timestamp: 1001,
+		Timestamp: testEpochMillis(1001),
 		Payload: map[string]any{
 			"toolId":    "call_1",
 			"toolName":  "kbase_search",
 			"arguments": `{"query":"policy"}`,
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Seq:       20,
 		Type:      "tool.result",
-		Timestamp: 1002,
+		Timestamp: testEpochMillis(1002),
 		Payload: map[string]any{
 			"toolId":     "call_1",
 			"toolName":   "kbase_search",
@@ -6457,10 +6502,10 @@ func TestStepWriterPersistsSourcePublishOnReactToolStep(t *testing.T) {
 			"result":     `{"count":1}`,
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Seq:       21,
 		Type:      "source.publish",
-		Timestamp: 1003,
+		Timestamp: testEpochMillis(1003),
 		Payload: map[string]any{
 			"publishId":   "src-writer",
 			"runId":       runID,
@@ -6555,11 +6600,11 @@ func TestLoadChatReplaysMultipleStepSourcesAfterMatchingToolResults(t *testing.T
 	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	if err := store.AppendStepLine(chatID, StepLine{
+	if err := appendStepLineForTest(store, chatID, StepLine{
 		Type:      StepLineTypeReactTool,
 		ChatID:    chatID,
 		RunID:     runID,
-		UpdatedAt: 100,
+		UpdatedAt: testEpochMillis(100),
 		LiveSeq:   12,
 		Seq:       1,
 		Messages: []StoredMessage{
@@ -6649,14 +6694,14 @@ func TestStepWriterBatchedArtifactPublishUpdatesArtifactState(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-artifact-batch", "run-artifact-batch", "REACT")
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "run.start",
-		Timestamp: 1000,
+		Timestamp: testEpochMillis(1000),
 		Payload:   map[string]any{"chatId": "chat-artifact-batch", "runId": "run-artifact-batch"},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "artifact.publish",
-		Timestamp: 1001,
+		Timestamp: testEpochMillis(1001),
 		Payload: map[string]any{
 			"chatId":        "chat-artifact-batch",
 			"runId":         "run-artifact-batch",
@@ -6683,9 +6728,9 @@ func TestStepWriterBatchedArtifactPublishUpdatesArtifactState(t *testing.T) {
 			},
 		},
 	})
-	writer.OnEvent(stream.EventData{
+	onEventForTest(writer, stream.EventData{
 		Type:      "content.snapshot",
-		Timestamp: 1002,
+		Timestamp: testEpochMillis(1002),
 		Payload: map[string]any{
 			"contentId": "run-artifact-batch_c_1",
 			"runId":     "run-artifact-batch",

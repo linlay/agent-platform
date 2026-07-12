@@ -15,6 +15,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/automation"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/timecontract"
 	"agent-platform/internal/ws"
 )
 
@@ -134,6 +135,10 @@ func (s *Server) writeAutomationHTTPResponse(w http.ResponseWriter, response any
 	var statusErr automationStatusError
 	if errors.As(err, &statusErr) {
 		writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))
+		return
+	}
+	if isTimeContractViolation(err) {
+		writeTimeContractViolation(w, err)
 		return
 	}
 	writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
@@ -340,7 +345,13 @@ func (s *Server) mapAutomationSummary(def automation.Definition, next *time.Time
 	}
 	if next != nil && !next.IsZero() {
 		nextFireAt := next.UnixMilli()
-		formatted := next.Format(time.RFC3339)
+		if err := timecontract.ValidateEpochMillis(nextFireAt, "nextFireAt", "automation.nextFire"); err != nil {
+			return api.AutomationSummaryResponse{}, err
+		}
+		// Pair the readable value with the exact millisecond representation sent
+		// on the wire. Formatting the original cron time could retain
+		// sub-millisecond nanoseconds and describe a different instant.
+		formatted := time.UnixMilli(nextFireAt).In(next.Location()).Format(time.RFC3339Nano)
 		resp.NextFireAt = &nextFireAt
 		resp.NextFireTime = &formatted
 	}
@@ -611,6 +622,11 @@ func (s *Server) sendAutomationWSError(conn *ws.Conn, req ws.RequestFrame, err e
 	var statusErr automationStatusError
 	if errors.As(err, &statusErr) {
 		conn.SendError(req.ID, statusErr.code, statusErr.status, statusErr.message, nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if isTimeContractViolation(err) {
+		sendTimeContractViolation(conn, req.ID, err)
 		conn.CompleteRequest(req.ID)
 		return
 	}

@@ -1,8 +1,11 @@
 package chat
 
 import (
+	"fmt"
 	"os"
 	"strings"
+
+	"agent-platform/internal/timecontract"
 )
 
 func (s *FileStore) LoadAllPendingAwaitings() ([]PendingAwaitingWithChat, error) {
@@ -24,6 +27,9 @@ func (s *FileStore) LoadAllPendingAwaitings() ([]PendingAwaitingWithChat, error)
 		if err := rows.Scan(&item.ChatID, &item.AwaitingID, &item.RunID, &item.Mode, &item.CreatedAt); err != nil {
 			return nil, err
 		}
+		if err := timecontract.ValidateEpochMillis(item.CreatedAt, "createdAt", fmt.Sprintf("chat.pendingAwaiting[%s].createdAt", item.ChatID)); err != nil {
+			return nil, err
+		}
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -33,7 +39,7 @@ func (s *FileStore) LoadAwaitingAsk(chatID string, awaitingID string) (*Persiste
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	lines, err := readJSONLines(s.chatJSONLPath(chatID))
+	lines, err := readPersistedJSONLines(s.chatJSONLPath(chatID))
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return nil, err
@@ -47,7 +53,7 @@ func (s *FileStore) LoadAwaitingSubmit(chatID string, awaitingID string, submitI
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	lines, err := readJSONLines(s.chatJSONLPath(chatID))
+	lines, err := readPersistedJSONLines(s.chatJSONLPath(chatID))
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return nil, err
@@ -61,7 +67,7 @@ func (s *FileStore) LoadLatestAwaitingSubmit(chatID string, awaitingID string) (
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	lines, err := readJSONLines(s.chatJSONLPath(chatID))
+	lines, err := readPersistedJSONLines(s.chatJSONLPath(chatID))
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return nil, err
@@ -75,7 +81,7 @@ func (s *FileStore) LoadRunQuery(chatID string, runID string) (*QueryLine, error
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	lines, err := readJSONLines(s.chatJSONLPath(chatID))
+	lines, err := readPersistedJSONLines(s.chatJSONLPath(chatID))
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return nil, err
@@ -229,6 +235,14 @@ func persistedAwaitingAskFromMap(item map[string]any, fallbackRunID string) *Per
 func (s *FileStore) SetPendingAwaiting(chatID string, pending PendingAwaiting) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if summary, err := s.loadSummary(chatID); err != nil {
+		return err
+	} else if summary == nil {
+		return ErrChatNotFound
+	}
+	if err := timecontract.ValidateEpochMillis(pending.CreatedAt, "createdAt", "chat.pendingAwaiting.createdAt"); err != nil {
+		return err
+	}
 
 	_, err := s.db.Exec(`UPDATE CHATS
 		SET AWAITING_ID_=?, AWAITING_RUN_ID_=?, AWAITING_MODE_=?, AWAITING_CREATED_AT_=?
@@ -247,6 +261,11 @@ func isPersistedAwaitingAnswer(item map[string]any, awaitingID string) bool {
 func (s *FileStore) ClearPendingAwaiting(chatID string, awaitingID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if summary, err := s.loadSummary(chatID); err != nil {
+		return err
+	} else if summary == nil {
+		return ErrChatNotFound
+	}
 
 	_, err := s.db.Exec(`UPDATE CHATS
 		SET AWAITING_ID_='', AWAITING_RUN_ID_='', AWAITING_MODE_='', AWAITING_CREATED_AT_=0

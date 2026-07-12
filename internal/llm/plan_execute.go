@@ -69,7 +69,7 @@ func newPlanPipelineStream(engine *LLMAgentEngine, ctx context.Context, req api.
 		Session:             session,
 		RunControl:          RunControlFromContext(ctx),
 		Budget:              NormalizeBudget(session.ResolvedBudget),
-		StageSettings:       settings,
+		PlanExecuteSettings: settings,
 		RunLoopState:        RunLoopStateIdle,
 		ToolExecutionPolicy: session.ToolExecutionPolicy,
 		PlanState: &PlanRuntimeState{

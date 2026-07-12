@@ -31,7 +31,7 @@ type ScopeView struct {
 	FileName  string
 	Markdown  string
 	Records   []api.StoredMemoryResponse
-	UpdatedAt int64
+	UpdatedAt *int64
 }
 
 type ScopeRecordInput struct {

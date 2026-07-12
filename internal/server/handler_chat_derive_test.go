@@ -156,7 +156,7 @@ func TestHandleChatDeriveErrors(t *testing.T) {
 	if _, _, err := fixture.chats.EnsureChat("chat-error-pending", "mock-agent", "", "pending"); err != nil {
 		t.Fatalf("ensure pending: %v", err)
 	}
-	if err := fixture.chats.SetPendingAwaiting("chat-error-pending", chat.PendingAwaiting{AwaitingID: "await-1", RunID: "run-pending", Mode: "question", CreatedAt: 1}); err != nil {
+	if err := fixture.chats.SetPendingAwaiting("chat-error-pending", chat.PendingAwaiting{AwaitingID: "await-1", RunID: "run-pending", Mode: "question", CreatedAt: testEpochMillis + 1}); err != nil {
 		t.Fatalf("set pending: %v", err)
 	}
 	seedDeriveServerChat(t, fixture.chats, "chat-error-active", "run-error-active", "active", "done")
@@ -249,11 +249,14 @@ func seedDeriveServerChat(t *testing.T, store chat.Store, chatID string, runID s
 	if _, _, err := store.EnsureChat(chatID, "mock-agent", "", userText); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
+	startedAt := testEpochMillis + 1_000
+	assistantAt := startedAt + 1
+	startServerFixtureRun(t, store, chatID, runID, startedAt)
 	if err := store.AppendQueryLine(chatID, chat.QueryLine{
 		Type:      "query",
 		ChatID:    chatID,
 		RunID:     runID,
-		UpdatedAt: 1000,
+		UpdatedAt: startedAt,
 		Query: map[string]any{
 			"chatId":    chatID,
 			"runId":     runID,
@@ -262,7 +265,7 @@ func seedDeriveServerChat(t *testing.T, store chat.Store, chatID string, runID s
 			"message":   userText,
 			"agentKey":  "mock-agent",
 		},
-		Messages: []map[string]any{{"role": "user", "content": userText}},
+		Messages: []map[string]any{{"role": "user", "content": userText, "ts": startedAt}},
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
 	}
@@ -270,10 +273,11 @@ func seedDeriveServerChat(t *testing.T, store chat.Store, chatID string, runID s
 		Type:      chat.StepLineTypeReact,
 		ChatID:    chatID,
 		RunID:     runID,
-		UpdatedAt: 1001,
+		UpdatedAt: assistantAt,
 		Messages: []chat.StoredMessage{{
 			Role:    "assistant",
 			Content: []chat.ContentPart{{Type: "text", Text: assistantText}},
+			Ts:      &assistantAt,
 		}},
 	}); err != nil {
 		t.Fatalf("append step: %v", err)
@@ -285,7 +289,8 @@ func seedDeriveServerChat(t *testing.T, store chat.Store, chatID string, runID s
 		InitialMessage:  userText,
 		AssistantText:   assistantText,
 		FinishReason:    "complete",
-		UpdatedAtMillis: 1002,
+		StartedAtMillis: startedAt,
+		UpdatedAtMillis: assistantAt + 1,
 	}); err != nil {
 		t.Fatalf("complete run: %v", err)
 	}

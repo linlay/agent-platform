@@ -13,6 +13,8 @@ import (
 	"agent-platform/internal/stream"
 )
 
+const testEpochMillis int64 = 1_700_000_000_000
+
 type recordingNotificationSink struct {
 	mu         sync.Mutex
 	eventTypes []string
@@ -50,6 +52,7 @@ func TestPersistRunCompletionInvokesOnPersisted(t *testing.T) {
 	if _, _, err := chats.EnsureChat("chat-1", "agent-a", "team-1", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
+	startServerFixtureRun(t, chats, "chat-1", "run-1", testEpochMillis)
 
 	var seen chat.RunCompletion
 	called := false
@@ -67,7 +70,8 @@ func TestPersistRunCompletionInvokesOnPersisted(t *testing.T) {
 			AgentKey: "agent-a",
 			TeamID:   "team-1",
 		},
-		Chats: chats,
+		StartedAtMillis: testEpochMillis,
+		Chats:           chats,
 		OnPersisted: func(completion chat.RunCompletion) {
 			called = true
 			seen = completion
@@ -96,6 +100,7 @@ func TestPersistRunCompletionSkipsOnPersistedWhenNotSuccessful(t *testing.T) {
 	if _, _, err := chats.EnsureChat("chat-1", "agent-a", "team-1", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
+	startServerFixtureRun(t, chats, "chat-1", "run-1", testEpochMillis)
 
 	called := false
 	persisted, completion := persistRunCompletionWithReason(RunExecutorParams{
@@ -112,7 +117,8 @@ func TestPersistRunCompletionSkipsOnPersistedWhenNotSuccessful(t *testing.T) {
 			AgentKey: "agent-a",
 			TeamID:   "team-1",
 		},
-		Chats: chats,
+		StartedAtMillis: testEpochMillis,
+		Chats:           chats,
 		OnPersisted: func(completion chat.RunCompletion) {
 			called = true
 		},
@@ -137,6 +143,7 @@ func TestBroadcastRunCompletionEmitsUnreadBeforeChatUpdated(t *testing.T) {
 	if _, _, err := chats.EnsureChat("chat-1", "agent-a", "team-1", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
+	startServerFixtureRun(t, chats, "chat-1", "run-1", testEpochMillis)
 
 	persisted, completion := persistRunCompletionWithReason(RunExecutorParams{
 		Request: api.QueryRequest{
@@ -152,7 +159,8 @@ func TestBroadcastRunCompletionEmitsUnreadBeforeChatUpdated(t *testing.T) {
 			AgentKey: "agent-a",
 			TeamID:   "team-1",
 		},
-		Chats: chats,
+		StartedAtMillis: testEpochMillis,
+		Chats:           chats,
 	}, "assistant reply", chat.UsageData{}, "complete", true)
 
 	if !persisted {
@@ -190,7 +198,7 @@ func TestHandleAwaitingLifecycleBroadcastsViewportMetadata(t *testing.T) {
 		Notifications: notifications,
 	}, stream.EventData{
 		Type:      "awaiting.ask",
-		Timestamp: 1234,
+		Timestamp: testEpochMillis + 1_234,
 		Payload: map[string]any{
 			"awaitingId":   "await-1",
 			"runId":        "run-1",
@@ -222,7 +230,7 @@ func TestHandleAwaitingLifecycleBroadcastsAwaitAskPushForApprovalAndPlan(t *test
 		expectTimeout bool
 	}{
 		{mode: "approval", awaitingID: "await-approval", timeout: 600, expectTimeout: true},
-		{mode: "plan", awaitingID: "await-plan"},
+		{mode: "planning", awaitingID: "await-planning"},
 	}
 
 	for _, tc := range testCases {
@@ -246,7 +254,7 @@ func TestHandleAwaitingLifecycleBroadcastsAwaitAskPushForApprovalAndPlan(t *test
 				Notifications: notifications,
 			}, stream.EventData{
 				Type:      "awaiting.ask",
-				Timestamp: 1234,
+				Timestamp: testEpochMillis + 1_234,
 				Payload:   eventPayload,
 			}, tracker)
 
@@ -261,7 +269,7 @@ func TestHandleAwaitingLifecycleBroadcastsAwaitAskPushForApprovalAndPlan(t *test
 			if payload["chatId"] != "chat-1" || payload["runId"] != "run-1" || payload["agentKey"] != "agent-a" {
 				t.Fatalf("unexpected awaiting.asking identity payload %#v", payload)
 			}
-			if payload["awaitingId"] != tc.awaitingID || payload["mode"] != tc.mode || payload["createdAt"] != int64(1234) {
+			if payload["awaitingId"] != tc.awaitingID || payload["mode"] != tc.mode || payload["createdAt"] != testEpochMillis+1_234 {
 				t.Fatalf("unexpected awaiting.asking payload %#v", payload)
 			}
 			if _, exists := payload["timeout"]; exists != tc.expectTimeout {
@@ -282,6 +290,7 @@ func TestRunExecutorFinalizesAfterStreamDrain(t *testing.T) {
 	if _, _, err := chats.EnsureChat("chat-1", "agent-a", "team-1", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
+	startServerFixtureRun(t, chats, "chat-1", "run-1", testEpochMillis)
 
 	eventBus := stream.NewRunEventBus(32, 0, nil)
 	observer, err := eventBus.Subscribe(0)
@@ -315,11 +324,12 @@ func TestRunExecutorFinalizesAfterStreamDrain(t *testing.T) {
 		},
 	}
 	runExecutor(RunExecutorParams{
-		RunCtx:  context.Background(),
-		Request: api.QueryRequest{ChatID: "chat-1", RunID: "run-1", Message: "hello", AgentKey: "agent-a", TeamID: "team-1"},
-		Session: QuerySession{ChatID: "chat-1", RunID: "run-1", AgentKey: "agent-a", TeamID: "team-1"},
-		Summary: chat.Summary{ChatID: "chat-1", AgentKey: "agent-a"},
-		Agent:   agent,
+		RunCtx:          context.Background(),
+		Request:         api.QueryRequest{ChatID: "chat-1", RunID: "run-1", Message: "hello", AgentKey: "agent-a", TeamID: "team-1"},
+		Session:         QuerySession{ChatID: "chat-1", RunID: "run-1", AgentKey: "agent-a", TeamID: "team-1"},
+		StartedAtMillis: testEpochMillis,
+		Summary:         chat.Summary{ChatID: "chat-1", AgentKey: "agent-a"},
+		Agent:           agent,
 		Assembler: stream.NewAssembler(stream.StreamRequest{
 			RunID:    "run-1",
 			ChatID:   "chat-1",
@@ -335,7 +345,7 @@ func TestRunExecutorFinalizesAfterStreamDrain(t *testing.T) {
 			order = append(order, "chat.unread")
 			mu.Unlock()
 		},
-		OnComplete: func(string) {
+		OnComplete: func(string, int64) {
 			mu.Lock()
 			order = append(order, "run.finished")
 			mu.Unlock()

@@ -35,21 +35,25 @@ var memoryInjectionEnabled = false
 func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, summary chat.Summary, agentDef catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
 	historyMessages := []map[string]any(nil)
 	if options.IncludeHistory && s.deps.Chats != nil {
+		var historyErr error
 		if options.TeamCoordinatorHistory {
 			if reader, ok := s.deps.Chats.(chat.TeamCoordinatorHistoryReader); ok {
-				historyMessages, _ = reader.LoadTeamCoordinatorRawMessages(req.ChatID, chat.DefaultHistoryRunWindow)
+				historyMessages, historyErr = reader.LoadTeamCoordinatorRawMessages(req.ChatID, chat.DefaultHistoryRunWindow)
 			} else {
-				historyMessages, _ = s.deps.Chats.LoadRawMessages(req.ChatID, chat.DefaultHistoryRunWindow)
+				historyMessages, historyErr = s.deps.Chats.LoadRawMessages(req.ChatID, chat.DefaultHistoryRunWindow)
 			}
 		} else if strings.TrimSpace(options.TeamHistoryAgentKey) != "" {
 			if reader, ok := s.deps.Chats.(chat.TeamHistoryReader); ok {
-				historyMessages, _ = reader.LoadTeamMemberRawMessages(req.ChatID, chat.DefaultHistoryRunWindow, options.TeamHistoryAgentKey)
+				historyMessages, historyErr = reader.LoadTeamMemberRawMessages(req.ChatID, chat.DefaultHistoryRunWindow, options.TeamHistoryAgentKey)
 				historyMessages = excludeHistoryRun(historyMessages, req.RunID)
 			} else {
-				historyMessages, _ = s.deps.Chats.LoadRawMessages(req.ChatID, chat.DefaultHistoryRunWindow)
+				historyMessages, historyErr = s.deps.Chats.LoadRawMessages(req.ChatID, chat.DefaultHistoryRunWindow)
 			}
 		} else {
-			historyMessages, _ = s.deps.Chats.LoadRawMessages(req.ChatID, chat.DefaultHistoryRunWindow)
+			historyMessages, historyErr = s.deps.Chats.LoadRawMessages(req.ChatID, chat.DefaultHistoryRunWindow)
+		}
+		if historyErr != nil {
+			return contracts.QuerySession{}, historyErr
 		}
 	}
 
@@ -170,56 +174,57 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	toolNames = agentcoder.RuntimeToolNamesForAgent(agentDef.Mode, agentDef.ACPBridgeID, agentcoder.MainStage, toolNames)
 
 	session := contracts.QuerySession{
-		RequestID:              req.RequestID,
-		RunID:                  req.RunID,
-		SubTaskID:              options.SubTaskID,
-		ChatID:                 req.ChatID,
-		ChatName:               summary.ChatName,
-		AgentKey:               req.AgentKey,
-		AgentName:              agentDef.Name,
-		AgentRole:              agentDef.Role,
-		AgentDescription:       agentDef.Description,
-		Locale:                 options.Locale,
-		ModelKey:               agentDef.ModelKey,
-		ToolNames:              toolNames,
-		Mode:                   agentDef.Mode,
-		ModeCapabilities:       resolvedModeCapabilities(agentDef),
-		PlanningMode:           agentcoder.PlanningModeEnabled(agentDef.Mode, req.PlanningMode != nil && *req.PlanningMode),
-		TeamID:                 req.TeamID,
-		Created:                options.Created,
-		SkillKeys:              append([]string(nil), agentDef.Skills...),
-		ContextTags:            append([]string(nil), agentDef.ContextTags...),
-		Budget:                 contracts.CloneMap(agentDef.Budget),
-		StageSettings:          contracts.CloneMap(agentDef.StageSettings),
-		ResolvedBudget:         contracts.ResolveBudget(s.deps.Config, agentDef.Budget),
-		ResolvedStageSettings:  contracts.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask),
-		HistoryMessages:        historyMessages,
-		StableMemoryContext:    stableMemoryContext,
-		SessionMemoryContext:   sessionMemoryContext,
-		ObservationContext:     observationContext,
-		MemoryUsageSummary:     memoryUsageSummary,
-		RuntimeContext:         runtimeContext,
-		PromptAppend:           promptAppend,
-		AdvancedUserPrompt:     s.deps.Config.Query.AdvancedUserPrompt && !isProxyRoutedAgent(agentDef),
-		StaticMemoryPrompt:     staticMemoryPrompt,
-		SkillCatalogPrompt:     buildSkillCatalogPrompt(agentDef, s.deps.Config.Paths.SkillsMarketDir, promptAppend),
-		SoulPrompt:             agentDef.SoulPrompt,
-		AgentsPrompt:           agentDef.AgentsPrompt,
-		WorkspaceAgentsPrompt:  workspaceAgentsPrompt,
-		PlanPrompt:             agentDef.PlanPrompt,
-		ExecutePrompt:          agentDef.ExecutePrompt,
-		SummaryPrompt:          agentDef.SummaryPrompt,
-		ModeSystemPrompt:       agentbuiltin.ConfiguredSystemPrompt(agentDef.Mode, s.deps.Config.CoderPrompts.SystemPrompt, s.deps.Config.KBasePrompts.SystemPrompt),
-		RuntimeEnvironmentID:   extractRuntimeField(agentDef.Runtime, "environmentId"),
-		RuntimeLevel:           extractRuntimeField(agentDef.Runtime, "level"),
-		RuntimeExtraMounts:     runtimeExtraMounts(agentDef.Runtime["sandboxMounts"]),
-		RuntimeHostAccess:      runtimeHostAccess(agentDef.HostAccess),
-		AgentHasRuntimeSandbox: hasRuntimeSandbox(agentDef.Runtime),
-		AgentHasMemoryConfig:   agentDef.MemoryEnabled,
-		WorkspaceRoot:          resolvedWorkspaceRoot,
-		AccessLevel:            normalizedAccessLevel(req.AccessLevel),
-		SkillHookDirs:          skillHookDirs,
-		RuntimeEnvOverrides:    runtimeEnvOverrides,
+		RequestID:                     req.RequestID,
+		RunID:                         req.RunID,
+		SubTaskID:                     options.SubTaskID,
+		ChatID:                        req.ChatID,
+		ChatName:                      summary.ChatName,
+		AgentKey:                      req.AgentKey,
+		AgentName:                     agentDef.Name,
+		AgentRole:                     agentDef.Role,
+		AgentDescription:              agentDef.Description,
+		Locale:                        options.Locale,
+		ModelKey:                      agentDef.ModelKey,
+		ToolNames:                     toolNames,
+		Mode:                          agentDef.Mode,
+		ModeCapabilities:              resolvedModeCapabilities(agentDef),
+		PlanningMode:                  agentcoder.PlanningModeEnabled(agentDef.Mode, req.PlanningMode != nil && *req.PlanningMode),
+		TeamID:                        req.TeamID,
+		Created:                       options.Created,
+		SkillKeys:                     append([]string(nil), agentDef.Skills...),
+		ContextTags:                   append([]string(nil), agentDef.ContextTags...),
+		Budget:                        contracts.CloneMap(agentDef.Budget),
+		StageSettings:                 contracts.CloneMap(agentDef.StageSettings),
+		ResolvedBudget:                contracts.ResolveBudget(s.deps.Config, agentDef.Budget),
+		ResolvedPlanExecuteSettings:   contracts.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask),
+		ResolvedCoderPlanningSettings: contracts.ResolveCoderPlanningSettings(agentDef.StageSettings, s.deps.Config.Defaults.CoderPlanning.MaxSteps),
+		HistoryMessages:               historyMessages,
+		StableMemoryContext:           stableMemoryContext,
+		SessionMemoryContext:          sessionMemoryContext,
+		ObservationContext:            observationContext,
+		MemoryUsageSummary:            memoryUsageSummary,
+		RuntimeContext:                runtimeContext,
+		PromptAppend:                  promptAppend,
+		AdvancedUserPrompt:            s.deps.Config.Query.AdvancedUserPrompt && !isProxyRoutedAgent(agentDef),
+		StaticMemoryPrompt:            staticMemoryPrompt,
+		SkillCatalogPrompt:            buildSkillCatalogPrompt(agentDef, s.deps.Config.Paths.SkillsMarketDir, promptAppend),
+		SoulPrompt:                    agentDef.SoulPrompt,
+		AgentsPrompt:                  agentDef.AgentsPrompt,
+		WorkspaceAgentsPrompt:         workspaceAgentsPrompt,
+		PlanPrompt:                    agentDef.PlanPrompt,
+		ExecutePrompt:                 agentDef.ExecutePrompt,
+		SummaryPrompt:                 agentDef.SummaryPrompt,
+		ModeSystemPrompt:              agentbuiltin.ConfiguredSystemPrompt(agentDef.Mode, s.deps.Config.CoderPrompts.SystemPrompt, s.deps.Config.KBasePrompts.SystemPrompt),
+		RuntimeEnvironmentID:          extractRuntimeField(agentDef.Runtime, "environmentId"),
+		RuntimeLevel:                  extractRuntimeField(agentDef.Runtime, "level"),
+		RuntimeExtraMounts:            runtimeExtraMounts(agentDef.Runtime["sandboxMounts"]),
+		RuntimeHostAccess:             runtimeHostAccess(agentDef.HostAccess),
+		AgentHasRuntimeSandbox:        hasRuntimeSandbox(agentDef.Runtime),
+		AgentHasMemoryConfig:          agentDef.MemoryEnabled,
+		WorkspaceRoot:                 resolvedWorkspaceRoot,
+		AccessLevel:                   normalizedAccessLevel(req.AccessLevel),
+		SkillHookDirs:                 skillHookDirs,
+		RuntimeEnvOverrides:           runtimeEnvOverrides,
 	}
 	if shouldLoadPlanTaskContext(session) {
 		session.PlanTaskContext = s.loadPlanTaskContext(req.ChatID)

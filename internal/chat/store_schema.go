@@ -31,6 +31,7 @@ func (s *FileStore) initDB() error {
 			SOURCE_CHANNEL_   TEXT NOT NULL DEFAULT '',
 			CREATED_AT_       INTEGER NOT NULL,
 			UPDATED_AT_       INTEGER NOT NULL,
+			LAST_RUN_AT_      INTEGER NOT NULL DEFAULT 0,
 			LAST_RUN_ID_      TEXT NOT NULL DEFAULT '',
 			LAST_RUN_CONTENT_ TEXT NOT NULL DEFAULT '',
 			READ_RUN_ID_      TEXT NOT NULL DEFAULT '',
@@ -108,8 +109,17 @@ func (s *FileStore) initDB() error {
 	}
 	s.migrateSourceColumn()
 	s.migrateSourceChannelColumn()
+	s.migrateLastRunAtColumn()
 	s.migrateDetailedUsageColumns()
 	return nil
+}
+
+// migrateLastRunAtColumn intentionally leaves existing rows at the schema
+// default (zero). Historical records are not backfilled from run IDs, run
+// rows, or updatedAt: public archive reads will reject them under the strict
+// time contract instead of silently inventing a last-run instant.
+func (s *FileStore) migrateLastRunAtColumn() {
+	_, _ = s.db.Exec("ALTER TABLE CHATS ADD COLUMN LAST_RUN_AT_ INTEGER NOT NULL DEFAULT 0")
 }
 
 func (s *FileStore) migrateRunOwnerColumns() {

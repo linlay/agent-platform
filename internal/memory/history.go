@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 
@@ -78,7 +79,13 @@ func decodeHistoryJSON(raw string) map[string]any {
 		return nil
 	}
 	var out map[string]any
-	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+	// History payloads can carry diagnostic/source maps. Preserve numeric JSON
+	// tokens while rehydrating them: json.Unmarshal would turn a valid epoch-ms
+	// integer into float64, then the public audit response would reject its own
+	// otherwise valid persisted record.
+	decoder := json.NewDecoder(bytes.NewBufferString(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&out); err != nil {
 		return nil
 	}
 	if len(out) == 0 {

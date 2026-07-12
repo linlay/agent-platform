@@ -90,7 +90,7 @@ func TestDeriveChatCopiesResourcesAndRewritesReferences(t *testing.T) {
 		t.Fatalf("write upload: %v", err)
 	}
 	mustWriteDeriveResource(t, store, sourceChatID, filepath.Join(ToolRootDirName, ToolResultsDirName, "call_1.json"), `{"stdout":"ok"}`)
-	mustWriteDeriveResource(t, store, sourceChatID, filepath.Join(ToolRootDirName, ToolPlansDirName, "run-res_planning_1.md"), "# plan")
+	mustWriteDeriveResource(t, store, sourceChatID, filepath.Join(ToolRootDirName, ToolPlanningDirName, "run-res_planning_1.md"), "# planning")
 	mustWriteDeriveResource(t, store, sourceChatID, filepath.Join(ToolRootDirName, ToolPlanTasksDirName, "run-res_plan.json"), `{"chatId":"chat-source-res","runId":"run-res","tasks":[]}`)
 	mustWriteDeriveResource(t, store, sourceChatID, filepath.Join(ToolRootDirName, ToolStateDirName, FileVersionsFileName), `{"state":"skip"}`)
 
@@ -98,7 +98,7 @@ func TestDeriveChatCopiesResourcesAndRewritesReferences(t *testing.T) {
 		Type:      "query",
 		ChatID:    sourceChatID,
 		RunID:     "run-res",
-		UpdatedAt: 1000,
+		UpdatedAt: testEpochMillis(1000),
 		Query: map[string]any{
 			"chatId":    sourceChatID,
 			"runId":     "run-res",
@@ -114,6 +114,7 @@ func TestDeriveChatCopiesResourcesAndRewritesReferences(t *testing.T) {
 				"mimeType": "text/plain",
 			}},
 		},
+		Messages: []map[string]any{{"role": "user", "content": "inspect upload", "ts": testEpochMillis(1000)}},
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
 	}
@@ -121,15 +122,16 @@ func TestDeriveChatCopiesResourcesAndRewritesReferences(t *testing.T) {
 		Type:      StepLineTypeReact,
 		ChatID:    sourceChatID,
 		RunID:     "run-res",
-		UpdatedAt: 1001,
+		UpdatedAt: testEpochMillis(1001),
 		Messages: []StoredMessage{{
 			Role:    "assistant",
 			Content: []ContentPart{{Type: "text", Text: "checked"}},
+			Ts:      int64Ptr(testEpochMillis(1001)),
 		}},
 	}); err != nil {
 		t.Fatalf("append step: %v", err)
 	}
-	if err := store.OnRunCompleted(RunCompletion{ChatID: sourceChatID, RunID: "run-res", AgentKey: "agent-a", InitialMessage: "inspect upload", AssistantText: "checked", FinishReason: "complete", UpdatedAtMillis: 1002}); err != nil {
+	if err := completeRunForTest(store, RunCompletion{ChatID: sourceChatID, RunID: "run-res", AgentKey: "agent-a", InitialMessage: "inspect upload", AssistantText: "checked", FinishReason: "complete", UpdatedAtMillis: testEpochMillis(1002)}); err != nil {
 		t.Fatalf("complete source run: %v", err)
 	}
 
@@ -144,7 +146,7 @@ func TestDeriveChatCopiesResourcesAndRewritesReferences(t *testing.T) {
 	for _, rel := range []string{
 		"notes.txt",
 		filepath.Join(ToolRootDirName, ToolResultsDirName, "call_1.json"),
-		filepath.Join(ToolRootDirName, ToolPlansDirName, "run-res_planning_1.md"),
+		filepath.Join(ToolRootDirName, ToolPlanningDirName, "run-res_planning_1.md"),
 		filepath.Join(ToolRootDirName, ToolPlanTasksDirName, result.LastRunID+"_plan.json"),
 	} {
 		if _, err := os.Stat(filepath.Join(store.ChatDir(targetChatID), rel)); err != nil {
@@ -188,6 +190,9 @@ func TestDeriveChatCopiesResourcesAndRewritesReferences(t *testing.T) {
 
 func appendDeriveTestRun(t *testing.T, store *FileStore, chatID string, runID string, userText string, assistantText string, updatedAt int64) {
 	t.Helper()
+	if updatedAt < 1_000_000_000_000 {
+		updatedAt = testEpochMillis(updatedAt)
+	}
 	if err := store.AppendQueryLine(chatID, QueryLine{
 		Type:      "query",
 		ChatID:    chatID,
@@ -200,7 +205,7 @@ func appendDeriveTestRun(t *testing.T, store *FileStore, chatID string, runID st
 			"role":      "user",
 			"message":   userText,
 		},
-		Messages: []map[string]any{{"role": "user", "content": userText}},
+		Messages: []map[string]any{{"role": "user", "content": userText, "ts": updatedAt}},
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
 	}
@@ -212,11 +217,12 @@ func appendDeriveTestRun(t *testing.T, store *FileStore, chatID string, runID st
 		Messages: []StoredMessage{{
 			Role:    "assistant",
 			Content: []ContentPart{{Type: "text", Text: assistantText}},
+			Ts:      int64Ptr(updatedAt + 1),
 		}},
 	}); err != nil {
 		t.Fatalf("append step: %v", err)
 	}
-	if err := store.OnRunCompleted(RunCompletion{
+	if err := completeRunForTest(store, RunCompletion{
 		ChatID:          chatID,
 		RunID:           runID,
 		AgentKey:        "agent-a",

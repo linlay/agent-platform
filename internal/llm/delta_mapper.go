@@ -274,7 +274,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			Questions:    append([]any(nil), value.Questions...),
 			Approvals:    append([]any(nil), value.Approvals...),
 			Forms:        append([]any(nil), value.Forms...),
-			Plan:         CloneMap(value.Plan),
+			Planning:     CloneMap(value.Planning),
 		}}
 	case DeltaRequestSubmit:
 		return []stream.StreamInput{stream.RequestSubmit{

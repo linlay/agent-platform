@@ -63,6 +63,24 @@ func TestLLMChatTraceWritesSimpleCompletion(t *testing.T) {
 	}
 }
 
+func TestLLMChatTraceRejectsIntegralFloatTimeBeforeWriting(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "trace.json")
+	trace := &llmChatTrace{
+		enabled: true,
+		path:    path,
+		payload: map[string]any{
+			// json.Marshal would render this exactly like an integer. The trace
+			// write boundary must reject the original float rather than leave an
+			// unreadable historical artifact for the trace API.
+			"createdAt": float64(1_700_000_000_000),
+		},
+	}
+	trace.writeLocked()
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("invalid trace must not be written, stat err=%v", err)
+	}
+}
+
 func TestRunStreamUsesSessionCurrentMessages(t *testing.T) {
 	recordDir := t.TempDir()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -546,8 +564,12 @@ func assertTraceTimePair(t *testing.T, payload map[string]any, atKey string, tim
 	if !ok || strings.TrimSpace(readable) == "" {
 		t.Fatalf("expected %s readable time, got %#v in %#v", timeKey, payload[timeKey], payload)
 	}
-	if _, err := time.Parse(time.RFC3339Nano, readable); err != nil {
+	parsed, err := time.Parse(time.RFC3339Nano, readable)
+	if err != nil {
 		t.Fatalf("expected %s to parse as RFC3339Nano, got %q: %v", timeKey, readable, err)
+	}
+	if parsed.Nanosecond()%int(time.Millisecond) != 0 || parsed.UnixMilli() != int64(at) {
+		t.Fatalf("expected %s to represent exactly %s, got %q", timeKey, atKey, readable)
 	}
 }
 

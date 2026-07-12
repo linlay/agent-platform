@@ -95,6 +95,8 @@ func (s *Server) loadChatDetail(ctx context.Context, chatID string, includeRawMe
 	response := api.ChatDetailResponse{
 		ChatID:        detail.ChatID,
 		ChatName:      detail.ChatName,
+		CreatedAt:     summary.CreatedAt,
+		UpdatedAt:     summary.UpdatedAt,
 		Source:        summary.Source,
 		Awaiting:      toAPIAwaiting(summary.PendingAwaiting),
 		Events:        detail.Events,
@@ -164,7 +166,7 @@ func activeRunInPlanningStage(runID string, query *chat.QueryLine, events []stre
 	}
 	if summary != nil && summary.PendingAwaiting != nil {
 		pending := summary.PendingAwaiting
-		if strings.TrimSpace(pending.RunID) == runID && strings.EqualFold(strings.TrimSpace(pending.Mode), "plan") {
+		if strings.TrimSpace(pending.RunID) == runID && strings.EqualFold(strings.TrimSpace(pending.Mode), "planning") {
 			return true
 		}
 	}
@@ -174,20 +176,20 @@ func activeRunInPlanningStage(runID string, query *chat.QueryLine, events []stre
 		if event.Type != "awaiting.answer" || strings.TrimSpace(event.String("runId")) != runID {
 			continue
 		}
-		if !strings.EqualFold(strings.TrimSpace(event.String("mode")), "plan") {
+		if !strings.EqualFold(strings.TrimSpace(event.String("mode")), "planning") {
 			continue
 		}
-		latestDecision = activeRunPlanDecision(event.Value("plan"))
+		latestDecision = activeRunPlanningDecision(event.Value("planning"))
 	}
 	return !strings.EqualFold(latestDecision, "approve")
 }
 
-func activeRunPlanDecision(value any) string {
-	plan := contracts.AnyMapNode(value)
-	if len(plan) == 0 {
+func activeRunPlanningDecision(value any) string {
+	planning := contracts.AnyMapNode(value)
+	if len(planning) == 0 {
 		return ""
 	}
-	return strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(plan["decision"])))
+	return strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(planning["decision"])))
 }
 
 func persistedLiveSeqCursor(events []stream.EventData, runID string) int64 {
@@ -264,6 +266,10 @@ func writeActiveRunConflict(w http.ResponseWriter, conflict *contracts.ActiveRun
 func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
 	response, err := s.listChatSummaries(r.URL.Query().Get("lastRunId"), r.URL.Query().Get("agentKey"))
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
@@ -287,6 +293,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
@@ -307,6 +317,10 @@ func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {
 		}
 		updatedCount, err := s.deps.Chats.MarkAllRead(agentKey)
 		if err != nil {
+			if isTimeContractViolation(err) {
+				writeTimeContractViolation(w, err)
+				return
+			}
 			writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 			return
 		}
@@ -329,11 +343,19 @@ func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
 	agentUnreadCount, err := s.agentUnreadCount(summary.AgentKey)
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}

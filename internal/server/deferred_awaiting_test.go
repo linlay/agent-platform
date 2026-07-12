@@ -15,7 +15,7 @@ func TestDeferredAwaitingStoreRegisterLookupRemove(t *testing.T) {
 		AwaitingID: "await-1",
 		RunID:      "run-1",
 		Mode:       "question",
-		CreatedAt:  123,
+		CreatedAt:  testEpochMillis + 123,
 		Ask: &chat.PersistedAwaitingAsk{
 			AwaitingID: "await-1",
 			RunID:      "run-1",

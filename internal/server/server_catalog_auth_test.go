@@ -302,7 +302,7 @@ func TestAgentsEndpointReturnsCatalogFieldsAndScopeFiltering(t *testing.T) {
 	if _, _, err := fixture.chats.EnsureChat("chat-coder", "coder-agent", "", "coder chat"); err != nil {
 		t.Fatalf("ensure coder chat: %v", err)
 	}
-	if err := fixture.chats.OnRunCompleted(chat.RunCompletion{ChatID: "chat-coder", RunID: "run-coder", UpdatedAtMillis: 1000}); err != nil {
+	if err := completeServerFixtureRun(t, fixture.chats, chat.RunCompletion{ChatID: "chat-coder", RunID: "run-coder", UpdatedAtMillis: 1000}); err != nil {
 		t.Fatalf("complete coder chat: %v", err)
 	}
 

@@ -50,8 +50,8 @@ func TestCoderRuntimeToolNamesOnlyNativeExecuteAddsPlanTaskTools(t *testing.T) {
 	if got := RuntimeToolNamesForAgent("CODER", "", "coder-execute", base); !reflect.DeepEqual(got, wantNative) {
 		t.Fatalf("native CODER execute tools=%#v want %#v", got, wantNative)
 	}
-	if got := RuntimeToolNamesForAgent("CODER", "", "coder-plan", base); !reflect.DeepEqual(got, base) {
-		t.Fatalf("native CODER plan tools=%#v want %#v", got, base)
+	if got := RuntimeToolNamesForAgent("CODER", "", "coder-planning", base); !reflect.DeepEqual(got, base) {
+		t.Fatalf("native CODER planning tools=%#v want %#v", got, base)
 	}
 	if got := RuntimeToolNamesForAgent("CODER", "codex", "coder-execute", base); !reflect.DeepEqual(got, base) {
 		t.Fatalf("ACP CODER execute tools=%#v want %#v", got, base)
@@ -92,7 +92,7 @@ func TestPlanningSystemInitSpecsPreserveCoderStagesAndTools(t *testing.T) {
 		Mode:      "CODER",
 		ToolNames: []string{"bash", "file_read", contracts.FinalizePlanningToolName, AskUserQuestionToolName},
 	}
-	settings := contracts.PlanExecuteSettings{
+	settings := contracts.CoderPlanningSettings{
 		Execute: contracts.StageSettings{
 			SystemPrompt: "execute {{agent_key}}",
 			Tools:        []string{"bash", "file_read", contracts.FinalizePlanningToolName, AskUserQuestionToolName},
@@ -104,15 +104,15 @@ func TestPlanningSystemInitSpecsPreserveCoderStagesAndTools(t *testing.T) {
 	}
 
 	plan := specs[0]
-	if plan.CacheKey != PlanCacheKey || plan.FingerprintStage != "coder-plan" ||
-		plan.PromptStage != "coder-plan" || plan.Mode != "coder" || plan.Stage != "plan" {
+	if plan.CacheKey != PlanningCacheKey || plan.FingerprintStage != "coder-planning" ||
+		plan.PromptStage != "coder-planning" || plan.Mode != "coder" || plan.Stage != "planning" {
 		t.Fatalf("unexpected plan spec stages: %#v", plan)
 	}
 	if !plan.UseSharedSystemPrompt || !plan.IncludeAfterCallHints || !plan.Initial {
 		t.Fatalf("plan spec should use shared system prompt and after-call hints: %#v", plan)
 	}
-	if !reflect.DeepEqual(plan.ToolNames, PlanningModePlanTools()) {
-		t.Fatalf("plan spec tools=%#v want %#v", plan.ToolNames, PlanningModePlanTools())
+	if !reflect.DeepEqual(plan.ToolNames, PlanningModeTools()) {
+		t.Fatalf("planning spec tools=%#v want %#v", plan.ToolNames, PlanningModeTools())
 	}
 
 	execute := specs[1]

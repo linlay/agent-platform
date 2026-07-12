@@ -500,17 +500,15 @@ func (r *FileRegistry) Agents(scope string) []api.AgentSummary {
 }
 
 func agentSummaryCoderDefaults(def AgentDefinition) (string, string) {
-	settings := contracts.ResolvePlanExecuteSettings(def.StageSettings, 0, 0)
+	settings := contracts.ResolveCoderPlanningSettings(def.StageSettings, 0)
 	modelKey := firstNonBlankString(
 		settings.Execute.ModelKey,
-		settings.Plan.ModelKey,
-		settings.Summary.ModelKey,
+		settings.Planning.ModelKey,
 		def.ModelKey,
 	)
 	reasoningEffort := firstNonBlankString(
 		settings.Execute.ReasoningEffort,
-		settings.Plan.ReasoningEffort,
-		settings.Summary.ReasoningEffort,
+		settings.Planning.ReasoningEffort,
 	)
 	if strings.TrimSpace(reasoningEffort) == "" && agentSummaryReasoningDisabled(def.StageSettings) {
 		reasoningEffort = "NONE"
@@ -522,7 +520,7 @@ func agentSummaryCoderDefaults(def AgentDefinition) (string, string) {
 }
 
 func agentSummaryReasoningDisabled(raw map[string]any) bool {
-	for _, key := range []string{"execute", "plan", "summary"} {
+	for _, key := range []string{"execute", "planning"} {
 		node := contracts.AnyMapNode(raw[key])
 		modelConfig := contracts.AnyMapNode(node["modelConfig"])
 		reasoning := contracts.AnyMapNode(modelConfig["reasoning"])

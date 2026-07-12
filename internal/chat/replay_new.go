@@ -6,6 +6,7 @@ import (
 
 	"agent-platform/internal/plantasks"
 	"agent-platform/internal/stream"
+	"agent-platform/internal/timecontract"
 )
 
 func (s *FileStore) LoadChat(chatID string) (Detail, error) {
@@ -20,14 +21,58 @@ func (s *FileStore) LoadChat(chatID string) (Detail, error) {
 		return Detail{}, ErrChatNotFound
 	}
 
-	lines, err := readJSONLines(s.chatJSONLPath(chatID))
+	lines, err := readPersistedJSONLines(s.chatJSONLPath(chatID))
+	if err != nil {
+		return Detail{}, err
+	}
+	runStartedAt, runCompletedAt, err := s.replayRunLifecycleTimesLocked(chatID)
 	if err != nil {
 		return Detail{}, err
 	}
 
-	rawMessages := s.loadRawMessagesFromJSONL(chatID)
+	rawMessages := rawMessagesFromJSONLLines(lines)
 
-	return parseChatNewFormat(*sum, lines, rawMessages, s.ChatDir(chatID))
+	return parseChatNewFormat(*sum, lines, rawMessages, s.ChatDir(chatID), runStartedAt, runCompletedAt)
+}
+
+func (s *FileStore) replayRunLifecycleTimesLocked(chatID string) (map[string]int64, map[string]int64, error) {
+	rows, err := s.db.Query(`SELECT RUN_ID_, STARTED_AT_, COMPLETED_AT_, FINISH_REASON_ FROM RUNS WHERE CHAT_ID_=?`, chatID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	startedAt := map[string]int64{}
+	completedAt := map[string]int64{}
+	for rows.Next() {
+		var runID string
+		var started, completed int64
+		var finishReason string
+		if err := rows.Scan(&runID, &started, &completed, &finishReason); err != nil {
+			return nil, nil, err
+		}
+		runID = strings.TrimSpace(runID)
+		if runID == "" {
+			continue
+		}
+		if err := timecontract.ValidateEpochMillis(started, "startedAt", "chat.replay.runs["+runID+"].startedAt"); err != nil {
+			return nil, nil, err
+		}
+		startedAt[runID] = started
+		if completed == 0 {
+			if strings.TrimSpace(finishReason) != "" {
+				return nil, nil, &timecontract.Violation{Field: "completedAt", Location: "chat.replay.runs[" + runID + "].completedAt", Reason: "is required"}
+			}
+			continue
+		}
+		if err := timecontract.ValidateEpochMillis(completed, "completedAt", "chat.replay.runs["+runID+"].completedAt"); err != nil {
+			return nil, nil, err
+		}
+		completedAt[runID] = completed
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return startedAt, completedAt, nil
 }
 
 func (s *FileStore) LoadRunTrace(chatID string, runID string) (RunTrace, error) {
@@ -41,7 +86,7 @@ func (s *FileStore) LoadRunTrace(chatID string, runID string) (RunTrace, error) 
 	if sum == nil {
 		return RunTrace{}, ErrChatNotFound
 	}
-	lines, err := readJSONLines(s.chatJSONLPath(chatID))
+	lines, err := readPersistedJSONLines(s.chatJSONLPath(chatID))
 	if err != nil {
 		return RunTrace{}, err
 	}
@@ -99,7 +144,10 @@ func (s *FileStore) LoadRunTrace(chatID string, runID string) (RunTrace, error) 
 // New format: _type = "query" / "step" / "event" (matching Java)
 // ---------------------------------------------------------------------------
 
-func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []map[string]any, chatDir string) (Detail, error) {
+func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []map[string]any, chatDir string, runStartedAt map[string]int64, runCompletedAt map[string]int64) (Detail, error) {
+	if containsLegacyPlanningAwaiting(lines) {
+		return Detail{}, ErrLegacyPlanningProtocol
+	}
 	var planning *PlanningState
 	var artifact *ArtifactState
 
@@ -250,8 +298,11 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				}
 			}
 			msgs, _ := line["messages"].([]any)
-			awaitingReplay := newStepAwaitingReplay(line["awaiting"], chatID, runID, chatDir, lineLiveSeq, int64FromAny(line["updatedAt"]))
-			if state := planningStateFromAwaitingPlan(line["awaiting"], chatDir); state != nil {
+			awaitingReplay, err := newStepAwaitingReplay(line["awaiting"], chatID, runID, chatDir, lineLiveSeq)
+			if err != nil {
+				return Detail{}, err
+			}
+			if state := planningStateFromAwaitingPlanning(line["awaiting"], chatDir); state != nil {
 				planning = state
 			}
 			stepUsage, _ := line["usage"].(map[string]any)
@@ -260,7 +311,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			if cw := synthesizedUsageSnapshotContextWindow(stepContextWindow); len(cw) > 0 {
 				latestContextWindow = cw
 			}
-			sourceReplay := newStepSourceReplay(line["sources"], runID, taskID, lineLiveSeq, int64FromAny(line["updatedAt"]), nextSeq)
+			sourceReplay := newStepSourceReplay(line["sources"], runID, taskID, lineLiveSeq, nextSeq)
 			for _, rawMsg := range msgs {
 				msgMap, _ := rawMsg.(map[string]any)
 				if msgMap == nil {
@@ -282,7 +333,11 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 						options.HideTeamCoordinatorInternals = true
 					}
 				}
-				for _, ev := range storedMessageToEventsWithOptions(msgMap, runID, taskID, stage, lineLiveSeq, nextSeq, options) {
+				messageEvents, err := storedMessageToEventsWithOptions(msgMap, runID, taskID, stage, lineLiveSeq, nextSeq, options)
+				if err != nil {
+					return Detail{}, err
+				}
+				for _, ev := range messageEvents {
 					rd.events = append(rd.events, ev)
 					if ev.Type == "tool.snapshot" {
 						rd.events = append(rd.events, awaitingReplay.consumeForTool(ev.String("toolId"))...)
@@ -388,7 +443,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			if tokens := int64FromAny(line["postCompactEstimatedTokens"]); tokens > 0 {
 				payload["postCompactEstimatedTokens"] = tokens
 			}
-			if ratio, ok := line["compressionRatio"].(float64); ok && ratio > 0 {
+			if ratio := float64FromJSONValue(line["compressionRatio"]); ratio > 0 {
 				payload["compressionRatio"] = ratio
 			}
 			rd := ensureRun(runs, &runOrder, eventRunID)
@@ -410,7 +465,11 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 					submit["runId"] = runID
 				}
 				addReplayLiveSeq(submit, lineLiveSeq)
-				rd.events = append(rd.events, stream.EventDataFromMap(submit))
+				event, err := stream.ParseEventDataMap(submit, "chat.jsonl.submit")
+				if err != nil {
+					return Detail{}, err
+				}
+				rd.events = append(rd.events, event)
 			}
 			if len(answer) > 0 {
 				answer = cloneStringAnyMap(answer)
@@ -419,7 +478,11 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 					answer["runId"] = runID
 				}
 				addReplayLiveSeq(answer, lineLiveSeq)
-				rd.events = append(rd.events, stream.EventDataFromMap(answer))
+				event, err := stream.ParseEventDataMap(answer, "chat.jsonl.answer")
+				if err != nil {
+					return Detail{}, err
+				}
+				rd.events = append(rd.events, event)
 			}
 		case "event", "steer":
 			lineLiveSeq := int64FromAny(line["liveSeq"])
@@ -439,8 +502,12 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				event["runId"] = runID
 			}
 			addReplayLiveSeq(event, lineLiveSeq)
+			parsed, err := stream.ParseEventDataMap(event, "chat.jsonl.event")
+			if err != nil {
+				return Detail{}, err
+			}
 			rd := ensureRun(runs, &runOrder, runID)
-			rd.events = append(rd.events, stream.EventDataFromMap(event))
+			rd.events = append(rd.events, parsed)
 		}
 	}
 
@@ -462,15 +529,25 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 		}
 		hasRunStart := false
 		runStartTimestamp := int64(0)
-		runCompleteTimestamp := int64(0)
-		if len(rd.events) > 0 {
-			runStartTimestamp = replayRunStartTimestamp(rd.events)
-			runCompleteTimestamp = rd.events[len(rd.events)-1].Timestamp
+		if runID != "" {
+			var err error
+			runStartTimestamp, err = requiredReplayRunStartedAt(runStartedAt, runID)
+			if err != nil {
+				return Detail{}, err
+			}
 		}
 		for _, ev := range rd.events {
 			if ev.Type == "run.start" {
+				if ev.Timestamp != runStartTimestamp {
+					return Detail{}, &timecontract.Violation{Field: "timestamp", Location: "chat.replay.runs[" + runID + "].run.start.timestamp", Reason: "does not match registered run start"}
+				}
 				hasRunStart = true
-				break
+			}
+			if ev.Type == "run.complete" {
+				completedAt, ok := runCompletedAt[runID]
+				if !ok || ev.Timestamp != completedAt {
+					return Detail{}, &timecontract.Violation{Field: "timestamp", Location: "chat.replay.runs[" + runID + "].run.complete.timestamp", Reason: "does not match completed run lifecycle"}
+				}
 			}
 		}
 		if !hasRunStart && runID != "" {
@@ -485,6 +562,13 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 		allEvents = append(allEvents, rd.events...)
 		// Synthesize run.complete for the frontend (not persisted in JSONL).
 		if runID != "" && !(isPendingAwaitingRun(summary, runID) && runHasAwaitingAsk(rd.events)) {
+			runCompleteTimestamp, completed := runCompletedAt[runID]
+			if !completed {
+				continue
+			}
+			if err := timecontract.ValidateEpochMillis(runCompleteTimestamp, "completedAt", "chat.replay.runs["+runID+"].completedAt"); err != nil {
+				return Detail{}, err
+			}
 			payload := map[string]any{"runId": runID, "finishReason": "stop"}
 			allEvents = append(allEvents, stream.EventData{
 				Seq:       nextSeq(),
@@ -552,16 +636,36 @@ func firstNonEmptyReplayString(values ...string) string {
 	return ""
 }
 
-func replayRunStartTimestamp(events []stream.EventData) int64 {
-	if len(events) == 0 {
-		return 0
-	}
-	for _, event := range events {
-		if event.Type == "request.query" && strings.TrimSpace(event.String("taskId")) == "" {
-			return event.Timestamp
+func replayRunLifecycleTimesByRuns(runs []RunSummary, location string) (map[string]int64, map[string]int64, error) {
+	startedAt := make(map[string]int64, len(runs))
+	completedAt := make(map[string]int64, len(runs))
+	for _, run := range runs {
+		runID := strings.TrimSpace(run.RunID)
+		if runID == "" {
+			continue
 		}
+		if err := timecontract.ValidateEpochMillis(run.StartedAt, "startedAt", location+"["+runID+"].startedAt"); err != nil {
+			return nil, nil, err
+		}
+		startedAt[runID] = run.StartedAt
+		if err := timecontract.ValidateEpochMillis(run.CompletedAt, "completedAt", location+"["+runID+"].completedAt"); err != nil {
+			return nil, nil, err
+		}
+		completedAt[runID] = run.CompletedAt
 	}
-	return events[0].Timestamp
+	return startedAt, completedAt, nil
+}
+
+func requiredReplayRunStartedAt(startedAtByRunID map[string]int64, runID string) (int64, error) {
+	runID = strings.TrimSpace(runID)
+	startedAt, ok := startedAtByRunID[runID]
+	if !ok {
+		return 0, &timecontract.Violation{Field: "startedAt", Location: "chat.replay.runs[" + runID + "].startedAt", Reason: "is required"}
+	}
+	if err := timecontract.ValidateEpochMillis(startedAt, "startedAt", "chat.replay.runs["+runID+"].startedAt"); err != nil {
+		return 0, err
+	}
+	return startedAt, nil
 }
 
 func insertReplayRunStart(events []stream.EventData, runStart stream.EventData) []stream.EventData {
@@ -672,11 +776,29 @@ func extractStepCost(usage map[string]any) (currency string, inputHit, inputMiss
 	if currency == "" {
 		return
 	}
-	inputHit, _ = estimatedCost["inputCacheHit"].(float64)
-	inputMiss, _ = estimatedCost["inputCacheMiss"].(float64)
-	output, _ = estimatedCost["output"].(float64)
-	total, _ = estimatedCost["total"].(float64)
+	inputHit = float64FromJSONValue(estimatedCost["inputCacheHit"])
+	inputMiss = float64FromJSONValue(estimatedCost["inputCacheMiss"])
+	output = float64FromJSONValue(estimatedCost["output"])
+	total = float64FromJSONValue(estimatedCost["total"])
 	return
+}
+
+func float64FromJSONValue(value any) float64 {
+	switch typed := value.(type) {
+	case float64:
+		return typed
+	case float32:
+		return float64(typed)
+	case int:
+		return float64(typed)
+	case int64:
+		return float64(typed)
+	case json.Number:
+		parsed, _ := typed.Float64()
+		return parsed
+	default:
+		return 0
+	}
 }
 
 func extractStepTiming(usage map[string]any) (firstTokenLatencyMs int64, generationDurationMs int64) {

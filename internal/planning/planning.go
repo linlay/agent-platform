@@ -34,7 +34,7 @@ func PlanningIDForRevision(runID string, revision int) string {
 }
 
 func PlanningFile(chatsDir string, planningID string) string {
-	return filepath.Join(strings.TrimSpace(chatsDir), "plans", strings.TrimSpace(planningID)+".md")
+	return filepath.Join(strings.TrimSpace(chatsDir), "planning", strings.TrimSpace(planningID)+".md")
 }
 
 func PlanningFileForChat(chatsDir string, chatID string, planningID string) string {
@@ -43,7 +43,7 @@ func PlanningFileForChat(chatsDir string, chatID string, planningID string) stri
 	if chatsDir == "" || !chat.ValidChatID(chatID) {
 		return PlanningFile(chatsDir, planningID)
 	}
-	return filepath.Join(chatsDir, chatID, chat.ToolRootDirName, chat.ToolPlansDirName, strings.TrimSpace(planningID)+".md")
+	return filepath.Join(chatsDir, chatID, chat.ToolRootDirName, chat.ToolPlanningDirName, strings.TrimSpace(planningID)+".md")
 }
 
 func SafeRunID(value string) string {

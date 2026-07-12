@@ -7,6 +7,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/timecontract"
 )
 
 func (s *Server) handleFeedback(w http.ResponseWriter, r *http.Request) {
@@ -32,13 +33,30 @@ func (s *Server) handleFeedback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
-	writeJSON(w, http.StatusOK, api.Success(api.FeedbackResponse{
+	response, responseErr := feedbackResponse(chatID, runID, feedbackType, setAt)
+	if responseErr != nil {
+		writeTimeContractViolation(w, responseErr)
+		return
+	}
+	writeJSON(w, http.StatusOK, api.Success(response))
+}
+
+func feedbackResponse(chatID, runID, feedbackType string, setAt int64) (api.FeedbackResponse, error) {
+	optionalSetAt, err := timecontract.OptionalEpochMillis(setAt, "setAt", "feedback.response")
+	if err != nil {
+		return api.FeedbackResponse{}, err
+	}
+	return api.FeedbackResponse{
 		ChatID: chatID,
 		RunID:  runID,
 		Type:   feedbackType,
-		SetAt:  setAt,
-	}))
+		SetAt:  optionalSetAt,
+	}, nil
 }

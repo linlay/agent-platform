@@ -44,13 +44,14 @@ const (
 )
 
 const (
-	CodeInvalidRequest       Code = "invalid_request"
-	CodeInvalidPayload       Code = "invalid_payload"
-	CodeMissingRequiredField Code = "missing_required_field"
-	CodeInvalidField         Code = "invalid_field"
-	CodeMethodNotAllowed     Code = "method_not_allowed"
-	CodeInvalidLocale        Code = "invalid_locale"
-	CodeUnsupportedOperation Code = "unsupported_operation"
+	CodeInvalidRequest        Code = "invalid_request"
+	CodeInvalidPayload        Code = "invalid_payload"
+	CodeMissingRequiredField  Code = "missing_required_field"
+	CodeInvalidField          Code = "invalid_field"
+	CodeMethodNotAllowed      Code = "method_not_allowed"
+	CodeInvalidLocale         Code = "invalid_locale"
+	CodeUnsupportedOperation  Code = "unsupported_operation"
+	CodeTimeContractViolation Code = "time_contract_violation"
 
 	CodeUnauthorized     Code = "unauthorized"
 	CodeForbidden        Code = "forbidden"

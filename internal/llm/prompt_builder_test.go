@@ -111,7 +111,7 @@ func TestBuildSystemPromptSkipsCurrentPlanTasksForPlanningStage(t *testing.T) {
 		Mode:            "CODER",
 		PlanTaskContext: context,
 	}, api.QueryRequest{}, "", PromptBuildOptions{
-		Stage: "coder-plan",
+		Stage: "coder-planning",
 		ToolDefinitions: []api.ToolDetailResponse{
 			{Name: PlanGetTasksToolName},
 		},
@@ -154,7 +154,7 @@ func TestBuildSystemPromptAddsCoderSystemPromptOnlyForMainCoderStage(t *testing.
 	if !strings.Contains(main, "main coder system prompt") {
 		t.Fatalf("expected CODER main prompt to include coder system prompt, got %q", main)
 	}
-	planning := buildSystemPrompt(session, api.QueryRequest{}, "", PromptBuildOptions{Stage: "coder-plan"})
+	planning := buildSystemPrompt(session, api.QueryRequest{}, "", PromptBuildOptions{Stage: "coder-planning"})
 	if strings.Contains(planning, "main coder system prompt") {
 		t.Fatalf("expected CODER planning prompt to skip coder system prompt, got %q", planning)
 	}
@@ -171,7 +171,7 @@ func TestBuildSystemPromptRendersCoderSystemPromptPlaceholders(t *testing.T) {
 		Mode:             "CODER",
 		PlanningMode:     false,
 		ToolNames:        []string{"bash", "file_read", "file_write", "file_edit", "ask_user_question", "plan_add_tasks", "plan_get_tasks", "plan_update_task"},
-		ModeSystemPrompt: "CODER {{agent_key}} {{agent_name}} {{planning_mode}} {{workspace_dir}} {{available_tools}} {{plan_stage_tools}} {{execute_stage_tools}} {{file_read_tool_name}} {{ask_user_question_tool_name}}",
+		ModeSystemPrompt: "CODER {{agent_key}} {{agent_name}} {{planning_mode}} {{workspace_dir}} {{available_tools}} {{planning_stage_tools}} {{execute_stage_tools}} {{file_read_tool_name}} {{ask_user_question_tool_name}}",
 		RuntimeContext: RuntimeRequestContext{
 			LocalPaths: LocalPaths{WorkspaceDir: "/workspace"},
 		},

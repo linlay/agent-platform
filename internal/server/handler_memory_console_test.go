@@ -33,8 +33,8 @@ func TestHandleMemoryScopesReturnsEditableScopes(t *testing.T) {
 		Importance: 8,
 		Confidence: 0.95,
 		Status:     memory.StatusActive,
-		CreatedAt:  100,
-		UpdatedAt:  200,
+		CreatedAt:  testEpochMillis + 100,
+		UpdatedAt:  testEpochMillis + 200,
 	})
 	writeTestMemory(t, server.deps.Memory, api.StoredMemoryResponse{
 		ID:         "mem_team_1",
@@ -49,8 +49,8 @@ func TestHandleMemoryScopesReturnsEditableScopes(t *testing.T) {
 		Importance: 7,
 		Confidence: 0.9,
 		Status:     memory.StatusActive,
-		CreatedAt:  110,
-		UpdatedAt:  210,
+		CreatedAt:  testEpochMillis + 110,
+		UpdatedAt:  testEpochMillis + 210,
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/memory/scope/list?agentKey=mock-agent&userKey=alice", nil)
@@ -123,8 +123,8 @@ func TestHandleMemoryContextPreviewReturnsInjectedMemory(t *testing.T) {
 		Importance: 9,
 		Confidence: 0.95,
 		Status:     memory.StatusActive,
-		CreatedAt:  100,
-		UpdatedAt:  200,
+		CreatedAt:  testEpochMillis + 100,
+		UpdatedAt:  testEpochMillis + 200,
 	})
 	writeTestMemory(t, fixture.memories, api.StoredMemoryResponse{
 		ID:         "mem_chat_release",
@@ -140,8 +140,8 @@ func TestHandleMemoryContextPreviewReturnsInjectedMemory(t *testing.T) {
 		Importance: 8,
 		Confidence: 0.75,
 		Status:     memory.StatusOpen,
-		CreatedAt:  110,
-		UpdatedAt:  210,
+		CreatedAt:  testEpochMillis + 110,
+		UpdatedAt:  testEpochMillis + 210,
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/memory/context-preview", bytes.NewBufferString(`{"chatId":"chat-preview","message":"desktop builtin 发布流程"}`))
@@ -203,8 +203,8 @@ func TestHandleMemoryScopeReturnsMarkdownAndRecords(t *testing.T) {
 		Importance: 8,
 		Confidence: 0.95,
 		Status:     memory.StatusActive,
-		CreatedAt:  100,
-		UpdatedAt:  200,
+		CreatedAt:  testEpochMillis + 100,
+		UpdatedAt:  testEpochMillis + 200,
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/memory/scope/detail?agentKey=mock-agent&scopeType=user&scopeKey=user:alice", nil)
@@ -274,8 +274,8 @@ func TestHandleMemoryScopeSaveUpdatesAndCreatesFacts(t *testing.T) {
 		Importance: 8,
 		Confidence: 0.95,
 		Status:     memory.StatusActive,
-		CreatedAt:  100,
-		UpdatedAt:  200,
+		CreatedAt:  testEpochMillis + 100,
+		UpdatedAt:  testEpochMillis + 200,
 	})
 
 	reqBody := `{
@@ -389,8 +389,8 @@ func TestMemoryWSRecordsMirrorsHTTP(t *testing.T) {
 		Importance: 8,
 		Confidence: 0.95,
 		Status:     memory.StatusActive,
-		CreatedAt:  100,
-		UpdatedAt:  200,
+		CreatedAt:  testEpochMillis + 100,
+		UpdatedAt:  testEpochMillis + 200,
 	})
 	writeTestMemory(t, fixture.memories, api.StoredMemoryResponse{
 		ID:         "mem_obs_1",
@@ -406,8 +406,8 @@ func TestMemoryWSRecordsMirrorsHTTP(t *testing.T) {
 		Importance: 8,
 		Confidence: 0.75,
 		Status:     memory.StatusOpen,
-		CreatedAt:  110,
-		UpdatedAt:  210,
+		CreatedAt:  testEpochMillis + 110,
+		UpdatedAt:  testEpochMillis + 210,
 	})
 
 	conn := dialMemoryWebSocket(t, fixture.server)
@@ -455,8 +455,8 @@ func TestMemoryWSRecordAndMeta(t *testing.T) {
 		Importance: 8,
 		Confidence: 0.75,
 		Status:     memory.StatusOpen,
-		CreatedAt:  110,
-		UpdatedAt:  210,
+		CreatedAt:  testEpochMillis + 110,
+		UpdatedAt:  testEpochMillis + 210,
 	})
 
 	conn := dialMemoryWebSocket(t, fixture.server)

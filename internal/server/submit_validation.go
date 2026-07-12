@@ -93,6 +93,9 @@ func (s *Server) validateSubmitOwner(req api.SubmitRequest) *statusError {
 				return validateRunStatusOwner(runStatusOwnerFromChatSummary(summary), req.AgentKey, req.TeamID)
 			}
 			if err != nil && !errors.Is(err, chat.ErrChatNotFound) {
+				if isTimeContractViolation(err) {
+					return timeContractStatusError(err)
+				}
 				return &statusError{status: http.StatusInternalServerError, message: err.Error()}
 			}
 		}
@@ -103,6 +106,9 @@ func (s *Server) validateSubmitOwner(req api.SubmitRequest) *statusError {
 			return validateRunStatusOwner(runStatusOwnerFromChatSummary(summary), req.AgentKey, req.TeamID)
 		}
 		if err != nil && !errors.Is(err, chat.ErrChatNotFound) {
+			if isTimeContractViolation(err) {
+				return timeContractStatusError(err)
+			}
 			return &statusError{status: http.StatusInternalServerError, message: err.Error()}
 		}
 	}
@@ -220,7 +226,7 @@ func validateDeferredSubmitParams(mode string, params api.SubmitParams) error {
 	if err != nil {
 		return err
 	}
-	if strings.EqualFold(strings.TrimSpace(mode), "plan") && len(items) != 1 {
+	if strings.EqualFold(strings.TrimSpace(mode), "planning") && len(items) != 1 {
 		return fmt.Errorf("expected 1 submit items, got %d", len(items))
 	}
 	for index, item := range items {
@@ -297,27 +303,27 @@ func validateSubmitItem(mode string, index int, item map[string]any) error {
 		default:
 			return fmt.Errorf("%s: unsupported form decision %q", itemLabel, decision)
 		}
-	case "plan":
+	case "planning":
 		decision := strings.ToLower(strings.TrimSpace(stringValue(item["decision"])))
 		if decision == "" {
-			return fmt.Errorf("%s: plan items require decision", itemLabel)
+			return fmt.Errorf("%s: planning items require decision", itemLabel)
 		}
 		switch decision {
 		case "approve", "reject":
 		default:
-			return fmt.Errorf("%s: unsupported plan decision %q", itemLabel, decision)
+			return fmt.Errorf("%s: unsupported planning decision %q", itemLabel, decision)
 		}
 		if _, hasPayload := item["payload"]; hasPayload {
-			return fmt.Errorf("%s: plan items do not allow payload", itemLabel)
+			return fmt.Errorf("%s: planning items do not allow payload", itemLabel)
 		}
 		if _, hasAnswer := item["answer"]; hasAnswer {
-			return fmt.Errorf("%s: plan items do not allow answer", itemLabel)
+			return fmt.Errorf("%s: planning items do not allow answer", itemLabel)
 		}
 		if _, hasAnswers := item["answers"]; hasAnswers {
-			return fmt.Errorf("%s: plan items do not allow answers", itemLabel)
+			return fmt.Errorf("%s: planning items do not allow answers", itemLabel)
 		}
 		if _, hasForm := item["form"]; hasForm {
-			return fmt.Errorf("%s: plan items do not allow form", itemLabel)
+			return fmt.Errorf("%s: planning items do not allow form", itemLabel)
 		}
 	default:
 		return fmt.Errorf("unsupported awaiting mode: %s", mode)

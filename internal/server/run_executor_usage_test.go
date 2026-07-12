@@ -444,6 +444,7 @@ func TestRunEventProcessorPersistsDebugLLMChatEstimatedCostToJSONL(t *testing.T)
 	if _, _, err := store.EnsureChat("chat-debug-cost", "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
+	startServerFixtureRun(t, store, "chat-debug-cost", "run-debug-cost", testEpochMillis)
 	stepWriter := chat.NewStepWriter(store, "chat-debug-cost", "run-debug-cost", "REACT")
 	runUsage := chat.UsageData{}
 	processor := &runEventProcessor{
@@ -757,9 +758,11 @@ func TestProxyEventRecorderPersistsDecoratedUsageSnapshotCost(t *testing.T) {
 	if _, _, err := store.EnsureChat("chat-proxy-cost", "proxy-agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
+	startServerFixtureRun(t, store, "chat-proxy-cost", "run-proxy-cost", testEpochMillis)
 	stepWriter := chat.NewStepWriter(store, "chat-proxy-cost", "run-proxy-cost", "PROXY")
 	recorder := newProxyEventRecorder(
 		api.QueryRequest{ChatID: "chat-proxy-cost", RunID: "run-proxy-cost", AgentKey: "proxy-agent", Message: "hello"},
+		1_700_000_000_000,
 		catalog.AgentDefinition{Key: "proxy-agent", Mode: "PROXY"},
 		store,
 		stepWriter,
@@ -771,22 +774,22 @@ func TestProxyEventRecorderPersistsDecoratedUsageSnapshotCost(t *testing.T) {
 	)
 	recorder.OnEvent(stream.EventData{
 		Type:      "content.start",
-		Timestamp: 1,
+		Timestamp: testEpochMillis + 1,
 		Payload:   map[string]any{"contentId": "content-1", "runId": "run-proxy-cost"},
 	})
 	recorder.OnEvent(stream.EventData{
 		Type:      "content.delta",
-		Timestamp: 2,
+		Timestamp: testEpochMillis + 2,
 		Payload:   map[string]any{"contentId": "content-1", "delta": "answer"},
 	})
 	recorder.OnEvent(stream.EventData{
 		Type:      "content.end",
-		Timestamp: 3,
+		Timestamp: testEpochMillis + 3,
 		Payload:   map[string]any{"contentId": "content-1"},
 	})
 	usageEvent := stream.EventData{
 		Type:      "usage.snapshot",
-		Timestamp: 4,
+		Timestamp: testEpochMillis + 4,
 		Payload: map[string]any{
 			"usage": map[string]any{
 				"current": map[string]any{
@@ -807,7 +810,7 @@ func TestProxyEventRecorderPersistsDecoratedUsageSnapshotCost(t *testing.T) {
 	recorder.OnEvent(usageEvent)
 	terminalEvent := stream.EventData{
 		Type:      "run.complete",
-		Timestamp: 5,
+		Timestamp: testEpochMillis + 5,
 		Payload:   map[string]any{"runId": "run-proxy-cost"},
 	}
 	recorder.DecorateEvent(&terminalEvent)

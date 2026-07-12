@@ -85,7 +85,7 @@ func TestRestorePlanTasksForRunSkipsPlanningStage(t *testing.T) {
 	session := contracts.QuerySession{RunID: "run_new", ChatID: "chat_1"}
 	execCtx := &contracts.ExecutionContext{Session: session}
 
-	engine.restorePlanTasksForRun(execCtx, &session, "coder-plan", []api.ToolDetailResponse{{Name: contracts.PlanGetTasksToolName}})
+	engine.restorePlanTasksForRun(execCtx, &session, "coder-planning", []api.ToolDetailResponse{{Name: contracts.PlanGetTasksToolName}})
 
 	if execCtx.PlanState != nil {
 		t.Fatalf("planning stage should not restore plan tasks, got %#v", execCtx.PlanState)

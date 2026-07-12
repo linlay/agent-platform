@@ -116,3 +116,36 @@ func TestResolvePlanExecuteSettingsParsesNestedStageModelAndToolConfig(t *testin
 		t.Fatalf("expected nested topP, got %#v", settings.Plan.Sampling)
 	}
 }
+
+func TestResolveCoderPlanningSettingsUsesPlanningNotPlan(t *testing.T) {
+	settings := ResolveCoderPlanningSettings(map[string]any{
+		"plan": map[string]any{
+			"modelConfig": map[string]any{"modelKey": "plan-tasks-model"},
+		},
+		"planning": map[string]any{
+			"modelConfig": map[string]any{"modelKey": "planning-model"},
+		},
+		"execute": map[string]any{
+			"modelConfig": map[string]any{"modelKey": "coder-execute-model"},
+		},
+	}, 77)
+
+	if settings.MaxSteps != 77 {
+		t.Fatalf("max steps = %d, want 77", settings.MaxSteps)
+	}
+	if settings.Planning.ModelKey != "planning-model" {
+		t.Fatalf("planning model key = %q, want planning-model", settings.Planning.ModelKey)
+	}
+	if settings.Execute.ModelKey != "coder-execute-model" {
+		t.Fatalf("execute model key = %q, want coder-execute-model", settings.Execute.ModelKey)
+	}
+
+	legacyOnly := ResolveCoderPlanningSettings(map[string]any{
+		"plan": map[string]any{
+			"modelConfig": map[string]any{"modelKey": "plan-tasks-model"},
+		},
+	}, 60)
+	if !legacyOnly.Planning.IsZero() || !legacyOnly.Execute.IsZero() {
+		t.Fatalf("legacy plan stage must not configure CODER planning: %#v", legacyOnly)
+	}
+}

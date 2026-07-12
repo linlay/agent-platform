@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -35,7 +36,7 @@ type llmSystemSnapshot struct {
 }
 
 func (s *FileStore) BuildLLMChatFromJSONL(chatID string, options LLMChatBuildOptions) (LLMChat, error) {
-	lines, err := readJSONLines(s.chatJSONLPath(chatID))
+	lines, err := readPersistedJSONLines(s.chatJSONLPath(chatID))
 	if err != nil {
 		return LLMChat{}, err
 	}
@@ -277,7 +278,9 @@ func cloneMapDeep(value map[string]any) map[string]any {
 		return cloneStringAnyMap(value)
 	}
 	var out map[string]any
-	if err := json.Unmarshal(data, &out); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&out); err != nil {
 		return cloneStringAnyMap(value)
 	}
 	return out
@@ -292,7 +295,9 @@ func cloneAnySliceDeep(value []any) []any {
 		return append([]any(nil), value...)
 	}
 	var out []any
-	if err := json.Unmarshal(data, &out); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&out); err != nil {
 		return append([]any(nil), value...)
 	}
 	return out

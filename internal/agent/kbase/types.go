@@ -24,7 +24,7 @@ type Status struct {
 	WorkspaceRoot      string            `json:"workspaceRoot"`
 	Indexing           bool              `json:"indexing"`
 	Stale              bool              `json:"stale"`
-	LastIndexedAt      int64             `json:"lastIndexedAt"`
+	LastIndexedAt      *int64            `json:"lastIndexedAt,omitempty"`
 	Files              int               `json:"files"`
 	Chunks             int               `json:"chunks"`
 	Embedding          EmbeddingSnapshot `json:"embedding"`
@@ -65,7 +65,7 @@ type MigrationStatus struct {
 type IndexesStatus struct {
 	FTS             IndexStatus       `json:"fts"`
 	Vector          VectorIndexStatus `json:"vector"`
-	LastOptimizedAt int64             `json:"lastOptimizedAt,omitempty"`
+	LastOptimizedAt *int64            `json:"lastOptimizedAt,omitempty"`
 }
 
 type IndexStatus struct {
@@ -191,7 +191,7 @@ type FileEntry struct {
 	Ext        string `json:"ext,omitempty"`
 	Mime       string `json:"mime,omitempty"`
 	Size       int64  `json:"size,omitempty"`
-	MTimeMS    int64  `json:"mtimeMs,omitempty"`
+	MTimeMS    *int64 `json:"mtimeMs,omitempty"`
 	TextSHA256 string `json:"textSha256,omitempty"`
 	Extractor  string `json:"extractor,omitempty"`
 	Status     string `json:"status,omitempty"`
@@ -199,7 +199,7 @@ type FileEntry struct {
 	Error      string `json:"error,omitempty"`
 	ChunkCount int    `json:"chunkCount,omitempty"`
 	FileCount  int    `json:"fileCount,omitempty"`
-	IndexedAt  int64  `json:"indexedAt,omitempty"`
+	IndexedAt  *int64 `json:"indexedAt,omitempty"`
 }
 
 type IndexRun struct {

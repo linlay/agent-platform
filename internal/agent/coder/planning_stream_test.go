@@ -32,15 +32,15 @@ func (f fakePlanningRuntime) ToolDefinitions() []api.ToolDetailResponse {
 	return f.toolDefs
 }
 
-func (f fakePlanningRuntime) BuildExecuteSystemInitProfiles(contracts.QuerySession, api.QueryRequest, contracts.PlanExecuteSettings) []contracts.SystemInitProfile {
+func (f fakePlanningRuntime) BuildExecuteSystemInitProfiles(contracts.QuerySession, api.QueryRequest, contracts.CoderPlanningSettings) []contracts.SystemInitProfile {
 	return nil
 }
 
-func TestCoderPlanningStageToolsAreReadOnlyPlusVisionQuestionsAndPlan(t *testing.T) {
+func TestCoderPlanningStageToolsAreReadOnlyPlusVisionQuestionsAndFinalizePlanning(t *testing.T) {
 	stream := &coderPlanningStream{}
 	want := []string{"file_read", "file_glob", "file_grep", "datetime", "regex", "vision_recognize", "ask_user_question", contracts.FinalizePlanningToolName}
-	if got := stream.planStageTools(); !reflect.DeepEqual(got, want) {
-		t.Fatalf("planStageTools()=%#v want %#v", got, want)
+	if got := stream.planningStageTools(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("planningStageTools()=%#v want %#v", got, want)
 	}
 	forbidden := map[string]struct{}{
 		"bash":             {},
@@ -50,9 +50,9 @@ func TestCoderPlanningStageToolsAreReadOnlyPlusVisionQuestionsAndPlan(t *testing
 		"plan_get_tasks":   {},
 		"plan_update_task": {},
 	}
-	for _, tool := range stream.planStageTools() {
+	for _, tool := range stream.planningStageTools() {
 		if _, ok := forbidden[tool]; ok {
-			t.Fatalf("planStageTools() must not include mutating tool %q: %#v", tool, stream.planStageTools())
+			t.Fatalf("planningStageTools() must not include mutating tool %q: %#v", tool, stream.planningStageTools())
 		}
 	}
 }
@@ -73,7 +73,7 @@ func TestCoderPlanningPromptUsesCoderPromptsConfig(t *testing.T) {
 	stream := &coderPlanningStream{
 		runtime: fakePlanningRuntime{
 			settings: RuntimeSettings{
-				PlanningPrompt: "custom {{agent_key}} {{workspace_dir}} {{plan_stage_tools}} {{execute_stage_tools}}\nUse {{finalize_planning_tool_name}}.\n{{execute_tool_descriptions}}",
+				PlanningPrompt: "custom {{agent_key}} {{workspace_dir}} {{planning_stage_tools}} {{execute_stage_tools}}\nUse {{finalize_planning_tool_name}}.\n{{execute_tool_descriptions}}",
 			},
 		},
 		session: contracts.QuerySession{
@@ -114,7 +114,7 @@ func TestCoderExecutionSystemPromptIncludesRenderedCoderSystemPrompt(t *testing.
 			ToolNames:        []string{"bash", "file_read", contracts.FinalizePlanningToolName, "ask_user_question"},
 			ModeSystemPrompt: "CODER {{agent_key}} {{agent_name}} {{available_tools}} {{execute_stage_tools}} {{bash_tool_name}}",
 		},
-		settings: contracts.PlanExecuteSettings{
+		settings: contracts.CoderPlanningSettings{
 			Execute: contracts.StageSettings{
 				SystemPrompt: "stage {{agent_key}} {{workspace_dir}}",
 				Tools:        []string{"bash", "file_read"},
@@ -135,7 +135,7 @@ func TestCoderExecutionSystemPromptIncludesRenderedCoderSystemPrompt(t *testing.
 	}
 }
 
-func TestPlanApproveContinuationCarriesInMemoryAdmissionState(t *testing.T) {
+func TestPlanningApproveContinuationCarriesInMemoryAdmissionState(t *testing.T) {
 	state := &struct{ key string }{key: "frozen"}
 	stream := &coderPlanningStream{session: contracts.QuerySession{
 		RunID:    "source-run",
@@ -143,13 +143,13 @@ func TestPlanApproveContinuationCarriesInMemoryAdmissionState(t *testing.T) {
 		AgentKey: "coder",
 		Locale:   "zh-CN",
 	}}
-	if !stream.preparePlanApproveContinuation(api.SubmitRequest{
+	if !stream.preparePlanningApproveContinuation(api.SubmitRequest{
 		ContinuationRunID: "execute-run",
 		SubmitID:          "submit",
 		Params:            api.SubmitParams{[]byte(`{"decision":"approve"}`)},
 		ContinuationState: state,
-	}, "await", map[string]any{"plan": map[string]any{"decision": "approve"}}) {
-		t.Fatal("expected plan approval continuation")
+	}, "await", map[string]any{"planning": map[string]any{"decision": "approve"}}) {
+		t.Fatal("expected planning approval continuation")
 	}
 	if len(stream.pending) != 1 {
 		t.Fatalf("pending deltas = %#v", stream.pending)
@@ -162,7 +162,7 @@ func TestPlanApproveContinuationCarriesInMemoryAdmissionState(t *testing.T) {
 
 func TestCoderPlanningExecutionEOFCompletesWithoutSummaryStage(t *testing.T) {
 	stream := &coderPlanningStream{
-		planDone:         true,
+		planningDone:     true,
 		confirmationDone: true,
 		executionDone:    false,
 	}
@@ -180,14 +180,14 @@ func TestCoderPlanningExecutionEOFCompletesWithoutSummaryStage(t *testing.T) {
 	}
 }
 
-func TestCoderPlanningConfirmationUsesPlanMode(t *testing.T) {
+func TestCoderPlanningConfirmationUsesPlanningMode(t *testing.T) {
 	stream := &coderPlanningStream{
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{
 			PlanningRevision: 1,
 			PlanningState: &contracts.PlanningRuntimeState{
 				PlanningID:   "run_1_planning_1",
-				PlanningFile: "/tmp/chat_1/.tools/plans/run_1_planning_1.md",
+				PlanningFile: "/tmp/chat_1/.tools/planning/run_1_planning_1.md",
 				ToolCallID:   "tool_plan",
 				ToolName:     contracts.FinalizePlanningToolName,
 			},
@@ -197,26 +197,26 @@ func TestCoderPlanningConfirmationUsesPlanMode(t *testing.T) {
 			},
 		},
 	}
-	ask := stream.planConfirmationAsk()
-	if ask.AwaitingID != "tool_plan" || ask.Mode != "plan" || ask.ViewportType != "builtin" || ask.ViewportKey != "plan" {
-		t.Fatalf("expected plan confirmation ask, got %#v", ask)
+	ask := stream.planningConfirmationAsk()
+	if ask.AwaitingID != "tool_plan" || ask.Mode != "planning" || ask.ViewportType != "builtin" || ask.ViewportKey != "planning" {
+		t.Fatalf("expected planning confirmation ask, got %#v", ask)
 	}
 	if ask.Timeout != 0 {
 		t.Fatalf("expected planning confirmation to have no configured timeout, got %#v", ask)
 	}
-	if len(ask.Questions) != 0 || len(ask.Approvals) != 0 || len(ask.Plan) == 0 {
-		t.Fatalf("expected one plan and no questions/approvals, got %#v", ask)
+	if len(ask.Questions) != 0 || len(ask.Approvals) != 0 || len(ask.Planning) == 0 {
+		t.Fatalf("expected one planning and no questions/approvals, got %#v", ask)
 	}
-	if ask.Plan["id"] != "confirm" || ask.Plan["planningId"] != "run_1_planning_1" ||
-		ask.Plan["planningFile"] != "/tmp/chat_1/.tools/plans/run_1_planning_1.md" {
-		t.Fatalf("unexpected plan item %#v", ask.Plan)
+	if ask.Planning["id"] != "confirm" || ask.Planning["planningId"] != "run_1_planning_1" ||
+		ask.Planning["planningFile"] != "/tmp/chat_1/.tools/planning/run_1_planning_1.md" {
+		t.Fatalf("unexpected planning item %#v", ask.Planning)
 	}
-	if _, ok := ask.Plan["title"]; ok {
-		t.Fatalf("did not expect builtin plan title in platform payload, got %#v", ask.Plan)
+	if _, ok := ask.Planning["title"]; ok {
+		t.Fatalf("did not expect builtin planning title in platform payload, got %#v", ask.Planning)
 	}
-	options, _ := ask.Plan["options"].([]any)
+	options, _ := ask.Planning["options"].([]any)
 	if len(options) != 2 {
-		t.Fatalf("expected approve/reject options, got %#v", ask.Plan)
+		t.Fatalf("expected approve/reject options, got %#v", ask.Planning)
 	}
 	first, _ := options[0].(map[string]any)
 	second, _ := options[1].(map[string]any)
@@ -250,15 +250,15 @@ func TestCoderPlanningStageEOFWithFinalizePlanningEmitsConfirmation(t *testing.T
 	if err := stream.afterStageEOF(); err != nil {
 		t.Fatalf("afterStageEOF: %v", err)
 	}
-	if !stream.planDone || stream.completed || stream.summaryDone || !stream.confirmationPending {
+	if !stream.planningDone || stream.completed || stream.summaryDone || !stream.confirmationPending {
 		t.Fatalf("unexpected planning stream state: %#v", stream)
 	}
 	if len(stream.pending) != 1 {
 		t.Fatalf("expected one pending confirmation ask, got %#v", stream.pending)
 	}
 	ask, ok := stream.pending[0].(contracts.DeltaAwaitAsk)
-	if !ok || ask.Mode != "plan" || ask.AwaitingID != "tool_plan" || ask.Plan["planningId"] != "run_1_planning_1" {
-		t.Fatalf("expected plan confirmation ask, got %#v", stream.pending[0])
+	if !ok || ask.Mode != "planning" || ask.AwaitingID != "tool_plan" || ask.Planning["planningId"] != "run_1_planning_1" {
+		t.Fatalf("expected planning confirmation ask, got %#v", stream.pending[0])
 	}
 }
 
@@ -273,7 +273,7 @@ func TestCoderPlanningStageEOFWithoutPlanButAssistantTextCompletes(t *testing.T)
 	if err := stream.afterStageEOF(); err != nil {
 		t.Fatalf("afterStageEOF: %v", err)
 	}
-	if !stream.planDone || !stream.completed || !stream.summaryDone {
+	if !stream.planningDone || !stream.completed || !stream.summaryDone {
 		t.Fatalf("expected planning stream to complete normally, got %#v", stream)
 	}
 	for _, delta := range stream.pending {
@@ -293,7 +293,7 @@ func TestCoderPlanningStageEOFWithoutPlanAndTextEmitsModelError(t *testing.T) {
 	if err := stream.afterStageEOF(); err != nil {
 		t.Fatalf("afterStageEOF: %v", err)
 	}
-	if !stream.planDone || !stream.completed || !stream.summaryDone {
+	if !stream.planningDone || !stream.completed || !stream.summaryDone {
 		t.Fatalf("expected planning stream to complete after error, got %#v", stream)
 	}
 	if len(stream.pending) != 1 {
@@ -303,20 +303,20 @@ func TestCoderPlanningStageEOFWithoutPlanAndTextEmitsModelError(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected DeltaError, got %#v", stream.pending[0])
 	}
-	if errDelta.Error["code"] != "plan_not_created" || errDelta.Error["category"] != "model" {
-		t.Fatalf("expected model plan_not_created error, got %#v", errDelta.Error)
+	if errDelta.Error["code"] != "planning_not_created" || errDelta.Error["category"] != "model" {
+		t.Fatalf("expected model planning_not_created error, got %#v", errDelta.Error)
 	}
 }
 
 func TestCoderPlanningFeedbackStageEOFWithoutPlanCompletes(t *testing.T) {
 	stream := &coderPlanningStream{
-		execCtx:               &contracts.ExecutionContext{},
-		currentPlanIsFeedback: true,
+		execCtx:                   &contracts.ExecutionContext{},
+		currentPlanningIsFeedback: true,
 	}
 	if err := stream.afterStageEOF(); err != nil {
 		t.Fatalf("afterStageEOF: %v", err)
 	}
-	if !stream.planDone || !stream.completed || !stream.summaryDone {
+	if !stream.planningDone || !stream.completed || !stream.summaryDone {
 		t.Fatalf("expected feedback stage to complete normally, got %#v", stream)
 	}
 	if len(stream.pending) != 0 {
@@ -383,12 +383,12 @@ func TestCoderPlanningConfirmationWaitsWithoutDisconnectedTimeout(t *testing.T) 
 			PlanningRevision: 1,
 		},
 	}
-	stream.emitPlanConfirmationAsk()
+	stream.emitPlanningConfirmationAsk()
 
 	resultCh := make(chan contracts.SubmitResult, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		result, err := runControl.AwaitSubmitIndefinitely(context.Background(), "run_1_coder_plan_confirm_1")
+		result, err := runControl.AwaitSubmitIndefinitely(context.Background(), "run_1_coder_planning_confirm_1")
 		if err != nil {
 			errCh <- err
 			return
@@ -410,7 +410,7 @@ func TestCoderPlanningConfirmationWaitsWithoutDisconnectedTimeout(t *testing.T) 
 	}
 	ack := runControl.ResolveSubmit(api.SubmitRequest{
 		RunID:      "run_1",
-		AwaitingID: "run_1_coder_plan_confirm_1",
+		AwaitingID: "run_1_coder_planning_confirm_1",
 		Params:     params,
 	})
 	if !ack.Accepted {
@@ -420,7 +420,7 @@ func TestCoderPlanningConfirmationWaitsWithoutDisconnectedTimeout(t *testing.T) 
 	case err := <-errCh:
 		t.Fatalf("expected submit result, got err %v", err)
 	case result := <-resultCh:
-		if result.Request.AwaitingID != "run_1_coder_plan_confirm_1" {
+		if result.Request.AwaitingID != "run_1_coder_planning_confirm_1" {
 			t.Fatalf("unexpected result: %#v", result)
 		}
 	case <-time.After(time.Second):
@@ -439,11 +439,11 @@ func TestCoderPlanningConfirmationPausesRunBudget(t *testing.T) {
 			Budget:           contracts.Budget{Timeout: 1, MaxSteps: 10},
 		},
 	}
-	stream.emitPlanConfirmationAsk()
+	stream.emitPlanningConfirmationAsk()
 
 	done := make(chan error, 1)
 	go func() {
-		done <- stream.awaitPlanConfirmation()
+		done <- stream.awaitPlanningConfirmation()
 	}()
 	time.Sleep(25 * time.Millisecond)
 	params, err := api.EncodeSubmitParams([]map[string]any{{"id": "confirm", "decision": "reject"}})
@@ -452,7 +452,7 @@ func TestCoderPlanningConfirmationPausesRunBudget(t *testing.T) {
 	}
 	ack := runControl.ResolveSubmit(api.SubmitRequest{
 		RunID:      "run_1",
-		AwaitingID: "run_1_coder_plan_confirm_1",
+		AwaitingID: "run_1_coder_planning_confirm_1",
 		Params:     params,
 	})
 	if !ack.Accepted {
@@ -466,11 +466,11 @@ func TestCoderPlanningConfirmationPausesRunBudget(t *testing.T) {
 	}
 }
 
-func TestAwaitItemCountPlan(t *testing.T) {
-	if got := awaitItemCount("plan", nil, nil, nil, map[string]any{"id": "confirm"}); got != 1 {
-		t.Fatalf("plan item count = %d, want 1", got)
+func TestAwaitItemCountPlanning(t *testing.T) {
+	if got := awaitItemCount("planning", nil, nil, nil, map[string]any{"id": "confirm"}); got != 1 {
+		t.Fatalf("planning item count = %d, want 1", got)
 	}
-	if got := awaitItemCount("plan", nil, nil, nil, nil); got != 0 {
-		t.Fatalf("empty plan item count = %d, want 0", got)
+	if got := awaitItemCount("planning", nil, nil, nil, nil); got != 0 {
+		t.Fatalf("empty planning item count = %d, want 0", got)
 	}
 }

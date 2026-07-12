@@ -58,6 +58,10 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 	}
 	items, err := s.listAgentSummaries(includeChats, scope)
 	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
@@ -712,6 +716,10 @@ func (s *Server) writeAgentHTTPResponse(w http.ResponseWriter, response any, err
 		writeJSON(w, http.StatusOK, api.Success(response))
 		return
 	}
+	if isTimeContractViolation(err) {
+		writeTimeContractViolation(w, err)
+		return
+	}
 	var statusErr agentStatusError
 	if errors.As(err, &statusErr) {
 		writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message, statusErr.data))
@@ -741,6 +749,11 @@ func (s *Server) sendAgentWSResponse(conn *ws.Conn, req ws.RequestFrame, respons
 }
 
 func (s *Server) sendAgentWSError(conn *ws.Conn, req ws.RequestFrame, err error) {
+	if isTimeContractViolation(err) {
+		sendTimeContractViolation(conn, req.ID, err)
+		conn.CompleteRequest(req.ID)
+		return
+	}
 	var statusErr agentStatusError
 	if errors.As(err, &statusErr) {
 		conn.SendError(req.ID, statusErr.code, statusErr.status, statusErr.message, statusErr.data)

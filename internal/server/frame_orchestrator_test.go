@@ -352,9 +352,9 @@ func TestFrameOrchestratorRunsProxySubAgent(t *testing.T) {
 			t.Fatalf("decode upstream payload: %v", err)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(w, `data: {"type":"content.delta","contentId":"remote_c_1","delta":"remote "}`+"\n\n")
-		_, _ = io.WriteString(w, `data: {"type":"content.delta","contentId":"remote_c_1","delta":"answer"}`+"\n\n")
-		_, _ = io.WriteString(w, `data: {"type":"run.complete","runId":"remote_run"}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"content.delta","contentId":"remote_c_1","delta":"remote ","timestamp":1700000000000}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"content.delta","contentId":"remote_c_1","delta":"answer","timestamp":1700000000001}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"run.complete","runId":"remote_run","timestamp":1700000000002}`+"\n\n")
 	}))
 	defer upstream.Close()
 
@@ -432,8 +432,8 @@ func TestFrameOrchestratorMaterializesProxySubAgentFiles(t *testing.T) {
 			t.Fatalf("decode upstream payload: %v", err)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(w, `data: {"type":"content.delta","payload":{"contentId":"remote_c_1","delta":"read file"}}`+"\n\n")
-		_, _ = io.WriteString(w, `data: {"type":"run.complete","payload":{}}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"content.delta","payload":{"contentId":"remote_c_1","delta":"read file"},"timestamp":1700000000000}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"run.complete","payload":{},"timestamp":1700000000001}`+"\n\n")
 	}))
 	defer upstream.Close()
 
@@ -507,7 +507,7 @@ func TestFrameOrchestratorMaterializesProxySubAgentFiles(t *testing.T) {
 func TestFrameOrchestratorReportsProxySubAgentNestedError(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(w, `data: {"type":"run.error","error":{"message":"remote permission denied"}}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"run.error","error":{"message":"remote permission denied"},"timestamp":1700000000000}`+"\n\n")
 	}))
 	defer upstream.Close()
 
@@ -998,6 +998,7 @@ func TestFrameOrchestratorWritesSubAgentQueryAndSystemLines(t *testing.T) {
 	if _, _, err := store.EnsureChat("chat_1", "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
+	startServerFixtureRun(t, store, "chat_1", "run_1", testEpochMillis)
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
 			newInvokeAgentsDelta(
@@ -1109,6 +1110,7 @@ func TestSubTaskReactStepPersistsContentMessage(t *testing.T) {
 	if _, _, err := store.EnsureChat("chat_1", "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
+	startServerFixtureRun(t, store, "chat_1", "run_1", testEpochMillis)
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
 			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{SubAgentKey: "writer", TaskText: "write a summary", TaskName: "写作"}),

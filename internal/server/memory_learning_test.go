@@ -96,10 +96,13 @@ func seedAutoLearnTestStores(t *testing.T) (*chat.FileStore, *memory.FileStore) 
 	if _, _, err := chats.EnsureChat("chat-auto", "agent-a", "team-1", "please fix the memory bug"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
+	startedAt := testEpochMillis + 100
+	stepAt := testEpochMillis + 200
+	startServerFixtureRun(t, chats, "chat-auto", "run-auto", startedAt)
 	if err := chats.AppendQueryLine("chat-auto", chat.QueryLine{
 		ChatID:    "chat-auto",
 		RunID:     "run-auto",
-		UpdatedAt: 100,
+		UpdatedAt: startedAt,
 		Query: map[string]any{
 			"message": "please fix the memory bug",
 			"role":    "user",
@@ -111,12 +114,13 @@ func seedAutoLearnTestStores(t *testing.T) (*chat.FileStore, *memory.FileStore) 
 	if err := chats.AppendStepLine("chat-auto", chat.StepLine{
 		ChatID:    "chat-auto",
 		RunID:     "run-auto",
-		UpdatedAt: 200,
+		UpdatedAt: stepAt,
 		Type:      "react",
 		Messages: []chat.StoredMessage{
 			{
 				Role:    "assistant",
 				Content: []chat.ContentPart{{Type: "text", Text: "Fixed the memory bug and tightened the retrieval scope."}},
+				Ts:      &stepAt,
 			},
 		},
 	}); err != nil {
@@ -126,7 +130,8 @@ func seedAutoLearnTestStores(t *testing.T) (*chat.FileStore, *memory.FileStore) 
 		ChatID:          "chat-auto",
 		RunID:           "run-auto",
 		AssistantText:   "Fixed the memory bug and tightened the retrieval scope.",
-		UpdatedAtMillis: 300,
+		StartedAtMillis: startedAt,
+		UpdatedAtMillis: testEpochMillis + 300,
 	}); err != nil {
 		t.Fatalf("on run completed: %v", err)
 	}

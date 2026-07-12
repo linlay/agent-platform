@@ -298,13 +298,16 @@ func TestWSCompactRejectsMissingChatID(t *testing.T) {
 
 func appendServerCompactRun(t *testing.T, store chat.Store, chatID string, runID string, userText string, assistantText string) {
 	t.Helper()
+	startedAt := testEpochMillis + 100
+	assistantAt := startedAt + 1
+	startServerFixtureRun(t, store, chatID, runID, startedAt)
 	if err := store.AppendQueryLine(chatID, chat.QueryLine{
 		Type:      "query",
 		ChatID:    chatID,
 		RunID:     runID,
-		UpdatedAt: 100,
+		UpdatedAt: startedAt,
 		Query:     map[string]any{"role": "user", "message": userText},
-		Messages:  []map[string]any{{"role": "user", "content": userText}},
+		Messages:  []map[string]any{{"role": "user", "content": userText, "ts": startedAt}},
 	}); err != nil {
 		t.Fatalf("AppendQueryLine(%s): %v", runID, err)
 	}
@@ -312,11 +315,12 @@ func appendServerCompactRun(t *testing.T, store chat.Store, chatID string, runID
 		Type:      chat.StepLineTypeReact,
 		ChatID:    chatID,
 		RunID:     runID,
-		UpdatedAt: 101,
+		UpdatedAt: assistantAt,
 		Messages: []chat.StoredMessage{
 			{
 				Role:    "assistant",
 				Content: []chat.ContentPart{{Type: "text", Text: assistantText}},
+				Ts:      &assistantAt,
 			},
 		},
 	}); err != nil {
@@ -326,11 +330,14 @@ func appendServerCompactRun(t *testing.T, store chat.Store, chatID string, runID
 
 func appendServerCompactToolResult(t *testing.T, store chat.Store, chatID string, runID string, toolID string, toolName string, resultText string) {
 	t.Helper()
+	startedAt := testEpochMillis + 200
+	messageAt := startedAt + 1
+	startServerFixtureRun(t, store, chatID, runID, startedAt)
 	if err := store.AppendStepLine(chatID, chat.StepLine{
 		Type:      chat.StepLineTypeReact,
 		ChatID:    chatID,
 		RunID:     runID,
-		UpdatedAt: 101,
+		UpdatedAt: messageAt,
 		Messages: []chat.StoredMessage{
 			{
 				Role: "assistant",
@@ -342,12 +349,14 @@ func appendServerCompactToolResult(t *testing.T, store chat.Store, chatID string
 						Arguments: "{}",
 					},
 				}},
+				Ts: &messageAt,
 			},
 			{
 				Role:       "tool",
 				Name:       toolName,
 				ToolCallID: toolID,
 				Content:    []chat.ContentPart{{Type: "text", Text: resultText}},
+				Ts:         &messageAt,
 			},
 		},
 	}); err != nil {

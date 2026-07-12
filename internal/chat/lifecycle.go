@@ -1,12 +1,114 @@
 package chat
 
 import (
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"agent-platform/internal/timecontract"
 )
+
+// OnRunStarted records the authoritative run-manager clock before the first
+// stream event is observed.  COMPLETED_AT_=0 is an internal active-row
+// sentinel only; public mapping omits completedAt until OnRunCompleted writes
+// a real epoch-millisecond value.
+func (s *FileStore) OnRunStarted(start RunStart) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	start.ChatID = strings.TrimSpace(start.ChatID)
+	start.RunID = strings.TrimSpace(start.RunID)
+	if start.ChatID == "" || start.RunID == "" {
+		return nil
+	}
+	if err := timecontract.ValidateEpochMillis(start.StartedAtMillis, "startedAt", "chat.runStart.startedAt"); err != nil {
+		return err
+	}
+	summary, err := s.loadSummary(start.ChatID)
+	if err != nil {
+		return err
+	}
+	if summary == nil {
+		return ErrChatNotFound
+	}
+
+	var capturedStartedAt int64
+	err = s.db.QueryRow(`SELECT STARTED_AT_ FROM RUNS WHERE RUN_ID_=?`, start.RunID).Scan(&capturedStartedAt)
+	if err == nil {
+		if err := timecontract.ValidateEpochMillis(capturedStartedAt, "startedAt", "chat.runs.startedAt"); err != nil {
+			return err
+		}
+		if capturedStartedAt != start.StartedAtMillis {
+			return &timecontract.Violation{Field: "startedAt", Location: "chat.runs.startedAt", Reason: "does not match registered run start"}
+		}
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+
+	ownerType := normalizedStoredOwnerType(start.OwnerType, start.AgentKey, start.TeamID)
+	teamID := strings.TrimSpace(start.TeamID)
+	if teamID == "" {
+		teamID = strings.TrimSpace(summary.TeamID)
+	}
+	agentKey := strings.TrimSpace(start.AgentKey)
+	if ownerType == "team" {
+		agentKey = ""
+	} else if agentKey == "" {
+		agentKey = strings.TrimSpace(summary.AgentKey)
+	}
+	ownerType = normalizedStoredOwnerType(ownerType, agentKey, teamID)
+
+	_, err = s.db.Exec(`INSERT INTO RUNS (
+			RUN_ID_, CHAT_ID_, OWNER_TYPE_, AGENT_KEY_, TEAM_ID_, INITIAL_MESSAGE_, STARTED_AT_, COMPLETED_AT_
+		) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
+		start.RunID, start.ChatID, ownerType, agentKey, nilIfEmpty(teamID), truncateRunes(start.InitialMessage, 200), start.StartedAtMillis)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`UPDATE CHATS SET UPDATED_AT_=? WHERE CHAT_ID_=?`, start.StartedAtMillis, start.ChatID)
+	return err
+}
+
+// LoadRunStartedAt returns the immutable registration clock persisted for a
+// run. Restarted continuations must reuse this exact value rather than create
+// a new run-manager clock. A missing or malformed row is a time-contract
+// violation: callers must fail rather than repair it with time.Now.
+func (s *FileStore) LoadRunStartedAt(chatID string, runID string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	chatID = strings.TrimSpace(chatID)
+	runID = strings.TrimSpace(runID)
+	if chatID == "" || runID == "" {
+		return 0, &timecontract.Violation{
+			Field:    "startedAt",
+			Location: "chat.runs.startedAt",
+			Reason:   "registered run start is required",
+		}
+	}
+
+	var startedAt int64
+	err := s.db.QueryRow(`SELECT STARTED_AT_ FROM RUNS WHERE RUN_ID_=? AND CHAT_ID_=?`, runID, chatID).Scan(&startedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, &timecontract.Violation{
+			Field:    "startedAt",
+			Location: "chat.runs.startedAt",
+			Reason:   "registered run start is required",
+		}
+	}
+	if err != nil {
+		return 0, err
+	}
+	if err := timecontract.ValidateEpochMillis(startedAt, "startedAt", "chat.runs.startedAt"); err != nil {
+		return 0, err
+	}
+	return startedAt, nil
+}
 
 func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 	s.mu.Lock()
@@ -17,17 +119,36 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 	if completion.ChatID == "" || completion.RunID == "" {
 		return nil
 	}
-	now := time.Now().UnixMilli()
-	if completion.UpdatedAtMillis <= 0 {
-		completion.UpdatedAtMillis = now
+	if err := validateRunCompletionTimeContract(completion, "chat.runCompletion"); err != nil {
+		return err
 	}
-	if completion.StartedAtMillis <= 0 {
-		if startedAt, ok := ParseRunIDMillis(completion.RunID); ok {
-			completion.StartedAtMillis = startedAt
-		} else {
-			completion.StartedAtMillis = completion.UpdatedAtMillis
+	if summary, err := s.loadSummary(completion.ChatID); err != nil {
+		return err
+	} else if summary == nil {
+		return ErrChatNotFound
+	}
+	var capturedStartedAt int64
+	err := s.db.QueryRow(`SELECT STARTED_AT_ FROM RUNS WHERE RUN_ID_=?`, completion.RunID).Scan(&capturedStartedAt)
+	if err == nil {
+		if err := timecontract.ValidateEpochMillis(capturedStartedAt, "startedAt", "chat.runs.startedAt"); err != nil {
+			return err
 		}
+		if capturedStartedAt != completion.StartedAtMillis {
+			return &timecontract.Violation{Field: "startedAt", Location: "chat.runs.startedAt", Reason: "does not match registered run start"}
+		}
+	} else if errors.Is(err, sql.ErrNoRows) {
+		// Completion is not allowed to create a lifecycle row: doing so would
+		// turn a completion clock into an invented start record. Every product
+		// path must call OnRunStarted immediately after registration.
+		return &timecontract.Violation{Field: "startedAt", Location: "chat.runs.startedAt", Reason: "registered run start is required"}
+	} else {
+		return err
 	}
+	// A run's lifecycle clock is captured by the run manager at registration
+	// time and carried through completion.  Deliberately do not derive it from
+	// an opaque run ID, the completion time, or the current clock here: any
+	// malformed historical value must reach the strict public read boundary
+	// and fail as a time_contract_violation instead of being silently repaired.
 	if strings.TrimSpace(completion.FinishReason) == "" {
 		completion.FinishReason = "complete"
 	}
@@ -52,7 +173,7 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 		agentKey = strings.TrimSpace(chatAgentKey)
 	}
 
-	_, err := s.db.Exec(`UPDATE CHATS SET LAST_RUN_ID_=?, LAST_RUN_CONTENT_=?, UPDATED_AT_=?,
+	_, err = s.db.Exec(`UPDATE CHATS SET LAST_RUN_ID_=?, LAST_RUN_CONTENT_=?, LAST_RUN_AT_=?, UPDATED_AT_=?,
 		USAGE_PROMPT_TOKENS_=USAGE_PROMPT_TOKENS_+?, USAGE_COMPLETION_TOKENS_=USAGE_COMPLETION_TOKENS_+?, USAGE_TOTAL_TOKENS_=USAGE_TOTAL_TOKENS_+?,
 		USAGE_CACHED_TOKENS_=USAGE_CACHED_TOKENS_+?, USAGE_REASONING_TOKENS_=USAGE_REASONING_TOKENS_+?,
 		USAGE_PROMPT_CACHE_HIT_TOKENS_=USAGE_PROMPT_CACHE_HIT_TOKENS_+?, USAGE_PROMPT_CACHE_MISS_TOKENS_=USAGE_PROMPT_CACHE_MISS_TOKENS_+?,
@@ -67,7 +188,7 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 		USAGE_FIRST_TOKEN_LATENCY_COUNT_=USAGE_FIRST_TOKEN_LATENCY_COUNT_+?,
 		USAGE_GENERATION_DURATION_MS_=USAGE_GENERATION_DURATION_MS_+?
 		WHERE CHAT_ID_=?`,
-		completion.RunID, assistantText, completion.UpdatedAtMillis,
+		completion.RunID, assistantText, completion.UpdatedAtMillis, completion.UpdatedAtMillis,
 		completion.Usage.PromptTokens, completion.Usage.CompletionTokens, completion.Usage.TotalTokens,
 		completion.Usage.CachedTokens, completion.Usage.ReasoningTokens,
 		completion.Usage.PromptCacheHitTokens, completion.Usage.PromptCacheMissTokens,
@@ -100,7 +221,7 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 			INITIAL_MESSAGE_=excluded.INITIAL_MESSAGE_,
 			ASSISTANT_TEXT_=excluded.ASSISTANT_TEXT_,
 			FINISH_REASON_=excluded.FINISH_REASON_,
-			STARTED_AT_=excluded.STARTED_AT_,
+		STARTED_AT_=RUNS.STARTED_AT_,
 			COMPLETED_AT_=excluded.COMPLETED_AT_,
 			USAGE_PROMPT_TOKENS_=excluded.USAGE_PROMPT_TOKENS_,
 			USAGE_COMPLETION_TOKENS_=excluded.USAGE_COMPLETION_TOKENS_,
@@ -212,6 +333,11 @@ func (s *FileStore) MarkAllRead(agentKey string) (int, error) {
 	if len(unread) == 0 {
 		return 0, nil
 	}
+	for _, item := range unread {
+		if _, err := s.loadSummary(item.chatID); err != nil {
+			return 0, err
+		}
+	}
 	now := time.Now().UnixMilli()
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -241,6 +367,25 @@ func (s *FileStore) MarkAllRead(agentKey string) (int, error) {
 func (s *FileStore) SetFeedback(chatID, runID, feedbackType, comment string) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if summary, err := s.loadSummary(chatID); err != nil {
+		return 0, err
+	} else if summary == nil {
+		return 0, ErrRunNotFound
+	}
+	runs, err := s.listRunsLocked(chatID)
+	if err != nil {
+		return 0, err
+	}
+	found := false
+	for _, run := range runs {
+		if strings.TrimSpace(run.RunID) == strings.TrimSpace(runID) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return 0, ErrRunNotFound
+	}
 
 	setAt := time.Now().UnixMilli()
 	if strings.TrimSpace(feedbackType) == "clear" {

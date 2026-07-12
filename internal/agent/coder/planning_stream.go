@@ -15,7 +15,7 @@ import (
 	"agent-platform/internal/i18n"
 )
 
-const DefaultExecuteSystemPrompt = `Execute the confirmed CODER plan for the user.`
+const DefaultExecuteSystemPrompt = `Execute the confirmed CODER planning for the user.`
 
 const defaultCoderExecuteSystemPrompt = DefaultExecuteSystemPrompt
 
@@ -26,23 +26,23 @@ type coderPlanningStream struct {
 	session contracts.QuerySession
 	execCtx *contracts.ExecutionContext
 
-	settings contracts.PlanExecuteSettings
+	settings contracts.CoderPlanningSettings
 	pending  []contracts.AgentDelta
 	current  contracts.AgentStream
 
-	planDone              bool
-	executionDone         bool
-	confirmationPending   bool
-	confirmationDone      bool
-	summaryDone           bool
-	completed             bool
-	closed                bool
-	nextPlanIsFeedback    bool
-	currentPlanIsFeedback bool
+	planningDone              bool
+	executionDone             bool
+	confirmationPending       bool
+	confirmationDone          bool
+	summaryDone               bool
+	completed                 bool
+	closed                    bool
+	nextPlanningIsFeedback    bool
+	currentPlanningIsFeedback bool
 
-	rejectedPlanMarkdown string
-	rejectedPlanDecision string
-	rejectedPlanReason   string
+	rejectedPlanningMarkdown string
+	rejectedPlanningDecision string
+	rejectedPlanningReason   string
 
 	executeMessages []contracts.ModelMessage
 }
@@ -52,16 +52,16 @@ func NewPlanningStream(runtime Runtime, ctx context.Context, req api.QueryReques
 		return nil, fmt.Errorf("coder planning runtime is nil")
 	}
 	runtimeSettings := runtime.Settings()
-	settings := resolvePlanExecuteRuntimeSettings(session, runtimeSettings.DefaultPlanMaxSteps, runtimeSettings.DefaultPlanMaxWorkRoundsPerTask)
+	settings := resolveCoderPlanningRuntimeSettings(session, runtimeSettings.DefaultPlanningMaxSteps)
 	execCtx := &contracts.ExecutionContext{
-		Request:             req,
-		Session:             session,
-		RunControl:          contracts.RunControlFromContext(ctx),
-		Budget:              contracts.NormalizeBudget(session.ResolvedBudget),
-		StageSettings:       settings,
-		RunLoopState:        contracts.RunLoopStateIdle,
-		PlanningRevision:    1,
-		ToolExecutionPolicy: session.ToolExecutionPolicy,
+		Request:               req,
+		Session:               session,
+		RunControl:            contracts.RunControlFromContext(ctx),
+		Budget:                contracts.NormalizeBudget(session.ResolvedBudget),
+		CoderPlanningSettings: settings,
+		RunLoopState:          contracts.RunLoopStateIdle,
+		PlanningRevision:      1,
+		ToolExecutionPolicy:   session.ToolExecutionPolicy,
 	}
 	return &coderPlanningStream{
 		runtime:  runtime,
@@ -71,7 +71,7 @@ func NewPlanningStream(runtime Runtime, ctx context.Context, req api.QueryReques
 		execCtx:  execCtx,
 		settings: settings,
 		pending: []contracts.AgentDelta{
-			contracts.DeltaStageMarker{Stage: "coder-plan"},
+			contracts.DeltaStageMarker{Stage: PlanningStage},
 		},
 	}, nil
 }
@@ -87,7 +87,7 @@ func (s *coderPlanningStream) Next() (contracts.AgentDelta, error) {
 			return nil, io.EOF
 		}
 		if s.confirmationPending {
-			if err := s.awaitPlanConfirmation(); err != nil {
+			if err := s.awaitPlanningConfirmation(); err != nil {
 				return nil, err
 			}
 			continue
@@ -102,8 +102,8 @@ func (s *coderPlanningStream) Next() (contracts.AgentDelta, error) {
 		if err == io.EOF {
 			if messageStream, ok := s.current.(AccumulatedMessageStream); ok {
 				accumulated := messageStream.AccumulatedMessages()
-				if !s.planDone || !s.executionDone {
-					if s.currentPlanIsFeedback {
+				if !s.planningDone || !s.executionDone {
+					if s.currentPlanningIsFeedback {
 						s.executeMessages = nonSystemMessages(accumulated)
 					} else {
 						s.executeMessages = append(s.executeMessages, nonSystemMessages(accumulated)...)
@@ -136,11 +136,11 @@ func (s *coderPlanningStream) Close() error {
 }
 
 func (s *coderPlanningStream) advance() error {
-	if !s.planDone {
-		if s.nextPlanIsFeedback {
+	if !s.planningDone {
+		if s.nextPlanningIsFeedback {
 			return s.startPlanningFeedbackStage()
 		}
-		return s.startPlanStage()
+		return s.startPlanningStage()
 	}
 	if !s.confirmationDone {
 		return nil
@@ -155,20 +155,20 @@ func (s *coderPlanningStream) advance() error {
 	return nil
 }
 
-func (s *coderPlanningStream) startPlanStage() error {
-	s.currentPlanIsFeedback = false
-	planPrompt := s.planningPrompt()
+func (s *coderPlanningStream) startPlanningStage() error {
+	s.currentPlanningIsFeedback = false
+	planningPrompt := s.planningPrompt()
 	req := s.req
-	req.Message = strings.TrimSpace(planPrompt) + "\n\nUser request:\n" + s.req.Message
-	stageSession := s.sessionForStage(s.settings.Plan, s.planStageTools())
+	req.Message = strings.TrimSpace(planningPrompt) + "\n\nUser request:\n" + s.req.Message
+	stageSession := s.sessionForStage(s.settings.Planning, s.planningStageTools())
 	stageSession.CurrentMessages = s.runtime.BuildCurrentMessagesForRequest(req, stageSession, false)
 	stream, err := s.runtime.NewStageRunStream(s.ctx, req, stageSession, true, StageRunOptions{
 		ExecCtx:      s.execCtx,
-		ToolNames:    s.planStageTools(),
-		ModelKey:     s.resolveStageModelKey(s.settings.Plan),
+		ToolNames:    s.planningStageTools(),
+		ModelKey:     s.resolveStageModelKey(s.settings.Planning),
 		MaxSteps:     s.settings.MaxSteps,
-		Stage:        "coder-plan",
-		PostToolHook: s.planStagePostToolHook,
+		Stage:        PlanningStage,
+		PostToolHook: s.planningStagePostToolHook,
 	})
 	if err != nil {
 		return err
@@ -178,21 +178,21 @@ func (s *coderPlanningStream) startPlanStage() error {
 }
 
 func (s *coderPlanningStream) startPlanningFeedbackStage() error {
-	s.nextPlanIsFeedback = false
-	s.currentPlanIsFeedback = true
-	s.pending = append(s.pending, contracts.DeltaStageMarker{Stage: "coder-plan-feedback"})
+	s.nextPlanningIsFeedback = false
+	s.currentPlanningIsFeedback = true
+	s.pending = append(s.pending, contracts.DeltaStageMarker{Stage: "coder-planning-feedback"})
 	req := s.req
 	req.Message = s.planningFeedbackPrompt()
-	stageSession := s.sessionForStage(s.settings.Plan, s.planStageTools())
+	stageSession := s.sessionForStage(s.settings.Planning, s.planningStageTools())
 	stageSession.HistoryMessages = append(stageSession.HistoryMessages, rawMessagesFromModelMessages(s.executeMessages)...)
 	stageSession.CurrentMessages = s.runtime.BuildCurrentMessagesForRequest(req, stageSession, false)
 	stream, err := s.runtime.NewStageRunStream(s.ctx, req, stageSession, true, StageRunOptions{
 		ExecCtx:      s.execCtx,
-		ToolNames:    s.planStageTools(),
-		ModelKey:     s.resolveStageModelKey(s.settings.Plan),
+		ToolNames:    s.planningStageTools(),
+		ModelKey:     s.resolveStageModelKey(s.settings.Planning),
 		MaxSteps:     s.settings.MaxSteps,
-		Stage:        "coder-plan-feedback",
-		PostToolHook: s.planStagePostToolHook,
+		Stage:        "coder-planning-feedback",
+		PostToolHook: s.planningStagePostToolHook,
 	})
 	if err != nil {
 		return err
@@ -253,15 +253,15 @@ func rawMessageFromModelMessage(message contracts.ModelMessage) map[string]any {
 }
 
 func (s *coderPlanningStream) planningPrompt() string {
-	custom := strings.TrimSpace(s.settings.Plan.PrimaryPrompt())
+	custom := strings.TrimSpace(s.settings.Planning.PrimaryPrompt())
 	if s.runtime != nil && strings.TrimSpace(s.runtime.Settings().PlanningPrompt) != "" {
 		custom = joinNonEmptyPrompts(custom, s.runtime.Settings().PlanningPrompt)
 	}
 	executeToolDescriptions := s.buildExecuteToolDescriptions()
 	hasExecuteToolDescriptionsPlaceholder := promptHasTemplateValue(custom, "execute_tool_descriptions")
 	prompt := RenderPromptTemplate(custom, s.coderPromptTemplateValues(PromptTemplateData{
-		AvailableTools:          s.planStageTools(),
-		PlanStageTools:          s.planStageTools(),
+		AvailableTools:          s.planningStageTools(),
+		PlanningStageTools:      s.planningStageTools(),
 		ExecuteStageTools:       s.executeStageTools(),
 		ExecuteToolDescriptions: executeToolDescriptions,
 	}))
@@ -280,20 +280,20 @@ func (s *coderPlanningStream) coderPromptTemplateValues(data PromptTemplateData)
 }
 
 func (s *coderPlanningStream) executionSystemPrompt(fallback string) string {
-	return PlanningExecutionSystemPrompt(s.session, s.req, s.settings, s.planStageTools(), s.executeStageTools(), fallback)
+	return PlanningExecutionSystemPrompt(s.session, s.req, s.settings, s.planningStageTools(), s.executeStageTools(), fallback)
 }
 
-func PlanningExecutionSystemPrompt(session contracts.QuerySession, req api.QueryRequest, settings contracts.PlanExecuteSettings, planTools []string, executeTools []string, fallback string) string {
-	if planTools == nil {
-		planTools = PlanningModePlanTools()
+func PlanningExecutionSystemPrompt(session contracts.QuerySession, req api.QueryRequest, settings contracts.CoderPlanningSettings, planningTools []string, executeTools []string, fallback string) string {
+	if planningTools == nil {
+		planningTools = PlanningModeTools()
 	}
 	if executeTools == nil {
 		executeTools = PlanningExecuteToolsForStage(settings.Execute, session.ToolNames)
 	}
 	values := PromptTemplateValues(session, req, PromptTemplateData{
-		AvailableTools:    executeTools,
-		PlanStageTools:    planTools,
-		ExecuteStageTools: executeTools,
+		AvailableTools:     executeTools,
+		PlanningStageTools: planningTools,
+		ExecuteStageTools:  executeTools,
 	})
 	stagePrompt := strings.TrimSpace(settings.Execute.PrimaryPrompt())
 	if stagePrompt == "" {
@@ -361,10 +361,10 @@ func modelMessageContentHasText(content any) bool {
 }
 
 func (s *coderPlanningStream) afterStageEOF() error {
-	if !s.planDone {
-		wasFeedback := s.currentPlanIsFeedback
-		s.currentPlanIsFeedback = false
-		s.planDone = true
+	if !s.planningDone {
+		wasFeedback := s.currentPlanningIsFeedback
+		s.currentPlanningIsFeedback = false
+		s.planningDone = true
 		if s.execCtx == nil || s.execCtx.PlanningState == nil || strings.TrimSpace(s.execCtx.PlanningState.Markdown) == "" {
 			if wasFeedback {
 				s.summaryDone = true
@@ -378,8 +378,8 @@ func (s *coderPlanningStream) afterStageEOF() error {
 			}
 			s.pending = append(s.pending, contracts.DeltaError{
 				Error: contracts.NewErrorPayload(
-					"plan_not_created",
-					"CODER planning mode ended without a Markdown plan",
+					"planning_not_created",
+					"CODER planning mode ended without a Markdown planning document",
 					contracts.ErrorScopeRun,
 					contracts.ErrorCategoryModel,
 					nil,
@@ -389,7 +389,7 @@ func (s *coderPlanningStream) afterStageEOF() error {
 			s.summaryDone = true
 			return nil
 		}
-		s.emitPlanConfirmationAsk()
+		s.emitPlanningConfirmationAsk()
 		return nil
 	}
 
@@ -405,8 +405,8 @@ func (s *coderPlanningStream) afterStageEOF() error {
 	return nil
 }
 
-func (s *coderPlanningStream) emitPlanConfirmationAsk() {
-	awaitAsk := s.planConfirmationAsk()
+func (s *coderPlanningStream) emitPlanningConfirmationAsk() {
+	awaitAsk := s.planningConfirmationAsk()
 	if s.execCtx != nil && s.execCtx.RunControl != nil {
 		awaitingCtx := awaitingContextFromDeltaAsk(awaitAsk)
 		awaitingCtx.NoTimeout = true
@@ -416,10 +416,10 @@ func (s *coderPlanningStream) emitPlanConfirmationAsk() {
 	s.confirmationPending = true
 }
 
-func (s *coderPlanningStream) planConfirmationAsk() contracts.DeltaAwaitAsk {
+func (s *coderPlanningStream) planningConfirmationAsk() contracts.DeltaAwaitAsk {
 	planningID := ""
 	planningFile := ""
-	toolCallID := s.planConfirmationAwaitingID()
+	toolCallID := s.planningConfirmationAwaitingID()
 	if s.execCtx != nil && s.execCtx.PlanningState != nil {
 		planningID = strings.TrimSpace(s.execCtx.PlanningState.PlanningID)
 		planningFile = strings.TrimSpace(s.execCtx.PlanningState.PlanningFile)
@@ -429,11 +429,11 @@ func (s *coderPlanningStream) planConfirmationAsk() contracts.DeltaAwaitAsk {
 	}
 	return contracts.DeltaAwaitAsk{
 		AwaitingID:   toolCallID,
-		Mode:         "plan",
+		Mode:         "planning",
 		RunID:        s.session.RunID,
 		ViewportType: "builtin",
-		ViewportKey:  "plan",
-		Plan: map[string]any{
+		ViewportKey:  "planning",
+		Planning: map[string]any{
 			"id":           "confirm",
 			"planningId":   planningID,
 			"planningFile": planningFile,
@@ -445,10 +445,10 @@ func (s *coderPlanningStream) planConfirmationAsk() contracts.DeltaAwaitAsk {
 	}
 }
 
-func (s *coderPlanningStream) awaitPlanConfirmation() error {
+func (s *coderPlanningStream) awaitPlanningConfirmation() error {
 	s.confirmationPending = false
 	s.confirmationDone = true
-	awaitingID := s.planConfirmationAwaitingID()
+	awaitingID := s.planningConfirmationAwaitingID()
 	if s.execCtx != nil && s.execCtx.PlanningState != nil {
 		if toolCallID := strings.TrimSpace(s.execCtx.PlanningState.ToolCallID); toolCallID != "" {
 			awaitingID = toolCallID
@@ -472,9 +472,9 @@ func (s *coderPlanningStream) awaitPlanConfirmation() error {
 		}
 		s.pending = append(s.pending, contracts.DeltaAwaitingAnswer{
 			AwaitingID: awaitingID,
-			Answer:     contracts.AwaitingErrorAnswer("plan", "invalid_submit", err.Error()),
+			Answer:     contracts.AwaitingErrorAnswer("planning", "invalid_submit", err.Error()),
 		})
-		s.cancelUnstartedPlan("已取消执行计划。")
+		s.cancelUnstartedPlanning("已取消执行 planning。")
 		return nil
 	}
 
@@ -489,29 +489,29 @@ func (s *coderPlanningStream) awaitPlanConfirmation() error {
 		Params:     submitResult.Request.Params,
 	})
 
-	args := s.planConfirmationArgs()
+	args := s.planningConfirmationArgs()
 	normalized, normalizeErr := normalizePlanningConfirmationSubmit(args, submitResult.Request.Params)
 	if normalizeErr != nil {
 		s.pending = append(s.pending, contracts.DeltaAwaitingAnswer{
 			AwaitingID: awaitingID,
-			Answer:     awaitingAnswerWithSubmitID(contracts.AwaitingErrorAnswer("plan", "invalid_submit", normalizeErr.Error()), submitResult.Request.SubmitID),
+			Answer:     awaitingAnswerWithSubmitID(contracts.AwaitingErrorAnswer("planning", "invalid_submit", normalizeErr.Error()), submitResult.Request.SubmitID),
 		})
-		s.cancelUnstartedPlan("已取消执行计划。")
+		s.cancelUnstartedPlanning("已取消执行 planning。")
 		return nil
 	}
 	s.pending = append(s.pending, contracts.DeltaAwaitingAnswer{
 		AwaitingID: awaitingID,
 		Answer:     awaitingAnswerWithSubmitID(normalized, submitResult.Request.SubmitID),
 	})
-	s.appendPlanConfirmationToolResult(normalized)
+	s.appendPlanningConfirmationToolResult(normalized)
 
 	if strings.EqualFold(contracts.AnyStringNode(normalized["status"]), "error") {
-		s.cancelUnstartedPlan("已取消执行计划。")
+		s.cancelUnstartedPlanning("已取消执行 planning。")
 		return nil
 	}
 	switch confirmationDecision(normalized) {
 	case "approve":
-		if s.preparePlanApproveContinuation(submitResult.Request, awaitingID, normalized) {
+		if s.preparePlanningApproveContinuation(submitResult.Request, awaitingID, normalized) {
 			return nil
 		}
 		return nil
@@ -519,12 +519,12 @@ func (s *coderPlanningStream) awaitPlanConfirmation() error {
 		s.preparePlanningFeedback(normalized)
 		return nil
 	default:
-		s.cancelUnstartedPlan("已取消执行计划。")
+		s.cancelUnstartedPlanning("已取消执行 planning。")
 		return nil
 	}
 }
 
-func (s *coderPlanningStream) preparePlanApproveContinuation(submitReq api.SubmitRequest, awaitingID string, normalized map[string]any) bool {
+func (s *coderPlanningStream) preparePlanningApproveContinuation(submitReq api.SubmitRequest, awaitingID string, normalized map[string]any) bool {
 	continuationRunID := strings.TrimSpace(submitReq.ContinuationRunID)
 	if continuationRunID == "" {
 		return false
@@ -538,7 +538,7 @@ func (s *coderPlanningStream) preparePlanApproveContinuation(submitReq api.Submi
 		AwaitingID:        awaitingID,
 		SubmitID:          submitReq.SubmitID,
 		Locale:            s.session.Locale,
-		Mode:              "plan",
+		Mode:              "planning",
 		Params:            submitReq.Params,
 		Answer:            contracts.CloneMap(normalized),
 		ContinuationState: submitReq.ContinuationState,
@@ -549,11 +549,11 @@ func (s *coderPlanningStream) preparePlanApproveContinuation(submitReq api.Submi
 	return true
 }
 
-func (s *coderPlanningStream) appendPlanConfirmationToolResult(normalized map[string]any) {
+func (s *coderPlanningStream) appendPlanningConfirmationToolResult(normalized map[string]any) {
 	if s == nil || len(normalized) == 0 {
 		return
 	}
-	toolID := s.planConfirmationAwaitingID()
+	toolID := s.planningConfirmationAwaitingID()
 	toolName := contracts.FinalizePlanningToolName
 	if s.execCtx != nil && s.execCtx.PlanningState != nil {
 		if value := strings.TrimSpace(s.execCtx.PlanningState.ToolCallID); value != "" {
@@ -582,21 +582,21 @@ func (s *coderPlanningStream) appendPlanConfirmationToolResult(normalized map[st
 	})
 }
 
-func (s *coderPlanningStream) planConfirmationArgs() map[string]any {
-	ask := s.planConfirmationAsk()
+func (s *coderPlanningStream) planningConfirmationArgs() map[string]any {
+	ask := s.planningConfirmationAsk()
 	return map[string]any{
-		"mode": ask.Mode,
-		"plan": contracts.CloneMap(ask.Plan),
+		"mode":     ask.Mode,
+		"planning": contracts.CloneMap(ask.Planning),
 	}
 }
 
-func (s *coderPlanningStream) planConfirmationAwaitingID() string {
+func (s *coderPlanningStream) planningConfirmationAwaitingID() string {
 	if s != nil && s.execCtx != nil && s.execCtx.PlanningState != nil {
 		if toolCallID := strings.TrimSpace(s.execCtx.PlanningState.ToolCallID); toolCallID != "" {
 			return toolCallID
 		}
 	}
-	return fmt.Sprintf("%s_coder_plan_confirm_%d", s.session.RunID, s.currentPlanningRevision())
+	return fmt.Sprintf("%s_coder_planning_confirm_%d", s.session.RunID, s.currentPlanningRevision())
 }
 
 func (s *coderPlanningStream) currentPlanningRevision() int {
@@ -607,35 +607,35 @@ func (s *coderPlanningStream) currentPlanningRevision() int {
 }
 
 func (s *coderPlanningStream) planningFeedbackPrompt() string {
-	reason := strings.TrimSpace(s.rejectedPlanReason)
+	reason := strings.TrimSpace(s.rejectedPlanningReason)
 	if reason == "" {
 		reason = "(empty)"
 	}
 	return strings.TrimSpace(joinNonEmptyPrompts(
 		s.planningPrompt(),
-		`You are handling feedback on a CODER plan that the user rejected.
+		`You are handling feedback on a CODER planning proposal that the user rejected.
 
 Rules:
 1. Do not execute or mutate anything in this stage.
-2. Use the rejected plan and feedback to decide what to do next.
-3. If a revised plan should be proposed, call finalize_planning exactly once with a complete replacement Markdown plan for the next revision.
+2. Use the rejected planning and feedback to decide what to do next.
+3. If a revised planning proposal should be made, call finalize_planning exactly once with a complete replacement Markdown planning document for the next revision.
 4. If the right outcome is to cancel or stop, do not call finalize_planning; reply with a concise cancellation or clarification note.
-5. The backend will ask the user to confirm any revised plan before execution tools are available.`,
+5. The backend will ask the user to confirm any revised planning before execution tools are available.`,
 		"Original request:\n"+s.req.Message,
-		"Rejected plan markdown:\n"+strings.TrimSpace(s.rejectedPlanMarkdown),
-		"User decision: "+firstNonBlankString(s.rejectedPlanDecision, "reject"),
+		"Rejected planning markdown:\n"+strings.TrimSpace(s.rejectedPlanningMarkdown),
+		"User decision: "+firstNonBlankString(s.rejectedPlanningDecision, "reject"),
 		"User feedback:\n"+reason,
 	))
 }
 
 func confirmationDecision(normalized map[string]any) string {
-	plan := contracts.AnyMapNode(normalized["plan"])
-	return strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(plan["decision"])))
+	planning := contracts.AnyMapNode(normalized["planning"])
+	return strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(planning["decision"])))
 }
 
 func confirmationReason(normalized map[string]any) string {
-	plan := contracts.AnyMapNode(normalized["plan"])
-	return strings.TrimSpace(contracts.AnyStringNode(plan["reason"]))
+	planning := contracts.AnyMapNode(normalized["planning"])
+	return strings.TrimSpace(contracts.AnyStringNode(planning["reason"]))
 }
 
 func (s *coderPlanningStream) preparePlanningFeedback(normalized map[string]any) {
@@ -643,16 +643,16 @@ func (s *coderPlanningStream) preparePlanningFeedback(normalized map[string]any)
 	if s.execCtx != nil && s.execCtx.PlanningState != nil {
 		markdown = s.execCtx.PlanningState.Markdown
 	}
-	s.rejectedPlanMarkdown = markdown
-	s.rejectedPlanDecision = confirmationDecision(normalized)
-	s.rejectedPlanReason = confirmationReason(normalized)
+	s.rejectedPlanningMarkdown = markdown
+	s.rejectedPlanningDecision = confirmationDecision(normalized)
+	s.rejectedPlanningReason = confirmationReason(normalized)
 	if s.execCtx != nil {
 		s.execCtx.PlanningState = nil
 		s.execCtx.PlanningRevision = s.currentPlanningRevision() + 1
 	}
-	s.planDone = false
+	s.planningDone = false
 	s.confirmationDone = false
-	s.nextPlanIsFeedback = true
+	s.nextPlanningIsFeedback = true
 }
 
 func firstNonBlankString(values ...string) string {
@@ -668,10 +668,10 @@ func ExecuteSyntheticQueryMessage(locale string) string {
 	if i18n.ResolveLocale(i18n.DefaultLocale, locale) == i18n.LocaleZhCN {
 		return "执行计划"
 	}
-	return "Execute plan"
+	return "Execute planning"
 }
 
-func (s *coderPlanningStream) cancelUnstartedPlan(message string) {
+func (s *coderPlanningStream) cancelUnstartedPlanning(message string) {
 	if strings.TrimSpace(message) != "" {
 		s.pending = append(s.pending, contracts.DeltaContent{Text: message})
 	}
@@ -684,7 +684,7 @@ func (s *coderPlanningStream) startExecutionStage() error {
 	if s.execCtx != nil && s.execCtx.PlanningState != nil {
 		planningMarkdown = s.execCtx.PlanningState.Markdown
 	}
-	executePrompt := PlanApproveExecutePrompt(s.req.Message, planningMarkdown)
+	executePrompt := PlanningApproveExecutePrompt(s.req.Message, planningMarkdown)
 	executeProfiles := s.executeSystemInitProfiles()
 	stageSession := s.sessionForStage(s.settings.Execute, s.executeStageTools())
 	stageSession.SystemInitCache = mergeSystemInitProfileCache(stageSession.SystemInitCache, executeProfiles)
@@ -733,7 +733,7 @@ func (s *coderPlanningStream) executeSystemInitProfiles() []contracts.SystemInit
 		return nil
 	}
 	session := s.session
-	session.ResolvedStageSettings = s.settings
+	session.ResolvedCoderPlanningSettings = s.settings
 	return s.runtime.BuildExecuteSystemInitProfiles(session, s.req, s.settings)
 }
 
@@ -762,8 +762,8 @@ func mergeSystemInitProfileCache(base map[string]contracts.SystemInitSnapshot, p
 	return out
 }
 
-func (s *coderPlanningStream) planStageTools() []string {
-	return PlanningModePlanTools()
+func (s *coderPlanningStream) planningStageTools() []string {
+	return PlanningModeTools()
 }
 
 func (s *coderPlanningStream) executeStageTools() []string {
@@ -779,7 +779,7 @@ func isPlanningOnlyTool(name string) bool {
 	return IsPlanningOnlyTool(name)
 }
 
-func (s *coderPlanningStream) planStagePostToolHook(toolName string, _ string) contracts.PostToolHookResult {
+func (s *coderPlanningStream) planningStagePostToolHook(toolName string, _ string) contracts.PostToolHookResult {
 	if !isPlanningWriteTool(toolName) {
 		return contracts.PostToolContinue
 	}
@@ -809,7 +809,7 @@ func (s *coderPlanningStream) buildExecuteToolDescriptions() string {
 	if len(lines) == 0 {
 		return ""
 	}
-	return "Tools available only after the user confirms the plan:\n" + strings.Join(lines, "\n")
+	return "Tools available only after the user confirms the planning:\n" + strings.Join(lines, "\n")
 }
 
 func (s *coderPlanningStream) toolDescriptionsByName() map[string]string {
@@ -846,10 +846,10 @@ func (s *coderPlanningStream) resolveStageModelKey(stage contracts.StageSettings
 	return s.session.ModelKey
 }
 
-func resolvePlanExecuteRuntimeSettings(session contracts.QuerySession, defaultMaxSteps int, defaultMaxWorkRoundsPerTask int) contracts.PlanExecuteSettings {
-	settings := session.ResolvedStageSettings
-	if settings.MaxSteps <= 0 || settings.MaxWorkRoundsPerTask <= 0 {
-		settings = contracts.ResolvePlanExecuteSettings(session.StageSettings, defaultMaxSteps, defaultMaxWorkRoundsPerTask)
+func resolveCoderPlanningRuntimeSettings(session contracts.QuerySession, defaultMaxSteps int) contracts.CoderPlanningSettings {
+	settings := session.ResolvedCoderPlanningSettings
+	if settings.MaxSteps <= 0 {
+		settings = contracts.ResolveCoderPlanningSettings(session.StageSettings, defaultMaxSteps)
 	}
 	return settings
 }
@@ -891,13 +891,13 @@ func awaitingContextFromDeltaAsk(awaitAsk contracts.DeltaAwaitAsk) contracts.Awa
 	return contracts.AwaitingSubmitContext{
 		AwaitingID: awaitAsk.AwaitingID,
 		Mode:       awaitAsk.Mode,
-		ItemCount:  awaitItemCount(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals, awaitAsk.Forms, awaitAsk.Plan),
+		ItemCount:  awaitItemCount(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals, awaitAsk.Forms, awaitAsk.Planning),
 		Questions:  append([]any(nil), awaitAsk.Questions...),
 		Timeout:    awaitAsk.Timeout,
 	}
 }
 
-func awaitItemCount(mode string, questions []any, approvals []any, forms []any, plan map[string]any) int {
+func awaitItemCount(mode string, questions []any, approvals []any, forms []any, planning map[string]any) int {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "question":
 		return len(questions)
@@ -905,8 +905,8 @@ func awaitItemCount(mode string, questions []any, approvals []any, forms []any, 
 		return len(approvals)
 	case "form":
 		return len(forms)
-	case "plan":
-		if len(plan) > 0 {
+	case "planning":
+		if len(planning) > 0 {
 			return 1
 		}
 		return 0

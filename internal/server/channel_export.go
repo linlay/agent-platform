@@ -84,10 +84,16 @@ func (s *Server) validateChannelFileTransferPayload(channelID string, payload js
 	}
 	summary, err := s.deps.Chats.Summary(chatID)
 	if err != nil {
+		if isTimeContractViolation(err) {
+			return timeContractStatusError(err)
+		}
 		if errors.Is(err, chat.ErrChatNotFound) {
 			return &statusError{status: http.StatusForbidden, message: "file transfer requires an existing exported chat"}
 		}
 		return &statusError{status: http.StatusInternalServerError, message: err.Error()}
+	}
+	if summary == nil {
+		return &statusError{status: http.StatusForbidden, message: "file transfer requires an existing exported chat"}
 	}
 	if !s.localAgentExportAllows(channelID, summary.AgentKey, "fileTransfer") {
 		return &statusError{status: http.StatusForbidden, message: "file transfer is not allowed on channel export"}

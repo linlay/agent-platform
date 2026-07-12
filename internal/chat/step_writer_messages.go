@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -487,7 +488,9 @@ func cloneStepSystemPayload(value map[string]any) map[string]any {
 		return cloneStringAnyMap(value)
 	}
 	var cloned map[string]any
-	if err := json.Unmarshal(data, &cloned); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&cloned); err != nil {
 		return cloneStringAnyMap(value)
 	}
 	return cloned
