@@ -100,6 +100,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 			Session:             session,
 			Budget:              session.ResolvedBudget,
 			StageSettings:       session.ResolvedStageSettings,
+			RunLimits:           session.RunLimits,
 			AccessLevel:         session.AccessLevel,
 			ToolExecutionPolicy: session.ToolExecutionPolicy,
 			RunLoopState:        RunLoopStateIdle,
@@ -109,6 +110,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	execCtx.Session = session
 	execCtx.AccessLevel = session.AccessLevel
 	execCtx.ToolExecutionPolicy = session.ToolExecutionPolicy
+	execCtx.RunLimits = session.RunLimits
 	if len(execCtx.RuntimeEnvOverrides) == 0 {
 		execCtx.RuntimeEnvOverrides = CloneStringMap(session.RuntimeEnvOverrides)
 	}
@@ -180,6 +182,9 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		maxSteps = stageMaxSteps
 	} else if maxSteps <= 0 {
 		maxSteps = e.resolveMaxSteps(session, budgetStage)
+	}
+	if limit := session.RunLimits.MaxToolRounds; limit > 0 {
+		maxSteps = minPositive(maxSteps, limit)
 	}
 
 	toolChoice := strings.TrimSpace(strings.ToLower(options.ToolChoice))

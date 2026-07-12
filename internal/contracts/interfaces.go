@@ -215,6 +215,14 @@ type CatalogReloader interface {
 	Reload(ctx context.Context, reason string) error
 }
 
+// RunLimits constrains a single local run without changing its model-facing
+// system prompt, tool schema, or system-init fingerprint.
+type RunLimits struct {
+	MaxToolRounds     int
+	MaxToolCalls      int
+	FinalAnswerPrompt string
+}
+
 type QuerySession struct {
 	RequestID string
 	RunID     string
@@ -254,6 +262,7 @@ type QuerySession struct {
 	StageSettings         map[string]any
 	ResolvedBudget        Budget
 	ResolvedStageSettings PlanExecuteSettings
+	RunLimits             RunLimits
 	HistoryMessages       []map[string]any
 	CurrentMessages       []map[string]any
 	MemoryContext         string
@@ -369,10 +378,15 @@ type ExecutionContext struct {
 	// FileWriteRuleApprovals stores run-scoped approvals for write operation classes under allowed roots.
 	FileWriteRuleApprovals map[string]bool
 	// ReadFileState tracks file versions read during the current run for write staleness checks.
-	ReadFileState map[string]ReadFileSnapshot
-	StartedAt     time.Time
-	ModelCalls    int
-	ToolCalls     int
+	ReadFileState                map[string]ReadFileSnapshot
+	StartedAt                    time.Time
+	ModelCalls                   int
+	ToolCalls                    int
+	RunLimits                    RunLimits
+	ToolRounds                   int
+	RunLimitFinalAnswerPending   bool
+	RunLimitFinalAnswerActive    bool
+	RunLimitFinalAnswerCompleted bool
 }
 
 type SandboxSession struct {

@@ -1193,6 +1193,67 @@ func TestRunStreamToolBudgetDerivesStageLimitFromMaxSteps(t *testing.T) {
 	}
 }
 
+func TestRunStreamBTWRunLimitsQueueFinalAnswerAndBlockExtraTools(t *testing.T) {
+	stream := &llmRunStream{
+		execCtx: &contracts.ExecutionContext{
+			RunLimits: contracts.RunLimits{
+				MaxToolRounds:     3,
+				MaxToolCalls:      4,
+				FinalAnswerPrompt: "answer the side question only",
+			},
+			ToolRounds: 3,
+		},
+	}
+
+	if !stream.toolRoundLimitReached() {
+		t.Fatal("expected tool round limit to be reached")
+	}
+	_, deltas, message := stream.prepareRunLimitToolCall(openAIToolCall{
+		ID:       "call_limit",
+		Function: contracts.ModelFunctionCall{Name: "datetime"},
+	})
+	if message == nil {
+		t.Fatalf("expected BTW limit tool result, got message=%#v deltas=%#v", message, deltas)
+	}
+	messageContent, _ := message.Content.(string)
+	if !strings.Contains(messageContent, "btw_tool_limit_reached") {
+		t.Fatalf("expected BTW limit tool result, got message=%#v deltas=%#v", message, deltas)
+	}
+	if !stream.execCtx.RunLimitFinalAnswerPending {
+		t.Fatal("expected BTW final answer to be queued")
+	}
+
+	stream.execCtx.ToolCalls = 5
+	result := stream.checkBudgetBeforeToolCall("datetime")
+	if result == nil || result.Error != "btw_tool_limit_reached" {
+		t.Fatalf("expected BTW tool call limit error, got %#v", result)
+	}
+}
+
+func TestRunStreamBTWFinalAnswerPromptOverridesGenericStepPrompt(t *testing.T) {
+	stream := &llmRunStream{
+		execCtx: &contracts.ExecutionContext{
+			RunLimits:                 contracts.RunLimits{FinalAnswerPrompt: "answer only the side question"},
+			RunLimitFinalAnswerActive: true,
+			Budget: contracts.Budget{
+				MaxSteps: 1,
+				Tool:     contracts.RetryPolicy{MaxCalls: 1},
+			},
+			ModelCalls: 1,
+			ToolCalls:  2,
+			StartedAt:  time.Now(),
+		},
+	}
+	stream.prepareFinalAnswerTurn()
+	content, _ := stream.messages[0].Content.(string)
+	if len(stream.messages) != 1 || content != "answer only the side question" {
+		t.Fatalf("expected BTW final answer prompt, got %#v", stream.messages)
+	}
+	if result := stream.checkBudgetBeforeModelCall(); result != nil {
+		t.Fatalf("expected BTW final answer to bypass exhausted local budget, got %#v", result)
+	}
+}
+
 func TestResolveHITLTimeoutWithRuleUsesRuleOverride(t *testing.T) {
 	stream := &llmRunStream{
 		execCtx: &contracts.ExecutionContext{

@@ -13,9 +13,6 @@ import (
 	"agent-platform/internal/i18n"
 )
 
-const btwReadOnlyUserInstruction = `[BTW read-only mode]
-This is a hidden side conversation. Do not modify files, memory, plans, browser or desktop state, external systems, or the parent chat. Write and mutation tools are disabled. Use only read-only tools. If the request requires a mutation, explain that it cannot be performed in BTW mode.`
-
 func (s *Server) handleBTW(w http.ResponseWriter, r *http.Request) {
 	prepared, statusErr := s.prepareBTWQuery(r)
 	if statusErr != nil {
@@ -163,8 +160,13 @@ func (s *Server) prepareBTWQuery(r *http.Request) (preparedQuery, *statusError) 
 	session.PlanningMode = false
 	session.RunScopeID = "btw:" + input.ChatID + ":" + btwID
 	session.ToolExecutionPolicy = contracts.ToolExecutionPolicyReadOnly
+	session.RunLimits = contracts.RunLimits{
+		MaxToolRounds:     3,
+		MaxToolCalls:      4,
+		FinalAnswerPrompt: btwFinalAnswerPrompt(s.deps.Config.Prompts.BTW),
+	}
 	modelReq := req
-	modelReq.Message = btwReadOnlyUserInstruction + "\n\n" + input.Message
+	modelReq.Message = buildBTWUserMessage(s.deps.Config.Prompts.BTW, input.Message)
 	session.CurrentMessages = s.buildCurrentMessages(modelReq, session)
 
 	systemInits, loadErr := branch.LoadAllSystemInits()

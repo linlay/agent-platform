@@ -122,6 +122,19 @@ func (s *llmRunStream) invokeActiveToolCallAndPostHook() error {
 }
 
 func (s *llmRunStream) prepareTurnForPending() error {
+	if s.execCtx != nil && s.execCtx.RunLimitFinalAnswerPending {
+		if !s.finalTurnAttempted {
+			s.finalTurnAttempted = true
+			s.execCtx.RunLimitFinalAnswerPending = false
+			s.execCtx.RunLimitFinalAnswerActive = true
+			s.prepareFinalAnswerTurn()
+			return s.prepareNextTurn()
+		}
+	}
+	if s.execCtx != nil && s.execCtx.RunLimits.MaxToolRounds > 0 && s.execCtx.ToolRounds >= s.execCtx.RunLimits.MaxToolRounds && !s.execCtx.RunLimitFinalAnswerActive {
+		s.queueRunLimitFinalAnswer()
+		return s.prepareTurnForPending()
+	}
 	if s.step >= s.maxSteps {
 		if !s.finalTurnAttempted {
 			s.finalTurnAttempted = true
@@ -262,9 +275,13 @@ func (s *llmRunStream) ensureSystemProfileRegistered(prepared preparedProviderRe
 }
 
 func (s *llmRunStream) prepareFinalAnswerTurn() {
+	prompt := finalAnswerInstruction
+	if s.execCtx != nil && s.execCtx.RunLimitFinalAnswerActive && strings.TrimSpace(s.execCtx.RunLimits.FinalAnswerPrompt) != "" {
+		prompt = s.execCtx.RunLimits.FinalAnswerPrompt
+	}
 	s.messages = append(s.messages, openAIMessage{
 		Role:    "user",
-		Content: finalAnswerInstruction,
+		Content: prompt,
 	})
 }
 
@@ -385,8 +402,9 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		s.emitDebugLLMChatDelta(turn.trace)
 		s.currentTurn = nil
 		if strings.TrimSpace(content) == "" {
-			s.enqueueFallback("Tool execution loop reached the maximum number of steps.")
+			s.enqueueFallback(s.finalAnswerToolCallFallback())
 		}
+		s.markRunLimitFinalAnswerCompleted()
 		s.closeSteersAndFinish()
 		return nil
 	}
@@ -409,11 +427,16 @@ func (s *llmRunStream) finishCurrentTurn() error {
 			return nil
 		}
 		if strings.TrimSpace(content) == "" {
-			s.enqueueFallback("Model returned no assistant content.")
+			if s.runLimitFinalAnswerActive() {
+				s.enqueueFallback(s.finalAnswerToolCallFallback())
+			} else {
+				s.enqueueFallback("Model returned no assistant content.")
+			}
 		}
 		if finishReason := strings.TrimSpace(turn.finishReason); finishReason != "" && !strings.EqualFold(finishReason, "tool_calls") {
 			s.pending = append(s.pending, DeltaFinishReason{Reason: finishReason})
 		}
+		s.markRunLimitFinalAnswerCompleted()
 		s.finished = true
 		return nil
 	}
@@ -438,11 +461,26 @@ func (s *llmRunStream) finishCurrentTurn() error {
 	toolIDs := make([]string, 0, len(toolCalls))
 	fileChanges := map[string]map[string]any{}
 	preparedCalls := make([]preparedTurnToolCall, 0, len(toolCalls))
+	toolRoundLimited := s.toolRoundLimitReached()
+	if toolRoundLimited {
+		s.queueRunLimitFinalAnswer()
+	}
+	willExecuteTool := false
 	for _, toolCall := range toolCalls {
 		toolIDs = append(toolIDs, toolCall.ID)
-		invocation, immediateEvents, toolMessage := s.prepareToolCall(toolCall)
+		var invocation *preparedToolInvocation
+		var immediateEvents []AgentDelta
+		var toolMessage *openAIMessage
+		if toolRoundLimited {
+			invocation, immediateEvents, toolMessage = s.prepareRunLimitToolCall(toolCall)
+		} else {
+			invocation, immediateEvents, toolMessage = s.prepareToolCall(toolCall)
+		}
 		if fileChange := s.estimatedToolFileChange(invocation); len(fileChange) > 0 {
 			fileChanges[toolCall.ID] = fileChange
+		}
+		if invocation != nil {
+			willExecuteTool = true
 		}
 		preparedCalls = append(preparedCalls, preparedTurnToolCall{
 			toolCall:        toolCall,
@@ -450,6 +488,9 @@ func (s *llmRunStream) finishCurrentTurn() error {
 			immediateEvents: immediateEvents,
 			toolMessage:     toolMessage,
 		})
+	}
+	if willExecuteTool && s.execCtx != nil && s.execCtx.RunLimits.MaxToolRounds > 0 {
+		s.execCtx.ToolRounds++
 	}
 	if len(fileChanges) == 0 {
 		fileChanges = nil
@@ -506,6 +547,7 @@ func (s *llmRunStream) newAssistantTurnMessage(turn *providerTurnStream, content
 
 func (s *llmRunStream) checkBudgetBeforeModelCall() map[string]any {
 	budget := NormalizeBudget(s.execCtx.Budget)
+	allowRunLimitFinalAnswer := s.runLimitFinalAnswerActive()
 	if budget.Timeout > 0 && time.Since(s.execCtx.StartedAt) > budget.RunTimeout() {
 		return NewErrorPayload(
 			"run_timeout",
@@ -518,7 +560,7 @@ func (s *llmRunStream) checkBudgetBeforeModelCall() map[string]any {
 			},
 		)
 	}
-	if budget.MaxSteps > 0 && s.execCtx.ModelCalls >= budget.MaxSteps {
+	if budget.MaxSteps > 0 && s.execCtx.ModelCalls >= budget.MaxSteps && !allowRunLimitFinalAnswer {
 		return NewErrorPayload(
 			"model_calls_exceeded",
 			"model step budget exceeded",
@@ -531,7 +573,7 @@ func (s *llmRunStream) checkBudgetBeforeModelCall() map[string]any {
 			},
 		)
 	}
-	if budget.Tool.MaxCalls > 0 && s.execCtx.ToolCalls > budget.Tool.MaxCalls {
+	if budget.Tool.MaxCalls > 0 && s.execCtx.ToolCalls > budget.Tool.MaxCalls && !allowRunLimitFinalAnswer {
 		return NewErrorPayload(
 			"tool_calls_exceeded",
 			"tool call budget exceeded",

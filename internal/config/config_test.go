@@ -255,6 +255,7 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 		"skill:\n",
 		"tool-appendix:\n",
 		"plan-execute:\n",
+		"btw:\n",
 		"memory:\n",
 	} {
 		if !strings.Contains(promptsExample, want) {
@@ -653,6 +654,10 @@ func TestLoadPromptsConfigFromFile(t *testing.T) {
 			"  summary-system-prompt: custom summary system\n" +
 			"  summary-user-prompt-template: |\n" +
 			"    custom summary {{task_results}}\n" +
+			"btw:\n" +
+			"  user-prompt-template: |\n" +
+			"    custom BTW {{question_json}}\n" +
+			"  final-answer-prompt: custom BTW final\n" +
 			"memory:\n" +
 			"  system-prompt-template: |\n" +
 			"    custom memory system\n" +
@@ -697,6 +702,12 @@ func TestLoadPromptsConfigFromFile(t *testing.T) {
 					}
 					if cfg.Prompts.PlanExecute.SummaryUserPromptTemplate != "custom summary {{task_results}}" {
 						t.Fatalf("expected summary user prompt override, got %q", cfg.Prompts.PlanExecute.SummaryUserPromptTemplate)
+					}
+					if cfg.Prompts.BTW.UserPromptTemplate != "custom BTW {{question_json}}" {
+						t.Fatalf("expected BTW prompt override, got %q", cfg.Prompts.BTW.UserPromptTemplate)
+					}
+					if cfg.Prompts.BTW.FinalAnswerPrompt != "custom BTW final" {
+						t.Fatalf("expected BTW final prompt override, got %q", cfg.Prompts.BTW.FinalAnswerPrompt)
 					}
 					if cfg.MemoryPrompts.SystemPromptTemplate != "custom memory system\n{{task_instruction}}" {
 						t.Fatalf("expected memory system prompt override, got %q", cfg.MemoryPrompts.SystemPromptTemplate)

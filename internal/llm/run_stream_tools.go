@@ -858,6 +858,10 @@ func (s *llmRunStream) checkBudgetBeforeToolCall(toolName string) *ToolExecution
 	if s == nil || s.execCtx == nil {
 		return nil
 	}
+	if limit := s.execCtx.RunLimits.MaxToolCalls; limit > 0 && s.execCtx.ToolCalls > limit {
+		result := s.runLimitToolResult(toolName, "max_tool_calls", limit)
+		return &result
+	}
 	budget := NormalizeBudget(s.execCtx.Budget)
 	if budget.Tool.MaxCalls > 0 && s.execCtx.ToolCalls > budget.Tool.MaxCalls {
 		payload := NewErrorPayload(
@@ -892,6 +896,61 @@ func (s *llmRunStream) checkBudgetBeforeToolCall(toolName string) *ToolExecution
 		return &ToolExecutionResult{Output: MarshalJSON(payload), Structured: payload, Error: "tool_calls_exceeded", ExitCode: -1}
 	}
 	return nil
+}
+
+func (s *llmRunStream) toolRoundLimitReached() bool {
+	return s != nil && s.execCtx != nil && s.execCtx.RunLimits.MaxToolRounds > 0 && s.execCtx.ToolRounds >= s.execCtx.RunLimits.MaxToolRounds
+}
+
+func (s *llmRunStream) prepareRunLimitToolCall(toolCall openAIToolCall) (*preparedToolInvocation, []AgentDelta, *openAIMessage) {
+	result := s.runLimitToolResult(toolCall.Function.Name, "max_tool_rounds", s.execCtx.RunLimits.MaxToolRounds)
+	deltas, message := preparedToolResultMessage(toolCall.ID, toolCall.Function.Name, result, result.Output)
+	return nil, deltas, message
+}
+
+func (s *llmRunStream) runLimitToolResult(toolName, limitName string, limit int) ToolExecutionResult {
+	s.queueRunLimitFinalAnswer()
+	payload := NewErrorPayload(
+		"btw_tool_limit_reached",
+		"BTW side question tool limit reached; answer the side question without more tools",
+		ErrorScopeTool,
+		ErrorCategoryTool,
+		map[string]any{
+			"toolName":   toolName,
+			"limitName":  limitName,
+			"limitValue": limit,
+		},
+	)
+	return ToolExecutionResult{
+		Output:     MarshalJSON(payload),
+		Structured: payload,
+		Error:      "btw_tool_limit_reached",
+		ExitCode:   -1,
+	}
+}
+
+func (s *llmRunStream) queueRunLimitFinalAnswer() {
+	if s == nil || s.execCtx == nil || s.execCtx.RunLimitFinalAnswerActive || s.execCtx.RunLimitFinalAnswerCompleted {
+		return
+	}
+	s.execCtx.RunLimitFinalAnswerPending = true
+}
+
+func (s *llmRunStream) runLimitFinalAnswerActive() bool {
+	return s != nil && s.execCtx != nil && s.execCtx.RunLimitFinalAnswerActive
+}
+
+func (s *llmRunStream) markRunLimitFinalAnswerCompleted() {
+	if s != nil && s.execCtx != nil && s.execCtx.RunLimitFinalAnswerActive {
+		s.execCtx.RunLimitFinalAnswerCompleted = true
+	}
+}
+
+func (s *llmRunStream) finalAnswerToolCallFallback() string {
+	if s.runLimitFinalAnswerActive() {
+		return "BTW reached its read-only tool limit. It cannot continue the parent task; ask the side question again or continue in the main conversation."
+	}
+	return "Tool execution loop reached the maximum number of steps."
 }
 
 func (s *llmRunStream) stageToolCallLimit(budget Budget) int {

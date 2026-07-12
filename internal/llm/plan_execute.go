@@ -227,6 +227,10 @@ func (s *planPipelineStream) startTaskStream(task *PlanTask) error {
 }
 
 func (s *planPipelineStream) afterStageEOF() error {
+	if s.execCtx != nil && s.execCtx.RunLimitFinalAnswerCompleted {
+		s.completed = true
+		return nil
+	}
 	if !s.planDone {
 		s.planDone = true
 		if len(s.execCtx.PlanState.Tasks) == 0 {

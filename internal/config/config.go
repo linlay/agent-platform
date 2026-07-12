@@ -88,6 +88,7 @@ type PromptsConfig struct {
 	Skill        PromptSkillConfig
 	ToolAppendix ToolAppendixPromptsConfig
 	PlanExecute  PlanExecutePromptsConfig
+	BTW          BTWPromptsConfig
 }
 
 type PromptSkillConfig struct {
@@ -107,6 +108,13 @@ type PlanExecutePromptsConfig struct {
 	PlanUserPromptTemplate      string
 	SummarySystemPrompt         string
 	SummaryUserPromptTemplate   string
+}
+
+// BTWPromptsConfig controls the user-level instructions used by hidden side
+// questions. These prompts never contribute to the system-init cache key.
+type BTWPromptsConfig struct {
+	UserPromptTemplate string
+	FinalAnswerPrompt  string
 }
 
 type CoderPromptsConfig struct {

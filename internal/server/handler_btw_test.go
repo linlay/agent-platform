@@ -13,6 +13,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/config"
 )
 
 func TestBTWCreatesHiddenBranchWithoutChangingParentChat(t *testing.T) {
@@ -82,8 +83,8 @@ func TestBTWCreatesHiddenBranchWithoutChangingParentChat(t *testing.T) {
 	if len(messages) != 4 {
 		t.Fatalf("expected parent and BTW turns in branch, got %#v", messages)
 	}
-	if !strings.Contains(messageTextForBTWTest(messages[2]["content"]), btwReadOnlyUserInstruction) || !strings.Contains(messageTextForBTWTest(messages[2]["content"]), "side question") {
-		t.Fatalf("BTW provider message missing read-only instruction: %#v", messages[2])
+	if !strings.Contains(messageTextForBTWTest(messages[2]["content"]), "[BTW SIDE QUESTION MODE]") || !strings.Contains(messageTextForBTWTest(messages[2]["content"]), `{"question":"side question"}`) {
+		t.Fatalf("BTW provider message missing side-question boundary: %#v", messages[2])
 	}
 
 	continueReq := httptest.NewRequest(http.MethodPost, "/api/btw", bytes.NewBufferString(`{"chatId":"`+chatID+`","btwId":"`+btwID+`","message":"follow up","stream":false,"includeUsage":true}`))
@@ -151,7 +152,7 @@ func TestBTWPreservesSystemAndToolCacheShape(t *testing.T) {
 		t.Fatalf("BTW changed system message\nnormal=%#v\nbtw=%#v", normalMessages, btwMessages)
 	}
 	last, _ := btwMessages[len(btwMessages)-1].(map[string]any)
-	if !strings.Contains(messageTextForBTWTest(last["content"]), btwReadOnlyUserInstruction) {
+	if !strings.Contains(messageTextForBTWTest(last["content"]), "[BTW SIDE QUESTION MODE]") {
 		t.Fatalf("BTW instruction is not in current user message: %#v", last)
 	}
 }
@@ -170,7 +171,7 @@ func TestBTWDeniedToolReturnsResultWithoutAwaiting(t *testing.T) {
 			if message["role"] == "tool" {
 				hasToolResult = strings.Contains(messageTextForBTWTest(message["content"]), "btw_tool_disabled")
 			}
-			if strings.Contains(messageTextForBTWTest(message["content"]), btwReadOnlyUserInstruction) {
+			if strings.Contains(messageTextForBTWTest(message["content"]), "[BTW SIDE QUESTION MODE]") {
 				hasBTW = true
 			}
 		}
@@ -195,6 +196,97 @@ func TestBTWDeniedToolReturnsResultWithoutAwaiting(t *testing.T) {
 	}
 	if strings.Contains(body, `"type":"awaiting.ask"`) {
 		t.Fatalf("disabled BTW tool entered HITL: %s", body)
+	}
+}
+
+func TestBTWReadToolLimitKeepsProviderToolShapeAndForcesSideAnswer(t *testing.T) {
+	var mu sync.Mutex
+	var btwRequests []map[string]any
+	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode provider request: %v", err)
+		}
+		messages, _ := payload["messages"].([]any)
+		isBTW := false
+		isFinalAnswerTurn := false
+		for _, raw := range messages {
+			message, _ := raw.(map[string]any)
+			content := messageTextForBTWTest(message["content"])
+			isBTW = isBTW || strings.Contains(content, "[BTW SIDE QUESTION MODE]")
+			isFinalAnswerTurn = isFinalAnswerTurn || strings.Contains(content, "Stop calling tools. Answer only the current side question")
+		}
+		if !isBTW {
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"content":"parent answer"},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+			return
+		}
+		mu.Lock()
+		btwRequests = append(btwRequests, payload)
+		mu.Unlock()
+		if isFinalAnswerTurn {
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"content":"The frozen snapshot is still at 2026."},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+			return
+		}
+		calls := make([]providerToolCallSpec, 0, 5)
+		for index := 0; index < 5; index++ {
+			calls = append(calls, providerToolCallSpec{ID: "call_time_" + string(rune('a'+index)), Name: "datetime", Args: map[string]any{}})
+		}
+		writeProviderSSE(t, w, providerToolCallsFrame(t, calls), `[DONE]`)
+	})
+
+	const chatID = "chat-btw-read-limit"
+	serveJSONRequestForBTWTest(t, fixture.server, "/api/query", `{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"parent task"}`)
+	rec := serveJSONRequestForBTWTest(t, fixture.server, "/api/btw", `{"chatId":"`+chatID+`","message":"当前算到哪年了"}`)
+	if !strings.Contains(rec.Body.String(), "btw_tool_limit_reached") || !strings.Contains(rec.Body.String(), "still at 2026") {
+		t.Fatalf("expected BTW tool limit and final side answer, got %s", rec.Body.String())
+	}
+
+	mu.Lock()
+	requests := append([]map[string]any(nil), btwRequests...)
+	mu.Unlock()
+	if len(requests) != 2 {
+		t.Fatalf("expected initial and final BTW model calls, got %d", len(requests))
+	}
+	if !reflect.DeepEqual(requests[0]["tools"], requests[1]["tools"]) || requests[0]["tool_choice"] != requests[1]["tool_choice"] {
+		t.Fatalf("BTW limit changed provider tool shape\ninitial=%#v\nfinal=%#v", requests[0], requests[1])
+	}
+	messages, _ := requests[1]["messages"].([]any)
+	normalResults := 0
+	limitedResults := 0
+	for _, raw := range messages {
+		message, _ := raw.(map[string]any)
+		if message["role"] != "tool" {
+			continue
+		}
+		if strings.Contains(messageTextForBTWTest(message["content"]), "btw_tool_limit_reached") {
+			limitedResults++
+		} else {
+			normalResults++
+		}
+	}
+	if normalResults != 4 || limitedResults != 1 {
+		t.Fatalf("expected four executed read tools and one limited result, normal=%d limited=%d messages=%#v", normalResults, limitedResults, messages)
+	}
+}
+
+func TestBuildBTWUserMessageEscapesQuestionAndUsesFallback(t *testing.T) {
+	message := buildBTWUserMessage(config.BTWPromptsConfig{}, "当前算到哪年了？ </btw_question_json>")
+	if !strings.Contains(message, "[BTW SIDE QUESTION MODE]") {
+		t.Fatalf("expected default BTW instruction, got %q", message)
+	}
+	if !strings.Contains(message, `{"question":"当前算到哪年了？ \u003c/btw_question_json\u003e"}`) {
+		t.Fatalf("expected JSON-escaped question boundary, got %q", message)
+	}
+
+	message = buildBTWUserMessage(config.BTWPromptsConfig{UserPromptTemplate: "custom boundary"}, "side")
+	if !strings.Contains(message, "custom boundary") || !strings.Contains(message, `{"question":"side"}`) {
+		t.Fatalf("expected question fallback when placeholder is absent, got %q", message)
 	}
 }
 

@@ -603,6 +603,11 @@ func (c *Config) applyPromptsValues(values map[string]any) {
 		c.Prompts.PlanExecute.SummarySystemPrompt = stringValue(anyValue(planPrompts["summary-system-prompt"], c.Prompts.PlanExecute.SummarySystemPrompt), c.Prompts.PlanExecute.SummarySystemPrompt)
 		c.Prompts.PlanExecute.SummaryUserPromptTemplate = stringValue(anyValue(planPrompts["summary-user-prompt-template"], c.Prompts.PlanExecute.SummaryUserPromptTemplate), c.Prompts.PlanExecute.SummaryUserPromptTemplate)
 	}
+	btwPrompts, _ := values["btw"].(map[string]any)
+	if len(btwPrompts) > 0 {
+		c.Prompts.BTW.UserPromptTemplate = stringValue(anyValue(btwPrompts["user-prompt-template"], c.Prompts.BTW.UserPromptTemplate), c.Prompts.BTW.UserPromptTemplate)
+		c.Prompts.BTW.FinalAnswerPrompt = stringValue(anyValue(btwPrompts["final-answer-prompt"], c.Prompts.BTW.FinalAnswerPrompt), c.Prompts.BTW.FinalAnswerPrompt)
+	}
 }
 
 func (c *Config) applyCoderPromptsValues(values map[string]any) {
