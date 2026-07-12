@@ -259,6 +259,11 @@ function Build-ProgramBundle {
 
         Compress-Directory -StageRoot $stageRoot -BundleDirName $APP_NAME -OutputPath $bundleArchive -Format $archiveFormat
 
+        & go run ./cmd/verify-program-bundle --archive $bundleArchive --os $TargetOs --arch $TargetArch
+        if ($LASTEXITCODE -ne 0) {
+            throw "verify program bundle failed for $TargetOs/$TargetArch"
+        }
+
         $archiveDigest = (Get-FileHash -Algorithm SHA256 $bundleArchive).Hash.ToLowerInvariant()
         [IO.File]::WriteAllText("$bundleArchive.sha256", "$archiveDigest  $(Split-Path $bundleArchive -Leaf)`n", [Text.UTF8Encoding]::new($false))
         $sidecarName = if ($TargetOs -eq "windows") { "kbase-lance-engine.exe" } else { "kbase-lance-engine" }

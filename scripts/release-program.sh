@@ -124,6 +124,10 @@ build_program_bundle() {
 
   mkdir -p "$RELEASE_DIR"
   archive_bundle_dir "$stage_root" "$APP_NAME" "$bundle_archive" "$archive_format"
+  go run ./cmd/verify-program-bundle \
+    --archive "$bundle_archive" \
+    --os "$target_os" \
+    --arch "$target_arch"
   write_release_checksum "$bundle_archive"
   write_release_size_report "$bundle_archive.sizes.json" "$backend_path" "$sidecar_path" "$bundle_archive"
   write_release_sbom "$bundle_root" "$bundle_archive.sbom.cdx.json"
