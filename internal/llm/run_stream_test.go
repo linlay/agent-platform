@@ -1103,13 +1103,12 @@ func TestResolveHITLTimeoutUsesHitlBudgetGlobalAndFallback(t *testing.T) {
 			want:   600,
 		},
 		{
-			name: "mode timeout wins",
+			name: "legacy planning timeout has no mode override",
 			mode: "plan",
 			budget: contracts.Budget{Hitl: contracts.HitlPolicy{
 				Timeout: 600,
-				Plan:    contracts.HitlModePolicy{Timeout: 300},
 			}},
-			want: 300,
+			want: 600,
 		},
 		{
 			name:   "tool timeout no longer affects hitl timeout",
@@ -1130,6 +1129,24 @@ func TestResolveHITLTimeoutUsesHitlBudgetGlobalAndFallback(t *testing.T) {
 				t.Fatalf("expected timeout %d sec, got %d", tc.want, got)
 			}
 		})
+	}
+}
+
+func TestCheckBudgetBeforeModelCallExcludesPlanningConfirmationWait(t *testing.T) {
+	stream := &llmRunStream{
+		execCtx: &contracts.ExecutionContext{
+			StartedAt:    time.Now().Add(-2 * time.Second),
+			BudgetPaused: 2 * time.Second,
+			Budget:       contracts.Budget{Timeout: 1, MaxSteps: 10},
+		},
+	}
+	if result := stream.checkBudgetBeforeModelCall(); result != nil {
+		t.Fatalf("expected paused planning confirmation time to be excluded, got %#v", result)
+	}
+
+	stream.execCtx.BudgetPaused = 0
+	if result := stream.checkBudgetBeforeModelCall(); result == nil || result["code"] != "run_timeout" {
+		t.Fatalf("expected active runtime to remain subject to the run budget, got %#v", result)
 	}
 }
 

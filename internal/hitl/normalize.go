@@ -8,7 +8,7 @@ import (
 
 	"agent-platform/internal/api"
 	contracts "agent-platform/internal/contracts"
-	hitlplan "agent-platform/internal/hitl/plan"
+	"agent-platform/internal/hitl/planning"
 )
 
 func Normalize(args map[string]any, params any) (map[string]any, error) {
@@ -19,7 +19,7 @@ func Normalize(args map[string]any, params any) (map[string]any, error) {
 	case "form":
 		return NormalizeForm(args, params)
 	case "plan":
-		return NormalizePlan(args, params)
+		return NormalizePlanningConfirmation(args, params)
 	default:
 		return nil, fmt.Errorf("unsupported bash HITL mode: %s", mode)
 	}
@@ -133,8 +133,8 @@ func NormalizeForm(args map[string]any, params any) (map[string]any, error) {
 	}, nil
 }
 
-func NormalizePlan(args map[string]any, params any) (map[string]any, error) {
-	return hitlplan.Normalize(args, params)
+func NormalizePlanningConfirmation(args map[string]any, params any) (map[string]any, error) {
+	return planning.NormalizeConfirmation(args, params)
 }
 
 func decodeItems(params any) ([]map[string]any, error) {

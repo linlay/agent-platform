@@ -948,6 +948,7 @@ func awaitingContextFromProxyEvent(event stream.EventData) contracts.AwaitingSub
 		Mode:       mode,
 		ItemCount:  proxyAwaitItemCount(mode, event.Payload["questions"], event.Payload["approvals"], event.Payload["forms"], event.Payload["plan"]),
 		Questions:  proxyAwaitQuestions(mode, event.Payload["questions"]),
+		NoTimeout:  strings.EqualFold(strings.TrimSpace(mode), "plan"),
 	}
 }
 

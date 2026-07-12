@@ -774,6 +774,7 @@ func handleAwaitingLifecycle(params RunExecutorParams, data stream.EventData, tr
 				Mode:             mode,
 				ItemCount:        awaitingEventItemCount(data),
 				Questions:        awaitingEventQuestions(data),
+				NoTimeout:        strings.EqualFold(mode, "plan"),
 				Timeout:          int64(contracts.AnyIntNode(data.Value("timeout"))),
 			})
 		}
@@ -785,8 +786,10 @@ func handleAwaitingLifecycle(params RunExecutorParams, data stream.EventData, tr
 				"runId":      runID,
 				"awaitingId": awaitingID,
 				"mode":       mode,
-				"timeout":    contracts.AnyIntNode(data.Value("timeout")),
 				"createdAt":  data.Timestamp,
+			}
+			if timeout, exists := data.Payload["timeout"]; exists {
+				payload["timeout"] = contracts.AnyIntNode(timeout)
 			}
 			decorateNotificationRunOwner(payload, params.Session)
 			if viewportType := strings.TrimSpace(data.String("viewportType")); viewportType != "" {

@@ -32,7 +32,7 @@ resource:
   ticket-ttl-seconds: 86400
 
 budget:
-  # 单次 run 总耗时上限：一条用户消息触发的 agent 执行，从开始到最终回答结束。
+  # 单次 run 执行耗时上限；CODER planning confirmation 的用户等待时间不计入。
   timeout: 3600
   max-steps: 100
   model:
@@ -52,8 +52,6 @@ budget:
     approval:
       timeout: 600
     form:
-      timeout: 600
-    plan:
       timeout: 600
 
 automation:

@@ -202,7 +202,7 @@ func TestCoderPlanningConfirmationUsesPlanMode(t *testing.T) {
 		t.Fatalf("expected plan confirmation ask, got %#v", ask)
 	}
 	if ask.Timeout != 0 {
-		t.Fatalf("expected planning confirmation to wait forever with timeout 0, got %#v", ask)
+		t.Fatalf("expected planning confirmation to have no configured timeout, got %#v", ask)
 	}
 	if len(ask.Questions) != 0 || len(ask.Approvals) != 0 || len(ask.Plan) == 0 {
 		t.Fatalf("expected one plan and no questions/approvals, got %#v", ask)
@@ -388,7 +388,7 @@ func TestCoderPlanningConfirmationWaitsWithoutDisconnectedTimeout(t *testing.T) 
 	resultCh := make(chan contracts.SubmitResult, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		result, err := runControl.AwaitSubmitWithTimeout(context.Background(), "run_1_coder_plan_confirm_1", 0)
+		result, err := runControl.AwaitSubmitIndefinitely(context.Background(), "run_1_coder_plan_confirm_1")
 		if err != nil {
 			errCh <- err
 			return
@@ -425,6 +425,44 @@ func TestCoderPlanningConfirmationWaitsWithoutDisconnectedTimeout(t *testing.T) 
 		}
 	case <-time.After(time.Second):
 		t.Fatalf("timed out waiting for planning confirmation submit")
+	}
+}
+
+func TestCoderPlanningConfirmationPausesRunBudget(t *testing.T) {
+	runControl := contracts.NewRunControl(context.Background(), "run_1")
+	stream := &coderPlanningStream{
+		session: contracts.QuerySession{RunID: "run_1"},
+		execCtx: &contracts.ExecutionContext{
+			RunControl:       runControl,
+			PlanningRevision: 1,
+			StartedAt:        time.Now().Add(-time.Second),
+			Budget:           contracts.Budget{Timeout: 1, MaxSteps: 10},
+		},
+	}
+	stream.emitPlanConfirmationAsk()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- stream.awaitPlanConfirmation()
+	}()
+	time.Sleep(25 * time.Millisecond)
+	params, err := api.EncodeSubmitParams([]map[string]any{{"id": "confirm", "decision": "reject"}})
+	if err != nil {
+		t.Fatalf("encode submit params: %v", err)
+	}
+	ack := runControl.ResolveSubmit(api.SubmitRequest{
+		RunID:      "run_1",
+		AwaitingID: "run_1_coder_plan_confirm_1",
+		Params:     params,
+	})
+	if !ack.Accepted {
+		t.Fatalf("expected planning confirmation submit to be accepted, got %#v", ack)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("await planning confirmation: %v", err)
+	}
+	if stream.execCtx.BudgetPaused < 20*time.Millisecond {
+		t.Fatalf("expected planning confirmation wait to pause the run budget, got %s", stream.execCtx.BudgetPaused)
 	}
 }
 

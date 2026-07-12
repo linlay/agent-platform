@@ -339,7 +339,6 @@ type HitlBudgetConfig struct {
 	Question HitlModeBudgetConfig
 	Approval HitlModeBudgetConfig
 	Form     HitlModeBudgetConfig
-	Plan     HitlModeBudgetConfig
 }
 
 type HitlModeBudgetConfig struct {

@@ -299,7 +299,6 @@ func (c *Config) applyRuntimeBudgetValues(budget map[string]any) {
 		c.Defaults.Budget.Hitl.Question = parseHitlModeBudgetConfig(hitl["question"], c.Defaults.Budget.Hitl.Question)
 		c.Defaults.Budget.Hitl.Approval = parseHitlModeBudgetConfig(hitl["approval"], c.Defaults.Budget.Hitl.Approval)
 		c.Defaults.Budget.Hitl.Form = parseHitlModeBudgetConfig(hitl["form"], c.Defaults.Budget.Hitl.Form)
-		c.Defaults.Budget.Hitl.Plan = parseHitlModeBudgetConfig(hitl["plan"], c.Defaults.Budget.Hitl.Plan)
 	}
 	c.Defaults.Budget.Stages = parseStageBudgetConfigs(budget["stages"], c.Defaults.Budget.Stages)
 }

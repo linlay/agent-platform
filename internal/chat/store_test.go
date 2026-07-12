@@ -2783,6 +2783,9 @@ func TestLoadChatRestoresPlanningFromReactAwaitingPlan(t *testing.T) {
 	if snapshotIndex < 0 || awaitingIndex < 0 || snapshotIndex >= awaitingIndex {
 		t.Fatalf("expected planning.snapshot before awaiting.ask, got %#v", detail.Events)
 	}
+	if _, exists := detail.Events[awaitingIndex].Payload["timeout"]; exists {
+		t.Fatalf("expected legacy planning replay to omit timeout, got %#v", detail.Events[awaitingIndex])
+	}
 }
 
 func TestLoadChatRestoresPlanningFromTextOnlyAwaitingPlan(t *testing.T) {

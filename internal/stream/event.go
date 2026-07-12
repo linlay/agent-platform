@@ -24,10 +24,11 @@ type EventData struct {
 }
 
 func NewEvent(eventType string, payload map[string]any) StreamEvent {
+	payload = normalizeAwaitingAskPayload(eventType, clonePayload(payload))
 	return StreamEvent{
 		Type:      eventType,
 		Timestamp: time.Now().UnixMilli(),
-		Payload:   clonePayload(payload),
+		Payload:   payload,
 	}
 }
 
@@ -48,7 +49,7 @@ func (e StreamEvent) Data() EventData {
 		Seq:       e.Seq,
 		Type:      e.Type,
 		Timestamp: e.Timestamp,
-		Payload:   clonePayload(e.Payload),
+		Payload:   normalizeAwaitingAskPayload(e.Type, clonePayload(e.Payload)),
 	}
 }
 
@@ -63,6 +64,7 @@ func EventDataFromMap(data map[string]any) EventData {
 	delete(payload, "seq")
 	delete(payload, "type")
 	delete(payload, "timestamp")
+	payload = normalizeAwaitingAskPayload(eventType, payload)
 	return EventData{
 		Seq:       seq,
 		Type:      eventType,
@@ -101,7 +103,7 @@ func (d EventData) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 
-	payload := clonePayload(d.Payload)
+	payload := normalizeAwaitingAskPayload(d.Type, clonePayload(d.Payload))
 	for _, key := range orderedPayloadKeys(d.Type, payload) {
 		value, ok := payload[key]
 		if !ok {
@@ -151,7 +153,7 @@ func (d *EventData) UnmarshalJSON(data []byte) error {
 }
 
 func (d EventData) Map() map[string]any {
-	data := clonePayload(d.Payload)
+	data := normalizeAwaitingAskPayload(d.Type, clonePayload(d.Payload))
 	if data == nil {
 		data = map[string]any{}
 	}
@@ -159,6 +161,17 @@ func (d EventData) Map() map[string]any {
 	data["type"] = d.Type
 	data["timestamp"] = d.Timestamp
 	return data
+}
+
+func normalizeAwaitingAskPayload(eventType string, payload map[string]any) map[string]any {
+	if eventType != "awaiting.ask" || payload == nil {
+		return payload
+	}
+	mode, _ := payload["mode"].(string)
+	if strings.EqualFold(strings.TrimSpace(mode), "plan") {
+		delete(payload, "timeout")
+	}
+	return payload
 }
 
 func (d EventData) Value(key string) any {

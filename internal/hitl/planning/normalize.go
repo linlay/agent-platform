@@ -1,4 +1,4 @@
-package plan
+package planning
 
 import (
 	"encoding/json"
@@ -10,27 +10,27 @@ import (
 	"agent-platform/internal/contracts"
 )
 
-func Normalize(args map[string]any, params any) (map[string]any, error) {
+func NormalizeConfirmation(args map[string]any, params any) (map[string]any, error) {
 	items, err := decodeItems(params)
 	if err != nil {
-		return nil, fmt.Errorf("plan submit params must be an array")
+		return nil, fmt.Errorf("planning confirmation submit params must be an array")
 	}
 	if len(items) == 0 {
 		return contracts.AwaitingErrorAnswer("plan", "user_dismissed", "用户关闭等待项"), nil
 	}
 	if len(items) != 1 {
-		return nil, fmt.Errorf("expected 1 plan, got %d", len(items))
+		return nil, fmt.Errorf("expected 1 planning confirmation, got %d", len(items))
 	}
 
 	definition := contracts.AnyMapNode(args["plan"])
 	if len(definition) == 0 {
-		return nil, fmt.Errorf("plan definition is required")
+		return nil, fmt.Errorf("planning confirmation definition is required")
 	}
 	item := items[0]
 	definitionID := strings.TrimSpace(contracts.AnyStringNode(definition["id"]))
 	submittedID := strings.TrimSpace(contracts.AnyStringNode(item["id"]))
 	if submittedID != "" && definitionID != "" && submittedID != definitionID {
-		log.Printf("[hitl][warn] plan submit id mismatch expected=%s actual=%s", definitionID, submittedID)
+		log.Printf("[planning][warn] confirmation submit id mismatch expected=%s actual=%s", definitionID, submittedID)
 	}
 	decision := strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(item["decision"])))
 	if decision == "" {
@@ -39,7 +39,7 @@ func Normalize(args map[string]any, params any) (map[string]any, error) {
 	switch decision {
 	case "approve", "reject":
 	default:
-		return nil, fmt.Errorf("items[0]: unsupported plan decision %q", decision)
+		return nil, fmt.Errorf("items[0]: unsupported planning confirmation decision %q", decision)
 	}
 
 	entry := map[string]any{

@@ -26,12 +26,13 @@ func TestResolveBudgetSupportsHitlTimeoutOverride(t *testing.T) {
 			"timeout":  45,
 			"question": map[string]any{"timeout": 55},
 			"approval": map[string]any{"timeout": 65},
+			"plan":     map[string]any{"timeout": 999},
 		},
 	})
 	if budget.Hitl.Timeout != 45 || budget.Hitl.Question.Timeout != 55 || budget.Hitl.Approval.Timeout != 65 {
 		t.Fatalf("expected HITL timeout override 45, got %#v", budget)
 	}
-	if budget.Hitl.Form.Timeout != 0 || budget.Hitl.Plan.Timeout != 0 {
+	if budget.Hitl.Form.Timeout != 0 {
 		t.Fatalf("did not expect unset HITL mode timeouts, got %#v", budget.Hitl)
 	}
 }
@@ -42,7 +43,7 @@ func TestNormalizeBudgetLeavesUnsetHitlTimeoutAtZero(t *testing.T) {
 		t.Fatalf("expected unset HITL timeout to stay 0, got %#v", budget)
 	}
 	if budget.Hitl.Question.Timeout != 0 || budget.Hitl.Approval.Timeout != 0 ||
-		budget.Hitl.Form.Timeout != 0 || budget.Hitl.Plan.Timeout != 0 {
+		budget.Hitl.Form.Timeout != 0 {
 		t.Fatalf("expected unset HITL mode timeouts to stay 0, got %#v", budget.Hitl)
 	}
 	if budget.MaxSteps != 100 {
@@ -76,7 +77,6 @@ func TestResolveHITLTimeoutUsesModeItemAndFallbackPriority(t *testing.T) {
 		Question: HitlModePolicy{Timeout: 110},
 		Approval: HitlModePolicy{Timeout: 120},
 		Form:     HitlModePolicy{Timeout: 130},
-		Plan:     HitlModePolicy{Timeout: 140},
 	}}
 
 	// question: item-specific timeout is NOT supported, should fall through to mode budget
@@ -87,9 +87,9 @@ func TestResolveHITLTimeoutUsesModeItemAndFallbackPriority(t *testing.T) {
 	if got := ResolveHITLTimeout("question", 0, budget); got != 110 {
 		t.Fatalf("question timeout = %d, want mode override 110", got)
 	}
-	// plan: item-specific timeout is NOT supported, should fall through to mode budget
-	if got := ResolveHITLTimeout("plan", 900, budget); got != 140 {
-		t.Fatalf("plan timeout = %d, want mode override 140", got)
+	// planning confirmation does not resolve an HITL timeout. Any legacy plan value is ignored.
+	if got := ResolveHITLTimeout("plan", 900, budget); got != 100 {
+		t.Fatalf("generic plan timeout = %d, want global fallback 100", got)
 	}
 	// approval: item-specific timeout > mode budget
 	if got := ResolveHITLTimeout("approval", 900, budget); got != 900 {

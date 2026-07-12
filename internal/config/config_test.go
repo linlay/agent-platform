@@ -128,8 +128,8 @@ func TestLoadDefaults(t *testing.T) {
 				if cfg.Defaults.Budget.Hitl.Timeout != 0 {
 					t.Fatalf("expected default HITL budget timeout 0, got %d", cfg.Defaults.Budget.Hitl.Timeout)
 				}
-				if cfg.Defaults.Budget.Hitl.Question.Timeout != 0 || cfg.Defaults.Budget.Hitl.Approval.Timeout != 0 ||
-					cfg.Defaults.Budget.Hitl.Form.Timeout != 0 || cfg.Defaults.Budget.Hitl.Plan.Timeout != 0 {
+					if cfg.Defaults.Budget.Hitl.Question.Timeout != 0 || cfg.Defaults.Budget.Hitl.Approval.Timeout != 0 ||
+						cfg.Defaults.Budget.Hitl.Form.Timeout != 0 {
 					t.Fatalf("expected default HITL mode timeouts unset, got %#v", cfg.Defaults.Budget.Hitl)
 				}
 				if cfg.Defaults.Budget.Timeout != 3600 {
@@ -600,11 +600,10 @@ func TestLoadRuntimeConfigFromFile(t *testing.T) {
 							cfg.Defaults.Budget.Stages["execute"].Tool.Timeout != 123 {
 							t.Fatalf("unexpected runtime budget config: %#v", cfg.Defaults.Budget)
 						}
-						if cfg.Defaults.Budget.Hitl.Timeout != 610 ||
-							cfg.Defaults.Budget.Hitl.Question.Timeout != 620 ||
-							cfg.Defaults.Budget.Hitl.Approval.Timeout != 630 ||
-							cfg.Defaults.Budget.Hitl.Form.Timeout != 640 ||
-							cfg.Defaults.Budget.Hitl.Plan.Timeout != 650 {
+							if cfg.Defaults.Budget.Hitl.Timeout != 610 ||
+								cfg.Defaults.Budget.Hitl.Question.Timeout != 620 ||
+								cfg.Defaults.Budget.Hitl.Approval.Timeout != 630 ||
+								cfg.Defaults.Budget.Hitl.Form.Timeout != 640 {
 							t.Fatalf("unexpected runtime HITL budget config: %#v", cfg.Defaults.Budget.Hitl)
 						}
 					})
@@ -1790,10 +1789,9 @@ func TestLoadAPEnvAndRuntimeYAMLWithToolsYAMLConfig(t *testing.T) {
 				if cfg.Defaults.Budget.Hitl.Timeout != 60 {
 					t.Fatalf("unexpected default HITL budget timeout: %d", cfg.Defaults.Budget.Hitl.Timeout)
 				}
-				if cfg.Defaults.Budget.Hitl.Question.Timeout != 70 ||
-					cfg.Defaults.Budget.Hitl.Approval.Timeout != 75 ||
-					cfg.Defaults.Budget.Hitl.Form.Timeout != 76 ||
-					cfg.Defaults.Budget.Hitl.Plan.Timeout != 80 {
+					if cfg.Defaults.Budget.Hitl.Question.Timeout != 70 ||
+						cfg.Defaults.Budget.Hitl.Approval.Timeout != 75 ||
+						cfg.Defaults.Budget.Hitl.Form.Timeout != 76 {
 					t.Fatalf("unexpected default HITL mode budget timeout: %#v", cfg.Defaults.Budget.Hitl)
 				}
 			})

@@ -7,10 +7,11 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
-	hitlplan "agent-platform/internal/hitl/plan"
+	"agent-platform/internal/hitl/planning"
 	"agent-platform/internal/i18n"
 )
 
@@ -429,7 +430,6 @@ func (s *coderPlanningStream) planConfirmationAsk() contracts.DeltaAwaitAsk {
 	return contracts.DeltaAwaitAsk{
 		AwaitingID:   toolCallID,
 		Mode:         "plan",
-		Timeout:      0,
 		RunID:        s.session.RunID,
 		ViewportType: "builtin",
 		ViewportKey:  "plan",
@@ -461,7 +461,9 @@ func (s *coderPlanningStream) awaitPlanConfirmation() error {
 
 	s.execCtx.RunLoopState = contracts.RunLoopStateWaitingSubmit
 	s.execCtx.RunControl.TransitionState(contracts.RunLoopStateWaitingSubmit)
-	submitResult, err := s.execCtx.RunControl.AwaitSubmitWithTimeout(s.ctx, awaitingID, 0)
+	waitStartedAt := time.Now()
+	submitResult, err := s.execCtx.RunControl.AwaitSubmitIndefinitely(s.ctx, awaitingID)
+	s.execCtx.BudgetPaused += time.Since(waitStartedAt)
 	if err != nil {
 		if errors.Is(err, contracts.ErrRunInterrupted) {
 			s.pending = append(s.pending, contracts.DeltaRunCancel{RunID: s.session.RunID})
@@ -488,7 +490,7 @@ func (s *coderPlanningStream) awaitPlanConfirmation() error {
 	})
 
 	args := s.planConfirmationArgs()
-	normalized, normalizeErr := normalizeHITLPlanSubmit(args, submitResult.Request.Params)
+	normalized, normalizeErr := normalizePlanningConfirmationSubmit(args, submitResult.Request.Params)
 	if normalizeErr != nil {
 		s.pending = append(s.pending, contracts.DeltaAwaitingAnswer{
 			AwaitingID: awaitingID,
@@ -873,8 +875,8 @@ func nonSystemMessages(msgs []contracts.ModelMessage) []contracts.ModelMessage {
 	return out
 }
 
-func normalizeHITLPlanSubmit(args map[string]any, params any) (map[string]any, error) {
-	return hitlplan.Normalize(args, params)
+func normalizePlanningConfirmationSubmit(args map[string]any, params any) (map[string]any, error) {
+	return planning.NormalizeConfirmation(args, params)
 }
 
 func awaitingAnswerWithSubmitID(answer map[string]any, submitID string) map[string]any {

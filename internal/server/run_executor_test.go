@@ -216,18 +216,27 @@ func TestHandleAwaitingLifecycleBroadcastsViewportMetadata(t *testing.T) {
 
 func TestHandleAwaitingLifecycleBroadcastsAwaitAskPushForApprovalAndPlan(t *testing.T) {
 	testCases := []struct {
-		mode       string
-		awaitingID string
-		timeout    int
+		mode          string
+		awaitingID    string
+		timeout       int
+		expectTimeout bool
 	}{
-		{mode: "approval", awaitingID: "await-approval", timeout: 600},
-		{mode: "plan", awaitingID: "await-plan", timeout: 0},
+		{mode: "approval", awaitingID: "await-approval", timeout: 600, expectTimeout: true},
+		{mode: "plan", awaitingID: "await-plan"},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.mode, func(t *testing.T) {
 			notifications := &recordingNotificationSink{}
 			tracker := &awaitingTracker{}
+			eventPayload := map[string]any{
+				"awaitingId": tc.awaitingID,
+				"runId":      "run-1",
+				"mode":       tc.mode,
+			}
+			if tc.expectTimeout {
+				eventPayload["timeout"] = tc.timeout
+			}
 			handleAwaitingLifecycle(RunExecutorParams{
 				Session: QuerySession{
 					ChatID:   "chat-1",
@@ -238,12 +247,7 @@ func TestHandleAwaitingLifecycleBroadcastsAwaitAskPushForApprovalAndPlan(t *test
 			}, stream.EventData{
 				Type:      "awaiting.ask",
 				Timestamp: 1234,
-				Payload: map[string]any{
-					"awaitingId": tc.awaitingID,
-					"runId":      "run-1",
-					"mode":       tc.mode,
-					"timeout":    tc.timeout,
-				},
+				Payload:   eventPayload,
 			}, tracker)
 
 			if eventTypes := notifications.EventTypes(); !reflect.DeepEqual(eventTypes, []string{"awaiting.asking"}) {
@@ -257,8 +261,14 @@ func TestHandleAwaitingLifecycleBroadcastsAwaitAskPushForApprovalAndPlan(t *test
 			if payload["chatId"] != "chat-1" || payload["runId"] != "run-1" || payload["agentKey"] != "agent-a" {
 				t.Fatalf("unexpected awaiting.asking identity payload %#v", payload)
 			}
-			if payload["awaitingId"] != tc.awaitingID || payload["mode"] != tc.mode || payload["timeout"] != tc.timeout || payload["createdAt"] != int64(1234) {
+			if payload["awaitingId"] != tc.awaitingID || payload["mode"] != tc.mode || payload["createdAt"] != int64(1234) {
 				t.Fatalf("unexpected awaiting.asking payload %#v", payload)
+			}
+			if _, exists := payload["timeout"]; exists != tc.expectTimeout {
+				t.Fatalf("unexpected awaiting.asking timeout payload %#v", payload)
+			}
+			if tc.expectTimeout && payload["timeout"] != tc.timeout {
+				t.Fatalf("unexpected awaiting.asking timeout %#v", payload)
 			}
 		})
 	}

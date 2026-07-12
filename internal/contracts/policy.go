@@ -18,7 +18,6 @@ type HitlPolicy struct {
 	Question HitlModePolicy `json:"question,omitempty"`
 	Approval HitlModePolicy `json:"approval,omitempty"`
 	Form     HitlModePolicy `json:"form,omitempty"`
-	Plan     HitlModePolicy `json:"plan,omitempty"`
 }
 
 type HitlModePolicy struct {
@@ -58,7 +57,6 @@ func DefaultBudget(cfg config.Config) Budget {
 			Question: hitlModePolicyFromConfig(cfg.Defaults.Budget.Hitl.Question),
 			Approval: hitlModePolicyFromConfig(cfg.Defaults.Budget.Hitl.Approval),
 			Form:     hitlModePolicyFromConfig(cfg.Defaults.Budget.Hitl.Form),
-			Plan:     hitlModePolicyFromConfig(cfg.Defaults.Budget.Hitl.Plan),
 		},
 		Stages: stageBudgetsFromConfig(cfg.Defaults.Budget.Stages),
 	}
@@ -204,7 +202,6 @@ func mergeHitlPolicy(base HitlPolicy, overrides map[string]any) HitlPolicy {
 	policy.Question = mergeHitlModePolicy(policy.Question, anyMapNode(overrides["question"]))
 	policy.Approval = mergeHitlModePolicy(policy.Approval, anyMapNode(overrides["approval"]))
 	policy.Form = mergeHitlModePolicy(policy.Form, anyMapNode(overrides["form"]))
-	policy.Plan = mergeHitlModePolicy(policy.Plan, anyMapNode(overrides["plan"]))
 	return policy
 }
 
@@ -241,8 +238,6 @@ func hitlModeTimeout(hitl HitlPolicy, mode string) int {
 		return hitl.Approval.Timeout
 	case "form":
 		return hitl.Form.Timeout
-	case "plan":
-		return hitl.Plan.Timeout
 	default:
 		return 0
 	}

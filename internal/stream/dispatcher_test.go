@@ -823,7 +823,6 @@ func TestDispatcherEmitsPlanModeAwaitAsk(t *testing.T) {
 	events := dispatcher.Dispatch(AwaitAsk{
 		AwaitingID: "run_1_coder_plan_confirm_1",
 		Mode:       "plan",
-		Timeout:    0,
 		RunID:      "run_1",
 		Plan: map[string]any{
 			"id":         "confirm",
@@ -837,6 +836,9 @@ func TestDispatcherEmitsPlanModeAwaitAsk(t *testing.T) {
 	}
 	if _, ok := payload["approvals"]; ok {
 		t.Fatalf("did not expect approvals for plan awaiting.ask, got %#v", payload)
+	}
+	if _, ok := payload["timeout"]; ok {
+		t.Fatalf("did not expect timeout for planning confirmation, got %#v", payload)
 	}
 	plan, _ := payload["plan"].(map[string]any)
 	if plan["id"] != "confirm" || plan["planningId"] != "run_1_planning_1" {

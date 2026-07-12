@@ -293,11 +293,18 @@ func (c *RunControl) closeSteers() {
 }
 
 func (c *RunControl) AwaitSubmit(ctx context.Context, awaitingID string) (SubmitResult, error) {
-	return c.AwaitSubmitWithTimeout(ctx, awaitingID, 0)
+	return c.AwaitSubmitIndefinitely(ctx, awaitingID)
+}
+
+// AwaitSubmitIndefinitely waits until a submit, interruption, or context cancellation.
+// It deliberately bypasses the timeout-based waiting path.
+func (c *RunControl) AwaitSubmitIndefinitely(ctx context.Context, awaitingID string) (SubmitResult, error) {
+	result, _, err := c.awaitSubmit(ctx, awaitingID, nil, -1)
+	return result, err
 }
 
 func (c *RunControl) AwaitSubmitWithTimeout(ctx context.Context, awaitingID string, timeout time.Duration) (SubmitResult, error) {
-	result, _, err := c.awaitSubmitWithTimeout(ctx, awaitingID, timeout, -1)
+	result, _, err := c.awaitSubmit(ctx, awaitingID, &timeout, -1)
 	return result, err
 }
 
@@ -305,10 +312,10 @@ func (c *RunControl) AwaitSubmitWithTimeoutOrAccessLevelChange(ctx context.Conte
 	if _, currentVersion := c.AccessLevelSnapshot(); currentVersion != afterVersion {
 		return SubmitResult{}, true, nil
 	}
-	return c.awaitSubmitWithTimeout(ctx, awaitingID, timeout, afterVersion)
+	return c.awaitSubmit(ctx, awaitingID, &timeout, afterVersion)
 }
 
-func (c *RunControl) awaitSubmitWithTimeout(ctx context.Context, awaitingID string, timeout time.Duration, breakOnAccessVersion int64) (SubmitResult, bool, error) {
+func (c *RunControl) awaitSubmit(ctx context.Context, awaitingID string, timeout *time.Duration, breakOnAccessVersion int64) (SubmitResult, bool, error) {
 	if c == nil {
 		return SubmitResult{}, false, ErrRunControlUnavailable
 	}
@@ -357,8 +364,8 @@ func (c *RunControl) awaitSubmitWithTimeout(ctx context.Context, awaitingID stri
 	}()
 
 	var timer *time.Timer
-	if timeout > 0 && !awaitingCtx.NoTimeout {
-		timer = time.NewTimer(timeout)
+	if timeout != nil && *timeout > 0 && !awaitingCtx.NoTimeout {
+		timer = time.NewTimer(*timeout)
 		defer stopWaitTimer(timer)
 	}
 	var accessChanged <-chan struct{}

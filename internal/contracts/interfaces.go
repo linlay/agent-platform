@@ -380,6 +380,7 @@ type ExecutionContext struct {
 	// ReadFileState tracks file versions read during the current run for write staleness checks.
 	ReadFileState                map[string]ReadFileSnapshot
 	StartedAt                    time.Time
+	BudgetPaused                 time.Duration
 	ModelCalls                   int
 	ToolCalls                    int
 	RunLimits                    RunLimits

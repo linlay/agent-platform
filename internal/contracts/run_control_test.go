@@ -168,7 +168,7 @@ func TestRunControlAwaitSubmitTimeoutUsesWallClockWithoutObserver(t *testing.T) 
 	}
 }
 
-func TestRunControlAwaitSubmitNoTimeoutRemainsInfiniteWithoutObserver(t *testing.T) {
+func TestRunControlAwaitSubmitIndefinitelyRemainsInfiniteWithoutObserver(t *testing.T) {
 	control := NewRunControl(context.Background(), "run_1")
 	control.SetObserverCount(0)
 	control.ExpectSubmit(testAwaitingContext("await_1"))
@@ -176,7 +176,7 @@ func TestRunControlAwaitSubmitNoTimeoutRemainsInfiniteWithoutObserver(t *testing
 	resultCh := make(chan SubmitResult, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		result, err := control.AwaitSubmitWithTimeout(context.Background(), "await_1", 0)
+		result, err := control.AwaitSubmitIndefinitely(context.Background(), "await_1")
 		if err != nil {
 			errCh <- err
 			return
@@ -186,7 +186,7 @@ func TestRunControlAwaitSubmitNoTimeoutRemainsInfiniteWithoutObserver(t *testing
 
 	select {
 	case err := <-errCh:
-		t.Fatalf("did not expect timeout=0 wait to expire: %v", err)
+		t.Fatalf("did not expect indefinite wait to expire: %v", err)
 	case result := <-resultCh:
 		t.Fatalf("did not expect awaiting to resolve before submit: %#v", result)
 	case <-time.After(80 * time.Millisecond):
