@@ -1,6 +1,6 @@
 # agent-platform
 
-本仓库是 `agent-platform` 的 Go 版运行时实现，当前以 Java runtime 的 `.env` / `application.yml` 契约为事实源，支持目录驱动的 agents / teams / skills catalog、带隐藏协调器的 orchestrated Team、JWT 鉴权、resource ticket、chat 文件落盘、memory learn、Container Hub sandbox，以及最小 OpenAI 协议模型与 backend tool loop。
+本仓库是 `agent-platform` 的 Go 版运行时实现，当前以 Java runtime 的 `.env` / `application.yml` 契约为事实源，支持目录驱动的 agents / teams / skills catalog、带隐藏协调器的 orchestrated Team、JWT 鉴权、resource ticket、chat 文件落盘、memory learn、Container Hub sandbox、LanceDB 本地混合检索 KBASE，以及最小 OpenAI 协议模型与 backend tool loop。
 
 > 项目事实、架构与开发约束见 [AGENTS.md](./AGENTS.md)，补充说明见 [docs/](./docs)。
 
@@ -60,6 +60,7 @@
 ### 前置要求
 
 - Go 1.22 或更新版本
+- Rust 1.91、Cargo 与 `protoc`（仅源码开发和本机 sidecar 构建需要；正式安装包不要求用户安装这些工具）
 - Docker / Docker Compose（如需容器运行）
 - 可用的 provider / model 注册文件（放在 `runtime/registries/`）
 - 相邻的 `../agent-platform-builtins/{ripgrep,dbx,httpx}` 本地产物仓库集合；可用绝对路径环境变量 `BUILTINS_ROOT` 覆盖
@@ -71,7 +72,7 @@ cp .env.example .env
 make run
 ```
 
-`make run` 会先构建本机 release 镜像目录、校验并装入 rg/dbx/httpx，再加载根目录 `.env` 并从 `release-local/backend/agent-platform` 启动；未设置 `SERVER_PORT` 时默认监听 `11949`。内置程序位于 `release-local/bin/`，本机插件位于 `release-local/plugins/`。直接执行 `go run ./cmd/agent-platform` 不会自动加载 `.env`、装入 builtins 或扫描 `release-local/plugins/`；未设置 `SERVER_PORT` 或 `--port` 时应用代码默认监听 `8080`。
+`make run` 会先构建本机 release 镜像目录、校验并装入 rg/dbx/httpx；若存在 `kbase-lance-engine` artifact 也会一并装入，再加载根目录 `.env` 并从 `release-local/backend/agent-platform` 启动。未设置 `SERVER_PORT` 时默认监听 `11949`。sidecar 默认从 `dist/kbase-lance-engine/<os>-<arch>/` 读取，也可通过 `KBASE_LANCE_ENGINE_URL` 与 `KBASE_LANCE_ENGINE_SHA256` 直接下载并校验；源码构建需先运行 `make build-kbase-lance-engine`。本地 artifact 缺失时会告警但继续，非 KBASE 或 SQLite 模式仍可开发；正式 release 仍强制要求 sidecar。内置程序位于 `release-local/bin/`，本机插件位于 `release-local/plugins/`。直接执行 `go run ./cmd/agent-platform` 不会自动加载 `.env`、装入 builtins 或扫描 `release-local/plugins/`；未设置 `SERVER_PORT` 或 `--port` 时应用代码默认监听 `8080`。
 
 也可以显式拆开构建与启动：
 
@@ -80,7 +81,7 @@ make build-local
 make run-local
 ```
 
-`make build-local` 会把 runtime 写到 `release-local/backend/agent-platform`，按 `scripts/release-assets/builtins.lock.json` 把对应平台的 rg/dbx/httpx 写到 `release-local/bin/`，并创建本机插件目录 `release-local/plugins/`。builtins 缺失或 SHA-256 不匹配时构建失败。由于 runtime 位于 `backend/` 下，启动时只扫描服务包根目录的 `plugins/`，与 Desktop 服务包形态一致。`runtime/` 仍只用于 agents、chats、skills-market、registries、memory 等运行数据。
+`make build-local` 会把 runtime 写到 `release-local/backend/agent-platform`，按 `scripts/release-assets/builtins.lock.json` 把对应平台的 rg/dbx/httpx 写到 `release-local/bin/`，并在 sidecar artifact 可用时装入 `kbase-lance-engine`；锁定 builtins 缺失或 SHA-256 不匹配时构建失败。由于 runtime 位于 `backend/` 下，启动时只扫描服务包根目录的 `plugins/`，与 Desktop 服务包形态一致。`runtime/` 仍只用于 agents、chats、skills-market、registries、memory 等运行数据。
 
 常用验证：
 
@@ -321,13 +322,15 @@ Container Hub 默认基础挂载当前最多 7 个：
 make release-program
 ```
 
-产物写入 `dist/release/`，包含 Go runtime、配置模板、启停脚本、`bin/{rg,dbx,httpx}`、builtins manifest 和 ripgrep 许可证。Desktop 宿主集成时执行资源同步：
+产物写入 `dist/release/`，包含纯 Go runtime、配置模板、启停脚本、`bin/{rg,dbx,httpx,kbase-lance-engine}`、builtins manifest、许可证 notice、压缩包 SHA-256 与大小报告。sidecar 需要先为目标平台生成带校验文件的 release artifact；完整的六平台命令和直接下载入口见打包文档。Desktop 宿主集成时执行资源同步：
 
 ```bash
 npm run sync:assets
 ```
 
 完整打包细节见 [版本化打包方案](./docs/版本化打包方案.md)。
+
+KBASE 的 generation、SQLite 控制面、旧库迁移、影子验证和回滚语义见 [KBASE LanceDB 迁移与运维](./docs/KBASE-LanceDB迁移.md)。当前 KBASE 仍只生成文本 chunk 与文本 embedding，不宣称具备图片、音频或视频语义检索。
 
 ## 5. 运维
 

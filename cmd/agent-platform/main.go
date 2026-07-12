@@ -29,6 +29,13 @@ type shutdownServer interface {
 }
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "healthcheck" {
+		if err := runHealthcheck(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	startedAt := time.Now()
 	log.Printf("starting runtime: pid=%d", os.Getpid())
 	if binDir, err := builtins.ConfigureProcessPath(); err != nil {
@@ -88,6 +95,29 @@ func main() {
 		log.Printf("shutdown: %v", err)
 	}
 	log.Printf("shutdown complete in %s", startupElapsed(shutdownStartedAt))
+}
+
+func runHealthcheck() error {
+	port := strings.TrimSpace(os.Getenv("SERVER_PORT"))
+	if port == "" {
+		port = "8080"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:"+port+"/healthz", nil)
+	if err != nil {
+		return err
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return fmt.Errorf("runtime health probe failed: %w", err)
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1<<20))
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("runtime health probe returned %s", response.Status)
+	}
+	return nil
 }
 
 func parseConfigOptions(args []string) (config.LoadOptions, error) {

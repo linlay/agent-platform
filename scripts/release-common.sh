@@ -45,6 +45,60 @@ require_release_tools() {
   command -v go >/dev/null 2>&1 || die "go is required"
 }
 
+sha256_file() {
+  local path="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$path" | awk '{print $1}'
+    return
+  fi
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$path" | awk '{print $1}'
+    return
+  fi
+  die "sha256sum or shasum is required"
+}
+
+write_release_checksum() {
+  local path="$1"
+  local digest
+  digest="$(sha256_file "$path")"
+  printf '%s  %s\n' "$digest" "$(basename "$path")" >"$path.sha256"
+}
+
+write_release_size_report() {
+  local dest="$1"
+  local backend="$2"
+  local sidecar="$3"
+  local archive="$4"
+  local backend_bytes
+  local sidecar_bytes
+  local archive_bytes
+  backend_bytes="$(wc -c <"$backend" | tr -d '[:space:]')"
+  sidecar_bytes="$(wc -c <"$sidecar" | tr -d '[:space:]')"
+  archive_bytes="$(wc -c <"$archive" | tr -d '[:space:]')"
+  cat >"$dest" <<EOF
+{
+  "backendBytes": $backend_bytes,
+  "sidecarBytes": $sidecar_bytes,
+  "archiveBytes": $archive_bytes
+}
+EOF
+}
+
+write_release_sbom() {
+  local source_dir="$1"
+  local dest="$2"
+  rm -f "$dest"
+  if command -v syft >/dev/null 2>&1; then
+    syft "dir:$source_dir" -o "cyclonedx-json=$dest"
+    return
+  fi
+  if [[ "${REQUIRE_RELEASE_SBOM:-0}" == "1" ]]; then
+    die "Syft is required because REQUIRE_RELEASE_SBOM=1"
+  fi
+  echo "[release] Syft not found; bundle SBOM hook skipped (set REQUIRE_RELEASE_SBOM=1 in release CI)" >&2
+}
+
 resolve_release_context() {
   VERSION="${VERSION:-$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "dev")}"
   [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "VERSION must match vX.Y.Z (got: $VERSION)"
@@ -173,6 +227,7 @@ write_program_manifest() {
   local stop_script="stop.sh"
   local deploy_script="deploy.sh"
   local program_common="scripts/program-common.sh"
+  local sidecar_entry="bin/kbase-lance-engine"
   local error_log_json=""
 
   if [[ "$target_os" == "windows" ]]; then
@@ -180,6 +235,7 @@ write_program_manifest() {
     stop_script="stop.ps1"
     deploy_script="deploy.ps1"
     program_common="scripts/program-common.ps1"
+    sidecar_entry="bin/kbase-lance-engine.exe"
     error_log_json='    "errorLogRelativePath": "run/agent-platform.stderr.log",'
   fi
 
@@ -290,6 +346,7 @@ write_program_manifest() {
 ${error_log_json}
     "requiredPaths": [
       "$backend_entry",
+      "$sidecar_entry",
       "$start_script",
       "$stop_script",
       "$deploy_script",

@@ -318,16 +318,58 @@ HITL 三态细节见 [HITL协议](HITL协议.md)。真流式、heartbeat、attac
 
 ### KBASE
 
-KBASE API 只接受 `mode: KBASE` agent；非 KBASE agent 会返回 forbidden/unsupported。手工 refresh 与运行时工具 `kbase_refresh` 调用同一个后端入口。KBASE 的 search/files/read/status 工具声明为只读，BTW/read-only policy 下仍可使用；refresh 是变更索引状态的操作，在只读 policy 下禁用。agent catalog 热重载完成后会立即重绑相应 workspace watcher；agent 删除或 workspace/config 变化不会继续沿用旧 watcher，周期 reconcile 仅作为兜底。
+KBASE API 只接受 `mode: KBASE` agent；非 KBASE agent 会返回 forbidden/unsupported。手工 refresh 与运行时工具 `kbase_refresh` 调用同一个后端入口。KBASE 的 search/files/read/status 工具声明为只读，BTW/read-only policy 下仍可使用；refresh 是变更索引状态的操作，在只读 policy 下禁用。五个 KBASE tool 名称、REST 路径、`SearchHit`、chunk ID 和 `source.publish` 契约不因 SQLite/LanceDB engine 变化。agent catalog 热重载完成后会立即重绑相应 workspace watcher；agent 删除或 workspace/config 变化不会继续沿用旧 watcher，周期 reconcile 仅作为兜底。
 
 KBASE agent 在运行时调用 `kbase_search` 且召回到内容时，会额外通过 live stream 发布 `source.publish` 事件。事件包含 `kind: "kbase"`、`query`、`sourceCount`、`chunkCount` 与按 source 聚合的 `sources[].chunks[]`，chunk 可携带 `path`、行号、页码、slide、`sourceType`、`matchType`、`score` 等定位字段；新写入的 chat JSONL 会把该事件作为对应 `react-tool` step 的顶层 `sources.items[]` sidecar 持久化，`/api/chat` replay 时再合成 `source.publish` 事件并保留原始 `liveSeq`，供时间线与 `/api/attach.lastSeq` 使用。历史 JSONL 中独立 `_type:"event"` 的 `source.publish` 仍保持可回放。
 
-KBASE 工具只读取索引库，不直接访问宿主文件系统。`kbase_search` 支持 `pathPrefix`、`pathGlob`、`type` 与 `offset` 做 scoped retrieval；`kbase_files` 支持按 `path`、`pattern`、`status`、`type`、`mode=files|tree`、`depth`、`head_limit`、`offset` 浏览已索引/已扫描文件元数据。
+KBASE 工具只读取 active 索引库，不直接访问宿主文件系统。`kbase_search` 支持 `pathPrefix`、`pathGlob`、`type` 与 `offset` 做 scoped retrieval；`kbase_files` 支持按 `path`、`pattern`、`status`、`type`、`mode=files|tree`、`depth`、`head_limit`、`offset` 浏览已索引/已扫描文件元数据。Lance 路径并行取 vector 与 FTS 候选并使用加权 RRF 融合；`matchType` 为 `vector|fts|hybrid`，score 归一化到 `[0,1]`。`matchCount` 是受 candidate 上限约束的两路去重并集数，不是全库总命中数。
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
-| GET | `/api/kbase/{agentKey}/status` | 无 | 当前索引状态，包含 `indexing`、`stale`、`lastIndexedAt`、文件数、chunk 数、embedding、chunk 配置与 storage |
-| POST | `/api/kbase/{agentKey}/refresh` | body: `force` 可选 | refresh 结果，包含扫描文件数、变更文件数、删除文件数、索引 chunk 数与错误信息 |
+| GET | `/api/kbase/{agentKey}/status` | 无 | 当前索引状态；原字段保留，Lance 路径可增加 `engine/schemaVersion/generation/migration/indexes/sidecar/legacyAvailable/pendingRecoveryOperations/storageDiskUsage` |
+| POST | `/api/kbase/{agentKey}/refresh` | body: `force` 可选 | refresh 结果，包含扫描文件数、变更文件数、删除文件数、索引 chunk 数与错误信息；Lance 下 `force=true` 构建新 generation |
+
+status 中 Lance 字段是可选扩展，旧客户端可忽略：
+
+```json
+{
+  "engine": "lancedb",
+  "schemaVersion": "3",
+  "generation": {
+    "id": "kbg_...",
+    "state": "active",
+    "tableVersion": 12,
+    "createdAt": 0,
+    "activatedAt": 0
+  },
+  "migration": {
+    "state": "active",
+    "progress": 1,
+    "importedFiles": 640,
+    "totalFiles": 640,
+    "importedChunks": 10315,
+    "totalChunks": 10315
+  },
+  "indexes": {
+    "fts": {"type": "FTS/ICU", "ready": true},
+    "vector": {"type": "flat", "ready": true, "unindexedRows": 0},
+    "lastOptimizedAt": 0
+  },
+  "sidecar": {
+    "available": true,
+    "protocolVersion": 1,
+    "engineVersion": "1.0.0",
+    "lancedbVersion": "0.30.0"
+  },
+  "legacyAvailable": true,
+  "pendingRecoveryOperations": 0,
+  "storageDiskUsage": 0
+}
+```
+
+`storage.engine: auto` 在没有 active Lance generation 时继续用 SQLite，并在 refresh 后尝试迁移；`lancedb` 要求 generation/sidecar 就绪；`sqlite` 是紧急回滚。generation 构建、建索引或验证失败时 active generation 不会被替换。当前没有新增公开的 generation rollback REST 路由；SQLite 回滚通过配置并重启/refresh 完成，Lance generation 原子回滚能力保留在 KBASE Manager 内部。
+
+容器与本地进程探活使用免鉴权 `GET /healthz`。它不返回用户数据：始终检查 Go HTTP runtime；存在非 SQLite KBASE agent 时，还通过 Go 内部持有的 Bearer token 检查 sidecar protocol handshake。sidecar 必需但不可用时返回 HTTP 503。
 
 refresh 示例：
 

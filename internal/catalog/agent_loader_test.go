@@ -960,6 +960,13 @@ func TestParseAgentFileKBaseDefaultsAndConfig(t *testing.T) {
 		"    overlapChars: 100\n" +
 		"  retrieval:\n" +
 		"    topK: 3\n" +
+		"    fusion: rrf\n" +
+		"    rrfK: 48\n" +
+		"    vectorWeight: 0.6\n" +
+		"    ftsWeight: 0.4\n" +
+		"    candidateFloor: 20\n" +
+		"    candidateMultiplier: 5\n" +
+		"    candidateMax: 200\n" +
 		"memoryConfig:\n" +
 		"  enabled: true\n" +
 		"  managementTools: true\n"
@@ -995,8 +1002,36 @@ func TestParseAgentFileKBaseDefaultsAndConfig(t *testing.T) {
 		def.KBaseConfig.Chunk.OverlapChars != 100 {
 		t.Fatalf("unexpected chunk config: %#v", def.KBaseConfig.Chunk)
 	}
-	if def.KBaseConfig.Retrieval.TopK != 3 {
+	if def.KBaseConfig.Retrieval.TopK != 3 || def.KBaseConfig.Retrieval.Fusion != agentkbase.RetrievalFusionRRF ||
+		def.KBaseConfig.Retrieval.RRFK != 48 || def.KBaseConfig.Retrieval.VectorWeight != 0.6 ||
+		def.KBaseConfig.Retrieval.FTSWeight != 0.4 || def.KBaseConfig.Retrieval.CandidateFloor != 20 ||
+		def.KBaseConfig.Retrieval.CandidateMultiplier != 5 || def.KBaseConfig.Retrieval.CandidateMax != 200 {
 		t.Fatalf("unexpected retrieval config: %#v", def.KBaseConfig.Retrieval)
+	}
+}
+
+func TestParseAgentFileRejectsInvalidKBaseRetrievalConfig(t *testing.T) {
+	workspace := t.TempDir()
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: docs\n" +
+		"mode: KBASE\n" +
+		"modelConfig:\n" +
+		"  modelKey: mock-model\n" +
+		"runtimeConfig:\n" +
+		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
+		"kbaseConfig:\n" +
+		"  retrieval:\n" +
+		"    topK: 8\n" +
+		"    vectorWeight: 0\n" +
+		"    ftsWeight: 0\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	if _, err := parseAgentFile(path); err == nil || !strings.Contains(err.Error(), "not both zero") {
+		t.Fatalf("expected invalid KBASE retrieval config error, got %v", err)
 	}
 }
 

@@ -104,6 +104,7 @@
     "__ERROR_LOG_LINE__": "__ERROR_LOG_LINE__",
     "requiredPaths": [
       "__BACKEND_ENTRY__",
+      "__SIDECAR_ENTRY__",
       "__START_SCRIPT__",
       "__STOP_SCRIPT__",
       "__DEPLOY_SCRIPT__",

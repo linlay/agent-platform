@@ -1,7 +1,10 @@
 package main
 
 import (
+	"net"
+	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -19,6 +22,26 @@ func TestParseConfigOptions(t *testing.T) {
 	}
 	if options.Port != "7078" {
 		t.Fatalf("expected port 7078, got %q", options.Port)
+	}
+}
+
+func TestRunHealthcheckCallsLoopbackHealthEndpoint(t *testing.T) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/healthz" {
+			t.Fatalf("health path = %q", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+	})}
+	go server.Serve(listener)
+	t.Cleanup(func() { _ = server.Close() })
+	port := strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
+	t.Setenv("SERVER_PORT", port)
+	if err := runHealthcheck(); err != nil {
+		t.Fatalf("runHealthcheck: %v", err)
 	}
 }
 

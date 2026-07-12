@@ -1,0 +1,15 @@
+.git
+.gitignore
+.DS_Store
+**/.DS_Store
+**/target
+dist
+release-local
+runtime
+run
+chats
+memory
+pan
+logs
+*.log
+.env

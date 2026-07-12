@@ -530,7 +530,7 @@ func (s *Store) SearchFTS(query string, scope pathScope, limit int) ([]ftsHit, e
 		FROM KBASE_CHUNKS_FTS fts
 		JOIN KBASE_CHUNKS c ON c.rowid = fts.rowid
 		WHERE KBASE_CHUNKS_FTS MATCH ?
-		ORDER BY score`
+		ORDER BY score, c.PATH_, c.START_LINE_, c.ID_`
 	args := []any{matchExpr}
 	if !scope.active() && limit > 0 {
 		sqlText += ` LIMIT ?`
@@ -565,7 +565,8 @@ func (s *Store) searchLike(query string, scope pathScope, limit int) ([]ftsHit, 
 			SOURCE_TYPE_, PAGE_START_, PAGE_END_, SLIDE_START_, SLIDE_END_, LOCATOR_JSON_,
 			CONTENT_, CONTENT_HASH_, EMBEDDING_, EMBEDDING_MODEL_, EMBEDDING_DIMENSION_, UPDATED_AT_, 1.0
 		FROM KBASE_CHUNKS
-		WHERE PATH_ LIKE ? OR HEADING_ LIKE ? OR CONTENT_ LIKE ?`
+		WHERE PATH_ LIKE ? OR HEADING_ LIKE ? OR CONTENT_ LIKE ?
+		ORDER BY PATH_, START_LINE_, ID_`
 	args := []any{pattern, pattern, pattern}
 	if !scope.active() && limit > 0 {
 		sqlText += ` LIMIT ?`

@@ -76,6 +76,34 @@ func EnsureBinInEnv(env []string) []string {
 	return filtered
 }
 
+// ResolveProcessBuiltin returns a locked builtin from the configured bundle
+// bin directory. It deliberately does not consult PATH so a same-named user
+// executable cannot replace a platform-distributed helper process.
+func ResolveProcessBuiltin(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || filepath.Base(name) != name {
+		return "", errors.New("builtin name must be a filename")
+	}
+	if runtime.GOOS == "windows" && !strings.HasSuffix(strings.ToLower(name), ".exe") {
+		name += ".exe"
+	}
+	processBinState.RLock()
+	binDir := processBinState.dir
+	processBinState.RUnlock()
+	if binDir == "" {
+		return "", os.ErrNotExist
+	}
+	path := filepath.Join(binDir, name)
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if info.IsDir() {
+		return "", errors.New("builtin path is a directory")
+	}
+	return path, nil
+}
+
 func prependPath(binDir string, current string) string {
 	parts := filepath.SplitList(current)
 	filtered := make([]string, 0, len(parts)+1)

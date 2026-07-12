@@ -28,5 +28,14 @@ func KindOf(err error) ErrorKind {
 	if errors.As(err, &policyErr) {
 		return policyErr.Kind
 	}
+	var engineErr *LanceEngineError
+	if errors.As(err, &engineErr) {
+		switch engineErr.Code {
+		case "invalid_request", "dimension_mismatch", "query_invalid":
+			return ErrorInvalid
+		default:
+			return ErrorUnavailable
+		}
+	}
 	return ErrorInvalid
 }

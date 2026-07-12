@@ -29,6 +29,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if s.handleCORS(w, r) {
 		return
 	}
+	// Container/local liveness must remain callable when API auth is enabled.
+	// It returns no user data and performs the token-authenticated sidecar probe
+	// internally when Lance KBASE is required.
+	if r.URL.Path == "/healthz" {
+		s.router.ServeHTTP(w, r)
+		return
+	}
 	w = &localizedResponseWriter{
 		ResponseWriter: w,
 		locale: i18n.LocaleFromHTTP(
@@ -292,6 +299,7 @@ func chatSourceFromContext(ctx context.Context) string {
 }
 
 func (s *Server) routes() {
+	s.router.HandleFunc("/healthz", s.method(http.MethodGet, s.handleHealth))
 	s.router.HandleFunc("/monitor", s.handleMonitorPage)
 	s.router.HandleFunc("/monitor/", s.handleMonitorAsset)
 	s.router.HandleFunc("/api/agents", s.method(http.MethodGet, s.handleAgents))

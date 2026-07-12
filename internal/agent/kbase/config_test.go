@@ -20,7 +20,14 @@ func TestParseAgentConfigDefaultsLegacyCharsAndAliases(t *testing.T) {
 		defaults.Chunk.Unit != ChunkUnitEstimatedTokens ||
 		defaults.Chunk.MaxTokens != 1000 ||
 		defaults.Chunk.OverlapTokens != 100 ||
-		defaults.Retrieval.TopK != 8 {
+		defaults.Retrieval.TopK != 8 ||
+		defaults.Retrieval.Fusion != RetrievalFusionRRF ||
+		defaults.Retrieval.RRFK != 60 ||
+		defaults.Retrieval.VectorWeight != 0.7 ||
+		defaults.Retrieval.FTSWeight != 0.3 ||
+		defaults.Retrieval.CandidateFloor != 30 ||
+		defaults.Retrieval.CandidateMultiplier != 4 ||
+		defaults.Retrieval.CandidateMax != 500 {
 		t.Fatalf("unexpected defaults: %#v", defaults)
 	}
 	if !reflect.DeepEqual(defaults.Include, DefaultIncludePatterns()) || !reflect.DeepEqual(defaults.Exclude, DefaultExcludePatterns()) {
@@ -30,9 +37,14 @@ func TestParseAgentConfigDefaultsLegacyCharsAndAliases(t *testing.T) {
 	legacy, err := ParseAgentConfig(map[string]any{
 		"chunk": map[string]any{"max-chars": 3200, "overlap-chars": 320},
 		"retrieval": map[string]any{
-			"top-k":         12,
-			"vector-weight": 0.6,
-			"fts-weight":    0.4,
+			"top-k":                12,
+			"fusion":               "RRF",
+			"rrf-k":                42,
+			"vector-weight":        0.6,
+			"fts-weight":           0.4,
+			"candidate-floor":      24,
+			"candidate-multiplier": 5,
+			"candidate-max":        240,
 		},
 	})
 	if err != nil {
@@ -42,25 +54,71 @@ func TestParseAgentConfigDefaultsLegacyCharsAndAliases(t *testing.T) {
 		legacy.Chunk.MaxTokens != 0 || legacy.Chunk.OverlapTokens != 0 {
 		t.Fatalf("legacy char config changed: %#v", legacy.Chunk)
 	}
-	if legacy.Retrieval.TopK != 12 || legacy.Retrieval.VectorWeight != 0.6 || legacy.Retrieval.FTSWeight != 0.4 {
+	if legacy.Retrieval.TopK != 12 || legacy.Retrieval.Fusion != RetrievalFusionRRF || legacy.Retrieval.RRFK != 42 ||
+		legacy.Retrieval.VectorWeight != 0.6 || legacy.Retrieval.FTSWeight != 0.4 ||
+		legacy.Retrieval.CandidateFloor != 24 || legacy.Retrieval.CandidateMultiplier != 5 || legacy.Retrieval.CandidateMax != 240 {
 		t.Fatalf("retrieval aliases changed: %#v", legacy.Retrieval)
 	}
 
 	dualWritten, err := ParseAgentConfig(map[string]any{
 		"retrieval": map[string]any{
-			"topK":          7,
-			"top-k":         13,
-			"vectorWeight":  0.8,
-			"vector-weight": 0.55,
-			"ftsWeight":     0.2,
-			"fts-weight":    0.45,
+			"topK":                 7,
+			"top-k":                13,
+			"rrfK":                 61,
+			"rrf-k":                62,
+			"vectorWeight":         0.8,
+			"vector-weight":        0.55,
+			"ftsWeight":            0.2,
+			"fts-weight":           0.45,
+			"candidateFloor":       30,
+			"candidate-floor":      31,
+			"candidateMultiplier":  4,
+			"candidate-multiplier": 6,
+			"candidateMax":         500,
+			"candidate-max":        600,
 		},
 	})
 	if err != nil {
 		t.Fatalf("parse dual-written retrieval config: %v", err)
 	}
-	if dualWritten.Retrieval.TopK != 13 || dualWritten.Retrieval.VectorWeight != 0.55 || dualWritten.Retrieval.FTSWeight != 0.45 {
+	if dualWritten.Retrieval.TopK != 13 || dualWritten.Retrieval.RRFK != 62 ||
+		dualWritten.Retrieval.VectorWeight != 0.55 || dualWritten.Retrieval.FTSWeight != 0.45 ||
+		dualWritten.Retrieval.CandidateFloor != 31 || dualWritten.Retrieval.CandidateMultiplier != 6 || dualWritten.Retrieval.CandidateMax != 600 {
 		t.Fatalf("legacy kebab keys must retain their historical override precedence: %#v", dualWritten.Retrieval)
+	}
+}
+
+func TestValidateAgentRetrievalConfig(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*RetrievalConfig)
+	}{
+		{name: "topK zero", mutate: func(cfg *RetrievalConfig) { cfg.TopK = 0 }},
+		{name: "topK too high", mutate: func(cfg *RetrievalConfig) { cfg.TopK = 51 }},
+		{name: "unsupported fusion", mutate: func(cfg *RetrievalConfig) { cfg.Fusion = "linear" }},
+		{name: "rrfK zero", mutate: func(cfg *RetrievalConfig) { cfg.RRFK = 0 }},
+		{name: "rrfK too high", mutate: func(cfg *RetrievalConfig) { cfg.RRFK = 1001 }},
+		{name: "negative vector weight", mutate: func(cfg *RetrievalConfig) { cfg.VectorWeight = -0.1 }},
+		{name: "both weights zero", mutate: func(cfg *RetrievalConfig) { cfg.VectorWeight, cfg.FTSWeight = 0, 0 }},
+		{name: "candidate floor below topK", mutate: func(cfg *RetrievalConfig) { cfg.CandidateFloor = cfg.TopK - 1 }},
+		{name: "candidate multiplier zero", mutate: func(cfg *RetrievalConfig) { cfg.CandidateMultiplier = 0 }},
+		{name: "candidate max below floor", mutate: func(cfg *RetrievalConfig) { cfg.CandidateMax = cfg.CandidateFloor - 1 }},
+		{name: "candidate max too high", mutate: func(cfg *RetrievalConfig) { cfg.CandidateMax = 2001 }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := DefaultAgentConfig()
+			test.mutate(&cfg.Retrieval)
+			if err := ValidateAgentConfig(cfg); err == nil {
+				t.Fatalf("expected invalid retrieval config: %#v", cfg.Retrieval)
+			}
+		})
+	}
+
+	valid := DefaultAgentConfig()
+	valid.Retrieval.VectorWeight = 0
+	if err := ValidateAgentConfig(valid); err != nil {
+		t.Fatalf("one zero weight must remain valid: %v", err)
 	}
 }
 
@@ -75,6 +133,16 @@ func TestValidateAgentConfigSchemaRejectsRemovedEmbeddingFields(t *testing.T) {
 	}
 	if _, err := ParseAgentConfig(map[string]any{"chunk": map[string]any{"unit": "bytes"}}); err == nil {
 		t.Fatal("expected invalid chunk unit to fail")
+	}
+	for key, value := range map[string]any{
+		"topK":         2.5,
+		"rrfK":         "invalid",
+		"vectorWeight": "NaN",
+		"ftsWeight":    "invalid",
+	} {
+		if _, err := ParseAgentConfig(map[string]any{"retrieval": map[string]any{key: value}}); err == nil {
+			t.Fatalf("expected invalid retrieval field %q to fail", key)
+		}
 	}
 }
 
@@ -95,7 +163,7 @@ func TestComputeConfigHashGolden(t *testing.T) {
 		Include:   DefaultIncludePatterns(),
 		Exclude:   DefaultExcludePatterns(),
 		Chunk:     DefaultChunkConfig(),
-		Retrieval: RetrievalConfig{TopK: 8, VectorWeight: 0.7, FTSWeight: 0.3},
+		Retrieval: DefaultAgentConfig().Retrieval,
 		Extraction: ExtractionConfig{
 			Timeout:      time.Minute,
 			MaxFileBytes: 50 * 1024 * 1024,
@@ -104,7 +172,7 @@ func TestComputeConfigHashGolden(t *testing.T) {
 			PPTX:         PPTXExtractionConfig{Enabled: true, Backend: "native", IncludeNotes: true},
 		},
 	}
-	const want = "sha256:1f78cec3245c0404f7e51c3edd4b751074112589d96a4e36e7199986c172cd08"
+	const want = "sha256:a388f1acc4635cab8e1a1a6bd01694c0d8272012b0677242e5490b7e39810a1b"
 	if got := computeConfigHash(cfg); got != want {
 		t.Fatalf("config hash changed: got %q want %q", got, want)
 	}

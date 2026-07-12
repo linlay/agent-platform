@@ -11,6 +11,29 @@ embedding:
   # runtime/registries/models/*.yml model with type: embedding.
   modelKey:
 
+storage:
+  # auto keeps SQLite serving until a verified LanceDB generation is active.
+  # Use lancedb to require LanceDB or sqlite for emergency rollback.
+  engine: auto
+
+migration:
+  enabled: true
+  max-concurrency: 1
+  retain-legacy: true
+  shadow-live-percent: 10
+  max-replay-queries: 100
+
+index:
+  fts:
+    base-tokenizer: icu
+  vector:
+    ann-min-rows: 50000
+
+maintenance:
+  optimize-change-threshold: 1000
+  optimize-interval: 24h
+  version-retention: 168h
+
 refresh:
   debounce: 2s
   reconcile-interval: 10m

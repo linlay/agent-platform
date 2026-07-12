@@ -28,6 +28,9 @@ coverage.out
 /memory/
 /pan/
 
+# Workspace-local KBASE storage (control.db, snapshots, Lance generations)
+.kbase/
+
 # Local config/secrets
 .env
 /application.yaml

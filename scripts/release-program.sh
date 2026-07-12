@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Formal program bundles must carry both dependency metadata and CycloneDX
+# SBOMs. Local build/run targets use separate optional staging paths.
+export REQUIRE_KBASE_RELEASE_METADATA="${REQUIRE_KBASE_RELEASE_METADATA:-1}"
+export REQUIRE_RELEASE_SBOM="${REQUIRE_RELEASE_SBOM:-1}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROGRAM_RELEASE_ASSETS_DIR="$SCRIPT_DIR/release-assets/program"
@@ -23,6 +28,7 @@ require_file "$PROGRAM_RELEASE_ASSETS_DIR/windows/program-common.ps1"
 require_file "$PROGRAM_RELEASE_ASSETS_DIR/windows/tools.example.yml"
 require_file "$SCRIPT_DIR/release-assets/builtins.lock.json"
 require_file "$SCRIPT_DIR/stage-builtins.sh"
+require_file "$SCRIPT_DIR/stage-kbase-lance-engine.sh"
 require_file "$REPO_ROOT/.env.example"
 require_dir "$REPO_ROOT/configs"
 cd "$REPO_ROOT"
@@ -51,6 +57,8 @@ build_program_bundle() {
   local scripts_dir
   local backend_path
   local backend_entry
+  local sidecar_name="kbase-lance-engine"
+  local sidecar_path
 
   binary_name="$(binary_name_for_os "$target_os")"
   archive_format="$(archive_format_for_os "$target_os")"
@@ -67,6 +75,10 @@ build_program_bundle() {
   scripts_dir="$bundle_root/scripts"
   backend_path="$backend_dir/$binary_name"
   backend_entry="backend/$binary_name"
+  if [[ "$target_os" == "windows" ]]; then
+    sidecar_name+=".exe"
+  fi
+  sidecar_path="$bundle_root/bin/$sidecar_name"
 
   mkdir -p "$backend_dir" "$scripts_dir" "$bundle_root/configs"
 
@@ -84,6 +96,10 @@ build_program_bundle() {
     cp "$PROGRAM_RELEASE_ASSETS_DIR/windows/tools.example.yml" "$bundle_root/configs/tools.example.yml"
   fi
   "$SCRIPT_DIR/stage-builtins.sh" \
+    --output "$bundle_root" \
+    --os "$target_os" \
+    --arch "$target_arch"
+  "$SCRIPT_DIR/stage-kbase-lance-engine.sh" \
     --output "$bundle_root" \
     --os "$target_os" \
     --arch "$target_arch"
@@ -108,6 +124,9 @@ build_program_bundle() {
 
   mkdir -p "$RELEASE_DIR"
   archive_bundle_dir "$stage_root" "$APP_NAME" "$bundle_archive" "$archive_format"
+  write_release_checksum "$bundle_archive"
+  write_release_size_report "$bundle_archive.sizes.json" "$backend_path" "$sidecar_path" "$bundle_archive"
+  write_release_sbom "$bundle_root" "$bundle_archive.sbom.cdx.json"
 
   echo "[release] done: $bundle_archive"
 }

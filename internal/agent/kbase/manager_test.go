@@ -300,6 +300,45 @@ func TestManagerResolveUsesKBaseEmbeddingModelKey(t *testing.T) {
 	}
 }
 
+func TestEmbedderForRetrievalUsesGenerationSnapshot(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "docs")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	registry := newKBaseTestModelRegistry(t, root, testEmbeddingHandler(t, nil))
+	agent := testKBaseAgent("docs", workspace, "runtime")
+	manager := NewManager(ManagerOptions{RuntimeDir: filepath.Join(root, "runtime")},
+		stubAgentSource{agents: map[string]AgentSpec{"docs": agent}}, registry)
+	cfg, _, err := manager.resolve("docs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg = resolvedLanceConfig(cfg)
+	generation := newGeneration(cfg)
+	control, err := OpenControlStore(cfg.StorageDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := control.CreateGeneration(context.Background(), generation); err != nil {
+		t.Fatal(err)
+	}
+	_ = control.Close()
+
+	// Simulate a blue-generation config change while the old generation is
+	// still active. Query embedding must remain in the old vector space.
+	cfg.Embedding.Model = "new-model"
+	cfg.Embedding.Dimension = 99
+	fallback := NewEmbedder("http://invalid", "", "new-model", 99, 1)
+	embedder, dimension, err := manager.embedderForRetrieval(context.Background(), cfg, generation.ID, fallback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if embedder == fallback || embedder.Model != generation.EmbeddingModel || dimension != generation.EmbeddingDimension {
+		t.Fatalf("generation embedder=%#v dimension=%d, generation=%#v", embedder, dimension, generation)
+	}
+}
+
 func TestManagerResolveRejectsNonEmbeddingModelKey(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "docs")
@@ -608,6 +647,78 @@ func TestManagerStaleSearchQueuesSingleRefresh(t *testing.T) {
 	if got := embeddingRequests.Load(); got != 1 {
 		t.Fatalf("embedding request count = %d, want 1", got)
 	}
+}
+
+func TestSQLiteRollbackBlocksFrozenReadAndFilesUntilRefresh(t *testing.T) {
+	var block atomic.Bool
+	refreshStarted := make(chan struct{}, 1)
+	releaseRefresh := make(chan struct{})
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if block.Load() {
+			select {
+			case refreshStarted <- struct{}{}:
+			default:
+			}
+			<-releaseRefresh
+		}
+		inputs := decodeEmbeddingInputs(t, r)
+		writeEmbeddingResponse(w, inputs)
+	}
+	root := t.TempDir()
+	models := newKBaseTestModelRegistry(t, root, handler)
+	workspace := filepath.Join(root, "docs")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	document := filepath.Join(workspace, "alpha.md")
+	if err := os.WriteFile(document, []byte("alpha legacy content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	agent := testKBaseAgent("docs", workspace, "runtime")
+	manager := NewManager(ManagerOptions{RuntimeDir: filepath.Join(root, "runtime"), StorageEngine: "sqlite"},
+		stubAgentSource{agents: map[string]AgentSpec{"docs": agent}}, models)
+	defer manager.Close(context.Background())
+	if _, err := manager.Refresh(context.Background(), "docs", RefreshOptions{Mode: "seed"}); err != nil {
+		t.Fatal(err)
+	}
+	seeded, err := manager.Search(context.Background(), "docs", "alpha", SearchOptions{Limit: 1})
+	if err != nil || len(seeded.Results) != 1 {
+		t.Fatalf("seeded search=%#v err=%v", seeded, err)
+	}
+	if err := os.WriteFile(document, []byte("alpha changed after Lance activation"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	storageDir := filepath.Join(root, "runtime", "docs")
+	control, err := OpenControlStore(storageDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := control.SetMeta(context.Background(), "legacyNeedsRefresh", "true"); err != nil {
+		t.Fatal(err)
+	}
+	_ = control.Close()
+	block.Store(true)
+
+	read, err := manager.Read("docs", ReadOptions{ChunkID: seeded.Results[0].ChunkID})
+	if err != nil || read.Found {
+		t.Fatalf("rollback read exposed frozen chunk: %#v err=%v", read, err)
+	}
+	select {
+	case <-refreshStarted:
+	case <-time.After(2 * time.Second):
+		close(releaseRefresh)
+		t.Fatal("rollback refresh did not start")
+	}
+	files, err := manager.Files("docs", FilesOptions{Mode: "files"})
+	if err != nil || files.MatchCount != 0 || len(files.Results) != 0 {
+		close(releaseRefresh)
+		t.Fatalf("rollback files exposed frozen metadata: %#v err=%v", files, err)
+	}
+	close(releaseRefresh)
+	waitFor(t, 3*time.Second, func() bool {
+		status, statusErr := manager.Status("docs")
+		return statusErr == nil && !status.Stale
+	})
 }
 
 func TestManagerRefreshSearchReadAndIgnoreKBaseDir(t *testing.T) {

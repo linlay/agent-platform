@@ -51,6 +51,23 @@ func kbaseManagerOptions(cfg config.Config) kbase.ManagerOptions {
 		DefaultEmbeddingModelKey: cfg.KBase.Embedding.ModelKey,
 		RefreshDebounce:          cfg.KBase.Refresh.Debounce,
 		ReconcileInterval:        cfg.KBase.Refresh.ReconcileInterval,
+		StorageEngine:            cfg.KBase.Storage.Engine,
+		Migration: kbase.MigrationOptions{
+			Enabled:           cfg.KBase.Migration.Enabled,
+			MaxConcurrency:    cfg.KBase.Migration.MaxConcurrency,
+			RetainLegacy:      cfg.KBase.Migration.RetainLegacy,
+			ShadowLivePercent: cfg.KBase.Migration.ShadowLivePercent,
+			MaxReplayQueries:  cfg.KBase.Migration.MaxReplayQueries,
+		},
+		Index: kbase.IndexOptions{
+			FTSBaseTokenizer: cfg.KBase.Index.FTS.BaseTokenizer,
+			ANNMinRows:       cfg.KBase.Index.Vector.ANNMinRows,
+		},
+		Maintenance: kbase.MaintenanceOptions{
+			OptimizeChangeThreshold: cfg.KBase.Maintenance.OptimizeChangeThreshold,
+			OptimizeInterval:        cfg.KBase.Maintenance.OptimizeInterval,
+			VersionRetention:        cfg.KBase.Maintenance.VersionRetention,
+		},
 		Extraction: kbase.ExtractionConfig{
 			Timeout:      extraction.Timeout,
 			MaxFileBytes: extraction.MaxFileBytes,

@@ -5,7 +5,19 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func assertKBaseLanceDefaults(t *testing.T, cfg KBaseConfig) {
+	t.Helper()
+	if cfg.Storage.Engine != "auto" || !cfg.Migration.Enabled || cfg.Migration.MaxConcurrency != 1 ||
+		!cfg.Migration.RetainLegacy || cfg.Migration.ShadowLivePercent != 10 || cfg.Migration.MaxReplayQueries != 100 ||
+		cfg.Index.FTS.BaseTokenizer != "icu" || cfg.Index.Vector.ANNMinRows != 50000 ||
+		cfg.Maintenance.OptimizeChangeThreshold != 1000 || cfg.Maintenance.OptimizeInterval != 24*time.Hour ||
+		cfg.Maintenance.VersionRetention != 168*time.Hour {
+		t.Fatalf("unexpected kbase Lance defaults: %#v", cfg)
+	}
+}
 
 func TestLoadDefaults(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
@@ -42,6 +54,7 @@ func TestLoadDefaults(t *testing.T) {
 				if cfg.KBase.Refresh.Debounce.String() != "2s" || cfg.KBase.Refresh.ReconcileInterval.String() != "10m0s" {
 					t.Fatalf("unexpected kbase refresh defaults: %#v", cfg.KBase.Refresh)
 				}
+				assertKBaseLanceDefaults(t, cfg.KBase)
 				if cfg.KBase.Extraction.Timeout.String() != "1m0s" ||
 					cfg.KBase.Extraction.MaxFileBytes != 50*1024*1024 ||
 					!cfg.KBase.Extraction.PDF.Enabled ||
@@ -220,6 +233,23 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 		"  # Default embedding modelKey for new KBASE agents. This must reference a\n",
 		"  # runtime/registries/models/*.yml model with type: embedding.\n",
 		"  modelKey:\n",
+		"storage:\n",
+		"  engine: auto\n",
+		"migration:\n",
+		"  enabled: true\n",
+		"  max-concurrency: 1\n",
+		"  retain-legacy: true\n",
+		"  shadow-live-percent: 10\n",
+		"  max-replay-queries: 100\n",
+		"index:\n",
+		"  fts:\n",
+		"    base-tokenizer: icu\n",
+		"  vector:\n",
+		"    ann-min-rows: 50000\n",
+		"maintenance:\n",
+		"  optimize-change-threshold: 1000\n",
+		"  optimize-interval: 24h\n",
+		"  version-retention: 168h\n",
 		"refresh:\n",
 		"  debounce: 2s\n",
 		"  reconcile-interval: 10m\n",
@@ -916,6 +946,7 @@ func TestLoadKBaseSettingsMissingFileUsesDefaults(t *testing.T) {
 				if cfg.KBase.Embedding.ModelKey != "" {
 					t.Fatalf("expected empty kbase embedding config, got %#v", cfg.KBase.Embedding)
 				}
+				assertKBaseLanceDefaults(t, cfg.KBase)
 				if cfg.KBase.Extraction.Timeout.String() != "1m0s" ||
 					cfg.KBase.Extraction.MaxFileBytes != 50*1024*1024 ||
 					!cfg.KBase.Extraction.PDF.Enabled ||
@@ -937,6 +968,23 @@ func TestLoadKBaseSettingsConfigFromFile(t *testing.T) {
 			"  reasoningEffort: HIGH\n" +
 			"embedding:\n" +
 			"  modelKey: settings-embedding-model-key\n" +
+			"storage:\n" +
+			"  engine: LANCEDB\n" +
+			"migration:\n" +
+			"  enabled: false\n" +
+			"  max-concurrency: 3\n" +
+			"  retain-legacy: false\n" +
+			"  shadow-live-percent: 25\n" +
+			"  max-replay-queries: 40\n" +
+			"index:\n" +
+			"  fts:\n" +
+			"    base-tokenizer: ngram\n" +
+			"  vector:\n" +
+			"    ann-min-rows: 25000\n" +
+			"maintenance:\n" +
+			"  optimize-change-threshold: 2500\n" +
+			"  optimize-interval: 12h\n" +
+			"  version-retention: 240h\n" +
 			"refresh:\n" +
 			"  debounce: 6s\n" +
 			"extraction:\n" +
@@ -962,6 +1010,15 @@ func TestLoadKBaseSettingsConfigFromFile(t *testing.T) {
 				if cfg.KBase.Embedding.ModelKey != "settings-embedding-model-key" {
 					t.Fatalf("unexpected kbase embedding config: %#v", cfg.KBase.Embedding)
 				}
+				if cfg.KBase.Storage.Engine != "lancedb" || cfg.KBase.Migration.Enabled ||
+					cfg.KBase.Migration.MaxConcurrency != 3 || cfg.KBase.Migration.RetainLegacy ||
+					cfg.KBase.Migration.ShadowLivePercent != 25 || cfg.KBase.Migration.MaxReplayQueries != 40 ||
+					cfg.KBase.Index.FTS.BaseTokenizer != "ngram" || cfg.KBase.Index.Vector.ANNMinRows != 25000 ||
+					cfg.KBase.Maintenance.OptimizeChangeThreshold != 2500 ||
+					cfg.KBase.Maintenance.OptimizeInterval != 12*time.Hour ||
+					cfg.KBase.Maintenance.VersionRetention != 240*time.Hour {
+					t.Fatalf("unexpected kbase Lance settings: %#v", cfg.KBase)
+				}
 				if cfg.KBase.Extraction.Timeout.String() != "1m6s" ||
 					cfg.KBase.Extraction.MaxFileBytes != 6666 ||
 					!cfg.KBase.Extraction.PDF.Enabled ||
@@ -972,6 +1029,34 @@ func TestLoadKBaseSettingsConfigFromFile(t *testing.T) {
 			})
 		})
 	})
+}
+
+func TestLoadKBaseSettingsRejectsInvalidLanceConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{name: "engine", content: "storage:\n  engine: remote\n", want: "storage.engine"},
+		{name: "migration concurrency", content: "migration:\n  max-concurrency: 0\n", want: "max-concurrency"},
+		{name: "shadow percentage", content: "migration:\n  shadow-live-percent: 101\n", want: "shadow-live-percent"},
+		{name: "ann threshold", content: "index:\n  vector:\n    ann-min-rows: 999\n", want: "ann-min-rows"},
+		{name: "optimize threshold", content: "maintenance:\n  optimize-change-threshold: 0\n", want: "optimize-change-threshold"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			withIsolatedEnv(t, nil, func() {
+				withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), nil, func() {
+					withProjectFileContents(t, filepath.Join("configs", "kbase-settings.yml"), &test.content, func() {
+						_, err := Load()
+						if err == nil || !strings.Contains(err.Error(), test.want) {
+							t.Fatalf("Load() error = %v, want substring %q", err, test.want)
+						}
+					})
+				})
+			})
+		})
+	}
 }
 
 func TestLoadVisionRecognizeMissingFileDefaultsDisabled(t *testing.T) {
@@ -1620,22 +1705,36 @@ func TestLoadAcceptsAPEnvAllowlist(t *testing.T) {
 
 func TestLoadContainerHubAndBashConfigFromFiles(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
-		cfg, err := Load()
+		runtimeExample, err := os.ReadFile(ProjectFile(filepath.Join("configs", "runtime.example.yml")))
 		if err != nil {
-			t.Fatalf("load config: %v", err)
+			t.Fatalf("read runtime example: %v", err)
 		}
-		if !cfg.ContainerHub.Enabled {
-			t.Fatalf("expected container hub enabled from config file")
+		toolsExample, err := os.ReadFile(ProjectFile(filepath.Join("configs", "tools.example.yml")))
+		if err != nil {
+			t.Fatalf("read tools example: %v", err)
 		}
-		if cfg.ContainerHub.BaseURL == "" {
-			t.Fatalf("expected container hub base url")
-		}
-		if len(cfg.Bash.AllowedCommands) == 0 {
-			t.Fatalf("expected bash allowed commands from config file")
-		}
-		if cfg.Bash.MaxCommandChars <= 0 {
-			t.Fatalf("expected bash runtime limits from config file, got %#v", cfg.Bash)
-		}
+		runtimeContent := string(runtimeExample)
+		toolsContent := string(toolsExample)
+		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &runtimeContent, func() {
+			withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &toolsContent, func() {
+				cfg, loadErr := Load()
+				if loadErr != nil {
+					t.Fatalf("load config: %v", loadErr)
+				}
+				if !cfg.ContainerHub.Enabled {
+					t.Fatalf("expected container hub enabled from config file")
+				}
+				if cfg.ContainerHub.BaseURL == "" {
+					t.Fatalf("expected container hub base url")
+				}
+				if len(cfg.Bash.AllowedCommands) == 0 {
+					t.Fatalf("expected bash allowed commands from config file")
+				}
+				if cfg.Bash.MaxCommandChars <= 0 {
+					t.Fatalf("expected bash runtime limits from config file, got %#v", cfg.Bash)
+				}
+			})
+		})
 	})
 }
 

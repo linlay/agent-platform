@@ -130,6 +130,35 @@ func (c *Config) applyKBaseValues(values map[string]any) {
 	if len(embedding) > 0 {
 		c.KBase.Embedding.ModelKey = stringValue(anyValue(embedding["modelKey"], c.KBase.Embedding.ModelKey), c.KBase.Embedding.ModelKey)
 	}
+	storage, _ := values["storage"].(map[string]any)
+	if len(storage) > 0 {
+		c.KBase.Storage.Engine = stringValue(anyValue(storage["engine"], c.KBase.Storage.Engine), c.KBase.Storage.Engine)
+	}
+	migration, _ := values["migration"].(map[string]any)
+	if len(migration) > 0 {
+		c.KBase.Migration.Enabled = boolValue(anyValue(migration["enabled"], c.KBase.Migration.Enabled), c.KBase.Migration.Enabled)
+		c.KBase.Migration.MaxConcurrency = intValue(anyValue(migration["max-concurrency"], c.KBase.Migration.MaxConcurrency), c.KBase.Migration.MaxConcurrency)
+		c.KBase.Migration.RetainLegacy = boolValue(anyValue(migration["retain-legacy"], c.KBase.Migration.RetainLegacy), c.KBase.Migration.RetainLegacy)
+		c.KBase.Migration.ShadowLivePercent = intValue(anyValue(migration["shadow-live-percent"], c.KBase.Migration.ShadowLivePercent), c.KBase.Migration.ShadowLivePercent)
+		c.KBase.Migration.MaxReplayQueries = intValue(anyValue(migration["max-replay-queries"], c.KBase.Migration.MaxReplayQueries), c.KBase.Migration.MaxReplayQueries)
+	}
+	index, _ := values["index"].(map[string]any)
+	if len(index) > 0 {
+		fts, _ := index["fts"].(map[string]any)
+		if len(fts) > 0 {
+			c.KBase.Index.FTS.BaseTokenizer = stringValue(anyValue(fts["base-tokenizer"], c.KBase.Index.FTS.BaseTokenizer), c.KBase.Index.FTS.BaseTokenizer)
+		}
+		vector, _ := index["vector"].(map[string]any)
+		if len(vector) > 0 {
+			c.KBase.Index.Vector.ANNMinRows = intValue(anyValue(vector["ann-min-rows"], c.KBase.Index.Vector.ANNMinRows), c.KBase.Index.Vector.ANNMinRows)
+		}
+	}
+	maintenance, _ := values["maintenance"].(map[string]any)
+	if len(maintenance) > 0 {
+		c.KBase.Maintenance.OptimizeChangeThreshold = intValue(anyValue(maintenance["optimize-change-threshold"], c.KBase.Maintenance.OptimizeChangeThreshold), c.KBase.Maintenance.OptimizeChangeThreshold)
+		c.KBase.Maintenance.OptimizeInterval = durationValue(anyValue(maintenance["optimize-interval"], c.KBase.Maintenance.OptimizeInterval), c.KBase.Maintenance.OptimizeInterval)
+		c.KBase.Maintenance.VersionRetention = durationValue(anyValue(maintenance["version-retention"], c.KBase.Maintenance.VersionRetention), c.KBase.Maintenance.VersionRetention)
+	}
 	refresh, _ := values["refresh"].(map[string]any)
 	if len(refresh) > 0 {
 		c.KBase.Refresh.Debounce = durationValue(anyValue(refresh["debounce"], c.KBase.Refresh.Debounce), c.KBase.Refresh.Debounce)

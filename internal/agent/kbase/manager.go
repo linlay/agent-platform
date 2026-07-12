@@ -24,8 +24,11 @@ type Manager struct {
 	agents  AgentSource
 	models  *models.ModelRegistry
 	support *supportpkg.Registry
+	engine  *LanceEngineProcess
+	lance   *LanceRetrievalStore
 
 	mu               sync.Mutex
+	refreshWG        sync.WaitGroup
 	watchReconcileMu sync.Mutex
 	watchContext     context.Context
 	locks            map[string]*sync.Mutex
@@ -33,6 +36,9 @@ type Manager struct {
 	running          map[string]bool
 	storageRunning   map[string]bool
 	storageQueued    map[string]bool
+	migrationSem     chan struct{}
+	shadowQueries    map[string]int
+	closing          bool
 }
 
 type ManagerOptions struct {
@@ -41,6 +47,29 @@ type ManagerOptions struct {
 	RefreshDebounce          time.Duration
 	ReconcileInterval        time.Duration
 	Extraction               ExtractionConfig
+	StorageEngine            string
+	Migration                MigrationOptions
+	Index                    IndexOptions
+	Maintenance              MaintenanceOptions
+}
+
+type MigrationOptions struct {
+	Enabled           bool
+	MaxConcurrency    int
+	RetainLegacy      bool
+	ShadowLivePercent int
+	MaxReplayQueries  int
+}
+
+type IndexOptions struct {
+	FTSBaseTokenizer string
+	ANNMinRows       int
+}
+
+type MaintenanceOptions struct {
+	OptimizeChangeThreshold int
+	OptimizeInterval        time.Duration
+	VersionRetention        time.Duration
 }
 
 type AgentSpec struct {
@@ -56,22 +85,86 @@ type AgentSource interface {
 }
 
 type watcherBinding struct {
-	watcher   *runtimewatch.Watcher
-	cancel    context.CancelFunc
-	signature string
+	watcher    *runtimewatch.Watcher
+	cancel     context.CancelFunc
+	signature  string
+	agentKey   string
+	storageDir string
 }
 
 func NewManager(options ManagerOptions, agents AgentSource, modelRegistry *models.ModelRegistry) *Manager {
+	engine := NewLanceEngineProcess(nil)
+	migrationConcurrency := options.Migration.MaxConcurrency
+	if migrationConcurrency <= 0 {
+		migrationConcurrency = 1
+	}
 	return &Manager{
 		options:        options,
 		agents:         agents,
 		models:         modelRegistry,
+		engine:         engine,
+		lance:          NewLanceRetrievalStore(engine),
 		locks:          map[string]*sync.Mutex{},
 		watchers:       map[string]watcherBinding{},
 		running:        map[string]bool{},
 		storageRunning: map[string]bool{},
 		storageQueued:  map[string]bool{},
+		migrationSem:   make(chan struct{}, migrationConcurrency),
+		shadowQueries:  map[string]int{},
 	}
+}
+
+// ValidateConfiguration enforces the one-agent-per-canonical-storage rule
+// before background refreshers start.
+func (m *Manager) ValidateConfiguration() error {
+	if m == nil || m.agents == nil {
+		return nil
+	}
+	owners := map[string]string{}
+	for _, spec := range m.agents.Agents() {
+		if !strings.EqualFold(strings.TrimSpace(spec.Mode), Mode) {
+			continue
+		}
+		storage := strings.ToLower(strings.TrimSpace(spec.Config.Storage.Location))
+		if storage == "" {
+			storage = "runtime"
+		}
+		var root string
+		switch storage {
+		case "runtime":
+			root = filepath.Join(m.options.RuntimeDir, spec.Key)
+		case "workspace":
+			root = filepath.Join(strings.TrimSpace(spec.WorkspaceRoot), ".kbase")
+		default:
+			continue
+		}
+		canonical := storageLockKey(root)
+		if resolved, err := filepath.EvalSymlinks(canonical); err == nil {
+			canonical = filepath.Clean(resolved)
+		}
+		if owner, exists := owners[canonical]; exists && owner != spec.Key {
+			return fmt.Errorf("KBASE storageDir %s is shared by agents %s and %s; each canonical storageDir must have exactly one owner", canonical, owner, spec.Key)
+		}
+		owners[canonical] = spec.Key
+	}
+	return nil
+}
+
+// ProbeSidecar is used by the container health endpoint. SQLite-only
+// deployments and runtimes without KBASE agents do not require the helper;
+// otherwise this performs the authenticated protocol handshake/health call.
+func (m *Manager) ProbeSidecar(ctx context.Context) (required bool, state LanceEngineState, err error) {
+	if m == nil || m.engine == nil || m.engineMode() == "sqlite" || len(m.kbaseAgentKeys()) == 0 {
+		return false, LanceEngineState{}, nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := m.engine.EnsureStarted(ctx); err != nil {
+		state = m.engine.State()
+		return true, state, err
+	}
+	return true, m.engine.State(), nil
 }
 
 func (m *Manager) WithSupportPackages(registry *supportpkg.Registry) *Manager {
@@ -79,6 +172,9 @@ func (m *Manager) WithSupportPackages(registry *supportpkg.Registry) *Manager {
 		return nil
 	}
 	m.support = registry
+	if m.engine != nil {
+		m.engine.SetRegistry(registry)
+	}
 	return m
 }
 
@@ -95,6 +191,9 @@ func (m *Manager) Start(ctx context.Context) {
 		return
 	}
 	m.mu.Lock()
+	if m.engine != nil {
+		m.engine.SetLifecycleContext(ctx)
+	}
 	for key, binding := range m.watchers {
 		if binding.cancel != nil {
 			binding.cancel()
@@ -104,6 +203,14 @@ func (m *Manager) Start(ctx context.Context) {
 	m.watchContext = ctx
 	m.mu.Unlock()
 	m.ensureWatchers(ctx)
+	if orphans, err := m.AuditOrphanStorage(); err != nil {
+		log.Printf("[kbase] orphan storage audit failed: %v", err)
+	} else {
+		for _, orphan := range orphans {
+			log.Printf("[kbase] orphan storage path=%s sizeBytes=%d lastUsedAt=%d possibleOwner=%s",
+				orphan.Path, orphan.SizeBytes, orphan.LastUsedAt, orphan.PossibleOwner)
+		}
+	}
 	for _, key := range m.kbaseAgentKeys() {
 		agentKey := key
 		go func() {
@@ -136,6 +243,40 @@ func (m *Manager) Start(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+// Close stops watchers and the lazily-started Lance sidecar. It is safe when
+// KBASE never started the sidecar.
+func (m *Manager) Close(ctx context.Context) error {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	m.closing = true
+	for key, binding := range m.watchers {
+		if binding.cancel != nil {
+			binding.cancel()
+		}
+		delete(m.watchers, key)
+	}
+	m.mu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		m.refreshWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		if m.engine != nil {
+			_ = m.engine.Stop(context.Background())
+		}
+		return ctx.Err()
+	}
+	if m.engine != nil {
+		return m.engine.Stop(ctx)
+	}
+	return nil
 }
 
 // ReconcileWatchers applies the latest AgentSource snapshot immediately after
@@ -178,6 +319,7 @@ func (m *Manager) ensureWatchers(ctx context.Context) {
 	}
 
 	m.mu.Lock()
+	var released []watcherBinding
 	for key, binding := range m.watchers {
 		spec, ok := desired[key]
 		if ok && binding.signature == watcherSignature(spec) {
@@ -187,9 +329,15 @@ func (m *Manager) ensureWatchers(ctx context.Context) {
 		if binding.cancel != nil {
 			binding.cancel()
 		}
+		if !ok || storageLockKey(binding.storageDir) != storageLockKey(m.storageDirForSpec(spec)) {
+			released = append(released, binding)
+		}
 		delete(m.watchers, key)
 	}
 	m.mu.Unlock()
+	for _, binding := range released {
+		go m.releaseStorageGeneration(binding.agentKey, binding.storageDir)
+	}
 
 	for _, spec := range desired {
 		m.startWatcher(ctx, spec)
@@ -241,8 +389,18 @@ func (m *Manager) startWatcher(ctx context.Context, spec AgentSpec) {
 			existing.cancel()
 		}
 	}
-	m.watchers[agentKey] = watcherBinding{watcher: watcher, cancel: cancel, signature: watcherSignature(spec)}
+	m.watchers[agentKey] = watcherBinding{
+		watcher: watcher, cancel: cancel, signature: watcherSignature(spec),
+		agentKey: agentKey, storageDir: m.storageDirForSpec(spec),
+	}
 	m.mu.Unlock()
+}
+
+func (m *Manager) storageDirForSpec(spec AgentSpec) string {
+	if strings.EqualFold(strings.TrimSpace(spec.Config.Storage.Location), "workspace") {
+		return filepath.Join(strings.TrimSpace(spec.WorkspaceRoot), ".kbase")
+	}
+	return filepath.Join(m.options.RuntimeDir, strings.TrimSpace(spec.Key))
 }
 
 func (m *Manager) kbaseAgentKeys() []string {
@@ -275,6 +433,15 @@ func watcherSignature(spec AgentSpec) string {
 }
 
 func (m *Manager) Refresh(ctx context.Context, agentKey string, options RefreshOptions) (RefreshResult, error) {
+	m.mu.Lock()
+	if m.closing {
+		m.mu.Unlock()
+		err := &PolicyError{Kind: ErrorUnavailable, Message: "KBASE manager is shutting down"}
+		return failedRefresh(agentKey, options.Mode, err), err
+	}
+	m.refreshWG.Add(1)
+	m.mu.Unlock()
+	defer m.refreshWG.Done()
 	cfg, embedder, err := m.resolve(agentKey)
 	if err != nil {
 		return RefreshResult{AgentKey: agentKey, Status: "failed", Error: err.Error()}, err
@@ -286,33 +453,7 @@ func (m *Manager) Refresh(ctx context.Context, agentKey string, options RefreshO
 	m.setRunning(cfg.AgentKey, storageKey, true)
 	defer m.setRunning(cfg.AgentKey, storageKey, false)
 
-	store, err := OpenStore(cfg.StorageDir)
-	if err != nil {
-		return RefreshResult{AgentKey: cfg.AgentKey, Status: "failed", Error: err.Error()}, err
-	}
-	defer store.Close()
-	run, err := store.BeginRun(firstNonBlank(options.Mode, "manual"))
-	if err != nil {
-		return RefreshResult{AgentKey: cfg.AgentKey, Status: "failed", Error: err.Error()}, err
-	}
-	status := "success"
-	errText := ""
-	if err = indexWorkspace(ctx, store, cfg, embedder, options.Force, &run); err != nil {
-		status = "failed"
-		errText = err.Error()
-	}
-	_ = store.FinishRun(run, status, errText)
-	result := RefreshResult{
-		AgentKey:      cfg.AgentKey,
-		Mode:          run.Mode,
-		Status:        status,
-		ScannedFiles:  run.ScannedFiles,
-		ChangedFiles:  run.ChangedFiles,
-		DeletedFiles:  run.DeletedFiles,
-		IndexedChunks: run.IndexedChunks,
-		Error:         errText,
-	}
-	return result, err
+	return m.refreshResolved(ctx, cfg, embedder, options)
 }
 
 func (m *Manager) Status(agentKey string) (Status, error) {
@@ -321,16 +462,82 @@ func (m *Manager) Status(agentKey string) (Status, error) {
 		return Status{AgentKey: agentKey, Mode: Mode}, err
 	}
 	status := Status{
-		AgentKey:        cfg.AgentKey,
-		Mode:            Mode,
-		StorageLocation: cfg.Storage,
-		StorageDir:      cfg.StorageDir,
-		WorkspaceRoot:   cfg.WorkspaceRoot,
-		Embedding:       cfg.Embedding,
-		Chunk:           cfg.Chunk,
-		Indexing:        m.isIndexing(cfg.AgentKey, cfg.StorageDir),
-		ConfigHash:      cfg.ConfigHash,
+		AgentKey:         cfg.AgentKey,
+		Mode:             Mode,
+		StorageLocation:  cfg.Storage,
+		StorageDir:       cfg.StorageDir,
+		WorkspaceRoot:    cfg.WorkspaceRoot,
+		Embedding:        cfg.Embedding,
+		Chunk:            cfg.Chunk,
+		Indexing:         m.isIndexing(cfg.AgentKey, cfg.StorageDir),
+		ConfigHash:       desiredIndexHash(cfg),
+		LegacyAvailable:  fileExists(filepath.Join(cfg.StorageDir, "kbase.db")),
+		StorageDiskUsage: storageDiskUsage(cfg.StorageDir),
 	}
+	mode := m.engineMode()
+	if mode != "sqlite" {
+		control, controlErr := OpenReadControlStore(cfg.StorageDir)
+		if controlErr == nil {
+			defer control.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			active, activeErr := control.ActiveGeneration(ctx)
+			if activeErr != nil {
+				return status, activeErr
+			}
+			if migration, migrationErr := control.LatestMigration(ctx, cfg.AgentKey); migrationErr == nil && migration != nil {
+				status.Migration = &MigrationStatus{State: migration.State, Progress: migration.Progress,
+					ImportedFiles: migration.ImportedFiles, TotalFiles: migration.TotalFiles,
+					ImportedChunks: migration.ImportedChunks, TotalChunks: migration.TotalChunks, Error: migration.Error}
+			}
+			if active != nil {
+				status.Engine = "lancedb"
+				status.SchemaVersion = ControlSchemaVersion
+				status.Generation = &GenerationStatus{ID: active.ID, State: active.State, TableVersion: active.TableVersion,
+					CreatedAt: active.CreatedAt, ActivatedAt: active.ActivatedAt}
+				status.Files, status.Chunks, _ = generationControlCounts(ctx, control, active.ID)
+				status.FileStats, _ = control.FileStats(ctx, active.ID)
+				status.ManifestConfigHash = active.IndexHash
+				status.Stale = active.IndexHash == "" || active.IndexHash != desiredIndexHash(resolvedLanceConfig(cfg))
+				if last, metaErr := control.Meta(ctx, "lastIndexedAt"); metaErr == nil {
+					status.LastIndexedAt, _ = strconv.ParseInt(last, 10, 64)
+				}
+				status.LastRun, _ = control.LastRun(ctx)
+				if pending, pendingErr := control.PendingFileOperations(ctx, active.ID); pendingErr == nil {
+					status.PendingRecoveryOps = len(pending)
+				}
+				registerErr := m.registerLanceGeneration(ctx, cfg, active)
+				state := m.engine.State()
+				if registerErr != nil {
+					state.LastError = registerErr.Error()
+					state.Available = false
+				}
+				status.Sidecar = &state
+				indexes := &IndexesStatus{}
+				if stats, statsErr := m.lance.Stats(ctx, active.ID); statsErr == nil {
+					indexes.FTS = IndexStatus{Type: firstNonBlank(stats.FTSIndexType, "FTS/ICU"), Ready: stats.FTSReady}
+					indexes.Vector = VectorIndexStatus{Type: firstNonBlank(stats.VectorIndexType, "flat"), Ready: stats.VectorReady, UnindexedRows: stats.UnindexedRows}
+					lastOptimized, _ := control.Meta(ctx, "lastOptimizedAt")
+					indexes.LastOptimizedAt, _ = strconv.ParseInt(lastOptimized, 10, 64)
+				}
+				status.Indexes = indexes
+				return status, nil
+			}
+		} else if !os.IsNotExist(controlErr) {
+			return status, controlErr
+		}
+		if mode == "lancedb" {
+			status.Engine = "lancedb"
+			status.SchemaVersion = ControlSchemaVersion
+			status.Stale = true
+			state := m.engine.State()
+			status.Sidecar = &state
+			return status, nil
+		}
+	}
+	status.Engine = "sqlite"
+	status.SchemaVersion = schemaVersion
+	rollbackRefreshRequired := legacyRefreshRequired(cfg.StorageDir)
 	store, err := OpenReadStore(cfg.StorageDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -340,6 +547,15 @@ func (m *Manager) Status(agentKey string) (Status, error) {
 		return status, err
 	}
 	defer store.Close()
+	// A writer creates kbase.db before the schema and the first index manifest
+	// are fully committed. Treat that short initialization window as a missing
+	// index instead of issuing reads against partially-created tables.
+	legacyIndexHash := storedIndexHash(store, cfg.StorageDir)
+	status.ManifestConfigHash = legacyIndexHash
+	if legacyIndexHash == "" {
+		status.Stale = true
+		return status, nil
+	}
 	files, chunks, err := store.Counts()
 	if err != nil {
 		return status, err
@@ -349,8 +565,10 @@ func (m *Manager) Status(agentKey string) (Status, error) {
 	if stats, err := store.FileStats(); err == nil {
 		status.FileStats = stats
 	}
-	status.ManifestConfigHash = store.Meta("configHash")
-	status.Stale = status.ManifestConfigHash == "" || status.ManifestConfigHash != cfg.ConfigHash
+	status.Stale = legacyIndexHash == "" || legacyIndexHash != desiredIndexHash(cfg)
+	if rollbackRefreshRequired {
+		status.Stale = true
+	}
 	if lastIndexed := store.Meta("lastIndexedAt"); lastIndexed != "" {
 		status.LastIndexedAt, _ = strconv.ParseInt(lastIndexed, 10, 64)
 	}
@@ -382,69 +600,64 @@ func (m *Manager) Search(ctx context.Context, agentKey string, query string, opt
 	if offset < 0 {
 		offset = 0
 	}
-	scope := newPathScope(options.PathPrefix, options.PathGlob, options.Type)
-	store, err := OpenReadStore(cfg.StorageDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			if statusErr == nil && status.Stale {
-				m.queueRefresh(cfg.AgentKey, cfg.StorageDir, "search")
-			}
-			return SearchResult{
-				AgentKey: cfg.AgentKey,
-				Query:    query,
-				Count:    0,
-				Offset:   offset,
-				Limit:    limit,
-				Results:  nil,
-				Stale:    true,
-				Indexing: statusErr == nil && status.Indexing,
-			}, nil
-		}
-		return SearchResult{}, err
+	if m.engineMode() == "sqlite" && legacyRefreshRequired(cfg.StorageDir) {
+		m.queueRefresh(cfg.AgentKey, cfg.StorageDir, "sqlite-rollback")
+		return SearchResult{AgentKey: cfg.AgentKey, Query: query, Offset: offset, Limit: limit,
+			Results: nil, Stale: true, Indexing: true}, nil
 	}
-	defer store.Close()
-	queryVector, err := embedder.EmbedSingle(ctx, query)
+	// Keep a request that observed an uninitialized legacy index on the stale
+	// path. Otherwise it can race the queued refresh, discover the database
+	// milliseconds later, and unexpectedly execute a second embedding request.
+	if statusErr == nil && status.Engine == "sqlite" && status.ManifestConfigHash == "" {
+		m.queueRefresh(cfg.AgentKey, cfg.StorageDir, "search")
+		return SearchResult{AgentKey: cfg.AgentKey, Query: query, Offset: offset, Limit: limit,
+			Results: nil, Stale: true, Indexing: true}, nil
+	}
+	retrieval, generationID, available, err := m.selectRetrieval(ctx, cfg)
 	if err != nil {
 		return SearchResult{}, err
 	}
-	ftsLimit := (offset + limit) * 4
-	fts, err := store.SearchFTS(query, scope, ftsLimit)
+	if !available {
+		if statusErr == nil && status.Stale {
+			m.queueRefresh(cfg.AgentKey, cfg.StorageDir, "search")
+		}
+		return SearchResult{
+			AgentKey: cfg.AgentKey,
+			Query:    query,
+			Count:    0,
+			Offset:   offset,
+			Limit:    limit,
+			Results:  nil,
+			Stale:    true,
+			Indexing: statusErr == nil && status.Indexing,
+		}, nil
+	}
+	queryEmbedder, queryDimension, err := m.embedderForRetrieval(ctx, cfg, generationID, embedder)
 	if err != nil {
 		return SearchResult{}, err
 	}
-	chunks, err := store.AllChunksWithEmbeddings(scope)
+	queryVector, err := queryEmbedder.EmbedSingle(ctx, query)
 	if err != nil {
 		return SearchResult{}, err
 	}
-	ftsScores := map[string]float64{}
-	for _, hit := range fts {
-		ftsScores[hit.Chunk.ID] = hit.Score
+	vector, err := float32Vector(queryVector, queryDimension)
+	if err != nil {
+		return SearchResult{}, err
 	}
-	vectorScores := map[string]float64{}
-	chunksByID := map[string]chunkRecord{}
-	for _, chunk := range chunks {
-		chunksByID[chunk.ID] = chunk
-		vectorScores[chunk.ID] = cosineSimilarity(queryVector, chunk.Embedding)
+	retrievalRequest := RetrievalRequest{
+		Query: query, Vector: vector, Limit: limit, Offset: offset,
+		CandidateFloor: cfg.Retrieval.CandidateFloor, CandidateMultiplier: cfg.Retrieval.CandidateMultiplier,
+		CandidateMax: cfg.Retrieval.CandidateMax, RRFK: cfg.Retrieval.RRFK,
+		VectorWeight: cfg.Retrieval.VectorWeight, FTSWeight: cfg.Retrieval.FTSWeight,
+		PathPrefix: options.PathPrefix, PathGlob: options.PathGlob, Type: options.Type,
 	}
-	for _, hit := range fts {
-		if _, ok := chunksByID[hit.Chunk.ID]; !ok {
-			chunksByID[hit.Chunk.ID] = hit.Chunk
-		}
+	response, err := retrieval.Search(ctx, generationID, retrievalRequest)
+	if err != nil {
+		return SearchResult{}, err
 	}
-	hits := make([]SearchHit, 0, len(chunksByID))
-	for id, chunk := range chunksByID {
-		vectorScore := vectorScores[id]
-		ftsScore := ftsScores[id]
-		score := cfg.Retrieval.VectorWeight*vectorScore + cfg.Retrieval.FTSWeight*ftsScore
-		if score <= 0 {
-			continue
-		}
-		matchType := "hybrid"
-		if vectorScore > 0 && ftsScore == 0 {
-			matchType = "vector"
-		} else if vectorScore == 0 && ftsScore > 0 {
-			matchType = "fts"
-		}
+	hits := make([]SearchHit, 0, len(response.Matches))
+	for _, match := range response.Matches {
+		chunk := match.Chunk
 		hits = append(hits, SearchHit{
 			ChunkID:    chunk.ID,
 			Path:       chunk.Path,
@@ -457,27 +670,27 @@ func (m *Manager) Search(ctx context.Context, agentKey string, query string, opt
 			SlideEnd:   chunk.SlideEnd,
 			SourceType: chunk.SourceType,
 			Snippet:    snippet(chunk.Content, query),
-			Score:      score,
-			MatchType:  matchType,
+			Score:      match.Score,
+			MatchType:  match.MatchType,
 		})
 	}
-	hits = sortedSearchHits(hits, 0)
-	matchCount := len(hits)
-	hits, truncated := pageSearchHits(hits, offset, limit)
 	result := SearchResult{
 		AgentKey:   cfg.AgentKey,
 		Query:      query,
 		Count:      len(hits),
-		MatchCount: matchCount,
+		MatchCount: response.MatchCount,
 		Offset:     offset,
 		Limit:      limit,
-		Truncated:  truncated,
+		Truncated:  response.Truncated,
 		Results:    hits,
-		Stale:      statusErr == nil && status.Stale,
-		Indexing:   statusErr == nil && status.Indexing,
+		Stale:      statusErr != nil || status.Stale,
+		Indexing:   m.isIndexing(cfg.AgentKey, cfg.StorageDir) || statusErr == nil && status.Indexing,
 	}
 	if result.Stale && !result.Indexing {
 		m.queueRefresh(cfg.AgentKey, cfg.StorageDir, "search")
+	}
+	if generationID != "legacy" {
+		m.maybeShadowLiveQuery(cfg, retrievalRequest, response)
 	}
 	return result, nil
 }
@@ -492,16 +705,21 @@ func (m *Manager) Read(agentKey string, options ReadOptions) (ReadResult, error)
 	if chunkID == "" && path == "" {
 		return ReadResult{}, fmt.Errorf("chunkId or path is required")
 	}
-	store, err := OpenReadStore(cfg.StorageDir)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if m.engineMode() == "sqlite" && legacyRefreshRequired(cfg.StorageDir) {
+		m.queueRefresh(cfg.AgentKey, cfg.StorageDir, "sqlite-rollback")
+		return ReadResult{Found: false, ChunkID: chunkID, Path: path}, nil
+	}
+	retrieval, generationID, available, err := m.selectRetrieval(ctx, cfg)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return ReadResult{Found: false, ChunkID: chunkID, Path: path}, nil
-		}
 		return ReadResult{}, err
 	}
-	defer store.Close()
+	if !available {
+		return ReadResult{Found: false, ChunkID: chunkID, Path: path}, nil
+	}
 	if chunkID != "" {
-		chunk, err := store.ReadChunk(chunkID)
+		chunk, err := retrieval.ReadChunk(ctx, generationID, chunkID)
 		if err != nil || chunk == nil {
 			if err != nil {
 				return ReadResult{}, err
@@ -523,11 +741,11 @@ func (m *Manager) Read(agentKey string, options ReadOptions) (ReadResult, error)
 			Content:    chunk.Content,
 		}, nil
 	}
-	result, err := store.ReadPath(path, options.Offset, options.Limit)
+	chunks, err := retrieval.ReadPath(ctx, generationID, path, options.Offset, options.Limit)
 	if err != nil {
 		return ReadResult{}, err
 	}
-	return *result, nil
+	return readResultFromChunks(path, options.Offset, chunks), nil
 }
 
 func (m *Manager) resolve(agentKey string) (resolvedConfig, *Embedder, error) {
@@ -579,13 +797,61 @@ func (m *Manager) resolve(agentKey string) (resolvedConfig, *Embedder, error) {
 		Retrieval:     def.Config.Retrieval,
 		Extraction:    m.options.Extraction,
 		Support:       m.support,
+		FTSTokenizer:  firstNonBlank(m.options.Index.FTSBaseTokenizer, defaultFTSTokenizer),
 	}
-	cfg.ConfigHash = computeConfigHash(cfg)
-	embedder := NewEmbedder(baseURL, provider.APIKey, embedding.Model, embedding.Dimension, embedding.Timeout)
+	cfg.IndexHash = computeIndexHash(cfg)
+	cfg.QueryHash = computeQueryHash(cfg)
+	cfg.ConfigHash = cfg.IndexHash
+	embedder := newEmbedderForSnapshot(baseURL, provider.APIKey, embedding)
+	return cfg, embedder, nil
+}
+
+func newEmbedderForSnapshot(baseURL, apiKey string, embedding EmbeddingSnapshot) *Embedder {
+	embedder := NewEmbedder(baseURL, apiKey, embedding.Model, embedding.Dimension, embedding.Timeout)
 	if strings.TrimSpace(embedding.EndpointPath) != "" {
 		embedder.EndpointPath = embedding.EndpointPath
 	}
-	return cfg, embedder, nil
+	return embedder
+}
+
+// embedderForRetrieval binds query vectors to the active generation snapshot,
+// not to a newer agent configuration that may currently be building a blue
+// generation. This also keeps a rollback generation in its original vector
+// space.
+func (m *Manager) embedderForRetrieval(ctx context.Context, cfg resolvedConfig, generationID string, fallback *Embedder) (*Embedder, int, error) {
+	if generationID == "legacy" || strings.TrimSpace(generationID) == "" {
+		return fallback, cfg.Embedding.Dimension, nil
+	}
+	control, err := OpenReadControlStore(cfg.StorageDir)
+	if err != nil {
+		return nil, 0, err
+	}
+	generation, err := control.Generation(ctx, generationID)
+	_ = control.Close()
+	if err != nil {
+		return nil, 0, err
+	}
+	if generation == nil {
+		return nil, 0, &PolicyError{Kind: ErrorUnavailable, Message: "active KBASE generation metadata is missing"}
+	}
+	if strings.TrimSpace(generation.EmbeddingModelKey) == "" {
+		if generation.EmbeddingModel == cfg.Embedding.Model && generation.EmbeddingDimension == cfg.Embedding.Dimension {
+			return fallback, generation.EmbeddingDimension, nil
+		}
+		return nil, 0, &PolicyError{Kind: ErrorUnavailable, Message: "active KBASE generation embedding snapshot is incomplete"}
+	}
+	embedding, provider, err := m.resolveEmbedding(cfg.AgentKey, EmbeddingConfig{ModelKey: generation.EmbeddingModelKey})
+	if err != nil {
+		return nil, 0, &PolicyError{Kind: ErrorUnavailable, Message: "active KBASE generation embedding model is unavailable: " + err.Error()}
+	}
+	if embedding.Model != generation.EmbeddingModel || embedding.Dimension != generation.EmbeddingDimension {
+		return nil, 0, &PolicyError{Kind: ErrorUnavailable, Message: "active KBASE generation embedding model definition changed; rebuild before querying"}
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(provider.BaseURL), "/")
+	if baseURL == "" {
+		return nil, 0, &PolicyError{Kind: ErrorUnavailable, Message: "active KBASE generation embedding provider has no base URL"}
+	}
+	return newEmbedderForSnapshot(baseURL, provider.APIKey, embedding), generation.EmbeddingDimension, nil
 }
 
 func (m *Manager) agentSpec(agentKey string) (AgentSpec, error) {

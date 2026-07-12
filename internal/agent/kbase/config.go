@@ -2,7 +2,9 @@ package kbase
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -11,6 +13,7 @@ const (
 	ChunkUnitChars           = "chars"
 	ChunkUnitEstimatedTokens = "estimatedTokens"
 	WorkspaceRootChat        = "@chat"
+	RetrievalFusionRRF       = "rrf"
 )
 
 type AgentConfig struct {
@@ -39,9 +42,14 @@ type ChunkConfig struct {
 }
 
 type RetrievalConfig struct {
-	TopK         int
-	VectorWeight float64
-	FTSWeight    float64
+	TopK                int     `json:"topK"`
+	Fusion              string  `json:"fusion"`
+	RRFK                int     `json:"rrfK"`
+	VectorWeight        float64 `json:"vectorWeight"`
+	FTSWeight           float64 `json:"ftsWeight"`
+	CandidateFloor      int     `json:"candidateFloor"`
+	CandidateMultiplier int     `json:"candidateMultiplier"`
+	CandidateMax        int     `json:"candidateMax"`
 }
 
 type ExtractionConfig struct {
@@ -114,9 +122,14 @@ func DefaultAgentConfig() AgentConfig {
 		Exclude: DefaultExcludePatterns(),
 		Chunk:   DefaultChunkConfig(),
 		Retrieval: RetrievalConfig{
-			TopK:         8,
-			VectorWeight: 0.7,
-			FTSWeight:    0.3,
+			TopK:                8,
+			Fusion:              RetrievalFusionRRF,
+			RRFK:                60,
+			VectorWeight:        0.7,
+			FTSWeight:           0.3,
+			CandidateFloor:      30,
+			CandidateMultiplier: 4,
+			CandidateMax:        500,
 		},
 	}
 }
@@ -143,24 +156,14 @@ func ParseAgentConfig(node map[string]any) (AgentConfig, error) {
 	}
 	cfg.Chunk = ParseChunkConfig(node["chunk"])
 	retrieval := anyMap(node["retrieval"])
-	if topK := anyInt(retrieval["topK"]); topK > 0 {
-		cfg.Retrieval.TopK = topK
-	}
-	if topK := anyInt(retrieval["top-k"]); topK > 0 {
-		cfg.Retrieval.TopK = topK
-	}
-	if weight := anyFloat(retrieval["vectorWeight"]); weight > 0 {
-		cfg.Retrieval.VectorWeight = weight
-	}
-	if weight := anyFloat(retrieval["vector-weight"]); weight > 0 {
-		cfg.Retrieval.VectorWeight = weight
-	}
-	if weight := anyFloat(retrieval["ftsWeight"]); weight > 0 {
-		cfg.Retrieval.FTSWeight = weight
-	}
-	if weight := anyFloat(retrieval["fts-weight"]); weight > 0 {
-		cfg.Retrieval.FTSWeight = weight
-	}
+	applyIntAliases(retrieval, &cfg.Retrieval.TopK, "topK", "top-k")
+	applyStringAliases(retrieval, &cfg.Retrieval.Fusion, "fusion")
+	applyIntAliases(retrieval, &cfg.Retrieval.RRFK, "rrfK", "rrf-k")
+	applyFloatAliases(retrieval, &cfg.Retrieval.VectorWeight, "vectorWeight", "vector-weight")
+	applyFloatAliases(retrieval, &cfg.Retrieval.FTSWeight, "ftsWeight", "fts-weight")
+	applyIntAliases(retrieval, &cfg.Retrieval.CandidateFloor, "candidateFloor", "candidate-floor")
+	applyIntAliases(retrieval, &cfg.Retrieval.CandidateMultiplier, "candidateMultiplier", "candidate-multiplier")
+	applyIntAliases(retrieval, &cfg.Retrieval.CandidateMax, "candidateMax", "candidate-max")
 	return cfg, nil
 }
 
@@ -292,6 +295,31 @@ func ValidateAgentConfigSchema(node map[string]any) error {
 			return fmt.Errorf("kbaseConfig.chunk.unit must be estimatedTokens or chars")
 		}
 	}
+	retrieval := anyMap(node["retrieval"])
+	for _, keys := range [][]string{
+		{"topK", "top-k"},
+		{"rrfK", "rrf-k"},
+		{"candidateFloor", "candidate-floor"},
+		{"candidateMultiplier", "candidate-multiplier"},
+		{"candidateMax", "candidate-max"},
+	} {
+		for _, key := range keys {
+			if value, exists := retrieval[key]; exists {
+				if _, ok := parseConfigInt(value); !ok {
+					return fmt.Errorf("kbaseConfig.retrieval.%s must be an integer", key)
+				}
+			}
+		}
+	}
+	for _, keys := range [][]string{{"vectorWeight", "vector-weight"}, {"ftsWeight", "fts-weight"}} {
+		for _, key := range keys {
+			if value, exists := retrieval[key]; exists {
+				if _, ok := parseConfigFloat(value); !ok {
+					return fmt.Errorf("kbaseConfig.retrieval.%s must be a finite number", key)
+				}
+			}
+		}
+	}
 	return nil
 }
 
@@ -303,6 +331,30 @@ func ValidateAgentConfig(cfg AgentConfig) error {
 	}
 	if _, ok := NormalizeChunkUnit(cfg.Chunk.Unit); !ok {
 		return fmt.Errorf("kbaseConfig.chunk.unit must be estimatedTokens or chars")
+	}
+	if cfg.Retrieval.TopK < 1 || cfg.Retrieval.TopK > 50 {
+		return fmt.Errorf("kbaseConfig.retrieval.topK must be between 1 and 50")
+	}
+	if !strings.EqualFold(strings.TrimSpace(cfg.Retrieval.Fusion), RetrievalFusionRRF) {
+		return fmt.Errorf("kbaseConfig.retrieval.fusion must be rrf")
+	}
+	if cfg.Retrieval.RRFK < 1 || cfg.Retrieval.RRFK > 1000 {
+		return fmt.Errorf("kbaseConfig.retrieval.rrfK must be between 1 and 1000")
+	}
+	if math.IsNaN(cfg.Retrieval.VectorWeight) || math.IsInf(cfg.Retrieval.VectorWeight, 0) ||
+		math.IsNaN(cfg.Retrieval.FTSWeight) || math.IsInf(cfg.Retrieval.FTSWeight, 0) ||
+		cfg.Retrieval.VectorWeight < 0 || cfg.Retrieval.FTSWeight < 0 ||
+		(cfg.Retrieval.VectorWeight == 0 && cfg.Retrieval.FTSWeight == 0) {
+		return fmt.Errorf("kbaseConfig.retrieval weights must be non-negative and not both zero")
+	}
+	if cfg.Retrieval.CandidateFloor < cfg.Retrieval.TopK {
+		return fmt.Errorf("kbaseConfig.retrieval.candidateFloor must be at least topK")
+	}
+	if cfg.Retrieval.CandidateMultiplier < 1 {
+		return fmt.Errorf("kbaseConfig.retrieval.candidateMultiplier must be at least 1")
+	}
+	if cfg.Retrieval.CandidateMax < cfg.Retrieval.CandidateFloor || cfg.Retrieval.CandidateMax > 2000 {
+		return fmt.Errorf("kbaseConfig.retrieval.candidateMax must be between candidateFloor and 2000")
 	}
 	return nil
 }
@@ -414,33 +466,60 @@ func anyStrings(value any) []string {
 }
 
 func anyInt(value any) int {
-	switch typed := value.(type) {
-	case int:
-		return typed
-	case int64:
-		return int(typed)
-	case float64:
-		return int(typed)
-	default:
-		var out int
-		_, _ = fmt.Sscan(anyString(value), &out)
-		return out
-	}
+	out, _ := parseConfigInt(value)
+	return out
 }
 
 func anyFloat(value any) float64 {
+	out, _ := parseConfigFloat(value)
+	return out
+}
+
+func parseConfigInt(value any) (int, bool) {
+	switch typed := value.(type) {
+	case int:
+		return typed, true
+	case int64:
+		return int(typed), int64(int(typed)) == typed
+	case float64:
+		if math.IsNaN(typed) || math.IsInf(typed, 0) || math.Trunc(typed) != typed {
+			return 0, false
+		}
+		parsed := int(typed)
+		return parsed, float64(parsed) == typed
+	default:
+		text := anyString(value)
+		if text == "" {
+			return 0, false
+		}
+		parsed, err := strconv.Atoi(text)
+		return parsed, err == nil
+	}
+}
+
+func parseConfigFloat(value any) (float64, bool) {
+	var parsed float64
 	switch typed := value.(type) {
 	case float64:
-		return typed
+		parsed = typed
 	case float32:
-		return float64(typed)
+		parsed = float64(typed)
 	case int:
-		return float64(typed)
+		parsed = float64(typed)
+	case int64:
+		parsed = float64(typed)
 	default:
-		var out float64
-		_, _ = fmt.Sscan(anyString(value), &out)
-		return out
+		text := anyString(value)
+		if text == "" {
+			return 0, false
+		}
+		var err error
+		parsed, err = strconv.ParseFloat(text, 64)
+		if err != nil {
+			return 0, false
+		}
 	}
+	return parsed, !math.IsNaN(parsed) && !math.IsInf(parsed, 0)
 }
 
 func firstExisting(values map[string]any, keys ...string) (any, bool) {
@@ -460,6 +539,30 @@ func firstAny(values map[string]any, keys ...string) any {
 func hasAny(values map[string]any, keys ...string) bool {
 	_, ok := firstExisting(values, keys...)
 	return ok
+}
+
+func applyIntAliases(values map[string]any, target *int, keys ...string) {
+	for _, key := range keys {
+		if value, exists := values[key]; exists {
+			*target = anyInt(value)
+		}
+	}
+}
+
+func applyFloatAliases(values map[string]any, target *float64, keys ...string) {
+	for _, key := range keys {
+		if value, exists := values[key]; exists {
+			*target = anyFloat(value)
+		}
+	}
+}
+
+func applyStringAliases(values map[string]any, target *string, keys ...string) {
+	for _, key := range keys {
+		if value, exists := values[key]; exists {
+			*target = strings.ToLower(strings.TrimSpace(anyString(value)))
+		}
+	}
 }
 
 func cloneAnyMap(src map[string]any) map[string]any {

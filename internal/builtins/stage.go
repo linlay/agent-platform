@@ -31,6 +31,11 @@ type Component struct {
 	Commit           string            `json:"commit,omitempty"`
 	Kind             string            `json:"kind"`
 	Required         bool              `json:"required"`
+	Distribution     string            `json:"distribution,omitempty"`
+	BuildPath        string            `json:"buildPath,omitempty"`
+	BuildTargets     map[string]string `json:"buildTargets,omitempty"`
+	SDKVersion       string            `json:"sdkVersion,omitempty"`
+	License          string            `json:"license,omitempty"`
 	LicenseDirectory string            `json:"licenseDirectory,omitempty"`
 	Licenses         []string          `json:"licenses,omitempty"`
 	Targets          map[string]Target `json:"targets"`
@@ -65,12 +70,15 @@ type ManifestPlatform struct {
 }
 
 type ManifestComponent struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
-	Source  string `json:"source,omitempty"`
-	Commit  string `json:"commit,omitempty"`
-	Path    string `json:"path"`
-	SHA256  string `json:"sha256"`
+	Name         string `json:"name"`
+	Version      string `json:"version"`
+	Source       string `json:"source,omitempty"`
+	Commit       string `json:"commit,omitempty"`
+	Path         string `json:"path"`
+	SHA256       string `json:"sha256"`
+	SDKVersion   string `json:"sdkVersion,omitempty"`
+	License      string `json:"license,omitempty"`
+	Distribution string `json:"distribution,omitempty"`
 }
 
 type StageResult struct {
@@ -178,6 +186,12 @@ func Stage(options StageOptions) (StageResult, error) {
 		},
 	}
 	for _, component := range lock.Components {
+		// source-build components are staged by their dedicated, toolchain-aware
+		// release step. The generic builtin stager still validates and registers
+		// them, but never pretends that an unsigned/unbuilt artifact exists.
+		if component.Distribution == "source-build" {
+			continue
+		}
 		target, ok := component.Targets[targetKey]
 		if !ok {
 			if component.Required {
@@ -244,6 +258,37 @@ func validateComponent(component Component) error {
 	if component.Kind != "file" && component.Kind != "archive" {
 		return fmt.Errorf("builtin %s has unsupported kind %q", component.Name, component.Kind)
 	}
+	if component.Distribution != "" && component.Distribution != "source-build" {
+		return fmt.Errorf("builtin %s has unsupported distribution %q", component.Name, component.Distribution)
+	}
+	if component.Distribution == "source-build" {
+		buildPath := strings.TrimSpace(component.BuildPath)
+		if buildPath == "" {
+			return fmt.Errorf("builtin %s source-build buildPath is required", component.Name)
+		}
+		cleanBuildPath := filepath.Clean(buildPath)
+		if filepath.IsAbs(buildPath) || cleanBuildPath == ".." || strings.HasPrefix(cleanBuildPath, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("builtin %s source-build buildPath must stay within the repository", component.Name)
+		}
+		if strings.TrimSpace(component.SDKVersion) == "" {
+			return fmt.Errorf("builtin %s source-build sdkVersion is required", component.Name)
+		}
+		if strings.TrimSpace(component.License) == "" {
+			return fmt.Errorf("builtin %s source-build license is required", component.Name)
+		}
+		if len(component.BuildTargets) == 0 {
+			return fmt.Errorf("builtin %s source-build buildTargets are required", component.Name)
+		}
+		for targetKey, output := range component.BuildTargets {
+			if strings.TrimSpace(targetKey) == "" || filepath.Base(output) != output || strings.TrimSpace(output) == "" {
+				return fmt.Errorf("builtin %s source-build target %s has invalid output %q", component.Name, targetKey, output)
+			}
+			if !validPlatformTargetKey(targetKey) {
+				return fmt.Errorf("builtin %s source-build target %s is unsupported", component.Name, targetKey)
+			}
+		}
+		return nil
+	}
 	if len(component.Targets) == 0 {
 		return fmt.Errorf("builtin %s targets are required", component.Name)
 	}
@@ -265,6 +310,16 @@ func validateComponent(component Component) error {
 		}
 	}
 	return nil
+}
+
+func validPlatformTargetKey(value string) bool {
+	parts := strings.Split(value, "-")
+	if len(parts) != 2 {
+		return false
+	}
+	validOS := parts[0] == "darwin" || parts[0] == "linux" || parts[0] == "windows"
+	validArch := parts[1] == "amd64" || parts[1] == "arm64"
+	return validOS && validArch
 }
 
 func readPayload(path string, kind string, target Target) ([]byte, error) {

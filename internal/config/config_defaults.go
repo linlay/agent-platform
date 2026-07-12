@@ -53,6 +53,29 @@ func defaultConfig(options LoadOptions) Config {
 			ACPBridges: map[string]CoderACPBridgeConfig{},
 		},
 		KBase: KBaseConfig{
+			Storage: KBaseStorageConfig{
+				Engine: "auto",
+			},
+			Migration: KBaseMigrationConfig{
+				Enabled:           true,
+				MaxConcurrency:    1,
+				RetainLegacy:      true,
+				ShadowLivePercent: 10,
+				MaxReplayQueries:  100,
+			},
+			Index: KBaseIndexConfig{
+				FTS: KBaseFTSIndexConfig{
+					BaseTokenizer: "icu",
+				},
+				Vector: KBaseVectorIndexConfig{
+					ANNMinRows: 50000,
+				},
+			},
+			Maintenance: KBaseMaintenanceConfig{
+				OptimizeChangeThreshold: 1000,
+				OptimizeInterval:        24 * time.Hour,
+				VersionRetention:        7 * 24 * time.Hour,
+			},
 			Refresh: KBaseRefreshConfig{
 				Debounce:          2 * time.Second,
 				ReconcileInterval: 10 * time.Minute,
@@ -294,7 +317,9 @@ func (c *Config) normalize(configRoot string) error {
 	c.VisionRecognize = normalizeVisionRecognizeConfig(c.VisionRecognize)
 	c.WebFetch = normalizeWebFetchConfig(c.WebFetch)
 	c.ImageGenerate = normalizeImageGenerateConfig(c.ImageGenerate)
-	c.KBase.Extraction = normalizeKBaseExtractionConfig(c.KBase.Extraction)
+	if err := normalizeKBaseConfig(&c.KBase); err != nil {
+		return err
+	}
 	c.ContainerHub.Enabled = strings.TrimSpace(c.ContainerHub.BaseURL) != ""
 	if c.Bash.WorkingDirectory == "" {
 		c.Bash.WorkingDirectory = "."
@@ -347,6 +372,48 @@ func normalizeKBaseExtractionConfig(cfg KBaseExtractionConfig) KBaseExtractionCo
 		cfg.PPTX.Backend = "native"
 	}
 	return cfg
+}
+
+func normalizeKBaseConfig(cfg *KBaseConfig) error {
+	if cfg == nil {
+		return nil
+	}
+	cfg.Storage.Engine = strings.ToLower(strings.TrimSpace(cfg.Storage.Engine))
+	if cfg.Storage.Engine == "" {
+		cfg.Storage.Engine = "auto"
+	}
+	switch cfg.Storage.Engine {
+	case "auto", "lancedb", "sqlite":
+	default:
+		return fmt.Errorf("kbase storage.engine must be auto, lancedb, or sqlite")
+	}
+	if cfg.Migration.MaxConcurrency < 1 {
+		return fmt.Errorf("kbase migration.max-concurrency must be at least 1")
+	}
+	if cfg.Migration.ShadowLivePercent < 0 || cfg.Migration.ShadowLivePercent > 100 {
+		return fmt.Errorf("kbase migration.shadow-live-percent must be between 0 and 100")
+	}
+	if cfg.Migration.MaxReplayQueries < 0 {
+		return fmt.Errorf("kbase migration.max-replay-queries must be non-negative")
+	}
+	cfg.Index.FTS.BaseTokenizer = strings.ToLower(strings.TrimSpace(cfg.Index.FTS.BaseTokenizer))
+	if cfg.Index.FTS.BaseTokenizer == "" {
+		cfg.Index.FTS.BaseTokenizer = "icu"
+	}
+	if cfg.Index.Vector.ANNMinRows < 1000 {
+		return fmt.Errorf("kbase index.vector.ann-min-rows must be at least 1000")
+	}
+	if cfg.Maintenance.OptimizeChangeThreshold < 1 {
+		return fmt.Errorf("kbase maintenance.optimize-change-threshold must be at least 1")
+	}
+	if cfg.Maintenance.OptimizeInterval <= 0 {
+		return fmt.Errorf("kbase maintenance.optimize-interval must be positive")
+	}
+	if cfg.Maintenance.VersionRetention <= 0 {
+		return fmt.Errorf("kbase maintenance.version-retention must be positive")
+	}
+	cfg.Extraction = normalizeKBaseExtractionConfig(cfg.Extraction)
+	return nil
 }
 
 func normalizeDesktopBridgeConfig(cfg DesktopBridgeConfig) DesktopBridgeConfig {

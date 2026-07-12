@@ -157,6 +157,10 @@ type CoderACPBridgeConfig struct {
 type KBaseConfig struct {
 	DefaultAgent KBaseDefaultAgentConfig
 	Embedding    KBaseEmbeddingConfig
+	Storage      KBaseStorageConfig
+	Migration    KBaseMigrationConfig
+	Index        KBaseIndexConfig
+	Maintenance  KBaseMaintenanceConfig
 	Refresh      KBaseRefreshConfig
 	Extraction   KBaseExtractionConfig
 }
@@ -168,6 +172,37 @@ type KBaseDefaultAgentConfig struct {
 
 type KBaseEmbeddingConfig struct {
 	ModelKey string
+}
+
+type KBaseStorageConfig struct {
+	Engine string
+}
+
+type KBaseMigrationConfig struct {
+	Enabled           bool
+	MaxConcurrency    int
+	RetainLegacy      bool
+	ShadowLivePercent int
+	MaxReplayQueries  int
+}
+
+type KBaseIndexConfig struct {
+	FTS    KBaseFTSIndexConfig
+	Vector KBaseVectorIndexConfig
+}
+
+type KBaseFTSIndexConfig struct {
+	BaseTokenizer string
+}
+
+type KBaseVectorIndexConfig struct {
+	ANNMinRows int
+}
+
+type KBaseMaintenanceConfig struct {
+	OptimizeChangeThreshold int
+	OptimizeInterval        time.Duration
+	VersionRetention        time.Duration
 }
 
 type KBaseRefreshConfig struct {

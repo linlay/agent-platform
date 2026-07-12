@@ -33,6 +33,50 @@ type Status struct {
 	FileStats          FileStats         `json:"fileStats,omitempty"`
 	ConfigHash         string            `json:"configHash,omitempty"`
 	ManifestConfigHash string            `json:"manifestConfigHash,omitempty"`
+	Engine             string            `json:"engine,omitempty"`
+	SchemaVersion      string            `json:"schemaVersion,omitempty"`
+	Generation         *GenerationStatus `json:"generation,omitempty"`
+	Migration          *MigrationStatus  `json:"migration,omitempty"`
+	Indexes            *IndexesStatus    `json:"indexes,omitempty"`
+	LegacyAvailable    bool              `json:"legacyAvailable,omitempty"`
+	Sidecar            *LanceEngineState `json:"sidecar,omitempty"`
+	PendingRecoveryOps int               `json:"pendingRecoveryOperations,omitempty"`
+	StorageDiskUsage   int64             `json:"storageDiskUsage,omitempty"`
+}
+
+type GenerationStatus struct {
+	ID           string `json:"id"`
+	State        string `json:"state"`
+	TableVersion uint64 `json:"tableVersion"`
+	CreatedAt    int64  `json:"createdAt"`
+	ActivatedAt  int64  `json:"activatedAt,omitempty"`
+}
+
+type MigrationStatus struct {
+	State          string  `json:"state"`
+	Progress       float64 `json:"progress"`
+	ImportedFiles  int     `json:"importedFiles"`
+	TotalFiles     int     `json:"totalFiles"`
+	ImportedChunks int     `json:"importedChunks"`
+	TotalChunks    int     `json:"totalChunks"`
+	Error          string  `json:"error,omitempty"`
+}
+
+type IndexesStatus struct {
+	FTS             IndexStatus       `json:"fts"`
+	Vector          VectorIndexStatus `json:"vector"`
+	LastOptimizedAt int64             `json:"lastOptimizedAt,omitempty"`
+}
+
+type IndexStatus struct {
+	Type  string `json:"type"`
+	Ready bool   `json:"ready"`
+}
+
+type VectorIndexStatus struct {
+	Type          string `json:"type"`
+	Ready         bool   `json:"ready"`
+	UnindexedRows int    `json:"unindexedRows"`
 }
 
 type FileStats struct {
@@ -159,34 +203,40 @@ type FileEntry struct {
 }
 
 type IndexRun struct {
-	ID            string `json:"id"`
-	Mode          string `json:"mode"`
-	Status        string `json:"status"`
-	StartedAt     int64  `json:"startedAt"`
-	FinishedAt    int64  `json:"finishedAt,omitempty"`
-	ScannedFiles  int    `json:"scannedFiles"`
-	ChangedFiles  int    `json:"changedFiles"`
-	DeletedFiles  int    `json:"deletedFiles"`
-	IndexedChunks int    `json:"indexedChunks"`
-	Error         string `json:"error,omitempty"`
+	ID                   string `json:"id"`
+	GenerationID         string `json:"generationId,omitempty"`
+	Engine               string `json:"engine,omitempty"`
+	Mode                 string `json:"mode"`
+	Status               string `json:"status"`
+	StartedAt            int64  `json:"startedAt"`
+	FinishedAt           int64  `json:"finishedAt,omitempty"`
+	ScannedFiles         int    `json:"scannedFiles"`
+	ChangedFiles         int    `json:"changedFiles"`
+	DeletedFiles         int    `json:"deletedFiles"`
+	IndexedChunks        int    `json:"indexedChunks"`
+	MigratedChunks       int    `json:"migratedChunks,omitempty"`
+	IndexBuildDurationMS int64  `json:"indexBuildDurationMs,omitempty"`
+	ValidationDurationMS int64  `json:"validationDurationMs,omitempty"`
+	Error                string `json:"error,omitempty"`
 }
 
 type fileRecord struct {
-	ID         string
-	Path       string
-	Ext        string
-	Mime       string
-	Size       int64
-	MTimeMS    int64
-	SHA256     string
-	TextSHA256 string
-	Extractor  string
-	Metadata   string
-	Status     string
-	SkipReason string
-	Error      string
-	ChunkCount int
-	IndexedAt  int64
+	ID           string
+	Path         string
+	Ext          string
+	Mime         string
+	Size         int64
+	MTimeMS      int64
+	SHA256       string
+	TextSHA256   string
+	Extractor    string
+	Metadata     string
+	Status       string
+	SkipReason   string
+	Error        string
+	ChunkCount   int
+	ChunkSetHash string
+	IndexedAt    int64
 }
 
 type chunkRecord struct {

@@ -51,6 +51,7 @@ type App struct {
 	automationExecutions *automation.ExecutionStore
 	lspManager           *lsp.Manager
 	externalTools        *tools.ExternalToolManager
+	kbaseManager         *kbase.Manager
 }
 
 type automationStopper interface {
@@ -204,6 +205,9 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		sqliteMemoryStore.SetRuntimeResolver(memoryRuntimeResolver(cfg, registry, modelRegistry))
 	}
 	kbaseManager := kbase.NewManager(kbaseManagerOptions(cfg), kbaseCatalogSource{registry: registry}, modelRegistry).WithSupportPackages(supportPackages)
+	if err := kbaseManager.ValidateConfiguration(); err != nil {
+		return nil, fmt.Errorf("validate KBASE storage ownership: %w", err)
+	}
 	if err := toolExecutor.RegisterHandler(kbase.NewToolHandler(kbaseManager)); err != nil {
 		return nil, fmt.Errorf("register KBASE tools: %w", err)
 	}
@@ -367,6 +371,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		automationExecutions: automationExecutionStore,
 		lspManager:           lspManager,
 		externalTools:        externalTools,
+		kbaseManager:         kbaseManager,
 	}, nil
 }
 
@@ -374,8 +379,18 @@ func (a *App) Close() error {
 	if a == nil {
 		return nil
 	}
+	// Cancel startup/reconcile/watcher work before waiting for KBASE refreshes
+	// and stopping its sidecar. This prevents an in-flight refresh from
+	// restarting the process after shutdown has begun.
 	if a.backgroundCancel != nil {
 		a.backgroundCancel()
+	}
+	if a.kbaseManager != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+		if err := a.kbaseManager.Close(ctx); err != nil {
+			log.Printf("close KBASE manager: %v", err)
+		}
+		cancel()
 	}
 	if a.gateways != nil {
 		a.gateways.StopAll()

@@ -8,6 +8,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+if (-not $env:REQUIRE_KBASE_RELEASE_METADATA) { $env:REQUIRE_KBASE_RELEASE_METADATA = "1" }
+if (-not $env:REQUIRE_RELEASE_SBOM) { $env:REQUIRE_RELEASE_SBOM = "1" }
+
 $APP_NAME = "agent-platform"
 $PROGRAM_NAME = "agent-platform"
 $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -141,6 +144,7 @@ function Write-ProgramManifest {
     $stopScript = if ($TargetOs -eq "windows") { "stop.ps1" } else { "stop.sh" }
     $deployScript = if ($TargetOs -eq "windows") { "deploy.ps1" } else { "deploy.sh" }
     $programCommon = if ($TargetOs -eq "windows") { "scripts/program-common.ps1" } else { "scripts/program-common.sh" }
+    $sidecarEntry = if ($TargetOs -eq "windows") { "bin/kbase-lance-engine.exe" } else { "bin/kbase-lance-engine" }
 
     # Read template using explicit UTF-8 (no BOM) so Chinese characters never go through PS string literal
     $tmplPath = Join-Path $PSScriptRoot "release-assets\manifest.template.json"
@@ -152,6 +156,7 @@ function Write-ProgramManifest {
     $manifest = $manifest.Replace('__TARGET_OS__', $TargetOs)
     $manifest = $manifest.Replace('__TARGET_ARCH__', $TargetArch)
     $manifest = $manifest.Replace('__BACKEND_ENTRY__', $BackendEntry)
+    $manifest = $manifest.Replace('__SIDECAR_ENTRY__', $sidecarEntry)
     $manifest = $manifest.Replace('__ASSET_FILENAME__', $AssetFileName)
     $manifest = $manifest.Replace('__START_SCRIPT__', $startScript)
     $manifest = $manifest.Replace('__STOP_SCRIPT__', $stopScript)
@@ -231,6 +236,10 @@ function Build-ProgramBundle {
         if ($LASTEXITCODE -ne 0) {
             Write-Error "stage builtins failed for $TargetOs/$TargetArch"
         }
+        & "$SCRIPT_DIR/stage-kbase-lance-engine.ps1" -OutputDir $bundleRoot -TargetOS $TargetOs -TargetArch $TargetArch
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "stage kbase-lance-engine failed for $TargetOs/$TargetArch"
+        }
 
         if ($TargetOs -eq "windows") {
             Copy-Item "$PROGRAM_RELEASE_ASSETS_DIR/windows/deploy.ps1" $bundleRoot
@@ -249,6 +258,28 @@ function Build-ProgramBundle {
         }
 
         Compress-Directory -StageRoot $stageRoot -BundleDirName $APP_NAME -OutputPath $bundleArchive -Format $archiveFormat
+
+        $archiveDigest = (Get-FileHash -Algorithm SHA256 $bundleArchive).Hash.ToLowerInvariant()
+        [IO.File]::WriteAllText("$bundleArchive.sha256", "$archiveDigest  $(Split-Path $bundleArchive -Leaf)`n", [Text.UTF8Encoding]::new($false))
+        $sidecarName = if ($TargetOs -eq "windows") { "kbase-lance-engine.exe" } else { "kbase-lance-engine" }
+        $sidecarPath = Join-Path (Join-Path $bundleRoot "bin") $sidecarName
+        $sizes = [ordered]@{
+            backendBytes = (Get-Item $backendPath).Length
+            sidecarBytes = (Get-Item $sidecarPath).Length
+            archiveBytes = (Get-Item $bundleArchive).Length
+        } | ConvertTo-Json
+        [IO.File]::WriteAllText("$bundleArchive.sizes.json", "$sizes`n", [Text.UTF8Encoding]::new($false))
+
+        $syft = Get-Command syft -ErrorAction SilentlyContinue
+        Remove-Item "$bundleArchive.sbom.cdx.json" -Force -ErrorAction SilentlyContinue
+        if ($syft) {
+            & syft "dir:$bundleRoot" -o "cyclonedx-json=$bundleArchive.sbom.cdx.json"
+            if ($LASTEXITCODE -ne 0) { throw "Syft failed" }
+        } elseif ($env:REQUIRE_RELEASE_SBOM -eq "1") {
+            throw "Syft is required because REQUIRE_RELEASE_SBOM=1"
+        } else {
+            Write-Warning "Syft not found; bundle SBOM hook skipped (set REQUIRE_RELEASE_SBOM=1 in release CI)"
+        }
 
         Write-Host "[release] done: $bundleArchive"
     } finally {
@@ -288,6 +319,7 @@ try {
     Test-ReleaseTools
     Test-RequiredFile (Join-Path $SCRIPT_DIR "release-assets/builtins.lock.json")
     Test-RequiredFile (Join-Path $SCRIPT_DIR "stage-builtins.ps1")
+    Test-RequiredFile (Join-Path $SCRIPT_DIR "stage-kbase-lance-engine.ps1")
 
     # Resolve version: read from file if not provided
     $VERSION_FILE = Join-Path $REPO_ROOT "VERSION"

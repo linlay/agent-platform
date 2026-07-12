@@ -153,6 +153,32 @@
           "sha256": "835c5421f10fe8d2a93f66abe85fdc8eac6a344740429b87d7c2a29a0a9f1539"
         }
       }
+    },
+    {
+      "name": "kbase-lance-engine",
+      "version": "1.0.0",
+      "repository": ".",
+      "source": "native/kbase-lance-engine",
+      "kind": "file",
+      "required": true,
+      "distribution": "source-build",
+      "buildPath": "native/kbase-lance-engine",
+      "buildTargets": {
+        "darwin-amd64": "kbase-lance-engine",
+        "darwin-arm64": "kbase-lance-engine",
+        "linux-amd64": "kbase-lance-engine",
+        "linux-arm64": "kbase-lance-engine",
+        "windows-amd64": "kbase-lance-engine.exe",
+        "windows-arm64": "kbase-lance-engine.exe"
+      },
+      "sdkVersion": "lancedb=0.30.0",
+      "license": "Apache-2.0",
+      "licenseDirectory": "kbase-lance-engine",
+      "licenses": [
+        "scripts/release-assets/licenses/kbase-lance-engine/LICENSE-APACHE-2.0",
+        "scripts/release-assets/licenses/kbase-lance-engine/NOTICE"
+      ],
+      "targets": {}
     }
   ]
 }

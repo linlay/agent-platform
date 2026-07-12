@@ -1,6 +1,7 @@
 package kbase
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,6 +25,32 @@ func (m *Manager) Files(agentKey string, options FilesOptions) (FilesResult, err
 		return FilesResult{}, err
 	}
 	result := emptyFilesResult(normalized)
+	if m.engineMode() == "sqlite" && legacyRefreshRequired(cfg.StorageDir) {
+		m.queueRefresh(cfg.AgentKey, cfg.StorageDir, "sqlite-rollback")
+		return result, nil
+	}
+	if m.engineMode() != "sqlite" {
+		control, controlErr := OpenReadControlStore(cfg.StorageDir)
+		if controlErr == nil {
+			defer control.Close()
+			generation, generationErr := control.ActiveGeneration(context.Background())
+			if generationErr != nil {
+				return FilesResult{}, generationErr
+			}
+			if generation != nil {
+				records, recordsErr := control.Files(context.Background(), generation.ID)
+				if recordsErr != nil {
+					return FilesResult{}, recordsErr
+				}
+				return filesResultFromRecords(result, normalized, records), nil
+			}
+		} else if !os.IsNotExist(controlErr) {
+			return FilesResult{}, controlErr
+		}
+		if m.engineMode() == "lancedb" {
+			return FilesResult{}, &PolicyError{Kind: ErrorUnavailable, Message: "KBASE LanceDB generation is not ready"}
+		}
+	}
 	store, err := OpenReadStore(cfg.StorageDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -36,6 +63,10 @@ func (m *Manager) Files(agentKey string, options FilesOptions) (FilesResult, err
 	if err != nil {
 		return FilesResult{}, err
 	}
+	return filesResultFromRecords(result, normalized, records), nil
+}
+
+func filesResultFromRecords(result FilesResult, normalized FilesOptions, records []fileRecord) FilesResult {
 	files := filterFileRecords(records, normalized)
 	result.FileCount = len(files)
 	if normalized.Mode == "tree" {
@@ -43,7 +74,7 @@ func (m *Manager) Files(agentKey string, options FilesOptions) (FilesResult, err
 		result.DirCount = countDirEntries(entries)
 		result.MatchCount = len(entries)
 		result.Results, result.Truncated = pageFileEntries(entries, normalized.Offset, normalized.HeadLimit)
-		return result, nil
+		return result
 	}
 	entries := make([]FileEntry, 0, len(files))
 	for _, rec := range files {
@@ -51,7 +82,7 @@ func (m *Manager) Files(agentKey string, options FilesOptions) (FilesResult, err
 	}
 	result.MatchCount = len(entries)
 	result.Results, result.Truncated = pageFileEntries(entries, normalized.Offset, normalized.HeadLimit)
-	return result, nil
+	return result
 }
 
 func normalizeFilesOptions(options FilesOptions) (FilesOptions, error) {
