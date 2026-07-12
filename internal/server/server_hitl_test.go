@@ -539,6 +539,17 @@ func TestAwaitingChatDetailExposesReplayUsageWithoutUsageSnapshotEvent(t *testin
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat detail: %v", err)
 	}
+	if chatResp.Data.Awaiting == nil ||
+		chatResp.Data.Awaiting.AwaitingID != awaitingID ||
+		chatResp.Data.Awaiting.RunID != runID ||
+		chatResp.Data.Awaiting.Mode != "question" ||
+		chatResp.Data.Awaiting.Status != "awaiting" ||
+		chatResp.Data.Awaiting.CreatedAt <= 0 {
+		t.Fatalf("expected active awaiting in chat detail, got %#v", chatResp.Data.Awaiting)
+	}
+	if chatResp.Data.ActiveRun == nil || chatResp.Data.ActiveRun.RunID != runID {
+		t.Fatalf("expected active run %q in chat detail, got %#v", runID, chatResp.Data.ActiveRun)
+	}
 
 	toolIndex := -1
 	awaitIndex := -1

@@ -1138,6 +1138,30 @@ func TestWebSocketPushAwaitingAskAndAnswerSyncPendingChatSummary(t *testing.T) {
 		t.Fatalf("did not expect /api/chats response to serialize pendingAwaiting, got %s", rawChatSummaries)
 	}
 
+	chatRequestID := "req_ws_awaiting_chat"
+	if err := flow.conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/chat",
+		ID:    chatRequestID,
+		Payload: ws.MarshalPayload(map[string]any{
+			"chatId": flow.chatID,
+		}),
+	}); err != nil {
+		t.Fatalf("write websocket chat request: %v", err)
+	}
+	chatDetail := waitForWebSocketResponseData[api.ChatDetailResponse](t, flow.conn, chatRequestID)
+	if chatDetail.Awaiting == nil ||
+		chatDetail.Awaiting.AwaitingID != flow.awaitingID ||
+		chatDetail.Awaiting.RunID != flow.runID ||
+		chatDetail.Awaiting.Mode != "question" ||
+		chatDetail.Awaiting.Status != "awaiting" ||
+		chatDetail.Awaiting.CreatedAt <= 0 {
+		t.Fatalf("expected active awaiting in websocket chat detail, got %#v", chatDetail.Awaiting)
+	}
+	if chatDetail.ActiveRun == nil || chatDetail.ActiveRun.RunID != flow.runID {
+		t.Fatalf("expected active run %q in websocket chat detail, got %#v", flow.runID, chatDetail.ActiveRun)
+	}
+
 	submitRec := httptest.NewRecorder()
 	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"agentKey":"mock-agent","runId":"`+flow.runID+`","awaitingId":"`+flow.awaitingID+`","params":[{"id":"q1","answer":"Approve"}]}`))
 	submitReq.Header.Set("Content-Type", "application/json")
@@ -1169,6 +1193,36 @@ func TestWebSocketPushAwaitingAskAndAnswerSyncPendingChatSummary(t *testing.T) {
 	}
 	if summaries[0].Awaiting != nil {
 		t.Fatalf("expected awaiting to clear after answer, got %#v", summaries[0].Awaiting)
+	}
+	chatRequestID = "req_ws_resolved_chat"
+	if err := flow.conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/chat",
+		ID:    chatRequestID,
+		Payload: ws.MarshalPayload(map[string]any{
+			"chatId": flow.chatID,
+		}),
+	}); err != nil {
+		t.Fatalf("write resolved websocket chat request: %v", err)
+	}
+	chatDetail = waitForWebSocketResponseData[api.ChatDetailResponse](t, flow.conn, chatRequestID)
+	if chatDetail.Awaiting != nil {
+		t.Fatalf("expected resolved websocket chat detail to omit awaiting, got %#v", chatDetail.Awaiting)
+	}
+	foundAsk, foundAnswer := false, false
+	for _, event := range chatDetail.Events {
+		if event.String("awaitingId") != flow.awaitingID {
+			continue
+		}
+		switch event.Type {
+		case "awaiting.ask":
+			foundAsk = true
+		case "awaiting.answer":
+			foundAnswer = true
+		}
+	}
+	if !foundAsk || !foundAnswer {
+		t.Fatalf("expected resolved chat detail to retain awaiting history, foundAsk=%v foundAnswer=%v events=%#v", foundAsk, foundAnswer, chatDetail.Events)
 	}
 }
 

@@ -44,15 +44,7 @@ func mapChatSummariesWithUsage(items []chat.Summary, includeUsage bool) []api.Ch
 			LastRunContent: item.LastRunContent,
 			Read:           toAPIReadState(item.Read),
 		}
-		if item.PendingAwaiting != nil {
-			resp.Awaiting = &api.Awaiting{
-				AwaitingID: item.PendingAwaiting.AwaitingID,
-				RunID:      item.PendingAwaiting.RunID,
-				Mode:       item.PendingAwaiting.Mode,
-				Status:     "awaiting",
-				CreatedAt:  item.PendingAwaiting.CreatedAt,
-			}
-		}
+		resp.Awaiting = toAPIAwaiting(item.PendingAwaiting)
 		if includeUsage {
 			usage := mapUsageDataPtr(item.Usage)
 			resp.Usage = usage
@@ -60,6 +52,19 @@ func mapChatSummariesWithUsage(items []chat.Summary, includeUsage bool) []api.Ch
 		response = append(response, resp)
 	}
 	return response
+}
+
+func toAPIAwaiting(pending *chat.PendingAwaiting) *api.Awaiting {
+	if pending == nil {
+		return nil
+	}
+	return &api.Awaiting{
+		AwaitingID: pending.AwaitingID,
+		RunID:      pending.RunID,
+		Mode:       pending.Mode,
+		Status:     "awaiting",
+		CreatedAt:  pending.CreatedAt,
+	}
 }
 
 func chatCreatedPayload(chatID string, chatName string, agentKey string, timestamp int64, source string) map[string]any {
@@ -91,6 +96,7 @@ func (s *Server) loadChatDetail(ctx context.Context, chatID string, includeRawMe
 		ChatID:        detail.ChatID,
 		ChatName:      detail.ChatName,
 		Source:        summary.Source,
+		Awaiting:      toAPIAwaiting(summary.PendingAwaiting),
 		Events:        detail.Events,
 		ContextWindow: mapChatContextWindow(detail.ContextWindow),
 		References:    nil,

@@ -1237,6 +1237,7 @@ type ChatDetailResponse struct {
 	RawMessages    []map[string]any    `json:"rawMessages,omitempty"`
 	Events         []stream.EventData  `json:"events"`
 	Runs           []RunSummary        `json:"runs,omitempty"`
+	Awaiting       *Awaiting           `json:"awaiting,omitempty"`
 	ActiveRun      *ActiveRunInfo      `json:"activeRun,omitempty"`
 	Plan           any                 `json:"plan,omitempty"`
 	Planning       any                 `json:"planning,omitempty"`
