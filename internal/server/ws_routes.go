@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -262,16 +263,23 @@ func (s *Server) wsTeams(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 
 func (s *Server) wsChats(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	payload, err := ws.DecodePayload[struct {
-		LastRunID string `json:"lastRunId"`
-		AgentKey  string `json:"agentKey"`
-		AgentMode string `json:"agentMode"`
+		LastRunID string          `json:"lastRunId"`
+		AgentKey  string          `json:"agentKey"`
+		AgentMode string          `json:"agentMode"`
+		Limit     json.RawMessage `json:"limit"`
 	}](req)
 	if err != nil {
 		conn.SendError(req.ID, "invalid_request", 400, "invalid payload", nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	response, listErr := s.listChatSummariesWithAgentModes(payload.LastRunID, payload.AgentKey, requestedAgentModes([]string{payload.AgentMode}))
+	limit, limitErr := parseWSChatListLimit(payload.Limit)
+	if limitErr != nil {
+		conn.SendError(req.ID, "invalid_request", http.StatusBadRequest, limitErr.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	response, listErr := s.listChatSummariesWithAgentModesAndLimit(payload.LastRunID, payload.AgentKey, requestedAgentModes([]string{payload.AgentMode}), limit)
 	if listErr != nil {
 		if isTimeContractViolation(listErr) {
 			sendTimeContractViolation(conn, req.ID, listErr)
@@ -289,6 +297,21 @@ func (s *Server) wsChats(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 	}
 	conn.SendResponse(req.Type, req.ID, 0, "success", response)
 	conn.CompleteRequest(req.ID)
+}
+
+func parseWSChatListLimit(raw json.RawMessage) (int, error) {
+	if len(raw) == 0 {
+		return 0, nil
+	}
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return 0, errors.New(invalidChatListLimitMessage)
+	}
+	var limit int
+	if err := json.Unmarshal(raw, &limit); err != nil {
+		return 0, errors.New(invalidChatListLimitMessage)
+	}
+	return optionalChatListLimit(&limit)
 }
 
 func (s *Server) wsChat(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {

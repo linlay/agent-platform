@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"agent-platform/internal/api"
@@ -17,7 +18,11 @@ func (s *Server) listChatSummaries(lastRunID string, agentKey string) ([]api.Cha
 }
 
 func (s *Server) listChatSummariesWithAgentModes(lastRunID string, agentKey string, agentModes []string) ([]api.ChatSummaryResponse, error) {
-	items, err := s.deps.Chats.ListChatsWithAgentModes(lastRunID, agentKey, agentModes)
+	return s.listChatSummariesWithAgentModesAndLimit(lastRunID, agentKey, agentModes, 0)
+}
+
+func (s *Server) listChatSummariesWithAgentModesAndLimit(lastRunID string, agentKey string, agentModes []string, limit int) ([]api.ChatSummaryResponse, error) {
+	items, err := s.deps.Chats.ListChatsWithAgentModesAndLimit(lastRunID, agentKey, agentModes, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -30,6 +35,37 @@ func requestedAgentModes(values []string) []string {
 		items = append(items, strings.Split(value, ",")...)
 	}
 	return chat.NormalizeAgentModes(items)
+}
+
+const invalidChatListLimitMessage = "limit must be a positive integer"
+
+func parseChatListLimit(r *http.Request) (int, error) {
+	if r == nil {
+		return 0, nil
+	}
+	values, present := r.URL.Query()["limit"]
+	if !present {
+		return 0, nil
+	}
+	raw := ""
+	if len(values) > 0 {
+		raw = strings.TrimSpace(values[0])
+	}
+	limit, err := strconv.Atoi(raw)
+	if err != nil || limit <= 0 {
+		return 0, errors.New(invalidChatListLimitMessage)
+	}
+	return limit, nil
+}
+
+func optionalChatListLimit(limit *int) (int, error) {
+	if limit == nil {
+		return 0, nil
+	}
+	if *limit <= 0 {
+		return 0, errors.New(invalidChatListLimitMessage)
+	}
+	return *limit, nil
 }
 
 func mapChatSummaries(items []chat.Summary) []api.ChatSummaryResponse {
@@ -277,7 +313,12 @@ func writeActiveRunConflict(w http.ResponseWriter, conflict *contracts.ActiveRun
 }
 
 func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
-	response, err := s.listChatSummariesWithAgentModes(r.URL.Query().Get("lastRunId"), r.URL.Query().Get("agentKey"), requestedAgentModes(r.URL.Query()["agentMode"]))
+	limit, err := parseChatListLimit(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
+		return
+	}
+	response, err := s.listChatSummariesWithAgentModesAndLimit(r.URL.Query().Get("lastRunId"), r.URL.Query().Get("agentKey"), requestedAgentModes(r.URL.Query()["agentMode"]), limit)
 	if err != nil {
 		if isTimeContractViolation(err) {
 			writeTimeContractViolation(w, err)

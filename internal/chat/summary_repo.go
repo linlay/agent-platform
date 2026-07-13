@@ -321,6 +321,13 @@ func (s *FileStore) ListChats(lastRunID string, agentKey string) ([]Summary, err
 }
 
 func (s *FileStore) ListChatsWithAgentModes(lastRunID string, agentKey string, agentModes []string) ([]Summary, error) {
+	return s.ListChatsWithAgentModesAndLimit(lastRunID, agentKey, agentModes, 0)
+}
+
+// ListChatsWithAgentModesAndLimit applies the established filters and order
+// before truncating the result. A non-positive limit means no truncation for
+// internal callers; public handlers validate supplied limit values first.
+func (s *FileStore) ListChatsWithAgentModesAndLimit(lastRunID string, agentKey string, agentModes []string, limit int) ([]Summary, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -369,7 +376,13 @@ func (s *FileStore) ListChatsWithAgentModes(lastRunID string, agentKey string, a
 		}
 		items = append(items, sum)
 	}
-	return items, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if limit > 0 && len(items) > limit {
+		items = items[:limit]
+	}
+	return items, nil
 }
 
 func (s *FileStore) RecentChatsByAgent(agentKey string, limit int) ([]Summary, error) {

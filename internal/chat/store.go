@@ -64,6 +64,7 @@ type Store interface {
 	OnRunCompleted(completion RunCompletion) error
 	ListChats(lastRunID string, agentKey string) ([]Summary, error)
 	ListChatsWithAgentModes(lastRunID string, agentKey string, agentModes []string) ([]Summary, error)
+	ListChatsWithAgentModesAndLimit(lastRunID string, agentKey string, agentModes []string, limit int) ([]Summary, error)
 	RecentChatsByAgent(agentKey string, limit int) ([]Summary, error)
 	ListRuns(chatID string) ([]RunSummary, error)
 	LoadChat(chatID string) (Detail, error)
