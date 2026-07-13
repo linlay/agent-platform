@@ -125,49 +125,6 @@ func TestStageRejectsChecksumMismatch(t *testing.T) {
 	}
 }
 
-func TestStageRegistersButDefersSourceBuildComponent(t *testing.T) {
-	base := t.TempDir()
-	repoRoot := filepath.Join(base, "agent-platform")
-	mustMkdirAll(t, repoRoot)
-	lock := Lock{
-		SchemaVersion: lockSchemaVersion,
-		DefaultRoot:   "builtins",
-		Components: []Component{{
-			Name:         "kbase-lance-engine",
-			Version:      "1.0.0",
-			Repository:   ".",
-			Source:       "native/kbase-lance-engine",
-			Kind:         "file",
-			Required:     true,
-			Distribution: "source-build",
-			BuildPath:    "native/kbase-lance-engine",
-			BuildTargets: map[string]string{"linux-amd64": "kbase-lance-engine"},
-			SDKVersion:   "lancedb=0.30.0",
-			License:      "Apache-2.0",
-		}},
-	}
-	lockPath := filepath.Join(repoRoot, "builtins.lock.json")
-	writeLock(t, lockPath, lock)
-	outputDir := filepath.Join(base, "output")
-
-	result, err := Stage(StageOptions{
-		RepoRoot:  repoRoot,
-		LockPath:  lockPath,
-		OutputDir: outputDir,
-		GOOS:      "linux",
-		GOARCH:    "amd64",
-	})
-	if err != nil {
-		t.Fatalf("Stage: %v", err)
-	}
-	if len(result.Manifest.Components) != 0 {
-		t.Fatalf("components = %#v, want deferred source-build component", result.Manifest.Components)
-	}
-	if _, err := os.Stat(result.ManifestPath); err != nil {
-		t.Fatalf("manifest path: %v", err)
-	}
-}
-
 func writeLock(t *testing.T, path string, lock Lock) {
 	t.Helper()
 	payload, err := json.Marshal(lock)

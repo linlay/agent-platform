@@ -60,19 +60,21 @@
 ### 前置要求
 
 - Go 1.22 或更新版本
-- Rust 1.91、Cargo 与 `protoc`（仅源码开发和本机 sidecar 构建需要；正式安装包不要求用户安装这些工具）
 - Docker / Docker Compose（如需容器运行）
 - 可用的 provider / model 注册文件（放在 `runtime/registries/`）
-- 相邻的 `../agent-platform-builtins/{ripgrep,dbx,httpx}` 本地产物仓库集合；可用绝对路径环境变量 `BUILTINS_ROOT` 覆盖
+- 相邻的 `../agent-platform-builtins/{ripgrep,dbx,httpx,kbase-lance-engine}` 本地产物仓库集合；可用绝对路径环境变量 `BUILTINS_ROOT` 覆盖
 
 ### 本地启动
 
 ```bash
 cp .env.example .env
+./scripts/sync-local-builtins.sh --all
 make run
 ```
 
-`make run` 会先构建本机 release 镜像目录、校验并装入 rg/dbx/httpx；若存在 `kbase-lance-engine` artifact 也会一并装入，再加载根目录 `.env` 并从 `release-local/backend/agent-platform` 启动。未设置 `SERVER_PORT` 时默认监听 `11949`。sidecar 默认从 `dist/kbase-lance-engine/<os>-<arch>/` 读取，也可通过 `KBASE_LANCE_ENGINE_URL` 与 `KBASE_LANCE_ENGINE_SHA256` 直接下载并校验；`make build-kbase-lance-engine` 仅用于显式的本机 sidecar 构建。本地 artifact 缺失时会告警但继续，非 KBASE 或 SQLite 模式仍可开发；正式 `make release-program` 会自行构建当前主机 sidecar 并强制校验发布元数据。内置程序位于 `release-local/bin/`，本机插件位于 `release-local/plugins/`。直接执行 `go run ./cmd/agent-platform` 不会自动加载 `.env`、装入 builtins 或扫描 `release-local/plugins/`；未设置 `SERVER_PORT` 或 `--port` 时应用代码默认监听 `8080`。
+`./scripts/sync-local-builtins.sh` 是唯一会从相邻项目复制 builtin 的本地入口。它按 lock 校验 release archive，默认装配六个平台到 `build/builtins/<os>-<arch>/`，再将本机目标镜像到 `release-local/bin/`。若只取得一个目标的 release artifact，可显式使用 `--target <os>/<arch>`。`make run` 只构建 Go runtime、加载根目录 `.env` 并从 `release-local/backend/agent-platform` 启动，绝不复制或编译 builtin。未设置 `SERVER_PORT` 时默认监听 `11949`。本机插件位于 `release-local/plugins/`。直接执行 `go run ./cmd/agent-platform` 不会自动加载 `.env`、装入 builtins 或扫描 `release-local/plugins/`；未设置 `SERVER_PORT` 或 `--port` 时应用代码默认监听 `8080`。
+
+`--all` 只有在 sidecar 项目的六个平台 archive 均已发布、并已将对应 SHA-256 写入 lock 后才会成功；缺失 target 会在写入任何现有 cache 或 `release-local/bin` 前失败。
 
 也可以显式拆开构建与启动：
 
@@ -81,7 +83,7 @@ make build-local
 make run-local
 ```
 
-`make build-local` 会把 runtime 写到 `release-local/backend/agent-platform`，按 `scripts/release-assets/builtins.lock.json` 把对应平台的 rg/dbx/httpx 写到 `release-local/bin/`，并在 sidecar artifact 可用时装入 `kbase-lance-engine`；锁定 builtins 缺失或 SHA-256 不匹配时构建失败。由于 runtime 位于 `backend/` 下，启动时只扫描服务包根目录的 `plugins/`，与 Desktop 服务包形态一致。`runtime/` 仍只用于 agents、chats、skills-market、registries、memory 等运行数据。
+`make build-local` 只把 runtime 写到 `release-local/backend/agent-platform`，不会变更 `release-local/bin/`。builtin 缺失、release archive 缺失或 SHA-256 不匹配都由同步脚本失败报告。由于 runtime 位于 `backend/` 下，启动时只扫描服务包根目录的 `plugins/`，与 Desktop 服务包形态一致。`runtime/` 仍只用于 agents、chats、skills-market、registries、memory 等运行数据。
 
 常用验证：
 
@@ -322,7 +324,7 @@ Container Hub 默认基础挂载当前最多 7 个：
 make release-program
 ```
 
-产物写入 `dist/release/`，包含纯 Go runtime、配置模板、启停脚本、`bin/{rg,dbx,httpx,kbase-lance-engine}`、builtins manifest、许可证 notice、压缩包 SHA-256 与大小报告。`release-program` 会为当前主机目标自行构建并校验 sidecar；显式的非本机目标才需要由 Platform release 环境提供已验证下载制品。Desktop 宿主集成时执行资源同步：
+产物写入 `dist/release/`，包含纯 Go runtime、配置模板、启停脚本、`bin/{rg,dbx,httpx,kbase-lance-engine}`、builtins manifest、许可证 notice、压缩包 SHA-256 与大小报告。`release-program` 只消费 lock 固定的外部 release archive，不会构建 Rust sidecar。Docker 构建同样需要先执行同步脚本，使匹配的 Linux cache 位于 `build/builtins/`。Desktop 宿主集成时执行资源同步：
 
 ```bash
 npm run sync:assets

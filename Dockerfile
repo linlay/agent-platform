@@ -11,18 +11,10 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" \
     go build -trimpath -o /out/agent-platform ./cmd/agent-platform
 
-FROM rust:1.91-bookworm AS sidecar-build
-
-WORKDIR /workspace/native/kbase-lance-engine
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends protobuf-compiler && \
-    rm -rf /var/lib/apt/lists/*
-COPY native/kbase-lance-engine/Cargo.toml native/kbase-lance-engine/Cargo.lock ./
-COPY native/kbase-lance-engine/src ./src
-RUN cargo build --release --locked && \
-    cp target/release/kbase-lance-engine /tmp/kbase-lance-engine
-
 FROM debian:bookworm-slim
+
+ARG TARGETOS
+ARG TARGETARCH
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates && \
@@ -33,8 +25,11 @@ RUN apt-get update && \
 WORKDIR /opt
 
 COPY --from=go-build --chown=10001:10001 /out/agent-platform /opt/backend/agent-platform
-COPY --from=sidecar-build --chown=10001:10001 /tmp/kbase-lance-engine /opt/bin/kbase-lance-engine
-COPY --chown=10001:10001 scripts/release-assets/licenses/kbase-lance-engine /opt/licenses/kbase-lance-engine
+# Run scripts/sync-local-builtins.sh before building this image. The cache
+# contains verified sidecar releases for every target; Docker selects its Linux
+# target directly and never compiles Rust inside the platform image.
+COPY --chown=10001:10001 build/builtins/${TARGETOS}-${TARGETARCH}/bin/kbase-lance-engine /opt/bin/kbase-lance-engine
+COPY --chown=10001:10001 build/builtins/${TARGETOS}-${TARGETARCH}/licenses/kbase-lance-engine /opt/licenses/kbase-lance-engine
 
 ENV AP_KBASE_LANCE_ENGINE=/opt/bin/kbase-lance-engine \
     HOME=/opt

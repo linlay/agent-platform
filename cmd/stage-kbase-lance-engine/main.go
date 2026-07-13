@@ -21,25 +21,24 @@ import (
 const componentName = "kbase-lance-engine"
 
 func main() {
-	repoRoot := flag.String("repo-root", ".", "repository root")
+	repoRoot := flag.String("repo-root", ".", "agent-platform repository root")
 	lockPath := flag.String("lock", "scripts/release-assets/builtins.lock.json", "builtins lock path")
-	outputDir := flag.String("output", "release-local", "bundle root")
+	builtinsRoot := flag.String("builtins-root", "", "absolute builtins collection root")
+	outputDir := flag.String("output", "release-local", "bundle root staged by cmd/stage-builtins")
 	targetOS := flag.String("os", runtime.GOOS, "target operating system")
 	targetArch := flag.String("arch", runtime.GOARCH, "target architecture")
-	binaryPath := flag.String("binary", "", "sidecar binary to stage")
-	expectedSHA := flag.String("expected-sha256", "", "required SHA-256 for verified artifacts")
-	artifactSource := flag.String("artifact-source", "", "artifact URL or release source recorded in the manifest")
-	cargoMetadata := flag.String("cargo-metadata", "", "Cargo metadata JSON used to generate a sanitized dependency inventory")
-	localBuild := flag.Bool("local-build", false, "accept a local source build and record its computed SHA-256")
 	flag.Parse()
 
-	if err := run(*repoRoot, *lockPath, *outputDir, *targetOS, *targetArch, *binaryPath, *expectedSHA, *artifactSource, *cargoMetadata, *localBuild); err != nil {
+	if err := run(*repoRoot, *lockPath, *builtinsRoot, *outputDir, *targetOS, *targetArch); err != nil {
 		fmt.Fprintf(os.Stderr, "stage kbase-lance-engine: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(repoRoot, lockPath, outputDir, targetOS, targetArch, binaryPath, expectedSHA, artifactSource, cargoMetadataPath string, localBuild bool) error {
+// run enriches the generic builtins staging output with the signed metadata
+// embedded in the external KBASE sidecar release archive. The executable and
+// ordinary license files are staged by cmd/stage-builtins first.
+func run(repoRoot, lockPath, builtinsRoot, outputDir, targetOS, targetArch string) error {
 	if err := validateTarget(targetOS, targetArch); err != nil {
 		return err
 	}
@@ -58,73 +57,61 @@ func run(repoRoot, lockPath, outputDir, targetOS, targetArch, binaryPath, expect
 	if err != nil {
 		return err
 	}
-	if component.Distribution != "source-build" {
-		return fmt.Errorf("component %s must use source-build distribution", componentName)
+	if component.Kind != "archive" {
+		return fmt.Errorf("component %s must be an external release archive", componentName)
 	}
-	if strings.TrimSpace(binaryPath) == "" {
-		return errors.New("--binary is required; build the target artifact first")
+	target, ok := component.Targets[targetOS+"-"+targetArch]
+	if !ok {
+		return fmt.Errorf("component %s has no target %s/%s", componentName, targetOS, targetArch)
 	}
-	if !filepath.IsAbs(binaryPath) {
-		binaryPath = filepath.Join(repoRoot, binaryPath)
+	if target.Metadata == nil {
+		return fmt.Errorf("component %s target %s/%s is missing release metadata", componentName, targetOS, targetArch)
 	}
+
+	collectionRoot, err := builtins.ResolveRoot(repoRoot, builtinsRoot, lock)
+	if err != nil {
+		return err
+	}
+	repositoryRoot, err := joinWithin(collectionRoot, component.Repository)
+	if err != nil {
+		return err
+	}
+	artifactPath, err := joinWithin(repositoryRoot, target.Path)
+	if err != nil {
+		return err
+	}
+	if err := verifySHA256(artifactPath, target.SHA256); err != nil {
+		return fmt.Errorf("sidecar archive verification: %w", err)
+	}
+
+	cargoMetadata, err := builtins.ReadArchiveEntry(artifactPath, target.Format, target.Metadata.CargoMetadata)
+	if err != nil {
+		return fmt.Errorf("read cargo metadata: %w", err)
+	}
+	sbom, err := builtins.ReadArchiveEntry(artifactPath, target.Format, target.Metadata.SBOM)
+	if err != nil {
+		return fmt.Errorf("read sidecar SBOM: %w", err)
+	}
+	if !json.Valid(cargoMetadata) {
+		return errors.New("Cargo metadata is not JSON")
+	}
+	if !json.Valid(sbom) {
+		return errors.New("sidecar SBOM is not JSON")
+	}
+
 	if !filepath.IsAbs(outputDir) {
 		outputDir = filepath.Join(repoRoot, outputDir)
 	}
-
-	actualSHA, err := fileSHA256(binaryPath)
-	if err != nil {
-		return fmt.Errorf("read target binary %s: %w", binaryPath, err)
-	}
-	expectedSHA = strings.ToLower(strings.TrimSpace(expectedSHA))
-	if expectedSHA != "" {
-		if len(expectedSHA) != sha256.Size*2 {
-			return errors.New("--expected-sha256 must be a SHA-256 digest")
-		}
-		if _, err := hex.DecodeString(expectedSHA); err != nil {
-			return fmt.Errorf("invalid expected SHA-256: %w", err)
-		}
-		if actualSHA != expectedSHA {
-			return fmt.Errorf("sha256 mismatch for %s: expected %s, got %s", binaryPath, expectedSHA, actualSHA)
-		}
-	} else if !localBuild {
-		return errors.New("--expected-sha256 is required for release artifacts (or use --local-build for a local source build)")
-	}
-
-	binaryName := componentName
-	if targetOS == "windows" {
-		binaryName += ".exe"
-	}
-	lockedOutput, ok := component.BuildTargets[targetOS+"-"+targetArch]
-	if !ok {
-		return fmt.Errorf("component %s does not register target %s/%s", componentName, targetOS, targetArch)
-	}
-	if lockedOutput != binaryName {
-		return fmt.Errorf("component %s target output is %q, want %q", componentName, lockedOutput, binaryName)
-	}
-	destination := filepath.Join(outputDir, "bin", binaryName)
-	if err := copyExecutable(binaryPath, destination); err != nil {
+	if err := stageDependencyInventory(cargoMetadata, outputDir); err != nil {
 		return err
 	}
-	if err := stageLicenseFiles(repoRoot, outputDir); err != nil {
+	if err := writeFileAtomic(filepath.Join(outputDir, "sbom", "kbase-lance-engine.cdx.json"), sbom, 0o644); err != nil {
 		return err
 	}
-	if strings.TrimSpace(cargoMetadataPath) != "" {
-		if !filepath.IsAbs(cargoMetadataPath) {
-			cargoMetadataPath = filepath.Join(repoRoot, cargoMetadataPath)
-		}
-		if err := stageDependencyInventory(cargoMetadataPath, outputDir); err != nil {
-			return err
-		}
-	}
-	provenance := "checksum-verified-artifact"
-	if localBuild {
-		provenance = "local-source-build"
-	}
-	if err := updateManifest(outputDir, targetOS, targetArch, component, actualSHA, binaryName, artifactSource, provenance); err != nil {
+	if err := requireLicenseFiles(outputDir); err != nil {
 		return err
 	}
-	fmt.Printf("staged %s %s for %s/%s (%s)\n", componentName, component.Version, targetOS, targetArch, actualSHA)
-	return nil
+	return updateManifest(outputDir, targetOS, targetArch, component)
 }
 
 func validateTarget(targetOS, targetArch string) error {
@@ -137,69 +124,31 @@ func validateTarget(targetOS, targetArch string) error {
 	return nil
 }
 
-func fileSHA256(path string) (string, error) {
+func joinWithin(root, child string) (string, error) {
+	if strings.TrimSpace(child) == "" {
+		return "", errors.New("path is required")
+	}
+	path := filepath.Join(root, child)
+	relative, err := filepath.Rel(root, path)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return "", fmt.Errorf("path %q escapes %s", child, root)
+	}
+	return path, nil
+}
+
+func verifySHA256(path, expected string) error {
 	file, err := os.Open(path)
 	if err != nil {
-		return "", err
+		return err
 	}
 	defer file.Close()
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
-}
-
-func copyExecutable(source, destination string) error {
-	input, err := os.Open(source)
-	if err != nil {
 		return err
 	}
-	defer input.Close()
-	info, err := input.Stat()
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("source is not a regular file: %s", source)
-	}
-	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
-		return err
-	}
-	temp, err := os.CreateTemp(filepath.Dir(destination), ".kbase-lance-engine-*")
-	if err != nil {
-		return err
-	}
-	tempPath := temp.Name()
-	defer os.Remove(tempPath)
-	if _, err := io.Copy(temp, input); err != nil {
-		temp.Close()
-		return err
-	}
-	if err := temp.Chmod(0o755); err != nil {
-		temp.Close()
-		return err
-	}
-	if err := temp.Close(); err != nil {
-		return err
-	}
-	return replaceFile(tempPath, destination)
-}
-
-func stageLicenseFiles(repoRoot, outputDir string) error {
-	for _, name := range []string{"LICENSE-APACHE-2.0", "NOTICE"} {
-		source := filepath.Join(repoRoot, "scripts", "release-assets", "licenses", componentName, name)
-		payload, err := os.ReadFile(source)
-		if err != nil {
-			return fmt.Errorf("read sidecar license file %s: %w", name, err)
-		}
-		destination := filepath.Join(outputDir, "licenses", componentName, name)
-		if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
-			return err
-		}
-		if err := os.WriteFile(destination, payload, 0o644); err != nil {
-			return err
-		}
+	actual := hex.EncodeToString(hash.Sum(nil))
+	if !strings.EqualFold(actual, strings.TrimSpace(expected)) {
+		return fmt.Errorf("SHA-256 mismatch: expected %s, got %s", expected, actual)
 	}
 	return nil
 }
@@ -225,13 +174,9 @@ type dependencyComponent struct {
 	Source  string `json:"source,omitempty"`
 }
 
-func stageDependencyInventory(metadataPath, outputDir string) error {
-	payload, err := os.ReadFile(metadataPath)
-	if err != nil {
-		return fmt.Errorf("read Cargo metadata: %w", err)
-	}
+func stageDependencyInventory(cargoMetadata []byte, outputDir string) error {
 	var metadata cargoMetadataDocument
-	if err := json.Unmarshal(payload, &metadata); err != nil {
+	if err := json.Unmarshal(cargoMetadata, &metadata); err != nil {
 		return fmt.Errorf("decode Cargo metadata: %w", err)
 	}
 	if len(metadata.Packages) == 0 {
@@ -252,13 +197,25 @@ func stageDependencyInventory(metadataPath, outputDir string) error {
 		}
 		return inventory.Components[i].Version < inventory.Components[j].Version
 	})
-	payload, err = json.MarshalIndent(inventory, "", "  ")
+	payload, err := json.MarshalIndent(inventory, "", "  ")
 	if err != nil {
 		return err
 	}
 	payload = append(payload, '\n')
-	destination := filepath.Join(outputDir, "licenses", componentName, "THIRD_PARTY_COMPONENTS.json")
-	return os.WriteFile(destination, payload, 0o644)
+	return writeFileAtomic(filepath.Join(outputDir, "licenses", componentName, "THIRD_PARTY_COMPONENTS.json"), payload, 0o644)
+}
+
+func requireLicenseFiles(outputDir string) error {
+	for _, name := range []string{"LICENSE-APACHE-2.0", "NOTICE"} {
+		info, err := os.Stat(filepath.Join(outputDir, "licenses", componentName, name))
+		if err != nil || !info.Mode().IsRegular() {
+			if err == nil {
+				err = errors.New("not a regular file")
+			}
+			return fmt.Errorf("staged sidecar license %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 func sanitizedPackageSource(raw string) string {
@@ -269,7 +226,7 @@ func sanitizedPackageSource(raw string) string {
 	return prefix + "+" + sanitizedArtifactSource(address)
 }
 
-func updateManifest(outputDir, targetOS, targetArch string, component builtins.Component, actualSHA, binaryName, artifactSource, provenance string) error {
+func updateManifest(outputDir, targetOS, targetArch string, component builtins.Component) error {
 	manifestPath := filepath.Join(outputDir, "builtins.manifest.json")
 	payload, err := os.ReadFile(manifestPath)
 	if err != nil {
@@ -282,35 +239,32 @@ func updateManifest(outputDir, targetOS, targetArch string, component builtins.C
 	if manifest.Platform.OS != targetOS || manifest.Platform.Arch != targetArch {
 		return fmt.Errorf("manifest platform %s/%s does not match target %s/%s", manifest.Platform.OS, manifest.Platform.Arch, targetOS, targetArch)
 	}
-	components := manifest.Components[:0]
-	for _, existing := range manifest.Components {
-		if existing.Name != componentName {
-			components = append(components, existing)
+	for index := range manifest.Components {
+		if manifest.Components[index].Name != componentName {
+			continue
 		}
+		manifest.Components[index].SDKVersion = component.SDKVersion
+		manifest.Components[index].License = component.License
+		manifest.Components[index].Distribution = "checksum-verified-artifact"
+		return writeManifest(manifestPath, manifest)
 	}
-	source := component.Source
-	if strings.TrimSpace(artifactSource) != "" {
-		source = sanitizedArtifactSource(artifactSource)
-	}
-	manifest.Components = append(components, builtins.ManifestComponent{
-		Name:         component.Name,
-		Version:      component.Version,
-		Source:       source,
-		Path:         filepath.ToSlash(filepath.Join("bin", binaryName)),
-		SHA256:       actualSHA,
-		SDKVersion:   component.SDKVersion,
-		License:      component.License,
-		Distribution: provenance,
-	})
-	sort.SliceStable(manifest.Components, func(i, j int) bool {
-		return manifest.Components[i].Name < manifest.Components[j].Name
-	})
-	payload, err = json.MarshalIndent(manifest, "", "  ")
+	return errors.New("builtins manifest does not contain kbase-lance-engine")
+}
+
+func writeManifest(path string, manifest builtins.Manifest) error {
+	payload, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		return err
 	}
 	payload = append(payload, '\n')
-	temp, err := os.CreateTemp(outputDir, ".builtins.manifest-*")
+	return writeFileAtomic(path, payload, 0o644)
+}
+
+func writeFileAtomic(path string, payload []byte, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	temp, err := os.CreateTemp(filepath.Dir(path), ".stage-*")
 	if err != nil {
 		return err
 	}
@@ -320,33 +274,30 @@ func updateManifest(outputDir, targetOS, targetArch string, component builtins.C
 		temp.Close()
 		return err
 	}
-	if err := temp.Chmod(0o644); err != nil {
+	if err := temp.Chmod(mode); err != nil {
 		temp.Close()
 		return err
 	}
 	if err := temp.Close(); err != nil {
 		return err
 	}
-	return replaceFile(tempPath, manifestPath)
+	if runtime.GOOS == "windows" {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return os.Rename(tempPath, path)
 }
 
 func sanitizedArtifactSource(raw string) string {
-	raw = strings.TrimSpace(raw)
-	parsed, err := url.Parse(raw)
+	// Cargo sources are URLs in normal releases. Do not persist credentials,
+	// query strings, or fragments in a service bundle.
+	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || parsed.Scheme == "" {
-		return raw
+		return strings.TrimSpace(raw)
 	}
 	parsed.User = nil
 	parsed.RawQuery = ""
 	parsed.Fragment = ""
 	return parsed.String()
-}
-
-func replaceFile(source, destination string) error {
-	if runtime.GOOS == "windows" {
-		if err := os.Remove(destination); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-	}
-	return os.Rename(source, destination)
 }

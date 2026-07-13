@@ -26,42 +26,6 @@ function Get-DetectedArch {
     Write-Error "Cannot detect ARCH from processor architecture: $arch"
 }
 
-function Get-DetectedHostOS {
-    if ($env:OS -eq "Windows_NT") { return "windows" }
-    Write-Error "The PowerShell release script requires a Windows host; pass PROGRAM_TARGET_MATRIX to package a non-native target from its matching runner."
-}
-
-function Test-LocalSidecarTarget {
-    param([string]$TargetOs, [string]$TargetArch)
-    return $TargetOs -eq $HOST_OS -and $TargetArch -eq $HOST_ARCH
-}
-
-function Get-RemoteSidecarDownload {
-    param([string]$TargetOs, [string]$TargetArch)
-
-    $suffix = ("{0}_{1}" -f $TargetOs, $TargetArch).ToUpperInvariant()
-    $urlKey = "KBASE_LANCE_ENGINE_URL_$suffix"
-    $shaKey = "KBASE_LANCE_ENGINE_SHA256_$suffix"
-    $url = [Environment]::GetEnvironmentVariable($urlKey)
-    $sha = [Environment]::GetEnvironmentVariable($shaKey)
-
-    if ($url -or $sha) {
-        if (-not $url -or -not $sha) {
-            throw "Non-local sidecar $TargetOs/$TargetArch requires both $urlKey and $shaKey"
-        }
-    } elseif ($REMOTE_TARGET_COUNT -eq 1 -and ($env:KBASE_LANCE_ENGINE_URL -or $env:KBASE_LANCE_ENGINE_SHA256)) {
-        $url = $env:KBASE_LANCE_ENGINE_URL
-        $sha = $env:KBASE_LANCE_ENGINE_SHA256
-        if (-not $url -or -not $sha) {
-            throw "Non-local sidecar $TargetOs/$TargetArch requires both KBASE_LANCE_ENGINE_URL and KBASE_LANCE_ENGINE_SHA256"
-        }
-    } else {
-        throw "Non-local sidecar $TargetOs/$TargetArch requires $urlKey and $shaKey"
-    }
-
-    return [pscustomobject]@{ Url = $url; SHA256 = $sha }
-}
-
 function Test-Version {
     param([string]$ver)
     if ($ver -notmatch '^v\d+\.\d+\.\d+$') {
@@ -272,21 +236,7 @@ function Build-ProgramBundle {
         if ($LASTEXITCODE -ne 0) {
             Write-Error "stage builtins failed for $TargetOs/$TargetArch"
         }
-        $sidecarStageArgs = @{
-            OutputDir = $bundleRoot
-            TargetOS = $TargetOs
-            TargetArch = $TargetArch
-            ArtifactRoot = $KBASE_ARTIFACT_ROOT
-        }
-        if (Test-LocalSidecarTarget -TargetOs $TargetOs -TargetArch $TargetArch) {
-            $sidecarStageArgs.LocalBuild = $true
-        } else {
-            $download = Get-RemoteSidecarDownload -TargetOs $TargetOs -TargetArch $TargetArch
-            $sidecarStageArgs.Url = $download.Url
-            $sidecarStageArgs.ExpectedSHA256 = $download.SHA256
-            $sidecarStageArgs.RefreshDownload = $true
-        }
-        & "$SCRIPT_DIR/stage-kbase-lance-engine.ps1" @sidecarStageArgs
+        & "$SCRIPT_DIR/stage-kbase-lance-engine.ps1" -OutputDir $bundleRoot -TargetOS $TargetOs -TargetArch $TargetArch
         if ($LASTEXITCODE -ne 0) {
             Write-Error "stage kbase-lance-engine failed for $TargetOs/$TargetArch"
         }
@@ -396,11 +346,7 @@ try {
         Write-Error "ARCH must be amd64 or arm64 (got: $ARCH)"
     }
 
-    $HOST_OS = Get-DetectedHostOS
-    $HOST_ARCH = Get-DetectedArch
-    $KBASE_ARTIFACT_ROOT = if ($env:KBASE_LANCE_ENGINE_ARTIFACT_ROOT) { $env:KBASE_LANCE_ENGINE_ARTIFACT_ROOT } else { Join-Path $REPO_ROOT "dist/kbase-lance-engine" }
     $targets = @(Get-ProgramTargetMatrix -Targets $PROGRAM_TARGETS -Matrix $PROGRAM_TARGET_MATRIX -Arch $ARCH)
-    $REMOTE_TARGET_COUNT = @($targets | Where-Object { -not (Test-LocalSidecarTarget -TargetOs $_.Os -TargetArch $_.Arch) }).Count
 
     foreach ($target in $targets) {
         $os = $target.Os

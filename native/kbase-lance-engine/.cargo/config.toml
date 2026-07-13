@@ -1,6 +1,0 @@
-[http]
-multiplexing = false
-timeout = 60
-
-[net]
-retry = 5

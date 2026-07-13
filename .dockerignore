@@ -4,6 +4,10 @@
 **/.DS_Store
 **/target
 dist
+build/*
+!build/builtins/
+!build/builtins/**
+build/builtins/.gocache
 release-local
 runtime
 run

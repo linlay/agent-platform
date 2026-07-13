@@ -11,7 +11,6 @@ fi
 
 version="$(tr -d '[:space:]' <"$REPO_ROOT/VERSION")"
 archive="$REPO_ROOT/dist/release/agent-platform-${version}-darwin-arm64.tar.gz"
-artifact_dir="$REPO_ROOT/dist/kbase-lance-engine/darwin-arm64"
 
 rm -rf "$REPO_ROOT/dist"
 (
@@ -22,10 +21,6 @@ rm -rf "$REPO_ROOT/dist"
     make release-program
 )
 
-[[ -f "$artifact_dir/kbase-lance-engine" ]]
-[[ -f "$artifact_dir/kbase-lance-engine.sha256" ]]
-[[ -s "$artifact_dir/cargo-metadata.json" ]]
-[[ -s "$artifact_dir/sbom.cdx.json" ]]
 [[ -f "$archive" ]]
 [[ -f "$archive.sha256" ]]
 [[ -f "$archive.sizes.json" ]]

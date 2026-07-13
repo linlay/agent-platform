@@ -157,28 +157,30 @@
     {
       "name": "kbase-lance-engine",
       "version": "1.0.0",
-      "repository": ".",
-      "source": "native/kbase-lance-engine",
-      "kind": "file",
+      "repository": "kbase-lance-engine",
+      "source": "agent-platform-builtins/kbase-lance-engine",
+      "kind": "archive",
       "required": true,
-      "distribution": "source-build",
-      "buildPath": "native/kbase-lance-engine",
-      "buildTargets": {
-        "darwin-amd64": "kbase-lance-engine",
-        "darwin-arm64": "kbase-lance-engine",
-        "linux-amd64": "kbase-lance-engine",
-        "linux-arm64": "kbase-lance-engine",
-        "windows-amd64": "kbase-lance-engine.exe",
-        "windows-arm64": "kbase-lance-engine.exe"
-      },
       "sdkVersion": "lancedb=0.30.0",
       "license": "Apache-2.0",
       "licenseDirectory": "kbase-lance-engine",
       "licenses": [
-        "scripts/release-assets/licenses/kbase-lance-engine/LICENSE-APACHE-2.0",
-        "scripts/release-assets/licenses/kbase-lance-engine/NOTICE"
+        "LICENSE-APACHE-2.0",
+        "NOTICE"
       ],
-      "targets": {}
+      "targets": {
+        "darwin-arm64": {
+          "path": "dist/v1.0.0/kbase-lance-engine_v1.0.0_darwin_arm64.tar.gz",
+          "format": "tar.gz",
+          "entry": "kbase-lance-engine",
+          "output": "kbase-lance-engine",
+          "sha256": "2f9cbb2fce83d80b48f3756c90be040addd83862f0ed83b3d83274c3e7430e0d",
+          "metadata": {
+            "cargoMetadata": "cargo-metadata.json",
+            "sbom": "sbom.cdx.json"
+          }
+        }
+      }
     }
   ]
 }

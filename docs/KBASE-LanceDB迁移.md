@@ -205,24 +205,15 @@ Manager 在启动和 catalog reload 时维护 watcher：agent 删除或 workspac
 
 ## 打包、直接下载与外部验证边界
 
-release bundle 将当前平台的 `kbase-lance-engine[.exe]` 放入 `bin/`，不包含全平台 native archive，用户不需要本地 Rust toolchain。`scripts/release-assets/builtins.lock.json` 记录 sidecar 1.0.0、LanceDB SDK 0.30.0、license 与 build target hook；仓库不伪造尚未发布的平台 URL/SHA。
+release bundle 将当前平台的 `kbase-lance-engine[.exe]` 放入 `bin/`，不包含全平台 native archive，用户不需要本地 Rust toolchain。Rust 源码和 release 构建位于相邻的 `../agent-platform-builtins/kbase-lance-engine` 独立仓库；其 archive 必须包含可执行文件、Cargo metadata、sidecar SBOM 和许可证。`scripts/release-assets/builtins.lock.json` 固定 archive 路径、SHA-256、sidecar 版本与 LanceDB SDK 版本。
 
-无需安装 GitHub 插件，可用已编译 artifact 直接下载 staging：
+无需安装 GitHub 插件或 Rust toolchain；只需由外部 sidecar 项目发布并提交 lock 固定的 archive。
 
-```bash
-KBASE_LANCE_ENGINE_URL="https://artifacts.example/kbase-lance-engine" \
-KBASE_LANCE_ENGINE_SHA256="<64位 SHA-256>" \
-scripts/stage-kbase-lance-engine.sh \
-  --output release-local \
-  --os darwin \
-  --arch arm64
-```
+`scripts/stage-kbase-lance-engine.{sh,ps1}` 只从 lock 指定的外部 archive 提取 sidecar metadata，不支持下载或本机 Rust 构建。日常本地服务包装配应使用 `./scripts/sync-local-builtins.sh --all`：它将每个平台的受校验 archive 展开到 `build/builtins/<os>-<arch>/`，并把当前主机目标镜像至 `release-local/bin/`。`make run`、`make release-program` 均不会下载或构建 sidecar；缺失平台 archive、hash 不匹配、Cargo metadata/SBOM 缺失都会失败。Docker 从相同 cache 选择对应 Linux sidecar。
 
-PowerShell 的 `scripts/stage-kbase-lance-engine.ps1` 支持同等参数。下载没有 expected SHA-256 会拒绝，digest 不匹配会删除临时 `.download` 文件并失败。本地 `make run` 可将 sidecar 作为 optional artifact，便于非 KBASE/SQLite 开发；正式 `release-program` 会自行构建当前主机 sidecar，并强制 artifact、checksum、Cargo dependency metadata、sidecar CycloneDX SBOM、bundle CycloneDX SBOM 和 license metadata，缺少 Syft 或元数据即失败。显式非本机矩阵由 Platform release 的目标专属 URL/SHA 配置下载，不需要 Desktop 预置 artifact。
+Git 忽略规则覆盖 platform 的 `build/`、release staging、默认 runtime/run 目录和 workspace 本地 `.kbase/`；Rust `Cargo.lock`、源码、release 脚本、SBOM 和许可证由外部 sidecar 仓库提交维护。
 
-Git 忽略规则覆盖任意 Rust `target/`、release staging、默认 runtime/run 目录和 workspace 本地 `.kbase/`；`Cargo.lock`、Rust 源码、构建/下载脚本、配置 example 与许可证清单属于发布事实，必须提交。
-
-build/stage 脚本已覆盖 darwin/linux/windows 的 amd64/arm64 target 入口，Docker 已改为 Debian bookworm slim/glibc 并以非 root 运行主程序与 sidecar。容器 `HEALTHCHECK` 调用主程序的 `healthcheck` 子命令访问免鉴权 `/healthz`；该端点确认 Go HTTP runtime 可达，并在存在非 SQLite KBASE agent 时由 Go 使用私有 Bearer token 完成 sidecar protocol-v1 health handshake。但“有构建 hook”不等于“六平台已验证”；实际 artifact 发布、macOS codesign/notarization、Windows signing、SBOM 产出与六平台 build/start/search smoke 必须在 release CI/对应真实 runner 完成后才能标记通过。
+Docker 已改为 Debian bookworm slim/glibc 并以非 root 运行主程序与已验证 sidecar。容器 `HEALTHCHECK` 调用主程序的 `healthcheck` 子命令访问免鉴权 `/healthz`；该端点确认 Go HTTP runtime 可达，并在存在非 SQLite KBASE agent 时由 Go 使用私有 Bearer token 完成 sidecar protocol-v1 health handshake。实际六平台 artifact 发布、macOS codesign/notarization、Windows signing、SBOM 产出与六平台 build/start/search smoke 必须在外部 sidecar 仓库的 release CI/对应真实 runner 完成后才能标记通过。
 
 ## 非目标和宣传边界
 

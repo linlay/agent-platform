@@ -1,5 +1,6 @@
 # Build outputs
 dist/
+build/
 out/
 /release/
 /release-local/

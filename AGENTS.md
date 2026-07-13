@@ -10,7 +10,7 @@
 - 已具备 chat 摘要、事件流、raw messages、上传资源落盘、归档与搜索。
 - 已具备目录驱动的 agents / teams / skills / tools catalog。
 - 已具备 OpenAI / Anthropic 协议模型调用、backend tools、Container Hub sandbox 与 tools。
-- 已具备由 platform 锁定并随服务包分发的 Host builtins（rg/dbx/httpx）；`file_grep/file_glob` 稳定包装 rg，dbx/httpx 保持 CLI。
+- 已具备由 platform lock 固定并随服务包分发的 Host builtins（rg/dbx/httpx/kbase-lance-engine）；`file_grep/file_glob` 稳定包装 rg，dbx/httpx 保持 CLI。
 - 已具备 HITL question / approval / form、运行中 submit / steer / interrupt 协议入口。
 - 已具备 SQLite memory、FTS、可选 embedding、learn / consolidate / feedback 与 memory tools。
 - 已具备 KBASE 文本知识库的 SQLite 兼容检索、LanceDB generation 检索、旧库快照迁移、加权 RRF 与本地 Rust sidecar 管理；SQLite `control.db` 仍负责 generation、文件状态与恢复日志。
@@ -71,7 +71,7 @@ cmd/agent-platform/main.go
 ├── docs/                        # 中文专题文档
 ├── internal/                    # Go runtime 实现
 │   └── agent/                   # 中立 mode 契约及 CODER/KBASE/TEAM 特有实现
-├── native/kbase-lance-engine/ # LanceDB Rust sidecar，提交 Cargo.lock
+├── build/                       # 忽略的多平台 builtin 本地装配缓存
 ├── scripts/                     # 审计和辅助脚本
 ├── Dockerfile
 ├── Makefile
@@ -147,6 +147,8 @@ cp .env.example .env
 make run
 make test
 ```
+
+首次本地运行或更新相邻 builtin release 后，先执行 `./scripts/sync-local-builtins.sh --all`（未发布完整矩阵时使用 `--target <os>/<arch>`）；它是复制 builtin 的唯一入口。`make run` / `make build-local` 不得重新引入 builtin 或 Rust 构建步骤。
 
 涉及文档、配置或目录规范调整时，同步检查 `README.md`、`AGENTS.md`、`docs/` 与 `.gitignore`。
 

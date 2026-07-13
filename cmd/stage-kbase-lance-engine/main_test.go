@@ -1,7 +1,12 @@
 package main
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,44 +15,61 @@ import (
 	"agent-platform/internal/builtins"
 )
 
-func TestRunStagesVerifiedArtifactAndUpdatesManifest(t *testing.T) {
+func TestRunStagesVerifiedExternalReleaseMetadata(t *testing.T) {
 	repoRoot := t.TempDir()
+	collectionRoot := filepath.Join(repoRoot, "builtins")
 	outputDir := filepath.Join(repoRoot, "bundle")
-	artifact := filepath.Join(repoRoot, "artifact", componentName)
-	mustWrite(t, artifact, []byte("sidecar-binary"), 0o755)
-	actualSHA, err := fileSHA256(artifact)
-	if err != nil {
-		t.Fatal(err)
-	}
+	artifact := filepath.Join(collectionRoot, componentName, "dist", "v1.0.0", "sidecar.tar.gz")
+	cargoMetadata := []byte(`{"packages":[{"name":"lancedb","version":"0.30.0","license":"Apache-2.0","source":"registry+https://token@github.com/rust-lang/crates.io-index?signature=secret","manifest_path":"/secret/build/path"}]}`)
+	mustWriteTarGzip(t, artifact, map[string][]byte{
+		componentName:         []byte("sidecar-binary"),
+		"cargo-metadata.json": cargoMetadata,
+		"sbom.cdx.json":       []byte(`{"bomFormat":"CycloneDX"}`),
+	})
+	mustWrite(t, filepath.Join(collectionRoot, componentName, "LICENSE-APACHE-2.0"), []byte("license"), 0o644)
+	mustWrite(t, filepath.Join(collectionRoot, componentName, "NOTICE"), []byte("notice"), 0o644)
 
 	lock := builtins.Lock{
 		SchemaVersion: 1,
 		DefaultRoot:   "builtins",
 		Components: []builtins.Component{{
-			Name:         componentName,
-			Version:      "1.0.0",
-			Repository:   ".",
-			Source:       "native/kbase-lance-engine",
-			Kind:         "file",
-			Required:     true,
-			Distribution: "source-build",
-			BuildPath:    "native/kbase-lance-engine",
-			BuildTargets: map[string]string{"linux-amd64": componentName},
-			SDKVersion:   "lancedb=0.30.0",
-			License:      "Apache-2.0",
+			Name:             componentName,
+			Version:          "1.0.0",
+			Repository:       componentName,
+			Source:           "agent-platform-builtins/kbase-lance-engine",
+			Kind:             "archive",
+			Required:         true,
+			SDKVersion:       "lancedb=0.30.0",
+			License:          "Apache-2.0",
+			LicenseDirectory: componentName,
+			Licenses:         []string{"LICENSE-APACHE-2.0", "NOTICE"},
+			Targets: map[string]builtins.Target{
+				"linux-amd64": {
+					Path:   "dist/v1.0.0/sidecar.tar.gz",
+					Format: "tar.gz",
+					Entry:  componentName,
+					Output: componentName,
+					SHA256: fileSHA256(t, artifact),
+					Metadata: &builtins.TargetMetadata{
+						CargoMetadata: "cargo-metadata.json",
+						SBOM:          "sbom.cdx.json",
+					},
+				},
+			},
 		}},
 	}
 	mustWriteJSON(t, filepath.Join(repoRoot, "builtins.lock.json"), lock)
-	mustWriteJSON(t, filepath.Join(outputDir, "builtins.manifest.json"), builtins.Manifest{
-		SchemaVersion: 1,
-		Platform:      builtins.ManifestPlatform{OS: "linux", Arch: "amd64"},
-	})
-	mustWrite(t, filepath.Join(repoRoot, "scripts", "release-assets", "licenses", componentName, "NOTICE"), []byte("notice"), 0o644)
-	mustWrite(t, filepath.Join(repoRoot, "scripts", "release-assets", "licenses", componentName, "LICENSE-APACHE-2.0"), []byte("license"), 0o644)
-	cargoMetadata := filepath.Join(repoRoot, "cargo-metadata.json")
-	mustWrite(t, cargoMetadata, []byte(`{"packages":[{"name":"lancedb","version":"0.30.0","license":"Apache-2.0","source":"registry+https://token@github.com/rust-lang/crates.io-index?signature=secret","manifest_path":"/secret/build/path"}]}`), 0o644)
+	if _, err := builtins.Stage(builtins.StageOptions{
+		RepoRoot:  repoRoot,
+		LockPath:  "builtins.lock.json",
+		OutputDir: outputDir,
+		GOOS:      "linux",
+		GOARCH:    "amd64",
+	}); err != nil {
+		t.Fatalf("generic stage: %v", err)
+	}
 
-	if err := run(repoRoot, "builtins.lock.json", outputDir, "linux", "amd64", artifact, actualSHA, "https://token@artifacts.example/engine?signature=secret", cargoMetadata, false); err != nil {
+	if err := run(repoRoot, "builtins.lock.json", "", outputDir, "linux", "amd64"); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(outputDir, "bin", componentName)); err != nil {
@@ -55,6 +77,9 @@ func TestRunStagesVerifiedArtifactAndUpdatesManifest(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(outputDir, "licenses", componentName, "LICENSE-APACHE-2.0")); err != nil {
 		t.Fatalf("staged license: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "sbom", "kbase-lance-engine.cdx.json")); err != nil {
+		t.Fatalf("staged SBOM: %v", err)
 	}
 	inventory, err := os.ReadFile(filepath.Join(outputDir, "licenses", componentName, "THIRD_PARTY_COMPONENTS.json"))
 	if err != nil {
@@ -71,21 +96,44 @@ func TestRunStagesVerifiedArtifactAndUpdatesManifest(t *testing.T) {
 	if err := json.Unmarshal(payload, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if len(manifest.Components) != 1 || manifest.Components[0].SHA256 != actualSHA {
+	if len(manifest.Components) != 1 || manifest.Components[0].SDKVersion != "lancedb=0.30.0" {
 		t.Fatalf("manifest components = %#v", manifest.Components)
 	}
 	if manifest.Components[0].Distribution != "checksum-verified-artifact" {
 		t.Fatalf("distribution = %q", manifest.Components[0].Distribution)
 	}
-	if manifest.Components[0].Source != "https://artifacts.example/engine" {
-		t.Fatalf("source = %q", manifest.Components[0].Source)
+
+	if err := os.WriteFile(artifact, []byte("tampered"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if err := run(repoRoot, "builtins.lock.json", outputDir, "linux", "amd64", artifact, "", "", "", false); err == nil {
-		t.Fatal("expected release artifact without checksum to fail")
+	if err := run(repoRoot, "builtins.lock.json", "", outputDir, "linux", "amd64"); err == nil || !strings.Contains(err.Error(), "SHA-256 mismatch") {
+		t.Fatalf("tampered archive error = %v", err)
 	}
-	if err := run(repoRoot, "builtins.lock.json", outputDir, "linux", "amd64", artifact, strings.Repeat("0", 64), "", cargoMetadata, true); err == nil {
-		t.Fatal("expected local build with a mismatched checksum to fail")
+}
+
+func mustWriteTarGzip(t *testing.T, path string, entries map[string][]byte) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
 	}
+	var archive bytes.Buffer
+	gzipWriter := gzip.NewWriter(&archive)
+	tarWriter := tar.NewWriter(gzipWriter)
+	for name, payload := range entries {
+		if err := tarWriter.WriteHeader(&tar.Header{Name: name, Mode: 0o755, Size: int64(len(payload))}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tarWriter.Write(payload); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tarWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, path, archive.Bytes(), 0o644)
 }
 
 func mustWriteJSON(t *testing.T, path string, value any) {
@@ -105,4 +153,20 @@ func mustWrite(t *testing.T, path string, payload []byte, mode os.FileMode) {
 	if err := os.WriteFile(path, payload, mode); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func fileSHA256(t *testing.T, path string) string {
+	t.Helper()
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fmtSHA256(payload)
+}
+
+func fmtSHA256(payload []byte) string {
+	// Delegate the digest formatting to the staging package's invariant via a
+	// small local hash rather than shelling out in this unit test.
+	hash := sha256.Sum256(payload)
+	return fmt.Sprintf("%x", hash[:])
 }

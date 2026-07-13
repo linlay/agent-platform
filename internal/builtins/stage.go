@@ -31,9 +31,6 @@ type Component struct {
 	Commit           string            `json:"commit,omitempty"`
 	Kind             string            `json:"kind"`
 	Required         bool              `json:"required"`
-	Distribution     string            `json:"distribution,omitempty"`
-	BuildPath        string            `json:"buildPath,omitempty"`
-	BuildTargets     map[string]string `json:"buildTargets,omitempty"`
 	SDKVersion       string            `json:"sdkVersion,omitempty"`
 	License          string            `json:"license,omitempty"`
 	LicenseDirectory string            `json:"licenseDirectory,omitempty"`
@@ -42,11 +39,20 @@ type Component struct {
 }
 
 type Target struct {
-	Path   string `json:"path"`
-	Format string `json:"format,omitempty"`
-	Entry  string `json:"entry,omitempty"`
-	Output string `json:"output"`
-	SHA256 string `json:"sha256"`
+	Path     string          `json:"path"`
+	Format   string          `json:"format,omitempty"`
+	Entry    string          `json:"entry,omitempty"`
+	Output   string          `json:"output"`
+	SHA256   string          `json:"sha256"`
+	Metadata *TargetMetadata `json:"metadata,omitempty"`
+}
+
+// TargetMetadata describes extra files that a platform archive carries beside
+// its executable. It is currently used by the Lance sidecar release so the
+// service package can preserve its dependency inventory and SBOM.
+type TargetMetadata struct {
+	CargoMetadata string `json:"cargoMetadata,omitempty"`
+	SBOM          string `json:"sbom,omitempty"`
 }
 
 type StageOptions struct {
@@ -186,12 +192,6 @@ func Stage(options StageOptions) (StageResult, error) {
 		},
 	}
 	for _, component := range lock.Components {
-		// source-build components are staged by their dedicated, toolchain-aware
-		// release step. The generic builtin stager still validates and registers
-		// them, but never pretends that an unsigned/unbuilt artifact exists.
-		if component.Distribution == "source-build" {
-			continue
-		}
 		target, ok := component.Targets[targetKey]
 		if !ok {
 			if component.Required {
@@ -213,7 +213,7 @@ func Stage(options StageOptions) (StageResult, error) {
 		if err := verifyFileSHA256(sourcePath, target.SHA256); err != nil {
 			return StageResult{}, fmt.Errorf("%s source verification: %w", component.Name, err)
 		}
-		payload, err := readPayload(sourcePath, component.Kind, target)
+		payload, err := ReadTargetPayload(sourcePath, component.Kind, target)
 		if err != nil {
 			return StageResult{}, fmt.Errorf("%s payload: %w", component.Name, err)
 		}
@@ -225,14 +225,20 @@ func Stage(options StageOptions) (StageResult, error) {
 			return StageResult{}, err
 		}
 		outputHash := bytesSHA256(payload)
-		manifest.Components = append(manifest.Components, ManifestComponent{
-			Name:    component.Name,
-			Version: component.Version,
-			Source:  component.Source,
-			Commit:  component.Commit,
-			Path:    filepath.ToSlash(filepath.Join("bin", target.Output)),
-			SHA256:  outputHash,
-		})
+		staged := ManifestComponent{
+			Name:       component.Name,
+			Version:    component.Version,
+			Source:     component.Source,
+			Commit:     component.Commit,
+			Path:       filepath.ToSlash(filepath.Join("bin", target.Output)),
+			SHA256:     outputHash,
+			SDKVersion: component.SDKVersion,
+			License:    component.License,
+		}
+		if target.Metadata != nil {
+			staged.Distribution = "checksum-verified-artifact"
+		}
+		manifest.Components = append(manifest.Components, staged)
 		if err := stageLicenses(repositoryRoot, outputDir, component); err != nil {
 			return StageResult{}, err
 		}
@@ -258,37 +264,6 @@ func validateComponent(component Component) error {
 	if component.Kind != "file" && component.Kind != "archive" {
 		return fmt.Errorf("builtin %s has unsupported kind %q", component.Name, component.Kind)
 	}
-	if component.Distribution != "" && component.Distribution != "source-build" {
-		return fmt.Errorf("builtin %s has unsupported distribution %q", component.Name, component.Distribution)
-	}
-	if component.Distribution == "source-build" {
-		buildPath := strings.TrimSpace(component.BuildPath)
-		if buildPath == "" {
-			return fmt.Errorf("builtin %s source-build buildPath is required", component.Name)
-		}
-		cleanBuildPath := filepath.Clean(buildPath)
-		if filepath.IsAbs(buildPath) || cleanBuildPath == ".." || strings.HasPrefix(cleanBuildPath, ".."+string(filepath.Separator)) {
-			return fmt.Errorf("builtin %s source-build buildPath must stay within the repository", component.Name)
-		}
-		if strings.TrimSpace(component.SDKVersion) == "" {
-			return fmt.Errorf("builtin %s source-build sdkVersion is required", component.Name)
-		}
-		if strings.TrimSpace(component.License) == "" {
-			return fmt.Errorf("builtin %s source-build license is required", component.Name)
-		}
-		if len(component.BuildTargets) == 0 {
-			return fmt.Errorf("builtin %s source-build buildTargets are required", component.Name)
-		}
-		for targetKey, output := range component.BuildTargets {
-			if strings.TrimSpace(targetKey) == "" || filepath.Base(output) != output || strings.TrimSpace(output) == "" {
-				return fmt.Errorf("builtin %s source-build target %s has invalid output %q", component.Name, targetKey, output)
-			}
-			if !validPlatformTargetKey(targetKey) {
-				return fmt.Errorf("builtin %s source-build target %s is unsupported", component.Name, targetKey)
-			}
-		}
-		return nil
-	}
 	if len(component.Targets) == 0 {
 		return fmt.Errorf("builtin %s targets are required", component.Name)
 	}
@@ -308,21 +283,36 @@ func validateComponent(component Component) error {
 		if component.Kind == "archive" && (target.Entry == "" || (target.Format != "tar.gz" && target.Format != "zip")) {
 			return fmt.Errorf("builtin %s target %s archive entry and format are required", component.Name, targetKey)
 		}
+		if target.Metadata != nil {
+			if component.Kind != "archive" {
+				return fmt.Errorf("builtin %s target %s metadata requires an archive", component.Name, targetKey)
+			}
+			if err := validateArchiveEntry(target.Metadata.CargoMetadata); err != nil {
+				return fmt.Errorf("builtin %s target %s cargo metadata: %w", component.Name, targetKey, err)
+			}
+			if err := validateArchiveEntry(target.Metadata.SBOM); err != nil {
+				return fmt.Errorf("builtin %s target %s SBOM: %w", component.Name, targetKey, err)
+			}
+		}
 	}
 	return nil
 }
 
-func validPlatformTargetKey(value string) bool {
-	parts := strings.Split(value, "-")
-	if len(parts) != 2 {
-		return false
+func validateArchiveEntry(value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return errors.New("entry is required")
 	}
-	validOS := parts[0] == "darwin" || parts[0] == "linux" || parts[0] == "windows"
-	validArch := parts[1] == "amd64" || parts[1] == "arm64"
-	return validOS && validArch
+	clean := filepath.Clean(value)
+	if filepath.IsAbs(value) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return errors.New("entry must stay inside archive")
+	}
+	return nil
 }
 
-func readPayload(path string, kind string, target Target) ([]byte, error) {
+// ReadTargetPayload reads the executable referenced by a verified target. The
+// caller is responsible for verifying the artifact checksum before calling it.
+func ReadTargetPayload(path string, kind string, target Target) ([]byte, error) {
 	if kind == "file" {
 		return os.ReadFile(path)
 	}
@@ -333,6 +323,18 @@ func readPayload(path string, kind string, target Target) ([]byte, error) {
 		return readZipEntry(path, target.Entry)
 	default:
 		return nil, fmt.Errorf("unsupported archive format %q", target.Format)
+	}
+}
+
+// ReadArchiveEntry returns one regular-file entry from a locked archive.
+func ReadArchiveEntry(path, format, entry string) ([]byte, error) {
+	switch format {
+	case "tar.gz":
+		return readTarGzipEntry(path, entry)
+	case "zip":
+		return readZipEntry(path, entry)
+	default:
+		return nil, fmt.Errorf("unsupported archive format %q", format)
 	}
 }
 
