@@ -222,7 +222,7 @@ parse_program_target_matrix() {
     return
   fi
 
-  printf '%s %s\n' "$(detect_os)" "$(detect_arch)"
+  printf '%s %s\n' "$(detect_os)" "$ARCH"
 }
 
 write_program_manifest() {
