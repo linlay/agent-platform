@@ -83,8 +83,8 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 	if buffer.pendingUsage != nil {
 		line.Usage = buffer.pendingUsage
 	}
-	if len(buffer.pendingSystemRef) > 0 {
-		line.SystemRef = cloneStepSystemPayload(buffer.pendingSystemRef)
+	if systemRef := completeSystemRef(buffer.pendingSystemRef); len(systemRef) > 0 {
+		line.SystemRef = systemRef
 	}
 	if len(buffer.pendingInputMessages) > 0 {
 		line.InputMessages = cloneMessageMaps(buffer.pendingInputMessages)

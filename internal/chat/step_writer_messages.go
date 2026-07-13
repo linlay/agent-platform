@@ -577,7 +577,26 @@ func systemRefFromDebugData(value map[string]any) map[string]any {
 	if len(raw) == 0 {
 		return nil
 	}
-	return cloneStepSystemPayload(raw)
+	return completeSystemRef(raw)
+}
+
+// completeSystemRef keeps exactly the persisted identity used to resolve a
+// system snapshot. Writers never persist a partial or profile-bearing ref.
+func completeSystemRef(value map[string]any) map[string]any {
+	if len(value) == 0 {
+		return nil
+	}
+	agentKey := strings.TrimSpace(stringValue(value["agentKey"]))
+	cacheKey := strings.TrimSpace(stringValue(value["cacheKey"]))
+	fingerprint := strings.TrimSpace(stringValue(value["fingerprint"]))
+	if agentKey == "" || cacheKey == "" || fingerprint == "" {
+		return nil
+	}
+	return map[string]any{
+		"agentKey":    agentKey,
+		"cacheKey":    cacheKey,
+		"fingerprint": fingerprint,
+	}
 }
 
 func messagesFromEventValue(value any) []map[string]any {

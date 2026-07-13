@@ -197,7 +197,7 @@ func (s *Server) startAwaitingContinuationWithAdmission(
 	if continuationStartedAt != 0 {
 		session.StartedAtMillis = continuationStartedAt
 	}
-	var continuationSystem *chat.QueryLineSystemInit
+	var continuationSystem *chat.QueryLineSystem
 	if planningApprove {
 		if err := s.preparePlanningApproveContinuation(req, originalQuery, &session); err != nil {
 			log.Printf("[server][awaiting] prepare planning approve continuation failed chatId=%s runId=%s err=%v", chatID, runID, err)
@@ -292,7 +292,7 @@ func (s *Server) startAwaitingContinuationWithAdmission(
 	return true, nil
 }
 
-func systemInitSyntheticBootstrap(chatID string, system chat.QueryLineSystemInit) *stream.SyntheticQuery {
+func systemInitSyntheticBootstrap(chatID string, system chat.QueryLineSystem) *stream.SyntheticQuery {
 	stage := ""
 	if _, parsedStage, ok := strings.Cut(strings.TrimSpace(system.CacheKey), ":"); ok {
 		stage = strings.TrimSpace(parsedStage)
@@ -402,12 +402,12 @@ func (s *Server) preparePlanningApproveContinuation(req api.QueryRequest, origin
 	if err != nil {
 		return err
 	}
-	var executeSystem chat.QueryLineSystemInit
+	var executeSystem chat.QueryLineSystem
 	for _, profile := range profiles {
 		if strings.TrimSpace(profile.CacheKey) != agentcoder.ExecuteCacheKey {
 			continue
 		}
-		executeSystem = queryLineSystemInitFromProfile(profile)
+		executeSystem = queryLineSystemFromProfile(profile)
 		break
 	}
 	if strings.TrimSpace(executeSystem.CacheKey) == "" || strings.TrimSpace(executeSystem.Fingerprint) == "" {

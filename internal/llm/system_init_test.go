@@ -109,10 +109,11 @@ func TestValidateSystemInitProfilesRequiresUniqueCacheKeysAndInitial(t *testing.
 		name     string
 		profiles []contracts.SystemInitProfile
 	}{
-		{name: "empty cache key", profiles: []contracts.SystemInitProfile{{Initial: true}}},
-		{name: "duplicate cache key", profiles: []contracts.SystemInitProfile{{CacheKey: "react:main", Initial: true}, {CacheKey: "react:main"}}},
-		{name: "missing initial", profiles: []contracts.SystemInitProfile{{CacheKey: "react:main"}}},
-		{name: "multiple initial", profiles: []contracts.SystemInitProfile{{CacheKey: "coder:planning", Initial: true}, {CacheKey: "coder:execute", Initial: true}}},
+		{name: "empty agent key", profiles: []contracts.SystemInitProfile{{CacheKey: "react:main", Initial: true}}},
+		{name: "empty cache key", profiles: []contracts.SystemInitProfile{{AgentKey: "agent", Initial: true}}},
+		{name: "duplicate cache key", profiles: []contracts.SystemInitProfile{{AgentKey: "agent", CacheKey: "react:main", Initial: true}, {AgentKey: "agent", CacheKey: "react:main"}}},
+		{name: "missing initial", profiles: []contracts.SystemInitProfile{{AgentKey: "agent", CacheKey: "react:main"}}},
+		{name: "multiple initial", profiles: []contracts.SystemInitProfile{{AgentKey: "agent", CacheKey: "coder:planning", Initial: true}, {AgentKey: "agent", CacheKey: "coder:execute", Initial: true}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -122,8 +123,8 @@ func TestValidateSystemInitProfilesRequiresUniqueCacheKeysAndInitial(t *testing.
 		})
 	}
 	if err := validateSystemInitProfiles([]contracts.SystemInitProfile{
-		{CacheKey: "coder:planning", Initial: true},
-		{CacheKey: "coder:execute"},
+		{AgentKey: "agent", CacheKey: "coder:planning", Initial: true},
+		{AgentKey: "agent", CacheKey: "coder:execute"},
 	}); err != nil {
 		t.Fatalf("valid profiles rejected: %v", err)
 	}

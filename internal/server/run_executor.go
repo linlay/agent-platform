@@ -38,7 +38,7 @@ type RunExecutorParams struct {
 	ResourceBaseURL   string
 	ResourceTickets   *ResourceTicketService
 	BuildQuerySession func(context.Context, api.QueryRequest, chat.Summary, catalog.AgentDefinition, querySessionBuildOptions) (contracts.QuerySession, error)
-	PrepareSystemInit func(api.QueryRequest, *contracts.QuerySession, bool) (*chat.QueryLineSystemInit, error)
+	PrepareSystemInit func(api.QueryRequest, *contracts.QuerySession, bool) (*chat.QueryLineSystem, error)
 	Notifications     contracts.NotificationSink
 	OnUnreadChanged   func(chat.Summary)
 	OnPersisted       func(chat.RunCompletion)
@@ -557,7 +557,7 @@ func clientVisibleEventData(data stream.EventData) stream.EventData {
 	}
 	payload := make(map[string]any, len(data.Payload))
 	for key, value := range data.Payload {
-		if key == "messages" || key == "system" || key == "systems" {
+		if key == "messages" || key == "system" {
 			continue
 		}
 		payload[key] = value

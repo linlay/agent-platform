@@ -159,6 +159,27 @@ func TestRunStreamSystemRefIncludesAgentKey(t *testing.T) {
 	}
 }
 
+func TestRunStreamSystemRefRejectsMissingAgentKey(t *testing.T) {
+	stream := &llmRunStream{
+		session: contracts.QuerySession{
+			Mode: "REACT",
+			SystemInitCache: map[string]contracts.SystemInitSnapshot{
+				"react:main": {
+					Fingerprint:   "sha256:system",
+					SystemMessage: map[string]any{"role": "system", "content": "system prompt"},
+					Tools:         []any{},
+				},
+			},
+		},
+		systemInitCacheKey:  "react:main",
+		systemInitCacheUsed: true,
+		messages:            []openAIMessage{{Role: "system", Content: "system prompt"}},
+	}
+	if ref := stream.currentSystemRef(); ref != nil {
+		t.Fatalf("incomplete systemRef must not be emitted: %#v", ref)
+	}
+}
+
 type recordedToolInvocation struct {
 	name string
 	args map[string]any

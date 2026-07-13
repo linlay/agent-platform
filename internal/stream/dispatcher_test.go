@@ -458,7 +458,7 @@ func TestDispatcherIncludesTaskIDOnDebugEvents(t *testing.T) {
 		RunSeq:                          2,
 		TraceFile:                       "chat_1/.llm-records/run_1_002.json",
 		TraceURL:                        "/api/chat/llm-trace?file=chat_1%2F.llm-records%2Frun_1_002.json",
-		SystemRef:                       map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:test"},
+		SystemRef:                       map[string]any{"agentKey": "agent", "cacheKey": "react:main", "fingerprint": "sha256:test"},
 		ContextWindow:                   128000,
 		CurrentContextSize:              100,
 		EstimatedNextCallSize:           150,
@@ -500,7 +500,7 @@ func TestDispatcherIncludesTaskIDOnDebugEvents(t *testing.T) {
 		t.Fatalf("unexpected llm call metadata %#v", llmPayload)
 	}
 	systemRef, _ := llmPayload["systemRef"].(map[string]any)
-	if systemRef["cacheKey"] != "react:main" {
+	if systemRef["agentKey"] != "agent" || systemRef["cacheKey"] != "react:main" || systemRef["fingerprint"] != "sha256:test" {
 		t.Fatalf("expected systemRef in debug.llmChat, got %#v", llmPayload)
 	}
 	llmUsageEnvelope, _ := llmPayload["usage"].(map[string]any)

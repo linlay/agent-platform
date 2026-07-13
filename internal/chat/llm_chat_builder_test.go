@@ -17,7 +17,7 @@ func TestBuildLLMChatFromJSONLUsesSystemFingerprint(t *testing.T) {
 	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	oldSystem := QueryLineSystemInit{
+	oldSystem := QueryLineSystem{
 		AgentKey:      "agent",
 		CacheKey:      "react:main",
 		Fingerprint:   "sha256:old",
@@ -39,7 +39,7 @@ func TestBuildLLMChatFromJSONLUsesSystemFingerprint(t *testing.T) {
 		ToolChoice:     "auto",
 		RequestOptions: map[string]any{"stream": true, "temperature": 0},
 	}
-	newSystem := QueryLineSystemInit{
+	newSystem := QueryLineSystem{
 		AgentKey:      "agent",
 		CacheKey:      "react:main",
 		Fingerprint:   "sha256:new",
@@ -88,7 +88,7 @@ func TestBuildLLMChatFromJSONLUsesSystemFingerprint(t *testing.T) {
 		RunID:     "run-1",
 		UpdatedAt: testEpochMillis(2),
 		Seq:       1,
-		SystemRef: map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:old"},
+		SystemRef: map[string]any{"agentKey": "agent", "cacheKey": "react:main", "fingerprint": "sha256:old"},
 		Messages: []StoredMessage{{
 			Ts:      int64Ptr(testEpochMillis(1)),
 			Role:    "assistant",
@@ -135,7 +135,7 @@ func TestBuildLLMChatFromJSONLIgnoresStepSourcesSidecar(t *testing.T) {
 	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	system := QueryLineSystemInit{
+	system := QueryLineSystem{
 		AgentKey:      "agent",
 		CacheKey:      "react:main",
 		Fingerprint:   "sha256:system",
@@ -167,7 +167,7 @@ func TestBuildLLMChatFromJSONLIgnoresStepSourcesSidecar(t *testing.T) {
 		RunID:     "run-1",
 		UpdatedAt: testEpochMillis(2),
 		Seq:       1,
-		SystemRef: map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:system"},
+		SystemRef: map[string]any{"agentKey": "agent", "cacheKey": "react:main", "fingerprint": "sha256:system"},
 		Messages: []StoredMessage{{
 			Ts:   int64Ptr(testEpochMillis(1)),
 			Role: "assistant",
@@ -218,7 +218,7 @@ func TestBuildLLMChatFromJSONLIgnoresStepSourcesSidecar(t *testing.T) {
 		RunID:     "run-1",
 		UpdatedAt: testEpochMillis(4),
 		Seq:       2,
-		SystemRef: map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:system"},
+		SystemRef: map[string]any{"agentKey": "agent", "cacheKey": "react:main", "fingerprint": "sha256:system"},
 		Messages: []StoredMessage{{
 			Ts:      int64Ptr(testEpochMillis(1)),
 			Role:    "assistant",
@@ -247,7 +247,8 @@ func TestBuildLLMChatFromJSONLAppendsInputMessages(t *testing.T) {
 	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	executeSystem := QueryLineSystemInit{
+	executeSystem := QueryLineSystem{
+		AgentKey:      "agent",
 		CacheKey:      "plan-execute:execute",
 		Fingerprint:   "sha256:execute",
 		SystemMessage: map[string]any{"role": "system", "content": "execute system"},
@@ -286,6 +287,16 @@ func TestBuildLLMChatFromJSONLAppendsInputMessages(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append first step: %v", err)
 	}
+	if err := store.AppendQueryLine(chatID, QueryLine{
+		Type:      "query",
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: testEpochMillis(3),
+		Query:     map[string]any{"role": "system", "kind": "system-init", "hidden": true, "stage": "execute"},
+		System:    &executeSystem,
+	}); err != nil {
+		t.Fatalf("append execute system registration: %v", err)
+	}
 	if err := store.AppendStepLine(chatID, StepLine{
 		Type:          StepLineTypePlanExecute,
 		ChatID:        chatID,
@@ -294,8 +305,7 @@ func TestBuildLLMChatFromJSONLAppendsInputMessages(t *testing.T) {
 		Stage:         "execute",
 		Seq:           2,
 		InputMessages: []map[string]any{{"role": "user", "content": "execute task", "ts": testEpochMillis(1)}},
-		SystemRef:     map[string]any{"cacheKey": "plan-execute:execute", "fingerprint": "sha256:execute"},
-		Systems:       []QueryLineSystemInit{executeSystem},
+		SystemRef:     map[string]any{"agentKey": "agent", "cacheKey": "plan-execute:execute", "fingerprint": "sha256:execute"},
 		Messages: []StoredMessage{{
 			Ts:      int64Ptr(testEpochMillis(1)),
 			Role:    "assistant",
@@ -332,7 +342,8 @@ func TestBuildLLMChatFromJSONLUsesSyntheticQueryMessagesOnce(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	executePrompt := "Execute the confirmed CODER plan.\n\nOriginal request:\nhello\n\nConfirmed plan:\n# Plan"
-	executeSystem := QueryLineSystemInit{
+	executeSystem := QueryLineSystem{
+		AgentKey:      "agent",
 		CacheKey:      "coder:execute",
 		Fingerprint:   "sha256:execute",
 		SystemMessage: map[string]any{"role": "system", "content": "execute system"},
@@ -388,14 +399,23 @@ func TestBuildLLMChatFromJSONLUsesSyntheticQueryMessagesOnce(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append synthetic query: %v", err)
 	}
+	if err := store.AppendQueryLine(chatID, QueryLine{
+		Type:      "query",
+		ChatID:    chatID,
+		RunID:     "run-1",
+		UpdatedAt: testEpochMillis(4),
+		Query:     map[string]any{"role": "system", "kind": "system-init", "hidden": true, "stage": "coder-execute"},
+		System:    &executeSystem,
+	}); err != nil {
+		t.Fatalf("append execute system registration: %v", err)
+	}
 	if err := store.AppendStepLine(chatID, StepLine{
 		Type:      StepLineTypeReact,
 		ChatID:    chatID,
 		RunID:     "run-1",
-		UpdatedAt: testEpochMillis(4),
+		UpdatedAt: testEpochMillis(5),
 		Seq:       2,
-		SystemRef: map[string]any{"cacheKey": "coder:execute", "fingerprint": "sha256:execute"},
-		Systems:   []QueryLineSystemInit{executeSystem},
+		SystemRef: map[string]any{"agentKey": "agent", "cacheKey": "coder:execute", "fingerprint": "sha256:execute"},
 		Messages: []StoredMessage{{
 			Ts:      int64Ptr(testEpochMillis(1)),
 			Role:    "assistant",
@@ -435,7 +455,7 @@ func TestBuildLLMChatFromJSONLReplaysSteerWithoutInputMessages(t *testing.T) {
 	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	system := QueryLineSystemInit{
+	system := QueryLineSystem{
 		AgentKey:      "agent",
 		CacheKey:      "react:main",
 		Fingerprint:   "sha256:react",
@@ -497,7 +517,7 @@ func TestBuildLLMChatFromJSONLReplaysSteerWithoutInputMessages(t *testing.T) {
 		RunID:     "run-1",
 		UpdatedAt: testEpochMillis(4),
 		Seq:       2,
-		SystemRef: map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:react"},
+		SystemRef: map[string]any{"agentKey": "agent", "cacheKey": "react:main", "fingerprint": "sha256:react"},
 		Messages: []StoredMessage{{
 			Ts:      int64Ptr(testEpochMillis(1)),
 			Role:    "assistant",
@@ -540,7 +560,7 @@ func TestBuildLLMChatFromJSONLUsesReactToolAuditMessageOnce(t *testing.T) {
 	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	system := QueryLineSystemInit{
+	system := QueryLineSystem{
 		AgentKey:      "agent",
 		CacheKey:      "react:main",
 		Fingerprint:   "sha256:system",
@@ -599,7 +619,7 @@ The tool results above already reflect these decisions; do not re-prompt for app
 		RunID:     "run-1",
 		UpdatedAt: testEpochMillis(3),
 		Seq:       2,
-		SystemRef: map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:system"},
+		SystemRef: map[string]any{"agentKey": "agent", "cacheKey": "react:main", "fingerprint": "sha256:system"},
 		Messages: []StoredMessage{{
 			Ts:      int64Ptr(testEpochMillis(1)),
 			Role:    "assistant",
@@ -635,7 +655,7 @@ func TestStepWriterKeepsLLMRequestProfileOutOfStepLines(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	writer := NewStepWriter(store, chatID, "run-1", "REACT")
-	pendingSystem := QueryLineSystemInit{
+	pendingSystem := QueryLineSystem{
 		AgentKey:      "agent",
 		CacheKey:      "react:main",
 		Fingerprint:   "sha256:system",
@@ -667,7 +687,7 @@ func TestStepWriterKeepsLLMRequestProfileOutOfStepLines(t *testing.T) {
 			"providerKey": "provider",
 			"protocol":    "OPENAI",
 		},
-		"systemRef":      map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:system"},
+		"systemRef":      map[string]any{"agentKey": "agent", "cacheKey": "react:main", "fingerprint": "sha256:system"},
 		"toolChoice":     "auto",
 		"requestOptions": map[string]any{"stream": true, "temperature": 0},
 		"inputMessages":  []any{map[string]any{"role": "user", "content": "internal"}},
@@ -713,9 +733,6 @@ func TestStepWriterKeepsLLMRequestProfileOutOfStepLines(t *testing.T) {
 	}
 	if _, ok := step["system"]; ok {
 		t.Fatalf("did not expect step system, got %#v", step)
-	}
-	if _, ok := step["systems"]; ok {
-		t.Fatalf("did not expect duplicate step systems, got %#v", step)
 	}
 	inputMessages, _ := step["inputMessages"].([]any)
 	if len(inputMessages) != 1 {
@@ -788,7 +805,7 @@ The tool results above already reflect these decisions; do not re-prompt for app
 	}
 }
 
-func TestStepWriterDoesNotPersistInlineProfileAsStepSystems(t *testing.T) {
+func TestStepWriterPersistsOnlyCompleteSystemRefOnStep(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
@@ -798,6 +815,8 @@ func TestStepWriterDoesNotPersistInlineProfileAsStepSystems(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	writer := NewStepWriter(store, chatID, "run-1", "REACT")
+	pendingSystem := QueryLineSystem{AgentKey: "agent", CacheKey: "react:main", Fingerprint: "sha256:registered", SystemMessage: map[string]any{"role": "system", "content": "registered"}, Tools: []any{}, Model: map[string]any{"key": "model-key"}}
+	writer.SetPendingSystemInit(&pendingSystem)
 	writer.SetPendingQueryMessages([]map[string]any{{"role": "user", "content": "hello", "ts": testEpochMillis(1)}})
 	writer.OnEvent(stream.NewEvent("request.query", map[string]any{
 		"role":    "user",
@@ -814,15 +833,7 @@ func TestStepWriterDoesNotPersistInlineProfileAsStepSystems(t *testing.T) {
 			"providerKey": "provider",
 			"protocol":    "OPENAI",
 		},
-		"system": map[string]any{
-			"cacheKey":      "react:main",
-			"fingerprint":   "sha256:inline",
-			"systemMessage": map[string]any{"role": "system", "content": "inline system"},
-			"tools":         []any{},
-			"requestOptions": map[string]any{
-				"stream": true,
-			},
-		},
+		"systemRef":     map[string]any{"agentKey": "agent", "cacheKey": "react:main", "fingerprint": "sha256:registered"},
 		"inputMessages": []any{map[string]any{"role": "user", "content": "final input"}},
 	}).Data())
 	writer.OnEvent(stream.NewEvent("content.snapshot", map[string]any{
@@ -836,14 +847,11 @@ func TestStepWriterDoesNotPersistInlineProfileAsStepSystems(t *testing.T) {
 		t.Fatalf("read jsonl: %v", err)
 	}
 	step := lines[1]
-	if _, ok := step["systems"]; ok {
-		t.Fatalf("did not expect step-level systems, got %#v", step)
-	}
-	if _, ok := step["systemRef"]; ok {
-		t.Fatalf("did not expect inline system to synthesize systemRef, got %#v", step)
+	if got, _ := step["systemRef"].(map[string]any); got["agentKey"] != "agent" || got["cacheKey"] != "react:main" || got["fingerprint"] != "sha256:registered" {
+		t.Fatalf("expected complete step systemRef, got %#v", step)
 	}
 	if _, ok := step["system"]; ok {
-		t.Fatalf("did not expect legacy inline system, got %#v", step)
+		t.Fatalf("did not expect inline step system, got %#v", step)
 	}
 }
 
@@ -863,7 +871,7 @@ func TestBuildLLMChatFromJSONLRejectsMissingSystemRef(t *testing.T) {
 		UpdatedAt: testEpochMillis(1),
 		Query:     map[string]any{"role": "user", "message": "hello"},
 		Messages:  []map[string]any{{"role": "user", "content": "hello", "ts": testEpochMillis(1)}},
-		System: &QueryLineSystemInit{
+		System: &QueryLineSystem{
 			AgentKey:      "agent",
 			CacheKey:      "react:main",
 			Fingerprint:   "sha256:system",
@@ -890,7 +898,7 @@ func TestBuildLLMChatFromJSONLRejectsMissingSystemRef(t *testing.T) {
 	}
 
 	_, err = store.BuildLLMChatFromJSONL(chatID, LLMChatBuildOptions{RunID: "run-1", Seq: 1})
-	if err == nil || !strings.Contains(err.Error(), "missing systemRef") {
+	if err == nil || !strings.Contains(err.Error(), "missing=systemRef") {
 		t.Fatalf("expected missing systemRef error, got %v", err)
 	}
 }
@@ -920,7 +928,7 @@ func TestBuildLLMChatFromJSONLRejectsMissingSystemSnapshot(t *testing.T) {
 		RunID:     "run-1",
 		UpdatedAt: testEpochMillis(2),
 		Seq:       1,
-		SystemRef: map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:missing"},
+		SystemRef: map[string]any{"agentKey": "agent", "cacheKey": "react:main", "fingerprint": "sha256:missing"},
 		Messages: []StoredMessage{{
 			Ts:      int64Ptr(testEpochMillis(1)),
 			Role:    "assistant",
@@ -931,7 +939,7 @@ func TestBuildLLMChatFromJSONLRejectsMissingSystemSnapshot(t *testing.T) {
 	}
 
 	_, err = store.BuildLLMChatFromJSONL(chatID, LLMChatBuildOptions{RunID: "run-1", Seq: 1})
-	if err == nil || !strings.Contains(err.Error(), "system snapshot not found") {
+	if err == nil || !strings.Contains(err.Error(), "systemRef snapshot not found") {
 		t.Fatalf("expected missing system snapshot error, got %v", err)
 	}
 }
@@ -952,7 +960,7 @@ func TestBuildLLMChatFromJSONLRejectsSystemSnapshotWithoutModelKey(t *testing.T)
 		UpdatedAt: testEpochMillis(1),
 		Query:     map[string]any{"role": "user", "message": "hello"},
 		Messages:  []map[string]any{{"role": "user", "content": "hello", "ts": testEpochMillis(1)}},
-		System: &QueryLineSystemInit{
+		System: &QueryLineSystem{
 			AgentKey:      "agent",
 			CacheKey:      "react:main",
 			Fingerprint:   "sha256:system",
@@ -969,7 +977,7 @@ func TestBuildLLMChatFromJSONLRejectsSystemSnapshotWithoutModelKey(t *testing.T)
 		RunID:     "run-1",
 		UpdatedAt: testEpochMillis(2),
 		Seq:       1,
-		SystemRef: map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:system"},
+		SystemRef: map[string]any{"agentKey": "agent", "cacheKey": "react:main", "fingerprint": "sha256:system"},
 		Messages: []StoredMessage{{
 			Ts:      int64Ptr(testEpochMillis(1)),
 			Role:    "assistant",

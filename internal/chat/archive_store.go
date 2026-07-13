@@ -753,5 +753,8 @@ func readJSONLinesContent(content string) ([]map[string]any, error) {
 			items = append(items, payload)
 		}
 	}
+	if err := validatePersistedSystemInitSchema(items); err != nil {
+		return nil, err
+	}
 	return items, nil
 }

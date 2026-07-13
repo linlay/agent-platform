@@ -4,8 +4,16 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestArchiveJSONLRejectsUnsupportedSystemSchema(t *testing.T) {
+	_, err := readJSONLinesContent(`{"_type":"query","chatId":"chat-archive-invalid","runId":"run-1","updatedAt":1700000001000,"systems":[]}` + "\n")
+	if err == nil || !strings.Contains(err.Error(), "unsupported system schema field=systems") || !strings.Contains(err.Error(), "chatId=chat-archive-invalid") || !strings.Contains(err.Error(), "runId=run-1") {
+		t.Fatalf("expected contextual archive schema rejection, got %v", err)
+	}
+}
 
 func TestArchiveStoreArchiveListLoadSearchAndDelete(t *testing.T) {
 	root := t.TempDir()

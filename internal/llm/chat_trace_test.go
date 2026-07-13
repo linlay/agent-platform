@@ -514,6 +514,7 @@ func traceTestSessionWithSystemCache(t *testing.T, engine *LLMAgentEngine, req a
 
 func traceSystemInitSnapshot(profile contracts.SystemInitProfile) contracts.SystemInitSnapshot {
 	return contracts.SystemInitSnapshot{
+		AgentKey:       profile.AgentKey,
 		Fingerprint:    profile.Fingerprint,
 		SystemMessage:  cloneAnyMapViaJSON(profile.SystemMessage),
 		Tools:          cloneAnySlice(profile.Tools),

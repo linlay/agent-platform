@@ -60,7 +60,7 @@ type StepWriter struct {
 	pendingReasoningEffort  string
 	pendingInputMessages    []map[string]any
 	pendingSystemRef        map[string]any
-	pendingSystemInit       *QueryLineSystemInit
+	pendingSystemInit       *QueryLineSystem
 	// lastTimestamp is carried from the most recent source event. It is used
 	// only to finish an aggregation which already contains that event; it is
 	// never replaced with the wall clock.
@@ -95,11 +95,11 @@ func NewStepWriter(store StepLineStore, chatID, runID, mode string, opts ...Step
 	return w
 }
 
-func (w *StepWriter) SetPendingSystemInit(line *QueryLineSystemInit) {
+func (w *StepWriter) SetPendingSystemInit(line *QueryLineSystem) {
 	if w == nil || line == nil {
 		return
 	}
-	cloned := cloneQueryLineSystemInit(*line)
+	cloned := cloneQueryLineSystem(*line)
 	w.pendingSystemInit = &cloned
 }
 
@@ -447,15 +447,15 @@ func (w *StepWriter) handleRequestQuery(event stream.EventData) {
 	query := map[string]any{}
 	// Copy all payload fields into query, excluding seq/type/timestamp
 	for key, val := range event.Payload {
-		if key == "liveSeq" || key == "seq" || key == "messages" || key == "system" || key == "systems" {
+		if key == "liveSeq" || key == "seq" || key == "messages" || key == "system" {
 			continue
 		}
 		query[key] = val
 	}
 	messages := cloneMessageMaps(w.pendingQueryMessages)
-	var system *QueryLineSystemInit
+	var system *QueryLineSystem
 	if w.pendingSystemInit != nil {
-		cloned := cloneQueryLineSystemInit(*w.pendingSystemInit)
+		cloned := cloneQueryLineSystem(*w.pendingSystemInit)
 		system = &cloned
 	}
 	if bootstrapQuery {
@@ -666,7 +666,7 @@ func (w *StepWriter) captureRootLLMRequestData(event stream.EventData) {
 		w.capturePendingModelMetadata(model)
 	}
 	if systemRef, _ := event.Value("systemRef").(map[string]any); len(systemRef) > 0 {
-		w.pendingSystemRef = cloneStepSystemPayload(systemRef)
+		w.pendingSystemRef = completeSystemRef(systemRef)
 	}
 	if inputMessages := messagesFromEventValue(event.Value("inputMessages")); len(inputMessages) > 0 {
 		w.pendingInputMessages = filterSystemAuditInputMessages(inputMessages)
@@ -713,7 +713,7 @@ func (w *StepWriter) captureTaskLLMRequestData(buffer *taskStepBuffer, event str
 		buffer.capturePendingModelMetadata(model)
 	}
 	if systemRef, _ := event.Value("systemRef").(map[string]any); len(systemRef) > 0 {
-		buffer.pendingSystemRef = cloneStepSystemPayload(systemRef)
+		buffer.pendingSystemRef = completeSystemRef(systemRef)
 	}
 	if inputMessages := messagesFromEventValue(event.Value("inputMessages")); len(inputMessages) > 0 {
 		buffer.pendingInputMessages = filterSystemAuditInputMessages(inputMessages)
@@ -727,29 +727,27 @@ func (w *StepWriter) capturePendingModelMetadata(values ...map[string]any) {
 	captureStepModelMetadata(&w.pendingModelKey, &w.pendingReasoningEffort, values...)
 }
 
-func systemFromEventValue(value any) (QueryLineSystemInit, bool) {
-	if typed, ok := value.(QueryLineSystemInit); ok {
-		return cloneQueryLineSystemInit(typed), true
+func systemFromEventValue(value any) (QueryLineSystem, bool) {
+	if typed, ok := value.(QueryLineSystem); ok {
+		return cloneQueryLineSystem(typed), true
 	}
 	profile, _ := value.(map[string]any)
-	return querySystemInitFromProfile(profile)
+	return queryLineSystemFromProfile(profile)
 }
 
-func querySystemInitFromProfile(profile map[string]any) (QueryLineSystemInit, bool) {
+func queryLineSystemFromProfile(profile map[string]any) (QueryLineSystem, bool) {
 	if len(profile) == 0 {
-		return QueryLineSystemInit{}, false
+		return QueryLineSystem{}, false
 	}
 	cacheKey := strings.TrimSpace(stringValue(profile["cacheKey"]))
 	fingerprint := strings.TrimSpace(stringValue(profile["fingerprint"]))
-	if cacheKey == "" || fingerprint == "" {
-		return QueryLineSystemInit{}, false
+	agentKey := strings.TrimSpace(stringValue(profile["agentKey"]))
+	if agentKey == "" || cacheKey == "" || fingerprint == "" {
+		return QueryLineSystem{}, false
 	}
 	model := cloneStepSystemPayload(anyMap(profile["model"]))
-	if strings.TrimSpace(stringValue(model["key"])) == "" {
-		return QueryLineSystemInit{}, false
-	}
-	return QueryLineSystemInit{
-		AgentKey:       strings.TrimSpace(stringValue(profile["agentKey"])),
+	return QueryLineSystem{
+		AgentKey:       agentKey,
 		CacheKey:       cacheKey,
 		Fingerprint:    fingerprint,
 		SystemMessage:  cloneStepSystemPayload(anyMap(profile["systemMessage"])),
@@ -760,8 +758,8 @@ func querySystemInitFromProfile(profile map[string]any) (QueryLineSystemInit, bo
 	}, true
 }
 
-func cloneQueryLineSystemInit(profile QueryLineSystemInit) QueryLineSystemInit {
-	return QueryLineSystemInit{
+func cloneQueryLineSystem(profile QueryLineSystem) QueryLineSystem {
+	return QueryLineSystem{
 		AgentKey:       profile.AgentKey,
 		CacheKey:       profile.CacheKey,
 		Fingerprint:    profile.Fingerprint,
@@ -821,8 +819,8 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	if w.pendingUsage != nil {
 		line.Usage = w.pendingUsage
 	}
-	if len(w.pendingSystemRef) > 0 {
-		line.SystemRef = cloneStepSystemPayload(w.pendingSystemRef)
+	if systemRef := completeSystemRef(w.pendingSystemRef); len(systemRef) > 0 {
+		line.SystemRef = systemRef
 	}
 	if len(w.pendingInputMessages) > 0 {
 		line.InputMessages = cloneMessageMaps(w.pendingInputMessages)

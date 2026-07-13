@@ -79,10 +79,15 @@ func (s *llmRunStream) currentSystemRef() map[string]any {
 	if !s.currentSystemMatchesSnapshot(snapshot) {
 		return nil
 	}
+	agentKey := strings.TrimSpace(snapshot.AgentKey)
+	fingerprint := strings.TrimSpace(snapshot.Fingerprint)
+	if agentKey == "" || cacheKey == "" || fingerprint == "" {
+		return nil
+	}
 	return map[string]any{
-		"agentKey":    strings.TrimSpace(snapshot.AgentKey),
+		"agentKey":    agentKey,
 		"cacheKey":    cacheKey,
-		"fingerprint": snapshot.Fingerprint,
+		"fingerprint": fingerprint,
 	}
 }
 
@@ -94,10 +99,15 @@ func (s *llmRunStream) currentSystemRefForCall(prepared preparedProviderRequest,
 	if !s.currentSystemMatchesCallSnapshot(snapshot, prepared, effectiveToolChoice) {
 		return nil
 	}
+	agentKey := strings.TrimSpace(snapshot.AgentKey)
+	fingerprint := strings.TrimSpace(snapshot.Fingerprint)
+	if agentKey == "" || cacheKey == "" || fingerprint == "" {
+		return nil
+	}
 	return map[string]any{
-		"agentKey":    strings.TrimSpace(snapshot.AgentKey),
+		"agentKey":    agentKey,
 		"cacheKey":    cacheKey,
-		"fingerprint": snapshot.Fingerprint,
+		"fingerprint": fingerprint,
 	}
 }
 

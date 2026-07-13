@@ -10,7 +10,7 @@ import (
 	"agent-platform/internal/contracts"
 )
 
-func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts.QuerySession, created bool) (*chat.QueryLineSystemInit, error) {
+func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts.QuerySession, created bool) (*chat.QueryLineSystem, error) {
 	if session == nil || s.deps.Chats == nil || s.deps.Tools == nil {
 		return nil, nil
 	}
@@ -25,7 +25,7 @@ func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts
 	return s.prepareSystemInitCacheFrom(req, session, systemInits)
 }
 
-func (s *Server) prepareSystemInitCacheFrom(req api.QueryRequest, session *contracts.QuerySession, systemInits chat.SystemInitIndex) (*chat.QueryLineSystemInit, error) {
+func (s *Server) prepareSystemInitCacheFrom(req api.QueryRequest, session *contracts.QuerySession, systemInits chat.SystemInitIndex) (*chat.QueryLineSystem, error) {
 	if session == nil || s.deps.Tools == nil || s.deps.SystemInits == nil {
 		return nil, nil
 	}
@@ -44,18 +44,18 @@ func (s *Server) prepareSystemInitCacheFrom(req api.QueryRequest, session *contr
 	}
 	cache := make(map[string]contracts.SystemInitSnapshot, len(profiles))
 	pendingKeys := make(map[string]bool, len(profiles))
-	systemsByCacheKey := make(map[string]chat.QueryLineSystemInit, len(profiles))
+	systemsByCacheKey := make(map[string]chat.QueryLineSystem, len(profiles))
 	initialCacheKey := ""
 	for _, profile := range profiles {
 		if profile.Initial {
 			initialCacheKey = profile.CacheKey
 		}
-		system := queryLineSystemInitFromProfile(profile)
+		system := queryLineSystemFromProfile(profile)
 		sanitizeTeamCoordinatorSystemInit(session, &system)
 		systemsByCacheKey[profile.CacheKey] = system
 		initLine := systemInits.Lookup(system.AgentKey, profile.CacheKey)
 		if initLine != nil && sameSystemInitPayload(initLine, system) {
-			cache[profile.CacheKey] = systemInitSnapshotFromLine(chat.QueryLineSystemInit{
+			cache[profile.CacheKey] = systemInitSnapshotFromLine(chat.QueryLineSystem{
 				AgentKey:       initLine.AgentKey,
 				Fingerprint:    initLine.Fingerprint,
 				CacheKey:       initLine.CacheKey,
@@ -73,7 +73,7 @@ func (s *Server) prepareSystemInitCacheFrom(req api.QueryRequest, session *contr
 	if len(cache) > 0 {
 		session.SystemInitCache = cache
 	}
-	var initialSystem *chat.QueryLineSystemInit
+	var initialSystem *chat.QueryLineSystem
 	if pendingKeys[initialCacheKey] {
 		system := systemsByCacheKey[initialCacheKey]
 		initialSystem = &system
@@ -87,7 +87,7 @@ func (s *Server) prepareSystemInitCacheFrom(req api.QueryRequest, session *contr
 	return initialSystem, nil
 }
 
-func sameSystemInitPayload(initLine *chat.SystemInitLine, system chat.QueryLineSystemInit) bool {
+func sameSystemInitPayload(initLine *chat.SystemInitLine, system chat.QueryLineSystem) bool {
 	if initLine == nil {
 		return false
 	}
@@ -120,7 +120,7 @@ func (s *Server) hydrateSystemInitCache(req api.QueryRequest, session *contracts
 	}
 	cache := make(map[string]contracts.SystemInitSnapshot, len(profiles))
 	for _, profile := range profiles {
-		line := queryLineSystemInitFromProfile(profile)
+		line := queryLineSystemFromProfile(profile)
 		sanitizeTeamCoordinatorSystemInit(session, &line)
 		cache[line.CacheKey] = systemInitSnapshotFromLine(line)
 	}
@@ -130,17 +130,21 @@ func (s *Server) hydrateSystemInitCache(req api.QueryRequest, session *contracts
 
 // The coordinator's AgentKey exists only inside the run so the model and
 // sandbox code can use the ordinary Agent contract. Persisted system-init
-// records belong to the public Team owner and must never expose that synthetic
-// execution key through chat JSONL, archives, replay, or export APIs.
-func sanitizeTeamCoordinatorSystemInit(session *contracts.QuerySession, line *chat.QueryLineSystemInit) {
+// records use a stable public Team-scoped key instead, never the synthetic
+// execution key.
+func sanitizeTeamCoordinatorSystemInit(session *contracts.QuerySession, line *chat.QueryLineSystem) {
 	if session == nil || line == nil || session.TeamRuntime == nil {
 		return
 	}
-	line.AgentKey = ""
+	teamID := strings.TrimSpace(session.TeamID)
+	if teamID == "" {
+		return
+	}
+	line.AgentKey = "team:" + teamID
 }
 
-func queryLineSystemInitFromProfile(profile contracts.SystemInitProfile) chat.QueryLineSystemInit {
-	return chat.QueryLineSystemInit{
+func queryLineSystemFromProfile(profile contracts.SystemInitProfile) chat.QueryLineSystem {
+	return chat.QueryLineSystem{
 		AgentKey:       strings.TrimSpace(profile.AgentKey),
 		Fingerprint:    profile.Fingerprint,
 		CacheKey:       profile.CacheKey,
@@ -152,7 +156,7 @@ func queryLineSystemInitFromProfile(profile contracts.SystemInitProfile) chat.Qu
 	}
 }
 
-func systemInitSnapshotFromLine(line chat.QueryLineSystemInit) contracts.SystemInitSnapshot {
+func systemInitSnapshotFromLine(line chat.QueryLineSystem) contracts.SystemInitSnapshot {
 	return contracts.SystemInitSnapshot{
 		AgentKey:       strings.TrimSpace(line.AgentKey),
 		Fingerprint:    line.Fingerprint,

@@ -61,7 +61,7 @@ func TestPrepareSystemInitCacheWritesFreshSystemMessageOnPayloadChange(t *testin
 		RunID:     oldSession.RunID,
 		UpdatedAt: startedAt,
 		Query:     map[string]any{"role": "user", "message": "hello", "agentKey": oldSession.AgentKey},
-		System: &chat.QueryLineSystemInit{
+		System: &chat.QueryLineSystem{
 			AgentKey:      oldSession.AgentKey,
 			Fingerprint:   oldProfiles[0].Fingerprint,
 			CacheKey:      oldProfiles[0].CacheKey,
@@ -372,7 +372,7 @@ func TestSystemInitDedupIsScopedByAgentKey(t *testing.T) {
 	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	register := func(agentKey, runID string) *chat.QueryLineSystemInit {
+	register := func(agentKey, runID string) *chat.QueryLineSystem {
 		session := contracts.QuerySession{
 			RunID:        runID,
 			ChatID:       chatID,
@@ -407,5 +407,14 @@ func TestSystemInitDedupIsScopedByAgentKey(t *testing.T) {
 	}
 	if system := register("agent-a", "run-a2"); system != nil {
 		t.Fatalf("expected agent-a to reuse its own cached system after agent-b, got %#v", system)
+	}
+}
+
+func TestTeamSystemInitUsesPublicTeamScopedIdentity(t *testing.T) {
+	line := chat.QueryLineSystem{AgentKey: "__team__:research", CacheKey: "team:main", Fingerprint: "sha256:team"}
+	session := &contracts.QuerySession{TeamID: "research", TeamRuntime: &contracts.TeamRuntimeContext{}}
+	sanitizeTeamCoordinatorSystemInit(session, &line)
+	if line.AgentKey != "team:research" {
+		t.Fatalf("expected stable public Team system identity, got %#v", line)
 	}
 }

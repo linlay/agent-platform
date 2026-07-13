@@ -2,6 +2,7 @@ package chat
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 )
@@ -15,146 +16,170 @@ type SystemInitIndex map[SystemInitKey]*SystemInitLine
 
 func (index SystemInitIndex) Lookup(agentKey string, cacheKey string) *SystemInitLine {
 	key := SystemInitKey{AgentKey: strings.TrimSpace(agentKey), CacheKey: strings.TrimSpace(cacheKey)}
-	if line := index[key]; line != nil {
-		return line
+	if key.AgentKey == "" || key.CacheKey == "" {
+		return nil
 	}
-	if key.AgentKey != "" {
-		return index[SystemInitKey{CacheKey: key.CacheKey}]
-	}
-	return nil
+	return index[key]
 }
 
 func (s *FileStore) LoadSystemInit(chatID string, key SystemInitKey) (*SystemInitLine, error) {
-	inits, latest, err := s.loadSystemInits(chatID)
+	inits, err := s.loadSystemInits(chatID)
 	if err != nil {
 		return nil, err
-	}
-	key.AgentKey = strings.TrimSpace(key.AgentKey)
-	key.CacheKey = strings.TrimSpace(key.CacheKey)
-	if key.CacheKey == "" {
-		return latest, nil
 	}
 	return inits.Lookup(key.AgentKey, key.CacheKey), nil
 }
 
 func (s *FileStore) LoadAllSystemInits(chatID string) (SystemInitIndex, error) {
-	inits, _, err := s.loadSystemInits(chatID)
-	return inits, err
+	return s.loadSystemInits(chatID)
 }
 
-func (s *FileStore) loadSystemInits(chatID string) (SystemInitIndex, *SystemInitLine, error) {
+func (s *FileStore) loadSystemInits(chatID string) (SystemInitIndex, error) {
 	return loadSystemInitsFromPath(s.chatJSONLPath(chatID))
 }
 
-func loadSystemInitsFromPath(path string) (SystemInitIndex, *SystemInitLine, error) {
+func loadSystemInitsFromPath(path string) (SystemInitIndex, error) {
 	lines, err := readPersistedJSONLines(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return SystemInitIndex{}, nil, nil
+			return SystemInitIndex{}, nil
 		}
-		return nil, nil, err
+		return nil, err
 	}
 	byKey := SystemInitIndex{}
-	var latest *SystemInitLine
 	for _, line := range lines {
-		lineType, _ := line["_type"].(string)
-		switch lineType {
-		case "query":
-			systems, err := queryLineSystemInitsFromJSONL(line)
-			if err != nil {
-				return nil, nil, err
-			}
-			if len(systems) == 0 {
-				continue
-			}
-			for _, parsed := range systems {
-				cacheKey := strings.TrimSpace(parsed.CacheKey)
-				if cacheKey == "" {
-					continue
-				}
-				mode, stage := parseCacheKey(cacheKey)
-				converted := SystemInitLine{
-					Type:           "system",
-					ChatID:         stringFromAny(line["chatId"]),
-					AgentKey:       parsed.AgentKey,
-					RunID:          stringFromAny(line["runId"]),
-					CreatedAt:      int64FromAny(line["updatedAt"]),
-					Fingerprint:    parsed.Fingerprint,
-					CacheKey:       parsed.CacheKey,
-					Mode:           mode,
-					Stage:          stage,
-					SystemMessage:  parsed.SystemMessage,
-					Tools:          parsed.Tools,
-					Model:          parsed.Model,
-					ToolChoice:     parsed.ToolChoice,
-					RequestOptions: parsed.RequestOptions,
-				}
-				convertedCopy := converted
-				latest = &convertedCopy
-				byKey[SystemInitKey{AgentKey: strings.TrimSpace(parsed.AgentKey), CacheKey: cacheKey}] = &convertedCopy
-			}
+		if strings.TrimSpace(stringFromAny(line["_type"])) != "query" {
+			continue
 		}
+		system, err := queryLineSystemFromJSONL(line)
+		if err != nil {
+			return nil, err
+		}
+		if system == nil {
+			continue
+		}
+		mode, stage := parseCacheKey(system.CacheKey)
+		converted := SystemInitLine{
+			Type:           "system",
+			ChatID:         stringFromAny(line["chatId"]),
+			AgentKey:       system.AgentKey,
+			RunID:          stringFromAny(line["runId"]),
+			CreatedAt:      int64FromAny(line["updatedAt"]),
+			Fingerprint:    system.Fingerprint,
+			CacheKey:       system.CacheKey,
+			Mode:           mode,
+			Stage:          stage,
+			SystemMessage:  system.SystemMessage,
+			Tools:          system.Tools,
+			Model:          system.Model,
+			ToolChoice:     system.ToolChoice,
+			RequestOptions: system.RequestOptions,
+		}
+		convertedCopy := converted
+		byKey[SystemInitKey{AgentKey: system.AgentKey, CacheKey: system.CacheKey}] = &convertedCopy
 	}
-	return byKey, latest, nil
+	return byKey, nil
 }
 
-func queryLineSystemInitsFromJSONL(line map[string]any) ([]QueryLineSystemInit, error) {
+// queryLineSystemFromJSONL decodes the sole supported query-level system
+// snapshot. The snapshot is optional, but when present its identity is always
+// complete and self-contained; no query or task metadata is used as a fallback.
+func queryLineSystemFromJSONL(line map[string]any) (*QueryLineSystem, error) {
 	if len(line) == 0 {
 		return nil, nil
 	}
-	query, _ := line["query"].(map[string]any)
-	fallbackAgentKey := firstNonEmptyString(
-		stringFromAny(line["subAgentKey"]),
-		stringFromAny(line["agentKey"]),
-		stringFromAny(query["agentKey"]),
-	)
-	entries := make([]QueryLineSystemInit, 0, 2)
-	positions := map[string]int{}
-	appendEntry := func(rawSystem any) error {
-		systemMap, _ := rawSystem.(map[string]any)
-		if len(systemMap) == 0 {
-			return nil
-		}
-		raw, err := json.Marshal(systemMap)
-		if err != nil {
-			return err
-		}
-		var parsed QueryLineSystemInit
-		if err := json.Unmarshal(raw, &parsed); err != nil {
-			return nil
-		}
-		parsed.AgentKey = strings.TrimSpace(firstNonEmptyString(parsed.AgentKey, stringFromAny(systemMap["agentKey"]), fallbackAgentKey))
-		parsed.CacheKey = strings.TrimSpace(parsed.CacheKey)
-		parsed.Fingerprint = strings.TrimSpace(parsed.Fingerprint)
-		if parsed.CacheKey == "" || parsed.Fingerprint == "" {
-			return nil
-		}
-		identity := systemInitRecordID(parsed.AgentKey, parsed.CacheKey, parsed.Fingerprint)
-		if index, ok := positions[identity]; ok {
-			entries[index] = parsed
-			return nil
-		}
-		positions[identity] = len(entries)
-		entries = append(entries, parsed)
-		return nil
+	if _, found := line["systems"]; found {
+		return nil, systemSchemaError(line, "unsupported system schema field=systems")
 	}
-	if legacySystems, _ := line["systems"].([]any); len(legacySystems) > 0 {
-		for _, rawSystem := range legacySystems {
-			if err := appendEntry(rawSystem); err != nil {
-				return nil, err
-			}
-		}
+	rawSystem, found := line["system"]
+	if !found {
+		return nil, nil
 	}
-	if rawSystem, ok := line["system"]; ok {
-		if err := appendEntry(rawSystem); err != nil {
-			return nil, err
-		}
+	systemMap, ok := rawSystem.(map[string]any)
+	if !ok {
+		return nil, systemSchemaError(line, "invalid system field=system must be an object")
 	}
-	return entries, nil
+	raw, err := json.Marshal(systemMap)
+	if err != nil {
+		return nil, systemSchemaError(line, "invalid system field=system")
+	}
+	var parsed QueryLineSystem
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return nil, systemSchemaError(line, "invalid system field=system")
+	}
+	parsed.AgentKey = strings.TrimSpace(parsed.AgentKey)
+	parsed.CacheKey = strings.TrimSpace(parsed.CacheKey)
+	parsed.Fingerprint = strings.TrimSpace(parsed.Fingerprint)
+	if parsed.AgentKey == "" {
+		return nil, systemSchemaError(line, "invalid system missing=agentKey")
+	}
+	if parsed.CacheKey == "" {
+		return nil, systemSchemaError(line, "invalid system missing=cacheKey")
+	}
+	if parsed.Fingerprint == "" {
+		return nil, systemSchemaError(line, "invalid system missing=fingerprint")
+	}
+	return &parsed, nil
 }
 
-func systemInitRecordID(agentKey string, cacheKey string, fingerprint string) string {
-	return strings.TrimSpace(agentKey) + "\x00" + strings.TrimSpace(cacheKey) + "\x00" + strings.TrimSpace(fingerprint)
+func validatePersistedSystemInitSchema(lines []map[string]any) error {
+	for _, line := range lines {
+		lineType := strings.TrimSpace(stringFromAny(line["_type"]))
+		if lineType != "query" && !lineIsStep(line) {
+			continue
+		}
+		if _, found := line["systems"]; found {
+			return systemSchemaError(line, "unsupported system schema field=systems")
+		}
+		if lineType == "query" {
+			if _, err := queryLineSystemFromJSONL(line); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, found := line["system"]; found {
+			return systemSchemaError(line, "unsupported system schema field=system")
+		}
+		if _, err := stepSystemRefFromJSONL(line, false); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func stepSystemRefFromJSONL(line map[string]any, required bool) (map[string]any, error) {
+	rawRef, found := line["systemRef"]
+	if !found {
+		if required {
+			return nil, systemSchemaError(line, "invalid systemRef missing=systemRef")
+		}
+		return nil, nil
+	}
+	ref, ok := rawRef.(map[string]any)
+	if !ok {
+		return nil, systemSchemaError(line, "invalid systemRef field=systemRef must be an object")
+	}
+	agentKey := strings.TrimSpace(stringFromAny(ref["agentKey"]))
+	cacheKey := strings.TrimSpace(stringFromAny(ref["cacheKey"]))
+	fingerprint := strings.TrimSpace(stringFromAny(ref["fingerprint"]))
+	if agentKey == "" {
+		return nil, systemSchemaError(line, "invalid systemRef missing=agentKey")
+	}
+	if cacheKey == "" {
+		return nil, systemSchemaError(line, "invalid systemRef missing=cacheKey")
+	}
+	if fingerprint == "" {
+		return nil, systemSchemaError(line, "invalid systemRef missing=fingerprint")
+	}
+	return map[string]any{
+		"agentKey":    agentKey,
+		"cacheKey":    cacheKey,
+		"fingerprint": fingerprint,
+	}, nil
+}
+
+func systemSchemaError(line map[string]any, reason string) error {
+	return fmt.Errorf("system-init schema error: chatId=%s runId=%s %s", strings.TrimSpace(stringFromAny(line["chatId"])), strings.TrimSpace(stringFromAny(line["runId"])), reason)
 }
 
 func lineIsSystemInitQuery(line map[string]any) bool {
@@ -175,13 +200,4 @@ func parseCacheKey(cacheKey string) (string, string) {
 		return strings.TrimSpace(cacheKey), ""
 	}
 	return strings.TrimSpace(mode), strings.TrimSpace(stage)
-}
-
-func firstNonEmptyString(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
 }

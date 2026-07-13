@@ -238,7 +238,7 @@ func TestDeltaMapper_DebugLLMChat(t *testing.T) {
 		RunSeq:                          1,
 		TraceFile:                       "chat_1/.llm-records/run_1_001.json",
 		TraceURL:                        "/api/chat/llm-trace?file=chat_1%2F.llm-records%2Frun_1_001.json",
-		SystemRef:                       map[string]any{"cacheKey": "react:main"},
+		SystemRef:                       map[string]any{"agentKey": "agent", "cacheKey": "react:main", "fingerprint": "sha256:test"},
 		ContextWindow:                   128000,
 		CurrentContextSize:              10,
 		EstimatedNextCallSize:           20,

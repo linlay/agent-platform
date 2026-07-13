@@ -59,6 +59,9 @@ func readPersistedJSONLines(path string) ([]map[string]any, error) {
 	if err := validatePersistedTimeContract(lines, "chat.jsonl"); err != nil {
 		return nil, err
 	}
+	if err := validatePersistedSystemInitSchema(lines); err != nil {
+		return nil, err
+	}
 	return lines, nil
 }
 

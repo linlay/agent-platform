@@ -258,20 +258,69 @@ func (s *llmRunStream) ensureSystemProfileRegistered(prepared preparedProviderRe
 	}
 	cacheKey := s.currentSystemCacheKey()
 	if s.session.PendingSystemInitKeys[cacheKey] {
-		return fmt.Errorf("system profile not registered on query: runId=%s stage=%s cacheKey=%s", strings.TrimSpace(s.session.RunID), strings.TrimSpace(s.promptBuildOptions.Stage), cacheKey)
+		return fmt.Errorf("system profile not registered on query: chatId=%s runId=%s stage=%s cacheKey=%s", strings.TrimSpace(s.session.ChatID), strings.TrimSpace(s.session.RunID), strings.TrimSpace(s.promptBuildOptions.Stage), cacheKey)
 	}
 	if len(s.currentSystemRefForCall(prepared, effectiveToolChoice)) > 0 {
 		return nil
 	}
-	// TEAM starts from a registered tool-required profile. After the first
-	// dispatch, the same stream intentionally switches to auto (team_invoke)
-	// or none (fanout summary). Those dynamic continuation profiles are stored
-	// inline on llm.request and must not invalidate the initial system profile.
-	if strings.EqualFold(strings.TrimSpace(s.session.Mode), agentteam.Mode) &&
-		!strings.EqualFold(strings.TrimSpace(effectiveToolChoice), "required") {
-		return nil
+	if s.session.TeamRuntime != nil && !strings.EqualFold(strings.TrimSpace(effectiveToolChoice), "required") {
+		return s.registerCurrentSystemProfile(prepared, effectiveToolChoice)
 	}
-	return fmt.Errorf("system profile not registered on query: runId=%s stage=%s cacheKey=%s", strings.TrimSpace(s.session.RunID), strings.TrimSpace(s.promptBuildOptions.Stage), cacheKey)
+	return fmt.Errorf("system profile not registered on query: chatId=%s runId=%s stage=%s cacheKey=%s", strings.TrimSpace(s.session.ChatID), strings.TrimSpace(s.session.RunID), strings.TrimSpace(s.promptBuildOptions.Stage), cacheKey)
+}
+
+func (s *llmRunStream) registerCurrentSystemProfile(prepared preparedProviderRequest, effectiveToolChoice string) error {
+	cacheKey, previous, ok := s.currentSystemSnapshot()
+	if !ok {
+		return fmt.Errorf("system profile not registered on query: chatId=%s runId=%s stage=%s cacheKey=%s", strings.TrimSpace(s.session.ChatID), strings.TrimSpace(s.session.RunID), strings.TrimSpace(s.promptBuildOptions.Stage), s.currentSystemCacheKey())
+	}
+	systemMessage := firstSystemMessageSnapshot(s.messages)
+	tools := openAIToolSpecsToAny(s.toolSpecs)
+	model := s.currentModelSnapshot(prepared)
+	requestOptions := requestOptionsFromPreparedBody(prepared.RequestBody)
+	profile := map[string]any{
+		"agentKey":      strings.TrimSpace(previous.AgentKey),
+		"cacheKey":      cacheKey,
+		"systemMessage": systemMessage,
+		"tools":         tools,
+	}
+	if len(model) > 0 {
+		profile["model"] = model
+	}
+	if toolChoice := strings.TrimSpace(effectiveToolChoice); toolChoice != "" {
+		profile["toolChoice"] = toolChoice
+	}
+	if len(requestOptions) > 0 {
+		profile["requestOptions"] = requestOptions
+	}
+	profile["fingerprint"] = fingerprintLLMCallProfile(profile)
+	agentKey := strings.TrimSpace(profile["agentKey"].(string))
+	fingerprint := strings.TrimSpace(profile["fingerprint"].(string))
+	if agentKey == "" || cacheKey == "" || fingerprint == "" {
+		return fmt.Errorf("system profile registration failed: chatId=%s runId=%s cacheKey=%s", strings.TrimSpace(s.session.ChatID), strings.TrimSpace(s.session.RunID), cacheKey)
+	}
+	if s.session.SystemInitCache == nil {
+		s.session.SystemInitCache = map[string]SystemInitSnapshot{}
+	}
+	s.session.SystemInitCache[cacheKey] = SystemInitSnapshot{
+		AgentKey:       agentKey,
+		Fingerprint:    fingerprint,
+		SystemMessage:  cloneAnyMapViaJSON(systemMessage),
+		Tools:          cloneAnySlice(tools),
+		Model:          cloneAnyMapViaJSON(model),
+		ToolChoice:     strings.TrimSpace(effectiveToolChoice),
+		RequestOptions: cloneAnyMapViaJSON(requestOptions),
+	}
+	s.systemInitCacheUsed = true
+	s.pending = append(s.pending, DeltaSyntheticQuery{
+		ChatID: s.session.ChatID,
+		Role:   api.QueryRoleSystem,
+		System: cloneAnyMapViaJSON(profile),
+		Kind:   "system-init",
+		Stage:  s.promptBuildOptions.Stage,
+		Hidden: true,
+	})
+	return nil
 }
 
 func (s *llmRunStream) prepareFinalAnswerTurn() {

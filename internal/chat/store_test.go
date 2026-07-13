@@ -2122,7 +2122,7 @@ func TestStepWriterPersistsSystemRefWithoutDebugPayload(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-system-snapshot", "run-system-snapshot", "react")
-	systemRef := map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:first"}
+	systemRef := map[string]any{"agentKey": "agent", "cacheKey": "react:main", "fingerprint": "sha256:first"}
 	requestBody := map[string]any{
 		"model": "gpt-5.2",
 		"messages": []any{
@@ -2192,7 +2192,7 @@ func TestStepWriterPersistsSystemRefWithoutDebugPayload(t *testing.T) {
 		t.Fatalf("did not expect full system snapshot on step, got %#v", lines[0])
 	}
 	gotSystemRef, _ := lines[0]["systemRef"].(map[string]any)
-	if gotSystemRef["cacheKey"] != "react:main" || gotSystemRef["fingerprint"] != "sha256:first" {
+	if gotSystemRef["agentKey"] != "agent" || gotSystemRef["cacheKey"] != "react:main" || gotSystemRef["fingerprint"] != "sha256:first" {
 		t.Fatalf("expected systemRef on step, got %#v", lines[0])
 	}
 	contextWindow, _ := lines[0]["contextWindow"].(map[string]any)
@@ -2226,7 +2226,7 @@ func TestStepWriterCapturesDebugLLMChatMetadata(t *testing.T) {
 		Payload: map[string]any{
 			"data": map[string]any{
 				"provider":  map[string]any{"key": "mock"},
-				"systemRef": map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:llm-call"},
+				"systemRef": map[string]any{"agentKey": "agent", "cacheKey": "react:main", "fingerprint": "sha256:llm-call"},
 				"contextWindow": map[string]any{
 					"maxSize":               128000,
 					"currentSize":           100,
@@ -2276,7 +2276,7 @@ func TestStepWriterCapturesDebugLLMChatMetadata(t *testing.T) {
 		t.Fatalf("did not expect debug payload in chat jsonl, got %#v", lines[0])
 	}
 	systemRef, _ := lines[0]["systemRef"].(map[string]any)
-	if systemRef["cacheKey"] != "react:main" || systemRef["fingerprint"] != "sha256:llm-call" {
+	if systemRef["agentKey"] != "agent" || systemRef["cacheKey"] != "react:main" || systemRef["fingerprint"] != "sha256:llm-call" {
 		t.Fatalf("expected systemRef from debug.llmChat, got %#v", lines[0])
 	}
 	usage, _ := lines[0]["usage"].(map[string]any)
@@ -2320,7 +2320,7 @@ func TestStepWriterPersistsLLMChatMetadataWithoutDebugPayload(t *testing.T) {
 		Payload: map[string]any{
 			"data": map[string]any{
 				"provider":  map[string]any{"key": "mock"},
-				"systemRef": map[string]any{"cacheKey": "react:main"},
+				"systemRef": map[string]any{"agentKey": "agent", "cacheKey": "react:main", "fingerprint": "sha256:debug-disabled"},
 				"contextWindow": map[string]any{
 					"maxSize":               128000,
 					"currentSize":           100,
@@ -2355,8 +2355,8 @@ func TestStepWriterPersistsLLMChatMetadataWithoutDebugPayload(t *testing.T) {
 	if _, ok := lines[0]["debug"]; ok {
 		t.Fatalf("did not expect debug payload in chat jsonl, got %#v", lines[0])
 	}
-	if _, ok := lines[0]["systemRef"].(map[string]any); !ok {
-		t.Fatalf("expected non-debug systemRef to remain, got %#v", lines[0])
+	if systemRef, _ := lines[0]["systemRef"].(map[string]any); systemRef["agentKey"] != "agent" || systemRef["cacheKey"] != "react:main" || systemRef["fingerprint"] != "sha256:debug-disabled" {
+		t.Fatalf("expected complete systemRef to remain, got %#v", lines[0])
 	}
 	usage, _ := lines[0]["usage"].(map[string]any)
 	if toIntValue(usage["promptTokens"]) != 100 || toIntValue(usage["totalTokens"]) != 150 {
@@ -3049,7 +3049,7 @@ func TestStepWriterPersistsTaskScopedUsageAndSlimMetadataWithoutDebugPayload(t *
 			"taskId": "task_1",
 			"data": map[string]any{
 				"provider":  map[string]any{"key": "mock"},
-				"systemRef": map[string]any{"cacheKey": "react:analyzer", "fingerprint": "sha256:child"},
+				"systemRef": map[string]any{"agentKey": "agent", "cacheKey": "react:analyzer", "fingerprint": "sha256:child"},
 				"requestBody": map[string]any{
 					"model":    "gpt-5.2",
 					"messages": []any{map[string]any{"role": "user", "content": "secret"}},
@@ -3127,7 +3127,7 @@ func TestStepWriterPersistsTaskScopedUsageAndSlimMetadataWithoutDebugPayload(t *
 		t.Fatalf("did not expect task debug payload in chat jsonl, got %#v", taskLine)
 	}
 	systemRef, _ := taskLine["systemRef"].(map[string]any)
-	if systemRef["cacheKey"] != "react:analyzer" || systemRef["fingerprint"] != "sha256:child" {
+	if systemRef["agentKey"] != "agent" || systemRef["cacheKey"] != "react:analyzer" || systemRef["fingerprint"] != "sha256:child" {
 		t.Fatalf("expected task systemRef, got %#v", taskLine)
 	}
 	if taskLine["modelKey"] != "task-model" || taskLine["reasoningEffort"] != "LOW" {
@@ -3309,7 +3309,7 @@ func TestFileStoreLoadsLatestSystemInitByCacheKey(t *testing.T) {
 	if _, _, err := store.EnsureChat("chat-system-init", "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	first := QueryLineSystemInit{
+	first := QueryLineSystem{
 		AgentKey:      "agent",
 		Fingerprint:   "sha256:first",
 		CacheKey:      "react:main",
@@ -3386,8 +3386,8 @@ func TestFileStoreLoadsLatestSystemInitByCacheKey(t *testing.T) {
 	}
 }
 
-func TestQueryLineSystemInitIncludesAgentKeyAndOmitsModeStage(t *testing.T) {
-	raw, err := json.Marshal(QueryLineSystemInit{
+func TestQueryLineSystemIncludesAgentKeyAndOmitsModeStage(t *testing.T) {
+	raw, err := json.Marshal(QueryLineSystem{
 		AgentKey:      "agent",
 		CacheKey:      "react:main",
 		Fingerprint:   "sha256:init",
@@ -3421,7 +3421,7 @@ func TestLoadSystemInitsParsesCacheKeyToModeStage(t *testing.T) {
 	if _, _, err := store.EnsureChat("chat-system-cache-key", "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	for _, system := range []QueryLineSystemInit{
+	for _, system := range []QueryLineSystem{
 		{
 			AgentKey:      "agent",
 			CacheKey:      "react:main",
@@ -3475,7 +3475,7 @@ func TestRawMessagesSkipSystemInitLines(t *testing.T) {
 		UpdatedAt: testEpochMillis(2),
 		Query:     map[string]any{"role": "user", "message": "hello"},
 		Messages:  []map[string]any{{"role": "user", "content": "hello"}},
-		System: &QueryLineSystemInit{
+		System: &QueryLineSystem{
 			AgentKey:      "agent",
 			Fingerprint:   "sha256:init",
 			CacheKey:      "react:main",
@@ -3730,7 +3730,7 @@ func TestStepWriterWritesSystemInitAfterQuery(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-query-system-init", "run-1", "react")
-	pendingSystem := QueryLineSystemInit{
+	pendingSystem := QueryLineSystem{
 		AgentKey:      "agent",
 		Fingerprint:   "sha256:first",
 		CacheKey:      "react:main",
@@ -3777,7 +3777,7 @@ func TestStepWriterPersistsQueryWithSystemInitsWithoutHiddenFlag(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-query-system-init-no-hidden", "run-system", "react")
-	pendingSystem := QueryLineSystemInit{
+	pendingSystem := QueryLineSystem{
 		AgentKey:      "agent",
 		Fingerprint:   "sha256:system",
 		CacheKey:      "react:main",
@@ -3844,7 +3844,7 @@ func TestStepWriterPersistsQueryWithSystemInitsWithoutHiddenFlag(t *testing.T) {
 	}
 }
 
-func TestStepWriterOmitsSystemsWhenNoPendingSystemInits(t *testing.T) {
+func TestStepWriterOmitsSystemWhenNoPendingSystemInit(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)

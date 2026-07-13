@@ -5,45 +5,29 @@ import (
 	"testing"
 )
 
-func TestSystemInitReadersSupportLegacyAndAgentScopedIdentity(t *testing.T) {
+func TestSystemInitReadersUseSingularAgentScopedIdentity(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	const chatID = "chat-system-compat"
+	const chatID = "chat-system-singular"
 	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	legacySystem := map[string]any{
-		"cacheKey":      "react:main",
-		"fingerprint":   "sha256:agent-a",
-		"systemMessage": map[string]any{"role": "system", "content": "legacy agent a"},
-		"tools":         []any{},
-	}
-	if err := store.appendJSONLine(store.chatJSONLPath(chatID), map[string]any{
-		"_type":     "query",
-		"chatId":    chatID,
-		"runId":     "run-a",
-		"updatedAt": testEpochMillis(1),
-		"query":     map[string]any{"role": "user", "message": "hello", "agentKey": "agent-a"},
-		"systems":   []any{legacySystem},
-	}); err != nil {
-		t.Fatalf("append legacy query: %v", err)
-	}
-	agentBSystem := QueryLineSystemInit{
-		AgentKey:      "agent-b",
+	agentSystem := QueryLineSystem{
+		AgentKey:      "agent-a",
 		CacheKey:      "react:main",
-		Fingerprint:   "sha256:agent-b",
-		SystemMessage: map[string]any{"role": "system", "content": "agent b"},
+		Fingerprint:   "sha256:agent-a",
+		SystemMessage: map[string]any{"role": "system", "content": "agent a"},
 		Tools:         []any{},
 	}
 	if err := appendQueryLineForTest(store, chatID, QueryLine{
 		Type:      "query",
 		ChatID:    chatID,
-		RunID:     "run-b",
-		UpdatedAt: testEpochMillis(2),
-		Query:     map[string]any{"role": "user", "message": "hello again", "agentKey": "agent-b"},
-		System:    &agentBSystem,
+		RunID:     "run-a",
+		UpdatedAt: testEpochMillis(1),
+		Query:     map[string]any{"role": "user", "message": "hello", "agentKey": "agent-a"},
+		System:    &agentSystem,
 	}); err != nil {
 		t.Fatalf("append singular query: %v", err)
 	}
@@ -53,101 +37,139 @@ func TestSystemInitReadersSupportLegacyAndAgentScopedIdentity(t *testing.T) {
 		t.Fatalf("load system inits: %v", err)
 	}
 	if got := index.Lookup("agent-a", "react:main"); got == nil || got.Fingerprint != "sha256:agent-a" {
-		t.Fatalf("legacy agent system not indexed correctly: %#v", got)
-	}
-	if got := index.Lookup("agent-b", "react:main"); got == nil || got.Fingerprint != "sha256:agent-b" {
 		t.Fatalf("singular agent system not indexed correctly: %#v", got)
+	}
+	if got := index.Lookup("", "react:main"); got != nil {
+		t.Fatalf("empty agent key lookup must not fall back: %#v", got)
+	}
+	if got, err := store.LoadSystemInit(chatID, SystemInitKey{CacheKey: "react:main"}); err != nil || got != nil {
+		t.Fatalf("empty agent key file lookup must not fall back: system=%#v err=%v", got, err)
 	}
 	lines, err := readJSONLines(store.chatJSONLPath(chatID))
 	if err != nil {
 		t.Fatalf("read jsonl: %v", err)
 	}
-	if _, ok := lines[1]["system"].(map[string]any); !ok {
-		t.Fatalf("new query must serialize singular system: %#v", lines[1])
-	}
-	if _, ok := lines[1]["systems"]; ok {
-		t.Fatalf("new query must not serialize systems: %#v", lines[1])
+	if _, ok := lines[0]["system"].(map[string]any); !ok {
+		t.Fatalf("query must serialize singular system: %#v", lines[0])
 	}
 }
 
-func TestSingularSystemOverridesMatchingLegacyEntryOnMixedLine(t *testing.T) {
-	line := map[string]any{
-		"_type": "query",
-		"query": map[string]any{"agentKey": "agent"},
-		"systems": []any{map[string]any{
-			"cacheKey":      "react:main",
-			"fingerprint":   "sha256:same",
-			"systemMessage": map[string]any{"role": "system", "content": "legacy"},
-			"tools":         []any{},
-		}},
-		"system": map[string]any{
-			"agentKey":      "agent",
-			"cacheKey":      "react:main",
-			"fingerprint":   "sha256:same",
-			"systemMessage": map[string]any{"role": "system", "content": "singular"},
-			"tools":         []any{},
-		},
-	}
-	systems, err := queryLineSystemInitsFromJSONL(line)
-	if err != nil || len(systems) != 1 || systems[0].SystemMessage["content"] != "singular" {
-		t.Fatalf("singular system did not override legacy entry: %#v err=%v", systems, err)
-	}
-}
-
-func TestBuildLLMChatRejectsAmbiguousLegacySystemRef(t *testing.T) {
+func TestSystemInitReadersRejectUnsupportedAndIncompleteSchema(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	const chatID = "chat-system-ambiguous"
+	const chatID = "chat-system-invalid"
 	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	newSystem := func(agentKey, content string) QueryLineSystemInit {
-		return QueryLineSystemInit{
-			AgentKey:      agentKey,
-			CacheKey:      "react:main",
-			Fingerprint:   "sha256:shared",
-			SystemMessage: map[string]any{"role": "system", "content": content},
-			Tools:         []any{},
-			Model:         map[string]any{"key": "mock-model"},
-		}
+	validSystem := map[string]any{
+		"agentKey": "agent", "cacheKey": "react:main", "fingerprint": "sha256:system",
 	}
-	for index, agentKey := range []string{"agent-a", "agent-b"} {
-		system := newSystem(agentKey, agentKey+" system")
-		query := map[string]any{"role": "system", "kind": "system-init", "agentKey": agentKey}
-		messages := []map[string]any(nil)
-		if index == 0 {
-			query = map[string]any{"role": "user", "message": "hello", "agentKey": agentKey}
-			messages = []map[string]any{{"role": "user", "content": "hello"}}
-		}
-		if err := appendQueryLineForTest(store, chatID, QueryLine{
-			Type:      "query",
-			ChatID:    chatID,
-			RunID:     "run-1",
-			UpdatedAt: int64(index + 1),
-			Query:     query,
-			Messages:  messages,
-			System:    &system,
-		}); err != nil {
-			t.Fatalf("append query: %v", err)
-		}
+	cases := []struct {
+		name string
+		line map[string]any
+		want string
+	}{
+		{
+			name: "query systems",
+			line: map[string]any{"_type": "query", "chatId": chatID, "runId": "run-1", "updatedAt": testEpochMillis(1), "systems": []any{}},
+			want: "unsupported system schema field=systems",
+		},
+		{
+			name: "mixed system and systems",
+			line: map[string]any{"_type": "query", "chatId": chatID, "runId": "run-1", "updatedAt": testEpochMillis(1), "system": validSystem, "systems": []any{}},
+			want: "unsupported system schema field=systems",
+		},
+		{
+			name: "step systems",
+			line: map[string]any{"_type": StepLineTypeReact, "chatId": chatID, "runId": "run-1", "updatedAt": testEpochMillis(1), "systems": []any{}},
+			want: "unsupported system schema field=systems",
+		},
+		{
+			name: "system missing agent",
+			line: map[string]any{"_type": "query", "chatId": chatID, "runId": "run-1", "updatedAt": testEpochMillis(1), "system": map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:system"}},
+			want: "invalid system missing=agentKey",
+		},
+		{
+			name: "system null",
+			line: map[string]any{"_type": "query", "chatId": chatID, "runId": "run-1", "updatedAt": testEpochMillis(1), "system": nil},
+			want: "invalid system field=system must be an object",
+		},
+		{
+			name: "system ref missing agent",
+			line: map[string]any{"_type": StepLineTypeReact, "chatId": chatID, "runId": "run-1", "updatedAt": testEpochMillis(1), "systemRef": map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:system"}},
+			want: "invalid systemRef missing=agentKey",
+		},
+		{
+			name: "system ref null",
+			line: map[string]any{"_type": StepLineTypeReact, "chatId": chatID, "runId": "run-1", "updatedAt": testEpochMillis(1), "systemRef": nil},
+			want: "invalid systemRef field=systemRef must be an object",
+		},
 	}
-	if err := appendStepLineForTest(store, chatID, StepLine{
-		Type:      StepLineTypeReact,
-		ChatID:    chatID,
-		RunID:     "run-1",
-		UpdatedAt: testEpochMillis(3),
-		Seq:       1,
-		SystemRef: map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:shared"},
-		Messages:  []StoredMessage{{Role: "assistant", Content: textContent("done")}},
-	}); err != nil {
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := validatePersistedSystemInitSchema([]map[string]any{tc.line}); err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "chatId="+chatID) || !strings.Contains(err.Error(), "runId=run-1") {
+				t.Fatalf("expected contextual %q error, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+func TestPublicWritersRejectIncompleteSystemIdentity(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	const chatID = "chat-system-write-invalid"
+	cases := []struct {
+		name  string
+		write func() error
+		want  string
+	}{
+		{
+			name: "system missing agent",
+			write: func() error {
+				return store.AppendQueryLine(chatID, QueryLine{Type: "query", ChatID: chatID, RunID: "run-1", UpdatedAt: testEpochMillis(1), System: &QueryLineSystem{CacheKey: "react:main", Fingerprint: "sha256:system"}})
+			},
+			want: "invalid system missing=agentKey",
+		},
+		{
+			name: "system ref missing agent",
+			write: func() error {
+				return store.AppendStepLine(chatID, StepLine{Type: StepLineTypeReact, ChatID: chatID, RunID: "run-1", UpdatedAt: testEpochMillis(1), SystemRef: map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:system"}})
+			},
+			want: "invalid systemRef missing=agentKey",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.write(); err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "chatId="+chatID) || !strings.Contains(err.Error(), "runId=run-1") {
+				t.Fatalf("expected contextual %q write error, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
+func TestBuildLLMChatRejectsNonExactSystemRefAgent(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	const chatID = "chat-system-nonexact"
+	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	system := QueryLineSystem{AgentKey: "agent-a", CacheKey: "react:main", Fingerprint: "sha256:shared", SystemMessage: map[string]any{"role": "system", "content": "private"}, Tools: []any{}, Model: map[string]any{"key": "mock-model"}}
+	if err := appendQueryLineForTest(store, chatID, QueryLine{Type: "query", ChatID: chatID, RunID: "run-1", UpdatedAt: testEpochMillis(1), Query: map[string]any{"role": "user", "message": "hello"}, Messages: []map[string]any{{"role": "user", "content": "hello"}}, System: &system}); err != nil {
+		t.Fatalf("append query: %v", err)
+	}
+	if err := appendStepLineForTest(store, chatID, StepLine{Type: StepLineTypeReact, ChatID: chatID, RunID: "run-1", UpdatedAt: testEpochMillis(2), Seq: 1, SystemRef: map[string]any{"agentKey": "agent-b", "cacheKey": "react:main", "fingerprint": "sha256:shared"}, Messages: []StoredMessage{{Role: "assistant", Content: textContent("done")}}}); err != nil {
 		t.Fatalf("append step: %v", err)
 	}
-
 	_, err = store.BuildLLMChatFromJSONL(chatID, LLMChatBuildOptions{RunID: "run-1", Seq: 1})
-	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
-		t.Fatalf("expected ambiguous legacy systemRef error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "systemRef snapshot not found") || !strings.Contains(err.Error(), "chatId="+chatID) || !strings.Contains(err.Error(), "runId=run-1") {
+		t.Fatalf("expected exact-agent snapshot miss, got %v", err)
 	}
 }
 
@@ -160,7 +182,7 @@ func TestSystemInitQueryIsStorageOnly(t *testing.T) {
 	if _, _, err := store.EnsureChat(chatID, "planner", "", "plan work"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	planSystem := QueryLineSystemInit{
+	planSystem := QueryLineSystem{
 		AgentKey:      "planner",
 		CacheKey:      "plan-execute:plan",
 		Fingerprint:   "sha256:plan",

@@ -1030,8 +1030,8 @@ func TestFrameOrchestratorWritesSubAgentQueryAndSystemLines(t *testing.T) {
 			}
 		}
 	}
-	orchestrator.prepareSystemInit = func(req api.QueryRequest, session *contracts.QuerySession, _ bool) (*chat.QueryLineSystemInit, error) {
-		return &chat.QueryLineSystemInit{
+	orchestrator.prepareSystemInit = func(req api.QueryRequest, session *contracts.QuerySession, _ bool) (*chat.QueryLineSystem, error) {
+		return &chat.QueryLineSystem{
 			AgentKey:    "writer",
 			CacheKey:    "react:writer",
 			Fingerprint: "sha256:writer",

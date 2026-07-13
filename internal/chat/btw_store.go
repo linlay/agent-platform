@@ -96,6 +96,9 @@ func (s *FileStore) CreateBTWBranch(parentChatID string, btwID string) (*BTWBran
 	if err := tmp.Chmod(0o600); err != nil {
 		return nil, err
 	}
+	if _, err := readPersistedJSONLines(s.chatJSONLPath(branch.parentChatID)); err != nil {
+		return nil, err
+	}
 
 	_, parentJSONL, err := readJSONLineRecords(s.chatJSONLPath(branch.parentChatID))
 	if err != nil {
@@ -222,6 +225,5 @@ func (b *BTWBranchStore) LoadAllSystemInits() (SystemInitIndex, error) {
 	if b == nil {
 		return nil, ErrBTWNotFound
 	}
-	inits, _, err := loadSystemInitsFromPath(b.path)
-	return inits, err
+	return loadSystemInitsFromPath(b.path)
 }

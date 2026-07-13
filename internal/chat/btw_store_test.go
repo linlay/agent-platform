@@ -3,8 +3,27 @@ package chat
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestBTWBranchRejectsUnsupportedParentSystemSchema(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	const chatID = "chat-btw-invalid-system"
+	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "question"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	legacyJSONL := `{"_type":"query","chatId":"` + chatID + `","runId":"run-parent","updatedAt":1700000001000,"systems":[]}` + "\n"
+	if err := os.WriteFile(store.chatJSONLPath(chatID), []byte(legacyJSONL), 0o644); err != nil {
+		t.Fatalf("write legacy parent JSONL: %v", err)
+	}
+	if _, err := store.CreateBTWBranch(chatID, "btw_invalid"); err == nil || !strings.Contains(err.Error(), "unsupported system schema field=systems") || !strings.Contains(err.Error(), "chatId="+chatID) {
+		t.Fatalf("expected parent schema rejection before BTW copy, got %v", err)
+	}
+}
 
 func TestBTWBranchCopiesParentAndAppendsIndependently(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())

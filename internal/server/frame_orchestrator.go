@@ -32,7 +32,7 @@ type frameOrchestrator struct {
 	chats             chat.Store
 	resourceBaseURL   string
 	resourceTickets   *ResourceTicketService
-	prepareSystemInit func(api.QueryRequest, *contracts.QuerySession, bool) (*chat.QueryLineSystemInit, error)
+	prepareSystemInit func(api.QueryRequest, *contracts.QuerySession, bool) (*chat.QueryLineSystem, error)
 	systemInitMu      sync.Mutex
 	mapper            contracts.StreamDeltaMapper
 	emitDelta         func(contracts.AgentDelta)
@@ -1187,7 +1187,7 @@ func (o *frameOrchestrator) writeChildTaskQueryAndSystem(subReq api.QueryRequest
 	if o.chats == nil {
 		return
 	}
-	var system *chat.QueryLineSystemInit
+	var system *chat.QueryLineSystem
 	if subSession != nil && o.prepareSystemInit != nil {
 		o.systemInitMu.Lock()
 		defer o.systemInitMu.Unlock()

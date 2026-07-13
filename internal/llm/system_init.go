@@ -63,6 +63,9 @@ func validateSystemInitProfiles(profiles []contracts.SystemInitProfile) error {
 	seen := make(map[string]struct{}, len(profiles))
 	initialCount := 0
 	for _, profile := range profiles {
+		if strings.TrimSpace(profile.AgentKey) == "" {
+			return fmt.Errorf("system-init profile agent key is required")
+		}
 		key := strings.TrimSpace(profile.CacheKey)
 		if key == "" {
 			return fmt.Errorf("system-init profile cache key is required")

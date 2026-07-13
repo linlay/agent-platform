@@ -28,7 +28,7 @@ type preparedQuery struct {
 	teamSnapshot       *catalog.TeamSnapshot
 	session            contracts.QuerySession
 	memoryUsageSummary *api.MemoryUsageSummary
-	systemInitLine     *chat.QueryLineSystemInit
+	systemInitLine     *chat.QueryLineSystem
 	resourceBaseURL    string
 	release            queryReleaseFunc
 	continueRun        bool

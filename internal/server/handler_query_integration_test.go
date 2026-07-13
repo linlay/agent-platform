@@ -2690,9 +2690,6 @@ func assertJSONLCoderExecuteBootstrapQuery(t *testing.T, store chat.Store, chatI
 		if stringValue(systemRef["agentKey"]) == "" {
 			t.Fatalf("expected execute react systemRef agentKey, got %#v", executeLine)
 		}
-		if _, ok := executeLine["systems"]; ok {
-			t.Fatalf("did not expect execute react systems, got %#v", executeLine)
-		}
 		if got := strings.Count(content, "Execute the confirmed CODER planning.\\n\\nOriginal request:"); got != 1 {
 			t.Fatalf("expected execute prompt persisted once, got %d in:\n%s", got, content)
 		}

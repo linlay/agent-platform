@@ -19,7 +19,6 @@ func (s *llmRunStream) buildLLMRequestDelta(prepared preparedProviderRequest, ef
 		Model:           s.currentModelSnapshot(prepared),
 		ModelKey:        strings.TrimSpace(s.model.Key),
 		ReasoningEffort: s.effectiveReasoningEffort(),
-		System:          s.currentInlineSystemSnapshot(prepared, effectiveToolChoice, systemRef),
 		SystemRef:       systemRef,
 		ToolChoice:      strings.TrimSpace(effectiveToolChoice),
 		RequestOptions:  requestOptionsFromPreparedBody(prepared.RequestBody),
@@ -71,33 +70,6 @@ func requestOptionsFromPreparedBody(body map[string]any) map[string]any {
 		}
 	}
 	return cloneAnyMapViaJSON(out)
-}
-
-func (s *llmRunStream) currentInlineSystemSnapshot(prepared preparedProviderRequest, effectiveToolChoice string, systemRef map[string]any) map[string]any {
-	if len(systemRef) > 0 {
-		return nil
-	}
-	systemMessage := firstSystemMessageSnapshot(s.messages)
-	if len(systemMessage) == 0 && len(s.toolSpecs) == 0 {
-		return nil
-	}
-	out := map[string]any{
-		"agentKey":      strings.TrimSpace(s.session.AgentKey),
-		"cacheKey":      s.currentSystemCacheKey(),
-		"systemMessage": systemMessage,
-		"tools":         openAIToolSpecsToAny(s.toolSpecs),
-	}
-	if model := s.currentModelSnapshot(prepared); len(model) > 0 {
-		out["model"] = model
-	}
-	if toolChoice := strings.TrimSpace(effectiveToolChoice); toolChoice != "" {
-		out["toolChoice"] = toolChoice
-	}
-	if requestOptions := requestOptionsFromPreparedBody(prepared.RequestBody); len(requestOptions) > 0 {
-		out["requestOptions"] = requestOptions
-	}
-	out["fingerprint"] = fingerprintLLMCallProfile(out)
-	return out
 }
 
 func (s *llmRunStream) currentSystemCacheKey() string {

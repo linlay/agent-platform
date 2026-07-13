@@ -97,5 +97,8 @@ func validateJSONLLinePayload(payload any, location string) ([]byte, error) {
 	if err := validatePersistedTimeContract([]map[string]any{line}, location); err != nil {
 		return nil, err
 	}
+	if err := validatePersistedSystemInitSchema([]map[string]any{line}); err != nil {
+		return nil, err
+	}
 	return raw, nil
 }
