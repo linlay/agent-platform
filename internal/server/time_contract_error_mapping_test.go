@@ -39,6 +39,10 @@ func (s timeContractListChatsStore) ListChats(string, string) ([]chat.Summary, e
 	return nil, s.err
 }
 
+func (s timeContractListChatsStore) ListChatsWithAgentModes(string, string, []string) ([]chat.Summary, error) {
+	return nil, s.err
+}
+
 type timeContractFeedbackStore struct {
 	chat.Store
 	err error

@@ -26,6 +26,7 @@ func (s *FileStore) initDB() error {
 			CHAT_NAME_        TEXT NOT NULL,
 			OWNER_TYPE_       TEXT NOT NULL DEFAULT '',
 			AGENT_KEY_        TEXT NOT NULL DEFAULT '',
+			AGENT_MODE_       TEXT NOT NULL DEFAULT '',
 			TEAM_ID_          TEXT,
 			SOURCE_           TEXT NOT NULL DEFAULT '',
 			SOURCE_CHANNEL_   TEXT NOT NULL DEFAULT '',
@@ -65,6 +66,7 @@ func (s *FileStore) initDB() error {
 			CHAT_ID_                 TEXT NOT NULL,
 			OWNER_TYPE_              TEXT NOT NULL DEFAULT '',
 			AGENT_KEY_               TEXT NOT NULL DEFAULT '',
+			AGENT_MODE_              TEXT NOT NULL DEFAULT '',
 			TEAM_ID_                 TEXT,
 			INITIAL_MESSAGE_         TEXT NOT NULL DEFAULT '',
 			ASSISTANT_TEXT_          TEXT NOT NULL DEFAULT '',
@@ -111,7 +113,14 @@ func (s *FileStore) initDB() error {
 	s.migrateSourceChannelColumn()
 	s.migrateLastRunAtColumn()
 	s.migrateDetailedUsageColumns()
+	s.migrateAgentModeColumns()
 	return nil
+}
+
+func (s *FileStore) migrateAgentModeColumns() {
+	_, _ = s.db.Exec("ALTER TABLE CHATS ADD COLUMN AGENT_MODE_ TEXT NOT NULL DEFAULT ''")
+	_, _ = s.db.Exec("ALTER TABLE RUNS ADD COLUMN AGENT_MODE_ TEXT NOT NULL DEFAULT ''")
+	_, _ = s.db.Exec("CREATE INDEX IF NOT EXISTS IDX_CHATS_AGENT_MODE_UPDATED_ ON CHATS(AGENT_MODE_, UPDATED_AT_ DESC, CHAT_ID_ DESC)")
 }
 
 // migrateLastRunAtColumn intentionally leaves existing rows at the schema

@@ -1,12 +1,66 @@
 package chat
 
 import (
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestArchiveStoreMigratesAgentModeColumnsWithoutBackfill(t *testing.T) {
+	root := t.TempDir()
+	archiveRoot := filepath.Join(root, "archive")
+	if err := os.MkdirAll(archiveRoot, 0o755); err != nil {
+		t.Fatalf("mkdir archive root: %v", err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(archiveRoot, "archive.db"))
+	if err != nil {
+		t.Fatalf("open legacy archive db: %v", err)
+	}
+	if _, err := db.Exec(`
+		CREATE TABLE ARCHIVED_CHATS (
+			CHAT_ID_ TEXT PRIMARY KEY,
+			CHAT_NAME_ TEXT NOT NULL,
+			AGENT_KEY_ TEXT NOT NULL DEFAULT '',
+			ARCHIVED_AT_ INTEGER NOT NULL DEFAULT 0,
+			LAST_RUN_CONTENT_ TEXT NOT NULL DEFAULT ''
+		);
+		INSERT INTO ARCHIVED_CHATS (CHAT_ID_, CHAT_NAME_, AGENT_KEY_, ARCHIVED_AT_, LAST_RUN_CONTENT_)
+		VALUES ('chat-archive-old', 'legacy', 'agent-old', 1700000003000, 'answer');
+		CREATE TABLE ARCHIVED_RUNS (
+			RUN_ID_ TEXT PRIMARY KEY,
+			CHAT_ID_ TEXT NOT NULL
+		);
+		INSERT INTO ARCHIVED_RUNS (RUN_ID_, CHAT_ID_) VALUES ('run-archive-old', 'chat-archive-old');
+	`); err != nil {
+		t.Fatalf("seed legacy archive schema: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close legacy archive db: %v", err)
+	}
+
+	store, err := NewArchiveStore(root)
+	if err != nil {
+		t.Fatalf("migrate archive store: %v", err)
+	}
+	for _, table := range []string{"ARCHIVED_CHATS", "ARCHIVED_RUNS"} {
+		if !sqliteColumnNames(t, store.db, table)["AGENT_MODE_"] {
+			t.Fatalf("expected AGENT_MODE_ in %s", table)
+		}
+	}
+	var chatMode, runMode string
+	if err := store.db.QueryRow(`SELECT AGENT_MODE_ FROM ARCHIVED_CHATS WHERE CHAT_ID_='chat-archive-old'`).Scan(&chatMode); err != nil {
+		t.Fatalf("read migrated archived chat mode: %v", err)
+	}
+	if err := store.db.QueryRow(`SELECT AGENT_MODE_ FROM ARCHIVED_RUNS WHERE RUN_ID_='run-archive-old'`).Scan(&runMode); err != nil {
+		t.Fatalf("read migrated archived run mode: %v", err)
+	}
+	if chatMode != "" || runMode != "" {
+		t.Fatalf("historical archive data must remain unknown, chat=%q run=%q", chatMode, runMode)
+	}
+}
 
 func TestArchiveJSONLRejectsUnsupportedSystemSchema(t *testing.T) {
 	_, err := readJSONLinesContent(`{"_type":"query","chatId":"chat-archive-invalid","runId":"run-1","updatedAt":1700000001000,"systems":[]}` + "\n")

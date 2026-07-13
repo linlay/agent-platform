@@ -408,6 +408,7 @@ func mapRunSummary(run chat.RunSummary) api.RunSummary {
 		ChatID:          run.ChatID,
 		OwnerType:       run.OwnerType,
 		AgentKey:        run.AgentKey,
+		AgentMode:       run.AgentMode,
 		TeamID:          run.TeamID,
 		InitialMessage:  run.InitialMessage,
 		AssistantText:   run.AssistantText,

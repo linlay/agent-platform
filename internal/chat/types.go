@@ -265,6 +265,7 @@ type Summary struct {
 	ChatName      string `json:"chatName"`
 	OwnerType     string `json:"ownerType,omitempty"`
 	AgentKey      string `json:"agentKey,omitempty"`
+	AgentMode     string `json:"agentMode,omitempty"`
 	TeamID        string `json:"teamId,omitempty"`
 	Source        string `json:"source,omitempty"`
 	SourceChannel string `json:"sourceChannel,omitempty"`
@@ -369,6 +370,7 @@ type RunCompletion struct {
 	RunID           string
 	OwnerType       string
 	AgentKey        string
+	AgentMode       string
 	TeamID          string
 	AssistantText   string
 	InitialMessage  string
@@ -386,6 +388,7 @@ type RunStart struct {
 	RunID           string
 	OwnerType       string
 	AgentKey        string
+	AgentMode       string
 	TeamID          string
 	InitialMessage  string
 	StartedAtMillis int64
@@ -396,6 +399,7 @@ type RunSummary struct {
 	ChatID          string
 	OwnerType       string
 	AgentKey        string
+	AgentMode       string
 	TeamID          string
 	InitialMessage  string
 	AssistantText   string

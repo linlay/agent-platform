@@ -68,13 +68,13 @@
 
 ```bash
 cp .env.example .env
-./scripts/sync-local-builtins.sh --all
+./scripts/sync-local-builtins.sh
 make run
 ```
 
-`./scripts/sync-local-builtins.sh` 是唯一会从相邻项目复制 builtin 的本地入口。它按 lock 校验 release archive，默认装配六个平台到 `build/builtins/<os>-<arch>/`，再将本机目标镜像到 `release-local/bin/`。若只取得一个目标的 release artifact，可显式使用 `--target <os>/<arch>`。`make run` 只构建 Go runtime、加载根目录 `.env` 并从 `release-local/backend/agent-platform` 启动，绝不复制或编译 builtin。未设置 `SERVER_PORT` 时默认监听 `11949`。本机插件位于 `release-local/plugins/`。直接执行 `go run ./cmd/agent-platform` 不会自动加载 `.env`、装入 builtins 或扫描 `release-local/plugins/`；未设置 `SERVER_PORT` 或 `--port` 时应用代码默认监听 `8080`。
+`./scripts/sync-local-builtins.sh` 是本地 builtin 构建入口：它在隔离工作目录中构建相邻的 `dbx`、`httpx` 与 `kbase-lance-engine`，校验每次构建生成的 archive，并原子更新本机 `build/builtins/<os>-<arch>/`。默认只构建当前主机；需要完整矩阵时显式传入 `--all`。`rg` 当前只在相邻 collection 中提供锁定的 vendor artifact，因此同步时校验并复制该 artifact。同步脚本绝不写入 `release-local/`。`make run` 只构建 Go runtime、加载根目录 `.env` 并从 `release-local/backend/agent-platform` 启动；它通过 `AP_BUILTINS_BIN` 将本机 `build/builtins/<host>/bin` 设为唯一可信 builtin 目录，并将 sidecar 路径指向该 cache，但绝不复制或编译 builtin。未设置 `SERVER_PORT` 时默认监听 `11949`。本机插件位于 `release-local/plugins/`。直接执行 `go run ./cmd/agent-platform` 不会自动加载 `.env`、装入 builtins 或扫描 `release-local/plugins/`；未设置 `SERVER_PORT` 或 `--port` 时应用代码默认监听 `8080`。
 
-`--all` 只有在 sidecar 项目的六个平台 archive 均已发布、并已将对应 SHA-256 写入 lock 后才会成功；缺失 target 会在写入任何现有 cache 或 `release-local/bin` 前失败。
+`--all` 会要求本机已提供六个平台的 Rust target、对应 linker/SDK、`protoc` 与 `syft`；任一 target 不能构建时失败，且既有 `build/builtins` cache 不会被替换。正式 `make release-program` 仍只消费 canonical lock 所固定的已发布 archive，不会使用本地构建的临时 lock。
 
 也可以显式拆开构建与启动：
 
@@ -83,7 +83,7 @@ make build-local
 make run-local
 ```
 
-`make build-local` 只把 runtime 写到 `release-local/backend/agent-platform`，不会变更 `release-local/bin/`。builtin 缺失、release archive 缺失或 SHA-256 不匹配都由同步脚本失败报告。由于 runtime 位于 `backend/` 下，启动时只扫描服务包根目录的 `plugins/`，与 Desktop 服务包形态一致。`runtime/` 仍只用于 agents、chats、skills-market、registries、memory 等运行数据。
+`make build-local` 只把 runtime 写到 `release-local/backend/agent-platform`，不会变更 `release-local/bin/`。builtin 缺失或本机构建失败由同步脚本失败报告。由于 runtime 位于 `backend/` 下，启动时只扫描服务包根目录的 `plugins/`，与 Desktop 服务包形态一致。`runtime/` 仍只用于 agents、chats、skills-market、registries、memory 等运行数据。
 
 常用验证：
 
@@ -324,7 +324,7 @@ Container Hub 默认基础挂载当前最多 7 个：
 make release-program
 ```
 
-产物写入 `dist/release/`，包含纯 Go runtime、配置模板、启停脚本、`bin/{rg,dbx,httpx,kbase-lance-engine}`、builtins manifest、许可证 notice、压缩包 SHA-256 与大小报告。`release-program` 只消费 lock 固定的外部 release archive，不会构建 Rust sidecar。Docker 构建同样需要先执行同步脚本，使匹配的 Linux cache 位于 `build/builtins/`。Desktop 宿主集成时执行资源同步：
+产物写入 `dist/release/`，包含纯 Go runtime、配置模板、启停脚本、`bin/{rg,dbx,httpx,kbase-lance-engine}`、builtins manifest、许可证 notice、压缩包 SHA-256 与大小报告。`release-program` 只消费 lock 固定的外部 release archive，不会构建 Rust sidecar。Docker 构建需要预先执行 `./scripts/sync-local-builtins.sh --target linux/<arch>`，使匹配的 Linux cache 位于 `build/builtins/`。Desktop 宿主集成时执行资源同步：
 
 ```bash
 npm run sync:assets

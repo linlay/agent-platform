@@ -168,6 +168,9 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 }
 
 func resolveRipgrepPath() (string, error) {
+	if configured := strings.TrimSpace(os.Getenv("AP_BUILTINS_BIN")); configured != "" {
+		return findBundledRipgrep(configured)
+	}
 	exePath, err := os.Executable()
 	binaryDir := ""
 	if err == nil {

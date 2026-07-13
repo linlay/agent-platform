@@ -10,6 +10,7 @@ type ArchivedSummary struct {
 	ChatName       string `json:"chatName"`
 	OwnerType      string `json:"ownerType,omitempty"`
 	AgentKey       string `json:"agentKey,omitempty"`
+	AgentMode      string `json:"agentMode,omitempty"`
 	TeamID         string `json:"teamId,omitempty"`
 	Source         string `json:"source,omitempty"`
 	SourceChannel  string `json:"sourceChannel,omitempty"`

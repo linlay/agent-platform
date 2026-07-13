@@ -13,11 +13,23 @@ import (
 )
 
 func (s *Server) listChatSummaries(lastRunID string, agentKey string) ([]api.ChatSummaryResponse, error) {
-	items, err := s.deps.Chats.ListChats(lastRunID, agentKey)
+	return s.listChatSummariesWithAgentModes(lastRunID, agentKey, nil)
+}
+
+func (s *Server) listChatSummariesWithAgentModes(lastRunID string, agentKey string, agentModes []string) ([]api.ChatSummaryResponse, error) {
+	items, err := s.deps.Chats.ListChatsWithAgentModes(lastRunID, agentKey, agentModes)
 	if err != nil {
 		return nil, err
 	}
 	return mapChatSummaries(items), nil
+}
+
+func requestedAgentModes(values []string) []string {
+	items := make([]string, 0, len(values))
+	for _, value := range values {
+		items = append(items, strings.Split(value, ",")...)
+	}
+	return chat.NormalizeAgentModes(items)
 }
 
 func mapChatSummaries(items []chat.Summary) []api.ChatSummaryResponse {
@@ -36,6 +48,7 @@ func mapChatSummariesWithUsage(items []chat.Summary, includeUsage bool) []api.Ch
 			ChatName:       item.ChatName,
 			OwnerType:      item.OwnerType,
 			AgentKey:       item.AgentKey,
+			AgentMode:      item.AgentMode,
 			TeamID:         item.TeamID,
 			Source:         item.Source,
 			CreatedAt:      item.CreatedAt,
@@ -264,7 +277,7 @@ func writeActiveRunConflict(w http.ResponseWriter, conflict *contracts.ActiveRun
 }
 
 func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
-	response, err := s.listChatSummaries(r.URL.Query().Get("lastRunId"), r.URL.Query().Get("agentKey"))
+	response, err := s.listChatSummariesWithAgentModes(r.URL.Query().Get("lastRunId"), r.URL.Query().Get("agentKey"), requestedAgentModes(r.URL.Query()["agentMode"]))
 	if err != nil {
 		if isTimeContractViolation(err) {
 			writeTimeContractViolation(w, err)

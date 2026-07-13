@@ -14,9 +14,9 @@ if (-not $bash) {
 $bashPath = $bash.Source
 
 $invokeArgs = @()
-if ($All -or -not $Target) {
+if ($All) {
     $invokeArgs += "--all"
-} else {
+} elseif ($Target) {
     foreach ($item in $Target) {
         $invokeArgs += @("--target", $item)
     }

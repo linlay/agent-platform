@@ -226,6 +226,7 @@ func (s *Server) registeredQueryRun(runCtx context.Context, control *contracts.R
 			RunID:           runID,
 			OwnerType:       prepared.summary.OwnerType,
 			AgentKey:        prepared.req.AgentKey,
+			AgentMode:       chatAgentMode(prepared.agentDef, strings.EqualFold(prepared.summary.OwnerType, "team")),
 			TeamID:          prepared.req.TeamID,
 			InitialMessage:  prepared.req.Message,
 			StartedAtMillis: status.StartedAt,

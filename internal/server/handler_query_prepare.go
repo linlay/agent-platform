@@ -232,7 +232,8 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 	chatID := req.ChatID
 	agentKey := req.AgentKey
 	chatSource := queryChatSource(ctx, req)
-	summary, created, err := s.deps.Chats.EnsureChatWithSource(chatID, agentKey, req.TeamID, req.Message, chatSource)
+	persistedAgentMode := chatAgentMode(agentDef, admission.orchestratedTeam)
+	summary, created, err := s.deps.Chats.EnsureChatWithSourceAndMode(chatID, agentKey, req.TeamID, req.Message, chatSource, persistedAgentMode)
 	if err != nil {
 		return preparedQuery{}, err
 	}
@@ -243,9 +244,12 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 			message: "teamId does not match chat",
 		}
 	}
-	if !admission.orchestratedTeam && !created && agentKey != "" && agentKey != summary.AgentKey {
-		_ = s.deps.Chats.UpdateAgentKey(chatID, agentKey)
+	if !admission.orchestratedTeam && !created && agentKey != "" {
+		if err := s.deps.Chats.UpdateAgentIdentity(chatID, agentKey, persistedAgentMode); err != nil {
+			return preparedQuery{}, err
+		}
 		summary.AgentKey = agentKey
+		summary.AgentMode = persistedAgentMode
 	}
 	if created {
 		// automation/system role 只影响 chat 内部 request.query 的展示语义，
@@ -299,6 +303,13 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 		resourceBaseURL:    admission.resourceBaseURL,
 		release:            release,
 	}, nil
+}
+
+func chatAgentMode(agentDef catalog.AgentDefinition, orchestratedTeam bool) string {
+	if orchestratedTeam {
+		return "TEAM"
+	}
+	return catalog.AgentModeForAPI(agentDef.Mode)
 }
 
 func queryChatSource(ctx context.Context, req api.QueryRequest) string {

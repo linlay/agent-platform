@@ -26,6 +26,7 @@ endif
 LOCAL_BACKEND_DIR := $(LOCAL_RELEASE_ROOT)/backend
 LOCAL_BACKEND_BIN := $(LOCAL_BACKEND_DIR)/$(LOCAL_BINARY)
 LOCAL_PLUGINS_DIR := $(LOCAL_RELEASE_ROOT)/plugins
+LOCAL_BUILTINS_BIN := build/builtins/$(LOCAL_GOOS)-$(ARCH)/bin
 
 .PHONY: run build-local run-local test test-integration test-release-program-clean docker-build docker-up docker-down release release-program release-program-all clean
 
@@ -36,7 +37,7 @@ build-local:
 	@New-Item -ItemType Directory -Path '$(LOCAL_BACKEND_DIR)' -Force | Out-Null; New-Item -ItemType Directory -Path '$(LOCAL_PLUGINS_DIR)' -Force | Out-Null; $$env:CGO_ENABLED = '$(CGO_ENABLED)'; go build -o '$(LOCAL_BACKEND_BIN)' ./cmd/agent-platform; if ($$LASTEXITCODE -ne 0) { exit $$LASTEXITCODE }
 
 run-local: build-local
-	@Get-Content .env -ErrorAction SilentlyContinue | ForEach-Object { $$l = $$_.Trim(); if ($$l -and -not $$l.StartsWith('#')) { $$i = $$l.IndexOf('='); if ($$i -gt 0) { [System.Environment]::SetEnvironmentVariable($$l.Substring(0,$$i).Trim(), $$l.Substring($$i+1).Trim(), 'Process') } } }; if ([string]::IsNullOrWhiteSpace($$env:SERVER_PORT)) { $$env:SERVER_PORT = '11949' }; & '$(LOCAL_BACKEND_BIN)' --config-dir .
+	@Get-Content .env -ErrorAction SilentlyContinue | ForEach-Object { $$l = $$_.Trim(); if ($$l -and -not $$l.StartsWith('#')) { $$i = $$l.IndexOf('='); if ($$i -gt 0) { [System.Environment]::SetEnvironmentVariable($$l.Substring(0,$$i).Trim(), $$l.Substring($$i+1).Trim(), 'Process') } } }; if ([string]::IsNullOrWhiteSpace($$env:SERVER_PORT)) { $$env:SERVER_PORT = '11949' }; if ([string]::IsNullOrWhiteSpace($$env:AP_BUILTINS_BIN)) { $$env:AP_BUILTINS_BIN = '$(LOCAL_BUILTINS_BIN)' }; if ([string]::IsNullOrWhiteSpace($$env:AP_KBASE_LANCE_ENGINE)) { $$env:AP_KBASE_LANCE_ENGINE = '$(LOCAL_BUILTINS_BIN)/kbase-lance-engine.exe' }; $$env:PATH = '$(LOCAL_BUILTINS_BIN);' + $$env:PATH; & '$(LOCAL_BACKEND_BIN)' --config-dir .
 else
 run: run-local
 
@@ -45,7 +46,7 @@ build-local:
 	CGO_ENABLED=$(CGO_ENABLED) go build -o "$(LOCAL_BACKEND_BIN)" ./cmd/agent-platform
 
 run-local: build-local
-	set -a; [ ! -f .env ] || . ./.env; set +a; SERVER_PORT="$${SERVER_PORT:-11949}" "$(LOCAL_BACKEND_BIN)" --config-dir .
+	set -a; [ ! -f .env ] || . ./.env; set +a; SERVER_PORT="$${SERVER_PORT:-11949}" AP_BUILTINS_BIN="$${AP_BUILTINS_BIN:-$(abspath $(LOCAL_BUILTINS_BIN))}" AP_KBASE_LANCE_ENGINE="$${AP_KBASE_LANCE_ENGINE:-$(abspath $(LOCAL_BUILTINS_BIN))/kbase-lance-engine}" PATH="$(abspath $(LOCAL_BUILTINS_BIN)):$$PATH" "$(LOCAL_BACKEND_BIN)" --config-dir .
 endif
 
 test:

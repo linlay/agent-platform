@@ -32,6 +32,32 @@ func TestConfigureProcessPathFindsServiceRootBin(t *testing.T) {
 	}
 }
 
+func TestConfigureProcessPathPrefersExplicitBuildCache(t *testing.T) {
+	root := t.TempDir()
+	backendDir := filepath.Join(root, "backend")
+	releaseBin := filepath.Join(root, "bin")
+	cacheBin := filepath.Join(root, "build", "builtins", "darwin-arm64", "bin")
+	for _, directory := range []string{backendDir, releaseBin, cacheBin} {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv(processBinDirEnv, cacheBin)
+	t.Setenv("PATH", filepath.Join(root, "system-bin"))
+	clearProcessBinDir(t)
+
+	got, err := configureProcessPathForExecutable(filepath.Join(backendDir, "agent-platform"))
+	if err != nil {
+		t.Fatalf("configureProcessPathForExecutable: %v", err)
+	}
+	if got != cacheBin {
+		t.Fatalf("bin dir = %s, want explicit cache %s", got, cacheBin)
+	}
+	if first := filepath.SplitList(os.Getenv("PATH"))[0]; first != cacheBin {
+		t.Fatalf("PATH first = %s, want %s", first, cacheBin)
+	}
+}
+
 func TestEnsureBinInEnvKeepsTrustedBinFirst(t *testing.T) {
 	root := t.TempDir()
 	binDir := filepath.Join(root, "bin")

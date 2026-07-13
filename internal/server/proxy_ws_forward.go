@@ -960,6 +960,7 @@ func (r *proxyEventRecorder) Finish() (bool, chat.RunCompletion) {
 		ChatID:          r.req.ChatID,
 		RunID:           r.req.RunID,
 		AgentKey:        r.req.AgentKey,
+		AgentMode:       catalog.AgentModeForAPI(r.agentDef.Mode),
 		AssistantText:   r.assistantText.String(),
 		InitialMessage:  r.req.Message,
 		FinishReason:    finishReason,

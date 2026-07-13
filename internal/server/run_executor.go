@@ -1061,6 +1061,7 @@ func persistRunCompletionWithReason(params RunExecutorParams, assistantText stri
 		RunID:           params.Session.RunID,
 		OwnerType:       string(owner.Type),
 		AgentKey:        owner.AgentKey,
+		AgentMode:       params.Session.Mode,
 		TeamID:          owner.TeamID,
 		AssistantText:   assistantText,
 		InitialMessage:  params.Request.Message,

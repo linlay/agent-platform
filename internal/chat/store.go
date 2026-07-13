@@ -41,9 +41,11 @@ type Store interface {
 	StepLineStore
 	EnsureChat(chatID string, agentKey string, teamID string, firstMessage string) (Summary, bool, error)
 	EnsureChatWithSource(chatID string, agentKey string, teamID string, firstMessage string, source string) (Summary, bool, error)
+	EnsureChatWithSourceAndMode(chatID string, agentKey string, teamID string, firstMessage string, source string, agentMode string) (Summary, bool, error)
 	DeriveChat(request DeriveChatRequest) (DeriveChatResult, error)
 	RenameChat(chatID string, chatName string) (Summary, error)
 	UpdateAgentKey(chatID string, agentKey string) error
+	UpdateAgentIdentity(chatID string, agentKey string, agentMode string) error
 	SetSourceChannel(chatID string, sourceChannel string) error
 	SourceChannel(chatID string) (string, error)
 	Summary(chatID string) (*Summary, error)
@@ -61,6 +63,7 @@ type Store interface {
 	LoadJSONLContent(chatID string) (string, error)
 	OnRunCompleted(completion RunCompletion) error
 	ListChats(lastRunID string, agentKey string) ([]Summary, error)
+	ListChatsWithAgentModes(lastRunID string, agentKey string, agentModes []string) ([]Summary, error)
 	RecentChatsByAgent(agentKey string, limit int) ([]Summary, error)
 	ListRuns(chatID string) ([]RunSummary, error)
 	LoadChat(chatID string) (Detail, error)

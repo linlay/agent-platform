@@ -207,9 +207,9 @@ Manager 在启动和 catalog reload 时维护 watcher：agent 删除或 workspac
 
 release bundle 将当前平台的 `kbase-lance-engine[.exe]` 放入 `bin/`，不包含全平台 native archive，用户不需要本地 Rust toolchain。Rust 源码和 release 构建位于相邻的 `../agent-platform-builtins/kbase-lance-engine` 独立仓库；其 archive 必须包含可执行文件、Cargo metadata、sidecar SBOM 和许可证。`scripts/release-assets/builtins.lock.json` 固定 archive 路径、SHA-256、sidecar 版本与 LanceDB SDK 版本。
 
-无需安装 GitHub 插件或 Rust toolchain；只需由外部 sidecar 项目发布并提交 lock 固定的 archive。
+正式 program bundle 无需安装 GitHub 插件或 Rust toolchain；它只需由外部 sidecar 项目发布并提交 lock 固定的 archive。本机 builtin cache 则需要 Rust toolchain，因为同步脚本会主动构建 sidecar。
 
-`scripts/stage-kbase-lance-engine.{sh,ps1}` 只从 lock 指定的外部 archive 提取 sidecar metadata，不支持下载或本机 Rust 构建。日常本地服务包装配应使用 `./scripts/sync-local-builtins.sh --all`：它将每个平台的受校验 archive 展开到 `build/builtins/<os>-<arch>/`，并把当前主机目标镜像至 `release-local/bin/`。`make run`、`make release-program` 均不会下载或构建 sidecar；缺失平台 archive、hash 不匹配、Cargo metadata/SBOM 缺失都会失败。Docker 从相同 cache 选择对应 Linux sidecar。
+`scripts/stage-kbase-lance-engine.{sh,ps1}` 只从 archive 提取 sidecar metadata，不支持下载。日常本地开发使用 `./scripts/sync-local-builtins.sh`：它先在隔离工作目录构建当前主机的 sidecar archive，并将其与 metadata、SBOM 和许可证原子写入 `build/builtins/<os>-<arch>/`，不触碰 `release-local/`。`make run`、`make release-program` 均不会下载或构建 sidecar；前者直接使用本机 build cache，后者只接受 canonical lock 指定的发布 archive。Docker 从同一 cache 选择对应 Linux sidecar。
 
 Git 忽略规则覆盖 platform 的 `build/`、release staging、默认 runtime/run 目录和 workspace 本地 `.kbase/`；Rust `Cargo.lock`、源码、release 脚本、SBOM 和许可证由外部 sidecar 仓库提交维护。
 

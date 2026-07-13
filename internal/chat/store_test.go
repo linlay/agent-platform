@@ -95,6 +95,116 @@ func TestFileStoreUpdateAgentKeyPersistsIntoSummary(t *testing.T) {
 	}
 }
 
+func TestFileStorePersistsAndFiltersAgentModes(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	if _, _, err := store.EnsureChat("chat-history", "agent-history", "", "history"); err != nil {
+		t.Fatalf("ensure historical chat: %v", err)
+	}
+	if _, _, err := store.EnsureChatWithSourceAndMode("chat-react", "agent-react", "", "react", "", "oneshot"); err != nil {
+		t.Fatalf("ensure react chat: %v", err)
+	}
+	persistAgentModeRun(t, store, "chat-react", "loyw3v28", "agent-react", "", "agent", "REACT", 1_000)
+	if _, _, err := store.EnsureChatWithSourceAndMode("chat-plan", "agent-plan", "", "plan", "", "PLAN_EXECUTE"); err != nil {
+		t.Fatalf("ensure plan chat: %v", err)
+	}
+	persistAgentModeRun(t, store, "chat-plan", "loyw3v29", "agent-plan", "", "agent", "PLAN-EXECUTE", 3_000)
+	if _, _, err := store.EnsureChatWithSourceAndMode("chat-team", "", "team-a", "team", "", "REACT"); err != nil {
+		t.Fatalf("ensure team chat: %v", err)
+	}
+	persistAgentModeRun(t, store, "chat-team", "loyw3v2a", "__team_coordinator", "team-a", "team", "REACT", 2_000)
+
+	if _, _, err := store.EnsureChatWithSourceAndMode("chat-switch", "agent-old", "legacy team", "legacy", "", "REACT"); err != nil {
+		t.Fatalf("ensure legacy team chat: %v", err)
+	}
+	persistAgentModeRun(t, store, "chat-switch", "loyw3v2b", "agent-old", "legacy team", "agent", "REACT", 4_000)
+	if err := store.UpdateAgentIdentity("chat-switch", "agent-new", "CODER"); err != nil {
+		t.Fatalf("switch legacy team member: %v", err)
+	}
+	persistAgentModeRun(t, store, "chat-switch", "loyw3v2c", "agent-new", "legacy team", "agent", "CODER", 5_000)
+
+	history, err := store.Summary("chat-history")
+	if err != nil || history == nil || history.AgentMode != "" {
+		t.Fatalf("historical chat should keep empty mode, summary=%#v err=%v", history, err)
+	}
+	team, err := store.Summary("chat-team")
+	if err != nil || team == nil || team.AgentMode != "TEAM" || team.AgentKey != "" {
+		t.Fatalf("team summary should persist public TEAM mode, summary=%#v err=%v", team, err)
+	}
+	switched, err := store.Summary("chat-switch")
+	if err != nil || switched == nil || switched.AgentKey != "agent-new" || switched.AgentMode != "CODER" {
+		t.Fatalf("legacy team identity should update atomically, summary=%#v err=%v", switched, err)
+	}
+	switchedRuns, err := store.ListRuns("chat-switch")
+	if err != nil || len(switchedRuns) != 2 || switchedRuns[0].AgentKey != "agent-new" || switchedRuns[0].AgentMode != "CODER" || switchedRuns[1].AgentKey != "agent-old" || switchedRuns[1].AgentMode != "REACT" {
+		t.Fatalf("runs should preserve mode history after member switch, runs=%#v err=%v", switchedRuns, err)
+	}
+
+	items, err := store.ListChatsWithAgentModes("", "", []string{"react", " TEAM ", "plan_execute", "REACT", ""})
+	if err != nil {
+		t.Fatalf("list filtered chats: %v", err)
+	}
+	if got := summaryChatIDs(items); strings.Join(got, ",") != "chat-plan,chat-team,chat-react" {
+		t.Fatalf("unexpected mode-filtered ordering: %v", got)
+	}
+	items, err = store.ListChatsWithAgentModes("", "agent-plan", []string{"REACT", "plan-execute"})
+	if err != nil || len(items) != 1 || items[0].ChatID != "chat-plan" {
+		t.Fatalf("agent key and mode should combine with AND, items=%#v err=%v", items, err)
+	}
+	items, err = store.ListChatsWithAgentModes("loyw3v28", "", []string{"react", "team"})
+	if err != nil || len(items) != 1 || items[0].ChatID != "chat-team" {
+		t.Fatalf("lastRunId and mode should combine with AND, items=%#v err=%v", items, err)
+	}
+	items, err = store.ListChatsWithAgentModes("", "", []string{"UNKNOWN"})
+	if err != nil || len(items) != 0 {
+		t.Fatalf("unknown mode should return no results, items=%#v err=%v", items, err)
+	}
+}
+
+func persistAgentModeRun(t *testing.T, store *FileStore, chatID string, runID string, agentKey string, teamID string, ownerType string, agentMode string, offset int64) {
+	t.Helper()
+	startedAt := testEpochMillis(offset)
+	if err := store.OnRunStarted(RunStart{
+		ChatID:          chatID,
+		RunID:           runID,
+		OwnerType:       ownerType,
+		AgentKey:        agentKey,
+		AgentMode:       agentMode,
+		TeamID:          teamID,
+		InitialMessage:  "question",
+		StartedAtMillis: startedAt,
+	}); err != nil {
+		t.Fatalf("start run %s: %v", runID, err)
+	}
+	if err := store.OnRunCompleted(RunCompletion{
+		ChatID:          chatID,
+		RunID:           runID,
+		OwnerType:       ownerType,
+		AgentKey:        agentKey,
+		AgentMode:       agentMode,
+		TeamID:          teamID,
+		InitialMessage:  "question",
+		AssistantText:   "answer",
+		FinishReason:    "complete",
+		StartedAtMillis: startedAt,
+		UpdatedAtMillis: startedAt + 1,
+	}); err != nil {
+		t.Fatalf("complete run %s: %v", runID, err)
+	}
+}
+
+func summaryChatIDs(items []Summary) []string {
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.ChatID)
+	}
+	return ids
+}
+
 func TestFileStoreSetSourceChannelPersistsIntoSummaryAndListChats(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
@@ -460,6 +570,7 @@ func TestFileStoreAddsRunsUsageColumns(t *testing.T) {
 	for _, col := range []string{
 		"OWNER_TYPE_",
 		"TEAM_ID_",
+		"AGENT_MODE_",
 		"USAGE_MODEL_KEY_",
 		"USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_",
 		"USAGE_FIRST_TOKEN_LATENCY_COUNT_",
@@ -515,6 +626,7 @@ func TestFileStoreAddsChatsUsageTimingColumns(t *testing.T) {
 	columns := sqliteColumnNames(t, db, "CHATS")
 	for _, col := range []string{
 		"OWNER_TYPE_",
+		"AGENT_MODE_",
 		"USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_",
 		"USAGE_FIRST_TOKEN_LATENCY_COUNT_",
 		"USAGE_GENERATION_DURATION_MS_",
@@ -522,6 +634,13 @@ func TestFileStoreAddsChatsUsageTimingColumns(t *testing.T) {
 		if !columns[col] {
 			t.Fatalf("expected %s column to be added to CHATS; columns=%#v", col, columns)
 		}
+	}
+	var indexCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='IDX_CHATS_AGENT_MODE_UPDATED_'`).Scan(&indexCount); err != nil {
+		t.Fatalf("check mode index: %v", err)
+	}
+	if indexCount != 1 {
+		t.Fatalf("expected mode ordering index, count=%d", indexCount)
 	}
 }
 

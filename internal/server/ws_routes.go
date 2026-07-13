@@ -264,13 +264,14 @@ func (s *Server) wsChats(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 	payload, err := ws.DecodePayload[struct {
 		LastRunID string `json:"lastRunId"`
 		AgentKey  string `json:"agentKey"`
+		AgentMode string `json:"agentMode"`
 	}](req)
 	if err != nil {
 		conn.SendError(req.ID, "invalid_request", 400, "invalid payload", nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	response, listErr := s.listChatSummaries(payload.LastRunID, payload.AgentKey)
+	response, listErr := s.listChatSummariesWithAgentModes(payload.LastRunID, payload.AgentKey, requestedAgentModes([]string{payload.AgentMode}))
 	if listErr != nil {
 		if isTimeContractViolation(listErr) {
 			sendTimeContractViolation(conn, req.ID, listErr)

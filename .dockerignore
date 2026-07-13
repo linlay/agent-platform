@@ -8,6 +8,8 @@ build/*
 !build/builtins/
 !build/builtins/**
 build/builtins/.gocache
+build/builtins/.gomodcache
+build/builtins/.cargo-target
 release-local
 runtime
 run

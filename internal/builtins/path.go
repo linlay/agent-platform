@@ -14,6 +14,8 @@ var processBinState struct {
 	dir string
 }
 
+const processBinDirEnv = "AP_BUILTINS_BIN"
+
 func ConfigureProcessPath() (string, error) {
 	executable, err := os.Executable()
 	if err != nil {
@@ -23,6 +25,9 @@ func ConfigureProcessPath() (string, error) {
 }
 
 func configureProcessPathForExecutable(executable string) (string, error) {
+	if configured := strings.TrimSpace(os.Getenv(processBinDirEnv)); configured != "" {
+		return configureProcessPathForDirectory(configured)
+	}
 	binaryDir := filepath.Dir(executable)
 	candidates := []string{}
 	if strings.EqualFold(filepath.Base(binaryDir), "backend") {
@@ -30,29 +35,36 @@ func configureProcessPathForExecutable(executable string) (string, error) {
 	}
 	candidates = append(candidates, filepath.Join(binaryDir, "bin"))
 	for _, candidate := range candidates {
-		info, err := os.Stat(candidate)
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				continue
-			}
+		resolved, err := configureProcessPathForDirectory(candidate)
+		if err == nil && resolved != "" {
+			return resolved, nil
+		}
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return "", err
 		}
-		if !info.IsDir() {
-			continue
-		}
-		candidate, err = filepath.Abs(candidate)
-		if err != nil {
-			return "", err
-		}
-		if err := os.Setenv("PATH", prependPath(candidate, os.Getenv("PATH"))); err != nil {
-			return "", err
-		}
-		processBinState.Lock()
-		processBinState.dir = candidate
-		processBinState.Unlock()
-		return candidate, nil
 	}
 	return "", nil
+}
+
+func configureProcessPathForDirectory(candidate string) (string, error) {
+	info, err := os.Stat(candidate)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", nil
+	}
+	candidate, err = filepath.Abs(candidate)
+	if err != nil {
+		return "", err
+	}
+	if err := os.Setenv("PATH", prependPath(candidate, os.Getenv("PATH"))); err != nil {
+		return "", err
+	}
+	processBinState.Lock()
+	processBinState.dir = candidate
+	processBinState.Unlock()
+	return candidate, nil
 }
 
 func EnsureBinInEnv(env []string) []string {

@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const summarySelectColumns = `CHAT_ID_, CHAT_NAME_, COALESCE(OWNER_TYPE_,''), AGENT_KEY_, COALESCE(TEAM_ID_,''), COALESCE(SOURCE_,''), COALESCE(SOURCE_CHANNEL_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_,
+const summarySelectColumns = `CHAT_ID_, CHAT_NAME_, COALESCE(OWNER_TYPE_,''), AGENT_KEY_, COALESCE(AGENT_MODE_,''), COALESCE(TEAM_ID_,''), COALESCE(SOURCE_,''), COALESCE(SOURCE_CHANNEL_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_,
 	USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, USAGE_CACHED_TOKENS_, USAGE_REASONING_TOKENS_, USAGE_PROMPT_CACHE_HIT_TOKENS_, USAGE_PROMPT_CACHE_MISS_TOKENS_, USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
 	USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_,
 	USAGE_ESTIMATED_COST_CURRENCY_, USAGE_ESTIMATED_COST_INPUT_CACHE_HIT_, USAGE_ESTIMATED_COST_INPUT_CACHE_MISS_, USAGE_ESTIMATED_COST_OUTPUT_, USAGE_ESTIMATED_COST_TOTAL_,
@@ -19,6 +19,10 @@ func (s *FileStore) EnsureChat(chatID string, agentKey string, teamID string, fi
 }
 
 func (s *FileStore) EnsureChatWithSource(chatID string, agentKey string, teamID string, firstMessage string, source string) (Summary, bool, error) {
+	return s.EnsureChatWithSourceAndMode(chatID, agentKey, teamID, firstMessage, source, "")
+}
+
+func (s *FileStore) EnsureChatWithSourceAndMode(chatID string, agentKey string, teamID string, firstMessage string, source string, agentMode string) (Summary, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	source = strings.TrimSpace(source)
@@ -29,7 +33,7 @@ func (s *FileStore) EnsureChatWithSource(chatID string, agentKey string, teamID 
 	var pendingAwaitingID, pendingRunID, pendingMode string
 	var pendingCreatedAt int64
 	err := s.db.QueryRow("SELECT "+summarySelectColumns+" FROM CHATS WHERE CHAT_ID_=?", chatID).
-		Scan(&existing.ChatID, &existing.ChatName, &existing.OwnerType, &existing.AgentKey, &existing.TeamID, &existing.Source, &existing.SourceChannel, &existing.CreatedAt, &existing.UpdatedAt, &existing.LastRunAt, &existing.LastRunID, &existing.LastRunContent, &existing.Read.ReadRunID, &existing.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt)
+		Scan(&existing.ChatID, &existing.ChatName, &existing.OwnerType, &existing.AgentKey, &existing.AgentMode, &existing.TeamID, &existing.Source, &existing.SourceChannel, &existing.CreatedAt, &existing.UpdatedAt, &existing.LastRunAt, &existing.LastRunID, &existing.LastRunContent, &existing.Read.ReadRunID, &existing.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt)
 	if err == nil {
 		existing.OwnerType = normalizedStoredOwnerType(existing.OwnerType, existing.AgentKey, existing.TeamID)
 		applyDerivedReadState(&existing)
@@ -48,11 +52,13 @@ func (s *FileStore) EnsureChatWithSource(chatID string, agentKey string, teamID 
 
 	now := time.Now().UnixMilli()
 	ownerType := normalizedStoredOwnerType("", agentKey, teamID)
+	agentMode = normalizeStoredAgentMode(agentMode, ownerType)
 	summary := Summary{
 		ChatID:    chatID,
 		ChatName:  defaultChatName(firstMessage),
 		OwnerType: ownerType,
 		AgentKey:  agentKey,
+		AgentMode: agentMode,
 		TeamID:    teamID,
 		Source:    source,
 		CreatedAt: now,
@@ -61,9 +67,9 @@ func (s *FileStore) EnsureChatWithSource(chatID string, agentKey string, teamID 
 			IsRead: true,
 		},
 	}
-	_, err = s.db.Exec(`INSERT INTO CHATS (CHAT_ID_, CHAT_NAME_, OWNER_TYPE_, AGENT_KEY_, TEAM_ID_, SOURCE_, CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', '', '')`,
-		chatID, summary.ChatName, ownerType, agentKey, nilIfEmpty(teamID), source, now, now)
+	_, err = s.db.Exec(`INSERT INTO CHATS (CHAT_ID_, CHAT_NAME_, OWNER_TYPE_, AGENT_KEY_, AGENT_MODE_, TEAM_ID_, SOURCE_, CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', '')`,
+		chatID, summary.ChatName, ownerType, agentKey, agentMode, nilIfEmpty(teamID), source, now, now)
 	if err != nil {
 		return Summary{}, false, err
 	}
@@ -108,15 +114,25 @@ func (s *FileStore) RenameChat(chatID string, chatName string) (Summary, error) 
 }
 
 func (s *FileStore) UpdateAgentKey(chatID string, agentKey string) error {
+	return s.UpdateAgentIdentity(chatID, agentKey, "")
+}
+
+func (s *FileStore) UpdateAgentIdentity(chatID string, agentKey string, agentMode string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if summary, err := s.loadSummary(chatID); err != nil {
+	summary, err := s.loadSummary(chatID)
+	if err != nil {
 		return err
-	} else if summary == nil {
+	}
+	if summary == nil {
 		return ErrChatNotFound
 	}
-
-	_, err := s.db.Exec("UPDATE CHATS SET AGENT_KEY_=?, OWNER_TYPE_=CASE WHEN TRIM(?)<>'' THEN 'agent' ELSE OWNER_TYPE_ END, UPDATED_AT_=? WHERE CHAT_ID_=?", agentKey, agentKey, time.Now().UnixMilli(), chatID)
+	ownerType := normalizedStoredOwnerType("agent", agentKey, summary.TeamID)
+	if strings.TrimSpace(agentMode) == "" {
+		agentMode = summary.AgentMode
+	}
+	agentMode = normalizeStoredAgentMode(agentMode, ownerType)
+	_, err = s.db.Exec("UPDATE CHATS SET AGENT_KEY_=?, AGENT_MODE_=?, OWNER_TYPE_=?, UPDATED_AT_=? WHERE CHAT_ID_=?", agentKey, agentMode, ownerType, time.Now().UnixMilli(), chatID)
 	return err
 }
 
@@ -163,7 +179,7 @@ func (s *FileStore) loadSummary(chatID string) (*Summary, error) {
 	var pendingAwaitingID, pendingRunID, pendingMode string
 	var pendingCreatedAt int64
 	err := s.db.QueryRow("SELECT "+summarySelectColumns+" FROM CHATS WHERE CHAT_ID_=?", chatID).
-		Scan(&sum.ChatID, &sum.ChatName, &sum.OwnerType, &sum.AgentKey, &sum.TeamID, &sum.Source, &sum.SourceChannel, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunAt, &sum.LastRunID, &sum.LastRunContent, &sum.Read.ReadRunID, &sum.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt)
+		Scan(&sum.ChatID, &sum.ChatName, &sum.OwnerType, &sum.AgentKey, &sum.AgentMode, &sum.TeamID, &sum.Source, &sum.SourceChannel, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunAt, &sum.LastRunID, &sum.LastRunContent, &sum.Read.ReadRunID, &sum.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -220,6 +236,43 @@ func normalizedStoredOwnerType(ownerType string, agentKey string, teamID string)
 	return "agent"
 }
 
+func normalizeStoredAgentMode(agentMode string, ownerType string) string {
+	if strings.EqualFold(strings.TrimSpace(ownerType), "team") {
+		return "TEAM"
+	}
+	switch strings.ToUpper(strings.TrimSpace(agentMode)) {
+	case "":
+		return ""
+	case "ONESHOT":
+		return "REACT"
+	case "PLAN_EXECUTE", "PLAN-EXECUTE":
+		return "PLAN-EXECUTE"
+	case "ACP-PROXY", "ACP_PROXY":
+		return "PROXY"
+	default:
+		return strings.ToUpper(strings.TrimSpace(agentMode))
+	}
+}
+
+// NormalizeAgentModes converts public mode values into the persisted API form,
+// removes blanks and duplicates, and preserves unknown modes for forward compatibility.
+func NormalizeAgentModes(agentModes []string) []string {
+	seen := make(map[string]struct{}, len(agentModes))
+	result := make([]string, 0, len(agentModes))
+	for _, agentMode := range agentModes {
+		normalized := normalizeStoredAgentMode(agentMode, "agent")
+		if normalized == "" {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
+	}
+	return result
+}
+
 func (s *FileStore) ListRuns(chatID string) ([]RunSummary, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -229,7 +282,7 @@ func (s *FileStore) ListRuns(chatID string) ([]RunSummary, error) {
 	} else if sum == nil {
 		return nil, ErrChatNotFound
 	}
-	rows, err := s.db.Query(`SELECT RUN_ID_, CHAT_ID_, COALESCE(OWNER_TYPE_,''), AGENT_KEY_, COALESCE(TEAM_ID_,''), INITIAL_MESSAGE_, ASSISTANT_TEXT_, FINISH_REASON_,
+	rows, err := s.db.Query(`SELECT RUN_ID_, CHAT_ID_, COALESCE(OWNER_TYPE_,''), AGENT_KEY_, COALESCE(AGENT_MODE_,''), COALESCE(TEAM_ID_,''), INITIAL_MESSAGE_, ASSISTANT_TEXT_, FINISH_REASON_,
 		STARTED_AT_, COMPLETED_AT_,
 		USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, USAGE_CACHED_TOKENS_, USAGE_REASONING_TOKENS_, USAGE_PROMPT_CACHE_HIT_TOKENS_, USAGE_PROMPT_CACHE_MISS_TOKENS_, USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
 		USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_,
@@ -245,7 +298,7 @@ func (s *FileStore) ListRuns(chatID string) ([]RunSummary, error) {
 	for rows.Next() {
 		var item RunSummary
 		if err := rows.Scan(
-			&item.RunID, &item.ChatID, &item.OwnerType, &item.AgentKey, &item.TeamID, &item.InitialMessage, &item.AssistantText, &item.FinishReason,
+			&item.RunID, &item.ChatID, &item.OwnerType, &item.AgentKey, &item.AgentMode, &item.TeamID, &item.InitialMessage, &item.AssistantText, &item.FinishReason,
 			&item.StartedAt, &item.CompletedAt,
 			&item.Usage.PromptTokens, &item.Usage.CompletionTokens, &item.Usage.TotalTokens, &item.Usage.CachedTokens, &item.Usage.ReasoningTokens, &item.Usage.PromptCacheHitTokens, &item.Usage.PromptCacheMissTokens, &item.Usage.LlmChatCompletionCount, &item.Usage.ToolCallCount,
 			&item.Usage.FirstTokenLatencyTotalMs, &item.Usage.FirstTokenLatencyCount, &item.Usage.GenerationDurationMs,
@@ -264,6 +317,10 @@ func (s *FileStore) ListRuns(chatID string) ([]RunSummary, error) {
 }
 
 func (s *FileStore) ListChats(lastRunID string, agentKey string) ([]Summary, error) {
+	return s.ListChatsWithAgentModes(lastRunID, agentKey, nil)
+}
+
+func (s *FileStore) ListChatsWithAgentModes(lastRunID string, agentKey string, agentModes []string) ([]Summary, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -272,6 +329,14 @@ func (s *FileStore) ListChats(lastRunID string, agentKey string) ([]Summary, err
 	if agentKey != "" {
 		query += " AND AGENT_KEY_=?"
 		args = append(args, agentKey)
+	}
+	if agentModes = NormalizeAgentModes(agentModes); len(agentModes) > 0 {
+		placeholders := make([]string, 0, len(agentModes))
+		for _, agentMode := range agentModes {
+			placeholders = append(placeholders, "?")
+			args = append(args, agentMode)
+		}
+		query += " AND AGENT_MODE_ IN (" + strings.Join(placeholders, ",") + ")"
 	}
 	query += " ORDER BY UPDATED_AT_ DESC, CHAT_ID_ DESC"
 
@@ -287,7 +352,7 @@ func (s *FileStore) ListChats(lastRunID string, agentKey string) ([]Summary, err
 		var usage UsageData
 		var pendingAwaitingID, pendingRunID, pendingMode string
 		var pendingCreatedAt int64
-		if err := rows.Scan(&sum.ChatID, &sum.ChatName, &sum.OwnerType, &sum.AgentKey, &sum.TeamID, &sum.Source, &sum.SourceChannel, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunAt, &sum.LastRunID, &sum.LastRunContent, &sum.Read.ReadRunID, &sum.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt); err != nil {
+		if err := rows.Scan(&sum.ChatID, &sum.ChatName, &sum.OwnerType, &sum.AgentKey, &sum.AgentMode, &sum.TeamID, &sum.Source, &sum.SourceChannel, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunAt, &sum.LastRunID, &sum.LastRunContent, &sum.Read.ReadRunID, &sum.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt); err != nil {
 			return nil, err
 		}
 		sum.OwnerType = normalizedStoredOwnerType(sum.OwnerType, sum.AgentKey, sum.TeamID)
@@ -326,7 +391,7 @@ func (s *FileStore) RecentChatsByAgent(agentKey string, limit int) ([]Summary, e
 		var usage UsageData
 		var pendingAwaitingID, pendingRunID, pendingMode string
 		var pendingCreatedAt int64
-		if err := rows.Scan(&sum.ChatID, &sum.ChatName, &sum.OwnerType, &sum.AgentKey, &sum.TeamID, &sum.Source, &sum.SourceChannel, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunAt, &sum.LastRunID, &sum.LastRunContent, &sum.Read.ReadRunID, &sum.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt); err != nil {
+		if err := rows.Scan(&sum.ChatID, &sum.ChatName, &sum.OwnerType, &sum.AgentKey, &sum.AgentMode, &sum.TeamID, &sum.Source, &sum.SourceChannel, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunAt, &sum.LastRunID, &sum.LastRunContent, &sum.Read.ReadRunID, &sum.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt); err != nil {
 			return nil, err
 		}
 		sum.OwnerType = normalizedStoredOwnerType(sum.OwnerType, sum.AgentKey, sum.TeamID)

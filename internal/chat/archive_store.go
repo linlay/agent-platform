@@ -45,9 +45,10 @@ func (s *ArchiveStore) initDB() error {
 		`CREATE TABLE IF NOT EXISTS ARCHIVED_CHATS (
 			CHAT_ID_          TEXT PRIMARY KEY,
 				CHAT_NAME_        TEXT NOT NULL,
-				OWNER_TYPE_       TEXT NOT NULL DEFAULT '',
-				AGENT_KEY_        TEXT NOT NULL DEFAULT '',
-				TEAM_ID_          TEXT,
+			OWNER_TYPE_       TEXT NOT NULL DEFAULT '',
+			AGENT_KEY_        TEXT NOT NULL DEFAULT '',
+			AGENT_MODE_       TEXT NOT NULL DEFAULT '',
+			TEAM_ID_          TEXT,
 				SOURCE_           TEXT NOT NULL DEFAULT '',
 				SOURCE_CHANNEL_   TEXT NOT NULL DEFAULT '',
 				CREATED_AT_       INTEGER NOT NULL,
@@ -88,6 +89,7 @@ func (s *ArchiveStore) initDB() error {
 			CHAT_ID_           TEXT NOT NULL,
 			OWNER_TYPE_        TEXT NOT NULL DEFAULT '',
 			AGENT_KEY_         TEXT NOT NULL DEFAULT '',
+			AGENT_MODE_        TEXT NOT NULL DEFAULT '',
 			TEAM_ID_           TEXT,
 			INITIAL_MESSAGE_   TEXT NOT NULL DEFAULT '',
 			ASSISTANT_TEXT_    TEXT NOT NULL DEFAULT '',
@@ -148,6 +150,8 @@ func (s *ArchiveStore) initDB() error {
 	}
 	_, _ = db.Exec("ALTER TABLE ARCHIVED_RUNS ADD COLUMN OWNER_TYPE_ TEXT NOT NULL DEFAULT ''")
 	_, _ = db.Exec("ALTER TABLE ARCHIVED_RUNS ADD COLUMN TEAM_ID_ TEXT")
+	_, _ = db.Exec("ALTER TABLE ARCHIVED_CHATS ADD COLUMN AGENT_MODE_ TEXT NOT NULL DEFAULT ''")
+	_, _ = db.Exec("ALTER TABLE ARCHIVED_RUNS ADD COLUMN AGENT_MODE_ TEXT NOT NULL DEFAULT ''")
 	_, _ = db.Exec(`UPDATE ARCHIVED_CHATS SET OWNER_TYPE_=CASE
 		WHEN TRIM(COALESCE(AGENT_KEY_,''))='' AND TRIM(COALESCE(TEAM_ID_,''))<>'' THEN 'team'
 		ELSE 'agent' END WHERE TRIM(COALESCE(OWNER_TYPE_,''))=''`)
@@ -230,7 +234,7 @@ func (s *ArchiveStore) ArchiveChat(chat ArchivedChat) error {
 		readAt = *chat.Summary.Read.ReadAt
 	}
 	_, err = tx.Exec(`INSERT INTO ARCHIVED_CHATS (
-			CHAT_ID_, CHAT_NAME_, OWNER_TYPE_, AGENT_KEY_, TEAM_ID_, SOURCE_, SOURCE_CHANNEL_, CREATED_AT_, UPDATED_AT_, LAST_RUN_AT_, ARCHIVED_AT_,
+			CHAT_ID_, CHAT_NAME_, OWNER_TYPE_, AGENT_KEY_, AGENT_MODE_, TEAM_ID_, SOURCE_, SOURCE_CHANNEL_, CREATED_AT_, UPDATED_AT_, LAST_RUN_AT_, ARCHIVED_AT_,
 			LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_, READ_STATE_CAPTURED_,
 			USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, USAGE_CACHED_TOKENS_, USAGE_REASONING_TOKENS_,
 			USAGE_PROMPT_CACHE_HIT_TOKENS_, USAGE_PROMPT_CACHE_MISS_TOKENS_,
@@ -238,8 +242,8 @@ func (s *ArchiveStore) ArchiveChat(chat ArchivedChat) error {
 			USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
 			USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_,
 			JSONL_CONTENT_, EVENTS_CONTENT_, RAW_MESSAGES_CONTENT_, HAS_ATTACHMENTS_
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		chat.Summary.ChatID, chat.Summary.ChatName, chat.Summary.OwnerType, chat.Summary.AgentKey, nilIfEmpty(chat.Summary.TeamID), chat.Summary.Source, chat.Summary.SourceChannel,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		chat.Summary.ChatID, chat.Summary.ChatName, chat.Summary.OwnerType, chat.Summary.AgentKey, normalizeStoredAgentMode(chat.Summary.AgentMode, chat.Summary.OwnerType), nilIfEmpty(chat.Summary.TeamID), chat.Summary.Source, chat.Summary.SourceChannel,
 		chat.Summary.CreatedAt, chat.Summary.UpdatedAt, chat.Summary.LastRunAt, chat.Summary.ArchivedAt,
 		chat.Summary.LastRunID, chat.Summary.LastRunContent, readRunID, readAt, 1,
 		usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, usage.CachedTokens, usage.ReasoningTokens,
@@ -260,7 +264,7 @@ func (s *ArchiveStore) ArchiveChat(chat ArchivedChat) error {
 			run.AgentKey = ""
 		}
 		_, err = tx.Exec(`INSERT INTO ARCHIVED_RUNS (
-				RUN_ID_, CHAT_ID_, OWNER_TYPE_, AGENT_KEY_, TEAM_ID_, INITIAL_MESSAGE_, ASSISTANT_TEXT_, FINISH_REASON_,
+				RUN_ID_, CHAT_ID_, OWNER_TYPE_, AGENT_KEY_, AGENT_MODE_, TEAM_ID_, INITIAL_MESSAGE_, ASSISTANT_TEXT_, FINISH_REASON_,
 				STARTED_AT_, COMPLETED_AT_,
 				USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, USAGE_CACHED_TOKENS_, USAGE_REASONING_TOKENS_,
 				USAGE_PROMPT_CACHE_HIT_TOKENS_, USAGE_PROMPT_CACHE_MISS_TOKENS_,
@@ -268,8 +272,8 @@ func (s *ArchiveStore) ArchiveChat(chat ArchivedChat) error {
 				USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
 				USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_,
 				FEEDBACK_TYPE_, FEEDBACK_COMMENT_, FEEDBACK_AT_
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			run.RunID, run.ChatID, run.OwnerType, run.AgentKey, nilIfEmpty(run.TeamID), run.InitialMessage, run.AssistantText, run.FinishReason,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			run.RunID, run.ChatID, run.OwnerType, run.AgentKey, normalizeStoredAgentMode(run.AgentMode, run.OwnerType), nilIfEmpty(run.TeamID), run.InitialMessage, run.AssistantText, run.FinishReason,
 			run.StartedAt, run.CompletedAt,
 			run.Usage.PromptTokens, run.Usage.CompletionTokens, run.Usage.TotalTokens, run.Usage.CachedTokens, run.Usage.ReasoningTokens,
 			run.Usage.PromptCacheHitTokens, run.Usage.PromptCacheMissTokens,
@@ -311,7 +315,7 @@ func (s *ArchiveStore) ListArchived(agentKey string, limit, offset int) ([]Archi
 	}
 
 	queryArgs := append(append([]any(nil), args...), limit, offset)
-	rows, err := s.db.Query(`SELECT c.CHAT_ID_, c.CHAT_NAME_, COALESCE(c.OWNER_TYPE_,''), c.AGENT_KEY_, COALESCE(c.TEAM_ID_,''), COALESCE(c.SOURCE_,''), COALESCE(c.SOURCE_CHANNEL_,''), c.CREATED_AT_, c.UPDATED_AT_, c.LAST_RUN_AT_, c.ARCHIVED_AT_,
+	rows, err := s.db.Query(`SELECT c.CHAT_ID_, c.CHAT_NAME_, COALESCE(c.OWNER_TYPE_,''), c.AGENT_KEY_, COALESCE(c.AGENT_MODE_,''), COALESCE(c.TEAM_ID_,''), COALESCE(c.SOURCE_,''), COALESCE(c.SOURCE_CHANNEL_,''), c.CREATED_AT_, c.UPDATED_AT_, c.LAST_RUN_AT_, c.ARCHIVED_AT_,
 			c.LAST_RUN_ID_, c.LAST_RUN_CONTENT_, COALESCE(c.READ_RUN_ID_,''), c.READ_AT_, COALESCE(c.READ_STATE_CAPTURED_,0),
 			c.USAGE_PROMPT_TOKENS_, c.USAGE_COMPLETION_TOKENS_, c.USAGE_TOTAL_TOKENS_, c.USAGE_CACHED_TOKENS_, c.USAGE_REASONING_TOKENS_,
 			c.USAGE_PROMPT_CACHE_HIT_TOKENS_, c.USAGE_PROMPT_CACHE_MISS_TOKENS_,
@@ -342,7 +346,7 @@ func (s *ArchiveStore) LoadArchived(chatID string) (*ArchivedChat, error) {
 	if !ValidChatID(chatID) {
 		return nil, os.ErrPermission
 	}
-	row := s.db.QueryRow(`SELECT c.CHAT_ID_, c.CHAT_NAME_, COALESCE(c.OWNER_TYPE_,''), c.AGENT_KEY_, COALESCE(c.TEAM_ID_,''), COALESCE(c.SOURCE_,''), COALESCE(c.SOURCE_CHANNEL_,''), c.CREATED_AT_, c.UPDATED_AT_, c.LAST_RUN_AT_, c.ARCHIVED_AT_,
+	row := s.db.QueryRow(`SELECT c.CHAT_ID_, c.CHAT_NAME_, COALESCE(c.OWNER_TYPE_,''), c.AGENT_KEY_, COALESCE(c.AGENT_MODE_,''), COALESCE(c.TEAM_ID_,''), COALESCE(c.SOURCE_,''), COALESCE(c.SOURCE_CHANNEL_,''), c.CREATED_AT_, c.UPDATED_AT_, c.LAST_RUN_AT_, c.ARCHIVED_AT_,
 			c.LAST_RUN_ID_, c.LAST_RUN_CONTENT_, COALESCE(c.READ_RUN_ID_,''), c.READ_AT_, COALESCE(c.READ_STATE_CAPTURED_,0),
 			c.USAGE_PROMPT_TOKENS_, c.USAGE_COMPLETION_TOKENS_, c.USAGE_TOTAL_TOKENS_, c.USAGE_CACHED_TOKENS_, c.USAGE_REASONING_TOKENS_,
 			c.USAGE_PROMPT_CACHE_HIT_TOKENS_, c.USAGE_PROMPT_CACHE_MISS_TOKENS_,
@@ -384,6 +388,7 @@ func (s *ArchiveStore) LoadArchived(chatID string) (*ArchivedChat, error) {
 		ChatName:       archived.Summary.ChatName,
 		OwnerType:      archived.Summary.OwnerType,
 		AgentKey:       archived.Summary.AgentKey,
+		AgentMode:      archived.Summary.AgentMode,
 		TeamID:         archived.Summary.TeamID,
 		Source:         archived.Summary.Source,
 		SourceChannel:  archived.Summary.SourceChannel,
@@ -516,7 +521,7 @@ func (s *ArchiveStore) existsLocked(chatID string) (bool, error) {
 }
 
 func (s *ArchiveStore) listRunsLocked(chatID string) ([]RunSummary, error) {
-	rows, err := s.db.Query(`SELECT RUN_ID_, CHAT_ID_, COALESCE(OWNER_TYPE_,''), AGENT_KEY_, COALESCE(TEAM_ID_,''), INITIAL_MESSAGE_, ASSISTANT_TEXT_, FINISH_REASON_,
+	rows, err := s.db.Query(`SELECT RUN_ID_, CHAT_ID_, COALESCE(OWNER_TYPE_,''), AGENT_KEY_, COALESCE(AGENT_MODE_,''), COALESCE(TEAM_ID_,''), INITIAL_MESSAGE_, ASSISTANT_TEXT_, FINISH_REASON_,
 		STARTED_AT_, COMPLETED_AT_,
 		USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, USAGE_CACHED_TOKENS_, USAGE_REASONING_TOKENS_,
 		USAGE_PROMPT_CACHE_HIT_TOKENS_, USAGE_PROMPT_CACHE_MISS_TOKENS_,
@@ -533,7 +538,7 @@ func (s *ArchiveStore) listRunsLocked(chatID string) ([]RunSummary, error) {
 	for rows.Next() {
 		var item RunSummary
 		if err := rows.Scan(
-			&item.RunID, &item.ChatID, &item.OwnerType, &item.AgentKey, &item.TeamID, &item.InitialMessage, &item.AssistantText, &item.FinishReason,
+			&item.RunID, &item.ChatID, &item.OwnerType, &item.AgentKey, &item.AgentMode, &item.TeamID, &item.InitialMessage, &item.AssistantText, &item.FinishReason,
 			&item.StartedAt, &item.CompletedAt,
 			&item.Usage.PromptTokens, &item.Usage.CompletionTokens, &item.Usage.TotalTokens,
 			&item.Usage.CachedTokens, &item.Usage.ReasoningTokens,
@@ -649,7 +654,7 @@ func scanArchivedChatRow(row archivedSummaryScanner) (*ArchivedChat, error) {
 	var readAt sql.NullInt64
 	var readStateCaptured int
 	if err := row.Scan(
-		&item.Summary.ChatID, &item.Summary.ChatName, &item.Summary.OwnerType, &item.Summary.AgentKey, &item.Summary.TeamID, &item.Summary.Source, &item.Summary.SourceChannel,
+		&item.Summary.ChatID, &item.Summary.ChatName, &item.Summary.OwnerType, &item.Summary.AgentKey, &item.Summary.AgentMode, &item.Summary.TeamID, &item.Summary.Source, &item.Summary.SourceChannel,
 		&item.Summary.CreatedAt, &item.Summary.UpdatedAt, &item.Summary.LastRunAt, &item.Summary.ArchivedAt,
 		&item.Summary.LastRunID, &item.Summary.LastRunContent, &item.Summary.Read.ReadRunID, &readAt, &readStateCaptured,
 		&usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens,
@@ -686,7 +691,7 @@ func scanArchivedSummaries(rows *sql.Rows) ([]ArchivedSummary, error) {
 		var readAt sql.NullInt64
 		var readStateCaptured int
 		if err := rows.Scan(
-			&item.ChatID, &item.ChatName, &item.OwnerType, &item.AgentKey, &item.TeamID, &item.Source, &item.SourceChannel,
+			&item.ChatID, &item.ChatName, &item.OwnerType, &item.AgentKey, &item.AgentMode, &item.TeamID, &item.Source, &item.SourceChannel,
 			&item.CreatedAt, &item.UpdatedAt, &item.LastRunAt, &item.ArchivedAt,
 			&item.LastRunID, &item.LastRunContent, &item.Read.ReadRunID, &readAt, &readStateCaptured,
 			&usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens,

@@ -336,6 +336,29 @@ func TestFindRipgrepPathUsesPathWhenBundleMissing(t *testing.T) {
 	}
 }
 
+func TestResolveRipgrepPathPrefersExplicitBuiltinsCache(t *testing.T) {
+	cacheDir := t.TempDir()
+	name := "rg"
+	if runtime.GOOS == "windows" {
+		name = "rg.exe"
+	}
+	rgPath := filepath.Join(cacheDir, name)
+	mustWriteFile(t, rgPath, "#!/bin/sh\n")
+	if err := os.Chmod(rgPath, 0o755); err != nil {
+		t.Fatalf("chmod explicit rg: %v", err)
+	}
+	t.Setenv("AP_BUILTINS_BIN", cacheDir)
+	t.Setenv("PATH", t.TempDir())
+
+	got, err := resolveRipgrepPath()
+	if err != nil {
+		t.Fatalf("resolveRipgrepPath: %v", err)
+	}
+	if got != rgPath {
+		t.Fatalf("resolved path = %s, want explicit cache %s", got, rgPath)
+	}
+}
+
 func requireRipgrep(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("rg"); err != nil {

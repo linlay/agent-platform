@@ -25,9 +25,8 @@ RUN apt-get update && \
 WORKDIR /opt
 
 COPY --from=go-build --chown=10001:10001 /out/agent-platform /opt/backend/agent-platform
-# Run scripts/sync-local-builtins.sh before building this image. The cache
-# contains verified sidecar releases for every target; Docker selects its Linux
-# target directly and never compiles Rust inside the platform image.
+# Run scripts/sync-local-builtins.sh --target linux/<arch> before building this
+# image. Docker selects that verified Linux cache and never compiles Rust.
 COPY --chown=10001:10001 build/builtins/${TARGETOS}-${TARGETARCH}/bin/kbase-lance-engine /opt/bin/kbase-lance-engine
 COPY --chown=10001:10001 build/builtins/${TARGETOS}-${TARGETARCH}/licenses/kbase-lance-engine /opt/licenses/kbase-lance-engine
 

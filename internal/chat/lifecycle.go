@@ -62,15 +62,19 @@ func (s *FileStore) OnRunStarted(start RunStart) error {
 		agentKey = strings.TrimSpace(summary.AgentKey)
 	}
 	ownerType = normalizedStoredOwnerType(ownerType, agentKey, teamID)
+	agentMode := normalizeStoredAgentMode(start.AgentMode, ownerType)
+	if agentMode == "" {
+		agentMode = normalizeStoredAgentMode(summary.AgentMode, ownerType)
+	}
 
 	_, err = s.db.Exec(`INSERT INTO RUNS (
-			RUN_ID_, CHAT_ID_, OWNER_TYPE_, AGENT_KEY_, TEAM_ID_, INITIAL_MESSAGE_, STARTED_AT_, COMPLETED_AT_
-		) VALUES (?, ?, ?, ?, ?, ?, ?, 0)`,
-		start.RunID, start.ChatID, ownerType, agentKey, nilIfEmpty(teamID), truncateRunes(start.InitialMessage, 200), start.StartedAtMillis)
+			RUN_ID_, CHAT_ID_, OWNER_TYPE_, AGENT_KEY_, AGENT_MODE_, TEAM_ID_, INITIAL_MESSAGE_, STARTED_AT_, COMPLETED_AT_
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+		start.RunID, start.ChatID, ownerType, agentKey, agentMode, nilIfEmpty(teamID), truncateRunes(start.InitialMessage, 200), start.StartedAtMillis)
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`UPDATE CHATS SET UPDATED_AT_=? WHERE CHAT_ID_=?`, start.StartedAtMillis, start.ChatID)
+	_, err = s.db.Exec(`UPDATE CHATS SET AGENT_MODE_=?, UPDATED_AT_=? WHERE CHAT_ID_=?`, agentMode, start.StartedAtMillis, start.ChatID)
 	return err
 }
 
@@ -128,7 +132,8 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 		return ErrChatNotFound
 	}
 	var capturedStartedAt int64
-	err := s.db.QueryRow(`SELECT STARTED_AT_ FROM RUNS WHERE RUN_ID_=?`, completion.RunID).Scan(&capturedStartedAt)
+	var capturedAgentMode string
+	err := s.db.QueryRow(`SELECT STARTED_AT_, COALESCE(AGENT_MODE_,'') FROM RUNS WHERE RUN_ID_=?`, completion.RunID).Scan(&capturedStartedAt, &capturedAgentMode)
 	if err == nil {
 		if err := timecontract.ValidateEpochMillis(capturedStartedAt, "startedAt", "chat.runs.startedAt"); err != nil {
 			return err
@@ -154,9 +159,9 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 	}
 	assistantText := truncateRunes(completion.AssistantText, 200)
 	initialMessage := truncateRunes(completion.InitialMessage, 200)
-	var chatOwnerType, chatAgentKey, chatTeamID string
-	_ = s.db.QueryRow("SELECT COALESCE(OWNER_TYPE_,''), AGENT_KEY_, COALESCE(TEAM_ID_,'') FROM CHATS WHERE CHAT_ID_=?", completion.ChatID).
-		Scan(&chatOwnerType, &chatAgentKey, &chatTeamID)
+	var chatOwnerType, chatAgentKey, chatAgentMode, chatTeamID string
+	_ = s.db.QueryRow("SELECT COALESCE(OWNER_TYPE_,''), AGENT_KEY_, COALESCE(AGENT_MODE_,''), COALESCE(TEAM_ID_,'') FROM CHATS WHERE CHAT_ID_=?", completion.ChatID).
+		Scan(&chatOwnerType, &chatAgentKey, &chatAgentMode, &chatTeamID)
 	ownerType := strings.TrimSpace(completion.OwnerType)
 	if ownerType == "" {
 		ownerType = chatOwnerType
@@ -172,8 +177,15 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 	} else if agentKey == "" {
 		agentKey = strings.TrimSpace(chatAgentKey)
 	}
+	agentMode := normalizeStoredAgentMode(completion.AgentMode, ownerType)
+	if agentMode == "" {
+		agentMode = normalizeStoredAgentMode(capturedAgentMode, ownerType)
+	}
+	if agentMode == "" {
+		agentMode = normalizeStoredAgentMode(chatAgentMode, ownerType)
+	}
 
-	_, err = s.db.Exec(`UPDATE CHATS SET LAST_RUN_ID_=?, LAST_RUN_CONTENT_=?, LAST_RUN_AT_=?, UPDATED_AT_=?,
+	_, err = s.db.Exec(`UPDATE CHATS SET LAST_RUN_ID_=?, LAST_RUN_CONTENT_=?, LAST_RUN_AT_=?, AGENT_MODE_=?, UPDATED_AT_=?,
 		USAGE_PROMPT_TOKENS_=USAGE_PROMPT_TOKENS_+?, USAGE_COMPLETION_TOKENS_=USAGE_COMPLETION_TOKENS_+?, USAGE_TOTAL_TOKENS_=USAGE_TOTAL_TOKENS_+?,
 		USAGE_CACHED_TOKENS_=USAGE_CACHED_TOKENS_+?, USAGE_REASONING_TOKENS_=USAGE_REASONING_TOKENS_+?,
 		USAGE_PROMPT_CACHE_HIT_TOKENS_=USAGE_PROMPT_CACHE_HIT_TOKENS_+?, USAGE_PROMPT_CACHE_MISS_TOKENS_=USAGE_PROMPT_CACHE_MISS_TOKENS_+?,
@@ -188,7 +200,7 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 		USAGE_FIRST_TOKEN_LATENCY_COUNT_=USAGE_FIRST_TOKEN_LATENCY_COUNT_+?,
 		USAGE_GENERATION_DURATION_MS_=USAGE_GENERATION_DURATION_MS_+?
 		WHERE CHAT_ID_=?`,
-		completion.RunID, assistantText, completion.UpdatedAtMillis, completion.UpdatedAtMillis,
+		completion.RunID, assistantText, completion.UpdatedAtMillis, agentMode, completion.UpdatedAtMillis,
 		completion.Usage.PromptTokens, completion.Usage.CompletionTokens, completion.Usage.TotalTokens,
 		completion.Usage.CachedTokens, completion.Usage.ReasoningTokens,
 		completion.Usage.PromptCacheHitTokens, completion.Usage.PromptCacheMissTokens,
@@ -205,18 +217,19 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 		return err
 	}
 	_, err = s.db.Exec(`INSERT INTO RUNS (
-			RUN_ID_, CHAT_ID_, OWNER_TYPE_, AGENT_KEY_, TEAM_ID_, INITIAL_MESSAGE_, ASSISTANT_TEXT_, FINISH_REASON_,
+			RUN_ID_, CHAT_ID_, OWNER_TYPE_, AGENT_KEY_, AGENT_MODE_, TEAM_ID_, INITIAL_MESSAGE_, ASSISTANT_TEXT_, FINISH_REASON_,
 			STARTED_AT_, COMPLETED_AT_,
 			USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, USAGE_CACHED_TOKENS_, USAGE_REASONING_TOKENS_,
 			USAGE_PROMPT_CACHE_HIT_TOKENS_, USAGE_PROMPT_CACHE_MISS_TOKENS_,
 			USAGE_ESTIMATED_COST_CURRENCY_, USAGE_ESTIMATED_COST_INPUT_CACHE_HIT_, USAGE_ESTIMATED_COST_INPUT_CACHE_MISS_, USAGE_ESTIMATED_COST_OUTPUT_, USAGE_ESTIMATED_COST_TOTAL_, USAGE_MODEL_KEY_,
 			USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
 			USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(RUN_ID_) DO UPDATE SET
 			CHAT_ID_=excluded.CHAT_ID_,
 			OWNER_TYPE_=excluded.OWNER_TYPE_,
 			AGENT_KEY_=excluded.AGENT_KEY_,
+			AGENT_MODE_=excluded.AGENT_MODE_,
 			TEAM_ID_=excluded.TEAM_ID_,
 			INITIAL_MESSAGE_=excluded.INITIAL_MESSAGE_,
 			ASSISTANT_TEXT_=excluded.ASSISTANT_TEXT_,
@@ -241,7 +254,7 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 			USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_=excluded.USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_,
 			USAGE_FIRST_TOKEN_LATENCY_COUNT_=excluded.USAGE_FIRST_TOKEN_LATENCY_COUNT_,
 			USAGE_GENERATION_DURATION_MS_=excluded.USAGE_GENERATION_DURATION_MS_`,
-		completion.RunID, completion.ChatID, ownerType, agentKey, nilIfEmpty(teamID), initialMessage, assistantText, completion.FinishReason,
+		completion.RunID, completion.ChatID, ownerType, agentKey, agentMode, nilIfEmpty(teamID), initialMessage, assistantText, completion.FinishReason,
 		completion.StartedAtMillis, completion.UpdatedAtMillis,
 		completion.Usage.PromptTokens, completion.Usage.CompletionTokens, completion.Usage.TotalTokens,
 		completion.Usage.CachedTokens, completion.Usage.ReasoningTokens,

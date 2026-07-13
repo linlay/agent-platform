@@ -4,9 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BUILD_ROOT="$REPO_ROOT/build/builtins"
-RELEASE_ROOT="$REPO_ROOT/release-local"
-BUILTINS_ROOT=""
-ALL_TARGETS=true
+BUILTINS_ROOT="${BUILTINS_ROOT:-}"
+ALL_TARGETS=false
 TARGETS=()
 
 die() {
@@ -18,10 +17,15 @@ usage() {
   cat <<'EOF'
 Usage: scripts/sync-local-builtins.sh [--all | --target <os>/<arch>] [--builtins-root <absolute-path>]
 
-Stages verified builtin releases for the six supported targets into
-build/builtins/<os>-<arch>/, then mirrors the current host target into the
-flat release-local/bin/ service-package directory. The script never builds a
-builtin; every artifact must already be present and match the platform lock.
+Builds the sibling builtin projects in an isolated work directory, verifies
+their locally generated archives, and atomically updates
+build/builtins/<os>-<arch>/. It never writes release-local/.
+
+With no target selector, builds the current host target. --all requests the
+six target matrix and therefore requires every relevant Rust target, linker,
+and SDK to be provisioned on this machine. ripgrep is consumed from its locked
+vendor artifact because the sibling collection currently carries no ripgrep
+source checkout.
 EOF
 }
 
@@ -86,19 +90,86 @@ if [[ "$ALL_TARGETS" == true ]]; then
     windows/arm64
   )
 fi
-[[ ${#TARGETS[@]} -gt 0 ]] || die "at least one target is required"
 
 host_target="$(detect_os)/$(detect_arch)"
-mkdir -p "$BUILD_ROOT" "$RELEASE_ROOT"
+if [[ ${#TARGETS[@]} -eq 0 ]]; then
+  TARGETS=("$host_target")
+fi
+mkdir -p "$BUILD_ROOT"
 if [[ -z "${GOCACHE:-}" ]]; then
   export GOCACHE="$BUILD_ROOT/.gocache"
 fi
+if [[ -z "${GOMODCACHE:-}" ]]; then
+  export GOMODCACHE="$BUILD_ROOT/.gomodcache"
+fi
 work_dir="$(mktemp -d "$BUILD_ROOT/.sync.XXXXXX")"
-release_stage="$(mktemp -d "$RELEASE_ROOT/.builtins.XXXXXX")"
 cleanup() {
-  rm -rf "$work_dir" "$release_stage"
+  rm -rf "$work_dir"
 }
 trap cleanup EXIT
+
+if [[ -z "$BUILTINS_ROOT" ]]; then
+  BUILTINS_ROOT="$REPO_ROOT/../agent-platform-builtins"
+fi
+[[ "$BUILTINS_ROOT" = /* ]] || die "builtins root must be absolute"
+BUILTINS_ROOT="$(cd "$BUILTINS_ROOT" && pwd)"
+for component in ripgrep dbx httpx kbase-lance-engine; do
+  [[ -d "$BUILTINS_ROOT/$component" ]] || die "missing sibling builtin project: $BUILTINS_ROOT/$component"
+done
+
+collection_root="$work_dir/collection"
+copy_project() {
+  local name="$1"
+  mkdir -p "$collection_root/$name"
+  rsync -a --exclude 'dist' --exclude 'target' "$BUILTINS_ROOT/$name/" "$collection_root/$name/"
+}
+
+copy_project ripgrep
+copy_project dbx
+copy_project httpx
+copy_project kbase-lance-engine
+
+component_version() {
+  (
+    cd "$REPO_ROOT"
+    go run ./cmd/stage-builtins --repo-root "$REPO_ROOT" --resolve-component "$1"
+  ) | awk -F '\t' '{print $1}'
+}
+
+dbx_version="$(component_version dbx)"
+httpx_version="$(component_version httpx)"
+(
+  cd "$collection_root/dbx"
+  scripts/release/build.sh "$dbx_version"
+)
+(
+  cd "$collection_root/httpx"
+  scripts/release/build.sh "$httpx_version"
+)
+for target in "${TARGETS[@]}"; do
+  target_os="${target%%/*}"
+  target_arch="${target#*/}"
+  cargo_target_dir="$BUILD_ROOT/.cargo-target/$target_os-$target_arch"
+  (
+    cd "$collection_root/kbase-lance-engine"
+    scripts/build-release.sh --os "$target_os" --arch "$target_arch" --cargo-target-dir "$cargo_target_dir"
+  )
+done
+
+local_lock="$work_dir/builtins.local.lock.json"
+prepare_lock_args=(
+  ./cmd/prepare-local-builtins-lock
+  --input "$REPO_ROOT/scripts/release-assets/builtins.lock.json"
+  --output "$local_lock"
+  --builtins-root "$collection_root"
+)
+for target in "${TARGETS[@]}"; do
+  prepare_lock_args+=(--target "$target")
+done
+(
+  cd "$REPO_ROOT"
+  go run "${prepare_lock_args[@]}"
+)
 
 for target in "${TARGETS[@]}"; do
   target_os="${target%%/*}"
@@ -107,15 +178,23 @@ for target in "${TARGETS[@]}"; do
   mkdir -p "$stage_dir"
   (
     cd "$REPO_ROOT"
-    if [[ -n "$BUILTINS_ROOT" ]]; then
-      go run ./cmd/stage-builtins --repo-root "$REPO_ROOT" --output "$stage_dir" --os "$target_os" --arch "$target_arch" --builtins-root "$BUILTINS_ROOT"
-      go run ./cmd/stage-kbase-lance-engine --repo-root "$REPO_ROOT" --output "$stage_dir" --os "$target_os" --arch "$target_arch" --builtins-root "$BUILTINS_ROOT"
-    else
-      go run ./cmd/stage-builtins --repo-root "$REPO_ROOT" --output "$stage_dir" --os "$target_os" --arch "$target_arch"
-      go run ./cmd/stage-kbase-lance-engine --repo-root "$REPO_ROOT" --output "$stage_dir" --os "$target_os" --arch "$target_arch"
-    fi
+    go run ./cmd/stage-builtins --repo-root "$REPO_ROOT" --lock "$local_lock" --output "$stage_dir" --os "$target_os" --arch "$target_arch" --builtins-root "$collection_root"
+    go run ./cmd/stage-kbase-lance-engine --repo-root "$REPO_ROOT" --lock "$local_lock" --output "$stage_dir" --os "$target_os" --arch "$target_arch" --builtins-root "$collection_root"
   )
 done
+
+activated_targets=()
+rollback_activation() {
+  local target target_os target_arch destination backup
+  for target in "${activated_targets[@]}"; do
+    target_os="${target%%/*}"
+    target_arch="${target#*/}"
+    destination="$BUILD_ROOT/$target_os-$target_arch"
+    backup="$BUILD_ROOT/.$target_os-$target_arch.previous"
+    rm -rf "$destination"
+    [[ ! -e "$backup" ]] || mv "$backup" "$destination"
+  done
+}
 
 for target in "${TARGETS[@]}"; do
   target_os="${target%%/*}"
@@ -129,34 +208,14 @@ for target in "${TARGETS[@]}"; do
   fi
   if ! mv "$staged" "$destination"; then
     [[ ! -e "$backup" ]] || mv "$backup" "$destination"
+    rollback_activation
     die "could not activate staged target $target"
   fi
-  rm -rf "$backup"
+  activated_targets+=("$target")
 done
-
-host_stage="$BUILD_ROOT/${host_target//\//-}"
-if [[ -d "$host_stage" ]]; then
-  cp -R "$host_stage/bin" "$release_stage/bin"
-  cp "$host_stage/builtins.manifest.json" "$release_stage/builtins.manifest.json"
-  [[ ! -d "$host_stage/licenses" ]] || cp -R "$host_stage/licenses" "$release_stage/licenses"
-  [[ ! -d "$host_stage/sbom" ]] || cp -R "$host_stage/sbom" "$release_stage/sbom"
-
-  for name in bin builtins.manifest.json licenses sbom; do
-    source="$release_stage/$name"
-    destination="$RELEASE_ROOT/$name"
-    [[ -e "$source" ]] || continue
-    backup="$RELEASE_ROOT/.$name.previous"
-    rm -rf "$backup"
-    if [[ -e "$destination" ]]; then
-      mv "$destination" "$backup"
-    fi
-    if ! mv "$source" "$destination"; then
-      [[ ! -e "$backup" ]] || mv "$backup" "$destination"
-      die "could not activate host service-package $name"
-    fi
-    rm -rf "$backup"
-  done
-  echo "[builtins-sync] activated $host_target in $RELEASE_ROOT/bin"
-else
-  echo "[builtins-sync] host target $host_target was not requested; build cache updated only"
-fi
+for target in "${activated_targets[@]}"; do
+  target_os="${target%%/*}"
+  target_arch="${target#*/}"
+  rm -rf "$BUILD_ROOT/.$target_os-$target_arch.previous"
+done
+echo "[builtins-sync] updated ${#TARGETS[@]} target cache(s) under $BUILD_ROOT"
