@@ -35,8 +35,8 @@ func TestChatsLimitHTTPAndWebSocket(t *testing.T) {
 
 	assertChatsLimitHTTP(t, fixture.server, "/api/chats", []string{"chat-team-limit", "chat-plan-limit", "chat-react-limit"})
 	assertChatsLimitHTTP(t, fixture.server, "/api/chats?limit=2", []string{"chat-team-limit", "chat-plan-limit"})
-	assertChatsLimitHTTP(t, fixture.server, "/api/chats?agentMode=REACT,TEAM&lastRunId=loyw3v27&limit=1", []string{"chat-team-limit"})
-	assertChatsLimitHTTP(t, fixture.server, "/api/chats?agentKey=agent-react&agentMode=REACT&lastRunId=loyw3v27&limit=1", []string{"chat-react-limit"})
+	assertChatsLimitHTTP(t, fixture.server, "/api/chats?mode=REACT,TEAM&lastRunId=loyw3v27&limit=1", []string{"chat-team-limit"})
+	assertChatsLimitHTTP(t, fixture.server, "/api/chats?agentKey=agent-react&mode=REACT&lastRunId=loyw3v27&limit=1", []string{"chat-react-limit"})
 
 	for _, rawLimit := range []string{"", "0", "-1", "abc"} {
 		rec := httptest.NewRecorder()
@@ -55,9 +55,9 @@ func TestChatsLimitHTTPAndWebSocket(t *testing.T) {
 	defer conn.Close()
 	readConnectedPush(t, conn)
 
-	writeChatsLimitWSRequest(t, conn, "chats_default_limit", map[string]any{"agentMode": "TEAM,REACT"})
+	writeChatsLimitWSRequest(t, conn, "chats_default_limit", map[string]any{"mode": "TEAM,REACT"})
 	assertChatsLimitWSResponse(t, conn, "chats_default_limit", []string{"chat-team-limit", "chat-react-limit"})
-	writeChatsLimitWSRequest(t, conn, "chats_limited", map[string]any{"agentMode": "TEAM,REACT", "limit": 1})
+	writeChatsLimitWSRequest(t, conn, "chats_limited", map[string]any{"mode": "TEAM,REACT", "limit": 1})
 	assertChatsLimitWSResponse(t, conn, "chats_limited", []string{"chat-team-limit"})
 	writeChatsLimitWSRequest(t, conn, "chats_invalid_limit", map[string]any{"limit": 0})
 	var invalid ws.ErrorFrame

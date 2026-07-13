@@ -26,6 +26,18 @@ type wsTokenAuthenticator struct {
 	server *Server
 }
 
+func hasDeprecatedAgentModePayload(req ws.RequestFrame) bool {
+	if len(req.Payload) == 0 {
+		return false
+	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(req.Payload, &payload); err != nil {
+		return false
+	}
+	_, present := payload["agentMode"]
+	return present
+}
+
 func (a wsTokenAuthenticator) VerifyToken(ctx context.Context, token string) (ws.AuthSession, error) {
 	if a.server == nil {
 		return ws.AuthSession{Context: ctx}, nil
@@ -190,9 +202,15 @@ func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 	payload, err := ws.DecodePayload[struct {
 		IncludeChats int    `json:"includeChats"`
 		Scope        string `json:"scope"`
+		Mode         string `json:"mode"`
 	}](req)
 	if err != nil {
 		conn.SendError(req.ID, "invalid_request", 400, "invalid payload", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if hasDeprecatedAgentModePayload(req) {
+		conn.SendError(req.ID, "invalid_request", http.StatusBadRequest, deprecatedAgentModeMessage, nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}
@@ -207,7 +225,7 @@ func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	items, listErr := s.listAgentSummaries(payload.IncludeChats, scope)
+	items, listErr := s.listAgentSummariesWithModes(payload.IncludeChats, scope, requestedModes([]string{payload.Mode}))
 	if listErr != nil {
 		if isTimeContractViolation(listErr) {
 			sendTimeContractViolation(conn, req.ID, listErr)
@@ -265,11 +283,16 @@ func (s *Server) wsChats(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 	payload, err := ws.DecodePayload[struct {
 		LastRunID string          `json:"lastRunId"`
 		AgentKey  string          `json:"agentKey"`
-		AgentMode string          `json:"agentMode"`
+		Mode      string          `json:"mode"`
 		Limit     json.RawMessage `json:"limit"`
 	}](req)
 	if err != nil {
 		conn.SendError(req.ID, "invalid_request", 400, "invalid payload", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if hasDeprecatedAgentModePayload(req) {
+		conn.SendError(req.ID, "invalid_request", http.StatusBadRequest, deprecatedAgentModeMessage, nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}
@@ -279,7 +302,7 @@ func (s *Server) wsChats(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	response, listErr := s.listChatSummariesWithAgentModesAndLimit(payload.LastRunID, payload.AgentKey, requestedAgentModes([]string{payload.AgentMode}), limit)
+	response, listErr := s.listChatSummariesWithAgentModesAndLimit(payload.LastRunID, payload.AgentKey, requestedModes([]string{payload.Mode}), limit)
 	if listErr != nil {
 		if isTimeContractViolation(listErr) {
 			sendTimeContractViolation(conn, req.ID, listErr)

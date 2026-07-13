@@ -37,7 +37,24 @@ func toAPIActiveRunInfo(activeRun contracts.RunStatusInfo) *api.ActiveRunInfo {
 }
 
 func (s *Server) listAgentSummaries(includeChats int, scope string) ([]api.AgentSummary, error) {
+	return s.listAgentSummariesWithModes(includeChats, scope, nil)
+}
+
+func (s *Server) listAgentSummariesWithModes(includeChats int, scope string, modes []string) ([]api.AgentSummary, error) {
 	items := s.deps.Registry.Agents(scope)
+	if modes = chat.NormalizeAgentModes(modes); len(modes) > 0 {
+		allowed := make(map[string]struct{}, len(modes))
+		for _, mode := range modes {
+			allowed[mode] = struct{}{}
+		}
+		filtered := make([]api.AgentSummary, 0, len(items))
+		for _, item := range items {
+			if _, ok := allowed[item.Mode]; ok {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
 	if s.deps.Chats == nil {
 		return items, nil
 	}

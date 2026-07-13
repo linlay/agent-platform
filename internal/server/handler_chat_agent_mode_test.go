@@ -15,7 +15,7 @@ import (
 	gws "github.com/gorilla/websocket"
 )
 
-func TestChatsAgentModeFiltersHTTPAndWebSocket(t *testing.T) {
+func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
@@ -37,7 +37,7 @@ func TestChatsAgentModeFiltersHTTPAndWebSocket(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats?agentMode=react,TEAM&agentMode=PLAN_EXECUTE", nil))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats?mode=react,TEAM&mode=PLAN_EXECUTE", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("mode-filtered HTTP status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -48,26 +48,34 @@ func TestChatsAgentModeFiltersHTTPAndWebSocket(t *testing.T) {
 	if got := apiChatIDs(response.Data); strings.Join(got, ",") != "chat-team,chat-plan,chat-react" {
 		t.Fatalf("unexpected HTTP order: %v", got)
 	}
-	if response.Data[0].AgentMode != "TEAM" || response.Data[1].AgentMode != "PLAN-EXECUTE" || response.Data[2].AgentMode != "REACT" {
+	if response.Data[0].Mode != "TEAM" || response.Data[1].Mode != "PLAN-EXECUTE" || response.Data[2].Mode != "REACT" {
 		t.Fatalf("expected normalized summary modes, got %#v", response.Data)
+	}
+	if strings.Contains(rec.Body.String(), `"agentMode"`) {
+		t.Fatalf("chat summaries must not expose agentMode: %s", rec.Body.String())
 	}
 
 	rec = httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats?agentMode=REACT,TEAM&agentKey=agent-react&lastRunId=loyw3v27", nil))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats?mode=REACT,TEAM&agentKey=agent-react&lastRunId=loyw3v27", nil))
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode combined-filter HTTP response: %v", err)
 	}
 	if len(response.Data) != 1 || response.Data[0].ChatID != "chat-react" {
-		t.Fatalf("agentKey and lastRunId must combine with agentMode using AND, got %#v", response.Data)
+		t.Fatalf("agentKey and lastRunId must combine with mode using AND, got %#v", response.Data)
 	}
 
 	rec = httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats?agentMode=unknown", nil))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats?mode=unknown", nil))
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode unknown-mode response: %v", err)
 	}
 	if len(response.Data) != 0 {
 		t.Fatalf("unknown mode should return no rows, got %#v", response.Data)
+	}
+	rec = httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats?agentMode=REACT", nil))
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "use mode instead") {
+		t.Fatalf("deprecated agentMode should be rejected, status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
 	rec = httptest.NewRecorder()
@@ -76,8 +84,11 @@ func TestChatsAgentModeFiltersHTTPAndWebSocket(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
 		t.Fatalf("decode chat detail: %v", err)
 	}
-	if len(detail.Data.Runs) != 1 || detail.Data.Runs[0].AgentMode != "PLAN-EXECUTE" {
-		t.Fatalf("chat detail should expose run agentMode, got %#v", detail.Data.Runs)
+	if len(detail.Data.Runs) != 1 || detail.Data.Runs[0].Mode != "PLAN-EXECUTE" {
+		t.Fatalf("chat detail should expose run mode, got %#v", detail.Data.Runs)
+	}
+	if strings.Contains(rec.Body.String(), `"agentMode"`) {
+		t.Fatalf("chat detail must not expose agentMode: %s", rec.Body.String())
 	}
 
 	httpServer := httptest.NewServer(fixture.server)
@@ -91,9 +102,9 @@ func TestChatsAgentModeFiltersHTTPAndWebSocket(t *testing.T) {
 	if err := conn.WriteJSON(ws.RequestFrame{
 		Frame: ws.FrameRequest,
 		Type:  "/api/chats",
-		ID:    "agent_mode_ws",
+		ID:    "mode_ws",
 		Payload: ws.MarshalPayload(map[string]any{
-			"agentMode": "team,ReAcT",
+			"mode": "team,ReAcT",
 		}),
 	}); err != nil {
 		t.Fatalf("write mode-filtered websocket request: %v", err)
@@ -102,15 +113,30 @@ func TestChatsAgentModeFiltersHTTPAndWebSocket(t *testing.T) {
 	if err := conn.ReadJSON(&frame); err != nil {
 		t.Fatalf("read mode-filtered websocket response: %v", err)
 	}
-	if frame.Code != 0 || frame.Type != "/api/chats" || frame.ID != "agent_mode_ws" {
+	if frame.Code != 0 || frame.Type != "/api/chats" || frame.ID != "mode_ws" {
 		t.Fatalf("unexpected mode-filtered websocket frame: %#v", frame)
 	}
 	data, err := marshalResponseData[[]api.ChatSummaryResponse](frame.Data)
 	if err != nil {
 		t.Fatalf("decode websocket summaries: %v", err)
 	}
-	if got := apiChatIDs(data); strings.Join(got, ",") != "chat-team,chat-react" || data[0].AgentMode != "TEAM" || data[1].AgentMode != "REACT" {
+	if got := apiChatIDs(data); strings.Join(got, ",") != "chat-team,chat-react" || data[0].Mode != "TEAM" || data[1].Mode != "REACT" {
 		t.Fatalf("unexpected websocket mode filter result: %#v", data)
+	}
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame:   ws.FrameRequest,
+		Type:    "/api/chats",
+		ID:      "deprecated_mode_ws",
+		Payload: ws.MarshalPayload(map[string]any{"agentMode": "REACT"}),
+	}); err != nil {
+		t.Fatalf("write deprecated websocket request: %v", err)
+	}
+	var deprecated ws.ErrorFrame
+	if err := conn.ReadJSON(&deprecated); err != nil {
+		t.Fatalf("read deprecated websocket response: %v", err)
+	}
+	if deprecated.ID != "deprecated_mode_ws" || deprecated.Code != http.StatusBadRequest || !strings.Contains(deprecated.Msg, "use mode instead") {
+		t.Fatalf("unexpected deprecated websocket response: %#v", deprecated)
 	}
 }
 

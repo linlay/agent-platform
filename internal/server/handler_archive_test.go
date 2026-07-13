@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"agent-platform/internal/api"
@@ -75,6 +76,12 @@ func TestHandleChatArchiveArchivesChatAndBroadcasts(t *testing.T) {
 	}
 	if detail.Data.CreatedAt != archivedSummary.CreatedAt || detail.Data.LastRunAt != testEpochMillis+3_000 || detail.Data.ArchivedAt != archivedSummary.ArchivedAt {
 		t.Fatalf("unexpected archive detail timestamps: %#v", detail.Data)
+	}
+	if len(detail.Data.Runs) != 1 || detail.Data.Runs[0].Mode != "REACT" {
+		t.Fatalf("archive detail should expose run mode, got %#v", detail.Data.Runs)
+	}
+	if strings.Contains(rec.Body.String(), `"agentMode"`) {
+		t.Fatalf("archive detail must not expose agentMode: %s", rec.Body.String())
 	}
 }
 
@@ -250,6 +257,7 @@ func seedArchiveHandlerChat(t *testing.T, store *chat.FileStore, chatID string) 
 		ChatID:          chatID,
 		RunID:           "run-" + chatID,
 		AgentKey:        "agent-a",
+		AgentMode:       "REACT",
 		AssistantText:   "archived response",
 		InitialMessage:  "hello",
 		FinishReason:    "complete",

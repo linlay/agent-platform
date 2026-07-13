@@ -47,6 +47,10 @@ func newAgentStatusErrorWithData(status int, code string, message string, data m
 }
 
 func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
+	if hasDeprecatedAgentModeQuery(r) {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, deprecatedAgentModeMessage))
+		return
+	}
 	includeChats, ok := parseIncludeChats(w, r.URL.Query().Get("includeChats"))
 	if !ok {
 		return
@@ -56,7 +60,7 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
 	}
-	items, err := s.listAgentSummaries(includeChats, scope)
+	items, err := s.listAgentSummariesWithModes(includeChats, scope, requestedModes(r.URL.Query()["mode"]))
 	if err != nil {
 		if isTimeContractViolation(err) {
 			writeTimeContractViolation(w, err)

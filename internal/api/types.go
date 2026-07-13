@@ -1129,7 +1129,7 @@ type ChatSummaryResponse struct {
 	ChatName       string         `json:"chatName"`
 	OwnerType      string         `json:"ownerType,omitempty"`
 	AgentKey       string         `json:"agentKey,omitempty"`
-	AgentMode      string         `json:"agentMode,omitempty"`
+	Mode           string         `json:"mode,omitempty"`
 	TeamID         string         `json:"teamId,omitempty"`
 	Source         string         `json:"source,omitempty"`
 	CreatedAt      int64          `json:"createdAt"`
@@ -1273,7 +1273,7 @@ type RunSummary struct {
 	ChatID          string        `json:"chatId"`
 	OwnerType       string        `json:"ownerType,omitempty"`
 	AgentKey        string        `json:"agentKey,omitempty"`
-	AgentMode       string        `json:"agentMode,omitempty"`
+	Mode            string        `json:"mode,omitempty"`
 	TeamID          string        `json:"teamId,omitempty"`
 	InitialMessage  string        `json:"initialMessage,omitempty"`
 	AssistantText   string        `json:"assistantText,omitempty"`

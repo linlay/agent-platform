@@ -29,12 +29,22 @@ func (s *Server) listChatSummariesWithAgentModesAndLimit(lastRunID string, agent
 	return mapChatSummaries(items), nil
 }
 
-func requestedAgentModes(values []string) []string {
+func requestedModes(values []string) []string {
 	items := make([]string, 0, len(values))
 	for _, value := range values {
 		items = append(items, strings.Split(value, ",")...)
 	}
 	return chat.NormalizeAgentModes(items)
+}
+
+const deprecatedAgentModeMessage = "agentMode is no longer supported; use mode instead"
+
+func hasDeprecatedAgentModeQuery(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	_, present := r.URL.Query()["agentMode"]
+	return present
 }
 
 const invalidChatListLimitMessage = "limit must be a positive integer"
@@ -84,7 +94,7 @@ func mapChatSummariesWithUsage(items []chat.Summary, includeUsage bool) []api.Ch
 			ChatName:       item.ChatName,
 			OwnerType:      item.OwnerType,
 			AgentKey:       item.AgentKey,
-			AgentMode:      item.AgentMode,
+			Mode:           item.AgentMode,
 			TeamID:         item.TeamID,
 			Source:         item.Source,
 			CreatedAt:      item.CreatedAt,
@@ -313,12 +323,16 @@ func writeActiveRunConflict(w http.ResponseWriter, conflict *contracts.ActiveRun
 }
 
 func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
+	if hasDeprecatedAgentModeQuery(r) {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, deprecatedAgentModeMessage))
+		return
+	}
 	limit, err := parseChatListLimit(r)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
 	}
-	response, err := s.listChatSummariesWithAgentModesAndLimit(r.URL.Query().Get("lastRunId"), r.URL.Query().Get("agentKey"), requestedAgentModes(r.URL.Query()["agentMode"]), limit)
+	response, err := s.listChatSummariesWithAgentModesAndLimit(r.URL.Query().Get("lastRunId"), r.URL.Query().Get("agentKey"), requestedModes(r.URL.Query()["mode"]), limit)
 	if err != nil {
 		if isTimeContractViolation(err) {
 			writeTimeContractViolation(w, err)
