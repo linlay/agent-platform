@@ -28,7 +28,7 @@ LOCAL_BACKEND_DIR := $(LOCAL_RELEASE_ROOT)/backend
 LOCAL_BACKEND_BIN := $(LOCAL_BACKEND_DIR)/$(LOCAL_BINARY)
 LOCAL_PLUGINS_DIR := $(LOCAL_RELEASE_ROOT)/plugins
 
-.PHONY: run build-local run-local test test-integration docker-build docker-up docker-down release release-program release-program-all build-kbase-lance-engine build-kbase-lance-engine-matrix clean
+.PHONY: run build-local run-local test test-integration test-release-program-clean docker-build docker-up docker-down release release-program release-program-all build-kbase-lance-engine build-kbase-lance-engine-matrix clean
 
 ifeq ($(OS),Windows_NT)
 run: run-local
@@ -73,6 +73,14 @@ test:
 
 test-integration:
 	GOCACHE=$$(mktemp -d) CGO_ENABLED=$(CGO_ENABLED) RUN_SOCKET_TESTS=1 go test -p 1 -run TestQueryStreamsBeforeRunCompleteOverHTTP -v ./internal/server
+
+ifeq ($(OS),Windows_NT)
+test-release-program-clean:
+	powershell -ExecutionPolicy Bypass -File scripts/test-release-program-clean.ps1
+else
+test-release-program-clean:
+	scripts/test-release-program-clean.sh
+endif
 
 docker-build:
 	VERSION=$(VERSION) docker compose -f $(COMPOSE_FILE) build

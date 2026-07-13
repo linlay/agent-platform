@@ -83,6 +83,9 @@ func TestRunStagesVerifiedArtifactAndUpdatesManifest(t *testing.T) {
 	if err := run(repoRoot, "builtins.lock.json", outputDir, "linux", "amd64", artifact, "", "", "", false); err == nil {
 		t.Fatal("expected release artifact without checksum to fail")
 	}
+	if err := run(repoRoot, "builtins.lock.json", outputDir, "linux", "amd64", artifact, strings.Repeat("0", 64), "", cargoMetadata, true); err == nil {
+		t.Fatal("expected local build with a mismatched checksum to fail")
+	}
 }
 
 func mustWriteJSON(t *testing.T, path string, value any) {

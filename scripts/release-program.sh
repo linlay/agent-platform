@@ -33,6 +33,69 @@ require_file "$REPO_ROOT/.env.example"
 require_dir "$REPO_ROOT/configs"
 cd "$REPO_ROOT"
 
+HOST_OS="$(detect_os)"
+HOST_ARCH="$(detect_arch)"
+KBASE_ARTIFACT_ROOT="${KBASE_LANCE_ENGINE_ARTIFACT_ROOT:-$REPO_ROOT/dist/kbase-lance-engine}"
+REMOTE_TARGET_COUNT=0
+
+is_local_sidecar_target() {
+  [[ "$1" == "$HOST_OS" && "$2" == "$HOST_ARCH" ]]
+}
+
+sidecar_target_suffix() {
+  printf '%s_%s\n' "$1" "$2" | tr '[:lower:]' '[:upper:]'
+}
+
+resolve_remote_sidecar() {
+  local target_os="$1"
+  local target_arch="$2"
+  local suffix
+  local url_var
+  local sha_var
+  local url
+  local sha
+
+  suffix="$(sidecar_target_suffix "$target_os" "$target_arch")"
+  url_var="KBASE_LANCE_ENGINE_URL_${suffix}"
+  sha_var="KBASE_LANCE_ENGINE_SHA256_${suffix}"
+  url="${!url_var:-}"
+  sha="${!sha_var:-}"
+
+  if [[ -n "$url" || -n "$sha" ]]; then
+    [[ -n "$url" && -n "$sha" ]] || die "non-local sidecar $target_os/$target_arch requires both $url_var and $sha_var"
+  elif [[ "$REMOTE_TARGET_COUNT" -eq 1 && ( -n "${KBASE_LANCE_ENGINE_URL:-}" || -n "${KBASE_LANCE_ENGINE_SHA256:-}" ) ]]; then
+    url="${KBASE_LANCE_ENGINE_URL:-}"
+    sha="${KBASE_LANCE_ENGINE_SHA256:-}"
+    [[ -n "$url" && -n "$sha" ]] || die "non-local sidecar $target_os/$target_arch requires both KBASE_LANCE_ENGINE_URL and KBASE_LANCE_ENGINE_SHA256"
+  else
+    die "non-local sidecar $target_os/$target_arch requires $url_var and $sha_var"
+  fi
+
+  SIDECAR_URL="$url"
+  SIDECAR_SHA256="$sha"
+}
+
+stage_release_sidecar() {
+  local bundle_root="$1"
+  local target_os="$2"
+  local target_arch="$3"
+  local args=(
+    --output "$bundle_root"
+    --os "$target_os"
+    --arch "$target_arch"
+    --artifact-root "$KBASE_ARTIFACT_ROOT"
+  )
+
+  if is_local_sidecar_target "$target_os" "$target_arch"; then
+    args+=(--local-build)
+  else
+    resolve_remote_sidecar "$target_os" "$target_arch"
+    args+=(--url "$SIDECAR_URL" --expected-sha256 "$SIDECAR_SHA256" --refresh-download)
+  fi
+
+  "$SCRIPT_DIR/stage-kbase-lance-engine.sh" "${args[@]}"
+}
+
 copy_config_templates() {
   local bundle_root="$1"
   local asset
@@ -99,10 +162,7 @@ build_program_bundle() {
     --output "$bundle_root" \
     --os "$target_os" \
     --arch "$target_arch"
-  "$SCRIPT_DIR/stage-kbase-lance-engine.sh" \
-    --output "$bundle_root" \
-    --os "$target_os" \
-    --arch "$target_arch"
+  stage_release_sidecar "$bundle_root" "$target_os" "$target_arch"
 
   if [[ "$target_os" == "windows" ]]; then
     cp "$PROGRAM_RELEASE_ASSETS_DIR/windows/deploy.ps1" "$bundle_root/deploy.ps1"
@@ -135,9 +195,19 @@ build_program_bundle() {
   echo "[release] done: $bundle_archive"
 }
 
+targets=()
 while read -r target_os target_arch; do
   [[ -n "$target_os" ]] || continue
   [[ -n "$target_arch" ]] || die "missing ARCH for program target $target_os"
+  targets+=("$target_os/$target_arch")
+  if ! is_local_sidecar_target "$target_os" "$target_arch"; then
+    REMOTE_TARGET_COUNT=$((REMOTE_TARGET_COUNT + 1))
+  fi
+done < <(parse_program_target_matrix)
+
+for target in "${targets[@]}"; do
+  target_os="${target%%/*}"
+  target_arch="${target#*/}"
   require_archive_tool_for_os "$target_os"
   build_program_bundle "$target_os" "$target_arch"
-done < <(parse_program_target_matrix)
+done

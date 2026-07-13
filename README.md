@@ -72,7 +72,7 @@ cp .env.example .env
 make run
 ```
 
-`make run` 会先构建本机 release 镜像目录、校验并装入 rg/dbx/httpx；若存在 `kbase-lance-engine` artifact 也会一并装入，再加载根目录 `.env` 并从 `release-local/backend/agent-platform` 启动。未设置 `SERVER_PORT` 时默认监听 `11949`。sidecar 默认从 `dist/kbase-lance-engine/<os>-<arch>/` 读取，也可通过 `KBASE_LANCE_ENGINE_URL` 与 `KBASE_LANCE_ENGINE_SHA256` 直接下载并校验；源码构建需先运行 `make build-kbase-lance-engine`。本地 artifact 缺失时会告警但继续，非 KBASE 或 SQLite 模式仍可开发；正式 release 仍强制要求 sidecar。内置程序位于 `release-local/bin/`，本机插件位于 `release-local/plugins/`。直接执行 `go run ./cmd/agent-platform` 不会自动加载 `.env`、装入 builtins 或扫描 `release-local/plugins/`；未设置 `SERVER_PORT` 或 `--port` 时应用代码默认监听 `8080`。
+`make run` 会先构建本机 release 镜像目录、校验并装入 rg/dbx/httpx；若存在 `kbase-lance-engine` artifact 也会一并装入，再加载根目录 `.env` 并从 `release-local/backend/agent-platform` 启动。未设置 `SERVER_PORT` 时默认监听 `11949`。sidecar 默认从 `dist/kbase-lance-engine/<os>-<arch>/` 读取，也可通过 `KBASE_LANCE_ENGINE_URL` 与 `KBASE_LANCE_ENGINE_SHA256` 直接下载并校验；`make build-kbase-lance-engine` 仅用于显式的本机 sidecar 构建。本地 artifact 缺失时会告警但继续，非 KBASE 或 SQLite 模式仍可开发；正式 `make release-program` 会自行构建当前主机 sidecar 并强制校验发布元数据。内置程序位于 `release-local/bin/`，本机插件位于 `release-local/plugins/`。直接执行 `go run ./cmd/agent-platform` 不会自动加载 `.env`、装入 builtins 或扫描 `release-local/plugins/`；未设置 `SERVER_PORT` 或 `--port` 时应用代码默认监听 `8080`。
 
 也可以显式拆开构建与启动：
 
@@ -322,7 +322,7 @@ Container Hub 默认基础挂载当前最多 7 个：
 make release-program
 ```
 
-产物写入 `dist/release/`，包含纯 Go runtime、配置模板、启停脚本、`bin/{rg,dbx,httpx,kbase-lance-engine}`、builtins manifest、许可证 notice、压缩包 SHA-256 与大小报告。sidecar 需要先为目标平台生成带校验文件的 release artifact；完整的六平台命令和直接下载入口见打包文档。Desktop 宿主集成时执行资源同步：
+产物写入 `dist/release/`，包含纯 Go runtime、配置模板、启停脚本、`bin/{rg,dbx,httpx,kbase-lance-engine}`、builtins manifest、许可证 notice、压缩包 SHA-256 与大小报告。`release-program` 会为当前主机目标自行构建并校验 sidecar；显式的非本机目标才需要由 Platform release 环境提供已验证下载制品。Desktop 宿主集成时执行资源同步：
 
 ```bash
 npm run sync:assets

@@ -218,7 +218,7 @@ scripts/stage-kbase-lance-engine.sh \
   --arch arm64
 ```
 
-PowerShell 的 `scripts/stage-kbase-lance-engine.ps1` 支持同等参数。下载没有 expected SHA-256 会拒绝，digest 不匹配会删除临时 `.download` 文件并失败。本地 `make run` 可将 sidecar 作为 optional artifact，便于非 KBASE/SQLite 开发；正式 `release-program` 默认强制 artifact、checksum、Cargo dependency metadata、sidecar CycloneDX SBOM、bundle CycloneDX SBOM 和 license metadata，缺少 Syft 或元数据即失败。
+PowerShell 的 `scripts/stage-kbase-lance-engine.ps1` 支持同等参数。下载没有 expected SHA-256 会拒绝，digest 不匹配会删除临时 `.download` 文件并失败。本地 `make run` 可将 sidecar 作为 optional artifact，便于非 KBASE/SQLite 开发；正式 `release-program` 会自行构建当前主机 sidecar，并强制 artifact、checksum、Cargo dependency metadata、sidecar CycloneDX SBOM、bundle CycloneDX SBOM 和 license metadata，缺少 Syft 或元数据即失败。显式非本机矩阵由 Platform release 的目标专属 URL/SHA 配置下载，不需要 Desktop 预置 artifact。
 
 Git 忽略规则覆盖任意 Rust `target/`、release staging、默认 runtime/run 目录和 workspace 本地 `.kbase/`；`Cargo.lock`、Rust 源码、构建/下载脚本、配置 example 与许可证清单属于发布事实，必须提交。
 

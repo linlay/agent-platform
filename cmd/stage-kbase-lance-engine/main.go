@@ -76,9 +76,9 @@ func run(repoRoot, lockPath, outputDir, targetOS, targetArch, binaryPath, expect
 		return fmt.Errorf("read target binary %s: %w", binaryPath, err)
 	}
 	expectedSHA = strings.ToLower(strings.TrimSpace(expectedSHA))
-	if !localBuild {
+	if expectedSHA != "" {
 		if len(expectedSHA) != sha256.Size*2 {
-			return errors.New("--expected-sha256 is required for release artifacts (or use --local-build for a local source build)")
+			return errors.New("--expected-sha256 must be a SHA-256 digest")
 		}
 		if _, err := hex.DecodeString(expectedSHA); err != nil {
 			return fmt.Errorf("invalid expected SHA-256: %w", err)
@@ -86,6 +86,8 @@ func run(repoRoot, lockPath, outputDir, targetOS, targetArch, binaryPath, expect
 		if actualSHA != expectedSHA {
 			return fmt.Errorf("sha256 mismatch for %s: expected %s, got %s", binaryPath, expectedSHA, actualSHA)
 		}
+	} else if !localBuild {
+		return errors.New("--expected-sha256 is required for release artifacts (or use --local-build for a local source build)")
 	}
 
 	binaryName := componentName
