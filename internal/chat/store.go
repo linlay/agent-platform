@@ -66,6 +66,7 @@ type Store interface {
 	ListChatsWithAgentModes(lastRunID string, agentKey string, agentModes []string) ([]Summary, error)
 	ListChatsWithAgentModesAndLimit(lastRunID string, agentKey string, agentModes []string, limit int) ([]Summary, error)
 	RecentChatsByAgent(agentKey string, limit int) ([]Summary, error)
+	RecentChatsByTeam(teamID string, limit int) ([]Summary, error)
 	ListRuns(chatID string) ([]RunSummary, error)
 	LoadChat(chatID string) (Detail, error)
 	LoadRunTrace(chatID string, runID string) (RunTrace, error)
@@ -76,6 +77,7 @@ type Store interface {
 	SetFeedback(chatID, runID, feedbackType, comment string) (int64, error)
 	DeleteChat(chatID string) error
 	AgentChatStats() (map[string]AgentChatStats, error)
+	TeamChatStats() (map[string]AgentChatStats, error)
 	ResolveResource(file string) (string, error)
 	ChatDir(chatID string) string
 }

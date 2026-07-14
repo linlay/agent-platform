@@ -290,6 +290,9 @@ type ChatReadState struct {
 type AgentChatStats struct {
 	TotalCount  int `json:"totalCount"`
 	UnreadCount int `json:"unreadCount"`
+	// LastRunID is an internal catalog-ordering key. The public API maps this
+	// struct to a separate stats DTO that intentionally omits the value.
+	LastRunID string `json:"-"`
 }
 
 type PendingAwaiting struct {

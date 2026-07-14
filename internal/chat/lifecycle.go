@@ -445,7 +445,7 @@ func (s *FileStore) AgentChatStats() (map[string]AgentChatStats, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	rows, err := s.db.Query(`SELECT AGENT_KEY_, LAST_RUN_ID_, READ_RUN_ID_ FROM CHATS`)
+	rows, err := s.db.Query(`SELECT AGENT_KEY_, LAST_RUN_ID_, READ_RUN_ID_ FROM CHATS WHERE NOT (AGENT_KEY_='' AND COALESCE(TEAM_ID_,'') <> '')`)
 	if err != nil {
 		return nil, err
 	}
@@ -462,7 +462,41 @@ func (s *FileStore) AgentChatStats() (map[string]AgentChatStats, error) {
 		if lastRunID != "" && RunIDAfter(lastRunID, readRunID) {
 			item.UnreadCount++
 		}
+		if RunIDAfter(lastRunID, item.LastRunID) {
+			item.LastRunID = lastRunID
+		}
 		stats[agentKey] = item
+	}
+	return stats, rows.Err()
+}
+
+// TeamChatStats aggregates only orchestrated-Team-owned chats, identified by
+// their public owner shape (empty agentKey plus a non-empty teamId).
+func (s *FileStore) TeamChatStats() (map[string]AgentChatStats, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rows, err := s.db.Query(`SELECT TEAM_ID_, LAST_RUN_ID_, READ_RUN_ID_ FROM CHATS WHERE AGENT_KEY_='' AND COALESCE(TEAM_ID_,'') <> ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	stats := map[string]AgentChatStats{}
+	for rows.Next() {
+		var teamID, lastRunID, readRunID string
+		if err := rows.Scan(&teamID, &lastRunID, &readRunID); err != nil {
+			return nil, err
+		}
+		item := stats[teamID]
+		item.TotalCount++
+		if lastRunID != "" && RunIDAfter(lastRunID, readRunID) {
+			item.UnreadCount++
+		}
+		if RunIDAfter(lastRunID, item.LastRunID) {
+			item.LastRunID = lastRunID
+		}
+		stats[teamID] = item
 	}
 	return stats, rows.Err()
 }

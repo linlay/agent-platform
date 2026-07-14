@@ -55,9 +55,26 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	includeTeam, ok := parseIncludeTeam(w, r.URL.Query()["includeTeam"])
+	if !ok {
+		return
+	}
 	scope, err := catalog.NormalizeAgentSummaryScope(r.URL.Query().Get("scope"))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
+		return
+	}
+	if includeTeam {
+		items, err := s.listAgentCatalogSummariesWithModes(includeChats, scope, requestedModes(r.URL.Query()["mode"]))
+		if err != nil {
+			if isTimeContractViolation(err) {
+				writeTimeContractViolation(w, err)
+				return
+			}
+			writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+			return
+		}
+		writeJSON(w, http.StatusOK, api.Success(items))
 		return
 	}
 	items, err := s.listAgentSummariesWithModes(includeChats, scope, requestedModes(r.URL.Query()["mode"]))
@@ -70,6 +87,19 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, api.Success(items))
+}
+
+func parseIncludeTeam(w http.ResponseWriter, values []string) (bool, bool) {
+	if len(values) == 0 {
+		return false, true
+	}
+	raw := strings.TrimSpace(values[0])
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "includeTeam must be a boolean"))
+		return false, false
+	}
+	return value, true
 }
 
 const maxAgentSummaryIncludeChats = 50

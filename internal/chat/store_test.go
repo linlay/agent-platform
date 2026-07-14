@@ -160,8 +160,8 @@ func TestFileStorePersistsAndFiltersAgentModes(t *testing.T) {
 		t.Fatalf("lastRunId and mode should combine with AND, items=%#v err=%v", items, err)
 	}
 	items, err = store.ListChatsWithAgentModes("", "", []string{"UNKNOWN"})
-	if err != nil || len(items) != 0 {
-		t.Fatalf("unknown mode should return no results, items=%#v err=%v", items, err)
+	if err != nil || len(items) != 1 || items[0].ChatID != "chat-team" {
+		t.Fatalf("team-owned chats should bypass mode filtering, items=%#v err=%v", items, err)
 	}
 }
 

@@ -69,8 +69,17 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode unknown-mode response: %v", err)
 	}
-	if len(response.Data) != 0 {
-		t.Fatalf("unknown mode should return no rows, got %#v", response.Data)
+	if len(response.Data) != 1 || response.Data[0].ChatID != "chat-team" {
+		t.Fatalf("team-owned chats should bypass unknown mode, got %#v", response.Data)
+	}
+
+	rec = httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats?mode=REACT", nil))
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode react-only response: %v", err)
+	}
+	if got := apiChatIDs(response.Data); strings.Join(got, ",") != "chat-team,chat-react" {
+		t.Fatalf("team-owned chats should remain alongside matching agents, got %#v", response.Data)
 	}
 	rec = httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats?agentMode=REACT", nil))
@@ -122,6 +131,24 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	}
 	if got := apiChatIDs(data); strings.Join(got, ",") != "chat-team,chat-react" || data[0].Mode != "TEAM" || data[1].Mode != "REACT" {
 		t.Fatalf("unexpected websocket mode filter result: %#v", data)
+	}
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame:   ws.FrameRequest,
+		Type:    "/api/chats",
+		ID:      "mode_ws_unknown",
+		Payload: ws.MarshalPayload(map[string]any{"mode": "unknown"}),
+	}); err != nil {
+		t.Fatalf("write unknown-mode websocket request: %v", err)
+	}
+	if err := conn.ReadJSON(&frame); err != nil {
+		t.Fatalf("read unknown-mode websocket response: %v", err)
+	}
+	data, err = marshalResponseData[[]api.ChatSummaryResponse](frame.Data)
+	if err != nil {
+		t.Fatalf("decode unknown-mode websocket summaries: %v", err)
+	}
+	if len(data) != 1 || data[0].ChatID != "chat-team" {
+		t.Fatalf("team-owned websocket chats should bypass mode, got %#v", data)
 	}
 	if err := conn.WriteJSON(ws.RequestFrame{
 		Frame:   ws.FrameRequest,

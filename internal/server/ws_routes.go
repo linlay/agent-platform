@@ -201,6 +201,7 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	payload, err := ws.DecodePayload[struct {
 		IncludeChats int    `json:"includeChats"`
+		IncludeTeam  bool   `json:"includeTeam"`
 		Scope        string `json:"scope"`
 		Mode         string `json:"mode"`
 	}](req)
@@ -222,6 +223,27 @@ func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 	scope, err := catalog.NormalizeAgentSummaryScope(payload.Scope)
 	if err != nil {
 		conn.SendError(req.ID, "invalid_request", 400, err.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if payload.IncludeTeam {
+		items, listErr := s.listAgentCatalogSummariesWithModes(payload.IncludeChats, scope, requestedModes([]string{payload.Mode}))
+		if listErr != nil {
+			if isTimeContractViolation(listErr) {
+				sendTimeContractViolation(conn, req.ID, listErr)
+				conn.CompleteRequest(req.ID)
+				return
+			}
+			conn.SendError(req.ID, "internal_error", 500, listErr.Error(), nil)
+			conn.CompleteRequest(req.ID)
+			return
+		}
+		if err := validatePublicTimeContract(items); err != nil {
+			sendTimeContractViolation(conn, req.ID, err)
+			conn.CompleteRequest(req.ID)
+			return
+		}
+		conn.SendResponse(req.Type, req.ID, 0, "success", items)
 		conn.CompleteRequest(req.ID)
 		return
 	}

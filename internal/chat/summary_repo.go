@@ -332,7 +332,15 @@ func (s *FileStore) ListChatsWithAgentModesAndLimit(lastRunID string, agentKey s
 			placeholders = append(placeholders, "?")
 			args = append(args, agentMode)
 		}
-		query += " AND AGENT_MODE_ IN (" + strings.Join(placeholders, ",") + ")"
+		if agentKey == "" {
+			// Orchestrated Teams have a public Team owner instead of an agent
+			// mode. They remain visible in the global chat list regardless of a
+			// mode query; legacy Teams are still agent-owned and are filtered by
+			// their selected member's mode.
+			query += " AND ((AGENT_KEY_='' AND COALESCE(TEAM_ID_,'') <> '') OR AGENT_MODE_ IN (" + strings.Join(placeholders, ",") + "))"
+		} else {
+			query += " AND AGENT_MODE_ IN (" + strings.Join(placeholders, ",") + ")"
+		}
 	}
 	query += " ORDER BY UPDATED_AT_ DESC, CHAT_ID_ DESC"
 
@@ -401,6 +409,43 @@ func (s *FileStore) RecentChatsByAgent(agentKey string, limit int) ([]Summary, e
 		applyDerivedReadState(&sum)
 		sum.PendingAwaiting = pendingAwaitingFromRow(pendingAwaitingID, pendingRunID, pendingMode, pendingCreatedAt)
 		if err := validateActiveSummaryTimeContract(sum, fmt.Sprintf("chat.recent[%d]", len(items))); err != nil {
+			return nil, err
+		}
+		items = append(items, sum)
+	}
+	return items, rows.Err()
+}
+
+// RecentChatsByTeam returns recent chats for one public orchestrated-Team
+// owner. Its ordering intentionally matches RecentChatsByAgent.
+func (s *FileStore) RecentChatsByTeam(teamID string, limit int) ([]Summary, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if limit <= 0 {
+		return nil, nil
+	}
+	rows, err := s.db.Query("SELECT "+summarySelectColumns+" FROM CHATS WHERE AGENT_KEY_='' AND TEAM_ID_=? ORDER BY UPDATED_AT_ DESC, CHAT_ID_ DESC LIMIT ?", teamID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]Summary, 0, limit)
+	for rows.Next() {
+		var sum Summary
+		var usage UsageData
+		var pendingAwaitingID, pendingRunID, pendingMode string
+		var pendingCreatedAt int64
+		if err := rows.Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.AgentMode, &sum.TeamID, &sum.Source, &sum.SourceChannel, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunAt, &sum.LastRunID, &sum.LastRunContent, &sum.Read.ReadRunID, &sum.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &usage.CachedTokens, &usage.ReasoningTokens, &usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens, &usage.LlmChatCompletionCount, &usage.ToolCallCount, &usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs, &usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt); err != nil {
+			return nil, err
+		}
+		if hasUsageData(usage) {
+			sum.Usage = &usage
+		}
+		applyDerivedReadState(&sum)
+		sum.PendingAwaiting = pendingAwaitingFromRow(pendingAwaitingID, pendingRunID, pendingMode, pendingCreatedAt)
+		if err := validateActiveSummaryTimeContract(sum, fmt.Sprintf("chat.recent_team[%d]", len(items))); err != nil {
 			return nil, err
 		}
 		items = append(items, sum)

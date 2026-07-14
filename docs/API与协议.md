@@ -47,14 +47,16 @@ GET /ws -> request / response / stream / push / error frames
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
-| GET | `/api/agents` | query: `includeChats`、`scope`、`mode` | agent 列表，可附带最近 chat 摘要 |
+| GET | `/api/agents` | query: `includeChats`、`includeTeam`、`scope`、`mode` | agent 列表；可选混入 Team 与最近 chat 摘要 |
 | GET | `/api/agent` | query: `agentKey` | 单个运行时 agent 详情，不返回编辑专用字段 |
 | POST | `/api/agent/model-config` | body: `agentKey`/`key`、`modelKey`、`reasoningEffort` | 更新 CODER agent 的运行时默认模型配置 |
 | GET | `/api/teams` | 无 | team 列表，区分 `runtimeMode: legacy | orchestrated` |
 | GET | `/api/skill-candidates` | query: `agentKey` | skill candidate 列表 |
 | GET | `/api/model-options` | 无 | 聊天运行时可选模型与思考深度 |
 
-`/api/agents` 的 `scope` 可取 `nav`、`copilot`、`invoke`、`internal`、`all`，省略时为 `all`；`includeChats` 为 `0..50`，省略时不附带 chat。可选 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；大小写无关，`PLAN_EXECUTE` 会归一为 `PLAN-EXECUTE`。`mode` 与 `scope` 为 AND，筛选 agent catalog 自身的 `mode`，不改变 `includeChats` 按 agentKey 获取 chat 的规则；未知 mode（包括普通 agent catalog 中不存在的 `TEAM`）返回空列表。WebSocket `/api/agents` 使用等价的 `scope`、`includeChats`、`mode` 字段。
+`/api/agents` 的 `scope` 可取 `nav`、`copilot`、`invoke`、`internal`、`all`，省略时为 `all`；`includeChats` 为 `0..50`，省略时不附带 chat。可选 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；大小写无关，`PLAN_EXECUTE` 会归一为 `PLAN-EXECUTE`。`mode` 与 `scope` 为 AND，筛选普通 agent catalog 自身的 `mode`，不改变 `includeChats` 按 agentKey 获取 chat 的规则；未知 mode（包括普通 agent catalog 中不存在的 `TEAM`）返回空列表。
+
+`includeTeam` 是可选布尔 query，省略或 `false` 时响应保持原有的 agent 列表和排序。设为 `true` 时，响应改为扁平联合列表，每项带 `kind:"agent" | "team"`：agent 项保留原有摘要字段；team 项返回 `teamId`、`name`、可选 `description/icon`、`runtimeMode`、`agentKeys`、`meta`，并和 agent 一样包含 `stats` 与可选 `chats`，但绝不返回虚拟 `key`、`mode`、workspace 或模型配置。此时 `scope` 与 `mode` 只过滤 agent，所有 Team 均保留；`mode=TEAM` 因而只会返回 Team。混合项按各自最新 chat 的 `lastRunId` 降序排列，无 chat 的项置后；同值按名称、kind 与稳定身份字段确定顺序。`includeChats=N` 对 Team 也按 `teamId` 返回最近 N 条 Team-owned chat。WebSocket `/api/agents` 使用等价的 `scope`、`includeChats`、`includeTeam`、`mode` 字段，其中 `includeTeam` 为 JSON boolean。
 
 ### Admin
 
@@ -122,9 +124,9 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 | GET | `/api/chat/jsonl` | query: `chatId` | 原始 chat JSONL 文本；active 不存在时回退 archive |
 | GET | `/api/chat/llm-trace` | query: `file=<chatId>/.llm-records/<runId>_NNN.json` | 原始 LLM chat trace JSON 文本 |
 
-`/api/chats` 的 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；大小写无关，`PLAN_EXECUTE` 会归一为 `PLAN-EXECUTE`。它与 `agentKey`、`lastRunId` 为 AND 关系，未知 mode 返回空列表而不是参数错误。可选 `limit` 必须为正整数且不设上限；省略时返回全部匹配项，传入时在全部筛选和固定排序 `updatedAt DESC, chatId DESC` 后截断结果。`limit=0`、负数、空值或非整数返回 400；当前不支持 offset、分页游标或自定义排序。WebSocket 的 `/api/chats` 请求使用等价的 `mode` 与 `limit` 字段（`limit` 未传为全部）。旧 `agentMode` 参数或 payload 会返回 400，调用方应改用 `mode`。
+`/api/chats` 的 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；大小写无关，`PLAN_EXECUTE` 会归一为 `PLAN-EXECUTE`。它只筛选 Agent-owned chat，并与 `agentKey`、`lastRunId` 为 AND 关系；Team-owned chat 天然包含在全局列表中，不受 `mode`（包括未知 mode）影响。显式 `agentKey` 仍只返回该 agent 的 chat，不会匹配 Team。可选 `limit` 必须为正整数且不设上限；省略时返回全部匹配项，传入时在全部筛选和固定排序 `updatedAt DESC, chatId DESC` 后截断结果。`limit=0`、负数、空值或非整数返回 400；当前不支持 offset、分页游标或自定义排序。WebSocket 的 `/api/chats` 请求使用等价的 `mode` 与 `limit` 字段（`limit` 未传为全部）。旧 `agentMode` 参数或 payload 会返回 400，调用方应改用 `mode`。
 
-chat 摘要会在新数据中返回可选 `mode`；`/api/chat.runs[]`、`/api/agents?includeChats` 及 archive detail 中的共享 `runs[]` 均返回每次 run 的可选 `mode`。普通 agent 持久化规范 API mode（例如 `REACT`、`CODER`、`KBASE`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`）；orchestrated Team 固定为 `TEAM`，不会暴露隐藏协调器 key；legacy Team 仍记录实际成员的 mode。历史 chat/run 不根据当前 catalog 回填，mode 保持为空且不会命中 `mode` 筛选。
+chat 摘要会在新数据中返回可选 `mode`；`/api/chat.runs[]`、`/api/agents?includeChats` 及 archive detail 中的共享 `runs[]` 均返回每次 run 的可选 `mode`。普通 agent 持久化规范 API mode（例如 `REACT`、`CODER`、`KBASE`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`）；orchestrated Team 固定为 `TEAM`，不会暴露隐藏协调器 key；legacy Team 仍记录实际成员的 mode。历史 chat/run 不根据当前 catalog 回填，mode 保持为空且不会命中 Agent mode 筛选；Team-owned chat 在 `/api/chats` 的 mode 查询中始终保留。
 
 `/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 摘要，以及 `/api/chat` 详情顶层在新数据中可包含 `source`，表示 chat 首次创建来源。当前只记录 query 与 automation 两类：`query` / `query:<user>` 表示由 query 创建，`automation:<automationId>` 表示由 automation 创建。旧数据为空、上传创建或派生创建时省略。channel 远程用户调用本机智能体仍属于 query source；gateway 可在受信 channel 请求中传 `sourceUser`，否则服务端会从形如 `wecom#single#user1#...` 的 chatId 中取远端用户段作为 `query:<user>`。`sourceChannel` 是 gateway/channel 路由标签，不承载 query / automation 语义。
 
@@ -136,7 +138,7 @@ chat 摘要会在新数据中返回可选 `mode`；`/api/chat.runs[]`、`/api/ag
 
 `/api/chat/jsonl`、chat/archive replay、搜索结果与 `/api/chat/llm-trace` 都在读取前验证各自明确拥有的时间字段。JSONL 的 line `updatedAt`、event `timestamp`、`messages[].ts` 和 awaiting/submit 时间仍严格；新写入的 trace 中 `sentAt`、`responseStartedAt`、`completedAt` 以及 `interrupt.interruptedAt` 均为 epoch milliseconds，对应的 `sentTime`、`responseStartedTime`、`completedTime`、`interrupt.interruptedTime` 为 RFC3339Nano 可读时间。历史 trace 或 JSONL 不迁移；其中字符串、秒、浮点、零值或缺少必填平台时间会返回 `422 time_contract_violation`，不会原样透传或补值；trace 中外部 request/response/tool payload 保持透明。
 
-`/api/agents?includeChats=N` 附带的 chat 摘要可能包含局部 `error`，用于展示单个 chat 的可恢复/可诊断异常而不让列表整体失败。当前 `multiple active runs found for chat` 会返回 `error: { "code": "active_run_conflict", "message": "multiple active runs found for chat", "chatId": "...", "runIds": ["..."] }`，此时该 chat 不包含 `activeRun`。
+`/api/agents?includeChats=N`（包括 `includeTeam=true`）附带的 chat 摘要可能包含局部 `error`，用于展示单个 chat 的可恢复/可诊断异常而不让列表整体失败。当前 `multiple active runs found for chat` 会返回 `error: { "code": "active_run_conflict", "message": "multiple active runs found for chat", "chatId": "...", "runIds": ["..."] }`，此时该 chat 不包含 `activeRun`。
 
 `/api/agent` 会返回 agent 配置中的 `greetings` 与 `wonders` 数组。客户端可将 `greetings` 作为开场/占位介绍，并随机挑选一条显示在聊天输入框 placeholder 或空状态里；`wonders` 用于展示可直接提交的具体 query 示例。`/api/agents` 是列表摘要接口，不返回 `greetings` 或 `wonders`。`/api/agent` 是运行时详情接口，不返回 `definition`、`soulPrompt`、`agentsPrompt`、`source`；编辑器应使用 `/api/admin/agents/detail` 获取这些字段，以及 `status`、`diagnostics`。
 
@@ -552,7 +554,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 
 | Route | Payload | 返回 |
 |---|---|---|
-| `/api/agents` | `includeChats`、`scope`、`mode` | `response` |
+| `/api/agents` | `includeChats`、`includeTeam`、`scope`、`mode` | `response` |
 | `/api/agent` | `agentKey` | `response` |
 | `/api/agent/model-config` | `agentKey`/`key`、`modelKey`、`reasoningEffort` | `response` |
 | `/api/model-options` | 无 | `response` |

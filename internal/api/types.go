@@ -528,6 +528,31 @@ type AgentSummary struct {
 	Chats                  []ChatSummaryResponse      `json:"chats,omitempty"`
 }
 
+// AgentCatalogSummary is the opt-in, flat union returned by /api/agents when
+// includeTeam is enabled. Agent items use kind=agent and preserve the public
+// AgentSummary fields. Team items use kind=team and populate the Team-specific
+// fields together with the shared Name, Icon, Stats, and Chats fields.
+type AgentCatalogSummary struct {
+	Kind                   string                     `json:"kind"`
+	Key                    string                     `json:"key,omitempty"`
+	Name                   string                     `json:"name"`
+	Icon                   any                        `json:"icon,omitempty"`
+	Mode                   string                     `json:"mode,omitempty"`
+	WorkspaceDir           string                     `json:"workspaceDir,omitempty"`
+	DefaultModelKey        string                     `json:"defaultModelKey,omitempty"`
+	DefaultReasoningEffort string                     `json:"defaultReasoningEffort,omitempty"`
+	ModelConfig            map[string]any             `json:"modelConfig,omitempty"`
+	ModelOptions           *CoderModelOptionsResponse `json:"modelOptions,omitempty"`
+	Role                   string                     `json:"role,omitempty"`
+	Stats                  AgentChatStats             `json:"stats"`
+	Chats                  []ChatSummaryResponse      `json:"chats,omitempty"`
+	TeamID                 string                     `json:"teamId,omitempty"`
+	Description            string                     `json:"description,omitempty"`
+	RuntimeMode            string                     `json:"runtimeMode,omitempty"`
+	AgentKeys              []string                   `json:"agentKeys,omitempty"`
+	Meta                   map[string]any             `json:"meta,omitempty"`
+}
+
 type AgentChatStats struct {
 	TotalCount  int `json:"totalCount"`
 	UnreadCount int `json:"unreadCount"`
