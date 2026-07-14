@@ -263,7 +263,6 @@ type StoredFunction struct {
 type Summary struct {
 	ChatID        string `json:"chatId"`
 	ChatName      string `json:"chatName"`
-	OwnerType     string `json:"ownerType,omitempty"`
 	AgentKey      string `json:"agentKey,omitempty"`
 	AgentMode     string `json:"agentMode,omitempty"`
 	TeamID        string `json:"teamId,omitempty"`
@@ -368,7 +367,6 @@ type UsageData struct {
 type RunCompletion struct {
 	ChatID          string
 	RunID           string
-	OwnerType       string
 	AgentKey        string
 	AgentMode       string
 	TeamID          string
@@ -386,7 +384,6 @@ type RunCompletion struct {
 type RunStart struct {
 	ChatID          string
 	RunID           string
-	OwnerType       string
 	AgentKey        string
 	AgentMode       string
 	TeamID          string
@@ -397,7 +394,6 @@ type RunStart struct {
 type RunSummary struct {
 	RunID           string
 	ChatID          string
-	OwnerType       string
 	AgentKey        string
 	AgentMode       string
 	TeamID          string

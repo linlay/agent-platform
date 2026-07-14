@@ -388,12 +388,6 @@ func TestProxyAgentWithoutModelOmitsModelMetadata(t *testing.T) {
 	if len(summaries.Data) != 1 || summaries.Data[0].Key != "mock-agent" {
 		t.Fatalf("expected mock-agent summary, got %#v", summaries.Data)
 	}
-	if _, exists := summaries.Data[0].Meta["model"]; exists {
-		t.Fatalf("PROXY summary without model key should omit model meta, got %#v", summaries.Data[0].Meta)
-	}
-	if _, exists := summaries.Data[0].Meta["modelKey"]; exists {
-		t.Fatalf("PROXY summary without model key should omit modelKey meta, got %#v", summaries.Data[0].Meta)
-	}
 }
 
 func TestProxyQueryNonStreamAggregatesSSEUpstream(t *testing.T) {

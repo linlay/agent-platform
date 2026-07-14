@@ -28,14 +28,14 @@ func TestTeamOwnedRunControlUsesTeamIDAndHidesExecutionAgent(t *testing.T) {
 	if !ok {
 		t.Fatal("run status not found")
 	}
-	if status.OwnerType != contracts.RunOwnerTypeTeam || status.AgentKey != "" || status.TeamID != "team-a" {
+	if !contracts.IsTeamRunOwner(status.AgentKey, status.TeamID) || status.AgentKey != "" || status.TeamID != "team-a" {
 		t.Fatalf("unexpected public run owner %#v", status)
 	}
 	if status.ExecutionAgentKey != "__team_coordinator" {
 		t.Fatalf("execution agent key = %q", status.ExecutionAgentKey)
 	}
 	public := toAPIActiveRunInfo(status)
-	if public.OwnerType != "team" || public.TeamID != "team-a" || public.AgentKey != "" {
+	if public.TeamID != "team-a" || public.AgentKey != "" {
 		t.Fatalf("unexpected API run owner %#v", public)
 	}
 

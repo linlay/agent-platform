@@ -33,7 +33,6 @@ func completeRunForTest(store *FileStore, completion RunCompletion) error {
 	} else if err := store.OnRunStarted(RunStart{
 		ChatID:          completion.ChatID,
 		RunID:           completion.RunID,
-		OwnerType:       completion.OwnerType,
 		AgentKey:        completion.AgentKey,
 		TeamID:          completion.TeamID,
 		InitialMessage:  completion.InitialMessage,

@@ -344,12 +344,8 @@ func TestAgentsEndpointReturnsCatalogFieldsAndScopeFiltering(t *testing.T) {
 	if strings.Contains(rec.Body.String(), `"wonders"`) {
 		t.Fatalf("agents response should omit wonders from summary, got %s", rec.Body.String())
 	}
-	visibility, ok := coder.Meta["visibility"].(map[string]any)
-	if !ok {
-		t.Fatalf("coder summary should include visibility meta, got %#v", coder.Meta)
-	}
-	if !reflect.DeepEqual(visibility["scopes"], []any{"nav"}) {
-		t.Fatalf("coder visibility scopes = %#v", visibility["scopes"])
+	if strings.Contains(rec.Body.String(), `"meta"`) {
+		t.Fatalf("agents response should omit summary meta, got %s", rec.Body.String())
 	}
 	if strings.Contains(rec.Body.String(), "should stay out") || strings.Contains(rec.Body.String(), `"description"`) || strings.Contains(rec.Body.String(), `"kanban"`) {
 		t.Fatalf("agents response should omit backend fields, got %s", rec.Body.String())
@@ -369,16 +365,6 @@ func TestAgentsEndpointReturnsCatalogFieldsAndScopeFiltering(t *testing.T) {
 	}
 	if containsString(keys, "internal-agent") || containsString(keys, "invoke-agent") || !containsString(keys, "coder-agent") {
 		t.Fatalf("nav scope keys = %#v", keys)
-	}
-	for _, item := range response.Data {
-		visibility, ok := item.Meta["visibility"].(map[string]any)
-		if !ok {
-			t.Fatalf("nav summary should include visibility meta, got %#v", item.Meta)
-		}
-		scopes, _ := visibility["scopes"].([]any)
-		if !containsAnyString(scopes, "nav") {
-			t.Fatalf("nav summary should only include nav-visible agents, got %s scopes %#v", item.Key, scopes)
-		}
 	}
 
 	rec = httptest.NewRecorder()

@@ -514,9 +514,6 @@ func TestAgentDetailIncludesModelOptionsOnlyForACPCoder(t *testing.T) {
 	if acpSummary.DefaultModelKey != "claude-opus-4-6" {
 		t.Fatalf("ACP summary default model should remain local config value, got %#v", acpSummary)
 	}
-	if acpSummary.Meta["modelKey"] != "claude-opus-4-6" {
-		t.Fatalf("ACP summary meta modelKey should remain local config value, got %#v", acpSummary.Meta)
-	}
 	if nativeSummary.ModelOptions != nil || nativeSummary.ModelConfig != nil {
 		t.Fatalf("native agent summary should not include ACP model config/options, got %#v", nativeSummary)
 	}

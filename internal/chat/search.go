@@ -126,8 +126,7 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 	if limit <= 0 {
 		limit = 10
 	}
-	orchestratedTeam := strings.EqualFold(strings.TrimSpace(sum.OwnerType), "team") ||
-		(strings.TrimSpace(sum.TeamID) != "" && strings.TrimSpace(sum.AgentKey) == "")
+	orchestratedTeam := isTeamOwner(sum.AgentKey, sum.TeamID)
 
 	lines, err := readPersistedJSONLines(s.chatJSONLPath(chatID))
 	if err != nil {

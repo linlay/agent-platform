@@ -449,25 +449,31 @@ func buildAgentDigests(registry catalog.Registry) []contracts.AgentDigest {
 	items := registry.Agents("")
 	digests := make([]contracts.AgentDigest, 0, len(items))
 	for _, item := range items {
-		meta := item.Meta
+		def, ok := registry.AgentDefinition(item.Key)
+		if !ok {
+			// A registry may expose a summary while concurrently reloading its
+			// definition. Keep the digest useful from the public summary instead
+			// of relying on the list-only meta payload.
+			def = catalog.AgentDefinition{
+				Mode: item.Mode,
+			}
+		}
 		digest := contracts.AgentDigest{
 			Key:         item.Key,
 			Name:        item.Name,
 			Role:        item.Role,
 			Description: item.Description,
-			Mode:        stringMeta(meta, "mode"),
-			ModelKey:    stringMeta(meta, "model"),
-			Tools:       listMeta(meta, "tools"),
-			Skills:      listMeta(meta, "skills"),
+			Mode:        def.Mode,
+			ModelKey:    def.ModelKey,
+			Tools:       append([]string(nil), def.Tools...),
+			Skills:      append([]string(nil), def.Skills...),
 		}
-		if sandbox, ok := meta["sandbox"].(map[string]any); ok {
-			environmentID := strings.TrimSpace(anyString(sandbox["environmentId"]))
-			level := strings.TrimSpace(anyString(sandbox["level"]))
-			if environmentID != "" || level != "" {
-				digest.Sandbox = &contracts.SandboxDigest{
-					EnvironmentID: environmentID,
-					Level:         level,
-				}
+		environmentID := strings.TrimSpace(anyString(def.Runtime["environmentId"]))
+		level := strings.TrimSpace(anyString(def.Runtime["level"]))
+		if environmentID != "" || level != "" {
+			digest.Sandbox = &contracts.SandboxDigest{
+				EnvironmentID: environmentID,
+				Level:         level,
 			}
 		}
 		digests = append(digests, digest)
@@ -622,32 +628,6 @@ func firstStringClaim(claims map[string]any, keys ...string) string {
 		}
 	}
 	return ""
-}
-
-func listMeta(meta map[string]any, key string) []string {
-	raw, ok := meta[key]
-	if !ok {
-		return nil
-	}
-	switch values := raw.(type) {
-	case []string:
-		return append([]string(nil), values...)
-	case []any:
-		out := make([]string, 0, len(values))
-		for _, value := range values {
-			trimmed := strings.TrimSpace(anyString(value))
-			if trimmed != "" {
-				out = append(out, trimmed)
-			}
-		}
-		return out
-	default:
-		return nil
-	}
-}
-
-func stringMeta(meta map[string]any, key string) string {
-	return strings.TrimSpace(anyString(meta[key]))
 }
 
 func promptContextSandboxMounts(value any) []map[string]any {

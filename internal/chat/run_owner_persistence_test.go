@@ -13,15 +13,14 @@ func TestTeamRunOwnerPersistsWithoutSyntheticAgentKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure team chat: %v", err)
 	}
-	if !created || summary.OwnerType != "team" || summary.AgentKey != "" || summary.AgentMode != "TEAM" || summary.TeamID != "team-a" {
+	if !created || !isTeamOwner(summary.AgentKey, summary.TeamID) || summary.AgentKey != "" || summary.AgentMode != "TEAM" || summary.TeamID != "team-a" {
 		t.Fatalf("unexpected team summary %#v", summary)
 	}
 
 	if err := completeRunForTest(store, RunCompletion{
 		ChatID:          "chat-team-owner",
 		RunID:           "run-team-owner",
-		OwnerType:       "team",
-		AgentKey:        "__team_coordinator",
+		AgentKey:        "",
 		TeamID:          "team-a",
 		AssistantText:   "done",
 		FinishReason:    "complete",
@@ -37,7 +36,7 @@ func TestTeamRunOwnerPersistsWithoutSyntheticAgentKey(t *testing.T) {
 	if len(runs) != 1 {
 		t.Fatalf("runs = %#v", runs)
 	}
-	if runs[0].OwnerType != "team" || runs[0].AgentKey != "" || runs[0].AgentMode != "TEAM" || runs[0].TeamID != "team-a" {
+	if !isTeamOwner(runs[0].AgentKey, runs[0].TeamID) || runs[0].AgentKey != "" || runs[0].AgentMode != "TEAM" || runs[0].TeamID != "team-a" {
 		t.Fatalf("synthetic agent leaked into persisted run %#v", runs[0])
 	}
 
@@ -45,7 +44,7 @@ func TestTeamRunOwnerPersistsWithoutSyntheticAgentKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load team summary: %v", err)
 	}
-	if loaded == nil || loaded.OwnerType != "team" || loaded.AgentKey != "" || loaded.AgentMode != "TEAM" || loaded.TeamID != "team-a" {
+	if loaded == nil || !isTeamOwner(loaded.AgentKey, loaded.TeamID) || loaded.AgentKey != "" || loaded.AgentMode != "TEAM" || loaded.TeamID != "team-a" {
 		t.Fatalf("unexpected reloaded team summary %#v", loaded)
 	}
 }
@@ -69,7 +68,6 @@ func TestTeamRunOwnerSurvivesArchiveAndRestore(t *testing.T) {
 	if err := completeRunForTest(active, RunCompletion{
 		ChatID:          "chat-team-archive",
 		RunID:           "run-team-archive",
-		OwnerType:       "team",
 		TeamID:          "team-a",
 		AssistantText:   "done",
 		FinishReason:    "complete",
@@ -85,10 +83,10 @@ func TestTeamRunOwnerSurvivesArchiveAndRestore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load archived team chat: %v", err)
 	}
-	if archived.Summary.OwnerType != "team" || archived.Summary.AgentKey != "" || archived.Summary.AgentMode != "TEAM" || archived.Summary.TeamID != "team-a" {
+	if !isTeamOwner(archived.Summary.AgentKey, archived.Summary.TeamID) || archived.Summary.AgentKey != "" || archived.Summary.AgentMode != "TEAM" || archived.Summary.TeamID != "team-a" {
 		t.Fatalf("unexpected archived owner %#v", archived.Summary)
 	}
-	if len(archived.Runs) != 1 || archived.Runs[0].OwnerType != "team" || archived.Runs[0].AgentKey != "" || archived.Runs[0].AgentMode != "TEAM" || archived.Runs[0].TeamID != "team-a" {
+	if len(archived.Runs) != 1 || !isTeamOwner(archived.Runs[0].AgentKey, archived.Runs[0].TeamID) || archived.Runs[0].AgentKey != "" || archived.Runs[0].AgentMode != "TEAM" || archived.Runs[0].TeamID != "team-a" {
 		t.Fatalf("unexpected archived runs %#v", archived.Runs)
 	}
 
@@ -96,14 +94,14 @@ func TestTeamRunOwnerSurvivesArchiveAndRestore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("restore team chat: %v", err)
 	}
-	if restored.OwnerType != "team" || restored.AgentKey != "" || restored.AgentMode != "TEAM" || restored.TeamID != "team-a" {
+	if !isTeamOwner(restored.AgentKey, restored.TeamID) || restored.AgentKey != "" || restored.AgentMode != "TEAM" || restored.TeamID != "team-a" {
 		t.Fatalf("unexpected restored owner %#v", restored)
 	}
 	restoredRuns, err := active.ListRuns("chat-team-archive")
 	if err != nil {
 		t.Fatalf("list restored runs: %v", err)
 	}
-	if len(restoredRuns) != 1 || restoredRuns[0].OwnerType != "team" || restoredRuns[0].AgentKey != "" || restoredRuns[0].AgentMode != "TEAM" || restoredRuns[0].TeamID != "team-a" {
+	if len(restoredRuns) != 1 || !isTeamOwner(restoredRuns[0].AgentKey, restoredRuns[0].TeamID) || restoredRuns[0].AgentKey != "" || restoredRuns[0].AgentMode != "TEAM" || restoredRuns[0].TeamID != "team-a" {
 		t.Fatalf("unexpected restored runs %#v", restoredRuns)
 	}
 }

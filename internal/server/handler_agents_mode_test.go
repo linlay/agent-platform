@@ -60,7 +60,7 @@ func TestAgentsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected file chat store, got %T", fixture.chats)
 	}
-	seedAgentModeChat(t, store, "chat-react-agent", "loyw3v28", "mock-agent", "", "agent", "REACT", 1_000)
+	seedAgentModeChat(t, store, "chat-react-agent", "loyw3v28", "mock-agent", "", "REACT", 1_000)
 
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agents?scope=nav&mode=react,unknown&mode=PLAN_EXECUTE&includeChats=1", nil))

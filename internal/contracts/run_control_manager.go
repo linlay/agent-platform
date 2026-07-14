@@ -89,7 +89,6 @@ func (m *InMemoryRunManager) registerLocked(session QuerySession) (context.Conte
 	run := ActiveRun{
 		RunID:             session.RunID,
 		ChatID:            session.ChatID,
-		OwnerType:         owner.Type,
 		AgentKey:          owner.AgentKey,
 		TeamID:            owner.TeamID,
 		ExecutionAgentKey: owner.ExecutionAgentKey,
@@ -248,7 +247,6 @@ func (m *InMemoryRunManager) RunStatus(runID string) (RunStatusInfo, bool) {
 	info := RunStatusInfo{
 		RunID:             state.run.RunID,
 		ChatID:            state.run.ChatID,
-		OwnerType:         state.run.OwnerType,
 		AgentKey:          state.run.AgentKey,
 		TeamID:            state.run.TeamID,
 		ExecutionAgentKey: state.run.ExecutionAgentKey,
@@ -330,7 +328,6 @@ func runStatusInfoFromManagedRun(state *managedRun) RunStatusInfo {
 	info := RunStatusInfo{
 		RunID:             state.run.RunID,
 		ChatID:            state.run.ChatID,
-		OwnerType:         state.run.OwnerType,
 		AgentKey:          state.run.AgentKey,
 		TeamID:            state.run.TeamID,
 		ExecutionAgentKey: state.run.ExecutionAgentKey,

@@ -92,7 +92,6 @@ func mapChatSummariesWithUsage(items []chat.Summary, includeUsage bool) []api.Ch
 		resp := api.ChatSummaryResponse{
 			ChatID:         item.ChatID,
 			ChatName:       item.ChatName,
-			OwnerType:      item.OwnerType,
 			AgentKey:       item.AgentKey,
 			Mode:           item.AgentMode,
 			TeamID:         item.TeamID,

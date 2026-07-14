@@ -498,7 +498,6 @@ type SandboxExecutionResult struct {
 type ActiveRun struct {
 	RunID             string
 	ChatID            string
-	OwnerType         RunOwnerType
 	AgentKey          string
 	TeamID            string
 	ExecutionAgentKey string
@@ -508,7 +507,6 @@ type ActiveRun struct {
 type RunStatusInfo struct {
 	RunID              string
 	ChatID             string
-	OwnerType          RunOwnerType
 	AgentKey           string
 	TeamID             string
 	ExecutionAgentKey  string

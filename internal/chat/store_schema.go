@@ -24,7 +24,6 @@ func (s *FileStore) initDB() error {
 		CREATE TABLE IF NOT EXISTS CHATS (
 			CHAT_ID_          TEXT PRIMARY KEY,
 			CHAT_NAME_        TEXT NOT NULL,
-			OWNER_TYPE_       TEXT NOT NULL DEFAULT '',
 			AGENT_KEY_        TEXT NOT NULL DEFAULT '',
 			AGENT_MODE_       TEXT NOT NULL DEFAULT '',
 			TEAM_ID_          TEXT,
@@ -64,7 +63,6 @@ func (s *FileStore) initDB() error {
 		CREATE TABLE IF NOT EXISTS RUNS (
 			RUN_ID_                  TEXT PRIMARY KEY,
 			CHAT_ID_                 TEXT NOT NULL,
-			OWNER_TYPE_              TEXT NOT NULL DEFAULT '',
 			AGENT_KEY_               TEXT NOT NULL DEFAULT '',
 			AGENT_MODE_              TEXT NOT NULL DEFAULT '',
 			TEAM_ID_                 TEXT,
@@ -101,7 +99,9 @@ func (s *FileStore) initDB() error {
 		return fmt.Errorf("create chats table: %w", err)
 	}
 
-	s.migrateRunOwnerColumns()
+	if err := s.migrateRemoveOwnerTypeColumns(); err != nil {
+		return err
+	}
 	s.migrateAddUsageColumns()
 	if err := s.migrateAwaitingColumns(); err != nil {
 		return err
@@ -118,6 +118,8 @@ func (s *FileStore) initDB() error {
 }
 
 func (s *FileStore) migrateAgentModeColumns() {
+	_, _ = s.db.Exec("ALTER TABLE CHATS ADD COLUMN TEAM_ID_ TEXT")
+	_, _ = s.db.Exec("ALTER TABLE RUNS ADD COLUMN TEAM_ID_ TEXT")
 	_, _ = s.db.Exec("ALTER TABLE CHATS ADD COLUMN AGENT_MODE_ TEXT NOT NULL DEFAULT ''")
 	_, _ = s.db.Exec("ALTER TABLE RUNS ADD COLUMN AGENT_MODE_ TEXT NOT NULL DEFAULT ''")
 	_, _ = s.db.Exec("CREATE INDEX IF NOT EXISTS IDX_CHATS_AGENT_MODE_UPDATED_ ON CHATS(AGENT_MODE_, UPDATED_AT_ DESC, CHAT_ID_ DESC)")
@@ -131,21 +133,58 @@ func (s *FileStore) migrateLastRunAtColumn() {
 	_, _ = s.db.Exec("ALTER TABLE CHATS ADD COLUMN LAST_RUN_AT_ INTEGER NOT NULL DEFAULT 0")
 }
 
-func (s *FileStore) migrateRunOwnerColumns() {
-	_, _ = s.db.Exec("ALTER TABLE CHATS ADD COLUMN OWNER_TYPE_ TEXT NOT NULL DEFAULT ''")
-	_, _ = s.db.Exec("ALTER TABLE RUNS ADD COLUMN OWNER_TYPE_ TEXT NOT NULL DEFAULT ''")
-	_, _ = s.db.Exec("ALTER TABLE RUNS ADD COLUMN TEAM_ID_ TEXT")
-	_, _ = s.db.Exec(`UPDATE CHATS SET OWNER_TYPE_=CASE
-		WHEN TRIM(COALESCE(AGENT_KEY_,''))='' AND TRIM(COALESCE(TEAM_ID_,''))<>'' THEN 'team'
-		ELSE 'agent' END
-		WHERE TRIM(COALESCE(OWNER_TYPE_,''))=''`)
-	_, _ = s.db.Exec(`UPDATE RUNS SET TEAM_ID_=(SELECT TEAM_ID_ FROM CHATS WHERE CHATS.CHAT_ID_=RUNS.CHAT_ID_)
-		WHERE TRIM(COALESCE(TEAM_ID_,''))=''`)
-	_, _ = s.db.Exec(`UPDATE RUNS SET OWNER_TYPE_=COALESCE((SELECT CASE
-		WHEN TRIM(COALESCE(CHATS.OWNER_TYPE_,''))<>'' THEN CHATS.OWNER_TYPE_
-		WHEN TRIM(COALESCE(CHATS.AGENT_KEY_,''))='' AND TRIM(COALESCE(CHATS.TEAM_ID_,''))<>'' THEN 'team'
-		ELSE 'agent' END FROM CHATS WHERE CHATS.CHAT_ID_=RUNS.CHAT_ID_), 'agent')
-		WHERE TRIM(COALESCE(OWNER_TYPE_,''))=''`)
+func (s *FileStore) migrateRemoveOwnerTypeColumns() error {
+	return dropOwnerTypeColumns(s.db, "CHATS", "RUNS")
+}
+
+func dropOwnerTypeColumns(db *sql.DB, tables ...string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin owner type migration: %w", err)
+	}
+	for _, table := range tables {
+		hasColumn, err := tableHasColumn(tx, table, "OWNER_TYPE_")
+		if err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		if !hasColumn {
+			continue
+		}
+		if _, err := tx.Exec("ALTER TABLE " + table + " DROP COLUMN OWNER_TYPE_"); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("drop %s.OWNER_TYPE_: %w", table, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit owner type migration: %w", err)
+	}
+	return nil
+}
+
+type tableInfoQuerier interface {
+	Query(query string, args ...any) (*sql.Rows, error)
+}
+
+func tableHasColumn(queryer tableInfoQuerier, table string, column string) (bool, error) {
+	rows, err := queryer.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull, primaryKey int
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 func (s *FileStore) migrateAddUsageColumns() {

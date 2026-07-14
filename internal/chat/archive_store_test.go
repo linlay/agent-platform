@@ -62,6 +62,86 @@ func TestArchiveStoreMigratesAgentModeColumnsWithoutBackfill(t *testing.T) {
 	}
 }
 
+func TestOwnerTypeColumnsArePhysicallyRemovedFromActiveAndArchiveStores(t *testing.T) {
+	root := t.TempDir()
+	active, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("new active store: %v", err)
+	}
+	if _, _, err := active.EnsureChat("chat-owner-migration", "agent-a", "", "question"); err != nil {
+		t.Fatalf("ensure active chat: %v", err)
+	}
+	if err := active.OnRunStarted(RunStart{
+		ChatID: "chat-owner-migration", RunID: "run-owner-migration", AgentKey: "agent-a", InitialMessage: "question", StartedAtMillis: testEpochMillis(1000),
+	}); err != nil {
+		t.Fatalf("start active run: %v", err)
+	}
+	if err := active.OnRunCompleted(RunCompletion{
+		ChatID: "chat-owner-migration", RunID: "run-owner-migration", AgentKey: "agent-a", InitialMessage: "question", AssistantText: "active answer", FinishReason: "complete", StartedAtMillis: testEpochMillis(1000), UpdatedAtMillis: testEpochMillis(2000),
+	}); err != nil {
+		t.Fatalf("complete active run: %v", err)
+	}
+	for _, table := range []string{"CHATS", "RUNS"} {
+		if _, err := active.db.Exec("ALTER TABLE " + table + " ADD COLUMN OWNER_TYPE_ TEXT NOT NULL DEFAULT 'agent'"); err != nil {
+			t.Fatalf("add legacy %s owner type: %v", table, err)
+		}
+	}
+	if err := active.Close(); err != nil {
+		t.Fatalf("close active store: %v", err)
+	}
+
+	active, err = NewFileStore(root)
+	if err != nil {
+		t.Fatalf("migrate active store: %v", err)
+	}
+	defer active.Close()
+	for _, table := range []string{"CHATS", "RUNS"} {
+		if sqliteColumnNames(t, active.db, table)["OWNER_TYPE_"] {
+			t.Fatalf("%s retained obsolete OWNER_TYPE_ column", table)
+		}
+	}
+	if summary, err := active.Summary("chat-owner-migration"); err != nil || summary == nil || summary.AgentKey != "agent-a" {
+		t.Fatalf("active summary after migration = %#v, %v", summary, err)
+	}
+	if runs, err := active.ListRuns("chat-owner-migration"); err != nil || len(runs) != 1 || runs[0].AgentKey != "agent-a" {
+		t.Fatalf("active runs after migration = %#v, %v", runs, err)
+	}
+
+	archives, err := NewArchiveStore(root)
+	if err != nil {
+		t.Fatalf("new archive store: %v", err)
+	}
+	archived := testArchivedChat("chat-owner-archive-migration", "agent-a", "Owner migration", "archive migration answer")
+	if err := archives.ArchiveChat(archived); err != nil {
+		t.Fatalf("archive chat: %v", err)
+	}
+	for _, table := range []string{"ARCHIVED_CHATS", "ARCHIVED_RUNS"} {
+		if _, err := archives.db.Exec("ALTER TABLE " + table + " ADD COLUMN OWNER_TYPE_ TEXT NOT NULL DEFAULT 'agent'"); err != nil {
+			t.Fatalf("add legacy %s owner type: %v", table, err)
+		}
+	}
+	if err := archives.db.Close(); err != nil {
+		t.Fatalf("close archive store: %v", err)
+	}
+
+	archives, err = NewArchiveStore(root)
+	if err != nil {
+		t.Fatalf("migrate archive store: %v", err)
+	}
+	defer archives.db.Close()
+	for _, table := range []string{"ARCHIVED_CHATS", "ARCHIVED_RUNS"} {
+		if sqliteColumnNames(t, archives.db, table)["OWNER_TYPE_"] {
+			t.Fatalf("%s retained obsolete OWNER_TYPE_ column", table)
+		}
+	}
+	if loaded, err := archives.LoadArchived("chat-owner-archive-migration"); err != nil || loaded.Summary.AgentKey != "agent-a" || len(loaded.Runs) != 1 {
+		t.Fatalf("archive load after migration = %#v, %v", loaded, err)
+	}
+	if hits, err := archives.SearchArchived("migration answer", "agent-a", 10); err != nil || len(hits) != 1 || hits[0].ChatID != "chat-owner-archive-migration" {
+		t.Fatalf("archive FTS after migration = %#v, %v", hits, err)
+	}
+}
+
 func TestArchiveJSONLRejectsUnsupportedSystemSchema(t *testing.T) {
 	_, err := readJSONLinesContent(`{"_type":"query","chatId":"chat-archive-invalid","runId":"run-1","updatedAt":1700000001000,"systems":[]}` + "\n")
 	if err == nil || !strings.Contains(err.Error(), "unsupported system schema field=systems") || !strings.Contains(err.Error(), "chatId=chat-archive-invalid") || !strings.Contains(err.Error(), "runId=run-1") {

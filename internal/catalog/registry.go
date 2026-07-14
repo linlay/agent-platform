@@ -419,20 +419,6 @@ func (r *FileRegistry) Agents(scope string) []api.AgentSummary {
 			continue
 		}
 		apiMode := AgentModeForAPI(def.Mode)
-		meta := map[string]any{
-			"mode":        apiMode,
-			"tools":       append([]string(nil), def.Tools...),
-			"toolsCount":  len(def.Tools),
-			"skills":      append([]string(nil), def.Skills...),
-			"skillsCount": len(def.Skills),
-			"visibility": map[string]any{
-				"scopes": EffectiveAgentVisibilityScopes(def),
-			},
-		}
-		if modelKey := strings.TrimSpace(def.ModelKey); modelKey != "" {
-			meta["model"] = modelKey
-			meta["modelKey"] = modelKey
-		}
 		summary := api.AgentSummary{
 			Key:          def.Key,
 			Name:         def.Name,
@@ -441,55 +427,6 @@ func (r *FileRegistry) Agents(scope string) []api.AgentSummary {
 			WorkspaceDir: def.Workspace.Root,
 			Description:  def.Description,
 			Role:         def.Role,
-			Meta:         meta,
-		}
-		if strings.TrimSpace(def.ACPBridgeID) != "" {
-			summary.Meta["acpBridgeId"] = strings.TrimSpace(def.ACPBridgeID)
-		}
-		if strings.TrimSpace(def.Workspace.Root) != "" {
-			summary.Meta["workspace"] = map[string]any{
-				"root": def.Workspace.Root,
-			}
-		}
-		if len(def.Project.PromptFiles) > 0 || strings.TrimSpace(def.Project.Git.ExpectedBranch) != "" {
-			projectMeta := map[string]any{}
-			if promptFiles := projectPromptFilesMeta(def.Project.PromptFiles); len(promptFiles) > 0 {
-				projectMeta["promptFiles"] = promptFiles
-			}
-			if strings.TrimSpace(def.Project.Git.ExpectedBranch) != "" {
-				projectMeta["git"] = map[string]any{
-					"expectedBranch": def.Project.Git.ExpectedBranch,
-				}
-			}
-			summary.Meta["project"] = projectMeta
-		}
-		if def.ProxyConfig != nil {
-			protocol := strings.ToLower(strings.TrimSpace(def.ProxyConfig.Protocol))
-			if protocol == "" {
-				protocol = "agw-platform"
-			}
-			summary.Meta["proxy"] = map[string]any{
-				"protocol":  protocol,
-				"transport": normalizeProxyTransport(def.ProxyConfig.Transport),
-			}
-		}
-		if channelMeta := agentChannelConfigMeta(def.ChannelConfig, def.Key); len(channelMeta) > 0 {
-			summary.Meta["channelConfig"] = channelMeta
-		}
-		if len(def.ContextTags) > 0 {
-			summary.Meta["contextTags"] = append([]string(nil), def.ContextTags...)
-		}
-		if len(def.ContextAgents) > 0 {
-			summary.Meta["contextAgents"] = append([]string(nil), def.ContextAgents...)
-		}
-		if def.Budget != nil {
-			summary.Meta["budget"] = contracts.CloneMap(def.Budget)
-		}
-		if def.StageSettings != nil {
-			summary.Meta["stageSettings"] = contracts.CloneMap(def.StageSettings)
-		}
-		if hasRuntimeSandboxDefinition(def.Runtime) {
-			summary.Meta["sandbox"] = runtimeSandboxSummaryMeta(def.Runtime)
 		}
 		if strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeCoder) {
 			summary.DefaultModelKey, summary.DefaultReasoningEffort = agentSummaryCoderDefaults(def)

@@ -8,7 +8,6 @@ var ErrChatAlreadyActive = errors.New("active chat already exists")
 type ArchivedSummary struct {
 	ChatID         string `json:"chatId"`
 	ChatName       string `json:"chatName"`
-	OwnerType      string `json:"ownerType,omitempty"`
 	AgentKey       string `json:"agentKey,omitempty"`
 	AgentMode      string `json:"agentMode,omitempty"`
 	TeamID         string `json:"teamId,omitempty"`

@@ -98,7 +98,7 @@ func TestOrchestratedTeamFanoutEndToEnd(t *testing.T) {
 		t.Fatalf("request.query leaked coordinator key %q", key)
 	}
 	runStart := findSSEMessageByType(t, messages, "run.start")
-	if runStart["ownerType"] != "team" || runStart["teamId"] != "research" {
+	if _, present := runStart["ownerType"]; present || runStart["teamId"] != "research" {
 		t.Fatalf("run.start owner=%#v", runStart)
 	}
 
@@ -155,14 +155,14 @@ func TestOrchestratedTeamFanoutEndToEnd(t *testing.T) {
 	if err != nil || summary == nil {
 		t.Fatalf("summary=%#v err=%v", summary, err)
 	}
-	if summary.OwnerType != "team" || summary.TeamID != "research" || summary.AgentKey != "" || summary.LastRunContent != "Team summary" {
+	if !contracts.IsTeamRunOwner(summary.AgentKey, summary.TeamID) || summary.TeamID != "research" || summary.AgentKey != "" || summary.LastRunContent != "Team summary" {
 		t.Fatalf("unexpected Team chat summary %#v", summary)
 	}
 	runs, err := fixture.chats.ListRuns("chat-team-e2e")
 	if err != nil || len(runs) != 1 {
 		t.Fatalf("runs=%#v err=%v", runs, err)
 	}
-	if runs[0].OwnerType != "team" || runs[0].TeamID != "research" || runs[0].AgentKey != "" || runs[0].AssistantText != "Team summary" {
+	if !contracts.IsTeamRunOwner(runs[0].AgentKey, runs[0].TeamID) || runs[0].TeamID != "research" || runs[0].AgentKey != "" || runs[0].AssistantText != "Team summary" {
 		t.Fatalf("unexpected Team run %#v", runs[0])
 	}
 	jsonl, err := fixture.chats.LoadJSONLContent("chat-team-e2e")

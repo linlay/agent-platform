@@ -108,24 +108,24 @@ func TestFileStorePersistsAndFiltersAgentModes(t *testing.T) {
 	if _, _, err := store.EnsureChatWithSourceAndMode("chat-react", "agent-react", "", "react", "", "oneshot"); err != nil {
 		t.Fatalf("ensure react chat: %v", err)
 	}
-	persistAgentModeRun(t, store, "chat-react", "loyw3v28", "agent-react", "", "agent", "REACT", 1_000)
+	persistAgentModeRun(t, store, "chat-react", "loyw3v28", "agent-react", "", "REACT", 1_000)
 	if _, _, err := store.EnsureChatWithSourceAndMode("chat-plan", "agent-plan", "", "plan", "", "PLAN_EXECUTE"); err != nil {
 		t.Fatalf("ensure plan chat: %v", err)
 	}
-	persistAgentModeRun(t, store, "chat-plan", "loyw3v29", "agent-plan", "", "agent", "PLAN-EXECUTE", 3_000)
+	persistAgentModeRun(t, store, "chat-plan", "loyw3v29", "agent-plan", "", "PLAN-EXECUTE", 3_000)
 	if _, _, err := store.EnsureChatWithSourceAndMode("chat-team", "", "team-a", "team", "", "REACT"); err != nil {
 		t.Fatalf("ensure team chat: %v", err)
 	}
-	persistAgentModeRun(t, store, "chat-team", "loyw3v2a", "__team_coordinator", "team-a", "team", "REACT", 2_000)
+	persistAgentModeRun(t, store, "chat-team", "loyw3v2a", "", "team-a", "REACT", 2_000)
 
 	if _, _, err := store.EnsureChatWithSourceAndMode("chat-switch", "agent-old", "legacy team", "legacy", "", "REACT"); err != nil {
 		t.Fatalf("ensure legacy team chat: %v", err)
 	}
-	persistAgentModeRun(t, store, "chat-switch", "loyw3v2b", "agent-old", "legacy team", "agent", "REACT", 4_000)
+	persistAgentModeRun(t, store, "chat-switch", "loyw3v2b", "agent-old", "legacy team", "REACT", 4_000)
 	if err := store.UpdateAgentIdentity("chat-switch", "agent-new", "CODER"); err != nil {
 		t.Fatalf("switch legacy team member: %v", err)
 	}
-	persistAgentModeRun(t, store, "chat-switch", "loyw3v2c", "agent-new", "legacy team", "agent", "CODER", 5_000)
+	persistAgentModeRun(t, store, "chat-switch", "loyw3v2c", "agent-new", "legacy team", "CODER", 5_000)
 
 	history, err := store.Summary("chat-history")
 	if err != nil || history == nil || history.AgentMode != "" {
@@ -165,13 +165,12 @@ func TestFileStorePersistsAndFiltersAgentModes(t *testing.T) {
 	}
 }
 
-func persistAgentModeRun(t *testing.T, store *FileStore, chatID string, runID string, agentKey string, teamID string, ownerType string, agentMode string, offset int64) {
+func persistAgentModeRun(t *testing.T, store *FileStore, chatID string, runID string, agentKey string, teamID string, agentMode string, offset int64) {
 	t.Helper()
 	startedAt := testEpochMillis(offset)
 	if err := store.OnRunStarted(RunStart{
 		ChatID:          chatID,
 		RunID:           runID,
-		OwnerType:       ownerType,
 		AgentKey:        agentKey,
 		AgentMode:       agentMode,
 		TeamID:          teamID,
@@ -183,7 +182,6 @@ func persistAgentModeRun(t *testing.T, store *FileStore, chatID string, runID st
 	if err := store.OnRunCompleted(RunCompletion{
 		ChatID:          chatID,
 		RunID:           runID,
-		OwnerType:       ownerType,
 		AgentKey:        agentKey,
 		AgentMode:       agentMode,
 		TeamID:          teamID,
@@ -568,7 +566,6 @@ func TestFileStoreAddsRunsUsageColumns(t *testing.T) {
 	defer db.Close()
 	columns := sqliteColumnNames(t, db, "RUNS")
 	for _, col := range []string{
-		"OWNER_TYPE_",
 		"TEAM_ID_",
 		"AGENT_MODE_",
 		"USAGE_MODEL_KEY_",
@@ -625,7 +622,6 @@ func TestFileStoreAddsChatsUsageTimingColumns(t *testing.T) {
 	defer db.Close()
 	columns := sqliteColumnNames(t, db, "CHATS")
 	for _, col := range []string{
-		"OWNER_TYPE_",
 		"AGENT_MODE_",
 		"USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_",
 		"USAGE_FIRST_TOKEN_LATENCY_COUNT_",

@@ -66,7 +66,7 @@ func TestTeamAwaitingNotificationUsesPublicOwner(t *testing.T) {
 		t.Fatalf("notifications=%#v", payloads)
 	}
 	payload := payloads[0]
-	if payload["ownerType"] != "team" || payload["teamId"] != "research" {
+	if _, present := payload["ownerType"]; present || payload["teamId"] != "research" {
 		t.Fatalf("Team awaiting owner=%#v", payload)
 	}
 	if _, leaked := payload["agentKey"]; leaked {

@@ -47,8 +47,7 @@ func (s *Server) validateRunAgentKey(runID string, agentKey string) *statusError
 func validateRunStatusOwner(status contracts.RunStatusInfo, agentKey string, teamID string) *statusError {
 	agentKey = strings.TrimSpace(agentKey)
 	teamID = strings.TrimSpace(teamID)
-	ownerType := status.OwnerType
-	if ownerType == contracts.RunOwnerTypeTeam {
+	if contracts.IsTeamRunOwner(status.AgentKey, status.TeamID) {
 		if teamID == "" {
 			return &statusError{status: http.StatusBadRequest, message: "teamId is required"}
 		}
@@ -61,8 +60,6 @@ func validateRunStatusOwner(status contracts.RunStatusInfo, agentKey string, tea
 		return nil
 	}
 
-	// Empty OwnerType is treated as agent for compatibility with older run
-	// manager implementations and server test doubles.
 	if agentKey == "" {
 		return &statusError{status: http.StatusBadRequest, message: "agentKey is required"}
 	}
@@ -127,13 +124,10 @@ func runStatusOwnerFromChatSummary(summary *chat.Summary) contracts.RunStatusInf
 		return contracts.RunStatusInfo{}
 	}
 	status := contracts.RunStatusInfo{
-		OwnerType: contracts.RunOwnerTypeAgent,
-		AgentKey:  strings.TrimSpace(summary.AgentKey),
-		TeamID:    strings.TrimSpace(summary.TeamID),
+		AgentKey: strings.TrimSpace(summary.AgentKey),
+		TeamID:   strings.TrimSpace(summary.TeamID),
 	}
-	if strings.EqualFold(strings.TrimSpace(summary.OwnerType), string(contracts.RunOwnerTypeTeam)) ||
-		(status.AgentKey == "" && status.TeamID != "") {
-		status.OwnerType = contracts.RunOwnerTypeTeam
+	if contracts.IsTeamRunOwner(status.AgentKey, status.TeamID) {
 		status.AgentKey = ""
 	}
 	return status

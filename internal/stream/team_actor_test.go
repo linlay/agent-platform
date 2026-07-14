@@ -3,7 +3,7 @@ package stream
 import "testing"
 
 func TestTeamMemberContentCarriesActorAndPresentation(t *testing.T) {
-	dispatcher := NewDispatcher(StreamRequest{RunID: "run-team", ChatID: "chat-team", TeamID: "team-a", OwnerType: "team"})
+	dispatcher := NewDispatcher(StreamRequest{RunID: "run-team", ChatID: "chat-team", TeamID: "team-a"})
 	events := dispatcher.Dispatch(ContentDelta{
 		ContentID: "content-a", Delta: "hello", TaskID: "task-a",
 		ActorType: "agent", TeamID: "team-a", AgentKey: "writer", Presentation: "reply",
@@ -23,7 +23,7 @@ func TestTeamMemberContentCarriesActorAndPresentation(t *testing.T) {
 }
 
 func TestTeamBootstrapUsesPublicOwnerWithoutExecutionAgentKey(t *testing.T) {
-	assembler := NewAssembler(StreamRequest{RunID: "run-team", ChatID: "chat-team", TeamID: "team-a", OwnerType: "team", Message: "hello", Role: "user"})
+	assembler := NewAssembler(StreamRequest{RunID: "run-team", ChatID: "chat-team", TeamID: "team-a", Message: "hello", Role: "user"})
 	events := assembler.Bootstrap()
 	if len(events) < 2 {
 		t.Fatalf("events=%#v", events)
@@ -42,7 +42,7 @@ func TestTeamBootstrapUsesPublicOwnerWithoutExecutionAgentKey(t *testing.T) {
 }
 
 func TestTeamTaskTerminalCarriesActorAndPresentation(t *testing.T) {
-	dispatcher := NewDispatcher(StreamRequest{RunID: "run-team", ChatID: "chat-team", TeamID: "team-a", OwnerType: "team"})
+	dispatcher := NewDispatcher(StreamRequest{RunID: "run-team", ChatID: "chat-team", TeamID: "team-a"})
 	events := dispatcher.Dispatch(TaskComplete{TaskID: "task-a", TeamID: "team-a", AgentKey: "writer", Presentation: "task"})
 	if len(events) != 1 || events[0].Type != "task.complete" {
 		t.Fatalf("events=%#v", events)

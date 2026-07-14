@@ -12,7 +12,6 @@ type StreamRequest struct {
 	ChatName        string
 	AgentKey        string
 	TeamID          string
-	OwnerType       string
 	Message         string
 	Role            string
 	Scene           *SceneRef
@@ -158,9 +157,6 @@ func (a *StreamEventAssembler) BootstrapWithRaw() ([]StreamEvent, []StreamEvent)
 		"chatId":   a.request.ChatID,
 		"agentKey": a.request.AgentKey,
 		"teamId":   a.request.TeamID,
-	}
-	if a.request.OwnerType != "" {
-		runStart["ownerType"] = a.request.OwnerType
 	}
 	runStartEvent := NewEvent("run.start", runStart)
 	if a.request.StartedAtMillis != 0 {

@@ -792,7 +792,6 @@ func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEv
 			Title: prepared.req.Scene.Title,
 		}
 	}
-	owner := contracts.ResolveRunOwner(prepared.session.RunOwner, prepared.session.AgentKey, prepared.session.TeamID)
 	assembler := stream.NewAssembler(stream.StreamRequest{
 		RequestID:          prepared.req.RequestID,
 		RunID:              prepared.req.RunID,
@@ -800,7 +799,6 @@ func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEv
 		ChatName:           prepared.summary.ChatName,
 		AgentKey:           prepared.req.AgentKey,
 		TeamID:             prepared.req.TeamID,
-		OwnerType:          string(owner.Type),
 		Message:            prepared.req.Message,
 		Role:               role,
 		Scene:              sceneRef,

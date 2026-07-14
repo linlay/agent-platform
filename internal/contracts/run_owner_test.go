@@ -7,8 +7,8 @@ import (
 
 func TestResolveRunOwnerPreservesLegacyAgentOwnedTeam(t *testing.T) {
 	owner := ResolveRunOwner(RunOwner{}, "member-a", "team-a")
-	if owner.Type != RunOwnerTypeAgent {
-		t.Fatalf("owner type = %q, want %q", owner.Type, RunOwnerTypeAgent)
+	if owner.IsTeam() {
+		t.Fatalf("legacy team owner should remain agent-owned: %#v", owner)
 	}
 	if owner.AgentKey != "member-a" || owner.TeamID != "team-a" || owner.ExecutionAgentKey != "member-a" {
 		t.Fatalf("unexpected legacy owner %#v", owner)
@@ -17,8 +17,8 @@ func TestResolveRunOwnerPreservesLegacyAgentOwnedTeam(t *testing.T) {
 
 func TestResolveRunOwnerSeparatesTeamOwnerFromExecutionAgent(t *testing.T) {
 	owner := ResolveRunOwner(TeamRunOwner("team-a", ""), "__team_coordinator", "team-a")
-	if owner.Type != RunOwnerTypeTeam {
-		t.Fatalf("owner type = %q, want %q", owner.Type, RunOwnerTypeTeam)
+	if !owner.IsTeam() {
+		t.Fatalf("orchestrated team owner was not derived from identity: %#v", owner)
 	}
 	if owner.AgentKey != "" || owner.TeamID != "team-a" || owner.ExecutionAgentKey != "__team_coordinator" {
 		t.Fatalf("unexpected team owner %#v", owner)
@@ -34,7 +34,7 @@ func TestRunManagerStatusKeepsTeamCoordinatorPrivate(t *testing.T) {
 		TeamID:   "team-a",
 		RunOwner: TeamRunOwner("team-a", "__team_coordinator"),
 	})
-	if active.OwnerType != RunOwnerTypeTeam || active.AgentKey != "" || active.TeamID != "team-a" {
+	if !IsTeamRunOwner(active.AgentKey, active.TeamID) || active.AgentKey != "" || active.TeamID != "team-a" {
 		t.Fatalf("unexpected active run %#v", active)
 	}
 	if active.ExecutionAgentKey != "__team_coordinator" {
@@ -45,7 +45,7 @@ func TestRunManagerStatusKeepsTeamCoordinatorPrivate(t *testing.T) {
 	if !ok {
 		t.Fatal("team run status not found")
 	}
-	if status.OwnerType != RunOwnerTypeTeam || status.AgentKey != "" || status.TeamID != "team-a" {
+	if !IsTeamRunOwner(status.AgentKey, status.TeamID) || status.AgentKey != "" || status.TeamID != "team-a" {
 		t.Fatalf("unexpected run status %#v", status)
 	}
 	if status.ExecutionAgentKey != "__team_coordinator" {

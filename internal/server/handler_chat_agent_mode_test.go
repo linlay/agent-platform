@@ -29,9 +29,9 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected file chat store, got %T", fixture.chats)
 	}
-	seedAgentModeChat(t, store, "chat-react", "loyw3v28", "agent-react", "", "agent", "REACT", 1_000)
-	seedAgentModeChat(t, store, "chat-plan", "loyw3v29", "agent-plan", "", "agent", "PLAN_EXECUTE", 2_000)
-	seedAgentModeChat(t, store, "chat-team", "loyw3v2a", "", "team-a", "team", "REACT", 3_000)
+	seedAgentModeChat(t, store, "chat-react", "loyw3v28", "agent-react", "", "REACT", 1_000)
+	seedAgentModeChat(t, store, "chat-plan", "loyw3v29", "agent-plan", "", "PLAN_EXECUTE", 2_000)
+	seedAgentModeChat(t, store, "chat-team", "loyw3v2a", "", "team-a", "REACT", 3_000)
 	if _, _, err := store.EnsureChat("chat-history", "agent-history", "", "legacy"); err != nil {
 		t.Fatalf("ensure historical chat: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	}
 }
 
-func seedAgentModeChat(t *testing.T, store *chat.FileStore, chatID string, runID string, agentKey string, teamID string, ownerType string, agentMode string, offset int64) {
+func seedAgentModeChat(t *testing.T, store *chat.FileStore, chatID string, runID string, agentKey string, teamID string, agentMode string, offset int64) {
 	t.Helper()
 	if _, _, err := store.EnsureChatWithSourceAndMode(chatID, agentKey, teamID, "question", "", agentMode); err != nil {
 		t.Fatalf("ensure %s: %v", chatID, err)
@@ -149,7 +149,6 @@ func seedAgentModeChat(t *testing.T, store *chat.FileStore, chatID string, runID
 	if err := store.OnRunStarted(chat.RunStart{
 		ChatID:          chatID,
 		RunID:           runID,
-		OwnerType:       ownerType,
 		AgentKey:        agentKey,
 		AgentMode:       agentMode,
 		TeamID:          teamID,
@@ -161,7 +160,6 @@ func seedAgentModeChat(t *testing.T, store *chat.FileStore, chatID string, runID
 	if err := store.OnRunCompleted(chat.RunCompletion{
 		ChatID:          chatID,
 		RunID:           runID,
-		OwnerType:       ownerType,
 		AgentKey:        agentKey,
 		AgentMode:       agentMode,
 		TeamID:          teamID,

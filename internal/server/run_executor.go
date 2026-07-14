@@ -950,8 +950,7 @@ func decorateNotificationRunOwner(payload map[string]any, session contracts.Quer
 		return
 	}
 	owner := contracts.ResolveRunOwner(session.RunOwner, session.AgentKey, session.TeamID)
-	payload["ownerType"] = string(owner.Type)
-	if owner.Type == contracts.RunOwnerTypeTeam {
+	if owner.IsTeam() {
 		payload["teamId"] = owner.TeamID
 		return
 	}
@@ -1059,7 +1058,6 @@ func persistRunCompletionWithReason(params RunExecutorParams, assistantText stri
 	completion := chat.RunCompletion{
 		ChatID:          params.Session.ChatID,
 		RunID:           params.Session.RunID,
-		OwnerType:       string(owner.Type),
 		AgentKey:        owner.AgentKey,
 		AgentMode:       params.Session.Mode,
 		TeamID:          owner.TeamID,

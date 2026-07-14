@@ -526,7 +526,6 @@ type AgentSummary struct {
 	Role                   string                     `json:"role,omitempty"`
 	Stats                  AgentChatStats             `json:"stats"`
 	Chats                  []ChatSummaryResponse      `json:"chats,omitempty"`
-	Meta                   map[string]any             `json:"meta,omitempty"`
 }
 
 type AgentChatStats struct {
@@ -1128,7 +1127,6 @@ type ToolDetailResponse struct {
 type ChatSummaryResponse struct {
 	ChatID         string         `json:"chatId"`
 	ChatName       string         `json:"chatName"`
-	OwnerType      string         `json:"ownerType,omitempty"`
 	AgentKey       string         `json:"agentKey,omitempty"`
 	Mode           string         `json:"mode,omitempty"`
 	TeamID         string         `json:"teamId,omitempty"`
@@ -1272,7 +1270,6 @@ type ArchivedChatDetailResponse struct {
 type RunSummary struct {
 	RunID           string        `json:"runId"`
 	ChatID          string        `json:"chatId"`
-	OwnerType       string        `json:"ownerType,omitempty"`
 	AgentKey        string        `json:"agentKey,omitempty"`
 	Mode            string        `json:"mode,omitempty"`
 	TeamID          string        `json:"teamId,omitempty"`
@@ -1289,7 +1286,6 @@ type RunSummary struct {
 
 type ActiveRunInfo struct {
 	RunID        string `json:"runId"`
-	OwnerType    string `json:"ownerType,omitempty"`
 	AgentKey     string `json:"agentKey,omitempty"`
 	TeamID       string `json:"teamId,omitempty"`
 	State        string `json:"state"`

@@ -154,8 +154,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 	runs := map[string]*chatRunData{}
 	var runOrder []string
 	var chatStartEvent *stream.EventData
-	orchestratedTeam := strings.EqualFold(strings.TrimSpace(summary.OwnerType), "team") ||
-		(strings.TrimSpace(summary.TeamID) != "" && strings.TrimSpace(summary.AgentKey) == "")
+	orchestratedTeam := isTeamOwner(summary.AgentKey, summary.TeamID)
 
 	seq := int64(0)
 	nextSeq := func() int64 { seq++; return seq }

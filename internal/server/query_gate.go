@@ -224,9 +224,8 @@ func (s *Server) registeredQueryRun(runCtx context.Context, control *contracts.R
 		if err := recorder.OnRunStarted(chat.RunStart{
 			ChatID:          prepared.req.ChatID,
 			RunID:           runID,
-			OwnerType:       prepared.summary.OwnerType,
 			AgentKey:        prepared.req.AgentKey,
-			AgentMode:       chatAgentMode(prepared.agentDef, strings.EqualFold(prepared.summary.OwnerType, "team")),
+			AgentMode:       chatAgentMode(prepared.agentDef, contracts.IsTeamRunOwner(prepared.req.AgentKey, prepared.req.TeamID)),
 			TeamID:          prepared.req.TeamID,
 			InitialMessage:  prepared.req.Message,
 			StartedAtMillis: status.StartedAt,

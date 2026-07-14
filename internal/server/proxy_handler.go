@@ -133,9 +133,8 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 		if err := recorder.OnRunStarted(chat.RunStart{
 			ChatID:          req.ChatID,
 			RunID:           req.RunID,
-			OwnerType:       prepared.summary.OwnerType,
 			AgentKey:        req.AgentKey,
-			AgentMode:       chatAgentMode(agentDef, false),
+			AgentMode:       chatAgentMode(agentDef, strings.TrimSpace(req.AgentKey) == "" && strings.TrimSpace(req.TeamID) != ""),
 			TeamID:          req.TeamID,
 			InitialMessage:  req.Message,
 			StartedAtMillis: startedAt,
@@ -436,9 +435,8 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 		completion := chat.RunCompletion{
 			ChatID:          req.ChatID,
 			RunID:           req.RunID,
-			OwnerType:       prepared.summary.OwnerType,
 			AgentKey:        req.AgentKey,
-			AgentMode:       chatAgentMode(agentDef, false),
+			AgentMode:       chatAgentMode(agentDef, strings.TrimSpace(req.AgentKey) == "" && strings.TrimSpace(req.TeamID) != ""),
 			TeamID:          req.TeamID,
 			AssistantText:   assistantText.String(),
 			InitialMessage:  req.Message,
