@@ -148,12 +148,7 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 			return
 		}
 	}
-	s.broadcast("run.started", map[string]any{
-		"runId":     req.RunID,
-		"chatId":    req.ChatID,
-		"agentKey":  req.AgentKey,
-		"timestamp": startedAt,
-	})
+	s.broadcast("run.started", runStartedPushPayload(req.RunID, req.ChatID, req.AgentKey, startedAt))
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -458,11 +453,7 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 			persistedCompletion = &completion
 		}
 	}
-	s.broadcast("run.finished", map[string]any{
-		"runId":     req.RunID,
-		"chatId":    req.ChatID,
-		"timestamp": completedAt,
-	})
+	s.broadcast("run.finished", runFinishedPushPayload(req.RunID, req.ChatID, completedAt))
 	if persistedCompletion != nil {
 		s.broadcastRunCompletionNotifications(*persistedCompletion)
 	}

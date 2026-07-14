@@ -98,12 +98,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 		return
 	}
 	if !execution.HiddenRun {
-		s.broadcast("run.started", map[string]any{
-			"runId":     prepared.req.RunID,
-			"chatId":    prepared.req.ChatID,
-			"agentKey":  prepared.req.AgentKey,
-			"timestamp": registered.StartedAtMillis,
-		})
+		s.broadcast("run.started", runStartedPushPayload(prepared.req.RunID, prepared.req.ChatID, prepared.req.AgentKey, registered.StartedAtMillis))
 	}
 
 	sseWriter, err := stream.NewWriter(w, stream.Options{
@@ -185,11 +180,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 			releaseQuery(prepared.release)
 			s.deps.Runs.Finish(runID)
 			if !execution.HiddenRun {
-				s.broadcast("run.finished", map[string]any{
-					"runId":     runID,
-					"chatId":    prepared.req.ChatID,
-					"timestamp": completedAtMillis,
-				})
+				s.broadcast("run.finished", runFinishedPushPayload(runID, prepared.req.ChatID, completedAtMillis))
 			}
 		},
 	})
@@ -710,12 +701,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 
 	completedAtMillis := int64(0)
 	if !execution.HiddenRun {
-		s.broadcast("run.started", map[string]any{
-			"runId":     prepared.req.RunID,
-			"chatId":    prepared.req.ChatID,
-			"agentKey":  prepared.req.AgentKey,
-			"timestamp": registered.StartedAtMillis,
-		})
+		s.broadcast("run.started", runStartedPushPayload(prepared.req.RunID, prepared.req.ChatID, prepared.req.AgentKey, registered.StartedAtMillis))
 		defer func() {
 			// If the execution failed before the completion record could be
 			// persisted, this is still a platform-owned finish event.  Capture its
@@ -724,11 +710,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 			if completedAtMillis == 0 {
 				completedAtMillis = time.Now().UnixMilli()
 			}
-			s.broadcast("run.finished", map[string]any{
-				"runId":     prepared.req.RunID,
-				"chatId":    prepared.req.ChatID,
-				"timestamp": completedAtMillis,
-			})
+			s.broadcast("run.finished", runFinishedPushPayload(prepared.req.RunID, prepared.req.ChatID, completedAtMillis))
 		}()
 	}
 

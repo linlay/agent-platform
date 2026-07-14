@@ -497,6 +497,13 @@ func TestWebSocketPushesChatReadAfterMarkRead(t *testing.T) {
 	if got, ok := data["readAt"].(float64); !ok || got <= 0 {
 		t.Fatalf("expected positive readAt, got %#v", data)
 	}
+	summary, err := fixture.chats.Summary("chat_ws_read")
+	if err != nil || summary == nil || summary.Read.ReadAt == nil {
+		t.Fatalf("expected persisted read state, summary=%#v err=%v", summary, err)
+	}
+	if got := int64(data["readAt"].(float64)); got != *summary.Read.ReadAt {
+		t.Fatalf("chat.read readAt=%d, want persisted %d", got, *summary.Read.ReadAt)
+	}
 }
 
 func TestWebSocketPushesChatUnreadAfterRunCompletion(t *testing.T) {
@@ -558,6 +565,16 @@ func TestWebSocketPushesChatUnreadAfterRunCompletion(t *testing.T) {
 	}
 	if _, ok := data["readAt"]; ok {
 		t.Fatalf("expected readAt to be omitted for unread chat, got %#v", data)
+	}
+	if createdAt, ok := data["createdAt"].(float64); !ok || createdAt <= 0 {
+		t.Fatalf("expected positive createdAt for unread chat, got %#v", data)
+	}
+	summary, err := fixture.chats.Summary("chat_ws_unread")
+	if err != nil || summary == nil {
+		t.Fatalf("load persisted unread chat: summary=%#v err=%v", summary, err)
+	}
+	if got := int64(data["createdAt"].(float64)); got != summary.UpdatedAt {
+		t.Fatalf("chat.unread createdAt=%d, want persisted updatedAt=%d", got, summary.UpdatedAt)
 	}
 }
 
@@ -1187,8 +1204,11 @@ func TestWebSocketPushAwaitingAskAndAnswerSyncPendingChatSummary(t *testing.T) {
 	if _, exists := awaitAnswerData["errorCode"]; exists {
 		t.Fatalf("did not expect errorCode on answered awaiting.answered push, got %#v", awaitAnswerData)
 	}
-	if resolvedAt, ok := awaitAnswerData["resolvedAt"].(float64); !ok || resolvedAt <= 0 {
-		t.Fatalf("expected resolvedAt in awaiting.answered push, got %#v", awaitAnswerData)
+	if answeredAt, ok := awaitAnswerData["answeredAt"].(float64); !ok || answeredAt <= 0 {
+		t.Fatalf("expected answeredAt in awaiting.answered push, got %#v", awaitAnswerData)
+	}
+	if _, exists := awaitAnswerData["resolvedAt"]; exists {
+		t.Fatalf("awaiting.answered must not include resolvedAt: %#v", awaitAnswerData)
 	}
 
 	drainAwaitingPushQuestionStream(t, flow.reader, flow.streamBody)

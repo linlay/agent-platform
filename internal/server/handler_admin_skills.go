@@ -757,10 +757,7 @@ func (s *Server) reloadAdminSkills(ctx context.Context) error {
 			return err
 		}
 	}
-	s.broadcast("catalog.updated", map[string]any{
-		"reason":    "skills",
-		"timestamp": time.Now().UnixMilli(),
-	})
+	s.broadcast("catalog.updated", catalogUpdatedPushPayload("skills", time.Now().UnixMilli()))
 	return nil
 }
 

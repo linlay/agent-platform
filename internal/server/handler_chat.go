@@ -126,12 +126,12 @@ func toAPIAwaiting(pending *chat.PendingAwaiting) *api.Awaiting {
 	}
 }
 
-func chatCreatedPayload(chatID string, chatName string, agentKey string, timestamp int64, source string) map[string]any {
+func chatCreatedPayload(chatID string, chatName string, agentKey string, createdAt int64, source string) map[string]any {
 	payload := map[string]any{
 		"chatId":    chatID,
 		"chatName":  chatName,
 		"agentKey":  agentKey,
-		"timestamp": timestamp,
+		"createdAt": createdAt,
 	}
 	if strings.TrimSpace(source) != "" {
 		payload["source"] = strings.TrimSpace(source)

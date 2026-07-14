@@ -375,12 +375,18 @@ func TestChannelImportStreamOnlySynthesizesControlPushes(t *testing.T) {
 	if chatCreated["chatId"] != chatID || chatCreated["agentKey"] != "mock-agent" {
 		t.Fatalf("unexpected chat.created push %#v", chatCreated)
 	}
+	if createdAt, ok := chatCreated["createdAt"].(float64); !ok || createdAt < 1_000_000_000_000 {
+		t.Fatalf("expected epoch-ms chat.created createdAt, got %#v", chatCreated)
+	}
 	runStarted := pushFrameDataMap(t, waitForPushFrameType(t, conn, "run.started"))
 	if runStarted["runId"] != runID || runStarted["chatId"] != chatID || runStarted["agentKey"] != "mock-agent" {
 		t.Fatalf("unexpected run.started push %#v", runStarted)
 	}
-	if timestamp, ok := runStarted["timestamp"].(float64); !ok || timestamp < 1_000_000_000_000 {
-		t.Fatalf("expected epoch-ms run.started timestamp, got %#v", runStarted)
+	if startedAt, ok := runStarted["startedAt"].(float64); !ok || startedAt < 1_000_000_000_000 {
+		t.Fatalf("expected epoch-ms run.started startedAt, got %#v", runStarted)
+	}
+	if _, exists := runStarted["timestamp"]; exists {
+		t.Fatalf("run.started must not include timestamp: %#v", runStarted)
 	}
 	awaitingAsk := pushFrameDataMap(t, waitForPushFrameType(t, conn, "awaiting.asking"))
 	if awaitingAsk["chatId"] != chatID || awaitingAsk["runId"] != runID || awaitingAsk["agentKey"] != "mock-agent" ||
@@ -415,13 +421,19 @@ func TestChannelImportStreamOnlySynthesizesControlPushes(t *testing.T) {
 	if sizeBytes, ok := resourcePushed["sizeBytes"].(float64); !ok || int(sizeBytes) != 123 {
 		t.Fatalf("unexpected resource.pushed size %#v", resourcePushed)
 	}
+	if pushedAt, ok := resourcePushed["pushedAt"].(float64); !ok || pushedAt < 1_000_000_000_000 {
+		t.Fatalf("expected epoch-ms resource.pushed pushedAt, got %#v", resourcePushed)
+	}
 
 	runFinished := pushFrameDataMap(t, waitForPushFrameType(t, conn, "run.finished"))
 	if runFinished["runId"] != runID || runFinished["chatId"] != chatID {
 		t.Fatalf("unexpected run.finished push %#v", runFinished)
 	}
-	if timestamp, ok := runFinished["timestamp"].(float64); !ok || timestamp < 1_000_000_000_000 {
-		t.Fatalf("expected epoch-ms run.finished timestamp, got %#v", runFinished)
+	if finishedAt, ok := runFinished["finishedAt"].(float64); !ok || finishedAt < 1_000_000_000_000 {
+		t.Fatalf("expected epoch-ms run.finished finishedAt, got %#v", runFinished)
+	}
+	if _, exists := runFinished["timestamp"]; exists {
+		t.Fatalf("run.finished must not include timestamp: %#v", runFinished)
 	}
 	chatUpdated := pushFrameDataMap(t, waitForPushFrameType(t, conn, "chat.updated"))
 	if chatUpdated["chatId"] != chatID || chatUpdated["lastRunId"] != runID || chatUpdated["lastRunContent"] != "channel answer" {

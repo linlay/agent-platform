@@ -130,11 +130,17 @@ func (s *Server) broadcastChatReadState(eventType string, sum chat.Summary, agen
 		"readRunId":        sum.Read.ReadRunID,
 		"agentUnreadCount": agentUnreadCount,
 	}
-	// readAt is optional.  A zero sentinel would be a fabricated 1970 time
-	// under the public contract, so keep it absent until a real read was
-	// recorded.
-	if sum.Read.ReadAt != nil {
-		payload["readAt"] = *sum.Read.ReadAt
+	switch eventType {
+	case "chat.unread":
+		// A newly completed run made this chat unread. The chat summary uses the
+		// same persisted instant for its update and this new unread state.
+		payload["createdAt"] = sum.UpdatedAt
+	case "chat.read":
+		// A zero sentinel would be a fabricated 1970 time under the public
+		// contract, so keep it absent until a real read was recorded.
+		if sum.Read.ReadAt != nil {
+			payload["readAt"] = *sum.Read.ReadAt
+		}
 	}
 	s.broadcast(eventType, payload)
 }

@@ -73,8 +73,11 @@ func TestPushOneSendsResourcePushedAfterUploadSuccess(t *testing.T) {
 	if notifications.data["sha256"] == "" || notifications.data["sizeBytes"] != 5 {
 		t.Fatalf("expected sha and size in notification data: %#v", notifications.data)
 	}
-	if timestamp, ok := notifications.data["timestamp"].(int64); !ok || timestamp <= 0 {
-		t.Fatalf("expected timestamp in notification data: %#v", notifications.data)
+	if pushedAt, ok := notifications.data["pushedAt"].(int64); !ok || pushedAt <= 0 {
+		t.Fatalf("expected pushedAt in notification data: %#v", notifications.data)
+	}
+	if _, exists := notifications.data["timestamp"]; exists {
+		t.Fatalf("resource.pushed must not include timestamp: %#v", notifications.data)
 	}
 }
 

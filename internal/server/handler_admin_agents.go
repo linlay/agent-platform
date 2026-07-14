@@ -219,7 +219,7 @@ func (s *Server) updateAdminAgentOrder(order []string) (api.AgentOrderResponse, 
 	if err := writeAgentOrderFile(s.deps.Config.Paths.AgentsDir, file); err != nil {
 		return api.AgentOrderResponse{}, err
 	}
-	s.broadcast("catalog.updated", map[string]any{"reason": "agents"})
+	s.broadcast("catalog.updated", catalogUpdatedPushPayload("agents", time.Now().UnixMilli()))
 	updatedAt, err := timecontract.OptionalEpochMillis(file.UpdatedAt, "updatedAt", "admin.agent-order")
 	if err != nil {
 		return api.AgentOrderResponse{}, err

@@ -98,12 +98,7 @@ func (s *Server) wsProxyQuery(
 	conn.AttachObserver(req.ID, observer.ID, func() {
 		s.deps.Runs.DetachObserver(prepared.req.RunID, observer.ID)
 	})
-	s.broadcast("run.started", map[string]any{
-		"runId":     prepared.req.RunID,
-		"chatId":    prepared.req.ChatID,
-		"agentKey":  prepared.req.AgentKey,
-		"timestamp": registered.StartedAtMillis,
-	})
+	s.broadcast("run.started", runStartedPushPayload(prepared.req.RunID, prepared.req.ChatID, prepared.req.AgentKey, registered.StartedAtMillis))
 
 	upstreamTransport := proxyUpstreamTransport(prepared.agentDef.ProxyConfig)
 	var route *proxyRunRoute
@@ -179,12 +174,7 @@ func (s *Server) handleProxyWebSocketQuery(w http.ResponseWriter, r *http.Reques
 	defer s.deps.Runs.DetachObserver(prepared.req.RunID, observer.ID)
 	defer observer.MarkDone()
 
-	s.broadcast("run.started", map[string]any{
-		"runId":     prepared.req.RunID,
-		"chatId":    prepared.req.ChatID,
-		"agentKey":  prepared.req.AgentKey,
-		"timestamp": registered.StartedAtMillis,
-	})
+	s.broadcast("run.started", runStartedPushPayload(prepared.req.RunID, prepared.req.ChatID, prepared.req.AgentKey, registered.StartedAtMillis))
 
 	route := &proxyRunRoute{
 		runID:    prepared.req.RunID,
@@ -266,12 +256,7 @@ func (s *Server) handleProxyQueryNonStream(w http.ResponseWriter, r *http.Reques
 	defer s.deps.Runs.DetachObserver(prepared.req.RunID, observer.ID)
 	defer observer.MarkDone()
 
-	s.broadcast("run.started", map[string]any{
-		"runId":     prepared.req.RunID,
-		"chatId":    prepared.req.ChatID,
-		"agentKey":  prepared.req.AgentKey,
-		"timestamp": registered.StartedAtMillis,
-	})
+	s.broadcast("run.started", runStartedPushPayload(prepared.req.RunID, prepared.req.ChatID, prepared.req.AgentKey, registered.StartedAtMillis))
 
 	upstreamTransport := proxyUpstreamTransport(prepared.agentDef.ProxyConfig)
 	var route *proxyRunRoute
@@ -359,7 +344,7 @@ func (s *Server) runProxyWebSocket(
 		}
 		releaseQuery(prepared.release)
 		s.deps.Runs.Finish(prepared.req.RunID)
-		s.broadcast("run.finished", map[string]any{"runId": prepared.req.RunID, "chatId": prepared.req.ChatID, "timestamp": completedAtMillis})
+		s.broadcast("run.finished", runFinishedPushPayload(prepared.req.RunID, prepared.req.ChatID, completedAtMillis))
 		if persisted {
 			s.broadcastRunCompletionNotifications(completion)
 		}

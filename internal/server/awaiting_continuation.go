@@ -241,12 +241,7 @@ func (s *Server) startAwaitingContinuationWithAdmission(
 		s.finishRegisteredQueryRun(prepared, registered)
 		return false, fmt.Errorf("run event bus unavailable")
 	}
-	s.broadcast("run.started", map[string]any{
-		"runId":     runID,
-		"chatId":    chatID,
-		"agentKey":  agentKey,
-		"timestamp": registered.StartedAtMillis,
-	})
+	s.broadcast("run.started", runStartedPushPayload(runID, chatID, agentKey, registered.StartedAtMillis))
 
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
 	stepWriter := chat.NewStepWriter(s.deps.Chats, chatID, runID, agentDef.Mode)
@@ -282,11 +277,7 @@ func (s *Server) startAwaitingContinuationWithAdmission(
 		},
 		OnComplete: func(doneRunID string, completedAtMillis int64) {
 			s.deps.Runs.Finish(doneRunID)
-			s.broadcast("run.finished", map[string]any{
-				"runId":     doneRunID,
-				"chatId":    chatID,
-				"timestamp": completedAtMillis,
-			})
+			s.broadcast("run.finished", runFinishedPushPayload(doneRunID, chatID, completedAtMillis))
 		},
 	})
 	return true, nil

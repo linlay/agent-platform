@@ -927,7 +927,7 @@ func handleAwaitingLifecycle(params RunExecutorParams, data stream.EventData, tr
 			"awaitingId": awaitingID,
 			"mode":       strings.TrimSpace(data.String("mode")),
 			"status":     strings.TrimSpace(data.String("status")),
-			"resolvedAt": data.Timestamp,
+			"answeredAt": data.Timestamp,
 		}
 		decorateNotificationRunOwner(payload, params.Session)
 		if submitID := strings.TrimSpace(data.String("submitId")); submitID != "" {
@@ -1044,7 +1044,7 @@ func maybeBroadcastInterruptedAwaiting(params RunExecutorParams, tracker *awaiti
 			"mode":       tracker.pendingMode,
 			"status":     "error",
 			"errorCode":  "run_interrupted",
-			"resolvedAt": time.Now().UnixMilli(),
+			"answeredAt": time.Now().UnixMilli(),
 		}
 		decorateNotificationRunOwner(payload, params.Session)
 		params.Notifications.Broadcast("awaiting.answered", payload)

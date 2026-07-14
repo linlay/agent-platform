@@ -29,7 +29,7 @@ assistant tool_calls[]
 - `form`：来自 Bash HITL html form，approve 时提交修改后的 `form`，reject 可带 `reason`。
 - `planning`：wire-format 中来自 CODER 的 planning confirmation，`awaiting.ask.planning` 是单个对象；用户只能 `approve` 或 `reject`，reject 可带 `reason`。它不是 `plan_*` / plan-tasks 的执行任务计划。
 
-native CODER planning 的 `planning approve` 有独立 run 边界：后端先在当前 planning run 中记录 `request.submit` / `awaiting.answer` / `finalize_planning` tool result，并发布当前 run 的 `run.complete`；旧 live stream 随后以 `reason:"done"` 正常结束，不再追加新 run 的 `run.start`。旧 run 完成后，服务端启动新的 execute run，并通过 WebSocket push `run.started { runId, chatId, agentKey, timestamp }` 暴露新 `runId`；`timestamp` 等于该 run 注册时捕获的 epoch milliseconds。webclient 应在旧 stream done 后 attach 新 `runId` 获取执行流。新 run 自己的 stream 首部为 execution run bootstrap `request.query`，包含标准 query 字段 `requestId` / `runId` / `chatId` / `role` / `message`，然后是新 run 的 `run.start`。`planning reject` 不启动新 run，仍留在当前 planning run 中生成下一版 planning 或结束。
+native CODER planning 的 `planning approve` 有独立 run 边界：后端先在当前 planning run 中记录 `request.submit` / `awaiting.answer` / `finalize_planning` tool result，并发布当前 run 的 `run.complete`；旧 live stream 随后以 `reason:"done"` 正常结束，不再追加新 run 的 `run.start`。旧 run 完成后，服务端启动新的 execute run，并通过 WebSocket push `run.started { runId, chatId, agentKey, startedAt }` 暴露新 `runId`；`startedAt` 等于该 run 注册时捕获的 epoch milliseconds。webclient 应在旧 stream done 后 attach 新 `runId` 获取执行流。新 run 自己的 stream 首部为 execution run bootstrap `request.query`，包含标准 query 字段 `requestId` / `runId` / `chatId` / `role` / `message`，然后是新 run 的 `run.start`。`planning reject` 不启动新 run，仍留在当前 planning run 中生成下一版 planning 或结束。
 
 同一 assistant turn 的 `tool_calls[]` 是 awaiting 原子批次：只要其中任意工具需要 `question` / `approval` / `form` 等等待态，整组工具都会暂停，确认前不执行任何 sibling tool。planning confirmation 使用 `mode:"planning"`，由 `finalize_planning` 专门产生；它永久等待，不使用 HITL timeout。`approval` 类型的 builtin 等待项可合并为一个 `awaiting.ask(mode:"approval", approvals:[...])`；不同 mode 的等待项按原始 `tool_calls[]` 顺序逐个等待。全部等待项进入终态后，后端才开始执行本组工具：approve 的工具与无需确认的 sibling 正常执行，reject / timeout 的工具生成 synthetic tool result。
 
@@ -42,7 +42,7 @@ native CODER planning 的 `planning approve` 有独立 run 边界：后端先在
 - `request.submit`
 - `awaiting.answer`
 
-以上事件名是实时 stream / chat replay 的时间线事件。每个事件的 `timestamp` 为必填 epoch milliseconds；`awaiting.asking.createdAt` 和 `awaiting.answered.resolvedAt` 使用同一契约。WebSocket `frame:"push"` 的摘要通知使用 `awaiting.asking` 与 `awaiting.answered`，payload 只携带等待项状态摘要；完整问题、审批项、表单和 planning 定义仍以 stream `awaiting.ask` 为准。
+以上事件名是实时 stream / chat replay 的时间线事件。每个事件的 `timestamp` 为必填 epoch milliseconds；push `awaiting.asking.createdAt` 和 `awaiting.answered.answeredAt` 使用同一 epoch-ms 契约。WebSocket `frame:"push"` 的摘要通知使用 `awaiting.asking` 与 `awaiting.answered`，payload 只携带等待项状态摘要；完整问题、审批项、表单和 planning 定义仍以 stream `awaiting.ask` 为准。
 
 约束：
 

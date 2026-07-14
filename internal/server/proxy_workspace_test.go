@@ -311,10 +311,10 @@ func TestProxyQueryStreamingPersistsCapturedRunStartAndLifecyclePushTimes(t *tes
 		switch eventType {
 		case "run.started":
 			startedIndex = index
-			startedAt, _ = payload["timestamp"].(int64)
+			startedAt, _ = payload["startedAt"].(int64)
 		case "run.finished":
 			finishedIndex = index
-			finishedAt, _ = payload["timestamp"].(int64)
+			finishedAt, _ = payload["finishedAt"].(int64)
 		}
 	}
 	if startedIndex < 0 || finishedIndex < 0 || startedIndex >= finishedIndex {

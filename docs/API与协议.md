@@ -128,7 +128,7 @@ chat 摘要会在新数据中返回可选 `mode`；`/api/chat.runs[]`、`/api/ag
 
 `/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 摘要，以及 `/api/chat` 详情顶层在新数据中可包含 `source`，表示 chat 首次创建来源。当前只记录 query 与 automation 两类：`query` / `query:<user>` 表示由 query 创建，`automation:<automationId>` 表示由 automation 创建。旧数据为空、上传创建或派生创建时省略。channel 远程用户调用本机智能体仍属于 query source；gateway 可在受信 channel 请求中传 `sourceUser`，否则服务端会从形如 `wecom#single#user1#...` 的 chatId 中取远端用户段作为 `query:<user>`。`sourceChannel` 是 gateway/channel 路由标签，不承载 query / automation 语义。
 
-`/api/chat` 详情固定返回顶层 `createdAt` 与 `updatedAt`；Desktop 不得从 runs、events 或本机时间推断它们。每个 `runs[]` 的 `startedAt` 由注册时捕获并持久化；已完成 run 的 `completedAt` 必填，仍在执行的 run 则省略 `completedAt`（绝不输出 `0`）。`activeRun.startedAt` 与对应 `run.started.timestamp` 是同一个已捕获时刻，`run.finished.timestamp` 与完成记录的 `completedAt` 相同。`/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 以及 `/api/chat` 的 chat 详情，在存在可恢复等待项时都包含顶层 `awaiting`：`awaitingId`、`runId`、`mode`、`status:"awaiting"`、`createdAt`。完整问题、审批项、表单和 planning 定义仍从 chat events 中的 `awaiting.ask` 获取。
+`/api/chat` 详情固定返回顶层 `createdAt` 与 `updatedAt`；Desktop 不得从 runs、events 或本机时间推断它们。每个 `runs[]` 的 `startedAt` 由注册时捕获并持久化；已完成 run 的 `completedAt` 必填，仍在执行的 run 则省略 `completedAt`（绝不输出 `0`）。`activeRun.startedAt` 与对应 push `run.started.startedAt` 是同一个已捕获时刻；push `run.finished.finishedAt` 与完成记录的 `completedAt` 相同。`/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 以及 `/api/chat` 的 chat 详情，在存在可恢复等待项时都包含顶层 `awaiting`：`awaitingId`、`runId`、`mode`、`status:"awaiting"`、`createdAt`。完整问题、审批项、表单和 planning 定义仍从 chat events 中的 `awaiting.ask` 获取。
 
 `POST /api/chat/derive` 只支持 active chat 存储，不从 archive 直接派生。`sourceRunId` 省略时使用 source chat 的 `lastRunId`；source chat 必须没有 active run 和 pending awaiting，且目标 source run 已完成。服务端会创建新的独立 `chatId`，复制截至 source run 的可回放 JSONL 历史与必要资源，并为复制出的历史 run 生成新的 runId；返回 `lastRunId` 是新 chat 中映射后的 runId。派生成功后客户端继续用新 `chatId` 调 `/api/query`，后续运行不会写回原 chat。
 
@@ -507,23 +507,24 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 | `connected` | `sessionId` |
 | `heartbeat` | `timestamp` |
 | `auth.expiring` | `expiresAt` |
-| `run.started` | `runId`、`chatId`、`agentKey`、必填 `timestamp`（等于已捕获的 run `startedAt`） |
-| `run.finished` | `runId`、`chatId`、必填 `timestamp`（等于 run `completedAt`） |
-| `chat.created` | `chatId`、`chatName`、`agentKey`、`timestamp`、`source` |
+| `run.started` | `runId`、`chatId`、`agentKey`、必填 `startedAt` |
+| `run.finished` | `runId`、`chatId`、必填 `finishedAt` |
+| `chat.created` | `chatId`、`chatName`、`agentKey`、`createdAt`、`source` |
 | `chat.updated` | `chatId`、`lastRunId`、`lastRunContent`、`updatedAt` |
-| `chat.unread` / `chat.read` | `chatId`、`agentKey`、`lastRunId`、可选 `readAt`、`readRunId`、`agentUnreadCount`；未读/未记录读取时间时省略 `readAt` |
+| `chat.unread` | `chatId`、`agentKey`、`lastRunId`、`createdAt`（等于本次 run 完成后写入的 chat `updatedAt`）、`readRunId`、`agentUnreadCount` |
+| `chat.read` | `chatId`、`agentKey`、`lastRunId`、`readAt`、`readRunId`、`agentUnreadCount` |
 | `chat.read_all` | `agentKey`、`updatedCount`、`agentUnreadCount` |
 | `chat.deleted` | `chatId` |
 | `chat.renamed` | `chatId`、`chatName`、`agentKey` |
 | `chat.archived` | `chatId`、`agentKey` |
 | `archive.restored` | `chatId`、`agentKey`、`summary` |
 | `archive.deleted` | `chatId` |
-| `catalog.updated` | `reason`、可选 `timestamp` |
+| `catalog.updated` | `reason`、`updatedAt` |
 | `awaiting.asking` | `chatId`、`runId`、`ownerType`、`agentKey` 或 `teamId`、`awaitingId`、`mode`、`createdAt`、可选 `timeout` / `viewportType` / `viewportKey` |
-| `awaiting.answered` | `chatId`、`runId`、`ownerType`、`agentKey` 或 `teamId`、`awaitingId`、`mode`、`status`、`resolvedAt`、可选 `errorCode` / `submitId` |
-| `resource.pushed` | `chatId`、`artifactId`、`name`、`mimeType`、`sha256`、`sizeBytes`、`timestamp` |
+| `awaiting.answered` | `chatId`、`runId`、`ownerType`、`agentKey` 或 `teamId`、`awaitingId`、`mode`、`status`、`answeredAt`、可选 `errorCode` / `submitId` / `durationMs` |
+| `resource.pushed` | `chatId`、`artifactId`、`name`、`mimeType`、`sha256`、`sizeBytes`、`pushedAt` |
 
-`auth.refresh` response 在 JWT 存在 `exp` 时才返回 `expiresAt = exp * 1000`；没有 `exp` 时省略字段。`auth.expiring.expiresAt` 同样始终是 epoch milliseconds。客户端不得把缺失 `readAt` / `expiresAt` 解释为 1970 或当前时间。
+除 `heartbeat.timestamp` 外，platform 主动发送的 push payload 不使用 `timestamp`；它们用上表的业务语义时间字段。这是硬切换，不会双写旧字段，前端与服务端需要同版本发布。SSE 与 WebSocket `frame:"stream"` 的 `event.timestamp` 仍是每个业务流事件必填的 epoch milliseconds。`auth.refresh` response 在 JWT 存在 `exp` 时才返回 `expiresAt = exp * 1000`；没有 `exp` 时省略字段。`auth.expiring.expiresAt` 同样始终是 epoch milliseconds。客户端不得把缺失 `readAt` / `expiresAt` 解释为 1970 或当前时间。
 
 `awaiting.asking.timeout` 与 stream 中的 `awaiting.ask.timeout` 语义一致：对普通 HITL 等待项，`0` 表示无限等待、不自动超时；大于 `0` 时由后端按真实时间独立倒计时，observer / attach / detach 状态不会暂停或延长后端超时。CODER planning confirmation 使用 `mode:"planning"` 和 `planning` payload，永远省略 `timeout`，表示永久等待；它不同于 `plan_*` / plan-tasks 的执行任务计划。旧 `mode:"plan"` planning 协议不兼容。
 

@@ -922,7 +922,7 @@ func (r *proxyEventRecorder) broadcastResourcePushed(event stream.EventData) {
 			"mimeType":   strings.TrimSpace(contracts.AnyStringNode(artifact["mimeType"])),
 			"sha256":     strings.TrimSpace(contracts.AnyStringNode(artifact["sha256"])),
 			"sizeBytes":  contracts.AnyIntNode(artifact["sizeBytes"]),
-			"timestamp":  timestamp,
+			"pushedAt":   timestamp,
 		}
 		r.notifications.Broadcast("resource.pushed", payload)
 	}

@@ -101,7 +101,7 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 	conn.AttachObserver(req.ID, observer.ID, func() {
 		s.deps.Runs.DetachObserver(prepared.req.RunID, observer.ID)
 	})
-	s.broadcast("run.started", map[string]any{"runId": prepared.req.RunID, "chatId": prepared.req.ChatID, "agentKey": prepared.req.AgentKey, "timestamp": registered.StartedAtMillis})
+	s.broadcast("run.started", runStartedPushPayload(prepared.req.RunID, prepared.req.ChatID, prepared.req.AgentKey, registered.StartedAtMillis))
 
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
 	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
@@ -147,7 +147,7 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		OnComplete: func(runID string, completedAtMillis int64) {
 			releaseQuery(prepared.release)
 			s.deps.Runs.Finish(runID)
-			s.broadcast("run.finished", map[string]any{"runId": runID, "chatId": prepared.req.ChatID, "timestamp": completedAtMillis})
+			s.broadcast("run.finished", runFinishedPushPayload(runID, prepared.req.ChatID, completedAtMillis))
 		},
 	})
 	conn.StartStreamForward(req.ID, observer)

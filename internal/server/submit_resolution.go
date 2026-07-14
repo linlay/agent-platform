@@ -447,7 +447,7 @@ func normalizedDecisionItems(value any) []map[string]any {
 	}
 }
 
-func (s *Server) broadcastDeferredAwaitingAnswer(deferred DeferredAwaiting, normalized map[string]any, resolvedAt int64) {
+func (s *Server) broadcastDeferredAwaitingAnswer(deferred DeferredAwaiting, normalized map[string]any, answeredAt int64) {
 	if s == nil || s.deps.Notifications == nil {
 		return
 	}
@@ -457,7 +457,7 @@ func (s *Server) broadcastDeferredAwaitingAnswer(deferred DeferredAwaiting, norm
 		"awaitingId": deferred.AwaitingID,
 		"mode":       strings.TrimSpace(stringValue(normalized["mode"])),
 		"status":     strings.TrimSpace(stringValue(normalized["status"])),
-		"resolvedAt": resolvedAt,
+		"answeredAt": answeredAt,
 	}
 	if errCode := strings.TrimSpace(stringValue(contracts.AnyMapNode(normalized["error"])["code"])); errCode != "" {
 		payload["errorCode"] = errCode

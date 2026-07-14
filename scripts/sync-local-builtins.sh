@@ -129,22 +129,13 @@ copy_project dbx
 copy_project httpx
 copy_project kbase-lance-engine
 
-component_version() {
-  (
-    cd "$REPO_ROOT"
-    go run ./cmd/stage-builtins --repo-root "$REPO_ROOT" --resolve-component "$1"
-  ) | awk -F '\t' '{print $1}'
-}
-
-dbx_version="$(component_version dbx)"
-httpx_version="$(component_version httpx)"
 (
   cd "$collection_root/dbx"
-  scripts/release/build.sh "$dbx_version"
+  scripts/release/build.sh
 )
 (
   cd "$collection_root/httpx"
-  scripts/release/build.sh "$httpx_version"
+  scripts/release/build.sh
 )
 for target in "${TARGETS[@]}"; do
   target_os="${target%%/*}"

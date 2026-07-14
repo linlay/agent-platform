@@ -152,7 +152,7 @@ func (p *Pusher) notifyArtifactPushed(chatID, artifactID, name, mimeType, sha st
 		"mimeType":   mimeType,
 		"sha256":     sha,
 		"sizeBytes":  sizeBytes,
-		"timestamp":  time.Now().UnixMilli(),
+		"pushedAt":   time.Now().UnixMilli(),
 	})
 	log.Printf("[artifact-pusher] pushed notification sent chatId=%s artifactId=%s name=%s", chatID, artifactID, name)
 }

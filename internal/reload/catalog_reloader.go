@@ -163,7 +163,7 @@ func (r *RuntimeCatalogReloader) Reload(ctx context.Context, reason string) erro
 	if r.notifications != nil {
 		r.notifications.Broadcast("catalog.updated", map[string]any{
 			"reason":    reason,
-			"timestamp": time.Now().UnixMilli(),
+			"updatedAt": time.Now().UnixMilli(),
 		})
 	}
 	log.Printf("[reload] %s reloaded in %s", reason, time.Since(start).Truncate(time.Millisecond))

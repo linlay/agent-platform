@@ -779,6 +779,9 @@ func (c *Conn) SendResponse(frameType string, id string, code int, msg string, d
 }
 
 func (c *Conn) SendPush(frameType string, data any) bool {
+	if !allowsPushTimestamp(frameType, data) {
+		return false
+	}
 	return c.enqueue(outboundMessage{
 		frame: PushFrame{
 			Frame: FramePush,

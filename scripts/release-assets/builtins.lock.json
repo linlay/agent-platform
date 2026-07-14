@@ -69,7 +69,7 @@
           "format": "tar.gz",
           "entry": "dbx",
           "output": "dbx",
-          "sha256": "491a6eee535019dbb18d38f45141029ff38fedd401618fc7effde125dbc1676d"
+          "sha256": "85bb9e75de7f8d3630411f5ad719af263182adb6b72be08fd1d81ebe60a81f89"
         },
         "linux-amd64": {
           "path": "dist/v0.1.0/dbx_v0.1.0_linux_amd64.tar.gz",
