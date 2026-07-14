@@ -13,6 +13,7 @@ import (
 )
 
 var requiredBuiltinToolNames = []string{
+	"agent_delegate",
 	"artifact_publish",
 	"bash",
 	"datetime",

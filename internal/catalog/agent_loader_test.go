@@ -52,6 +52,24 @@ func TestParseAgentFileSupportsFlattenedToolConfig(t *testing.T) {
 	}
 }
 
+func TestParseAgentFileRejectsInternalAgentDelegateTool(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent.yml")
+	content := "key: invalid-delegate\n" +
+		"name: Invalid Delegate\n" +
+		"mode: REACT\n" +
+		"modelConfig:\n" +
+		"  modelKey: demo-model\n" +
+		"toolConfig:\n" +
+		"  tools:\n" +
+		"    - agent_delegate\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseAgentFile(path); err == nil || !strings.Contains(err.Error(), "only be used by an orchestrated Team coordinator") {
+		t.Fatalf("expected internal tool validation error, got %v", err)
+	}
+}
+
 func TestParseAgentFileSupportsNestedPlanExecuteStageConfig(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")

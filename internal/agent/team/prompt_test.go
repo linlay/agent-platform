@@ -23,11 +23,11 @@ func TestBuildSystemPromptKeepsHardCodedRulesAheadOfCustomGuidance(t *testing.T)
 		},
 	})
 	for _, required := range []string{
-		"Every new user turn must first be routed",
-		"team_delegate with mode=fanout",
-		"maximum tasks per team_invoke batch: 5",
-		"memberKey=billing; name=Billing; role=invoice specialist",
-		"memberKey=tech; name=Technical; description=debugs products",
+		"Every new user turn must call agent_delegate",
+		"first create a task plan with plan_add_tasks",
+		"maximum concurrent delegated members: 5",
+		"agentKey=billing; name=Billing; role=invoice specialist",
+		"agentKey=tech; name=Technical; description=debugs products",
 		"Always answer warmly.",
 		"Prefer the billing specialist for invoices.",
 	} {
@@ -35,7 +35,7 @@ func TestBuildSystemPromptKeepsHardCodedRulesAheadOfCustomGuidance(t *testing.T)
 			t.Fatalf("prompt missing %q:\n%s", required, prompt)
 		}
 	}
-	if strings.Count(prompt, "memberKey=billing") != 1 {
+	if strings.Count(prompt, "agentKey=billing") != 1 {
 		t.Fatalf("duplicate roster member was not removed:\n%s", prompt)
 	}
 	if strings.Index(prompt, "Mandatory routing rules:") > strings.Index(prompt, "Always answer warmly.") {
@@ -53,7 +53,7 @@ func TestRenderSystemPromptUsesTeamTemplateValues(t *testing.T) {
 		ModeSystemPrompt: "{{mode}} {{team_id}} {{agent_name}} {{available_tools}} {{user_request}} {{language_preference}}",
 	}
 	got := RenderSystemPrompt(session, api.QueryRequest{Message: "draft"}, nil, MainStage)
-	for _, value := range []string{Mode, "writers", "Writer Team", ToolDelegate, ToolInvoke, "draft", "English"} {
+	for _, value := range []string{Mode, "writers", "Writer Team", ToolDelegate, contracts.PlanAddTasksToolName, "draft", "English"} {
 		if !strings.Contains(got, value) {
 			t.Fatalf("rendered prompt %q missing %q", got, value)
 		}

@@ -249,6 +249,17 @@ func ValidateAgentModelConfig(def AgentDefinition) error {
 	return nil
 }
 
+// ValidateOrdinaryAgentTools rejects tools reserved for runtime-synthesized
+// internal agents. Directory agents and API-managed agents share this guard.
+func ValidateOrdinaryAgentTools(tools []string) error {
+	for _, tool := range tools {
+		if strings.EqualFold(strings.TrimSpace(tool), agentteam.ToolDelegate) {
+			return fmt.Errorf("tool %s is internal and can only be used by an orchestrated Team coordinator", agentteam.ToolDelegate)
+		}
+	}
+	return nil
+}
+
 func ValidateAgentChannelConfig(def AgentDefinition) error {
 	cfg := def.ChannelConfig
 	if AgentIsChannelMode(def.Mode) {

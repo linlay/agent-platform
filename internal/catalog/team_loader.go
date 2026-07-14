@@ -226,17 +226,13 @@ func teamOrchestratorFingerprint(snapshot TeamSnapshot) string {
 }
 
 func teamHiddenToolSchemaFingerprint(snapshot TeamSnapshot) string {
-	members := make([]agentteam.MemberSpec, 0, len(snapshot.ValidAgentKeys))
-	for _, key := range snapshot.ValidAgentKeys {
-		def, ok := snapshot.agentDefinitions[key]
-		if !ok {
-			continue
-		}
-		members = append(members, agentteam.MemberSpec{
-			Key: key, Name: def.Name, Role: def.Role, Description: def.Description,
-		})
-	}
-	return teamCatalogFingerprint(agentteam.HiddenToolDefinitions(members, snapshot.Orchestrator.MaxParallel))
+	return teamCatalogFingerprint(struct {
+		SchemaVersion string   `json:"schemaVersion"`
+		AgentKeys     []string `json:"agentKeys"`
+	}{
+		SchemaVersion: agentteam.HiddenToolSchemaVersion,
+		AgentKeys:     append([]string(nil), snapshot.ValidAgentKeys...),
+	})
 }
 
 func teamCatalogFingerprint(value any) string {

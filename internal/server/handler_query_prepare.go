@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	agentcoder "agent-platform/internal/agent/coder"
+	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/channel"
@@ -272,7 +273,16 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 		return preparedQuery{}, err
 	}
 	if admission.orchestratedTeam && admission.teamSnapshot != nil {
-		configureTeamCoordinatorSession(&session, *admission.teamSnapshot)
+		if s.deps.Tools == nil {
+			return preparedQuery{}, fmt.Errorf("Team coordinator tool registry is unavailable")
+		}
+		baseTool, found := teamDelegateBaseDefinition(s.deps.Tools.Definitions())
+		if !found {
+			return preparedQuery{}, fmt.Errorf("embedded Team tool %q is unavailable", agentteam.ToolDelegate)
+		}
+		if err := configureTeamCoordinatorSession(&session, *admission.teamSnapshot, baseTool); err != nil {
+			return preparedQuery{}, err
+		}
 	}
 	req.References = session.RuntimeContext.References
 	if !isProxyAgentMode(agentDef.Mode) {

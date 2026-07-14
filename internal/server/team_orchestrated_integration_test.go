@@ -16,7 +16,7 @@ import (
 	"agent-platform/internal/contracts"
 )
 
-func TestOrchestratedTeamFanoutEndToEnd(t *testing.T) {
+func TestOrchestratedTeamDelegationEndToEnd(t *testing.T) {
 	var mu sync.Mutex
 	var coordinatorChoices []string
 	var coordinatorToolCounts []int
@@ -27,15 +27,11 @@ func TestOrchestratedTeamFanoutEndToEnd(t *testing.T) {
 		}
 		messages, _ := body["messages"].([]any)
 		systemText := ""
-		hasToolResult := false
 		for index, raw := range messages {
 			message, _ := raw.(map[string]any)
 			role, _ := message["role"].(string)
 			if index == 0 && role == "system" {
 				systemText, _ = message["content"].(string)
-			}
-			if role == "tool" {
-				hasToolResult = true
 			}
 		}
 		if strings.Contains(systemText, "hidden coordinator for a Team") {
@@ -46,17 +42,28 @@ func TestOrchestratedTeamFanoutEndToEnd(t *testing.T) {
 			coordinatorToolCounts = append(coordinatorToolCounts, len(tools))
 			coordinatorCall := len(coordinatorChoices)
 			mu.Unlock()
-			if !hasToolResult {
-				if coordinatorCall == 1 {
-					writeProviderSSE(t, w,
-						`{"choices":[{"delta":{"content":"invalid coordinator answer"},"finish_reason":"stop"}]}`,
-						`[DONE]`,
-					)
-					return
-				}
+			switch coordinatorCall {
+			case 1:
+				writeProviderSSE(t, w,
+					providerToolCallFrame(t, "call-plan-add", contracts.PlanAddTasksToolName, map[string]any{"mode": "new", "tasks": []any{
+						map[string]any{"description": "Collect member perspectives"},
+					}}),
+					`[DONE]`,
+				)
+				return
+			case 2:
+				writeProviderSSE(t, w,
+					`{"choices":[{"delta":{"content":"invalid answer after planning only"},"finish_reason":"stop"}]}`,
+					`[DONE]`,
+				)
+				return
+			case 3:
 				writeProviderSSE(t, w,
 					`{"choices":[{"delta":{"reasoning_content":"choose every member"}}]}`,
-					providerToolCallFrame(t, "call-team-fanout", agentteam.ToolDelegate, map[string]any{"mode": "fanout"}),
+					providerToolCallFrame(t, "call-agent-delegate", agentteam.ToolDelegate, map[string]any{"tasks": []any{
+						map[string]any{"agentKey": "writer"},
+						map[string]any{"agentKey": "reviewer"},
+					}}),
 					`[DONE]`,
 				)
 				return
@@ -110,25 +117,27 @@ func TestOrchestratedTeamFanoutEndToEnd(t *testing.T) {
 		if typeName == "reasoning.delta" {
 			t.Fatalf("hidden Team coordinator reasoning leaked to SSE: %#v", message)
 		}
-		if typeName == "tool.start" && message["toolName"] == agentteam.ToolDelegate {
-			t.Fatalf("hidden Team tool leaked to SSE: %#v", message)
+		if typeName == "tool.start" && (message["toolName"] == agentteam.ToolDelegate || message["toolName"] == "team_delegate" || message["toolName"] == "team_invoke") {
+			t.Fatalf("hidden or legacy Team tool leaked to SSE: %#v", message)
 		}
 		if typeName == "task.start" {
 			taskStarts++
-			if message["presentation"] != "reply" || message["teamId"] != "research" {
+			if message["presentation"] != "task" || message["teamId"] != "research" {
 				t.Fatalf("unexpected member task metadata %#v", message)
 			}
 		}
-		if typeName != "content.delta" || message["presentation"] != "reply" {
+		if typeName != "content.delta" {
 			continue
 		}
 		key, _ := message["agentKey"].(string)
 		delta, _ := message["delta"].(string)
-		if key == "" && delta == "Team summary" {
+		if message["presentation"] == "reply" && key == "" && delta == "Team summary" {
 			actor, _ := message["actor"].(map[string]any)
 			teamSummaryActor = actor["type"] == "team" && actor["teamId"] == "research" && message["teamId"] == "research"
 		}
-		memberReplies[key] += delta
+		if message["presentation"] == "task" && key != "" {
+			memberReplies[key] += delta
+		}
 	}
 	if taskStarts != 2 || memberReplies["writer"] != "writer answer" || memberReplies["reviewer"] != "reviewer answer" {
 		t.Fatalf("tasks=%d replies=%#v events=%#v", taskStarts, memberReplies, messages)
@@ -136,7 +145,7 @@ func TestOrchestratedTeamFanoutEndToEnd(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"delta":"Team summary"`) {
 		t.Fatalf("missing Team summary: %s", rec.Body.String())
 	}
-	if strings.Contains(rec.Body.String(), "invalid coordinator answer") {
+	if strings.Contains(rec.Body.String(), "invalid answer after planning only") {
 		t.Fatalf("invalid pre-routing coordinator text leaked to SSE: %s", rec.Body.String())
 	}
 	if !teamSummaryActor {
@@ -147,8 +156,8 @@ func TestOrchestratedTeamFanoutEndToEnd(t *testing.T) {
 	choices := append([]string(nil), coordinatorChoices...)
 	toolCounts := append([]int(nil), coordinatorToolCounts...)
 	mu.Unlock()
-	if len(choices) != 3 || choices[0] != "required" || choices[1] != "required" || (choices[2] != "" && choices[2] != "none") || len(toolCounts) != 3 || toolCounts[0] != 2 || toolCounts[1] != 2 || toolCounts[2] != 0 {
-		t.Fatalf("coordinator tool choices=%#v toolCounts=%#v, want one required correction, a required route, then a tool-free summary", choices, toolCounts)
+	if len(choices) != 4 || choices[0] != "required" || choices[1] != "required" || choices[2] != "required" || choices[3] == "required" || len(toolCounts) != 4 || toolCounts[0] != 4 || toolCounts[1] != 4 || toolCounts[2] != 4 || toolCounts[3] != 4 {
+		t.Fatalf("coordinator tool choices=%#v toolCounts=%#v, want planning and correction to remain required, then delegation and an optional-tool coordinator turn", choices, toolCounts)
 	}
 
 	summary, err := fixture.chats.Summary("chat-team-e2e")
@@ -175,13 +184,16 @@ func TestOrchestratedTeamFanoutEndToEnd(t *testing.T) {
 	if strings.Contains(jsonl, `"name":"agent_invoke"`) {
 		t.Fatalf("Team member system profile retained agent_invoke: %s", jsonl)
 	}
+	if strings.Contains(jsonl, `"name":"team_delegate"`) || strings.Contains(jsonl, `"name":"team_invoke"`) {
+		t.Fatalf("new Team persistence exposed a legacy tool name: %s", jsonl)
+	}
 	detail, err := fixture.chats.LoadChat("chat-team-e2e")
 	if err != nil {
 		t.Fatalf("replay Team chat: %v", err)
 	}
 	replayedActors := map[string]string{}
 	for _, event := range detail.Events {
-		if event.Type == "tool.snapshot" && (event.String("toolName") == agentteam.ToolDelegate || event.String("toolName") == agentteam.ToolInvoke) {
+		if event.Type == "tool.snapshot" && (event.String("toolName") == agentteam.ToolDelegate || event.String("toolName") == "team_delegate" || event.String("toolName") == "team_invoke") {
 			t.Fatalf("replay exposed hidden Team tool: %#v", event)
 		}
 		if event.Type == "reasoning.snapshot" && event.String("taskId") == "" {
@@ -199,6 +211,12 @@ func TestOrchestratedTeamFanoutEndToEnd(t *testing.T) {
 	hiddenHits, err := fixture.chats.SearchSession("chat-team-e2e", agentteam.ToolDelegate, 10)
 	if err != nil || len(hiddenHits) != 0 {
 		t.Fatalf("search exposed hidden coordinator records: hits=%#v err=%v", hiddenHits, err)
+	}
+	for _, legacyName := range []string{"team_delegate", "team_invoke"} {
+		legacyHits, legacyErr := fixture.chats.SearchSession("chat-team-e2e", legacyName, 10)
+		if legacyErr != nil || len(legacyHits) != 0 {
+			t.Fatalf("search exposed legacy Team tool %q: hits=%#v err=%v", legacyName, legacyHits, legacyErr)
+		}
 	}
 	visibleHits, err := fixture.chats.SearchSession("chat-team-e2e", "writer answer", 10)
 	if err != nil || len(visibleHits) == 0 {

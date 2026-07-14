@@ -64,18 +64,17 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 	}
 
 	if agentteam.IsHiddenTool(toolCall.Function.Name) {
-		members := make([]agentteam.MemberSpec, 0)
-		maxParallel := agentteam.DefaultMaxParallel
-		if s.session.TeamRuntime != nil {
-			maxParallel = s.session.TeamRuntime.MaxParallel
-			members = make([]agentteam.MemberSpec, 0, len(s.session.TeamRuntime.Members))
-			for _, member := range s.session.TeamRuntime.Members {
-				members = append(members, agentteam.MemberSpec{
-					Key: member.Key, Name: member.Name, Role: member.Role, Description: member.Description,
-				})
-			}
+		if s.session.TeamRuntime == nil || !strings.EqualFold(strings.TrimSpace(s.session.Mode), agentteam.Mode) {
+			deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, "agent_delegate is only available to an orchestrated Team coordinator", "internal_tool_only")
+			return nil, deltas, message
 		}
-		dispatch, parseErr := agentteam.ParseDispatch(toolCall.Function.Name, args, members, maxParallel)
+		members := make([]agentteam.MemberSpec, 0, len(s.session.TeamRuntime.Members))
+		for _, member := range s.session.TeamRuntime.Members {
+			members = append(members, agentteam.MemberSpec{
+				Key: member.Key, Name: member.Name, Role: member.Role, Description: member.Description,
+			})
+		}
+		dispatch, parseErr := agentteam.ParseDispatch(toolCall.Function.Name, args, members)
 		if parseErr != nil {
 			deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, "invalid Team dispatch: "+parseErr.Error(), "invalid_tool_arguments")
 			return nil, deltas, message
@@ -83,7 +82,7 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 		tasks := make([]SubAgentTaskSpec, 0, len(dispatch.Tasks))
 		for _, task := range dispatch.Tasks {
 			tasks = append(tasks, SubAgentTaskSpec{
-				SubAgentKey: task.MemberKey,
+				SubAgentKey: task.AgentKey,
 				TaskText:    task.Task,
 				TaskName:    task.TaskName,
 				Files:       append([]string(nil), task.Files...),
@@ -95,15 +94,17 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 			args:                args,
 			awaitExternalResult: true,
 			prelude: []AgentDelta{DeltaTeamDispatch{
-				MainToolID:   toolID,
-				Kind:         dispatch.Kind,
-				DelegateMode: dispatch.DelegateMode,
-				Tasks:        tasks,
+				MainToolID: toolID,
+				Tasks:      tasks,
 			}},
 		}, nil, nil
 	}
 
 	if strings.EqualFold(strings.TrimSpace(toolCall.Function.Name), InvokeAgentsToolName) {
+		if s.session.TeamRuntime != nil {
+			deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, "TEAM coordinators must use agent_delegate instead of agent_invoke", "internal_tool_only")
+			return nil, deltas, message
+		}
 		rawTasks, _ := args["tasks"].([]any)
 		if len(rawTasks) < 1 || len(rawTasks) > MaxInvokeAgentTasks {
 			message := fmt.Sprintf("invalid tool arguments: tasks must contain between 1 and %d items", MaxInvokeAgentTasks)

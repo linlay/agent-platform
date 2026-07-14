@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
@@ -102,10 +101,10 @@ func (s *teamHITLTestStream) FinalAssistantContent() (string, bool) {
 	return s.agentKey + " completed", true
 }
 
-func TestFrameOrchestratorTeamFanoutMergesParallelHITLAndDistributesSubmit(t *testing.T) {
+func TestFrameOrchestratorTeamDelegationMergesParallelHITLAndDistributesSubmit(t *testing.T) {
 	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
-		MainToolID: "team-tool", Kind: agentteam.DispatchKindFanout, DelegateMode: agentteam.DelegateModeFanout,
-		Tasks: []contracts.SubAgentTaskSpec{{SubAgentKey: "writer"}, {SubAgentKey: "reviewer"}},
+		MainToolID: "team-tool",
+		Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: "writer"}, {SubAgentKey: "reviewer"}},
 	}}}
 	defs := map[string]catalog.AgentDefinition{
 		"writer":   {Key: "writer", Name: "Writer", Mode: "REACT"},
@@ -197,10 +196,10 @@ func TestFrameOrchestratorTeamFanoutMergesParallelHITLAndDistributesSubmit(t *te
 	}
 }
 
-func TestFrameOrchestratorTeamFanoutInterruptCancelsAllMergedHITLChildren(t *testing.T) {
+func TestFrameOrchestratorTeamDelegationInterruptCancelsAllMergedHITLChildren(t *testing.T) {
 	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
-		MainToolID: "team-tool", Kind: agentteam.DispatchKindFanout, DelegateMode: agentteam.DelegateModeFanout,
-		Tasks: []contracts.SubAgentTaskSpec{{SubAgentKey: "writer"}, {SubAgentKey: "reviewer"}},
+		MainToolID: "team-tool",
+		Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: "writer"}, {SubAgentKey: "reviewer"}},
 	}}}
 	defs := map[string]catalog.AgentDefinition{
 		"writer":   {Key: "writer", Name: "Writer", Mode: "REACT"},
@@ -231,10 +230,10 @@ func TestFrameOrchestratorTeamFanoutInterruptCancelsAllMergedHITLChildren(t *tes
 	select {
 	case err := <-done:
 		if err != nil {
-			t.Fatalf("fanout interrupt returned error: %v", err)
+			t.Fatalf("delegation interrupt returned error: %v", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("fanout did not stop after Team interrupt")
+		t.Fatal("delegation did not stop after Team interrupt")
 	}
 	seen := map[string]bool{}
 	for len(seen) < 2 {
@@ -247,9 +246,9 @@ func TestFrameOrchestratorTeamFanoutInterruptCancelsAllMergedHITLChildren(t *tes
 	}
 }
 
-func TestFrameOrchestratorTeamInvokeMergesParallelHITL(t *testing.T) {
+func TestFrameOrchestratorTeamCustomTaskDelegationMergesParallelHITL(t *testing.T) {
 	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
-		MainToolID: "team-tool", Kind: agentteam.DispatchKindInvoke,
+		MainToolID: "team-tool",
 		Tasks: []contracts.SubAgentTaskSpec{
 			{SubAgentKey: "writer", TaskText: "draft", TaskName: "Draft"},
 			{SubAgentKey: "reviewer", TaskText: "review", TaskName: "Review"},
@@ -268,8 +267,8 @@ func TestFrameOrchestratorTeamInvokeMergesParallelHITL(t *testing.T) {
 	o.session.TeamRuntime = &contracts.TeamRuntimeContext{RuntimeMode: catalog.TeamRuntimeModeOrchestrated, MaxParallel: 2}
 	o.agent = engine
 	o.buildQuerySession = func(_ context.Context, req api.QueryRequest, _ chat.Summary, def catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
-		if options.IncludeHistory || options.AllowInvokeAgents {
-			t.Fatalf("unexpected Team invoke options: %#v", options)
+		if !options.IncludeHistory || options.AllowInvokeAgents || options.TeamHistoryAgentKey != def.Key {
+			t.Fatalf("unexpected Team delegation options: %#v", options)
 		}
 		return contracts.QuerySession{RunID: req.RunID, ChatID: req.ChatID, AgentKey: def.Key, Mode: def.Mode}, nil
 	}
@@ -287,7 +286,7 @@ func TestFrameOrchestratorTeamInvokeMergesParallelHITL(t *testing.T) {
 				ChatID: "chat_1", RunID: "run_1", TeamID: "research", AwaitingID: ask.AwaitingID, SubmitID: "submit-invoke-1", Params: params,
 			})
 			if !ack.Accepted {
-				t.Fatalf("merged invoke submit not accepted: %#v", ack)
+				t.Fatalf("merged delegation submit not accepted: %#v", ack)
 			}
 		}
 	}
@@ -297,17 +296,17 @@ func TestFrameOrchestratorTeamInvokeMergesParallelHITL(t *testing.T) {
 		t.Fatalf("Run() = failed=%v interrupted=%v err=%v", failed, interrupted, err)
 	}
 	if mergedAskCount != 1 || len(engine.submits) != 2 {
-		t.Fatalf("invoke HITL was not merged/distributed: asks=%d submits=%d", mergedAskCount, len(engine.submits))
+		t.Fatalf("delegation HITL was not merged/distributed: asks=%d submits=%d", mergedAskCount, len(engine.submits))
 	}
 	if len(main.injected) != 1 || main.injected[0].isError || !main.optionalToolsAllowed {
-		t.Fatalf("invoke did not resume coordinator: injected=%#v optional=%v", main.injected, main.optionalToolsAllowed)
+		t.Fatalf("delegation did not resume coordinator: injected=%#v optional=%v", main.injected, main.optionalToolsAllowed)
 	}
 }
 
-func TestFrameOrchestratorTeamFanoutMergesHITLInBoundedWaves(t *testing.T) {
+func TestFrameOrchestratorTeamDelegationMergesHITLInBoundedWaves(t *testing.T) {
 	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
-		MainToolID: "team-tool", Kind: agentteam.DispatchKindFanout, DelegateMode: agentteam.DelegateModeFanout,
-		Tasks: []contracts.SubAgentTaskSpec{{SubAgentKey: "writer"}, {SubAgentKey: "reviewer"}, {SubAgentKey: "analyst"}},
+		MainToolID: "team-tool",
+		Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: "writer"}, {SubAgentKey: "reviewer"}, {SubAgentKey: "analyst"}},
 	}}}
 	defs := map[string]catalog.AgentDefinition{
 		"writer":   {Key: "writer", Name: "Writer", Mode: "REACT"},
@@ -356,10 +355,10 @@ func TestFrameOrchestratorTeamFanoutMergesHITLInBoundedWaves(t *testing.T) {
 	select {
 	case err := <-done:
 		if err != nil {
-			t.Fatalf("bounded fanout returned error: %v", err)
+			t.Fatalf("bounded delegation returned error: %v", err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("bounded fanout deadlocked while the first awaiting wave held the semaphore")
+		t.Fatal("bounded delegation deadlocked while the first awaiting wave held the semaphore")
 	}
 	if mergedAskCount != 2 {
 		t.Fatalf("merged wave count=%d, want 2", mergedAskCount)

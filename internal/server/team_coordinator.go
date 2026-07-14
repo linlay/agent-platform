@@ -1,9 +1,11 @@
 package server
 
 import (
+	"fmt"
 	"strings"
 
 	agentteam "agent-platform/internal/agent/team"
+	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/contracts"
 )
@@ -33,9 +35,9 @@ func buildTeamCoordinatorDefinition(snapshot catalog.TeamSnapshot) catalog.Agent
 	}
 }
 
-func configureTeamCoordinatorSession(session *contracts.QuerySession, snapshot catalog.TeamSnapshot) {
+func configureTeamCoordinatorSession(session *contracts.QuerySession, snapshot catalog.TeamSnapshot, baseTool api.ToolDetailResponse) error {
 	if session == nil {
-		return
+		return nil
 	}
 	members := make([]contracts.TeamMember, 0, len(snapshot.ValidAgentKeys))
 	promptMembers := make([]agentteam.MemberSpec, 0, len(snapshot.ValidAgentKeys))
@@ -58,7 +60,11 @@ func configureTeamCoordinatorSession(session *contracts.QuerySession, snapshot c
 		ToolSchemaFingerprint:   snapshot.ToolSchemaFingerprint,
 		OrchestratorFingerprint: snapshot.OrchestratorFingerprint,
 	}
-	session.ModeToolDefinitions = agentteam.HiddenToolDefinitions(promptMembers, maxParallel)
+	toolDefinition, err := agentteam.BuildToolDefinition(baseTool, promptMembers)
+	if err != nil {
+		return fmt.Errorf("configure Team coordinator tool: %w", err)
+	}
+	session.ModeToolDefinitions = []api.ToolDetailResponse{toolDefinition}
 	session.ModeSystemPrompt = agentteam.BuildSystemPrompt(agentteam.PromptConfig{
 		TeamID:       snapshot.TeamID,
 		TeamName:     snapshot.Name,
@@ -68,6 +74,17 @@ func configureTeamCoordinatorSession(session *contracts.QuerySession, snapshot c
 		AgentsPrompt: snapshot.AgentsPrompt,
 		MaxParallel:  maxParallel,
 	})
+	return nil
+}
+
+func teamDelegateBaseDefinition(definitions []api.ToolDetailResponse) (api.ToolDetailResponse, bool) {
+	for _, definition := range definitions {
+		if strings.EqualFold(strings.TrimSpace(definition.Name), agentteam.ToolDelegate) ||
+			strings.EqualFold(strings.TrimSpace(definition.Key), agentteam.ToolDelegate) {
+			return definition, true
+		}
+	}
+	return api.ToolDetailResponse{}, false
 }
 
 func mergeTeamConfigMap(base map[string]any, overlay map[string]any) map[string]any {

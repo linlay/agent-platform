@@ -53,6 +53,16 @@ func TestAdminToolsListIgnoresQueryAndFlattensMetadata(t *testing.T) {
 				"serverKey":      "demo",
 			},
 		},
+		{
+			Key:  "agent_delegate",
+			Name: "agent_delegate",
+			Meta: map[string]any{
+				"kind":           "backend",
+				"sourceType":     "local",
+				"sourceCategory": "platform",
+				"catalogVisible": false,
+			},
+		},
 	}}}}
 
 	all := requestAdminTools(t, server, "/api/admin/tools")

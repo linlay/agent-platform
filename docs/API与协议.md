@@ -105,7 +105,7 @@ GET /ws -> request / response / stream / push / error frames
 
 Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `baseUrl`；model 暴露 `provider/protocol/type/isVision/isReasoner/isFunction/maxInputTokens/maxOutputTokens/timeout`；MCP server 暴露 `baseUrl/toolCount`，其中 `toolCount` 是当前已同步注册的 MCP 工具数量；viewport server 仅暴露 `baseUrl`，当前不返回 viewport 数量。
 
-`/api/teams` 每项返回 `teamId`、`name`、可选 `description/icon`、`runtimeMode`、`agentKeys` 与安全摘要 `meta`。`meta` 包含 `validAgentKeys`、`invalidAgentKeys`、`orchestrated`；legacy Team 额外返回 `defaultAgentKey/defaultAgentKeyValid`，orchestrated Team 只额外返回 `maxParallel`。接口不会返回隐藏协调器 key、协调器模型配置、system prompt、`SOUL.md/AGENTS.md` 内容或 `team_delegate/team_invoke` 定义。
+`/api/teams` 每项返回 `teamId`、`name`、可选 `description/icon`、`runtimeMode`、`agentKeys` 与安全摘要 `meta`。`meta` 包含 `validAgentKeys`、`invalidAgentKeys`、`orchestrated`；legacy Team 额外返回 `defaultAgentKey/defaultAgentKeyValid`，orchestrated Team 只额外返回 `maxParallel`。接口不会返回隐藏总控 key、总控模型配置、system prompt、`SOUL.md/AGENTS.md` 内容或 internal-only `agent_delegate` 定义；`/api/admin/tools` 同样不列出该工具。
 
 ### Chat
 
@@ -260,7 +260,7 @@ BTW 发给 provider 的 system、tools、tool choice 和 cache key 与普通 cha
 
 实时 SSE / WS stream 的工具事件形状不变：仍按单个工具发送 `tool.snapshot`、`tool.result`、`action.snapshot`、`action.result`。持久化到 `chatId.jsonl` 时，同一 assistant turn 的多个工具调用会合并为一条 assistant message 的 `tool_calls[]`；如果该组存在 awaiting，确认前不会执行任何 sibling tool，确认后的所有结果写入同 `seq` 的 `_type:"react-tool"` continuation。
 
-orchestrated Team 的协调器 reasoning 和 `team_delegate/team_invoke` 工具事件会被过滤，不进入客户端事件流。成员输出继续使用现有 `task.*` 与 `content.*`：成员事件可带 `teamId`、成员 `agentKey`、`presentation:"reply" | "task"`，并在 `actor` 中标记 `type:"agent"`。direct 成员正文没有 `taskId`，作为根回答；fanout 成员回复带 task 归属并在 Team 总结前展示；`team_invoke` 中间输出保持 task 展示。最终非流式 `content` 与 run summary 只取 direct 成员根回答或协调器最终正文，不拼接 fanout/invoke 的 task 内容。
+orchestrated Team 的总控 reasoning 和 `agent_delegate` 工具事件会被过滤，不进入客户端事件流。成员输出继续使用现有 `task.*` 与 task-scoped `content.*`：成员事件带 `taskId`，可带 `teamId`、成员 `agentKey`、`presentation:"task"`，并在 `actor` 中标记 `type:"agent"`。一项和多项委派使用相同终止规则，成员正文不会成为根回答；最终非流式 `content`、run summary 与 `AssistantText` 只取总控生成的唯一 Team 最终正文。
 
 `run.activity` 是运行中的非终止状态事件，用于展示当前 run 正在等待、运行、重试或完成某个活动阶段。基础字段为 `runId`、`chatId`、`phase`、`status`；可选字段包括 `taskId`、`backend`、`key`、`message`，以及按场景嵌套的 `retry` / `recovery` / `degradation` 对象。当前 native 模型调用使用 `phase:"model_call"`，可恢复重试使用 `status:"retrying"` 且把 `attempt`、`maxAttempts`、`reason`、`timeoutSeconds`、`elapsedMs` 放入 `retry`。`run.activity` 不表示 run 失败；`run.error` 仍是终止事件，发出后不应再出现 content / reasoning / tool 等业务事件，后面只允许传输层 `[DONE]`。`run.activity` 只用于 live / attach，默认不进入 `/api/chat` 历史回放。
 

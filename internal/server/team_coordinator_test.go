@@ -9,6 +9,7 @@ import (
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/contracts"
+	toolruntime "agent-platform/internal/tools"
 )
 
 type fixedTeamRegistry struct {
@@ -96,6 +97,9 @@ func TestPrepareQueryAdmissionSynthesizesHiddenTeamCoordinator(t *testing.T) {
 	if admission.agentDef.Key != hiddenTeamAgentKey("research") || admission.agentDef.ModelKey != "mock-model" {
 		t.Fatalf("unexpected coordinator definition %#v", admission.agentDef)
 	}
+	if strings.Join(admission.agentDef.Tools, ",") != strings.Join(agentteam.DefaultToolNames(), ",") {
+		t.Fatalf("unexpected coordinator default tools %#v", admission.agentDef.Tools)
+	}
 	if _, visible := registry.AgentDefinition(admission.agentDef.Key); visible {
 		t.Fatal("synthetic coordinator leaked into Agent registry")
 	}
@@ -105,7 +109,17 @@ func TestConfigureTeamCoordinatorSessionAddsOwnerPromptAndLocalTools(t *testing.
 	registry := orchestratedTeamTestRegistry()
 	snapshot, _ := registry.ResolveTeam("research")
 	session := contracts.QuerySession{AgentKey: hiddenTeamAgentKey("research"), TeamID: "research", Mode: agentteam.Mode}
-	configureTeamCoordinatorSession(&session, snapshot)
+	definitions, err := toolruntime.LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatalf("load embedded tools: %v", err)
+	}
+	baseTool, ok := teamDelegateBaseDefinition(definitions)
+	if !ok {
+		t.Fatal("embedded agent_delegate definition is unavailable")
+	}
+	if err := configureTeamCoordinatorSession(&session, snapshot, baseTool); err != nil {
+		t.Fatalf("configureTeamCoordinatorSession: %v", err)
+	}
 
 	owner := contracts.ResolveRunOwner(session.RunOwner, session.AgentKey, session.TeamID)
 	if !owner.IsTeam() || owner.TeamID != "research" || owner.AgentKey != "" || owner.ExecutionAgentKey != hiddenTeamAgentKey("research") {
@@ -114,10 +128,19 @@ func TestConfigureTeamCoordinatorSessionAddsOwnerPromptAndLocalTools(t *testing.
 	if session.TeamRuntime == nil || len(session.TeamRuntime.Members) != 2 || session.TeamRuntime.MaxParallel != 2 {
 		t.Fatalf("unexpected Team runtime %#v", session.TeamRuntime)
 	}
-	if len(session.ModeToolDefinitions) != 2 || session.ModeToolDefinitions[0].Name != agentteam.ToolDelegate {
+	if len(session.ModeToolDefinitions) != 1 || session.ModeToolDefinitions[0].Name != agentteam.ToolDelegate {
 		t.Fatalf("unexpected local tools %#v", session.ModeToolDefinitions)
 	}
-	for _, required := range []string{"memberKey=writer", "memberKey=reviewer", "Be precise."} {
+	parameters := session.ModeToolDefinitions[0].Parameters
+	tasks, _ := parameters["properties"].(map[string]any)["tasks"].(map[string]any)
+	items, _ := tasks["items"].(map[string]any)
+	properties, _ := items["properties"].(map[string]any)
+	agentKey, _ := properties["agentKey"].(map[string]any)
+	enum, _ := agentKey["enum"].([]string)
+	if tasks["maxItems"] != 2 || len(enum) != 2 {
+		t.Fatalf("dynamic delegate schema was not frozen to roster: %#v", parameters)
+	}
+	for _, required := range []string{"agentKey=writer", "agentKey=reviewer", "Be precise."} {
 		if !strings.Contains(session.ModeSystemPrompt, required) {
 			t.Fatalf("Team prompt missing %q:\n%s", required, session.ModeSystemPrompt)
 		}

@@ -2,8 +2,11 @@ package tools
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
+
+	"agent-platform/internal/contracts"
 )
 
 func TestLoadEmbeddedToolDefinitionsIncludesAskUserBuiltins(t *testing.T) {
@@ -41,6 +44,45 @@ func TestLoadEmbeddedToolDefinitionsIncludesAskUserBuiltins(t *testing.T) {
 	if !byName["image_generate"] {
 		t.Fatal("expected image_generate builtin tool definition")
 	}
+}
+
+func TestEmbeddedAgentDelegateSchemaAndInternalMetadata(t *testing.T) {
+	defs, err := LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatalf("load embedded tool definitions: %v", err)
+	}
+	for _, def := range defs {
+		if def.Name != "agent_delegate" {
+			continue
+		}
+		if def.Meta["clientVisible"] != false || def.Meta["explicitOnly"] != true || def.Meta["internalOnly"] != true || def.Meta["catalogVisible"] != false {
+			t.Fatalf("unexpected agent_delegate metadata: %#v", def.Meta)
+		}
+		if def.Parameters["additionalProperties"] != false || !reflect.DeepEqual(def.Parameters["required"], []any{"tasks"}) {
+			t.Fatalf("unexpected agent_delegate root schema: %#v", def.Parameters)
+		}
+		properties := mapChild(t, def.Parameters, "properties")
+		tasks := mapChild(t, properties, "tasks")
+		if contracts.AnyIntNode(tasks["minItems"]) != 1 {
+			t.Fatalf("agent_delegate tasks minItems=%#v", tasks["minItems"])
+		}
+		items := mapChild(t, tasks, "items")
+		if items["additionalProperties"] != false || !reflect.DeepEqual(items["required"], []any{"agentKey"}) {
+			t.Fatalf("unexpected agent_delegate task schema: %#v", items)
+		}
+		itemProperties := mapChild(t, items, "properties")
+		for _, name := range []string{"agentKey", "task", "taskName", "files"} {
+			if _, ok := itemProperties[name]; !ok {
+				t.Fatalf("agent_delegate task is missing %q: %#v", name, itemProperties)
+			}
+		}
+		files := mapChild(t, itemProperties, "files")
+		if contracts.AnyIntNode(files["maxItems"]) != 10 {
+			t.Fatalf("agent_delegate files maxItems=%#v", files["maxItems"])
+		}
+		return
+	}
+	t.Fatal("embedded agent_delegate definition is unavailable")
 }
 
 func TestWebFetchToolSchemaMatchesContract(t *testing.T) {

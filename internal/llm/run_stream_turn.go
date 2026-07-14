@@ -426,11 +426,11 @@ func (s *llmRunStream) finishCurrentTurn() error {
 			s.teamRouteCorrections++
 			s.messages = append(s.messages, openAIMessage{
 				Role:    "user",
-				Content: "The previous response did not perform the mandatory Team routing step. Call exactly one of team_delegate or team_invoke now; do not answer with ordinary text.",
+				Content: "The previous response did not perform the mandatory Team delegation step. Call agent_delegate now; planning tools alone do not satisfy this requirement, and you must not answer with ordinary text yet.",
 			})
 			return nil
 		}
-		s.modelTerminalError = fmt.Errorf("TEAM coordinator did not produce a valid routing tool call after one correction")
+		s.modelTerminalError = fmt.Errorf("TEAM coordinator did not produce a valid agent_delegate call after one correction")
 		return nil
 	}
 	if s.teamRouteRequired() {
@@ -699,16 +699,6 @@ func (s *llmRunStream) FinalAssistantContent() (string, bool) {
 		return text, true
 	}
 	return "", false
-}
-
-func (s *llmRunStream) RequireFinalResponse() {
-	if s == nil {
-		return
-	}
-	s.allowToolUse = false
-	s.toolSpecs = nil
-	s.requestedToolNames = nil
-	s.toolChoice = "none"
 }
 
 func (s *llmRunStream) AllowOptionalTools() {

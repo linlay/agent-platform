@@ -141,6 +141,30 @@ func TestAgentCRUDRejectsLegacyACPProxyID(t *testing.T) {
 	}
 }
 
+func TestAgentCRUDRejectsInternalAgentDelegateTool(t *testing.T) {
+	fixture := newTestFixture(t)
+	body, err := json.Marshal(map[string]any{
+		"key": "invalid-delegate-agent",
+		"definition": map[string]any{
+			"key":         "invalid-delegate-agent",
+			"mode":        "REACT",
+			"modelConfig": map[string]any{"modelKey": "mock-model"},
+			"toolConfig":  map[string]any{"tools": []any{"agent_delegate"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal create request: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/agents/create", bytes.NewReader(body)))
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "agent_delegate") {
+		t.Fatalf("expected internal tool create rejection, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if _, found := fixture.registry.AgentDefinition("invalid-delegate-agent"); found {
+		t.Fatal("rejected agent_delegate configuration must not be persisted")
+	}
+}
+
 func TestAgentCreateRejectsInvalidACPBridgeDefinition(t *testing.T) {
 	fixture := newTestFixture(t)
 	for _, tc := range []struct {

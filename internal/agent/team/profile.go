@@ -14,26 +14,23 @@ const (
 	MainCacheKey    = "team:main"
 	DefaultIconName = "team"
 
-	ToolDelegate = "team_delegate"
-	ToolInvoke   = "team_invoke"
+	ToolDelegate = "agent_delegate"
 	// HiddenToolSchemaVersion participates in Team snapshot/system-init
-	// fingerprints. Bump it whenever either hidden tool contract changes in an
+	// fingerprints. Bump it whenever the hidden tool contract changes in an
 	// incompatible way.
-	HiddenToolSchemaVersion = "team_delegate+team_invoke:v1"
-
-	DelegateModeDirect = "direct"
-	DelegateModeFanout = "fanout"
-
-	DispatchKindDirect = "direct"
-	DispatchKindFanout = "fanout"
-	DispatchKindInvoke = "invoke"
+	HiddenToolSchemaVersion = "agent_delegate:v1"
 
 	DefaultMaxParallel = 5
 	MaxParallel        = 5
 	MaxRoutingRetries  = 1
 )
 
-var defaultToolNames = []string{ToolDelegate, ToolInvoke}
+var defaultToolNames = []string{
+	ToolDelegate,
+	contracts.PlanAddTasksToolName,
+	contracts.PlanGetTasksToolName,
+	contracts.PlanUpdateTaskToolName,
+}
 
 var defaultContextTags = []string{"system", "session"}
 

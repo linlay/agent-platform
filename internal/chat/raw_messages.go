@@ -266,8 +266,8 @@ func safeTeamRoutingMessageFromStep(line map[string]any, runID string) map[strin
 		}
 		for _, call := range anyMessageSlice(message["tool_calls"]) {
 			function := mapValue(call["function"])
-			name := strings.TrimSpace(stringValue(function["name"]))
-			if name != "team_delegate" && name != "team_invoke" {
+			name := strings.ToLower(strings.TrimSpace(stringValue(function["name"])))
+			if name != "agent_delegate" && name != "team_delegate" && name != "team_invoke" {
 				continue
 			}
 			args := map[string]any{}
@@ -278,20 +278,24 @@ func safeTeamRoutingMessageFromStep(line map[string]any, runID string) map[strin
 				args = raw
 			}
 			if name == "team_delegate" {
-				record := "team_delegate mode=" + strings.TrimSpace(stringValue(args["mode"]))
-				if memberKey := strings.TrimSpace(stringValue(args["memberKey"])); memberKey != "" {
-					record += " memberKey=" + memberKey
+				memberKey := strings.TrimSpace(stringValue(args["memberKey"]))
+				if memberKey == "" {
+					memberKey = "all"
 				}
-				records = append(records, strings.TrimSpace(record))
+				records = append(records, "agent_delegate agentKeys="+memberKey)
 				continue
 			}
 			var members []string
 			for _, task := range anyMessageSlice(args["tasks"]) {
-				if memberKey := strings.TrimSpace(stringValue(task["memberKey"])); memberKey != "" {
-					members = append(members, memberKey)
+				agentKey := strings.TrimSpace(stringValue(task["agentKey"]))
+				if agentKey == "" {
+					agentKey = strings.TrimSpace(stringValue(task["memberKey"]))
+				}
+				if agentKey != "" {
+					members = append(members, agentKey)
 				}
 			}
-			records = append(records, "team_invoke memberKeys="+strings.Join(members, ","))
+			records = append(records, "agent_delegate agentKeys="+strings.Join(members, ","))
 		}
 	}
 	if len(records) == 0 {

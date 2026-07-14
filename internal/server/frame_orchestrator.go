@@ -85,6 +85,19 @@ type childTaskResult struct {
 	ErrorCode   string `json:"errorCode,omitempty"`
 }
 
+type teamDelegateMemberResult struct {
+	AgentKey  string `json:"agentKey"`
+	TaskName  string `json:"taskName,omitempty"`
+	Status    string `json:"status"`
+	Content   string `json:"content,omitempty"`
+	Error     string `json:"error,omitempty"`
+	ErrorCode string `json:"errorCode,omitempty"`
+}
+
+type teamDelegateToolResult struct {
+	Results []teamDelegateMemberResult `json:"results"`
+}
+
 type childRouteEvent struct {
 	input        stream.StreamInput
 	result       *childTaskResult
@@ -101,14 +114,12 @@ type preparedSubTask struct {
 	mainToolID   string
 	teamID       string
 	presentation string
-	rootContent  bool
 }
 
 type childRunOptions struct {
-	UseOriginalRequest     bool
+	InheritOriginalContext bool
 	IncludeHistory         bool
 	Presentation           string
-	RootContent            bool
 	SuppressFinalDuplicate bool
 	RunControl             *contracts.RunControl
 }
@@ -138,6 +149,10 @@ func (o *frameOrchestrator) handleSubAgentBatch(mainStream contracts.AgentStream
 	}
 	if o.registry == nil || o.buildQuerySession == nil || o.mapper == nil {
 		o.injectMainToolError(main, invoke.MainToolID, "sub-agent orchestration is not configured")
+		return nil
+	}
+	if o.session.TeamRuntime != nil {
+		o.injectMainToolError(main, invoke.MainToolID, "TEAM coordinators must use agent_delegate instead of agent_invoke")
 		return nil
 	}
 	if !o.session.ModeCapabilities.InvokeChildren {
@@ -349,54 +364,21 @@ func (o *frameOrchestrator) handleTeamDispatch(mainStream contracts.AgentStream,
 		o.injectMainToolError(main, dispatch.MainToolID, "TEAM snapshot is unavailable")
 		return false, nil
 	}
-	if strings.EqualFold(strings.TrimSpace(dispatch.Kind), "invoke") {
-		err := o.handleSubAgentBatch(mainStream, contracts.DeltaInvokeSubAgents{
-			MainToolID: dispatch.MainToolID,
-			Tasks:      append([]contracts.SubAgentTaskSpec(nil), dispatch.Tasks...),
-		})
-		if err == nil {
-			if optional, ok := mainStream.(contracts.OptionalToolAgentStream); ok {
-				optional.AllowOptionalTools()
-			}
-		}
-		return false, err
-	}
-	mode := strings.ToLower(strings.TrimSpace(dispatch.DelegateMode))
-	if mode != "direct" && mode != "fanout" {
-		o.injectMainToolError(main, dispatch.MainToolID, "invalid team_delegate mode")
+	if len(dispatch.Tasks) == 0 || len(dispatch.Tasks) > len(o.teamSnapshot.ValidAgentKeys) {
+		o.injectMainToolError(main, dispatch.MainToolID, fmt.Sprintf("agent_delegate tasks must contain between 1 and %d Team members", len(o.teamSnapshot.ValidAgentKeys)))
 		return false, nil
-	}
-	if mode == "direct" && len(dispatch.Tasks) != 1 {
-		o.injectMainToolError(main, dispatch.MainToolID, "direct delegation requires exactly one member")
-		return false, nil
-	}
-	if mode == "fanout" && len(dispatch.Tasks) != len(o.teamSnapshot.ValidAgentKeys) {
-		o.injectMainToolError(main, dispatch.MainToolID, "fanout must include every available Team member")
-		return false, nil
-	}
-	if mode == "fanout" {
-		expected := make(map[string]struct{}, len(o.teamSnapshot.ValidAgentKeys))
-		for _, key := range o.teamSnapshot.ValidAgentKeys {
-			expected[strings.TrimSpace(key)] = struct{}{}
-		}
-		seen := make(map[string]struct{}, len(dispatch.Tasks))
-		for _, spec := range dispatch.Tasks {
-			memberKey := strings.TrimSpace(spec.SubAgentKey)
-			if _, ok := expected[memberKey]; !ok {
-				o.injectMainToolError(main, dispatch.MainToolID, "fanout must include every available Team member exactly once")
-				return false, nil
-			}
-			if _, duplicate := seen[memberKey]; duplicate {
-				o.injectMainToolError(main, dispatch.MainToolID, "fanout must include every available Team member exactly once")
-				return false, nil
-			}
-			seen[memberKey] = struct{}{}
-		}
 	}
 
 	prepared := make([]preparedSubTask, 0, len(dispatch.Tasks))
+	seenMembers := make(map[string]struct{}, len(dispatch.Tasks))
 	for _, spec := range dispatch.Tasks {
 		memberKey := strings.TrimSpace(spec.SubAgentKey)
+		lookupKey := strings.ToLower(memberKey)
+		if _, duplicate := seenMembers[lookupKey]; duplicate {
+			o.injectMainToolError(main, dispatch.MainToolID, fmt.Sprintf("member %q may only appear once in agent_delegate", memberKey))
+			return false, nil
+		}
+		seenMembers[lookupKey] = struct{}{}
 		if !o.teamSnapshot.HasAgent(memberKey) {
 			o.injectMainToolError(main, dispatch.MainToolID, fmt.Sprintf("member %q is unavailable in Team %q", memberKey, o.teamSnapshot.TeamID))
 			return false, nil
@@ -410,6 +392,10 @@ func (o *frameOrchestrator) handleTeamDispatch(mainStream contracts.AgentStream,
 			o.injectMainToolError(main, dispatch.MainToolID, fmt.Sprintf("member %q cannot run as a Team child", memberKey))
 			return false, nil
 		}
+		if containsInvokeAgentsTool(def.Tools) {
+			o.injectMainToolError(main, dispatch.MainToolID, fmt.Sprintf("member %q cannot invoke nested sub-agents", memberKey))
+			return false, nil
+		}
 		o.taskCounter++
 		index := o.taskCounter
 		requestID := fmt.Sprintf("%s_team_%d", firstNonEmpty(o.session.RequestID, o.session.RunID), index)
@@ -417,11 +403,16 @@ func (o *frameOrchestrator) handleTeamDispatch(mainStream contracts.AgentStream,
 		if taskName == "" {
 			taskName = firstNonEmpty(def.Name, memberKey)
 		}
+		taskText := strings.TrimSpace(spec.TaskText)
+		if taskText == "" {
+			taskText = o.request.Message
+		}
 		prepared = append(prepared, preparedSubTask{
 			spec: contracts.SubAgentTaskSpec{
 				SubAgentKey: memberKey,
-				TaskText:    o.request.Message,
+				TaskText:    taskText,
 				TaskName:    taskName,
+				Files:       append([]string(nil), spec.Files...),
 			},
 			agentDef:     def,
 			taskID:       fmt.Sprintf("%s_team_t_%d", strings.TrimSpace(o.session.RunID), index),
@@ -429,26 +420,21 @@ func (o *frameOrchestrator) handleTeamDispatch(mainStream contracts.AgentStream,
 			subTaskID:    fmt.Sprintf("team_%d", index),
 			mainToolID:   dispatch.MainToolID,
 			teamID:       o.teamSnapshot.TeamID,
-			presentation: "reply",
-			rootContent:  mode == "direct",
+			presentation: "task",
 		})
 	}
 
-	emitLifecycle := mode == "fanout"
-	if emitLifecycle {
-		for _, task := range prepared {
-			o.emitDelta(contracts.DeltaTaskLifecycle{
-				Kind:         "start",
-				TaskID:       task.taskID,
-				RunID:        o.session.RunID,
-				TaskName:     task.spec.TaskName,
-				Description:  task.spec.TaskText,
-				SubAgentKey:  task.spec.SubAgentKey,
-				MainToolID:   dispatch.MainToolID,
-				TeamID:       o.teamSnapshot.TeamID,
-				Presentation: "reply",
-			})
-		}
+	for _, task := range prepared {
+		o.emitDelta(contracts.DeltaTaskLifecycle{
+			Kind:         "start",
+			TaskID:       task.taskID,
+			RunID:        o.session.RunID,
+			TaskName:     task.spec.TaskName,
+			SubAgentKey:  task.spec.SubAgentKey,
+			MainToolID:   dispatch.MainToolID,
+			TeamID:       o.teamSnapshot.TeamID,
+			Presentation: "task",
+		})
 	}
 
 	var principal *Principal
@@ -462,7 +448,7 @@ func (o *frameOrchestrator) handleTeamDispatch(mainStream contracts.AgentStream,
 	sem := make(chan struct{}, maxParallel)
 	results := make([]childTaskResult, len(prepared))
 	routedCh := make(chan childRouteEvent, 32)
-	hitlBatch := newTeamMergedHITLBatch(o, prepared, mode == "fanout", maxParallel)
+	hitlBatch := newTeamMergedHITLBatch(o, prepared, true, maxParallel)
 	var wg sync.WaitGroup
 	for index, task := range prepared {
 		wg.Add(1)
@@ -475,7 +461,7 @@ func (o *frameOrchestrator) handleTeamDispatch(mainStream contracts.AgentStream,
 				routedCh <- childRouteEvent{result: &childTaskResult{Index: index, TaskID: task.taskID, TaskName: task.spec.TaskName, SubAgentKey: task.spec.SubAgentKey, Status: "cancelled", Text: "Team member interrupted"}}
 				return
 			}
-			options := childRunOptions{UseOriginalRequest: true, IncludeHistory: true, Presentation: "reply", RootContent: mode == "direct", SuppressFinalDuplicate: true, RunControl: hitlBatch.controlFor(task)}
+			options := childRunOptions{InheritOriginalContext: true, IncludeHistory: true, Presentation: "task", SuppressFinalDuplicate: true, RunControl: hitlBatch.controlFor(task)}
 			routedCh <- childRouteEvent{result: o.runChildTaskWithOptions(index, task, principal, func(input stream.StreamInput) {
 				if event, captured := hitlBatch.capture(task, input); captured {
 					routedCh <- event
@@ -499,45 +485,49 @@ func (o *frameOrchestrator) handleTeamDispatch(mainStream contracts.AgentStream,
 		}
 		results[routed.result.Index] = *routed.result
 		task := prepared[routed.result.Index]
-		if emitLifecycle {
-			terminalKind := "complete"
-			if routed.result.Status == "failed" {
-				terminalKind = "error"
-			} else if routed.result.Status == "cancelled" {
-				terminalKind = "cancel"
-			}
-			lifecycle := contracts.DeltaTaskLifecycle{Kind: terminalKind, TaskID: routed.result.TaskID, SubAgentKey: routed.result.SubAgentKey, TeamID: task.teamID, Presentation: task.presentation}
-			if terminalKind == "error" {
-				lifecycle.Error = contracts.NewErrorPayload(firstNonEmpty(routed.result.ErrorCode, "team_member_failed"), firstNonEmpty(routed.result.Error, routed.result.Text), contracts.ErrorScopeTask, contracts.ErrorCategorySystem, nil)
-			}
-			o.emitDelta(lifecycle)
+		terminalKind := "complete"
+		if routed.result.Status == "failed" {
+			terminalKind = "error"
+		} else if routed.result.Status == "cancelled" {
+			terminalKind = "cancel"
 		}
+		lifecycle := contracts.DeltaTaskLifecycle{Kind: terminalKind, TaskID: routed.result.TaskID, SubAgentKey: routed.result.SubAgentKey, TeamID: task.teamID, Presentation: task.presentation}
+		if terminalKind == "error" {
+			lifecycle.Error = contracts.NewErrorPayload(firstNonEmpty(routed.result.ErrorCode, "team_member_failed"), firstNonEmpty(routed.result.Error, routed.result.Text), contracts.ErrorScopeTask, contracts.ErrorCategorySystem, nil)
+		}
+		o.emitDelta(lifecycle)
 		hitlBatch.observe(routed)
 	}
 
-	if mode == "direct" && len(results) == 1 && results[0].Status == "completed" {
-		return true, nil
+	toolResults := make([]teamDelegateMemberResult, 0, len(results))
+	anyFailed := false
+	for _, result := range results {
+		item := teamDelegateMemberResult{
+			AgentKey:  result.SubAgentKey,
+			TaskName:  result.TaskName,
+			Status:    result.Status,
+			Content:   result.Text,
+			Error:     result.Error,
+			ErrorCode: result.ErrorCode,
+		}
+		if result.Status != "completed" {
+			anyFailed = true
+			item.Content = ""
+			if strings.TrimSpace(item.Error) == "" {
+				item.Error = result.Text
+			}
+		}
+		toolResults = append(toolResults, item)
 	}
-	aggregated, err := json.Marshal(results)
+	aggregated, err := json.Marshal(teamDelegateToolResult{Results: toolResults})
 	if err != nil {
 		o.injectMainToolError(main, dispatch.MainToolID, err.Error())
 		return false, nil
 	}
-	anyFailed := false
-	for _, result := range results {
-		if result.Status != "completed" {
-			anyFailed = true
-			break
-		}
-	}
 	if !main.InjectToolResult(dispatch.MainToolID, string(aggregated), anyFailed) {
 		return false, fmt.Errorf("TEAM coordinator rejected dispatch result")
 	}
-	if mode == "fanout" {
-		if finalizer, ok := mainStream.(contracts.FinalResponseAgentStream); ok {
-			finalizer.RequireFinalResponse()
-		}
-	} else if optional, ok := mainStream.(contracts.OptionalToolAgentStream); ok {
+	if optional, ok := mainStream.(contracts.OptionalToolAgentStream); ok {
 		optional.AllowOptionalTools()
 	}
 	return false, nil
@@ -899,20 +889,24 @@ func (o *frameOrchestrator) runChildTaskWithOptions(index int, task preparedSubT
 		Message:     task.spec.TaskText,
 		AccessLevel: o.session.AccessLevel,
 	}
-	if options.UseOriginalRequest {
+	if options.InheritOriginalContext {
 		subReq.Role = o.request.Role
 		if strings.TrimSpace(subReq.Role) == "" {
 			subReq.Role = api.QueryRoleUser
 		}
-		subReq.Message = o.request.Message
-		subReq.References = append([]api.Reference(nil), o.request.References...)
 		subReq.Scene = o.request.Scene
-	} else {
+	}
+	baseReferences := []api.Reference(nil)
+	if options.InheritOriginalContext {
+		baseReferences = append(baseReferences, o.request.References...)
+	}
+	if len(task.spec.Files) > 0 {
 		references, err := prepareProxyReferences(o.chats, o.resourceTickets, proxyReferenceOptions{
 			ChatID:          subReq.ChatID,
 			RunID:           subReq.RunID,
 			Subject:         o.session.Subject,
 			ResourceBaseURL: o.resourceBaseURL,
+			References:      baseReferences,
 			Files:           task.spec.Files,
 		})
 		if err != nil {
@@ -921,7 +915,9 @@ func (o *frameOrchestrator) runChildTaskWithOptions(index int, task preparedSubT
 			result.Error = err.Error()
 			return result
 		}
-		subReq.References = references
+		subReq.References = deduplicateTeamReferences(references)
+	} else {
+		subReq.References = deduplicateTeamReferences(baseReferences)
 	}
 
 	childRunCtx := o.runCtx
@@ -936,7 +932,7 @@ func (o *frameOrchestrator) runChildTaskWithOptions(index int, task preparedSubT
 		SubTaskID:         task.subTaskID,
 		Principal:         principal,
 		TeamHistoryAgentKey: func() string {
-			if options.UseOriginalRequest {
+			if options.InheritOriginalContext {
 				return task.spec.SubAgentKey
 			}
 			return ""
@@ -1209,14 +1205,13 @@ func (o *frameOrchestrator) writeChildTaskQueryAndSystem(subReq api.QueryRequest
 		SubAgentKey:  task.spec.SubAgentKey,
 		TeamID:       task.teamID,
 		Presentation: task.presentation,
-		RootContent:  task.rootContent,
 		Query: map[string]any{
 			"message":   task.spec.TaskText,
 			"agentKey":  task.spec.SubAgentKey,
 			"chatId":    o.summary.ChatID,
 			"runId":     o.session.RunID,
 			"requestId": task.requestID,
-			"role":      "user",
+			"role":      firstNonEmpty(subReq.Role, api.QueryRoleUser),
 		},
 		Messages: currentMessagesFromSession(subSession),
 		System:   system,
@@ -1321,9 +1316,6 @@ func routeChildStreamInput(parentRunID string, taskID string, input stream.Strea
 func routeTeamChildStreamInput(_ string, teamID string, task preparedSubTask, input stream.StreamInput, options childRunOptions) stream.StreamInput {
 	switch value := input.(type) {
 	case stream.ContentDelta:
-		if options.RootContent {
-			value.TaskID = ""
-		}
 		value.ActorType = "agent"
 		value.TeamID = strings.TrimSpace(teamID)
 		value.AgentKey = strings.TrimSpace(task.spec.SubAgentKey)
@@ -1346,6 +1338,49 @@ func namespaceChildID(taskID string, rawID string) string {
 		return ""
 	}
 	return taskID + ":" + rawID
+}
+
+func deduplicateTeamReferences(references []api.Reference) []api.Reference {
+	if len(references) < 2 {
+		return append([]api.Reference(nil), references...)
+	}
+	out := make([]api.Reference, 0, len(references))
+	seen := make(map[string]struct{}, len(references)*3)
+	for _, reference := range references {
+		keys := teamReferenceIdentityKeys(reference)
+		duplicate := false
+		for _, key := range keys {
+			if _, exists := seen[key]; exists {
+				duplicate = true
+				break
+			}
+		}
+		if duplicate {
+			continue
+		}
+		for _, key := range keys {
+			seen[key] = struct{}{}
+		}
+		out = append(out, reference)
+	}
+	return out
+}
+
+func teamReferenceIdentityKeys(reference api.Reference) []string {
+	keys := make([]string, 0, 5)
+	appendKey := func(prefix string, value string) {
+		if value = strings.TrimSpace(value); value != "" {
+			keys = append(keys, prefix+value)
+		}
+	}
+	appendKey("id:", reference.ID)
+	appendKey("sha256:", reference.SHA256)
+	appendKey("path:", reference.Path)
+	appendKey("url:", reference.URL)
+	if referenceType, name := strings.TrimSpace(reference.Type), strings.TrimSpace(reference.Name); len(keys) == 0 && referenceType != "" && name != "" {
+		keys = append(keys, "name:"+referenceType+"\x00"+name)
+	}
+	return keys
 }
 
 func firstNonEmpty(values ...string) string {

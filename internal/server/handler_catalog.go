@@ -276,6 +276,9 @@ func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (a
 
 func validateCreateAgentDefinition(definition map[string]any) error {
 	mode := catalog.NormalizeAgentModeForRuntime(stringValue(definition["mode"]))
+	if err := catalog.ValidateOrdinaryAgentTools(agentDefinitionToolNames(definition)); err != nil {
+		return err
+	}
 	runtimeConfig := contracts.AnyMapNode(definition["runtimeConfig"])
 	if _, exists := runtimeConfig["acpProxyId"]; exists {
 		return fmt.Errorf("runtimeConfig.acpProxyId was removed; use runtimeConfig.acpBridgeId")
@@ -292,6 +295,27 @@ func validateCreateAgentDefinition(definition map[string]any) error {
 		return nil
 	}
 	return agentkbase.ValidateAgentConfigSchema(contracts.AnyMapNode(definition["kbaseConfig"]))
+}
+
+func agentDefinitionToolNames(definition map[string]any) []string {
+	value := contracts.AnyMapNode(definition["toolConfig"])["tools"]
+	switch typed := value.(type) {
+	case []any:
+		items := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if name := strings.TrimSpace(contracts.AnyStringNode(item)); name != "" {
+				items = append(items, name)
+			}
+		}
+		return items
+	case []string:
+		return append([]string(nil), typed...)
+	case string:
+		if name := strings.TrimSpace(typed); name != "" {
+			return []string{name}
+		}
+	}
+	return nil
 }
 
 func (s *Server) applyCreateDefaultAgentConfig(definition map[string]any) map[string]any {

@@ -9,6 +9,7 @@ import (
 	agentcontract "agent-platform/internal/agent"
 	agentbuiltin "agent-platform/internal/agent/builtin"
 	agentcoder "agent-platform/internal/agent/coder"
+	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
@@ -33,6 +34,11 @@ type querySessionBuildOptions struct {
 var memoryInjectionEnabled = false
 
 func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, summary chat.Summary, agentDef catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
+	if !strings.EqualFold(strings.TrimSpace(agentDef.Mode), agentteam.Mode) {
+		if err := catalog.ValidateOrdinaryAgentTools(agentDef.Tools); err != nil {
+			return contracts.QuerySession{}, err
+		}
+	}
 	historyMessages := []map[string]any(nil)
 	if options.IncludeHistory && s.deps.Chats != nil {
 		var historyErr error

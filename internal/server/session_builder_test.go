@@ -39,6 +39,16 @@ func TestBuildSessionToolNamesFiltersInvokeAgentsWhenDisallowed(t *testing.T) {
 	}
 }
 
+func TestBuildQuerySessionRejectsAgentDelegateForOrdinaryAgent(t *testing.T) {
+	server := &Server{}
+	_, err := server.BuildQuerySession(context.Background(), api.QueryRequest{}, chat.Summary{}, catalog.AgentDefinition{
+		Key: "ordinary", Mode: "REACT", Tools: []string{"agent_delegate"},
+	}, querySessionBuildOptions{})
+	if err == nil || !strings.Contains(err.Error(), "only be used by an orchestrated Team coordinator") {
+		t.Fatalf("expected session-level internal tool rejection, got %v", err)
+	}
+}
+
 func TestDefaultSessionToolNamesWithoutInvokeMaterializesSafeDefaults(t *testing.T) {
 	got := defaultSessionToolNamesWithoutInvoke([]api.ToolDetailResponse{
 		{Name: "file_read"},

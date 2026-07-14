@@ -61,15 +61,9 @@ type OrchestratableAgentStream interface {
 	FinalAssistantContent() (string, bool)
 }
 
-// FinalResponseAgentStream lets an orchestrator turn an external-tool result
-// into a mandatory, tool-free synthesis turn (used after TEAM fanout).
-type FinalResponseAgentStream interface {
-	RequireFinalResponse()
-}
-
 // OptionalToolAgentStream releases TEAM's initial tool-required routing gate
-// after the first dispatch result so the coordinator may either invoke a
-// later batch or produce its final answer.
+// after the first delegation result so the coordinator may update its plan,
+// delegate a later batch, or produce its final answer.
 type OptionalToolAgentStream interface {
 	AllowOptionalTools()
 }

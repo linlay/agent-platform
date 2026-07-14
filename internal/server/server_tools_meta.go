@@ -54,6 +54,9 @@ func (s *Server) listTools() []api.ToolSummary {
 	items := make([]api.ToolSummary, 0, len(defs))
 	seen := map[string]struct{}{}
 	for _, tool := range defs {
+		if visible, ok := tool.Meta["catalogVisible"].(bool); ok && !visible {
+			continue
+		}
 		canonical, ok := canonicalizePublicToolDefinition(tool)
 		if !ok {
 			continue

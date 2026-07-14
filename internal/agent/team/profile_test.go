@@ -3,6 +3,8 @@ package team
 import (
 	"reflect"
 	"testing"
+
+	"agent-platform/internal/contracts"
 )
 
 func TestDescriptorDefinesInternalTeamMode(t *testing.T) {
@@ -16,7 +18,8 @@ func TestDescriptorDefinesInternalTeamMode(t *testing.T) {
 	if !descriptor.Capabilities.InvokeChildren || descriptor.Capabilities.RunAsChild || descriptor.Capabilities.FileChangeHooks {
 		t.Fatalf("unexpected TEAM capabilities %#v", descriptor.Capabilities)
 	}
-	if !reflect.DeepEqual(descriptor.Profile.ToolNames, []string{ToolDelegate, ToolInvoke}) {
+	wantTools := []string{ToolDelegate, contracts.PlanAddTasksToolName, contracts.PlanGetTasksToolName, contracts.PlanUpdateTaskToolName}
+	if !reflect.DeepEqual(descriptor.Profile.ToolNames, wantTools) {
 		t.Fatalf("unexpected TEAM tools %#v", descriptor.Profile.ToolNames)
 	}
 

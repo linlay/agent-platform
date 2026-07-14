@@ -687,6 +687,9 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		}
 	}
 	def = applyAgentModeProfileDefaults(def)
+	if err := ValidateOrdinaryAgentTools(def.Tools); err != nil {
+		return AgentDefinition{}, nil, err
+	}
 	if strings.EqualFold(def.Mode, AgentModeKBase) {
 		def = applyKBaseBoundaryPolicy(def)
 	}

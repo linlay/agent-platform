@@ -158,7 +158,7 @@ make test
 - WebSocket 是控制面，浏览器/普通客户端文件字节仍走 `POST /api/upload` 和 `GET /api/resource`。
 - `runtimeConfig.env` 不会通过 catalog API 回显，避免泄露代理、凭据或私有 endpoint。
 - 文件工具权限独立于 Bash 权限，越权路径通过 HITL approval 兜底。
-- `agent_invoke` 只允许显式配置的普通主 agent 使用，当前禁止嵌套；orchestrated Team 使用 session-local 的 `team_delegate` / `team_invoke`，不会把它们写入全局工具 catalog。
+- `agent_invoke` 只允许显式配置的普通主 agent 使用，当前禁止嵌套；orchestrated Team 自动注入 session-local embedded builtin `agent_delegate` 和三个 plan tools。普通 Agent 配置、session 与执行入口均拒绝 `agent_delegate`，该工具也不进入公开工具 catalog。
 - chat 创建后 `teamId` 固定。legacy Team 以所选成员为 run owner；orchestrated Team 以 `teamId` 为公开 owner，隐藏协调器 key 只用于进程内执行，不得作为公共 Agent 身份回显。
 - Team 成员、成员定义、协调器配置与 prompt 在 run 开始时解析为快照，运行中 catalog 热重载不改变该 run；下一次 run 才读取新快照。
 - KBASE Lance sidecar 只监听 loopback，由 Go 生成一次性 Bearer token 并监督生命周期。存在 KBASE agent 时 sidecar 必须可用；无 active generation 时 search 返回 stale 并触发冷建，sidecar 故障显式返回 unavailable，绝不回退旧 SQLite 文件。这些故障不影响非 KBASE 模块启动。

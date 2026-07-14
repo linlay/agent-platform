@@ -262,7 +262,7 @@ orchestrator:
   maxParallel: 2
 ```
 
-目录中可选的 `SOUL.md` 与 `AGENTS.md` 只补充 Team 人格和工作规则，不能覆盖内置调度约束。orchestrated Team 请求只传 `teamId`；明确成员时协调器直接委派，意图不明确时广播全部成员并总结，也可通过隐藏的 `team_invoke` 分批并行、跨批串行。协调器 key 和两个隐藏工具不进入普通 Agent/Tool catalog，也不作为公开 run 身份返回。完整配置和协议见 [智能体配置说明](./docs/智能体配置说明.md)、[子智能体调度](./docs/子智能体调度.md) 与 [API与协议](./docs/API与协议.md)。
+目录中可选的 `SOUL.md` 与 `AGENTS.md` 只补充 Team 人格和工作规则，不能覆盖内置调度约束。orchestrated Team 请求只传 `teamId`；隐藏总控统一通过 embedded builtin `agent_delegate` 委派一个或多个冻结 roster 成员，并用 `plan_add_tasks/plan_get_tasks/plan_update_task` 管理复杂任务。成员结果全部回注总控，根回答只由总控生成。协调器 key 和隐藏工具不进入普通 Agent/Tool catalog，也不作为公开 run 身份返回。完整配置和协议见 [智能体配置说明](./docs/智能体配置说明.md)、[子智能体调度](./docs/子智能体调度.md) 与 [API与协议](./docs/API与协议.md)。
 
 ## 4. 部署
 

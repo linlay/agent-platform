@@ -159,10 +159,8 @@ func (DeltaInvokeSubAgents) agentDeltaTag() {}
 // The server owns member execution because it has the frozen TeamSnapshot,
 // chat store, resource tickets and stream event bus.
 type DeltaTeamDispatch struct {
-	MainToolID   string
-	Kind         string
-	DelegateMode string
-	Tasks        []SubAgentTaskSpec
+	MainToolID string
+	Tasks      []SubAgentTaskSpec
 }
 
 func (DeltaTeamDispatch) agentDeltaTag() {}

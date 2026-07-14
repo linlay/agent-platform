@@ -114,6 +114,8 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 		execCtx.ReadFileState = map[string]ReadFileSnapshot{}
 	}
 	switch strings.TrimSpace(toolName) {
+	case "agent_delegate":
+		return ToolExecutionResult{Output: "agent_delegate is only executed by an orchestrated Team coordinator", Error: "internal_tool_only", ExitCode: -1}, nil
 	case "datetime":
 		return t.invokeDateTime(args), nil
 	case "artifact_publish":

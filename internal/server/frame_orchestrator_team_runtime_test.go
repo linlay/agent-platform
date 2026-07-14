@@ -81,7 +81,7 @@ func replaceTeamRuntimeSnapshot(o *frameOrchestrator, keys []string, maxParallel
 	o.teamSnapshot = &snapshot
 }
 
-func TestTeamFanoutRunsEveryMemberThroughBoundedPool(t *testing.T) {
+func TestTeamDelegationRunsEveryMemberThroughBoundedPool(t *testing.T) {
 	keys := []string{"writer", "reviewer", "researcher", "publisher"}
 	defs := make(map[string]catalog.AgentDefinition, len(keys))
 	tasks := make([]contracts.SubAgentTaskSpec, 0, len(keys))
@@ -99,7 +99,7 @@ func TestTeamFanoutRunsEveryMemberThroughBoundedPool(t *testing.T) {
 		children[key] = &gatedTeamMemberStream{memberKey: key, answer: key + " answer", tracker: tracker}
 	}
 	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
-		MainToolID: "fanout", Kind: agentteam.DispatchKindFanout, DelegateMode: agentteam.DelegateModeFanout, Tasks: tasks,
+		MainToolID: "delegate", Tasks: tasks,
 	}}}
 	engine := &orchestratorAgentEngine{streamsByAgentKey: children}
 	var routed []stream.StreamInput
@@ -123,7 +123,7 @@ func TestTeamFanoutRunsEveryMemberThroughBoundedPool(t *testing.T) {
 		select {
 		case <-tracker.startCh:
 		case <-time.After(time.Second):
-			t.Fatal("first bounded fanout batch did not start")
+			t.Fatal("first bounded delegation wave did not start")
 		}
 	}
 	select {
@@ -139,24 +139,24 @@ func TestTeamFanoutRunsEveryMemberThroughBoundedPool(t *testing.T) {
 			t.Fatalf("Run() = failed=%v interrupted=%v err=%v", result.failed, result.interrupted, result.err)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("fanout did not finish after releasing the bounded pool")
+		t.Fatal("delegation did not finish after releasing the bounded pool")
 	}
 	started, maximum := tracker.snapshot()
 	if len(started) != len(keys) {
-		t.Fatalf("fanout started %d members, want all %d: %v", len(started), len(keys), started)
+		t.Fatalf("delegation started %d members, want all %d: %v", len(started), len(keys), started)
 	}
 	if maximum > 2 {
-		t.Fatalf("fanout maximum concurrency=%d, want <=2", maximum)
+		t.Fatalf("delegation maximum concurrency=%d, want <=2", maximum)
 	}
 	if len(engine.streamsByAgentKey) != 0 {
-		t.Fatalf("fanout left unexecuted members: %v", engine.streamsByAgentKey)
+		t.Fatalf("delegation left unexecuted members: %v", engine.streamsByAgentKey)
 	}
-	if len(main.injected) != 1 || main.injected[0].isError || !main.finalResponseRequired {
-		t.Fatalf("unexpected fanout completion: injected=%#v finalRequired=%v", main.injected, main.finalResponseRequired)
+	if len(main.injected) != 1 || main.injected[0].isError || !main.optionalToolsAllowed {
+		t.Fatalf("unexpected delegation completion: injected=%#v optional=%v", main.injected, main.optionalToolsAllowed)
 	}
 }
 
-func TestTeamFanoutPartialFailureDoesNotCancelOtherMembers(t *testing.T) {
+func TestTeamDelegationPartialFailureDoesNotCancelOtherMembers(t *testing.T) {
 	keys := []string{"writer", "reviewer", "publisher"}
 	defs := map[string]catalog.AgentDefinition{
 		"writer":    {Key: "writer", Name: "Writer", Mode: "REACT"},
@@ -169,8 +169,8 @@ func TestTeamFanoutPartialFailureDoesNotCancelOtherMembers(t *testing.T) {
 		"publisher": &stubOrchestratableStream{finalText: "published"},
 	}
 	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
-		MainToolID: "fanout", Kind: agentteam.DispatchKindFanout, DelegateMode: agentteam.DelegateModeFanout,
-		Tasks: []contracts.SubAgentTaskSpec{{SubAgentKey: "writer"}, {SubAgentKey: "reviewer"}, {SubAgentKey: "publisher"}},
+		MainToolID: "delegate",
+		Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: "writer"}, {SubAgentKey: "reviewer"}, {SubAgentKey: "publisher"}},
 	}}}
 	engine := &orchestratorAgentEngine{streamsByAgentKey: children}
 	var emitted []contracts.AgentDelta
@@ -185,15 +185,15 @@ func TestTeamFanoutPartialFailureDoesNotCancelOtherMembers(t *testing.T) {
 	if len(engine.streamsByAgentKey) != 0 {
 		t.Fatalf("partial failure cancelled or skipped members: %v", engine.streamsByAgentKey)
 	}
-	if len(main.injected) != 1 || !main.injected[0].isError || !main.finalResponseRequired {
-		t.Fatalf("unexpected partial fanout completion: injected=%#v finalRequired=%v", main.injected, main.finalResponseRequired)
+	if len(main.injected) != 1 || !main.injected[0].isError || !main.optionalToolsAllowed {
+		t.Fatalf("unexpected partial delegation completion: injected=%#v optional=%v", main.injected, main.optionalToolsAllowed)
 	}
-	var results []childTaskResult
-	if err := json.Unmarshal([]byte(main.injected[0].text), &results); err != nil {
-		t.Fatalf("decode fanout aggregate: %v", err)
+	var aggregate teamDelegateToolResult
+	if err := json.Unmarshal([]byte(main.injected[0].text), &aggregate); err != nil {
+		t.Fatalf("decode delegation aggregate: %v", err)
 	}
-	if len(results) != 3 || results[0].Status != "completed" || results[1].Status != "failed" || results[2].Status != "completed" {
-		t.Fatalf("fanout did not retain both successes around failure: %#v", results)
+	if len(aggregate.Results) != 3 || aggregate.Results[0].Status != "completed" || aggregate.Results[1].Status != "failed" || aggregate.Results[2].Status != "completed" {
+		t.Fatalf("delegation did not retain both successes around failure: %#v", aggregate.Results)
 	}
 	complete, failedLifecycle := 0, 0
 	for _, delta := range emitted {
@@ -213,13 +213,13 @@ func TestTeamFanoutPartialFailureDoesNotCancelOtherMembers(t *testing.T) {
 	}
 }
 
-func TestTeamDirectSuccessDoesNotConsumeCoordinatorRewrite(t *testing.T) {
+func TestTeamSingleDelegationAlwaysReturnsControlToCoordinator(t *testing.T) {
 	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{
 		contracts.DeltaTeamDispatch{
-			MainToolID: "direct", Kind: agentteam.DispatchKindDirect, DelegateMode: agentteam.DelegateModeDirect,
-			Tasks: []contracts.SubAgentTaskSpec{{SubAgentKey: "writer"}},
+			MainToolID: "delegate",
+			Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: "writer"}},
 		},
-		contracts.DeltaContent{Text: "coordinator must not rewrite the member answer"},
+		contracts.DeltaContent{Text: "coordinator final answer"},
 	}}
 	defs := map[string]catalog.AgentDefinition{
 		"writer":   {Key: "writer", Name: "Writer", Mode: "REACT"},
@@ -234,16 +234,20 @@ func TestTeamDirectSuccessDoesNotConsumeCoordinatorRewrite(t *testing.T) {
 	if err != nil || failed || interrupted {
 		t.Fatalf("Run() = failed=%v interrupted=%v err=%v", failed, interrupted, err)
 	}
-	if main.index != 1 {
-		t.Fatalf("direct success consumed %d coordinator deltas, want only the dispatch", main.index)
+	if main.index != 2 {
+		t.Fatalf("single delegation consumed %d coordinator deltas, want dispatch and final answer", main.index)
 	}
-	if len(main.injected) != 0 || main.finalResponseRequired || main.optionalToolsAllowed {
-		t.Fatalf("direct success returned control to coordinator: %#v", main)
+	if len(main.injected) != 1 || main.injected[0].isError || !main.optionalToolsAllowed {
+		t.Fatalf("single delegation did not return control to coordinator: %#v", main)
 	}
+	foundCoordinatorAnswer := false
 	for _, delta := range emitted {
-		if content, ok := delta.(contracts.DeltaContent); ok && strings.Contains(content.Text, "coordinator") {
-			t.Fatalf("coordinator rewrite leaked after direct success: %#v", emitted)
+		if content, ok := delta.(contracts.DeltaContent); ok && content.Text == "coordinator final answer" {
+			foundCoordinatorAnswer = true
 		}
+	}
+	if !foundCoordinatorAnswer {
+		t.Fatalf("coordinator final answer was not emitted: %#v", emitted)
 	}
 }
 
@@ -256,8 +260,8 @@ func TestTeamRuntimeRejectsNestedTeamAndAgentInvokeMembers(t *testing.T) {
 			"nested": &stubOrchestratableStream{finalText: "must not run"},
 		}
 		main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
-			MainToolID: "direct", Kind: agentteam.DispatchKindDirect, DelegateMode: agentteam.DelegateModeDirect,
-			Tasks: []contracts.SubAgentTaskSpec{{SubAgentKey: "nested"}},
+			MainToolID: "delegate",
+			Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: "nested"}},
 		}}}
 		engine := &orchestratorAgentEngine{streamsByAgentKey: children}
 		o := newTeamFrameOrchestrator(t, main, children, defs, nil, nil)
@@ -287,8 +291,8 @@ func TestTeamRuntimeRejectsNestedTeamAndAgentInvokeMembers(t *testing.T) {
 			"writer": &stubOrchestratableStream{finalText: "must not run"},
 		}
 		main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
-			MainToolID: "invoke", Kind: agentteam.DispatchKindInvoke,
-			Tasks: []contracts.SubAgentTaskSpec{{SubAgentKey: "writer", TaskText: "nested work"}},
+			MainToolID: "delegate",
+			Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: "writer", TaskText: "nested work"}},
 		}}}
 		engine := &orchestratorAgentEngine{streamsByAgentKey: children}
 		o := newTeamFrameOrchestrator(t, main, children, defs, nil, nil)
@@ -299,7 +303,7 @@ func TestTeamRuntimeRejectsNestedTeamAndAgentInvokeMembers(t *testing.T) {
 		if err != nil || failed || interrupted {
 			t.Fatalf("Run() = failed=%v interrupted=%v err=%v", failed, interrupted, err)
 		}
-		if len(main.injected) != 1 || !main.injected[0].isError || !strings.Contains(main.injected[0].text, "nested sub-agent invocation is not allowed") {
+		if len(main.injected) != 1 || !main.injected[0].isError || !strings.Contains(main.injected[0].text, "cannot invoke nested sub-agents") {
 			t.Fatalf("agent_invoke member was not rejected: %#v", main.injected)
 		}
 		if len(engine.streamsByAgentKey) != 1 {

@@ -78,6 +78,7 @@ func TestTeamCoordinatorHistoryKeepsFinalMemberBodiesWithoutHiddenChains(t *test
 		{"_type": "query", "runId": "run-1", "updatedAt": float64(1), "messages": []any{map[string]any{"role": "user", "content": "continue the draft"}}},
 		{"_type": StepLineTypeReact, "runId": "run-1", "messages": []any{
 			map[string]any{"role": "assistant", "reasoning_content": "private routing thought", "tool_calls": []any{
+				map[string]any{"id": "delegate", "function": map[string]any{"name": "agent_delegate", "arguments": `{"tasks":[{"agentKey":"editor","task":"private edit"}]}`}},
 				map[string]any{"id": "route", "function": map[string]any{"name": "team_delegate", "arguments": `{"mode":"direct","memberKey":"writer"}`}},
 				map[string]any{"id": "invoke", "function": map[string]any{"name": "team_invoke", "arguments": `{"tasks":[{"memberKey":"reviewer","task":"secret internal instruction"}]}`}},
 			}},
@@ -97,12 +98,12 @@ func TestTeamCoordinatorHistoryKeepsFinalMemberBodiesWithoutHiddenChains(t *test
 	for _, message := range messages {
 		serialized += stringValue(message["content"]) + "\n"
 	}
-	for _, required := range []string{"continue the draft", "[Team routing record]\nteam_delegate mode=direct memberKey=writer", "team_invoke memberKeys=reviewer", "[Team member writer]\nwriter final answer", "[Team member editor]\ndirect editor answer"} {
+	for _, required := range []string{"continue the draft", "[Team routing record]\nagent_delegate agentKeys=editor\nagent_delegate agentKeys=writer\nagent_delegate agentKeys=reviewer", "[Team member writer]\nwriter final answer", "[Team member editor]\ndirect editor answer"} {
 		if !strings.Contains(serialized, required) {
 			t.Fatalf("coordinator history missing %q: %#v", required, messages)
 		}
 	}
-	for _, forbidden := range []string{"private routing thought", "secret internal instruction", "private file contents", "bash"} {
+	for _, forbidden := range []string{"private routing thought", "private edit", "secret internal instruction", "private file contents", "bash", "team_delegate", "team_invoke"} {
 		if strings.Contains(serialized, forbidden) {
 			t.Fatalf("coordinator history leaked %q: %#v", forbidden, messages)
 		}
