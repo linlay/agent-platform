@@ -220,7 +220,7 @@ Provider `apiKey` 按明文字符串读取：
 
 **静态配置**：`configs/` 下所有文件都只在进程启动时读取一次；修改 `configs/*.yml` 或 `configs/*.pem` 后必须重启 runtime 才会生效。
 
-**Support package 发现**：启动时会扫描 `agent-platform` 可执行程序旁的 `plugins/*/manifest.json`；如果可执行程序位于服务包的 `backend/` 目录下，则只扫描服务包根目录的 `plugins/*/manifest.json`。当前用于 KBASE PDF 抽取发现 `pdftotext`，不写 PATH，不修改 `configs/kbase-settings.yml`；配置里保留 `binary: pdftotext.exe` 或 `binary: pdftotext` 即可。
+**KBASE PDF 抽取**：正式服务包在已锁定的受支持平台随 Host builtin 分发 `pdftotext`（Poppler 26.06.0）。运行时把服务包根目录的 `bin/` 前置到 PATH，因此 `configs/kbase-settings.yml` 保持 `binary: pdftotext`；显式的绝对路径或自定义命令仍由使用者负责提供。当前已校验的 runtime 为 darwin-arm64；windows-amd64 仅在完整 26.06.0 runtime 校验入库后启用发布。
 
 本地 JWT 公钥规则：
 
@@ -324,7 +324,7 @@ Container Hub 默认基础挂载当前最多 7 个：
 make release-program
 ```
 
-产物写入 `dist/release/`，包含纯 Go runtime、配置模板、启停脚本、`bin/{rg,dbx,httpx,kbase-lance-engine}`、builtins manifest、许可证 notice、压缩包 SHA-256 与大小报告。`release-program` 只消费 lock 固定的外部 release archive，不会构建 Rust sidecar。Docker 构建需要预先执行 `./scripts/sync-local-builtins.sh --target linux/<arch>`，使匹配的 Linux cache 位于 `build/builtins/`。Desktop 宿主集成时执行资源同步：
+产物写入 `dist/release/`，包含纯 Go runtime、配置模板、启停脚本、`bin/{rg,dbx,httpx,kbase-lance-engine,pdftotext}`、`libexec/poppler-pdftotext/`、builtins manifest、许可证 notice、压缩包 SHA-256 与大小报告。`release-program` 只消费 lock 固定的外部 release archive，不会构建 Rust sidecar。Docker 构建需要预先执行 `./scripts/sync-local-builtins.sh --target linux/<arch>`，使匹配的 Linux cache 位于 `build/builtins/`。Desktop 宿主集成时执行资源同步：
 
 ```bash
 npm run sync:assets

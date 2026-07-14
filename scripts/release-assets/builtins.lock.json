@@ -181,6 +181,36 @@
           }
         }
       }
+    },
+    {
+      "name": "poppler-pdftotext",
+      "version": "v26.06.0",
+      "repository": "poppler-pdftotext",
+      "source": "https://poppler.freedesktop.org/poppler-26.06.0.tar.xz",
+      "kind": "archive-tree",
+      "required": false,
+      "license": "GPL-2.0-or-later",
+      "licenseDirectory": "poppler-pdftotext",
+      "licenses": [
+        "licenses/POPPLER-GPL-2.0-OR-LATER.txt",
+        "licenses/POPPLER-DATA-COPYING.txt",
+        "licenses/POPPLER-DATA-COPYING-ADOBE.txt",
+        "licenses/POPPLER-DATA-COPYING-GPL-2.txt"
+      ],
+      "targets": {
+        "darwin-arm64": {
+          "path": "dist/v26.06.0/poppler-pdftotext_v26.06.0_darwin_arm64.tar.gz",
+          "format": "tar.gz",
+          "sha256": "660fc1b2e6ecb956741fd5db4c1bfd2892596492125e7c4a993c703c8f7cb946",
+          "tree": {
+            "root": "runtime",
+            "outputs": [
+              {"path": "bin/pdftotext", "type": "file"},
+              {"path": "libexec/poppler-pdftotext/darwin-arm64", "type": "dir"}
+            ]
+          }
+        }
+      }
     }
   ]
 }

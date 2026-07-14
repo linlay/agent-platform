@@ -765,7 +765,6 @@ func (m *Manager) resolve(agentKey string) (resolvedConfig, *Embedder, error) {
 		Chunk:         NormalizeChunkConfig(def.Config.Chunk),
 		Retrieval:     def.Config.Retrieval,
 		Extraction:    m.options.Extraction,
-		Support:       m.support,
 		FTSTokenizer:  firstNonBlank(m.options.Index.FTSBaseTokenizer, defaultFTSTokenizer),
 	}
 	cfg.IndexHash = computeIndexHash(cfg)

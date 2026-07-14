@@ -162,6 +162,12 @@ function Write-ProgramManifest {
     $manifest = $manifest.Replace('__STOP_SCRIPT__', $stopScript)
     $manifest = $manifest.Replace('__DEPLOY_SCRIPT__', $deployScript)
     $manifest = $manifest.Replace('__PROGRAM_COMMON__', $programCommon)
+    $popplerRequiredPaths = ""
+    if (($TargetOs -eq "darwin" -and $TargetArch -eq "arm64") -or ($TargetOs -eq "windows" -and $TargetArch -eq "amd64")) {
+        $popplerBinary = if ($TargetOs -eq "windows") { "bin/pdftotext.exe" } else { "bin/pdftotext" }
+        $popplerRequiredPaths = ",`n      `"$popplerBinary`",`n      `"libexec/poppler-pdftotext/$TargetOs-$TargetArch`""
+    }
+    $manifest = $manifest.Replace('__POPLER_REQUIRED_PATHS__', $popplerRequiredPaths)
 
     # Replace the entire errorLog line placeholder: Windows gets real value, others remove the line entirely
     $errorLogPattern = '"__ERROR_LOG_LINE__": "__ERROR_LOG_LINE__",\r?\n'

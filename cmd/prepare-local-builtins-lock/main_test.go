@@ -17,6 +17,9 @@ func TestRunAddsLocalSidecarTargetAndRefreshesHashes(t *testing.T) {
 	collection := filepath.Join(root, "collection")
 	archive := filepath.Join(collection, "kbase-lance-engine", "dist", "v1.0.0", "kbase-lance-engine_v1.0.0_linux_amd64.tar.gz")
 	writeArchive(t, archive)
+	if err := os.WriteFile(filepath.Join(collection, "kbase-lance-engine", "VERSION"), []byte("v1.0.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	lock := builtins.Lock{
 		SchemaVersion: 1,
@@ -54,6 +57,9 @@ func TestRunAddsLocalSidecarTargetAndRefreshesHashes(t *testing.T) {
 	}
 	if target.Path != "dist/v1.0.0/kbase-lance-engine_v1.0.0_linux_amd64.tar.gz" {
 		t.Fatalf("path = %q", target.Path)
+	}
+	if derived.Components[0].Version != "v1.0.0" {
+		t.Fatalf("version = %q", derived.Components[0].Version)
 	}
 	if target.Metadata == nil || target.Metadata.CargoMetadata != "cargo-metadata.json" || target.Metadata.SBOM != "sbom.cdx.json" {
 		t.Fatalf("metadata = %#v", target.Metadata)

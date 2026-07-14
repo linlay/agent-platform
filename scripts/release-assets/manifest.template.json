@@ -111,7 +111,7 @@
       "__PROGRAM_COMMON__",
       ".env.example",
       "manifest.json",
-      "configs"
+      "configs"__POPLER_REQUIRED_PATHS__
     ]
   },
   "web": {

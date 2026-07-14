@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -125,6 +126,137 @@ func TestStageRejectsChecksumMismatch(t *testing.T) {
 	}
 }
 
+func TestStageArchiveTreeAtomicallyReplacesManagedOutputs(t *testing.T) {
+	base := t.TempDir()
+	repoRoot := filepath.Join(base, "agent-platform")
+	collectionRoot := filepath.Join(base, "agent-platform-builtins")
+	archive := filepath.Join(collectionRoot, "poppler-pdftotext", "dist", "v1", "poppler.tar.gz")
+	mustWriteTreeTarGzip(t, archive, map[string][]byte{
+		"runtime/bin/pdftotext": []byte("launcher"),
+		"runtime/libexec/poppler-pdftotext/darwin-arm64/bin/pdftotext":        []byte("runtime"),
+		"runtime/libexec/poppler-pdftotext/darwin-arm64/lib/libpoppler.dylib": []byte("dylib"),
+	})
+	lock := Lock{
+		SchemaVersion: lockSchemaVersion,
+		DefaultRoot:   "../agent-platform-builtins",
+		Components: []Component{{
+			Name: "poppler-pdftotext", Version: "v1", Repository: "poppler-pdftotext", Kind: "archive-tree", Required: false,
+			Targets: map[string]Target{"darwin-arm64": {
+				Path: "dist/v1/poppler.tar.gz", Format: "tar.gz", SHA256: fileSHA256(t, archive),
+				Tree: &TreeLayout{Root: "runtime", Outputs: []TreeOutput{
+					{Path: "bin/pdftotext", Type: "file"},
+					{Path: "libexec/poppler-pdftotext/darwin-arm64", Type: "dir"},
+				}},
+			}},
+		}},
+	}
+	lockPath := filepath.Join(repoRoot, "builtins.lock.json")
+	writeLock(t, lockPath, lock)
+	outputDir := filepath.Join(base, "bundle")
+	mustWrite(t, filepath.Join(outputDir, "bin", "pdftotext"), []byte("old launcher"))
+	mustWrite(t, filepath.Join(outputDir, "libexec", "poppler-pdftotext", "darwin-arm64", "stale"), []byte("stale"))
+
+	result, err := Stage(StageOptions{RepoRoot: repoRoot, LockPath: lockPath, OutputDir: outputDir, GOOS: "darwin", GOARCH: "arm64"})
+	if err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+	if got, err := os.ReadFile(filepath.Join(outputDir, "bin", "pdftotext")); err != nil || string(got) != "launcher" {
+		t.Fatalf("launcher = %q, err=%v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "libexec", "poppler-pdftotext", "darwin-arm64", "stale")); !os.IsNotExist(err) {
+		t.Fatalf("stale runtime file still exists: %v", err)
+	}
+	component := result.Manifest.Components[0]
+	if len(component.Tree) != 2 {
+		t.Fatalf("manifest tree = %#v", component.Tree)
+	}
+	digest, err := TreeDigest(outputDir, component.Tree)
+	if err != nil || digest != component.SHA256 {
+		t.Fatalf("tree digest = %q, err=%v, want %q", digest, err, component.SHA256)
+	}
+
+	linux, err := Stage(StageOptions{RepoRoot: repoRoot, LockPath: lockPath, OutputDir: filepath.Join(base, "linux"), GOOS: "linux", GOARCH: "amd64"})
+	if err != nil {
+		t.Fatalf("optional target should skip: %v", err)
+	}
+	if len(linux.Manifest.Components) != 0 {
+		t.Fatalf("optional target staged %#v", linux.Manifest.Components)
+	}
+}
+
+func TestStageArchiveTreeRejectsUnexpectedEntries(t *testing.T) {
+	base := t.TempDir()
+	repoRoot := filepath.Join(base, "agent-platform")
+	collectionRoot := filepath.Join(base, "agent-platform-builtins")
+	archive := filepath.Join(collectionRoot, "poppler-pdftotext", "tree.tar.gz")
+	mustWriteTreeTarGzip(t, archive, map[string][]byte{
+		"runtime/bin/pdftotext": []byte("launcher"),
+		"runtime/unexpected":    []byte("reject"),
+	})
+	lock := Lock{SchemaVersion: lockSchemaVersion, DefaultRoot: "../agent-platform-builtins", Components: []Component{{
+		Name: "poppler-pdftotext", Version: "v1", Repository: "poppler-pdftotext", Kind: "archive-tree", Required: true,
+		Targets: map[string]Target{"darwin-arm64": {
+			Path: "tree.tar.gz", Format: "tar.gz", SHA256: fileSHA256(t, archive),
+			Tree: &TreeLayout{Root: "runtime", Outputs: []TreeOutput{{Path: "bin/pdftotext", Type: "file"}}},
+		}},
+	}}}
+	lockPath := filepath.Join(repoRoot, "builtins.lock.json")
+	writeLock(t, lockPath, lock)
+	_, err := Stage(StageOptions{RepoRoot: repoRoot, LockPath: lockPath, OutputDir: filepath.Join(base, "bundle"), GOOS: "darwin", GOARCH: "arm64"})
+	if err == nil || !strings.Contains(err.Error(), "outside declared outputs") {
+		t.Fatalf("expected unexpected tree entry failure, got %v", err)
+	}
+}
+
+func TestStageArchiveTreeRejectsMaliciousEntries(t *testing.T) {
+	tests := []struct {
+		name    string
+		entries []tar.Header
+		match   string
+	}{
+		{
+			name:    "path traversal",
+			entries: []tar.Header{{Name: "runtime/../escape", Mode: 0o755, Size: int64(len("bad"))}},
+			match:   "outside root",
+		},
+		{
+			name: "duplicate item",
+			entries: []tar.Header{
+				{Name: "runtime/bin/pdftotext", Mode: 0o755, Size: int64(len("one"))},
+				{Name: "runtime/bin/pdftotext", Mode: 0o755, Size: int64(len("two"))},
+			},
+			match: "duplicate archive tree entry",
+		},
+		{
+			name:    "symbolic link",
+			entries: []tar.Header{{Name: "runtime/bin/pdftotext", Typeflag: tar.TypeSymlink, Linkname: "elsewhere"}},
+			match:   "unsupported archive tree entry type",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			base := t.TempDir()
+			repoRoot := filepath.Join(base, "agent-platform")
+			collectionRoot := filepath.Join(base, "agent-platform-builtins")
+			archive := filepath.Join(collectionRoot, "poppler-pdftotext", "tree.tar.gz")
+			mustWriteTreeTarGzipHeaders(t, archive, test.entries)
+			lock := Lock{SchemaVersion: lockSchemaVersion, DefaultRoot: "../agent-platform-builtins", Components: []Component{{
+				Name: "poppler-pdftotext", Version: "v1", Repository: "poppler-pdftotext", Kind: "archive-tree", Required: true,
+				Targets: map[string]Target{"darwin-arm64": {
+					Path: "tree.tar.gz", Format: "tar.gz", SHA256: fileSHA256(t, archive),
+					Tree: &TreeLayout{Root: "runtime", Outputs: []TreeOutput{{Path: "bin/pdftotext", Type: "file"}}},
+				}},
+			}}}
+			lockPath := filepath.Join(repoRoot, "builtins.lock.json")
+			writeLock(t, lockPath, lock)
+			_, err := Stage(StageOptions{RepoRoot: repoRoot, LockPath: lockPath, OutputDir: filepath.Join(base, "bundle"), GOOS: "darwin", GOARCH: "arm64"})
+			if err == nil || !strings.Contains(err.Error(), test.match) {
+				t.Fatalf("expected %q failure, got %v", test.match, err)
+			}
+		})
+	}
+}
+
 func writeLock(t *testing.T, path string, lock Lock) {
 	t.Helper()
 	payload, err := json.Marshal(lock)
@@ -153,6 +285,70 @@ func mustWriteTarGzip(t *testing.T, path string, name string, payload []byte) {
 		t.Fatalf("close gzip: %v", err)
 	}
 	mustWrite(t, path, archive.Bytes())
+}
+
+func mustWriteTreeTarGzip(t *testing.T, path string, files map[string][]byte) {
+	t.Helper()
+	mustMkdirAll(t, filepath.Dir(path))
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gzipWriter := gzip.NewWriter(file)
+	tarWriter := tar.NewWriter(gzipWriter)
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		payload := files[name]
+		if err := tarWriter.WriteHeader(&tar.Header{Name: name, Mode: 0o755, Size: int64(len(payload))}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tarWriter.Write(payload); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tarWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func mustWriteTreeTarGzipHeaders(t *testing.T, path string, headers []tar.Header) {
+	t.Helper()
+	mustMkdirAll(t, filepath.Dir(path))
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gzipWriter := gzip.NewWriter(file)
+	tarWriter := tar.NewWriter(gzipWriter)
+	for _, header := range headers {
+		if err := tarWriter.WriteHeader(&header); err != nil {
+			t.Fatal(err)
+		}
+		if header.Size > 0 {
+			if _, err := tarWriter.Write(bytes.Repeat([]byte("x"), int(header.Size))); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := tarWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func mustWriteZip(t *testing.T, path string, name string, payload []byte) {

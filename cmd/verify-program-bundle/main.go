@@ -23,6 +23,7 @@ const (
 	bundleRootName = "agent-platform"
 	sidecarName    = "kbase-lance-engine"
 	engineSDK      = "lancedb=0.30.0"
+	popplerName    = "poppler-pdftotext"
 )
 
 type programManifest struct {
@@ -134,6 +135,11 @@ func verifyBundleRoot(root, targetOS, targetArch string) error {
 	if !strings.EqualFold(component.SHA256, actualSHA) {
 		return fmt.Errorf("sidecar SHA-256 mismatch: manifest=%s actual=%s", component.SHA256, actualSHA)
 	}
+	if popplerBuiltinRequired(targetOS, targetArch) {
+		if err := verifyPopplerBuiltin(root, builtinManifest, targetOS, targetArch); err != nil {
+			return err
+		}
+	}
 
 	for _, relativePath := range []string{
 		"licenses/kbase-lance-engine/LICENSE-APACHE-2.0",
@@ -150,6 +156,49 @@ func verifyBundleRoot(root, targetOS, targetArch string) error {
 		}
 	}
 	return nil
+}
+
+func popplerBuiltinRequired(targetOS, targetArch string) bool {
+	return (targetOS == "darwin" && targetArch == "arm64") || (targetOS == "windows" && targetArch == "amd64")
+}
+
+func verifyPopplerBuiltin(root string, manifest builtins.Manifest, targetOS, targetArch string) error {
+	component, err := findBuiltinComponent(manifest, popplerName)
+	if err != nil {
+		return err
+	}
+	launcher := "bin/pdftotext"
+	if targetOS == "windows" {
+		launcher += ".exe"
+	}
+	runtimeRoot := filepath.ToSlash(filepath.Join("libexec", popplerName, targetOS+"-"+targetArch))
+	wantTree := []builtins.TreeOutput{
+		{Path: launcher, Type: "file"},
+		{Path: runtimeRoot, Type: "dir"},
+	}
+	if !sameTreeOutputs(component.Tree, wantTree) {
+		return fmt.Errorf("builtins manifest %s tree = %#v, want %#v", popplerName, component.Tree, wantTree)
+	}
+	digest, err := builtins.TreeDigest(root, component.Tree)
+	if err != nil {
+		return fmt.Errorf("verify %s tree: %w", popplerName, err)
+	}
+	if !strings.EqualFold(component.SHA256, digest) {
+		return fmt.Errorf("%s tree SHA-256 mismatch: manifest=%s actual=%s", popplerName, component.SHA256, digest)
+	}
+	return nil
+}
+
+func sameTreeOutputs(left, right []builtins.TreeOutput) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func readProgramManifest(path string) (programManifest, error) {
@@ -182,12 +231,16 @@ func readJSON(path string, value any) error {
 }
 
 func findSidecarComponent(manifest builtins.Manifest) (builtins.ManifestComponent, error) {
+	return findBuiltinComponent(manifest, sidecarName)
+}
+
+func findBuiltinComponent(manifest builtins.Manifest, name string) (builtins.ManifestComponent, error) {
 	for _, component := range manifest.Components {
-		if component.Name == sidecarName {
+		if component.Name == name {
 			return component, nil
 		}
 	}
-	return builtins.ManifestComponent{}, errors.New("builtins manifest does not contain kbase-lance-engine")
+	return builtins.ManifestComponent{}, fmt.Errorf("builtins manifest does not contain %s", name)
 }
 
 func containsCleanPath(paths []string, expected string) bool {

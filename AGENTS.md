@@ -10,7 +10,7 @@
 - 已具备 chat 摘要、事件流、raw messages、上传资源落盘、归档与搜索。
 - 已具备目录驱动的 agents / teams / skills / tools catalog。
 - 已具备 OpenAI / Anthropic 协议模型调用、backend tools、Container Hub sandbox 与 tools。
-- 已具备由 platform lock 固定并随服务包分发的 Host builtins（rg/dbx/httpx/kbase-lance-engine）；`file_grep/file_glob` 稳定包装 rg，dbx/httpx 保持 CLI。
+- 已具备由 platform lock 固定并随服务包分发的 Host builtins（rg/dbx/httpx/kbase-lance-engine/poppler-pdftotext）；`file_grep/file_glob` 稳定包装 rg，dbx/httpx 保持 CLI，KBASE PDF 默认调用 Poppler `pdftotext` launcher。
 - 已具备 HITL question / approval / form、运行中 submit / steer / interrupt 协议入口。
 - 已具备 SQLite memory、FTS、可选 embedding、learn / consolidate / feedback 与 memory tools。
 - 已具备 KBASE 文本知识库的 LanceDB generation 检索、加权 RRF 与本地 Rust sidecar 管理；SQLite `control.db` 只负责 generation、文件状态与恢复日志。

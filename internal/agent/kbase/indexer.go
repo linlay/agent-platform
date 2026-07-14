@@ -15,8 +15,6 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
-
-	"agent-platform/internal/supportpkg"
 )
 
 const (
@@ -56,7 +54,6 @@ type resolvedConfig struct {
 	Chunk         ChunkConfig
 	Retrieval     RetrievalConfig
 	Extraction    ExtractionConfig
-	Support       *supportpkg.Registry
 	FTSTokenizer  string
 	IndexHash     string
 	QueryHash     string
@@ -284,7 +281,7 @@ func indexOneFile(ctx context.Context, store workspaceIndexStore, cfg resolvedCo
 		rec.SkipReason = "binary_or_non_utf8"
 		return store.UpsertSkippedFile(rec)
 	}
-	doc, err := extractDocument(ctx, fullPath, rel, ext, data, cfg.Extraction, cfg.Support)
+	doc, err := extractDocument(ctx, fullPath, rel, ext, data, cfg.Extraction)
 	if err != nil {
 		var exErr extractionError
 		if errors.As(err, &exErr) && exErr.skipped {

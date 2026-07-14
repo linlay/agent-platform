@@ -237,6 +237,7 @@ write_program_manifest() {
   local program_common="scripts/program-common.sh"
   local sidecar_entry="bin/kbase-lance-engine"
   local error_log_json=""
+  local poppler_required_json=""
 
   if [[ "$target_os" == "windows" ]]; then
     start_script="start.ps1"
@@ -246,6 +247,16 @@ write_program_manifest() {
     sidecar_entry="bin/kbase-lance-engine.exe"
     error_log_json='    "errorLogRelativePath": "run/agent-platform.stderr.log",'
   fi
+
+  case "$target_os/$target_arch" in
+    darwin/arm64|windows/amd64)
+      local poppler_binary="bin/pdftotext"
+      [[ "$target_os" == "windows" ]] && poppler_binary+=".exe"
+      poppler_required_json=",
+      \"$poppler_binary\",
+      \"libexec/poppler-pdftotext/$target_os-$target_arch\""
+      ;;
+  esac
 
   cat >"$dest" <<EOF
 {
@@ -361,7 +372,7 @@ ${error_log_json}
       "$program_common",
       ".env.example",
       "manifest.json",
-      "configs"
+      "configs"${poppler_required_json}
     ]
   },
   "web": {

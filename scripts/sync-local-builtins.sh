@@ -113,7 +113,7 @@ if [[ -z "$BUILTINS_ROOT" ]]; then
 fi
 [[ "$BUILTINS_ROOT" = /* ]] || die "builtins root must be absolute"
 BUILTINS_ROOT="$(cd "$BUILTINS_ROOT" && pwd)"
-for component in ripgrep dbx httpx kbase-lance-engine; do
+for component in ripgrep dbx httpx kbase-lance-engine poppler-pdftotext; do
   [[ -d "$BUILTINS_ROOT/$component" ]] || die "missing sibling builtin project: $BUILTINS_ROOT/$component"
 done
 
@@ -128,6 +128,7 @@ copy_project ripgrep
 copy_project dbx
 copy_project httpx
 copy_project kbase-lance-engine
+copy_project poppler-pdftotext
 
 (
   cd "$collection_root/dbx"
@@ -137,6 +138,16 @@ copy_project kbase-lance-engine
   cd "$collection_root/httpx"
   scripts/release/build.sh
 )
+for target in "${TARGETS[@]}"; do
+  case "$target" in
+    darwin/arm64|windows/amd64)
+      (
+        cd "$collection_root/poppler-pdftotext"
+        POPPLER_PDFTOTEXT_TARGET_MATRIX="$target" scripts/release/build.sh
+      )
+      ;;
+  esac
+done
 for target in "${TARGETS[@]}"; do
   target_os="${target%%/*}"
   target_arch="${target#*/}"

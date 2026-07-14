@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	ManifestName = "manifest.json"
-	PluginsDir   = "plugins"
+	ManifestName          = "manifest.json"
+	PluginsDir            = "plugins"
+	retiredPDFExtractorID = "pdf-extractor"
 )
 
 type Target struct {
@@ -213,6 +214,12 @@ func loadPackage(pluginDir string, target Target) (Package, []Executable, bool, 
 	id := strings.TrimSpace(m.ID)
 	if id == "" {
 		return Package{}, nil, false, fmt.Errorf("plugin manifest %s: id is required", manifestPath)
+	}
+	// PDF extraction is now a locked Host builtin. Keep this registry for
+	// unrelated compatibility packages, but never rediscover a retired PDF
+	// extractor from an older service bundle.
+	if strings.EqualFold(id, retiredPDFExtractorID) {
+		return Package{}, nil, false, nil
 	}
 	manifestTarget := Target{OS: strings.TrimSpace(m.Platform.OS), Arch: strings.TrimSpace(m.Platform.Arch)}
 	if !targetMatches(manifestTarget, target) {

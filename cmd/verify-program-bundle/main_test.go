@@ -18,19 +18,20 @@ func TestVerifyArchiveAcceptsCompleteBundles(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		goos   string
+		goarch string
 		ext    string
 		create func(*testing.T, string, string)
 	}{
-		{name: "darwin tar.gz", goos: "darwin", ext: ".tar.gz", create: createTarGz},
-		{name: "windows zip", goos: "windows", ext: ".zip", create: createZip},
+		{name: "darwin tar.gz", goos: "darwin", goarch: "arm64", ext: ".tar.gz", create: createTarGz},
+		{name: "windows zip", goos: "windows", goarch: "amd64", ext: ".zip", create: createZip},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			stagingRoot := t.TempDir()
 			bundleRoot := filepath.Join(stagingRoot, bundleRootName)
-			writeCompleteBundle(t, bundleRoot, test.goos, "arm64")
+			writeCompleteBundle(t, bundleRoot, test.goos, test.goarch)
 			archivePath := filepath.Join(t.TempDir(), "bundle"+test.ext)
 			test.create(t, stagingRoot, archivePath)
-			if err := verifyArchive(archivePath, test.goos, "arm64"); err != nil {
+			if err := verifyArchive(archivePath, test.goos, test.goarch); err != nil {
 				t.Fatalf("verifyArchive: %v", err)
 			}
 		})
@@ -119,23 +120,44 @@ func writeCompleteBundle(t *testing.T, root, goos, goarch string) {
 	sidecarRelativePath := filepath.ToSlash(filepath.Join("bin", binaryName))
 	writeFile(t, filepath.Join(root, filepath.FromSlash(sidecarRelativePath)), []byte("sidecar-binary"), 0o755)
 	writeFile(t, filepath.Join(root, "backend", "agent-platform"), []byte("runtime-binary"), 0o755)
-	writeProgramManifest(t, root, goos, goarch, []string{"backend/agent-platform", sidecarRelativePath})
+	requiredPaths := []string{"backend/agent-platform", sidecarRelativePath}
 	digest, err := fileSHA256(filepath.Join(root, filepath.FromSlash(sidecarRelativePath)))
 	if err != nil {
 		t.Fatal(err)
 	}
+	components := []builtins.ManifestComponent{{
+		Name:         sidecarName,
+		Version:      "1.0.0",
+		Path:         sidecarRelativePath,
+		SHA256:       digest,
+		SDKVersion:   engineSDK,
+		License:      "Apache-2.0",
+		Distribution: "checksum-verified-artifact",
+	}}
+	if popplerBuiltinRequired(goos, goarch) {
+		launcher := "bin/pdftotext"
+		if goos == "windows" {
+			launcher += ".exe"
+		}
+		runtimeRoot := filepath.ToSlash(filepath.Join("libexec", popplerName, goos+"-"+goarch))
+		writeFile(t, filepath.Join(root, filepath.FromSlash(launcher)), []byte("launcher"), 0o755)
+		writeFile(t, filepath.Join(root, filepath.FromSlash(runtimeRoot), "bin", filepath.Base(launcher)), []byte("runtime"), 0o755)
+		tree := []builtins.TreeOutput{{Path: launcher, Type: "file"}, {Path: runtimeRoot, Type: "dir"}}
+		treeDigest, err := builtins.TreeDigest(root, tree)
+		if err != nil {
+			t.Fatal(err)
+		}
+		components = append(components, builtins.ManifestComponent{
+			Name: popplerName, Version: "v26.06.0", Path: launcher, SHA256: treeDigest, Tree: tree,
+			Distribution: "checksum-verified-artifact",
+		})
+		requiredPaths = append(requiredPaths, launcher, runtimeRoot)
+	}
+	writeProgramManifest(t, root, goos, goarch, requiredPaths)
 	writeJSON(t, filepath.Join(root, "builtins.manifest.json"), builtins.Manifest{
 		SchemaVersion: 1,
 		Platform:      builtins.ManifestPlatform{OS: goos, Arch: goarch},
-		Components: []builtins.ManifestComponent{{
-			Name:         sidecarName,
-			Version:      "1.0.0",
-			Path:         sidecarRelativePath,
-			SHA256:       digest,
-			SDKVersion:   engineSDK,
-			License:      "Apache-2.0",
-			Distribution: "checksum-verified-artifact",
-		}},
+		Components:    components,
 	}, 0o644)
 	for _, relativePath := range []string{
 		"licenses/kbase-lance-engine/LICENSE-APACHE-2.0",

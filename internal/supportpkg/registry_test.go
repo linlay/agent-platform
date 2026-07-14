@@ -8,16 +8,16 @@ import (
 
 func TestLoadDirLoadsMatchingSupportPackageExecutable(t *testing.T) {
 	root := t.TempDir()
-	pluginDir := filepath.Join(root, "pdf-extractor")
-	binaryPath := filepath.Join(pluginDir, "payload", "windows-amd64", "Library", "bin", "pdftotext.exe")
+	pluginDir := filepath.Join(root, "test-support-package")
+	binaryPath := filepath.Join(pluginDir, "payload", "windows-amd64", "bin", "helper.exe")
 	mustWriteFile(t, binaryPath, "fake exe")
 	mustWriteFile(t, filepath.Join(pluginDir, ManifestName), `{
   "kind": "support-package",
-  "id": "pdf-extractor",
+  "id": "test-support-package",
   "version": "v0.3.9",
   "platform": { "os": "windows", "arch": "amd64" },
   "executables": {
-    "pdftotext": "payload/windows-amd64/Library/bin/pdftotext.exe"
+    "helper": "payload/windows-amd64/bin/helper.exe"
   }
 }`)
 
@@ -25,18 +25,18 @@ func TestLoadDirLoadsMatchingSupportPackageExecutable(t *testing.T) {
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
-	executable, ok := registry.Executable("pdftotext.exe")
+	executable, ok := registry.Executable("helper.exe")
 	if !ok {
-		t.Fatal("expected pdftotext executable")
+		t.Fatal("expected helper executable")
 	}
 	if executable.Path != binaryPath {
 		t.Fatalf("unexpected executable path: got %q want %q", executable.Path, binaryPath)
 	}
-	if executable.PluginID != "pdf-extractor" || executable.Version != "v0.3.9" {
+	if executable.PluginID != "test-support-package" || executable.Version != "v0.3.9" {
 		t.Fatalf("unexpected executable metadata: %#v", executable)
 	}
 	executables := registry.Executables()
-	if len(executables) != 1 || executables[0].Name != "pdftotext" {
+	if len(executables) != 1 || executables[0].Name != "helper" {
 		t.Fatalf("unexpected executable list: %#v", executables)
 	}
 }
@@ -59,12 +59,12 @@ func TestCandidatePluginRootsUsesOnlyBundleRootWhenExecutableIsInBackend(t *test
 
 func TestLoadDirsUsesEarlierRootForDuplicateExecutable(t *testing.T) {
 	root := t.TempDir()
-	servicePluginDir := filepath.Join(root, "agent-platform", "plugins", "pdf-extractor")
-	backendPluginDir := filepath.Join(root, "agent-platform", "backend", "plugins", "pdf-extractor")
-	serviceBinaryPath := filepath.Join(servicePluginDir, "bin", "pdftotext")
-	backendBinaryPath := filepath.Join(backendPluginDir, "bin", "pdftotext")
-	writeSupportManifest(t, servicePluginDir, "darwin", "arm64", "bin/pdftotext")
-	writeSupportManifest(t, backendPluginDir, "darwin", "arm64", "bin/pdftotext")
+	servicePluginDir := filepath.Join(root, "agent-platform", "plugins", "test-support-package")
+	backendPluginDir := filepath.Join(root, "agent-platform", "backend", "plugins", "test-support-package")
+	serviceBinaryPath := filepath.Join(servicePluginDir, "bin", "helper")
+	backendBinaryPath := filepath.Join(backendPluginDir, "bin", "helper")
+	writeSupportManifest(t, servicePluginDir, "darwin", "arm64", "bin/helper")
+	writeSupportManifest(t, backendPluginDir, "darwin", "arm64", "bin/helper")
 	mustWriteFile(t, serviceBinaryPath, "service")
 	mustWriteFile(t, backendBinaryPath, "backend")
 
@@ -75,9 +75,9 @@ func TestLoadDirsUsesEarlierRootForDuplicateExecutable(t *testing.T) {
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
-	executable, ok := registry.Executable("pdftotext")
+	executable, ok := registry.Executable("helper")
 	if !ok {
-		t.Fatal("expected pdftotext executable")
+		t.Fatal("expected helper executable")
 	}
 	if executable.Path != serviceBinaryPath {
 		t.Fatalf("unexpected executable path: got %q want %q", executable.Path, serviceBinaryPath)
@@ -86,11 +86,11 @@ func TestLoadDirsUsesEarlierRootForDuplicateExecutable(t *testing.T) {
 
 func TestLoadDirSkipsNonMatchingPlatform(t *testing.T) {
 	root := t.TempDir()
-	pluginDir := filepath.Join(root, "pdf-extractor")
+	pluginDir := filepath.Join(root, "test-support-package")
 	mustWriteFile(t, filepath.Join(pluginDir, "pdftotext.exe"), "fake exe")
 	mustWriteFile(t, filepath.Join(pluginDir, ManifestName), `{
   "kind": "support-package",
-  "id": "pdf-extractor",
+  "id": "test-support-package",
   "platform": { "os": "linux", "arch": "amd64" },
   "executables": { "pdftotext": "pdftotext.exe" }
 }`)
@@ -106,10 +106,10 @@ func TestLoadDirSkipsNonMatchingPlatform(t *testing.T) {
 
 func TestLoadDirSkipsMissingExecutables(t *testing.T) {
 	root := t.TempDir()
-	pluginDir := filepath.Join(root, "pdf-extractor")
+	pluginDir := filepath.Join(root, "test-support-package")
 	mustWriteFile(t, filepath.Join(pluginDir, ManifestName), `{
   "kind": "support-package",
-  "id": "pdf-extractor",
+  "id": "test-support-package",
   "platform": { "os": "windows", "arch": "amd64" }
 }`)
 
@@ -124,10 +124,10 @@ func TestLoadDirSkipsMissingExecutables(t *testing.T) {
 
 func TestLoadDirSkipsMissingExecutableTarget(t *testing.T) {
 	root := t.TempDir()
-	pluginDir := filepath.Join(root, "pdf-extractor")
+	pluginDir := filepath.Join(root, "test-support-package")
 	mustWriteFile(t, filepath.Join(pluginDir, ManifestName), `{
   "kind": "support-package",
-  "id": "pdf-extractor",
+  "id": "test-support-package",
   "platform": { "os": "windows", "arch": "amd64" },
   "executables": { "pdftotext": "missing.exe" }
 }`)
@@ -160,15 +160,36 @@ func TestLoadDirIgnoresUnsupportedKind(t *testing.T) {
 	}
 }
 
-func writeSupportManifest(t *testing.T, pluginDir string, goos string, goarch string, executablePath string) {
-	t.Helper()
+func TestLoadDirIgnoresRetiredPDFExtractor(t *testing.T) {
+	root := t.TempDir()
+	pluginDir := filepath.Join(root, retiredPDFExtractorID)
+	mustWriteFile(t, filepath.Join(pluginDir, "pdftotext"), "legacy")
 	mustWriteFile(t, filepath.Join(pluginDir, ManifestName), `{
   "kind": "support-package",
   "id": "pdf-extractor",
   "version": "v0.3.9",
+  "platform": { "os": "darwin", "arch": "arm64" },
+  "executables": { "pdftotext": "pdftotext" }
+}`)
+
+	registry, errs := LoadDir(root, Target{OS: "darwin", Arch: "arm64"})
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %v", errs)
+	}
+	if registry.ExecutableCount() != 0 || len(registry.Packages()) != 0 {
+		t.Fatalf("retired PDF plugin must not be discovered: %#v %#v", registry.Packages(), registry.Executables())
+	}
+}
+
+func writeSupportManifest(t *testing.T, pluginDir string, goos string, goarch string, executablePath string) {
+	t.Helper()
+	mustWriteFile(t, filepath.Join(pluginDir, ManifestName), `{
+  "kind": "support-package",
+  "id": "test-support-package",
+  "version": "v0.3.9",
   "platform": { "os": "`+goos+`", "arch": "`+goarch+`" },
   "executables": {
-    "pdftotext": "`+executablePath+`"
+    "helper": "`+executablePath+`"
   }
 }`)
 }

@@ -74,7 +74,21 @@ func run(input, output, collectionRoot string, requestedTargets []string) error 
 		for index := range lock.Components {
 			component := &lock.Components[index]
 			target, ok := component.Targets[key]
-			if !ok {
+			if component.Name == "kbase-lance-engine" {
+				version, err := localComponentVersion(filepath.Join(collectionRoot, component.Repository), component.Version)
+				if err != nil {
+					return fmt.Errorf("%s local version: %w", component.Name, err)
+				}
+				component.Version = version
+				target, err = localTargetTemplate(*component, goos, goarch)
+				if err != nil {
+					return err
+				}
+				component.Targets[key] = target
+			} else if !ok {
+				if !component.Required {
+					continue
+				}
 				target, err = localTargetTemplate(*component, goos, goarch)
 				if err != nil {
 					return err
@@ -136,13 +150,30 @@ func localTargetTemplate(component builtins.Component, goos, goarch string) (bui
 		binary += ".exe"
 		format = "zip"
 	}
+	version := "v" + strings.TrimPrefix(strings.TrimSpace(component.Version), "v")
 	return builtins.Target{
-		Path:     fmt.Sprintf("dist/v%s/kbase-lance-engine_v%s_%s_%s.%s", component.Version, component.Version, goos, goarch, format),
+		Path:     fmt.Sprintf("dist/%s/kbase-lance-engine_%s_%s_%s.%s", version, version, goos, goarch, format),
 		Format:   format,
 		Entry:    binary,
 		Output:   binary,
 		Metadata: metadata,
 	}, nil
+}
+
+func localComponentVersion(repositoryRoot string, fallback string) (string, error) {
+	path := filepath.Join(repositoryRoot, "VERSION")
+	payload, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return strings.TrimSpace(fallback), nil
+	}
+	if err != nil {
+		return "", err
+	}
+	version := strings.TrimSpace(string(payload))
+	if version == "" {
+		return "", errors.New("VERSION is empty")
+	}
+	return version, nil
 }
 
 func joinWithin(root, child string) (string, error) {

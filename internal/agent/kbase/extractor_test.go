@@ -7,10 +7,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
-
-	"agent-platform/internal/supportpkg"
+	"time"
 )
 
 func TestExtractDOCXNativeText(t *testing.T) {
@@ -130,73 +130,40 @@ func TestExtractHTMLNativeTextDropsScriptStyleAndHiddenNodes(t *testing.T) {
 
 func TestExtractPDFMissingPopplerSkips(t *testing.T) {
 	_, err := extractPDF(context.Background(), "missing.pdf", ExtractionConfig{
-		Timeout: 1,
+		Timeout: time.Second,
 		PDF: PDFExtractionConfig{
 			Enabled: true,
 			Backend: "poppler",
 			Binary:  "definitely-missing-pdftotext-for-kbase-test",
 		},
-	}, nil)
+	})
 	var exErr extractionError
 	if !errors.As(err, &exErr) || !exErr.skipped || exErr.reason != "pdf_extractor_unavailable" {
-		t.Fatalf("expected pdf extractor skip, got %#v %v", exErr, err)
+		t.Fatalf("expected PDF extraction skip, got %#v %v", exErr, err)
 	}
 }
 
-func TestResolvePDFBinaryUsesSupportPackageForDefaultNames(t *testing.T) {
-	support, binaryPath := supportRegistryFixture(t)
-	for _, configured := range []string{"", "pdftotext", "pdftotext.exe", "PDFTOTEXT.EXE"} {
-		if got := resolvePDFBinary(configured, support); got != binaryPath {
-			t.Fatalf("resolvePDFBinary(%q) = %q, want %q", configured, got, binaryPath)
-		}
+func TestExtractPDFUsesDefaultBinaryFromPATH(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture uses a POSIX shell launcher")
 	}
-}
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "pdftotext")
+	if err := os.Symlink("/bin/echo", binary); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-func TestResolvePDFBinaryKeepsExplicitBinary(t *testing.T) {
-	support, _ := supportRegistryFixture(t)
-	explicit := filepath.Join(t.TempDir(), "custom-pdftotext.exe")
-	if got := resolvePDFBinary(explicit, support); got != explicit {
-		t.Fatalf("expected explicit binary to win, got %q want %q", got, explicit)
+	doc, err := extractPDF(context.Background(), "input.pdf", ExtractionConfig{
+		Timeout: time.Second,
+		PDF:     PDFExtractionConfig{Enabled: true, Backend: "poppler", Binary: "pdftotext"},
+	})
+	if err != nil {
+		t.Fatalf("extractPDF: %v", err)
 	}
-	if got := resolvePDFBinary(`C:\Tools\pdftotext.exe`, support); got != `C:\Tools\pdftotext.exe` {
-		t.Fatalf("expected windows absolute binary to win, got %q", got)
+	if doc.Extractor != "pdf:poppler" || !strings.Contains(extractedText(doc), "-layout -enc UTF-8 input.pdf -") {
+		t.Fatalf("unexpected PDF extraction result: %#v", doc)
 	}
-}
-
-func TestResolvePDFBinaryFallsBackWithoutSupportPackage(t *testing.T) {
-	if got := resolvePDFBinary("pdftotext.exe", nil); got != "pdftotext.exe" {
-		t.Fatalf("expected original binary without support package, got %q", got)
-	}
-}
-
-func supportRegistryFixture(t *testing.T) (*supportpkg.Registry, string) {
-	t.Helper()
-	root := t.TempDir()
-	pluginDir := filepath.Join(root, "pdf-extractor")
-	binaryPath := filepath.Join(pluginDir, "payload", "windows-amd64", "Library", "bin", "pdftotext.exe")
-	if err := os.MkdirAll(filepath.Dir(binaryPath), 0o755); err != nil {
-		t.Fatalf("mkdir binary dir: %v", err)
-	}
-	if err := os.WriteFile(binaryPath, []byte("fake"), 0o755); err != nil {
-		t.Fatalf("write binary: %v", err)
-	}
-	manifest := `{
-  "kind": "support-package",
-  "id": "pdf-extractor",
-  "version": "v0.3.9",
-  "platform": { "os": "testos", "arch": "testarch" },
-  "executables": {
-    "pdftotext": "payload/windows-amd64/Library/bin/pdftotext.exe"
-  }
-}`
-	if err := os.WriteFile(filepath.Join(pluginDir, supportpkg.ManifestName), []byte(manifest), 0o644); err != nil {
-		t.Fatalf("write manifest: %v", err)
-	}
-	registry, errs := supportpkg.LoadDir(root, supportpkg.Target{OS: "testos", Arch: "testarch"})
-	if len(errs) != 0 {
-		t.Fatalf("load support registry: %v", errs)
-	}
-	return registry, binaryPath
 }
 
 func zipFixture(t *testing.T, files map[string]string) []byte {
