@@ -1,7 +1,6 @@
 package kbase
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
@@ -66,14 +65,6 @@ func (m *Manager) AuditOrphanStorage() ([]OrphanStorage, error) {
 			}
 			return nil
 		})
-		if payload, readErr := os.ReadFile(filepath.Join(root, "manifest.json")); readErr == nil {
-			var manifest struct {
-				AgentKey string `json:"agentKey"`
-			}
-			if json.Unmarshal(payload, &manifest) == nil {
-				orphan.PossibleOwner = strings.TrimSpace(manifest.AgentKey)
-			}
-		}
 		orphans = append(orphans, orphan)
 	}
 	sort.Slice(orphans, func(i, j int) bool { return orphans[i].Path < orphans[j].Path })

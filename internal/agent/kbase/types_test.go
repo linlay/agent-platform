@@ -15,7 +15,7 @@ func TestStatusLanceFieldsAreOptionalAndStable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal minimal status: %v", err)
 	}
-	for _, field := range []string{"engine", "schemaVersion", "generation", "migration", "indexes", "legacyAvailable"} {
+	for _, field := range []string{"engine", "schemaVersion", "generation", "indexes", "sidecar"} {
 		if strings.Contains(string(minimal), `"`+field+`"`) {
 			t.Fatalf("optional field %q unexpectedly present in %s", field, minimal)
 		}
@@ -33,20 +33,11 @@ func TestStatusLanceFieldsAreOptionalAndStable(t *testing.T) {
 			CreatedAt:    1_700_000_000_000,
 			ActivatedAt:  1_700_000_001_000,
 		},
-		Migration: &MigrationStatus{
-			State:          "idle",
-			Progress:       1,
-			ImportedFiles:  3,
-			TotalFiles:     3,
-			ImportedChunks: 9,
-			TotalChunks:    9,
-		},
 		Indexes: &IndexesStatus{
 			FTS:             IndexStatus{Type: "FTS/ICU", Ready: true},
 			Vector:          VectorIndexStatus{Type: "flat", Ready: true, UnindexedRows: 0},
 			LastOptimizedAt: int64Pointer(1_700_000_002_000),
 		},
-		LegacyAvailable: true,
 	}
 	encoded, err := json.Marshal(status)
 	if err != nil {
@@ -56,9 +47,7 @@ func TestStatusLanceFieldsAreOptionalAndStable(t *testing.T) {
 		`"engine":"lancedb"`,
 		`"schemaVersion":"3"`,
 		`"generation":{"id":"kbg_1","state":"active","tableVersion":12,"createdAt":1700000000000,"activatedAt":1700000001000}`,
-		`"migration":{"state":"idle","progress":1,"importedFiles":3,"totalFiles":3,"importedChunks":9,"totalChunks":9}`,
 		`"indexes":{"fts":{"type":"FTS/ICU","ready":true},"vector":{"type":"flat","ready":true,"unindexedRows":0},"lastOptimizedAt":1700000002000}`,
-		`"legacyAvailable":true`,
 	} {
 		if !strings.Contains(string(encoded), want) {
 			t.Fatalf("status JSON %s does not contain %s", encoded, want)

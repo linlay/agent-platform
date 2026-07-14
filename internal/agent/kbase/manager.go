@@ -37,8 +37,6 @@ type Manager struct {
 	running          map[string]bool
 	storageRunning   map[string]bool
 	storageQueued    map[string]bool
-	migrationSem     chan struct{}
-	shadowQueries    map[string]int
 	closing          bool
 }
 
@@ -48,18 +46,8 @@ type ManagerOptions struct {
 	RefreshDebounce          time.Duration
 	ReconcileInterval        time.Duration
 	Extraction               ExtractionConfig
-	StorageEngine            string
-	Migration                MigrationOptions
 	Index                    IndexOptions
 	Maintenance              MaintenanceOptions
-}
-
-type MigrationOptions struct {
-	Enabled           bool
-	MaxConcurrency    int
-	RetainLegacy      bool
-	ShadowLivePercent int
-	MaxReplayQueries  int
 }
 
 type IndexOptions struct {
@@ -95,10 +83,6 @@ type watcherBinding struct {
 
 func NewManager(options ManagerOptions, agents AgentSource, modelRegistry *models.ModelRegistry) *Manager {
 	engine := NewLanceEngineProcess(nil)
-	migrationConcurrency := options.Migration.MaxConcurrency
-	if migrationConcurrency <= 0 {
-		migrationConcurrency = 1
-	}
 	return &Manager{
 		options:        options,
 		agents:         agents,
@@ -110,8 +94,6 @@ func NewManager(options ManagerOptions, agents AgentSource, modelRegistry *model
 		running:        map[string]bool{},
 		storageRunning: map[string]bool{},
 		storageQueued:  map[string]bool{},
-		migrationSem:   make(chan struct{}, migrationConcurrency),
-		shadowQueries:  map[string]int{},
 	}
 }
 
@@ -151,11 +133,10 @@ func (m *Manager) ValidateConfiguration() error {
 	return nil
 }
 
-// ProbeSidecar is used by the container health endpoint. SQLite-only
-// deployments and runtimes without KBASE agents do not require the helper;
-// otherwise this performs the authenticated protocol handshake/health call.
+// ProbeSidecar is used by the container health endpoint. Every deployment
+// with a KBASE agent requires the LanceDB sidecar.
 func (m *Manager) ProbeSidecar(ctx context.Context) (required bool, state LanceEngineState, err error) {
-	if m == nil || m.engine == nil || m.engineMode() == "sqlite" || len(m.kbaseAgentKeys()) == 0 {
+	if m == nil || m.engine == nil || len(m.kbaseAgentKeys()) == 0 {
 		return false, LanceEngineState{}, nil
 	}
 	if ctx == nil {
@@ -472,120 +453,69 @@ func (m *Manager) Status(agentKey string) (Status, error) {
 		Chunk:            cfg.Chunk,
 		Indexing:         m.isIndexing(cfg.AgentKey, cfg.StorageDir),
 		ConfigHash:       desiredIndexHash(cfg),
-		LegacyAvailable:  fileExists(filepath.Join(cfg.StorageDir, "kbase.db")),
+		Engine:           "lancedb",
+		SchemaVersion:    ControlSchemaVersion,
 		StorageDiskUsage: storageDiskUsage(cfg.StorageDir),
 	}
-	mode := m.engineMode()
-	if mode != "sqlite" {
-		control, controlErr := OpenReadControlStore(cfg.StorageDir)
-		if controlErr == nil {
-			defer control.Close()
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			active, activeErr := control.ActiveGeneration(ctx)
-			if activeErr != nil {
-				return status, activeErr
-			}
-			if migration, migrationErr := control.LatestMigration(ctx, cfg.AgentKey); migrationErr == nil && migration != nil {
-				status.Migration = &MigrationStatus{State: migration.State, Progress: migration.Progress,
-					ImportedFiles: migration.ImportedFiles, TotalFiles: migration.TotalFiles,
-					ImportedChunks: migration.ImportedChunks, TotalChunks: migration.TotalChunks, Error: migration.Error}
-			}
-			if active != nil {
-				status.Engine = "lancedb"
-				status.SchemaVersion = ControlSchemaVersion
-				status.Generation = &GenerationStatus{ID: active.ID, State: active.State, TableVersion: active.TableVersion,
-					CreatedAt: active.CreatedAt, ActivatedAt: active.ActivatedAt}
-				status.Files, status.Chunks, _ = generationControlCounts(ctx, control, active.ID)
-				status.FileStats, _ = control.FileStats(ctx, active.ID)
-				status.ManifestConfigHash = active.IndexHash
-				status.Stale = active.IndexHash == "" || active.IndexHash != desiredIndexHash(resolvedLanceConfig(cfg))
-				if last, metaErr := control.Meta(ctx, "lastIndexedAt"); metaErr == nil {
-					indexedAt, parseErr := parseOptionalPublicEpochMillis(last, "lastIndexedAt", "kbase.status.metadata")
-					if parseErr != nil {
-						return status, parseErr
-					}
-					status.LastIndexedAt = indexedAt
-				}
-				status.LastRun, _ = control.LastRun(ctx)
-				if pending, pendingErr := control.PendingFileOperations(ctx, active.ID); pendingErr == nil {
-					status.PendingRecoveryOps = len(pending)
-				}
-				registerErr := m.registerLanceGeneration(ctx, cfg, active)
-				state := m.engine.State()
-				if registerErr != nil {
-					state.LastError = registerErr.Error()
-					state.Available = false
-				}
-				status.Sidecar = &state
-				indexes := &IndexesStatus{}
-				if stats, statsErr := m.lance.Stats(ctx, active.ID); statsErr == nil {
-					indexes.FTS = IndexStatus{Type: firstNonBlank(stats.FTSIndexType, "FTS/ICU"), Ready: stats.FTSReady}
-					indexes.Vector = VectorIndexStatus{Type: firstNonBlank(stats.VectorIndexType, "flat"), Ready: stats.VectorReady, UnindexedRows: stats.UnindexedRows}
-					lastOptimized, _ := control.Meta(ctx, "lastOptimizedAt")
-					optimizedAt, parseErr := parseOptionalPublicEpochMillis(lastOptimized, "lastOptimizedAt", "kbase.status.metadata")
-					if parseErr != nil {
-						return status, parseErr
-					}
-					indexes.LastOptimizedAt = optimizedAt
-				}
-				status.Indexes = indexes
-				return validatePublicStatusTimes(status)
-			}
-		} else if !os.IsNotExist(controlErr) {
-			return status, controlErr
-		}
-		if mode == "lancedb" {
-			status.Engine = "lancedb"
-			status.SchemaVersion = ControlSchemaVersion
-			status.Stale = true
-			state := m.engine.State()
-			status.Sidecar = &state
-			return validatePublicStatusTimes(status)
-		}
-	}
-	status.Engine = "sqlite"
-	status.SchemaVersion = schemaVersion
-	rollbackRefreshRequired := legacyRefreshRequired(cfg.StorageDir)
-	store, err := OpenReadStore(cfg.StorageDir)
+	control, err := OpenReadControlStore(cfg.StorageDir)
 	if err != nil {
-		if os.IsNotExist(err) {
-			status.Stale = true
-			return validatePublicStatusTimes(status)
+		if !os.IsNotExist(err) {
+			return status, err
 		}
-		return status, err
-	}
-	defer store.Close()
-	// A writer creates kbase.db before the schema and the first index manifest
-	// are fully committed. Treat that short initialization window as a missing
-	// index instead of issuing reads against partially-created tables.
-	legacyIndexHash := storedIndexHash(store, cfg.StorageDir)
-	status.ManifestConfigHash = legacyIndexHash
-	if legacyIndexHash == "" {
 		status.Stale = true
+		state := m.engine.State()
+		status.Sidecar = &state
 		return validatePublicStatusTimes(status)
 	}
-	files, chunks, err := store.Counts()
+	defer control.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	active, err := control.ActiveGeneration(ctx)
 	if err != nil {
 		return status, err
 	}
-	status.Files = files
-	status.Chunks = chunks
-	if stats, err := store.FileStats(); err == nil {
-		status.FileStats = stats
-	}
-	status.Stale = legacyIndexHash == "" || legacyIndexHash != desiredIndexHash(cfg)
-	if rollbackRefreshRequired {
+	if active == nil {
 		status.Stale = true
+		state := m.engine.State()
+		status.Sidecar = &state
+		return validatePublicStatusTimes(status)
 	}
-	if lastIndexed := store.Meta("lastIndexedAt"); lastIndexed != "" {
-		indexedAt, parseErr := parseOptionalPublicEpochMillis(lastIndexed, "lastIndexedAt", "kbase.status.metadata")
+	status.Generation = &GenerationStatus{ID: active.ID, State: active.State, TableVersion: active.TableVersion,
+		CreatedAt: active.CreatedAt, ActivatedAt: active.ActivatedAt}
+	status.ConfigHash = active.IndexHash
+	status.Files, status.Chunks, _ = generationControlCounts(ctx, control, active.ID)
+	status.FileStats, _ = control.FileStats(ctx, active.ID)
+	status.Stale = active.IndexHash == "" || active.IndexHash != desiredIndexHash(cfg)
+	if last, metaErr := control.Meta(ctx, "lastIndexedAt"); metaErr == nil {
+		indexedAt, parseErr := parseOptionalPublicEpochMillis(last, "lastIndexedAt", "kbase.status.metadata")
 		if parseErr != nil {
 			return status, parseErr
 		}
 		status.LastIndexedAt = indexedAt
 	}
-	status.LastRun = store.LastRun()
+	status.LastRun, _ = control.LastRun(ctx)
+	if pending, pendingErr := control.PendingFileOperations(ctx, active.ID); pendingErr == nil {
+		status.PendingRecoveryOps = len(pending)
+	}
+	registerErr := m.registerLanceGeneration(ctx, cfg, active)
+	state := m.engine.State()
+	if registerErr != nil {
+		state.LastError = registerErr.Error()
+		state.Available = false
+	}
+	status.Sidecar = &state
+	indexes := &IndexesStatus{}
+	if stats, statsErr := m.lance.Stats(ctx, active.ID); statsErr == nil {
+		indexes.FTS = IndexStatus{Type: firstNonBlank(stats.FTSIndexType, "FTS/ICU"), Ready: stats.FTSReady}
+		indexes.Vector = VectorIndexStatus{Type: firstNonBlank(stats.VectorIndexType, "flat"), Ready: stats.VectorReady, UnindexedRows: stats.UnindexedRows}
+		lastOptimized, _ := control.Meta(ctx, "lastOptimizedAt")
+		optimizedAt, parseErr := parseOptionalPublicEpochMillis(lastOptimized, "lastOptimizedAt", "kbase.status.metadata")
+		if parseErr != nil {
+			return status, parseErr
+		}
+		indexes.LastOptimizedAt = optimizedAt
+	}
+	status.Indexes = indexes
 	return validatePublicStatusTimes(status)
 }
 
@@ -658,19 +588,6 @@ func (m *Manager) Search(ctx context.Context, agentKey string, query string, opt
 	offset := options.Offset
 	if offset < 0 {
 		offset = 0
-	}
-	if m.engineMode() == "sqlite" && legacyRefreshRequired(cfg.StorageDir) {
-		m.queueRefresh(cfg.AgentKey, cfg.StorageDir, "sqlite-rollback")
-		return SearchResult{AgentKey: cfg.AgentKey, Query: query, Offset: offset, Limit: limit,
-			Results: nil, Stale: true, Indexing: true}, nil
-	}
-	// Keep a request that observed an uninitialized legacy index on the stale
-	// path. Otherwise it can race the queued refresh, discover the database
-	// milliseconds later, and unexpectedly execute a second embedding request.
-	if statusErr == nil && status.Engine == "sqlite" && status.ManifestConfigHash == "" {
-		m.queueRefresh(cfg.AgentKey, cfg.StorageDir, "search")
-		return SearchResult{AgentKey: cfg.AgentKey, Query: query, Offset: offset, Limit: limit,
-			Results: nil, Stale: true, Indexing: true}, nil
 	}
 	retrieval, generationID, available, err := m.selectRetrieval(ctx, cfg)
 	if err != nil {
@@ -748,9 +665,6 @@ func (m *Manager) Search(ctx context.Context, agentKey string, query string, opt
 	if result.Stale && !result.Indexing {
 		m.queueRefresh(cfg.AgentKey, cfg.StorageDir, "search")
 	}
-	if generationID != "legacy" {
-		m.maybeShadowLiveQuery(cfg, retrievalRequest, response)
-	}
 	return result, nil
 }
 
@@ -766,10 +680,6 @@ func (m *Manager) Read(agentKey string, options ReadOptions) (ReadResult, error)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if m.engineMode() == "sqlite" && legacyRefreshRequired(cfg.StorageDir) {
-		m.queueRefresh(cfg.AgentKey, cfg.StorageDir, "sqlite-rollback")
-		return ReadResult{Found: false, ChunkID: chunkID, Path: path}, nil
-	}
 	retrieval, generationID, available, err := m.selectRetrieval(ctx, cfg)
 	if err != nil {
 		return ReadResult{}, err
@@ -860,7 +770,6 @@ func (m *Manager) resolve(agentKey string) (resolvedConfig, *Embedder, error) {
 	}
 	cfg.IndexHash = computeIndexHash(cfg)
 	cfg.QueryHash = computeQueryHash(cfg)
-	cfg.ConfigHash = cfg.IndexHash
 	embedder := newEmbedderForSnapshot(baseURL, provider.APIKey, embedding)
 	return cfg, embedder, nil
 }
@@ -878,8 +787,8 @@ func newEmbedderForSnapshot(baseURL, apiKey string, embedding EmbeddingSnapshot)
 // generation. This also keeps a rollback generation in its original vector
 // space.
 func (m *Manager) embedderForRetrieval(ctx context.Context, cfg resolvedConfig, generationID string, fallback *Embedder) (*Embedder, int, error) {
-	if generationID == "legacy" || strings.TrimSpace(generationID) == "" {
-		return fallback, cfg.Embedding.Dimension, nil
+	if strings.TrimSpace(generationID) == "" {
+		return nil, 0, &PolicyError{Kind: ErrorUnavailable, Message: "active KBASE generation is not ready"}
 	}
 	control, err := OpenReadControlStore(cfg.StorageDir)
 	if err != nil {

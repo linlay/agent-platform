@@ -190,10 +190,8 @@ func (h *ToolHandler) invokeStatus(agentKey string) (contracts.ToolExecutionResu
 		"engine":                    status.Engine,
 		"schemaVersion":             status.SchemaVersion,
 		"generation":                status.Generation,
-		"migration":                 status.Migration,
 		"indexes":                   status.Indexes,
 		"sidecar":                   status.Sidecar,
-		"legacyAvailable":           status.LegacyAvailable,
 		"pendingRecoveryOperations": status.PendingRecoveryOps,
 		"storageDiskUsage":          status.StorageDiskUsage,
 	}

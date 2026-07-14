@@ -53,16 +53,6 @@ func defaultConfig(options LoadOptions) Config {
 			ACPBridges: map[string]CoderACPBridgeConfig{},
 		},
 		KBase: KBaseConfig{
-			Storage: KBaseStorageConfig{
-				Engine: "auto",
-			},
-			Migration: KBaseMigrationConfig{
-				Enabled:           true,
-				MaxConcurrency:    1,
-				RetainLegacy:      true,
-				ShadowLivePercent: 10,
-				MaxReplayQueries:  100,
-			},
 			Index: KBaseIndexConfig{
 				FTS: KBaseFTSIndexConfig{
 					BaseTokenizer: "icu",
@@ -378,24 +368,6 @@ func normalizeKBaseExtractionConfig(cfg KBaseExtractionConfig) KBaseExtractionCo
 func normalizeKBaseConfig(cfg *KBaseConfig) error {
 	if cfg == nil {
 		return nil
-	}
-	cfg.Storage.Engine = strings.ToLower(strings.TrimSpace(cfg.Storage.Engine))
-	if cfg.Storage.Engine == "" {
-		cfg.Storage.Engine = "auto"
-	}
-	switch cfg.Storage.Engine {
-	case "auto", "lancedb", "sqlite":
-	default:
-		return fmt.Errorf("kbase storage.engine must be auto, lancedb, or sqlite")
-	}
-	if cfg.Migration.MaxConcurrency < 1 {
-		return fmt.Errorf("kbase migration.max-concurrency must be at least 1")
-	}
-	if cfg.Migration.ShadowLivePercent < 0 || cfg.Migration.ShadowLivePercent > 100 {
-		return fmt.Errorf("kbase migration.shadow-live-percent must be between 0 and 100")
-	}
-	if cfg.Migration.MaxReplayQueries < 0 {
-		return fmt.Errorf("kbase migration.max-replay-queries must be non-negative")
 	}
 	cfg.Index.FTS.BaseTokenizer = strings.ToLower(strings.TrimSpace(cfg.Index.FTS.BaseTokenizer))
 	if cfg.Index.FTS.BaseTokenizer == "" {

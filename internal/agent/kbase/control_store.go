@@ -117,27 +117,6 @@ func (s *ControlStore) initDB(ctx context.Context) error {
 		)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS IDX_KBASE_GENERATIONS_ONE_ACTIVE
 			ON KBASE_GENERATIONS(STATE_) WHERE STATE_ = 'active'`,
-		`CREATE TABLE IF NOT EXISTS KBASE_MIGRATIONS (
-			ID_ TEXT PRIMARY KEY,
-			AGENT_KEY_ TEXT NOT NULL,
-			SOURCE_ENGINE_ TEXT NOT NULL,
-			SOURCE_SCHEMA_ TEXT NOT NULL DEFAULT '',
-			GENERATION_ID_ TEXT NOT NULL,
-			STATE_ TEXT NOT NULL,
-			LAST_STAGE_ TEXT NOT NULL DEFAULT '',
-			TOTAL_FILES_ INTEGER NOT NULL DEFAULT 0,
-			IMPORTED_FILES_ INTEGER NOT NULL DEFAULT 0,
-			TOTAL_CHUNKS_ INTEGER NOT NULL DEFAULT 0,
-			IMPORTED_CHUNKS_ INTEGER NOT NULL DEFAULT 0,
-			PROGRESS_ REAL NOT NULL DEFAULT 0,
-			RETRY_COUNT_ INTEGER NOT NULL DEFAULT 0,
-			STARTED_AT_ INTEGER NOT NULL,
-			UPDATED_AT_ INTEGER NOT NULL,
-			FINISHED_AT_ INTEGER NOT NULL DEFAULT 0,
-			ERROR_CODE_ TEXT NOT NULL DEFAULT '',
-			ERROR_ TEXT NOT NULL DEFAULT ''
-		)`,
-		`CREATE INDEX IF NOT EXISTS IDX_KBASE_MIGRATIONS_AGENT ON KBASE_MIGRATIONS(AGENT_KEY_, UPDATED_AT_ DESC)`,
 		`CREATE TABLE IF NOT EXISTS KBASE_FILE_OPS (
 			ID_ TEXT PRIMARY KEY,
 			GENERATION_ID_ TEXT NOT NULL,
@@ -166,7 +145,6 @@ func (s *ControlStore) initDB(ctx context.Context) error {
 			CHANGED_FILES_ INTEGER NOT NULL DEFAULT 0,
 			DELETED_FILES_ INTEGER NOT NULL DEFAULT 0,
 			INDEXED_CHUNKS_ INTEGER NOT NULL DEFAULT 0,
-			MIGRATED_CHUNKS_ INTEGER NOT NULL DEFAULT 0,
 			INDEX_BUILD_DURATION_MS_ INTEGER NOT NULL DEFAULT 0,
 			VALIDATION_DURATION_MS_ INTEGER NOT NULL DEFAULT 0,
 			ERROR_ TEXT NOT NULL DEFAULT ''
@@ -178,14 +156,11 @@ func (s *ControlStore) initDB(ctx context.Context) error {
 		}
 	}
 	// These columns were added while schema v3 was still under development.
-	// Keep opening early v3 control databases safe for interrupted migrations.
+	// Keep opening early control databases safe for interrupted upgrades.
 	if err := s.ensureColumn(ctx, "KBASE_GENERATIONS", "EMBEDDING_PROVIDER_KEY_", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	if err := s.ensureColumn(ctx, "KBASE_GENERATIONS", "FTS_TOKENIZER_", "TEXT NOT NULL DEFAULT 'icu'"); err != nil {
-		return err
-	}
-	if err := s.ensureColumn(ctx, "KBASE_MIGRATIONS", "LAST_STAGE_", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
 	if err := s.ensureColumn(ctx, "KBASE_FILE_OPS", "DESIRED_RECORD_JSON_", "TEXT NOT NULL DEFAULT ''"); err != nil {
@@ -195,7 +170,6 @@ func (s *ControlStore) initDB(ctx context.Context) error {
 		return err
 	}
 	for column, definition := range map[string]string{
-		"MIGRATED_CHUNKS_":         "INTEGER NOT NULL DEFAULT 0",
 		"INDEX_BUILD_DURATION_MS_": "INTEGER NOT NULL DEFAULT 0",
 		"VALIDATION_DURATION_MS_":  "INTEGER NOT NULL DEFAULT 0",
 	} {
@@ -264,21 +238,21 @@ func (s *ControlStore) BeginRun(ctx context.Context, mode, generationID string) 
 
 func (s *ControlStore) FinishRun(ctx context.Context, run IndexRun, status, errorText string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE KBASE_INDEX_RUNS SET STATUS_ = ?, FINISHED_AT_ = ?,
-		SCANNED_FILES_ = ?, CHANGED_FILES_ = ?, DELETED_FILES_ = ?, INDEXED_CHUNKS_ = ?, MIGRATED_CHUNKS_ = ?,
+		SCANNED_FILES_ = ?, CHANGED_FILES_ = ?, DELETED_FILES_ = ?, INDEXED_CHUNKS_ = ?,
 		INDEX_BUILD_DURATION_MS_ = ?, VALIDATION_DURATION_MS_ = ?, ERROR_ = ? WHERE ID_ = ?`,
 		status, time.Now().UnixMilli(), run.ScannedFiles, run.ChangedFiles, run.DeletedFiles, run.IndexedChunks,
-		run.MigratedChunks, run.IndexBuildDurationMS, run.ValidationDurationMS, errorText, run.ID)
+		run.IndexBuildDurationMS, run.ValidationDurationMS, errorText, run.ID)
 	return err
 }
 
 func (s *ControlStore) LastRun(ctx context.Context) (*IndexRun, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT ID_, GENERATION_ID_, ENGINE_, MODE_, STATUS_, STARTED_AT_, FINISHED_AT_,
-		SCANNED_FILES_, CHANGED_FILES_, DELETED_FILES_, INDEXED_CHUNKS_, MIGRATED_CHUNKS_,
+		SCANNED_FILES_, CHANGED_FILES_, DELETED_FILES_, INDEXED_CHUNKS_,
 		INDEX_BUILD_DURATION_MS_, VALIDATION_DURATION_MS_, ERROR_
 		FROM KBASE_INDEX_RUNS ORDER BY STARTED_AT_ DESC LIMIT 1`)
 	var run IndexRun
 	err := row.Scan(&run.ID, &run.GenerationID, &run.Engine, &run.Mode, &run.Status, &run.StartedAt, &run.FinishedAt,
-		&run.ScannedFiles, &run.ChangedFiles, &run.DeletedFiles, &run.IndexedChunks, &run.MigratedChunks,
+		&run.ScannedFiles, &run.ChangedFiles, &run.DeletedFiles, &run.IndexedChunks,
 		&run.IndexBuildDurationMS, &run.ValidationDurationMS, &run.Error)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -668,49 +642,6 @@ func (s *ControlStore) PendingFileOperations(ctx context.Context, generationID s
 		out = append(out, op)
 	}
 	return out, rows.Err()
-}
-
-func (s *ControlStore) BeginMigration(ctx context.Context, migration Migration) error {
-	if migration.StartedAt == 0 {
-		migration.StartedAt = time.Now().UnixMilli()
-	}
-	if migration.UpdatedAt == 0 {
-		migration.UpdatedAt = migration.StartedAt
-	}
-	return s.UpdateMigration(ctx, migration)
-}
-
-func (s *ControlStore) UpdateMigration(ctx context.Context, migration Migration) error {
-	migration.UpdatedAt = time.Now().UnixMilli()
-	_, err := s.db.ExecContext(ctx, `INSERT INTO KBASE_MIGRATIONS(ID_, AGENT_KEY_, SOURCE_ENGINE_, SOURCE_SCHEMA_, GENERATION_ID_, STATE_, LAST_STAGE_,
-		TOTAL_FILES_, IMPORTED_FILES_, TOTAL_CHUNKS_, IMPORTED_CHUNKS_, PROGRESS_, RETRY_COUNT_, STARTED_AT_, UPDATED_AT_,
-		FINISHED_AT_, ERROR_CODE_, ERROR_) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(ID_) DO UPDATE SET STATE_=excluded.STATE_, LAST_STAGE_=excluded.LAST_STAGE_, TOTAL_FILES_=excluded.TOTAL_FILES_,
-		IMPORTED_FILES_=excluded.IMPORTED_FILES_, TOTAL_CHUNKS_=excluded.TOTAL_CHUNKS_, IMPORTED_CHUNKS_=excluded.IMPORTED_CHUNKS_,
-		PROGRESS_=excluded.PROGRESS_, RETRY_COUNT_=excluded.RETRY_COUNT_, UPDATED_AT_=excluded.UPDATED_AT_,
-		FINISHED_AT_=excluded.FINISHED_AT_, ERROR_CODE_=excluded.ERROR_CODE_, ERROR_=excluded.ERROR_`,
-		migration.ID, migration.AgentKey, migration.SourceEngine, migration.SourceSchema, migration.GenerationID, migration.State, migration.LastStage,
-		migration.TotalFiles, migration.ImportedFiles, migration.TotalChunks, migration.ImportedChunks, migration.Progress,
-		migration.RetryCount, migration.StartedAt, migration.UpdatedAt, migration.FinishedAt, migration.ErrorCode, migration.Error)
-	return err
-}
-
-func (s *ControlStore) LatestMigration(ctx context.Context, agentKey string) (*Migration, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT ID_, AGENT_KEY_, SOURCE_ENGINE_, SOURCE_SCHEMA_, GENERATION_ID_, STATE_,
-		LAST_STAGE_, TOTAL_FILES_, IMPORTED_FILES_, TOTAL_CHUNKS_, IMPORTED_CHUNKS_, PROGRESS_, RETRY_COUNT_, STARTED_AT_, UPDATED_AT_,
-		FINISHED_AT_, ERROR_CODE_, ERROR_ FROM KBASE_MIGRATIONS WHERE AGENT_KEY_=? ORDER BY UPDATED_AT_ DESC LIMIT 1`, agentKey)
-	var migration Migration
-	err := row.Scan(&migration.ID, &migration.AgentKey, &migration.SourceEngine, &migration.SourceSchema, &migration.GenerationID,
-		&migration.State, &migration.LastStage, &migration.TotalFiles, &migration.ImportedFiles, &migration.TotalChunks, &migration.ImportedChunks,
-		&migration.Progress, &migration.RetryCount, &migration.StartedAt, &migration.UpdatedAt, &migration.FinishedAt,
-		&migration.ErrorCode, &migration.Error)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &migration, nil
 }
 
 var _ MetadataStore = (*ControlStore)(nil)

@@ -32,13 +32,10 @@ type Status struct {
 	LastRun            *IndexRun         `json:"lastRun,omitempty"`
 	FileStats          FileStats         `json:"fileStats,omitempty"`
 	ConfigHash         string            `json:"configHash,omitempty"`
-	ManifestConfigHash string            `json:"manifestConfigHash,omitempty"`
 	Engine             string            `json:"engine,omitempty"`
 	SchemaVersion      string            `json:"schemaVersion,omitempty"`
 	Generation         *GenerationStatus `json:"generation,omitempty"`
-	Migration          *MigrationStatus  `json:"migration,omitempty"`
 	Indexes            *IndexesStatus    `json:"indexes,omitempty"`
-	LegacyAvailable    bool              `json:"legacyAvailable,omitempty"`
 	Sidecar            *LanceEngineState `json:"sidecar,omitempty"`
 	PendingRecoveryOps int               `json:"pendingRecoveryOperations,omitempty"`
 	StorageDiskUsage   int64             `json:"storageDiskUsage,omitempty"`
@@ -50,16 +47,6 @@ type GenerationStatus struct {
 	TableVersion uint64 `json:"tableVersion"`
 	CreatedAt    int64  `json:"createdAt"`
 	ActivatedAt  int64  `json:"activatedAt,omitempty"`
-}
-
-type MigrationStatus struct {
-	State          string  `json:"state"`
-	Progress       float64 `json:"progress"`
-	ImportedFiles  int     `json:"importedFiles"`
-	TotalFiles     int     `json:"totalFiles"`
-	ImportedChunks int     `json:"importedChunks"`
-	TotalChunks    int     `json:"totalChunks"`
-	Error          string  `json:"error,omitempty"`
 }
 
 type IndexesStatus struct {
@@ -214,7 +201,6 @@ type IndexRun struct {
 	ChangedFiles         int    `json:"changedFiles"`
 	DeletedFiles         int    `json:"deletedFiles"`
 	IndexedChunks        int    `json:"indexedChunks"`
-	MigratedChunks       int    `json:"migratedChunks,omitempty"`
 	IndexBuildDurationMS int64  `json:"indexBuildDurationMs,omitempty"`
 	ValidationDurationMS int64  `json:"validationDurationMs,omitempty"`
 	Error                string `json:"error,omitempty"`

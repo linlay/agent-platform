@@ -27,41 +27,22 @@ func (m *Manager) Files(agentKey string, options FilesOptions) (FilesResult, err
 		return FilesResult{}, err
 	}
 	result := emptyFilesResult(normalized)
-	if m.engineMode() == "sqlite" && legacyRefreshRequired(cfg.StorageDir) {
-		m.queueRefresh(cfg.AgentKey, cfg.StorageDir, "sqlite-rollback")
-		return result, nil
-	}
-	if m.engineMode() != "sqlite" {
-		control, controlErr := OpenReadControlStore(cfg.StorageDir)
-		if controlErr == nil {
-			defer control.Close()
-			generation, generationErr := control.ActiveGeneration(context.Background())
-			if generationErr != nil {
-				return FilesResult{}, generationErr
-			}
-			if generation != nil {
-				records, recordsErr := control.Files(context.Background(), generation.ID)
-				if recordsErr != nil {
-					return FilesResult{}, recordsErr
-				}
-				return filesResultFromRecords(result, normalized, records)
-			}
-		} else if !os.IsNotExist(controlErr) {
-			return FilesResult{}, controlErr
-		}
-		if m.engineMode() == "lancedb" {
-			return FilesResult{}, &PolicyError{Kind: ErrorUnavailable, Message: "KBASE LanceDB generation is not ready"}
-		}
-	}
-	store, err := OpenReadStore(cfg.StorageDir)
+	control, err := OpenReadControlStore(cfg.StorageDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return result, nil
+			return FilesResult{}, &PolicyError{Kind: ErrorUnavailable, Message: "KBASE LanceDB generation is not ready"}
 		}
 		return FilesResult{}, err
 	}
-	defer store.Close()
-	records, err := store.AllFiles()
+	defer control.Close()
+	generation, err := control.ActiveGeneration(context.Background())
+	if err != nil {
+		return FilesResult{}, err
+	}
+	if generation == nil {
+		return FilesResult{}, &PolicyError{Kind: ErrorUnavailable, Message: "KBASE LanceDB generation is not ready"}
+	}
+	records, err := control.Files(context.Background(), generation.ID)
 	if err != nil {
 		return FilesResult{}, err
 	}

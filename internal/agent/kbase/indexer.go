@@ -20,7 +20,6 @@ import (
 )
 
 const (
-	schemaVersion       = "2"
 	defaultMaxFileBytes = 50 * 1024 * 1024
 	defaultFTSTokenizer = "icu"
 )
@@ -61,27 +60,6 @@ type resolvedConfig struct {
 	FTSTokenizer  string
 	IndexHash     string
 	QueryHash     string
-	// ConfigHash is the legacy name for IndexHash. Keep populating it for one
-	// compatibility cycle so older status and manifest readers remain valid.
-	ConfigHash string
-}
-
-type manifest struct {
-	SchemaVersion string            `json:"schemaVersion"`
-	AgentKey      string            `json:"agentKey"`
-	WorkspaceRoot string            `json:"workspaceRoot"`
-	ConfigHash    string            `json:"configHash"`
-	IndexHash     string            `json:"indexHash,omitempty"`
-	QueryHash     string            `json:"queryHash,omitempty"`
-	Embedding     EmbeddingSnapshot `json:"embedding"`
-	Include       []string          `json:"include"`
-	Exclude       []string          `json:"exclude"`
-	Chunk         ChunkConfig       `json:"chunk"`
-	Retrieval     RetrievalConfig   `json:"retrieval"`
-	Extraction    ExtractionConfig  `json:"extraction"`
-	Storage       string            `json:"storage"`
-	FTSTokenizer  string            `json:"ftsTokenizer,omitempty"`
-	UpdatedAt     int64             `json:"updatedAt"`
 }
 
 // computeConfigHash is retained as a compatibility alias. A config hash has
@@ -92,7 +70,7 @@ func computeConfigHash(cfg resolvedConfig) string {
 }
 
 func computeIndexHash(cfg resolvedConfig) string {
-	return computeIndexHashForSchema(cfg, schemaVersion)
+	return computeIndexHashForSchema(cfg, ControlSchemaVersion)
 }
 
 func computeIndexHashForSchema(cfg resolvedConfig, version string) string {
@@ -142,9 +120,6 @@ func desiredIndexHash(cfg resolvedConfig) string {
 	if value := strings.TrimSpace(cfg.IndexHash); value != "" {
 		return value
 	}
-	if value := strings.TrimSpace(cfg.ConfigHash); value != "" {
-		return value
-	}
 	return computeIndexHash(cfg)
 }
 
@@ -155,78 +130,10 @@ func desiredQueryHash(cfg resolvedConfig) string {
 	return computeQueryHash(cfg)
 }
 
-// storedIndexHash upgrades schema-v2 stores without forcing a rebuild merely
-// because the old configHash also included retrieval weights. The old manifest
-// contains all index-affecting settings, so derive the new index hash from it.
-func storedIndexHash(store workspaceIndexStore, storageDir string) string {
-	if value := strings.TrimSpace(store.Meta("indexHash")); value != "" {
-		return value
-	}
-	legacyHash := strings.TrimSpace(store.Meta("configHash"))
-	if legacyHash == "" {
-		return ""
-	}
-	data, err := os.ReadFile(filepath.Join(storageDir, "manifest.json"))
-	if err != nil {
-		return legacyHash
-	}
-	var previous manifest
-	if err := json.Unmarshal(data, &previous); err != nil {
-		return legacyHash
-	}
-	if value := strings.TrimSpace(previous.IndexHash); value != "" {
-		return value
-	}
-	version := strings.TrimSpace(previous.SchemaVersion)
-	if version == "" {
-		version = schemaVersion
-	}
-	return computeIndexHashForSchema(resolvedConfig{
-		WorkspaceRoot: previous.WorkspaceRoot,
-		Storage:       previous.Storage,
-		Embedding:     previous.Embedding,
-		Include:       previous.Include,
-		Exclude:       previous.Exclude,
-		Chunk:         previous.Chunk,
-		Extraction:    previous.Extraction,
-		FTSTokenizer:  previous.FTSTokenizer,
-	}, version)
-}
-
-func writeManifest(storageDir string, cfg resolvedConfig) error {
-	indexHash := desiredIndexHash(cfg)
-	queryHash := desiredQueryHash(cfg)
-	tokenizer := strings.ToLower(strings.TrimSpace(cfg.FTSTokenizer))
-	if tokenizer == "" {
-		tokenizer = defaultFTSTokenizer
-	}
-	data, err := json.MarshalIndent(manifest{
-		SchemaVersion: schemaVersion,
-		AgentKey:      cfg.AgentKey,
-		WorkspaceRoot: cfg.WorkspaceRoot,
-		ConfigHash:    indexHash,
-		IndexHash:     indexHash,
-		QueryHash:     queryHash,
-		Embedding:     cfg.Embedding,
-		Include:       append([]string(nil), cfg.Include...),
-		Exclude:       append([]string(nil), cfg.Exclude...),
-		Chunk:         cfg.Chunk,
-		Retrieval:     cfg.Retrieval,
-		Extraction:    cfg.Extraction,
-		Storage:       cfg.Storage,
-		FTSTokenizer:  tokenizer,
-		UpdatedAt:     time.Now().UnixMilli(),
-	}, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(storageDir, "manifest.json"), data, 0o644)
-}
-
 func indexWorkspace(ctx context.Context, store workspaceIndexStore, cfg resolvedConfig, embedder *Embedder, force bool, run *IndexRun) error {
 	indexHash := desiredIndexHash(cfg)
 	queryHash := desiredQueryHash(cfg)
-	previousHash := storedIndexHash(store, cfg.StorageDir)
+	previousHash := strings.TrimSpace(store.Meta("indexHash"))
 	if force || previousHash != "" && previousHash != indexHash {
 		if err := store.ClearIndex(); err != nil {
 			return err
@@ -291,7 +198,7 @@ func indexWorkspace(ctx context.Context, store workspaceIndexStore, cfg resolved
 		}
 		run.DeletedFiles++
 	}
-	if err := store.SetMeta("schemaVersion", schemaVersion); err != nil {
+	if err := store.SetMeta("schemaVersion", ControlSchemaVersion); err != nil {
 		return err
 	}
 	if err := store.SetMeta("agentKey", cfg.AgentKey); err != nil {
@@ -324,7 +231,7 @@ func indexWorkspace(ctx context.Context, store workspaceIndexStore, cfg resolved
 	if err := store.SetMeta("lastIndexedAt", fmt.Sprintf("%d", time.Now().UnixMilli())); err != nil {
 		return err
 	}
-	return writeManifest(cfg.StorageDir, cfg)
+	return nil
 }
 
 func indexOneFile(ctx context.Context, store workspaceIndexStore, cfg resolvedConfig, embedder *Embedder, fullPath string, rel string, info fs.FileInfo, force bool, run *IndexRun) error {

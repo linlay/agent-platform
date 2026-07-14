@@ -13,9 +13,8 @@ import (
 	"time"
 )
 
-// workspaceIndexStore is the narrow mutation surface consumed by the existing
-// extractor/chunker. Store and lanceIndexStore both implement it, allowing the
-// extraction pipeline and public chunk identifiers to remain unchanged.
+// workspaceIndexStore is the narrow Lance/control-store mutation surface
+// consumed by the extractor and chunker.
 type workspaceIndexStore interface {
 	Meta(string) string
 	SetMeta(string, string) error
@@ -26,8 +25,6 @@ type workspaceIndexStore interface {
 	UpsertIndexedFile(fileRecord, []chunkRecord) error
 	MarkDeleted(string) error
 }
-
-var _ workspaceIndexStore = (*Store)(nil)
 
 type lanceIndexStore struct {
 	ctx          context.Context

@@ -120,7 +120,12 @@ func (c *Config) applyMemoryValues(values map[string]any) {
 	c.Memory.DualWriteMarkdown = boolValue(anyValue(values["dual-write-markdown"], c.Memory.DualWriteMarkdown), c.Memory.DualWriteMarkdown)
 }
 
-func (c *Config) applyKBaseValues(values map[string]any) {
+func (c *Config) applyKBaseValues(values map[string]any) error {
+	for _, legacyKey := range []string{"storage", "migration"} {
+		if _, exists := values[legacyKey]; exists {
+			return fmt.Errorf("kbase %s is no longer supported; KBASE always uses LanceDB", legacyKey)
+		}
+	}
 	defaultAgent, _ := values["default-agent"].(map[string]any)
 	if len(defaultAgent) > 0 {
 		c.KBase.DefaultAgent.ModelKey = stringValue(anyValue(defaultAgent["modelKey"], c.KBase.DefaultAgent.ModelKey), c.KBase.DefaultAgent.ModelKey)
@@ -129,18 +134,6 @@ func (c *Config) applyKBaseValues(values map[string]any) {
 	embedding, _ := values["embedding"].(map[string]any)
 	if len(embedding) > 0 {
 		c.KBase.Embedding.ModelKey = stringValue(anyValue(embedding["modelKey"], c.KBase.Embedding.ModelKey), c.KBase.Embedding.ModelKey)
-	}
-	storage, _ := values["storage"].(map[string]any)
-	if len(storage) > 0 {
-		c.KBase.Storage.Engine = stringValue(anyValue(storage["engine"], c.KBase.Storage.Engine), c.KBase.Storage.Engine)
-	}
-	migration, _ := values["migration"].(map[string]any)
-	if len(migration) > 0 {
-		c.KBase.Migration.Enabled = boolValue(anyValue(migration["enabled"], c.KBase.Migration.Enabled), c.KBase.Migration.Enabled)
-		c.KBase.Migration.MaxConcurrency = intValue(anyValue(migration["max-concurrency"], c.KBase.Migration.MaxConcurrency), c.KBase.Migration.MaxConcurrency)
-		c.KBase.Migration.RetainLegacy = boolValue(anyValue(migration["retain-legacy"], c.KBase.Migration.RetainLegacy), c.KBase.Migration.RetainLegacy)
-		c.KBase.Migration.ShadowLivePercent = intValue(anyValue(migration["shadow-live-percent"], c.KBase.Migration.ShadowLivePercent), c.KBase.Migration.ShadowLivePercent)
-		c.KBase.Migration.MaxReplayQueries = intValue(anyValue(migration["max-replay-queries"], c.KBase.Migration.MaxReplayQueries), c.KBase.Migration.MaxReplayQueries)
 	}
 	index, _ := values["index"].(map[string]any)
 	if len(index) > 0 {
@@ -166,7 +159,7 @@ func (c *Config) applyKBaseValues(values map[string]any) {
 	}
 	extraction, _ := values["extraction"].(map[string]any)
 	if len(extraction) == 0 {
-		return
+		return nil
 	}
 	c.KBase.Extraction.Timeout = durationValue(anyValue(extraction["timeout"], c.KBase.Extraction.Timeout), c.KBase.Extraction.Timeout)
 	c.KBase.Extraction.MaxFileBytes = int64Value(anyValue(extraction["max-file-bytes"], c.KBase.Extraction.MaxFileBytes), c.KBase.Extraction.MaxFileBytes)
@@ -187,6 +180,7 @@ func (c *Config) applyKBaseValues(values map[string]any) {
 		c.KBase.Extraction.PPTX.Backend = stringValue(anyValue(pptx["backend"], c.KBase.Extraction.PPTX.Backend), c.KBase.Extraction.PPTX.Backend)
 		c.KBase.Extraction.PPTX.IncludeNotes = boolValue(anyValue(pptx["include-notes"], c.KBase.Extraction.PPTX.IncludeNotes), c.KBase.Extraction.PPTX.IncludeNotes)
 	}
+	return nil
 }
 
 func (c *Config) applyRuntimeFile(path string) error {
@@ -258,8 +252,7 @@ func (c *Config) applyKBaseSettingsFile(path string) error {
 	if len(values) == 0 {
 		return nil
 	}
-	c.applyKBaseValues(values)
-	return nil
+	return c.applyKBaseValues(values)
 }
 
 func durationValue(value any, fallback time.Duration) time.Duration {

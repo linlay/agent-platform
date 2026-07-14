@@ -2,40 +2,18 @@ package kbase
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"math"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
 
-func (m *Manager) engineMode() string {
-	mode := strings.ToLower(strings.TrimSpace(m.options.StorageEngine))
-	switch mode {
-	case "auto", "lancedb", "sqlite":
-		return mode
-	default:
-		// Direct package users and legacy tests did not configure an engine.
-		// Keep those callers on SQLite; the application adapter explicitly
-		// supplies the product default (auto).
-		return "sqlite"
-	}
-}
-
 func (m *Manager) refreshResolved(ctx context.Context, cfg resolvedConfig, embedder *Embedder, options RefreshOptions) (RefreshResult, error) {
-	mode := m.engineMode()
-	if mode == "sqlite" {
-		return refreshSQLite(ctx, cfg, embedder, options)
-	}
-	lanceCfg := resolvedLanceConfig(cfg)
-
 	control, err := OpenControlStore(cfg.StorageDir)
 	if err != nil {
 		return failedRefresh(cfg.AgentKey, options.Mode, err), err
@@ -46,72 +24,12 @@ func (m *Manager) refreshResolved(ctx context.Context, cfg resolvedConfig, embed
 		return failedRefresh(cfg.AgentKey, options.Mode, err), err
 	}
 	if active != nil {
-		if options.Force || active.IndexHash != desiredIndexHash(lanceCfg) || active.EmbeddingDimension != cfg.Embedding.Dimension || active.EmbeddingModel != cfg.Embedding.Model {
-			return m.buildLanceGeneration(ctx, control, lanceCfg, embedder, options)
+		if options.Force || active.IndexHash != desiredIndexHash(cfg) || active.EmbeddingDimension != cfg.Embedding.Dimension || active.EmbeddingModel != cfg.Embedding.Model {
+			return m.buildLanceGeneration(ctx, control, cfg, embedder, options)
 		}
-		return m.refreshLanceGeneration(ctx, control, active, lanceCfg, embedder, options)
+		return m.refreshLanceGeneration(ctx, control, active, cfg, embedder, options)
 	}
-
-	legacyExists := fileExists(filepath.Join(cfg.StorageDir, "kbase.db"))
-	if mode == "auto" {
-		legacyResult, legacyErr := refreshSQLite(ctx, cfg, embedder, options)
-		if legacyErr != nil {
-			return legacyResult, legacyErr
-		}
-		if !m.options.Migration.Enabled {
-			return legacyResult, nil
-		}
-		if _, err := m.migrateLegacy(ctx, control, lanceCfg, embedder, options); err != nil {
-			if errors.Is(err, errLegacyRequiresRebuild) {
-				if rebuilt, rebuildErr := m.buildLanceGeneration(ctx, control, lanceCfg, embedder, options); rebuildErr == nil {
-					return rebuilt, nil
-				} else {
-					log.Printf("[kbase-lance] cold rebuild failed agent=%s: %v", cfg.AgentKey, rebuildErr)
-				}
-			}
-			log.Printf("[kbase-lance] background migration failed agent=%s: %v", cfg.AgentKey, err)
-			// Auto mode keeps the freshly-updated legacy engine available.
-			return legacyResult, nil
-		}
-		return legacyResult, nil
-	}
-
-	if legacyExists && m.options.Migration.Enabled {
-		result, err := m.migrateLegacy(ctx, control, lanceCfg, embedder, options)
-		if err == nil {
-			return result, nil
-		}
-		if !errors.Is(err, errLegacyRequiresRebuild) {
-			return failedRefresh(cfg.AgentKey, options.Mode, err), err
-		}
-	}
-	return m.buildLanceGeneration(ctx, control, lanceCfg, embedder, options)
-}
-
-func refreshSQLite(ctx context.Context, cfg resolvedConfig, embedder *Embedder, options RefreshOptions) (RefreshResult, error) {
-	store, err := OpenStore(cfg.StorageDir)
-	if err != nil {
-		return failedRefresh(cfg.AgentKey, options.Mode, err), err
-	}
-	defer store.Close()
-	run, err := store.BeginRun(firstNonBlank(options.Mode, "manual"))
-	if err != nil {
-		return failedRefresh(cfg.AgentKey, options.Mode, err), err
-	}
-	status := "success"
-	errText := ""
-	if err = indexWorkspace(ctx, store, cfg, embedder, options.Force, &run); err != nil {
-		status = "failed"
-		errText = err.Error()
-	}
-	_ = store.FinishRun(run, status, errText)
-	if err == nil && fileExists(filepath.Join(cfg.StorageDir, "control.db")) {
-		if control, controlErr := OpenControlStore(cfg.StorageDir); controlErr == nil {
-			_ = control.SetMeta(ctx, "legacyNeedsRefresh", "false")
-			_ = control.Close()
-		}
-	}
-	return resultFromRun(cfg.AgentKey, run, status, errText), err
+	return m.buildLanceGeneration(ctx, control, cfg, embedder, options)
 }
 
 func (m *Manager) refreshLanceGeneration(ctx context.Context, control *ControlStore, generation *Generation, cfg resolvedConfig, embedder *Embedder, options RefreshOptions) (RefreshResult, error) {
@@ -230,193 +148,6 @@ func (m *Manager) buildLanceGeneration(ctx context.Context, control *ControlStor
 	return resultFromRun(cfg.AgentKey, run, status, errText), err
 }
 
-func (m *Manager) migrateLegacy(ctx context.Context, control *ControlStore, cfg resolvedConfig, embedder *Embedder, options RefreshOptions) (RefreshResult, error) {
-	select {
-	case m.migrationSem <- struct{}{}:
-		defer func() { <-m.migrationSem }()
-	case <-ctx.Done():
-		return failedRefresh(cfg.AgentKey, options.Mode, ctx.Err()), ctx.Err()
-	}
-	legacy, err := OpenStore(cfg.StorageDir)
-	if err != nil {
-		return failedRefresh(cfg.AgentKey, options.Mode, err), err
-	}
-	defer legacy.Close()
-	generation := newGeneration(cfg)
-	migration := Migration{}
-	resuming := false
-	if latest, latestErr := control.LatestMigration(ctx, cfg.AgentKey); latestErr == nil && latest != nil &&
-		migrationImportCanResume(latest) && latest.ErrorCode != "legacy_requires_rebuild" {
-		if previous, generationErr := control.Generation(ctx, latest.GenerationID); generationErr == nil && previous != nil &&
-			previous.EmbeddingDimension == cfg.Embedding.Dimension && previous.EmbeddingModel == cfg.Embedding.Model &&
-			previous.IndexHash == desiredIndexHash(cfg) && fileExists(filepath.Join(cfg.StorageDir, "migrations", latest.ID+".snapshot.db")) {
-			generation = *previous
-			migration = *latest
-			migration.State = MigrationImporting
-			migration.ImportedFiles = 0
-			migration.ImportedChunks = 0
-			migration.Progress = 0
-			migration.FinishedAt = 0
-			migration.ErrorCode = ""
-			migration.Error = ""
-			migration.RetryCount++
-			resuming = true
-			_ = control.SetGenerationState(ctx, generation.ID, GenerationBuilding, "")
-			_ = control.UpdateMigration(ctx, migration)
-		}
-	}
-	if !resuming {
-		migration = Migration{
-			ID:           fmt.Sprintf("kbm_%d", time.Now().UnixNano()),
-			AgentKey:     cfg.AgentKey,
-			SourceEngine: "sqlite",
-			SourceSchema: legacy.Meta("schemaVersion"),
-			GenerationID: generation.ID,
-			State:        MigrationSnapshotting,
-			StartedAt:    time.Now().UnixMilli(),
-		}
-		if err := control.BeginMigration(ctx, migration); err != nil {
-			return failedRefresh(cfg.AgentKey, options.Mode, err), err
-		}
-		if err := control.CreateGeneration(ctx, generation); err != nil {
-			return m.failMigration(ctx, control, migration, generation, err)
-		}
-	}
-
-	legacyDimension, _ := strconv.Atoi(legacy.Meta("embeddingDimension"))
-	legacyModel := strings.TrimSpace(legacy.Meta("embeddingModel"))
-	if legacyDimension != cfg.Embedding.Dimension || legacyModel != "" && legacyModel != cfg.Embedding.Model {
-		err := fmt.Errorf("%w: legacy embedding model/dimension does not match current configuration", errLegacyRequiresRebuild)
-		return m.failMigration(ctx, control, migration, generation, err)
-	}
-	files, chunks, err := legacy.Counts()
-	if err != nil {
-		return m.failMigration(ctx, control, migration, generation, err)
-	}
-	migration.TotalFiles, migration.TotalChunks = files, chunks
-	_ = control.UpdateMigration(ctx, migration)
-
-	snapshotPath := filepath.Join(cfg.StorageDir, "migrations", migration.ID+".snapshot.db")
-	if !resuming {
-		if err := legacy.Snapshot(ctx, snapshotPath); err != nil {
-			return m.failMigration(ctx, control, migration, generation, err)
-		}
-	}
-	snapshot, err := OpenSnapshotStore(snapshotPath)
-	if err != nil {
-		return m.failMigration(ctx, control, migration, generation, err)
-	}
-	defer snapshot.Close()
-
-	if err := m.registerLanceGeneration(ctx, cfg, &generation); err != nil {
-		return m.failMigration(ctx, control, migration, generation, err)
-	}
-	migration.State = MigrationImporting
-	_ = control.UpdateMigration(ctx, migration)
-	legacyFiles, err := snapshot.AllFiles()
-	if err != nil {
-		return m.failMigration(ctx, control, migration, generation, err)
-	}
-	legacyChunkHashes, err := snapshot.ChunkValidationHashes()
-	if err != nil {
-		return m.failMigration(ctx, control, migration, generation, err)
-	}
-	for _, file := range legacyFiles {
-		if file.Status == "active" && file.ChunkCount > 0 {
-			file.ChunkSetHash = legacyChunkHashes[file.ID]
-			if file.ChunkSetHash == "" {
-				return m.failMigration(ctx, control, migration, generation,
-					fmt.Errorf("legacy file %s is missing its chunk validation digest", file.Path))
-			}
-		}
-		if err := control.UpsertFile(ctx, generation.ID, file); err != nil {
-			return m.failMigration(ctx, control, migration, generation, err)
-		}
-		if file.Status == "active" {
-			migration.ImportedFiles++
-		}
-	}
-	if err := snapshot.IterateChunks(512, cfg.Embedding.Dimension, func(batch []chunkRecord) error {
-		if err := m.lance.ImportChunks(ctx, generation.ID, batch); err != nil {
-			return err
-		}
-		migration.ImportedChunks += len(batch)
-		if migration.TotalChunks > 0 {
-			migration.Progress = float64(migration.ImportedChunks) / float64(migration.TotalChunks)
-		}
-		return control.UpdateMigration(ctx, migration)
-	}); err != nil {
-		if isLegacyDataError(err) {
-			err = fmt.Errorf("%w: %v", errLegacyRequiresRebuild, err)
-		}
-		return m.failMigration(ctx, control, migration, generation, err)
-	}
-	legacyChunkDigest, legacyFileDigest, err := snapshot.IDDigests()
-	if err != nil {
-		return m.failMigration(ctx, control, migration, generation, err)
-	}
-	importValidation, err := m.lance.Validate(ctx, generation.ID)
-	if err != nil {
-		return m.failMigration(ctx, control, migration, generation, err)
-	}
-	if importValidation.ChunkIDDigest != legacyChunkDigest || importValidation.FileIDDigest != legacyFileDigest ||
-		importValidation.Chunks != migration.TotalChunks {
-		err = fmt.Errorf("legacy import ID-set validation failed: chunks=%d/%d chunkDigest=%t fileDigest=%t",
-			importValidation.Chunks, migration.TotalChunks, importValidation.ChunkIDDigest == legacyChunkDigest,
-			importValidation.FileIDDigest == legacyFileDigest)
-		return m.failMigration(ctx, control, migration, generation, err)
-	}
-
-	// Catch workspace changes that happened while the consistent snapshot was
-	// being imported. Only changed files call the embedding provider.
-	run, err := control.BeginRun(ctx, firstNonBlank(options.Mode, "migration"), generation.ID)
-	if err != nil {
-		return m.failMigration(ctx, control, migration, generation, err)
-	}
-	indexStore := newLanceIndexStore(ctx, control, m.lance, generation.ID)
-	// Once workspace reconciliation starts the generation may contain rows that
-	// are intentionally absent from the snapshot. A crash from this point must
-	// start a fresh generation instead of replaying an upsert-only snapshot into
-	// the changed table and failing its exact ID-set gate forever.
-	migration.State = MigrationIndexing
-	_ = control.UpdateMigration(ctx, migration)
-	if err = indexWorkspace(ctx, indexStore, cfg, embedder, false, &run); err == nil {
-		migration.State = MigrationValidating
-		_ = control.UpdateMigration(ctx, migration)
-		run.MigratedChunks = migration.ImportedChunks
-		err = m.finishGeneration(ctx, control, &generation, cfg, &run, false, false)
-	}
-	status, errText := "success", ""
-	if err != nil {
-		status, errText = "failed", err.Error()
-		_ = control.FinishRun(ctx, run, status, errText)
-		return m.failMigration(ctx, control, migration, generation, err)
-	}
-	migration.State = MigrationShadowing
-	_ = control.UpdateMigration(ctx, migration)
-	if err = m.validateMigrationRetrieval(ctx, snapshot, generation, cfg); err != nil {
-		status, errText = "failed", err.Error()
-		_ = control.FinishRun(ctx, run, status, errText)
-		return m.failMigration(ctx, control, migration, generation, err)
-	}
-	migration.State = MigrationReady
-	_ = control.UpdateMigration(ctx, migration)
-	if err = activateGeneration(ctx, control, cfg, &generation); err != nil {
-		status, errText = "failed", err.Error()
-		_ = control.FinishRun(ctx, run, status, errText)
-		return m.failMigration(ctx, control, migration, generation, err)
-	}
-	_ = control.FinishRun(ctx, run, status, errText)
-	migration.State = MigrationActive
-	migration.Progress = 1
-	migration.FinishedAt = time.Now().UnixMilli()
-	_ = control.UpdateMigration(ctx, migration)
-	if removeErr := os.Remove(snapshotPath); removeErr != nil && !os.IsNotExist(removeErr) {
-		log.Printf("[kbase-lance] remove migration snapshot failed agent=%s path=%s: %v", cfg.AgentKey, snapshotPath, removeErr)
-	}
-	return resultFromRun(cfg.AgentKey, run, status, errText), nil
-}
-
 func (m *Manager) finishGeneration(ctx context.Context, control *ControlStore, generation *Generation, cfg resolvedConfig, run *IndexRun, forceOptimize, activate bool) error {
 	if err := control.SetGenerationState(ctx, generation.ID, GenerationIndexing, ""); err != nil {
 		return err
@@ -507,115 +238,6 @@ func (m *Manager) finishGeneration(ctx context.Context, control *ControlStore, g
 	return activateGeneration(ctx, control, cfg, generation)
 }
 
-type migrationValidationReport struct {
-	Queries           int     `json:"queries"`
-	NonEmptyQueries   int     `json:"nonEmptyQueries"`
-	AverageOverlapAt8 float64 `json:"averageOverlapAt8"`
-	OldTop1InNewTop8  float64 `json:"oldTop1InNewTop8"`
-	RetrievalP95MS    int64   `json:"retrievalP95Ms"`
-	Passed            bool    `json:"passed"`
-	Error             string  `json:"error,omitempty"`
-}
-
-func (m *Manager) validateMigrationRetrieval(ctx context.Context, legacy *Store, generation Generation, cfg resolvedConfig) error {
-	maxQueries := m.options.Migration.MaxReplayQueries
-	if maxQueries < 0 {
-		maxQueries = 0
-	}
-	queries, err := legacy.SampleValidationQueries(maxQueries)
-	if err != nil {
-		return err
-	}
-	report := migrationValidationReport{Queries: len(queries), Passed: true}
-	var overlapSum float64
-	var top1Hits int
-	var durations []time.Duration
-	for _, query := range queries {
-		vector, err := float32Vector(query.Vector, cfg.Embedding.Dimension)
-		if err != nil {
-			return m.writeMigrationValidationReport(cfg.StorageDir, generation.ID, report, err)
-		}
-		req := RetrievalRequest{Query: query.Text, Vector: vector, Limit: 8, RRFK: cfg.Retrieval.RRFK,
-			VectorWeight: cfg.Retrieval.VectorWeight, FTSWeight: cfg.Retrieval.FTSWeight,
-			CandidateFloor: cfg.Retrieval.CandidateFloor, CandidateMultiplier: cfg.Retrieval.CandidateMultiplier,
-			CandidateMax: cfg.Retrieval.CandidateMax}
-		oldResult, err := searchSQLiteStore(legacy, req)
-		if err != nil {
-			return m.writeMigrationValidationReport(cfg.StorageDir, generation.ID, report, err)
-		}
-		started := time.Now()
-		newResult, err := m.lance.Search(ctx, generation.ID, req)
-		durations = append(durations, time.Since(started))
-		if err != nil {
-			return m.writeMigrationValidationReport(cfg.StorageDir, generation.ID, report, err)
-		}
-		if len(oldResult.Matches) == 0 {
-			continue
-		}
-		report.NonEmptyQueries++
-		if len(newResult.Matches) == 0 {
-			return m.writeMigrationValidationReport(cfg.StorageDir, generation.ID, report,
-				fmt.Errorf("shadow query produced no Lance results for a non-empty legacy result"))
-		}
-		newIDs := make(map[string]struct{}, len(newResult.Matches))
-		for _, match := range newResult.Matches {
-			newIDs[match.Chunk.ID] = struct{}{}
-		}
-		overlap := 0
-		for _, match := range oldResult.Matches {
-			if _, ok := newIDs[match.Chunk.ID]; ok {
-				overlap++
-			}
-		}
-		overlapSum += float64(overlap) / float64(minInt(8, len(oldResult.Matches)))
-		if _, ok := newIDs[oldResult.Matches[0].Chunk.ID]; ok {
-			top1Hits++
-		}
-	}
-	if report.NonEmptyQueries > 0 {
-		report.AverageOverlapAt8 = overlapSum / float64(report.NonEmptyQueries)
-		report.OldTop1InNewTop8 = float64(top1Hits) / float64(report.NonEmptyQueries)
-	}
-	if len(durations) > 0 {
-		sort.Slice(durations, func(i, j int) bool { return durations[i] < durations[j] })
-		index := int(math.Ceil(float64(len(durations))*0.95)) - 1
-		if index < 0 {
-			index = 0
-		}
-		report.RetrievalP95MS = durations[index].Milliseconds()
-	}
-	if report.NonEmptyQueries > 0 && report.AverageOverlapAt8 < 0.70 {
-		err = fmt.Errorf("shadow overlap@8 %.3f is below 0.70", report.AverageOverlapAt8)
-	} else if report.NonEmptyQueries > 0 && report.OldTop1InNewTop8 < 0.95 {
-		err = fmt.Errorf("shadow old-top1-in-new-top8 %.3f is below 0.95", report.OldTop1InNewTop8)
-	} else {
-		latencyLimit := int64(500)
-		if generation.Chunks <= 10000 {
-			latencyLimit = 200
-		}
-		if report.RetrievalP95MS > latencyLimit {
-			err = fmt.Errorf("Lance retrieval p95 %dms exceeds %dms", report.RetrievalP95MS, latencyLimit)
-		}
-	}
-	return m.writeMigrationValidationReport(cfg.StorageDir, generation.ID, report, err)
-}
-
-func (m *Manager) writeMigrationValidationReport(storageDir, generationID string, report migrationValidationReport, validationErr error) error {
-	if validationErr != nil {
-		report.Passed = false
-		report.Error = validationErr.Error()
-	}
-	payload, marshalErr := json.MarshalIndent(report, "", "  ")
-	if marshalErr == nil {
-		payload = append(payload, '\n')
-		path := filepath.Join(storageDir, "generations", generationID, "validation.json")
-		if mkdirErr := os.MkdirAll(filepath.Dir(path), 0o755); mkdirErr == nil {
-			_ = os.WriteFile(path, payload, 0o644)
-		}
-	}
-	return validationErr
-}
-
 func (m *Manager) registerLanceGeneration(ctx context.Context, cfg resolvedConfig, generation *Generation) error {
 	if m == nil || m.lance == nil || generation == nil {
 		return fmt.Errorf("kbase lance engine is not configured")
@@ -698,46 +320,6 @@ func (m *Manager) versionRetention() time.Duration {
 	return retention
 }
 
-func (m *Manager) failMigration(ctx context.Context, control *ControlStore, migration Migration, generation Generation, err error) (RefreshResult, error) {
-	migration.LastStage = migration.State
-	migration.State = MigrationFailedRetryable
-	migration.RetryCount++
-	migration.Error = err.Error()
-	migration.ErrorCode = lanceErrorCode(err)
-	migration.FinishedAt = time.Now().UnixMilli()
-	_ = control.UpdateMigration(ctx, migration)
-	_ = control.SetGenerationState(ctx, generation.ID, GenerationFailed, err.Error())
-	return failedRefresh(generation.AgentKey, "migration", err), err
-}
-
-func migrationImportCanResume(migration *Migration) bool {
-	if migration == nil {
-		return false
-	}
-	stage := strings.TrimSpace(migration.LastStage)
-	if stage == "" {
-		stage = strings.TrimSpace(migration.State)
-		// Early schema-v3 builds did not persist LastStage. Their retryable
-		// records represented import interruptions, so preserve that upgrade
-		// path while new failures record the exact stage.
-		if stage == MigrationFailedRetryable {
-			return true
-		}
-	}
-	return stage == MigrationPending || stage == MigrationSnapshotting || stage == MigrationImporting
-}
-
-func lanceErrorCode(err error) string {
-	var engineErr *LanceEngineError
-	if errors.As(err, &engineErr) && engineErr.Code != "" {
-		return engineErr.Code
-	}
-	if errors.Is(err, errLegacyRequiresRebuild) {
-		return "legacy_requires_rebuild"
-	}
-	return "engine_internal"
-}
-
 func newGeneration(cfg resolvedConfig) Generation {
 	return Generation{
 		ID:                   fmt.Sprintf("kbg_%d", time.Now().UnixNano()),
@@ -753,13 +335,6 @@ func newGeneration(cfg resolvedConfig) Generation {
 		IndexHash:            desiredIndexHash(cfg),
 		CreatedAt:            time.Now().UnixMilli(),
 	}
-}
-
-func resolvedLanceConfig(cfg resolvedConfig) resolvedConfig {
-	cfg.IndexHash = computeIndexHashForSchema(cfg, ControlSchemaVersion)
-	cfg.ConfigHash = cfg.IndexHash
-	cfg.QueryHash = computeQueryHash(cfg)
-	return cfg
 }
 
 func generationControlCounts(ctx context.Context, control *ControlStore, generationID string) (files, chunks int, err error) {
@@ -817,7 +392,6 @@ func activeGenerationMeta(cfg resolvedConfig, generation *Generation) map[string
 		"embeddingDimension":   strconv.Itoa(generation.EmbeddingDimension),
 		"ftsTokenizer":         firstNonBlank(generation.FTSTokenizer, "icu"),
 		"lastIndexedAt":        strconv.FormatInt(time.Now().UnixMilli(), 10),
-		"legacyNeedsRefresh":   "true",
 	}
 	return values
 }
@@ -862,60 +436,26 @@ func failedRefresh(agentKey, mode string, err error) RefreshResult {
 	return RefreshResult{AgentKey: agentKey, Mode: firstNonBlank(mode, "manual"), Status: "failed", Error: err.Error()}
 }
 
-func fileExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
-}
-
 func (m *Manager) selectRetrieval(ctx context.Context, cfg resolvedConfig) (RetrievalStore, string, bool, error) {
-	mode := m.engineMode()
-	if mode != "sqlite" {
-		control, err := OpenReadControlStore(cfg.StorageDir)
-		if err == nil {
-			active, activeErr := control.ActiveGeneration(ctx)
-			_ = control.Close()
-			if activeErr != nil {
-				return nil, "", false, activeErr
-			}
-			if active != nil {
-				if err := m.registerLanceGeneration(ctx, cfg, active); err != nil {
-					return nil, "", false, err
-				}
-				return m.lance, active.ID, true, nil
-			}
-		} else if !os.IsNotExist(err) {
-			return nil, "", false, err
-		}
-		if mode == "lancedb" {
-			return nil, "", false, &PolicyError{Kind: ErrorUnavailable, Message: "KBASE LanceDB generation is not ready"}
-		}
-	}
-	if !fileExists(filepath.Join(cfg.StorageDir, "kbase.db")) {
-		return nil, "", false, nil
-	}
-	store, err := OpenReadStore(cfg.StorageDir)
+	control, err := OpenReadControlStore(cfg.StorageDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, "", false, nil
 		}
 		return nil, "", false, err
 	}
-	ready := storedIndexHash(store, cfg.StorageDir) != ""
-	_ = store.Close()
-	if !ready {
+	active, err := control.ActiveGeneration(ctx)
+	_ = control.Close()
+	if err != nil {
+		return nil, "", false, err
+	}
+	if active == nil {
 		return nil, "", false, nil
 	}
-	return NewSQLiteRetrievalStore(cfg.StorageDir), "legacy", true, nil
-}
-
-func legacyRefreshRequired(storageDir string) bool {
-	control, err := OpenReadControlStore(storageDir)
-	if err != nil {
-		return false
+	if err := m.registerLanceGeneration(ctx, cfg, active); err != nil {
+		return nil, "", false, &PolicyError{Kind: ErrorUnavailable, Message: "KBASE LanceDB sidecar is unavailable: " + err.Error()}
 	}
-	defer control.Close()
-	value, err := control.Meta(context.Background(), "legacyNeedsRefresh")
-	return err == nil && strings.EqualFold(strings.TrimSpace(value), "true")
+	return m.lance, active.ID, true, nil
 }
 
 func (m *Manager) releaseStorageGeneration(agentKey, storageDir string) {
@@ -946,9 +486,6 @@ func (m *Manager) RollbackGeneration(ctx context.Context, agentKey, generationID
 	if err != nil {
 		return nil, err
 	}
-	if m.engineMode() == "sqlite" {
-		return nil, &PolicyError{Kind: ErrorUnavailable, Message: "generation rollback requires the LanceDB engine"}
-	}
 	lock := m.storageLock(storageLockKey(cfg.StorageDir))
 	lock.Lock()
 	defer lock.Unlock()
@@ -974,7 +511,7 @@ func (m *Manager) RollbackGeneration(ctx context.Context, agentKey, generationID
 		(target.State != GenerationReady && target.State != GenerationRetired) {
 		return nil, &PolicyError{Kind: ErrorInvalid, Message: "requested KBASE rollback generation is not ready or retained"}
 	}
-	if err := m.registerLanceGeneration(ctx, resolvedLanceConfig(cfg), target); err != nil {
+	if err := m.registerLanceGeneration(ctx, cfg, target); err != nil {
 		return nil, err
 	}
 	validation, err := m.lance.Validate(ctx, target.ID)
@@ -984,7 +521,7 @@ func (m *Manager) RollbackGeneration(ctx context.Context, agentKey, generationID
 		}
 		return nil, err
 	}
-	if err := activateGeneration(ctx, control, resolvedLanceConfig(cfg), target); err != nil {
+	if err := activateGeneration(ctx, control, cfg, target); err != nil {
 		return nil, err
 	}
 	target.State = GenerationActive
@@ -1041,55 +578,6 @@ func storageDiskUsage(root string) int64 {
 	return size
 }
 
-func (m *Manager) maybeShadowLiveQuery(cfg resolvedConfig, req RetrievalRequest, current RetrievalResponse) {
-	percent := m.options.Migration.ShadowLivePercent
-	if percent <= 0 || !fileExists(filepath.Join(cfg.StorageDir, "kbase.db")) {
-		return
-	}
-	digest := sha256.Sum256([]byte(req.Query))
-	if int(digest[0])%100 >= percent {
-		return
-	}
-	maxQueries := m.options.Migration.MaxReplayQueries
-	if maxQueries <= 0 {
-		return
-	}
-	m.mu.Lock()
-	if m.shadowQueries[cfg.AgentKey] >= maxQueries {
-		m.mu.Unlock()
-		return
-	}
-	m.shadowQueries[cfg.AgentKey]++
-	m.mu.Unlock()
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		legacy, err := NewSQLiteRetrievalStore(cfg.StorageDir).Search(ctx, "legacy", req)
-		if err != nil {
-			log.Printf("[kbase-lance] agentKey=%s operation=shadow queryLength=%d queryHash=%x error=%v",
-				cfg.AgentKey, len([]rune(req.Query)), digest[:6], err)
-			return
-		}
-		currentIDs := make(map[string]struct{}, len(current.Matches))
-		for _, match := range current.Matches {
-			currentIDs[match.Chunk.ID] = struct{}{}
-		}
-		overlap := 0
-		for _, match := range legacy.Matches {
-			if _, ok := currentIDs[match.Chunk.ID]; ok {
-				overlap++
-			}
-		}
-		denominator := minInt(len(legacy.Matches), maxInt(1, req.Limit))
-		ratio := 1.0
-		if denominator > 0 {
-			ratio = float64(overlap) / float64(denominator)
-		}
-		log.Printf("[kbase-lance] agentKey=%s operation=shadow queryLength=%d queryHash=%x overlap=%.3f legacyCount=%d lanceCount=%d",
-			cfg.AgentKey, len([]rune(req.Query)), digest[:6], ratio, len(legacy.Matches), len(current.Matches))
-	}()
-}
-
 func float32Vector(vector []float64, expected int) ([]float32, error) {
 	if len(vector) != expected {
 		return nil, fmt.Errorf("query embedding dimension mismatch: got %d want %d", len(vector), expected)
@@ -1103,5 +591,3 @@ func float32Vector(vector []float64, expected int) ([]float32, error) {
 	}
 	return out, nil
 }
-
-var errLegacyRequiresRebuild = errors.New("legacy KBASE requires a cold rebuild")

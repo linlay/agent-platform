@@ -16,18 +16,6 @@ const (
 	GenerationRetired    = "retired"
 	GenerationFailed     = "failed"
 
-	MigrationPending         = "pending"
-	MigrationSnapshotting    = "snapshotting"
-	MigrationImporting       = "importing"
-	MigrationIndexing        = "indexing"
-	MigrationValidating      = "validating"
-	MigrationShadowing       = "shadowing"
-	MigrationReady           = "ready"
-	MigrationActive          = "active"
-	MigrationFailedRetryable = "failed_retryable"
-	MigrationFailedPermanent = "failed_permanent"
-	MigrationCancelled       = "cancelled"
-
 	FileOperationReplace = "replace"
 	FileOperationDelete  = "delete"
 
@@ -60,14 +48,10 @@ type MetadataStore interface {
 	MarkFileOperationLanceCommitted(context.Context, string, uint64) error
 	CompleteFileOperation(context.Context, string) error
 	PendingFileOperations(context.Context, string) ([]FileOperation, error)
-	BeginMigration(context.Context, Migration) error
-	UpdateMigration(context.Context, Migration) error
-	LatestMigration(context.Context, string) (*Migration, error)
 }
 
-// RetrievalStore is the storage-neutral contract used by Manager and the
-// workspace indexer. The Lance implementation delegates to the sidecar while
-// the SQLite implementation remains available for rollback.
+// RetrievalStore is implemented by the LanceDB sidecar and used by Manager
+// and the workspace indexer.
 type RetrievalStore interface {
 	CreateGeneration(context.Context, GenerationSpec) error
 	ImportChunks(context.Context, string, []chunkRecord) error
@@ -102,27 +86,6 @@ type Generation struct {
 	ActivatedAt          int64  `json:"activatedAt,omitempty"`
 	RetiredAt            int64  `json:"retiredAt,omitempty"`
 	Error                string `json:"error,omitempty"`
-}
-
-type Migration struct {
-	ID             string  `json:"id"`
-	AgentKey       string  `json:"agentKey"`
-	SourceEngine   string  `json:"sourceEngine"`
-	SourceSchema   string  `json:"sourceSchema"`
-	GenerationID   string  `json:"generationId"`
-	State          string  `json:"state"`
-	LastStage      string  `json:"lastStage,omitempty"`
-	TotalFiles     int     `json:"totalFiles"`
-	ImportedFiles  int     `json:"importedFiles"`
-	TotalChunks    int     `json:"totalChunks"`
-	ImportedChunks int     `json:"importedChunks"`
-	Progress       float64 `json:"progress"`
-	RetryCount     int     `json:"retryCount"`
-	StartedAt      int64   `json:"startedAt"`
-	UpdatedAt      int64   `json:"updatedAt"`
-	FinishedAt     int64   `json:"finishedAt,omitempty"`
-	ErrorCode      string  `json:"errorCode,omitempty"`
-	Error          string  `json:"error,omitempty"`
 }
 
 type FileOperation struct {

@@ -332,7 +332,7 @@ npm run sync:assets
 
 完整打包细节见 [版本化打包方案](./docs/版本化打包方案.md)。
 
-KBASE 的 generation、SQLite 控制面、旧库迁移、影子验证和回滚语义见 [KBASE LanceDB 迁移与运维](./docs/KBASE-LanceDB迁移.md)。当前 KBASE 仍只生成文本 chunk 与文本 embedding，不宣称具备图片、音频或视频语义检索。
+KBASE 固定使用 LanceDB generation 检索；SQLite `control.db` 只保存 generation、文件状态、refresh run 和恢复日志，不保存检索数据。旧 `kbase.db` 遗留文件不会被读取、迁移或删除。详见 [KBASE LanceDB 检索与控制面](./docs/KBASE-LanceDB迁移.md)。当前 KBASE 仍只生成文本 chunk 与文本 embedding，不宣称具备图片、音频或视频语义检索。
 
 ## 5. 运维
 

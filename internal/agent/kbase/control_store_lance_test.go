@@ -3,6 +3,8 @@ package kbase
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -49,6 +51,44 @@ func TestControlStoreActivatesGenerationAtomically(t *testing.T) {
 	}
 	if retired == nil || retired.State != GenerationRetired || retired.RetiredAt == 0 {
 		t.Fatalf("previous generation not retired: %#v", retired)
+	}
+}
+
+func TestControlStoreDoesNotCreateLegacyMigrationTable(t *testing.T) {
+	store, err := OpenControlStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("OpenControlStore: %v", err)
+	}
+	defer store.Close()
+	var count int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='KBASE_MIGRATIONS'`).Scan(&count); err != nil {
+		t.Fatalf("query control schema: %v", err)
+	}
+	if count != 0 {
+		t.Fatal("control store created deprecated KBASE_MIGRATIONS table")
+	}
+}
+
+func TestControlStoreLeavesLegacyKBaseDatabaseUntouched(t *testing.T) {
+	root := t.TempDir()
+	legacyPath := filepath.Join(root, "kbase.db")
+	legacy := []byte("legacy SQLite artifact must be ignored")
+	if err := os.WriteFile(legacyPath, legacy, 0o600); err != nil {
+		t.Fatalf("write legacy artifact: %v", err)
+	}
+	store, err := OpenControlStore(root)
+	if err != nil {
+		t.Fatalf("OpenControlStore: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close control store: %v", err)
+	}
+	got, err := os.ReadFile(legacyPath)
+	if err != nil {
+		t.Fatalf("read legacy artifact: %v", err)
+	}
+	if string(got) != string(legacy) {
+		t.Fatalf("legacy artifact changed: %q", got)
 	}
 }
 

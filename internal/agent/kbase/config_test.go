@@ -172,7 +172,7 @@ func TestComputeConfigHashGolden(t *testing.T) {
 			PPTX:         PPTXExtractionConfig{Enabled: true, Backend: "native", IncludeNotes: true},
 		},
 	}
-	const want = "sha256:a388f1acc4635cab8e1a1a6bd01694c0d8272012b0677242e5490b7e39810a1b"
+	const want = "sha256:00ade363532c4f5d87cbc2ab8e63cf3492fb0efc412b2500d9720f342d2d4fa0"
 	if got := computeConfigHash(cfg); got != want {
 		t.Fatalf("config hash changed: got %q want %q", got, want)
 	}

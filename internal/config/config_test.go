@@ -10,9 +10,7 @@ import (
 
 func assertKBaseLanceDefaults(t *testing.T, cfg KBaseConfig) {
 	t.Helper()
-	if cfg.Storage.Engine != "auto" || !cfg.Migration.Enabled || cfg.Migration.MaxConcurrency != 1 ||
-		!cfg.Migration.RetainLegacy || cfg.Migration.ShadowLivePercent != 10 || cfg.Migration.MaxReplayQueries != 100 ||
-		cfg.Index.FTS.BaseTokenizer != "icu" || cfg.Index.Vector.ANNMinRows != 50000 ||
+	if cfg.Index.FTS.BaseTokenizer != "icu" || cfg.Index.Vector.ANNMinRows != 50000 ||
 		cfg.Maintenance.OptimizeChangeThreshold != 1000 || cfg.Maintenance.OptimizeInterval != 24*time.Hour ||
 		cfg.Maintenance.VersionRetention != 168*time.Hour {
 		t.Fatalf("unexpected kbase Lance defaults: %#v", cfg)
@@ -233,14 +231,6 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 		"  # Default embedding modelKey for new KBASE agents. This must reference a\n",
 		"  # runtime/registries/models/*.yml model with type: embedding.\n",
 		"  modelKey:\n",
-		"storage:\n",
-		"  engine: auto\n",
-		"migration:\n",
-		"  enabled: true\n",
-		"  max-concurrency: 1\n",
-		"  retain-legacy: true\n",
-		"  shadow-live-percent: 10\n",
-		"  max-replay-queries: 100\n",
 		"index:\n",
 		"  fts:\n",
 		"    base-tokenizer: icu\n",
@@ -982,14 +972,6 @@ func TestLoadKBaseSettingsConfigFromFile(t *testing.T) {
 			"  reasoningEffort: HIGH\n" +
 			"embedding:\n" +
 			"  modelKey: settings-embedding-model-key\n" +
-			"storage:\n" +
-			"  engine: LANCEDB\n" +
-			"migration:\n" +
-			"  enabled: false\n" +
-			"  max-concurrency: 3\n" +
-			"  retain-legacy: false\n" +
-			"  shadow-live-percent: 25\n" +
-			"  max-replay-queries: 40\n" +
 			"index:\n" +
 			"  fts:\n" +
 			"    base-tokenizer: ngram\n" +
@@ -1024,10 +1006,7 @@ func TestLoadKBaseSettingsConfigFromFile(t *testing.T) {
 				if cfg.KBase.Embedding.ModelKey != "settings-embedding-model-key" {
 					t.Fatalf("unexpected kbase embedding config: %#v", cfg.KBase.Embedding)
 				}
-				if cfg.KBase.Storage.Engine != "lancedb" || cfg.KBase.Migration.Enabled ||
-					cfg.KBase.Migration.MaxConcurrency != 3 || cfg.KBase.Migration.RetainLegacy ||
-					cfg.KBase.Migration.ShadowLivePercent != 25 || cfg.KBase.Migration.MaxReplayQueries != 40 ||
-					cfg.KBase.Index.FTS.BaseTokenizer != "ngram" || cfg.KBase.Index.Vector.ANNMinRows != 25000 ||
+				if cfg.KBase.Index.FTS.BaseTokenizer != "ngram" || cfg.KBase.Index.Vector.ANNMinRows != 25000 ||
 					cfg.KBase.Maintenance.OptimizeChangeThreshold != 2500 ||
 					cfg.KBase.Maintenance.OptimizeInterval != 12*time.Hour ||
 					cfg.KBase.Maintenance.VersionRetention != 240*time.Hour {
@@ -1051,9 +1030,8 @@ func TestLoadKBaseSettingsRejectsInvalidLanceConfig(t *testing.T) {
 		content string
 		want    string
 	}{
-		{name: "engine", content: "storage:\n  engine: remote\n", want: "storage.engine"},
-		{name: "migration concurrency", content: "migration:\n  max-concurrency: 0\n", want: "max-concurrency"},
-		{name: "shadow percentage", content: "migration:\n  shadow-live-percent: 101\n", want: "shadow-live-percent"},
+		{name: "storage", content: "storage:\n  engine: remote\n", want: "storage is no longer supported"},
+		{name: "migration", content: "migration:\n  max-concurrency: 0\n", want: "migration is no longer supported"},
 		{name: "ann threshold", content: "index:\n  vector:\n    ann-min-rows: 999\n", want: "ann-min-rows"},
 		{name: "optimize threshold", content: "maintenance:\n  optimize-change-threshold: 0\n", want: "optimize-change-threshold"},
 	}
