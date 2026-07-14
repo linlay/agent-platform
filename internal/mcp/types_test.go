@@ -40,3 +40,20 @@ func TestToolDefinitionMapsReadOnlyAnnotationToMeta(t *testing.T) {
 		t.Fatalf("expected readOnly metadata, got %#v", apiTool.Meta)
 	}
 }
+
+func TestToolDefinitionPublishesOptionalOutputSchema(t *testing.T) {
+	var tool ToolDefinition
+	if err := json.Unmarshal([]byte(`{
+  "name":"timeline",
+  "inputSchema":{"type":"object"},
+  "outputSchema":{"type":"object","properties":{"event":{"x-platform-time":"epoch-ms"}}}
+}`), &tool); err != nil {
+		t.Fatalf("unmarshal tool: %v", err)
+	}
+	apiTool := tool.ToAPITool("demo")
+	properties, _ := apiTool.OutputSchema["properties"].(map[string]any)
+	event, _ := properties["event"].(map[string]any)
+	if event["x-platform-time"] != "epoch-ms" {
+		t.Fatalf("output schema not preserved: %#v", apiTool.OutputSchema)
+	}
+}

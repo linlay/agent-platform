@@ -51,12 +51,8 @@ func completeRunForTest(store *FileStore, completion RunCompletion) error {
 // boundary. Contract tests call the production methods directly.
 func appendQueryLineForTest(store *FileStore, chatID string, line QueryLine) error {
 	line.UpdatedAt = testRequiredEpochMillis(line.UpdatedAt)
-	normalizeTestPublicTimeValues(line.Query)
 	for _, message := range line.Messages {
-		normalizeTestPublicTimeValues(message)
-		if _, ok := message["ts"]; !ok {
-			message["ts"] = line.UpdatedAt
-		}
+		normalizeTestPlatformTimestamp(message, "ts", line.UpdatedAt)
 	}
 	if err := ensureRunStartedForTest(store, chatID, line.RunID, line.UpdatedAt); err != nil {
 		return err
@@ -76,17 +72,13 @@ func appendStepLineForTest(store *FileStore, chatID string, line StepLine) error
 		}
 	}
 	for _, awaiting := range line.Awaiting {
-		normalizeTestPublicTimeValues(awaiting)
-		if _, ok := awaiting["timestamp"]; !ok {
-			awaiting["timestamp"] = line.UpdatedAt
-		}
-	}
-	for _, message := range line.InputMessages {
-		normalizeTestPublicTimeValues(message)
+		normalizeTestPlatformTimestamp(awaiting, "timestamp", line.UpdatedAt)
 	}
 	if line.Sources != nil {
 		for _, item := range line.Sources.Items {
-			normalizeTestPublicTimeValues(item)
+			if _, exists := item["timestamp"]; exists {
+				item["timestamp"] = normalizeTestEpochValue(item["timestamp"])
+			}
 		}
 	}
 	if err := ensureRunStartedForTest(store, chatID, line.RunID, line.UpdatedAt); err != nil {
@@ -97,13 +89,10 @@ func appendStepLineForTest(store *FileStore, chatID string, line StepLine) error
 
 func appendEventLineForTest(store *FileStore, chatID string, line EventLine) error {
 	line.UpdatedAt = testRequiredEpochMillis(line.UpdatedAt)
-	normalizeTestPublicTimeValues(line.Event)
 	if line.Event == nil {
 		line.Event = map[string]any{}
 	}
-	if _, ok := line.Event["timestamp"]; !ok {
-		line.Event["timestamp"] = line.UpdatedAt
-	}
+	normalizeTestPlatformTimestamp(line.Event, "timestamp", line.UpdatedAt)
 	if err := ensureRunStartedForTest(store, chatID, line.RunID, line.UpdatedAt); err != nil {
 		return err
 	}
@@ -116,10 +105,7 @@ func appendSubmitLineForTest(store *FileStore, chatID string, line SubmitLine) e
 		if len(payload) == 0 {
 			continue
 		}
-		normalizeTestPublicTimeValues(payload)
-		if _, ok := payload["timestamp"]; !ok {
-			payload["timestamp"] = line.UpdatedAt
-		}
+		normalizeTestPlatformTimestamp(payload, "timestamp", line.UpdatedAt)
 	}
 	if err := ensureRunStartedForTest(store, chatID, line.RunID, line.UpdatedAt); err != nil {
 		return err
@@ -132,7 +118,6 @@ func onEventForTest(writer *StepWriter, event stream.EventData) {
 		return
 	}
 	event.Timestamp = testRequiredEpochMillis(event.Timestamp)
-	normalizeTestPublicTimeValues(event.Payload)
 	if event.Type == "request.query" {
 		normalizeTestMessageSlice(event.Payload["messages"], event.Timestamp)
 	}
@@ -149,10 +134,7 @@ func normalizeTestMessageSlice(value any, fallbackTs int64) {
 		if message == nil {
 			return
 		}
-		normalizeTestPublicTimeValues(message)
-		if _, ok := message["ts"]; !ok {
-			message["ts"] = fallbackTs
-		}
+		normalizeTestPlatformTimestamp(message, "ts", fallbackTs)
 	}
 	switch typed := value.(type) {
 	case []map[string]any:
@@ -208,24 +190,16 @@ func testRequiredEpochMillis(value int64) int64 {
 	return testEpochMillis(value)
 }
 
-func normalizeTestPublicTimeValues(value any) {
-	switch typed := value.(type) {
-	case map[string]any:
-		for key, child := range typed {
-			if timecontract.IsPublicTimePointField(key) {
-				typed[key] = normalizeTestEpochValue(child)
-			}
-			normalizeTestPublicTimeValues(typed[key])
-		}
-	case []map[string]any:
-		for _, child := range typed {
-			normalizeTestPublicTimeValues(child)
-		}
-	case []any:
-		for _, child := range typed {
-			normalizeTestPublicTimeValues(child)
-		}
+func normalizeTestPlatformTimestamp(payload map[string]any, field string, fallback int64) {
+	if payload == nil {
+		return
 	}
+	value, exists := payload[field]
+	if !exists {
+		payload[field] = fallback
+		return
+	}
+	payload[field] = normalizeTestEpochValue(value)
 }
 
 func normalizeTestEpochValue(value any) any {

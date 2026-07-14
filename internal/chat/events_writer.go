@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 
 	"agent-platform/internal/stream"
-	"agent-platform/internal/timecontract"
 )
 
 func (s *FileStore) AppendEvent(chatID string, event stream.EventData) error {
@@ -81,9 +80,6 @@ func validateJSONLLinePayload(payload any, location string) ([]byte, error) {
 	// would otherwise serialize as an unquoted number and evade the strict
 	// JSON decoder below, despite the contract forbidding all float time
 	// values.
-	if err := timecontract.ValidateJSONPayload(payload, location); err != nil {
-		return nil, err
-	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err

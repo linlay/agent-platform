@@ -125,12 +125,6 @@ func summaryAgentKey(summary *chat.Summary) string {
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
-	if status >= http.StatusOK && status < http.StatusMultipleChoices {
-		if err := validatePublicTimeContract(payload); err != nil {
-			writeTimeContractViolation(w, err)
-			return
-		}
-	}
 	writeJSONUnchecked(w, status, payload)
 }
 
@@ -496,6 +490,7 @@ func cloneToolDetailResponse(value api.ToolDetailResponse) api.ToolDetailRespons
 		Description:   value.Description,
 		AfterCallHint: value.AfterCallHint,
 		Parameters:    contracts.CloneMap(value.Parameters),
+		OutputSchema:  contracts.CloneMap(value.OutputSchema),
 		Meta:          contracts.CloneMap(value.Meta),
 	}
 }

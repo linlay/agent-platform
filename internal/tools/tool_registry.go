@@ -211,6 +211,9 @@ func mergeBackendToolDefinition(runtime api.ToolDetailResponse, overlay api.Tool
 	if len(overlay.Parameters) > 0 {
 		merged.Parameters = CloneMap(overlay.Parameters)
 	}
+	if len(overlay.OutputSchema) > 0 {
+		merged.OutputSchema = CloneMap(overlay.OutputSchema)
+	}
 	merged.Meta = CloneMap(runtime.Meta)
 	for key, value := range overlay.Meta {
 		if isToolSourceMetaKey(key) {
@@ -238,6 +241,7 @@ func cloneToolDefinition(def api.ToolDetailResponse) api.ToolDetailResponse {
 		Description:   def.Description,
 		AfterCallHint: def.AfterCallHint,
 		Parameters:    CloneMap(def.Parameters),
+		OutputSchema:  CloneMap(def.OutputSchema),
 		Meta:          CloneMap(def.Meta),
 	}
 }

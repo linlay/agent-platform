@@ -2,7 +2,6 @@ package server
 
 import (
 	"bytes"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,7 +11,7 @@ import (
 	"agent-platform/internal/timecontract"
 )
 
-func nestedInvalidTimeToolResultAgent() contracts.AgentEngine {
+func opaqueTimeNamedToolResultAgent() contracts.AgentEngine {
 	return &orchestratorAgentEngine{
 		streams: []contracts.AgentStream{
 			&stubOrchestratableStream{deltas: []contracts.AgentDelta{
@@ -20,9 +19,9 @@ func nestedInvalidTimeToolResultAgent() contracts.AgentEngine {
 					ToolID:   "bad-time-tool",
 					ToolName: "bad_time_tool",
 					Result: contracts.ToolExecutionResult{Structured: map[string]any{
-						// A nested tool result is exactly the case that used to make
-						// it to SSE JSON marshaling after StepWriter persistence.
-						"createdAt": "1700000000000",
+						// Tool output is external business data. Its property name
+						// must not create platform time semantics by itself.
+						"createdAt": "2026-07-14T08:00:00Z",
 					}},
 				},
 			}},
@@ -30,16 +29,16 @@ func nestedInvalidTimeToolResultAgent() contracts.AgentEngine {
 	}
 }
 
-func TestQuerySSETerminatesWithLocalTimeContractErrorBeforePersistingInvalidToolResult(t *testing.T) {
+func TestQuerySSEPersistsOpaqueToolResultWithTimeNamedBusinessField(t *testing.T) {
 	fixture := newTestFixture(t)
-	fixture.agent = nestedInvalidTimeToolResultAgent()
+	fixture.agent = opaqueTimeNamedToolResultAgent()
 	server := newServerFromFixture(t, fixture)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{
 		"chatId":"chat-sse-time-contract",
 		"runId":"run-sse-time-contract",
 		"agentKey":"mock-agent",
-		"message":"trigger malformed tool result"
+		"message":"trigger opaque tool result"
 	}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -51,42 +50,41 @@ func TestQuerySSETerminatesWithLocalTimeContractErrorBeforePersistingInvalidTool
 	}
 	body := rec.Body.String()
 	if !strings.Contains(body, "data: [DONE]") {
-		t.Fatalf("expected SSE done after local time-contract error, got %s", body)
+		t.Fatalf("expected SSE completion, got %s", body)
 	}
 
-	var localError map[string]any
+	foundToolResult := false
 	for _, event := range decodeSSEMessages(t, body) {
 		if event["type"] == "tool.result" {
-			t.Fatalf("invalid tool event reached SSE: %#v", event)
-		}
-		if event["type"] == "run.error" {
-			localError = event
+			result, _ := event["result"].(map[string]any)
+			if result["createdAt"] == "2026-07-14T08:00:00Z" {
+				foundToolResult = true
+			}
 		}
 	}
-	if localError == nil {
-		t.Fatalf("expected local run.error, got %s", body)
+	if !foundToolResult {
+		t.Fatalf("expected opaque tool result, got %s", body)
 	}
-	assertLocalTimeContractRunError(t, localError)
 
 	persisted, err := fixture.chats.LoadJSONLContent("chat-sse-time-contract")
 	if err != nil {
 		t.Fatalf("load persisted chat: %v", err)
 	}
-	if strings.Contains(persisted, `"createdAt":"1700000000000"`) {
-		t.Fatalf("invalid tool timestamp was persisted: %s", persisted)
+	if !strings.Contains(persisted, `\"createdAt\":\"2026-07-14T08:00:00Z\"`) {
+		t.Fatalf("opaque tool result was not persisted: %s", persisted)
 	}
 }
 
-func TestQueryNonStreamReturns422ForNestedInvalidToolResultTime(t *testing.T) {
+func TestQueryNonStreamAllowsOpaqueToolResultWithTimeNamedBusinessField(t *testing.T) {
 	fixture := newTestFixture(t)
-	fixture.agent = nestedInvalidTimeToolResultAgent()
+	fixture.agent = opaqueTimeNamedToolResultAgent()
 	server := newServerFromFixture(t, fixture)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{
 		"chatId":"chat-non-stream-time-contract",
 		"runId":"run-non-stream-time-contract",
 		"agentKey":"mock-agent",
-		"message":"trigger malformed tool result",
+		"message":"trigger opaque tool result",
 		"stream":false
 	}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -94,33 +92,26 @@ func TestQueryNonStreamReturns422ForNestedInvalidToolResultTime(t *testing.T) {
 
 	server.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected HTTP 422, got %d: %s", rec.Code, rec.Body.String())
-	}
-	var envelope struct {
-		Code int            `json:"code"`
-		Data map[string]any `json:"data"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	details, _ := envelope.Data["error"].(map[string]any)
-	if envelope.Code != http.StatusUnprocessableEntity || details["code"] != "time_contract_violation" || details["field"] != "createdAt" || details["expected"] != timecontract.Expected {
-		t.Fatalf("unexpected time-contract response: %#v", envelope)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected HTTP 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	persisted, err := fixture.chats.LoadJSONLContent("chat-non-stream-time-contract")
 	if err != nil {
 		t.Fatalf("load persisted chat: %v", err)
 	}
-	if strings.Contains(persisted, `"createdAt":"1700000000000"`) {
-		t.Fatalf("invalid tool timestamp was persisted: %s", persisted)
+	if !strings.Contains(persisted, `\"createdAt\":\"2026-07-14T08:00:00Z\"`) {
+		t.Fatalf("opaque tool result was not persisted: %s", persisted)
 	}
 }
 
-func assertLocalTimeContractRunError(t *testing.T, event map[string]any) {
+func assertLocalTimeContractRunError(t *testing.T, event map[string]any, fields ...string) {
 	t.Helper()
-	if event["code"] != "time_contract_violation" || event["field"] != "createdAt" || event["expected"] != timecontract.Expected {
+	field := "createdAt"
+	if len(fields) > 0 {
+		field = fields[0]
+	}
+	if event["code"] != "time_contract_violation" || event["field"] != field || event["expected"] != timecontract.Expected {
 		t.Fatalf("unexpected local time-contract error: %#v", event)
 	}
 	value, ok := event["timestamp"].(float64)
@@ -131,7 +122,7 @@ func assertLocalTimeContractRunError(t *testing.T, event map[string]any) {
 		t.Fatalf("local run.error timestamp must be real epoch milliseconds: %v (%#v)", err, event)
 	}
 	errorData, ok := event["error"].(map[string]any)
-	if !ok || errorData["code"] != "time_contract_violation" || errorData["field"] != "createdAt" || errorData["expected"] != timecontract.Expected {
+	if !ok || errorData["code"] != "time_contract_violation" || errorData["field"] != field || errorData["expected"] != timecontract.Expected {
 		t.Fatalf("expected nested time-contract payload, got %#v", event)
 	}
 }

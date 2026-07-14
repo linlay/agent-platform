@@ -1121,6 +1121,7 @@ type ToolDetailResponse struct {
 	Description   string         `json:"description,omitempty"`
 	AfterCallHint string         `json:"afterCallHint,omitempty"`
 	Parameters    map[string]any `json:"parameters,omitempty"`
+	OutputSchema  map[string]any `json:"outputSchema,omitempty"`
 	Meta          map[string]any `json:"meta,omitempty"`
 }
 

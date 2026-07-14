@@ -88,17 +88,16 @@ func TestHandleAttachTerminatesInvalidObserverEventWithLocalTimeContractError(t 
 		},
 	})
 	// This simulates a producer bypassing the earlier EventData validation.
-	// SSE is the final observer boundary and must replace it with a platform
-	// error rather than forwarding or repairing the bad nested field.
+	// SSE must reject the invalid platform envelope timestamp rather than
+	// forwarding or repairing it.
 	eventBus.Publish(stream.EventData{
 		Seq:       8,
 		Type:      "content.delta",
-		Timestamp: 1_700_000_000_001,
+		Timestamp: 0,
 		Payload: map[string]any{
-			"runId":     session.RunID,
-			"chatId":    session.ChatID,
-			"delta":     "must not reach client",
-			"createdAt": "1700000000000",
+			"runId":  session.RunID,
+			"chatId": session.ChatID,
+			"delta":  "must not reach client",
 		},
 	})
 
@@ -125,7 +124,7 @@ func TestHandleAttachTerminatesInvalidObserverEventWithLocalTimeContractError(t 
 	if !strings.Contains(body, "data: [DONE]") {
 		t.Fatalf("expected SSE done sentinel after time-contract violation, got %s", body)
 	}
-	if strings.Contains(body, `"createdAt":"1700000000000"`) {
+	if strings.Contains(body, `"delta":"must not reach client"`) {
 		t.Fatalf("invalid observer event reached SSE: %s", body)
 	}
 
@@ -138,7 +137,7 @@ func TestHandleAttachTerminatesInvalidObserverEventWithLocalTimeContractError(t 
 	if localError == nil {
 		t.Fatalf("expected local run.error, got %s", body)
 	}
-	assertLocalTimeContractRunError(t, localError)
+	assertLocalTimeContractRunError(t, localError, "timestamp")
 	if got, ok := localError["seq"].(float64); !ok || got != 8 {
 		t.Fatalf("local error seq = %#v, want 8", localError["seq"])
 	}
@@ -167,11 +166,10 @@ func TestHandleAttachInvalidCompletedReplayDoesNotCancelHistoricalRun(t *testing
 	eventBus.Publish(stream.EventData{
 		Seq:       9,
 		Type:      "content.delta",
-		Timestamp: 1_700_000_000_000,
+		Timestamp: 0,
 		Payload: map[string]any{
-			"runId":     session.RunID,
-			"chatId":    session.ChatID,
-			"createdAt": "1700000000000",
+			"runId":  session.RunID,
+			"chatId": session.ChatID,
 		},
 	})
 	runs.Finish(session.RunID)

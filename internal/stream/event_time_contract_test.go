@@ -62,26 +62,18 @@ func TestEventDataMarshalJSONRequiresEpochMillisecondsTimestamp(t *testing.T) {
 	}
 }
 
-func TestEventDataMarshalJSONRejectsNestedInvalidTime(t *testing.T) {
-	_, err := json.Marshal(EventData{
+func TestEventDataMarshalJSONLeavesToolResultBusinessPayloadOpaque(t *testing.T) {
+	data, err := json.Marshal(EventData{
 		Type:      "tool.result",
 		Timestamp: 1_700_000_000_000,
 		Payload: map[string]any{
-			"result": map[string]any{"mtimeMs": int64(1_700_000_000)},
+			"result": map[string]any{"mtimeMs": int64(1_700_000_000), "createdAt": "2026-07-14T08:00:00Z"},
 		},
 	})
-	if err == nil || !timecontract.IsViolation(err) {
-		t.Fatalf("expected nested mtimeMs violation, got %v", err)
+	if err != nil {
+		t.Fatalf("external tool payload must remain opaque: %v", err)
 	}
-
-	_, err = json.Marshal(EventData{
-		Type:      "tool.result",
-		Timestamp: 1_700_000_000_000,
-		Payload: map[string]any{
-			"result": map[string]any{"indexedAt": int64(0)},
-		},
-	})
-	if err == nil || !timecontract.IsViolation(err) {
-		t.Fatalf("expected nested indexedAt violation, got %v", err)
+	if !strings.Contains(string(data), `"createdAt":"2026-07-14T08:00:00Z"`) {
+		t.Fatalf("unexpected tool event payload: %s", data)
 	}
 }

@@ -63,21 +63,20 @@ func TestLLMChatTraceWritesSimpleCompletion(t *testing.T) {
 	}
 }
 
-func TestLLMChatTraceRejectsIntegralFloatTimeBeforeWriting(t *testing.T) {
+func TestLLMChatTraceLeavesUndeclaredBusinessFieldsOpaque(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "trace.json")
 	trace := &llmChatTrace{
 		enabled: true,
 		path:    path,
 		payload: map[string]any{
-			// json.Marshal would render this exactly like an integer. The trace
-			// write boundary must reject the original float rather than leave an
-			// unreadable historical artifact for the trace API.
+			// This is not one of the trace's lifecycle fields. A trace can include
+			// arbitrary external diagnostic data without interpreting it by name.
 			"createdAt": float64(1_700_000_000_000),
 		},
 	}
 	trace.writeLocked()
-	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("invalid trace must not be written, stat err=%v", err)
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("opaque trace business field should be written, stat err=%v", err)
 	}
 }
 

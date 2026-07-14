@@ -71,7 +71,11 @@ func decodeAgentOrderFile(data []byte, location string) (AgentOrderFile, error) 
 		}
 		return AgentOrderFile{}, err
 	}
-	if err := timecontract.ValidateJSONPayload(payload, location); err != nil {
+	updatedAt, exists := payload["updatedAt"]
+	if !exists {
+		return AgentOrderFile{}, &timecontract.Violation{Field: "updatedAt", Location: location + ".updatedAt", Reason: "is required"}
+	}
+	if _, err := timecontract.ParseEpochMillis(updatedAt, "updatedAt", location+".updatedAt"); err != nil {
 		return AgentOrderFile{}, err
 	}
 	var file AgentOrderFile

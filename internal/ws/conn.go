@@ -762,11 +762,6 @@ func (c *Conn) Done() <-chan struct{} {
 }
 
 func (c *Conn) SendResponse(frameType string, id string, code int, msg string, data any) bool {
-	if code == 0 && data != nil {
-		if err := timecontract.ValidateJSONPayload(data, "ws.response."+frameType); err != nil {
-			return c.sendTimeContractViolation(id, err)
-		}
-	}
 	if msg == "" {
 		msg = "success"
 	}
@@ -784,11 +779,6 @@ func (c *Conn) SendResponse(frameType string, id string, code int, msg string, d
 }
 
 func (c *Conn) SendPush(frameType string, data any) bool {
-	if data != nil {
-		if err := timecontract.ValidateJSONPayload(data, "ws.push."+frameType); err != nil {
-			return c.sendTimeContractViolation("", err)
-		}
-	}
 	return c.enqueue(outboundMessage{
 		frame: PushFrame{
 			Frame: FramePush,

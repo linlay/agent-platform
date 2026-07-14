@@ -10,6 +10,7 @@ import (
 	"agent-platform/internal/api"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/observability"
+	"agent-platform/internal/timecontract"
 	"agent-platform/internal/toolpolicy"
 )
 
@@ -187,14 +188,15 @@ func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[strin
 	sourceType, _ := def.Meta["sourceType"].(string)
 	kind, _ := def.Meta["kind"].(string)
 	if !strings.EqualFold(strings.TrimSpace(sourceType), "mcp") && strings.EqualFold(strings.TrimSpace(kind), "frontend") {
-		return r.invokeFrontendWithPolicy(ctx, def.Name, execCtx, func(callCtx context.Context) (ToolExecutionResult, error) {
+		result, err := r.invokeFrontendWithPolicy(ctx, def.Name, execCtx, func(callCtx context.Context) (ToolExecutionResult, error) {
 			if r.frontend == nil {
 				return ToolExecutionResult{Output: "frontend submitter not configured", Error: "frontend_not_configured", ExitCode: -1}, nil
 			}
 			return r.frontend.Await(callCtx, execCtx, args)
 		})
+		return validateDeclaredOutputSchema(def, result, err)
 	}
-	return r.invokeWithPolicy(ctx, def.Name, execCtx, func(callCtx context.Context) (ToolExecutionResult, error) {
+	result, err := r.invokeWithPolicy(ctx, def.Name, execCtx, func(callCtx context.Context) (ToolExecutionResult, error) {
 		if strings.EqualFold(strings.TrimSpace(sourceType), "mcp") {
 			return r.invokeMCPTool(callCtx, def, args, execCtx), nil
 		}
@@ -218,6 +220,24 @@ func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[strin
 			return r.backend.Invoke(callCtx, toolName, args, execCtx)
 		}
 	})
+	return validateDeclaredOutputSchema(def, result, err)
+}
+
+// validateDeclaredOutputSchema applies only a tool's explicit result schema.
+// In particular, results without outputSchema are opaque and must not be
+// inspected merely because a business field happens to be named createdAt.
+func validateDeclaredOutputSchema(def api.ToolDetailResponse, result ToolExecutionResult, invokeErr error) (ToolExecutionResult, error) {
+	if invokeErr != nil || len(def.OutputSchema) == 0 || result.Error != "" {
+		return result, invokeErr
+	}
+	if err := timecontract.ValidateOutputSchema(result.Structured, def.OutputSchema, "tool.result."+strings.TrimSpace(def.Name)); err != nil {
+		return ToolExecutionResult{
+			Output:   "time contract violation",
+			Error:    "time_contract_violation",
+			ExitCode: -1,
+		}, err
+	}
+	return result, nil
 }
 
 func (r *ToolRouter) namedHandler(toolName string) NamedToolHandler {

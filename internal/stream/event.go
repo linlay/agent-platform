@@ -188,13 +188,10 @@ func (d EventData) MarshalJSON() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// ValidateEventData validates the exact public representation of an event
-// before a server-side consumer persists it or publishes it to an observer.
-// It deliberately shares MarshalJSON's omission rules, so an omitted optional
-// field is not mistaken for an invalid wire value. This is useful at internal
-// producer boundaries where waiting until the SSE/WS writer would be too late:
-// a malformed nested tool result must never reach chat persistence or the run
-// event bus.
+// ValidateEventData validates platform-owned event envelope fields before a
+// server-side consumer persists or publishes them. Payload maps deliberately
+// remain opaque here: a tool.result can contain an external business document
+// whose createdAt or timestamp property has no platform time semantics.
 func ValidateEventData(data EventData, location string) error {
 	payload := normalizedEventWirePayload(data.Type, data.Payload)
 	return validateEventWireTimeContract(data.Seq, data.Type, data.Timestamp, payload, location)
@@ -211,14 +208,15 @@ func normalizedEventWirePayload(eventType string, input map[string]any) map[stri
 }
 
 func validateEventWireTimeContract(seq int64, eventType string, timestamp int64, payload map[string]any, location string) error {
-	wire := clonePayload(payload)
-	if wire == nil {
-		wire = map[string]any{}
+	if err := timecontract.ValidateEpochMillis(timestamp, "timestamp", location+".timestamp"); err != nil {
+		return err
 	}
-	wire["seq"] = seq
-	wire["type"] = eventType
-	wire["timestamp"] = timestamp
-	return timecontract.ValidateJSONPayload(wire, location)
+	// seq, type and the payload are not time declarations. Keep their values
+	// untouched so external tool/MCP data cannot be reinterpreted by name.
+	_ = seq
+	_ = eventType
+	_ = payload
+	return nil
 }
 
 func (d *EventData) UnmarshalJSON(data []byte) error {

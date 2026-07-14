@@ -18,7 +18,7 @@ func TestDecodeHistoryJSONPreservesEpochIntegerTokens(t *testing.T) {
 	}
 }
 
-func TestHistoryWriteRejectsIntegralFloatTimeInMetadata(t *testing.T) {
+func TestHistoryWriteLeavesOpaqueMetadataUntouched(t *testing.T) {
 	store, err := NewSQLiteStore(t.TempDir(), "memory.db")
 	if err != nil {
 		t.Fatalf("new sqlite store: %v", err)
@@ -33,7 +33,7 @@ func TestHistoryWriteRejectsIntegralFloatTimeInMetadata(t *testing.T) {
 		},
 	})
 	store.mu.Unlock()
-	if !timecontract.IsViolation(err) {
-		t.Fatalf("expected integral float metadata time to be rejected, got %v", err)
+	if err != nil {
+		t.Fatalf("opaque metadata must not be interpreted as a platform time field: %v", err)
 	}
 }

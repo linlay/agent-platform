@@ -13,7 +13,6 @@ import (
 
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/observability"
-	"agent-platform/internal/timecontract"
 )
 
 type llmChatTrace struct {
@@ -338,15 +337,9 @@ func (t *llmChatTrace) writeLocked() {
 	if t.maskSensitive {
 		dataPayload = maskTracePayload(dataPayload)
 	}
-	// A trace is a public, replayable JSON artifact. Validate the original Go
-	// values before json.MarshalIndent: an integral float64 otherwise becomes an
-	// indistinguishable integer token on disk and can bypass the strict historic
-	// read boundary. Trace recording is observational, so a bad tool/upstream
-	// payload is refused and logged rather than being repaired or written.
-	if err := timecontract.ValidateJSONPayload(dataPayload, "llm.trace.write"); err != nil {
-		log.Printf("[llm][trace][warning] time contract violation path=%s err=%v", t.path, err)
-		return
-	}
+	// request, response and tool payloads in a trace are external diagnostic
+	// data. Their business fields remain opaque; the trace read boundary checks
+	// only its explicitly owned lifecycle timestamps.
 	data, err := json.MarshalIndent(dataPayload, "", "  ")
 	if err != nil {
 		log.Printf("[llm][trace][warning] marshal failed path=%s err=%v", t.path, err)

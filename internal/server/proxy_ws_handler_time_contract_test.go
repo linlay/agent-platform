@@ -83,12 +83,11 @@ func TestProxyWebSocketHTTPSSEObserverTerminatesInvalidEventWithLocalTimeContrac
 				eventBus.Publish(stream.EventData{
 					Seq:       32,
 					Type:      "content.delta",
-					Timestamp: 1_700_000_000_001,
+					Timestamp: 0,
 					Payload: map[string]any{
-						"runId":     runID,
-						"chatId":    chatID,
-						"delta":     "must not reach client",
-						"createdAt": "1700000000000",
+						"runId":  runID,
+						"chatId": chatID,
+						"delta":  "must not reach client",
 					},
 				})
 				published <- true
@@ -116,7 +115,7 @@ func TestProxyWebSocketHTTPSSEObserverTerminatesInvalidEventWithLocalTimeContrac
 	if !strings.Contains(body, "data: [DONE]") {
 		t.Fatalf("expected SSE done sentinel after time-contract violation, got %s", body)
 	}
-	if strings.Contains(body, `"createdAt":"1700000000000"`) {
+	if strings.Contains(body, `"delta":"must not reach client"`) {
 		t.Fatalf("invalid observer event reached proxy SSE: %s", body)
 	}
 
@@ -129,7 +128,7 @@ func TestProxyWebSocketHTTPSSEObserverTerminatesInvalidEventWithLocalTimeContrac
 	if localError == nil {
 		t.Fatalf("expected local run.error, got %s", body)
 	}
-	assertLocalTimeContractRunError(t, localError)
+	assertLocalTimeContractRunError(t, localError, "timestamp")
 	if got, ok := localError["seq"].(float64); !ok || got != 32 {
 		t.Fatalf("local error seq = %#v, want 32", localError["seq"])
 	}

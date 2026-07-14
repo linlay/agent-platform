@@ -15,9 +15,6 @@ import (
 func validatePersistedTimeContract(lines []map[string]any, baseLocation string) error {
 	for index, line := range lines {
 		location := fmt.Sprintf("%s[%d]", strings.TrimSpace(baseLocation), index)
-		if err := timecontract.ValidateJSONPayload(line, location); err != nil {
-			return err
-		}
 		lineType := strings.TrimSpace(stringFromAny(line["_type"]))
 		if lineType == "" {
 			lineType = strings.TrimSpace(stringFromAny(line["type"]))

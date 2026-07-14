@@ -186,7 +186,9 @@ func (c *Client) call(ctx context.Context, server ServerDefinition, method strin
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(resultBytes, target)
+	decoder := json.NewDecoder(bytes.NewReader(resultBytes))
+	decoder.UseNumber()
+	return decoder.Decode(target)
 }
 
 func parseResponsePayload(data []byte) (JSONRPCResponse, error) {
@@ -195,7 +197,7 @@ func parseResponsePayload(data []byte) (JSONRPCResponse, error) {
 		return JSONRPCResponse{}, fmt.Errorf("empty payload")
 	}
 	var payload JSONRPCResponse
-	if err := json.Unmarshal(trimmed, &payload); err == nil {
+	if err := decodeJSONUseNumber(trimmed, &payload); err == nil {
 		return payload, nil
 	}
 	var last JSONRPCResponse
@@ -235,10 +237,16 @@ func parseSSEBlock(data []byte) (JSONRPCResponse, bool) {
 		return JSONRPCResponse{}, false
 	}
 	var payload JSONRPCResponse
-	if err := json.Unmarshal(trimmed, &payload); err != nil {
+	if err := decodeJSONUseNumber(trimmed, &payload); err != nil {
 		return JSONRPCResponse{}, false
 	}
 	return payload, true
+}
+
+func decodeJSONUseNumber(data []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	return decoder.Decode(target)
 }
 
 func defaultArgs(args map[string]any) map[string]any {

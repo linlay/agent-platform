@@ -318,6 +318,7 @@ func cloneTool(tool api.ToolDetailResponse) api.ToolDetailResponse {
 		Description:   tool.Description,
 		AfterCallHint: tool.AfterCallHint,
 		Parameters:    contracts.CloneMap(tool.Parameters),
+		OutputSchema:  contracts.CloneMap(tool.OutputSchema),
 		Meta:          contracts.CloneMap(tool.Meta),
 	}
 }

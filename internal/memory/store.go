@@ -387,7 +387,7 @@ func decodeStoredMemoryResponse(data []byte, location string) (api.StoredMemoryR
 		}
 		return api.StoredMemoryResponse{}, err
 	}
-	if err := timecontract.ValidateJSONPayload(payload, location); err != nil {
+	if err := validatePersistedStoredMemoryTimePayload(payload, location); err != nil {
 		return api.StoredMemoryResponse{}, err
 	}
 	var item api.StoredMemoryResponse
@@ -398,6 +398,24 @@ func decodeStoredMemoryResponse(data []byte, location string) (api.StoredMemoryR
 		return api.StoredMemoryResponse{}, err
 	}
 	return item, nil
+}
+
+func validatePersistedStoredMemoryTimePayload(payload map[string]any, location string) error {
+	for _, field := range []string{"createdAt", "updatedAt"} {
+		value, exists := payload[field]
+		if !exists {
+			return &timecontract.Violation{Field: field, Location: location + "." + field, Reason: "is required"}
+		}
+		if _, err := timecontract.ParseEpochMillis(value, field, location+"."+field); err != nil {
+			return err
+		}
+	}
+	if value, exists := payload["lastAccessedAt"]; exists {
+		if _, err := timecontract.ParseEpochMillis(value, "lastAccessedAt", location+".lastAccessedAt"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func matchesMemoryNeedle(item api.StoredMemoryResponse, needle string) bool {

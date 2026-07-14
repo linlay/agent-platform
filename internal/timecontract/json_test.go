@@ -5,100 +5,93 @@ import (
 	"testing"
 )
 
-func TestValidateJSONPayloadRejectsNonIntegerTimeValues(t *testing.T) {
-	invalid := []any{
-		map[string]any{"timestamp": "1700000000000"},
-		map[string]any{"timestamp": 1_700_000_000},
-		map[string]any{"timestamp": float64(1_700_000_000_000)},
-		map[string]any{"timestamp": 1_700_000_000_000.5},
-		map[string]any{"timestamp": json.Number("not-an-integer")},
-		map[string]any{"nested": map[string]any{"createdAt": float64(1_700_000_000_000)}},
-		map[string]any{"createdUnixMs": "1700000000000"},
-		map[string]any{"expiresAt": nil},
-		map[string]any{"readAt": 0},
+func TestValidateJSONPayloadDoesNotInferTimeFromFieldNames(t *testing.T) {
+	payload := map[string]any{
+		"createdAt": "2026-07-14T08:00:00Z",
+		"nested": map[string]any{
+			"timestamp": 1_700_000_000,
+			"updatedAt": float64(1_700_000_000_000),
+		},
 	}
-	for _, payload := range invalid {
-		if err := ValidateJSONPayload(payload, "test"); err == nil {
-			t.Fatalf("expected %#v to be rejected", payload)
+	if err := ValidateJSONPayload(payload, "external.tool.result"); err != nil {
+		t.Fatalf("opaque payload should not be interpreted by name: %v", err)
+	}
+}
+
+func TestValidateOutputSchemaRejectsOnlyDeclaredEpochMillis(t *testing.T) {
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"declared": map[string]any{"x-platform-time": OutputSchemaEpochMillis},
+		},
+	}
+	for _, value := range []any{
+		"1700000000000",
+		json.Number("1700000000"),
+		float64(1_700_000_000_000),
+		json.Number("1700000000000.0"),
+		int64(0),
+	} {
+		if err := ValidateOutputSchema(map[string]any{"declared": value}, schema, "tool.result"); !IsViolation(err) {
+			t.Fatalf("declared epoch value %#v should fail, got %v", value, err)
 		}
 	}
-}
-
-func TestValidateJSONPayloadRejectsIntegralFloatInTaggedDTO(t *testing.T) {
-	type payload struct {
-		Timestamp any `json:"timestamp"`
-	}
-	if err := ValidateJSONPayload(payload{Timestamp: float64(1_700_000_000_000)}, "test"); !IsViolation(err) {
-		t.Fatalf("expected tagged integral float to be rejected, got %v", err)
+	if err := ValidateOutputSchema(map[string]any{
+		"declared":  json.Number("1700000000000"),
+		"createdAt": "external ISO remains business data",
+	}, schema, "tool.result"); err != nil {
+		t.Fatalf("declared integer should pass: %v", err)
 	}
 }
 
-func TestValidateJSONPayloadRejectsReusedFloatPointerAtTimeKey(t *testing.T) {
-	value := float64(1_700_000_000_000)
-	err := ValidateJSONPayload(map[string]any{
-		"ordinary":  &value,
-		"timestamp": &value,
-	}, "test")
-	if !IsViolation(err) {
-		t.Fatalf("expected reused float pointer to be rejected at timestamp, got %v", err)
+func TestValidateOutputSchemaReadablePairIsExplicit(t *testing.T) {
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"occurred": map[string]any{"x-platform-time": OutputSchemaEpochMillis},
+			"display":  map[string]any{"format": "date-time", "x-platform-time-pair": "occurred"},
+		},
+	}
+	valid := map[string]any{
+		"occurred": json.Number("1700000000000"),
+		"display":  "2023-11-14T22:13:20Z",
+	}
+	if err := ValidateOutputSchema(valid, schema, "tool.result"); err != nil {
+		t.Fatalf("valid explicit pair: %v", err)
+	}
+	invalid := map[string]any{
+		"occurred": json.Number("1700000000000"),
+		"display":  "2023-11-14T22:13:21Z",
+	}
+	if err := ValidateOutputSchema(invalid, schema, "tool.result"); !IsViolation(err) {
+		t.Fatalf("mismatched explicit pair should fail: %v", err)
 	}
 }
 
-func TestValidateJSONPayloadAcceptsOptionalOmissionAndPairedReadableTime(t *testing.T) {
-	if err := ValidateJSONPayload(map[string]any{
-		"startedAt":   int64(1_700_000_000_000),
-		"startedTime": "2023-11-14T22:13:20Z",
-	}, "test"); err != nil {
-		t.Fatalf("expected valid payload: %v", err)
+func TestValidateOutputSchemaSelectsOneOf(t *testing.T) {
+	schema := map[string]any{
+		"oneOf": []any{
+			map[string]any{"type": "object", "properties": map[string]any{
+				"kind": map[string]any{"const": "external"},
+			}},
+			map[string]any{"type": "object", "properties": map[string]any{
+				"kind": map[string]any{"const": "platform"},
+				"at":   map[string]any{"x-platform-time": OutputSchemaEpochMillis},
+			}},
+		},
 	}
-	if err := ValidateJSONPayload(map[string]any{"name": "omitted optional time"}, "test"); err != nil {
-		t.Fatalf("expected omitted optional time to be accepted: %v", err)
+	if err := ValidateOutputSchema(map[string]any{"kind": "external", "createdAt": "not a platform time"}, schema, "tool.result"); err != nil {
+		t.Fatalf("external branch should stay opaque: %v", err)
 	}
-}
-
-func TestValidateJSONPayloadRejectsMismatchedReadableTime(t *testing.T) {
-	err := ValidateJSONPayload(map[string]any{
-		"completedAt":   int64(1_700_000_000_000),
-		"completedTime": "2023-11-14T22:13:21Z",
-	}, "test")
-	if err == nil || !IsViolation(err) {
-		t.Fatalf("expected mismatch violation, got %v", err)
+	if err := ValidateOutputSchema(map[string]any{"kind": "platform", "at": "1700000000000"}, schema, "tool.result"); !IsViolation(err) {
+		t.Fatalf("platform branch must validate declared time: %v", err)
 	}
 }
 
-func TestValidateJSONPayloadRejectsSubMillisecondReadablePair(t *testing.T) {
-	err := ValidateJSONPayload(map[string]any{
-		"completedAt":   int64(1_700_000_000_000),
-		"completedTime": "2023-11-14T22:13:20.000000001Z",
-	}, "test")
-	if err == nil || !IsViolation(err) {
-		t.Fatalf("expected sub-millisecond mismatch violation, got %v", err)
-	}
-}
-
-func TestValidateJSONPayloadRejectsUnpairedReadableTime(t *testing.T) {
-	err := ValidateJSONPayload(map[string]any{
-		"startedTime": "2023-11-14T22:13:20Z",
-	}, "test")
-	if err == nil || !IsViolation(err) {
-		t.Fatalf("expected unpaired readable time violation, got %v", err)
-	}
-}
-
-func TestValidateJSONPayloadAllowsStandaloneDatetimeISO(t *testing.T) {
-	if err := ValidateJSONPayload(map[string]any{
-		"date": "2023-11-14",
-		"time": "22:13:20",
-		"iso":  "2023-11-14T22:13:20Z",
-	}, "test"); err != nil {
-		t.Fatalf("expected standalone datetime-tool iso: %v", err)
-	}
-}
-
-func TestValidateJSONPayloadPropagatesMarshalerTimeViolation(t *testing.T) {
+func TestValidateJSONPayloadPropagatesMarshalerError(t *testing.T) {
 	payload := invalidTimeMarshaler{}
 	if err := ValidateJSONPayload(payload, "test"); !IsViolation(err) {
-		t.Fatalf("expected marshaler time violation, got %v", err)
+		t.Fatalf("expected marshaler error to propagate, got %v", err)
 	}
 }
 

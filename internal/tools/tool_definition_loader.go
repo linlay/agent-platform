@@ -26,6 +26,7 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	if len(parameters) == 0 {
 		parameters = AnyMapNode(root["parameters"])
 	}
+	outputSchema := AnyMapNode(root["outputSchema"])
 	typeValue := strings.ToLower(AnyStringNode(root["type"]))
 	viewportType := AnyStringNode(root["viewportType"])
 	viewportKey := AnyStringNode(root["viewportKey"])
@@ -131,6 +132,7 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 		Description:   AnyStringNode(root["description"]),
 		AfterCallHint: AnyStringNode(root["afterCallHint"]),
 		Parameters:    CloneMap(parameters),
+		OutputSchema:  CloneMap(outputSchema),
 		Meta:          meta,
 	}, nil
 }

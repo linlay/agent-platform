@@ -173,7 +173,7 @@ func decodePersistedCandidate(data []byte, location string) (Candidate, error) {
 		}
 		return Candidate{}, err
 	}
-	if err := timecontract.ValidateJSONPayload(payload, location); err != nil {
+	if err := validatePersistedCandidateTimePayload(payload, location); err != nil {
 		return Candidate{}, err
 	}
 	var item Candidate
@@ -184,6 +184,19 @@ func decodePersistedCandidate(data []byte, location string) (Candidate, error) {
 		return Candidate{}, err
 	}
 	return item, nil
+}
+
+func validatePersistedCandidateTimePayload(payload map[string]any, location string) error {
+	for _, field := range []string{"createdAt", "updatedAt"} {
+		value, exists := payload[field]
+		if !exists {
+			return &timecontract.Violation{Field: field, Location: location + "." + field, Reason: "is required"}
+		}
+		if _, err := timecontract.ParseEpochMillis(value, field, location+"."+field); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func validateCandidateTimeContract(item Candidate, location string) error {

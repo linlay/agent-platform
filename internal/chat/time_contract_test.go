@@ -140,7 +140,7 @@ func TestLoadRunStartedAtRejectsMissingAndInvalidLifecycleRows(t *testing.T) {
 	}
 }
 
-func TestWriteAndBTWBoundariesRejectInvalidTimes(t *testing.T) {
+func TestWriteAndBTWBoundariesScopeTimeValidationToPlatformFields(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -153,11 +153,8 @@ func TestWriteAndBTWBoundariesRejectInvalidTimes(t *testing.T) {
 	if err := store.AppendQueryLine(chatID, QueryLine{Type: "query", ChatID: chatID, RunID: "run-bad", UpdatedAt: 0, Query: map[string]any{"role": "user", "message": "hello"}}); !timecontract.IsViolation(err) {
 		t.Fatalf("expected invalid write rejection, got %v", err)
 	}
-	if err := store.AppendQueryLine(chatID, QueryLine{Type: "query", ChatID: chatID, RunID: "run-float", UpdatedAt: testEpochMillis(1), Query: map[string]any{"role": "user", "timestamp": float64(testEpochMillis(1))}}); !timecontract.IsViolation(err) {
-		t.Fatalf("expected float write rejection, got %v", err)
-	}
-	if _, err := os.Stat(store.chatJSONLPath(chatID)); !os.IsNotExist(err) {
-		t.Fatalf("invalid write created history: %v", err)
+	if err := store.AppendQueryLine(chatID, QueryLine{Type: "query", ChatID: chatID, RunID: "run-opaque", UpdatedAt: testEpochMillis(1), Query: map[string]any{"role": "user", "timestamp": float64(testEpochMillis(1))}}); err != nil {
+		t.Fatalf("opaque query business field should not be interpreted as time: %v", err)
 	}
 	if err := os.WriteFile(store.chatJSONLPath(chatID), []byte(`{"_type":"compact.checkpoint","chatId":"`+chatID+`","updatedAt":0}`+"\n"), 0o644); err != nil {
 		t.Fatal(err)

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/timecontract"
 
 	_ "modernc.org/sqlite"
 )
@@ -222,7 +221,7 @@ func (s *SQLiteStore) recordHistoryLocked(event HistoryEvent) error {
 	if strings.TrimSpace(event.Status) == "" {
 		event.Status = HistoryStatusOK
 	}
-	if err := timecontract.ValidateJSONPayload(event, "memory.history.write"); err != nil {
+	if err := validateHistoryTimeContract(event, "memory.history.write"); err != nil {
 		return err
 	}
 	_, err := s.db.Exec(

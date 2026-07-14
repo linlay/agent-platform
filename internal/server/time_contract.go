@@ -155,11 +155,9 @@ func timeContractStatusError(err error) *statusError {
 // current timestamp or a generic storage error.
 var errTimeContractViolation = errors.New("time contract violation")
 
-// validatePublicTimeContract is deliberately applied at the final JSON
-// boundary as a backstop for every REST DTO. Producers still own omission of
-// absent optional fields, but this prevents a newly added DTO or a malformed
-// stored map from silently reintroducing strings, seconds, floats, nulls or
-// zero time points.
-func validatePublicTimeContract(payload any) error {
-	return timecontract.ValidateJSONPayload(payload, "response")
-}
+// validatePublicTimeContract remains as a narrow compatibility hook for
+// handlers that already own a typed DTO. There is intentionally no generic
+// JSON traversal here: external tool and bridge payloads can legally contain
+// business properties named createdAt, timestamp, or iso. Platform DTOs must
+// validate their declared time fields at their producer/read boundary.
+func validatePublicTimeContract(_ any) error { return nil }

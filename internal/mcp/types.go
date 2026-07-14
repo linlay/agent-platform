@@ -39,6 +39,7 @@ type ToolDefinition struct {
 	Description   string
 	AfterCallHint string
 	Parameters    map[string]any
+	OutputSchema  map[string]any
 	ToolAction    bool
 	ViewportType  string
 	ViewportKey   string
@@ -55,6 +56,7 @@ func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
 		AfterCallHint string         `json:"afterCallHint"`
 		InputSchema   map[string]any `json:"inputSchema"`
 		Parameters    map[string]any `json:"parameters"`
+		OutputSchema  map[string]any `json:"outputSchema"`
 		ToolAction    bool           `json:"toolAction"`
 		ViewportType  string         `json:"viewportType"`
 		ViewportKey   string         `json:"viewportKey"`
@@ -84,6 +86,7 @@ func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
 		Description:   raw.Description,
 		AfterCallHint: raw.AfterCallHint,
 		Parameters:    contracts.CloneMap(parameters),
+		OutputSchema:  contracts.CloneMap(raw.OutputSchema),
 		ToolAction:    raw.ToolAction,
 		ViewportType:  strings.TrimSpace(raw.ViewportType),
 		ViewportKey:   raw.ViewportKey,
@@ -150,6 +153,7 @@ func (t ToolDefinition) ToAPITool(serverKey string) api.ToolDetailResponse {
 		Description:   t.Description,
 		AfterCallHint: t.AfterCallHint,
 		Parameters:    contracts.CloneMap(t.Parameters),
+		OutputSchema:  contracts.CloneMap(t.OutputSchema),
 		Meta:          meta,
 	}
 }

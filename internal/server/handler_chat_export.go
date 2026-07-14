@@ -189,9 +189,6 @@ func validatePersistedJSONLTimeContract(content string, baseLocation string) err
 			return fmt.Errorf("parse persisted JSONL: %w", err)
 		}
 		location := fmt.Sprintf("%s[%d]", baseLocation, index)
-		if err := timecontract.ValidateJSONPayload(line, location); err != nil {
-			return err
-		}
 		lineType, _ := line["_type"].(string)
 		switch strings.TrimSpace(lineType) {
 		case "query", "react", "react-tool", "plan-execute", "step", "event", "submit", "steer", chat.CompactCheckpointLineType, chat.ToolCompactLineType:
@@ -212,7 +209,27 @@ func validatePersistedJSONLTimeContract(content string, baseLocation string) err
 				return err
 			}
 		}
+		if err := validatePersistedJSONLMessages(line["messages"], location+".messages"); err != nil {
+			return err
+		}
 	}
+}
+
+func validatePersistedJSONLMessages(raw any, location string) error {
+	items, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	for index, rawItem := range items {
+		item, ok := rawItem.(map[string]any)
+		if !ok || len(item) == 0 {
+			continue
+		}
+		if err := validateRequiredJSONEpochMillis(item, "ts", fmt.Sprintf("%s[%d]", location, index)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func validateRequiredJSONEpochMillis(object map[string]any, field string, location string) error {
@@ -238,12 +255,16 @@ func validatePersistedTraceTimeContract(data []byte, location string) error {
 		}
 		return fmt.Errorf("parse persisted llm trace: %w", err)
 	}
-	if err := timecontract.ValidateJSONPayload(payload, location); err != nil {
-		return err
-	}
 	trace, ok := payload.(map[string]any)
 	if !ok {
 		return &timecontract.Violation{Field: "sentAt", Location: location, Reason: "trace must be a JSON object"}
+	}
+	for _, field := range []string{"sentAt", "responseStartedAt", "completedAt"} {
+		if _, exists := trace[field]; exists {
+			if err := requireTraceTimePair(trace, field, location); err != nil {
+				return err
+			}
+		}
 	}
 	status := strings.ToLower(strings.TrimSpace(stringValue(trace["status"])))
 	finalized := status == "ok" || status == "error" || status == "interrupted" || trace["completedAt"] != nil
