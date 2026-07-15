@@ -122,7 +122,7 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 | POST | `/api/chat/archive` | body: `chatId`、`reason` | 归档结果 |
 | GET | `/api/chat/export` | query: `chatId` | Markdown 导出 |
 | GET | `/api/chat/jsonl` | query: `chatId` | 原始 chat JSONL 文本；active 不存在时回退 archive |
-| GET | `/api/chat/system-prompt` | query: `chatId`、`agentKey`、`cacheKey`、`fingerprint` | 按 `debug.llmChat.data.systemRef` 精确获取持久化的 system message |
+| GET | `/api/chat/system-prompt` | query: `chatId`、`runId`、`agentKey` | 获取该 agent 在历史 run 中首次使用的持久化 system message；服务端从 run 的 system-init / step `systemRef` 解析快照 |
 | GET | `/api/chat/llm-trace` | query: `file=<chatId>/.llm-records/<runId>_NNN.json` | 原始 LLM chat trace JSON 文本 |
 
 `/api/chats` 的 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；大小写无关，`PLAN_EXECUTE` 会归一为 `PLAN-EXECUTE`。它只筛选 Agent-owned chat，并与 `agentKey`、`lastRunId` 为 AND 关系；Team-owned chat 天然包含在全局列表中，不受 `mode`（包括未知 mode）影响。显式 `agentKey` 仍只返回该 agent 的 chat，不会匹配 Team。可选 `limit` 必须为正整数且不设上限；省略时返回全部匹配项，传入时在全部筛选和固定排序 `updatedAt DESC, chatId DESC` 后截断结果。`limit=0`、负数、空值或非整数返回 400；当前不支持 offset、分页游标或自定义排序。WebSocket 的 `/api/chats` 请求使用等价的 `mode` 与 `limit` 字段（`limit` 未传为全部）。旧 `agentMode` 参数或 payload 会返回 400，调用方应改用 `mode`。

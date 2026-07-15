@@ -1274,12 +1274,14 @@ type ChatDetailResponse struct {
 	ContextWindow  *ChatContextWindow  `json:"contextWindow,omitempty"`
 }
 
-// ChatSystemPromptResponse exposes the persisted system message selected by
-// a model-call systemRef. It intentionally omits the snapshot's tools, model,
-// and request options: callers asking to view the system prompt do not need
-// the rest of the LLM execution profile.
+// ChatSystemPromptResponse exposes the initial persisted system message used
+// by an agent within a run. It intentionally omits the snapshot's tools,
+// model, and request options: callers asking to view the system prompt do not
+// need the rest of the LLM execution profile.
 type ChatSystemPromptResponse struct {
 	ChatID        string              `json:"chatId"`
+	RunID         string              `json:"runId"`
+	AgentKey      string              `json:"agentKey"`
 	SystemRef     ChatSystemPromptRef `json:"systemRef"`
 	SystemMessage map[string]any      `json:"systemMessage"`
 }

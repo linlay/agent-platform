@@ -126,17 +126,14 @@ func (s *Server) handleChatSystemPrompt(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	ref := chat.SystemInitRef{
-		AgentKey:    strings.TrimSpace(r.URL.Query().Get("agentKey")),
-		CacheKey:    strings.TrimSpace(r.URL.Query().Get("cacheKey")),
-		Fingerprint: strings.TrimSpace(r.URL.Query().Get("fingerprint")),
-	}
-	if ref.AgentKey == "" || ref.CacheKey == "" || ref.Fingerprint == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "agentKey, cacheKey, and fingerprint are required"))
+	runID := strings.TrimSpace(r.URL.Query().Get("runId"))
+	agentKey := strings.TrimSpace(r.URL.Query().Get("agentKey"))
+	if runID == "" || agentKey == "" {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "runId and agentKey are required"))
 		return
 	}
 
-	snapshot, err := s.deps.Chats.LoadSystemInitByRef(chatID, ref)
+	snapshot, err := s.deps.Chats.LoadRunSystemInit(chatID, runID, agentKey)
 	if errors.Is(err, chat.ErrChatNotFound) {
 		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat not found"))
 		return
@@ -155,7 +152,9 @@ func (s *Server) handleChatSystemPrompt(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusOK, api.Success(api.ChatSystemPromptResponse{
-		ChatID: chatID,
+		ChatID:   chatID,
+		RunID:    runID,
+		AgentKey: agentKey,
 		SystemRef: api.ChatSystemPromptRef{
 			AgentKey:    snapshot.AgentKey,
 			CacheKey:    snapshot.CacheKey,

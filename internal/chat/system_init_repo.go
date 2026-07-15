@@ -12,11 +12,11 @@ type SystemInitKey struct {
 	CacheKey string
 }
 
-// SystemInitRef identifies the immutable system snapshot used by one LLM
+// systemInitRef identifies the immutable system snapshot used by one LLM
 // call. Unlike SystemInitKey, it includes the fingerprint so callers can
 // retrieve a historical snapshot after a later catalog change writes a new
 // snapshot under the same agent/cache key.
-type SystemInitRef struct {
+type systemInitRef struct {
 	AgentKey    string
 	CacheKey    string
 	Fingerprint string
@@ -40,12 +40,16 @@ func (s *FileStore) LoadSystemInit(chatID string, key SystemInitKey) (*SystemIni
 	return inits.Lookup(key.AgentKey, key.CacheKey), nil
 }
 
-func (s *FileStore) LoadSystemInitByRef(chatID string, ref SystemInitRef) (*SystemInitLine, error) {
+// LoadRunSystemInit returns the initial system snapshot used by an agent in a
+// run. It first prefers a system-init record written in that run, then follows
+// the first persisted step systemRef back to the immutable snapshot. The
+// latter is necessary when a run reuses a snapshot originally written by an
+// earlier run.
+func (s *FileStore) LoadRunSystemInit(chatID string, runID string, agentKey string) (*SystemInitLine, error) {
 	chatID = strings.TrimSpace(chatID)
-	ref.AgentKey = strings.TrimSpace(ref.AgentKey)
-	ref.CacheKey = strings.TrimSpace(ref.CacheKey)
-	ref.Fingerprint = strings.TrimSpace(ref.Fingerprint)
-	if chatID == "" || ref.AgentKey == "" || ref.CacheKey == "" || ref.Fingerprint == "" {
+	runID = strings.TrimSpace(runID)
+	agentKey = strings.TrimSpace(agentKey)
+	if chatID == "" || runID == "" || agentKey == "" {
 		return nil, nil
 	}
 
@@ -64,6 +68,43 @@ func (s *FileStore) LoadSystemInitByRef(chatID string, ref SystemInitRef) (*Syst
 	if err != nil {
 		return nil, err
 	}
+	for _, line := range lines {
+		if strings.TrimSpace(stringFromAny(line["runId"])) != runID || strings.TrimSpace(stringFromAny(line["_type"])) != "query" {
+			continue
+		}
+		system, err := queryLineSystemFromJSONL(line)
+		if err != nil {
+			return nil, err
+		}
+		if system == nil || system.AgentKey != agentKey {
+			continue
+		}
+		result := systemInitLineFromQueryLine(line, system)
+		return &result, nil
+	}
+
+	for _, line := range lines {
+		if strings.TrimSpace(stringFromAny(line["runId"])) != runID || !lineIsStep(line) {
+			continue
+		}
+		refMap, err := stepSystemRefFromJSONL(line, false)
+		if err != nil {
+			return nil, err
+		}
+		ref := systemInitRef{
+			AgentKey:    strings.TrimSpace(stringFromAny(refMap["agentKey"])),
+			CacheKey:    strings.TrimSpace(stringFromAny(refMap["cacheKey"])),
+			Fingerprint: strings.TrimSpace(stringFromAny(refMap["fingerprint"])),
+		}
+		if ref.AgentKey != agentKey || ref.CacheKey == "" || ref.Fingerprint == "" {
+			continue
+		}
+		return findSystemInitByRef(lines, ref)
+	}
+	return nil, nil
+}
+
+func findSystemInitByRef(lines []map[string]any, ref systemInitRef) (*SystemInitLine, error) {
 	for _, line := range lines {
 		if strings.TrimSpace(stringFromAny(line["_type"])) != "query" {
 			continue

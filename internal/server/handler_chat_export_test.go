@@ -110,7 +110,7 @@ func TestHandleChatJSONLRejectsHistoricalTimeContractViolation(t *testing.T) {
 	}
 }
 
-func TestHandleChatSystemPromptReturnsExactHistoricalSnapshot(t *testing.T) {
+func TestHandleChatSystemPromptResolvesRunSnapshot(t *testing.T) {
 	fixture := newTestFixture(t)
 	const chatID = "chat-system-prompt"
 	if _, _, err := fixture.chats.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
@@ -142,12 +142,54 @@ func TestHandleChatSystemPromptReturnsExactHistoricalSnapshot(t *testing.T) {
 	}
 
 	response := getAPIData[api.ChatSystemPromptResponse](t, fixture.server, http.MethodGet,
-		"/api/chat/system-prompt?chatId=chat-system-prompt&agentKey=agent-a&cacheKey=react%3Amain&fingerprint=sha256%3Aoriginal", nil)
-	if response.ChatID != chatID || response.SystemRef.AgentKey != "agent-a" || response.SystemRef.CacheKey != "react:main" || response.SystemRef.Fingerprint != "sha256:original" {
+		"/api/chat/system-prompt?chatId=chat-system-prompt&runId=run-system-prompt&agentKey=agent-a", nil)
+	if response.ChatID != chatID || response.RunID != "run-system-prompt" || response.AgentKey != "agent-a" || response.SystemRef.AgentKey != "agent-a" || response.SystemRef.CacheKey != "react:main" || response.SystemRef.Fingerprint != "sha256:original" {
 		t.Fatalf("unexpected system prompt identity %#v", response)
 	}
 	if got, _ := response.SystemMessage["content"].(string); got != "original system prompt" {
 		t.Fatalf("expected historical system prompt, got %#v", response.SystemMessage)
+	}
+}
+
+func TestHandleChatSystemPromptResolvesPriorRunSnapshotFromStepRef(t *testing.T) {
+	fixture := newTestFixture(t)
+	const chatID = "chat-system-prompt-reused"
+	if _, _, err := fixture.chats.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := fixture.chats.AppendQueryLine(chatID, chat.QueryLine{
+		Type:      "query",
+		ChatID:    chatID,
+		RunID:     "run-original",
+		UpdatedAt: testEpochMillis + 1,
+		Query:     map[string]any{"role": "system", "kind": "system-init", "hidden": true},
+		System: &chat.QueryLineSystem{
+			AgentKey:      "agent-a",
+			CacheKey:      "react:main",
+			Fingerprint:   "sha256:reused",
+			SystemMessage: map[string]any{"role": "system", "content": "reused system prompt"},
+			Tools:         []any{},
+		},
+	}); err != nil {
+		t.Fatalf("append original system init: %v", err)
+	}
+	if err := fixture.chats.AppendStepLine(chatID, chat.StepLine{
+		Type:      chat.StepLineTypeReact,
+		ChatID:    chatID,
+		RunID:     "run-reused",
+		UpdatedAt: testEpochMillis + 2,
+		SystemRef: map[string]any{
+			"agentKey": "agent-a", "cacheKey": "react:main", "fingerprint": "sha256:reused",
+		},
+		Messages: []chat.StoredMessage{},
+	}); err != nil {
+		t.Fatalf("append reused run step: %v", err)
+	}
+
+	response := getAPIData[api.ChatSystemPromptResponse](t, fixture.server, http.MethodGet,
+		"/api/chat/system-prompt?chatId=chat-system-prompt-reused&runId=run-reused&agentKey=agent-a", nil)
+	if got, _ := response.SystemMessage["content"].(string); got != "reused system prompt" {
+		t.Fatalf("expected reused system prompt, got %#v", response.SystemMessage)
 	}
 }
 
@@ -159,9 +201,9 @@ func TestHandleChatSystemPromptValidationAndNotFound(t *testing.T) {
 		code int
 	}{
 		{name: "missing chat", path: "/api/chat/system-prompt", code: http.StatusBadRequest},
-		{name: "invalid chat", path: "/api/chat/system-prompt?chatId=../chat&agentKey=agent&cacheKey=react%3Amain&fingerprint=sha256%3Atest", code: http.StatusBadRequest},
-		{name: "missing system ref", path: "/api/chat/system-prompt?chatId=chat_1", code: http.StatusBadRequest},
-		{name: "missing chat", path: "/api/chat/system-prompt?chatId=missing-chat&agentKey=agent&cacheKey=react%3Amain&fingerprint=sha256%3Atest", code: http.StatusNotFound},
+		{name: "invalid chat", path: "/api/chat/system-prompt?chatId=../chat&runId=run_1&agentKey=agent", code: http.StatusBadRequest},
+		{name: "missing run identity", path: "/api/chat/system-prompt?chatId=chat_1", code: http.StatusBadRequest},
+		{name: "chat not found", path: "/api/chat/system-prompt?chatId=missing-chat&runId=run_1&agentKey=agent", code: http.StatusNotFound},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
