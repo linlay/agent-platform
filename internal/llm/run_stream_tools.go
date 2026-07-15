@@ -453,7 +453,7 @@ func (s *llmRunStream) consumeActiveToolBatch() error {
 	s.appendFrontendSubmitDeltas(invocation, prepared.result)
 	s.emitToolResultLive(invocation, prepared.result)
 	appendSourcePublishDelta(&s.pending, s.session, invocation, prepared.result)
-	appendPublishedArtifactDelta(&s.pending, s.session, prepared.result.Structured["publishedArtifacts"])
+	appendPublishedArtifactDelta(&s.pending, s.session, invocation, prepared.result.Structured["publishedArtifacts"])
 
 	if batch.remaining == 0 {
 		return s.finalizeActiveToolBatch(batch)
@@ -801,7 +801,7 @@ func (s *llmRunStream) invokeToolAndPublishResult(invocation *preparedToolInvoca
 		})
 	}
 	appendSourcePublishDelta(&s.pending, s.session, invocation, result)
-	appendPublishedArtifactDelta(&s.pending, s.session, result.Structured["publishedArtifacts"])
+	appendPublishedArtifactDelta(&s.pending, s.session, invocation, result.Structured["publishedArtifacts"])
 	return nil
 }
 
@@ -986,7 +986,10 @@ func appendSourcePublishDelta(pending *[]AgentDelta, session QuerySession, invoc
 	})
 }
 
-func appendPublishedArtifactDelta(pending *[]AgentDelta, session QuerySession, raw any) {
+func appendPublishedArtifactDelta(pending *[]AgentDelta, session QuerySession, invocation *preparedToolInvocation, raw any) {
+	if pending == nil || invocation == nil {
+		return
+	}
 	published := publishedArtifactMaps(raw)
 	if len(published) == 0 {
 		return
@@ -994,6 +997,8 @@ func appendPublishedArtifactDelta(pending *[]AgentDelta, session QuerySession, r
 	*pending = append(*pending, DeltaArtifactPublish{
 		ChatID:        session.ChatID,
 		RunID:         session.RunID,
+		TaskID:        strings.TrimSpace(session.SubTaskID),
+		ToolID:        invocation.toolID,
 		ArtifactCount: len(published),
 		Artifacts:     published,
 	})

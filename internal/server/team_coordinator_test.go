@@ -8,6 +8,7 @@ import (
 
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/catalog"
+	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	toolruntime "agent-platform/internal/tools"
 )
@@ -67,6 +68,23 @@ func TestResolveQueryTeamOrchestratedNeverSelectsDefaultMember(t *testing.T) {
 	_, _, _, statusErr = resolveQueryTeam(registry, "research", "writer", nil)
 	if statusErr == nil || statusErr.status != http.StatusBadRequest || !strings.Contains(statusErr.message, "must be omitted") {
 		t.Fatalf("expected agentKey bypass rejection, got %#v", statusErr)
+	}
+}
+
+func TestResolveQueryTeamInheritsExistingNonTeamAgent(t *testing.T) {
+	registry := fixedTeamRegistry{
+		agents: map[string]catalog.AgentDefinition{
+			"owner":  {Key: "owner", Mode: "REACT"},
+			"writer": {Key: "writer", Mode: "CHANNEL"},
+		},
+	}
+
+	teamID, agentKey, snapshot, statusErr := resolveQueryTeam(registry, "", "", &chat.Summary{AgentKey: "owner"})
+	if statusErr != nil {
+		t.Fatalf("resolveQueryTeam error: %v", statusErr)
+	}
+	if teamID != "" || agentKey != "owner" || snapshot != nil {
+		t.Fatalf("expected non-Team chat owner to be inherited, got team=%q agent=%q snapshot=%#v", teamID, agentKey, snapshot)
 	}
 }
 

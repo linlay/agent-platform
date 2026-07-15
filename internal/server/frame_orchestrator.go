@@ -1282,6 +1282,10 @@ func routeChildStreamInput(parentRunID string, taskID string, input stream.Strea
 		value.PublishID = namespaceChildID(taskID, value.PublishID)
 		value.ToolID = namespaceChildID(taskID, value.ToolID)
 		return value
+	case stream.ArtifactPublish:
+		value.TaskID = taskID
+		value.ToolID = namespaceChildID(taskID, value.ToolID)
+		return value
 	case stream.AwaitAsk:
 		value.RunID = firstNonEmpty(parentRunID, value.RunID)
 		value.TaskID = taskID
@@ -1315,6 +1319,26 @@ func routeChildStreamInput(parentRunID string, taskID string, input stream.Strea
 
 func routeTeamChildStreamInput(_ string, teamID string, task preparedSubTask, input stream.StreamInput, options childRunOptions) stream.StreamInput {
 	switch value := input.(type) {
+	case stream.ToolArgs:
+		value.TaskID = task.taskID
+		value.ToolID = namespaceChildID(task.taskID, value.ToolID)
+		if value.AwaitAsk != nil {
+			awaitCopy := *value.AwaitAsk
+			awaitCopy.TaskID = task.taskID
+			awaitCopy.AwaitingID = namespaceChildID(task.taskID, awaitCopy.AwaitingID)
+			value.AwaitAsk = &awaitCopy
+		}
+		return value
+	case stream.ToolEnd:
+		value.ToolID = namespaceChildID(task.taskID, value.ToolID)
+		return value
+	case stream.ToolResult:
+		value.ToolID = namespaceChildID(task.taskID, value.ToolID)
+		return value
+	case stream.ArtifactPublish:
+		value.TaskID = task.taskID
+		value.ToolID = namespaceChildID(task.taskID, value.ToolID)
+		return value
 	case stream.ContentDelta:
 		value.ActorType = "agent"
 		value.TeamID = strings.TrimSpace(teamID)

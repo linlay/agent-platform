@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"agent-platform/internal/chat"
 	. "agent-platform/internal/contracts"
 )
 
@@ -26,6 +27,16 @@ func (t *RuntimeToolExecutor) invokeArtifactPublish(args map[string]any, execCtx
 		log.Printf("[artifact-publish] chatsDir=%s chatID=%s runID=%s artifacts=%v",
 			t.cfg.Paths.ChatsDir, execCtx.Session.ChatID, execCtx.Session.RunID, artifacts)
 		result = publishArtifacts(t.cfg.Paths.ChatsDir, execCtx.Session.ChatID, execCtx.Session.RunID, artifacts)
+		if result.Status == "published" {
+			publishedAt := time.Now().UnixMilli()
+			manifestWriter, ok := t.chats.(chat.ArtifactManifestWriter)
+			if !ok || manifestWriter == nil {
+				result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure("", "artifact_manifest_failed", "artifact manifest store is unavailable"))
+			} else if err := manifestWriter.AppendArtifactManifest(execCtx.Session.ChatID, execCtx.Session.RunID, publishedAt, result.PublishedArtifacts); err != nil {
+				result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure("", "artifact_manifest_failed", "failed to persist artifact manifest: "+err.Error()))
+			}
+			result.refreshStatus()
+		}
 		log.Printf("[artifact-publish] status=%s published=%d failed=%d items=%v failures=%v",
 			result.Status, len(result.PublishedArtifacts), len(result.FailedArtifacts), result.PublishedArtifacts, result.FailedArtifacts)
 		if t.artifactPusher != nil && result.Status == "published" {

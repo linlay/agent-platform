@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"os"
@@ -105,6 +106,82 @@ func TestInvokeArtifactPublishReturnsErrorWhenNoArtifactsPublished(t *testing.T)
 	failures := result.Structured["failedArtifacts"].([]map[string]any)
 	if failures[0]["code"] != "path_not_allowed" {
 		t.Fatalf("expected path_not_allowed failure, got %#v", failures[0])
+	}
+}
+
+func TestInvokeArtifactPublishPersistsManifestBeforeReturningSuccess(t *testing.T) {
+	workspace := t.TempDir()
+	restoreCwd := chdirForArtifactTest(t, workspace)
+	defer restoreCwd()
+	workspace = mustGetwd(t)
+
+	chatsRoot := filepath.Join(workspace, "chats")
+	store, err := chat.NewFileStore(chatsRoot)
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-1", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	sourcePath := filepath.Join(workspace, "report.md")
+	if err := os.WriteFile(sourcePath, []byte("# report\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	executor := &RuntimeToolExecutor{cfg: config.Config{}, chats: store}
+	executor.cfg.Paths.ChatsDir = chatsRoot
+	result, err := executor.invokeArtifactPublish(map[string]any{"artifacts": []any{map[string]any{"path": sourcePath}}}, &ExecutionContext{Session: QuerySession{ChatID: "chat-1", RunID: "run-1"}})
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("publish artifact: result=%#v err=%v", result, err)
+	}
+
+	manifestPath := filepath.Join(store.ChatDir("chat-1"), chat.ToolRootDirName, chat.ArtifactManifestFileName)
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if !strings.Contains(string(data), `"chatId": "chat-1"`) || !strings.Contains(string(data), `"runId": "run-1"`) || !strings.Contains(string(data), `"publishedAt":`) {
+		t.Fatalf("unexpected manifest %s", data)
+	}
+}
+
+func TestInvokeArtifactPublishFailsWhenManifestCannotBeWritten(t *testing.T) {
+	workspace := t.TempDir()
+	restoreCwd := chdirForArtifactTest(t, workspace)
+	defer restoreCwd()
+	workspace = mustGetwd(t)
+
+	chatsRoot := filepath.Join(workspace, "chats")
+	store, err := chat.NewFileStore(chatsRoot)
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-1", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := os.MkdirAll(store.ChatDir("chat-1"), 0o755); err != nil {
+		t.Fatalf("create chat directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(store.ChatDir("chat-1"), chat.ToolRootDirName), []byte("block manifest directory"), 0o644); err != nil {
+		t.Fatalf("block tools directory: %v", err)
+	}
+	sourcePath := filepath.Join(workspace, "report.md")
+	if err := os.WriteFile(sourcePath, []byte("# report\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	executor := &RuntimeToolExecutor{cfg: config.Config{}, chats: store}
+	executor.cfg.Paths.ChatsDir = chatsRoot
+	result, err := executor.invokeArtifactPublish(map[string]any{"artifacts": []any{map[string]any{"path": sourcePath}}}, &ExecutionContext{Session: QuerySession{ChatID: "chat-1", RunID: "run-1"}})
+	if err != nil {
+		t.Fatalf("publish artifact: %v", err)
+	}
+	if result.ExitCode == 0 || result.Error != "artifact_publish_failed" || result.Structured["publishedCount"] != 0 {
+		t.Fatalf("expected failed publish after manifest failure, got %#v", result)
+	}
+	failures := result.Structured["failedArtifacts"].([]map[string]any)
+	if len(failures) != 1 || failures[0]["code"] != "artifact_manifest_failed" {
+		t.Fatalf("unexpected manifest failure %#v", failures)
 	}
 }
 

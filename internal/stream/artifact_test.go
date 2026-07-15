@@ -15,6 +15,8 @@ func TestDispatcherEmitsBatchedArtifactPublish(t *testing.T) {
 	events := dispatcher.Dispatch(ArtifactPublish{
 		ChatID: "chat_1",
 		RunID:  "run_1",
+		TaskID: "task_1",
+		ToolID: "call_artifact",
 		Artifacts: []map[string]any{
 			{
 				"artifactId": "artifact_1",
@@ -37,7 +39,7 @@ func TestDispatcherEmitsBatchedArtifactPublish(t *testing.T) {
 
 	assertEventTypes(t, events, "artifact.publish")
 	payload := events[0].Data()
-	if payload.String("chatId") != "chat_1" || payload.String("runId") != "run_1" {
+	if payload.String("chatId") != "chat_1" || payload.String("runId") != "run_1" || payload.String("taskId") != "task_1" || payload.String("toolId") != "call_artifact" {
 		t.Fatalf("unexpected routing fields %#v", payload)
 	}
 	if got, ok := payload.Value("artifactCount").(int); !ok || got != 2 {
@@ -56,6 +58,8 @@ func TestEventDataMarshalsArtifactPublishWithContractKeyOrder(t *testing.T) {
 	event := NewEvent("artifact.publish", map[string]any{
 		"chatId":        "chat_1",
 		"runId":         "run_1",
+		"taskId":        "task_1",
+		"toolId":        "call_artifact",
 		"artifactCount": 2,
 		"artifacts": []map[string]any{
 			{
@@ -89,6 +93,8 @@ func TestEventDataMarshalsArtifactPublishWithContractKeyOrder(t *testing.T) {
 		`"type":"artifact.publish"`,
 		`"chatId":"chat_1"`,
 		`"runId":"run_1"`,
+		`"taskId":"task_1"`,
+		`"toolId":"call_artifact"`,
 		`"artifactCount":2`,
 		`"artifacts":[`,
 		`"timestamp":`,

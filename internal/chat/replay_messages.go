@@ -243,7 +243,3 @@ func planStateFromTaskSnapshot(snapshot *plantasks.Snapshot) *PlanState {
 	}
 	return plan
 }
-
-func parseArtifactFromStep(raw map[string]any) *ArtifactState {
-	return &ArtifactState{Items: artifactItemsFromValue(raw["items"])}
-}

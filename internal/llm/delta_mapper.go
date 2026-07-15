@@ -251,6 +251,8 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		return []stream.StreamInput{stream.ArtifactPublish{
 			ChatID:        value.ChatID,
 			RunID:         value.RunID,
+			TaskID:        value.TaskID,
+			ToolID:        value.ToolID,
 			ArtifactCount: value.ArtifactCount,
 			Artifacts:     append([]map[string]any(nil), value.Artifacts...),
 		}}

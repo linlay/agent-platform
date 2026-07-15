@@ -137,6 +137,24 @@ func TestDeriveChatCopiesResourcesAndRewritesReferences(t *testing.T) {
 	if err := completeRunForTest(store, RunCompletion{ChatID: sourceChatID, RunID: "run-res", AgentKey: "agent-a", InitialMessage: "inspect upload", AssistantText: "checked", FinishReason: "complete", UpdatedAtMillis: testEpochMillis(1002)}); err != nil {
 		t.Fatalf("complete source run: %v", err)
 	}
+	if err := store.AppendArtifactManifest(sourceChatID, "run-res", testEpochMillis(1002), []map[string]any{{
+		"artifactId": "artifact-included",
+		"type":       "file",
+		"name":       "notes.txt",
+		"mimeType":   "text/plain",
+		"sizeBytes":  5,
+		"url":        "/api/resource?file=chat-source-res%2Fnotes.txt",
+	}}); err != nil {
+		t.Fatalf("append included artifact manifest: %v", err)
+	}
+	if err := store.AppendArtifactManifest(sourceChatID, "run-later", testEpochMillis(1003), []map[string]any{{
+		"artifactId": "artifact-excluded",
+		"type":       "file",
+		"name":       "later.txt",
+		"url":        "/api/resource?file=chat-source-res%2Flater.txt",
+	}}); err != nil {
+		t.Fatalf("append excluded artifact manifest: %v", err)
+	}
 
 	result, err := store.DeriveChat(DeriveChatRequest{SourceChatID: sourceChatID, ChatID: targetChatID})
 	if err != nil {
@@ -168,6 +186,16 @@ func TestDeriveChatCopiesResourcesAndRewritesReferences(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(store.ChatDir(targetChatID), ToolRootDirName, ToolStateDirName, FileVersionsFileName)); !os.IsNotExist(err) {
 		t.Fatalf("expected tool state not copied, stat err=%v", err)
+	}
+	manifest, found, err := loadArtifactManifest(store.ChatDir(targetChatID), targetChatID)
+	if err != nil || !found {
+		t.Fatalf("load derived artifact manifest: found=%v err=%v", found, err)
+	}
+	if len(manifest.Items) != 1 || manifest.Items[0].ArtifactID != "artifact-included" || manifest.Items[0].RunID != result.LastRunID {
+		t.Fatalf("unexpected derived artifact manifest %#v", manifest)
+	}
+	if !strings.Contains(manifest.Items[0].URL, "file=chat-derived-res%2Fnotes.txt") {
+		t.Fatalf("derived artifact URL = %q", manifest.Items[0].URL)
 	}
 
 	lines, err := readJSONLines(store.chatJSONLPath(targetChatID))

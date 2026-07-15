@@ -341,6 +341,8 @@ func TestDeltaMapper_ArtifactPublishPreservesBatchPayload(t *testing.T) {
 	inputs := mapper.Map(contracts.DeltaArtifactPublish{
 		ChatID:        "chat_1",
 		RunID:         "run_1",
+		TaskID:        "task_1",
+		ToolID:        "call_artifact",
 		ArtifactCount: 2,
 		Artifacts: []map[string]any{
 			{"artifactId": "artifact_1", "name": "report.md"},
@@ -354,7 +356,7 @@ func TestDeltaMapper_ArtifactPublishPreservesBatchPayload(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected ArtifactPublish input, got %#v", inputs[0])
 	}
-	if event.ArtifactCount != 2 || len(event.Artifacts) != 2 {
+	if event.TaskID != "task_1" || event.ToolID != "call_artifact" || event.ArtifactCount != 2 || len(event.Artifacts) != 2 {
 		t.Fatalf("unexpected artifact batch %#v", event)
 	}
 }

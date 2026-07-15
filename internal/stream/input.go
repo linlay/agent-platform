@@ -175,6 +175,8 @@ func (TaskError) streamInputTag() {}
 type ArtifactPublish struct {
 	ChatID        string
 	RunID         string
+	TaskID        string
+	ToolID        string
 	ArtifactCount int
 	Artifacts     []map[string]any
 }

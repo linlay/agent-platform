@@ -6798,74 +6798,68 @@ func TestLoadChatReplaysMultipleStepSourcesAfterMatchingToolResults(t *testing.T
 	}
 }
 
-func TestStepWriterBatchedArtifactPublishUpdatesArtifactState(t *testing.T) {
+func TestStepWriterWritesArtifactPublicationSidecarAndLoadsManifestState(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-
 	if _, _, err := store.EnsureChat("chat-artifact-batch", "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
+	artifacts := []map[string]any{
+		{"artifactId": "artifact_1", "type": "file", "name": "report.md", "mimeType": "text/markdown", "sizeBytes": 123, "url": "/api/resource?file=chat-artifact-batch%2Freport.md", "sha256": "abc123"},
+		{"artifactId": "artifact_2", "type": "file", "name": "summary.txt", "mimeType": "text/plain", "sizeBytes": 45, "url": "/api/resource?file=chat-artifact-batch%2Fsummary.txt", "sha256": "def456"},
+	}
+	if err := store.AppendArtifactManifest("chat-artifact-batch", "run-artifact-batch", testEpochMillis(1001), artifacts); err != nil {
+		t.Fatalf("append artifact manifest: %v", err)
+	}
+
 	writer := NewStepWriter(store, "chat-artifact-batch", "run-artifact-batch", "REACT")
-	onEventForTest(writer, stream.EventData{
-		Type:      "run.start",
-		Timestamp: testEpochMillis(1000),
-		Payload:   map[string]any{"chatId": "chat-artifact-batch", "runId": "run-artifact-batch"},
-	})
-	onEventForTest(writer, stream.EventData{
-		Type:      "artifact.publish",
-		Timestamp: testEpochMillis(1001),
-		Payload: map[string]any{
-			"chatId":        "chat-artifact-batch",
-			"runId":         "run-artifact-batch",
-			"artifactCount": 2,
-			"artifacts": []map[string]any{
-				{
-					"artifactId": "artifact_1",
-					"type":       "file",
-					"name":       "report.md",
-					"mimeType":   "text/markdown",
-					"sizeBytes":  123,
-					"url":        "/api/resource?file=chat-artifact-batch%2Freport.md",
-					"sha256":     "abc123",
-				},
-				{
-					"artifactId": "artifact_2",
-					"type":       "file",
-					"name":       "summary.txt",
-					"mimeType":   "text/plain",
-					"sizeBytes":  45,
-					"url":        "/api/resource?file=chat-artifact-batch%2Fsummary.txt",
-					"sha256":     "def456",
-				},
-			},
-		},
-	})
-	onEventForTest(writer, stream.EventData{
-		Type:      "content.snapshot",
-		Timestamp: testEpochMillis(1002),
-		Payload: map[string]any{
-			"contentId": "run-artifact-batch_c_1",
-			"runId":     "run-artifact-batch",
-			"text":      "done",
-		},
-	})
+	onEventForTest(writer, stream.EventData{Type: "run.start", Timestamp: testEpochMillis(1000), Payload: map[string]any{"chatId": "chat-artifact-batch", "runId": "run-artifact-batch"}})
+	onEventForTest(writer, stream.EventData{Type: "tool.snapshot", Timestamp: testEpochMillis(1001), Payload: map[string]any{"runId": "run-artifact-batch", "toolId": "call_artifact", "toolName": "artifact_publish", "arguments": `{"artifacts":[{"path":"report.md"}]}`}})
+	onEventForTest(writer, stream.EventData{Type: "tool.result", Timestamp: testEpochMillis(1002), Payload: map[string]any{"toolId": "call_artifact", "toolName": "artifact_publish", "result": "published"}})
+	onEventForTest(writer, stream.EventData{Type: "artifact.publish", Timestamp: testEpochMillis(1003), Payload: map[string]any{"chatId": "chat-artifact-batch", "runId": "run-artifact-batch", "toolId": "call_artifact", "artifactCount": 2, "artifacts": artifacts}})
 	writer.Flush()
 
 	detail, err := store.LoadChat("chat-artifact-batch")
 	if err != nil {
 		t.Fatalf("load chat: %v", err)
 	}
-	if detail.Artifact == nil || len(detail.Artifact.Items) != 2 {
-		t.Fatalf("expected two artifacts in detail state, got %#v", detail.Artifact)
+	if detail.Artifact == nil || len(detail.Artifact.Items) != 2 || detail.Artifact.Items[1].SHA256 != "def456" {
+		t.Fatalf("expected artifact state from manifest, got %#v", detail.Artifact)
 	}
-	if detail.Artifact.Items[0].ArtifactID != "artifact_1" || detail.Artifact.Items[0].SizeBytes != 123 {
-		t.Fatalf("unexpected first artifact %#v", detail.Artifact.Items[0])
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-artifact-batch"))
+	if err != nil {
+		t.Fatalf("read JSONL: %v", err)
 	}
-	if detail.Artifact.Items[1].ArtifactID != "artifact_2" || detail.Artifact.Items[1].SHA256 != "def456" {
-		t.Fatalf("unexpected second artifact %#v", detail.Artifact.Items[1])
+	var publication map[string]any
+	for _, line := range lines {
+		if line["_type"] == StepLineTypeReactTool {
+			if raw, ok := line["artifacts"].(map[string]any); ok {
+				publication = raw
+				break
+			}
+		}
+	}
+	items := toMapSlice(publication["items"])
+	if len(items) != 1 || items[0]["toolId"] != "call_artifact" || int(items[0]["artifactCount"].(float64)) != 2 {
+		t.Fatalf("unexpected artifact sidecar %#v", publication)
+	}
+	if got := toMapSlice(items[0]["artifacts"]); len(got) != 2 || got[0]["artifactId"] != "artifact_1" {
+		t.Fatalf("unexpected published artifact audit payload %#v", items[0])
+	}
+
+	if err := os.Remove(artifactManifestPath(store.ChatDir("chat-artifact-batch"))); err != nil {
+		t.Fatalf("remove manifest: %v", err)
+	}
+	detail, err = store.LoadChat("chat-artifact-batch")
+	if err != nil {
+		t.Fatalf("load chat without manifest: %v", err)
+	}
+	if detail.Artifact != nil {
+		t.Fatalf("JSONL artifact sidecar must not restore artifact state, got %#v", detail.Artifact)
 	}
 }
 

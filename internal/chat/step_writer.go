@@ -12,7 +12,7 @@ import (
 //
 // It mirrors the behaviour of Java's TurnTraceWriter:
 //   - internal stage markers flush the current step and start a new one
-//   - artifact state is tracked and attached to step lines
+//   - artifact publication audits are attached only to their matching tool step
 //   - snapshot events (reasoning/content/tool/action) become StoredMessages
 //   - request.submit + awaiting.answer are merged into SubmitLines
 //   - request.steer becomes a typed EventLine so chat detail can replay it
@@ -27,12 +27,12 @@ type StepWriter struct {
 
 	currentStage string
 
-	messages       []StoredMessage
-	latestArtifact *ArtifactState
-	pendingSources *SourceState
-	taskBuffers    map[string]*taskStepBuffer
-	closedTaskIDs  map[string]bool
-	stepLiveSeq    int64
+	messages         []StoredMessage
+	pendingArtifacts *ArtifactPublicationState
+	pendingSources   *SourceState
+	taskBuffers      map[string]*taskStepBuffer
+	closedTaskIDs    map[string]bool
+	stepLiveSeq      int64
 
 	// tool/action name tracking (for tool.result → StoredMessage.Name)
 	toolNames     map[string]string
@@ -333,9 +333,10 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.closedTaskIDs[taskID] = true
 
 	case "artifact.publish":
-		w.updateArtifact(event)
-		w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
-		w.lastTimestamp = event.Timestamp
+		if !w.appendArtifactEvent(event) {
+			w.flushCurrentStep()
+			w.appendTypedEventLine(event, "event")
+		}
 
 	case "source.publish":
 		if !w.appendSourceEvent(event) {
@@ -835,8 +836,9 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 		w.pendingEstimated = 0
 		w.pendingSystemRef = nil
 	}
-	if w.latestArtifact != nil {
-		line.Artifacts = w.latestArtifact
+	if w.pendingArtifacts != nil {
+		line.Artifacts = cloneArtifactPublicationState(w.pendingArtifacts)
+		w.pendingArtifacts = nil
 	}
 	if w.pendingSources != nil {
 		line.Sources = cloneSourceState(w.pendingSources)
@@ -875,6 +877,7 @@ func (w *StepWriter) clearCurrentStep() {
 	w.pendingReasoningEffort = ""
 	w.pendingInputMessages = nil
 	w.pendingSystemRef = nil
+	w.pendingArtifacts = nil
 	w.pendingSources = nil
 }
 

@@ -62,6 +62,9 @@ func resolveQueryTeam(
 		teamID = existingTeamID
 	}
 	if teamID == "" {
+		if requestedAgentKey == "" && existing != nil {
+			requestedAgentKey = strings.TrimSpace(existing.AgentKey)
+		}
 		return "", requestedAgentKey, nil, nil
 	}
 

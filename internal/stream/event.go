@@ -430,7 +430,7 @@ func eventPayloadKeyOrder(eventType string) []string {
 	case "task.error":
 		return []string{"taskId", "error"}
 	case "artifact.publish":
-		return []string{"chatId", "runId", "artifactCount", "artifacts"}
+		return []string{"chatId", "runId", "taskId", "toolId", "artifactCount", "artifacts"}
 	default:
 		return nil
 	}

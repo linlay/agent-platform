@@ -1561,7 +1561,7 @@ func TestAppendPublishedArtifactDeltaBatchesMultipleArtifacts(t *testing.T) {
 	appendPublishedArtifactDelta(&pending, contracts.QuerySession{
 		ChatID: "chat_1",
 		RunID:  "run_1",
-	}, []map[string]any{
+	}, &preparedToolInvocation{toolID: "call_artifact"}, []map[string]any{
 		{"artifactId": "artifact_1", "name": "report.md"},
 		{"artifactId": "artifact_2", "name": "summary.txt"},
 	})
@@ -1576,6 +1576,9 @@ func TestAppendPublishedArtifactDeltaBatchesMultipleArtifacts(t *testing.T) {
 	if delta.ArtifactCount != 2 || len(delta.Artifacts) != 2 {
 		t.Fatalf("unexpected batched delta %#v", delta)
 	}
+	if delta.ToolID != "call_artifact" {
+		t.Fatalf("expected artifact delta tool id, got %#v", delta)
+	}
 }
 
 func TestAppendPublishedArtifactDeltaSkipsEmptyArtifacts(t *testing.T) {
@@ -1584,7 +1587,7 @@ func TestAppendPublishedArtifactDeltaSkipsEmptyArtifacts(t *testing.T) {
 	appendPublishedArtifactDelta(&pending, contracts.QuerySession{
 		ChatID: "chat_1",
 		RunID:  "run_1",
-	}, []any{
+	}, &preparedToolInvocation{toolID: "call_artifact"}, []any{
 		map[string]any{},
 	})
 
@@ -1599,7 +1602,7 @@ func TestAppendPublishedArtifactDeltaUsesOnlyPublishedArtifacts(t *testing.T) {
 	appendPublishedArtifactDelta(&pending, contracts.QuerySession{
 		ChatID: "chat_1",
 		RunID:  "run_1",
-	}, []any{
+	}, &preparedToolInvocation{toolID: "call_artifact"}, []any{
 		map[string]any{"artifactId": "artifact_1", "name": "report.md"},
 		map[string]any{},
 		map[string]any{"artifactId": "artifact_2", "name": "summary.txt"},

@@ -392,6 +392,10 @@ func (s *ArchiveStore) LoadArchived(chatID string) (*ArchivedChat, error) {
 	if err != nil {
 		return nil, err
 	}
+	archived.Detail.Artifact, err = loadArtifactStateFromManifest(s.ChatDir(chatID), chatID)
+	if err != nil {
+		return nil, err
+	}
 	return archived, nil
 }
 

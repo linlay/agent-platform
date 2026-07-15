@@ -209,6 +209,9 @@ func (s *FileStore) DeriveChat(request DeriveChatRequest) (DeriveChatResult, err
 	if err := copyDerivedChatDir(s.ChatDir(sourceChatID), s.ChatDir(targetChatID)); err != nil {
 		return DeriveChatResult{}, err
 	}
+	if err := rewriteDerivedArtifactManifest(s.ChatDir(targetChatID), rewriteCtx); err != nil {
+		return DeriveChatResult{}, err
+	}
 	if err := rewriteDerivedPlanTaskSnapshots(s.ChatDir(targetChatID), rewriteCtx); err != nil {
 		return DeriveChatResult{}, err
 	}
@@ -636,4 +639,31 @@ func rewriteDerivedPlanTaskSnapshots(chatDir string, ctx deriveRewriteContext) e
 		}
 	}
 	return nil
+}
+
+func rewriteDerivedArtifactManifest(chatDir string, ctx deriveRewriteContext) error {
+	manifest, found, err := loadArtifactManifest(chatDir, ctx.sourceChatID)
+	if err != nil || !found {
+		return err
+	}
+	manifest.ChatID = ctx.targetChatID
+	items := make([]ArtifactManifestItem, 0, len(manifest.Items))
+	for _, item := range manifest.Items {
+		mappedRunID, ok := ctx.runIDs[strings.TrimSpace(item.RunID)]
+		if !ok {
+			continue
+		}
+		item.RunID = mappedRunID
+		item.URL = rewriteDerivedResourceURL(item.URL, ctx.sourceChatID, ctx.targetChatID)
+		items = append(items, item)
+	}
+	path := artifactManifestPath(chatDir)
+	if len(items) == 0 {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	manifest.Items = items
+	return writeArtifactManifest(path, manifest)
 }

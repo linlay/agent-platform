@@ -71,6 +71,16 @@ func TestArchiverMovesChatToArchiveAndPreservesAttachments(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("complete run: %v", err)
 	}
+	if err := active.AppendArtifactManifest("chat-archiver", "run-archiver", testEpochMillis(2000), []map[string]any{{
+		"artifactId": "artifact-archived",
+		"type":       "file",
+		"name":       "artifact.txt",
+		"mimeType":   "text/plain",
+		"sizeBytes":  8,
+		"url":        "/api/resource?file=chat-archiver%2Fartifact.txt",
+	}}); err != nil {
+		t.Fatalf("append artifact manifest: %v", err)
+	}
 	if err := os.MkdirAll(active.ChatDir("chat-archiver"), 0o755); err != nil {
 		t.Fatalf("create chat attachments dir: %v", err)
 	}
@@ -108,6 +118,9 @@ func TestArchiverMovesChatToArchiveAndPreservesAttachments(t *testing.T) {
 	}
 	if !loaded.Summary.HasAttachments || loaded.Summary.AgentKey != "agent-a" || len(loaded.Detail.Events) == 0 {
 		t.Fatalf("unexpected archived chat: %#v", loaded)
+	}
+	if loaded.Detail.Artifact == nil || len(loaded.Detail.Artifact.Items) != 1 || loaded.Detail.Artifact.Items[0].ArtifactID != "artifact-archived" {
+		t.Fatalf("expected archived artifact manifest state, got %#v", loaded.Detail.Artifact)
 	}
 	if loaded.Summary.Usage == nil || loaded.Summary.Usage.EstimatedCostTotal != 0.03 || loaded.Summary.Usage.ModelKey != "" {
 		t.Fatalf("expected archived summary cost without aggregate modelKey, got %#v", loaded.Summary.Usage)
@@ -216,6 +229,16 @@ func TestArchiverRestoresArchivedChatAndRemovesArchive(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("complete run: %v", err)
 	}
+	if err := active.AppendArtifactManifest("chat-restore", "run-restore", testEpochMillis(2000), []map[string]any{{
+		"artifactId": "artifact-restored",
+		"type":       "file",
+		"name":       "artifact.txt",
+		"mimeType":   "text/plain",
+		"sizeBytes":  8,
+		"url":        "/api/resource?file=chat-restore%2Fartifact.txt",
+	}}); err != nil {
+		t.Fatalf("append artifact manifest: %v", err)
+	}
 	if err := os.MkdirAll(active.ChatDir("chat-restore"), 0o755); err != nil {
 		t.Fatalf("mkdir active chat dir: %v", err)
 	}
@@ -256,6 +279,9 @@ func TestArchiverRestoresArchivedChatAndRemovesArchive(t *testing.T) {
 	}
 	if len(detail.Events) == 0 {
 		t.Fatalf("expected restored replay events")
+	}
+	if detail.Artifact == nil || len(detail.Artifact.Items) != 1 || detail.Artifact.Items[0].ArtifactID != "artifact-restored" {
+		t.Fatalf("expected restored artifact manifest state, got %#v", detail.Artifact)
 	}
 	if _, err := os.Stat(filepath.Join(active.ChatDir("chat-restore"), "artifact.txt")); err != nil {
 		t.Fatalf("expected artifact restored to active dir: %v", err)

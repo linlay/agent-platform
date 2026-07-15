@@ -15,6 +15,7 @@ type taskStepBuffer struct {
 	teamID                  string
 	presentation            string
 	messages                []StoredMessage
+	artifacts               *ArtifactPublicationState
 	sources                 *SourceState
 	liveSeq                 int64
 	lastTimestamp           int64
@@ -64,7 +65,9 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 		return
 	}
 	allowEmptySubAgentStep := strings.TrimSpace(buffer.taskSubAgentKey) != "" && strings.TrimSpace(buffer.taskStatus) != ""
-	if len(buffer.messages) == 0 && !allowEmptySubAgentStep && (buffer.sources == nil || len(buffer.sources.Items) == 0) {
+	if len(buffer.messages) == 0 && !allowEmptySubAgentStep &&
+		(buffer.sources == nil || len(buffer.sources.Items) == 0) &&
+		(buffer.artifacts == nil || len(buffer.artifacts.Items) == 0) {
 		return
 	}
 
@@ -94,8 +97,8 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 			line.ContextWindow = cw
 		}
 	}
-	if w.latestArtifact != nil {
-		line.Artifacts = w.latestArtifact
+	if buffer.artifacts != nil {
+		line.Artifacts = cloneArtifactPublicationState(buffer.artifacts)
 	}
 	if buffer.sources != nil {
 		line.Sources = cloneSourceState(buffer.sources)
@@ -117,6 +120,7 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 		}
 	}
 	buffer.messages = nil
+	buffer.artifacts = nil
 	buffer.sources = nil
 	buffer.liveSeq = 0
 	buffer.pendingUsage = nil
@@ -225,9 +229,29 @@ func (w *StepWriter) appendTypedEventLine(event stream.EventData, lineType strin
 	}
 }
 
-func (w *StepWriter) updateArtifact(event stream.EventData) {
-	if w.latestArtifact == nil {
-		w.latestArtifact = &ArtifactState{}
+func (w *StepWriter) appendArtifactEvent(event stream.EventData) bool {
+	if w == nil || strings.TrimSpace(event.String("toolId")) == "" {
+		return false
 	}
-	w.latestArtifact.Items = append(w.latestArtifact.Items, artifactItemsFromEventPayload(event.Payload)...)
+	item := artifactPublicationItemFromEvent(event)
+	if taskID := w.taskIDForEvent(event); taskID != "" {
+		if w.closedTaskIDs[taskID] {
+			return false
+		}
+		buffer := w.taskBuffers[taskID]
+		if buffer == nil || !storedMessagesContainToolID(buffer.messages, event.String("toolId")) {
+			return false
+		}
+		buffer.artifacts = appendArtifactPublicationStateItem(buffer.artifacts, item)
+		buffer.liveSeq = maxLiveSeq(buffer.liveSeq, event.Seq)
+		buffer.lastTimestamp = event.Timestamp
+		return true
+	}
+	if !storedMessagesContainToolID(w.messages, event.String("toolId")) {
+		return false
+	}
+	w.pendingArtifacts = appendArtifactPublicationStateItem(w.pendingArtifacts, item)
+	w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
+	w.lastTimestamp = event.Timestamp
+	return true
 }

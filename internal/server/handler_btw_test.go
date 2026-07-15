@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -111,6 +112,46 @@ func TestBTWCreatesHiddenBranchWithoutChangingParentChat(t *testing.T) {
 	messages, err = branch.LoadRawMessages(20)
 	if err != nil || len(messages) != 6 {
 		t.Fatalf("expected continued BTW history, messages=%#v err=%v", messages, err)
+	}
+}
+
+func TestBTWInheritsNonTeamParentAgentInsteadOfDefaultChannelAgent(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"side answer"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{
+		setupRuntime: func(_ string, cfg *config.Config) {
+			writeBTWChannelAgentForTest(t, cfg.Paths.AgentsDir, "aaa-channel-default")
+		},
+	})
+	const chatID = "chat-btw-parent-agent"
+	serveJSONRequestForBTWTest(t, fixture.server, "/api/query", `{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"parent"}`)
+
+	rec := serveJSONRequestForBTWTest(t, fixture.server, "/api/btw", `{"chatId":"`+chatID+`","message":"side"}`)
+	requestEvent := findSSEMessageByType(t, decodeSSEMessages(t, rec.Body.String()), "request.query")
+	if requestEvent["agentKey"] != "mock-agent" {
+		t.Fatalf("BTW used agent %q, want parent agent mock-agent: %#v", requestEvent["agentKey"], requestEvent)
+	}
+}
+
+func TestBTWRejectsWhenNonTeamParentAgentUsesChannelBackend(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		setupRuntime: func(_ string, cfg *config.Config) {
+			writeBTWChannelAgentForTest(t, cfg.Paths.AgentsDir, "channel-parent")
+		},
+	})
+	const chatID = "chat-btw-channel-parent"
+	if _, _, err := fixture.chats.EnsureChat(chatID, "channel-parent", "", "parent"); err != nil {
+		t.Fatalf("ensure channel parent: %v", err)
+	}
+
+	rec := serveJSONRequestForBTWTestStatus(t, fixture.server, "/api/btw", `{"chatId":"`+chatID+`","message":"side"}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "btw_backend_unsupported") {
+		t.Fatalf("expected channel parent BTW rejection, got %d %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -321,6 +362,25 @@ func serveJSONRequestForBTWTestStatus(t *testing.T, server *Server, path string,
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
 	return rec
+}
+
+func writeBTWChannelAgentForTest(t *testing.T, agentsDir string, key string) {
+	t.Helper()
+	dir := filepath.Join(agentsDir, key)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir channel agent: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "agent.yml"), []byte(strings.Join([]string{
+		"key: " + key,
+		"name: " + key,
+		"description: channel test agent",
+		"mode: CHANNEL",
+		"channelConfig:",
+		"  channelId: test-channel",
+		"  remoteAgentKey: upstream-agent",
+	}, "\n")), 0o644); err != nil {
+		t.Fatalf("write channel agent: %v", err)
+	}
 }
 
 func messageTextForBTWTest(value any) string {

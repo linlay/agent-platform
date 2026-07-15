@@ -168,6 +168,8 @@ func (DeltaTeamDispatch) agentDeltaTag() {}
 type DeltaArtifactPublish struct {
 	ChatID        string
 	RunID         string
+	TaskID        string
+	ToolID        string
 	ArtifactCount int
 	Artifacts     []map[string]any
 }

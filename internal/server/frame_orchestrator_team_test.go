@@ -281,3 +281,19 @@ func TestRouteTeamChildLLMRequestCarriesHiddenPersistenceActor(t *testing.T) {
 		t.Fatalf("routed Team llm.request=%#v", routed)
 	}
 }
+
+func TestRouteTeamChildArtifactPublicationKeepsToolAndTaskTogether(t *testing.T) {
+	task := preparedSubTask{spec: contracts.SubAgentTaskSpec{SubAgentKey: "writer"}, taskID: "task-1"}
+	args, ok := routeTeamChildStreamInput("run-1", "research", task, stream.ToolArgs{ToolID: "call-artifact", ToolName: "artifact_publish"}, childRunOptions{}).(stream.ToolArgs)
+	if !ok || args.TaskID != "task-1" || args.ToolID != "task-1:call-artifact" {
+		t.Fatalf("routed Team tool args=%#v", args)
+	}
+	result, ok := routeTeamChildStreamInput("run-1", "research", task, stream.ToolResult{ToolID: "call-artifact", ToolName: "artifact_publish"}, childRunOptions{}).(stream.ToolResult)
+	if !ok || result.ToolID != "task-1:call-artifact" {
+		t.Fatalf("routed Team tool result=%#v", result)
+	}
+	publication, ok := routeTeamChildStreamInput("run-1", "research", task, stream.ArtifactPublish{RunID: "run-1", ToolID: "call-artifact", Artifacts: []map[string]any{{"artifactId": "artifact-1"}}}, childRunOptions{}).(stream.ArtifactPublish)
+	if !ok || publication.TaskID != "task-1" || publication.ToolID != "task-1:call-artifact" {
+		t.Fatalf("routed Team artifact publication=%#v", publication)
+	}
+}

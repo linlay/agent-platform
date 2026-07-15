@@ -33,6 +33,13 @@ type ArtifactState struct {
 	Items []ArtifactItemState `json:"items,omitempty"`
 }
 
+// ArtifactPublicationState is the JSONL audit sidecar for artifact.publish.
+// It deliberately keeps publication records rather than the chat's current
+// artifact list; the latter lives in .tools/artifacts.json.
+type ArtifactPublicationState struct {
+	Items []map[string]any `json:"items,omitempty"`
+}
+
 type SourceState struct {
 	Items []map[string]any `json:"items,omitempty"`
 }
@@ -153,29 +160,29 @@ type ToolCompactLine struct {
 // line number. Continuation lines such as HITL-split tool results may reuse the
 // same seq as the assistant tool-call step that caused them.
 type StepLine struct {
-	ChatID          string           `json:"chatId"`
-	RunID           string           `json:"runId"`
-	UpdatedAt       int64            `json:"updatedAt"`
-	LiveSeq         int64            `json:"liveSeq,omitempty"`
-	ModelKey        string           `json:"modelKey,omitempty"`
-	ReasoningEffort string           `json:"reasoningEffort,omitempty"`
-	TaskID          string           `json:"taskId,omitempty"`
-	TaskStatus      string           `json:"taskStatus,omitempty"`
-	TaskSubAgentKey string           `json:"taskSubAgentKey,omitempty"`
-	TeamID          string           `json:"teamId,omitempty"`
-	Presentation    string           `json:"presentation,omitempty"`
-	SystemRef       map[string]any   `json:"systemRef,omitempty"`
-	Debug           map[string]any   `json:"debug,omitempty"`
-	InputMessages   []map[string]any `json:"inputMessages,omitempty"`
-	Messages        []StoredMessage  `json:"messages"`
-	Awaiting        []map[string]any `json:"awaiting,omitempty"`
-	Usage           map[string]any   `json:"usage,omitempty"`
-	ContextWindow   map[string]any   `json:"contextWindow,omitempty"`
-	Type            string           `json:"_type"`
-	Stage           string           `json:"stage,omitempty"`
-	Seq             int              `json:"seq,omitempty"`
-	Artifacts       *ArtifactState   `json:"artifacts,omitempty"`
-	Sources         *SourceState     `json:"sources,omitempty"`
+	ChatID          string                    `json:"chatId"`
+	RunID           string                    `json:"runId"`
+	UpdatedAt       int64                     `json:"updatedAt"`
+	LiveSeq         int64                     `json:"liveSeq,omitempty"`
+	ModelKey        string                    `json:"modelKey,omitempty"`
+	ReasoningEffort string                    `json:"reasoningEffort,omitempty"`
+	TaskID          string                    `json:"taskId,omitempty"`
+	TaskStatus      string                    `json:"taskStatus,omitempty"`
+	TaskSubAgentKey string                    `json:"taskSubAgentKey,omitempty"`
+	TeamID          string                    `json:"teamId,omitempty"`
+	Presentation    string                    `json:"presentation,omitempty"`
+	SystemRef       map[string]any            `json:"systemRef,omitempty"`
+	Debug           map[string]any            `json:"debug,omitempty"`
+	InputMessages   []map[string]any          `json:"inputMessages,omitempty"`
+	Messages        []StoredMessage           `json:"messages"`
+	Awaiting        []map[string]any          `json:"awaiting,omitempty"`
+	Usage           map[string]any            `json:"usage,omitempty"`
+	ContextWindow   map[string]any            `json:"contextWindow,omitempty"`
+	Type            string                    `json:"_type"`
+	Stage           string                    `json:"stage,omitempty"`
+	Seq             int                       `json:"seq,omitempty"`
+	Artifacts       *ArtifactPublicationState `json:"artifacts,omitempty"`
+	Sources         *SourceState              `json:"sources,omitempty"`
 }
 
 type StepApproval struct {

@@ -32,7 +32,15 @@ func (s *FileStore) LoadChat(chatID string) (Detail, error) {
 
 	rawMessages := rawMessagesFromJSONLLines(lines)
 
-	return parseChatNewFormat(*sum, lines, rawMessages, s.ChatDir(chatID), runStartedAt, runCompletedAt)
+	detail, err := parseChatNewFormat(*sum, lines, rawMessages, s.ChatDir(chatID), runStartedAt, runCompletedAt)
+	if err != nil {
+		return Detail{}, err
+	}
+	detail.Artifact, err = loadArtifactStateFromManifest(s.ChatDir(chatID), chatID)
+	if err != nil {
+		return Detail{}, err
+	}
+	return detail, nil
 }
 
 func (s *FileStore) replayRunLifecycleTimesLocked(chatID string) (map[string]int64, map[string]int64, error) {
@@ -149,7 +157,6 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 		return Detail{}, ErrLegacyPlanningProtocol
 	}
 	var planning *PlanningState
-	var artifact *ArtifactState
 
 	runs := map[string]*chatRunData{}
 	var runOrder []string
@@ -255,10 +262,6 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 		case StepLineTypeReact, StepLineTypeReactTool, StepLineTypePlanExecute, StepLineTypeStep:
 			lineLiveSeq := int64FromAny(line["liveSeq"])
 			rd := ensureRun(runs, &runOrder, runID)
-
-			if rawArt, ok := line["artifacts"].(map[string]any); ok {
-				artifact = parseArtifactFromStep(rawArt)
-			}
 
 			stage, _ := line["stage"].(string)
 			taskID, _ := line["taskId"].(string)
@@ -622,7 +625,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 		},
 		Plan:     plan,
 		Planning: planning,
-		Artifact: artifact,
+		Artifact: nil,
 	}, nil
 }
 
