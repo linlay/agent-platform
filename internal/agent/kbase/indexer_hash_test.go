@@ -29,6 +29,17 @@ func TestIndexAndQueryHashesHaveSeparateInputs(t *testing.T) {
 	}
 }
 
+func TestControlSchemaVersionDoesNotChangeIndexHash(t *testing.T) {
+	cfg := hashTestResolvedConfig(t.TempDir())
+	got := computeIndexHash(cfg)
+	if want := computeIndexHashForSchema(cfg, IndexSchemaVersion); got != want {
+		t.Fatalf("index hash = %q, want %q", got, want)
+	}
+	if got == computeIndexHashForSchema(cfg, ControlSchemaVersion) {
+		t.Fatalf("control schema %s unexpectedly participates in index hash", ControlSchemaVersion)
+	}
+}
+
 func TestIndexWorkspaceUsesControlGenerationHash(t *testing.T) {
 	cfg := hashTestResolvedConfig(t.TempDir())
 	if err := os.MkdirAll(cfg.WorkspaceRoot, 0o755); err != nil {
@@ -78,9 +89,13 @@ func (s *hashWorkspaceStore) SetMeta(key, value string) error {
 }
 func (s *hashWorkspaceStore) ClearIndex() error                { s.clearCalls++; return nil }
 func (s *hashWorkspaceStore) File(string) (*fileRecord, error) { return nil, nil }
-func (s *hashWorkspaceStore) ActiveFilePaths() (map[string]struct{}, error) {
+func (s *hashWorkspaceStore) TrackedFilePaths() (map[string]struct{}, error) {
 	return map[string]struct{}{}, nil
 }
+func (s *hashWorkspaceStore) FileEmbeddings(string, string, int) (map[string][]float64, error) {
+	return map[string][]float64{}, nil
+}
+func (s *hashWorkspaceStore) UpsertMetadataFile(fileRecord) error               { return nil }
 func (s *hashWorkspaceStore) UpsertSkippedFile(fileRecord) error                { return nil }
 func (s *hashWorkspaceStore) UpsertIndexedFile(fileRecord, []chunkRecord) error { return nil }
 func (s *hashWorkspaceStore) MarkDeleted(string) error                          { return nil }

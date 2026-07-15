@@ -410,6 +410,49 @@ func (s *LanceRetrievalStore) ReadPath(ctx context.Context, generationID, path s
 	return out, nil
 }
 
+func (s *LanceRetrievalStore) ReadFileEmbeddings(ctx context.Context, generationID, fileID, model string, dimension int) (map[string][]float64, error) {
+	if err := s.ensure(ctx); err != nil {
+		return nil, err
+	}
+	out := map[string][]float64{}
+	for offset := 0; ; {
+		request := struct {
+			lanceBaseRequest
+			FileID string `json:"fileId"`
+			Offset int    `json:"offset"`
+			Limit  int    `json:"limit"`
+		}{lanceBaseRequest: lanceBaseRequest{RequestID: lanceRequestID("file_embeddings"), AgentKey: s.agentKey(generationID), GenerationID: generationID}, FileID: fileID, Offset: offset, Limit: 1024}
+		var response struct {
+			Items []struct {
+				ContentHash        string    `json:"contentHash"`
+				EmbeddingModel     string    `json:"embeddingModel"`
+				EmbeddingDimension int       `json:"embeddingDimension"`
+				Vector             []float32 `json:"vector"`
+			} `json:"items"`
+			NextOffset int  `json:"nextOffset"`
+			HasMore    bool `json:"hasMore"`
+		}
+		if err := s.process.doJSON(ctx, "POST", "/v1/chunks/file-embeddings", request, &response, 30*time.Second); err != nil {
+			return nil, err
+		}
+		for _, item := range response.Items {
+			if item.EmbeddingModel != model || item.EmbeddingDimension != dimension || len(item.Vector) != dimension {
+				continue
+			}
+			vector := make([]float64, len(item.Vector))
+			for index, value := range item.Vector {
+				vector[index] = float64(value)
+			}
+			out[item.ContentHash] = vector
+		}
+		if !response.HasMore || response.NextOffset <= offset {
+			break
+		}
+		offset = response.NextOffset
+	}
+	return out, nil
+}
+
 func (s *LanceRetrievalStore) BuildIndexes(ctx context.Context, generationID string, spec IndexSpec) error {
 	if err := s.ensure(ctx); err != nil {
 		return err
@@ -420,6 +463,14 @@ func (s *LanceRetrievalStore) BuildIndexes(ctx context.Context, generationID str
 		FTSTokenizer string `json:"ftsTokenizer"`
 	}{lanceBaseRequest: lanceBaseRequest{RequestID: lanceRequestID("index"), AgentKey: s.agentKey(generationID), GenerationID: generationID}, ANNMinRows: spec.ANNMinRows, FTSTokenizer: spec.FTSBaseTokenizer}
 	return s.process.doJSON(ctx, "POST", "/v1/indexes/build", request, nil, 30*time.Minute)
+}
+
+func (s *LanceRetrievalStore) RefreshIndexes(ctx context.Context, generationID string) error {
+	if err := s.ensure(ctx); err != nil {
+		return err
+	}
+	request := struct{ lanceBaseRequest }{lanceBaseRequest{RequestID: lanceRequestID("refresh_indexes"), AgentKey: s.agentKey(generationID), GenerationID: generationID}}
+	return s.process.doJSON(ctx, "POST", "/v1/indexes/refresh", request, nil, 30*time.Minute)
 }
 
 func (s *LanceRetrievalStore) WaitForIndexes(ctx context.Context, generationID string, timeout time.Duration) error {
@@ -495,6 +546,7 @@ func (s *LanceRetrievalStore) Stats(ctx context.Context, generationID string) (R
 		if strings.Contains(lower, "fts") {
 			stats.FTSIndexType = index.IndexType
 			stats.FTSReady = true
+			stats.FTSUnindexedRows += index.UnindexedRows
 		}
 		if strings.Contains(lower, "ivf") || strings.Contains(lower, "vector") || strings.Contains(lower, "hnsw") {
 			stats.VectorIndexType = index.IndexType

@@ -20,7 +20,9 @@ type workspaceIndexStore interface {
 	SetMeta(string, string) error
 	ClearIndex() error
 	File(string) (*fileRecord, error)
-	ActiveFilePaths() (map[string]struct{}, error)
+	TrackedFilePaths() (map[string]struct{}, error)
+	FileEmbeddings(string, string, int) (map[string][]float64, error)
+	UpsertMetadataFile(fileRecord) error
 	UpsertSkippedFile(fileRecord) error
 	UpsertIndexedFile(fileRecord, []chunkRecord) error
 	MarkDeleted(string) error
@@ -73,13 +75,23 @@ func (s *lanceIndexStore) File(path string) (*fileRecord, error) {
 	return s.control.File(s.ctx, s.generationID, path)
 }
 
-func (s *lanceIndexStore) ActiveFilePaths() (map[string]struct{}, error) {
-	return s.control.ActiveFilePaths(s.ctx, s.generationID)
+func (s *lanceIndexStore) TrackedFilePaths() (map[string]struct{}, error) {
+	return s.control.TrackedFilePaths(s.ctx, s.generationID)
+}
+
+func (s *lanceIndexStore) FileEmbeddings(fileID, model string, dimension int) (map[string][]float64, error) {
+	return s.retrieval.ReadFileEmbeddings(s.ctx, s.generationID, fileID, model, dimension)
+}
+
+func (s *lanceIndexStore) UpsertMetadataFile(rec fileRecord) error {
+	rec.DeletedAt = 0
+	return s.control.UpsertFile(s.ctx, s.generationID, rec)
 }
 
 func (s *lanceIndexStore) UpsertSkippedFile(rec fileRecord) error {
 	rec.ChunkCount = 0
 	rec.ChunkSetHash = ""
+	rec.DeletedAt = 0
 	return s.replaceOrDelete(rec, nil, FileOperationDelete)
 }
 
@@ -88,6 +100,7 @@ func (s *lanceIndexStore) UpsertIndexedFile(rec fileRecord, chunks []chunkRecord
 	rec.SkipReason = ""
 	rec.Error = ""
 	rec.ChunkCount = len(chunks)
+	rec.DeletedAt = 0
 	for index := range chunks {
 		chunks[index].FileID = rec.ID
 	}
@@ -111,6 +124,7 @@ func (s *lanceIndexStore) delete(rec fileRecord, status string) error {
 	rec.ChunkCount = 0
 	rec.ChunkSetHash = ""
 	rec.IndexedAt = time.Now().UnixMilli()
+	rec.DeletedAt = rec.IndexedAt
 	return s.replaceOrDelete(rec, nil, FileOperationDelete)
 }
 

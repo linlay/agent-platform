@@ -79,7 +79,7 @@ func TestLanceEngineHealthUsesBearerTokenAndRecordsHandshake(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(LanceEngineHandshake{
-			ProtocolVersion: 1,
+			ProtocolVersion: 2,
 			EngineVersion:   "1.2.3",
 			LanceDBVersion:  "0.30.0",
 			ListenAddress:   "127.0.0.1:12345",
@@ -92,7 +92,7 @@ func TestLanceEngineHealthUsesBearerTokenAndRecordsHandshake(t *testing.T) {
 		t.Fatalf("Health: %v", err)
 	}
 	state := process.State()
-	if !state.Available || state.ProtocolVersion != 1 || state.EngineVersion != "1.2.3" || state.LanceDBVersion != "0.30.0" {
+	if !state.Available || state.ProtocolVersion != 2 || state.EngineVersion != "1.2.3" || state.LanceDBVersion != "0.30.0" {
 		t.Fatalf("state = %#v", state)
 	}
 }

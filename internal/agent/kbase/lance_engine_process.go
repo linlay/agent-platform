@@ -26,7 +26,7 @@ import (
 
 const (
 	lanceEngineExecutableName = "kbase-lance-engine"
-	lanceProtocolVersion      = 1
+	lanceProtocolVersion      = 2
 	lanceHandshakeTimeout     = 10 * time.Second
 )
 

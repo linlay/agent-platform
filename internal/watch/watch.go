@@ -35,6 +35,7 @@ type Spec struct {
 	Include    func(event Event) bool
 	OnEvent    func(event Event)
 	OnDebounce func(ctx context.Context) error
+	OnError    func(error)
 }
 
 type Watcher struct {
@@ -193,7 +194,7 @@ func (w *Watcher) run(ctx context.Context, spec Spec) {
 				continue
 			}
 			for _, root := range spec.Roots {
-				if event.Op&fsnotify.Create != 0 {
+				if event.Op&(fsnotify.Create|fsnotify.Rename) != 0 {
 					if err := w.addCreatedDir(root, changed); err != nil {
 						log.Printf("%s watcher register failed for %s: %v", spec.prefix(), changed, err)
 					}
@@ -229,6 +230,9 @@ func (w *Watcher) run(ctx context.Context, spec Spec) {
 				return
 			}
 			log.Printf("%s watcher error: %v", spec.prefix(), err)
+			if spec.OnError != nil {
+				spec.OnError(err)
+			}
 		}
 	}
 }

@@ -37,6 +37,7 @@ type Manager struct {
 	running          map[string]bool
 	storageRunning   map[string]bool
 	storageQueued    map[string]bool
+	deltaQueues      map[string]*deltaQueue
 	closing          bool
 }
 
@@ -79,6 +80,7 @@ type watcherBinding struct {
 	signature  string
 	agentKey   string
 	storageDir string
+	changes    *deltaAccumulator
 }
 
 func NewManager(options ManagerOptions, agents AgentSource, modelRegistry *models.ModelRegistry) *Manager {
@@ -94,6 +96,7 @@ func NewManager(options ManagerOptions, agents AgentSource, modelRegistry *model
 		running:        map[string]bool{},
 		storageRunning: map[string]bool{},
 		storageQueued:  map[string]bool{},
+		deltaQueues:    map[string]*deltaQueue{},
 	}
 }
 
@@ -318,6 +321,7 @@ func (m *Manager) ensureWatchers(ctx context.Context) {
 	}
 	m.mu.Unlock()
 	for _, binding := range released {
+		m.dropDeltaQueue(binding.storageDir)
 		go m.releaseStorageGeneration(binding.agentKey, binding.storageDir)
 	}
 
@@ -334,6 +338,7 @@ func (m *Manager) startWatcher(ctx context.Context, spec AgentSpec) {
 		debounce = 2 * time.Second
 	}
 	watchCtx, cancel := context.WithCancel(ctx)
+	changes := newDeltaAccumulator()
 	matchers := compileMatchers(append(DefaultExcludePatterns(), spec.Config.Exclude...))
 	watcher, err := runtimewatch.Start(watchCtx, runtimewatch.Spec{
 		LogPrefix: "[kbase]",
@@ -355,9 +360,24 @@ func (m *Manager) startWatcher(ctx context.Context, spec AgentSpec) {
 			rel = filepath.ToSlash(rel)
 			return matchesAny(matchers, rel) || strings.HasPrefix(filepath.Base(path), ".DS_Store")
 		},
+		OnEvent: func(event runtimewatch.Event) {
+			rel, err := filepath.Rel(workspace, event.Path)
+			if err != nil || strings.HasPrefix(rel, "..") {
+				return
+			}
+			changes.Add(filepath.ToSlash(rel))
+		},
 		OnDebounce: func(ctx context.Context) error {
-			_, err := m.Refresh(ctx, agentKey, RefreshOptions{Mode: "watcher"})
-			return err
+			paths, reconcile := changes.Drain()
+			if len(paths) > 0 || reconcile {
+				m.queueDelta(agentKey, m.storageDirForSpec(spec), paths, reconcile)
+			}
+			return nil
+		},
+		OnError: func(error) {
+			changes.RequireReconcile()
+			paths, reconcile := changes.Drain()
+			m.queueDelta(agentKey, m.storageDirForSpec(spec), paths, reconcile)
 		},
 	})
 	if err != nil {
@@ -372,7 +392,7 @@ func (m *Manager) startWatcher(ctx context.Context, spec AgentSpec) {
 		}
 	}
 	m.watchers[agentKey] = watcherBinding{
-		watcher: watcher, cancel: cancel, signature: watcherSignature(spec),
+		watcher: watcher, cancel: cancel, signature: watcherSignature(spec), changes: changes,
 		agentKey: agentKey, storageDir: m.storageDirForSpec(spec),
 	}
 	m.mu.Unlock()
@@ -456,6 +476,7 @@ func (m *Manager) Status(agentKey string) (Status, error) {
 		Engine:           "lancedb",
 		SchemaVersion:    ControlSchemaVersion,
 		StorageDiskUsage: storageDiskUsage(cfg.StorageDir),
+		PendingChanges:   m.pendingChanges(cfg.StorageDir),
 	}
 	control, err := OpenReadControlStore(cfg.StorageDir)
 	if err != nil {
@@ -506,7 +527,7 @@ func (m *Manager) Status(agentKey string) (Status, error) {
 	status.Sidecar = &state
 	indexes := &IndexesStatus{}
 	if stats, statsErr := m.lance.Stats(ctx, active.ID); statsErr == nil {
-		indexes.FTS = IndexStatus{Type: firstNonBlank(stats.FTSIndexType, "FTS/ICU"), Ready: stats.FTSReady}
+		indexes.FTS = IndexStatus{Type: firstNonBlank(stats.FTSIndexType, "FTS/ICU"), Ready: stats.FTSReady, UnindexedRows: stats.FTSUnindexedRows}
 		indexes.Vector = VectorIndexStatus{Type: firstNonBlank(stats.VectorIndexType, "flat"), Ready: stats.VectorReady, UnindexedRows: stats.UnindexedRows}
 		lastOptimized, _ := control.Meta(ctx, "lastOptimizedAt")
 		optimizedAt, parseErr := parseOptionalPublicEpochMillis(lastOptimized, "lastOptimizedAt", "kbase.status.metadata")
@@ -883,7 +904,9 @@ func (m *Manager) isIndexing(agentKey string, storageDir string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	storageKey := storageLockKey(storageDir)
-	return m.running[agentKey] || m.storageRunning[storageKey] || m.storageQueued[storageKey]
+	delta := m.deltaQueues[storageKey]
+	return m.running[agentKey] || m.storageRunning[storageKey] || m.storageQueued[storageKey] ||
+		delta != nil && (delta.running || delta.reconcile || len(delta.paths) > 0)
 }
 
 func (m *Manager) queueRefresh(agentKey string, storageDir string, mode string) {

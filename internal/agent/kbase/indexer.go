@@ -67,7 +67,7 @@ func computeConfigHash(cfg resolvedConfig) string {
 }
 
 func computeIndexHash(cfg resolvedConfig) string {
-	return computeIndexHashForSchema(cfg, ControlSchemaVersion)
+	return computeIndexHashForSchema(cfg, IndexSchemaVersion)
 }
 
 func computeIndexHashForSchema(cfg resolvedConfig, version string) string {
@@ -174,7 +174,7 @@ func indexWorkspace(ctx context.Context, store workspaceIndexStore, cfg resolved
 		if err != nil {
 			return nil
 		}
-		if err := indexOneFile(ctx, store, cfg, embedder, path, rel, info, force, run); err != nil {
+		if err := indexOneFile(ctx, store, cfg, embedder, path, rel, info, force, false, run); err != nil {
 			return err
 		}
 		return nil
@@ -182,7 +182,7 @@ func indexWorkspace(ctx context.Context, store workspaceIndexStore, cfg resolved
 	if err != nil {
 		return err
 	}
-	active, err := store.ActiveFilePaths()
+	active, err := store.TrackedFilePaths()
 	if err != nil {
 		return err
 	}
@@ -231,7 +231,160 @@ func indexWorkspace(ctx context.Context, store workspaceIndexStore, cfg resolved
 	return nil
 }
 
-func indexOneFile(ctx context.Context, store workspaceIndexStore, cfg resolvedConfig, embedder *Embedder, fullPath string, rel string, info fs.FileInfo, force bool, run *IndexRun) error {
+// indexWorkspacePaths applies a watcher change set without walking unrelated
+// workspace paths. Events are hints only: the filesystem is re-checked while
+// holding the per-storage refresh lock.
+func indexWorkspacePaths(ctx context.Context, store workspaceIndexStore, cfg resolvedConfig, embedder *Embedder, paths []string, run *IndexRun) error {
+	paths = compactChangedPaths(paths)
+	run.CandidatePaths = len(paths)
+	includeMatchers := compileMatchers(cfg.Include)
+	excludeMatchers := compileMatchers(append(DefaultExcludePatterns(), cfg.Exclude...))
+	processed := map[string]struct{}{}
+	for _, rel := range paths {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		rel = normalizeIndexedPath(rel)
+		if rel == "" {
+			return indexWorkspace(ctx, store, cfg, embedder, false, run)
+		}
+		fullPath := filepath.Join(cfg.WorkspaceRoot, filepath.FromSlash(rel))
+		info, err := os.Stat(fullPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				if err := deleteTrackedPrefix(store, rel, run); err != nil {
+					return err
+				}
+				continue
+			}
+			return err
+		}
+		if info.IsDir() {
+			seen := map[string]struct{}{}
+			err := filepath.WalkDir(fullPath, func(path string, entry fs.DirEntry, walkErr error) error {
+				if walkErr != nil {
+					return nil
+				}
+				child, relErr := filepath.Rel(cfg.WorkspaceRoot, path)
+				if relErr != nil {
+					return nil
+				}
+				child = filepath.ToSlash(child)
+				if entry.IsDir() {
+					if child != rel && (matchesAny(excludeMatchers, child+"/") || shouldSkipDirName(entry.Name())) {
+						return filepath.SkipDir
+					}
+					return nil
+				}
+				if !shouldIndexPath(child, includeMatchers, excludeMatchers) {
+					return nil
+				}
+				seen[child] = struct{}{}
+				if _, ok := processed[child]; ok {
+					return nil
+				}
+				processed[child] = struct{}{}
+				fileInfo, infoErr := entry.Info()
+				if infoErr != nil {
+					return nil
+				}
+				run.ScannedFiles++
+				return indexOneFile(ctx, store, cfg, embedder, path, child, fileInfo, false, true, run)
+			})
+			if err != nil {
+				return err
+			}
+			if err := deleteTrackedPrefixExcept(store, rel, seen, run); err != nil {
+				return err
+			}
+			continue
+		}
+		if !shouldIndexPath(rel, includeMatchers, excludeMatchers) {
+			if err := deleteTrackedPrefix(store, rel, run); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, ok := processed[rel]; ok {
+			continue
+		}
+		processed[rel] = struct{}{}
+		run.ScannedFiles++
+		if err := indexOneFile(ctx, store, cfg, embedder, fullPath, rel, info, false, true, run); err != nil {
+			return err
+		}
+	}
+	return store.SetMeta("lastIndexedAt", fmt.Sprintf("%d", time.Now().UnixMilli()))
+}
+
+func shouldIndexPath(path string, includeMatchers, excludeMatchers []matcher) bool {
+	if matchesAny(excludeMatchers, path) {
+		return false
+	}
+	return len(includeMatchers) == 0 || matchesAny(includeMatchers, path)
+}
+
+func compactChangedPaths(paths []string) []string {
+	set := map[string]struct{}{}
+	for _, path := range paths {
+		path = normalizeIndexedPath(path)
+		if path == "." {
+			path = ""
+		}
+		set[path] = struct{}{}
+	}
+	ordered := make([]string, 0, len(set))
+	for path := range set {
+		ordered = append(ordered, path)
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		leftDepth, rightDepth := strings.Count(ordered[i], "/"), strings.Count(ordered[j], "/")
+		if leftDepth != rightDepth {
+			return leftDepth < rightDepth
+		}
+		return ordered[i] < ordered[j]
+	})
+	out := make([]string, 0, len(ordered))
+	for _, path := range ordered {
+		covered := false
+		for _, parent := range out {
+			if parent == "" || strings.HasPrefix(path, parent+"/") {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			out = append(out, path)
+		}
+	}
+	return out
+}
+
+func deleteTrackedPrefix(store workspaceIndexStore, prefix string, run *IndexRun) error {
+	return deleteTrackedPrefixExcept(store, prefix, nil, run)
+}
+
+func deleteTrackedPrefixExcept(store workspaceIndexStore, prefix string, seen map[string]struct{}, run *IndexRun) error {
+	tracked, err := store.TrackedFilePaths()
+	if err != nil {
+		return err
+	}
+	for path := range tracked {
+		if path != prefix && !strings.HasPrefix(path, strings.TrimSuffix(prefix, "/")+"/") {
+			continue
+		}
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		if err := store.MarkDeleted(path); err != nil {
+			return err
+		}
+		run.DeletedFiles++
+	}
+	return nil
+}
+
+func indexOneFile(ctx context.Context, store workspaceIndexStore, cfg resolvedConfig, embedder *Embedder, fullPath string, rel string, info fs.FileInfo, force, verifyContent bool, run *IndexRun) error {
 	ext := strings.ToLower(filepath.Ext(rel))
 	rec := fileRecord{
 		ID:        fileID(rel),
@@ -244,42 +397,46 @@ func indexOneFile(ctx context.Context, store workspaceIndexStore, cfg resolvedCo
 		Status:    "active",
 		IndexedAt: time.Now().UnixMilli(),
 	}
-	if rec.Extractor == "" {
-		rec.Status = "skipped"
-		rec.SkipReason = "unsupported_extension"
-		return store.UpsertSkippedFile(rec)
-	}
-	if info.Size() > extractionMaxFileBytes(cfg.Extraction) {
-		rec.Status = "skipped"
-		rec.SkipReason = "file_too_large"
-		return store.UpsertSkippedFile(rec)
-	}
 	existing, err := store.File(rel)
 	if err != nil {
 		return err
 	}
-	if !force && existing != nil && existing.Status == "active" && existing.Size == rec.Size && existing.MTimeMS == rec.MTimeMS {
+	if !force && !verifyContent && existing != nil && existing.Status != "deleted" && existing.Size == rec.Size && existing.MTimeMS == rec.MTimeMS {
+		if existing.Status != "error" || !strings.HasPrefix(existing.Error, "recovery failed three times:") {
+			run.UnchangedFiles++
+			return nil
+		}
 		return nil
 	}
-	if !force && existing != nil && existing.Status == "error" &&
-		strings.HasPrefix(existing.Error, "recovery failed three times:") &&
-		existing.Size == rec.Size && existing.MTimeMS == rec.MTimeMS {
-		return nil
+	if rec.Extractor == "" {
+		rec.Status = "skipped"
+		rec.SkipReason = "unsupported_extension"
+		return commitSkippedFile(store, rec, existing, run)
+	}
+	if info.Size() > extractionMaxFileBytes(cfg.Extraction) {
+		rec.Status = "skipped"
+		rec.SkipReason = "file_too_large"
+		return commitSkippedFile(store, rec, existing, run)
 	}
 	data, err := os.ReadFile(fullPath)
 	if err != nil {
 		rec.Status = "error"
 		rec.Error = err.Error()
-		return store.UpsertSkippedFile(rec)
+		return commitSkippedFile(store, rec, existing, run)
 	}
 	rec.SHA256 = shaHex(data)
-	if !force && existing != nil && existing.Status == "active" && existing.SHA256 == rec.SHA256 {
+	if !force && existing != nil && existing.Status != "deleted" && existing.SHA256 != "" && existing.SHA256 == rec.SHA256 {
+		preserveIndexedRecord(&rec, *existing)
+		if err := store.UpsertMetadataFile(rec); err != nil {
+			return err
+		}
+		run.MetadataOnlyFiles++
 		return nil
 	}
 	if _, ok := supportedTextExtensions[ext]; ok && (!utf8.Valid(data) || looksBinary(data)) {
 		rec.Status = "skipped"
 		rec.SkipReason = "binary_or_non_utf8"
-		return store.UpsertSkippedFile(rec)
+		return commitSkippedFile(store, rec, existing, run)
 	}
 	doc, err := extractDocument(ctx, fullPath, rel, ext, data, cfg.Extraction)
 	if err != nil {
@@ -288,35 +445,106 @@ func indexOneFile(ctx context.Context, store workspaceIndexStore, cfg resolvedCo
 			rec.Status = "skipped"
 			rec.SkipReason = exErr.reason
 			rec.Error = exErr.message
-			return store.UpsertSkippedFile(rec)
+			return commitSkippedFile(store, rec, existing, run)
 		}
 		rec.Status = "error"
 		rec.Error = err.Error()
-		return store.UpsertSkippedFile(rec)
+		return commitSkippedFile(store, rec, existing, run)
 	}
 	rec.Mime = firstNonBlank(doc.Mime, rec.Mime)
 	rec.Extractor = firstNonBlank(doc.Extractor, rec.Extractor)
 	rec.Metadata = metadataJSON(doc.Metadata)
 	rec.TextSHA256 = shaHex([]byte(extractedText(doc)))
 	chunks := chunkExtractedDocument(rel, doc, cfg.Chunk, cfg.Embedding.Model, cfg.Embedding.Dimension)
-	if len(chunks) > 0 {
-		texts := make([]string, len(chunks))
-		for i := range chunks {
-			texts[i] = chunks[i].Content
-		}
-		vectors, err := embedder.Embed(ctx, texts)
-		if err != nil {
+	for i := range chunks {
+		chunks[i].FileID = rec.ID
+	}
+	desiredChunkSetHash := chunkValidationSetHash(chunks)
+	if !force && existing != nil && existing.Status == "active" && existing.ChunkSetHash != "" && existing.ChunkSetHash == desiredChunkSetHash {
+		rec.ChunkCount = existing.ChunkCount
+		rec.ChunkSetHash = existing.ChunkSetHash
+		if err := store.UpsertMetadataFile(rec); err != nil {
 			return err
 		}
+		run.MetadataOnlyFiles++
+		return nil
+	}
+	if len(chunks) > 0 {
+		cached := map[string][]float64{}
+		if !force && existing != nil && existing.Status == "active" {
+			cached, err = store.FileEmbeddings(existing.ID, cfg.Embedding.Model, cfg.Embedding.Dimension)
+			if err != nil {
+				return err
+			}
+		}
+		missing := make([]int, 0, len(chunks))
+		texts := make([]string, 0, len(chunks))
 		for i := range chunks {
-			chunks[i].Embedding = vectors[i]
+			if vector := cached[chunks[i].ContentHash]; len(vector) == cfg.Embedding.Dimension {
+				chunks[i].Embedding = append([]float64(nil), vector...)
+				run.ReusedChunks++
+				continue
+			}
+			missing = append(missing, i)
+			texts = append(texts, chunks[i].Content)
+		}
+		if len(texts) > 0 {
+			vectors, embedErr := embedder.Embed(ctx, texts)
+			if embedErr != nil {
+				return embedErr
+			}
+			for i, chunkIndex := range missing {
+				chunks[chunkIndex].Embedding = vectors[i]
+			}
+			run.EmbeddedChunks += len(texts)
 		}
 	}
 	if err := store.UpsertIndexedFile(rec, chunks); err != nil {
 		return err
 	}
 	run.ChangedFiles++
+	if existing == nil || existing.Status == "deleted" {
+		run.NewFiles++
+	} else {
+		run.ModifiedFiles++
+	}
 	run.IndexedChunks += len(chunks)
+	return nil
+}
+
+func preserveIndexedRecord(rec *fileRecord, existing fileRecord) {
+	rec.TextSHA256 = existing.TextSHA256
+	rec.Extractor = existing.Extractor
+	rec.Metadata = existing.Metadata
+	rec.Status = existing.Status
+	rec.SkipReason = existing.SkipReason
+	rec.Error = existing.Error
+	rec.ChunkCount = existing.ChunkCount
+	rec.ChunkSetHash = existing.ChunkSetHash
+	rec.IndexedAt = existing.IndexedAt
+	rec.DeletedAt = 0
+}
+
+func commitSkippedFile(store workspaceIndexStore, rec fileRecord, existing *fileRecord, run *IndexRun) error {
+	if existing != nil && existing.Status == rec.Status && existing.SkipReason == rec.SkipReason && existing.Error == rec.Error && existing.ChunkCount == 0 {
+		rec.SHA256 = existing.SHA256
+		rec.TextSHA256 = existing.TextSHA256
+		rec.Metadata = existing.Metadata
+		if err := store.UpsertMetadataFile(rec); err != nil {
+			return err
+		}
+		run.MetadataOnlyFiles++
+		return nil
+	}
+	if err := store.UpsertSkippedFile(rec); err != nil {
+		return err
+	}
+	run.ChangedFiles++
+	if existing == nil || existing.Status == "deleted" {
+		run.NewFiles++
+	} else {
+		run.ModifiedFiles++
+	}
 	return nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestControlStoreActivatesGenerationAtomically(t *testing.T) {
@@ -129,6 +130,40 @@ func TestControlStoreFileOperationJournalTransitions(t *testing.T) {
 	}
 	if pending = pendingOperations(t, ctx, store, op.GenerationID); len(pending) != 0 {
 		t.Fatalf("completed operation remains pending: %#v", pending)
+	}
+}
+
+func TestControlStorePurgesOnlyExpiredDeletedFiles(t *testing.T) {
+	store, err := OpenControlStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	generationID := "generation-1"
+	now := time.Now().UnixMilli()
+	for _, record := range []fileRecord{
+		{ID: "old", Path: "old.md", Status: "deleted", IndexedAt: now - 20_000, DeletedAt: now - 20_000},
+		{ID: "recent", Path: "recent.md", Status: "deleted", IndexedAt: now, DeletedAt: now},
+		{ID: "active", Path: "active.md", Status: "active", IndexedAt: now},
+	} {
+		if err := store.UpsertFile(ctx, generationID, record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	purged, err := store.PurgeDeletedBefore(ctx, generationID, now-10_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if purged != 1 {
+		t.Fatalf("purged=%d, want 1", purged)
+	}
+	files, err := store.Files(ctx, generationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 2 || files[0].Path != "active.md" || files[1].Path != "recent.md" {
+		t.Fatalf("remaining files = %#v", files)
 	}
 }
 

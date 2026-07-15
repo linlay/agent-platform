@@ -156,7 +156,7 @@
     },
     {
       "name": "kbase-lance-engine",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "repository": "kbase-lance-engine",
       "source": "agent-platform-builtins/kbase-lance-engine",
       "kind": "archive",
@@ -170,11 +170,11 @@
       ],
       "targets": {
         "darwin-arm64": {
-          "path": "dist/v1.0.0/kbase-lance-engine_v1.0.0_darwin_arm64.tar.gz",
+          "path": "dist/v2.0.0/kbase-lance-engine_v2.0.0_darwin_arm64.tar.gz",
           "format": "tar.gz",
           "entry": "kbase-lance-engine",
           "output": "kbase-lance-engine",
-          "sha256": "2f9cbb2fce83d80b48f3756c90be040addd83862f0ed83b3d83274c3e7430e0d",
+          "sha256": "9d4254c2e64abaac95d475aeb42ca332bcf6483aeabb5008289befa9930910e8",
           "metadata": {
             "cargoMetadata": "cargo-metadata.json",
             "sbom": "sbom.cdx.json"

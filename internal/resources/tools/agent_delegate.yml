@@ -2,7 +2,7 @@ name: agent_delegate
 label: 委派团队成员
 description: Delegate work to one or more agents in the current Team.
 type: function
-clientVisible: false
+clientVisible: true
 explicitOnly: true
 internalOnly: true
 catalogVisible: false

@@ -348,15 +348,15 @@ KBASE 工具只读取 active 索引库，不直接访问宿主文件系统。`kb
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
-| GET | `/api/kbase/{agentKey}/status` | 无 | 当前 Lance 索引状态；包含 `engine/schemaVersion/generation/indexes/sidecar/pendingRecoveryOperations/storageDiskUsage` |
-| POST | `/api/kbase/{agentKey}/refresh` | body: `force` 可选 | refresh 结果，包含扫描文件数、变更文件数、删除文件数、索引 chunk 数与错误信息；Lance 下 `force=true` 构建新 generation |
+| GET | `/api/kbase/{agentKey}/status` | 无 | 当前 Lance 索引状态；包含 `engine/schemaVersion/generation/indexes/sidecar/pendingRecoveryOperations/pendingChanges/storageDiskUsage`；FTS/vector index 状态包含未索引行数 |
+| POST | `/api/kbase/{agentKey}/refresh` | body: `force` 可选 | 手工 refresh 始终做完整文件对账；结果在原字段外增加 `scope/candidatePaths/newFiles/modifiedFiles/metadataOnlyFiles/unchangedFiles/embeddedChunks/reusedChunks/pendingChanges`；`force=true` 构建新 generation |
 
 status 中 Lance 字段是可选扩展，旧客户端可忽略：
 
 ```json
 {
   "engine": "lancedb",
-  "schemaVersion": "3",
+  "schemaVersion": "4",
   "generation": {
     "id": "kbg_...",
     "state": "active",
@@ -369,18 +369,19 @@ status 中 Lance 字段是可选扩展，旧客户端可忽略：
   },
   "sidecar": {
     "available": true,
-    "protocolVersion": 1,
-    "engineVersion": "1.0.0",
+    "protocolVersion": 2,
+    "engineVersion": "2.0.0",
     "lancedbVersion": "0.30.0"
   },
   "pendingRecoveryOperations": 0,
+  "pendingChanges": 0,
   "storageDiskUsage": 0
 }
 ```
 
 `lastIndexedAt`、`indexes.lastOptimizedAt` 以及尚未完成的 `lastRun.finishedAt` 都是可选时间点：尚未发生时省略，control DB 中字符串 metadata 只在映射为公开 status 时严格校验，不能透出 `0` 或原始字符串。
 
-KBASE 固定使用 LanceDB；没有 active generation 时 status/search 均标记 stale，search 会触发 refresh。sidecar 不可用时显式返回 unavailable，绝不回退 SQLite。generation 构建、建索引或验证失败时 active generation 不会被替换。当前没有新增公开的 generation rollback REST 路由，Lance generation 原子回滚能力保留在 KBASE Manager 内部。
+KBASE 固定使用 LanceDB；没有 active generation 时 status/search 均标记 stale，search 会触发 refresh。sidecar 不可用时显式返回 unavailable，绝不回退 SQLite。generation 构建、建索引或验证失败时 active generation 不会被替换。watcher 的 change-set 路径不会通过 REST/tool 暴露，外部普通 refresh 仍是完整对账。当前没有新增公开的 generation rollback REST 路由，Lance generation 原子回滚能力保留在 KBASE Manager 内部。
 
 容器与本地进程探活使用免鉴权 `GET /healthz`。它不返回用户数据：始终检查 Go HTTP runtime；存在 KBASE agent 时，还通过 Go 内部持有的 Bearer token 检查 sidecar protocol handshake。sidecar 必需但不可用时返回 HTTP 503。
 

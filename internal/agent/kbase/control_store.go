@@ -91,6 +91,7 @@ func (s *ControlStore) initDB(ctx context.Context) error {
 			CHUNK_COUNT_ INTEGER NOT NULL DEFAULT 0,
 			CHUNK_SET_HASH_ TEXT NOT NULL DEFAULT '',
 			INDEXED_AT_ INTEGER NOT NULL,
+			DELETED_AT_ INTEGER NOT NULL DEFAULT 0,
 			PRIMARY KEY(GENERATION_ID_, PATH_)
 		)`,
 		`CREATE INDEX IF NOT EXISTS IDX_KBASE_CONTROL_FILES_ID ON KBASE_FILES(GENERATION_ID_, ID_)`,
@@ -138,13 +139,22 @@ func (s *ControlStore) initDB(ctx context.Context) error {
 			GENERATION_ID_ TEXT NOT NULL DEFAULT '',
 			ENGINE_ TEXT NOT NULL DEFAULT 'lancedb',
 			MODE_ TEXT NOT NULL,
+			SCOPE_ TEXT NOT NULL DEFAULT '',
 			STATUS_ TEXT NOT NULL,
 			STARTED_AT_ INTEGER NOT NULL,
 			FINISHED_AT_ INTEGER NOT NULL DEFAULT 0,
 			SCANNED_FILES_ INTEGER NOT NULL DEFAULT 0,
+			CANDIDATE_PATHS_ INTEGER NOT NULL DEFAULT 0,
 			CHANGED_FILES_ INTEGER NOT NULL DEFAULT 0,
+			NEW_FILES_ INTEGER NOT NULL DEFAULT 0,
+			MODIFIED_FILES_ INTEGER NOT NULL DEFAULT 0,
+			METADATA_ONLY_FILES_ INTEGER NOT NULL DEFAULT 0,
+			UNCHANGED_FILES_ INTEGER NOT NULL DEFAULT 0,
 			DELETED_FILES_ INTEGER NOT NULL DEFAULT 0,
 			INDEXED_CHUNKS_ INTEGER NOT NULL DEFAULT 0,
+			EMBEDDED_CHUNKS_ INTEGER NOT NULL DEFAULT 0,
+			REUSED_CHUNKS_ INTEGER NOT NULL DEFAULT 0,
+			PENDING_CHANGES_ INTEGER NOT NULL DEFAULT 0,
 			INDEX_BUILD_DURATION_MS_ INTEGER NOT NULL DEFAULT 0,
 			VALIDATION_DURATION_MS_ INTEGER NOT NULL DEFAULT 0,
 			ERROR_ TEXT NOT NULL DEFAULT ''
@@ -155,8 +165,7 @@ func (s *ControlStore) initDB(ctx context.Context) error {
 			return fmt.Errorf("init kbase control schema: %w", err)
 		}
 	}
-	// These columns were added while schema v3 was still under development.
-	// Keep opening early control databases safe for interrupted upgrades.
+	// Keep opening earlier control databases safe for interrupted upgrades.
 	if err := s.ensureColumn(ctx, "KBASE_GENERATIONS", "EMBEDDING_PROVIDER_KEY_", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
@@ -169,9 +178,21 @@ func (s *ControlStore) initDB(ctx context.Context) error {
 	if err := s.ensureColumn(ctx, "KBASE_FILES", "CHUNK_SET_HASH_", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
+	if err := s.ensureColumn(ctx, "KBASE_FILES", "DELETED_AT_", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
 	for column, definition := range map[string]string{
 		"INDEX_BUILD_DURATION_MS_": "INTEGER NOT NULL DEFAULT 0",
 		"VALIDATION_DURATION_MS_":  "INTEGER NOT NULL DEFAULT 0",
+		"SCOPE_":                   "TEXT NOT NULL DEFAULT ''",
+		"CANDIDATE_PATHS_":         "INTEGER NOT NULL DEFAULT 0",
+		"NEW_FILES_":               "INTEGER NOT NULL DEFAULT 0",
+		"MODIFIED_FILES_":          "INTEGER NOT NULL DEFAULT 0",
+		"METADATA_ONLY_FILES_":     "INTEGER NOT NULL DEFAULT 0",
+		"UNCHANGED_FILES_":         "INTEGER NOT NULL DEFAULT 0",
+		"EMBEDDED_CHUNKS_":         "INTEGER NOT NULL DEFAULT 0",
+		"REUSED_CHUNKS_":           "INTEGER NOT NULL DEFAULT 0",
+		"PENDING_CHANGES_":         "INTEGER NOT NULL DEFAULT 0",
 	} {
 		if err := s.ensureColumn(ctx, "KBASE_INDEX_RUNS", column, definition); err != nil {
 			return err
@@ -237,22 +258,29 @@ func (s *ControlStore) BeginRun(ctx context.Context, mode, generationID string) 
 }
 
 func (s *ControlStore) FinishRun(ctx context.Context, run IndexRun, status, errorText string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE KBASE_INDEX_RUNS SET STATUS_ = ?, FINISHED_AT_ = ?,
-		SCANNED_FILES_ = ?, CHANGED_FILES_ = ?, DELETED_FILES_ = ?, INDEXED_CHUNKS_ = ?,
+	_, err := s.db.ExecContext(ctx, `UPDATE KBASE_INDEX_RUNS SET SCOPE_ = ?, STATUS_ = ?, FINISHED_AT_ = ?,
+		SCANNED_FILES_ = ?, CANDIDATE_PATHS_ = ?, CHANGED_FILES_ = ?, NEW_FILES_ = ?, MODIFIED_FILES_ = ?,
+		METADATA_ONLY_FILES_ = ?, UNCHANGED_FILES_ = ?, DELETED_FILES_ = ?, INDEXED_CHUNKS_ = ?,
+		EMBEDDED_CHUNKS_ = ?, REUSED_CHUNKS_ = ?, PENDING_CHANGES_ = ?,
 		INDEX_BUILD_DURATION_MS_ = ?, VALIDATION_DURATION_MS_ = ?, ERROR_ = ? WHERE ID_ = ?`,
-		status, time.Now().UnixMilli(), run.ScannedFiles, run.ChangedFiles, run.DeletedFiles, run.IndexedChunks,
+		run.Scope, status, time.Now().UnixMilli(), run.ScannedFiles, run.CandidatePaths, run.ChangedFiles,
+		run.NewFiles, run.ModifiedFiles, run.MetadataOnlyFiles, run.UnchangedFiles, run.DeletedFiles, run.IndexedChunks,
+		run.EmbeddedChunks, run.ReusedChunks, run.PendingChanges,
 		run.IndexBuildDurationMS, run.ValidationDurationMS, errorText, run.ID)
 	return err
 }
 
 func (s *ControlStore) LastRun(ctx context.Context) (*IndexRun, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT ID_, GENERATION_ID_, ENGINE_, MODE_, STATUS_, STARTED_AT_, FINISHED_AT_,
-		SCANNED_FILES_, CHANGED_FILES_, DELETED_FILES_, INDEXED_CHUNKS_,
+	row := s.db.QueryRowContext(ctx, `SELECT ID_, GENERATION_ID_, ENGINE_, MODE_, SCOPE_, STATUS_, STARTED_AT_, FINISHED_AT_,
+		SCANNED_FILES_, CANDIDATE_PATHS_, CHANGED_FILES_, NEW_FILES_, MODIFIED_FILES_, METADATA_ONLY_FILES_,
+		UNCHANGED_FILES_, DELETED_FILES_, INDEXED_CHUNKS_, EMBEDDED_CHUNKS_, REUSED_CHUNKS_, PENDING_CHANGES_,
 		INDEX_BUILD_DURATION_MS_, VALIDATION_DURATION_MS_, ERROR_
 		FROM KBASE_INDEX_RUNS ORDER BY STARTED_AT_ DESC LIMIT 1`)
 	var run IndexRun
-	err := row.Scan(&run.ID, &run.GenerationID, &run.Engine, &run.Mode, &run.Status, &run.StartedAt, &run.FinishedAt,
-		&run.ScannedFiles, &run.ChangedFiles, &run.DeletedFiles, &run.IndexedChunks,
+	err := row.Scan(&run.ID, &run.GenerationID, &run.Engine, &run.Mode, &run.Scope, &run.Status, &run.StartedAt, &run.FinishedAt,
+		&run.ScannedFiles, &run.CandidatePaths, &run.ChangedFiles, &run.NewFiles, &run.ModifiedFiles,
+		&run.MetadataOnlyFiles, &run.UnchangedFiles, &run.DeletedFiles, &run.IndexedChunks,
+		&run.EmbeddedChunks, &run.ReusedChunks, &run.PendingChanges,
 		&run.IndexBuildDurationMS, &run.ValidationDurationMS, &run.Error)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -273,7 +301,7 @@ func (s *ControlStore) File(ctx context.Context, generationID, path string) (*fi
 }
 
 const controlFileSelect = `SELECT ID_, PATH_, EXT_, MIME_, SIZE_, MTIME_MS_, SHA256_, TEXT_SHA256_, EXTRACTOR_, METADATA_JSON_,
-	STATUS_, SKIP_REASON_, ERROR_, CHUNK_COUNT_, CHUNK_SET_HASH_, INDEXED_AT_ FROM KBASE_FILES`
+	STATUS_, SKIP_REASON_, ERROR_, CHUNK_COUNT_, CHUNK_SET_HASH_, INDEXED_AT_, DELETED_AT_ FROM KBASE_FILES`
 
 func (s *ControlStore) Files(ctx context.Context, generationID string) ([]fileRecord, error) {
 	rows, err := s.db.QueryContext(ctx, controlFileSelect+` WHERE GENERATION_ID_ = ? ORDER BY PATH_`, generationID)
@@ -292,8 +320,8 @@ func (s *ControlStore) Files(ctx context.Context, generationID string) ([]fileRe
 	return out, rows.Err()
 }
 
-func (s *ControlStore) ActiveFilePaths(ctx context.Context, generationID string) (map[string]struct{}, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT PATH_ FROM KBASE_FILES WHERE GENERATION_ID_ = ? AND STATUS_ = 'active'`, generationID)
+func (s *ControlStore) TrackedFilePaths(ctx context.Context, generationID string) (map[string]struct{}, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT PATH_ FROM KBASE_FILES WHERE GENERATION_ID_ = ? AND STATUS_ <> 'deleted'`, generationID)
 	if err != nil {
 		return nil, err
 	}
@@ -312,21 +340,22 @@ func (s *ControlStore) ActiveFilePaths(ctx context.Context, generationID string)
 func (s *ControlStore) UpsertFile(ctx context.Context, generationID string, rec fileRecord) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO KBASE_FILES(
 		GENERATION_ID_, ID_, PATH_, EXT_, MIME_, SIZE_, MTIME_MS_, SHA256_, TEXT_SHA256_, EXTRACTOR_, METADATA_JSON_,
-		STATUS_, SKIP_REASON_, ERROR_, CHUNK_COUNT_, CHUNK_SET_HASH_, INDEXED_AT_)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		STATUS_, SKIP_REASON_, ERROR_, CHUNK_COUNT_, CHUNK_SET_HASH_, INDEXED_AT_, DELETED_AT_)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(GENERATION_ID_, PATH_) DO UPDATE SET ID_=excluded.ID_, EXT_=excluded.EXT_, MIME_=excluded.MIME_,
 		SIZE_=excluded.SIZE_, MTIME_MS_=excluded.MTIME_MS_, SHA256_=excluded.SHA256_, TEXT_SHA256_=excluded.TEXT_SHA256_,
 		EXTRACTOR_=excluded.EXTRACTOR_, METADATA_JSON_=excluded.METADATA_JSON_, STATUS_=excluded.STATUS_,
 		SKIP_REASON_=excluded.SKIP_REASON_, ERROR_=excluded.ERROR_, CHUNK_COUNT_=excluded.CHUNK_COUNT_,
-		CHUNK_SET_HASH_=excluded.CHUNK_SET_HASH_, INDEXED_AT_=excluded.INDEXED_AT_`,
+		CHUNK_SET_HASH_=excluded.CHUNK_SET_HASH_, INDEXED_AT_=excluded.INDEXED_AT_, DELETED_AT_=excluded.DELETED_AT_`,
 		generationID, rec.ID, rec.Path, rec.Ext, rec.Mime, rec.Size, rec.MTimeMS, rec.SHA256, rec.TextSHA256,
-		rec.Extractor, rec.Metadata, rec.Status, rec.SkipReason, rec.Error, rec.ChunkCount, rec.ChunkSetHash, rec.IndexedAt)
+		rec.Extractor, rec.Metadata, rec.Status, rec.SkipReason, rec.Error, rec.ChunkCount, rec.ChunkSetHash, rec.IndexedAt, rec.DeletedAt)
 	return err
 }
 
 func (s *ControlStore) MarkFileDeleted(ctx context.Context, generationID, path string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE KBASE_FILES SET STATUS_='deleted', CHUNK_COUNT_=0, CHUNK_SET_HASH_='', INDEXED_AT_=?
-		WHERE GENERATION_ID_=? AND PATH_=?`, time.Now().UnixMilli(), generationID, path)
+	now := time.Now().UnixMilli()
+	_, err := s.db.ExecContext(ctx, `UPDATE KBASE_FILES SET STATUS_='deleted', CHUNK_COUNT_=0, CHUNK_SET_HASH_='', INDEXED_AT_=?, DELETED_AT_=?
+		WHERE GENERATION_ID_=? AND PATH_=?`, now, now, generationID, path)
 	return err
 }
 
@@ -385,7 +414,7 @@ func scanControlFile(row controlScanner) (fileRecord, error) {
 	var rec fileRecord
 	err := row.Scan(&rec.ID, &rec.Path, &rec.Ext, &rec.Mime, &rec.Size, &rec.MTimeMS, &rec.SHA256,
 		&rec.TextSHA256, &rec.Extractor, &rec.Metadata, &rec.Status, &rec.SkipReason, &rec.Error,
-		&rec.ChunkCount, &rec.ChunkSetHash, &rec.IndexedAt)
+		&rec.ChunkCount, &rec.ChunkSetHash, &rec.IndexedAt, &rec.DeletedAt)
 	return rec, err
 }
 
@@ -596,15 +625,15 @@ func (s *ControlStore) completeFileOperationWithRecord(ctx context.Context, opID
 	}()
 	_, err = tx.ExecContext(ctx, `INSERT INTO KBASE_FILES(
 		GENERATION_ID_, ID_, PATH_, EXT_, MIME_, SIZE_, MTIME_MS_, SHA256_, TEXT_SHA256_, EXTRACTOR_, METADATA_JSON_,
-		STATUS_, SKIP_REASON_, ERROR_, CHUNK_COUNT_, CHUNK_SET_HASH_, INDEXED_AT_)
-		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		STATUS_, SKIP_REASON_, ERROR_, CHUNK_COUNT_, CHUNK_SET_HASH_, INDEXED_AT_, DELETED_AT_)
+		VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(GENERATION_ID_, PATH_) DO UPDATE SET ID_=excluded.ID_, EXT_=excluded.EXT_, MIME_=excluded.MIME_,
 		SIZE_=excluded.SIZE_, MTIME_MS_=excluded.MTIME_MS_, SHA256_=excluded.SHA256_, TEXT_SHA256_=excluded.TEXT_SHA256_,
 		EXTRACTOR_=excluded.EXTRACTOR_, METADATA_JSON_=excluded.METADATA_JSON_, STATUS_=excluded.STATUS_,
 		SKIP_REASON_=excluded.SKIP_REASON_, ERROR_=excluded.ERROR_, CHUNK_COUNT_=excluded.CHUNK_COUNT_,
-		CHUNK_SET_HASH_=excluded.CHUNK_SET_HASH_, INDEXED_AT_=excluded.INDEXED_AT_`,
+		CHUNK_SET_HASH_=excluded.CHUNK_SET_HASH_, INDEXED_AT_=excluded.INDEXED_AT_, DELETED_AT_=excluded.DELETED_AT_`,
 		generationID, rec.ID, rec.Path, rec.Ext, rec.Mime, rec.Size, rec.MTimeMS, rec.SHA256, rec.TextSHA256,
-		rec.Extractor, rec.Metadata, rec.Status, rec.SkipReason, rec.Error, rec.ChunkCount, rec.ChunkSetHash, rec.IndexedAt)
+		rec.Extractor, rec.Metadata, rec.Status, rec.SkipReason, rec.Error, rec.ChunkCount, rec.ChunkSetHash, rec.IndexedAt, rec.DeletedAt)
 	if err != nil {
 		return err
 	}
@@ -642,6 +671,24 @@ func (s *ControlStore) PendingFileOperations(ctx context.Context, generationID s
 		out = append(out, op)
 	}
 	return out, rows.Err()
+}
+
+// PurgeDeletedBefore removes expired tombstones only after every operation for
+// the path has completed. Lance payload deletion is handled before a record is
+// marked deleted, so this is control-plane garbage collection only.
+func (s *ControlStore) PurgeDeletedBefore(ctx context.Context, generationID string, cutoff int64) (int, error) {
+	result, err := s.db.ExecContext(ctx, `DELETE FROM KBASE_FILES
+		WHERE GENERATION_ID_=? AND STATUS_='deleted' AND DELETED_AT_>0 AND DELETED_AT_<?
+		AND NOT EXISTS (
+			SELECT 1 FROM KBASE_FILE_OPS op
+			WHERE op.GENERATION_ID_=KBASE_FILES.GENERATION_ID_
+			AND op.PATH_=KBASE_FILES.PATH_ AND op.STATE_<>'completed'
+		)`, generationID, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	affected, err := result.RowsAffected()
+	return int(affected), err
 }
 
 var _ MetadataStore = (*ControlStore)(nil)

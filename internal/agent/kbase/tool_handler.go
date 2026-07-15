@@ -193,6 +193,7 @@ func (h *ToolHandler) invokeStatus(agentKey string) (contracts.ToolExecutionResu
 		"indexes":                   status.Indexes,
 		"sidecar":                   status.Sidecar,
 		"pendingRecoveryOperations": status.PendingRecoveryOps,
+		"pendingChanges":            status.PendingChanges,
 		"storageDiskUsage":          status.StorageDiskUsage,
 	}
 	if status.LastIndexedAt != nil {
@@ -210,14 +211,23 @@ func (h *ToolHandler) invokeRefresh(ctx context.Context, agentKey string, args m
 		return contracts.ToolExecutionResult{}, err
 	}
 	return kbaseStructuredResult(map[string]any{
-		"agentKey":      result.AgentKey,
-		"mode":          result.Mode,
-		"status":        result.Status,
-		"scannedFiles":  result.ScannedFiles,
-		"changedFiles":  result.ChangedFiles,
-		"deletedFiles":  result.DeletedFiles,
-		"indexedChunks": result.IndexedChunks,
-		"error":         result.Error,
+		"agentKey":          result.AgentKey,
+		"mode":              result.Mode,
+		"status":            result.Status,
+		"scope":             result.Scope,
+		"candidatePaths":    result.CandidatePaths,
+		"scannedFiles":      result.ScannedFiles,
+		"changedFiles":      result.ChangedFiles,
+		"newFiles":          result.NewFiles,
+		"modifiedFiles":     result.ModifiedFiles,
+		"metadataOnlyFiles": result.MetadataOnlyFiles,
+		"unchangedFiles":    result.UnchangedFiles,
+		"deletedFiles":      result.DeletedFiles,
+		"indexedChunks":     result.IndexedChunks,
+		"embeddedChunks":    result.EmbeddedChunks,
+		"reusedChunks":      result.ReusedChunks,
+		"pendingChanges":    result.PendingChanges,
+		"error":             result.Error,
 	}), nil
 }
 

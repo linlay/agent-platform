@@ -6,7 +6,10 @@ import (
 )
 
 const (
-	ControlSchemaVersion = "3"
+	ControlSchemaVersion = "4"
+	// IndexSchemaVersion is independent from the SQLite control schema so a
+	// control-only migration never forces a Lance generation rebuild.
+	IndexSchemaVersion = "3"
 
 	GenerationBuilding   = "building"
 	GenerationIndexing   = "indexing"
@@ -35,7 +38,7 @@ type MetadataStore interface {
 	LastRun(context.Context) (*IndexRun, error)
 	File(context.Context, string, string) (*fileRecord, error)
 	Files(context.Context, string) ([]fileRecord, error)
-	ActiveFilePaths(context.Context, string) (map[string]struct{}, error)
+	TrackedFilePaths(context.Context, string) (map[string]struct{}, error)
 	UpsertFile(context.Context, string, fileRecord) error
 	MarkFileDeleted(context.Context, string, string) error
 	FileStats(context.Context, string) (FileStats, error)
@@ -48,6 +51,7 @@ type MetadataStore interface {
 	MarkFileOperationLanceCommitted(context.Context, string, uint64) error
 	CompleteFileOperation(context.Context, string) error
 	PendingFileOperations(context.Context, string) ([]FileOperation, error)
+	PurgeDeletedBefore(context.Context, string, int64) (int, error)
 }
 
 // RetrievalStore is implemented by the LanceDB sidecar and used by Manager
@@ -60,7 +64,9 @@ type RetrievalStore interface {
 	Search(context.Context, string, RetrievalRequest) (RetrievalResponse, error)
 	ReadChunk(context.Context, string, string) (*chunkRecord, error)
 	ReadPath(context.Context, string, string, int, int) ([]chunkRecord, error)
+	ReadFileEmbeddings(context.Context, string, string, string, int) (map[string][]float64, error)
 	BuildIndexes(context.Context, string, IndexSpec) error
+	RefreshIndexes(context.Context, string) error
 	WaitForIndexes(context.Context, string, time.Duration) error
 	Validate(context.Context, string) (GenerationValidation, error)
 	Stats(context.Context, string) (RetrievalStats, error)
@@ -168,13 +174,14 @@ type GenerationValidation struct {
 }
 
 type RetrievalStats struct {
-	Files           int    `json:"files"`
-	Chunks          int    `json:"chunks"`
-	TableVersion    uint64 `json:"tableVersion"`
-	FTSIndexType    string `json:"ftsIndexType,omitempty"`
-	VectorIndexType string `json:"vectorIndexType,omitempty"`
-	FTSReady        bool   `json:"ftsReady"`
-	VectorReady     bool   `json:"vectorReady"`
-	UnindexedRows   int    `json:"unindexedRows"`
-	LastOptimizedAt int64  `json:"lastOptimizedAt,omitempty"`
+	Files            int    `json:"files"`
+	Chunks           int    `json:"chunks"`
+	TableVersion     uint64 `json:"tableVersion"`
+	FTSIndexType     string `json:"ftsIndexType,omitempty"`
+	VectorIndexType  string `json:"vectorIndexType,omitempty"`
+	FTSReady         bool   `json:"ftsReady"`
+	FTSUnindexedRows int    `json:"ftsUnindexedRows"`
+	VectorReady      bool   `json:"vectorReady"`
+	UnindexedRows    int    `json:"unindexedRows"`
+	LastOptimizedAt  int64  `json:"lastOptimizedAt,omitempty"`
 }

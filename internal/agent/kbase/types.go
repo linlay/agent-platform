@@ -3,17 +3,28 @@ package kbase
 type RefreshOptions struct {
 	Force bool
 	Mode  string
+	Scope string
+	Paths []string
 }
 
 type RefreshResult struct {
-	AgentKey      string `json:"agentKey"`
-	Mode          string `json:"mode"`
-	Status        string `json:"status"`
-	ScannedFiles  int    `json:"scannedFiles"`
-	ChangedFiles  int    `json:"changedFiles"`
-	DeletedFiles  int    `json:"deletedFiles"`
-	IndexedChunks int    `json:"indexedChunks"`
-	Error         string `json:"error,omitempty"`
+	AgentKey          string `json:"agentKey"`
+	Mode              string `json:"mode"`
+	Status            string `json:"status"`
+	Scope             string `json:"scope,omitempty"`
+	CandidatePaths    int    `json:"candidatePaths,omitempty"`
+	ScannedFiles      int    `json:"scannedFiles"`
+	ChangedFiles      int    `json:"changedFiles"`
+	NewFiles          int    `json:"newFiles,omitempty"`
+	ModifiedFiles     int    `json:"modifiedFiles,omitempty"`
+	MetadataOnlyFiles int    `json:"metadataOnlyFiles,omitempty"`
+	UnchangedFiles    int    `json:"unchangedFiles,omitempty"`
+	DeletedFiles      int    `json:"deletedFiles"`
+	IndexedChunks     int    `json:"indexedChunks"`
+	EmbeddedChunks    int    `json:"embeddedChunks,omitempty"`
+	ReusedChunks      int    `json:"reusedChunks,omitempty"`
+	PendingChanges    int    `json:"pendingChanges,omitempty"`
+	Error             string `json:"error,omitempty"`
 }
 
 type Status struct {
@@ -38,6 +49,7 @@ type Status struct {
 	Indexes            *IndexesStatus    `json:"indexes,omitempty"`
 	Sidecar            *LanceEngineState `json:"sidecar,omitempty"`
 	PendingRecoveryOps int               `json:"pendingRecoveryOperations,omitempty"`
+	PendingChanges     int               `json:"pendingChanges,omitempty"`
 	StorageDiskUsage   int64             `json:"storageDiskUsage,omitempty"`
 }
 
@@ -56,8 +68,9 @@ type IndexesStatus struct {
 }
 
 type IndexStatus struct {
-	Type  string `json:"type"`
-	Ready bool   `json:"ready"`
+	Type          string `json:"type"`
+	Ready         bool   `json:"ready"`
+	UnindexedRows int    `json:"unindexedRows,omitempty"`
 }
 
 type VectorIndexStatus struct {
@@ -194,13 +207,22 @@ type IndexRun struct {
 	GenerationID         string `json:"generationId,omitempty"`
 	Engine               string `json:"engine,omitempty"`
 	Mode                 string `json:"mode"`
+	Scope                string `json:"scope,omitempty"`
 	Status               string `json:"status"`
 	StartedAt            int64  `json:"startedAt"`
 	FinishedAt           int64  `json:"finishedAt,omitempty"`
 	ScannedFiles         int    `json:"scannedFiles"`
+	CandidatePaths       int    `json:"candidatePaths,omitempty"`
 	ChangedFiles         int    `json:"changedFiles"`
+	NewFiles             int    `json:"newFiles,omitempty"`
+	ModifiedFiles        int    `json:"modifiedFiles,omitempty"`
+	MetadataOnlyFiles    int    `json:"metadataOnlyFiles,omitempty"`
+	UnchangedFiles       int    `json:"unchangedFiles,omitempty"`
 	DeletedFiles         int    `json:"deletedFiles"`
 	IndexedChunks        int    `json:"indexedChunks"`
+	EmbeddedChunks       int    `json:"embeddedChunks,omitempty"`
+	ReusedChunks         int    `json:"reusedChunks,omitempty"`
+	PendingChanges       int    `json:"pendingChanges,omitempty"`
 	IndexBuildDurationMS int64  `json:"indexBuildDurationMs,omitempty"`
 	ValidationDurationMS int64  `json:"validationDurationMs,omitempty"`
 	Error                string `json:"error,omitempty"`
@@ -223,6 +245,7 @@ type fileRecord struct {
 	ChunkCount   int
 	ChunkSetHash string
 	IndexedAt    int64
+	DeletedAt    int64
 }
 
 type chunkRecord struct {

@@ -25,7 +25,7 @@ func TestStatusLanceFieldsAreOptionalAndStable(t *testing.T) {
 		AgentKey:      "docs",
 		Mode:          Mode,
 		Engine:        "lancedb",
-		SchemaVersion: "3",
+		SchemaVersion: ControlSchemaVersion,
 		Generation: &GenerationStatus{
 			ID:           "kbg_1",
 			State:        "active",
@@ -45,7 +45,7 @@ func TestStatusLanceFieldsAreOptionalAndStable(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"engine":"lancedb"`,
-		`"schemaVersion":"3"`,
+		`"schemaVersion":"4"`,
 		`"generation":{"id":"kbg_1","state":"active","tableVersion":12,"createdAt":1700000000000,"activatedAt":1700000001000}`,
 		`"indexes":{"fts":{"type":"FTS/ICU","ready":true},"vector":{"type":"flat","ready":true,"unindexedRows":0},"lastOptimizedAt":1700000002000}`,
 	} {

@@ -25,10 +25,12 @@ func (m *Manager) refreshResolved(ctx context.Context, cfg resolvedConfig, embed
 	}
 	if active != nil {
 		if options.Force || active.IndexHash != desiredIndexHash(cfg) || active.EmbeddingDimension != cfg.Embedding.Dimension || active.EmbeddingModel != cfg.Embedding.Model {
+			options.Scope = "rebuild"
 			return m.buildLanceGeneration(ctx, control, cfg, embedder, options)
 		}
 		return m.refreshLanceGeneration(ctx, control, active, cfg, embedder, options)
 	}
+	options.Scope = "rebuild"
 	return m.buildLanceGeneration(ctx, control, cfg, embedder, options)
 }
 
@@ -46,18 +48,19 @@ func (m *Manager) refreshLanceGeneration(ctx context.Context, control *ControlSt
 	if err != nil {
 		return failedRefresh(cfg.AgentKey, options.Mode, err), err
 	}
+	run.Scope = firstNonBlank(options.Scope, refreshScope(options))
 	indexStore := newLanceIndexStore(ctx, control, m.lance, generation.ID)
-	err = indexWorkspace(ctx, indexStore, cfg, embedder, false, &run)
+	if len(options.Paths) > 0 && run.Scope == "delta" {
+		err = indexWorkspacePaths(ctx, indexStore, cfg, embedder, options.Paths, &run)
+	} else {
+		err = indexWorkspace(ctx, indexStore, cfg, embedder, false, &run)
+	}
 	status, errText := "success", ""
 	if err != nil {
 		status, errText = "failed", err.Error()
-	} else if run.ChangedFiles > 0 || run.DeletedFiles > 0 {
-		if buildErr := m.lance.BuildIndexes(ctx, generation.ID, m.indexSpec()); buildErr != nil {
-			err, status, errText = buildErr, "failed", buildErr.Error()
-		}
 	}
 	if err == nil {
-		if maintenanceErr := m.maybeOptimize(ctx, control, generation, run, false); maintenanceErr != nil {
+		if maintenanceErr := m.maybeMaintainIndexes(ctx, control, generation, run); maintenanceErr != nil {
 			err, status, errText = maintenanceErr, "failed", maintenanceErr.Error()
 		}
 	}
@@ -67,7 +70,10 @@ func (m *Manager) refreshLanceGeneration(ctx context.Context, control *ControlSt
 			_ = control.UpdateGenerationStats(ctx, generation.ID, files, chunks, stats.TableVersion)
 		}
 		_ = copyActiveGenerationMeta(ctx, control, cfg, generation)
+		retention := m.versionRetention()
+		_, _ = control.PurgeDeletedBefore(ctx, generation.ID, time.Now().Add(-retention).UnixMilli())
 	}
+	run.PendingChanges = m.pendingChanges(cfg.StorageDir)
 	_ = control.FinishRun(ctx, run, status, errText)
 	return resultFromRun(cfg.AgentKey, run, status, errText), err
 }
@@ -135,6 +141,7 @@ func (m *Manager) buildLanceGeneration(ctx context.Context, control *ControlStor
 	if err != nil {
 		return failedRefresh(cfg.AgentKey, options.Mode, err), err
 	}
+	run.Scope = "rebuild"
 	indexStore := newLanceIndexStore(ctx, control, m.lance, generation.ID)
 	if err = indexWorkspace(ctx, indexStore, cfg, embedder, false, &run); err == nil {
 		err = m.finishGeneration(ctx, control, &generation, cfg, &run, true, true)
@@ -144,6 +151,7 @@ func (m *Manager) buildLanceGeneration(ctx context.Context, control *ControlStor
 		status, errText = "failed", err.Error()
 		_ = control.SetGenerationState(ctx, generation.ID, GenerationFailed, errText)
 	}
+	run.PendingChanges = m.pendingChanges(cfg.StorageDir)
 	_ = control.FinishRun(ctx, run, status, errText)
 	return resultFromRun(cfg.AgentKey, run, status, errText), err
 }
@@ -228,6 +236,9 @@ func (m *Manager) finishGeneration(ctx context.Context, control *ControlStore, g
 		if err := control.SetMeta(ctx, "generation:"+generation.ID+":changesSinceOptimize", "0"); err != nil {
 			return err
 		}
+		if err := control.SetMeta(ctx, "generation:"+generation.ID+":changesSinceIndexRefresh", "0"); err != nil {
+			return err
+		}
 	}
 	if err := control.SetGenerationState(ctx, generation.ID, GenerationReady, ""); err != nil {
 		return err
@@ -279,28 +290,48 @@ func (m *Manager) indexSpec() IndexSpec {
 	return IndexSpec{FTSBaseTokenizer: firstNonBlank(m.options.Index.FTSBaseTokenizer, "icu"), ANNMinRows: annMinRows, Distance: "cosine"}
 }
 
-func (m *Manager) maybeOptimize(ctx context.Context, control *ControlStore, generation *Generation, run IndexRun, force bool) error {
-	key := "generation:" + generation.ID + ":changesSinceOptimize"
+func (m *Manager) maybeMaintainIndexes(ctx context.Context, control *ControlStore, generation *Generation, run IndexRun) error {
+	key := "generation:" + generation.ID + ":changesSinceIndexRefresh"
 	currentText, _ := control.Meta(ctx, key)
 	current, _ := strconv.Atoi(currentText)
-	current += run.IndexedChunks + run.DeletedFiles
-	lastText, _ := control.Meta(ctx, "lastOptimizedAt")
-	last, _ := strconv.ParseInt(lastText, 10, 64)
+	current += run.IndexedChunks
+	if err := control.SetMeta(ctx, key, strconv.Itoa(current)); err != nil {
+		return err
+	}
 	threshold := m.options.Maintenance.OptimizeChangeThreshold
 	if threshold <= 0 {
 		threshold = 1000
 	}
+	stats, statsErr := m.lance.Stats(ctx, generation.ID)
+	if statsErr != nil {
+		return statsErr
+	}
+	unindexed := maxInt(stats.UnindexedRows, stats.FTSUnindexedRows)
+	dueByRatio := stats.Chunks > 0 && unindexed*10 > stats.Chunks
+	if unindexed > 0 && (current >= threshold || dueByRatio) {
+		if err := m.lance.RefreshIndexes(ctx, generation.ID); err != nil {
+			return err
+		}
+		if err := control.SetMeta(ctx, key, "0"); err != nil {
+			return err
+		}
+		if err := control.SetMeta(ctx, "lastIndexRefreshedAt", strconv.FormatInt(time.Now().UnixMilli(), 10)); err != nil {
+			return err
+		}
+	}
+
+	lastText, _ := control.Meta(ctx, "lastOptimizedAt")
+	last, _ := strconv.ParseInt(lastText, 10, 64)
 	interval := m.options.Maintenance.OptimizeInterval
 	if interval <= 0 {
 		interval = 24 * time.Hour
 	}
 	due := last == 0 || time.Since(time.UnixMilli(last)) >= interval
-	annDue := false
-	if stats, err := m.lance.Stats(ctx, generation.ID); err == nil && stats.Chunks > 0 {
-		annDue = stats.UnindexedRows*10 > stats.Chunks
-	}
-	if !force && current < threshold && !due && !annDue {
-		return control.SetMeta(ctx, key, strconv.Itoa(current))
+	// Expensive compaction/pruning is maintenance work. A watcher delta must
+	// never turn a one-file delete into a full table optimize; the next startup,
+	// manual refresh, or periodic reconcile performs overdue maintenance.
+	if !due || run.Scope == "delta" {
+		return nil
 	}
 	if err := m.lance.Optimize(ctx, generation.ID, OptimizeSpec{VersionRetention: m.versionRetention()}); err != nil {
 		return err
@@ -310,6 +341,16 @@ func (m *Manager) maybeOptimize(ctx context.Context, control *ControlStore, gene
 		return err
 	}
 	return control.SetMeta(ctx, "lastOptimizedAt", now)
+}
+
+func refreshScope(options RefreshOptions) string {
+	if options.Force {
+		return "rebuild"
+	}
+	if len(options.Paths) > 0 {
+		return "delta"
+	}
+	return "reconcile"
 }
 
 func (m *Manager) versionRetention() time.Duration {
@@ -428,8 +469,11 @@ func copyActiveGenerationMeta(ctx context.Context, control *ControlStore, cfg re
 }
 
 func resultFromRun(agentKey string, run IndexRun, status, errText string) RefreshResult {
-	return RefreshResult{AgentKey: agentKey, Mode: run.Mode, Status: status, ScannedFiles: run.ScannedFiles,
-		ChangedFiles: run.ChangedFiles, DeletedFiles: run.DeletedFiles, IndexedChunks: run.IndexedChunks, Error: errText}
+	return RefreshResult{AgentKey: agentKey, Mode: run.Mode, Status: status, Scope: run.Scope,
+		CandidatePaths: run.CandidatePaths, ScannedFiles: run.ScannedFiles, ChangedFiles: run.ChangedFiles,
+		NewFiles: run.NewFiles, ModifiedFiles: run.ModifiedFiles, MetadataOnlyFiles: run.MetadataOnlyFiles,
+		UnchangedFiles: run.UnchangedFiles, DeletedFiles: run.DeletedFiles, IndexedChunks: run.IndexedChunks,
+		EmbeddedChunks: run.EmbeddedChunks, ReusedChunks: run.ReusedChunks, PendingChanges: run.PendingChanges, Error: errText}
 }
 
 func failedRefresh(agentKey, mode string, err error) RefreshResult {
