@@ -18,25 +18,26 @@ import (
 )
 
 type llmRunStream struct {
-	engine             *LLMAgentEngine
-	protocol           providerProtocol
-	ctx                context.Context
-	req                api.QueryRequest
-	session            QuerySession
-	runControl         *RunControl
-	model              ModelDefinition
-	provider           ProviderDefinition
-	toolSpecs          []openAIToolSpec
-	requestedToolNames []string
-	messages           []openAIMessage
-	protocolConfig     protocolRuntimeConfig
-	stageSettings      StageSettings
-	execCtx            *ExecutionContext
-	maxSteps           int
-	budgetStage        string
-	toolChoice         string
-	postToolHook       func(string, string) PostToolHookResult
-	checker            hitl.Checker
+	engine               *LLMAgentEngine
+	protocol             providerProtocol
+	ctx                  context.Context
+	req                  api.QueryRequest
+	session              QuerySession
+	runControl           *RunControl
+	model                ModelDefinition
+	provider             ProviderDefinition
+	toolSpecs            []openAIToolSpec
+	requestedToolNames   []string
+	messages             []openAIMessage
+	protocolConfig       protocolRuntimeConfig
+	stageSettings        StageSettings
+	execCtx              *ExecutionContext
+	maxSteps             int
+	budgetStage          string
+	toolChoice           string
+	teamDelegateRequired bool
+	postToolHook         func(string, string) PostToolHookResult
+	checker              hitl.Checker
 
 	step                 int
 	stageToolCalls       int

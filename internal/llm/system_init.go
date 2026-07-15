@@ -12,7 +12,6 @@ import (
 	agentcontract "agent-platform/internal/agent"
 	agentbuiltin "agent-platform/internal/agent/builtin"
 	agentcoder "agent-platform/internal/agent/coder"
-	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
@@ -140,9 +139,6 @@ func (b SystemInitProfileBuilder) applyRequestProfile(profile *contracts.SystemI
 	toolSpecs := openAIToolSpecsFromAny(profile.Tools)
 	messages := profileMessages(profile.SystemMessage)
 	toolChoice := "auto"
-	if strings.EqualFold(strings.TrimSpace(session.Mode), agentteam.Mode) && strings.EqualFold(strings.TrimSpace(stage), agentteam.MainStage) {
-		toolChoice = "required"
-	}
 	prepared, err := protocol.PrepareRequest(protocolStreamParams{
 		runID:          req.RunID,
 		provider:       provider,

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	agentcoder "agent-platform/internal/agent/coder"
+	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
@@ -101,6 +102,41 @@ func TestSystemInitProfileBuilderAddsRequestProfiles(t *testing.T) {
 
 	if _, ok := byKey["react:main:final"]; ok {
 		t.Fatalf("did not expect unused final profile to be generated: %#v", byKey)
+	}
+}
+
+func TestSystemInitProfileBuilderUsesAutoToolChoiceForTeam(t *testing.T) {
+	registry := newSystemInitTestModelRegistry(t)
+	session := contracts.QuerySession{
+		RunID:        "run-team",
+		ChatID:       "chat-team",
+		AgentKey:     "__team__:research",
+		ModelKey:     "mock-model",
+		Mode:         agentteam.Mode,
+		PromptAppend: contracts.DefaultPromptAppendConfig(),
+	}
+	toolDefs := make([]api.ToolDetailResponse, 0, len(agentteam.DefaultToolNames()))
+	for _, name := range agentteam.DefaultToolNames() {
+		toolDefs = append(toolDefs, api.ToolDetailResponse{
+			Name:        name,
+			Description: name,
+			Parameters:  map[string]any{"type": "object"},
+		})
+	}
+
+	profiles, err := NewSystemInitProfileBuilder(registry, SystemInitDefaults{}).BuildSystemInitProfiles(contracts.SystemInitBuildInput{
+		Session:         session,
+		Request:         api.QueryRequest{ChatID: session.ChatID, RunID: session.RunID, Message: "research"},
+		ToolDefinitions: toolDefs,
+	})
+	if err != nil {
+		t.Fatalf("build Team system init profiles: %v", err)
+	}
+	if len(profiles) != 1 || profiles[0].CacheKey != agentteam.MainCacheKey {
+		t.Fatalf("Team system init profiles = %#v", profiles)
+	}
+	if profiles[0].ToolChoice != "auto" {
+		t.Fatalf("Team system init toolChoice = %q, want auto", profiles[0].ToolChoice)
 	}
 }
 

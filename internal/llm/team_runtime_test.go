@@ -1,11 +1,13 @@
 package llm
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
+	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/frontendtools"
 )
@@ -106,12 +108,13 @@ func TestMergeToolDefinitionsKeepsTeamToolSessionLocal(t *testing.T) {
 	}
 }
 
-func TestTeamRequiredRouteSuppressesTextAndCorrectsOnlyOnce(t *testing.T) {
+func TestTeamMandatoryRouteSuppressesTextAndCorrectsOnlyOnce(t *testing.T) {
 	stream := &llmRunStream{
-		engine:     &LLMAgentEngine{},
-		session:    contracts.QuerySession{RunID: "run-team", TeamRuntime: &contracts.TeamRuntimeContext{}},
-		execCtx:    &contracts.ExecutionContext{},
-		toolChoice: "required",
+		engine:               &LLMAgentEngine{},
+		session:              contracts.QuerySession{RunID: "run-team", TeamRuntime: &contracts.TeamRuntimeContext{}},
+		execCtx:              &contracts.ExecutionContext{},
+		toolChoice:           "auto",
+		teamDelegateRequired: true,
 	}
 
 	stream.currentTurn = &providerTurnStream{finishReason: "stop"}
@@ -141,5 +144,89 @@ func TestTeamRequiredRouteSuppressesTextAndCorrectsOnlyOnce(t *testing.T) {
 	}
 	if stream.modelTerminalError == nil || !strings.Contains(stream.modelTerminalError.Error(), "did not produce a valid agent_delegate call") {
 		t.Fatalf("second invalid route was not terminated: %v", stream.modelTerminalError)
+	}
+}
+
+func TestTeamModeUsesAutoProviderToolChoiceAndRetainsMandatoryDelegation(t *testing.T) {
+	tool := api.ToolDetailResponse{
+		Name:        agentteam.ToolDelegate,
+		Description: "delegate a Team task",
+		Parameters:  map[string]any{"type": "object"},
+	}
+	engine := NewLLMAgentEngine(
+		config.Config{},
+		newSystemInitTestModelRegistry(t),
+		stubToolExecutor{defs: []api.ToolDetailResponse{tool}},
+		frontendtools.NewDefaultRegistry(),
+		contracts.NewNoopSandboxClient(),
+	)
+	session := contracts.QuerySession{
+		RunID:        "run-team",
+		ChatID:       "chat-team",
+		AgentKey:     "__team__:research",
+		AgentName:    "Research",
+		Mode:         agentteam.Mode,
+		ModelKey:     "mock-model",
+		ToolNames:    []string{agentteam.ToolDelegate},
+		TeamRuntime:  &contracts.TeamRuntimeContext{},
+		PromptAppend: contracts.DefaultPromptAppendConfig(),
+	}
+	req := api.QueryRequest{RunID: session.RunID, ChatID: session.ChatID, Message: "research"}
+	profiles, err := NewSystemInitProfileBuilder(engine.models, SystemInitDefaults{}).BuildSystemInitProfiles(contracts.SystemInitBuildInput{
+		Session:         session,
+		Request:         req,
+		ToolDefinitions: []api.ToolDetailResponse{tool},
+	})
+	if err != nil {
+		t.Fatalf("build Team system init profiles: %v", err)
+	}
+	session.SystemInitCache = make(map[string]contracts.SystemInitSnapshot, len(profiles))
+	for _, profile := range profiles {
+		session.SystemInitCache[profile.CacheKey] = contracts.SystemInitSnapshot{
+			AgentKey:       profile.AgentKey,
+			Fingerprint:    profile.Fingerprint,
+			SystemMessage:  cloneAnyMapViaJSON(profile.SystemMessage),
+			Tools:          cloneAnySlice(profile.Tools),
+			Model:          cloneAnyMapViaJSON(profile.Model),
+			ToolChoice:     profile.ToolChoice,
+			RequestOptions: cloneAnyMapViaJSON(profile.RequestOptions),
+		}
+	}
+
+	raw, err := (teamMode{}).Start(engine, context.Background(), req, session)
+	if err != nil {
+		t.Fatalf("start Team mode: %v", err)
+	}
+	stream, ok := raw.(*llmRunStream)
+	if !ok {
+		t.Fatalf("Team stream type = %T, want *llmRunStream", raw)
+	}
+	if stream.toolChoice != "auto" {
+		t.Fatalf("Team provider toolChoice = %q, want auto", stream.toolChoice)
+	}
+	if !stream.teamDelegateRequired || !stream.teamRouteRequired() {
+		t.Fatalf("Team must retain its initial delegation requirement: %#v", stream)
+	}
+
+	prepared, err := stream.protocol.PrepareRequest(protocolStreamParams{
+		runID:          session.RunID,
+		provider:       stream.provider,
+		model:          stream.model,
+		protocolConfig: stream.protocolConfig,
+		stageSettings:  stream.stageSettings,
+		messages:       stream.messages,
+		toolSpecs:      stream.toolSpecs,
+		toolChoice:     stream.toolChoice,
+	})
+	if err != nil {
+		t.Fatalf("prepare Team provider request: %v", err)
+	}
+	if got := prepared.RequestBody["tool_choice"]; got != "auto" {
+		t.Fatalf("Team request tool_choice = %#v, want auto", got)
+	}
+
+	stream.AllowOptionalTools()
+	if stream.teamDelegateRequired || stream.teamRouteRequired() {
+		t.Fatalf("Team delegation requirement should clear after a member dispatch: %#v", stream)
 	}
 }

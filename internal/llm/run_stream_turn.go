@@ -577,7 +577,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 }
 
 func (s *llmRunStream) teamRouteRequired() bool {
-	return s != nil && s.session.TeamRuntime != nil && strings.EqualFold(strings.TrimSpace(s.toolChoice), "required")
+	return s != nil && s.session.TeamRuntime != nil && s.teamDelegateRequired
 }
 
 func (s *llmRunStream) newAssistantTurnMessage(turn *providerTurnStream, content string, toolCalls []openAIToolCall) openAIMessage {
@@ -707,6 +707,7 @@ func (s *llmRunStream) AllowOptionalTools() {
 	}
 	s.allowToolUse = true
 	s.toolChoice = "auto"
+	s.teamDelegateRequired = false
 }
 
 func (s *llmRunStream) appendPendingSteers() {

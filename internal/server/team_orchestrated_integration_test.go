@@ -156,8 +156,13 @@ func TestOrchestratedTeamDelegationEndToEnd(t *testing.T) {
 	choices := append([]string(nil), coordinatorChoices...)
 	toolCounts := append([]int(nil), coordinatorToolCounts...)
 	mu.Unlock()
-	if len(choices) != 4 || choices[0] != "required" || choices[1] != "required" || choices[2] != "required" || choices[3] == "required" || len(toolCounts) != 4 || toolCounts[0] != 4 || toolCounts[1] != 4 || toolCounts[2] != 4 || toolCounts[3] != 4 {
-		t.Fatalf("coordinator tool choices=%#v toolCounts=%#v, want planning and correction to remain required, then delegation and an optional-tool coordinator turn", choices, toolCounts)
+	if len(choices) != 4 || len(toolCounts) != 4 {
+		t.Fatalf("coordinator tool choices=%#v toolCounts=%#v, want four coordinator turns", choices, toolCounts)
+	}
+	for index := range choices {
+		if choices[index] != "auto" || toolCounts[index] != 4 {
+			t.Fatalf("coordinator tool choices=%#v toolCounts=%#v, want every upstream Team request to use auto with the full Team toolset", choices, toolCounts)
+		}
 	}
 
 	summary, err := fixture.chats.Summary("chat-team-e2e")

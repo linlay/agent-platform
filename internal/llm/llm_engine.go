@@ -36,6 +36,7 @@ type runStreamOptions struct {
 	MaxSteps                     int
 	Stage                        string
 	ToolChoice                   string
+	RequireTeamDelegation        bool
 	PreserveProvidedSystemPrompt bool
 	PostToolHook                 func(toolName string, toolID string) PostToolHookResult
 }
@@ -200,29 +201,30 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		IncludeAfterCallHints:   true,
 	}
 	stream := &llmRunStream{
-		engine:              e,
-		protocol:            resolveProtocol(e, model),
-		ctx:                 ctx,
-		req:                 req,
-		session:             session,
-		runControl:          execCtx.RunControl,
-		model:               model,
-		provider:            provider,
-		toolSpecs:           toolSpecs,
-		requestedToolNames:  append([]string(nil), allowedTools...),
-		messages:            append([]openAIMessage(nil), messages...),
-		protocolConfig:      protocolConfig,
-		stageSettings:       stageSettings,
-		execCtx:             execCtx,
-		maxSteps:            maxSteps,
-		budgetStage:         budgetStage,
-		toolChoice:          toolChoice,
-		postToolHook:        options.PostToolHook,
-		allowToolUse:        allowToolUse,
-		promptBuildOptions:  promptBuildOptions,
-		onApprovalSummary:   approvalSummarySinkFromContext(ctx),
-		systemInitCacheKey:  cacheKey,
-		systemInitCacheUsed: useCachedSystemInit,
+		engine:               e,
+		protocol:             resolveProtocol(e, model),
+		ctx:                  ctx,
+		req:                  req,
+		session:              session,
+		runControl:           execCtx.RunControl,
+		model:                model,
+		provider:             provider,
+		toolSpecs:            toolSpecs,
+		requestedToolNames:   append([]string(nil), allowedTools...),
+		messages:             append([]openAIMessage(nil), messages...),
+		protocolConfig:       protocolConfig,
+		stageSettings:        stageSettings,
+		execCtx:              execCtx,
+		maxSteps:             maxSteps,
+		budgetStage:          budgetStage,
+		toolChoice:           toolChoice,
+		teamDelegateRequired: options.RequireTeamDelegation,
+		postToolHook:         options.PostToolHook,
+		allowToolUse:         allowToolUse,
+		promptBuildOptions:   promptBuildOptions,
+		onApprovalSummary:    approvalSummarySinkFromContext(ctx),
+		systemInitCacheKey:   cacheKey,
+		systemInitCacheUsed:  useCachedSystemInit,
 	}
 	stream.syncAccessLevelFromRunControl()
 	if len(session.SkillHookDirs) > 0 {
