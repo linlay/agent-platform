@@ -623,6 +623,69 @@ Channel WS 复用标准 `platform-ws` 帧：`request`、`response`、`stream`、
 
 当本地 `mode: CHANNEL` agent 引用 `mode: server` channel 时，运行时会复用该 channel 已接入的 `/ws/channel?channelId=...` 连接向对端发送 `request` 帧，并按相同 `id` 收回 `stream / response / error` 帧。`mode: client` 与 `mode: server` 只表示连接建立方向，不表示 agent 的拥有方；server channel 未连接时会返回 `503 channel <channelId> is not connected`。
 
+### Gateway Agent Card 申报
+
+platform 主动连接 `mode: client` gateway 后，会通过现有 `platform-ws` request/response 申报当前 channel 的 Agent Card。只有本地 agent 中显式声明了匹配 `channelConfig.exports` 且 `allow.query: true` 的导出项会被申报，线上 `agentKey` 使用 `externalAgentKey`；旧 gateway 配置中的 `agents: "*"` 不构成申报授权。`mode: server` 的 `/ws/channel` 连接本期不做反向申报。
+
+请求使用 `id` 作为唯一关联 ID，payload 不重复携带 `requestId`：
+
+```json
+{
+  "frame": "request",
+  "type": "agent.card.update",
+  "id": "card_01J...",
+  "payload": {
+    "agentKey": "support-agent",
+    "agentCard": {
+      "name": "售后数字分身",
+      "description": "擅长售后工单、客户投诉、退款记录分析。",
+      "skills": [
+        {
+          "id": "kb.query.support-agent",
+          "name": "知识库问答",
+          "description": "查询该智能体的本地知识库。",
+          "tags": ["售后", "工单", "退款"]
+        }
+      ],
+      "tools": [
+        {
+          "id": "kbase_search",
+          "name": "知识库搜索",
+          "description": "搜索已索引的本地知识库。",
+          "tags": ["knowledge-base", "search"]
+        }
+      ]
+    }
+  }
+}
+```
+
+gateway 必须用相同的 `id` 和 `type` 回应，并回显 `agentKey`：
+
+```json
+{
+  "frame": "response",
+  "type": "agent.card.update",
+  "id": "card_01J...",
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "agentKey": "support-agent",
+    "accepted": true
+  }
+}
+```
+
+业务拒绝仍返回成功送达的 `response`，设置 `accepted: false`，并可在 `data.reason` 给出脱敏原因；格式错误等协议问题沿用 `error` frame。不使用 `push agent.card.ack`。
+
+连接成功和每次重连后会立即全量申报。Agent、Skill、Tool、MCP 或 KBASE 标签成功重载后，platform 以 2 秒 debounce 合并变化并重新全量申报；每轮最多并发 4 张卡，每张等待响应 10 秒。超时、断流或 5xx 最多尝试 3 次并按约 2 秒、4 秒退避；`accepted: false` 与 4xx 不自动重试，只等待配置变化或重连。断线会取消旧连接上的待处理请求。
+
+`skills` 和 `tools` 始终为数组，每项只包含 `id/name/description/tags`。卡片不会读取或发送 prompt、workspace/path、知识库原文、工具参数 schema、环境变量或认证配置；发送前还会拒绝明显的绝对路径和凭证模式。字段超长、条目过多、声明无法解析或总帧超限时整张卡在本地标记为 invalid/error，不发送残缺卡片。名称、描述和标签属于公开配置，维护者必须预先完成客户隐私脱敏。
+
+本结构仅借用 A2A Agent Skill 的展示模型，是 gateway 的简化卡；未包含[完整 A2A 1.0 Agent Card 定义](https://github.com/a2aproject/A2A/blob/main/specification/a2a.proto)要求的接口、版本、capabilities、安全与输入输出模式等字段，`tools` 也是平台自定义扩展，不宣称完整兼容 A2A Agent Card。
+
+`GET /api/admin/channels` 与 `GET /api/monitor/channels` 的每个 export 可包含 `cardStatus`，字段包括 `status`、`requestId`、`attempt`、`updatedAt`、可选 `acceptedAt` 和脱敏 `reason`。状态值为 `pending / accepted / rejected / retrying / error / offline`。
+
 ## 约束与注意事项
 
 - HTTP query 参数在 WS payload 中通常以同名 JSON 字段传入。

@@ -1497,19 +1497,11 @@ func TestAgentWSRuntimeModelConfigAndAdminRoutesRejected(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("write model config request: %v", err)
 	}
-	var modelConfigFrame ws.ResponseFrame
-	if err := conn.ReadJSON(&modelConfigFrame); err != nil {
-		t.Fatalf("read model config response: %v", err)
-	}
-	modelUpdated, err := marshalAgentResponseData[api.AgentModelConfigResponse](modelConfigFrame.Data)
-	if err != nil {
-		t.Fatalf("decode model config data: %v", err)
-	}
+	modelUpdated := waitForWebSocketResponseData[api.AgentModelConfigResponse](t, conn, "update-coder-model")
 	modelConfig := modelUpdated.ModelConfig
 	reasoning, _ := modelConfig["reasoning"].(map[string]any)
-	if modelConfigFrame.Frame != ws.FrameResponse || modelConfigFrame.ID != "update-coder-model" ||
-		modelConfig["modelKey"] != "mock-model" || reasoning["enabled"] != false {
-		t.Fatalf("unexpected model config frame %#v data=%#v", modelConfigFrame, modelUpdated)
+	if modelConfig["modelKey"] != "mock-model" || reasoning["enabled"] != false {
+		t.Fatalf("unexpected model config data %#v", modelUpdated)
 	}
 }
 

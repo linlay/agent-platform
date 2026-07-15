@@ -1,5 +1,8 @@
 # Channel only describes the connection. Agent import/export is declared in
 # each agent.yml channelConfig.
+# Gateway Agent Card reporting is enabled only for mode: client channels and
+# only for explicit agent channelConfig.exports with allow.query: true. Legacy
+# agents: "*" does not authorize or generate Agent Card reports.
 
 # channels:
 #   # Platform actively connects to another platform/adaptor.
@@ -29,6 +32,8 @@
 
 # Legacy gateway-compatible form. Deprecated for new work; it is still parsed and
 # internally normalized as a client channel plus a gateway entry.
+# To publish cards from a legacy connection, add explicit channelConfig.exports
+# to every local agent that should be visible to this channel.
 # channels:
 #   personal-bridge:
 #     name: 个人企业微信 Bridge

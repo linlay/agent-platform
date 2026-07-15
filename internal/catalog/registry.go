@@ -727,6 +727,7 @@ func cloneAgentDefinitionSnapshot(src AgentDefinition) AgentDefinition {
 	dst.Project.PromptFiles = append([]AgentProjectPromptFile(nil), src.Project.PromptFiles...)
 	dst.KBaseConfig.Include = append([]string(nil), src.KBaseConfig.Include...)
 	dst.KBaseConfig.Exclude = append([]string(nil), src.KBaseConfig.Exclude...)
+	dst.KBaseConfig.Tags = append([]string(nil), src.KBaseConfig.Tags...)
 	dst.ContextTags = append([]string(nil), src.ContextTags...)
 	dst.ContextAgents = append([]string(nil), src.ContextAgents...)
 	dst.Budget = cloneAgentSnapshotMap(src.Budget)

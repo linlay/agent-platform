@@ -42,12 +42,22 @@ type Registry struct {
 	heartbeat time.Duration
 	hub       *ws.Hub
 	dispatch  ws.RouteHandler
+	observers []ConnectionObserver
 
 	rootCtx context.Context
 }
 
+type ConnectionObserver interface {
+	GatewayConnected(gatewayID string, channelID string, conn *ws.Conn)
+	GatewayDisconnected(gatewayID string, channelID string, conn *ws.Conn)
+}
+
+type registrationObserver interface {
+	GatewayRegistered(gatewayID string, channelID string)
+}
+
 // New 创建 Registry。rootCtx 用于给每个 connector.Start 传递；Registry 自己不起 goroutine。
-func New(rootCtx context.Context, wsCfg config.WebSocketConfig, heartbeat time.Duration, hub *ws.Hub, dispatch ws.RouteHandler) *Registry {
+func New(rootCtx context.Context, wsCfg config.WebSocketConfig, heartbeat time.Duration, hub *ws.Hub, dispatch ws.RouteHandler, observers ...ConnectionObserver) *Registry {
 	return &Registry{
 		entries:         map[string]*Entry{},
 		byChannel:       map[string]string{},
@@ -58,6 +68,7 @@ func New(rootCtx context.Context, wsCfg config.WebSocketConfig, heartbeat time.D
 		hub:             hub,
 		dispatch:        dispatch,
 		rootCtx:         rootCtx,
+		observers:       append([]ConnectionObserver(nil), observers...),
 	}
 }
 
@@ -108,12 +119,31 @@ func (r *Registry) Register(entry config.GatewayEntry) error {
 			HandshakeTimeout: time.Duration(entry.HandshakeTimeout) * time.Second,
 			ReconnectMin:     time.Duration(entry.ReconnectMin) * time.Second,
 			ReconnectMax:     time.Duration(entry.ReconnectMax) * time.Second,
+			OnConnected: func(conn *ws.Conn) {
+				for _, observer := range r.observers {
+					if observer != nil {
+						observer.GatewayConnected(id, channelKey, conn)
+					}
+				}
+			},
+			OnDisconnected: func(conn *ws.Conn) {
+				for _, observer := range r.observers {
+					if observer != nil {
+						observer.GatewayDisconnected(id, channelKey, conn)
+					}
+				}
+			},
 		},
 		r.wsCfg,
 		r.heartbeat,
 		r.hub,
 		r.dispatch,
 	)
+	for _, observer := range r.observers {
+		if registered, ok := observer.(registrationObserver); ok {
+			registered.GatewayRegistered(id, channelKey)
+		}
+	}
 	client.Start(r.rootCtx)
 
 	e := &Entry{

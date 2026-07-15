@@ -103,6 +103,13 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	if readOnly, ok := root["readOnly"].(bool); ok {
 		meta["readOnly"] = readOnly
 	}
+	tags, err := publicToolTags(root["tags"])
+	if err != nil {
+		return api.ToolDetailResponse{}, err
+	}
+	if len(tags) > 0 {
+		meta["tags"] = tags
+	}
 	if toolAction, ok := root["toolAction"].(bool); ok {
 		meta["toolAction"] = toolAction
 	}
@@ -181,4 +188,56 @@ func fallbackToolString(value string, fallback string) string {
 		return strings.TrimSpace(value)
 	}
 	return strings.TrimSpace(fallback)
+}
+
+func publicToolTags(value any) ([]string, error) {
+	var raw []string
+	switch typed := value.(type) {
+	case nil:
+	case []string:
+		raw = append(raw, typed...)
+	case []any:
+		for _, item := range typed {
+			text, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("tags must contain only strings")
+			}
+			raw = append(raw, text)
+		}
+	case string:
+		raw = append(raw, splitPublicToolTagText(typed)...)
+	default:
+		return nil, fmt.Errorf("tags must be a string or list of strings")
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(raw))
+	for _, item := range raw {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if _, exists := seen[item]; exists {
+			continue
+		}
+		seen[item] = struct{}{}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+func splitPublicToolTagText(value string) []string {
+	value = strings.TrimSpace(value)
+	if len(value) >= 2 && strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
+		value = strings.TrimSpace(value[1 : len(value)-1])
+		parts := strings.Split(value, ",")
+		out := make([]string, 0, len(parts))
+		for _, part := range parts {
+			part = strings.Trim(strings.TrimSpace(part), `"'`)
+			if part != "" {
+				out = append(out, part)
+			}
+		}
+		return out
+	}
+	return []string{value}
 }

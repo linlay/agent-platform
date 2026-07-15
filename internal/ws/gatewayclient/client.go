@@ -29,6 +29,8 @@ type Config struct {
 	HandshakeTimeout time.Duration
 	ReconnectMin     time.Duration
 	ReconnectMax     time.Duration
+	OnConnected      func(*ws.Conn)
+	OnDisconnected   func(*ws.Conn)
 }
 
 type Client struct {
@@ -174,7 +176,19 @@ func (c *Client) run() {
 		})
 		log.Printf("gateway websocket connected: url=%s", c.cfg.URL)
 		startedAt := time.Now()
-		ws.NewSilentConn(socket, c.hub, c.wsCfg, c.heartbeat, ws.AuthSession{Context: connCtx}).Run(c.dispatch)
+		conn := ws.NewSilentConn(socket, c.hub, c.wsCfg, c.heartbeat, ws.AuthSession{Context: connCtx})
+		runDone := make(chan struct{})
+		go func() {
+			conn.Run(c.dispatch)
+			close(runDone)
+		}()
+		if c.cfg.OnConnected != nil {
+			c.cfg.OnConnected(conn)
+		}
+		<-runDone
+		if c.cfg.OnDisconnected != nil {
+			c.cfg.OnDisconnected(conn)
+		}
 		connCancel()
 		c.connected.Store(false)
 		c.curSocket.Store(nil)

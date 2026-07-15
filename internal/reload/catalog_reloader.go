@@ -37,6 +37,12 @@ type AgentCatalogReconciler interface {
 	ReconcileWatchers(ctx context.Context)
 }
 
+// CatalogReloadObserver receives one callback after a complete reload cascade
+// succeeds. Observers must return quickly; long-running work should be queued.
+type CatalogReloadObserver interface {
+	CatalogReloaded(ctx context.Context, reason string)
+}
+
 type RuntimeCatalogReloader struct {
 	registry         catalog.Registry
 	models           *models.ModelRegistry
@@ -45,6 +51,7 @@ type RuntimeCatalogReloader struct {
 	toolsDir         string
 	notifications    contracts.NotificationSink
 	agentReconcilers []AgentCatalogReconciler
+	observers        []CatalogReloadObserver
 	lastReloadNs     atomic.Int64
 }
 
@@ -58,6 +65,13 @@ func NewRuntimeCatalogReloader(registry catalog.Registry, models *models.ModelRe
 		notifications:    notifications,
 		agentReconcilers: append([]AgentCatalogReconciler(nil), agentReconcilers...),
 	}
+}
+
+func (r *RuntimeCatalogReloader) AddObserver(observer CatalogReloadObserver) {
+	if r == nil || observer == nil {
+		return
+	}
+	r.observers = append(r.observers, observer)
 }
 
 // Reload dispatches reloads by reason. Reload spec:
@@ -160,6 +174,11 @@ func (r *RuntimeCatalogReloader) Reload(ctx context.Context, reason string) erro
 	}
 
 	r.lastReloadNs.Store(time.Now().UnixNano())
+	for _, observer := range r.observers {
+		if observer != nil {
+			observer.CatalogReloaded(ctx, reason)
+		}
+	}
 	if r.notifications != nil {
 		r.notifications.Broadcast("catalog.updated", map[string]any{
 			"reason":    reason,

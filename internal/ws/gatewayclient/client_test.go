@@ -28,6 +28,8 @@ func (testAuthenticator) VerifyToken(ctx context.Context, token string) (ws.Auth
 
 func TestClientConnectDispatchBroadcastAndReconnect(t *testing.T) {
 	accepted := make(chan acceptedGatewayConn, 4)
+	connected := make(chan *ws.Conn, 4)
+	disconnected := make(chan *ws.Conn, 4)
 	upgrader := gws.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := strings.TrimSpace(r.Header.Get("Authorization")); got != "Bearer dev-token" {
@@ -63,6 +65,12 @@ func TestClientConnectDispatchBroadcastAndReconnect(t *testing.T) {
 		HandshakeTimeout: 500 * time.Millisecond,
 		ReconnectMin:     30 * time.Millisecond,
 		ReconnectMax:     80 * time.Millisecond,
+		OnConnected: func(conn *ws.Conn) {
+			connected <- conn
+		},
+		OnDisconnected: func(conn *ws.Conn) {
+			disconnected <- conn
+		},
 	}, wsCfg, 50*time.Millisecond, hub, handler.Dispatch)
 	client.Start(context.Background())
 	defer func() {
@@ -70,6 +78,7 @@ func TestClientConnectDispatchBroadcastAndReconnect(t *testing.T) {
 	}()
 
 	first := waitAcceptedConn(t, accepted)
+	firstRuntimeConn := waitRuntimeConn(t, connected)
 	defer first.conn.Close()
 	if first.authorization != "Bearer dev-token" {
 		t.Fatalf("expected Authorization header to be forwarded, got %q", first.authorization)
@@ -100,6 +109,12 @@ func TestClientConnectDispatchBroadcastAndReconnect(t *testing.T) {
 	}
 
 	second := waitAcceptedConn(t, accepted)
+	if got := waitRuntimeConn(t, disconnected); got != firstRuntimeConn {
+		t.Fatalf("disconnect callback conn = %p, want first connected conn %p", got, firstRuntimeConn)
+	}
+	if got := waitRuntimeConn(t, connected); got == firstRuntimeConn {
+		t.Fatal("reconnect callback reused the previous runtime connection")
+	}
 	defer second.conn.Close()
 	// 重连后仍然 silent，不发 push.connected；用一次请求往返验证连接已经恢复。
 	if err := second.conn.WriteJSON(ws.RequestFrame{
@@ -111,6 +126,17 @@ func TestClientConnectDispatchBroadcastAndReconnect(t *testing.T) {
 		t.Fatalf("write agents request after reconnect: %v", err)
 	}
 	waitForResponse(t, second.conn, "req_agents_2")
+}
+
+func waitRuntimeConn(t *testing.T, conns <-chan *ws.Conn) *ws.Conn {
+	t.Helper()
+	select {
+	case conn := <-conns:
+		return conn
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for gateway client lifecycle callback")
+		return nil
+	}
 }
 
 func TestClientStopClosesActiveConnection(t *testing.T) {

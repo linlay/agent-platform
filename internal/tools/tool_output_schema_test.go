@@ -87,6 +87,16 @@ func TestToolDefinitionLoaderPublishesOutputSchema(t *testing.T) {
 	}
 }
 
+func TestToolDefinitionLoaderRejectsNonStringPublicTag(t *testing.T) {
+	_, err := parseToolDefinition(map[string]any{
+		"name": "demo",
+		"tags": []any{"public", 42},
+	}, toolDefinitionParseOptions{})
+	if err == nil {
+		t.Fatal("expected non-string public tag to fail")
+	}
+}
+
 func TestMCPResultUsesOutputSchemaWithoutGuessingBusinessFieldNames(t *testing.T) {
 	base := api.ToolDetailResponse{
 		Name: "mcp-result",

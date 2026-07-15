@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"agent-platform/internal/agent/kbase"
+	"agent-platform/internal/api"
 	"agent-platform/internal/automation"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/channel"
@@ -50,13 +51,23 @@ type Dependencies struct {
 	DeltaMappers           contracts.StreamDeltaMapperFactory
 	SystemInits            contracts.SystemInitBuilder
 	// GatewayResolver 按 chatId 查对应 gateway 的 BaseURL/Token。
-	GatewayResolver GatewayResolver
+	GatewayResolver  GatewayResolver
+	AgentCardStatus  AgentCardStatusProvider
+	AgentCardRefresh AgentCardRefreshScheduler
 }
 
 // GatewayResolver 是 ws_routes 下载时用来按 chatId 选对应 gateway 的只读视图，
 // 由 internal/gateway.Registry 提供实现；放在 server 包避免 server → gateway 的直接 import。
 type GatewayResolver interface {
 	Resolve(chatID string) (baseURL string, token string, ok bool)
+}
+
+type AgentCardStatusProvider interface {
+	AgentCardStatus(channelID string, externalAgentKey string) (api.GatewayAgentCardReportStatus, bool)
+}
+
+type AgentCardRefreshScheduler interface {
+	ScheduleRefresh()
 }
 
 type ChannelRegistry interface {

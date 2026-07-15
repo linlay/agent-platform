@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"agent-platform/internal/api"
@@ -247,6 +248,7 @@ func TestToolRouterReloadRuntimeExternalToolDefinitions(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "qs_read.yml"), []byte(`
 name: qs_read
 description: Read Qiuer method.
+tags: [knowledge, read]
 readOnly: true
 external:
   transport: stdio-jsonrpc
@@ -274,6 +276,10 @@ inputSchema:
 	}
 	if tool.Meta["sourceCategory"] != "external" {
 		t.Fatalf("expected runtime external tool sourceCategory external, got %#v", tool.Meta)
+	}
+	tags, _ := tool.Meta["tags"].([]string)
+	if strings.Join(tags, ",") != "knowledge,read" {
+		t.Fatalf("unexpected public tool tags %#v", tool.Meta["tags"])
 	}
 	externalMeta, _ := tool.Meta["external"].(map[string]any)
 	if externalMeta["command"] != filepath.Join(root, "qiuerscript-tool") {

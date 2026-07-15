@@ -224,7 +224,6 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		ChatsDir:      cfg.Paths.ChatsDir,
 		Notifications: notifications,
 	}))
-	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcp.NewRegistryReloader(mcpRegistry, mcpToolSync), toolExecutor, cfg.Paths.ToolsDir, notifications, kbaseManager)
 	backgroundCtx, backgroundCancel := context.WithCancel(rootCtx)
 	cleanupBackground := true
 	defer func() {
@@ -232,6 +231,9 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			backgroundCancel()
 		}
 	}()
+	cardReporter := gateway.NewAgentCardReporter(backgroundCtx, registry, toolExecutor)
+	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcp.NewRegistryReloader(mcpRegistry, mcpToolSync), toolExecutor, cfg.Paths.ToolsDir, notifications, kbaseManager)
+	reloader.AddObserver(cardReporter)
 	kbaseManager.Start(backgroundCtx)
 	reload.StartBackgroundReloaders(backgroundCtx, cfg, reloader)
 	mcp.NewReconnectLoop(mcpRegistry, mcpToolSync, mcpGate, 10*time.Second).Start(backgroundCtx)
@@ -316,6 +318,8 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		AutomationRegistry:   automationRegistry,
 		AutomationExecutions: automationExecutionStore,
 		GatewayResolver:      gatewayResolver,
+		AgentCardStatus:      cardReporter,
+		AgentCardRefresh:     cardReporter,
 	})
 	if err != nil {
 		if automationExecutionStore != nil {
@@ -334,6 +338,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			time.Duration(cfg.SSE.HeartbeatInterval)*time.Second,
 			wsHub,
 			handler.Dispatch,
+			cardReporter,
 		)
 		for _, entry := range cfg.Gateways {
 			if err := gwRegistry.Register(entry); err != nil {

@@ -144,7 +144,7 @@ func (s *Server) adminChannelAgentSummary(def *channelpkg.Definition, summaries 
 			if strings.TrimSpace(export.ChannelID) != channelID {
 				continue
 			}
-			exports = append(exports, api.AdminChannelAgentExport{
+			item := api.AdminChannelAgentExport{
 				AgentKey:         agentKey,
 				Name:             name,
 				ExternalAgentKey: catalog.EffectiveChannelExportExternalKey(agentKey, export),
@@ -155,7 +155,14 @@ func (s *Server) adminChannelAgentSummary(def *channelpkg.Definition, summaries 
 					Interrupt:    export.Allow.Interrupt,
 					FileTransfer: export.Allow.FileTransfer,
 				},
-			})
+			}
+			if s.deps.AgentCardStatus != nil {
+				if status, ok := s.deps.AgentCardStatus.AgentCardStatus(channelID, item.ExternalAgentKey); ok {
+					statusCopy := status
+					item.CardStatus = &statusCopy
+				}
+			}
+			exports = append(exports, item)
 		}
 	}
 	sort.Slice(imports, func(i, j int) bool {

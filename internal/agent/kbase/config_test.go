@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -143,6 +144,21 @@ func TestValidateAgentConfigSchemaRejectsRemovedEmbeddingFields(t *testing.T) {
 		if _, err := ParseAgentConfig(map[string]any{"retrieval": map[string]any{key: value}}); err == nil {
 			t.Fatalf("expected invalid retrieval field %q to fail", key)
 		}
+	}
+}
+
+func TestParseAgentConfigReadsPublicTags(t *testing.T) {
+	cfg, err := ParseAgentConfig(map[string]any{
+		"tags": []any{"售后", "退款"},
+	})
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	if strings.Join(cfg.Tags, ",") != "售后,退款" {
+		t.Fatalf("unexpected tags %#v", cfg.Tags)
+	}
+	if _, err := ParseAgentConfig(map[string]any{"tags": []any{"售后", 42}}); err == nil {
+		t.Fatal("expected non-string public tag to fail")
 	}
 }
 

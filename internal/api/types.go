@@ -732,10 +732,11 @@ type AdminChannelAgentImport struct {
 }
 
 type AdminChannelAgentExport struct {
-	AgentKey         string                 `json:"agentKey"`
-	Name             string                 `json:"name,omitempty"`
-	ExternalAgentKey string                 `json:"externalAgentKey,omitempty"`
-	Allow            AdminChannelAllowFlags `json:"allow"`
+	AgentKey         string                        `json:"agentKey"`
+	Name             string                        `json:"name,omitempty"`
+	ExternalAgentKey string                        `json:"externalAgentKey,omitempty"`
+	Allow            AdminChannelAllowFlags        `json:"allow"`
+	CardStatus       *GatewayAgentCardReportStatus `json:"cardStatus,omitempty"`
 }
 
 type AdminChannelAllowFlags struct {

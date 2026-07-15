@@ -116,7 +116,9 @@ func TestMergePendingReloadReasonEscalatesMixedChangesToConfig(t *testing.T) {
 func TestRuntimeCatalogReloaderCascadesSkillsToAgents(t *testing.T) {
 	registry := &recordingRuntimeRegistry{}
 	reconciler := &recordingAgentCatalogReconciler{}
+	observer := &recordingCatalogReloadObserver{}
 	reloader := NewRuntimeCatalogReloader(registry, nil, nil, nil, "", nil, reconciler)
+	reloader.AddObserver(observer)
 
 	if err := reloader.Reload(context.Background(), "skills"); err != nil {
 		t.Fatalf("reload skills: %v", err)
@@ -129,12 +131,26 @@ func TestRuntimeCatalogReloaderCascadesSkillsToAgents(t *testing.T) {
 	if reconciler.calls != 1 {
 		t.Fatalf("agent reconciler calls = %d, want 1 after cascaded agents reload", reconciler.calls)
 	}
+	if want := []string{"skills"}; !reflect.DeepEqual(observer.reasons, want) {
+		t.Fatalf("observer reasons = %#v, want %#v", observer.reasons, want)
+	}
 	if err := reloader.Reload(context.Background(), "teams"); err != nil {
 		t.Fatalf("reload teams: %v", err)
 	}
 	if reconciler.calls != 1 {
 		t.Fatalf("team-only reload unexpectedly reconciled agent watchers: %d", reconciler.calls)
 	}
+	if want := []string{"skills", "teams"}; !reflect.DeepEqual(observer.reasons, want) {
+		t.Fatalf("observer reasons = %#v, want %#v", observer.reasons, want)
+	}
+}
+
+type recordingCatalogReloadObserver struct {
+	reasons []string
+}
+
+func (r *recordingCatalogReloadObserver) CatalogReloaded(_ context.Context, reason string) {
+	r.reasons = append(r.reasons, reason)
 }
 
 type recordingAgentCatalogReconciler struct {

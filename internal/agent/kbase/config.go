@@ -17,6 +17,7 @@ const (
 )
 
 type AgentConfig struct {
+	Tags      []string
 	Embedding EmbeddingConfig
 	Storage   StorageConfig
 	Include   []string
@@ -142,6 +143,7 @@ func ParseAgentConfig(node map[string]any) (AgentConfig, error) {
 	if len(node) == 0 {
 		return cfg, nil
 	}
+	cfg.Tags = anyStrings(node["tags"])
 	embedding := anyMap(node["embedding"])
 	cfg.Embedding = EmbeddingConfig{ModelKey: anyString(embedding["modelKey"])}
 	storage := anyMap(node["storage"])
@@ -283,6 +285,19 @@ func NormalizeChunkUnit(value string) (string, bool) {
 }
 
 func ValidateAgentConfigSchema(node map[string]any) error {
+	if rawTags, exists := node["tags"]; exists {
+		switch tags := rawTags.(type) {
+		case []string:
+		case []any:
+			for _, tag := range tags {
+				if _, ok := tag.(string); !ok {
+					return fmt.Errorf("kbaseConfig.tags must contain only strings")
+				}
+			}
+		default:
+			return fmt.Errorf("kbaseConfig.tags must be a list of strings")
+		}
+	}
 	embedding := anyMap(node["embedding"])
 	for _, key := range []string{"providerKey", "model", "dimension", "timeout"} {
 		if _, exists := embedding[key]; exists {

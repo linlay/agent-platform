@@ -1,6 +1,7 @@
 name: kbase_search
 label: 搜索知识库
 description: Search the current KBASE agent knowledge base. Results include source paths, line/page/slide ranges, snippets, scores, and match type.
+tags: [knowledge-base, search]
 submitResultFormat: json-compact
 type: function
 clientVisible: true

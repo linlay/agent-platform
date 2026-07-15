@@ -16,6 +16,13 @@ import (
 
 type channelConnectionSnapshotStub map[string][]ws.MonitorConnection
 
+type agentCardStatusStub map[string]api.GatewayAgentCardReportStatus
+
+func (s agentCardStatusStub) AgentCardStatus(channelID string, externalAgentKey string) (api.GatewayAgentCardReportStatus, bool) {
+	status, ok := s[strings.TrimSpace(channelID)+"/"+strings.TrimSpace(externalAgentKey)]
+	return status, ok
+}
+
 func (s channelConnectionSnapshotStub) Broadcast(string, map[string]any) {}
 
 func (s channelConnectionSnapshotStub) GatewayConnections(channelID string) []ws.MonitorConnection {
@@ -207,6 +214,44 @@ func TestAdminChannelsReturnsEffectiveExternalAgentKeyForOmittedAlias(t *testing
 	}
 	if exp.AgentKey != "kbaseOrchestrator" {
 		t.Fatalf("expected local agent key kbaseOrchestrator, got %q", exp.AgentKey)
+	}
+}
+
+func TestAdminChannelsIncludesAgentCardReportStatus(t *testing.T) {
+	server, _ := newServerForChannelTests(t)
+	server.deps.Channels = channelpkg.NewRegistry([]config.ChannelConfig{{
+		ID:   "peer-a",
+		Mode: config.ChannelModeClient,
+	}})
+	server.deps.Registry = channelTestCatalogRegistry{
+		agents: []api.AgentSummary{{Key: "support", Name: "Support"}},
+		defs: map[string]catalog.AgentDefinition{
+			"support": exportedChannelTestAgent("support", "peer-a", "support-agent"),
+		},
+	}
+	server.deps.AgentCardStatus = agentCardStatusStub{
+		"peer-a/support-agent": {Status: "rejected", RequestID: "card_1", Reason: "invalid card"},
+	}
+
+	rec := httptest.NewRecorder()
+	server.handleAdminChannels(rec, httptest.NewRequest(http.MethodGet, "/api/admin/channels", nil))
+	response := decodeAdminChannelsResponse(t, rec)
+	export := response.Data.Items[0].Agents.Exports[0]
+	if export.CardStatus == nil || export.CardStatus.Status != "rejected" || export.CardStatus.RequestID != "card_1" {
+		t.Fatalf("unexpected card status %#v", export.CardStatus)
+	}
+}
+
+func exportedChannelTestAgent(key, channelID, externalKey string) catalog.AgentDefinition {
+	return catalog.AgentDefinition{
+		Key:  key,
+		Name: key,
+		Mode: "REACT",
+		ChannelConfig: catalog.AgentChannelConfig{Exports: []catalog.AgentChannelExport{{
+			ChannelID:        channelID,
+			ExternalAgentKey: externalKey,
+			Allow:            catalog.AgentChannelAllow{Query: true},
+		}}},
 	}
 }
 
