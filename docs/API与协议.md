@@ -568,6 +568,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/chat/rename` | `chatId`、`chatName` | `response` |
 | `/api/chat/archive` | `chatId`、`reason` | `response` |
 | `/api/chat/jsonl` | `chatId` | `response`，data 为原始 JSONL 字符串；HTTP 仍返回 text/plain |
+| `/api/chat/system-prompt` | `chatId`、`runId`、`agentKey` | `response`，data 与 HTTP 成功响应完全一致 |
 | `/api/chat/llm-trace` | `file` | `response`，data 为原始 LLM trace JSON 字符串；HTTP 返回 application/json |
 | `/api/archives` | `agentKey`、`limit`、`offset` | `response` |
 | `/api/archive` | `chatId` | `response` |

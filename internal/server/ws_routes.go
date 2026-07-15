@@ -153,6 +153,7 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/chats", s.wsChats)
 	handler.RegisterRoute("/api/chat", s.wsChat)
 	handler.RegisterRoute("/api/chat/jsonl", s.wsChatJSONL)
+	handler.RegisterRoute("/api/chat/system-prompt", s.wsChatSystemPrompt)
 	handler.RegisterRoute("/api/chat/llm-trace", s.wsChatLLMTrace)
 	handler.RegisterRoute("/api/read", s.wsRead)
 	handler.RegisterRoute("/api/feedback", s.wsFeedback)
@@ -433,6 +434,51 @@ func (s *Server) wsChatJSONL(_ context.Context, conn *ws.Conn, req ws.RequestFra
 		return
 	}
 	conn.SendResponse(req.Type, req.ID, 0, "success", content)
+	conn.CompleteRequest(req.ID)
+}
+
+func (s *Server) wsChatSystemPrompt(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	payload, err := ws.DecodePayload[struct {
+		ChatID   string `json:"chatId"`
+		RunID    string `json:"runId"`
+		AgentKey string `json:"agentKey"`
+	}](req)
+	chatID := strings.TrimSpace(payload.ChatID)
+	runID := strings.TrimSpace(payload.RunID)
+	agentKey := strings.TrimSpace(payload.AgentKey)
+	if err != nil || chatID == "" || runID == "" || agentKey == "" {
+		conn.SendError(req.ID, "invalid_request", http.StatusBadRequest, "chatId, runId and agentKey are required", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if !chat.ValidChatID(chatID) {
+		conn.SendError(req.ID, "invalid_request", http.StatusBadRequest, "invalid chatId", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+
+	response, loadErr := s.loadChatSystemPrompt(chatID, runID, agentKey)
+	if errors.Is(loadErr, chat.ErrChatNotFound) {
+		conn.SendError(req.ID, "not_found", http.StatusNotFound, "chat not found", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if errors.Is(loadErr, errChatSystemPromptNotFound) {
+		conn.SendError(req.ID, "not_found", http.StatusNotFound, "system prompt not found", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if loadErr != nil {
+		if isTimeContractViolation(loadErr) {
+			sendTimeContractViolation(conn, req.ID, loadErr)
+			conn.CompleteRequest(req.ID)
+			return
+		}
+		conn.SendError(req.ID, "internal_error", http.StatusInternalServerError, loadErr.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	conn.SendResponse(req.Type, req.ID, 0, "success", response)
 	conn.CompleteRequest(req.ID)
 }
 

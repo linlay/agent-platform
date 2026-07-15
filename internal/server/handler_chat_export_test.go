@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -376,6 +377,138 @@ func TestWSChatJSONLValidationAndNotFound(t *testing.T) {
 				t.Fatalf("unexpected error frame: %#v", frame)
 			}
 		})
+	}
+}
+
+func TestWSChatSystemPromptReturnsPersistedSnapshot(t *testing.T) {
+	fixture := newChatExportWSTestFixture(t)
+	const chatID = "chat-system-prompt-ws"
+	const runID = "run-system-prompt-ws"
+	const agentKey = "agent-ws"
+	if _, _, err := fixture.chats.EnsureChat(chatID, agentKey, "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := fixture.chats.AppendQueryLine(chatID, chat.QueryLine{
+		Type:      "query",
+		ChatID:    chatID,
+		RunID:     runID,
+		UpdatedAt: testEpochMillis + 1,
+		Query:     map[string]any{"role": "system", "kind": "system-init", "hidden": true},
+		System: &chat.QueryLineSystem{
+			AgentKey:      agentKey,
+			CacheKey:      "react:main",
+			Fingerprint:   "sha256:ws",
+			SystemMessage: map[string]any{"role": "system", "content": "persisted system prompt"},
+			Tools:         []any{},
+		},
+	}); err != nil {
+		t.Fatalf("append system init: %v", err)
+	}
+
+	conn := dialTestWS(t, fixture.server)
+	defer conn.Close()
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame:   ws.FrameRequest,
+		Type:    "/api/chat/system-prompt",
+		ID:      "req_system_prompt",
+		Payload: ws.MarshalPayload(map[string]any{"chatId": chatID, "runId": runID, "agentKey": agentKey}),
+	}); err != nil {
+		t.Fatalf("write request: %v", err)
+	}
+
+	var frame ws.ResponseFrame
+	if err := conn.ReadJSON(&frame); err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	if frame.Frame != ws.FrameResponse || frame.Type != "/api/chat/system-prompt" || frame.ID != "req_system_prompt" || frame.Code != 0 {
+		t.Fatalf("unexpected response frame: %#v", frame)
+	}
+	encoded, err := json.Marshal(frame.Data)
+	if err != nil {
+		t.Fatalf("marshal response data: %v", err)
+	}
+	var response api.ChatSystemPromptResponse
+	if err := json.Unmarshal(encoded, &response); err != nil {
+		t.Fatalf("decode response data: %v", err)
+	}
+	if response.ChatID != chatID || response.RunID != runID || response.AgentKey != agentKey || response.SystemRef.AgentKey != agentKey || response.SystemRef.CacheKey != "react:main" || response.SystemRef.Fingerprint != "sha256:ws" {
+		t.Fatalf("unexpected system prompt response: %#v", response)
+	}
+	if got, _ := response.SystemMessage["content"].(string); got != "persisted system prompt" {
+		t.Fatalf("unexpected system message: %#v", response.SystemMessage)
+	}
+}
+
+func TestWSChatSystemPromptValidationAndNotFound(t *testing.T) {
+	fixture := newChatExportWSTestFixture(t)
+	const noSnapshotChatID = "chat-system-prompt-ws-no-snapshot"
+	if _, _, err := fixture.chats.EnsureChat(noSnapshotChatID, "agent-ws", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	conn := dialTestWS(t, fixture.server)
+	defer conn.Close()
+
+	for _, tc := range []struct {
+		name    string
+		id      string
+		payload json.RawMessage
+		code    int
+		typeKey string
+	}{
+		{name: "missing", id: "req_system_prompt_missing", payload: ws.MarshalPayload(map[string]any{}), code: http.StatusBadRequest, typeKey: "invalid_request"},
+		{name: "malformed", id: "req_system_prompt_malformed", payload: json.RawMessage(`[]`), code: http.StatusBadRequest, typeKey: "invalid_request"},
+		{name: "invalid chat", id: "req_system_prompt_invalid", payload: ws.MarshalPayload(map[string]any{"chatId": "../chat", "runId": "run_1", "agentKey": "agent"}), code: http.StatusBadRequest, typeKey: "invalid_request"},
+		{name: "chat not found", id: "req_system_prompt_not_found", payload: ws.MarshalPayload(map[string]any{"chatId": "missing-chat", "runId": "run_1", "agentKey": "agent"}), code: http.StatusNotFound, typeKey: "not_found"},
+		{name: "snapshot not found", id: "req_system_prompt_snapshot_not_found", payload: ws.MarshalPayload(map[string]any{"chatId": noSnapshotChatID, "runId": "run_1", "agentKey": "agent-ws"}), code: http.StatusNotFound, typeKey: "not_found"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := conn.WriteJSON(ws.RequestFrame{
+				Frame:   ws.FrameRequest,
+				Type:    "/api/chat/system-prompt",
+				ID:      tc.id,
+				Payload: tc.payload,
+			}); err != nil {
+				t.Fatalf("write request: %v", err)
+			}
+			var frame ws.ErrorFrame
+			if err := conn.ReadJSON(&frame); err != nil {
+				t.Fatalf("read error: %v", err)
+			}
+			if frame.Frame != ws.FrameError || frame.ID != tc.id || frame.Type != tc.typeKey || frame.Code != tc.code {
+				t.Fatalf("unexpected error frame: %#v", frame)
+			}
+		})
+	}
+}
+
+func TestWSChatSystemPromptTimeContractViolation(t *testing.T) {
+	fixture := newChatExportWSTestFixture(t)
+	const chatID = "chat-system-prompt-ws-invalid-time"
+	if _, _, err := fixture.chats.EnsureChat(chatID, "agent-ws", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	path := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID+".jsonl")
+	content := `{"_type":"query","chatId":"` + chatID + `","runId":"run_1","updatedAt":"1700000000000","query":{},"system":{"agentKey":"agent-ws","cacheKey":"react:main","fingerprint":"sha256:invalid","systemMessage":{"role":"system","content":"invalid time"}}}` + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write jsonl: %v", err)
+	}
+
+	conn := dialTestWS(t, fixture.server)
+	defer conn.Close()
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame:   ws.FrameRequest,
+		Type:    "/api/chat/system-prompt",
+		ID:      "req_system_prompt_invalid_time",
+		Payload: ws.MarshalPayload(map[string]any{"chatId": chatID, "runId": "run_1", "agentKey": "agent-ws"}),
+	}); err != nil {
+		t.Fatalf("write request: %v", err)
+	}
+	var frame ws.ErrorFrame
+	if err := conn.ReadJSON(&frame); err != nil {
+		t.Fatalf("read error: %v", err)
+	}
+	if frame.Frame != ws.FrameError || frame.ID != "req_system_prompt_invalid_time" || frame.Code != http.StatusUnprocessableEntity || frame.Type != "time_contract_violation" {
+		t.Fatalf("expected 422 time_contract_violation frame, got %#v", frame)
 	}
 }
 

@@ -19,7 +19,10 @@ import (
 	"agent-platform/internal/timecontract"
 )
 
-var errInvalidLLMTraceFile = errors.New("invalid llm trace file")
+var (
+	errInvalidLLMTraceFile      = errors.New("invalid llm trace file")
+	errChatSystemPromptNotFound = errors.New("system prompt not found")
+)
 
 func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 	chatID := strings.TrimSpace(r.URL.Query().Get("chatId"))
@@ -133,9 +136,13 @@ func (s *Server) handleChatSystemPrompt(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	snapshot, err := s.deps.Chats.LoadRunSystemInit(chatID, runID, agentKey)
+	response, err := s.loadChatSystemPrompt(chatID, runID, agentKey)
 	if errors.Is(err, chat.ErrChatNotFound) {
 		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat not found"))
+		return
+	}
+	if errors.Is(err, errChatSystemPromptNotFound) {
+		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "system prompt not found"))
 		return
 	}
 	if err != nil {
@@ -146,12 +153,19 @@ func (s *Server) handleChatSystemPrompt(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
-	if snapshot == nil {
-		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "system prompt not found"))
-		return
-	}
 
-	writeJSON(w, http.StatusOK, api.Success(api.ChatSystemPromptResponse{
+	writeJSON(w, http.StatusOK, api.Success(response))
+}
+
+func (s *Server) loadChatSystemPrompt(chatID string, runID string, agentKey string) (api.ChatSystemPromptResponse, error) {
+	snapshot, err := s.deps.Chats.LoadRunSystemInit(chatID, runID, agentKey)
+	if err != nil {
+		return api.ChatSystemPromptResponse{}, err
+	}
+	if snapshot == nil {
+		return api.ChatSystemPromptResponse{}, errChatSystemPromptNotFound
+	}
+	return api.ChatSystemPromptResponse{
 		ChatID:   chatID,
 		RunID:    runID,
 		AgentKey: agentKey,
@@ -161,7 +175,7 @@ func (s *Server) handleChatSystemPrompt(w http.ResponseWriter, r *http.Request) 
 			Fingerprint: snapshot.Fingerprint,
 		},
 		SystemMessage: snapshot.SystemMessage,
-	}))
+	}, nil
 }
 
 func (s *Server) handleChatLLMTrace(w http.ResponseWriter, r *http.Request) {
