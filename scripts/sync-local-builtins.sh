@@ -25,7 +25,8 @@ With no target selector, builds the current host target. --all requests the
 six target matrix and therefore requires every relevant Rust target, linker,
 and SDK to be provisioned on this machine. ripgrep is consumed from its locked
 vendor artifact because the sibling collection currently carries no ripgrep
-source checkout.
+source checkout. poppler-pdftotext rebuilds its Go launcher and repackages its
+verified native runtime only for targets declared in the canonical lock.
 EOF
 }
 
@@ -130,6 +131,9 @@ copy_project httpx
 copy_project kbase-lance-engine
 copy_project poppler-pdftotext
 
+# dbx, httpx, kbase-lance-engine, and poppler-pdftotext are local source
+# projects. Rebuild their archives from the isolated collection on every sync.
+# ripgrep is the only precompiled component and is only copied and verified.
 (
   cd "$collection_root/dbx"
   scripts/release/build.sh
@@ -138,16 +142,25 @@ copy_project poppler-pdftotext
   cd "$collection_root/httpx"
   scripts/release/build.sh
 )
+poppler_target_args=()
 for target in "${TARGETS[@]}"; do
-  case "$target" in
-    darwin/arm64|windows/amd64)
-      (
-        cd "$collection_root/poppler-pdftotext"
-        POPPLER_PDFTOTEXT_TARGET_MATRIX="$target" scripts/release/build.sh
-      )
-      ;;
-  esac
+  poppler_target_args+=(--target "$target")
 done
+poppler_targets_file="$work_dir/poppler-targets"
+(
+  cd "$REPO_ROOT"
+  go run ./cmd/prepare-local-builtins-lock \
+    --input "$REPO_ROOT/scripts/release-assets/builtins.lock.json" \
+    --print-component-targets poppler-pdftotext \
+    "${poppler_target_args[@]}" >"$poppler_targets_file"
+)
+while IFS= read -r target; do
+  [[ -n "$target" ]] || continue
+  (
+    cd "$collection_root/poppler-pdftotext"
+    POPPLER_PDFTOTEXT_TARGET_MATRIX="$target" scripts/release/build.sh
+  )
+done <"$poppler_targets_file"
 for target in "${TARGETS[@]}"; do
   target_os="${target%%/*}"
   target_arch="${target#*/}"

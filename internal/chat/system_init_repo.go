@@ -12,6 +12,16 @@ type SystemInitKey struct {
 	CacheKey string
 }
 
+// SystemInitRef identifies the immutable system snapshot used by one LLM
+// call. Unlike SystemInitKey, it includes the fingerprint so callers can
+// retrieve a historical snapshot after a later catalog change writes a new
+// snapshot under the same agent/cache key.
+type SystemInitRef struct {
+	AgentKey    string
+	CacheKey    string
+	Fingerprint string
+}
+
 type SystemInitIndex map[SystemInitKey]*SystemInitLine
 
 func (index SystemInitIndex) Lookup(agentKey string, cacheKey string) *SystemInitLine {
@@ -28,6 +38,47 @@ func (s *FileStore) LoadSystemInit(chatID string, key SystemInitKey) (*SystemIni
 		return nil, err
 	}
 	return inits.Lookup(key.AgentKey, key.CacheKey), nil
+}
+
+func (s *FileStore) LoadSystemInitByRef(chatID string, ref SystemInitRef) (*SystemInitLine, error) {
+	chatID = strings.TrimSpace(chatID)
+	ref.AgentKey = strings.TrimSpace(ref.AgentKey)
+	ref.CacheKey = strings.TrimSpace(ref.CacheKey)
+	ref.Fingerprint = strings.TrimSpace(ref.Fingerprint)
+	if chatID == "" || ref.AgentKey == "" || ref.CacheKey == "" || ref.Fingerprint == "" {
+		return nil, nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	summary, err := s.loadSummary(chatID)
+	if err != nil {
+		return nil, err
+	}
+	if summary == nil {
+		return nil, ErrChatNotFound
+	}
+
+	lines, err := readPersistedJSONLines(s.chatJSONLPath(chatID))
+	if err != nil {
+		return nil, err
+	}
+	for _, line := range lines {
+		if strings.TrimSpace(stringFromAny(line["_type"])) != "query" {
+			continue
+		}
+		system, err := queryLineSystemFromJSONL(line)
+		if err != nil {
+			return nil, err
+		}
+		if system == nil || system.AgentKey != ref.AgentKey || system.CacheKey != ref.CacheKey || system.Fingerprint != ref.Fingerprint {
+			continue
+		}
+		result := systemInitLineFromQueryLine(line, system)
+		return &result, nil
+	}
+	return nil, nil
 }
 
 func (s *FileStore) LoadAllSystemInits(chatID string) (SystemInitIndex, error) {
@@ -58,27 +109,31 @@ func loadSystemInitsFromPath(path string) (SystemInitIndex, error) {
 		if system == nil {
 			continue
 		}
-		mode, stage := parseCacheKey(system.CacheKey)
-		converted := SystemInitLine{
-			Type:           "system",
-			ChatID:         stringFromAny(line["chatId"]),
-			AgentKey:       system.AgentKey,
-			RunID:          stringFromAny(line["runId"]),
-			CreatedAt:      int64FromAny(line["updatedAt"]),
-			Fingerprint:    system.Fingerprint,
-			CacheKey:       system.CacheKey,
-			Mode:           mode,
-			Stage:          stage,
-			SystemMessage:  system.SystemMessage,
-			Tools:          system.Tools,
-			Model:          system.Model,
-			ToolChoice:     system.ToolChoice,
-			RequestOptions: system.RequestOptions,
-		}
+		converted := systemInitLineFromQueryLine(line, system)
 		convertedCopy := converted
 		byKey[SystemInitKey{AgentKey: system.AgentKey, CacheKey: system.CacheKey}] = &convertedCopy
 	}
 	return byKey, nil
+}
+
+func systemInitLineFromQueryLine(line map[string]any, system *QueryLineSystem) SystemInitLine {
+	mode, stage := parseCacheKey(system.CacheKey)
+	return SystemInitLine{
+		Type:           "system",
+		ChatID:         stringFromAny(line["chatId"]),
+		AgentKey:       system.AgentKey,
+		RunID:          stringFromAny(line["runId"]),
+		CreatedAt:      int64FromAny(line["updatedAt"]),
+		Fingerprint:    system.Fingerprint,
+		CacheKey:       system.CacheKey,
+		Mode:           mode,
+		Stage:          stage,
+		SystemMessage:  system.SystemMessage,
+		Tools:          system.Tools,
+		Model:          system.Model,
+		ToolChoice:     system.ToolChoice,
+		RequestOptions: system.RequestOptions,
+	}
 }
 
 // queryLineSystemFromJSONL decodes the sole supported query-level system

@@ -122,6 +122,7 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 | POST | `/api/chat/archive` | body: `chatId`、`reason` | 归档结果 |
 | GET | `/api/chat/export` | query: `chatId` | Markdown 导出 |
 | GET | `/api/chat/jsonl` | query: `chatId` | 原始 chat JSONL 文本；active 不存在时回退 archive |
+| GET | `/api/chat/system-prompt` | query: `chatId`、`agentKey`、`cacheKey`、`fingerprint` | 按 `debug.llmChat.data.systemRef` 精确获取持久化的 system message |
 | GET | `/api/chat/llm-trace` | query: `file=<chatId>/.llm-records/<runId>_NNN.json` | 原始 LLM chat trace JSON 文本 |
 
 `/api/chats` 的 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；大小写无关，`PLAN_EXECUTE` 会归一为 `PLAN-EXECUTE`。它只筛选 Agent-owned chat，并与 `agentKey`、`lastRunId` 为 AND 关系；Team-owned chat 天然包含在全局列表中，不受 `mode`（包括未知 mode）影响。显式 `agentKey` 仍只返回该 agent 的 chat，不会匹配 Team。可选 `limit` 必须为正整数且不设上限；省略时返回全部匹配项，传入时在全部筛选和固定排序 `updatedAt DESC, chatId DESC` 后截断结果。`limit=0`、负数、空值或非整数返回 400；当前不支持 offset、分页游标或自定义排序。WebSocket 的 `/api/chats` 请求使用等价的 `mode` 与 `limit` 字段（`limit` 未传为全部）。旧 `agentMode` 参数或 payload 会返回 400，调用方应改用 `mode`。
@@ -136,7 +137,7 @@ chat 摘要会在新数据中返回可选 `mode`；`/api/chat.runs[]`、`/api/ag
 
 `/api/chat` 返回 active run 时，`activeRun.lastSeq` 是本次 chat detail 已返回历史 events 覆盖到的 live stream 游标，客户端应用这些 events 后可把它作为 `/api/attach.lastSeq`。它来自 `chatId.jsonl` 每行顶层 `liveSeq` 的 replay 结果，不是内存 run 当前最新 seq；内存最新 seq 只用于服务端运行状态。
 
-`/api/chat/jsonl`、chat/archive replay、搜索结果与 `/api/chat/llm-trace` 都在读取前验证各自明确拥有的时间字段。JSONL 的 line `updatedAt`、event `timestamp`、`messages[].ts` 和 awaiting/submit 时间仍严格；新写入的 trace 中 `sentAt`、`responseStartedAt`、`completedAt` 以及 `interrupt.interruptedAt` 均为 epoch milliseconds，对应的 `sentTime`、`responseStartedTime`、`completedTime`、`interrupt.interruptedTime` 为 RFC3339Nano 可读时间。历史 trace 或 JSONL 不迁移；其中字符串、秒、浮点、零值或缺少必填平台时间会返回 `422 time_contract_violation`，不会原样透传或补值；trace 中外部 request/response/tool payload 保持透明。
+`/api/chat/jsonl`、`/api/chat/system-prompt`、chat/archive replay、搜索结果与 `/api/chat/llm-trace` 都在读取前验证各自明确拥有的时间字段。JSONL 的 line `updatedAt`、event `timestamp`、`messages[].ts` 和 awaiting/submit 时间仍严格；新写入的 trace 中 `sentAt`、`responseStartedAt`、`completedAt` 以及 `interrupt.interruptedAt` 均为 epoch milliseconds，对应的 `sentTime`、`responseStartedTime`、`completedTime`、`interrupt.interruptedTime` 为 RFC3339Nano 可读时间。历史 trace 或 JSONL 不迁移；其中字符串、秒、浮点、零值或缺少必填平台时间会返回 `422 time_contract_violation`，不会原样透传或补值；trace 中外部 request/response/tool payload 保持透明。
 
 `/api/agents?includeChats=N`（包括 `includeTeam=true`）附带的 chat 摘要可能包含局部 `error`，用于展示单个 chat 的可恢复/可诊断异常而不让列表整体失败。当前 `multiple active runs found for chat` 会返回 `error: { "code": "active_run_conflict", "message": "multiple active runs found for chat", "chatId": "...", "runIds": ["..."] }`，此时该 chat 不包含 `activeRun`。
 

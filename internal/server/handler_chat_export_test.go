@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/stream"
@@ -106,6 +107,69 @@ func TestHandleChatJSONLRejectsHistoricalTimeContractViolation(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "time_contract_violation") {
 		t.Fatalf("expected time_contract_violation body=%s", rec.Body.String())
+	}
+}
+
+func TestHandleChatSystemPromptReturnsExactHistoricalSnapshot(t *testing.T) {
+	fixture := newTestFixture(t)
+	const chatID = "chat-system-prompt"
+	if _, _, err := fixture.chats.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	for index, snapshot := range []struct {
+		fingerprint string
+		content     string
+	}{
+		{fingerprint: "sha256:original", content: "original system prompt"},
+		{fingerprint: "sha256:updated", content: "updated system prompt"},
+	} {
+		if err := fixture.chats.AppendQueryLine(chatID, chat.QueryLine{
+			Type:      "query",
+			ChatID:    chatID,
+			RunID:     "run-system-prompt",
+			UpdatedAt: testEpochMillis + int64(index+1),
+			Query:     map[string]any{"role": "system", "kind": "system-init", "hidden": true},
+			System: &chat.QueryLineSystem{
+				AgentKey:      "agent-a",
+				CacheKey:      "react:main",
+				Fingerprint:   snapshot.fingerprint,
+				SystemMessage: map[string]any{"role": "system", "content": snapshot.content},
+				Tools:         []any{},
+			},
+		}); err != nil {
+			t.Fatalf("append system init %d: %v", index, err)
+		}
+	}
+
+	response := getAPIData[api.ChatSystemPromptResponse](t, fixture.server, http.MethodGet,
+		"/api/chat/system-prompt?chatId=chat-system-prompt&agentKey=agent-a&cacheKey=react%3Amain&fingerprint=sha256%3Aoriginal", nil)
+	if response.ChatID != chatID || response.SystemRef.AgentKey != "agent-a" || response.SystemRef.CacheKey != "react:main" || response.SystemRef.Fingerprint != "sha256:original" {
+		t.Fatalf("unexpected system prompt identity %#v", response)
+	}
+	if got, _ := response.SystemMessage["content"].(string); got != "original system prompt" {
+		t.Fatalf("expected historical system prompt, got %#v", response.SystemMessage)
+	}
+}
+
+func TestHandleChatSystemPromptValidationAndNotFound(t *testing.T) {
+	fixture := newTestFixture(t)
+	for _, tc := range []struct {
+		name string
+		path string
+		code int
+	}{
+		{name: "missing chat", path: "/api/chat/system-prompt", code: http.StatusBadRequest},
+		{name: "invalid chat", path: "/api/chat/system-prompt?chatId=../chat&agentKey=agent&cacheKey=react%3Amain&fingerprint=sha256%3Atest", code: http.StatusBadRequest},
+		{name: "missing system ref", path: "/api/chat/system-prompt?chatId=chat_1", code: http.StatusBadRequest},
+		{name: "missing chat", path: "/api/chat/system-prompt?chatId=missing-chat&agentKey=agent&cacheKey=react%3Amain&fingerprint=sha256%3Atest", code: http.StatusNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tc.path, nil))
+			if rec.Code != tc.code {
+				t.Fatalf("status=%d want=%d body=%s", rec.Code, tc.code, rec.Body.String())
+			}
+		})
 	}
 }
 

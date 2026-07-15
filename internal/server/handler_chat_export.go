@@ -115,6 +115,56 @@ func (s *Server) loadChatJSONLContent(chatID string) (string, error) {
 	return content, err
 }
 
+func (s *Server) handleChatSystemPrompt(w http.ResponseWriter, r *http.Request) {
+	chatID := strings.TrimSpace(r.URL.Query().Get("chatId"))
+	if chatID == "" {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "chatId is required"))
+		return
+	}
+	if !chat.ValidChatID(chatID) {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid chatId"))
+		return
+	}
+
+	ref := chat.SystemInitRef{
+		AgentKey:    strings.TrimSpace(r.URL.Query().Get("agentKey")),
+		CacheKey:    strings.TrimSpace(r.URL.Query().Get("cacheKey")),
+		Fingerprint: strings.TrimSpace(r.URL.Query().Get("fingerprint")),
+	}
+	if ref.AgentKey == "" || ref.CacheKey == "" || ref.Fingerprint == "" {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "agentKey, cacheKey, and fingerprint are required"))
+		return
+	}
+
+	snapshot, err := s.deps.Chats.LoadSystemInitByRef(chatID, ref)
+	if errors.Is(err, chat.ErrChatNotFound) {
+		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat not found"))
+		return
+	}
+	if err != nil {
+		if isTimeContractViolation(err) {
+			writeTimeContractViolation(w, err)
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
+	}
+	if snapshot == nil {
+		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "system prompt not found"))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, api.Success(api.ChatSystemPromptResponse{
+		ChatID: chatID,
+		SystemRef: api.ChatSystemPromptRef{
+			AgentKey:    snapshot.AgentKey,
+			CacheKey:    snapshot.CacheKey,
+			Fingerprint: snapshot.Fingerprint,
+		},
+		SystemMessage: snapshot.SystemMessage,
+	}))
+}
+
 func (s *Server) handleChatLLMTrace(w http.ResponseWriter, r *http.Request) {
 	fileParam := strings.TrimSpace(r.URL.Query().Get("file"))
 	if fileParam == "" {

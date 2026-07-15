@@ -22,9 +22,22 @@ func main() {
 	input := flag.String("input", "scripts/release-assets/builtins.lock.json", "canonical builtins lock")
 	output := flag.String("output", "", "derived local lock output path")
 	collectionRoot := flag.String("builtins-root", "", "absolute local builtin collection root")
+	componentTargets := flag.String("print-component-targets", "", "print requested targets declared for one component in the canonical lock")
 	var targets targetList
 	flag.Var(&targets, "target", "target to refresh (repeatable, os/arch)")
 	flag.Parse()
+
+	if strings.TrimSpace(*componentTargets) != "" {
+		resolved, err := declaredComponentTargets(*input, *componentTargets, targets)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "prepare local builtins lock: %v\n", err)
+			os.Exit(1)
+		}
+		for _, target := range resolved {
+			fmt.Println(target)
+		}
+		return
+	}
 
 	if err := run(*input, *output, *collectionRoot, targets); err != nil {
 		fmt.Fprintf(os.Stderr, "prepare local builtins lock: %v\n", err)
@@ -127,6 +140,47 @@ func parseTarget(value string) (string, string, error) {
 	default:
 		return "", "", fmt.Errorf("unsupported target %q", value)
 	}
+}
+
+// declaredComponentTargets returns the requested targets that the canonical
+// lock declares for componentName. Optional components can intentionally omit
+// platform artifacts, so callers use this before invoking a local builder.
+func declaredComponentTargets(input, componentName string, requestedTargets []string) ([]string, error) {
+	componentName = strings.TrimSpace(componentName)
+	if componentName == "" {
+		return nil, errors.New("component name is required")
+	}
+	if len(requestedTargets) == 0 {
+		return nil, errors.New("at least one --target is required")
+	}
+	lock, err := builtins.LoadLock(input)
+	if err != nil {
+		return nil, err
+	}
+	component, err := builtins.FindComponent(lock, componentName)
+	if err != nil {
+		return nil, err
+	}
+
+	resolved := make([]string, 0, len(requestedTargets))
+	seen := make(map[string]struct{}, len(requestedTargets))
+	for _, value := range requestedTargets {
+		goos, goarch, err := parseTarget(value)
+		if err != nil {
+			return nil, err
+		}
+		key := goos + "-" + goarch
+		if _, ok := component.Targets[key]; !ok {
+			continue
+		}
+		target := goos + "/" + goarch
+		if _, ok := seen[target]; ok {
+			continue
+		}
+		seen[target] = struct{}{}
+		resolved = append(resolved, target)
+	}
+	return resolved, nil
 }
 
 func localTargetTemplate(component builtins.Component, goos, goarch string) (builtins.Target, error) {
