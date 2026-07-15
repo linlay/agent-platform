@@ -237,6 +237,61 @@ func TestExecuteInternalQueryPreservesTrustedChatSource(t *testing.T) {
 	}
 }
 
+func TestExecuteInternalQueryPersistsFinalReactMetadataWithAndWithoutLLMRecord(t *testing.T) {
+	for _, recordEnabled := range []bool{false, true} {
+		t.Run(map[bool]string{false: "record-disabled", true: "record-enabled"}[recordEnabled], func(t *testing.T) {
+			fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+				writeProviderSSE(t, w,
+					`{"choices":[{"delta":{"content":"automation response"},"finish_reason":"stop"}]}`,
+					`{"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}}`,
+					`[DONE]`,
+				)
+			}, testFixtureOptions{
+				configure: func(cfg *config.Config) {
+					cfg.Logging.LLMInteraction.RecordEnabled = recordEnabled
+					if recordEnabled {
+						cfg.Logging.LLMInteraction.RecordDir = cfg.Paths.ChatsDir
+					}
+				},
+			})
+
+			chatID := "chat-internal-react-metadata-" + map[bool]string{false: "off", true: "on"}[recordEnabled]
+			status, body, err := fixture.server.ExecuteInternalQuery(context.Background(), api.QueryRequest{
+				ChatID:     chatID,
+				AgentKey:   "mock-agent",
+				Role:       api.QueryRoleAutomation,
+				Message:    "run automation",
+				ChatSource: api.ChatSourceAutomationPrefix + "metadata-test",
+			})
+			if err != nil {
+				t.Fatalf("execute internal query: %v", err)
+			}
+			if status != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", status, body)
+			}
+
+			assertFinalReactMetadataForServerTest(t, fixture.chats, chatID, finalReactMetadataExpectation{
+				ReactCount:            1,
+				Content:               "automation response",
+				PromptTokens:          7,
+				CompletionTokens:      3,
+				TotalTokens:           10,
+				CurrentContextSize:    7,
+				EstimatedNextCallSize: 10,
+			})
+
+			runs, err := fixture.chats.ListRuns(chatID)
+			if err != nil {
+				t.Fatalf("list runs: %v", err)
+			}
+			if len(runs) != 1 || runs[0].Usage.PromptTokens != 7 || runs[0].Usage.CompletionTokens != 3 ||
+				runs[0].Usage.TotalTokens != 10 || runs[0].Usage.LlmChatCompletionCount != 1 || runs[0].Usage.ToolCallCount != 0 {
+				t.Fatalf("unexpected internal run usage %#v", runs)
+			}
+		})
+	}
+}
+
 func TestQueryAppliesAgentSamplingConfigToProviderRequest(t *testing.T) {
 	var sawProviderRequest atomic.Bool
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
@@ -1000,6 +1055,24 @@ func TestQueryNonStreamCanExecuteBackendToolLoop(t *testing.T) {
 		"content.snapshot",
 		"run.complete",
 	)
+
+	assertFinalReactMetadataForServerTest(t, fixture.chats, chatID, finalReactMetadataExpectation{
+		ReactCount:            2,
+		Content:               "完成工具调用后的最终回答",
+		PromptTokens:          11,
+		CompletionTokens:      5,
+		TotalTokens:           16,
+		CurrentContextSize:    11,
+		EstimatedNextCallSize: 16,
+	})
+	runs, err := fixture.chats.ListRuns(chatID)
+	if err != nil {
+		t.Fatalf("list runs: %v", err)
+	}
+	if len(runs) != 1 || runs[0].Usage.PromptTokens != 11 || runs[0].Usage.CompletionTokens != 5 ||
+		runs[0].Usage.TotalTokens != 16 || runs[0].Usage.LlmChatCompletionCount != 2 || runs[0].Usage.ToolCallCount != 1 {
+		t.Fatalf("unexpected tool-loop run usage %#v", runs)
+	}
 }
 
 func TestQuerySendsPlaintextProviderAPIKeyAuthorizationHeader(t *testing.T) {
@@ -1206,6 +1279,83 @@ func testIntValue(value any) int {
 	default:
 		return 0
 	}
+}
+
+type finalReactMetadataExpectation struct {
+	ReactCount            int
+	Content               string
+	PromptTokens          int
+	CompletionTokens      int
+	TotalTokens           int
+	CurrentContextSize    int
+	EstimatedNextCallSize int
+}
+
+func assertFinalReactMetadataForServerTest(t *testing.T, store chat.Store, chatID string, want finalReactMetadataExpectation) {
+	t.Helper()
+	content, err := store.LoadJSONLContent(chatID)
+	if err != nil {
+		t.Fatalf("load chat jsonl: %v", err)
+	}
+	decoder := json.NewDecoder(strings.NewReader(content))
+	var reactLines []map[string]any
+	for {
+		var line map[string]any
+		if err := decoder.Decode(&line); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			t.Fatalf("decode chat jsonl line: %v\n%s", err, content)
+		}
+		if stringValue(line["_type"]) != chat.StepLineTypeReact {
+			continue
+		}
+		messages, _ := line["messages"].([]any)
+		if len(messages) == 0 {
+			t.Fatalf("react line must not contain metadata without messages: %#v", line)
+		}
+		reactLines = append(reactLines, line)
+	}
+	if len(reactLines) != want.ReactCount {
+		t.Fatalf("expected %d react lines, got %d in:\n%s", want.ReactCount, len(reactLines), content)
+	}
+	final := reactLines[len(reactLines)-1]
+	if got := reactAssistantTextForServerTest(final); got != want.Content {
+		t.Fatalf("unexpected final react content %q, want %q in %#v", got, want.Content, final)
+	}
+	usage, _ := final["usage"].(map[string]any)
+	if testIntValue(usage["promptTokens"]) != want.PromptTokens ||
+		testIntValue(usage["completionTokens"]) != want.CompletionTokens ||
+		testIntValue(usage["totalTokens"]) != want.TotalTokens ||
+		testIntValue(usage["llmChatCompletionCount"]) != 1 {
+		t.Fatalf("unexpected final react usage %#v in %#v", usage, final)
+	}
+	contextWindow, _ := final["contextWindow"].(map[string]any)
+	if testIntValue(contextWindow["maxSize"]) != 128000 ||
+		testIntValue(contextWindow["currentSize"]) != want.CurrentContextSize ||
+		testIntValue(contextWindow["estimatedNextCallSize"]) != want.EstimatedNextCallSize {
+		t.Fatalf("unexpected final react contextWindow %#v in %#v", contextWindow, final)
+	}
+	if stringValue(final["modelKey"]) != "mock-model" {
+		t.Fatalf("expected final react modelKey mock-model, got %#v", final)
+	}
+	systemRef, _ := final["systemRef"].(map[string]any)
+	if stringValue(systemRef["agentKey"]) != "mock-agent" ||
+		stringValue(systemRef["cacheKey"]) == "" || stringValue(systemRef["fingerprint"]) == "" {
+		t.Fatalf("expected complete final react systemRef, got %#v", final)
+	}
+}
+
+func reactAssistantTextForServerTest(line map[string]any) string {
+	var result strings.Builder
+	messages, _ := line["messages"].([]any)
+	for _, rawMessage := range messages {
+		message, _ := rawMessage.(map[string]any)
+		if stringValue(message["role"]) == "assistant" {
+			result.WriteString(textFromJSONLMessageContentForServerTest(message["content"]))
+		}
+	}
+	return result.String()
 }
 
 func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t *testing.T) {

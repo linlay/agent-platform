@@ -799,6 +799,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 				return queryRunResult{}, writeErr
 			}
 		}
+		processor.stepWriter.Flush()
 		persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, registered.StartedAtMillis, control, principal), assistantText.String(), runUsage, "error", false)
 		completedAtMillis = completion.UpdatedAtMillis
 		if persisted {
@@ -847,8 +848,8 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		}
 	}
 
-	processor.stepWriter.Flush()
 	if streamFailed || streamInterrupted {
+		processor.stepWriter.Flush()
 		finishReason := "error"
 		if streamInterrupted {
 			finishReason = "cancel"
@@ -876,6 +877,10 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 			return queryRunResult{}, err
 		}
 	}
+	// Complete closes open content blocks and emits their final snapshots. Flush
+	// the step writer only after those events so pending model metadata is
+	// attached to the final React step instead of being discarded as orphaned.
+	processor.stepWriter.Flush()
 	persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, registered.StartedAtMillis, control, principal), assistantText.String(), runUsage, "complete", true)
 	completedAtMillis = completion.UpdatedAtMillis
 	if persisted {
