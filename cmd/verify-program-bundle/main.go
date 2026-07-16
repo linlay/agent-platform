@@ -118,6 +118,9 @@ func verifyBundleRoot(root, targetOS, targetArch string) error {
 	if builtinManifest.Platform.OS != targetOS || builtinManifest.Platform.Arch != targetArch {
 		return fmt.Errorf("builtins manifest platform %s/%s does not match target %s/%s", builtinManifest.Platform.OS, builtinManifest.Platform.Arch, targetOS, targetArch)
 	}
+	if err := builtins.VerifyManifest(root, builtinManifest); err != nil {
+		return err
+	}
 	component, err := findSidecarComponent(builtinManifest)
 	if err != nil {
 		return err

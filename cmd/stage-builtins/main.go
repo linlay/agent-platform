@@ -15,6 +15,7 @@ func main() {
 	repoRoot := flag.String("repo-root", ".", "agent-platform repository root")
 	lockPath := flag.String("lock", "scripts/release-assets/builtins.lock.json", "builtins lock path")
 	builtinsRoot := flag.String("builtins-root", "", "absolute builtins collection root")
+	cacheDir := flag.String("cache-dir", "", "absolute or repository-relative local builtins cache directory")
 	outputDir := flag.String("output", "", "service bundle output directory")
 	targetOS := flag.String("os", "", "target operating system")
 	targetArch := flag.String("arch", "", "target architecture")
@@ -30,6 +31,9 @@ func main() {
 		resolvedLockPath = filepath.Join(root, resolvedLockPath)
 	}
 	if strings.TrimSpace(*resolveComponent) != "" {
+		if strings.TrimSpace(*cacheDir) != "" {
+			log.Fatal("--resolve-component cannot be combined with --cache-dir")
+		}
 		lock, err := builtins.LoadLock(resolvedLockPath)
 		if err != nil {
 			log.Fatal(err)
@@ -48,6 +52,26 @@ func main() {
 	if strings.TrimSpace(*outputDir) == "" || strings.TrimSpace(*targetOS) == "" || strings.TrimSpace(*targetArch) == "" {
 		flag.Usage()
 		os.Exit(2)
+	}
+	if strings.TrimSpace(*cacheDir) != "" {
+		if strings.TrimSpace(*builtinsRoot) != "" {
+			log.Fatal("--builtins-root cannot be combined with --cache-dir")
+		}
+		resolvedCacheDir := *cacheDir
+		if !filepath.IsAbs(resolvedCacheDir) {
+			resolvedCacheDir = filepath.Join(root, resolvedCacheDir)
+		}
+		result, err := builtins.StageCache(builtins.CacheStageOptions{
+			CacheDir:  resolvedCacheDir,
+			OutputDir: *outputDir,
+			GOOS:      *targetOS,
+			GOARCH:    *targetArch,
+		})
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("[builtins] staged %d cached components for %s/%s from %s\n", len(result.Manifest.Components), *targetOS, *targetArch, result.CacheDir)
+		return
 	}
 	result, err := builtins.Stage(builtins.StageOptions{
 		RepoRoot:     root,

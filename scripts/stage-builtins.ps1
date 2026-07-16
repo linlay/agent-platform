@@ -5,7 +5,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$TargetOS,
     [Parameter(Mandatory = $true)]
-    [string]$TargetArch
+    [string]$TargetArch,
+    [string]$CacheDir
 )
 
 $ErrorActionPreference = "Stop"
@@ -14,7 +15,11 @@ $REPO_ROOT = Split-Path -Parent $SCRIPT_DIR
 
 Push-Location $REPO_ROOT
 try {
-    & go run ./cmd/stage-builtins --repo-root $REPO_ROOT --output $OutputDir --os $TargetOS --arch $TargetArch
+    $goArgs = @("run", "./cmd/stage-builtins", "--repo-root", $REPO_ROOT, "--output", $OutputDir, "--os", $TargetOS, "--arch", $TargetArch)
+    if ($CacheDir) {
+        $goArgs += @("--cache-dir", $CacheDir)
+    }
+    & go @goArgs
     if ($LASTEXITCODE -ne 0) {
         Write-Error "stage builtins failed for $TargetOS/$TargetArch"
     }

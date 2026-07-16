@@ -76,7 +76,20 @@ func TestVerifyBundleRootRejectsIncompleteRelease(t *testing.T) {
 				manifest.Components[0].SHA256 = strings.Repeat("0", 64)
 				writeJSON(t, filepath.Join(root, "builtins.manifest.json"), manifest, 0o644)
 			},
-			message: "SHA-256 mismatch",
+			message: "sha256 mismatch",
+		},
+		{
+			name: "ordinary builtin digest mismatch",
+			mutate: func(t *testing.T, root string) {
+				manifest := readFixtureBuiltinsManifest(t, root)
+				for index := range manifest.Components {
+					if manifest.Components[index].Name == "rg" {
+						manifest.Components[index].SHA256 = strings.Repeat("0", 64)
+					}
+				}
+				writeJSON(t, filepath.Join(root, "builtins.manifest.json"), manifest, 0o644)
+			},
+			message: "component rg",
 		},
 		{
 			name: "dependency inventory missing",
@@ -134,6 +147,14 @@ func writeCompleteBundle(t *testing.T, root, goos, goarch string) {
 		License:      "Apache-2.0",
 		Distribution: "checksum-verified-artifact",
 	}}
+	writeFile(t, filepath.Join(root, "bin", "rg"), []byte("rg-binary"), 0o755)
+	rgDigest, err := fileSHA256(filepath.Join(root, "bin", "rg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	components = append(components, builtins.ManifestComponent{
+		Name: "rg", Version: "15.1.0", Path: "bin/rg", SHA256: rgDigest,
+	})
 	if popplerBuiltinRequired(goos, goarch) {
 		launcher := "bin/pdftotext"
 		if goos == "windows" {

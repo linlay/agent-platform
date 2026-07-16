@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Formal program bundles must carry both dependency metadata and CycloneDX
-# SBOMs. Local build/run targets use separate optional staging paths.
-export REQUIRE_KBASE_RELEASE_METADATA="${REQUIRE_KBASE_RELEASE_METADATA:-1}"
+# Formal program bundles must carry a CycloneDX SBOM. Builtins are prepared by
+# sync-local-builtins before release and copied from the platform cache.
 export REQUIRE_RELEASE_SBOM="${REQUIRE_RELEASE_SBOM:-1}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,22 +25,22 @@ require_file "$PROGRAM_RELEASE_ASSETS_DIR/windows/start.ps1"
 require_file "$PROGRAM_RELEASE_ASSETS_DIR/windows/stop.ps1"
 require_file "$PROGRAM_RELEASE_ASSETS_DIR/windows/program-common.ps1"
 require_file "$PROGRAM_RELEASE_ASSETS_DIR/windows/tools.example.yml"
-require_file "$SCRIPT_DIR/release-assets/builtins.lock.json"
 require_file "$SCRIPT_DIR/stage-builtins.sh"
-require_file "$SCRIPT_DIR/stage-kbase-lance-engine.sh"
 require_file "$REPO_ROOT/.env.example"
 require_dir "$REPO_ROOT/configs"
 cd "$REPO_ROOT"
 
-stage_release_sidecar() {
+stage_release_builtins() {
   local bundle_root="$1"
   local target_os="$2"
   local target_arch="$3"
+  local cache_dir="$REPO_ROOT/build/builtins/$target_os-$target_arch"
 
-  "$SCRIPT_DIR/stage-kbase-lance-engine.sh" \
+  "$SCRIPT_DIR/stage-builtins.sh" \
     --output "$bundle_root" \
     --os "$target_os" \
-    --arch "$target_arch"
+    --arch "$target_arch" \
+    --cache-dir "$cache_dir"
 }
 
 copy_config_templates() {
@@ -106,11 +105,7 @@ build_program_bundle() {
   if [[ "$target_os" == "windows" ]]; then
     cp "$PROGRAM_RELEASE_ASSETS_DIR/windows/tools.example.yml" "$bundle_root/configs/tools.example.yml"
   fi
-  "$SCRIPT_DIR/stage-builtins.sh" \
-    --output "$bundle_root" \
-    --os "$target_os" \
-    --arch "$target_arch"
-  stage_release_sidecar "$bundle_root" "$target_os" "$target_arch"
+  stage_release_builtins "$bundle_root" "$target_os" "$target_arch"
 
   if [[ "$target_os" == "windows" ]]; then
     cp "$PROGRAM_RELEASE_ASSETS_DIR/windows/deploy.ps1" "$bundle_root/deploy.ps1"

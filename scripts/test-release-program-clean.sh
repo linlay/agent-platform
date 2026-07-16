@@ -11,13 +11,18 @@ fi
 
 version="$(tr -d '[:space:]' <"$REPO_ROOT/VERSION")"
 archive="$REPO_ROOT/dist/release/agent-platform-${version}-darwin-arm64.tar.gz"
+cache="$REPO_ROOT/build/builtins/darwin-arm64"
+
+[[ -f "$cache/builtins.manifest.json" ]] || {
+  echo "[release-clean-test] missing local builtin cache; run ./scripts/sync-local-builtins.sh first" >&2
+  exit 1
+}
 
 rm -rf "$REPO_ROOT/dist"
 (
   cd "$REPO_ROOT"
   unset ARCH PROGRAM_TARGET_MATRIX PROGRAM_TARGETS
-  REQUIRE_KBASE_RELEASE_METADATA=1 \
-    REQUIRE_RELEASE_SBOM=1 \
+  REQUIRE_RELEASE_SBOM=1 \
     make release-program
 )
 

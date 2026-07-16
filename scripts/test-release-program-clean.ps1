@@ -9,9 +9,12 @@ if ($env:OS -ne "Windows_NT" -or $env:PROCESSOR_ARCHITECTURE -ne "AMD64") {
 
 $version = (Get-Content (Join-Path $REPO_ROOT "VERSION") -Raw).Trim()
 $archive = Join-Path $REPO_ROOT "dist/release/agent-platform-$version-windows-amd64.zip"
+$cacheManifest = Join-Path $REPO_ROOT "build/builtins/windows-amd64/builtins.manifest.json"
+if (-not (Test-Path $cacheManifest -PathType Leaf)) {
+    throw "missing local builtin cache; run ./scripts/sync-local-builtins.sh first"
+}
 
 Remove-Item (Join-Path $REPO_ROOT "dist") -Recurse -Force -ErrorAction SilentlyContinue
-$env:REQUIRE_KBASE_RELEASE_METADATA = "1"
 $env:REQUIRE_RELEASE_SBOM = "1"
 Remove-Item Env:PROGRAM_TARGET_MATRIX -ErrorAction SilentlyContinue
 Remove-Item Env:PROGRAM_TARGETS -ErrorAction SilentlyContinue

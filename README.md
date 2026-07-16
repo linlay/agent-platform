@@ -74,7 +74,7 @@ make run
 
 `./scripts/sync-local-builtins.sh` 是本地 builtin 构建入口：每次都在隔离工作目录中重新构建相邻的 `dbx`、`httpx`、`kbase-lance-engine`，以及 `poppler-pdftotext` 的 Go launcher/archive；后者只校验并打包已签入的 Poppler native runtime，不重新编译 C/C++ runtime。`rg` 是唯一只校验并复制的预编译 vendor artifact。脚本为每次产物生成临时本地 lock 和 SHA-256，再原子更新本机 `build/builtins/<os>-<arch>/`，绝不回写正式 `scripts/release-assets/builtins.lock.json` 或 `release-local/`。默认只构建当前主机；`--all` 对 Poppler 仅处理 canonical lock 已声明的目标，当前只有 darwin-arm64。`make run` 只构建 Go runtime、加载根目录 `.env` 并从 `release-local/backend/agent-platform` 启动；它通过 `AP_BUILTINS_BIN` 将本机 `build/builtins/<host>/bin` 设为唯一可信 builtin 目录，并将 sidecar 路径指向该 cache，但绝不复制或编译 builtin。未设置 `SERVER_PORT` 时默认监听 `11949`。本机插件位于 `release-local/plugins/`。直接执行 `go run ./cmd/agent-platform` 不会自动加载 `.env`、装入 builtins 或扫描 `release-local/plugins/`；未设置 `SERVER_PORT` 或 `--port` 时应用代码默认监听 `8080`。
 
-`--all` 会要求本机已提供六个平台的 Rust target、对应 linker/SDK、`protoc` 与 `syft`；任一 target 不能构建时失败，且既有 `build/builtins` cache 不会被替换。正式 `make release-program` 仍只消费 canonical lock 所固定的已发布 archive，不会使用本地构建的临时 lock。
+`--all` 会要求本机已提供六个平台的 Rust target、对应 linker/SDK、`protoc` 与 `syft`；任一 target 不能构建时失败，且既有 `build/builtins` cache 不会被替换。正式 `make release-program` 只消费对应 target 的本机 cache，不会重新构建或回读 `../agent-platform-builtins`；cache 缺失、平台不匹配或 manifest 校验失败会直接终止发布。
 
 也可以显式拆开构建与启动：
 
@@ -322,10 +322,11 @@ Container Hub 默认基础挂载当前最多 7 个：
 面向 desktop builtin 分发时，使用 program bundle 发布链路：
 
 ```bash
+./scripts/sync-local-builtins.sh
 make release-program
 ```
 
-产物写入 `dist/release/`，包含纯 Go runtime、配置模板、启停脚本、`bin/{rg,dbx,httpx,kbase-lance-engine,pdftotext}`、`libexec/poppler-pdftotext/`、builtins manifest、许可证 notice、压缩包 SHA-256 与大小报告。`release-program` 只消费 lock 固定的外部 release archive，不会构建 Rust sidecar。Docker 构建需要预先执行 `./scripts/sync-local-builtins.sh --target linux/<arch>`，使匹配的 Linux cache 位于 `build/builtins/`。Desktop 宿主集成时执行资源同步：
+产物写入 `dist/release/`，包含纯 Go runtime、配置模板、启停脚本、`bin/{rg,dbx,httpx,kbase-lance-engine,pdftotext}`、`libexec/poppler-pdftotext/`、builtins manifest、许可证 notice、压缩包 SHA-256 与大小报告。`release-program` 只复制并复验 `build/builtins/<os>-<arch>/` 中由 `sync-local-builtins.sh` 原子生成的 cache，不会构建 Rust sidecar，也不会读取相邻 `agent-platform-builtins`。Docker 构建需要预先执行 `./scripts/sync-local-builtins.sh --target linux/<arch>`，使匹配的 Linux cache 位于 `build/builtins/`。Desktop 宿主集成时执行资源同步：
 
 ```bash
 npm run sync:assets
