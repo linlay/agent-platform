@@ -12,6 +12,8 @@ import (
 	"agent-platform/internal/resources"
 )
 
+const builtinToolCatalogPath = "builtin_tool_catalog.yml"
+
 var requiredBuiltinToolNames = []string{
 	"agent_delegate",
 	"artifact_publish",
@@ -96,5 +98,71 @@ func LoadEmbeddedToolDefinitions() ([]api.ToolDetailResponse, error) {
 			return nil, fmt.Errorf("missing embedded builtin tool definition: %s", name)
 		}
 	}
+	if err := applyBuiltinToolCatalogVisibility(defs, builtinToolCatalogPath); err != nil {
+		return nil, err
+	}
 	return defs, nil
+}
+
+func applyBuiltinToolCatalogVisibility(defs []api.ToolDetailResponse, path string) error {
+	data, err := resources.ToolFS.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read embedded builtin tool catalog %s: %w", path, err)
+	}
+	return applyBuiltinToolCatalogVisibilityData(defs, data)
+}
+
+func applyBuiltinToolCatalogVisibilityData(defs []api.ToolDetailResponse, data []byte) error {
+	tree, err := config.LoadYAMLTreeBytes(data)
+	if err != nil {
+		return fmt.Errorf("parse embedded builtin tool catalog: %w", err)
+	}
+	root, ok := tree.(map[string]any)
+	if !ok {
+		return fmt.Errorf("embedded builtin tool catalog must have object root")
+	}
+	rawNames, ok := root["visibleBuiltinTools"]
+	if !ok {
+		return fmt.Errorf("embedded builtin tool catalog requires visibleBuiltinTools")
+	}
+	names, ok := rawNames.([]any)
+	if !ok {
+		return fmt.Errorf("embedded builtin tool catalog visibleBuiltinTools must be a list")
+	}
+
+	known := make(map[string]struct{}, len(defs))
+	for _, def := range defs {
+		name := normalizeToolName(def)
+		if name == "" {
+			return fmt.Errorf("embedded builtin tool catalog cannot apply visibility to unnamed tool")
+		}
+		known[name] = struct{}{}
+	}
+	visible := make(map[string]struct{}, len(names))
+	for index, rawName := range names {
+		name, ok := rawName.(string)
+		if !ok {
+			return fmt.Errorf("embedded builtin tool catalog visibleBuiltinTools[%d] must be a string", index)
+		}
+		normalized := strings.ToLower(strings.TrimSpace(name))
+		if normalized == "" {
+			return fmt.Errorf("embedded builtin tool catalog visibleBuiltinTools[%d] must not be empty", index)
+		}
+		if _, exists := visible[normalized]; exists {
+			return fmt.Errorf("embedded builtin tool catalog visibleBuiltinTools contains duplicate tool %q", strings.TrimSpace(name))
+		}
+		if _, exists := known[normalized]; !exists {
+			return fmt.Errorf("embedded builtin tool catalog references unknown tool %q", strings.TrimSpace(name))
+		}
+		visible[normalized] = struct{}{}
+	}
+
+	for index := range defs {
+		if defs[index].Meta == nil {
+			defs[index].Meta = map[string]any{}
+		}
+		_, allowed := visible[normalizeToolName(defs[index])]
+		defs[index].Meta["catalogVisible"] = allowed
+	}
+	return nil
 }

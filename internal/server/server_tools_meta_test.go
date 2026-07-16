@@ -9,6 +9,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/tools"
 )
 
 type adminToolsStubExecutor struct {
@@ -80,6 +81,32 @@ func TestAdminToolsListIgnoresQueryAndFlattensMetadata(t *testing.T) {
 	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?kind=external&sourceCategory=mcp"), []string{"bash", "qs_read", "remote_tool"})
 	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?sourceCategory=does-not-exist"), []string{"bash", "qs_read", "remote_tool"})
 	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?tag=remote"), []string{"bash", "qs_read", "remote_tool"})
+}
+
+func TestAdminToolsListHidesPrivateEmbeddedBuiltins(t *testing.T) {
+	defs, err := tools.LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatalf("load embedded tool definitions: %v", err)
+	}
+	server := &Server{deps: Dependencies{Tools: adminToolsStubExecutor{defs: defs}}}
+	items := requestAdminTools(t, server, "/api/admin/tools")
+	visible := make(map[string]bool, len(items))
+	for _, item := range items {
+		visible[item.Name] = true
+	}
+	for _, hiddenName := range []string{
+		"agent_delegate", "_session_search_", "_skill_candidate_list_", "_skill_candidate_write_",
+		"memory_timeline", "memory_update", "memory_write", "memory_read", "memory_promote", "memory_search", "memory_consolidate", "memory_forget",
+	} {
+		if visible[hiddenName] {
+			t.Errorf("private embedded builtin tool %q appeared in /api/admin/tools", hiddenName)
+		}
+	}
+	for _, publicName := range []string{"bash", "file_read", "kbase_search", "web_fetch"} {
+		if !visible[publicName] {
+			t.Errorf("public embedded builtin tool %q is missing from /api/admin/tools", publicName)
+		}
+	}
 }
 
 func requestAdminTools(t *testing.T, server *Server, path string) []api.ToolSummary {

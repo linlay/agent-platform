@@ -39,7 +39,7 @@ KBASE PDF 不再通过 `plugins/*/manifest.json` 发现 extractor。正式服务
 
 - MCP tool 名称与本地工具冲突时，本地工具优先。
 - MCP server 暂时不可用时，调用会返回结构化 MCP 错误。
-- Poppler 的目标矩阵为 darwin-arm64 与 windows-amd64；当前 lock 已校验 darwin-arm64。windows-amd64 必须先提交完整的 Poppler 26.06.0 runtime、DLL 与 `share/poppler` tree，才可启用该 target 的发布。未包含的目标可设置自定义 `extraction.pdf.binary` 或由系统 PATH 提供 `pdftotext`。
+- Poppler 的目标矩阵为 darwin-arm64 与 windows-amd64；当前 lock 已校验两者的 Poppler 26.07.0 runtime、DLL/dylib 与 `share/poppler` tree。Windows target 的实际抽取 smoke 仍应在 Windows release runner 通过后再对外发布。未包含的目标可设置自定义 `extraction.pdf.binary` 或由系统 PATH 提供 `pdftotext`。
 - Host builtins 的 `bin/` 进入进程级 PATH，但不会自动进入 sandbox；Poppler runtime 本身仅由 launcher 调用。
 - frontend tool 完整闭环仍属于待对齐能力，不能写成已完成能力。
 - HITL viewport 细节见 [HITL协议](HITL协议.md)。

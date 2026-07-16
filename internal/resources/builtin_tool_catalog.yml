@@ -1,0 +1,30 @@
+# Builtin tools that may appear in public tool catalogs such as /api/admin/tools.
+# Embedded builtin tools absent from this list remain executable when configured,
+# but are not advertised to external clients.
+visibleBuiltinTools:
+  - agent_invoke
+  - artifact_publish
+  - ask_user_question
+  - bash
+  - bash_sandbox
+  - datetime
+  - desktop_action
+  - desktop_cdp
+  - file_edit
+  - file_glob
+  - file_grep
+  - file_read
+  - file_write
+  - finalize_planning
+  - image_generate
+  - kbase_files
+  - kbase_read
+  - kbase_refresh
+  - kbase_search
+  - kbase_status
+  - plan_add_tasks
+  - plan_get_tasks
+  - plan_update_task
+  - regex
+  - vision_recognize
+  - web_fetch

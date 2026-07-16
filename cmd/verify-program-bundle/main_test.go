@@ -182,7 +182,7 @@ func writeCompleteBundle(t *testing.T, root, goos, goarch string) {
 			t.Fatal(err)
 		}
 		components = append(components, builtins.ManifestComponent{
-			Name: popplerName, Version: "v26.06.0", Path: launcher, SHA256: treeDigest, Tree: tree,
+			Name: popplerName, Version: "v26.07.0", Path: launcher, SHA256: treeDigest, Tree: tree,
 			Distribution: "checksum-verified-artifact",
 		})
 		requiredPaths = append(requiredPaths, launcher, runtimeRoot)

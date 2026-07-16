@@ -184,9 +184,9 @@
     },
     {
       "name": "poppler-pdftotext",
-      "version": "v26.06.0",
+      "version": "v26.07.0",
       "repository": "poppler-pdftotext",
-      "source": "https://poppler.freedesktop.org/poppler-26.06.0.tar.xz",
+      "source": "https://poppler.freedesktop.org/poppler-26.07.0.tar.xz",
       "kind": "archive-tree",
       "required": false,
       "license": "GPL-2.0-or-later",
@@ -199,14 +199,26 @@
       ],
       "targets": {
         "darwin-arm64": {
-          "path": "dist/v26.06.0/poppler-pdftotext_v26.06.0_darwin_arm64.tar.gz",
+          "path": "dist/v26.07.0/poppler-pdftotext_v26.07.0_darwin_arm64.tar.gz",
           "format": "tar.gz",
-          "sha256": "660fc1b2e6ecb956741fd5db4c1bfd2892596492125e7c4a993c703c8f7cb946",
+          "sha256": "412658573e530f9267461a03f34605d4f625ecbf0d4c6f598eb87a91846d3604",
           "tree": {
             "root": "runtime",
             "outputs": [
               {"path": "bin/pdftotext", "type": "file"},
               {"path": "libexec/poppler-pdftotext/darwin-arm64", "type": "dir"}
+            ]
+          }
+        },
+        "windows-amd64": {
+          "path": "dist/v26.07.0/poppler-pdftotext_v26.07.0_windows_amd64.zip",
+          "format": "zip",
+          "sha256": "1326f8c49f46c866f5d1271422645852874414c874b0183fa51d2ce004c99909",
+          "tree": {
+            "root": "runtime",
+            "outputs": [
+              {"path": "bin/pdftotext.exe", "type": "file"},
+              {"path": "libexec/poppler-pdftotext/windows-amd64", "type": "dir"}
             ]
           }
         }

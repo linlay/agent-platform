@@ -72,7 +72,7 @@ cp .env.example .env
 make run
 ```
 
-`./scripts/sync-local-builtins.sh` 是本地 builtin 构建入口：每次都在隔离工作目录中重新构建相邻的 `dbx`、`httpx`、`kbase-lance-engine`，以及 `poppler-pdftotext` 的 Go launcher/archive；后者只校验并打包已签入的 Poppler native runtime，不重新编译 C/C++ runtime。`rg` 是唯一只校验并复制的预编译 vendor artifact。脚本为每次产物生成临时本地 lock 和 SHA-256，再原子更新本机 `build/builtins/<os>-<arch>/`，绝不回写正式 `scripts/release-assets/builtins.lock.json` 或 `release-local/`。默认只构建当前主机；`--all` 对 Poppler 仅处理 canonical lock 已声明的目标，当前只有 darwin-arm64。`make run` 只构建 Go runtime、加载根目录 `.env` 并从 `release-local/backend/agent-platform` 启动；它通过 `AP_BUILTINS_BIN` 将本机 `build/builtins/<host>/bin` 设为唯一可信 builtin 目录，并将 sidecar 路径指向该 cache，但绝不复制或编译 builtin。未设置 `SERVER_PORT` 时默认监听 `11949`。本机插件位于 `release-local/plugins/`。直接执行 `go run ./cmd/agent-platform` 不会自动加载 `.env`、装入 builtins 或扫描 `release-local/plugins/`；未设置 `SERVER_PORT` 或 `--port` 时应用代码默认监听 `8080`。
+`./scripts/sync-local-builtins.sh` 是本地 builtin 构建入口：每次都在隔离工作目录中重新构建相邻的 `dbx`、`httpx`、`kbase-lance-engine`，以及 `poppler-pdftotext` 的 Go launcher/archive；后者只校验并打包已签入的 Poppler native runtime，不重新编译 C/C++ runtime。`rg` 是唯一只校验并复制的预编译 vendor artifact。脚本为每次产物生成临时本地 lock 和 SHA-256，再原子更新本机 `build/builtins/<os>-<arch>/`，绝不回写正式 `scripts/release-assets/builtins.lock.json` 或 `release-local/`。默认只构建当前主机；`--all` 对 Poppler 仅处理 canonical lock 已声明的目标，当前为 darwin-arm64 与 windows-amd64。`make run` 只构建 Go runtime、加载根目录 `.env` 并从 `release-local/backend/agent-platform` 启动；它通过 `AP_BUILTINS_BIN` 将本机 `build/builtins/<host>/bin` 设为唯一可信 builtin 目录，并将 sidecar 路径指向该 cache，但绝不复制或编译 builtin。未设置 `SERVER_PORT` 时默认监听 `11949`。本机插件位于 `release-local/plugins/`。直接执行 `go run ./cmd/agent-platform` 不会自动加载 `.env`、装入 builtins 或扫描 `release-local/plugins/`；未设置 `SERVER_PORT` 或 `--port` 时应用代码默认监听 `8080`。
 
 `--all` 会要求本机已提供六个平台的 Rust target、对应 linker/SDK、`protoc` 与 `syft`；任一 target 不能构建时失败，且既有 `build/builtins` cache 不会被替换。正式 `make release-program` 只消费对应 target 的本机 cache，不会重新构建或回读 `../agent-platform-builtins`；cache 缺失、平台不匹配或 manifest 校验失败会直接终止发布。
 
@@ -221,7 +221,7 @@ Provider `apiKey` 按明文字符串读取：
 
 **静态配置**：`configs/` 下所有文件都只在进程启动时读取一次；修改 `configs/*.yml` 或 `configs/*.pem` 后必须重启 runtime 才会生效。
 
-**KBASE PDF 抽取**：正式服务包在已锁定的受支持平台随 Host builtin 分发 `pdftotext`（Poppler 26.06.0）。运行时把服务包根目录的 `bin/` 前置到 PATH，因此 `configs/kbase-settings.yml` 保持 `binary: pdftotext`；显式的绝对路径或自定义命令仍由使用者负责提供。当前已校验的 runtime 为 darwin-arm64；windows-amd64 仅在完整 26.06.0 runtime 校验入库后启用发布。
+**KBASE PDF 抽取**：正式服务包在已锁定的 darwin-arm64 与 windows-amd64 平台随 Host builtin 分发 `pdftotext`（Poppler 26.07.0）。运行时把服务包根目录的 `bin/` 前置到 PATH，因此 `configs/kbase-settings.yml` 保持 `binary: pdftotext`；显式的绝对路径或自定义命令仍由使用者负责提供。两个 payload 均完成来源、archive、manifest 与依赖闭包校验；Windows 的实际抽取 smoke 应在 Windows release runner 上执行后再对外发布。
 
 本地 JWT 公钥规则：
 

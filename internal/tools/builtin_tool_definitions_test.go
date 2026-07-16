@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
 )
 
@@ -46,6 +47,85 @@ func TestLoadEmbeddedToolDefinitionsIncludesAskUserBuiltins(t *testing.T) {
 	}
 }
 
+func TestLoadEmbeddedToolDefinitionsAppliesBuiltinToolCatalogVisibility(t *testing.T) {
+	defs, err := LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatalf("load embedded tool definitions: %v", err)
+	}
+
+	visibleNames := map[string]bool{
+		"agent_invoke": true, "artifact_publish": true, "ask_user_question": true,
+		"bash": true, "bash_sandbox": true, "datetime": true,
+		"desktop_action": true, "desktop_cdp": true,
+		"file_edit": true, "file_glob": true, "file_grep": true, "file_read": true, "file_write": true,
+		"finalize_planning": true, "image_generate": true,
+		"kbase_files": true, "kbase_read": true, "kbase_refresh": true, "kbase_search": true, "kbase_status": true,
+		"plan_add_tasks": true, "plan_get_tasks": true, "plan_update_task": true,
+		"regex": true, "vision_recognize": true, "web_fetch": true,
+	}
+	for _, def := range defs {
+		visible, ok := def.Meta["catalogVisible"].(bool)
+		if !ok {
+			t.Fatalf("builtin tool %q is missing catalogVisible metadata: %#v", def.Name, def.Meta)
+		}
+		if visible != visibleNames[def.Name] {
+			t.Errorf("builtin tool %q catalogVisible = %t, want %t", def.Name, visible, visibleNames[def.Name])
+		}
+	}
+	for _, hiddenName := range []string{
+		"agent_delegate", "_session_search_", "_skill_candidate_list_", "_skill_candidate_write_",
+		"memory_timeline", "memory_update", "memory_write", "memory_read", "memory_promote", "memory_search", "memory_consolidate", "memory_forget",
+	} {
+		if visibleNames[hiddenName] {
+			t.Fatalf("hidden builtin tool %q was allowlisted", hiddenName)
+		}
+	}
+}
+
+func TestApplyBuiltinToolCatalogVisibilityData(t *testing.T) {
+	baseDefs := []api.ToolDetailResponse{
+		{Name: "bash", Meta: map[string]any{}},
+		{Name: "memory_search", Meta: map[string]any{}},
+	}
+
+	t.Run("applies a case insensitive allowlist", func(t *testing.T) {
+		defs := []api.ToolDetailResponse{
+			{Name: "bash", Meta: map[string]any{}},
+			{Name: "memory_search", Meta: map[string]any{}},
+		}
+		err := applyBuiltinToolCatalogVisibilityData(defs, []byte("visibleBuiltinTools:\n  - BASH\n"))
+		if err != nil {
+			t.Fatalf("apply visibility: %v", err)
+		}
+		if defs[0].Meta["catalogVisible"] != true || defs[1].Meta["catalogVisible"] != false {
+			t.Fatalf("unexpected catalog visibility: %#v", defs)
+		}
+	})
+
+	for _, tc := range []struct {
+		name string
+		data string
+		want string
+	}{
+		{name: "missing list", data: "other: []\n", want: "requires visibleBuiltinTools"},
+		{name: "empty name", data: "visibleBuiltinTools:\n  - '   '\n", want: "must not be empty"},
+		{name: "duplicate name", data: "visibleBuiltinTools:\n  - bash\n  - BASH\n", want: "duplicate tool"},
+		{name: "unknown name", data: "visibleBuiltinTools:\n  - not_a_tool\n", want: "unknown tool"},
+		{name: "non string", data: "visibleBuiltinTools:\n  - 7\n", want: "must be a string"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			defs := []api.ToolDetailResponse{
+				{Name: baseDefs[0].Name, Meta: map[string]any{}},
+				{Name: baseDefs[1].Name, Meta: map[string]any{}},
+			}
+			err := applyBuiltinToolCatalogVisibilityData(defs, []byte(tc.data))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("apply visibility error = %v, want substring %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestEmbeddedAgentDelegateSchemaAndInternalMetadata(t *testing.T) {
 	defs, err := LoadEmbeddedToolDefinitions()
 	if err != nil {
@@ -55,7 +135,7 @@ func TestEmbeddedAgentDelegateSchemaAndInternalMetadata(t *testing.T) {
 		if def.Name != "agent_delegate" {
 			continue
 		}
-		if def.Meta["clientVisible"] != false || def.Meta["explicitOnly"] != true || def.Meta["internalOnly"] != true || def.Meta["catalogVisible"] != false {
+		if def.Meta["clientVisible"] != true || def.Meta["explicitOnly"] != true || def.Meta["internalOnly"] != true || def.Meta["catalogVisible"] != false {
 			t.Fatalf("unexpected agent_delegate metadata: %#v", def.Meta)
 		}
 		if def.Parameters["additionalProperties"] != false || !reflect.DeepEqual(def.Parameters["required"], []any{"tasks"}) {

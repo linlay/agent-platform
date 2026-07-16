@@ -5,7 +5,6 @@ type: function
 clientVisible: true
 explicitOnly: true
 internalOnly: true
-catalogVisible: false
 inputSchema:
   type: object
   additionalProperties: false

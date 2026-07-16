@@ -148,7 +148,7 @@ make run
 make test
 ```
 
-首次本地运行、更新相邻 builtin 项目或执行 `make release` 前，先执行 `./scripts/sync-local-builtins.sh`；它每次在隔离工作目录中重新构建本机 `dbx`、`httpx`、Rust sidecar 和 `poppler-pdftotext` launcher/archive，并原子更新 `build/builtins/<host>/`。Poppler native runtime 是校验后重新打包的预编译 payload，不在 platform 中编译；`rg` 是唯一只校验复制的 vendor artifact。同步以本次产物生成临时 lock，绝不回写正式发布 lock；`--all` 仅为 canonical lock 声明的 Poppler 目标构建，当前为 darwin-arm64。同步脚本不写 `release-local/`；`make run` / `make build-local` / `make release` 不得重新引入 builtin 或 Rust 构建步骤；运行和 release 只从本机 build cache 使用 builtin，并在 release 时重新校验 manifest 中所有 payload。
+首次本地运行、更新相邻 builtin 项目或执行 `make release` 前，先执行 `./scripts/sync-local-builtins.sh`；它每次在隔离工作目录中重新构建本机 `dbx`、`httpx`、Rust sidecar 和 `poppler-pdftotext` launcher/archive，并原子更新 `build/builtins/<host>/`。Poppler native runtime 是校验后重新打包的预编译 payload，不在 platform 中编译；`rg` 是唯一只校验复制的 vendor artifact。同步以本次产物生成临时 lock，绝不回写正式发布 lock；`--all` 仅为 canonical lock 声明的 Poppler 目标构建，当前为 darwin-arm64 与 windows-amd64。同步脚本不写 `release-local/`；`make run` / `make build-local` / `make release` 不得重新引入 builtin 或 Rust 构建步骤；运行和 release 只从本机 build cache 使用 builtin，并在 release 时重新校验 manifest 中所有 payload。
 
 涉及文档、配置或目录规范调整时，同步检查 `README.md`、`AGENTS.md`、`docs/` 与 `.gitignore`。
 
