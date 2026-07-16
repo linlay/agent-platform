@@ -154,7 +154,10 @@ archive_bundle_dir() {
 
   case "$format" in
     tar.gz)
-      tar -czf "$output_path" -C "$stage_root" "$bundle_dir_name"
+      # macOS tar can emit AppleDouble entries (for example
+      # ._agent-platform) for Finder/xattr metadata. They would become a
+      # second archive root and make the bundle invalid for every consumer.
+      COPYFILE_DISABLE=1 tar -czf "$output_path" -C "$stage_root" "$bundle_dir_name"
       ;;
     zip)
       (

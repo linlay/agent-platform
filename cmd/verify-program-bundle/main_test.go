@@ -38,6 +38,19 @@ func TestVerifyArchiveAcceptsCompleteBundles(t *testing.T) {
 	}
 }
 
+func TestVerifyArchiveReportsUnexpectedTopLevelEntries(t *testing.T) {
+	stagingRoot := t.TempDir()
+	writeCompleteBundle(t, filepath.Join(stagingRoot, bundleRootName), "darwin", "arm64")
+	writeFile(t, filepath.Join(stagingRoot, "._"+bundleRootName), []byte("AppleDouble"), 0o644)
+	archivePath := filepath.Join(t.TempDir(), "bundle.tar.gz")
+	createTarGz(t, stagingRoot, archivePath)
+
+	err := verifyArchive(archivePath, "darwin", "arm64")
+	if err == nil || !strings.Contains(err.Error(), "._agent-platform, agent-platform/") {
+		t.Fatalf("verifyArchive error = %v, want top-level entry list", err)
+	}
+}
+
 func TestVerifyBundleRootRejectsIncompleteRelease(t *testing.T) {
 	tests := []struct {
 		name    string

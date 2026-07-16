@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	"agent-platform/internal/builtins"
@@ -67,9 +68,22 @@ func verifyArchive(archivePath, targetOS, targetArch string) error {
 		return err
 	}
 	if len(entries) != 1 || !entries[0].IsDir() || entries[0].Name() != bundleRootName {
-		return fmt.Errorf("archive must contain exactly one top-level %q directory", bundleRootName)
+		return fmt.Errorf("archive must contain exactly one top-level %q directory; found: %s", bundleRootName, describeTopLevelEntries(entries))
 	}
 	return verifyBundleRoot(filepath.Join(tempDir, bundleRootName), targetOS, targetArch)
+}
+
+func describeTopLevelEntries(entries []os.DirEntry) string {
+	values := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() {
+			name += "/"
+		}
+		values = append(values, name)
+	}
+	sort.Strings(values)
+	return strings.Join(values, ", ")
 }
 
 func verifyBundleRoot(root, targetOS, targetArch string) error {
