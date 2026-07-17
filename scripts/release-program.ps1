@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 param(
     [string]$VERSION,
     [string]$ARCH,
@@ -111,14 +111,10 @@ function Compress-Directory {
         if (Test-Path -LiteralPath $OutputPath) {
             Remove-Item -LiteralPath $OutputPath -Force
         }
-        $zipStage = Join-Path ([System.IO.Path]::GetTempPath()) "agent-platform-zip.$([System.Guid]::NewGuid().ToString('N'))"
-        New-Item -ItemType Directory -Path $zipStage -Force | Out-Null
-        try {
-            Move-Item $bundlePath $zipStage
-            [System.IO.Compression.ZipFile]::CreateFromDirectory($zipStage, $OutputPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
-        } finally {
-            Remove-Item -Path $zipStage -Recurse -Force -ErrorAction SilentlyContinue
-        }
+        # Archive the stage root directly. Moving the bundle into another
+        # temporary directory deleted the staging tree that size and SBOM
+        # generation still consume after compression.
+        [System.IO.Compression.ZipFile]::CreateFromDirectory($StageRoot, $OutputPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
     } else {
         $oldPwd = $PWD
         Push-Location $StageRoot
@@ -139,48 +135,10 @@ function Write-ProgramManifest {
         [string]$AssetFileName
     )
 
-    $startScript = if ($TargetOs -eq "windows") { "start.ps1" } else { "start.sh" }
-    $stopScript = if ($TargetOs -eq "windows") { "stop.ps1" } else { "stop.sh" }
-    $deployScript = if ($TargetOs -eq "windows") { "deploy.ps1" } else { "deploy.sh" }
-    $programCommon = if ($TargetOs -eq "windows") { "scripts/program-common.ps1" } else { "scripts/program-common.sh" }
-    $sidecarEntry = if ($TargetOs -eq "windows") { "bin/kbase-lance-engine.exe" } else { "bin/kbase-lance-engine" }
-
-    # Read template using explicit UTF-8 (no BOM) so Chinese characters never go through PS string literal
-    $tmplPath = Join-Path $PSScriptRoot "release-assets\manifest.template.json"
-    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-    $manifest = [System.IO.File]::ReadAllText($tmplPath, $utf8NoBom)
-
-    # Replace all placeholders (ASCII only, safe in PS)
-    $manifest = $manifest.Replace('__VERSION__', $VERSION)
-    $manifest = $manifest.Replace('__TARGET_OS__', $TargetOs)
-    $manifest = $manifest.Replace('__TARGET_ARCH__', $TargetArch)
-    $manifest = $manifest.Replace('__BACKEND_ENTRY__', $BackendEntry)
-    $manifest = $manifest.Replace('__SIDECAR_ENTRY__', $sidecarEntry)
-    $manifest = $manifest.Replace('__ASSET_FILENAME__', $AssetFileName)
-    $manifest = $manifest.Replace('__START_SCRIPT__', $startScript)
-    $manifest = $manifest.Replace('__STOP_SCRIPT__', $stopScript)
-    $manifest = $manifest.Replace('__DEPLOY_SCRIPT__', $deployScript)
-    $manifest = $manifest.Replace('__PROGRAM_COMMON__', $programCommon)
-    $popplerRequiredPaths = ""
-    if (($TargetOs -eq "darwin" -and $TargetArch -eq "arm64") -or ($TargetOs -eq "windows" -and $TargetArch -eq "amd64")) {
-        $popplerBinary = if ($TargetOs -eq "windows") { "bin/pdftotext.exe" } else { "bin/pdftotext" }
-        $popplerRequiredPaths = ",`n      `"$popplerBinary`",`n      `"libexec/poppler-pdftotext/$TargetOs-$TargetArch`""
-    }
-    $manifest = $manifest.Replace('__POPLER_REQUIRED_PATHS__', $popplerRequiredPaths)
-
-    # Replace the entire errorLog line placeholder: Windows gets real value, others remove the line entirely
-    $errorLogPattern = '"__ERROR_LOG_LINE__": "__ERROR_LOG_LINE__",\r?\n'
-    if ($TargetOs -eq "windows") {
-        $errorLogReplacement = '    "errorLogRelativePath": "run/agent-platform.stderr.log",' + "`n"
-        $manifest = $manifest -replace $errorLogPattern, $errorLogReplacement
-    } else {
-        $manifest = $manifest -replace $errorLogPattern, ""
-    }
-
-    # Write output using UTF-8 no BOM
-    [System.IO.File]::WriteAllText($Dest, $manifest, $utf8NoBom)
+    $template = Join-Path $PSScriptRoot "release-assets\manifest.template.json"
+    & go run ./cmd/render-program-manifest --template $template --output $Dest --version $VERSION --os $TargetOs --arch $TargetArch --backend $BackendEntry --asset $AssetFileName
+    if ($LASTEXITCODE -ne 0) { throw "Manifest renderer failed for $TargetOs/$TargetArch" }
 }
-
 function Build-ProgramBundle {
     param(
         [string]$TargetOs,
@@ -316,7 +274,9 @@ function Get-ProgramTargetMatrix {
             Write-Output @{ Os = $os.Trim(); Arch = $Arch }
         }
     } else {
-        Write-Output @{ Os = (Get-DetectedHostOS); Arch = $HOST_ARCH }
+        # This is the native Windows release entry. With no explicit matrix it
+        # must never depend on Bash host detection or an undefined host arch.
+        Write-Output @{ Os = "windows"; Arch = $Arch }
     }
 }
 

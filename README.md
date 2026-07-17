@@ -72,7 +72,7 @@ cp .env.example .env
 make run
 ```
 
-`./scripts/sync-local-builtins.sh` 是本地 builtin 构建入口：每次都在隔离工作目录中重新构建相邻的 `dbx`、`httpx`、`kbase-lance-engine`，以及 `poppler-pdftotext` 的 Go launcher/archive；后者只校验并打包已签入的 Poppler native runtime，不重新编译 C/C++ runtime。`rg` 是唯一只校验并复制的预编译 vendor artifact。脚本为每次产物生成临时本地 lock 和 SHA-256，再原子更新本机 `build/builtins/<os>-<arch>/`，绝不回写正式 `scripts/release-assets/builtins.lock.json` 或 `release-local/`。默认只构建当前主机；`--all` 对 Poppler 仅处理 canonical lock 已声明的目标，当前为 darwin-arm64 与 windows-amd64。`make run` 只构建 Go runtime、加载根目录 `.env` 并从 `release-local/backend/agent-platform` 启动；它通过 `AP_BUILTINS_BIN` 将本机 `build/builtins/<host>/bin` 设为唯一可信 builtin 目录，并将 sidecar 路径指向该 cache，但绝不复制或编译 builtin。未设置 `SERVER_PORT` 时默认监听 `11949`。本机插件位于 `release-local/plugins/`。直接执行 `go run ./cmd/agent-platform` 不会自动加载 `.env`、装入 builtins 或扫描 `release-local/plugins/`；未设置 `SERVER_PORT` 或 `--port` 时应用代码默认监听 `8080`。
+`./scripts/sync-local-builtins.sh` 是 macOS/Linux 本地 builtin 构建入口；Windows AMD64 使用 `powershell -ExecutionPolicy Bypass -File scripts/sync-local-builtins.ps1 -Target windows/amd64`，不依赖 Git Bash。两个入口都会在隔离工作目录中重新构建相邻的 `dbx`、`httpx`、`kbase-lance-engine` 和 `poppler-pdftotext` launcher/archive，生成只属于本次构建的临时 local lock，再原子更新 `build/builtins/<os>-<arch>/`。本机 archive hash 与实际 checkout commit 只进入 local lock/cache manifest，绝不回写正式 `scripts/release-assets/builtins.lock.json` 或 `release-local/`。`rg` 是唯一只校验并复制的预编译 vendor artifact。`make run` 只构建 Go runtime、加载根目录 `.env` 并从 `release-local/backend/agent-platform` 启动；它通过 `AP_BUILTINS_BIN` 将本机 `build/builtins/<host>/bin` 设为唯一可信 builtin 目录，并将 sidecar 路径指向该 cache，但绝不复制或编译 builtin。未设置 `SERVER_PORT` 时默认监听 `11949`。
 
 `--all` 会要求本机已提供六个平台的 Rust target、对应 linker/SDK、`protoc` 与 `syft`；任一 target 不能构建时失败，且既有 `build/builtins` cache 不会被替换。正式 `make release-program` 只消费对应 target 的本机 cache，不会重新构建或回读 `../agent-platform-builtins`；cache 缺失、平台不匹配或 manifest 校验失败会直接终止发布。
 
@@ -324,6 +324,13 @@ Container Hub 默认基础挂载当前最多 7 个：
 ```bash
 ./scripts/sync-local-builtins.sh
 make release-program
+```
+
+Windows AMD64 对应命令为：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/sync-local-builtins.ps1 -Target windows/amd64
+make release ARCH=amd64
 ```
 
 产物写入 `dist/release/`，包含纯 Go runtime、配置模板、启停脚本、`bin/{rg,dbx,httpx,kbase-lance-engine,pdftotext}`、`libexec/poppler-pdftotext/`、builtins manifest、许可证 notice、压缩包 SHA-256 与大小报告。`release-program` 只复制并复验 `build/builtins/<os>-<arch>/` 中由 `sync-local-builtins.sh` 原子生成的 cache，不会构建 Rust sidecar，也不会读取相邻 `agent-platform-builtins`。Docker 构建需要预先执行 `./scripts/sync-local-builtins.sh --target linux/<arch>`，使匹配的 Linux cache 位于 `build/builtins/`。Desktop 宿主集成时执行资源同步：

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -207,6 +208,80 @@ func TestDeclaredComponentTargetsReturnsOnlyLockedRequestedTargets(t *testing.T)
 	if want := []string{"darwin/arm64"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("targets = %#v, want %#v", got, want)
 	}
+}
+
+func TestRunRecordsLocalCheckoutCommitOnlyInDerivedLock(t *testing.T) {
+	root := t.TempDir()
+	collection := filepath.Join(root, "collection")
+	repository := filepath.Join(collection, "dbx")
+	archivePath := filepath.Join(repository, "dist", "v1", "dbx_v1_windows_amd64.zip")
+	if err := os.MkdirAll(filepath.Dir(archivePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(archivePath, []byte("windows archive"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	localCommit := initGitRepository(t, repository)
+	canonicalCommit := strings.Repeat("a", 40)
+	lock := builtins.Lock{
+		SchemaVersion: 1,
+		DefaultRoot:   "../agent-platform-builtins",
+		Components: []builtins.Component{{
+			Name: "dbx", Version: "v1", Commit: canonicalCommit, Repository: "dbx", Kind: "archive", Required: true,
+			Targets: map[string]builtins.Target{
+				"windows-amd64": {Path: "dist/v1/dbx_v1_windows_amd64.zip", Format: "zip", Entry: "dbx.exe", Output: "dbx.exe", SHA256: strings.Repeat("b", 64)},
+			},
+		}},
+	}
+	input := filepath.Join(root, "lock.json")
+	payload, err := json.Marshal(lock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(input, payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(root, "local-lock.json")
+	if err := run(input, output, collection, []string{"windows/amd64"}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	derived, err := builtins.LoadLock(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := derived.Components[0].Commit; got != localCommit {
+		t.Fatalf("derived commit = %q, want %q", got, localCommit)
+	}
+	canonical, err := builtins.LoadLock(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := canonical.Components[0].Commit; got != canonicalCommit {
+		t.Fatalf("canonical commit = %q, want %q", got, canonicalCommit)
+	}
+}
+
+func initGitRepository(t *testing.T, root string) string {
+	t.Helper()
+	commands := [][]string{
+		{"init"},
+		{"config", "user.email", "release-test@example.invalid"},
+		{"config", "user.name", "Release Test"},
+		{"add", "."},
+		{"commit", "-m", "fixture"},
+	}
+	for _, arguments := range commands {
+		command := exec.Command("git", append([]string{"-C", root}, arguments...)...)
+		if payload, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", arguments, err, payload)
+		}
+	}
+	command := exec.Command("git", "-C", root, "rev-parse", "HEAD")
+	payload, err := command.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(payload))
 }
 
 func writeArchive(t *testing.T, path string) {

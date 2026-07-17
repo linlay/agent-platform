@@ -1,11 +1,17 @@
 COMPOSE_FILE ?= compose.yml
 CGO_ENABLED ?= 0
-VERSION := $(shell cat VERSION 2>/dev/null || echo "dev")
 LOCAL_RELEASE_ROOT ?= release-local
 PROGRAM_TARGET_MATRIX_ALL ?= darwin/amd64,darwin/arm64,linux/amd64,linux/arm64,windows/amd64,windows/arm64
 
-# ARCH detection: use uname on Unix, default to amd64 on Windows
-ARCH_DETECT := $(shell command -v uname >/dev/null 2>&1 && uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/' || echo "amd64")
+# ARCH detection is intentionally platform-specific. The Windows release path
+# must parse without cat/uname/sed or Git Bash being installed.
+ifeq ($(OS),Windows_NT)
+VERSION :=
+ARCH_DETECT := amd64
+else
+VERSION := $(shell cat VERSION 2>/dev/null || echo "dev")
+ARCH_DETECT := $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
+endif
 ARCH ?= $(ARCH_DETECT)
 
 PASS_PROGRAM_TARGETS = $(if $(filter undefined,$(origin PROGRAM_TARGETS)),,PROGRAM_TARGETS=$(PROGRAM_TARGETS))

@@ -11,7 +11,7 @@ $version = (Get-Content (Join-Path $REPO_ROOT "VERSION") -Raw).Trim()
 $archive = Join-Path $REPO_ROOT "dist/release/agent-platform-$version-windows-amd64.zip"
 $cacheManifest = Join-Path $REPO_ROOT "build/builtins/windows-amd64/builtins.manifest.json"
 if (-not (Test-Path $cacheManifest -PathType Leaf)) {
-    throw "missing local builtin cache; run ./scripts/sync-local-builtins.sh first"
+    throw "missing local builtin cache; run powershell -ExecutionPolicy Bypass -File scripts/sync-local-builtins.ps1 -Target windows/amd64 first"
 }
 
 Remove-Item (Join-Path $REPO_ROOT "dist") -Recurse -Force -ErrorAction SilentlyContinue

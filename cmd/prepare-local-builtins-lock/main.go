@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -78,6 +79,23 @@ func run(input, output, collectionRoot string, requestedTargets []string) error 
 		return err
 	}
 
+	// A local lock describes the exact isolated checkouts used for this build.
+	// Keep the canonical lock untouched, but do not carry its release commit
+	// into a cache manifest when the local source checkout is different.
+	for index := range lock.Components {
+		component := &lock.Components[index]
+		if component.Kind != "archive" && component.Kind != "archive-tree" {
+			continue
+		}
+		commit, ok, err := localComponentCommit(filepath.Join(collectionRoot, component.Repository))
+		if err != nil {
+			return fmt.Errorf("%s local commit: %w", component.Name, err)
+		}
+		if ok {
+			component.Commit = commit
+		}
+	}
+
 	for _, value := range requestedTargets {
 		goos, goarch, err := parseTarget(value)
 		if err != nil {
@@ -127,6 +145,25 @@ func run(input, output, collectionRoot string, requestedTargets []string) error 
 	}
 	payload = append(payload, '\n')
 	return writeFileAtomic(output, payload, 0o644)
+}
+
+func localComponentCommit(repositoryRoot string) (string, bool, error) {
+	command := exec.Command("git", "-C", repositoryRoot, "rev-parse", "HEAD")
+	payload, err := command.Output()
+	if err != nil {
+		// Some vendored collections intentionally contain no Git metadata. In
+		// that case there is no checkout fact to record, so retain the canonical
+		// provenance instead of inventing one.
+		if _, statErr := os.Stat(filepath.Join(repositoryRoot, ".git")); errors.Is(statErr, os.ErrNotExist) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	commit := strings.TrimSpace(string(payload))
+	if len(commit) != 40 {
+		return "", false, fmt.Errorf("git rev-parse returned invalid commit %q", commit)
+	}
+	return commit, true, nil
 }
 
 func parseTarget(value string) (string, string, error) {
