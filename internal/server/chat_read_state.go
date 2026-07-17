@@ -210,7 +210,15 @@ func (s *Server) listAgentCatalogSummariesWithModes(includeChats int, scope stri
 }
 
 func (s *Server) mapAgentChatSummaries(items []chat.Summary) ([]api.ChatSummaryResponse, error) {
-	response := mapChatSummariesWithoutUsage(items)
+	return s.mapChatSummariesWithActiveRuns(items, false)
+}
+
+// mapChatSummariesWithActiveRuns enriches persisted chat summaries with the
+// in-memory run state shared by /api/chats and /api/agents?includeChats.
+// The two callers intentionally differ only in whether summary usage is
+// included; active-run and conflict semantics must remain identical.
+func (s *Server) mapChatSummariesWithActiveRuns(items []chat.Summary, includeUsage bool) ([]api.ChatSummaryResponse, error) {
+	response := mapChatSummariesWithUsage(items, includeUsage)
 	if s.deps.Runs == nil {
 		return response, nil
 	}

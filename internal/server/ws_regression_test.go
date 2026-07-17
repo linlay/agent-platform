@@ -850,8 +850,24 @@ func TestListAgentSummariesIncludesChatStats(t *testing.T) {
 	if chatA1.ChatID == "" || chatA1.Usage == nil || chatA1.Usage.TotalTokens != 10 {
 		t.Fatalf("/api/chats summaries should still include usage, got %#v", chatA1)
 	}
-	if chatA1.ActiveRun != nil {
-		t.Fatalf("/api/chats summaries should not include activeRun, got %#v", chatA1.ActiveRun)
+	if chatA1.ActiveRun == nil ||
+		chatA1.ActiveRun.RunID != "run-active-a1" ||
+		chatA1.ActiveRun.State != string(contracts.RunLoopStateWaitingSubmit) ||
+		chatA1.ActiveRun.StartedAt == 0 {
+		t.Fatalf("/api/chats summaries should include activeRun, got %#v", chatA1.ActiveRun)
+	}
+	if chatA1.ActiveRun.PlanningMode {
+		t.Fatalf("/api/chats summary active run should not include planningMode, got %#v", chatA1.ActiveRun)
+	}
+	var chatB1 api.ChatSummaryResponse
+	for _, item := range chatSummaries {
+		if item.ChatID == "chat-b1" {
+			chatB1 = item
+			break
+		}
+	}
+	if chatB1.ChatID == "" || chatB1.ActiveRun != nil || chatB1.Error != nil {
+		t.Fatalf("inactive /api/chats summary should omit activeRun and error, got %#v", chatB1)
 	}
 
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
@@ -878,6 +894,24 @@ func TestListAgentSummariesIncludesChatStats(t *testing.T) {
 		t.Fatalf("expected chat-level conflict error, got %#v", got[0])
 	}
 	assertActiveRunConflictInfo(t, *got[0].Error, activeRunConflictMessage, "chat-a1", "run-active-a1", "run-active-a1-duplicate")
+
+	chatSummaries, err = server.listChatSummaries("", "")
+	if err != nil {
+		t.Fatalf("list chat summaries should keep chat-level active run conflicts: %v", err)
+	}
+	for _, item := range chatSummaries {
+		if item.ChatID == "chat-a1" {
+			chatA1 = item
+			break
+		}
+	}
+	if chatA1.ActiveRun != nil {
+		t.Fatalf("conflicted /api/chats summary should not include activeRun, got %#v", chatA1.ActiveRun)
+	}
+	if chatA1.Error == nil {
+		t.Fatalf("expected /api/chats summary conflict error, got %#v", chatA1)
+	}
+	assertActiveRunConflictInfo(t, *chatA1.Error, activeRunConflictMessage, "chat-a1", "run-active-a1", "run-active-a1-duplicate")
 }
 
 type wsRegressionCatalogRegistry struct {

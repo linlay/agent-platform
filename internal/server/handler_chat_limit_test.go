@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
+	"agent-platform/internal/contracts"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
@@ -66,6 +68,116 @@ func TestChatsLimitHTTPAndWebSocket(t *testing.T) {
 	}
 	if invalid.Frame != ws.FrameError || invalid.ID != "chats_invalid_limit" || invalid.Code != http.StatusBadRequest {
 		t.Fatalf("unexpected invalid-limit websocket response: %#v", invalid)
+	}
+}
+
+func TestChatsActiveRunHTTPAndWebSocket(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.WriteQueueSize = 8
+			cfg.WebSocket.PingInterval = 30000
+		},
+	})
+	const (
+		chatID         = "chat-active-summary"
+		persistedRunID = "run-persisted-summary"
+		activeRunID    = "run-active-summary"
+	)
+	persistedStartedAt := testEpochMillis + 1_000
+	activeStartedAt := testEpochMillis + 2_000
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := completeServerFixtureRun(t, fixture.chats, chat.RunCompletion{
+		ChatID:          chatID,
+		RunID:           persistedRunID,
+		AgentKey:        "mock-agent",
+		InitialMessage:  "hello",
+		AssistantText:   "done",
+		StartedAtMillis: persistedStartedAt,
+		UpdatedAtMillis: persistedStartedAt + 1,
+		Usage:           chat.UsageData{PromptTokens: 7, CompletionTokens: 3, TotalTokens: 10},
+	}); err != nil {
+		t.Fatalf("complete persisted run: %v", err)
+	}
+	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	_, control, _ := runs.Register(context.Background(), contracts.QuerySession{
+		RunID:           activeRunID,
+		ChatID:          chatID,
+		AgentKey:        "mock-agent",
+		StartedAtMillis: activeStartedAt,
+	})
+	control.TransitionState(contracts.RunLoopStateWaitingSubmit)
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("HTTP /api/chats status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var httpResponse api.ApiResponse[[]api.ChatSummaryResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &httpResponse); err != nil {
+		t.Fatalf("decode HTTP /api/chats response: %v", err)
+	}
+	httpSummary := chatSummaryByID(t, httpResponse.Data, chatID)
+	if httpSummary.Usage == nil || httpSummary.Usage.TotalTokens != 10 {
+		t.Fatalf("HTTP /api/chats should retain usage, got %#v", httpSummary.Usage)
+	}
+	assertSummaryActiveRun(t, httpSummary, activeRunID, activeStartedAt)
+
+	httpServer := httptest.NewServer(fixture.server)
+	defer httpServer.Close()
+	conn, _, err := gws.DefaultDialer.Dial("ws"+strings.TrimPrefix(httpServer.URL, "http")+"/ws", nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+	readConnectedPush(t, conn)
+	writeChatsLimitWSRequest(t, conn, "chats_active_run", nil)
+	var frame ws.ResponseFrame
+	if err := conn.ReadJSON(&frame); err != nil {
+		t.Fatalf("read websocket active-run response: %v", err)
+	}
+	if frame.Frame != ws.FrameResponse || frame.Type != "/api/chats" || frame.ID != "chats_active_run" || frame.Code != 0 {
+		t.Fatalf("unexpected websocket active-run response: %#v", frame)
+	}
+	wsSummaries, err := marshalResponseData[[]api.ChatSummaryResponse](frame.Data)
+	if err != nil {
+		t.Fatalf("decode websocket active-run summaries: %v", err)
+	}
+	wsSummary := chatSummaryByID(t, wsSummaries, chatID)
+	assertSummaryActiveRun(t, wsSummary, activeRunID, activeStartedAt)
+	if wsSummary.Usage == nil || wsSummary.Usage.TotalTokens != 10 {
+		t.Fatalf("WebSocket /api/chats should retain usage, got %#v", wsSummary.Usage)
+	}
+	if *wsSummary.ActiveRun != *httpSummary.ActiveRun {
+		t.Fatalf("HTTP and WebSocket activeRun differ: http=%#v ws=%#v", httpSummary.ActiveRun, wsSummary.ActiveRun)
+	}
+}
+
+func chatSummaryByID(t *testing.T, summaries []api.ChatSummaryResponse, chatID string) api.ChatSummaryResponse {
+	t.Helper()
+	for _, summary := range summaries {
+		if summary.ChatID == chatID {
+			return summary
+		}
+	}
+	t.Fatalf("chat %q not found in summaries %#v", chatID, summaries)
+	return api.ChatSummaryResponse{}
+}
+
+func assertSummaryActiveRun(t *testing.T, summary api.ChatSummaryResponse, runID string, startedAt int64) {
+	t.Helper()
+	if summary.ActiveRun == nil ||
+		summary.ActiveRun.RunID != runID ||
+		summary.ActiveRun.State != string(contracts.RunLoopStateWaitingSubmit) ||
+		summary.ActiveRun.StartedAt != startedAt {
+		t.Fatalf("unexpected activeRun %#v", summary.ActiveRun)
+	}
+	if summary.ActiveRun.PlanningMode {
+		t.Fatalf("summary activeRun should not include planningMode, got %#v", summary.ActiveRun)
 	}
 }
 

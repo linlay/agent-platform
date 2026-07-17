@@ -26,7 +26,7 @@ func (s *Server) listChatSummariesWithAgentModesAndLimit(lastRunID string, agent
 	if err != nil {
 		return nil, err
 	}
-	return mapChatSummaries(items), nil
+	return s.mapChatSummariesWithActiveRuns(items, true)
 }
 
 func requestedModes(values []string) []string {
@@ -80,10 +80,6 @@ func optionalChatListLimit(limit *int) (int, error) {
 
 func mapChatSummaries(items []chat.Summary) []api.ChatSummaryResponse {
 	return mapChatSummariesWithUsage(items, true)
-}
-
-func mapChatSummariesWithoutUsage(items []chat.Summary) []api.ChatSummaryResponse {
-	return mapChatSummariesWithUsage(items, false)
 }
 
 func mapChatSummariesWithUsage(items []chat.Summary, includeUsage bool) []api.ChatSummaryResponse {
