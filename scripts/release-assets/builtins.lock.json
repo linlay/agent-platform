@@ -213,7 +213,7 @@
         "windows-amd64": {
           "path": "dist/v26.07.0/poppler-pdftotext_v26.07.0_windows_amd64.zip",
           "format": "zip",
-          "sha256": "1326f8c49f46c866f5d1271422645852874414c874b0183fa51d2ce004c99909",
+          "sha256": "a98f0090ce9fbe215f171fb416b3fb3fc079f0cf492650540073f3f9358c22b1",
           "tree": {
             "root": "runtime",
             "outputs": [
