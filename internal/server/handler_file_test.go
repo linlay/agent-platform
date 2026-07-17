@@ -12,7 +12,11 @@ import (
 	"testing"
 
 	"agent-platform/internal/api"
+	channelpkg "agent-platform/internal/channel"
 	"agent-platform/internal/config"
+	"agent-platform/internal/ws"
+
+	gws "github.com/gorilla/websocket"
 )
 
 func TestAgentFileEndpointReadsCoderAndKBaseWorkspaceFiles(t *testing.T) {
@@ -125,6 +129,190 @@ func TestAgentFileEndpointRejectsWorkspaceEscapes(t *testing.T) {
 	}
 }
 
+func TestWebSocketAgentFileReturnsTextAndBinaryMetadata(t *testing.T) {
+	fixture, _, _ := newAgentFileTestFixture(t)
+	server := newLoopbackServer(t, fixture.server)
+	conn := dialAgentFileWebSocket(t, server.URL, "/ws")
+	defer conn.Close()
+
+	writeAgentFileWSRequest(t, conn, "file_text", map[string]any{
+		"agentKey": "coder-file",
+		"path":     "docs/hello.md",
+	})
+	textFrame := readAgentFileWSResponse(t, conn, "file_text")
+	if textFrame.Type != "/api/file" || textFrame.Code != 0 || textFrame.Data.ContentKind != "text" ||
+		textFrame.Data.Content != "# Hello\n\ncoder workspace\n" {
+		t.Fatalf("unexpected websocket text file response: %#v", textFrame)
+	}
+
+	writeAgentFileWSRequest(t, conn, "file_binary", map[string]any{
+		"agentKey": "coder-file",
+		"path":     "docs/manual.pdf",
+		"response": "json",
+	})
+	binaryFrame := readAgentFileWSResponse(t, conn, "file_binary")
+	if binaryFrame.Type != "/api/file" || binaryFrame.Code != 0 || binaryFrame.Data.ContentKind != "binary" ||
+		binaryFrame.Data.Content != "" || binaryFrame.Data.ContentURL == "" {
+		t.Fatalf("unexpected websocket binary file response: %#v", binaryFrame)
+	}
+}
+
+func TestWebSocketAgentFileRejectsInvalidAndForbiddenRequests(t *testing.T) {
+	fixture, coderWorkspace, _ := newAgentFileTestFixture(t)
+	outsidePath := filepath.Join(filepath.Dir(coderWorkspace), "outside.md")
+	if err := os.WriteFile(outsidePath, []byte("outside\n"), 0o644); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+	server := newLoopbackServer(t, fixture.server)
+	conn := dialAgentFileWebSocket(t, server.URL, "/ws")
+	defer conn.Close()
+
+	tests := []struct {
+		name         string
+		payload      any
+		expectedType string
+		expectedCode int
+	}{
+		{
+			name:         "invalid payload",
+			payload:      []any{},
+			expectedType: "invalid_request",
+			expectedCode: http.StatusBadRequest,
+		},
+		{
+			name: "content response is HTTP only",
+			payload: map[string]any{
+				"agentKey": "coder-file",
+				"path":     "docs/hello.md",
+				"response": "content",
+			},
+			expectedType: "invalid_request",
+			expectedCode: http.StatusBadRequest,
+		},
+		{
+			name: "unknown agent",
+			payload: map[string]any{
+				"agentKey": "missing-agent",
+				"path":     "docs/hello.md",
+			},
+			expectedType: "not_found",
+			expectedCode: http.StatusNotFound,
+		},
+		{
+			name: "workspace escape",
+			payload: map[string]any{
+				"agentKey": "coder-file",
+				"path":     "../outside.md",
+			},
+			expectedType: "forbidden",
+			expectedCode: http.StatusForbidden,
+		},
+		{
+			name: "missing file",
+			payload: map[string]any{
+				"agentKey": "coder-file",
+				"path":     "docs/missing.md",
+			},
+			expectedType: "not_found",
+			expectedCode: http.StatusNotFound,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			requestID := "file_" + strings.ReplaceAll(tc.name, " ", "_")
+			writeAgentFileWSRequest(t, conn, requestID, tc.payload)
+			frame := readAgentFileWSError(t, conn, requestID)
+			if frame.Type != tc.expectedType || frame.Code != tc.expectedCode {
+				t.Fatalf("unexpected websocket file error: %#v", frame)
+			}
+		})
+	}
+}
+
+func TestChannelWebSocketAgentFileAllowsDirectAgentKey(t *testing.T) {
+	fixture, _, _ := newAgentFileTestFixture(t)
+	fixture.server.deps.Channels = channelpkg.NewRegistry([]config.ChannelConfig{{
+		ID:   "workspace-read",
+		Mode: config.ChannelModeServer,
+	}})
+	server := newLoopbackServer(t, fixture.server)
+	conn := dialAgentFileWebSocket(t, server.URL, "/ws/channel?channelId=workspace-read")
+	defer conn.Close()
+
+	writeAgentFileWSRequest(t, conn, "channel_file", map[string]any{
+		"agentKey": "coder-file",
+		"path":     "docs/hello.md",
+	})
+	frame := readAgentFileWSResponse(t, conn, "channel_file")
+	if frame.Type != "/api/file" || frame.Code != 0 || frame.Data.AgentKey != "coder-file" ||
+		frame.Data.Content != "# Hello\n\ncoder workspace\n" {
+		t.Fatalf("unexpected channel websocket file response: %#v", frame)
+	}
+}
+
+type agentFileWSResponseFrame struct {
+	Frame string                `json:"frame"`
+	Type  string                `json:"type"`
+	ID    string                `json:"id"`
+	Code  int                   `json:"code"`
+	Data  api.AgentFileResponse `json:"data"`
+}
+
+func dialAgentFileWebSocket(t *testing.T, baseURL string, path string) *gws.Conn {
+	t.Helper()
+	wsURL := "ws" + strings.TrimPrefix(baseURL, "http") + path
+	conn, _, err := gws.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	waitForPushFrameType(t, conn, "connected")
+	return conn
+}
+
+func writeAgentFileWSRequest(t *testing.T, conn *gws.Conn, requestID string, payload any) {
+	t.Helper()
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame:   ws.FrameRequest,
+		Type:    "/api/file",
+		ID:      requestID,
+		Payload: ws.MarshalPayload(payload),
+	}); err != nil {
+		t.Fatalf("write websocket file request: %v", err)
+	}
+}
+
+func readAgentFileWSResponse(t *testing.T, conn *gws.Conn, requestID string) agentFileWSResponseFrame {
+	t.Helper()
+	raw := waitForWebSocketFrame(t, conn, func(data []byte) bool {
+		var frame struct {
+			Frame string `json:"frame"`
+			ID    string `json:"id"`
+		}
+		return json.Unmarshal(data, &frame) == nil && frame.Frame == ws.FrameResponse && frame.ID == requestID
+	})
+	var frame agentFileWSResponseFrame
+	if err := json.Unmarshal(raw, &frame); err != nil {
+		t.Fatalf("decode websocket file response: %v", err)
+	}
+	return frame
+}
+
+func readAgentFileWSError(t *testing.T, conn *gws.Conn, requestID string) ws.ErrorFrame {
+	t.Helper()
+	raw := waitForWebSocketFrame(t, conn, func(data []byte) bool {
+		var frame struct {
+			Frame string `json:"frame"`
+			ID    string `json:"id"`
+		}
+		return json.Unmarshal(data, &frame) == nil && frame.Frame == ws.FrameError && frame.ID == requestID
+	})
+	var frame ws.ErrorFrame
+	if err := json.Unmarshal(raw, &frame); err != nil {
+		t.Fatalf("decode websocket file error: %v", err)
+	}
+	return frame
+}
+
 func newAgentFileTestFixture(t *testing.T) (testFixture, string, string) {
 	t.Helper()
 	var coderWorkspace string
@@ -132,6 +320,11 @@ func newAgentFileTestFixture(t *testing.T) (testFixture, string, string) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.WriteQueueSize = 8
+			cfg.WebSocket.PingInterval = 30000
+		},
 		setupRuntime: func(root string, cfg *config.Config) {
 			coderWorkspace = filepath.Join(root, "coder-workspace")
 			kbaseWorkspace = filepath.Join(root, "kbase-workspace")

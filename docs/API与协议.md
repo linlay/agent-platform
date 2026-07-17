@@ -601,6 +601,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/memory/scope/validate` | `agentKey`、`scopeType`、`markdown` | `response` |
 | `/api/memory/record/list` | memory record 过滤字段 | `response` |
 | `/api/memory/record/detail` | `id` | `response` |
+| `/api/file` | `agentKey`、`path`、可选 `encoding`、可选 `response=json` | `response`；data 为 agent workspace 文件 metadata，文本文件包含 `content` |
 | `/api/viewport` | `viewportKey`、`viewportType` | `response` |
 | `/api/resource` | `file`、`pushURL` | `response` |
 | `/api/upload` | gateway upload metadata | `response` |
@@ -619,7 +620,7 @@ Channel WS 复用标准 `platform-ws` 帧：`request`、`response`、`stream`、
 {"frame":"request","type":"/api/query","id":"req-1","payload":{"externalAgentKey":"assistant","message":"hello"}}
 ```
 
-服务端会按本地 agent 的 `channelConfig.exports` 将 `externalAgentKey`（如未显式配置则默认等于本地 agent 的 `key`）映射为本地 `agentKey`，并检查该 channel 的 `allow.query / submit / steer / interrupt / fileTransfer` 权限。
+服务端会按本地 agent 的 `channelConfig.exports` 将 `externalAgentKey`（如未显式配置则默认等于本地 agent 的 `key`）映射为本地 `agentKey`，并检查该 channel 的 `allow.query / submit / steer / interrupt / fileTransfer` 权限。`/api/file` 是例外：它直接使用 `agentKey` 读取该 agent workspace，当前不要求 export 或 `fileTransfer` 授权。
 
 当本地 `mode: CHANNEL` agent 引用 `mode: server` channel 时，运行时会复用该 channel 已接入的 `/ws/channel?channelId=...` 连接向对端发送 `request` 帧，并按相同 `id` 收回 `stream / response / error` 帧。`mode: client` 与 `mode: server` 只表示连接建立方向，不表示 agent 的拥有方；server channel 未连接时会返回 `503 channel <channelId> is not connected`。
 
@@ -692,6 +693,8 @@ gateway 必须用相同的 `id` 和 `type` 回应，并回显 `agentKey`：
 - `GET /api/attach`、WS `/api/detach`、`POST /api/submit`、`POST /api/steer`、`POST /api/interrupt` 按 run 的公开 owner 校验 `agentKey` 或 `teamId`；二者不能用隐藏执行身份互相替代。
 - WS 客户端切换 current chat 时，应先对原 chat 的 active run 发送 `/api/detach`，再对新 chat 的 active run 发送 `/api/attach`；detach 只释放当前 WS 连接上的订阅流，不停止后台 run。
 - WS `/api/resource` 要求 `file + pushURL`，用于将本地资源推给 gateway；`pushURL` 是 gateway HTTP 目的地址，通常为 `/api/push/...`，WS `/api/push` 不存在；HTTP `/api/resource` 直接返回文件字节。
+- WS `/api/file` 接受 `agentKey`、`path` 和可选 `encoding`；省略 `response` 或传 `response: "json"` 时，文本内容在 `response.data.content` 返回，读取上限为 `file-tools.max-read-bytes`（默认 1 MiB），超出时标记 `truncated: true`。二进制文件只返回 metadata 和 `contentUrl`；`response: "content"` 仅适用于 HTTP，WS 会返回 `400 invalid_request`。
+- `/ws/channel` 也允许 `/api/file`，直接按 payload 的 `agentKey` 读取工作区；它不经 `externalAgentKey` 映射，也不检查 agent export 或 `fileTransfer`。
 - `.tools` 是隐藏工具内部目录，不通过 `/api/resource` 或 WS `/api/resource` 暴露；HTTP `/api/tool-result` 接受 `.tools/results/<toolId>.json`。
 - 旧反向 gateway 配置仍在 `configs/channels.yml` 兼容解析；新的 platform/adaptor 接入优先使用 channel `mode: client | server` 与 agent `channelConfig`。
 - 完整 DTO 字段以 `internal/api/*.go` 为事实源。

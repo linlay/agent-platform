@@ -194,6 +194,7 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/memory/scope/validate", s.wsMemoryScopeValidate)
 	handler.RegisterRoute("/api/memory/record/list", s.wsMemoryRecords)
 	handler.RegisterRoute("/api/memory/record/detail", s.wsMemoryRecord)
+	handler.RegisterRoute("/api/file", s.wsAgentFile)
 	handler.RegisterRoute("/api/viewport", s.wsViewport)
 	handler.RegisterRoute("/api/resource", s.wsResource)
 	handler.RegisterRoute("/api/upload", s.wsDownload)

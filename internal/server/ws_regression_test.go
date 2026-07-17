@@ -702,6 +702,7 @@ func TestBroadcastDefinitionsStayAlignedAcrossHTTPAndWS(t *testing.T) {
 	assertContains(t, handlerQuery, `s.broadcastChatReadState("chat.unread"`)
 	assertContains(t, wsRoutes, `handler.RegisterRoute("/api/agents", s.wsAgents)`)
 	assertContains(t, wsRoutes, `handler.RegisterRoute("/api/attach"`)
+	assertContains(t, wsRoutes, `handler.RegisterRoute("/api/file", s.wsAgentFile)`)
 	assertContains(t, wsRoutes, `handler.RegisterRoute("/api/resource", s.wsResource)`)
 	assertContains(t, wsRoutes, `handler.RegisterRoute("/api/upload", s.wsDownload)`)
 	assertNotContains(t, wsRoutes, `handler.RegisterRoute("/api/admin/agents"`)
