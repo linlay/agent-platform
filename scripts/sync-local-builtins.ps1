@@ -52,6 +52,26 @@ function Copy-IsolatedProject {
     }
 }
 
+function Copy-ExistingKbaseRelease {
+    param([string]$CollectionRoot, [string]$TargetOS, [string]$TargetArch)
+    $sourceRoot = Join-Path $BuiltinsRoot "kbase-lance-engine"
+    $version = (Get-Content -LiteralPath (Join-Path $sourceRoot "VERSION") -Raw).Trim()
+    $archiveName = "kbase-lance-engine`_$version`_$TargetOS`_$TargetArch.zip"
+    $sourceArchive = Join-Path $sourceRoot "dist/$version/$archiveName"
+    if (-not (Test-Path -LiteralPath $sourceArchive -PathType Leaf)) {
+        return $false
+    }
+    $destinationDir = Join-Path $CollectionRoot "kbase-lance-engine/dist/$version"
+    New-Item -ItemType Directory -Path $destinationDir -Force | Out-Null
+    Copy-Item -LiteralPath $sourceArchive -Destination (Join-Path $destinationDir $archiveName) -Force
+    $sourceHash = "$sourceArchive.sha256"
+    if (Test-Path -LiteralPath $sourceHash -PathType Leaf) {
+        Copy-Item -LiteralPath $sourceHash -Destination "$($destinationDir)/$archiveName.sha256" -Force
+    }
+    Write-Host "[builtins-sync] reuse kbase-lance-engine release: $sourceArchive"
+    return $true
+}
+
 if ($All -and $Target.Count -gt 0) {
     throw "Use either -All or -Target, not both"
 }
@@ -135,11 +155,13 @@ try {
 
     foreach ($item in $Targets) {
         $parts = $item.Split('/')
-        $cargoTargetDir = Join-Path $BuildRoot ".cargo-target/$($parts[0])-$($parts[1])"
-        Invoke-Native -Command "powershell" -WorkingDirectory (Join-Path $CollectionRoot "kbase-lance-engine") -Arguments @(
-            "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/build-release.ps1",
-            "-TargetOS", $parts[0], "-TargetArch", $parts[1], "-CargoTargetDir", $cargoTargetDir
-        )
+        if (-not (Copy-ExistingKbaseRelease -CollectionRoot $CollectionRoot -TargetOS $parts[0] -TargetArch $parts[1])) {
+            $cargoTargetDir = Join-Path $BuildRoot ".cargo-target/$($parts[0])-$($parts[1])"
+            Invoke-Native -Command "powershell" -WorkingDirectory (Join-Path $CollectionRoot "kbase-lance-engine") -Arguments @(
+                "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/build-release.ps1",
+                "-TargetOS", $parts[0], "-TargetArch", $parts[1], "-CargoTargetDir", $cargoTargetDir
+            )
+        }
     }
 
     $LocalLock = Join-Path $WorkDir "builtins.local.lock.json"
