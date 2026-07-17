@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 const lockSchemaVersion = 1
@@ -814,7 +815,7 @@ func installTreeOutputs(stageDir, stageRoot, outputDir string, outputs []TreeOut
 				rollbackTreeInstall(replacements, 0)
 				return err
 			}
-			if err := os.Rename(replacement.destination, replacement.backup); err != nil {
+			if err := renameTreeOutput(replacement.destination, replacement.backup); err != nil {
 				rollbackTreeInstall(replacements, 0)
 				return err
 			}
@@ -829,7 +830,7 @@ func installTreeOutputs(stageDir, stageRoot, outputDir string, outputs []TreeOut
 			rollbackTreeInstall(replacements, installed)
 			return err
 		}
-		if err := os.Rename(replacement.staged, replacement.destination); err != nil {
+		if err := renameTreeOutput(replacement.staged, replacement.destination); err != nil {
 			rollbackTreeInstall(replacements, installed)
 			return err
 		}
@@ -838,16 +839,28 @@ func installTreeOutputs(stageDir, stageRoot, outputDir string, outputs []TreeOut
 	return nil
 }
 
+func renameTreeOutput(source, destination string) error {
+	var err error
+	for attempt := 0; attempt < 5; attempt++ {
+		err = os.Rename(source, destination)
+		if err == nil {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return err
+}
+
 func rollbackTreeInstall(replacements []treeReplacement, installed int) {
 	for index := installed - 1; index >= 0; index-- {
 		_ = os.RemoveAll(replacements[index].destination)
 		if _, err := os.Lstat(replacements[index].backup); err == nil {
-			_ = os.Rename(replacements[index].backup, replacements[index].destination)
+			_ = renameTreeOutput(replacements[index].backup, replacements[index].destination)
 		}
 	}
 	for index := installed; index < len(replacements); index++ {
 		if _, err := os.Lstat(replacements[index].backup); err == nil {
-			_ = os.Rename(replacements[index].backup, replacements[index].destination)
+			_ = renameTreeOutput(replacements[index].backup, replacements[index].destination)
 		}
 	}
 }
