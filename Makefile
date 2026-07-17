@@ -18,6 +18,7 @@ PASS_PROGRAM_TARGETS = $(if $(filter undefined,$(origin PROGRAM_TARGETS)),,PROGR
 PASS_PROGRAM_TARGET_MATRIX = $(if $(filter undefined,$(origin PROGRAM_TARGET_MATRIX)),,PROGRAM_TARGET_MATRIX=$(PROGRAM_TARGET_MATRIX))
 PASS_PROGRAM_TARGETS_PS = $(if $(filter undefined,$(origin PROGRAM_TARGETS)),,-PROGRAM_TARGETS '$(PROGRAM_TARGETS)')
 PASS_PROGRAM_TARGET_MATRIX_PS = $(if $(filter undefined,$(origin PROGRAM_TARGET_MATRIX)),,-PROGRAM_TARGET_MATRIX '$(PROGRAM_TARGET_MATRIX)')
+PASS_VERSION_PS = $(if $(strip $(VERSION)),-VERSION '$(VERSION)',)
 
 ifeq ($(OS),Windows_NT)
 SHELL := powershell.exe
@@ -100,7 +101,7 @@ release:
 
 ifeq ($(OS),Windows_NT)
 release-program:
-	powershell -ExecutionPolicy Bypass -File scripts/release-program.ps1 -VERSION '$(VERSION)' -ARCH '$(ARCH)' $(PASS_PROGRAM_TARGETS_PS) $(PASS_PROGRAM_TARGET_MATRIX_PS)
+	powershell -ExecutionPolicy Bypass -File scripts/release-program.ps1 $(PASS_VERSION_PS) -ARCH '$(ARCH)' $(PASS_PROGRAM_TARGETS_PS) $(PASS_PROGRAM_TARGET_MATRIX_PS)
 else
 release-program:
 	VERSION=$(VERSION) ARCH=$(ARCH) $(PASS_PROGRAM_TARGETS) $(PASS_PROGRAM_TARGET_MATRIX) bash scripts/release-program.sh
