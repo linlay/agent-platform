@@ -79,6 +79,7 @@ func (s *Server) listModelOptionsForAgent(agentKey string) []api.CoderModelOptio
 		options = append(options, api.CoderModelOption{
 			Key:              model.Key,
 			Name:             model.Name,
+			Icon:             model.Icon,
 			Provider:         model.Provider,
 			ModelID:          model.ModelID,
 			Protocol:         model.Protocol,
@@ -212,6 +213,7 @@ type acpModelCatalogResponse struct {
 		Models []struct {
 			Key              string   `json:"key"`
 			Name             string   `json:"name"`
+			Icon             string   `json:"icon"`
 			ModelID          string   `json:"modelId"`
 			ContextWindow    int      `json:"contextWindow"`
 			IsReasoner       bool     `json:"isReasoner"`
@@ -279,6 +281,7 @@ func fetchACPCoderModelOptions(bridge config.CoderACPBridgeConfig) ([]api.CoderM
 		options = append(options, api.CoderModelOption{
 			Key:              key,
 			Name:             strings.TrimSpace(model.Name),
+			Icon:             strings.TrimSpace(model.Icon),
 			ModelID:          strings.TrimSpace(model.ModelID),
 			Protocol:         models.ProtocolACPPassthrough,
 			IsReasoner:       model.IsReasoner,

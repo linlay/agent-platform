@@ -1325,7 +1325,7 @@ func TestAgentEditorOptionsHTTP(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode options response: %v", err)
 	}
-	if len(response.Data.Models) != 1 || response.Data.Models[0].Key != "mock-model" || response.Data.Models[0].Name != "Mock Model" {
+	if len(response.Data.Models) != 1 || response.Data.Models[0].Key != "mock-model" || response.Data.Models[0].Name != "Mock Model" || response.Data.Models[0].Icon != "Mock Model Icon" {
 		t.Fatalf("expected mock model option, got %#v", response.Data.Models)
 	}
 	if got := response.Data.Modes; len(got) != 5 ||

@@ -40,6 +40,7 @@ func setupCoderRuntime(t *testing.T, cfg *config.Config) {
 	if err := os.WriteFile(modelPath, []byte(strings.Join([]string{
 		"key: coder-model",
 		"name: Coder Model",
+		"icon: Coder Model Icon",
 		"provider: mock",
 		"protocol: ANTHROPIC",
 		"modelId: coder-model-id",
@@ -124,7 +125,7 @@ func TestCoderModelOptionsHTTP(t *testing.T) {
 	}
 	foundCoderModel := false
 	for _, model := range response.Data.Models {
-		if model.Key == "coder-model" && model.Name == "Coder Model" && model.IsReasoner && model.IsVision && model.ContextWindow == 200000 {
+		if model.Key == "coder-model" && model.Name == "Coder Model" && model.Icon == "Coder Model Icon" && model.IsReasoner && model.IsVision && model.ContextWindow == 200000 {
 			foundCoderModel = true
 		}
 		if model.Key == "embedding-model" || model.Key == "image-model" {
@@ -363,7 +364,7 @@ func TestCoderModelOptionsForACPCoderAgentUsesProxyModelDiscovery(t *testing.T) 
 	if response.Data.DefaultModelKey != "MiniMax-M2.7" {
 		t.Fatalf("default model should come from ACP /api/models, got %#v", response.Data)
 	}
-	if model.Key != "MiniMax-M2.7" || model.Name != "MiniMax-M2.7" || model.ModelID != "MiniMax-M2.7" || model.ContextWindow != 200000 || model.Protocol != "ACP_PASSTHROUGH" {
+	if model.Key != "MiniMax-M2.7" || model.Name != "MiniMax-M2.7" || model.Icon != "" || model.ModelID != "MiniMax-M2.7" || model.ContextWindow != 200000 || model.Protocol != "ACP_PASSTHROUGH" {
 		t.Fatalf("unexpected proxy model %#v", model)
 	}
 	if strings.Join(model.ServiceTiers, ",") != "FAST" {
@@ -390,6 +391,7 @@ func TestAgentDetailIncludesModelOptionsOnlyForACPCoder(t *testing.T) {
 					{
 						"key":              "MiniMax-M2.7",
 						"name":             "MiniMax-M2.7",
+						"icon":             "MiniMax",
 						"modelId":          "MiniMax-M2.7",
 						"contextWindow":    200000,
 						"isReasoner":       true,
@@ -454,7 +456,7 @@ func TestAgentDetailIncludesModelOptionsOnlyForACPCoder(t *testing.T) {
 	if acpResponse.Data.ModelOptions == nil || acpResponse.Data.ModelOptions.DefaultModelKey != "MiniMax-M2.7" {
 		t.Fatalf("expected ACP detail model options, got %#v", acpResponse.Data.ModelOptions)
 	}
-	if len(acpResponse.Data.ModelOptions.Models) != 1 || acpResponse.Data.ModelOptions.Models[0].Protocol != "ACP_PASSTHROUGH" {
+	if len(acpResponse.Data.ModelOptions.Models) != 1 || acpResponse.Data.ModelOptions.Models[0].Protocol != "ACP_PASSTHROUGH" || acpResponse.Data.ModelOptions.Models[0].Icon != "MiniMax" {
 		t.Fatalf("expected ACP passthrough model options, got %#v", acpResponse.Data.ModelOptions.Models)
 	}
 	if acpResponse.Data.Model != "MiniMax-M2.7" || modelConfigString(acpResponse.Data.ModelConfig, "modelKey") != "MiniMax-M2.7" {
@@ -699,6 +701,15 @@ func TestCoderModelOptionsWS(t *testing.T) {
 	if optionsFrame.Frame != ws.FrameResponse || optionsFrame.ID != "coder-options" ||
 		options.DefaultModelKey != "mock-model" || options.DefaultReasoningEffort != "MEDIUM" || len(options.ReasoningEfforts) != 4 {
 		t.Fatalf("unexpected options frame %#v data=%#v", optionsFrame, options)
+	}
+	foundIcon := false
+	for _, model := range options.Models {
+		if model.Key == "coder-model" {
+			foundIcon = model.Icon == "Coder Model Icon"
+		}
+	}
+	if !foundIcon {
+		t.Fatalf("expected WebSocket model icon, got %#v", options.Models)
 	}
 }
 

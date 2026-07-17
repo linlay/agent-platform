@@ -228,6 +228,46 @@ func TestLoadModelRegistryParsesModelPricing(t *testing.T) {
 	}
 }
 
+func TestLoadModelRegistryParsesModelIcon(t *testing.T) {
+	root := t.TempDir()
+	writeTestProviderAndModel(t, root, "apiKey: plain-text", "icon: Mock Model Icon")
+
+	registry, err := LoadModelRegistry(root)
+	if err != nil {
+		t.Fatalf("LoadModelRegistry returned error: %v", err)
+	}
+	model, err := registry.GetModel("mock-model")
+	if err != nil {
+		t.Fatalf("GetModel returned error: %v", err)
+	}
+	if model.Icon != "Mock Model Icon" {
+		t.Fatalf("model icon = %q, want Mock Model Icon", model.Icon)
+	}
+	for _, item := range registry.List() {
+		if item.Key == "mock-model" && item.Icon == "Mock Model Icon" {
+			return
+		}
+	}
+	t.Fatalf("List did not preserve model icon: %#v", registry.List())
+}
+
+func TestLoadModelRegistryAllowsMissingModelIcon(t *testing.T) {
+	root := t.TempDir()
+	writeTestProviderAndModel(t, root, "apiKey: plain-text")
+
+	registry, err := LoadModelRegistry(root)
+	if err != nil {
+		t.Fatalf("LoadModelRegistry returned error: %v", err)
+	}
+	model, err := registry.GetModel("mock-model")
+	if err != nil {
+		t.Fatalf("GetModel returned error: %v", err)
+	}
+	if model.Icon != "" {
+		t.Fatalf("model icon = %q, want empty", model.Icon)
+	}
+}
+
 func TestLoadModelRegistryParsesTypedModels(t *testing.T) {
 	root := t.TempDir()
 	writeTestProviderAndModel(t, root, "apiKey: plain-text")

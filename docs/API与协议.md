@@ -327,7 +327,7 @@ curl -sS -X POST http://127.0.0.1:11949/api/query \
 
 `GET /api/model-options` 返回聊天输入区运行时可选项。前端按当前 agent `mode` 自行决定是否展示该控件：
 
-- `models`: 当前 model registry 中可展示的聊天模型，字段为 `key/provider/modelId/protocol/isReasoner/isVision/contextWindow`。普通模型要求 `type: chat`、provider 存在且 `apiKey` 非空；`protocol: ACP_PASSTHROUGH` 的 ACP 透传模型不要求 provider。`type: embedding` 与 `type: image-generation` 不会出现在聊天模型选项中。
+- `models`: 当前 model registry 中可展示的聊天模型，字段为 `key/name/icon/provider/modelId/protocol/isReasoner/isVision/contextWindow`。`icon` 是可选的模型图标标识；ACP 透传模型仅在上游 `/api/models` 返回该字段时携带。普通模型要求 `type: chat`、provider 存在且 `apiKey` 非空；`protocol: ACP_PASSTHROUGH` 的 ACP 透传模型不要求 provider。`type: embedding` 与 `type: image-generation` 不会出现在聊天模型选项中。
 - `reasoningEfforts`: 固定为 `NONE`、`LOW`、`MEDIUM`、`HIGH`，其中 `NONE` 表示关闭思考深度
 - `defaultModelKey`: 可展示模型中的默认模型；优先普通可调用模型，没有时可回退到 ACP 透传模型，无默认模型时为空
 - `defaultReasoningEffort`: 固定为 `MEDIUM`

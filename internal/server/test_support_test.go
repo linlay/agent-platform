@@ -187,6 +187,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	if err := os.WriteFile(filepath.Join(modelsDir, "mock-model.yml"), []byte(strings.Join([]string{
 		"key: mock-model",
 		"name: Mock Model",
+		"icon: Mock Model Icon",
 		"provider: mock",
 		"protocol: OPENAI",
 		"modelId: mock-model-id",

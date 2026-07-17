@@ -585,6 +585,7 @@ func (s *Server) buildAgentEditorOptions() api.AgentEditorOptionsResponse {
 			models = append(models, api.AgentEditorModelOption{
 				Key:           model.Key,
 				Name:          model.Name,
+				Icon:          model.Icon,
 				Provider:      model.Provider,
 				ModelID:       model.ModelID,
 				Protocol:      model.Protocol,

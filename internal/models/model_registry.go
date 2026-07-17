@@ -50,6 +50,7 @@ type ProviderEmbeddingConfig struct {
 type ModelDefinition struct {
 	Key              string
 	Name             string
+	Icon             string
 	Provider         string
 	Type             string
 	Protocol         string
@@ -585,6 +586,7 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 		result[key] = ModelDefinition{
 			Key:              key,
 			Name:             strings.TrimSpace(stringNode(values["name"])),
+			Icon:             strings.TrimSpace(stringNode(values["icon"])),
 			Provider:         strings.TrimSpace(stringNode(values["provider"])),
 			Type:             modelType,
 			Protocol:         strings.ToUpper(strings.TrimSpace(stringNode(values["protocol"]))),
