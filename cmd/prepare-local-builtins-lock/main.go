@@ -148,9 +148,13 @@ func run(input, output, collectionRoot string, requestedTargets []string) error 
 }
 
 func localComponentCommit(repositoryRoot string) (string, bool, error) {
-	command := exec.Command("git", "-C", repositoryRoot, "rev-parse", "HEAD")
+	command := exec.Command("git", "-c", "safe.directory="+filepath.ToSlash(repositoryRoot), "-C", repositoryRoot, "rev-parse", "--verify", "--quiet", "HEAD")
 	payload, err := command.Output()
 	if err != nil {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) && exitError.ExitCode() == 1 {
+			return "", false, nil
+		}
 		// Some vendored collections intentionally contain no Git metadata. In
 		// that case there is no checkout fact to record, so retain the canonical
 		// provenance instead of inventing one.
