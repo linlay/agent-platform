@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -257,36 +258,20 @@ func TestRawMessageToOpenAI_PreservesReasoningContentWhenEnabled(t *testing.T) {
 func TestNormalizeOpenAIMessages_ReordersToolResultsAheadOfSyntheticSummary(t *testing.T) {
 	messages := []openAIMessage{
 		{Role: "system", Content: "sys"},
-		{Role: "assistant", ToolCalls: []openAIToolCall{{
-			ID:   "tool-1",
-			Type: "function",
-			Function: openAIFunctionCall{
-				Name:      "_bash_",
-				Arguments: `{"command":"pwd"}`,
-			},
-		}}},
-		{Role: "user", Content: `[System audit — HITL approval batch]
-The user reviewed the following tool call(s) and submitted decisions:
-1. tool=bash command="pwd" decision=approve reason=""
-The tool results above already reflect these decisions; do not re-prompt for approval and do not retry rejected calls.`},
+		{Role: "assistant", ToolCalls: []openAIToolCall{{ID: "tool-1", Type: "function", Function: openAIFunctionCall{Name: "_bash_", Arguments: `{"command":"pwd"}`}}}},
+		{Role: "user", Content: "[System audit — HITL approval batch]"},
 		{Role: "tool", ToolCallID: "tool-1", Name: "_bash_", Content: "ok"},
 		{Role: "user", Content: "next prompt"},
 	}
 
 	normalized := normalizeOpenAIMessages(messages)
 
-	if len(normalized) != 5 {
-		t.Fatalf("expected 5 messages, got %#v", normalized)
-	}
-	if normalized[1].Role != "assistant" || len(normalized[1].ToolCalls) != 1 {
-		t.Fatalf("expected assistant tool-call message at index 1, got %#v", normalized[1])
-	}
-	if normalized[2].Role != "tool" || normalized[2].ToolCallID != "tool-1" {
-		t.Fatalf("expected tool result immediately after assistant, got %#v", normalized[2])
+	if len(normalized) != 5 || normalized[1].Role != "assistant" || normalized[2].ToolCallID != "tool-1" {
+		t.Fatalf("expected assistant and matching result to be adjacent, got %#v", normalized)
 	}
 	noticeText, _ := normalized[3].Content.(string)
-	if normalized[3].Role != "user" || !strings.Contains(noticeText, `[System audit — HITL approval batch]`) {
-		t.Fatalf("expected synthetic summary to move after tool result, got %#v", normalized[3])
+	if normalized[3].Role != "user" || !strings.Contains(noticeText, "[System audit — HITL approval batch]") {
+		t.Fatalf("expected synthetic summary after tool result, got %#v", normalized[3])
 	}
 }
 
@@ -303,38 +288,22 @@ func TestNormalizeOpenAIMessages_OrdersToolResultsByAssistantToolCalls(t *testin
 	}
 
 	normalized := normalizeOpenAIMessages(messages)
-
 	if len(normalized) != 4 {
 		t.Fatalf("expected assistant plus three tool messages, got %#v", normalized)
 	}
 	for index, wantID := range []string{"tool-1", "tool-2", "tool-3"} {
-		message := normalized[index+1]
-		if message.Role != "tool" || message.ToolCallID != wantID {
-			t.Fatalf("expected tool result %s at index %d, got %#v", wantID, index+1, message)
+		if message := normalized[index+1]; message.Role != "tool" || message.ToolCallID != wantID {
+			t.Fatalf("expected result %s at index %d, got %#v", wantID, index+1, message)
 		}
 	}
 }
 
-func TestNormalizeOpenAIMessages_DropsIncompleteToolCallBlocksAndOrphanTools(t *testing.T) {
+func TestNormalizeOpenAIMessages_CompletesIncompleteToolCallBlocksAndDropsOrphanTools(t *testing.T) {
 	messages := []openAIMessage{
 		{Role: "system", Content: "sys"},
 		{Role: "assistant", ToolCalls: []openAIToolCall{
-			{
-				ID:   "tool-1",
-				Type: "function",
-				Function: openAIFunctionCall{
-					Name:      "_bash_",
-					Arguments: `{"command":"pwd"}`,
-				},
-			},
-			{
-				ID:   "tool-2",
-				Type: "function",
-				Function: openAIFunctionCall{
-					Name:      "_bash_",
-					Arguments: `{"command":"ls"}`,
-				},
-			},
+			{ID: "tool-1", Type: "function", Function: openAIFunctionCall{Name: "_bash_", Arguments: `{"command":"pwd"}`}},
+			{ID: "tool-2", Type: "function", Function: openAIFunctionCall{Name: "_bash_", Arguments: `{"command":"ls"}`}},
 		}},
 		{Role: "tool", ToolCallID: "tool-1", Name: "_bash_", Content: "ok"},
 		{Role: "user", Content: "keep this context"},
@@ -343,17 +312,63 @@ func TestNormalizeOpenAIMessages_DropsIncompleteToolCallBlocksAndOrphanTools(t *
 	}
 
 	normalized := normalizeOpenAIMessages(messages)
+	if len(normalized) != 6 || normalized[1].Role != "assistant" || len(normalized[1].ToolCalls) != 2 {
+		t.Fatalf("expected incomplete assistant block to be completed, got %#v", normalized)
+	}
+	if normalized[2].ToolCallID != "tool-1" || normalized[2].Content != "ok" {
+		t.Fatalf("expected existing result preserved, got %#v", normalized[2])
+	}
+	if normalized[3].ToolCallID != "tool-2" || normalized[3].Name != "_bash_" || normalized[3].Content != missingOpenAIToolResultContent {
+		t.Fatalf("expected missing result synthesized, got %#v", normalized[3])
+	}
+	if normalized[4].Content != "keep this context" || normalized[5].Content != "current question" {
+		t.Fatalf("expected buffered user context preserved, got %#v", normalized)
+	}
+}
 
-	if len(normalized) != 3 {
-		t.Fatalf("expected incomplete tool-call turn to be removed, got %#v", normalized)
+func TestNormalizeOpenAIMessages_SynthesizesAllMissingToolResults(t *testing.T) {
+	messages := []openAIMessage{
+		{Role: "assistant", ToolCalls: []openAIToolCall{
+			{ID: "tool-1", Type: "function", Function: openAIFunctionCall{Name: "datetime", Arguments: "{}"}},
+			{ID: "tool-2", Type: "function", Function: openAIFunctionCall{Name: "file_read", Arguments: "{}"}},
+		}},
+		{Role: "user", Content: "continue"},
 	}
-	if normalized[0].Role != "system" {
-		t.Fatalf("expected system message preserved, got %#v", normalized[0])
+
+	normalized := normalizeOpenAIMessages(messages)
+	if len(normalized) != 4 {
+		t.Fatalf("expected two synthetic results, got %#v", normalized)
 	}
-	if normalized[1].Role != "user" || normalized[1].Content != "keep this context" {
-		t.Fatalf("expected buffered user context preserved, got %#v", normalized[1])
+	for index, want := range []struct{ id, name string }{{"tool-1", "datetime"}, {"tool-2", "file_read"}} {
+		message := normalized[index+1]
+		if message.Role != "tool" || message.ToolCallID != want.id || message.Name != want.name || message.Content != missingOpenAIToolResultContent {
+			t.Fatalf("expected synthetic result for %s, got %#v", want.id, message)
+		}
 	}
-	if normalized[2].Role != "user" || normalized[2].Content != "current question" {
-		t.Fatalf("expected current user message preserved, got %#v", normalized[2])
+}
+
+func TestNormalizeOpenAIMessages_ReordersMixedResultsAndIsIdempotent(t *testing.T) {
+	const audit = "[System audit — HITL approval batch]"
+	messages := []openAIMessage{
+		{Role: "assistant", ToolCalls: []openAIToolCall{
+			{ID: "tool-1", Type: "function", Function: openAIFunctionCall{Name: "datetime", Arguments: "{}"}},
+			{ID: "tool-2", Type: "function", Function: openAIFunctionCall{Name: "file_read", Arguments: "{}"}},
+			{ID: "tool-3", Type: "function", Function: openAIFunctionCall{Name: "file_glob", Arguments: "{}"}},
+		}},
+		{Role: "user", Content: audit},
+		{Role: "tool", ToolCallID: "tool-3", Name: "file_glob", Content: "three"},
+		{Role: "tool", ToolCallID: "tool-1", Name: "datetime", Content: "one"},
+		{Role: "user", Content: "next prompt"},
+	}
+
+	normalized := normalizeOpenAIMessages(messages)
+	if len(normalized) != 6 || normalized[2].ToolCallID != "tool-2" || normalized[2].Content != missingOpenAIToolResultContent {
+		t.Fatalf("expected missing middle result synthesized, got %#v", normalized)
+	}
+	if normalized[4].Role != "user" || normalized[4].Content != audit {
+		t.Fatalf("expected audit after complete tool block, got %#v", normalized[4])
+	}
+	if again := normalizeOpenAIMessages(normalized); !reflect.DeepEqual(again, normalized) {
+		t.Fatalf("expected normalization to be idempotent, first=%#v second=%#v", normalized, again)
 	}
 }

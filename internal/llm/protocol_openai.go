@@ -432,11 +432,15 @@ func mergeRawMessagesByMsgID(raw []map[string]any) []map[string]any {
 	return cleaned
 }
 
+const missingOpenAIToolResultContent = "tool_result_missing: No persisted result is available for this historical tool call. Its execution outcome is unknown; do not assume success or retry automatically."
+
 // normalizeOpenAIMessages repairs historical tool-call ordering before sending
 // the transcript to OpenAI-compatible providers. Some persisted chats can
 // contain synthetic user messages (for example HITL summaries) inserted between
 // an assistant tool_call turn and its tool results, or incomplete tool-call
-// turns left behind by interrupted runs. OpenAI rejects both shapes.
+// turns left behind by interrupted runs. OpenAI rejects both shapes, so missing
+// results are completed with an explicit synthetic failure instead of dropping
+// the assistant tool-call turn.
 func normalizeOpenAIMessages(messages []openAIMessage) []openAIMessage {
 	if len(messages) == 0 {
 		return nil
@@ -487,13 +491,22 @@ func normalizeOpenAIMessages(messages []openAIMessage) []openAIMessage {
 			next++
 		}
 
-		if len(expected) == 0 {
-			out = append(out, current)
-			for _, toolCall := range current.ToolCalls {
-				if matched, ok := matchedByID[strings.TrimSpace(toolCall.ID)]; ok {
-					out = append(out, matched)
-				}
+		out = append(out, current)
+		for _, toolCall := range current.ToolCalls {
+			toolCallID := strings.TrimSpace(toolCall.ID)
+			if toolCallID == "" {
+				continue
 			}
+			if matched, ok := matchedByID[toolCallID]; ok {
+				out = append(out, matched)
+				continue
+			}
+			out = append(out, openAIMessage{
+				Role:       "tool",
+				ToolCallID: toolCall.ID,
+				Name:       toolCall.Function.Name,
+				Content:    missingOpenAIToolResultContent,
+			})
 		}
 		out = append(out, buffered...)
 		index = next

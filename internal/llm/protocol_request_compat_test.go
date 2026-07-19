@@ -180,6 +180,60 @@ func TestOpenAIProtocolPrepareRequestReasoningContentCompat(t *testing.T) {
 	}
 }
 
+func TestOpenAIProtocolPrepareRequestCompletesHistoricalToolCallBlock(t *testing.T) {
+	protocol := &openAIProtocol{engine: NewLLMAgentEngineWithHTTPClient(config.Config{}, nil, nil, nil, nil, &http.Client{})}
+	prepared, err := protocol.PrepareRequest(protocolStreamParams{
+		provider:       ProviderDefinition{Key: "mock", BaseURL: "https://example.com", APIKey: "token"},
+		model:          ModelDefinition{Protocol: "OPENAI", ModelID: "mock-model"},
+		protocolConfig: protocolRuntimeConfig{EndpointPath: "/v1/chat/completions"},
+		messages: []openAIMessage{
+			{Role: "system", Content: "system prompt"},
+			{Role: "assistant", ToolCalls: []openAIToolCall{
+				{ID: "call_1", Type: "function", Function: openAIFunctionCall{Name: "datetime", Arguments: "{}"}},
+				{ID: "call_2", Type: "function", Function: openAIFunctionCall{Name: "file_read", Arguments: `{"file_path":"README.md"}`}},
+			}},
+			{Role: "user", Content: "[System audit — historical context]"},
+			{Role: "tool", ToolCallID: "call_1", Name: "datetime", Content: "2026-07-19T00:00:00Z"},
+		},
+		toolSpecs: []openAIToolSpec{
+			{Type: "function", Function: openAIToolDefinition{Name: "datetime"}},
+			{Type: "function", Function: openAIToolDefinition{Name: "file_read"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("PrepareRequest returned error: %v", err)
+	}
+
+	var request struct {
+		Messages []openAIMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(prepared.RequestBodyJSON, &request); err != nil {
+		t.Fatalf("decode prepared request: %v", err)
+	}
+	if len(request.Messages) != 5 {
+		t.Fatalf("expected system, assistant, two tool results, and audit message, got %#v", request.Messages)
+	}
+	assistant := request.Messages[1]
+	if assistant.Role != "assistant" || len(assistant.ToolCalls) != 2 {
+		t.Fatalf("expected assistant tool-call block preserved, got %#v", assistant)
+	}
+	for index, toolCall := range assistant.ToolCalls {
+		result := request.Messages[index+2]
+		if result.Role != "tool" || result.ToolCallID != toolCall.ID {
+			t.Fatalf("expected tool call %s to have adjacent result at index %d, got %#v", toolCall.ID, index+2, result)
+		}
+	}
+	if request.Messages[2].Content != "2026-07-19T00:00:00Z" {
+		t.Fatalf("expected existing result to remain unchanged, got %#v", request.Messages[2])
+	}
+	if request.Messages[3].Name != "file_read" || request.Messages[3].Content != missingOpenAIToolResultContent {
+		t.Fatalf("expected missing result in prepared request, got %#v", request.Messages[3])
+	}
+	if request.Messages[4].Role != "user" || request.Messages[4].Content != "[System audit — historical context]" {
+		t.Fatalf("expected audit message after complete tool block, got %#v", request.Messages[4])
+	}
+}
+
 func TestOpenAIProtocolPrepareRequestAppliesSamplingAfterCompat(t *testing.T) {
 	protocol := &openAIProtocol{engine: NewLLMAgentEngineWithHTTPClient(config.Config{}, nil, nil, nil, nil, &http.Client{})}
 	prepared, err := protocol.PrepareRequest(protocolStreamParams{
