@@ -173,7 +173,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	if err := os.MkdirAll(teamsDir, 0o755); err != nil {
 		t.Fatalf("mkdir teams dir: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(skillsDir, "mock-skill"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(skillsDir, "mock-skill", "assets"), 0o755); err != nil {
 		t.Fatalf("mkdir skills dir: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(providersDir, "mock.yml"), []byte(strings.Join([]string{
@@ -257,6 +257,9 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	}
 	if err := os.WriteFile(filepath.Join(skillsDir, "mock-skill", "SKILL.md"), []byte("# Mock Skill\n\nSkill description"), 0o644); err != nil {
 		t.Fatalf("write skill config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillsDir, "mock-skill", "assets", "mock-skill.png"), []byte{0x89, 'P', 'N', 'G'}, 0o644); err != nil {
+		t.Fatalf("write skill icon: %v", err)
 	}
 
 	cfg := config.Config{

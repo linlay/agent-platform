@@ -237,12 +237,8 @@ func (s *Server) handleTeams(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSkills(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.deps.Registry.(adminSkillRegistry); ok {
-		response, err := s.listAdminSkills()
-		s.writeAgentHTTPResponse(w, response, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, api.Success(s.deps.Registry.Skills("")))
+	response, err := s.listAdminSkills()
+	s.writeAgentHTTPResponse(w, response, err)
 }
 
 func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {

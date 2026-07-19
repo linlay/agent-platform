@@ -58,6 +58,7 @@ type AdminSkill struct {
 	Key          string
 	Name         string
 	Description  string
+	IconPath     string
 	Meta         map[string]any
 	Status       string
 	Diagnostics  []AdminSkillDiagnostic
@@ -681,10 +682,34 @@ func buildAdminSkill(root string, key string, usedBy []string, includeFiles bool
 	item.Files = files
 	item.Size = totalSize
 	item.UpdatedAt = updatedAt
+	iconPath, err := resolveAdminSkillIcon(skillDir, key)
+	if err != nil {
+		return AdminSkill{}, err
+	}
+	item.IconPath = iconPath
 	if hasSkillDiagnosticError(item.Diagnostics) {
 		item.Status = AdminSkillStatusInvalid
 	}
 	return item, nil
+}
+
+func resolveAdminSkillIcon(skillDir string, key string) (string, error) {
+	relPath := path.Join("assets", strings.TrimSpace(key)+".png")
+	pathOnDisk, cleanPath, err := resolveEditableSkillPath(skillDir, relPath)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Lstat(pathOnDisk)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return "", nil
+	}
+	return filepath.ToSlash(cleanPath), nil
 }
 
 func validateEditableSkillRuntimeFiles(skillDir string) ([]AdminSkillDiagnostic, error) {

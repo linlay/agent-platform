@@ -70,26 +70,18 @@ GET /ws -> request / response / stream / push / error frames
 | POST | `/api/admin/agents/update-name` | body: `key`/`agentKey`、`name` | 更新后的 agent 详情 |
 | POST | `/api/admin/agents/delete` | body: `key`/`agentKey` | 删除结果 |
 | GET | `/api/admin/agents/editor-options` | 无 | agent 编辑器可选项 |
-| GET | `/api/admin/skills` | 无 | skills-market skill 列表，包含状态、摘要诊断、更新时间、大小与引用 agent |
-| GET | `/api/admin/skills/detail` | query: `key`/`skillKey`（`key` 为规范参数） | skill 详情，包含 `SKILL.md`、目录文件树、完整诊断和来源 |
+| GET | `/api/admin/skills` | 无 | skills-market skill 列表，包含状态、图标 URL、摘要诊断、更新时间、大小与引用 agent |
+| GET | `/api/admin/skills/detail` | query: `key`、`openPath` | skill 详情，返回 `fileManifest.entries[]` 与可选 `openedFile` |
 | POST | `/api/admin/skills/create` | body: `key`、`skillMd`、`files[]` | 创建后的 skill 详情 |
 | POST | `/api/admin/skills/delete` | body: `key` | 删除结果；仍被 agent 引用时返回 409 和 `usedByAgents` |
 | GET/PUT | `/api/admin/skills/file` | query/body: `key`、`path`、`content`、`baseSha256` | 读取或保存 UTF-8 文本文件 |
+| POST | `/api/admin/skills/file/create` | body: `key`、`path`、`content` | 创建文本文件 |
 | POST | `/api/admin/skills/file/delete` | body: `key`、`path`、`recursive`、`baseSha256` | 删除 skill 内文件或目录 |
 | POST | `/api/admin/skills/file/mkdir` | body: `key`、`path` | 创建 skill 内目录 |
 | POST | `/api/admin/skills/file/rename` | body: `key`、`fromPath`、`toPath`、`overwrite` | 重命名 skill 内文件或目录 |
 | POST | `/api/admin/skills/file/upload` | multipart: `key`、`path`、`overwrite`、`file` | 上传 skill 内二进制或大文件 |
 | GET | `/api/admin/skills/file/download` | query: `key`、`path` | 下载 skill 内非目录文件 |
-| GET | `/api/admin/skills/v2` | 无 | v2 skill 列表摘要 |
-| GET | `/api/admin/skills/v2/detail` | query: `key`、`openPath` | v2 skill 详情，返回 `fileManifest.entries[]` 与可选 `openedFile` |
-| GET/PUT | `/api/admin/skills/v2/file` | query/body: `key`、`path`、`content`、`baseSha256` | v2 文本文件读取或保存 |
-| POST | `/api/admin/skills/v2/file/create` | body: `key`、`path`、`content` | v2 创建文本文件 |
-| POST | `/api/admin/skills/v2/file/mkdir` | body: `key`、`path` | v2 创建目录 |
-| POST | `/api/admin/skills/v2/file/rename` | body: `key`、`fromPath`、`toPath`、`overwrite` | v2 重命名文件或目录 |
-| POST | `/api/admin/skills/v2/file/delete` | body: `key`、`path`、`recursive`、`baseSha256` | v2 删除文件或目录 |
-| POST | `/api/admin/skills/v2/file/upload` | multipart: `key`、`path`、`overwrite`、`file` | v2 上传或替换二进制/大文件 |
-| GET | `/api/admin/skills/v2/file/download` | query: `key`、`path` | v2 下载非目录文件 |
-| POST | `/api/admin/skills/v2/validate` | body/query: `key` | v2 重新加载并返回该 skill 当前校验结果 |
+| POST | `/api/admin/skills/validate` | body/query: `key` | 重新加载并返回该 skill 当前校验结果 |
 | GET | `/api/admin/tools` | 无 | tool 列表，含扁平化工具来源字段 |
 | GET | `/api/admin/registries` | 无 | registry 文件列表摘要，含状态、脱敏 summary、首条诊断摘要与诊断数量 |
 | GET/PUT | `/api/admin/registries/detail` | query/body: `category`、`file`、`content` | registry 文件详情或保存结果 |
@@ -99,7 +91,7 @@ GET /ws -> request / response / stream / push / error frames
 
 `/api/admin/skills` 只编辑 `paths.skills-market-dir` 下的共享 skill 目录，不直接编辑 agent 本地 `skills/` 同步副本。文件路径必须是相对路径，服务端拒绝目录逃逸和 symlink 跟随；JSON 文本读写限制为 UTF-8 且不超过 1 MiB，二进制或大文件通过 upload/download 接口处理。保存、上传、删除或重命名 skill 文件后会触发 `skills` reload 并级联 reload `agents`，使声明该 skill 的 agent 本地副本重新同步。
 
-`/api/admin/skills/v2` 是面向文件编辑器的 canonical 接口。`detail` 不内联全量文件内容，而返回轻量 `fileManifest`：`revision`、`defaultOpenPath`、文件统计和预排序扁平 `entries[]`。每个 entry 使用完整相对 `path` 作为稳定 ID，并带 `parentPath/depth/order/contentKind/language/role/editable/downloadable/uploadable/renamable/deletable`。`openPath` 指向可编辑 UTF-8 文本文件时，`detail` 额外返回 `openedFile`；二进制或过大文件只返回 metadata。v2 保存使用 `baseSha256` 做并发保护，冲突返回 409。创建、删除、重命名、上传和 mkdir 的 mutation 响应会返回新的 `fileManifest` 与 `selectedPath`，方便前端直接刷新文件树。
+`/api/admin/skills` 是唯一的文件编辑器接口。`detail` 不内联全量文件内容，而返回轻量 `fileManifest`：`revision`、`defaultOpenPath`、文件统计和预排序扁平 `entries[]`。每个 entry 使用完整相对 `path` 作为稳定 ID，并带 `parentPath/depth/order/contentKind/language/role/editable/downloadable/uploadable/renamable/deletable`。`openPath` 指向可编辑 UTF-8 文本文件时，`detail` 额外返回 `openedFile`；二进制或过大文件只返回 metadata。保存使用 `baseSha256` 做并发保护，冲突返回 409。创建、删除、重命名、上传和 mkdir 的 mutation 响应会返回新的 `fileManifest` 与 `selectedPath`，方便前端直接刷新文件树。列表和详情摘要会在 skill 目录存在 regular、非 symlink 的 `assets/<skill-id>.png` 时返回 `icon` 下载 URL；未提供图标时省略字段，由客户端负责默认图。
 
 `/api/admin/registries` 是列表接口，不返回 registry 文件绝对路径、完整 `diagnostics[]` 或文件大小；编辑器应通过 `/api/admin/registries/detail` 获取 `source`、完整诊断、`content`、`parsed` 与 `size`。
 

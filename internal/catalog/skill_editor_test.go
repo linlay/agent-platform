@@ -88,6 +88,56 @@ func TestEditableSkillPathGuardsAndBinaryRead(t *testing.T) {
 	}
 }
 
+func TestAdminSkillIconRequiresRegularFile(t *testing.T) {
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "demo-skill")
+	if err := os.MkdirAll(filepath.Join(skillDir, "assets"), 0o755); err != nil {
+		t.Fatalf("mkdir assets: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Demo\n"), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsMarketDir: root}}}
+
+	item, found, err := registry.AdminSkill("demo-skill")
+	if err != nil || !found || item.IconPath != "" {
+		t.Fatalf("missing icon = %#v, found=%v, err=%v", item, found, err)
+	}
+
+	iconPath := filepath.Join(skillDir, "assets", "demo-skill.png")
+	if err := os.Mkdir(iconPath, 0o755); err != nil {
+		t.Fatalf("mkdir icon candidate: %v", err)
+	}
+	item, found, err = registry.AdminSkill("demo-skill")
+	if err != nil || !found || item.IconPath != "" {
+		t.Fatalf("directory icon = %#v, found=%v, err=%v", item, found, err)
+	}
+	if err := os.Remove(iconPath); err != nil {
+		t.Fatalf("remove icon directory: %v", err)
+	}
+
+	if runtime.GOOS != "windows" {
+		if err := os.Symlink(filepath.Join(root, "outside.png"), iconPath); err != nil {
+			t.Fatalf("symlink icon: %v", err)
+		}
+		item, found, err = registry.AdminSkill("demo-skill")
+		if err != nil || !found || item.IconPath != "" {
+			t.Fatalf("symlink icon = %#v, found=%v, err=%v", item, found, err)
+		}
+		if err := os.Remove(iconPath); err != nil {
+			t.Fatalf("remove icon symlink: %v", err)
+		}
+	}
+
+	if err := os.WriteFile(iconPath, []byte{0x89, 'P', 'N', 'G'}, 0o644); err != nil {
+		t.Fatalf("write icon: %v", err)
+	}
+	item, found, err = registry.AdminSkill("demo-skill")
+	if err != nil || !found || item.IconPath != "assets/demo-skill.png" {
+		t.Fatalf("regular icon = %#v, found=%v, err=%v", item, found, err)
+	}
+}
+
 func hasCatalogDiagnostic(items []AdminSkillDiagnostic, code string) bool {
 	for _, item := range items {
 		if item.Code == code {
