@@ -1,6 +1,8 @@
 package memory
 
 import (
+	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -11,6 +13,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/skills"
+	"agent-platform/internal/sqlitecontract"
 )
 
 const testEpochMillis int64 = 1_700_000_000_000
@@ -40,6 +43,56 @@ func TestSQLiteStoreToolQueries(t *testing.T) {
 		t.Fatalf("new sqlite store: %v", err)
 	}
 	runToolQueriesTest(t, store, "fts")
+}
+
+func TestSQLiteStoreWritesAndVerifiesCurrentSchemaMarker(t *testing.T) {
+	store, err := NewSQLiteStore(t.TempDir(), "memory.db")
+	if err != nil {
+		t.Fatalf("new sqlite store: %v", err)
+	}
+	defer store.db.Close()
+	if err := sqlitecontract.Verify(store.db, store.dbPath, store.root, memorySchemaSpec); err != nil {
+		t.Fatalf("verify current memory schema: %v", err)
+	}
+}
+
+func TestSQLiteStoreRejectsLegacySchemaWithoutChangingIt(t *testing.T) {
+	root := t.TempDir()
+	dbPath := filepath.Join(root, "memory.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open legacy memory db: %v", err)
+	}
+	if _, err := db.Exec(`CREATE TABLE MEMORIES (ID_ TEXT PRIMARY KEY, SUMMARY_ TEXT NOT NULL)`); err != nil {
+		t.Fatalf("create legacy memories table: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close legacy memory db: %v", err)
+	}
+	before, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatalf("read legacy memory db: %v", err)
+	}
+	if _, err := NewSQLiteStore(root, "memory.db"); !errors.Is(err, sqlitecontract.ErrUnsupportedSchema) {
+		t.Fatalf("NewSQLiteStore error = %v, want unsupported storage schema", err)
+	}
+	after, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatalf("read memory db after rejection: %v", err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("legacy memory db was modified while being rejected")
+	}
+}
+
+func TestSQLiteStoreRejectsResidualRuntimeData(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "legacy.stored.json"), []byte("legacy"), 0o600); err != nil {
+		t.Fatalf("write legacy memory data: %v", err)
+	}
+	if _, err := NewSQLiteStore(root, "memory.db"); !errors.Is(err, sqlitecontract.ErrUnsupportedSchema) {
+		t.Fatalf("NewSQLiteStore error = %v, want unsupported storage schema", err)
+	}
 }
 
 func TestConsolidateSupersedesNearDuplicateFactsAcrossStores(t *testing.T) {

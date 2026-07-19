@@ -108,6 +108,7 @@ func NewFileStore(root string) (*FileStore, error) {
 	}
 	store := &FileStore{root: root}
 	if err := store.initDB(); err != nil {
+		_ = store.Close()
 		return nil, err
 	}
 	return store, nil

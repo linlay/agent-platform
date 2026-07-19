@@ -208,6 +208,9 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	if err := kbaseManager.ValidateConfiguration(); err != nil {
 		return nil, fmt.Errorf("validate KBASE storage ownership: %w", err)
 	}
+	if err := kbaseManager.ValidateStorageContracts(); err != nil {
+		return nil, fmt.Errorf("validate KBASE storage schema: %w", err)
+	}
 	if err := toolExecutor.RegisterHandler(kbase.NewToolHandler(kbaseManager)); err != nil {
 		return nil, fmt.Errorf("register KBASE tools: %w", err)
 	}

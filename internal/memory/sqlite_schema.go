@@ -3,7 +3,8 @@ package memory
 import (
 	"database/sql"
 	"fmt"
-	"strings"
+
+	"agent-platform/internal/sqlitecontract"
 
 	_ "modernc.org/sqlite"
 )
@@ -32,7 +33,14 @@ func (s *SQLiteStore) initDB() error {
 			EMBEDDING_MODEL_ TEXT,
 			UPDATED_AT_ INTEGER NOT NULL,
 			ACCESS_COUNT_ INTEGER DEFAULT 0,
-			LAST_ACCESSED_AT_ INTEGER
+			LAST_ACCESSED_AT_ INTEGER,
+			KIND_ TEXT NOT NULL DEFAULT 'fact',
+			REF_ID_ TEXT NOT NULL DEFAULT '',
+			SCOPE_TYPE_ TEXT NOT NULL DEFAULT 'agent',
+			SCOPE_KEY_ TEXT NOT NULL DEFAULT '',
+			TITLE_ TEXT NOT NULL DEFAULT '',
+			CONFIDENCE_ REAL NOT NULL DEFAULT 0.9,
+			STATUS_ TEXT NOT NULL DEFAULT 'active'
 		)`,
 		`CREATE TABLE IF NOT EXISTS MEMORY_FACTS (
 			ID_ TEXT PRIMARY KEY,
@@ -136,62 +144,36 @@ func (s *SQLiteStore) initDB() error {
 			VALUES ('delete', old.rowid, old.SUMMARY_, old.SUBJECT_KEY_, old.CATEGORY_, old.TAGS_);
 		END`,
 	}
-	for _, stmt := range statements {
-		if _, err := db.Exec(stmt); err != nil {
-			return fmt.Errorf("init schema: %w", err)
+	return sqlitecontract.InitializeOrVerify(db, s.dbPath, s.root, memorySchemaSpec, func() (bool, error) {
+		return sqlitecontract.HasResidualData(s.root)
+	}, func() error {
+		for _, stmt := range statements {
+			if _, err := db.Exec(stmt); err != nil {
+				return fmt.Errorf("init schema: %w", err)
+			}
 		}
-	}
-	if err := s.ensureProjectionColumns(); err != nil {
-		return err
-	}
-	return nil
+		return nil
+	})
 }
 
-func (s *SQLiteStore) ensureProjectionColumns() error {
-	columns := []struct {
-		name       string
-		definition string
-	}{
-		{name: "KIND_", definition: "TEXT NOT NULL DEFAULT 'fact'"},
-		{name: "REF_ID_", definition: "TEXT NOT NULL DEFAULT ''"},
-		{name: "SCOPE_TYPE_", definition: "TEXT NOT NULL DEFAULT 'agent'"},
-		{name: "SCOPE_KEY_", definition: "TEXT NOT NULL DEFAULT ''"},
-		{name: "TITLE_", definition: "TEXT NOT NULL DEFAULT ''"},
-		{name: "CONFIDENCE_", definition: "REAL NOT NULL DEFAULT 0.9"},
-		{name: "STATUS_", definition: "TEXT NOT NULL DEFAULT 'active'"},
-	}
-	for _, column := range columns {
-		if err := ensureSQLiteColumn(s.db, "MEMORIES", column.name, column.definition); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func ensureSQLiteColumn(db *sql.DB, table string, column string, definition string) error {
-	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var cid int
-		var name string
-		var ctype string
-		var notNull int
-		var defaultValue any
-		var pk int
-		if err := rows.Scan(&cid, &name, &ctype, &notNull, &defaultValue, &pk); err != nil {
-			return err
-		}
-		if strings.EqualFold(strings.TrimSpace(name), strings.TrimSpace(column)) {
-			return nil
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	_, err = db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + definition)
-	return err
+var memorySchemaSpec = sqlitecontract.Spec{
+	ApplicationID: 0x41504D4D, // APMM
+	UserVersion:   1,
+	Objects: []sqlitecontract.Object{
+		{Type: "table", Name: "MEMORIES"},
+		{Type: "table", Name: "MEMORY_FACTS"},
+		{Type: "table", Name: "MEMORY_OBSERVATIONS"},
+		{Type: "table", Name: "MEMORY_LINKS"},
+		{Type: "table", Name: "MEMORY_SNAPSHOTS"},
+		{Type: "table", Name: "MEMORY_HISTORY"},
+		{Type: "table", Name: "MEMORIES_FTS"},
+		{Type: "index", Name: "IDX_MEMORY_HISTORY_MEMORY_ID_TS"},
+		{Type: "index", Name: "IDX_MEMORY_HISTORY_AGENT_TS"},
+		{Type: "index", Name: "IDX_MEMORY_HISTORY_CHAT_TS"},
+		{Type: "index", Name: "IDX_MEMORY_HISTORY_OPERATION_TS"},
+		{Type: "index", Name: "IDX_MEMORY_HISTORY_RUN_TS"},
+		{Type: "trigger", Name: "MEMORIES_AI"},
+		{Type: "trigger", Name: "MEMORIES_AU"},
+		{Type: "trigger", Name: "MEMORIES_AD"},
+	},
 }

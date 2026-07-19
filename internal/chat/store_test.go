@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"agent-platform/internal/sqlitecontract"
 	"agent-platform/internal/stream"
 )
 
@@ -523,9 +524,10 @@ func TestFileStoreMarkReadAdvancesWatermarkAndClampsFutureRunID(t *testing.T) {
 	}
 }
 
-func TestFileStoreAddsRunsUsageColumns(t *testing.T) {
+func TestFileStoreRejectsLegacySchemaWithoutChangingIt(t *testing.T) {
 	root := t.TempDir()
-	db, err := sql.Open("sqlite", filepath.Join(root, "chats.db"))
+	dbPath := filepath.Join(root, "chats.db")
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatalf("open chats db: %v", err)
 	}
@@ -551,92 +553,80 @@ func TestFileStoreAddsRunsUsageColumns(t *testing.T) {
 		t.Fatalf("close chats db: %v", err)
 	}
 
-	store, err := NewFileStore(root)
+	before, err := os.ReadFile(dbPath)
 	if err != nil {
-		t.Fatalf("new file store: %v", err)
+		t.Fatalf("read legacy chats db: %v", err)
 	}
-	if store == nil {
-		t.Fatal("expected migrated store")
+	if _, err := NewFileStore(root); !errors.Is(err, sqlitecontract.ErrUnsupportedSchema) {
+		t.Fatalf("NewFileStore error = %v, want unsupported storage schema", err)
 	}
-
-	db, err = sql.Open("sqlite", filepath.Join(root, "chats.db"))
+	after, err := os.ReadFile(dbPath)
 	if err != nil {
-		t.Fatalf("reopen migrated chats db: %v", err)
+		t.Fatalf("read chats db after rejection: %v", err)
 	}
-	defer db.Close()
-	columns := sqliteColumnNames(t, db, "RUNS")
-	for _, col := range []string{
-		"TEAM_ID_",
-		"AGENT_MODE_",
-		"USAGE_MODEL_KEY_",
-		"USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_",
-		"USAGE_FIRST_TOKEN_LATENCY_COUNT_",
-		"USAGE_GENERATION_DURATION_MS_",
-	} {
-		if !columns[col] {
-			t.Fatalf("expected %s column to be added to RUNS; columns=%#v", col, columns)
-		}
+	if string(after) != string(before) {
+		t.Fatal("legacy chats db was modified while being rejected")
 	}
 }
 
-func TestFileStoreAddsChatsUsageTimingColumns(t *testing.T) {
+func TestFileStoreRejectsRemovedOwnerTypeColumn(t *testing.T) {
 	root := t.TempDir()
-	db, err := sql.Open("sqlite", filepath.Join(root, "chats.db"))
-	if err != nil {
-		t.Fatalf("open chats db: %v", err)
-	}
-	_, err = db.Exec(`
-		CREATE TABLE CHATS (
-			CHAT_ID_ TEXT PRIMARY KEY,
-			CHAT_NAME_ TEXT NOT NULL,
-			AGENT_KEY_ TEXT NOT NULL DEFAULT '',
-			TEAM_ID_ TEXT,
-			CREATED_AT_ INTEGER NOT NULL,
-			UPDATED_AT_ INTEGER NOT NULL,
-			LAST_RUN_ID_ TEXT NOT NULL DEFAULT '',
-			LAST_RUN_CONTENT_ TEXT NOT NULL DEFAULT '',
-			USAGE_PROMPT_TOKENS_ INTEGER NOT NULL DEFAULT 0,
-			USAGE_COMPLETION_TOKENS_ INTEGER NOT NULL DEFAULT 0,
-			USAGE_TOTAL_TOKENS_ INTEGER NOT NULL DEFAULT 0
-		);
-	`)
-	if err != nil {
-		t.Fatalf("create chats table: %v", err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatalf("close chats db: %v", err)
-	}
-
 	store, err := NewFileStore(root)
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if store == nil {
-		t.Fatal("expected migrated store")
+	if _, err := store.db.Exec("ALTER TABLE CHATS ADD COLUMN OWNER_TYPE_ TEXT NOT NULL DEFAULT 'agent'"); err != nil {
+		t.Fatalf("add obsolete owner type: %v", err)
 	}
-
-	db, err = sql.Open("sqlite", filepath.Join(root, "chats.db"))
+	if err := store.Close(); err != nil {
+		t.Fatalf("close chats db: %v", err)
+	}
+	if _, err := NewFileStore(root); !errors.Is(err, sqlitecontract.ErrUnsupportedSchema) {
+		t.Fatalf("NewFileStore error = %v, want unsupported storage schema", err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(root, "chats.db"))
 	if err != nil {
-		t.Fatalf("reopen migrated chats db: %v", err)
+		t.Fatalf("reopen chats db: %v", err)
 	}
 	defer db.Close()
-	columns := sqliteColumnNames(t, db, "CHATS")
-	for _, col := range []string{
-		"AGENT_MODE_",
-		"USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_",
-		"USAGE_FIRST_TOKEN_LATENCY_COUNT_",
-		"USAGE_GENERATION_DURATION_MS_",
-	} {
-		if !columns[col] {
-			t.Fatalf("expected %s column to be added to CHATS; columns=%#v", col, columns)
-		}
+	if !sqliteColumnNames(t, db, "CHATS")["OWNER_TYPE_"] {
+		t.Fatal("rejected chats db lost its obsolete column")
 	}
-	var indexCount int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='IDX_CHATS_AGENT_MODE_UPDATED_'`).Scan(&indexCount); err != nil {
-		t.Fatalf("check mode index: %v", err)
+}
+
+func TestFileStoreRejectsResidualRuntimeData(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "chat-old.jsonl"), []byte("legacy"), 0o600); err != nil {
+		t.Fatalf("write legacy chat data: %v", err)
 	}
-	if indexCount != 1 {
-		t.Fatalf("expected mode ordering index, count=%d", indexCount)
+	if _, err := NewFileStore(root); !errors.Is(err, sqlitecontract.ErrUnsupportedSchema) {
+		t.Fatalf("NewFileStore error = %v, want unsupported storage schema", err)
+	}
+}
+
+func TestFileStoreWritesCurrentSchemaMarker(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	defer store.Close()
+	assertSQLiteSchemaMarker(t, store.db, chatSchemaSpec)
+	if err := sqlitecontract.Verify(store.db, filepath.Join(store.root, "chats.db"), store.root, chatSchemaSpec); err != nil {
+		t.Fatalf("verify current chats schema: %v", err)
+	}
+}
+
+func assertSQLiteSchemaMarker(t *testing.T, db *sql.DB, spec sqlitecontract.Spec) {
+	t.Helper()
+	var applicationID, userVersion int
+	if err := db.QueryRow("PRAGMA application_id").Scan(&applicationID); err != nil {
+		t.Fatalf("read application_id: %v", err)
+	}
+	if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
+		t.Fatalf("read user_version: %v", err)
+	}
+	if applicationID != spec.ApplicationID || userVersion != spec.UserVersion {
+		t.Fatalf("schema marker = application_id=%d user_version=%d, want application_id=%d user_version=%d", applicationID, userVersion, spec.ApplicationID, spec.UserVersion)
 	}
 }
 

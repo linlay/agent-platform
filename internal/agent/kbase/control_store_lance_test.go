@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"agent-platform/internal/sqlitecontract"
 )
 
 func TestControlStoreActivatesGenerationAtomically(t *testing.T) {
@@ -19,6 +21,16 @@ func TestControlStoreActivatesGenerationAtomically(t *testing.T) {
 
 	if schema, err := store.Meta(ctx, "schemaVersion"); err != nil || schema != ControlSchemaVersion {
 		t.Fatalf("schemaVersion = %q, %v; want %q", schema, err, ControlSchemaVersion)
+	}
+	if err := sqlitecontract.Verify(store.db, store.dbPath, store.root, kbaseControlSchemaSpec); err != nil {
+		t.Fatalf("verify current control schema: %v", err)
+	}
+	readStore, err := OpenReadControlStore(store.root)
+	if err != nil {
+		t.Fatalf("OpenReadControlStore: %v", err)
+	}
+	if err := readStore.Close(); err != nil {
+		t.Fatalf("close read control store: %v", err)
 	}
 	for _, id := range []string{"generation-1", "generation-2"} {
 		if err := store.CreateGeneration(ctx, testControlGeneration(id)); err != nil {
@@ -70,26 +82,79 @@ func TestControlStoreDoesNotCreateLegacyMigrationTable(t *testing.T) {
 	}
 }
 
-func TestControlStoreLeavesLegacyKBaseDatabaseUntouched(t *testing.T) {
+func TestControlStoreRejectsResidualLegacyKBaseDatabase(t *testing.T) {
 	root := t.TempDir()
 	legacyPath := filepath.Join(root, "kbase.db")
 	legacy := []byte("legacy SQLite artifact must be ignored")
 	if err := os.WriteFile(legacyPath, legacy, 0o600); err != nil {
 		t.Fatalf("write legacy artifact: %v", err)
 	}
-	store, err := OpenControlStore(root)
-	if err != nil {
-		t.Fatalf("OpenControlStore: %v", err)
-	}
-	if err := store.Close(); err != nil {
-		t.Fatalf("close control store: %v", err)
+	if _, err := OpenControlStore(root); !errors.Is(err, sqlitecontract.ErrUnsupportedSchema) {
+		t.Fatalf("OpenControlStore error = %v, want unsupported storage schema", err)
 	}
 	got, err := os.ReadFile(legacyPath)
 	if err != nil {
 		t.Fatalf("read legacy artifact: %v", err)
 	}
 	if string(got) != string(legacy) {
-		t.Fatalf("legacy artifact changed: %q", got)
+		t.Fatalf("legacy artifact changed while being rejected: %q", got)
+	}
+}
+
+func TestOpenReadControlStoreRejectsMismatchedMarker(t *testing.T) {
+	root := t.TempDir()
+	store, err := OpenControlStore(root)
+	if err != nil {
+		t.Fatalf("OpenControlStore: %v", err)
+	}
+	if _, err := store.db.Exec("PRAGMA user_version = 0"); err != nil {
+		t.Fatalf("clear user version: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close control store: %v", err)
+	}
+	if _, err := OpenReadControlStore(root); !errors.Is(err, sqlitecontract.ErrUnsupportedSchema) {
+		t.Fatalf("OpenReadControlStore error = %v, want unsupported storage schema", err)
+	}
+}
+
+func TestValidateStorageContractsRejectsLegacyAndMismatchedStores(t *testing.T) {
+	root := t.TempDir()
+	runtimeRoot := filepath.Join(root, "runtime")
+	source := stubAgentSource{agents: map[string]AgentSpec{
+		"docs": testKBaseAgent("docs", filepath.Join(root, "workspace"), "runtime"),
+	}}
+	manager := NewManager(ManagerOptions{RuntimeDir: runtimeRoot}, source, nil)
+	if err := manager.ValidateStorageContracts(); err != nil {
+		t.Fatalf("validate clean storage: %v", err)
+	}
+
+	storageDir := filepath.Join(runtimeRoot, "docs")
+	if err := os.MkdirAll(storageDir, 0o755); err != nil {
+		t.Fatalf("mkdir legacy storage: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(storageDir, "kbase.db"), []byte("legacy"), 0o600); err != nil {
+		t.Fatalf("write legacy kbase db: %v", err)
+	}
+	if err := manager.ValidateStorageContracts(); !errors.Is(err, sqlitecontract.ErrUnsupportedSchema) {
+		t.Fatalf("legacy storage validation error = %v, want unsupported storage schema", err)
+	}
+
+	if err := os.Remove(filepath.Join(storageDir, "kbase.db")); err != nil {
+		t.Fatalf("remove legacy test file: %v", err)
+	}
+	store, err := OpenControlStore(storageDir)
+	if err != nil {
+		t.Fatalf("open current control store: %v", err)
+	}
+	if _, err := store.db.Exec("PRAGMA user_version = 0"); err != nil {
+		t.Fatalf("clear current marker: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close current control store: %v", err)
+	}
+	if err := manager.ValidateStorageContracts(); !errors.Is(err, sqlitecontract.ErrUnsupportedSchema) {
+		t.Fatalf("mismatched storage validation error = %v, want unsupported storage schema", err)
 	}
 }
 

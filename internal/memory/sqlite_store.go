@@ -42,6 +42,9 @@ func NewSQLiteStore(root string, dbFileName string) (*SQLiteStore, error) {
 		ftsFTSWeight:    0.3,
 	}
 	if err := store.initDB(); err != nil {
+		if store.db != nil {
+			_ = store.db.Close()
+		}
 		return nil, err
 	}
 	return store, nil

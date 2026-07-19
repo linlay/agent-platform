@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"agent-platform/internal/sqlitecontract"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -20,7 +22,12 @@ func (s *FileStore) initDB() error {
 	}
 	s.db = db
 
-	_, err = db.Exec(`
+	return sqlitecontract.InitializeOrVerify(db, dbPath, s.root, chatSchemaSpec, func() (bool, error) {
+		// Archive storage is initialized independently and verifies its own
+		// schema. Its directory must not make an otherwise fresh chat store fail.
+		return sqlitecontract.HasResidualData(s.root, "archive")
+	}, func() error {
+		_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS CHATS (
 			CHAT_ID_          TEXT PRIMARY KEY,
 			CHAT_NAME_        TEXT NOT NULL,
@@ -60,6 +67,7 @@ func (s *FileStore) initDB() error {
 		);
 		CREATE INDEX IF NOT EXISTS IDX_CHATS_LAST_RUN_ID_ ON CHATS(LAST_RUN_ID_);
 		CREATE INDEX IF NOT EXISTS IDX_CHATS_AGENT_KEY_ ON CHATS(AGENT_KEY_);
+		CREATE INDEX IF NOT EXISTS IDX_CHATS_AGENT_MODE_UPDATED_ ON CHATS(AGENT_MODE_, UPDATED_AT_ DESC, CHAT_ID_ DESC);
 		CREATE TABLE IF NOT EXISTS RUNS (
 			RUN_ID_                  TEXT PRIMARY KEY,
 			CHAT_ID_                 TEXT NOT NULL,
@@ -95,163 +103,28 @@ func (s *FileStore) initDB() error {
 		);
 		CREATE INDEX IF NOT EXISTS IDX_RUNS_CHAT_ID_ ON RUNS(CHAT_ID_);
 	`)
-	if err != nil {
-		return fmt.Errorf("create chats table: %w", err)
-	}
-
-	if err := s.migrateRemoveOwnerTypeColumns(); err != nil {
-		return err
-	}
-	s.migrateAddUsageColumns()
-	if err := s.migrateAwaitingColumns(); err != nil {
-		return err
-	}
-	if err := s.migrateReadStateColumns(); err != nil {
-		return err
-	}
-	s.migrateSourceColumn()
-	s.migrateSourceChannelColumn()
-	s.migrateLastRunAtColumn()
-	s.migrateDetailedUsageColumns()
-	s.migrateAgentModeColumns()
-	return nil
-}
-
-func (s *FileStore) migrateAgentModeColumns() {
-	_, _ = s.db.Exec("ALTER TABLE CHATS ADD COLUMN TEAM_ID_ TEXT")
-	_, _ = s.db.Exec("ALTER TABLE RUNS ADD COLUMN TEAM_ID_ TEXT")
-	_, _ = s.db.Exec("ALTER TABLE CHATS ADD COLUMN AGENT_MODE_ TEXT NOT NULL DEFAULT ''")
-	_, _ = s.db.Exec("ALTER TABLE RUNS ADD COLUMN AGENT_MODE_ TEXT NOT NULL DEFAULT ''")
-	_, _ = s.db.Exec("CREATE INDEX IF NOT EXISTS IDX_CHATS_AGENT_MODE_UPDATED_ ON CHATS(AGENT_MODE_, UPDATED_AT_ DESC, CHAT_ID_ DESC)")
-}
-
-// migrateLastRunAtColumn intentionally leaves existing rows at the schema
-// default (zero). Historical records are not backfilled from run IDs, run
-// rows, or updatedAt: public archive reads will reject them under the strict
-// time contract instead of silently inventing a last-run instant.
-func (s *FileStore) migrateLastRunAtColumn() {
-	_, _ = s.db.Exec("ALTER TABLE CHATS ADD COLUMN LAST_RUN_AT_ INTEGER NOT NULL DEFAULT 0")
-}
-
-func (s *FileStore) migrateRemoveOwnerTypeColumns() error {
-	return dropOwnerTypeColumns(s.db, "CHATS", "RUNS")
-}
-
-func dropOwnerTypeColumns(db *sql.DB, tables ...string) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("begin owner type migration: %w", err)
-	}
-	for _, table := range tables {
-		hasColumn, err := tableHasColumn(tx, table, "OWNER_TYPE_")
 		if err != nil {
-			_ = tx.Rollback()
-			return err
+			return fmt.Errorf("create chats table: %w", err)
 		}
-		if !hasColumn {
-			continue
-		}
-		if _, err := tx.Exec("ALTER TABLE " + table + " DROP COLUMN OWNER_TYPE_"); err != nil {
-			_ = tx.Rollback()
-			return fmt.Errorf("drop %s.OWNER_TYPE_: %w", table, err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit owner type migration: %w", err)
-	}
-	return nil
+		return nil
+	})
 }
 
-type tableInfoQuerier interface {
-	Query(query string, args ...any) (*sql.Rows, error)
-}
-
-func tableHasColumn(queryer tableInfoQuerier, table string, column string) (bool, error) {
-	rows, err := queryer.Query("PRAGMA table_info(" + table + ")")
-	if err != nil {
-		return false, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var cid int
-		var name, columnType string
-		var notNull, primaryKey int
-		var defaultValue any
-		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
-			return false, err
-		}
-		if name == column {
-			return true, nil
-		}
-	}
-	return false, rows.Err()
-}
-
-func (s *FileStore) migrateAddUsageColumns() {
-	for _, col := range []string{"USAGE_PROMPT_TOKENS_", "USAGE_COMPLETION_TOKENS_", "USAGE_TOTAL_TOKENS_"} {
-		_, _ = s.db.Exec(fmt.Sprintf("ALTER TABLE CHATS ADD COLUMN %s INTEGER NOT NULL DEFAULT 0", col))
-	}
-}
-
-func (s *FileStore) migrateDetailedUsageColumns() {
-	intColumns := []string{
-		"USAGE_CACHED_TOKENS_",
-		"USAGE_REASONING_TOKENS_",
-		"USAGE_PROMPT_CACHE_HIT_TOKENS_",
-		"USAGE_PROMPT_CACHE_MISS_TOKENS_",
-		"USAGE_LLM_CHAT_COMPLETION_COUNT_",
-		"USAGE_TOOL_CALL_COUNT_",
-		"USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_",
-		"USAGE_FIRST_TOKEN_LATENCY_COUNT_",
-		"USAGE_GENERATION_DURATION_MS_",
-	}
-	textColumns := []string{
-		"USAGE_ESTIMATED_COST_CURRENCY_",
-	}
-	realColumns := []string{
-		"USAGE_ESTIMATED_COST_INPUT_CACHE_HIT_",
-		"USAGE_ESTIMATED_COST_INPUT_CACHE_MISS_",
-		"USAGE_ESTIMATED_COST_OUTPUT_",
-		"USAGE_ESTIMATED_COST_TOTAL_",
-	}
-	for _, table := range []string{"CHATS", "RUNS"} {
-		for _, col := range intColumns {
-			_, _ = s.db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s INTEGER NOT NULL DEFAULT 0", table, col))
-		}
-		for _, col := range textColumns {
-			_, _ = s.db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s TEXT NOT NULL DEFAULT ''", table, col))
-		}
-		for _, col := range realColumns {
-			_, _ = s.db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s REAL NOT NULL DEFAULT 0", table, col))
-		}
-	}
-	_, _ = s.db.Exec("ALTER TABLE RUNS ADD COLUMN USAGE_MODEL_KEY_ TEXT NOT NULL DEFAULT ''")
-}
-
-func (s *FileStore) migrateSourceChannelColumn() {
-	_, _ = s.db.Exec("ALTER TABLE CHATS ADD COLUMN SOURCE_CHANNEL_ TEXT NOT NULL DEFAULT ''")
-}
-
-func (s *FileStore) migrateSourceColumn() {
-	_, _ = s.db.Exec("ALTER TABLE CHATS ADD COLUMN SOURCE_ TEXT NOT NULL DEFAULT ''")
-}
-
-func (s *FileStore) migrateAwaitingColumns() error {
-	for _, stmt := range []string{
-		"ALTER TABLE CHATS ADD COLUMN AWAITING_ID_ TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE CHATS ADD COLUMN AWAITING_RUN_ID_ TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE CHATS ADD COLUMN AWAITING_MODE_ TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE CHATS ADD COLUMN AWAITING_CREATED_AT_ INTEGER NOT NULL DEFAULT 0",
-	} {
-		_, _ = s.db.Exec(stmt)
-	}
-	return nil
-}
-
-func (s *FileStore) migrateReadStateColumns() error {
-	_, _ = s.db.Exec("ALTER TABLE CHATS ADD COLUMN READ_RUN_ID_ TEXT NOT NULL DEFAULT ''")
-	_, err := s.db.Exec("CREATE INDEX IF NOT EXISTS IDX_CHATS_AGENT_KEY_ ON CHATS(AGENT_KEY_)")
-	return err
+var chatSchemaSpec = sqlitecontract.Spec{
+	ApplicationID: 0x41504348, // APCH
+	UserVersion:   1,
+	Objects: []sqlitecontract.Object{
+		{Type: "table", Name: "CHATS"},
+		{Type: "table", Name: "RUNS"},
+		{Type: "index", Name: "IDX_CHATS_LAST_RUN_ID_"},
+		{Type: "index", Name: "IDX_CHATS_AGENT_KEY_"},
+		{Type: "index", Name: "IDX_CHATS_AGENT_MODE_UPDATED_"},
+		{Type: "index", Name: "IDX_RUNS_CHAT_ID_"},
+	},
+	ForbiddenColumns: []sqlitecontract.Column{
+		{Table: "CHATS", Name: "OWNER_TYPE_"},
+		{Table: "RUNS", Name: "OWNER_TYPE_"},
+	},
 }
 
 func nilIfEmpty(s string) *string {

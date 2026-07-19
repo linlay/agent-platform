@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"agent-platform/internal/models"
+	"agent-platform/internal/sqlitecontract"
 	"agent-platform/internal/supportpkg"
 	"agent-platform/internal/timecontract"
 	runtimewatch "agent-platform/internal/watch"
@@ -132,6 +133,42 @@ func (m *Manager) ValidateConfiguration() error {
 			return fmt.Errorf("KBASE storageDir %s is shared by agents %s and %s; each canonical storageDir must have exactly one owner", canonical, owner, spec.Key)
 		}
 		owners[canonical] = spec.Key
+	}
+	return nil
+}
+
+// ValidateStorageContracts rejects incompatible KBASE data before the manager
+// starts its asynchronous refresh loop. It never creates or rewrites storage:
+// a clean missing control.db is allowed and will be initialized by refresh.
+func (m *Manager) ValidateStorageContracts() error {
+	if m == nil || m.agents == nil {
+		return nil
+	}
+	for _, spec := range m.agents.Agents() {
+		if !strings.EqualFold(strings.TrimSpace(spec.Mode), Mode) {
+			continue
+		}
+		storageDir := m.storageDirForSpec(spec)
+		dbPath := filepath.Join(storageDir, "control.db")
+		if _, err := os.Stat(dbPath); err == nil {
+			control, err := OpenReadControlStore(storageDir)
+			if err != nil {
+				return fmt.Errorf("KBASE storage schema agent=%s storageDir=%s: %w", spec.Key, storageDir, err)
+			}
+			if err := control.Close(); err != nil {
+				return fmt.Errorf("close KBASE storage schema agent=%s storageDir=%s: %w", spec.Key, storageDir, err)
+			}
+			continue
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("stat KBASE control database agent=%s storageDir=%s: %w", spec.Key, storageDir, err)
+		}
+		residual, err := sqlitecontract.HasResidualData(storageDir)
+		if err != nil {
+			return fmt.Errorf("inspect KBASE storage agent=%s storageDir=%s: %w", spec.Key, storageDir, err)
+		}
+		if residual {
+			return fmt.Errorf("KBASE storage schema agent=%s storageDir=%s: %w", spec.Key, storageDir, sqlitecontract.Unsupported(dbPath, storageDir, "control.db is missing but the storage directory contains residual data"))
+		}
 	}
 	return nil
 }

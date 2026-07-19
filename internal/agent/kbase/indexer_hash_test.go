@@ -40,7 +40,7 @@ func TestControlSchemaVersionDoesNotChangeIndexHash(t *testing.T) {
 	}
 }
 
-func TestIndexWorkspaceUsesControlGenerationHash(t *testing.T) {
+func TestIndexWorkspaceUsesControlGenerationHashWithoutWritingSchemaVersion(t *testing.T) {
 	cfg := hashTestResolvedConfig(t.TempDir())
 	if err := os.MkdirAll(cfg.WorkspaceRoot, 0o755); err != nil {
 		t.Fatalf("mkdir workspace: %v", err)
@@ -53,8 +53,8 @@ func TestIndexWorkspaceUsesControlGenerationHash(t *testing.T) {
 	if store.clearCalls != 0 {
 		t.Fatalf("same Lance index hash cleared index %d time(s)", store.clearCalls)
 	}
-	if got := store.meta["schemaVersion"]; got != ControlSchemaVersion {
-		t.Fatalf("schemaVersion = %q, want %q", got, ControlSchemaVersion)
+	if got := store.meta["schemaVersion"]; got != "" {
+		t.Fatalf("indexer rewrote control schemaVersion = %q", got)
 	}
 }
 

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"agent-platform/internal/sqlitecontract"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -57,7 +59,16 @@ func OpenReadControlStore(root string) (*ControlStore, error) {
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
-	return &ControlStore{root: root, dbPath: dbPath, db: db}, nil
+	store := &ControlStore{root: root, dbPath: dbPath, db: db}
+	if err := sqlitecontract.Verify(db, dbPath, root, kbaseControlSchemaSpec); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := store.verifySchemaVersion(context.Background()); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return store, nil
 }
 
 func (s *ControlStore) Close() error {
@@ -160,74 +171,47 @@ func (s *ControlStore) initDB(ctx context.Context) error {
 			ERROR_ TEXT NOT NULL DEFAULT ''
 		)`,
 	}
-	for _, stmt := range statements {
-		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("init kbase control schema: %w", err)
+	err := sqlitecontract.InitializeOrVerify(s.db, s.dbPath, s.root, kbaseControlSchemaSpec, func() (bool, error) {
+		return sqlitecontract.HasResidualData(s.root)
+	}, func() error {
+		for _, stmt := range statements {
+			if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("init kbase control schema: %w", err)
+			}
 		}
-	}
-	// Keep opening earlier control databases safe for interrupted upgrades.
-	if err := s.ensureColumn(ctx, "KBASE_GENERATIONS", "EMBEDDING_PROVIDER_KEY_", "TEXT NOT NULL DEFAULT ''"); err != nil {
-		return err
-	}
-	if err := s.ensureColumn(ctx, "KBASE_GENERATIONS", "FTS_TOKENIZER_", "TEXT NOT NULL DEFAULT 'icu'"); err != nil {
-		return err
-	}
-	if err := s.ensureColumn(ctx, "KBASE_FILE_OPS", "DESIRED_RECORD_JSON_", "TEXT NOT NULL DEFAULT ''"); err != nil {
-		return err
-	}
-	if err := s.ensureColumn(ctx, "KBASE_FILES", "CHUNK_SET_HASH_", "TEXT NOT NULL DEFAULT ''"); err != nil {
-		return err
-	}
-	if err := s.ensureColumn(ctx, "KBASE_FILES", "DELETED_AT_", "INTEGER NOT NULL DEFAULT 0"); err != nil {
-		return err
-	}
-	for column, definition := range map[string]string{
-		"INDEX_BUILD_DURATION_MS_": "INTEGER NOT NULL DEFAULT 0",
-		"VALIDATION_DURATION_MS_":  "INTEGER NOT NULL DEFAULT 0",
-		"SCOPE_":                   "TEXT NOT NULL DEFAULT ''",
-		"CANDIDATE_PATHS_":         "INTEGER NOT NULL DEFAULT 0",
-		"NEW_FILES_":               "INTEGER NOT NULL DEFAULT 0",
-		"MODIFIED_FILES_":          "INTEGER NOT NULL DEFAULT 0",
-		"METADATA_ONLY_FILES_":     "INTEGER NOT NULL DEFAULT 0",
-		"UNCHANGED_FILES_":         "INTEGER NOT NULL DEFAULT 0",
-		"EMBEDDED_CHUNKS_":         "INTEGER NOT NULL DEFAULT 0",
-		"REUSED_CHUNKS_":           "INTEGER NOT NULL DEFAULT 0",
-		"PENDING_CHANGES_":         "INTEGER NOT NULL DEFAULT 0",
-	} {
-		if err := s.ensureColumn(ctx, "KBASE_INDEX_RUNS", column, definition); err != nil {
-			return err
-		}
-	}
-	return s.SetMeta(ctx, "schemaVersion", ControlSchemaVersion)
-}
-
-func (s *ControlStore) ensureColumn(ctx context.Context, table, column, definition string) error {
-	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+		return s.SetMeta(ctx, "schemaVersion", ControlSchemaVersion)
+	})
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
-	found := false
-	for rows.Next() {
-		var cid int
-		var name, dataType string
-		var notNull, primaryKey int
-		var defaultValue any
-		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &primaryKey); err != nil {
-			return err
-		}
-		if strings.EqualFold(name, column) {
-			found = true
-		}
-	}
-	if err := rows.Err(); err != nil {
+	return s.verifySchemaVersion(ctx)
+}
+
+func (s *ControlStore) verifySchemaVersion(ctx context.Context) error {
+	schemaVersion, err := s.Meta(ctx, "schemaVersion")
+	if err != nil {
 		return err
 	}
-	if found {
-		return nil
+	if schemaVersion != ControlSchemaVersion {
+		return sqlitecontract.Unsupported(s.dbPath, s.root, fmt.Sprintf("expected KBASE_META schemaVersion=%q, got %q", ControlSchemaVersion, schemaVersion))
 	}
-	_, err = s.db.ExecContext(ctx, `ALTER TABLE `+table+` ADD COLUMN `+column+` `+definition)
-	return err
+	return nil
+}
+
+var kbaseControlSchemaSpec = sqlitecontract.Spec{
+	ApplicationID: 0x41504B42, // APKB
+	UserVersion:   1,
+	Objects: []sqlitecontract.Object{
+		{Type: "table", Name: "KBASE_META"},
+		{Type: "table", Name: "KBASE_FILES"},
+		{Type: "table", Name: "KBASE_GENERATIONS"},
+		{Type: "table", Name: "KBASE_FILE_OPS"},
+		{Type: "table", Name: "KBASE_INDEX_RUNS"},
+		{Type: "index", Name: "IDX_KBASE_CONTROL_FILES_ID"},
+		{Type: "index", Name: "IDX_KBASE_CONTROL_FILES_STATUS"},
+		{Type: "index", Name: "IDX_KBASE_GENERATIONS_ONE_ACTIVE"},
+		{Type: "index", Name: "IDX_KBASE_FILE_OPS_PENDING"},
+	},
 }
 
 func (s *ControlStore) Meta(ctx context.Context, key string) (string, error) {

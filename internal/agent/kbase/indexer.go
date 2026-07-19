@@ -195,9 +195,6 @@ func indexWorkspace(ctx context.Context, store workspaceIndexStore, cfg resolved
 		}
 		run.DeletedFiles++
 	}
-	if err := store.SetMeta("schemaVersion", ControlSchemaVersion); err != nil {
-		return err
-	}
 	if err := store.SetMeta("agentKey", cfg.AgentKey); err != nil {
 		return err
 	}

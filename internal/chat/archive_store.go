@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"agent-platform/internal/sqlitecontract"
 	"agent-platform/internal/timecontract"
 
 	_ "modernc.org/sqlite"
@@ -29,13 +30,17 @@ func NewArchiveStore(chatsRoot string) (*ArchiveStore, error) {
 	}
 	store := &ArchiveStore{root: root}
 	if err := store.initDB(); err != nil {
+		if store.db != nil {
+			_ = store.db.Close()
+		}
 		return nil, err
 	}
 	return store, nil
 }
 
 func (s *ArchiveStore) initDB() error {
-	db, err := sql.Open("sqlite", filepath.Join(s.root, "archive.db"))
+	dbPath := filepath.Join(s.root, "archive.db")
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return fmt.Errorf("open archive.db: %w", err)
 	}
@@ -130,53 +135,35 @@ func (s *ArchiveStore) initDB() error {
 			VALUES ('delete', old.rowid, old.CHAT_NAME_, old.LAST_RUN_CONTENT_);
 		END`,
 	}
-	for _, stmt := range statements {
-		if _, err := db.Exec(stmt); err != nil {
-			return fmt.Errorf("init archive schema: %w", err)
+	return sqlitecontract.InitializeOrVerify(db, dbPath, filepath.Dir(s.root), archiveSchemaSpec, func() (bool, error) {
+		return sqlitecontract.HasResidualData(s.root)
+	}, func() error {
+		for _, stmt := range statements {
+			if _, err := db.Exec(stmt); err != nil {
+				return fmt.Errorf("init archive schema: %w", err)
+			}
 		}
-	}
-	for _, col := range []string{
-		"SOURCE_ TEXT NOT NULL DEFAULT ''",
-		"SOURCE_CHANNEL_ TEXT NOT NULL DEFAULT ''",
-		"READ_RUN_ID_ TEXT NOT NULL DEFAULT ''",
-		"READ_AT_ INTEGER",
-		"READ_STATE_CAPTURED_ INTEGER NOT NULL DEFAULT 0",
-		"LAST_RUN_AT_ INTEGER NOT NULL DEFAULT 0",
-	} {
-		_, _ = db.Exec("ALTER TABLE ARCHIVED_CHATS ADD COLUMN " + col)
-	}
-	_, _ = db.Exec("ALTER TABLE ARCHIVED_RUNS ADD COLUMN TEAM_ID_ TEXT")
-	_, _ = db.Exec("ALTER TABLE ARCHIVED_CHATS ADD COLUMN AGENT_MODE_ TEXT NOT NULL DEFAULT ''")
-	_, _ = db.Exec("ALTER TABLE ARCHIVED_RUNS ADD COLUMN AGENT_MODE_ TEXT NOT NULL DEFAULT ''")
-	if err := dropOwnerTypeColumns(db, "ARCHIVED_CHATS", "ARCHIVED_RUNS"); err != nil {
-		return err
-	}
-	for _, table := range []string{"ARCHIVED_CHATS", "ARCHIVED_RUNS"} {
-		for _, col := range []string{
-			"USAGE_CACHED_TOKENS_",
-			"USAGE_REASONING_TOKENS_",
-			"USAGE_PROMPT_CACHE_HIT_TOKENS_",
-			"USAGE_PROMPT_CACHE_MISS_TOKENS_",
-			"USAGE_LLM_CHAT_COMPLETION_COUNT_",
-			"USAGE_TOOL_CALL_COUNT_",
-			"USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_",
-			"USAGE_FIRST_TOKEN_LATENCY_COUNT_",
-			"USAGE_GENERATION_DURATION_MS_",
-		} {
-			_, _ = db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s INTEGER NOT NULL DEFAULT 0", table, col))
-		}
-		_, _ = db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN USAGE_ESTIMATED_COST_CURRENCY_ TEXT NOT NULL DEFAULT ''", table))
-		for _, col := range []string{
-			"USAGE_ESTIMATED_COST_INPUT_CACHE_HIT_",
-			"USAGE_ESTIMATED_COST_INPUT_CACHE_MISS_",
-			"USAGE_ESTIMATED_COST_OUTPUT_",
-			"USAGE_ESTIMATED_COST_TOTAL_",
-		} {
-			_, _ = db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s REAL NOT NULL DEFAULT 0", table, col))
-		}
-	}
-	_, _ = db.Exec("ALTER TABLE ARCHIVED_RUNS ADD COLUMN USAGE_MODEL_KEY_ TEXT NOT NULL DEFAULT ''")
-	return nil
+		return nil
+	})
+}
+
+var archiveSchemaSpec = sqlitecontract.Spec{
+	ApplicationID: 0x41504152, // APAR
+	UserVersion:   1,
+	Objects: []sqlitecontract.Object{
+		{Type: "table", Name: "ARCHIVED_CHATS"},
+		{Type: "table", Name: "ARCHIVED_RUNS"},
+		{Type: "table", Name: "ARCHIVED_CHATS_FTS"},
+		{Type: "index", Name: "IDX_ARCHIVED_CHATS_AGENT_KEY_"},
+		{Type: "index", Name: "IDX_ARCHIVED_CHATS_ARCHIVED_AT_"},
+		{Type: "index", Name: "IDX_ARCHIVED_RUNS_CHAT_ID_"},
+		{Type: "trigger", Name: "ARCHIVED_CHATS_AI"},
+		{Type: "trigger", Name: "ARCHIVED_CHATS_AD"},
+	},
+	ForbiddenColumns: []sqlitecontract.Column{
+		{Table: "ARCHIVED_CHATS", Name: "OWNER_TYPE_"},
+		{Table: "ARCHIVED_RUNS", Name: "OWNER_TYPE_"},
+	},
 }
 
 func (s *ArchiveStore) ArchiveChat(chat ArchivedChat) error {

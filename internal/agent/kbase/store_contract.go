@@ -7,8 +7,8 @@ import (
 
 const (
 	ControlSchemaVersion = "4"
-	// IndexSchemaVersion is independent from the SQLite control schema so a
-	// control-only migration never forces a Lance generation rebuild.
+	// IndexSchemaVersion is independent from the SQLite control schema. SQLite
+	// stores are intentionally latest-only and never migrate in place.
 	IndexSchemaVersion = "3"
 
 	GenerationBuilding   = "building"

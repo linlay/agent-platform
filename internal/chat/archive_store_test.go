@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"agent-platform/internal/sqlitecontract"
 )
 
-func TestArchiveStoreMigratesAgentModeColumnsWithoutBackfill(t *testing.T) {
+func TestArchiveStoreRejectsLegacySchemaWithoutChangingIt(t *testing.T) {
 	root := t.TempDir()
 	archiveRoot := filepath.Join(root, "archive")
 	if err := os.MkdirAll(archiveRoot, 0o755); err != nil {
@@ -41,104 +43,71 @@ func TestArchiveStoreMigratesAgentModeColumnsWithoutBackfill(t *testing.T) {
 		t.Fatalf("close legacy archive db: %v", err)
 	}
 
-	store, err := NewArchiveStore(root)
+	dbPath := filepath.Join(archiveRoot, "archive.db")
+	before, err := os.ReadFile(dbPath)
 	if err != nil {
-		t.Fatalf("migrate archive store: %v", err)
+		t.Fatalf("read legacy archive db: %v", err)
 	}
-	for _, table := range []string{"ARCHIVED_CHATS", "ARCHIVED_RUNS"} {
-		if !sqliteColumnNames(t, store.db, table)["AGENT_MODE_"] {
-			t.Fatalf("expected AGENT_MODE_ in %s", table)
-		}
+	if _, err := NewArchiveStore(root); !errors.Is(err, sqlitecontract.ErrUnsupportedSchema) {
+		t.Fatalf("NewArchiveStore error = %v, want unsupported storage schema", err)
 	}
-	var chatMode, runMode string
-	if err := store.db.QueryRow(`SELECT AGENT_MODE_ FROM ARCHIVED_CHATS WHERE CHAT_ID_='chat-archive-old'`).Scan(&chatMode); err != nil {
-		t.Fatalf("read migrated archived chat mode: %v", err)
+	after, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatalf("read archive db after rejection: %v", err)
 	}
-	if err := store.db.QueryRow(`SELECT AGENT_MODE_ FROM ARCHIVED_RUNS WHERE RUN_ID_='run-archive-old'`).Scan(&runMode); err != nil {
-		t.Fatalf("read migrated archived run mode: %v", err)
-	}
-	if chatMode != "" || runMode != "" {
-		t.Fatalf("historical archive data must remain unknown, chat=%q run=%q", chatMode, runMode)
+	if string(after) != string(before) {
+		t.Fatal("legacy archive db was modified while being rejected")
 	}
 }
 
-func TestOwnerTypeColumnsArePhysicallyRemovedFromActiveAndArchiveStores(t *testing.T) {
+func TestArchiveStoreRejectsRemovedOwnerTypeColumn(t *testing.T) {
 	root := t.TempDir()
-	active, err := NewFileStore(root)
-	if err != nil {
-		t.Fatalf("new active store: %v", err)
-	}
-	if _, _, err := active.EnsureChat("chat-owner-migration", "agent-a", "", "question"); err != nil {
-		t.Fatalf("ensure active chat: %v", err)
-	}
-	if err := active.OnRunStarted(RunStart{
-		ChatID: "chat-owner-migration", RunID: "run-owner-migration", AgentKey: "agent-a", InitialMessage: "question", StartedAtMillis: testEpochMillis(1000),
-	}); err != nil {
-		t.Fatalf("start active run: %v", err)
-	}
-	if err := active.OnRunCompleted(RunCompletion{
-		ChatID: "chat-owner-migration", RunID: "run-owner-migration", AgentKey: "agent-a", InitialMessage: "question", AssistantText: "active answer", FinishReason: "complete", StartedAtMillis: testEpochMillis(1000), UpdatedAtMillis: testEpochMillis(2000),
-	}); err != nil {
-		t.Fatalf("complete active run: %v", err)
-	}
-	for _, table := range []string{"CHATS", "RUNS"} {
-		if _, err := active.db.Exec("ALTER TABLE " + table + " ADD COLUMN OWNER_TYPE_ TEXT NOT NULL DEFAULT 'agent'"); err != nil {
-			t.Fatalf("add legacy %s owner type: %v", table, err)
-		}
-	}
-	if err := active.Close(); err != nil {
-		t.Fatalf("close active store: %v", err)
-	}
-
-	active, err = NewFileStore(root)
-	if err != nil {
-		t.Fatalf("migrate active store: %v", err)
-	}
-	defer active.Close()
-	for _, table := range []string{"CHATS", "RUNS"} {
-		if sqliteColumnNames(t, active.db, table)["OWNER_TYPE_"] {
-			t.Fatalf("%s retained obsolete OWNER_TYPE_ column", table)
-		}
-	}
-	if summary, err := active.Summary("chat-owner-migration"); err != nil || summary == nil || summary.AgentKey != "agent-a" {
-		t.Fatalf("active summary after migration = %#v, %v", summary, err)
-	}
-	if runs, err := active.ListRuns("chat-owner-migration"); err != nil || len(runs) != 1 || runs[0].AgentKey != "agent-a" {
-		t.Fatalf("active runs after migration = %#v, %v", runs, err)
-	}
-
 	archives, err := NewArchiveStore(root)
 	if err != nil {
 		t.Fatalf("new archive store: %v", err)
 	}
-	archived := testArchivedChat("chat-owner-archive-migration", "agent-a", "Owner migration", "archive migration answer")
-	if err := archives.ArchiveChat(archived); err != nil {
-		t.Fatalf("archive chat: %v", err)
-	}
-	for _, table := range []string{"ARCHIVED_CHATS", "ARCHIVED_RUNS"} {
-		if _, err := archives.db.Exec("ALTER TABLE " + table + " ADD COLUMN OWNER_TYPE_ TEXT NOT NULL DEFAULT 'agent'"); err != nil {
-			t.Fatalf("add legacy %s owner type: %v", table, err)
-		}
+	if _, err := archives.db.Exec("ALTER TABLE ARCHIVED_CHATS ADD COLUMN OWNER_TYPE_ TEXT NOT NULL DEFAULT 'agent'"); err != nil {
+		t.Fatalf("add obsolete owner type: %v", err)
 	}
 	if err := archives.db.Close(); err != nil {
 		t.Fatalf("close archive store: %v", err)
 	}
-
-	archives, err = NewArchiveStore(root)
+	if _, err := NewArchiveStore(root); !errors.Is(err, sqlitecontract.ErrUnsupportedSchema) {
+		t.Fatalf("NewArchiveStore error = %v, want unsupported storage schema", err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(root, "archive", "archive.db"))
 	if err != nil {
-		t.Fatalf("migrate archive store: %v", err)
+		t.Fatalf("reopen archive db: %v", err)
 	}
-	defer archives.db.Close()
-	for _, table := range []string{"ARCHIVED_CHATS", "ARCHIVED_RUNS"} {
-		if sqliteColumnNames(t, archives.db, table)["OWNER_TYPE_"] {
-			t.Fatalf("%s retained obsolete OWNER_TYPE_ column", table)
-		}
+	defer db.Close()
+	if !sqliteColumnNames(t, db, "ARCHIVED_CHATS")["OWNER_TYPE_"] {
+		t.Fatal("rejected archive db lost its obsolete column")
 	}
-	if loaded, err := archives.LoadArchived("chat-owner-archive-migration"); err != nil || loaded.Summary.AgentKey != "agent-a" || len(loaded.Runs) != 1 {
-		t.Fatalf("archive load after migration = %#v, %v", loaded, err)
+}
+
+func TestArchiveStoreRejectsResidualRuntimeData(t *testing.T) {
+	root := t.TempDir()
+	archiveRoot := filepath.Join(root, "archive")
+	if err := os.MkdirAll(archiveRoot, 0o755); err != nil {
+		t.Fatalf("mkdir archive root: %v", err)
 	}
-	if hits, err := archives.SearchArchived("migration answer", "agent-a", 10); err != nil || len(hits) != 1 || hits[0].ChatID != "chat-owner-archive-migration" {
-		t.Fatalf("archive FTS after migration = %#v, %v", hits, err)
+	if err := os.WriteFile(filepath.Join(archiveRoot, "legacy.jsonl"), []byte("legacy"), 0o600); err != nil {
+		t.Fatalf("write legacy archive data: %v", err)
+	}
+	if _, err := NewArchiveStore(root); !errors.Is(err, sqlitecontract.ErrUnsupportedSchema) {
+		t.Fatalf("NewArchiveStore error = %v, want unsupported storage schema", err)
+	}
+}
+
+func TestArchiveStoreWritesCurrentSchemaMarker(t *testing.T) {
+	store, err := NewArchiveStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new archive store: %v", err)
+	}
+	defer store.db.Close()
+	assertSQLiteSchemaMarker(t, store.db, archiveSchemaSpec)
+	if err := sqlitecontract.Verify(store.db, filepath.Join(store.root, "archive.db"), filepath.Dir(store.root), archiveSchemaSpec); err != nil {
+		t.Fatalf("verify current archive schema: %v", err)
 	}
 }
 
