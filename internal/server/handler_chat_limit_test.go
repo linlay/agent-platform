@@ -108,6 +108,7 @@ func TestChatsActiveRunHTTPAndWebSocket(t *testing.T) {
 		RunID:           activeRunID,
 		ChatID:          chatID,
 		AgentKey:        "mock-agent",
+		RunOwner:        contracts.AgentRunOwner("mock-agent", ""),
 		StartedAtMillis: activeStartedAt,
 	})
 	control.TransitionState(contracts.RunLoopStateWaitingSubmit)

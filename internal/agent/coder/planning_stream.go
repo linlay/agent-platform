@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/apperrors"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/hitl/planning"
 	"agent-platform/internal/i18n"
@@ -377,12 +378,9 @@ func (s *coderPlanningStream) afterStageEOF() error {
 				return nil
 			}
 			s.pending = append(s.pending, contracts.DeltaError{
-				Error: contracts.NewErrorPayload(
-					"planning_not_created",
+				Error: apperrors.Payload(
+					apperrors.CodePlanningNotCreated,
 					"CODER planning mode ended without a Markdown planning document",
-					contracts.ErrorScopeRun,
-					contracts.ErrorCategoryModel,
-					nil,
 				),
 			})
 			s.completed = true

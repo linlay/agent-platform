@@ -1,19 +1,9 @@
 package timecontract
 
 import (
-	"encoding/json"
 	"strings"
 	"time"
 )
-
-// ValidateJSONPayload is retained only as a JSON-encoding compatibility
-// probe for legacy callers. It deliberately does not infer time semantics
-// from JSON field names. Public platform DTOs and declared tool output
-// schemas must use their explicit validators instead.
-func ValidateJSONPayload(payload any, _ string) error {
-	_, err := json.Marshal(payload)
-	return err
-}
 
 // ParseRFC3339 validates a readable instant that was explicitly declared by
 // a platform DTO or an output schema. It never treats a field name as a time

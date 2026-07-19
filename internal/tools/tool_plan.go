@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"agent-platform/internal/apperrors"
 	. "agent-platform/internal/contracts"
 )
 
@@ -74,7 +75,12 @@ func (t *RuntimeToolExecutor) invokePlanAddTasks(args map[string]any, execCtx *E
 
 func (t *RuntimeToolExecutor) invokePlanGetTasks(execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	if execCtx == nil {
-		payload := NewErrorPayload("plan_context_unavailable", "Plan context is unavailable in direct invocation", ErrorScopeRun, ErrorCategorySystem, nil)
+		payload := apperrors.Payload(
+			apperrors.CodePlanContextUnavailable,
+			"Plan context is unavailable in direct invocation",
+			apperrors.WithScope(apperrors.ScopeRun),
+			apperrors.WithCategory(apperrors.CategorySystem),
+		)
 		return ToolExecutionResult{Output: MarshalJSON(payload), Structured: payload, Error: "plan_context_unavailable", ExitCode: -1}, nil
 	}
 	return structuredResult(planStatePayload(t.ensureRestoredPlanState(execCtx))), nil

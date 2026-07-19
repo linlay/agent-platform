@@ -10,6 +10,7 @@ import (
 	"agent-platform/internal/accesspolicy"
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
+	"agent-platform/internal/apperrors"
 	"agent-platform/internal/bashsec"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/hitl"
@@ -21,12 +22,9 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 	s.syncAccessLevelFromRunControl()
 	toolID := toolCall.ID
 	if strings.TrimSpace(toolID) == "" {
-		return nil, []AgentDelta{DeltaError{Error: NewErrorPayload(
-			"missing_tool_call_id",
+		return nil, []AgentDelta{DeltaError{Error: apperrors.Payload(
+			apperrors.CodeMissingToolCallID,
 			"provider tool call missing toolCallId",
-			ErrorScopeModel,
-			ErrorCategoryModel,
-			nil,
 		)}}, nil
 	}
 
@@ -865,34 +863,34 @@ func (s *llmRunStream) checkBudgetBeforeToolCall(toolName string) *ToolExecution
 	}
 	budget := NormalizeBudget(s.execCtx.Budget)
 	if budget.Tool.MaxCalls > 0 && s.execCtx.ToolCalls > budget.Tool.MaxCalls {
-		payload := NewErrorPayload(
-			"tool_calls_exceeded",
+		payload := apperrors.Payload(
+			apperrors.CodeToolCallsExceeded,
 			"tool call budget exceeded",
-			ErrorScopeTool,
-			ErrorCategoryTool,
-			map[string]any{
+			apperrors.WithScope(apperrors.ScopeTool),
+			apperrors.WithCategory(apperrors.CategoryTool),
+			apperrors.WithDiagnostics(map[string]any{
 				"toolCalls":  s.execCtx.ToolCalls,
 				"limitValue": budget.Tool.MaxCalls,
 				"limitName":  "budget.tool.maxCalls",
 				"toolName":   toolName,
-			},
+			}),
 		)
 		return &ToolExecutionResult{Output: MarshalJSON(payload), Structured: payload, Error: "tool_calls_exceeded", ExitCode: -1}
 	}
 	if limit := s.stageToolCallLimit(budget); limit > 0 && s.stageToolCalls > limit {
 		limitName := "budget.stages." + s.budgetStage + ".tool.maxCalls"
-		payload := NewErrorPayload(
-			"tool_calls_exceeded",
+		payload := apperrors.Payload(
+			apperrors.CodeToolCallsExceeded,
 			"stage tool call budget exceeded",
-			ErrorScopeTool,
-			ErrorCategoryTool,
-			map[string]any{
+			apperrors.WithScope(apperrors.ScopeTool),
+			apperrors.WithCategory(apperrors.CategoryTool),
+			apperrors.WithDiagnostics(map[string]any{
 				"toolCalls":  s.stageToolCalls,
 				"limitValue": limit,
 				"limitName":  limitName,
 				"stage":      s.budgetStage,
 				"toolName":   toolName,
-			},
+			}),
 		)
 		return &ToolExecutionResult{Output: MarshalJSON(payload), Structured: payload, Error: "tool_calls_exceeded", ExitCode: -1}
 	}
@@ -911,16 +909,16 @@ func (s *llmRunStream) prepareRunLimitToolCall(toolCall openAIToolCall) (*prepar
 
 func (s *llmRunStream) runLimitToolResult(toolName, limitName string, limit int) ToolExecutionResult {
 	s.queueRunLimitFinalAnswer()
-	payload := NewErrorPayload(
-		"btw_tool_limit_reached",
+	payload := apperrors.Payload(
+		apperrors.CodeBTWToolLimitReached,
 		"BTW side question tool limit reached; answer the side question without more tools",
-		ErrorScopeTool,
-		ErrorCategoryTool,
-		map[string]any{
+		apperrors.WithScope(apperrors.ScopeTool),
+		apperrors.WithCategory(apperrors.CategoryTool),
+		apperrors.WithDiagnostics(map[string]any{
 			"toolName":   toolName,
 			"limitName":  limitName,
 			"limitValue": limit,
-		},
+		}),
 	)
 	return ToolExecutionResult{
 		Output:     MarshalJSON(payload),

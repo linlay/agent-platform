@@ -5,19 +5,6 @@ import (
 	"testing"
 )
 
-func TestValidateJSONPayloadDoesNotInferTimeFromFieldNames(t *testing.T) {
-	payload := map[string]any{
-		"createdAt": "2026-07-14T08:00:00Z",
-		"nested": map[string]any{
-			"timestamp": 1_700_000_000,
-			"updatedAt": float64(1_700_000_000_000),
-		},
-	}
-	if err := ValidateJSONPayload(payload, "external.tool.result"); err != nil {
-		t.Fatalf("opaque payload should not be interpreted by name: %v", err)
-	}
-}
-
 func TestValidateOutputSchemaRejectsOnlyDeclaredEpochMillis(t *testing.T) {
 	schema := map[string]any{
 		"type": "object",
@@ -86,17 +73,4 @@ func TestValidateOutputSchemaSelectsOneOf(t *testing.T) {
 	if err := ValidateOutputSchema(map[string]any{"kind": "platform", "at": "1700000000000"}, schema, "tool.result"); !IsViolation(err) {
 		t.Fatalf("platform branch must validate declared time: %v", err)
 	}
-}
-
-func TestValidateJSONPayloadPropagatesMarshalerError(t *testing.T) {
-	payload := invalidTimeMarshaler{}
-	if err := ValidateJSONPayload(payload, "test"); !IsViolation(err) {
-		t.Fatalf("expected marshaler error to propagate, got %v", err)
-	}
-}
-
-type invalidTimeMarshaler struct{}
-
-func (invalidTimeMarshaler) MarshalJSON() ([]byte, error) {
-	return nil, ValidateEpochMillis(0, "timestamp", "test.marshaler")
 }

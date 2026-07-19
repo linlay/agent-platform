@@ -6,7 +6,7 @@ import (
 )
 
 func TestResolveRunOwnerPreservesLegacyAgentOwnedTeam(t *testing.T) {
-	owner := ResolveRunOwner(RunOwner{}, "member-a", "team-a")
+	owner := ResolveRunOwner(AgentRunOwner(" member-a ", " team-a "))
 	if owner.IsTeam() {
 		t.Fatalf("legacy team owner should remain agent-owned: %#v", owner)
 	}
@@ -16,12 +16,19 @@ func TestResolveRunOwnerPreservesLegacyAgentOwnedTeam(t *testing.T) {
 }
 
 func TestResolveRunOwnerSeparatesTeamOwnerFromExecutionAgent(t *testing.T) {
-	owner := ResolveRunOwner(TeamRunOwner("team-a", ""), "__team_coordinator", "team-a")
+	owner := ResolveRunOwner(TeamRunOwner(" team-a ", " __team_coordinator "))
 	if !owner.IsTeam() {
 		t.Fatalf("orchestrated team owner was not derived from identity: %#v", owner)
 	}
 	if owner.AgentKey != "" || owner.TeamID != "team-a" || owner.ExecutionAgentKey != "__team_coordinator" {
 		t.Fatalf("unexpected team owner %#v", owner)
+	}
+}
+
+func TestResolveRunOwnerDoesNotInferLegacySessionIdentity(t *testing.T) {
+	owner := ResolveRunOwner(RunOwner{})
+	if owner.AgentKey != "" || owner.TeamID != "" || owner.ExecutionAgentKey != "" {
+		t.Fatalf("empty owner was unexpectedly populated: %#v", owner)
 	}
 }
 

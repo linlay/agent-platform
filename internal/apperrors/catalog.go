@@ -71,6 +71,7 @@ var definitions = []Definition{
 	def(CodeProviderUnavailable, CategoryModel, ScopeModel, http.StatusServiceUnavailable, true),
 	def(CodeProviderStreamFailed, CategoryModel, ScopeModel, http.StatusBadGateway, true),
 	def(CodeProviderStreamInvalid, CategoryModel, ScopeModel, http.StatusBadGateway, true),
+	def(CodeMissingToolCallID, CategoryModel, ScopeModel, http.StatusInternalServerError, false),
 
 	def(CodeProxyRequestFailed, CategoryProxy, ScopeProxy, http.StatusBadGateway, true),
 	def(CodeProxyUpstreamError, CategoryProxy, ScopeProxy, http.StatusBadGateway, true),
@@ -89,6 +90,11 @@ var definitions = []Definition{
 	def(CodeTaskFailed, CategoryTool, ScopeTask, http.StatusInternalServerError, false),
 	def(CodeTaskExecutionError, CategoryTool, ScopeTask, http.StatusInternalServerError, false),
 	def(CodePlanContextUnavailable, CategoryTool, ScopeRun, http.StatusServiceUnavailable, false),
+	def(CodePlanningNotCreated, CategoryModel, ScopeRun, http.StatusInternalServerError, false),
+	def(CodePlanNotCreated, CategorySystem, ScopeRun, http.StatusInternalServerError, false),
+	def(CodeToolCallsNotAllowed, CategorySystem, ScopeRun, http.StatusInternalServerError, false),
+	def(CodeBTWToolLimitReached, CategoryTool, ScopeTool, http.StatusInternalServerError, false),
+	def(CodeTeamMemberFailed, CategorySystem, ScopeTask, http.StatusInternalServerError, false),
 
 	def(CodeBudgetExceeded, CategoryPolicy, ScopeRun, http.StatusBadRequest, false),
 	def(CodeModelCallsExceeded, CategoryPolicy, ScopeModel, http.StatusBadRequest, false),

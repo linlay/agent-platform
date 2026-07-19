@@ -275,11 +275,13 @@ func TestWebSocketChatReturnsActiveRunConflict(t *testing.T) {
 		RunID:    "run_ws_1",
 		ChatID:   "chat_ws_conflict",
 		AgentKey: "mock-agent",
+		RunOwner: contracts.AgentRunOwner("mock-agent", ""),
 	})
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    "run_ws_2",
 		ChatID:   "chat_ws_conflict",
 		AgentKey: "mock-agent",
+		RunOwner: contracts.AgentRunOwner("mock-agent", ""),
 	})
 
 	server := httptest.NewServer(fixture.server)
@@ -352,11 +354,13 @@ func TestWebSocketAgentsKeepsChatWithActiveRunConflictError(t *testing.T) {
 		RunID:    "run_ws_agents_1",
 		ChatID:   "chat_ws_agents_conflict",
 		AgentKey: "mock-agent",
+		RunOwner: contracts.AgentRunOwner("mock-agent", ""),
 	})
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    "run_ws_agents_2",
 		ChatID:   "chat_ws_agents_conflict",
 		AgentKey: "mock-agent",
+		RunOwner: contracts.AgentRunOwner("mock-agent", ""),
 	})
 
 	server := httptest.NewServer(fixture.server)
@@ -794,6 +798,7 @@ func TestWebSocketRunStreamClosesDuringShutdown(t *testing.T) {
 		RunID:    runID,
 		ChatID:   "chat_ws_shutdown",
 		AgentKey: "mock-agent",
+		RunOwner: contracts.AgentRunOwner("mock-agent", ""),
 	})
 
 	server := newLoopbackServer(t, fixture.server)
@@ -893,6 +898,7 @@ func TestWebSocketDetachReleasesRunObserverWithoutFinishingRun(t *testing.T) {
 		RunID:    runID,
 		ChatID:   "chat_ws_detach",
 		AgentKey: "mock-agent",
+		RunOwner: contracts.AgentRunOwner("mock-agent", ""),
 	})
 
 	server := httptest.NewServer(fixture.server)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"agent-platform/internal/apperrors"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/stream"
 )
@@ -81,15 +82,15 @@ func frontendSubmitAwaitingAnswer(invocation *preparedToolInvocation, result Too
 }
 
 func hitlRejectedToolResult(invocation *preparedToolInvocation) ToolExecutionResult {
-	payload := NewErrorPayload(
-		"hitl_rejected",
+	payload := apperrors.Payload(
+		apperrors.CodeHitlRejected,
 		"User rejected this command. Do NOT retry with a different command. End the turn now.",
-		ErrorScopeTool,
-		ErrorCategorySystem,
-		map[string]any{
+		apperrors.WithScope(apperrors.ScopeTool),
+		apperrors.WithCategory(apperrors.CategorySystem),
+		apperrors.WithDiagnostics(map[string]any{
 			"toolId":   invocation.toolID,
 			"toolName": invocation.toolName,
-		},
+		}),
 	)
 	payload["final"] = true
 	return ToolExecutionResult{
@@ -116,12 +117,12 @@ func hitlRejectedFormToolResult(invocation *preparedToolInvocation, reason strin
 		feedback["revisedForm"] = form
 	}
 	msg := "User rejected this command with feedback. Review the reason and revised form, then try again with corrections."
-	payload := NewErrorPayload(
-		"hitl_rejected_with_feedback",
+	payload := apperrors.Payload(
+		apperrors.CodeHitlRejectedWithFeedback,
 		msg,
-		ErrorScopeTool,
-		ErrorCategorySystem,
-		feedback,
+		apperrors.WithScope(apperrors.ScopeTool),
+		apperrors.WithCategory(apperrors.CategorySystem),
+		apperrors.WithDiagnostics(feedback),
 	)
 	return ToolExecutionResult{
 		Output:     formatToolErrorOutput("user_rejected_with_feedback", msg),
@@ -132,15 +133,15 @@ func hitlRejectedFormToolResult(invocation *preparedToolInvocation, reason strin
 }
 
 func hitlTimeoutToolResult(invocation *preparedToolInvocation) ToolExecutionResult {
-	payload := NewErrorPayload(
-		"hitl_timeout",
+	payload := apperrors.Payload(
+		apperrors.CodeHitlTimeout,
 		"command execution timed out while waiting for user approval",
-		ErrorScopeTool,
-		ErrorCategoryTimeout,
-		map[string]any{
+		apperrors.WithScope(apperrors.ScopeTool),
+		apperrors.WithCategory(apperrors.CategoryTimeout),
+		apperrors.WithDiagnostics(map[string]any{
 			"toolId":   invocation.toolID,
 			"toolName": invocation.toolName,
-		},
+		}),
 	)
 	return ToolExecutionResult{
 		Output:     formatToolErrorOutput("hitl_timeout", "command execution timed out while waiting for user approval"),
@@ -151,16 +152,16 @@ func hitlTimeoutToolResult(invocation *preparedToolInvocation) ToolExecutionResu
 }
 
 func frontendSubmitInvalidPayloadResult(invocation *preparedToolInvocation, awaitingID string, params any, err error) ToolExecutionResult {
-	payload := NewErrorPayload(
-		"frontend_submit_invalid_payload",
+	payload := apperrors.Payload(
+		apperrors.CodeFrontendSubmitInvalidPayload,
 		err.Error(),
-		ErrorScopeFrontendSubmit,
-		ErrorCategoryTool,
-		map[string]any{
+		apperrors.WithScope(apperrors.ScopeFrontendSubmit),
+		apperrors.WithCategory(apperrors.CategoryTool),
+		apperrors.WithDiagnostics(map[string]any{
 			"awaitingId": awaitingID,
 			"toolName":   invocation.toolName,
 			"params":     params,
-		},
+		}),
 	)
 	return ToolExecutionResult{
 		Output:     formatToolErrorOutput("frontend_submit_invalid_payload", err.Error()),

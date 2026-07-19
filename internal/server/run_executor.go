@@ -949,7 +949,7 @@ func decorateNotificationRunOwner(payload map[string]any, session contracts.Quer
 	if payload == nil {
 		return
 	}
-	owner := contracts.ResolveRunOwner(session.RunOwner, session.AgentKey, session.TeamID)
+	owner := contracts.ResolveRunOwner(session.RunOwner)
 	if owner.IsTeam() {
 		payload["teamId"] = owner.TeamID
 		return
@@ -1054,7 +1054,7 @@ func maybeBroadcastInterruptedAwaiting(params RunExecutorParams, tracker *awaiti
 
 func persistRunCompletionWithReason(params RunExecutorParams, assistantText string, runUsage chat.UsageData, finishReason string, notifyPersisted bool) (bool, chat.RunCompletion) {
 	completedAtMillis := time.Now().UnixMilli()
-	owner := contracts.ResolveRunOwner(params.Session.RunOwner, params.Session.AgentKey, params.Session.TeamID)
+	owner := contracts.ResolveRunOwner(params.Session.RunOwner)
 	completion := chat.RunCompletion{
 		ChatID:          params.Session.ChatID,
 		RunID:           params.Session.RunID,

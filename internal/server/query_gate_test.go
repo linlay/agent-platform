@@ -165,6 +165,7 @@ func TestQueryRejectsExistingLiveActiveRun(t *testing.T) {
 		RunID:    "run-live-active",
 		ChatID:   chatID,
 		AgentKey: "mock-agent",
+		RunOwner: contracts.AgentRunOwner("mock-agent", ""),
 	})
 
 	rec := httptest.NewRecorder()

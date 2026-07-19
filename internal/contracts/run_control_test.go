@@ -37,6 +37,7 @@ func TestInMemoryRunManagerRegisterDetachesFromParentContext(t *testing.T) {
 		RunID:    "run_1",
 		ChatID:   "chat_1",
 		AgentKey: "agent_1",
+		RunOwner: AgentRunOwner("agent_1", ""),
 	})
 
 	cancel()
@@ -381,6 +382,7 @@ func TestInMemoryRunManagerActiveRunForChatReturnsSingleActiveRun(t *testing.T) 
 		RunID:    "run_1",
 		ChatID:   "chat_1",
 		AgentKey: "agent_1",
+		RunOwner: AgentRunOwner("agent_1", ""),
 	})
 
 	status, ok, err := manager.ActiveRunForChat("chat_1")
@@ -402,6 +404,7 @@ func TestInMemoryRunManagerRunScopeDoesNotBlockParentChat(t *testing.T) {
 		ChatID:     "chat_1",
 		RunScopeID: "btw:chat_1:btw_1",
 		AgentKey:   "agent_1",
+		RunOwner:   AgentRunOwner("agent_1", ""),
 	})
 	if err != nil || !btw.Registered {
 		t.Fatalf("register BTW run: %#v err=%v", btw, err)
@@ -410,6 +413,7 @@ func TestInMemoryRunManagerRunScopeDoesNotBlockParentChat(t *testing.T) {
 		RunID:    "run_main",
 		ChatID:   "chat_1",
 		AgentKey: "agent_1",
+		RunOwner: AgentRunOwner("agent_1", ""),
 	})
 	if err != nil || !main.Registered {
 		t.Fatalf("register parent run: %#v err=%v", main, err)
@@ -419,6 +423,7 @@ func TestInMemoryRunManagerRunScopeDoesNotBlockParentChat(t *testing.T) {
 		ChatID:     "chat_1",
 		RunScopeID: "btw:chat_1:btw_1",
 		AgentKey:   "agent_1",
+		RunOwner:   AgentRunOwner("agent_1", ""),
 	})
 	if err != nil {
 		t.Fatalf("register duplicate BTW: %v", err)
@@ -434,11 +439,13 @@ func TestInMemoryRunManagerActiveRunForChatReturnsConflictForMultipleRuns(t *tes
 		RunID:    "run_1",
 		ChatID:   "chat_1",
 		AgentKey: "agent_1",
+		RunOwner: AgentRunOwner("agent_1", ""),
 	})
 	_, _, _ = manager.Register(context.Background(), QuerySession{
 		RunID:    "run_2",
 		ChatID:   "chat_1",
 		AgentKey: "agent_1",
+		RunOwner: AgentRunOwner("agent_1", ""),
 	})
 
 	_, ok, err := manager.ActiveRunForChat("chat_1")
@@ -471,6 +478,7 @@ func TestInMemoryRunManagerRegisterExclusiveForChatAllowsOnlyOneActiveRun(t *tes
 				RunID:    "run_exclusive_" + string(rune('a'+index)),
 				ChatID:   "chat_exclusive",
 				AgentKey: "agent_1",
+				RunOwner: AgentRunOwner("agent_1", ""),
 			})
 			results <- result
 			errs <- err
@@ -509,6 +517,7 @@ func TestInMemoryRunManagerUpdateAccessLevelPublishesEventAndStatus(t *testing.T
 		RunID:       "run_access",
 		ChatID:      "chat_1",
 		AgentKey:    "agent_1",
+		RunOwner:    AgentRunOwner("agent_1", ""),
 		AccessLevel: AccessLevelDefault,
 	})
 	observer, err := manager.AttachObserver("run_access", 0)
@@ -564,6 +573,7 @@ func TestInMemoryRunManagerReaperPublishesExpiredRunErrorBeforeInterrupt(t *test
 		RunID:    "run_expired",
 		ChatID:   "chat_1",
 		AgentKey: "agent_1",
+		RunOwner: AgentRunOwner("agent_1", ""),
 	})
 	eventBus, ok := manager.EventBus("run_expired")
 	if !ok {
@@ -624,6 +634,7 @@ func TestInMemoryRunManagerReaperTreatsMaxBackgroundDurationAsGlobalLimit(t *tes
 		RunID:    "run_no_timeout",
 		ChatID:   "chat_1",
 		AgentKey: "agent_1",
+		RunOwner: AgentRunOwner("agent_1", ""),
 	})
 	control.ExpectSubmit(AwaitingSubmitContext{
 		AwaitingID: "await_plan",

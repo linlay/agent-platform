@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/apperrors"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/observability"
 	"agent-platform/internal/timecontract"
@@ -453,17 +454,17 @@ func toolCallsExceededResult(execCtx *ExecutionContext, budget Budget, toolName 
 	if execCtx == nil || budget.Tool.MaxCalls <= 0 || execCtx.ToolCalls <= budget.Tool.MaxCalls {
 		return ToolExecutionResult{}, false
 	}
-	payload := NewErrorPayload(
-		"tool_calls_exceeded",
+	payload := apperrors.Payload(
+		apperrors.CodeToolCallsExceeded,
 		"tool call budget exceeded",
-		ErrorScopeTool,
-		ErrorCategoryTool,
-		map[string]any{
+		apperrors.WithScope(apperrors.ScopeTool),
+		apperrors.WithCategory(apperrors.CategoryTool),
+		apperrors.WithDiagnostics(map[string]any{
 			"toolCalls":  execCtx.ToolCalls,
 			"limitValue": budget.Tool.MaxCalls,
 			"limitName":  "budget.tool.maxCalls",
 			"toolName":   toolName,
-		},
+		}),
 	)
 	return ToolExecutionResult{
 		Output:     MarshalJSON(payload),

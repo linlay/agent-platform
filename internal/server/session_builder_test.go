@@ -148,6 +148,9 @@ func TestBuildQuerySessionUsesCoderProfileDefaults(t *testing.T) {
 	if session.AccessLevel != contracts.AccessLevelDefault {
 		t.Fatalf("access level = %q, want default", session.AccessLevel)
 	}
+	if owner := contracts.ResolveRunOwner(session.RunOwner); owner.AgentKey != "coder-app" || owner.TeamID != "" || owner.ExecutionAgentKey != "coder-app" {
+		t.Fatalf("unexpected explicit Agent owner %#v", owner)
+	}
 	if session.WorkspaceRoot != filepath.Clean(workspace) {
 		t.Fatalf("workspace root = %q, want %q", session.WorkspaceRoot, filepath.Clean(workspace))
 	}
@@ -263,6 +266,26 @@ func TestBuildQuerySessionDefaultsHostWorkspaceToChatDir(t *testing.T) {
 	}
 	if stat, err := os.Stat(want); err != nil || !stat.IsDir() {
 		t.Fatalf("expected chat dir to be created, stat=%#v err=%v", stat, err)
+	}
+}
+
+func TestBuildQuerySessionSetsExplicitLegacyTeamOwner(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Config{Paths: config.PathsConfig{ChatsDir: filepath.Join(root, "chats")}}
+	def := catalog.AgentDefinition{Key: "member-agent", Mode: "REACT", ModelKey: "mock-model"}
+	server := &Server{deps: Dependencies{Config: cfg}}
+	session, err := server.BuildQuerySession(context.Background(), api.QueryRequest{
+		AgentKey: "member-agent",
+		TeamID:   "legacy-team",
+		ChatID:   "chat-legacy-team",
+		RunID:    "run-legacy-team",
+	}, chat.Summary{ChatID: "chat-legacy-team"}, def, querySessionBuildOptions{})
+	if err != nil {
+		t.Fatalf("build legacy Team session: %v", err)
+	}
+	owner := contracts.ResolveRunOwner(session.RunOwner)
+	if owner.IsTeam() || owner.AgentKey != "member-agent" || owner.TeamID != "legacy-team" || owner.ExecutionAgentKey != "member-agent" {
+		t.Fatalf("unexpected legacy Team owner %#v", owner)
 	}
 }
 

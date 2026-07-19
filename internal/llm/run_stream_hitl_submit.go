@@ -5,6 +5,7 @@ import (
 	"log"
 	"strings"
 
+	"agent-platform/internal/apperrors"
 	"agent-platform/internal/bashsec"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
@@ -79,16 +80,16 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 			formPayload := AnyMapNode(selectedForm["form"])
 			rebuiltCommand, rebuildErr := reconstructCommandWithPayload(mapStringArg(invocation.args, "command"), formPayload)
 			if rebuildErr != nil {
-				payload := NewErrorPayload(
-					"frontend_submit_invalid_payload",
+				payload := apperrors.Payload(
+					apperrors.CodeFrontendSubmitInvalidPayload,
 					rebuildErr.Error(),
-					ErrorScopeFrontendSubmit,
-					ErrorCategoryTool,
-					map[string]any{
+					apperrors.WithScope(apperrors.ScopeFrontendSubmit),
+					apperrors.WithCategory(apperrors.CategoryTool),
+					apperrors.WithDiagnostics(map[string]any{
 						"awaitingId": awaitingID,
 						"toolName":   invocation.toolName,
 						"payload":    formPayload,
-					},
+					}),
 				)
 				result := ToolExecutionResult{
 					Output:     marshalJSON(payload),

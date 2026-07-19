@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/apperrors"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/plantasks"
 )
@@ -235,12 +236,9 @@ func (s *planPipelineStream) afterStageEOF() error {
 		s.planDone = true
 		if len(s.execCtx.PlanState.Tasks) == 0 {
 			s.pending = append(s.pending, DeltaError{
-				Error: NewErrorPayload(
-					"plan_not_created",
+				Error: apperrors.Payload(
+					apperrors.CodePlanNotCreated,
 					"planning stage did not create any tasks via plan_add_tasks",
-					ErrorScopeRun,
-					ErrorCategorySystem,
-					nil,
 				),
 			})
 			s.summaryDone = true
@@ -285,8 +283,8 @@ func (s *planPipelineStream) emitTaskTerminal(task *PlanTask, status string) {
 		s.pending = append(s.pending, DeltaTaskLifecycle{
 			Kind:   "error",
 			TaskID: task.TaskID,
-			Error: NewErrorPayload("task_failed", "Task status updated to failed",
-				ErrorScopeTask, ErrorCategorySystem, nil),
+			Error: apperrors.Payload(apperrors.CodeTaskFailed, "Task status updated to failed",
+				apperrors.WithScope(apperrors.ScopeTask), apperrors.WithCategory(apperrors.CategorySystem)),
 		})
 	}
 	s.taskIndex++
@@ -305,8 +303,10 @@ func (s *planPipelineStream) emitTaskFailure(task *PlanTask, message string) {
 	s.pending = append(s.pending, DeltaTaskLifecycle{
 		Kind:   "error",
 		TaskID: task.TaskID,
-		Error: NewErrorPayload("task_execution_error", message,
-			ErrorScopeTask, ErrorCategorySystem, map[string]any{"taskId": task.TaskID}),
+		Error: apperrors.Payload(apperrors.CodeTaskExecutionError, message,
+			apperrors.WithScope(apperrors.ScopeTask),
+			apperrors.WithCategory(apperrors.CategorySystem),
+			apperrors.WithDiagnostics(map[string]any{"taskId": task.TaskID})),
 	})
 	s.taskIndex++
 }

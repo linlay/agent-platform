@@ -4,17 +4,12 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
-
-	"agent-platform/internal/timecontract"
 )
 
 func TestDecodeHistoryJSONPreservesEpochIntegerTokens(t *testing.T) {
 	decoded := decodeHistoryJSON(`{"createdAt":1700000000000}`)
 	if _, ok := decoded["createdAt"].(json.Number); !ok {
 		t.Fatalf("createdAt lost JSON integer token: %#v", decoded)
-	}
-	if err := timecontract.ValidateJSONPayload(decoded, "memory.history.test"); err != nil {
-		t.Fatalf("valid persisted history time rejected after decode: %v", err)
 	}
 }
 

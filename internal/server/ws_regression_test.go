@@ -300,6 +300,7 @@ func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) 
 		RunID:    "run-live",
 		ChatID:   "chat-live",
 		AgentKey: "agent-1",
+		RunOwner: contracts.AgentRunOwner("agent-1", ""),
 	})
 
 	detail, err := server.loadChatDetail(context.Background(), "chat-live", false)
@@ -347,6 +348,7 @@ func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) 
 		RunID:    "run-live-plain",
 		ChatID:   "chat-live-plain",
 		AgentKey: "agent-1",
+		RunOwner: contracts.AgentRunOwner("agent-1", ""),
 	})
 	plainDetail, err := server.loadChatDetail(context.Background(), "chat-live-plain", false)
 	if err != nil {
@@ -367,6 +369,7 @@ func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) 
 		RunID:    "run-live-2",
 		ChatID:   "chat-live",
 		AgentKey: "agent-1",
+		RunOwner: contracts.AgentRunOwner("agent-1", ""),
 	})
 
 	rec := httptest.NewRecorder()
@@ -536,6 +539,7 @@ func TestLoadChatDetailActiveRunPlanningModeReflectsPlanningDecision(t *testing.
 		RunID:    runID,
 		ChatID:   chatID,
 		AgentKey: "agent-1",
+		RunOwner: contracts.AgentRunOwner("agent-1", ""),
 	})
 
 	detail, err := server.loadChatDetail(context.Background(), chatID, false)
@@ -601,6 +605,7 @@ func TestLoadChatDetailActiveRunLastSeqUsesPersistedLiveSeqCursor(t *testing.T) 
 		RunID:    "run-live-cursor",
 		ChatID:   "chat-live-cursor",
 		AgentKey: "agent-1",
+		RunOwner: contracts.AgentRunOwner("agent-1", ""),
 	})
 	bus, ok := runs.EventBus("run-live-cursor")
 	if !ok {
@@ -669,6 +674,7 @@ func TestLoadChatDetailActiveRunLastSeqUsesPersistedLiveSeqCursor(t *testing.T) 
 		RunID:    "run-old-live-cursor",
 		ChatID:   "chat-old-live-cursor",
 		AgentKey: "agent-1",
+		RunOwner: contracts.AgentRunOwner("agent-1", ""),
 	})
 	oldBus, ok := runs.EventBus("run-old-live-cursor")
 	if !ok {
@@ -786,6 +792,7 @@ func TestListAgentSummariesIncludesChatStats(t *testing.T) {
 		RunID:    "run-active-a1",
 		ChatID:   "chat-a1",
 		AgentKey: "agent-a",
+		RunOwner: contracts.AgentRunOwner("agent-a", ""),
 	})
 	control.TransitionState(contracts.RunLoopStateWaitingSubmit)
 
@@ -875,6 +882,7 @@ func TestListAgentSummariesIncludesChatStats(t *testing.T) {
 		RunID:    "run-active-a1-duplicate",
 		ChatID:   "chat-a1",
 		AgentKey: "agent-a",
+		RunOwner: contracts.AgentRunOwner("agent-a", ""),
 	})
 	items, err = server.listAgentSummaries(1, "")
 	if err != nil {

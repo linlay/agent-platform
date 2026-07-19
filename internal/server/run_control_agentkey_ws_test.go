@@ -26,6 +26,7 @@ func TestRunControlWSRequiresAndValidatesAgentKey(t *testing.T) {
 		RunID:    "run-ws-agent-check",
 		ChatID:   "chat-ws-agent-check",
 		AgentKey: "mock-agent",
+		RunOwner: contracts.AgentRunOwner("mock-agent", ""),
 	})
 
 	server := httptest.NewServer(fixture.server)

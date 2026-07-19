@@ -103,6 +103,7 @@ const (
 	CodeProviderUnavailable           Code = "provider_unavailable"
 	CodeProviderStreamFailed          Code = "provider_stream_failed"
 	CodeProviderStreamInvalid         Code = "provider_stream_invalid"
+	CodeMissingToolCallID             Code = "missing_tool_call_id"
 
 	CodeProxyRequestFailed        Code = "proxy_request_failed"
 	CodeProxyUpstreamError        Code = "proxy_upstream_error"
@@ -121,6 +122,11 @@ const (
 	CodeTaskFailed             Code = "task_failed"
 	CodeTaskExecutionError     Code = "task_execution_error"
 	CodePlanContextUnavailable Code = "plan_context_unavailable"
+	CodePlanningNotCreated     Code = "planning_not_created"
+	CodePlanNotCreated         Code = "plan_not_created"
+	CodeToolCallsNotAllowed    Code = "tool_calls_not_allowed"
+	CodeBTWToolLimitReached    Code = "btw_tool_limit_reached"
+	CodeTeamMemberFailed       Code = "team_member_failed"
 
 	CodeBudgetExceeded                   Code = "budget_exceeded"
 	CodeModelCallsExceeded               Code = "model_calls_exceeded"

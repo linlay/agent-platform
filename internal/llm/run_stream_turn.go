@@ -9,6 +9,7 @@ import (
 
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
+	"agent-platform/internal/apperrors"
 	. "agent-platform/internal/contracts"
 )
 
@@ -402,12 +403,9 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		}
 		s.emitPendingUsageDelta()
 		s.emitDebugLLMChatDelta(turn.trace)
-		s.pending = append(s.pending, DeltaError{Error: NewErrorPayload(
-			"missing_tool_call_id",
+		s.pending = append(s.pending, DeltaError{Error: apperrors.Payload(
+			apperrors.CodeMissingToolCallID,
 			err.Error(),
-			ErrorScopeModel,
-			ErrorCategoryModel,
-			nil,
 		)})
 		s.currentTurn = nil
 		s.closeSteersAndFinish()
@@ -490,12 +488,9 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		return nil
 	}
 	if !s.allowToolUse {
-		s.pending = append(s.pending, DeltaError{Error: NewErrorPayload(
-			"tool_calls_not_allowed",
+		s.pending = append(s.pending, DeltaError{Error: apperrors.Payload(
+			apperrors.CodeToolCallsNotAllowed,
 			"tool calls are not allowed in ONESHOT mode",
-			ErrorScopeRun,
-			ErrorCategorySystem,
-			nil,
 		)})
 		s.closeSteersAndFinish()
 		return nil
@@ -602,41 +597,41 @@ func (s *llmRunStream) checkBudgetBeforeModelCall() map[string]any {
 		elapsed = 0
 	}
 	if budget.Timeout > 0 && elapsed > budget.RunTimeout() {
-		return NewErrorPayload(
-			"run_timeout",
+		return apperrors.Payload(
+			apperrors.CodeRunTimeout,
 			"run exceeded configured timeout",
-			ErrorScopeRun,
-			ErrorCategoryTimeout,
-			map[string]any{
+			apperrors.WithScope(apperrors.ScopeRun),
+			apperrors.WithCategory(apperrors.CategoryTimeout),
+			apperrors.WithDiagnostics(map[string]any{
 				"elapsedMs": elapsed.Milliseconds(),
 				"timeout":   budget.Timeout,
-			},
+			}),
 		)
 	}
 	if budget.MaxSteps > 0 && s.execCtx.ModelCalls >= budget.MaxSteps && !allowRunLimitFinalAnswer {
-		return NewErrorPayload(
-			"model_calls_exceeded",
+		return apperrors.Payload(
+			apperrors.CodeModelCallsExceeded,
 			"model step budget exceeded",
-			ErrorScopeModel,
-			ErrorCategoryModel,
-			map[string]any{
+			apperrors.WithScope(apperrors.ScopeModel),
+			apperrors.WithCategory(apperrors.CategoryModel),
+			apperrors.WithDiagnostics(map[string]any{
 				"modelCalls": s.execCtx.ModelCalls,
 				"limitValue": budget.MaxSteps,
 				"limitName":  "budget.maxSteps",
-			},
+			}),
 		)
 	}
 	if budget.Tool.MaxCalls > 0 && s.execCtx.ToolCalls > budget.Tool.MaxCalls && !allowRunLimitFinalAnswer {
-		return NewErrorPayload(
-			"tool_calls_exceeded",
+		return apperrors.Payload(
+			apperrors.CodeToolCallsExceeded,
 			"tool call budget exceeded",
-			ErrorScopeTool,
-			ErrorCategoryTool,
-			map[string]any{
+			apperrors.WithScope(apperrors.ScopeTool),
+			apperrors.WithCategory(apperrors.CategoryTool),
+			apperrors.WithDiagnostics(map[string]any{
 				"toolCalls":  s.execCtx.ToolCalls,
 				"limitValue": budget.Tool.MaxCalls,
 				"limitName":  "budget.tool.maxCalls",
-			},
+			}),
 		)
 	}
 	return nil

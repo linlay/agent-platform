@@ -39,3 +39,48 @@ func TestPayloadUsesCatalogDefaultsAndOverrides(t *testing.T) {
 		t.Fatalf("expected diagnostics in payload: %#v", payload)
 	}
 }
+
+func TestInternalRuntimeCodesAreCatalogedWithExistingMetadata(t *testing.T) {
+	tests := []Definition{
+		{Code: CodePlanningNotCreated, Category: CategoryModel, Scope: ScopeRun, HTTPStatus: 500, Retryable: false, UserSafeMessageKey: string(CodePlanningNotCreated)},
+		{Code: CodePlanNotCreated, Category: CategorySystem, Scope: ScopeRun, HTTPStatus: 500, Retryable: false, UserSafeMessageKey: string(CodePlanNotCreated)},
+		{Code: CodeMissingToolCallID, Category: CategoryModel, Scope: ScopeModel, HTTPStatus: 500, Retryable: false, UserSafeMessageKey: string(CodeMissingToolCallID)},
+		{Code: CodeToolCallsNotAllowed, Category: CategorySystem, Scope: ScopeRun, HTTPStatus: 500, Retryable: false, UserSafeMessageKey: string(CodeToolCallsNotAllowed)},
+		{Code: CodeBTWToolLimitReached, Category: CategoryTool, Scope: ScopeTool, HTTPStatus: 500, Retryable: false, UserSafeMessageKey: string(CodeBTWToolLimitReached)},
+		{Code: CodeTeamMemberFailed, Category: CategorySystem, Scope: ScopeTask, HTTPStatus: 500, Retryable: false, UserSafeMessageKey: string(CodeTeamMemberFailed)},
+	}
+	for _, want := range tests {
+		got, ok := Lookup(want.Code)
+		if !ok || got != want {
+			t.Fatalf("definition %q = %#v, %t; want %#v", want.Code, got, ok, want)
+		}
+	}
+}
+
+func TestPayloadContextOverridesRemainStable(t *testing.T) {
+	tests := []struct {
+		name       string
+		code       Code
+		category   Category
+		scope      Scope
+		wantStatus int
+		wantRetry  bool
+	}{
+		{name: "tool budget", code: CodeToolCallsExceeded, category: CategoryTool, scope: ScopeTool, wantStatus: 400},
+		{name: "HITL rejection", code: CodeHitlRejected, category: CategorySystem, scope: ScopeTool, wantStatus: 403},
+		{name: "HITL timeout", code: CodeHitlTimeout, category: CategoryTimeout, scope: ScopeTool, wantStatus: 504, wantRetry: true},
+		{name: "run timeout", code: CodeRunTimeout, category: CategoryTimeout, scope: ScopeRun, wantStatus: 504, wantRetry: true},
+		{name: "model budget", code: CodeModelCallsExceeded, category: CategoryModel, scope: ScopeModel, wantStatus: 400},
+		{name: "task failure", code: CodeTaskFailed, category: CategorySystem, scope: ScopeTask, wantStatus: 500},
+		{name: "plan context", code: CodePlanContextUnavailable, category: CategorySystem, scope: ScopeRun, wantStatus: 503},
+		{name: "frontend submit", code: CodeFrontendSubmitInvalidPayload, category: CategoryTool, scope: ScopeFrontendSubmit, wantStatus: 400},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := Payload(tc.code, "message", WithCategory(tc.category), WithScope(tc.scope))
+			if payload["category"] != string(tc.category) || payload["scope"] != string(tc.scope) || payload["status"] != tc.wantStatus || payload["retryable"] != tc.wantRetry {
+				t.Fatalf("unexpected payload %#v", payload)
+			}
+		})
+	}
+}

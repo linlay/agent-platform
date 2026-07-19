@@ -160,7 +160,7 @@ func TestHandleChatDeriveErrors(t *testing.T) {
 		t.Fatalf("set pending: %v", err)
 	}
 	seedDeriveServerChat(t, fixture.chats, "chat-error-active", "run-error-active", "active", "done")
-	fixture.runs.Register(context.Background(), contracts.QuerySession{RunID: "run-active-live", ChatID: "chat-error-active", AgentKey: "mock-agent"})
+	fixture.runs.Register(context.Background(), contracts.QuerySession{RunID: "run-active-live", ChatID: "chat-error-active", AgentKey: "mock-agent", RunOwner: contracts.AgentRunOwner("mock-agent", "")})
 
 	tests := []struct {
 		name string

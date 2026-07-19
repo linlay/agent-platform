@@ -50,6 +50,7 @@ func TestFileHistoryEndpointReturnsRecordedSnapshots(t *testing.T) {
 		ChatID:   chatID,
 		RunID:    runID,
 		AgentKey: "mock-agent",
+		RunOwner: contracts.AgentRunOwner("mock-agent", ""),
 	})
 	current = getFileHistory(t, fixture.server, "", runID, historyPath, "current")
 	if current != "hello\n" {

@@ -20,6 +20,7 @@ func TestRunControlHTTPRequiresAndValidatesAgentKey(t *testing.T) {
 		RunID:    "run-agent-check",
 		ChatID:   "chat-agent-check",
 		AgentKey: "mock-agent",
+		RunOwner: contracts.AgentRunOwner("mock-agent", ""),
 	})
 
 	tests := []struct {
@@ -130,6 +131,7 @@ func TestAccessLevelHTTPUpdatesRunAccessLevel(t *testing.T) {
 		RunID:       "run-access-http",
 		ChatID:      "chat-access-http",
 		AgentKey:    "mock-agent",
+		RunOwner:    contracts.AgentRunOwner("mock-agent", ""),
 		AccessLevel: contracts.AccessLevelDefault,
 	})
 
@@ -155,6 +157,7 @@ func TestRunControlProxyMismatchReturnsForbiddenWithoutForwarding(t *testing.T) 
 		RunID:    "run-proxy-agent-check",
 		ChatID:   "chat-proxy-agent-check",
 		AgentKey: "proxy-agent",
+		RunOwner: contracts.AgentRunOwner("proxy-agent", ""),
 	})
 	route := &proxyRunRoute{
 		runID:    "run-proxy-agent-check",
@@ -220,6 +223,7 @@ func TestAccessLevelHTTPForwardsForProxyRun(t *testing.T) {
 		RunID:    "run-proxy-access-level",
 		ChatID:   "chat-proxy-access-level",
 		AgentKey: "proxy-agent",
+		RunOwner: contracts.AgentRunOwner("proxy-agent", ""),
 	})
 	route := &proxyRunRoute{
 		runID:    "run-proxy-access-level",
@@ -267,6 +271,7 @@ func TestRunControlProxyForwardsSubmitInterruptAndSteer(t *testing.T) {
 		RunID:    "run-proxy-forward",
 		ChatID:   "chat-proxy-forward",
 		AgentKey: "proxy-agent",
+		RunOwner: contracts.AgentRunOwner("proxy-agent", ""),
 	})
 	route := &proxyRunRoute{
 		runID:    "run-proxy-forward",

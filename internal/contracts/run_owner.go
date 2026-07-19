@@ -35,44 +35,20 @@ func IsTeamRunOwner(agentKey string, teamID string) bool {
 	return strings.TrimSpace(agentKey) == "" && strings.TrimSpace(teamID) != ""
 }
 
-// ResolveRunOwner normalizes an explicitly supplied owner and fills runtime
-// fallbacks from the existing QuerySession identity fields.
-func ResolveRunOwner(owner RunOwner, agentKey string, teamID string) RunOwner {
+// ResolveRunOwner normalizes an explicitly supplied owner. QuerySession
+// producers must set RunOwner instead of relying on AgentKey or TeamID as a
+// fallback identity.
+func ResolveRunOwner(owner RunOwner) RunOwner {
 	owner.AgentKey = strings.TrimSpace(owner.AgentKey)
 	owner.TeamID = strings.TrimSpace(owner.TeamID)
 	owner.ExecutionAgentKey = strings.TrimSpace(owner.ExecutionAgentKey)
-	agentKey = strings.TrimSpace(agentKey)
-	teamID = strings.TrimSpace(teamID)
 
 	if IsTeamRunOwner(owner.AgentKey, owner.TeamID) {
 		owner.AgentKey = ""
-		if owner.ExecutionAgentKey == "" {
-			owner.ExecutionAgentKey = agentKey
-		}
-		return owner
-	}
-
-	if owner.AgentKey == "" {
-		owner.AgentKey = agentKey
-	}
-	if owner.TeamID == "" {
-		owner.TeamID = teamID
-	}
-	if owner.ExecutionAgentKey == "" {
-		owner.ExecutionAgentKey = firstNonBlankRunOwner(owner.AgentKey, agentKey)
 	}
 	return owner
 }
 
 func (o RunOwner) IsTeam() bool {
 	return IsTeamRunOwner(o.AgentKey, o.TeamID)
-}
-
-func firstNonBlankRunOwner(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
 }

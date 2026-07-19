@@ -56,6 +56,7 @@ func TestTeamSideRunEntriesRejectNonMemberAndCurrentAgentDrift(t *testing.T) {
 		ChatID:          continuationChat,
 		AgentKey:        "mock-agent",
 		TeamID:          teamID,
+		RunOwner:        contracts.AgentRunOwner("mock-agent", teamID),
 		StartedAtMillis: activeStartedAt,
 	})
 	startServerFixtureRun(t, fixture.chats, continuationChat, activeRunID, activeStartedAt)

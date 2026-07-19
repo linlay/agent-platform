@@ -234,8 +234,8 @@ type QuerySession struct {
 	ChatID    string
 	ChatName  string
 	AgentKey  string
-	// RunOwner is the public run owner. It is optional for compatibility: an
-	// empty value resolves to the existing AgentKey/TeamID legacy identity.
+	// RunOwner is the required public run owner. Session producers must set it
+	// explicitly; AgentKey and TeamID are not fallback ownership fields.
 	RunOwner RunOwner
 	// TeamRuntime is populated only for an orchestrated Team-owned run.
 	TeamRuntime *TeamRuntimeContext

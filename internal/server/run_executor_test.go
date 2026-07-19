@@ -250,6 +250,7 @@ func TestHandleAwaitingLifecycleBroadcastsAwaitAskPushForApprovalAndPlan(t *test
 					ChatID:   "chat-1",
 					RunID:    "run-1",
 					AgentKey: "agent-a",
+					RunOwner: AgentRunOwner("agent-a", ""),
 				},
 				Notifications: notifications,
 			}, stream.EventData{

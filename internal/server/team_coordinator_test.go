@@ -139,7 +139,7 @@ func TestConfigureTeamCoordinatorSessionAddsOwnerPromptAndLocalTools(t *testing.
 		t.Fatalf("configureTeamCoordinatorSession: %v", err)
 	}
 
-	owner := contracts.ResolveRunOwner(session.RunOwner, session.AgentKey, session.TeamID)
+	owner := contracts.ResolveRunOwner(session.RunOwner)
 	if !owner.IsTeam() || owner.TeamID != "research" || owner.AgentKey != "" || owner.ExecutionAgentKey != hiddenTeamAgentKey("research") {
 		t.Fatalf("unexpected owner %#v", owner)
 	}

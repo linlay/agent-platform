@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/apperrors"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
@@ -333,7 +334,12 @@ func (o *frameOrchestrator) handleSubAgentBatch(mainStream contracts.AgentStream
 			Presentation: task.presentation,
 		}
 		if terminalKind == "error" {
-			lifecycle.Error = contracts.NewErrorPayload(firstNonEmpty(routed.result.ErrorCode, "sub_agent_failed"), firstNonEmpty(routed.result.Error, routed.result.Text), contracts.ErrorScopeTask, contracts.ErrorCategorySystem, nil)
+			lifecycle.Error = apperrors.Payload(
+				apperrors.Code(firstNonEmpty(routed.result.ErrorCode, string(apperrors.CodeSubAgentFailed))),
+				firstNonEmpty(routed.result.Error, routed.result.Text),
+				apperrors.WithScope(apperrors.ScopeTask),
+				apperrors.WithCategory(apperrors.CategorySystem),
+			)
 		}
 		o.emitDelta(lifecycle)
 		hitlBatch.observe(routed)
@@ -493,7 +499,12 @@ func (o *frameOrchestrator) handleTeamDispatch(mainStream contracts.AgentStream,
 		}
 		lifecycle := contracts.DeltaTaskLifecycle{Kind: terminalKind, TaskID: routed.result.TaskID, SubAgentKey: routed.result.SubAgentKey, TeamID: task.teamID, Presentation: task.presentation}
 		if terminalKind == "error" {
-			lifecycle.Error = contracts.NewErrorPayload(firstNonEmpty(routed.result.ErrorCode, "team_member_failed"), firstNonEmpty(routed.result.Error, routed.result.Text), contracts.ErrorScopeTask, contracts.ErrorCategorySystem, nil)
+			lifecycle.Error = apperrors.Payload(
+				apperrors.Code(firstNonEmpty(routed.result.ErrorCode, string(apperrors.CodeTeamMemberFailed))),
+				firstNonEmpty(routed.result.Error, routed.result.Text),
+				apperrors.WithScope(apperrors.ScopeTask),
+				apperrors.WithCategory(apperrors.CategorySystem),
+			)
 		}
 		o.emitDelta(lifecycle)
 		hitlBatch.observe(routed)

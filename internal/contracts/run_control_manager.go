@@ -85,7 +85,7 @@ func (m *InMemoryRunManager) RegisterExclusiveForChat(_ context.Context, session
 func (m *InMemoryRunManager) registerLocked(session QuerySession) (context.Context, *RunControl, ActiveRun) {
 	control := NewRunControl(context.Background(), session.RunID)
 	control.SetInitialAccessLevel(session.AccessLevel)
-	owner := ResolveRunOwner(session.RunOwner, session.AgentKey, session.TeamID)
+	owner := ResolveRunOwner(session.RunOwner)
 	run := ActiveRun{
 		RunID:             session.RunID,
 		ChatID:            session.ChatID,

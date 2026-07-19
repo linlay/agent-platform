@@ -186,6 +186,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		ChatID:                        req.ChatID,
 		ChatName:                      summary.ChatName,
 		AgentKey:                      req.AgentKey,
+		RunOwner:                      contracts.AgentRunOwner(req.AgentKey, req.TeamID),
 		AgentName:                     agentDef.Name,
 		AgentRole:                     agentDef.Role,
 		AgentDescription:              agentDef.Description,

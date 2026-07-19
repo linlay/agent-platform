@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/apperrors"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/frontendtools"
 )
@@ -36,15 +37,15 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 	}
 	if !ok {
 		execCtx.RunControl.ClearExpectedSubmit(awaitingID)
-		payload := NewErrorPayload(
-			"frontend_tool_handler_not_registered",
+		payload := apperrors.Payload(
+			apperrors.CodeFrontendToolHandlerNotRegistered,
 			"frontend tool handler not registered: "+toolName,
-			ErrorScopeFrontendSubmit,
-			ErrorCategoryTool,
-			map[string]any{
+			apperrors.WithScope(apperrors.ScopeFrontendSubmit),
+			apperrors.WithCategory(apperrors.CategoryTool),
+			apperrors.WithDiagnostics(map[string]any{
 				"awaitingId": awaitingID,
 				"toolName":   toolName,
-			},
+			}),
 		)
 		return ToolExecutionResult{
 			Output:     marshalJSON(payload),
@@ -78,16 +79,16 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 
 	normalized, normalizeErr := handler.NormalizeSubmit(args, result.Request.Params)
 	if normalizeErr != nil {
-		payload := NewErrorPayload(
-			"frontend_submit_invalid_payload",
+		payload := apperrors.Payload(
+			apperrors.CodeFrontendSubmitInvalidPayload,
 			normalizeErr.Error(),
-			ErrorScopeFrontendSubmit,
-			ErrorCategoryTool,
-			map[string]any{
+			apperrors.WithScope(apperrors.ScopeFrontendSubmit),
+			apperrors.WithCategory(apperrors.CategoryTool),
+			apperrors.WithDiagnostics(map[string]any{
 				"awaitingId": awaitingID,
 				"toolName":   toolName,
 				"params":     result.Request.Params,
-			},
+			}),
 		)
 		return ToolExecutionResult{
 			Output:     formatToolErrorOutput("frontend_submit_invalid_payload", normalizeErr.Error()),

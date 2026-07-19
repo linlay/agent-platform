@@ -37,13 +37,6 @@ func (s *Server) validateRunOwner(runID string, agentKey string, teamID string) 
 	return validateRunStatusOwner(status, agentKey, teamID)
 }
 
-// validateRunAgentKey remains as a compatibility adapter for agent-only
-// controls. New control endpoints should pass both public identity fields to
-// validateRunOwner.
-func (s *Server) validateRunAgentKey(runID string, agentKey string) *statusError {
-	return s.validateRunOwner(runID, agentKey, "")
-}
-
 func validateRunStatusOwner(status contracts.RunStatusInfo, agentKey string, teamID string) *statusError {
 	agentKey = strings.TrimSpace(agentKey)
 	teamID = strings.TrimSpace(teamID)
@@ -113,10 +106,6 @@ func (s *Server) validateSubmitOwner(req api.SubmitRequest) *statusError {
 		return &statusError{status: http.StatusBadRequest, message: "agentKey or teamId is required"}
 	}
 	return nil
-}
-
-func (s *Server) validateSubmitAgentKey(req api.SubmitRequest) *statusError {
-	return s.validateSubmitOwner(req)
 }
 
 func runStatusOwnerFromChatSummary(summary *chat.Summary) contracts.RunStatusInfo {
