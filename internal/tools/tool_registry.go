@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"fmt"
 	"io/fs"
 	"log"
 	"os"
@@ -26,10 +27,12 @@ func LoadRuntimeToolDefinitions(root string) ([]api.ToolDetailResponse, error) {
 		return nil, err
 	}
 
-	servicesByDir := map[string]runtimeExternalService{}
-	servicesByKey := map[string]string{}
 	toolFiles := make([]runtimeToolFile, 0, len(files))
 	for _, path := range files {
+		name := strings.ToLower(filepath.Base(path))
+		if name == "service.yml" || name == "service.yaml" {
+			return nil, deprecatedExternalToolConfigError(path)
+		}
 		tree, err := config.LoadYAMLTree(path)
 		if err != nil {
 			log.Printf("[tools] skip invalid tool file %s: %v", path, err)
@@ -40,29 +43,15 @@ func LoadRuntimeToolDefinitions(root string) ([]api.ToolDetailResponse, error) {
 			log.Printf("[tools] skip invalid tool file %s: object root required", path)
 			continue
 		}
-		if isRuntimeExternalServiceFile(path, rootNode) {
-			service, err := parseRuntimeExternalService(path, rootNode)
-			if err != nil {
-				log.Printf("[tools] skip invalid external service file %s: %v", path, err)
-				continue
-			}
-			if previous, exists := servicesByKey[service.key]; exists {
-				log.Printf("[tools] skip external service file %s: duplicate service key %q already defined by %s", path, service.key, previous)
-				continue
-			}
-			servicesByKey[service.key] = path
-			servicesByDir[filepath.Dir(path)] = service
-			continue
+		if isDeprecatedExternalToolConfig(path, rootNode) {
+			return nil, deprecatedExternalToolConfigError(path)
 		}
 		toolFiles = append(toolFiles, runtimeToolFile{path: path, root: rootNode})
 	}
 
 	out := make([]api.ToolDetailResponse, 0, len(toolFiles))
 	for _, file := range toolFiles {
-		options := toolDefinitionParseOptions{sourceType: "agent-local", sourceCategory: "external", baseDir: filepath.Dir(file.path)}
-		if service, ok := servicesByDir[filepath.Dir(file.path)]; ok {
-			options.defaultExternal = service.external
-		}
+		options := toolDefinitionParseOptions{sourceType: "agent-local", sourceCategory: "external"}
 		def, err := parseToolDefinition(file.root, options)
 		if err != nil {
 			log.Printf("[tools] skip invalid tool file %s: %v", file.path, err)
@@ -76,11 +65,6 @@ func LoadRuntimeToolDefinitions(root string) ([]api.ToolDetailResponse, error) {
 type runtimeToolFile struct {
 	path string
 	root map[string]any
-}
-
-type runtimeExternalService struct {
-	key      string
-	external map[string]any
 }
 
 func runtimeToolYAMLFiles(root string) ([]string, error) {
@@ -112,31 +96,19 @@ func runtimeToolYAMLFiles(root string) ([]string, error) {
 	return files, nil
 }
 
-func isRuntimeExternalServiceFile(path string, root map[string]any) bool {
+func isDeprecatedExternalToolConfig(path string, root map[string]any) bool {
 	name := strings.ToLower(filepath.Base(path))
 	if name == "service.yml" || name == "service.yaml" {
 		return true
 	}
-	return strings.EqualFold(strings.TrimSpace(AnyStringNode(root["kind"])), "external-service")
+	_, hasExternal := root["external"]
+	return strings.EqualFold(strings.TrimSpace(AnyStringNode(root["kind"])), "external-service") ||
+		strings.EqualFold(strings.TrimSpace(AnyStringNode(root["type"])), "external") ||
+		hasExternal
 }
 
-func parseRuntimeExternalService(path string, root map[string]any) (runtimeExternalService, error) {
-	serviceKey := strings.TrimSpace(AnyStringNode(root["key"]))
-	if serviceKey == "" {
-		serviceKey = strings.TrimSpace(AnyStringNode(root["serviceKey"]))
-	}
-	if serviceKey == "" {
-		serviceKey = strings.TrimSpace(filepath.Base(filepath.Dir(path)))
-	}
-	external := CloneMap(root)
-	delete(external, "key")
-	delete(external, "kind")
-	external["serviceKey"] = serviceKey
-	normalized, err := normalizeExternalToolMeta(serviceKey, serviceKey, external, filepath.Dir(path))
-	if err != nil {
-		return runtimeExternalService{}, err
-	}
-	return runtimeExternalService{key: serviceKey, external: normalized}, nil
+func deprecatedExternalToolConfigError(path string) error {
+	return fmt.Errorf("deprecated external stdio tool config %s: move the subprocess to registries/mcp-servers with transport: stdio", path)
 }
 
 func MergeToolDefinitions(base []api.ToolDetailResponse, runtime []api.ToolDetailResponse, mcp []api.ToolDetailResponse) []api.ToolDetailResponse {

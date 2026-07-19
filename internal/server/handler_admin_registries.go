@@ -349,8 +349,27 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 		if adminRegistryKey(category, file, root) == "" {
 			addError("missing_key", "serverKey or key is required")
 		}
-		if strings.TrimSpace(contracts.FirstNonEmptyString(root["baseUrl"], root["base-url"], root["url"])) == "" {
-			addError("missing_base_url", "MCP server baseUrl is required")
+		transport := strings.ToLower(strings.TrimSpace(contracts.FirstNonEmptyString(root["transport"])))
+		if transport == "" {
+			transport = "streamable-http"
+		}
+		switch transport {
+		case "streamable-http":
+			if strings.TrimSpace(contracts.FirstNonEmptyString(root["baseUrl"], root["base-url"], root["url"])) == "" {
+				addError("missing_base_url", "streamable-http MCP server baseUrl is required")
+			}
+			if adminRegistryHasAnyKey(root, "command", "args", "env", "workingDirectory", "working-directory") {
+				addError("mixed_transport_fields", "streamable-http MCP server cannot declare stdio fields")
+			}
+		case "stdio":
+			if strings.TrimSpace(contracts.FirstNonEmptyString(root["command"])) == "" {
+				addError("missing_command", "stdio MCP server command is required")
+			}
+			if adminRegistryHasAnyKey(root, "baseUrl", "base-url", "url", "endpointPath", "endpoint-path", "path", "authToken", "auth-token", "headers") {
+				addError("mixed_transport_fields", "stdio MCP server cannot declare HTTP fields")
+			}
+		default:
+			addError("invalid_transport", "MCP transport must be streamable-http or stdio")
 		}
 	case "viewport-servers":
 		if adminRegistryKey(category, file, root) == "" {
@@ -363,6 +382,15 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 		addError("invalid_category", "unsupported registry category")
 	}
 	return diagnostics
+}
+
+func adminRegistryHasAnyKey(values map[string]any, keys ...string) bool {
+	for _, key := range keys {
+		if _, ok := values[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) adminRegistryProviderExists(provider string) bool {
@@ -499,8 +527,15 @@ func adminRegistryPublicSummary(category string, root map[string]any) map[string
 		put("maxOutputTokens", root["maxOutputTokens"])
 		put("timeout", root["timeout"])
 	case "mcp-servers":
-		put("baseUrl", contracts.FirstNonEmptyString(root["baseUrl"], root["base-url"], root["url"]))
-		put("endpointPath", contracts.FirstNonEmptyString(root["endpointPath"], root["endpoint-path"], root["path"]))
+		transport := strings.ToLower(strings.TrimSpace(contracts.FirstNonEmptyString(root["transport"])))
+		if transport == "" {
+			transport = "streamable-http"
+		}
+		put("transport", transport)
+		if transport == "streamable-http" {
+			put("baseUrl", contracts.FirstNonEmptyString(root["baseUrl"], root["base-url"], root["url"]))
+			put("endpointPath", contracts.FirstNonEmptyString(root["endpointPath"], root["endpoint-path"], root["path"]))
+		}
 		put("enabled", adminRegistryBool(root["enabled"], true))
 		put("toolPrefix", contracts.FirstNonEmptyString(root["toolPrefix"], root["tool-prefix"]))
 		if tools, ok := root["tools"].([]any); ok {

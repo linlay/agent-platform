@@ -53,7 +53,7 @@
 - 文件传输按“HTTP 数据面 + WebSocket 控制面”划分：浏览器上传继续使用 `POST /api/upload`，下载继续使用 `GET /api/resource?file=...`；upload ticket 中的 `path` 是智能体执行环境内的可读路径，`url` 只用于平台资源访问；`/ws` 只传文件引用与状态，不承载文件字节。当前 `/ws` 的 `/api/upload` 仅支持网关发送 `url + metadata`，由 platform 再通过 HTTP 拉取文件并落盘。
 - 文件工具的 `file_read` / `file_glob` / `file_grep` 与 `file_write` / `file_edit` 白名单独立于 bash allowed paths，默认均为 `.,/tmp`；越权访问会走 `mode=approval`，可单次批准或用 `approve_rule_run` 在当前 run 内批准同一规则。
 
-当前仍未与 Java 版完全对齐的能力主要集中在 frontend tool 完整闭环、MCP 实接，以及更深层的 memory / automation 执行编排细节；配置契约、catalog API、基础鉴权与 resource ticket 已按 Java 语义接入。
+当前仍未与 Java 版完全对齐的能力主要集中在 frontend tool 完整闭环、MCP 全量生产验证，以及更深层的 memory / automation 执行编排细节；MCP 的 HTTP/stdio client、严格 `2025-11-25` 版本校验、session 生命周期与 tool sync 已接通。
 
 ## 2. 快速开始
 
@@ -159,6 +159,8 @@ RUN_SOCKET_TESTS=1 make test-integration
 ## 3. 配置说明
 
 本地启动变量从 `.env.example` 复制到 `.env`。`.env` 不提交；`.env.example` 只保留启动/部署 allowlist。运行时配置使用 `configs/runtime.yml`，工具运行时配置使用 `configs/tools.yml`，AI 工具配置使用 `configs/ai-tools.yml`，默认值的单一事实源仍以代码和 `configs/*.example.yml` 模板为准。更完整的高级与排障配置参考见 [配置化说明](./docs/配置化说明.md)。
+
+MCP server 配置位于 `${AP_RUNTIME_REGISTRIES_DIR}/mcp-servers/*.yml`，支持默认的 `streamable-http` 与 `stdio`。两种 transport 都只接受协议版本 `2025-11-25`；stdio 子进程必须使用标准 MCP，旧 `tools-dir/service.yml`、`type: external`、`external:` 与 `kind: external-service` 会在启动或热重载时硬失败。配置示例和迁移边界见 [MCP与前端工具](./docs/MCP与前端工具.md)。
 
 ### 根 `.env.example`
 

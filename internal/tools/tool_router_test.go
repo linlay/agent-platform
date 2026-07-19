@@ -69,12 +69,6 @@ func (s *captureFrontendSubmitter) Await(ctx context.Context, _ *ExecutionContex
 	return ToolExecutionResult{Output: "ok", ExitCode: 0}, nil
 }
 
-type captureExternalInvoker struct {
-	configured []api.ToolDetailResponse
-	invoked    string
-	args       map[string]any
-}
-
 type captureNamedToolHandler struct {
 	names   []string
 	invoked string
@@ -137,20 +131,6 @@ func TestToolRouterRegisterHandlerRejectsConflictsAtomically(t *testing.T) {
 	if err := router.RegisterHandler(second); err != nil {
 		t.Fatalf("expected failed registration to be atomic: %v", err)
 	}
-}
-
-func (s *captureExternalInvoker) Configure(defs []api.ToolDetailResponse) {
-	s.configured = append([]api.ToolDetailResponse(nil), defs...)
-}
-
-func (s *captureExternalInvoker) Invoke(_ context.Context, def api.ToolDetailResponse, args map[string]any, _ *ExecutionContext) (ToolExecutionResult, error) {
-	s.invoked = def.Name
-	s.args = args
-	return structuredResult(map[string]any{"tool": def.Name, "ok": true, "args": args}), nil
-}
-
-func (s *captureExternalInvoker) Close() error {
-	return nil
 }
 
 func TestToolRouterReloadRuntimeToolDefinitions(t *testing.T) {
@@ -241,138 +221,45 @@ func TestBackendOverlayKeepsPlatformSourceCategory(t *testing.T) {
 	}
 }
 
-func TestToolRouterReloadRuntimeExternalToolDefinitions(t *testing.T) {
-	root := t.TempDir()
-	external := &captureExternalInvoker{}
-	router := NewToolRouter(stubBackendToolExecutor{}, nil, nil, nil, nil).WithExternalInvoker(external)
-	if err := os.WriteFile(filepath.Join(root, "qs_read.yml"), []byte(`
-name: qs_read
-description: Read Qiuer method.
-tags: [knowledge, read]
-readOnly: true
-external:
-  transport: stdio-jsonrpc
-  serviceKey: qiuerscript
-  command: ./qiuerscript-tool
-  args: ["serve"]
-inputSchema:
-  type: object
-  properties:
-    file_path:
-      type: string
-`), 0o644); err != nil {
-		t.Fatalf("write runtime tool: %v", err)
-	}
-
-	if err := router.ReloadRuntimeToolDefinitions(root); err != nil {
-		t.Fatalf("reload runtime tools: %v", err)
-	}
-	tool, ok := router.Tool("qs_read")
-	if !ok {
-		t.Fatal("expected runtime external tool after reload")
-	}
-	if tool.Meta["kind"] != "external" || tool.Meta["serviceKey"] != "qiuerscript" || tool.Meta["readOnly"] != true {
-		t.Fatalf("unexpected runtime tool metadata %#v", tool.Meta)
-	}
-	if tool.Meta["sourceCategory"] != "external" {
-		t.Fatalf("expected runtime external tool sourceCategory external, got %#v", tool.Meta)
-	}
-	tags, _ := tool.Meta["tags"].([]string)
-	if strings.Join(tags, ",") != "knowledge,read" {
-		t.Fatalf("unexpected public tool tags %#v", tool.Meta["tags"])
-	}
-	externalMeta, _ := tool.Meta["external"].(map[string]any)
-	if externalMeta["command"] != filepath.Join(root, "qiuerscript-tool") {
-		t.Fatalf("expected relative command to resolve from manifest dir, got %#v", externalMeta["command"])
-	}
-	if len(external.configured) == 0 {
-		t.Fatal("expected external invoker to be configured after reload")
+func TestLoadRuntimeToolDefinitionsRejectsDeprecatedExternalConfigs(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		file    string
+		content string
+	}{
+		{"service file", "service.yml", "key: qiuerscript\ntransport: stdio-jsonrpc\ncommand: ./qiuerscript-tool\n"},
+		{"external type", "tool.yml", "name: qs_read\ntype: external\n"},
+		{"external block", "tool.yml", "name: qs_read\nexternal:\n  command: ./qiuerscript-tool\n"},
+		{"empty external block", "tool.yml", "name: qs_read\nexternal: {}\n"},
+		{"external service kind", "tool.yml", "kind: external-service\ncommand: ./qiuerscript-tool\n"},
+		{"invalid legacy service", "service.yaml", "not: [valid\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.WriteFile(filepath.Join(root, tc.file), []byte(tc.content), 0o644); err != nil {
+				t.Fatalf("write deprecated config: %v", err)
+			}
+			if _, err := LoadRuntimeToolDefinitions(root); err == nil || !strings.Contains(err.Error(), "transport: stdio") {
+				t.Fatalf("expected migration error, got %v", err)
+			}
+		})
 	}
 }
 
-func TestLoadRuntimeToolDefinitionsBindsBundleService(t *testing.T) {
-	root := t.TempDir()
-	bundle := filepath.Join(root, "qiuerscript")
-	if err := os.MkdirAll(bundle, 0o755); err != nil {
-		t.Fatalf("create bundle: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(bundle, "service.yml"), []byte(`
-key: qiuerscript
-transport: stdio-jsonrpc
-command: ./qiuerscript-tool
-args: ["serve", "--datasource", "dev"]
-startupTimeout: 5
-timeout: 30
-`), 0o644); err != nil {
-		t.Fatalf("write service: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(bundle, "qs_read.yml"), []byte(`
-name: qs_read
-label: Read QS
-description: Read Qiuer method.
-submitResultFormat: json-compact
-type: function
-inputSchema:
-  type: object
-  properties:
-    file_path:
-      type: string
-  required:
-    - file_path
-`), 0o644); err != nil {
-		t.Fatalf("write runtime tool: %v", err)
-	}
-
-	defs, err := LoadRuntimeToolDefinitions(root)
-	if err != nil {
-		t.Fatalf("load runtime tools: %v", err)
-	}
-	if len(defs) != 1 {
-		t.Fatalf("expected only qs_read to load, got %#v", defs)
-	}
-	tool := defs[0]
-	if tool.Name != "qs_read" {
-		t.Fatalf("expected qs_read, got %q", tool.Name)
-	}
-	if tool.Meta["kind"] != "external" || tool.Meta["serviceKey"] != "qiuerscript" {
-		t.Fatalf("unexpected runtime tool metadata %#v", tool.Meta)
-	}
-	if _, exists := tool.Meta["explicitOnly"]; exists {
-		t.Fatalf("did not expect explicitOnly from bundle service, got %#v", tool.Meta)
-	}
-	externalMeta, _ := tool.Meta["external"].(map[string]any)
-	if externalMeta["command"] != filepath.Join(bundle, "qiuerscript-tool") {
-		t.Fatalf("expected bundle command to resolve from service dir, got %#v", externalMeta["command"])
-	}
-	if externalMeta["workingDirectory"] != bundle {
-		t.Fatalf("expected bundle working directory, got %#v", externalMeta["workingDirectory"])
-	}
-}
-
-func TestToolRouterInvokeExternalTool(t *testing.T) {
-	external := &captureExternalInvoker{}
-	router := NewToolRouter(stubBackendToolExecutor{}, nil, nil, nil, nil, api.ToolDetailResponse{
-		Name: "qs_read",
-		Meta: map[string]any{
-			"kind":       "external",
-			"sourceType": "agent-local",
-			"external": map[string]any{
-				"transport":  "stdio-jsonrpc",
-				"serviceKey": "qiuerscript",
-				"command":    "/bin/qs",
-			},
+func TestNormalizeMCPResultPreservesBusinessErrorCode(t *testing.T) {
+	result := normalizeMCPResult("qs_edit", map[string]any{
+		"isError": true,
+		"content": []any{map[string]any{"type": "text", "text": `{"error":"last_digest_required","message":"digest is required"}`}},
+		"structuredContent": map[string]any{
+			"error":   "last_digest_required",
+			"message": "digest is required",
 		},
-	}).WithExternalInvoker(external)
-
-	result, err := router.Invoke(context.Background(), "qs_read", map[string]any{"file_path": "10.69"}, &ExecutionContext{})
-	if err != nil {
-		t.Fatalf("invoke external tool: %v", err)
+	})
+	if result.ExitCode == 0 || result.Error != "last_digest_required" {
+		t.Fatalf("business error code was degraded: %#v", result)
 	}
-	if result.ExitCode != 0 || external.invoked != "qs_read" {
-		t.Fatalf("unexpected external invocation result=%#v invoked=%q", result, external.invoked)
-	}
-	if external.args["file_path"] != "10.69" {
-		t.Fatalf("unexpected args %#v", external.args)
+	if result.Structured["error"] != "last_digest_required" || result.Structured["message"] != "digest is required" {
+		t.Fatalf("structured MCP error was not preserved: %#v", result.Structured)
 	}
 }
 

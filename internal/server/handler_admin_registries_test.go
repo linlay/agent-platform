@@ -70,6 +70,9 @@ func setupAdminRegistriesFixture(t *testing.T) testFixture {
 			if err := os.WriteFile(filepath.Join(mcpDir, "demo.yml"), []byte("serverKey: demo-mcp\nbaseUrl: http://localhost:11969\n"), 0o644); err != nil {
 				t.Fatalf("write demo mcp registry: %v", err)
 			}
+			if err := os.WriteFile(filepath.Join(mcpDir, "stdio.yml"), []byte("serverKey: stdio-mcp\ntransport: stdio\ncommand: private-tool\nargs: [serve]\nenv:\n  SECRET: hidden\n"), 0o644); err != nil {
+				t.Fatalf("write stdio mcp registry: %v", err)
+			}
 			if err := os.WriteFile(filepath.Join(viewportDir, "missing-base.yml"), []byte("serverKey: missing-base\nendpointPath: /mcp\n"), 0o644); err != nil {
 				t.Fatalf("write invalid viewport registry: %v", err)
 			}
@@ -149,8 +152,15 @@ func TestAdminRegistriesEndpointIncludesInvalidFiles(t *testing.T) {
 	if item := byFile["models/capability-model.yml"]; item.Status != "ready" || item.Name != "Capability Model" || item.Summary["type"] != "chat" || item.Summary["provider"] != "mock" || item.Summary["protocol"] != "OPENAI" || item.Summary["isVision"] != true || item.Summary["isReasoner"] != true || item.Summary["isFunction"] != true {
 		t.Fatalf("capability model list summary missing display fields: %#v", item)
 	}
-	if item := byFile["mcp-servers/demo.yml"]; item.Status != "ready" || item.Key != "demo-mcp" || item.Summary["baseUrl"] != "http://localhost:11969" || intFromAny(item.Summary["toolCount"]) != 2 {
+	if item := byFile["mcp-servers/demo.yml"]; item.Status != "ready" || item.Key != "demo-mcp" || item.Summary["transport"] != "streamable-http" || item.Summary["baseUrl"] != "http://localhost:11969" || intFromAny(item.Summary["toolCount"]) != 2 {
 		t.Fatalf("mcp server list summary should expose runtime tool count: %#v", item)
+	}
+	if item := byFile["mcp-servers/stdio.yml"]; item.Status != "ready" || item.Key != "stdio-mcp" || item.Summary["transport"] != "stdio" {
+		t.Fatalf("stdio mcp summary missing transport: %#v", item)
+	} else if _, hasCommand := item.Summary["command"]; hasCommand {
+		t.Fatalf("stdio mcp summary leaked command: %#v", item)
+	} else if _, hasBaseURL := item.Summary["baseUrl"]; hasBaseURL {
+		t.Fatalf("stdio mcp summary exposed meaningless baseUrl: %#v", item)
 	}
 	if item := byFile["viewport-servers/missing-base.yml"]; item.Status != "invalid" || item.Diagnostic == nil || item.Diagnostic.Code != "missing_base_url" || item.DiagnosticCount != 1 {
 		t.Fatalf("viewport diagnostic summary missing: %#v", item)

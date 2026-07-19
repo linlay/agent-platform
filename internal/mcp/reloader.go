@@ -19,6 +19,9 @@ func (r *RegistryReloader) Reload(ctx context.Context) error {
 		return err
 	}
 	if r.sync != nil {
+		if r.sync.client != nil {
+			r.sync.client.Reconcile()
+		}
 		_, err := r.sync.Load(ctx)
 		return err
 	}

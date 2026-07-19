@@ -11,17 +11,29 @@ import (
 type ServerDefinition struct {
 	Key            string
 	Name           string
+	Transport      string
 	BaseURL        string
 	EndpointPath   string
+	Command        string
+	Args           []string
+	Env            map[string]string
+	WorkingDir     string
 	ToolPrefix     string
 	AuthToken      string
 	Headers        map[string]string
 	AliasMap       map[string]string
 	ConnectTimeout int
+	StartupTimeout int
 	ReadTimeout    int
 	Retry          int
 	Tools          []ToolDefinition
 }
+
+const (
+	TransportStreamableHTTP = "streamable-http"
+	TransportStdio          = "stdio"
+	ProtocolVersion         = "2025-11-25"
+)
 
 func (s ServerDefinition) ResolvedURL() string {
 	base := strings.TrimRight(s.BaseURL, "/")
@@ -94,25 +106,6 @@ func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
 		Meta:          meta,
 	}
 	return nil
-}
-
-type JSONRPCRequest struct {
-	JSONRPC string         `json:"jsonrpc"`
-	ID      string         `json:"id"`
-	Method  string         `json:"method"`
-	Params  map[string]any `json:"params,omitempty"`
-}
-
-type JSONRPCResponse struct {
-	JSONRPC string        `json:"jsonrpc"`
-	ID      string        `json:"id"`
-	Result  any           `json:"result,omitempty"`
-	Error   *JSONRPCError `json:"error,omitempty"`
-}
-
-type JSONRPCError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
 }
 
 func (t ToolDefinition) ToAPITool(serverKey string) api.ToolDetailResponse {

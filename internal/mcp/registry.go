@@ -15,7 +15,10 @@ import (
 	"agent-platform/internal/contracts"
 )
 
-const defaultReadTimeout = 15
+const (
+	defaultReadTimeout    = 15
+	defaultStartupTimeout = 5
+)
 
 type Registry struct {
 	root string
@@ -106,13 +109,13 @@ func loadServersFromDir(root string) (map[string]ServerDefinition, error) {
 	for _, path := range files {
 		server, err := parseServerFile(path)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("load MCP server %s: %w", path, err)
 		}
 		if server.Key == "" || !server.Enabled() {
 			continue
 		}
 		if _, exists := servers[server.Key]; exists {
-			continue
+			return nil, fmt.Errorf("duplicate MCP server key %q in %s", server.Key, path)
 		}
 		servers[server.Key] = server
 	}
@@ -136,21 +139,65 @@ func parseServerFile(path string) (ServerDefinition, error) {
 		base := filepath.Base(path)
 		serverKey = normalizeKey(strings.TrimSuffix(strings.TrimSuffix(base, ".yaml"), ".yml"))
 	}
-	baseURL := strings.TrimSpace(contracts.FirstNonEmptyString(root["baseUrl"], root["base-url"], root["url"]))
-	if baseURL == "" {
-		return ServerDefinition{}, fmt.Errorf("empty baseUrl")
+	transport := strings.ToLower(strings.TrimSpace(contracts.FirstNonEmptyString(root["transport"])))
+	if transport == "" {
+		transport = TransportStreamableHTTP
 	}
-	endpointPath := normalizeEndpointPath(contracts.FirstNonEmptyString(root["endpointPath"], root["endpoint-path"], root["path"]))
+	if transport != TransportStreamableHTTP && transport != TransportStdio {
+		return ServerDefinition{}, fmt.Errorf("unsupported MCP transport %q", transport)
+	}
+	baseURL := strings.TrimSpace(contracts.FirstNonEmptyString(root["baseUrl"], root["base-url"], root["url"]))
+	command := strings.TrimSpace(contracts.FirstNonEmptyString(root["command"]))
+	args, err := normalizeStringSlice(root["args"])
+	if err != nil {
+		return ServerDefinition{}, fmt.Errorf("args: %w", err)
+	}
+	env := normalizeStringMap(contracts.AnyMapNode(root["env"]))
+	workingDir := strings.TrimSpace(contracts.FirstNonEmptyString(root["workingDirectory"], root["working-directory"]))
+	baseDir := filepath.Dir(path)
+	if transport == TransportStreamableHTTP {
+		if baseURL == "" {
+			return ServerDefinition{}, fmt.Errorf("streamable-http MCP server requires baseUrl")
+		}
+		if hasAnyKey(root, "command", "args", "env", "workingDirectory", "working-directory") {
+			return ServerDefinition{}, fmt.Errorf("streamable-http MCP server cannot declare stdio fields")
+		}
+	} else {
+		if command == "" {
+			return ServerDefinition{}, fmt.Errorf("stdio MCP server requires command")
+		}
+		if hasAnyKey(root, "baseUrl", "base-url", "url", "endpointPath", "endpoint-path", "path", "authToken", "auth-token", "headers") {
+			return ServerDefinition{}, fmt.Errorf("stdio MCP server cannot declare HTTP fields")
+		}
+		if !filepath.IsAbs(command) {
+			command = filepath.Clean(filepath.Join(baseDir, command))
+		}
+		if workingDir == "" {
+			workingDir = baseDir
+		} else if !filepath.IsAbs(workingDir) {
+			workingDir = filepath.Clean(filepath.Join(baseDir, workingDir))
+		}
+	}
+	endpointPath := ""
+	if transport == TransportStreamableHTTP {
+		endpointPath = normalizeEndpointPath(contracts.FirstNonEmptyString(root["endpointPath"], root["endpoint-path"], root["path"]))
+	}
 	server := ServerDefinition{
 		Key:            serverKey,
 		Name:           fallbackString(contracts.FirstNonEmptyString(root["name"]), serverKey),
+		Transport:      transport,
 		BaseURL:        baseURL,
 		EndpointPath:   endpointPath,
+		Command:        command,
+		Args:           args,
+		Env:            env,
+		WorkingDir:     workingDir,
 		ToolPrefix:     strings.TrimSpace(contracts.FirstNonEmptyString(root["toolPrefix"], root["tool-prefix"])),
 		AuthToken:      strings.TrimSpace(contracts.FirstNonEmptyString(root["authToken"], root["auth-token"])),
 		Headers:        normalizeStringMap(contracts.AnyMapNode(root["headers"])),
 		AliasMap:       normalizeAliasMap(contracts.AnyMapNode(root["aliasMap"])),
 		ConnectTimeout: firstInt(root["connect-timeout"], nil, 3),
+		StartupTimeout: firstInt(root["startup-timeout"], root["startupTimeout"], defaultStartupTimeout),
 		ReadTimeout:    firstInt(root["read-timeout"], nil, defaultReadTimeout),
 		Retry:          firstInt(root["retry"], nil, 1),
 	}
@@ -162,6 +209,15 @@ func parseServerFile(path string) (ServerDefinition, error) {
 		server.Tools = append(server.Tools, tool)
 	}
 	return server, nil
+}
+
+func hasAnyKey(values map[string]any, keys ...string) bool {
+	for _, key := range keys {
+		if _, ok := values[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func parseToolDefinition(root map[string]any) (ToolDefinition, error) {
@@ -192,7 +248,109 @@ func parseToolDefinition(root map[string]any) (ToolDefinition, error) {
 }
 
 func (s ServerDefinition) Enabled() bool {
-	return strings.TrimSpace(s.Key) != "" && strings.TrimSpace(s.BaseURL) != ""
+	if strings.TrimSpace(s.Key) == "" {
+		return false
+	}
+	if s.Transport == TransportStdio {
+		return strings.TrimSpace(s.Command) != ""
+	}
+	return strings.TrimSpace(s.BaseURL) != ""
+}
+
+func normalizeStringSlice(value any) ([]string, error) {
+	switch typed := value.(type) {
+	case nil:
+		return nil, nil
+	case []string:
+		return append([]string(nil), typed...), nil
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			text, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("must contain only strings")
+			}
+			out = append(out, text)
+		}
+		return out, nil
+	case string:
+		return parseFlowStringList(typed)
+	default:
+		return nil, fmt.Errorf("must be a list of strings")
+	}
+}
+
+func parseFlowStringList(value string) ([]string, error) {
+	value = strings.TrimSpace(value)
+	if len(value) < 2 || value[0] != '[' || value[len(value)-1] != ']' {
+		return nil, fmt.Errorf("must be a list of strings")
+	}
+	body := strings.TrimSpace(value[1 : len(value)-1])
+	if body == "" {
+		return []string{}, nil
+	}
+	var (
+		items   []string
+		start   int
+		quote   byte
+		escaped bool
+	)
+	for i := 0; i < len(body); i++ {
+		ch := body[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if quote != 0 && ch == '\\' && quote == '"' {
+			escaped = true
+			continue
+		}
+		if ch == '\'' || ch == '"' {
+			if quote == 0 {
+				quote = ch
+			} else if quote == ch {
+				quote = 0
+			}
+			continue
+		}
+		if ch == ',' && quote == 0 {
+			item, err := parseFlowStringItem(body[start:i])
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, item)
+			start = i + 1
+		}
+	}
+	if quote != 0 || escaped {
+		return nil, fmt.Errorf("invalid quoted string in args")
+	}
+	item, err := parseFlowStringItem(body[start:])
+	if err != nil {
+		return nil, err
+	}
+	return append(items, item), nil
+}
+
+func parseFlowStringItem(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("args must not contain an empty YAML item")
+	}
+	if value[0] == '"' {
+		unquoted, err := strconv.Unquote(value)
+		if err != nil {
+			return "", fmt.Errorf("invalid quoted string in args: %w", err)
+		}
+		return unquoted, nil
+	}
+	if value[0] == '\'' {
+		if len(value) < 2 || value[len(value)-1] != '\'' {
+			return "", fmt.Errorf("invalid quoted string in args")
+		}
+		return strings.ReplaceAll(value[1:len(value)-1], "''", "'"), nil
+	}
+	return value, nil
 }
 
 func normalizeEndpointPath(value string) string {

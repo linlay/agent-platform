@@ -31,7 +31,6 @@ type ToolRouter struct {
 	mcpTools    toolCatalog
 	frontend    frontendSubmitter
 	action      ActionInvoker
-	external    ExternalToolInvoker
 	localDefs   []api.ToolDetailResponse
 	localByName map[string]api.ToolDetailResponse
 	handlers    map[string]NamedToolHandler
@@ -102,17 +101,6 @@ func (r *ToolRouter) RegisterHandler(handler NamedToolHandler) error {
 	return nil
 }
 
-func (r *ToolRouter) WithExternalInvoker(external ExternalToolInvoker) *ToolRouter {
-	if r == nil {
-		return r
-	}
-	r.external = external
-	if external != nil {
-		external.Configure(r.Definitions())
-	}
-	return r
-}
-
 func buildLocalToolDefinitions(base []api.ToolDetailResponse, extraDefs []api.ToolDetailResponse) ([]api.ToolDetailResponse, map[string]api.ToolDetailResponse) {
 	baseDefs := append([]api.ToolDetailResponse(nil), base...)
 	var runtimeDefs []api.ToolDetailResponse
@@ -145,11 +133,7 @@ func (r *ToolRouter) ReloadRuntimeToolDefinitions(root string) error {
 	r.mu.Lock()
 	r.localDefs = localDefs
 	r.localByName = localByName
-	external := r.external
 	r.mu.Unlock()
-	if external != nil {
-		external.Configure(localDefs)
-	}
 	return nil
 }
 
@@ -207,11 +191,6 @@ func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[strin
 				return ToolExecutionResult{Output: "action invoker not configured", Error: "action_not_configured", ExitCode: -1}, nil
 			}
 			return r.action.Invoke(callCtx, def.Name, args, execCtx)
-		case "external":
-			if r.external == nil {
-				return ToolExecutionResult{Output: "external tool invoker not configured", Error: "external_not_configured", ExitCode: -1}, nil
-			}
-			return r.external.Invoke(callCtx, def, args, execCtx)
 		case "backend":
 			fallthrough
 		default:
@@ -323,7 +302,7 @@ func normalizeMCPResult(toolName string, payload any) ToolExecutionResult {
 	}
 	if mapped, ok := payload.(map[string]any); ok {
 		if isError, _ := mapped["isError"].(bool); isError {
-			return mcpErrorResult(toolName, "mcp_tool_error", extractMCPErrorMessage(mapped))
+			return mcpToolErrorResult(toolName, mapped)
 		}
 		if structured, ok := mapped["structuredContent"]; ok && structured != nil {
 			return payloadToToolResult(structured)
@@ -343,6 +322,35 @@ func normalizeMCPResult(toolName string, payload any) ToolExecutionResult {
 	return payloadToToolResult(payload)
 }
 
+func mcpToolErrorResult(toolName string, payload map[string]any) ToolExecutionResult {
+	code := "mcp_tool_error"
+	message := extractMCPErrorMessage(payload)
+	structured := AnyMapNode(payload["structuredContent"])
+	if value := strings.TrimSpace(AnyStringNode(structured["error"])); value != "" {
+		code = value
+	} else if value := strings.TrimSpace(AnyStringNode(structured["code"])); value != "" {
+		code = value
+	}
+	if value := strings.TrimSpace(AnyStringNode(structured["message"])); value != "" {
+		message = value
+	}
+	resultPayload := CloneMap(structured)
+	if resultPayload == nil {
+		resultPayload = map[string]any{}
+	}
+	resultPayload["tool"] = toolName
+	resultPayload["ok"] = false
+	resultPayload["code"] = code
+	resultPayload["error"] = code
+	resultPayload["message"] = message
+	return ToolExecutionResult{
+		Output:     MarshalJSON(resultPayload),
+		Structured: resultPayload,
+		Error:      code,
+		ExitCode:   -1,
+	}
+}
+
 func payloadToToolResult(payload any) ToolExecutionResult {
 	switch value := payload.(type) {
 	case map[string]any:
@@ -355,6 +363,11 @@ func payloadToToolResult(payload any) ToolExecutionResult {
 }
 
 func extractMCPErrorMessage(payload map[string]any) string {
+	if structured := AnyMapNode(payload["structuredContent"]); len(structured) > 0 {
+		if message := strings.TrimSpace(AnyStringNode(structured["message"])); message != "" {
+			return message
+		}
+	}
 	if message := AnyStringNode(payload["error"]); strings.TrimSpace(message) != "" {
 		return message
 	}

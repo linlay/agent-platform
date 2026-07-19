@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -11,12 +12,12 @@ import (
 	"time"
 
 	"agent-platform/internal/retry"
+
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestToolSyncLoadsStaticAndDiscoveredTools(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":"1","result":{"tools":[{"key":"remote_tool","name":"remote_tool","description":"remote","parameters":{"type":"object"},"meta":{"sourceType":"local","sourceCategory":"external","sourceKey":"wrong"}}]}}`))
-	}))
+	server := newSDKMCPTestServer(t, "remote_tool", nil)
 	defer server.Close()
 
 	root := t.TempDir()
@@ -38,6 +39,7 @@ func TestToolSyncLoadsStaticAndDiscoveredTools(t *testing.T) {
 		t.Fatalf("new registry: %v", err)
 	}
 	client := NewClient(registry, server.Client())
+	defer client.Close()
 	tools, err := NewToolSync(registry, client).Load(context.Background())
 	if err != nil {
 		t.Fatalf("load tools: %v", err)
@@ -66,9 +68,7 @@ func TestToolSyncLoadsStaticAndDiscoveredTools(t *testing.T) {
 }
 
 func TestClientCallToolUsesJSONRPC(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":"1","result":{"status":"ok"}}`))
-	}))
+	server := newSDKMCPTestServer(t, "tool_a", map[string]any{"status": "ok"})
 	defer server.Close()
 
 	root := t.TempDir()
@@ -84,12 +84,14 @@ func TestClientCallToolUsesJSONRPC(t *testing.T) {
 		t.Fatalf("new registry: %v", err)
 	}
 	client := NewClient(registry, server.Client())
+	defer client.Close()
 	result, err := client.CallTool(context.Background(), "demo", "tool_a", map[string]any{"value": 1}, map[string]any{"toolName": "tool_a"})
 	if err != nil {
 		t.Fatalf("call tool: %v", err)
 	}
 	resultMap, _ := result.(map[string]any)
-	if resultMap["status"] != "ok" {
+	structured, _ := resultMap["structuredContent"].(map[string]any)
+	if structured["status"] != "ok" {
 		t.Fatalf("expected ok result, got %#v", result)
 	}
 }
@@ -146,9 +148,7 @@ func TestRegistryLoadsServerTimeoutSeconds(t *testing.T) {
 }
 
 func TestToolSyncSkipsUnavailableServersAndKeepsReachableTools(t *testing.T) {
-	reachable := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":"1","result":{"tools":[{"key":"remote_tool","name":"remote_tool","description":"remote","parameters":{"type":"object"}}]}}`))
-	}))
+	reachable := newSDKMCPTestServer(t, "remote_tool", nil)
 	defer reachable.Close()
 
 	deadListener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -178,6 +178,7 @@ func TestToolSyncSkipsUnavailableServersAndKeepsReachableTools(t *testing.T) {
 	}
 	gate := NewAvailabilityGate()
 	client := NewClientWithGate(registry, reachable.Client(), gate)
+	defer client.Close()
 	tools, err := NewToolSync(registry, client).Load(context.Background())
 	if err != nil {
 		t.Fatalf("load tools: %v", err)
@@ -227,4 +228,33 @@ func TestAvailabilityGateBackoffPolicyAndReset(t *testing.T) {
 
 func retryPolicyForTest(min time.Duration, max time.Duration) retry.BackoffPolicy {
 	return retry.BackoffPolicy{Min: min, Max: max, Factor: 2}
+}
+
+func newSDKMCPTestServer(t *testing.T, toolName string, callResult map[string]any) *httptest.Server {
+	t.Helper()
+	server := sdkmcp.NewServer(&sdkmcp.Implementation{Name: "test-server", Version: "1.0.0"}, &sdkmcp.ServerOptions{
+		Capabilities: &sdkmcp.ServerCapabilities{},
+	})
+	server.AddTool(&sdkmcp.Tool{
+		Name:        toolName,
+		Description: "remote",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Meta: sdkmcp.Meta{
+			"sourceType":     "local",
+			"sourceCategory": "external",
+			"sourceKey":      "wrong",
+		},
+	}, func(context.Context, *sdkmcp.CallToolRequest) (*sdkmcp.CallToolResult, error) {
+		result := callResult
+		if result == nil {
+			result = map[string]any{"ok": true}
+		}
+		data, _ := json.Marshal(result)
+		return &sdkmcp.CallToolResult{
+			Content:           []sdkmcp.Content{&sdkmcp.TextContent{Text: string(data)}},
+			StructuredContent: result,
+		}, nil
+	})
+	handler := sdkmcp.NewStreamableHTTPHandler(func(*http.Request) *sdkmcp.Server { return server }, &sdkmcp.StreamableHTTPOptions{JSONResponse: true})
+	return httptest.NewServer(handler)
 }

@@ -50,7 +50,7 @@ type App struct {
 	wsHub                *ws.Hub
 	automationExecutions *automation.ExecutionStore
 	lspManager           *lsp.Manager
-	externalTools        *tools.ExternalToolManager
+	mcpClient            *mcp.Client
 	kbaseManager         *kbase.Manager
 }
 
@@ -170,6 +170,12 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}
 	mcpGate := mcp.NewAvailabilityGate()
 	mcpClient := mcp.NewClientWithGate(mcpRegistry, nil, mcpGate)
+	cleanupMCP := true
+	defer func() {
+		if cleanupMCP {
+			_ = mcpClient.Close()
+		}
+	}()
 	mcpToolSync := mcp.NewToolSync(mcpRegistry, mcpClient)
 	if _, err := mcpToolSync.Load(context.Background()); err != nil {
 		return nil, fmt.Errorf("load mcp tools: %w", err)
@@ -179,8 +185,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		return nil, fmt.Errorf("load runtime tools: %w", err)
 	}
 	frontendRegistry := frontendtools.NewDefaultRegistry()
-	externalTools := tools.NewExternalToolManager()
-	toolExecutor := tools.NewToolRouter(backendTools, mcpClient, mcpToolSync, llm.NewFrontendSubmitCoordinator(frontendRegistry), contracts.NewNoopActionInvoker(), append([]api.ToolDetailResponse(nil), runtimeTools...)...).WithExternalInvoker(externalTools)
+	toolExecutor := tools.NewToolRouter(backendTools, mcpClient, mcpToolSync, llm.NewFrontendSubmitCoordinator(frontendRegistry), contracts.NewNoopActionInvoker(), append([]api.ToolDetailResponse(nil), runtimeTools...)...)
 
 	registryStartedAt := time.Now()
 	registry, err := catalog.NewFileRegistry(cfg, toolExecutor.Definitions())
@@ -368,6 +373,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}
 	log.Printf("app dependencies initialized in %s", startupElapsed(appInitStartedAt))
 	cleanupBackground = false
+	cleanupMCP = false
 
 	return &App{
 		Config:               cfg,
@@ -379,7 +385,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		wsHub:                wsHub,
 		automationExecutions: automationExecutionStore,
 		lspManager:           lspManager,
-		externalTools:        externalTools,
+		mcpClient:            mcpClient,
 		kbaseManager:         kbaseManager,
 	}, nil
 }
@@ -428,9 +434,9 @@ func (a *App) Close() error {
 			log.Printf("close lsp manager: %v", err)
 		}
 	}
-	if a.externalTools != nil {
-		if err := a.externalTools.Close(); err != nil {
-			log.Printf("close external tools: %v", err)
+	if a.mcpClient != nil {
+		if err := a.mcpClient.Close(); err != nil {
+			log.Printf("close MCP client: %v", err)
 		}
 	}
 	if err := observability.CloseMemoryLogger(); err != nil {

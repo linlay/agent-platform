@@ -87,7 +87,7 @@ GET /ws -> request / response / stream / push / error frames
 | GET/PUT | `/api/admin/registries/detail` | query/body: `category`、`file`、`content` | registry 文件详情或保存结果 |
 | POST | `/api/admin/registries/validate` | body: `category`、`file`、`content` | registry 内容校验结果 |
 
-`/api/admin/tools` 中 `kind` 表示调用方式（如 `backend`、`frontend`、`action`、`external`），`sourceType` 表示定义来源类型（如 `local`、`agent-local`、`mcp`），`sourceCategory` 表示来源分类：`platform` 为 runtime 自带工具，`external` 为 `paths.tools-dir` 下通过 RPC / YAML 接入的外部工具，`mcp` 为 MCP registry 同步工具。MCP 工具额外返回 `serverKey`。列表响应只返回 `key`、`name`、`label`、`description`、`kind`、`sourceType`、`sourceCategory`、`serverKey`，不透出内部 tool definition `meta`；接口不接收 query 过滤参数。
+`/api/admin/tools` 中 `kind` 表示调用方式（如 `backend`、`frontend`、`action`），`sourceType` 表示定义来源类型（如 `local`、`agent-local`、`mcp`），`sourceCategory` 表示来源分类：`platform` 为 runtime 自带工具，`external` 可用于 `paths.tools-dir` 下普通 frontend/action/agent-local YAML 的来源分类，`mcp` 为 MCP registry 同步工具。`external` 不再表示子进程调用协议。MCP 工具额外返回 `serverKey`。列表响应只返回 `key`、`name`、`label`、`description`、`kind`、`sourceType`、`sourceCategory`、`serverKey`，不透出内部 tool definition `meta`；接口不接收 query 过滤参数。
 
 `/api/admin/skills` 只编辑 `paths.skills-market-dir` 下的共享 skill 目录，不直接编辑 agent 本地 `skills/` 同步副本。文件路径必须是相对路径，服务端拒绝目录逃逸和 symlink 跟随；JSON 文本读写限制为 UTF-8 且不超过 1 MiB，二进制或大文件通过 upload/download 接口处理。保存、上传、删除或重命名 skill 文件后会触发 `skills` reload 并级联 reload `agents`，使声明该 skill 的 agent 本地副本重新同步。
 
@@ -95,7 +95,7 @@ GET /ws -> request / response / stream / push / error frames
 
 `/api/admin/registries` 是列表接口，不返回 registry 文件绝对路径、完整 `diagnostics[]` 或文件大小；编辑器应通过 `/api/admin/registries/detail` 获取 `source`、完整诊断、`content`、`parsed` 与 `size`。
 
-Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `baseUrl`；model 暴露 `provider/protocol/type/isVision/isReasoner/isFunction/maxInputTokens/maxOutputTokens/timeout`；MCP server 暴露 `baseUrl/toolCount`，其中 `toolCount` 是当前已同步注册的 MCP 工具数量；viewport server 仅暴露 `baseUrl`，当前不返回 viewport 数量。
+Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `baseUrl`；model 暴露 `provider/protocol/type/isVision/isReasoner/isFunction/maxInputTokens/maxOutputTokens/timeout`；MCP server 暴露 `transport/toolCount`，其中 HTTP 项另有 `baseUrl`，stdio 项不返回 `baseUrl`、`command`、`args` 或 `env`，`toolCount` 是当前已同步注册的 MCP 工具数量；viewport server 仅暴露 `baseUrl`，当前不返回 viewport 数量。
 
 `/api/teams` 每项返回 `teamId`、`name`、可选 `description/icon`、`runtimeMode`、`agentKeys` 与安全摘要 `meta`。`meta` 包含 `validAgentKeys`、`invalidAgentKeys`、`orchestrated`；legacy Team 额外返回 `defaultAgentKey/defaultAgentKeyValid`，orchestrated Team 只额外返回 `maxParallel`。接口不会返回隐藏总控 key、总控模型配置、system prompt、`SOUL.md/AGENTS.md` 内容或 internal-only `agent_delegate` 定义；`/api/admin/tools` 同样不列出该工具。
 
