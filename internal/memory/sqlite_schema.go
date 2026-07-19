@@ -9,13 +9,25 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func (s *SQLiteStore) initDB() error {
+func (s *SQLiteStore) initDB(startupAdopt bool) error {
 	db, err := sql.Open("sqlite", s.dbPath)
 	if err != nil {
 		return err
 	}
 	s.db = db
 
+	initialize := sqlitecontract.InitializeOrVerify
+	if startupAdopt {
+		initialize = sqlitecontract.InitializeOrVerifyAtStartup
+	}
+	return initialize(db, s.dbPath, s.root, memorySchemaSpec, func() (bool, error) {
+		return sqlitecontract.HasResidualData(s.root)
+	}, func() error {
+		return createMemorySchema(db)
+	})
+}
+
+func createMemorySchema(db *sql.DB) error {
 	statements := []string{
 		`CREATE TABLE IF NOT EXISTS MEMORIES (
 			ID_ TEXT PRIMARY KEY,
@@ -144,19 +156,16 @@ func (s *SQLiteStore) initDB() error {
 			VALUES ('delete', old.rowid, old.SUMMARY_, old.SUBJECT_KEY_, old.CATEGORY_, old.TAGS_);
 		END`,
 	}
-	return sqlitecontract.InitializeOrVerify(db, s.dbPath, s.root, memorySchemaSpec, func() (bool, error) {
-		return sqlitecontract.HasResidualData(s.root)
-	}, func() error {
-		for _, stmt := range statements {
-			if _, err := db.Exec(stmt); err != nil {
-				return fmt.Errorf("init schema: %w", err)
-			}
+	for _, stmt := range statements {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("init schema: %w", err)
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 var memorySchemaSpec = sqlitecontract.Spec{
+	Name:          "memory-v1",
 	ApplicationID: 0x41504D4D, // APMM
 	UserVersion:   1,
 	Objects: []sqlitecontract.Object{
@@ -176,4 +185,5 @@ var memorySchemaSpec = sqlitecontract.Spec{
 		{Type: "trigger", Name: "MEMORIES_AU"},
 		{Type: "trigger", Name: "MEMORIES_AD"},
 	},
+	BuildCanonical: createMemorySchema,
 }

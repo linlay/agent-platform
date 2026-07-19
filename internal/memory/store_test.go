@@ -56,6 +56,31 @@ func TestSQLiteStoreWritesAndVerifiesCurrentSchemaMarker(t *testing.T) {
 	}
 }
 
+func TestSQLiteStoreAtStartupClaimsExactUnmarkedDatabase(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewSQLiteStore(root, "memory.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec("PRAGMA application_id = 0; PRAGMA user_version = 0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewSQLiteStore(root, "memory.db"); !errors.Is(err, sqlitecontract.ErrUnsupportedSchema) {
+		t.Fatalf("runtime open error = %v, want unsupported storage schema", err)
+	}
+	claimed, err := NewSQLiteStoreAtStartup(root, "memory.db")
+	if err != nil {
+		t.Fatalf("startup claim: %v", err)
+	}
+	defer claimed.db.Close()
+	if err := sqlitecontract.Verify(claimed.db, claimed.dbPath, claimed.root, memorySchemaSpec); err != nil {
+		t.Fatalf("verify claimed memory schema: %v", err)
+	}
+}
+
 func TestSQLiteStoreRejectsLegacySchemaWithoutChangingIt(t *testing.T) {
 	root := t.TempDir()
 	dbPath := filepath.Join(root, "memory.db")

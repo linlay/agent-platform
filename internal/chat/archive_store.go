@@ -22,12 +22,22 @@ type ArchiveStore struct {
 }
 
 func NewArchiveStore(chatsRoot string) (*ArchiveStore, error) {
+	return newArchiveStore(chatsRoot, false)
+}
+
+// NewArchiveStoreAtStartup is the only archive-store constructor allowed to
+// claim a structurally exact, unmarked (0,0) database.
+func NewArchiveStoreAtStartup(chatsRoot string) (*ArchiveStore, error) {
+	return newArchiveStore(chatsRoot, true)
+}
+
+func newArchiveStore(chatsRoot string, startupAdopt bool) (*ArchiveStore, error) {
 	root := filepath.Join(chatsRoot, "archive")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, err
 	}
 	store := &ArchiveStore{root: root}
-	if err := store.initDB(); err != nil {
+	if err := store.initDB(startupAdopt); err != nil {
 		if store.db != nil {
 			_ = store.db.Close()
 		}
@@ -36,7 +46,7 @@ func NewArchiveStore(chatsRoot string) (*ArchiveStore, error) {
 	return store, nil
 }
 
-func (s *ArchiveStore) initDB() error {
+func (s *ArchiveStore) initDB(startupAdopt bool) error {
 	dbPath := filepath.Join(s.root, "archive.db")
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
@@ -44,6 +54,18 @@ func (s *ArchiveStore) initDB() error {
 	}
 	s.db = db
 
+	initialize := sqlitecontract.InitializeOrVerify
+	if startupAdopt {
+		initialize = sqlitecontract.InitializeOrVerifyAtStartup
+	}
+	return initialize(db, dbPath, filepath.Dir(s.root), archiveSchemaSpec, func() (bool, error) {
+		return sqlitecontract.HasResidualData(s.root)
+	}, func() error {
+		return createArchiveSchema(db)
+	})
+}
+
+func createArchiveSchema(db *sql.DB) error {
 	statements := []string{
 		`CREATE TABLE IF NOT EXISTS ARCHIVED_CHATS (
 			CHAT_ID_          TEXT PRIMARY KEY,
@@ -133,19 +155,16 @@ func (s *ArchiveStore) initDB() error {
 			VALUES ('delete', old.rowid, old.CHAT_NAME_, old.LAST_RUN_CONTENT_);
 		END`,
 	}
-	return sqlitecontract.InitializeOrVerify(db, dbPath, filepath.Dir(s.root), archiveSchemaSpec, func() (bool, error) {
-		return sqlitecontract.HasResidualData(s.root)
-	}, func() error {
-		for _, stmt := range statements {
-			if _, err := db.Exec(stmt); err != nil {
-				return fmt.Errorf("init archive schema: %w", err)
-			}
+	for _, stmt := range statements {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("init archive schema: %w", err)
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 var archiveSchemaSpec = sqlitecontract.Spec{
+	Name:          "archive-v1",
 	ApplicationID: 0x41504152, // APAR
 	UserVersion:   1,
 	Objects: []sqlitecontract.Object{
@@ -162,6 +181,7 @@ var archiveSchemaSpec = sqlitecontract.Spec{
 		{Table: "ARCHIVED_CHATS", Name: "OWNER_TYPE_"},
 		{Table: "ARCHIVED_RUNS", Name: "OWNER_TYPE_"},
 	},
+	BuildCanonical: createArchiveSchema,
 }
 
 func (s *ArchiveStore) ArchiveChat(chat ArchivedChat) error {

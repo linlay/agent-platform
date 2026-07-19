@@ -28,6 +28,16 @@ type SQLiteStore struct {
 }
 
 func NewSQLiteStore(root string, dbFileName string) (*SQLiteStore, error) {
+	return newSQLiteStore(root, dbFileName, false)
+}
+
+// NewSQLiteStoreAtStartup is the only memory-store constructor allowed to
+// claim a structurally exact, unmarked (0,0) database.
+func NewSQLiteStoreAtStartup(root string, dbFileName string) (*SQLiteStore, error) {
+	return newSQLiteStore(root, dbFileName, true)
+}
+
+func newSQLiteStore(root string, dbFileName string, startupAdopt bool) (*SQLiteStore, error) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, err
 	}
@@ -41,7 +51,7 @@ func NewSQLiteStore(root string, dbFileName string) (*SQLiteStore, error) {
 		ftsVectorWeight: 0.7,
 		ftsFTSWeight:    0.3,
 	}
-	if err := store.initDB(); err != nil {
+	if err := store.initDB(startupAdopt); err != nil {
 		if store.db != nil {
 			_ = store.db.Close()
 		}

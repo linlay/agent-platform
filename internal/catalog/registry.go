@@ -281,18 +281,23 @@ type FileRegistry struct {
 	mu          sync.RWMutex
 	agents      map[string]AgentDefinition
 	adminAgents map[string]AdminAgent
-	teams       map[string]TeamDefinition
-	skills      map[string]SkillDefinition
+	// runtimeInvalidAgents records startup-only runtime validation failures
+	// (currently incompatible KBASE control stores). A catalog reload must not
+	// resurrect one of these agents or try to adopt its storage again.
+	runtimeInvalidAgents map[string]AdminAgentDiagnostic
+	teams                map[string]TeamDefinition
+	skills               map[string]SkillDefinition
 }
 
 func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*FileRegistry, error) {
 	registry := &FileRegistry{
-		cfg:         cfg,
-		tools:       dedupeToolDefinitions(append([]api.ToolDetailResponse(nil), toolDefs...)),
-		agents:      map[string]AgentDefinition{},
-		adminAgents: map[string]AdminAgent{},
-		teams:       map[string]TeamDefinition{},
-		skills:      map[string]SkillDefinition{},
+		cfg:                  cfg,
+		tools:                dedupeToolDefinitions(append([]api.ToolDetailResponse(nil), toolDefs...)),
+		agents:               map[string]AgentDefinition{},
+		adminAgents:          map[string]AdminAgent{},
+		runtimeInvalidAgents: map[string]AdminAgentDiagnostic{},
+		teams:                map[string]TeamDefinition{},
+		skills:               map[string]SkillDefinition{},
 	}
 	if err := registry.Reload(context.Background(), "startup"); err != nil {
 		return nil, err
@@ -316,6 +321,7 @@ func (r *FileRegistry) Reload(_ context.Context, reason string) error {
 			return err
 		}
 		r.mu.Lock()
+		r.applyRuntimeInvalidAgentsLocked(agents, adminAgents)
 		r.agents = agents
 		r.adminAgents = adminAgents
 		r.mu.Unlock()
@@ -355,12 +361,89 @@ func (r *FileRegistry) Reload(_ context.Context, reason string) error {
 	}
 
 	r.mu.Lock()
+	r.applyRuntimeInvalidAgentsLocked(agents, adminAgents)
 	r.agents = agents
 	r.adminAgents = adminAgents
 	r.teams = teams
 	r.skills = skills
 	r.mu.Unlock()
 	return nil
+}
+
+// InvalidateRuntimeAgent removes a syntactically valid agent from runtime
+// resolution while retaining it as an invalid admin entry with a precise
+// diagnostic. The state remains effective for the current process lifetime,
+// including catalog hot reloads; the next process startup validates it again.
+func (r *FileRegistry) InvalidateRuntimeAgent(key, code string, cause error) bool {
+	if r == nil {
+		return false
+	}
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return false
+	}
+	diagnostic := AdminAgentDiagnostic{
+		Severity: "error",
+		Code:     strings.TrimSpace(code),
+		Message:  strings.TrimSpace(errorMessage(cause)),
+	}
+	if diagnostic.Code == "" {
+		diagnostic.Code = "invalid_runtime_storage"
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.runtimeInvalidAgents == nil {
+		r.runtimeInvalidAgents = map[string]AdminAgentDiagnostic{}
+	}
+	r.runtimeInvalidAgents[key] = diagnostic
+	return r.applyRuntimeInvalidAgentLocked(key, diagnostic)
+}
+
+func (r *FileRegistry) applyRuntimeInvalidAgentsLocked(agents map[string]AgentDefinition, adminAgents map[string]AdminAgent) {
+	for key, diagnostic := range r.runtimeInvalidAgents {
+		r.applyRuntimeInvalidAgentToMapsLocked(key, diagnostic, agents, adminAgents)
+	}
+}
+
+func (r *FileRegistry) applyRuntimeInvalidAgentLocked(key string, diagnostic AdminAgentDiagnostic) bool {
+	return r.applyRuntimeInvalidAgentToMapsLocked(key, diagnostic, r.agents, r.adminAgents)
+}
+
+func (r *FileRegistry) applyRuntimeInvalidAgentToMapsLocked(key string, diagnostic AdminAgentDiagnostic, agents map[string]AgentDefinition, adminAgents map[string]AdminAgent) bool {
+	definition, wasActive := agents[key]
+	delete(agents, key)
+	admin, exists := adminAgents[key]
+	if !exists {
+		if !wasActive {
+			return false
+		}
+		admin = AdminAgent{Key: key, Name: definition.Name, Mode: definition.Mode, Status: AdminAgentStatusReady}
+	}
+	if diagnostic.SourcePath == "" {
+		diagnostic.SourcePath = admin.Source.Path
+	}
+	admin.Status = AdminAgentStatusInvalid
+	if !hasAdminDiagnostic(admin.Diagnostics, diagnostic.Code, diagnostic.Message) {
+		admin.Diagnostics = append(admin.Diagnostics, diagnostic)
+	}
+	adminAgents[key] = admin
+	return true
+}
+
+func hasAdminDiagnostic(items []AdminAgentDiagnostic, code, message string) bool {
+	for _, item := range items {
+		if item.Code == code && item.Message == message {
+			return true
+		}
+	}
+	return false
+}
+
+func errorMessage(err error) string {
+	if err == nil {
+		return "runtime validation failed"
+	}
+	return err.Error()
 }
 
 func (r *FileRegistry) AdminAgents() []AdminAgent {

@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -92,9 +93,6 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		cfg.Paths.ChatsDir,
 		cfg.Paths.MemoryDir,
 	)
-	if err := observability.InitMemoryLogger(cfg.Logging.Memory.Enabled, cfg.Logging.Memory.File); err != nil {
-		return nil, fmt.Errorf("init memory logger (%s): %w", cfg.Logging.Memory.File, err)
-	}
 	supportPackages, supportRoot, supportErrors := supportpkg.DiscoverNearExecutable()
 	for _, supportErr := range supportErrors {
 		log.Printf("support package discovery warning: %v", supportErr)
@@ -110,13 +108,13 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	log.Printf("initializing stores/registries")
 
 	chatStoreStartedAt := time.Now()
-	chatStore, err := chat.NewFileStore(cfg.Paths.ChatsDir)
+	chatStore, err := chat.NewFileStoreAtStartup(cfg.Paths.ChatsDir)
 	if err != nil {
 		return nil, fmt.Errorf("init chat store (%s): %w", cfg.Paths.ChatsDir, err)
 	}
 	log.Printf("chat store ready in %s (root=%s)", startupElapsed(chatStoreStartedAt), cfg.Paths.ChatsDir)
 	archiveStoreStartedAt := time.Now()
-	archiveStore, err := chat.NewArchiveStore(cfg.Paths.ChatsDir)
+	archiveStore, err := chat.NewArchiveStoreAtStartup(cfg.Paths.ChatsDir)
 	if err != nil {
 		return nil, fmt.Errorf("init archive store (%s): %w", cfg.Paths.ChatsDir, err)
 	}
@@ -128,7 +126,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	var skillCandidateStore skills.CandidateStore
 	if cfg.Memory.Enabled {
 		memoryStoreStartedAt := time.Now()
-		sqliteMemoryStore, err = memory.NewSQLiteStore(cfg.Paths.MemoryDir, cfg.Memory.DBFileName)
+		sqliteMemoryStore, err = memory.NewSQLiteStoreAtStartup(cfg.Paths.MemoryDir, cfg.Memory.DBFileName)
 		if err != nil {
 			return nil, fmt.Errorf("init memory store (%s): %w", cfg.Paths.MemoryDir, err)
 		}
@@ -137,6 +135,9 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		skillCandidateStore, err = skills.NewFileCandidateStore(filepath.Join(cfg.Paths.MemoryDir, "skill-candidates"))
 		if err != nil {
 			return nil, fmt.Errorf("init skill candidate store (%s): %w", filepath.Join(cfg.Paths.MemoryDir, "skill-candidates"), err)
+		}
+		if err := observability.InitMemoryLogger(cfg.Logging.Memory.Enabled, cfg.Logging.Memory.File); err != nil {
+			return nil, fmt.Errorf("init memory logger (%s): %w", cfg.Logging.Memory.File, err)
 		}
 	} else {
 		log.Printf("memory system disabled by config")
@@ -198,6 +199,24 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			err,
 		)
 	}
+	if cfg.Memory.Enabled && sqliteMemoryStore != nil {
+		sqliteMemoryStore.SetRuntimeResolver(memoryRuntimeResolver(cfg, registry, modelRegistry))
+	}
+	kbaseManager := kbase.NewManager(kbaseManagerOptions(cfg), kbaseCatalogSource{registry: registry}, modelRegistry).WithSupportPackages(supportPackages)
+	if err := kbaseManager.ValidateConfiguration(); err != nil {
+		return nil, fmt.Errorf("validate KBASE storage ownership: %w", err)
+	}
+	startupKBaseFailures := kbaseManager.ValidateAndAdoptStartupStorageContracts()
+	startupKBaseKeys := make([]string, 0, len(startupKBaseFailures))
+	for key := range startupKBaseFailures {
+		startupKBaseKeys = append(startupKBaseKeys, key)
+	}
+	sort.Strings(startupKBaseKeys)
+	for _, key := range startupKBaseKeys {
+		cause := startupKBaseFailures[key]
+		registry.InvalidateRuntimeAgent(key, "invalid_kbase_storage", cause)
+		log.Printf("[catalog][agents] isolate agent=%s: %v", key, cause)
+	}
 	log.Printf(
 		"catalog registry ready in %s (agents=%d teams=%d skills=%d tools=%d)",
 		startupElapsed(registryStartedAt),
@@ -206,16 +225,6 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		len(registry.Skills("")),
 		len(toolExecutor.Definitions()),
 	)
-	if cfg.Memory.Enabled && sqliteMemoryStore != nil {
-		sqliteMemoryStore.SetRuntimeResolver(memoryRuntimeResolver(cfg, registry, modelRegistry))
-	}
-	kbaseManager := kbase.NewManager(kbaseManagerOptions(cfg), kbaseCatalogSource{registry: registry}, modelRegistry).WithSupportPackages(supportPackages)
-	if err := kbaseManager.ValidateConfiguration(); err != nil {
-		return nil, fmt.Errorf("validate KBASE storage ownership: %w", err)
-	}
-	if err := kbaseManager.ValidateStorageContracts(); err != nil {
-		return nil, fmt.Errorf("validate KBASE storage schema: %w", err)
-	}
 	if err := toolExecutor.RegisterHandler(kbase.NewToolHandler(kbaseManager)); err != nil {
 		return nil, fmt.Errorf("register KBASE tools: %w", err)
 	}

@@ -14,7 +14,7 @@ import (
 // SQLite chat index
 // ---------------------------------------------------------------------------
 
-func (s *FileStore) initDB() error {
+func (s *FileStore) initDB(startupAdopt bool) error {
 	dbPath := filepath.Join(s.root, "chats.db")
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
@@ -22,12 +22,21 @@ func (s *FileStore) initDB() error {
 	}
 	s.db = db
 
-	return sqlitecontract.InitializeOrVerify(db, dbPath, s.root, chatSchemaSpec, func() (bool, error) {
+	initialize := sqlitecontract.InitializeOrVerify
+	if startupAdopt {
+		initialize = sqlitecontract.InitializeOrVerifyAtStartup
+	}
+	return initialize(db, dbPath, s.root, chatSchemaSpec, func() (bool, error) {
 		// Archive storage is initialized independently and verifies its own
 		// schema. Its directory must not make an otherwise fresh chat store fail.
 		return sqlitecontract.HasResidualData(s.root, "archive")
 	}, func() error {
-		_, err := db.Exec(`
+		return createChatSchema(db)
+	})
+}
+
+func createChatSchema(db *sql.DB) error {
+	_, err := db.Exec(`
 		CREATE TABLE IF NOT EXISTS CHATS (
 			CHAT_ID_          TEXT PRIMARY KEY,
 			CHAT_NAME_        TEXT NOT NULL,
@@ -103,14 +112,14 @@ func (s *FileStore) initDB() error {
 		);
 		CREATE INDEX IF NOT EXISTS IDX_RUNS_CHAT_ID_ ON RUNS(CHAT_ID_);
 	`)
-		if err != nil {
-			return fmt.Errorf("create chats table: %w", err)
-		}
-		return nil
-	})
+	if err != nil {
+		return fmt.Errorf("create chats table: %w", err)
+	}
+	return nil
 }
 
 var chatSchemaSpec = sqlitecontract.Spec{
+	Name:          "chat-v1",
 	ApplicationID: 0x41504348, // APCH
 	UserVersion:   1,
 	Objects: []sqlitecontract.Object{
@@ -125,6 +134,7 @@ var chatSchemaSpec = sqlitecontract.Spec{
 		{Table: "CHATS", Name: "OWNER_TYPE_"},
 		{Table: "RUNS", Name: "OWNER_TYPE_"},
 	},
+	BuildCanonical: createChatSchema,
 }
 
 func nilIfEmpty(s string) *string {

@@ -60,7 +60,7 @@ automation:
   pool-size: 4
 
 memory:
-  enabled: true
+  enabled: false
   db-file-name: memory.db
   context-top-n: 5
   context-max-chars: 4000

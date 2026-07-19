@@ -2,6 +2,7 @@ package kbase
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -118,6 +119,91 @@ func TestOpenReadControlStoreRejectsMismatchedMarker(t *testing.T) {
 	}
 }
 
+func TestOpenControlStoreAtStartupClaimsOnlyExactCurrentControlStore(t *testing.T) {
+	root := t.TempDir()
+	store, err := OpenControlStore(root)
+	if err != nil {
+		t.Fatalf("create control store: %v", err)
+	}
+	if _, err := store.db.Exec("PRAGMA application_id = 0; PRAGMA user_version = 0"); err != nil {
+		t.Fatalf("clear markers: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	claimed, err := OpenControlStoreAtStartup(root)
+	if err != nil {
+		t.Fatalf("claim exact control store: %v", err)
+	}
+	defer claimed.Close()
+	if err := sqlitecontract.Verify(claimed.db, claimed.dbPath, claimed.root, kbaseControlSchemaSpec); err != nil {
+		t.Fatalf("claimed control store verification: %v", err)
+	}
+}
+
+func TestOpenControlStoreAtStartupCreatesNewControlStore(t *testing.T) {
+	store, err := OpenControlStoreAtStartup(t.TempDir())
+	if err != nil {
+		t.Fatalf("create new control store at startup: %v", err)
+	}
+	defer store.Close()
+	if err := sqlitecontract.Verify(store.db, store.dbPath, store.root, kbaseControlSchemaSpec); err != nil {
+		t.Fatalf("verify newly created control store: %v", err)
+	}
+}
+
+func TestOpenControlStoreAtStartupDoesNotClaimLegacyStructureOrMetaVersion(t *testing.T) {
+	for name, mutate := range map[string]func(t *testing.T, store *ControlStore){
+		"legacy table": func(t *testing.T, store *ControlStore) {
+			t.Helper()
+			if _, err := store.db.Exec("CREATE TABLE KBASE_MIGRATIONS (ID_ TEXT PRIMARY KEY)"); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"legacy meta version": func(t *testing.T, store *ControlStore) {
+			t.Helper()
+			if err := store.SetMeta(context.Background(), "schemaVersion", "3"); err != nil {
+				t.Fatal(err)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			store, err := OpenControlStore(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mutate(t, store)
+			if _, err := store.db.Exec("PRAGMA application_id = 0; PRAGMA user_version = 0"); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := OpenControlStoreAtStartup(root); !errors.Is(err, sqlitecontract.ErrUnsupportedSchema) {
+				t.Fatalf("claim error = %v, want unsupported storage schema", err)
+			}
+			db, err := sql.Open("sqlite", filepath.Join(root, "control.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			var applicationID, userVersion int
+			if err := db.QueryRow("PRAGMA application_id").Scan(&applicationID); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
+				t.Fatal(err)
+			}
+			if applicationID != 0 || userVersion != 0 {
+				t.Fatalf("rejected control store marker = (%d,%d), want (0,0)", applicationID, userVersion)
+			}
+		})
+	}
+}
+
 func TestValidateStorageContractsRejectsLegacyAndMismatchedStores(t *testing.T) {
 	root := t.TempDir()
 	runtimeRoot := filepath.Join(root, "runtime")
@@ -155,6 +241,34 @@ func TestValidateStorageContractsRejectsLegacyAndMismatchedStores(t *testing.T) 
 	}
 	if err := manager.ValidateStorageContracts(); !errors.Is(err, sqlitecontract.ErrUnsupportedSchema) {
 		t.Fatalf("mismatched storage validation error = %v, want unsupported storage schema", err)
+	}
+}
+
+func TestValidateAndAdoptStartupStorageContractsReportsOnlyBadAgents(t *testing.T) {
+	root := t.TempDir()
+	runtimeRoot := filepath.Join(root, "runtime")
+	storageDir := filepath.Join(runtimeRoot, "bad")
+	store, err := OpenControlStore(storageDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec("CREATE TABLE MIGRATED_CHUNKS (ID_ TEXT PRIMARY KEY); PRAGMA application_id = 0; PRAGMA user_version = 0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	source := stubAgentSource{agents: map[string]AgentSpec{
+		"good": testKBaseAgent("good", filepath.Join(root, "good-workspace"), "runtime"),
+		"bad":  testKBaseAgent("bad", filepath.Join(root, "bad-workspace"), "runtime"),
+	}}
+	manager := NewManager(ManagerOptions{RuntimeDir: runtimeRoot}, source, nil)
+	failures := manager.ValidateAndAdoptStartupStorageContracts()
+	if len(failures) != 1 || !errors.Is(failures["bad"], sqlitecontract.ErrUnsupportedSchema) {
+		t.Fatalf("startup failures = %#v, want only bad unsupported schema", failures)
+	}
+	if _, exists := failures["good"]; exists {
+		t.Fatalf("clean KBASE agent should not be reported: %#v", failures)
 	}
 }
 

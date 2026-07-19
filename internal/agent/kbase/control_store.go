@@ -22,6 +22,16 @@ type ControlStore struct {
 }
 
 func OpenControlStore(root string) (*ControlStore, error) {
+	return openControlStore(root, false)
+}
+
+// OpenControlStoreAtStartup is the only KBASE control-store constructor
+// allowed to claim a structurally exact, unmarked (0,0) database.
+func OpenControlStoreAtStartup(root string) (*ControlStore, error) {
+	return openControlStore(root, true)
+}
+
+func openControlStore(root string, startupAdopt bool) (*ControlStore, error) {
 	root = filepath.Clean(strings.TrimSpace(root))
 	if root == "" || root == "." {
 		return nil, fmt.Errorf("kbase control store root is empty")
@@ -37,7 +47,7 @@ func OpenControlStore(root string) (*ControlStore, error) {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	store := &ControlStore{root: root, dbPath: dbPath, db: db}
-	if err := store.initDB(context.Background()); err != nil {
+	if err := store.initDB(context.Background(), startupAdopt); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -78,7 +88,42 @@ func (s *ControlStore) Close() error {
 	return s.db.Close()
 }
 
-func (s *ControlStore) initDB(ctx context.Context) error {
+func (s *ControlStore) initDB(ctx context.Context, startupAdopt bool) error {
+	// KBASE has one additional semantic version in KBASE_META. Confirm it
+	// before claiming an unmarked control.db so a structurally similar but
+	// different control-plane generation is never modified.
+	if _, err := os.Stat(s.dbPath); err == nil && startupAdopt {
+		unmarked, err := sqlitecontract.IsUnmarked(s.db)
+		if err != nil {
+			return err
+		}
+		if unmarked {
+			if err := sqlitecontract.VerifyStructure(s.db, s.dbPath, s.root, kbaseControlSchemaSpec); err != nil {
+				return err
+			}
+			if err := s.verifySchemaVersion(ctx); err != nil {
+				return err
+			}
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("stat KBASE control database: %w", err)
+	}
+	initialize := sqlitecontract.InitializeOrVerify
+	if startupAdopt {
+		initialize = sqlitecontract.InitializeOrVerifyAtStartup
+	}
+	err := initialize(s.db, s.dbPath, s.root, kbaseControlSchemaSpec, func() (bool, error) {
+		return sqlitecontract.HasResidualData(s.root)
+	}, func() error {
+		return createControlSchema(ctx, s.db)
+	})
+	if err != nil {
+		return err
+	}
+	return s.verifySchemaVersion(ctx)
+}
+
+func createControlSchema(ctx context.Context, db *sql.DB) error {
 	statements := []string{
 		`CREATE TABLE IF NOT EXISTS KBASE_META (
 			KEY_ TEXT PRIMARY KEY,
@@ -171,20 +216,12 @@ func (s *ControlStore) initDB(ctx context.Context) error {
 			ERROR_ TEXT NOT NULL DEFAULT ''
 		)`,
 	}
-	err := sqlitecontract.InitializeOrVerify(s.db, s.dbPath, s.root, kbaseControlSchemaSpec, func() (bool, error) {
-		return sqlitecontract.HasResidualData(s.root)
-	}, func() error {
-		for _, stmt := range statements {
-			if _, err := s.db.ExecContext(ctx, stmt); err != nil {
-				return fmt.Errorf("init kbase control schema: %w", err)
-			}
+	for _, stmt := range statements {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("init kbase control schema: %w", err)
 		}
-		return s.SetMeta(ctx, "schemaVersion", ControlSchemaVersion)
-	})
-	if err != nil {
-		return err
 	}
-	return s.verifySchemaVersion(ctx)
+	return setControlMetaDB(ctx, db, "schemaVersion", ControlSchemaVersion)
 }
 
 func (s *ControlStore) verifySchemaVersion(ctx context.Context) error {
@@ -199,6 +236,7 @@ func (s *ControlStore) verifySchemaVersion(ctx context.Context) error {
 }
 
 var kbaseControlSchemaSpec = sqlitecontract.Spec{
+	Name:          "kbase-control-v4",
 	ApplicationID: 0x41504B42, // APKB
 	UserVersion:   1,
 	Objects: []sqlitecontract.Object{
@@ -212,6 +250,9 @@ var kbaseControlSchemaSpec = sqlitecontract.Spec{
 		{Type: "index", Name: "IDX_KBASE_GENERATIONS_ONE_ACTIVE"},
 		{Type: "index", Name: "IDX_KBASE_FILE_OPS_PENDING"},
 	},
+	BuildCanonical: func(db *sql.DB) error {
+		return createControlSchema(context.Background(), db)
+	},
 }
 
 func (s *ControlStore) Meta(ctx context.Context, key string) (string, error) {
@@ -224,7 +265,11 @@ func (s *ControlStore) Meta(ctx context.Context, key string) (string, error) {
 }
 
 func (s *ControlStore) SetMeta(ctx context.Context, key, value string) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO KBASE_META(KEY_, VALUE_) VALUES(?, ?)
+	return setControlMetaDB(ctx, s.db, key, value)
+}
+
+func setControlMetaDB(ctx context.Context, db *sql.DB, key, value string) error {
+	_, err := db.ExecContext(ctx, `INSERT INTO KBASE_META(KEY_, VALUE_) VALUES(?, ?)
 		ON CONFLICT(KEY_) DO UPDATE SET VALUE_ = excluded.VALUE_`, key, value)
 	return err
 }

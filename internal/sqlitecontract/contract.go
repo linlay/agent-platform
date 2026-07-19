@@ -27,14 +27,17 @@ type Column struct {
 
 // Spec identifies the only schema version a store accepts.
 type Spec struct {
+	Name             string
 	ApplicationID    int
 	UserVersion      int
 	Objects          []Object
 	ForbiddenColumns []Column
+	BuildCanonical   SchemaBuilder
 }
 
-// UnsupportedSchemaError tells operators which runtime directory must be
-// cleared before starting this intentionally incompatible release.
+// UnsupportedSchemaError identifies the database and the exact reason it was
+// not accepted. The runtime never edits, migrates, or deletes a rejected
+// database.
 type UnsupportedSchemaError struct {
 	DatabasePath string
 	CleanupPath  string
@@ -45,7 +48,7 @@ func (e *UnsupportedSchemaError) Error() string {
 	if e == nil {
 		return ErrUnsupportedSchema.Error()
 	}
-	return fmt.Sprintf("%s at %s: %s; remove %s and restart", ErrUnsupportedSchema, e.DatabasePath, e.Reason, e.CleanupPath)
+	return fmt.Sprintf("%s at %s: %s", ErrUnsupportedSchema, e.DatabasePath, e.Reason)
 }
 
 func (e *UnsupportedSchemaError) Unwrap() error {
@@ -56,11 +59,35 @@ func (e *UnsupportedSchemaError) Unwrap() error {
 // Existing databases are verified before any DDL can run, so opening an old
 // runtime can never modify it.
 func InitializeOrVerify(db *sql.DB, databasePath, cleanupPath string, spec Spec, hasResidualData func() (bool, error), create func() error) error {
+	return initializeOrVerify(db, databasePath, cleanupPath, spec, hasResidualData, create, false)
+}
+
+// InitializeOrVerifyAtStartup is the only entry point that may adopt an
+// unmarked (0,0) database. It is deliberately separate from the ordinary
+// runtime path so refreshes, reloads, reads, and API calls cannot change a
+// database marker.
+func InitializeOrVerifyAtStartup(db *sql.DB, databasePath, cleanupPath string, spec Spec, hasResidualData func() (bool, error), create func() error) error {
+	return initializeOrVerify(db, databasePath, cleanupPath, spec, hasResidualData, create, true)
+}
+
+func initializeOrVerify(db *sql.DB, databasePath, cleanupPath string, spec Spec, hasResidualData func() (bool, error), create func() error, startupAdopt bool) error {
 	exists, err := databaseFileExists(databasePath)
 	if err != nil {
 		return err
 	}
 	if exists {
+		if startupAdopt {
+			unmarked, err := isUnmarked(db)
+			if err != nil {
+				return err
+			}
+			if unmarked {
+				if err := AdoptUnmarkedAtStartup(db, databasePath, cleanupPath, spec); err != nil {
+					return err
+				}
+				return nil
+			}
+		}
 		return Verify(db, databasePath, cleanupPath, spec)
 	}
 	if hasResidualData != nil {
@@ -96,6 +123,63 @@ func Verify(db *sql.DB, databasePath, cleanupPath string, spec Spec) error {
 	if applicationID != spec.ApplicationID || userVersion != spec.UserVersion {
 		return unsupported(databasePath, cleanupPath, fmt.Sprintf("expected application_id=%d and user_version=%d, got application_id=%d and user_version=%d", spec.ApplicationID, spec.UserVersion, applicationID, userVersion))
 	}
+	if err := VerifyStructure(db, databasePath, cleanupPath, spec); err != nil {
+		return err
+	}
+	return nil
+}
+
+// AdoptUnmarkedAtStartup verifies a markerless database against the complete
+// canonical schema before assigning this store's identity and version. It
+// accepts exactly application_id=0 and user_version=0; any partial or foreign
+// marker remains a hard failure.
+func AdoptUnmarkedAtStartup(db *sql.DB, databasePath, cleanupPath string, spec Spec) error {
+	unmarked, err := isUnmarked(db)
+	if err != nil {
+		return err
+	}
+	if !unmarked {
+		return Verify(db, databasePath, cleanupPath, spec)
+	}
+	if err := VerifyStructure(db, databasePath, cleanupPath, spec); err != nil {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin SQLite marker adoption: %w", err)
+	}
+	if _, err := tx.Exec(fmt.Sprintf("PRAGMA application_id = %d", spec.ApplicationID)); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("set adopted sqlite application id: %w", err)
+	}
+	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version = %d", spec.UserVersion)); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("set adopted sqlite user version: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit SQLite marker adoption: %w", err)
+	}
+	return Verify(db, databasePath, cleanupPath, spec)
+}
+
+func isUnmarked(db *sql.DB) (bool, error) {
+	var applicationID, userVersion int
+	if err := db.QueryRow("PRAGMA application_id").Scan(&applicationID); err != nil {
+		return false, fmt.Errorf("read sqlite application id: %w", err)
+	}
+	if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
+		return false, fmt.Errorf("read sqlite user version: %w", err)
+	}
+	return applicationID == 0 && userVersion == 0, nil
+}
+
+// IsUnmarked reports whether both SQLite identity fields are zero. Callers
+// must not treat a partial zero marker as claimable.
+func IsUnmarked(db *sql.DB) (bool, error) {
+	return isUnmarked(db)
+}
+
+func verifyRequiredObjects(db *sql.DB, databasePath, cleanupPath string, spec Spec) error {
 	for _, object := range spec.Objects {
 		var found int
 		err := db.QueryRow(`SELECT 1 FROM sqlite_master WHERE lower(type) = lower(?) AND lower(name) = lower(?) LIMIT 1`, object.Type, object.Name).Scan(&found)

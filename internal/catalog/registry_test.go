@@ -108,6 +108,53 @@ func TestLogicalRuntimeBaseNameStripsDemoAndExampleMarkers(t *testing.T) {
 	}
 }
 
+func TestInvalidateRuntimeAgentKeepsAdminDiagnosticAndInvalidatesDependentTeam(t *testing.T) {
+	registry := &FileRegistry{
+		agents: map[string]AgentDefinition{
+			"docs": {Key: "docs", Name: "Docs", Mode: AgentModeKBase},
+		},
+		adminAgents: map[string]AdminAgent{
+			"docs": {Key: "docs", Name: "Docs", Mode: AgentModeKBase, Status: AdminAgentStatusReady, Source: EditableAgentSource{Path: "/runtime/agents/docs/agent.yml"}},
+		},
+		runtimeInvalidAgents: map[string]AdminAgentDiagnostic{},
+		teams: map[string]TeamDefinition{
+			"research": {TeamID: "research", AgentKeys: []string{"docs"}},
+		},
+	}
+	cause := errors.New("KBASE storage schema agent=docs: extra table KBASE_MIGRATIONS")
+	if !registry.InvalidateRuntimeAgent("docs", "invalid_kbase_storage", cause) {
+		t.Fatal("active agent should be isolated")
+	}
+	if _, ok := registry.AgentDefinition("docs"); ok {
+		t.Fatal("isolated agent remains a runtime target")
+	}
+	admin, ok := registry.AdminAgent("docs")
+	if !ok || admin.Status != AdminAgentStatusInvalid || len(admin.Diagnostics) != 1 {
+		t.Fatalf("admin agent after isolation = %#v", admin)
+	}
+	if got := admin.Diagnostics[0]; got.Code != "invalid_kbase_storage" || got.SourcePath != "/runtime/agents/docs/agent.yml" || !strings.Contains(got.Message, "KBASE_MIGRATIONS") {
+		t.Fatalf("isolation diagnostic = %#v", got)
+	}
+	team, ok := registry.ResolveTeam("research")
+	if !ok || len(team.ValidAgentKeys) != 0 || !reflect.DeepEqual(team.InvalidAgentKeys, []string{"docs"}) {
+		t.Fatalf("team after agent isolation = %#v", team)
+	}
+
+	// A hot reload receives freshly parsed maps, but cannot re-enable an Agent
+	// whose on-disk KBASE store was rejected during this process startup.
+	freshAgents := map[string]AgentDefinition{"docs": {Key: "docs", Name: "Docs", Mode: AgentModeKBase}}
+	freshAdmin := map[string]AdminAgent{"docs": {Key: "docs", Name: "Docs", Mode: AgentModeKBase, Status: AdminAgentStatusReady}}
+	registry.mu.Lock()
+	registry.applyRuntimeInvalidAgentsLocked(freshAgents, freshAdmin)
+	registry.mu.Unlock()
+	if _, ok := freshAgents["docs"]; ok {
+		t.Fatal("catalog reload would resurrect isolated agent")
+	}
+	if freshAdmin["docs"].Status != AdminAgentStatusInvalid {
+		t.Fatalf("catalog reload admin state = %#v", freshAdmin["docs"])
+	}
+}
+
 func TestParseAgentFileReadsContextTagsBudgetStageSettingsAndControls(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")

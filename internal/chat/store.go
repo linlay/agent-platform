@@ -102,11 +102,21 @@ type FileStore struct {
 }
 
 func NewFileStore(root string) (*FileStore, error) {
+	return newFileStore(root, false)
+}
+
+// NewFileStoreAtStartup is the only chat-store constructor allowed to claim a
+// structurally exact, unmarked (0,0) database.
+func NewFileStoreAtStartup(root string) (*FileStore, error) {
+	return newFileStore(root, true)
+}
+
+func newFileStore(root string, startupAdopt bool) (*FileStore, error) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, err
 	}
 	store := &FileStore{root: root}
-	if err := store.initDB(); err != nil {
+	if err := store.initDB(startupAdopt); err != nil {
 		_ = store.Close()
 		return nil, err
 	}

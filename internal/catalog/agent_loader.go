@@ -11,7 +11,6 @@ import (
 	agentkbase "agent-platform/internal/agent/kbase"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/deprecation"
 )
 
 func resolveDirectoryAgentConfig(dirPath string) string {
@@ -27,7 +26,6 @@ func resolveDirectoryAgentConfig(dirPath string) string {
 func loadAgentsWithAdmin(root, marketDir string, globalMemoryEnabled bool) (map[string]AgentDefinition, map[string]AdminAgent, error) {
 	items := map[string]AgentDefinition{}
 	adminItems := map[string]AdminAgent{}
-	var removedErr error
 	err := visitRuntimeEntries(
 		root,
 		func(root string) {
@@ -37,19 +35,15 @@ func loadAgentsWithAdmin(root, marketDir string, globalMemoryEnabled bool) (map[
 			return !strings.HasPrefix(name, ".") && ShouldLoadRuntimeName(name)
 		},
 		func(name string, entry os.DirEntry) {
-			if removedErr != nil {
-				return
-			}
-			if err := loadAgentSourceIntoMaps(root, name, entry, marketDir, globalMemoryEnabled, items, adminItems); deprecation.Is(err) {
-				removedErr = err
-			}
+			// Individual Agent definitions are isolated: loadAgentSourceIntoMaps
+			// records diagnostics and preserves an invalid AdminAgent entry when
+			// parsing or validation fails, while valid Agents remain available.
+			// Root traversal failures are still returned by visitRuntimeEntries.
+			_ = loadAgentSourceIntoMaps(root, name, entry, marketDir, globalMemoryEnabled, items, adminItems)
 		},
 	)
 	if err != nil {
 		return nil, nil, err
-	}
-	if removedErr != nil {
-		return nil, nil, removedErr
 	}
 	return items, adminItems, nil
 }

@@ -629,6 +629,29 @@ func TestFileStoreWritesCurrentSchemaMarker(t *testing.T) {
 	}
 }
 
+func TestFileStoreAtStartupClaimsExactUnmarkedDatabase(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec("PRAGMA application_id = 0; PRAGMA user_version = 0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewFileStore(root); !errors.Is(err, sqlitecontract.ErrUnsupportedSchema) {
+		t.Fatalf("runtime open error = %v, want unsupported storage schema", err)
+	}
+	claimed, err := NewFileStoreAtStartup(root)
+	if err != nil {
+		t.Fatalf("startup claim: %v", err)
+	}
+	defer claimed.Close()
+	assertSQLiteSchemaMarker(t, claimed.db, chatSchemaSpec)
+}
+
 func assertSQLiteSchemaMarker(t *testing.T, db *sql.DB, spec sqlitecontract.Spec) {
 	t.Helper()
 	var applicationID, userVersion int

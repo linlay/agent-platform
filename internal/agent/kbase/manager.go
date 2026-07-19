@@ -173,6 +173,49 @@ func (m *Manager) ValidateStorageContracts() error {
 	return nil
 }
 
+// ValidateAndAdoptStartupStorageContracts performs the one permitted marker
+// adoption pass for existing unmarked KBASE control stores. It returns every
+// bad agent independently so app startup can isolate only those agents rather
+// than rejecting unrelated catalog entries. It must only be called while the
+// process is being assembled; runtime paths keep using ValidateStorageContracts
+// and OpenReadControlStore, which never adopt markers.
+func (m *Manager) ValidateAndAdoptStartupStorageContracts() map[string]error {
+	failures := map[string]error{}
+	if m == nil || m.agents == nil {
+		return failures
+	}
+	for _, spec := range m.agents.Agents() {
+		if !strings.EqualFold(strings.TrimSpace(spec.Mode), Mode) {
+			continue
+		}
+		storageDir := m.storageDirForSpec(spec)
+		dbPath := filepath.Join(storageDir, "control.db")
+		if _, err := os.Stat(dbPath); err == nil {
+			control, openErr := OpenControlStoreAtStartup(storageDir)
+			if openErr != nil {
+				failures[spec.Key] = fmt.Errorf("KBASE storage schema agent=%s storageDir=%s: %w", spec.Key, storageDir, openErr)
+				continue
+			}
+			if closeErr := control.Close(); closeErr != nil {
+				failures[spec.Key] = fmt.Errorf("close KBASE storage schema agent=%s storageDir=%s: %w", spec.Key, storageDir, closeErr)
+			}
+			continue
+		} else if !os.IsNotExist(err) {
+			failures[spec.Key] = fmt.Errorf("stat KBASE control database agent=%s storageDir=%s: %w", spec.Key, storageDir, err)
+			continue
+		}
+		residual, err := sqlitecontract.HasResidualData(storageDir)
+		if err != nil {
+			failures[spec.Key] = fmt.Errorf("inspect KBASE storage agent=%s storageDir=%s: %w", spec.Key, storageDir, err)
+			continue
+		}
+		if residual {
+			failures[spec.Key] = fmt.Errorf("KBASE storage schema agent=%s storageDir=%s: %w", spec.Key, storageDir, sqlitecontract.Unsupported(dbPath, storageDir, "control.db is missing but the storage directory contains residual data"))
+		}
+	}
+	return failures
+}
+
 // ProbeSidecar is used by the container health endpoint. Every deployment
 // with a KBASE agent requires the LanceDB sidecar.
 func (m *Manager) ProbeSidecar(ctx context.Context) (required bool, state LanceEngineState, err error) {

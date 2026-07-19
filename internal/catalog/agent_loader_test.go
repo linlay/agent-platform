@@ -1,6 +1,8 @@
 package catalog
 
 import (
+	"bytes"
+	"log"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -606,6 +608,50 @@ func TestParseAgentFileRejectsRetiredPublicModes(t *testing.T) {
 				t.Fatalf("retired mode %q must fail", mode)
 			}
 		})
+	}
+}
+
+func TestLoadAgentsWithAdminSkipsInvalidDefinitions(t *testing.T) {
+	root := t.TempDir()
+	marketDir := filepath.Join(root, "market")
+	var logs bytes.Buffer
+	previousLogOutput := log.Writer()
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(previousLogOutput) })
+	for name, content := range map[string]string{
+		"valid":        "key: valid\nname: Valid\nmode: REACT\nmodelConfig:\n  modelKey: demo-model\n",
+		"oneshot":      "key: oneshot\nname: Oneshot\nmode: ONESHOT\nmodelConfig:\n  modelKey: demo-model\n",
+		"retired-plan": "key: retired-plan\nname: Retired Plan\nmode: PLAN_EXECUTE\nmodelConfig:\n  modelKey: demo-model\n",
+		"key-mismatch": "key: another-key\nname: Key Mismatch\nmode: REACT\nmodelConfig:\n  modelKey: demo-model\n",
+		"invalid-yaml": "key: invalid-yaml\nmode: [\n",
+	} {
+		dir := filepath.Join(root, name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("create agent directory %s: %v", name, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "agent.yml"), []byte(content), 0o644); err != nil {
+			t.Fatalf("write agent definition %s: %v", name, err)
+		}
+	}
+
+	agents, admin, err := loadAgentsWithAdmin(root, marketDir, true)
+	if err != nil {
+		t.Fatalf("load agents with invalid definitions: %v", err)
+	}
+	if _, ok := agents["valid"]; !ok {
+		t.Fatalf("valid Agent was not loaded: %#v", agents)
+	}
+	for _, key := range []string{"oneshot", "retired-plan", "key-mismatch", "invalid-yaml"} {
+		if _, ok := agents[key]; ok {
+			t.Fatalf("invalid Agent %q must not be available", key)
+		}
+		item, ok := admin[key]
+		if !ok || item.Status != AdminAgentStatusInvalid || len(item.Diagnostics) == 0 {
+			t.Fatalf("invalid Agent %q diagnostic = %#v", key, item)
+		}
+		if !strings.Contains(logs.String(), "skip directory "+key) {
+			t.Fatalf("expected log entry for invalid Agent %q, got %q", key, logs.String())
+		}
 	}
 }
 

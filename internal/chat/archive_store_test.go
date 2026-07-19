@@ -111,6 +111,29 @@ func TestArchiveStoreWritesCurrentSchemaMarker(t *testing.T) {
 	}
 }
 
+func TestArchiveStoreAtStartupClaimsExactUnmarkedDatabase(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewArchiveStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec("PRAGMA application_id = 0; PRAGMA user_version = 0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewArchiveStore(root); !errors.Is(err, sqlitecontract.ErrUnsupportedSchema) {
+		t.Fatalf("runtime open error = %v, want unsupported storage schema", err)
+	}
+	claimed, err := NewArchiveStoreAtStartup(root)
+	if err != nil {
+		t.Fatalf("startup claim: %v", err)
+	}
+	defer claimed.db.Close()
+	assertSQLiteSchemaMarker(t, claimed.db, archiveSchemaSpec)
+}
+
 func TestArchiveJSONLRejectsUnsupportedSystemSchema(t *testing.T) {
 	_, err := readJSONLinesContent(`{"_type":"query","chatId":"chat-archive-invalid","runId":"run-1","updatedAt":1700000001000,"systems":[]}` + "\n")
 	if !IsJSONLSchemaViolation(err) || !strings.Contains(err.Error(), "unsupported system schema field=systems") || !strings.Contains(err.Error(), "chatId=chat-archive-invalid") || !strings.Contains(err.Error(), "runId=run-1") {
