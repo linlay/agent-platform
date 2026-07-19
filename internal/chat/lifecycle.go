@@ -150,7 +150,7 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 	// A run's lifecycle clock is captured by the run manager at registration
 	// time and carried through completion.  Deliberately do not derive it from
 	// an opaque run ID, the completion time, or the current clock here: any
-	// malformed historical value must reach the strict public read boundary
+	// malformed persisted value must reach the strict public read boundary
 	// and fail as a time_contract_violation instead of being silently repaired.
 	if strings.TrimSpace(completion.FinishReason) == "" {
 		completion.FinishReason = "complete"

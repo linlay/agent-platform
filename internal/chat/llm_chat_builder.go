@@ -113,7 +113,7 @@ func findLLMChatTargetLine(lines []map[string]any, options LLMChatBuildOptions) 
 
 func lineIsStep(line map[string]any) bool {
 	switch strings.TrimSpace(stringValue(line["_type"])) {
-	case StepLineTypeStep, StepLineTypeReact, StepLineTypeReactTool, StepLineTypePlanExecute:
+	case StepLineTypeReact, StepLineTypeReactTool:
 		return true
 	default:
 		return false
@@ -121,9 +121,6 @@ func lineIsStep(line map[string]any) bool {
 }
 
 func llmRequestMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
-	if !isNewFormat(lines) {
-		return nil
-	}
 	var messages []map[string]any
 	for _, line := range lines {
 		if lineIsCompacted(line) {

@@ -14,8 +14,6 @@ func TestPersistedTimeContractRejectsCompactAliasAndNestedFallbacks(t *testing.T
 		{"_type": CompactCheckpointLineType, "updatedAt": 0},
 		{"_type": StepLineTypeReact, "updatedAt": valid, "messages": []any{map[string]any{"role": "assistant", "ts": 0}}},
 		{"_type": "event", "updatedAt": valid, "event": map[string]any{"type": "content.delta", "timestamp": "1700000000000"}},
-		{"_type": "system-init"},
-		{"_type": "system-init", "createdAt": 0},
 	} {
 		if err := validatePersistedTimeContract([]map[string]any{line}, "chat.jsonl"); !timecontract.IsViolation(err) {
 			t.Fatalf("expected violation for %#v, got %v", line, err)

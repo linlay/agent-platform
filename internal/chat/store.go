@@ -13,7 +13,6 @@ var ErrChatNotFound = errors.New("chat not found")
 var ErrRunNotFound = errors.New("run not found")
 var ErrRunIncomplete = errors.New("run is not complete")
 var ErrChatPendingAwaiting = errors.New("chat has pending awaiting")
-var ErrLegacyPlanningProtocol = errors.New("legacy planning protocol is unsupported")
 
 type StepLineStore interface {
 	AppendQueryLine(chatID string, line QueryLine) error

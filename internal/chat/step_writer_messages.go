@@ -667,9 +667,7 @@ func boolFromAny(value any) bool {
 	}
 }
 
-// parseStage normalises a stage marker string to a stage name, matching Java's
-// TurnTraceWriter.parseStage behaviour.
-
+// parseStage normalises a stage marker string to a stage name.
 func parseStage(marker string) string {
 	marker = strings.TrimSpace(marker)
 	switch {

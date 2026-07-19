@@ -219,7 +219,7 @@ func collectToolCompactCandidates(records []jsonLineRecord) []toolCompactCandida
 			continue
 		}
 		lineType := strings.TrimSpace(stringFromAny(record.Value["_type"]))
-		if lineType != StepLineTypeStep && lineType != StepLineTypeReact && lineType != StepLineTypeReactTool && lineType != StepLineTypePlanExecute {
+		if lineType != StepLineTypeReact && lineType != StepLineTypeReactTool {
 			continue
 		}
 		messages, _ := record.Value["messages"].([]any)

@@ -6,11 +6,10 @@ import (
 	"agent-platform/internal/stream"
 )
 
-// StepWriter accumulates SSE events and writes Java-compatible JSONL lines
+// StepWriter accumulates SSE events and writes current chat JSONL lines
 // (_type: "query" / "react" / "react-tool" / "submit" / "steer" / "event")
 // to the chat store.
 //
-// It mirrors the behaviour of Java's TurnTraceWriter:
 //   - internal stage markers flush the current step and start a new one
 //   - artifact publication audits are attached only to their matching tool step
 //   - snapshot events (reasoning/content/tool/action) become StoredMessages
@@ -490,9 +489,9 @@ func (w *StepWriter) handleRequestQuery(event stream.EventData) {
 }
 
 // stampQueryMessages assigns the request.query event's already-captured
-// platform timestamp to newly produced model messages. This is not a
-// historical fallback and never calls time.Now: an existing ts, including an
-// invalid one, is preserved so the strict JSONL validator can reject it.
+// platform timestamp to newly produced model messages. It never calls
+// time.Now; an existing ts, including an invalid one, is preserved so the
+// strict JSONL validator can reject it.
 func stampQueryMessages(messages []map[string]any, timestamp int64) {
 	for _, message := range messages {
 		if message == nil {

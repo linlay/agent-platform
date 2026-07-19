@@ -2,7 +2,6 @@ package chat
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 
 	"agent-platform/internal/stream"
@@ -89,9 +88,6 @@ func planningStateFromPlanning(planning map[string]any, chatDir string) *Plannin
 		return nil
 	}
 	planningID := strings.TrimSpace(stringFromAny(planning["planningId"]))
-	if planningID == "" {
-		planningID = strings.TrimSpace(stringFromAny(planning["id"]))
-	}
 	return planningStateFromRef(
 		planningID,
 		strings.TrimSpace(stringFromAny(planning["planningFile"])),
@@ -101,87 +97,21 @@ func planningStateFromPlanning(planning map[string]any, chatDir string) *Plannin
 }
 
 func planningStateFromRef(planningID string, planningFile string, markdown string, chatDir string) *PlanningState {
-	planningID = planningIDFromRef(planningID, planningFile)
+	planningID = strings.TrimSpace(planningID)
 	planningFile = strings.TrimSpace(planningFile)
-	if planningID == "" {
+	if planningID == "" || planningFile == "" {
 		return nil
 	}
 
-	resolvedFile := resolvePlanningFileForReplay(planningFile, chatDir, planningID)
-	responseFile := planningFile
-	if fileExists(resolvedFile) || responseFile == "" {
-		responseFile = resolvedFile
-	}
-	if strings.TrimSpace(responseFile) == "" {
-		return nil
-	}
-
-	if markdown == "" && resolvedFile != "" {
-		if data, err := os.ReadFile(resolvedFile); err == nil {
+	if markdown == "" {
+		if data, err := os.ReadFile(planningFile); err == nil {
 			markdown = string(data)
 		}
 	}
 
 	return &PlanningState{
 		PlanningID:   planningID,
-		PlanningFile: responseFile,
+		PlanningFile: planningFile,
 		Markdown:     markdown,
 	}
-}
-
-func planningIDFromRef(planningID string, planningFile string) string {
-	planningID = strings.TrimSpace(planningID)
-	planningFile = strings.TrimSpace(planningFile)
-	if planningID == "" && planningFile != "" {
-		base := filepath.Base(planningFile)
-		planningID = strings.TrimSuffix(base, filepath.Ext(base))
-	}
-	return planningID
-}
-
-func resolvePlanningFileForReplay(planningFile string, chatDir string, planningID string) string {
-	planningFile = strings.TrimSpace(planningFile)
-	chatDir = strings.TrimSpace(chatDir)
-	planningID = strings.TrimSpace(planningID)
-
-	candidates := make([]string, 0, 2)
-	if planningFile != "" {
-		candidates = append(candidates, planningFile)
-	}
-	if chatDir != "" && planningID != "" {
-		candidates = append(candidates, filepath.Join(chatDir, ToolRootDirName, ToolPlanningDirName, planningID+".md"))
-	}
-	for _, candidate := range candidates {
-		if fileExists(candidate) {
-			return candidate
-		}
-	}
-	if len(candidates) > 0 {
-		return candidates[0]
-	}
-	return ""
-}
-
-func fileExists(path string) bool {
-	if strings.TrimSpace(path) == "" {
-		return false
-	}
-	_, err := os.Stat(path)
-	return err == nil
-}
-
-func containsLegacyPlanningAwaiting(lines []map[string]any) bool {
-	for _, line := range lines {
-		for _, item := range toMapSlice(line["awaiting"]) {
-			if strings.EqualFold(strings.TrimSpace(stringFromAny(item["mode"])), "plan") {
-				return true
-			}
-		}
-		event, _ := line["event"].(map[string]any)
-		if strings.TrimSpace(stringFromAny(event["type"])) == "awaiting.ask" &&
-			strings.EqualFold(strings.TrimSpace(stringFromAny(event["mode"])), "plan") {
-			return true
-		}
-	}
-	return false
 }

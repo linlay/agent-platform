@@ -16,11 +16,11 @@ func TestBTWBranchRejectsUnsupportedParentSystemSchema(t *testing.T) {
 	if _, _, err := store.EnsureChat(chatID, "agent-a", "", "question"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	legacyJSONL := `{"_type":"query","chatId":"` + chatID + `","runId":"run-parent","updatedAt":1700000001000,"systems":[]}` + "\n"
-	if err := os.WriteFile(store.chatJSONLPath(chatID), []byte(legacyJSONL), 0o644); err != nil {
-		t.Fatalf("write legacy parent JSONL: %v", err)
+	invalidJSONL := `{"_type":"query","chatId":"` + chatID + `","runId":"run-parent","updatedAt":1700000001000,"systems":[]}` + "\n"
+	if err := os.WriteFile(store.chatJSONLPath(chatID), []byte(invalidJSONL), 0o644); err != nil {
+		t.Fatalf("write invalid parent JSONL: %v", err)
 	}
-	if _, err := store.CreateBTWBranch(chatID, "btw_invalid"); err == nil || !strings.Contains(err.Error(), "unsupported system schema field=systems") || !strings.Contains(err.Error(), "chatId="+chatID) {
+	if _, err := store.CreateBTWBranch(chatID, "btw_invalid"); !IsJSONLSchemaViolation(err) || !strings.Contains(err.Error(), "unsupported system schema field=systems") || !strings.Contains(err.Error(), "chatId="+chatID) {
 		t.Fatalf("expected parent schema rejection before BTW copy, got %v", err)
 	}
 }

@@ -7,6 +7,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
+	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/timecontract"
@@ -14,8 +15,13 @@ import (
 )
 
 const timeContractViolationMessage = "time contract violation"
+const chatStorageSchemaViolationMessage = "chat storage schema violation"
 
 func writeTimeContractViolation(w http.ResponseWriter, err error) {
+	if chat.IsJSONLSchemaViolation(err) {
+		writeJSONUnchecked(w, http.StatusUnprocessableEntity, api.Failure(http.StatusUnprocessableEntity, chatStorageSchemaViolationMessage, chatStorageSchemaErrorData(err)))
+		return
+	}
 	writeTimeContractViolationData(w, timeContractErrorData(err))
 }
 
@@ -27,6 +33,10 @@ func sendTimeContractViolation(conn *ws.Conn, requestID string, err error) {
 	if conn == nil {
 		return
 	}
+	if chat.IsJSONLSchemaViolation(err) {
+		conn.SendError(requestID, string(apperrors.CodeChatStorageSchemaViolation), http.StatusUnprocessableEntity, chatStorageSchemaViolationMessage, chatStorageSchemaErrorData(err))
+		return
+	}
 	// Expose field/location/expected directly in WS error data, just like the
 	// HTTP 422 envelope. SendError still attaches the standard nested `error`
 	// descriptor for clients which consume the common error shape.
@@ -34,6 +44,9 @@ func sendTimeContractViolation(conn *ws.Conn, requestID string, err error) {
 }
 
 func timeContractErrorData(err error) map[string]any {
+	if chat.IsJSONLSchemaViolation(err) {
+		return chatStorageSchemaErrorData(err)
+	}
 	data := timecontract.ErrorData(err)
 	data["category"] = string(apperrors.CategoryRequest)
 	data["scope"] = string(apperrors.ScopeRequest)
@@ -42,6 +55,24 @@ func timeContractErrorData(err error) map[string]any {
 	data["userSafeMessageKey"] = string(apperrors.CodeTimeContractViolation)
 	data["message"] = timeContractViolationMessage
 	return data
+}
+
+func chatStorageSchemaErrorData(err error) map[string]any {
+	data := chat.JSONLSchemaErrorData(err)
+	data["category"] = string(apperrors.CategoryChatRun)
+	data["scope"] = string(apperrors.ScopeChat)
+	data["status"] = http.StatusUnprocessableEntity
+	data["retryable"] = false
+	data["userSafeMessageKey"] = string(apperrors.CodeChatStorageSchemaViolation)
+	data["message"] = chatStorageSchemaViolationMessage
+	return data
+}
+
+func contractViolationMessage(err error) string {
+	if chat.IsJSONLSchemaViolation(err) {
+		return chatStorageSchemaViolationMessage
+	}
+	return timeContractViolationMessage
 }
 
 // localTimeContractRunErrorEvent replaces an invalid upstream event after a
@@ -53,13 +84,14 @@ func localTimeContractRunErrorEvent(seq int64, runID, chatID string, err error) 
 	if seq <= 0 {
 		seq = 1
 	}
-	contractData := timecontract.ErrorData(err)
+	contractData := timeContractErrorData(err)
 	contractData["status"] = http.StatusUnprocessableEntity
-	contractData["message"] = timeContractViolationMessage
+	message := contractViolationMessage(err)
+	contractData["message"] = message
 	payload := map[string]any{
 		"runId":   runID,
 		"chatId":  chatID,
-		"message": timeContractViolationMessage,
+		"message": message,
 		"error":   contractData,
 	}
 	for _, key := range []string{"code", "field", "location", "expected"} {
@@ -126,7 +158,7 @@ func (s *Server) terminateSSEForTimeContractViolation(
 		run,
 		contracts.InterruptSourceHTTPAPI,
 		contracts.InterruptReasonRunInterrupted,
-		timeContractViolationMessage,
+		contractViolationMessage(err),
 	)
 	s.deps.Runs.Interrupt(run)
 	if status, ok := s.deps.Runs.RunStatus(run.RunID); ok && status.CompletedAt == 0 {
@@ -135,17 +167,23 @@ func (s *Server) terminateSSEForTimeContractViolation(
 }
 
 func isTimeContractViolation(err error) bool {
-	return errors.Is(err, errTimeContractViolation) || timecontract.IsViolation(err)
+	return errors.Is(err, errTimeContractViolation) || timecontract.IsViolation(err) || chat.IsJSONLSchemaViolation(err)
 }
 
 func timeContractStatusError(err error) *statusError {
 	if !isTimeContractViolation(err) {
 		return nil
 	}
+	code := "time_contract_violation"
+	message := timeContractViolationMessage
+	if chat.IsJSONLSchemaViolation(err) {
+		code = chat.ChatStorageSchemaViolationCode
+		message = chatStorageSchemaViolationMessage
+	}
 	return &statusError{
 		status:  http.StatusUnprocessableEntity,
-		code:    "time_contract_violation",
-		message: timeContractViolationMessage,
+		code:    code,
+		message: message,
 		data:    timeContractErrorData(err),
 	}
 }

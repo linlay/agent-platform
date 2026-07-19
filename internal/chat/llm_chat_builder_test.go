@@ -298,7 +298,7 @@ func TestBuildLLMChatFromJSONLAppendsInputMessages(t *testing.T) {
 		t.Fatalf("append execute system registration: %v", err)
 	}
 	if err := store.AppendStepLine(chatID, StepLine{
-		Type:          StepLineTypePlanExecute,
+		Type:          StepLineTypeReact,
 		ChatID:        chatID,
 		RunID:         "run-1",
 		UpdatedAt:     testEpochMillis(3),

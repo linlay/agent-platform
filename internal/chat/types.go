@@ -61,7 +61,7 @@ type PlanningState struct {
 }
 
 // ---------------------------------------------------------------------------
-// Chat Storage V3.1 — JSONL line types (matching Java format)
+// Current chat JSONL line types
 // ---------------------------------------------------------------------------
 
 type SystemInitLine struct {
@@ -93,7 +93,6 @@ type QueryLineSystem struct {
 }
 
 // QueryLine represents a _type:"query" line in chatId.jsonl.
-// Field order matches Java: chatId, runId, updatedAt, liveSeq, query, system, _type.
 type QueryLine struct {
 	ChatID       string           `json:"chatId"`
 	RunID        string           `json:"runId"`
@@ -113,10 +112,8 @@ type QueryLine struct {
 }
 
 const (
-	StepLineTypeReact       = "react"
-	StepLineTypeReactTool   = "react-tool"
-	StepLineTypePlanExecute = "plan-execute"
-	StepLineTypeStep        = "step"
+	StepLineTypeReact     = "react"
+	StepLineTypeReactTool = "react-tool"
 
 	CompactCheckpointLineType = "compact.checkpoint"
 	ToolCompactLineType       = "compact.tool"
@@ -152,8 +149,7 @@ type ToolCompactLine struct {
 }
 
 // StepLine represents a step line in chatId.jsonl.
-// _type is the persisted step shape: "react" or "react-tool" for new writes.
-// Historical files may still contain "plan-execute" and remain readable.
+// _type is the persisted step shape: "react" or "react-tool".
 // Model-call lines: { _type: "react", seq: N, messages: [...] }
 // Split tool-result continuation lines: { _type: "react-tool", seq: N, messages: [...] }
 // In react/react-tool lines, seq is the model-call grouping id, not a physical

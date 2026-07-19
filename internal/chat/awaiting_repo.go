@@ -102,7 +102,7 @@ func loadPersistedAwaitingAskFromLines(lines []map[string]any, awaitingID string
 		lineType, _ := line["_type"].(string)
 		runID, _ := line["runId"].(string)
 		switch lineType {
-		case StepLineTypeReact, StepLineTypeReactTool, StepLineTypePlanExecute, StepLineTypeStep:
+		case StepLineTypeReact, StepLineTypeReactTool:
 			awaitingItems, _ := line["awaiting"].([]any)
 			for _, raw := range awaitingItems {
 				item, _ := raw.(map[string]any)

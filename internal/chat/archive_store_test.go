@@ -113,8 +113,41 @@ func TestArchiveStoreWritesCurrentSchemaMarker(t *testing.T) {
 
 func TestArchiveJSONLRejectsUnsupportedSystemSchema(t *testing.T) {
 	_, err := readJSONLinesContent(`{"_type":"query","chatId":"chat-archive-invalid","runId":"run-1","updatedAt":1700000001000,"systems":[]}` + "\n")
-	if err == nil || !strings.Contains(err.Error(), "unsupported system schema field=systems") || !strings.Contains(err.Error(), "chatId=chat-archive-invalid") || !strings.Contains(err.Error(), "runId=run-1") {
+	if !IsJSONLSchemaViolation(err) || !strings.Contains(err.Error(), "unsupported system schema field=systems") || !strings.Contains(err.Error(), "chatId=chat-archive-invalid") || !strings.Contains(err.Error(), "runId=run-1") {
 		t.Fatalf("expected contextual archive schema rejection, got %v", err)
+	}
+}
+
+func TestArchiveReadersRejectInvalidJSONLWithoutPartialResults(t *testing.T) {
+	store, err := NewArchiveStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new archive store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.db.Close() })
+	const chatID = "chat-archive-schema"
+	archived := testArchivedChat(chatID, "agent-a", "Archive schema topic", "archive answer")
+	if err := store.ArchiveChat(archived); err != nil {
+		t.Fatalf("archive chat: %v", err)
+	}
+	invalid := `{"type":"query","chatId":"` + chatID + `","runId":"run-archive","updatedAt":1700000001000}` + "\n"
+	if _, err := store.db.Exec("UPDATE ARCHIVED_CHATS SET JSONL_CONTENT_=? WHERE CHAT_ID_=?", invalid, chatID); err != nil {
+		t.Fatalf("seed invalid archived JSONL: %v", err)
+	}
+
+	checks := map[string]func() error{
+		"load":  func() error { _, err := store.LoadArchived(chatID); return err },
+		"jsonl": func() error { _, err := store.LoadJSONLContent(chatID); return err },
+		"search": func() error {
+			_, err := store.SearchArchived("Archive schema topic", "", 10)
+			return err
+		},
+	}
+	for name, check := range checks {
+		t.Run(name, func(t *testing.T) {
+			if err := check(); !IsJSONLSchemaViolation(err) {
+				t.Fatalf("expected archive schema violation, got %v", err)
+			}
+		})
 	}
 }
 

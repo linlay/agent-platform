@@ -2,10 +2,8 @@ package chat
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -430,7 +428,7 @@ func (s *ArchiveStore) SearchArchived(query, agentKey string, limit int) ([]Arch
 	if err == nil {
 		return hits, nil
 	}
-	if timecontract.IsViolation(err) {
+	if timecontract.IsViolation(err) || IsJSONLSchemaViolation(err) {
 		return nil, err
 	}
 	return s.searchArchivedLikeLocked(query, agentKey, limit)
@@ -541,7 +539,7 @@ func (s *ArchiveStore) listRunsLocked(chatID string) ([]RunSummary, error) {
 func (s *ArchiveStore) searchArchivedFTSLocked(query, agentKey string, limit int) ([]ArchiveSearchHit, error) {
 	ftsQuery := archiveFTSQuery(query)
 	rows, err := s.db.Query(`SELECT c.CHAT_ID_, c.CHAT_NAME_, c.AGENT_KEY_, COALESCE(c.TEAM_ID_,''), c.CREATED_AT_, c.LAST_RUN_AT_, c.ARCHIVED_AT_,
-			c.LAST_RUN_ID_, c.LAST_RUN_CONTENT_, bm25(ARCHIVED_CHATS_FTS)
+			c.LAST_RUN_ID_, c.LAST_RUN_CONTENT_, c.JSONL_CONTENT_, bm25(ARCHIVED_CHATS_FTS)
 		FROM ARCHIVED_CHATS_FTS
 		JOIN ARCHIVED_CHATS c ON c.rowid=ARCHIVED_CHATS_FTS.rowid
 		WHERE ARCHIVED_CHATS_FTS MATCH ? AND (?='' OR c.AGENT_KEY_=?)
@@ -554,11 +552,15 @@ func (s *ArchiveStore) searchArchivedFTSLocked(query, agentKey string, limit int
 	var hits []ArchiveSearchHit
 	for rows.Next() {
 		var hit ArchiveSearchHit
+		var jsonlContent string
 		var rank float64
-		if err := rows.Scan(&hit.ChatID, &hit.ChatName, &hit.AgentKey, &hit.TeamID, &hit.CreatedAt, &hit.LastRunAt, &hit.ArchivedAt, &hit.LastRunID, &hit.LastRunContent, &rank); err != nil {
+		if err := rows.Scan(&hit.ChatID, &hit.ChatName, &hit.AgentKey, &hit.TeamID, &hit.CreatedAt, &hit.LastRunAt, &hit.ArchivedAt, &hit.LastRunID, &hit.LastRunContent, &jsonlContent, &rank); err != nil {
 			return nil, err
 		}
 		if err := validateArchiveSearchHitTimeContract(hit, fmt.Sprintf("archive.search[%d]", len(hits))); err != nil {
+			return nil, err
+		}
+		if err := ValidateJSONLContent(jsonlContent, fmt.Sprintf("archive.search[%d].jsonl", len(hits))); err != nil {
 			return nil, err
 		}
 		hit.Snippet = buildArchiveSnippet(query, hit.ChatName, hit.LastRunContent)
@@ -571,7 +573,7 @@ func (s *ArchiveStore) searchArchivedFTSLocked(query, agentKey string, limit int
 func (s *ArchiveStore) searchArchivedLikeLocked(query, agentKey string, limit int) ([]ArchiveSearchHit, error) {
 	like := "%" + strings.ToLower(query) + "%"
 	rows, err := s.db.Query(`SELECT c.CHAT_ID_, c.CHAT_NAME_, c.AGENT_KEY_, COALESCE(c.TEAM_ID_,''), c.CREATED_AT_, c.LAST_RUN_AT_, c.ARCHIVED_AT_,
-			c.LAST_RUN_ID_, c.LAST_RUN_CONTENT_
+			c.LAST_RUN_ID_, c.LAST_RUN_CONTENT_, c.JSONL_CONTENT_
 		FROM ARCHIVED_CHATS c
 		WHERE (?='' OR c.AGENT_KEY_=?) AND (
 			lower(c.CHAT_NAME_) LIKE ? OR lower(c.LAST_RUN_CONTENT_) LIKE ? OR lower(c.JSONL_CONTENT_) LIKE ? OR lower(c.EVENTS_CONTENT_) LIKE ?
@@ -585,10 +587,14 @@ func (s *ArchiveStore) searchArchivedLikeLocked(query, agentKey string, limit in
 	var hits []ArchiveSearchHit
 	for rows.Next() {
 		var hit ArchiveSearchHit
-		if err := rows.Scan(&hit.ChatID, &hit.ChatName, &hit.AgentKey, &hit.TeamID, &hit.CreatedAt, &hit.LastRunAt, &hit.ArchivedAt, &hit.LastRunID, &hit.LastRunContent); err != nil {
+		var jsonlContent string
+		if err := rows.Scan(&hit.ChatID, &hit.ChatName, &hit.AgentKey, &hit.TeamID, &hit.CreatedAt, &hit.LastRunAt, &hit.ArchivedAt, &hit.LastRunID, &hit.LastRunContent, &jsonlContent); err != nil {
 			return nil, err
 		}
 		if err := validateArchiveSearchHitTimeContract(hit, fmt.Sprintf("archive.search[%d]", len(hits))); err != nil {
+			return nil, err
+		}
+		if err := ValidateJSONLContent(jsonlContent, fmt.Sprintf("archive.search[%d].jsonl", len(hits))); err != nil {
 			return nil, err
 		}
 		hit.Snippet = buildArchiveSnippet(query, hit.ChatName, hit.LastRunContent)
@@ -716,27 +722,12 @@ func applyArchivedDerivedReadState(item *ArchivedSummary) {
 }
 
 func readJSONLinesContent(content string) ([]map[string]any, error) {
-	content = strings.TrimSpace(content)
 	if content == "" {
 		return nil, nil
 	}
-	decoder := json.NewDecoder(strings.NewReader(content))
-	decoder.UseNumber()
-	var items []map[string]any
-	for {
-		var payload map[string]any
-		if err := decoder.Decode(&payload); err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return nil, fmt.Errorf("parse archived JSONL: %w", err)
-		}
-		if payload != nil {
-			items = append(items, payload)
-		}
-	}
-	if err := validatePersistedSystemInitSchema(items); err != nil {
+	records, err := decodeJSONLRecords([]byte(content), "archive.jsonl", true)
+	if err != nil {
 		return nil, err
 	}
-	return items, nil
+	return recordValues(records), nil
 }

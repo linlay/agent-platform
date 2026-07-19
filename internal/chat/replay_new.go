@@ -123,7 +123,7 @@ func (s *FileStore) LoadRunTrace(chatID string, runID string) (RunTrace, error) 
 					trace.Query = &query
 				}
 			}
-		case StepLineTypeReact, StepLineTypeReactTool, StepLineTypePlanExecute, StepLineTypeStep:
+		case StepLineTypeReact, StepLineTypeReactTool:
 			data, _ := json.Marshal(line)
 			var step StepLine
 			if err := json.Unmarshal(data, &step); err == nil {
@@ -149,13 +149,10 @@ func (s *FileStore) LoadRunTrace(chatID string, runID string) (RunTrace, error) 
 }
 
 // ---------------------------------------------------------------------------
-// New format: _type = "query" / "step" / "event" (matching Java)
+// Current format: _type = "query" / "react" / "react-tool" / control lines.
 // ---------------------------------------------------------------------------
 
 func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []map[string]any, chatDir string, runStartedAt map[string]int64, runCompletedAt map[string]int64) (Detail, error) {
-	if containsLegacyPlanningAwaiting(lines) {
-		return Detail{}, ErrLegacyPlanningProtocol
-	}
 	var planning *PlanningState
 
 	runs := map[string]*chatRunData{}
@@ -259,7 +256,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				Payload:   payload,
 			})
 
-		case StepLineTypeReact, StepLineTypeReactTool, StepLineTypePlanExecute, StepLineTypeStep:
+		case StepLineTypeReact, StepLineTypeReactTool:
 			lineLiveSeq := int64FromAny(line["liveSeq"])
 			rd := ensureRun(runs, &runOrder, runID)
 

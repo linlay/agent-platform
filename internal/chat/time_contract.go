@@ -7,8 +7,8 @@ import (
 	"agent-platform/internal/timecontract"
 )
 
-// validatePersistedTimeContract is the no-migration read boundary for chat
-// JSONL.  It deliberately validates the original decoded values before any
+// validatePersistedTimeContract validates current chat JSONL time fields. It
+// deliberately validates the original decoded values before any
 // replay helper can inherit a line timestamp or invent a replacement.  The
 // caller must return the resulting Violation unchanged so HTTP/WS can expose
 // field, location and expected to the client as time_contract_violation.
@@ -16,16 +16,9 @@ func validatePersistedTimeContract(lines []map[string]any, baseLocation string) 
 	for index, line := range lines {
 		location := fmt.Sprintf("%s[%d]", strings.TrimSpace(baseLocation), index)
 		lineType := strings.TrimSpace(stringFromAny(line["_type"]))
-		if lineType == "" {
-			lineType = strings.TrimSpace(stringFromAny(line["type"]))
-		}
 		switch lineType {
-		case "query", StepLineTypeReact, StepLineTypeReactTool, StepLineTypePlanExecute, StepLineTypeStep, "event", "submit", "steer", CompactCheckpointLineType, ToolCompactLineType:
+		case "query", StepLineTypeReact, StepLineTypeReactTool, "event", "submit", "steer", CompactCheckpointLineType, ToolCompactLineType:
 			if err := requirePersistedEpochMillis(line, "updatedAt", location); err != nil {
-				return err
-			}
-		case "system-init":
-			if err := requirePersistedEpochMillis(line, "createdAt", location); err != nil {
 				return err
 			}
 		}
@@ -71,10 +64,8 @@ func requirePersistedEpochMillis(object map[string]any, field string, location s
 	return err
 }
 
-// optionalPersistedEpochMillis keeps an omitted optional instant omitted. If
-// a legacy line does contain the field, it is still subject to the exact same
-// integer/range validation; null, zero, strings and seconds are never
-// silently accepted.
+// optionalPersistedEpochMillis keeps an omitted optional instant omitted and
+// validates an explicitly present value against the current time contract.
 func optionalPersistedEpochMillis(object map[string]any, field string, location string) error {
 	value, ok := object[field]
 	if !ok {
@@ -146,7 +137,7 @@ func validatePersistedSources(raw any, location string) error {
 
 // validateArchivedSummaryTimeContract is deliberately stricter than the
 // SQLite schema defaults. Archive summary instants are public API fields, so
-// zero/seconds/string-derived legacy values must be rejected rather than
+// zero, seconds, and string-derived values must be rejected rather than
 // inferred from updatedAt, an ID, or a related run row.
 func validateArchivedSummaryTimeContract(summary ArchivedSummary, location string) error {
 	for _, field := range []struct {

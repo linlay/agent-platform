@@ -14,7 +14,7 @@ type SystemInitKey struct {
 
 // systemInitRef identifies the immutable system snapshot used by one LLM
 // call. Unlike SystemInitKey, it includes the fingerprint so callers can
-// retrieve a historical snapshot after a later catalog change writes a new
+// retrieve the exact snapshot after a later catalog change writes a new
 // snapshot under the same agent/cache key.
 type systemInitRef struct {
 	AgentKey    string
@@ -228,6 +228,9 @@ func validatePersistedSystemInitSchema(lines []map[string]any) error {
 			return systemSchemaError(line, "unsupported system schema field=systems")
 		}
 		if lineType == "query" {
+			if _, found := line["systemRef"]; found {
+				return systemSchemaError(line, "unsupported system schema field=systemRef")
+			}
 			if _, err := queryLineSystemFromJSONL(line); err != nil {
 				return err
 			}
@@ -254,6 +257,13 @@ func stepSystemRefFromJSONL(line map[string]any, required bool) (map[string]any,
 	ref, ok := rawRef.(map[string]any)
 	if !ok {
 		return nil, systemSchemaError(line, "invalid systemRef field=systemRef must be an object")
+	}
+	for key := range ref {
+		switch key {
+		case "agentKey", "cacheKey", "fingerprint":
+		default:
+			return nil, systemSchemaError(line, "invalid systemRef contains unsupported field")
+		}
 	}
 	agentKey := strings.TrimSpace(stringFromAny(ref["agentKey"]))
 	cacheKey := strings.TrimSpace(stringFromAny(ref["cacheKey"]))

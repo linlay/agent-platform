@@ -14,7 +14,7 @@
 }
 ```
 
-## 统一时间契约（破坏性）
+## 统一时间契约
 
 platform 自己定义和拥有的 API、JSONL、SSE、WebSocket 与 trace 生命周期时间点，统一使用未加引号的 Unix epoch milliseconds JSON 整数（Go `int64`、客户端 `number`）。可接受范围固定为 `1000000000000..9007199254740991`：这既拒绝十位 Unix 秒，也保证 JavaScript number 精确表示。
 
@@ -22,10 +22,16 @@ platform 自己定义和拥有的 API、JSONL、SSE、WebSocket 与 trace 生命
 - 已声明的可读时间（`*Time` 或 `iso`）必须是带 `Z` 或 offset 的 RFC3339 / RFC3339Nano；若协议声明它与 epoch-ms 字段配对，两者必须表示同一毫秒时刻。
 - 名字不是契约：外部 tool result、MCP content、Desktop action result、trace request/response/tool payload 的 `createdAt`、`timestamp`、`iso` 等业务字段不会因名称被平台推断为时间。
 - 工具结果只有在其可选 `outputSchema` 显式声明时才校验时间：`x-platform-time: "epoch-ms"` 表示严格毫秒整数，`format: "date-time"` 表示 RFC3339 可读字符串，`x-platform-time-pair` 表示显式配对。未声明 `outputSchema` 的工具结果是透明 JSON。
-- 任何 producer、历史 JSONL/archive、trace 或上游 child/proxy stream 违反此契约，HTTP/WS 返回 `422`，其 `data.error` 固定含有 `code:"time_contract_violation"`、`field`、`location`、`expected:"epoch_ms_int64"`。已开始的 stream 会先发送平台本地 `run.error` 后结束；服务端绝不以当前时间、run ID 或完成时间修补原事件。
-- 这是立即生效的破坏性切换：不迁移旧记录，也不提供双读、feature flag 或宽松解析。旧不合规 chat/archive/trace 不可读取，旧上游使用字符串、秒值或浮点 timestamp 的流会失败。
+- 任何 producer、持久化 JSONL/archive、trace 或上游 child/proxy stream 违反此契约，HTTP/WS 返回 `422`，其 `data.error` 固定含有 `code:"time_contract_violation"`、`field`、`location`、`expected:"epoch_ms_int64"`。已开始的 stream 会先发送平台本地 `run.error` 后结束；服务端绝不以当前时间、run ID 或完成时间修补原事件。
+- 不符合时间契约的 chat、archive、trace 或上游 stream 直接失败。
 
 JWT `exp` / `iat` 与 resource ticket payload 的 `e` 仍是 token 内部的 NumericDate 秒值；`durationMs`、`timeout`、cron、本地日期拆分、ID、文件名和日志前缀不是结构化时间点。
+
+## Chat JSONL schema 错误
+
+Chat JSONL 每条物理行只允许一个 JSON object，`_type` 必填且只允许 `query`、`react`、`react-tool`、`event`、`steer`、`submit`、`compact.checkpoint`、`compact.tool`。空行、多行 object、同行多个 JSON 值、数组、标量、语法错误、非法 `_type` 及非法 system/planning/awaiting 结构统一返回 HTTP/WS `422 chat_storage_schema_violation`。
+
+HTTP 的 `data.error` 与 WebSocket error frame 的 `data` 包含 `code`、`field`、`location`、`expected`、可选 `actual`、`status:422`、`retryable:false`。`location` 使用 1-based 物理行号；响应不会携带完整 JSONL 行或 system prompt。时间字段不合法仍使用 `time_contract_violation`。
 
 ## 核心流程
 
@@ -129,7 +135,7 @@ chat 摘要会在新数据中返回可选 `mode`；`/api/chat.runs[]`、`/api/ag
 
 `/api/chat` 返回 active run 时，`activeRun.lastSeq` 是本次 chat detail 已返回历史 events 覆盖到的 live stream 游标，客户端应用这些 events 后可把它作为 `/api/attach.lastSeq`。它来自 `chatId.jsonl` 每行顶层 `liveSeq` 的 replay 结果，不是内存 run 当前最新 seq；内存最新 seq 只用于服务端运行状态。
 
-`/api/chat/jsonl`、`/api/chat/system-prompt`、chat/archive replay、搜索结果与 `/api/chat/llm-trace` 都在读取前验证各自明确拥有的时间字段。JSONL 的 line `updatedAt`、event `timestamp`、`messages[].ts` 和 awaiting/submit 时间仍严格；新写入的 trace 中 `sentAt`、`responseStartedAt`、`completedAt` 以及 `interrupt.interruptedAt` 均为 epoch milliseconds，对应的 `sentTime`、`responseStartedTime`、`completedTime`、`interrupt.interruptedTime` 为 RFC3339Nano 可读时间。历史 trace 或 JSONL 不迁移；其中字符串、秒、浮点、零值或缺少必填平台时间会返回 `422 time_contract_violation`，不会原样透传或补值；trace 中外部 request/response/tool payload 保持透明。
+`/api/chat/jsonl`、`/api/chat/system-prompt`、chat/archive replay、搜索结果与 `/api/chat/llm-trace` 都在读取前验证各自明确拥有的时间字段。JSONL 的 line `updatedAt`、event `timestamp`、`messages[].ts` 和 awaiting/submit 时间保持严格；trace 中 `sentAt`、`responseStartedAt`、`completedAt` 以及 `interrupt.interruptedAt` 均为 epoch milliseconds，对应的 `sentTime`、`responseStartedTime`、`completedTime`、`interrupt.interruptedTime` 为 RFC3339Nano 可读时间。字符串、秒、浮点、零值或缺少必填平台时间会返回 `422 time_contract_violation`；trace 中外部 request/response/tool payload 保持透明。
 
 `/api/chats` 的 chat 摘要、`/api/agents?includeChats=N`（包括 `includeTeam=true`）附带的 chat 摘要，以及 WebSocket `/api/chats` 响应都会在存在运行中 run 时返回 `activeRun`（不包含详情专属的 `planningMode` 或重算后的 `lastSeq`）。这些摘要可能包含局部 `error`，用于展示单个 chat 的可恢复/可诊断异常而不让列表整体失败。当前 `multiple active runs found for chat` 会返回 `error: { "code": "active_run_conflict", "message": "multiple active runs found for chat", "chatId": "...", "runIds": ["..."] }`，此时该 chat 不包含 `activeRun`。
 
@@ -332,9 +338,9 @@ HITL 三态细节见 [HITL协议](HITL协议.md)。真流式、heartbeat、attac
 
 KBASE API 只接受 `mode: KBASE` agent；非 KBASE agent 会返回 forbidden/unsupported。手工 refresh 与运行时工具 `kbase_refresh` 调用同一个后端入口。KBASE 的 search/files/read/status 工具声明为只读，BTW/read-only policy 下仍可使用；refresh 是变更索引状态的操作，在只读 policy 下禁用。五个 KBASE tool 名称、REST 路径、`SearchHit`、chunk ID 和 `source.publish` 契约固定由 LanceDB 路径提供。agent catalog 热重载完成后会立即重绑相应 workspace watcher；agent 删除或 workspace/config 变化不会继续沿用旧 watcher，周期 reconcile 仅作为兜底。
 
-KBASE agent 在运行时调用 `kbase_search` 且召回到内容时，会额外通过 live stream 发布 `source.publish` 事件。事件包含 `kind: "kbase"`、`query`、`sourceCount`、`chunkCount` 与按 source 聚合的 `sources[].chunks[]`，chunk 可携带 `path`、行号、页码、slide、`sourceType`、`matchType`、`score` 等定位字段；新写入的 chat JSONL 会把该事件作为对应 `react-tool` step 的顶层 `sources.items[]` sidecar 持久化，`/api/chat` replay 时再合成 `source.publish` 事件并保留原始 `liveSeq`，供时间线与 `/api/attach.lastSeq` 使用。历史 JSONL 中独立 `_type:"event"` 的 `source.publish` 仍保持可回放。
+KBASE agent 在运行时调用 `kbase_search` 且召回到内容时，会额外通过 live stream 发布 `source.publish` 事件。事件包含 `kind: "kbase"`、`query`、`sourceCount`、`chunkCount` 与按 source 聚合的 `sources[].chunks[]`，chunk 可携带 `path`、行号、页码、slide、`sourceType`、`matchType`、`score` 等定位字段；chat JSONL 会把该事件作为对应 `react-tool` step 的顶层 `sources.items[]` sidecar 持久化，`/api/chat` replay 时再合成 `source.publish` 事件并保留原始 `liveSeq`，供时间线与 `/api/attach.lastSeq` 使用。当前 `_type:"event"` 的 `source.publish` 也保持可回放。
 
-`artifact_publish` 仅在整个批次文件物化且 `<chatId>/.tools/artifacts.json` 原子写入成功后发布 `artifact.publish`。事件包含 `chatId`、`runId`、`toolId`、`artifactCount`、`artifacts`，子任务有明确归属时额外包含 `taskId`。JSONL 的对应 `react-tool.artifacts.items[]` 只是该次调用的审计记录；`GET /api/chat` 的 `data.artifact = { items: [...] }` 只从 manifest 恢复，旧 JSONL artifact 快照不会影响返回值。
+`artifact_publish` 仅在整个批次文件物化且 `<chatId>/.tools/artifacts.json` 原子写入成功后发布 `artifact.publish`。事件包含 `chatId`、`runId`、`toolId`、`artifactCount`、`artifacts`，子任务有明确归属时额外包含 `taskId`。JSONL 的对应 `react-tool.artifacts.items[]` 只是该次调用的审计记录；`GET /api/chat` 的 `data.artifact = { items: [...] }` 只从 manifest 恢复。
 
 KBASE 工具只读取 active 索引库，不直接访问宿主文件系统。`kbase_search` 支持 `pathPrefix`、`pathGlob`、`type` 与 `offset` 做 scoped retrieval；`kbase_files` 支持按 `path`、`pattern`、`status`、`type`、`mode=files|tree`、`depth`、`head_limit`、`offset` 浏览已索引/已扫描文件元数据。Lance 路径并行取 vector 与 FTS 候选并使用加权 RRF 融合；`matchType` 为 `vector|fts|hybrid`，score 归一化到 `[0,1]`。`matchCount` 是受 candidate 上限约束的两路去重并集数，不是全库总命中数。
 
@@ -524,7 +530,7 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 
 除 `heartbeat.timestamp` 外，platform 主动发送的 push payload 不使用 `timestamp`；它们用上表的业务语义时间字段。这是硬切换，不会双写旧字段，前端与服务端需要同版本发布。SSE 与 WebSocket `frame:"stream"` 的 `event.timestamp` 仍是每个业务流事件必填的 epoch milliseconds。`auth.refresh` response 在 JWT 存在 `exp` 时才返回 `expiresAt = exp * 1000`；没有 `exp` 时省略字段。`auth.expiring.expiresAt` 同样始终是 epoch milliseconds。客户端不得把缺失 `readAt` / `expiresAt` 解释为 1970 或当前时间。
 
-`awaiting.asking.timeout` 与 stream 中的 `awaiting.ask.timeout` 语义一致：对普通 HITL 等待项，`0` 表示无限等待、不自动超时；大于 `0` 时由后端按真实时间独立倒计时，observer / attach / detach 状态不会暂停或延长后端超时。CODER planning confirmation 使用 `mode:"planning"` 和 `planning` payload，永远省略 `timeout`，表示永久等待；它不同于 `plan_*` / plan-tasks 的执行任务计划。旧 `mode:"plan"` planning 协议不兼容。
+`awaiting.asking.timeout` 与 stream 中的 `awaiting.ask.timeout` 语义一致：对普通 HITL 等待项，`0` 表示无限等待、不自动超时；大于 `0` 时由后端按真实时间独立倒计时，observer / attach / detach 状态不会暂停或延长后端超时。CODER planning confirmation 使用 `mode:"planning"` 和同时包含 `planningId + planningFile` 的 `planning` payload，永远省略 `timeout`，表示永久等待；它不同于 `plan_*` / plan-tasks 的执行任务计划。awaiting mode 只允许 `question | approval | form | planning`。
 
 stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会显示超时秒数和原因；`error` 可附带 `timeoutSeconds`、`elapsedSeconds`、`reason:"submit_not_received_before_timeout"`。
 
@@ -542,7 +548,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `reason` | stream | stream 结束或中断原因 |
 | `lastSeq` | stream | 已发送事件序号，可用于 attach |
 
-历史重建事件的 `seq` 是展示序号。`chatId.jsonl` 使用每行顶层 `liveSeq` 记录该行覆盖到的原始 live stream 序号；replay 时会把它注入到对应的历史事件 payload，供 attach cursor 使用。
+回放事件的 `seq` 是展示序号。`chatId.jsonl` 使用每行顶层 `liveSeq` 记录该行覆盖到的原始 live stream 序号；replay 时会把它注入到对应事件 payload，供 attach cursor 使用。
 
 ### WS Route
 

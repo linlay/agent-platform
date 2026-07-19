@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -207,29 +206,12 @@ func readJSONLineRecords(path string) ([]jsonLineRecord, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	records := []jsonLineRecord{}
-	for {
-		start := decoder.InputOffset()
-		var payload map[string]any
-		if err := decoder.Decode(&payload); err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return nil, nil, fmt.Errorf("parse JSONL: %w", err)
-		}
-		end := decoder.InputOffset()
-		raw := bytes.TrimSpace(data[int(start):int(end)])
-		if len(raw) == 0 {
-			raw, _ = json.Marshal(payload)
-		}
-		if payload != nil {
-			if err := validatePersistedTimeContract([]map[string]any{payload}, "chat.jsonl.compact"); err != nil {
-				return nil, nil, err
-			}
-			records = append(records, jsonLineRecord{Raw: raw, Value: payload})
-		}
+	records, err := decodeJSONLRecords(data, "chat.jsonl", true)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := validatePersistedTimeContract(recordValues(records), "chat.jsonl"); err != nil {
+		return nil, nil, err
 	}
 	return records, data, nil
 }

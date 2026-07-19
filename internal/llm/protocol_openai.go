@@ -103,7 +103,7 @@ func (p *openAIProtocol) PrepareRequest(params protocolStreamParams) (preparedPr
 	}
 
 	preserveReasoning := preserveReasoningContent(params.protocolConfig, params.stageSettings)
-	normalizedMessages := normalizeOpenAIMessages(applyOpenAIMessageCompat(sanitizeOpenAIToolResultMessages(params.messages), preserveReasoning))
+	normalizedMessages := applyOpenAIMessageCompat(sanitizeOpenAIToolResultMessages(params.messages), preserveReasoning)
 
 	effectiveToolChoice := "auto"
 	if params.toolChoice != "" {
@@ -237,7 +237,7 @@ func toOpenAIToolSpecs(defs []api.ToolDetailResponse) []openAIToolSpec {
 }
 
 // rawMessageToOpenAI converts a persisted raw message entry to an openAIMessage.
-// Format follows the Java version: role + content, with tool_calls for assistant messages.
+// Format uses role + content, with tool_calls for assistant messages.
 func rawMessageToOpenAI(raw map[string]any, preserveReasoning bool) openAIMessage {
 	role, _ := raw["role"].(string)
 	content, _ := raw["content"].(string)
@@ -430,86 +430,4 @@ func mergeRawMessagesByMsgID(raw []map[string]any) []map[string]any {
 		cleaned = append(cleaned, entry)
 	}
 	return cleaned
-}
-
-const missingOpenAIToolResultContent = "tool_result_missing: No persisted result is available for this historical tool call. Its execution outcome is unknown; do not assume success or retry automatically."
-
-// normalizeOpenAIMessages repairs historical tool-call ordering before sending
-// the transcript to OpenAI-compatible providers. Some persisted chats can
-// contain synthetic user messages (for example HITL summaries) inserted between
-// an assistant tool_call turn and its tool results, or incomplete tool-call
-// turns left behind by interrupted runs. OpenAI rejects both shapes, so missing
-// results are completed with an explicit synthetic failure instead of dropping
-// the assistant tool-call turn.
-func normalizeOpenAIMessages(messages []openAIMessage) []openAIMessage {
-	if len(messages) == 0 {
-		return nil
-	}
-
-	out := make([]openAIMessage, 0, len(messages))
-	for index := 0; index < len(messages); {
-		current := messages[index]
-		if strings.TrimSpace(current.Role) != "assistant" || len(current.ToolCalls) == 0 {
-			if strings.TrimSpace(current.Role) != "tool" {
-				out = append(out, current)
-			}
-			index++
-			continue
-		}
-
-		expected := make(map[string]struct{}, len(current.ToolCalls))
-		for _, toolCall := range current.ToolCalls {
-			if id := strings.TrimSpace(toolCall.ID); id != "" {
-				expected[id] = struct{}{}
-			}
-		}
-		if len(expected) == 0 {
-			out = append(out, current)
-			index++
-			continue
-		}
-
-		matchedByID := make(map[string]openAIMessage, len(expected))
-		buffered := make([]openAIMessage, 0, 2)
-		next := index + 1
-		for next < len(messages) {
-			candidate := messages[next]
-			role := strings.TrimSpace(candidate.Role)
-			if role == "assistant" && len(candidate.ToolCalls) > 0 {
-				break
-			}
-			if role == "tool" {
-				toolCallID := strings.TrimSpace(candidate.ToolCallID)
-				if _, ok := expected[toolCallID]; ok {
-					matchedByID[toolCallID] = candidate
-					delete(expected, toolCallID)
-				}
-				next++
-				continue
-			}
-			buffered = append(buffered, candidate)
-			next++
-		}
-
-		out = append(out, current)
-		for _, toolCall := range current.ToolCalls {
-			toolCallID := strings.TrimSpace(toolCall.ID)
-			if toolCallID == "" {
-				continue
-			}
-			if matched, ok := matchedByID[toolCallID]; ok {
-				out = append(out, matched)
-				continue
-			}
-			out = append(out, openAIMessage{
-				Role:       "tool",
-				ToolCallID: toolCall.ID,
-				Name:       toolCall.Function.Name,
-				Content:    missingOpenAIToolResultContent,
-			})
-		}
-		out = append(out, buffered...)
-		index = next
-	}
-	return out
 }

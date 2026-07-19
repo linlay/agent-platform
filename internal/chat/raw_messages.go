@@ -89,10 +89,6 @@ func limitRawMessagesByRuns(messages []map[string]any, k int, compacted bool) []
 }
 
 func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
-	if !isNewFormat(lines) {
-		return nil
-	}
-
 	var messages []map[string]any
 	for _, line := range lines {
 		if lineIsCompacted(line) {
@@ -136,7 +132,7 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 				}
 			}
 
-		case StepLineTypeStep, StepLineTypeReact, StepLineTypeReactTool, StepLineTypePlanExecute:
+		case StepLineTypeReact, StepLineTypeReactTool:
 			if strings.TrimSpace(stringValue(line["taskSubAgentKey"])) != "" {
 				continue
 			}
@@ -173,9 +169,6 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 }
 
 func teamMemberRawMessagesFromJSONLLines(lines []map[string]any, memberAgentKey string) []map[string]any {
-	if !isNewFormat(lines) {
-		return nil
-	}
 	memberAgentKey = strings.TrimSpace(memberAgentKey)
 	var messages []map[string]any
 	for _, line := range lines {
@@ -199,7 +192,7 @@ func teamMemberRawMessagesFromJSONLLines(lines []map[string]any, memberAgentKey 
 				msg["runId"] = runID
 				messages = append(messages, msg)
 			}
-		case StepLineTypeStep, StepLineTypeReact, StepLineTypeReactTool, StepLineTypePlanExecute:
+		case StepLineTypeReact, StepLineTypeReactTool:
 			taskAgentKey := strings.TrimSpace(stringValue(line["taskSubAgentKey"]))
 			if taskAgentKey != "" && strings.EqualFold(taskAgentKey, memberAgentKey) {
 				messages = append(messages, normalizedStepMessages(line, runID)...)
@@ -214,9 +207,6 @@ func teamMemberRawMessagesFromJSONLLines(lines []map[string]any, memberAgentKey 
 }
 
 func teamCoordinatorRawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
-	if !isNewFormat(lines) {
-		return nil
-	}
 	var messages []map[string]any
 	for _, line := range lines {
 		if lineIsCompacted(line) {
@@ -239,7 +229,7 @@ func teamCoordinatorRawMessagesFromJSONLLines(lines []map[string]any) []map[stri
 				msg["runId"] = runID
 				messages = append(messages, msg)
 			}
-		case StepLineTypeStep, StepLineTypeReact, StepLineTypeReactTool, StepLineTypePlanExecute:
+		case StepLineTypeReact, StepLineTypeReactTool:
 			taskAgentKey := strings.TrimSpace(stringValue(line["taskSubAgentKey"]))
 			if taskAgentKey != "" {
 				if final := finalAssistantMessageFromStep(line, runID, taskAgentKey); final != nil {

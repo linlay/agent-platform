@@ -14,7 +14,7 @@ import (
 	"agent-platform/internal/ws"
 )
 
-func TestQueryRejectsInvalidPersistedHistoryTimeOverHTTPAndWS(t *testing.T) {
+func TestQueryRejectsInvalidPersistedTimeOverHTTPAndWS(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{notifications: ws.NewHub()})
@@ -22,11 +22,10 @@ func TestQueryRejectsInvalidPersistedHistoryTimeOverHTTPAndWS(t *testing.T) {
 	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "first message"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	// Bypass the writer contract on purpose: this is a historical record from
-	// before the breaking switch. Query preparation must not turn it into a
-	// current-time history message or proceed with the run.
+	// Bypass the writer contract on purpose. Query preparation must reject the
+	// invalid persisted record instead of proceeding with the run.
 	if err := os.WriteFile(filepath.Join(fixture.cfg.Paths.ChatsDir, chatID+".jsonl"), []byte(`{"_type":"query","chatId":"`+chatID+`","runId":"run-query-jsonl-time-contract","updatedAt":0,"query":{"role":"user","message":"old message"}}`+"\n"), 0o644); err != nil {
-		t.Fatalf("write invalid historical line: %v", err)
+		t.Fatalf("write invalid persisted line: %v", err)
 	}
 
 	body := []byte(`{"chatId":"` + chatID + `","agentKey":"mock-agent","message":"next message"}`)
@@ -65,7 +64,7 @@ func TestQueryRejectsPersistedMessageMissingTsOverHTTPAndWS(t *testing.T) {
 	}
 	line := `{"_type":"query","chatId":"` + chatID + `","runId":"run-query-missing-message-ts","updatedAt":1700000000001,"query":{"role":"user","message":"old message"},"messages":[{"role":"user","content":"old message"}]}` + "\n"
 	if err := os.WriteFile(filepath.Join(fixture.cfg.Paths.ChatsDir, chatID+".jsonl"), []byte(line), 0o644); err != nil {
-		t.Fatalf("write invalid historical line: %v", err)
+		t.Fatalf("write invalid persisted line: %v", err)
 	}
 
 	body := []byte(`{"chatId":"` + chatID + `","agentKey":"mock-agent","message":"next message"}`)

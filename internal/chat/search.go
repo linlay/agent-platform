@@ -144,9 +144,6 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 		runID, _ := line["runId"].(string)
 		ts := int64FromAny(line["updatedAt"])
 		lineType, _ := line["_type"].(string)
-		if lineType == "" {
-			lineType, _ = line["type"].(string)
-		}
 		switch lineType {
 		case "query":
 			if lineIsSystemInitQuery(line) {
@@ -172,7 +169,7 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 					Score:     score,
 				})
 			}
-		case StepLineTypeReact, StepLineTypeReactTool, StepLineTypePlanExecute, StepLineTypeStep:
+		case StepLineTypeReact, StepLineTypeReactTool:
 			stage := stringValue(line["stage"])
 			rootTeamCoordinator := orchestratedTeam && strings.TrimSpace(stringValue(line["taskId"])) == "" && strings.TrimSpace(stringValue(line["taskSubAgentKey"])) == ""
 			messages, _ := line["messages"].([]any)

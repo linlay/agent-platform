@@ -235,73 +235,8 @@ func (s *Server) loadChatLLMTraceContent(fileParam string) (string, string, erro
 	return string(data), filename, nil
 }
 
-// validatePersistedJSONLTimeContract intentionally only reads old content. It
-// never normalizes, rewrites, or fills a timestamp: incompatible historical
-// records must be surfaced to the caller as a 422 rather than silently made
-// to look current.
 func validatePersistedJSONLTimeContract(content string, baseLocation string) error {
-	decoder := json.NewDecoder(strings.NewReader(content))
-	decoder.UseNumber()
-	for index := 0; ; index++ {
-		var line map[string]any
-		err := decoder.Decode(&line)
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("parse persisted JSONL: %w", err)
-		}
-		location := fmt.Sprintf("%s[%d]", baseLocation, index)
-		lineType, _ := line["_type"].(string)
-		switch strings.TrimSpace(lineType) {
-		case "query", "react", "react-tool", "plan-execute", "step", "event", "submit", "steer", chat.CompactCheckpointLineType, chat.ToolCompactLineType:
-			if err := validateRequiredJSONEpochMillis(line, "updatedAt", location); err != nil {
-				return err
-			}
-		case "system-init":
-			if err := validateRequiredJSONEpochMillis(line, "createdAt", location); err != nil {
-				return err
-			}
-		}
-		if strings.TrimSpace(lineType) == "event" {
-			event, ok := line["event"].(map[string]any)
-			if !ok {
-				return &timecontract.Violation{Field: "timestamp", Location: location + ".event.timestamp", Reason: "event payload is required"}
-			}
-			if err := validateRequiredJSONEpochMillis(event, "timestamp", location+".event"); err != nil {
-				return err
-			}
-		}
-		if err := validatePersistedJSONLMessages(line["messages"], location+".messages"); err != nil {
-			return err
-		}
-	}
-}
-
-func validatePersistedJSONLMessages(raw any, location string) error {
-	items, ok := raw.([]any)
-	if !ok {
-		return nil
-	}
-	for index, rawItem := range items {
-		item, ok := rawItem.(map[string]any)
-		if !ok || len(item) == 0 {
-			continue
-		}
-		if err := validateRequiredJSONEpochMillis(item, "ts", fmt.Sprintf("%s[%d]", location, index)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func validateRequiredJSONEpochMillis(object map[string]any, field string, location string) error {
-	value, ok := object[field]
-	if !ok {
-		return &timecontract.Violation{Field: field, Location: location + "." + field, Reason: "is required"}
-	}
-	_, err := timecontract.ParseEpochMillis(value, field, location+"."+field)
-	return err
+	return chat.ValidateJSONLContent(content, baseLocation)
 }
 
 func validatePersistedTraceTimeContract(data []byte, location string) error {

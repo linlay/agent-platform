@@ -20,6 +20,7 @@ var definitions = []Definition{
 	def(CodeInvalidLocale, CategoryRequest, ScopeRequest, http.StatusBadRequest, false),
 	def(CodeUnsupportedOperation, CategoryRequest, ScopeRequest, http.StatusBadRequest, false),
 	def(CodeTimeContractViolation, CategoryRequest, ScopeRequest, http.StatusUnprocessableEntity, false),
+	def(CodeChatStorageSchemaViolation, CategoryChatRun, ScopeChat, http.StatusUnprocessableEntity, false),
 
 	def(CodeUnauthorized, CategoryAuth, ScopeRequest, http.StatusUnauthorized, false),
 	def(CodeForbidden, CategoryAuth, ScopeRequest, http.StatusForbidden, false),

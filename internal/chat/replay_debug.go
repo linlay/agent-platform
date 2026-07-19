@@ -8,22 +8,6 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// Format detection
-// ---------------------------------------------------------------------------
-
-func isNewFormat(lines []map[string]any) bool {
-	for _, line := range lines {
-		if _, ok := line["_type"]; ok {
-			return true
-		}
-		if _, ok := line["type"]; ok {
-			return false
-		}
-	}
-	return false
-}
-
-// ---------------------------------------------------------------------------
 // Step line → SSE events reconstruction
 // ---------------------------------------------------------------------------
 

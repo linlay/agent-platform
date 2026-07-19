@@ -180,7 +180,7 @@ func TestOpenAIProtocolPrepareRequestReasoningContentCompat(t *testing.T) {
 	}
 }
 
-func TestOpenAIProtocolPrepareRequestCompletesHistoricalToolCallBlock(t *testing.T) {
+func TestOpenAIProtocolPrepareRequestPreservesToolMessageOrderAndGaps(t *testing.T) {
 	protocol := &openAIProtocol{engine: NewLLMAgentEngineWithHTTPClient(config.Config{}, nil, nil, nil, nil, &http.Client{})}
 	prepared, err := protocol.PrepareRequest(protocolStreamParams{
 		provider:       ProviderDefinition{Key: "mock", BaseURL: "https://example.com", APIKey: "token"},
@@ -192,7 +192,7 @@ func TestOpenAIProtocolPrepareRequestCompletesHistoricalToolCallBlock(t *testing
 				{ID: "call_1", Type: "function", Function: openAIFunctionCall{Name: "datetime", Arguments: "{}"}},
 				{ID: "call_2", Type: "function", Function: openAIFunctionCall{Name: "file_read", Arguments: `{"file_path":"README.md"}`}},
 			}},
-			{Role: "user", Content: "[System audit — historical context]"},
+			{Role: "user", Content: "intervening context"},
 			{Role: "tool", ToolCallID: "call_1", Name: "datetime", Content: "2026-07-19T00:00:00Z"},
 		},
 		toolSpecs: []openAIToolSpec{
@@ -210,27 +210,50 @@ func TestOpenAIProtocolPrepareRequestCompletesHistoricalToolCallBlock(t *testing
 	if err := json.Unmarshal(prepared.RequestBodyJSON, &request); err != nil {
 		t.Fatalf("decode prepared request: %v", err)
 	}
-	if len(request.Messages) != 5 {
-		t.Fatalf("expected system, assistant, two tool results, and audit message, got %#v", request.Messages)
+	if len(request.Messages) != 4 {
+		t.Fatalf("expected request preparation to preserve all four input messages, got %#v", request.Messages)
 	}
 	assistant := request.Messages[1]
 	if assistant.Role != "assistant" || len(assistant.ToolCalls) != 2 {
 		t.Fatalf("expected assistant tool-call block preserved, got %#v", assistant)
 	}
-	for index, toolCall := range assistant.ToolCalls {
-		result := request.Messages[index+2]
-		if result.Role != "tool" || result.ToolCallID != toolCall.ID {
-			t.Fatalf("expected tool call %s to have adjacent result at index %d, got %#v", toolCall.ID, index+2, result)
+	if request.Messages[2].Role != "user" || request.Messages[2].Content != "intervening context" {
+		t.Fatalf("expected intervening user message to remain in place, got %#v", request.Messages[2])
+	}
+	if request.Messages[3].Role != "tool" || request.Messages[3].ToolCallID != "call_1" || request.Messages[3].Content != "2026-07-19T00:00:00Z" {
+		t.Fatalf("expected existing tool result to remain in its original position, got %#v", request.Messages[3])
+	}
+	for _, message := range request.Messages {
+		if message.ToolCallID == "call_2" {
+			t.Fatalf("request preparation must not synthesize a missing tool result: %#v", request.Messages)
 		}
 	}
-	if request.Messages[2].Content != "2026-07-19T00:00:00Z" {
-		t.Fatalf("expected existing result to remain unchanged, got %#v", request.Messages[2])
+}
+
+func TestOpenAIProtocolPrepareRequestPreservesOrphanToolMessage(t *testing.T) {
+	protocol := &openAIProtocol{engine: NewLLMAgentEngineWithHTTPClient(config.Config{}, nil, nil, nil, nil, &http.Client{})}
+	prepared, err := protocol.PrepareRequest(protocolStreamParams{
+		provider:       ProviderDefinition{Key: "mock", BaseURL: "https://example.com", APIKey: "token"},
+		model:          ModelDefinition{Protocol: "OPENAI", ModelID: "mock-model"},
+		protocolConfig: protocolRuntimeConfig{EndpointPath: "/v1/chat/completions"},
+		messages: []openAIMessage{
+			{Role: "system", Content: "system prompt"},
+			{Role: "tool", ToolCallID: "orphan", Name: "datetime", Content: "result"},
+			{Role: "user", Content: "continue"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("PrepareRequest returned error: %v", err)
 	}
-	if request.Messages[3].Name != "file_read" || request.Messages[3].Content != missingOpenAIToolResultContent {
-		t.Fatalf("expected missing result in prepared request, got %#v", request.Messages[3])
+
+	var request struct {
+		Messages []openAIMessage `json:"messages"`
 	}
-	if request.Messages[4].Role != "user" || request.Messages[4].Content != "[System audit — historical context]" {
-		t.Fatalf("expected audit message after complete tool block, got %#v", request.Messages[4])
+	if err := json.Unmarshal(prepared.RequestBodyJSON, &request); err != nil {
+		t.Fatalf("decode prepared request: %v", err)
+	}
+	if len(request.Messages) != 3 || request.Messages[1].Role != "tool" || request.Messages[1].ToolCallID != "orphan" {
+		t.Fatalf("orphan tool message must be forwarded unchanged, got %#v", request.Messages)
 	}
 }
 
@@ -294,7 +317,7 @@ func TestOpenAIProtocolPrepareRequestKeepsDeterministicDefaultTemperature(t *tes
 	assertRequestNumber(t, prepared.RequestBody, "temperature", 0)
 }
 
-func TestOpenAIProtocolPrepareRequestOmitsHistoricalToolBase64(t *testing.T) {
+func TestOpenAIProtocolPrepareRequestOmitsStoredToolBase64(t *testing.T) {
 	protocol := &openAIProtocol{engine: NewLLMAgentEngineWithHTTPClient(config.Config{}, nil, nil, nil, nil, &http.Client{})}
 	encoded := "iVBORw0KGgoAAAANSUhEUgAA"
 	prepared, err := protocol.PrepareRequest(protocolStreamParams{
@@ -334,7 +357,7 @@ func TestOpenAIProtocolPrepareRequestOmitsHistoricalToolBase64(t *testing.T) {
 
 	rawBody := string(prepared.RequestBodyJSON)
 	if strings.Contains(rawBody, encoded) {
-		t.Fatalf("expected historical tool base64 to be omitted from provider request, got %s", rawBody)
+		t.Fatalf("expected stored tool base64 to be omitted from provider request, got %s", rawBody)
 	}
 	if !strings.Contains(rawBody, `\"contentBase64Omitted\":true`) {
 		t.Fatalf("expected omitted marker in provider request, got %s", rawBody)

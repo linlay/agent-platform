@@ -443,7 +443,7 @@ func TestFileStoreLoadAwaitingAskUsesCanonicalStepOnly(t *testing.T) {
 	if _, _, err := store.EnsureChat("chat-awaiting-event", "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure event chat: %v", err)
 	}
-	if err := appendEventLineForTest(store, "chat-awaiting-event", EventLine{
+	err = appendEventLineForTest(store, "chat-awaiting-event", EventLine{
 		ChatID:    "chat-awaiting-event",
 		RunID:     "run-event",
 		UpdatedAt: testEpochMillis(200),
@@ -456,15 +456,9 @@ func TestFileStoreLoadAwaitingAskUsesCanonicalStepOnly(t *testing.T) {
 				map[string]any{"id": "cmd-1", "command": "rm -rf /tmp/demo"},
 			},
 		},
-	}); err != nil {
-		t.Fatalf("append event line: %v", err)
-	}
-	ask, err = store.LoadAwaitingAsk("chat-awaiting-event", "await_event")
-	if err != nil {
-		t.Fatalf("load event awaiting ask: %v", err)
-	}
-	if ask != nil {
-		t.Fatalf("did not expect event-only awaiting ask to be loaded, got %#v", ask)
+	})
+	if !IsJSONLSchemaViolation(err) {
+		t.Fatalf("event-line awaiting.ask must be rejected, got %v", err)
 	}
 }
 
@@ -2896,36 +2890,34 @@ func TestLoadChatRestoresPlanningFromReactAwaitingPlan(t *testing.T) {
 		t.Fatalf("expected planning.snapshot before awaiting.ask, got %#v", detail.Events)
 	}
 	if _, exists := detail.Events[awaitingIndex].Payload["timeout"]; exists {
-		t.Fatalf("expected legacy planning replay to omit timeout, got %#v", detail.Events[awaitingIndex])
+		t.Fatalf("expected planning replay to omit timeout, got %#v", detail.Events[awaitingIndex])
 	}
 }
 
-func TestLoadChatRejectsLegacyPlanPlanningAwaiting(t *testing.T) {
+func TestWriterRejectsPlanAwaitingMode(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	chatID := "chat-legacy-planning"
+	chatID := "chat-invalid-planning-mode"
 	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	if err := appendStepLineForTest(store, chatID, StepLine{
+	err = appendStepLineForTest(store, chatID, StepLine{
 		ChatID:   chatID,
-		RunID:    "run-legacy",
+		RunID:    "run-invalid-planning-mode",
 		Messages: []StoredMessage{},
 		Awaiting: []map[string]any{{
 			"type": "awaiting.ask", "mode": "plan", "plan": map[string]any{"id": "confirm"},
 		}},
 		Type: StepLineTypeReact,
-	}); err != nil {
-		t.Fatalf("append legacy awaiting: %v", err)
-	}
-	if _, err := store.LoadChat(chatID); !errors.Is(err, ErrLegacyPlanningProtocol) {
-		t.Fatalf("expected legacy planning protocol error, got %v", err)
+	})
+	if !IsJSONLSchemaViolation(err) {
+		t.Fatalf("mode plan must be rejected, got %v", err)
 	}
 }
 
-func TestLoadChatRestoresPlanningFromTextOnlyAwaitingPlan(t *testing.T) {
+func TestWriterRejectsPlanningWithoutPlanningFile(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
@@ -2937,7 +2929,7 @@ func TestLoadChatRestoresPlanningFromTextOnlyAwaitingPlan(t *testing.T) {
 	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	if err := appendStepLineForTest(store, chatID, StepLine{
+	err = appendStepLineForTest(store, chatID, StepLine{
 		ChatID:    chatID,
 		RunID:     runID,
 		UpdatedAt: testEpochMillis(1004),
@@ -2956,32 +2948,9 @@ func TestLoadChatRestoresPlanningFromTextOnlyAwaitingPlan(t *testing.T) {
 		},
 		Type: "react",
 		Seq:  1,
-	}); err != nil {
-		t.Fatalf("append step line: %v", err)
-	}
-
-	detail, err := store.LoadChat(chatID)
-	if err != nil {
-		t.Fatalf("load chat: %v", err)
-	}
-	planningFile := filepath.Join(store.ChatDir(chatID), ToolRootDirName, ToolPlanningDirName, planningID+".md")
-	if detail.Planning == nil || detail.Planning.PlanningID != planningID ||
-		detail.Planning.PlanningFile != planningFile || detail.Planning.Markdown != planningText {
-		t.Fatalf("expected planning state from text-only awaiting plan, got planning=%#v events=%#v", detail.Planning, detail.Events)
-	}
-	if detailEventTypeCount(detail.Events, "planning.snapshot") != 1 {
-		t.Fatalf("expected text-only awaiting plan to synthesize one planning.snapshot, got %#v", detail.Events)
-	}
-	snapshot := detailEventByType(detail.Events, "planning.snapshot")
-	if snapshot.String("planningId") != planningID ||
-		snapshot.String("planningFile") != planningFile ||
-		snapshot.String("text") != planningText {
-		t.Fatalf("unexpected synthesized planning.snapshot: %#v", snapshot)
-	}
-	snapshotIndex := detailEventTypeIndex(detail.Events, "planning.snapshot")
-	awaitingIndex := detailEventTypeIndex(detail.Events, "awaiting.ask")
-	if snapshotIndex < 0 || awaitingIndex < 0 || snapshotIndex >= awaitingIndex {
-		t.Fatalf("expected planning.snapshot before awaiting.ask, got %#v", detail.Events)
+	})
+	if !IsJSONLSchemaViolation(err) {
+		t.Fatalf("planning without planningFile must be rejected, got %v", err)
 	}
 }
 
@@ -4048,11 +4017,6 @@ func TestStepWriterFlushesAwaitingAskImmediatelyForAllModes(t *testing.T) {
 			mode: "form",
 			key:  "forms",
 			data: []any{map[string]any{"id": "form-1", "title": "Review"}},
-		},
-		{
-			mode: "plan",
-			key:  "plan",
-			data: map[string]any{"title": "Plan", "steps": []any{"one"}},
 		},
 	}
 
@@ -5233,7 +5197,7 @@ func eventOrder(events []stream.EventData, eventTypes ...string) map[string]int 
 	return order
 }
 
-func TestLoadChatIgnoresQuestionAwaitingAskEventLines(t *testing.T) {
+func TestWriterRejectsQuestionAwaitingAskEventLine(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
@@ -5256,7 +5220,7 @@ func TestLoadChatIgnoresQuestionAwaitingAskEventLines(t *testing.T) {
 		t.Fatalf("append query line: %v", err)
 	}
 
-	if err := appendEventLineForTest(store, "chat-1", EventLine{
+	err = appendEventLineForTest(store, "chat-1", EventLine{
 		ChatID:    "chat-1",
 		RunID:     "run-1",
 		UpdatedAt: testEpochMillis(1001),
@@ -5280,8 +5244,9 @@ func TestLoadChatIgnoresQuestionAwaitingAskEventLines(t *testing.T) {
 				},
 			},
 		},
-	}); err != nil {
-		t.Fatalf("append await ask line: %v", err)
+	})
+	if !IsJSONLSchemaViolation(err) {
+		t.Fatalf("event-line awaiting.ask must be rejected, got %v", err)
 	}
 
 	if err := appendEventLineForTest(store, "chat-1", EventLine{
@@ -5554,7 +5519,7 @@ func TestLoadChatReplaysAwaitingFromStepLine(t *testing.T) {
 	}
 }
 
-func TestLoadChatIgnoresEventLineAwaitingAsk(t *testing.T) {
+func TestWriterRejectsAwaitingAskEventLine(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
@@ -5574,7 +5539,7 @@ func TestLoadChatIgnoresEventLineAwaitingAsk(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append query line: %v", err)
 	}
-	if err := appendEventLineForTest(store, "chat-awaiting-event-ignored", EventLine{
+	err = appendEventLineForTest(store, "chat-awaiting-event-ignored", EventLine{
 		ChatID:    "chat-awaiting-event-ignored",
 		RunID:     "run-awaiting-event-ignored",
 		UpdatedAt: testEpochMillis(1001),
@@ -5589,18 +5554,9 @@ func TestLoadChatIgnoresEventLineAwaitingAsk(t *testing.T) {
 				map[string]any{"id": "q1", "question": "How many?", "type": "number"},
 			},
 		},
-	}); err != nil {
-		t.Fatalf("append awaiting event line: %v", err)
-	}
-
-	detail, err := store.LoadChat("chat-awaiting-event-ignored")
-	if err != nil {
-		t.Fatalf("load chat: %v", err)
-	}
-	for _, event := range detail.Events {
-		if event.Type == "awaiting.ask" {
-			t.Fatalf("did not expect event-line awaiting.ask to replay, got %#v", detail.Events)
-		}
+	})
+	if !IsJSONLSchemaViolation(err) {
+		t.Fatalf("event-line awaiting.ask must be rejected, got %v", err)
 	}
 }
 
@@ -6337,7 +6293,7 @@ func TestLoadChatAccumulatesEstimatedCostWithoutTokens(t *testing.T) {
 	}
 }
 
-func TestLoadChatIgnoresApprovalAwaitingAskEventLines(t *testing.T) {
+func TestWriterRejectsApprovalAwaitingAskEventLine(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
@@ -6360,7 +6316,7 @@ func TestLoadChatIgnoresApprovalAwaitingAskEventLines(t *testing.T) {
 		t.Fatalf("append query line: %v", err)
 	}
 
-	if err := appendEventLineForTest(store, "chat-approval", EventLine{
+	err = appendEventLineForTest(store, "chat-approval", EventLine{
 		ChatID:    "chat-approval",
 		RunID:     "run-approval",
 		UpdatedAt: testEpochMillis(1001),
@@ -6379,8 +6335,9 @@ func TestLoadChatIgnoresApprovalAwaitingAskEventLines(t *testing.T) {
 				},
 			},
 		},
-	}); err != nil {
-		t.Fatalf("append approval await ask line: %v", err)
+	})
+	if !IsJSONLSchemaViolation(err) {
+		t.Fatalf("event-line awaiting.ask must be rejected, got %v", err)
 	}
 
 	if err := appendEventLineForTest(store, "chat-approval", EventLine{

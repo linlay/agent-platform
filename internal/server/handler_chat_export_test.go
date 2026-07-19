@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -90,7 +91,7 @@ func TestHandleChatJSONLValidationAndNotFound(t *testing.T) {
 	}
 }
 
-func TestHandleChatJSONLRejectsHistoricalTimeContractViolation(t *testing.T) {
+func TestHandleChatJSONLRejectsTimeContractViolation(t *testing.T) {
 	fixture := newTestFixture(t)
 	chatID := "chat-jsonl-invalid-time"
 	if _, _, err := fixture.chats.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
@@ -275,7 +276,7 @@ func TestHandleChatLLMTraceValidationAndNotFound(t *testing.T) {
 	}
 }
 
-func TestHandleChatLLMTraceRejectsHistoricalTimeContractViolation(t *testing.T) {
+func TestHandleChatLLMTraceRejectsTimeContractViolation(t *testing.T) {
 	fixture := newChatExportWSTestFixture(t)
 	fileParam := "chat-trace/.llm-records/run_invalid_001.json"
 	seedLLMTraceFile(t, fixture, fileParam, `{"runId":"run_invalid","sentAt":"2024-01-01T00:00:00Z"}`+"\n")
@@ -377,6 +378,55 @@ func TestWSChatJSONLValidationAndNotFound(t *testing.T) {
 				t.Fatalf("unexpected error frame: %#v", frame)
 			}
 		})
+	}
+}
+
+func TestChatJSONLReturnsSchemaViolationOverHTTPAndWebSocket(t *testing.T) {
+	fixture := newChatExportWSTestFixture(t)
+	const chatID = "chat-jsonl-schema-violation"
+	const secret = "system-prompt-must-not-leak"
+	if _, _, err := fixture.chats.EnsureChat(chatID, "agent-a", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	path := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID+".jsonl")
+	content := `{"_type":"query","chatId":"` + chatID + `","runId":"run-1","updatedAt":1700000000001,"query":{"role":"user","message":"hello"}}` + "\n" +
+		`{"type":"react","chatId":"` + chatID + `","runId":"run-1","updatedAt":1700000000002,"systemPrompt":"` + secret + `"}` + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write invalid jsonl: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat/jsonl?chatId="+chatID, nil))
+	if rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), `"code":"chat_storage_schema_violation"`) || !strings.Contains(rec.Body.String(), `"location":"chat.jsonl[2]"`) {
+		t.Fatalf("unexpected HTTP schema violation: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), secret) {
+		t.Fatalf("HTTP error leaked persisted content: %s", rec.Body.String())
+	}
+
+	conn := dialTestWS(t, fixture.server)
+	defer conn.Close()
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame:   ws.FrameRequest,
+		Type:    "/api/chat/jsonl",
+		ID:      "req_schema_violation",
+		Payload: ws.MarshalPayload(map[string]any{"chatId": chatID}),
+	}); err != nil {
+		t.Fatalf("write request: %v", err)
+	}
+	var frame ws.ErrorFrame
+	if err := conn.ReadJSON(&frame); err != nil {
+		t.Fatalf("read error: %v", err)
+	}
+	if frame.Frame != ws.FrameError || frame.ID != "req_schema_violation" || frame.Type != "chat_storage_schema_violation" || frame.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("unexpected WS schema violation: %#v", frame)
+	}
+	data, _ := frame.Data.(map[string]any)
+	if data["code"] != "chat_storage_schema_violation" || data["location"] != "chat.jsonl[2]" || data["retryable"] != false {
+		t.Fatalf("unexpected WS schema data: %#v", data)
+	}
+	if strings.Contains(fmt.Sprint(frame.Data), secret) {
+		t.Fatalf("WS error leaked persisted content: %#v", frame.Data)
 	}
 }
 

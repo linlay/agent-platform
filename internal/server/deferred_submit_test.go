@@ -706,6 +706,17 @@ func TestDeferredSubmitRestoresQuestionAndPlanAfterRestart(t *testing.T) {
 	for _, tc := range cases {
 		chatID := "chat-" + tc.name
 		runID := "run-" + tc.name
+		if tc.mode == "planning" {
+			planning := tc.ask["planning"].(map[string]any)
+			planningFile := filepath.Join(fixture.chats.ChatDir(chatID), chat.ToolRootDirName, chat.ToolPlanningDirName, "run-planning_planning_1.md")
+			if err := os.MkdirAll(filepath.Dir(planningFile), 0o755); err != nil {
+				t.Fatalf("mkdir planning dir: %v", err)
+			}
+			if err := os.WriteFile(planningFile, []byte("# Planning"), 0o644); err != nil {
+				t.Fatalf("write planning file: %v", err)
+			}
+			planning["planningFile"] = planningFile
+		}
 		seedDeferredAwaitingPayload(t, fixture.chats, chatID, runID, tc.awaitingID, tc.mode, 600, nowMs, tc.ask)
 	}
 

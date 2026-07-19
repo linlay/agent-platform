@@ -1,9 +1,7 @@
 package chat
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 
@@ -37,7 +35,7 @@ func (s *FileStore) AppendSubmitLine(chatID string, line SubmitLine) error {
 	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
 }
 
-// chatJSONLPath returns the path to {chatId}.jsonl (flat file, matching Java).
+// chatJSONLPath returns the flat-file path for the chat's JSONL stream.
 func (s *FileStore) chatJSONLPath(chatID string) string {
 	return filepath.Join(s.root, chatID+".jsonl")
 }
@@ -50,10 +48,8 @@ func (s *FileStore) appendJSONLine(path string, payload any) error {
 }
 
 func (s *FileStore) appendJSONLineLocked(path string, payload any) error {
-	// Validate the exact JSON representation that will reach disk.  This keeps
-	// decoder semantics (json.Number rather than float64) identical to the
-	// historical read boundary and prevents a new internal writer from creating
-	// a record that a later replay must reject.
+	// Validate the exact JSON representation that will reach disk so writers and
+	// readers enforce the same current storage contract.
 	raw, err := validateJSONLLinePayload(payload, "chat.jsonl.write")
 	if err != nil {
 		return err
@@ -76,24 +72,15 @@ func (s *FileStore) appendJSONLineLocked(path string, payload any) error {
 }
 
 func validateJSONLLinePayload(payload any, location string) ([]byte, error) {
-	// Inspect the original Go value before json.Marshal. An integral float64
-	// would otherwise serialize as an unquoted number and evade the strict
-	// JSON decoder below, despite the contract forbidding all float time
-	// values.
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
-	var line map[string]any
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.UseNumber()
-	if err := decoder.Decode(&line); err != nil {
-		return nil, fmt.Errorf("decode JSONL line for validation: %w", err)
-	}
-	if err := validatePersistedTimeContract([]map[string]any{line}, location); err != nil {
+	records, err := decodeJSONLRecords(raw, location, true)
+	if err != nil {
 		return nil, err
 	}
-	if err := validatePersistedSystemInitSchema([]map[string]any{line}); err != nil {
+	if err := validatePersistedTimeContract(recordValues(records), location); err != nil {
 		return nil, err
 	}
 	return raw, nil
