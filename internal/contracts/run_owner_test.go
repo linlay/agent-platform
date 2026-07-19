@@ -5,13 +5,13 @@ import (
 	"testing"
 )
 
-func TestResolveRunOwnerPreservesLegacyAgentOwnedTeam(t *testing.T) {
+func TestAgentRunOwnerDoesNotRepresentTeamMembership(t *testing.T) {
 	owner := ResolveRunOwner(AgentRunOwner(" member-a ", " team-a "))
 	if owner.IsTeam() {
-		t.Fatalf("legacy team owner should remain agent-owned: %#v", owner)
+		t.Fatalf("agent owner must not become a Team owner: %#v", owner)
 	}
-	if owner.AgentKey != "member-a" || owner.TeamID != "team-a" || owner.ExecutionAgentKey != "member-a" {
-		t.Fatalf("unexpected legacy owner %#v", owner)
+	if owner.AgentKey != "member-a" || owner.TeamID != "" || owner.ExecutionAgentKey != "member-a" {
+		t.Fatalf("unexpected agent owner %#v", owner)
 	}
 }
 

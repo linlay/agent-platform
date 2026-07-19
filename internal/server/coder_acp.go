@@ -85,9 +85,6 @@ func (s *Server) applyChannelImportRoutingConfig(def *catalog.AgentDefinition) *
 	}
 	upstreamURL := strings.TrimSpace(channelDef.Endpoint.URL)
 	if upstreamURL == "" {
-		upstreamURL = strings.TrimSpace(channelDef.Gateway.URL)
-	}
-	if upstreamURL == "" {
 		return &statusError{status: http.StatusServiceUnavailable, message: "channel " + channelID + " is missing endpoint.url"}
 	}
 	def.ProxyConfig = &catalog.ProxyConfig{
@@ -96,7 +93,7 @@ func (s *Server) applyChannelImportRoutingConfig(def *catalog.AgentDefinition) *
 		Transport:    "ws",
 		Protocol:     config.ChannelProtocolPlatformWS,
 		AgentKey:     remoteAgentKey,
-		Token:        firstNonBlank(strings.TrimSpace(channelDef.Endpoint.Token), strings.TrimSpace(channelDef.Gateway.JwtToken)),
+		Token:        strings.TrimSpace(channelDef.Endpoint.Token),
 		Timeout:      300,
 	}
 	return nil

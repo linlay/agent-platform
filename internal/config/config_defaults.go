@@ -666,10 +666,9 @@ func (c *Config) normalizeChannels() error {
 			SourcePrefix:     deriveChannelFromURL(clientURL),
 			URL:              clientURL,
 			JwtToken:         channelClientToken(channelCfg),
-			BaseURL:          strings.TrimSpace(channelCfg.Gateway.BaseURL),
-			HandshakeTimeout: channelCfg.Gateway.HandshakeTimeout,
-			ReconnectMin:     channelCfg.Gateway.ReconnectMin,
-			ReconnectMax:     channelCfg.Gateway.ReconnectMax,
+			HandshakeTimeout: channelCfg.Reconnect.HandshakeTimeout,
+			ReconnectMin:     channelCfg.Reconnect.Min,
+			ReconnectMax:     channelCfg.Reconnect.Max,
 		})
 		existingGatewayIDs[channelID] = struct{}{}
 		existingGatewayChannels[channelID] = struct{}{}
@@ -688,7 +687,7 @@ func normalizeChannelConfigDefaults(channelCfg ChannelConfig) ChannelConfig {
 	channelCfg.Protocol = strings.ToLower(strings.TrimSpace(channelCfg.Protocol))
 	if strings.TrimSpace(string(channelCfg.Mode)) == "" {
 		switch {
-		case strings.TrimSpace(channelCfg.Gateway.URL) != "", strings.TrimSpace(channelCfg.Endpoint.URL) != "":
+		case strings.TrimSpace(channelCfg.Endpoint.URL) != "":
 			channelCfg.Mode = ChannelModeClient
 		case strings.TrimSpace(channelCfg.Endpoint.Path) != "":
 			channelCfg.Mode = ChannelModeServer
@@ -697,30 +696,6 @@ func normalizeChannelConfigDefaults(channelCfg ChannelConfig) ChannelConfig {
 		}
 	}
 	channelCfg.Mode = ChannelMode(strings.ToLower(strings.TrimSpace(string(channelCfg.Mode))))
-	if strings.TrimSpace(channelCfg.Endpoint.URL) == "" && strings.TrimSpace(channelCfg.Gateway.URL) != "" {
-		channelCfg.Endpoint.URL = strings.TrimSpace(channelCfg.Gateway.URL)
-	}
-	if strings.TrimSpace(channelCfg.Endpoint.Token) == "" && strings.TrimSpace(channelCfg.Gateway.JwtToken) != "" {
-		channelCfg.Endpoint.Token = strings.TrimSpace(channelCfg.Gateway.JwtToken)
-	}
-	if channelCfg.Reconnect.HandshakeTimeout == 0 && channelCfg.Gateway.HandshakeTimeout != 0 {
-		channelCfg.Reconnect.HandshakeTimeout = channelCfg.Gateway.HandshakeTimeout
-	}
-	if channelCfg.Reconnect.Min == 0 && channelCfg.Gateway.ReconnectMin != 0 {
-		channelCfg.Reconnect.Min = channelCfg.Gateway.ReconnectMin
-	}
-	if channelCfg.Reconnect.Max == 0 && channelCfg.Gateway.ReconnectMax != 0 {
-		channelCfg.Reconnect.Max = channelCfg.Gateway.ReconnectMax
-	}
-	if channelCfg.Gateway.HandshakeTimeout == 0 && channelCfg.Reconnect.HandshakeTimeout != 0 {
-		channelCfg.Gateway.HandshakeTimeout = channelCfg.Reconnect.HandshakeTimeout
-	}
-	if channelCfg.Gateway.ReconnectMin == 0 && channelCfg.Reconnect.Min != 0 {
-		channelCfg.Gateway.ReconnectMin = channelCfg.Reconnect.Min
-	}
-	if channelCfg.Gateway.ReconnectMax == 0 && channelCfg.Reconnect.Max != 0 {
-		channelCfg.Gateway.ReconnectMax = channelCfg.Reconnect.Max
-	}
 	return channelCfg
 }
 
@@ -758,17 +733,11 @@ func validateNormalizedChannelConfig(channelCfg ChannelConfig) error {
 }
 
 func channelClientURL(channelCfg ChannelConfig) string {
-	if strings.TrimSpace(channelCfg.Endpoint.URL) != "" {
-		return strings.TrimSpace(channelCfg.Endpoint.URL)
-	}
-	return strings.TrimSpace(channelCfg.Gateway.URL)
+	return strings.TrimSpace(channelCfg.Endpoint.URL)
 }
 
 func channelClientToken(channelCfg ChannelConfig) string {
-	if strings.TrimSpace(channelCfg.Endpoint.Token) != "" {
-		return strings.TrimSpace(channelCfg.Endpoint.Token)
-	}
-	return strings.TrimSpace(channelCfg.Gateway.JwtToken)
+	return strings.TrimSpace(channelCfg.Endpoint.Token)
 }
 
 func (c *Config) normalizeGateways() error {

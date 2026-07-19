@@ -141,6 +141,28 @@ func TestAgentCRUDRejectsLegacyACPProxyID(t *testing.T) {
 	}
 }
 
+func TestAgentCRUDRejectsRetiredModes(t *testing.T) {
+	fixture := newTestFixture(t)
+	for _, mode := range []string{"ACP-PROXY", "ACP_PROXY", "PLAN_EXECUTE", "ONESHOT"} {
+		body, err := json.Marshal(map[string]any{
+			"key": "retired-mode-agent",
+			"definition": map[string]any{
+				"key":         "retired-mode-agent",
+				"mode":        mode,
+				"modelConfig": map[string]any{"modelKey": "mock-model"},
+			},
+		})
+		if err != nil {
+			t.Fatalf("marshal %s: %v", mode, err)
+		}
+		rec := httptest.NewRecorder()
+		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/agents/create", bytes.NewReader(body)))
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("retired mode %s must fail, status=%d body=%s", mode, rec.Code, rec.Body.String())
+		}
+	}
+}
+
 func TestAgentCRUDRejectsInternalAgentDelegateTool(t *testing.T) {
 	fixture := newTestFixture(t)
 	body, err := json.Marshal(map[string]any{

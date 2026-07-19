@@ -180,21 +180,19 @@ type ToolAppendixPromptConfig struct {
 }
 
 type TeamDefinition struct {
-	TeamID          string
-	Name            string
-	Description     string
-	Icon            any
-	AgentKeys       []string
-	DefaultAgentKey string
-	RuntimeMode     string
-	Orchestrator    TeamOrchestratorConfig
-	SoulPrompt      string
-	AgentsPrompt    string
-	TeamDir         string
+	TeamID       string
+	Name         string
+	Description  string
+	Icon         any
+	AgentKeys    []string
+	RuntimeMode  string
+	Orchestrator TeamOrchestratorConfig
+	SoulPrompt   string
+	AgentsPrompt string
+	TeamDir      string
 }
 
 const (
-	TeamRuntimeModeLegacy       = "legacy"
 	TeamRuntimeModeOrchestrated = "orchestrated"
 	TeamDefaultMaxParallel      = 5
 )
@@ -210,13 +208,6 @@ type TeamOrchestratorConfig struct {
 	StageSettings map[string]any
 }
 
-const (
-	TeamDefaultAgentValid       = "valid"
-	TeamDefaultAgentMissing     = "missing"
-	TeamDefaultAgentNotMember   = "not_member"
-	TeamDefaultAgentUnavailable = "unavailable"
-)
-
 // TeamSnapshot is the immutable, run-scoped result of resolving a team and
 // its referenced agents under one catalog read lock. Callers must use this
 // snapshot for the lifetime of a run instead of consulting the hot-reloaded
@@ -229,9 +220,6 @@ type TeamSnapshot struct {
 	AgentKeys               []string
 	ValidAgentKeys          []string
 	InvalidAgentKeys        []string
-	DefaultAgentKey         string
-	DefaultAgentValid       bool
-	DefaultAgentState       string
 	RuntimeMode             string
 	Orchestrator            TeamOrchestratorConfig
 	SoulPrompt              string
@@ -630,8 +618,7 @@ func resolveTeamSnapshotLocked(team TeamDefinition, agents map[string]AgentDefin
 		Name:             strings.TrimSpace(team.Name),
 		Description:      strings.TrimSpace(team.Description),
 		Icon:             cloneAgentSnapshotValue(team.Icon),
-		DefaultAgentKey:  strings.TrimSpace(team.DefaultAgentKey),
-		RuntimeMode:      normalizeTeamRuntimeMode(team.RuntimeMode),
+		RuntimeMode:      TeamRuntimeModeOrchestrated,
 		Orchestrator:     cloneTeamOrchestratorConfig(team.Orchestrator),
 		SoulPrompt:       strings.TrimSpace(team.SoulPrompt),
 		AgentsPrompt:     strings.TrimSpace(team.AgentsPrompt),
@@ -656,22 +643,9 @@ func resolveTeamSnapshotLocked(team TeamDefinition, agents map[string]AgentDefin
 		}
 	}
 
-	switch {
-	case snapshot.DefaultAgentKey == "":
-		snapshot.DefaultAgentState = TeamDefaultAgentMissing
-	case !snapshot.DeclaresAgent(snapshot.DefaultAgentKey):
-		snapshot.DefaultAgentState = TeamDefaultAgentNotMember
-	case !snapshot.HasAgent(snapshot.DefaultAgentKey):
-		snapshot.DefaultAgentState = TeamDefaultAgentUnavailable
-	default:
-		snapshot.DefaultAgentState = TeamDefaultAgentValid
-		snapshot.DefaultAgentValid = true
-	}
 	snapshot.RosterFingerprint = teamRosterFingerprint(snapshot)
-	if snapshot.RuntimeMode == TeamRuntimeModeOrchestrated {
-		snapshot.ToolSchemaFingerprint = teamHiddenToolSchemaFingerprint(snapshot)
-		snapshot.OrchestratorFingerprint = teamOrchestratorFingerprint(snapshot)
-	}
+	snapshot.ToolSchemaFingerprint = teamHiddenToolSchemaFingerprint(snapshot)
+	snapshot.OrchestratorFingerprint = teamOrchestratorFingerprint(snapshot)
 	return snapshot
 }
 
@@ -681,13 +655,6 @@ func resolveTeamSnapshotLocked(team TeamDefinition, agents map[string]AgentDefin
 // adapters and tests that cannot implement that atomic interface.
 func NewTeamSnapshot(team TeamDefinition, agents map[string]AgentDefinition) TeamSnapshot {
 	return resolveTeamSnapshotLocked(team, agents)
-}
-
-func normalizeTeamRuntimeMode(mode string) string {
-	if strings.EqualFold(strings.TrimSpace(mode), TeamRuntimeModeOrchestrated) {
-		return TeamRuntimeModeOrchestrated
-	}
-	return TeamRuntimeModeLegacy
 }
 
 func cloneTeamOrchestratorConfig(src TeamOrchestratorConfig) TeamOrchestratorConfig {

@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"agent-platform/internal/deprecation"
 )
 
 const (
@@ -108,14 +110,6 @@ func DefaultChunkConfig() ChunkConfig {
 	}
 }
 
-func defaultLegacyCharChunkConfig() ChunkConfig {
-	return ChunkConfig{
-		Unit:         ChunkUnitChars,
-		MaxChars:     4000,
-		OverlapChars: 600,
-	}
-}
-
 func DefaultAgentConfig() AgentConfig {
 	return AgentConfig{
 		Storage: StorageConfig{Location: "runtime"},
@@ -158,14 +152,14 @@ func ParseAgentConfig(node map[string]any) (AgentConfig, error) {
 	}
 	cfg.Chunk = ParseChunkConfig(node["chunk"])
 	retrieval := anyMap(node["retrieval"])
-	applyIntAliases(retrieval, &cfg.Retrieval.TopK, "topK", "top-k")
+	applyIntAliases(retrieval, &cfg.Retrieval.TopK, "topK")
 	applyStringAliases(retrieval, &cfg.Retrieval.Fusion, "fusion")
-	applyIntAliases(retrieval, &cfg.Retrieval.RRFK, "rrfK", "rrf-k")
-	applyFloatAliases(retrieval, &cfg.Retrieval.VectorWeight, "vectorWeight", "vector-weight")
-	applyFloatAliases(retrieval, &cfg.Retrieval.FTSWeight, "ftsWeight", "fts-weight")
-	applyIntAliases(retrieval, &cfg.Retrieval.CandidateFloor, "candidateFloor", "candidate-floor")
-	applyIntAliases(retrieval, &cfg.Retrieval.CandidateMultiplier, "candidateMultiplier", "candidate-multiplier")
-	applyIntAliases(retrieval, &cfg.Retrieval.CandidateMax, "candidateMax", "candidate-max")
+	applyIntAliases(retrieval, &cfg.Retrieval.RRFK, "rrfK")
+	applyFloatAliases(retrieval, &cfg.Retrieval.VectorWeight, "vectorWeight")
+	applyFloatAliases(retrieval, &cfg.Retrieval.FTSWeight, "ftsWeight")
+	applyIntAliases(retrieval, &cfg.Retrieval.CandidateFloor, "candidateFloor")
+	applyIntAliases(retrieval, &cfg.Retrieval.CandidateMultiplier, "candidateMultiplier")
+	applyIntAliases(retrieval, &cfg.Retrieval.CandidateMax, "candidateMax")
 	return cfg, nil
 }
 
@@ -174,24 +168,11 @@ func ParseChunkConfig(value any) ChunkConfig {
 	if len(chunk) == 0 {
 		return DefaultChunkConfig()
 	}
+	cfg := DefaultChunkConfig()
 	rawUnit, hasUnit := firstExisting(chunk, "unit")
 	unit := strings.TrimSpace(anyString(rawUnit))
-	hasMaxTokens := hasAny(chunk, "maxTokens", "max-tokens")
-	hasOverlapTokens := hasAny(chunk, "overlapTokens", "overlap-tokens")
-	hasMaxChars := hasAny(chunk, "maxChars", "max-chars")
-	hasOverlapChars := hasAny(chunk, "overlapChars", "overlap-chars")
-	useLegacyChars := !hasUnit && !hasMaxTokens && !hasOverlapTokens && (hasMaxChars || hasOverlapChars)
-
-	cfg := DefaultChunkConfig()
-	if useLegacyChars {
-		cfg = defaultLegacyCharChunkConfig()
-	}
 	if hasUnit {
-		if normalized, ok := NormalizeChunkUnit(unit); ok {
-			cfg.Unit = normalized
-		} else {
-			cfg.Unit = unit
-		}
+		cfg.Unit = unit
 		if cfg.Unit == ChunkUnitChars {
 			cfg.MaxChars = 4000
 			cfg.OverlapChars = 600
@@ -199,41 +180,26 @@ func ParseChunkConfig(value any) ChunkConfig {
 			cfg.OverlapTokens = 0
 		}
 	}
-	if maxTokens := anyInt(firstAny(chunk, "maxTokens", "max-tokens")); maxTokens > 0 {
+	if maxTokens := anyInt(firstAny(chunk, "maxTokens")); maxTokens > 0 {
 		cfg.MaxTokens = maxTokens
-		if !hasUnit {
-			cfg.Unit = ChunkUnitEstimatedTokens
-		}
 	}
-	if _, exists := firstExisting(chunk, "overlapTokens", "overlap-tokens"); exists {
-		if overlapTokens := anyInt(firstAny(chunk, "overlapTokens", "overlap-tokens")); overlapTokens >= 0 {
+	if _, exists := firstExisting(chunk, "overlapTokens"); exists {
+		if overlapTokens := anyInt(firstAny(chunk, "overlapTokens")); overlapTokens >= 0 {
 			cfg.OverlapTokens = overlapTokens
-			if !hasUnit {
-				cfg.Unit = ChunkUnitEstimatedTokens
-			}
 		}
 	}
-	if maxChars := anyInt(firstAny(chunk, "maxChars", "max-chars")); maxChars > 0 {
+	if maxChars := anyInt(firstAny(chunk, "maxChars")); maxChars > 0 {
 		cfg.MaxChars = maxChars
-		if !hasUnit && !hasMaxTokens && !hasOverlapTokens {
-			cfg.Unit = ChunkUnitChars
-		}
 	}
-	if _, exists := firstExisting(chunk, "overlapChars", "overlap-chars"); exists {
-		if overlapChars := anyInt(firstAny(chunk, "overlapChars", "overlap-chars")); overlapChars >= 0 {
+	if _, exists := firstExisting(chunk, "overlapChars"); exists {
+		if overlapChars := anyInt(firstAny(chunk, "overlapChars")); overlapChars >= 0 {
 			cfg.OverlapChars = overlapChars
-			if !hasUnit && !hasMaxTokens && !hasOverlapTokens {
-				cfg.Unit = ChunkUnitChars
-			}
 		}
 	}
 	return NormalizeChunkConfig(cfg)
 }
 
 func NormalizeChunkConfig(cfg ChunkConfig) ChunkConfig {
-	if strings.TrimSpace(cfg.Unit) == "" && cfg.MaxTokens <= 0 && cfg.OverlapTokens <= 0 && (cfg.MaxChars > 0 || cfg.OverlapChars > 0) {
-		cfg.Unit = ChunkUnitChars
-	}
 	unit, ok := NormalizeChunkUnit(cfg.Unit)
 	if !ok {
 		unit = ChunkUnitEstimatedTokens
@@ -272,12 +238,10 @@ func NormalizeChunkConfig(cfg ChunkConfig) ChunkConfig {
 }
 
 func NormalizeChunkUnit(value string) (string, bool) {
-	normalized := strings.ToLower(strings.TrimSpace(value))
-	normalized = strings.NewReplacer("-", "", "_", "", " ", "").Replace(normalized)
-	switch normalized {
-	case "", "estimatedtokens", "tokens":
+	switch strings.TrimSpace(value) {
+	case "", ChunkUnitEstimatedTokens:
 		return ChunkUnitEstimatedTokens, true
-	case "chars", "characters", "runes":
+	case ChunkUnitChars:
 		return ChunkUnitChars, true
 	default:
 		return "", false
@@ -305,33 +269,43 @@ func ValidateAgentConfigSchema(node map[string]any) error {
 		}
 	}
 	chunk := anyMap(node["chunk"])
+	if len(chunk) > 0 {
+		if _, exists := chunk["unit"]; !exists {
+			if _, hasChars := chunk["maxChars"]; hasChars {
+				return deprecation.New("kbaseConfig.chunk.unit is required when maxChars or overlapChars is configured; use unit: chars")
+			}
+			if _, hasOverlap := chunk["overlapChars"]; hasOverlap {
+				return deprecation.New("kbaseConfig.chunk.unit is required when maxChars or overlapChars is configured; use unit: chars")
+			}
+		}
+	}
+	for _, key := range []string{"max-chars", "overlap-chars", "max-tokens", "overlap-tokens"} {
+		if _, exists := chunk[key]; exists {
+			return deprecation.New("kbaseConfig.chunk.%s was removed; use camelCase", key)
+		}
+	}
 	if rawUnit, exists := chunk["unit"]; exists {
-		if _, ok := NormalizeChunkUnit(anyString(rawUnit)); !ok {
+		if _, ok := NormalizeChunkUnit(anyString(rawUnit)); !ok || strings.TrimSpace(anyString(rawUnit)) == "" {
 			return fmt.Errorf("kbaseConfig.chunk.unit must be estimatedTokens or chars")
 		}
 	}
 	retrieval := anyMap(node["retrieval"])
-	for _, keys := range [][]string{
-		{"topK", "top-k"},
-		{"rrfK", "rrf-k"},
-		{"candidateFloor", "candidate-floor"},
-		{"candidateMultiplier", "candidate-multiplier"},
-		{"candidateMax", "candidate-max"},
-	} {
-		for _, key := range keys {
-			if value, exists := retrieval[key]; exists {
-				if _, ok := parseConfigInt(value); !ok {
-					return fmt.Errorf("kbaseConfig.retrieval.%s must be an integer", key)
-				}
+	for _, key := range []string{"top-k", "rrf-k", "vector-weight", "fts-weight", "candidate-floor", "candidate-multiplier", "candidate-max"} {
+		if _, exists := retrieval[key]; exists {
+			return deprecation.New("kbaseConfig.retrieval.%s was removed; use camelCase", key)
+		}
+	}
+	for _, key := range []string{"topK", "rrfK", "candidateFloor", "candidateMultiplier", "candidateMax"} {
+		if value, exists := retrieval[key]; exists {
+			if _, ok := parseConfigInt(value); !ok {
+				return fmt.Errorf("kbaseConfig.retrieval.%s must be an integer", key)
 			}
 		}
 	}
-	for _, keys := range [][]string{{"vectorWeight", "vector-weight"}, {"ftsWeight", "fts-weight"}} {
-		for _, key := range keys {
-			if value, exists := retrieval[key]; exists {
-				if _, ok := parseConfigFloat(value); !ok {
-					return fmt.Errorf("kbaseConfig.retrieval.%s must be a finite number", key)
-				}
+	for _, key := range []string{"vectorWeight", "ftsWeight"} {
+		if value, exists := retrieval[key]; exists {
+			if _, ok := parseConfigFloat(value); !ok {
+				return fmt.Errorf("kbaseConfig.retrieval.%s must be a finite number", key)
 			}
 		}
 	}

@@ -64,8 +64,13 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
 	}
+	modes, err := requestedModes(r.URL.Query()["mode"])
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
+		return
+	}
 	if includeTeam {
-		items, err := s.listAgentCatalogSummariesWithModes(includeChats, scope, requestedModes(r.URL.Query()["mode"]))
+		items, err := s.listAgentCatalogSummariesWithModes(includeChats, scope, modes)
 		if err != nil {
 			if isTimeContractViolation(err) {
 				writeTimeContractViolation(w, err)
@@ -77,7 +82,7 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, api.Success(items))
 		return
 	}
-	items, err := s.listAgentSummariesWithModes(includeChats, scope, requestedModes(r.URL.Query()["mode"]))
+	items, err := s.listAgentSummariesWithModes(includeChats, scope, modes)
 	if err != nil {
 		if isTimeContractViolation(err) {
 			writeTimeContractViolation(w, err)
@@ -271,7 +276,10 @@ func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (a
 }
 
 func validateCreateAgentDefinition(definition map[string]any) error {
-	mode := catalog.NormalizeAgentModeForRuntime(stringValue(definition["mode"]))
+	mode, err := catalog.ParsePublicAgentMode(stringValue(definition["mode"]))
+	if err != nil {
+		return err
+	}
 	if err := catalog.ValidateOrdinaryAgentTools(agentDefinitionToolNames(definition)); err != nil {
 		return err
 	}

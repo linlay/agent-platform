@@ -11,6 +11,7 @@ import (
 	agentcoder "agent-platform/internal/agent/coder"
 	agentkbase "agent-platform/internal/agent/kbase"
 	agentteam "agent-platform/internal/agent/team"
+	"agent-platform/internal/deprecation"
 )
 
 const AgentModeCoder = agentcoder.Mode
@@ -25,9 +26,7 @@ func NormalizeAgentModeForRuntime(value string) string {
 	switch strings.ToUpper(strings.TrimSpace(value)) {
 	case "":
 		return "REACT"
-	case "ACP-PROXY", "ACP_PROXY":
-		return "PROXY"
-	case "PLAN-EXECUTE", "PLAN_EXECUTE":
+	case "PLAN-EXECUTE":
 		return "PLAN_EXECUTE"
 	default:
 		return strings.ToUpper(strings.TrimSpace(value))
@@ -35,14 +34,36 @@ func NormalizeAgentModeForRuntime(value string) string {
 }
 
 func AgentModeForAPI(value string) string {
-	runtimeMode := NormalizeAgentModeForRuntime(value)
-	switch runtimeMode {
+	switch strings.ToUpper(strings.TrimSpace(value)) {
 	case "PLAN_EXECUTE":
 		return "PLAN-EXECUTE"
-	case "", "ONESHOT":
-		return "REACT"
 	default:
-		return runtimeMode
+		return strings.ToUpper(strings.TrimSpace(value))
+	}
+}
+
+// ParsePublicAgentMode accepts only the stable YAML/API spellings. Runtime-only
+// modes (TEAM and ONESHOT) are deliberately absent from this boundary.
+func ParsePublicAgentMode(value string) (string, error) {
+	raw := strings.TrimSpace(value)
+	if raw == "" {
+		return "REACT", nil
+	}
+	switch strings.ToUpper(raw) {
+	case "REACT", AgentModeCoder, AgentModeKBase, AgentModeProxy, AgentModeChannel:
+		return strings.ToUpper(raw), nil
+	case "PLAN-EXECUTE":
+		return "PLAN_EXECUTE", nil
+	case "ACP-PROXY", "ACP_PROXY":
+		return "", deprecation.New("mode %q was removed; use PROXY", raw)
+	case "PLAN_EXECUTE":
+		return "", deprecation.New("mode %q was removed; use PLAN-EXECUTE", raw)
+	case "ONESHOT":
+		return "", deprecation.New("mode ONESHOT is internal-only and cannot be configured; use REACT")
+	case "TEAM":
+		return "", fmt.Errorf("mode TEAM is internal and can only be configured through a Team directory")
+	default:
+		return "", fmt.Errorf("mode must be REACT, CODER, KBASE, PLAN-EXECUTE, PROXY, or CHANNEL")
 	}
 }
 

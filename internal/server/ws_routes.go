@@ -228,8 +228,14 @@ func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 		conn.CompleteRequest(req.ID)
 		return
 	}
+	modes, err := requestedModes([]string{payload.Mode})
+	if err != nil {
+		conn.SendError(req.ID, "invalid_request", http.StatusBadRequest, err.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
 	if payload.IncludeTeam {
-		items, listErr := s.listAgentCatalogSummariesWithModes(payload.IncludeChats, scope, requestedModes([]string{payload.Mode}))
+		items, listErr := s.listAgentCatalogSummariesWithModes(payload.IncludeChats, scope, modes)
 		if listErr != nil {
 			if isTimeContractViolation(listErr) {
 				sendTimeContractViolation(conn, req.ID, listErr)
@@ -249,7 +255,7 @@ func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	items, listErr := s.listAgentSummariesWithModes(payload.IncludeChats, scope, requestedModes([]string{payload.Mode}))
+	items, listErr := s.listAgentSummariesWithModes(payload.IncludeChats, scope, modes)
 	if listErr != nil {
 		if isTimeContractViolation(listErr) {
 			sendTimeContractViolation(conn, req.ID, listErr)
@@ -326,7 +332,13 @@ func (s *Server) wsChats(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	response, listErr := s.listChatSummariesWithAgentModesAndLimit(payload.LastRunID, payload.AgentKey, requestedModes([]string{payload.Mode}), limit)
+	modes, modeErr := requestedModes([]string{payload.Mode})
+	if modeErr != nil {
+		conn.SendError(req.ID, "invalid_request", http.StatusBadRequest, modeErr.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	response, listErr := s.listChatSummariesWithAgentModesAndLimit(payload.LastRunID, payload.AgentKey, modes, limit)
 	if listErr != nil {
 		if isTimeContractViolation(listErr) {
 			sendTimeContractViolation(conn, req.ID, listErr)

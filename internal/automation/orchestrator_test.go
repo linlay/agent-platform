@@ -253,7 +253,6 @@ func TestRegistryValidatesTeamScopedAutomation(t *testing.T) {
 		"name: Team Valid\n"+
 			"description: ok\n"+
 			"cron: \"17 9 * * *\"\n"+
-			"agentKey: demo-agent\n"+
 			"teamId: team-a\n"+
 			"query:\n"+
 			"  message: hello\n",
@@ -274,12 +273,9 @@ func TestRegistryValidatesTeamScopedAutomation(t *testing.T) {
 
 	teams := fakeTeamLookup{teams: map[string]catalog.TeamSnapshot{
 		"team-a": {
-			TeamID:            "team-a",
-			AgentKeys:         []string{"demo-agent"},
-			ValidAgentKeys:    []string{"demo-agent"},
-			DefaultAgentKey:   "demo-agent",
-			DefaultAgentValid: true,
-			DefaultAgentState: catalog.TeamDefaultAgentValid,
+			TeamID:         "team-a",
+			AgentKeys:      []string{"demo-agent"},
+			ValidAgentKeys: []string{"demo-agent"},
 		},
 	}}
 	defs, err := NewRegistry(root, teams).Load()

@@ -1059,7 +1059,7 @@ func persistRunCompletionWithReason(params RunExecutorParams, assistantText stri
 		ChatID:          params.Session.ChatID,
 		RunID:           params.Session.RunID,
 		AgentKey:        owner.AgentKey,
-		AgentMode:       params.Session.Mode,
+		AgentMode:       persistedRunMode(params.Session.Mode),
 		TeamID:          owner.TeamID,
 		AssistantText:   assistantText,
 		InitialMessage:  params.Request.Message,
@@ -1081,6 +1081,19 @@ func persistRunCompletionWithReason(params RunExecutorParams, assistantText stri
 		params.OnPersisted(completion)
 	}
 	return true, completion
+}
+
+// persistedRunMode exposes only stable public spellings for modes created by
+// the current runtime. It intentionally does not reinterpret historical rows.
+func persistedRunMode(mode string) string {
+	switch strings.TrimSpace(mode) {
+	case "PLAN_EXECUTE":
+		return "PLAN-EXECUTE"
+	case "ONESHOT":
+		return "REACT"
+	default:
+		return strings.TrimSpace(mode)
+	}
 }
 
 func broadcastRunCompletion(params RunExecutorParams, completion chat.RunCompletion) {

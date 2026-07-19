@@ -30,14 +30,14 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 		t.Fatalf("expected file chat store, got %T", fixture.chats)
 	}
 	seedAgentModeChat(t, store, "chat-react", "loyw3v28", "agent-react", "", "REACT", 1_000)
-	seedAgentModeChat(t, store, "chat-plan", "loyw3v29", "agent-plan", "", "PLAN_EXECUTE", 2_000)
-	seedAgentModeChat(t, store, "chat-team", "loyw3v2a", "", "team-a", "REACT", 3_000)
+	seedAgentModeChat(t, store, "chat-plan", "loyw3v29", "agent-plan", "", "PLAN-EXECUTE", 2_000)
+	seedAgentModeChat(t, store, "chat-team", "loyw3v2a", "", "team-a", "TEAM", 3_000)
 	if _, _, err := store.EnsureChat("chat-history", "agent-history", "", "legacy"); err != nil {
 		t.Fatalf("ensure historical chat: %v", err)
 	}
 
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats?mode=react,TEAM&mode=PLAN_EXECUTE", nil))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats?mode=react,PLAN-EXECUTE", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("mode-filtered HTTP status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -56,7 +56,7 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats?mode=REACT,TEAM&agentKey=agent-react&lastRunId=loyw3v27", nil))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats?mode=REACT&agentKey=agent-react&lastRunId=loyw3v27", nil))
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode combined-filter HTTP response: %v", err)
 	}
@@ -66,11 +66,15 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 
 	rec = httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats?mode=unknown", nil))
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode unknown-mode response: %v", err)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("unknown mode must fail, status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	if len(response.Data) != 1 || response.Data[0].ChatID != "chat-team" {
-		t.Fatalf("team-owned chats should bypass unknown mode, got %#v", response.Data)
+	for _, mode := range []string{"TEAM", "PLAN_EXECUTE", "ONESHOT"} {
+		rec = httptest.NewRecorder()
+		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats?mode="+mode, nil))
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("retired mode %s must fail, status=%d body=%s", mode, rec.Code, rec.Body.String())
+		}
 	}
 
 	rec = httptest.NewRecorder()
@@ -113,7 +117,7 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 		Type:  "/api/chats",
 		ID:    "mode_ws",
 		Payload: ws.MarshalPayload(map[string]any{
-			"mode": "team,ReAcT",
+			"mode": "ReAcT,PLAN-EXECUTE",
 		}),
 	}); err != nil {
 		t.Fatalf("write mode-filtered websocket request: %v", err)
@@ -129,26 +133,23 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode websocket summaries: %v", err)
 	}
-	if got := apiChatIDs(data); strings.Join(got, ",") != "chat-team,chat-react" || data[0].Mode != "TEAM" || data[1].Mode != "REACT" {
+	if got := apiChatIDs(data); strings.Join(got, ",") != "chat-team,chat-plan,chat-react" || data[0].Mode != "TEAM" || data[1].Mode != "PLAN-EXECUTE" || data[2].Mode != "REACT" {
 		t.Fatalf("unexpected websocket mode filter result: %#v", data)
 	}
 	if err := conn.WriteJSON(ws.RequestFrame{
 		Frame:   ws.FrameRequest,
 		Type:    "/api/chats",
-		ID:      "mode_ws_unknown",
-		Payload: ws.MarshalPayload(map[string]any{"mode": "unknown"}),
+		ID:      "mode_ws_retired",
+		Payload: ws.MarshalPayload(map[string]any{"mode": "PLAN_EXECUTE"}),
 	}); err != nil {
 		t.Fatalf("write unknown-mode websocket request: %v", err)
 	}
-	if err := conn.ReadJSON(&frame); err != nil {
-		t.Fatalf("read unknown-mode websocket response: %v", err)
+	var retired ws.ErrorFrame
+	if err := conn.ReadJSON(&retired); err != nil {
+		t.Fatalf("read retired-mode websocket response: %v", err)
 	}
-	data, err = marshalResponseData[[]api.ChatSummaryResponse](frame.Data)
-	if err != nil {
-		t.Fatalf("decode unknown-mode websocket summaries: %v", err)
-	}
-	if len(data) != 1 || data[0].ChatID != "chat-team" {
-		t.Fatalf("team-owned websocket chats should bypass mode, got %#v", data)
+	if retired.ID != "mode_ws_retired" || retired.Code != http.StatusBadRequest {
+		t.Fatalf("retired mode must fail over websocket: %#v", retired)
 	}
 	if err := conn.WriteJSON(ws.RequestFrame{
 		Frame:   ws.FrameRequest,

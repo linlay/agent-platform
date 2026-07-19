@@ -31,7 +31,7 @@ func TestAgentsModeFiltersHTTPAndWebSocket(t *testing.T) {
 				"plan-agent": strings.Join([]string{
 					"key: plan-agent",
 					"name: Plan Agent",
-					"mode: PLAN_EXECUTE",
+					"mode: PLAN-EXECUTE",
 					"modelConfig:",
 					"  modelKey: mock-model",
 				}, "\n"),
@@ -63,7 +63,7 @@ func TestAgentsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	seedAgentModeChat(t, store, "chat-react-agent", "loyw3v28", "mock-agent", "", "REACT", 1_000)
 
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agents?scope=nav&mode=react,unknown&mode=PLAN_EXECUTE&includeChats=1", nil))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agents?scope=nav&mode=react,PLAN-EXECUTE&includeChats=1", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("mode-filtered agents status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -101,15 +101,12 @@ func TestAgentsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agents?mode=TEAM", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("TEAM mode status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode TEAM response: %v", err)
-	}
-	if len(response.Data) != 0 {
-		t.Fatalf("TEAM must not appear in ordinary agent catalog: %#v", response.Data)
+	for _, mode := range []string{"TEAM", "PLAN_EXECUTE", "ACP-PROXY", "ONESHOT"} {
+		rec = httptest.NewRecorder()
+		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agents?mode="+mode, nil))
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("retired mode %s must fail, status=%d body=%s", mode, rec.Code, rec.Body.String())
+		}
 	}
 
 	rec = httptest.NewRecorder()
@@ -132,7 +129,7 @@ func TestAgentsModeFiltersHTTPAndWebSocket(t *testing.T) {
 		ID:    "agents_mode_ws",
 		Payload: ws.MarshalPayload(map[string]any{
 			"scope":        "nav",
-			"mode":         "ReAcT,PLAN_EXECUTE",
+			"mode":         "ReAcT,PLAN-EXECUTE",
 			"includeChats": 1,
 		}),
 	}); err != nil {
@@ -151,6 +148,22 @@ func TestAgentsModeFiltersHTTPAndWebSocket(t *testing.T) {
 	}
 	if len(items) != 2 {
 		t.Fatalf("unexpected websocket mode-filtered agents: %#v", items)
+	}
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame:   ws.FrameRequest,
+		Type:    "/api/agents",
+		ID:      "retired_agents_mode_ws",
+		Payload: ws.MarshalPayload(map[string]any{"mode": "PLAN_EXECUTE"}),
+	}); err != nil {
+		t.Fatalf("write retired mode websocket request: %v", err)
+	}
+	var retired ws.ErrorFrame
+	if err := conn.ReadJSON(&retired); err != nil {
+		t.Fatalf("read retired mode websocket response: %v", err)
+	}
+	if retired.ID != "retired_agents_mode_ws" || retired.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected retired mode websocket response: %#v", retired)
 	}
 
 	if err := conn.WriteJSON(ws.RequestFrame{

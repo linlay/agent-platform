@@ -323,7 +323,6 @@
       appendStackCell(row, [
         ["id", channel.id],
         ["name", channel.name],
-        ["type", channel.type],
         ["protocol", channel.protocol],
       ]);
       appendCell(row, channel.mode, "mono");
@@ -333,7 +332,6 @@
         ["latest", objectValue(channel.connection).latestSessionId],
       ]);
       appendStackCell(row, [
-        ["allowed", objectValue(channel.agents).allowedCount],
         ["imports", objectValue(channel.agents).importCount],
         ["exports", objectValue(channel.agents).exportCount],
       ]);
@@ -388,16 +386,11 @@
       ["reconnectMax", formatSeconds(config.reconnectMaxSeconds)],
     ]));
     dom.channelDetail.appendChild(detailBlock("Agents", [
-      ["allowedAllAgents", agents.allowedAllAgents],
-      ["allowedCount", agents.allowedCount],
       ["importCount", agents.importCount],
       ["exportCount", agents.exportCount],
     ]));
     dom.channelDetail.appendChild(agentListBlock("导入 agent", arrayValue(agents.imports), formatChannelImport));
     dom.channelDetail.appendChild(agentListBlock("导出 agent", arrayValue(agents.exports), formatChannelExport));
-    dom.channelDetail.appendChild(agentListBlock("允许 agent", arrayValue(agents.allowedAgentKeys), function (key) {
-      return String(key || "");
-    }));
   }
 
   function appendChannelStatusCell(row, status) {
@@ -799,7 +792,6 @@
       var haystack = [
         channel.id,
         channel.name,
-        channel.type,
         channel.mode,
         channel.transport,
         channel.protocol,

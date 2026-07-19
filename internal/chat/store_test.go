@@ -114,19 +114,10 @@ func TestFileStorePersistsAndFiltersAgentModes(t *testing.T) {
 		t.Fatalf("ensure plan chat: %v", err)
 	}
 	persistAgentModeRun(t, store, "chat-plan", "loyw3v29", "agent-plan", "", "PLAN-EXECUTE", 3_000)
-	if _, _, err := store.EnsureChatWithSourceAndMode("chat-team", "", "team-a", "team", "", "REACT"); err != nil {
+	if _, _, err := store.EnsureChatWithSourceAndMode("chat-team", "", "team-a", "team", "", "TEAM"); err != nil {
 		t.Fatalf("ensure team chat: %v", err)
 	}
-	persistAgentModeRun(t, store, "chat-team", "loyw3v2a", "", "team-a", "REACT", 2_000)
-
-	if _, _, err := store.EnsureChatWithSourceAndMode("chat-switch", "agent-old", "legacy team", "legacy", "", "REACT"); err != nil {
-		t.Fatalf("ensure legacy team chat: %v", err)
-	}
-	persistAgentModeRun(t, store, "chat-switch", "loyw3v2b", "agent-old", "legacy team", "REACT", 4_000)
-	if err := store.UpdateAgentIdentity("chat-switch", "agent-new", "CODER"); err != nil {
-		t.Fatalf("switch legacy team member: %v", err)
-	}
-	persistAgentModeRun(t, store, "chat-switch", "loyw3v2c", "agent-new", "legacy team", "CODER", 5_000)
+	persistAgentModeRun(t, store, "chat-team", "loyw3v2a", "", "team-a", "TEAM", 2_000)
 
 	history, err := store.Summary("chat-history")
 	if err != nil || history == nil || history.AgentMode != "" {
@@ -136,33 +127,61 @@ func TestFileStorePersistsAndFiltersAgentModes(t *testing.T) {
 	if err != nil || team == nil || team.AgentMode != "TEAM" || team.AgentKey != "" {
 		t.Fatalf("team summary should persist public TEAM mode, summary=%#v err=%v", team, err)
 	}
-	switched, err := store.Summary("chat-switch")
-	if err != nil || switched == nil || switched.AgentKey != "agent-new" || switched.AgentMode != "CODER" {
-		t.Fatalf("legacy team identity should update atomically, summary=%#v err=%v", switched, err)
-	}
-	switchedRuns, err := store.ListRuns("chat-switch")
-	if err != nil || len(switchedRuns) != 2 || switchedRuns[0].AgentKey != "agent-new" || switchedRuns[0].AgentMode != "CODER" || switchedRuns[1].AgentKey != "agent-old" || switchedRuns[1].AgentMode != "REACT" {
-		t.Fatalf("runs should preserve mode history after member switch, runs=%#v err=%v", switchedRuns, err)
-	}
-
-	items, err := store.ListChatsWithAgentModes("", "", []string{"react", " TEAM ", "plan_execute", "REACT", ""})
+	items, err := store.ListChatsWithAgentModes("", "", []string{"REACT", "PLAN-EXECUTE"})
 	if err != nil {
 		t.Fatalf("list filtered chats: %v", err)
 	}
 	if got := summaryChatIDs(items); strings.Join(got, ",") != "chat-plan,chat-team,chat-react" {
 		t.Fatalf("unexpected mode-filtered ordering: %v", got)
 	}
-	items, err = store.ListChatsWithAgentModes("", "agent-plan", []string{"REACT", "plan-execute"})
+	items, err = store.ListChatsWithAgentModes("", "agent-plan", []string{"REACT", "PLAN-EXECUTE"})
 	if err != nil || len(items) != 1 || items[0].ChatID != "chat-plan" {
 		t.Fatalf("agent key and mode should combine with AND, items=%#v err=%v", items, err)
 	}
-	items, err = store.ListChatsWithAgentModes("loyw3v28", "", []string{"react", "team"})
+	items, err = store.ListChatsWithAgentModes("loyw3v28", "", []string{"REACT"})
 	if err != nil || len(items) != 1 || items[0].ChatID != "chat-team" {
 		t.Fatalf("lastRunId and mode should combine with AND, items=%#v err=%v", items, err)
 	}
 	items, err = store.ListChatsWithAgentModes("", "", []string{"UNKNOWN"})
 	if err != nil || len(items) != 1 || items[0].ChatID != "chat-team" {
 		t.Fatalf("team-owned chats should bypass mode filtering, items=%#v err=%v", items, err)
+	}
+}
+
+func TestHistoricalTeamChatRemainsReadableButOwnerCannotChange(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChatWithSourceAndMode("chat-historical-team", "former-member", "former-team", "history", "", "REACT"); err != nil {
+		t.Fatalf("seed historical chat: %v", err)
+	}
+	if _, err := store.LoadChat("chat-historical-team"); err != nil {
+		t.Fatalf("historical chat must remain readable: %v", err)
+	}
+	if err := store.UpdateAgentIdentity("chat-historical-team", "new-member", "CODER"); err == nil {
+		t.Fatal("historical Team owner must not be changed")
+	}
+	summary, err := store.Summary("chat-historical-team")
+	if err != nil || summary == nil || summary.AgentKey != "former-member" || summary.TeamID != "former-team" || summary.AgentMode != "REACT" {
+		t.Fatalf("historical owner was changed: summary=%#v err=%v", summary, err)
+	}
+}
+
+func TestHistoricalAgentModeRemainsRaw(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	for _, mode := range []string{"ACP-PROXY", "PLAN_EXECUTE", "ONESHOT"} {
+		chatID := "chat-history-" + strings.ToLower(strings.ReplaceAll(mode, "_", "-"))
+		if _, _, err := store.EnsureChatWithSourceAndMode(chatID, "former-agent", "", "history", "", mode); err != nil {
+			t.Fatalf("seed %q historical chat: %v", mode, err)
+		}
+		summary, err := store.Summary(chatID)
+		if err != nil || summary == nil || summary.AgentMode != mode {
+			t.Fatalf("historical mode %q was rewritten: summary=%#v err=%v", mode, summary, err)
+		}
 	}
 }
 

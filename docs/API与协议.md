@@ -56,13 +56,13 @@ GET /ws -> request / response / stream / push / error frames
 | GET | `/api/agents` | query: `includeChats`、`includeTeam`、`scope`、`mode` | agent 列表；可选混入 Team 与最近 chat 摘要 |
 | GET | `/api/agent` | query: `agentKey` | 单个运行时 agent 详情，不返回编辑专用字段 |
 | POST | `/api/agent/model-config` | body: `agentKey`/`key`、`modelKey`、`reasoningEffort` | 更新 CODER agent 的运行时默认模型配置 |
-| GET | `/api/teams` | 无 | team 列表，区分 `runtimeMode: legacy | orchestrated` |
+| GET | `/api/teams` | 无 | 目录式 Team 列表 |
 | GET | `/api/skill-candidates` | query: `agentKey` | skill candidate 列表 |
 | GET | `/api/model-options` | 无 | 聊天运行时可选模型与思考深度 |
 
-`/api/agents` 的 `scope` 可取 `nav`、`copilot`、`invoke`、`internal`、`all`，省略时为 `all`；`includeChats` 为 `0..50`，省略时不附带 chat。可选 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；大小写无关，`PLAN_EXECUTE` 会归一为 `PLAN-EXECUTE`。`mode` 与 `scope` 为 AND，筛选普通 agent catalog 自身的 `mode`，不改变 `includeChats` 按 agentKey 获取 chat 的规则；未知 mode（包括普通 agent catalog 中不存在的 `TEAM`）返回空列表。
+`/api/agents` 的 `scope` 可取 `nav`、`copilot`、`invoke`、`internal`、`all`，省略时为 `all`；`includeChats` 为 `0..50`，省略时不附带 chat。可选 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；只接受 `REACT`、`CODER`、`KBASE`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`（大小写无关）。`PLAN_EXECUTE`、`ONESHOT`、ACP 别名、`TEAM` 和未知值均返回 400。`mode` 与 `scope` 为 AND，筛选普通 agent catalog 自身的 `mode`，不改变 `includeChats` 按 agentKey 获取 chat 的规则。
 
-`includeTeam` 是可选布尔 query，省略或 `false` 时响应保持原有的 agent 列表和排序。设为 `true` 时，响应改为扁平联合列表，每项带 `kind:"agent" | "team"`：agent 项保留原有摘要字段；team 项返回 `teamId`、`name`、可选 `description/icon`、`runtimeMode`、`agentKeys`、`meta`，并和 agent 一样包含 `stats` 与可选 `chats`，但绝不返回虚拟 `key`、`mode`、workspace 或模型配置。此时 `scope` 与 `mode` 只过滤 agent，所有 Team 均保留；`mode=TEAM` 因而只会返回 Team。混合项按各自最新 chat 的 `lastRunId` 降序排列，无 chat 的项置后；同值按名称、kind 与稳定身份字段确定顺序。`includeChats=N` 对 Team 也按 `teamId` 返回最近 N 条 Team-owned chat。WebSocket `/api/agents` 使用等价的 `scope`、`includeChats`、`includeTeam`、`mode` 字段，其中 `includeTeam` 为 JSON boolean。
+`includeTeam` 是可选布尔 query，省略或 `false` 时响应保持原有的 agent 列表和排序。设为 `true` 时，响应改为扁平联合列表，每项带 `kind:"agent" | "team"`：agent 项保留原有摘要字段；team 项返回 `teamId`、`name`、可选 `description/icon`、`agentKeys`、`meta`，并和 agent 一样包含 `stats` 与可选 `chats`，但绝不返回虚拟 `key`、`mode`、`runtimeMode`、workspace 或模型配置。此时 `scope` 与 `mode` 只过滤 agent，所有 Team 均保留；`mode=TEAM` 会返回 400。混合项按各自最新 chat 的 `lastRunId` 降序排列，无 chat 的项置后；同值按名称、kind 与稳定身份字段确定顺序。`includeChats=N` 对 Team 也按 `teamId` 返回最近 N 条 Team-owned chat。WebSocket `/api/agents` 使用等价的 `scope`、`includeChats`、`includeTeam`、`mode` 字段，其中 `includeTeam` 为 JSON boolean。
 
 ### Admin
 
@@ -103,7 +103,7 @@ GET /ws -> request / response / stream / push / error frames
 
 Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `baseUrl`；model 暴露 `provider/protocol/type/isVision/isReasoner/isFunction/maxInputTokens/maxOutputTokens/timeout`；MCP server 暴露 `transport/toolCount`，其中 HTTP 项另有 `baseUrl`，stdio 项不返回 `baseUrl`、`command`、`args` 或 `env`，`toolCount` 是当前已同步注册的 MCP 工具数量；viewport server 仅暴露 `baseUrl`，当前不返回 viewport 数量。
 
-`/api/teams` 每项返回 `teamId`、`name`、可选 `description/icon`、`runtimeMode`、`agentKeys` 与安全摘要 `meta`。`meta` 包含 `validAgentKeys`、`invalidAgentKeys`、`orchestrated`；legacy Team 额外返回 `defaultAgentKey/defaultAgentKeyValid`，orchestrated Team 只额外返回 `maxParallel`。接口不会返回隐藏总控 key、总控模型配置、system prompt、`SOUL.md/AGENTS.md` 内容或 internal-only `agent_delegate` 定义；`/api/admin/tools` 同样不列出该工具。
+`/api/teams` 每项返回 `teamId`、`name`、可选 `description/icon`、`agentKeys` 与安全摘要 `meta`。`meta` 包含 `validAgentKeys`、`invalidAgentKeys`、`orchestrated:true` 与 `maxParallel`；不再返回 `runtimeMode` 或任何 legacy runtime metadata。接口不会返回隐藏总控 key、总控模型配置、system prompt、`SOUL.md/AGENTS.md` 内容或 internal-only `agent_delegate` 定义；`/api/admin/tools` 同样不列出该工具。
 
 ### Chat
 
@@ -123,9 +123,9 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 | GET | `/api/chat/system-prompt` | query: `chatId`、`runId`、`agentKey` | 获取该 agent 在历史 run 中首次使用的持久化 system message；服务端从 run 的 system-init / step `systemRef` 解析快照 |
 | GET | `/api/chat/llm-trace` | query: `file=<chatId>/.llm-records/<runId>_NNN.json` | 原始 LLM chat trace JSON 文本 |
 
-`/api/chats` 的 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；大小写无关，`PLAN_EXECUTE` 会归一为 `PLAN-EXECUTE`。它只筛选 Agent-owned chat，并与 `agentKey`、`lastRunId` 为 AND 关系；Team-owned chat 天然包含在全局列表中，不受 `mode`（包括未知 mode）影响。显式 `agentKey` 仍只返回该 agent 的 chat，不会匹配 Team。可选 `limit` 必须为正整数且不设上限；省略时返回全部匹配项，传入时在全部筛选和固定排序 `updatedAt DESC, chatId DESC` 后截断结果。`limit=0`、负数、空值或非整数返回 400；当前不支持 offset、分页游标或自定义排序。WebSocket 的 `/api/chats` 请求使用等价的 `mode` 与 `limit` 字段（`limit` 未传为全部）。旧 `agentMode` 参数或 payload 会返回 400，调用方应改用 `mode`。
+`/api/chats` 的 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；只接受 `REACT`、`CODER`、`KBASE`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`（大小写无关）。旧别名、`TEAM` 和未知值均返回 400。它筛选 Agent-owned chat，并与 `agentKey`、`lastRunId` 为 AND 关系；Team-owned chat 天然包含在全局列表中，不受合法 `mode` 影响。显式 `agentKey` 仍只返回该 agent 的 chat，不会匹配 Team。可选 `limit` 必须为正整数且不设上限；省略时返回全部匹配项，传入时在全部筛选和固定排序 `updatedAt DESC, chatId DESC` 后截断结果。`limit=0`、负数、空值或非整数返回 400；当前不支持 offset、分页游标或自定义排序。WebSocket 的 `/api/chats` 请求使用等价的 `mode` 与 `limit` 字段（`limit` 未传为全部）。旧 `agentMode` 参数或 payload 会返回 400，调用方应改用 `mode`。
 
-chat 摘要会在新数据中返回可选 `mode`；`/api/chat.runs[]`、`/api/agents?includeChats` 及 archive detail 中的共享 `runs[]` 均返回每次 run 的可选 `mode`。普通 agent 持久化规范 API mode（例如 `REACT`、`CODER`、`KBASE`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`）；orchestrated Team 固定为 `TEAM`，不会暴露隐藏协调器 key；legacy Team 仍记录实际成员的 mode。历史 chat/run 不根据当前 catalog 回填，mode 保持为空且不会命中 Agent mode 筛选；Team-owned chat 在 `/api/chats` 的 mode 查询中始终保留。
+chat 摘要会在新数据中返回可选 `mode`；`/api/chat.runs[]`、`/api/agents?includeChats` 及 archive detail 中的共享 `runs[]` 均返回每次 run 的可选 `mode`。普通 agent 持久化规范 API mode（例如 `REACT`、`CODER`、`KBASE`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`）；Team 固定为 `TEAM`，不会暴露隐藏协调器 key。历史 chat/run 不根据当前 catalog 回填或转换，原始 mode 仅用于历史读取，不能作为当前筛选或运行输入；Team-owned chat 在合法 `/api/chats` mode 查询中始终保留。
 
 `/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 摘要，以及 `/api/chat` 详情顶层在新数据中可包含 `source`，表示 chat 首次创建来源。当前只记录 query 与 automation 两类：`query` / `query:<user>` 表示由 query 创建，`automation:<automationId>` 表示由 automation 创建。旧数据为空、上传创建或派生创建时省略。channel 远程用户调用本机智能体仍属于 query source；gateway 可在受信 channel 请求中传 `sourceUser`，否则服务端会从形如 `wecom#single#user1#...` 的 chatId 中取远端用户段作为 `query:<user>`。`sourceChannel` 是 gateway/channel 路由标签，不承载 query / automation 语义。
 
@@ -168,7 +168,7 @@ Archive 摘要、详情和搜索结果都会返回时间字段：`createdAt` 为
 
 Automation 摘要和详情中的 `nextFireAt` 是下次触发时间的 epoch milliseconds；`nextFireTime` 是按 automation `zoneId` 格式化的 RFC3339 展示时间。`lastExecution` 与 execution history 中的 `startedAt`、`completedAt` 为 epoch milliseconds；对应的 `startedTime`、`completedTime` 为按 automation 时区格式化的 RFC3339Nano 可读时间。
 
-Automation 的 Team 身份规则与 query 一致：legacy Team 配置 `teamId + agentKey`；orchestrated Team 只配置 `teamId`，同时传 `agentKey` 会被拒绝。后者触发时由隐藏协调器接管，不会选择或回显虚拟 Agent key。
+Automation 的 Team 身份规则与 query 一致：只配置 `teamId`，同时传 `agentKey` 会被拒绝。触发时由隐藏协调器接管，不会选择或回显虚拟 Agent key。
 
 ### Run
 
@@ -184,23 +184,19 @@ Automation 的 Team 身份规则与 query 一致：legacy Team 配置 `teamId + 
 
 `/api/query` 的 `stream` 是 JSON body 字段；省略或传 `true` 时返回 SSE，结束帧为 `data: [DONE]`。传 `false` 时服务端仍执行完整 run、持久化 chat，并在结束后返回普通 JSON。默认只返回最终回答，响应示例见下文。
 
-`teamId` 的 HTTP、WebSocket、Automation、submit continuation 与子智能体准入共享同一 resolver。chat 创建后 `teamId` 固定，但两种 Team 的请求身份不同：
-
-- legacy Team：公开 owner 是所选成员，query 使用 `teamId + agentKey`；同一 Team chat 内可切换有效成员。
-- orchestrated Team：公开 owner 是 Team，query 只使用 `teamId`；运行时在 run 内合成内部 `TEAM` 协调器，任何 `agentKey` 都会被视为绕过调度器。
+`teamId` 的 HTTP、WebSocket、Automation、submit continuation 与子智能体准入共享同一 resolver。chat 创建后 `teamId` 固定；Team 的公开 owner 是 Team，query 只使用 `teamId`。运行时在 run 内合成内部 `TEAM` 协调器，任何 `agentKey` 都会被视为绕过调度器。
 
 | 场景 | HTTP 结果 |
 |---|---|
 | 新请求使用未知 `teamId` | 400 |
 | 已有 Team chat 对应的 Team 已不存在 | 503 |
-| legacy Team 的 `agentKey` 不属于 Team | 403 |
-| orchestrated Team 同时传入 `agentKey` | 400 |
+| Team 同时传入 `agentKey` | 400 |
 | 已有 chat 传入不同 Team；包括为无 Team chat 补传 Team | 409 |
-| legacy Team 默认/当前成员无效，或 orchestrated Team 成员为空/存在失效成员 | 503 |
+| Team 成员为空或存在失效成员 | 503 |
 
 WebSocket 使用现有错误 envelope 表达相同语义。Team 无效时不会回退全局或 channel 默认 agent；run 开始后使用已解析的成员、成员 `AgentDefinition`、协调器配置与 prompt 快照，不受本轮 catalog 热重载影响。需要启动新执行 run 的 active/deferred submit 会在消费 awaiting 前重新准入，失败时保留 awaiting。
 
-run 控制接口从 `agentKey/teamId` 推导互斥身份：Agent-owned run 必须传 `agentKey`；orchestrated Team run 必须只传 `teamId`，漏传返回 400，错 Team 返回 403，同时传 `agentKey` 也返回 400。legacy Team 保留成员 `agentKey + teamId`。orchestrated Team 的 `request.query` 与 `run.start` 携带 `teamId` 且 `agentKey` 为空；chat/run summary 同样使用这一身份对表达公开归属。虚拟协调器 key 不是公共 API 身份。
+run 控制接口从 `agentKey/teamId` 推导互斥身份：Agent-owned run 必须传 `agentKey`；Team run 必须只传 `teamId`，漏传返回 400，错 Team 返回 403，同时传 `agentKey` 也返回 400。Team 的 `request.query` 与 `run.start` 携带 `teamId` 且 `agentKey` 为空；chat/run summary 同样使用这一身份对表达公开归属。虚拟协调器 key 不是公共 API 身份。
 
 `/api/btw` 用于“顺便问”：`chatId` 必须指向已有 active chat；不传 `btwId` 时从当前主 JSONL 创建隐藏快照并在响应头 `X-Btw-Id` 与首个 `request.query.btwId` 返回分支 ID，传 `btwId` 时继续该分支。BTW 固定继承父 chat 的 agent/team，固定 `role:user` 且关闭 planning mode。主 chat 的 active run、pending awaiting、摘要、未读、搜索、自动 learn 和 JSONL 都不会被 BTW 更新。
 
@@ -624,7 +620,7 @@ Channel WS 复用标准 `platform-ws` 帧：`request`、`response`、`stream`、
 
 ### Gateway Agent Card 申报
 
-platform 主动连接 `mode: client` gateway 后，会通过现有 `platform-ws` request/response 申报当前 channel 的 Agent Card。只有本地 agent 中显式声明了匹配 `channelConfig.exports` 且 `allow.query: true` 的导出项会被申报，线上 `agentKey` 使用 `externalAgentKey`；旧 gateway 配置中的 `agents: "*"` 不构成申报授权。`mode: server` 的 `/ws/channel` 连接本期不做反向申报。
+platform 主动连接 `mode: client` gateway 后，会通过现有 `platform-ws` request/response 申报当前 channel 的 Agent Card。只有本地 agent 中显式声明了匹配 `channelConfig.exports` 且 `allow.query: true` 的导出项会被申报，线上 `agentKey` 使用 `externalAgentKey`；`mode: server` 的 `/ws/channel` 连接本期不做反向申报。
 
 请求使用 `id` 作为唯一关联 ID，payload 不重复携带 `requestId`：
 
@@ -694,7 +690,7 @@ gateway 必须用相同的 `id` 和 `type` 回应，并回显 `agentKey`：
 - WS `/api/file` 接受 `agentKey`、`path` 和可选 `encoding`；省略 `response` 或传 `response: "json"` 时，文本内容在 `response.data.content` 返回，读取上限为 `file-tools.max-read-bytes`（默认 1 MiB），超出时标记 `truncated: true`。二进制文件只返回 metadata 和 `contentUrl`；`response: "content"` 仅适用于 HTTP，WS 会返回 `400 invalid_request`。
 - `/ws/channel` 也允许 `/api/file`，直接按 payload 的 `agentKey` 读取工作区；它不经 `externalAgentKey` 映射，也不检查 agent export 或 `fileTransfer`。
 - `.tools` 是隐藏工具内部目录，不通过 `/api/resource` 或 WS `/api/resource` 暴露；HTTP `/api/tool-result` 接受 `.tools/results/<toolId>.json`。
-- 旧反向 gateway 配置仍在 `configs/channels.yml` 兼容解析；新的 platform/adaptor 接入优先使用 channel `mode: client | server` 与 agent `channelConfig`。
+- `configs/channels.yml` 只接受 canonical channel：`mode`、`transport`、`protocol`、`endpoint`、`auth`、`heartbeat`、`reconnect`；旧 `type/default-agent/agents/gateway` 会使配置加载失败。
 - 完整 DTO 字段以 `internal/api/*.go` 为事实源。
 
 ### Agent Terminal

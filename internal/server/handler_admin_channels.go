@@ -48,14 +48,13 @@ func (s *Server) listAdminChannels() api.AdminChannelListResponse {
 		items = append(items, api.AdminChannelSummary{
 			ID:         strings.TrimSpace(def.ID),
 			Name:       strings.TrimSpace(def.Name),
-			Type:       strings.TrimSpace(string(def.Type)),
 			Mode:       strings.TrimSpace(string(def.Mode)),
 			Transport:  strings.TrimSpace(def.Transport),
 			Protocol:   strings.TrimSpace(def.Protocol),
 			Status:     status,
 			Connection: connection,
 			Agents:     s.adminChannelAgentSummary(def, agentSummaries, agentDefs),
-			Config:     adminChannelConfigSummary(def.Endpoint, def.Auth, def.Heartbeat, def.Reconnect, def.Gateway),
+			Config:     adminChannelConfigSummary(def.Endpoint, def.Auth, def.Heartbeat, def.Reconnect),
 		})
 	}
 	return api.AdminChannelListResponse{Items: items, Total: len(items)}
@@ -120,7 +119,6 @@ func (s *Server) channelAgentCatalog() ([]api.AgentSummary, map[string]catalog.A
 
 func (s *Server) adminChannelAgentSummary(def *channelpkg.Definition, summaries []api.AgentSummary, defs map[string]catalog.AgentDefinition) api.AdminChannelAgentSummary {
 	channelID := strings.TrimSpace(def.ID)
-	allowedKeys := s.adminChannelAllowedAgentKeys(def, summaries)
 	imports := make([]api.AdminChannelAgentImport, 0)
 	exports := make([]api.AdminChannelAgentExport, 0)
 	summaryNames := agentSummaryNames(summaries)
@@ -178,34 +176,11 @@ func (s *Server) adminChannelAgentSummary(def *channelpkg.Definition, summaries 
 		return exports[i].AgentKey < exports[j].AgentKey
 	})
 	return api.AdminChannelAgentSummary{
-		AllowedAllAgents: def.AllAgents,
-		AllowedCount:     len(allowedKeys),
-		AllowedAgentKeys: allowedKeys,
-		ImportCount:      len(imports),
-		ExportCount:      len(exports),
-		Imports:          imports,
-		Exports:          exports,
+		ImportCount: len(imports),
+		ExportCount: len(exports),
+		Imports:     imports,
+		Exports:     exports,
 	}
-}
-
-func (s *Server) adminChannelAllowedAgentKeys(def *channelpkg.Definition, summaries []api.AgentSummary) []string {
-	if def == nil {
-		return nil
-	}
-	keys := []string{}
-	if def.AllAgents {
-		for _, summary := range summaries {
-			key := strings.TrimSpace(summary.Key)
-			if key == "" {
-				continue
-			}
-			keys = append(keys, key)
-		}
-	} else if s != nil && s.deps.Channels != nil {
-		keys = s.deps.Channels.AllowedAgentKeys(def.ID)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 func agentSummaryNames(summaries []api.AgentSummary) map[string]string {
@@ -225,16 +200,15 @@ func adminChannelConfigSummary(
 	auth config.ChannelAuthConfig,
 	heartbeat config.ChannelHeartbeatConfig,
 	reconnect config.ChannelReconnectConfig,
-	gateway config.ChannelGatewayConfig,
 ) api.AdminChannelConfigSummary {
 	return api.AdminChannelConfigSummary{
-		EndpointURL:                      firstNonBlank(endpoint.URL, gateway.URL),
+		EndpointURL:                      strings.TrimSpace(endpoint.URL),
 		EndpointPath:                     strings.TrimSpace(endpoint.Path),
 		AuthType:                         strings.TrimSpace(auth.Type),
 		HeartbeatIntervalSeconds:         heartbeat.Interval,
-		ReconnectHandshakeTimeoutSeconds: firstPositiveInt64(reconnect.HandshakeTimeout, gateway.HandshakeTimeout),
-		ReconnectMinSeconds:              firstPositiveInt64(reconnect.Min, gateway.ReconnectMin),
-		ReconnectMaxSeconds:              firstPositiveInt64(reconnect.Max, gateway.ReconnectMax),
+		ReconnectHandshakeTimeoutSeconds: reconnect.HandshakeTimeout,
+		ReconnectMinSeconds:              reconnect.Min,
+		ReconnectMaxSeconds:              reconnect.Max,
 	}
 }
 

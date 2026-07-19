@@ -74,15 +74,14 @@ type channelStatusStub map[string]bool
 
 func (s channelStatusStub) Connected(channelID string) bool { return s[channelID] }
 
-func TestPrepareQueryUsesChannelDefaultAgentOnlyFromGlobalDefault(t *testing.T) {
+func TestPrepareQueryUsesGlobalDefaultWithoutChannelOverride(t *testing.T) {
 	server, chats := newServerForChannelTests(t)
 	server.deps.Channels = channelpkg.NewRegistry([]config.ChannelConfig{
 		{
-			ID:           "wecom",
-			Name:         "WeCom",
-			Type:         config.ChannelTypeBridge,
-			DefaultAgent: "customer-service",
-			AllAgents:    true,
+			ID:       "wecom",
+			Name:     "WeCom",
+			Mode:     config.ChannelModeClient,
+			Endpoint: config.ChannelEndpointConfig{URL: "ws://wecom.example/ws"},
 		},
 	})
 
@@ -91,8 +90,8 @@ func TestPrepareQueryUsesChannelDefaultAgentOnlyFromGlobalDefault(t *testing.T) 
 	if err != nil {
 		t.Fatalf("prepareQueryForTest: %v", err)
 	}
-	if prepared.req.AgentKey != "customer-service" {
-		t.Fatalf("expected channel default agent, got %q", prepared.req.AgentKey)
+	if prepared.req.AgentKey != "global-default" {
+		t.Fatalf("expected global default agent, got %q", prepared.req.AgentKey)
 	}
 
 	if _, _, err := chats.EnsureChat("wecom#existing#u1", "assistant", "", "seed"); err != nil {
@@ -108,12 +107,12 @@ func TestPrepareQueryUsesChannelDefaultAgentOnlyFromGlobalDefault(t *testing.T) 
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"wecom#team#u1","teamId":"team-a","message":"team route"}`))
-	prepared, err = prepareQueryForTest(server, req)
+	admission, err := server.prepareQueryAdmission(req, true)
 	if err != nil {
-		t.Fatalf("prepareQueryForTest team default: %v", err)
+		t.Fatalf("prepareQueryAdmission Team: %v", err)
 	}
-	if prepared.req.AgentKey != "team-agent" {
-		t.Fatalf("expected team default agent to win, got %q", prepared.req.AgentKey)
+	if admission.req.AgentKey != "" || admission.req.TeamID != "team-a" || !admission.orchestratedTeam {
+		t.Fatalf("expected orchestrated Team owner, got %#v", admission)
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"wecom#explicit#u1","agentKey":"assistant","message":"explicit"}`))
@@ -126,26 +125,21 @@ func TestPrepareQueryUsesChannelDefaultAgentOnlyFromGlobalDefault(t *testing.T) 
 	}
 }
 
-func TestPrepareQueryRejectsDisallowedAgentOnChannel(t *testing.T) {
+func TestPrepareQueryDoesNotApplyChannelAgentAllowlist(t *testing.T) {
 	server, _ := newServerForChannelTests(t)
 	server.deps.Channels = channelpkg.NewRegistry([]config.ChannelConfig{
 		{
-			ID:        "feishu",
-			Name:      "Feishu",
-			Type:      config.ChannelTypeBridge,
-			AllAgents: false,
-			Agents:    []string{"assistant"},
+			ID:       "feishu",
+			Name:     "Feishu",
+			Mode:     config.ChannelModeClient,
+			Endpoint: config.ChannelEndpointConfig{URL: "ws://feishu.example/ws"},
 		},
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"feishu#p2p#u1","agentKey":"customer-service","message":"hello"}`))
-	_, err := prepareQueryForTest(server, req)
-	statusErr, ok := err.(*statusError)
-	if !ok {
-		t.Fatalf("expected statusError, got %v", err)
-	}
-	if statusErr.status != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d", statusErr.status)
+	prepared, err := prepareQueryForTest(server, req)
+	if err != nil || prepared.req.AgentKey != "customer-service" {
+		t.Fatalf("explicit agent must not be channel-filtered: prepared=%#v err=%v", prepared, err)
 	}
 }
 
@@ -153,18 +147,16 @@ func TestHandleAgentsIgnoresChannelAndChannelsRouteIsRemoved(t *testing.T) {
 	server, chats := newServerForChannelTests(t)
 	server.deps.Channels = channelpkg.NewRegistry([]config.ChannelConfig{
 		{
-			ID:           "wecom",
-			Name:         "WeCom",
-			Type:         config.ChannelTypeBridge,
-			DefaultAgent: "assistant",
-			AllAgents:    false,
-			Agents:       []string{"assistant", "code-helper"},
+			ID:       "wecom",
+			Name:     "WeCom",
+			Mode:     config.ChannelModeClient,
+			Endpoint: config.ChannelEndpointConfig{URL: "ws://wecom.example/ws"},
 		},
 		{
-			ID:        "mobile",
-			Name:      "Mobile",
-			Type:      config.ChannelTypeGateway,
-			AllAgents: true,
+			ID:       "mobile",
+			Name:     "Mobile",
+			Mode:     config.ChannelModeServer,
+			Endpoint: config.ChannelEndpointConfig{Path: "/ws/channel"},
 		},
 	})
 	rec := httptest.NewRecorder()
@@ -493,15 +485,19 @@ func newServerForChannelTests(t *testing.T) (*Server, *chat.FileStore) {
 			{Key: "team-agent", Name: "Team Agent"},
 		},
 		defs: map[string]catalog.AgentDefinition{
-			"global-default":   {Key: "global-default", Name: "Global Default", ModelKey: "mock-model"},
-			"assistant":        {Key: "assistant", Name: "Assistant", ModelKey: "mock-model"},
-			"code-helper":      {Key: "code-helper", Name: "Code Helper", ModelKey: "mock-model"},
-			"customer-service": {Key: "customer-service", Name: "Customer Service", ModelKey: "mock-model"},
-			"team-agent":       {Key: "team-agent", Name: "Team Agent", ModelKey: "mock-model"},
+			"global-default":   {Key: "global-default", Name: "Global Default", ModelKey: "mock-model", Mode: "REACT"},
+			"assistant":        {Key: "assistant", Name: "Assistant", ModelKey: "mock-model", Mode: "REACT"},
+			"code-helper":      {Key: "code-helper", Name: "Code Helper", ModelKey: "mock-model", Mode: "REACT"},
+			"customer-service": {Key: "customer-service", Name: "Customer Service", ModelKey: "mock-model", Mode: "REACT"},
+			"team-agent":       {Key: "team-agent", Name: "Team Agent", ModelKey: "mock-model", Mode: "REACT"},
 		},
-		teams: map[string]catalog.TeamDefinition{
-			"team-a": {TeamID: "team-a", AgentKeys: []string{"team-agent", "assistant"}, DefaultAgentKey: "team-agent"},
-		},
+		teams: map[string]catalog.TeamDefinition{"team-a": {
+			TeamID:    "team-a",
+			AgentKeys: []string{"team-agent", "assistant"},
+			Orchestrator: catalog.TeamOrchestratorConfig{
+				ModelKey: "mock-model",
+			},
+		}},
 	}
 	server := &Server{
 		deps: Dependencies{
@@ -522,7 +518,7 @@ func TestPrepareQueryTeamAdmissionIsStrictAndTeamIsFixed(t *testing.T) {
 		wantStatus int
 	}{
 		{name: "unknown team", body: `{"chatId":"new-unknown","teamId":"missing","message":"hello"}`, wantStatus: http.StatusBadRequest},
-		{name: "agent outside team", body: `{"chatId":"new-outside","teamId":"team-a","agentKey":"code-helper","message":"hello"}`, wantStatus: http.StatusForbidden},
+		{name: "agent supplied for team", body: `{"chatId":"new-outside","teamId":"team-a","agentKey":"code-helper","message":"hello"}`, wantStatus: http.StatusBadRequest},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -545,7 +541,7 @@ func TestPrepareQueryTeamAdmissionIsStrictAndTeamIsFixed(t *testing.T) {
 		t.Fatalf("empty-team chat adoption error = %#v, want 409", err)
 	}
 
-	if _, _, err := chats.EnsureChat("team-chat", "team-agent", "team-a", "seed"); err != nil {
+	if _, _, err := chats.EnsureChat("team-chat", "", "team-a", "seed"); err != nil {
 		t.Fatalf("seed team chat: %v", err)
 	}
 	req = httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"team-chat","teamId":"team-b","message":"hello"}`))
@@ -555,22 +551,18 @@ func TestPrepareQueryTeamAdmissionIsStrictAndTeamIsFixed(t *testing.T) {
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"team-chat","agentKey":"assistant","message":"switch"}`))
-	admission, err := server.prepareQueryAdmission(req, true)
-	if err != nil {
-		t.Fatalf("same-team member switch: %v", err)
-	}
-	if admission.req.TeamID != "team-a" || admission.req.AgentKey != "assistant" || admission.teamSnapshot == nil {
-		t.Fatalf("unexpected switched admission: %#v", admission)
+	_, err = server.prepareQueryAdmission(req, true)
+	if !errors.As(err, &statusErr) || statusErr.status != http.StatusBadRequest {
+		t.Fatalf("team member override must fail: %#v", err)
 	}
 }
 
-func TestPrepareQueryTeamAdmissionReturnsUnavailableForInvalidDefaultAndDrift(t *testing.T) {
+func TestPrepareQueryTeamAdmissionReturnsUnavailableForInvalidTeamAndRejectsHistoricalPair(t *testing.T) {
 	server, chats := newServerForChannelTests(t)
 	registry := server.deps.Registry.(channelTestCatalogRegistry)
 	registry.teams["invalid-default"] = catalog.TeamDefinition{
-		TeamID:          "invalid-default",
-		AgentKeys:       []string{"missing-agent"},
-		DefaultAgentKey: "missing-agent",
+		TeamID:    "invalid-default",
+		AgentKeys: []string{"missing-agent"},
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"invalid-default-chat","teamId":"invalid-default","message":"hello"}`))
@@ -585,8 +577,8 @@ func TestPrepareQueryTeamAdmissionReturnsUnavailableForInvalidDefaultAndDrift(t 
 	}
 	req = httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"drifted-chat","message":"hello"}`))
 	_, err = server.prepareQueryAdmission(req, true)
-	if !errors.As(err, &statusErr) || statusErr.status != http.StatusServiceUnavailable {
-		t.Fatalf("drifted current agent error = %#v, want 503", err)
+	if !errors.As(err, &statusErr) || statusErr.status != http.StatusBadRequest || !strings.Contains(statusErr.message, "historical Team chat") {
+		t.Fatalf("historical Team pair error = %#v, want 400", err)
 	}
 }
 
@@ -609,8 +601,12 @@ func TestPrepareQueryTeamAdmissionUsesFrozenMemberDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("prepare admission from frozen snapshot: %v", err)
 	}
-	if admission.agentDef.Name != "Frozen Team Agent" || admission.agentDef.Mode != "REACT" {
-		t.Fatalf("admission did not use frozen team member definition: %#v", admission.agentDef)
+	member, ok := admission.teamSnapshot.AgentDefinition("team-agent")
+	if !ok || member.Name != "Frozen Team Agent" || member.Mode != "REACT" {
+		t.Fatalf("admission did not use frozen Team member definition: %#v", admission.teamSnapshot)
+	}
+	if admission.agentDef.Mode != "TEAM" {
+		t.Fatalf("Team admission must synthesize a coordinator, got %#v", admission.agentDef)
 	}
 }
 

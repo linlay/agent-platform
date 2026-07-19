@@ -221,6 +221,9 @@ func validateEditableDefinition(key string, definition map[string]any) error {
 	if strings.TrimSpace(stringNode(definition["key"])) != strings.TrimSpace(key) {
 		return fmt.Errorf("definition.key must match key")
 	}
+	if _, err := ParsePublicAgentMode(stringNode(definition["mode"])); err != nil {
+		return err
+	}
 	data := renderYAMLMap(normalizeEditableDefinition(definition))
 	path, err := writeValidationAgentFile(data)
 	if err != nil {
@@ -245,12 +248,7 @@ func normalizeEditableDefinition(definition map[string]any) map[string]any {
 	}
 	normalized := contracts.CloneMap(definition)
 	mode := NormalizeAgentModeForRuntime(stringNode(normalized["mode"]))
-	switch mode {
-	case "ONESHOT":
-		normalized["mode"] = "REACT"
-	default:
-		normalized["mode"] = AgentModeForAPI(stringNode(normalized["mode"]))
-	}
+	normalized["mode"] = AgentModeForAPI(mode)
 	if mode == AgentModeCoder {
 		normalized = agentcoder.ApplyCreateDefaults(normalized, agentcoder.CreateDefaults{})
 		delete(normalized, "workspace")

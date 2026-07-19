@@ -269,26 +269,6 @@ func TestBuildQuerySessionDefaultsHostWorkspaceToChatDir(t *testing.T) {
 	}
 }
 
-func TestBuildQuerySessionSetsExplicitLegacyTeamOwner(t *testing.T) {
-	root := t.TempDir()
-	cfg := config.Config{Paths: config.PathsConfig{ChatsDir: filepath.Join(root, "chats")}}
-	def := catalog.AgentDefinition{Key: "member-agent", Mode: "REACT", ModelKey: "mock-model"}
-	server := &Server{deps: Dependencies{Config: cfg}}
-	session, err := server.BuildQuerySession(context.Background(), api.QueryRequest{
-		AgentKey: "member-agent",
-		TeamID:   "legacy-team",
-		ChatID:   "chat-legacy-team",
-		RunID:    "run-legacy-team",
-	}, chat.Summary{ChatID: "chat-legacy-team"}, def, querySessionBuildOptions{})
-	if err != nil {
-		t.Fatalf("build legacy Team session: %v", err)
-	}
-	owner := contracts.ResolveRunOwner(session.RunOwner)
-	if owner.IsTeam() || owner.AgentKey != "member-agent" || owner.TeamID != "legacy-team" || owner.ExecutionAgentKey != "member-agent" {
-		t.Fatalf("unexpected legacy Team owner %#v", owner)
-	}
-}
-
 func TestBuildQuerySessionDoesNotDefaultProxyWorkspaceToChatDir(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{

@@ -153,35 +153,18 @@ func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (qu
 	if teamErr != nil {
 		return queryAdmission{}, teamErr
 	}
-	orchestratedTeam := teamSnapshot != nil && strings.EqualFold(teamSnapshot.RuntimeMode, catalog.TeamRuntimeModeOrchestrated)
-	usedGlobalDefault := false
+	orchestratedTeam := teamSnapshot != nil
 	if !orchestratedTeam && agentKey == "" && existingSummary != nil {
 		agentKey = existingSummary.AgentKey
 	}
 	if !orchestratedTeam && agentKey == "" {
 		agentKey = s.deps.Registry.DefaultAgentKey()
-		usedGlobalDefault = agentKey != ""
-	}
-	channelID := channel.ChannelForChatID(chatID)
-	if usedGlobalDefault && channelID != "" && s.deps.Channels != nil {
-		if channelDefault := s.deps.Channels.DefaultAgent(channelID); channelDefault != "" {
-			agentKey = channelDefault
-		}
 	}
 	var agentDef catalog.AgentDefinition
 	var found bool
 	if orchestratedTeam {
 		agentDef = buildTeamCoordinatorDefinition(*teamSnapshot)
 		found = true
-	} else if teamSnapshot != nil {
-		agentDef, found = teamSnapshot.AgentDefinition(agentKey)
-		if !found {
-			return queryAdmission{}, &statusError{
-				status:  http.StatusServiceUnavailable,
-				code:    "unavailable",
-				message: fmt.Sprintf("team %q current agent %q is unavailable", teamID, agentKey),
-			}
-		}
 	} else {
 		agentDef, found = s.deps.Registry.AgentDefinition(agentKey)
 		if !found {
@@ -202,12 +185,6 @@ func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (qu
 	}
 	if req.PlanningMode != nil && *req.PlanningMode && !agentcoder.IsMode(agentDef.Mode) {
 		return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: "planningMode is only supported for CODER agents"}
-	}
-	if !orchestratedTeam && channelID != "" && s.deps.Channels != nil && !s.deps.Channels.IsAgentAllowed(channelID, agentKey) {
-		return queryAdmission{}, &statusError{
-			status:  http.StatusForbidden,
-			message: "agent " + `"` + agentKey + `" is not allowed on channel "` + channelID + `"`,
-		}
 	}
 
 	req.ChatID = chatID

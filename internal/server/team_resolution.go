@@ -45,8 +45,14 @@ func resolveQueryTeam(
 ) (string, string, *catalog.TeamSnapshot, *statusError) {
 	requestedTeamID = strings.TrimSpace(requestedTeamID)
 	requestedAgentKey = strings.TrimSpace(requestedAgentKey)
+	if requestedTeamID != "" && requestedAgentKey != "" {
+		return "", "", nil, &statusError{status: http.StatusBadRequest, code: "invalid_request", message: "agentKey must be omitted for a Team"}
+	}
 	existingTeamID := ""
 	if existing != nil {
+		if strings.TrimSpace(existing.TeamID) != "" && strings.TrimSpace(existing.AgentKey) != "" {
+			return "", "", nil, &statusError{status: http.StatusBadRequest, code: "invalid_request", message: "historical Team chat cannot be resumed; create a new Team chat using teamId only"}
+		}
 		existingTeamID = strings.TrimSpace(existing.TeamID)
 		if requestedTeamID != "" && requestedTeamID != existingTeamID {
 			return "", "", nil, &statusError{
@@ -82,79 +88,22 @@ func resolveQueryTeam(
 			message: fmt.Sprintf("team %q not found", teamID),
 		}
 	}
-	if strings.EqualFold(snapshot.RuntimeMode, catalog.TeamRuntimeModeOrchestrated) {
-		if requestedAgentKey != "" {
-			return "", "", nil, &statusError{
-				status:  http.StatusBadRequest,
-				code:    "invalid_request",
-				message: "agentKey must be omitted for an orchestrated Team",
-			}
-		}
-		if len(snapshot.AgentKeys) == 0 || len(snapshot.InvalidAgentKeys) > 0 || len(snapshot.ValidAgentKeys) != len(snapshot.AgentKeys) {
-			return "", "", nil, &statusError{
-				status:  http.StatusServiceUnavailable,
-				code:    "unavailable",
-				message: fmt.Sprintf("orchestrated Team %q has unavailable members: %v", teamID, snapshot.InvalidAgentKeys),
-			}
-		}
-		var unrunnable []string
-		for _, memberKey := range snapshot.ValidAgentKeys {
-			member, exists := snapshot.AgentDefinition(memberKey)
-			if !exists || catalog.AgentUsesACPCoderBackend(member) || !resolvedModeCapabilities(member).RunAsChild {
-				unrunnable = append(unrunnable, memberKey)
-			}
-		}
-		if len(unrunnable) > 0 {
-			return "", "", nil, &statusError{
-				status:  http.StatusServiceUnavailable,
-				code:    "unavailable",
-				message: fmt.Sprintf("orchestrated Team %q has members that cannot run as children: %v", teamID, unrunnable),
-			}
-		}
-		copy := snapshot
-		return teamID, "", &copy, nil
+	if requestedAgentKey != "" {
+		return "", "", nil, &statusError{status: http.StatusBadRequest, code: "invalid_request", message: "agentKey must be omitted for a Team"}
 	}
-	if !snapshot.DefaultAgentValid {
-		return "", "", nil, invalidTeamDefaultError(snapshot)
+	if len(snapshot.AgentKeys) == 0 || len(snapshot.InvalidAgentKeys) > 0 || len(snapshot.ValidAgentKeys) != len(snapshot.AgentKeys) {
+		return "", "", nil, &statusError{status: http.StatusServiceUnavailable, code: "unavailable", message: fmt.Sprintf("Team %q has unavailable members: %v", teamID, snapshot.InvalidAgentKeys)}
 	}
-
-	agentKey := requestedAgentKey
-	fromExisting := false
-	if agentKey == "" && existing != nil {
-		agentKey = strings.TrimSpace(existing.AgentKey)
-		fromExisting = true
-	}
-	if agentKey == "" {
-		agentKey = snapshot.DefaultAgentKey
-	}
-
-	if snapshot.HasAgent(agentKey) {
-		copy := snapshot
-		return teamID, agentKey, &copy, nil
-	}
-	if fromExisting || snapshot.DeclaresAgent(agentKey) {
-		return "", "", nil, &statusError{
-			status:  http.StatusServiceUnavailable,
-			code:    "unavailable",
-			message: fmt.Sprintf("team %q current agent %q is unavailable", teamID, agentKey),
+	var unrunnable []string
+	for _, memberKey := range snapshot.ValidAgentKeys {
+		member, exists := snapshot.AgentDefinition(memberKey)
+		if !exists || catalog.AgentUsesACPCoderBackend(member) || !resolvedModeCapabilities(member).RunAsChild {
+			unrunnable = append(unrunnable, memberKey)
 		}
 	}
-	return "", "", nil, &statusError{
-		status:  http.StatusForbidden,
-		code:    "forbidden",
-		message: fmt.Sprintf("agent %q is not in team %q", agentKey, teamID),
+	if len(unrunnable) > 0 {
+		return "", "", nil, &statusError{status: http.StatusServiceUnavailable, code: "unavailable", message: fmt.Sprintf("Team %q has members that cannot run as children: %v", teamID, unrunnable)}
 	}
-}
-
-func invalidTeamDefaultError(snapshot catalog.TeamSnapshot) *statusError {
-	return &statusError{
-		status: http.StatusServiceUnavailable,
-		code:   "unavailable",
-		message: fmt.Sprintf(
-			"team %q default agent %q is invalid (%s)",
-			snapshot.TeamID,
-			snapshot.DefaultAgentKey,
-			snapshot.DefaultAgentState,
-		),
-	}
+	copy := snapshot
+	return teamID, "", &copy, nil
 }

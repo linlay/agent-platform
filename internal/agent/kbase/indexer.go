@@ -59,13 +59,6 @@ type resolvedConfig struct {
 	QueryHash     string
 }
 
-// computeConfigHash is retained as a compatibility alias. A config hash has
-// always meant "does this index need to be rebuilt" to its callers, so it now
-// deliberately excludes query-time retrieval tuning.
-func computeConfigHash(cfg resolvedConfig) string {
-	return computeIndexHash(cfg)
-}
-
 func computeIndexHash(cfg resolvedConfig) string {
 	return computeIndexHashForSchema(cfg, IndexSchemaVersion)
 }

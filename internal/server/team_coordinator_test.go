@@ -69,6 +69,10 @@ func TestResolveQueryTeamOrchestratedNeverSelectsDefaultMember(t *testing.T) {
 	if statusErr == nil || statusErr.status != http.StatusBadRequest || !strings.Contains(statusErr.message, "must be omitted") {
 		t.Fatalf("expected agentKey bypass rejection, got %#v", statusErr)
 	}
+	_, _, _, statusErr = resolveQueryTeam(registry, "", "", &chat.Summary{TeamID: "research", AgentKey: "former-member"})
+	if statusErr == nil || statusErr.status != http.StatusBadRequest || !strings.Contains(statusErr.message, "historical Team chat") {
+		t.Fatalf("historical Team chat must not resume, got %#v", statusErr)
+	}
 }
 
 func TestResolveQueryTeamInheritsExistingNonTeamAgent(t *testing.T) {

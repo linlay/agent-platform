@@ -160,7 +160,6 @@ func (s *Server) listAgentCatalogSummariesWithModes(includeChats int, scope stri
 			Stats:       toAPIAgentStats(stats),
 			TeamID:      team.TeamID,
 			Description: team.Description,
-			RuntimeMode: team.RuntimeMode,
 			AgentKeys:   append([]string(nil), team.AgentKeys...),
 			Meta:        team.Meta,
 		}

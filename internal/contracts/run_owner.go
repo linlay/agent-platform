@@ -6,19 +6,17 @@ import "strings"
 //
 // AgentKey and TeamID are public identity fields. ExecutionAgentKey is runtime
 // only and must not be serialized into public API responses. An orchestrated
-// Team is represented by an empty AgentKey with a non-empty TeamID. Legacy teams
-// retain their selected AgentKey alongside TeamID.
+// Team is represented by an empty AgentKey with a non-empty TeamID.
 type RunOwner struct {
 	AgentKey          string
 	TeamID            string
 	ExecutionAgentKey string
 }
 
-func AgentRunOwner(agentKey string, teamID string) RunOwner {
+func AgentRunOwner(agentKey string, _ string) RunOwner {
 	agentKey = strings.TrimSpace(agentKey)
 	return RunOwner{
 		AgentKey:          agentKey,
-		TeamID:            strings.TrimSpace(teamID),
 		ExecutionAgentKey: agentKey,
 	}
 }

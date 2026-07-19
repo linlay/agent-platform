@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/stream"
@@ -29,12 +30,22 @@ func (s *Server) listChatSummariesWithAgentModesAndLimit(lastRunID string, agent
 	return s.mapChatSummariesWithActiveRuns(items, true)
 }
 
-func requestedModes(values []string) []string {
+func requestedModes(values []string) ([]string, error) {
 	items := make([]string, 0, len(values))
 	for _, value := range values {
-		items = append(items, strings.Split(value, ",")...)
+		for _, raw := range strings.Split(value, ",") {
+			raw = strings.TrimSpace(raw)
+			if raw == "" {
+				continue
+			}
+			mode, err := catalog.ParsePublicAgentMode(raw)
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, catalog.AgentModeForAPI(mode))
+		}
 	}
-	return chat.NormalizeAgentModes(items)
+	return chat.NormalizeAgentModes(items), nil
 }
 
 const deprecatedAgentModeMessage = "agentMode is no longer supported; use mode instead"
@@ -327,7 +338,12 @@ func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
 	}
-	response, err := s.listChatSummariesWithAgentModesAndLimit(r.URL.Query().Get("lastRunId"), r.URL.Query().Get("agentKey"), requestedModes(r.URL.Query()["mode"]), limit)
+	modes, err := requestedModes(r.URL.Query()["mode"])
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
+		return
+	}
+	response, err := s.listChatSummariesWithAgentModesAndLimit(r.URL.Query().Get("lastRunId"), r.URL.Query().Get("agentKey"), modes, limit)
 	if err != nil {
 		if isTimeContractViolation(err) {
 			writeTimeContractViolation(w, err)

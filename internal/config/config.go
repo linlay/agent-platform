@@ -538,13 +538,6 @@ type GatewayEntry struct {
 	ReconnectMax     int64 // seconds
 }
 
-type ChannelType string
-
-const (
-	ChannelTypeBridge  ChannelType = "bridge"
-	ChannelTypeGateway ChannelType = "gateway"
-)
-
 type ChannelMode string
 
 const (
@@ -558,20 +551,15 @@ const (
 )
 
 type ChannelConfig struct {
-	ID           string
-	Name         string
-	Type         ChannelType
-	Mode         ChannelMode
-	Transport    string
-	Protocol     string
-	DefaultAgent string
-	Agents       []string
-	AllAgents    bool
-	Endpoint     ChannelEndpointConfig
-	Auth         ChannelAuthConfig
-	Heartbeat    ChannelHeartbeatConfig
-	Reconnect    ChannelReconnectConfig
-	Gateway      ChannelGatewayConfig
+	ID        string
+	Name      string
+	Mode      ChannelMode
+	Transport string
+	Protocol  string
+	Endpoint  ChannelEndpointConfig
+	Auth      ChannelAuthConfig
+	Heartbeat ChannelHeartbeatConfig
+	Reconnect ChannelReconnectConfig
 }
 
 type ChannelEndpointConfig struct {
@@ -593,15 +581,6 @@ type ChannelReconnectConfig struct {
 	HandshakeTimeout int64 // seconds
 	Min              int64 // seconds
 	Max              int64 // seconds
-}
-
-type ChannelGatewayConfig struct {
-	URL              string
-	JwtToken         string
-	BaseURL          string
-	HandshakeTimeout int64 // seconds
-	ReconnectMin     int64 // seconds
-	ReconnectMax     int64 // seconds
 }
 
 // 网关 HTTP 旁路的路径约定，由网关侧固定，不再做成可配置。

@@ -32,8 +32,8 @@ func TestChatsLimitHTTPAndWebSocket(t *testing.T) {
 		t.Fatalf("expected file chat store, got %T", fixture.chats)
 	}
 	seedAgentModeChat(t, store, "chat-react-limit", "loyw3v28", "agent-react", "", "REACT", 1_000)
-	seedAgentModeChat(t, store, "chat-plan-limit", "loyw3v29", "agent-plan", "", "PLAN_EXECUTE", 2_000)
-	seedAgentModeChat(t, store, "chat-team-limit", "loyw3v2a", "", "team-a", "REACT", 3_000)
+	seedAgentModeChat(t, store, "chat-plan-limit", "loyw3v29", "agent-plan", "", "PLAN-EXECUTE", 2_000)
+	seedAgentModeChat(t, store, "chat-team-limit", "loyw3v2a", "", "team-a", "TEAM", 3_000)
 
 	assertChatsLimitHTTP(t, fixture.server, "/api/chats", []string{"chat-team-limit", "chat-plan-limit", "chat-react-limit"})
 	assertChatsLimitHTTP(t, fixture.server, "/api/chats?limit=2", []string{"chat-team-limit", "chat-plan-limit"})

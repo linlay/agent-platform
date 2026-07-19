@@ -42,12 +42,10 @@ func TestWebSocketChannelsRouteRemovedAndAgentsIgnoreChannelFilter(t *testing.T)
 	}
 	fixture.server.deps.Channels = channelpkg.NewRegistry([]config.ChannelConfig{
 		{
-			ID:           "wecom",
-			Name:         "WeCom",
-			Type:         config.ChannelTypeBridge,
-			DefaultAgent: "assistant",
-			AllAgents:    false,
-			Agents:       []string{"assistant", "code-helper"},
+			ID:       "wecom",
+			Name:     "WeCom",
+			Mode:     config.ChannelModeClient,
+			Endpoint: config.ChannelEndpointConfig{URL: "ws://wecom.example/ws"},
 		},
 	})
 	fixture.server.deps.ChannelStatus = channelStatusStub{"wecom": true}

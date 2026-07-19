@@ -19,6 +19,9 @@ func validateSubmitIdentity(req api.SubmitRequest) error {
 	if strings.TrimSpace(req.AgentKey) == "" && strings.TrimSpace(req.TeamID) == "" {
 		return fmt.Errorf("agentKey or teamId is required")
 	}
+	if strings.TrimSpace(req.AgentKey) != "" && strings.TrimSpace(req.TeamID) != "" {
+		return fmt.Errorf("agentKey must be omitted for a Team")
+	}
 	return nil
 }
 
@@ -40,6 +43,9 @@ func (s *Server) validateRunOwner(runID string, agentKey string, teamID string) 
 func validateRunStatusOwner(status contracts.RunStatusInfo, agentKey string, teamID string) *statusError {
 	agentKey = strings.TrimSpace(agentKey)
 	teamID = strings.TrimSpace(teamID)
+	if agentKey != "" && teamID != "" {
+		return &statusError{status: http.StatusBadRequest, message: "historical Team runs are no longer supported; use teamId only for a Team"}
+	}
 	if contracts.IsTeamRunOwner(status.AgentKey, status.TeamID) {
 		if teamID == "" {
 			return &statusError{status: http.StatusBadRequest, message: "teamId is required"}
@@ -104,6 +110,9 @@ func (s *Server) validateSubmitOwner(req api.SubmitRequest) *statusError {
 	}
 	if strings.TrimSpace(req.AgentKey) == "" && strings.TrimSpace(req.TeamID) == "" {
 		return &statusError{status: http.StatusBadRequest, message: "agentKey or teamId is required"}
+	}
+	if strings.TrimSpace(req.AgentKey) != "" && strings.TrimSpace(req.TeamID) != "" {
+		return &statusError{status: http.StatusBadRequest, message: "agentKey must be omitted for a Team"}
 	}
 	return nil
 }

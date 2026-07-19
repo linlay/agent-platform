@@ -170,7 +170,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	if err := os.MkdirAll(filepath.Join(agentsDir, "mock-agent"), 0o755); err != nil {
 		t.Fatalf("mkdir agents dir: %v", err)
 	}
-	if err := os.MkdirAll(teamsDir, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(teamsDir, "default"), 0o755); err != nil {
 		t.Fatalf("mkdir teams dir: %v", err)
 	}
 	if err := os.MkdirAll(filepath.Join(skillsDir, "mock-skill", "assets"), 0o755); err != nil {
@@ -247,11 +247,13 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	}, "\n")), 0o644); err != nil {
 		t.Fatalf("write agent config: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(teamsDir, "default.demo.yml"), []byte(strings.Join([]string{
+	if err := os.WriteFile(filepath.Join(teamsDir, "default", "team.yml"), []byte(strings.Join([]string{
 		"name: Default Team",
-		"defaultAgentKey: mock-agent",
 		"agentKeys:",
 		"  - mock-agent",
+		"orchestrator:",
+		"  modelConfig:",
+		"    modelKey: mock-model",
 	}, "\n")), 0o644); err != nil {
 		t.Fatalf("write team config: %v", err)
 	}

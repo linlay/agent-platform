@@ -48,7 +48,7 @@
 - `code = 0` 表示成功，失败时 `code` 使用 HTTP 状态码数值。
 - `GET /api/chat` 默认返回 `events`，`includeRawMessages=true` 时追加 `rawMessages`。
 - `GET /api/viewport` 会先读取 `runtime/viewports` 下的本地 `.html/.qlc` 模板，再尝试 `registries/viewport-servers` 中注册的远端 viewport server，命中失败时才返回 fallback 占位结果。
-- `GET /api/attach` 与 `POST /api/submit` / `steer` / `interrupt` 按公开 run owner 校验：普通 Agent 与 legacy Team 携带 `agentKey`，orchestrated Team 只携带 `teamId`，不得提交隐藏协调器 key。
+- `GET /api/attach` 与 `POST /api/submit` / `steer` / `interrupt` 按公开 run owner 校验：普通 Agent 携带 `agentKey`，Team 只携带 `teamId`，不得提交隐藏协调器 key 或 `agentKey`。
 - `POST /api/submit` 使用 awaiting 协议：请求体必须包含 `runId`、`awaitingId`，并按 run 类型携带 `agentKey` 或 `teamId`。
 - 文件传输按“HTTP 数据面 + WebSocket 控制面”划分：浏览器上传继续使用 `POST /api/upload`，下载继续使用 `GET /api/resource?file=...`；upload ticket 中的 `path` 是智能体执行环境内的可读路径，`url` 只用于平台资源访问；`/ws` 只传文件引用与状态，不承载文件字节。当前 `/ws` 的 `/api/upload` 仅支持网关发送 `url + metadata`，由 platform 再通过 HTTP 拉取文件并落盘。
 - 文件工具的 `file_read` / `file_glob` / `file_grep` 与 `file_write` / `file_edit` 白名单独立于 bash allowed paths，默认均为 `.,/tmp`；越权访问会走 `mode=approval`，可单次批准或用 `approve_rule_run` 在当前 run 内批准同一规则。
@@ -130,17 +130,17 @@ go run ./scripts/gen-gateway-token.go -key configs/gateway-private-key.pem -sub 
 channels:
   mobile:
     name: 手机 App
-    type: gateway
-    default-agent: ""
-    agents: "*"
-    gateway:
+    mode: client
+    transport: websocket
+    protocol: platform-ws
+    endpoint:
       url: ws://127.0.0.1:11945/ws/agent?userId=local&agentKey=personal&channel=mobile
-      jwt-token: <paste-token-here>
+      token: <paste-token-here>
 ```
 
 注意事项：
 
-- `JWT.sub` 必须和 `gateway.url` 中的 `userId` 完全一致；上例要求 `sub=local`
+- `JWT.sub` 必须和 `endpoint.url` 中的 `userId` 完全一致；上例要求 `sub=local`
 - `configs/gateway-private-key.pem` 和真实 `configs/channels.yml` 都是本地文件，不提交
 - `.env` 只保留启动/部署 allowlist，不再作为 channel token 配置入口
 
@@ -240,17 +240,7 @@ Provider `apiKey` 按明文字符串读取：
 
 ### Team 配置
 
-`runtime/teams/*.yml` 保留为 legacy Team：请求使用 `teamId + agentKey`，未指定成员时使用 `defaultAgentKey`。
-
-```yaml
-name: Support
-defaultAgentKey: support_agent
-agentKeys:
-  - support_agent
-  - billing_agent
-```
-
-目录式 `runtime/teams/<teamId>/team.yml` 是 orchestrated Team，由运行时为每个 run 合成内部 `TEAM` 协调器：
+Team 只接受目录式 `runtime/teams/<teamId>/team.yml`，运行时为每个 run 合成内部 `TEAM` 协调器。平铺 `runtime/teams/*.yml|yaml` 和 `defaultAgentKey` 已移除，会使启动失败。
 
 ```yaml
 name: Research
@@ -264,7 +254,7 @@ orchestrator:
   maxParallel: 2
 ```
 
-目录中可选的 `SOUL.md` 与 `AGENTS.md` 只补充 Team 人格和工作规则，不能覆盖内置调度约束。orchestrated Team 请求只传 `teamId`；隐藏总控统一通过 embedded builtin `agent_delegate` 委派一个或多个冻结 roster 成员，并用 `plan_add_tasks/plan_get_tasks/plan_update_task` 管理复杂任务。成员结果全部回注总控，根回答只由总控生成。协调器 key 和隐藏工具不进入普通 Agent/Tool catalog，也不作为公开 run 身份返回。完整配置和协议见 [智能体配置说明](./docs/智能体配置说明.md)、[子智能体调度](./docs/子智能体调度.md) 与 [API与协议](./docs/API与协议.md)。
+目录中可选的 `SOUL.md` 与 `AGENTS.md` 只补充 Team 人格和工作规则，不能覆盖内置调度约束。Team 请求只传 `teamId`，传入 `agentKey` 返回 400；隐藏总控统一通过 embedded builtin `agent_delegate` 委派一个或多个冻结 roster 成员，并用 `plan_add_tasks/plan_get_tasks/plan_update_task` 管理复杂任务。成员结果全部回注总控，根回答只由总控生成。协调器 key 和隐藏工具不进入普通 Agent/Tool catalog，也不作为公开 run 身份返回。完整配置和协议见 [智能体配置说明](./docs/智能体配置说明.md)、[子智能体调度](./docs/子智能体调度.md) 与 [API与协议](./docs/API与协议.md)。
 
 ## 4. 部署
 

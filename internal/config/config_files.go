@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"agent-platform/internal/deprecation"
 )
 
 func (c *Config) applyStructuredConfig(configRoot string) error {
@@ -967,29 +969,25 @@ func (c *Config) applyChannelsFile(path string) error {
 }
 
 func parseChannelConfig(channelID string, values map[string]any) (ChannelConfig, error) {
+	for _, key := range []string{"type", "default-agent", "agents", "gateway"} {
+		if _, exists := values[key]; exists {
+			return ChannelConfig{}, deprecation.New("channels config: channel %q uses removed key %q; use mode, endpoint, auth, heartbeat, and reconnect", channelID, key)
+		}
+	}
+	for key := range values {
+		switch key {
+		case "mode", "transport", "protocol", "endpoint", "auth", "heartbeat", "reconnect":
+		default:
+			return ChannelConfig{}, fmt.Errorf("channels config: channel %q does not support key %q; only mode, transport, protocol, endpoint, auth, heartbeat, and reconnect are accepted", channelID, key)
+		}
+	}
 	cfg := ChannelConfig{
 		ID:   channelID,
-		Name: stringValue(anyValue(values["name"], channelID), channelID),
-	}
-	rawType := strings.ToLower(strings.TrimSpace(stringValue(anyValue(values["type"], ""), "")))
-	if rawType != "" {
-		switch ChannelType(rawType) {
-		case ChannelTypeBridge, ChannelTypeGateway:
-			cfg.Type = ChannelType(rawType)
-		default:
-			return ChannelConfig{}, fmt.Errorf("channels config: channel %q has invalid type %q", channelID, rawType)
-		}
+		Name: channelID,
 	}
 	cfg.Mode = ChannelMode(strings.ToLower(strings.TrimSpace(stringValue(anyValue(values["mode"], ""), ""))))
 	cfg.Transport = strings.ToLower(strings.TrimSpace(stringValue(anyValue(values["transport"], ""), "")))
 	cfg.Protocol = strings.ToLower(strings.TrimSpace(stringValue(anyValue(values["protocol"], ""), "")))
-	cfg.DefaultAgent = stringValue(anyValue(values["default-agent"], ""), "")
-	allAgents, agents, err := parseChannelAgents(values["agents"])
-	if err != nil {
-		return ChannelConfig{}, fmt.Errorf("channels config: channel %q agents: %w", channelID, err)
-	}
-	cfg.AllAgents = allAgents
-	cfg.Agents = agents
 	if endpointMap, ok := values["endpoint"].(map[string]any); ok && len(endpointMap) > 0 {
 		tokenEnv := stringValue(anyValue(firstAny(endpointMap, "tokenEnv", "token-env"), ""), "")
 		cfg.Endpoint = ChannelEndpointConfig{
@@ -1019,17 +1017,6 @@ func parseChannelConfig(channelID string, values map[string]any) (ChannelConfig,
 			Max:              int64Value(anyValue(firstAny(reconnectMap, "max", "maxSeconds", "max-seconds"), 0), 0),
 		}
 	}
-	gatewayMap, ok := values["gateway"].(map[string]any)
-	if ok && len(gatewayMap) > 0 {
-		cfg.Gateway = ChannelGatewayConfig{
-			URL:              stringValue(anyValue(gatewayMap["url"], ""), ""),
-			JwtToken:         stringValue(anyValue(gatewayMap["jwt-token"], ""), ""),
-			BaseURL:          stringValue(anyValue(gatewayMap["base-url"], ""), ""),
-			HandshakeTimeout: int64Value(anyValue(gatewayMap["handshake-timeout"], 0), 0),
-			ReconnectMin:     int64Value(anyValue(gatewayMap["reconnect-min"], 0), 0),
-			ReconnectMax:     int64Value(anyValue(gatewayMap["reconnect-max"], 0), 0),
-		}
-	}
 	return cfg, nil
 }
 
@@ -1040,38 +1027,4 @@ func firstAny(values map[string]any, keys ...string) any {
 		}
 	}
 	return nil
-}
-
-func parseChannelAgents(value any) (bool, []string, error) {
-	if value == nil {
-		return true, nil, nil
-	}
-	switch typed := value.(type) {
-	case string:
-		typed = strings.TrimSpace(typed)
-		if typed == "" || typed == "*" {
-			return true, nil, nil
-		}
-		return false, []string{typed}, nil
-	case []any:
-		agents := make([]string, 0, len(typed))
-		seen := map[string]struct{}{}
-		for _, item := range typed {
-			agentKey := strings.TrimSpace(stringValue(item, ""))
-			if agentKey == "" {
-				return false, nil, fmt.Errorf("agent key must not be empty")
-			}
-			if agentKey == "*" {
-				return false, nil, fmt.Errorf(`"*" must be used as a scalar, not inside a list`)
-			}
-			if _, exists := seen[agentKey]; exists {
-				continue
-			}
-			seen[agentKey] = struct{}{}
-			agents = append(agents, agentKey)
-		}
-		return false, agents, nil
-	default:
-		return false, nil, fmt.Errorf("must be \"*\" or a list of agent keys")
-	}
 }

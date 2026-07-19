@@ -4,7 +4,7 @@
 
 HITL 使用统一 awaiting 协议，保留 `mode` 字段，不引入 `kind`。当前等待模式为 `question`、`approval`、`form`、`planning`。
 
-`/api/submit` 顶层固定为公开 owner + `runId + awaitingId + params`。普通 Agent/legacy Team 的 owner 是 `agentKey`；orchestrated Team 的 owner 是 `teamId`，不能提交隐藏协调器 key。前端不再提交 `mode`，后端按 `awaitingId` 反查当前等待态。
+`/api/submit` 顶层固定为公开 owner + `runId + awaitingId + params`。普通 Agent 的 owner 是 `agentKey`；Team 的 owner 是 `teamId`，不能提交隐藏协调器 key 或 `agentKey`。前端不再提交 `mode`，后端按 `awaitingId` 反查当前等待态。
 
 `/api/chats` 摘要、`/api/agents?includeChats=...` 的 `chats[]` 与 `/api/chat` 详情中的 `awaiting` 都来自持久化等待态；当 `awaiting.status == "awaiting"` 时，表示该 chat 当前有可恢复的等待项，`mode` 为 `question`、`approval`、`form` 或 `planning`。完整等待内容仍以 `events` 中的 `awaiting.ask` 为准。
 

@@ -548,7 +548,6 @@ type AgentCatalogSummary struct {
 	Chats                  []ChatSummaryResponse      `json:"chats,omitempty"`
 	TeamID                 string                     `json:"teamId,omitempty"`
 	Description            string                     `json:"description,omitempty"`
-	RuntimeMode            string                     `json:"runtimeMode,omitempty"`
 	AgentKeys              []string                   `json:"agentKeys,omitempty"`
 	Meta                   map[string]any             `json:"meta,omitempty"`
 }
@@ -697,7 +696,6 @@ type AdminChannelListResponse struct {
 type AdminChannelSummary struct {
 	ID         string                        `json:"id"`
 	Name       string                        `json:"name,omitempty"`
-	Type       string                        `json:"type,omitempty"`
 	Mode       string                        `json:"mode,omitempty"`
 	Transport  string                        `json:"transport,omitempty"`
 	Protocol   string                        `json:"protocol,omitempty"`
@@ -716,13 +714,10 @@ type AdminChannelConnectionSummary struct {
 }
 
 type AdminChannelAgentSummary struct {
-	AllowedAllAgents bool                      `json:"allowedAllAgents"`
-	AllowedCount     int                       `json:"allowedCount"`
-	AllowedAgentKeys []string                  `json:"allowedAgentKeys,omitempty"`
-	ImportCount      int                       `json:"importCount"`
-	ExportCount      int                       `json:"exportCount"`
-	Imports          []AdminChannelAgentImport `json:"imports,omitempty"`
-	Exports          []AdminChannelAgentExport `json:"exports,omitempty"`
+	ImportCount int                       `json:"importCount"`
+	ExportCount int                       `json:"exportCount"`
+	Imports     []AdminChannelAgentImport `json:"imports,omitempty"`
+	Exports     []AdminChannelAgentExport `json:"exports,omitempty"`
 }
 
 type AdminChannelAgentImport struct {
@@ -900,7 +895,6 @@ type TeamSummary struct {
 	TeamID      string         `json:"teamId"`
 	Name        string         `json:"name"`
 	Description string         `json:"description,omitempty"`
-	RuntimeMode string         `json:"runtimeMode"`
 	Icon        any            `json:"icon,omitempty"`
 	AgentKeys   []string       `json:"agentKeys"`
 	Meta        map[string]any `json:"meta,omitempty"`

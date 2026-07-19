@@ -61,6 +61,7 @@ func (a *Archiver) ArchiveChat(chatID string) error {
 			ChatID:         summary.ChatID,
 			ChatName:       summary.ChatName,
 			AgentKey:       summary.AgentKey,
+			AgentMode:      summary.AgentMode,
 			TeamID:         summary.TeamID,
 			Source:         summary.Source,
 			SourceChannel:  summary.SourceChannel,

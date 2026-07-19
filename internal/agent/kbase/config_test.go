@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func TestParseAgentConfigDefaultsLegacyCharsAndAliases(t *testing.T) {
+func TestParseAgentConfigDefaultsAndCanonicalFields(t *testing.T) {
 	defaults, err := ParseAgentConfig(nil)
 	if err != nil {
 		t.Fatalf("parse defaults: %v", err)
@@ -35,57 +35,45 @@ func TestParseAgentConfigDefaultsLegacyCharsAndAliases(t *testing.T) {
 		t.Fatalf("unexpected default scope: %#v", defaults)
 	}
 
-	legacy, err := ParseAgentConfig(map[string]any{
-		"chunk": map[string]any{"max-chars": 3200, "overlap-chars": 320},
+	canonical, err := ParseAgentConfig(map[string]any{
+		"chunk": map[string]any{"unit": "chars", "maxChars": 3200, "overlapChars": 320},
 		"retrieval": map[string]any{
-			"top-k":                12,
-			"fusion":               "RRF",
-			"rrf-k":                42,
-			"vector-weight":        0.6,
-			"fts-weight":           0.4,
-			"candidate-floor":      24,
-			"candidate-multiplier": 5,
-			"candidate-max":        240,
+			"topK":                12,
+			"fusion":              "RRF",
+			"rrfK":                42,
+			"vectorWeight":        0.6,
+			"ftsWeight":           0.4,
+			"candidateFloor":      24,
+			"candidateMultiplier": 5,
+			"candidateMax":        240,
 		},
 	})
 	if err != nil {
-		t.Fatalf("parse legacy config: %v", err)
+		t.Fatalf("parse canonical config: %v", err)
 	}
-	if legacy.Chunk.Unit != ChunkUnitChars || legacy.Chunk.MaxChars != 3200 || legacy.Chunk.OverlapChars != 320 ||
-		legacy.Chunk.MaxTokens != 0 || legacy.Chunk.OverlapTokens != 0 {
-		t.Fatalf("legacy char config changed: %#v", legacy.Chunk)
+	if canonical.Chunk.Unit != ChunkUnitChars || canonical.Chunk.MaxChars != 3200 || canonical.Chunk.OverlapChars != 320 ||
+		canonical.Chunk.MaxTokens != 0 || canonical.Chunk.OverlapTokens != 0 {
+		t.Fatalf("canonical char config changed: %#v", canonical.Chunk)
 	}
-	if legacy.Retrieval.TopK != 12 || legacy.Retrieval.Fusion != RetrievalFusionRRF || legacy.Retrieval.RRFK != 42 ||
-		legacy.Retrieval.VectorWeight != 0.6 || legacy.Retrieval.FTSWeight != 0.4 ||
-		legacy.Retrieval.CandidateFloor != 24 || legacy.Retrieval.CandidateMultiplier != 5 || legacy.Retrieval.CandidateMax != 240 {
-		t.Fatalf("retrieval aliases changed: %#v", legacy.Retrieval)
+	if canonical.Retrieval.TopK != 12 || canonical.Retrieval.Fusion != RetrievalFusionRRF || canonical.Retrieval.RRFK != 42 ||
+		canonical.Retrieval.VectorWeight != 0.6 || canonical.Retrieval.FTSWeight != 0.4 ||
+		canonical.Retrieval.CandidateFloor != 24 || canonical.Retrieval.CandidateMultiplier != 5 || canonical.Retrieval.CandidateMax != 240 {
+		t.Fatalf("canonical retrieval changed: %#v", canonical.Retrieval)
 	}
-
-	dualWritten, err := ParseAgentConfig(map[string]any{
-		"retrieval": map[string]any{
-			"topK":                 7,
-			"top-k":                13,
-			"rrfK":                 61,
-			"rrf-k":                62,
-			"vectorWeight":         0.8,
-			"vector-weight":        0.55,
-			"ftsWeight":            0.2,
-			"fts-weight":           0.45,
-			"candidateFloor":       30,
-			"candidate-floor":      31,
-			"candidateMultiplier":  4,
-			"candidate-multiplier": 6,
-			"candidateMax":         500,
-			"candidate-max":        600,
-		},
-	})
-	if err != nil {
-		t.Fatalf("parse dual-written retrieval config: %v", err)
+	for _, legacy := range []map[string]any{
+		{"chunk": map[string]any{"maxChars": 3200}},
+		{"chunk": map[string]any{"unit": "tokens", "maxTokens": 3200}},
+		{"chunk": map[string]any{"unit": "characters", "maxChars": 3200}},
+		{"chunk": map[string]any{"unit": "runes", "maxChars": 3200}},
+	} {
+		if _, err := ParseAgentConfig(legacy); err == nil {
+			t.Fatalf("legacy config must fail: %#v", legacy)
+		}
 	}
-	if dualWritten.Retrieval.TopK != 13 || dualWritten.Retrieval.RRFK != 62 ||
-		dualWritten.Retrieval.VectorWeight != 0.55 || dualWritten.Retrieval.FTSWeight != 0.45 ||
-		dualWritten.Retrieval.CandidateFloor != 31 || dualWritten.Retrieval.CandidateMultiplier != 6 || dualWritten.Retrieval.CandidateMax != 600 {
-		t.Fatalf("legacy kebab keys must retain their historical override precedence: %#v", dualWritten.Retrieval)
+	for _, key := range []string{"top-k", "rrf-k", "vector-weight", "fts-weight", "candidate-floor", "candidate-multiplier", "candidate-max"} {
+		if _, err := ParseAgentConfig(map[string]any{"retrieval": map[string]any{key: 1}}); err == nil {
+			t.Fatalf("kebab-case retrieval key %q must fail", key)
+		}
 	}
 }
 
@@ -162,7 +150,7 @@ func TestParseAgentConfigReadsPublicTags(t *testing.T) {
 	}
 }
 
-func TestComputeConfigHashGolden(t *testing.T) {
+func TestComputeIndexHashGolden(t *testing.T) {
 	cfg := resolvedConfig{
 		AgentKey:      "docs",
 		WorkspaceRoot: "/workspace/docs",
@@ -189,7 +177,7 @@ func TestComputeConfigHashGolden(t *testing.T) {
 		},
 	}
 	const want = "sha256:00ade363532c4f5d87cbc2ab8e63cf3492fb0efc412b2500d9720f342d2d4fa0"
-	if got := computeConfigHash(cfg); got != want {
+	if got := computeIndexHash(cfg); got != want {
 		t.Fatalf("config hash changed: got %q want %q", got, want)
 	}
 }

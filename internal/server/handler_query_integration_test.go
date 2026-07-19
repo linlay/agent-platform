@@ -1446,7 +1446,7 @@ func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t
 				"    - memory_search",
 				"memoryConfig:",
 				"  enabled: true",
-				"mode: PLAN_EXECUTE",
+				"mode: PLAN-EXECUTE",
 				"stageSettings:",
 				"  maxWorkRoundsPerTask: 4",
 			}, "\n")), 0o644); err != nil {

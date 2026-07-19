@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"agent-platform/internal/deprecation"
 )
 
 type DeriveChatRequest struct {
@@ -53,6 +55,9 @@ func (s *FileStore) DeriveChat(request DeriveChatRequest) (DeriveChatResult, err
 	}
 	if sourceSummary == nil {
 		return DeriveChatResult{}, ErrChatNotFound
+	}
+	if strings.TrimSpace(sourceSummary.AgentKey) != "" && strings.TrimSpace(sourceSummary.TeamID) != "" {
+		return DeriveChatResult{}, deprecation.New("historical Team chat cannot be derived; create a new Team chat using teamId only")
 	}
 	if sourceSummary.PendingAwaiting != nil {
 		return DeriveChatResult{}, ErrChatPendingAwaiting

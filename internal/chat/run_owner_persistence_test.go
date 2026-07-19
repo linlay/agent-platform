@@ -9,7 +9,7 @@ func TestTeamRunOwnerPersistsWithoutSyntheticAgentKey(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 
-	summary, created, err := store.EnsureChatWithSourceAndMode("chat-team-owner", "", "team-a", "hello", "", "REACT")
+	summary, created, err := store.EnsureChatWithSourceAndMode("chat-team-owner", "", "team-a", "hello", "", "TEAM")
 	if err != nil {
 		t.Fatalf("ensure team chat: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestTeamRunOwnerSurvivesArchiveAndRestore(t *testing.T) {
 	}
 	archiver := NewArchiver(active, archives)
 
-	if _, _, err := active.EnsureChatWithSourceAndMode("chat-team-archive", "", "team-a", "hello", "", "REACT"); err != nil {
+	if _, _, err := active.EnsureChatWithSourceAndMode("chat-team-archive", "", "team-a", "hello", "", "TEAM"); err != nil {
 		t.Fatalf("ensure team chat: %v", err)
 	}
 	if err := completeRunForTest(active, RunCompletion{
@@ -103,5 +103,35 @@ func TestTeamRunOwnerSurvivesArchiveAndRestore(t *testing.T) {
 	}
 	if len(restoredRuns) != 1 || !isTeamOwner(restoredRuns[0].AgentKey, restoredRuns[0].TeamID) || restoredRuns[0].AgentKey != "" || restoredRuns[0].AgentMode != "TEAM" || restoredRuns[0].TeamID != "team-a" {
 		t.Fatalf("unexpected restored runs %#v", restoredRuns)
+	}
+}
+
+func TestArchivePreservesHistoricalAgentMode(t *testing.T) {
+	root := t.TempDir()
+	active, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	t.Cleanup(func() { _ = active.Close() })
+	archives, err := NewArchiveStore(root)
+	if err != nil {
+		t.Fatalf("new archive store: %v", err)
+	}
+	archiver := NewArchiver(active, archives)
+
+	if _, _, err := active.EnsureChatWithSourceAndMode("chat-historical-mode", "former-agent", "", "history", "", "ONESHOT"); err != nil {
+		t.Fatalf("ensure historical chat: %v", err)
+	}
+	persistAgentModeRun(t, active, "chat-historical-mode", "run-historical-mode", "former-agent", "", "ONESHOT", 1_000)
+	if err := archiver.ArchiveChat("chat-historical-mode"); err != nil {
+		t.Fatalf("archive historical chat: %v", err)
+	}
+	archived, err := archives.LoadArchived("chat-historical-mode")
+	if err != nil || archived == nil || archived.Summary.AgentMode != "ONESHOT" {
+		t.Fatalf("archive rewrote historical mode: archived=%#v err=%v", archived, err)
+	}
+	restored, err := archiver.RestoreChat("chat-historical-mode")
+	if err != nil || restored.AgentMode != "ONESHOT" {
+		t.Fatalf("restore rewrote historical mode: restored=%#v err=%v", restored, err)
 	}
 }

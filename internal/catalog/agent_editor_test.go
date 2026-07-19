@@ -53,7 +53,7 @@ func TestCreateEditableAgentCreatesPrivateConfigDirectory(t *testing.T) {
 	if _, err := registry.CreateEditableAgent("reader", map[string]any{
 		"key":         "reader",
 		"name":        "Reader",
-		"mode":        "ONESHOT",
+		"mode":        "REACT",
 		"modelConfig": map[string]any{"modelKey": "test-model"},
 	}, nil, nil); err != nil {
 		t.Fatalf("CreateEditableAgent returned error: %v", err)

@@ -54,11 +54,6 @@ func (s *Server) handleMemoryContextPreview(w http.ResponseWriter, r *http.Reque
 
 	agentKey := strings.TrimSpace(summary.AgentKey)
 	teamID := strings.TrimSpace(summary.TeamID)
-	if agentKey == "" && teamID != "" && s.deps.Registry != nil {
-		if team, ok := s.deps.Registry.TeamDefinition(teamID); ok {
-			agentKey = strings.TrimSpace(team.DefaultAgentKey)
-		}
-	}
 	if agentKey == "" && s.deps.Registry != nil {
 		agentKey = strings.TrimSpace(s.deps.Registry.DefaultAgentKey())
 	}
@@ -162,11 +157,6 @@ func (s *Server) wsMemoryContextPreview(ctx context.Context, conn *ws.Conn, req 
 
 	agentKey := strings.TrimSpace(summary.AgentKey)
 	teamID := strings.TrimSpace(summary.TeamID)
-	if agentKey == "" && teamID != "" && s.deps.Registry != nil {
-		if team, ok := s.deps.Registry.TeamDefinition(teamID); ok {
-			agentKey = strings.TrimSpace(team.DefaultAgentKey)
-		}
-	}
 	if agentKey == "" && s.deps.Registry != nil {
 		agentKey = strings.TrimSpace(s.deps.Registry.DefaultAgentKey())
 	}

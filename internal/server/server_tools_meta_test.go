@@ -39,9 +39,10 @@ func TestAdminToolsListIgnoresQueryAndFlattensMetadata(t *testing.T) {
 			Key:  "qs_read",
 			Name: "qs_read",
 			Meta: map[string]any{
-				"kind":           "external",
-				"sourceType":     "agent-local",
-				"sourceCategory": "external",
+				"kind":           "backend",
+				"sourceType":     "mcp",
+				"sourceCategory": "mcp",
+				"serverKey":      "qiuerscript",
 			},
 		},
 		{
@@ -71,7 +72,7 @@ func TestAdminToolsListIgnoresQueryAndFlattensMetadata(t *testing.T) {
 		t.Fatalf("expected all three tools, got %#v", all)
 	}
 	assertToolSummary(t, all, "bash", "backend", "local", "platform", "")
-	assertToolSummary(t, all, "qs_read", "external", "agent-local", "external", "")
+	assertToolSummary(t, all, "qs_read", "backend", "mcp", "mcp", "qiuerscript")
 	assertToolSummary(t, all, "remote_tool", "backend", "mcp", "mcp", "demo")
 	assertAdminToolsResponseOmitsMeta(t, server, "/api/admin/tools")
 

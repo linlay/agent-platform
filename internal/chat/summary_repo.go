@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/deprecation"
 )
 
 const summarySelectColumns = `CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(AGENT_MODE_,''), COALESCE(TEAM_ID_,''), COALESCE(SOURCE_,''), COALESCE(SOURCE_CHANNEL_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_,
@@ -129,6 +130,9 @@ func (s *FileStore) UpdateAgentIdentity(chatID string, agentKey string, agentMod
 	if summary == nil {
 		return ErrChatNotFound
 	}
+	if strings.TrimSpace(summary.TeamID) != "" {
+		return deprecation.New("historical Team chat owner cannot be changed; create a new Team chat using teamId only")
+	}
 	if strings.TrimSpace(agentMode) == "" {
 		agentMode = summary.AgentMode
 	}
@@ -227,30 +231,18 @@ func isTeamOwner(agentKey string, teamID string) bool {
 }
 
 func normalizeStoredAgentMode(agentMode string, agentKey string, teamID string) string {
-	if isTeamOwner(agentKey, teamID) {
-		return "TEAM"
-	}
-	switch strings.ToUpper(strings.TrimSpace(agentMode)) {
-	case "":
-		return ""
-	case "ONESHOT":
-		return "REACT"
-	case "PLAN_EXECUTE", "PLAN-EXECUTE":
-		return "PLAN-EXECUTE"
-	case "ACP-PROXY", "ACP_PROXY":
-		return "PROXY"
-	default:
-		return strings.ToUpper(strings.TrimSpace(agentMode))
-	}
+	// Stored history is immutable evidence. Current Team runs already provide
+	// TEAM explicitly; retired or historical values must not be rewritten.
+	return strings.TrimSpace(agentMode)
 }
 
-// NormalizeAgentModes converts public mode values into the persisted API form,
-// removes blanks and duplicates, and preserves unknown modes for forward compatibility.
+// NormalizeAgentModes accepts only public, canonical mode filters. Historical
+// rows keep their raw stored values and are not reinterpreted here.
 func NormalizeAgentModes(agentModes []string) []string {
 	seen := make(map[string]struct{}, len(agentModes))
 	result := make([]string, 0, len(agentModes))
 	for _, agentMode := range agentModes {
-		normalized := normalizeStoredAgentMode(agentMode, "agent", "")
+		normalized := strings.TrimSpace(agentMode)
 		if normalized == "" {
 			continue
 		}
@@ -333,10 +325,8 @@ func (s *FileStore) ListChatsWithAgentModesAndLimit(lastRunID string, agentKey s
 			args = append(args, agentMode)
 		}
 		if agentKey == "" {
-			// Orchestrated Teams have a public Team owner instead of an agent
-			// mode. They remain visible in the global chat list regardless of a
-			// mode query; legacy Teams are still agent-owned and are filtered by
-			// their selected member's mode.
+			// Teams have a public Team owner instead of an agent mode. They remain
+			// visible in the global chat list regardless of a mode query.
 			query += " AND ((AGENT_KEY_='' AND COALESCE(TEAM_ID_,'') <> '') OR AGENT_MODE_ IN (" + strings.Join(placeholders, ",") + "))"
 		} else {
 			query += " AND AGENT_MODE_ IN (" + strings.Join(placeholders, ",") + ")"

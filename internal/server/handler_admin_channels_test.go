@@ -45,7 +45,6 @@ func TestAdminChannelsReportsClientStatusAndRedactsSecrets(t *testing.T) {
 	server.deps.Channels = channelpkg.NewRegistry([]config.ChannelConfig{{
 		ID:        "peer-a",
 		Name:      "Peer A",
-		Type:      config.ChannelTypeGateway,
 		Mode:      config.ChannelModeClient,
 		Transport: config.ChannelTransportWebSocket,
 		Protocol:  config.ChannelProtocolPlatformWS,
@@ -60,10 +59,6 @@ func TestAdminChannelsReportsClientStatusAndRedactsSecrets(t *testing.T) {
 			HandshakeTimeout: 7,
 			Min:              2,
 			Max:              40,
-		},
-		Gateway: config.ChannelGatewayConfig{
-			URL:      "ws://legacy.example/ws",
-			JwtToken: "legacy-secret",
 		},
 	}})
 	server.deps.ChannelStatus = channelStatusStub{"peer-a": true}
@@ -82,7 +77,7 @@ func TestAdminChannelsReportsClientStatusAndRedactsSecrets(t *testing.T) {
 		t.Fatalf("unexpected config summary: %#v", item.Config)
 	}
 	body := rec.Body.String()
-	for _, forbidden := range []string{"endpoint-secret", "PEER_TOKEN", "legacy-secret", "jwtToken", "tokenEnv"} {
+	for _, forbidden := range []string{"endpoint-secret", "PEER_TOKEN", "jwtToken", "tokenEnv"} {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("response leaked %q: %s", forbidden, body)
 		}
@@ -102,11 +97,9 @@ func TestAdminChannelsReportsServerConnectionsAndAgentRelations(t *testing.T) {
 	server.deps.Channels = channelpkg.NewRegistry([]config.ChannelConfig{{
 		ID:        "public-entry",
 		Name:      "Public Entry",
-		Type:      config.ChannelTypeGateway,
 		Mode:      config.ChannelModeServer,
 		Transport: config.ChannelTransportWebSocket,
 		Protocol:  config.ChannelProtocolPlatformWS,
-		AllAgents: true,
 		Endpoint:  config.ChannelEndpointConfig{Path: "/ws/channel"},
 	}})
 	server.deps.Registry = channelTestCatalogRegistry{
@@ -154,9 +147,6 @@ func TestAdminChannelsReportsServerConnectionsAndAgentRelations(t *testing.T) {
 	if item.Status != "connected" || item.Connection.ActiveCount != 1 || item.Connection.LatestSessionID != "ws_2" {
 		t.Fatalf("unexpected server connection summary: %#v", item.Connection)
 	}
-	if !item.Agents.AllowedAllAgents || item.Agents.AllowedCount != 3 {
-		t.Fatalf("unexpected allowed agents: %#v", item.Agents)
-	}
 	if item.Agents.ImportCount != 1 || item.Agents.Imports[0].RemoteAgentKey != "remote-coder" {
 		t.Fatalf("unexpected imports: %#v", item.Agents.Imports)
 	}
@@ -172,11 +162,9 @@ func TestAdminChannelsReturnsEffectiveExternalAgentKeyForOmittedAlias(t *testing
 	server.deps.Channels = channelpkg.NewRegistry([]config.ChannelConfig{{
 		ID:        "public-entry",
 		Name:      "Public Entry",
-		Type:      config.ChannelTypeGateway,
 		Mode:      config.ChannelModeServer,
 		Transport: config.ChannelTransportWebSocket,
 		Protocol:  config.ChannelProtocolPlatformWS,
-		AllAgents: true,
 	}})
 	server.deps.Registry = channelTestCatalogRegistry{
 		agents: []api.AgentSummary{

@@ -55,6 +55,12 @@ func BuildToolDefinition(base api.ToolDetailResponse, members []MemberSpec) (api
 		OutputSchema:  contracts.CloneMap(base.OutputSchema),
 		Meta:          contracts.CloneMap(base.Meta),
 	}
+	if definition.Meta == nil {
+		definition.Meta = map[string]any{}
+	}
+	// Delegation is an implementation detail of the hidden Team coordinator.
+	// The user receives task lifecycle and member reply events instead.
+	definition.Meta["clientVisible"] = false
 	properties, ok := definition.Parameters["properties"].(map[string]any)
 	if !ok {
 		return api.ToolDetailResponse{}, errors.New("embedded agent_delegate schema is missing properties")

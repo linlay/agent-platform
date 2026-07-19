@@ -7,6 +7,7 @@ import (
 	"log"
 	"strings"
 	"testing"
+	"time"
 
 	"agent-platform/internal/api"
 )
@@ -19,7 +20,6 @@ func TestDispatcherBuildsStructuredQueryRequest(t *testing.T) {
 		Enabled:     true,
 		Cron:        "0 9 * * *",
 		AgentKey:    "demo-agent",
-		TeamID:      "team-a",
 		SourceFile:  "/tmp/daily.yml",
 		Query: Query{
 			RequestID: "req-1",
@@ -45,7 +45,7 @@ func TestDispatcherBuildsStructuredQueryRequest(t *testing.T) {
 	if got.RequestID != "req-1" || got.ChatID != "123e4567-e89b-12d3-a456-426614174000" {
 		t.Fatalf("unexpected ids %#v", got)
 	}
-	if got.AgentKey != "demo-agent" || got.TeamID != "team-a" {
+	if got.AgentKey != "demo-agent" || got.TeamID != "" {
 		t.Fatalf("unexpected target %#v", got)
 	}
 	if got.Role != "automation" || got.Message != "hello" {
@@ -73,7 +73,6 @@ func TestDispatcherLogsDispatchLifecycle(t *testing.T) {
 		Enabled:     true,
 		Cron:        "0 9 * * *",
 		AgentKey:    "demo-agent",
-		TeamID:      "team-a",
 		SourceFile:  "/tmp/daily.yml",
 		Query:       Query{Message: "hello"},
 	}
@@ -123,7 +122,6 @@ func TestDispatcherRecordsExecutionLifecycle(t *testing.T) {
 		Enabled:     true,
 		Cron:        "0 9 * * *",
 		AgentKey:    "demo-agent",
-		TeamID:      "team-a",
 		SourceFile:  "/tmp/daily.yml",
 		Query:       Query{Message: "hello"},
 	}
@@ -141,6 +139,10 @@ func TestDispatcherRecordsExecutionLifecycle(t *testing.T) {
 	}
 
 	expectedErr := errors.New("boom")
+	// Execution ordering is millisecond-granular; move the second execution into
+	// a distinct timestamp so this test verifies its lifecycle rather than ID
+	// tie-breaking.
+	time.Sleep(time.Millisecond)
 	dispatcher = NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return expectedErr }, nil, store)
 	if err := dispatcher.Dispatch(context.Background(), def); !errors.Is(err, expectedErr) {
 		t.Fatalf("expected dispatch error, got %v", err)

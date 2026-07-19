@@ -11,7 +11,7 @@ import (
 	"agent-platform/internal/config"
 )
 
-func TestLoadTeamsSupportsOrchestratedDirectoryAndLegacyFile(t *testing.T) {
+func TestLoadTeamsRejectsLegacyFlatFile(t *testing.T) {
 	root := t.TempDir()
 	teamDir := filepath.Join(root, "research")
 	if err := os.MkdirAll(teamDir, 0o755); err != nil {
@@ -38,20 +38,12 @@ func TestLoadTeamsSupportsOrchestratedDirectoryAndLegacyFile(t *testing.T) {
 	}, "\n"))
 	writeTestTeamFile(t, filepath.Join(teamDir, "SOUL.md"), "Coordinate carefully.")
 	writeTestTeamFile(t, filepath.Join(teamDir, "AGENTS.md"), "Use the reviewer after research.")
-	writeTestTeamFile(t, filepath.Join(root, "legacy.yml"), strings.Join([]string{
-		"name: Legacy Team",
-		"description: Existing routing",
-		"defaultAgentKey: researcher",
-		"agentKeys:",
-		"  - researcher",
-	}, "\n"))
-
 	teams, err := loadTeams(root)
 	if err != nil {
 		t.Fatalf("load teams: %v", err)
 	}
-	if len(teams) != 2 {
-		t.Fatalf("teams = %#v, want orchestrated and legacy", teams)
+	if len(teams) != 1 {
+		t.Fatalf("teams = %#v, want one orchestrated team", teams)
 	}
 	orchestrated := teams["research"]
 	if orchestrated.RuntimeMode != TeamRuntimeModeOrchestrated {
@@ -59,9 +51,6 @@ func TestLoadTeamsSupportsOrchestratedDirectoryAndLegacyFile(t *testing.T) {
 	}
 	if orchestrated.Description != "Multi-agent research" || orchestrated.TeamDir != teamDir {
 		t.Fatalf("orchestrated definition = %#v", orchestrated)
-	}
-	if orchestrated.DefaultAgentKey != "" {
-		t.Fatalf("orchestrated default agent = %q, want empty", orchestrated.DefaultAgentKey)
 	}
 	if orchestrated.Orchestrator.ModelKey != "coordinator-model" || orchestrated.Orchestrator.ServiceTier != "priority" || orchestrated.Orchestrator.MaxParallel != 3 {
 		t.Fatalf("orchestrator = %#v", orchestrated.Orchestrator)
@@ -78,12 +67,9 @@ func TestLoadTeamsSupportsOrchestratedDirectoryAndLegacyFile(t *testing.T) {
 		t.Fatalf("sampling defaults = %#v", sampling)
 	}
 
-	legacy := teams["legacy"]
-	if legacy.RuntimeMode != TeamRuntimeModeLegacy || legacy.DefaultAgentKey != "researcher" {
-		t.Fatalf("legacy definition = %#v", legacy)
-	}
-	if legacy.Description != "Existing routing" || legacy.Orchestrator.ModelKey != "" {
-		t.Fatalf("legacy metadata = %#v", legacy)
+	writeTestTeamFile(t, filepath.Join(root, "legacy.yml"), "name: Legacy\nagentKeys: [researcher]\n")
+	if _, err := loadTeams(root); err == nil || !strings.Contains(err.Error(), "legacy flat Team definition") {
+		t.Fatalf("legacy flat Team must fail, got %v", err)
 	}
 }
 
@@ -109,7 +95,8 @@ func TestOrchestratedTeamValidationAndMaxParallelDefault(t *testing.T) {
 	}{
 		{name: "missing orchestrator", content: "agentKeys: [worker]\n", want: "orchestrator is required"},
 		{name: "missing model", content: "agentKeys: [worker]\norchestrator:\n  modelConfig: {}\n", want: "modelKey is required"},
-		{name: "legacy default", content: "defaultAgentKey: worker\nagentKeys: [worker]\norchestrator:\n  modelConfig:\n    modelKey: coordinator\n", want: "must not configure defaultAgentKey"},
+		{name: "legacy default", content: "defaultAgentKey: worker\nagentKeys: [worker]\norchestrator:\n  modelConfig:\n    modelKey: coordinator\n", want: "defaultAgentKey was removed"},
+		{name: "legacy runtime mode", content: "runtimeMode: legacy\nagentKeys: [worker]\norchestrator:\n  modelConfig:\n    modelKey: coordinator\n", want: "runtimeMode was removed"},
 		{name: "zero parallel", content: "agentKeys: [worker]\norchestrator:\n  modelConfig:\n    modelKey: coordinator\n  maxParallel: 0\n", want: "maxParallel must be between"},
 		{name: "fractional parallel", content: "agentKeys: [worker]\norchestrator:\n  modelConfig:\n    modelKey: coordinator\n  maxParallel: 1.5\n", want: "maxParallel must be between"},
 		{name: "too much parallel", content: "agentKeys: [worker]\norchestrator:\n  modelConfig:\n    modelKey: coordinator\n  maxParallel: 6\n", want: "maxParallel must be between"},
@@ -128,7 +115,7 @@ func TestOrchestratedTeamValidationAndMaxParallelDefault(t *testing.T) {
 
 func TestTeamReloadRejectsDuplicateIDAndPreservesPreviousSnapshot(t *testing.T) {
 	root := t.TempDir()
-	writeTestTeamFile(t, filepath.Join(root, "dupe.yml"), "name: Legacy Dupe\ndefaultAgentKey: worker\nagentKeys: [worker]\n")
+	writeTestTeamFile(t, filepath.Join(root, "dupe.yml"), "name: Legacy Dupe\nagentKeys: [worker]\n")
 	dir := filepath.Join(root, "dupe")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir duplicate: %v", err)
@@ -136,13 +123,11 @@ func TestTeamReloadRejectsDuplicateIDAndPreservesPreviousSnapshot(t *testing.T) 
 	writeTestTeamFile(t, filepath.Join(dir, "team.yml"), "name: Directory Dupe\nagentKeys: [worker]\norchestrator:\n  modelConfig:\n    modelKey: coordinator\n")
 
 	registry := &FileRegistry{
-		cfg: config.Config{Paths: config.PathsConfig{TeamsDir: root}},
-		teams: map[string]TeamDefinition{
-			"stable": {TeamID: "stable", Name: "Stable", RuntimeMode: TeamRuntimeModeLegacy},
-		},
+		cfg:   config.Config{Paths: config.PathsConfig{TeamsDir: root}},
+		teams: map[string]TeamDefinition{"stable": {TeamID: "stable", Name: "Stable", RuntimeMode: TeamRuntimeModeOrchestrated}},
 	}
 	err := registry.Reload(context.Background(), "teams")
-	if err == nil || !strings.Contains(err.Error(), "duplicate team id \"dupe\"") {
+	if err == nil || !strings.Contains(err.Error(), "legacy flat Team definition") {
 		t.Fatalf("reload error = %v", err)
 	}
 	if stable, ok := registry.TeamDefinition("stable"); !ok || stable.Name != "Stable" {
@@ -286,7 +271,7 @@ func TestTeamsSummaryExposesSafeOrchestratedMetadata(t *testing.T) {
 		t.Fatalf("teams = %#v", items)
 	}
 	item := items[0]
-	if item.Description != "Description" || item.RuntimeMode != TeamRuntimeModeOrchestrated {
+	if item.Description != "Description" {
 		t.Fatalf("summary = %#v", item)
 	}
 	if item.Meta["maxParallel"] != 4 || item.Meta["orchestrated"] != true {
@@ -297,7 +282,7 @@ func TestTeamsSummaryExposesSafeOrchestratedMetadata(t *testing.T) {
 		t.Fatalf("marshal summary: %v", err)
 	}
 	serialized := string(data)
-	for _, secret := range []string{"private-model", "secret prompt", "orchestratorFingerprint"} {
+	for _, secret := range []string{"private-model", "secret prompt", "orchestratorFingerprint", "runtimeMode"} {
 		if strings.Contains(serialized, secret) {
 			t.Fatalf("summary leaked %q: %s", secret, serialized)
 		}

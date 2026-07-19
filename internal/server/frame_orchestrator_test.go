@@ -73,11 +73,11 @@ type injectedToolResult struct {
 }
 
 type stubOrchestratableStream struct {
-	deltas                []contracts.AgentDelta
-	index                 int
-	injected              []injectedToolResult
-	finalText             string
-	optionalToolsAllowed  bool
+	deltas               []contracts.AgentDelta
+	index                int
+	injected             []injectedToolResult
+	finalText            string
+	optionalToolsAllowed bool
 }
 
 func (s *stubOrchestratableStream) Next() (contracts.AgentDelta, error) {
@@ -900,9 +900,8 @@ func TestFrameOrchestratorBuildsChildRequestFromExplicitAllowlist(t *testing.T) 
 	orchestrator.session.TeamID = "fixed-team"
 	orchestrator.session.AccessLevel = contracts.AccessLevelFullAccess
 	teamSnapshot := catalog.NewTeamSnapshot(catalog.TeamDefinition{
-		TeamID:          "fixed-team",
-		AgentKeys:       []string{"writer"},
-		DefaultAgentKey: "writer",
+		TeamID:    "fixed-team",
+		AgentKeys: []string{"writer"},
 	}, map[string]catalog.AgentDefinition{
 		"writer": {Key: "writer", Mode: "REACT", VisibilityScopes: []string{"invoke"}},
 	})
@@ -945,9 +944,8 @@ func TestFrameOrchestratorRejectsChildOutsideFixedTeamSnapshot(t *testing.T) {
 	}, nil, nil)
 	orchestrator.session.TeamID = "team-a"
 	teamSnapshot := catalog.NewTeamSnapshot(catalog.TeamDefinition{
-		TeamID:          "team-a",
-		AgentKeys:       []string{"writer"},
-		DefaultAgentKey: "writer",
+		TeamID:    "team-a",
+		AgentKeys: []string{"writer"},
 	}, map[string]catalog.AgentDefinition{
 		"writer": {Key: "writer", Mode: "REACT", VisibilityScopes: []string{"invoke"}},
 	})

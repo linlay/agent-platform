@@ -31,7 +31,7 @@ func TestAgentsIncludeTeamHTTPAndWebSocket(t *testing.T) {
 		t.Fatalf("expected file chat store, got %T", fixture.chats)
 	}
 	seedAgentModeChat(t, store, "chat-mock-agent", "loyw3v28", "mock-agent", "", "REACT", 1_000)
-	seedAgentModeChat(t, store, "chat-research-team", "loyw3v2a", "", "research", "REACT", 2_000)
+	seedAgentModeChat(t, store, "chat-research-team", "loyw3v2a", "", "research", "TEAM", 2_000)
 
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agents?scope=nav&includeChats=1", nil))
@@ -58,11 +58,11 @@ func TestAgentsIncludeTeamHTTPAndWebSocket(t *testing.T) {
 	if len(response.Data) != 3 {
 		t.Fatalf("expected mock agent and two teams, got %#v", response.Data)
 	}
-	if response.Data[0].Kind != "team" || response.Data[0].TeamID != "research" || response.Data[1].Kind != "agent" || response.Data[1].Key != "mock-agent" || response.Data[2].Kind != "team" || response.Data[2].TeamID != "default.demo" {
+	if response.Data[0].Kind != "team" || response.Data[0].TeamID != "research" || response.Data[1].Kind != "agent" || response.Data[1].Key != "mock-agent" || response.Data[2].Kind != "team" || response.Data[2].TeamID != "default" {
 		t.Fatalf("catalog should mix by latest run id and put no-chat teams last: %#v", response.Data)
 	}
 	research := response.Data[0]
-	if research.Key != "" || research.Mode != "" || research.RuntimeMode != "orchestrated" || len(research.AgentKeys) != 2 || research.Stats.TotalCount != 1 || research.Stats.UnreadCount != 1 {
+	if research.Key != "" || research.Mode != "" || len(research.AgentKeys) != 2 || research.Stats.TotalCount != 1 || research.Stats.UnreadCount != 1 {
 		t.Fatalf("unexpected Team summary: %#v", research)
 	}
 	if len(research.Chats) != 1 || research.Chats[0].ChatID != "chat-research-team" || research.Chats[0].Usage != nil {
@@ -74,14 +74,14 @@ func TestAgentsIncludeTeamHTTPAndWebSocket(t *testing.T) {
 	if strings.Contains(rec.Body.String(), `"key":""`) || strings.Contains(rec.Body.String(), `"mode":""`) {
 		t.Fatalf("team items must omit Agent-only empty fields: %s", rec.Body.String())
 	}
+	if strings.Contains(rec.Body.String(), `"runtimeMode"`) {
+		t.Fatalf("team items must not expose retired runtime metadata: %s", rec.Body.String())
+	}
 
 	rec = httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agents?includeTeam=true&mode=TEAM", nil))
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode TEAM-mode response: %v", err)
-	}
-	if len(response.Data) != 2 || response.Data[0].Kind != "team" || response.Data[1].Kind != "team" {
-		t.Fatalf("mode must not filter Teams: %#v", response.Data)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "mode TEAM is internal") {
+		t.Fatalf("TEAM mode must be rejected at the public catalog boundary: status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
 	for _, raw := range []string{"maybe", ""} {

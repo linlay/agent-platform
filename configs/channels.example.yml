@@ -1,8 +1,7 @@
 # Channel only describes the connection. Agent import/export is declared in
 # each agent.yml channelConfig.
 # Gateway Agent Card reporting is enabled only for mode: client channels and
-# only for explicit agent channelConfig.exports with allow.query: true. Legacy
-# agents: "*" does not authorize or generate Agent Card reports.
+# only for explicit agent channelConfig.exports with allow.query: true.
 
 # channels:
 #   # Platform actively connects to another platform/adaptor.
@@ -29,49 +28,3 @@
 #       path: /ws/channel
 #     auth:
 #       type: jwt
-
-# Legacy gateway-compatible form. Deprecated for new work; it is still parsed and
-# internally normalized as a client channel plus a gateway entry.
-# To publish cards from a legacy connection, add explicit channelConfig.exports
-# to every local agent that should be visible to this channel.
-# channels:
-#   personal-bridge:
-#     name: 个人企业微信 Bridge
-#     type: bridge
-#     default-agent: customer-service
-#     agents: "*"
-#     gateway:
-#       url: ${PERSONAL_BRIDGE_WS_URL}
-#       jwt-token: ${PERSONAL_BRIDGE_JWT_TOKEN}
-#       push-artifact: true
-
-#   weixin:
-#     name: 微信
-#     type: bridge
-#     default-agent: assistant
-#     agents: "*"
-#     gateway:
-#       url: ${WEIXIN_BRIDGE_WS_URL}
-#       jwt-token: ${WEIXIN_BRIDGE_JWT_TOKEN}
-#       push-artifact: false
-
-#   company-gateway:
-#     name: 公司内网 Gateway
-#     type: bridge
-#     default-agent: customer-service
-#     agents: "*"
-#     gateway:
-#       url: ${COMPANY_GATEWAY_WS_URL}
-#       push-artifact: true
-#       jwt-token: ${COMPANY_GATEWAY_JWT_TOKEN}
-
-#   wecom:
-#     name: 微信
-#     type: bridge
-#     default-agent: customer-service
-#     agents: "*"
-#     gateway:
-#       url: ${WECOM_BRIDGE_WS_URL}
-#       auth-mode: ticket
-#       push-artifact: true
-#       jwt-token: ${WECOM_BRIDGE_JWT_TOKEN}

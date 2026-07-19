@@ -8,20 +8,15 @@ import (
 )
 
 type Definition struct {
-	ID           string
-	Name         string
-	Type         config.ChannelType
-	Mode         config.ChannelMode
-	Transport    string
-	Protocol     string
-	DefaultAgent string
-	AllAgents    bool
-	Endpoint     config.ChannelEndpointConfig
-	Auth         config.ChannelAuthConfig
-	Heartbeat    config.ChannelHeartbeatConfig
-	Reconnect    config.ChannelReconnectConfig
-	Gateway      config.ChannelGatewayConfig
-	agents       map[string]struct{}
+	ID        string
+	Name      string
+	Mode      config.ChannelMode
+	Transport string
+	Protocol  string
+	Endpoint  config.ChannelEndpointConfig
+	Auth      config.ChannelAuthConfig
+	Heartbeat config.ChannelHeartbeatConfig
+	Reconnect config.ChannelReconnectConfig
 }
 
 type Registry struct {
@@ -36,27 +31,15 @@ func NewRegistry(configs []config.ChannelConfig) *Registry {
 	}
 	for _, cfg := range configs {
 		def := &Definition{
-			ID:           strings.TrimSpace(cfg.ID),
-			Name:         strings.TrimSpace(cfg.Name),
-			Type:         cfg.Type,
-			Mode:         cfg.Mode,
-			Transport:    strings.TrimSpace(cfg.Transport),
-			Protocol:     strings.TrimSpace(cfg.Protocol),
-			DefaultAgent: strings.TrimSpace(cfg.DefaultAgent),
-			AllAgents:    cfg.AllAgents,
-			Endpoint:     cfg.Endpoint,
-			Auth:         cfg.Auth,
-			Heartbeat:    cfg.Heartbeat,
-			Reconnect:    cfg.Reconnect,
-			Gateway:      cfg.Gateway,
-			agents:       map[string]struct{}{},
-		}
-		for _, agentKey := range cfg.Agents {
-			agentKey = strings.TrimSpace(agentKey)
-			if agentKey == "" {
-				continue
-			}
-			def.agents[agentKey] = struct{}{}
+			ID:        strings.TrimSpace(cfg.ID),
+			Name:      strings.TrimSpace(cfg.Name),
+			Mode:      cfg.Mode,
+			Transport: strings.TrimSpace(cfg.Transport),
+			Protocol:  strings.TrimSpace(cfg.Protocol),
+			Endpoint:  cfg.Endpoint,
+			Auth:      cfg.Auth,
+			Heartbeat: cfg.Heartbeat,
+			Reconnect: cfg.Reconnect,
 		}
 		r.byID[def.ID] = def
 		r.all = append(r.all, def)
@@ -73,39 +56,6 @@ func (r *Registry) Lookup(channelID string) (*Definition, bool) {
 	}
 	def, ok := r.byID[strings.TrimSpace(channelID)]
 	return def, ok
-}
-
-func (r *Registry) IsAgentAllowed(channelID, agentKey string) bool {
-	def, ok := r.Lookup(channelID)
-	if !ok {
-		return true
-	}
-	if def.AllAgents {
-		return true
-	}
-	_, allowed := def.agents[strings.TrimSpace(agentKey)]
-	return allowed
-}
-
-func (r *Registry) DefaultAgent(channelID string) string {
-	def, ok := r.Lookup(channelID)
-	if !ok {
-		return ""
-	}
-	return def.DefaultAgent
-}
-
-func (r *Registry) AllowedAgentKeys(channelID string) []string {
-	def, ok := r.Lookup(channelID)
-	if !ok {
-		return nil
-	}
-	keys := make([]string, 0, len(def.agents))
-	for agentKey := range def.agents {
-		keys = append(keys, agentKey)
-	}
-	sort.Strings(keys)
-	return keys
 }
 
 func (r *Registry) All() []*Definition {

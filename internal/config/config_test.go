@@ -2242,7 +2242,7 @@ func TestGatewaysEmptyWhenNoChannelsConfig(t *testing.T) {
 	})
 }
 
-func TestLoadChannelsConfigFromFile(t *testing.T) {
+func TestLoadChannelsConfigRejectsRemovedLegacyFields(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"WECOM_BRIDGE_WS_URL":    "wss://bridge.example.com/ws/agent?channel=wecom:corp1",
 		"WECOM_BRIDGE_JWT_TOKEN": "jwt-wecom",
@@ -2250,70 +2250,41 @@ func TestLoadChannelsConfigFromFile(t *testing.T) {
 		content := "" +
 			"channels:\n" +
 			"  wecom:\n" +
-			"    name: 企业微信\n" +
 			"    type: bridge\n" +
 			"    default-agent: customer-service\n" +
 			"    agents: \"*\"\n" +
 			"    gateway:\n" +
 			"      url: ${WECOM_BRIDGE_WS_URL}\n" +
-			"      jwt-token: ${WECOM_BRIDGE_JWT_TOKEN}\n" +
-			"  feishu:\n" +
-			"    name: 飞书\n" +
-			"    type: gateway\n" +
-			"    agents:\n" +
-			"      - assistant\n" +
-			"      - code-helper\n" +
-			"    gateway:\n" +
-			"      url: ws://gateway.example.com/ws/agent?channel=feishu\n" +
-			"      base-url: ${FEISHU_BASE_URL:http://gateway.example.com}\n"
+			"      jwt-token: ${WECOM_BRIDGE_JWT_TOKEN}\n"
 		withProjectFileContents(t, filepath.Join("configs", "channels.yml"), &content, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if len(cfg.Channels) != 2 {
-				t.Fatalf("expected 2 channels, got %d", len(cfg.Channels))
-			}
-			byID := map[string]ChannelConfig{}
-			for _, ch := range cfg.Channels {
-				byID[ch.ID] = ch
-			}
-			if !byID["wecom"].AllAgents || byID["wecom"].DefaultAgent != "customer-service" {
-				t.Fatalf("unexpected wecom channel: %#v", byID["wecom"])
-			}
-			if byID["wecom"].Gateway.URL != "wss://bridge.example.com/ws/agent?channel=wecom:corp1" {
-				t.Fatalf("unexpected wecom gateway url: %q", byID["wecom"].Gateway.URL)
-			}
-			if byID["wecom"].Gateway.JwtToken != "jwt-wecom" {
-				t.Fatalf("unexpected wecom gateway token: %q", byID["wecom"].Gateway.JwtToken)
-			}
-			if byID["feishu"].AllAgents {
-				t.Fatalf("expected feishu to use whitelist: %#v", byID["feishu"])
-			}
-			if len(byID["feishu"].Agents) != 2 || byID["feishu"].Agents[0] != "assistant" || byID["feishu"].Agents[1] != "code-helper" {
-				t.Fatalf("unexpected feishu agents: %#v", byID["feishu"].Agents)
-			}
-			if len(cfg.Gateways) != 2 {
-				t.Fatalf("expected 2 synthesized gateways, got %d", len(cfg.Gateways))
-			}
-			gatewaysByID := map[string]GatewayEntry{}
-			for _, gateway := range cfg.Gateways {
-				gatewaysByID[gateway.ID] = gateway
-			}
-			if gatewaysByID["wecom"].Channel != "wecom" {
-				t.Fatalf("unexpected synthesized wecom channel: %#v", gatewaysByID["wecom"])
-			}
-			if gatewaysByID["wecom"].SourceChannel != "wecom:corp1" || gatewaysByID["wecom"].SourcePrefix != "wecom" {
-				t.Fatalf("unexpected synthesized wecom source route: %#v", gatewaysByID["wecom"])
-			}
-			if gatewaysByID["feishu"].BaseURL != "http://gateway.example.com" {
-				t.Fatalf("expected feishu baseURL from fallback interpolation, got %q", gatewaysByID["feishu"].BaseURL)
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "removed key") {
+				t.Fatalf("legacy channel config must fail, got %v", err)
 			}
 		})
 	})
 }
 
-func TestLoadChannelsConfigV2ClientServerDefaults(t *testing.T) {
+func TestParseChannelConfigRejectsEveryRemovedTopLevelKey(t *testing.T) {
+	for _, key := range []string{"type", "default-agent", "agents", "gateway"} {
+		t.Run(key, func(t *testing.T) {
+			if _, err := parseChannelConfig("peer", map[string]any{key: "legacy"}); err == nil || !strings.Contains(err.Error(), "removed key") {
+				t.Fatalf("removed key %q must fail, got %v", key, err)
+			}
+		})
+	}
+}
+
+func TestParseChannelConfigRejectsKeysOutsideCanonicalSchema(t *testing.T) {
+	for _, key := range []string{"name", "unexpected"} {
+		t.Run(key, func(t *testing.T) {
+			if _, err := parseChannelConfig("peer", map[string]any{key: "value"}); err == nil || !strings.Contains(err.Error(), "only mode, transport, protocol, endpoint, auth, heartbeat, and reconnect are accepted") {
+				t.Fatalf("unsupported key %q must fail, got %v", key, err)
+			}
+		})
+	}
+}
+
+func TestLoadChannelsConfigCanonicalClientServerDefaults(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"PEER_A_TOKEN": "peer-token",
 	}, func() {
@@ -2384,12 +2355,10 @@ func TestLoadChannelsConfigAllowsCustomChannelIDForWecomSource(t *testing.T) {
 		content := "" +
 			"channels:\n" +
 			"  company-gateway:\n" +
-			"    name: 公司网关\n" +
-			"    type: bridge\n" +
-			"    agents: \"*\"\n" +
-			"    gateway:\n" +
+			"    mode: client\n" +
+			"    endpoint:\n" +
 			"      url: ws://example-gateway.local/ws/agent?agentKey=demo-agent&channel=wecom:langyage\n" +
-			"      jwt-token: token\n"
+			"      token: token\n"
 		withProjectFileContents(t, filepath.Join("configs", "channels.yml"), &content, func() {
 			cfg, err := Load()
 			if err != nil {
@@ -2414,12 +2383,10 @@ func TestLoadChannelsConfigRejectsInvalidType(t *testing.T) {
 		content := "" +
 			"channels:\n" +
 			"  wecom:\n" +
-			"    type: invalid\n" +
-			"    gateway:\n" +
-			"      url: ws://gateway.example.com/ws/agent?channel=wecom\n"
+			"    type: invalid\n"
 		withProjectFileContents(t, filepath.Join("configs", "channels.yml"), &content, func() {
-			if _, err := Load(); err == nil {
-				t.Fatalf("expected invalid channel type to fail")
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "removed key") {
+				t.Fatalf("expected removed channel type to fail")
 			}
 		})
 	})
@@ -2434,11 +2401,9 @@ func TestLoadChannelsConfigRejectsGatewayConflicts(t *testing.T) {
 	}}
 	cfg.Channels = []ChannelConfig{
 		{
-			ID:   "wecom",
-			Type: ChannelTypeBridge,
-			Gateway: ChannelGatewayConfig{
-				URL: "ws://bridge.example.com/ws/agent?channel=wecom:corp1",
-			},
+			ID:       "wecom",
+			Mode:     ChannelModeClient,
+			Endpoint: ChannelEndpointConfig{URL: "ws://bridge.example.com/ws/agent?channel=wecom:corp1"},
 		},
 	}
 	if err := cfg.normalize(""); err == nil {
@@ -2446,17 +2411,17 @@ func TestLoadChannelsConfigRejectsGatewayConflicts(t *testing.T) {
 	}
 }
 
-func TestLoadChannelsConfigRejectsMissingGatewayURL(t *testing.T) {
+func TestLoadChannelsConfigRejectsMissingEndpointURL(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "" +
 			"channels:\n" +
 			"  mobile:\n" +
-			"    type: gateway\n" +
-			"    gateway:\n" +
-			"      jwt-token: token\n"
+			"    mode: client\n" +
+			"    endpoint:\n" +
+			"      token: token\n"
 		withProjectFileContents(t, filepath.Join("configs", "channels.yml"), &content, func() {
 			if _, err := Load(); err == nil {
-				t.Fatalf("expected missing gateway url to fail")
+				t.Fatalf("expected missing endpoint url to fail")
 			}
 		})
 	})
@@ -2467,11 +2432,10 @@ func TestLoadGatewayConfigFromChannels(t *testing.T) {
 		content := "" +
 			"channels:\n" +
 			"  mobile:\n" +
-			"    type: gateway\n" +
-			"    agents: \"*\"\n" +
-			"    gateway:\n" +
+			"    mode: client\n" +
+			"    endpoint:\n" +
 			"      url: ws://127.0.0.1:17999/gw?channel=mobile\n" +
-			"      jwt-token: jwt-abc\n"
+			"      token: jwt-abc\n"
 		withProjectFileContents(t, filepath.Join("configs", "channels.yml"), &content, func() {
 			cfg, err := Load()
 			if err != nil {

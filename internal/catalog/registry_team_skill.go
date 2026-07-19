@@ -38,19 +38,13 @@ func (r *FileRegistry) Teams() []api.TeamSummary {
 		meta := map[string]any{
 			"validAgentKeys":   append([]string(nil), snapshot.ValidAgentKeys...),
 			"invalidAgentKeys": append([]string(nil), snapshot.InvalidAgentKeys...),
-			"orchestrated":     snapshot.RuntimeMode == TeamRuntimeModeOrchestrated,
-		}
-		if snapshot.RuntimeMode == TeamRuntimeModeLegacy {
-			meta["defaultAgentKey"] = snapshot.DefaultAgentKey
-			meta["defaultAgentKeyValid"] = snapshot.DefaultAgentValid
-		} else {
-			meta["maxParallel"] = snapshot.Orchestrator.MaxParallel
+			"orchestrated":     true,
+			"maxParallel":      snapshot.Orchestrator.MaxParallel,
 		}
 		items = append(items, api.TeamSummary{
 			TeamID:      snapshot.TeamID,
 			Name:        snapshot.Name,
 			Description: snapshot.Description,
-			RuntimeMode: snapshot.RuntimeMode,
 			Icon:        cloneAgentSnapshotValue(icon),
 			AgentKeys:   append([]string(nil), snapshot.AgentKeys...),
 			Meta:        meta,

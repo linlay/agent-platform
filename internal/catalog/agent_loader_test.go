@@ -76,7 +76,7 @@ func TestParseAgentFileSupportsNestedPlanExecuteStageConfig(t *testing.T) {
 	content := "" +
 		"key: nested-stage\n" +
 		"name: Nested Stage\n" +
-		"mode: PLAN_EXECUTE\n" +
+		"mode: PLAN-EXECUTE\n" +
 		"modelConfig:\n" +
 		"  modelKey: root-model\n" +
 		"  sampling:\n" +
@@ -131,7 +131,7 @@ func TestParseAgentFileMergesStageSettingsBudgetIntoResolvedBudget(t *testing.T)
 	content := "" +
 		"key: stage-budget\n" +
 		"name: Stage Budget\n" +
-		"mode: PLAN_EXECUTE\n" +
+		"mode: PLAN-EXECUTE\n" +
 		"modelConfig:\n" +
 		"  modelKey: demo-model\n" +
 		"budget:\n" +
@@ -291,7 +291,7 @@ func TestParseAgentFileRejectsNonACPAgentsWithoutModelConfig(t *testing.T) {
 			lines: []string{
 				"key: plan-demo",
 				"name: Plan Demo",
-				"mode: PLAN_EXECUTE",
+				"mode: PLAN-EXECUTE",
 			},
 		},
 		{
@@ -335,7 +335,6 @@ func TestParseAgentFileAllowsProxyWithoutModelConfig(t *testing.T) {
 		mode string
 	}{
 		{name: "proxy", mode: "PROXY"},
-		{name: "acp-proxy alias", mode: "ACP-PROXY"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -569,8 +568,8 @@ func TestParseAgentFileDefaultsEmptyOrInvalidVisibilityToNav(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileAcceptsPlanExecuteModeAliases(t *testing.T) {
-	for _, mode := range []string{"PLAN-EXECUTE", "PLAN_EXECUTE"} {
+func TestParseAgentFileAcceptsCanonicalPlanExecuteMode(t *testing.T) {
+	for _, mode := range []string{"PLAN-EXECUTE"} {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
 			path := filepath.Join(root, "agent.yml")
@@ -590,6 +589,21 @@ func TestParseAgentFileAcceptsPlanExecuteModeAliases(t *testing.T) {
 			}
 			if def.Mode != "PLAN_EXECUTE" {
 				t.Fatalf("mode = %q, want PLAN_EXECUTE", def.Mode)
+			}
+		})
+	}
+}
+
+func TestParseAgentFileRejectsRetiredPublicModes(t *testing.T) {
+	for _, mode := range []string{"ACP-PROXY", "ACP_PROXY", "PLAN_EXECUTE", "ONESHOT"} {
+		t.Run(mode, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "agent.yml")
+			content := "key: demo\nname: Demo\nmode: " + mode + "\nmodelConfig:\n  modelKey: demo-model\n"
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatalf("write agent file: %v", err)
+			}
+			if _, err := parseAgentFile(path); err == nil {
+				t.Fatalf("retired mode %q must fail", mode)
 			}
 		})
 	}
@@ -1003,6 +1017,7 @@ func TestParseAgentFileKBaseDefaultsAndConfig(t *testing.T) {
 		"  include:\n" +
 		"    - \"**/*.md\"\n" +
 		"  chunk:\n" +
+		"    unit: chars\n" +
 		"    maxChars: 2000\n" +
 		"    overlapChars: 100\n" +
 		"  retrieval:\n" +
@@ -1756,7 +1771,7 @@ func TestParseAgentFileWithPromptsLoadsPlanExecuteConventionFiles(t *testing.T) 
 	content := "" +
 		"key: demo\n" +
 		"name: Demo\n" +
-		"mode: PLAN_EXECUTE\n" +
+		"mode: PLAN-EXECUTE\n" +
 		"modelConfig:\n" +
 		"  modelKey: demo-model\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -1787,7 +1802,7 @@ func TestParseAgentFileWithPromptsStagePromptFileOverridesConvention(t *testing.
 	content := "" +
 		"key: demo\n" +
 		"name: Demo\n" +
-		"mode: PLAN_EXECUTE\n" +
+		"mode: PLAN-EXECUTE\n" +
 		"modelConfig:\n" +
 		"  modelKey: demo-model\n" +
 		"stageSettings:\n" +
@@ -1818,7 +1833,7 @@ func TestParseAgentFileWithPromptsPlanExecuteFallbackOrder(t *testing.T) {
 	content := "" +
 		"key: demo\n" +
 		"name: Demo\n" +
-		"mode: PLAN_EXECUTE\n" +
+		"mode: PLAN-EXECUTE\n" +
 		"promptFile: shared.md\n" +
 		"modelConfig:\n" +
 		"  modelKey: demo-model\n"

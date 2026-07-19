@@ -208,28 +208,13 @@ func (r *Registry) validateTeam(agentKey string, teamID string) error {
 	if !ok {
 		return fmt.Errorf("team %q not found", teamID)
 	}
-	if strings.EqualFold(strings.TrimSpace(team.RuntimeMode), catalog.TeamRuntimeModeOrchestrated) {
-		if agentKey != "" {
-			return fmt.Errorf("agentKey must be omitted for orchestrated team %q", teamID)
-		}
-		if len(team.AgentKeys) == 0 || len(team.InvalidAgentKeys) > 0 || len(team.ValidAgentKeys) != len(team.AgentKeys) {
-			return fmt.Errorf("orchestrated team %q has unavailable members: %v", teamID, team.InvalidAgentKeys)
-		}
-		return nil
+	if agentKey != "" {
+		return fmt.Errorf("agentKey must be omitted for Team %q", teamID)
 	}
-	if agentKey == "" {
-		return fmt.Errorf("agentKey is required for legacy team %q", teamID)
+	if len(team.AgentKeys) == 0 || len(team.InvalidAgentKeys) > 0 || len(team.ValidAgentKeys) != len(team.AgentKeys) {
+		return fmt.Errorf("Team %q has unavailable members: %v", teamID, team.InvalidAgentKeys)
 	}
-	if !team.DefaultAgentValid {
-		return fmt.Errorf("team %q has invalid default agent %q (%s)", teamID, team.DefaultAgentKey, team.DefaultAgentState)
-	}
-	if team.HasAgent(agentKey) {
-		return nil
-	}
-	if team.DeclaresAgent(agentKey) {
-		return fmt.Errorf("agentKey %q is unavailable in team %q", agentKey, teamID)
-	}
-	return fmt.Errorf("agentKey %q is not in team %q", agentKey, teamID)
+	return nil
 }
 
 func parseQuery(node map[string]any) (Query, error) {

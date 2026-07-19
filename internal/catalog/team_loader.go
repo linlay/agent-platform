@@ -14,6 +14,7 @@ import (
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/deprecation"
 )
 
 func loadTeams(root string) (map[string]TeamDefinition, error) {
@@ -50,9 +51,13 @@ func loadTeams(root string) (map[string]TeamDefinition, error) {
 				continue
 			}
 			source = filepath.Join(root, name)
-			def, err = parseTeamFile(source)
+			teamID := strings.TrimSuffix(name, filepath.Ext(name))
+			return nil, deprecation.New("legacy flat Team definition %q was removed; migrate it to runtime/teams/%s/team.yml with an orchestrator", source, teamID)
 		}
 		if err != nil {
+			if deprecation.Is(err) {
+				return nil, err
+			}
 			log.Printf("[catalog][teams] skip source %s: parse error: %v", source, err)
 			continue
 		}
@@ -76,17 +81,11 @@ func resolveDirectoryTeamConfig(teamDir string) string {
 	return ""
 }
 
-func parseTeamFile(path string) (TeamDefinition, error) {
-	base := filepath.Base(path)
-	teamID := strings.TrimSuffix(base, filepath.Ext(base))
-	return parseTeamConfig(path, teamID, TeamRuntimeModeLegacy, "")
-}
-
 func parseDirectoryTeam(path string, teamID string, teamDir string) (TeamDefinition, error) {
-	return parseTeamConfig(path, strings.TrimSpace(teamID), TeamRuntimeModeOrchestrated, teamDir)
+	return parseTeamConfig(path, strings.TrimSpace(teamID), teamDir)
 }
 
-func parseTeamConfig(path string, teamID string, runtimeMode string, teamDir string) (TeamDefinition, error) {
+func parseTeamConfig(path string, teamID string, teamDir string) (TeamDefinition, error) {
 	tree, err := config.LoadYAMLTree(path)
 	if err != nil {
 		return TeamDefinition{}, err
@@ -101,20 +100,19 @@ func parseTeamConfig(path string, teamID string, runtimeMode string, teamDir str
 	}
 
 	def := TeamDefinition{
-		TeamID:          teamID,
-		Name:            defaultString(stringNode(root["name"]), teamID),
-		Description:     stringNode(root["description"]),
-		Icon:            cloneAgentSnapshotValue(root["icon"]),
-		AgentKeys:       append([]string(nil), listStrings(root["agentKeys"])...),
-		DefaultAgentKey: stringNode(root["defaultAgentKey"]),
-		RuntimeMode:     normalizeTeamRuntimeMode(runtimeMode),
-		TeamDir:         strings.TrimSpace(teamDir),
+		TeamID:      teamID,
+		Name:        defaultString(stringNode(root["name"]), teamID),
+		Description: stringNode(root["description"]),
+		Icon:        cloneAgentSnapshotValue(root["icon"]),
+		AgentKeys:   append([]string(nil), listStrings(root["agentKeys"])...),
+		RuntimeMode: TeamRuntimeModeOrchestrated,
+		TeamDir:     strings.TrimSpace(teamDir),
 	}
-	if def.RuntimeMode == TeamRuntimeModeLegacy {
-		return def, nil
+	if _, exists := root["defaultAgentKey"]; exists {
+		return TeamDefinition{}, deprecation.New("Team defaultAgentKey was removed; configure runtime/teams/<teamId>/team.yml with an orchestrator instead")
 	}
-	if def.DefaultAgentKey != "" {
-		return TeamDefinition{}, fmt.Errorf("orchestrated team must not configure defaultAgentKey")
+	if _, exists := root["runtimeMode"]; exists {
+		return TeamDefinition{}, deprecation.New("Team runtimeMode was removed; directory Teams are always orchestrated")
 	}
 
 	orchestrator, err := parseTeamOrchestrator(path, mapNode(root["orchestrator"]))

@@ -11,6 +11,7 @@ import (
 	agentkbase "agent-platform/internal/agent/kbase"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/deprecation"
 )
 
 func resolveDirectoryAgentConfig(dirPath string) string {
@@ -26,6 +27,7 @@ func resolveDirectoryAgentConfig(dirPath string) string {
 func loadAgentsWithAdmin(root, marketDir string, globalMemoryEnabled bool) (map[string]AgentDefinition, map[string]AdminAgent, error) {
 	items := map[string]AgentDefinition{}
 	adminItems := map[string]AdminAgent{}
+	var removedErr error
 	err := visitRuntimeEntries(
 		root,
 		func(root string) {
@@ -35,39 +37,47 @@ func loadAgentsWithAdmin(root, marketDir string, globalMemoryEnabled bool) (map[
 			return !strings.HasPrefix(name, ".") && ShouldLoadRuntimeName(name)
 		},
 		func(name string, entry os.DirEntry) {
-			loadAgentSourceIntoMaps(root, name, entry, marketDir, globalMemoryEnabled, items, adminItems)
+			if removedErr != nil {
+				return
+			}
+			if err := loadAgentSourceIntoMaps(root, name, entry, marketDir, globalMemoryEnabled, items, adminItems); deprecation.Is(err) {
+				removedErr = err
+			}
 		},
 	)
 	if err != nil {
 		return nil, nil, err
 	}
+	if removedErr != nil {
+		return nil, nil, removedErr
+	}
 	return items, adminItems, nil
 }
 
-func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, marketDir string, globalMemoryEnabled bool, items map[string]AgentDefinition, adminItems map[string]AdminAgent) {
+func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, marketDir string, globalMemoryEnabled bool, items map[string]AgentDefinition, adminItems map[string]AdminAgent) error {
 	source, ok := runtimeAgentSource(root, name, entry)
 	if !ok {
-		return
+		return nil
 	}
 	fallbackKey := adminAgentFallbackKey(source)
 	definition, err := readAdminAgentDefinitionMap(source.Path)
 	if err != nil {
 		log.Printf("[catalog][agents] skip %s %s: parse error: %v", source.Kind, name, err)
 		adminItems[fallbackKey] = invalidAdminAgent(source, fallbackKey, nil, "invalid_yaml", err)
-		return
+		return err
 	}
 	adminKey := adminAgentKey(source, fallbackKey, definition)
 	def, _, err := parseAgentFileRaw(source.Path)
 	if err != nil {
 		log.Printf("[catalog][agents] skip %s %s: parse error: %v", source.Kind, name, err)
 		adminItems[adminKey] = invalidAdminAgent(source, adminKey, definition, "invalid_config", err)
-		return
+		return err
 	}
 	if source.Kind == "directory" && def.Key != name {
 		err := fmt.Errorf("key mismatch (file key=%q, directory=%q)", def.Key, name)
 		log.Printf("[catalog][agents] skip directory %s: %v", name, err)
 		adminItems[fallbackKey] = invalidAdminAgent(source, fallbackKey, definition, "key_mismatch", err)
-		return
+		return err
 	}
 	if source.Kind == "directory" {
 		loadAgentPrompts(source.AgentDir, &def, definition)
@@ -81,6 +91,7 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, market
 	def = applyGlobalAgentFlags(def, globalMemoryEnabled)
 	items[def.Key] = def
 	adminItems[def.Key] = readyAdminAgent(def, source, definition)
+	return nil
 }
 
 func runtimeAgentSource(root string, name string, entry os.DirEntry) (EditableAgentSource, bool) {
@@ -577,9 +588,13 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		Role:             stringNode(root["role"]),
 		Greetings:        parseAgentGreetings(root),
 		Wonders:          normalizeWonderStrings(root["wonders"]),
-		Mode:             NormalizeAgentModeForRuntime(stringNode(root["mode"])),
 		VisibilityScopes: parseAgentVisibilityScopes(root["visibility"]),
 	}
+	mode, err := ParsePublicAgentMode(stringNode(root["mode"]))
+	if err != nil {
+		return AgentDefinition{}, nil, err
+	}
+	def.Mode = mode
 	if err := validateCoderPlanningConfig(def.Mode, root); err != nil {
 		return AgentDefinition{}, nil, err
 	}

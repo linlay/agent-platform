@@ -72,9 +72,6 @@ type AgentCardRefreshScheduler interface {
 
 type ChannelRegistry interface {
 	Lookup(channelID string) (*channel.Definition, bool)
-	IsAgentAllowed(channelID, agentKey string) bool
-	DefaultAgent(channelID string) string
-	AllowedAgentKeys(channelID string) []string
 	All() []*channel.Definition
 }
 

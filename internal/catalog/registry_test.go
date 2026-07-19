@@ -244,7 +244,7 @@ func TestParseAgentFileReadsRuntimePromptsAndContextConfigTags(t *testing.T) {
 	if err := os.WriteFile(path, []byte(
 		"key: runtime_prompts\n"+
 			"name: Runtime Prompts\n"+
-			"mode: ONESHOT\n"+
+			"mode: REACT\n"+
 			"modelConfig:\n"+
 			"  modelKey: demo-model\n"+
 			"runtimePrompts:\n"+
@@ -526,7 +526,7 @@ func TestParseAgentFilePreservesExplicitStageReasoningOverrides(t *testing.T) {
 	if err := os.WriteFile(path, []byte(
 		"key: reasoned\n"+
 			"name: Reasoned\n"+
-			"mode: PLAN_EXECUTE\n"+
+			"mode: PLAN-EXECUTE\n"+
 			"modelConfig:\n"+
 			"  modelKey: demo-model\n"+
 			"  reasoning:\n"+
@@ -562,7 +562,7 @@ func TestParseAgentFileMapsModelSamplingIntoStageSettings(t *testing.T) {
 	if err := os.WriteFile(path, []byte(
 		"key: sampled\n"+
 			"name: Sampled\n"+
-			"mode: PLAN_EXECUTE\n"+
+			"mode: PLAN-EXECUTE\n"+
 			"modelConfig:\n"+
 			"  modelKey: demo-model\n"+
 			"  sampling:\n"+
@@ -622,7 +622,7 @@ func TestParseAgentFileRejectsInvalidNestedStageSamplingType(t *testing.T) {
 	if err := os.WriteFile(path, []byte(
 		"key: bad-stage-sampling\n"+
 			"name: Bad Stage Sampling\n"+
-			"mode: PLAN_EXECUTE\n"+
+			"mode: PLAN-EXECUTE\n"+
 			"modelConfig:\n"+
 			"  modelKey: demo-model\n"+
 			"stageSettings:\n"+
@@ -642,11 +642,16 @@ func TestParseAgentFileRejectsInvalidNestedStageSamplingType(t *testing.T) {
 
 func TestLoadTeamsSupportsYAMLAndSkipsExampleFiles(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "default.yaml"), []byte(
+	if err := os.MkdirAll(filepath.Join(root, "default"), 0o755); err != nil {
+		t.Fatalf("mkdir default team: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "default", "team.yml"), []byte(
 		"name: Default Team\n"+
-			"defaultAgentKey: default_agent\n"+
 			"agentKeys:\n"+
-			"  - default_agent\n",
+			"  - default_agent\n"+
+			"orchestrator:\n"+
+			"  modelConfig:\n"+
+			"    modelKey: coordinator\n",
 	), 0o644); err != nil {
 		t.Fatalf("write yaml team: %v", err)
 	}
@@ -938,12 +943,7 @@ func TestTeamsLogsInvalidAgentKeys(t *testing.T) {
 			"agent_a": {Key: "agent_a"},
 		},
 		teams: map[string]TeamDefinition{
-			"team_a": {
-				TeamID:          "team_a",
-				Name:            "Team A",
-				AgentKeys:       []string{"agent_a", "missing_agent"},
-				DefaultAgentKey: "agent_a",
-			},
+			"team_a": {TeamID: "team_a", Name: "Team A", AgentKeys: []string{"agent_a", "missing_agent"}},
 		},
 	}
 
@@ -970,12 +970,7 @@ func TestResolveTeamReturnsAtomicDeduplicatedSnapshot(t *testing.T) {
 			"agent-b": {Key: "agent-b"},
 		},
 		teams: map[string]TeamDefinition{
-			"team-a": {
-				TeamID:          "team-a",
-				Name:            "Team A",
-				AgentKeys:       []string{"agent-a", "agent-a", " missing ", "agent-b"},
-				DefaultAgentKey: "agent-a",
-			},
+			"team-a": {TeamID: "team-a", Name: "Team A", AgentKeys: []string{"agent-a", "agent-a", " missing ", "agent-b"}},
 		},
 	}
 
@@ -991,9 +986,6 @@ func TestResolveTeamReturnsAtomicDeduplicatedSnapshot(t *testing.T) {
 	}
 	if got, want := snapshot.InvalidAgentKeys, []string{"missing"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("InvalidAgentKeys = %#v, want %#v", got, want)
-	}
-	if !snapshot.DefaultAgentValid || snapshot.DefaultAgentState != TeamDefaultAgentValid {
-		t.Fatalf("unexpected default state: %#v", snapshot)
 	}
 	frozen, ok := snapshot.AgentDefinition("agent-a")
 	if !ok || frozen.Mode != "REACT" || !reflect.DeepEqual(frozen.Tools, []string{"old-tool"}) {
@@ -1023,35 +1015,8 @@ func TestResolveTeamReturnsAtomicDeduplicatedSnapshot(t *testing.T) {
 	delete(registry.agents, "agent-a")
 	registry.mu.Unlock()
 	refreshed, _ := registry.ResolveTeam("team-a")
-	if refreshed.HasAgent("agent-a") || refreshed.DefaultAgentState != TeamDefaultAgentUnavailable {
+	if refreshed.HasAgent("agent-a") {
 		t.Fatalf("expected refreshed snapshot to see catalog drift: %#v", refreshed)
-	}
-}
-
-func TestResolveTeamReportsInvalidDefaultStates(t *testing.T) {
-	tests := []struct {
-		name       string
-		defaultKey string
-		members    []string
-		wantState  string
-	}{
-		{name: "missing", wantState: TeamDefaultAgentMissing},
-		{name: "not member", defaultKey: "agent-b", members: []string{"agent-a"}, wantState: TeamDefaultAgentNotMember},
-		{name: "unavailable", defaultKey: "agent-b", members: []string{"agent-a", "agent-b"}, wantState: TeamDefaultAgentUnavailable},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			registry := &FileRegistry{
-				agents: map[string]AgentDefinition{"agent-a": {Key: "agent-a"}},
-				teams: map[string]TeamDefinition{
-					"team-a": {TeamID: "team-a", AgentKeys: tt.members, DefaultAgentKey: tt.defaultKey},
-				},
-			}
-			snapshot, ok := registry.ResolveTeam("team-a")
-			if !ok || snapshot.DefaultAgentValid || snapshot.DefaultAgentState != tt.wantState {
-				t.Fatalf("snapshot = %#v, want state %q", snapshot, tt.wantState)
-			}
-		})
 	}
 }
 
