@@ -75,6 +75,7 @@ const (
 	ModelTypeChat            = "chat"
 	ModelTypeEmbedding       = "embedding"
 	ModelTypeImageGeneration = "image-generation"
+	ModelTypeVL              = "vl"
 )
 
 type ModelEmbeddingConfig struct {
@@ -138,6 +139,8 @@ func NormalizeModelType(value string) (string, bool) {
 		return ModelTypeEmbedding, true
 	case ModelTypeImageGeneration:
 		return ModelTypeImageGeneration, true
+	case ModelTypeVL:
+		return ModelTypeVL, true
 	default:
 		return "", false
 	}
@@ -156,6 +159,11 @@ func IsEmbeddingModel(model ModelDefinition) bool {
 func IsImageGenerationModel(model ModelDefinition) bool {
 	modelType, ok := NormalizeModelType(model.Type)
 	return ok && modelType == ModelTypeImageGeneration
+}
+
+func IsVLModel(model ModelDefinition) bool {
+	modelType, ok := NormalizeModelType(model.Type)
+	return ok && modelType == ModelTypeVL
 }
 
 func LoadModelRegistry(registriesDir string) (*ModelRegistry, error) {
@@ -208,6 +216,10 @@ func (r *ModelRegistry) GetEmbedding(key string) (ModelDefinition, ProviderDefin
 
 func (r *ModelRegistry) GetImageGeneration(key string) (ModelDefinition, ProviderDefinition, error) {
 	return r.GetTyped(key, ModelTypeImageGeneration)
+}
+
+func (r *ModelRegistry) GetVL(key string) (ModelDefinition, ProviderDefinition, error) {
+	return r.GetTyped(key, ModelTypeVL)
 }
 
 func (r *ModelRegistry) GetTyped(key string, modelType string) (ModelDefinition, ProviderDefinition, error) {
@@ -583,13 +595,17 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 		if !ok {
 			return nil, fmt.Errorf("load model %s: invalid type %q", entry.Name(), stringNode(values["type"]))
 		}
+		protocol := strings.ToUpper(strings.TrimSpace(stringNode(values["protocol"])))
+		if IsACPPassthroughProtocol(protocol) && modelType != ModelTypeChat {
+			return nil, fmt.Errorf("load model %s: ACP_PASSTHROUGH is only supported for type: chat", entry.Name())
+		}
 		result[key] = ModelDefinition{
 			Key:              key,
 			Name:             strings.TrimSpace(stringNode(values["name"])),
 			Icon:             strings.TrimSpace(stringNode(values["icon"])),
 			Provider:         strings.TrimSpace(stringNode(values["provider"])),
 			Type:             modelType,
-			Protocol:         strings.ToUpper(strings.TrimSpace(stringNode(values["protocol"]))),
+			Protocol:         protocol,
 			ModelID:          strings.TrimSpace(stringNode(values["modelId"])),
 			IsFunction:       parseTruthy(stringNode(values["isFunction"])),
 			IsReasoner:       parseTruthy(stringNode(values["isReasoner"])),

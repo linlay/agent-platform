@@ -47,12 +47,16 @@ func (t *RuntimeToolExecutor) invokeVisionRecognize(ctx context.Context, args ma
 	if prompt == "" {
 		return visionToolError("vision_prompt_required", "prompt is required", nil), nil
 	}
-	model, provider, err := t.models.Get(profile.ModelKey)
+	model, err := t.models.GetModel(profile.ModelKey)
 	if err != nil {
 		return visionToolError("vision_model_not_found", err.Error(), map[string]any{"modelKey": profile.ModelKey}), nil
 	}
-	if !model.IsVision {
-		return visionToolError("vision_model_not_vision", "configured model is not marked isVision: true", map[string]any{"modelKey": model.Key}), nil
+	if !models.IsVLModel(model) {
+		return visionToolError("vision_model_not_vl", "configured model must use type: vl", map[string]any{"modelKey": model.Key}), nil
+	}
+	model, provider, err := t.models.GetVL(model.Key)
+	if err != nil {
+		return visionToolError("vision_model_not_found", err.Error(), map[string]any{"modelKey": profile.ModelKey}), nil
 	}
 	if strings.TrimSpace(provider.BaseURL) == "" || strings.TrimSpace(provider.APIKey) == "" {
 		return visionToolError("vision_provider_config_invalid", "provider baseUrl and apiKey are required", map[string]any{"provider": provider.Key}), nil

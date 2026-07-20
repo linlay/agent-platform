@@ -5,6 +5,7 @@ vision-recognize:
   default-profile: general
   profiles:
     general:
+      # Must reference a runtime/registries/models/*.yml model with type: vl.
       model-key:
       timeout: 60
       max-images: 4

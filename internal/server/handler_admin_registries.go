@@ -314,7 +314,7 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 		}
 		modelType, ok := models.NormalizeModelType(contracts.FirstNonEmptyString(root["type"]))
 		if !ok {
-			addError("invalid_type", "model type must be chat, embedding, or image-generation")
+			addError("invalid_type", "model type must be chat, embedding, image-generation, or vl")
 			modelType = models.ModelTypeChat
 		}
 		protocol := strings.TrimSpace(contracts.FirstNonEmptyString(root["protocol"]))

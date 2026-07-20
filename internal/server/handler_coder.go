@@ -123,11 +123,11 @@ func (s *Server) modelOptionsFilterMode(agentKey string) string {
 }
 
 func (s *Server) shouldShowModelOption(model models.ModelDefinition) bool {
-	if models.IsACPPassthroughModel(model) {
-		return true
-	}
 	if !models.IsChatModel(model) {
 		return false
+	}
+	if models.IsACPPassthroughModel(model) {
+		return true
 	}
 	providerKey := strings.TrimSpace(model.Provider)
 	if providerKey == "" || s.deps.Models == nil {
@@ -214,6 +214,7 @@ type acpModelCatalogResponse struct {
 			Key              string   `json:"key"`
 			Name             string   `json:"name"`
 			Icon             string   `json:"icon"`
+			Type             string   `json:"type"`
 			ModelID          string   `json:"modelId"`
 			ContextWindow    int      `json:"contextWindow"`
 			IsReasoner       bool     `json:"isReasoner"`
@@ -276,6 +277,10 @@ func fetchACPCoderModelOptions(bridge config.CoderACPBridgeConfig) ([]api.CoderM
 	for _, model := range decoded.Data.Models {
 		key := strings.TrimSpace(model.Key)
 		if key == "" {
+			continue
+		}
+		modelType, ok := models.NormalizeModelType(model.Type)
+		if !ok || modelType != models.ModelTypeChat {
 			continue
 		}
 		options = append(options, api.CoderModelOption{

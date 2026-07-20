@@ -81,6 +81,14 @@ func TestCoderModelOptionsHTTP(t *testing.T) {
 	}, testFixtureOptions{
 		setupRuntime: func(_ string, cfg *config.Config) {
 			setupCoderRuntime(t, cfg)
+			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "vl-model.yml"), []byte(strings.Join([]string{
+				"key: vl-model",
+				"provider: mock",
+				"type: vl",
+				"modelId: qwen-vl-max",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write vl model config: %v", err)
+			}
 			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "embedding-model.yml"), []byte(strings.Join([]string{
 				"key: embedding-model",
 				"provider: mock",
@@ -128,12 +136,27 @@ func TestCoderModelOptionsHTTP(t *testing.T) {
 		if model.Key == "coder-model" && model.Name == "Coder Model" && model.Icon == "Coder Model Icon" && model.IsReasoner && model.IsVision && model.ContextWindow == 200000 {
 			foundCoderModel = true
 		}
-		if model.Key == "embedding-model" || model.Key == "image-model" {
+		if model.Key == "embedding-model" || model.Key == "image-model" || model.Key == "vl-model" {
 			t.Fatalf("non-chat model should not appear in model options: %#v", response.Data.Models)
 		}
 	}
 	if !foundCoderModel {
 		t.Fatalf("expected coder model option, got %#v", response.Data.Models)
+	}
+}
+
+func TestFetchACPCoderModelOptionsFiltersNonChatModels(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"code":0,"data":{"models":[{"key":"chat-model","type":"chat"},{"key":"legacy-chat-model"},{"key":"embedding-model","type":"embedding"},{"key":"image-model","type":"image-generation"},{"key":"vl-model","type":"vl"},{"key":"unknown-model","type":"audio"}]}}`))
+	}))
+	defer upstream.Close()
+
+	options, err := fetchACPCoderModelOptions(config.CoderACPBridgeConfig{BaseURL: upstream.URL})
+	if err != nil {
+		t.Fatalf("fetch ACP coder model options: %v", err)
+	}
+	if len(options) != 2 || options[0].Key != "chat-model" || options[1].Key != "legacy-chat-model" {
+		t.Fatalf("expected only chat ACP model options, got %#v", options)
 	}
 }
 

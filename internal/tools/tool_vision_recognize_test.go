@@ -28,8 +28,8 @@ func TestVisionRecognizeDisabled(t *testing.T) {
 	}
 }
 
-func TestVisionRecognizeRejectsNonVisionModel(t *testing.T) {
-	registry := writeVisionRegistry(t, "http://127.0.0.1:1", "OPENAI", false)
+func TestVisionRecognizeRejectsNonVLModel(t *testing.T) {
+	registry := writeVisionRegistry(t, "http://127.0.0.1:1", "OPENAI", models.ModelTypeChat)
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{VisionRecognize: config.VisionRecognizeConfig{
 			Enabled:        true,
@@ -47,8 +47,8 @@ func TestVisionRecognizeRejectsNonVisionModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("invokeVisionRecognize: %v", err)
 	}
-	if result.Error != "vision_model_not_vision" {
-		t.Fatalf("expected non-vision model error, got %#v", result)
+	if result.Error != "vision_model_not_vl" {
+		t.Fatalf("expected non-vl model error, got %#v", result)
 	}
 }
 
@@ -71,7 +71,7 @@ func TestVisionRecognizeReferenceNameOpenAI(t *testing.T) {
 	chatsDir := t.TempDir()
 	chatID := "chat-1"
 	writeTestPNG(t, filepath.Join(chatsDir, chatID, "demo.png"))
-	registry := writeVisionRegistry(t, server.URL, "OPENAI", true)
+	registry := writeVisionRegistry(t, server.URL, "OPENAI", models.ModelTypeVL)
 	executor := visionTestExecutor(chatsDir, registry, server.Client())
 
 	result, err := executor.invokeVisionRecognize(context.Background(), map[string]any{
@@ -119,7 +119,7 @@ func TestVisionRecognizeAnthropicRequest(t *testing.T) {
 	chatsDir := t.TempDir()
 	chatID := "chat-1"
 	writeTestPNG(t, filepath.Join(chatsDir, chatID, "demo.png"))
-	registry := writeVisionRegistry(t, server.URL, "ANTHROPIC", true)
+	registry := writeVisionRegistry(t, server.URL, "ANTHROPIC", models.ModelTypeVL)
 	executor := visionTestExecutor(chatsDir, registry, server.Client())
 
 	result, err := executor.invokeVisionRecognize(context.Background(), map[string]any{
@@ -151,7 +151,7 @@ func TestVisionRecognizeFilePathRequiresApprovalOutsideWorkspace(t *testing.T) {
 	outside := t.TempDir()
 	imagePath := filepath.Join(outside, "demo.png")
 	writeTestPNG(t, imagePath)
-	registry := writeVisionRegistry(t, "http://127.0.0.1:1", "OPENAI", true)
+	registry := writeVisionRegistry(t, "http://127.0.0.1:1", "OPENAI", models.ModelTypeVL)
 	executor := visionTestExecutor(t.TempDir(), registry, nil)
 
 	result, err := executor.invokeVisionRecognize(context.Background(), map[string]any{
@@ -175,7 +175,7 @@ func visionTestExecutor(chatsDir string, registry *models.ModelRegistry, client 
 			Profiles: map[string]config.VisionRecognizeProfileConfig{
 				"general": {
 					ModelKey:      "vision-model",
-					Timeout: 60,
+					Timeout:       60,
 					MaxImages:     4,
 					MaxImageBytes: 20971520,
 					OutputFormat:  "text",
@@ -191,7 +191,7 @@ func visionTestExecutor(chatsDir string, registry *models.ModelRegistry, client 
 	return executor
 }
 
-func writeVisionRegistry(t *testing.T, baseURL string, protocol string, isVision bool) *models.ModelRegistry {
+func writeVisionRegistry(t *testing.T, baseURL string, protocol string, modelType string) *models.ModelRegistry {
 	t.Helper()
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "providers"), 0o755); err != nil {
@@ -212,9 +212,9 @@ func writeVisionRegistry(t *testing.T, baseURL string, protocol string, isVision
 	model := strings.Join([]string{
 		"key: vision-model",
 		"provider: test",
+		"type: " + modelType,
 		"protocol: " + protocol,
 		"modelId: vision-model-id",
-		"isVision: " + map[bool]string{true: "true", false: "false"}[isVision],
 	}, "\n")
 	if err := os.WriteFile(filepath.Join(root, "models", "vision-model.yml"), []byte(model), 0o644); err != nil {
 		t.Fatalf("write model: %v", err)

@@ -299,6 +299,14 @@ func TestLoadModelRegistryParsesTypedModels(t *testing.T) {
 	}, "\n")), 0o644); err != nil {
 		t.Fatalf("write image model: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(modelsDir, "vl.yml"), []byte(strings.Join([]string{
+		"key: vl-model",
+		"provider: mock",
+		"type: vl",
+		"modelId: qwen-vl-max",
+	}, "\n")), 0o644); err != nil {
+		t.Fatalf("write vl model: %v", err)
+	}
 
 	registry, err := LoadModelRegistry(root)
 	if err != nil {
@@ -335,8 +343,18 @@ func TestLoadModelRegistryParsesTypedModels(t *testing.T) {
 		image.Image.ResponseFormats[1] != "url" {
 		t.Fatalf("unexpected image model: %#v", image)
 	}
+	vl, _, err := registry.GetVL("vl-model")
+	if err != nil {
+		t.Fatalf("GetVL returned error: %v", err)
+	}
+	if vl.Type != ModelTypeVL || vl.ModelID != "qwen-vl-max" {
+		t.Fatalf("unexpected vl model: %#v", vl)
+	}
 	if _, _, err := registry.Get("embedding-model"); err == nil || !strings.Contains(err.Error(), "want chat") {
 		t.Fatalf("expected chat Get to reject embedding model, got %v", err)
+	}
+	if _, _, err := registry.Get("vl-model"); err == nil || !strings.Contains(err.Error(), "want chat") {
+		t.Fatalf("expected chat Get to reject vl model, got %v", err)
 	}
 	defaultModel, _, err := registry.Default()
 	if err != nil {
@@ -354,6 +372,20 @@ func TestLoadModelRegistryRejectsInvalidModelType(t *testing.T) {
 	_, err := LoadModelRegistry(root)
 	if err == nil || !strings.Contains(err.Error(), "invalid type") {
 		t.Fatalf("expected invalid type error, got %v", err)
+	}
+}
+
+func TestLoadModelRegistryRejectsNonChatACPPassthroughModel(t *testing.T) {
+	root := t.TempDir()
+	writeTestProviderAndModel(t, root, "apiKey: plain-text")
+	writeTestProviderlessModel(t, root, "vl-acp", "qwen-vl-max", strings.Join([]string{
+		"type: vl",
+		"protocol: ACP_PASSTHROUGH",
+	}, "\n"))
+
+	_, err := LoadModelRegistry(root)
+	if err == nil || !strings.Contains(err.Error(), "ACP_PASSTHROUGH is only supported for type: chat") {
+		t.Fatalf("expected non-chat ACP model rejection, got %v", err)
 	}
 }
 
