@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"archive/zip"
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
@@ -23,8 +24,9 @@ const (
 	AdminSkillStatusReady   = "ready"
 	AdminSkillStatusInvalid = "invalid"
 
-	EditableSkillMaxTextBytes   int64 = 1 << 20
-	EditableSkillMaxUploadBytes int64 = 32 << 20
+	EditableSkillMaxTextBytes    int64 = 1 << 20
+	EditableSkillMaxUploadBytes  int64 = 32 << 20
+	EditableSkillMaxArchiveBytes int64 = 256 << 20
 )
 
 var (
@@ -33,6 +35,7 @@ var (
 	ErrInvalidSkillKey          = errors.New("invalid skill key")
 	ErrInvalidSkillPath         = errors.New("invalid skill path")
 	ErrSkillFileTooLarge        = errors.New("skill file too large")
+	ErrSkillArchiveTooLarge     = errors.New("skill archive exceeds the maximum uncompressed size")
 	ErrSkillFileBinary          = errors.New("skill file is binary")
 	ErrSkillConflict            = errors.New("skill file conflict")
 	ErrSkillUnsupportedEncoding = errors.New("unsupported skill file encoding")
@@ -339,6 +342,164 @@ func (r *FileRegistry) ResolveEditableSkillFile(key string, relPath string) (str
 		return "", EditableSkillFile{}, err
 	}
 	return target, file, nil
+}
+
+// WriteEditableSkillArchive writes a portable ZIP archive of a skill's safe,
+// distributable files. Runtime environment configuration is intentionally
+// omitted because it may contain credentials.
+func (r *FileRegistry) WriteEditableSkillArchive(key string, destination io.Writer) error {
+	if r == nil {
+		return fmt.Errorf("skill registry is not configured")
+	}
+	if destination == nil {
+		return fmt.Errorf("skill archive destination is required")
+	}
+	root := strings.TrimSpace(r.cfg.Paths.SkillsMarketDir)
+	if root == "" {
+		return fmt.Errorf("skills market directory is not configured")
+	}
+	if err := ValidateEditableSkillKey(key); err != nil {
+		return err
+	}
+	skillDir, err := editableSkillDir(root, key)
+	if err != nil {
+		return err
+	}
+	info, err := os.Lstat(skillDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return ErrSkillNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return ErrSkillSymlink
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%w: skill root is not a directory", ErrInvalidSkillPath)
+	}
+
+	files, err := editableSkillArchiveFiles(skillDir)
+	if err != nil {
+		return err
+	}
+	archiveRoot, err := os.OpenRoot(skillDir)
+	if err != nil {
+		return err
+	}
+	defer archiveRoot.Close()
+	rootInfo, err := archiveRoot.Stat(".")
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(info, rootInfo) {
+		return fmt.Errorf("%w: skill root changed while building archive", ErrSkillConflict)
+	}
+	archive := zip.NewWriter(destination)
+	for _, file := range files {
+		if err := writeEditableSkillArchiveFile(archive, archiveRoot, file); err != nil {
+			_ = archive.Close()
+			return err
+		}
+	}
+	return archive.Close()
+}
+
+type editableSkillArchiveFile struct {
+	path string
+	size int64
+}
+
+func editableSkillArchiveFiles(skillDir string) ([]editableSkillArchiveFile, error) {
+	files := []editableSkillArchiveFile{}
+	var totalSize int64
+	err := filepath.WalkDir(skillDir, func(current string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if current == skillDir {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		relPath, err := filepath.Rel(skillDir, current)
+		if err != nil {
+			return err
+		}
+		relPath = filepath.ToSlash(relPath)
+		if relPath == ".runtime-env.json" {
+			return nil
+		}
+		if info.Size() > EditableSkillMaxArchiveBytes-totalSize {
+			return ErrSkillArchiveTooLarge
+		}
+		totalSize += info.Size()
+		files = append(files, editableSkillArchiveFile{path: relPath, size: info.Size()})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].path < files[j].path
+	})
+	return files, nil
+}
+
+func writeEditableSkillArchiveFile(archive *zip.Writer, root *os.Root, candidate editableSkillArchiveFile) error {
+	cleanPath, err := validateEditableSkillRelativePath(candidate.path)
+	if err != nil {
+		return err
+	}
+	info, err := root.Lstat(cleanPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return ErrSkillNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return ErrSkillSymlink
+	}
+	if !info.Mode().IsRegular() || info.Size() != candidate.size {
+		return fmt.Errorf("%w: archive source changed", ErrSkillConflict)
+	}
+	input, err := root.Open(cleanPath)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+	openedInfo, err := input.Stat()
+	if err != nil {
+		return err
+	}
+	if !openedInfo.Mode().IsRegular() || !os.SameFile(info, openedInfo) {
+		return fmt.Errorf("%w: archive source changed", ErrSkillConflict)
+	}
+
+	header := &zip.FileHeader{Name: filepath.ToSlash(cleanPath), Method: zip.Deflate}
+	header.SetModTime(info.ModTime())
+	header.SetMode(info.Mode())
+	output, err := archive.CreateHeader(header)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(output, input)
+	return err
 }
 
 func (r *FileRegistry) WriteEditableSkillFile(key string, relPath string, content string, encoding string, baseSHA256 string) (EditableSkillFile, error) {

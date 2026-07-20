@@ -1,6 +1,7 @@
 package server
 
 import (
+	"archive/zip"
 	"bytes"
 	"encoding/json"
 	"io"
@@ -8,10 +9,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/catalog"
 )
 
 func TestAdminSkillsManifestLazyContentAndMutations(t *testing.T) {
@@ -155,6 +159,68 @@ func TestDeleteAdminSkillInUseReturnsConflict(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "usedByAgents") || !strings.Contains(rec.Body.String(), "mock-agent") {
 		t.Fatalf("expected usedByAgents in conflict response, got %s", rec.Body.String())
+	}
+}
+
+func TestAdminSkillDownloadReturnsZipArchive(t *testing.T) {
+	fixture := newTestFixture(t)
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/skills/download?key=mock-skill", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected ZIP download 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if contentType := rec.Header().Get("Content-Type"); !strings.HasPrefix(contentType, "application/zip") {
+		t.Fatalf("unexpected ZIP content type %q", contentType)
+	}
+	if contentDisposition := rec.Header().Get("Content-Disposition"); !strings.Contains(contentDisposition, "mock-skill.zip") {
+		t.Fatalf("unexpected ZIP content disposition %q", contentDisposition)
+	}
+	reader, err := zip.NewReader(bytes.NewReader(rec.Body.Bytes()), int64(rec.Body.Len()))
+	if err != nil {
+		t.Fatalf("read ZIP response: %v", err)
+	}
+	entries := map[string]*zip.File{}
+	for _, entry := range reader.File {
+		entries[entry.Name] = entry
+	}
+	if entries["SKILL.md"] == nil || entries["assets/mock-skill.png"] == nil {
+		t.Fatalf("unexpected ZIP entries: %#v", entries)
+	}
+
+	missingKey := httptest.NewRecorder()
+	fixture.server.ServeHTTP(missingKey, httptest.NewRequest(http.MethodGet, "/api/admin/skills/download", nil))
+	if missingKey.Code != http.StatusBadRequest {
+		t.Fatalf("expected missing key 400, got %d: %s", missingKey.Code, missingKey.Body.String())
+	}
+
+	missingSkill := httptest.NewRecorder()
+	fixture.server.ServeHTTP(missingSkill, httptest.NewRequest(http.MethodGet, "/api/admin/skills/download?key=missing-skill", nil))
+	if missingSkill.Code != http.StatusNotFound {
+		t.Fatalf("expected missing skill 404, got %d: %s", missingSkill.Code, missingSkill.Body.String())
+	}
+}
+
+func TestAdminSkillDownloadRejectsOversizedArchive(t *testing.T) {
+	fixture := newTestFixture(t)
+	oversized := filepath.Join(fixture.cfg.Paths.SkillsMarketDir, "mock-skill", "archive-too-large.bin")
+	if err := os.WriteFile(oversized, nil, 0o644); err != nil {
+		t.Fatalf("create oversized file: %v", err)
+	}
+	if err := os.Truncate(oversized, catalog.EditableSkillMaxArchiveBytes+1); err != nil {
+		t.Fatalf("create sparse oversized file: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/skills/download?key=mock-skill", nil))
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected ZIP download 413, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var response api.ApiResponse[map[string]any]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode 413 response: %v", err)
+	}
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected envelope code 413, got %#v", response)
 	}
 }
 

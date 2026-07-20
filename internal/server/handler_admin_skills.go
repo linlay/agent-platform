@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -32,6 +33,7 @@ type adminSkillRegistry interface {
 	MkdirEditableSkillFile(key string, relPath string) (catalog.EditableSkillFile, error)
 	RenameEditableSkillFile(key string, fromPath string, toPath string, overwrite bool) (catalog.EditableSkillFile, error)
 	UploadEditableSkillFile(key string, relPath string, src io.Reader, overwrite bool) (catalog.EditableSkillFile, error)
+	WriteEditableSkillArchive(key string, destination io.Writer) error
 }
 
 func (s *Server) adminSkillRegistry() (adminSkillRegistry, error) {
@@ -263,6 +265,46 @@ func (s *Server) handleAdminSkillFileDownload(w http.ResponseWriter, r *http.Req
 		w.Header().Set("Content-Type", metadata.MimeType)
 	}
 	http.ServeContent(w, r, metadata.Name, info.ModTime(), file)
+}
+
+func (s *Server) handleAdminSkillDownload(w http.ResponseWriter, r *http.Request) {
+	key := strings.TrimSpace(r.URL.Query().Get("key"))
+	if key == "" {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "key is required"))
+		return
+	}
+	registry, err := s.adminSkillRegistry()
+	if err != nil {
+		s.writeAgentHTTPResponse(w, nil, err)
+		return
+	}
+	archive, err := os.CreateTemp("", "agent-platform-skill-*.zip")
+	if err != nil {
+		s.writeAgentHTTPResponse(w, nil, err)
+		return
+	}
+	archivePath := archive.Name()
+	defer func() {
+		_ = archive.Close()
+		_ = os.Remove(archivePath)
+	}()
+	if err := registry.WriteEditableSkillArchive(key, archive); err != nil {
+		s.writeAgentHTTPResponse(w, nil, mapSkillEditError(err))
+		return
+	}
+	info, err := archive.Stat()
+	if err != nil {
+		s.writeAgentHTTPResponse(w, nil, err)
+		return
+	}
+	if _, err := archive.Seek(0, io.SeekStart); err != nil {
+		s.writeAgentHTTPResponse(w, nil, err)
+		return
+	}
+	filename := key + ".zip"
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
+	http.ServeContent(w, r, filename, info.ModTime(), archive)
 }
 
 func (s *Server) adminSkillDetail(key string, openPath string) (api.AdminSkillDetailResponse, error) {
@@ -894,7 +936,7 @@ func mapSkillEditError(err error) error {
 		return newAgentStatusError(http.StatusNotFound, "not_found", err.Error())
 	case errors.Is(err, catalog.ErrSkillAlreadyExists), errors.Is(err, catalog.ErrSkillConflict):
 		return newAgentStatusError(http.StatusConflict, "conflict", err.Error())
-	case errors.Is(err, catalog.ErrSkillFileTooLarge):
+	case errors.Is(err, catalog.ErrSkillFileTooLarge), errors.Is(err, catalog.ErrSkillArchiveTooLarge):
 		return newAgentStatusError(http.StatusRequestEntityTooLarge, "payload_too_large", err.Error())
 	case errors.Is(err, catalog.ErrSkillFileBinary), errors.Is(err, catalog.ErrSkillUnsupportedEncoding):
 		return newAgentStatusError(http.StatusUnsupportedMediaType, "unsupported_media_type", err.Error())

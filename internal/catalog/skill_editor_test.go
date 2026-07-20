@@ -1,7 +1,10 @@
 package catalog
 
 import (
+	"archive/zip"
+	"bytes"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -85,6 +88,93 @@ func TestEditableSkillPathGuardsAndBinaryRead(t *testing.T) {
 	}
 	if _, err := registry.ReadEditableSkillFile("demo", "blob.bin"); !errors.Is(err, ErrSkillFileBinary) {
 		t.Fatalf("expected binary read rejection, got %v", err)
+	}
+}
+
+func TestWriteEditableSkillArchiveIncludesSafeFilesOnly(t *testing.T) {
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "demo-skill")
+	for _, dir := range []string{"assets", "references", "scripts", ".bash-hooks"} {
+		if err := os.MkdirAll(filepath.Join(skillDir, dir), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	files := map[string][]byte{
+		"SKILL.md":              []byte("# Demo\n"),
+		"assets/logo.png":       []byte{0x89, 'P', 'N', 'G'},
+		"references/guide.md":   []byte("guide\n"),
+		"scripts/run.sh":        []byte("#!/bin/sh\necho demo\n"),
+		".bash-hooks/pre-start": []byte("echo hook\n"),
+		".runtime-env.json":     []byte(`{"TOKEN":"secret"}`),
+	}
+	for relPath, content := range files {
+		if err := os.WriteFile(filepath.Join(skillDir, filepath.FromSlash(relPath)), content, 0o644); err != nil {
+			t.Fatalf("write %s: %v", relPath, err)
+		}
+	}
+	if err := os.Chmod(filepath.Join(skillDir, "scripts", "run.sh"), 0o755); err != nil {
+		t.Fatalf("chmod script: %v", err)
+	}
+	if runtime.GOOS != "windows" {
+		if err := os.Symlink(filepath.Join(root, "outside"), filepath.Join(skillDir, "assets", "outside-link")); err != nil {
+			t.Fatalf("create symlink: %v", err)
+		}
+	}
+
+	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsMarketDir: root}}}
+	var output bytes.Buffer
+	if err := registry.WriteEditableSkillArchive("demo-skill", &output); err != nil {
+		t.Fatalf("write archive: %v", err)
+	}
+	reader, err := zip.NewReader(bytes.NewReader(output.Bytes()), int64(output.Len()))
+	if err != nil {
+		t.Fatalf("read archive: %v", err)
+	}
+	entries := map[string]*zip.File{}
+	for _, entry := range reader.File {
+		entries[entry.Name] = entry
+	}
+	for _, name := range []string{"SKILL.md", "assets/logo.png", "references/guide.md", "scripts/run.sh", ".bash-hooks/pre-start"} {
+		if entries[name] == nil {
+			t.Fatalf("archive missing %s: %#v", name, entries)
+		}
+	}
+	if entries[".runtime-env.json"] != nil || entries["assets/outside-link"] != nil {
+		t.Fatalf("archive contains excluded files: %#v", entries)
+	}
+	if entries["scripts/run.sh"].Mode()&0o111 == 0 {
+		t.Fatalf("archive did not preserve executable script mode: %v", entries["scripts/run.sh"].Mode())
+	}
+	content, err := entries["SKILL.md"].Open()
+	if err != nil {
+		t.Fatalf("open archived skill: %v", err)
+	}
+	defer content.Close()
+	data, err := io.ReadAll(content)
+	if err != nil || string(data) != "# Demo\n" {
+		t.Fatalf("unexpected archived skill content %q, err=%v", string(data), err)
+	}
+}
+
+func TestWriteEditableSkillArchiveRejectsOversizedContent(t *testing.T) {
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "demo-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Demo\n"), 0o644); err != nil {
+		t.Fatalf("write SKILL.md: %v", err)
+	}
+	oversized := filepath.Join(skillDir, "assets.bin")
+	if err := os.WriteFile(oversized, nil, 0o644); err != nil {
+		t.Fatalf("create oversized file: %v", err)
+	}
+	if err := os.Truncate(oversized, EditableSkillMaxArchiveBytes+1); err != nil {
+		t.Fatalf("create sparse oversized file: %v", err)
+	}
+	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsMarketDir: root}}}
+	if err := registry.WriteEditableSkillArchive("demo-skill", io.Discard); !errors.Is(err, ErrSkillArchiveTooLarge) {
+		t.Fatalf("expected archive size rejection, got %v", err)
 	}
 }
 
