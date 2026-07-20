@@ -90,6 +90,10 @@ func parseTeamConfig(path string, teamID string, teamDir string) (TeamDefinition
 	if err != nil {
 		return TeamDefinition{}, err
 	}
+	return parseTeamTree(path, teamID, teamDir, tree)
+}
+
+func parseTeamTree(path string, teamID string, teamDir string, tree any) (TeamDefinition, error) {
 	root, ok := tree.(map[string]any)
 	if !ok {
 		return TeamDefinition{}, fmt.Errorf("team file must be a map")
@@ -120,9 +124,29 @@ func parseTeamConfig(path string, teamID string, teamDir string) (TeamDefinition
 		return TeamDefinition{}, err
 	}
 	def.Orchestrator = orchestrator
-	def.SoulPrompt = readOptionalMarkdown(filepath.Join(teamDir, "SOUL.md"))
-	def.AgentsPrompt = readOptionalMarkdown(filepath.Join(teamDir, "AGENTS.md"))
+	if strings.TrimSpace(teamDir) != "" {
+		def.SoulPrompt = readOptionalMarkdown(filepath.Join(teamDir, "SOUL.md"))
+		def.AgentsPrompt = readOptionalMarkdown(filepath.Join(teamDir, "AGENTS.md"))
+	}
 	return def, nil
+}
+
+// ValidateTeamCandidate parses a team.yml candidate without writing it into
+// the runtime catalog. Cross-resource member checks are performed by callers.
+func ValidateTeamCandidate(resourceKey string, content []byte) (TeamDefinition, error) {
+	resourceKey = strings.TrimSpace(resourceKey)
+	if resourceKey == "" {
+		return TeamDefinition{}, fmt.Errorf("team id is required")
+	}
+	if resourceKey == "." || resourceKey == ".." || strings.HasPrefix(resourceKey, ".") ||
+		filepath.IsAbs(resourceKey) || strings.ContainsAny(resourceKey, `/\`) || filepath.Clean(resourceKey) != resourceKey {
+		return TeamDefinition{}, fmt.Errorf("invalid team id")
+	}
+	tree, err := config.LoadYAMLTreeBytes(content)
+	if err != nil {
+		return TeamDefinition{}, err
+	}
+	return parseTeamTree("team candidate", resourceKey, "", tree)
 }
 
 func parseTeamOrchestrator(path string, raw map[string]any) (TeamOrchestratorConfig, error) {

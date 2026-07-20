@@ -627,6 +627,24 @@ type AdminAgentDetailResponse struct {
 	Diagnostics  []AdminAgentDiagnostic `json:"diagnostics,omitempty"`
 }
 
+type AdminAgentSourceResponse struct {
+	Key       string                   `json:"key"`
+	Source    AgentSource              `json:"source"`
+	Content   string                   `json:"content"`
+	Encoding  string                   `json:"encoding"`
+	SHA256    string                   `json:"sha256"`
+	Size      int64                    `json:"size"`
+	UpdatedAt int64                    `json:"updatedAt,omitempty"`
+	Detail    AdminAgentDetailResponse `json:"detail"`
+}
+
+type UpdateAdminAgentSourceRequest struct {
+	Key        string `json:"key,omitempty"`
+	AgentKey   string `json:"agentKey,omitempty"`
+	Content    string `json:"content"`
+	BaseSHA256 string `json:"baseSha256,omitempty"`
+}
+
 type AdminRegistrySummary struct {
 	Category    string                 `json:"category"`
 	File        string                 `json:"file"`

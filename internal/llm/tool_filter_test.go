@@ -23,6 +23,23 @@ func TestFilterToolDefinitionsSkipsExplicitOnlyWhenAllowedToolsEmpty(t *testing.
 	}
 }
 
+func TestFilterToolDefinitionsRequiresExplicitPlatformConfigGrant(t *testing.T) {
+	defs := []api.ToolDetailResponse{
+		{Name: "datetime"},
+		{Name: "platform_config", Meta: map[string]any{"explicitOnly": true}},
+	}
+
+	if filtered := filterToolDefinitions(defs, nil); len(filtered) != 1 || filtered[0].Name != "datetime" {
+		t.Fatalf("platform_config must be hidden without an explicit tool list, got %#v", filtered)
+	}
+	if filtered := filterToolDefinitions(defs, []string{"datetime"}); len(filtered) != 1 || filtered[0].Name != "datetime" {
+		t.Fatalf("platform_config must be hidden from unrelated explicit grants, got %#v", filtered)
+	}
+	if filtered := filterToolDefinitions(defs, []string{"platform_config"}); len(filtered) != 1 || filtered[0].Name != "platform_config" {
+		t.Fatalf("platform_config explicit grant was not honored, got %#v", filtered)
+	}
+}
+
 func TestEffectiveToolDefinitionsUseSandboxBashSchema(t *testing.T) {
 	defs := []api.ToolDetailResponse{
 		{

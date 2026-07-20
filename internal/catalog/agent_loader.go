@@ -570,6 +570,10 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	if err != nil {
 		return AgentDefinition{}, nil, err
 	}
+	return parseAgentTree(path, tree)
+}
+
+func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, error) {
 	root, ok := tree.(map[string]any)
 	if !ok {
 		return AgentDefinition{}, nil, fmt.Errorf("agent file must be a map")

@@ -28,6 +28,7 @@ import (
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
 	"agent-platform/internal/observability"
+	"agent-platform/internal/platformconfig"
 	"agent-platform/internal/reload"
 	"agent-platform/internal/runtimeenv"
 	"agent-platform/internal/sandbox"
@@ -225,6 +226,9 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		len(registry.Skills("")),
 		len(toolExecutor.Definitions()),
 	)
+	if err := toolExecutor.RegisterHandler(platformconfig.NewToolHandler(cfg, registry)); err != nil {
+		return nil, fmt.Errorf("register platform_config tool: %w", err)
+	}
 	if err := toolExecutor.RegisterHandler(kbase.NewToolHandler(kbaseManager)); err != nil {
 		return nil, fmt.Errorf("register KBASE tools: %w", err)
 	}

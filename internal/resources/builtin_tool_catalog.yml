@@ -25,6 +25,7 @@ visibleBuiltinTools:
   - plan_add_tasks
   - plan_get_tasks
   - plan_update_task
+  - platform_config
   - regex
   - vision_recognize
   - web_fetch

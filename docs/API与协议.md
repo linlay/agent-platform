@@ -70,6 +70,7 @@ GET /ws -> request / response / stream / push / error frames
 |---|---|---|---|
 | GET | `/api/admin/agents` | 无 | admin agent 列表，包含 invalid agent 诊断 |
 | GET | `/api/admin/agents/detail` | query: `agentKey` | admin agent 详情，包含编辑配置、来源和诊断 |
+| GET/PUT | `/api/admin/agents/source` | GET query: `agentKey`；PUT body: `key`、`content`、`baseSha256` | 读取或保存该 agent 已登记的 YAML 源文件；保存使用可选哈希防止覆盖并发修改 |
 | GET/PUT | `/api/admin/agents/order` | PUT body: `order` | agent 展示顺序 |
 | POST | `/api/admin/agents/create` | body: `key`、`definition`、`soulPrompt`、`agentsPrompt` | 创建后的 agent 详情 |
 | POST | `/api/admin/agents/update` | body: `key`/`agentKey`、`definition`、`soulPrompt`、`agentsPrompt` | 更新后的 agent 详情 |

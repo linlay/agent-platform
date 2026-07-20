@@ -127,6 +127,10 @@ func parseServerFile(path string) (ServerDefinition, error) {
 	if err != nil {
 		return ServerDefinition{}, err
 	}
+	return parseServerTree(path, tree)
+}
+
+func parseServerTree(path string, tree any) (ServerDefinition, error) {
 	root, ok := tree.(map[string]any)
 	if !ok {
 		return ServerDefinition{}, fmt.Errorf("mcp server file must be a map")
@@ -209,6 +213,30 @@ func parseServerFile(path string) (ServerDefinition, error) {
 		server.Tools = append(server.Tools, tool)
 	}
 	return server, nil
+}
+
+// ValidateServerCandidate parses an MCP server YAML candidate without opening
+// a network connection or writing it into the runtime registry.
+func ValidateServerCandidate(resourceKey string, content []byte) error {
+	resourceKey = normalizeKey(resourceKey)
+	if resourceKey == "" {
+		return fmt.Errorf("MCP server key is required")
+	}
+	if resourceKey == "." || resourceKey == ".." || strings.HasPrefix(resourceKey, ".") || strings.ContainsAny(resourceKey, `/\`) {
+		return fmt.Errorf("invalid MCP server key")
+	}
+	tree, err := config.LoadYAMLTreeBytes(content)
+	if err != nil {
+		return err
+	}
+	server, err := parseServerTree(filepath.Join(".", resourceKey+".yml"), tree)
+	if err != nil {
+		return err
+	}
+	if server.Key != "" && server.Key != resourceKey {
+		return fmt.Errorf("serverKey must match resourceKey")
+	}
+	return nil
 }
 
 func hasAnyKey(values map[string]any, keys ...string) bool {

@@ -1,0 +1,66 @@
+name: platform_config
+label: 平台配置
+description: >-
+  Read the effective CODER or KBASE agent creation defaults, or validate an
+  agent, team, skill, or MCP server candidate without writing files. The get
+  action only accepts agents.creation.coder and agents.creation.kbase.
+type: function
+clientVisible: true
+readOnly: true
+explicitOnly: true
+tags: [platform, config, validation]
+submitResultFormat: json-compact
+inputSchema:
+  type: object
+  properties:
+    action:
+      type: string
+      description: Required. Operation to perform.
+      enum:
+        - get
+        - validate
+    path:
+      type: string
+      description: Required for get. Exact allowlisted configuration path.
+      enum:
+        - agents.creation.coder
+        - agents.creation.kbase
+    resourceType:
+      type: string
+      description: Required for validate. Candidate resource type.
+      enum:
+        - agent
+        - team
+        - skill
+        - mcp-server
+    resourceKey:
+      type: string
+      description: Required for validate. Intended directory key or MCP server key.
+    content:
+      type: string
+      maxLength: 1048576
+      description: Required for validate. Full candidate agent.yml, team.yml, SKILL.md, or MCP server YAML content.
+  required:
+    - action
+  allOf:
+    -
+      if:
+        properties:
+          action:
+            enum:
+              - get
+      then:
+        required:
+          - path
+    -
+      if:
+        properties:
+          action:
+            enum:
+              - validate
+      then:
+        required:
+          - resourceType
+          - resourceKey
+          - content
+  additionalProperties: false

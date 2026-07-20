@@ -36,6 +36,7 @@ var requiredBuiltinToolNames = []string{
 	"plan_add_tasks",
 	"plan_get_tasks",
 	"plan_update_task",
+	"platform_config",
 	"finalize_planning",
 	"regex",
 	"vision_recognize",

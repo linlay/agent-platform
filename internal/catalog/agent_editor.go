@@ -1,12 +1,15 @@
 package catalog
 
 import (
+	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	agentcoder "agent-platform/internal/agent/coder"
 	agentkbase "agent-platform/internal/agent/kbase"
@@ -18,6 +21,25 @@ type EditableAgentSource struct {
 	Kind     string
 	Path     string
 	AgentDir string
+}
+
+const EditableAgentMaxSourceBytes int64 = 1 << 20
+
+var (
+	ErrAgentSourceNotFound = errors.New("agent source not found")
+	ErrAgentSourceConflict = errors.New("agent source conflict")
+	ErrAgentSourceTooLarge = errors.New("agent source file too large")
+	ErrAgentSourceBinary   = errors.New("agent source file is not utf-8 text")
+)
+
+type EditableAgentSourceFile struct {
+	Key       string
+	Source    EditableAgentSource
+	Content   string
+	Encoding  string
+	SHA256    string
+	Size      int64
+	UpdatedAt int64
 }
 
 type EditableAgentFiles struct {
@@ -33,6 +55,111 @@ func (r *FileRegistry) EditableAgent(key string) (EditableAgentFiles, bool, erro
 		return EditableAgentFiles{}, false, fmt.Errorf("agent registry is not configured")
 	}
 	return r.findEditableAgent(key)
+}
+
+// ReadEditableAgentSource reads the YAML file registered for an admin agent.
+// The caller provides an agent key, never a filesystem path.
+func (r *FileRegistry) ReadEditableAgentSource(key string) (EditableAgentSourceFile, error) {
+	if r == nil {
+		return EditableAgentSourceFile{}, fmt.Errorf("agent registry is not configured")
+	}
+	if err := validateEditableAgentKey(key); err != nil {
+		return EditableAgentSourceFile{}, err
+	}
+	source, found := r.adminAgentSource(key)
+	if !found {
+		return EditableAgentSourceFile{}, ErrAgentSourceNotFound
+	}
+	return readEditableAgentSourceFile(strings.TrimSpace(key), source)
+}
+
+// WriteEditableAgentSource validates and atomically replaces the YAML file
+// registered for an admin agent. The optional base hash protects against
+// replacing a source file changed by another editor.
+func (r *FileRegistry) WriteEditableAgentSource(key string, content string, baseSHA256 string) (EditableAgentSourceFile, error) {
+	if r == nil {
+		return EditableAgentSourceFile{}, fmt.Errorf("agent registry is not configured")
+	}
+	key = strings.TrimSpace(key)
+	if err := validateEditableAgentKey(key); err != nil {
+		return EditableAgentSourceFile{}, err
+	}
+	data := []byte(content)
+	if int64(len(data)) > EditableAgentMaxSourceBytes {
+		return EditableAgentSourceFile{}, ErrAgentSourceTooLarge
+	}
+	if !utf8.Valid(data) {
+		return EditableAgentSourceFile{}, ErrAgentSourceBinary
+	}
+	if err := ValidateAgentCandidate(key, data); err != nil {
+		return EditableAgentSourceFile{}, err
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	item, found := r.adminAgents[key]
+	if !found || strings.TrimSpace(item.Source.Path) == "" {
+		return EditableAgentSourceFile{}, ErrAgentSourceNotFound
+	}
+	current, err := readEditableAgentSourceFile(key, item.Source)
+	if err != nil {
+		return EditableAgentSourceFile{}, err
+	}
+	if expected := strings.TrimSpace(baseSHA256); expected != "" && current.SHA256 != expected {
+		return EditableAgentSourceFile{}, ErrAgentSourceConflict
+	}
+	if err := writeFileAtomic(item.Source.Path, data, 0o644); err != nil {
+		return EditableAgentSourceFile{}, err
+	}
+	return readEditableAgentSourceFile(key, item.Source)
+}
+
+func (r *FileRegistry) adminAgentSource(key string) (EditableAgentSource, bool) {
+	key = strings.TrimSpace(key)
+	r.mu.RLock()
+	item, found := r.adminAgents[key]
+	r.mu.RUnlock()
+	if !found || strings.TrimSpace(item.Source.Path) == "" {
+		return EditableAgentSource{}, false
+	}
+	return item.Source, true
+}
+
+func readEditableAgentSourceFile(key string, source EditableAgentSource) (EditableAgentSourceFile, error) {
+	path := strings.TrimSpace(source.Path)
+	if path == "" {
+		return EditableAgentSourceFile{}, ErrAgentSourceNotFound
+	}
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return EditableAgentSourceFile{}, ErrAgentSourceNotFound
+	}
+	if err != nil {
+		return EditableAgentSourceFile{}, err
+	}
+	if !info.Mode().IsRegular() {
+		return EditableAgentSourceFile{}, fmt.Errorf("agent source is not a regular file")
+	}
+	if info.Size() > EditableAgentMaxSourceBytes {
+		return EditableAgentSourceFile{}, ErrAgentSourceTooLarge
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return EditableAgentSourceFile{}, err
+	}
+	if !utf8.Valid(data) {
+		return EditableAgentSourceFile{}, ErrAgentSourceBinary
+	}
+	sum := sha256.Sum256(data)
+	return EditableAgentSourceFile{
+		Key:       strings.TrimSpace(key),
+		Source:    source,
+		Content:   string(data),
+		Encoding:  "utf-8",
+		SHA256:    fmt.Sprintf("%x", sum),
+		Size:      info.Size(),
+		UpdatedAt: info.ModTime().UnixMilli(),
+	}, nil
 }
 
 func (r *FileRegistry) CreateEditableAgent(key string, definition map[string]any, soulPrompt *string, agentsPrompt *string) (EditableAgentFiles, error) {
@@ -224,13 +351,8 @@ func validateEditableDefinition(key string, definition map[string]any) error {
 	if _, err := ParsePublicAgentMode(stringNode(definition["mode"])); err != nil {
 		return err
 	}
-	data := renderYAMLMap(normalizeEditableDefinition(definition))
-	path, err := writeValidationAgentFile(data)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(path) }()
-	def, err := parseAgentFile(path)
+	normalized := normalizeEditableDefinition(definition)
+	def, _, err := parseAgentTree("agent candidate", normalized)
 	if err != nil {
 		return err
 	}
@@ -240,6 +362,23 @@ func validateEditableDefinition(key string, definition map[string]any) error {
 		}
 	}
 	return nil
+}
+
+// ValidateAgentCandidate validates an agent.yml candidate without writing it
+// into the runtime catalog. resourceKey is the intended directory key.
+func ValidateAgentCandidate(resourceKey string, content []byte) error {
+	if err := validateEditableAgentKey(resourceKey); err != nil {
+		return err
+	}
+	tree, err := configpkg.LoadYAMLTreeBytes(content)
+	if err != nil {
+		return err
+	}
+	definition, ok := tree.(map[string]any)
+	if !ok {
+		return fmt.Errorf("agent file must be a map")
+	}
+	return validateEditableDefinition(resourceKey, definition)
 }
 
 func normalizeEditableDefinition(definition map[string]any) map[string]any {
@@ -257,24 +396,6 @@ func normalizeEditableDefinition(definition map[string]any) map[string]any {
 		normalized = agentkbase.ApplyCreateDefaults(normalized, agentkbase.CreateDefaults{})
 	}
 	return normalized
-}
-
-func writeValidationAgentFile(data []byte) (string, error) {
-	file, err := os.CreateTemp("", "agent-definition-*.yml")
-	if err != nil {
-		return "", err
-	}
-	path := file.Name()
-	if _, err := file.Write(data); err != nil {
-		_ = file.Close()
-		_ = os.Remove(path)
-		return "", err
-	}
-	if err := file.Close(); err != nil {
-		_ = os.Remove(path)
-		return "", err
-	}
-	return path, nil
 }
 
 func persistEditableAgent(source EditableAgentSource, definition map[string]any, soulPrompt *string, agentsPrompt *string, allowStandalone bool) error {

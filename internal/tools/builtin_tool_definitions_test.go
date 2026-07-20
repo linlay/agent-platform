@@ -61,7 +61,7 @@ func TestLoadEmbeddedToolDefinitionsAppliesBuiltinToolCatalogVisibility(t *testi
 		"finalize_planning": true, "image_generate": true,
 		"kbase_files": true, "kbase_read": true, "kbase_refresh": true, "kbase_search": true, "kbase_status": true,
 		"plan_add_tasks": true, "plan_get_tasks": true, "plan_update_task": true,
-		"regex": true, "vision_recognize": true, "web_fetch": true,
+		"platform_config": true, "regex": true, "vision_recognize": true, "web_fetch": true,
 	}
 	for _, def := range defs {
 		visible, ok := def.Meta["catalogVisible"].(bool)
@@ -462,6 +462,37 @@ func TestKBaseToolReadOnlyMetadata(t *testing.T) {
 	}
 	if len(seen) != len(want) {
 		t.Fatalf("missing KBASE tool definitions: got %#v want %#v", seen, want)
+	}
+}
+
+func TestPlatformConfigSchemaUsesExactReadAllowlist(t *testing.T) {
+	defs, err := LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatalf("load embedded tool definitions: %v", err)
+	}
+	var platformConfig api.ToolDetailResponse
+	for _, def := range defs {
+		if def.Name == "platform_config" {
+			platformConfig = def
+			break
+		}
+	}
+	if platformConfig.Name == "" {
+		t.Fatal("expected platform_config builtin tool definition")
+	}
+	if platformConfig.Meta["readOnly"] != true {
+		t.Fatalf("platform_config readOnly = %#v, want true", platformConfig.Meta["readOnly"])
+	}
+	if platformConfig.Meta["explicitOnly"] != true {
+		t.Fatalf("platform_config explicitOnly = %#v, want true", platformConfig.Meta["explicitOnly"])
+	}
+	properties := mapChild(t, platformConfig.Parameters, "properties")
+	path, ok := properties["path"].(map[string]any)
+	if !ok {
+		t.Fatalf("platform_config path schema = %#v", properties["path"])
+	}
+	if got, want := path["enum"], []any{"agents.creation.coder", "agents.creation.kbase"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("platform_config path enum = %#v, want %#v", got, want)
 	}
 }
 
