@@ -607,6 +607,33 @@ type AgentSource struct {
 	AgentDir string `json:"agentDir,omitempty"`
 }
 
+// AdminSourceTarget identifies one editable, admin-managed text source. It is
+// deliberately an identifier-based contract: callers never submit filesystem
+// paths, and each source type resolves its own controlled root.
+type AdminSourceTarget struct {
+	Type     string `json:"type"`
+	Key      string `json:"key,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Category string `json:"category,omitempty"`
+	File     string `json:"file,omitempty"`
+}
+
+type AdminSourceResponse struct {
+	Target    AdminSourceTarget `json:"target"`
+	Source    AgentSource       `json:"source"`
+	Content   string            `json:"content"`
+	Encoding  string            `json:"encoding"`
+	SHA256    string            `json:"sha256"`
+	Size      int64             `json:"size"`
+	UpdatedAt int64             `json:"updatedAt,omitempty"`
+}
+
+type UpdateAdminSourceRequest struct {
+	Target     AdminSourceTarget `json:"target"`
+	Content    string            `json:"content"`
+	BaseSHA256 string            `json:"baseSha256,omitempty"`
+}
+
 type AdminAgentDetailResponse struct {
 	Key          string                 `json:"key"`
 	Name         string                 `json:"name"`
@@ -625,24 +652,6 @@ type AdminAgentDetailResponse struct {
 	Source       *AgentSource           `json:"source,omitempty"`
 	Status       string                 `json:"status"`
 	Diagnostics  []AdminAgentDiagnostic `json:"diagnostics,omitempty"`
-}
-
-type AdminAgentSourceResponse struct {
-	Key       string                   `json:"key"`
-	Source    AgentSource              `json:"source"`
-	Content   string                   `json:"content"`
-	Encoding  string                   `json:"encoding"`
-	SHA256    string                   `json:"sha256"`
-	Size      int64                    `json:"size"`
-	UpdatedAt int64                    `json:"updatedAt,omitempty"`
-	Detail    AdminAgentDetailResponse `json:"detail"`
-}
-
-type UpdateAdminAgentSourceRequest struct {
-	Key        string `json:"key,omitempty"`
-	AgentKey   string `json:"agentKey,omitempty"`
-	Content    string `json:"content"`
-	BaseSHA256 string `json:"baseSha256,omitempty"`
 }
 
 type AdminRegistrySummary struct {

@@ -30,6 +30,7 @@ var (
 	ErrAgentSourceConflict = errors.New("agent source conflict")
 	ErrAgentSourceTooLarge = errors.New("agent source file too large")
 	ErrAgentSourceBinary   = errors.New("agent source file is not utf-8 text")
+	ErrAgentSourceSymlink  = errors.New("agent source path is a symlink")
 )
 
 type EditableAgentSourceFile struct {
@@ -130,12 +131,15 @@ func readEditableAgentSourceFile(key string, source EditableAgentSource) (Editab
 	if path == "" {
 		return EditableAgentSourceFile{}, ErrAgentSourceNotFound
 	}
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return EditableAgentSourceFile{}, ErrAgentSourceNotFound
 	}
 	if err != nil {
 		return EditableAgentSourceFile{}, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return EditableAgentSourceFile{}, ErrAgentSourceSymlink
 	}
 	if !info.Mode().IsRegular() {
 		return EditableAgentSourceFile{}, fmt.Errorf("agent source is not a regular file")

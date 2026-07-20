@@ -305,7 +305,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/agents", s.method(http.MethodGet, s.handleAgents))
 	s.router.HandleFunc("/api/admin/agents", s.method(http.MethodGet, s.handleAdminAgents))
 	s.router.HandleFunc("/api/admin/agents/detail", s.method(http.MethodGet, s.handleAdminAgentDetail))
-	s.router.HandleFunc("/api/admin/agents/source", s.handleAdminAgentSource)
+	s.router.HandleFunc("/api/admin/source", s.handleAdminSource)
 	s.router.HandleFunc("/api/admin/agents/order", s.handleAdminAgentOrder)
 	s.router.HandleFunc("/api/admin/agents/create", s.method(http.MethodPost, s.handleAgentCreate))
 	s.router.HandleFunc("/api/admin/agents/update", s.method(http.MethodPost, s.handleAgentUpdate))

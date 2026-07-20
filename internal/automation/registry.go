@@ -1,6 +1,8 @@
 package automation
 
 import (
+	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log"
@@ -11,7 +13,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+	"unicode/utf8"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
@@ -35,8 +39,29 @@ type TeamLookup interface {
 }
 
 type Registry struct {
-	root  string
-	teams TeamLookup
+	root     string
+	teams    TeamLookup
+	sourceMu sync.Mutex
+}
+
+const EditableSourceMaxTextBytes int64 = 1 << 20
+
+var (
+	ErrSourceNotFound = errors.New("automation source not found")
+	ErrSourceConflict = errors.New("automation source conflict")
+	ErrSourceTooLarge = errors.New("automation source file too large")
+	ErrSourceBinary   = errors.New("automation source file is not utf-8 text")
+	ErrSourceSymlink  = errors.New("automation source path is a symlink")
+)
+
+type EditableSourceFile struct {
+	Key       string
+	Path      string
+	Content   string
+	Encoding  string
+	SHA256    string
+	Size      int64
+	UpdatedAt int64
 }
 
 func NewRegistry(root string, teams TeamLookup) *Registry {
@@ -48,6 +73,126 @@ func (r *Registry) Root() string {
 		return ""
 	}
 	return r.root
+}
+
+// ReadEditableSource reads an automation YAML selected by its logical
+// filename-derived id. It never accepts a caller-provided filesystem path.
+func (r *Registry) ReadEditableSource(id string) (EditableSourceFile, error) {
+	if err := validateEditableSourceID(id); err != nil {
+		return EditableSourceFile{}, err
+	}
+	path, err := r.editableSourcePath(id)
+	if err != nil {
+		return EditableSourceFile{}, err
+	}
+	return readEditableSourceFile(id, path)
+}
+
+// WriteEditableSource validates and atomically replaces an automation YAML.
+// The optional source hash prevents overwriting a concurrent editor's change.
+func (r *Registry) WriteEditableSource(id string, content string, baseSHA256 string) (EditableSourceFile, error) {
+	if err := validateEditableSourceID(id); err != nil {
+		return EditableSourceFile{}, err
+	}
+	data := []byte(content)
+	if int64(len(data)) > EditableSourceMaxTextBytes {
+		return EditableSourceFile{}, ErrSourceTooLarge
+	}
+	if !utf8.Valid(data) {
+		return EditableSourceFile{}, ErrSourceBinary
+	}
+	if _, err := r.parseDefinitionBytes(id, data); err != nil {
+		return EditableSourceFile{}, err
+	}
+
+	r.sourceMu.Lock()
+	defer r.sourceMu.Unlock()
+	path, err := r.editableSourcePath(id)
+	if err != nil {
+		return EditableSourceFile{}, err
+	}
+	current, err := readEditableSourceFile(id, path)
+	if err != nil {
+		return EditableSourceFile{}, err
+	}
+	if expected := strings.TrimSpace(baseSHA256); expected != "" && current.SHA256 != expected {
+		return EditableSourceFile{}, ErrSourceConflict
+	}
+	if err := writeFileAtomic(path, data, 0o644); err != nil {
+		return EditableSourceFile{}, err
+	}
+	return readEditableSourceFile(id, path)
+}
+
+func (r *Registry) editableSourcePath(id string) (string, error) {
+	if r == nil || strings.TrimSpace(r.root) == "" {
+		return "", ErrSourceNotFound
+	}
+	paths, err := collectAutomationPaths(r.root)
+	if os.IsNotExist(err) {
+		return "", ErrSourceNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	match := ""
+	for _, path := range paths {
+		if catalog.LogicalRuntimeBaseName(filepath.Base(path)) != id {
+			continue
+		}
+		if match != "" {
+			return "", fmt.Errorf("automation source %q is ambiguous", id)
+		}
+		match = path
+	}
+	if match == "" {
+		return "", ErrSourceNotFound
+	}
+	return match, nil
+}
+
+func readEditableSourceFile(id string, path string) (EditableSourceFile, error) {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return EditableSourceFile{}, ErrSourceNotFound
+	}
+	if err != nil {
+		return EditableSourceFile{}, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return EditableSourceFile{}, ErrSourceSymlink
+	}
+	if !info.Mode().IsRegular() {
+		return EditableSourceFile{}, fmt.Errorf("automation source is not a regular file")
+	}
+	if info.Size() > EditableSourceMaxTextBytes {
+		return EditableSourceFile{}, ErrSourceTooLarge
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return EditableSourceFile{}, err
+	}
+	if !utf8.Valid(data) {
+		return EditableSourceFile{}, ErrSourceBinary
+	}
+	sum := sha256.Sum256(data)
+	return EditableSourceFile{
+		Key:       id,
+		Path:      path,
+		Content:   string(data),
+		Encoding:  "utf-8",
+		SHA256:    fmt.Sprintf("%x", sum),
+		Size:      info.Size(),
+		UpdatedAt: info.ModTime().UnixMilli(),
+	}, nil
+}
+
+func validateEditableSourceID(id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" || id == "." || id == ".." || strings.HasPrefix(id, ".") || strings.ContainsAny(id, `/\\`) || filepath.IsAbs(id) || filepath.Clean(id) != id {
+		return fmt.Errorf("invalid automation key")
+	}
+	return nil
 }
 
 func (r *Registry) Load() ([]Definition, error) {
@@ -118,12 +263,25 @@ func (r *Registry) parseDefinition(path string) (Definition, error) {
 	if err != nil {
 		return Definition{}, err
 	}
+	id := strings.TrimSpace(catalog.LogicalRuntimeBaseName(filepath.Base(path)))
+	return r.parseDefinitionTree(path, id, tree)
+}
+
+func (r *Registry) parseDefinitionBytes(id string, content []byte) (Definition, error) {
+	tree, err := config.LoadYAMLTreeBytes(content)
+	if err != nil {
+		return Definition{}, err
+	}
+	return r.parseDefinitionTree(id+".yml", id, tree)
+}
+
+func (r *Registry) parseDefinitionTree(path string, id string, tree any) (Definition, error) {
 	root, ok := tree.(map[string]any)
 	if !ok {
 		return Definition{}, fmt.Errorf("automation file must be a map")
 	}
 
-	id := strings.TrimSpace(catalog.LogicalRuntimeBaseName(filepath.Base(path)))
+	id = strings.TrimSpace(id)
 	if id == "" {
 		return Definition{}, fmt.Errorf("automation id is required")
 	}

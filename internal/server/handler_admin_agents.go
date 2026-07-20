@@ -1,9 +1,7 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -21,11 +19,6 @@ type adminAgentRegistry interface {
 	AdminAgents() []catalog.AdminAgent
 	AdminAgent(key string) (catalog.AdminAgent, bool)
 	AdminAgentKeys() []string
-}
-
-type editableAdminAgentSourceRegistry interface {
-	ReadEditableAgentSource(key string) (catalog.EditableAgentSourceFile, error)
-	WriteEditableAgentSource(key string, content string, baseSHA256 string) (catalog.EditableAgentSourceFile, error)
 }
 
 func (s *Server) adminAgentRegistry() (adminAgentRegistry, error) {
@@ -58,43 +51,6 @@ func (s *Server) handleAdminAgentDetail(w http.ResponseWriter, r *http.Request) 
 	}
 	response, err := s.adminAgentDetail(agentKey)
 	s.writeAgentHTTPResponse(w, response, err)
-}
-
-func (s *Server) handleAdminAgentSource(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		key := strings.TrimSpace(r.URL.Query().Get("agentKey"))
-		if key == "" {
-			writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "agentKey is required"))
-			return
-		}
-		response, err := s.readAdminAgentSource(key)
-		s.writeAgentHTTPResponse(w, response, err)
-	case http.MethodPut:
-		var req api.UpdateAdminAgentSourceRequest
-		if err := decodeJSON(r, &req); err != nil {
-			writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid payload"))
-			return
-		}
-		key, err := queryOrBodyIDAny(r, []string{"agentKey", "key"}, req.AgentKey, req.Key)
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
-			return
-		}
-		response, err := s.writeAdminAgentSource(r.Context(), key, req.Content, req.BaseSHA256)
-		s.writeAgentHTTPResponse(w, response, err)
-	default:
-		w.Header().Set("Allow", http.MethodGet+", "+http.MethodPut)
-		writeJSON(w, http.StatusMethodNotAllowed, api.Failure(http.StatusMethodNotAllowed, "method not allowed"))
-	}
-}
-
-func (s *Server) adminAgentSourceEditor() (editableAdminAgentSourceRegistry, error) {
-	registry, ok := s.deps.Registry.(editableAdminAgentSourceRegistry)
-	if !ok || registry == nil {
-		return nil, newAgentStatusError(http.StatusServiceUnavailable, "unavailable", "agent source editing is not configured")
-	}
-	return registry, nil
 }
 
 func (s *Server) handleAdminAgentOrder(w http.ResponseWriter, r *http.Request) {
@@ -193,85 +149,6 @@ func adminAgentDetailFromAdminAgent(item catalog.AdminAgent) api.AdminAgentDetai
 		Source:       adminAgentSource(item.Source),
 		Status:       firstNonBlank(item.Status, catalog.AdminAgentStatusInvalid),
 		Diagnostics:  adminAgentDiagnostics(item.Diagnostics),
-	}
-}
-
-func (s *Server) readAdminAgentSource(key string) (api.AdminAgentSourceResponse, error) {
-	editor, err := s.adminAgentSourceEditor()
-	if err != nil {
-		return api.AdminAgentSourceResponse{}, err
-	}
-	file, err := editor.ReadEditableAgentSource(key)
-	if err != nil {
-		return api.AdminAgentSourceResponse{}, mapAdminAgentSourceError(err)
-	}
-	detail, err := s.adminAgentSourceDetail(key)
-	if err != nil {
-		return api.AdminAgentSourceResponse{}, err
-	}
-	return adminAgentSourceResponse(file, detail), nil
-}
-
-func (s *Server) writeAdminAgentSource(ctx context.Context, key string, content string, baseSHA256 string) (api.AdminAgentSourceResponse, error) {
-	editor, err := s.adminAgentSourceEditor()
-	if err != nil {
-		return api.AdminAgentSourceResponse{}, err
-	}
-	file, err := editor.WriteEditableAgentSource(key, content, baseSHA256)
-	if err != nil {
-		return api.AdminAgentSourceResponse{}, mapAdminAgentSourceError(err)
-	}
-	if err := s.reloadAgentCatalog(ctx); err != nil {
-		return api.AdminAgentSourceResponse{}, err
-	}
-	detail, err := s.adminAgentSourceDetail(key)
-	if err != nil {
-		return api.AdminAgentSourceResponse{}, err
-	}
-	return adminAgentSourceResponse(file, detail), nil
-}
-
-func (s *Server) adminAgentSourceDetail(key string) (api.AdminAgentDetailResponse, error) {
-	registry, err := s.adminAgentRegistry()
-	if err != nil {
-		return api.AdminAgentDetailResponse{}, err
-	}
-	item, found := registry.AdminAgent(key)
-	if !found {
-		return api.AdminAgentDetailResponse{}, newAgentStatusError(http.StatusNotFound, "not_found", "agent not found")
-	}
-	return adminAgentDetailFromAdminAgent(item), nil
-}
-
-func adminAgentSourceResponse(file catalog.EditableAgentSourceFile, detail api.AdminAgentDetailResponse) api.AdminAgentSourceResponse {
-	return api.AdminAgentSourceResponse{
-		Key: file.Key,
-		Source: api.AgentSource{
-			Kind:     file.Source.Kind,
-			Path:     file.Source.Path,
-			AgentDir: file.Source.AgentDir,
-		},
-		Content:   file.Content,
-		Encoding:  file.Encoding,
-		SHA256:    file.SHA256,
-		Size:      file.Size,
-		UpdatedAt: file.UpdatedAt,
-		Detail:    detail,
-	}
-}
-
-func mapAdminAgentSourceError(err error) error {
-	switch {
-	case errors.Is(err, catalog.ErrAgentSourceNotFound):
-		return newAgentStatusError(http.StatusNotFound, "not_found", err.Error())
-	case errors.Is(err, catalog.ErrAgentSourceConflict):
-		return newAgentStatusError(http.StatusConflict, "conflict", err.Error())
-	case errors.Is(err, catalog.ErrAgentSourceTooLarge):
-		return newAgentStatusError(http.StatusRequestEntityTooLarge, "payload_too_large", err.Error())
-	case errors.Is(err, catalog.ErrAgentSourceBinary):
-		return newAgentStatusError(http.StatusUnsupportedMediaType, "unsupported_media_type", err.Error())
-	default:
-		return mapAgentEditError(err)
 	}
 }
 

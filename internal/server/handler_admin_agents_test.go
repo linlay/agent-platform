@@ -123,15 +123,15 @@ func TestAdminAgentDetailKeepsEditableFieldsForReadyAgents(t *testing.T) {
 	}
 }
 
-func TestAdminAgentSourceReadsRawYAMLAndReloadsSavedSource(t *testing.T) {
+func TestAdminSourceReadsRawAgentYAMLAndReloadsSavedSource(t *testing.T) {
 	fixture := newTestFixture(t)
 
 	read := httptest.NewRecorder()
-	fixture.server.ServeHTTP(read, httptest.NewRequest(http.MethodGet, "/api/admin/agents/source?agentKey=mock-agent", nil))
+	fixture.server.ServeHTTP(read, httptest.NewRequest(http.MethodGet, "/api/admin/source?type=agent&key=mock-agent", nil))
 	if read.Code != http.StatusOK {
 		t.Fatalf("read source status = %d body=%s", read.Code, read.Body.String())
 	}
-	var sourceResp api.ApiResponse[api.AdminAgentSourceResponse]
+	var sourceResp api.ApiResponse[api.AdminSourceResponse]
 	if err := json.Unmarshal(read.Body.Bytes(), &sourceResp); err != nil {
 		t.Fatalf("decode source response: %v", err)
 	}
@@ -143,8 +143,8 @@ func TestAdminAgentSourceReadsRawYAMLAndReloadsSavedSource(t *testing.T) {
 	}
 
 	updatedContent := "# retained source comment\n" + strings.Replace(sourceResp.Data.Content, "name: Mock Agent", "name: Raw Source Agent", 1)
-	payload, err := json.Marshal(api.UpdateAdminAgentSourceRequest{
-		Key:        "mock-agent",
+	payload, err := json.Marshal(api.UpdateAdminSourceRequest{
+		Target:     api.AdminSourceTarget{Type: "agent", Key: "mock-agent"},
 		Content:    updatedContent,
 		BaseSHA256: sourceResp.Data.SHA256,
 	})
@@ -152,15 +152,15 @@ func TestAdminAgentSourceReadsRawYAMLAndReloadsSavedSource(t *testing.T) {
 		t.Fatalf("marshal source update: %v", err)
 	}
 	saved := httptest.NewRecorder()
-	fixture.server.ServeHTTP(saved, httptest.NewRequest(http.MethodPut, "/api/admin/agents/source", bytes.NewReader(payload)))
+	fixture.server.ServeHTTP(saved, httptest.NewRequest(http.MethodPut, "/api/admin/source", bytes.NewReader(payload)))
 	if saved.Code != http.StatusOK {
 		t.Fatalf("save source status = %d body=%s", saved.Code, saved.Body.String())
 	}
-	var savedResp api.ApiResponse[api.AdminAgentSourceResponse]
+	var savedResp api.ApiResponse[api.AdminSourceResponse]
 	if err := json.Unmarshal(saved.Body.Bytes(), &savedResp); err != nil {
 		t.Fatalf("decode saved source response: %v", err)
 	}
-	if savedResp.Data.Content != updatedContent || savedResp.Data.Detail.Name != "Raw Source Agent" || savedResp.Data.Detail.Status != "ready" {
+	if savedResp.Data.Content != updatedContent || savedResp.Data.Target != (api.AdminSourceTarget{Type: "agent", Key: "mock-agent"}) {
 		t.Fatalf("unexpected saved source response: %#v", savedResp.Data)
 	}
 	onDisk, err := os.ReadFile(savedResp.Data.Source.Path)
@@ -178,21 +178,21 @@ func TestAdminAgentSourceReadsRawYAMLAndReloadsSavedSource(t *testing.T) {
 	}
 }
 
-func TestAdminAgentSourceRejectsInvalidEditsAndStaleWrites(t *testing.T) {
+func TestAdminSourceRejectsInvalidAgentEditsAndStaleWrites(t *testing.T) {
 	fixture := setupAdminAgentsFixture(t)
 
 	invalidRead := httptest.NewRecorder()
-	fixture.server.ServeHTTP(invalidRead, httptest.NewRequest(http.MethodGet, "/api/admin/agents/source?agentKey=invalid-yaml", nil))
+	fixture.server.ServeHTTP(invalidRead, httptest.NewRequest(http.MethodGet, "/api/admin/source?type=agent&key=invalid-yaml", nil))
 	if invalidRead.Code != http.StatusOK || !strings.Contains(invalidRead.Body.String(), "bad-indent") {
 		t.Fatalf("invalid source must remain readable: %d body=%s", invalidRead.Code, invalidRead.Body.String())
 	}
 
 	read := httptest.NewRecorder()
-	fixture.server.ServeHTTP(read, httptest.NewRequest(http.MethodGet, "/api/admin/agents/source?agentKey=mock-agent", nil))
+	fixture.server.ServeHTTP(read, httptest.NewRequest(http.MethodGet, "/api/admin/source?type=agent&key=mock-agent", nil))
 	if read.Code != http.StatusOK {
 		t.Fatalf("read source status = %d body=%s", read.Code, read.Body.String())
 	}
-	var sourceResp api.ApiResponse[api.AdminAgentSourceResponse]
+	var sourceResp api.ApiResponse[api.AdminSourceResponse]
 	if err := json.Unmarshal(read.Body.Bytes(), &sourceResp); err != nil {
 		t.Fatalf("decode source response: %v", err)
 	}
@@ -201,14 +201,14 @@ func TestAdminAgentSourceRejectsInvalidEditsAndStaleWrites(t *testing.T) {
 
 	assertRejected := func(name, content, baseSHA256 string, wantStatus int) {
 		t.Helper()
-		payload, err := json.Marshal(api.UpdateAdminAgentSourceRequest{
-			Key: "mock-agent", Content: content, BaseSHA256: baseSHA256,
+		payload, err := json.Marshal(api.UpdateAdminSourceRequest{
+			Target: api.AdminSourceTarget{Type: "agent", Key: "mock-agent"}, Content: content, BaseSHA256: baseSHA256,
 		})
 		if err != nil {
 			t.Fatalf("%s marshal payload: %v", name, err)
 		}
 		rec := httptest.NewRecorder()
-		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/api/admin/agents/source", bytes.NewReader(payload)))
+		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/api/admin/source", bytes.NewReader(payload)))
 		if rec.Code != wantStatus {
 			t.Fatalf("%s status = %d body=%s", name, rec.Code, rec.Body.String())
 		}
@@ -227,7 +227,7 @@ func TestAdminAgentSourceRejectsInvalidEditsAndStaleWrites(t *testing.T) {
 	assertRejected("stale hash", original, "stale-hash", http.StatusConflict)
 
 	pathAttempt := httptest.NewRecorder()
-	fixture.server.ServeHTTP(pathAttempt, httptest.NewRequest(http.MethodGet, "/api/admin/agents/source?agentKey=../../etc/passwd", nil))
+	fixture.server.ServeHTTP(pathAttempt, httptest.NewRequest(http.MethodGet, "/api/admin/source?type=agent&key=../../etc/passwd", nil))
 	if pathAttempt.Code != http.StatusBadRequest {
 		t.Fatalf("unregistered source path status = %d body=%s", pathAttempt.Code, pathAttempt.Body.String())
 	}

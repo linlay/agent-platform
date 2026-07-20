@@ -96,6 +96,7 @@ type Server struct {
 	terminals         *terminalpkg.Manager
 	deferredAwaitings *DeferredAwaitingStore
 	uploadMu          sync.Mutex
+	adminSourceMu     sync.Mutex
 	proxyMu           sync.RWMutex
 	proxyRuns         map[string]*proxyRunRoute
 }
