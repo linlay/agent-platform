@@ -5,18 +5,14 @@ import (
 	"testing"
 )
 
-func TestEnvironmentUsesAgentConfigAndPreservesSystemXDGHome(t *testing.T) {
-	t.Setenv(EnvConfigHome, "/system/config")
+func TestEnvironmentUsesSharedAgentConfigHome(t *testing.T) {
 	env := Environment(filepath.Join("/runtime", "agents", "reader"))
 
-	if got, want := env[EnvConfigHome], "/runtime/agents/reader/.config"; got != want {
-		t.Fatalf("%s = %q, want %q", EnvConfigHome, got, want)
-	}
 	if got, want := env[EnvAgentConfigHome], "/runtime/agents/reader/.config"; got != want {
 		t.Fatalf("%s = %q, want %q", EnvAgentConfigHome, got, want)
 	}
-	if got, want := env[EnvSystemConfigHome], "/system/config"; got != want {
-		t.Fatalf("%s = %q, want %q", EnvSystemConfigHome, got, want)
+	if len(env) != 1 {
+		t.Fatalf("Environment() = %#v, want only %s", env, EnvAgentConfigHome)
 	}
 }
 
@@ -28,18 +24,21 @@ func TestEnvironmentSkipsAgentsWithoutDirectory(t *testing.T) {
 
 func TestContainerEnvironmentUsesSlashSeparatedConfigPath(t *testing.T) {
 	env := ContainerEnvironment("/agent")
-	if got, want := env[EnvConfigHome], "/agent/.config"; got != want {
-		t.Fatalf("%s = %q, want %q", EnvConfigHome, got, want)
+	if got, want := env[EnvAgentConfigHome], "/agent/.config"; got != want {
+		t.Fatalf("%s = %q, want %q", EnvAgentConfigHome, got, want)
+	}
+	if len(env) != 1 {
+		t.Fatalf("ContainerEnvironment() = %#v, want only %s", env, EnvAgentConfigHome)
 	}
 }
 
 func TestMergeUsesLaterMapsAsOverrides(t *testing.T) {
 	got := Merge(
-		map[string]string{"XDG_CONFIG_HOME": "/agent", "SYSTEM": "keep"},
-		map[string]string{"XDG_CONFIG_HOME": "/agent-custom", "SKILL": "value"},
+		map[string]string{EnvAgentConfigHome: "/agent", "SYSTEM": "keep"},
+		map[string]string{EnvAgentConfigHome: "/agent-custom", "SKILL": "value"},
 		map[string]string{"SKILL": "invocation"},
 	)
-	if got["XDG_CONFIG_HOME"] != "/agent-custom" || got["SYSTEM"] != "keep" || got["SKILL"] != "invocation" {
+	if got[EnvAgentConfigHome] != "/agent-custom" || got["SYSTEM"] != "keep" || got["SKILL"] != "invocation" {
 		t.Fatalf("Merge() = %#v", got)
 	}
 }

@@ -1,23 +1,17 @@
 // Package agentconfig defines the environment contract for an agent-owned
-// XDG-style configuration directory.
+// static tool configuration root.
 package agentconfig
 
 import (
-	"os"
 	"path"
 	"path/filepath"
 	"strings"
 )
 
 const (
-	// EnvConfigHome is the standard XDG configuration root presented to an
-	// agent process. Tools normally append their own name below this directory.
-	EnvConfigHome = "XDG_CONFIG_HOME"
-	// EnvAgentConfigHome lets tools explicitly identify the agent-owned root.
+	// EnvAgentConfigHome is the shared root for agent-owned static tool
+	// configuration. Tools append their own name below this directory.
 	EnvAgentConfigHome = "AP_AGENT_CONFIG_HOME"
-	// EnvSystemConfigHome retains the process's pre-injection XDG root so tools
-	// that support overlay lookup can fall back to it.
-	EnvSystemConfigHome = "AP_SYSTEM_XDG_CONFIG_HOME"
 )
 
 // Environment returns process overrides for an agent directory. An absent
@@ -42,14 +36,7 @@ func ContainerEnvironment(agentDir string) map[string]string {
 }
 
 func environment(configHome string) map[string]string {
-	env := map[string]string{
-		EnvConfigHome:      configHome,
-		EnvAgentConfigHome: configHome,
-	}
-	if systemConfigHome := strings.TrimSpace(os.Getenv(EnvConfigHome)); systemConfigHome != "" {
-		env[EnvSystemConfigHome] = systemConfigHome
-	}
-	return env
+	return map[string]string{EnvAgentConfigHome: configHome}
 }
 
 // Merge applies maps from left to right. It is used to keep the established

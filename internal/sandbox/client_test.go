@@ -135,17 +135,20 @@ func TestSandboxEnvironmentUsesContainerAgentPathAndInvocationOverride(t *testin
 		RuntimeEnvOverrides: map[string]string{"HTTP_PROXY": "http://agent-proxy"},
 	}, map[string]string{"HTTP_PROXY": "http://call-proxy"})
 
-	if got, want := env["XDG_CONFIG_HOME"], "/agent/.config"; got != want {
-		t.Fatalf("XDG_CONFIG_HOME = %q, want %q", got, want)
-	}
 	if got, want := env["AP_AGENT_CONFIG_HOME"], "/agent/.config"; got != want {
 		t.Fatalf("AP_AGENT_CONFIG_HOME = %q, want %q", got, want)
 	}
 	if got, want := env["HTTP_PROXY"], "http://call-proxy"; got != want {
 		t.Fatalf("HTTP_PROXY = %q, want %q", got, want)
 	}
-	if strings.Contains(env["XDG_CONFIG_HOME"], "/host/") {
+	if strings.Contains(env["AP_AGENT_CONFIG_HOME"], "/host/") {
 		t.Fatalf("sandbox config path leaked host path: %#v", env)
+	}
+	if _, ok := env["XDG_CONFIG_HOME"]; ok {
+		t.Fatalf("sandbox environment must not synthesize XDG_CONFIG_HOME: %#v", env)
+	}
+	if _, ok := env["AP_SYSTEM_XDG_CONFIG_HOME"]; ok {
+		t.Fatalf("sandbox environment must not synthesize AP_SYSTEM_XDG_CONFIG_HOME: %#v", env)
 	}
 }
 

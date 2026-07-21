@@ -1,6 +1,6 @@
 name: platform_config
 label: 平台配置
-description: >-
+description: |
   Read the effective CODER or KBASE agent creation defaults, or validate an
   agent, team, skill, or MCP server candidate without writing files. The get
   action only accepts agents.creation.coder and agents.creation.kbase.

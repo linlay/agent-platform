@@ -291,7 +291,7 @@ Container Hub 默认基础挂载当前最多 7 个：
 - `/pan` -> `AP_RUNTIME_PAN_DIR`（`rw`）
 - `/agent` -> `paths.agents-dir/<agentKey>`（`ro`，必挂载；目录缺失会 fail-fast）
 
-目录型 agent 可在 `<agentDir>/.config/` 保存工具静态配置。平台会把它作为该 agent 的 XDG 配置根：host bash、agent terminal 使用宿主机路径，Container Hub 使用只读的 `/agent/.config`。dbx/httpx 会优先读取同名 agent 配置，缺失时回退系统配置；显式 `--config` 保持独占。
+目录型 agent 可在 `<agentDir>/.config/` 保存工具静态配置。平台通过 `AP_AGENT_CONFIG_HOME` 把它作为该 agent 的公共静态配置根：host bash、agent terminal 使用宿主机路径，Container Hub 使用只读的 `/agent/.config`。各 builtin 在公共根下追加自己的目录，例如 dbx 使用 `dbx/`、httpx 使用 `httpx/`；它们优先读取同名 agent 配置，缺失时自行回退 `~/.config/<tool>/`，显式 `--config` 保持独占。平台不会为此改写 `XDG_CONFIG_HOME`，也不维护系统配置根变量。
 - `/owner` -> `paths.owner-dir`（`ro`，目录缺失时自动创建）
 - `/memory` -> `AP_RUNTIME_MEMORY_DIR/<agentKey>`（`ro`，目录缺失时自动创建）
 

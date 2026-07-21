@@ -510,28 +510,32 @@ func TestInvokeHostBashAppliesAgentEnvOverrides(t *testing.T) {
 	}
 }
 
-func TestMergeCommandEnvInjectsAgentConfigBeforeRuntimeOverrides(t *testing.T) {
+func TestMergeCommandEnvInjectsSharedAgentConfigBeforeRuntimeOverrides(t *testing.T) {
 	root := t.TempDir()
 	agentDir := filepath.Join(root, "agents", "reader")
-	env := mergeCommandEnv(&contracts.ExecutionContext{
+	valuesFor := func(env []string) map[string]string {
+		t.Helper()
+		values := map[string]string{}
+		for _, item := range env {
+			key, value, ok := strings.Cut(item, "=")
+			if ok {
+				values[key] = value
+			}
+		}
+		return values
+	}
+	execCtx := &contracts.ExecutionContext{
 		Session: contracts.QuerySession{
 			RuntimeContext: contracts.RuntimeRequestContext{
 				LocalPaths: contracts.LocalPaths{AgentDir: agentDir},
 			},
 		},
-		RuntimeEnvOverrides: map[string]string{"XDG_CONFIG_HOME": "/agent-custom"},
-	})
-	values := map[string]string{}
-	for _, item := range env {
-		key, value, ok := strings.Cut(item, "=")
-		if ok {
-			values[key] = value
-		}
 	}
-	if got, want := values["XDG_CONFIG_HOME"], "/agent-custom"; got != want {
-		t.Fatalf("XDG_CONFIG_HOME = %q, want %q", got, want)
+	if got, want := valuesFor(mergeCommandEnv(execCtx))["AP_AGENT_CONFIG_HOME"], filepath.Join(agentDir, ".config"); got != want {
+		t.Fatalf("default AP_AGENT_CONFIG_HOME = %q, want %q", got, want)
 	}
-	if got, want := values["AP_AGENT_CONFIG_HOME"], filepath.Join(agentDir, ".config"); got != want {
+	execCtx.RuntimeEnvOverrides = map[string]string{"AP_AGENT_CONFIG_HOME": "/agent-custom"}
+	if got, want := valuesFor(mergeCommandEnv(execCtx))["AP_AGENT_CONFIG_HOME"], "/agent-custom"; got != want {
 		t.Fatalf("AP_AGENT_CONFIG_HOME = %q, want %q", got, want)
 	}
 }
