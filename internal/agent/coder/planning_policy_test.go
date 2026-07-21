@@ -61,6 +61,25 @@ func TestCoderRuntimeToolNamesOnlyNativeExecuteAddsPlanTaskTools(t *testing.T) {
 	}
 }
 
+func TestDefaultToolNamesForBackendExposePlatformToolsOnlyToNativeCoder(t *testing.T) {
+	native := DefaultToolNamesForBackend("")
+	if !containsTool(native, "artifact_publish") {
+		t.Fatalf("native CODER default tools=%#v, want artifact_publish", native)
+	}
+	if acp := DefaultToolNamesForBackend("codex"); len(acp) != 0 {
+		t.Fatalf("ACP CODER default tools=%#v, want none", acp)
+	}
+}
+
+func containsTool(tools []string, want string) bool {
+	for _, tool := range tools {
+		if tool == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestPlanningExecuteToolsFilterPlanningOnlyTools(t *testing.T) {
 	base := []string{
 		"bash",

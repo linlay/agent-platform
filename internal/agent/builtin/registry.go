@@ -26,6 +26,20 @@ func Lookup(mode string) (agentcontract.ModeDescriptor, bool) {
 	}
 }
 
+// ProfileForAgent resolves the built-in profile for an AgentDefinition. CODER
+// has backend-specific platform tools: ACP delegates execution to a bridge,
+// while native CODER owns the local tool loop.
+func ProfileForAgent(mode string, acpBridgeID string) (agentcontract.ModeProfile, bool) {
+	descriptor, ok := Lookup(mode)
+	if !ok {
+		return agentcontract.ModeProfile{}, false
+	}
+	if strings.EqualFold(strings.TrimSpace(mode), coder.Mode) {
+		descriptor.Profile.ToolNames = coder.DefaultToolNamesForBackend(acpBridgeID)
+	}
+	return descriptor.Profile, true
+}
+
 func MainSystemInitSpec(mode string) (agentcontract.SystemInitSpec, bool) {
 	switch strings.ToUpper(strings.TrimSpace(mode)) {
 	case coder.Mode:

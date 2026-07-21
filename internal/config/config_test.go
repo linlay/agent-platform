@@ -295,6 +295,7 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 		"# CODER-specific prompt configuration. Copy to configs/coder-prompts.yml to customize locally.\n",
 		"system-prompt: |\n",
 		"You are CODER, an interactive coding agent",
+		"When referencing existing local workspace files",
 		"planning-prompt: |\n",
 	} {
 		if !strings.Contains(coderPromptsExample, want) {

@@ -27,6 +27,7 @@ var defaultToolNames = []string{
 	"datetime",
 	"regex",
 	"vision_recognize",
+	"artifact_publish",
 	contracts.PlanAddTasksToolName,
 	contracts.PlanGetTasksToolName,
 	contracts.PlanUpdateTaskToolName,
@@ -44,6 +45,16 @@ var defaultBudget = map[string]any{
 
 func DefaultToolNames() []string {
 	return append([]string(nil), defaultToolNames...)
+}
+
+// DefaultToolNamesForBackend returns the platform tools that can actually run
+// for a CODER backend. ACP delegates execution to its bridge, so platform
+// tools must not be advertised or passed through for that backend.
+func DefaultToolNamesForBackend(acpBridgeID string) []string {
+	if IsACPBackend(Mode, acpBridgeID) {
+		return nil
+	}
+	return DefaultToolNames()
 }
 
 func DefaultContextTags() []string {

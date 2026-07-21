@@ -256,6 +256,9 @@ func ValidateAgentCoderBackend(def AgentDefinition) error {
 		if len(def.Project.PromptFiles) > 0 {
 			return fmt.Errorf("projectConfig.promptFiles is not supported for ACP CODER")
 		}
+		if len(def.Tools) > 0 {
+			return fmt.Errorf("toolConfig.tools is not supported for ACP CODER; ACP bridges do not execute platform tools")
+		}
 		return nil
 	}
 	return nil
@@ -328,7 +331,7 @@ func AgentUsesACPCoderBackend(def AgentDefinition) bool {
 }
 
 func applyAgentModeProfileDefaults(def AgentDefinition) AgentDefinition {
-	profile, ok := agentModeProfileFor(def.Mode)
+	profile, ok := agentModeProfileFor(def.Mode, def.ACPBridgeID)
 	if !ok {
 		return def
 	}
@@ -355,9 +358,8 @@ func agentIconEmpty(value any) bool {
 	return ok && strings.TrimSpace(text) == ""
 }
 
-func agentModeProfileFor(mode string) (agentcontract.ModeProfile, bool) {
-	descriptor, ok := agentbuiltin.Lookup(mode)
-	return descriptor.Profile, ok
+func agentModeProfileFor(mode string, acpBridgeID string) (agentcontract.ModeProfile, bool) {
+	return agentbuiltin.ProfileForAgent(mode, acpBridgeID)
 }
 
 func cloneAgentProfileMap(src map[string]any) map[string]any {

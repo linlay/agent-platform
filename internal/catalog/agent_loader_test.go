@@ -828,6 +828,8 @@ func TestParseAgentFileSupportsACPCoderBridgeID(t *testing.T) {
 	content := "" +
 		"key: coder\n" +
 		"mode: CODER\n" +
+		"toolConfig:\n" +
+		"  tools: []\n" +
 		"runtimeConfig:\n" +
 		"  acpBridgeId: codex\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
@@ -850,6 +852,9 @@ func TestParseAgentFileSupportsACPCoderBridgeID(t *testing.T) {
 	}
 	if !AgentUsesACPCoderBackend(def) {
 		t.Fatalf("expected ACP CODER backend")
+	}
+	if len(def.Tools) != 0 {
+		t.Fatalf("ACP CODER tools=%#v, want no platform tools", def.Tools)
 	}
 	if def.Project.Git.ExpectedBranch != "main" {
 		t.Fatalf("expected branch = %q, want main", def.Project.Git.ExpectedBranch)
@@ -894,6 +899,25 @@ func TestParseAgentFileRejectsACPCoderProxyConfig(t *testing.T) {
 	_, err := parseAgentFile(path)
 	if err == nil || !strings.Contains(err.Error(), "proxyConfig is not supported") {
 		t.Fatalf("expected ACP CODER proxyConfig rejection, got %v", err)
+	}
+}
+
+func TestParseAgentFileRejectsACPCoderPlatformTools(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent.yml")
+	content := "" +
+		"key: coder\n" +
+		"mode: CODER\n" +
+		"runtimeConfig:\n" +
+		"  acpBridgeId: codex\n" +
+		"toolConfig:\n" +
+		"  tools: [artifact_publish]\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	_, err := parseAgentFile(path)
+	if err == nil || !strings.Contains(err.Error(), "toolConfig.tools is not supported for ACP CODER") {
+		t.Fatalf("expected ACP CODER tools rejection, got %v", err)
 	}
 }
 
@@ -955,7 +979,7 @@ func TestParseAgentFileAppliesCoderProfileDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	wantTools := []string{"bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex", "vision_recognize", "plan_add_tasks", "plan_get_tasks", "plan_update_task"}
+	wantTools := []string{"bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex", "vision_recognize", "artifact_publish", "plan_add_tasks", "plan_get_tasks", "plan_update_task"}
 	if !reflect.DeepEqual(def.Tools, wantTools) {
 		t.Fatalf("tools = %#v, want %#v", def.Tools, wantTools)
 	}

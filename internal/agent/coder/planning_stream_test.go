@@ -46,6 +46,7 @@ func TestCoderPlanningStageToolsAreReadOnlyPlusVisionQuestionsAndFinalizePlannin
 		"bash":             {},
 		"file_write":       {},
 		"file_edit":        {},
+		"artifact_publish": {},
 		"plan_add_tasks":   {},
 		"plan_get_tasks":   {},
 		"plan_update_task": {},
@@ -60,10 +61,10 @@ func TestCoderPlanningStageToolsAreReadOnlyPlusVisionQuestionsAndFinalizePlannin
 func TestCoderExecuteStageToolsIncludePlanTaskTools(t *testing.T) {
 	stream := &coderPlanningStream{
 		session: contracts.QuerySession{
-			ToolNames: []string{"bash", "file_read", "plan_add_tasks", contracts.FinalizePlanningToolName, "ask_user_question", "plan_update_task", "datetime"},
+			ToolNames: []string{"bash", "file_read", "artifact_publish", "plan_add_tasks", contracts.FinalizePlanningToolName, "ask_user_question", "plan_update_task", "datetime"},
 		},
 	}
-	want := []string{"bash", "file_read", "plan_add_tasks", "plan_update_task", "datetime", "plan_get_tasks"}
+	want := []string{"bash", "file_read", "artifact_publish", "plan_add_tasks", "plan_update_task", "datetime", "plan_get_tasks"}
 	if got := stream.executeStageTools(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("executeStageTools()=%#v want %#v", got, want)
 	}
