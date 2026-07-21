@@ -6,6 +6,7 @@ import (
 	agentcontract "agent-platform/internal/agent"
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
+	corekbase "agent-platform/internal/kbase"
 )
 
 const (
@@ -15,12 +16,12 @@ const (
 	CreatePrefix    = "kbase"
 	DefaultIconName = "kbase"
 
-	ToolSearch   = "kbase_search"
-	ToolFiles    = "kbase_files"
-	ToolRead     = "kbase_read"
-	ToolStatus   = "kbase_status"
-	ToolRefresh  = "kbase_refresh"
-	ToolDatetime = "datetime"
+	ToolSearch   = corekbase.ToolSearch
+	ToolFiles    = corekbase.ToolFiles
+	ToolRead     = corekbase.ToolRead
+	ToolStatus   = corekbase.ToolStatus
+	ToolRefresh  = corekbase.ToolRefresh
+	ToolDatetime = corekbase.ToolDatetime
 )
 
 const DefaultSystemPrompt = `KBASE Mode
@@ -34,15 +35,6 @@ Rules:
 - Use kbase_read when a search result needs more surrounding context.
 - Do not claim that unindexed or missing files were searched.`
 
-var defaultToolNames = []string{
-	ToolSearch,
-	ToolFiles,
-	ToolRead,
-	ToolStatus,
-	ToolRefresh,
-	ToolDatetime,
-}
-
 var defaultContextTags = []string{"system", "session"}
 
 var defaultBudget = map[string]any{
@@ -54,7 +46,7 @@ var defaultBudget = map[string]any{
 }
 
 func DefaultToolNames() []string {
-	return append([]string(nil), defaultToolNames...)
+	return corekbase.DefaultToolNames()
 }
 
 func DefaultContextTags() []string {
@@ -131,25 +123,11 @@ func RenderSystemPrompt(session contracts.QuerySession, req api.QueryRequest, to
 }
 
 func IsTool(name string) bool {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case ToolSearch, ToolFiles, ToolRead, ToolStatus, ToolRefresh, ToolDatetime:
-		return true
-	default:
-		return false
-	}
+	return corekbase.IsTool(name)
 }
 
 func FilterTools(tools []string) []string {
-	if len(tools) == 0 {
-		return nil
-	}
-	filtered := make([]string, 0, len(tools))
-	for _, tool := range tools {
-		if IsTool(tool) {
-			filtered = append(filtered, tool)
-		}
-	}
-	return filtered
+	return corekbase.FilterTools(tools)
 }
 
 // BoundaryPolicy is the KBASE-owned runtime boundary consumed by catalog's

@@ -12,6 +12,7 @@ import (
 	agentkbase "agent-platform/internal/agent/kbase"
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/deprecation"
+	"agent-platform/internal/kbase"
 )
 
 const AgentModeCoder = agentcoder.Mode
@@ -232,7 +233,7 @@ func validateAgentWorkspace(workspace AgentWorkspaceConfig) error {
 
 func validateAgentModeWorkspace(mode string, workspace AgentWorkspaceConfig, hasRuntimeSandbox bool) error {
 	if strings.EqualFold(strings.TrimSpace(mode), AgentModeKBase) {
-		return agentkbase.ValidateWorkspace(workspace.Root)
+		return kbase.ValidateWorkspace(workspace.Root)
 	}
 	return nil
 }

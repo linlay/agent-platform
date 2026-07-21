@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strings"
 
-	"agent-platform/internal/agent/kbase"
 	"agent-platform/internal/api"
+	"agent-platform/internal/kbase"
 	"agent-platform/internal/timecontract"
 )
 

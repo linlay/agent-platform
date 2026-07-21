@@ -9,10 +9,10 @@ import (
 	"strings"
 	"sync"
 
-	agentkbase "agent-platform/internal/agent/kbase"
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/kbase"
 )
 
 var ErrInvalidAgentSummaryScope = errors.New("invalid agent summary scope")
@@ -57,7 +57,7 @@ type AgentDefinition struct {
 	HostAccess       AgentHostAccessConfig
 	Workspace        AgentWorkspaceConfig
 	Project          AgentProjectConfig
-	KBaseConfig      agentkbase.AgentConfig
+	KBaseConfig      kbase.AgentConfig
 	ContextTags      []string
 	ContextAgents    []string
 	Budget           map[string]any

@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"agent-platform/internal/agent/kbase"
 	"agent-platform/internal/api"
 	"agent-platform/internal/artifactpusher"
 	"agent-platform/internal/automation"
@@ -22,6 +21,7 @@ import (
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/frontendtools"
 	"agent-platform/internal/gateway"
+	"agent-platform/internal/kbase"
 	"agent-platform/internal/llm"
 	"agent-platform/internal/lsp"
 	"agent-platform/internal/mcp"

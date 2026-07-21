@@ -19,6 +19,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/kbase"
 	"agent-platform/internal/ws"
 )
 
@@ -298,7 +299,7 @@ func validateCreateAgentDefinition(definition map[string]any) error {
 	if mode != catalog.AgentModeKBase {
 		return nil
 	}
-	return agentkbase.ValidateAgentConfigSchema(contracts.AnyMapNode(definition["kbaseConfig"]))
+	return kbase.ValidateAgentConfigSchema(contracts.AnyMapNode(definition["kbaseConfig"]))
 }
 
 func agentDefinitionToolNames(definition map[string]any) []string {

@@ -11,6 +11,7 @@ import (
 	agentkbase "agent-platform/internal/agent/kbase"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/kbase"
 )
 
 func resolveDirectoryAgentConfig(dirPath string) string {
@@ -674,7 +675,7 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 	}
 	def.Project = parseAgentProjectConfig(root["projectConfig"])
 	kbaseConfig := mapNode(root["kbaseConfig"])
-	def.KBaseConfig, err = agentkbase.ParseAgentConfig(kbaseConfig)
+	def.KBaseConfig, err = kbase.ParseAgentConfig(kbaseConfig)
 	if err != nil {
 		return AgentDefinition{}, nil, err
 	}
@@ -695,7 +696,7 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 		return AgentDefinition{}, nil, err
 	}
 	if strings.EqualFold(def.Mode, AgentModeKBase) {
-		if err := agentkbase.ValidateAgentConfig(def.KBaseConfig); err != nil {
+		if err := kbase.ValidateAgentConfig(def.KBaseConfig); err != nil {
 			return AgentDefinition{}, nil, err
 		}
 	}

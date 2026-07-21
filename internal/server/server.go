@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"sync"
 
-	"agent-platform/internal/agent/kbase"
 	"agent-platform/internal/api"
 	"agent-platform/internal/automation"
 	"agent-platform/internal/catalog"
@@ -17,6 +16,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/frontendtools"
+	"agent-platform/internal/kbase"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
 	"agent-platform/internal/skills"

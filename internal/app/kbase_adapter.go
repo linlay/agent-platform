@@ -3,9 +3,9 @@ package app
 import (
 	"strings"
 
-	"agent-platform/internal/agent/kbase"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
+	"agent-platform/internal/kbase"
 )
 
 // kbaseCatalogSource is the app-owned mapping from the broad catalog into the

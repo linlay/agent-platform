@@ -99,7 +99,7 @@ func (h *ToolHandler) invokeSearch(ctx context.Context, agentKey string, args ma
 			publicationQuery = query
 		}
 		toolResult.SourcePublication = &contracts.SourcePublication{
-			Kind:    MainStage,
+			Kind:    SourceKind,
 			Query:   publicationQuery,
 			Sources: sources,
 		}
@@ -305,7 +305,7 @@ func searchHitSources(hits []SearchHit) []stream.Source {
 				title = hit.Heading
 			}
 			sources = append(sources, stream.Source{
-				ID:             MainStage + ":" + key,
+				ID:             SourceKind + ":" + key,
 				Name:           name,
 				Title:          title,
 				Icon:           DefaultIconName,

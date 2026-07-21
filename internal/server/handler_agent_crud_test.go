@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	agentkbase "agent-platform/internal/agent/kbase"
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
+	"agent-platform/internal/kbase"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
@@ -470,7 +470,7 @@ func TestAgentCreateKBaseAppliesDefaultModelConfig(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected created kbase agent in registry")
 	}
-	if def.KBaseConfig.Chunk.Unit != agentkbase.ChunkUnitEstimatedTokens ||
+	if def.KBaseConfig.Chunk.Unit != kbase.ChunkUnitEstimatedTokens ||
 		def.KBaseConfig.Chunk.MaxTokens != 1000 ||
 		def.KBaseConfig.Chunk.OverlapTokens != 100 {
 		t.Fatalf("expected created kbase to use estimated token chunk defaults, got %#v", def.KBaseConfig.Chunk)
@@ -549,7 +549,7 @@ func TestAgentCreateKBasePreservesExplicitModelAndEmbeddingConfig(t *testing.T) 
 	if !ok {
 		t.Fatalf("expected created kbase agent in registry")
 	}
-	if def.KBaseConfig.Chunk.Unit != agentkbase.ChunkUnitEstimatedTokens ||
+	if def.KBaseConfig.Chunk.Unit != kbase.ChunkUnitEstimatedTokens ||
 		def.KBaseConfig.Chunk.MaxTokens != 1200 ||
 		def.KBaseConfig.Chunk.OverlapTokens != 120 {
 		t.Fatalf("expected explicit per-agent token chunk config, got %#v", def.KBaseConfig.Chunk)

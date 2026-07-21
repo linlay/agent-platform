@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"agent-platform/internal/agent/kbase"
+	"agent-platform/internal/kbase"
 	"agent-platform/internal/models"
 )
 

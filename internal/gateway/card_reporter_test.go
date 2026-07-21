@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"agent-platform/internal/agent/kbase"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
+	"agent-platform/internal/kbase"
 	toolcatalog "agent-platform/internal/tools"
 	"agent-platform/internal/ws"
 

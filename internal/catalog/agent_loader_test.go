@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	agentkbase "agent-platform/internal/agent/kbase"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/kbase"
 )
 
 func parseAgentFileWithPromptsForTest(path string, agentDir string) (AgentDefinition, error) {
@@ -1105,12 +1105,12 @@ func TestParseAgentFileKBaseDefaultsAndConfig(t *testing.T) {
 	if def.KBaseConfig.Embedding.ModelKey != "openai-embedding" || def.KBaseConfig.Storage.Location != "workspace" {
 		t.Fatalf("unexpected kbase config: %#v", def.KBaseConfig)
 	}
-	if def.KBaseConfig.Chunk.Unit != agentkbase.ChunkUnitChars ||
+	if def.KBaseConfig.Chunk.Unit != kbase.ChunkUnitChars ||
 		def.KBaseConfig.Chunk.MaxChars != 2000 ||
 		def.KBaseConfig.Chunk.OverlapChars != 100 {
 		t.Fatalf("unexpected chunk config: %#v", def.KBaseConfig.Chunk)
 	}
-	if def.KBaseConfig.Retrieval.TopK != 3 || def.KBaseConfig.Retrieval.Fusion != agentkbase.RetrievalFusionRRF ||
+	if def.KBaseConfig.Retrieval.TopK != 3 || def.KBaseConfig.Retrieval.Fusion != kbase.RetrievalFusionRRF ||
 		def.KBaseConfig.Retrieval.RRFK != 48 || def.KBaseConfig.Retrieval.VectorWeight != 0.6 ||
 		def.KBaseConfig.Retrieval.FTSWeight != 0.4 || def.KBaseConfig.Retrieval.CandidateFloor != 20 ||
 		def.KBaseConfig.Retrieval.CandidateMultiplier != 5 || def.KBaseConfig.Retrieval.CandidateMax != 200 {
@@ -1162,7 +1162,7 @@ func TestParseAgentFileKBaseDefaultChunkUsesEstimatedTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if def.KBaseConfig.Chunk.Unit != agentkbase.ChunkUnitEstimatedTokens ||
+	if def.KBaseConfig.Chunk.Unit != kbase.ChunkUnitEstimatedTokens ||
 		def.KBaseConfig.Chunk.MaxTokens != 1000 ||
 		def.KBaseConfig.Chunk.OverlapTokens != 100 ||
 		def.KBaseConfig.Chunk.MaxChars != 0 ||
@@ -1195,7 +1195,7 @@ func TestParseAgentFileKBaseTokenChunkConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if def.KBaseConfig.Chunk.Unit != agentkbase.ChunkUnitEstimatedTokens ||
+	if def.KBaseConfig.Chunk.Unit != kbase.ChunkUnitEstimatedTokens ||
 		def.KBaseConfig.Chunk.MaxTokens != 1200 ||
 		def.KBaseConfig.Chunk.OverlapTokens != 120 {
 		t.Fatalf("unexpected token chunk config: %#v", def.KBaseConfig.Chunk)
