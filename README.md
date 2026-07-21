@@ -333,7 +333,9 @@ npm run sync:assets
 
 完整打包细节见 [版本化打包方案](./docs/版本化打包方案.md)。
 
-KBASE 固定使用 LanceDB generation 检索；SQLite `control.db` 只保存 generation、文件状态、refresh run 和恢复日志，不保存检索数据。SQLite runtime store 仅支持当前 schema：启动时仅会认领标记为 `application_id=0,user_version=0` 且完整结构匹配的库，其余库不会被迁移或改写。chat/archive/memory 不匹配会阻止启动；KBASE 不匹配只会隔离该 Agent，并保留管理端诊断。详见 [KBASE LanceDB 检索与控制面](./docs/KBASE-LanceDB迁移.md)。当前 KBASE 仍只生成文本 chunk 与文本 embedding，不宣称具备图片、音频或视频语义检索。
+KBASE 已下沉为可组合的 Agent 公共能力：`mode: KBASE` 仍是强制启用、严格工具边界的专用预设，`REACT`、`PLAN-EXECUTE` 和原生非 ACP `CODER` 也可以通过 `kbaseConfig.enabled: true` 挂载同一套索引、watcher、检索和引用能力。目录式 Agent 可将 `kbaseConfig.source.root` 写成相对 `agent.yml` 的路径，适合把可迁移文档放在 Agent 自身的 `knowledge/` 中；平铺 Agent 必须使用绝对路径或 `~/...`。完整配置和兼容矩阵见 [智能体配置说明](./docs/智能体配置说明.md)。
+
+KBASE 固定使用 LanceDB generation 检索；SQLite `control.db` 只保存 generation、文件状态、refresh run 和恢复日志，不保存检索数据。SQLite runtime store 仅支持当前 schema：启动时仅会认领标记为 `application_id=0,user_version=0` 且完整结构匹配的库，其余库不会被迁移或改写。专用 `mode: KBASE` 的存储不匹配会隔离该 Agent；普通 Agent 的附加知识库会保留 Agent 可运行并把能力标为 degraded。详见 [KBASE LanceDB 检索与控制面](./docs/KBASE-LanceDB迁移.md)。当前 KBASE 仍只生成文本 chunk 与文本 embedding，不宣称具备图片、音频或视频语义检索。
 
 ## 5. 运维
 

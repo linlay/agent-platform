@@ -336,9 +336,9 @@ HITL 三态细节见 [HITL协议](HITL协议.md)。真流式、heartbeat、attac
 
 ### KBASE
 
-KBASE API 只接受 `mode: KBASE` agent；非 KBASE agent 会返回 forbidden/unsupported。手工 refresh 与运行时工具 `kbase_refresh` 调用同一个后端入口。KBASE 的 search/files/read/status 工具声明为只读，BTW/read-only policy 下仍可使用；refresh 是变更索引状态的操作，在只读 policy 下禁用。五个 KBASE tool 名称、REST 路径、`SearchHit`、chunk ID 和 `source.publish` 契约固定由 LanceDB 路径提供。agent catalog 热重载完成后会立即重绑相应 workspace watcher；agent 删除或 workspace/config 变化不会继续沿用旧 watcher，周期 reconcile 仅作为兜底。
+KBASE API 接受所有 `kbaseConfig.enabled: true` 的 Agent，包括专用 `mode: KBASE` 和挂载公共 capability 的普通 Agent；存在但未启用的 Agent 返回 `403`（capability disabled），未知 Agent 返回 `404`。手工 refresh 与运行时工具 `kbase_refresh` 调用同一个后端入口。KBASE 的 search/files/read/status 工具声明为只读，BTW/read-only policy 下仍可使用；refresh 是变更索引状态的操作，在只读 policy 下禁用。五个 KBASE tool 名称、REST 路径、`SearchHit`、chunk ID 和 `source.publish` 契约固定由 LanceDB 路径提供。agent catalog 热重载完成后会立即重绑所有 enabled source watcher；Agent 删除、禁用或 source/config 变化不会继续沿用旧 watcher，周期 reconcile 仅作为兜底。
 
-KBASE agent 在运行时调用 `kbase_search` 且召回到内容时，会额外通过 live stream 发布 `source.publish` 事件。事件包含 `kind: "kbase"`、`query`、`sourceCount`、`chunkCount` 与按 source 聚合的 `sources[].chunks[]`，chunk 可携带 `path`、行号、页码、slide、`sourceType`、`matchType`、`score` 等定位字段；chat JSONL 会把该事件作为对应 `react-tool` step 的顶层 `sources.items[]` sidecar 持久化，`/api/chat` replay 时再合成 `source.publish` 事件并保留原始 `liveSeq`，供时间线与 `/api/attach.lastSeq` 使用。当前 `_type:"event"` 的 `source.publish` 也保持可回放。
+启用 KBASE capability 的 Agent 在运行时调用 `kbase_search` 且召回到内容时，会额外通过 live stream 发布 `source.publish` 事件。事件包含 `kind: "kbase"`、`query`、`sourceCount`、`chunkCount` 与按 source 聚合的 `sources[].chunks[]`，chunk 可携带 `path`、行号、页码、slide、`sourceType`、`matchType`、`score` 等定位字段；chat JSONL 会把该事件作为对应 `react-tool` step 的顶层 `sources.items[]` sidecar 持久化，`/api/chat` replay 时再合成 `source.publish` 事件并保留原始 `liveSeq`，供时间线与 `/api/attach.lastSeq` 使用。当前 `_type:"event"` 的 `source.publish` 也保持可回放。
 
 `artifact_publish` 仅在整个批次文件物化且 `<chatId>/.tools/artifacts.json` 原子写入成功后发布 `artifact.publish`。事件包含 `chatId`、`runId`、`toolId`、`artifactCount`、`artifacts`，子任务有明确归属时额外包含 `taskId`。JSONL 的对应 `react-tool.artifacts.items[]` 只是该次调用的审计记录；`GET /api/chat` 的 `data.artifact = { items: [...] }` 只从 manifest 恢复。
 
@@ -346,13 +346,16 @@ KBASE 工具只读取 active 索引库，不直接访问宿主文件系统。`kb
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
-| GET | `/api/kbase/{agentKey}/status` | 无 | 当前 Lance 索引状态；包含 `engine/schemaVersion/generation/indexes/sidecar/pendingRecoveryOperations/pendingChanges/storageDiskUsage`；FTS/vector index 状态包含未索引行数 |
+| GET | `/api/kbase/{agentKey}/status` | 无 | 当前 Lance 索引状态；`sourceRoot` 是最终 knowledge source，`workspaceRoot` 为兼容别名；包含 `degraded/error/engine/schemaVersion/generation/indexes/sidecar/pendingRecoveryOperations/pendingChanges/storageDiskUsage`；FTS/vector index 状态包含未索引行数 |
 | POST | `/api/kbase/{agentKey}/refresh` | body: `force` 可选 | 手工 refresh 始终做完整文件对账；结果在原字段外增加 `scope/candidatePaths/newFiles/modifiedFiles/metadataOnlyFiles/unchangedFiles/embeddedChunks/reusedChunks/pendingChanges`；`force=true` 构建新 generation |
 
 status 中 Lance 字段是可选扩展，旧客户端可忽略：
 
 ```json
 {
+  "sourceRoot": "/absolute/docs",
+  "workspaceRoot": "/absolute/docs",
+  "stale": false,
   "engine": "lancedb",
   "schemaVersion": "4",
   "generation": {
@@ -381,7 +384,7 @@ status 中 Lance 字段是可选扩展，旧客户端可忽略：
 
 KBASE 固定使用 LanceDB；没有 active generation 时 status/search 均标记 stale，search 会触发 refresh。sidecar 不可用时显式返回 unavailable，绝不回退 SQLite。generation 构建、建索引或验证失败时 active generation 不会被替换。watcher 的 change-set 路径不会通过 REST/tool 暴露，外部普通 refresh 仍是完整对账。当前没有新增公开的 generation rollback REST 路由，Lance generation 原子回滚能力保留在 KBASE Manager 内部。
 
-容器与本地进程探活使用免鉴权 `GET /healthz`。它不返回用户数据：始终检查 Go HTTP runtime；存在 KBASE agent 时，还通过 Go 内部持有的 Bearer token 检查 sidecar protocol handshake。sidecar 必需但不可用时返回 HTTP 503。
+容器与本地进程探活使用免鉴权 `GET /healthz`。它不返回用户数据：始终检查 Go HTTP runtime；存在 enabled KBASE capability 时，还通过 Go 内部持有的 Bearer token 检查 sidecar protocol handshake。至少一个专用 `mode: KBASE` 将 sidecar 标为 required，不可用时返回 HTTP 503；只有普通 Agent optional capability 时仍返回 HTTP 200，并在 `data.kbase` 中报告 `degraded` 与错误。
 
 refresh 示例：
 
