@@ -212,7 +212,7 @@ func deltaTestConfig(root string) resolvedConfig {
 	return resolvedConfig{
 		AgentKey: "docs", WorkspaceRoot: root, StorageDir: filepath.Join(root, ".storage"), Storage: "runtime",
 		Embedding: EmbeddingSnapshot{Model: "embedding-test", Dimension: 2}, Include: []string{"**/*.md", "**/*.txt"},
-		Chunk: DefaultChunkConfig(), Retrieval: DefaultAgentConfig().Retrieval,
+		Chunk: DefaultChunkConfig(), Retrieval: DefaultConfig().Retrieval,
 		Extraction: ExtractionConfig{Timeout: time.Minute, MaxFileBytes: defaultMaxFileBytes}, FTSTokenizer: defaultFTSTokenizer,
 	}
 }

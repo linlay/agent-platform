@@ -17,11 +17,20 @@ const (
 	maxFilesTreeDepth     = 8
 )
 
-func (m *Manager) Files(agentKey string, options FilesOptions) (FilesResult, error) {
-	if err := m.capabilityDegradedError(agentKey); err != nil {
+type fileService struct {
+	resolver *capabilityResolver
+	state    *capabilityState
+}
+
+func newFileService(resolver *capabilityResolver, state *capabilityState) *fileService {
+	return &fileService{resolver: resolver, state: state}
+}
+
+func (s *fileService) Files(agentKey string, options FilesOptions) (FilesResult, error) {
+	if err := s.state.DegradedError(agentKey); err != nil {
 		return FilesResult{}, err
 	}
-	cfg, _, err := m.resolve(agentKey)
+	cfg, _, err := s.resolver.Resolve(agentKey)
 	if err != nil {
 		return FilesResult{}, err
 	}

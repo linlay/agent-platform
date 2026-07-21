@@ -299,7 +299,7 @@ func validateCreateAgentDefinition(definition map[string]any) error {
 	if mode != catalog.AgentModeKBase {
 		return nil
 	}
-	return kbase.ValidateAgentConfigSchema(contracts.AnyMapNode(definition["kbaseConfig"]))
+	return kbase.ValidateConfigSchema(contracts.AnyMapNode(definition["kbaseConfig"]))
 }
 
 func agentDefinitionToolNames(definition map[string]any) []string {

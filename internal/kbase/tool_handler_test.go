@@ -59,7 +59,7 @@ func TestToolHandlerValidatesContextAndSearchQuery(t *testing.T) {
 	}{
 		{name: "manager missing", handler: NewToolHandler(nil), execCtx: kbaseToolExecutionContext(), args: map[string]any{"query": "x"}, want: "kbase_not_configured"},
 		{name: "context missing", handler: NewToolHandler(&stubToolService{}), args: map[string]any{"query": "x"}, want: "kbase_context_required"},
-		{name: "disabled capability", handler: NewToolHandler(&stubToolService{}), execCtx: &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "docs", Mode: "REACT"}}, args: map[string]any{"query": "x"}, want: "kbase_capability_disabled"},
+		{name: "missing capability", handler: NewToolHandler(&stubToolService{}), execCtx: &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "docs", Mode: "REACT"}}, args: map[string]any{"query": "x"}, want: "kbase_agent_not_found"},
 		{name: "query missing", handler: NewToolHandler(&stubToolService{}), execCtx: kbaseToolExecutionContext(), args: map[string]any{"query": "  "}, want: "missing_query"},
 	}
 	for _, tc := range cases {

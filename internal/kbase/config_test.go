@@ -12,8 +12,8 @@ import (
 	"time"
 )
 
-func TestParseAgentConfigDefaultsAndCanonicalFields(t *testing.T) {
-	defaults, err := ParseAgentConfig(nil)
+func TestParseConfigDefaultsAndCanonicalFields(t *testing.T) {
+	defaults, err := ParseConfig(nil)
 	if err != nil {
 		t.Fatalf("parse defaults: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestParseAgentConfigDefaultsAndCanonicalFields(t *testing.T) {
 		t.Fatalf("unexpected default scope: %#v", defaults)
 	}
 
-	canonical, err := ParseAgentConfig(map[string]any{
+	canonical, err := ParseConfig(map[string]any{
 		"chunk": map[string]any{"unit": "chars", "maxChars": 3200, "overlapChars": 320},
 		"retrieval": map[string]any{
 			"topK":                12,
@@ -66,18 +66,18 @@ func TestParseAgentConfigDefaultsAndCanonicalFields(t *testing.T) {
 		{"chunk": map[string]any{"unit": "characters", "maxChars": 3200}},
 		{"chunk": map[string]any{"unit": "runes", "maxChars": 3200}},
 	} {
-		if _, err := ParseAgentConfig(legacy); err == nil {
+		if _, err := ParseConfig(legacy); err == nil {
 			t.Fatalf("legacy config must fail: %#v", legacy)
 		}
 	}
 	for _, key := range []string{"top-k", "rrf-k", "vector-weight", "fts-weight", "candidate-floor", "candidate-multiplier", "candidate-max"} {
-		if _, err := ParseAgentConfig(map[string]any{"retrieval": map[string]any{key: 1}}); err == nil {
+		if _, err := ParseConfig(map[string]any{"retrieval": map[string]any{key: 1}}); err == nil {
 			t.Fatalf("kebab-case retrieval key %q must fail", key)
 		}
 	}
 }
 
-func TestValidateAgentRetrievalConfig(t *testing.T) {
+func TestValidateRetrievalConfig(t *testing.T) {
 	tests := []struct {
 		name   string
 		mutate func(*RetrievalConfig)
@@ -96,31 +96,31 @@ func TestValidateAgentRetrievalConfig(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			cfg := DefaultAgentConfig()
+			cfg := DefaultConfig()
 			test.mutate(&cfg.Retrieval)
-			if err := ValidateAgentConfig(cfg); err == nil {
+			if err := ValidateConfig(cfg); err == nil {
 				t.Fatalf("expected invalid retrieval config: %#v", cfg.Retrieval)
 			}
 		})
 	}
 
-	valid := DefaultAgentConfig()
+	valid := DefaultConfig()
 	valid.Retrieval.VectorWeight = 0
-	if err := ValidateAgentConfig(valid); err != nil {
+	if err := ValidateConfig(valid); err != nil {
 		t.Fatalf("one zero weight must remain valid: %v", err)
 	}
 }
 
-func TestValidateAgentConfigSchemaRejectsRemovedEmbeddingFields(t *testing.T) {
+func TestValidateConfigSchemaRejectsRemovedEmbeddingFields(t *testing.T) {
 	for _, key := range []string{"providerKey", "model", "dimension", "timeout"} {
-		_, err := ParseAgentConfig(map[string]any{
+		_, err := ParseConfig(map[string]any{
 			"embedding": map[string]any{key: "legacy"},
 		})
 		if err == nil {
 			t.Fatalf("expected removed embedding field %q to fail", key)
 		}
 	}
-	if _, err := ParseAgentConfig(map[string]any{"chunk": map[string]any{"unit": "bytes"}}); err == nil {
+	if _, err := ParseConfig(map[string]any{"chunk": map[string]any{"unit": "bytes"}}); err == nil {
 		t.Fatal("expected invalid chunk unit to fail")
 	}
 	for key, value := range map[string]any{
@@ -129,14 +129,14 @@ func TestValidateAgentConfigSchemaRejectsRemovedEmbeddingFields(t *testing.T) {
 		"vectorWeight": "NaN",
 		"ftsWeight":    "invalid",
 	} {
-		if _, err := ParseAgentConfig(map[string]any{"retrieval": map[string]any{key: value}}); err == nil {
+		if _, err := ParseConfig(map[string]any{"retrieval": map[string]any{key: value}}); err == nil {
 			t.Fatalf("expected invalid retrieval field %q to fail", key)
 		}
 	}
 }
 
-func TestParseAgentConfigReadsPublicTags(t *testing.T) {
-	cfg, err := ParseAgentConfig(map[string]any{
+func TestParseConfigReadsPublicTags(t *testing.T) {
+	cfg, err := ParseConfig(map[string]any{
 		"tags": []any{"售后", "退款"},
 	})
 	if err != nil {
@@ -145,7 +145,7 @@ func TestParseAgentConfigReadsPublicTags(t *testing.T) {
 	if strings.Join(cfg.Tags, ",") != "售后,退款" {
 		t.Fatalf("unexpected tags %#v", cfg.Tags)
 	}
-	if _, err := ParseAgentConfig(map[string]any{"tags": []any{"售后", 42}}); err == nil {
+	if _, err := ParseConfig(map[string]any{"tags": []any{"售后", 42}}); err == nil {
 		t.Fatal("expected non-string public tag to fail")
 	}
 }
@@ -167,7 +167,7 @@ func TestComputeIndexHashGolden(t *testing.T) {
 		Include:   DefaultIncludePatterns(),
 		Exclude:   DefaultExcludePatterns(),
 		Chunk:     DefaultChunkConfig(),
-		Retrieval: DefaultAgentConfig().Retrieval,
+		Retrieval: DefaultConfig().Retrieval,
 		Extraction: ExtractionConfig{
 			Timeout:      time.Minute,
 			MaxFileBytes: 50 * 1024 * 1024,
@@ -199,9 +199,9 @@ func TestReconcileWatchersRebindsChangedAgentAndStopsDeletedAgent(t *testing.T) 
 	defer cancel()
 
 	manager.ReconcileWatchers(ctx)
-	manager.mu.Lock()
-	first := manager.watchers["docs"]
-	manager.mu.Unlock()
+	manager.watchers.mu.Lock()
+	first := manager.watchers.bindings["docs"]
+	manager.watchers.mu.Unlock()
 	if first.watcher == nil || first.cancel == nil || first.signature == "" {
 		t.Fatalf("missing first watcher binding: %#v", first)
 	}
@@ -212,9 +212,9 @@ func TestReconcileWatchersRebindsChangedAgentAndStopsDeletedAgent(t *testing.T) 
 	reloadCtx, cancelReload := context.WithCancel(context.Background())
 	manager.ReconcileWatchers(reloadCtx)
 	cancelReload()
-	manager.mu.Lock()
-	second := manager.watchers["docs"]
-	manager.mu.Unlock()
+	manager.watchers.mu.Lock()
+	second := manager.watchers.bindings["docs"]
+	manager.watchers.mu.Unlock()
 	if second.watcher == nil || second.signature == first.signature {
 		t.Fatalf("watcher was not rebound: first=%#v second=%#v", first, second)
 	}
@@ -227,13 +227,43 @@ func TestReconcileWatchersRebindsChangedAgentAndStopsDeletedAgent(t *testing.T) 
 
 	delete(source.agents, "docs")
 	manager.ReconcileWatchers(context.Background())
-	manager.mu.Lock()
-	_, exists := manager.watchers["docs"]
-	manager.mu.Unlock()
+	manager.watchers.mu.Lock()
+	_, exists := manager.watchers.bindings["docs"]
+	manager.watchers.mu.Unlock()
 	if exists {
 		t.Fatal("deleted agent watcher remains registered")
 	}
 	waitDone(t, second.watcher.Done())
+}
+
+func TestWatcherSignatureTracksOnlyBindingInputs(t *testing.T) {
+	base := testKBaseAgent("docs", "/workspace/docs", "runtime")
+	baseSignature := watcherSignature(base)
+
+	unrelated := base
+	unrelated.Config.Enabled = false
+	unrelated.Config.Tags = []string{"changed"}
+	unrelated.Config.Embedding.ModelKey = "changed-embedding"
+	unrelated.Config.Include = append(unrelated.Config.Include, "**/*.rst")
+	unrelated.Config.Chunk.MaxTokens = 2000
+	unrelated.Config.Retrieval.TopK = 12
+	if got := watcherSignature(unrelated); got != baseSignature {
+		t.Fatalf("unrelated config changed watcher signature: got %q want %q", got, baseSignature)
+	}
+
+	for name, mutate := range map[string]func(*AgentSpec){
+		"source":  func(spec *AgentSpec) { spec.Config.Source.Root = "/workspace/other" },
+		"storage": func(spec *AgentSpec) { spec.Config.Storage.Location = "workspace" },
+		"exclude": func(spec *AgentSpec) { spec.Config.Exclude = append(spec.Config.Exclude, "private/**") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			changed := base
+			mutate(&changed)
+			if got := watcherSignature(changed); got == baseSignature {
+				t.Fatalf("%s change did not alter watcher signature", name)
+			}
+		})
+	}
 }
 
 func TestReconcileWatchersSerializesConcurrentCatalogReloads(t *testing.T) {
@@ -268,9 +298,9 @@ func TestReconcileWatchersSerializesConcurrentCatalogReloads(t *testing.T) {
 	if !ok {
 		t.Fatal("missing current source definition")
 	}
-	manager.mu.Lock()
-	binding := manager.watchers["docs"]
-	manager.mu.Unlock()
+	manager.watchers.mu.Lock()
+	binding := manager.watchers.bindings["docs"]
+	manager.watchers.mu.Unlock()
 	if binding.watcher == nil || binding.signature != watcherSignature(current) {
 		t.Fatalf("watcher does not match latest catalog snapshot: binding=%#v current=%#v", binding, current)
 	}

@@ -77,8 +77,6 @@ func kbaseErrorStatus(err error) int {
 		return http.StatusServiceUnavailable
 	case kbase.ErrorNotFound:
 		return http.StatusNotFound
-	case kbase.ErrorDisabled:
-		return http.StatusForbidden
 	default:
 		return http.StatusBadRequest
 	}
@@ -88,8 +86,6 @@ func kbaseErrorMessage(err error) string {
 	switch kbase.KindOf(err) {
 	case kbase.ErrorNotFound:
 		return "agent not found"
-	case kbase.ErrorDisabled:
-		return "agent does not enable the KBASE capability"
 	default:
 		return err.Error()
 	}

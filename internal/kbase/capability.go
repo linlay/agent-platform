@@ -23,10 +23,8 @@ type SourceConfig struct {
 // mode; the app adapter resolves mode policy before producing this value.
 type AgentSpec struct {
 	Key         string
-	Enabled     bool
-	SourceRoot  string
 	Requirement Requirement
-	Config      AgentConfig
+	Config      Config
 }
 
 func ResolveSourceRoot(raw string, agentDir string) (string, error) {

@@ -47,7 +47,7 @@ cmd/agent-platform/main.go
 - `internal/agent`：中立 mode 契约、公共 prompt 模板变量与 system-init spec；`internal/agent/builtin` 是 CODER/KBASE/TEAM 的静态分派点。
 - `internal/agent/coder`：CODER profile、prompt、planning、ACP/workspace 策略与创建默认策略。
 - `internal/agent/kbase`：专用 `mode: KBASE` 的 profile、prompt、system-init、创建默认值与严格工具/memory 边界。
-- `internal/kbase`：mode 中立的 KBASE 公共能力，维护配置与默认值、source 解析、索引、watcher、Lance retrieval、control store、generation/恢复、sidecar supervisor、公共 prompt、HTTP 业务错误与五个工具 handler；不得 import `internal/agent` 或 `internal/catalog`。
+- `internal/kbase`：mode 中立的 KBASE 公共能力；`Manager` 只作为公开门面和组件装配点，内部由 capability resolver/state、storage validator/auditor、watch/lifecycle supervisor、refresh coordinator、generation service、query/status/files service 与 Lance runtime 分别维护配置解析、存储契约、调度、索引/恢复、检索和 sidecar 生命周期。app adapter 只向 Manager 暴露 enabled capability，`AgentSpec` 以唯一的 `Config.Source.Root` 为知识源事实；未启用与不存在统一按 not found 处理。该包同时维护公共 prompt、HTTP 业务错误与五个工具 handler；不得 import `internal/agent` 或 `internal/catalog`。
 - `internal/agent/team`：内部 TEAM profile、硬编码调度规则、成员 roster prompt、session-local 隐藏工具与调度状态机；TEAM 不能配置成普通 agent。
 - `internal/server`：HTTP 路由、请求校验、响应包裹、SSE / WebSocket 协调。
 - `internal/llm`：模型协议、prompt 构建、run stream、HITL、planning、tool loop。

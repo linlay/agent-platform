@@ -33,13 +33,11 @@ func (s kbaseCatalogSource) Agent(key string) (kbase.AgentSpec, bool) {
 		return kbase.AgentSpec{}, false
 	}
 	definition, ok := s.registry.AgentDefinition(strings.TrimSpace(key))
-	if !ok {
+	if !ok || !definition.KBaseConfig.Enabled {
 		return kbase.AgentSpec{}, false
 	}
 	return kbase.AgentSpec{
 		Key:         definition.Key,
-		Enabled:     definition.KBaseConfig.Enabled,
-		SourceRoot:  definition.KBaseConfig.Source.Root,
 		Requirement: definition.KBaseRequirement,
 		Config:      definition.KBaseConfig,
 	}, true

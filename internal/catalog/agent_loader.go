@@ -680,7 +680,7 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 	}
 	def.Project = parseAgentProjectConfig(root["projectConfig"])
 	kbaseConfig := mapNode(root["kbaseConfig"])
-	def.KBaseConfig, err = kbase.ParseAgentConfig(kbaseConfig)
+	def.KBaseConfig, err = kbase.ParseConfig(kbaseConfig)
 	if err != nil {
 		return AgentDefinition{}, nil, err
 	}
@@ -707,7 +707,7 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 		return AgentDefinition{}, nil, err
 	}
 	if def.KBaseConfig.Enabled {
-		if err := kbase.ValidateAgentConfig(def.KBaseConfig); err != nil {
+		if err := kbase.ValidateConfig(def.KBaseConfig); err != nil {
 			return AgentDefinition{}, nil, err
 		}
 	}
@@ -952,15 +952,16 @@ func configureAgentKBaseCapability(def *AgentDefinition, raw map[string]any) err
 	}
 	isKBaseMode := strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeKBase)
 	legacyKBaseWorkspace := isKBaseMode && strings.TrimSpace(def.KBaseConfig.Source.Root) == ""
+	_, enabledSet := raw["enabled"]
 	if isKBaseMode {
-		if def.KBaseConfig.EnabledSet && !def.KBaseConfig.Enabled {
+		if enabledSet && !def.KBaseConfig.Enabled {
 			return fmt.Errorf("kbaseConfig.enabled cannot be false for mode: KBASE")
 		}
 		def.KBaseConfig.Enabled = true
 		def.KBaseRequirement = kbase.RequirementRequired
 	} else {
 		def.KBaseRequirement = kbase.RequirementOptional
-		if len(raw) > 0 && !def.KBaseConfig.EnabledSet {
+		if len(raw) > 0 && !enabledSet {
 			return fmt.Errorf("kbaseConfig.enabled must be explicitly configured for non-KBASE agents")
 		}
 		if def.KBaseConfig.Enabled {

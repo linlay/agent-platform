@@ -8,23 +8,31 @@ import (
 	"testing"
 )
 
-func TestParseAgentConfigCapabilityFields(t *testing.T) {
-	cfg, err := ParseAgentConfig(map[string]any{
+func TestParseConfigCapabilityFields(t *testing.T) {
+	implicit, err := ParseConfig(nil)
+	if err != nil {
+		t.Fatalf("parse implicit config: %v", err)
+	}
+	if implicit.Enabled {
+		t.Fatalf("implicit config must remain disabled: %#v", implicit)
+	}
+
+	cfg, err := ParseConfig(map[string]any{
 		"enabled": true,
 		"source":  map[string]any{"root": " ./knowledge "},
 	})
 	if err != nil {
 		t.Fatalf("parse capability config: %v", err)
 	}
-	if !cfg.Enabled || !cfg.EnabledSet || cfg.Source.Root != "./knowledge" {
+	if !cfg.Enabled || cfg.Source.Root != "./knowledge" {
 		t.Fatalf("unexpected capability fields: %#v", cfg)
 	}
 
-	disabled, err := ParseAgentConfig(map[string]any{"enabled": false})
+	disabled, err := ParseConfig(map[string]any{"enabled": false})
 	if err != nil {
 		t.Fatalf("parse disabled config: %v", err)
 	}
-	if disabled.Enabled || !disabled.EnabledSet {
+	if disabled.Enabled {
 		t.Fatalf("explicit false was not retained: %#v", disabled)
 	}
 
@@ -33,7 +41,7 @@ func TestParseAgentConfigCapabilityFields(t *testing.T) {
 		{"source": "./knowledge"},
 		{"source": map[string]any{"root": 42}},
 	} {
-		if _, err := ParseAgentConfig(raw); err == nil {
+		if _, err := ParseConfig(raw); err == nil {
 			t.Fatalf("invalid capability config accepted: %#v", raw)
 		}
 	}
@@ -65,34 +73,31 @@ func TestResolveSourceRootPolicy(t *testing.T) {
 	}
 }
 
-func TestManagerOnlyOwnsEnabledCapabilities(t *testing.T) {
+func TestManagerOwnsOnlyProvidedCapabilities(t *testing.T) {
 	root := t.TempDir()
 	enabledRoot := filepath.Join(root, "enabled")
-	disabledRoot := filepath.Join(root, "disabled")
-	for _, path := range []string{enabledRoot, disabledRoot} {
-		if err := os.MkdirAll(path, 0o755); err != nil {
-			t.Fatal(err)
-		}
+	if err := os.MkdirAll(enabledRoot, 0o755); err != nil {
+		t.Fatal(err)
 	}
 	enabled := testKBaseAgent("enabled", enabledRoot, "runtime")
 	enabled.Requirement = RequirementOptional
-	disabled := testKBaseAgent("disabled", disabledRoot, "runtime")
-	disabled.Enabled = false
-	source := &stubAgentSource{agents: map[string]AgentSpec{"enabled": enabled, "disabled": disabled}}
+	source := &stubAgentSource{agents: map[string]AgentSpec{"enabled": enabled}}
 	manager := NewManager(ManagerOptions{RuntimeDir: filepath.Join(root, "runtime")}, source, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	manager.ReconcileWatchers(ctx)
-	manager.mu.Lock()
-	_, enabledWatching := manager.watchers["enabled"]
-	_, disabledWatching := manager.watchers["disabled"]
-	manager.mu.Unlock()
+	manager.watchers.mu.Lock()
+	_, enabledWatching := manager.watchers.bindings["enabled"]
+	_, disabledWatching := manager.watchers.bindings["disabled"]
+	manager.watchers.mu.Unlock()
 	if !enabledWatching || disabledWatching {
 		t.Fatalf("watchers enabled=%v disabled=%v", enabledWatching, disabledWatching)
 	}
-	if err := manager.ValidateAgent("disabled"); KindOf(err) != ErrorDisabled {
-		t.Fatalf("disabled admission error = %v (%q)", err, KindOf(err))
+	for _, key := range []string{"disabled", "missing"} {
+		if err := manager.ValidateAgent(key); KindOf(err) != ErrorNotFound {
+			t.Fatalf("%s capability admission error = %v (%q)", key, err, KindOf(err))
+		}
 	}
 
 	probeCtx, probeCancel := context.WithCancel(context.Background())
@@ -130,7 +135,7 @@ func TestOptionalStartupStorageFailureReportsDegradedStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("optional degraded status: %v", err)
 	}
-	if !status.Degraded || !status.Stale || status.Error == "" || status.SourceRoot != spec.SourceRoot {
+	if !status.Degraded || !status.Stale || status.Error == "" || status.SourceRoot != spec.Config.Source.Root {
 		t.Fatalf("unexpected degraded status: %#v", status)
 	}
 	if _, err := manager.Search(context.Background(), "docs", "policy", SearchOptions{}); KindOf(err) != ErrorUnavailable {

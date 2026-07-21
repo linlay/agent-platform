@@ -19,8 +19,10 @@ func (s stubAgentSource) Agent(key string) (AgentSpec, bool) {
 
 func testKBaseAgent(key, workspace, storage string) AgentSpec {
 	return AgentSpec{
-		Key: key, Enabled: true, Requirement: RequirementRequired, SourceRoot: workspace,
-		Config: AgentConfig{
+		Key: key, Requirement: RequirementRequired,
+		Config: Config{
+			Enabled:   true,
+			Source:    SourceConfig{Root: workspace},
 			Embedding: EmbeddingConfig{ModelKey: "mock-embedding-key"},
 			Storage:   StorageConfig{Location: storage},
 			Include:   []string{"**/*.md", "**/*.txt"},

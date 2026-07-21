@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +14,14 @@ import (
 )
 
 type handlerKBaseAgentSource map[string]kbase.AgentSpec
+
+type handlerKBaseService struct {
+	*kbase.Manager
+}
+
+func (*handlerKBaseService) Refresh(_ context.Context, agentKey string, options kbase.RefreshOptions) (kbase.RefreshResult, error) {
+	return kbase.RefreshResult{AgentKey: agentKey, Mode: options.Mode, Status: "success"}, nil
+}
 
 func (s handlerKBaseAgentSource) Agents() []kbase.AgentSpec {
 	out := make([]kbase.AgentSpec, 0, len(s))
@@ -34,10 +43,9 @@ func TestHandleKBaseStatusMappingAndMethods(t *testing.T) {
 		t.Fatalf("mkdir workspace: %v", err)
 	}
 	manager := kbase.NewManager(kbase.ManagerOptions{RuntimeDir: filepath.Join(root, "runtime")}, handlerKBaseAgentSource{
-		"docs":     handlerKBaseAgent("docs", true, workspace),
-		"disabled": handlerKBaseAgent("disabled", false, workspace),
+		"docs": handlerKBaseAgent("docs", workspace),
 	}, handlerKBaseModelRegistry(t, root))
-	srv := &Server{deps: Dependencies{KBase: manager}}
+	srv := &Server{deps: Dependencies{KBase: &handlerKBaseService{Manager: manager}}}
 
 	tests := []struct {
 		name   string
@@ -50,9 +58,9 @@ func TestHandleKBaseStatusMappingAndMethods(t *testing.T) {
 		{name: "status", method: http.MethodGet, path: "/api/kbase/docs/status", want: http.StatusOK},
 		{name: "refresh", method: http.MethodPost, path: "/api/kbase/docs/refresh", body: `{}`, want: http.StatusOK},
 		{name: "unknown agent", method: http.MethodGet, path: "/api/kbase/missing/status", want: http.StatusNotFound},
-		{name: "disabled capability", method: http.MethodGet, path: "/api/kbase/disabled/status", want: http.StatusForbidden},
+		{name: "disabled capability", method: http.MethodGet, path: "/api/kbase/disabled/status", want: http.StatusNotFound},
 		{name: "unknown agent precedes method", method: http.MethodPost, path: "/api/kbase/missing/status", want: http.StatusNotFound},
-		{name: "disabled capability precedes method", method: http.MethodPost, path: "/api/kbase/disabled/status", want: http.StatusForbidden},
+		{name: "disabled capability precedes method", method: http.MethodPost, path: "/api/kbase/disabled/status", want: http.StatusNotFound},
 		{name: "bad path", method: http.MethodGet, path: "/api/kbase/docs", want: http.StatusNotFound},
 		{name: "status method", method: http.MethodPost, path: "/api/kbase/docs/status", want: http.StatusMethodNotAllowed, allow: http.MethodGet},
 		{name: "refresh method", method: http.MethodGet, path: "/api/kbase/docs/refresh", want: http.StatusMethodNotAllowed, allow: http.MethodPost},
@@ -83,10 +91,12 @@ func TestHandleKBaseStatusMappingAndMethods(t *testing.T) {
 	}
 }
 
-func handlerKBaseAgent(key string, enabled bool, workspace string) kbase.AgentSpec {
+func handlerKBaseAgent(key, workspace string) kbase.AgentSpec {
 	return kbase.AgentSpec{
-		Key: key, Enabled: enabled, Requirement: kbase.RequirementRequired, SourceRoot: workspace,
-		Config: kbase.AgentConfig{
+		Key: key, Requirement: kbase.RequirementRequired,
+		Config: kbase.Config{
+			Enabled:   true,
+			Source:    kbase.SourceConfig{Root: workspace},
 			Embedding: kbase.EmbeddingConfig{ModelKey: "embedding"},
 			Storage:   kbase.StorageConfig{Location: "runtime"},
 			Include:   []string{"**/*.md"},

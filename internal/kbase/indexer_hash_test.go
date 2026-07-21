@@ -68,7 +68,7 @@ func hashTestResolvedConfig(root string) resolvedConfig {
 		Include:       DefaultIncludePatterns(),
 		Exclude:       DefaultExcludePatterns(),
 		Chunk:         DefaultChunkConfig(),
-		Retrieval:     DefaultAgentConfig().Retrieval,
+		Retrieval:     DefaultConfig().Retrieval,
 		FTSTokenizer:  defaultFTSTokenizer,
 		Extraction:    ExtractionConfig{Timeout: time.Minute, MaxFileBytes: 50 * 1024 * 1024},
 	}

@@ -57,7 +57,7 @@ type AgentDefinition struct {
 	HostAccess       AgentHostAccessConfig
 	Workspace        AgentWorkspaceConfig
 	Project          AgentProjectConfig
-	KBaseConfig      kbase.AgentConfig
+	KBaseConfig      kbase.Config
 	KBaseRequirement kbase.Requirement
 	ContextTags      []string
 	ContextAgents    []string

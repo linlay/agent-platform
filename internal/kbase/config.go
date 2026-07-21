@@ -18,17 +18,17 @@ const (
 	RetrievalFusionRRF       = "rrf"
 )
 
-type AgentConfig struct {
-	Enabled    bool
-	EnabledSet bool
-	Source     SourceConfig
-	Tags       []string
-	Embedding  EmbeddingConfig
-	Storage    StorageConfig
-	Include    []string
-	Exclude    []string
-	Chunk      ChunkConfig
-	Retrieval  RetrievalConfig
+// Config is the effective per-agent KBASE configuration.
+type Config struct {
+	Enabled   bool
+	Source    SourceConfig
+	Tags      []string
+	Embedding EmbeddingConfig
+	Storage   StorageConfig
+	Include   []string
+	Exclude   []string
+	Chunk     ChunkConfig
+	Retrieval RetrievalConfig
 }
 
 type EmbeddingConfig struct {
@@ -107,8 +107,8 @@ func DefaultChunkConfig() ChunkConfig {
 	}
 }
 
-func DefaultAgentConfig() AgentConfig {
-	return AgentConfig{
+func DefaultConfig() Config {
+	return Config{
 		Storage: StorageConfig{Location: "runtime"},
 		Include: DefaultIncludePatterns(),
 		Exclude: DefaultExcludePatterns(),
@@ -126,21 +126,20 @@ func DefaultAgentConfig() AgentConfig {
 	}
 }
 
-func ParseAgentConfig(node map[string]any) (AgentConfig, error) {
-	if err := ValidateAgentConfigSchema(node); err != nil {
-		return AgentConfig{}, err
+func ParseConfig(node map[string]any) (Config, error) {
+	if err := ValidateConfigSchema(node); err != nil {
+		return Config{}, err
 	}
-	cfg := DefaultAgentConfig()
+	cfg := DefaultConfig()
 	if len(node) == 0 {
 		return cfg, nil
 	}
 	if rawEnabled, exists := node["enabled"]; exists {
 		enabled, ok := rawEnabled.(bool)
 		if !ok {
-			return AgentConfig{}, fmt.Errorf("kbaseConfig.enabled must be a boolean")
+			return Config{}, fmt.Errorf("kbaseConfig.enabled must be a boolean")
 		}
 		cfg.Enabled = enabled
-		cfg.EnabledSet = true
 	}
 	source := anyMap(node["source"])
 	cfg.Source = SourceConfig{Root: strings.TrimSpace(anyString(source["root"]))}
@@ -255,7 +254,7 @@ func NormalizeChunkUnit(value string) (string, bool) {
 	}
 }
 
-func ValidateAgentConfigSchema(node map[string]any) error {
+func ValidateConfigSchema(node map[string]any) error {
 	if rawEnabled, exists := node["enabled"]; exists {
 		if _, ok := rawEnabled.(bool); !ok {
 			return fmt.Errorf("kbaseConfig.enabled must be a boolean")
@@ -340,7 +339,7 @@ func ValidateAgentConfigSchema(node map[string]any) error {
 	return nil
 }
 
-func ValidateAgentConfig(cfg AgentConfig) error {
+func ValidateConfig(cfg Config) error {
 	switch strings.ToLower(strings.TrimSpace(cfg.Storage.Location)) {
 	case "", "runtime", "workspace":
 	default:

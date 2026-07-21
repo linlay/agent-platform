@@ -54,8 +54,8 @@ type MetadataStore interface {
 	PurgeDeletedBefore(context.Context, string, int64) (int, error)
 }
 
-// RetrievalStore is implemented by the LanceDB sidecar and used by Manager
-// and the workspace indexer.
+// RetrievalStore is implemented by the LanceDB sidecar and used by the
+// generation and query services plus the workspace indexer.
 type RetrievalStore interface {
 	CreateGeneration(context.Context, GenerationSpec) error
 	ImportChunks(context.Context, string, []chunkRecord) error

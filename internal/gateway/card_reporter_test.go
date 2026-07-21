@@ -58,7 +58,7 @@ func TestAgentCardBuilderUsesExplicitExportsSkillsKBaseAndPublicTools(t *testing
 				Mode:        catalog.AgentModeKBase,
 				Skills:      []string{"support-kb"},
 				Tools:       []string{"z_tool", "private_tool", "a_tool"},
-				KBaseConfig: kbase.AgentConfig{Tags: []string{"退款", "售后", "售后"}},
+				KBaseConfig: kbase.Config{Tags: []string{"退款", "售后", "售后"}},
 				ChannelConfig: catalog.AgentChannelConfig{Exports: []catalog.AgentChannelExport{{
 					ChannelID:        "peer-a",
 					ExternalAgentKey: "support-agent",

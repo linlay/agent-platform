@@ -249,7 +249,7 @@ func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
 		Mode:     "REACT",
 		ModelKey: "mock-model",
 		Tools:    append([]string{"datetime"}, kbase.DefaultToolNames()...),
-		KBaseConfig: kbase.AgentConfig{
+		KBaseConfig: kbase.Config{
 			Enabled: true,
 			Source:  kbase.SourceConfig{Root: filepath.Join(root, "knowledge")},
 		},

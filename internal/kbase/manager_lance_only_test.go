@@ -16,7 +16,7 @@ func TestSelectRetrievalIgnoresLegacySQLiteDatabaseWithoutGeneration(t *testing.
 	}
 
 	manager := NewManager(ManagerOptions{}, nil, nil)
-	retrieval, generationID, available, err := manager.selectRetrieval(context.Background(), resolvedConfig{StorageDir: storageDir})
+	retrieval, generationID, available, err := manager.generations.SelectRetrieval(context.Background(), resolvedConfig{StorageDir: storageDir})
 	if err != nil {
 		t.Fatalf("select retrieval: %v", err)
 	}

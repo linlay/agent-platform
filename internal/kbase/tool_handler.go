@@ -11,7 +11,7 @@ import (
 )
 
 // ToolService is the narrow KBASE operation surface required by the five
-// built-in tools. Manager satisfies this interface.
+// built-in tools. The public Manager facade satisfies this interface.
 type ToolService interface {
 	Search(ctx context.Context, agentKey string, query string, options SearchOptions) (SearchResult, error)
 	Files(agentKey string, options FilesOptions) (FilesResult, error)
@@ -61,7 +61,7 @@ func (h *ToolHandler) requireContext(toolName string, execCtx *contracts.Executi
 		return "", &contracts.ToolExecutionResult{Output: toolName + " requires an active agent execution context", Error: "kbase_context_required", ExitCode: -1}
 	}
 	if !execCtx.Session.KBaseEnabled {
-		return "", &contracts.ToolExecutionResult{Output: toolName + " requires the KBASE capability to be enabled for this agent", Error: "kbase_capability_disabled", ExitCode: -1}
+		return "", &contracts.ToolExecutionResult{Output: "KBASE capability not found for this agent", Error: "kbase_agent_not_found", ExitCode: -1}
 	}
 	return strings.TrimSpace(execCtx.Session.AgentKey), nil
 }
@@ -244,8 +244,6 @@ func kbaseToolFailure(err error) contracts.ToolExecutionResult {
 		code = "kbase_unavailable"
 	case ErrorNotFound:
 		code = "kbase_agent_not_found"
-	case ErrorDisabled:
-		code = "kbase_capability_disabled"
 	}
 	structured := map[string]any{"error": code}
 	if kind == ErrorUnavailable {

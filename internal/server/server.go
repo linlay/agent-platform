@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -24,13 +25,23 @@ import (
 	"agent-platform/internal/ws"
 )
 
+// KBaseService is the HTTP-facing KBASE surface. The concrete manager remains
+// an application facade, while server depends only on the operations it uses.
+type KBaseService interface {
+	ValidateAgent(agentKey string) error
+	Status(agentKey string) (kbase.Status, error)
+	Refresh(ctx context.Context, agentKey string, options kbase.RefreshOptions) (kbase.RefreshResult, error)
+	ProbeSidecar(ctx context.Context) (required bool, state kbase.LanceEngineState, err error)
+	ReconcileWatchers(ctx context.Context)
+}
+
 type Dependencies struct {
 	Config                 config.Config
 	Chats                  chat.Store
 	Archives               *chat.ArchiveStore
 	Archiver               *chat.Archiver
 	Memory                 memory.Store
-	KBase                  *kbase.Manager
+	KBase                  KBaseService
 	Registry               catalog.Registry
 	Models                 *models.ModelRegistry
 	Runs                   contracts.RunManager

@@ -14,13 +14,22 @@ type OrphanStorage struct {
 	PossibleOwner string `json:"possibleOwner,omitempty"`
 }
 
+type storageAuditor struct {
+	runtimeDir string
+	resolver   *capabilityResolver
+}
+
+func newStorageAuditor(runtimeDir string, resolver *capabilityResolver) *storageAuditor {
+	return &storageAuditor{runtimeDir: runtimeDir, resolver: resolver}
+}
+
 // AuditOrphanStorage is deliberately read-only. It reports runtime KBASE
 // directories no current agent owns and never removes them.
-func (m *Manager) AuditOrphanStorage() ([]OrphanStorage, error) {
-	if m == nil || strings.TrimSpace(m.options.RuntimeDir) == "" {
+func (a *storageAuditor) Audit() ([]OrphanStorage, error) {
+	if a == nil || strings.TrimSpace(a.runtimeDir) == "" {
 		return nil, nil
 	}
-	entries, err := os.ReadDir(m.options.RuntimeDir)
+	entries, err := os.ReadDir(a.runtimeDir)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -28,14 +37,11 @@ func (m *Manager) AuditOrphanStorage() ([]OrphanStorage, error) {
 		return nil, err
 	}
 	owned := map[string]struct{}{}
-	if m.agents != nil {
-		for _, spec := range m.agents.Agents() {
-			if !spec.Enabled {
-				continue
-			}
+	if a.resolver != nil {
+		for _, spec := range a.resolver.Specs() {
 			location := strings.ToLower(strings.TrimSpace(spec.Config.Storage.Location))
 			if location == "" || location == "runtime" {
-				owned[storageLockKey(filepath.Join(m.options.RuntimeDir, spec.Key))] = struct{}{}
+				owned[storageLockKey(filepath.Join(a.runtimeDir, spec.Key))] = struct{}{}
 			}
 		}
 	}
@@ -44,7 +50,7 @@ func (m *Manager) AuditOrphanStorage() ([]OrphanStorage, error) {
 		if !entry.IsDir() {
 			continue
 		}
-		root := storageLockKey(filepath.Join(m.options.RuntimeDir, entry.Name()))
+		root := storageLockKey(filepath.Join(a.runtimeDir, entry.Name()))
 		if _, ok := owned[root]; ok {
 			continue
 		}

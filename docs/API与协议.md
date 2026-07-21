@@ -336,7 +336,7 @@ HITL 三态细节见 [HITL协议](HITL协议.md)。真流式、heartbeat、attac
 
 ### KBASE
 
-KBASE API 接受所有 `kbaseConfig.enabled: true` 的 Agent，包括专用 `mode: KBASE` 和挂载公共 capability 的普通 Agent；存在但未启用的 Agent 返回 `403`（capability disabled），未知 Agent 返回 `404`。手工 refresh 与运行时工具 `kbase_refresh` 调用同一个后端入口。KBASE 的 search/files/read/status 工具声明为只读，BTW/read-only policy 下仍可使用；refresh 是变更索引状态的操作，在只读 policy 下禁用。五个 KBASE tool 名称、REST 路径、`SearchHit`、chunk ID 和 `source.publish` 契约固定由 LanceDB 路径提供。agent catalog 热重载完成后会立即重绑所有 enabled source watcher；Agent 删除、禁用或 source/config 变化不会继续沿用旧 watcher，周期 reconcile 仅作为兜底。
+KBASE API 接受所有 `kbaseConfig.enabled: true` 的 Agent，包括专用 `mode: KBASE` 和挂载公共 capability 的普通 Agent；存在但未启用 KBASE 的 Agent 与未知 Agent 均返回 `404`，Manager 不保留 disabled capability。手工 refresh 与运行时工具 `kbase_refresh` 调用同一个后端入口。KBASE 的 search/files/read/status 工具声明为只读，BTW/read-only policy 下仍可使用；refresh 是变更索引状态的操作，在只读 policy 下禁用。五个 KBASE tool 名称、REST 路径、`SearchHit`、chunk ID 和 `source.publish` 契约固定由 LanceDB 路径提供。agent catalog 热重载完成后会立即重绑所有 enabled source watcher；Agent 删除、禁用或 source/config 变化不会继续沿用旧 watcher，周期 reconcile 仅作为兜底。
 
 启用 KBASE capability 的 Agent 在运行时调用 `kbase_search` 且召回到内容时，会额外通过 live stream 发布 `source.publish` 事件。事件包含 `kind: "kbase"`、`query`、`sourceCount`、`chunkCount` 与按 source 聚合的 `sources[].chunks[]`，chunk 可携带 `path`、行号、页码、slide、`sourceType`、`matchType`、`score` 等定位字段；chat JSONL 会把该事件作为对应 `react-tool` step 的顶层 `sources.items[]` sidecar 持久化，`/api/chat` replay 时再合成 `source.publish` 事件并保留原始 `liveSeq`，供时间线与 `/api/attach.lastSeq` 使用。当前 `_type:"event"` 的 `source.publish` 也保持可回放。
 
