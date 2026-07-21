@@ -326,6 +326,11 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 		"kbase_search",
 		"kbase_files",
 		"kbase_read",
+		"call kbase_refresh once with force=false",
+		"retry the original kbase_files or kbase_search operation",
+		"do not treat zero or unavailable indexed counts as proof that the source contains no documents",
+		"never describe an unready index as an empty knowledge base",
+		"Use force=true only when the user explicitly requests a full index rebuild.",
 	} {
 		if !strings.Contains(kbasePromptsExample, want) {
 			t.Fatalf("expected kbase prompts example to contain %q", want)

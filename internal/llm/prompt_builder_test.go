@@ -257,8 +257,13 @@ func TestBuildSystemPromptUsesDefaultKBaseSystemPromptWhenConfigEmpty(t *testing
 	for _, expected := range []string{
 		"KBASE Mode",
 		"Search the knowledge base with kbase_search",
-		"Use kbase_files when you need to discover indexed files",
+		"Use kbase_files for inventory requests",
 		"Use kbase_read when a search result needs more surrounding context.",
+		"call kbase_refresh once with force=false",
+		"retry the original kbase_files or kbase_search operation",
+		"do not treat zero or unavailable indexed counts as proof that the source contains no documents",
+		"never describe an unready index as an empty knowledge base",
+		"Use force=true only when the user explicitly requests a full index rebuild.",
 	} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("expected %q in default KBASE prompt, got %q", expected, prompt)
