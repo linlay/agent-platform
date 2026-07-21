@@ -8,6 +8,7 @@ import (
 )
 
 type stubToolService struct {
+	agentKey       string
 	searchOptions  SearchOptions
 	filesOptions   FilesOptions
 	readOptions    ReadOptions
@@ -19,7 +20,8 @@ type stubToolService struct {
 	refreshResult  RefreshResult
 }
 
-func (s *stubToolService) Search(_ context.Context, _ string, _ string, options SearchOptions) (SearchResult, error) {
+func (s *stubToolService) Search(_ context.Context, agentKey string, _ string, options SearchOptions) (SearchResult, error) {
+	s.agentKey = agentKey
 	s.searchOptions = options
 	return s.searchResult, nil
 }
@@ -44,7 +46,7 @@ func (s *stubToolService) Refresh(_ context.Context, _ string, options RefreshOp
 }
 
 func kbaseToolExecutionContext() *contracts.ExecutionContext {
-	return &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "docs", Mode: Mode}}
+	return &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "docs", Mode: Mode, KBaseEnabled: true}}
 }
 
 func TestToolHandlerValidatesContextAndSearchQuery(t *testing.T) {
@@ -57,7 +59,7 @@ func TestToolHandlerValidatesContextAndSearchQuery(t *testing.T) {
 	}{
 		{name: "manager missing", handler: NewToolHandler(nil), execCtx: kbaseToolExecutionContext(), args: map[string]any{"query": "x"}, want: "kbase_not_configured"},
 		{name: "context missing", handler: NewToolHandler(&stubToolService{}), args: map[string]any{"query": "x"}, want: "kbase_context_required"},
-		{name: "wrong mode", handler: NewToolHandler(&stubToolService{}), execCtx: &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "docs", Mode: "CODER"}}, args: map[string]any{"query": "x"}, want: "kbase_unsupported_agent_mode"},
+		{name: "disabled capability", handler: NewToolHandler(&stubToolService{}), execCtx: &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "docs", Mode: "REACT"}}, args: map[string]any{"query": "x"}, want: "kbase_capability_disabled"},
 		{name: "query missing", handler: NewToolHandler(&stubToolService{}), execCtx: kbaseToolExecutionContext(), args: map[string]any{"query": "  "}, want: "missing_query"},
 	}
 	for _, tc := range cases {
@@ -86,7 +88,7 @@ func TestToolHandlerSearchPreservesWireAndPublishesSources(t *testing.T) {
 		},
 	}}
 	result, err := NewToolHandler(service).Invoke(context.Background(), ToolSearch, map[string]any{
-		"query": " policy ", "limit": float64(8), "offset": float64(2), "pathPrefix": " docs/ ", "pathGlob": " **/*.md ", "type": " md ",
+		"query": " policy ", "agentKey": "other-agent", "limit": float64(8), "offset": float64(2), "pathPrefix": " docs/ ", "pathGlob": " **/*.md ", "type": " md ",
 	}, kbaseToolExecutionContext())
 	if err != nil {
 		t.Fatalf("search: %v", err)
@@ -96,6 +98,9 @@ func TestToolHandlerSearchPreservesWireAndPublishesSources(t *testing.T) {
 	}
 	if service.searchOptions.Limit != 8 || service.searchOptions.Offset != 2 || service.searchOptions.PathPrefix != "docs/" || service.searchOptions.PathGlob != "**/*.md" || service.searchOptions.Type != "md" {
 		t.Fatalf("unexpected search options %#v", service.searchOptions)
+	}
+	if service.agentKey != "docs" {
+		t.Fatalf("tool escaped session agent key: got %q", service.agentKey)
 	}
 	publication := result.SourcePublication
 	if publication == nil || publication.Kind != "kbase" || publication.Query != "policy" || len(publication.Sources) != 1 {
@@ -154,5 +159,23 @@ func TestToolHandlerFilesKeepsAbsentHeadLimitSentinel(t *testing.T) {
 	}
 	if service.filesOptions.HeadLimit != -1 {
 		t.Fatalf("expected absent head_limit sentinel -1, got %#v", service.filesOptions)
+	}
+}
+
+type unavailableToolService struct{ stubToolService }
+
+func (unavailableToolService) Search(context.Context, string, string, SearchOptions) (SearchResult, error) {
+	return SearchResult{}, &PolicyError{Kind: ErrorUnavailable, Message: "KBASE sidecar unavailable"}
+}
+
+func TestToolHandlerReturnsExplicitUnavailableResult(t *testing.T) {
+	result, err := NewToolHandler(&unavailableToolService{}).Invoke(
+		context.Background(), ToolSearch, map[string]any{"query": "policy"}, kbaseToolExecutionContext(),
+	)
+	if err != nil {
+		t.Fatalf("invoke: %v", err)
+	}
+	if result.Error != "kbase_unavailable" || result.ExitCode != -1 || result.Structured["stale"] != true || result.Structured["unavailable"] != true {
+		t.Fatalf("unexpected unavailable result: %#v", result)
 	}
 }

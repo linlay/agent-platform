@@ -1281,6 +1281,171 @@ func TestParseAgentFileKBaseFiltersToolsAndStaticMemory(t *testing.T) {
 	}
 }
 
+func TestDirectoryReactAgentAttachesKBaseCapability(t *testing.T) {
+	agentsDir := t.TempDir()
+	agentDir := filepath.Join(agentsDir, "zenmi")
+	knowledgeDir := filepath.Join(agentDir, "knowledge")
+	if err := os.MkdirAll(knowledgeDir, 0o755); err != nil {
+		t.Fatalf("mkdir knowledge: %v", err)
+	}
+	configPath := filepath.Join(agentDir, "agent.yml")
+	content := "key: zenmi\n" +
+		"name: Zenmi\n" +
+		"mode: REACT\n" +
+		"modelConfig:\n  modelKey: mock-model\n" +
+		"toolConfig:\n  tools:\n    - datetime\n" +
+		"kbaseConfig:\n" +
+		"  enabled: true\n" +
+		"  source:\n    root: ./knowledge\n" +
+		"  embedding:\n    modelKey: openai-embedding\n"
+	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent: %v", err)
+	}
+
+	agents, admin, err := loadAgentsWithAdmin(agentsDir, "", true)
+	if err != nil {
+		t.Fatalf("load agents: %v", err)
+	}
+	def, ok := agents["zenmi"]
+	if !ok {
+		t.Fatalf("zenmi missing; admin=%#v", admin["zenmi"])
+	}
+	if !def.KBaseConfig.Enabled || def.KBaseRequirement != kbase.RequirementOptional {
+		t.Fatalf("unexpected capability: enabled=%v requirement=%q", def.KBaseConfig.Enabled, def.KBaseRequirement)
+	}
+	if def.KBaseConfig.Source.Root != filepath.Clean(knowledgeDir) {
+		t.Fatalf("source root = %q, want %q", def.KBaseConfig.Source.Root, knowledgeDir)
+	}
+	for _, tool := range append([]string{"datetime"}, kbase.DefaultToolNames()...) {
+		if !containsString(def.Tools, tool) {
+			t.Fatalf("expected tool %q while preserving ordinary tools, got %#v", tool, def.Tools)
+		}
+	}
+}
+
+func TestFlatAgentRejectsRelativeKBaseSource(t *testing.T) {
+	agentsDir := t.TempDir()
+	content := "key: flat\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\n" +
+		"kbaseConfig:\n  enabled: true\n  source:\n    root: ./knowledge\n"
+	if err := os.WriteFile(filepath.Join(agentsDir, "flat.yml"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent: %v", err)
+	}
+	agents, admin, err := loadAgentsWithAdmin(agentsDir, "", true)
+	if err != nil {
+		t.Fatalf("load agents: %v", err)
+	}
+	if _, ok := agents["flat"]; ok {
+		t.Fatal("flat agent with relative KBASE source must not load")
+	}
+	if got := admin["flat"]; got.Status != AdminAgentStatusInvalid || len(got.Diagnostics) == 0 || !strings.Contains(got.Diagnostics[0].Message, "only supported for directory agents") {
+		t.Fatalf("unexpected admin diagnostic: %#v", got)
+	}
+}
+
+func TestOrdinaryAgentKBaseEnablementIsExplicitAndModeLimited(t *testing.T) {
+	sourceRoot := filepath.ToSlash(t.TempDir())
+	base := "modelConfig:\n  modelKey: mock-model\n"
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{name: "missing enabled", content: "key: react\nmode: REACT\n" + base + "kbaseConfig:\n  source:\n    root: " + sourceRoot + "\n", want: "enabled must be explicitly configured"},
+		{name: "enabled missing source", content: "key: react\nmode: REACT\n" + base + "kbaseConfig:\n  enabled: true\n", want: "source.root is required"},
+		{name: "ACP coder", content: "key: coder\nmode: CODER\n" + base + "runtimeConfig:\n  acpBridgeId: bridge\n  workspaceRoot: " + sourceRoot + "\n" + "kbaseConfig:\n  enabled: true\n  source:\n    root: " + sourceRoot + "\n", want: "not supported for ACP CODER"},
+		{name: "proxy", content: "key: proxy\nmode: PROXY\n" + base + "kbaseConfig:\n  enabled: true\n  source:\n    root: " + sourceRoot + "\n", want: "only supported for REACT"},
+		{name: "channel", content: "key: channel\nmode: CHANNEL\n" + base + "kbaseConfig:\n  enabled: true\n  source:\n    root: " + sourceRoot + "\n", want: "only supported for REACT"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "agent.yml")
+			if err := os.WriteFile(path, []byte(tt.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := parseAgentFile(path); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want substring %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestPlanExecuteAndNativeCoderAttachKBaseCapability(t *testing.T) {
+	sourceRoot := filepath.ToSlash(t.TempDir())
+	for _, mode := range []string{"PLAN-EXECUTE", "CODER"} {
+		t.Run(mode, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "agent.yml")
+			content := "key: attached\nmode: " + mode + "\nmodelConfig:\n  modelKey: mock-model\n" +
+				"kbaseConfig:\n  enabled: true\n  source:\n    root: " + sourceRoot + "\n"
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			def, err := parseAgentFile(path)
+			if err != nil {
+				t.Fatalf("parse %s capability: %v", mode, err)
+			}
+			if !def.KBaseConfig.Enabled || def.KBaseRequirement != kbase.RequirementOptional {
+				t.Fatalf("unexpected %s capability: %#v", mode, def.KBaseConfig)
+			}
+			for _, tool := range kbase.CapabilityToolNames() {
+				if !containsString(def.Tools, tool) {
+					t.Fatalf("%s missing KBASE tool %q: %#v", mode, tool, def.Tools)
+				}
+			}
+		})
+	}
+}
+
+func TestKBaseCapabilityDisableAndDedicatedModeCompatibility(t *testing.T) {
+	sourceRoot := filepath.ToSlash(t.TempDir())
+	disabledPath := filepath.Join(t.TempDir(), "disabled.yml")
+	disabled := "key: disabled\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\n" +
+		"toolConfig:\n  tools:\n    - datetime\n" +
+		"kbaseConfig:\n  enabled: false\n  source:\n    root: ./retained\n  retrieval:\n    topK: 12\n"
+	if err := os.WriteFile(disabledPath, []byte(disabled), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	def, err := parseAgentFile(disabledPath)
+	if err != nil {
+		t.Fatalf("parse disabled capability: %v", err)
+	}
+	if def.KBaseConfig.Enabled || !reflect.DeepEqual(def.Tools, []string{"datetime"}) || def.KBaseConfig.Retrieval.TopK != 12 {
+		t.Fatalf("disabled capability changed ordinary agent: %#v", def)
+	}
+
+	dedicatedPath := filepath.Join(t.TempDir(), "kbase.yml")
+	dedicated := "key: docs\nmode: KBASE\nmodelConfig:\n  modelKey: mock-model\n" +
+		"kbaseConfig:\n  source:\n    root: " + sourceRoot + "\n"
+	if err := os.WriteFile(dedicatedPath, []byte(dedicated), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dedicatedDef, err := parseAgentFile(dedicatedPath)
+	if err != nil {
+		t.Fatalf("parse dedicated KBASE source: %v", err)
+	}
+	if !dedicatedDef.KBaseConfig.Enabled || dedicatedDef.KBaseRequirement != kbase.RequirementRequired || dedicatedDef.KBaseConfig.Source.Root != filepath.Clean(sourceRoot) {
+		t.Fatalf("unexpected dedicated capability: %#v", dedicatedDef.KBaseConfig)
+	}
+
+	for _, root := range []string{"@chat", string(filepath.Separator)} {
+		path := filepath.Join(t.TempDir(), "invalid.yml")
+		content := "key: invalid\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\nkbaseConfig:\n  enabled: true\n  source:\n    root: " + root + "\n"
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := parseAgentFile(path); err == nil {
+			t.Fatalf("source root %q must be rejected", root)
+		}
+	}
+
+	falsePath := filepath.Join(t.TempDir(), "false.yml")
+	if err := os.WriteFile(falsePath, []byte("key: docs\nmode: KBASE\nkbaseConfig:\n  enabled: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseAgentFile(falsePath); err == nil || !strings.Contains(err.Error(), "cannot be false") {
+		t.Fatalf("mode KBASE enabled:false error = %v", err)
+	}
+}
+
 func TestParseAgentFileRejectsRemovedKBaseEmbeddingFields(t *testing.T) {
 	workspace := t.TempDir()
 	root := t.TempDir()

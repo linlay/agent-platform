@@ -6,6 +6,7 @@ import (
 
 	"agent-platform/internal/api"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/kbase"
 )
 
 func runtimeSystemPromptForTest(session QuerySession, req api.QueryRequest) string {
@@ -262,6 +263,23 @@ func TestBuildSystemPromptUsesDefaultKBaseSystemPromptWhenConfigEmpty(t *testing
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("expected %q in default KBASE prompt, got %q", expected, prompt)
 		}
+	}
+}
+
+func TestBuildSystemPromptInjectsEmbeddedKBaseCapabilityOnce(t *testing.T) {
+	prompt := buildSystemPrompt(QuerySession{
+		AgentKey:          "zenmi",
+		AgentName:         "Zenmi",
+		Mode:              "REACT",
+		KBaseEnabled:      true,
+		CapabilityPrompts: []string{kbase.DefaultCapabilityPrompt},
+		ToolNames:         kbase.DefaultToolNames(),
+	}, api.QueryRequest{}, "", PromptBuildOptions{})
+	if count := strings.Count(prompt, "Knowledge Base Capability"); count != 1 {
+		t.Fatalf("capability prompt count = %d, want 1; prompt=%q", count, prompt)
+	}
+	if !strings.Contains(prompt, "untrusted evidence") || !strings.Contains(prompt, "does not contain enough information") {
+		t.Fatalf("capability evidence rules missing: %q", prompt)
 	}
 }
 

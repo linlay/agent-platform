@@ -39,6 +39,7 @@ type Manager struct {
 	storageRunning   map[string]bool
 	storageQueued    map[string]bool
 	deltaQueues      map[string]*deltaQueue
+	startupFailures  map[string]error
 	closing          bool
 }
 
@@ -63,13 +64,6 @@ type MaintenanceOptions struct {
 	VersionRetention        time.Duration
 }
 
-type AgentSpec struct {
-	Key           string
-	Mode          string
-	WorkspaceRoot string
-	Config        AgentConfig
-}
-
 type AgentSource interface {
 	Agents() []AgentSpec
 	Agent(key string) (AgentSpec, bool)
@@ -87,17 +81,18 @@ type watcherBinding struct {
 func NewManager(options ManagerOptions, agents AgentSource, modelRegistry *models.ModelRegistry) *Manager {
 	engine := NewLanceEngineProcess(nil)
 	return &Manager{
-		options:        options,
-		agents:         agents,
-		models:         modelRegistry,
-		engine:         engine,
-		lance:          NewLanceRetrievalStore(engine),
-		locks:          map[string]*sync.Mutex{},
-		watchers:       map[string]watcherBinding{},
-		running:        map[string]bool{},
-		storageRunning: map[string]bool{},
-		storageQueued:  map[string]bool{},
-		deltaQueues:    map[string]*deltaQueue{},
+		options:         options,
+		agents:          agents,
+		models:          modelRegistry,
+		engine:          engine,
+		lance:           NewLanceRetrievalStore(engine),
+		locks:           map[string]*sync.Mutex{},
+		watchers:        map[string]watcherBinding{},
+		running:         map[string]bool{},
+		storageRunning:  map[string]bool{},
+		storageQueued:   map[string]bool{},
+		deltaQueues:     map[string]*deltaQueue{},
+		startupFailures: map[string]error{},
 	}
 }
 
@@ -109,7 +104,7 @@ func (m *Manager) ValidateConfiguration() error {
 	}
 	owners := map[string]string{}
 	for _, spec := range m.agents.Agents() {
-		if !strings.EqualFold(strings.TrimSpace(spec.Mode), Mode) {
+		if !spec.Enabled {
 			continue
 		}
 		storage := strings.ToLower(strings.TrimSpace(spec.Config.Storage.Location))
@@ -121,7 +116,7 @@ func (m *Manager) ValidateConfiguration() error {
 		case "runtime":
 			root = filepath.Join(m.options.RuntimeDir, spec.Key)
 		case "workspace":
-			root = filepath.Join(strings.TrimSpace(spec.WorkspaceRoot), ".kbase")
+			root = filepath.Join(strings.TrimSpace(spec.SourceRoot), ".kbase")
 		default:
 			continue
 		}
@@ -145,7 +140,7 @@ func (m *Manager) ValidateStorageContracts() error {
 		return nil
 	}
 	for _, spec := range m.agents.Agents() {
-		if !strings.EqualFold(strings.TrimSpace(spec.Mode), Mode) {
+		if !spec.Enabled {
 			continue
 		}
 		storageDir := m.storageDirForSpec(spec)
@@ -185,7 +180,7 @@ func (m *Manager) ValidateAndAdoptStartupStorageContracts() map[string]error {
 		return failures
 	}
 	for _, spec := range m.agents.Agents() {
-		if !strings.EqualFold(strings.TrimSpace(spec.Mode), Mode) {
+		if !spec.Enabled {
 			continue
 		}
 		storageDir := m.storageDirForSpec(spec)
@@ -213,23 +208,40 @@ func (m *Manager) ValidateAndAdoptStartupStorageContracts() map[string]error {
 			failures[spec.Key] = fmt.Errorf("KBASE storage schema agent=%s storageDir=%s: %w", spec.Key, storageDir, sqlitecontract.Unsupported(dbPath, storageDir, "control.db is missing but the storage directory contains residual data"))
 		}
 	}
+	m.mu.Lock()
+	m.startupFailures = failures
+	m.mu.Unlock()
 	return failures
 }
 
-// ProbeSidecar is used by the container health endpoint. Every deployment
-// with a KBASE agent requires the LanceDB sidecar.
+// ProbeSidecar is used by the container health endpoint. Optional embedded
+// capabilities are probed and reported without making the whole runtime
+// unhealthy; standalone KBASE mode adapters mark their specs as required.
 func (m *Manager) ProbeSidecar(ctx context.Context) (required bool, state LanceEngineState, err error) {
 	if m == nil || m.engine == nil || len(m.kbaseAgentKeys()) == 0 {
 		return false, LanceEngineState{}, nil
 	}
+	required = m.hasRequiredCapability()
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if err := m.engine.EnsureStarted(ctx); err != nil {
 		state = m.engine.State()
-		return true, state, err
+		return required, state, err
 	}
-	return true, m.engine.State(), nil
+	return required, m.engine.State(), nil
+}
+
+func (m *Manager) hasRequiredCapability() bool {
+	if m == nil || m.agents == nil {
+		return false
+	}
+	for _, spec := range m.agents.Agents() {
+		if spec.Enabled && spec.Requirement == RequirementRequired {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Manager) WithSupportPackages(registry *supportpkg.Registry) *Manager {
@@ -375,8 +387,8 @@ func (m *Manager) ensureWatchers(ctx context.Context) {
 	if m != nil && m.agents != nil {
 		for _, spec := range m.agents.Agents() {
 			spec.Key = strings.TrimSpace(spec.Key)
-			spec.WorkspaceRoot = strings.TrimSpace(spec.WorkspaceRoot)
-			if spec.Key == "" || !strings.EqualFold(strings.TrimSpace(spec.Mode), Mode) || spec.WorkspaceRoot == "" {
+			spec.SourceRoot = strings.TrimSpace(spec.SourceRoot)
+			if spec.Key == "" || !spec.Enabled || spec.SourceRoot == "" {
 				continue
 			}
 			desired[spec.Key] = spec
@@ -412,7 +424,7 @@ func (m *Manager) ensureWatchers(ctx context.Context) {
 
 func (m *Manager) startWatcher(ctx context.Context, spec AgentSpec) {
 	agentKey := strings.TrimSpace(spec.Key)
-	workspace := strings.TrimSpace(spec.WorkspaceRoot)
+	workspace := strings.TrimSpace(spec.SourceRoot)
 	debounce := m.options.RefreshDebounce
 	if debounce <= 0 {
 		debounce = 2 * time.Second
@@ -480,7 +492,7 @@ func (m *Manager) startWatcher(ctx context.Context, spec AgentSpec) {
 
 func (m *Manager) storageDirForSpec(spec AgentSpec) string {
 	if strings.EqualFold(strings.TrimSpace(spec.Config.Storage.Location), "workspace") {
-		return filepath.Join(strings.TrimSpace(spec.WorkspaceRoot), ".kbase")
+		return filepath.Join(strings.TrimSpace(spec.SourceRoot), ".kbase")
 	}
 	return filepath.Join(m.options.RuntimeDir, strings.TrimSpace(spec.Key))
 }
@@ -492,7 +504,7 @@ func (m *Manager) kbaseAgentKeys() []string {
 	specs := m.agents.Agents()
 	keys := make([]string, 0, len(specs))
 	for _, spec := range specs {
-		if strings.EqualFold(strings.TrimSpace(spec.Mode), Mode) {
+		if spec.Enabled {
 			if key := strings.TrimSpace(spec.Key); key != "" {
 				keys = append(keys, key)
 			}
@@ -506,7 +518,7 @@ func watcherSignature(spec AgentSpec) string {
 		WorkspaceRoot string
 		Config        AgentConfig
 	}{
-		WorkspaceRoot: strings.TrimSpace(spec.WorkspaceRoot),
+		WorkspaceRoot: strings.TrimSpace(spec.SourceRoot),
 		Config:        spec.Config,
 	}
 	data, _ := json.Marshal(payload)
@@ -535,10 +547,33 @@ func (m *Manager) Refresh(ctx context.Context, agentKey string, options RefreshO
 	m.setRunning(cfg.AgentKey, storageKey, true)
 	defer m.setRunning(cfg.AgentKey, storageKey, false)
 
-	return m.refreshResolved(ctx, cfg, embedder, options)
+	result, err := m.refreshResolved(ctx, cfg, embedder, options)
+	if err == nil {
+		m.clearStartupFailure(cfg.AgentKey)
+	}
+	return result, err
 }
 
 func (m *Manager) Status(agentKey string) (Status, error) {
+	if failure := m.startupFailure(agentKey); failure != nil {
+		spec, specErr := m.agentSpec(agentKey)
+		if specErr != nil {
+			return Status{AgentKey: agentKey, Mode: Mode}, specErr
+		}
+		return Status{
+			AgentKey:        spec.Key,
+			Mode:            Mode,
+			SourceRoot:      spec.SourceRoot,
+			WorkspaceRoot:   spec.SourceRoot,
+			StorageLocation: spec.Config.Storage.Location,
+			StorageDir:      m.storageDirForSpec(spec),
+			Stale:           true,
+			Degraded:        true,
+			Error:           failure.Error(),
+			Engine:          "lancedb",
+			SchemaVersion:   ControlSchemaVersion,
+		}, nil
+	}
 	cfg, _, err := m.resolve(agentKey)
 	if err != nil {
 		return Status{AgentKey: agentKey, Mode: Mode}, err
@@ -548,6 +583,7 @@ func (m *Manager) Status(agentKey string) (Status, error) {
 		Mode:             Mode,
 		StorageLocation:  cfg.Storage,
 		StorageDir:       cfg.StorageDir,
+		SourceRoot:       cfg.WorkspaceRoot,
 		WorkspaceRoot:    cfg.WorkspaceRoot,
 		Embedding:        cfg.Embedding,
 		Chunk:            cfg.Chunk,
@@ -620,6 +656,34 @@ func (m *Manager) Status(agentKey string) (Status, error) {
 	return validatePublicStatusTimes(status)
 }
 
+func (m *Manager) startupFailure(agentKey string) error {
+	if m == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.startupFailures[strings.TrimSpace(agentKey)]
+}
+
+func (m *Manager) capabilityDegradedError(agentKey string) error {
+	if failure := m.startupFailure(agentKey); failure != nil {
+		return &PolicyError{
+			Kind:    ErrorUnavailable,
+			Message: "KBASE capability is degraded: " + failure.Error(),
+		}
+	}
+	return nil
+}
+
+func (m *Manager) clearStartupFailure(agentKey string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	delete(m.startupFailures, strings.TrimSpace(agentKey))
+	m.mu.Unlock()
+}
+
 func parseOptionalPublicEpochMillis(raw string, field string, location string) (*int64, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -670,6 +734,9 @@ func (m *Manager) Search(ctx context.Context, agentKey string, query string, opt
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return SearchResult{}, fmt.Errorf("query must not be blank")
+	}
+	if err := m.capabilityDegradedError(agentKey); err != nil {
+		return SearchResult{}, err
 	}
 	cfg, embedder, err := m.resolve(agentKey)
 	if err != nil {
@@ -770,6 +837,9 @@ func (m *Manager) Search(ctx context.Context, agentKey string, query string, opt
 }
 
 func (m *Manager) Read(agentKey string, options ReadOptions) (ReadResult, error) {
+	if err := m.capabilityDegradedError(agentKey); err != nil {
+		return ReadResult{}, err
+	}
 	cfg, _, err := m.resolve(agentKey)
 	if err != nil {
 		return ReadResult{}, err
@@ -827,19 +897,25 @@ func (m *Manager) resolve(agentKey string) (resolvedConfig, *Embedder, error) {
 		return resolvedConfig{}, nil, err
 	}
 	agentKey = strings.TrimSpace(agentKey)
-	workspace := strings.TrimSpace(def.WorkspaceRoot)
+	workspace := strings.TrimSpace(def.SourceRoot)
 	if workspace == "" || strings.EqualFold(workspace, WorkspaceRootChat) {
-		return resolvedConfig{}, nil, fmt.Errorf("agent %s runtimeConfig.workspaceRoot is required for KBASE", agentKey)
+		return resolvedConfig{}, nil, fmt.Errorf("agent %s kbaseConfig.source.root is required for KBASE", agentKey)
 	}
 	if !filepath.IsAbs(workspace) {
-		return resolvedConfig{}, nil, fmt.Errorf("agent %s runtimeConfig.workspaceRoot must be an absolute path for KBASE", agentKey)
+		return resolvedConfig{}, nil, fmt.Errorf("agent %s kbaseConfig.source.root must resolve to an absolute path", agentKey)
 	}
 	embedding, provider, err := m.resolveEmbedding(agentKey, def.Config.Embedding)
 	if err != nil {
+		if def.Requirement == RequirementOptional {
+			return resolvedConfig{}, nil, &PolicyError{Kind: ErrorUnavailable, Message: "KBASE embedding configuration is unavailable: " + err.Error()}
+		}
 		return resolvedConfig{}, nil, err
 	}
 	baseURL := strings.TrimRight(strings.TrimSpace(provider.BaseURL), "/")
 	if baseURL == "" || embedding.Model == "" || embedding.Dimension <= 0 {
+		if def.Requirement == RequirementOptional {
+			return resolvedConfig{}, nil, &PolicyError{Kind: ErrorUnavailable, Message: fmt.Sprintf("KBASE embedding provider %s is unavailable", provider.Key)}
+		}
 		return resolvedConfig{}, nil, fmt.Errorf("provider %s embedding requires baseUrl/model/dimension", provider.Key)
 	}
 	storage := strings.ToLower(strings.TrimSpace(def.Config.Storage.Location))
@@ -931,8 +1007,8 @@ func (m *Manager) agentSpec(agentKey string) (AgentSpec, error) {
 	if !ok {
 		return AgentSpec{}, &PolicyError{Kind: ErrorNotFound, Message: fmt.Sprintf("agent %s not found", agentKey)}
 	}
-	if !strings.EqualFold(strings.TrimSpace(def.Mode), Mode) {
-		return AgentSpec{}, &PolicyError{Kind: ErrorWrongMode, Message: fmt.Sprintf("agent %s is not mode: KBASE", agentKey)}
+	if !def.Enabled {
+		return AgentSpec{}, &PolicyError{Kind: ErrorDisabled, Message: fmt.Sprintf("agent %s does not enable the KBASE capability", agentKey)}
 	}
 	return def, nil
 }

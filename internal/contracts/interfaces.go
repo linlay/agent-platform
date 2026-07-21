@@ -241,43 +241,45 @@ type QuerySession struct {
 	TeamRuntime *TeamRuntimeContext
 	// ModeToolDefinitions are session-local tools owned by a built-in mode.
 	// They are included in model/system-init schemas but never enter catalog.
-	ModeToolDefinitions   []api.ToolDetailResponse
-	AgentName             string
-	AgentRole             string
-	AgentDescription      string
-	Locale                string
-	ModelKey              string
-	ToolNames             []string
-	Mode                  string
-	ModeCapabilities      agentcontract.ModeCapabilities
-	PlanningMode          bool
-	TeamID                string
-	Created               bool
-	Subject               string
-	SkillKeys             []string
-	ContextTags           []string
-	Budget                map[string]any
-	StageSettings         map[string]any
-	ResolvedBudget        Budget
-	ResolvedPlanExecuteSettings PlanExecuteSettings
+	ModeToolDefinitions           []api.ToolDetailResponse
+	AgentName                     string
+	AgentRole                     string
+	AgentDescription              string
+	Locale                        string
+	ModelKey                      string
+	ToolNames                     []string
+	Mode                          string
+	ModeCapabilities              agentcontract.ModeCapabilities
+	KBaseEnabled                  bool
+	CapabilityPrompts             []string
+	PlanningMode                  bool
+	TeamID                        string
+	Created                       bool
+	Subject                       string
+	SkillKeys                     []string
+	ContextTags                   []string
+	Budget                        map[string]any
+	StageSettings                 map[string]any
+	ResolvedBudget                Budget
+	ResolvedPlanExecuteSettings   PlanExecuteSettings
 	ResolvedCoderPlanningSettings CoderPlanningSettings
-	RunLimits             RunLimits
-	HistoryMessages       []map[string]any
-	CurrentMessages       []map[string]any
-	MemoryContext         string
-	StableMemoryContext   string
-	SessionMemoryContext  string
-	ObservationContext    string
-	WorkflowContext       string
-	PlanTaskContext       string
-	MemoryUsageSummary    *api.MemoryUsageSummary
-	RuntimeContext        RuntimeRequestContext
-	PromptAppend          PromptAppendConfig
-	AdvancedUserPrompt    bool
-	StaticMemoryPrompt    string
-	SkillCatalogPrompt    string
-	SystemInitCache       map[string]SystemInitSnapshot
-	PendingSystemInitKeys map[string]bool
+	RunLimits                     RunLimits
+	HistoryMessages               []map[string]any
+	CurrentMessages               []map[string]any
+	MemoryContext                 string
+	StableMemoryContext           string
+	SessionMemoryContext          string
+	ObservationContext            string
+	WorkflowContext               string
+	PlanTaskContext               string
+	MemoryUsageSummary            *api.MemoryUsageSummary
+	RuntimeContext                RuntimeRequestContext
+	PromptAppend                  PromptAppendConfig
+	AdvancedUserPrompt            bool
+	StaticMemoryPrompt            string
+	SkillCatalogPrompt            string
+	SystemInitCache               map[string]SystemInitSnapshot
+	PendingSystemInitKeys         map[string]bool
 
 	// Prompt files loaded from agent directory.
 	SoulPrompt            string
@@ -340,21 +342,21 @@ type ReadFileSnapshot struct {
 }
 
 type ExecutionContext struct {
-	Request           api.QueryRequest
-	Session           QuerySession
-	RunControl        *RunControl
-	CurrentToolID     string
-	CurrentToolName   string
-	HITLLevel         int
-	AutoApproveLevels map[int]bool
-	SandboxSession    *SandboxSession
-	Budget            Budget
-	PlanExecuteSettings PlanExecuteSettings
+	Request               api.QueryRequest
+	Session               QuerySession
+	RunControl            *RunControl
+	CurrentToolID         string
+	CurrentToolName       string
+	HITLLevel             int
+	AutoApproveLevels     map[int]bool
+	SandboxSession        *SandboxSession
+	Budget                Budget
+	PlanExecuteSettings   PlanExecuteSettings
 	CoderPlanningSettings CoderPlanningSettings
-	RunLoopState      RunLoopState
-	PlanState         *PlanRuntimeState
-	PlanningState     *PlanningRuntimeState
-	PlanningRevision  int
+	RunLoopState          RunLoopState
+	PlanState             *PlanRuntimeState
+	PlanningState         *PlanningRuntimeState
+	PlanningRevision      int
 	// RuntimeEnvOverrides is reused by host bash as agent/skill-level env defaults.
 	RuntimeEnvOverrides map[string]string
 	AccessLevel         string

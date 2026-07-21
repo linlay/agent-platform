@@ -34,8 +34,8 @@ func TestHandleKBaseStatusMappingAndMethods(t *testing.T) {
 		t.Fatalf("mkdir workspace: %v", err)
 	}
 	manager := kbase.NewManager(kbase.ManagerOptions{RuntimeDir: filepath.Join(root, "runtime")}, handlerKBaseAgentSource{
-		"docs":  handlerKBaseAgent("docs", kbase.Mode, workspace),
-		"react": handlerKBaseAgent("react", "REACT", workspace),
+		"docs":     handlerKBaseAgent("docs", true, workspace),
+		"disabled": handlerKBaseAgent("disabled", false, workspace),
 	}, handlerKBaseModelRegistry(t, root))
 	srv := &Server{deps: Dependencies{KBase: manager}}
 
@@ -50,9 +50,9 @@ func TestHandleKBaseStatusMappingAndMethods(t *testing.T) {
 		{name: "status", method: http.MethodGet, path: "/api/kbase/docs/status", want: http.StatusOK},
 		{name: "refresh", method: http.MethodPost, path: "/api/kbase/docs/refresh", body: `{}`, want: http.StatusOK},
 		{name: "unknown agent", method: http.MethodGet, path: "/api/kbase/missing/status", want: http.StatusNotFound},
-		{name: "wrong mode", method: http.MethodGet, path: "/api/kbase/react/status", want: http.StatusForbidden},
+		{name: "disabled capability", method: http.MethodGet, path: "/api/kbase/disabled/status", want: http.StatusForbidden},
 		{name: "unknown agent precedes method", method: http.MethodPost, path: "/api/kbase/missing/status", want: http.StatusNotFound},
-		{name: "wrong mode precedes method", method: http.MethodPost, path: "/api/kbase/react/status", want: http.StatusForbidden},
+		{name: "disabled capability precedes method", method: http.MethodPost, path: "/api/kbase/disabled/status", want: http.StatusForbidden},
 		{name: "bad path", method: http.MethodGet, path: "/api/kbase/docs", want: http.StatusNotFound},
 		{name: "status method", method: http.MethodPost, path: "/api/kbase/docs/status", want: http.StatusMethodNotAllowed, allow: http.MethodGet},
 		{name: "refresh method", method: http.MethodGet, path: "/api/kbase/docs/refresh", want: http.StatusMethodNotAllowed, allow: http.MethodPost},
@@ -83,9 +83,9 @@ func TestHandleKBaseStatusMappingAndMethods(t *testing.T) {
 	}
 }
 
-func handlerKBaseAgent(key string, mode string, workspace string) kbase.AgentSpec {
+func handlerKBaseAgent(key string, enabled bool, workspace string) kbase.AgentSpec {
 	return kbase.AgentSpec{
-		Key: key, Mode: mode, WorkspaceRoot: workspace,
+		Key: key, Enabled: enabled, Requirement: kbase.RequirementRequired, SourceRoot: workspace,
 		Config: kbase.AgentConfig{
 			Embedding: kbase.EmbeddingConfig{ModelKey: "embedding"},
 			Storage:   kbase.StorageConfig{Location: "runtime"},

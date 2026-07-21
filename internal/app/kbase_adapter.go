@@ -8,8 +8,8 @@ import (
 	"agent-platform/internal/kbase"
 )
 
-// kbaseCatalogSource is the app-owned mapping from the broad catalog into the
-// narrow, mode-owned source consumed by KBASE.
+// kbaseCatalogSource is the app-owned mapping from the broad catalog snapshot
+// into the mode-neutral capability specs consumed by the KBASE runtime.
 type kbaseCatalogSource struct {
 	registry *catalog.FileRegistry
 }
@@ -37,10 +37,11 @@ func (s kbaseCatalogSource) Agent(key string) (kbase.AgentSpec, bool) {
 		return kbase.AgentSpec{}, false
 	}
 	return kbase.AgentSpec{
-		Key:           definition.Key,
-		Mode:          definition.Mode,
-		WorkspaceRoot: definition.Workspace.Root,
-		Config:        definition.KBaseConfig,
+		Key:         definition.Key,
+		Enabled:     definition.KBaseConfig.Enabled,
+		SourceRoot:  definition.KBaseConfig.Source.Root,
+		Requirement: definition.KBaseRequirement,
+		Config:      definition.KBaseConfig,
 	}, true
 }
 

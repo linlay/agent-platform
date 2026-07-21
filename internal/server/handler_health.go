@@ -21,8 +21,11 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 		kbaseState = map[string]any{"required": required, "sidecar": state}
 		if err != nil {
 			kbaseState["error"] = err.Error()
-			writeJSON(w, http.StatusServiceUnavailable, api.Failure(1, "unhealthy", map[string]any{"kbase": kbaseState}))
-			return
+			kbaseState["degraded"] = true
+			if required {
+				writeJSON(w, http.StatusServiceUnavailable, api.Failure(1, "unhealthy", map[string]any{"kbase": kbaseState}))
+				return
+			}
 		}
 	}
 	writeJSON(w, http.StatusOK, api.Success(healthData{Runtime: "ready", KBASE: kbaseState}))

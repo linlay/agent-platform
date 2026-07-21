@@ -231,8 +231,11 @@ func validateAgentWorkspace(workspace AgentWorkspaceConfig) error {
 	return nil
 }
 
-func validateAgentModeWorkspace(mode string, workspace AgentWorkspaceConfig, hasRuntimeSandbox bool) error {
+func validateAgentModeWorkspace(mode string, workspace AgentWorkspaceConfig, kbaseConfig kbase.AgentConfig, hasRuntimeSandbox bool) error {
 	if strings.EqualFold(strings.TrimSpace(mode), AgentModeKBase) {
+		if strings.TrimSpace(kbaseConfig.Source.Root) != "" {
+			return nil
+		}
 		return kbase.ValidateWorkspace(workspace.Root)
 	}
 	return nil

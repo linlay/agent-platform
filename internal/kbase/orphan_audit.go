@@ -30,7 +30,7 @@ func (m *Manager) AuditOrphanStorage() ([]OrphanStorage, error) {
 	owned := map[string]struct{}{}
 	if m.agents != nil {
 		for _, spec := range m.agents.Agents() {
-			if !strings.EqualFold(strings.TrimSpace(spec.Mode), Mode) {
+			if !spec.Enabled {
 				continue
 			}
 			location := strings.ToLower(strings.TrimSpace(spec.Config.Storage.Location))

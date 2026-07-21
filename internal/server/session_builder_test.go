@@ -13,6 +13,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/kbase"
 )
 
 func TestBuildSessionToolNamesDoesNotAutoAddInvokeAgents(t *testing.T) {
@@ -233,6 +234,64 @@ func TestBuildQuerySessionInjectsKBaseSystemPrompt(t *testing.T) {
 	}
 	if session.ModeSystemPrompt != "configured kbase system prompt" {
 		t.Fatalf("kbase system prompt = %q, want configured prompt", session.ModeSystemPrompt)
+	}
+	if !session.KBaseEnabled || len(session.CapabilityPrompts) != 0 {
+		t.Fatalf("dedicated KBASE session capability snapshot = enabled:%v prompts:%#v", session.KBaseEnabled, session.CapabilityPrompts)
+	}
+}
+
+func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Config{Paths: config.PathsConfig{ChatsDir: filepath.Join(root, "chats")}}
+	def := catalog.AgentDefinition{
+		Key:      "zenmi",
+		Name:     "Zenmi",
+		Mode:     "REACT",
+		ModelKey: "mock-model",
+		Tools:    append([]string{"datetime"}, kbase.DefaultToolNames()...),
+		KBaseConfig: kbase.AgentConfig{
+			Enabled: true,
+			Source:  kbase.SourceConfig{Root: filepath.Join(root, "knowledge")},
+		},
+		KBaseRequirement: kbase.RequirementOptional,
+	}
+	server := &Server{deps: Dependencies{Config: cfg}}
+	session, err := server.BuildQuerySession(context.Background(), api.QueryRequest{
+		AgentKey: "zenmi",
+		ChatID:   "chat-1",
+		RunID:    "run-1",
+		Role:     "user",
+	}, chat.Summary{ChatID: "chat-1"}, def, querySessionBuildOptions{})
+	if err != nil {
+		t.Fatalf("build query session: %v", err)
+	}
+	if !session.KBaseEnabled || len(session.CapabilityPrompts) != 1 || session.CapabilityPrompts[0] != kbase.DefaultCapabilityPrompt {
+		t.Fatalf("embedded capability snapshot = enabled:%v prompts:%#v", session.KBaseEnabled, session.CapabilityPrompts)
+	}
+	def.KBaseConfig.Enabled = false
+	if !session.KBaseEnabled || len(session.CapabilityPrompts) != 1 {
+		t.Fatal("mutating the catalog definition changed an existing session snapshot")
+	}
+}
+
+func TestKBaseCapabilityExtendsExplicitStageTools(t *testing.T) {
+	got := appendKBaseCapabilityToolsToExplicitStage([]string{"bash", "kbase_search"})
+	if !containsString(got, "bash") {
+		t.Fatalf("ordinary stage tool was removed: %#v", got)
+	}
+	for _, toolName := range kbase.CapabilityToolNames() {
+		count := 0
+		for _, item := range got {
+			if item == toolName {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Fatalf("stage tool %q count = %d in %#v", toolName, count, got)
+		}
+	}
+	if got := appendKBaseCapabilityToolsToExplicitStage(nil); got != nil {
+		t.Fatalf("implicit stage tools must continue falling back to root tools: %#v", got)
 	}
 }
 

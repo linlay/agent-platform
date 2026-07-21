@@ -7,8 +7,10 @@ type ErrorKind string
 const (
 	ErrorUnavailable ErrorKind = "unavailable"
 	ErrorNotFound    ErrorKind = "not_found"
-	ErrorWrongMode   ErrorKind = "wrong_mode"
-	ErrorInvalid     ErrorKind = "invalid"
+	ErrorDisabled    ErrorKind = "capability_disabled"
+	// ErrorWrongMode is retained as an API source-compatibility alias.
+	ErrorWrongMode ErrorKind = ErrorDisabled
+	ErrorInvalid   ErrorKind = "invalid"
 )
 
 type PolicyError struct {

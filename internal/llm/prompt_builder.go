@@ -71,6 +71,9 @@ func buildSystemPromptSections(session QuerySession, req api.QueryRequest, optio
 	toolNames := toolNamesFromDefinitions(options.ToolDefinitions, session.ToolNames)
 	appendSection("agent-identity", "Agent Identity", "agent.identity", buildAgentIdentitySection(session))
 	appendSection("mode-system", "Mode System Prompt", "agent.mode", agentbuiltin.RenderSystemPrompt(session, req, toolNames, options.Stage))
+	for index, prompt := range session.CapabilityPrompts {
+		appendSection(fmt.Sprintf("agent-capability-%d", index), "Agent Capability Prompt", "agent.capability", prompt)
+	}
 	appendSection("agent-soul", "Soul Prompt", "agent.soul", strings.TrimSpace(session.SoulPrompt))
 	appendSection("agent-prompt", "Agent Prompt", "agent.prompt", strings.TrimSpace(session.AgentsPrompt))
 	appendSection("workspace-agents", "Workspace AGENTS.md", "workspace.agents", buildWorkspaceAgentsSection(session.WorkspaceAgentsPrompt))

@@ -598,7 +598,7 @@ func (r *AgentCardReporter) buildCard(def catalog.AgentDefinition, externalKey s
 		}
 		skills[feature.ID] = feature
 	}
-	if strings.EqualFold(strings.TrimSpace(def.Mode), catalog.AgentModeKBase) {
+	if def.KBaseConfig.Enabled || strings.EqualFold(strings.TrimSpace(def.Mode), catalog.AgentModeKBase) {
 		tags, err := cardTags(def.KBaseConfig.Tags)
 		if err != nil {
 			return api.GatewayAgentCard{}, fmt.Errorf("kbase tags: %w", err)

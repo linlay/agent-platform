@@ -83,6 +83,11 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, market
 			}
 		}
 	}
+	if err := resolveLoadedKBaseSource(&def, source); err != nil {
+		log.Printf("[catalog][agents] skip %s %s: KBASE source error: %v", source.Kind, name, err)
+		adminItems[adminKey] = invalidAdminAgent(source, adminKey, definition, "invalid_config", err)
+		return err
+	}
 	def = applyGlobalAgentFlags(def, globalMemoryEnabled)
 	items[def.Key] = def
 	adminItems[def.Key] = readyAdminAgent(def, source, definition)
@@ -679,12 +684,18 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 	if err != nil {
 		return AgentDefinition{}, nil, err
 	}
+	if err := configureAgentKBaseCapability(&def, kbaseConfig); err != nil {
+		return AgentDefinition{}, nil, err
+	}
 	if err := validateAgentWorkspace(def.Workspace); err != nil {
 		return AgentDefinition{}, nil, err
 	}
 	hasRuntimeSandbox := strings.TrimSpace(stringNode(def.Runtime["environmentId"])) != ""
-	if err := validateAgentModeWorkspace(def.Mode, def.Workspace, hasRuntimeSandbox); err != nil {
+	if err := validateAgentModeWorkspace(def.Mode, def.Workspace, def.KBaseConfig, hasRuntimeSandbox); err != nil {
 		return AgentDefinition{}, nil, err
+	}
+	if strings.EqualFold(def.Mode, AgentModeKBase) && strings.TrimSpace(def.KBaseConfig.Source.Root) == "" {
+		def.KBaseConfig.Source.Root = strings.TrimSpace(def.Workspace.Root)
 	}
 	if err := ValidateAgentCoderBackend(def); err != nil {
 		return AgentDefinition{}, nil, err
@@ -695,12 +706,13 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 	if err := ValidateAgentModelConfig(def); err != nil {
 		return AgentDefinition{}, nil, err
 	}
-	if strings.EqualFold(def.Mode, AgentModeKBase) {
+	if def.KBaseConfig.Enabled {
 		if err := kbase.ValidateAgentConfig(def.KBaseConfig); err != nil {
 			return AgentDefinition{}, nil, err
 		}
 	}
 	def = applyAgentModeProfileDefaults(def)
+	def = applyKBaseCapabilityTools(def)
 	if err := ValidateOrdinaryAgentTools(def.Tools); err != nil {
 		return AgentDefinition{}, nil, err
 	}
@@ -930,6 +942,82 @@ func applyKBaseBoundaryPolicy(def AgentDefinition) AgentDefinition {
 		def.StaticMemoryPrompt = ""
 		def.MemoryEnabled = false
 		def.MemoryConfig = AgentMemoryConfig{}
+	}
+	return def
+}
+
+func configureAgentKBaseCapability(def *AgentDefinition, raw map[string]any) error {
+	if def == nil {
+		return nil
+	}
+	isKBaseMode := strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeKBase)
+	legacyKBaseWorkspace := isKBaseMode && strings.TrimSpace(def.KBaseConfig.Source.Root) == ""
+	if isKBaseMode {
+		if def.KBaseConfig.EnabledSet && !def.KBaseConfig.Enabled {
+			return fmt.Errorf("kbaseConfig.enabled cannot be false for mode: KBASE")
+		}
+		def.KBaseConfig.Enabled = true
+		def.KBaseRequirement = kbase.RequirementRequired
+	} else {
+		def.KBaseRequirement = kbase.RequirementOptional
+		if len(raw) > 0 && !def.KBaseConfig.EnabledSet {
+			return fmt.Errorf("kbaseConfig.enabled must be explicitly configured for non-KBASE agents")
+		}
+		if def.KBaseConfig.Enabled {
+			switch strings.ToUpper(strings.TrimSpace(def.Mode)) {
+			case "REACT", "PLAN_EXECUTE":
+			case AgentModeCoder:
+				if AgentUsesACPCoderBackend(*def) {
+					return fmt.Errorf("kbaseConfig.enabled is not supported for ACP CODER agents")
+				}
+			default:
+				return fmt.Errorf("kbaseConfig.enabled is only supported for REACT, PLAN-EXECUTE, native CODER, or KBASE agents")
+			}
+		}
+	}
+	if def.KBaseConfig.Enabled {
+		root := strings.TrimSpace(def.KBaseConfig.Source.Root)
+		if root == "" && !isKBaseMode {
+			return fmt.Errorf("kbaseConfig.source.root is required when KBASE is enabled")
+		}
+		if !legacyKBaseWorkspace && strings.EqualFold(root, kbase.WorkspaceRootChat) {
+			return fmt.Errorf("kbaseConfig.source.root must not be %q", kbase.WorkspaceRootChat)
+		}
+		if !legacyKBaseWorkspace && (filepath.IsAbs(root) || root == "~" || strings.HasPrefix(root, "~/")) {
+			resolved, err := kbase.ResolveSourceRoot(root, "")
+			if err != nil {
+				return err
+			}
+			def.KBaseConfig.Source.Root = resolved
+		}
+	}
+	return nil
+}
+
+func resolveLoadedKBaseSource(def *AgentDefinition, source EditableAgentSource) error {
+	if def == nil || !def.KBaseConfig.Enabled {
+		return nil
+	}
+	baseDir := ""
+	if source.Kind == "directory" {
+		baseDir = source.AgentDir
+	}
+	root, err := kbase.ResolveSourceRoot(def.KBaseConfig.Source.Root, baseDir)
+	if err != nil {
+		return err
+	}
+	def.KBaseConfig.Source.Root = root
+	return nil
+}
+
+func applyKBaseCapabilityTools(def AgentDefinition) AgentDefinition {
+	if !def.KBaseConfig.Enabled || strings.EqualFold(def.Mode, AgentModeKBase) {
+		return def
+	}
+	for _, toolName := range kbase.CapabilityToolNames() {
+		if !containsString(def.Tools, toolName) {
+			def.Tools = append(def.Tools, toolName)
+		}
 	}
 	return def
 }

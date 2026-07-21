@@ -1,12 +1,8 @@
 package kbase
 
 import (
-	"strings"
-
 	agentcontract "agent-platform/internal/agent"
-	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
-	corekbase "agent-platform/internal/kbase"
 )
 
 const (
@@ -15,25 +11,7 @@ const (
 	MainCacheKey    = "kbase:main"
 	CreatePrefix    = "kbase"
 	DefaultIconName = "kbase"
-
-	ToolSearch   = corekbase.ToolSearch
-	ToolFiles    = corekbase.ToolFiles
-	ToolRead     = corekbase.ToolRead
-	ToolStatus   = corekbase.ToolStatus
-	ToolRefresh  = corekbase.ToolRefresh
-	ToolDatetime = corekbase.ToolDatetime
 )
-
-const DefaultSystemPrompt = `KBASE Mode
-You answer using the workspace knowledge base for this agent.
-
-Rules:
-- Search the knowledge base with kbase_search before answering factual questions about the indexed workspace.
-- Use kbase_files when you need to discover indexed files or browse nearby indexed paths.
-- Base answers on retrieved evidence. If the available evidence is insufficient, say that the knowledge base does not contain enough information.
-- Cite source paths and line ranges from kbase_search or kbase_read when giving concrete claims.
-- Use kbase_read when a search result needs more surrounding context.
-- Do not claim that unindexed or missing files were searched.`
 
 var defaultContextTags = []string{"system", "session"}
 
@@ -43,10 +21,6 @@ var defaultBudget = map[string]any{
 	"tool": map[string]any{
 		"maxCalls": 80,
 	},
-}
-
-func DefaultToolNames() []string {
-	return corekbase.DefaultToolNames()
 }
 
 func DefaultContextTags() []string {
@@ -73,75 +47,4 @@ func Descriptor() agentcontract.ModeDescriptor {
 			RunAsChild: true,
 		},
 	}
-}
-
-func MainSystemInitSpec() agentcontract.SystemInitSpec {
-	return agentcontract.SystemInitSpec{
-		CacheKey:              MainCacheKey,
-		FingerprintStage:      MainStage,
-		PromptStage:           MainStage,
-		Mode:                  MainStage,
-		Stage:                 "main",
-		UseSharedSystemPrompt: true,
-		IncludeAfterCallHints: true,
-		Initial:               true,
-	}
-}
-
-func RenderSystemPrompt(session contracts.QuerySession, req api.QueryRequest, toolNames []string, stage string) string {
-	if !strings.EqualFold(strings.TrimSpace(session.Mode), Mode) ||
-		!strings.EqualFold(strings.TrimSpace(stage), MainStage) {
-		return ""
-	}
-	prompt := strings.TrimSpace(session.ModeSystemPrompt)
-	if prompt == "" {
-		prompt = DefaultSystemPrompt
-	}
-	if len(toolNames) == 0 {
-		toolNames = session.ToolNames
-	}
-	workspaceDir := agentcontract.FirstNonBlank(
-		session.RuntimeContext.LocalPaths.WorkspaceDir,
-		session.RuntimeContext.SandboxPaths.WorkspaceDir,
-		session.WorkspaceRoot,
-	)
-	chatDir := agentcontract.FirstNonBlank(
-		session.RuntimeContext.LocalPaths.ChatAttachmentsDir,
-		session.RuntimeContext.SandboxPaths.WorkspaceDir,
-	)
-	values := agentcontract.CommonPromptValues(agentcontract.PromptContext{
-		AgentKey:       session.AgentKey,
-		AgentName:      session.AgentName,
-		Mode:           session.Mode,
-		PlanningMode:   session.PlanningMode,
-		WorkspaceDir:   workspaceDir,
-		ChatDir:        chatDir,
-		AvailableTools: toolNames,
-		UserRequest:    req.Message,
-	})
-	return agentcontract.RenderPromptTemplate(prompt, values)
-}
-
-func IsTool(name string) bool {
-	return corekbase.IsTool(name)
-}
-
-func FilterTools(tools []string) []string {
-	return corekbase.FilterTools(tools)
-}
-
-// BoundaryPolicy is the KBASE-owned runtime boundary consumed by catalog's
-// YAML adapter. KBASE never carries memory state, and configured tools are
-// constrained to the KBASE allowlist with the mode defaults as fallback.
-type BoundaryPolicy struct {
-	ToolNames     []string
-	MemoryEnabled bool
-}
-
-func ResolveBoundaryPolicy(toolNames []string) BoundaryPolicy {
-	filtered := FilterTools(toolNames)
-	if len(filtered) == 0 {
-		filtered = DefaultToolNames()
-	}
-	return BoundaryPolicy{ToolNames: filtered, MemoryEnabled: false}
 }

@@ -28,13 +28,17 @@ type RefreshResult struct {
 }
 
 type Status struct {
-	AgentKey           string            `json:"agentKey"`
-	Mode               string            `json:"mode"`
-	StorageLocation    string            `json:"storageLocation"`
-	StorageDir         string            `json:"storageDir"`
+	AgentKey        string `json:"agentKey"`
+	Mode            string `json:"mode"`
+	StorageLocation string `json:"storageLocation"`
+	StorageDir      string `json:"storageDir"`
+	SourceRoot      string `json:"sourceRoot"`
+	// WorkspaceRoot is retained as a response compatibility alias for SourceRoot.
 	WorkspaceRoot      string            `json:"workspaceRoot"`
 	Indexing           bool              `json:"indexing"`
 	Stale              bool              `json:"stale"`
+	Degraded           bool              `json:"degraded,omitempty"`
+	Error              string            `json:"error,omitempty"`
 	LastIndexedAt      *int64            `json:"lastIndexedAt,omitempty"`
 	Files              int               `json:"files"`
 	Chunks             int               `json:"chunks"`

@@ -60,8 +60,8 @@ func (h *ToolHandler) requireContext(toolName string, execCtx *contracts.Executi
 	if execCtx == nil || strings.TrimSpace(execCtx.Session.AgentKey) == "" {
 		return "", &contracts.ToolExecutionResult{Output: toolName + " requires an active agent execution context", Error: "kbase_context_required", ExitCode: -1}
 	}
-	if !strings.EqualFold(strings.TrimSpace(execCtx.Session.Mode), Mode) {
-		return "", &contracts.ToolExecutionResult{Output: toolName + " is only supported for mode: " + Mode, Error: "kbase_unsupported_agent_mode", ExitCode: -1}
+	if !execCtx.Session.KBaseEnabled {
+		return "", &contracts.ToolExecutionResult{Output: toolName + " requires the KBASE capability to be enabled for this agent", Error: "kbase_capability_disabled", ExitCode: -1}
 	}
 	return strings.TrimSpace(execCtx.Session.AgentKey), nil
 }
@@ -79,7 +79,7 @@ func (h *ToolHandler) invokeSearch(ctx context.Context, agentKey string, args ma
 		Type:       strings.TrimSpace(toolStringArg(args, "type")),
 	})
 	if err != nil {
-		return contracts.ToolExecutionResult{}, err
+		return kbaseToolFailure(err), nil
 	}
 	toolResult := kbaseStructuredResult(map[string]any{
 		"agentKey":   result.AgentKey,
@@ -123,7 +123,7 @@ func (h *ToolHandler) invokeFiles(agentKey string, args map[string]any) (contrac
 		Offset:    int(toolInt64Arg(args, "offset")),
 	})
 	if err != nil {
-		return contracts.ToolExecutionResult{}, err
+		return kbaseToolFailure(err), nil
 	}
 	return kbaseStructuredResult(map[string]any{
 		"tool":       result.Tool,
@@ -150,7 +150,7 @@ func (h *ToolHandler) invokeRead(agentKey string, args map[string]any) (contract
 		Limit:   int(toolInt64Arg(args, "limit")),
 	})
 	if err != nil {
-		return contracts.ToolExecutionResult{}, err
+		return kbaseToolFailure(err), nil
 	}
 	return kbaseStructuredResult(map[string]any{
 		"found":      result.Found,
@@ -171,16 +171,18 @@ func (h *ToolHandler) invokeRead(agentKey string, args map[string]any) (contract
 func (h *ToolHandler) invokeStatus(agentKey string) (contracts.ToolExecutionResult, error) {
 	status, err := h.service.Status(agentKey)
 	if err != nil {
-		return contracts.ToolExecutionResult{}, err
+		return kbaseToolFailure(err), nil
 	}
 	payload := map[string]any{
 		"agentKey":                  status.AgentKey,
 		"mode":                      status.Mode,
 		"storageLocation":           status.StorageLocation,
 		"storageDir":                status.StorageDir,
+		"sourceRoot":                status.SourceRoot,
 		"workspaceRoot":             status.WorkspaceRoot,
 		"indexing":                  status.Indexing,
 		"stale":                     status.Stale,
+		"degraded":                  status.Degraded,
 		"files":                     status.Files,
 		"chunks":                    status.Chunks,
 		"embedding":                 status.Embedding,
@@ -199,6 +201,9 @@ func (h *ToolHandler) invokeStatus(agentKey string) (contracts.ToolExecutionResu
 	if status.LastIndexedAt != nil {
 		payload["lastIndexedAt"] = *status.LastIndexedAt
 	}
+	if strings.TrimSpace(status.Error) != "" {
+		payload["error"] = status.Error
+	}
 	return kbaseStructuredResult(payload), nil
 }
 
@@ -208,7 +213,7 @@ func (h *ToolHandler) invokeRefresh(ctx context.Context, agentKey string, args m
 		Mode:  "tool",
 	})
 	if err != nil {
-		return contracts.ToolExecutionResult{}, err
+		return kbaseToolFailure(err), nil
 	}
 	return kbaseStructuredResult(map[string]any{
 		"agentKey":          result.AgentKey,
@@ -229,6 +234,30 @@ func (h *ToolHandler) invokeRefresh(ctx context.Context, agentKey string, args m
 		"pendingChanges":    result.PendingChanges,
 		"error":             result.Error,
 	}), nil
+}
+
+func kbaseToolFailure(err error) contracts.ToolExecutionResult {
+	kind := KindOf(err)
+	code := "kbase_invalid_request"
+	switch kind {
+	case ErrorUnavailable:
+		code = "kbase_unavailable"
+	case ErrorNotFound:
+		code = "kbase_agent_not_found"
+	case ErrorDisabled:
+		code = "kbase_capability_disabled"
+	}
+	structured := map[string]any{"error": code}
+	if kind == ErrorUnavailable {
+		structured["stale"] = true
+		structured["unavailable"] = true
+	}
+	return contracts.ToolExecutionResult{
+		Output:     strings.TrimSpace(err.Error()),
+		Structured: structured,
+		Error:      code,
+		ExitCode:   -1,
+	}
 }
 
 func kbaseStructuredResult(payload map[string]any) contracts.ToolExecutionResult {

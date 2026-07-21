@@ -58,6 +58,7 @@ type AgentDefinition struct {
 	Workspace        AgentWorkspaceConfig
 	Project          AgentProjectConfig
 	KBaseConfig      kbase.AgentConfig
+	KBaseRequirement kbase.Requirement
 	ContextTags      []string
 	ContextAgents    []string
 	Budget           map[string]any

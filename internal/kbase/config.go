@@ -19,13 +19,16 @@ const (
 )
 
 type AgentConfig struct {
-	Tags      []string
-	Embedding EmbeddingConfig
-	Storage   StorageConfig
-	Include   []string
-	Exclude   []string
-	Chunk     ChunkConfig
-	Retrieval RetrievalConfig
+	Enabled    bool
+	EnabledSet bool
+	Source     SourceConfig
+	Tags       []string
+	Embedding  EmbeddingConfig
+	Storage    StorageConfig
+	Include    []string
+	Exclude    []string
+	Chunk      ChunkConfig
+	Retrieval  RetrievalConfig
 }
 
 type EmbeddingConfig struct {
@@ -80,12 +83,6 @@ type PPTXExtractionConfig struct {
 	IncludeNotes bool
 }
 
-type CreateDefaults struct {
-	ModelKey          string
-	ReasoningEffort   string
-	EmbeddingModelKey string
-}
-
 func DefaultIncludePatterns() []string {
 	return []string{
 		"**/*.md",
@@ -137,6 +134,16 @@ func ParseAgentConfig(node map[string]any) (AgentConfig, error) {
 	if len(node) == 0 {
 		return cfg, nil
 	}
+	if rawEnabled, exists := node["enabled"]; exists {
+		enabled, ok := rawEnabled.(bool)
+		if !ok {
+			return AgentConfig{}, fmt.Errorf("kbaseConfig.enabled must be a boolean")
+		}
+		cfg.Enabled = enabled
+		cfg.EnabledSet = true
+	}
+	source := anyMap(node["source"])
+	cfg.Source = SourceConfig{Root: strings.TrimSpace(anyString(source["root"]))}
 	cfg.Tags = anyStrings(node["tags"])
 	embedding := anyMap(node["embedding"])
 	cfg.Embedding = EmbeddingConfig{ModelKey: anyString(embedding["modelKey"])}
@@ -249,6 +256,27 @@ func NormalizeChunkUnit(value string) (string, bool) {
 }
 
 func ValidateAgentConfigSchema(node map[string]any) error {
+	if rawEnabled, exists := node["enabled"]; exists {
+		if _, ok := rawEnabled.(bool); !ok {
+			return fmt.Errorf("kbaseConfig.enabled must be a boolean")
+		}
+	}
+	if rawSource, exists := node["source"]; exists {
+		var source map[string]any
+		switch rawSource.(type) {
+		case map[string]any, map[any]any:
+			source = anyMap(rawSource)
+		default:
+			if rawSource != nil {
+				return fmt.Errorf("kbaseConfig.source must be a map")
+			}
+		}
+		if rawRoot, exists := source["root"]; exists {
+			if _, ok := rawRoot.(string); !ok {
+				return fmt.Errorf("kbaseConfig.source.root must be a string")
+			}
+		}
+	}
 	if rawTags, exists := node["tags"]; exists {
 		switch tags := rawTags.(type) {
 		case []string:
@@ -362,49 +390,6 @@ func ValidateWorkspace(root string) error {
 		return fmt.Errorf("runtimeConfig.workspaceRoot for mode: KBASE must be an absolute path or ~/ path")
 	}
 	return nil
-}
-
-func ApplyCreateDefaults(definition map[string]any, defaults CreateDefaults) map[string]any {
-	if definition == nil {
-		return nil
-	}
-	out := cloneAnyMap(definition)
-	if emptyAny(out["icon"]) {
-		out["icon"] = map[string]any{"name": DefaultIconName}
-	}
-	visibility := cloneAnyMap(anyMap(out["visibility"]))
-	if !hasNonBlankStrings(visibility["scopes"]) {
-		visibility["scopes"] = []any{"nav"}
-		out["visibility"] = visibility
-	}
-	modelKey := strings.TrimSpace(defaults.ModelKey)
-	reasoningEffort := strings.TrimSpace(defaults.ReasoningEffort)
-	if modelKey != "" || reasoningEffort != "" {
-		modelConfig := cloneAnyMap(anyMap(out["modelConfig"]))
-		if modelKey != "" && strings.TrimSpace(anyString(modelConfig["modelKey"])) == "" {
-			modelConfig["modelKey"] = modelKey
-		}
-		if reasoningEffort != "" {
-			reasoning := cloneAnyMap(anyMap(modelConfig["reasoning"]))
-			if strings.TrimSpace(anyString(reasoning["effort"])) == "" {
-				reasoning["effort"] = reasoningEffort
-			}
-			modelConfig["reasoning"] = reasoning
-		}
-		out["modelConfig"] = modelConfig
-	}
-	kbaseConfig := cloneAnyMap(anyMap(out["kbaseConfig"]))
-	embedding := cloneAnyMap(anyMap(kbaseConfig["embedding"]))
-	explicitModelKey := strings.TrimSpace(anyString(embedding["modelKey"]))
-	if explicitModelKey != "" || strings.TrimSpace(defaults.EmbeddingModelKey) != "" {
-		if explicitModelKey == "" {
-			explicitModelKey = strings.TrimSpace(defaults.EmbeddingModelKey)
-		}
-		embedding["modelKey"] = explicitModelKey
-		kbaseConfig["embedding"] = embedding
-		out["kbaseConfig"] = kbaseConfig
-	}
-	return out
 }
 
 func anyMap(value any) map[string]any {
@@ -552,36 +537,4 @@ func applyStringAliases(values map[string]any, target *string, keys ...string) {
 			*target = strings.ToLower(strings.TrimSpace(anyString(value)))
 		}
 	}
-}
-
-func cloneAnyMap(src map[string]any) map[string]any {
-	if src == nil {
-		return map[string]any{}
-	}
-	out := make(map[string]any, len(src))
-	for key, value := range src {
-		switch typed := value.(type) {
-		case map[string]any:
-			out[key] = cloneAnyMap(typed)
-		case []any:
-			out[key] = append([]any(nil), typed...)
-		case []string:
-			out[key] = append([]string(nil), typed...)
-		default:
-			out[key] = value
-		}
-	}
-	return out
-}
-
-func emptyAny(value any) bool {
-	if value == nil {
-		return true
-	}
-	text, ok := value.(string)
-	return ok && strings.TrimSpace(text) == ""
-}
-
-func hasNonBlankStrings(value any) bool {
-	return len(anyStrings(value)) > 0
 }

@@ -14,6 +14,7 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/kbase"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/plantasks"
 	"agent-platform/internal/querymessages"
@@ -178,6 +179,17 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		}
 	}
 	toolNames = agentcoder.RuntimeToolNamesForAgent(agentDef.Mode, agentDef.ACPBridgeID, agentcoder.MainStage, toolNames)
+	capabilityPrompts := []string(nil)
+	if agentDef.KBaseConfig.Enabled && !strings.EqualFold(agentDef.Mode, catalog.AgentModeKBase) {
+		capabilityPrompts = append(capabilityPrompts, kbase.DefaultCapabilityPrompt)
+	}
+	resolvedPlanExecuteSettings := contracts.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask)
+	resolvedCoderPlanningSettings := contracts.ResolveCoderPlanningSettings(agentDef.StageSettings, s.deps.Config.Defaults.CoderPlanning.MaxSteps)
+	if agentDef.KBaseConfig.Enabled {
+		resolvedPlanExecuteSettings.Plan.Tools = appendKBaseCapabilityToolsToExplicitStage(resolvedPlanExecuteSettings.Plan.Tools)
+		resolvedPlanExecuteSettings.Execute.Tools = appendKBaseCapabilityToolsToExplicitStage(resolvedPlanExecuteSettings.Execute.Tools)
+		resolvedCoderPlanningSettings.Execute.Tools = appendKBaseCapabilityToolsToExplicitStage(resolvedCoderPlanningSettings.Execute.Tools)
+	}
 
 	session := contracts.QuerySession{
 		RequestID:                     req.RequestID,
@@ -195,6 +207,8 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		ToolNames:                     toolNames,
 		Mode:                          agentDef.Mode,
 		ModeCapabilities:              resolvedModeCapabilities(agentDef),
+		KBaseEnabled:                  agentDef.KBaseConfig.Enabled,
+		CapabilityPrompts:             capabilityPrompts,
 		PlanningMode:                  agentcoder.PlanningModeEnabled(agentDef.Mode, req.PlanningMode != nil && *req.PlanningMode),
 		TeamID:                        req.TeamID,
 		Created:                       options.Created,
@@ -203,8 +217,8 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		Budget:                        contracts.CloneMap(agentDef.Budget),
 		StageSettings:                 contracts.CloneMap(agentDef.StageSettings),
 		ResolvedBudget:                contracts.ResolveBudget(s.deps.Config, agentDef.Budget),
-		ResolvedPlanExecuteSettings:   contracts.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask),
-		ResolvedCoderPlanningSettings: contracts.ResolveCoderPlanningSettings(agentDef.StageSettings, s.deps.Config.Defaults.CoderPlanning.MaxSteps),
+		ResolvedPlanExecuteSettings:   resolvedPlanExecuteSettings,
+		ResolvedCoderPlanningSettings: resolvedCoderPlanningSettings,
 		HistoryMessages:               historyMessages,
 		StableMemoryContext:           stableMemoryContext,
 		SessionMemoryContext:          sessionMemoryContext,
@@ -244,6 +258,19 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	}
 	session.CurrentMessages = s.buildCurrentMessages(req, session)
 	return session, nil
+}
+
+func appendKBaseCapabilityToolsToExplicitStage(tools []string) []string {
+	if len(tools) == 0 {
+		return nil
+	}
+	out := append([]string(nil), tools...)
+	for _, toolName := range kbase.CapabilityToolNames() {
+		if !containsString(out, toolName) {
+			out = append(out, toolName)
+		}
+	}
+	return out
 }
 
 func excludeHistoryRun(messages []map[string]any, runID string) []map[string]any {

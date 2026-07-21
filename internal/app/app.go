@@ -203,7 +203,8 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	if cfg.Memory.Enabled && sqliteMemoryStore != nil {
 		sqliteMemoryStore.SetRuntimeResolver(memoryRuntimeResolver(cfg, registry, modelRegistry))
 	}
-	kbaseManager := kbase.NewManager(kbaseManagerOptions(cfg), kbaseCatalogSource{registry: registry}, modelRegistry).WithSupportPackages(supportPackages)
+	kbaseSource := kbaseCatalogSource{registry: registry}
+	kbaseManager := kbase.NewManager(kbaseManagerOptions(cfg), kbaseSource, modelRegistry).WithSupportPackages(supportPackages)
 	if err := kbaseManager.ValidateConfiguration(); err != nil {
 		return nil, fmt.Errorf("validate KBASE storage ownership: %w", err)
 	}
@@ -215,8 +216,13 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	sort.Strings(startupKBaseKeys)
 	for _, key := range startupKBaseKeys {
 		cause := startupKBaseFailures[key]
-		registry.InvalidateRuntimeAgent(key, "invalid_kbase_storage", cause)
-		log.Printf("[catalog][agents] isolate agent=%s: %v", key, cause)
+		spec, _ := kbaseSource.Agent(key)
+		if spec.Requirement == kbase.RequirementRequired {
+			registry.InvalidateRuntimeAgent(key, "invalid_kbase_storage", cause)
+			log.Printf("[catalog][agents] isolate required KBASE agent=%s: %v", key, cause)
+			continue
+		}
+		log.Printf("[catalog][agents] optional KBASE capability degraded agent=%s: %v", key, cause)
 	}
 	log.Printf(
 		"catalog registry ready in %s (agents=%d teams=%d skills=%d tools=%d)",

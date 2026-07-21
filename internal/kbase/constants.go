@@ -14,17 +14,20 @@ const (
 	ToolDatetime    = "datetime"
 )
 
-var defaultToolNames = []string{
+var capabilityToolNames = []string{
 	ToolSearch,
 	ToolFiles,
 	ToolRead,
 	ToolStatus,
 	ToolRefresh,
-	ToolDatetime,
+}
+
+func CapabilityToolNames() []string {
+	return append([]string(nil), capabilityToolNames...)
 }
 
 func DefaultToolNames() []string {
-	return append([]string(nil), defaultToolNames...)
+	return append(CapabilityToolNames(), ToolDatetime)
 }
 
 func IsTool(name string) bool {

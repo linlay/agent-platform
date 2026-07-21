@@ -18,6 +18,9 @@ const (
 )
 
 func (m *Manager) Files(agentKey string, options FilesOptions) (FilesResult, error) {
+	if err := m.capabilityDegradedError(agentKey); err != nil {
+		return FilesResult{}, err
+	}
 	cfg, _, err := m.resolve(agentKey)
 	if err != nil {
 		return FilesResult{}, err
