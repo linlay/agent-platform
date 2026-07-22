@@ -177,6 +177,74 @@ func TestRunRefreshesArchiveAndArchiveTreeHashesWithoutChangingCanonicalLock(t *
 	}
 }
 
+func TestRunUsesLocalVersionsAndArchivePathsForRebuiltComponents(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		component string
+		kind      string
+		format    string
+		entry     string
+		output    string
+		tree      *builtins.TreeLayout
+	}{
+		{name: "dbx", component: "dbx", kind: "archive", format: "tar.gz", entry: "dbx", output: "dbx"},
+		{name: "httpx", component: "httpx", kind: "archive", format: "tar.gz", entry: "httpx", output: "httpx"},
+		{name: "poppler", component: "poppler-pdftotext", kind: "archive-tree", format: "tar.gz", tree: &builtins.TreeLayout{
+			Root: "runtime", Outputs: []builtins.TreeOutput{{Path: "bin/pdftotext", Type: "file"}},
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			collection := filepath.Join(root, "collection")
+			repository := filepath.Join(collection, test.component)
+			if err := os.MkdirAll(repository, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(repository, "VERSION"), []byte("v1.2.0\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			artifactPath := filepath.Join(repository, "dist", "v1.2.0", test.component+"_v1.2.0_darwin_arm64.tar.gz")
+			if err := os.MkdirAll(filepath.Dir(artifactPath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(artifactPath, []byte("local archive"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			lock := builtins.Lock{SchemaVersion: 1, DefaultRoot: "../agent-platform-builtins", Components: []builtins.Component{{
+				Name: test.component, Version: "v1.0.0", Repository: test.component, Kind: test.kind, Required: true,
+				Targets: map[string]builtins.Target{"darwin-arm64": {
+					Path: "dist/v1.0.0/" + test.component + "_v1.0.0_darwin_arm64.tar.gz", Format: test.format,
+					Entry: test.entry, Output: test.output, Tree: test.tree, SHA256: strings.Repeat("a", 64),
+				}},
+			}}}
+			input := filepath.Join(root, "lock.json")
+			payload, err := json.Marshal(lock)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(input, payload, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			output := filepath.Join(root, "local-lock.json")
+			if err := run(input, output, collection, []string{"darwin/arm64"}); err != nil {
+				t.Fatalf("run: %v", err)
+			}
+			derived, err := builtins.LoadLock(output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			component := derived.Components[0]
+			if component.Version != "v1.2.0" {
+				t.Fatalf("version = %q", component.Version)
+			}
+			if got := component.Targets["darwin-arm64"].Path; got != "dist/v1.2.0/"+test.component+"_v1.2.0_darwin_arm64.tar.gz" {
+				t.Fatalf("path = %q", got)
+			}
+		})
+	}
+}
+
 func TestDeclaredComponentTargetsReturnsOnlyLockedRequestedTargets(t *testing.T) {
 	root := t.TempDir()
 	lock := builtins.Lock{

@@ -24,6 +24,7 @@ func main() {
 	output := flag.String("output", "", "derived local lock output path")
 	collectionRoot := flag.String("builtins-root", "", "absolute local builtin collection root")
 	componentTargets := flag.String("print-component-targets", "", "print requested targets declared for one component in the canonical lock")
+	offerCanonicalUpdate := flag.Bool("offer-canonical-update", false, "offer to replace the canonical lock with verified newer local component versions")
 	var targets targetList
 	flag.Var(&targets, "target", "target to refresh (repeatable, os/arch)")
 	flag.Parse()
@@ -36,6 +37,13 @@ func main() {
 		}
 		for _, target := range resolved {
 			fmt.Println(target)
+		}
+		return
+	}
+	if *offerCanonicalUpdate {
+		if err := offerUpdate(*input, *collectionRoot, os.Stdin, os.Stdout, stdinIsTerminal()); err != nil {
+			fmt.Fprintf(os.Stderr, "prepare local builtins lock: %v\n", err)
+			os.Exit(1)
 		}
 		return
 	}
@@ -78,6 +86,17 @@ func run(input, output, collectionRoot string, requestedTargets []string) error 
 	if err != nil {
 		return err
 	}
+	for index := range lock.Components {
+		component := &lock.Components[index]
+		if !isLocallyVersionedComponent(component.Name) {
+			continue
+		}
+		version, err := localComponentVersion(filepath.Join(collectionRoot, component.Repository), component.Version)
+		if err != nil {
+			return fmt.Errorf("%s local version: %w", component.Name, err)
+		}
+		component.Version = version
+	}
 
 	// A local lock describes the exact isolated checkouts used for this build.
 	// Keep the canonical lock untouched, but do not carry its release commit
@@ -105,26 +124,17 @@ func run(input, output, collectionRoot string, requestedTargets []string) error 
 		for index := range lock.Components {
 			component := &lock.Components[index]
 			target, ok := component.Targets[key]
-			if component.Name == "kbase-lance-engine" {
-				version, err := localComponentVersion(filepath.Join(collectionRoot, component.Repository), component.Version)
-				if err != nil {
-					return fmt.Errorf("%s local version: %w", component.Name, err)
-				}
-				component.Version = version
-				target, err = localTargetTemplate(*component, goos, goarch)
+			if !ok && !component.Required {
+				continue
+			}
+			if isLocallyVersionedComponent(component.Name) {
+				target, err = localTargetTemplate(*component, target, ok, goos, goarch)
 				if err != nil {
 					return err
 				}
 				component.Targets[key] = target
 			} else if !ok {
-				if !component.Required {
-					continue
-				}
-				target, err = localTargetTemplate(*component, goos, goarch)
-				if err != nil {
-					return err
-				}
-				component.Targets[key] = target
+				return fmt.Errorf("required builtin %s has no target %s", component.Name, key)
 			}
 			artifact, err := joinWithin(filepath.Join(collectionRoot, component.Repository), target.Path)
 			if err != nil {
@@ -224,7 +234,12 @@ func declaredComponentTargets(input, componentName string, requestedTargets []st
 	return resolved, nil
 }
 
-func localTargetTemplate(component builtins.Component, goos, goarch string) (builtins.Target, error) {
+func localTargetTemplate(component builtins.Component, target builtins.Target, exists bool, goos, goarch string) (builtins.Target, error) {
+	version := "v" + strings.TrimPrefix(strings.TrimSpace(component.Version), "v")
+	if exists {
+		target.Path = fmt.Sprintf("dist/%s/%s_%s_%s_%s.%s", version, component.Name, version, goos, goarch, target.Format)
+		return target, nil
+	}
 	if component.Name != "kbase-lance-engine" {
 		return builtins.Target{}, fmt.Errorf("required builtin %s has no target %s-%s", component.Name, goos, goarch)
 	}
@@ -245,7 +260,6 @@ func localTargetTemplate(component builtins.Component, goos, goarch string) (bui
 		binary += ".exe"
 		format = "zip"
 	}
-	version := "v" + strings.TrimPrefix(strings.TrimSpace(component.Version), "v")
 	return builtins.Target{
 		Path:     fmt.Sprintf("dist/%s/kbase-lance-engine_%s_%s_%s.%s", version, version, goos, goarch, format),
 		Format:   format,
@@ -253,6 +267,20 @@ func localTargetTemplate(component builtins.Component, goos, goarch string) (bui
 		Output:   binary,
 		Metadata: metadata,
 	}, nil
+}
+
+func isLocallyVersionedComponent(name string) bool {
+	switch name {
+	case "dbx", "httpx", "kbase-lance-engine", "poppler-pdftotext":
+		return true
+	default:
+		return false
+	}
+}
+
+func stdinIsTerminal() bool {
+	info, err := os.Stdin.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
 func localComponentVersion(repositoryRoot string, fallback string) (string, error) {

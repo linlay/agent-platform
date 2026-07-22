@@ -19,7 +19,10 @@ Usage: scripts/sync-local-builtins.sh [--all | --target <os>/<arch>] [--builtins
 
 Builds the sibling builtin projects in an isolated work directory, verifies
 their locally generated archives, and atomically updates
-build/builtins/<os>-<arch>/. It never writes release-local/.
+build/builtins/<os>-<arch>/. It never writes release-local/. When a clean
+local component has a strictly newer VERSION and every target already declared
+by the canonical lock can be verified, an interactive run offers to update the
+canonical lock; only the exact answer "yes" accepts the update.
 
 With no target selector, builds the current host target. --all requests the
 six target matrix and therefore requires every relevant Rust target, linker,
@@ -234,3 +237,10 @@ for target in "${activated_targets[@]}"; do
   rm -rf "$BUILD_ROOT/.$target_os-$target_arch.previous"
 done
 echo "[builtins-sync] updated ${#TARGETS[@]} target cache(s) under $BUILD_ROOT"
+(
+  cd "$REPO_ROOT"
+  go run ./cmd/prepare-local-builtins-lock \
+    --input "$REPO_ROOT/scripts/release-assets/builtins.lock.json" \
+    --builtins-root "$collection_root" \
+    --offer-canonical-update
+)
