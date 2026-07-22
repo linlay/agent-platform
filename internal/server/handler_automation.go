@@ -380,7 +380,7 @@ func automationQueryFromRequest(req api.AutomationQueryRequest) automation.Query
 	return automation.Query{
 		ChatID:  strings.TrimSpace(req.ChatID),
 		Role:    strings.TrimSpace(req.Role),
-		Message: strings.TrimSpace(req.Message),
+		Message: req.Message,
 		Params:  contracts.CloneAnyMap(req.Params),
 	}
 }
@@ -413,7 +413,7 @@ func applyAutomationUpdate(def *automation.Definition, req api.UpdateAutomationR
 	if req.Query != nil {
 		def.Query.ChatID = strings.TrimSpace(req.Query.ChatID)
 		def.Query.Role = strings.TrimSpace(req.Query.Role)
-		def.Query.Message = strings.TrimSpace(req.Query.Message)
+		def.Query.Message = req.Query.Message
 		def.Query.Params = contracts.CloneAnyMap(req.Query.Params)
 	}
 }

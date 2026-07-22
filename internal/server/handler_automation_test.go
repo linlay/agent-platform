@@ -153,6 +153,51 @@ func TestAutomationHTTPCRUDAndExecutionHistory(t *testing.T) {
 	assertAutomationReadableTime(t, history.Items[0].CompletedTime)
 }
 
+func TestAutomationHTTPCreateAndUpdatePreserveQueryMessageExactly(t *testing.T) {
+	fixture := newAutomationTestServer(t, false)
+	createMessage := "  initial automation message  "
+	created := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/automation/create", map[string]any{
+		"name":        "Weekly Report Reminder",
+		"description": "Preserve message automation",
+		"cron":        "0 17 * * 5",
+		"agentKey":    "zenmi",
+		"query": map[string]any{
+			"message": createMessage,
+			"role":    "automation",
+		},
+	})
+	if got := created.Query.Message; got != createMessage {
+		t.Fatalf("create message changed, want %q got %q", createMessage, got)
+	}
+
+	updateMessage := "请提醒主人现在是周五下午 5 点，该开始撰写周报了。\n气温气温气温"
+	updated := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/automation/update", map[string]any{
+		"id": created.ID,
+		"query": map[string]any{
+			"message": updateMessage,
+			"role":    "automation",
+		},
+	})
+	if got := updated.Query.Message; got != updateMessage {
+		t.Fatalf("update message changed, want %q got %q", updateMessage, got)
+	}
+
+	detail := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/automation", map[string]any{"id": created.ID})
+	if got := detail.Query.Message; got != updateMessage {
+		t.Fatalf("reloaded message changed, want %q got %q", updateMessage, got)
+	}
+	definitions, err := fixture.server.deps.AutomationRegistry.Load()
+	if err != nil {
+		t.Fatalf("load automation registry: %v", err)
+	}
+	if len(definitions) != 1 {
+		t.Fatalf("expected one automation definition, got %d", len(definitions))
+	}
+	if got := definitions[0].ToQueryRequest().Message; got != updateMessage {
+		t.Fatalf("execution query message changed, want %q got %q", updateMessage, got)
+	}
+}
+
 func TestMapAutomationSummaryKeepsNextFireMillisecondPrecision(t *testing.T) {
 	server := &Server{}
 	next := time.Date(2026, time.January, 2, 3, 4, 5, 123_456_000, time.FixedZone("UTC+8", 8*60*60))

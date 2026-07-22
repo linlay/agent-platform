@@ -15,7 +15,26 @@ type yamlLine struct {
 	text   string
 }
 
+// YAMLTreeOptions enables narrowly scoped parsing behavior for callers that
+// need more than the repository's legacy YAML subset. The zero value preserves
+// the existing behavior used by runtime configuration loaders.
+type YAMLTreeOptions struct {
+	DecodeDoubleQuotedEscapes bool
+	// PreserveDecodedScalarPaths skips environment interpolation after escape
+	// decoding for exact-value fields such as automation query.message.
+	PreserveDecodedScalarPaths []string
+}
+
+// yamlDoubleQuotedScalar keeps the original quoted token until the complete
+// tree is parsed. This lets the public loaders decide whether to preserve the
+// legacy literal behavior or decode escapes for an opted-in caller.
+type yamlDoubleQuotedScalar string
+
 func LoadYAMLTree(path string) (any, error) {
+	return LoadYAMLTreeWithOptions(path, YAMLTreeOptions{})
+}
+
+func LoadYAMLTreeWithOptions(path string, options YAMLTreeOptions) (any, error) {
 	file, err := os.Open(path)
 	if os.IsNotExist(err) {
 		return map[string]any{}, nil
@@ -25,14 +44,22 @@ func LoadYAMLTree(path string) (any, error) {
 	}
 	defer file.Close()
 
-	return LoadYAMLTreeReader(file)
+	return LoadYAMLTreeReaderWithOptions(file, options)
 }
 
 func LoadYAMLTreeBytes(data []byte) (any, error) {
-	return LoadYAMLTreeReader(bytes.NewReader(data))
+	return LoadYAMLTreeBytesWithOptions(data, YAMLTreeOptions{})
+}
+
+func LoadYAMLTreeBytesWithOptions(data []byte, options YAMLTreeOptions) (any, error) {
+	return LoadYAMLTreeReaderWithOptions(bytes.NewReader(data), options)
 }
 
 func LoadYAMLTreeReader(reader io.Reader) (any, error) {
+	return LoadYAMLTreeReaderWithOptions(reader, YAMLTreeOptions{})
+}
+
+func LoadYAMLTreeReaderWithOptions(reader io.Reader, options YAMLTreeOptions) (any, error) {
 	if reader == nil {
 		return map[string]any{}, nil
 	}
@@ -49,7 +76,7 @@ func LoadYAMLTreeReader(reader io.Reader) (any, error) {
 		if strings.TrimSpace(raw) == "" {
 			continue
 		}
-		trimmed := stripInlineComment(raw)
+		trimmed := stripInlineCommentWithDoubleQuoteEscapes(raw, options.DecodeDoubleQuotedEscapes)
 		if strings.TrimSpace(trimmed) == "" {
 			continue
 		}
@@ -73,7 +100,7 @@ func LoadYAMLTreeReader(reader io.Reader) (any, error) {
 	if next != len(lines) {
 		return nil, fmt.Errorf("unexpected trailing yaml content at line %d", next+1)
 	}
-	return node, nil
+	return normalizeYAMLTreeScalars(node, options), nil
 }
 
 func parseYAMLBlock(lines []yamlLine, start int, indent int) (any, int, error) {
@@ -287,6 +314,9 @@ func parseYAMLScalar(raw string) any {
 			return mapped
 		}
 	}
+	if isDoubleQuotedYAMLScalar(value) {
+		return yamlDoubleQuotedScalar(value)
+	}
 	quoted := isQuotedYAMLScalar(value)
 	value = interpolateEnvValue(strings.Trim(value, `"'`))
 	lower := strings.ToLower(value)
@@ -321,6 +351,55 @@ func isQuotedYAMLScalar(value string) bool {
 		return false
 	}
 	return (value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'')
+}
+
+func isDoubleQuotedYAMLScalar(value string) bool {
+	return len(value) >= 2 && value[0] == '"' && value[len(value)-1] == '"'
+}
+
+func normalizeYAMLTreeScalars(value any, options YAMLTreeOptions) any {
+	return normalizeYAMLTreeScalarAtPath(value, options, "")
+}
+
+func normalizeYAMLTreeScalarAtPath(value any, options YAMLTreeOptions, path string) any {
+	switch typed := value.(type) {
+	case yamlDoubleQuotedScalar:
+		raw := string(typed)
+		if options.DecodeDoubleQuotedEscapes {
+			if decoded, err := strconv.Unquote(raw); err == nil {
+				if preserveDecodedYAMLScalar(path, options.PreserveDecodedScalarPaths) {
+					return decoded
+				}
+				return interpolateEnvValue(decoded)
+			}
+		}
+		return interpolateEnvValue(strings.Trim(raw, `"'`))
+	case map[string]any:
+		for key, item := range typed {
+			childPath := key
+			if path != "" {
+				childPath = path + "." + key
+			}
+			typed[key] = normalizeYAMLTreeScalarAtPath(item, options, childPath)
+		}
+		return typed
+	case []any:
+		for index, item := range typed {
+			typed[index] = normalizeYAMLTreeScalarAtPath(item, options, path)
+		}
+		return typed
+	default:
+		return value
+	}
+}
+
+func preserveDecodedYAMLScalar(path string, preservedPaths []string) bool {
+	for _, preservedPath := range preservedPaths {
+		if path == preservedPath {
+			return true
+		}
+	}
+	return false
 }
 
 func countIndent(raw string) int {

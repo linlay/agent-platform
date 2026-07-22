@@ -60,6 +60,10 @@ func projectRoot() string {
 }
 
 func stripInlineComment(raw string) string {
+	return stripInlineCommentWithDoubleQuoteEscapes(raw, false)
+}
+
+func stripInlineCommentWithDoubleQuoteEscapes(raw string, decodeDoubleQuotedEscapes bool) string {
 	var out strings.Builder
 	inSingle := false
 	inDouble := false
@@ -70,7 +74,7 @@ func stripInlineComment(raw string) string {
 				inSingle = !inSingle
 			}
 		case '"':
-			if !inSingle {
+			if !inSingle && (!decodeDoubleQuotedEscapes || !isBackslashEscaped(raw, i)) {
 				inDouble = !inDouble
 			}
 		case '#':
@@ -83,6 +87,14 @@ func stripInlineComment(raw string) string {
 		out.WriteRune(ch)
 	}
 	return out.String()
+}
+
+func isBackslashEscaped(value string, index int) bool {
+	backslashes := 0
+	for index--; index >= 0 && value[index] == '\\'; index-- {
+		backslashes++
+	}
+	return backslashes%2 == 1
 }
 
 func interpolateEnvValue(raw string) string {

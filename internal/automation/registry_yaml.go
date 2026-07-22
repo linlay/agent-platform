@@ -40,7 +40,7 @@ func renderDefinition(def Definition) []byte {
 	if strings.TrimSpace(def.Query.Role) != "" {
 		writeYAMLKeyValue(&b, 2, "role", def.Query.Role)
 	}
-	writeYAMLKeyValue(&b, 2, "message", def.Query.Message)
+	writeYAMLExactString(&b, 2, "message", def.Query.Message)
 	if len(def.Query.Params) > 0 {
 		writeYAMLKeyValue(&b, 2, "params", def.Query.Params)
 	}
@@ -156,6 +156,10 @@ func writeYAMLLine(b *strings.Builder, indent int, line string) {
 	b.WriteByte('\n')
 }
 
+func writeYAMLExactString(b *strings.Builder, indent int, key string, value string) {
+	writeYAMLLine(b, indent, key+": "+strconv.Quote(value))
+}
+
 func formatYAMLScalar(value any) string {
 	switch typed := value.(type) {
 	case nil:
@@ -187,10 +191,7 @@ func quoteYAMLString(value string) string {
 	if !strings.Contains(sanitized, "'") {
 		return "'" + sanitized + "'"
 	}
-	if !strings.Contains(sanitized, `"`) {
-		return `"` + sanitized + `"`
-	}
-	return `"` + strings.ReplaceAll(strings.ReplaceAll(sanitized, `\`, `\\`), `"`, `\"`) + `"`
+	return strconv.Quote(sanitized)
 }
 
 func canUsePlainYAMLScalar(value string) bool {

@@ -86,6 +86,59 @@ rule: { bare: 42, quoted: "42" }
 	}
 }
 
+func TestLoadYAMLTreeDoubleQuotedEscapeDecodingIsOptIn(t *testing.T) {
+	content := []byte(`
+message: "line one\nline two\t\\n"
+plain: line one\nline two
+single: 'line one\nline two'
+quotedHash: "before \"quote # kept\" after"
+`)
+
+	legacyTree, err := LoadYAMLTreeBytes(content)
+	if err != nil {
+		t.Fatalf("load legacy yaml tree: %v", err)
+	}
+	legacyRoot := legacyTree.(map[string]any)
+	if got := legacyRoot["message"]; got != `line one\nline two\t\\n` {
+		t.Fatalf("expected default loader to preserve escapes literally, got %#v", got)
+	}
+
+	decodedTree, err := LoadYAMLTreeBytesWithOptions(content, YAMLTreeOptions{DecodeDoubleQuotedEscapes: true})
+	if err != nil {
+		t.Fatalf("load opted-in yaml tree: %v", err)
+	}
+	decodedRoot := decodedTree.(map[string]any)
+	if got, want := decodedRoot["message"], "line one\nline two\t\\n"; got != want {
+		t.Fatalf("expected double-quoted escapes to decode once, want %q got %#v", want, got)
+	}
+	if got, want := decodedRoot["plain"], `line one\nline two`; got != want {
+		t.Fatalf("expected plain scalar escapes to remain literal, want %q got %#v", want, got)
+	}
+	if got, want := decodedRoot["single"], `line one\nline two`; got != want {
+		t.Fatalf("expected single-quoted escapes to remain literal, want %q got %#v", want, got)
+	}
+	if got, want := decodedRoot["quotedHash"], `before "quote # kept" after`; got != want {
+		t.Fatalf("expected escaped quotes and hash to survive decoding, want %q got %#v", want, got)
+	}
+}
+
+func TestLoadYAMLTreeCanPreserveDecodedScalarFromEnvironmentInterpolation(t *testing.T) {
+	t.Setenv("YAML_TREE_LITERAL", "expanded")
+	content := []byte("query:\n  message: \"${YAML_TREE_LITERAL}\"\n")
+
+	decodedTree, err := LoadYAMLTreeBytesWithOptions(content, YAMLTreeOptions{
+		DecodeDoubleQuotedEscapes:  true,
+		PreserveDecodedScalarPaths: []string{"query.message"},
+	})
+	if err != nil {
+		t.Fatalf("load opted-in yaml tree: %v", err)
+	}
+	query := decodedTree.(map[string]any)["query"].(map[string]any)
+	if got, want := query["message"], "${YAML_TREE_LITERAL}"; got != want {
+		t.Fatalf("expected preserved scalar to skip interpolation, want %q got %#v", want, got)
+	}
+}
+
 func TestLoadYAMLTreeSupportsFlowMapListItems(t *testing.T) {
 	content := []byte(`
 commands:

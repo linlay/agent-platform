@@ -259,7 +259,7 @@ func collectAutomationPaths(root string) ([]string, error) {
 }
 
 func (r *Registry) parseDefinition(path string) (Definition, error) {
-	tree, err := config.LoadYAMLTree(path)
+	tree, err := config.LoadYAMLTreeWithOptions(path, automationYAMLTreeOptions())
 	if err != nil {
 		return Definition{}, err
 	}
@@ -268,7 +268,7 @@ func (r *Registry) parseDefinition(path string) (Definition, error) {
 }
 
 func (r *Registry) parseDefinitionBytes(id string, content []byte) (Definition, error) {
-	tree, err := config.LoadYAMLTreeBytes(content)
+	tree, err := config.LoadYAMLTreeBytesWithOptions(content, automationYAMLTreeOptions())
 	if err != nil {
 		return Definition{}, err
 	}
@@ -376,8 +376,8 @@ func (r *Registry) validateTeam(agentKey string, teamID string) error {
 }
 
 func parseQuery(node map[string]any) (Query, error) {
-	message := stringNode(node["message"])
-	if message == "" {
+	message := automationMessageNode(node["message"])
+	if strings.TrimSpace(message) == "" {
 		return Query{}, fmt.Errorf("query.message is required")
 	}
 
@@ -427,6 +427,20 @@ func parseQuery(node map[string]any) (Query, error) {
 		Params:     params,
 		Scene:      scene,
 	}, nil
+}
+
+func automationYAMLTreeOptions() config.YAMLTreeOptions {
+	return config.YAMLTreeOptions{
+		DecodeDoubleQuotedEscapes:  true,
+		PreserveDecodedScalarPaths: []string{"query.message"},
+	}
+}
+
+func automationMessageNode(value any) string {
+	if message, ok := value.(string); ok {
+		return message
+	}
+	return stringNode(value)
 }
 
 func parseReferences(value any) ([]api.Reference, error) {
