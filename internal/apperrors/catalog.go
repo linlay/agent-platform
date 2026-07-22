@@ -60,7 +60,7 @@ var definitions = []Definition{
 	def(CodeProviderRequestFailed, CategoryModel, ScopeModel, http.StatusBadGateway, false),
 	def(CodeProviderNetworkError, CategoryModel, ScopeModel, http.StatusBadGateway, true),
 	def(CodeProviderTimeout, CategoryModel, ScopeModel, http.StatusGatewayTimeout, true),
-	def(CodeProviderAuthFailed, CategoryModel, ScopeModel, http.StatusUnauthorized, false),
+	def(CodeProviderAuthFailed, CategoryModel, ScopeModel, http.StatusBadGateway, false),
 	def(CodeProviderPermissionDenied, CategoryModel, ScopeModel, http.StatusForbidden, false),
 	def(CodeProviderQuotaExhausted, CategoryModel, ScopeModel, http.StatusTooManyRequests, false),
 	def(CodeProviderRateLimited, CategoryModel, ScopeModel, http.StatusTooManyRequests, true),
@@ -111,7 +111,7 @@ var definitions = []Definition{
 
 	def(CodeResourceNotFound, CategoryResource, ScopeResource, http.StatusNotFound, false),
 	def(CodeResourceForbidden, CategoryResource, ScopeResource, http.StatusForbidden, false),
-	def(CodeResourceTicketRequired, CategoryResource, ScopeResource, http.StatusUnauthorized, false),
+	def(CodeResourceTicketRequired, CategoryResource, ScopeResource, http.StatusForbidden, false),
 	def(CodeResourceTicketChatMismatch, CategoryResource, ScopeResource, http.StatusForbidden, false),
 	def(CodeResourceReadFailed, CategoryResource, ScopeResource, http.StatusInternalServerError, false),
 	def(CodeResourcePushFailed, CategoryResource, ScopeResource, http.StatusBadGateway, true),

@@ -91,6 +91,18 @@ func TestProviderResponseErrorCarriesStructuredPayload(t *testing.T) {
 	}
 }
 
+func TestProviderAuthFailureIsNotExposedAsEndUserUnauthorized(t *testing.T) {
+	err := providerResponseError(http.StatusUnauthorized, []byte(`{"error":{"message":"invalid api key"}}`))
+	var appErr *apperrors.Error
+	if !errors.As(err, &appErr) {
+		t.Fatalf("expected app error, got %T", err)
+	}
+	payload := appErr.Payload()
+	if payload["code"] != string(apperrors.CodeProviderAuthFailed) || payload["status"] != http.StatusBadGateway {
+		t.Fatalf("unexpected provider auth payload %#v", payload)
+	}
+}
+
 func TestExecuteProviderRequestUsesFirstResponseTimeout(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		select {

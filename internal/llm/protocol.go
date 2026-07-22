@@ -114,9 +114,11 @@ func (e *LLMAgentEngine) executeProviderRequestWithFirstResponseTimeout(req *htt
 			cancel()
 			return nil, result.err
 		}
-		if result.turn != nil {
-			result.turn.cancel = cancel
+		if result.turn == nil {
+			cancel()
+			return nil, errors.New("provider returned no stream")
 		}
+		result.turn.cancel = cancel
 		return result.turn, nil
 	case <-timer.C:
 		cancel()
@@ -149,7 +151,11 @@ func providerResponseError(status int, body []byte) error {
 	if upstreamCode != "" {
 		diagnostics["upstreamCode"] = upstreamCode
 	}
-	return apperrors.New(code, message, apperrors.WithStatus(status), apperrors.WithDiagnostics(diagnostics))
+	exposedStatus := status
+	if code == apperrors.CodeProviderAuthFailed {
+		exposedStatus = http.StatusBadGateway
+	}
+	return apperrors.New(code, message, apperrors.WithStatus(exposedStatus), apperrors.WithDiagnostics(diagnostics))
 }
 
 func classifyProviderResponseError(status int, body string) (apperrors.Code, string) {

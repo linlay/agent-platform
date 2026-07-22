@@ -438,8 +438,8 @@ func TestResourceRoundTripRequiresValidTicketWhenEnabled(t *testing.T) {
 	resourceReq := httptest.NewRequest(http.MethodGet, response.Data.Upload.URL, nil)
 	resourceRec := httptest.NewRecorder()
 	server.ServeHTTP(resourceRec, resourceReq)
-	if resourceRec.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401 without ticket, got %d: %s", resourceRec.Code, resourceRec.Body.String())
+	if resourceRec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 without ticket, got %d: %s", resourceRec.Code, resourceRec.Body.String())
 	}
 
 	validTicket := fixture.server.ticketService.Issue("tester", response.Data.ChatID)

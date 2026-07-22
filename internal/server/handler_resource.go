@@ -59,7 +59,7 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 		ticket := strings.TrimSpace(r.URL.Query().Get("t"))
 		if principal == nil {
 			if ticket == "" {
-				writeJSON(w, http.StatusUnauthorized, api.Failure(http.StatusUnauthorized, "resource ticket required"))
+				writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource ticket required"))
 				return
 			}
 			chatID, err := s.ticketService.Verify(ticket)
@@ -101,7 +101,7 @@ func (s *Server) handleToolResult(w http.ResponseWriter, r *http.Request) {
 		ticket := strings.TrimSpace(r.URL.Query().Get("t"))
 		if principal == nil {
 			if ticket == "" {
-				writeJSON(w, http.StatusUnauthorized, api.Failure(http.StatusUnauthorized, "resource ticket required"))
+				writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource ticket required"))
 				return
 			}
 			ticketChatID, err := s.ticketService.Verify(ticket)
