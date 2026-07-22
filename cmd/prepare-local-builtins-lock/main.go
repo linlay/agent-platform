@@ -23,6 +23,8 @@ func main() {
 	input := flag.String("input", "scripts/release-assets/builtins.lock.json", "canonical builtins lock")
 	output := flag.String("output", "", "derived local lock output path")
 	collectionRoot := flag.String("builtins-root", "", "absolute local builtin collection root")
+	durableBuiltinsRoot := flag.String("durable-builtins-root", "", "absolute stable builtin collection root used for canonical updates")
+	hostTarget := flag.String("host-target", "", "exact native host target allowed to update the canonical lock (os/arch)")
 	componentTargets := flag.String("print-component-targets", "", "print requested targets declared for one component in the canonical lock")
 	offerCanonicalUpdate := flag.Bool("offer-canonical-update", false, "offer to replace the canonical lock with verified newer local component versions")
 	var targets targetList
@@ -41,7 +43,7 @@ func main() {
 		return
 	}
 	if *offerCanonicalUpdate {
-		if err := offerUpdate(*input, *collectionRoot, os.Stdin, os.Stdout, stdinIsTerminal()); err != nil {
+		if err := offerUpdate(*input, *collectionRoot, *durableBuiltinsRoot, *hostTarget, os.Stdin, os.Stdout, stdinIsTerminal()); err != nil {
 			fmt.Fprintf(os.Stderr, "prepare local builtins lock: %v\n", err)
 			os.Exit(1)
 		}
@@ -86,16 +88,25 @@ func run(input, output, collectionRoot string, requestedTargets []string) error 
 	if err != nil {
 		return err
 	}
+	lock.SchemaVersion = 2
 	for index := range lock.Components {
 		component := &lock.Components[index]
 		if !isLocallyVersionedComponent(component.Name) {
 			continue
 		}
-		version, err := localComponentVersion(filepath.Join(collectionRoot, component.Repository), component.Version)
+		previousVersion := component.Version
+		version, err := localComponentVersion(filepath.Join(collectionRoot, component.Repository), previousVersion)
 		if err != nil {
 			return fmt.Errorf("%s local version: %w", component.Name, err)
 		}
 		component.Version = version
+		if component.Name == "poppler-pdftotext" && version != previousVersion && strings.TrimSpace(component.Source) != "" {
+			source, ok := updateVersionInSource(component.Source, previousVersion, version)
+			if !ok {
+				return fmt.Errorf("%s local source cannot be updated from %s to %s", component.Name, previousVersion, version)
+			}
+			component.Source = source
+		}
 	}
 
 	// A local lock describes the exact isolated checkouts used for this build.
@@ -136,6 +147,9 @@ func run(input, output, collectionRoot string, requestedTargets []string) error 
 			} else if !ok {
 				return fmt.Errorf("required builtin %s has no target %s", component.Name, key)
 			}
+			target.Version = component.Version
+			target.Source = component.Source
+			target.Commit = component.Commit
 			artifact, err := joinWithin(filepath.Join(collectionRoot, component.Repository), target.Path)
 			if err != nil {
 				return fmt.Errorf("%s %s: %w", component.Name, key, err)
@@ -261,6 +275,9 @@ func localTargetTemplate(component builtins.Component, target builtins.Target, e
 		format = "zip"
 	}
 	return builtins.Target{
+		Version:  component.Version,
+		Source:   component.Source,
+		Commit:   component.Commit,
 		Path:     fmt.Sprintf("dist/%s/kbase-lance-engine_%s_%s_%s.%s", version, version, goos, goarch, format),
 		Format:   format,
 		Entry:    binary,

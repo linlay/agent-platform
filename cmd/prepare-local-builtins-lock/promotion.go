@@ -10,94 +10,145 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"agent-platform/internal/builtins"
 )
 
-type lockPromotion struct {
-	Name        string
-	From        string
-	To          string
-	Commit      string
-	TargetCount int
+type rolloutUpdate struct {
+	ComponentIndex int
+	Name           string
+	Mode           string
+	From           string
+	To             string
+	Commit         string
+	Component      builtins.Component
+	ArtifactSource string
+	ArtifactTarget string
+	SHA256         string
 }
 
-type promotionCandidate struct {
-	Lock       builtins.Lock
-	Original   []byte
-	Payload    []byte
-	Promotions []lockPromotion
-	Notices    []string
+type rolloutCandidate struct {
+	Lock      builtins.Lock
+	Original  []byte
+	Updates   []rolloutUpdate
+	Notices   []string
+	LockPath  string
+	TargetKey string
 }
 
-// offerUpdate is deliberately separate from ordinary local-lock generation.
-// A normal sync always consumes local VERSION files, while this path only
-// offers to promote complete, clean, strictly newer component releases into
-// the canonical lock after every locked target can be verified.
-func offerUpdate(lockPath, collectionRoot string, input io.Reader, output io.Writer, interactive bool) error {
-	candidate, err := preparePromotionCandidate(lockPath, collectionRoot)
+// offerUpdate applies the single-lock rollout state machine after local cache
+// activation. Only hostTarget may change, regardless of how many targets were
+// cross-built into the temporary collection.
+func offerUpdate(lockPath, collectionRoot, durableRoot, hostTarget string, input io.Reader, output io.Writer, interactive bool) error {
+	candidate, err := prepareRolloutCandidate(lockPath, collectionRoot, durableRoot, hostTarget)
 	if err != nil {
 		return err
 	}
 	for _, notice := range candidate.Notices {
 		fmt.Fprintf(output, "[builtins-sync] %s\n", notice)
 	}
-	if len(candidate.Promotions) == 0 {
+
+	followers := make([]rolloutUpdate, 0, len(candidate.Updates))
+	leaders := make([]rolloutUpdate, 0, len(candidate.Updates))
+	for _, update := range candidate.Updates {
+		if update.Mode == "leader" {
+			leaders = append(leaders, update)
+		} else {
+			followers = append(followers, update)
+		}
+	}
+	for _, update := range followers {
+		fmt.Fprintf(output, "[builtins-sync] follower %s %s: target %s will automatically follow %s (commit %s)\n", update.Name, candidate.TargetKey, update.From, update.To, displayCommit(update.Commit))
+	}
+
+	selected := append([]rolloutUpdate(nil), followers...)
+	if len(leaders) > 0 {
+		fmt.Fprintln(output, "[builtins-sync] verified newer local builtin versions for this native host:")
+		for _, update := range leaders {
+			fmt.Fprintf(output, "  %s: %s -> %s (target %s, commit %s)\n", update.Name, update.From, update.To, candidate.TargetKey, displayCommit(update.Commit))
+		}
+		if !interactive {
+			fmt.Fprintln(output, "[builtins-sync] non-interactive input; newer leader versions were not accepted")
+		} else {
+			fmt.Fprint(output, "Update scripts/release-assets/builtins.lock.json? Type yes to confirm: ")
+			answer, readErr := bufio.NewReader(input).ReadString('\n')
+			if readErr != nil && !errors.Is(readErr, io.EOF) {
+				return fmt.Errorf("read canonical lock confirmation: %w", readErr)
+			}
+			if strings.TrimSpace(answer) == "yes" {
+				selected = append(selected, leaders...)
+			} else {
+				fmt.Fprintln(output, "[builtins-sync] newer leader versions were not accepted")
+			}
+		}
+	}
+	if len(selected) == 0 {
 		return nil
 	}
 
-	fmt.Fprintln(output, "[builtins-sync] verified newer local builtin versions:")
-	for _, promotion := range candidate.Promotions {
-		fmt.Fprintf(output, "  %s: %s -> %s (%d targets, commit %s)\n", promotion.Name, promotion.From, promotion.To, promotion.TargetCount, displayCommit(promotion.Commit))
-	}
-	if !interactive {
-		fmt.Fprintln(output, "[builtins-sync] non-interactive input; canonical builtins lock was not changed")
-		return nil
-	}
-
-	fmt.Fprint(output, "Update scripts/release-assets/builtins.lock.json? Type yes to confirm: ")
-	answer, err := bufio.NewReader(input).ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return fmt.Errorf("read canonical lock confirmation: %w", err)
-	}
-	if !strings.EqualFold(strings.TrimSpace(answer), "yes") {
-		fmt.Fprintln(output, "[builtins-sync] canonical builtins lock was not changed")
-		return nil
-	}
-
-	current, err := os.ReadFile(lockPath)
+	current, err := os.ReadFile(candidate.LockPath)
 	if err != nil {
 		return err
 	}
 	if !bytes.Equal(current, candidate.Original) {
 		return errors.New("canonical builtins lock changed while the update was being prepared")
 	}
-	if err := writeFileAtomic(lockPath, candidate.Payload, 0o644); err != nil {
+	for _, update := range selected {
+		if err := persistArtifactAtomic(update.ArtifactSource, update.ArtifactTarget, update.SHA256); err != nil {
+			return fmt.Errorf("persist %s %s artifact: %w", update.Name, candidate.TargetKey, err)
+		}
+	}
+	current, err = os.ReadFile(candidate.LockPath)
+	if err != nil {
 		return err
 	}
-	fmt.Fprintf(output, "[builtins-sync] updated canonical builtins lock: %s\n", lockPath)
+	if !bytes.Equal(current, candidate.Original) {
+		return errors.New("canonical builtins lock changed while artifacts were being persisted")
+	}
+
+	for _, update := range selected {
+		candidate.Lock.Components[update.ComponentIndex] = update.Component
+	}
+	candidate.Lock.SchemaVersion = 2
+	payload, err := json.MarshalIndent(candidate.Lock, "", "  ")
+	if err != nil {
+		return err
+	}
+	payload = append(payload, '\n')
+	if err := writeFileAtomic(candidate.LockPath, payload, 0o644); err != nil {
+		return err
+	}
+	fmt.Fprintf(output, "[builtins-sync] updated canonical target %s: %s\n", candidate.TargetKey, candidate.LockPath)
 	return nil
 }
 
-func preparePromotionCandidate(lockPath, collectionRoot string) (promotionCandidate, error) {
+func prepareRolloutCandidate(lockPath, collectionRoot, durableRoot, hostTarget string) (rolloutCandidate, error) {
 	if !filepath.IsAbs(collectionRoot) {
-		return promotionCandidate{}, errors.New("--builtins-root must be absolute")
+		return rolloutCandidate{}, errors.New("--builtins-root must be absolute")
 	}
+	if !filepath.IsAbs(durableRoot) {
+		return rolloutCandidate{}, errors.New("--durable-builtins-root must be absolute")
+	}
+	goos, goarch, err := parseTarget(hostTarget)
+	if err != nil {
+		return rolloutCandidate{}, fmt.Errorf("--host-target: %w", err)
+	}
+	targetKey := goos + "-" + goarch
 	absLockPath, err := filepath.Abs(lockPath)
 	if err != nil {
-		return promotionCandidate{}, err
+		return rolloutCandidate{}, err
 	}
 	original, err := os.ReadFile(absLockPath)
 	if err != nil {
-		return promotionCandidate{}, err
+		return rolloutCandidate{}, err
 	}
 	lock, err := builtins.LoadLock(absLockPath)
 	if err != nil {
-		return promotionCandidate{}, err
+		return rolloutCandidate{}, err
 	}
-	candidate := promotionCandidate{Lock: lock, Original: original}
+	lock.SchemaVersion = 2
+	candidate := rolloutCandidate{Lock: lock, Original: original, LockPath: absLockPath, TargetKey: targetKey}
 
 	for index := range candidate.Lock.Components {
 		canonical := candidate.Lock.Components[index]
@@ -106,106 +157,171 @@ func preparePromotionCandidate(lockPath, collectionRoot string) (promotionCandid
 		}
 		repositoryRoot, err := joinWithin(collectionRoot, canonical.Repository)
 		if err != nil {
-			return promotionCandidate{}, fmt.Errorf("%s repository: %w", canonical.Name, err)
+			return rolloutCandidate{}, fmt.Errorf("%s repository: %w", canonical.Name, err)
+		}
+		durableRepositoryRoot, err := joinWithin(durableRoot, canonical.Repository)
+		if err != nil {
+			return rolloutCandidate{}, fmt.Errorf("%s durable repository: %w", canonical.Name, err)
 		}
 		localVersion, err := localComponentVersion(repositoryRoot, canonical.Version)
 		if err != nil {
-			return promotionCandidate{}, fmt.Errorf("%s local version: %w", canonical.Name, err)
+			return rolloutCandidate{}, fmt.Errorf("%s local version: %w", canonical.Name, err)
 		}
-		comparison, err := compareSemanticVersions(localVersion, canonical.Version)
+		versionComparison, err := compareSemanticVersions(localVersion, canonical.Version)
 		if err != nil {
 			candidate.Notices = append(candidate.Notices, fmt.Sprintf("cannot compare %s versions %q and %q: %v", canonical.Name, canonical.Version, localVersion, err))
 			continue
 		}
-		if comparison == 0 {
-			continue
-		}
-		if comparison < 0 {
-			candidate.Notices = append(candidate.Notices, fmt.Sprintf("local %s version %s is older than locked version %s; downgrade was not offered", canonical.Name, localVersion, canonical.Version))
+		if versionComparison < 0 {
+			candidate.Notices = append(candidate.Notices, fmt.Sprintf("local %s version %s is behind target release %s; only the local cache was updated", canonical.Name, localVersion, canonical.Version))
 			continue
 		}
 
 		commit, hasCommit, err := localComponentCommit(repositoryRoot)
 		if err != nil {
-			return promotionCandidate{}, fmt.Errorf("%s local commit: %w", canonical.Name, err)
+			return rolloutCandidate{}, fmt.Errorf("%s local commit: %w", canonical.Name, err)
 		}
+		clean := true
 		if hasCommit {
-			clean, err := localComponentClean(repositoryRoot)
+			clean, err = localComponentClean(repositoryRoot)
 			if err != nil {
-				return promotionCandidate{}, fmt.Errorf("%s local status: %w", canonical.Name, err)
+				return rolloutCandidate{}, fmt.Errorf("%s local status: %w", canonical.Name, err)
+			}
+		}
+
+		currentTarget, targetExists := canonical.Targets[targetKey]
+		if !targetExists && !canonical.Required {
+			continue
+		}
+		mode := "follower"
+		promoted := cloneComponent(canonical)
+		if versionComparison > 0 {
+			mode = "leader"
+			if !clean {
+				candidate.Notices = append(candidate.Notices, fmt.Sprintf("local %s version %s is newer than %s, but its repository has uncommitted changes; leader update was not offered", canonical.Name, localVersion, canonical.Version))
+				continue
+			}
+			if strings.TrimSpace(canonical.Commit) != "" && !hasCommit {
+				candidate.Notices = append(candidate.Notices, fmt.Sprintf("local %s version %s is newer than %s, but no exact Git commit is available; leader update was not offered", canonical.Name, localVersion, canonical.Version))
+				continue
+			}
+			promoted.Version = localVersion
+			if hasCommit {
+				promoted.Commit = commit
+			}
+			if promoted.Name == "poppler-pdftotext" {
+				updatedSource, ok := updateVersionInSource(promoted.Source, canonical.Version, localVersion)
+				if !ok {
+					candidate.Notices = append(candidate.Notices, fmt.Sprintf("local %s version %s is newer than %s, but source %q cannot be updated safely; leader update was not offered", canonical.Name, localVersion, canonical.Version, canonical.Source))
+					continue
+				}
+				promoted.Source = updatedSource
+			}
+			if targetExists {
+				targetComparison, compareErr := compareSemanticVersions(currentTarget.Version, localVersion)
+				if compareErr != nil {
+					candidate.Notices = append(candidate.Notices, fmt.Sprintf("%s target %s has invalid actual version %q: %v", canonical.Name, targetKey, currentTarget.Version, compareErr))
+					continue
+				}
+				if targetComparison >= 0 {
+					candidate.Notices = append(candidate.Notices, fmt.Sprintf("%s target %s actual version %s is not behind leader version %s; refusing an ambiguous overwrite", canonical.Name, targetKey, currentTarget.Version, localVersion))
+					continue
+				}
+			}
+		} else {
+			if strings.TrimSpace(canonical.Commit) != "" {
+				if !hasCommit || commit != canonical.Commit {
+					candidate.Notices = append(candidate.Notices, fmt.Sprintf("local %s checkout does not match target commit %s; target %s was not updated", canonical.Name, displayCommit(canonical.Commit), targetKey))
+					continue
+				}
+			} else if hasCommit && (!targetExists || targetReleaseBehind(currentTarget, canonical)) {
+				candidate.Notices = append(candidate.Notices, fmt.Sprintf("target release %s for %s has no commit to follow; target %s was not updated", canonical.Version, canonical.Name, targetKey))
+				continue
 			}
 			if !clean {
-				candidate.Notices = append(candidate.Notices, fmt.Sprintf("local %s version %s is newer than %s, but its repository has uncommitted changes; canonical update was not offered", canonical.Name, localVersion, canonical.Version))
+				candidate.Notices = append(candidate.Notices, fmt.Sprintf("local %s checkout has uncommitted changes; follower target %s was not updated", canonical.Name, targetKey))
 				continue
 			}
-		} else if strings.TrimSpace(canonical.Commit) != "" {
-			candidate.Notices = append(candidate.Notices, fmt.Sprintf("local %s version %s is newer than %s, but no exact Git commit is available; canonical update was not offered", canonical.Name, localVersion, canonical.Version))
-			continue
+			if targetExists {
+				targetComparison, compareErr := compareSemanticVersions(currentTarget.Version, canonical.Version)
+				if compareErr != nil {
+					candidate.Notices = append(candidate.Notices, fmt.Sprintf("%s target %s has invalid actual version %q: %v", canonical.Name, targetKey, currentTarget.Version, compareErr))
+					continue
+				}
+				if targetComparison > 0 {
+					candidate.Notices = append(candidate.Notices, fmt.Sprintf("%s target %s actual version %s is newer than component target %s; refusing an ambiguous overwrite", canonical.Name, targetKey, currentTarget.Version, canonical.Version))
+					continue
+				}
+				if targetComparison == 0 && targetReleaseMatches(currentTarget, canonical) {
+					mode = "verify"
+				} else if targetComparison == 0 {
+					candidate.Notices = append(candidate.Notices, fmt.Sprintf("%s target %s has the same version %s but different release metadata; immutable version conflict", canonical.Name, targetKey, canonical.Version))
+					continue
+				}
+			}
 		}
 
-		promoted := canonical
-		promoted.Version = localVersion
-		promoted.Targets = cloneTargets(canonical.Targets)
-		if hasCommit {
-			promoted.Commit = commit
+		newTarget, err := localTargetTemplate(promoted, currentTarget, targetExists, goos, goarch)
+		if err != nil {
+			return rolloutCandidate{}, err
 		}
-		if promoted.Name == "poppler-pdftotext" {
-			updatedSource, ok := updateVersionInSource(promoted.Source, canonical.Version, localVersion)
-			if !ok {
-				candidate.Notices = append(candidate.Notices, fmt.Sprintf("local %s version %s is newer than %s, but source %q cannot be updated safely; canonical update was not offered", canonical.Name, localVersion, canonical.Version, canonical.Source))
-				continue
-			}
-			promoted.Source = updatedSource
+		newTarget.Version = promoted.Version
+		newTarget.Source = promoted.Source
+		newTarget.Commit = promoted.Commit
+		artifactSource, err := joinWithin(repositoryRoot, newTarget.Path)
+		if err != nil {
+			return rolloutCandidate{}, fmt.Errorf("%s %s artifact: %w", canonical.Name, targetKey, err)
 		}
-
-		targetKeys := make([]string, 0, len(canonical.Targets))
-		for key := range canonical.Targets {
-			targetKeys = append(targetKeys, key)
-		}
-		sort.Strings(targetKeys)
-		eligible := true
-		for _, key := range targetKeys {
-			goos, goarch, ok := strings.Cut(key, "-")
-			if !ok || goos == "" || goarch == "" {
-				return promotionCandidate{}, fmt.Errorf("%s has invalid target key %q", canonical.Name, key)
-			}
-			target, err := localTargetTemplate(promoted, canonical.Targets[key], true, goos, goarch)
-			if err != nil {
-				return promotionCandidate{}, err
-			}
-			artifact, err := joinWithin(repositoryRoot, target.Path)
-			if err != nil {
-				return promotionCandidate{}, fmt.Errorf("%s %s: %w", canonical.Name, key, err)
-			}
-			hash, err := fileSHA256(artifact)
-			if err != nil {
-				candidate.Notices = append(candidate.Notices, fmt.Sprintf("local %s version %s cannot update the canonical lock because target %s is unavailable: %v", canonical.Name, localVersion, key, err))
-				eligible = false
-				break
-			}
-			target.SHA256 = hash
-			if err := validatePromotedArtifact(collectionRoot, promoted, key, target); err != nil {
-				candidate.Notices = append(candidate.Notices, fmt.Sprintf("local %s version %s target %s failed promotion validation: %v", canonical.Name, localVersion, key, err))
-				eligible = false
-				break
-			}
-			promoted.Targets[key] = target
-		}
-		if !eligible {
+		hash, err := fileSHA256(artifactSource)
+		if err != nil {
+			candidate.Notices = append(candidate.Notices, fmt.Sprintf("local %s %s archive is unavailable: %v", canonical.Name, targetKey, err))
 			continue
 		}
-		candidate.Lock.Components[index] = promoted
-		candidate.Promotions = append(candidate.Promotions, lockPromotion{
-			Name: canonical.Name, From: canonical.Version, To: localVersion, Commit: promoted.Commit, TargetCount: len(targetKeys),
+		newTarget.SHA256 = hash
+		if err := validatePromotedArtifact(collectionRoot, promoted, targetKey, newTarget); err != nil {
+			candidate.Notices = append(candidate.Notices, fmt.Sprintf("local %s %s archive failed validation: %v", canonical.Name, targetKey, err))
+			continue
+		}
+		if mode == "verify" {
+			if currentTarget.Path != newTarget.Path || !strings.EqualFold(currentTarget.SHA256, newTarget.SHA256) {
+				candidate.Notices = append(candidate.Notices, fmt.Sprintf("%s target %s version %s rebuilt to a different path or SHA; immutable version conflict", canonical.Name, targetKey, canonical.Version))
+			}
+			continue
+		}
+		promoted.Targets[targetKey] = newTarget
+		artifactTarget, err := joinWithin(durableRepositoryRoot, newTarget.Path)
+		if err != nil {
+			return rolloutCandidate{}, fmt.Errorf("%s %s durable artifact: %w", canonical.Name, targetKey, err)
+		}
+		candidate.Updates = append(candidate.Updates, rolloutUpdate{
+			ComponentIndex: index,
+			Name:           canonical.Name,
+			Mode:           mode,
+			From:           currentTarget.Version,
+			To:             promoted.Version,
+			Commit:         promoted.Commit,
+			Component:      promoted,
+			ArtifactSource: artifactSource,
+			ArtifactTarget: artifactTarget,
+			SHA256:         hash,
 		})
 	}
-
-	payload, err := json.MarshalIndent(candidate.Lock, "", "  ")
-	if err != nil {
-		return promotionCandidate{}, err
-	}
-	candidate.Payload = append(payload, '\n')
 	return candidate, nil
+}
+
+func targetReleaseBehind(target builtins.Target, component builtins.Component) bool {
+	comparison, err := compareSemanticVersions(target.Version, component.Version)
+	return err == nil && comparison < 0
+}
+
+func targetReleaseMatches(target builtins.Target, component builtins.Component) bool {
+	return target.Version == component.Version && target.Source == component.Source && target.Commit == component.Commit
+}
+
+func cloneComponent(component builtins.Component) builtins.Component {
+	component.Targets = cloneTargets(component.Targets)
+	component.Licenses = append([]string(nil), component.Licenses...)
+	return component
 }
 
 func cloneTargets(source map[string]builtins.Target) map[string]builtins.Target {
@@ -251,7 +367,7 @@ func validatePromotedArtifact(collectionRoot string, component builtins.Componen
 		defer os.RemoveAll(root)
 		component.Required = true
 		component.Targets = map[string]builtins.Target{targetKey: target}
-		lock := builtins.Lock{SchemaVersion: 1, DefaultRoot: ".", Components: []builtins.Component{component}}
+		lock := builtins.Lock{SchemaVersion: 2, DefaultRoot: ".", Components: []builtins.Component{component}}
 		payload, err := json.Marshal(lock)
 		if err != nil {
 			return err
@@ -279,6 +395,76 @@ func validatePromotedArtifact(collectionRoot string, component builtins.Componen
 				return fmt.Errorf("%s is not JSON", label)
 			}
 		}
+	}
+	return nil
+}
+
+func persistArtifactAtomic(source, destination, expectedSHA string) error {
+	actual, err := fileSHA256(source)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(actual, expectedSHA) {
+		return fmt.Errorf("source SHA-256 mismatch: expected %s, got %s", expectedSHA, actual)
+	}
+	if info, statErr := os.Lstat(destination); statErr == nil {
+		if !info.Mode().IsRegular() {
+			return errors.New("destination exists and is not a regular file")
+		}
+		existing, hashErr := fileSHA256(destination)
+		if hashErr != nil {
+			return hashErr
+		}
+		if !strings.EqualFold(existing, expectedSHA) {
+			return fmt.Errorf("destination already exists with different SHA-256: %s", existing)
+		}
+		return nil
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return statErr
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		return err
+	}
+	sourceFile, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer sourceFile.Close()
+	temporary, err := os.CreateTemp(filepath.Dir(destination), ".builtin-artifact-*")
+	if err != nil {
+		return err
+	}
+	temporaryPath := temporary.Name()
+	defer os.Remove(temporaryPath)
+	if err := temporary.Chmod(0o644); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if _, err := io.Copy(temporary, sourceFile); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	copied, err := fileSHA256(temporaryPath)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(copied, expectedSHA) {
+		return fmt.Errorf("copied artifact SHA-256 mismatch: expected %s, got %s", expectedSHA, copied)
+	}
+	// Link provides an atomic create-without-replacement operation. A plain
+	// rename would replace an existing path on Unix after the earlier check.
+	if err := os.Link(temporaryPath, destination); err != nil {
+		return err
+	}
+	if err := os.Remove(temporaryPath); err != nil {
+		return err
 	}
 	return nil
 }

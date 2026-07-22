@@ -30,7 +30,7 @@ func TestStageCacheCopiesVerifiedTargetCache(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := Manifest{
-		SchemaVersion: lockSchemaVersion,
+		SchemaVersion: manifestSchemaVersion,
 		Platform:      ManifestPlatform{OS: "darwin", Arch: "arm64"},
 		Components: []ManifestComponent{
 			{Name: "rg", Version: "15.1.0", Path: "bin/rg", SHA256: fileSHA256(t, rgPath)},
@@ -101,7 +101,7 @@ func TestStageCacheRejectsInvalidCache(t *testing.T) {
 			t.Fatal(err)
 		}
 		writeCacheManifest(t, filepath.Join(cacheDir, "builtins.manifest.json"), Manifest{
-			SchemaVersion: lockSchemaVersion,
+			SchemaVersion: manifestSchemaVersion,
 			Platform:      ManifestPlatform{OS: "darwin", Arch: "arm64"},
 			Components: []ManifestComponent{{
 				Name: "poppler-pdftotext", Version: "v1", Path: "bin/pdftotext", SHA256: digest, Tree: tree,
@@ -136,7 +136,7 @@ func newSingleFileCache(t *testing.T, goos, goarch string) string {
 	payloadPath := filepath.Join(cacheDir, "bin", "rg")
 	mustWrite(t, payloadPath, []byte("original"))
 	writeCacheManifest(t, filepath.Join(cacheDir, "builtins.manifest.json"), Manifest{
-		SchemaVersion: lockSchemaVersion,
+		SchemaVersion: manifestSchemaVersion,
 		Platform:      ManifestPlatform{OS: goos, Arch: goarch},
 		Components: []ManifestComponent{{
 			Name: "rg", Version: "15.1.0", Path: "bin/rg", SHA256: fileSHA256(t, payloadPath),

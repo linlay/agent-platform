@@ -57,7 +57,7 @@ func LoadManifest(manifestPath string) (Manifest, error) {
 // artifacts intentionally have a different archive hash from the canonical
 // source lock used by sync-local-builtins.
 func VerifyManifest(root string, manifest Manifest) error {
-	if manifest.SchemaVersion != lockSchemaVersion {
+	if manifest.SchemaVersion != manifestSchemaVersion {
 		return fmt.Errorf("unsupported builtins manifest schema %d", manifest.SchemaVersion)
 	}
 	if strings.TrimSpace(manifest.Platform.OS) == "" || strings.TrimSpace(manifest.Platform.Arch) == "" {

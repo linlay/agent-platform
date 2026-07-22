@@ -18,7 +18,11 @@ import (
 	"time"
 )
 
-const lockSchemaVersion = 1
+const (
+	legacyLockSchemaVersion = 1
+	lockSchemaVersion       = 2
+	manifestSchemaVersion   = 1
+)
 
 type Lock struct {
 	SchemaVersion int         `json:"schemaVersion"`
@@ -42,6 +46,9 @@ type Component struct {
 }
 
 type Target struct {
+	Version  string          `json:"version,omitempty"`
+	Source   string          `json:"source,omitempty"`
+	Commit   string          `json:"commit,omitempty"`
 	Path     string          `json:"path"`
 	Format   string          `json:"format,omitempty"`
 	Entry    string          `json:"entry,omitempty"`
@@ -126,7 +133,7 @@ func LoadLock(path string) (Lock, error) {
 	if err := decoder.Decode(&lock); err != nil {
 		return Lock{}, fmt.Errorf("decode builtins lock: %w", err)
 	}
-	if lock.SchemaVersion != lockSchemaVersion {
+	if lock.SchemaVersion != legacyLockSchemaVersion && lock.SchemaVersion != lockSchemaVersion {
 		return Lock{}, fmt.Errorf("unsupported builtins lock schema %d", lock.SchemaVersion)
 	}
 	if strings.TrimSpace(lock.DefaultRoot) == "" {
@@ -136,14 +143,27 @@ func LoadLock(path string) (Lock, error) {
 		return Lock{}, errors.New("builtins lock components are required")
 	}
 	seen := map[string]bool{}
-	for _, component := range lock.Components {
-		if err := validateComponent(component); err != nil {
+	for index := range lock.Components {
+		component := &lock.Components[index]
+		if err := validateComponent(*component, lock.SchemaVersion); err != nil {
 			return Lock{}, err
 		}
 		if seen[component.Name] {
 			return Lock{}, fmt.Errorf("duplicate builtin component %q", component.Name)
 		}
 		seen[component.Name] = true
+		for key, target := range component.Targets {
+			if strings.TrimSpace(target.Version) == "" {
+				target.Version = component.Version
+			}
+			if strings.TrimSpace(target.Source) == "" {
+				target.Source = component.Source
+			}
+			if strings.TrimSpace(target.Commit) == "" {
+				target.Commit = component.Commit
+			}
+			component.Targets[key] = target
+		}
 	}
 	return lock, nil
 }
@@ -205,7 +225,7 @@ func Stage(options StageOptions) (StageResult, error) {
 	}
 
 	manifest := Manifest{
-		SchemaVersion: lockSchemaVersion,
+		SchemaVersion: manifestSchemaVersion,
 		Platform: ManifestPlatform{
 			OS:   options.GOOS,
 			Arch: options.GOARCH,
@@ -238,9 +258,9 @@ func Stage(options StageOptions) (StageResult, error) {
 			}
 			staged = ManifestComponent{
 				Name:         component.Name,
-				Version:      component.Version,
-				Source:       component.Source,
-				Commit:       component.Commit,
+				Version:      target.Version,
+				Source:       target.Source,
+				Commit:       target.Commit,
 				Path:         target.Tree.Outputs[0].Path,
 				SHA256:       digest,
 				SDKVersion:   component.SDKVersion,
@@ -266,9 +286,9 @@ func Stage(options StageOptions) (StageResult, error) {
 			outputHash := bytesSHA256(payload)
 			staged = ManifestComponent{
 				Name:       component.Name,
-				Version:    component.Version,
-				Source:     component.Source,
-				Commit:     component.Commit,
+				Version:    target.Version,
+				Source:     target.Source,
+				Commit:     target.Commit,
 				Path:       filepath.ToSlash(filepath.Join("bin", target.Output)),
 				SHA256:     outputHash,
 				SDKVersion: component.SDKVersion,
@@ -295,7 +315,7 @@ func Stage(options StageOptions) (StageResult, error) {
 	}, nil
 }
 
-func validateComponent(component Component) error {
+func validateComponent(component Component, schemaVersion int) error {
 	if strings.TrimSpace(component.Name) == "" ||
 		strings.TrimSpace(component.Version) == "" ||
 		strings.TrimSpace(component.Repository) == "" {
@@ -308,6 +328,14 @@ func validateComponent(component Component) error {
 		return fmt.Errorf("builtin %s targets are required", component.Name)
 	}
 	for targetKey, target := range component.Targets {
+		if schemaVersion >= lockSchemaVersion {
+			if strings.TrimSpace(target.Version) == "" {
+				return fmt.Errorf("builtin %s target %s version is required in schema v2", component.Name, targetKey)
+			}
+			if strings.TrimSpace(component.Source) != "" && strings.TrimSpace(target.Source) == "" {
+				return fmt.Errorf("builtin %s target %s source is required in schema v2", component.Name, targetKey)
+			}
+		}
 		if strings.TrimSpace(target.Path) == "" {
 			return fmt.Errorf("builtin %s target %s path is required", component.Name, targetKey)
 		}

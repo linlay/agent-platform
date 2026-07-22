@@ -109,7 +109,6 @@ foreach ($component in @("ripgrep", "dbx", "httpx", "kbase-lance-engine", "poppl
 New-Item -ItemType Directory -Path $BuildRoot -Force | Out-Null
 $WorkDir = Join-Path $BuildRoot ".sync.$([Guid]::NewGuid().ToString('N'))"
 $CollectionRoot = Join-Path $WorkDir "collection"
-$canonicalHashBefore = (Get-FileHash -LiteralPath $CanonicalLock -Algorithm SHA256).Hash
 $oldGoCache = $env:GOCACHE
 $oldGoModCache = $env:GOMODCACHE
 
@@ -224,12 +223,13 @@ try {
     }
 
     Write-Host "[builtins-sync] updated $($Targets.Count) target cache(s) under $BuildRoot"
+    Invoke-Native -Command "go" -WorkingDirectory $RepoRoot -Arguments @(
+        "run", "./cmd/prepare-local-builtins-lock", "--input", $CanonicalLock,
+        "--builtins-root", $CollectionRoot, "--durable-builtins-root", $BuiltinsRoot,
+        "--host-target", "windows/amd64", "--offer-canonical-update"
+    )
 } finally {
     if ($null -eq $oldGoCache) { Remove-Item Env:GOCACHE -ErrorAction SilentlyContinue } else { $env:GOCACHE = $oldGoCache }
     if ($null -eq $oldGoModCache) { Remove-Item Env:GOMODCACHE -ErrorAction SilentlyContinue } else { $env:GOMODCACHE = $oldGoModCache }
     Remove-Item -LiteralPath $WorkDir -Recurse -Force -ErrorAction SilentlyContinue
-    $canonicalHashAfter = (Get-FileHash -LiteralPath $CanonicalLock -Algorithm SHA256).Hash
-    if ($canonicalHashAfter -ne $canonicalHashBefore) {
-        throw "Canonical builtins.lock.json changed during local builtin sync"
-    }
 }

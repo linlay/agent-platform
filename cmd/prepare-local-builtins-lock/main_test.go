@@ -76,6 +76,9 @@ func TestRunAddsLocalSidecarTargetAndRefreshesHashes(t *testing.T) {
 	if target.SHA256 != hash {
 		t.Fatalf("sha256 = %s, want %s", target.SHA256, hash)
 	}
+	if derived.SchemaVersion != 2 || target.Version != "v1.0.0" || target.Source != derived.Components[0].Source || target.Commit != derived.Components[0].Commit {
+		t.Fatalf("derived target release/schema = schema %d target %#v", derived.SchemaVersion, target)
+	}
 }
 
 func TestRunRefreshesArchiveAndArchiveTreeHashesWithoutChangingCanonicalLock(t *testing.T) {

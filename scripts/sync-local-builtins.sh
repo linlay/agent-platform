@@ -19,10 +19,11 @@ Usage: scripts/sync-local-builtins.sh [--all | --target <os>/<arch>] [--builtins
 
 Builds the sibling builtin projects in an isolated work directory, verifies
 their locally generated archives, and atomically updates
-build/builtins/<os>-<arch>/. It never writes release-local/. When a clean
-local component has a strictly newer VERSION and every target already declared
-by the canonical lock can be verified, an interactive run offers to update the
-canonical lock; only the exact answer "yes" accepts the update.
+build/builtins/<os>-<arch>/. It never writes release-local/. A clean, strictly
+newer VERSION on the native host is offered as the new component target and
+requires the exact answer "yes". A native target behind an existing component
+target follows automatically after its VERSION and Git commit are verified.
+Cross-built targets never change the canonical lock.
 
 With no target selector, builds the current host target. --all requests the
 six target matrix and therefore requires every relevant Rust target, linker,
@@ -237,10 +238,23 @@ for target in "${activated_targets[@]}"; do
   rm -rf "$BUILD_ROOT/.$target_os-$target_arch.previous"
 done
 echo "[builtins-sync] updated ${#TARGETS[@]} target cache(s) under $BUILD_ROOT"
-(
-  cd "$REPO_ROOT"
-  go run ./cmd/prepare-local-builtins-lock \
-    --input "$REPO_ROOT/scripts/release-assets/builtins.lock.json" \
-    --builtins-root "$collection_root" \
-    --offer-canonical-update
-)
+host_was_built=false
+for target in "${TARGETS[@]}"; do
+  if [[ "$target" == "$host_target" ]]; then
+    host_was_built=true
+    break
+  fi
+done
+if [[ "$host_was_built" == true ]]; then
+  (
+    cd "$REPO_ROOT"
+    go run ./cmd/prepare-local-builtins-lock \
+      --input "$REPO_ROOT/scripts/release-assets/builtins.lock.json" \
+      --builtins-root "$collection_root" \
+      --durable-builtins-root "$BUILTINS_ROOT" \
+      --host-target "$host_target" \
+      --offer-canonical-update
+  )
+else
+  echo "[builtins-sync] canonical lock update skipped: exact host target $host_target was not built"
+fi

@@ -259,11 +259,105 @@ func TestStageArchiveTreeRejectsMaliciousEntries(t *testing.T) {
 
 func writeLock(t *testing.T, path string, lock Lock) {
 	t.Helper()
+	if lock.SchemaVersion >= lockSchemaVersion {
+		for componentIndex := range lock.Components {
+			component := &lock.Components[componentIndex]
+			for key, target := range component.Targets {
+				target.Version = component.Version
+				target.Source = component.Source
+				target.Commit = component.Commit
+				component.Targets[key] = target
+			}
+		}
+	}
 	payload, err := json.Marshal(lock)
 	if err != nil {
 		t.Fatalf("marshal lock: %v", err)
 	}
 	mustWrite(t, path, payload)
+}
+
+func TestLoadLockHydratesSchemaV1TargetRelease(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), "builtins.lock.json")
+	writeLock(t, lockPath, Lock{
+		SchemaVersion: legacyLockSchemaVersion,
+		DefaultRoot:   "../agent-platform-builtins",
+		Components: []Component{{
+			Name: "dbx", Version: "v1.0.0", Source: "https://example.invalid/dbx.git", Commit: strings.Repeat("a", 40), Repository: "dbx", Kind: "archive", Required: true,
+			Targets: map[string]Target{"darwin-arm64": {Path: "dist/v1.0.0/dbx.tar.gz", Format: "tar.gz", Entry: "dbx", Output: "dbx", SHA256: strings.Repeat("b", 64)}},
+		}},
+	})
+	loaded, err := LoadLock(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := loaded.Components[0].Targets["darwin-arm64"]
+	if target.Version != "v1.0.0" || target.Source != "https://example.invalid/dbx.git" || target.Commit != strings.Repeat("a", 40) {
+		t.Fatalf("hydrated target release = %#v", target)
+	}
+}
+
+func TestStageSchemaV2UsesTargetRelease(t *testing.T) {
+	base := t.TempDir()
+	repoRoot := filepath.Join(base, "agent-platform")
+	collectionRoot := filepath.Join(base, "agent-platform-builtins")
+	archive := filepath.Join(collectionRoot, "dbx", "dist", "v1.0.0", "dbx.tar.gz")
+	mustWriteTarGzip(t, archive, "dbx", []byte("dbx"))
+	lockPath := filepath.Join(repoRoot, "builtins.lock.json")
+	writeLock(t, lockPath, Lock{
+		SchemaVersion: lockSchemaVersion,
+		DefaultRoot:   "../agent-platform-builtins",
+		Components: []Component{{
+			Name: "dbx", Version: "v2.0.0", Source: "https://example.invalid/dbx.git", Commit: strings.Repeat("c", 40), Repository: "dbx", Kind: "archive", Required: true,
+			Targets: map[string]Target{"darwin-arm64": {
+				Version: "v1.0.0", Source: "https://example.invalid/dbx.git", Commit: strings.Repeat("a", 40),
+				Path: "dist/v1.0.0/dbx.tar.gz", Format: "tar.gz", Entry: "dbx", Output: "dbx", SHA256: fileSHA256(t, archive),
+			}},
+		}},
+	})
+	// writeLock fills v2 target release values for ordinary fixtures, so put
+	// the intentionally lagging target values back after marshaling.
+	loaded, err := LoadLock(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded.Components[0].Targets["darwin-arm64"] = Target{
+		Version: "v1.0.0", Source: "https://example.invalid/dbx.git", Commit: strings.Repeat("a", 40),
+		Path: "dist/v1.0.0/dbx.tar.gz", Format: "tar.gz", Entry: "dbx", Output: "dbx", SHA256: fileSHA256(t, archive),
+	}
+	payload, err := json.Marshal(loaded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, lockPath, payload)
+	result, err := Stage(StageOptions{RepoRoot: repoRoot, LockPath: lockPath, OutputDir: filepath.Join(base, "bundle"), GOOS: "darwin", GOARCH: "arm64"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	component := result.Manifest.Components[0]
+	if result.Manifest.SchemaVersion != manifestSchemaVersion || component.Version != "v1.0.0" || component.Commit != strings.Repeat("a", 40) {
+		t.Fatalf("manifest release = schema %d component %#v", result.Manifest.SchemaVersion, component)
+	}
+}
+
+func TestLoadLockRejectsSchemaV2TargetWithoutRelease(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), "builtins.lock.json")
+	lock := Lock{
+		SchemaVersion: lockSchemaVersion,
+		DefaultRoot:   "../agent-platform-builtins",
+		Components: []Component{{
+			Name: "dbx", Version: "v1.0.0", Repository: "dbx", Kind: "archive", Required: true,
+			Targets: map[string]Target{"darwin-arm64": {Path: "dbx.tar.gz", Format: "tar.gz", Entry: "dbx", Output: "dbx", SHA256: strings.Repeat("b", 64)}},
+		}},
+	}
+	payload, err := json.Marshal(lock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, lockPath, payload)
+	if _, err := LoadLock(lockPath); err == nil || !strings.Contains(err.Error(), "version is required in schema v2") {
+		t.Fatalf("LoadLock error = %v", err)
+	}
 }
 
 func mustWriteTarGzip(t *testing.T, path string, name string, payload []byte) {
