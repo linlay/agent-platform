@@ -318,7 +318,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/admin/registries/validate", s.method(http.MethodPost, s.handleAdminRegistryValidate))
 	s.router.HandleFunc("/api/agent", s.method(http.MethodGet, s.handleAgent))
 	s.router.HandleFunc("/api/agent/model-config", s.method(http.MethodPost, s.handleAgentModelConfig))
-	s.router.HandleFunc("/api/agent/open-workspace", s.method(http.MethodPost, s.handleAgentOpenWorkspace))
+	s.router.HandleFunc("/api/agent/open-directory", s.method(http.MethodPost, s.handleAgentOpenDirectory))
 	s.router.HandleFunc("/api/model-options", s.method(http.MethodGet, s.handleModelOptions))
 	s.router.HandleFunc("/api/monitor", s.method(http.MethodGet, s.handleMonitor))
 	s.router.HandleFunc("/api/monitor/channels", s.method(http.MethodGet, s.handleMonitorChannels))

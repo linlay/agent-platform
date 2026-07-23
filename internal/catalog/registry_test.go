@@ -1069,6 +1069,7 @@ func TestResolveTeamReturnsAtomicDeduplicatedSnapshot(t *testing.T) {
 
 func TestAgentsSummaryIncludesCatalogFieldsAndFiltersScope(t *testing.T) {
 	workspace := filepath.Join(t.TempDir(), "project")
+	agentConfigDir := filepath.Join(t.TempDir(), "agents", "assistant")
 	registry := &FileRegistry{
 		agents: map[string]AgentDefinition{
 			"assistant": {
@@ -1082,6 +1083,7 @@ func TestAgentsSummaryIncludesCatalogFieldsAndFiltersScope(t *testing.T) {
 				Tools:            []string{"bash", "file_read"},
 				Skills:           []string{"browser"},
 				Workspace:        AgentWorkspaceConfig{Root: workspace},
+				AgentDir:         agentConfigDir,
 				VisibilityScopes: []string{"nav", "copilot"},
 			},
 			"worker": {
@@ -1147,8 +1149,8 @@ func TestAgentsSummaryIncludesCatalogFieldsAndFiltersScope(t *testing.T) {
 	if len(navItems) != 1 || navItems[0].Key != "assistant" {
 		t.Fatalf("nav agents = %#v", navItems)
 	}
-	if navItems[0].Mode != "REACT" || navItems[0].WorkspaceDir != workspace {
-		t.Fatalf("summary mode/workspace = %#v", navItems[0])
+	if navItems[0].Mode != "REACT" || navItems[0].WorkspaceDir != workspace || navItems[0].AgentConfigDir != agentConfigDir {
+		t.Fatalf("summary mode/workspace/agent config dir = %#v", navItems[0])
 	}
 	data, err := json.Marshal(navItems[0])
 	if err != nil {
@@ -1163,6 +1165,9 @@ func TestAgentsSummaryIncludesCatalogFieldsAndFiltersScope(t *testing.T) {
 	if !strings.Contains(string(data), `"role":"Assistant role"`) {
 		t.Fatalf("summary json should include role, got %s", data)
 	}
+	if !strings.Contains(string(data), `"agentConfigDir":`) {
+		t.Fatalf("summary json should include agentConfigDir, got %s", data)
+	}
 	if strings.Contains(string(data), "defaultModelKey") || strings.Contains(string(data), "defaultReasoningEffort") {
 		t.Fatalf("non-CODER summary should omit CODER defaults, got %s", data)
 	}
@@ -1173,6 +1178,13 @@ func TestAgentsSummaryIncludesCatalogFieldsAndFiltersScope(t *testing.T) {
 	invokeItems := registry.Agents("invoke")
 	if len(invokeItems) != 1 || invokeItems[0].Key != "invoker" {
 		t.Fatalf("invoke agents = %#v", invokeItems)
+	}
+	invokerData, err := json.Marshal(invokeItems[0])
+	if err != nil {
+		t.Fatalf("marshal agent summary without agent dir: %v", err)
+	}
+	if strings.Contains(string(invokerData), `"agentConfigDir"`) {
+		t.Fatalf("summary json should omit empty agentConfigDir, got %s", invokerData)
 	}
 	allItems := registry.Agents("all")
 	if len(allItems) != 3 {

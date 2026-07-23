@@ -492,13 +492,14 @@ func (r *FileRegistry) Agents(scope string) []api.AgentSummary {
 		}
 		apiMode := AgentModeForAPI(def.Mode)
 		summary := api.AgentSummary{
-			Key:          def.Key,
-			Name:         def.Name,
-			Icon:         def.Icon,
-			Mode:         apiMode,
-			WorkspaceDir: def.Workspace.Root,
-			Description:  def.Description,
-			Role:         def.Role,
+			Key:            def.Key,
+			Name:           def.Name,
+			Icon:           def.Icon,
+			Mode:           apiMode,
+			WorkspaceDir:   def.Workspace.Root,
+			AgentConfigDir: def.AgentDir,
+			Description:    def.Description,
+			Role:           def.Role,
 		}
 		if strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeCoder) {
 			summary.DefaultModelKey, summary.DefaultReasoningEffort = agentSummaryCoderDefaults(def)

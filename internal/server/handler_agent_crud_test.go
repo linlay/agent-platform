@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
 	"agent-platform/internal/kbase"
 	"agent-platform/internal/ws"
@@ -687,7 +689,7 @@ func TestAgentCreateKBaseWithExplicitNamePreservesUserValue(t *testing.T) {
 	}
 }
 
-func TestAgentCreateCoderAndOpenWorkspace(t *testing.T) {
+func TestAgentCreateCoderAndOpenDirectory(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w,
 			`{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
@@ -816,17 +818,18 @@ func TestAgentCreateCoderAndOpenWorkspace(t *testing.T) {
 	}
 
 	var openedPath string
-	previousOpen := openWorkspacePath
-	openWorkspacePath = func(path string) error {
+	previousOpen := openDirectoryPath
+	openDirectoryPath = func(path string) error {
 		openedPath = path
 		return nil
 	}
-	t.Cleanup(func() { openWorkspacePath = previousOpen })
+	t.Cleanup(func() { openDirectoryPath = previousOpen })
 
-	opened := postAgentJSON[api.OpenAgentWorkspaceResponse](t, fixture.server, "/api/agent/open-workspace", map[string]any{
-		"agentKey": created.Key,
+	opened := postAgentJSON[api.OpenAgentDirectoryResponse](t, fixture.server, "/api/agent/open-directory", map[string]any{
+		"agentKey":      created.Key,
+		"directoryType": "workspace",
 	})
-	if !opened.Opened || opened.WorkspaceDir != workspaceDir || openedPath != workspaceDir {
+	if !opened.Opened || opened.AgentKey != created.Key || opened.DirectoryType != "workspace" || opened.DirectoryPath != workspaceDir || openedPath != workspaceDir {
 		t.Fatalf("unexpected open response=%#v openedPath=%q", opened, openedPath)
 	}
 }
@@ -1325,13 +1328,214 @@ func TestAgentModelConfigUpdateRejectsInvalidRequests(t *testing.T) {
 	}
 }
 
-func TestAgentOpenWorkspaceRejectsUnknownWorkspace(t *testing.T) {
+func TestAgentOpenDirectoryUsesRegisteredConfigDirectory(t *testing.T) {
+	fixture := newTestFixture(t)
+	agentConfigDir := filepath.Join(fixture.cfg.Paths.AgentsDir, "mock-agent")
+
+	var openedPath string
+	previousOpen := openDirectoryPath
+	openDirectoryPath = func(path string) error {
+		openedPath = path
+		return nil
+	}
+	t.Cleanup(func() { openDirectoryPath = previousOpen })
+
+	opened := postAgentJSON[api.OpenAgentDirectoryResponse](t, fixture.server, "/api/agent/open-directory", map[string]any{
+		"agentKey":      "mock-agent",
+		"directoryType": "config",
+	})
+	if !opened.Opened || opened.AgentKey != "mock-agent" || opened.DirectoryType != "config" || opened.DirectoryPath != agentConfigDir || openedPath != agentConfigDir {
+		t.Fatalf("unexpected open response=%#v openedPath=%q", opened, openedPath)
+	}
+}
+
+type agentDirectoryTestRegistry struct {
+	catalog.Registry
+	definitions map[string]catalog.AgentDefinition
+}
+
+func (r agentDirectoryTestRegistry) AgentDefinition(key string) (catalog.AgentDefinition, bool) {
+	def, ok := r.definitions[key]
+	return def, ok
+}
+
+func TestAgentOpenDirectoryUsesRegisteredWorkspaceAndReturnsAbsolutePath(t *testing.T) {
+	workspaceDir := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
+	}
+	relativeWorkspace, err := filepath.Rel(cwd, workspaceDir)
+	if err != nil {
+		t.Fatalf("make relative workspace path: %v", err)
+	}
+	server := &Server{deps: Dependencies{Registry: agentDirectoryTestRegistry{
+		definitions: map[string]catalog.AgentDefinition{
+			"relative-agent": {
+				Key:       "relative-agent",
+				Workspace: catalog.AgentWorkspaceConfig{Root: relativeWorkspace},
+			},
+		},
+	}}}
+
+	var openedPath string
+	previousOpen := openDirectoryPath
+	openDirectoryPath = func(path string) error {
+		openedPath = path
+		return nil
+	}
+	t.Cleanup(func() { openDirectoryPath = previousOpen })
+
+	rec := httptest.NewRecorder()
+	server.handleAgentOpenDirectory(rec, httptest.NewRequest(http.MethodPost, "/api/agent/open-directory", bytes.NewBufferString(
+		`{"agentKey":" relative-agent ","directoryType":" workspace "}`,
+	)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var response api.ApiResponse[api.OpenAgentDirectoryResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode open directory response: %v", err)
+	}
+	if response.Data.AgentKey != "relative-agent" || response.Data.DirectoryType != "workspace" ||
+		response.Data.DirectoryPath != workspaceDir || openedPath != workspaceDir {
+		t.Fatalf("unexpected response=%#v openedPath=%q", response.Data, openedPath)
+	}
+}
+
+func TestAgentOpenDirectoryValidatesRequestAndRegisteredDirectory(t *testing.T) {
+	existingDir := t.TempDir()
+	missingDir := filepath.Join(t.TempDir(), "missing")
+	filePath := filepath.Join(t.TempDir(), "agent.yml")
+	if err := os.WriteFile(filePath, []byte("key: file-agent\n"), 0o644); err != nil {
+		t.Fatalf("write non-directory target: %v", err)
+	}
+	server := &Server{deps: Dependencies{Registry: agentDirectoryTestRegistry{
+		definitions: map[string]catalog.AgentDefinition{
+			"valid-agent": {
+				Key:       "valid-agent",
+				AgentDir:  existingDir,
+				Workspace: catalog.AgentWorkspaceConfig{Root: existingDir},
+			},
+			"empty-config": {
+				Key:       "empty-config",
+				AgentDir:  "",
+				Workspace: catalog.AgentWorkspaceConfig{Root: existingDir},
+			},
+			"missing-config": {
+				Key:      "missing-config",
+				AgentDir: missingDir,
+			},
+			"file-config": {
+				Key:      "file-config",
+				AgentDir: filePath,
+			},
+		},
+	}}}
+
+	opened := 0
+	previousOpen := openDirectoryPath
+	openDirectoryPath = func(string) error {
+		opened++
+		return nil
+	}
+	t.Cleanup(func() { openDirectoryPath = previousOpen })
+
+	cases := []struct {
+		name   string
+		body   string
+		status int
+	}{
+		{name: "missing agent key", body: `{"directoryType":"config"}`, status: http.StatusBadRequest},
+		{name: "missing directory type", body: `{"agentKey":"valid-agent"}`, status: http.StatusBadRequest},
+		{name: "empty directory type", body: `{"agentKey":"valid-agent","directoryType":" "}`, status: http.StatusBadRequest},
+		{name: "unsupported directory type", body: `{"agentKey":"valid-agent","directoryType":"CONFIG"}`, status: http.StatusBadRequest},
+		{name: "agent not found", body: `{"agentKey":"missing-agent","directoryType":"config"}`, status: http.StatusNotFound},
+		{name: "empty config directory", body: `{"agentKey":"empty-config","directoryType":"config"}`, status: http.StatusBadRequest},
+		{name: "registered directory missing", body: `{"agentKey":"missing-config","directoryType":"config"}`, status: http.StatusNotFound},
+		{name: "registered path is a file", body: `{"agentKey":"file-config","directoryType":"config"}`, status: http.StatusBadRequest},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			server.handleAgentOpenDirectory(rec, httptest.NewRequest(http.MethodPost, "/api/agent/open-directory", bytes.NewBufferString(tc.body)))
+			if rec.Code != tc.status {
+				t.Fatalf("expected %d, got %d: %s", tc.status, rec.Code, rec.Body.String())
+			}
+			var response api.ApiResponse[map[string]any]
+			if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+				t.Fatalf("decode error response: %v", err)
+			}
+			if response.Code != tc.status {
+				t.Fatalf("response code = %d, want %d: %s", response.Code, tc.status, rec.Body.String())
+			}
+		})
+	}
+	if opened != 0 {
+		t.Fatalf("system opener called %d times for rejected requests", opened)
+	}
+}
+
+func TestAgentOpenDirectoryStrictlyRejectsClientPathAndUnknownFields(t *testing.T) {
+	fixture := newTestFixture(t)
+	opened := 0
+	previousOpen := openDirectoryPath
+	openDirectoryPath = func(string) error {
+		opened++
+		return nil
+	}
+	t.Cleanup(func() { openDirectoryPath = previousOpen })
+
+	cases := []string{
+		`{"key":"mock-agent","directoryType":"config"}`,
+		`{"agentKey":"mock-agent","directoryType":"config","workspaceDir":"/tmp/client-controlled"}`,
+		`{"agentKey":"mock-agent","directoryType":"config","agentConfigDir":"/tmp/client-controlled"}`,
+		`{"agentKey":"mock-agent","directoryType":"config","path":"/tmp/client-controlled"}`,
+		`{"agentKey":"mock-agent","directoryType":"config","extra":true}`,
+		`{"workspaceDir":"/tmp/client-controlled"}`,
+	}
+	for _, body := range cases {
+		rec := httptest.NewRecorder()
+		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/agent/open-directory", bytes.NewBufferString(body)))
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for %s, got %d: %s", body, rec.Code, rec.Body.String())
+		}
+	}
+	if opened != 0 {
+		t.Fatalf("system opener called %d times for requests with undeclared fields", opened)
+	}
+}
+
+func TestAgentOpenDirectoryReturnsOpenFailed(t *testing.T) {
+	fixture := newTestFixture(t)
+	previousOpen := openDirectoryPath
+	openDirectoryPath = func(string) error {
+		return errors.New("desktop opener unavailable")
+	}
+	t.Cleanup(func() { openDirectoryPath = previousOpen })
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/agent/open-directory", bytes.NewBufferString(
+		`{"agentKey":"mock-agent","directoryType":"config"}`,
+	)))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var response api.ApiResponse[map[string]any]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode open failure response: %v", err)
+	}
+	if response.Code != http.StatusInternalServerError || !strings.Contains(response.Msg, "desktop opener unavailable") {
+		t.Fatalf("unexpected open failure response: %#v", response)
+	}
+}
+
+func TestAgentOpenDirectoryOldWorkspaceRouteIsNotRegistered(t *testing.T) {
 	fixture := newTestFixture(t)
 	rec := httptest.NewRecorder()
-	body := bytes.NewBufferString(`{"workspaceDir":"/tmp/not-an-agent-workspace"}`)
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/agent/open-workspace", body))
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/agent/open-workspace", bytes.NewBufferString(`{}`)))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 

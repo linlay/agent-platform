@@ -98,6 +98,7 @@ func agentCatalogSummary(agent api.AgentSummary) api.AgentCatalogSummary {
 		Icon:                   agent.Icon,
 		Mode:                   agent.Mode,
 		WorkspaceDir:           agent.WorkspaceDir,
+		AgentConfigDir:         agent.AgentConfigDir,
 		DefaultModelKey:        agent.DefaultModelKey,
 		DefaultReasoningEffort: agent.DefaultReasoningEffort,
 		ModelConfig:            agent.ModelConfig,

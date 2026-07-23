@@ -326,7 +326,7 @@ func TestAgentsEndpointReturnsCatalogFieldsAndScopeFiltering(t *testing.T) {
 	if !containsString(keys, "internal-agent") || !containsString(keys, "invoke-agent") || !containsString(keys, "coder-agent") {
 		t.Fatalf("default scope keys = %#v", keys)
 	}
-	if coder.Mode != catalog.AgentModeCoder || coder.WorkspaceDir == "" {
+	if coder.Mode != catalog.AgentModeCoder || coder.WorkspaceDir == "" || coder.AgentConfigDir != filepath.Join(fixture.cfg.Paths.AgentsDir, "coder-agent") {
 		t.Fatalf("coder summary = %#v", coder)
 	}
 	if coder.DefaultModelKey != "execute-model" || coder.DefaultReasoningEffort != "HIGH" {

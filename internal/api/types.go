@@ -518,6 +518,7 @@ type AgentSummary struct {
 	Icon                   any                        `json:"icon,omitempty"`
 	Mode                   string                     `json:"mode,omitempty"`
 	WorkspaceDir           string                     `json:"workspaceDir,omitempty"`
+	AgentConfigDir         string                     `json:"agentConfigDir,omitempty"`
 	DefaultModelKey        string                     `json:"defaultModelKey,omitempty"`
 	DefaultReasoningEffort string                     `json:"defaultReasoningEffort,omitempty"`
 	ModelConfig            map[string]any             `json:"modelConfig,omitempty"`
@@ -539,6 +540,7 @@ type AgentCatalogSummary struct {
 	Icon                   any                        `json:"icon,omitempty"`
 	Mode                   string                     `json:"mode,omitempty"`
 	WorkspaceDir           string                     `json:"workspaceDir,omitempty"`
+	AgentConfigDir         string                     `json:"agentConfigDir,omitempty"`
 	DefaultModelKey        string                     `json:"defaultModelKey,omitempty"`
 	DefaultReasoningEffort string                     `json:"defaultReasoningEffort,omitempty"`
 	ModelConfig            map[string]any             `json:"modelConfig,omitempty"`
@@ -828,16 +830,16 @@ type UpdateAgentOrderRequest struct {
 	Order []string `json:"order"`
 }
 
-type OpenAgentWorkspaceRequest struct {
-	Key          string `json:"key,omitempty"`
-	AgentKey     string `json:"agentKey,omitempty"`
-	WorkspaceDir string `json:"workspaceDir,omitempty"`
+type OpenAgentDirectoryRequest struct {
+	AgentKey      string `json:"agentKey"`
+	DirectoryType string `json:"directoryType"`
 }
 
-type OpenAgentWorkspaceResponse struct {
-	AgentKey     string `json:"agentKey,omitempty"`
-	WorkspaceDir string `json:"workspaceDir"`
-	Opened       bool   `json:"opened"`
+type OpenAgentDirectoryResponse struct {
+	AgentKey      string `json:"agentKey"`
+	DirectoryType string `json:"directoryType"`
+	DirectoryPath string `json:"directoryPath"`
+	Opened        bool   `json:"opened"`
 }
 
 type AgentEditorOptionsResponse struct {

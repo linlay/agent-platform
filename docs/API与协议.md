@@ -56,13 +56,42 @@ GET /ws -> request / response / stream / push / error frames
 | GET | `/api/agents` | query: `includeChats`、`includeTeam`、`scope`、`mode` | agent 列表；可选混入 Team 与最近 chat 摘要 |
 | GET | `/api/agent` | query: `agentKey` | 单个运行时 agent 详情，不返回编辑专用字段 |
 | POST | `/api/agent/model-config` | body: `agentKey`/`key`、`modelKey`、`reasoningEffort` | 更新 CODER agent 的运行时默认模型配置 |
+| POST | `/api/agent/open-directory` | body: `agentKey`、`directoryType` | 打开 Agent 工作目录或配置目录 |
 | GET | `/api/teams` | 无 | 目录式 Team 列表 |
 | GET | `/api/skill-candidates` | query: `agentKey` | skill candidate 列表 |
 | GET | `/api/model-options` | 无 | 聊天运行时可选模型与思考深度 |
 
 `/api/agents` 的 `scope` 可取 `nav`、`copilot`、`invoke`、`internal`、`all`，省略时为 `all`；`includeChats` 为 `0..50`，省略时不附带 chat。可选 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；只接受 `REACT`、`CODER`、`KBASE`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`（大小写无关）。`PLAN_EXECUTE`、`ONESHOT`、ACP 别名、`TEAM` 和未知值均返回 400。`mode` 与 `scope` 为 AND，筛选普通 agent catalog 自身的 `mode`，不改变 `includeChats` 按 agentKey 获取 chat 的规则。
 
-`includeTeam` 是可选布尔 query，省略或 `false` 时响应保持原有的 agent 列表和排序。设为 `true` 时，响应改为扁平联合列表，每项带 `kind:"agent" | "team"`：agent 项保留原有摘要字段；team 项返回 `teamId`、`name`、可选 `description/icon`、`agentKeys`、`meta`，并和 agent 一样包含 `stats` 与可选 `chats`，但绝不返回虚拟 `key`、`mode`、`runtimeMode`、workspace 或模型配置。此时 `scope` 与 `mode` 只过滤 agent，所有 Team 均保留；`mode=TEAM` 会返回 400。混合项按各自最新 chat 的 `lastRunId` 降序排列，无 chat 的项置后；同值按名称、kind 与稳定身份字段确定顺序。`includeChats=N` 对 Team 也按 `teamId` 返回最近 N 条 Team-owned chat。WebSocket `/api/agents` 使用等价的 `scope`、`includeChats`、`includeTeam`、`mode` 字段，其中 `includeTeam` 为 JSON boolean。
+普通 Agent 摘要中的 `workspaceDir` 表示该 Agent 的运行工作区，`agentConfigDir` 表示 catalog 已解析的 Agent 配置目录；两者互不替代。`agentConfigDir` 原样返回运行时 `AgentDefinition.AgentDir`，为空时省略。`/api/agent` 继续通过现有的 `source.agentDir` 返回编辑来源目录，不新增顶层字段。
+
+`POST /api/agent/open-directory` 只接受 `agentKey` 和 `directoryType`。`directoryType:"workspace"` 从运行时 registry 的 `AgentDefinition.Workspace.Root` 解析目录，`directoryType:"config"` 从 `AgentDefinition.AgentDir` 解析目录。客户端不得提交 `key`、`workspaceDir`、`agentConfigDir`、`path` 或任何其他未声明字段；出现额外字段时返回 400。实际打开路径完全由后端 registry 决定，并在验证为已存在目录后转换为绝对路径。
+
+请求：
+
+```json
+{
+  "agentKey": "zenmi",
+  "directoryType": "workspace"
+}
+```
+
+成功响应继续使用统一 `ApiResponse`：
+
+```json
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "agentKey": "zenmi",
+    "directoryType": "workspace",
+    "directoryPath": "/resolved/server/path",
+    "opened": true
+  }
+}
+```
+
+`includeTeam` 是可选布尔 query，省略或 `false` 时响应保持原有的 agent 列表和排序。设为 `true` 时，响应改为扁平联合列表，每项带 `kind:"agent" | "team"`：agent 项保留原有摘要字段；team 项返回 `teamId`、`name`、可选 `description/icon`、`agentKeys`、`meta`，并和 agent 一样包含 `stats` 与可选 `chats`，但绝不返回虚拟 `key`、`mode`、`runtimeMode`、`workspaceDir`、`agentConfigDir` 或模型配置。此时 `scope` 与 `mode` 只过滤 agent，所有 Team 均保留；`mode=TEAM` 会返回 400。混合项按各自最新 chat 的 `lastRunId` 降序排列，无 chat 的项置后；同值按名称、kind 与稳定身份字段确定顺序。`includeChats=N` 对 Team 也按 `teamId` 返回最近 N 条 Team-owned chat。WebSocket `/api/agents` 使用等价的 `scope`、`includeChats`、`includeTeam`、`mode` 字段，其中 `includeTeam` 为 JSON boolean。
 
 ### Admin
 

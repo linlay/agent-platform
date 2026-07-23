@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -45,6 +46,10 @@ func TestAgentsIncludeTeamHTTPAndWebSocket(t *testing.T) {
 	if len(defaultResponse.Data) != 1 || defaultResponse.Data[0].Key != "mock-agent" || strings.Contains(rec.Body.String(), `"kind"`) {
 		t.Fatalf("default agents response must remain agent-only and unchanged: %s", rec.Body.String())
 	}
+	expectedAgentConfigDir := filepath.Join(fixture.cfg.Paths.AgentsDir, "mock-agent")
+	if defaultResponse.Data[0].AgentConfigDir != expectedAgentConfigDir {
+		t.Fatalf("default agent config dir = %q, want %q", defaultResponse.Data[0].AgentConfigDir, expectedAgentConfigDir)
+	}
 
 	rec = httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agents?scope=nav&includeTeam=true&includeChats=1", nil))
@@ -62,14 +67,21 @@ func TestAgentsIncludeTeamHTTPAndWebSocket(t *testing.T) {
 		t.Fatalf("catalog should mix by latest run id and put no-chat teams last: %#v", response.Data)
 	}
 	research := response.Data[0]
-	if research.Key != "" || research.Mode != "" || len(research.AgentKeys) != 2 || research.Stats.TotalCount != 1 || research.Stats.UnreadCount != 1 {
+	if research.Key != "" || research.Mode != "" || research.AgentConfigDir != "" || len(research.AgentKeys) != 2 || research.Stats.TotalCount != 1 || research.Stats.UnreadCount != 1 {
 		t.Fatalf("unexpected Team summary: %#v", research)
 	}
 	if len(research.Chats) != 1 || research.Chats[0].ChatID != "chat-research-team" || research.Chats[0].Usage != nil {
 		t.Fatalf("team chats should match agent includeChats behavior: %#v", research.Chats)
 	}
-	if response.Data[1].Stats.TotalCount != 1 || response.Data[1].Stats.UnreadCount != 1 || len(response.Data[1].Chats) != 1 {
+	if response.Data[1].AgentConfigDir != expectedAgentConfigDir || response.Data[1].Stats.TotalCount != 1 || response.Data[1].Stats.UnreadCount != 1 || len(response.Data[1].Chats) != 1 {
 		t.Fatalf("agent summary should retain stats and chats: %#v", response.Data[1])
+	}
+	researchJSON, err := json.Marshal(research)
+	if err != nil {
+		t.Fatalf("marshal Team summary: %v", err)
+	}
+	if strings.Contains(string(researchJSON), `"agentConfigDir"`) {
+		t.Fatalf("team items must omit agentConfigDir: %s", researchJSON)
 	}
 	if strings.Contains(rec.Body.String(), `"key":""`) || strings.Contains(rec.Body.String(), `"mode":""`) {
 		t.Fatalf("team items must omit Agent-only empty fields: %s", rec.Body.String())
@@ -120,7 +132,7 @@ func TestAgentsIncludeTeamHTTPAndWebSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode includeTeam websocket response: %v", err)
 	}
-	if frame.Code != 0 || len(items) != 3 || items[0].Kind != "team" || items[0].TeamID != "research" || items[1].Kind != "agent" {
+	if frame.Code != 0 || len(items) != 3 || items[0].Kind != "team" || items[0].TeamID != "research" || items[0].AgentConfigDir != "" || items[1].Kind != "agent" || items[1].AgentConfigDir != expectedAgentConfigDir {
 		t.Fatalf("websocket includeTeam should match HTTP: %#v", frame)
 	}
 

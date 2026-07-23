@@ -95,7 +95,7 @@ func (s *Server) resolveTerminalWorkspace(def catalog.AgentDefinition) (string, 
 	if !filepath.IsAbs(root) {
 		return "", &statusError{status: http.StatusBadRequest, message: "agent workspace must be absolute, @chat, or empty"}
 	}
-	dir, err := validatedWorkspaceDir(root)
+	dir, err := validatedAgentDirectory(root)
 	if err != nil {
 		if statusErr, ok := err.(agentStatusError); ok {
 			return "", &statusError{status: statusErr.status, message: statusErr.message}
