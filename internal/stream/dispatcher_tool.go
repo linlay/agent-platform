@@ -46,6 +46,14 @@ func (d *StreamEventDispatcher) handleToolResult(input ToolResult) []StreamEvent
 		"toolName": input.ToolName,
 		"result":   buildToolResultValue(input),
 	}
+	if isBashToolResult(input.ToolName) {
+		if input.ExitCode != 0 {
+			payload["exitCode"] = input.ExitCode
+		}
+		if input.Error != "" {
+			payload["error"] = input.Error
+		}
+	}
 	if len(input.FileChange) > 0 {
 		payload["fileChange"] = clonePayload(input.FileChange)
 	}
@@ -163,6 +171,9 @@ func (d *StreamEventDispatcher) closeTool(toolID string, fileChange map[string]a
 }
 
 func buildToolResultValue(input ToolResult) any {
+	if isBashToolResult(input.ToolName) {
+		return input.Result
+	}
 	if input.Error == "" && input.ExitCode == 0 {
 		return input.Result
 	}
@@ -176,4 +187,13 @@ func buildToolResultValue(input ToolResult) any {
 		result["error"] = input.Error
 	}
 	return result
+}
+
+func isBashToolResult(toolName string) bool {
+	switch strings.ToLower(strings.TrimSpace(toolName)) {
+	case "bash", "simple-bash":
+		return true
+	default:
+		return false
+	}
 }

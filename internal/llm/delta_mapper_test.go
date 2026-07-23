@@ -296,6 +296,66 @@ func TestDeltaMapper_RunActivity(t *testing.T) {
 	}
 }
 
+func TestDeltaMapper_BashToolResultPreservesExecutionStatus(t *testing.T) {
+	tests := []struct {
+		name     string
+		result   contracts.ToolExecutionResult
+		wantExit int
+		wantErr  string
+	}{
+		{
+			name: "structured command failure",
+			result: contracts.ToolExecutionResult{
+				Output:     `{"exitCode":7,"stdout":"","stderr":"failed\n"}`,
+				Structured: map[string]any{"exitCode": 7, "stdout": "", "stderr": "failed\n"},
+				ExitCode:   7,
+			},
+			wantExit: 7,
+		},
+		{
+			name: "successful command with stderr",
+			result: contracts.ToolExecutionResult{
+				Output:     `{"exitCode":0,"stdout":"ok\n","stderr":"warn\n"}`,
+				Structured: map[string]any{"exitCode": 0, "stdout": "ok\n", "stderr": "warn\n"},
+				ExitCode:   0,
+			},
+			wantExit: 0,
+		},
+		{
+			name: "structured platform failure",
+			result: contracts.ToolExecutionResult{
+				Output:     `{"error":"bash_security_blocked","exitCode":-1}`,
+				Structured: map[string]any{"error": "bash_security_blocked", "exitCode": -1},
+				Error:      "bash_security_blocked",
+				ExitCode:   -1,
+			},
+			wantExit: -1,
+			wantErr:  "bash_security_blocked",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mapper := NewDeltaMapper("run_1", "chat_1", contracts.Budget{}, nil, nil)
+			inputs := mapper.Map(contracts.DeltaToolResult{
+				ToolID:   "tool_1",
+				ToolName: "bash",
+				Result:   tc.result,
+			})
+			if len(inputs) != 1 {
+				t.Fatalf("expected one mapped input, got %#v", inputs)
+			}
+			result, ok := inputs[0].(stream.ToolResult)
+			if !ok {
+				t.Fatalf("expected ToolResult input, got %#v", inputs[0])
+			}
+			if result.ExitCode != tc.wantExit || result.Error != tc.wantErr {
+				t.Fatalf("execution status was not preserved: got %#v", result)
+			}
+		})
+	}
+}
+
 func newQuestionDeltaMapper() *DeltaMapper {
 	tools := stubToolLookup{
 		"ask_user_question": {

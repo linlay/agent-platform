@@ -288,3 +288,23 @@ func TestToolRouterFrontendToolDoesNotUseToolTimeoutDeadline(t *testing.T) {
 		t.Fatal("frontend tools should not inherit budget.tool.timeout as a context deadline")
 	}
 }
+
+func TestToolInvocationResultStatus(t *testing.T) {
+	tests := []struct {
+		name   string
+		result ToolExecutionResult
+		want   string
+	}{
+		{name: "success", result: ToolExecutionResult{ExitCode: 0}, want: "ok"},
+		{name: "process failure", result: ToolExecutionResult{ExitCode: 1}, want: "error"},
+		{name: "platform failure", result: ToolExecutionResult{Error: "tool_failed"}, want: "error"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := toolInvocationResultStatus(tc.result); got != tc.want {
+				t.Fatalf("toolInvocationResultStatus() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

@@ -424,7 +424,7 @@ func (r *ToolRouter) invokeWithPolicy(ctx context.Context, toolName string, exec
 			cancel()
 		}
 		if err == nil {
-			observability.LogToolInvocation(toolName, "ok", map[string]any{
+			observability.LogToolInvocation(toolName, toolInvocationResultStatus(result), map[string]any{
 				"attempt":  attempt + 1,
 				"exitCode": result.ExitCode,
 				"error":    result.Error,
@@ -438,6 +438,13 @@ func (r *ToolRouter) invokeWithPolicy(ctx context.Context, toolName string, exec
 		lastErr = err
 	}
 	return ToolExecutionResult{}, lastErr
+}
+
+func toolInvocationResultStatus(result ToolExecutionResult) string {
+	if result.ExitCode != 0 || strings.TrimSpace(result.Error) != "" {
+		return "error"
+	}
+	return "ok"
 }
 
 func (r *ToolRouter) invokeFrontendWithPolicy(ctx context.Context, toolName string, execCtx *ExecutionContext, invoke func(context.Context) (ToolExecutionResult, error)) (ToolExecutionResult, error) {

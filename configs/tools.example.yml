@@ -55,9 +55,12 @@ bash:
   # allowed-commands: '*'
   # max-command-chars: 32000
 
-  # Unix/macOS shell override example.
+  # Unix/macOS shell override example. Default Bash args already enable pipefail.
+  # Explicit shell-args replace the defaults; keep -o pipefail unless legacy behavior is required.
   # shell-executable: bash
   # shell-args:
+  #   - -o
+  #   - pipefail
   #   - -lc
   #   - "{{command}}"
 

@@ -286,7 +286,7 @@ BTW 发给 provider 的 system、tools、tool choice 和 cache key 与普通 cha
 
 `steam` 不是支持字段；如果误传 `steam:false`，不会触发非流式响应。
 
-实时 SSE / WS stream 的工具事件形状不变：仍按单个工具发送 `tool.snapshot`、`tool.result`、`action.snapshot`、`action.result`。持久化到 `chatId.jsonl` 时，同一 assistant turn 的多个工具调用会合并为一条 assistant message 的 `tool_calls[]`；如果该组存在 awaiting，确认前不会执行任何 sibling tool，确认后的所有结果写入同 `seq` 的 `_type:"react-tool"` continuation。
+实时 SSE / WS stream 的工具事件形状不变：仍按单个工具发送 `tool.snapshot`、`tool.result`、`action.snapshot`、`action.result`。Bash 进程非零退出时，`tool.result` 保留真实 `exitCode` 并作为可恢复的工具失败展示，不会自动升级为终止性的 `run.error`；成功但写入 stderr 的命令仍保持 `exitCode: 0`。持久化到 `chatId.jsonl` 时，同一 assistant turn 的多个工具调用会合并为一条 assistant message 的 `tool_calls[]`；如果该组存在 awaiting，确认前不会执行任何 sibling tool，确认后的所有结果写入同 `seq` 的 `_type:"react-tool"` continuation。
 
 orchestrated Team 的总控 reasoning 和 `agent_delegate` 工具事件会被过滤，不进入客户端事件流。成员输出继续使用现有 `task.*` 与 task-scoped `content.*`：成员事件带 `taskId`，可带 `teamId`、成员 `agentKey`、`presentation:"task"`，并在 `actor` 中标记 `type:"agent"`。一项和多项委派使用相同终止规则，成员正文不会成为根回答；最终非流式 `content`、run summary 与 `AssistantText` 只取总控生成的唯一 Team 最终正文。
 

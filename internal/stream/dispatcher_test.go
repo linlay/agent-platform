@@ -52,6 +52,56 @@ func TestDispatcherEmitsToolSnapshotAndResultLifecycle(t *testing.T) {
 	assertDurationMsPresent(t, resultEvents[0])
 }
 
+func TestDispatcherPreservesFailedToolExitCode(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{
+		RunID:  "run_1",
+		ChatID: "chat_1",
+	})
+
+	events := dispatcher.Dispatch(ToolResult{
+		ToolID:   "tool_1",
+		ToolName: "bash",
+		Result: map[string]any{
+			"exitCode": 7,
+			"stdout":   "",
+			"stderr":   "failed\n",
+		},
+		ExitCode: 7,
+	})
+	assertEventTypes(t, events, "tool.result")
+	payload := events[0].ToData()
+	result, ok := payload["result"].(map[string]any)
+	if !ok || result["exitCode"] != 7 {
+		t.Fatalf("expected failed tool exit code in stream result, got %#v", payload)
+	}
+	if payload["exitCode"] != 7 {
+		t.Fatalf("expected failed tool status alongside the direct result, got %#v", payload)
+	}
+}
+
+func TestDispatcherPreservesBashHardErrorWithoutWrappingResult(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{
+		RunID:  "run_1",
+		ChatID: "chat_1",
+	})
+
+	events := dispatcher.Dispatch(ToolResult{
+		ToolID:   "tool_1",
+		ToolName: "bash",
+		Result:   "bash_security_blocked: command blocked",
+		Error:    "bash_security_blocked",
+		ExitCode: -1,
+	})
+	assertEventTypes(t, events, "tool.result")
+	payload := events[0].ToData()
+	if payload["result"] != "bash_security_blocked: command blocked" {
+		t.Fatalf("expected direct Bash error result, got %#v", payload)
+	}
+	if payload["error"] != "bash_security_blocked" || payload["exitCode"] != -1 {
+		t.Fatalf("expected Bash hard-error status alongside result, got %#v", payload)
+	}
+}
+
 func TestDispatcherEmitsAwaitingAnswerDuration(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",

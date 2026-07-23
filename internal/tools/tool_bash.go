@@ -221,6 +221,9 @@ func defaultHostShellArgs(shellExecutable string, goos string) []string {
 			return []string{hostShellCommandPlaceholder}
 		}
 	}
+	if base == "bash" {
+		return []string{"-o", "pipefail", "-lc", hostShellCommandPlaceholder}
+	}
 	return []string{"-lc", hostShellCommandPlaceholder}
 }
 

@@ -157,10 +157,6 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		sseResult := sseResultValue(value.Result)
 		resultError := value.Result.Error
 		resultExitCode := value.Result.ExitCode
-		if isBashTool(value.ToolName) && len(value.Result.Structured) > 0 {
-			resultError = ""
-			resultExitCode = 0
-		}
 		if m.actionToolIDs[value.ToolID] {
 			return []stream.StreamInput{stream.ActionResult{
 				ActionID:    value.ToolID,

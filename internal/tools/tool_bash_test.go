@@ -48,6 +48,35 @@ func TestResolveHostShellInvocationDefaultsToBashOnUnix(t *testing.T) {
 	if executable != "bash" {
 		t.Fatalf("expected bash, got %q", executable)
 	}
+	wantArgs := []string{"-o", "pipefail", "-lc", "pwd"}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
+	}
+}
+
+func TestResolveHostShellInvocationLeavesNonBashUnixDefaultsUnchanged(t *testing.T) {
+	executable, args := resolveHostShellInvocation(config.BashConfig{
+		ShellExecutable: "sh",
+	}, "pwd", "linux")
+
+	if executable != "sh" {
+		t.Fatalf("expected sh, got %q", executable)
+	}
+	wantArgs := []string{"-lc", "pwd"}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
+	}
+}
+
+func TestResolveHostShellInvocationCustomBashArgsRemainAuthoritative(t *testing.T) {
+	executable, args := resolveHostShellInvocation(config.BashConfig{
+		ShellExecutable: "bash",
+		ShellArgs:       []string{"-lc", "{{command}}"},
+	}, "pwd", "linux")
+
+	if executable != "bash" {
+		t.Fatalf("expected bash, got %q", executable)
+	}
 	wantArgs := []string{"-lc", "pwd"}
 	if !reflect.DeepEqual(args, wantArgs) {
 		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
@@ -109,6 +138,34 @@ func TestInvokeHostBashSuccessReturnsPlainStdout(t *testing.T) {
 	}
 	if result.Error != "" {
 		t.Fatalf("expected empty error, got %q", result.Error)
+	}
+}
+
+func TestInvokeHostBashPipefailPreservesUpstreamFailure(t *testing.T) {
+	root := t.TempDir()
+	executor := &RuntimeToolExecutor{
+		cfg: config.Config{
+			Bash: config.BashConfig{
+				WorkingDirectory:     root,
+				AllowedCommands:      []string{"false", "tail"},
+				ShellFeaturesEnabled: true,
+				ShellExecutable:      "bash",
+				MaxCommandChars:      16000,
+			},
+		},
+	}
+
+	result, err := executor.invokeHostBash(context.Background(), map[string]any{
+		"command": "false | tail -200",
+	}, nil)
+	if err != nil {
+		t.Fatalf("invokeHostBash returned error: %v", err)
+	}
+	if result.ExitCode != 1 {
+		t.Fatalf("expected pipefail to preserve upstream exit code 1, got %#v", result)
+	}
+	if result.Structured == nil || result.Structured["exitCode"] != 1 {
+		t.Fatalf("expected structured pipeline failure, got %#v", result)
 	}
 }
 
