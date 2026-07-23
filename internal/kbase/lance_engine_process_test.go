@@ -7,11 +7,78 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"agent-platform/internal/supportpkg"
 )
+
+func TestLanceEngineResolveExecutableUsesSupportPackage(t *testing.T) {
+	root := t.TempDir()
+	pluginDir := filepath.Join(root, "kbase-support")
+	binaryName := lanceEngineExecutableName
+	if runtime.GOOS == "windows" {
+		binaryName += ".exe"
+	}
+	binaryPath := filepath.Join(pluginDir, "bin", binaryName)
+	if err := os.MkdirAll(filepath.Dir(binaryPath), 0o755); err != nil {
+		t.Fatalf("mkdir support package: %v", err)
+	}
+	if err := os.WriteFile(binaryPath, []byte("test executable"), 0o755); err != nil {
+		t.Fatalf("write support executable: %v", err)
+	}
+	manifest, err := json.Marshal(map[string]any{
+		"kind":    "support-package",
+		"id":      "kbase-support",
+		"version": "v1.0.0",
+		"platform": map[string]string{
+			"os":   runtime.GOOS,
+			"arch": runtime.GOARCH,
+		},
+		"executables": map[string]string{
+			lanceEngineExecutableName: filepath.Join("bin", binaryName),
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal support manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginDir, supportpkg.ManifestName), manifest, 0o644); err != nil {
+		t.Fatalf("write support manifest: %v", err)
+	}
+	registry, loadErrs := supportpkg.LoadDir(root, supportpkg.Target{OS: runtime.GOOS, Arch: runtime.GOARCH})
+	if len(loadErrs) != 0 {
+		t.Fatalf("load support package: %v", loadErrs)
+	}
+
+	got, err := NewLanceEngineProcess(registry).resolveExecutable()
+	if err != nil {
+		t.Fatalf("resolve executable: %v", err)
+	}
+	if got != binaryPath {
+		t.Fatalf("resolved executable = %q, want %q", got, binaryPath)
+	}
+}
+
+func TestLanceEngineResolveExecutableIgnoresRetiredSingleFileEnvironmentOverride(t *testing.T) {
+	override := filepath.Join(t.TempDir(), "custom-lance-engine")
+	if err := os.WriteFile(override, []byte("test executable"), 0o755); err != nil {
+		t.Fatalf("write override executable: %v", err)
+	}
+	t.Setenv("AP_KBASE_"+"LANCE_ENGINE", override)
+
+	got, err := NewLanceEngineProcess(nil).resolveExecutable()
+	if got != "" {
+		t.Fatalf("resolved retired environment override: %q", got)
+	}
+	if err == nil || KindOf(err) != ErrorUnavailable {
+		t.Fatalf("resolve error = %v, want unavailable", err)
+	}
+}
 
 func TestReadLanceHandshakeParsesSingleReadyLine(t *testing.T) {
 	want := LanceEngineHandshake{

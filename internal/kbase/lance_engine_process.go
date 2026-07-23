@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -241,15 +240,6 @@ func (p *LanceEngineProcess) resolveExecutable() (string, error) {
 	if registry != nil {
 		if executable, ok := registry.Executable(lanceEngineExecutableName); ok {
 			return executable.Path, nil
-		}
-	}
-	if override := strings.TrimSpace(os.Getenv("AP_KBASE_LANCE_ENGINE")); override != "" {
-		path, err := filepath.Abs(override)
-		if err != nil {
-			path = override
-		}
-		if info, err := os.Stat(path); err == nil && !info.IsDir() {
-			return path, nil
 		}
 	}
 	return "", &PolicyError{Kind: ErrorUnavailable, Message: fmt.Sprintf("kbase lance engine executable %q is not installed for %s/%s", lanceEngineExecutableName, runtime.GOOS, runtime.GOARCH)}

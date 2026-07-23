@@ -30,8 +30,7 @@ COPY --from=go-build --chown=10001:10001 /out/agent-platform /opt/backend/agent-
 COPY --chown=10001:10001 build/builtins/${TARGETOS}-${TARGETARCH}/bin/kbase-lance-engine /opt/bin/kbase-lance-engine
 COPY --chown=10001:10001 build/builtins/${TARGETOS}-${TARGETARCH}/licenses/kbase-lance-engine /opt/licenses/kbase-lance-engine
 
-ENV AP_KBASE_LANCE_ENGINE=/opt/bin/kbase-lance-engine \
-    HOME=/opt
+ENV HOME=/opt
 
 USER 10001:10001
 EXPOSE 8080

@@ -28,7 +28,6 @@ services:
       AP_RUNTIME_CHATS_DIR: /opt/runtime/chats
       AP_RUNTIME_MEMORY_DIR: /opt/runtime/memory
       AP_RUNTIME_PAN_DIR: /opt/runtime/pan
-      AP_KBASE_LANCE_ENGINE: /opt/bin/kbase-lance-engine
       SKILLS_MARKET_DIR: /opt/runtime/skills-market
     volumes:
       - type: bind
