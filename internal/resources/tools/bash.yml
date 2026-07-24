@@ -6,7 +6,7 @@ description: |
   Use the cwd parameter for directory changes; do not inline `cd /path && ...` when cwd can express the target directory.
   Shell syntax may be available, but security policy can block control operators, redirections, substitutions, and opaque scripts.
   Avoid writing commands like `cd /path && command`, `cmd1; cmd2`, `cmd1 && cmd2`, `cmd1 || cmd2`, `cmd1 | cmd2`, `cmd > file`, `cmd 2>&1`, `cmd >/dev/null 2>&1`, `$(cmd)`, backticks, heredocs, `eval`, `source`, or background jobs with `&`.
-  When calling this tool, always include a short Chinese description explaining the command purpose.
+  When calling this tool, optionally include a short Chinese description explaining the command purpose.
 submitResultFormat: json-compact
 type: function
 inputSchema:
@@ -17,7 +17,7 @@ inputSchema:
       description: Required. Host shell command. Prefer a single executable command. Use cwd for working directory changes instead of `cd /path && ...`. Avoid shell control operators, pipes, redirections, command substitutions, heredocs, eval/source, and background jobs unless strictly required.
     description:
       type: string
-      description: Required. 这条命令的用途简述（一句话，中文），会在需要人工审批时展示给用户。
+      description: Optional. 这条命令的用途简述（一句话，中文），会在需要人工审批时展示给用户；省略时使用命令摘要。
     cwd:
       type: string
       description: Working directory for this execution. When empty, the host shell working directory default is used.
@@ -26,5 +26,4 @@ inputSchema:
       description: Requested execution timeout in seconds. It defaults to the effective budget.tool.timeout and is capped by that tool budget.
   required:
     - command
-    - description
   additionalProperties: false

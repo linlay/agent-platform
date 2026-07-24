@@ -28,8 +28,8 @@ func TestBashYAMLParity(t *testing.T) {
 	containerProps := propertyKeys(containerDef)
 	assertKeySet(t, hostProps, []string{"command", "cwd", "description", "timeout"})
 	assertKeySet(t, containerProps, []string{"command", "cwd", "description", "env", "timeout"})
-	assertRequiredKeys(t, hostDef, []string{"command", "description"})
-	assertRequiredKeys(t, containerDef, []string{"command", "description"})
+	assertRequiredKeys(t, hostDef, []string{"command"})
+	assertRequiredKeys(t, containerDef, []string{"command"})
 
 	extra := difference(containerProps, hostProps)
 	assertKeySet(t, extra, []string{"env"})

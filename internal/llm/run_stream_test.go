@@ -1926,7 +1926,7 @@ func TestPrepareToolCall_InvalidAskUserQuestionArgsReturnToolError(t *testing.T)
 	}
 }
 
-func TestPrepareToolCall_BashDescriptionIsRequired(t *testing.T) {
+func TestPrepareToolCall_BashDescriptionIsOptional(t *testing.T) {
 	tool := bashToolDefinition()
 	stream := &llmRunStream{
 		engine: &LLMAgentEngine{
@@ -1942,22 +1942,38 @@ func TestPrepareToolCall_BashDescriptionIsRequired(t *testing.T) {
 		Type: "function",
 		Function: openAIFunctionCall{
 			Name:      "bash",
-			Arguments: `{"command":"chmod 777 ~/a.sh"}`,
+			Arguments: `{"command":"pwd"}`,
 		},
 	})
-	if invocation != nil {
-		t.Fatalf("expected no invocation, got %#v", invocation)
+	if invocation == nil {
+		t.Fatal("expected invocation without description")
 	}
-	if len(deltas) != 1 {
-		t.Fatalf("expected one tool error delta, got %#v", deltas)
+	if len(deltas) != 0 {
+		t.Fatalf("expected no tool error deltas, got %#v", deltas)
 	}
-	result, ok := deltas[0].(contracts.DeltaToolResult)
-	if !ok || result.Result.Error != "invalid_tool_arguments" || !strings.Contains(result.Result.Output, "description is required") {
-		t.Fatalf("unexpected bash invalid-args result %#v", deltas)
+	if toolMsg != nil {
+		t.Fatalf("expected no tool error message, got %#v", toolMsg)
 	}
-	toolContent, _ := toolMsg.Content.(string)
-	if toolMsg == nil || !strings.Contains(toolContent, "description is required") {
-		t.Fatalf("unexpected tool message %#v", toolMsg)
+	if invocation.toolName != "bash" || invocation.args["command"] != "pwd" {
+		t.Fatalf("unexpected bash invocation %#v", invocation)
+	}
+	if _, ok := invocation.args["description"]; ok {
+		t.Fatalf("expected description to remain omitted, got %#v", invocation.args)
+	}
+}
+
+func TestBuildApprovalAskItem_BashDescriptionFallsBackToCommand(t *testing.T) {
+	review := bashsec.ReviewResult{Decision: bashsec.ReviewAllow}
+	invocation := &preparedToolInvocation{
+		toolID:             "tool_1",
+		toolName:           "bash",
+		args:               map[string]any{"command": "chmod 777 ~/a.sh"},
+		bashSecurityReview: &review,
+	}
+
+	item := (&llmRunStream{}).buildApprovalAskItem(invocation)
+	if item["description"] != "chmod 777 ~/a.sh" {
+		t.Fatalf("expected command fallback description, got %#v", item)
 	}
 }
 

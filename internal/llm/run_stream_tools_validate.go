@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -22,19 +21,6 @@ func (s *llmRunStream) validateFrontendToolArgs(toolName string, args map[string
 		return nil
 	}
 	return handler.ValidateArgs(args)
-}
-
-func validateBashToolArgs(toolName string, args map[string]any) error {
-	if !isBashTool(toolName) {
-		return nil
-	}
-	if strings.TrimSpace(mapStringArg(args, "command")) == "" {
-		return nil
-	}
-	if strings.TrimSpace(mapStringArg(args, "description")) == "" {
-		return fmt.Errorf("description is required for bash tools")
-	}
-	return nil
 }
 
 func validateWriteToolArgs(toolName string, args map[string]any) error {

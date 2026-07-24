@@ -52,10 +52,6 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 		deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, "invalid tool arguments: "+validationErr.Error(), "invalid_tool_arguments")
 		return nil, deltas, message
 	}
-	if validationErr := validateBashToolArgs(toolCall.Function.Name, args); validationErr != nil {
-		deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, "invalid tool arguments: "+validationErr.Error(), "invalid_tool_arguments")
-		return nil, deltas, message
-	}
 	if validationErr := validateWriteToolArgs(toolCall.Function.Name, args); validationErr != nil {
 		deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, "invalid tool arguments: "+validationErr.Error(), "invalid_tool_arguments")
 		return nil, deltas, message
