@@ -1,5 +1,5 @@
 name: agent_run_status
-label: 查询智能体运行状态
+label: 查询智能体状态
 description: Read the current status and result snapshot of an independent run previously created by agent_run_query.
 type: function
 clientVisible: true

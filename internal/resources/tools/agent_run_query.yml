@@ -1,5 +1,5 @@
 name: agent_run_query
-label: 启动独立智能体运行
+label: 运行智能体
 description: Start an independent root Agent or Team run asynchronously and return its chatId and runId.
 type: function
 clientVisible: true

@@ -1,5 +1,5 @@
 name: agent_run_interrupt
-label: 中断智能体运行
+label: 中断智能体
 description: Interrupt an independent run previously created by agent_run_query.
 type: function
 clientVisible: true
