@@ -146,53 +146,6 @@ func (s *Server) AgentRunStatus(runID string) (contracts.AgentRunSnapshot, error
 	return snapshot, nil
 }
 
-func (s *Server) AgentRunSubmitQuestion(req api.SubmitRequest) (api.SubmitResponse, error) {
-	awaiting, ok := s.deps.Runs.LookupAwaiting(req.RunID, req.AwaitingID)
-	if !ok {
-		if _, exists := s.deps.Runs.RunStatus(req.RunID); !exists {
-			return api.SubmitResponse{}, agentRunError("run_not_found", "run not found")
-		}
-		return api.SubmitResponse{}, agentRunError("awaiting_not_found", "awaiting question not found")
-	}
-	if !strings.EqualFold(strings.TrimSpace(awaiting.Mode), "question") {
-		return api.SubmitResponse{}, agentRunError("submit_mode_not_allowed", "agent_run submit only supports question awaiting mode")
-	}
-	if statusErr := s.validateSubmitOwner(req); statusErr != nil {
-		return api.SubmitResponse{}, mapAgentRunStatusError(statusErr)
-	}
-	if response, statusErr, forwarded := s.forwardProxySubmit(req); forwarded {
-		if statusErr != nil {
-			return api.SubmitResponse{}, mapAgentRunStatusError(statusErr)
-		}
-		return response, nil
-	}
-	response, _, _, err := s.resolveSubmit(req)
-	if err != nil {
-		return api.SubmitResponse{}, err
-	}
-	return response, nil
-}
-
-func (s *Server) AgentRunSteer(req api.SteerRequest) (api.SteerResponse, error) {
-	if statusErr := s.validateRunOwner(req.RunID, req.AgentKey, req.TeamID); statusErr != nil {
-		return api.SteerResponse{}, mapAgentRunStatusError(statusErr)
-	}
-	if response, statusErr, forwarded := s.forwardProxySteer(req); forwarded {
-		if statusErr != nil {
-			return api.SteerResponse{}, mapAgentRunStatusError(statusErr)
-		}
-		return response, nil
-	}
-	ack := s.deps.Runs.Steer(req)
-	return api.SteerResponse{
-		Accepted: ack.Accepted,
-		Status:   ack.Status,
-		RunID:    req.RunID,
-		SteerID:  ack.SteerID,
-		Detail:   ack.Detail,
-	}, nil
-}
-
 func (s *Server) AgentRunInterrupt(req api.InterruptRequest) (api.InterruptResponse, error) {
 	if statusErr := s.validateRunOwner(req.RunID, req.AgentKey, req.TeamID); statusErr != nil {
 		return api.InterruptResponse{}, mapAgentRunStatusError(statusErr)

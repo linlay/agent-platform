@@ -10,8 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -216,12 +214,12 @@ func TestAgentRunSelfTargetChatRules(t *testing.T) {
 			},
 			RunControl:      parentControl,
 			CurrentToolID:   toolID,
-			CurrentToolName: agentrunpkg.ToolName,
+			CurrentToolName: agentrunpkg.QueryToolName,
 		}
 	}
 
-	sameChat, err := handler.Invoke(context.Background(), agentrunpkg.ToolName, map[string]any{
-		"action": "query", "agentKey": "mock-agent", "chatId": "self-parent-chat", "message": "same chat",
+	sameChat, err := handler.Invoke(context.Background(), agentrunpkg.QueryToolName, map[string]any{
+		"agentKey": "mock-agent", "chatId": "self-parent-chat", "message": "same chat",
 	}, execContext("self-same-chat"))
 	if err != nil {
 		t.Fatalf("same-chat invoke: %v", err)
@@ -234,8 +232,8 @@ func TestAgentRunSelfTargetChatRules(t *testing.T) {
 		t.Fatalf("parent active run changed: active=%#v ok=%t err=%v", active, ok, activeErr)
 	}
 
-	newChat, err := handler.Invoke(context.Background(), agentrunpkg.ToolName, map[string]any{
-		"action": "query", "agentKey": "mock-agent", "message": "new chat",
+	newChat, err := handler.Invoke(context.Background(), agentrunpkg.QueryToolName, map[string]any{
+		"agentKey": "mock-agent", "message": "new chat",
 	}, execContext("self-new-chat"))
 	if err != nil || newChat.Error != "" {
 		t.Fatalf("new-chat self target failed: result=%#v err=%v", newChat, err)
@@ -250,8 +248,8 @@ func TestAgentRunSelfTargetChatRules(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ensure idle chat: %v", err)
 	}
-	idleChat, err := handler.Invoke(context.Background(), agentrunpkg.ToolName, map[string]any{
-		"action": "query", "agentKey": "mock-agent", "chatId": "self-idle-chat", "message": "idle chat",
+	idleChat, err := handler.Invoke(context.Background(), agentrunpkg.QueryToolName, map[string]any{
+		"agentKey": "mock-agent", "chatId": "self-idle-chat", "message": "idle chat",
 	}, execContext("self-idle-chat"))
 	if err != nil || idleChat.Error != "" {
 		t.Fatalf("idle-chat self target failed: result=%#v err=%v", idleChat, err)
@@ -263,23 +261,12 @@ func TestAgentRunSelfTargetChatRules(t *testing.T) {
 	waitAgentRunTerminal(t, fixture.server, idleRun["runId"].(string))
 }
 
-func TestAgentRunStatusAndQuestionSubmit(t *testing.T) {
-	var calls atomic.Int32
+func TestAgentRunStatusReportsQuestionAwaiting(t *testing.T) {
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
-		switch calls.Add(1) {
-		case 1:
-			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"ask_user_question","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Continue?\",\"type\":\"select\",\"options\":[{\"label\":\"Yes\"}],\"allowFreeText\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
-				`[DONE]`,
-			)
-		case 2:
-			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"content":"continued"},"finish_reason":"stop"}]}`,
-				`[DONE]`,
-			)
-		default:
-			t.Fatalf("unexpected provider call")
-		}
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"ask_user_question","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Continue?\",\"type\":\"select\",\"options\":[{\"label\":\"Yes\"}],\"allowFreeText\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
+			`[DONE]`,
+		)
 	})
 
 	started, err := fixture.server.StartAgentRun(context.Background(), contracts.AgentRunStartRequest{
@@ -294,39 +281,11 @@ func TestAgentRunStatusAndQuestionSubmit(t *testing.T) {
 	if awaiting.Awaiting == nil || awaiting.Awaiting.Mode != "question" || awaiting.Awaiting.AwaitingID == "" || len(awaiting.Awaiting.Questions) != 1 {
 		t.Fatalf("unexpected question status %#v", awaiting)
 	}
-	params, err := api.EncodeSubmitParams([]map[string]any{{"id": "q1", "answer": "Yes"}})
-	if err != nil {
-		t.Fatalf("encode params: %v", err)
-	}
-	response, err := fixture.server.AgentRunSubmitQuestion(api.SubmitRequest{
-		ChatID:     awaiting.ChatID,
-		RunID:      awaiting.RunID,
-		AgentKey:   awaiting.AgentKey,
-		AwaitingID: awaiting.Awaiting.AwaitingID,
-		Params:     params,
+	response, err := fixture.server.AgentRunInterrupt(api.InterruptRequest{
+		RunID: started.RunID, ChatID: started.ChatID, AgentKey: started.AgentKey, Message: "finish test",
 	})
 	if err != nil || !response.Accepted {
-		t.Fatalf("submit question: response=%#v err=%v", response, err)
-	}
-	completed := waitAgentRunTerminal(t, fixture.server, started.RunID)
-	if completed.Status != "completed" || completed.Content != "continued" {
-		t.Fatalf("unexpected completed status %#v", completed)
-	}
-}
-
-func TestAgentRunSubmitRejectsNonQuestionAwaiting(t *testing.T) {
-	fixture := newTestFixture(t)
-	_, control, _ := fixture.runs.Register(context.Background(), contracts.QuerySession{
-		RunID: "approval-run", ChatID: "approval-chat", AgentKey: "mock-agent", RunOwner: contracts.AgentRunOwner("mock-agent", ""),
-	})
-	control.ExpectSubmit(contracts.AwaitingSubmitContext{AwaitingID: "approval-await", Mode: "approval", ItemCount: 1})
-	control.TransitionState(contracts.RunLoopStateWaitingSubmit)
-	_, err := fixture.server.AgentRunSubmitQuestion(api.SubmitRequest{
-		RunID: "approval-run", AgentKey: "mock-agent", AwaitingID: "approval-await",
-	})
-	var typed *contracts.AgentRunError
-	if !errors.As(err, &typed) || typed.Code != "submit_mode_not_allowed" {
-		t.Fatalf("error = %#v", err)
+		t.Fatalf("interrupt awaiting run: response=%#v err=%v", response, err)
 	}
 }
 
@@ -360,12 +319,10 @@ func TestAgentRunStatusReturnsFailedError(t *testing.T) {
 	}
 }
 
-func TestAgentRunControlsDetachedSSEProxy(t *testing.T) {
+func TestAgentRunInterruptsDetachedSSEProxy(t *testing.T) {
 	queryStarted := make(chan struct{}, 1)
-	steered := make(chan map[string]any, 1)
 	interrupted := make(chan map[string]any, 1)
 	stopQuery := make(chan struct{})
-	var stopOnce sync.Once
 
 	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -380,16 +337,11 @@ func TestAgentRunControlsDetachedSSEProxy(t *testing.T) {
 			<-stopQuery
 			_, _ = fmt.Fprintf(w, "data: {\"type\":\"run.cancel\",\"runId\":\"upstream\",\"timestamp\":%d}\n\n", time.Now().UnixMilli())
 			flusher.Flush()
-		case "/api/steer":
-			var payload map[string]any
-			_ = json.NewDecoder(r.Body).Decode(&payload)
-			steered <- payload
-			_, _ = io.WriteString(w, `{"code":0,"msg":"success","data":{"accepted":true,"status":"accepted","runId":"upstream","steerId":"s1"}}`)
 		case "/api/interrupt":
 			var payload map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&payload)
 			interrupted <- payload
-			stopOnce.Do(func() { close(stopQuery) })
+			close(stopQuery)
 			_, _ = io.WriteString(w, `{"code":0,"msg":"success","data":{"accepted":true,"status":"accepted","runId":"upstream"}}`)
 		default:
 			http.NotFound(w, r)
@@ -430,21 +382,6 @@ func TestAgentRunControlsDetachedSSEProxy(t *testing.T) {
 	case <-queryStarted:
 	case <-time.After(2 * time.Second):
 		t.Fatal("proxy query did not start")
-	}
-
-	steerResponse, err := fixture.server.AgentRunSteer(api.SteerRequest{
-		RunID: started.RunID, ChatID: started.ChatID, AgentKey: started.AgentKey, Message: "focus",
-	})
-	if err != nil || !steerResponse.Accepted {
-		t.Fatalf("proxy steer: response=%#v err=%v", steerResponse, err)
-	}
-	select {
-	case payload := <-steered:
-		if payload["message"] != "focus" || payload["agentKey"] != "mock-agent" {
-			t.Fatalf("unexpected proxy steer payload %#v", payload)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("proxy steer was not forwarded")
 	}
 
 	interruptResponse, err := fixture.server.AgentRunInterrupt(api.InterruptRequest{

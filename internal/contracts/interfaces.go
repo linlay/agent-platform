@@ -238,9 +238,9 @@ type QuerySession struct {
 	ChatID    string
 	ChatName  string
 	AgentKey  string
-	// AgentRunOrigin marks a root run created by the agent_run backend tool.
+	// AgentRunOrigin marks a root run created by the agent_run_query backend tool.
 	// It is runtime-only: the public request cannot forge it, and a marked run
-	// is forbidden from chaining another agent_run query.
+	// is forbidden from calling any agent run tool.
 	AgentRunOrigin *AgentRunOrigin `json:"-"`
 	// RunOwner is the required public run owner. Session producers must set it
 	// explicitly; AgentKey and TeamID are not fallback ownership fields.
@@ -526,7 +526,7 @@ type RunStatusInfo struct {
 }
 
 // AgentRunOrigin is the trusted runtime identity attached to a detached run
-// created by agent_run. Subject participates in ownership checks but is not
+// created by agent_run_query. Subject participates in ownership checks but is not
 // persisted into request.query audit metadata.
 type AgentRunOrigin struct {
 	CallerAgentKey string
@@ -569,8 +569,6 @@ type AgentRunSnapshot struct {
 type AgentRunService interface {
 	StartAgentRun(ctx context.Context, req AgentRunStartRequest) (AgentRunSnapshot, error)
 	AgentRunStatus(runID string) (AgentRunSnapshot, error)
-	AgentRunSubmitQuestion(req api.SubmitRequest) (api.SubmitResponse, error)
-	AgentRunSteer(req api.SteerRequest) (api.SteerResponse, error)
 	AgentRunInterrupt(req api.InterruptRequest) (api.InterruptResponse, error)
 }
 

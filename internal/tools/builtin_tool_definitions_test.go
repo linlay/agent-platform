@@ -36,8 +36,13 @@ func TestLoadEmbeddedToolDefinitionsIncludesAskUserBuiltins(t *testing.T) {
 	if !byName["agent_invoke"] {
 		t.Fatal("expected agent_invoke builtin tool definition")
 	}
-	if !byName["agent_run"] {
-		t.Fatal("expected agent_run builtin tool definition")
+	for _, name := range []string{"agent_run_query", "agent_run_status", "agent_run_interrupt"} {
+		if !byName[name] {
+			t.Fatalf("expected %s builtin tool definition", name)
+		}
+	}
+	if byName["agent_run"] {
+		t.Fatal("did not expect removed agent_run tool definition")
 	}
 	if !byName["regex"] {
 		t.Fatal("expected regex builtin tool definition")
@@ -50,31 +55,58 @@ func TestLoadEmbeddedToolDefinitionsIncludesAskUserBuiltins(t *testing.T) {
 	}
 }
 
-func TestEmbeddedAgentRunSchemaAndMetadata(t *testing.T) {
+func TestEmbeddedAgentRunSchemasAndMetadata(t *testing.T) {
 	defs, err := LoadEmbeddedToolDefinitions()
 	if err != nil {
 		t.Fatalf("load embedded tool definitions: %v", err)
 	}
+	found := map[string]bool{}
 	for _, def := range defs {
-		if def.Name != "agent_run" {
+		if def.Name != "agent_run_query" && def.Name != "agent_run_status" && def.Name != "agent_run_interrupt" {
 			continue
 		}
-		if def.Meta["clientVisible"] != true || def.Meta["explicitOnly"] != true || def.Meta["readOnly"] != false || def.Meta["catalogVisible"] != false {
-			t.Fatalf("unexpected agent_run metadata: %#v", def.Meta)
+		found[def.Name] = true
+		wantReadOnly := def.Name == "agent_run_status"
+		if def.Meta["clientVisible"] != true || def.Meta["explicitOnly"] != true || def.Meta["readOnly"] != wantReadOnly || def.Meta["catalogVisible"] != false {
+			t.Fatalf("unexpected %s metadata: %#v", def.Name, def.Meta)
 		}
-		branches, ok := def.Parameters["oneOf"].([]any)
-		if !ok || len(branches) != 6 {
-			t.Fatalf("agent_run oneOf = %#v, want 6 branches", def.Parameters["oneOf"])
-		}
-		for index, raw := range branches {
-			branch, ok := raw.(map[string]any)
-			if !ok || branch["additionalProperties"] != false {
-				t.Fatalf("agent_run branch %d is not closed: %#v", index, raw)
+		if def.Name == "agent_run_query" {
+			branches, ok := def.Parameters["oneOf"].([]any)
+			if !ok || len(branches) != 2 {
+				t.Fatalf("agent_run_query oneOf = %#v, want 2 branches", def.Parameters["oneOf"])
 			}
+			for index, raw := range branches {
+				branch, ok := raw.(map[string]any)
+				if !ok || branch["additionalProperties"] != false {
+					t.Fatalf("agent_run_query branch %d is not closed: %#v", index, raw)
+				}
+				properties, _ := branch["properties"].(map[string]any)
+				if _, exists := properties["action"]; exists {
+					t.Fatalf("agent_run_query branch %d still exposes action: %#v", index, raw)
+				}
+				wantRequired := []any{"message", "agentKey"}
+				if index == 1 {
+					wantRequired = []any{"message", "teamId"}
+				}
+				if required, _ := branch["required"].([]any); !reflect.DeepEqual(required, wantRequired) {
+					t.Fatalf("agent_run_query branch %d required = %#v, want %#v", index, required, wantRequired)
+				}
+			}
+			continue
 		}
-		return
+		if def.Parameters["type"] != "object" || def.Parameters["additionalProperties"] != false {
+			t.Fatalf("%s schema is not a closed object: %#v", def.Name, def.Parameters)
+		}
+		required, _ := def.Parameters["required"].([]any)
+		if !reflect.DeepEqual(required, []any{"runId"}) {
+			t.Fatalf("%s required = %#v, want [runId]", def.Name, required)
+		}
 	}
-	t.Fatal("embedded agent_run definition is unavailable")
+	for _, name := range []string{"agent_run_query", "agent_run_status", "agent_run_interrupt"} {
+		if !found[name] {
+			t.Fatalf("embedded %s definition is unavailable", name)
+		}
+	}
 }
 
 func TestLoadEmbeddedToolDefinitionsAppliesBuiltinToolCatalogVisibility(t *testing.T) {
@@ -103,7 +135,7 @@ func TestLoadEmbeddedToolDefinitionsAppliesBuiltinToolCatalogVisibility(t *testi
 		}
 	}
 	for _, hiddenName := range []string{
-		"agent_delegate", "agent_run", "_session_search_", "_skill_candidate_list_", "_skill_candidate_write_",
+		"agent_delegate", "agent_run_query", "agent_run_status", "agent_run_interrupt", "_session_search_", "_skill_candidate_list_", "_skill_candidate_write_",
 		"memory_timeline", "memory_update", "memory_write", "memory_read", "memory_promote", "memory_search", "memory_consolidate", "memory_forget",
 	} {
 		if visibleNames[hiddenName] {

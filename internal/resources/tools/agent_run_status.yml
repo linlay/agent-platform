@@ -1,0 +1,17 @@
+name: agent_run_status
+label: 查询智能体运行状态
+description: Read the current status and result snapshot of an independent run previously created by agent_run_query.
+type: function
+clientVisible: true
+explicitOnly: true
+readOnly: true
+inputSchema:
+  type: object
+  properties:
+    runId:
+      type: string
+      minLength: 1
+      description: Required. Run ID returned by agent_run_query.
+  required:
+    - runId
+  additionalProperties: false

@@ -1,0 +1,45 @@
+name: agent_run_query
+label: 启动独立智能体运行
+description: Start an independent root Agent or Team run asynchronously and return its chatId and runId.
+type: function
+clientVisible: true
+explicitOnly: true
+readOnly: false
+inputSchema:
+  oneOf:
+    - type: object
+      properties:
+        message:
+          type: string
+          minLength: 1
+          description: Required. Task message to send to the target Agent.
+        agentKey:
+          type: string
+          minLength: 1
+          description: Required. Exact catalog key of the target Agent.
+        chatId:
+          type: string
+          minLength: 1
+          description: Optional. Existing chat owned by the target Agent to continue.
+      required:
+        - message
+        - agentKey
+      additionalProperties: false
+    - type: object
+      properties:
+        message:
+          type: string
+          minLength: 1
+          description: Required. Task message to send to the target Team.
+        teamId:
+          type: string
+          minLength: 1
+          description: Required. Exact catalog ID of the target Team.
+        chatId:
+          type: string
+          minLength: 1
+          description: Optional. Existing chat owned by the target Team to continue.
+      required:
+        - message
+        - teamId
+      additionalProperties: false

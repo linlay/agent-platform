@@ -1,0 +1,20 @@
+name: agent_run_interrupt
+label: 中断智能体运行
+description: Interrupt an independent run previously created by agent_run_query.
+type: function
+clientVisible: true
+explicitOnly: true
+readOnly: false
+inputSchema:
+  type: object
+  properties:
+    runId:
+      type: string
+      minLength: 1
+      description: Required. Run ID returned by agent_run_query.
+    message:
+      type: string
+      description: Optional. Reason or detail to attach to the interrupt request.
+  required:
+    - runId
+  additionalProperties: false

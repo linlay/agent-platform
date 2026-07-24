@@ -11,9 +11,10 @@ import (
 )
 
 type fakeAgentRunService struct {
-	mu        sync.Mutex
-	starts    int
-	snapshots map[string]contracts.AgentRunSnapshot
+	mu         sync.Mutex
+	starts     int
+	snapshots  map[string]contracts.AgentRunSnapshot
+	interrupts []api.InterruptRequest
 }
 
 func newFakeAgentRunService() *fakeAgentRunService {
@@ -48,15 +49,13 @@ func (f *fakeAgentRunService) AgentRunStatus(runID string) (contracts.AgentRunSn
 	return snapshot, nil
 }
 
-func (f *fakeAgentRunService) AgentRunSubmitQuestion(req api.SubmitRequest) (api.SubmitResponse, error) {
-	return api.SubmitResponse{Accepted: true, Status: "accepted", RunID: req.RunID, AwaitingID: req.AwaitingID}, nil
-}
-
-func (f *fakeAgentRunService) AgentRunSteer(req api.SteerRequest) (api.SteerResponse, error) {
-	return api.SteerResponse{Accepted: true, Status: "accepted", RunID: req.RunID, SteerID: "steer-1"}, nil
-}
-
 func (f *fakeAgentRunService) AgentRunInterrupt(req api.InterruptRequest) (api.InterruptResponse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.interrupts = append(f.interrupts, req)
+	snapshot := f.snapshots[req.RunID]
+	snapshot.Status = "interrupted"
+	f.snapshots[req.RunID] = snapshot
 	return api.InterruptResponse{Accepted: true, Status: "accepted", RunID: req.RunID}, nil
 }
 
@@ -68,7 +67,7 @@ func agentRunExecContext(subject string, toolID string) *contracts.ExecutionCont
 		Subject:  subject,
 		RunOwner: contracts.AgentRunOwner("zenmi", ""),
 	}
-	return &contracts.ExecutionContext{Session: session, CurrentToolID: toolID, CurrentToolName: ToolName}
+	return &contracts.ExecutionContext{Session: session, CurrentToolID: toolID, CurrentToolName: QueryToolName}
 }
 
 func TestAgentRunQueryIsIdempotentPerParentRunAndToolID(t *testing.T) {
@@ -78,13 +77,13 @@ func TestAgentRunQueryIsIdempotentPerParentRunAndToolID(t *testing.T) {
 		RunID: "parent-run", ChatID: "parent-chat", AgentKey: "zenmi", RunOwner: contracts.AgentRunOwner("zenmi", ""),
 	})
 	handler := NewToolHandler(service, runs)
-	args := map[string]any{"action": "query", "agentKey": "webOperator", "message": "search"}
+	args := map[string]any{"agentKey": "webOperator", "message": "search"}
 
-	first, err := handler.Invoke(context.Background(), ToolName, args, agentRunExecContext("alice", "tool-1"))
+	first, err := handler.Invoke(context.Background(), QueryToolName, args, agentRunExecContext("alice", "tool-1"))
 	if err != nil || first.Error != "" {
 		t.Fatalf("first query failed: result=%#v err=%v", first, err)
 	}
-	second, err := handler.Invoke(context.Background(), ToolName, args, agentRunExecContext("alice", "tool-1"))
+	second, err := handler.Invoke(context.Background(), QueryToolName, args, agentRunExecContext("alice", "tool-1"))
 	if err != nil || second.Error != "" {
 		t.Fatalf("idempotent retry failed: result=%#v err=%v", second, err)
 	}
@@ -97,7 +96,7 @@ func TestAgentRunQueryIsIdempotentPerParentRunAndToolID(t *testing.T) {
 		t.Fatalf("retry changed run: first=%v second=%v", firstRun, secondRun)
 	}
 
-	third, _ := handler.Invoke(context.Background(), ToolName, args, agentRunExecContext("alice", "tool-2"))
+	third, _ := handler.Invoke(context.Background(), QueryToolName, args, agentRunExecContext("alice", "tool-2"))
 	if third.Error != "" || service.starts != 2 {
 		t.Fatalf("different toolId should create another run: result=%#v starts=%d", third, service.starts)
 	}
@@ -108,8 +107,8 @@ func TestAgentRunAllowsSelfTargetAndRejectsChainingAndUnownedRuns(t *testing.T) 
 	service.snapshots["external-run"] = contracts.AgentRunSnapshot{RunID: "external-run", ChatID: "external-chat", AgentKey: "other", Status: "running"}
 	handler := NewToolHandler(service, nil)
 
-	self, _ := handler.Invoke(context.Background(), ToolName, map[string]any{
-		"action": "query", "agentKey": "zenmi", "message": "loop",
+	self, _ := handler.Invoke(context.Background(), QueryToolName, map[string]any{
+		"agentKey": "zenmi", "message": "loop",
 	}, agentRunExecContext("alice", "tool-self"))
 	if self.Error != "" || self.Structured["accepted"] != true {
 		t.Fatalf("self target should be accepted: %#v", self)
@@ -117,15 +116,15 @@ func TestAgentRunAllowsSelfTargetAndRejectsChainingAndUnownedRuns(t *testing.T) 
 
 	chainedCtx := agentRunExecContext("alice", "tool-chain")
 	chainedCtx.Session.AgentRunOrigin = &contracts.AgentRunOrigin{CallerAgentKey: "zenmi"}
-	chained, _ := handler.Invoke(context.Background(), ToolName, map[string]any{
-		"action": "query", "agentKey": "webOperator", "message": "loop",
+	chained, _ := handler.Invoke(context.Background(), QueryToolName, map[string]any{
+		"agentKey": "webOperator", "message": "loop",
 	}, chainedCtx)
 	if chained.Error != "agent_run_chaining_not_allowed" {
 		t.Fatalf("chaining error = %q", chained.Error)
 	}
 
-	unowned, _ := handler.Invoke(context.Background(), ToolName, map[string]any{
-		"action": "status", "runId": "external-run",
+	unowned, _ := handler.Invoke(context.Background(), StatusToolName, map[string]any{
+		"runId": "external-run",
 	}, agentRunExecContext("alice", "tool-status"))
 	if unowned.Error != "run_not_owned" {
 		t.Fatalf("unowned error = %q", unowned.Error)
@@ -135,15 +134,76 @@ func TestAgentRunAllowsSelfTargetAndRejectsChainingAndUnownedRuns(t *testing.T) 
 func TestAgentRunOwnershipIncludesSubject(t *testing.T) {
 	service := newFakeAgentRunService()
 	handler := NewToolHandler(service, nil)
-	started, _ := handler.Invoke(context.Background(), ToolName, map[string]any{
-		"action": "query", "agentKey": "webOperator", "message": "search",
+	started, _ := handler.Invoke(context.Background(), QueryToolName, map[string]any{
+		"agentKey": "webOperator", "message": "search",
 	}, agentRunExecContext("alice", "tool-query"))
 	runID := started.Structured["run"].(map[string]any)["runId"].(string)
 
-	denied, _ := handler.Invoke(context.Background(), ToolName, map[string]any{
-		"action": "status", "runId": runID,
+	denied, _ := handler.Invoke(context.Background(), StatusToolName, map[string]any{
+		"runId": runID,
 	}, agentRunExecContext("bob", "tool-status"))
 	if denied.Error != "run_not_owned" {
 		t.Fatalf("different subject error = %q", denied.Error)
+	}
+}
+
+func TestAgentRunQueryValidatesTargetAndMessage(t *testing.T) {
+	service := newFakeAgentRunService()
+	handler := NewToolHandler(service, nil)
+	execCtx := agentRunExecContext("alice", "tool-query")
+
+	for _, args := range []map[string]any{
+		{"message": "missing target"},
+		{"agentKey": "writer"},
+		{"agentKey": "writer", "teamId": "research", "message": "ambiguous"},
+	} {
+		result, _ := handler.Invoke(context.Background(), QueryToolName, args, execCtx)
+		if result.Error != "invalid_request" {
+			t.Fatalf("args %#v error = %q, want invalid_request", args, result.Error)
+		}
+	}
+
+	team, _ := handler.Invoke(context.Background(), QueryToolName, map[string]any{
+		"teamId": "research", "message": "review",
+	}, execCtx)
+	if team.Error != "" || team.Structured["action"] != "query" {
+		t.Fatalf("team query failed: %#v", team)
+	}
+}
+
+func TestAgentRunStatusAndInterrupt(t *testing.T) {
+	service := newFakeAgentRunService()
+	handler := NewToolHandler(service, nil)
+	execCtx := agentRunExecContext("alice", "tool-query")
+	started, _ := handler.Invoke(context.Background(), QueryToolName, map[string]any{
+		"agentKey": "webOperator", "message": "search",
+	}, execCtx)
+	runID := started.Structured["run"].(map[string]any)["runId"].(string)
+
+	status, _ := handler.Invoke(context.Background(), StatusToolName, map[string]any{"runId": runID}, agentRunExecContext("alice", "tool-status"))
+	if status.Error != "" || status.Structured["action"] != "status" {
+		t.Fatalf("status failed: %#v", status)
+	}
+	missingStatus, _ := handler.Invoke(context.Background(), StatusToolName, map[string]any{}, agentRunExecContext("alice", "tool-status-missing"))
+	if missingStatus.Error != "invalid_request" {
+		t.Fatalf("missing status runId error = %q", missingStatus.Error)
+	}
+	notFound, _ := handler.Invoke(context.Background(), StatusToolName, map[string]any{"runId": "missing"}, agentRunExecContext("alice", "tool-status-not-found"))
+	if notFound.Error != "run_not_found" {
+		t.Fatalf("missing run error = %q", notFound.Error)
+	}
+
+	interrupted, _ := handler.Invoke(context.Background(), InterruptToolName, map[string]any{
+		"runId": runID, "message": "stop now",
+	}, agentRunExecContext("alice", "tool-interrupt"))
+	if interrupted.Error != "" || interrupted.Structured["action"] != "interrupt" {
+		t.Fatalf("interrupt failed: %#v", interrupted)
+	}
+	if len(service.interrupts) != 1 || service.interrupts[0].Message != "stop now" || service.interrupts[0].RunID != runID {
+		t.Fatalf("unexpected interrupt requests: %#v", service.interrupts)
+	}
+	missingInterrupt, _ := handler.Invoke(context.Background(), InterruptToolName, map[string]any{}, agentRunExecContext("alice", "tool-interrupt-missing"))
+	if missingInterrupt.Error != "invalid_request" {
+		t.Fatalf("missing interrupt runId error = %q", missingInterrupt.Error)
 	}
 }

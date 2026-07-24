@@ -357,7 +357,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		return nil, fmt.Errorf("init server: %w", err)
 	}
 	if err := toolExecutor.RegisterHandler(agentrun.NewToolHandler(srv, runManager)); err != nil {
-		return nil, fmt.Errorf("register agent_run tool: %w", err)
+		return nil, fmt.Errorf("register agent run tools: %w", err)
 	}
 	log.Printf("server dependencies wired in %s", startupElapsed(serverStartedAt))
 
