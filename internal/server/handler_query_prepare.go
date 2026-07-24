@@ -69,6 +69,7 @@ type queryAdmission struct {
 	orchestratedTeam bool
 	resourceBaseURL  string
 	locale           string
+	strictOwner      bool
 }
 
 type statusError struct {
@@ -102,7 +103,22 @@ func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (qu
 		}
 		return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: message}
 	}
-	locale := requestLocale(r, i18n.DefaultLocale)
+	return s.prepareQueryAdmissionRequest(
+		r.Context(),
+		req,
+		requireMessage,
+		requestLocale(r, i18n.DefaultLocale),
+		requestBaseURL(r),
+	)
+}
+
+func (s *Server) prepareQueryAdmissionRequest(
+	ctx context.Context,
+	req api.QueryRequest,
+	requireMessage bool,
+	locale string,
+	resourceBaseURL string,
+) (queryAdmission, error) {
 	if requireMessage && strings.TrimSpace(req.Message) == "" {
 		return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: "message is required"}
 	}
@@ -111,7 +127,7 @@ func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (qu
 	} else {
 		return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: api.QueryRoleValidationMessage}
 	}
-	req.ChatSource = chatSourceFromContext(r.Context())
+	req.ChatSource = chatSourceFromContext(ctx)
 	accessLevel, ok := contracts.NormalizeAccessLevel(req.AccessLevel)
 	if !ok {
 		return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: "accessLevel must be default, auto_approve, or full_access"}
@@ -199,7 +215,7 @@ func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (qu
 		agentDef:         agentDef,
 		teamSnapshot:     teamSnapshot,
 		orchestratedTeam: orchestratedTeam,
-		resourceBaseURL:  requestBaseURL(r),
+		resourceBaseURL:  resourceBaseURL,
 		locale:           locale,
 	}, nil
 }
@@ -214,6 +230,13 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 	summary, created, err := s.deps.Chats.EnsureChatWithSourceAndMode(chatID, agentKey, req.TeamID, req.Message, chatSource, persistedAgentMode)
 	if err != nil {
 		return preparedQuery{}, err
+	}
+	if admission.strictOwner && !created && !agentRunOwnerMatchesChat(&summary, agentKey, req.TeamID) {
+		return preparedQuery{}, &statusError{
+			status:  http.StatusConflict,
+			code:    "target_owner_mismatch",
+			message: "target identity does not match chat owner",
+		}
 	}
 	if !created && strings.TrimSpace(summary.TeamID) != strings.TrimSpace(req.TeamID) {
 		return preparedQuery{}, &statusError{

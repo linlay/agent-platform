@@ -343,6 +343,18 @@ func (s *Server) forwardProxySubmit(req api.SubmitRequest) (api.SubmitResponse, 
 	if strings.TrimSpace(req.AgentKey) != strings.TrimSpace(route.agentKey) {
 		return api.SubmitResponse{}, &statusError{status: http.StatusForbidden, message: "agentKey does not match run"}, true
 	}
+	if route.transport == "sse" {
+		var response api.SubmitResponse
+		statusErr := postProxyRunControl(route, "/api/submit", map[string]any{
+			"runId":      req.RunID,
+			"chatId":     route.chatID,
+			"agentKey":   firstNonBlank(route.upstreamAgentKey, route.agentKey),
+			"awaitingId": req.AwaitingID,
+			"submitId":   req.SubmitID,
+			"params":     req.Params,
+		}, &response)
+		return response, statusErr, true
+	}
 	payload := map[string]any{
 		"runId":      req.RunID,
 		"chatId":     route.chatID,
@@ -429,6 +441,20 @@ func (s *Server) forwardProxyInterrupt(req api.InterruptRequest) (api.InterruptR
 		return api.InterruptResponse{}, &statusError{status: http.StatusForbidden, message: "agentKey does not match run"}, true
 	}
 	forwarded := proxyWSInterruptRequest(req)
+	if route.transport == "sse" {
+		var response api.InterruptResponse
+		statusErr := postProxyRunControl(route, "/api/interrupt", map[string]any{
+			"requestId": forwarded.RequestID,
+			"runId":     forwarded.RunID,
+			"chatId":    route.chatID,
+			"agentKey":  firstNonBlank(route.upstreamAgentKey, route.agentKey),
+			"message":   forwarded.Message,
+			"source":    forwarded.InterruptSource,
+			"reason":    forwarded.InterruptReason,
+			"detail":    forwarded.InterruptDetail,
+		}, &response)
+		return response, statusErr, true
+	}
 	payload := map[string]any{
 		"requestId": forwarded.RequestID,
 		"runId":     forwarded.RunID,
@@ -472,6 +498,18 @@ func (s *Server) forwardProxySteer(req api.SteerRequest) (api.SteerResponse, *st
 	if steerID == "" {
 		steerID = time.Now().UTC().Format("20060102150405.000000000")
 	}
+	if route.transport == "sse" {
+		var response api.SteerResponse
+		statusErr := postProxyRunControl(route, "/api/steer", map[string]any{
+			"requestId": req.RequestID,
+			"runId":     req.RunID,
+			"chatId":    route.chatID,
+			"agentKey":  firstNonBlank(route.upstreamAgentKey, route.agentKey),
+			"steerId":   steerID,
+			"message":   req.Message,
+		}, &response)
+		return response, statusErr, true
+	}
 	payload := map[string]any{
 		"requestId": req.RequestID,
 		"runId":     req.RunID,
@@ -501,6 +539,54 @@ func (s *Server) forwardProxySteer(req api.SteerRequest) (api.SteerResponse, *st
 		SteerID:  steerID,
 		Detail:   "Proxy steer forwarded",
 	}, nil, true
+}
+
+func postProxyRunControl(route *proxyRunRoute, path string, payload map[string]any, target any) *statusError {
+	if route == nil || strings.TrimSpace(route.baseURL) == "" {
+		return &statusError{status: http.StatusBadGateway, code: "proxy_unavailable", message: "proxy control endpoint is unavailable"}
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return &statusError{status: http.StatusInternalServerError, code: "internal_error", message: err.Error()}
+	}
+	timeout := route.timeout
+	if timeout <= 0 || timeout > 30*time.Second {
+		timeout = 30 * time.Second
+	}
+	req, err := http.NewRequest(http.MethodPost, route.baseURL+path, bytes.NewReader(body))
+	if err != nil {
+		return &statusError{status: http.StatusBadGateway, code: "proxy_unavailable", message: err.Error()}
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if route.token != "" {
+		req.Header.Set("Authorization", "Bearer "+route.token)
+	}
+	resp, err := (&http.Client{Timeout: timeout}).Do(req)
+	if err != nil {
+		return &statusError{status: http.StatusBadGateway, code: "proxy_unavailable", message: err.Error()}
+	}
+	defer resp.Body.Close()
+	var envelope struct {
+		Code int             `json:"code"`
+		Msg  string          `json:"msg"`
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
+		return &statusError{status: http.StatusBadGateway, code: "proxy_invalid_response", message: err.Error()}
+	}
+	if resp.StatusCode != http.StatusOK || envelope.Code != 0 {
+		message := strings.TrimSpace(envelope.Msg)
+		if message == "" {
+			message = "proxy control request failed"
+		}
+		return &statusError{status: http.StatusBadGateway, code: "proxy_control_failed", message: message}
+	}
+	if target != nil && len(envelope.Data) > 0 {
+		if err := json.Unmarshal(envelope.Data, target); err != nil {
+			return &statusError{status: http.StatusBadGateway, code: "proxy_invalid_response", message: err.Error()}
+		}
+	}
+	return nil
 }
 
 func sendProxyRouteMessage(route *proxyRunRoute, payload map[string]any) bool {
@@ -578,6 +664,11 @@ func newProxyEventRecorder(
 	}
 	if req.PlanningMode != nil {
 		queryPayload["planningMode"] = *req.PlanningMode
+	}
+	for key, value := range req.TrustedQueryMetadata {
+		if _, reserved := queryPayload[key]; !reserved {
+			queryPayload[key] = value
+		}
 	}
 	stepWriter.OnEvent(stream.EventData{
 		Type:      "request.query",

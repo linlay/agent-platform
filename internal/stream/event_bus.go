@@ -339,6 +339,27 @@ func (b *RunEventBus) LatestSeq() int64 {
 	return b.latestSeq
 }
 
+// Snapshot returns a stable copy of the retained run events without creating
+// an observer. It is used by internal status facades and does not affect
+// observer limits or run lifetime.
+func (b *RunEventBus) Snapshot() []EventData {
+	if b == nil {
+		return nil
+	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	result := make([]EventData, len(b.events))
+	for index, event := range b.events {
+		result[index] = EventData{
+			Seq:       event.Seq,
+			Type:      event.Type,
+			Timestamp: event.Timestamp,
+			Payload:   clonePayload(event.Payload),
+		}
+	}
+	return result
+}
+
 func (b *RunEventBus) Frozen() bool {
 	if b == nil {
 		return true

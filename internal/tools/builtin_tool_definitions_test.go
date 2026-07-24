@@ -36,6 +36,9 @@ func TestLoadEmbeddedToolDefinitionsIncludesAskUserBuiltins(t *testing.T) {
 	if !byName["agent_invoke"] {
 		t.Fatal("expected agent_invoke builtin tool definition")
 	}
+	if !byName["agent_run"] {
+		t.Fatal("expected agent_run builtin tool definition")
+	}
 	if !byName["regex"] {
 		t.Fatal("expected regex builtin tool definition")
 	}
@@ -45,6 +48,33 @@ func TestLoadEmbeddedToolDefinitionsIncludesAskUserBuiltins(t *testing.T) {
 	if !byName["image_generate"] {
 		t.Fatal("expected image_generate builtin tool definition")
 	}
+}
+
+func TestEmbeddedAgentRunSchemaAndMetadata(t *testing.T) {
+	defs, err := LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatalf("load embedded tool definitions: %v", err)
+	}
+	for _, def := range defs {
+		if def.Name != "agent_run" {
+			continue
+		}
+		if def.Meta["clientVisible"] != true || def.Meta["explicitOnly"] != true || def.Meta["readOnly"] != false || def.Meta["catalogVisible"] != false {
+			t.Fatalf("unexpected agent_run metadata: %#v", def.Meta)
+		}
+		branches, ok := def.Parameters["oneOf"].([]any)
+		if !ok || len(branches) != 6 {
+			t.Fatalf("agent_run oneOf = %#v, want 6 branches", def.Parameters["oneOf"])
+		}
+		for index, raw := range branches {
+			branch, ok := raw.(map[string]any)
+			if !ok || branch["additionalProperties"] != false {
+				t.Fatalf("agent_run branch %d is not closed: %#v", index, raw)
+			}
+		}
+		return
+	}
+	t.Fatal("embedded agent_run definition is unavailable")
 }
 
 func TestLoadEmbeddedToolDefinitionsAppliesBuiltinToolCatalogVisibility(t *testing.T) {
@@ -73,7 +103,7 @@ func TestLoadEmbeddedToolDefinitionsAppliesBuiltinToolCatalogVisibility(t *testi
 		}
 	}
 	for _, hiddenName := range []string{
-		"agent_delegate", "_session_search_", "_skill_candidate_list_", "_skill_candidate_write_",
+		"agent_delegate", "agent_run", "_session_search_", "_skill_candidate_list_", "_skill_candidate_write_",
 		"memory_timeline", "memory_update", "memory_write", "memory_read", "memory_promote", "memory_search", "memory_consolidate", "memory_forget",
 	} {
 		if visibleNames[hiddenName] {

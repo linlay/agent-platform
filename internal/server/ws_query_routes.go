@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/ws"
@@ -79,7 +78,6 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		s.sendWSStatusError(conn, req.ID, statusErr)
 		return
 	}
-	runCtx, control := registered.RunCtx, registered.Control
 	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
 	if !ok {
 		releaseQuery(prepared.release)
@@ -101,55 +99,11 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 	conn.AttachObserver(req.ID, observer.ID, func() {
 		s.deps.Runs.DetachObserver(prepared.req.RunID, observer.ID)
 	})
-	s.broadcast("run.started", runStartedPushPayload(prepared.req.RunID, prepared.req.ChatID, prepared.req.AgentKey, registered.StartedAtMillis))
-
-	assembler, mapper := s.newAssemblerAndMapper(prepared)
-	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
-	stepWriter.SetPendingSystemInit(prepared.systemInitLine)
-	stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
 	principal := &Principal{Subject: prepared.session.Subject}
 	if strings.TrimSpace(principal.Subject) == "" {
 		principal = nil
 	}
-	StartRunExecutor(RunExecutorParams{
-		RunCtx:            runCtx,
-		Request:           prepared.req,
-		Session:           prepared.session,
-		StartedAtMillis:   registered.StartedAtMillis,
-		Summary:           prepared.summary,
-		Agent:             s.deps.Agent,
-		Registry:          s.deps.Registry,
-		TeamSnapshot:      prepared.teamSnapshot,
-		Assembler:         assembler,
-		Mapper:            mapper,
-		Billing:           s.deps.Config.Billing,
-		StepWriter:        stepWriter,
-		EventBus:          eventBus,
-		Chats:             s.deps.Chats,
-		Models:            s.deps.Models,
-		RunControl:        control,
-		ResourceBaseURL:   prepared.resourceBaseURL,
-		ResourceTickets:   s.ticketService,
-		BuildQuerySession: s.BuildQuerySession,
-		PrepareSystemInit: s.prepareSystemInitCache,
-		Notifications:     s.deps.Notifications,
-		OnUnreadChanged: func(summary chat.Summary) {
-			agentUnreadCount, err := s.agentUnreadCount(summary.AgentKey)
-			if err != nil {
-				return
-			}
-			s.broadcastChatReadState("chat.unread", summary, agentUnreadCount)
-		},
-		OnPersisted: func(completion chat.RunCompletion) {
-			s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
-		},
-		OnContinuation: s.startRunContinuation,
-		OnComplete: func(runID string, completedAtMillis int64) {
-			releaseQuery(prepared.release)
-			s.deps.Runs.Finish(runID)
-			s.broadcast("run.finished", runFinishedPushPayload(runID, prepared.req.ChatID, completedAtMillis))
-		},
-	})
+	s.startPreparedLocalRun(prepared, registered, eventBus, principal)
 	conn.StartStreamForward(req.ID, observer)
 }
 

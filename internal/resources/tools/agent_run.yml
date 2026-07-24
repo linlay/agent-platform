@@ -1,0 +1,110 @@
+name: agent_run
+label: 运行智能体
+description: Start and control an independent root Agent or Team run. Use query to start asynchronously, then status, submit, steer, or interrupt with the returned runId.
+type: function
+clientVisible: true
+explicitOnly: true
+readOnly: false
+inputSchema:
+  oneOf:
+    - type: object
+      properties:
+        action:
+          type: string
+          const: query
+        message:
+          type: string
+          minLength: 1
+        agentKey:
+          type: string
+          minLength: 1
+        chatId:
+          type: string
+          minLength: 1
+      required:
+        - action
+        - message
+        - agentKey
+      additionalProperties: false
+    - type: object
+      properties:
+        action:
+          type: string
+          const: query
+        message:
+          type: string
+          minLength: 1
+        teamId:
+          type: string
+          minLength: 1
+        chatId:
+          type: string
+          minLength: 1
+      required:
+        - action
+        - message
+        - teamId
+      additionalProperties: false
+    - type: object
+      properties:
+        action:
+          type: string
+          const: status
+        runId:
+          type: string
+          minLength: 1
+      required:
+        - action
+        - runId
+      additionalProperties: false
+    - type: object
+      properties:
+        action:
+          type: string
+          const: submit
+        runId:
+          type: string
+          minLength: 1
+        awaitingId:
+          type: string
+          minLength: 1
+        params:
+          type: array
+          items:
+            type: object
+      required:
+        - action
+        - runId
+        - awaitingId
+        - params
+      additionalProperties: false
+    - type: object
+      properties:
+        action:
+          type: string
+          const: steer
+        runId:
+          type: string
+          minLength: 1
+        message:
+          type: string
+          minLength: 1
+      required:
+        - action
+        - runId
+        - message
+      additionalProperties: false
+    - type: object
+      properties:
+        action:
+          type: string
+          const: interrupt
+        runId:
+          type: string
+          minLength: 1
+        message:
+          type: string
+      required:
+        - action
+        - runId
+      additionalProperties: false

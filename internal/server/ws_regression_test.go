@@ -716,10 +716,10 @@ func TestBroadcastDefinitionsStayAlignedAcrossHTTPAndWS(t *testing.T) {
 	assertNotContains(t, wsRoutes, `handler.RegisterRoute("/api/tools"`)
 	assertNotContains(t, wsRoutes, `handler.RegisterRoute("/api/pull", s.wsDownload)`)
 	assertNotContains(t, wsRoutes, `handler.RegisterRoute("/api/push"`)
-	assertContains(t, wsQueryRoutes, `s.broadcast("run.started"`)
-	assertContains(t, wsQueryRoutes, `s.broadcast("run.finished"`)
+	assertContains(t, wsQueryRoutes, `s.startPreparedLocalRun(`)
+	assertContains(t, handlerQuery, `func (s *Server) startPreparedLocalRun(`)
 	assertContains(t, wsRoutes, `s.broadcastChatReadState("chat.read"`)
-	assertContains(t, wsQueryRoutes, `s.broadcastChatReadState("chat.unread"`)
+	assertContains(t, handlerQuery, `s.broadcastChatReadState("chat.unread"`)
 }
 
 func TestGatewayPullAndPushURLBuildersUseDirectionalEndpoints(t *testing.T) {

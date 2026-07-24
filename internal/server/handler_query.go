@@ -80,14 +80,12 @@ func isNonStreamingQuery(req api.QueryRequest) bool {
 
 func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepared preparedQuery) {
 	locale := requestLocale(r, i18n.DefaultLocale)
-	execution := s.resolvedQueryExecution(prepared)
 	registered, statusErr := s.registerQueryRun(r.Context(), prepared)
 	if statusErr != nil {
 		releaseQuery(prepared.release)
 		writeStatusError(w, statusErr)
 		return
 	}
-	runCtx, control := registered.RunCtx, registered.Control
 	principal := PrincipalFromContext(r.Context())
 	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
 	if !ok {
@@ -97,10 +95,6 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, "run event bus unavailable"))
 		return
 	}
-	if !execution.HiddenRun {
-		s.broadcast("run.started", runStartedPushPayload(prepared.req.RunID, prepared.req.ChatID, prepared.req.AgentKey, registered.StartedAtMillis))
-	}
-
 	sseWriter, err := stream.NewWriter(w, stream.Options{
 		SSE:            s.deps.Config.SSE,
 		Render:         stream.DefaultRenderConfig(),
@@ -127,63 +121,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 	defer s.deps.Runs.DetachObserver(prepared.req.RunID, observer.ID)
 	defer observer.MarkDone()
 
-	assembler, mapper := s.newAssemblerAndMapper(prepared)
-	stepWriter := chat.NewStepWriter(execution.StepLineStore, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
-	stepWriter.SetPendingSystemInit(prepared.systemInitLine)
-	stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
-	var onUnreadChanged func(chat.Summary)
-	var onPersisted func(chat.RunCompletion)
-	var onContinuation func(contracts.DeltaRunContinuation) (string, error)
-	notifications := s.deps.Notifications
-	if execution.HiddenRun {
-		notifications = nil
-	} else {
-		onUnreadChanged = func(summary chat.Summary) {
-			agentUnreadCount, err := s.agentUnreadCount(summary.AgentKey)
-			if err != nil {
-				return
-			}
-			s.broadcastChatReadState("chat.unread", summary, agentUnreadCount)
-		}
-		onPersisted = func(completion chat.RunCompletion) {
-			s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
-		}
-		onContinuation = s.startRunContinuation
-	}
-
-	StartRunExecutor(RunExecutorParams{
-		RunCtx:            runCtx,
-		Request:           prepared.req,
-		Session:           prepared.session,
-		StartedAtMillis:   registered.StartedAtMillis,
-		Summary:           prepared.summary,
-		Agent:             s.deps.Agent,
-		Registry:          s.deps.Registry,
-		TeamSnapshot:      prepared.teamSnapshot,
-		Assembler:         assembler,
-		Mapper:            mapper,
-		Billing:           s.deps.Config.Billing,
-		StepWriter:        stepWriter,
-		EventBus:          eventBus,
-		Chats:             execution.CompletionStore,
-		Models:            s.deps.Models,
-		RunControl:        control,
-		ResourceBaseURL:   prepared.resourceBaseURL,
-		ResourceTickets:   s.ticketService,
-		BuildQuerySession: s.BuildQuerySession,
-		PrepareSystemInit: s.prepareSystemInitCache,
-		Notifications:     notifications,
-		OnUnreadChanged:   onUnreadChanged,
-		OnPersisted:       onPersisted,
-		OnContinuation:    onContinuation,
-		OnComplete: func(runID string, completedAtMillis int64) {
-			releaseQuery(prepared.release)
-			s.deps.Runs.Finish(runID)
-			if !execution.HiddenRun {
-				s.broadcast("run.finished", runFinishedPushPayload(runID, prepared.req.ChatID, completedAtMillis))
-			}
-		},
-	})
+	s.startPreparedLocalRun(prepared, registered, eventBus, principal)
 
 	lastSeq := int64(0)
 	for {
@@ -222,6 +160,75 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 			lastSeq = event.Seq
 		}
 	}
+}
+
+func (s *Server) startPreparedLocalRun(
+	prepared preparedQuery,
+	registered registeredQueryRun,
+	eventBus *stream.RunEventBus,
+	principal *Principal,
+) {
+	execution := s.resolvedQueryExecution(prepared)
+	if !execution.HiddenRun {
+		s.broadcast("run.started", runStartedPushPayload(prepared.req.RunID, prepared.req.ChatID, prepared.req.AgentKey, registered.StartedAtMillis))
+	}
+	assembler, mapper := s.newAssemblerAndMapper(prepared)
+	stepWriter := chat.NewStepWriter(execution.StepLineStore, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
+	stepWriter.SetPendingSystemInit(prepared.systemInitLine)
+	stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
+	var onUnreadChanged func(chat.Summary)
+	var onPersisted func(chat.RunCompletion)
+	var onContinuation func(contracts.DeltaRunContinuation) (string, error)
+	notifications := s.deps.Notifications
+	if execution.HiddenRun {
+		notifications = nil
+	} else {
+		onUnreadChanged = func(summary chat.Summary) {
+			agentUnreadCount, err := s.agentUnreadCount(summary.AgentKey)
+			if err != nil {
+				return
+			}
+			s.broadcastChatReadState("chat.unread", summary, agentUnreadCount)
+		}
+		onPersisted = func(completion chat.RunCompletion) {
+			s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
+		}
+		onContinuation = s.startRunContinuation
+	}
+
+	StartRunExecutor(RunExecutorParams{
+		RunCtx:            registered.RunCtx,
+		Request:           prepared.req,
+		Session:           prepared.session,
+		StartedAtMillis:   registered.StartedAtMillis,
+		Summary:           prepared.summary,
+		Agent:             s.deps.Agent,
+		Registry:          s.deps.Registry,
+		TeamSnapshot:      prepared.teamSnapshot,
+		Assembler:         assembler,
+		Mapper:            mapper,
+		Billing:           s.deps.Config.Billing,
+		StepWriter:        stepWriter,
+		EventBus:          eventBus,
+		Chats:             execution.CompletionStore,
+		Models:            s.deps.Models,
+		RunControl:        registered.Control,
+		ResourceBaseURL:   prepared.resourceBaseURL,
+		ResourceTickets:   s.ticketService,
+		BuildQuerySession: s.BuildQuerySession,
+		PrepareSystemInit: s.prepareSystemInitCache,
+		Notifications:     notifications,
+		OnUnreadChanged:   onUnreadChanged,
+		OnPersisted:       onPersisted,
+		OnContinuation:    onContinuation,
+		OnComplete: func(runID string, completedAtMillis int64) {
+			releaseQuery(prepared.release)
+			s.deps.Runs.Finish(runID)
+			if !execution.HiddenRun {
+				s.broadcast("run.finished", runFinishedPushPayload(runID, prepared.req.ChatID, completedAtMillis))
+			}
+		},
+	})
 }
 
 func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, prepared preparedQuery) {

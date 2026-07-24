@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"agent-platform/internal/agentrun"
 	"agent-platform/internal/api"
 	"agent-platform/internal/artifactpusher"
 	"agent-platform/internal/automation"
@@ -311,20 +312,21 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 
 	serverStartedAt := time.Now()
 	srv, err = server.New(server.Dependencies{
-		Config:        cfg,
-		Chats:         chatStore,
-		Archives:      archiveStore,
-		Archiver:      archiver,
-		Memory:        memoryStore,
-		KBase:         kbaseManager,
-		Registry:      registry,
-		Models:        modelRegistry,
-		Runs:          runManager,
-		Agent:         agentEngine,
-		Tools:         toolExecutor,
-		Sandbox:       sandboxClient,
-		MCP:           mcpClient,
-		FrontendTools: frontendRegistry,
+		BackgroundContext: backgroundCtx,
+		Config:            cfg,
+		Chats:             chatStore,
+		Archives:          archiveStore,
+		Archiver:          archiver,
+		Memory:            memoryStore,
+		KBase:             kbaseManager,
+		Registry:          registry,
+		Models:            modelRegistry,
+		Runs:              runManager,
+		Agent:             agentEngine,
+		Tools:             toolExecutor,
+		Sandbox:           sandboxClient,
+		MCP:               mcpClient,
+		FrontendTools:     frontendRegistry,
 		Viewport: viewport.NewServiceWithServers(
 			viewport.NewRegistry(viewport.DefaultRoot(cfg.Paths.RegistriesDir)),
 			viewport.NewSyncer(viewport.NewServerRegistry(viewport.DefaultServersRoot(cfg.Paths.RegistriesDir)), nil),
@@ -353,6 +355,9 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			_ = automationExecutionStore.Close()
 		}
 		return nil, fmt.Errorf("init server: %w", err)
+	}
+	if err := toolExecutor.RegisterHandler(agentrun.NewToolHandler(srv, runManager)); err != nil {
+		return nil, fmt.Errorf("register agent_run tool: %w", err)
 	}
 	log.Printf("server dependencies wired in %s", startupElapsed(serverStartedAt))
 

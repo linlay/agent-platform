@@ -81,6 +81,7 @@ const (
 	ChatSourceQuery            = "query"
 	ChatSourceQueryPrefix      = "query:"
 	ChatSourceAutomationPrefix = "automation:"
+	ChatSourceAgentRunPrefix   = "agent-run:"
 )
 
 func NormalizeQueryRole(role string) (string, bool) {
@@ -160,6 +161,10 @@ type QueryRequest struct {
 	// Internal runtime hint for the chat creation source. External JSON input
 	// cannot set this field.
 	ChatSource string `json:"-"`
+
+	// TrustedQueryMetadata is merged into the persisted request.query event.
+	// External JSON input cannot set this field.
+	TrustedQueryMetadata map[string]any `json:"-"`
 }
 
 type QueryResponse struct {

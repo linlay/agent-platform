@@ -574,6 +574,19 @@ func (c *RunControl) LookupAwaiting(awaitingID string) (AwaitingSubmitContext, b
 	return ctx.Clone(), true
 }
 
+func (c *RunControl) ActiveAwaitings() []AwaitingSubmitContext {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	result := make([]AwaitingSubmitContext, 0, len(c.awaitingSubmits))
+	for _, awaiting := range c.awaitingSubmits {
+		result = append(result, awaiting.Clone())
+	}
+	return result
+}
+
 func (c *RunControl) HasNoTimeoutAwaiting() bool {
 	if c == nil {
 		return false

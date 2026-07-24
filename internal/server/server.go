@@ -36,6 +36,7 @@ type KBaseService interface {
 }
 
 type Dependencies struct {
+	BackgroundContext      context.Context
 	Config                 config.Config
 	Chats                  chat.Store
 	Archives               *chat.ArchiveStore
@@ -110,6 +111,7 @@ type Server struct {
 	adminSourceMu     sync.Mutex
 	proxyMu           sync.RWMutex
 	proxyRuns         map[string]*proxyRunRoute
+	backgroundCtx     context.Context
 }
 
 type syncQueryContextKey struct{}
@@ -171,6 +173,10 @@ func New(deps Dependencies) (*Server, error) {
 		terminals:         terminalpkg.NewManager(),
 		deferredAwaitings: NewDeferredAwaitingStore(),
 		proxyRuns:         map[string]*proxyRunRoute{},
+		backgroundCtx:     deps.BackgroundContext,
+	}
+	if s.backgroundCtx == nil {
+		s.backgroundCtx = context.Background()
 	}
 	s.hydrateDeferredAwaitings()
 	if hub, ok := deps.Notifications.(*ws.Hub); ok {

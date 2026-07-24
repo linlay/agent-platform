@@ -128,6 +128,10 @@ type ExclusiveRunRegistrar interface {
 	RegisterExclusiveForChat(parent context.Context, session QuerySession) (ExclusiveRunRegistration, error)
 }
 
+type ActiveAwaitingLister interface {
+	ActiveAwaitings(runID string) []AwaitingSubmitContext
+}
+
 type RunManager = ActiveRunService
 
 type ToolExecutor interface {
@@ -234,6 +238,10 @@ type QuerySession struct {
 	ChatID    string
 	ChatName  string
 	AgentKey  string
+	// AgentRunOrigin marks a root run created by the agent_run backend tool.
+	// It is runtime-only: the public request cannot forge it, and a marked run
+	// is forbidden from chaining another agent_run query.
+	AgentRunOrigin *AgentRunOrigin `json:"-"`
 	// RunOwner is the required public run owner. Session producers must set it
 	// explicitly; AgentKey and TeamID are not fallback ownership fields.
 	RunOwner RunOwner
@@ -514,6 +522,68 @@ type RunStatusInfo struct {
 	CompletedAt        int64
 	AccessLevel        string
 	AccessLevelVersion int64
+	AgentRunOrigin     *AgentRunOrigin `json:"-"`
+}
+
+// AgentRunOrigin is the trusted runtime identity attached to a detached run
+// created by agent_run. Subject participates in ownership checks but is not
+// persisted into request.query audit metadata.
+type AgentRunOrigin struct {
+	CallerAgentKey string
+	Subject        string
+	ParentChatID   string
+	ParentRunID    string
+	ToolID         string
+}
+
+type AgentRunStartRequest struct {
+	AgentKey string
+	TeamID   string
+	ChatID   string
+	Message  string
+	Origin   AgentRunOrigin
+}
+
+type AgentRunAwaiting struct {
+	AwaitingID string         `json:"awaitingId"`
+	Mode       string         `json:"mode"`
+	Questions  []any          `json:"questions,omitempty"`
+	Payload    map[string]any `json:"payload,omitempty"`
+}
+
+type AgentRunSnapshot struct {
+	RunID       string            `json:"runId"`
+	ChatID      string            `json:"chatId"`
+	AgentKey    string            `json:"agentKey,omitempty"`
+	TeamID      string            `json:"teamId,omitempty"`
+	Status      string            `json:"status"`
+	LastSeq     int64             `json:"lastSeq"`
+	StartedAt   int64             `json:"startedAt"`
+	CompletedAt int64             `json:"completedAt,omitempty"`
+	Awaiting    *AgentRunAwaiting `json:"awaiting,omitempty"`
+	Content     string            `json:"content,omitempty"`
+	Error       map[string]any    `json:"error,omitempty"`
+	Origin      *AgentRunOrigin   `json:"-"`
+}
+
+type AgentRunService interface {
+	StartAgentRun(ctx context.Context, req AgentRunStartRequest) (AgentRunSnapshot, error)
+	AgentRunStatus(runID string) (AgentRunSnapshot, error)
+	AgentRunSubmitQuestion(req api.SubmitRequest) (api.SubmitResponse, error)
+	AgentRunSteer(req api.SteerRequest) (api.SteerResponse, error)
+	AgentRunInterrupt(req api.InterruptRequest) (api.InterruptResponse, error)
+}
+
+type AgentRunError struct {
+	Code    string
+	Message string
+}
+
+func (e *AgentRunError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return e.Message
 }
 
 type SubmitAck struct {

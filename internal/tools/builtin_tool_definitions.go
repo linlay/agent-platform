@@ -45,6 +45,7 @@ var requiredBuiltinToolNames = []string{
 	"bash_sandbox",
 	"ask_user_question",
 	"agent_invoke",
+	"agent_run",
 }
 
 func LoadEmbeddedToolDefinitions() ([]api.ToolDetailResponse, error) {

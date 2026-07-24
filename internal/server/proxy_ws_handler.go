@@ -22,12 +22,37 @@ import (
 )
 
 type proxyRunRoute struct {
-	runID    string
-	chatID   string
-	agentKey string
-	protocol string
-	send     chan map[string]any
-	done     chan struct{}
+	runID            string
+	chatID           string
+	agentKey         string
+	upstreamAgentKey string
+	protocol         string
+	transport        string
+	baseURL          string
+	token            string
+	timeout          time.Duration
+	send             chan map[string]any
+	done             chan struct{}
+}
+
+func newDetachedProxyRunRoute(prepared preparedQuery) *proxyRunRoute {
+	proxy := prepared.agentDef.ProxyConfig
+	route := &proxyRunRoute{
+		runID:    prepared.req.RunID,
+		chatID:   prepared.req.ChatID,
+		agentKey: prepared.req.AgentKey,
+		protocol: proxyProtocol(proxy),
+		send:     make(chan map[string]any, 16),
+		done:     make(chan struct{}),
+	}
+	if proxy != nil {
+		route.upstreamAgentKey = proxyAgentKey(proxy, prepared.req.AgentKey)
+		route.transport = proxyUpstreamTransport(proxy)
+		route.baseURL = strings.TrimRight(strings.TrimSpace(proxy.BaseURL), "/")
+		route.token = proxy.Token
+		route.timeout = proxyRequestTimeout(proxy)
+	}
+	return route
 }
 
 func (s *Server) registerProxyRun(route *proxyRunRoute) {

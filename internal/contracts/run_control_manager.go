@@ -13,11 +13,12 @@ import (
 )
 
 type managedRun struct {
-	run         ActiveRun
-	control     *RunControl
-	eventBus    *stream.RunEventBus
-	startedAt   time.Time
-	completedAt time.Time
+	run            ActiveRun
+	control        *RunControl
+	eventBus       *stream.RunEventBus
+	agentRunOrigin *AgentRunOrigin
+	startedAt      time.Time
+	completedAt    time.Time
 }
 
 type InMemoryRunManager struct {
@@ -106,10 +107,11 @@ func (m *InMemoryRunManager) registerLocked(session QuerySession) (context.Conte
 	})
 	control.SetObserverCount(0)
 	m.runs[session.RunID] = &managedRun{
-		run:       run,
-		control:   control,
-		eventBus:  eventBus,
-		startedAt: startedAt,
+		run:            run,
+		control:        control,
+		eventBus:       eventBus,
+		agentRunOrigin: cloneAgentRunOrigin(session.AgentRunOrigin),
+		startedAt:      startedAt,
 	}
 	return WithRunControl(control.Context(), control), control, run
 }
@@ -128,6 +130,14 @@ func (m *InMemoryRunManager) LookupAwaiting(runID string, awaitingID string) (Aw
 		return AwaitingSubmitContext{}, false
 	}
 	return control.LookupAwaiting(awaitingID)
+}
+
+func (m *InMemoryRunManager) ActiveAwaitings(runID string) []AwaitingSubmitContext {
+	control, ok := m.lookupControl(runID)
+	if !ok {
+		return nil
+	}
+	return control.ActiveAwaitings()
 }
 
 func (m *InMemoryRunManager) LookupResolvedSubmit(runID string, awaitingID string) (SubmitAck, bool) {
@@ -255,6 +265,7 @@ func (m *InMemoryRunManager) RunStatus(runID string) (RunStatusInfo, bool) {
 		OldestSeq:         state.eventBus.OldestSeq(),
 		ObserverCount:     state.eventBus.ObserverCount(),
 		StartedAt:         state.startedAt.UnixMilli(),
+		AgentRunOrigin:    cloneAgentRunOrigin(state.agentRunOrigin),
 	}
 	info.AccessLevel, info.AccessLevelVersion = state.control.AccessLevelSnapshot()
 	if !state.completedAt.IsZero() {
@@ -336,12 +347,21 @@ func runStatusInfoFromManagedRun(state *managedRun) RunStatusInfo {
 		OldestSeq:         state.eventBus.OldestSeq(),
 		ObserverCount:     state.eventBus.ObserverCount(),
 		StartedAt:         state.startedAt.UnixMilli(),
+		AgentRunOrigin:    cloneAgentRunOrigin(state.agentRunOrigin),
 	}
 	info.AccessLevel, info.AccessLevelVersion = state.control.AccessLevelSnapshot()
 	if !state.completedAt.IsZero() {
 		info.CompletedAt = state.completedAt.UnixMilli()
 	}
 	return info
+}
+
+func cloneAgentRunOrigin(origin *AgentRunOrigin) *AgentRunOrigin {
+	if origin == nil {
+		return nil
+	}
+	cloned := *origin
+	return &cloned
 }
 
 func (m *InMemoryRunManager) EventBus(runID string) (*stream.RunEventBus, bool) {

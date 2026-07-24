@@ -44,6 +44,7 @@ var alwaysDeniedTools = map[string]struct{}{
 	"plan_update_task":        {},
 	"finalize_planning":       {},
 	"agent_invoke":            {},
+	"agent_run":               {},
 	"artifact_publish":        {},
 	"image_generate":          {},
 	"desktop_action":          {},
