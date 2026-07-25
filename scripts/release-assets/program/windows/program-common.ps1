@@ -21,6 +21,7 @@ $Script:DeployContainerHubBaseUrl = ''
 $Script:DeployAIVisionGeneralModelKey = ''
 $Script:DeployAIVisionOCRModelKey = ''
 $Script:DeployAIWebFetchModelKey = ''
+$Script:DeployAIImageGenerateModelKey = ''
 $Script:DeployCoderModelKey = ''
 $Script:DeployCoderReasoningEffort = ''
 $Script:DeployKBaseModelKey = ''
@@ -99,6 +100,7 @@ function Set-ProgramDeployOption([string]$Name, [string]$Value) {
     '--ai-vision-general-model-key' { $Script:DeployAIVisionGeneralModelKey = $Value }
     '--ai-vision-ocr-model-key' { $Script:DeployAIVisionOCRModelKey = $Value }
     '--ai-web-fetch-model-key' { $Script:DeployAIWebFetchModelKey = $Value }
+    '--ai-image-generate-model-key' { $Script:DeployAIImageGenerateModelKey = $Value }
     '--coder-model-key' { $Script:DeployCoderModelKey = $Value }
     '--coder-reasoning-effort' {
       if (@('NONE', 'LOW', 'MEDIUM', 'HIGH') -notcontains $Value) {
@@ -136,6 +138,7 @@ function Set-ProgramDeployArgs([string[]]$Arguments) {
       '--ai-vision-general-model-key',
       '--ai-vision-ocr-model-key',
       '--ai-web-fetch-model-key',
+      '--ai-image-generate-model-key',
       '--coder-model-key',
       '--coder-reasoning-effort',
       '--kbase-model-key',
@@ -268,6 +271,10 @@ function New-ProgramDeployAIToolsFile([string]$Source, [string]$Target) {
   }
   if (-not [string]::IsNullOrWhiteSpace($Script:DeployAIWebFetchModelKey)) {
     Set-ProgramAIToolsModelKey $Target 'web-fetch' 'general' $Script:DeployAIWebFetchModelKey
+  }
+  if (-not [string]::IsNullOrWhiteSpace($Script:DeployAIImageGenerateModelKey)) {
+    Set-ProgramAIToolsModelKey $Target 'image-generate' 'general' $Script:DeployAIImageGenerateModelKey
+    Set-ProgramYamlSectionValue $Target 'image-generate' 'enabled' 'true'
   }
 }
 

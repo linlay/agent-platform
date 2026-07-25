@@ -22,6 +22,7 @@ DEPLOY_CONTAINER_HUB_BASE_URL=""
 DEPLOY_AI_VISION_GENERAL_MODEL_KEY=""
 DEPLOY_AI_VISION_OCR_MODEL_KEY=""
 DEPLOY_AI_WEB_FETCH_MODEL_KEY=""
+DEPLOY_AI_IMAGE_GENERATE_MODEL_KEY=""
 DEPLOY_CODER_MODEL_KEY=""
 DEPLOY_CODER_REASONING_EFFORT=""
 DEPLOY_KBASE_MODEL_KEY=""
@@ -131,6 +132,11 @@ program_apply_deploy_flags() {
       --ai-web-fetch-model-key)
         [[ $# -ge 2 ]] || program_die "missing value for --ai-web-fetch-model-key"
         DEPLOY_AI_WEB_FETCH_MODEL_KEY="$2"
+        shift 2
+        ;;
+      --ai-image-generate-model-key)
+        [[ $# -ge 2 ]] || program_die "missing value for --ai-image-generate-model-key"
+        DEPLOY_AI_IMAGE_GENERATE_MODEL_KEY="$2"
         shift 2
         ;;
       --coder-model-key)
@@ -321,6 +327,10 @@ program_render_ai_tools_file() {
   fi
   if [[ -n "$DEPLOY_AI_WEB_FETCH_MODEL_KEY" ]]; then
     program_set_ai_tools_model_key "$target" "web-fetch" "general" "$DEPLOY_AI_WEB_FETCH_MODEL_KEY"
+  fi
+  if [[ -n "$DEPLOY_AI_IMAGE_GENERATE_MODEL_KEY" ]]; then
+    program_set_ai_tools_model_key "$target" "image-generate" "general" "$DEPLOY_AI_IMAGE_GENERATE_MODEL_KEY"
+    program_set_yaml_section_value "$target" "image-generate" "enabled" "true"
   fi
 }
 

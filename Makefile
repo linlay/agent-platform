@@ -35,7 +35,7 @@ LOCAL_BACKEND_BIN := $(LOCAL_BACKEND_DIR)/$(LOCAL_BINARY)
 LOCAL_PLUGINS_DIR := $(LOCAL_RELEASE_ROOT)/plugins
 LOCAL_BUILTINS_BIN := build/builtins/$(LOCAL_GOOS)-$(ARCH)/bin
 
-.PHONY: run build-local run-local test test-integration test-release-program-clean docker-build docker-up docker-down release release-program release-program-all clean
+.PHONY: run build-local run-local test test-integration test-program-deploy test-release-program-clean docker-build docker-up docker-down release release-program release-program-all clean
 
 ifeq ($(OS),Windows_NT)
 run: run-local
@@ -78,6 +78,14 @@ test:
 
 test-integration:
 	GOCACHE=$$(mktemp -d) CGO_ENABLED=$(CGO_ENABLED) RUN_SOCKET_TESTS=1 go test -p 1 -run TestQueryStreamsBeforeRunCompleteOverHTTP -v ./internal/server
+
+ifeq ($(OS),Windows_NT)
+test-program-deploy:
+	powershell -ExecutionPolicy Bypass -File scripts/test-program-deploy.ps1
+else
+test-program-deploy:
+	scripts/test-program-deploy.sh
+endif
 
 ifeq ($(OS),Windows_NT)
 test-release-program-clean:
