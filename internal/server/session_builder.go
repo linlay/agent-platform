@@ -9,6 +9,7 @@ import (
 	agentcontract "agent-platform/internal/agent"
 	agentbuiltin "agent-platform/internal/agent/builtin"
 	agentcoder "agent-platform/internal/agent/coder"
+	agentkbase "agent-platform/internal/agent/kbase"
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
@@ -35,6 +36,7 @@ type querySessionBuildOptions struct {
 var memoryInjectionEnabled = false
 
 func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, summary chat.Summary, agentDef catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
+	editingMode := agentkbase.EditingModeEnabled(agentDef.Mode, req.EditingMode != nil && *req.EditingMode)
 	if !strings.EqualFold(strings.TrimSpace(agentDef.Mode), agentteam.Mode) {
 		if err := catalog.ValidateOrdinaryAgentTools(agentDef.Tools); err != nil {
 			return contracts.QuerySession{}, err
@@ -114,15 +116,16 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		principal = PrincipalFromContext(ctx)
 	}
 	runtimeContext, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
-		agentKey:   req.AgentKey,
-		teamID:     req.TeamID,
-		role:       defaultRole(req.Role),
-		chatID:     req.ChatID,
-		chatName:   summary.ChatName,
-		scene:      req.Scene,
-		references: req.References,
-		principal:  principal,
-		definition: agentDef,
+		agentKey:    req.AgentKey,
+		teamID:      req.TeamID,
+		role:        defaultRole(req.Role),
+		chatID:      req.ChatID,
+		chatName:    summary.ChatName,
+		scene:       req.Scene,
+		references:  req.References,
+		principal:   principal,
+		definition:  agentDef,
+		editingMode: editingMode,
 	})
 	if err != nil {
 		return contracts.QuerySession{}, err
@@ -179,6 +182,9 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		}
 	}
 	toolNames = agentcoder.RuntimeToolNamesForAgent(agentDef.Mode, agentDef.ACPBridgeID, agentcoder.MainStage, toolNames)
+	if editingMode {
+		toolNames = agentkbase.EditingToolNames()
+	}
 	capabilityPrompts := []string(nil)
 	if agentDef.KBaseConfig.Enabled && !strings.EqualFold(agentDef.Mode, catalog.AgentModeKBase) {
 		capabilityPrompts = append(capabilityPrompts, kbase.DefaultCapabilityPrompt)
@@ -189,6 +195,22 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		resolvedPlanExecuteSettings.Plan.Tools = appendKBaseCapabilityToolsToExplicitStage(resolvedPlanExecuteSettings.Plan.Tools)
 		resolvedPlanExecuteSettings.Execute.Tools = appendKBaseCapabilityToolsToExplicitStage(resolvedPlanExecuteSettings.Execute.Tools)
 		resolvedCoderPlanningSettings.Execute.Tools = appendKBaseCapabilityToolsToExplicitStage(resolvedCoderPlanningSettings.Execute.Tools)
+	}
+	kbaseSourceRoot := ""
+	if agentDef.KBaseConfig.Enabled {
+		kbaseSourceRoot = strings.TrimSpace(agentDef.KBaseConfig.Source.Root)
+	}
+	var scopedFilePolicy *contracts.ScopedFilePolicy
+	if agentkbase.IsMode(agentDef.Mode) {
+		scopedFilePolicy = &contracts.ScopedFilePolicy{
+			Root:                  kbaseSourceRoot,
+			AllowedExtensions:     []string{".md"},
+			AllowRead:             editingMode,
+			AllowWrite:            editingMode,
+			AllowCreate:           editingMode,
+			RequireExistingParent: true,
+			RequireUTF8:           true,
+		}
 	}
 
 	session := contracts.QuerySession{
@@ -210,6 +232,9 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		KBaseEnabled:                  agentDef.KBaseConfig.Enabled,
 		CapabilityPrompts:             capabilityPrompts,
 		PlanningMode:                  agentcoder.PlanningModeEnabled(agentDef.Mode, req.PlanningMode != nil && *req.PlanningMode),
+		EditingMode:                   editingMode,
+		KBaseSourceRoot:               kbaseSourceRoot,
+		ScopedFilePolicy:              scopedFilePolicy,
 		TeamID:                        req.TeamID,
 		Created:                       options.Created,
 		SkillKeys:                     append([]string(nil), agentDef.Skills...),

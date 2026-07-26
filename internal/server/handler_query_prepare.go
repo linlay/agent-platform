@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	agentcoder "agent-platform/internal/agent/coder"
+	agentkbase "agent-platform/internal/agent/kbase"
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
@@ -201,6 +202,18 @@ func (s *Server) prepareQueryAdmissionRequest(
 	}
 	if req.PlanningMode != nil && *req.PlanningMode && !agentcoder.IsMode(agentDef.Mode) {
 		return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: "planningMode is only supported for CODER agents"}
+	}
+	if req.EditingMode != nil && *req.EditingMode && !agentkbase.IsMode(agentDef.Mode) {
+		const code = "editing_mode_unsupported"
+		const message = "editingMode is only supported for dedicated KBASE agents"
+		return queryAdmission{}, &statusError{
+			status:  http.StatusBadRequest,
+			code:    code,
+			message: message,
+			data: map[string]any{
+				"error": map[string]any{"code": code, "message": message},
+			},
+		}
 	}
 
 	req.ChatID = chatID
@@ -816,6 +829,7 @@ func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEv
 		Params:             prepared.req.Params,
 		Model:              prepared.req.Model,
 		PlanningMode:       prepared.session.PlanningMode,
+		EditingMode:        prepared.session.EditingMode,
 		IncludeUsage:       prepared.req.IncludeUsage,
 		IncludeFullText:    prepared.req.IncludeFullText,
 		AccessLevel:        prepared.session.AccessLevel,

@@ -55,19 +55,20 @@ func buildPromptAppendConfig(global config.PromptsConfig, def catalog.AgentDefin
 }
 
 type runtimeRequestContextInput struct {
-	agentKey   string
-	teamID     string
-	role       string
-	chatID     string
-	chatName   string
-	scene      *api.Scene
-	references []api.Reference
-	principal  *Principal
-	definition catalog.AgentDefinition
+	agentKey    string
+	teamID      string
+	role        string
+	chatID      string
+	chatName    string
+	scene       *api.Scene
+	references  []api.Reference
+	principal   *Principal
+	definition  catalog.AgentDefinition
+	editingMode bool
 }
 
 func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (contracts.RuntimeRequestContext, error) {
-	workspaceRoot := effectiveLocalWorkspaceRoot(input.definition)
+	workspaceRoot := effectiveLocalWorkspaceRoot(input.definition, input.editingMode)
 	localPaths, err := resolveLocalPaths(s.deps.Config.Paths, input.chatID, input.definition.AgentDir, workspaceRoot)
 	if err != nil {
 		return contracts.RuntimeRequestContext{}, err
@@ -230,7 +231,12 @@ func buildSkillCatalogPrompt(def catalog.AgentDefinition, marketDir string, appe
 	return strings.Join(sections, "\n\n")
 }
 
-func effectiveLocalWorkspaceRoot(def catalog.AgentDefinition) string {
+func effectiveLocalWorkspaceRoot(def catalog.AgentDefinition, editingMode bool) string {
+	if editingMode && strings.EqualFold(strings.TrimSpace(def.Mode), catalog.AgentModeKBase) {
+		if root := strings.TrimSpace(def.KBaseConfig.Source.Root); root != "" {
+			return root
+		}
+	}
 	workspaceRoot := strings.TrimSpace(def.Workspace.Root)
 	if workspaceRoot == "" && !hasRuntimeSandbox(def.Runtime) && !isProxyAgentMode(def.Mode) {
 		return catalog.AgentWorkspaceRootChat

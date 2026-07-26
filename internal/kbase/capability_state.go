@@ -42,6 +42,18 @@ func (s *capabilityState) ClearFailure(agentKey string) {
 	s.mu.Unlock()
 }
 
+func (s *capabilityState) SetFailure(agentKey string, err error) {
+	if s == nil || err == nil {
+		return
+	}
+	s.mu.Lock()
+	if s.startupFailures == nil {
+		s.startupFailures = map[string]error{}
+	}
+	s.startupFailures[strings.TrimSpace(agentKey)] = err
+	s.mu.Unlock()
+}
+
 func (s *capabilityState) DegradedError(agentKey string) error {
 	if failure := s.Failure(agentKey); failure != nil {
 		return &PolicyError{Kind: ErrorUnavailable, Message: "KBASE capability is degraded: " + failure.Error()}

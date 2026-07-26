@@ -12,6 +12,7 @@ import (
 	agentcontract "agent-platform/internal/agent"
 	agentbuiltin "agent-platform/internal/agent/builtin"
 	agentcoder "agent-platform/internal/agent/coder"
+	agentkbase "agent-platform/internal/agent/kbase"
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
@@ -107,7 +108,11 @@ func BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryReques
 		return []contracts.SystemInitProfile{buildDefaultSystemInitProfile(session, req, toolDefs, "oneshot")}
 	default:
 		if descriptor, ok := agentbuiltin.Lookup(session.Mode); ok {
-			return []contracts.SystemInitProfile{buildDefaultSystemInitProfile(session, req, toolDefs, descriptor.MainStage)}
+			stage := descriptor.MainStage
+			if agentkbase.IsMode(session.Mode) {
+				stage = agentkbase.RuntimeStage(session.EditingMode)
+			}
+			return []contracts.SystemInitProfile{buildDefaultSystemInitProfile(session, req, toolDefs, stage)}
 		}
 		stage := "react"
 		if strings.TrimSpace(session.Mode) == "" {
@@ -185,6 +190,9 @@ func profileRuntimeStage(session contracts.QuerySession, profile contracts.Syste
 			return agentcoder.ExecuteStage
 		}
 	}
+	if mode == agentkbase.MainStage && stage == "editing" {
+		return agentkbase.EditingStage
+	}
 	return stage
 }
 
@@ -252,6 +260,9 @@ func SystemInitCacheKey(mode string, stage string) string {
 	if normalizedMode == agentcoder.MainStage {
 		return agentcoder.SystemInitCacheKey(stage)
 	}
+	if normalizedMode == agentkbase.MainStage {
+		return agentkbase.SystemInitCacheKey(stage)
+	}
 	if descriptor, ok := agentbuiltin.Lookup(mode); ok {
 		return descriptor.MainCacheKey
 	}
@@ -296,6 +307,11 @@ func ComputeSystemInitFingerprint(session contracts.QuerySession, stage string, 
 		"toolDefinitions":               stableToolDefinitions(toolDefs),
 		"teamRuntime":                   session.TeamRuntime,
 	}
+	if session.EditingMode {
+		payload["editingMode"] = true
+		payload["kbaseSourceRoot"] = session.KBaseSourceRoot
+		payload["scopedFilePolicy"] = session.ScopedFilePolicy
+	}
 	raw, _ := json.Marshal(payload)
 	sum := sha256.Sum256(raw)
 	return "sha256:" + hex.EncodeToString(sum[:])
@@ -320,11 +336,14 @@ func buildDefaultSystemInitProfile(session contracts.QuerySession, req api.Query
 		Tools:         openAIToolSpecsToAny(specs),
 		Initial:       true,
 	}
-	if spec, ok := agentbuiltin.MainSystemInitSpec(session.Mode); ok {
+	if spec, ok := agentbuiltin.SystemInitSpec(session.Mode, session.EditingMode); ok {
 		profile.CacheKey = spec.CacheKey
 		profile.Mode = spec.Mode
 		profile.Stage = spec.Stage
 		profile.Initial = spec.Initial
+		if agentkbase.IsMode(session.Mode) && session.EditingMode {
+			profile.Fingerprint = ComputeSystemInitFingerprint(session, spec.FingerprintStage, effectiveDefs)
+		}
 	}
 	return profile
 }

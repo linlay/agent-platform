@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
@@ -23,15 +24,22 @@ import (
 )
 
 func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
-	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessPolicySessionWithFallback(execCtx, t.cfg.FileTools.WorkingDirectory), filetools.ReadAccess, stringArg(args, "file_path"))
+	accessSession := accessPolicySessionWithFallback(execCtx, t.cfg.FileTools.WorkingDirectory)
+	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessSession, filetools.ReadAccess, stringArg(args, "file_path"))
 	if err != nil {
 		return fileToolError("file_read_invalid_path", err.Error()), nil
 	}
 	if access.Blocked {
 		return fileToolError("file_read_path_blocked", access.Reason), nil
 	}
+	if err := filetools.ValidateScopedRawPath(accessSession, access.RawPath); err != nil {
+		return scopedFileToolError(err), nil
+	}
 	if filetools.IsBlockedDeviceFile(access.Path) {
 		return fileToolError("file_read_device_blocked", "device file is blocked"), nil
+	}
+	if err := filetools.ValidateScopedRead(accessSession, access.Path, false); err != nil {
+		return scopedFileToolError(err), nil
 	}
 	if !access.AllowedByWhitelist && !access.AutoApproved && !filetools.ConsumeReadApproval(execCtx, access) {
 		return fileAccessApprovalRequired("file_read_approval_required", "read超出允许目录", access), nil
@@ -94,6 +102,18 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 	}
 	if filetools.IsBinaryExtension(resolved.Path) {
 		return fileToolError("file_read_binary_unsupported", "binary file extension is not supported by read"), nil
+	}
+	if filetools.ScopedFilePolicyRequiresUTF8(accessSession) {
+		if requestedEncoding != "" && !strings.EqualFold(requestedEncoding, "utf-8") && !strings.EqualFold(requestedEncoding, "utf8") {
+			return fileToolError("kbase_editing_encoding_unsupported", "KBASE editing v1 only supports UTF-8 Markdown files"), nil
+		}
+		raw, readErr := os.ReadFile(resolved.Path)
+		if readErr != nil {
+			return fileToolError("file_read_failed", readErr.Error()), nil
+		}
+		if !utf8.Valid(raw) {
+			return fileToolError("kbase_editing_encoding_unsupported", "KBASE editing v1 only supports UTF-8 Markdown files"), nil
+		}
 	}
 
 	maxBytes := maxInt(t.cfg.FileTools.MaxReadBytes, 1<<20)
@@ -169,12 +189,19 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 
 func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	accessCfg := t.sessionFileToolsConfig(filetools.WriteAccess, execCtx)
-	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessPolicySessionWithFallback(execCtx, accessCfg.WorkingDirectory), filetools.WriteAccess, stringArg(args, "file_path"))
+	accessSession := accessPolicySessionWithFallback(execCtx, accessCfg.WorkingDirectory)
+	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessSession, filetools.WriteAccess, stringArg(args, "file_path"))
 	if err != nil {
 		return fileToolError("file_write_invalid_plan", err.Error()), nil
 	}
 	if access.Blocked {
 		return fileToolError("file_write_path_blocked", access.Reason), nil
+	}
+	if err := filetools.ValidateScopedRawPath(accessSession, access.RawPath); err != nil {
+		return scopedFileToolError(err), nil
+	}
+	if err := filetools.ValidateScopedWrite(accessSession, access.Path); err != nil {
+		return scopedFileToolError(err), nil
 	}
 	if !access.AllowedByWhitelist && !access.AutoApproved && !filetools.ConsumeAccessApproval(execCtx, access) {
 		return fileAccessApprovalRequired("file_write_path_approval_required", "write超出允许目录", access), nil
@@ -182,6 +209,16 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 	plan, err := filetools.BuildWritePlanWithAccess(access, accessCfg, args)
 	if err != nil {
 		return fileToolError("file_write_invalid_plan", err.Error()), nil
+	}
+	scopedPolicy := accessSession.ScopedFilePolicy != nil
+	scopedUTF8 := filetools.ScopedFilePolicyRequiresUTF8(accessSession)
+	if scopedUTF8 {
+		if plan.Encoding != "" && !strings.EqualFold(plan.Encoding, "utf-8") && !strings.EqualFold(plan.Encoding, "utf8") {
+			return fileToolError("kbase_editing_encoding_unsupported", "KBASE editing v1 only supports UTF-8 Markdown files"), nil
+		}
+		if !utf8.Valid(plan.Content) {
+			return fileToolError("kbase_editing_encoding_unsupported", "KBASE editing v1 only supports UTF-8 Markdown content"), nil
+		}
 	}
 	requiresWriteApproval := t.cfg.FileTools.RequireWriteApproval && !writeAllowedBySessionHostAccess(execCtx, plan.FilePath) && !writeAllowedBySessionWorkspace(execCtx, plan.FilePath) && !writeAutoApprovedByAccessLevel(access)
 	if requiresWriteApproval && !filetools.ConsumeWriteApproval(execCtx, plan) {
@@ -196,7 +233,7 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 		result.Error = "file_write_approval_required"
 		return result, nil
 	}
-	if t.cfg.FileTools.RequireReadBeforeWrite {
+	if t.cfg.FileTools.RequireReadBeforeWrite || scopedPolicy {
 		if result, ok := t.validateReadBeforeWrite(plan.FilePath, execCtx); ok {
 			return result, nil
 		}
@@ -210,6 +247,9 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 		if err != nil {
 			return fileToolError("file_write_failed", err.Error()), nil
 		}
+		if scopedUTF8 && !utf8.Valid(data) {
+			return fileToolError("kbase_editing_encoding_unsupported", "KBASE editing v1 only supports UTF-8 Markdown files"), nil
+		}
 		beforeRaw = data
 		if decoded, ok, _ := textcodec.DecodeFileText(data, "", t.runtimeInfo()); ok {
 			beforeContent = decoded.Content
@@ -219,7 +259,9 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 		}
 	}
 	writeEncoding := strings.TrimSpace(plan.Encoding)
-	if writeEncoding == "" {
+	if scopedUTF8 {
+		writeEncoding = "utf-8"
+	} else if writeEncoding == "" {
 		writeEncoding = "utf-8"
 		if beforeExists && beforeEncoding != "utf-8" {
 			writeEncoding = beforeEncoding
@@ -233,7 +275,11 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 	if len(writeBytes) > maxInt(t.cfg.FileTools.MaxWriteBytes, 1<<20) {
 		return fileToolError("file_write_invalid_plan", "encoded content exceeds max write bytes"), nil
 	}
-	if err := os.MkdirAll(filepath.Dir(plan.FilePath), 0o755); err != nil {
+	if scopedPolicy {
+		if err := filetools.ValidateScopedWrite(accessSession, plan.FilePath); err != nil {
+			return scopedFileToolError(err), nil
+		}
+	} else if err := os.MkdirAll(filepath.Dir(plan.FilePath), 0o755); err != nil {
 		return fileToolError("file_write_failed", err.Error()), nil
 	}
 	if err := atomicWriteFile(plan.FilePath, writeBytes); err != nil {
@@ -266,19 +312,24 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 	}
 	appendAccessPolicyMetadata(payload, access)
 	t.appendFileChangeHookResults(ctx, execCtx, payload, FileChangeEvent{
-		WorkspaceRoot: fileChangeWorkspaceRoot(execCtx),
-		FilePath:      plan.FilePath,
-		Operation:     "write",
-		ContentSHA256: after,
-		Content:       append([]byte(nil), writeBytes...),
-		LineStats:     lineStats,
+		AgentKey:              fileChangeAgentKey(execCtx),
+		ChatID:                fileChangeChatID(execCtx),
+		RunID:                 fileChangeRunID(execCtx),
+		WorkspaceRoot:         fileChangeWorkspaceRoot(execCtx),
+		FilePath:              plan.FilePath,
+		Operation:             "write",
+		PreviousContentSHA256: before,
+		ContentSHA256:         after,
+		Content:               append([]byte(nil), writeBytes...),
+		LineStats:             lineStats,
 	})
 	return structuredResult(payload), nil
 }
 
 func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	accessCfg := t.sessionFileToolsConfig(filetools.WriteAccess, execCtx)
-	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessPolicySessionWithFallback(execCtx, accessCfg.WorkingDirectory), filetools.WriteAccess, stringArg(args, "file_path"))
+	accessSession := accessPolicySessionWithFallback(execCtx, accessCfg.WorkingDirectory)
+	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessSession, filetools.WriteAccess, stringArg(args, "file_path"))
 	if err != nil {
 		return fileToolError("file_edit_invalid_plan", err.Error()), nil
 	}
@@ -286,12 +337,23 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 	if access.Blocked {
 		return fileToolError("file_edit_path_blocked", access.Reason), nil
 	}
+	if err := filetools.ValidateScopedRawPath(accessSession, access.RawPath); err != nil {
+		return scopedFileToolError(err), nil
+	}
+	if err := filetools.ValidateScopedWrite(accessSession, access.Path); err != nil {
+		return scopedFileToolError(err), nil
+	}
 	if !access.AllowedByWhitelist && !access.AutoApproved && !filetools.ConsumeAccessApproval(execCtx, access) {
 		return fileAccessApprovalRequired("file_edit_path_approval_required", "edit超出允许目录", access), nil
 	}
 	plan, err := filetools.BuildEditPlanWithAccess(access, accessCfg, args)
 	if err != nil {
 		return fileToolError("file_edit_invalid_plan", err.Error()), nil
+	}
+	scopedPolicy := accessSession.ScopedFilePolicy != nil
+	scopedUTF8 := filetools.ScopedFilePolicyRequiresUTF8(accessSession)
+	if scopedUTF8 && plan.Encoding != "" && !strings.EqualFold(plan.Encoding, "utf-8") && !strings.EqualFold(plan.Encoding, "utf8") {
+		return fileToolError("kbase_editing_encoding_unsupported", "KBASE editing v1 only supports UTF-8 Markdown files"), nil
 	}
 	requiresWriteApproval := t.cfg.FileTools.RequireWriteApproval && !writeAllowedBySessionHostAccess(execCtx, plan.FilePath) && !writeAllowedBySessionWorkspace(execCtx, plan.FilePath) && !writeAutoApprovedByAccessLevel(access)
 	if requiresWriteApproval && !filetools.ConsumeWriteApproval(execCtx, plan) {
@@ -306,7 +368,7 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 		result.Error = "file_edit_approval_required"
 		return result, nil
 	}
-	if t.cfg.FileTools.RequireReadBeforeWrite {
+	if t.cfg.FileTools.RequireReadBeforeWrite || scopedPolicy {
 		if result, ok := t.validateReadBeforeFileMutation(plan.FilePath, execCtx, "file_edit"); ok {
 			return result, nil
 		}
@@ -332,6 +394,9 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 		if err != nil {
 			return fileToolError("file_edit_failed", err.Error()), nil
 		}
+		if scopedUTF8 && !utf8.Valid(data) {
+			return fileToolError("kbase_editing_encoding_unsupported", "KBASE editing v1 only supports UTF-8 Markdown files"), nil
+		}
 		currentRaw = data
 		decoded, ok, decodeErr := textcodec.DecodeFileText(data, plan.Encoding, t.runtimeInfo())
 		if decodeErr != nil {
@@ -346,6 +411,9 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 		return fileToolError("file_edit_file_not_found", "file does not exist and old_string is not empty"), nil
 	}
 	if strings.TrimSpace(currentEncoding) == "" {
+		currentEncoding = "utf-8"
+	}
+	if scopedUTF8 {
 		currentEncoding = "utf-8"
 	}
 
@@ -382,6 +450,9 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 	if lineEndings == "CRLF" {
 		updatedContent = strings.ReplaceAll(updatedContent, "\n", "\r\n")
 	}
+	if scopedUTF8 && !utf8.ValidString(updatedContent) {
+		return fileToolError("kbase_editing_encoding_unsupported", "KBASE editing v1 only supports UTF-8 Markdown content"), nil
+	}
 	updatedBytes, currentEncoding, err := textcodec.EncodeFileText(updatedContent, currentEncoding)
 	if err != nil {
 		return fileToolError("file_edit_invalid_encoding", err.Error()), nil
@@ -389,7 +460,11 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 	if len(updatedBytes) > maxInt(t.cfg.FileTools.MaxWriteBytes, 1<<20) {
 		return fileToolError("file_edit_content_too_large", "edited content exceeds max write bytes"), nil
 	}
-	if err := os.MkdirAll(filepath.Dir(plan.FilePath), 0o755); err != nil {
+	if scopedPolicy {
+		if err := filetools.ValidateScopedWrite(accessSession, plan.FilePath); err != nil {
+			return scopedFileToolError(err), nil
+		}
+	} else if err := os.MkdirAll(filepath.Dir(plan.FilePath), 0o755); err != nil {
 		return fileToolError("file_edit_failed", err.Error()), nil
 	}
 	if err := atomicWriteFile(plan.FilePath, updatedBytes); err != nil {
@@ -422,12 +497,16 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 	}
 	appendAccessPolicyMetadata(payload, access)
 	t.appendFileChangeHookResults(ctx, execCtx, payload, FileChangeEvent{
-		WorkspaceRoot: fileChangeWorkspaceRoot(execCtx),
-		FilePath:      plan.FilePath,
-		Operation:     "edit",
-		ContentSHA256: after,
-		Content:       append([]byte(nil), updatedBytes...),
-		LineStats:     lineStats,
+		AgentKey:              fileChangeAgentKey(execCtx),
+		ChatID:                fileChangeChatID(execCtx),
+		RunID:                 fileChangeRunID(execCtx),
+		WorkspaceRoot:         fileChangeWorkspaceRoot(execCtx),
+		FilePath:              plan.FilePath,
+		Operation:             "edit",
+		PreviousContentSHA256: before,
+		ContentSHA256:         after,
+		Content:               append([]byte(nil), updatedBytes...),
+		LineStats:             lineStats,
 	})
 	return structuredResult(payload), nil
 }
@@ -447,11 +526,58 @@ func (t *RuntimeToolExecutor) appendFileChangeHookResults(ctx context.Context, e
 		if hook == nil {
 			continue
 		}
-		results = append(results, hook.AfterFileChange(ctx, event))
+		result := hook.AfterFileChange(ctx, event)
+		if fileChangeHookResultEmpty(result) {
+			continue
+		}
+		results = append(results, result)
 	}
 	if len(results) > 0 {
 		payload["hooks"] = results
 	}
+}
+
+func scopedFileToolError(err error) ToolExecutionResult {
+	code := filetools.ScopedPolicyErrorCode(err)
+	if code == "" {
+		code = "kbase_editing_policy_rejected"
+	}
+	return fileToolError(code, err.Error())
+}
+
+func fileChangeHookResultEmpty(result FileChangeHookResult) bool {
+	return strings.TrimSpace(result.Name) == "" &&
+		strings.TrimSpace(result.Status) == "" &&
+		strings.TrimSpace(result.LanguageID) == "" &&
+		strings.TrimSpace(result.FilePath) == "" &&
+		len(result.Diagnostics) == 0 &&
+		strings.TrimSpace(result.Reason) == "" &&
+		strings.TrimSpace(result.Message) == "" &&
+		len(result.Data) == 0
+}
+
+func fileChangeAgentKey(execCtx *ExecutionContext) string {
+	if execCtx == nil {
+		return ""
+	}
+	if value := strings.TrimSpace(execCtx.Session.AgentKey); value != "" {
+		return value
+	}
+	return strings.TrimSpace(execCtx.Request.AgentKey)
+}
+
+func fileChangeChatID(execCtx *ExecutionContext) string {
+	if execCtx == nil {
+		return ""
+	}
+	return strings.TrimSpace(execCtx.Request.ChatID)
+}
+
+func fileChangeRunID(execCtx *ExecutionContext) string {
+	if execCtx == nil {
+		return ""
+	}
+	return strings.TrimSpace(execCtx.Request.RunID)
 }
 
 func fileChangeWorkspaceRoot(execCtx *ExecutionContext) string {

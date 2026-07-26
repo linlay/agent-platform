@@ -33,15 +33,22 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 	if rawPath == "" {
 		rawPath = "."
 	}
-	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessPolicySessionWithFallback(execCtx, t.cfg.FileTools.WorkingDirectory), filetools.ReadAccess, rawPath)
+	accessSession := accessPolicySessionWithFallback(execCtx, t.cfg.FileTools.WorkingDirectory)
+	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessSession, filetools.ReadAccess, rawPath)
 	if err != nil {
 		return fileToolError("grep_invalid_path", err.Error()), nil
 	}
 	if access.Blocked {
 		return fileToolError("grep_path_blocked", access.Reason), nil
 	}
+	if err := filetools.ValidateScopedRawPath(accessSession, access.RawPath); err != nil {
+		return scopedFileToolError(err), nil
+	}
 	if filetools.IsBlockedDeviceFile(access.Path) {
 		return fileToolError("file_read_device_blocked", "device file is blocked"), nil
+	}
+	if err := filetools.ValidateScopedRead(accessSession, access.Path, true); err != nil {
+		return scopedFileToolError(err), nil
 	}
 	if !access.AllowedByWhitelist && !access.AutoApproved && !filetools.ConsumeReadApproval(execCtx, access) {
 		return fileAccessApprovalRequired("file_read_approval_required", "grep超出允许目录", access), nil
@@ -73,6 +80,9 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 		"--glob", "!.jj",
 		"--glob", "!.sl",
 	}
+	if accessSession.ScopedFilePolicy != nil {
+		rgArgs = append(rgArgs, "--type-add", "kbasemd:*.[mM][dD]", "--type", "kbasemd")
+	}
 	switch mode {
 	case "files_with_matches":
 		rgArgs = append(rgArgs, "-l")
@@ -97,7 +107,7 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 	if glob := strings.TrimSpace(stringArg(args, "glob")); glob != "" {
 		rgArgs = append(rgArgs, "--glob", glob)
 	}
-	if typ := strings.TrimSpace(stringArg(args, "type")); typ != "" {
+	if typ := strings.TrimSpace(stringArg(args, "type")); typ != "" && accessSession.ScopedFilePolicy == nil {
 		rgArgs = append(rgArgs, "--type", typ)
 	}
 	if strings.HasPrefix(pattern, "-") {

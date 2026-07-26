@@ -148,13 +148,17 @@ type FileChangeHook interface {
 }
 
 type FileChangeEvent struct {
-	WorkspaceRoot string
-	FilePath      string
-	Operation     string
-	LanguageID    string
-	ContentSHA256 string
-	Content       []byte
-	LineStats     LineDiffStats
+	AgentKey              string
+	ChatID                string
+	RunID                 string
+	WorkspaceRoot         string
+	FilePath              string
+	Operation             string
+	LanguageID            string
+	PreviousContentSHA256 string
+	ContentSHA256         string
+	Content               []byte
+	LineStats             LineDiffStats
 }
 
 type LineDiffStats struct {
@@ -171,6 +175,7 @@ type FileChangeHookResult struct {
 	Diagnostics []LSPDiagnostic `json:"diagnostics,omitempty"`
 	Reason      string          `json:"reason,omitempty"`
 	Message     string          `json:"message,omitempty"`
+	Data        map[string]any  `json:"data,omitempty"`
 }
 
 type LSPDiagnostic struct {
@@ -261,6 +266,9 @@ type QuerySession struct {
 	KBaseEnabled                  bool
 	CapabilityPrompts             []string
 	PlanningMode                  bool
+	EditingMode                   bool
+	KBaseSourceRoot               string
+	ScopedFilePolicy              *ScopedFilePolicy
 	TeamID                        string
 	Created                       bool
 	Subject                       string
@@ -329,6 +337,19 @@ type SandboxExtraMount struct {
 	Source      string
 	Destination string
 	Mode        string
+}
+
+// ScopedFilePolicy is a run-scoped hard ceiling for structured file tools.
+// Global access levels and approvals may make access stricter, but can never
+// widen this boundary.
+type ScopedFilePolicy struct {
+	Root                  string
+	AllowedExtensions     []string
+	AllowRead             bool
+	AllowWrite            bool
+	AllowCreate           bool
+	RequireExistingParent bool
+	RequireUTF8           bool
 }
 
 type HostAccessRoots struct {
@@ -506,6 +527,7 @@ type ActiveRun struct {
 	TeamID            string
 	ExecutionAgentKey string
 	ScopeID           string
+	EditingMode       bool
 }
 
 type RunStatusInfo struct {
@@ -522,6 +544,7 @@ type RunStatusInfo struct {
 	CompletedAt        int64
 	AccessLevel        string
 	AccessLevelVersion int64
+	EditingMode        bool
 	AgentRunOrigin     *AgentRunOrigin `json:"-"`
 }
 

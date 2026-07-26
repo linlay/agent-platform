@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	agentcoder "agent-platform/internal/agent/coder"
+	agentkbase "agent-platform/internal/agent/kbase"
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
@@ -48,6 +49,29 @@ func TestSystemInitFingerprintIgnoresRequestDynamicContext(t *testing.T) {
 	second := ComputeSystemInitFingerprint(changed, "main", tools)
 	if first != second {
 		t.Fatalf("expected dynamic request context to be excluded, got %q and %q", first, second)
+	}
+}
+
+func TestKBaseReadOnlyFingerprintIgnoresEditingPolicySnapshot(t *testing.T) {
+	session := fingerprintTestSession()
+	session.Mode = agentkbase.Mode
+	session.KBaseEnabled = true
+	changed := session
+	changed.KBaseSourceRoot = "/knowledge"
+	changed.ScopedFilePolicy = &contracts.ScopedFilePolicy{
+		Root:                  "/knowledge",
+		AllowedExtensions:     []string{".md"},
+		RequireExistingParent: true,
+		RequireUTF8:           true,
+	}
+	tools := []api.ToolDetailResponse{{Name: "kbase_search", Description: "search"}}
+	if first, second := ComputeSystemInitFingerprint(session, "main", tools), ComputeSystemInitFingerprint(changed, "main", tools); first != second {
+		t.Fatalf("read-only KBASE fingerprint must remain unchanged, got %q and %q", first, second)
+	}
+
+	changed.EditingMode = true
+	if first, second := ComputeSystemInitFingerprint(session, "main", tools), ComputeSystemInitFingerprint(changed, "main", tools); first == second {
+		t.Fatal("editing KBASE fingerprint must include the editing policy snapshot")
 	}
 }
 
@@ -412,6 +436,35 @@ func TestKBaseSystemPromptChangesFingerprint(t *testing.T) {
 	second := ComputeSystemInitFingerprint(session, "main", toolDefs)
 	if first == second {
 		t.Fatalf("expected kbase system prompt change to update fingerprint")
+	}
+}
+
+func TestKBaseEditingBuildsIndependentSystemInitProfile(t *testing.T) {
+	session := fingerprintTestSession()
+	session.Mode = "KBASE"
+	session.EditingMode = true
+	session.KBaseSourceRoot = "/knowledge"
+	session.ToolNames = agentkbase.EditingToolNames()
+	session.ScopedFilePolicy = &contracts.ScopedFilePolicy{
+		Root: "/knowledge", AllowedExtensions: []string{".md"},
+		AllowRead: true, AllowWrite: true, AllowCreate: true, RequireUTF8: true,
+	}
+	toolDefs := make([]api.ToolDetailResponse, 0, len(session.ToolNames)+1)
+	for _, name := range append(append([]string(nil), session.ToolNames...), "bash") {
+		toolDefs = append(toolDefs, api.ToolDetailResponse{Name: name, Description: name})
+	}
+
+	profiles := BuildSystemInitProfiles(session, api.QueryRequest{Message: "edit policy"}, toolDefs, 12, 4, 12, config.PromptsConfig{})
+	if len(profiles) != 1 {
+		t.Fatalf("expected one editing profile, got %#v", profiles)
+	}
+	profile := profiles[0]
+	if profile.CacheKey != agentkbase.EditingCacheKey || profile.Mode != agentkbase.MainStage || profile.Stage != "editing" {
+		t.Fatalf("unexpected editing profile: %#v", profile)
+	}
+	assertToolNames(t, profile.Tools, agentkbase.EditingToolNames())
+	if !strings.Contains(profile.SystemMessage["content"].(string), "KBASE Editing Mode") {
+		t.Fatalf("editing prompt missing from profile: %#v", profile.SystemMessage)
 	}
 }
 

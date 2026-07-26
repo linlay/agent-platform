@@ -46,6 +46,28 @@ func TestAgentFileEndpointReadsCoderAndKBaseWorkspaceFiles(t *testing.T) {
 	}
 }
 
+func TestOpenDirectoryUsesDedicatedKBaseSourceRoot(t *testing.T) {
+	fixture, _, kbaseSourceRoot := newAgentFileTestFixture(t)
+	openedPath := ""
+	previousOpen := openDirectoryPath
+	openDirectoryPath = func(path string) error {
+		openedPath = path
+		return nil
+	}
+	t.Cleanup(func() { openDirectoryPath = previousOpen })
+
+	response, err := fixture.server.openAgentDirectory(api.OpenAgentDirectoryRequest{
+		AgentKey: "kbase-file", DirectoryType: "workspace",
+	})
+	if err != nil {
+		t.Fatalf("open KBASE source directory: %v", err)
+	}
+	want := filepath.Clean(kbaseSourceRoot)
+	if !response.Opened || response.DirectoryPath != want || openedPath != want {
+		t.Fatalf("unexpected KBASE open-directory response=%#v openedPath=%q want=%q", response, openedPath, want)
+	}
+}
+
 func TestAgentFileEndpointSupportsAbsolutePathAndContentResponse(t *testing.T) {
 	fixture, coderWorkspace, _ := newAgentFileTestFixture(t)
 	absPath := filepath.Join(coderWorkspace, "docs", "hello.md")
@@ -356,15 +378,26 @@ func newAgentFileTestFixture(t *testing.T) (testFixture, string, string) {
 
 func writeAgentFileTestAgent(t *testing.T, path string, key string, mode string, workspace string) {
 	t.Helper()
-	content := strings.Join([]string{
+	lines := []string{
 		"key: " + key,
 		"name: " + key,
 		"mode: " + mode,
 		"modelConfig:",
 		"  modelKey: mock-model",
-		"runtimeConfig:",
-		"  workspaceRoot: " + filepath.ToSlash(workspace),
-	}, "\n") + "\n"
+	}
+	if strings.EqualFold(mode, "KBASE") {
+		lines = append(lines,
+			"kbaseConfig:",
+			"  source:",
+			"    root: "+filepath.ToSlash(workspace),
+		)
+	} else {
+		lines = append(lines,
+			"runtimeConfig:",
+			"  workspaceRoot: "+filepath.ToSlash(workspace),
+		)
+	}
+	content := strings.Join(lines, "\n") + "\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent %s: %v", key, err)
 	}

@@ -24,15 +24,22 @@ func (t *RuntimeToolExecutor) invokeGlob(ctx context.Context, args map[string]an
 	if rawPath == "" {
 		rawPath = "."
 	}
-	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessPolicySessionWithFallback(execCtx, t.cfg.FileTools.WorkingDirectory), filetools.ReadAccess, rawPath)
+	accessSession := accessPolicySessionWithFallback(execCtx, t.cfg.FileTools.WorkingDirectory)
+	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessSession, filetools.ReadAccess, rawPath)
 	if err != nil {
 		return fileToolError("glob_invalid_path", err.Error()), nil
 	}
 	if access.Blocked {
 		return fileToolError("glob_path_blocked", access.Reason), nil
 	}
+	if err := filetools.ValidateScopedRawPath(accessSession, access.RawPath); err != nil {
+		return scopedFileToolError(err), nil
+	}
 	if filetools.IsBlockedDeviceFile(access.Path) {
 		return fileToolError("file_read_device_blocked", "device file is blocked"), nil
+	}
+	if err := filetools.ValidateScopedRead(accessSession, access.Path, true); err != nil {
+		return scopedFileToolError(err), nil
 	}
 	if !access.AllowedByWhitelist && !access.AutoApproved && !filetools.ConsumeReadApproval(execCtx, access) {
 		return fileAccessApprovalRequired("file_read_approval_required", "glob超出允许目录", access), nil
@@ -63,9 +70,11 @@ func (t *RuntimeToolExecutor) invokeGlob(ctx context.Context, args map[string]an
 		"--glob", "!.bzr",
 		"--glob", "!.jj",
 		"--glob", "!.sl",
-		"--glob", pattern,
-		resolved.Path,
 	}
+	if accessSession.ScopedFilePolicy != nil {
+		rgArgs = append(rgArgs, "--type-add", "kbasemd:*.[mM][dD]", "--type", "kbasemd")
+	}
+	rgArgs = append(rgArgs, "--glob", pattern, resolved.Path)
 	cmd := exec.CommandContext(ctx, rgPath, rgArgs...)
 	cmd.Env = mergeCommandEnv(execCtx)
 	var stdout bytes.Buffer
@@ -98,6 +107,16 @@ func (t *RuntimeToolExecutor) invokeGlob(ctx context.Context, args map[string]an
 	}
 
 	lines := splitOutputLines(out)
+	if accessSession.ScopedFilePolicy != nil {
+		filtered := make([]string, 0, len(lines))
+		for _, line := range lines {
+			if filetools.ScopedPathAllowed(accessSession, line, false) {
+				filtered = append(filtered, line)
+			}
+		}
+		lines = filtered
+		out = strings.Join(lines, "\n")
+	}
 	sortGrepFiles(lines)
 	offset := numericArg(args, "offset")
 	if offset < 0 {

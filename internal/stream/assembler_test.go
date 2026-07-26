@@ -44,6 +44,23 @@ func TestAssemblerBootstrapAndComplete(t *testing.T) {
 	}
 }
 
+func TestAssemblerBootstrapPreservesEditingModeOnlyWhenEnabled(t *testing.T) {
+	editing := NewAssembler(StreamRequest{
+		RequestID: "req_edit", RunID: "run_edit", ChatID: "chat_edit",
+		AgentKey: "docs", Message: "edit", Role: "user", EditingMode: true,
+	}).Bootstrap()[0].ToData()
+	if editing["editingMode"] != true {
+		t.Fatalf("expected editingMode=true in request.query, got %#v", editing)
+	}
+	readOnly := NewAssembler(StreamRequest{
+		RequestID: "req_read", RunID: "run_read", ChatID: "chat_read",
+		AgentKey: "docs", Message: "read", Role: "user",
+	}).Bootstrap()[0].ToData()
+	if _, ok := readOnly["editingMode"]; ok {
+		t.Fatalf("editingMode=false must be omitted, got %#v", readOnly)
+	}
+}
+
 func TestAssemblerBootstrapSkipsChatStartForExistingChat(t *testing.T) {
 	assembler := NewAssembler(StreamRequest{
 		RequestID: "req_2",

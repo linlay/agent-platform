@@ -113,6 +113,13 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 	if execCtx != nil && execCtx.ReadFileState == nil {
 		execCtx.ReadFileState = map[string]ReadFileSnapshot{}
 	}
+	if execCtx != nil && execCtx.Session.ScopedFilePolicy != nil && !sessionToolAllowed(execCtx.Session.ToolNames, toolName) {
+		return ToolExecutionResult{
+			Output:   "tool is outside the dedicated KBASE run tool set",
+			Error:    "kbase_editing_tool_unsupported",
+			ExitCode: -1,
+		}, nil
+	}
 	switch strings.TrimSpace(toolName) {
 	case "agent_delegate":
 		return ToolExecutionResult{Output: "agent_delegate is only executed by an orchestrated Team coordinator", Error: "internal_tool_only", ExitCode: -1}, nil
@@ -191,6 +198,16 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 			ExitCode: -1,
 		}, nil
 	}
+}
+
+func sessionToolAllowed(toolNames []string, requested string) bool {
+	requested = strings.TrimSpace(requested)
+	for _, toolName := range toolNames {
+		if strings.TrimSpace(toolName) == requested {
+			return true
+		}
+	}
+	return false
 }
 
 func hasRuntimeSandbox(session QuerySession) bool {

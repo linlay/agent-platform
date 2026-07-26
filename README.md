@@ -52,6 +52,7 @@
 - `POST /api/submit` 使用 awaiting 协议：请求体必须包含 `runId`、`awaitingId`，并按 run 类型携带 `agentKey` 或 `teamId`。
 - 文件传输按“HTTP 数据面 + WebSocket 控制面”划分：浏览器上传继续使用 `POST /api/upload`，下载继续使用 `GET /api/resource?file=...`；upload ticket 中的 `path` 是智能体执行环境内的可读路径，`url` 只用于平台资源访问；`/ws` 只传文件引用与状态，不承载文件字节。当前 `/ws` 的 `/api/upload` 仅支持网关发送 `url + metadata`，由 platform 再通过 HTTP 拉取文件并落盘。
 - 文件工具的 `file_read` / `file_glob` / `file_grep` 与 `file_write` / `file_edit` 白名单独立于 bash allowed paths，默认均为 `.,/tmp`；越权访问会走 `mode=approval`，可单次批准或用 `approve_rule_run` 在当前 run 内批准同一规则。
+- 专用 `mode: KBASE` 可在单次 `/api/query` 顶层传 `editingMode:true`，临时获得限制在 `kbaseConfig.source.root` 内的 Markdown 读、查找、新建和修改能力；写入后同步执行 KBASE 增量 refresh。普通 Agent 附加的 KBASE capability 与其他 mode 不支持该字段。
 
 当前仍未与 Java 版完全对齐的能力主要集中在 frontend tool 完整闭环、MCP 全量生产验证，以及更深层的 memory / automation 执行编排细节；MCP 的 HTTP/stdio client、严格 `2025-11-25` 版本校验、session 生命周期与 tool sync 已接通。
 
@@ -338,6 +339,8 @@ npm run sync:assets
 KBASE 已下沉为可组合的 Agent 公共能力：`mode: KBASE` 仍是强制启用、严格工具边界的专用预设，`REACT`、`PLAN-EXECUTE` 和原生非 ACP `CODER` 也可以通过 `kbaseConfig.enabled: true` 挂载同一套索引、watcher、检索和引用能力。目录式 Agent 可将 `kbaseConfig.source.root` 写成相对 `agent.yml` 的路径，适合把可迁移文档放在 Agent 自身的 `knowledge/` 中；平铺 Agent 必须使用绝对路径或 `~/...`。完整配置和兼容矩阵见 [智能体配置说明](./docs/智能体配置说明.md)。
 
 KBASE 固定使用 LanceDB generation 检索；SQLite `control.db` 只保存 generation、文件状态、refresh run 和恢复日志，不保存检索数据。SQLite runtime store 仅支持当前 schema：启动时仅会认领标记为 `application_id=0,user_version=0` 且完整结构匹配的库，其余库不会被迁移或改写。专用 `mode: KBASE` 的存储不匹配会隔离该 Agent；普通 Agent 的附加知识库会保留 Agent 可运行并把能力标为 degraded。详见 [KBASE LanceDB 检索与控制面](./docs/KBASE-LanceDB迁移.md)。当前 KBASE 仍只生成文本 chunk 与文本 embedding，不宣称具备图片、音频或视频语义检索。
+
+KBASE Editing v1 只开放 UTF-8 `.md` 文件，不支持 `.markdown`、删除、重命名、建目录、Bash 或二进制 Office/PDF 通用写入。其 run 授权、硬路径边界、同步索引结果和 WebClient 接入约定见 [KBASE 编辑模式](./docs/KBASE编辑模式.md)。
 
 ## 5. 运维
 

@@ -11,6 +11,7 @@ type PromptContext struct {
 	AgentName          string
 	Mode               string
 	PlanningMode       bool
+	EditingMode        bool
 	WorkspaceDir       string
 	ChatDir            string
 	AvailableTools     []string
@@ -37,6 +38,7 @@ func CommonPromptValues(ctx PromptContext) map[string]string {
 		"agent_name":          strings.TrimSpace(ctx.AgentName),
 		"mode":                strings.TrimSpace(ctx.Mode),
 		"planning_mode":       fmt.Sprintf("%t", ctx.PlanningMode),
+		"editing_mode":        fmt.Sprintf("%t", ctx.EditingMode),
 		"workspace_dir":       strings.TrimSpace(ctx.WorkspaceDir),
 		"chat_dir":            strings.TrimSpace(ctx.ChatDir),
 		"current_date":        time.Now().Format("2006-01-02"),

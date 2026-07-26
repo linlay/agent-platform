@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	agentcontract "agent-platform/internal/agent"
+	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
@@ -899,6 +900,187 @@ type recordingFileChangeHook struct {
 func (h *recordingFileChangeHook) AfterFileChange(_ context.Context, event contracts.FileChangeEvent) contracts.FileChangeHookResult {
 	h.events = append(h.events, event)
 	return h.result
+}
+
+func TestKBaseEditingFileToolsEnforcePolicyAndReturnIndexHook(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "policy.md")
+	if err := os.WriteFile(path, []byte("refund: 7 days\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hook := &recordingFileChangeHook{result: contracts.FileChangeHookResult{
+		Name:   "kbase-index",
+		Status: "success",
+		Data:   map[string]any{"scope": "delta", "changedFiles": 1, "indexedChunks": 1},
+	}}
+	executor := fileToolExecutor(root, false).WithFileChangeHooks(hook)
+	executor.cfg.FileTools.RequireReadBeforeWrite = false
+	execCtx := kbaseEditingExecutionContext(root)
+
+	unread, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path": "policy.md",
+		"content":   "must read first\n",
+	}, kbaseEditingExecutionContext(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unread.Structured["error"] != "file_write_not_read" {
+		t.Fatalf("KBASE editing must enforce read-before-write independently of global config: %#v", unread.Structured)
+	}
+
+	read, err := executor.invokeRead(map[string]any{"file_path": "policy.md", "add_line_numbers": false}, execCtx)
+	if err != nil || read.Error != "" {
+		t.Fatalf("read Markdown before edit: result=%#v err=%v", read, err)
+	}
+	edited, err := executor.invokeEdit(context.Background(), map[string]any{
+		"file_path":  "policy.md",
+		"old_string": "7 days",
+		"new_string": "14 days",
+	}, execCtx)
+	if err != nil || edited.Error != "" {
+		t.Fatalf("edit Markdown: result=%#v err=%v", edited, err)
+	}
+	hooks, ok := edited.Structured["hooks"].([]contracts.FileChangeHookResult)
+	if !ok || len(hooks) != 1 || hooks[0].Name != "kbase-index" || hooks[0].Status != "success" {
+		t.Fatalf("unexpected editing hook result: %#v", edited.Structured["hooks"])
+	}
+	if len(hook.events) != 1 || hook.events[0].AgentKey != "docs-kbase" ||
+		hook.events[0].ChatID != "chat-edit" || hook.events[0].RunID != "run-edit" ||
+		hook.events[0].PreviousContentSHA256 == "" || hook.events[0].ContentSHA256 == "" {
+		t.Fatalf("unexpected editing hook event: %#v", hook.events)
+	}
+	if data, readErr := os.ReadFile(path); readErr != nil || string(data) != "refund: 14 days\n" {
+		t.Fatalf("unexpected edited file %q err=%v", string(data), readErr)
+	}
+
+	rejected, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path": filepath.Join(root, "notes.txt"),
+		"content":   "must not write",
+	}, execCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rejected.Structured["error"] != "kbase_editing_extension_unsupported" {
+		t.Fatalf("full_access must not bypass extension policy: %#v", rejected.Structured)
+	}
+	if len(hook.events) != 1 {
+		t.Fatalf("rejected write must not run hooks: %#v", hook.events)
+	}
+}
+
+func TestKBaseEditingRejectsUnsupportedEncodingAndMissingParent(t *testing.T) {
+	root := t.TempDir()
+	nonUTF8 := filepath.Join(root, "legacy.md")
+	if err := os.WriteFile(nonUTF8, []byte{0xff, 0xfe, 0xfd}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	executor := fileToolExecutor(root, false)
+	execCtx := kbaseEditingExecutionContext(root)
+
+	read, err := executor.invokeRead(map[string]any{"file_path": nonUTF8}, execCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.Structured["error"] != "kbase_editing_encoding_unsupported" {
+		t.Fatalf("expected non-UTF-8 rejection, got %#v", read.Structured)
+	}
+	write, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path": filepath.Join(root, "missing", "new.md"),
+		"content":   "new",
+	}, execCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if write.Structured["error"] != "kbase_editing_parent_missing" {
+		t.Fatalf("expected missing parent rejection, got %#v", write.Structured)
+	}
+}
+
+func TestKBaseEditingHardToolSetRejectsBash(t *testing.T) {
+	root := t.TempDir()
+	executor := fileToolExecutor(root, false)
+	result, err := executor.Invoke(context.Background(), "bash", map[string]any{"command": "pwd"}, kbaseEditingExecutionContext(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Error != "kbase_editing_tool_unsupported" {
+		t.Fatalf("expected hard KBASE tool-set rejection, got %#v", result)
+	}
+}
+
+func TestKBaseEditingGlobAndGrepOnlyReturnMarkdown(t *testing.T) {
+	requireRipgrep(t)
+	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "policy.md"), "refund needle\n")
+	mustWriteFile(t, filepath.Join(root, "guide.MD"), "guide needle\n")
+	mustWriteFile(t, filepath.Join(root, "private.txt"), "private needle\n")
+	executor := fileToolExecutor(root, false)
+	execCtx := kbaseEditingExecutionContext(root)
+
+	glob, err := executor.invokeGlob(context.Background(), map[string]any{"pattern": "*"}, execCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if glob.Error != "" || glob.ExitCode != 0 {
+		t.Fatalf("scoped glob failed: %#v", glob)
+	}
+	globResults := stringSliceResult(t, glob.Structured["results"])
+	if len(globResults) != 2 {
+		t.Fatalf("expected only .md glob results, got %#v", globResults)
+	}
+	for _, result := range globResults {
+		if strings.HasSuffix(strings.ToLower(result), ".txt") {
+			t.Fatalf("scoped glob leaked non-markdown file: %#v", globResults)
+		}
+	}
+
+	grep, err := executor.invokeGrep(context.Background(), map[string]any{"pattern": "needle"}, execCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if grep.Error != "" || grep.ExitCode != 0 {
+		t.Fatalf("scoped grep failed: %#v", grep)
+	}
+	grepResults := stringSliceResult(t, grep.Structured["results"])
+	if len(grepResults) != 2 {
+		t.Fatalf("expected only .md grep results, got %#v", grepResults)
+	}
+	for _, result := range grepResults {
+		if strings.HasSuffix(strings.ToLower(result), ".txt") {
+			t.Fatalf("scoped grep leaked non-markdown file: %#v", grepResults)
+		}
+	}
+}
+
+func kbaseEditingExecutionContext(root string) *contracts.ExecutionContext {
+	return &contracts.ExecutionContext{
+		Request: api.QueryRequest{
+			AgentKey: "docs-kbase",
+			ChatID:   "chat-edit",
+			RunID:    "run-edit",
+		},
+		Session: contracts.QuerySession{
+			AgentKey:    "docs-kbase",
+			Mode:        "KBASE",
+			EditingMode: true,
+			ToolNames: []string{
+				"kbase_search", "kbase_files", "kbase_read", "kbase_status", "kbase_refresh", "datetime",
+				"file_read", "file_glob", "file_grep", "file_write", "file_edit",
+			},
+			ModeCapabilities: agentcontract.ModeCapabilities{FileChangeHooks: true},
+			WorkspaceRoot:    root,
+			AccessLevel:      contracts.AccessLevelFullAccess,
+			ScopedFilePolicy: &contracts.ScopedFilePolicy{
+				Root:                  root,
+				AllowedExtensions:     []string{".md"},
+				AllowRead:             true,
+				AllowWrite:            true,
+				AllowCreate:           true,
+				RequireExistingParent: true,
+				RequireUTF8:           true,
+			},
+		},
+	}
 }
 
 func TestInvokeWriteRunsFileChangeHookForCoderWorkspace(t *testing.T) {

@@ -40,3 +40,15 @@ search 在没有 active generation 时返回 `stale: true` 并触发 refresh；s
 `configs/kbase-settings.yml` 不再支持 `storage.engine` 或任何 `migration.*` 键；出现这两类键会使启动配置加载失败。存在 enabled capability 时 runtime 会启动并检查 Lance sidecar 的私有握手。若至少有一个 required capability，sidecar 故障使 `/healthz` 返回 `503`；只有 optional capability 时 `/healthz` 仍返回 `200`，同时在 `kbase` 状态中报告 `degraded` 和错误。所有知识库操作都显式返回 unavailable，绝不回退 SQLite。
 
 KBASE 仍只检索从文本格式和文档抽取出的文本；chat、memory 及 KBASE 控制面的 SQLite 使用不受此变更影响。
+
+## Editing 写后一致性
+
+专用 KBASE 的 `editingMode:true` 在文件原子写入成功后，以相对 source path 同步调用现有 Manager：
+
+```text
+RefreshOptions{Mode:"editing", Scope:"delta", Paths:[relativePath]}
+```
+
+有 active generation 时只更新目标路径；首次索引、`force` 或 `indexHash` 变化仍按既有 generation 规则执行 rebuild，并在 hook data 中返回实际 `scope`。watcher 继续捕获同一磁盘变化，依赖内容 hash 去重，承担 run 取消、进程崩溃和外部修改的兜底。
+
+索引失败不回滚已经保存的用户文件，工具顶层 mutation status 仍为成功，`hooks[].status` 单独为 `failed`；capability 保持 degraded，watcher 或一次显式 `kbase_refresh` 成功后清除。被 include/exclude 排除的 `.md` 仍可保存，但 hook 返回 `skipped/excluded_by_kbase_config`，不能声称已进入检索。该链路不增加数据库 schema 或第二套索引器。

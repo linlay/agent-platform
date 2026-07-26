@@ -510,6 +510,17 @@ func TestQueryRejectsPlanningModeForNonCoderAgent(t *testing.T) {
 	}
 }
 
+func TestQueryRejectsEditingModeForNonKBaseAgent(t *testing.T) {
+	fixture := newTestFixture(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"hello","agentKey":"mock-agent","editingMode":true}`))
+
+	_, err := fixture.server.prepareQueryAdmission(req, true)
+	var statusErr *statusError
+	if !errors.As(err, &statusErr) || statusErr.status != http.StatusBadRequest || statusErr.code != "editing_mode_unsupported" {
+		t.Fatalf("expected non-KBASE editingMode rejection, got %#v", err)
+	}
+}
+
 func TestQueryModelOverrideKeepsCoderPlanningStageSettingsSeparate(t *testing.T) {
 	coderSession := &contracts.QuerySession{
 		Mode: "CODER",

@@ -9,6 +9,8 @@ const (
 	Mode            = "KBASE"
 	MainStage       = "kbase"
 	MainCacheKey    = "kbase:main"
+	EditingStage    = "kbase-editing"
+	EditingCacheKey = "kbase:editing"
 	CreatePrefix    = "kbase"
 	DefaultIconName = "kbase"
 )
@@ -44,7 +46,8 @@ func Descriptor() agentcontract.ModeDescriptor {
 			Budget:      DefaultBudget(),
 		},
 		Capabilities: agentcontract.ModeCapabilities{
-			RunAsChild: true,
+			RunAsChild:      true,
+			FileChangeHooks: true,
 		},
 	}
 }

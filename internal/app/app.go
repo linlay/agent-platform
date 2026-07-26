@@ -163,7 +163,6 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	var lspManager *lsp.Manager
 	if cfg.FileTools.Hooks.AfterFileChange.LSPDiagnostics.Enabled {
 		lspManager = lsp.NewManager(cfg.FileTools.Hooks.AfterFileChange.LSPDiagnostics)
-		backendTools.WithFileChangeHooks(lspManager)
 	}
 	// artifactPusher 在下面 notifications 就绪后再接入 backendTools，
 	// 这样它发出的 push frame 能走到 WS hub，转给网关做 artifact 预告。
@@ -206,6 +205,11 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}
 	kbaseSource := kbaseCatalogSource{registry: registry}
 	kbaseManager := kbase.NewManager(kbaseManagerOptions(cfg), kbaseSource, modelRegistry).WithSupportPackages(supportPackages)
+	fileChangeHooks := []contracts.FileChangeHook{kbaseManager}
+	if lspManager != nil {
+		fileChangeHooks = append([]contracts.FileChangeHook{lspManager}, fileChangeHooks...)
+	}
+	backendTools.WithFileChangeHooks(fileChangeHooks...)
 	if err := kbaseManager.ValidateConfiguration(); err != nil {
 		return nil, fmt.Errorf("validate KBASE storage ownership: %w", err)
 	}

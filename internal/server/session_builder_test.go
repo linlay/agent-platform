@@ -136,7 +136,7 @@ func TestBuildQuerySessionUsesCoderProfileDefaults(t *testing.T) {
 		t.Fatalf("build query session: %v", err)
 	}
 
-	wantTools := []string{"bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex", "vision_recognize", "plan_add_tasks", "plan_get_tasks", "plan_update_task"}
+	wantTools := []string{"bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex", "vision_recognize", "artifact_publish", "plan_add_tasks", "plan_get_tasks", "plan_update_task"}
 	if !reflect.DeepEqual(session.ToolNames, wantTools) {
 		t.Fatalf("tool names = %#v, want %#v", session.ToolNames, wantTools)
 	}
@@ -237,6 +237,75 @@ func TestBuildQuerySessionInjectsKBaseSystemPrompt(t *testing.T) {
 	}
 	if !session.KBaseEnabled || len(session.CapabilityPrompts) != 0 {
 		t.Fatalf("dedicated KBASE session capability snapshot = enabled:%v prompts:%#v", session.KBaseEnabled, session.CapabilityPrompts)
+	}
+}
+
+func TestBuildQuerySessionFreezesDedicatedKBaseEditingPolicy(t *testing.T) {
+	root := t.TempDir()
+	sourceRoot := filepath.Join(root, "knowledge")
+	if err := os.MkdirAll(filepath.Join(sourceRoot, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{Paths: config.PathsConfig{ChatsDir: filepath.Join(root, "chats")}}
+	def := catalog.AgentDefinition{
+		Key:      "docs-kbase",
+		Name:     "Docs",
+		Mode:     catalog.AgentModeKBase,
+		ModelKey: "mock-model",
+		KBaseConfig: kbase.Config{
+			Enabled: true,
+			Source:  kbase.SourceConfig{Root: sourceRoot},
+		},
+		KBaseRequirement: kbase.RequirementRequired,
+	}
+	enabled := true
+	server := &Server{deps: Dependencies{Config: cfg}}
+	session, err := server.BuildQuerySession(context.Background(), api.QueryRequest{
+		AgentKey:    def.Key,
+		ChatID:      "chat-edit",
+		RunID:       "run-edit",
+		Role:        "user",
+		EditingMode: &enabled,
+	}, chat.Summary{ChatID: "chat-edit"}, def, querySessionBuildOptions{})
+	if err != nil {
+		t.Fatalf("build editing session: %v", err)
+	}
+	wantTools := []string{
+		kbase.ToolSearch, kbase.ToolFiles, kbase.ToolRead, kbase.ToolStatus, kbase.ToolRefresh, kbase.ToolDatetime,
+		"file_read", "file_glob", "file_grep", "file_write", "file_edit",
+	}
+	if !session.EditingMode || session.KBaseSourceRoot != sourceRoot || session.WorkspaceRoot != sourceRoot {
+		t.Fatalf("unexpected editing snapshot: %#v", session)
+	}
+	if !reflect.DeepEqual(session.ToolNames, wantTools) {
+		t.Fatalf("editing tools = %#v, want %#v", session.ToolNames, wantTools)
+	}
+	if session.ScopedFilePolicy == nil || session.ScopedFilePolicy.Root != sourceRoot ||
+		!session.ScopedFilePolicy.AllowRead || !session.ScopedFilePolicy.AllowWrite ||
+		!session.ScopedFilePolicy.AllowCreate || !session.ScopedFilePolicy.RequireUTF8 {
+		t.Fatalf("unexpected scoped file policy: %#v", session.ScopedFilePolicy)
+	}
+
+	disabled := false
+	readOnly, err := server.BuildQuerySession(context.Background(), api.QueryRequest{
+		AgentKey: def.Key, ChatID: "chat-read", RunID: "run-read", Role: "user", EditingMode: &disabled,
+	}, chat.Summary{ChatID: "chat-read"}, def, querySessionBuildOptions{})
+	if err != nil {
+		t.Fatalf("build read-only session: %v", err)
+	}
+	if readOnly.EditingMode || readOnly.ScopedFilePolicy == nil || readOnly.ScopedFilePolicy.AllowRead || readOnly.ScopedFilePolicy.AllowWrite {
+		t.Fatalf("read-only KBASE must retain a denying hard policy: %#v", readOnly.ScopedFilePolicy)
+	}
+
+	paramsOnly, err := server.BuildQuerySession(context.Background(), api.QueryRequest{
+		AgentKey: def.Key, ChatID: "chat-params", RunID: "run-params", Role: "user",
+		Params: map[string]any{"editingMode": true},
+	}, chat.Summary{ChatID: "chat-params"}, def, querySessionBuildOptions{})
+	if err != nil {
+		t.Fatalf("build params-only session: %v", err)
+	}
+	if paramsOnly.EditingMode || paramsOnly.ScopedFilePolicy == nil || paramsOnly.ScopedFilePolicy.AllowRead || paramsOnly.ScopedFilePolicy.AllowWrite {
+		t.Fatalf("params.editingMode must not enable KBASE editing: %#v", paramsOnly)
 	}
 }
 

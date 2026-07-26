@@ -561,7 +561,7 @@ func (s *Server) openAgentDirectory(req api.OpenAgentDirectoryRequest) (api.Open
 	if !ok {
 		return api.OpenAgentDirectoryResponse{}, newAgentStatusError(http.StatusNotFound, "not_found", "agent not found")
 	}
-	directoryPath := def.Workspace.Root
+	directoryPath := agentContentRoot(def)
 	if directoryType == "config" {
 		directoryPath = def.AgentDir
 	}

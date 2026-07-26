@@ -379,10 +379,11 @@ func TestRunControlPreservesMergedAwaitingRoutesOnLifecycleRefresh(t *testing.T)
 func TestInMemoryRunManagerActiveRunForChatReturnsSingleActiveRun(t *testing.T) {
 	manager := NewInMemoryRunManager()
 	_, _, _ = manager.Register(context.Background(), QuerySession{
-		RunID:    "run_1",
-		ChatID:   "chat_1",
-		AgentKey: "agent_1",
-		RunOwner: AgentRunOwner("agent_1", ""),
+		RunID:       "run_1",
+		ChatID:      "chat_1",
+		AgentKey:    "agent_1",
+		RunOwner:    AgentRunOwner("agent_1", ""),
+		EditingMode: true,
 	})
 
 	status, ok, err := manager.ActiveRunForChat("chat_1")
@@ -392,7 +393,7 @@ func TestInMemoryRunManagerActiveRunForChatReturnsSingleActiveRun(t *testing.T) 
 	if !ok {
 		t.Fatalf("expected active run for chat")
 	}
-	if status.RunID != "run_1" || status.ChatID != "chat_1" {
+	if status.RunID != "run_1" || status.ChatID != "chat_1" || !status.EditingMode {
 		t.Fatalf("unexpected active run status %#v", status)
 	}
 }

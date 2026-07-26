@@ -66,7 +66,7 @@ func (s *Server) resolveAgentFile(agentKey string, requestedPath string) (resolv
 	if !ok {
 		return resolvedAgentFile{}, newAgentStatusError(http.StatusNotFound, "not_found", "agent not found")
 	}
-	workspaceRoot := strings.TrimSpace(def.Workspace.Root)
+	workspaceRoot := agentContentRoot(def)
 	if workspaceRoot == "" || strings.EqualFold(workspaceRoot, catalog.AgentWorkspaceRootChat) {
 		return resolvedAgentFile{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "agent workspace is not a stable directory")
 	}
@@ -129,6 +129,15 @@ func (s *Server) resolveAgentFile(agentKey string, requestedPath string) (resolv
 		AbsolutePath:  targetCanonical.Host,
 		Info:          fileInfo,
 	}, nil
+}
+
+func agentContentRoot(def catalog.AgentDefinition) string {
+	if strings.EqualFold(strings.TrimSpace(def.Mode), catalog.AgentModeKBase) && def.KBaseConfig.Enabled {
+		if root := strings.TrimSpace(def.KBaseConfig.Source.Root); root != "" {
+			return root
+		}
+	}
+	return strings.TrimSpace(def.Workspace.Root)
 }
 
 func (s *Server) readAgentFileMetadata(resolved resolvedAgentFile, requestedEncoding string) (api.AgentFileResponse, error) {

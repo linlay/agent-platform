@@ -14,3 +14,17 @@ func MainSystemInitSpec() agentcontract.SystemInitSpec {
 		Initial:               true,
 	}
 }
+
+func EditingSystemInitSpec() agentcontract.SystemInitSpec {
+	return agentcontract.SystemInitSpec{
+		CacheKey:              EditingCacheKey,
+		FingerprintStage:      EditingStage,
+		PromptStage:           EditingStage,
+		Mode:                  MainStage,
+		Stage:                 "editing",
+		ToolNames:             EditingToolNames(),
+		UseSharedSystemPrompt: true,
+		IncludeAfterCallHints: true,
+		Initial:               true,
+	}
+}

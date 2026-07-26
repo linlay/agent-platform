@@ -19,6 +19,7 @@ type StreamRequest struct {
 	Params          map[string]any
 	Model           any
 	PlanningMode    bool
+	EditingMode     bool
 	IncludeUsage    bool
 	IncludeFullText bool
 	AccessLevel     string
@@ -124,6 +125,9 @@ func (a *StreamEventAssembler) BootstrapWithRaw() ([]StreamEvent, []StreamEvent)
 	}
 	if a.request.PlanningMode {
 		queryPayload["planningMode"] = true
+	}
+	if a.request.EditingMode {
+		queryPayload["editingMode"] = true
 	}
 	if a.request.IncludeUsage {
 		queryPayload["includeUsage"] = true

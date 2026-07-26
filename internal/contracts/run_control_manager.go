@@ -94,6 +94,7 @@ func (m *InMemoryRunManager) registerLocked(session QuerySession) (context.Conte
 		TeamID:            owner.TeamID,
 		ExecutionAgentKey: owner.ExecutionAgentKey,
 		ScopeID:           strings.TrimSpace(session.RunScopeID),
+		EditingMode:       session.EditingMode,
 	}
 	startedAt := time.Now()
 	if session.StartedAtMillis != 0 {
@@ -266,6 +267,7 @@ func (m *InMemoryRunManager) RunStatus(runID string) (RunStatusInfo, bool) {
 		ObserverCount:     state.eventBus.ObserverCount(),
 		StartedAt:         state.startedAt.UnixMilli(),
 		AgentRunOrigin:    cloneAgentRunOrigin(state.agentRunOrigin),
+		EditingMode:       state.run.EditingMode,
 	}
 	info.AccessLevel, info.AccessLevelVersion = state.control.AccessLevelSnapshot()
 	if !state.completedAt.IsZero() {
@@ -348,6 +350,7 @@ func runStatusInfoFromManagedRun(state *managedRun) RunStatusInfo {
 		ObserverCount:     state.eventBus.ObserverCount(),
 		StartedAt:         state.startedAt.UnixMilli(),
 		AgentRunOrigin:    cloneAgentRunOrigin(state.agentRunOrigin),
+		EditingMode:       state.run.EditingMode,
 	}
 	info.AccessLevel, info.AccessLevelVersion = state.control.AccessLevelSnapshot()
 	if !state.completedAt.IsZero() {
