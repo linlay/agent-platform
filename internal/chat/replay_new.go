@@ -25,6 +25,10 @@ func (s *FileStore) LoadChat(chatID string) (Detail, error) {
 	if err != nil {
 		return Detail{}, err
 	}
+	lines, err = s.logicalHistoryLines(chatID, lines)
+	if err != nil {
+		return Detail{}, err
+	}
 	runStartedAt, runCompletedAt, err := s.replayRunLifecycleTimesLocked(chatID)
 	if err != nil {
 		return Detail{}, err
@@ -95,6 +99,10 @@ func (s *FileStore) LoadRunTrace(chatID string, runID string) (RunTrace, error) 
 		return RunTrace{}, ErrChatNotFound
 	}
 	lines, err := readPersistedJSONLines(s.chatJSONLPath(chatID))
+	if err != nil {
+		return RunTrace{}, err
+	}
+	lines, err = s.logicalHistoryLines(chatID, lines)
 	if err != nil {
 		return RunTrace{}, err
 	}

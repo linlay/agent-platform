@@ -60,6 +60,9 @@ type StepWriter struct {
 	pendingInputMessages    []map[string]any
 	pendingSystemRef        map[string]any
 	pendingSystemInit       *QueryLineSystem
+	modelTurnCommitRequired bool
+	modelTurnCommitted      bool
+	modelTurnRunSeq         int
 	// lastTimestamp is carried from the most recent source event. It is used
 	// only to finish an aggregation which already contains that event; it is
 	// never replaced with the wall clock.
@@ -366,11 +369,15 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			}
 			w.flushTaskStep(taskID)
 			buffer := w.ensureTaskBuffer(taskID)
+			buffer.modelTurnCommitRequired = true
+			buffer.modelTurnCommitted = false
 			w.captureTaskLLMRequestData(buffer, event)
 			buffer.liveSeq = maxLiveSeq(buffer.liveSeq, event.Seq)
 			buffer.lastTimestamp = event.Timestamp
 		} else {
 			w.flushCurrentStep()
+			w.modelTurnCommitRequired = true
+			w.modelTurnCommitted = false
 			w.captureRootLLMRequestData(event)
 			w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
 			w.lastTimestamp = event.Timestamp
@@ -402,6 +409,63 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 func (w *StepWriter) OnStageMarker(stage string) {
 	w.flushCurrentStep()
 	w.currentStage = parseStage(stage)
+}
+
+// CommitModelTurn opens the persistence gate for the current assistant turn.
+// The control signal itself is not persisted; a subsequent step boundary turns
+// the buffered snapshots into a normal react line.
+func (w *StepWriter) CommitModelTurn(taskID string, runSeq int) {
+	if w == nil || w.persistenceErr != nil {
+		return
+	}
+	taskID = strings.TrimSpace(taskID)
+	if taskID != "" {
+		if buffer := w.taskBuffers[taskID]; buffer != nil && buffer.modelTurnCommitRequired {
+			buffer.modelTurnCommitted = true
+			buffer.modelTurnRunSeq = runSeq
+		}
+		return
+	}
+	if w.modelTurnCommitRequired {
+		w.modelTurnCommitted = true
+		w.modelTurnRunSeq = runSeq
+		if len(w.pendingAwaiting) > 0 {
+			w.flushCurrentStepAt(w.lastTimestamp)
+		}
+	}
+}
+
+// DiscardModelTurn clears only an uncommitted model attempt and keeps the gate
+// closed until a replacement is explicitly committed or the run terminates.
+// Once committed, tool execution is a separate transaction and this method
+// deliberately does nothing, preventing rollback across a possible effect.
+func (w *StepWriter) DiscardModelTurn(taskID string, runSeq int, _ bool) {
+	if w == nil || w.persistenceErr != nil {
+		return
+	}
+	taskID = strings.TrimSpace(taskID)
+	if taskID != "" {
+		buffer := w.taskBuffers[taskID]
+		if buffer == nil || !buffer.modelTurnCommitRequired || buffer.modelTurnCommitted {
+			return
+		}
+		if runSeq > 0 && buffer.modelTurnRunSeq > 0 && buffer.modelTurnRunSeq != runSeq {
+			return
+		}
+		buffer.clearModelTurn()
+		buffer.modelTurnCommitRequired = true
+		buffer.modelTurnRunSeq = runSeq
+		return
+	}
+	if !w.modelTurnCommitRequired || w.modelTurnCommitted {
+		return
+	}
+	if runSeq > 0 && w.modelTurnRunSeq > 0 && w.modelTurnRunSeq != runSeq {
+		return
+	}
+	w.clearCurrentStep()
+	w.modelTurnCommitRequired = true
+	w.modelTurnRunSeq = runSeq
 }
 
 // Flush writes any remaining accumulated step. Call at end of stream.
@@ -776,6 +840,10 @@ func (w *StepWriter) flushCurrentStep() {
 }
 
 func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
+	if w.modelTurnCommitRequired && !w.modelTurnCommitted && storedMessagesContainAssistant(w.messages) {
+		w.clearCurrentStep()
+		return
+	}
 	if len(w.messages) == 0 && len(w.pendingAwaiting) == 0 && (w.pendingSources == nil || len(w.pendingSources.Items) == 0) {
 		w.pendingUsage = nil
 		w.pendingContextWindowMax = 0
@@ -878,6 +946,9 @@ func (w *StepWriter) clearCurrentStep() {
 	w.pendingSystemRef = nil
 	w.pendingArtifacts = nil
 	w.pendingSources = nil
+	w.modelTurnCommitRequired = false
+	w.modelTurnCommitted = false
+	w.modelTurnRunSeq = 0
 }
 
 func (w *StepWriter) assignReactSeq(line *StepLine) {

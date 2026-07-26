@@ -54,6 +54,33 @@ type DeltaStageMarker struct {
 
 func (DeltaStageMarker) agentDeltaTag() {}
 
+// DeltaModelTurnCommit is an internal control signal. It is emitted only after
+// the provider turn has terminated cleanly, tool calls have been materialized,
+// and the platform has accepted the assistant turn. It is never exposed as a
+// public stream event.
+type DeltaModelTurnCommit struct {
+	TaskID string
+	RunSeq int
+}
+
+func (DeltaModelTurnCommit) agentDeltaTag() {}
+
+// DeltaModelTurnDiscard rolls back the current, uncommitted provider attempt.
+// The mapper enriches it with the live block IDs created by that attempt so
+// the dispatcher can ask clients to remove already-rendered partial output.
+type DeltaModelTurnDiscard struct {
+	TaskID         string
+	RunSeq         int
+	Attempt        int
+	MaxAttempts    int
+	Reason         string
+	Retrying       bool
+	TimeoutSeconds int64
+	ElapsedMs      int64
+}
+
+func (DeltaModelTurnDiscard) agentDeltaTag() {}
+
 type DeltaSyntheticQuery struct {
 	ChatID   string
 	Role     string

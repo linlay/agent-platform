@@ -3016,7 +3016,7 @@ func TestQueryStreamsToolPayloadEventsAndPersistsToolSnapshot(t *testing.T) {
 func TestQueryFailsRunWhenProviderOmitsToolCallID(t *testing.T) {
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w,
-			`{"choices":[{"delta":{"tool_calls":[{"index":0,"type":"function","function":{"name":"datetime","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}`,
+			`{"choices":[{"delta":{"tool_calls":[{"index":0,"type":"function","function":{"name":"datetime","arguments":"{}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7}}`,
 			`[DONE]`,
 		)
 	})
@@ -3038,6 +3038,98 @@ func TestQueryFailsRunWhenProviderOmitsToolCallID(t *testing.T) {
 	}
 	if strings.Contains(body, `"type":"run.complete"`) {
 		t.Fatalf("did not expect run.complete after toolCallId error, got %s", body)
+	}
+	if !strings.Contains(body, `"type":"usage.snapshot"`) {
+		t.Fatalf("expected usage to remain diagnostic metadata, got %s", body)
+	}
+	chats, err := fixture.chats.ListChats("", "mock-agent")
+	if err != nil || len(chats) != 1 {
+		t.Fatalf("list chats after missing id: chats=%#v err=%v", chats, err)
+	}
+	raw, err := fixture.chats.LoadJSONLContent(chats[0].ChatID)
+	if err != nil {
+		t.Fatalf("load audit jsonl: %v", err)
+	}
+	if strings.Contains(raw, `"_type":"react"`) {
+		t.Fatalf("usage must not persist the invalid assistant turn: %s", raw)
+	}
+}
+
+func TestQueryRejectsAmbiguousLegacyToolHistoryBeforeProviderCall(t *testing.T) {
+	var providerCalls atomic.Int32
+	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		providerCalls.Add(1)
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"must not run"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	})
+
+	const chatID = "chat-ambiguous-legacy-history"
+	const runID = "run-ambiguous-legacy-history"
+	startedAt := time.Now().UnixMilli()
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "run it"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if recorder, ok := fixture.chats.(chat.RunStartRecorder); ok {
+		if err := recorder.OnRunStarted(chat.RunStart{
+			ChatID:          chatID,
+			RunID:           runID,
+			AgentKey:        "mock-agent",
+			AgentMode:       "REACT",
+			InitialMessage:  "run it",
+			StartedAtMillis: startedAt,
+		}); err != nil {
+			t.Fatalf("start legacy run: %v", err)
+		}
+	}
+	messageAt := startedAt + 1
+	if err := fixture.chats.AppendStepLine(chatID, chat.StepLine{
+		Type:      chat.StepLineTypeReact,
+		ChatID:    chatID,
+		RunID:     runID,
+		Seq:       1,
+		UpdatedAt: messageAt,
+		Messages: []chat.StoredMessage{{
+			Role: "assistant",
+			ToolCalls: []chat.StoredToolCall{{
+				ID:       "call-side-effect-unknown",
+				Type:     "function",
+				Function: chat.StoredFunction{Name: "bash", Arguments: `{"command":"touch marker"}`},
+			}},
+			Ts: &messageAt,
+		}},
+	}); err != nil {
+		t.Fatalf("append legacy tool turn: %v", err)
+	}
+	if err := fixture.chats.OnRunCompleted(chat.RunCompletion{
+		ChatID:          chatID,
+		RunID:           runID,
+		AgentKey:        "mock-agent",
+		AgentMode:       "REACT",
+		InitialMessage:  "run it",
+		FinishReason:    "error",
+		StartedAtMillis: startedAt,
+		UpdatedAtMillis: startedAt + 2,
+	}); err != nil {
+		t.Fatalf("complete legacy run: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(
+		`{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"continue","stream":false}`,
+	))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"chat_history_incomplete"`) {
+		t.Fatalf("expected chat_history_incomplete payload, got %s", rec.Body.String())
+	}
+	if providerCalls.Load() != 0 {
+		t.Fatalf("ambiguous history must be rejected locally, provider calls=%d", providerCalls.Load())
 	}
 }
 
@@ -3227,7 +3319,7 @@ func TestInterruptCancelsActiveRunAndSkipsRunComplete(t *testing.T) {
 	if len(chatsResp.Data) != 1 {
 		t.Fatalf("expected one chat, got %#v", chatsResp.Data)
 	}
-	if chatsResp.Data[0].LastRunID != runID || chatsResp.Data[0].LastRunContent != "partial" {
-		t.Fatalf("expected interrupted run to keep streamed partial summary, got %#v", chatsResp.Data[0])
+	if chatsResp.Data[0].LastRunID != runID || chatsResp.Data[0].LastRunContent != "" {
+		t.Fatalf("expected interrupted run to discard the uncommitted partial summary, got %#v", chatsResp.Data[0])
 	}
 }

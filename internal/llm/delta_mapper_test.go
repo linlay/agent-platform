@@ -296,6 +296,77 @@ func TestDeltaMapper_RunActivity(t *testing.T) {
 	}
 }
 
+func TestDeltaMapper_ModelTurnCommitPreservesActionResultRouting(t *testing.T) {
+	mapper := NewDeltaMapper("run_1", "chat_1", contracts.Budget{}, stubToolLookup{
+		"desktop_action": {
+			Name: "desktop_action",
+			Meta: map[string]any{"kind": "action"},
+		},
+	}, nil)
+
+	inputs := mapper.Map(contracts.DeltaToolCall{
+		Index:     0,
+		ID:        "action_1",
+		Name:      "desktop_action",
+		ArgsDelta: `{}`,
+	})
+	if len(inputs) != 1 {
+		t.Fatalf("expected action args, got %#v", inputs)
+	}
+	if _, ok := inputs[0].(stream.ActionArgs); !ok {
+		t.Fatalf("expected ActionArgs, got %#v", inputs[0])
+	}
+	mapper.Map(contracts.DeltaToolEnd{ToolIDs: []string{"action_1"}})
+	mapper.Map(contracts.DeltaModelTurnCommit{RunSeq: 1})
+
+	resultInputs := mapper.Map(contracts.DeltaToolResult{
+		ToolID:   "action_1",
+		ToolName: "desktop_action",
+		Result:   contracts.ToolExecutionResult{Output: "ok"},
+	})
+	if len(resultInputs) != 1 {
+		t.Fatalf("expected one action result, got %#v", resultInputs)
+	}
+	if _, ok := resultInputs[0].(stream.ActionResult); !ok {
+		t.Fatalf("commit lost action routing metadata: %#v", resultInputs[0])
+	}
+}
+
+func TestDeltaMapper_ModelTurnDiscardClearsActionResultRouting(t *testing.T) {
+	mapper := NewDeltaMapper("run_1", "chat_1", contracts.Budget{}, stubToolLookup{
+		"desktop_action": {
+			Name: "desktop_action",
+			Meta: map[string]any{"kind": "action"},
+		},
+	}, nil)
+	mapper.Map(contracts.DeltaToolCall{
+		Index:     0,
+		ID:        "action_1",
+		Name:      "desktop_action",
+		ArgsDelta: `{}`,
+	})
+	discardInputs := mapper.Map(contracts.DeltaModelTurnDiscard{RunSeq: 1, Retrying: true})
+	if len(discardInputs) != 1 {
+		t.Fatalf("expected one discard input, got %#v", discardInputs)
+	}
+	discard, ok := discardInputs[0].(stream.ModelTurnDiscard)
+	if !ok || len(discard.ActionIDs) != 1 || discard.ActionIDs[0] != "action_1" {
+		t.Fatalf("discard did not report action id: %#v", discardInputs[0])
+	}
+
+	resultInputs := mapper.Map(contracts.DeltaToolResult{
+		ToolID:   "action_1",
+		ToolName: "desktop_action",
+		Result:   contracts.ToolExecutionResult{Output: "must not route as action"},
+	})
+	if len(resultInputs) != 1 {
+		t.Fatalf("expected one fallback tool result, got %#v", resultInputs)
+	}
+	if _, ok := resultInputs[0].(stream.ToolResult); !ok {
+		t.Fatalf("discard retained action routing metadata: %#v", resultInputs[0])
+	}
+}
+
 func TestDeltaMapper_BashToolResultPreservesExecutionStatus(t *testing.T) {
 	tests := []struct {
 		name     string

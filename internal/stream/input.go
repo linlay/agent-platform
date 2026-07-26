@@ -90,6 +90,33 @@ type StageMarker struct {
 
 func (StageMarker) streamInputTag() {}
 
+// ModelTurnCommit and ModelTurnDiscard are platform-internal transaction
+// controls. Commit has no SSE representation. Discard is converted into a
+// run.activity recovery event after the dispatcher clears the listed blocks.
+type ModelTurnCommit struct {
+	TaskID string
+	RunSeq int
+}
+
+func (ModelTurnCommit) streamInputTag() {}
+
+type ModelTurnDiscard struct {
+	TaskID         string
+	RunSeq         int
+	Attempt        int
+	MaxAttempts    int
+	Reason         string
+	Retrying       bool
+	TimeoutSeconds int64
+	ElapsedMs      int64
+	ReasoningIDs   []string
+	ContentIDs     []string
+	ToolIDs        []string
+	ActionIDs      []string
+}
+
+func (ModelTurnDiscard) streamInputTag() {}
+
 type SyntheticQuery struct {
 	ChatID   string
 	Role     string

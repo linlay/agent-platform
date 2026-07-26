@@ -46,6 +46,7 @@ var definitions = []Definition{
 	def(CodeProxyConfigMissing, CategoryCatalog, ScopeProxy, http.StatusBadGateway, false),
 
 	def(CodeChatNotFound, CategoryChatRun, ScopeChat, http.StatusNotFound, false),
+	def(CodeChatHistoryIncomplete, CategoryChatRun, ScopeChat, http.StatusConflict, false),
 	def(CodeRunNotFound, CategoryChatRun, ScopeRun, http.StatusNotFound, false),
 	def(CodeActiveRunConflict, CategoryChatRun, ScopeRun, http.StatusConflict, false),
 	def(CodeRunAlreadyFinished, CategoryChatRun, ScopeRun, http.StatusConflict, false),

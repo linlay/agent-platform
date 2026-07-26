@@ -1323,6 +1323,14 @@ func routeChildStreamInput(parentRunID string, taskID string, input stream.Strea
 	case stream.InputRunActivity:
 		value.TaskID = taskID
 		return value
+	case stream.ModelTurnCommit:
+		value.TaskID = taskID
+		return value
+	case stream.ModelTurnDiscard:
+		value.TaskID = taskID
+		value.ToolIDs = namespaceChildIDs(taskID, value.ToolIDs)
+		value.ActionIDs = namespaceChildIDs(taskID, value.ActionIDs)
+		return value
 	default:
 		return input
 	}
@@ -1373,6 +1381,19 @@ func namespaceChildID(taskID string, rawID string) string {
 		return ""
 	}
 	return taskID + ":" + rawID
+}
+
+func namespaceChildIDs(taskID string, rawIDs []string) []string {
+	if len(rawIDs) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(rawIDs))
+	for _, rawID := range rawIDs {
+		if namespaced := namespaceChildID(taskID, rawID); namespaced != "" {
+			out = append(out, namespaced)
+		}
+	}
+	return out
 }
 
 func deduplicateTeamReferences(references []api.Reference) []api.Reference {

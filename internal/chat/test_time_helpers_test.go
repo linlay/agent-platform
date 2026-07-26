@@ -126,6 +126,10 @@ func onEventForTest(writer *StepWriter, event stream.EventData) {
 		}
 	}
 	writer.OnEvent(event)
+	switch event.Type {
+	case "reasoning.snapshot", "content.snapshot", "tool.snapshot", "action.snapshot":
+		writer.CommitModelTurn(event.String("taskId"), 1)
+	}
 }
 
 func normalizeTestMessageSlice(value any, fallbackTs int64) {

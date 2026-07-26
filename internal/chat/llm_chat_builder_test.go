@@ -696,6 +696,7 @@ func TestStepWriterKeepsLLMRequestProfileOutOfStepLines(t *testing.T) {
 		"contentId": "content-1",
 		"text":      "answer",
 	}).Data())
+	writer.CommitModelTurn("", 1)
 	writer.Flush()
 
 	lines, err := readJSONLines(store.chatJSONLPath(chatID))
@@ -787,6 +788,7 @@ The tool results above already reflect these decisions; do not re-prompt for app
 		"contentId": "content-1",
 		"text":      "done",
 	}).Data())
+	writer.CommitModelTurn("", 1)
 	writer.Flush()
 
 	lines, err := readJSONLines(store.chatJSONLPath(chatID))
@@ -840,6 +842,7 @@ func TestStepWriterPersistsOnlyCompleteSystemRefOnStep(t *testing.T) {
 		"contentId": "content-1",
 		"text":      "final answer",
 	}).Data())
+	writer.CommitModelTurn("", 1)
 	writer.Flush()
 
 	lines, err := readJSONLines(store.chatJSONLPath(chatID))

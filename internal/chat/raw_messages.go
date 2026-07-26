@@ -8,7 +8,22 @@ import (
 
 // LoadRawMessages loads conversation history from {chatId}.jsonl step lines.
 func (s *FileStore) LoadRawMessages(chatID string, k int) ([]map[string]any, error) {
-	return loadRawMessagesFromPath(s.chatJSONLPath(chatID), k)
+	if k <= 0 {
+		k = DefaultHistoryRunWindow
+	}
+	lines, err := readPersistedJSONLines(s.chatJSONLPath(chatID))
+	if err != nil || len(lines) == 0 {
+		return nil, err
+	}
+	lines, err = s.logicalHistoryLines(chatID, lines)
+	if err != nil {
+		return nil, err
+	}
+	messages := rawMessagesFromJSONLLines(lines)
+	if len(messages) == 0 {
+		return nil, nil
+	}
+	return limitRawMessagesByRuns(messages, k, hasActiveCompactCheckpoint(lines)), nil
 }
 
 func loadRawMessagesFromPath(path string, k int) ([]map[string]any, error) {
@@ -35,6 +50,10 @@ func (s *FileStore) LoadTeamMemberRawMessages(chatID string, k int, memberAgentK
 	if err != nil || len(lines) == 0 {
 		return nil, err
 	}
+	lines, err = s.logicalHistoryLines(chatID, lines)
+	if err != nil {
+		return nil, err
+	}
 	messages := teamMemberRawMessagesFromJSONLLines(lines, memberAgentKey)
 	return limitRawMessagesByRuns(messages, k, hasActiveCompactCheckpoint(lines)), nil
 }
@@ -45,6 +64,10 @@ func (s *FileStore) LoadTeamCoordinatorRawMessages(chatID string, k int) ([]map[
 	}
 	lines, err := readPersistedJSONLines(s.chatJSONLPath(chatID))
 	if err != nil || len(lines) == 0 {
+		return nil, err
+	}
+	lines, err = s.logicalHistoryLines(chatID, lines)
+	if err != nil {
 		return nil, err
 	}
 	messages := teamCoordinatorRawMessagesFromJSONLLines(lines)

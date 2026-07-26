@@ -67,6 +67,10 @@ func (s *FileStore) BuildCompactSnapshot(chatID string, keptRunCount int) (Compa
 	if len(records) == 0 {
 		return CompactSnapshot{}, ErrNoCompactableHistory
 	}
+	eligibleRuns, err := s.legacyRepairableRunIDs(chatID)
+	if err != nil {
+		return CompactSnapshot{}, err
+	}
 
 	runOrder, firstRunIndex := activeRootRunOrder(records)
 	if len(runOrder) <= keptRunCount {
@@ -92,9 +96,21 @@ func (s *FileStore) BuildCompactSnapshot(chatID string, keptRunCount int) (Compa
 		return CompactSnapshot{}, ErrNoCompactableHistory
 	}
 
-	allMessages := rawMessagesFromJSONLLines(recordValues(records))
+	allLines, err := filterLegacyIncompleteModelTurns(recordValues(records), eligibleRuns)
+	if err != nil {
+		return CompactSnapshot{}, err
+	}
+	coveredLines, err = filterLegacyIncompleteModelTurns(coveredLines, eligibleRuns)
+	if err != nil {
+		return CompactSnapshot{}, err
+	}
+	tailLines, err := filterLegacyIncompleteModelTurns(recordValues(records[boundaryIndex:]), eligibleRuns)
+	if err != nil {
+		return CompactSnapshot{}, err
+	}
+	allMessages := rawMessagesFromJSONLLines(allLines)
 	coveredMessages := rawMessagesFromJSONLLines(coveredLines)
-	tailMessages := rawMessagesFromJSONLLines(recordValues(records[boundaryIndex:]))
+	tailMessages := rawMessagesFromJSONLLines(tailLines)
 	fallbackSummary := deterministicCompactSummary(coveredMessages)
 	preTokens := EstimateRawMessageTokens(allMessages)
 	postTokens := EstimateCompactPostTokens(fallbackSummary, tailMessages)

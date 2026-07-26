@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/apperrors"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/modelrequest"
 )
@@ -176,14 +177,14 @@ func (p *openAIProtocol) OpenStream(ctx context.Context, params protocolStreamPa
 func (p *openAIProtocol) ConsumeChunk(s *llmRunStream, _ string, rawChunk string) (bool, error) {
 	var decoded openAIStreamResponse
 	if err := json.Unmarshal([]byte(rawChunk), &decoded); err != nil {
-		return false, fmt.Errorf("decode provider stream chunk: %w", err)
+		return false, apperrors.Wrap(apperrors.CodeProviderStreamInvalid, fmt.Errorf("decode provider stream chunk: %w", err))
 	}
 	if len(decoded.Choices) == 0 {
 		if decoded.Usage != nil {
 			s.accumulateUsage(decoded.Usage)
 			return false, nil
 		}
-		return false, fmt.Errorf("provider stream returned no choices")
+		return false, apperrors.New(apperrors.CodeProviderStreamInvalid, "provider stream returned no choices")
 	}
 
 	if decoded.Usage != nil {

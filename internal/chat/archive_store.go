@@ -373,6 +373,10 @@ func (s *ArchiveStore) LoadArchived(chatID string) (*ArchivedChat, error) {
 	if err := validatePersistedTimeContract(lines, "archive.jsonl"); err != nil {
 		return nil, err
 	}
+	lines, err = filterLegacyIncompleteModelTurns(lines, legacyRepairableRunIDsFromSummaries(archived.Runs))
+	if err != nil {
+		return nil, err
+	}
 	rawMessages := rawMessagesFromJSONLLines(lines)
 	runStartedAt, runCompletedAt, err := replayRunLifecycleTimesByRuns(archived.Runs, "archive.runs")
 	if err != nil {

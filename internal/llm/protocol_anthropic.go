@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"agent-platform/internal/apperrors"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/modelrequest"
@@ -75,7 +76,7 @@ func (p *anthropicProtocol) OpenStream(ctx context.Context, params protocolStrea
 func (p *anthropicProtocol) ConsumeChunk(s *llmRunStream, eventName string, rawChunk string) (bool, error) {
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(rawChunk), &payload); err != nil {
-		return false, fmt.Errorf("decode provider stream chunk: %w", err)
+		return false, apperrors.Wrap(apperrors.CodeProviderStreamInvalid, fmt.Errorf("decode provider stream chunk: %w", err))
 	}
 
 	switch strings.TrimSpace(eventName) {

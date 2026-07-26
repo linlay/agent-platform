@@ -170,6 +170,52 @@ func TestDispatcherEmitsRunActivity(t *testing.T) {
 	}
 }
 
+func TestDispatcherDiscardsIncompleteModelTurnWithoutClosingPartialBlocks(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{RunID: "run_1", ChatID: "chat_1"})
+	_ = dispatcher.Dispatch(ReasoningDelta{ReasoningID: "reasoning_1", Delta: "partial thought"})
+	_ = dispatcher.Dispatch(ContentDelta{ContentID: "content_1", Delta: "partial answer"})
+	_ = dispatcher.Dispatch(ToolArgs{ToolID: "tool_1", ToolName: "file_write", Delta: `{"path":"x`, ChunkIndex: 0})
+
+	events := dispatcher.Dispatch(ModelTurnDiscard{
+		RunSeq:         1,
+		Attempt:        2,
+		MaxAttempts:    3,
+		Reason:         "provider_stream_failed",
+		Retrying:       true,
+		TimeoutSeconds: 60,
+		ElapsedMs:      1250,
+		ReasoningIDs:   []string{"reasoning_1"},
+		ContentIDs:     []string{"content_1"},
+		ToolIDs:        []string{"tool_1"},
+	})
+	assertEventTypes(t, events, "run.activity")
+	data := events[0].ToData()
+	if data["status"] != "retrying" {
+		t.Fatalf("unexpected discard activity: %#v", data)
+	}
+	recovery, _ := data["recovery"].(map[string]any)
+	if recovery["action"] != "discard_incomplete_model_turn" || recovery["runSeq"] != 1 {
+		t.Fatalf("unexpected recovery payload: %#v", recovery)
+	}
+	if !reflect.DeepEqual(recovery["reasoningIds"], []string{"reasoning_1"}) ||
+		!reflect.DeepEqual(recovery["contentIds"], []string{"content_1"}) ||
+		!reflect.DeepEqual(recovery["toolIds"], []string{"tool_1"}) {
+		t.Fatalf("unexpected recovery IDs: %#v", recovery)
+	}
+	retry, _ := data["retry"].(map[string]any)
+	if retry["timeoutSeconds"] != int64(60) || retry["elapsedMs"] != int64(1250) {
+		t.Fatalf("unexpected retry timing: %#v", retry)
+	}
+
+	complete := dispatcher.Complete()
+	for _, event := range complete {
+		switch event.Type {
+		case "reasoning.end", "reasoning.snapshot", "content.end", "content.snapshot", "tool.end", "tool.snapshot":
+			t.Fatalf("discarded block leaked into completion: %#v", complete)
+		}
+	}
+}
+
 func TestDispatcherEmitsFileChangeOnToolEndAndSnapshot(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",

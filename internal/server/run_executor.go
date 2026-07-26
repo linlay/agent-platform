@@ -51,6 +51,8 @@ type RunExecutorParams struct {
 
 type runEventProcessor struct {
 	assistantText        *strings.Builder
+	modelTurnPending     bool
+	modelTurnText        strings.Builder
 	stepWriter           *chat.StepWriter
 	billing              config.BillingConfig
 	models               *models.ModelRegistry
@@ -96,7 +98,11 @@ func (p *runEventProcessor) decorate(data *stream.EventData) {
 		}
 		if p.assistantText != nil {
 			if delta := data.String("delta"); delta != "" {
-				p.assistantText.WriteString(delta)
+				if p.modelTurnPending {
+					p.modelTurnText.WriteString(delta)
+				} else {
+					p.assistantText.WriteString(delta)
+				}
 			}
 		}
 	case "content.snapshot":
@@ -105,8 +111,13 @@ func (p *runEventProcessor) decorate(data *stream.EventData) {
 		}
 		if p.assistantText != nil {
 			if text := data.String("text"); text != "" {
-				p.assistantText.Reset()
-				p.assistantText.WriteString(text)
+				if p.modelTurnPending {
+					p.modelTurnText.Reset()
+					p.modelTurnText.WriteString(text)
+				} else {
+					p.assistantText.Reset()
+					p.assistantText.WriteString(text)
+				}
 			}
 		}
 	case "debug.llmChat":
@@ -153,6 +164,57 @@ func (p *runEventProcessor) decorate(data *stream.EventData) {
 			}
 		}
 		p.decorateTerminalUsage(data)
+	}
+}
+
+func (p *runEventProcessor) beginModelTurn(taskID string) {
+	if p == nil || strings.TrimSpace(taskID) != "" {
+		return
+	}
+	p.modelTurnPending = true
+	p.modelTurnText.Reset()
+}
+
+func (p *runEventProcessor) commitModelTurn(taskID string) {
+	if p == nil || strings.TrimSpace(taskID) != "" || !p.modelTurnPending {
+		return
+	}
+	if p.assistantText != nil {
+		p.assistantText.Reset()
+		p.assistantText.WriteString(p.modelTurnText.String())
+	}
+	p.modelTurnText.Reset()
+	p.modelTurnPending = false
+}
+
+func (p *runEventProcessor) discardModelTurn(taskID string, _ bool) {
+	if p == nil || strings.TrimSpace(taskID) != "" {
+		return
+	}
+	p.modelTurnText.Reset()
+	// Keep the gate open even for a terminal discard. Most such paths proceed
+	// directly to run.error, while run-limit recovery may emit a replacement
+	// assistant reply that still requires an explicit commit.
+	p.modelTurnPending = true
+}
+
+func applyModelTurnControl(processor *runEventProcessor, input stream.StreamInput) {
+	if processor == nil || input == nil {
+		return
+	}
+	switch value := input.(type) {
+	case stream.InputLLMRequest:
+		processor.beginModelTurn(value.TaskID)
+	case stream.ModelTurnCommit:
+		processor.commitModelTurn(value.TaskID)
+		if processor.stepWriter != nil {
+			processor.stepWriter.CommitModelTurn(value.TaskID, value.RunSeq)
+		}
+	case stream.ModelTurnDiscard:
+		processor.discardModelTurn(value.TaskID, value.Retrying)
+		if processor.stepWriter != nil {
+			processor.stepWriter.DiscardModelTurn(value.TaskID, value.RunSeq, value.Retrying)
+		}
 	}
 }
 
@@ -751,6 +813,7 @@ func runExecutor(params RunExecutorParams) {
 				content.Presentation = "reply"
 				input = content
 			}
+			applyModelTurnControl(processor, input)
 			if marker, ok := input.(stream.StageMarker); ok && params.StepWriter != nil {
 				params.StepWriter.OnStageMarker(marker.Stage)
 			}
@@ -764,6 +827,7 @@ func runExecutor(params RunExecutorParams) {
 			if timeContractErr != nil {
 				return
 			}
+			applyModelTurnControl(processor, input)
 			if marker, ok := input.(stream.StageMarker); ok && params.StepWriter != nil {
 				params.StepWriter.OnStageMarker(marker.Stage)
 			}

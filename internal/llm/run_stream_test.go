@@ -436,6 +436,9 @@ func TestParallelToolCallBatchStreamsResultAsEachToolCompletes(t *testing.T) {
 			if _, ok := delta.(contracts.DeltaRunActivity); ok {
 				continue
 			}
+			if _, ok := delta.(contracts.DeltaModelTurnCommit); ok {
+				continue
+			}
 			firstResult <- delta
 			return
 		}
@@ -693,6 +696,16 @@ func TestModelRetryRetriesProviderTimeoutBeforeVisibleOutput(t *testing.T) {
 			if typed.Status == "retrying" && typed.Retry["maxAttempts"] != 4 {
 				t.Fatalf("expected maxAttempts 4, got %#v", typed)
 			}
+		case contracts.DeltaModelTurnDiscard:
+			if typed.Retrying {
+				statuses = append(statuses, "retrying")
+				if typed.MaxAttempts != 4 {
+					t.Fatalf("expected maxAttempts 4, got %#v", typed)
+				}
+				if typed.TimeoutSeconds != 60 {
+					t.Fatalf("expected timeoutSeconds 60, got %#v", typed)
+				}
+			}
 		case contracts.DeltaContent:
 			content += typed.Text
 		}
@@ -705,6 +718,42 @@ func TestModelRetryRetriesProviderTimeoutBeforeVisibleOutput(t *testing.T) {
 	}
 	if content != "ok" {
 		t.Fatalf("expected retried content ok, got %q", content)
+	}
+}
+
+func TestModelRetryDiscardsTruncatedContentAttempt(t *testing.T) {
+	protocol := &retryProtocolStub{outcomes: []retryProtocolOutcome{
+		{chunk: "partial"},
+		{chunk: "ok"},
+	}}
+	stream := newRetryTestStream(protocol, 1)
+	if err := stream.prepareNextTurn(); err != nil {
+		t.Fatalf("prepareNextTurn: %v", err)
+	}
+
+	var sequence []string
+	for {
+		delta, err := stream.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("stream next: %v", err)
+		}
+		switch typed := delta.(type) {
+		case contracts.DeltaContent:
+			sequence = append(sequence, "content:"+typed.Text)
+		case contracts.DeltaModelTurnDiscard:
+			if typed.Retrying {
+				sequence = append(sequence, "discard")
+			}
+		case contracts.DeltaModelTurnCommit:
+			sequence = append(sequence, "commit")
+		}
+	}
+	want := []string{"content:partial", "discard", "content:ok", "commit"}
+	if !reflect.DeepEqual(sequence, want) {
+		t.Fatalf("sequence=%#v want %#v", sequence, want)
 	}
 }
 
@@ -731,6 +780,9 @@ func TestModelRetryEmitsFailedWhenAttemptsExhausted(t *testing.T) {
 		if activity, ok := delta.(contracts.DeltaRunActivity); ok {
 			statuses = append(statuses, activity.Status)
 		}
+		if discard, ok := delta.(contracts.DeltaModelTurnDiscard); ok && discard.Retrying {
+			statuses = append(statuses, "retrying")
+		}
 	}
 	if finalErr == nil {
 		t.Fatal("expected terminal provider error")
@@ -748,7 +800,7 @@ func TestModelRetryEmitsFailedWhenAttemptsExhausted(t *testing.T) {
 	}
 }
 
-func TestModelRetryFailsWithoutActivityAfterVisibleOutput(t *testing.T) {
+func TestModelRetryDiscardsAndRetriesAfterVisibleOutput(t *testing.T) {
 	stream := newRetryTestStream(&retryProtocolStub{}, 3)
 	stream.modelCall = &pendingModelCall{attempt: 1, maxAttempts: 4}
 	var content strings.Builder
@@ -761,14 +813,108 @@ func TestModelRetryFailsWithoutActivityAfterVisibleOutput(t *testing.T) {
 	if got := stream.handleModelAttemptError(err); got != nil {
 		t.Fatalf("handleModelAttemptError returned %v", got)
 	}
-	if stream.modelTerminalError == nil {
-		t.Fatal("expected terminal error after visible output")
+	if stream.modelTerminalError != nil {
+		t.Fatalf("did not expect terminal error after discardable visible output: %v", stream.modelTerminalError)
 	}
-	if stream.modelCall != nil || stream.currentTurn != nil {
-		t.Fatalf("expected model turn closed, modelCall=%#v currentTurn=%#v", stream.modelCall, stream.currentTurn)
+	if stream.modelCall == nil || stream.modelCall.attempt != 2 || stream.currentTurn != nil {
+		t.Fatalf("expected retry attempt 2 with provider turn closed, modelCall=%#v currentTurn=%#v", stream.modelCall, stream.currentTurn)
 	}
-	if len(stream.pending) != 0 {
-		t.Fatalf("did not expect activity delta after terminal model error, got %#v", stream.pending)
+	if len(stream.pending) != 1 {
+		t.Fatalf("expected one discard delta, got %#v", stream.pending)
+	}
+	discard, ok := stream.pending[0].(contracts.DeltaModelTurnDiscard)
+	if !ok || !discard.Retrying || discard.Attempt != 2 {
+		t.Fatalf("expected retrying discard for attempt 2, got %#v", stream.pending[0])
+	}
+}
+
+func TestFinishCurrentTurnCommitsWithoutUsage(t *testing.T) {
+	var content strings.Builder
+	content.WriteString("answer")
+	stream := &llmRunStream{
+		engine:      &LLMAgentEngine{},
+		session:     contracts.QuerySession{RunID: "run_commit", ChatID: "chat_commit"},
+		execCtx:     &contracts.ExecutionContext{StartedAt: time.Now()},
+		modelCall:   &pendingModelCall{runSeq: 1, attempt: 1, maxAttempts: 2},
+		currentTurn: &providerTurnStream{content: content, finishReason: "stop", hasMeaningful: true},
+	}
+	if err := stream.finishCurrentTurn(); err != nil {
+		t.Fatalf("finishCurrentTurn: %v", err)
+	}
+	for _, delta := range stream.pending {
+		if commit, ok := delta.(contracts.DeltaModelTurnCommit); ok {
+			if commit.RunSeq != 1 {
+				t.Fatalf("unexpected commit: %#v", commit)
+			}
+			return
+		}
+	}
+	t.Fatalf("turn without usage did not commit: %#v", stream.pending)
+}
+
+func TestFinishCurrentTurnDoesNotCommitMissingToolIDEvenWithUsage(t *testing.T) {
+	acc := &toolCallAccumulator{Type: "function", FunctionName: "file_write"}
+	acc.Arguments.WriteString(`{"path":"notes.md","content":"ok"}`)
+	stream := &llmRunStream{
+		engine:    &LLMAgentEngine{},
+		session:   contracts.QuerySession{RunID: "run_missing_id", ChatID: "chat_missing_id"},
+		execCtx:   &contracts.ExecutionContext{StartedAt: time.Now()},
+		modelCall: &pendingModelCall{runSeq: 1, attempt: 1, maxAttempts: 2},
+		currentTurn: &providerTurnStream{
+			toolCalls:     map[int]*toolCallAccumulator{0: acc},
+			finishReason:  "tool_calls",
+			hasMeaningful: true,
+			usage:         &openAIUsage{PromptTokens: 5, CompletionTokens: 3, TotalTokens: 8},
+		},
+	}
+	if err := stream.finishCurrentTurn(); err != nil {
+		t.Fatalf("finishCurrentTurn: %v", err)
+	}
+	var sawUsage, sawDiscard bool
+	for _, delta := range stream.pending {
+		switch delta.(type) {
+		case contracts.DeltaUsageSnapshot:
+			sawUsage = true
+		case contracts.DeltaModelTurnDiscard:
+			sawDiscard = true
+		case contracts.DeltaModelTurnCommit:
+			t.Fatalf("usage must not commit an invalid tool call: %#v", stream.pending)
+		}
+	}
+	if !sawUsage || !sawDiscard {
+		t.Fatalf("expected diagnostic usage plus discard, got %#v", stream.pending)
+	}
+}
+
+func TestFinishCurrentTurnCommitsBeforeInvalidArgumentsToolResult(t *testing.T) {
+	stream := &llmRunStream{
+		engine:       &LLMAgentEngine{},
+		session:      contracts.QuerySession{RunID: "run_invalid_args", ChatID: "chat_invalid_args"},
+		execCtx:      &contracts.ExecutionContext{StartedAt: time.Now()},
+		modelCall:    &pendingModelCall{runSeq: 1, attempt: 1, maxAttempts: 2},
+		allowToolUse: true,
+		currentTurn:  providerTurnWithToolCall("call_invalid_args", "bash", `{"command":"cut`),
+	}
+	if err := stream.finishCurrentTurn(); err != nil {
+		t.Fatalf("finishCurrentTurn: %v", err)
+	}
+
+	commitIndex := -1
+	resultIndex := -1
+	for index, delta := range stream.pending {
+		switch typed := delta.(type) {
+		case contracts.DeltaModelTurnCommit:
+			commitIndex = index
+		case contracts.DeltaModelTurnDiscard:
+			t.Fatalf("invalid arguments are a committed tool failure, not a model discard: %#v", typed)
+		case contracts.DeltaToolResult:
+			if typed.Result.Error == "invalid_tool_arguments" {
+				resultIndex = index
+			}
+		}
+	}
+	if commitIndex < 0 || resultIndex < 0 || commitIndex >= resultIndex {
+		t.Fatalf("expected commit before failed tool result, pending=%#v", stream.pending)
 	}
 }
 

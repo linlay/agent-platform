@@ -3,6 +3,7 @@ package llm
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	. "agent-platform/internal/contracts"
@@ -24,6 +25,10 @@ type DeltaMapper struct {
 	toolArgBuffers       map[string]*strings.Builder
 	pendingToolAwaitAsks map[string]*stream.AwaitAsk
 	actionToolIDs        map[string]bool
+	attemptReasoningIDs  map[string]bool
+	attemptContentIDs    map[string]bool
+	attemptToolIDs       map[string]bool
+	attemptActionIDs     map[string]bool
 	toolRegistry         ToolDefinitionLookup
 	frontend             *frontendtools.Registry
 }
@@ -38,6 +43,10 @@ func NewDeltaMapper(runID string, chatID string, budget Budget, toolRegistry Too
 		toolArgBuffers:       map[string]*strings.Builder{},
 		pendingToolAwaitAsks: map[string]*stream.AwaitAsk{},
 		actionToolIDs:        map[string]bool{},
+		attemptReasoningIDs:  map[string]bool{},
+		attemptContentIDs:    map[string]bool{},
+		attemptToolIDs:       map[string]bool{},
+		attemptActionIDs:     map[string]bool{},
 		toolRegistry:         toolRegistry,
 		frontend:             frontend,
 	}
@@ -71,6 +80,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		} else {
 			m.activeContentID = contentID
 		}
+		m.attemptContentIDs[contentID] = true
 		m.lastKind = "content"
 		return []stream.StreamInput{stream.ContentDelta{
 			ContentID: contentID,
@@ -87,6 +97,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		} else {
 			m.activeReasoningID = reasoningID
 		}
+		m.attemptReasoningIDs[reasoningID] = true
 		m.lastKind = "reasoning"
 		return []stream.StreamInput{stream.ReasoningDelta{
 			ReasoningID:    reasoningID,
@@ -101,6 +112,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		viewportType, toolLabel, toolDescription := m.resolveToolMetadata(value.Name)
 		if viewportType == "action" {
 			m.actionToolIDs[toolID] = true
+			m.attemptActionIDs[toolID] = true
 			m.lastKind = "action"
 			return []stream.StreamInput{stream.ActionArgs{
 				ActionID:    toolID,
@@ -111,6 +123,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		}
 		chunkIndex := m.toolArgChunkCounters[toolID]
 		m.toolArgChunkCounters[toolID] = chunkIndex + 1
+		m.attemptToolIDs[toolID] = true
 		m.lastKind = "tool"
 		awaitAsk, emitAwaitBeforeToolArgs := m.buildFrontendToolAwaitAsk(toolID, value.Name, value.ArgsDelta, chunkIndex)
 		if awaitAsk != nil && strings.EqualFold(strings.TrimSpace(value.Name), "ask_user_question") {
@@ -158,6 +171,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		resultError := value.Result.Error
 		resultExitCode := value.Result.ExitCode
 		if m.actionToolIDs[value.ToolID] {
+			delete(m.actionToolIDs, value.ToolID)
 			return []stream.StreamInput{stream.ActionResult{
 				ActionID:    value.ToolID,
 				ActionName:  value.ToolName,
@@ -179,6 +193,29 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 	case DeltaStageMarker:
 		m.lastKind = ""
 		return []stream.StreamInput{stream.StageMarker{Stage: value.Stage}}
+	case DeltaModelTurnCommit:
+		m.resetModelTurnState(false)
+		return []stream.StreamInput{stream.ModelTurnCommit{
+			TaskID: value.TaskID,
+			RunSeq: value.RunSeq,
+		}}
+	case DeltaModelTurnDiscard:
+		input := stream.ModelTurnDiscard{
+			TaskID:         value.TaskID,
+			RunSeq:         value.RunSeq,
+			Attempt:        value.Attempt,
+			MaxAttempts:    value.MaxAttempts,
+			Reason:         value.Reason,
+			Retrying:       value.Retrying,
+			TimeoutSeconds: value.TimeoutSeconds,
+			ElapsedMs:      value.ElapsedMs,
+			ReasoningIDs:   sortedStringSet(m.attemptReasoningIDs),
+			ContentIDs:     sortedStringSet(m.attemptContentIDs),
+			ToolIDs:        sortedStringSet(m.attemptToolIDs),
+			ActionIDs:      sortedStringSet(m.attemptActionIDs),
+		}
+		m.resetModelTurnState(true)
+		return []stream.StreamInput{input}
 	case DeltaSyntheticQuery:
 		m.lastKind = ""
 		return []stream.StreamInput{stream.SyntheticQuery{
@@ -404,6 +441,42 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 	default:
 		return nil
 	}
+}
+
+func (m *DeltaMapper) resetModelTurnState(discard bool) {
+	if m == nil {
+		return
+	}
+	if discard {
+		for actionID := range m.attemptActionIDs {
+			delete(m.actionToolIDs, actionID)
+		}
+	}
+	m.activeReasoningID = ""
+	m.activeContentID = ""
+	m.lastKind = ""
+	m.indexedToolIDs = map[int]string{}
+	m.toolArgChunkCounters = map[string]int{}
+	m.toolArgBuffers = map[string]*strings.Builder{}
+	m.pendingToolAwaitAsks = map[string]*stream.AwaitAsk{}
+	m.attemptReasoningIDs = map[string]bool{}
+	m.attemptContentIDs = map[string]bool{}
+	m.attemptToolIDs = map[string]bool{}
+	m.attemptActionIDs = map[string]bool{}
+}
+
+func sortedStringSet(values map[string]bool) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for value, present := range values {
+		if present && strings.TrimSpace(value) != "" {
+			out = append(out, value)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func cloneRawMessageMaps(messages []map[string]any) []map[string]any {

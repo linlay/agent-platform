@@ -293,7 +293,7 @@ func TestLLMChatTraceWritesInterruptInfo(t *testing.T) {
 		RequestID: "request_1",
 		ChatID:    "chat_1",
 	})
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 8; i++ {
 		_, err := stream.Next()
 		if errors.Is(err, contracts.ErrRunInterrupted) {
 			break
@@ -301,7 +301,7 @@ func TestLLMChatTraceWritesInterruptInfo(t *testing.T) {
 		if err != nil && !errors.Is(err, io.EOF) {
 			t.Fatalf("stream after interrupt: %v", err)
 		}
-		if i == 3 {
+		if i == 7 {
 			t.Fatalf("expected stream to report interruption")
 		}
 	}

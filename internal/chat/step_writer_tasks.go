@@ -27,6 +27,9 @@ type taskStepBuffer struct {
 	pendingModelKey         string
 	pendingReasoningEffort  string
 	pendingInputMessages    []map[string]any
+	modelTurnCommitRequired bool
+	modelTurnCommitted      bool
+	modelTurnRunSeq         int
 }
 
 func (w *StepWriter) ensureTaskBuffer(taskID string) *taskStepBuffer {
@@ -62,6 +65,10 @@ func (buffer *taskStepBuffer) capturePendingModelMetadata(values ...map[string]a
 func (w *StepWriter) flushTaskStep(taskID string) {
 	buffer, ok := w.taskBuffers[taskID]
 	if !ok || buffer == nil {
+		return
+	}
+	if buffer.modelTurnCommitRequired && !buffer.modelTurnCommitted && storedMessagesContainAssistant(buffer.messages) {
+		buffer.clearModelTurn()
 		return
 	}
 	allowEmptySubAgentStep := strings.TrimSpace(buffer.taskSubAgentKey) != "" && strings.TrimSpace(buffer.taskStatus) != ""
@@ -131,6 +138,31 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 	buffer.pendingReasoningEffort = ""
 	buffer.pendingInputMessages = nil
 	buffer.pendingSystemRef = nil
+	buffer.modelTurnCommitRequired = false
+	buffer.modelTurnCommitted = false
+	buffer.modelTurnRunSeq = 0
+}
+
+func (buffer *taskStepBuffer) clearModelTurn() {
+	if buffer == nil {
+		return
+	}
+	buffer.messages = nil
+	buffer.artifacts = nil
+	buffer.sources = nil
+	buffer.liveSeq = 0
+	buffer.lastTimestamp = 0
+	buffer.pendingUsage = nil
+	buffer.pendingContextWindowMax = 0
+	buffer.pendingContextCurrent = 0
+	buffer.pendingEstimated = 0
+	buffer.pendingModelKey = ""
+	buffer.pendingReasoningEffort = ""
+	buffer.pendingInputMessages = nil
+	buffer.pendingSystemRef = nil
+	buffer.modelTurnCommitRequired = false
+	buffer.modelTurnCommitted = false
+	buffer.modelTurnRunSeq = 0
 }
 
 func (w *StepWriter) flushAllTaskSteps() {
@@ -149,6 +181,10 @@ func (w *StepWriter) bufferAwaitingEvent(event stream.EventData) {
 	m := eventPayloadWithoutSeq(event)
 	w.pendingAwaiting = append(w.pendingAwaiting, m)
 	w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
+	w.lastTimestamp = event.Timestamp
+	if w.modelTurnCommitRequired && !w.modelTurnCommitted {
+		return
+	}
 	w.flushCurrentStepAt(event.Timestamp)
 }
 

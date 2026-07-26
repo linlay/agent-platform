@@ -98,6 +98,10 @@ func (s *FileStore) DeriveChat(request DeriveChatRequest) (DeriveChatResult, err
 	if err != nil {
 		return DeriveChatResult{}, err
 	}
+	lines, err = filterLegacyIncompleteModelTurns(lines, legacyRepairableRunIDsFromSummaries(sourceRuns))
+	if err != nil {
+		return DeriveChatResult{}, err
+	}
 	includedLines, err := deriveIncludedLines(lines, sourceRunID)
 	if err != nil {
 		return DeriveChatResult{}, err

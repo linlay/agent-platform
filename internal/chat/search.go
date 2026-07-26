@@ -132,6 +132,10 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 	if err != nil {
 		return nil, err
 	}
+	lines, err = s.logicalHistoryLines(chatID, lines)
+	if err != nil {
+		return nil, err
+	}
 	hits := make([]SearchHit, 0, limit)
 	appendHit := func(hit SearchHit) {
 		if strings.TrimSpace(hit.Snippet) == "" {

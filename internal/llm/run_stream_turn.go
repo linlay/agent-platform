@@ -343,16 +343,21 @@ func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 		}
 		if errors.Is(err, io.EOF) {
 			if s.currentTurn.finishReason == "" && !s.currentTurn.hasMeaningful {
+				streamErr := apperrors.Wrap(
+					apperrors.CodeProviderStreamFailed,
+					fmt.Errorf("provider stream ended before first valid event"),
+				)
 				if s.currentTurn.trace != nil {
-					s.currentTurn.trace.completeError(fmt.Errorf("provider stream ended before first valid event"))
+					s.currentTurn.trace.completeError(streamErr)
 				}
-				return false, fmt.Errorf("provider stream ended before first valid event")
+				return false, streamErr
 			}
 			if s.currentTurn.finishReason == "" {
+				streamErr := apperrors.Wrap(apperrors.CodeProviderStreamFailed, io.ErrUnexpectedEOF)
 				if s.currentTurn.trace != nil {
-					s.currentTurn.trace.completeError(io.ErrUnexpectedEOF)
+					s.currentTurn.trace.completeError(streamErr)
 				}
-				return false, io.ErrUnexpectedEOF
+				return false, streamErr
 			}
 			return true, s.finishCurrentTurn()
 		}
@@ -387,6 +392,14 @@ func (s *llmRunStream) finishCurrentTurn() error {
 	if turn == nil {
 		return nil
 	}
+	runSeq := s.runLLMChatCompletionCount
+	attempt := 1
+	maxAttempts := 1
+	if s.modelCall != nil && s.modelCall.runSeq > 0 {
+		runSeq = s.modelCall.runSeq
+		attempt = s.modelCall.attempt
+		maxAttempts = s.modelCall.maxAttempts
+	}
 	if turn.body != nil {
 		_ = turn.body.Close()
 	}
@@ -398,13 +411,25 @@ func (s *llmRunStream) finishCurrentTurn() error {
 
 	toolCalls, err := turn.materializeToolCalls()
 	if err != nil {
+		errorCode := apperrors.CodeProviderStreamInvalid
+		var appErr *apperrors.Error
+		if errors.As(err, &appErr) && appErr.Code() != "" {
+			errorCode = appErr.Code()
+		}
 		if turn.trace != nil {
 			turn.trace.completeError(err)
 		}
 		s.emitPendingUsageDelta()
 		s.emitDebugLLMChatDelta(turn.trace)
+		s.pending = append(s.pending, DeltaModelTurnDiscard{
+			TaskID:      s.modelActivityTaskID(),
+			RunSeq:      runSeq,
+			Attempt:     attempt,
+			MaxAttempts: maxAttempts,
+			Reason:      string(errorCode),
+		})
 		s.pending = append(s.pending, DeltaError{Error: apperrors.Payload(
-			apperrors.CodeMissingToolCallID,
+			errorCode,
 			err.Error(),
 		)})
 		s.currentTurn = nil
@@ -418,6 +443,11 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		}
 		s.emitPendingUsageDelta()
 		s.emitDebugLLMChatDelta(turn.trace)
+		s.pending = append(s.pending, DeltaModelTurnDiscard{
+			TaskID: s.modelActivityTaskID(),
+			RunSeq: runSeq,
+			Reason: "team_route_missing",
+		})
 		s.currentTurn = nil
 		s.pending = append(s.pending, s.buildModelRunActivity("completed", nil, nil))
 		if s.teamRouteCorrections < agentteam.MaxRoutingRetries {
@@ -447,10 +477,18 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		}
 		s.emitPendingUsageDelta()
 		s.emitDebugLLMChatDelta(turn.trace)
+		s.pending = append(s.pending, DeltaModelTurnDiscard{
+			TaskID: s.modelActivityTaskID(),
+			RunSeq: runSeq,
+			Reason: "final_turn_tool_calls_ignored",
+		})
 		s.currentTurn = nil
-		if strings.TrimSpace(content) == "" {
+		if strings.TrimSpace(content) != "" {
+			s.pending = append(s.pending, s.newContentDeltaEvent(content))
+		} else {
 			s.enqueueFallback(s.finalAnswerToolCallFallback())
 		}
+		s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq})
 		s.markRunLimitFinalAnswerCompleted()
 		s.closeSteersAndFinish()
 		return nil
@@ -469,8 +507,13 @@ func (s *llmRunStream) finishCurrentTurn() error {
 	s.currentTurn = nil
 
 	if len(toolCalls) == 0 {
-		s.pending = append(s.pending, s.buildModelRunActivity("completed", nil, nil))
+		if strings.TrimSpace(content) != "" {
+			s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq})
+		}
 		if s.appendTailSteersBeforeFinish() {
+			if strings.TrimSpace(content) == "" {
+				s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq})
+			}
 			return nil
 		}
 		if strings.TrimSpace(content) == "" {
@@ -480,6 +523,10 @@ func (s *llmRunStream) finishCurrentTurn() error {
 				s.enqueueFallback("Model returned no assistant content.")
 			}
 		}
+		if strings.TrimSpace(content) == "" {
+			s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq})
+		}
+		s.pending = append(s.pending, s.buildModelRunActivity("completed", nil, nil))
 		if finishReason := strings.TrimSpace(turn.finishReason); finishReason != "" && !strings.EqualFold(finishReason, "tool_calls") {
 			s.pending = append(s.pending, DeltaFinishReason{Reason: finishReason})
 		}
@@ -488,6 +535,11 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		return nil
 	}
 	if !s.allowToolUse {
+		s.pending = append(s.pending, DeltaModelTurnDiscard{
+			TaskID: s.modelActivityTaskID(),
+			RunSeq: runSeq,
+			Reason: string(apperrors.CodeToolCallsNotAllowed),
+		})
 		s.pending = append(s.pending, DeltaError{Error: apperrors.Payload(
 			apperrors.CodeToolCallsNotAllowed,
 			"tool calls are not allowed in ONESHOT mode",
@@ -540,6 +592,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		fileChanges = nil
 	}
 	s.pending = append(s.pending, DeltaToolEnd{ToolIDs: toolIDs, FileChanges: fileChanges})
+	s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq})
 	s.pending = append(s.pending, s.buildModelRunActivity("completed", nil, nil))
 	for _, prepared := range preparedCalls {
 		toolCall := prepared.toolCall
@@ -780,6 +833,10 @@ func (s *llmRunStream) handleInterruptIfNeeded() error {
 		}
 		s.emitPendingUsageDelta()
 		s.emitDebugLLMChatDelta(trace)
+		if s.modelCall != nil {
+			s.pending = append(s.pending, s.modelTurnDiscardDelta(s.modelCall, ErrRunInterrupted, false, s.modelCall.attempt))
+			s.modelCall = nil
+		}
 		s.currentTurn = nil
 		s.activeToolBatch = nil
 		s.pending = append(s.pending, DeltaRunCancel{RunID: s.session.RunID})

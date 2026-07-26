@@ -181,17 +181,18 @@ func modelErrorRetryable(err error) bool {
 }
 
 func (s *llmRunStream) currentModelTurnRetrySafe() bool {
-	if s == nil || s.currentTurn == nil {
-		return true
-	}
-	turn := s.currentTurn
-	if turn.hasMeaningful || !turn.firstVisibleAt.IsZero() {
+	if s == nil {
 		return false
 	}
-	if turn.content.Len() > 0 || turn.reasoning.Len() > 0 || len(turn.toolCalls) > 0 {
-		return false
-	}
-	return len(s.pending) == 0
+	// Provider deltas may already be visible to the client, but they remain
+	// uncommitted and tool invocations are not queued until finishCurrentTurn
+	// accepts the model turn. Recovery IDs let the client remove those partial
+	// blocks. Once any tool batch has started, retry could duplicate effects.
+	return s.activeToolCall == nil &&
+		s.activeToolBatch == nil &&
+		len(s.queuedToolCalls) == 0 &&
+		s.hitlPendingBatch == nil &&
+		s.hitlPendingCall == nil
 }
 
 func (s *llmRunStream) closeCurrentProviderTurn() {
@@ -225,14 +226,46 @@ func (s *llmRunStream) handleModelAttemptError(err error) error {
 		return nil
 	}
 	if s.canRetryModelAttempt(err) {
+		call := s.modelCall
+		nextAttempt := call.attempt + 1
+		s.pending = append(s.pending, s.modelTurnDiscardDelta(call, err, true, nextAttempt))
 		s.closeCurrentProviderTurn()
-		s.modelCall.attempt++
+		s.modelCall.attempt = nextAttempt
 		s.modelCall.attemptStartedAt = time.Time{}
-		s.appendModelRunActivity("retrying", err)
 		return nil
+	}
+	if s.modelCall != nil && s.currentModelTurnRetrySafe() {
+		s.pending = append(s.pending, s.modelTurnDiscardDelta(s.modelCall, err, false, s.modelCall.attempt))
 	}
 	s.closeCurrentProviderTurn()
 	s.modelCall = nil
 	s.modelTerminalError = err
 	return nil
+}
+
+func (s *llmRunStream) modelTurnDiscardDelta(call *pendingModelCall, err error, retrying bool, attempt int) DeltaModelTurnDiscard {
+	if call == nil {
+		call = &pendingModelCall{runSeq: s.runLLMChatCompletionCount, maxAttempts: 1}
+	}
+	if attempt < 1 {
+		attempt = 1
+	}
+	maxAttempts := call.maxAttempts
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+	payload := modelErrorPayload(err)
+	discard := DeltaModelTurnDiscard{
+		TaskID:      s.modelActivityTaskID(),
+		RunSeq:      call.runSeq,
+		Attempt:     attempt,
+		MaxAttempts: maxAttempts,
+		Reason:      modelActivityReason("retrying", payload),
+		Retrying:    retrying,
+	}
+	if retrying {
+		discard.TimeoutSeconds = s.modelActivityTimeoutSeconds(payload)
+		discard.ElapsedMs = modelActivityElapsedMs(call.attemptStartedAt)
+	}
+	return discard
 }

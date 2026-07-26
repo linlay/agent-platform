@@ -312,12 +312,15 @@ type queryRunResult struct {
 }
 
 type queryEventCollector struct {
-	assistantText strings.Builder
-	finishReason  string
-	usage         chat.UsageData
-	fullText      *queryFullTextBuilder
-	errorMessage  string
-	errorPayload  map[string]any
+	assistantText  strings.Builder
+	modelTurnText  strings.Builder
+	modelTurnOpen  bool
+	modelTurnDirty bool
+	finishReason   string
+	usage          chat.UsageData
+	fullText       *queryFullTextBuilder
+	errorMessage   string
+	errorPayload   map[string]any
 }
 
 func newQueryEventCollector(includeFullText bool) *queryEventCollector {
@@ -332,32 +335,52 @@ func (c *queryEventCollector) Consume(event stream.EventData) {
 	if c == nil {
 		return
 	}
+	if event.Type == "run.activity" && isDiscardIncompleteModelTurnRecovery(event.Value("recovery")) {
+		c.modelTurnText.Reset()
+		c.modelTurnOpen = true
+		c.modelTurnDirty = false
+		if c.fullText != nil {
+			c.fullText.DiscardModelTurn(event.Value("recovery"))
+		}
+		return
+	}
 	if c.fullText != nil {
 		c.fullText.Consume(event)
 	}
 	switch event.Type {
+	case "llm.request":
+		c.finishModelTurn()
+		c.modelTurnOpen = true
+		c.modelTurnDirty = false
 	case "content.delta":
 		if delta := event.String("delta"); delta != "" {
-			c.assistantText.WriteString(delta)
+			c.modelTurnDirty = c.modelTurnOpen
+			c.contentBuffer().WriteString(delta)
 		}
 	case "content.snapshot":
 		if text := event.String("text"); text != "" {
-			c.assistantText.Reset()
-			c.assistantText.WriteString(text)
+			c.modelTurnDirty = c.modelTurnOpen
+			buffer := c.contentBuffer()
+			buffer.Reset()
+			buffer.WriteString(text)
 		}
 	case "content.end":
-		if text := event.String("text"); text != "" && c.assistantText.Len() == 0 {
-			c.assistantText.WriteString(text)
+		if text := event.String("text"); text != "" && c.contentBuffer().Len() == 0 {
+			c.modelTurnDirty = c.modelTurnOpen
+			c.contentBuffer().WriteString(text)
 		}
 	case "usage.snapshot":
 		c.consumeUsage(event)
 	case "run.complete":
+		c.finishModelTurn()
 		c.finishReason = "complete"
 		c.consumeUsage(event)
 	case "run.cancel":
+		c.finishModelTurn()
 		c.finishReason = "cancel"
 		c.consumeUsage(event)
 	case "run.error":
+		c.finishModelTurn()
 		c.finishReason = "error"
 		if message := queryEventErrorMessage(event); message != "" {
 			c.errorMessage = message
@@ -369,6 +392,26 @@ func (c *queryEventCollector) Consume(event stream.EventData) {
 	}
 }
 
+func (c *queryEventCollector) contentBuffer() *strings.Builder {
+	if c.modelTurnOpen {
+		return &c.modelTurnText
+	}
+	return &c.assistantText
+}
+
+func (c *queryEventCollector) finishModelTurn() {
+	if !c.modelTurnOpen {
+		return
+	}
+	if c.modelTurnDirty {
+		c.assistantText.Reset()
+		c.assistantText.WriteString(c.modelTurnText.String())
+	}
+	c.modelTurnText.Reset()
+	c.modelTurnOpen = false
+	c.modelTurnDirty = false
+}
+
 func (c *queryEventCollector) Result() queryRunResult {
 	if c == nil {
 		return queryRunResult{FinishReason: "complete"}
@@ -377,11 +420,15 @@ func (c *queryEventCollector) Result() queryRunResult {
 	if finishReason == "" {
 		finishReason = "complete"
 	}
+	assistantText := c.assistantText.String()
+	if c.modelTurnOpen && c.modelTurnDirty {
+		assistantText = c.modelTurnText.String()
+	}
 	return queryRunResult{
-		AssistantText: c.assistantText.String(),
+		AssistantText: assistantText,
 		FinishReason:  finishReason,
 		Usage:         c.usage,
-		FullText:      c.FullText(c.assistantText.String()),
+		FullText:      c.FullText(assistantText),
 		ErrorMessage:  c.errorMessage,
 		ErrorPayload:  cloneQueryErrorPayload(c.errorPayload),
 	}
@@ -395,12 +442,18 @@ func (c *queryEventCollector) FullText(content string) string {
 }
 
 type queryFullTextBuilder struct {
-	parts             []string
+	parts             []queryFullTextPart
 	reasoningBuffers  map[string]*strings.Builder
 	reasoningRecorded map[string]bool
 	toolArgsBuffers   map[string]*strings.Builder
 	toolNames         map[string]string
 	toolRecorded      map[string]bool
+}
+
+type queryFullTextPart struct {
+	kind string
+	id   string
+	text string
 }
 
 func newQueryFullTextBuilder() *queryFullTextBuilder {
@@ -427,7 +480,7 @@ func (b *queryFullTextBuilder) Consume(event stream.EventData) {
 		if text == "" {
 			text = strings.TrimSpace(b.reasoningBuffer(id).String())
 		}
-		b.appendOnce(b.reasoningRecorded, id, "Reasoning", text)
+		b.appendOnce(b.reasoningRecorded, "reasoning", id, "Reasoning", text)
 	case "tool.start":
 		id := firstNonBlankString(event.String("toolId"), "tool")
 		b.toolNames[id] = firstNonBlankString(event.String("toolName"), event.String("toolLabel"), id)
@@ -441,13 +494,14 @@ func (b *queryFullTextBuilder) Consume(event stream.EventData) {
 		if args == "" {
 			args = strings.TrimSpace(b.toolArgsBuffer(id).String())
 		}
-		b.appendOnce(b.toolRecorded, id, "Tool: "+name, formatFullTextValue(args))
+		b.appendOnce(b.toolRecorded, "tool", id, "Tool: "+name, formatFullTextValue(args))
 	case "tool.result":
 		name := firstNonBlankString(event.String("toolName"), event.String("toolId"), "tool")
 		b.appendPart("Tool result: "+name, formatFullTextValue(event.Value("result")))
 	case "action.snapshot":
-		name := firstNonBlankString(event.String("actionName"), event.String("actionId"), "action")
-		b.appendPart("Action: "+name, formatFullTextValue(event.Value("arguments")))
+		id := firstNonBlankString(event.String("actionId"), "action")
+		name := firstNonBlankString(event.String("actionName"), id)
+		b.appendModelPart("action", id, "Action: "+name, formatFullTextValue(event.Value("arguments")))
 	case "action.result":
 		name := firstNonBlankString(event.String("actionId"), "action")
 		b.appendPart("Action result: "+name, formatFullTextValue(event.Value("result")))
@@ -478,11 +532,55 @@ func (b *queryFullTextBuilder) Text(content string) string {
 	if b == nil {
 		return strings.TrimSpace(content)
 	}
-	parts := append([]string(nil), b.parts...)
+	parts := make([]string, 0, len(b.parts)+1)
+	for _, part := range b.parts {
+		parts = append(parts, part.text)
+	}
 	if answer := strings.TrimSpace(content); answer != "" {
 		parts = append(parts, "Answer\n"+answer)
 	}
 	return strings.TrimSpace(strings.Join(parts, "\n\n"))
+}
+
+func (b *queryFullTextBuilder) DiscardModelTurn(recovery any) {
+	if b == nil {
+		return
+	}
+	payload, _ := recovery.(map[string]any)
+	reasoningIDs := stringSetFromAny(payload["reasoningIds"])
+	toolIDs := stringSetFromAny(payload["toolIds"])
+	actionIDs := stringSetFromAny(payload["actionIds"])
+	for id := range reasoningIDs {
+		delete(b.reasoningBuffers, id)
+		delete(b.reasoningRecorded, id)
+	}
+	for id := range toolIDs {
+		delete(b.toolArgsBuffers, id)
+		delete(b.toolNames, id)
+		delete(b.toolRecorded, id)
+	}
+	if len(reasoningIDs)+len(toolIDs)+len(actionIDs) == 0 {
+		return
+	}
+	filtered := b.parts[:0]
+	for _, part := range b.parts {
+		switch part.kind {
+		case "reasoning":
+			if reasoningIDs[part.id] {
+				continue
+			}
+		case "tool":
+			if toolIDs[part.id] {
+				continue
+			}
+		case "action":
+			if actionIDs[part.id] {
+				continue
+			}
+		}
+		filtered = append(filtered, part)
+	}
+	b.parts = filtered
 }
 
 func (b *queryFullTextBuilder) reasoningBuffer(id string) *strings.Builder {
@@ -503,12 +601,27 @@ func (b *queryFullTextBuilder) toolArgsBuffer(id string) *strings.Builder {
 	return next
 }
 
-func (b *queryFullTextBuilder) appendOnce(seen map[string]bool, key string, title string, body string) {
+func (b *queryFullTextBuilder) appendOnce(seen map[string]bool, kind string, key string, title string, body string) {
 	if seen[key] {
 		return
 	}
 	seen[key] = true
-	b.appendPart(title, body)
+	b.appendModelPart(kind, key, title, body)
+}
+
+func (b *queryFullTextBuilder) appendModelPart(kind string, id string, title string, body string) {
+	title = strings.TrimSpace(title)
+	body = strings.TrimSpace(body)
+	if title == "" && body == "" {
+		return
+	}
+	text := title
+	if text == "" {
+		text = body
+	} else if body != "" {
+		text += "\n" + body
+	}
+	b.parts = append(b.parts, queryFullTextPart{kind: kind, id: id, text: text})
 }
 
 func (b *queryFullTextBuilder) appendPart(title string, body string) {
@@ -533,7 +646,31 @@ func (b *queryFullTextBuilder) appendLine(text string) {
 	if text == "" {
 		return
 	}
-	b.parts = append(b.parts, text)
+	b.parts = append(b.parts, queryFullTextPart{text: text})
+}
+
+func isDiscardIncompleteModelTurnRecovery(value any) bool {
+	recovery, _ := value.(map[string]any)
+	return strings.TrimSpace(anyString(recovery["action"])) == "discard_incomplete_model_turn"
+}
+
+func stringSetFromAny(value any) map[string]bool {
+	result := map[string]bool{}
+	switch values := value.(type) {
+	case []string:
+		for _, item := range values {
+			if item = strings.TrimSpace(item); item != "" {
+				result[item] = true
+			}
+		}
+	case []any:
+		for _, raw := range values {
+			if item := strings.TrimSpace(anyString(raw)); item != "" {
+				result[item] = true
+			}
+		}
+	}
+	return result
 }
 
 func firstNonBlankString(values ...string) string {
@@ -847,6 +984,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		}
 		inputs := mapper.Map(delta)
 		for _, input := range inputs {
+			applyModelTurnControl(processor, input)
 			for _, event := range assembler.Consume(input) {
 				if err := writeEvent(event); err != nil {
 					return queryRunResult{}, err

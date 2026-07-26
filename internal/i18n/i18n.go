@@ -78,6 +78,7 @@ var zhCNCodes = map[string]string{
 	"budget_exceeded":                        "运行预算已用尽",
 	"channel_forbidden":                      "当前渠道不允许该操作",
 	"chat_not_found":                         "会话不存在",
+	"chat_history_incomplete":                "会话历史不完整，无法安全继续",
 	"chat_store_unavailable":                 "会话存储不可用",
 	"configuration_error":                    "配置错误",
 	"duplicate_id":                           "请求 id 已在处理中",

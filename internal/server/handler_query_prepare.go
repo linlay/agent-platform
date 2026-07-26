@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	agentkbase "agent-platform/internal/agent/kbase"
 	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
+	"agent-platform/internal/apperrors"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/channel"
 	"agent-platform/internal/chat"
@@ -283,6 +285,19 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 		TeamCoordinatorHistory: admission.orchestratedTeam,
 	})
 	if err != nil {
+		if errors.Is(err, chat.ErrChatHistoryIncomplete) {
+			payload := apperrors.Payload(
+				apperrors.CodeChatHistoryIncomplete,
+				err.Error(),
+				apperrors.WithDiagnostic("chatId", chatID),
+			)
+			return preparedQuery{}, &statusError{
+				status:  http.StatusConflict,
+				code:    string(apperrors.CodeChatHistoryIncomplete),
+				message: err.Error(),
+				data:    map[string]any{"error": payload},
+			}
+		}
 		return preparedQuery{}, err
 	}
 	if admission.orchestratedTeam && admission.teamSnapshot != nil {

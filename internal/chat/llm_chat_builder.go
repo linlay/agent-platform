@@ -43,6 +43,10 @@ func (s *FileStore) BuildLLMChatFromJSONL(chatID string, options LLMChatBuildOpt
 	if len(lines) == 0 {
 		return LLMChat{}, nil
 	}
+	lines, err = s.logicalHistoryLines(chatID, lines)
+	if err != nil {
+		return LLMChat{}, err
+	}
 	targetIndex := findLLMChatTargetLine(lines, options)
 	if targetIndex < 0 {
 		return LLMChat{}, fmt.Errorf("llm chat target not found")

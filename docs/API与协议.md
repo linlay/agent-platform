@@ -294,6 +294,37 @@ orchestrated Team 的总控 reasoning 和 `agent_delegate` 工具事件会被过
 
 `run.activity` 是运行中的非终止状态事件，用于展示当前 run 正在等待、运行、重试或完成某个活动阶段。基础字段为 `runId`、`chatId`、`phase`、`status`；可选字段包括 `taskId`、`backend`、`key`、`message`，以及按场景嵌套的 `retry` / `recovery` / `degradation` 对象。当前 native 模型调用使用 `phase:"model_call"`，可恢复重试使用 `status:"retrying"` 且把 `attempt`、`maxAttempts`、`reason`、`timeoutSeconds`、`elapsedMs` 放入 `retry`。`run.activity` 不表示 run 失败；`run.error` 仍是终止事件，发出后不应再出现 content / reasoning / tool 等业务事件，后面只允许传输层 `[DONE]`。`run.activity` 只用于 live / attach，默认不进入 `/api/chat` 历史回放。
 
+native LLM loop 以平台内部的 model turn commit 作为唯一接受边界。provider 合法终止、流式块完整收尾、tool call 完成 materialize 且通过平台接纳检查后才 commit；该控制信号不进入 SSE / WebSocket。`usage`、`contextWindow`、provider `finish_reason` 和 tool result 都不是完成标记，其中 `usage` / `contextWindow` 是可选元数据，缺失不会阻止正常 turn 提交。
+
+commit 前遇到 EOF、非法流帧、连接中断或可重试的 provider stream 错误，且尚未开始工具执行时，平台丢弃整个 attempt 并按模型 retry budget 重试。客户端会收到：
+
+```json
+{
+  "type": "run.activity",
+  "phase": "model_call",
+  "status": "retrying",
+  "retry": {
+    "attempt": 2,
+    "maxAttempts": 3,
+    "reason": "provider stream ended unexpectedly",
+    "timeoutSeconds": 60,
+    "elapsedMs": 60123
+  },
+  "recovery": {
+    "action": "discard_incomplete_model_turn",
+    "runSeq": 1,
+    "reasoningIds": ["reasoning_1"],
+    "contentIds": ["content_1"],
+    "toolIds": ["call_1"],
+    "actionIds": ["action_1"]
+  }
+}
+```
+
+客户端收到该 recovery 后应按给出的 id 移除已经展示的半截 reasoning、content、tool 或 action。重试耗尽时平台发送 `run.error`，未提交 attempt 不进入 JSONL 或 run summary。model turn 与后续 tool batch 是两个独立事务边界：turn commit 后，完整 tool call 会保留；工具执行失败写正常失败 tool result。工具已经开始执行或可能产生副作用时，平台不会通过回滚 turn 自动重试，避免重复执行。
+
+旧会话历史如果存在无法安全判定工具是否执行过的末尾调用，后续 query 在本地返回 HTTP `409`，错误码为 `chat_history_incomplete`，不会把有歧义的历史发给 provider。
+
 可运行的 HTTP JSON 模式 curl：
 
 ```bash

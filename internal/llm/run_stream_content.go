@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"agent-platform/internal/apperrors"
 	. "agent-platform/internal/contracts"
 )
 
@@ -208,11 +209,26 @@ func (t *providerTurnStream) materializeToolCalls() ([]openAIToolCall, error) {
 	for _, idx := range indexes {
 		acc := t.toolCalls[idx]
 		if strings.TrimSpace(acc.ID) == "" {
-			return nil, fmt.Errorf("provider tool call missing toolCallId for index %d", idx)
+			return nil, apperrors.Wrap(
+				apperrors.CodeMissingToolCallID,
+				fmt.Errorf("provider tool call missing toolCallId for index %d", idx),
+			)
 		}
 		toolType := acc.Type
 		if toolType == "" {
 			toolType = "function"
+		}
+		if !strings.EqualFold(strings.TrimSpace(toolType), "function") {
+			return nil, apperrors.Wrap(
+				apperrors.CodeProviderStreamInvalid,
+				fmt.Errorf("provider tool call has unsupported type %q for index %d", toolType, idx),
+			)
+		}
+		if strings.TrimSpace(acc.FunctionName) == "" {
+			return nil, apperrors.Wrap(
+				apperrors.CodeProviderStreamInvalid,
+				fmt.Errorf("provider tool call missing function name for index %d", idx),
+			)
 		}
 		out = append(out, openAIToolCall{
 			ID:   acc.ID,

@@ -38,6 +38,10 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		return d.handleActionResult(value)
 	case StageMarker:
 		return nil
+	case ModelTurnCommit:
+		return nil
+	case ModelTurnDiscard:
+		return d.handleModelTurnDiscard(value)
 	case SyntheticQuery:
 		events := d.closeOpenBlocks()
 		events = append(events, NewEvent("request.query", syntheticQueryPayload(d.request, value)))
