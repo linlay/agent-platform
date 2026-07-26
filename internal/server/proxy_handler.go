@@ -78,6 +78,9 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 	if req.PlanningMode != nil {
 		bodyPayload["planningMode"] = *req.PlanningMode
 	}
+	if len(req.RequiredSkillKeys) > 0 {
+		bodyPayload["requiredSkillKeys"] = append([]string(nil), req.RequiredSkillKeys...)
+	}
 	body, err := json.Marshal(bodyPayload)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
@@ -176,6 +179,9 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 		}
 		if req.PlanningMode != nil {
 			queryPayload["planningMode"] = *req.PlanningMode
+		}
+		if len(req.RequiredSkillKeys) > 0 {
+			queryPayload["requiredSkillKeys"] = append([]string(nil), req.RequiredSkillKeys...)
 		}
 		stepWriter.OnEvent(stream.EventData{
 			Type:      "request.query",

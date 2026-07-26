@@ -207,7 +207,7 @@ Automation 的 Team 身份规则与 query 一致：只配置 `teamId`，同时�
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
-| POST | `/api/query` | body: `message`、`agentKey`、`teamId`、`chatId`、`runId`、`requestId`、`role`、`references`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`planningMode`、`editingMode`、`accessLevel`、`model` | 默认 SSE stream；`stream:false` 时返回 JSON |
+| POST | `/api/query` | body: `message`、`agentKey`、`teamId`、`chatId`、`runId`、`requestId`、`role`、`references`、`requiredSkillKeys`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`planningMode`、`editingMode`、`accessLevel`、`model` | 默认 SSE stream；`stream:false` 时返回 JSON |
 | POST | `/api/btw` | body: `chatId`、`message`、可选 `btwId`、`runId`、`requestId`、`references`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`accessLevel`、`model` | 创建或继续隐藏只读分支；复用 query SSE，`stream:false` 返回带 `btwId` 的 JSON |
 | GET | `/api/attach` | query: `runId`、`agentKey` 或 `teamId`、`lastSeq` | 按公开 owner 续接 run 的 SSE stream |
 | POST | `/api/submit` | body: `agentKey` 或 `teamId`、`runId`、`awaitingId`、`params` | HITL submit ack |
@@ -218,6 +218,8 @@ Automation 的 Team 身份规则与 query 一致：只配置 `teamId`，同时�
 `/api/query` 的 `stream` 是 JSON body 字段；省略或传 `true` 时返回 SSE，结束帧为 `data: [DONE]`。传 `false` 时服务端仍执行完整 run、持久化 chat，并在结束后返回普通 JSON。默认只返回最终回答，响应示例见下文。
 
 `editingMode` 只认顶层 JSON boolean。仅 `editingMode:true` 且目标为专用 `mode: KBASE` 时生效；普通 Agent 附加 KBASE capability、CODER、PROXY、CHANNEL 和 Team 返回 HTTP 400，`msg=editing_mode_unsupported`。`false` 或省略保持只读，`params.editingMode` 不生效。开启时，`request.query` live event、chat JSONL、replay/export 和运行中 `activeRun` 保留 `editingMode:true`；false 时省略。它是单次 run 授权，不写 Agent 配置，也不会从上一轮继承。
+
+`requiredSkillKeys` 是单次 run 的强制 Skill 约束。当前客户端只发送零个或一个 key；服务端会去重后验证每个 key 同时属于目标 Agent 的 `skillConfig.skills` 且能从 skills market 成功解析。任一项不可用时返回 HTTP 400，`msg=required_skill_unavailable`，不会静默降级。通过验证的 key 会进入 session、system-init fingerprint 与 `request.query`，并在系统级 Skill 约束中要求本次运行加载并遵循对应 `SKILL.md`。Team 不接受该字段。
 
 `teamId` 的 HTTP、WebSocket、Automation、submit continuation 与子智能体准入共享同一 resolver。chat 创建后 `teamId` 固定；Team 的公开 owner 是 Team，query 只使用 `teamId`。运行时在 run 内合成内部 `TEAM` 协调器，任何 `agentKey` 都会被视为绕过调度器。
 
@@ -254,7 +256,14 @@ BTW 发给 provider 的 system、tools、tool choice 和 cache key 与普通 cha
 }
 ```
 
-`references` 中的文件引用使用 `path` 表示当前目标智能体可直接访问的执行路径。服务端会按 agent 运行位置生成或归一化该字段：本地运行时为宿主机绝对路径，容器运行时为 `/workspace/...`。`url` 只用于平台资源下载、ticket 与 gateway 数据面，不进入模型 prompt。
+`references` 中的文件引用使用 `path` 表示当前目标智能体可直接访问的执行路径。服务端会按 agent 运行位置生成或归一化该字段：本地运行时为宿主机绝对路径，容器运行时为 `/workspace/...`。
+
+Chat 与 Site 沿用同一 `references` 数组，但不按文件路径处理：
+
+- Chat：`{ "type": "chat", "id": "chatId", "name": "会话名", "meta": { "agentKey": "...", "teamId": "...", "updatedAt": 0 } }`。服务端忽略客户端提供的上下文，按可信 chatId 重新读取 compact 摘要和最近 12 条用户/助手消息；拒绝当前 chat 自引用、失效 chat 和跨 query principal 访问。
+- Site：`{ "type": "site", "id": "entryKey", "name": "站点名", "url": "https://...", "meta": { "kind": "website|webapp", "updatedAt": 0 } }`。服务端只注入经过字段白名单校验的名称、类型、入口标识和 HTTP(S) URL，不抓取页面内容。
+
+文件引用的 `url` 只用于平台资源下载、ticket 与 gateway 数据面，不进入模型 prompt；只有 Site 引用的可信指针 URL 会作为引用元数据展示给模型。
 
 普通非流式 query 的默认响应：
 

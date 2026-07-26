@@ -37,6 +37,15 @@ var memoryInjectionEnabled = false
 
 func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, summary chat.Summary, agentDef catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
 	editingMode := agentkbase.EditingModeEnabled(agentDef.Mode, req.EditingMode != nil && *req.EditingMode)
+	requiredSkillKeys, err := resolveRequiredSkillKeys(
+		agentDef,
+		s.deps.Config.Paths.SkillsMarketDir,
+		req.RequiredSkillKeys,
+	)
+	if err != nil {
+		return contracts.QuerySession{}, err
+	}
+	req.RequiredSkillKeys = requiredSkillKeys
 	if !strings.EqualFold(strings.TrimSpace(agentDef.Mode), agentteam.Mode) {
 		if err := catalog.ValidateOrdinaryAgentTools(agentDef.Tools); err != nil {
 			return contracts.QuerySession{}, err
@@ -133,6 +142,14 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	req.References = runtimeContext.References
 
 	promptAppend := buildPromptAppendConfig(s.deps.Config.Prompts, agentDef)
+	skillCatalogPrompt := buildSkillCatalogPrompt(agentDef, s.deps.Config.Paths.SkillsMarketDir, promptAppend)
+	if requiredSkillConstraint := buildRequiredSkillConstraint(req.RequiredSkillKeys); requiredSkillConstraint != "" {
+		if skillCatalogPrompt != "" {
+			skillCatalogPrompt += "\n\n" + requiredSkillConstraint
+		} else {
+			skillCatalogPrompt = requiredSkillConstraint
+		}
+	}
 	resolvedWorkspaceRoot := strings.TrimSpace(runtimeContext.LocalPaths.WorkspaceDir)
 	if err := agentcoder.ValidateWorkspaceGit(agentcoder.WorkspaceGitPolicy{
 		Mode:           agentDef.Mode,
@@ -238,6 +255,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		TeamID:                        req.TeamID,
 		Created:                       options.Created,
 		SkillKeys:                     append([]string(nil), agentDef.Skills...),
+		RequiredSkillKeys:             append([]string(nil), req.RequiredSkillKeys...),
 		ContextTags:                   append([]string(nil), agentDef.ContextTags...),
 		Budget:                        contracts.CloneMap(agentDef.Budget),
 		StageSettings:                 contracts.CloneMap(agentDef.StageSettings),
@@ -253,7 +271,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		PromptAppend:                  promptAppend,
 		AdvancedUserPrompt:            s.deps.Config.Query.AdvancedUserPrompt && !isProxyRoutedAgent(agentDef),
 		StaticMemoryPrompt:            staticMemoryPrompt,
-		SkillCatalogPrompt:            buildSkillCatalogPrompt(agentDef, s.deps.Config.Paths.SkillsMarketDir, promptAppend),
+		SkillCatalogPrompt:            skillCatalogPrompt,
 		SoulPrompt:                    agentDef.SoulPrompt,
 		AgentsPrompt:                  agentDef.AgentsPrompt,
 		WorkspaceAgentsPrompt:         workspaceAgentsPrompt,

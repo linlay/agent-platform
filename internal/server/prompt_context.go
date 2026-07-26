@@ -119,6 +119,10 @@ func (s *Server) normalizeReferencePathsForAgent(references []api.Reference, cha
 }
 
 func (s *Server) referencePathForAgent(reference api.Reference, chatID string, def catalog.AgentDefinition) string {
+	switch strings.ToLower(strings.TrimSpace(reference.Type)) {
+	case "chat", "site":
+		return ""
+	}
 	if s.referencePathsUseContainer(def) {
 		if rel := referenceResourceRelativePath(chatID, reference); rel != "" {
 			return "/workspace/" + filepath.ToSlash(rel)
@@ -229,6 +233,66 @@ func buildSkillCatalogPrompt(def catalog.AgentDefinition, marketDir string, appe
 	sections = append(sections, strings.TrimSpace(appendConfig.Skill.CatalogHeader))
 	sections = append(sections, strings.Join(blocks, "\n\n---\n\n"))
 	return strings.Join(sections, "\n\n")
+}
+
+func resolveRequiredSkillKeys(def catalog.AgentDefinition, marketDir string, requested []string) ([]string, error) {
+	if len(requested) == 0 {
+		return nil, nil
+	}
+	configured := make(map[string]string, len(def.Skills))
+	for _, key := range def.Skills {
+		normalized := strings.ToLower(strings.TrimSpace(key))
+		if normalized != "" {
+			configured[normalized] = strings.TrimSpace(key)
+		}
+	}
+	resolved := make([]string, 0, len(requested))
+	seen := map[string]struct{}{}
+	for _, key := range requested {
+		normalized := strings.ToLower(strings.TrimSpace(key))
+		if normalized == "" {
+			continue
+		}
+		if _, duplicate := seen[normalized]; duplicate {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		configuredKey, ok := configured[normalized]
+		if !ok {
+			return nil, fmt.Errorf("required skill %q is not configured for agent %q", key, def.Key)
+		}
+		definition, found, err := catalog.ResolveSkillDefinition(def.AgentDir, marketDir, configuredKey)
+		if err != nil {
+			return nil, fmt.Errorf("resolve required skill %q: %w", configuredKey, err)
+		}
+		if !found {
+			return nil, fmt.Errorf("required skill %q could not be resolved", configuredKey)
+		}
+		resolved = append(resolved, definition.Key)
+	}
+	return resolved, nil
+}
+
+func buildRequiredSkillConstraint(requiredSkillKeys []string) string {
+	if len(requiredSkillKeys) == 0 {
+		return ""
+	}
+	lines := []string{
+		"Required skills for this run:",
+	}
+	for _, key := range requiredSkillKeys {
+		if normalized := strings.TrimSpace(key); normalized != "" {
+			lines = append(lines, "- "+normalized)
+		}
+	}
+	if len(lines) == 1 {
+		return ""
+	}
+	lines = append(
+		lines,
+		"You must load the complete SKILL.md instructions for every required skill above and follow them for this run. This requirement is mandatory and must not be silently ignored or replaced by another skill.",
+	)
+	return strings.Join(lines, "\n")
 }
 
 func effectiveLocalWorkspaceRoot(def catalog.AgentDefinition, editingMode bool) string {

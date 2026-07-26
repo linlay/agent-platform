@@ -143,17 +143,18 @@ type QueryRequest struct {
 	Message   string `json:"message"`
 	// Trusted channel hint for the remote actor. Ignored outside gateway
 	// contexts when deriving chat summary source.
-	SourceUser      string             `json:"sourceUser,omitempty"`
-	References      []Reference        `json:"references,omitempty"`
-	Params          map[string]any     `json:"params,omitempty"`
-	Scene           *Scene             `json:"scene,omitempty"`
-	Stream          *bool              `json:"stream,omitempty"`
-	IncludeUsage    bool               `json:"includeUsage,omitempty"`
-	IncludeFullText bool               `json:"includeFullText,omitempty"`
-	PlanningMode    *bool              `json:"planningMode,omitempty"`
-	EditingMode     *bool              `json:"editingMode,omitempty"`
-	AccessLevel     string             `json:"accessLevel,omitempty"`
-	Model           *QueryModelOptions `json:"model,omitempty"`
+	SourceUser        string             `json:"sourceUser,omitempty"`
+	References        []Reference        `json:"references,omitempty"`
+	Params            map[string]any     `json:"params,omitempty"`
+	Scene             *Scene             `json:"scene,omitempty"`
+	Stream            *bool              `json:"stream,omitempty"`
+	IncludeUsage      bool               `json:"includeUsage,omitempty"`
+	IncludeFullText   bool               `json:"includeFullText,omitempty"`
+	PlanningMode      *bool              `json:"planningMode,omitempty"`
+	EditingMode       *bool              `json:"editingMode,omitempty"`
+	RequiredSkillKeys []string           `json:"requiredSkillKeys,omitempty"`
+	AccessLevel       string             `json:"accessLevel,omitempty"`
+	Model             *QueryModelOptions `json:"model,omitempty"`
 
 	// Internal runtime hint: the stream bootstrap already emitted the synthetic
 	// request.query for this run, so agent mode prefixes must not emit it again.

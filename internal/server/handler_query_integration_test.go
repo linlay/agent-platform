@@ -712,6 +712,24 @@ func TestQueryRequestQueryIncludesParamsAndReferences(t *testing.T) {
 	}
 }
 
+func TestQueryRejectsUnavailableRequiredSkillWithExplicitCode(t *testing.T) {
+	fixture := newTestFixture(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{
+		"message":"must use unavailable skill",
+		"requiredSkillKeys":["missing-skill"]
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"required_skill_unavailable"`) {
+		t.Fatalf("expected required_skill_unavailable, got %s", rec.Body.String())
+	}
+}
+
 func assertRequestQueryContext(t *testing.T, message map[string]any) {
 	t.Helper()
 	params, ok := message["params"].(map[string]any)

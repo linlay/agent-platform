@@ -52,6 +52,17 @@ func TestSystemInitFingerprintIgnoresRequestDynamicContext(t *testing.T) {
 	}
 }
 
+func TestSystemInitFingerprintChangesWithRequiredSkills(t *testing.T) {
+	session := fingerprintTestSession()
+	changed := session
+	changed.RequiredSkillKeys = []string{"skill-a"}
+
+	tools := []api.ToolDetailResponse{{Name: "bash", Description: "run shell"}}
+	if first, second := ComputeSystemInitFingerprint(session, "main", tools), ComputeSystemInitFingerprint(changed, "main", tools); first == second {
+		t.Fatal("required skill selection must change the system-init fingerprint")
+	}
+}
+
 func TestKBaseReadOnlyFingerprintIgnoresEditingPolicySnapshot(t *testing.T) {
 	session := fingerprintTestSession()
 	session.Mode = agentkbase.Mode

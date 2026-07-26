@@ -217,6 +217,28 @@ func (s *Server) prepareQueryAdmissionRequest(
 			},
 		}
 	}
+	requiredSkillKeys, err := resolveRequiredSkillKeys(
+		agentDef,
+		s.deps.Config.Paths.SkillsMarketDir,
+		req.RequiredSkillKeys,
+	)
+	if err != nil {
+		const code = "required_skill_unavailable"
+		return queryAdmission{}, &statusError{
+			status:  http.StatusBadRequest,
+			code:    code,
+			message: err.Error(),
+			data: map[string]any{
+				"error": map[string]any{"code": code, "message": err.Error()},
+			},
+		}
+	}
+	req.RequiredSkillKeys = requiredSkillKeys
+	preparedReferences, err := s.prepareQueryReferences(ctx, chatID, req.References)
+	if err != nil {
+		return queryAdmission{}, err
+	}
+	req.References = preparedReferences
 
 	req.ChatID = chatID
 	req.AgentKey = agentKey
@@ -845,6 +867,7 @@ func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEv
 		Model:              prepared.req.Model,
 		PlanningMode:       prepared.session.PlanningMode,
 		EditingMode:        prepared.session.EditingMode,
+		RequiredSkillKeys:  prepared.session.RequiredSkillKeys,
 		IncludeUsage:       prepared.req.IncludeUsage,
 		IncludeFullText:    prepared.req.IncludeFullText,
 		AccessLevel:        prepared.session.AccessLevel,

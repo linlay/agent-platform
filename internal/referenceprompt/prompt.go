@@ -59,6 +59,9 @@ func formatReference(reference api.Reference) []string {
 		fields = append(fields, fmt.Sprintf("sizeBytes: %d", *reference.SizeBytes))
 	}
 	appendScalarField(&fields, "sha256", reference.SHA256)
+	if strings.EqualFold(strings.TrimSpace(reference.Type), "site") {
+		appendScalarField(&fields, "url", reference.URL)
+	}
 	appendMetaFields(&fields, reference.Meta)
 	return fields
 }

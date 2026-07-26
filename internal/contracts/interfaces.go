@@ -273,6 +273,7 @@ type QuerySession struct {
 	Created                       bool
 	Subject                       string
 	SkillKeys                     []string
+	RequiredSkillKeys             []string
 	ContextTags                   []string
 	Budget                        map[string]any
 	StageSettings                 map[string]any

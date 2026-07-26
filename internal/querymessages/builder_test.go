@@ -121,6 +121,32 @@ func TestBuildContentDefaultReferenceFormatUnchanged(t *testing.T) {
 	}
 }
 
+func TestBuildContentIncludesSitePointerWithoutFetchingContent(t *testing.T) {
+	content := BuildContentWithOptions("", "chat-1", "compare the site", []api.Reference{{
+		ID:   "website:docs",
+		Type: "site",
+		Name: "Docs",
+		URL:  "https://example.com/docs",
+		Meta: map[string]any{"kind": "website"},
+	}}, false, false, BuildOptions{})
+
+	text, ok := content.(string)
+	if !ok {
+		t.Fatalf("expected text content, got %T", content)
+	}
+	for _, expected := range []string{
+		"- id: website:docs",
+		"  type: site",
+		"  name: Docs",
+		"  url: https://example.com/docs",
+		"    kind: website",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("expected %q in site reference content %q", expected, text)
+		}
+	}
+}
+
 func TestBuildContentAdvancedVisionKeepsImageBlocks(t *testing.T) {
 	chatsDir := t.TempDir()
 	chatID := "chat-1"
