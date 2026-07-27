@@ -74,7 +74,19 @@ try {
   }
   Assert-Test $MissingValueFailed 'missing image-generate model key unexpectedly succeeded'
 
+  $ExpectedRuntimeRoot = 'D:\测试数据目录\.cutej'
+  $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+  [System.IO.File]::WriteAllText(
+    (Join-Path $BundleRoot '.env'),
+    "AP_RUNTIME_DIR=$ExpectedRuntimeRoot`r`n",
+    $Utf8NoBom
+  )
+  . (Join-Path $BundleScripts 'program-common.ps1')
+  Import-ProgramEnv
+  Assert-Test ($env:AP_RUNTIME_DIR -ceq $ExpectedRuntimeRoot) 'UTF-8 .env path was not preserved'
+
   Write-Host '[program-deploy-test] passed'
 } finally {
+  Remove-Item Env:AP_RUNTIME_DIR -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $TempRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
