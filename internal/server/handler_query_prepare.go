@@ -12,6 +12,7 @@ import (
 	agentcoder "agent-platform/internal/agent/coder"
 	agentkbase "agent-platform/internal/agent/kbase"
 	agentteam "agent-platform/internal/agent/team"
+	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
 	"agent-platform/internal/catalog"
@@ -792,10 +793,13 @@ func runtimeAgentEnv(value any) map[string]string {
 	}
 }
 
-func resolveSkillRuntimeSettings(agentEnv map[string]string, agentDir string, marketDir string, skillKeys []string) ([]string, map[string]string) {
+func resolveSkillRuntimeSettings(agentEnv map[string]string, agentDir string, marketDir string, skillKeys []string) ([]string, map[string]string, error) {
 	runtimeEnv := contracts.CloneStringMap(agentEnv)
+	if err := agentconfig.ValidateUserEnvironment(runtimeEnv); err != nil {
+		return nil, nil, err
+	}
 	if len(skillKeys) == 0 {
-		return nil, runtimeEnv
+		return nil, runtimeEnv, nil
 	}
 	seen := map[string]struct{}{}
 	var hookDirs []string
@@ -810,8 +814,7 @@ func resolveSkillRuntimeSettings(agentEnv map[string]string, agentDir string, ma
 		seen[skillKey] = struct{}{}
 		def, ok, err := catalog.ResolveSkillDefinition(agentDir, marketDir, skillKey)
 		if err != nil {
-			log.Printf("[server][skill-runtime][warn] skill resolution failed key=%s err=%v", skillKey, err)
-			continue
+			return nil, nil, fmt.Errorf("resolve skill runtime %q: %w", skillKey, err)
 		}
 		if !ok {
 			log.Printf("[server][skill-runtime][warn] skill definition not found key=%s", skillKey)
@@ -827,7 +830,7 @@ func resolveSkillRuntimeSettings(agentEnv map[string]string, agentDir string, ma
 			runtimeEnv[key] = value
 		}
 	}
-	return hookDirs, runtimeEnv
+	return hookDirs, runtimeEnv, nil
 }
 
 func sortedStringKeys(values map[string]string) []string {

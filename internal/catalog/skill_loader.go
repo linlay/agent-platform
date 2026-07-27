@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"agent-platform/internal/agentconfig"
 )
 
 const manifestFile = ".market-synced-skills"
@@ -141,6 +143,9 @@ func loadSkillRuntimeEnv(skillDir string) (map[string]string, error) {
 	}
 	var env map[string]string
 	if err := json.Unmarshal(content, &env); err != nil {
+		return nil, err
+	}
+	if err := agentconfig.ValidateUserEnvironment(env); err != nil {
 		return nil, err
 	}
 	return env, nil

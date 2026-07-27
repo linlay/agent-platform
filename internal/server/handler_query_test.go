@@ -44,7 +44,10 @@ func TestResolveSkillRuntimeSettingsMergesEnvAndHookDirsInOrder(t *testing.T) {
 		"NODE_ENV": "test",
 		"BASE":     "1",
 	}
-	hookDirs, env := resolveSkillRuntimeSettings(agentEnv, agentDir, marketDir, []string{"alpha", "beta", "alpha"})
+	hookDirs, env, err := resolveSkillRuntimeSettings(agentEnv, agentDir, marketDir, []string{"alpha", "beta", "alpha"})
+	if err != nil {
+		t.Fatalf("resolveSkillRuntimeSettings() error = %v", err)
+	}
 	if !reflect.DeepEqual(hookDirs, []string{
 		filepath.Join(alphaDir, ".bash-hooks"),
 		filepath.Join(betaDir, ".bash-hooks"),
@@ -69,7 +72,10 @@ func TestResolveSkillRuntimeSettingsSkipsMissingSkills(t *testing.T) {
 	agentEnv := map[string]string{
 		"HTTP_PROXY": "http://agent",
 	}
-	hookDirs, env := resolveSkillRuntimeSettings(agentEnv, "", marketDir, []string{"missing", "beta"})
+	hookDirs, env, err := resolveSkillRuntimeSettings(agentEnv, "", marketDir, []string{"missing", "beta"})
+	if err != nil {
+		t.Fatalf("resolveSkillRuntimeSettings() error = %v", err)
+	}
 	if !reflect.DeepEqual(hookDirs, []string{filepath.Join(betaDir, ".bash-hooks")}) {
 		t.Fatalf("hookDirs = %#v", hookDirs)
 	}
@@ -82,7 +88,10 @@ func TestResolveSkillRuntimeSettingsSupportsHyphenatedSkillIDs(t *testing.T) {
 	marketDir := t.TempDir()
 	platformAdminDir := writeSkillRuntimeFixture(t, marketDir, "platform-admin", `{"DANGEROUS_COMMANDS":"1"}`)
 
-	hookDirs, env := resolveSkillRuntimeSettings(nil, "", marketDir, []string{"platform-admin"})
+	hookDirs, env, err := resolveSkillRuntimeSettings(nil, "", marketDir, []string{"platform-admin"})
+	if err != nil {
+		t.Fatalf("resolveSkillRuntimeSettings() error = %v", err)
+	}
 	if !reflect.DeepEqual(hookDirs, []string{filepath.Join(platformAdminDir, ".bash-hooks")}) {
 		t.Fatalf("hookDirs = %#v", hookDirs)
 	}
@@ -96,7 +105,10 @@ func TestResolveSkillRuntimeSettingsReturnsAgentEnvWithoutSkills(t *testing.T) {
 		"HTTP_PROXY": "http://agent",
 	}
 
-	hookDirs, env := resolveSkillRuntimeSettings(agentEnv, "", "", nil)
+	hookDirs, env, err := resolveSkillRuntimeSettings(agentEnv, "", "", nil)
+	if err != nil {
+		t.Fatalf("resolveSkillRuntimeSettings() error = %v", err)
+	}
 	if hookDirs != nil {
 		t.Fatalf("hookDirs = %#v, want nil", hookDirs)
 	}

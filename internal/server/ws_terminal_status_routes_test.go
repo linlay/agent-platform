@@ -18,6 +18,7 @@ import (
 type terminalStatusSessionForTest struct {
 	TerminalID  string
 	AgentKey    string
+	ChatID      string
 	TerminalKey string
 	Status      string
 }
@@ -65,6 +66,7 @@ func TestWebSocketTerminalStatusStreamPublishesSessionSnapshot(t *testing.T) {
 
 	openTerminalStream(t, conn, "term_open_status", map[string]any{
 		"agentKey":    "coder-terminal-status",
+		"chatId":      "chat-status",
 		"terminalKey": "main",
 		"cols":        80,
 		"rows":        24,
@@ -82,7 +84,10 @@ func TestWebSocketTerminalStatusStreamPublishesSessionSnapshot(t *testing.T) {
 
 	waitForTerminalStatusFrame(t, conn, "term_status_watch", func(sessions []terminalStatusSessionForTest) bool {
 		for _, session := range sessions {
-			if session.TerminalID == terminalID && session.AgentKey == "coder-terminal-status" && session.TerminalKey == "main" {
+			if session.TerminalID == terminalID &&
+				session.AgentKey == "coder-terminal-status" &&
+				session.ChatID == "chat-status" &&
+				session.TerminalKey == "main" {
 				return true
 			}
 		}
@@ -141,6 +146,7 @@ func terminalStatusSessionsFromFrame(t *testing.T, data []byte) []terminalStatus
 		sessions = append(sessions, terminalStatusSessionForTest{
 			TerminalID:  strings.TrimSpace(stringValue(item["terminalId"])),
 			AgentKey:    strings.TrimSpace(stringValue(item["agentKey"])),
+			ChatID:      strings.TrimSpace(stringValue(item["chatId"])),
 			TerminalKey: strings.TrimSpace(stringValue(item["terminalKey"])),
 			Status:      strings.TrimSpace(stringValue(item["status"])),
 		})

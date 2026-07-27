@@ -58,6 +58,7 @@ func TestWebSocketTerminalOpenInputAndExit(t *testing.T) {
 		ID:    "term_open",
 		Payload: ws.MarshalPayload(map[string]any{
 			"agentKey": "coder-terminal",
+			"chatId":   "chat-terminal",
 			"cols":     80,
 			"rows":     24,
 		}),
@@ -74,6 +75,12 @@ func TestWebSocketTerminalOpenInputAndExit(t *testing.T) {
 	terminalID := terminalIDFromStreamFrame(t, openedRaw)
 	if terminalID == "" {
 		t.Fatalf("expected terminalId in opened frame: %s", string(openedRaw))
+	}
+	if got := stringFieldFromStreamFrame(t, openedRaw, "scope"); got != "chat" {
+		t.Fatalf("terminal scope = %q, want chat; frame=%s", got, string(openedRaw))
+	}
+	if got := stringFieldFromStreamFrame(t, openedRaw, "chatId"); got != "chat-terminal" {
+		t.Fatalf("terminal chatId = %q, want chat-terminal; frame=%s", got, string(openedRaw))
 	}
 
 	if err := conn.WriteJSON(ws.RequestFrame{
@@ -107,7 +114,7 @@ func TestWebSocketTerminalOpenInputAndExit(t *testing.T) {
 	})
 }
 
-func TestWebSocketTerminalOpen_reusesAgentTerminalAcrossChatsAndDetachReplaysOutput(t *testing.T) {
+func TestWebSocketTerminalOpen_isolatesTerminalAcrossChats(t *testing.T) {
 	workspace := t.TempDir()
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
@@ -149,8 +156,8 @@ func TestWebSocketTerminalOpen_reusesAgentTerminalAcrossChatsAndDetachReplaysOut
 		}
 		return websocketStreamEventType(data) == "terminal.opened"
 	})
-	terminalID := terminalIDFromStreamFrame(t, openedA)
-	if terminalID == "" {
+	terminalIDA := terminalIDFromStreamFrame(t, openedA)
+	if terminalIDA == "" {
 		t.Fatalf("expected terminalId in opened frame: %s", string(openedA))
 	}
 	if reused, ok := boolFieldFromStreamFrame(t, openedA, "reused"); !ok || reused {
@@ -162,7 +169,7 @@ func TestWebSocketTerminalOpen_reusesAgentTerminalAcrossChatsAndDetachReplaysOut
 		Type:  "/api/terminal/input",
 		ID:    "term_input_shared",
 		Payload: ws.MarshalPayload(map[string]any{
-			"terminalId": terminalID,
+			"terminalId": terminalIDA,
 			"data":       "printf agent-terminal-shared\\n\n",
 		}),
 	}); err != nil {
@@ -177,7 +184,7 @@ func TestWebSocketTerminalOpen_reusesAgentTerminalAcrossChatsAndDetachReplaysOut
 		Type:  "/api/terminal/detach",
 		ID:    "term_detach_a",
 		Payload: ws.MarshalPayload(map[string]any{
-			"terminalId":      terminalID,
+			"terminalId":      terminalIDA,
 			"streamRequestId": "term_open_chat_a",
 		}),
 	}); err != nil {
@@ -195,19 +202,12 @@ func TestWebSocketTerminalOpen_reusesAgentTerminalAcrossChatsAndDetachReplaysOut
 	openedB := waitForWebSocketFrame(t, conn, func(data []byte) bool {
 		return websocketStreamEventType(data) == "terminal.opened" && strings.Contains(string(data), "term_open_chat_b")
 	})
-	if got := terminalIDFromStreamFrame(t, openedB); got != terminalID {
-		t.Fatalf("reused terminalId = %q, want %q; frame=%s", got, terminalID, string(openedB))
+	terminalIDB := terminalIDFromStreamFrame(t, openedB)
+	if terminalIDB == "" || terminalIDB == terminalIDA {
+		t.Fatalf("cross-chat terminal must be isolated: chatA=%q chatB=%q; frame=%s", terminalIDA, terminalIDB, string(openedB))
 	}
-	if reused, ok := boolFieldFromStreamFrame(t, openedB, "reused"); !ok || !reused {
-		t.Fatalf("second open should be reused: %s", string(openedB))
-	}
-	replay := waitForWebSocketFrame(t, conn, func(data []byte) bool {
-		return websocketStreamEventType(data) == "terminal.output" &&
-			strings.Contains(string(data), "agent-terminal-shared") &&
-			strings.Contains(string(data), `"replay":true`)
-	})
-	if !boolValueFromStreamFrame(t, replay, "replay") {
-		t.Fatalf("expected replay payload: %s", string(replay))
+	if reused, ok := boolFieldFromStreamFrame(t, openedB, "reused"); !ok || reused {
+		t.Fatalf("cross-chat open should create a fresh terminal: %s", string(openedB))
 	}
 
 	if err := conn.WriteJSON(ws.RequestFrame{
@@ -215,7 +215,7 @@ func TestWebSocketTerminalOpen_reusesAgentTerminalAcrossChatsAndDetachReplaysOut
 		Type:  "/api/terminal/input",
 		ID:    "term_input_exit",
 		Payload: ws.MarshalPayload(map[string]any{
-			"terminalId": terminalID,
+			"terminalId": terminalIDB,
 			"data":       "exit\n",
 		}),
 	}); err != nil {
@@ -228,6 +228,7 @@ func TestWebSocketTerminalOpen_reusesAgentTerminalAcrossChatsAndDetachReplaysOut
 		}
 		return frame.Frame == ws.FrameStream && frame.ID == "term_open_chat_b" && frame.Reason == "exit"
 	})
+	closeTerminalByID(t, conn, "term_close_chat_a", terminalIDA)
 }
 
 func TestWebSocketTerminalOpen_isolatesSameWorkspaceAcrossAgents(t *testing.T) {
@@ -263,6 +264,7 @@ func TestWebSocketTerminalOpen_isolatesSameWorkspaceAcrossAgents(t *testing.T) {
 
 	openTerminalStream(t, conn, "term_open_alpha", map[string]any{
 		"agentKey":    "coder-terminal-alpha",
+		"chatId":      "chat-shared-workspace",
 		"terminalKey": "main",
 		"cols":        80,
 		"rows":        24,
@@ -280,6 +282,7 @@ func TestWebSocketTerminalOpen_isolatesSameWorkspaceAcrossAgents(t *testing.T) {
 
 	openTerminalStream(t, conn, "term_open_beta", map[string]any{
 		"agentKey":    "coder-terminal-beta",
+		"chatId":      "chat-shared-workspace",
 		"terminalKey": "main",
 		"cols":        80,
 		"rows":        24,
@@ -329,6 +332,7 @@ func TestWebSocketTerminalOpen_reusesAfterReconnectWithDeviceID(t *testing.T) {
 	waitForPushFrameType(t, connA, "connected")
 	openTerminalStream(t, connA, "term_open_before_refresh", map[string]any{
 		"agentKey":    "coder-terminal-refresh",
+		"chatId":      "chat-refresh",
 		"terminalKey": "main",
 		"cols":        80,
 		"rows":        24,
@@ -350,6 +354,7 @@ func TestWebSocketTerminalOpen_reusesAfterReconnectWithDeviceID(t *testing.T) {
 	waitForPushFrameType(t, connB, "connected")
 	openTerminalStream(t, connB, "term_open_after_refresh", map[string]any{
 		"agentKey":    "coder-terminal-refresh",
+		"chatId":      "chat-refresh",
 		"terminalKey": "main",
 		"cols":        100,
 		"rows":        30,
@@ -400,6 +405,7 @@ func TestWebSocketTerminalIsolatesSessionsAcrossConnections(t *testing.T) {
 
 	openTerminalStream(t, connA, "term_open_owner_a", map[string]any{
 		"agentKey":    "coder-terminal-isolated",
+		"chatId":      "chat-isolated",
 		"terminalKey": "main",
 		"cols":        80,
 		"rows":        24,
@@ -438,6 +444,7 @@ func TestWebSocketTerminalIsolatesSessionsAcrossConnections(t *testing.T) {
 
 	openTerminalStream(t, connB, "term_open_owner_b", map[string]any{
 		"agentKey":    "coder-terminal-isolated",
+		"chatId":      "chat-isolated",
 		"terminalKey": "main",
 		"cols":        80,
 		"rows":        24,
@@ -488,6 +495,7 @@ func TestWebSocketTerminalDetachRequiresMatchingTerminalStream(t *testing.T) {
 
 	openTerminalStream(t, conn, "term_open_detach", map[string]any{
 		"agentKey":    "coder-terminal-detach",
+		"chatId":      "chat-detach",
 		"terminalKey": "main",
 		"cols":        80,
 		"rows":        24,
@@ -545,10 +553,7 @@ func TestWebSocketTerminalOpensForAnyAgentModeWithDefaultWorkspace(t *testing.T)
 	})
 	server := httptest.NewServer(fixture.server)
 	defer server.Close()
-	wantCWD, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get cwd: %v", err)
-	}
+	wantCWD := filepath.Join(fixture.cfg.Paths.ChatsDir, "chat-react")
 
 	conn := dialTestWebSocket(t, server.URL)
 	defer conn.Close()
@@ -560,6 +565,7 @@ func TestWebSocketTerminalOpensForAnyAgentModeWithDefaultWorkspace(t *testing.T)
 		ID:    "term_react",
 		Payload: ws.MarshalPayload(map[string]any{
 			"agentKey": "mock-agent",
+			"chatId":   "chat-react",
 			"cols":     80,
 			"rows":     24,
 		}),
@@ -625,7 +631,7 @@ func TestWebSocketTerminalUnknownSessionControlsReturnNotFound(t *testing.T) {
 	}
 }
 
-func TestOpenTerminalSessionUsesWorkspaceFallbackForAnyAgent(t *testing.T) {
+func TestOpenTerminalSessionUsesChatWorkspaceFallbackForAnyAgent(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
@@ -658,26 +664,23 @@ func TestOpenTerminalSessionUsesWorkspaceFallbackForAnyAgent(t *testing.T) {
 			}, "\n"))
 		},
 	})
-	wantCWD, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get cwd: %v", err)
-	}
+	wantCWD := filepath.Join(fixture.cfg.Paths.ChatsDir, "chat-terminal")
 
 	successes := []struct {
 		name    string
 		payload terminalOpenPayload
 	}{
 		{
-			name:    "empty workspace falls back to process cwd",
-			payload: terminalOpenPayload{AgentKey: "coder-empty", TerminalKey: "empty", Cols: 80, Rows: 24},
+			name:    "empty workspace uses chat directory",
+			payload: terminalOpenPayload{AgentKey: "coder-empty", ChatID: "chat-terminal", TerminalKey: "empty", Cols: 80, Rows: 24},
 		},
 		{
-			name:    "@chat workspace falls back to process cwd",
-			payload: terminalOpenPayload{AgentKey: "coder-chat", TerminalKey: "chat", Cols: 80, Rows: 24},
+			name:    "@chat workspace uses chat directory",
+			payload: terminalOpenPayload{AgentKey: "coder-chat", ChatID: "chat-terminal", TerminalKey: "chat", Cols: 80, Rows: 24},
 		},
 		{
 			name:    "sandbox agent uses the same terminal path",
-			payload: terminalOpenPayload{AgentKey: "coder-sandbox", TerminalKey: "sandbox", Cols: 80, Rows: 24},
+			payload: terminalOpenPayload{AgentKey: "coder-sandbox", ChatID: "chat-terminal", TerminalKey: "sandbox", Cols: 80, Rows: 24},
 		},
 	}
 	for _, tt := range successes {
@@ -707,9 +710,15 @@ func TestOpenTerminalSessionUsesWorkspaceFallbackForAnyAgent(t *testing.T) {
 	}{
 		{
 			name:       "missing agent",
-			payload:    terminalOpenPayload{AgentKey: "missing-agent", Cols: 80, Rows: 24},
+			payload:    terminalOpenPayload{AgentKey: "missing-agent", ChatID: "chat-terminal", Cols: 80, Rows: 24},
 			wantStatus: http.StatusBadRequest,
 			wantText:   "agent not found",
+		},
+		{
+			name:       "missing chat",
+			payload:    terminalOpenPayload{AgentKey: "coder-empty", Cols: 80, Rows: 24},
+			wantStatus: http.StatusBadRequest,
+			wantText:   "valid chatId is required",
 		},
 	}
 

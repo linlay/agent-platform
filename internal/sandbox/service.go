@@ -2,10 +2,10 @@ package sandbox
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"log"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -16,13 +16,13 @@ import (
 )
 
 type ContainerHubSandboxService struct {
-	cfg           config.ContainerHubConfig
-	client        *ContainerHubClient
-	mounts        *ContainerHubMountResolver
-	mu            sync.Mutex
-	runSessions   map[string]*managedSandboxSession
-	agentSessions map[string]*managedSandboxSession
-	globalSession *managedSandboxSession
+	cfg            config.ContainerHubConfig
+	client         *ContainerHubClient
+	mounts         *ContainerHubMountResolver
+	mu             sync.Mutex
+	runSessions    map[string]*managedSandboxSession
+	agentSessions  map[string]*managedSandboxSession
+	globalSessions map[string]*managedSandboxSession
 }
 
 type managedSandboxSession struct {
@@ -33,11 +33,12 @@ type managedSandboxSession struct {
 
 func NewContainerHubSandboxService(cfg config.ContainerHubConfig, paths config.PathsConfig) *ContainerHubSandboxService {
 	return &ContainerHubSandboxService{
-		cfg:           cfg,
-		client:        NewContainerHubClient(cfg),
-		mounts:        NewContainerHubMountResolver(paths),
-		runSessions:   map[string]*managedSandboxSession{},
-		agentSessions: map[string]*managedSandboxSession{},
+		cfg:            cfg,
+		client:         NewContainerHubClient(cfg),
+		mounts:         NewContainerHubMountResolver(paths),
+		runSessions:    map[string]*managedSandboxSession{},
+		agentSessions:  map[string]*managedSandboxSession{},
+		globalSessions: map[string]*managedSandboxSession{},
 	}
 }
 
@@ -92,6 +93,9 @@ func (s *ContainerHubSandboxService) resolveRuntimeLevel(execCtx *contracts.Exec
 }
 
 func (s *ContainerHubSandboxService) Execute(ctx context.Context, execCtx *contracts.ExecutionContext, command string, cwd string, timeout int64, env map[string]string) (contracts.SandboxExecutionResult, error) {
+	if err := agentconfig.ValidateUserEnvironment(env); err != nil {
+		return contracts.SandboxExecutionResult{}, err
+	}
 	if err := s.OpenIfNeeded(ctx, execCtx); err != nil {
 		return contracts.SandboxExecutionResult{}, err
 	}
@@ -140,7 +144,7 @@ func (s *ContainerHubSandboxService) CloseQuietly(execCtx *contracts.ExecutionCo
 	session := execCtx.SandboxSession
 	switch session.Level {
 	case "agent":
-		s.releaseAgentSession(execCtx.Session.AgentKey)
+		s.releaseAgentSession(agentChatSessionKey(execCtx.Session))
 	case "global":
 	default:
 		s.releaseRunSession(runSessionID(execCtx.Session))
@@ -183,59 +187,70 @@ func runSessionID(session contracts.QuerySession) string {
 }
 
 func (s *ContainerHubSandboxService) acquireAgentSession(ctx context.Context, execCtx *contracts.ExecutionContext) error {
+	sessionKey := agentChatSessionKey(execCtx.Session)
 	s.mu.Lock()
-	if managed := s.agentSessions[execCtx.Session.AgentKey]; managed != nil {
+	if managed := s.agentSessions[sessionKey]; managed != nil {
 		managed.activeUsers++
 		managed.lastUsed = time.Now()
 		execCtx.SandboxSession = &contracts.SandboxSession{
 			SessionID:     managed.session.SessionID,
 			EnvironmentID: managed.session.EnvironmentID,
-			DefaultCwd:    filepath.ToSlash(filepath.Join("/workspace", execCtx.Session.ChatID)),
+			DefaultCwd:    managed.session.DefaultCwd,
 			Level:         "agent",
 		}
 		s.mu.Unlock()
 		return nil
 	}
 	s.mu.Unlock()
-	if err := s.createAndBind(ctx, execCtx, "agent", "agent-"+execCtx.Session.AgentKey); err != nil {
+	if err := s.createAndBind(ctx, execCtx, "agent", scopedSandboxSessionID("agent", sessionKey)); err != nil {
 		return err
 	}
 	s.mu.Lock()
-	s.agentSessions[execCtx.Session.AgentKey] = &managedSandboxSession{session: execCtx.SandboxSession, activeUsers: 1, lastUsed: time.Now()}
+	s.agentSessions[sessionKey] = &managedSandboxSession{session: execCtx.SandboxSession, activeUsers: 1, lastUsed: time.Now()}
 	s.mu.Unlock()
 	return nil
 }
 
 func (s *ContainerHubSandboxService) acquireGlobalSession(ctx context.Context, execCtx *contracts.ExecutionContext) error {
+	sessionKey := agentChatSessionKey(execCtx.Session)
 	s.mu.Lock()
-	if s.globalSession != nil {
-		s.globalSession.activeUsers++
-		s.globalSession.lastUsed = time.Now()
+	if managed := s.globalSessions[sessionKey]; managed != nil {
+		managed.activeUsers++
+		managed.lastUsed = time.Now()
 		execCtx.SandboxSession = &contracts.SandboxSession{
-			SessionID:     s.globalSession.session.SessionID,
-			EnvironmentID: s.globalSession.session.EnvironmentID,
-			DefaultCwd:    filepath.ToSlash(filepath.Join("/workspace", execCtx.Session.ChatID)),
+			SessionID:     managed.session.SessionID,
+			EnvironmentID: managed.session.EnvironmentID,
+			DefaultCwd:    managed.session.DefaultCwd,
 			Level:         "global",
 		}
 		s.mu.Unlock()
 		return nil
 	}
 	s.mu.Unlock()
-	if err := s.createAndBind(ctx, execCtx, "global", "global-singleton"); err != nil {
+	if err := s.createAndBind(ctx, execCtx, "global", scopedSandboxSessionID("global", sessionKey)); err != nil {
 		return err
 	}
 	s.mu.Lock()
-	s.globalSession = &managedSandboxSession{session: execCtx.SandboxSession, activeUsers: 1, lastUsed: time.Now()}
+	s.globalSessions[sessionKey] = &managedSandboxSession{session: execCtx.SandboxSession, activeUsers: 1, lastUsed: time.Now()}
 	s.mu.Unlock()
 	return nil
 }
 
-func (s *ContainerHubSandboxService) releaseAgentSession(agentKey string) {
-	if agentKey == "" {
+func agentChatSessionKey(session contracts.QuerySession) string {
+	return strings.TrimSpace(session.AgentKey) + "\x00" + strings.TrimSpace(session.ChatID)
+}
+
+func scopedSandboxSessionID(prefix string, sessionKey string) string {
+	sum := sha256.Sum256([]byte(sessionKey))
+	return strings.TrimSpace(prefix) + "-" + fmt.Sprintf("%x", sum[:12])
+}
+
+func (s *ContainerHubSandboxService) releaseAgentSession(sessionKey string) {
+	if sessionKey == "" {
 		return
 	}
 	s.mu.Lock()
-	managed := s.agentSessions[agentKey]
+	managed := s.agentSessions[sessionKey]
 	if managed == nil {
 		s.mu.Unlock()
 		return
@@ -247,10 +262,10 @@ func (s *ContainerHubSandboxService) releaseAgentSession(agentKey string) {
 	s.mu.Unlock()
 	if idle <= 0 {
 		if _, err := s.client.StopSession(context.Background(), sessionID); err != nil {
-			log.Printf("[sandbox] stop agent session failed id=%s agent=%s: %v", sessionID, agentKey, err)
+			log.Printf("[sandbox] stop agent session failed id=%s scope=%q: %v", sessionID, sessionKey, err)
 		}
 		s.mu.Lock()
-		delete(s.agentSessions, agentKey)
+		delete(s.agentSessions, sessionKey)
 		s.mu.Unlock()
 		return
 	}
@@ -259,15 +274,15 @@ func (s *ContainerHubSandboxService) releaseAgentSession(agentKey string) {
 		defer timer.Stop()
 		<-timer.C
 		s.mu.Lock()
-		current := s.agentSessions[agentKey]
+		current := s.agentSessions[sessionKey]
 		if current == nil || current.activeUsers > 0 || time.Since(current.lastUsed) < idle {
 			s.mu.Unlock()
 			return
 		}
-		delete(s.agentSessions, agentKey)
+		delete(s.agentSessions, sessionKey)
 		s.mu.Unlock()
 		if _, err := s.client.StopSession(context.Background(), sessionID); err != nil {
-			log.Printf("[sandbox] stop idle agent session failed id=%s agent=%s: %v", sessionID, agentKey, err)
+			log.Printf("[sandbox] stop idle agent session failed id=%s scope=%q: %v", sessionID, sessionKey, err)
 		}
 	}()
 }
@@ -355,7 +370,10 @@ func (s *ContainerHubSandboxService) createAndBind(ctx context.Context, execCtx 
 	}
 	defaultCwd := stringValue(response["cwd"])
 	if defaultCwd == "" {
-		defaultCwd = filepath.ToSlash(filepath.Join("/workspace", execCtx.Session.ChatID))
+		defaultCwd = execCtx.Session.RuntimeContext.SandboxPaths.WorkspaceDir
+	}
+	if defaultCwd == "" {
+		defaultCwd = "/workspace"
 	}
 	execCtx.SandboxSession = &contracts.SandboxSession{
 		SessionID:     returnedSessionID,
@@ -371,9 +389,12 @@ func sandboxEnvironment(execCtx *contracts.ExecutionContext, invocationEnv map[s
 		return contracts.CloneStringMap(invocationEnv)
 	}
 	return agentconfig.Merge(
-		agentconfig.ContainerEnvironment(execCtx.Session.RuntimeContext.SandboxPaths.AgentDir),
 		execCtx.RuntimeEnvOverrides,
 		invocationEnv,
+		agentconfig.ContainerEnvironment(
+			execCtx.Session.RuntimeContext.SandboxPaths.AgentDir,
+			execCtx.Session.RuntimeContext.SandboxPaths.WorkspaceDir,
+		),
 	)
 }
 

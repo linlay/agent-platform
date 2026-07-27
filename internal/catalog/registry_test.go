@@ -979,6 +979,28 @@ func TestLoadSkillsRejectsInvalidRuntimeEnvJSON(t *testing.T) {
 	}
 }
 
+func TestLoadSkillsRejectsReservedRuntimeEnvironment(t *testing.T) {
+	for _, key := range []string{"AP_AGENT_CONFIG_HOME", "AP_CHAT_DIR"} {
+		t.Run(key, func(t *testing.T) {
+			root := t.TempDir()
+			skillDir := filepath.Join(root, "mock-skill")
+			if err := os.MkdirAll(skillDir, 0o755); err != nil {
+				t.Fatalf("mkdir skill: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Mock Skill\n\nSkill description"), 0o644); err != nil {
+				t.Fatalf("write skill: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(skillDir, ".runtime-env.json"), []byte(`{"`+key+`":"/custom"}`), 0o644); err != nil {
+				t.Fatalf("write runtime env: %v", err)
+			}
+
+			if _, err := loadSkills(root, 0); err == nil || !strings.Contains(err.Error(), "reserved by Agent Platform") {
+				t.Fatalf("expected reserved runtime env error, got %v", err)
+			}
+		})
+	}
+}
+
 func TestTeamsLogsInvalidAgentKeys(t *testing.T) {
 	var buf bytes.Buffer
 	previous := log.Writer()

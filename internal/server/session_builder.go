@@ -170,12 +170,15 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	if err != nil {
 		return contracts.QuerySession{}, err
 	}
-	skillHookDirs, runtimeEnvOverrides := resolveSkillRuntimeSettings(
+	skillHookDirs, runtimeEnvOverrides, err := resolveSkillRuntimeSettings(
 		runtimeAgentEnv(agentDef.Runtime["env"]),
 		agentDef.AgentDir,
 		s.deps.Config.Paths.SkillsMarketDir,
 		agentDef.Skills,
 	)
+	if err != nil {
+		return contracts.QuerySession{}, err
+	}
 	log.Printf("[server][skill-runtime] agent=%s skills=%v hookDirs=%v runtimeEnvKeys=%v",
 		agentDef.Key,
 		agentDef.Skills,

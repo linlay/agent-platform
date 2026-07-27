@@ -567,9 +567,12 @@ func TestInvokeHostBashAppliesAgentEnvOverrides(t *testing.T) {
 	}
 }
 
-func TestMergeCommandEnvInjectsSharedAgentConfigBeforeRuntimeOverrides(t *testing.T) {
+func TestMergeCommandEnvInjectsReservedAgentAndChatContextAfterRuntimeOverrides(t *testing.T) {
 	root := t.TempDir()
 	agentDir := filepath.Join(root, "agents", "reader")
+	chatDir := filepath.Join(root, "chats", "chat-1")
+	t.Setenv("AP_AGENT_CONFIG_HOME", "/process-config")
+	t.Setenv("AP_CHAT_DIR", "/process-chat")
 	valuesFor := func(env []string) map[string]string {
 		t.Helper()
 		values := map[string]string{}
@@ -584,16 +587,26 @@ func TestMergeCommandEnvInjectsSharedAgentConfigBeforeRuntimeOverrides(t *testin
 	execCtx := &contracts.ExecutionContext{
 		Session: contracts.QuerySession{
 			RuntimeContext: contracts.RuntimeRequestContext{
-				LocalPaths: contracts.LocalPaths{AgentDir: agentDir},
+				LocalPaths: contracts.LocalPaths{AgentDir: agentDir, ChatAttachmentsDir: chatDir},
 			},
 		},
 	}
 	if got, want := valuesFor(mergeCommandEnv(execCtx))["AP_AGENT_CONFIG_HOME"], filepath.Join(agentDir, ".config"); got != want {
 		t.Fatalf("default AP_AGENT_CONFIG_HOME = %q, want %q", got, want)
 	}
-	execCtx.RuntimeEnvOverrides = map[string]string{"AP_AGENT_CONFIG_HOME": "/agent-custom"}
-	if got, want := valuesFor(mergeCommandEnv(execCtx))["AP_AGENT_CONFIG_HOME"], "/agent-custom"; got != want {
-		t.Fatalf("AP_AGENT_CONFIG_HOME = %q, want %q", got, want)
+	if got := valuesFor(mergeCommandEnv(execCtx))["AP_CHAT_DIR"]; got != chatDir {
+		t.Fatalf("default AP_CHAT_DIR = %q, want %q", got, chatDir)
+	}
+	execCtx.RuntimeEnvOverrides = map[string]string{
+		"AP_AGENT_CONFIG_HOME": "/agent-custom",
+		"AP_CHAT_DIR":          "/wrong-chat",
+	}
+	got := valuesFor(mergeCommandEnv(execCtx))
+	if want := filepath.Join(agentDir, ".config"); got["AP_AGENT_CONFIG_HOME"] != want {
+		t.Fatalf("AP_AGENT_CONFIG_HOME = %q, want reserved value %q", got["AP_AGENT_CONFIG_HOME"], want)
+	}
+	if got["AP_CHAT_DIR"] != chatDir {
+		t.Fatalf("AP_CHAT_DIR = %q, want reserved value %q", got["AP_CHAT_DIR"], chatDir)
 	}
 }
 

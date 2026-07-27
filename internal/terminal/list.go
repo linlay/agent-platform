@@ -11,6 +11,7 @@ type SessionInfo struct {
 	TerminalID  string `json:"terminalId"`
 	OwnerKey    string `json:"-"`
 	AgentKey    string `json:"agentKey"`
+	ChatID      string `json:"chatId"`
 	TerminalKey string `json:"terminalKey"`
 	Scope       string `json:"scope"`
 	CWD         string `json:"cwd"`
@@ -65,6 +66,7 @@ func (m *Manager) list(ownerKey string, strict bool) ([]SessionInfo, error) {
 			TerminalID:  session.ID(),
 			OwnerKey:    session.OwnerKey(),
 			AgentKey:    session.AgentKey(),
+			ChatID:      session.ChatID(),
 			TerminalKey: session.TerminalKey(),
 			Scope:       session.scope,
 			CWD:         session.CWD(),
@@ -78,6 +80,9 @@ func (m *Manager) list(ownerKey string, strict bool) ([]SessionInfo, error) {
 	sort.Slice(infos, func(i, j int) bool {
 		if infos[i].AgentKey != infos[j].AgentKey {
 			return infos[i].AgentKey < infos[j].AgentKey
+		}
+		if infos[i].ChatID != infos[j].ChatID {
+			return infos[i].ChatID < infos[j].ChatID
 		}
 		if infos[i].TerminalKey != infos[j].TerminalKey {
 			return infos[i].TerminalKey < infos[j].TerminalKey

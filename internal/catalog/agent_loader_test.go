@@ -1856,6 +1856,20 @@ func TestParseAgentFileRejectsInvalidRuntimeEnv(t *testing.T) {
 			},
 			errContains: `runtimeConfig.env key "BAD=KEY" must not contain '='`,
 		},
+		{
+			name: "agent config home is reserved",
+			envValue: map[string]any{
+				"AP_AGENT_CONFIG_HOME": "/custom",
+			},
+			errContains: `runtimeConfig.env key "AP_AGENT_CONFIG_HOME" is reserved by Agent Platform`,
+		},
+		{
+			name: "chat dir is reserved",
+			envValue: map[string]any{
+				"AP_CHAT_DIR": "/custom",
+			},
+			errContains: `runtimeConfig.env key "AP_CHAT_DIR" is reserved by Agent Platform`,
+		},
 	}
 
 	for _, tt := range tests {

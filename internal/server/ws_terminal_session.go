@@ -11,6 +11,7 @@ import (
 
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/catalog"
+	"agent-platform/internal/chat"
 	terminalpkg "agent-platform/internal/terminal"
 )
 
@@ -26,6 +27,10 @@ func (s *Server) openTerminalSession(payload terminalOpenPayload, ownerKey strin
 	if agentKey == "" {
 		return terminalpkg.OpenResult{}, &statusError{status: http.StatusBadRequest, message: "agentKey is required"}
 	}
+	chatID := strings.TrimSpace(payload.ChatID)
+	if !chat.ValidChatID(chatID) {
+		return terminalpkg.OpenResult{}, &statusError{status: http.StatusBadRequest, message: "valid chatId is required"}
+	}
 	if s.deps.Registry == nil {
 		return terminalpkg.OpenResult{}, &statusError{status: http.StatusServiceUnavailable, message: "agent registry is not configured"}
 	}
@@ -33,7 +38,11 @@ func (s *Server) openTerminalSession(payload terminalOpenPayload, ownerKey strin
 	if !ok {
 		return terminalpkg.OpenResult{}, &statusError{status: http.StatusBadRequest, message: "agent not found"}
 	}
-	cwd, err := s.resolveTerminalWorkspace(def)
+	chatDir, dirErr := ensureChatAttachmentsDir(s.deps.Config.Paths, chatID)
+	if dirErr != nil {
+		return terminalpkg.OpenResult{}, &statusError{status: http.StatusInternalServerError, message: dirErr.Error()}
+	}
+	cwd, err := s.resolveTerminalWorkspace(def, chatDir)
 	if err != nil {
 		return terminalpkg.OpenResult{}, err
 	}
@@ -41,12 +50,12 @@ func (s *Server) openTerminalSession(payload terminalOpenPayload, ownerKey strin
 		OwnerKey:    ownerKey,
 		AgentKey:    agentKey,
 		TerminalKey: strings.TrimSpace(payload.TerminalKey),
-		ChatID:      strings.TrimSpace(payload.ChatID),
+		ChatID:      chatID,
 		CWD:         cwd,
 		Shell:       resolveTerminalShell(s.deps.Config.Bash.ShellExecutable),
 		Cols:        payload.Cols,
 		Rows:        payload.Rows,
-		Env:         terminalEnvironment(def),
+		Env:         terminalEnvironment(def, chatDir),
 	})
 	if openErr != nil {
 		if errors.Is(openErr, terminalpkg.ErrUnsupported) {
@@ -66,10 +75,10 @@ func (s *Server) openTerminalSession(payload terminalOpenPayload, ownerKey strin
 	return result, nil
 }
 
-func terminalEnvironment(def catalog.AgentDefinition) []string {
+func terminalEnvironment(def catalog.AgentDefinition, chatDir string) []string {
 	env := agentconfig.Merge(
-		agentconfig.Environment(def.AgentDir),
 		runtimeAgentEnv(def.Runtime["env"]),
+		agentconfig.HostEnvironment(def.AgentDir, chatDir),
 	)
 	keys := make([]string, 0, len(env))
 	for key := range env {
@@ -83,14 +92,10 @@ func terminalEnvironment(def catalog.AgentDefinition) []string {
 	return append(entries, "TERM=xterm-256color", "COLORTERM=truecolor")
 }
 
-func (s *Server) resolveTerminalWorkspace(def catalog.AgentDefinition) (string, *statusError) {
+func (s *Server) resolveTerminalWorkspace(def catalog.AgentDefinition, chatDir string) (string, *statusError) {
 	root := strings.TrimSpace(def.Workspace.Root)
 	if root == "" || strings.EqualFold(root, catalog.AgentWorkspaceRootChat) {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return "", &statusError{status: http.StatusInternalServerError, message: err.Error()}
-		}
-		root = cwd
+		root = strings.TrimSpace(chatDir)
 	}
 	if !filepath.IsAbs(root) {
 		return "", &statusError{status: http.StatusBadRequest, message: "agent workspace must be absolute, @chat, or empty"}

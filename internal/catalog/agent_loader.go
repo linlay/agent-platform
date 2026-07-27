@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	agentkbase "agent-platform/internal/agent/kbase"
+	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/kbase"
@@ -1173,6 +1174,9 @@ func parseRuntimeEnv(value any) (map[string]string, error) {
 func validateRuntimeEnvKey(key string) error {
 	if key == "" {
 		return fmt.Errorf("runtimeConfig.env contains an empty key")
+	}
+	if agentconfig.IsReserved(key) {
+		return fmt.Errorf("runtimeConfig.env key %q is reserved by Agent Platform", key)
 	}
 	if strings.ContainsRune(key, '=') {
 		return fmt.Errorf("runtimeConfig.env key %q must not contain '='", key)

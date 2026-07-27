@@ -71,8 +71,12 @@ func TestRunLevelSandboxSessionIDReusesRunIDAcrossRequestIDs(t *testing.T) {
 		}
 		sessionID := strings.TrimSpace(contracts.AnyStringNode(payload["session_id"]))
 		sessionIDs = append(sessionIDs, sessionID)
+		env, _ := payload["env"].(map[string]any)
+		if env["AP_AGENT_CONFIG_HOME"] != "/agent/.config" || env["AP_CHAT_DIR"] != "/workspace" {
+			t.Fatalf("create session platform env = %#v", env)
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"cwd":"/workspace/chat_1"}`))
+		_, _ = w.Write([]byte(`{"cwd":"/workspace"}`))
 	}))
 	defer server.Close()
 
@@ -110,6 +114,76 @@ func TestRunLevelSandboxSessionIDReusesRunIDAcrossRequestIDs(t *testing.T) {
 	}
 }
 
+func TestLongLivedSandboxSessionsAreIsolatedByAgentAndChat(t *testing.T) {
+	for _, level := range []string{"agent", "global"} {
+		t.Run(level, func(t *testing.T) {
+			var payloads []map[string]any
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/sessions/create" {
+					t.Fatalf("unexpected path: %s", r.URL.Path)
+				}
+				var payload map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Fatalf("decode create payload: %v", err)
+				}
+				payloads = append(payloads, payload)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"cwd":"/workspace"}`))
+			}))
+			defer server.Close()
+
+			paths := sandboxTestPaths(t, "reader")
+			service := NewContainerHubSandboxService(config.ContainerHubConfig{
+				Enabled:              true,
+				BaseURL:              server.URL,
+				DefaultEnvironmentID: "daily-office-pro",
+				RequestTimeout:       1,
+			}, paths)
+
+			first := sandboxTestExecutionContext("run-a", "req-a")
+			first.Session.RuntimeLevel = level
+			first.Session.ChatID = "chat-a"
+			second := sandboxTestExecutionContext("run-b", "req-b")
+			second.Session.RuntimeLevel = level
+			second.Session.ChatID = "chat-b"
+			if err := service.OpenIfNeeded(context.Background(), first); err != nil {
+				t.Fatalf("first OpenIfNeeded() error = %v", err)
+			}
+			if err := service.OpenIfNeeded(context.Background(), second); err != nil {
+				t.Fatalf("second OpenIfNeeded() error = %v", err)
+			}
+
+			if len(payloads) != 2 {
+				t.Fatalf("cross-chat %s sessions must not be reused: %#v", level, payloads)
+			}
+			if first.SandboxSession.SessionID == second.SandboxSession.SessionID {
+				t.Fatalf("cross-chat %s session IDs must differ: %q", level, first.SandboxSession.SessionID)
+			}
+			for index, payload := range payloads {
+				wantChat := []string{"chat-a", "chat-b"}[index]
+				env, _ := payload["env"].(map[string]any)
+				if env["AP_AGENT_CONFIG_HOME"] != "/agent/.config" || env["AP_CHAT_DIR"] != "/workspace" {
+					t.Fatalf("payload %d platform env = %#v", index, env)
+				}
+				if got := workspaceMountSource(payload); got != filepath.Join(paths.ChatsDir, wantChat) {
+					t.Fatalf("payload %d workspace source = %q, want %q", index, got, filepath.Join(paths.ChatsDir, wantChat))
+				}
+			}
+		})
+	}
+}
+
+func workspaceMountSource(payload map[string]any) string {
+	mounts, _ := payload["mounts"].([]any)
+	for _, raw := range mounts {
+		mount, _ := raw.(map[string]any)
+		if mount["destination"] == "/workspace" {
+			return strings.TrimSpace(contracts.AnyStringNode(mount["source"]))
+		}
+	}
+	return ""
+}
+
 func TestRunLevelSandboxSessionIDFallsBackToRunIDWithoutRequestID(t *testing.T) {
 	got := runSessionID(contracts.QuerySession{RunID: "run_without_request"})
 	if got != "run-run_without_request" {
@@ -124,19 +198,30 @@ func TestRunLevelSandboxSessionIDUsesSubTaskID(t *testing.T) {
 	}
 }
 
-func TestSandboxEnvironmentUsesContainerAgentPathAndInvocationOverride(t *testing.T) {
+func TestSandboxEnvironmentUsesReservedContainerContextAfterInvocationOverrides(t *testing.T) {
 	env := sandboxEnvironment(&contracts.ExecutionContext{
 		Session: contracts.QuerySession{
 			RuntimeContext: contracts.RuntimeRequestContext{
 				LocalPaths:   contracts.LocalPaths{AgentDir: "/host/runtime/agents/reader"},
-				SandboxPaths: contracts.SandboxPaths{AgentDir: "/agent"},
+				SandboxPaths: contracts.SandboxPaths{AgentDir: "/agent", WorkspaceDir: "/workspace"},
 			},
 		},
-		RuntimeEnvOverrides: map[string]string{"HTTP_PROXY": "http://agent-proxy"},
-	}, map[string]string{"HTTP_PROXY": "http://call-proxy"})
+		RuntimeEnvOverrides: map[string]string{
+			"HTTP_PROXY":           "http://agent-proxy",
+			"AP_AGENT_CONFIG_HOME": "/wrong-config",
+			"AP_CHAT_DIR":          "/wrong-chat",
+		},
+	}, map[string]string{
+		"HTTP_PROXY":           "http://call-proxy",
+		"AP_AGENT_CONFIG_HOME": "/call-config",
+		"AP_CHAT_DIR":          "/call-chat",
+	})
 
 	if got, want := env["AP_AGENT_CONFIG_HOME"], "/agent/.config"; got != want {
 		t.Fatalf("AP_AGENT_CONFIG_HOME = %q, want %q", got, want)
+	}
+	if got, want := env["AP_CHAT_DIR"], "/workspace"; got != want {
+		t.Fatalf("AP_CHAT_DIR = %q, want %q", got, want)
 	}
 	if got, want := env["HTTP_PROXY"], "http://call-proxy"; got != want {
 		t.Fatalf("HTTP_PROXY = %q, want %q", got, want)
@@ -149,6 +234,26 @@ func TestSandboxEnvironmentUsesContainerAgentPathAndInvocationOverride(t *testin
 	}
 	if _, ok := env["AP_SYSTEM_XDG_CONFIG_HOME"]; ok {
 		t.Fatalf("sandbox environment must not synthesize AP_SYSTEM_XDG_CONFIG_HOME: %#v", env)
+	}
+}
+
+func TestSandboxEnvironmentUsesLocalEnginePaths(t *testing.T) {
+	env := sandboxEnvironment(&contracts.ExecutionContext{
+		Session: contracts.QuerySession{
+			RuntimeContext: contracts.RuntimeRequestContext{
+				SandboxPaths: contracts.SandboxPaths{
+					AgentDir:     "/runtime/agents/reader",
+					WorkspaceDir: "/runtime/chats/chat-a",
+				},
+			},
+		},
+	}, nil)
+
+	if env["AP_AGENT_CONFIG_HOME"] != "/runtime/agents/reader/.config" {
+		t.Fatalf("local AP_AGENT_CONFIG_HOME = %q", env["AP_AGENT_CONFIG_HOME"])
+	}
+	if env["AP_CHAT_DIR"] != "/runtime/chats/chat-a" {
+		t.Fatalf("local AP_CHAT_DIR = %q", env["AP_CHAT_DIR"])
 	}
 }
 
@@ -169,6 +274,12 @@ func sandboxTestExecutionContextWithSubTaskID(runID string, requestID string, su
 			RuntimeEnvOverrides:    map[string]string{},
 			RuntimeExtraMounts:     nil,
 			AgentHasRuntimeSandbox: true,
+			RuntimeContext: contracts.RuntimeRequestContext{
+				SandboxPaths: contracts.SandboxPaths{
+					AgentDir:     "/agent",
+					WorkspaceDir: "/workspace",
+				},
+			},
 		},
 	}
 }

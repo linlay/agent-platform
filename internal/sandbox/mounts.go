@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 )
@@ -27,6 +28,10 @@ func NewContainerHubMountResolver(paths config.PathsConfig) *ContainerHubMountRe
 }
 
 func (r *ContainerHubMountResolver) Resolve(chatID string, agentKey string, level string, sandboxMounts []contracts.SandboxExtraMount) ([]MountSpec, error) {
+	chatID = strings.TrimSpace(chatID)
+	if !chat.ValidChatID(chatID) {
+		return nil, fmt.Errorf("container-hub mount validation failed for data-dir: valid chatId is required")
+	}
 	agentKey = strings.TrimSpace(agentKey)
 	if agentKey == "" {
 		return nil, fmt.Errorf("container-hub mount validation failed for agent-self: agentKey is required")
@@ -35,10 +40,7 @@ func (r *ContainerHubMountResolver) Resolve(chatID string, agentKey string, leve
 	if err != nil {
 		return nil, fmt.Errorf("container-hub mount validation failed for data-dir: %w", err)
 	}
-	workspaceSource := workspaceRoot
-	if chatID != "" {
-		workspaceSource = filepath.Join(workspaceRoot, chatID)
-	}
+	workspaceSource := filepath.Join(workspaceRoot, chatID)
 	if err := os.MkdirAll(workspaceSource, 0o755); err != nil {
 		return nil, err
 	}

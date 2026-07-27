@@ -658,11 +658,13 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/query` | `QueryRequest` | `stream` |
 | `/api/attach` | `runId`、`agentKey` 或 `teamId`、`lastSeq` | `stream` |
 | `/api/detach` | `runId`、`agentKey` 或 `teamId`、`reason` | `response`；关闭当前 WS 连接上该 run 的 observer，不中断 run |
-| `/api/terminal/open` | `agentKey`、可选 `terminalKey`、`cols`、`rows` | `stream`；agent scope attach-or-create |
+| `/api/terminal/open` | `agentKey`、`chatId`、可选 `terminalKey`、`cols`、`rows` | `stream`；chat scope attach-or-create |
 | `/api/terminal/input` | `terminalId`、`data` | `response` |
 | `/api/terminal/resize` | `terminalId`、`cols`、`rows` | `response` |
 | `/api/terminal/detach` | `streamRequestId`、可选 `terminalId` | `response`；只释放当前 WS terminal stream，不关闭 PTY |
 | `/api/terminal/close` | `terminalId`，或 `streamRequestId` | `response`；关闭 PTY；`streamRequestId` 用于 open 尚未返回 `terminal.opened` 的预取消 |
+| `/api/terminal/status` | 无 | `stream`；当前 owner boundary 下所有 chat-scoped terminal 快照 |
+| `/api/terminal/status/detach` | `streamRequestId` | `response` |
 | `/api/submit` | `SubmitRequest` | `response` |
 | `/api/steer` | `SteerRequest` | `response` |
 | `/api/interrupt` | `InterruptRequest` | `response` |
@@ -777,20 +779,20 @@ gateway 必须用相同的 `id` 和 `type` 回应，并回显 `agentKey`：
 
 Agent 终端只复用主 `/ws` 连接，不提供独立 `/ws/terminal`，也不新增顶层 `frame` 类型。终端协议仍使用 `frame:"request"` / `frame:"stream"` / `frame:"response"` / `frame:"error"`。
 
-`/api/terminal/open` 是长生命周期 stream，语义是 agent 级 `attach-or-create`。`terminalKey` 是同一 agent 内的稳定 tab key，未传时默认为 `"main"`；同一 owner boundary 下的同一 `agentKey + terminalKey` 会复用同一个 PTY，不因 chat 切换、面板隐藏或组件卸载而重新启动 shell。owner boundary 由 WS 鉴权主体确定：只有同时具备 `subject + deviceId` 时才按该二元组跨 WS 连接复用；缺少 `deviceId` 或缺少 `subject` 时按当前 WS 连接隔离，因此这类连接不承诺跨 WS 重连复用。
+`/api/terminal/open` 是长生命周期 stream，语义是 chat 级 `attach-or-create`。`chatId` 必填且必须合法；Platform 会在启动 PTY 前创建 `<chatsDir>/<chatId>`。`terminalKey` 是同一 agent/chat 内的稳定 tab key，未传时默认为 `"main"`；同一 owner boundary 下的同一 `agentKey + chatId + terminalKey` 会复用同一个 PTY，同一 key 跨 Chat 会创建不同 PTY。owner boundary 由 WS 鉴权主体确定：只有同时具备 `subject + deviceId` 时才按该二元组跨 WS 连接复用；缺少 `deviceId` 或缺少 `subject` 时按当前 WS 连接隔离，因此这类连接不承诺跨 WS 重连复用。
 
 `terminalKey` 只接受不超过 64 字节的 ASCII 字母、数字、`-`、`_`、`.`、`:`。后端会限制单 owner + agent 的 terminal 数量以及进程内总 terminal 数量，避免恶意创建大量长期存活 PTY。
 
 ```json
-{"frame":"request","type":"/api/terminal/open","id":"term-1","payload":{"agentKey":"coder","terminalKey":"main","cols":120,"rows":32}}
+{"frame":"request","type":"/api/terminal/open","id":"term-1","payload":{"agentKey":"coder","chatId":"chat-123","terminalKey":"main","cols":120,"rows":32}}
 ```
 
-open 成功后先返回 `terminal.opened`，再返回可选 replay output，之后进入 live output。事件 payload 中 `scope:"agent"` 表示该 terminal 不绑定 chat；`reused:true` 表示复用了已有 PTY；`replay:true` 表示该条 `terminal.output` 来自 terminal manager 的短期回放 buffer。
+open 成功后先返回 `terminal.opened`，再返回可选 replay output，之后进入 live output。所有 terminal 事件都包含 `scope:"chat"` 与 `chatId`；`reused:true` 表示复用了同一 Chat 的已有 PTY，`replay:true` 表示该条 `terminal.output` 来自 terminal manager 的短期回放 buffer。
 
 ```json
-{"frame":"stream","id":"term-1","streamId":"term_xxx","event":{"type":"terminal.opened","seq":1,"terminalId":"term_xxx","agentKey":"coder","terminalKey":"main","scope":"agent","cwd":"/workspace","shell":"/bin/zsh","reused":true}}
-{"frame":"stream","id":"term-1","streamId":"term_xxx","event":{"type":"terminal.output","seq":2,"terminalId":"term_xxx","terminalKey":"main","scope":"agent","data":"...","replay":true}}
-{"frame":"stream","id":"term-1","streamId":"term_xxx","event":{"type":"terminal.exit","seq":3,"terminalId":"term_xxx","terminalKey":"main","scope":"agent","exitCode":0}}
+{"frame":"stream","id":"term-1","streamId":"term_xxx","event":{"type":"terminal.opened","seq":1,"terminalId":"term_xxx","agentKey":"coder","chatId":"chat-123","terminalKey":"main","scope":"chat","cwd":"/workspace","shell":"/bin/zsh","reused":true}}
+{"frame":"stream","id":"term-1","streamId":"term_xxx","event":{"type":"terminal.output","seq":2,"terminalId":"term_xxx","chatId":"chat-123","terminalKey":"main","scope":"chat","data":"...","replay":true}}
+{"frame":"stream","id":"term-1","streamId":"term_xxx","event":{"type":"terminal.exit","seq":3,"terminalId":"term_xxx","chatId":"chat-123","terminalKey":"main","scope":"chat","exitCode":0}}
 {"frame":"stream","id":"term-1","streamId":"term_xxx","reason":"exit","lastSeq":3}
 ```
 
@@ -803,9 +805,9 @@ open 成功后先返回 `terminal.opened`，再返回可选 replay output，之�
 {"frame":"request","type":"/api/terminal/close","id":"term-close-1","payload":{"terminalId":"term_xxx"}}
 ```
 
-`detach` 只释放当前 WS 连接上的 terminal subscriber；PTY、cwd 与输出回放 buffer 保持不变。`streamRequestId` 必须指向当前 WS 连接上的 terminal stream；如果同时传入 `terminalId`，后端会校验两者绑定关系。浏览器隐藏 terminal 面板、SPA 内切换 chat、组件卸载都应使用 `detach`。如果 open 请求已发出但尚未收到 `terminal.opened`，前端可只传 `streamRequestId` 进行预取消。只有用户关闭 terminal tab 时才调用 `/api/terminal/close`，该操作会结束远端 PTY；同样支持在 `terminal.opened` 前仅传 `streamRequestId` 做关闭预取消。
+`detach` 只释放当前 WS 连接上的 terminal subscriber；该 Chat 的 PTY、cwd 与输出回放 buffer 保持不变。`streamRequestId` 必须指向当前 WS 连接上的 terminal stream；如果同时传入 `terminalId`，后端会校验两者绑定关系。浏览器隐藏 terminal 面板、SPA 切换 Chat、组件卸载都应使用 `detach`；新 Chat 使用自己的 `chatId` open，不复用旧 Chat 的 PTY。如果 open 请求已发出但尚未收到 `terminal.opened`，前端可只传 `streamRequestId` 进行预取消。只有用户关闭 terminal tab 时才调用 `/api/terminal/close`，该操作会结束对应 Chat 的 PTY；同样支持在 `terminal.opened` 前仅传 `streamRequestId` 做关闭预取消。
 
-Agent 级终端对所有 agent 使用同一套本地 PTY 逻辑，不按 `mode`、ACP backend 或 sandbox runtime 做差异化禁用。macOS/Linux 使用 Unix PTY，Windows 使用 ConPTY / PowerShell PTY；Windows 需要 ConPTY 可用的系统版本（Windows 10 1809 / Windows Server 2019 及以上），旧系统会返回 `unsupported`。cwd 只由 platform 根据 agent workspace 反查，不信任前端传入任意 cwd；agent 配置了 `runtimeConfig.workspaceRoot` 时使用该目录，未配置稳定 workspace 或显式配置 `@chat` 时使用 platform 进程启动目录作为固定 cwd，避免同一 agent 跨 chat 共享 terminal 时目录随 chat 变化。缺失 agent、不可访问 workspace、非目录 workspace 会拒绝。终端输入与输出不会写入 chat/event log，也不进入 raw messages 或 events replay；只保存在 terminal manager 的短期 ring buffer，且 replay 只在相同 owner boundary 下可见。WS monitor 只记录 terminal 输入/输出的类型、id 与字节数，不记录原始 preview。错误沿用现有 error frame，`type` 为 `invalid_request`、`forbidden`、`terminal_not_found`、`unsupported`、`conflict`、`too_many_requests` 或 `internal_error`。
+Chat 级终端对所有 agent 使用同一套本地 PTY 逻辑，不按 `mode`、ACP backend 或 sandbox runtime 做差异化禁用。macOS/Linux 使用 Unix PTY，Windows 使用 ConPTY / PowerShell PTY；Windows 需要 ConPTY 可用的系统版本（Windows 10 1809 / Windows Server 2019 及以上），旧系统会返回 `unsupported`。cwd 只由 Platform 根据 agent workspace 反查，不信任前端传入任意 cwd；agent 配置了显式 `runtimeConfig.workspaceRoot` 时使用该目录，未配置或配置 `@chat` 时使用当前宿主机 Chat 目录。无论 cwd 是否显式，terminal 都冻结 `AP_AGENT_CONFIG_HOME=<agentDir>/.config` 与 `AP_CHAT_DIR=<chatsDir>/<chatId>`。缺失 agent、缺失/非法 Chat ID、不可访问 workspace 或非目录 workspace 会拒绝。终端 status stream 汇总当前 owner boundary 下的 session，每项包含 `agentKey`、`chatId`、`terminalKey`、`scope:"chat"`、cwd、shell、状态与启动时间。终端输入与输出不会写入 chat/event log，也不进入 raw messages 或 events replay；只保存在 terminal manager 的短期 ring buffer，且 replay 只在相同 owner boundary、Agent、Chat 和 terminal key 下可见。WS monitor 只记录 terminal 输入/输出的类型、id 与字节数，不记录原始 preview。错误沿用现有 error frame，`type` 为 `invalid_request`、`forbidden`、`terminal_not_found`、`unsupported`、`conflict`、`too_many_requests` 或 `internal_error`。
 
 ## 相关文件
 

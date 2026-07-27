@@ -16,6 +16,7 @@ type Session struct {
 	id          string
 	ownerKey    string
 	agentKey    string
+	chatID      string
 	terminalKey string
 	scope       string
 	cwd         string
@@ -51,6 +52,13 @@ func (s *Session) OwnerKey() string {
 		return ""
 	}
 	return s.ownerKey
+}
+
+func (s *Session) ChatID() string {
+	if s == nil {
+		return ""
+	}
+	return s.chatID
 }
 
 func (s *Session) TerminalKey() string {
@@ -176,6 +184,9 @@ func (s *Session) event(event Event) Event {
 	}
 	if event.AgentKey == "" {
 		event.AgentKey = s.agentKey
+	}
+	if event.ChatID == "" {
+		event.ChatID = s.chatID
 	}
 	if event.TerminalKey == "" {
 		event.TerminalKey = s.terminalKey

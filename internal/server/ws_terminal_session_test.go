@@ -7,14 +7,15 @@ import (
 	"agent-platform/internal/catalog"
 )
 
-func TestTerminalEnvironmentUsesAgentConfigAndRuntimeOverrides(t *testing.T) {
+func TestTerminalEnvironmentUsesReservedAgentAndChatContext(t *testing.T) {
 	agentDir := filepath.Join("/runtime", "agents", "reader")
+	chatDir := filepath.Join("/runtime", "chats", "chat-a")
 	entries := terminalEnvironment(catalog.AgentDefinition{
 		AgentDir: agentDir,
 		Runtime: map[string]any{
 			"env": map[string]string{"HTTP_PROXY": "http://proxy"},
 		},
-	})
+	}, chatDir)
 	got := terminalEnvironmentValues(entries)
 	if want := filepath.Join(agentDir, ".config"); got["AP_AGENT_CONFIG_HOME"] != want {
 		t.Fatalf("AP_AGENT_CONFIG_HOME = %q, want %q", got["AP_AGENT_CONFIG_HOME"], want)
@@ -28,17 +29,28 @@ func TestTerminalEnvironmentUsesAgentConfigAndRuntimeOverrides(t *testing.T) {
 	if got["HTTP_PROXY"] != "http://proxy" || got["TERM"] != "xterm-256color" || got["COLORTERM"] != "truecolor" {
 		t.Fatalf("unexpected terminal environment: %#v", got)
 	}
+	if got["AP_CHAT_DIR"] != chatDir {
+		t.Fatalf("AP_CHAT_DIR = %q, want %q", got["AP_CHAT_DIR"], chatDir)
+	}
 }
 
-func TestTerminalEnvironmentAllowsRuntimeAgentConfigOverride(t *testing.T) {
+func TestTerminalEnvironmentRejectsRuntimeOverridesByApplyingPlatformContextLast(t *testing.T) {
+	agentDir := filepath.Join("/runtime", "agents", "reader")
+	chatDir := filepath.Join("/runtime", "chats", "chat-a")
 	got := terminalEnvironmentValues(terminalEnvironment(catalog.AgentDefinition{
-		AgentDir: filepath.Join("/runtime", "agents", "reader"),
+		AgentDir: agentDir,
 		Runtime: map[string]any{
-			"env": map[string]string{"AP_AGENT_CONFIG_HOME": "/custom"},
+			"env": map[string]string{
+				"AP_AGENT_CONFIG_HOME": "/custom",
+				"AP_CHAT_DIR":          "/wrong-chat",
+			},
 		},
-	}))
-	if got["AP_AGENT_CONFIG_HOME"] != "/custom" {
-		t.Fatalf("AP_AGENT_CONFIG_HOME = %q, want runtime override", got["AP_AGENT_CONFIG_HOME"])
+	}, chatDir))
+	if want := filepath.Join(agentDir, ".config"); got["AP_AGENT_CONFIG_HOME"] != want {
+		t.Fatalf("AP_AGENT_CONFIG_HOME = %q, want %q", got["AP_AGENT_CONFIG_HOME"], want)
+	}
+	if got["AP_CHAT_DIR"] != chatDir {
+		t.Fatalf("AP_CHAT_DIR = %q, want %q", got["AP_CHAT_DIR"], chatDir)
 	}
 }
 

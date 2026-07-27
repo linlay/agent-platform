@@ -150,6 +150,29 @@ func TestInvokeSandboxBashForwardsEnv(t *testing.T) {
 	}
 }
 
+func TestInvokeSandboxBashRejectsReservedEnvironment(t *testing.T) {
+	for _, key := range []string{"AP_AGENT_CONFIG_HOME", "AP_CHAT_DIR"} {
+		t.Run(key, func(t *testing.T) {
+			sandbox := &stubSandboxClient{}
+			executor := &RuntimeToolExecutor{sandbox: sandbox}
+
+			result, err := executor.invokeSandboxBash(context.Background(), map[string]any{
+				"command": "echo ok",
+				"env":     map[string]any{key: "/custom"},
+			}, &contracts.ExecutionContext{})
+			if err != nil {
+				t.Fatalf("invokeSandboxBash returned error: %v", err)
+			}
+			if result.Error != "reserved_environment_variable" || result.ExitCode != -1 {
+				t.Fatalf("unexpected reserved environment result: %#v", result)
+			}
+			if sandbox.env != nil {
+				t.Fatalf("sandbox execute received rejected environment: %#v", sandbox.env)
+			}
+		})
+	}
+}
+
 func TestInvokeSandboxBashDefaultsTimeoutToToolBudget(t *testing.T) {
 	sandbox := &stubSandboxClient{
 		result: contracts.SandboxExecutionResult{

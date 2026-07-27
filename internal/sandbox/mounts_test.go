@@ -35,6 +35,19 @@ func TestMountResolverUsesAgentLocalSkillsForRunAndAgentLevels(t *testing.T) {
 	}
 }
 
+func TestMountResolverRequiresValidChatID(t *testing.T) {
+	paths := mountResolverTestPaths(t, "reader")
+	resolver := NewContainerHubMountResolver(paths)
+
+	for _, chatID := range []string{"", "../other-chat", "nested/chat"} {
+		t.Run(strings.ReplaceAll(chatID, "/", "_"), func(t *testing.T) {
+			if _, err := resolver.Resolve(chatID, "reader", "run", nil); err == nil || !strings.Contains(err.Error(), "valid chatId is required") {
+				t.Fatalf("Resolve(%q) error = %v, want valid chatId error", chatID, err)
+			}
+		})
+	}
+}
+
 func TestMountResolverDoesNotFallbackToSkillsMarketWhenAgentSkillsUnavailable(t *testing.T) {
 	paths := mountResolverTestPaths(t, "reader")
 	if err := os.WriteFile(filepath.Join(paths.AgentsDir, "reader", "skills"), []byte("not a dir"), 0o644); err != nil {

@@ -165,6 +165,7 @@ make test
 - WebSocket 是控制面，浏览器/普通客户端文件字节仍走 `POST /api/upload` 和 `GET /api/resource`。
 - `runtimeConfig.env` 不会通过 catalog API 回显，避免泄露代理、凭据或私有 endpoint。
 - 文件工具权限独立于 Bash 权限，越权路径通过 HITL approval 兜底。
+- `AP_AGENT_CONFIG_HOME` 与 `AP_CHAT_DIR` 是 Platform 在 host bash/tool、Container Hub 与 Chat-scoped Agent terminal 启动时一起注入并冻结的保留变量；agent、skill 和调用级 env 均不得覆盖。前者按 Agent 定位静态配置根，后者按 Chat 定位可写目录，Container 的 `/workspace` 必须映射同一宿主机 Chat 目录。
 - 专用 KBASE editing 的合法 source 内 `.md` 写入在 shipped 默认 policy 下免逐次 HITL；管理员显式 block 仍优先。索引 hook 失败不回滚文件，而是返回 failed hook 并将能力保持 degraded，等待 watcher 或显式 refresh 恢复。
 - MCP registry 同时支持 `streamable-http` 与 `stdio`，严格要求协商版本 `2025-11-25`。旧 external stdio 私有协议没有兼容期；`service.yml`、`type: external`、`external:` 或 `kind: external-service` 会使启动/热重载硬失败。平台、新版 stdio server 二进制和 registry 配置必须同批发布。
 - `agent_invoke` 只允许显式配置的普通主 agent 使用，当前禁止嵌套；orchestrated Team 自动注入 session-local embedded builtin `agent_delegate` 和三个 plan tools。普通 Agent 配置、session 与执行入口均拒绝 `agent_delegate`，该工具也不进入公开工具 catalog。

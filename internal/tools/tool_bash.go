@@ -281,8 +281,11 @@ func bashSecurityKnownVariables(execCtx *ExecutionContext) map[string]string {
 		return nil
 	}
 	return agentconfig.Merge(
-		agentconfig.Environment(execCtx.Session.RuntimeContext.LocalPaths.AgentDir),
 		execCtx.RuntimeEnvOverrides,
+		agentconfig.HostEnvironment(
+			execCtx.Session.RuntimeContext.LocalPaths.AgentDir,
+			execCtx.Session.RuntimeContext.LocalPaths.ChatAttachmentsDir,
+		),
 	)
 }
 
@@ -338,12 +341,17 @@ func stringMapArg(args map[string]any, key string) map[string]string {
 func mergeCommandEnv(execCtx *ExecutionContext) []string {
 	env := append([]string(nil), os.Environ()...)
 	var agentDir string
+	var chatDir string
 	var runtimeEnv map[string]string
 	if execCtx != nil {
 		agentDir = execCtx.Session.RuntimeContext.LocalPaths.AgentDir
+		chatDir = execCtx.Session.RuntimeContext.LocalPaths.ChatAttachmentsDir
 		runtimeEnv = execCtx.RuntimeEnvOverrides
 	}
-	overrides := agentconfig.Merge(agentconfig.Environment(agentDir), runtimeEnv)
+	overrides := agentconfig.Merge(
+		runtimeEnv,
+		agentconfig.HostEnvironment(agentDir, chatDir),
+	)
 	if len(overrides) == 0 {
 		return builtins.EnsureBinInEnv(env)
 	}

@@ -294,7 +294,7 @@ Container Hub 默认基础挂载当前最多 7 个：
 - `/pan` -> `AP_RUNTIME_PAN_DIR`（`rw`）
 - `/agent` -> `paths.agents-dir/<agentKey>`（`ro`，必挂载；目录缺失会 fail-fast）
 
-目录型 agent 可在 `<agentDir>/.config/` 保存工具静态配置。平台通过 `AP_AGENT_CONFIG_HOME` 把它作为该 agent 的公共静态配置根：host bash、agent terminal 使用宿主机路径，Container Hub 使用只读的 `/agent/.config`。各 builtin 在公共根下追加自己的目录，例如 dbx 使用 `dbx/`、httpx 使用 `httpx/`；它们优先读取同名 agent 配置，缺失时自行回退 `~/.config/<tool>/`，显式 `--config` 保持独占。平台不会为此改写 `XDG_CONFIG_HOME`，也不维护系统配置根变量。
+目录型 agent 可在 `<agentDir>/.config/` 保存工具静态配置。平台在启动 host bash/tool、agent terminal 与 Container Hub session/command 时统一注入并冻结两个保留变量：`AP_AGENT_CONFIG_HOME` 是 agent 级静态配置根，host/terminal 使用 `<agentDir>/.config`，Container 使用 `/agent/.config`；`AP_CHAT_DIR` 是 chat 级可写目录，host/terminal 使用 `AP_RUNTIME_CHATS_DIR/<chatId>`，Container 使用映射到同一宿主目录的 `/workspace`。平台会提前创建 Chat 目录；agent `runtimeConfig.env`、skill `.runtime-env.json` 与调用级 env 均不得声明这两个变量。各 builtin 在配置根下追加自己的目录，例如 dbx 使用 `dbx/`、httpx 使用 `httpx/`；HTTPX 的 chat state/secret 分别位于 `$AP_CHAT_DIR/.state/httpx` 与 `$AP_CHAT_DIR/.secret/httpx`，缺少合法 `AP_CHAT_DIR` 时不回退 global。平台不会改写 `XDG_CONFIG_HOME`，也不维护系统配置根变量。
 - `/owner` -> `paths.owner-dir`（`ro`，目录缺失时自动创建）
 - `/memory` -> `AP_RUNTIME_MEMORY_DIR/<agentKey>`（`ro`，目录缺失时自动创建）
 
