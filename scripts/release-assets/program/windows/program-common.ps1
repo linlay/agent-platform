@@ -372,7 +372,7 @@ function Import-ProgramEnv {
   if (-not (Test-Path -LiteralPath $Script:EnvFile -PathType Leaf)) {
     Fail-Program 'missing .env (copy from .env.example first)'
   }
-  foreach ($rawLine in Get-Content -LiteralPath $Script:EnvFile) {
+  foreach ($rawLine in [System.IO.File]::ReadAllLines($Script:EnvFile, $Script:Utf8NoBom)) {
     $line = $rawLine.Trim()
     if ([string]::IsNullOrWhiteSpace($line) -or $line.StartsWith('#')) {
       continue
