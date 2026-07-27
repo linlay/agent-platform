@@ -277,11 +277,21 @@ func ValidateAgentModelConfig(def AgentDefinition) error {
 	return nil
 }
 
-// ValidateOrdinaryAgentTools rejects tools reserved for runtime-synthesized
-// internal agents. Directory agents and API-managed agents share this guard.
+// ValidateOrdinaryAgentTools rejects removed tool names and tools reserved for
+// runtime-synthesized internal agents. Directory agents and API-managed agents
+// share this guard.
 func ValidateOrdinaryAgentTools(tools []string) error {
+	removedRunTools := map[string]string{
+		"agent_run_query":     "run_query",
+		"agent_run_status":    "run_status",
+		"agent_run_interrupt": "run_interrupt",
+	}
 	for _, tool := range tools {
-		if strings.EqualFold(strings.TrimSpace(tool), agentteam.ToolDelegate) {
+		normalized := strings.ToLower(strings.TrimSpace(tool))
+		if replacement, removed := removedRunTools[normalized]; removed {
+			return fmt.Errorf("tool %s was removed; use %s", normalized, replacement)
+		}
+		if normalized == strings.ToLower(agentteam.ToolDelegate) {
 			return fmt.Errorf("tool %s is internal and can only be used by an orchestrated Team coordinator", agentteam.ToolDelegate)
 		}
 	}

@@ -50,6 +50,16 @@ func TestBuildQuerySessionRejectsAgentDelegateForOrdinaryAgent(t *testing.T) {
 	}
 }
 
+func TestBuildQuerySessionRejectsRemovedRunTool(t *testing.T) {
+	server := &Server{}
+	_, err := server.BuildQuerySession(context.Background(), api.QueryRequest{}, chat.Summary{}, catalog.AgentDefinition{
+		Key: "ordinary", Mode: "REACT", Tools: []string{" AGENT_RUN_QUERY "},
+	}, querySessionBuildOptions{})
+	if err == nil || !strings.Contains(err.Error(), "tool agent_run_query was removed; use run_query") {
+		t.Fatalf("expected session-level removed tool rejection, got %v", err)
+	}
+}
+
 func TestDefaultSessionToolNamesWithoutInvokeMaterializesSafeDefaults(t *testing.T) {
 	got := defaultSessionToolNamesWithoutInvoke([]api.ToolDetailResponse{
 		{Name: "file_read"},

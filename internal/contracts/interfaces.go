@@ -243,10 +243,10 @@ type QuerySession struct {
 	ChatID    string
 	ChatName  string
 	AgentKey  string
-	// AgentRunOrigin marks a root run created by the agent_run_query backend tool.
+	// RunQueryOrigin marks a root run created by the run_query backend tool.
 	// It is runtime-only: the public request cannot forge it, and a marked run
-	// is forbidden from calling any agent run tool.
-	AgentRunOrigin *AgentRunOrigin `json:"-"`
+	// is forbidden from calling any run tool.
+	RunQueryOrigin *RunQueryOrigin `json:"-"`
 	// RunOwner is the required public run owner. Session producers must set it
 	// explicitly; AgentKey and TeamID are not fallback ownership fields.
 	RunOwner RunOwner
@@ -546,13 +546,13 @@ type RunStatusInfo struct {
 	AccessLevel        string
 	AccessLevelVersion int64
 	EditingMode        bool
-	AgentRunOrigin     *AgentRunOrigin `json:"-"`
+	RunQueryOrigin     *RunQueryOrigin `json:"-"`
 }
 
-// AgentRunOrigin is the trusted runtime identity attached to a detached run
-// created by agent_run_query. Subject participates in ownership checks but is not
+// RunQueryOrigin is the trusted runtime identity attached to a detached run
+// created by run_query. Subject participates in ownership checks but is not
 // persisted into request.query audit metadata.
-type AgentRunOrigin struct {
+type RunQueryOrigin struct {
 	CallerAgentKey string
 	Subject        string
 	ParentChatID   string
@@ -560,48 +560,48 @@ type AgentRunOrigin struct {
 	ToolID         string
 }
 
-type AgentRunStartRequest struct {
+type RunStartRequest struct {
 	AgentKey string
 	TeamID   string
 	ChatID   string
 	Message  string
-	Origin   AgentRunOrigin
+	Origin   RunQueryOrigin
 }
 
-type AgentRunAwaiting struct {
+type RunAwaiting struct {
 	AwaitingID string         `json:"awaitingId"`
 	Mode       string         `json:"mode"`
 	Questions  []any          `json:"questions,omitempty"`
 	Payload    map[string]any `json:"payload,omitempty"`
 }
 
-type AgentRunSnapshot struct {
-	RunID       string            `json:"runId"`
-	ChatID      string            `json:"chatId"`
-	AgentKey    string            `json:"agentKey,omitempty"`
-	TeamID      string            `json:"teamId,omitempty"`
-	Status      string            `json:"status"`
-	LastSeq     int64             `json:"lastSeq"`
-	StartedAt   int64             `json:"startedAt"`
-	CompletedAt int64             `json:"completedAt,omitempty"`
-	Awaiting    *AgentRunAwaiting `json:"awaiting,omitempty"`
-	Content     string            `json:"content,omitempty"`
-	Error       map[string]any    `json:"error,omitempty"`
-	Origin      *AgentRunOrigin   `json:"-"`
+type RunSnapshot struct {
+	RunID       string          `json:"runId"`
+	ChatID      string          `json:"chatId"`
+	AgentKey    string          `json:"agentKey,omitempty"`
+	TeamID      string          `json:"teamId,omitempty"`
+	Status      string          `json:"status"`
+	LastSeq     int64           `json:"lastSeq"`
+	StartedAt   int64           `json:"startedAt"`
+	CompletedAt int64           `json:"completedAt,omitempty"`
+	Awaiting    *RunAwaiting    `json:"awaiting,omitempty"`
+	Content     string          `json:"content,omitempty"`
+	Error       map[string]any  `json:"error,omitempty"`
+	Origin      *RunQueryOrigin `json:"-"`
 }
 
-type AgentRunService interface {
-	StartAgentRun(ctx context.Context, req AgentRunStartRequest) (AgentRunSnapshot, error)
-	AgentRunStatus(runID string) (AgentRunSnapshot, error)
-	AgentRunInterrupt(req api.InterruptRequest) (api.InterruptResponse, error)
+type RunToolService interface {
+	StartRun(ctx context.Context, req RunStartRequest) (RunSnapshot, error)
+	GetRunStatus(runID string) (RunSnapshot, error)
+	InterruptRun(req api.InterruptRequest) (api.InterruptResponse, error)
 }
 
-type AgentRunError struct {
+type RunToolError struct {
 	Code    string
 	Message string
 }
 
-func (e *AgentRunError) Error() string {
+func (e *RunToolError) Error() string {
 	if e == nil {
 		return ""
 	}

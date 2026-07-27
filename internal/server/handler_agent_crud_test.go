@@ -189,6 +189,53 @@ func TestAgentCRUDRejectsInternalAgentDelegateTool(t *testing.T) {
 	}
 }
 
+func TestAgentCRUDRejectsRemovedRunTools(t *testing.T) {
+	fixture := newTestFixture(t)
+	legacyDefinition := map[string]any{
+		"key":         "removed-run-tool-agent",
+		"mode":        "REACT",
+		"modelConfig": map[string]any{"modelKey": "mock-model"},
+		"toolConfig":  map[string]any{"tools": []any{" AGENT_RUN_STATUS "}},
+	}
+	legacyBody, err := json.Marshal(map[string]any{
+		"key":        "removed-run-tool-agent",
+		"definition": legacyDefinition,
+	})
+	if err != nil {
+		t.Fatalf("marshal legacy create: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/agents/create", bytes.NewReader(legacyBody)))
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "tool agent_run_status was removed; use run_status") {
+		t.Fatalf("expected removed run tool create rejection, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if _, found := fixture.registry.AgentDefinition("removed-run-tool-agent"); found {
+		t.Fatal("rejected removed run tool configuration must not be persisted")
+	}
+
+	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
+		"key": "run-tool-update-agent",
+		"definition": map[string]any{
+			"key":         "run-tool-update-agent",
+			"mode":        "REACT",
+			"modelConfig": map[string]any{"modelKey": "mock-model"},
+		},
+	})
+	legacyDefinition["key"] = created.Key
+	legacyBody, err = json.Marshal(map[string]any{
+		"key":        created.Key,
+		"definition": legacyDefinition,
+	})
+	if err != nil {
+		t.Fatalf("marshal legacy update: %v", err)
+	}
+	rec = httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/agents/update", bytes.NewReader(legacyBody)))
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "tool agent_run_status was removed; use run_status") {
+		t.Fatalf("expected removed run tool update rejection, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestAgentCreateRejectsInvalidACPBridgeDefinition(t *testing.T) {
 	fixture := newTestFixture(t)
 	for _, tc := range []struct {

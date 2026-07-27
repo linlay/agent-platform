@@ -16,7 +16,7 @@ type managedRun struct {
 	run            ActiveRun
 	control        *RunControl
 	eventBus       *stream.RunEventBus
-	agentRunOrigin *AgentRunOrigin
+	runQueryOrigin *RunQueryOrigin
 	startedAt      time.Time
 	completedAt    time.Time
 }
@@ -111,7 +111,7 @@ func (m *InMemoryRunManager) registerLocked(session QuerySession) (context.Conte
 		run:            run,
 		control:        control,
 		eventBus:       eventBus,
-		agentRunOrigin: cloneAgentRunOrigin(session.AgentRunOrigin),
+		runQueryOrigin: cloneRunQueryOrigin(session.RunQueryOrigin),
 		startedAt:      startedAt,
 	}
 	return WithRunControl(control.Context(), control), control, run
@@ -266,7 +266,7 @@ func (m *InMemoryRunManager) RunStatus(runID string) (RunStatusInfo, bool) {
 		OldestSeq:         state.eventBus.OldestSeq(),
 		ObserverCount:     state.eventBus.ObserverCount(),
 		StartedAt:         state.startedAt.UnixMilli(),
-		AgentRunOrigin:    cloneAgentRunOrigin(state.agentRunOrigin),
+		RunQueryOrigin:    cloneRunQueryOrigin(state.runQueryOrigin),
 		EditingMode:       state.run.EditingMode,
 	}
 	info.AccessLevel, info.AccessLevelVersion = state.control.AccessLevelSnapshot()
@@ -349,7 +349,7 @@ func runStatusInfoFromManagedRun(state *managedRun) RunStatusInfo {
 		OldestSeq:         state.eventBus.OldestSeq(),
 		ObserverCount:     state.eventBus.ObserverCount(),
 		StartedAt:         state.startedAt.UnixMilli(),
-		AgentRunOrigin:    cloneAgentRunOrigin(state.agentRunOrigin),
+		RunQueryOrigin:    cloneRunQueryOrigin(state.runQueryOrigin),
 		EditingMode:       state.run.EditingMode,
 	}
 	info.AccessLevel, info.AccessLevelVersion = state.control.AccessLevelSnapshot()
@@ -359,7 +359,7 @@ func runStatusInfoFromManagedRun(state *managedRun) RunStatusInfo {
 	return info
 }
 
-func cloneAgentRunOrigin(origin *AgentRunOrigin) *AgentRunOrigin {
+func cloneRunQueryOrigin(origin *RunQueryOrigin) *RunQueryOrigin {
 	if origin == nil {
 		return nil
 	}

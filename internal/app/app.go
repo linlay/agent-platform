@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"agent-platform/internal/agentrun"
 	"agent-platform/internal/api"
 	"agent-platform/internal/artifactpusher"
 	"agent-platform/internal/automation"
@@ -31,6 +30,7 @@ import (
 	"agent-platform/internal/observability"
 	"agent-platform/internal/platformconfig"
 	"agent-platform/internal/reload"
+	"agent-platform/internal/runops"
 	"agent-platform/internal/runtimeenv"
 	"agent-platform/internal/sandbox"
 	"agent-platform/internal/server"
@@ -360,8 +360,8 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		}
 		return nil, fmt.Errorf("init server: %w", err)
 	}
-	if err := toolExecutor.RegisterHandler(agentrun.NewToolHandler(srv, runManager)); err != nil {
-		return nil, fmt.Errorf("register agent run tools: %w", err)
+	if err := toolExecutor.RegisterHandler(runops.NewToolHandler(srv, runManager)); err != nil {
+		return nil, fmt.Errorf("register run tools: %w", err)
 	}
 	log.Printf("server dependencies wired in %s", startupElapsed(serverStartedAt))
 

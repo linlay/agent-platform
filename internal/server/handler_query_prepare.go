@@ -268,7 +268,7 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 	if err != nil {
 		return preparedQuery{}, err
 	}
-	if admission.strictOwner && !created && !agentRunOwnerMatchesChat(&summary, agentKey, req.TeamID) {
+	if admission.strictOwner && !created && !runOwnerMatchesChat(&summary, agentKey, req.TeamID) {
 		return preparedQuery{}, &statusError{
 			status:  http.StatusConflict,
 			code:    "target_owner_mismatch",

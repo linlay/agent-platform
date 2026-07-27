@@ -15,7 +15,7 @@
 - 已具备 SQLite memory、FTS、可选 embedding、learn / consolidate / feedback 与 memory tools。
 - 已具备可由普通 Agent 挂载、并保留专用 `mode: KBASE` 预设的 KBASE 文本知识库公共能力，包括 LanceDB generation 检索、加权 RRF、目录增量 watcher 与本地 Rust sidecar 管理；SQLite `control.db` 只负责 generation、文件状态与恢复日志。
 - 已具备专用 `mode: KBASE` 的单 run `editingMode`：仅开放 knowledge source 内 UTF-8 `.md` 的读取、查找、新建和修改，并在文件写入后同步复用 KBASE delta refresh。
-- 已具备 automation、`agent_invoke` 子智能体调度、`agent_run_query/status/interrupt` 独立 Agent/Team 根 run 启动与控制、带隐藏协调器的 orchestrated Team、基于官方 Go SDK v1.6.1 的 MCP streamable HTTP/stdio session client 与 tool sync、WebSocket 控制面等能力骨架；MCP 唯一稳定协议版本为 `2025-11-25`。
+- 已具备 automation、`agent_invoke` 子智能体调度、`run_query` / `run_status` / `run_interrupt` 独立 Agent/Team 根 run 启动与控制、带隐藏协调器的 orchestrated Team、基于官方 Go SDK v1.6.1 的 MCP streamable HTTP/stdio session client 与 tool sync、WebSocket 控制面等能力骨架；MCP 唯一稳定协议版本为 `2025-11-25`。
 尚未完全对齐 Java 版的部分能力包括 frontend tool 完整闭环、MCP 全量生产验证、automation 深度编排、热重载细节和更完整的前端协议适配。未落地能力必须在专题文档中明确标注，不能写成已完成能力。
 
 ## 2. 技术栈
@@ -50,7 +50,7 @@ cmd/agent-platform/main.go
 - `internal/agent/kbase`：专用 `mode: KBASE` 的 profile、prompt、system-init、创建默认值与严格工具/memory 边界。
 - `internal/kbase`：mode 中立的 KBASE 公共能力；`Manager` 只作为公开门面和组件装配点，内部由 capability resolver/state、storage validator/auditor、watch/lifecycle supervisor、refresh coordinator、generation service、query/status/files service 与 Lance runtime 分别维护配置解析、存储契约、调度、索引/恢复、检索和 sidecar 生命周期。app adapter 只向 Manager 暴露 enabled capability，`AgentSpec` 以唯一的 `Config.Source.Root` 为知识源事实；未启用与不存在统一按 not found 处理。该包同时维护公共 prompt、HTTP 业务错误与五个工具 handler；不得 import `internal/agent` 或 `internal/catalog`。
 - `internal/agent/team`：内部 TEAM profile、硬编码调度规则、成员 roster prompt、session-local 隐藏工具与调度状态机；TEAM 不能配置成普通 agent。
-- `internal/agentrun`：显式挂载的 `agent_run_query/status/interrupt` named handler、调用方/subject 所有权、父 run/tool ID 幂等与禁止链式调用；实际 query admission、detached executor 和 Proxy 控制复用 `internal/server` facade。
+- `internal/runops`：显式挂载的 `run_query` / `run_status` / `run_interrupt` named handler、调用方/subject 所有权、父 run/tool ID 幂等与禁止链式调用；实际 query admission、detached executor 和 Proxy 控制复用 `internal/server` facade。
 - `internal/server`：HTTP 路由、请求校验、响应包裹、SSE / WebSocket 协调。
 - `internal/llm`：模型协议、prompt 构建、run stream、HITL、planning、tool loop。
 - `internal/tools`：通用 tool registry/router、Bash、FileTools、memory、desktop、MCP tool 调用；mode 工具通过命名 handler 接入，不在 executor 中增加 mode switch。
@@ -74,7 +74,7 @@ cmd/agent-platform/main.go
 ├── docs/                        # 中文专题文档
 ├── internal/                    # Go runtime 实现
 │   ├── agent/                   # 中立 mode 契约及 CODER/KBASE/TEAM 特有实现
-│   ├── agentrun/                # agent run 工具组 handler、所有权与幂等
+│   ├── runops/                  # 独立 run 工具组 handler、所有权与幂等
 │   └── kbase/                   # mode 中立的知识库公共能力
 ├── build/                       # 忽略的多平台 builtin 本地装配缓存
 ├── scripts/                     # 审计和辅助脚本
@@ -168,7 +168,7 @@ make test
 - 专用 KBASE editing 的合法 source 内 `.md` 写入在 shipped 默认 policy 下免逐次 HITL；管理员显式 block 仍优先。索引 hook 失败不回滚文件，而是返回 failed hook 并将能力保持 degraded，等待 watcher 或显式 refresh 恢复。
 - MCP registry 同时支持 `streamable-http` 与 `stdio`，严格要求协商版本 `2025-11-25`。旧 external stdio 私有协议没有兼容期；`service.yml`、`type: external`、`external:` 或 `kind: external-service` 会使启动/热重载硬失败。平台、新版 stdio server 二进制和 registry 配置必须同批发布。
 - `agent_invoke` 只允许显式配置的普通主 agent 使用，当前禁止嵌套；orchestrated Team 自动注入 session-local embedded builtin `agent_delegate` 和三个 plan tools。普通 Agent 配置、session 与执行入口均拒绝 `agent_delegate`，该工具也不进入公开工具 catalog。
-- `agent_run_query/status/interrupt` 只允许分别显式配置的普通主 Agent 根 run 使用，query 按精确 catalog `agentKey/teamId` 启动独立根 run；不设目标白名单、深度/并发配置或 maxActiveRuns。status/interrupt 只接受同一调用 Agent 与 subject 创建的 run，目标 run 禁止再次调用任一 agent run 工具。
+- `run_query` / `run_status` / `run_interrupt` 只允许分别显式配置的普通主 Agent 根 run 使用，query 按精确 catalog `agentKey/teamId` 启动独立根 run；不设目标白名单、深度/并发配置或 maxActiveRuns。status/interrupt 只接受同一调用 Agent 与 subject 创建的 run，目标 run 禁止再次调用任一 run 工具。旧 `agent_run_query`、`agent_run_status`、`agent_run_interrupt` 已删除且配置引用会硬失败。
 - chat 创建后 `teamId` 固定。Team 以 `teamId` 为公开 owner，`agentKey` 不得与 Team 请求或控制请求同时出现；隐藏协调器 key 只用于进程内执行，不得作为公共 Agent 身份回显。
 - Team 成员、成员定义、协调器配置与 prompt 在 run 开始时解析为快照，运行中 catalog 热重载不改变该 run；下一次 run 才读取新快照。
 - KBASE Lance sidecar 只监听 loopback，由 Go 生成一次性 Bearer token 并监督生命周期。存在 enabled KBASE capability 时会启动并探测 sidecar；`mode: KBASE` 将其标为 required，故障使健康检查失败，普通 Agent 附加能力将其标为 optional，故障只在 `/healthz` 和 capability 状态中报告 degraded。无 active generation 时 search 返回 stale 并触发冷建，sidecar 故障显式返回 unavailable，绝不回退旧 SQLite 文件。
@@ -188,7 +188,7 @@ make test
 - [API与协议](docs/API与协议.md)：HTTP API 参数、SSE、WebSocket、HTTP 文件数据面、resource ticket。
 - [HITL协议](docs/HITL协议.md)：question / approval / form、submit、awaiting 事件。
 - [自动化](docs/自动化.md)：automation registry、orchestrator、dispatch、执行记录。
-- [子智能体调度](docs/子智能体调度.md)：`agent_invoke`、TEAM 隐藏调度与 `agent_run_query/status/interrupt` 独立根 run 控制。
+- [子智能体调度](docs/子智能体调度.md)：`agent_invoke`、TEAM 隐藏调度与 `run_query` / `run_status` / `run_interrupt` 独立根 run 控制。
 - [MCP与前端工具](docs/MCP与前端工具.md)：MCP registry、tool sync、frontend tool 当前边界。
 - [会话存储与回放](docs/会话存储与回放.md)：chat store、StepLine、raw messages、archive、search、resource。
 - [鉴权与安全边界](docs/鉴权与安全边界.md)：JWT、JWKS、本地公钥、resource ticket、CORS、敏感配置。

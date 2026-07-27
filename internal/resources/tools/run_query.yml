@@ -1,6 +1,6 @@
-name: agent_run_query
-label: 运行智能体
-description: Start an independent root Agent or Team run asynchronously and return its chatId and runId.
+name: run_query
+label: 发起独立运行
+description: Start an independent root run for exactly one catalog Agent or Team and return its chatId and runId immediately. This tool does not wait for the target result, and the target continues if the caller run is interrupted. Use agent_invoke instead when the current response must wait for and consume sub-agent results.
 type: function
 clientVisible: true
 explicitOnly: true

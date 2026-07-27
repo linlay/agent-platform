@@ -72,6 +72,37 @@ func TestParseAgentFileRejectsInternalAgentDelegateTool(t *testing.T) {
 	}
 }
 
+func TestParseAgentFileRejectsRemovedRunTools(t *testing.T) {
+	for _, tc := range []struct {
+		legacy      string
+		replacement string
+	}{
+		{legacy: "agent_run_query", replacement: "run_query"},
+		{legacy: " AGENT_RUN_STATUS ", replacement: "run_status"},
+		{legacy: "agent_run_interrupt", replacement: "run_interrupt"},
+	} {
+		t.Run(strings.TrimSpace(tc.legacy), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "agent.yml")
+			content := "key: removed-run-tool\n" +
+				"name: Removed Run Tool\n" +
+				"mode: REACT\n" +
+				"modelConfig:\n" +
+				"  modelKey: demo-model\n" +
+				"toolConfig:\n" +
+				"  tools:\n" +
+				"    - '" + tc.legacy + "'\n"
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := parseAgentFile(path)
+			want := "was removed; use " + tc.replacement
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("expected %q, got %v", want, err)
+			}
+		})
+	}
+}
+
 func TestParseAgentFileSupportsNestedPlanExecuteStageConfig(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")

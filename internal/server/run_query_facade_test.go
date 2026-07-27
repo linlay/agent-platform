@@ -13,22 +13,22 @@ import (
 	"testing"
 	"time"
 
-	agentrunpkg "agent-platform/internal/agentrun"
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	runopspkg "agent-platform/internal/runops"
 	"agent-platform/internal/stream"
 )
 
-func TestStartAgentRunRegistersIndependentAgentAndTeamRuns(t *testing.T) {
+func TestStartRunRegistersIndependentAgentAndTeamRuns(t *testing.T) {
 	fixture := newTestFixture(t)
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	agentRun, err := fixture.server.StartAgentRun(cancelled, contracts.AgentRunStartRequest{
+	agentTargetRun, err := fixture.server.StartRun(cancelled, contracts.RunStartRequest{
 		AgentKey: "mock-agent",
 		Message:  "detached agent",
-		Origin: contracts.AgentRunOrigin{
+		Origin: contracts.RunQueryOrigin{
 			CallerAgentKey: "zenmi",
 			Subject:        "alice",
 			ParentChatID:   "parent-chat",
@@ -39,38 +39,38 @@ func TestStartAgentRunRegistersIndependentAgentAndTeamRuns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start detached agent: %v", err)
 	}
-	if agentRun.RunID == "" || agentRun.ChatID == "" || agentRun.AgentKey != "mock-agent" || agentRun.TeamID != "" {
-		t.Fatalf("unexpected agent run %#v", agentRun)
+	if agentTargetRun.RunID == "" || agentTargetRun.ChatID == "" || agentTargetRun.AgentKey != "mock-agent" || agentTargetRun.TeamID != "" {
+		t.Fatalf("unexpected Agent target run %#v", agentTargetRun)
 	}
-	runStatus, ok := fixture.runs.RunStatus(agentRun.RunID)
+	runStatus, ok := fixture.runs.RunStatus(agentTargetRun.RunID)
 	if !ok {
-		t.Fatal("agent run was returned before registration")
+		t.Fatal("Agent target run was returned before registration")
 	}
-	if runStatus.AgentRunOrigin == nil ||
-		runStatus.AgentRunOrigin.CallerAgentKey != "zenmi" ||
-		runStatus.AgentRunOrigin.Subject != "alice" ||
-		runStatus.AgentRunOrigin.ParentRunID != "parent-run" ||
-		runStatus.AgentRunOrigin.ToolID != "tool-agent" {
-		t.Fatalf("runtime origin was not retained: %#v", runStatus.AgentRunOrigin)
+	if runStatus.RunQueryOrigin == nil ||
+		runStatus.RunQueryOrigin.CallerAgentKey != "zenmi" ||
+		runStatus.RunQueryOrigin.Subject != "alice" ||
+		runStatus.RunQueryOrigin.ParentRunID != "parent-run" ||
+		runStatus.RunQueryOrigin.ToolID != "tool-agent" {
+		t.Fatalf("runtime origin was not retained: %#v", runStatus.RunQueryOrigin)
 	}
 
-	agentRun = waitAgentRunTerminal(t, fixture.server, agentRun.RunID)
-	if agentRun.Status != "completed" || agentRun.Content != "Go runtime test response" {
-		t.Fatalf("unexpected terminal agent run %#v", agentRun)
+	agentTargetRun = waitRunTerminal(t, fixture.server, agentTargetRun.RunID)
+	if agentTargetRun.Status != "completed" || agentTargetRun.Content != "Go runtime test response" {
+		t.Fatalf("unexpected terminal Agent target run %#v", agentTargetRun)
 	}
-	summary, err := fixture.chats.Summary(agentRun.ChatID)
+	summary, err := fixture.chats.Summary(agentTargetRun.ChatID)
 	if err != nil {
 		t.Fatalf("agent summary: %v", err)
 	}
-	if summary.Source != "agent-run:zenmi" {
-		t.Fatalf("agent-run source = %q", summary.Source)
+	if summary.Source != "run-query:zenmi" {
+		t.Fatalf("run-query source = %q", summary.Source)
 	}
-	jsonl, err := fixture.chats.LoadJSONLContent(agentRun.ChatID)
+	jsonl, err := fixture.chats.LoadJSONLContent(agentTargetRun.ChatID)
 	if err != nil {
-		t.Fatalf("load agent-run jsonl: %v", err)
+		t.Fatalf("load run-query jsonl: %v", err)
 	}
 	for _, expected := range []string{
-		`"agentRunOrigin"`,
+		`"runQueryOrigin"`,
 		`"callerAgentKey":"zenmi"`,
 		`"parentRunId":"parent-run"`,
 		`"toolId":"tool-agent"`,
@@ -83,10 +83,10 @@ func TestStartAgentRunRegistersIndependentAgentAndTeamRuns(t *testing.T) {
 		t.Fatalf("request.query persisted subject: %s", jsonl)
 	}
 
-	teamRun, err := fixture.server.StartAgentRun(context.Background(), contracts.AgentRunStartRequest{
+	teamRun, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{
 		TeamID:  "default",
 		Message: "detached team",
-		Origin: contracts.AgentRunOrigin{
+		Origin: contracts.RunQueryOrigin{
 			CallerAgentKey: "zenmi",
 			ParentRunID:    "parent-run",
 			ToolID:         "tool-team",
@@ -95,7 +95,7 @@ func TestStartAgentRunRegistersIndependentAgentAndTeamRuns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("start detached team: %v", err)
 	}
-	if teamRun.RunID == agentRun.RunID || teamRun.ChatID == agentRun.ChatID || teamRun.AgentKey != "" || teamRun.TeamID != "default" {
+	if teamRun.RunID == agentTargetRun.RunID || teamRun.ChatID == agentTargetRun.ChatID || teamRun.AgentKey != "" || teamRun.TeamID != "default" {
 		t.Fatalf("unexpected team run %#v", teamRun)
 	}
 	if _, ok := fixture.runs.RunStatus(teamRun.RunID); !ok {
@@ -103,7 +103,7 @@ func TestStartAgentRunRegistersIndependentAgentAndTeamRuns(t *testing.T) {
 	}
 }
 
-func TestStartAgentRunRejectsUnknownAndChatOwnerMismatch(t *testing.T) {
+func TestStartRunRejectsUnknownAndChatOwnerMismatch(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
@@ -136,18 +136,18 @@ func TestStartAgentRunRejectsUnknownAndChatOwnerMismatch(t *testing.T) {
 
 	tests := []struct {
 		name string
-		req  contracts.AgentRunStartRequest
+		req  contracts.RunStartRequest
 		code string
 	}{
-		{name: "unknown agent", req: contracts.AgentRunStartRequest{AgentKey: "missing", Message: "x"}, code: "agent_not_found"},
-		{name: "unknown team", req: contracts.AgentRunStartRequest{TeamID: "missing", Message: "x"}, code: "team_not_found"},
-		{name: "agent chat rebound to team", req: contracts.AgentRunStartRequest{TeamID: "default", ChatID: "owned-chat", Message: "x"}, code: "target_owner_mismatch"},
-		{name: "team chat rebound to another team", req: contracts.AgentRunStartRequest{TeamID: "alternate", ChatID: "team-chat", Message: "x"}, code: "target_owner_mismatch"},
+		{name: "unknown agent", req: contracts.RunStartRequest{AgentKey: "missing", Message: "x"}, code: "agent_not_found"},
+		{name: "unknown team", req: contracts.RunStartRequest{TeamID: "missing", Message: "x"}, code: "team_not_found"},
+		{name: "agent chat rebound to team", req: contracts.RunStartRequest{TeamID: "default", ChatID: "owned-chat", Message: "x"}, code: "target_owner_mismatch"},
+		{name: "team chat rebound to another team", req: contracts.RunStartRequest{TeamID: "alternate", ChatID: "team-chat", Message: "x"}, code: "target_owner_mismatch"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := fixture.server.StartAgentRun(context.Background(), test.req)
-			var typed *contracts.AgentRunError
+			_, err := fixture.server.StartRun(context.Background(), test.req)
+			var typed *contracts.RunToolError
 			if !errors.As(err, &typed) || typed.Code != test.code {
 				t.Fatalf("error = %#v, want code %q", err, test.code)
 			}
@@ -155,7 +155,7 @@ func TestStartAgentRunRejectsUnknownAndChatOwnerMismatch(t *testing.T) {
 	}
 }
 
-func TestStartAgentRunIgnoresCatalogVisibility(t *testing.T) {
+func TestStartRunIgnoresCatalogVisibility(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
@@ -172,10 +172,10 @@ func TestStartAgentRunIgnoresCatalogVisibility(t *testing.T) {
 		},
 	})
 
-	started, err := fixture.server.StartAgentRun(context.Background(), contracts.AgentRunStartRequest{
+	started, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{
 		AgentKey: "mock-agent",
 		Message:  "run by exact key",
-		Origin:   contracts.AgentRunOrigin{CallerAgentKey: "zenmi", ParentRunID: "parent", ToolID: "visibility"},
+		Origin:   contracts.RunQueryOrigin{CallerAgentKey: "zenmi", ParentRunID: "parent", ToolID: "visibility"},
 	})
 	if err != nil {
 		t.Fatalf("start internal-only catalog Agent: %v", err)
@@ -185,7 +185,7 @@ func TestStartAgentRunIgnoresCatalogVisibility(t *testing.T) {
 	}
 }
 
-func TestAgentRunSelfTargetChatRules(t *testing.T) {
+func TestRunSelfTargetChatRules(t *testing.T) {
 	fixture := newTestFixture(t)
 	_, _, err := fixture.chats.EnsureChat("self-parent-chat", "mock-agent", "", "parent")
 	if err != nil {
@@ -202,7 +202,7 @@ func TestAgentRunSelfTargetChatRules(t *testing.T) {
 		fixture.runs.Finish("self-parent-run")
 	})
 
-	handler := agentrunpkg.NewToolHandler(fixture.server, fixture.runs)
+	handler := runopspkg.NewToolHandler(fixture.server, fixture.runs)
 	execContext := func(toolID string) *contracts.ExecutionContext {
 		return &contracts.ExecutionContext{
 			Session: contracts.QuerySession{
@@ -214,11 +214,11 @@ func TestAgentRunSelfTargetChatRules(t *testing.T) {
 			},
 			RunControl:      parentControl,
 			CurrentToolID:   toolID,
-			CurrentToolName: agentrunpkg.QueryToolName,
+			CurrentToolName: runopspkg.QueryToolName,
 		}
 	}
 
-	sameChat, err := handler.Invoke(context.Background(), agentrunpkg.QueryToolName, map[string]any{
+	sameChat, err := handler.Invoke(context.Background(), runopspkg.QueryToolName, map[string]any{
 		"agentKey": "mock-agent", "chatId": "self-parent-chat", "message": "same chat",
 	}, execContext("self-same-chat"))
 	if err != nil {
@@ -232,7 +232,7 @@ func TestAgentRunSelfTargetChatRules(t *testing.T) {
 		t.Fatalf("parent active run changed: active=%#v ok=%t err=%v", active, ok, activeErr)
 	}
 
-	newChat, err := handler.Invoke(context.Background(), agentrunpkg.QueryToolName, map[string]any{
+	newChat, err := handler.Invoke(context.Background(), runopspkg.QueryToolName, map[string]any{
 		"agentKey": "mock-agent", "message": "new chat",
 	}, execContext("self-new-chat"))
 	if err != nil || newChat.Error != "" {
@@ -242,13 +242,13 @@ func TestAgentRunSelfTargetChatRules(t *testing.T) {
 	if newRun["agentKey"] != "mock-agent" || newRun["chatId"] == "" || newRun["chatId"] == "self-parent-chat" {
 		t.Fatalf("unexpected new-chat self target %#v", newRun)
 	}
-	waitAgentRunTerminal(t, fixture.server, newRun["runId"].(string))
+	waitRunTerminal(t, fixture.server, newRun["runId"].(string))
 
 	_, _, err = fixture.chats.EnsureChat("self-idle-chat", "mock-agent", "", "idle")
 	if err != nil {
 		t.Fatalf("ensure idle chat: %v", err)
 	}
-	idleChat, err := handler.Invoke(context.Background(), agentrunpkg.QueryToolName, map[string]any{
+	idleChat, err := handler.Invoke(context.Background(), runopspkg.QueryToolName, map[string]any{
 		"agentKey": "mock-agent", "chatId": "self-idle-chat", "message": "idle chat",
 	}, execContext("self-idle-chat"))
 	if err != nil || idleChat.Error != "" {
@@ -258,10 +258,10 @@ func TestAgentRunSelfTargetChatRules(t *testing.T) {
 	if idleRun["chatId"] != "self-idle-chat" || idleRun["agentKey"] != "mock-agent" {
 		t.Fatalf("unexpected idle-chat self target %#v", idleRun)
 	}
-	waitAgentRunTerminal(t, fixture.server, idleRun["runId"].(string))
+	waitRunTerminal(t, fixture.server, idleRun["runId"].(string))
 }
 
-func TestAgentRunStatusReportsQuestionAwaiting(t *testing.T) {
+func TestGetRunStatusReportsQuestionAwaiting(t *testing.T) {
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w,
 			`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"ask_user_question","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Continue?\",\"type\":\"select\",\"options\":[{\"label\":\"Yes\"}],\"allowFreeText\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
@@ -269,19 +269,19 @@ func TestAgentRunStatusReportsQuestionAwaiting(t *testing.T) {
 		)
 	})
 
-	started, err := fixture.server.StartAgentRun(context.Background(), contracts.AgentRunStartRequest{
+	started, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{
 		AgentKey: "mock-agent",
 		Message:  "ask first",
-		Origin:   contracts.AgentRunOrigin{CallerAgentKey: "zenmi", ParentRunID: "parent", ToolID: "tool"},
+		Origin:   contracts.RunQueryOrigin{CallerAgentKey: "zenmi", ParentRunID: "parent", ToolID: "tool"},
 	})
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	awaiting := waitAgentRunStatus(t, fixture.server, started.RunID, "awaiting")
+	awaiting := waitGetRunStatus(t, fixture.server, started.RunID, "awaiting")
 	if awaiting.Awaiting == nil || awaiting.Awaiting.Mode != "question" || awaiting.Awaiting.AwaitingID == "" || len(awaiting.Awaiting.Questions) != 1 {
 		t.Fatalf("unexpected question status %#v", awaiting)
 	}
-	response, err := fixture.server.AgentRunInterrupt(api.InterruptRequest{
+	response, err := fixture.server.InterruptRun(api.InterruptRequest{
 		RunID: started.RunID, ChatID: started.ChatID, AgentKey: started.AgentKey, Message: "finish test",
 	})
 	if err != nil || !response.Accepted {
@@ -289,7 +289,7 @@ func TestAgentRunStatusReportsQuestionAwaiting(t *testing.T) {
 	}
 }
 
-func TestAgentRunStatusReturnsFailedError(t *testing.T) {
+func TestGetRunStatusReturnsFailedError(t *testing.T) {
 	runs := contracts.NewInMemoryRunManager()
 	_, control, _ := runs.Register(context.Background(), contracts.QuerySession{
 		RunID: "failed-run", ChatID: "failed-chat", AgentKey: "mock-agent", RunOwner: contracts.AgentRunOwner("mock-agent", ""),
@@ -310,7 +310,7 @@ func TestAgentRunStatusReturnsFailedError(t *testing.T) {
 	runs.Finish("failed-run")
 
 	server := &Server{deps: Dependencies{Runs: runs}}
-	status, err := server.AgentRunStatus("failed-run")
+	status, err := server.GetRunStatus("failed-run")
 	if err != nil {
 		t.Fatalf("status: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestAgentRunStatusReturnsFailedError(t *testing.T) {
 	}
 }
 
-func TestAgentRunInterruptsDetachedSSEProxy(t *testing.T) {
+func TestInterruptRunsDetachedSSEProxy(t *testing.T) {
 	queryStarted := make(chan struct{}, 1)
 	interrupted := make(chan map[string]any, 1)
 	stopQuery := make(chan struct{})
@@ -370,10 +370,10 @@ func TestAgentRunInterruptsDetachedSSEProxy(t *testing.T) {
 		},
 	})
 
-	started, err := fixture.server.StartAgentRun(context.Background(), contracts.AgentRunStartRequest{
+	started, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{
 		AgentKey: "mock-agent",
 		Message:  "proxy work",
-		Origin:   contracts.AgentRunOrigin{CallerAgentKey: "zenmi", ParentRunID: "parent", ToolID: "proxy-tool"},
+		Origin:   contracts.RunQueryOrigin{CallerAgentKey: "zenmi", ParentRunID: "parent", ToolID: "proxy-tool"},
 	})
 	if err != nil {
 		t.Fatalf("start proxy: %v", err)
@@ -384,7 +384,7 @@ func TestAgentRunInterruptsDetachedSSEProxy(t *testing.T) {
 		t.Fatal("proxy query did not start")
 	}
 
-	interruptResponse, err := fixture.server.AgentRunInterrupt(api.InterruptRequest{
+	interruptResponse, err := fixture.server.InterruptRun(api.InterruptRequest{
 		RunID: started.RunID, ChatID: started.ChatID, AgentKey: started.AgentKey, Message: "stop",
 	})
 	if err != nil || !interruptResponse.Accepted {
@@ -398,16 +398,16 @@ func TestAgentRunInterruptsDetachedSSEProxy(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("proxy interrupt was not forwarded")
 	}
-	if status := waitAgentRunFinished(t, fixture.server, started.RunID, "interrupted"); status.Status != "interrupted" {
+	if status := waitRunFinished(t, fixture.server, started.RunID, "interrupted"); status.Status != "interrupted" {
 		t.Fatalf("unexpected proxy status %#v", status)
 	}
 }
 
-func waitAgentRunStatus(t *testing.T, server *Server, runID string, want string) contracts.AgentRunSnapshot {
+func waitGetRunStatus(t *testing.T, server *Server, runID string, want string) contracts.RunSnapshot {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		status, err := server.AgentRunStatus(runID)
+		status, err := server.GetRunStatus(runID)
 		if err != nil {
 			t.Fatalf("status: %v", err)
 		}
@@ -416,17 +416,17 @@ func waitAgentRunStatus(t *testing.T, server *Server, runID string, want string)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	status, _ := server.AgentRunStatus(runID)
+	status, _ := server.GetRunStatus(runID)
 	encoded, _ := json.Marshal(status)
 	t.Fatalf("run %s did not reach %s: %s", runID, want, encoded)
-	return contracts.AgentRunSnapshot{}
+	return contracts.RunSnapshot{}
 }
 
-func waitAgentRunTerminal(t *testing.T, server *Server, runID string) contracts.AgentRunSnapshot {
+func waitRunTerminal(t *testing.T, server *Server, runID string) contracts.RunSnapshot {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		status, err := server.AgentRunStatus(runID)
+		status, err := server.GetRunStatus(runID)
 		if err != nil {
 			t.Fatalf("status: %v", err)
 		}
@@ -436,16 +436,16 @@ func waitAgentRunTerminal(t *testing.T, server *Server, runID string) contracts.
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	status, _ := server.AgentRunStatus(runID)
+	status, _ := server.GetRunStatus(runID)
 	t.Fatalf("run did not terminate: %#v", status)
-	return contracts.AgentRunSnapshot{}
+	return contracts.RunSnapshot{}
 }
 
-func waitAgentRunFinished(t *testing.T, server *Server, runID string, want string) contracts.AgentRunSnapshot {
+func waitRunFinished(t *testing.T, server *Server, runID string, want string) contracts.RunSnapshot {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		status, err := server.AgentRunStatus(runID)
+		status, err := server.GetRunStatus(runID)
 		if err != nil {
 			t.Fatalf("status: %v", err)
 		}
@@ -454,7 +454,7 @@ func waitAgentRunFinished(t *testing.T, server *Server, runID string, want strin
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	status, _ := server.AgentRunStatus(runID)
+	status, _ := server.GetRunStatus(runID)
 	t.Fatalf("run did not finish as %s: %#v", want, status)
-	return contracts.AgentRunSnapshot{}
+	return contracts.RunSnapshot{}
 }

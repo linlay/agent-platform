@@ -1,6 +1,6 @@
-name: agent_run_interrupt
-label: 中断智能体
-description: Interrupt an independent run previously created by agent_run_query.
+name: run_interrupt
+label: 中断独立运行
+description: Interrupt an independent run previously created by run_query for this caller and subject. Do not use this tool for the current run or for agent_invoke or agent_delegate child tasks.
 type: function
 clientVisible: true
 explicitOnly: true
@@ -11,7 +11,7 @@ inputSchema:
     runId:
       type: string
       minLength: 1
-      description: Required. Run ID returned by agent_run_query.
+      description: Required. Run ID returned by run_query.
     message:
       type: string
       description: Optional. Reason or detail to attach to the interrupt request.

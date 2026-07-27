@@ -81,7 +81,7 @@ const (
 	ChatSourceQuery            = "query"
 	ChatSourceQueryPrefix      = "query:"
 	ChatSourceAutomationPrefix = "automation:"
-	ChatSourceAgentRunPrefix   = "agent-run:"
+	ChatSourceRunQueryPrefix   = "run-query:"
 )
 
 func NormalizeQueryRole(role string) (string, bool) {

@@ -13,29 +13,29 @@ import (
 	"agent-platform/internal/stream"
 )
 
-func (s *Server) StartAgentRun(_ context.Context, request contracts.AgentRunStartRequest) (contracts.AgentRunSnapshot, error) {
+func (s *Server) StartRun(_ context.Context, request contracts.RunStartRequest) (contracts.RunSnapshot, error) {
 	agentKey := strings.TrimSpace(request.AgentKey)
 	teamID := strings.TrimSpace(request.TeamID)
 	message := strings.TrimSpace(request.Message)
 	if message == "" || (agentKey == "") == (teamID == "") {
-		return contracts.AgentRunSnapshot{}, agentRunError("invalid_request", "message and exactly one of agentKey or teamId are required")
+		return contracts.RunSnapshot{}, runToolError("invalid_request", "message and exactly one of agentKey or teamId are required")
 	}
 	if agentKey != "" {
 		if _, ok := s.deps.Registry.AgentDefinition(agentKey); !ok {
-			return contracts.AgentRunSnapshot{}, agentRunError("agent_not_found", "agent not found")
+			return contracts.RunSnapshot{}, runToolError("agent_not_found", "agent not found")
 		}
 	} else if _, ok := resolveCatalogTeam(s.deps.Registry, teamID); !ok {
-		return contracts.AgentRunSnapshot{}, agentRunError("team_not_found", "team not found")
+		return contracts.RunSnapshot{}, runToolError("team_not_found", "team not found")
 	}
 
 	chatID := strings.TrimSpace(request.ChatID)
 	if chatID != "" {
 		summary, err := s.deps.Chats.Summary(chatID)
 		if err != nil && !errors.Is(err, chat.ErrChatNotFound) {
-			return contracts.AgentRunSnapshot{}, err
+			return contracts.RunSnapshot{}, err
 		}
-		if summary != nil && !agentRunOwnerMatchesChat(summary, agentKey, teamID) {
-			return contracts.AgentRunSnapshot{}, agentRunError("target_owner_mismatch", "target identity does not match chat owner")
+		if summary != nil && !runOwnerMatchesChat(summary, agentKey, teamID) {
+			return contracts.RunSnapshot{}, runToolError("target_owner_mismatch", "target identity does not match chat owner")
 		}
 	}
 
@@ -45,7 +45,7 @@ func (s *Server) StartAgentRun(_ context.Context, request contracts.AgentRunStar
 		TeamID:     teamID,
 		Role:       api.QueryRoleUser,
 		Message:    message,
-		ChatSource: api.ChatSourceAgentRunPrefix + normalizeChatSourcePart(request.Origin.CallerAgentKey),
+		ChatSource: api.ChatSourceRunQueryPrefix + normalizeChatSourcePart(request.Origin.CallerAgentKey),
 	}
 	ctx := s.backgroundCtx
 	ctx = withChatSourceContext(ctx, req.ChatSource)
@@ -54,17 +54,17 @@ func (s *Server) StartAgentRun(_ context.Context, request contracts.AgentRunStar
 	}
 	admission, err := s.prepareQueryAdmissionRequest(ctx, req, true, i18n.DefaultLocale, "")
 	if err != nil {
-		return contracts.AgentRunSnapshot{}, mapAgentRunAdmissionError(err, agentKey, teamID)
+		return contracts.RunSnapshot{}, mapRunAdmissionError(err, agentKey, teamID)
 	}
 	admission.strictOwner = true
 	prepared, err := s.completeQueryPreparation(ctx, admission, nil)
 	if err != nil {
-		return contracts.AgentRunSnapshot{}, mapAgentRunAdmissionError(err, agentKey, teamID)
+		return contracts.RunSnapshot{}, mapRunAdmissionError(err, agentKey, teamID)
 	}
 	origin := request.Origin
-	prepared.session.AgentRunOrigin = &origin
+	prepared.session.RunQueryOrigin = &origin
 	auditMetadata := map[string]any{
-		"agentRunOrigin": map[string]any{
+		"runQueryOrigin": map[string]any{
 			"callerAgentKey": strings.TrimSpace(origin.CallerAgentKey),
 			"parentChatId":   strings.TrimSpace(origin.ParentChatID),
 			"parentRunId":    strings.TrimSpace(origin.ParentRunID),
@@ -81,14 +81,14 @@ func (s *Server) StartAgentRun(_ context.Context, request contracts.AgentRunStar
 	registered, statusErr := s.registerQueryRun(ctx, prepared)
 	if statusErr != nil {
 		releaseQuery(prepared.release)
-		return contracts.AgentRunSnapshot{}, mapAgentRunStatusError(statusErr)
+		return contracts.RunSnapshot{}, mapRunStatusError(statusErr)
 	}
 	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
 	if !ok {
 		releaseQuery(prepared.release)
 		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonEventBusUnavailable, "run event bus unavailable"))
 		s.finishRegisteredQueryRun(prepared, registered)
-		return contracts.AgentRunSnapshot{}, agentRunError("internal_error", "run event bus unavailable")
+		return contracts.RunSnapshot{}, runToolError("internal_error", "run event bus unavailable")
 	}
 
 	if isProxyRoutedAgent(prepared.agentDef) {
@@ -96,25 +96,25 @@ func (s *Server) StartAgentRun(_ context.Context, request contracts.AgentRunStar
 	} else {
 		s.startPreparedLocalRun(prepared, registered, eventBus, PrincipalFromContext(ctx))
 	}
-	return s.AgentRunStatus(prepared.req.RunID)
+	return s.GetRunStatus(prepared.req.RunID)
 }
 
-func (s *Server) AgentRunStatus(runID string) (contracts.AgentRunSnapshot, error) {
+func (s *Server) GetRunStatus(runID string) (contracts.RunSnapshot, error) {
 	runID = strings.TrimSpace(runID)
 	status, ok := s.deps.Runs.RunStatus(runID)
 	if !ok {
-		return contracts.AgentRunSnapshot{}, agentRunError("run_not_found", "run not found")
+		return contracts.RunSnapshot{}, runToolError("run_not_found", "run not found")
 	}
-	snapshot := contracts.AgentRunSnapshot{
+	snapshot := contracts.RunSnapshot{
 		RunID:       status.RunID,
 		ChatID:      status.ChatID,
 		AgentKey:    status.AgentKey,
 		TeamID:      status.TeamID,
-		Status:      agentRunPublicStatus(status.State),
+		Status:      runPublicStatus(status.State),
 		LastSeq:     status.LastSeq,
 		StartedAt:   status.StartedAt,
 		CompletedAt: status.CompletedAt,
-		Origin:      cloneAgentRunOrigin(status.AgentRunOrigin),
+		Origin:      cloneRunQueryOrigin(status.RunQueryOrigin),
 	}
 	if status.State == contracts.RunLoopStateWaitingSubmit {
 		if lister, ok := s.deps.Runs.(contracts.ActiveAwaitingLister); ok {
@@ -126,7 +126,7 @@ func (s *Server) AgentRunStatus(runID string) (contracts.AgentRunSnapshot, error
 				if publicID == "" {
 					publicID = strings.TrimSpace(awaiting.AwaitingID)
 				}
-				snapshot.Awaiting = &contracts.AgentRunAwaiting{
+				snapshot.Awaiting = &contracts.RunAwaiting{
 					AwaitingID: publicID,
 					Mode:       "question",
 					Questions:  append([]any(nil), awaiting.Questions...),
@@ -136,7 +136,7 @@ func (s *Server) AgentRunStatus(runID string) (contracts.AgentRunSnapshot, error
 		}
 	}
 	if eventBus, exists := s.deps.Runs.EventBus(runID); exists {
-		applyAgentRunEventSnapshot(&snapshot, eventBus.Snapshot())
+		applyRunEventSnapshot(&snapshot, eventBus.Snapshot())
 	}
 	if snapshot.Status == "completed" && s.deps.Chats != nil {
 		if summary, err := s.deps.Chats.Summary(snapshot.ChatID); err == nil && summary != nil && strings.TrimSpace(summary.LastRunID) == runID {
@@ -146,13 +146,13 @@ func (s *Server) AgentRunStatus(runID string) (contracts.AgentRunSnapshot, error
 	return snapshot, nil
 }
 
-func (s *Server) AgentRunInterrupt(req api.InterruptRequest) (api.InterruptResponse, error) {
+func (s *Server) InterruptRun(req api.InterruptRequest) (api.InterruptResponse, error) {
 	if statusErr := s.validateRunOwner(req.RunID, req.AgentKey, req.TeamID); statusErr != nil {
-		return api.InterruptResponse{}, mapAgentRunStatusError(statusErr)
+		return api.InterruptResponse{}, mapRunStatusError(statusErr)
 	}
 	if response, statusErr, forwarded := s.forwardProxyInterrupt(req); forwarded {
 		if statusErr != nil {
-			return api.InterruptResponse{}, mapAgentRunStatusError(statusErr)
+			return api.InterruptResponse{}, mapRunStatusError(statusErr)
 		}
 		// Always cancel the local proxy bridge after forwarding so detached
 		// upstream work cannot keep the platform run active indefinitely.
@@ -184,7 +184,7 @@ func (s *Server) startPreparedProxyRun(prepared preparedQuery, registered regist
 	go s.runProxyWebSocket(registered.RunCtx, prepared, route, eventBus, recorder)
 }
 
-func agentRunOwnerMatchesChat(summary *chat.Summary, agentKey string, teamID string) bool {
+func runOwnerMatchesChat(summary *chat.Summary, agentKey string, teamID string) bool {
 	if summary == nil {
 		return true
 	}
@@ -194,7 +194,7 @@ func agentRunOwnerMatchesChat(summary *chat.Summary, agentKey string, teamID str
 	return strings.TrimSpace(summary.TeamID) == "" && strings.TrimSpace(summary.AgentKey) == agentKey
 }
 
-func agentRunPublicStatus(state contracts.RunLoopState) string {
+func runPublicStatus(state contracts.RunLoopState) string {
 	switch state {
 	case contracts.RunLoopStateWaitingSubmit:
 		return "awaiting"
@@ -209,7 +209,7 @@ func agentRunPublicStatus(state contracts.RunLoopState) string {
 	}
 }
 
-func applyAgentRunEventSnapshot(snapshot *contracts.AgentRunSnapshot, events []stream.EventData) {
+func applyRunEventSnapshot(snapshot *contracts.RunSnapshot, events []stream.EventData) {
 	if snapshot == nil {
 		return
 	}
@@ -240,21 +240,21 @@ func applyAgentRunEventSnapshot(snapshot *contracts.AgentRunSnapshot, events []s
 	}
 }
 
-func mapAgentRunAdmissionError(err error, agentKey string, teamID string) error {
+func mapRunAdmissionError(err error, agentKey string, teamID string) error {
 	var statusErr *statusError
 	if !errors.As(err, &statusErr) {
 		return err
 	}
 	if strings.Contains(strings.ToLower(statusErr.message), "agent not found") && agentKey != "" {
-		return agentRunError("agent_not_found", statusErr.message)
+		return runToolError("agent_not_found", statusErr.message)
 	}
 	if strings.Contains(strings.ToLower(statusErr.message), "team") && strings.Contains(strings.ToLower(statusErr.message), "not found") && teamID != "" {
-		return agentRunError("team_not_found", statusErr.message)
+		return runToolError("team_not_found", statusErr.message)
 	}
-	return mapAgentRunStatusError(statusErr)
+	return mapRunStatusError(statusErr)
 }
 
-func mapAgentRunStatusError(err *statusError) error {
+func mapRunStatusError(err *statusError) error {
 	if err == nil {
 		return nil
 	}
@@ -269,14 +269,14 @@ func mapAgentRunStatusError(err *statusError) error {
 			code = "invalid_request"
 		}
 	}
-	return agentRunError(code, err.message)
+	return runToolError(code, err.message)
 }
 
-func agentRunError(code string, message string) error {
-	return &contracts.AgentRunError{Code: strings.TrimSpace(code), Message: strings.TrimSpace(message)}
+func runToolError(code string, message string) error {
+	return &contracts.RunToolError{Code: strings.TrimSpace(code), Message: strings.TrimSpace(message)}
 }
 
-func cloneAgentRunOrigin(origin *contracts.AgentRunOrigin) *contracts.AgentRunOrigin {
+func cloneRunQueryOrigin(origin *contracts.RunQueryOrigin) *contracts.RunQueryOrigin {
 	if origin == nil {
 		return nil
 	}
