@@ -36,14 +36,14 @@ func TestInvokeDesktopActionCallsBridge(t *testing.T) {
 			t.Fatalf("decode request: %v", err)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"ok":true,"action":"desktop.controlCenter.listServices","result":{"count":1}}`))
+		_, _ = w.Write([]byte(`{"ok":true,"action":"desktop.theme.set","result":{"themeMode":"dark","resolvedTheme":"dark"}}`))
 	}))
 	defer server.Close()
 
 	result, err := newDesktopTestExecutor(server.URL, "").invokeDesktopAction(context.Background(), map[string]any{
-		"action": "desktop.controlCenter.listServices",
+		"action": "desktop.theme.set",
 		"args": map[string]any{
-			"include": "all",
+			"themeMode": "dark",
 		},
 	}, &ExecutionContext{Session: QuerySession{
 		RunID:    "run-1",
@@ -56,10 +56,10 @@ func TestInvokeDesktopActionCallsBridge(t *testing.T) {
 	if result.ExitCode != 0 {
 		t.Fatalf("expected successful exit code, got %d: %s", result.ExitCode, result.Output)
 	}
-	if got.Action != "desktop.controlCenter.listServices" {
+	if got.Action != "desktop.theme.set" {
 		t.Fatalf("unexpected action: %s", got.Action)
 	}
-	if got.Args["include"] != "all" {
+	if got.Args["themeMode"] != "dark" {
 		t.Fatalf("unexpected args: %#v", got.Args)
 	}
 	if got.Source.RunID != "run-1" || got.Source.ChatID != "chat-1" || got.Source.AgentKey != "desktopAssistant" {
@@ -333,14 +333,21 @@ func TestInvokeDesktopActionAllowsCurrentDesktopActions(t *testing.T) {
 	}))
 	defer server.Close()
 
-	for _, action := range []string{
-		"desktop.setting.getState",
+	actions := []string{
+		"desktop.general.deviceName",
+		"desktop.theme.get",
+		"desktop.theme.set",
+		"desktop.locale.get",
+		"desktop.locale.set",
+		"desktop.copilot.getPagePreferences",
+		"desktop.copilot.setPagePreference",
 		"desktop.web.listSurfaces",
 		"desktop.web.webapp.getStatus",
 		"desktop.web.website.list",
 		"desktop.pet.show",
 		"desktop.pet.state",
-	} {
+	}
+	for _, action := range actions {
 		t.Run(action, func(t *testing.T) {
 			result, err := newDesktopTestExecutor(server.URL, "").invokeDesktopAction(context.Background(), map[string]any{
 				"action": action,
@@ -353,13 +360,17 @@ func TestInvokeDesktopActionAllowsCurrentDesktopActions(t *testing.T) {
 			}
 		})
 	}
-	if len(requested) != 6 {
-		t.Fatalf("expected bridge to receive 6 actions, got %d: %#v", len(requested), requested)
+	if len(requested) != len(actions) {
+		t.Fatalf("expected bridge to receive %d actions, got %d: %#v", len(actions), len(requested), requested)
 	}
 }
 
 func TestInvokeDesktopActionRejectsLegacyAndUnsupportedActions(t *testing.T) {
 	for _, action := range []string{
+		"desktop.setting.getState",
+		"desktop.setting.validatePatch",
+		"desktop.setting.previewPatch",
+		"desktop.setting.applyPatch",
 		"desktop.settings.getState",
 		"desktop.agents.listAgents",
 		"desktop.automations.listAutomations",
@@ -411,6 +422,9 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 		"desktop.controlCenter.restartService",
 		"desktop.controlCenter.startService",
 		"desktop.controlCenter.stopService",
+		"desktop.copilot.getPagePreferences",
+		"desktop.copilot.setPagePreference",
+		"desktop.general.deviceName",
 		"desktop.help.openTopic",
 		"desktop.kanban.createIssue",
 		"desktop.kanban.deleteIssue",
@@ -418,6 +432,8 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 		"desktop.kanban.listIssues",
 		"desktop.kanban.moveIssue",
 		"desktop.kanban.updateIssue",
+		"desktop.locale.get",
+		"desktop.locale.set",
 		"desktop.market.applySettingsPatch",
 		"desktop.market.deleteSandboxImage",
 		"desktop.market.exportSandboxImage",
@@ -438,10 +454,8 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 		"desktop.pet.set",
 		"desktop.pet.show",
 		"desktop.pet.state",
-		"desktop.setting.applyPatch",
-		"desktop.setting.getState",
-		"desktop.setting.previewPatch",
-		"desktop.setting.validatePatch",
+		"desktop.theme.get",
+		"desktop.theme.set",
 		"desktop.web.activateSurface",
 		"desktop.web.closeTab",
 		"desktop.web.getActiveSurface",

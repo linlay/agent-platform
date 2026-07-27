@@ -11,10 +11,13 @@ inputSchema:
       description: Required. Allowlisted Desktop action name to call through the local Desktop Action Bridge.
       enum:
         - desktop.navigate.toRoute
-        - desktop.setting.getState
-        - desktop.setting.validatePatch
-        - desktop.setting.previewPatch
-        - desktop.setting.applyPatch
+        - desktop.general.deviceName
+        - desktop.theme.get
+        - desktop.theme.set
+        - desktop.locale.get
+        - desktop.locale.set
+        - desktop.copilot.getPagePreferences
+        - desktop.copilot.setPagePreference
         - desktop.web.listSurfaces
         - desktop.web.getActiveSurface
         - desktop.web.activateSurface
