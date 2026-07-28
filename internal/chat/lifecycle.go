@@ -155,7 +155,7 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 	if strings.TrimSpace(completion.FinishReason) == "" {
 		completion.FinishReason = "complete"
 	}
-	assistantText := truncateRunes(completion.AssistantText, 200)
+	assistantText := PreviewLastRunContent(completion.AssistantText)
 	initialMessage := truncateRunes(completion.InitialMessage, 200)
 	var chatAgentKey, chatAgentMode, chatTeamID string
 	_ = s.db.QueryRow("SELECT AGENT_KEY_, COALESCE(AGENT_MODE_,''), COALESCE(TEAM_ID_,'') FROM CHATS WHERE CHAT_ID_=?", completion.ChatID).
