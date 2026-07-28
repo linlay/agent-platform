@@ -52,8 +52,19 @@ func TestEditingPromptRequiresExplicitScopedMutationAndIndexResult(t *testing.T)
 		EditingMode:     true,
 		KBaseSourceRoot: "/knowledge",
 		ToolNames:       EditingToolNames(),
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{ChatAttachmentsDir: "/runtime/chats/chat-1"},
+		},
 	}, api.QueryRequest{Message: "update policy"}, EditingToolNames(), EditingStage)
-	for _, want := range []string{"/knowledge", "file_edit", "kbase-index", "lineStats", "Do not use shell commands"} {
+	for _, want := range []string{
+		"/knowledge",
+		"/runtime/chats/chat-1",
+		"file_edit",
+		"kbase-index",
+		"lineStats",
+		"Do not use shell commands",
+		"Writes outside both roots are blocked",
+	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("editing prompt missing %q: %s", want, prompt)
 		}

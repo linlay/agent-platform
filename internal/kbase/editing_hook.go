@@ -29,13 +29,21 @@ func (m *Manager) AfterFileChange(ctx context.Context, event contracts.FileChang
 		return contracts.FileChangeHookResult{}
 	}
 
-	relativePath, err := editingRelativeSourcePath(spec.Config.Source.Root, event.FilePath)
+	relativePath, insideSource, err := editingRelativeSourcePath(spec.Config.Source.Root, event.FilePath)
 	if err != nil {
 		return contracts.FileChangeHookResult{
 			Name:    editingIndexHookName,
 			Status:  "failed",
 			Message: err.Error(),
 		}
+	}
+	if !insideSource {
+		log.Printf("[kbase][editing-hook] skip mutation outside source agent=%s chat=%s run=%s",
+			event.AgentKey,
+			event.ChatID,
+			event.RunID,
+		)
+		return contracts.FileChangeHookResult{}
 	}
 	if !strings.EqualFold(filepath.Ext(relativePath), ".md") {
 		return contracts.FileChangeHookResult{
@@ -85,23 +93,23 @@ func (m *Manager) AfterFileChange(ctx context.Context, event contracts.FileChang
 	}
 }
 
-func editingRelativeSourcePath(sourceRoot string, filePath string) (string, error) {
+func editingRelativeSourcePath(sourceRoot string, filePath string) (string, bool, error) {
 	root, err := pathutil.Canonicalize(sourceRoot)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	target, err := pathutil.Canonicalize(filePath)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	if !pathutil.WithinRoot(target, root) {
-		return "", &PolicyError{Kind: ErrorInvalid, Message: "edited file is outside the KBASE source root"}
+		return "", false, nil
 	}
 	relativePath, err := filepath.Rel(root.Host, target.Host)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	return normalizeIndexedPath(relativePath), nil
+	return normalizeIndexedPath(relativePath), true, nil
 }
 
 func refreshHookData(result RefreshResult) map[string]any {

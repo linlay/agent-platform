@@ -17,6 +17,7 @@ import (
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/kbase"
 	"agent-platform/internal/memory"
+	"agent-platform/internal/pathutil"
 	"agent-platform/internal/plantasks"
 	"agent-platform/internal/querymessages"
 )
@@ -220,6 +221,11 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	if agentDef.KBaseConfig.Enabled {
 		kbaseSourceRoot = strings.TrimSpace(agentDef.KBaseConfig.Source.Root)
 	}
+	if editingMode {
+		if err := validateKBaseEditingRoots(kbaseSourceRoot, runtimeContext.LocalPaths.ChatsDir); err != nil {
+			return contracts.QuerySession{}, err
+		}
+	}
 	var scopedFilePolicy *contracts.ScopedFilePolicy
 	if agentkbase.IsMode(agentDef.Mode) {
 		scopedFilePolicy = &contracts.ScopedFilePolicy{
@@ -304,6 +310,21 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	}
 	session.CurrentMessages = s.buildCurrentMessages(req, session)
 	return session, nil
+}
+
+func validateKBaseEditingRoots(sourceRoot string, chatsRoot string) error {
+	source, err := pathutil.Canonicalize(sourceRoot)
+	if err != nil {
+		return fmt.Errorf("resolve KBASE editing source root: %w", err)
+	}
+	chats, err := pathutil.Canonicalize(chatsRoot)
+	if err != nil {
+		return fmt.Errorf("resolve KBASE editing chats root: %w", err)
+	}
+	if pathutil.WithinRoot(source, chats) || pathutil.WithinRoot(chats, source) {
+		return fmt.Errorf("KBASE editing source root must be separate from the runtime chats root")
+	}
+	return nil
 }
 
 func appendKBaseCapabilityToolsToExplicitStage(tools []string) []string {

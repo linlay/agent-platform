@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	agentkbase "agent-platform/internal/agent/kbase"
 	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
 	"agent-platform/internal/bashsec"
@@ -4283,6 +4284,72 @@ func TestWriteOutsideAccessPolicyRootsCombinesPathAndContentApproval(t *testing.
 	options, _ := item["options"].([]any)
 	if !approvalOptionsContainDecision(options, "approve_rule_run") {
 		t.Fatalf("expected approve_rule_run option, got %#v", options)
+	}
+}
+
+func TestKBaseExternalWriteSkipsApprovalBeforeExecutor(t *testing.T) {
+	root := t.TempDir()
+	chatDir := filepath.Join(t.TempDir(), "chat-1")
+	outside := t.TempDir()
+	for _, dir := range []string{chatDir, outside} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinitionWithLabel("file_write", "写入文件")}}
+	session := contracts.QuerySession{
+		RunID:         "run_1",
+		Mode:          agentkbase.Mode,
+		EditingMode:   true,
+		WorkspaceRoot: root,
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{
+				WorkspaceDir:       root,
+				ChatAttachmentsDir: chatDir,
+			},
+		},
+		ScopedFilePolicy: &contracts.ScopedFilePolicy{
+			Root:              root,
+			AllowedExtensions: []string{".md"},
+			AllowRead:         true,
+			AllowWrite:        true,
+			AllowCreate:       true,
+		},
+	}
+	stream := &llmRunStream{
+		ctx:     context.Background(),
+		session: session,
+		engine: &LLMAgentEngine{
+			cfg: config.Config{
+				FileTools: config.FileToolsConfig{
+					WorkingDirectory:     root,
+					MaxReadBytes:         1024,
+					MaxWriteBytes:        1024,
+					RequireWriteApproval: true,
+				},
+			},
+			tools: executor,
+		},
+		execCtx: &contracts.ExecutionContext{Session: session},
+		activeToolCall: &preparedToolInvocation{
+			toolID:   "tool_1",
+			toolName: "file_write",
+			args: map[string]any{
+				"file_path": filepath.Join(outside, "owner.md"),
+				"content":   "blocked",
+			},
+		},
+	}
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invoke active write: %v", err)
+	}
+	for _, delta := range stream.pending {
+		if _, ok := delta.(contracts.DeltaAwaitAsk); ok {
+			t.Fatalf("KBASE external write must not produce approval awaiting: %#v", stream.pending)
+		}
+	}
+	if len(executor.invocations) != 1 {
+		t.Fatalf("expected the runtime executor to enforce the blocked plan, got %#v", executor.invocations)
 	}
 }
 

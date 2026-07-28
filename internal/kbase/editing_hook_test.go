@@ -110,3 +110,27 @@ func TestEditingHookReportsIndexFailureWithoutChangingWriteStatus(t *testing.T) 
 		t.Fatalf("hook failure must not roll back the file: %q err=%v", string(data), err)
 	}
 }
+
+func TestEditingHookIgnoresChatspaceMutation(t *testing.T) {
+	root := t.TempDir()
+	chatDir := t.TempDir()
+	path := filepath.Join(chatDir, "report.txt")
+	if err := os.WriteFile(path, []byte("temporary"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	spec := testKBaseAgent("docs", root, "runtime")
+	manager := NewManager(ManagerOptions{RuntimeDir: t.TempDir()}, stubAgentSource{agents: map[string]AgentSpec{"docs": spec}}, nil)
+
+	result := manager.AfterFileChange(context.Background(), contracts.FileChangeEvent{
+		AgentKey: "docs",
+		ChatID:   "chat",
+		RunID:    "run",
+		FilePath: path,
+	})
+	if !reflect.DeepEqual(result, contracts.FileChangeHookResult{}) {
+		t.Fatalf("chatspace mutation must not produce a KBASE hook result: %#v", result)
+	}
+	if err := manager.state.DegradedError("docs"); err != nil {
+		t.Fatalf("chatspace mutation must not degrade KBASE: %v", err)
+	}
+}

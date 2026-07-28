@@ -166,6 +166,72 @@ func TestBuildAccessPlanFromPolicyUsesSessionAliases(t *testing.T) {
 	}
 }
 
+func TestBuildAccessPlanFromPolicyAppliesKBaseWriteCeiling(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	chatDir := filepath.Join(root, "chats", "chat-1")
+	hostDir := filepath.Join(root, "host")
+	outside := filepath.Join(root, "outside")
+	for _, dir := range []string{workspace, chatDir, hostDir, outside} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	session := contracts.QuerySession{
+		AccessLevel:   contracts.AccessLevelFullAccess,
+		WorkspaceRoot: workspace,
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{
+				WorkspaceDir:       workspace,
+				ChatAttachmentsDir: chatDir,
+			},
+		},
+		RuntimeHostAccess: contracts.HostAccessRoots{
+			ReadRoots:  []string{hostDir},
+			WriteRoots: []string{hostDir},
+		},
+		ScopedFilePolicy: &contracts.ScopedFilePolicy{
+			Root:              workspace,
+			AllowedExtensions: []string{".md"},
+			AllowRead:         true,
+			AllowWrite:        true,
+			AllowCreate:       true,
+		},
+	}
+
+	for _, test := range []struct {
+		name    string
+		path    string
+		blocked bool
+	}{
+		{name: "workspace", path: filepath.Join(workspace, "policy.md")},
+		{name: "chat", path: filepath.Join(chatDir, "report.txt")},
+		{name: "host", path: filepath.Join(hostDir, "shared.txt"), blocked: true},
+		{name: "external", path: filepath.Join(outside, "secret.txt"), blocked: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			plan, err := BuildAccessPlanFromPolicy(config.AccessPolicyConfig{}, session, WriteAccess, test.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if plan.Blocked != test.blocked {
+				t.Fatalf("unexpected plan: %#v", plan)
+			}
+			if test.blocked && (plan.AllowedByWhitelist || plan.AutoApproved) {
+				t.Fatalf("blocked plan retained an allow decision: %#v", plan)
+			}
+		})
+	}
+
+	readPlan, err := BuildAccessPlanFromPolicy(config.AccessPolicyConfig{}, session, ReadAccess, filepath.Join(outside, "secret.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if readPlan.Blocked || !readPlan.AllowedByWhitelist {
+		t.Fatalf("KBASE write ceiling must not change external reads: %#v", readPlan)
+	}
+}
+
 func TestPathInSessionWorkspaceAllowsRootWorkspace(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "artifact.md")
 	session := contracts.QuerySession{WorkspaceRoot: string(os.PathSeparator)}

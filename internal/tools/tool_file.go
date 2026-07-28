@@ -32,9 +32,6 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 	if access.Blocked {
 		return fileToolError("file_read_path_blocked", access.Reason), nil
 	}
-	if err := filetools.ValidateScopedRawPath(accessSession, access.RawPath); err != nil {
-		return scopedFileToolError(err), nil
-	}
 	if filetools.IsBlockedDeviceFile(access.Path) {
 		return fileToolError("file_read_device_blocked", "device file is blocked"), nil
 	}
@@ -103,7 +100,7 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 	if filetools.IsBinaryExtension(resolved.Path) {
 		return fileToolError("file_read_binary_unsupported", "binary file extension is not supported by read"), nil
 	}
-	if filetools.ScopedFilePolicyRequiresUTF8(accessSession) {
+	if filetools.ScopedFilePolicyRequiresUTF8(accessSession, access.Path) {
 		if requestedEncoding != "" && !strings.EqualFold(requestedEncoding, "utf-8") && !strings.EqualFold(requestedEncoding, "utf8") {
 			return fileToolError("kbase_editing_encoding_unsupported", "KBASE editing v1 only supports UTF-8 Markdown files"), nil
 		}
@@ -197,9 +194,6 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 	if access.Blocked {
 		return fileToolError("file_write_path_blocked", access.Reason), nil
 	}
-	if err := filetools.ValidateScopedRawPath(accessSession, access.RawPath); err != nil {
-		return scopedFileToolError(err), nil
-	}
 	if err := filetools.ValidateScopedWrite(accessSession, access.Path); err != nil {
 		return scopedFileToolError(err), nil
 	}
@@ -210,8 +204,8 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 	if err != nil {
 		return fileToolError("file_write_invalid_plan", err.Error()), nil
 	}
-	scopedPolicy := accessSession.ScopedFilePolicy != nil
-	scopedUTF8 := filetools.ScopedFilePolicyRequiresUTF8(accessSession)
+	scopedSource := filetools.ScopedPathInSource(accessSession, access.Path)
+	scopedUTF8 := filetools.ScopedFilePolicyRequiresUTF8(accessSession, access.Path)
 	if scopedUTF8 {
 		if plan.Encoding != "" && !strings.EqualFold(plan.Encoding, "utf-8") && !strings.EqualFold(plan.Encoding, "utf8") {
 			return fileToolError("kbase_editing_encoding_unsupported", "KBASE editing v1 only supports UTF-8 Markdown files"), nil
@@ -233,7 +227,7 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 		result.Error = "file_write_approval_required"
 		return result, nil
 	}
-	if t.cfg.FileTools.RequireReadBeforeWrite || scopedPolicy {
+	if t.cfg.FileTools.RequireReadBeforeWrite || scopedSource {
 		if result, ok := t.validateReadBeforeWrite(plan.FilePath, execCtx); ok {
 			return result, nil
 		}
@@ -275,12 +269,18 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 	if len(writeBytes) > maxInt(t.cfg.FileTools.MaxWriteBytes, 1<<20) {
 		return fileToolError("file_write_invalid_plan", "encoded content exceeds max write bytes"), nil
 	}
-	if scopedPolicy {
+	if accessSession.ScopedFilePolicy != nil {
 		if err := filetools.ValidateScopedWrite(accessSession, plan.FilePath); err != nil {
 			return scopedFileToolError(err), nil
 		}
-	} else if err := os.MkdirAll(filepath.Dir(plan.FilePath), 0o755); err != nil {
-		return fileToolError("file_write_failed", err.Error()), nil
+		if filetools.ScopedPathInSource(accessSession, plan.FilePath) != scopedSource {
+			return fileToolError("file_write_path_blocked", "file path crossed the KBASE source boundary before mutation"), nil
+		}
+	}
+	if !scopedSource {
+		if err := os.MkdirAll(filepath.Dir(plan.FilePath), 0o755); err != nil {
+			return fileToolError("file_write_failed", err.Error()), nil
+		}
 	}
 	if err := atomicWriteFile(plan.FilePath, writeBytes); err != nil {
 		return fileToolError("file_write_failed", err.Error()), nil
@@ -337,9 +337,6 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 	if access.Blocked {
 		return fileToolError("file_edit_path_blocked", access.Reason), nil
 	}
-	if err := filetools.ValidateScopedRawPath(accessSession, access.RawPath); err != nil {
-		return scopedFileToolError(err), nil
-	}
 	if err := filetools.ValidateScopedWrite(accessSession, access.Path); err != nil {
 		return scopedFileToolError(err), nil
 	}
@@ -350,8 +347,8 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 	if err != nil {
 		return fileToolError("file_edit_invalid_plan", err.Error()), nil
 	}
-	scopedPolicy := accessSession.ScopedFilePolicy != nil
-	scopedUTF8 := filetools.ScopedFilePolicyRequiresUTF8(accessSession)
+	scopedSource := filetools.ScopedPathInSource(accessSession, access.Path)
+	scopedUTF8 := filetools.ScopedFilePolicyRequiresUTF8(accessSession, access.Path)
 	if scopedUTF8 && plan.Encoding != "" && !strings.EqualFold(plan.Encoding, "utf-8") && !strings.EqualFold(plan.Encoding, "utf8") {
 		return fileToolError("kbase_editing_encoding_unsupported", "KBASE editing v1 only supports UTF-8 Markdown files"), nil
 	}
@@ -368,7 +365,7 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 		result.Error = "file_edit_approval_required"
 		return result, nil
 	}
-	if t.cfg.FileTools.RequireReadBeforeWrite || scopedPolicy {
+	if t.cfg.FileTools.RequireReadBeforeWrite || scopedSource {
 		if result, ok := t.validateReadBeforeFileMutation(plan.FilePath, execCtx, "file_edit"); ok {
 			return result, nil
 		}
@@ -460,12 +457,18 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 	if len(updatedBytes) > maxInt(t.cfg.FileTools.MaxWriteBytes, 1<<20) {
 		return fileToolError("file_edit_content_too_large", "edited content exceeds max write bytes"), nil
 	}
-	if scopedPolicy {
+	if accessSession.ScopedFilePolicy != nil {
 		if err := filetools.ValidateScopedWrite(accessSession, plan.FilePath); err != nil {
 			return scopedFileToolError(err), nil
 		}
-	} else if err := os.MkdirAll(filepath.Dir(plan.FilePath), 0o755); err != nil {
-		return fileToolError("file_edit_failed", err.Error()), nil
+		if filetools.ScopedPathInSource(accessSession, plan.FilePath) != scopedSource {
+			return fileToolError("file_edit_path_blocked", "file path crossed the KBASE source boundary before mutation"), nil
+		}
+	}
+	if !scopedSource {
+		if err := os.MkdirAll(filepath.Dir(plan.FilePath), 0o755); err != nil {
+			return fileToolError("file_edit_failed", err.Error()), nil
+		}
 	}
 	if err := atomicWriteFile(plan.FilePath, updatedBytes); err != nil {
 		return fileToolError("file_edit_failed", err.Error()), nil

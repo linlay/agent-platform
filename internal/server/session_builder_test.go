@@ -319,6 +319,34 @@ func TestBuildQuerySessionFreezesDedicatedKBaseEditingPolicy(t *testing.T) {
 	}
 }
 
+func TestValidateKBaseEditingRootsRejectsChatsOverlap(t *testing.T) {
+	root := t.TempDir()
+	chatsRoot := filepath.Join(root, "chats")
+	if err := os.MkdirAll(chatsRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name       string
+		sourceRoot string
+		wantErr    bool
+	}{
+		{name: "separate", sourceRoot: filepath.Join(root, "knowledge")},
+		{name: "same", sourceRoot: chatsRoot, wantErr: true},
+		{name: "source contains chats", sourceRoot: root, wantErr: true},
+		{name: "source under chats", sourceRoot: filepath.Join(chatsRoot, "knowledge"), wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := os.MkdirAll(test.sourceRoot, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			err := validateKBaseEditingRoots(test.sourceRoot, chatsRoot)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("error = %v, wantErr=%v", err, test.wantErr)
+			}
+		})
+	}
+}
+
 func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{Paths: config.PathsConfig{ChatsDir: filepath.Join(root, "chats")}}

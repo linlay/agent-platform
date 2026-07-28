@@ -705,8 +705,13 @@ func (s *llmRunStream) handleToolApprovalBeforeInvoke(invocation *preparedToolIn
 }
 
 func (s *llmRunStream) handleFileApprovalBeforeInvoke(invocation *preparedToolInvocation) (bool, error) {
-	if accessPlan := s.lookupFileAccessPlan(invocation); accessPlan != nil && s.fileAccessPlanNeedsApproval(*accessPlan) {
-		return s.handleBuiltInApprovalRequest(s.fileAccessApprovalRequest(invocation, *accessPlan))
+	if accessPlan := s.lookupFileAccessPlan(invocation); accessPlan != nil {
+		if accessPlan.Blocked {
+			return false, nil
+		}
+		if s.fileAccessPlanNeedsApproval(*accessPlan) {
+			return s.handleBuiltInApprovalRequest(s.fileAccessApprovalRequest(invocation, *accessPlan))
+		}
 	}
 	if plan := s.lookupFileWritePlan(invocation); plan != nil && s.fileWritePlanNeedsApproval(*plan) {
 		return s.handleBuiltInApprovalRequest(s.fileWriteApprovalRequest(invocation, *plan))

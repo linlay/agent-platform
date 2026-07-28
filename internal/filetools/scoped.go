@@ -28,18 +28,6 @@ func ScopedPolicyErrorCode(err error) string {
 	return ""
 }
 
-func ValidateScopedRawPath(session contracts.QuerySession, rawPath string) error {
-	if session.ScopedFilePolicy == nil {
-		return nil
-	}
-	for _, component := range strings.Split(strings.ReplaceAll(rawPath, "\\", "/"), "/") {
-		if component == ".." {
-			return scopedError("kbase_editing_path_outside_source", "KBASE editing does not allow parent-directory traversal")
-		}
-	}
-	return nil
-}
-
 func ValidateScopedRead(session contracts.QuerySession, path string, allowDirectory bool) error {
 	policy := session.ScopedFilePolicy
 	if policy == nil {
@@ -47,6 +35,16 @@ func ValidateScopedRead(session contracts.QuerySession, path string, allowDirect
 	}
 	if !policy.AllowRead {
 		return scopedError("kbase_editing_mode_required", "KBASE file tools require editingMode=true")
+	}
+	if strings.TrimSpace(policy.Root) == "" {
+		return scopedError("kbase_editing_path_outside_source", "KBASE editing source root is unavailable")
+	}
+	inSource, err := scopedPathWithinRoot(policy.Root, path)
+	if err != nil {
+		return scopedError("kbase_editing_path_outside_source", err.Error())
+	}
+	if !inSource {
+		return nil
 	}
 	return validateScopedPath(*policy, path, allowDirectory, false)
 }
@@ -58,6 +56,23 @@ func ValidateScopedWrite(session contracts.QuerySession, path string) error {
 	}
 	if !policy.AllowWrite {
 		return scopedError("kbase_editing_mode_required", "KBASE file mutation requires editingMode=true")
+	}
+	if strings.TrimSpace(policy.Root) == "" {
+		return scopedError("kbase_editing_path_outside_source", "KBASE editing source root is unavailable")
+	}
+	inSource, err := scopedPathWithinRoot(policy.Root, path)
+	if err != nil {
+		return scopedError("kbase_editing_path_outside_source", err.Error())
+	}
+	if !inSource {
+		inChat, chatErr := scopedPathWithinRoot(session.RuntimeContext.LocalPaths.ChatAttachmentsDir, path)
+		if chatErr != nil {
+			return scopedError("kbase_editing_path_outside_source", chatErr.Error())
+		}
+		if inChat {
+			return nil
+		}
+		return scopedError("kbase_editing_path_outside_source", "KBASE editing write is outside the session workspace and current chatspace")
 	}
 	if err := validateScopedPath(*policy, path, false, true); err != nil {
 		return err
@@ -84,6 +99,15 @@ func ValidateScopedWrite(session contracts.QuerySession, path string) error {
 	return nil
 }
 
+func ScopedPathInSource(session contracts.QuerySession, path string) bool {
+	policy := session.ScopedFilePolicy
+	if policy == nil {
+		return false
+	}
+	inside, err := scopedPathWithinRoot(policy.Root, path)
+	return err == nil && inside
+}
+
 func ScopedPathAllowed(session contracts.QuerySession, path string, allowDirectory bool) bool {
 	policy := session.ScopedFilePolicy
 	if policy == nil || !policy.AllowRead {
@@ -92,8 +116,26 @@ func ScopedPathAllowed(session contracts.QuerySession, path string, allowDirecto
 	return validateScopedPath(*policy, path, allowDirectory, false) == nil
 }
 
-func ScopedFilePolicyRequiresUTF8(session contracts.QuerySession) bool {
-	return session.ScopedFilePolicy != nil && session.ScopedFilePolicy.RequireUTF8
+func ScopedFilePolicyRequiresUTF8(session contracts.QuerySession, path string) bool {
+	return session.ScopedFilePolicy != nil &&
+		ScopedPathInSource(session, path) &&
+		session.ScopedFilePolicy.RequireUTF8
+}
+
+func scopedPathWithinRoot(root string, path string) (bool, error) {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return false, nil
+	}
+	rootCanonical, err := pathutil.Canonicalize(root)
+	if err != nil {
+		return false, err
+	}
+	targetCanonical, err := pathutil.Canonicalize(path)
+	if err != nil {
+		return false, err
+	}
+	return pathutil.WithinRoot(targetCanonical, rootCanonical), nil
 }
 
 func validateScopedPath(policy contracts.ScopedFilePolicy, path string, allowDirectory bool, futureTarget bool) error {

@@ -134,7 +134,12 @@ func (s *llmRunStream) fileAccessSession() QuerySession {
 
 func hasLocalFileRoots(session QuerySession) bool {
 	paths := session.RuntimeContext.LocalPaths
-	return strings.TrimSpace(paths.AgentDir) != "" ||
+	return strings.TrimSpace(session.WorkspaceRoot) != "" ||
+		session.ScopedFilePolicy != nil ||
+		strings.TrimSpace(paths.WorkspaceDir) != "" ||
+		strings.TrimSpace(paths.WorkingDirectory) != "" ||
+		strings.TrimSpace(paths.ChatAttachmentsDir) != "" ||
+		strings.TrimSpace(paths.AgentDir) != "" ||
 		strings.TrimSpace(paths.SkillsDir) != "" ||
 		strings.TrimSpace(paths.SkillsMarketDir) != ""
 }

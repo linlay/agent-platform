@@ -1052,6 +1052,154 @@ func TestKBaseEditingGlobAndGrepOnlyReturnMarkdown(t *testing.T) {
 	}
 }
 
+func TestKBaseEditingUsesGenericFileToolsInChatAndBlocksExternalWrites(t *testing.T) {
+	requireRipgrep(t)
+	root := t.TempDir()
+	execCtx := kbaseEditingExecutionContext(root)
+	chatDir := execCtx.Session.RuntimeContext.LocalPaths.ChatAttachmentsDir
+	outside := filepath.Join(filepath.Dir(root), "outside")
+	for _, dir := range []string{chatDir, outside} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hook := &recordingFileChangeHook{}
+	executor := fileToolExecutor(root, false).WithFileChangeHooks(hook)
+	executor.cfg.FileTools.RequireReadBeforeWrite = false
+
+	chatPath := filepath.Join(chatDir, "report.txt")
+	written, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path": chatPath,
+		"content":   "temporary report\n",
+	}, execCtx)
+	if err != nil || written.Error != "" {
+		t.Fatalf("write chatspace text: result=%#v err=%v", written, err)
+	}
+	if len(hook.events) != 1 || hook.events[0].FilePath != realPath(t, chatPath) {
+		t.Fatalf("expected one chat-scoped hook event, got %#v", hook.events)
+	}
+
+	read, err := executor.invokeRead(map[string]any{
+		"file_path":        chatPath,
+		"add_line_numbers": false,
+	}, execCtx)
+	if err != nil || read.Error != "" || !strings.Contains(read.Output, "temporary report") {
+		t.Fatalf("read chatspace text: result=%#v err=%v", read, err)
+	}
+	edited, err := executor.invokeEdit(context.Background(), map[string]any{
+		"file_path":  chatPath,
+		"old_string": "temporary report",
+		"new_string": "final report",
+	}, execCtx)
+	if err != nil || edited.Error != "" {
+		t.Fatalf("edit chatspace text: result=%#v err=%v", edited, err)
+	}
+	if len(hook.events) != 2 || hook.events[1].FilePath != realPath(t, chatPath) {
+		t.Fatalf("expected chat-scoped edit hook event, got %#v", hook.events)
+	}
+	glob, err := executor.invokeGlob(context.Background(), map[string]any{
+		"path":    chatDir,
+		"pattern": "*.txt",
+	}, execCtx)
+	if err != nil || glob.Error != "" {
+		t.Fatalf("glob chatspace text: result=%#v err=%v", glob, err)
+	}
+	if results := stringSliceResult(t, glob.Structured["results"]); len(results) != 1 ||
+		!strings.HasSuffix(results[0], "report.txt") {
+		t.Fatalf("unexpected chatspace glob results: %#v", results)
+	}
+	grep, err := executor.invokeGrep(context.Background(), map[string]any{
+		"path":    chatDir,
+		"pattern": "final",
+	}, execCtx)
+	if err != nil || grep.Error != "" {
+		t.Fatalf("grep chatspace text: result=%#v err=%v", grep, err)
+	}
+	if results := stringSliceResult(t, grep.Structured["results"]); len(results) != 1 ||
+		!strings.HasSuffix(results[0], "report.txt") {
+		t.Fatalf("unexpected chatspace grep results: %#v", results)
+	}
+
+	externalPath := filepath.Join(outside, "blocked.txt")
+	blocked, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path": externalPath,
+		"content":   "blocked",
+	}, execCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blocked.Structured["error"] != "file_write_path_blocked" {
+		t.Fatalf("expected external write hard block, got %#v", blocked.Structured)
+	}
+	if _, statErr := os.Stat(externalPath); !os.IsNotExist(statErr) {
+		t.Fatalf("external write created a file: %v", statErr)
+	}
+	if len(hook.events) != 2 {
+		t.Fatalf("blocked external write ran hooks: %#v", hook.events)
+	}
+
+	externalEditPath := filepath.Join(outside, "editable.txt")
+	if err := os.WriteFile(externalEditPath, []byte("before"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	blockedEdit, err := executor.invokeEdit(context.Background(), map[string]any{
+		"file_path":  externalEditPath,
+		"old_string": "before",
+		"new_string": "after",
+	}, execCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blockedEdit.Structured["error"] != "file_edit_path_blocked" {
+		t.Fatalf("expected external edit hard block, got %#v", blockedEdit.Structured)
+	}
+	if data, readErr := os.ReadFile(externalEditPath); readErr != nil || string(data) != "before" {
+		t.Fatalf("external edit changed file: data=%q err=%v", string(data), readErr)
+	}
+	if len(hook.events) != 2 {
+		t.Fatalf("blocked external edit ran hooks: %#v", hook.events)
+	}
+
+	otherChatDir := filepath.Join(filepath.Dir(chatDir), "chat-other")
+	if err := os.MkdirAll(otherChatDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	otherChatPath := filepath.Join(otherChatDir, "private.txt")
+	if err := os.WriteFile(otherChatPath, []byte("private"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	blockedOtherChatWrite, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path": otherChatPath,
+		"content":   "changed",
+	}, execCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blockedOtherChatWrite.Structured["error"] != "file_write_path_blocked" {
+		t.Fatalf("expected other-chat write hard block, got %#v", blockedOtherChatWrite.Structured)
+	}
+
+	externalReadPath := filepath.Join(outside, "readable.txt")
+	if err := os.WriteFile(externalReadPath, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	execCtx.Session.AccessLevel = contracts.AccessLevelDefault
+	externalRead, err := executor.invokeRead(map[string]any{"file_path": externalReadPath}, execCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if externalRead.Structured["error"] != "file_read_approval_required" {
+		t.Fatalf("expected external read to use common HITL, got %#v", externalRead.Structured)
+	}
+	otherChatRead, err := executor.invokeRead(map[string]any{"file_path": otherChatPath}, execCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if otherChatRead.Structured["error"] != "file_read_approval_required" {
+		t.Fatalf("expected other-chat read to use common HITL, got %#v", otherChatRead.Structured)
+	}
+}
+
 func kbaseEditingExecutionContext(root string) *contracts.ExecutionContext {
 	return &contracts.ExecutionContext{
 		Request: api.QueryRequest{
@@ -1070,6 +1218,12 @@ func kbaseEditingExecutionContext(root string) *contracts.ExecutionContext {
 			ModeCapabilities: agentcontract.ModeCapabilities{FileChangeHooks: true},
 			WorkspaceRoot:    root,
 			AccessLevel:      contracts.AccessLevelFullAccess,
+			RuntimeContext: contracts.RuntimeRequestContext{
+				LocalPaths: contracts.LocalPaths{
+					WorkspaceDir:       root,
+					ChatAttachmentsDir: filepath.Join(filepath.Dir(root), "chats", "chat-edit"),
+				},
+			},
 			ScopedFilePolicy: &contracts.ScopedFilePolicy{
 				Root:                  root,
 				AllowedExtensions:     []string{".md"},

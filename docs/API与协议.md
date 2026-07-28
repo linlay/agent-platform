@@ -415,7 +415,7 @@ KBASE API 接受所有 `kbaseConfig.enabled: true` 的 Agent，包括专用 `mod
 
 KBASE 工具只读取 active 索引库，不直接访问宿主文件系统。`kbase_search` 支持 `pathPrefix`、`pathGlob`、`type` 与 `offset` 做 scoped retrieval；`kbase_files` 支持按 `path`、`pattern`、`status`、`type`、`mode=files|tree`、`depth`、`head_limit`、`offset` 浏览已索引/已扫描文件元数据。Lance 路径并行取 vector 与 FTS 候选并使用加权 RRF 融合；`matchType` 为 `vector|fts|hybrid`，score 归一化到 `[0,1]`。`matchCount` 是受 candidate 上限约束的两路去重并集数，不是全库总命中数。
 
-专用 KBASE 的 `editingMode:true` 额外挂载 `file_read/file_glob/file_grep/file_write/file_edit`，工作目录固定为本 run 冻结的 `kbaseConfig.source.root`。v1 只支持大小写不敏感的 UTF-8 `.md`，不支持 `.markdown`、删除、重命名、建目录、Bash 或其他格式。文件 mutation 的 `hooks[]` 包含 `name:"kbase-index"`；`success` 才表示同一 run 后续检索可见，`skipped/excluded_by_kbase_config` 表示文件已保存但被索引配置排除，`failed` 表示文件仍已保存但索引失败。完整契约见 [KBASE 编辑模式](KBASE编辑模式.md)。
+专用 KBASE 的 `editingMode:true` 额外挂载 `file_read/file_glob/file_grep/file_write/file_edit`，工作目录固定为本 run 冻结的 `kbaseConfig.source.root`，当前 `chatId` 的 `ChatAttachmentsDir` 同时作为通用 chat 文件根。source 内只支持大小写不敏感的 UTF-8 `.md`；chatspace 使用通用文本文件工具规则。两者之外的 read/glob/grep 服从 AccessPolicy，默认进入 HITL；两者之外及 hostAccess 的 write/edit 固定 hard block，`full_access` 和 approval 不能扩大。source mutation 的 `hooks[]` 包含 `name:"kbase-index"`；chat mutation 不返回该 hook。`success` 才表示同一 run 后续检索可见，`skipped/excluded_by_kbase_config` 表示 source 文件已保存但被索引配置排除，`failed` 表示 source 文件仍已保存但索引失败。完整契约见 [KBASE 编辑模式](KBASE编辑模式.md)。
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
