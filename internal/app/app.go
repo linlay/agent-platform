@@ -153,11 +153,13 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	log.Printf("model registry ready in %s (root=%s)", startupElapsed(modelRegistryStartedAt), cfg.Paths.RegistriesDir)
 
 	runManager := contracts.NewInMemoryRunManager()
+	wsHub := ws.NewHub()
 	sandboxClient := sandbox.NewContainerHubSandboxService(cfg.ContainerHub, cfg.Paths)
 	backendTools, err := tools.NewRuntimeToolExecutor(cfg, sandboxClient, chatStore, memoryStore, skillCandidateStore)
 	if err != nil {
 		return nil, fmt.Errorf("init runtime tools: %w", err)
 	}
+	backendTools.WithWebClientActionInvoker(wsHub)
 	backendTools.WithRuntimeEnv(hostEnv)
 	backendTools.WithModelRegistry(modelRegistry)
 	var lspManager *lsp.Manager
@@ -245,7 +247,6 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}
 
 	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, frontendRegistry, sandboxClient)
-	wsHub := ws.NewHub()
 	var notifications contracts.NotificationSink = wsHub
 	// gatewayResolver 在 Registry 构建完成后（server 依赖就绪之后）绑定。
 	// pusher 先拿到 resolver 指针，Registry 构建完调用 SetRegistry 就能工作。

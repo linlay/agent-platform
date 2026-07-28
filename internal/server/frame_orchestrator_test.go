@@ -39,17 +39,19 @@ func (r orchestratorRegistry) AgentDefinition(key string) (catalog.AgentDefiniti
 type orchestratorAgentEngine struct {
 	streams           []contracts.AgentStream
 	streamsByAgentKey map[string]contracts.AgentStream
+	sessions          []contracts.QuerySession
 	err               error
 	index             int
 	mu                sync.Mutex
 }
 
-func (e *orchestratorAgentEngine) Stream(_ context.Context, req api.QueryRequest, _ contracts.QuerySession) (contracts.AgentStream, error) {
+func (e *orchestratorAgentEngine) Stream(_ context.Context, req api.QueryRequest, session contracts.QuerySession) (contracts.AgentStream, error) {
 	if e.err != nil {
 		return nil, e.err
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.sessions = append(e.sessions, session)
 	if len(e.streamsByAgentKey) > 0 {
 		stream, ok := e.streamsByAgentKey[req.AgentKey]
 		if !ok {
@@ -332,6 +334,38 @@ func TestFrameOrchestratorAllowsInternalSubAgent(t *testing.T) {
 	}
 	if len(mainStream.injected) != 1 || mainStream.injected[0].isError {
 		t.Fatalf("expected internal sub-agent result, got %#v", mainStream.injected)
+	}
+}
+
+func TestFrameOrchestratorInheritsWebClientTargetIntoChildSession(t *testing.T) {
+	mainStream := &stubOrchestratableStream{
+		deltas: []contracts.AgentDelta{
+			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{
+				SubAgentKey: "writer",
+				TaskText:    "write",
+			}),
+		},
+	}
+	engine := &orchestratorAgentEngine{
+		streamsByAgentKey: map[string]contracts.AgentStream{
+			"writer": &stubOrchestratableStream{finalText: "done"},
+		},
+	}
+	orchestrator := newTestFrameOrchestrator(engine, map[string]catalog.AgentDefinition{
+		"writer": {Key: "writer", Mode: "REACT"},
+	}, nil, nil)
+	target := contracts.WebClientTarget{
+		BoundaryKey: "subject:user-1\x00device:device-1",
+		SurfaceID:   "surface-1",
+	}
+	orchestrator.session.WebClientTarget = target
+
+	streamFailed, streamInterrupted, err := orchestrator.Run(mainStream)
+	if err != nil || streamFailed || streamInterrupted {
+		t.Fatalf("unexpected orchestrator result err=%v failed=%v interrupted=%v", err, streamFailed, streamInterrupted)
+	}
+	if len(engine.sessions) != 1 || engine.sessions[0].WebClientTarget != target {
+		t.Fatalf("expected child to inherit webclient target, got %#v", engine.sessions)
 	}
 }
 

@@ -955,6 +955,7 @@ func (o *frameOrchestrator) runChildTaskWithOptions(index int, task preparedSubT
 		result.Error = err.Error()
 		return result
 	}
+	subSession.WebClientTarget = o.session.WebClientTarget
 	if len(subSession.RuntimeContext.References) > 0 {
 		subReq.References = subSession.RuntimeContext.References
 	}

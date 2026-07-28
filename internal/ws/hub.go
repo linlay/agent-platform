@@ -12,6 +12,8 @@ type Hub struct {
 	gatewayConns    map[string]*Conn
 	gatewayConnMeta map[*Conn]gatewayConnectionState
 	gatewayConnSeq  int64
+	webClientConns  map[string]*Conn
+	webClientKeys   map[*Conn]string
 
 	monitorMu          sync.RWMutex
 	monitorConns       map[string]*monitorConnectionState
@@ -31,6 +33,8 @@ func NewHub() *Hub {
 		conns:           map[*Conn]struct{}{},
 		gatewayConns:    map[string]*Conn{},
 		gatewayConnMeta: map[*Conn]gatewayConnectionState{},
+		webClientConns:  map[string]*Conn{},
+		webClientKeys:   map[*Conn]string{},
 		monitorConns:    map[string]*monitorConnectionState{},
 	}
 }
@@ -50,8 +54,12 @@ func (h *Hub) register(conn *Conn) {
 			h.gatewayConns[channel] = conn
 		}
 	}
+	replacedWebClient := h.registerWebClientLocked(conn)
 	h.mu.Unlock()
 	h.monitorRegister(conn)
+	if replacedWebClient != nil {
+		replacedWebClient.close(1000, "webclient surface replaced")
+	}
 }
 
 func (h *Hub) unregister(conn *Conn) {
@@ -80,6 +88,7 @@ func (h *Hub) unregister(conn *Conn) {
 			}
 		}
 	}
+	h.unregisterWebClientLocked(conn)
 	h.mu.Unlock()
 	h.monitorClose(conn)
 }

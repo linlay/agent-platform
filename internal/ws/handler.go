@@ -98,6 +98,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	conn.SetRequestBaseURL(wsRequestBaseURL(r))
 	conn.SetClientInfo(r.RemoteAddr, r.UserAgent())
 	conn.SetClientMetadata(wsClientMetadataFromRequest(r, auth))
+	conn.SetClientSurfaceID(r.URL.Query().Get("surfaceId"))
 	dispatch := h.Dispatch
 	if h.dispatch != nil {
 		dispatch = h.dispatch

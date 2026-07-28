@@ -104,6 +104,7 @@ type Conn struct {
 	userAgent           string
 	source              string
 	deviceID            string
+	surfaceID           string
 	closeReasonMu       sync.RWMutex
 	closeReason         string
 	localeMu            sync.RWMutex
@@ -223,13 +224,22 @@ func (c *Conn) ClientBoundaryKey() string {
 	subject := strings.TrimSpace(c.auth.Subject)
 	deviceID := strings.TrimSpace(c.auth.DeviceID)
 	c.authMu.RUnlock()
+	if key := ClientBoundaryKeyForIdentity(subject, deviceID); key != "" {
+		return key
+	}
+	return "conn:" + c.SessionID()
+}
+
+func ClientBoundaryKeyForIdentity(subject string, deviceID string) string {
+	subject = strings.TrimSpace(subject)
+	deviceID = strings.TrimSpace(deviceID)
 	if subject != "" && deviceID != "" {
 		return "subject:" + subject + "\x00device:" + deviceID
 	}
 	if deviceID != "" {
 		return "device:" + deviceID
 	}
-	return "conn:" + c.SessionID()
+	return ""
 }
 
 func (c *Conn) SetLocale(locale string) bool {

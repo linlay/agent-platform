@@ -66,6 +66,7 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		conn.ReleaseStream(req.ID)
 		return
 	}
+	prepared.session.WebClientTarget = conn.WebClientTarget()
 	if isProxyRoutedAgent(prepared.agentDef) {
 		s.wsProxyQuery(ctx, conn, req, prepared)
 		return

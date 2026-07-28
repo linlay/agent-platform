@@ -532,6 +532,7 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 - 鉴权：复用 HTTP token 校验链路。
 - token 可通过 `Sec-WebSocket-Protocol: bearer.<token>` 或 query token 传递；服务端会在握手成功时回写匹配的 subprotocol。
 - 客户端可通过 query 自报监控元数据：`source` 与 `deviceId`，例如 `/ws?source=webclient&deviceId=device-123`；`source` 转小写后展示，缺省时可从 JWT claim `deviceId` 兜底。
+- WebClient 控制连接额外携带 `surfaceId`：`/ws?source=WebClient&deviceId=device-123&surfaceId=surface-123`。Platform 在握手时记录该元数据，不需要注册帧；同一 client boundary 与 `surfaceId` 的新连接替换旧连接。
 - WebSocket 控制面常开；没有单独的关闭开关。
 
 ### 帧类型
@@ -547,6 +548,21 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 }
 ```
 
+Platform 也可以在已绑定的 WebClient 控制连接上发起反向 request。`type` 直接等于静态白名单中的 `webclient.*` Action，`payload` 直接等于 `desktop_action.args`，不增加中间 action envelope：
+
+```json
+{
+  "frame": "request",
+  "type": "webclient.sidebar.setState",
+  "id": "wsa-123",
+  "payload": {
+    "sidebar": "right",
+    "open": true,
+    "tab": "debug"
+  }
+}
+```
+
 服务端响应帧：
 
 ```json
@@ -559,6 +575,8 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
   "data": {}
 }
 ```
+
+WebClient 对反向 request 成功时返回同 `id`、同 Action `type` 的 response；未知 Action 返回 `unknown_request_type`，参数错误返回 `invalid_request`，当前页面无法执行返回 `unsupported_in_current_view`。同一连接内重复使用 request `id` 返回 `duplicate_id`。
 
 实时流帧：
 
@@ -623,6 +641,8 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `event` | stream | `stream.EventData` |
 | `reason` | stream | stream 结束或中断原因 |
 | `lastSeq` | stream | 已发送事件序号，可用于 attach |
+
+当 `POST /api/query` 使用 SSE 时，WebClient 同时保持 `/ws` 控制连接，并在 query 请求中发送 `X-Agent-WebClient-Device-Id` 与 `X-Agent-WebClient-Surface-Id`。前者与 `/ws?deviceId=...` 使用同一个 localStorage device 标识；认证 JWT 已含 device claim 时以 claim 为准。Platform 只在相同认证主体与 device 边界中解析该 surface，不会选择最近活跃标签页。WebSocket query 则直接绑定发起 query 的连接。WebClient 反向 request 默认等待 20 秒。
 
 回放事件的 `seq` 是展示序号。`chatId.jsonl` 使用每行顶层 `liveSeq` 记录该行覆盖到的原始 live stream 序号；replay 时会把它注入到对应事件 payload，供 attach cursor 使用。
 

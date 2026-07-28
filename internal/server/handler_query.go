@@ -47,6 +47,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
+	prepared.session.WebClientTarget = webClientTargetFromHTTPRequest(r)
 	if isProxyRoutedAgent(prepared.agentDef) {
 		if isNonStreamingQuery(prepared.req) && !isSyncQueryContext(r.Context()) {
 			s.handleProxyQueryNonStream(w, r, prepared)

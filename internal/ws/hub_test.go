@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"agent-platform/internal/config"
+	"agent-platform/internal/contracts"
 
 	gws "github.com/gorilla/websocket"
 )
@@ -27,6 +28,80 @@ func TestHubBroadcast(t *testing.T) {
 	}
 	if push.Type != "catalog.updated" {
 		t.Fatalf("unexpected push type: %#v", push)
+	}
+}
+
+func TestHubWebClientSurfaceReplacesOldConnection(t *testing.T) {
+	hub := NewHub()
+	auth := AuthSession{Context: context.Background(), Subject: "user-1", DeviceID: "device-1"}
+	first := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, auth)
+	first.SetClientMetadata("WebClient", "device-1")
+	first.SetClientSurfaceID("surface-1")
+	second := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, auth)
+	second.SetClientMetadata("WebClient", "device-1")
+	second.SetClientSurfaceID("surface-1")
+
+	hub.register(first)
+	target := contracts.WebClientTarget{
+		BoundaryKey: "subject:user-1\x00device:device-1",
+		Subject:     "user-1",
+		SurfaceID:   "surface-1",
+	}
+	if got, ok := hub.resolveWebClientConnection(target); !ok || got != first {
+		t.Fatalf("expected first webclient connection, got %#v ok=%v", got, ok)
+	}
+
+	hub.register(second)
+	if got, ok := hub.resolveWebClientConnection(target); !ok || got != second {
+		t.Fatalf("expected latest webclient connection, got %#v ok=%v", got, ok)
+	}
+	if !first.isClosed() {
+		t.Fatal("expected replaced webclient connection to close")
+	}
+
+	hub.unregister(second)
+	if got, ok := hub.resolveWebClientConnection(target); ok || got != nil {
+		t.Fatalf("expected no webclient connection, got %#v ok=%v", got, ok)
+	}
+}
+
+func TestHubWebClientSurfaceDoesNotCrossSubjects(t *testing.T) {
+	hub := NewHub()
+	conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{
+		Context:  context.Background(),
+		Subject:  "user-1",
+		DeviceID: "device-1",
+	})
+	conn.SetClientMetadata("WebClient", "device-1")
+	conn.SetClientSurfaceID("shared-surface")
+	hub.register(conn)
+
+	if got, ok := hub.resolveWebClientConnection(contracts.WebClientTarget{
+		BoundaryKey: "subject:user-2\x00device:device-1",
+		Subject:     "user-2",
+		SurfaceID:   "shared-surface",
+	}); ok || got != nil {
+		t.Fatalf("expected subject boundary isolation, got %#v ok=%v", got, ok)
+	}
+}
+
+func TestHubWebClientSurfaceDoesNotCrossDevices(t *testing.T) {
+	hub := NewHub()
+	conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{
+		Context:  context.Background(),
+		Subject:  "user-1",
+		DeviceID: "device-1",
+	})
+	conn.SetClientMetadata("WebClient", "device-1")
+	conn.SetClientSurfaceID("shared-surface")
+	hub.register(conn)
+
+	if got, ok := hub.resolveWebClientConnection(contracts.WebClientTarget{
+		BoundaryKey: "subject:user-1\x00device:device-2",
+		Subject:     "user-1",
+		SurfaceID:   "shared-surface",
+	}); ok || got != nil {
+		t.Fatalf("expected device boundary isolation, got %#v ok=%v", got, ok)
 	}
 }
 

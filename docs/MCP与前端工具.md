@@ -77,6 +77,19 @@ MCP 工具在 catalog 中固定返回 `sourceType: mcp`、`sourceCategory: mcp` 
 
 工具定义可选声明 `outputSchema`。没有 `outputSchema` 的 MCP 或 Desktop action result 按不透明 JSON 透传；平台不会根据 `createdAt`、`timestamp`、`iso` 等字段名猜测时间语义。
 
+## `desktop_action` 的 WebClient Provider
+
+Agent 仍然只看到一个 `desktop_action`。它的 Action 白名单由 `internal/resources/tools/desktop_action.yml` 静态声明，不存在 WebClient Surface 注册或 capability 协商：
+
+- `desktop.*` 继续调用 Desktop Action Bridge。
+- `webclient.*` 通过发起当前 run 的 WebClient WebSocket 发送反向 request；失败不会回退 Desktop。
+
+WebSocket 映射是扁平的：`desktop_action.action` 直接成为 request `type`，`desktop_action.args` 直接成为 `payload`，`requestId` 成为 `id`；`confirmationSummary` 只属于 Desktop Provider，不会发给 WebClient。第一阶段开放 `webclient.sidebar.getState`、`webclient.sidebar.setState` 与 `webclient.sidebar.openUrl`，Platform 和 WebClient 都做精确参数校验。
+
+`webclient.sidebar.openUrl` 使用 `{url, title?}` 创建或激活当前 WebClient 右侧栏中的 Web Preview，并切换到 `web` tab。裸域名会按 HTTPS 规范化；只接受 HTTP(S)，拒绝协议相对 URL、携带用户名或密码的 URL 以及额外参数。该 Action 的成功只代表 WebClient 状态已应用，不保证目标站点允许 iframe 嵌入；遇到 CSP 或 `X-Frame-Options` 拒绝时由现有 Preview 展示加载失败，不回退到 Desktop bridge 或外部浏览器。
+
+WebSocket query 直接绑定当前连接。HTTP SSE query 通过 `X-Agent-WebClient-Device-Id` 与 `X-Agent-WebClient-Surface-Id` 绑定同一认证主体和 device 边界内的逻辑 surface；device header 与 `/ws?deviceId=...` 相同，认证 JWT 已含 device claim 时以 claim 为准。run 只保存逻辑目标，因此相同 surface 的 WebSocket 重连可以继续接收反向 request。Team 内部成员与 `agent_invoke` 子 run 继承根 run 目标，automation 与 `run_query` 创建的独立根 run 不继承。目标元数据不进入 prompt、事件、chat 或数据库。
+
 ## 旧 external stdio 配置已删除
 
 私有 external stdio JSON-RPC 协议、`ExternalToolManager`、私有 `initialize/shutdown/tools/call` 和 `kind: external` 调用分支均已删除，不提供兼容期。`paths.tools-dir` 中出现以下任一内容时，启动和热重载都会返回带迁移提示的硬错误：
@@ -101,7 +114,7 @@ Qiuerscript 已按此方式迁移。`qs_read`、`qs_glob`、`qs_grep`、`qs_writ
 - MCP tool 名称与本地工具冲突时，本地工具优先。
 - MCP server 暂时不可用或协议版本不兼容时，调用返回结构化 MCP unavailable 错误。
 - `qiuerscript-tool` 在 stdin 关闭后正常退出，不支持私有 `shutdown` RPC。
-- frontend tool 完整闭环仍属于待对齐能力，不能写成已完成能力。
+- `desktop_action` 的三个 WebClient sidebar Action 已闭环；其他 frontend tool 能力仍属于待对齐范围，不能写成已完成能力。
 - HITL viewport 细节见 [HITL协议](HITL协议.md)。
 
 ## 相关文件

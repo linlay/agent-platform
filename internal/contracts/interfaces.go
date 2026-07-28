@@ -243,6 +243,10 @@ type QuerySession struct {
 	ChatID    string
 	ChatName  string
 	AgentKey  string
+	// WebClientTarget identifies the browser surface that originated this run.
+	// It is runtime-only and is deliberately excluded from persisted/session
+	// protocol payloads.
+	WebClientTarget WebClientTarget `json:"-"`
 	// RunQueryOrigin marks a root run created by the run_query backend tool.
 	// It is runtime-only: the public request cannot forge it, and a marked run
 	// is forbidden from calling any run tool.

@@ -20,6 +20,29 @@ import (
 	. "agent-platform/internal/contracts"
 )
 
+type recordingWebClientActionInvoker struct {
+	target   WebClientTarget
+	request  WebClientActionRequest
+	response WebClientActionResponse
+	err      error
+	calls    int
+}
+
+func webClientResponseCode(code int) *int {
+	return &code
+}
+
+func (r *recordingWebClientActionInvoker) InvokeWebClientAction(
+	_ context.Context,
+	target WebClientTarget,
+	request WebClientActionRequest,
+) (WebClientActionResponse, error) {
+	r.calls++
+	r.target = target
+	r.request = request
+	return r.response, r.err
+}
+
 func TestInvokeDesktopActionCallsBridge(t *testing.T) {
 	var got desktopActionRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -64,6 +87,278 @@ func TestInvokeDesktopActionCallsBridge(t *testing.T) {
 	}
 	if got.Source.RunID != "run-1" || got.Source.ChatID != "chat-1" || got.Source.AgentKey != "desktopAssistant" {
 		t.Fatalf("unexpected source: %#v", got.Source)
+	}
+}
+
+func TestInvokeDesktopActionForwardsWebClientActionAsFlatRequest(t *testing.T) {
+	invoker := &recordingWebClientActionInvoker{
+		response: WebClientActionResponse{
+			Frame: "response",
+			Type:  webClientSidebarSetState,
+			ID:    "web-request-1",
+			Code:  webClientResponseCode(0),
+			Msg:   "success",
+			Data:  json.RawMessage(`{"applied":true,"sidebar":"right","open":true,"tab":"debug"}`),
+		},
+	}
+	executor := newDesktopTestExecutor("http://desktop-bridge.invalid", "").WithWebClientActionInvoker(invoker)
+	target := WebClientTarget{
+		BoundaryKey: "device:web-1",
+		SurfaceID:   "surface-1",
+	}
+	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"requestId":           "web-request-1",
+		"action":              webClientSidebarSetState,
+		"confirmationSummary": "must not be forwarded",
+		"args": map[string]any{
+			"sidebar": "right",
+			"open":    true,
+			"tab":     "debug",
+		},
+	}, &ExecutionContext{Session: QuerySession{WebClientTarget: target}})
+	if err != nil {
+		t.Fatalf("invoke webclient action: %v", err)
+	}
+	if result.ExitCode != 0 || result.Error != "" {
+		t.Fatalf("expected successful webclient result, got %#v", result)
+	}
+	if invoker.calls != 1 || !reflect.DeepEqual(invoker.target, target) {
+		t.Fatalf("unexpected invocation target: calls=%d target=%#v", invoker.calls, invoker.target)
+	}
+	if invoker.request.ID != "web-request-1" || invoker.request.Type != webClientSidebarSetState {
+		t.Fatalf("unexpected flat webclient request: %#v", invoker.request)
+	}
+	if invoker.request.Payload["sidebar"] != "right" || invoker.request.Payload["open"] != true || invoker.request.Payload["tab"] != "debug" {
+		t.Fatalf("unexpected webclient payload: %#v", invoker.request.Payload)
+	}
+	if _, exists := invoker.request.Payload["confirmationSummary"]; exists {
+		t.Fatalf("confirmationSummary must not be forwarded: %#v", invoker.request.Payload)
+	}
+	if result.Structured["applied"] != true || result.Structured["tab"] != "debug" {
+		t.Fatalf("unexpected structured result: %#v", result.Structured)
+	}
+}
+
+func TestInvokeDesktopActionValidatesWebClientSidebarArgsBeforeSending(t *testing.T) {
+	invoker := &recordingWebClientActionInvoker{}
+	executor := (&RuntimeToolExecutor{}).WithWebClientActionInvoker(invoker)
+	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"action": webClientSidebarSetState,
+		"args": map[string]any{
+			"sidebar": "left",
+			"open":    true,
+			"tab":     "debug",
+		},
+	}, &ExecutionContext{Session: QuerySession{WebClientTarget: WebClientTarget{SessionID: "ws-1"}}})
+	if err != nil {
+		t.Fatalf("invoke webclient action: %v", err)
+	}
+	if result.ExitCode != -1 || result.Error != "invalid_args" {
+		t.Fatalf("expected invalid_args, got %#v", result)
+	}
+	if invoker.calls != 0 {
+		t.Fatalf("invalid action must not reach webclient invoker")
+	}
+}
+
+func TestInvokeDesktopActionForwardsWebClientOpenURL(t *testing.T) {
+	invoker := &recordingWebClientActionInvoker{
+		response: WebClientActionResponse{
+			Frame: "response",
+			Type:  webClientSidebarOpenURL,
+			ID:    "web-url-1",
+			Code:  webClientResponseCode(0),
+			Msg:   "success",
+			Data:  json.RawMessage(`{"applied":true,"sidebar":"right","open":true,"tab":"web","url":"https://www.sina.com.cn/","title":"新浪"}`),
+		},
+	}
+	executor := (&RuntimeToolExecutor{}).WithWebClientActionInvoker(invoker)
+	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"requestId": "web-url-1",
+		"action":    webClientSidebarOpenURL,
+		"args": map[string]any{
+			"url":   "www.sina.com.cn",
+			"title": "新浪",
+		},
+	}, &ExecutionContext{Session: QuerySession{WebClientTarget: WebClientTarget{SessionID: "ws-1"}}})
+	if err != nil {
+		t.Fatalf("invoke webclient action: %v", err)
+	}
+	if result.ExitCode != 0 || result.Structured["url"] != "https://www.sina.com.cn/" {
+		t.Fatalf("unexpected webclient openUrl result: %#v", result)
+	}
+	if invoker.request.Type != webClientSidebarOpenURL ||
+		invoker.request.Payload["url"] != "www.sina.com.cn" ||
+		invoker.request.Payload["title"] != "新浪" {
+		t.Fatalf("unexpected flat openUrl request: %#v", invoker.request)
+	}
+}
+
+func TestInvokeDesktopActionRejectsInvalidWebClientOpenURLArgs(t *testing.T) {
+	tests := []map[string]any{
+		{},
+		{"url": "javascript:alert(1)"},
+		{"url": "//example.com"},
+		{"url": "https://user:secret@example.com"},
+		{"url": "https://example.com", "title": true},
+		{"url": "https://example.com", "unexpected": true},
+	}
+	for _, actionArgs := range tests {
+		invoker := &recordingWebClientActionInvoker{}
+		executor := (&RuntimeToolExecutor{}).WithWebClientActionInvoker(invoker)
+		result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+			"action": webClientSidebarOpenURL,
+			"args":   actionArgs,
+		}, &ExecutionContext{Session: QuerySession{WebClientTarget: WebClientTarget{SessionID: "ws-1"}}})
+		if err != nil {
+			t.Fatalf("invoke webclient action: %v", err)
+		}
+		if result.ExitCode != -1 || result.Error != "invalid_args" {
+			t.Fatalf("expected invalid_args for %#v, got %#v", actionArgs, result)
+		}
+		if invoker.calls != 0 {
+			t.Fatalf("invalid openUrl args reached invoker: %#v", actionArgs)
+		}
+	}
+}
+
+func TestInvokeDesktopActionRejectsNonObjectWebClientArgs(t *testing.T) {
+	invoker := &recordingWebClientActionInvoker{}
+	executor := (&RuntimeToolExecutor{}).WithWebClientActionInvoker(invoker)
+	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"action": webClientSidebarGetState,
+		"args":   "not-an-object",
+	}, &ExecutionContext{Session: QuerySession{WebClientTarget: WebClientTarget{SessionID: "ws-1"}}})
+	if err != nil {
+		t.Fatalf("invoke webclient action: %v", err)
+	}
+	if result.ExitCode != -1 || result.Error != "invalid_args" {
+		t.Fatalf("expected invalid_args, got %#v", result)
+	}
+	if invoker.calls != 0 {
+		t.Fatalf("invalid action must not reach webclient invoker")
+	}
+}
+
+func TestInvokeDesktopActionRejectsInvalidWebClientResponseFrames(t *testing.T) {
+	tests := []struct {
+		name     string
+		response WebClientActionResponse
+	}{
+		{
+			name: "mismatched response type",
+			response: WebClientActionResponse{
+				Frame: "response",
+				Type:  webClientSidebarGetState,
+				ID:    "web-request-1",
+				Code:  webClientResponseCode(0),
+				Data:  json.RawMessage(`{}`),
+			},
+		},
+		{
+			name: "error without positive code",
+			response: WebClientActionResponse{
+				Frame: "error",
+				Type:  "invalid_request",
+				ID:    "web-request-1",
+				Code:  webClientResponseCode(0),
+			},
+		},
+		{
+			name: "response without code",
+			response: WebClientActionResponse{
+				Frame: "response",
+				Type:  webClientSidebarSetState,
+				ID:    "web-request-1",
+				Data:  json.RawMessage(`{}`),
+			},
+		},
+		{
+			name: "non object response data",
+			response: WebClientActionResponse{
+				Frame: "response",
+				Type:  webClientSidebarSetState,
+				ID:    "web-request-1",
+				Code:  webClientResponseCode(0),
+				Data:  json.RawMessage(`[]`),
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			invoker := &recordingWebClientActionInvoker{response: test.response}
+			executor := (&RuntimeToolExecutor{}).WithWebClientActionInvoker(invoker)
+			result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+				"requestId": "web-request-1",
+				"action":    webClientSidebarSetState,
+				"args": map[string]any{
+					"sidebar": "right",
+					"open":    true,
+				},
+			}, &ExecutionContext{Session: QuerySession{WebClientTarget: WebClientTarget{SessionID: "ws-1"}}})
+			if err != nil {
+				t.Fatalf("invoke webclient action: %v", err)
+			}
+			if result.ExitCode != -1 || result.Error != "desktop_action_invalid_client_response" {
+				t.Fatalf("expected invalid client response, got %#v", result)
+			}
+		})
+	}
+}
+
+func TestInvokeDesktopActionMapsWebClientProviderFailures(t *testing.T) {
+	tests := []struct {
+		name     string
+		response WebClientActionResponse
+		err      error
+		wantCode string
+	}{
+		{
+			name:     "timeout",
+			err:      context.DeadlineExceeded,
+			wantCode: "desktop_action_client_timeout",
+		},
+		{
+			name:     "disconnect",
+			err:      ErrWebClientDisconnected,
+			wantCode: "desktop_action_client_disconnected",
+		},
+		{
+			name:     "target unavailable",
+			err:      ErrWebClientTargetUnavailable,
+			wantCode: "desktop_action_target_unavailable",
+		},
+		{
+			name: "client rejection",
+			response: WebClientActionResponse{
+				Frame: "error",
+				Type:  "unknown_request_type",
+				ID:    "web-request-1",
+				Code:  webClientResponseCode(404),
+				Msg:   "unknown request type",
+			},
+			wantCode: "desktop_action_client_rejected",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			invoker := &recordingWebClientActionInvoker{
+				response: test.response,
+				err:      test.err,
+			}
+			executor := (&RuntimeToolExecutor{}).WithWebClientActionInvoker(invoker)
+			result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+				"requestId": "web-request-1",
+				"action":    webClientSidebarGetState,
+				"args":      map[string]any{},
+			}, &ExecutionContext{Session: QuerySession{WebClientTarget: WebClientTarget{SessionID: "ws-1"}}})
+			if err != nil {
+				t.Fatalf("invoke webclient action: %v", err)
+			}
+			if result.ExitCode != -1 || result.Error != test.wantCode {
+				t.Fatalf("expected %s, got %#v", test.wantCode, result)
+			}
+		})
 	}
 }
 
@@ -476,6 +771,9 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 		"desktop.web.website.list",
 		"desktop.web.website.remove",
 		"desktop.web.website.update",
+		"webclient.sidebar.getState",
+		"webclient.sidebar.openUrl",
+		"webclient.sidebar.setState",
 	}
 	sort.Strings(want)
 
