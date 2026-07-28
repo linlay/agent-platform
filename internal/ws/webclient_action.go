@@ -37,12 +37,8 @@ func (c *Conn) WebClientTarget() contracts.WebClientTarget {
 		return contracts.WebClientTarget{}
 	}
 	c.clientInfoMu.RLock()
-	source := c.source
 	surfaceID := c.surfaceID
 	c.clientInfoMu.RUnlock()
-	if !strings.EqualFold(strings.TrimSpace(source), "webclient") {
-		return contracts.WebClientTarget{}
-	}
 	c.authMu.RLock()
 	subject := strings.TrimSpace(c.auth.Subject)
 	c.authMu.RUnlock()

@@ -35,10 +35,10 @@ func TestHubWebClientSurfaceReplacesOldConnection(t *testing.T) {
 	hub := NewHub()
 	auth := AuthSession{Context: context.Background(), Subject: "user-1", DeviceID: "device-1"}
 	first := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, auth)
-	first.SetClientMetadata("WebClient", "device-1")
+	first.SetClientMetadata("desktop-chat", "device-1")
 	first.SetClientSurfaceID("surface-1")
 	second := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, auth)
-	second.SetClientMetadata("WebClient", "device-1")
+	second.SetClientMetadata("desktop-copilot", "device-1")
 	second.SetClientSurfaceID("surface-1")
 
 	hub.register(first)
@@ -65,6 +65,30 @@ func TestHubWebClientSurfaceReplacesOldConnection(t *testing.T) {
 	}
 }
 
+func TestHubWebClientSessionTargetDoesNotRequireSurfaceOrSource(t *testing.T) {
+	hub := NewHub()
+	conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{
+		Context:  context.Background(),
+		Subject:  "user-1",
+		DeviceID: "device-1",
+	})
+	hub.register(conn)
+
+	target := conn.WebClientTarget()
+	if target.SessionID != conn.SessionID() || target.IsZero() {
+		t.Fatalf("expected direct session target, got %#v", target)
+	}
+	if target.SurfaceID != "" {
+		t.Fatalf("expected no logical surface, got %#v", target)
+	}
+	if len(hub.webClientConns) != 0 || len(hub.webClientKeys) != 0 {
+		t.Fatalf("connection without surface must not enter logical surface map")
+	}
+	if got, ok := hub.resolveWebClientConnection(target); !ok || got != conn {
+		t.Fatalf("expected direct session resolution, got %#v ok=%v", got, ok)
+	}
+}
+
 func TestHubWebClientSurfaceDoesNotCrossSubjects(t *testing.T) {
 	hub := NewHub()
 	conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{
@@ -72,7 +96,7 @@ func TestHubWebClientSurfaceDoesNotCrossSubjects(t *testing.T) {
 		Subject:  "user-1",
 		DeviceID: "device-1",
 	})
-	conn.SetClientMetadata("WebClient", "device-1")
+	conn.SetClientMetadata("desktop-chat", "device-1")
 	conn.SetClientSurfaceID("shared-surface")
 	hub.register(conn)
 
@@ -92,7 +116,7 @@ func TestHubWebClientSurfaceDoesNotCrossDevices(t *testing.T) {
 		Subject:  "user-1",
 		DeviceID: "device-1",
 	})
-	conn.SetClientMetadata("WebClient", "device-1")
+	conn.SetClientMetadata("", "device-1")
 	conn.SetClientSurfaceID("shared-surface")
 	hub.register(conn)
 

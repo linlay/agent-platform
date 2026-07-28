@@ -531,8 +531,8 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 - 入口：`GET /ws`，HTTP upgrade 为 WebSocket。
 - 鉴权：复用 HTTP token 校验链路。
 - token 可通过 `Sec-WebSocket-Protocol: bearer.<token>` 或 query token 传递；服务端会在握手成功时回写匹配的 subprotocol。
-- 客户端可通过 query 自报监控元数据：`source` 与 `deviceId`，例如 `/ws?source=webclient&deviceId=device-123`；`source` 转小写后展示，缺省时可从 JWT claim `deviceId` 兜底。
-- WebClient 控制连接额外携带 `surfaceId`：`/ws?source=WebClient&deviceId=device-123&surfaceId=surface-123`。Platform 在握手时记录该元数据，不需要注册帧；同一 client boundary 与 `surfaceId` 的新连接替换旧连接。
+- 客户端可通过 query 自报监控元数据：`source` 与 `deviceId`，例如 `/ws?source=webclient&deviceId=device-123`；`source` 转小写后只用于监控和日志展示，不参与 Action 路由、权限、能力声明或安全边界，缺省时不影响当前连接发起的 WS Query。
+- WebClient 控制连接额外携带 `surfaceId`，推荐形式为 `/ws?source=WebClient&deviceId=device-123&surfaceId=surface-123`。Platform 在握手时记录该元数据，不需要注册帧；同一 client boundary 与 `surfaceId` 的新连接替换旧连接。`source` 可以是 Desktop 提供的 `desktop-chat`、`desktop-copilot` 或其他观测值，不影响 Target 构造。
 - WebSocket 控制面常开；没有单独的关闭开关。
 
 ### 帧类型

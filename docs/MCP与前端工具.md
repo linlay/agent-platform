@@ -88,7 +88,7 @@ WebSocket 映射是扁平的：`desktop_action.action` 直接成为 request `typ
 
 `webclient.sidebar.openUrl` 使用 `{url, title?}` 创建或激活当前 WebClient 右侧栏中的 Web Preview，并切换到 `web` tab。裸域名会按 HTTPS 规范化；只接受 HTTP(S)，拒绝协议相对 URL、携带用户名或密码的 URL 以及额外参数。该 Action 的成功只代表 WebClient 状态已应用，不保证目标站点允许 iframe 嵌入；遇到 CSP 或 `X-Frame-Options` 拒绝时由现有 Preview 展示加载失败，不回退到 Desktop bridge 或外部浏览器。
 
-WebSocket query 直接绑定当前连接。HTTP SSE query 通过 `X-Agent-WebClient-Device-Id` 与 `X-Agent-WebClient-Surface-Id` 绑定同一认证主体和 device 边界内的逻辑 surface；device header 与 `/ws?deviceId=...` 相同，认证 JWT 已含 device claim 时以 claim 为准。run 只保存逻辑目标，因此相同 surface 的 WebSocket 重连可以继续接收反向 request。Team 内部成员与 `agent_invoke` 子 run 继承根 run 目标，automation 与 `run_query` 创建的独立根 run 不继承。目标元数据不进入 prompt、事件、chat 或数据库。
+WebSocket query 直接绑定当前连接，不检查连接自报的 `source`；即使没有 `surfaceId`，该 run 仍可按 WebSocket session 定位原连接。HTTP SSE query 通过 `X-Agent-WebClient-Device-Id` 与 `X-Agent-WebClient-Surface-Id` 绑定同一认证主体和 device 边界内的逻辑 surface；device header 与 `/ws?deviceId=...` 相同，认证 JWT 已含 device claim 时以 claim 为准。`source` 仅用于监控和日志，不是安全边界或 capability 声明。run 只保存逻辑目标，因此相同 surface 的 WebSocket 重连可以继续接收反向 request。Team 内部成员与 `agent_invoke` 子 run 继承根 run 目标，automation 与 `run_query` 创建的独立根 run 不继承。目标元数据不进入 prompt、事件、chat 或数据库。
 
 ## 旧 external stdio 配置已删除
 

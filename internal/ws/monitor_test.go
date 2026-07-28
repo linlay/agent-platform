@@ -46,7 +46,7 @@ func TestHubMonitorTracksConnectionLifecycle(t *testing.T) {
 	hub := NewHub()
 	conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{Subject: "tester"})
 	conn.SetClientInfo("192.168.1.42:4815", "monitor-test-agent")
-	conn.SetClientMetadata("WebClient", "device-123")
+	conn.SetClientMetadata("desktop-chat", "device-123")
 
 	hub.register(conn)
 
@@ -67,7 +67,7 @@ func TestHubMonitorTracksConnectionLifecycle(t *testing.T) {
 	if latest.UserAgent != "monitor-test-agent" {
 		t.Fatalf("unexpected user agent: %q", latest.UserAgent)
 	}
-	if latest.Source != "webclient" || latest.DeviceID != "device-123" {
+	if latest.Source != "desktop-chat" || latest.DeviceID != "device-123" {
 		t.Fatalf("unexpected client metadata: %#v", latest)
 	}
 
@@ -84,7 +84,7 @@ func TestHubMonitorTracksConnectionLifecycle(t *testing.T) {
 		t.Fatalf("expected closedAt to be populated, got %#v", overview.WS.LatestConnection)
 	}
 
-	connections := hub.MonitorConnections(10, MonitorFilter{SessionID: conn.SessionID(), Source: "webclient", DeviceID: "device-123"}).Connections
+	connections := hub.MonitorConnections(10, MonitorFilter{SessionID: conn.SessionID(), Source: "desktop-chat", DeviceID: "device-123"}).Connections
 	if len(connections) != 1 || connections[0].SessionID != conn.SessionID() {
 		t.Fatalf("expected session filter to return closed connection, got %#v", connections)
 	}
