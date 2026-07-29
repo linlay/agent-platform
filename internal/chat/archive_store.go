@@ -378,7 +378,7 @@ func (s *ArchiveStore) LoadArchived(chatID string) (*ArchivedChat, error) {
 		return nil, err
 	}
 	rawMessages := rawMessagesFromJSONLLines(lines)
-	runStartedAt, runCompletedAt, err := replayRunLifecycleTimesByRuns(archived.Runs, "archive.runs")
+	runStartedAt, runCompletedAt, runFinishReasons, err := replayRunLifecycleTimesByRuns(archived.Runs, "archive.runs")
 	if err != nil {
 		return nil, err
 	}
@@ -397,7 +397,7 @@ func (s *ArchiveStore) LoadArchived(chatID string) (*ArchivedChat, error) {
 		Read:           archived.Summary.Read,
 		Usage:          archived.Summary.Usage,
 	}
-	archived.Detail, err = parseChatNewFormat(summary, lines, rawMessages, s.ChatDir(chatID), runStartedAt, runCompletedAt)
+	archived.Detail, err = parseChatNewFormat(summary, lines, rawMessages, s.ChatDir(chatID), runStartedAt, runCompletedAt, runFinishReasons)
 	if err != nil {
 		return nil, err
 	}

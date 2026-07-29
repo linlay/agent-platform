@@ -204,18 +204,40 @@ func (c *RunControl) Interrupt(info InterruptInfo) bool {
 	if c == nil {
 		return false
 	}
-	if !c.interrupted.CompareAndSwap(false, true) {
-		return false
-	}
 	info = NormalizeInterruptInfo(info)
 	c.mu.Lock()
+	if c.finished.Load() || c.interrupted.Load() || isTerminalRunLoopState(c.state) {
+		c.mu.Unlock()
+		return false
+	}
+	c.interrupted.Store(true)
 	c.interruptInfo = info
 	c.steerClosed = true
 	c.steerQueue = nil
+	c.state = RunLoopStateCancelled
 	c.mu.Unlock()
-	c.TransitionState(RunLoopStateCancelled)
 	c.cancel()
 	c.closeWaiters("interrupted", "Run interrupted")
+	return true
+}
+
+// ClaimFailure reserves the failed terminal state without cancelling the run
+// context. The producer still needs that context long enough to publish and
+// persist the terminal run.error event.
+func (c *RunControl) ClaimFailure() bool {
+	if c == nil {
+		return false
+	}
+	c.mu.Lock()
+	if c.finished.Load() || c.interrupted.Load() || isTerminalRunLoopState(c.state) {
+		c.mu.Unlock()
+		return false
+	}
+	c.state = RunLoopStateFailed
+	c.steerClosed = true
+	c.steerQueue = nil
+	c.mu.Unlock()
+	c.closeWaiters("failed", "Run failed before submit arrived")
 	return true
 }
 
@@ -426,8 +448,21 @@ func (c *RunControl) TransitionState(next RunLoopState) {
 		return
 	}
 	c.mu.Lock()
+	if isTerminalRunLoopState(c.state) && c.state != next {
+		c.mu.Unlock()
+		return
+	}
 	c.state = next
 	c.mu.Unlock()
+}
+
+func isTerminalRunLoopState(state RunLoopState) bool {
+	switch state {
+	case RunLoopStateCompleted, RunLoopStateCancelled, RunLoopStateFailed:
+		return true
+	default:
+		return false
+	}
 }
 
 func (c *RunControl) SetInitialAccessLevel(accessLevel string) {

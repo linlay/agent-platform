@@ -338,12 +338,13 @@ func (s *llmRunStream) invocationMayConsumeOneShotApproval(invocation *preparedT
 }
 
 type batchToolCallResult struct {
-	index      int
-	invocation *preparedToolInvocation
-	result     ToolExecutionResult
-	execCtx    *ExecutionContext
-	err        error
-	received   bool
+	index        int
+	invocation   *preparedToolInvocation
+	result       ToolExecutionResult
+	execCtx      *ExecutionContext
+	err          error
+	received     bool
+	suppressLive bool
 }
 
 type activeToolBatch struct {
@@ -377,7 +378,16 @@ func (s *llmRunStream) startToolCallBatch(invocations []*preparedToolInvocation)
 			continue
 		}
 		if result := s.checkBudgetBeforeToolCall(invocation.toolName); result != nil {
-			resultCh <- batchToolCallResult{index: index, invocation: invocation, result: *result}
+			suppressLive := false
+			if result.Error == string(apperrors.CodeToolCallsExceeded) {
+				suppressLive = !s.recordTerminalToolBudgetError(*result)
+			}
+			resultCh <- batchToolCallResult{
+				index:        index,
+				invocation:   invocation,
+				result:       *result,
+				suppressLive: suppressLive,
+			}
 			continue
 		}
 		s.recordAccessPolicyAutoApproval(invocation)
@@ -444,10 +454,12 @@ func (s *llmRunStream) consumeActiveToolBatch() error {
 	batch.results[result.index] = prepared
 	batch.remaining--
 
-	s.appendFrontendSubmitDeltas(invocation, prepared.result)
-	s.emitToolResultLive(invocation, prepared.result)
-	appendSourcePublishDelta(&s.pending, s.session, invocation, prepared.result)
-	appendPublishedArtifactDelta(&s.pending, s.session, invocation, prepared.result.Structured["publishedArtifacts"])
+	if !prepared.suppressLive {
+		s.appendFrontendSubmitDeltas(invocation, prepared.result)
+		s.emitToolResultLive(invocation, prepared.result)
+		appendSourcePublishDelta(&s.pending, s.session, invocation, prepared.result)
+		appendPublishedArtifactDelta(&s.pending, s.session, invocation, prepared.result.Structured["publishedArtifacts"])
+	}
 
 	if batch.remaining == 0 {
 		return s.finalizeActiveToolBatch(batch)
@@ -507,6 +519,7 @@ func (s *llmRunStream) finalizeActiveToolBatch(batch *activeToolBatch) error {
 		s.execCtx.CurrentToolID = ""
 		s.execCtx.CurrentToolName = ""
 	}
+	s.emitRecordedTerminalToolBudgetError()
 	return nil
 }
 
@@ -614,17 +627,18 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		return nil
 	}
 	s.beginToolInvocation(invocation)
-	if result := s.checkBudgetBeforeToolCall(invocation.toolName); result != nil {
-		s.appendOriginalToolResult(invocation, *result)
-		return nil
-	}
-
 	keepActive := false
 	defer func() {
 		if !keepActive {
 			s.finishToolInvocation(invocation)
 		}
 	}()
+	if result := s.checkBudgetBeforeToolCall(invocation.toolName); result != nil {
+		s.recordTerminalToolBudgetError(*result)
+		s.appendOriginalToolResult(invocation, *result)
+		s.emitRecordedTerminalToolBudgetError()
+		return nil
+	}
 
 	if handled, keep, err := s.handleDeferredToolInvocation(invocation); handled {
 		keepActive = keep
@@ -1028,6 +1042,35 @@ func (s *llmRunStream) appendOriginalToolResult(invocation *preparedToolInvocati
 	result = s.prepareToolResultForPublish(invocation, result)
 	s.emitToolResultLive(invocation, result)
 	s.appendToolResultMessageOrdered(invocation, result)
+}
+
+func (s *llmRunStream) recordTerminalToolBudgetError(result ToolExecutionResult) bool {
+	if s == nil || s.terminalErrorPayload != nil || result.Error != string(apperrors.CodeToolCallsExceeded) {
+		return false
+	}
+	payload := CloneMap(result.Structured)
+	if len(payload) == 0 {
+		payload = apperrors.Payload(
+			apperrors.CodeToolCallsExceeded,
+			"tool call budget exceeded",
+			apperrors.WithScope(apperrors.ScopeTool),
+			apperrors.WithCategory(apperrors.CategoryTool),
+		)
+	}
+	s.terminalErrorPayload = payload
+	if s.runControl != nil {
+		s.runControl.ClaimFailure()
+	}
+	return true
+}
+
+func (s *llmRunStream) emitRecordedTerminalToolBudgetError() {
+	if s == nil || len(s.terminalErrorPayload) == 0 {
+		return
+	}
+	payload := CloneMap(s.terminalErrorPayload)
+	s.terminalErrorPayload = nil
+	s.enqueueTerminalRunError(payload)
 }
 
 func (s *llmRunStream) prepareToolResultForPublish(invocation *preparedToolInvocation, result ToolExecutionResult) ToolExecutionResult {

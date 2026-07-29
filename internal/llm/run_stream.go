@@ -58,6 +58,8 @@ type llmRunStream struct {
 	activeToolCall       *preparedToolInvocation
 	activeToolBatch      *activeToolBatch
 	stopAfterToolBatch   bool
+	terminalErrorPayload map[string]any
+	terminalErrorQueued  bool
 	promptBuildOptions   PromptBuildOptions
 	hitlPendingBatch     *pendingHITLApprovalBatch
 	hitlPendingCall      *preparedToolInvocation

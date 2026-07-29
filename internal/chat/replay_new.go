@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
+	"agent-platform/internal/apperrors"
 	"agent-platform/internal/plantasks"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/timecontract"
@@ -29,14 +30,14 @@ func (s *FileStore) LoadChat(chatID string) (Detail, error) {
 	if err != nil {
 		return Detail{}, err
 	}
-	runStartedAt, runCompletedAt, err := s.replayRunLifecycleTimesLocked(chatID)
+	runStartedAt, runCompletedAt, runFinishReasons, err := s.replayRunLifecycleTimesLocked(chatID)
 	if err != nil {
 		return Detail{}, err
 	}
 
 	rawMessages := rawMessagesFromJSONLLines(lines)
 
-	detail, err := parseChatNewFormat(*sum, lines, rawMessages, s.ChatDir(chatID), runStartedAt, runCompletedAt)
+	detail, err := parseChatNewFormat(*sum, lines, rawMessages, s.ChatDir(chatID), runStartedAt, runCompletedAt, runFinishReasons)
 	if err != nil {
 		return Detail{}, err
 	}
@@ -47,44 +48,46 @@ func (s *FileStore) LoadChat(chatID string) (Detail, error) {
 	return detail, nil
 }
 
-func (s *FileStore) replayRunLifecycleTimesLocked(chatID string) (map[string]int64, map[string]int64, error) {
+func (s *FileStore) replayRunLifecycleTimesLocked(chatID string) (map[string]int64, map[string]int64, map[string]string, error) {
 	rows, err := s.db.Query(`SELECT RUN_ID_, STARTED_AT_, COMPLETED_AT_, FINISH_REASON_ FROM RUNS WHERE CHAT_ID_=?`, chatID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	defer rows.Close()
 	startedAt := map[string]int64{}
 	completedAt := map[string]int64{}
+	finishReasons := map[string]string{}
 	for rows.Next() {
 		var runID string
 		var started, completed int64
 		var finishReason string
 		if err := rows.Scan(&runID, &started, &completed, &finishReason); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		runID = strings.TrimSpace(runID)
 		if runID == "" {
 			continue
 		}
 		if err := timecontract.ValidateEpochMillis(started, "startedAt", "chat.replay.runs["+runID+"].startedAt"); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		startedAt[runID] = started
 		if completed == 0 {
 			if strings.TrimSpace(finishReason) != "" {
-				return nil, nil, &timecontract.Violation{Field: "completedAt", Location: "chat.replay.runs[" + runID + "].completedAt", Reason: "is required"}
+				return nil, nil, nil, &timecontract.Violation{Field: "completedAt", Location: "chat.replay.runs[" + runID + "].completedAt", Reason: "is required"}
 			}
 			continue
 		}
 		if err := timecontract.ValidateEpochMillis(completed, "completedAt", "chat.replay.runs["+runID+"].completedAt"); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		completedAt[runID] = completed
+		finishReasons[runID] = strings.ToLower(strings.TrimSpace(finishReason))
 	}
 	if err := rows.Err(); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return startedAt, completedAt, nil
+	return startedAt, completedAt, finishReasons, nil
 }
 
 func (s *FileStore) LoadRunTrace(chatID string, runID string) (RunTrace, error) {
@@ -160,7 +163,7 @@ func (s *FileStore) LoadRunTrace(chatID string, runID string) (RunTrace, error) 
 // Current format: _type = "query" / "react" / "react-tool" / control lines.
 // ---------------------------------------------------------------------------
 
-func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []map[string]any, chatDir string, runStartedAt map[string]int64, runCompletedAt map[string]int64) (Detail, error) {
+func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []map[string]any, chatDir string, runStartedAt map[string]int64, runCompletedAt map[string]int64, runFinishReasons map[string]string) (Detail, error) {
 	var planning *PlanningState
 
 	runs := map[string]*chatRunData{}
@@ -567,7 +570,8 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			rd.events = insertReplayRunStart(rd.events, runStart)
 		}
 		allEvents = append(allEvents, rd.events...)
-		// Synthesize run.complete for the frontend (not persisted in JSONL).
+		// Synthesize the lifecycle terminal event for legacy runs that predate
+		// persisted run.error event lines.
 		if runID != "" && !(isPendingAwaitingRun(summary, runID) && runHasAwaitingAsk(rd.events)) {
 			runCompleteTimestamp, completed := runCompletedAt[runID]
 			if !completed {
@@ -576,13 +580,10 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			if err := timecontract.ValidateEpochMillis(runCompleteTimestamp, "completedAt", "chat.replay.runs["+runID+"].completedAt"); err != nil {
 				return Detail{}, err
 			}
-			payload := map[string]any{"runId": runID, "finishReason": "stop"}
-			allEvents = append(allEvents, stream.EventData{
-				Seq:       nextSeq(),
-				Type:      "run.complete",
-				Timestamp: runCompleteTimestamp,
-				Payload:   payload,
-			})
+			terminalType := replayTerminalEventType(runFinishReasons[runID])
+			if !hasReplayTerminalEvent(rd.events, terminalType) {
+				allEvents = append(allEvents, synthesizedReplayTerminalEvent(runID, terminalType, runCompleteTimestamp, nextSeq()))
+			}
 		}
 	}
 
@@ -643,24 +644,67 @@ func firstNonEmptyReplayString(values ...string) string {
 	return ""
 }
 
-func replayRunLifecycleTimesByRuns(runs []RunSummary, location string) (map[string]int64, map[string]int64, error) {
+func replayRunLifecycleTimesByRuns(runs []RunSummary, location string) (map[string]int64, map[string]int64, map[string]string, error) {
 	startedAt := make(map[string]int64, len(runs))
 	completedAt := make(map[string]int64, len(runs))
+	finishReasons := make(map[string]string, len(runs))
 	for _, run := range runs {
 		runID := strings.TrimSpace(run.RunID)
 		if runID == "" {
 			continue
 		}
 		if err := timecontract.ValidateEpochMillis(run.StartedAt, "startedAt", location+"["+runID+"].startedAt"); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		startedAt[runID] = run.StartedAt
 		if err := timecontract.ValidateEpochMillis(run.CompletedAt, "completedAt", location+"["+runID+"].completedAt"); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		completedAt[runID] = run.CompletedAt
+		finishReasons[runID] = strings.ToLower(strings.TrimSpace(run.FinishReason))
 	}
-	return startedAt, completedAt, nil
+	return startedAt, completedAt, finishReasons, nil
+}
+
+func replayTerminalEventType(finishReason string) string {
+	switch strings.ToLower(strings.TrimSpace(finishReason)) {
+	case "error":
+		return "run.error"
+	case "cancel", "cancelled", "canceled", "interrupted":
+		return "run.cancel"
+	default:
+		return "run.complete"
+	}
+}
+
+func hasReplayTerminalEvent(events []stream.EventData, eventType string) bool {
+	for _, event := range events {
+		if event.Type == eventType && strings.TrimSpace(event.String("taskId")) == "" {
+			return true
+		}
+	}
+	return false
+}
+
+func synthesizedReplayTerminalEvent(runID string, eventType string, timestamp int64, seq int64) stream.EventData {
+	payload := map[string]any{"runId": runID}
+	switch eventType {
+	case "run.error":
+		payload["error"] = apperrors.Payload(
+			apperrors.CodeRunError,
+			"run failed",
+			apperrors.WithScope(apperrors.ScopeRun),
+			apperrors.WithCategory(apperrors.CategoryChatRun),
+		)
+	case "run.complete":
+		payload["finishReason"] = "stop"
+	}
+	return stream.EventData{
+		Seq:       seq,
+		Type:      eventType,
+		Timestamp: timestamp,
+		Payload:   payload,
+	}
 }
 
 func requiredReplayRunStartedAt(startedAtByRunID map[string]int64, runID string) (int64, error) {

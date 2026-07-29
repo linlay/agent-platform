@@ -344,8 +344,12 @@ func TestStepWriterTerminalDiscardDoesNotPersistReact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read jsonl: %v", err)
 	}
-	if len(lines) != 0 {
-		t.Fatalf("terminal discard must not persist a react: %#v", lines)
+	if len(lines) != 1 || stringFromAny(lines[0]["_type"]) != "event" {
+		t.Fatalf("terminal discard must persist only the run.error event: %#v", lines)
+	}
+	event, _ := lines[0]["event"].(map[string]any)
+	if stringFromAny(event["type"]) != "run.error" {
+		t.Fatalf("expected persisted run.error, got %#v", lines[0])
 	}
 }
 

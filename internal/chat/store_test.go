@@ -74,6 +74,163 @@ func TestFileStoreSetPendingAwaitingPersistsIntoSummaryAndListChats(t *testing.T
 	}
 }
 
+func TestLoadChatReplaysPersistedRunErrorWithoutSynthesizingComplete(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	defer store.Close()
+
+	const chatID = "chat-persisted-run-error"
+	const runID = "run-persisted-run-error"
+	startedAt := testEpochMillis(100)
+	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := appendQueryLineForTest(store, chatID, QueryLine{
+		ChatID:    chatID,
+		RunID:     runID,
+		UpdatedAt: startedAt,
+		Query:     map[string]any{"message": "hello"},
+		Type:      "query",
+	}); err != nil {
+		t.Fatalf("append query: %v", err)
+	}
+	errorPayload := map[string]any{
+		"code":               "tool_calls_exceeded",
+		"category":           "tool",
+		"scope":              "tool",
+		"retryable":          false,
+		"userSafeMessageKey": "tool_calls_exceeded",
+		"diagnostics": map[string]any{
+			"toolCalls":  61,
+			"limitValue": 60,
+			"limitName":  "budget.tool.maxCalls",
+			"toolName":   "bash",
+		},
+	}
+	writer := NewStepWriter(store, chatID, runID, "REACT")
+	writer.OnEvent(stream.EventData{
+		Seq:       2,
+		Type:      "run.error",
+		Timestamp: startedAt + 1,
+		Payload: map[string]any{
+			"runId": runID,
+			"error": errorPayload,
+		},
+	})
+	writer.Flush()
+	if err := writer.Err(); err != nil {
+		t.Fatalf("persist run.error: %v", err)
+	}
+	if err := completeRunForTest(store, RunCompletion{
+		ChatID:          chatID,
+		RunID:           runID,
+		AgentKey:        "agent",
+		InitialMessage:  "hello",
+		FinishReason:    "error",
+		UpdatedAtMillis: startedAt + 2,
+	}); err != nil {
+		t.Fatalf("complete failed run: %v", err)
+	}
+
+	detail, err := store.LoadChat(chatID)
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+	if detailEventTypeCount(detail.Events, "run.error") != 1 ||
+		detailEventTypeCount(detail.Events, "run.complete") != 0 ||
+		detailEventTypeCount(detail.Events, "run.cancel") != 0 {
+		t.Fatalf("unexpected terminal replay: %#v", detail.Events)
+	}
+	for _, event := range detail.Events {
+		if event.Type != "run.error" {
+			continue
+		}
+		replayed := event.Value("error")
+		replayedError, _ := replayed.(map[string]any)
+		diagnostics, _ := replayedError["diagnostics"].(map[string]any)
+		if stringFromAny(replayedError["code"]) != "tool_calls_exceeded" ||
+			stringFromAny(replayedError["category"]) != "tool" ||
+			stringFromAny(replayedError["scope"]) != "tool" ||
+			stringFromAny(replayedError["userSafeMessageKey"]) != "tool_calls_exceeded" ||
+			replayedError["retryable"] != false ||
+			toIntFromKeys(diagnostics, "toolCalls") != 61 ||
+			stringFromAny(diagnostics["limitName"]) != "budget.tool.maxCalls" {
+			t.Fatalf("run.error diagnostics were not preserved: %#v", event)
+		}
+	}
+}
+
+func TestLoadChatSynthesizesLegacyTerminalFromFinishReason(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	defer store.Close()
+
+	tests := []struct {
+		finishReason string
+		eventType    string
+	}{
+		{finishReason: "complete", eventType: "run.complete"},
+		{finishReason: "error", eventType: "run.error"},
+		{finishReason: "cancel", eventType: "run.cancel"},
+	}
+	for index, tc := range tests {
+		chatID := "chat-legacy-terminal-" + tc.finishReason
+		runID := "run-legacy-terminal-" + tc.finishReason
+		startedAt := testEpochMillis(200 + int64(index*10))
+		if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+			t.Fatalf("%s: ensure chat: %v", tc.finishReason, err)
+		}
+		if err := appendQueryLineForTest(store, chatID, QueryLine{
+			ChatID:    chatID,
+			RunID:     runID,
+			UpdatedAt: startedAt,
+			Query:     map[string]any{"message": "hello"},
+			Type:      "query",
+		}); err != nil {
+			t.Fatalf("%s: append query: %v", tc.finishReason, err)
+		}
+		if err := completeRunForTest(store, RunCompletion{
+			ChatID:          chatID,
+			RunID:           runID,
+			AgentKey:        "agent",
+			InitialMessage:  "hello",
+			FinishReason:    tc.finishReason,
+			UpdatedAtMillis: startedAt + 1,
+		}); err != nil {
+			t.Fatalf("%s: complete run: %v", tc.finishReason, err)
+		}
+
+		detail, err := store.LoadChat(chatID)
+		if err != nil {
+			t.Fatalf("%s: load chat: %v", tc.finishReason, err)
+		}
+		for _, terminalType := range []string{"run.complete", "run.error", "run.cancel"} {
+			want := 0
+			if terminalType == tc.eventType {
+				want = 1
+			}
+			if got := detailEventTypeCount(detail.Events, terminalType); got != want {
+				t.Fatalf("%s: %s count = %d, want %d; events=%#v", tc.finishReason, terminalType, got, want, detail.Events)
+			}
+		}
+		if tc.finishReason == "error" {
+			for _, event := range detail.Events {
+				if event.Type != "run.error" {
+					continue
+				}
+				payload, _ := event.Value("error").(map[string]any)
+				if stringFromAny(payload["code"]) != "run_error" {
+					t.Fatalf("legacy error must use generic run_error payload: %#v", event)
+				}
+			}
+		}
+	}
+}
+
 func TestFileStoreUpdateAgentKeyPersistsIntoSummary(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {

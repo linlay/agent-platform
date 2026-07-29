@@ -397,7 +397,13 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			w.lastTimestamp = event.Timestamp
 		}
 
-	case "run.complete", "run.cancel", "run.error":
+	case "run.error":
+		w.flushCurrentStep()
+		w.flushAllTaskSteps()
+		w.flushPendingSubmit()
+		w.appendTypedEventLine(event, "event")
+
+	case "run.complete", "run.cancel":
 		w.flushCurrentStep()
 		w.flushAllTaskSteps()
 		w.flushPendingSubmit()

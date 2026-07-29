@@ -160,8 +160,7 @@ func (s *llmRunStream) prepareNextTurn() error {
 		})
 	}
 	if err := s.checkBudgetBeforeModelCall(); err != nil {
-		s.pending = append(s.pending, DeltaError{Error: err})
-		s.closeSteersAndFinish()
+		s.enqueueTerminalRunError(err)
 		return nil
 	}
 	if s.runControl != nil {
@@ -796,6 +795,18 @@ func (s *llmRunStream) appendSteers(steers []api.SteerRequest) {
 func (s *llmRunStream) closeSteersAndFinish() {
 	s.closeSteers()
 	s.finished = true
+}
+
+func (s *llmRunStream) enqueueTerminalRunError(payload map[string]any) {
+	if s == nil || s.terminalErrorQueued || len(payload) == 0 {
+		return
+	}
+	s.terminalErrorQueued = true
+	if s.runControl != nil {
+		s.runControl.ClaimFailure()
+	}
+	s.pending = append(s.pending, DeltaError{Error: CloneMap(payload)})
+	s.closeSteersAndFinish()
 }
 
 func (s *llmRunStream) closeSteers() {

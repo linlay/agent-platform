@@ -23,6 +23,8 @@ import (
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/stream"
 	platformws "agent-platform/internal/ws"
+
+	gws "github.com/gorilla/websocket"
 )
 
 func TestQuerySSEPersistsChatHistory(t *testing.T) {
@@ -3071,6 +3073,252 @@ func TestQueryFailsRunWhenProviderOmitsToolCallID(t *testing.T) {
 	if strings.Contains(raw, `"_type":"react"`) {
 		t.Fatalf("usage must not persist the invalid assistant turn: %s", raw)
 	}
+}
+
+func TestQueryToolBudgetExceededIsVisibleAndDurable(t *testing.T) {
+	fixture, providerCalls := newToolBudgetExceededFixture(t)
+	const chatID = "chat-tool-budget-visible"
+	const runID = "loyw3v28"
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(
+		`{"chatId":"`+chatID+`","runId":"`+runID+`","agentKey":"mock-agent","message":"call the clock twice"}`,
+	))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected SSE 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "data: [DONE]") {
+		t.Fatalf("expected done sentinel after terminal error, got %s", body)
+	}
+	if strings.Contains(body, `"type":"run.complete"`) || strings.Contains(body, `"type":"run.cancel"`) {
+		t.Fatalf("budget failure must not be overwritten by another terminal event: %s", body)
+	}
+	messages := decodeSSEMessages(t, body)
+	failedToolResults := 0
+	toolErrorIndex := -1
+	runErrorIndex := -1
+	var runError map[string]any
+	for index, message := range messages {
+		switch stringValue(message["type"]) {
+		case "tool.result":
+			result, _ := message["result"].(map[string]any)
+			if stringValue(result["error"]) == "tool_calls_exceeded" {
+				failedToolResults++
+				toolErrorIndex = index
+			}
+		case "run.error":
+			runErrorIndex = index
+			runError, _ = message["error"].(map[string]any)
+		}
+	}
+	if failedToolResults != 1 || toolErrorIndex < 0 || runErrorIndex <= toolErrorIndex {
+		t.Fatalf("expected one rejected tool.result immediately before terminal run.error, messages=%#v", messages)
+	}
+	diagnostics, _ := runError["diagnostics"].(map[string]any)
+	if stringValue(runError["code"]) != "tool_calls_exceeded" ||
+		stringValue(runError["category"]) != "tool" ||
+		stringValue(runError["scope"]) != "tool" ||
+		stringValue(runError["userSafeMessageKey"]) != "tool_calls_exceeded" ||
+		runError["retryable"] != false ||
+		testIntValue(diagnostics["toolCalls"]) != 2 ||
+		testIntValue(diagnostics["limitValue"]) != 1 ||
+		stringValue(diagnostics["limitName"]) != "budget.tool.maxCalls" ||
+		stringValue(diagnostics["toolName"]) != "datetime" {
+		t.Fatalf("unexpected run.error payload: %#v", runError)
+	}
+	if providerCalls.Load() != 2 {
+		t.Fatalf("provider calls = %d, want 2 with no post-error model request", providerCalls.Load())
+	}
+
+	runs, err := fixture.chats.ListRuns(chatID)
+	if err != nil || len(runs) != 1 || runs[0].FinishReason != "error" {
+		t.Fatalf("budget run was not persisted as error: runs=%#v err=%v", runs, err)
+	}
+	status, err := fixture.server.GetRunStatus(runID)
+	if err != nil {
+		t.Fatalf("get run status: %v", err)
+	}
+	if status.Status != "failed" || stringValue(status.Error["code"]) != "tool_calls_exceeded" {
+		t.Fatalf("run_status lost terminal error: %#v", status)
+	}
+	interrupt, err := fixture.server.InterruptRun(api.InterruptRequest{
+		RunID: runID, ChatID: chatID, AgentKey: "mock-agent",
+	})
+	if err != nil || interrupt.Accepted || interrupt.Status != "unmatched" {
+		t.Fatalf("late interrupt must be unmatched: response=%#v err=%v", interrupt, err)
+	}
+
+	attachRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(attachRec, httptest.NewRequest(
+		http.MethodGet,
+		"/api/attach?runId="+runID+"&agentKey=mock-agent",
+		nil,
+	))
+	if attachRec.Code != http.StatusOK ||
+		!strings.Contains(attachRec.Body.String(), `"type":"run.error"`) ||
+		!strings.Contains(attachRec.Body.String(), `"code":"tool_calls_exceeded"`) ||
+		!strings.Contains(attachRec.Body.String(), "data: [DONE]") {
+		t.Fatalf("attach did not replay the terminal error: status=%d body=%s", attachRec.Code, attachRec.Body.String())
+	}
+
+	wsServer := newLoopbackServer(t, fixture.server)
+	defer wsServer.Close()
+	conn, _, err := gws.DefaultDialer.Dial("ws"+strings.TrimPrefix(wsServer.URL, "http")+"/ws", nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+	readConnectedPush(t, conn)
+	if err := conn.WriteJSON(platformws.RequestFrame{
+		Frame: platformws.FrameRequest,
+		Type:  "/api/attach",
+		ID:    "attach-tool-budget",
+		Payload: platformws.MarshalPayload(map[string]any{
+			"runId":    runID,
+			"agentKey": "mock-agent",
+		}),
+	}); err != nil {
+		t.Fatalf("write websocket attach: %v", err)
+	}
+	var wsRunError map[string]any
+	wsTerminalReason := ""
+	for wsTerminalReason == "" {
+		if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			t.Fatalf("set websocket deadline: %v", err)
+		}
+		var frame platformws.StreamFrame
+		if err := conn.ReadJSON(&frame); err != nil {
+			t.Fatalf("read websocket attach frame: %v", err)
+		}
+		if frame.Frame != platformws.FrameStream || frame.ID != "attach-tool-budget" {
+			continue
+		}
+		if frame.Event != nil && frame.Event.Type == "run.error" {
+			wsRunError, _ = frame.Event.Value("error").(map[string]any)
+		}
+		wsTerminalReason = frame.Reason
+	}
+	if wsTerminalReason != "error" || stringValue(wsRunError["code"]) != "tool_calls_exceeded" {
+		t.Fatalf("websocket attach lost terminal error: reason=%q error=%#v", wsTerminalReason, wsRunError)
+	}
+
+	chatRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID, nil))
+	var chatResp api.ApiResponse[api.ChatDetailResponse]
+	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
+		t.Fatalf("decode chat detail: %v", err)
+	}
+	if countAPIEventType(chatResp.Data.Events, "run.error") != 1 ||
+		countAPIEventType(chatResp.Data.Events, "run.complete") != 0 ||
+		countAPIEventType(chatResp.Data.Events, "run.cancel") != 0 {
+		t.Fatalf("chat replay returned the wrong terminal event: %#v", chatResp.Data.Events)
+	}
+	var replayedError map[string]any
+	for _, event := range chatResp.Data.Events {
+		if event.Type == "run.error" {
+			replayedError, _ = event.Value("error").(map[string]any)
+		}
+	}
+	replayedDiagnostics, _ := replayedError["diagnostics"].(map[string]any)
+	if stringValue(replayedError["code"]) != "tool_calls_exceeded" ||
+		testIntValue(replayedDiagnostics["toolCalls"]) != 2 {
+		t.Fatalf("chat replay lost error diagnostics: %#v", replayedError)
+	}
+	raw, err := fixture.chats.LoadJSONLContent(chatID)
+	if err != nil {
+		t.Fatalf("load chat jsonl: %v", err)
+	}
+	if !strings.Contains(raw, `"_type":"event"`) || !strings.Contains(raw, `"code":"tool_calls_exceeded"`) {
+		t.Fatalf("run.error was not persisted as an event line: %s", raw)
+	}
+}
+
+func TestQueryNonStreamToolBudgetExceededPersistsError(t *testing.T) {
+	fixture, providerCalls := newToolBudgetExceededFixture(t)
+	const chatID = "chat-tool-budget-sync"
+	const runID = "loyw3v29"
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(
+		`{"chatId":"`+chatID+`","runId":"`+runID+`","agentKey":"mock-agent","message":"call the clock twice","stream":false}`,
+	))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError ||
+		!strings.Contains(rec.Body.String(), `"code":"tool_calls_exceeded"`) {
+		t.Fatalf("non-stream query did not expose budget error: status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if providerCalls.Load() != 2 {
+		t.Fatalf("provider calls = %d, want 2 with no post-error model request", providerCalls.Load())
+	}
+	runs, err := fixture.chats.ListRuns(chatID)
+	if err != nil || len(runs) != 1 || runs[0].FinishReason != "error" {
+		t.Fatalf("sync budget run was not persisted as error: runs=%#v err=%v", runs, err)
+	}
+	status, err := fixture.server.GetRunStatus(runID)
+	if err != nil || status.Status != "failed" || stringValue(status.Error["code"]) != "tool_calls_exceeded" {
+		t.Fatalf("sync run_status lost error: status=%#v err=%v", status, err)
+	}
+}
+
+func newToolBudgetExceededFixture(t *testing.T) (testFixture, *atomic.Int32) {
+	t.Helper()
+	var providerCalls atomic.Int32
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		call := providerCalls.Add(1)
+		if call > 2 {
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"content":"unexpected third model call"},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+			return
+		}
+		toolID := "call_datetime_1"
+		if call == 2 {
+			toolID = "call_datetime_2"
+		}
+		writeProviderSSE(t, w,
+			providerToolCallArgsDeltaFrame(t, toolID, "datetime", "{}", "tool_calls"),
+			`[DONE]`,
+		)
+	}, testFixtureOptions{
+		notifications: platformws.NewHub(),
+		setupRuntime: func(_ string, cfg *config.Config) {
+			agentPath := filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml")
+			data, err := os.ReadFile(agentPath)
+			if err != nil {
+				t.Fatalf("read agent config: %v", err)
+			}
+			content := strings.Replace(
+				string(data),
+				"  tool:\n    timeout: 210",
+				"  tool:\n    maxCalls: 1\n    timeout: 210",
+				1,
+			)
+			if content == string(data) {
+				t.Fatal("agent budget fixture was not updated")
+			}
+			if err := os.WriteFile(agentPath, []byte(content), 0o644); err != nil {
+				t.Fatalf("write agent config: %v", err)
+			}
+		},
+	})
+	return fixture, &providerCalls
+}
+
+func countAPIEventType(events []stream.EventData, eventType string) int {
+	count := 0
+	for _, event := range events {
+		if event.Type == eventType {
+			count++
+		}
+	}
+	return count
 }
 
 func TestQueryRejectsAmbiguousLegacyToolHistoryBeforeProviderCall(t *testing.T) {

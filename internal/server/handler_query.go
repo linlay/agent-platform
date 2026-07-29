@@ -840,8 +840,13 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		runCtx = contracts.WithRunControl(control.Context(), control)
 	}
 	defer control.SetObserverCount(0)
+	var syncEventBus *stream.RunEventBus
 	if registered.Managed {
 		defer s.deps.Runs.Finish(prepared.req.RunID)
+		if eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID); ok {
+			syncEventBus = eventBus
+			defer syncEventBus.FreezeAndWait()
+		}
 	}
 
 	completedAtMillis := int64(0)
@@ -883,6 +888,10 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		models:        s.deps.Models,
 		chatUsage:     chatUsage,
 		runUsage:      &runUsage,
+		runControl:    control,
+		runID:         prepared.req.RunID,
+		chatID:        prepared.req.ChatID,
+		agentKey:      prepared.req.AgentKey,
 	}
 	processor.stepWriter.SetPendingSystemInit(prepared.systemInitLine)
 	processor.stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
@@ -918,10 +927,14 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		if !visible {
 			return nil
 		}
+		clientData := clientVisibleEventData(data)
+		if syncEventBus != nil {
+			syncEventBus.Publish(clientData)
+		}
 		if emitVisible == nil {
 			return nil
 		}
-		if err := emitVisible(clientVisibleEventData(data)); err != nil {
+		if err := emitVisible(clientData); err != nil {
 			if isTimeContractViolation(err) {
 				abortTimeContract(err)
 			}
@@ -994,6 +1007,14 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		}
 	}
 
+	terminalFinishReason := processor.terminalFinishReason()
+	if terminalFinishReason == "error" {
+		streamFailed = true
+		streamInterrupted = false
+	} else if terminalFinishReason == "cancel" {
+		streamInterrupted = true
+		streamFailed = false
+	}
 	if streamFailed || streamInterrupted {
 		processor.stepWriter.Flush()
 		finishReason := "error"
@@ -1003,6 +1024,12 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		errorMessage := ""
 		if streamErr != nil {
 			errorMessage = streamErr.Error()
+		}
+		errorPayload := processor.terminalErrorPayload()
+		if finishReason == "error" && len(errorPayload) > 0 {
+			errorMessage = strings.TrimSpace(contracts.AnyStringNode(errorPayload["message"]))
+		} else {
+			errorPayload = apperrors.FromError(streamErr, apperrors.CodeStreamFailed, apperrors.WithScope(apperrors.ScopeRun))
 		}
 		persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, registered.StartedAtMillis, control, principal), assistantText.String(), runUsage, finishReason, false)
 		completedAtMillis = completion.UpdatedAtMillis
@@ -1014,7 +1041,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 			FinishReason:  finishReason,
 			Usage:         runUsage,
 			ErrorMessage:  errorMessage,
-			ErrorPayload:  apperrors.FromError(streamErr, apperrors.CodeStreamFailed, apperrors.WithScope(apperrors.ScopeRun)),
+			ErrorPayload:  errorPayload,
 		}, nil
 	}
 

@@ -83,6 +83,32 @@ func TestRunControlInterruptInfoPreservesFirstCause(t *testing.T) {
 	}
 }
 
+func TestRunControlFailureClaimRejectsLaterInterrupt(t *testing.T) {
+	control := NewRunControl(context.Background(), "run_1")
+
+	if !control.ClaimFailure() {
+		t.Fatal("expected the first terminal claim to win")
+	}
+	if control.State() != RunLoopStateFailed {
+		t.Fatalf("state = %s, want %s", control.State(), RunLoopStateFailed)
+	}
+	if control.Interrupt(InterruptInfo{
+		Source: InterruptSourceHTTPAPI,
+		Reason: InterruptReasonUserCancelled,
+		Detail: "late cancel",
+	}) {
+		t.Fatal("expected interrupt after failure to be rejected")
+	}
+	control.TransitionState(RunLoopStateCancelled)
+	control.Finish()
+	if control.State() != RunLoopStateFailed {
+		t.Fatalf("late terminal updates overwrote failure: %s", control.State())
+	}
+	if control.Interrupted() {
+		t.Fatal("rejected interrupt must not mark the run interrupted")
+	}
+}
+
 func TestRunControlDrainSteersBeforeFinishClosesEmptyQueue(t *testing.T) {
 	control := NewRunControl(context.Background(), "run_1")
 

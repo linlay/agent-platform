@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -15,6 +16,49 @@ import (
 	"agent-platform/internal/models"
 	"agent-platform/internal/stream"
 )
+
+func TestRunEventProcessorFirstTerminalErrorWins(t *testing.T) {
+	control := NewRunControl(context.Background(), "run-terminal-error")
+	processor := &runEventProcessor{
+		runControl: control,
+		runID:      "run-terminal-error",
+		chatID:     "chat-terminal-error",
+		agentKey:   "agent-terminal-error",
+	}
+	errorPayload := map[string]any{
+		"code": "tool_calls_exceeded",
+		"diagnostics": map[string]any{
+			"toolCalls":  61,
+			"limitValue": 60,
+			"limitName":  "budget.tool.maxCalls",
+			"toolName":   "bash",
+		},
+	}
+	if _, _, err := processor.Consume(stream.NewEvent("run.error", map[string]any{
+		"runId": "run-terminal-error",
+		"error": errorPayload,
+	})); err != nil {
+		t.Fatalf("consume run.error: %v", err)
+	}
+	if _, _, err := processor.Consume(stream.NewEvent("run.cancel", map[string]any{
+		"runId": "run-terminal-error",
+	})); err != nil {
+		t.Fatalf("consume late run.cancel: %v", err)
+	}
+
+	if processor.terminalFinishReason() != "error" {
+		t.Fatalf("terminal reason = %q, want error", processor.terminalFinishReason())
+	}
+	if AnyStringNode(processor.terminalErrorPayload()["code"]) != "tool_calls_exceeded" {
+		t.Fatalf("terminal payload was not retained: %#v", processor.terminalErrorPayload())
+	}
+	if control.State() != RunLoopStateFailed {
+		t.Fatalf("run state = %s, want %s", control.State(), RunLoopStateFailed)
+	}
+	if control.Interrupt(InterruptInfo{Source: InterruptSourceHTTPAPI, Reason: InterruptReasonUserCancelled}) {
+		t.Fatal("late interrupt must be unmatched after terminal error")
+	}
+}
 
 func TestRunEventProcessorDecoratesTerminalUsage(t *testing.T) {
 	eventTypes := []string{"run.complete", "run.error", "run.cancel"}

@@ -14,6 +14,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/models"
+	"agent-platform/internal/observability"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/timecontract"
 )
@@ -62,6 +63,12 @@ type runEventProcessor struct {
 	runModelMixed        bool
 	aggregateUsageByTask bool
 	taskRunUsage         map[string]chat.UsageData
+	runControl           *contracts.RunControl
+	runID                string
+	chatID               string
+	agentKey             string
+	terminalType         string
+	terminalError        map[string]any
 }
 
 type awaitingTracker struct {
@@ -78,6 +85,7 @@ func (p *runEventProcessor) Consume(event stream.StreamEvent) (stream.EventData,
 		return stream.EventData{}, false, err
 	}
 	p.decorate(&data)
+	p.recordTerminal(data)
 	if p.stepWriter != nil {
 		p.stepWriter.OnEvent(data)
 		if err := p.stepWriter.Err(); err != nil {
@@ -85,6 +93,68 @@ func (p *runEventProcessor) Consume(event stream.StreamEvent) (stream.EventData,
 		}
 	}
 	return data, shouldPublishClientEvent(data), nil
+}
+
+func (p *runEventProcessor) recordTerminal(data stream.EventData) {
+	if p == nil || p.terminalType != "" || strings.TrimSpace(data.String("taskId")) != "" {
+		return
+	}
+	switch data.Type {
+	case "run.complete", "run.cancel", "run.error":
+		p.terminalType = data.Type
+	default:
+		return
+	}
+	if data.Type != "run.error" {
+		return
+	}
+	if payload, ok := data.Payload["error"].(map[string]any); ok {
+		p.terminalError = contracts.CloneMap(payload)
+	}
+	if p.runControl != nil {
+		p.runControl.ClaimFailure()
+	}
+	p.logTerminalError(data)
+}
+
+func (p *runEventProcessor) terminalFinishReason() string {
+	if p == nil {
+		return ""
+	}
+	switch p.terminalType {
+	case "run.error":
+		return "error"
+	case "run.cancel":
+		return "cancel"
+	case "run.complete":
+		return "complete"
+	default:
+		return ""
+	}
+}
+
+func (p *runEventProcessor) terminalErrorPayload() map[string]any {
+	if p == nil {
+		return nil
+	}
+	return contracts.CloneMap(p.terminalError)
+}
+
+func (p *runEventProcessor) logTerminalError(data stream.EventData) {
+	errorPayload, _ := data.Payload["error"].(map[string]any)
+	diagnostics, _ := errorPayload["diagnostics"].(map[string]any)
+	fields := map[string]any{
+		"runId":     firstNonEmpty(strings.TrimSpace(p.runID), data.String("runId")),
+		"chatId":    strings.TrimSpace(p.chatID),
+		"agentKey":  strings.TrimSpace(p.agentKey),
+		"errorCode": strings.TrimSpace(contracts.AnyStringNode(errorPayload["code"])),
+	}
+	for _, key := range []string{"toolCalls", "limitValue", "limitName", "toolName"} {
+		if value, ok := diagnostics[key]; ok {
+			fields[key] = value
+		}
+	}
+	observability.Log("run.error", fields)
 }
 
 func (p *runEventProcessor) decorate(data *stream.EventData) {
@@ -699,6 +769,10 @@ func runExecutor(params RunExecutorParams) {
 		chatUsage:            chatUsage,
 		runUsage:             &runUsage,
 		aggregateUsageByTask: params.Session.TeamRuntime != nil,
+		runControl:           params.RunControl,
+		runID:                params.Session.RunID,
+		chatID:               params.Session.ChatID,
+		agentKey:             contracts.ResolveRunOwner(params.Session.RunOwner).AgentKey,
 	}
 
 	runCtx := params.RunCtx
@@ -872,6 +946,14 @@ func runExecutor(params RunExecutorParams) {
 		}
 	}
 
+	terminalFinishReason := processor.terminalFinishReason()
+	if terminalFinishReason == "error" {
+		streamFailed = true
+		streamInterrupted = false
+	} else if terminalFinishReason == "cancel" {
+		streamInterrupted = true
+		streamFailed = false
+	}
 	if streamFailed || streamInterrupted {
 		finishReason := "error"
 		if streamInterrupted {

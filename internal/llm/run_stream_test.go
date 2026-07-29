@@ -1377,6 +1377,165 @@ func TestRunStreamToolBudgetDerivesStageLimitFromMaxSteps(t *testing.T) {
 	}
 }
 
+func TestRunStreamToolBudgetExceededTerminatesAndClearsActiveCall(t *testing.T) {
+	control := contracts.NewRunControl(context.Background(), "run-tool-budget")
+	executor := &recordingToolExecutor{}
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools: executor,
+		},
+		session: contracts.QuerySession{
+			RunID:  "run-tool-budget",
+			ChatID: "chat-tool-budget",
+		},
+		runControl: control,
+		execCtx: &contracts.ExecutionContext{
+			StartedAt: time.Now(),
+			Budget: contracts.Budget{
+				Tool: contracts.RetryPolicy{MaxCalls: 60},
+			},
+			ToolCalls: 60,
+		},
+		activeToolCall: &preparedToolInvocation{
+			toolID:   "tool-61",
+			toolName: "bash",
+			args:     map[string]any{"command": "true"},
+		},
+	}
+
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invoke over-budget tool: %v", err)
+	}
+	if stream.activeToolCall != nil {
+		t.Fatalf("over-budget tool remained active: %#v", stream.activeToolCall)
+	}
+	if stream.execCtx.ToolCalls != 61 {
+		t.Fatalf("toolCalls = %d, want 61", stream.execCtx.ToolCalls)
+	}
+	executor.mu.Lock()
+	invocationCount := len(executor.invocations)
+	executor.mu.Unlock()
+	if invocationCount != 0 {
+		t.Fatalf("rejected tool entered the executor %d times", invocationCount)
+	}
+	if !stream.finished || control.State() != contracts.RunLoopStateFailed {
+		t.Fatalf("expected failed terminal state, finished=%v state=%s", stream.finished, control.State())
+	}
+	if control.Interrupt(contracts.InterruptInfo{
+		Source: contracts.InterruptSourceHTTPAPI,
+		Reason: contracts.InterruptReasonUserCancelled,
+	}) {
+		t.Fatal("late interrupt must not overwrite the budget failure")
+	}
+
+	first, err := stream.Next()
+	if err != nil {
+		t.Fatalf("read rejected tool result: %v", err)
+	}
+	toolResult, ok := first.(contracts.DeltaToolResult)
+	if !ok || toolResult.Result.Error != string(apperrors.CodeToolCallsExceeded) {
+		t.Fatalf("first delta = %#v, want tool_calls_exceeded tool result", first)
+	}
+	second, err := stream.Next()
+	if err != nil {
+		t.Fatalf("read terminal error: %v", err)
+	}
+	runError, ok := second.(contracts.DeltaError)
+	if !ok || contracts.AnyStringNode(runError.Error["code"]) != string(apperrors.CodeToolCallsExceeded) {
+		t.Fatalf("second delta = %#v, want tool_calls_exceeded run error", second)
+	}
+	diagnostics := contracts.AnyMapNode(runError.Error["diagnostics"])
+	if contracts.AnyIntNode(diagnostics["toolCalls"]) != 61 ||
+		contracts.AnyIntNode(diagnostics["limitValue"]) != 60 ||
+		contracts.AnyStringNode(diagnostics["limitName"]) != "budget.tool.maxCalls" ||
+		contracts.AnyStringNode(diagnostics["toolName"]) != "bash" {
+		t.Fatalf("unexpected terminal diagnostics: %#v", diagnostics)
+	}
+	if _, err := stream.Next(); !errors.Is(err, io.EOF) {
+		t.Fatalf("expected stream EOF after run.error, got %v", err)
+	}
+}
+
+func TestRunStreamParallelToolBudgetPublishesOneRejectionAndOneRunError(t *testing.T) {
+	control := contracts.NewRunControl(context.Background(), "run-tool-budget-batch")
+	executor := &recordingToolExecutor{}
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools: executor,
+		},
+		session: contracts.QuerySession{
+			RunID:  "run-tool-budget-batch",
+			ChatID: "chat-tool-budget-batch",
+		},
+		runControl: control,
+		execCtx: &contracts.ExecutionContext{
+			StartedAt: time.Now(),
+			Budget: contracts.Budget{
+				Tool: contracts.RetryPolicy{MaxCalls: 60},
+			},
+			ToolCalls: 59,
+		},
+	}
+	invocations := []*preparedToolInvocation{
+		{toolID: "tool-60", toolName: "datetime", args: map[string]any{}},
+		{toolID: "tool-61", toolName: "file_read", args: map[string]any{"path": "a"}},
+		{toolID: "tool-62", toolName: "file_glob", args: map[string]any{"pattern": "*"}},
+	}
+	if err := stream.startToolCallBatch(invocations); err != nil {
+		t.Fatalf("start tool batch: %v", err)
+	}
+
+	var deltas []contracts.AgentDelta
+	for stream.activeToolBatch != nil {
+		if err := stream.consumeActiveToolBatch(); err != nil {
+			t.Fatalf("consume tool batch: %v", err)
+		}
+		deltas = append(deltas, stream.pending...)
+		stream.pending = nil
+	}
+	deltas = append(deltas, stream.pending...)
+	stream.pending = nil
+
+	executor.mu.Lock()
+	recorded := append([]recordedToolInvocation(nil), executor.invocations...)
+	executor.mu.Unlock()
+	if len(recorded) != 1 || recorded[0].name != "datetime" {
+		t.Fatalf("only the within-budget sibling may execute, got %#v", recorded)
+	}
+	if stream.execCtx.ToolCalls != 62 {
+		t.Fatalf("toolCalls = %d, want 62 attempted calls", stream.execCtx.ToolCalls)
+	}
+	if len(stream.messages) != 3 {
+		t.Fatalf("all siblings must be internally resolved, messages=%#v", stream.messages)
+	}
+
+	rejectionCount := 0
+	runErrorCount := 0
+	for index, delta := range deltas {
+		switch typed := delta.(type) {
+		case contracts.DeltaToolResult:
+			if typed.Result.Error == string(apperrors.CodeToolCallsExceeded) {
+				rejectionCount++
+			}
+		case contracts.DeltaError:
+			if contracts.AnyStringNode(typed.Error["code"]) == string(apperrors.CodeToolCallsExceeded) {
+				runErrorCount++
+				if index != len(deltas)-1 {
+					t.Fatalf("run.error must terminate the batch, deltas=%#v", deltas)
+				}
+			}
+		}
+	}
+	if rejectionCount != 1 || runErrorCount != 1 {
+		t.Fatalf("expected one public rejection and one terminal error, rejection=%d error=%d deltas=%#v", rejectionCount, runErrorCount, deltas)
+	}
+	if !stream.finished || control.State() != contracts.RunLoopStateFailed {
+		t.Fatalf("expected failed terminal state, finished=%v state=%s", stream.finished, control.State())
+	}
+}
+
 func TestRunStreamBTWRunLimitsQueueFinalAnswerAndBlockExtraTools(t *testing.T) {
 	stream := &llmRunStream{
 		execCtx: &contracts.ExecutionContext{
