@@ -2,110 +2,96 @@
 
 ## 范围
 
-KBASE Editing v1 是专用 `mode: KBASE` 的单次 run 授权。默认 KBASE 仍只读；请求顶层显式传 `editingMode:true` 后，本 run 可以编辑 `kbaseConfig.source.root` 内的 UTF-8 `.md`，也可以通过同一组结构化文件工具读写当前 `chatId` 的 chatspace。它不复用 CODER planning，不产生 confirmation 或第二个 execute run。
+KBASE Editing 是专用 `mode: KBASE` 的单次 Source mutation 授权。专用 KBASE 无论是否开启 editing，都固定提供以下结构化文件工具：
 
-权限突破、HITL、approval replay、软链接逃逸和间接提示注入的实测记录见 [KBASE 编辑模式越权对抗测试报告](KBASE编辑模式越权对抗测试报告.md)。
+```text
+file_read file_glob file_grep file_write file_edit
+```
 
-source root 不支持 `.markdown`、删除、重命名、创建目录、Bash、批量事务或 DOCX/PPTX/PDF 写入。chatspace 使用通用文本文件工具规则。清空 `.md` 内容属于修改并保留文件历史。
+专用 KBASE 的 Workspace 始终是最终解析后的 `kbaseConfig.source.root`。当前 Chat 目录始终是 `<chatsDir>/<chatId>`，只通过 `ChatAttachmentsDir` 和 `@chat` 暴露，不是 Workspace：
+
+| 状态 | Workspace | Source Workspace | 当前 Chat 目录 |
+|---|---|---|---|
+| 未开启 editing | Source root | 可读，不可 mutation | 可读写 |
+| 开启 editing | Source root | 可读写 | 可读写 |
+
+`editingMode` 不控制文件工具是否存在，也不改变 Workspace；它只允许本 run 修改 Source Workspace。它不复用 CODER planning，不产生第二个 execute run。普通 Agent 附加的 KBASE capability、Team 和其他 mode 不支持该字段。
+
+这些工具处理普通文本文件，不按知识库索引格式限制扩展名或编码。`.md`、`.txt`、`.json`、`.csv`、`.html` 以及其他可被通用文本工具识别的格式均可读写；支持的非 UTF-8 编码沿用通用检测、显式编码和写回保留规则。DOCX、PPTX、PDF、图片等二进制格式仍需格式专用工具。
+
+删除、重命名、创建目录和 Bash 不在 editing 工具集中。source 新文件仍要求父目录已存在。
 
 ## 协议
 
 ```json
 {
   "agentKey": "docs_kbase",
-  "message": "更新 docs/policy.md 中的退款条款",
+  "message": "更新 docs/policy.html 中的退款条款",
   "editingMode": true
 }
 ```
 
 - HTTP 和 WebSocket `/api/query` 使用同一顶层字段。
-- 只对专用 `mode: KBASE` 生效。普通 Agent 附加 KBASE capability、Team 和其他 mode 返回 `400 editing_mode_unsupported`。
-- `false` 或省略保持只读；`params.editingMode` 不生效。
-- 开启时，live `request.query`、JSONL、replay、export 和运行中 `activeRun` 保留 `editingMode:true`；false 时省略。
-- 授权不写 Agent 配置，不在新 chat 或下一次 query 中继承。
+- `false` 或省略时 Source Workspace 保持只读，当前 Chat 目录仍可读写；`params.editingMode` 不生效。
+- 开启时，live `request.query`、JSONL、replay、export 和运行中 `activeRun` 保留 `editingMode:true`。
+- 授权不写 Agent 配置，也不在下一次 query 中继承。
 
-WebClient 源码不在本仓库。客户端接入时只在 `agent.mode === "KBASE"` 展示默认关闭的“编辑知识库”开关，把其当前值写入本次 query 顶层；提交后立即重置。运行中从 `activeRun.editingMode` 恢复 badge。不要向 Agent `controls` 或 `meta` 注入隐式控制项。
+main 与 editing run 分别使用 `kbase:main`、`kbase:editing` cache 和独立 prompt，但两者的工具 schema 完全相同。`QuerySession.WorkspaceRoot`、`RuntimeContext.LocalPaths.WorkspaceDir` 和文件工具默认 working directory 都冻结为最终 Source root；当前 Chat 目录只保存在 `ChatAttachmentsDir`。因此相对文件路径始终指向 Source Workspace，写 Chat 产物必须使用 prompt 提供的明确 `chat_dir` 路径。
 
-## Session 与工具
+## 目录权限
 
-editing run 使用独立 `kbase-editing` stage、`kbase:editing` cache 和 editing prompt。工具集固定为：
+Source Workspace、当前 Chat 目录、其他 chatId 和外部目录统一先生成 AccessPlan：
 
 ```text
-kbase_search kbase_files kbase_read kbase_status kbase_refresh datetime
-file_read file_glob file_grep file_write file_edit
+AccessPolicy -> AccessPlan -> HITL -> FileTools
 ```
 
-`QuerySession` 冻结 `EditingMode`、`KBaseSourceRoot`、当前 `ChatAttachmentsDir` 和 `ScopedFilePolicy`。workspace/working directory 绑定唯一事实源 `kbaseConfig.source.root`，相对路径仍以 source root 解析；当前 chatspace 使用 prompt 中的绝对 `chat_dir`。`/api/file` 和 `/api/agent/open-directory` 对专用 KBASE 仍使用 source root。
-
-## 硬安全边界
-
-五个文件工具复用普通 Agent 的 `AccessPolicy -> AccessPlan -> HITL -> FileTools` 主链路，并在同一个 AccessPlan 上应用 KBASE scoped ceiling：
-
-- `file_read/file_glob/file_grep` 在 source root 和当前 chatspace 内按 AccessPolicy 允许；两者之外按 AccessPolicy allow/auto/HITL/block 执行，默认进入 HITL。
-- `file_write/file_edit` 在 source root 和当前 chatspace 内按 AccessPolicy 执行；hostAccess 和两者之外的 canonical target 固定 hard block。
-- source root 内扩展名大小写不敏感，但只允许 `.md`；新旧文件必须是 UTF-8，新文件父目录必须存在。
-- source 已有文件必须完整读后再写，并复用 SHA/mtime/size 并发检测、大小限制、原子替换和 run-scoped file history。
-- chatspace 使用通用文本读取、写入、编码、目录处理、写前读和 file history 规则，不应用 source 的 `.md`/UTF-8 限制。
-- source glob/grep 只返回 `.md`；chatspace 和获批 external root 使用通用文本搜索规则。
-- `..`、绝对路径和 symlink 按 canonical 实际目标分类，不能扩大授权范围。
+- shipped `default` policy 通过 `@workspace` 允许 Source，通过 `@chat` 允许当前 Chat 目录。
+- 其他 chatId 不享受 `@chat`，按外部目录重新计算策略。
+- 外部读写可由 policy 直接 allow、自动批准、进入 HITL 或 block。
+- `runtimeConfig.hostAccess.readRoots/writeRoots` 和 `full_access` 按通用规则生效。
+- 管理员配置的真正 block 是最终决策，不生成无意义的 HITL。
+- 请求中的路径分类字段不受信任；`..`、绝对路径和 symlink 都按 canonical 实际目标计算 AccessPolicy、approval fingerprint 和 source 分类。
+- read approval 不能复用于 write/edit，其他目标或其他操作的 approval 也不能重放。
 - 固定工具集在执行器入口再次校验，不能伪造 Bash 或未声明工具调用。
 
-`full_access`、hostAccess 与 HITL approval 不能扩大 KBASE 的写入边界；管理员显式 block 仍有效。shipped 默认 policy 下，source 内合法 `.md` 和当前 chatspace mutation 不逐次 HITL。source root 与平台整个 chats 根目录必须分离，避免其他 chatId 被 source 范围覆盖。
+AccessPlan 之后按 canonical 实际目标应用 Source mutation gate：
 
-典型错误码：
+- Source read/glob/grep 在两种模式下均可用；
+- 未开启 editing 的 Source write/edit 返回 `kbase_editing_mode_required`，且不会生成无法生效的 HITL；
+- approval、`hostAccess`、`writeRoots`、`auto_approve` 和 `full_access` 都不能替代 `editingMode:true`；
+- 当前 Chat 目录、其他 chatId 和 external 不受 Source gate 限制，继续服从实际 AccessPolicy 结果。
 
-```text
-kbase_editing_mode_required
-kbase_editing_path_outside_source
-kbase_editing_extension_unsupported
-kbase_editing_parent_missing
-kbase_editing_encoding_unsupported
-kbase_editing_tool_unsupported
-file_read_approval_required
-file_write_path_blocked
-file_edit_path_blocked
-```
+`ScopedFilePolicy` 不覆盖 AccessPlan，也不表达扩展名或编码限制。它只负责固定工具准入、Source canonical 路径识别、`SourceMutationEnabled` 和 Source 特有的写入保护：
 
-## 写后索引
+- Source 已有文件必须在同一有效观察范围内完整 `file_read` 后才能 `file_write/file_edit`；
+- Source 新文件的父目录必须已存在；
+- 写入继续使用 SHA/mtime/size 并发检测、大小限制、原子替换和 file history。
 
-source 文件原子写入成功后，KBASE Manager hook 同步调用现有 refresh coordinator：
+`file_glob/file_grep` 在所有获准目录使用相同的通用搜索规则，不对 Source 注入 `.md` 过滤。文件是否进入知识库由 `kbaseConfig.include/exclude` 和 extractor 独立决定；可编辑不等于可索引。
 
-```text
-RefreshOptions{Mode:"editing", Scope:"delta", Paths:[relativeSourcePath]}
-```
+## 异步索引
 
-有 active generation 时为目标路径 delta；首次索引或 `indexHash` 变化沿用现有 rebuild。watcher 继续作为崩溃、取消和外部修改的兜底，并依赖 hash 去重。
+文件工具写入成功只表示内容已经落盘。工具结果不包含 `kbase-index` hook，也不直接调用 KBASE refresh。
 
-工具结果示例：
+KBASE 自身的目录 watcher 监听 Source root，在 debounce 后按 canonical 相对路径 change set 执行 delta refresh，并应用 `include/exclude`、extractor、内容 hash 和现有 generation 规则。当前 Chat 目录、其他 chatId 和外部目录不在该 watcher 范围内。
 
-```json
-{
-  "status": "edited",
-  "filePath": "/knowledge/docs/policy.md",
-  "lineStats": {
-    "addedLines": 1,
-    "deletedLines": 1,
-    "editedLines": 1
-  },
-  "hooks": [
-    {
-      "name": "kbase-index",
-      "status": "success",
-      "filePath": "docs/policy.md",
-      "data": {
-        "scope": "delta",
-        "changedFiles": 1,
-        "indexedChunks": 4
-      }
-    }
-  ]
-}
-```
+因此：
 
-chatspace mutation 会进入通用 `FileChangeHook` 链，但 KBASE hook 返回空结果，不调用 refresh，也不改变 capability 状态。文件写入失败时不调用 hook。source 文件已保存但索引失败时不回滚，mutation 顶层 status 仍表示写入成功，hook 单独返回 `failed`，capability 为 degraded；Agent 应明确告知并至多调用一次 `kbase_refresh`。路径被 include/exclude 排除时文件仍保存，hook 返回 `skipped` 和 `excluded_by_kbase_config`，不能声称可检索。
+- source 写入成功后可能存在短暂的“已保存、尚不可检索”窗口；
+- 被索引配置排除或 extractor 不支持的文件仍可成功保存，但 watcher 会跳过；
+- 不应因为写结果没有索引状态而自动调用 `kbase_refresh`；
+- `kbase_refresh` 只在用户明确要求手工刷新，或需要从索引故障中恢复时使用。
 
-日志只记录 agent/chat/run、相对路径、前后 SHA、服务端实时判定的路径归属和 hook status，不记录正文。本功能不增加数据库 schema 或配置迁移。
+## Source 与 Chats 分离
 
-## 后续格式
+所有 `kbaseConfig.enabled:true` 的 Agent 在 Catalog 加载阶段都会校验 source root 与运行时 chats root。两者相等、互为父子或经 symlink 解析后实际重叠时：
 
-后续继续复用 `editingMode` 和 `ScopedFilePolicy`，但 DOCX/PPTX/PDF 必须使用格式专用工具和校验；不会直接向二进制文档开放通用 `file_write/file_edit`。
+- 该 Agent 不进入运行时 Agent catalog；
+- 管理端保留 `invalid` 条目和 `invalid_kbase_source_overlap` 诊断；
+- 引用它的 Team 会把该成员标记为不可用，因而不能正常启动；
+- 其他 Agent 和平台进程继续运行。
+
+修正目录后，Catalog 热重载会重新执行校验并恢复准入。该检查不依赖 `editingMode`，普通 Agent 挂载 KBASE capability 时同样适用。
+
+权限对抗覆盖见 [KBASE 编辑模式越权对抗测试报告](KBASE编辑模式越权对抗测试报告.md)。

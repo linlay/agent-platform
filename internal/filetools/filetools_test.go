@@ -166,7 +166,7 @@ func TestBuildAccessPlanFromPolicyUsesSessionAliases(t *testing.T) {
 	}
 }
 
-func TestBuildAccessPlanFromPolicyAppliesKBaseWriteCeiling(t *testing.T) {
+func TestBuildAccessPlanFromPolicyPreservesAccessPolicyForKBaseWrites(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
 	chatDir := filepath.Join(root, "chats", "chat-1")
@@ -191,34 +191,27 @@ func TestBuildAccessPlanFromPolicyAppliesKBaseWriteCeiling(t *testing.T) {
 			WriteRoots: []string{hostDir},
 		},
 		ScopedFilePolicy: &contracts.ScopedFilePolicy{
-			Root:              workspace,
-			AllowedExtensions: []string{".md"},
-			AllowRead:         true,
-			AllowWrite:        true,
-			AllowCreate:       true,
+			Root:                  workspace,
+			SourceMutationEnabled: true,
 		},
 	}
 
 	for _, test := range []struct {
-		name    string
-		path    string
-		blocked bool
+		name string
+		path string
 	}{
 		{name: "workspace", path: filepath.Join(workspace, "policy.md")},
 		{name: "chat", path: filepath.Join(chatDir, "report.txt")},
-		{name: "host", path: filepath.Join(hostDir, "shared.txt"), blocked: true},
-		{name: "external", path: filepath.Join(outside, "secret.txt"), blocked: true},
+		{name: "host", path: filepath.Join(hostDir, "shared.txt")},
+		{name: "external", path: filepath.Join(outside, "secret.txt")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			plan, err := BuildAccessPlanFromPolicy(config.AccessPolicyConfig{}, session, WriteAccess, test.path)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if plan.Blocked != test.blocked {
-				t.Fatalf("unexpected plan: %#v", plan)
-			}
-			if test.blocked && (plan.AllowedByWhitelist || plan.AutoApproved) {
-				t.Fatalf("blocked plan retained an allow decision: %#v", plan)
+			if plan.Blocked || !plan.AllowedByWhitelist {
+				t.Fatalf("KBASE policy changed full-access decision: %#v", plan)
 			}
 		})
 	}
@@ -228,7 +221,7 @@ func TestBuildAccessPlanFromPolicyAppliesKBaseWriteCeiling(t *testing.T) {
 		t.Fatal(err)
 	}
 	if readPlan.Blocked || !readPlan.AllowedByWhitelist {
-		t.Fatalf("KBASE write ceiling must not change external reads: %#v", readPlan)
+		t.Fatalf("KBASE scoped policy changed external read: %#v", readPlan)
 	}
 }
 

@@ -41,14 +41,10 @@ search 在没有 active generation 时返回 `stale: true` 并触发 refresh；s
 
 KBASE 仍只检索从文本格式和文档抽取出的文本；chat、memory 及 KBASE 控制面的 SQLite 使用不受此变更影响。
 
-## Editing 写后一致性
+## Editing 与索引解耦
 
-专用 KBASE 的 `editingMode:true` 在文件原子写入成功后，以相对 source path 同步调用现有 Manager：
+专用 KBASE 在 main/editing 两种 stage 都提供同一组通用文本文件工具，`editingMode:true` 只开放 Source mutation。Source 落盘不注册 KBASE `FileChangeHook`，也不从 mutation 同步调用 Manager refresh；工具成功不承诺同一 run 立即可检索。
 
-```text
-RefreshOptions{Mode:"editing", Scope:"delta", Paths:[relativePath]}
-```
+Source 变化与任何外部编辑一样由目录 watcher 捕获。watcher 在 debounce 后直接消费相对路径 change set，有 active generation 时执行目标文件 delta；首次索引、`force` 或 `indexHash` 变化仍按既有 generation 规则 rebuild。`include/exclude` 与 extractor 只决定是否进入索引，不阻止文件工具保存。当前 Chat 目录和 external 不属于 Source watcher。
 
-有 active generation 时只更新目标路径；首次索引、`force` 或 `indexHash` 变化仍按既有 generation 规则执行 rebuild，并在 hook data 中返回实际 `scope`。watcher 继续捕获同一磁盘变化，依赖内容 hash 去重，承担 run 取消、进程崩溃和外部修改的兜底。
-
-索引失败不回滚已经保存的用户文件，工具顶层 mutation status 仍为成功，`hooks[].status` 单独为 `failed`；capability 保持 degraded，watcher 或一次显式 `kbase_refresh` 成功后清除。被 include/exclude 排除的 `.md` 仍可保存，但 hook 返回 `skipped/excluded_by_kbase_config`，不能声称已进入检索。该链路不增加数据库 schema 或第二套索引器。
+watcher 失败时保留已经保存的文件并报告 capability degraded；后续 watcher reconcile 或用户明确发起的 `kbase_refresh` 可恢复。该链路不增加数据库 schema 或第二套索引器。

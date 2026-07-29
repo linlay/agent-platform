@@ -68,10 +68,6 @@ func (t *RuntimeToolExecutor) invokeGlob(ctx context.Context, args map[string]an
 		"--glob", "!.jj",
 		"--glob", "!.sl",
 	}
-	scopedSource := filetools.ScopedPathInSource(accessSession, access.Path)
-	if scopedSource {
-		rgArgs = append(rgArgs, "--type-add", "kbasemd:*.[mM][dD]", "--type", "kbasemd")
-	}
 	rgArgs = append(rgArgs, "--glob", pattern, resolved.Path)
 	cmd := exec.CommandContext(ctx, rgPath, rgArgs...)
 	cmd.Env = mergeCommandEnv(execCtx)
@@ -105,16 +101,6 @@ func (t *RuntimeToolExecutor) invokeGlob(ctx context.Context, args map[string]an
 	}
 
 	lines := splitOutputLines(out)
-	if scopedSource {
-		filtered := make([]string, 0, len(lines))
-		for _, line := range lines {
-			if filetools.ScopedPathAllowed(accessSession, line, false) {
-				filtered = append(filtered, line)
-			}
-		}
-		lines = filtered
-		out = strings.Join(lines, "\n")
-	}
 	sortGrepFiles(lines)
 	offset := numericArg(args, "offset")
 	if offset < 0 {

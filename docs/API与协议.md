@@ -217,7 +217,7 @@ Automation 的 Team 身份规则与 query 一致：只配置 `teamId`，同时�
 
 `/api/query` 的 `stream` 是 JSON body 字段；省略或传 `true` 时返回 SSE，结束帧为 `data: [DONE]`。传 `false` 时服务端仍执行完整 run、持久化 chat，并在结束后返回普通 JSON。默认只返回最终回答，响应示例见下文。
 
-`editingMode` 只认顶层 JSON boolean。仅 `editingMode:true` 且目标为专用 `mode: KBASE` 时生效；普通 Agent 附加 KBASE capability、CODER、PROXY、CHANNEL 和 Team 返回 HTTP 400，`msg=editing_mode_unsupported`。`false` 或省略保持只读，`params.editingMode` 不生效。开启时，`request.query` live event、chat JSONL、replay/export 和运行中 `activeRun` 保留 `editingMode:true`；false 时省略。它是单次 run 授权，不写 Agent 配置，也不会从上一轮继承。
+`editingMode` 只认顶层 JSON boolean。仅 `editingMode:true` 且目标为专用 `mode: KBASE` 时生效；普通 Agent 附加 KBASE capability、CODER、PROXY、CHANNEL 和 Team 返回 HTTP 400，`msg=editing_mode_unsupported`。专用 KBASE 在 true/false 两种状态下都以最终 Source root 作为 Workspace，并提供相同的五个文件工具；`false` 或省略只表示 Source mutation 未授权，Source 仍可读，当前 Chat 目录仍可读写。`params.editingMode` 不生效。开启时，`request.query` live event、chat JSONL、replay/export 和运行中 `activeRun` 保留 `editingMode:true`；false 时省略。它是单次 run 授权，不写 Agent 配置，也不会从上一轮继承。
 
 `requiredSkillKeys` 是单次 run 的强制 Skill 约束。当前客户端只发送零个或一个 key；服务端会去重后验证每个 key 同时属于目标 Agent 的 `skillConfig.skills` 且能从 skills market 成功解析。任一项不可用时返回 HTTP 400，`msg=required_skill_unavailable`，不会静默降级。通过验证的 key 会进入 session、system-init fingerprint 与 `request.query`，并在系统级 Skill 约束中要求本次运行加载并遵循对应 `SKILL.md`。Team 不接受该字段。
 
@@ -415,7 +415,7 @@ KBASE API 接受所有 `kbaseConfig.enabled: true` 的 Agent，包括专用 `mod
 
 KBASE 工具只读取 active 索引库，不直接访问宿主文件系统。`kbase_search` 支持 `pathPrefix`、`pathGlob`、`type` 与 `offset` 做 scoped retrieval；`kbase_files` 支持按 `path`、`pattern`、`status`、`type`、`mode=files|tree`、`depth`、`head_limit`、`offset` 浏览已索引/已扫描文件元数据。Lance 路径并行取 vector 与 FTS 候选并使用加权 RRF 融合；`matchType` 为 `vector|fts|hybrid`，score 归一化到 `[0,1]`。`matchCount` 是受 candidate 上限约束的两路去重并集数，不是全库总命中数。
 
-专用 KBASE 的 `editingMode:true` 额外挂载 `file_read/file_glob/file_grep/file_write/file_edit`，工作目录固定为本 run 冻结的 `kbaseConfig.source.root`，当前 `chatId` 的 `ChatAttachmentsDir` 同时作为通用 chat 文件根。source 内只支持大小写不敏感的 UTF-8 `.md`；chatspace 使用通用文本文件工具规则。两者之外的 read/glob/grep 服从 AccessPolicy，默认进入 HITL；两者之外及 hostAccess 的 write/edit 固定 hard block，`full_access` 和 approval 不能扩大。source mutation 的 `hooks[]` 包含 `name:"kbase-index"`；chat mutation 不返回该 hook。`success` 才表示同一 run 后续检索可见，`skipped/excluded_by_kbase_config` 表示 source 文件已保存但被索引配置排除，`failed` 表示 source 文件仍已保存但索引失败。完整契约见 [KBASE 编辑模式](KBASE编辑模式.md)。
+专用 KBASE 的 main/editing stage 都挂载 `file_read/file_glob/file_grep/file_write/file_edit`，两者工具 schema 相同，Workspace 和默认 working directory 都固定为本 run 冻结的 `kbaseConfig.source.root`；当前 `chatId` 的 Chat 目录只保存在 `ChatAttachmentsDir` 并通过 `@chat` 使用。所有获准目录都采用通用文本扩展名、编码和搜索规则；Source、当前 Chat 目录、其他 chatId 与 external 统一先服从 AccessPolicy。未开启 editing 时 Source write/edit 返回 `kbase_editing_mode_required` 且不产生无意义的 HITL；`hostAccess`、writeRoots、approval 和 `full_access` 不能替代该 Source mutation gate，但仍按通用规则作用于 external。Source mutation 结果不包含 `kbase-index` hook，写入成功只表示文件已落盘；目录 watcher 之后按 debounce、change set 和索引配置异步刷新。完整契约见 [KBASE 编辑模式](KBASE编辑模式.md)。
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|

@@ -78,7 +78,7 @@ func BuildAccessPlanFromPolicy(cfg config.AccessPolicyConfig, session QuerySessi
 	if err != nil {
 		return AccessPlan{}, err
 	}
-	accessPlan := AccessPlan{
+	return AccessPlan{
 		RawPath:            plan.RawPath,
 		Path:               plan.Path,
 		Root:               plan.Root,
@@ -93,22 +93,7 @@ func BuildAccessPlanFromPolicy(cfg config.AccessPolicyConfig, session QuerySessi
 		Reason:             plan.Reason,
 		AccessLevel:        plan.AccessLevel,
 		Mode:               mode,
-	}
-	return applyScopedFileCeiling(session, accessPlan), nil
-}
-
-func applyScopedFileCeiling(session QuerySession, plan AccessPlan) AccessPlan {
-	policy := session.ScopedFilePolicy
-	if policy == nil ||
-		plan.Mode != WriteAccess ||
-		accesspolicy.PathInSessionWorkspace(session, plan.Path) {
-		return plan
-	}
-	plan.AllowedByWhitelist = false
-	plan.AutoApproved = false
-	plan.Blocked = true
-	plan.Reason = "KBASE editing write is limited to the session workspace and current chatspace"
-	return plan
+	}, nil
 }
 
 func PathInSessionWorkspace(session QuerySession, path string) bool {

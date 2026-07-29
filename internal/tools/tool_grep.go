@@ -77,10 +77,6 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 		"--glob", "!.jj",
 		"--glob", "!.sl",
 	}
-	scopedSource := filetools.ScopedPathInSource(accessSession, access.Path)
-	if scopedSource {
-		rgArgs = append(rgArgs, "--type-add", "kbasemd:*.[mM][dD]", "--type", "kbasemd")
-	}
 	switch mode {
 	case "files_with_matches":
 		rgArgs = append(rgArgs, "-l")
@@ -105,7 +101,7 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 	if glob := strings.TrimSpace(stringArg(args, "glob")); glob != "" {
 		rgArgs = append(rgArgs, "--glob", glob)
 	}
-	if typ := strings.TrimSpace(stringArg(args, "type")); typ != "" && !scopedSource {
+	if typ := strings.TrimSpace(stringArg(args, "type")); typ != "" {
 		rgArgs = append(rgArgs, "--type", typ)
 	}
 	if strings.HasPrefix(pattern, "-") {

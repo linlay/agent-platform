@@ -4287,7 +4287,7 @@ func TestWriteOutsideAccessPolicyRootsCombinesPathAndContentApproval(t *testing.
 	}
 }
 
-func TestKBaseExternalWriteSkipsApprovalBeforeExecutor(t *testing.T) {
+func TestKBaseExternalWriteUsesCommonApprovalBeforeExecutor(t *testing.T) {
 	root := t.TempDir()
 	chatDir := filepath.Join(t.TempDir(), "chat-1")
 	outside := t.TempDir()
@@ -4309,11 +4309,8 @@ func TestKBaseExternalWriteSkipsApprovalBeforeExecutor(t *testing.T) {
 			},
 		},
 		ScopedFilePolicy: &contracts.ScopedFilePolicy{
-			Root:              root,
-			AllowedExtensions: []string{".md"},
-			AllowRead:         true,
-			AllowWrite:        true,
-			AllowCreate:       true,
+			Root:                  root,
+			SourceMutationEnabled: true,
 		},
 	}
 	stream := &llmRunStream{
@@ -4343,13 +4340,65 @@ func TestKBaseExternalWriteSkipsApprovalBeforeExecutor(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invoke active write: %v", err)
 	}
-	for _, delta := range stream.pending {
-		if _, ok := delta.(contracts.DeltaAwaitAsk); ok {
-			t.Fatalf("KBASE external write must not produce approval awaiting: %#v", stream.pending)
-		}
+	if len(executor.invocations) != 0 {
+		t.Fatalf("external write must wait for common approval, got %#v", executor.invocations)
 	}
-	if len(executor.invocations) != 1 {
-		t.Fatalf("expected the runtime executor to enforce the blocked plan, got %#v", executor.invocations)
+	if len(stream.pending) != 1 {
+		t.Fatalf("expected one approval awaiting, got %#v", stream.pending)
+	}
+	ask, ok := stream.pending[0].(contracts.DeltaAwaitAsk)
+	if !ok || ask.Mode != "approval" || len(ask.Approvals) != 1 {
+		t.Fatalf("expected common external write approval, got %#v", stream.pending)
+	}
+}
+
+func TestKBaseReadOnlySourceMutationSkipsMeaninglessHITLPreflight(t *testing.T) {
+	source := t.TempDir()
+	target := filepath.Join(source, "policy.txt")
+	session := contracts.QuerySession{
+		RunID:         "run_1",
+		Mode:          agentkbase.Mode,
+		WorkspaceRoot: source,
+		AccessLevel:   contracts.AccessLevelDefault,
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{WorkspaceDir: source},
+		},
+		ScopedFilePolicy: &contracts.ScopedFilePolicy{
+			Root:                  source,
+			RequireExistingParent: true,
+		},
+	}
+	stream := &llmRunStream{
+		session: session,
+		engine: &LLMAgentEngine{cfg: config.Config{
+			AccessPolicy: config.AccessPolicyConfig{
+				WorkingDirectory: source,
+				Levels: map[string]config.AccessPolicyLevelConfig{
+					contracts.AccessLevelDefault: {
+						WriteRoots: []string{},
+						Approvals: config.AccessPolicyApprovalConfig{
+							WriteOutsideRoots: "hitl",
+						},
+					},
+				},
+			},
+			FileTools: config.FileToolsConfig{WorkingDirectory: source},
+		}},
+		execCtx: &contracts.ExecutionContext{Session: session},
+	}
+	invocation := &preparedToolInvocation{
+		toolName: "file_write",
+		args: map[string]any{
+			"file_path": target,
+			"content":   "blocked",
+		},
+	}
+	plan, ok := stream.buildFileAccessPlan(invocation)
+	if !ok || plan == nil || plan.Blocked || plan.AllowedByWhitelist || plan.AutoApproved {
+		t.Fatalf("expected AccessPolicy HITL plan before the source gate, got %#v", plan)
+	}
+	if stream.fileAccessPlanNeedsApproval(*plan) {
+		t.Fatalf("read-only source mutation must not produce an unusable HITL approval: %#v", plan)
 	}
 }
 

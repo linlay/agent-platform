@@ -12,7 +12,7 @@ import (
 	"agent-platform/internal/filetools"
 )
 
-func TestKBaseEditingAdversarialWriteEscapeAttemptsAreHardBlocked(t *testing.T) {
+func TestKBaseEditingAdversarialWritesFollowCanonicalAccessPolicy(t *testing.T) {
 	base := t.TempDir()
 	source := filepath.Join(base, "source")
 	outside := filepath.Join(base, "outside")
@@ -23,7 +23,7 @@ func TestKBaseEditingAdversarialWriteEscapeAttemptsAreHardBlocked(t *testing.T) 
 		}
 	}
 
-	executor := fileToolExecutor(source, true)
+	executor := fileToolExecutor(source, false)
 	executor.cfg.FileTools.RequireReadBeforeWrite = false
 	baseContext := kbaseEditingExecutionContext(source)
 	baseContext.Session.RuntimeHostAccess = contracts.HostAccessRoots{
@@ -36,130 +36,137 @@ func TestKBaseEditingAdversarialWriteEscapeAttemptsAreHardBlocked(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	outsideVictim := filepath.Join(outside, "victim.txt")
-	hostVictim := filepath.Join(hostAccess, "victim.txt")
-	otherChatVictim := filepath.Join(otherChatDir, "victim.txt")
-	for _, path := range []string{outsideVictim, hostVictim, otherChatVictim} {
-		if err := os.WriteFile(path, []byte("original"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	sourceLink := filepath.Join(source, "source-link")
-	chatLink := filepath.Join(chatDir, "chat-link")
 	if err := os.MkdirAll(chatDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	symlinksAvailable := runtime.GOOS != "windows"
-	if symlinksAvailable {
-		if err := os.Symlink(outside, sourceLink); err != nil {
-			symlinksAvailable = false
-			t.Logf("source symlink attack skipped: %v", err)
+	assertApprovalThenWrite := func(t *testing.T, rawPath string, target string) {
+		t.Helper()
+		execCtx := cloneKBaseAdversarialContext(baseContext)
+		execCtx.Session.AccessLevel = contracts.AccessLevelDefault
+		args := map[string]any{
+			"file_path":  rawPath,
+			"content":    "approved",
+			"pathScope":  "workspace",
+			"path_scope": "workspace",
 		}
-	}
-	if symlinksAvailable {
-		if err := os.Symlink(outside, chatLink); err != nil {
-			symlinksAvailable = false
-			t.Logf("chat symlink attack skipped: %v", err)
-		}
-	}
-
-	attacks := []struct {
-		name    string
-		rawPath string
-		target  string
-	}{
-		{name: "absolute_external", rawPath: outsideVictim, target: outsideVictim},
-		{name: "parent_traversal", rawPath: filepath.Join("..", "outside", "victim.txt"), target: outsideVictim},
-		{name: "host_access_write_root", rawPath: hostVictim, target: hostVictim},
-		{name: "other_chat_id", rawPath: otherChatVictim, target: otherChatVictim},
-	}
-	if symlinksAvailable {
-		attacks = append(attacks,
-			struct {
-				name    string
-				rawPath string
-				target  string
-			}{name: "source_symlink_escape", rawPath: filepath.Join(sourceLink, "victim.txt"), target: outsideVictim},
-			struct {
-				name    string
-				rawPath string
-				target  string
-			}{name: "chat_symlink_escape", rawPath: filepath.Join(chatLink, "victim.txt"), target: outsideVictim},
+		plan, err := filetools.BuildAccessPlanFromPolicy(
+			executor.cfg.AccessPolicy,
+			execCtx.Session,
+			filetools.WriteAccess,
+			rawPath,
 		)
-	}
-
-	for _, level := range []string{
-		contracts.AccessLevelDefault,
-		contracts.AccessLevelAutoApprove,
-		contracts.AccessLevelFullAccess,
-	} {
-		for _, attack := range attacks {
-			for _, toolName := range []string{"file_write", "file_edit"} {
-				t.Run(level+"/"+attack.name+"/"+toolName, func(t *testing.T) {
-					execCtx := cloneKBaseAdversarialContext(baseContext)
-					execCtx.Session.AccessLevel = level
-
-					// Attempt to forge both common spellings of a caller supplied
-					// path classification. File tools must ignore them and derive
-					// scope from the canonical path inside the service.
-					args := map[string]any{
-						"file_path":  attack.rawPath,
-						"pathScope":  "workspace",
-						"path_scope": "workspace",
-					}
-					if toolName == "file_edit" {
-						args["old_string"] = "original"
-						args["new_string"] = "compromised"
-					} else {
-						args["content"] = "compromised"
-					}
-
-					accessPlan, err := filetools.BuildAccessPlanFromPolicy(
-						executor.cfg.AccessPolicy,
-						execCtx.Session,
-						filetools.WriteAccess,
-						attack.rawPath,
-					)
-					if err != nil {
-						t.Fatal(err)
-					}
-					if !accessPlan.Blocked {
-						t.Fatalf("attack did not receive KBASE hard ceiling: %#v", accessPlan)
-					}
-
-					// Simulate a compromised caller replaying both exact and rule
-					// approvals for the real canonical target.
-					filetools.RegisterExactAccessApproval(execCtx, accessPlan.Fingerprint)
-					filetools.RegisterRuleAccessApproval(execCtx, accessPlan.RuleKey)
-					var writePlan filetools.WritePlan
-					if toolName == "file_edit" {
-						writePlan, err = filetools.BuildEditPlanWithAccess(accessPlan, executor.cfg.FileTools, args)
-					} else {
-						writePlan, err = filetools.BuildWritePlanWithAccess(accessPlan, executor.cfg.FileTools, args)
-					}
-					if err != nil {
-						t.Fatal(err)
-					}
-					filetools.RegisterExactWriteApproval(execCtx, writePlan.Fingerprint)
-					filetools.RegisterRuleWriteApproval(execCtx, writePlan.RuleKey)
-
-					result, err := executor.Invoke(context.Background(), toolName, args, execCtx)
-					if err != nil {
-						t.Fatal(err)
-					}
-					wantError := toolName + "_path_blocked"
-					if result.Structured["error"] != wantError {
-						t.Fatalf("attack result error = %#v, want %q; result=%#v", result.Structured["error"], wantError, result)
-					}
-					data, readErr := os.ReadFile(attack.target)
-					if readErr != nil || string(data) != "original" {
-						t.Fatalf("attack changed target: data=%q err=%v", string(data), readErr)
-					}
-				})
-			}
+		if err != nil {
+			t.Fatal(err)
+		}
+		canonicalTarget := filepath.Join(realPath(t, filepath.Dir(target)), filepath.Base(target))
+		if plan.Blocked || plan.AllowedByWhitelist || plan.Path != canonicalTarget {
+			t.Fatalf("expected canonical external approval plan, got %#v", plan)
+		}
+		result, err := executor.Invoke(context.Background(), "file_write", args, execCtx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Structured["error"] != "file_write_path_approval_required" {
+			t.Fatalf("external write bypassed common HITL: %#v", result)
+		}
+		if _, statErr := os.Stat(target); !os.IsNotExist(statErr) {
+			t.Fatalf("target changed before approval: %v", statErr)
+		}
+		filetools.RegisterExactAccessApproval(execCtx, plan.Fingerprint)
+		result, err = executor.Invoke(context.Background(), "file_write", args, execCtx)
+		if err != nil || result.Error != "" {
+			t.Fatalf("approved canonical write failed: result=%#v err=%v", result, err)
+		}
+		if data, readErr := os.ReadFile(target); readErr != nil || string(data) != "approved" {
+			t.Fatalf("approved write missed canonical target: data=%q err=%v", string(data), readErr)
 		}
 	}
+
+	t.Run("absolute_external", func(t *testing.T) {
+		assertApprovalThenWrite(t, filepath.Join(outside, "absolute.txt"), filepath.Join(outside, "absolute.txt"))
+	})
+	t.Run("parent_traversal", func(t *testing.T) {
+		assertApprovalThenWrite(t, filepath.Join("..", "outside", "traversal.txt"), filepath.Join(outside, "traversal.txt"))
+	})
+	t.Run("other_chat_id", func(t *testing.T) {
+		assertApprovalThenWrite(t, filepath.Join(otherChatDir, "other.txt"), filepath.Join(otherChatDir, "other.txt"))
+	})
+
+	t.Run("host_access_root", func(t *testing.T) {
+		execCtx := cloneKBaseAdversarialContext(baseContext)
+		execCtx.Session.AccessLevel = contracts.AccessLevelDefault
+		target := filepath.Join(hostAccess, "allowed.txt")
+		result, err := executor.Invoke(context.Background(), "file_write", map[string]any{
+			"file_path": target,
+			"content":   "host allowed",
+		}, execCtx)
+		if err != nil || result.Error != "" {
+			t.Fatalf("hostAccess write failed: result=%#v err=%v", result, err)
+		}
+	})
+
+	t.Run("configured_write_root", func(t *testing.T) {
+		execCtx := cloneKBaseAdversarialContext(baseContext)
+		execCtx.Session.AccessLevel = contracts.AccessLevelDefault
+		execCtx.Session.RuntimeHostAccess = contracts.HostAccessRoots{}
+		level := executor.cfg.AccessPolicy.Levels[contracts.AccessLevelDefault]
+		level.WriteRoots = append(level.WriteRoots, outside)
+		configuredExecutor := fileToolExecutor(source, false)
+		configuredExecutor.cfg.FileTools.RequireReadBeforeWrite = false
+		configuredExecutor.cfg.AccessPolicy.Levels[contracts.AccessLevelDefault] = level
+		target := filepath.Join(outside, "configured-root.txt")
+		result, err := configuredExecutor.Invoke(context.Background(), "file_write", map[string]any{
+			"file_path": target,
+			"content":   "configured root",
+		}, execCtx)
+		if err != nil || result.Error != "" {
+			t.Fatalf("configured writeRoots write failed: result=%#v err=%v", result, err)
+		}
+	})
+
+	t.Run("full_access", func(t *testing.T) {
+		execCtx := cloneKBaseAdversarialContext(baseContext)
+		execCtx.Session.AccessLevel = contracts.AccessLevelFullAccess
+		target := filepath.Join(outside, "full-access.txt")
+		result, err := executor.Invoke(context.Background(), "file_write", map[string]any{
+			"file_path": target,
+			"content":   "full access",
+		}, execCtx)
+		if err != nil || result.Error != "" {
+			t.Fatalf("full_access write failed: result=%#v err=%v", result, err)
+		}
+	})
+
+	t.Run("source_symlink_uses_real_target", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("symlink setup is not portable on Windows")
+		}
+		link := filepath.Join(source, "external-link")
+		if err := os.Symlink(outside, link); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+		assertApprovalThenWrite(t, filepath.Join(link, "symlink.txt"), filepath.Join(outside, "symlink.txt"))
+	})
+
+	t.Run("administrator_block_remains_final", func(t *testing.T) {
+		blockedExecutor := fileToolExecutor(source, false)
+		level := blockedExecutor.cfg.AccessPolicy.Levels[contracts.AccessLevelDefault]
+		level.Approvals.WriteOutsideRoots = "block"
+		blockedExecutor.cfg.AccessPolicy.Levels[contracts.AccessLevelDefault] = level
+		execCtx := cloneKBaseAdversarialContext(baseContext)
+		execCtx.Session.AccessLevel = contracts.AccessLevelDefault
+		target := filepath.Join(outside, "blocked.txt")
+		result, err := blockedExecutor.Invoke(context.Background(), "file_write", map[string]any{
+			"file_path": target,
+			"content":   "must not write",
+		}, execCtx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Structured["error"] != "file_write_path_blocked" {
+			t.Fatalf("administrator block did not remain final: %#v", result)
+		}
+	})
 }
 
 func TestKBaseEditingAdversarialExternalReadsRequireCommonPolicyApproval(t *testing.T) {
@@ -266,7 +273,7 @@ func TestKBaseEditingAdversarialReadApprovalCannotBeReusedForWrite(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if writeResult.Structured["error"] != "file_write_path_blocked" {
+	if writeResult.Structured["error"] != "file_write_path_approval_required" {
 		t.Fatalf("read approval widened write permission: %#v", writeResult)
 	}
 	data, readErr := os.ReadFile(path)
@@ -275,27 +282,204 @@ func TestKBaseEditingAdversarialReadApprovalCannotBeReusedForWrite(t *testing.T)
 	}
 }
 
-func TestKBaseEditingAdversarialForbiddenToolsCannotBeInjected(t *testing.T) {
+func TestKBaseAdversarialForbiddenToolsCannotBeInjectedInEitherStage(t *testing.T) {
 	source := t.TempDir()
 	executor := fileToolExecutor(source, false)
-	execCtx := kbaseEditingExecutionContext(source)
-	for _, toolName := range []string{
-		"bash",
-		"artifact_publish",
-		"desktop_action",
-		"memory_search",
-		"run_query",
-		"agent_invoke",
-	} {
-		t.Run(toolName, func(t *testing.T) {
-			result, err := executor.Invoke(context.Background(), toolName, map[string]any{}, execCtx)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if result.Error != "kbase_editing_tool_unsupported" {
-				t.Fatalf("injected tool %q was not rejected by the executor: %#v", toolName, result)
+	for _, editing := range []bool{false, true} {
+		stage := "main"
+		if editing {
+			stage = "editing"
+		}
+		t.Run(stage, func(t *testing.T) {
+			execCtx := kbaseExecutionContext(source, editing)
+			for _, toolName := range []string{
+				"bash",
+				"artifact_publish",
+				"desktop_action",
+				"memory_search",
+				"run_query",
+				"agent_invoke",
+			} {
+				t.Run(toolName, func(t *testing.T) {
+					result, err := executor.Invoke(context.Background(), toolName, map[string]any{}, execCtx)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if result.Error != "kbase_editing_tool_unsupported" {
+						t.Fatalf("injected tool %q was not rejected by the executor: %#v", toolName, result)
+					}
+				})
 			}
 		})
+	}
+}
+
+func TestKBaseReadOnlySourceMutationGateCannotBeWidened(t *testing.T) {
+	base := t.TempDir()
+	source := filepath.Join(base, "source")
+	chatDir := filepath.Join(base, "chats", "chat-1")
+	for _, dir := range []string{source, chatDir, filepath.Join(source, "nested")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sourcePath := filepath.Join(source, "policy.txt")
+	if err := os.WriteFile(sourcePath, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	baseExecutor := fileToolExecutor(source, false)
+	baseExecutor.cfg.FileTools.RequireReadBeforeWrite = false
+	baseContext := kbaseExecutionContext(source, false)
+	baseContext.Session.RuntimeContext.LocalPaths.ChatAttachmentsDir = chatDir
+	baseContext.Session.AccessLevel = contracts.AccessLevelDefault
+
+	assertSourceGate := func(t *testing.T, executor *RuntimeToolExecutor, execCtx *contracts.ExecutionContext, toolName string, args map[string]any) {
+		t.Helper()
+		result, err := executor.Invoke(context.Background(), toolName, args, execCtx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Structured["error"] != "kbase_editing_mode_required" {
+			t.Fatalf("source mutation escaped editingMode gate: %#v", result)
+		}
+	}
+
+	for _, test := range []struct {
+		name string
+		tool string
+		args map[string]any
+	}{
+		{
+			name: "relative_existing_write",
+			tool: "file_write",
+			args: map[string]any{"file_path": "policy.txt", "content": "blocked"},
+		},
+		{
+			name: "absolute_existing_edit",
+			tool: "file_edit",
+			args: map[string]any{"file_path": sourcePath, "old_string": "original", "new_string": "blocked"},
+		},
+		{
+			name: "absolute_new_write",
+			tool: "file_write",
+			args: map[string]any{"file_path": filepath.Join(source, "new.txt"), "content": "blocked"},
+		},
+		{
+			name: "canonical_parent_traversal",
+			tool: "file_write",
+			args: map[string]any{"file_path": filepath.Join("nested", "..", "traversal.txt"), "content": "blocked"},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			assertSourceGate(t, baseExecutor, cloneKBaseAdversarialContext(baseContext), test.tool, test.args)
+		})
+	}
+
+	t.Run("full_access", func(t *testing.T) {
+		execCtx := cloneKBaseAdversarialContext(baseContext)
+		execCtx.Session.AccessLevel = contracts.AccessLevelFullAccess
+		assertSourceGate(t, baseExecutor, execCtx, "file_write", map[string]any{
+			"file_path": sourcePath,
+			"content":   "blocked",
+		})
+	})
+
+	t.Run("auto_approve", func(t *testing.T) {
+		execCtx := cloneKBaseAdversarialContext(baseContext)
+		execCtx.Session.AccessLevel = contracts.AccessLevelAutoApprove
+		assertSourceGate(t, baseExecutor, execCtx, "file_write", map[string]any{
+			"file_path": sourcePath,
+			"content":   "blocked",
+		})
+	})
+
+	t.Run("host_access", func(t *testing.T) {
+		execCtx := cloneKBaseAdversarialContext(baseContext)
+		execCtx.Session.RuntimeHostAccess.WriteRoots = []string{source}
+		assertSourceGate(t, baseExecutor, execCtx, "file_write", map[string]any{
+			"file_path": sourcePath,
+			"content":   "blocked",
+		})
+	})
+
+	t.Run("configured_write_root", func(t *testing.T) {
+		executor := fileToolExecutor(source, false)
+		executor.cfg.FileTools.RequireReadBeforeWrite = false
+		level := executor.cfg.AccessPolicy.Levels[contracts.AccessLevelDefault]
+		level.WriteRoots = []string{source}
+		executor.cfg.AccessPolicy.Levels[contracts.AccessLevelDefault] = level
+		assertSourceGate(t, executor, cloneKBaseAdversarialContext(baseContext), "file_write", map[string]any{
+			"file_path": sourcePath,
+			"content":   "blocked",
+		})
+	})
+
+	t.Run("existing_approval", func(t *testing.T) {
+		executor := fileToolExecutor(source, false)
+		executor.cfg.FileTools.RequireReadBeforeWrite = false
+		level := executor.cfg.AccessPolicy.Levels[contracts.AccessLevelDefault]
+		level.WriteRoots = []string{}
+		executor.cfg.AccessPolicy.Levels[contracts.AccessLevelDefault] = level
+		execCtx := cloneKBaseAdversarialContext(baseContext)
+		plan, err := filetools.BuildAccessPlanFromPolicy(
+			executor.cfg.AccessPolicy,
+			execCtx.Session,
+			filetools.WriteAccess,
+			sourcePath,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if plan.Blocked || plan.AllowedByWhitelist || plan.AutoApproved {
+			t.Fatalf("expected source AccessPolicy approval plan, got %#v", plan)
+		}
+		filetools.RegisterExactAccessApproval(execCtx, plan.Fingerprint)
+		filetools.RegisterRuleAccessApproval(execCtx, plan.RuleKey)
+		assertSourceGate(t, executor, execCtx, "file_write", map[string]any{
+			"file_path": sourcePath,
+			"content":   "blocked",
+		})
+	})
+
+	t.Run("chat_symlink_into_source", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("symlink setup is not portable on Windows")
+		}
+		link := filepath.Join(chatDir, "source-link")
+		if err := os.Symlink(source, link); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+		assertSourceGate(t, baseExecutor, cloneKBaseAdversarialContext(baseContext), "file_write", map[string]any{
+			"file_path": filepath.Join(link, "policy.txt"),
+			"content":   "blocked",
+		})
+	})
+
+	t.Run("administrator_block_precedes_source_gate", func(t *testing.T) {
+		executor := fileToolExecutor(source, false)
+		level := executor.cfg.AccessPolicy.Levels[contracts.AccessLevelDefault]
+		level.ReadonlyRoots = append(level.ReadonlyRoots, "@workspace")
+		executor.cfg.AccessPolicy.Levels[contracts.AccessLevelDefault] = level
+		result, err := executor.Invoke(context.Background(), "file_write", map[string]any{
+			"file_path": sourcePath,
+			"content":   "blocked",
+		}, cloneKBaseAdversarialContext(baseContext))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Structured["error"] != "file_write_path_blocked" {
+			t.Fatalf("administrator block must remain the first visible decision: %#v", result)
+		}
+	})
+
+	if data, err := os.ReadFile(sourcePath); err != nil || string(data) != "original" {
+		t.Fatalf("read-only source changed: data=%q err=%v", string(data), err)
+	}
+	for _, name := range []string{"new.txt", "traversal.txt"} {
+		if _, err := os.Stat(filepath.Join(source, name)); !os.IsNotExist(err) {
+			t.Fatalf("read-only source artifact %q was created: %v", name, err)
+		}
 	}
 }
 
@@ -309,7 +493,6 @@ func cloneKBaseAdversarialContext(base *contracts.ExecutionContext) *contracts.E
 	}
 	if base.Session.ScopedFilePolicy != nil {
 		policy := *base.Session.ScopedFilePolicy
-		policy.AllowedExtensions = append([]string(nil), base.Session.ScopedFilePolicy.AllowedExtensions...)
 		cloned.Session.ScopedFilePolicy = &policy
 	}
 	cloned.ReadFileState = nil

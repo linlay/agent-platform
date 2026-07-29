@@ -197,6 +197,14 @@ func (s *llmRunStream) fileAccessPlanNeedsApproval(plan filetools.AccessPlan) bo
 	if plan.Blocked || plan.AutoApproved {
 		return false
 	}
+	if plan.Mode == filetools.WriteAccess {
+		if err := filetools.ValidateScopedWrite(s.fileAccessSession(), plan.Path); err != nil {
+			// The tool executor remains the authoritative error producer. Avoid
+			// asking for an approval that cannot widen the KBASE source mutation
+			// capability of this run.
+			return false
+		}
+	}
 	if plan.AllowedByWhitelist {
 		return false
 	}

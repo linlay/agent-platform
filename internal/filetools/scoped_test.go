@@ -8,46 +8,42 @@ import (
 	"agent-platform/internal/contracts"
 )
 
-func TestScopedFilePolicyEnforcesKBaseMarkdownBoundary(t *testing.T) {
+func TestScopedFilePolicyUsesCommonTextFormatsAndKeepsSourceParentGuard(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
-	valid := filepath.Join(root, "policy.md")
-	upper := filepath.Join(root, "POLICY.MD")
-	markdown := filepath.Join(root, "policy.markdown")
-	if err := os.WriteFile(valid, []byte("policy"), 0o644); err != nil {
-		t.Fatal(err)
+	paths := []string{
+		filepath.Join(root, "policy.md"),
+		filepath.Join(root, "notes.txt"),
+		filepath.Join(root, "page.html"),
+		filepath.Join(root, "future.custom"),
 	}
-	if err := os.WriteFile(upper, []byte("policy"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(markdown, []byte("policy"), 0o644); err != nil {
-		t.Fatal(err)
+	for _, path := range paths {
+		if err := os.WriteFile(path, []byte("text"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	session := scopedTestSession(root, true)
 
-	for _, path := range []string{valid, upper} {
+	for _, path := range paths {
 		if err := ValidateScopedRead(session, path, false); err != nil {
 			t.Fatalf("expected %s to be allowed: %v", path, err)
 		}
 	}
-	if err := ValidateScopedRead(session, markdown, false); ScopedPolicyErrorCode(err) != "kbase_editing_extension_unsupported" {
-		t.Fatalf("expected .markdown rejection, got %v", err)
+	if err := ValidateScopedWrite(session, filepath.Join(outside, "external.txt")); err != nil {
+		t.Fatalf("expected external write to defer to AccessPolicy: %v", err)
 	}
-	if err := ValidateScopedWrite(session, filepath.Join(outside, "escape.md")); ScopedPolicyErrorCode(err) != "kbase_editing_path_outside_source" {
-		t.Fatalf("expected outside source rejection, got %v", err)
-	}
-	if err := ValidateScopedWrite(session, filepath.Join(root, "missing", "new.md")); ScopedPolicyErrorCode(err) != "kbase_editing_parent_missing" {
+	if err := ValidateScopedWrite(session, filepath.Join(root, "missing", "new.txt")); ScopedPolicyErrorCode(err) != "kbase_editing_parent_missing" {
 		t.Fatalf("expected missing parent rejection, got %v", err)
 	}
-	if err := ValidateScopedWrite(session, filepath.Join(root, "new.md")); err != nil {
-		t.Fatalf("expected new Markdown file in existing directory to be allowed: %v", err)
+	if err := ValidateScopedWrite(session, filepath.Join(root, "new.html")); err != nil {
+		t.Fatalf("expected new source text file in existing directory to be allowed: %v", err)
 	}
-	if err := ValidateScopedWrite(session, filepath.Join(root, "docs", "..", "new.md")); err != nil {
+	if err := ValidateScopedWrite(session, filepath.Join(root, "docs", "..", "new.json")); err != nil {
 		t.Fatalf("expected canonical in-source parent traversal to be allowed: %v", err)
 	}
 }
 
-func TestScopedFilePolicyRejectsSymlinkEscapeAndReadOnlyRun(t *testing.T) {
+func TestScopedFilePolicyDefersSymlinkTargetToAccessPolicyAndRejectsReadOnlySourceMutation(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
 	outsideFile := filepath.Join(outside, "secret.md")
@@ -64,8 +60,8 @@ func TestScopedFilePolicyRejectsSymlinkEscapeAndReadOnlyRun(t *testing.T) {
 	}
 
 	readOnly := scopedTestSession(root, false)
-	if err := ValidateScopedRead(readOnly, filepath.Join(root, "notes.md"), false); ScopedPolicyErrorCode(err) != "kbase_editing_mode_required" {
-		t.Fatalf("expected editing mode requirement for read, got %v", err)
+	if err := ValidateScopedRead(readOnly, filepath.Join(root, "notes.md"), false); err != nil {
+		t.Fatalf("expected source read without editing mode to be allowed, got %v", err)
 	}
 	if err := ValidateScopedWrite(readOnly, filepath.Join(root, "notes.md")); ScopedPolicyErrorCode(err) != "kbase_editing_mode_required" {
 		t.Fatalf("expected editing mode requirement for write, got %v", err)
@@ -101,8 +97,8 @@ func TestScopedFilePolicyUsesCanonicalSourceAndCurrentChatRoots(t *testing.T) {
 		filepath.Join(otherChatDir, "report.txt"),
 		filepath.Join(outside, "report.txt"),
 	} {
-		if err := ValidateScopedWrite(session, path); ScopedPolicyErrorCode(err) != "kbase_editing_path_outside_source" {
-			t.Fatalf("write outside source/current chatspace must be rejected for %s: %v", path, err)
+		if err := ValidateScopedWrite(session, path); err != nil {
+			t.Fatalf("write outside source must defer to AccessPolicy for %s: %v", path, err)
 		}
 	}
 
@@ -110,8 +106,8 @@ func TestScopedFilePolicyUsesCanonicalSourceAndCurrentChatRoots(t *testing.T) {
 	if err := os.Symlink(outside, link); err != nil {
 		t.Fatal(err)
 	}
-	if err := ValidateScopedWrite(session, filepath.Join(link, "report.txt")); ScopedPolicyErrorCode(err) != "kbase_editing_path_outside_source" {
-		t.Fatalf("chatspace symlink escape must be rejected: %v", err)
+	if path := filepath.Join(link, "report.txt"); ScopedPathInSource(session, path) {
+		t.Fatalf("chatspace symlink escape must not be classified as source: %s", path)
 	}
 }
 
@@ -120,12 +116,8 @@ func scopedTestSession(root string, editing bool) contracts.QuerySession {
 		WorkspaceRoot: root,
 		ScopedFilePolicy: &contracts.ScopedFilePolicy{
 			Root:                  root,
-			AllowedExtensions:     []string{".md"},
-			AllowRead:             editing,
-			AllowWrite:            editing,
-			AllowCreate:           editing,
+			SourceMutationEnabled: editing,
 			RequireExistingParent: true,
-			RequireUTF8:           true,
 		},
 	}
 }

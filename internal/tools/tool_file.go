@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
@@ -100,19 +99,6 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 	if filetools.IsBinaryExtension(resolved.Path) {
 		return fileToolError("file_read_binary_unsupported", "binary file extension is not supported by read"), nil
 	}
-	if filetools.ScopedFilePolicyRequiresUTF8(accessSession, access.Path) {
-		if requestedEncoding != "" && !strings.EqualFold(requestedEncoding, "utf-8") && !strings.EqualFold(requestedEncoding, "utf8") {
-			return fileToolError("kbase_editing_encoding_unsupported", "KBASE editing v1 only supports UTF-8 Markdown files"), nil
-		}
-		raw, readErr := os.ReadFile(resolved.Path)
-		if readErr != nil {
-			return fileToolError("file_read_failed", readErr.Error()), nil
-		}
-		if !utf8.Valid(raw) {
-			return fileToolError("kbase_editing_encoding_unsupported", "KBASE editing v1 only supports UTF-8 Markdown files"), nil
-		}
-	}
-
 	maxBytes := maxInt(t.cfg.FileTools.MaxReadBytes, 1<<20)
 	file, err := os.Open(resolved.Path)
 	if err != nil {
@@ -205,15 +191,6 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 		return fileToolError("file_write_invalid_plan", err.Error()), nil
 	}
 	scopedSource := filetools.ScopedPathInSource(accessSession, access.Path)
-	scopedUTF8 := filetools.ScopedFilePolicyRequiresUTF8(accessSession, access.Path)
-	if scopedUTF8 {
-		if plan.Encoding != "" && !strings.EqualFold(plan.Encoding, "utf-8") && !strings.EqualFold(plan.Encoding, "utf8") {
-			return fileToolError("kbase_editing_encoding_unsupported", "KBASE editing v1 only supports UTF-8 Markdown files"), nil
-		}
-		if !utf8.Valid(plan.Content) {
-			return fileToolError("kbase_editing_encoding_unsupported", "KBASE editing v1 only supports UTF-8 Markdown content"), nil
-		}
-	}
 	requiresWriteApproval := t.cfg.FileTools.RequireWriteApproval && !writeAllowedBySessionHostAccess(execCtx, plan.FilePath) && !writeAllowedBySessionWorkspace(execCtx, plan.FilePath) && !writeAutoApprovedByAccessLevel(access)
 	if requiresWriteApproval && !filetools.ConsumeWriteApproval(execCtx, plan) {
 		result := structuredResultWithExit(map[string]any{
@@ -241,9 +218,6 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 		if err != nil {
 			return fileToolError("file_write_failed", err.Error()), nil
 		}
-		if scopedUTF8 && !utf8.Valid(data) {
-			return fileToolError("kbase_editing_encoding_unsupported", "KBASE editing v1 only supports UTF-8 Markdown files"), nil
-		}
 		beforeRaw = data
 		if decoded, ok, _ := textcodec.DecodeFileText(data, "", t.runtimeInfo()); ok {
 			beforeContent = decoded.Content
@@ -253,9 +227,7 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 		}
 	}
 	writeEncoding := strings.TrimSpace(plan.Encoding)
-	if scopedUTF8 {
-		writeEncoding = "utf-8"
-	} else if writeEncoding == "" {
+	if writeEncoding == "" {
 		writeEncoding = "utf-8"
 		if beforeExists && beforeEncoding != "utf-8" {
 			writeEncoding = beforeEncoding
@@ -348,10 +320,6 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 		return fileToolError("file_edit_invalid_plan", err.Error()), nil
 	}
 	scopedSource := filetools.ScopedPathInSource(accessSession, access.Path)
-	scopedUTF8 := filetools.ScopedFilePolicyRequiresUTF8(accessSession, access.Path)
-	if scopedUTF8 && plan.Encoding != "" && !strings.EqualFold(plan.Encoding, "utf-8") && !strings.EqualFold(plan.Encoding, "utf8") {
-		return fileToolError("kbase_editing_encoding_unsupported", "KBASE editing v1 only supports UTF-8 Markdown files"), nil
-	}
 	requiresWriteApproval := t.cfg.FileTools.RequireWriteApproval && !writeAllowedBySessionHostAccess(execCtx, plan.FilePath) && !writeAllowedBySessionWorkspace(execCtx, plan.FilePath) && !writeAutoApprovedByAccessLevel(access)
 	if requiresWriteApproval && !filetools.ConsumeWriteApproval(execCtx, plan) {
 		result := structuredResultWithExit(map[string]any{
@@ -391,9 +359,6 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 		if err != nil {
 			return fileToolError("file_edit_failed", err.Error()), nil
 		}
-		if scopedUTF8 && !utf8.Valid(data) {
-			return fileToolError("kbase_editing_encoding_unsupported", "KBASE editing v1 only supports UTF-8 Markdown files"), nil
-		}
 		currentRaw = data
 		decoded, ok, decodeErr := textcodec.DecodeFileText(data, plan.Encoding, t.runtimeInfo())
 		if decodeErr != nil {
@@ -408,9 +373,6 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 		return fileToolError("file_edit_file_not_found", "file does not exist and old_string is not empty"), nil
 	}
 	if strings.TrimSpace(currentEncoding) == "" {
-		currentEncoding = "utf-8"
-	}
-	if scopedUTF8 {
 		currentEncoding = "utf-8"
 	}
 
@@ -446,9 +408,6 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 
 	if lineEndings == "CRLF" {
 		updatedContent = strings.ReplaceAll(updatedContent, "\n", "\r\n")
-	}
-	if scopedUTF8 && !utf8.ValidString(updatedContent) {
-		return fileToolError("kbase_editing_encoding_unsupported", "KBASE editing v1 only supports UTF-8 Markdown content"), nil
 	}
 	updatedBytes, currentEncoding, err := textcodec.EncodeFileText(updatedContent, currentEncoding)
 	if err != nil {

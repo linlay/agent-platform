@@ -17,7 +17,6 @@ import (
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/kbase"
 	"agent-platform/internal/memory"
-	"agent-platform/internal/pathutil"
 	"agent-platform/internal/plantasks"
 	"agent-platform/internal/querymessages"
 )
@@ -126,16 +125,15 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		principal = PrincipalFromContext(ctx)
 	}
 	runtimeContext, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
-		agentKey:    req.AgentKey,
-		teamID:      req.TeamID,
-		role:        defaultRole(req.Role),
-		chatID:      req.ChatID,
-		chatName:    summary.ChatName,
-		scene:       req.Scene,
-		references:  req.References,
-		principal:   principal,
-		definition:  agentDef,
-		editingMode: editingMode,
+		agentKey:   req.AgentKey,
+		teamID:     req.TeamID,
+		role:       defaultRole(req.Role),
+		chatID:     req.ChatID,
+		chatName:   summary.ChatName,
+		scene:      req.Scene,
+		references: req.References,
+		principal:  principal,
+		definition: agentDef,
 	})
 	if err != nil {
 		return contracts.QuerySession{}, err
@@ -203,8 +201,8 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		}
 	}
 	toolNames = agentcoder.RuntimeToolNamesForAgent(agentDef.Mode, agentDef.ACPBridgeID, agentcoder.MainStage, toolNames)
-	if editingMode {
-		toolNames = agentkbase.EditingToolNames()
+	if agentkbase.IsMode(agentDef.Mode) {
+		toolNames = agentkbase.DefaultToolNames()
 	}
 	capabilityPrompts := []string(nil)
 	if agentDef.KBaseConfig.Enabled && !strings.EqualFold(agentDef.Mode, catalog.AgentModeKBase) {
@@ -221,21 +219,12 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	if agentDef.KBaseConfig.Enabled {
 		kbaseSourceRoot = strings.TrimSpace(agentDef.KBaseConfig.Source.Root)
 	}
-	if editingMode {
-		if err := validateKBaseEditingRoots(kbaseSourceRoot, runtimeContext.LocalPaths.ChatsDir); err != nil {
-			return contracts.QuerySession{}, err
-		}
-	}
 	var scopedFilePolicy *contracts.ScopedFilePolicy
 	if agentkbase.IsMode(agentDef.Mode) {
 		scopedFilePolicy = &contracts.ScopedFilePolicy{
 			Root:                  kbaseSourceRoot,
-			AllowedExtensions:     []string{".md"},
-			AllowRead:             editingMode,
-			AllowWrite:            editingMode,
-			AllowCreate:           editingMode,
+			SourceMutationEnabled: editingMode,
 			RequireExistingParent: true,
-			RequireUTF8:           true,
 		}
 	}
 
@@ -310,21 +299,6 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	}
 	session.CurrentMessages = s.buildCurrentMessages(req, session)
 	return session, nil
-}
-
-func validateKBaseEditingRoots(sourceRoot string, chatsRoot string) error {
-	source, err := pathutil.Canonicalize(sourceRoot)
-	if err != nil {
-		return fmt.Errorf("resolve KBASE editing source root: %w", err)
-	}
-	chats, err := pathutil.Canonicalize(chatsRoot)
-	if err != nil {
-		return fmt.Errorf("resolve KBASE editing chats root: %w", err)
-	}
-	if pathutil.WithinRoot(source, chats) || pathutil.WithinRoot(chats, source) {
-		return fmt.Errorf("KBASE editing source root must be separate from the runtime chats root")
-	}
-	return nil
 }
 
 func appendKBaseCapabilityToolsToExplicitStage(tools []string) []string {

@@ -25,7 +25,7 @@ func resolveDirectoryAgentConfig(dirPath string) string {
 	return ""
 }
 
-func loadAgentsWithAdmin(root, marketDir string, globalMemoryEnabled bool) (map[string]AgentDefinition, map[string]AdminAgent, error) {
+func loadAgentsWithAdmin(root, marketDir, chatsDir string, globalMemoryEnabled bool) (map[string]AgentDefinition, map[string]AdminAgent, error) {
 	items := map[string]AgentDefinition{}
 	adminItems := map[string]AdminAgent{}
 	err := visitRuntimeEntries(
@@ -41,7 +41,7 @@ func loadAgentsWithAdmin(root, marketDir string, globalMemoryEnabled bool) (map[
 			// records diagnostics and preserves an invalid AdminAgent entry when
 			// parsing or validation fails, while valid Agents remain available.
 			// Root traversal failures are still returned by visitRuntimeEntries.
-			_ = loadAgentSourceIntoMaps(root, name, entry, marketDir, globalMemoryEnabled, items, adminItems)
+			_ = loadAgentSourceIntoMaps(root, name, entry, marketDir, chatsDir, globalMemoryEnabled, items, adminItems)
 		},
 	)
 	if err != nil {
@@ -50,7 +50,7 @@ func loadAgentsWithAdmin(root, marketDir string, globalMemoryEnabled bool) (map[
 	return items, adminItems, nil
 }
 
-func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, marketDir string, globalMemoryEnabled bool, items map[string]AgentDefinition, adminItems map[string]AdminAgent) error {
+func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, marketDir, chatsDir string, globalMemoryEnabled bool, items map[string]AgentDefinition, adminItems map[string]AdminAgent) error {
 	source, ok := runtimeAgentSource(root, name, entry)
 	if !ok {
 		return nil
@@ -88,6 +88,13 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, market
 		log.Printf("[catalog][agents] skip %s %s: KBASE source error: %v", source.Kind, name, err)
 		adminItems[adminKey] = invalidAdminAgent(source, adminKey, definition, "invalid_config", err)
 		return err
+	}
+	if def.KBaseConfig.Enabled {
+		if err := kbase.ValidateSourceChatsSeparation(def.KBaseConfig.Source.Root, chatsDir); err != nil {
+			log.Printf("[catalog][agents] skip %s %s: KBASE source/chats overlap: %v", source.Kind, name, err)
+			adminItems[adminKey] = invalidAdminAgent(source, adminKey, definition, "invalid_kbase_source_overlap", err)
+			return err
+		}
 	}
 	def = applyGlobalAgentFlags(def, globalMemoryEnabled)
 	items[def.Key] = def
@@ -1009,6 +1016,12 @@ func resolveLoadedKBaseSource(def *AgentDefinition, source EditableAgentSource) 
 		return err
 	}
 	def.KBaseConfig.Source.Root = root
+	if strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeKBase) {
+		// A dedicated KBASE agent has exactly one workspace: its final,
+		// canonical knowledge source. runtimeConfig.workspaceRoot is retained
+		// only as the legacy input used when source.root was omitted.
+		def.Workspace.Root = root
+	}
 	return nil
 }
 

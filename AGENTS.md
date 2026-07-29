@@ -14,7 +14,7 @@
 - 已具备 HITL question / approval / form、运行中 submit / steer / interrupt 协议入口。
 - 已具备 SQLite memory、FTS、可选 embedding、learn / consolidate / feedback 与 memory tools。
 - 已具备可由普通 Agent 挂载、并保留专用 `mode: KBASE` 预设的 KBASE 文本知识库公共能力，包括 LanceDB generation 检索、加权 RRF、目录增量 watcher 与本地 Rust sidecar 管理；SQLite `control.db` 只负责 generation、文件状态与恢复日志。
-- 已具备专用 `mode: KBASE` 的单 run `editingMode`：source root 内仅开放 UTF-8 `.md` 的读取、查找、新建和修改并同步复用 KBASE delta refresh；当前 chatspace 复用通用文本文件工具且不触发索引；两者之外读取服从 AccessPolicy、写入固定 hard block。
+- 已具备专用 `mode: KBASE` 的固定 Source Workspace 和通用文本文件工具：main/editing 两种 stage 的工具 schema 相同，当前 Chat 目录独立可写；单 run `editingMode` 只控制 Source mutation，写入与索引解耦，由 KBASE 目录 watcher 异步维护。
 - 已具备 automation、`agent_invoke` 子智能体调度、`run_query` / `run_status` / `run_interrupt` 独立 Agent/Team 根 run 启动与控制、带隐藏协调器的 orchestrated Team、基于官方 Go SDK v1.6.1 的 MCP streamable HTTP/stdio session client 与 tool sync、WebSocket 控制面等能力骨架；MCP 唯一稳定协议版本为 `2025-11-25`。
 尚未完全对齐 Java 版的部分能力包括 frontend tool 完整闭环、MCP 全量生产验证、automation 深度编排、热重载细节和更完整的前端协议适配。未落地能力必须在专题文档中明确标注，不能写成已完成能力。
 
@@ -140,7 +140,7 @@ KBASE 默认由 `AP_RUNTIME_KBASE_DIR` 控制，每个 agent storageDir 可包�
 - 新增 API 保持统一 JSON 包裹、字段命名和错误语义。
 - KBASE 对外 tool/REST/`source.publish` 契约以 LanceDB 路径回归；只有 `indexHash` 变化可触发新 generation，`queryHash` 中的 topK/RRF/权重/候选池调整不得引发全量重建。
 - KBASE watcher 对所有 `kbaseConfig.enabled: true` 的 capability 使用路径级 change set 更新 active generation；启动、手工普通 refresh 与周期 reconcile 才做全目录对账，`force=true`、首次索引和 `indexHash` 变化才创建新 generation。
-- KBASE editing 是专用 mode 的 run 授权，不是 Agent 配置。它复用通用 `AccessPolicy -> AccessPlan -> HITL -> FileTools` 主链路，并由 session 冻结的 `ScopedFilePolicy` 叠加 source `.md`/UTF-8/既有父目录约束和 external write hard ceiling；`accessLevel`、hostAccess 与 HITL 不得扩大 source/chatspace 写边界或固定工具集。
+- 专用 KBASE 的 Workspace 始终是最终 canonical Source root，当前 Chat 目录只保存在 `ChatAttachmentsDir`；main/editing 两种 stage 固定提供相同的五个文件工具。KBASE editing 是 Source mutation 的 run 授权，不是 Agent 配置。它复用通用 `AccessPolicy -> AccessPlan -> HITL -> FileTools` 主链路；session 冻结的 `ScopedFilePolicy` 只负责固定工具准入、Source 识别、`SourceMutationEnabled`、Source 已有文件先读后写和新文件父目录已存在，不覆盖 AccessPlan，也不限制文本扩展名或编码。`accessLevel`、hostAccess 与 HITL 按通用规则作用于 external，但不能替代 `editingMode:true`；固定工具集仍不可扩大。
 - 测试以 `make test` / `go test ./...` 为主，协议变更优先覆盖 `internal/server`、`internal/stream`、`internal/llm`、`internal/tools`。
 
 ## 8. 开发流程
@@ -166,7 +166,7 @@ make test
 - `runtimeConfig.env` 不会通过 catalog API 回显，避免泄露代理、凭据或私有 endpoint。
 - 文件工具权限独立于 Bash 权限，越权路径通过 HITL approval 兜底。
 - `AP_AGENT_CONFIG_HOME` 与 `AP_CHAT_DIR` 是 Platform 在 host bash/tool、Container Hub 与 Chat-scoped Agent terminal 启动时一起注入并冻结的保留变量；agent、skill 和调用级 env 均不得覆盖。前者按 Agent 定位静态配置根，后者按 Chat 定位可写目录，Container 的 `/workspace` 必须映射同一宿主机 Chat 目录。
-- 专用 KBASE editing 的合法 source `.md` 与当前 chatspace 写入在 shipped 默认 policy 下免逐次 HITL；管理员显式 block 仍优先。source 写入触发 `kbase-index`，chatspace 写入不触发。source 索引 hook 失败不回滚文件，而是返回 failed hook 并将能力保持 degraded，等待 watcher 或显式 refresh 恢复。
+- 专用 KBASE 未开启 editing 时 Source 可读但不可 mutation，当前 Chat 目录仍按 `@chat` 可读写；开启后 Source mutation 在 shipped default policy 下免逐次 HITL。external 和其他 chatId 默认进入 HITL，`writeRoots`、hostAccess、`full_access` 或 approval 可按通用策略放宽；这些授权不能放宽非 editing Source，管理员显式 block 仍优先。Source mutation 不触发同步索引 hook，KBASE watcher 按 debounce 与 change set 异步刷新。
 - MCP registry 同时支持 `streamable-http` 与 `stdio`，严格要求协商版本 `2025-11-25`。旧 external stdio 私有协议没有兼容期；`service.yml`、`type: external`、`external:` 或 `kind: external-service` 会使启动/热重载硬失败。平台、新版 stdio server 二进制和 registry 配置必须同批发布。
 - `agent_invoke` 只允许显式配置的普通主 agent 使用，当前禁止嵌套；orchestrated Team 自动注入 session-local embedded builtin `agent_delegate` 和三个 plan tools。普通 Agent 配置、session 与执行入口均拒绝 `agent_delegate`，该工具也不进入公开工具 catalog。
 - `run_query` / `run_status` / `run_interrupt` 只允许分别显式配置的普通主 Agent 根 run 使用，query 按精确 catalog `agentKey/teamId` 启动独立根 run；不设目标白名单、深度/并发配置或 maxActiveRuns。status/interrupt 只接受同一调用 Agent 与 subject 创建的 run，目标 run 禁止再次调用任一 run 工具。旧 `agent_run_query`、`agent_run_status`、`agent_run_interrupt` 已删除且配置引用会硬失败。
@@ -185,7 +185,7 @@ make test
 - [记忆系统](docs/记忆系统.md)：remember、SQLite memory、FTS、embedding、learn、consolidate、memory tools。
 - [运行时和沙箱](docs/运行时和沙箱.md)：runtime 目录、Container Hub、mounts、host / sandbox 工具边界。
 - [KBASE LanceDB 迁移](docs/KBASE-LanceDB迁移.md)：LanceDB sidecar、control.db、generation、加权 RRF、迁移验证、恢复、回滚与分发边界。
-- [KBASE 编辑模式](docs/KBASE编辑模式.md)：`editingMode`、Markdown 文件硬边界、同步索引、失败语义和 WebClient 契约。
+- [KBASE 编辑模式](docs/KBASE编辑模式.md)：`editingMode`、通用文本文件、AccessPolicy/HITL、watcher 异步索引和 Catalog source/chats 分离。
 - [KBASE 编辑模式越权对抗测试报告](docs/KBASE编辑模式越权对抗测试报告.md)：准入、固定工具集、HITL、approval replay、路径逃逸、chat 隔离和索引 hook 的红队验证记录。
 - [API与协议](docs/API与协议.md)：HTTP API 参数、SSE、WebSocket、HTTP 文件数据面、resource ticket。
 - [HITL协议](docs/HITL协议.md)：question / approval / form、submit、awaiting 事件。

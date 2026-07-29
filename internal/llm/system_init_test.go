@@ -71,9 +71,7 @@ func TestKBaseReadOnlyFingerprintIgnoresEditingPolicySnapshot(t *testing.T) {
 	changed.KBaseSourceRoot = "/knowledge"
 	changed.ScopedFilePolicy = &contracts.ScopedFilePolicy{
 		Root:                  "/knowledge",
-		AllowedExtensions:     []string{".md"},
 		RequireExistingParent: true,
-		RequireUTF8:           true,
 	}
 	tools := []api.ToolDetailResponse{{Name: "kbase_search", Description: "search"}}
 	if first, second := ComputeSystemInitFingerprint(session, "main", tools), ComputeSystemInitFingerprint(changed, "main", tools); first != second {
@@ -457,8 +455,8 @@ func TestKBaseEditingBuildsIndependentSystemInitProfile(t *testing.T) {
 	session.KBaseSourceRoot = "/knowledge"
 	session.ToolNames = agentkbase.EditingToolNames()
 	session.ScopedFilePolicy = &contracts.ScopedFilePolicy{
-		Root: "/knowledge", AllowedExtensions: []string{".md"},
-		AllowRead: true, AllowWrite: true, AllowCreate: true, RequireUTF8: true,
+		Root:                  "/knowledge",
+		SourceMutationEnabled: true,
 	}
 	toolDefs := make([]api.ToolDetailResponse, 0, len(session.ToolNames)+1)
 	for _, name := range append(append([]string(nil), session.ToolNames...), "bash") {
@@ -476,6 +474,44 @@ func TestKBaseEditingBuildsIndependentSystemInitProfile(t *testing.T) {
 	assertToolNames(t, profile.Tools, agentkbase.EditingToolNames())
 	if !strings.Contains(profile.SystemMessage["content"].(string), "KBASE Editing Mode") {
 		t.Fatalf("editing prompt missing from profile: %#v", profile.SystemMessage)
+	}
+}
+
+func TestKBaseMainBuildsSameFileToolSchemasWithReadOnlySourcePrompt(t *testing.T) {
+	session := fingerprintTestSession()
+	session.Mode = agentkbase.Mode
+	session.KBaseEnabled = true
+	session.KBaseSourceRoot = "/knowledge"
+	session.WorkspaceRoot = "/knowledge"
+	session.ToolNames = agentkbase.DefaultToolNames()
+	session.RuntimeContext.LocalPaths = contracts.LocalPaths{
+		WorkspaceDir:       "/knowledge",
+		WorkingDirectory:   "/knowledge",
+		ChatAttachmentsDir: "/runtime/chats/chat-1",
+	}
+	session.ScopedFilePolicy = &contracts.ScopedFilePolicy{
+		Root:                  "/knowledge",
+		RequireExistingParent: true,
+	}
+	toolDefs := make([]api.ToolDetailResponse, 0, len(session.ToolNames)+1)
+	for _, name := range append(append([]string(nil), session.ToolNames...), "bash") {
+		toolDefs = append(toolDefs, api.ToolDetailResponse{Name: name, Description: name})
+	}
+
+	profiles := BuildSystemInitProfiles(session, api.QueryRequest{Message: "read and report"}, toolDefs, 12, 4, 12, config.PromptsConfig{})
+	if len(profiles) != 1 {
+		t.Fatalf("expected one main profile, got %#v", profiles)
+	}
+	profile := profiles[0]
+	if profile.CacheKey != agentkbase.MainCacheKey || profile.Mode != agentkbase.MainStage || profile.Stage != "main" {
+		t.Fatalf("unexpected main profile: %#v", profile)
+	}
+	assertToolNames(t, profile.Tools, agentkbase.DefaultToolNames())
+	content, _ := profile.SystemMessage["content"].(string)
+	if !strings.Contains(content, "read-only unless this run explicitly enables editingMode") ||
+		!strings.Contains(content, "/runtime/chats/chat-1") ||
+		strings.Contains(content, "The user explicitly enabled knowledge-source mutation") {
+		t.Fatalf("unexpected main KBASE prompt: %s", content)
 	}
 }
 

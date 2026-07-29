@@ -46,8 +46,7 @@ func Descriptor() agentcontract.ModeDescriptor {
 			Budget:      DefaultBudget(),
 		},
 		Capabilities: agentcontract.ModeCapabilities{
-			RunAsChild:      true,
-			FileChangeHooks: true,
+			RunAsChild: true,
 		},
 	}
 }
