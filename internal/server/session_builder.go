@@ -125,16 +125,15 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		principal = PrincipalFromContext(ctx)
 	}
 	runtimeContext, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
-		agentKey:    req.AgentKey,
-		teamID:      req.TeamID,
-		role:        defaultRole(req.Role),
-		chatID:      req.ChatID,
-		chatName:    summary.ChatName,
-		scene:       req.Scene,
-		references:  req.References,
-		principal:   principal,
-		definition:  agentDef,
-		editingMode: editingMode,
+		agentKey:   req.AgentKey,
+		teamID:     req.TeamID,
+		role:       defaultRole(req.Role),
+		chatID:     req.ChatID,
+		chatName:   summary.ChatName,
+		scene:      req.Scene,
+		references: req.References,
+		principal:  principal,
+		definition: agentDef,
 	})
 	if err != nil {
 		return contracts.QuerySession{}, err
@@ -202,8 +201,8 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		}
 	}
 	toolNames = agentcoder.RuntimeToolNamesForAgent(agentDef.Mode, agentDef.ACPBridgeID, agentcoder.MainStage, toolNames)
-	if editingMode {
-		toolNames = agentkbase.EditingToolNames()
+	if agentkbase.IsMode(agentDef.Mode) {
+		toolNames = agentkbase.DefaultToolNames()
 	}
 	capabilityPrompts := []string(nil)
 	if agentDef.KBaseConfig.Enabled && !strings.EqualFold(agentDef.Mode, catalog.AgentModeKBase) {
@@ -224,12 +223,8 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	if agentkbase.IsMode(agentDef.Mode) {
 		scopedFilePolicy = &contracts.ScopedFilePolicy{
 			Root:                  kbaseSourceRoot,
-			AllowedExtensions:     []string{".md"},
-			AllowRead:             editingMode,
-			AllowWrite:            editingMode,
-			AllowCreate:           editingMode,
+			SourceMutationEnabled: editingMode,
 			RequireExistingParent: true,
-			RequireUTF8:           true,
 		}
 	}
 

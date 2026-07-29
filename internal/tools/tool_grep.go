@@ -41,9 +41,6 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 	if access.Blocked {
 		return fileToolError("grep_path_blocked", access.Reason), nil
 	}
-	if err := filetools.ValidateScopedRawPath(accessSession, access.RawPath); err != nil {
-		return scopedFileToolError(err), nil
-	}
 	if filetools.IsBlockedDeviceFile(access.Path) {
 		return fileToolError("file_read_device_blocked", "device file is blocked"), nil
 	}
@@ -80,9 +77,6 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 		"--glob", "!.jj",
 		"--glob", "!.sl",
 	}
-	if accessSession.ScopedFilePolicy != nil {
-		rgArgs = append(rgArgs, "--type-add", "kbasemd:*.[mM][dD]", "--type", "kbasemd")
-	}
 	switch mode {
 	case "files_with_matches":
 		rgArgs = append(rgArgs, "-l")
@@ -107,7 +101,7 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 	if glob := strings.TrimSpace(stringArg(args, "glob")); glob != "" {
 		rgArgs = append(rgArgs, "--glob", glob)
 	}
-	if typ := strings.TrimSpace(stringArg(args, "type")); typ != "" && accessSession.ScopedFilePolicy == nil {
+	if typ := strings.TrimSpace(stringArg(args, "type")); typ != "" {
 		rgArgs = append(rgArgs, "--type", typ)
 	}
 	if strings.HasPrefix(pattern, "-") {

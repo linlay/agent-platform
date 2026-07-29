@@ -317,7 +317,7 @@ func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*Fil
 func (r *FileRegistry) Reload(_ context.Context, reason string) error {
 	switch reason {
 	case "agents":
-		agents, adminAgents, err := loadAgentsWithAdmin(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsMarketDir, r.cfg.Memory.Enabled)
+		agents, adminAgents, err := loadAgentsWithAdmin(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsMarketDir, r.cfg.Paths.ChatsDir, r.cfg.Memory.Enabled)
 		if err != nil {
 			return err
 		}
@@ -348,7 +348,7 @@ func (r *FileRegistry) Reload(_ context.Context, reason string) error {
 	}
 
 	// Full reload (startup, config, or unknown reason)
-	agents, adminAgents, err := loadAgentsWithAdmin(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsMarketDir, r.cfg.Memory.Enabled)
+	agents, adminAgents, err := loadAgentsWithAdmin(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsMarketDir, r.cfg.Paths.ChatsDir, r.cfg.Memory.Enabled)
 	if err != nil {
 		return err
 	}

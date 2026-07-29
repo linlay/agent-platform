@@ -55,20 +55,19 @@ func buildPromptAppendConfig(global config.PromptsConfig, def catalog.AgentDefin
 }
 
 type runtimeRequestContextInput struct {
-	agentKey    string
-	teamID      string
-	role        string
-	chatID      string
-	chatName    string
-	scene       *api.Scene
-	references  []api.Reference
-	principal   *Principal
-	definition  catalog.AgentDefinition
-	editingMode bool
+	agentKey   string
+	teamID     string
+	role       string
+	chatID     string
+	chatName   string
+	scene      *api.Scene
+	references []api.Reference
+	principal  *Principal
+	definition catalog.AgentDefinition
 }
 
 func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (contracts.RuntimeRequestContext, error) {
-	workspaceRoot := effectiveLocalWorkspaceRoot(input.definition, input.editingMode)
+	workspaceRoot := effectiveLocalWorkspaceRoot(input.definition)
 	localPaths, err := resolveLocalPaths(s.deps.Config.Paths, input.chatID, input.definition.AgentDir, workspaceRoot)
 	if err != nil {
 		return contracts.RuntimeRequestContext{}, err
@@ -295,8 +294,8 @@ func buildRequiredSkillConstraint(requiredSkillKeys []string) string {
 	return strings.Join(lines, "\n")
 }
 
-func effectiveLocalWorkspaceRoot(def catalog.AgentDefinition, editingMode bool) string {
-	if editingMode && strings.EqualFold(strings.TrimSpace(def.Mode), catalog.AgentModeKBase) {
+func effectiveLocalWorkspaceRoot(def catalog.AgentDefinition) string {
+	if strings.EqualFold(strings.TrimSpace(def.Mode), catalog.AgentModeKBase) {
 		if root := strings.TrimSpace(def.KBaseConfig.Source.Root); root != "" {
 			return root
 		}

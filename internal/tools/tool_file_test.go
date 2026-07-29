@@ -902,18 +902,13 @@ func (h *recordingFileChangeHook) AfterFileChange(_ context.Context, event contr
 	return h.result
 }
 
-func TestKBaseEditingFileToolsEnforcePolicyAndReturnIndexHook(t *testing.T) {
+func TestKBaseEditingFileToolsEnforceSourceMutationRulesWithoutIndexHook(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "policy.md")
 	if err := os.WriteFile(path, []byte("refund: 7 days\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	hook := &recordingFileChangeHook{result: contracts.FileChangeHookResult{
-		Name:   "kbase-index",
-		Status: "success",
-		Data:   map[string]any{"scope": "delta", "changedFiles": 1, "indexedChunks": 1},
-	}}
-	executor := fileToolExecutor(root, false).WithFileChangeHooks(hook)
+	executor := fileToolExecutor(root, false)
 	executor.cfg.FileTools.RequireReadBeforeWrite = false
 	execCtx := kbaseEditingExecutionContext(root)
 
@@ -940,49 +935,51 @@ func TestKBaseEditingFileToolsEnforcePolicyAndReturnIndexHook(t *testing.T) {
 	if err != nil || edited.Error != "" {
 		t.Fatalf("edit Markdown: result=%#v err=%v", edited, err)
 	}
-	hooks, ok := edited.Structured["hooks"].([]contracts.FileChangeHookResult)
-	if !ok || len(hooks) != 1 || hooks[0].Name != "kbase-index" || hooks[0].Status != "success" {
-		t.Fatalf("unexpected editing hook result: %#v", edited.Structured["hooks"])
-	}
-	if len(hook.events) != 1 || hook.events[0].AgentKey != "docs-kbase" ||
-		hook.events[0].ChatID != "chat-edit" || hook.events[0].RunID != "run-edit" ||
-		hook.events[0].PreviousContentSHA256 == "" || hook.events[0].ContentSHA256 == "" {
-		t.Fatalf("unexpected editing hook event: %#v", hook.events)
+	if _, ok := edited.Structured["hooks"]; ok {
+		t.Fatalf("KBASE source mutation must not return synchronous index hooks: %#v", edited.Structured)
 	}
 	if data, readErr := os.ReadFile(path); readErr != nil || string(data) != "refund: 14 days\n" {
 		t.Fatalf("unexpected edited file %q err=%v", string(data), readErr)
 	}
 
-	rejected, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path": filepath.Join(root, "notes.txt"),
-		"content":   "must not write",
-	}, execCtx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rejected.Structured["error"] != "kbase_editing_extension_unsupported" {
-		t.Fatalf("full_access must not bypass extension policy: %#v", rejected.Structured)
-	}
-	if len(hook.events) != 1 {
-		t.Fatalf("rejected write must not run hooks: %#v", hook.events)
+	for _, name := range []string{"notes.txt", "page.html", "metadata.json", "content.custom"} {
+		written, err := executor.invokeWrite(context.Background(), map[string]any{
+			"file_path": filepath.Join(root, name),
+			"content":   "generic text",
+		}, execCtx)
+		if err != nil || written.Error != "" {
+			t.Fatalf("write generic source format %q: result=%#v err=%v", name, written, err)
+		}
+		if _, ok := written.Structured["hooks"]; ok {
+			t.Fatalf("generic source write returned synchronous index hooks: %#v", written.Structured)
+		}
 	}
 }
 
-func TestKBaseEditingRejectsUnsupportedEncodingAndMissingParent(t *testing.T) {
+func TestKBaseEditingPreservesGenericEncodingAndRejectsMissingParent(t *testing.T) {
 	root := t.TempDir()
-	nonUTF8 := filepath.Join(root, "legacy.md")
-	if err := os.WriteFile(nonUTF8, []byte{0xff, 0xfe, 0xfd}, 0o644); err != nil {
+	nonUTF8 := filepath.Join(root, "legacy.txt")
+	if err := os.WriteFile(nonUTF8, encodeTextFixture(t, simplifiedchinese.GB18030, "标题=旧值\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	executor := fileToolExecutor(root, false)
 	execCtx := kbaseEditingExecutionContext(root)
 
-	read, err := executor.invokeRead(map[string]any{"file_path": nonUTF8}, execCtx)
-	if err != nil {
-		t.Fatal(err)
+	read, err := executor.invokeRead(map[string]any{"file_path": nonUTF8, "add_line_numbers": false}, execCtx)
+	if err != nil || read.Error != "" || read.Structured["encoding"] != "gb18030" {
+		t.Fatalf("read generic non-UTF-8 source text: result=%#v err=%v", read, err)
 	}
-	if read.Structured["error"] != "kbase_editing_encoding_unsupported" {
-		t.Fatalf("expected non-UTF-8 rejection, got %#v", read.Structured)
+	edited, err := executor.invokeEdit(context.Background(), map[string]any{
+		"file_path":  nonUTF8,
+		"old_string": "旧值",
+		"new_string": "新值",
+	}, execCtx)
+	if err != nil || edited.Error != "" || edited.Structured["encoding"] != "gb18030" {
+		t.Fatalf("edit generic non-UTF-8 source text: result=%#v err=%v", edited, err)
+	}
+	raw, err := os.ReadFile(nonUTF8)
+	if err != nil || utf8.Valid(raw) || decodeTextFixture(t, simplifiedchinese.GB18030, raw) != "标题=新值\n" {
+		t.Fatalf("source encoding was not preserved: raw=%q err=%v", string(raw), err)
 	}
 	write, err := executor.invokeWrite(context.Background(), map[string]any{
 		"file_path": filepath.Join(root, "missing", "new.md"),
@@ -1008,12 +1005,13 @@ func TestKBaseEditingHardToolSetRejectsBash(t *testing.T) {
 	}
 }
 
-func TestKBaseEditingGlobAndGrepOnlyReturnMarkdown(t *testing.T) {
+func TestKBaseEditingGlobAndGrepUseGenericTextRules(t *testing.T) {
 	requireRipgrep(t)
 	root := t.TempDir()
 	mustWriteFile(t, filepath.Join(root, "policy.md"), "refund needle\n")
 	mustWriteFile(t, filepath.Join(root, "guide.MD"), "guide needle\n")
 	mustWriteFile(t, filepath.Join(root, "private.txt"), "private needle\n")
+	mustWriteFile(t, filepath.Join(root, "page.html"), "<p>html needle</p>\n")
 	executor := fileToolExecutor(root, false)
 	execCtx := kbaseEditingExecutionContext(root)
 
@@ -1025,13 +1023,8 @@ func TestKBaseEditingGlobAndGrepOnlyReturnMarkdown(t *testing.T) {
 		t.Fatalf("scoped glob failed: %#v", glob)
 	}
 	globResults := stringSliceResult(t, glob.Structured["results"])
-	if len(globResults) != 2 {
-		t.Fatalf("expected only .md glob results, got %#v", globResults)
-	}
-	for _, result := range globResults {
-		if strings.HasSuffix(strings.ToLower(result), ".txt") {
-			t.Fatalf("scoped glob leaked non-markdown file: %#v", globResults)
-		}
+	if len(globResults) != 4 {
+		t.Fatalf("expected all generic text glob results, got %#v", globResults)
 	}
 
 	grep, err := executor.invokeGrep(context.Background(), map[string]any{"pattern": "needle"}, execCtx)
@@ -1042,17 +1035,246 @@ func TestKBaseEditingGlobAndGrepOnlyReturnMarkdown(t *testing.T) {
 		t.Fatalf("scoped grep failed: %#v", grep)
 	}
 	grepResults := stringSliceResult(t, grep.Structured["results"])
-	if len(grepResults) != 2 {
-		t.Fatalf("expected only .md grep results, got %#v", grepResults)
+	if len(grepResults) != 4 {
+		t.Fatalf("expected all generic text grep results, got %#v", grepResults)
 	}
-	for _, result := range grepResults {
-		if strings.HasSuffix(strings.ToLower(result), ".txt") {
-			t.Fatalf("scoped grep leaked non-markdown file: %#v", grepResults)
+}
+
+func TestKBaseReadOnlyFileToolsAllowSourceReadsAndChatMutationsButRejectSourceMutations(t *testing.T) {
+	requireRipgrep(t)
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "policy.txt")
+	if err := os.WriteFile(sourcePath, []byte("source needle\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	executor := fileToolExecutor(root, false)
+	executor.cfg.FileTools.RequireReadBeforeWrite = false
+	execCtx := kbaseExecutionContext(root, false)
+	chatDir := execCtx.Session.RuntimeContext.LocalPaths.ChatAttachmentsDir
+	if err := os.MkdirAll(chatDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	read, err := executor.Invoke(context.Background(), "file_read", map[string]any{
+		"file_path":        "policy.txt",
+		"add_line_numbers": false,
+	}, execCtx)
+	if err != nil || read.Error != "" || !strings.Contains(read.Output, "source needle") {
+		t.Fatalf("read-only KBASE source read failed: result=%#v err=%v", read, err)
+	}
+	glob, err := executor.Invoke(context.Background(), "file_glob", map[string]any{
+		"path": root, "pattern": "*.txt",
+	}, execCtx)
+	if err != nil || glob.Error != "" || len(stringSliceResult(t, glob.Structured["results"])) != 1 {
+		t.Fatalf("read-only KBASE source glob failed: result=%#v err=%v", glob, err)
+	}
+	grep, err := executor.Invoke(context.Background(), "file_grep", map[string]any{
+		"path": root, "pattern": "needle",
+	}, execCtx)
+	if err != nil || grep.Error != "" || len(stringSliceResult(t, grep.Structured["results"])) != 1 {
+		t.Fatalf("read-only KBASE source grep failed: result=%#v err=%v", grep, err)
+	}
+
+	for _, test := range []struct {
+		name string
+		tool string
+		args map[string]any
+	}{
+		{
+			name: "relative source write",
+			tool: "file_write",
+			args: map[string]any{"file_path": "new.txt", "content": "blocked"},
+		},
+		{
+			name: "absolute source edit",
+			tool: "file_edit",
+			args: map[string]any{
+				"file_path":  sourcePath,
+				"old_string": "source",
+				"new_string": "changed",
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, invokeErr := executor.Invoke(context.Background(), test.tool, test.args, execCtx)
+			if invokeErr != nil {
+				t.Fatal(invokeErr)
+			}
+			if result.Structured["error"] != "kbase_editing_mode_required" {
+				t.Fatalf("source mutation was not gated: %#v", result)
+			}
+		})
+	}
+	if data, readErr := os.ReadFile(sourcePath); readErr != nil || string(data) != "source needle\n" {
+		t.Fatalf("read-only source changed: data=%q err=%v", string(data), readErr)
+	}
+
+	chatPath := filepath.Join(chatDir, "report.txt")
+	written, err := executor.Invoke(context.Background(), "file_write", map[string]any{
+		"file_path": chatPath,
+		"content":   "chat artifact",
+	}, execCtx)
+	if err != nil || written.Error != "" {
+		t.Fatalf("read-only KBASE chat write failed: result=%#v err=%v", written, err)
+	}
+	if _, ok := written.Structured["hooks"]; ok {
+		t.Fatalf("chat mutation returned file-change hooks: %#v", written.Structured)
+	}
+	edited, err := executor.Invoke(context.Background(), "file_edit", map[string]any{
+		"file_path":  chatPath,
+		"old_string": "chat",
+		"new_string": "conversation",
+	}, execCtx)
+	if err != nil || edited.Error != "" {
+		t.Fatalf("read-only KBASE chat edit failed: result=%#v err=%v", edited, err)
+	}
+}
+
+func TestKBaseEditingUsesAccessPolicyForChatAndExternalWrites(t *testing.T) {
+	requireRipgrep(t)
+	root := t.TempDir()
+	execCtx := kbaseEditingExecutionContext(root)
+	chatDir := execCtx.Session.RuntimeContext.LocalPaths.ChatAttachmentsDir
+	outside := filepath.Join(filepath.Dir(root), "outside")
+	for _, dir := range []string{chatDir, outside} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
 		}
+	}
+	executor := fileToolExecutor(root, false)
+	executor.cfg.FileTools.RequireReadBeforeWrite = false
+
+	chatPath := filepath.Join(chatDir, "report.txt")
+	written, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path": chatPath,
+		"content":   "temporary report\n",
+	}, execCtx)
+	if err != nil || written.Error != "" {
+		t.Fatalf("write chatspace text: result=%#v err=%v", written, err)
+	}
+	if _, ok := written.Structured["hooks"]; ok {
+		t.Fatalf("KBASE chatspace write must not return file-change hooks: %#v", written.Structured)
+	}
+
+	read, err := executor.invokeRead(map[string]any{
+		"file_path":        chatPath,
+		"add_line_numbers": false,
+	}, execCtx)
+	if err != nil || read.Error != "" || !strings.Contains(read.Output, "temporary report") {
+		t.Fatalf("read chatspace text: result=%#v err=%v", read, err)
+	}
+	edited, err := executor.invokeEdit(context.Background(), map[string]any{
+		"file_path":  chatPath,
+		"old_string": "temporary report",
+		"new_string": "final report",
+	}, execCtx)
+	if err != nil || edited.Error != "" {
+		t.Fatalf("edit chatspace text: result=%#v err=%v", edited, err)
+	}
+	if _, ok := edited.Structured["hooks"]; ok {
+		t.Fatalf("KBASE chatspace edit must not return file-change hooks: %#v", edited.Structured)
+	}
+	glob, err := executor.invokeGlob(context.Background(), map[string]any{
+		"path":    chatDir,
+		"pattern": "*.txt",
+	}, execCtx)
+	if err != nil || glob.Error != "" {
+		t.Fatalf("glob chatspace text: result=%#v err=%v", glob, err)
+	}
+	if results := stringSliceResult(t, glob.Structured["results"]); len(results) != 1 ||
+		!strings.HasSuffix(results[0], "report.txt") {
+		t.Fatalf("unexpected chatspace glob results: %#v", results)
+	}
+	grep, err := executor.invokeGrep(context.Background(), map[string]any{
+		"path":    chatDir,
+		"pattern": "final",
+	}, execCtx)
+	if err != nil || grep.Error != "" {
+		t.Fatalf("grep chatspace text: result=%#v err=%v", grep, err)
+	}
+	if results := stringSliceResult(t, grep.Structured["results"]); len(results) != 1 ||
+		!strings.HasSuffix(results[0], "report.txt") {
+		t.Fatalf("unexpected chatspace grep results: %#v", results)
+	}
+
+	externalPath := filepath.Join(outside, "allowed.txt")
+	externalWrite, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path": externalPath,
+		"content":   "allowed by full_access",
+	}, execCtx)
+	if err != nil || externalWrite.Error != "" {
+		t.Fatalf("full_access external write: result=%#v err=%v", externalWrite, err)
+	}
+
+	externalEditPath := filepath.Join(outside, "editable.txt")
+	if err := os.WriteFile(externalEditPath, []byte("before"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	externalEdit, err := executor.invokeEdit(context.Background(), map[string]any{
+		"file_path":  externalEditPath,
+		"old_string": "before",
+		"new_string": "after",
+	}, execCtx)
+	if err != nil || externalEdit.Error != "" {
+		t.Fatalf("full_access external edit: result=%#v err=%v", externalEdit, err)
+	}
+	if data, readErr := os.ReadFile(externalEditPath); readErr != nil || string(data) != "after" {
+		t.Fatalf("external edit did not change file: data=%q err=%v", string(data), readErr)
+	}
+
+	otherChatDir := filepath.Join(filepath.Dir(chatDir), "chat-other")
+	if err := os.MkdirAll(otherChatDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	otherChatPath := filepath.Join(otherChatDir, "private.txt")
+	if err := os.WriteFile(otherChatPath, []byte("private"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	otherChatWrite, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path": otherChatPath,
+		"content":   "changed",
+	}, execCtx)
+	if err != nil || otherChatWrite.Error != "" {
+		t.Fatalf("full_access other-chat write: result=%#v err=%v", otherChatWrite, err)
+	}
+
+	externalReadPath := filepath.Join(outside, "readable.txt")
+	if err := os.WriteFile(externalReadPath, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	execCtx.Session.AccessLevel = contracts.AccessLevelDefault
+	externalRead, err := executor.invokeRead(map[string]any{"file_path": externalReadPath}, execCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if externalRead.Structured["error"] != "file_read_approval_required" {
+		t.Fatalf("expected external read to use common HITL, got %#v", externalRead.Structured)
+	}
+	otherChatRead, err := executor.invokeRead(map[string]any{"file_path": otherChatPath}, execCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if otherChatRead.Structured["error"] != "file_read_approval_required" {
+		t.Fatalf("expected other-chat read to use common HITL, got %#v", otherChatRead.Structured)
+	}
+	unapprovedWritePath := filepath.Join(outside, "needs-approval.txt")
+	unapprovedWrite, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path": unapprovedWritePath,
+		"content":   "pending",
+	}, execCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unapprovedWrite.Structured["error"] != "file_write_path_approval_required" {
+		t.Fatalf("expected external write to use common HITL, got %#v", unapprovedWrite.Structured)
 	}
 }
 
 func kbaseEditingExecutionContext(root string) *contracts.ExecutionContext {
+	return kbaseExecutionContext(root, true)
+}
+
+func kbaseExecutionContext(root string, editing bool) *contracts.ExecutionContext {
 	return &contracts.ExecutionContext{
 		Request: api.QueryRequest{
 			AgentKey: "docs-kbase",
@@ -1062,22 +1284,24 @@ func kbaseEditingExecutionContext(root string) *contracts.ExecutionContext {
 		Session: contracts.QuerySession{
 			AgentKey:    "docs-kbase",
 			Mode:        "KBASE",
-			EditingMode: true,
+			EditingMode: editing,
 			ToolNames: []string{
 				"kbase_search", "kbase_files", "kbase_read", "kbase_status", "kbase_refresh", "datetime",
 				"file_read", "file_glob", "file_grep", "file_write", "file_edit",
 			},
-			ModeCapabilities: agentcontract.ModeCapabilities{FileChangeHooks: true},
+			ModeCapabilities: agentcontract.ModeCapabilities{},
 			WorkspaceRoot:    root,
 			AccessLevel:      contracts.AccessLevelFullAccess,
+			RuntimeContext: contracts.RuntimeRequestContext{
+				LocalPaths: contracts.LocalPaths{
+					WorkspaceDir:       root,
+					ChatAttachmentsDir: filepath.Join(filepath.Dir(root), "chats", "chat-edit"),
+				},
+			},
 			ScopedFilePolicy: &contracts.ScopedFilePolicy{
 				Root:                  root,
-				AllowedExtensions:     []string{".md"},
-				AllowRead:             true,
-				AllowWrite:            true,
-				AllowCreate:           true,
+				SourceMutationEnabled: editing,
 				RequireExistingParent: true,
-				RequireUTF8:           true,
 			},
 		},
 	}

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	agentkbase "agent-platform/internal/agent/kbase"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/kbase"
@@ -665,7 +666,7 @@ func TestLoadAgentsWithAdminSkipsInvalidDefinitions(t *testing.T) {
 		}
 	}
 
-	agents, admin, err := loadAgentsWithAdmin(root, marketDir, true)
+	agents, admin, err := loadAgentsWithAdmin(root, marketDir, filepath.Join(root, "chats"), true)
 	if err != nil {
 		t.Fatalf("load agents with invalid definitions: %v", err)
 	}
@@ -1144,12 +1145,12 @@ func TestParseAgentFileKBaseDefaultsAndConfig(t *testing.T) {
 	if def.Mode != AgentModeKBase {
 		t.Fatalf("mode = %q, want KBASE", def.Mode)
 	}
-	for _, tool := range []string{"kbase_search", "kbase_files", "kbase_read", "kbase_status", "kbase_refresh", "datetime"} {
+	for _, tool := range agentkbase.DefaultToolNames() {
 		if !containsString(def.Tools, tool) {
 			t.Fatalf("expected KBASE default tools to include %s, got %#v", tool, def.Tools)
 		}
 	}
-	for _, tool := range []string{"bash", "file_read", "memory_search"} {
+	for _, tool := range []string{"bash", "memory_search"} {
 		if containsString(def.Tools, tool) {
 			t.Fatalf("expected KBASE default tools not to include %s, got %#v", tool, def.Tools)
 		}
@@ -1323,7 +1324,7 @@ func TestParseAgentFileKBaseFiltersToolsAndStaticMemory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if got, want := strings.Join(def.Tools, ","), "kbase_search,kbase_files,datetime"; got != want {
+	if got, want := strings.Join(def.Tools, ","), strings.Join(agentkbase.DefaultToolNames(), ","); got != want {
 		t.Fatalf("unexpected KBASE filtered tools: got %q want %q", got, want)
 	}
 	if def.MemoryEnabled || def.MemoryConfig.Enabled || def.StaticMemoryPrompt != "" {
@@ -1357,7 +1358,7 @@ func TestDirectoryReactAgentAttachesKBaseCapability(t *testing.T) {
 		t.Fatalf("write agent: %v", err)
 	}
 
-	agents, admin, err := loadAgentsWithAdmin(agentsDir, "", true)
+	agents, admin, err := loadAgentsWithAdmin(agentsDir, "", filepath.Join(agentsDir, "chats"), true)
 	if err != nil {
 		t.Fatalf("load agents: %v", err)
 	}
@@ -1371,10 +1372,144 @@ func TestDirectoryReactAgentAttachesKBaseCapability(t *testing.T) {
 	if def.KBaseConfig.Source.Root != filepath.Clean(knowledgeDir) {
 		t.Fatalf("source root = %q, want %q", def.KBaseConfig.Source.Root, knowledgeDir)
 	}
+	if def.Workspace.Root != "" {
+		t.Fatalf("ordinary Agent workspace changed by KBASE capability: %q", def.Workspace.Root)
+	}
 	for _, tool := range append([]string{"datetime"}, kbase.DefaultToolNames()...) {
 		if !containsString(def.Tools, tool) {
 			t.Fatalf("expected tool %q while preserving ordinary tools, got %#v", tool, def.Tools)
 		}
+	}
+}
+
+func TestDedicatedKBaseLoadedWorkspaceIsFinalSourceRoot(t *testing.T) {
+	root := t.TempDir()
+	agentsDir := filepath.Join(root, "agents")
+	agentDir := filepath.Join(agentsDir, "docs")
+	runtimeWorkspace := filepath.Join(root, "legacy-workspace")
+	sourceRoot := filepath.Join(root, "knowledge")
+	chatsDir := filepath.Join(root, "chats")
+	for _, path := range []string{agentDir, runtimeWorkspace, sourceRoot, chatsDir} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	content := "key: docs\n" +
+		"mode: KBASE\n" +
+		"modelConfig:\n  modelKey: mock-model\n" +
+		"runtimeConfig:\n  workspaceRoot: " + filepath.ToSlash(runtimeWorkspace) + "\n" +
+		"kbaseConfig:\n" +
+		"  source:\n    root: " + filepath.ToSlash(sourceRoot) + "\n" +
+		"  embedding:\n    modelKey: openai-embedding\n"
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	agents, admin, err := loadAgentsWithAdmin(agentsDir, "", chatsDir, true)
+	if err != nil {
+		t.Fatalf("load agents: %v", err)
+	}
+	def, ok := agents["docs"]
+	if !ok {
+		t.Fatalf("dedicated KBASE missing; admin=%#v", admin["docs"])
+	}
+	want := filepath.Clean(sourceRoot)
+	if def.KBaseConfig.Source.Root != want || def.Workspace.Root != want {
+		t.Fatalf("dedicated KBASE source/workspace = %q/%q, want %q", def.KBaseConfig.Source.Root, def.Workspace.Root, want)
+	}
+	if got := admin["docs"].Workspace.Root; got != want {
+		t.Fatalf("admin KBASE workspace = %q, want %q", got, want)
+	}
+}
+
+func TestLoadAgentsWithAdminIsolatesKBaseSourceChatsOverlap(t *testing.T) {
+	root := t.TempDir()
+	agentsDir := filepath.Join(root, "agents")
+	chatsDir := filepath.Join(root, "chats")
+	validSource := filepath.Join(root, "knowledge")
+	for _, path := range []string{agentsDir, chatsDir, validSource} {
+		if err := os.MkdirAll(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for key, sourceRoot := range map[string]string{
+		"valid":   validSource,
+		"overlap": chatsDir,
+	} {
+		agentDir := filepath.Join(agentsDir, key)
+		if err := os.MkdirAll(agentDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		content := "key: " + key + "\n" +
+			"name: " + key + "\n" +
+			"mode: KBASE\n" +
+			"modelConfig:\n  modelKey: mock-model\n" +
+			"kbaseConfig:\n  source:\n    root: " + filepath.ToSlash(sourceRoot) + "\n"
+		if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	optionalDir := filepath.Join(agentsDir, "optional-overlap")
+	if err := os.MkdirAll(optionalDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	optionalContent := "key: optional-overlap\n" +
+		"name: optional-overlap\n" +
+		"mode: REACT\n" +
+		"modelConfig:\n  modelKey: mock-model\n" +
+		"kbaseConfig:\n  enabled: true\n  source:\n    root: " + filepath.ToSlash(chatsDir) + "\n"
+	if err := os.WriteFile(filepath.Join(optionalDir, "agent.yml"), []byte(optionalContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	agents, admin, err := loadAgentsWithAdmin(agentsDir, "", chatsDir, true)
+	if err != nil {
+		t.Fatalf("load agents: %v", err)
+	}
+	if _, ok := agents["valid"]; !ok {
+		t.Fatalf("valid Agent must remain available: %#v", agents)
+	}
+	if _, ok := agents["overlap"]; ok {
+		t.Fatal("overlapping KBASE Agent must be isolated from the runtime catalog")
+	}
+	for _, key := range []string{"overlap", "optional-overlap"} {
+		if _, ok := agents[key]; ok {
+			t.Fatalf("overlapping enabled KBASE Agent %q must be isolated", key)
+		}
+		invalid := admin[key]
+		if invalid.Status != AdminAgentStatusInvalid || len(invalid.Diagnostics) != 1 ||
+			invalid.Diagnostics[0].Code != "invalid_kbase_source_overlap" {
+			t.Fatalf("unexpected overlap diagnostic for %q: %#v", key, invalid)
+		}
+	}
+
+	team := NewTeamSnapshot(TeamDefinition{
+		TeamID:    "team",
+		AgentKeys: []string{"valid", "overlap"},
+	}, agents)
+	if !reflect.DeepEqual(team.ValidAgentKeys, []string{"valid"}) ||
+		!reflect.DeepEqual(team.InvalidAgentKeys, []string{"overlap"}) {
+		t.Fatalf("dependent Team did not surface unavailable member: %#v", team)
+	}
+
+	recoveredSource := filepath.Join(root, "recovered")
+	if err := os.MkdirAll(recoveredSource, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	recoveredContent := "key: overlap\n" +
+		"name: overlap\n" +
+		"mode: KBASE\n" +
+		"modelConfig:\n  modelKey: mock-model\n" +
+		"kbaseConfig:\n  source:\n    root: " + filepath.ToSlash(recoveredSource) + "\n"
+	if err := os.WriteFile(filepath.Join(agentsDir, "overlap", "agent.yml"), []byte(recoveredContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reloadedAgents, reloadedAdmin, err := loadAgentsWithAdmin(agentsDir, "", chatsDir, true)
+	if err != nil {
+		t.Fatalf("reload fixed Agent: %v", err)
+	}
+	if _, ok := reloadedAgents["overlap"]; !ok || reloadedAdmin["overlap"].Status != AdminAgentStatusReady {
+		t.Fatalf("fixed Agent did not recover on catalog reload: agent=%#v admin=%#v", reloadedAgents["overlap"], reloadedAdmin["overlap"])
 	}
 }
 
@@ -1385,7 +1520,7 @@ func TestFlatAgentRejectsRelativeKBaseSource(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(agentsDir, "flat.yml"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent: %v", err)
 	}
-	agents, admin, err := loadAgentsWithAdmin(agentsDir, "", true)
+	agents, admin, err := loadAgentsWithAdmin(agentsDir, "", filepath.Join(agentsDir, "chats"), true)
 	if err != nil {
 		t.Fatalf("load agents: %v", err)
 	}

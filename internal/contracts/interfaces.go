@@ -344,17 +344,13 @@ type SandboxExtraMount struct {
 	Mode        string
 }
 
-// ScopedFilePolicy is a run-scoped hard ceiling for structured file tools.
-// Global access levels and approvals may make access stricter, but can never
-// widen this boundary.
+// ScopedFilePolicy is a run-scoped gate for dedicated structured file tools.
+// Path authorization remains owned by AccessPolicy. Root identifies the
+// dedicated source for source-specific mutation safeguards.
 type ScopedFilePolicy struct {
 	Root                  string
-	AllowedExtensions     []string
-	AllowRead             bool
-	AllowWrite            bool
-	AllowCreate           bool
+	SourceMutationEnabled bool
 	RequireExistingParent bool
-	RequireUTF8           bool
 }
 
 type HostAccessRoots struct {

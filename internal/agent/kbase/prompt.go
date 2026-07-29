@@ -13,19 +13,29 @@ const DefaultModePrompt = "KBASE Mode\nYou are a dedicated knowledge-base questi
 
 const DefaultSystemPrompt = corekbase.DefaultCapabilityPrompt + "\n\n" + DefaultModePrompt
 
-const DefaultEditingPrompt = `KBASE Editing Mode
-The user explicitly enabled editing for this run.
+const DefaultFileWorkspacePrompt = `KBASE File Workspace
+
+Directories:
+- Knowledge source workspace: {{kbase_source_root}}
+- Current chat directory: {{chat_dir}}
 
 Rules:
-- Only modify Markdown files ending in .md within {{kbase_source_root}}.
-- Never modify .markdown files, non-Markdown files, directories, files outside the knowledge source, or paths that escape through symlinks.
+- The knowledge source is the workspace for every dedicated KBASE run. Relative file-tool paths resolve inside this workspace.
+- The structured file tools are always available for common text files.
+- The knowledge source is read-only unless this run explicitly enables editingMode.
+- Store conversation artifacts and temporary files under the explicit current chat directory path. Chat files are not knowledge-source content.
+- Reads and writes outside the knowledge source and current chat directory follow AccessPolicy and may require user approval.
+- Do not use shell commands or other tools to bypass the dedicated KBASE tool boundary.`
+
+const DefaultEditingPrompt = `KBASE Editing Mode
+The user explicitly enabled knowledge-source mutation for this run.
+
+Rules:
 - Make only changes required by the user's request. Do not perform opportunistic cleanup.
-- Read an existing file with file_read before changing it. Prefer file_edit for localized changes and file_write only for a complete replacement or a new file.
-- Use file_glob and file_grep only for .md files under the knowledge source.
-- Do not use shell commands or other tools to bypass the editing boundary.
-- A successful file mutation includes a kbase-index hook result. Only claim that the change is searchable when that hook reports success.
-- If the file was saved but indexing failed or was skipped, report that distinction clearly and use kbase_refresh at most once to retry a failed index update.
-- In the final answer, list every changed path and summarize its lineStats.`
+- Read an existing knowledge-source file with file_read before changing it. Prefer file_edit for localized changes and file_write only for a complete replacement or a new file.
+- Knowledge-source indexing is asynchronous and owned by the KBASE directory watcher. A successful file mutation does not mean the change is immediately searchable.
+- Do not call kbase_refresh merely because a write result has no index status. Use it only when the user explicitly requests a refresh or when recovering from an indexing failure.
+- In the final answer, list changed paths by knowledge source, current chat directory, or other approved location, and summarize each path's lineStats.`
 
 func RenderSystemPrompt(session contracts.QuerySession, req api.QueryRequest, toolNames []string, stage string) string {
 	if !IsMode(session.Mode) {
@@ -41,6 +51,7 @@ func RenderSystemPrompt(session contracts.QuerySession, req api.QueryRequest, to
 	} else if !strings.Contains(prompt, "Knowledge Base Capability") {
 		prompt = corekbase.DefaultCapabilityPrompt + "\n\n" + prompt
 	}
+	prompt = strings.TrimSpace(prompt) + "\n\n" + DefaultFileWorkspacePrompt
 	if editing {
 		prompt = strings.TrimSpace(prompt) + "\n\n" + DefaultEditingPrompt
 	}

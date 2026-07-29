@@ -287,12 +287,16 @@ func TestBuildQuerySessionFreezesDedicatedKBaseEditingPolicy(t *testing.T) {
 	if !session.EditingMode || session.KBaseSourceRoot != sourceRoot || session.WorkspaceRoot != sourceRoot {
 		t.Fatalf("unexpected editing snapshot: %#v", session)
 	}
+	if session.RuntimeContext.LocalPaths.WorkspaceDir != sourceRoot ||
+		session.RuntimeContext.LocalPaths.WorkingDirectory != sourceRoot ||
+		session.RuntimeContext.LocalPaths.ChatAttachmentsDir != filepath.Join(cfg.Paths.ChatsDir, "chat-edit") {
+		t.Fatalf("unexpected editing paths: %#v", session.RuntimeContext.LocalPaths)
+	}
 	if !reflect.DeepEqual(session.ToolNames, wantTools) {
 		t.Fatalf("editing tools = %#v, want %#v", session.ToolNames, wantTools)
 	}
 	if session.ScopedFilePolicy == nil || session.ScopedFilePolicy.Root != sourceRoot ||
-		!session.ScopedFilePolicy.AllowRead || !session.ScopedFilePolicy.AllowWrite ||
-		!session.ScopedFilePolicy.AllowCreate || !session.ScopedFilePolicy.RequireUTF8 {
+		!session.ScopedFilePolicy.SourceMutationEnabled || !session.ScopedFilePolicy.RequireExistingParent {
 		t.Fatalf("unexpected scoped file policy: %#v", session.ScopedFilePolicy)
 	}
 
@@ -303,8 +307,18 @@ func TestBuildQuerySessionFreezesDedicatedKBaseEditingPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build read-only session: %v", err)
 	}
-	if readOnly.EditingMode || readOnly.ScopedFilePolicy == nil || readOnly.ScopedFilePolicy.AllowRead || readOnly.ScopedFilePolicy.AllowWrite {
-		t.Fatalf("read-only KBASE must retain a denying hard policy: %#v", readOnly.ScopedFilePolicy)
+	if readOnly.EditingMode || readOnly.ScopedFilePolicy == nil || readOnly.ScopedFilePolicy.SourceMutationEnabled {
+		t.Fatalf("read-only KBASE must retain a source mutation gate: %#v", readOnly.ScopedFilePolicy)
+	}
+	if readOnly.WorkspaceRoot != sourceRoot || readOnly.RuntimeContext.LocalPaths.WorkspaceDir != sourceRoot {
+		t.Fatalf("read-only KBASE workspace must remain the source root: %#v", readOnly.RuntimeContext.LocalPaths)
+	}
+	if readOnly.RuntimeContext.LocalPaths.WorkingDirectory != sourceRoot ||
+		readOnly.RuntimeContext.LocalPaths.ChatAttachmentsDir != filepath.Join(cfg.Paths.ChatsDir, "chat-read") {
+		t.Fatalf("read-only KBASE paths must keep source workspace and separate chat directory: %#v", readOnly.RuntimeContext.LocalPaths)
+	}
+	if !reflect.DeepEqual(readOnly.ToolNames, wantTools) {
+		t.Fatalf("read-only KBASE tools = %#v, want %#v", readOnly.ToolNames, wantTools)
 	}
 
 	paramsOnly, err := server.BuildQuerySession(context.Background(), api.QueryRequest{
@@ -314,7 +328,7 @@ func TestBuildQuerySessionFreezesDedicatedKBaseEditingPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build params-only session: %v", err)
 	}
-	if paramsOnly.EditingMode || paramsOnly.ScopedFilePolicy == nil || paramsOnly.ScopedFilePolicy.AllowRead || paramsOnly.ScopedFilePolicy.AllowWrite {
+	if paramsOnly.EditingMode || paramsOnly.ScopedFilePolicy == nil || paramsOnly.ScopedFilePolicy.SourceMutationEnabled {
 		t.Fatalf("params.editingMode must not enable KBASE editing: %#v", paramsOnly)
 	}
 }
@@ -346,6 +360,12 @@ func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
 	}
 	if !session.KBaseEnabled || len(session.CapabilityPrompts) != 1 || session.CapabilityPrompts[0] != kbase.DefaultCapabilityPrompt {
 		t.Fatalf("embedded capability snapshot = enabled:%v prompts:%#v", session.KBaseEnabled, session.CapabilityPrompts)
+	}
+	if session.ScopedFilePolicy != nil || session.EditingMode {
+		t.Fatalf("ordinary Agent capability must not inherit dedicated KBASE editing policy: %#v", session.ScopedFilePolicy)
+	}
+	if got, want := session.WorkspaceRoot, filepath.Join(cfg.Paths.ChatsDir, "chat-1"); got != want {
+		t.Fatalf("ordinary Agent workspace changed by KBASE capability: got %q want %q", got, want)
 	}
 	def.KBaseConfig.Enabled = false
 	if !session.KBaseEnabled || len(session.CapabilityPrompts) != 1 {

@@ -134,7 +134,12 @@ func (s *llmRunStream) fileAccessSession() QuerySession {
 
 func hasLocalFileRoots(session QuerySession) bool {
 	paths := session.RuntimeContext.LocalPaths
-	return strings.TrimSpace(paths.AgentDir) != "" ||
+	return strings.TrimSpace(session.WorkspaceRoot) != "" ||
+		session.ScopedFilePolicy != nil ||
+		strings.TrimSpace(paths.WorkspaceDir) != "" ||
+		strings.TrimSpace(paths.WorkingDirectory) != "" ||
+		strings.TrimSpace(paths.ChatAttachmentsDir) != "" ||
+		strings.TrimSpace(paths.AgentDir) != "" ||
 		strings.TrimSpace(paths.SkillsDir) != "" ||
 		strings.TrimSpace(paths.SkillsMarketDir) != ""
 }
@@ -191,6 +196,14 @@ func (s *llmRunStream) fileWritePlanNeedsApproval(plan filetools.WritePlan) bool
 func (s *llmRunStream) fileAccessPlanNeedsApproval(plan filetools.AccessPlan) bool {
 	if plan.Blocked || plan.AutoApproved {
 		return false
+	}
+	if plan.Mode == filetools.WriteAccess {
+		if err := filetools.ValidateScopedWrite(s.fileAccessSession(), plan.Path); err != nil {
+			// The tool executor remains the authoritative error producer. Avoid
+			// asking for an approval that cannot widen the KBASE source mutation
+			// capability of this run.
+			return false
+		}
 	}
 	if plan.AllowedByWhitelist {
 		return false

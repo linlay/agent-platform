@@ -207,11 +207,9 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}
 	kbaseSource := kbaseCatalogSource{registry: registry}
 	kbaseManager := kbase.NewManager(kbaseManagerOptions(cfg), kbaseSource, modelRegistry).WithSupportPackages(supportPackages)
-	fileChangeHooks := []contracts.FileChangeHook{kbaseManager}
 	if lspManager != nil {
-		fileChangeHooks = append([]contracts.FileChangeHook{lspManager}, fileChangeHooks...)
+		backendTools.WithFileChangeHooks(lspManager)
 	}
-	backendTools.WithFileChangeHooks(fileChangeHooks...)
 	if err := kbaseManager.ValidateConfiguration(); err != nil {
 		return nil, fmt.Errorf("validate KBASE storage ownership: %w", err)
 	}
