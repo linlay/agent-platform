@@ -21,10 +21,10 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	contracts "agent-platform/internal/contracts"
-	"agent-platform/internal/frontendtools"
 	"agent-platform/internal/hitl"
 	"agent-platform/internal/models"
 	streampkg "agent-platform/internal/stream"
+	"agent-platform/internal/toolinteraction"
 	runtimetools "agent-platform/internal/tools"
 )
 
@@ -76,15 +76,15 @@ func canonicalExpenseCommand(amount float64) string {
 	return fmt.Sprintf(`mock expense add --payload '{"currency":"CNY","department":{"code":"engineering","name":"工程部"},"employee":{"id":"E1001","name":"张三"},"expense_type":"travel","items":[{"amount":%v,"category":"transport","description":"flight","invoice_id":"INV-001","occurred_on":"2026-04-10"}],"submitted_at":"2026-04-14T10:30:00+08:00","total_amount":%v}'`, amount, amount)
 }
 
-type captureFrontendHandler struct {
+type captureInteractionHandler struct {
 	timeout int64
 }
 
-func (h *captureFrontendHandler) ToolName() string { return "ask_user_question" }
+func (h *captureInteractionHandler) ToolName() string { return "ask_user_question" }
 
-func (h *captureFrontendHandler) ValidateArgs(args map[string]any) error { return nil }
+func (h *captureInteractionHandler) ValidateArgs(args map[string]any) error { return nil }
 
-func (h *captureFrontendHandler) BuildInitialAwaitAsk(toolID string, runID string, tool api.ToolDetailResponse, args map[string]any, chunkIndex int, timeout int64) *streampkg.AwaitAsk {
+func (h *captureInteractionHandler) BuildInitialAwaitAsk(toolID string, runID string, tool api.ToolDetailResponse, args map[string]any, chunkIndex int, timeout int64) *streampkg.AwaitAsk {
 	h.timeout = timeout
 	return &streampkg.AwaitAsk{
 		AwaitingID: toolID,
@@ -97,12 +97,12 @@ func (h *captureFrontendHandler) BuildInitialAwaitAsk(toolID string, runID strin
 	}
 }
 
-func (h *captureFrontendHandler) NormalizeSubmit(args map[string]any, params any) (map[string]any, error) {
+func (h *captureInteractionHandler) NormalizeSubmit(args map[string]any, params any) (map[string]any, error) {
 	return map[string]any{}, nil
 }
 
-func (h *captureFrontendHandler) FormatSubmitResult(format string, result contracts.ToolExecutionResult) (string, bool) {
-	return "", false
+func (h *captureInteractionHandler) FormatModelOutput(result contracts.ToolExecutionResult) string {
+	return result.Output
 }
 
 func sampleProcurementCommand(city string) string {
@@ -921,21 +921,21 @@ func TestFinishCurrentTurnCommitsBeforeInvalidArgumentsToolResult(t *testing.T) 
 
 func TestFinishCurrentTurnEstimatesFileWriteChangeOnToolEnd(t *testing.T) {
 	root := t.TempDir()
+	session := contracts.QuerySession{RunID: "run_1", WorkspaceRoot: root}
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{writeToolDefinition()}}
 	stream := &llmRunStream{
 		ctx:     context.Background(),
-		session: contracts.QuerySession{RunID: "run_1", WorkspaceRoot: root},
+		session: session,
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory: root,
-					MaxReadBytes:     1024,
-					MaxWriteBytes:    1024,
+					MaxReadBytes:  1024,
+					MaxWriteBytes: 1024,
 				},
 			},
 			tools: executor,
 		},
-		execCtx:      &contracts.ExecutionContext{},
+		execCtx:      &contracts.ExecutionContext{Session: session},
 		maxSteps:     2,
 		allowToolUse: true,
 		currentTurn:  providerTurnWithToolCall("tool_1", "file_write", `{"file_path":"owner.md","content":"one\ntwo\n"}`),
@@ -952,26 +952,35 @@ func TestFinishCurrentTurnEstimatesFileWriteChangeOnToolEnd(t *testing.T) {
 	assertFileChange(t, fileChange, resolvedTestPath(t, root, "owner.md"), "write", 2, 0, 0)
 }
 
+func accessPolicyAllowingRoot(root string) config.AccessPolicyConfig {
+	return config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{
+		contracts.AccessLevelDefault: {
+			ReadRoots:  []string{root},
+			WriteRoots: []string{root},
+		},
+	}}
+}
+
 func TestFinishCurrentTurnEstimatesFileEditChangeOnToolEnd(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "owner.md"), []byte("hello world\n"), 0o644); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{editToolDefinition()}}
+	session := contracts.QuerySession{RunID: "run_1", WorkspaceRoot: root}
 	stream := &llmRunStream{
 		ctx:     context.Background(),
-		session: contracts.QuerySession{RunID: "run_1", WorkspaceRoot: root},
+		session: session,
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory: root,
-					MaxReadBytes:     1024,
-					MaxWriteBytes:    1024,
+					MaxReadBytes:  1024,
+					MaxWriteBytes: 1024,
 				},
 			},
 			tools: executor,
 		},
-		execCtx:      &contracts.ExecutionContext{},
+		execCtx:      &contracts.ExecutionContext{Session: session},
 		maxSteps:     2,
 		allowToolUse: true,
 		currentTurn:  providerTurnWithToolCall("tool_1", "file_edit", `{"file_path":"owner.md","old_string":"hello world","new_string":"hello agent"}`),
@@ -1089,7 +1098,6 @@ func bashToolDefinition() api.ToolDetailResponse {
 	return api.ToolDetailResponse{
 		Name: "bash",
 		Meta: map[string]any{
-			"kind":          "backend",
 			"sourceType":    "local",
 			"viewportType":  "builtin",
 			"viewportKey":   "confirm_dialog",
@@ -1102,7 +1110,6 @@ func backendToolDefinition(name string) api.ToolDetailResponse {
 	return api.ToolDetailResponse{
 		Name: name,
 		Meta: map[string]any{
-			"kind":          "backend",
 			"sourceType":    "local",
 			"clientVisible": true,
 		},
@@ -1137,7 +1144,6 @@ func invokeAgentsToolDefinition() api.ToolDetailResponse {
 	return api.ToolDetailResponse{
 		Name: contracts.InvokeAgentsToolName,
 		Meta: map[string]any{
-			"kind":          "backend",
 			"sourceType":    "local",
 			"clientVisible": true,
 		},
@@ -1209,7 +1215,6 @@ func TestPreToolInvocationDeltas_QuestionRegistersAwaitingContext(t *testing.T) 
 	tool := api.ToolDetailResponse{
 		Name: "ask_user_question",
 		Meta: map[string]any{
-			"kind":          "frontend",
 			"sourceType":    "local",
 			"viewportType":  "builtin",
 			"viewportKey":   "confirm_dialog",
@@ -1219,8 +1224,8 @@ func TestPreToolInvocationDeltas_QuestionRegistersAwaitingContext(t *testing.T) 
 	runControl := contracts.NewRunControl(context.Background(), "run_1")
 	stream := &llmRunStream{
 		engine: &LLMAgentEngine{
-			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{tool}},
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        stubToolExecutor{defs: []api.ToolDetailResponse{tool}},
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session:    contracts.QuerySession{RunID: "run_1"},
 		runControl: runControl,
@@ -1621,19 +1626,18 @@ func TestResolveHITLTimeoutWithRuleUsesRuleOverride(t *testing.T) {
 }
 
 func TestPreToolInvocationDeltasUsesHitlTimeoutForFrontendAwaiting(t *testing.T) {
-	handler := &captureFrontendHandler{}
+	handler := &captureInteractionHandler{}
 	tool := api.ToolDetailResponse{
 		Name: "ask_user_question",
 		Meta: map[string]any{
-			"kind":          "frontend",
 			"sourceType":    "local",
 			"clientVisible": false,
 		},
 	}
 	stream := &llmRunStream{
 		engine: &LLMAgentEngine{
-			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{tool}},
-			frontend: frontendtools.NewRegistry(handler),
+			tools:        stubToolExecutor{defs: []api.ToolDetailResponse{tool}},
+			interactions: toolinteraction.NewRegistry(handler),
 		},
 		session:    contracts.QuerySession{RunID: "run_1"},
 		runControl: contracts.NewRunControl(context.Background(), "run_1"),
@@ -1655,24 +1659,23 @@ func TestPreToolInvocationDeltasUsesHitlTimeoutForFrontendAwaiting(t *testing.T)
 		t.Fatalf("expected no prelude deltas, got %#v", deltas)
 	}
 	if handler.timeout != 600 {
-		t.Fatalf("expected frontend await timeout 600 from hitl budget, got %d", handler.timeout)
+		t.Fatalf("expected interactions await timeout 600 from hitl budget, got %d", handler.timeout)
 	}
 }
 
 func TestPreToolInvocationDeltasIgnoresArgsTimeoutForFrontendAwaiting(t *testing.T) {
-	handler := &captureFrontendHandler{}
+	handler := &captureInteractionHandler{}
 	tool := api.ToolDetailResponse{
 		Name: "ask_user_question",
 		Meta: map[string]any{
-			"kind":          "frontend",
 			"sourceType":    "local",
 			"clientVisible": false,
 		},
 	}
 	stream := &llmRunStream{
 		engine: &LLMAgentEngine{
-			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{tool}},
-			frontend: frontendtools.NewRegistry(handler),
+			tools:        stubToolExecutor{defs: []api.ToolDetailResponse{tool}},
+			interactions: toolinteraction.NewRegistry(handler),
 		},
 		session:    contracts.QuerySession{RunID: "run_1"},
 		runControl: contracts.NewRunControl(context.Background(), "run_1"),
@@ -1695,7 +1698,7 @@ func TestPreToolInvocationDeltasIgnoresArgsTimeoutForFrontendAwaiting(t *testing
 		t.Fatalf("expected no prelude deltas, got %#v", deltas)
 	}
 	if handler.timeout != 600 {
-		t.Fatalf("expected frontend await timeout 600 from hitl budget, got %d", handler.timeout)
+		t.Fatalf("expected interactions await timeout 600 from hitl budget, got %d", handler.timeout)
 	}
 	awaiting, ok := stream.runControl.LookupAwaiting("tool_1")
 	if !ok {
@@ -1765,7 +1768,7 @@ func TestAwaitHITLSubmitAndExecuteUsesRuleTimeoutOverride(t *testing.T) {
 				defs:   []api.ToolDetailResponse{bashToolDefinition()},
 				result: contracts.ToolExecutionResult{Output: "approved", ExitCode: 0},
 			},
-			frontend: frontendtools.NewDefaultRegistry(),
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{
 			RequestID: "req_1",
@@ -2003,8 +2006,8 @@ func TestAppendSourcePublishDeltaSkipsNonPublishableResults(t *testing.T) {
 func TestPrepareToolCall_InvokeAgentsReturnsBatchPrelude(t *testing.T) {
 	stream := &llmRunStream{
 		engine: &LLMAgentEngine{
-			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{invokeAgentsToolDefinition()}},
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        stubToolExecutor{defs: []api.ToolDetailResponse{invokeAgentsToolDefinition()}},
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{},
@@ -2042,10 +2045,10 @@ func TestPrepareToolCall_InvokeAgentsReturnsBatchPrelude(t *testing.T) {
 func TestPrepareToolCallReadOnlyPolicyBlocksBeforeInvocationPreparation(t *testing.T) {
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{{
 		Name: "file_write",
-		Meta: map[string]any{"kind": "backend"},
+		Meta: map[string]any{},
 	}}}
 	stream := &llmRunStream{
-		engine:  &LLMAgentEngine{tools: executor, frontend: frontendtools.NewDefaultRegistry()},
+		engine:  &LLMAgentEngine{tools: executor, interactions: toolinteraction.NewDefaultRegistry()},
 		session: contracts.QuerySession{RunID: "run_btw"},
 		execCtx: &contracts.ExecutionContext{ToolExecutionPolicy: contracts.ToolExecutionPolicyReadOnly},
 	}
@@ -2072,8 +2075,8 @@ func TestPrepareToolCallReadOnlyPolicyBlocksBeforeInvocationPreparation(t *testi
 func TestPrepareToolCall_InvokeAgentsAcceptsMaxTasks(t *testing.T) {
 	stream := &llmRunStream{
 		engine: &LLMAgentEngine{
-			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{invokeAgentsToolDefinition()}},
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        stubToolExecutor{defs: []api.ToolDetailResponse{invokeAgentsToolDefinition()}},
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{},
@@ -2105,8 +2108,8 @@ func TestPrepareToolCall_InvokeAgentsAcceptsMaxTasks(t *testing.T) {
 func TestPrepareToolCall_InvokeAgentsRejectsTooManyTasks(t *testing.T) {
 	stream := &llmRunStream{
 		engine: &LLMAgentEngine{
-			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{invokeAgentsToolDefinition()}},
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        stubToolExecutor{defs: []api.ToolDetailResponse{invokeAgentsToolDefinition()}},
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{},
@@ -2138,8 +2141,8 @@ func TestPrepareToolCall_InvokeAgentsRejectsTooManyTasks(t *testing.T) {
 func TestInjectToolResultAppendsToolMessageAndFinalAssistantContent(t *testing.T) {
 	stream := &llmRunStream{
 		engine: &LLMAgentEngine{
-			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{invokeAgentsToolDefinition()}},
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        stubToolExecutor{defs: []api.ToolDetailResponse{invokeAgentsToolDefinition()}},
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{},
@@ -2189,7 +2192,6 @@ func TestPrepareToolCall_InvalidAskUserQuestionArgsReturnToolError(t *testing.T)
 	tool := api.ToolDetailResponse{
 		Name: "ask_user_question",
 		Meta: map[string]any{
-			"kind":          "frontend",
 			"sourceType":    "local",
 			"viewportType":  "builtin",
 			"viewportKey":   "confirm_dialog",
@@ -2198,8 +2200,8 @@ func TestPrepareToolCall_InvalidAskUserQuestionArgsReturnToolError(t *testing.T)
 	}
 	stream := &llmRunStream{
 		engine: &LLMAgentEngine{
-			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{tool}},
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        stubToolExecutor{defs: []api.ToolDetailResponse{tool}},
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{},
@@ -2236,8 +2238,8 @@ func TestPrepareToolCall_BashDescriptionIsOptional(t *testing.T) {
 	tool := bashToolDefinition()
 	stream := &llmRunStream{
 		engine: &LLMAgentEngine{
-			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{tool}},
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        stubToolExecutor{defs: []api.ToolDetailResponse{tool}},
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{},
@@ -2288,8 +2290,8 @@ func TestPrepareToolCall_WriteToolDescriptionNotRequired(t *testing.T) {
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
-			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{tool}},
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        stubToolExecutor{defs: []api.ToolDetailResponse{tool}},
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{},
@@ -2524,8 +2526,8 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 			stream := &llmRunStream{
 				ctx: context.Background(),
 				engine: &LLMAgentEngine{
-					tools:    executor,
-					frontend: frontendtools.NewDefaultRegistry(),
+					tools:        executor,
+					interactions: toolinteraction.NewDefaultRegistry(),
 				},
 				session: contracts.QuerySession{
 					RequestID: "req_1",
@@ -2734,8 +2736,8 @@ func TestPrepareToolCallBlocksBashSecurityHardBlockBeforeApproval(t *testing.T) 
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
-			tools:    executor,
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        executor,
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{},
@@ -2779,8 +2781,8 @@ func TestBashSecuritySoftBlockEmitsApprovalWithoutChecker(t *testing.T) {
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
-			tools:    &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}},
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}},
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session:    contracts.QuerySession{RunID: "run_1"},
 		runControl: contracts.NewRunControl(context.Background(), "run_1"),
@@ -2838,8 +2840,8 @@ func TestBashSecurityHardBlockQueuedInvocationSkipsApprovalAndExecutor(t *testin
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
-			tools:    executor,
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        executor,
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{},
@@ -2887,8 +2889,8 @@ func TestBashSecuritySoftBlockApproveExecutesOriginalCommand(t *testing.T) {
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
-			tools:    executor,
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        executor,
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{
 			RequestID: "req_1",
@@ -2938,8 +2940,8 @@ func TestBashSecuritySoftBlockPrefixApprovalWhitelistsRule(t *testing.T) {
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
-			tools:    executor,
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        executor,
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{
 			RequestID: "req_1",
@@ -2995,8 +2997,8 @@ func TestBashSecuritySoftBlockAutoApprovesByHITLLevel(t *testing.T) {
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
-			tools:    executor,
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        executor,
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{
@@ -3040,8 +3042,8 @@ func TestSandboxBashSecurityRedirectionOverrideAutoApprovesAndAudits(t *testing.
 					},
 				},
 			},
-			tools:    executor,
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        executor,
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{RunID: "run_1", AgentHasRuntimeSandbox: true},
 		execCtx: &contracts.ExecutionContext{Session: contracts.QuerySession{
@@ -3097,8 +3099,8 @@ func TestHostBashIgnoresSandboxBashSecurityOverride(t *testing.T) {
 					},
 				},
 			},
-			tools:    executor,
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        executor,
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{},
@@ -3135,8 +3137,8 @@ func TestSandboxBashSecurityOverrideDoesNotBypassHardBlock(t *testing.T) {
 					},
 				},
 			},
-			tools:    executor,
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        executor,
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{RunID: "run_1", AgentHasRuntimeSandbox: true},
 		execCtx: &contracts.ExecutionContext{Session: contracts.QuerySession{
@@ -3170,8 +3172,8 @@ func TestBashSecuritySoftBlockUsesExistingFingerprintApproval(t *testing.T) {
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
-			tools:    executor,
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        executor,
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{
@@ -3199,14 +3201,16 @@ func TestBashSecuritySoftBlockUsesExistingFingerprintApproval(t *testing.T) {
 
 func TestWriteToolEmitsApprovalBeforeExecuting(t *testing.T) {
 	root := t.TempDir()
+	workspace := t.TempDir()
+	session := contracts.QuerySession{RunID: "run_1", WorkspaceRoot: workspace}
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{writeToolDefinition()}}
 	stream := &llmRunStream{
 		ctx:     context.Background(),
-		session: contracts.QuerySession{RunID: "run_1"},
+		session: session,
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
+				AccessPolicy: accessPolicyAllowingRoot(root),
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:     root,
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					MaxBatchOps:          20,
@@ -3215,12 +3219,12 @@ func TestWriteToolEmitsApprovalBeforeExecuting(t *testing.T) {
 			},
 			tools: executor,
 		},
-		execCtx: &contracts.ExecutionContext{},
+		execCtx: &contracts.ExecutionContext{Session: session},
 		activeToolCall: &preparedToolInvocation{
 			toolID:   "tool_1",
 			toolName: "file_write",
 			args: map[string]any{
-				"file_path":   "owner.md",
+				"file_path":   filepath.Join(root, "owner.md"),
 				"content":     "hello",
 				"description": "写入 owner 文档",
 			},
@@ -3257,8 +3261,8 @@ func TestWriteToolInsideSessionChatDirSkipsApproval(t *testing.T) {
 		WorkspaceRoot: workspace,
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{
-				WorkspaceDir:       workspace,
-				ChatAttachmentsDir: chatDir,
+				WorkspaceDir: workspace,
+				ChatDir:      chatDir,
 			},
 		},
 	}
@@ -3269,7 +3273,6 @@ func TestWriteToolInsideSessionChatDirSkipsApproval(t *testing.T) {
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:     workspace,
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					MaxBatchOps:          20,
@@ -3324,7 +3327,6 @@ func TestWriteToolInsideSessionHostAccessSkipsApproval(t *testing.T) {
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:     workspace,
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					MaxBatchOps:          20,
@@ -3364,8 +3366,8 @@ func TestEditToolInsideSessionChatDirSkipsApproval(t *testing.T) {
 		WorkspaceRoot: workspace,
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{
-				WorkspaceDir:       workspace,
-				ChatAttachmentsDir: chatDir,
+				WorkspaceDir: workspace,
+				ChatDir:      chatDir,
 			},
 		},
 	}
@@ -3376,7 +3378,6 @@ func TestEditToolInsideSessionChatDirSkipsApproval(t *testing.T) {
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:     workspace,
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					MaxBatchOps:          20,
@@ -3432,7 +3433,6 @@ func TestEditToolInsideSessionHostAccessSkipsApproval(t *testing.T) {
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:     workspace,
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					MaxBatchOps:          20,
@@ -3467,14 +3467,16 @@ func TestEditToolInsideSessionHostAccessSkipsApproval(t *testing.T) {
 
 func TestWriteToolApprovalUsesToolLabelInCommand(t *testing.T) {
 	root := t.TempDir()
+	workspace := t.TempDir()
+	session := contracts.QuerySession{RunID: "run_1", WorkspaceRoot: workspace}
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinitionWithLabel("file_write", "写入文件")}}
 	stream := &llmRunStream{
 		ctx:     context.Background(),
-		session: contracts.QuerySession{RunID: "run_1"},
+		session: session,
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
+				AccessPolicy: accessPolicyAllowingRoot(root),
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:     root,
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					MaxBatchOps:          20,
@@ -3483,12 +3485,12 @@ func TestWriteToolApprovalUsesToolLabelInCommand(t *testing.T) {
 			},
 			tools: executor,
 		},
-		execCtx: &contracts.ExecutionContext{},
+		execCtx: &contracts.ExecutionContext{Session: session},
 		activeToolCall: &preparedToolInvocation{
 			toolID:   "tool_1",
 			toolName: "file_write",
 			args: map[string]any{
-				"file_path":   "owner.md",
+				"file_path":   filepath.Join(root, "owner.md"),
 				"content":     "hello",
 				"description": "写入 owner 文档",
 			},
@@ -3511,9 +3513,10 @@ func TestWriteToolApprovalUsesToolLabelInCommand(t *testing.T) {
 
 func TestWriteToolApprovalExecutesAndWritesFile(t *testing.T) {
 	root := t.TempDir()
+	workspace := t.TempDir()
 	cfg := config.Config{
+		AccessPolicy: accessPolicyAllowingRoot(root),
 		FileTools: config.FileToolsConfig{
-			WorkingDirectory:     root,
 			MaxReadBytes:         1024,
 			MaxWriteBytes:        1024,
 			MaxBatchOps:          20,
@@ -3524,17 +3527,18 @@ func TestWriteToolApprovalExecutesAndWritesFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new executor: %v", err)
 	}
+	session := contracts.QuerySession{RunID: "run_1", WorkspaceRoot: workspace}
 	stream := &llmRunStream{
 		ctx:     context.Background(),
-		session: contracts.QuerySession{RunID: "run_1"},
+		session: session,
 		engine:  &LLMAgentEngine{cfg: cfg, tools: executor},
-		execCtx: &contracts.ExecutionContext{},
+		execCtx: &contracts.ExecutionContext{Session: session},
 		activeToolCall: &preparedToolInvocation{
 			toolID:           "tool_1",
 			toolName:         "file_write",
 			approvalDecision: "approve",
 			args: map[string]any{
-				"file_path":   "owner.md",
+				"file_path":   filepath.Join(root, "owner.md"),
 				"content":     "hello",
 				"description": "写入 owner 文档",
 			},
@@ -3562,14 +3566,16 @@ func TestWriteToolApprovalExecutesAndWritesFile(t *testing.T) {
 
 func TestEditToolEmitsApprovalBeforeExecuting(t *testing.T) {
 	root := t.TempDir()
+	workspace := t.TempDir()
+	session := contracts.QuerySession{RunID: "run_1", WorkspaceRoot: workspace}
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{editToolDefinition()}}
 	stream := &llmRunStream{
 		ctx:     context.Background(),
-		session: contracts.QuerySession{RunID: "run_1"},
+		session: session,
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
+				AccessPolicy: accessPolicyAllowingRoot(root),
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:     root,
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					RequireWriteApproval: true,
@@ -3577,12 +3583,12 @@ func TestEditToolEmitsApprovalBeforeExecuting(t *testing.T) {
 			},
 			tools: executor,
 		},
-		execCtx: &contracts.ExecutionContext{},
+		execCtx: &contracts.ExecutionContext{Session: session},
 		activeToolCall: &preparedToolInvocation{
 			toolID:   "tool_1",
 			toolName: "file_edit",
 			args: map[string]any{
-				"file_path":   "owner.md",
+				"file_path":   filepath.Join(root, "owner.md"),
 				"old_string":  "hello",
 				"new_string":  "hi",
 				"description": "编辑 owner 文档",
@@ -3614,14 +3620,16 @@ func TestEditToolEmitsApprovalBeforeExecuting(t *testing.T) {
 
 func TestEditToolApprovalUsesToolLabelInCommand(t *testing.T) {
 	root := t.TempDir()
+	workspace := t.TempDir()
+	session := contracts.QuerySession{RunID: "run_1", WorkspaceRoot: workspace}
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinitionWithLabel("file_edit", "编辑文件")}}
 	stream := &llmRunStream{
 		ctx:     context.Background(),
-		session: contracts.QuerySession{RunID: "run_1"},
+		session: session,
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
+				AccessPolicy: accessPolicyAllowingRoot(root),
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:     root,
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					RequireWriteApproval: true,
@@ -3629,12 +3637,12 @@ func TestEditToolApprovalUsesToolLabelInCommand(t *testing.T) {
 			},
 			tools: executor,
 		},
-		execCtx: &contracts.ExecutionContext{},
+		execCtx: &contracts.ExecutionContext{Session: session},
 		activeToolCall: &preparedToolInvocation{
 			toolID:   "tool_1",
 			toolName: "file_edit",
 			args: map[string]any{
-				"file_path":   "owner.md",
+				"file_path":   filepath.Join(root, "owner.md"),
 				"old_string":  "hello",
 				"new_string":  "hi",
 				"description": "编辑 owner 文档",
@@ -3658,12 +3666,13 @@ func TestEditToolApprovalUsesToolLabelInCommand(t *testing.T) {
 
 func TestEditToolApprovalExecutesAndEditsFile(t *testing.T) {
 	root := t.TempDir()
+	workspace := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "owner.md"), []byte("hello\n"), 0o644); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
 	cfg := config.Config{
+		AccessPolicy: accessPolicyAllowingRoot(root),
 		FileTools: config.FileToolsConfig{
-			WorkingDirectory:     root,
 			MaxReadBytes:         1024,
 			MaxWriteBytes:        1024,
 			RequireWriteApproval: true,
@@ -3673,17 +3682,18 @@ func TestEditToolApprovalExecutesAndEditsFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new executor: %v", err)
 	}
+	session := contracts.QuerySession{RunID: "run_1", WorkspaceRoot: workspace}
 	stream := &llmRunStream{
 		ctx:     context.Background(),
-		session: contracts.QuerySession{RunID: "run_1"},
+		session: session,
 		engine:  &LLMAgentEngine{cfg: cfg, tools: executor},
-		execCtx: &contracts.ExecutionContext{},
+		execCtx: &contracts.ExecutionContext{Session: session},
 		activeToolCall: &preparedToolInvocation{
 			toolID:           "tool_1",
 			toolName:         "file_edit",
 			approvalDecision: "approve",
 			args: map[string]any{
-				"file_path":   "owner.md",
+				"file_path":   filepath.Join(root, "owner.md"),
 				"old_string":  "hello",
 				"new_string":  "hi",
 				"description": "编辑 owner 文档",
@@ -3713,11 +3723,10 @@ func TestFileReadAccessApprovalEmitsAwaitingAsk(t *testing.T) {
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinition("file_read")}}
 	stream := &llmRunStream{
 		ctx:     context.Background(),
-		session: contracts.QuerySession{RunID: "run_1"},
+		session: contracts.QuerySession{RunID: "run_1", WorkspaceRoot: root},
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:       root,
 					MaxReadBytes:           1024,
 					MaxWriteBytes:          1024,
 					RequireReadBeforeWrite: true,
@@ -3772,11 +3781,10 @@ func TestFileGrepAccessApprovalUsesToolLabelInCommand(t *testing.T) {
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinitionWithLabel("file_grep", "搜索文件")}}
 	stream := &llmRunStream{
 		ctx:     context.Background(),
-		session: contracts.QuerySession{RunID: "run_1"},
+		session: contracts.QuerySession{RunID: "run_1", WorkspaceRoot: root},
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:       root,
 					MaxReadBytes:           1024,
 					MaxWriteBytes:          1024,
 					RequireReadBeforeWrite: true,
@@ -3821,11 +3829,10 @@ func TestFileEditPathApprovalUsesEditCommand(t *testing.T) {
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{editToolDefinition()}}
 	stream := &llmRunStream{
 		ctx:     context.Background(),
-		session: contracts.QuerySession{RunID: "run_1"},
+		session: contracts.QuerySession{RunID: "run_1", WorkspaceRoot: root},
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:       root,
 					MaxReadBytes:           1024,
 					MaxWriteBytes:          1024,
 					RequireWriteApproval:   false,
@@ -3876,9 +3883,10 @@ func TestFileReadAccessAllowsSessionSkillsDirBeforeApproval(t *testing.T) {
 	}
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinition("file_read")}}
 	session := contracts.QuerySession{
-		RunID: "run_1",
+		RunID:         "run_1",
+		WorkspaceRoot: root,
 		RuntimeContext: contracts.RuntimeRequestContext{
-			LocalPaths: contracts.LocalPaths{SkillsDir: skillsRoot},
+			LocalPaths: contracts.LocalPaths{WorkspaceDir: root, SkillsDir: skillsRoot},
 		},
 	}
 	stream := &llmRunStream{
@@ -3887,7 +3895,6 @@ func TestFileReadAccessAllowsSessionSkillsDirBeforeApproval(t *testing.T) {
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:       root,
 					MaxReadBytes:           1024,
 					MaxWriteBytes:          1024,
 					RequireReadBeforeWrite: true,
@@ -3930,13 +3937,12 @@ func TestFileReadAccessApprovalDecisions(t *testing.T) {
 			executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinition("file_read")}}
 			stream := &llmRunStream{
 				ctx:     context.Background(),
-				session: contracts.QuerySession{RunID: "run_1"},
+				session: contracts.QuerySession{RunID: "run_1", WorkspaceRoot: root},
 				engine: &LLMAgentEngine{
 					cfg: config.Config{
 						FileTools: config.FileToolsConfig{
-							WorkingDirectory: root,
-							MaxReadBytes:     1024,
-							MaxWriteBytes:    1024,
+							MaxReadBytes:  1024,
+							MaxWriteBytes: 1024,
 						},
 					},
 					tools: executor,
@@ -4016,7 +4022,7 @@ func TestFileReadAccessAutoApproveRecordsApprovalSummary(t *testing.T) {
 		t.Fatalf("unexpected auto approval notice %q", recordedApproval.Notice)
 	}
 	if !strings.Contains(recordedApproval.Summary, "[AUTO]") {
-		t.Fatalf("expected auto approval frontend summary, got %#v", recordedApproval)
+		t.Fatalf("expected auto approval interactions summary, got %#v", recordedApproval)
 	}
 }
 
@@ -4192,13 +4198,12 @@ func TestFileReadAccessRejectDoesNotExecute(t *testing.T) {
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinition("file_read")}}
 	stream := &llmRunStream{
 		ctx:     context.Background(),
-		session: contracts.QuerySession{RunID: "run_1"},
+		session: contracts.QuerySession{RunID: "run_1", WorkspaceRoot: root},
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory: root,
-					MaxReadBytes:     1024,
-					MaxWriteBytes:    1024,
+					MaxReadBytes:  1024,
+					MaxWriteBytes: 1024,
 				},
 			},
 			tools: executor,
@@ -4229,15 +4234,13 @@ func TestFileReadAccessRejectDoesNotExecute(t *testing.T) {
 }
 
 func TestFileReadAccessApprovalNoticeUsesPlanCommand(t *testing.T) {
-	root := t.TempDir()
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory: root,
-					MaxReadBytes:     1024,
-					MaxWriteBytes:    1024,
+					MaxReadBytes:  1024,
+					MaxWriteBytes: 1024,
 				},
 			},
 			tools: stubToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinition("file_read")}},
@@ -4271,15 +4274,13 @@ func TestFileReadAccessApprovalNoticeUsesPlanCommand(t *testing.T) {
 }
 
 func TestFileGrepAccessApprovalNoticeUsesToolLabel(t *testing.T) {
-	root := t.TempDir()
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory: root,
-					MaxReadBytes:     1024,
-					MaxWriteBytes:    1024,
+					MaxReadBytes:  1024,
+					MaxWriteBytes: 1024,
 				},
 			},
 			tools: stubToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinitionWithLabel("file_grep", "搜索文件")}},
@@ -4350,19 +4351,20 @@ func TestFileWriteAndEditApprovalNoticeUseToolLabel(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
+			session := contracts.QuerySession{WorkspaceRoot: root}
 			stream := &llmRunStream{
-				ctx: context.Background(),
+				ctx:     context.Background(),
+				session: session,
 				engine: &LLMAgentEngine{
 					cfg: config.Config{
 						FileTools: config.FileToolsConfig{
-							WorkingDirectory: root,
-							MaxReadBytes:     1024,
-							MaxWriteBytes:    1024,
+							MaxReadBytes:  1024,
+							MaxWriteBytes: 1024,
 						},
 					},
 					tools: stubToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinitionWithLabel(tc.toolName, tc.label)}},
 				},
-				execCtx: &contracts.ExecutionContext{},
+				execCtx: &contracts.ExecutionContext{Session: session},
 			}
 			invocation := &preparedToolInvocation{
 				toolID:   "tool_1",
@@ -4396,11 +4398,10 @@ func TestWriteOutsideAccessPolicyRootsCombinesPathAndContentApproval(t *testing.
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinitionWithLabel("file_write", "写入文件")}}
 	stream := &llmRunStream{
 		ctx:     context.Background(),
-		session: contracts.QuerySession{RunID: "run_1"},
+		session: contracts.QuerySession{RunID: "run_1", WorkspaceRoot: root},
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:     root,
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					RequireWriteApproval: true,
@@ -4463,13 +4464,13 @@ func TestKBaseExternalWriteUsesCommonApprovalBeforeExecutor(t *testing.T) {
 		WorkspaceRoot: root,
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{
-				WorkspaceDir:       root,
-				ChatAttachmentsDir: chatDir,
+				WorkspaceDir: root,
+				ChatDir:      chatDir,
 			},
 		},
 		ScopedFilePolicy: &contracts.ScopedFilePolicy{
-			Root:                  root,
-			SourceMutationEnabled: true,
+			WorkspaceRoot:            root,
+			WorkspaceMutationEnabled: true,
 		},
 	}
 	stream := &llmRunStream{
@@ -4478,7 +4479,6 @@ func TestKBaseExternalWriteUsesCommonApprovalBeforeExecutor(t *testing.T) {
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:     root,
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					RequireWriteApproval: true,
@@ -4523,7 +4523,7 @@ func TestKBaseReadOnlySourceMutationSkipsMeaninglessHITLPreflight(t *testing.T) 
 			LocalPaths: contracts.LocalPaths{WorkspaceDir: source},
 		},
 		ScopedFilePolicy: &contracts.ScopedFilePolicy{
-			Root:                  source,
+			WorkspaceRoot:         source,
 			RequireExistingParent: true,
 		},
 	}
@@ -4531,7 +4531,6 @@ func TestKBaseReadOnlySourceMutationSkipsMeaninglessHITLPreflight(t *testing.T) 
 		session: session,
 		engine: &LLMAgentEngine{cfg: config.Config{
 			AccessPolicy: config.AccessPolicyConfig{
-				WorkingDirectory: source,
 				Levels: map[string]config.AccessPolicyLevelConfig{
 					contracts.AccessLevelDefault: {
 						WriteRoots: []string{},
@@ -4541,7 +4540,6 @@ func TestKBaseReadOnlySourceMutationSkipsMeaninglessHITLPreflight(t *testing.T) 
 					},
 				},
 			},
-			FileTools: config.FileToolsConfig{WorkingDirectory: source},
 		}},
 		execCtx: &contracts.ExecutionContext{Session: session},
 	}
@@ -4567,11 +4565,10 @@ func TestEditOutsideAccessPolicyRootsCombinesPathAndContentApprovalUsesToolLabel
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinitionWithLabel("file_edit", "编辑文件")}}
 	stream := &llmRunStream{
 		ctx:     context.Background(),
-		session: contracts.QuerySession{RunID: "run_1"},
+		session: contracts.QuerySession{RunID: "run_1", WorkspaceRoot: root},
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:     root,
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					RequireWriteApproval: true,
@@ -4618,12 +4615,11 @@ func TestWriteOutsideAccessPolicyRootsCombinedSubmitExecutesOriginalToolCall(t *
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{writeToolDefinition()}}
 	stream := &llmRunStream{
 		ctx:        context.Background(),
-		session:    contracts.QuerySession{RequestID: "req_1", ChatID: "chat_1", RunID: "run_1"},
+		session:    contracts.QuerySession{RequestID: "req_1", ChatID: "chat_1", RunID: "run_1", WorkspaceRoot: root},
 		runControl: runControl,
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:     root,
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					RequireWriteApproval: true,
@@ -4681,7 +4677,6 @@ func TestWriteOutsideAccessPolicyRootsCombinedApprovalDecisions(t *testing.T) {
 			outside := t.TempDir()
 			cfg := config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:       root,
 					MaxReadBytes:           1024,
 					MaxWriteBytes:          1024,
 					RequireWriteApproval:   true,
@@ -4695,7 +4690,7 @@ func TestWriteOutsideAccessPolicyRootsCombinedApprovalDecisions(t *testing.T) {
 			target := filepath.Join(outside, "owner.md")
 			stream := &llmRunStream{
 				ctx:     context.Background(),
-				session: contracts.QuerySession{RunID: "run_1"},
+				session: contracts.QuerySession{RunID: "run_1", WorkspaceRoot: root},
 				engine:  &LLMAgentEngine{cfg: cfg, tools: executor},
 				execCtx: &contracts.ExecutionContext{},
 				activeToolCall: &preparedToolInvocation{
@@ -4747,11 +4742,10 @@ func TestWriteOutsideAccessPolicyRootsCombinedRejectDoesNotExecute(t *testing.T)
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{writeToolDefinition()}}
 	stream := &llmRunStream{
 		ctx:     context.Background(),
-		session: contracts.QuerySession{RunID: "run_1"},
+		session: contracts.QuerySession{RunID: "run_1", WorkspaceRoot: root},
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:     root,
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					RequireWriteApproval: true,
@@ -4796,7 +4790,6 @@ func TestEditOutsideAccessPolicyRootsCombinedApprovalDecisions(t *testing.T) {
 			outside := t.TempDir()
 			cfg := config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:       root,
 					MaxReadBytes:           1024,
 					MaxWriteBytes:          1024,
 					RequireWriteApproval:   true,
@@ -4810,7 +4803,7 @@ func TestEditOutsideAccessPolicyRootsCombinedApprovalDecisions(t *testing.T) {
 			target := filepath.Join(outside, "owner.md")
 			stream := &llmRunStream{
 				ctx:     context.Background(),
-				session: contracts.QuerySession{RunID: "run_1"},
+				session: contracts.QuerySession{RunID: "run_1", WorkspaceRoot: root},
 				engine:  &LLMAgentEngine{cfg: cfg, tools: executor},
 				execCtx: &contracts.ExecutionContext{},
 				activeToolCall: &preparedToolInvocation{
@@ -4856,11 +4849,10 @@ func TestEditOutsideAccessPolicyRootsCombinedRejectDoesNotExecute(t *testing.T) 
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{editToolDefinition()}}
 	stream := &llmRunStream{
 		ctx:     context.Background(),
-		session: contracts.QuerySession{RunID: "run_1"},
+		session: contracts.QuerySession{RunID: "run_1", WorkspaceRoot: root},
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:     root,
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					RequireWriteApproval: true,
@@ -4899,13 +4891,13 @@ func TestEditOutsideAccessPolicyRootsCombinedRejectDoesNotExecute(t *testing.T) 
 func TestFileEditApprovalNoticeUsesPlanCommand(t *testing.T) {
 	root := t.TempDir()
 	stream := &llmRunStream{
-		ctx: context.Background(),
+		ctx:     context.Background(),
+		session: contracts.QuerySession{WorkspaceRoot: root},
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory: root,
-					MaxReadBytes:     1024,
-					MaxWriteBytes:    1024,
+					MaxReadBytes:  1024,
+					MaxWriteBytes: 1024,
 				},
 			},
 			tools: stubToolExecutor{defs: []api.ToolDetailResponse{editToolDefinition()}},
@@ -4946,8 +4938,8 @@ func TestBashSecuritySoftBlockRejectDoesNotExecute(t *testing.T) {
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
-			tools:    executor,
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        executor,
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{
 			RequestID: "req_1",
@@ -4987,8 +4979,8 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
-			tools:    &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}},
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}},
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{
 			RequestID: "req_1",
@@ -5097,8 +5089,8 @@ func TestAwaitHITLSubmitAndExecute_FormRejectWithFeedbackEmitsRetryableResultAnd
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
-			tools:    executor,
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        executor,
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{
 			RequestID: "req_1",
@@ -5195,8 +5187,8 @@ func TestAwaitHITLSubmitAndExecute_FormPayloadRebuildFailureEmitsRejectHITLMetad
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
-			tools:    executor,
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        executor,
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{
 			RequestID: "req_1",
@@ -5255,7 +5247,7 @@ func TestAwaitHITLSubmitAndExecute_FormPayloadRebuildFailureEmitsRejectHITLMetad
 			continue
 		}
 		foundResult = true
-		if typed.Result.Error != "frontend_submit_invalid_payload" {
+		if typed.Result.Error != "tool_interaction_invalid_payload" {
 			t.Fatalf("expected invalid payload result, got %#v", typed.Result)
 		}
 		if typed.Result.HITL["mode"] != "form" || typed.Result.HITL["decision"] != "reject" {
@@ -5290,8 +5282,8 @@ func TestAwaitHITLApprovalBatchAndContinue_HostUsesUnifiedBashToolName(t *testin
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
-			tools:    executor,
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        executor,
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{
 			RequestID:              "req_1",
@@ -5491,7 +5483,7 @@ func TestPrepareQueuedBashApprovalBatch_AppendsSingleSummaryAfterAllApprovedResu
 		t.Fatalf("expected recorded approval LLM notice to match user message, got %#v", recordedApproval)
 	}
 	if !strings.Contains(recordedApproval.Summary, `[HITL] 审批结果：`) || !strings.Contains(recordedApproval.Summary, `1. chmod 777 ~/a.sh → approve`) {
-		t.Fatalf("expected recorded approval summary to remain frontend Chinese text, got %#v", recordedApproval)
+		t.Fatalf("expected recorded approval summary to remain interactions Chinese text, got %#v", recordedApproval)
 	}
 	if len(recordedApproval.Decisions) != 3 || recordedApproval.Decisions[2].Decision != "approve" {
 		t.Fatalf("expected recorded approval decisions, got %#v", recordedApproval)
@@ -5903,8 +5895,8 @@ func TestPrepareQueuedBashApprovalBatch_LeavesHtmlViewportOutsideMergedApprovalA
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
-			tools:    executor,
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        executor,
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{
 			RequestID: "req_1",
@@ -6018,7 +6010,7 @@ func TestAppendOriginalToolResult_SpillsEligiblePreviewIntoMessages(t *testing.T
 		session: contracts.QuerySession{
 			ChatID: "chat-stream-spill",
 			RuntimeContext: contracts.RuntimeRequestContext{
-				LocalPaths: contracts.LocalPaths{ChatAttachmentsDir: chatDir},
+				LocalPaths: contracts.LocalPaths{ChatDir: chatDir},
 			},
 		},
 	}
@@ -6299,8 +6291,8 @@ func TestAwaitHITLSubmitAndExecute_TimeoutEmitsTerminalAnswer(t *testing.T) {
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
-			tools:    &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}},
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}},
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{
 			RequestID: "req_1",
@@ -6371,8 +6363,8 @@ func TestAwaitHITLSubmitAndExecute_FormTimeoutEmitsHITLMetadataAndSummary(t *tes
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
-			tools:    &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}},
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}},
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{
 			RequestID: "req_1",
@@ -6454,8 +6446,8 @@ func TestInvokeActiveToolCallUsesSkillScopedChecker(t *testing.T) {
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
-			tools:    executor,
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        executor,
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		checker: stubChecker{
 			result: hitl.InterceptResult{
@@ -6699,8 +6691,8 @@ func TestInvokeActiveToolCallAutoApprovesBuiltinLevelInCurrentRun(t *testing.T) 
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
-			tools:    executor,
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        executor,
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		checker: stubChecker{
 			result: hitl.InterceptResult{
@@ -6755,8 +6747,8 @@ func TestInvokeActiveToolCallDoesNotAutoApproveHTMLViewport(t *testing.T) {
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
-			tools:    executor,
-			frontend: frontendtools.NewDefaultRegistry(),
+			tools:        executor,
+			interactions: toolinteraction.NewDefaultRegistry(),
 		},
 		checker: stubChecker{
 			result: hitl.InterceptResult{

@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -131,16 +133,8 @@ func proxyQueryPayloadWithWorkspace(req api.QueryRequest, proxy *catalog.ProxyCo
 }
 
 func proxyForwardParams(req api.QueryRequest, workspaceRoot string) map[string]any {
-	params := contracts.CloneMap(req.Params)
-	workspaceRoot = strings.TrimSpace(workspaceRoot)
-	if workspaceRoot == "" {
-		return params
-	}
-	if params == nil {
-		params = map[string]any{}
-	}
-	params["cwd"] = workspaceRoot
-	return params
+	_ = workspaceRoot
+	return contracts.CloneMap(req.Params)
 }
 
 func proxyRequestHasReservedCWD(params map[string]any) bool {
@@ -767,6 +761,21 @@ func (r *proxyEventRecorder) syntheticPlanningSnapshotBeforeAwaiting(event strea
 	chatDir := ""
 	if r.chatStore != nil {
 		chatDir = r.chatStore.ChatDir(r.req.ChatID)
+	}
+	if strings.TrimSpace(contracts.AnyStringNode(planning["planningFile"])) == "" {
+		planningID := strings.TrimSpace(contracts.AnyStringNode(planning["planningId"]))
+		if planningID == "" || filepath.Base(planningID) != planningID || chatDir == "" {
+			return stream.EventData{}, false
+		}
+		planningFile := filepath.Join(chatDir, chat.ToolRootDirName, chat.ToolPlanningDirName, planningID+".md")
+		if err := os.MkdirAll(filepath.Dir(planningFile), 0o755); err != nil {
+			return stream.EventData{}, false
+		}
+		if err := os.WriteFile(planningFile, []byte(contracts.AnyStringNode(planning["text"])), 0o644); err != nil {
+			return stream.EventData{}, false
+		}
+		planning["planningFile"] = planningFile
+		event.Payload["planning"] = planning
 	}
 	state, snapshot := chat.PlanningSnapshotFromAwaitingItem(eventPayloadWithType(event), r.req.ChatID, r.req.RunID, chatDir)
 	if state == nil || snapshot == nil || strings.TrimSpace(state.Markdown) == "" || r.hasPlanningSnapshot(state.PlanningID) {

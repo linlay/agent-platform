@@ -27,7 +27,6 @@ func setupAdminRegistriesFixture(t *testing.T) testFixture {
 				Key:  "demo_search",
 				Name: "demo_search",
 				Meta: map[string]any{
-					"kind":           "backend",
 					"sourceCategory": "mcp",
 					"sourceKey":      "demo-mcp",
 				},
@@ -36,7 +35,6 @@ func setupAdminRegistriesFixture(t *testing.T) testFixture {
 				Key:  "demo_read",
 				Name: "demo_read",
 				Meta: map[string]any{
-					"kind":           "frontend",
 					"sourceCategory": "mcp",
 					"serverKey":      "demo-mcp",
 				},
@@ -45,7 +43,6 @@ func setupAdminRegistriesFixture(t *testing.T) testFixture {
 				Key:  "other_tool",
 				Name: "other_tool",
 				Meta: map[string]any{
-					"kind":           "backend",
 					"sourceCategory": "mcp",
 					"sourceKey":      "other-mcp",
 				},

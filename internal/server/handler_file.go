@@ -14,6 +14,7 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/pathutil"
+	"agent-platform/internal/rootpaths"
 	"agent-platform/internal/runtimeenv"
 	"agent-platform/internal/textcodec"
 )
@@ -67,7 +68,7 @@ func (s *Server) resolveAgentFile(agentKey string, requestedPath string) (resolv
 		return resolvedAgentFile{}, newAgentStatusError(http.StatusNotFound, "not_found", "agent not found")
 	}
 	workspaceRoot := agentContentRoot(def)
-	if workspaceRoot == "" || strings.EqualFold(workspaceRoot, catalog.AgentWorkspaceRootChat) {
+	if workspaceRoot == "" {
 		return resolvedAgentFile{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "agent workspace is not a stable directory")
 	}
 	workspaceRoot = filepath.Clean(pathutil.ExpandHome(workspaceRoot))
@@ -84,10 +85,11 @@ func (s *Server) resolveAgentFile(agentKey string, requestedPath string) (resolv
 	if !info.IsDir() {
 		return resolvedAgentFile{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "agent workspace is not a directory")
 	}
-	workspaceCanonical, err := pathutil.Canonicalize(workspaceRoot)
+	semanticRoots, err := rootpaths.New(workspaceRoot, s.deps.Config.Paths.ChatsDir, "")
 	if err != nil {
 		return resolvedAgentFile{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", err.Error())
 	}
+	workspaceCanonical := semanticRoots.Workspace
 
 	candidate := filepath.FromSlash(requestedPath)
 	if !filepath.IsAbs(candidate) {
@@ -98,7 +100,12 @@ func (s *Server) resolveAgentFile(agentKey string, requestedPath string) (resolv
 	if err != nil {
 		return resolvedAgentFile{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", err.Error())
 	}
-	if !pathutil.WithinRoot(targetCanonical, workspaceCanonical) {
+	switch semanticRoots.ClassifyCanonical(targetCanonical) {
+	case rootpaths.ZoneCurrentChat, rootpaths.ZoneOtherChat:
+		return resolvedAgentFile{}, newAgentStatusError(http.StatusForbidden, "path_crosses_chat_root", "workspace file path must not enter the chats root")
+	case rootpaths.ZoneWorkspace:
+		// Allowed.
+	default:
 		return resolvedAgentFile{}, newAgentStatusError(http.StatusForbidden, "forbidden", "file path is outside agent workspace")
 	}
 	if filetools.IsBlockedDeviceFile(targetCanonical.Host) {
@@ -132,11 +139,6 @@ func (s *Server) resolveAgentFile(agentKey string, requestedPath string) (resolv
 }
 
 func agentContentRoot(def catalog.AgentDefinition) string {
-	if strings.EqualFold(strings.TrimSpace(def.Mode), catalog.AgentModeKBase) && def.KBaseConfig.Enabled {
-		if root := strings.TrimSpace(def.KBaseConfig.Source.Root); root != "" {
-			return root
-		}
-	}
 	return strings.TrimSpace(def.Workspace.Root)
 }
 

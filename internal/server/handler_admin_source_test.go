@@ -69,7 +69,7 @@ func TestAdminSourceRegistryReadWriteAndConflict(t *testing.T) {
 	}
 
 	invalid := httptest.NewRecorder()
-	invalidPayload, err := json.Marshal(api.UpdateAdminSourceRequest{Target: createdTarget, Content: "key: [unterminated", BaseSHA256: created.SHA256})
+	invalidPayload, err := json.Marshal(api.UpdateAdminSourceRequest{Target: createdTarget, Content: ": invalid", BaseSHA256: created.SHA256})
 	if err != nil {
 		t.Fatalf("marshal invalid registry source: %v", err)
 	}

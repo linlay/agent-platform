@@ -1,4 +1,4 @@
-package frontendtools
+package toolinteraction
 
 import (
 	"reflect"
@@ -9,39 +9,13 @@ import (
 	"agent-platform/internal/contracts"
 )
 
-func frontendTool(name string) api.ToolDetailResponse {
+func interactionTool(name string) api.ToolDetailResponse {
 	return api.ToolDetailResponse{
 		Name: name,
 		Meta: map[string]any{
-			"kind": "frontend",
+			"viewportType": "builtin",
+			"viewportKey":  "question",
 		},
-	}
-}
-
-func TestGenericFormHandlerNormalizesPayloadSubmit(t *testing.T) {
-	handler := NewGenericFormHandler()
-	normalized, err := handler.NormalizeSubmit(map[string]any{"seed": "value"}, []any{
-		map[string]any{
-			"id":      "form-1",
-			"payload": map[string]any{"name": "Lin"},
-		},
-	})
-	if err != nil {
-		t.Fatalf("normalize generic submit: %v", err)
-	}
-	if normalized["mode"] != "form" || normalized["status"] != "answered" {
-		t.Fatalf("unexpected normalized payload %#v", normalized)
-	}
-	forms, ok := normalized["forms"].([]map[string]any)
-	if !ok || len(forms) != 1 {
-		t.Fatalf("expected one form, got %#v", normalized["forms"])
-	}
-	if forms[0]["decision"] != "submit" {
-		t.Fatalf("expected default submit decision, got %#v", forms[0])
-	}
-	form, _ := forms[0]["form"].(map[string]any)
-	if form["name"] != "Lin" {
-		t.Fatalf("unexpected form payload %#v", form)
 	}
 }
 
@@ -56,7 +30,7 @@ func mustSubmitParams(t *testing.T, value any) api.SubmitParams {
 
 func TestAskUserQuestionHandlerBuildInitialAwaitAsk(t *testing.T) {
 	handler := NewAskUserQuestionHandler()
-	awaitAsk := handler.BuildInitialAwaitAsk("tool_1", "run_1", frontendTool("ask_user_question"), map[string]any{
+	awaitAsk := handler.BuildInitialAwaitAsk("tool_1", "run_1", interactionTool("ask_user_question"), map[string]any{
 		"mode": "question",
 		"questions": []any{
 			map[string]any{"question": "Pick a plan", "type": "select", "options": []any{map[string]any{"label": "Weekend"}}},
@@ -149,7 +123,7 @@ func TestAskUserQuestionHandlerValidateArgsPreviewHTML(t *testing.T) {
 
 func TestAskUserQuestionHandlerBuildInitialAwaitAskPreservesOptionPreviewHTML(t *testing.T) {
 	handler := NewAskUserQuestionHandler()
-	awaitAsk := handler.BuildInitialAwaitAsk("tool_1", "run_1", frontendTool("ask_user_question"), map[string]any{
+	awaitAsk := handler.BuildInitialAwaitAsk("tool_1", "run_1", interactionTool("ask_user_question"), map[string]any{
 		"mode": "question",
 		"questions": []any{
 			map[string]any{
@@ -344,7 +318,7 @@ func TestAskUserQuestionHandlerRejectsAnswerCountMismatch(t *testing.T) {
 	}
 }
 
-func TestAskUserQuestionHandlerFormatSubmitResult(t *testing.T) {
+func TestAskUserQuestionHandlerFormatModelOutput(t *testing.T) {
 	handler := NewAskUserQuestionHandler()
 	result := contracts.ToolExecutionResult{
 		Output: `{"mode":"question"}`,
@@ -355,8 +329,8 @@ func TestAskUserQuestionHandlerFormatSubmitResult(t *testing.T) {
 			},
 		},
 	}
-	if got, ok := handler.FormatSubmitResult("summary", result); !ok || got != "用户回答了以下问题:\n- 行程安排: Weekend\n- 订阅内容: 产品更新, 使用教程" {
-		t.Fatalf("unexpected summary result: ok=%v got=%q", ok, got)
+	if got := handler.FormatModelOutput(result); got != "问题：Pick a plan\n回答：Weekend\n问题：Subscription topics\n回答：产品更新, 使用教程" {
+		t.Fatalf("unexpected QA result: got=%q", got)
 	}
 }
 
@@ -381,7 +355,7 @@ func TestAskUserQuestionHandlerValidateArgsRecommendedSingle(t *testing.T) {
 	}
 
 	// BuildInitialAwaitAsk should preserve recommended
-	awaitAsk := handler.BuildInitialAwaitAsk("tool_1", "run_1", frontendTool("ask_user_question"), map[string]any{
+	awaitAsk := handler.BuildInitialAwaitAsk("tool_1", "run_1", interactionTool("ask_user_question"), map[string]any{
 		"mode": "question",
 		"questions": []any{
 			map[string]any{

@@ -1,7 +1,15 @@
 name: artifact_publish
 label: 发布产物
-description: Publish files as user-visible artifacts for the current run. You MUST call this tool whenever you have generated, exported, or assembled a file that the user asked for or would reasonably expect as a deliverable, including Markdown, documents, reports, images, spreadsheets, code packages, and archives. Do not merely mention the file path or paste the file contents when a requested deliverable file exists; publish the file with this tool, then summarize it briefly. Pass only source paths that actually exist and are accessible to this tool: typically /workspace/... paths, paths relative to the current chat working directory, or files inside the server workspace. Do not pass arbitrary user-local absolute paths such as /Users/.../Downloads/... or /Users/.../Desktop/...; first upload, import, or copy those files into a controlled workspace path. This emits a single batched artifact.publish SSE event only when every requested artifact is successfully published. If any requested path fails, the whole invocation fails and publishedArtifacts is empty. Republish the corrected full set after fixing paths; publishing the same filename again in the same run overwrites the previous artifact file. Only entries returned in publishedArtifacts were actually published. The published file name, extension, and MIME type are derived from the path.
-type: function
+description: |
+  Publish files as user-visible artifacts for the current run. You MUST call
+  this tool whenever a requested deliverable file exists. Sources must be
+  inside the current Workspace or Chat: use /workspace/... or /chat/... in
+  Container Hub, @workspace/@chat aliases, host paths inside those roots, or
+  Workspace-relative paths. Published copies are always stored under the
+  current Chat artifacts directory. Arbitrary user-local absolute paths such
+  as /Users/.../Downloads must first be uploaded, imported, or copied into a
+  controlled root. The batch succeeds only when every item is published;
+  trust the returned publishedArtifacts list as the publication result.
 clientVisible: true
 inputSchema:
   type: object
@@ -15,7 +23,7 @@ inputSchema:
         properties:
           path:
             type: string
-            description: Required. Existing file path to publish. Use a /workspace/... path, a path relative to the current chat working directory, or a file inside the server workspace. Do not use arbitrary user-local absolute paths such as /Users/.../Downloads/...; those must be uploaded, imported, or copied into a controlled workspace path first. The source file basename is always used as the published download filename. The batch only succeeds if every path publishes, and republishing the same filename in the same run overwrites the previous artifact file.
+            description: Required. Existing file in the current Workspace or Chat. The source basename becomes the download filename; republishing it in the same run overwrites the prior published copy.
           description:
             type: string
             description: Short description of this artifact.

@@ -52,7 +52,6 @@ type ToolDefinition struct {
 	AfterCallHint string
 	Parameters    map[string]any
 	OutputSchema  map[string]any
-	ToolAction    bool
 	ViewportType  string
 	ViewportKey   string
 	Aliases       []string
@@ -69,7 +68,6 @@ func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
 		InputSchema   map[string]any `json:"inputSchema"`
 		Parameters    map[string]any `json:"parameters"`
 		OutputSchema  map[string]any `json:"outputSchema"`
-		ToolAction    bool           `json:"toolAction"`
 		ViewportType  string         `json:"viewportType"`
 		ViewportKey   string         `json:"viewportKey"`
 		Aliases       []string       `json:"aliases"`
@@ -99,7 +97,6 @@ func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
 		AfterCallHint: raw.AfterCallHint,
 		Parameters:    contracts.CloneMap(parameters),
 		OutputSchema:  contracts.CloneMap(raw.OutputSchema),
-		ToolAction:    raw.ToolAction,
 		ViewportType:  strings.TrimSpace(raw.ViewportType),
 		ViewportKey:   raw.ViewportKey,
 		Aliases:       append([]string(nil), raw.Aliases...),
@@ -109,19 +106,11 @@ func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
 }
 
 func (t ToolDefinition) ToAPITool(serverKey string) api.ToolDetailResponse {
-	kind := "backend"
-	if t.ToolAction {
-		kind = "action"
-	} else if strings.TrimSpace(t.ViewportType) != "" || strings.TrimSpace(t.ViewportKey) != "" {
-		kind = "frontend"
-	}
 	meta := map[string]any{
-		"kind":           kind,
 		"serverKey":      serverKey,
 		"sourceType":     "mcp",
 		"sourceCategory": "mcp",
 		"sourceKey":      serverKey,
-		"toolAction":     t.ToolAction,
 		"clientVisible":  true,
 	}
 	if strings.TrimSpace(t.ViewportType) != "" {
@@ -133,12 +122,13 @@ func (t ToolDefinition) ToAPITool(serverKey string) api.ToolDetailResponse {
 	for key, value := range t.Meta {
 		meta[key] = value
 	}
-	meta["kind"] = kind
+	for _, key := range []string{"type", "kind", "toolAction", "submitResultFormat"} {
+		delete(meta, key)
+	}
 	meta["serverKey"] = serverKey
 	meta["sourceType"] = "mcp"
 	meta["sourceCategory"] = "mcp"
 	meta["sourceKey"] = serverKey
-	meta["toolAction"] = t.ToolAction
 	return api.ToolDetailResponse{
 		Key:           defaultToolKey(t.Key, t.Name),
 		Name:          t.Name,

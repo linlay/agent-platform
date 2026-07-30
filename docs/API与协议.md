@@ -217,7 +217,7 @@ Automation 的 Team 身份规则与 query 一致：只配置 `teamId`，同时�
 
 `/api/query` 的 `stream` 是 JSON body 字段；省略或传 `true` 时返回 SSE，结束帧为 `data: [DONE]`。传 `false` 时服务端仍执行完整 run、持久化 chat，并在结束后返回普通 JSON。默认只返回最终回答，响应示例见下文。
 
-`editingMode` 只认顶层 JSON boolean。仅 `editingMode:true` 且目标为专用 `mode: KBASE` 时生效；普通 Agent 附加 KBASE capability、CODER、PROXY、CHANNEL 和 Team 返回 HTTP 400，`msg=editing_mode_unsupported`。专用 KBASE 在 true/false 两种状态下都以最终 Source root 作为 Workspace，并提供相同的五个文件工具；`false` 或省略只表示 Source mutation 未授权，Source 仍可读，当前 Chat 目录仍可读写。`params.editingMode` 不生效。开启时，`request.query` live event、chat JSONL、replay/export 和运行中 `activeRun` 保留 `editingMode:true`；false 时省略。它是单次 run 授权，不写 Agent 配置，也不会从上一轮继承。
+`editingMode` 只认顶层 JSON boolean。仅 `editingMode:true` 且目标为专用 `mode: KBASE` 时生效；普通 Agent 附加 KBASE capability、CODER、PROXY、CHANNEL 和 Team 返回 HTTP 400，`msg=editing_mode_unsupported`。专用 KBASE 在 true/false 两种状态下都以最终 `runtimeConfig.workspaceRoot` 作为 Workspace，并提供相同的五个文件工具；`false` 或省略只表示 Workspace mutation 未授权，Workspace 仍可读，当前 Chat 目录仍可读写。`params.editingMode` 不生效。开启时，`request.query` live event、chat JSONL、replay/export 和运行中 `activeRun` 保留 `editingMode:true`；false 时省略。它是单次 run 授权，不写 Agent 配置，也不会从上一轮继承。
 
 `requiredSkillKeys` 是单次 run 的强制 Skill 约束。当前客户端只发送零个或一个 key；服务端会去重后验证每个 key 同时属于目标 Agent 的 `skillConfig.skills` 且能从 skills market 成功解析。任一项不可用时返回 HTTP 400，`msg=required_skill_unavailable`，不会静默降级。通过验证的 key 会进入 session、system-init fingerprint 与 `request.query`，并在系统级 Skill 约束中要求本次运行加载并遵循对应 `SKILL.md`。Team 不接受该字段。
 
@@ -256,7 +256,7 @@ BTW 发给 provider 的 system、tools、tool choice 和 cache key 与普通 cha
 }
 ```
 
-`references` 中的文件引用使用 `path` 表示当前目标智能体可直接访问的执行路径。服务端会按 agent 运行位置生成或归一化该字段：本地运行时为宿主机绝对路径，容器运行时为 `/workspace/...`。
+`references` 中的文件引用使用 `path` 表示当前目标智能体可直接访问的执行路径。当前 Chat 文件在 Host 为 Chat 绝对路径，在 Container Hub 为 `/chat/...`；Workspace 文件在 Host 为 Workspace 绝对路径，在 Container Hub 为 `/workspace/...`。跨 Agent 文件会先物化到 Chat；PROXY/CHANNEL/ACP 等远程 adapter 使用带 ticket 的 resource URL，由接收端在 30 秒、50 MiB 安全上限内下载到自己的 Chat，再生成本地执行路径。历史 path-only `/workspace` Chat 引用不再作为新 run 输入接受。
 
 Chat 与 Site 沿用同一 `references` 数组，但不按文件路径处理：
 
@@ -297,7 +297,7 @@ Chat 与 Site 沿用同一 `references` 数组，但不按文件路径处理：
 
 `steam` 不是支持字段；如果误传 `steam:false`，不会触发非流式响应。
 
-实时 SSE / WS stream 的工具事件形状不变：仍按单个工具发送 `tool.snapshot`、`tool.result`、`action.snapshot`、`action.result`。Bash 进程非零退出时，`tool.result` 保留真实 `exitCode` 并作为可恢复的工具失败展示，不会自动升级为终止性的 `run.error`；成功但写入 stderr 的命令仍保持 `exitCode: 0`。持久化到 `chatId.jsonl` 时，同一 assistant turn 的多个工具调用会合并为一条 assistant message 的 `tool_calls[]`；如果该组存在 awaiting，确认前不会执行任何 sibling tool，确认后的所有结果写入同 `seq` 的 `_type:"react-tool"` continuation。
+实时 SSE / WS stream 中所有工具统一发送 `tool.start`、`tool.args`、`tool.end`、`tool.snapshot`、`tool.result`，不再存在 `action.*` 事件。Bash 进程非零退出时，`tool.result` 保留真实 `exitCode` 并作为可恢复的工具失败展示，不会自动升级为终止性的 `run.error`；成功但写入 stderr 的命令仍保持 `exitCode: 0`。持久化到 `chatId.jsonl` 时，同一 assistant turn 的多个工具调用会合并为一条 assistant message 的 `tool_calls[]`；如果该组存在 awaiting，确认前不会执行任何 sibling tool，确认后的所有结果写入同 `seq` 的 `_type:"react-tool"` continuation。
 
 `budget.tool.maxCalls` 是平台硬限制。计数包含被拒绝的尝试，因此上限为 `60` 时，第 `61` 次调用不会进入 ToolRouter，而是先发送一次失败 `tool.result`，随后立即发送唯一的 `run.error` 并结束，不再请求模型补答。同一并行批次中，已在预算内的 sibling 正常收尾；其余越限 sibling 都不会执行，也不会重复发布越限 `tool.result`。终止错误沿用公共错误结构：
 
@@ -348,13 +348,12 @@ commit 前遇到 EOF、非法流帧、连接中断或可重试的 provider strea
     "runSeq": 1,
     "reasoningIds": ["reasoning_1"],
     "contentIds": ["content_1"],
-    "toolIds": ["call_1"],
-    "actionIds": ["action_1"]
+    "toolIds": ["call_1"]
   }
 }
 ```
 
-客户端收到该 recovery 后应按给出的 id 移除已经展示的半截 reasoning、content、tool 或 action。重试耗尽时平台发送 `run.error`，未提交 attempt 不进入 JSONL 或 run summary。model turn 与后续 tool batch 是两个独立事务边界：turn commit 后，完整 tool call 会保留；工具执行失败写正常失败 tool result。工具已经开始执行或可能产生副作用时，平台不会通过回滚 turn 自动重试，避免重复执行。
+客户端收到该 recovery 后应按给出的 id 移除已经展示的半截 reasoning、content 或 tool。重试耗尽时平台发送 `run.error`，未提交 attempt 不进入 JSONL 或 run summary。model turn 与后续 tool batch 是两个独立事务边界：turn commit 后，完整 tool call 会保留；工具执行失败写正常失败 tool result。工具已经开始执行或可能产生副作用时，平台不会通过回滚 turn 自动重试，避免重复执行。
 
 旧会话历史如果存在无法安全判定工具是否执行过的末尾调用，后续 query 在本地返回 HTTP `409`，错误码为 `chat_history_incomplete`，不会把有歧义的历史发给 provider。
 
@@ -431,26 +430,25 @@ HITL 三态细节见 [HITL协议](HITL协议.md)。真流式、heartbeat、attac
 
 ### KBASE
 
-KBASE API 接受所有 `kbaseConfig.enabled: true` 的 Agent，包括专用 `mode: KBASE` 和挂载公共 capability 的普通 Agent；存在但未启用 KBASE 的 Agent 与未知 Agent 均返回 `404`，Manager 不保留 disabled capability。手工 refresh 与运行时工具 `kbase_refresh` 调用同一个后端入口。KBASE 的 search/files/read/status 工具声明为只读，BTW/read-only policy 下仍可使用；refresh 是变更索引状态的操作，在只读 policy 下禁用。五个 KBASE tool 名称、REST 路径、`SearchHit`、chunk ID 和 `source.publish` 契约固定由 LanceDB 路径提供。agent catalog 热重载完成后会立即重绑所有 enabled source watcher；Agent 删除、禁用或 source/config 变化不会继续沿用旧 watcher，周期 reconcile 仅作为兜底。
+KBASE API 接受所有 `kbaseConfig.enabled: true` 的 Agent，包括专用 `mode: KBASE` 和挂载公共 capability 的普通 Agent；存在但未启用 KBASE 的 Agent 与未知 Agent 均返回 `404`，Manager 不保留 disabled capability。手工 refresh 与运行时工具 `kbase_refresh` 调用同一个后端入口。KBASE 的 search/files/read/status 工具声明为只读，BTW/read-only policy 下仍可使用；refresh 是变更索引状态的操作，在只读 policy 下禁用。五个 KBASE tool 名称、REST 路径、`SearchHit`、chunk ID 和 `source.publish` 契约固定由 LanceDB 路径提供。agent catalog 热重载完成后会立即重绑所有 enabled Workspace watcher；Agent 删除、禁用或 Workspace/config 变化不会继续沿用旧 watcher，周期 reconcile 仅作为兜底。
 
-启用 KBASE capability 的 Agent 在运行时调用 `kbase_search` 且召回到内容时，会额外通过 live stream 发布 `source.publish` 事件。事件包含 `kind: "kbase"`、`query`、`sourceCount`、`chunkCount` 与按 source 聚合的 `sources[].chunks[]`，chunk 可携带 `path`、行号、页码、slide、`sourceType`、`matchType`、`score` 等定位字段；chat JSONL 会把该事件作为对应 `react-tool` step 的顶层 `sources.items[]` sidecar 持久化，`/api/chat` replay 时再合成 `source.publish` 事件并保留原始 `liveSeq`，供时间线与 `/api/attach.lastSeq` 使用。当前 `_type:"event"` 的 `source.publish` 也保持可回放。
+启用 KBASE capability 的 Agent 在运行时调用 `kbase_search` 且召回到内容时，会额外通过 live stream 发布 `source.publish` 事件。事件包含 `kind: "kbase"`、`query`、`sourceCount`、`chunkCount` 与按检索来源聚合的 `sources[].chunks[]`，chunk 可携带 `path`、行号、页码、slide、`sourceType`、`matchType`、`score` 等定位字段；chat JSONL 会把该事件作为对应 `react-tool` step 的顶层 `sources.items[]` sidecar 持久化，`/api/chat` replay 时再合成 `source.publish` 事件并保留原始 `liveSeq`，供时间线与 `/api/attach.lastSeq` 使用。当前 `_type:"event"` 的 `source.publish` 也保持可回放。
 
 `artifact_publish` 仅在整个批次文件物化且 `<chatId>/.tools/artifacts.json` 原子写入成功后发布 `artifact.publish`。事件包含 `chatId`、`runId`、`toolId`、`artifactCount`、`artifacts`，子任务有明确归属时额外包含 `taskId`。JSONL 的对应 `react-tool.artifacts.items[]` 只是该次调用的审计记录；`GET /api/chat` 的 `data.artifact = { items: [...] }` 只从 manifest 恢复。
 
 KBASE 工具只读取 active 索引库，不直接访问宿主文件系统。`kbase_search` 支持 `pathPrefix`、`pathGlob`、`type` 与 `offset` 做 scoped retrieval；`kbase_files` 支持按 `path`、`pattern`、`status`、`type`、`mode=files|tree`、`depth`、`head_limit`、`offset` 浏览已索引/已扫描文件元数据。Lance 路径并行取 vector 与 FTS 候选并使用加权 RRF 融合；`matchType` 为 `vector|fts|hybrid`，score 归一化到 `[0,1]`。`matchCount` 是受 candidate 上限约束的两路去重并集数，不是全库总命中数。
 
-专用 KBASE 的 main/editing stage 都挂载 `file_read/file_glob/file_grep/file_write/file_edit`，两者工具 schema 相同，Workspace 和默认 working directory 都固定为本 run 冻结的 `kbaseConfig.source.root`；当前 `chatId` 的 Chat 目录只保存在 `ChatAttachmentsDir` 并通过 `@chat` 使用。所有获准目录都采用通用文本扩展名、编码和搜索规则；Source、当前 Chat 目录、其他 chatId 与 external 统一先服从 AccessPolicy。未开启 editing 时 Source write/edit 返回 `kbase_editing_mode_required` 且不产生无意义的 HITL；`hostAccess`、writeRoots、approval 和 `full_access` 不能替代该 Source mutation gate，但仍按通用规则作用于 external。Source mutation 结果不包含 `kbase-index` hook，写入成功只表示文件已落盘；目录 watcher 之后按 debounce、change set 和索引配置异步刷新。完整契约见 [KBASE 编辑模式](KBASE编辑模式.md)。
+专用 KBASE 的 main/editing stage 都挂载 `file_read/file_glob/file_grep/file_write/file_edit`，两者工具 schema 相同，Workspace 固定为本 run 冻结的 `runtimeConfig.workspaceRoot`；相对路径从该 Workspace 解析，当前 `chatId` 的 Chat 目录只保存在 `ChatDir` 并通过 `@chat` 使用。所有获准目录统一先服从 AccessPolicy。未开启 editing 时 Workspace write/edit 返回 `kbase_editing_mode_required`；`hostAccess`、writeRoots、approval 和 `full_access` 不能替代该 Workspace mutation gate。
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
-| GET | `/api/kbase/{agentKey}/status` | 无 | 当前 Lance 索引状态；`sourceRoot` 是最终 knowledge source，`workspaceRoot` 为兼容别名；包含 `degraded/error/engine/schemaVersion/generation/indexes/sidecar/pendingRecoveryOperations/pendingChanges/storageDiskUsage`；FTS/vector index 状态包含未索引行数 |
+| GET | `/api/kbase/{agentKey}/status` | 无 | 当前 Lance 索引状态；`workspaceRoot` 是唯一内容根，不再返回 `sourceRoot`；包含 `degraded/error/engine/schemaVersion/generation/indexes/sidecar/pendingRecoveryOperations/pendingChanges/storageDiskUsage`；FTS/vector index 状态包含未索引行数 |
 | POST | `/api/kbase/{agentKey}/refresh` | body: `force` 可选 | 手工 refresh 始终做完整文件对账；结果在原字段外增加 `scope/candidatePaths/newFiles/modifiedFiles/metadataOnlyFiles/unchangedFiles/embeddedChunks/reusedChunks/pendingChanges`；`force=true` 构建新 generation |
 
 status 中 Lance 字段是可选扩展，旧客户端可忽略：
 
 ```json
 {
-  "sourceRoot": "/absolute/docs",
   "workspaceRoot": "/absolute/docs",
   "stale": false,
   "engine": "lancedb",
@@ -517,7 +515,7 @@ curl -sS -X POST http://127.0.0.1:11949/api/kbase/docs_kbase/refresh \
 | GET | `/api/tool-result` | query: `chatId`、`path`、`t` | `.tools/results/<toolId>.json` 完整工具结果；`t` 为可选 resource ticket |
 | POST | `/api/upload` | multipart: `requestId`、`chatId`、`file` | upload ticket 与资源访问信息 |
 
-`/api/file` 读取当前 agent 的真实内容目录：专用 `mode: KBASE` 使用 `kbaseConfig.source.root`，其他 Agent 使用 `runtimeConfig.workspaceRoot`。`/api/agent/open-directory` 的 `directoryType:"workspace"` 使用相同规则。`path` 可以是内容目录相对路径，也可以是宿主机绝对路径；绝对路径经 canonical 解析后必须仍位于当前内容目录内，`..` 与 symlink escape 会返回 forbidden。默认响应使用统一 JSON 包裹，文本文件内联 `content`，二进制/PDF/图片只返回 metadata 与 `contentUrl`；`response=content` 时直接返回文件字节流，不使用 JSON 包裹。该接口不读取 KBASE 索引库，也不扩大 `hostAccess.readRoots`。
+`/api/file` 与 `/api/agent/open-directory` 的 `directoryType:"workspace"` 都使用 `runtimeConfig.workspaceRoot`。`path` 可以是 Workspace 相对路径，也可以是宿主机绝对路径；绝对路径经 canonical 解析后必须分类为 Workspace，进入整个 ChatsRoot 会返回 `path_crosses_chat_root`，`..` 与 symlink escape 会返回 forbidden。默认响应使用统一 JSON 包裹，文本文件内联 `content`，二进制/PDF/图片只返回 metadata 与 `contentUrl`；`response=content` 时直接返回文件字节流，不使用 JSON 包裹。该接口不读取 KBASE 索引库，也不扩大 `hostAccess.readRoots`。
 
 resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界.md)。
 
@@ -834,7 +832,7 @@ Agent 终端只复用主 `/ws` 连接，不提供独立 `/ws/terminal`，也不�
 open 成功后先返回 `terminal.opened`，再返回可选 replay output，之后进入 live output。所有 terminal 事件都包含 `scope:"chat"` 与 `chatId`；`reused:true` 表示复用了同一 Chat 的已有 PTY，`replay:true` 表示该条 `terminal.output` 来自 terminal manager 的短期回放 buffer。
 
 ```json
-{"frame":"stream","id":"term-1","streamId":"term_xxx","event":{"type":"terminal.opened","seq":1,"terminalId":"term_xxx","agentKey":"coder","chatId":"chat-123","terminalKey":"main","scope":"chat","cwd":"/workspace","shell":"/bin/zsh","reused":true}}
+{"frame":"stream","id":"term-1","streamId":"term_xxx","event":{"type":"terminal.opened","seq":1,"terminalId":"term_xxx","agentKey":"coder","chatId":"chat-123","terminalKey":"main","scope":"chat","cwd":"/absolute/project","shell":"/bin/zsh","reused":true}}
 {"frame":"stream","id":"term-1","streamId":"term_xxx","event":{"type":"terminal.output","seq":2,"terminalId":"term_xxx","chatId":"chat-123","terminalKey":"main","scope":"chat","data":"...","replay":true}}
 {"frame":"stream","id":"term-1","streamId":"term_xxx","event":{"type":"terminal.exit","seq":3,"terminalId":"term_xxx","chatId":"chat-123","terminalKey":"main","scope":"chat","exitCode":0}}
 {"frame":"stream","id":"term-1","streamId":"term_xxx","reason":"exit","lastSeq":3}
@@ -851,7 +849,7 @@ open 成功后先返回 `terminal.opened`，再返回可选 replay output，之�
 
 `detach` 只释放当前 WS 连接上的 terminal subscriber；该 Chat 的 PTY、cwd 与输出回放 buffer 保持不变。`streamRequestId` 必须指向当前 WS 连接上的 terminal stream；如果同时传入 `terminalId`，后端会校验两者绑定关系。浏览器隐藏 terminal 面板、SPA 切换 Chat、组件卸载都应使用 `detach`；新 Chat 使用自己的 `chatId` open，不复用旧 Chat 的 PTY。如果 open 请求已发出但尚未收到 `terminal.opened`，前端可只传 `streamRequestId` 进行预取消。只有用户关闭 terminal tab 时才调用 `/api/terminal/close`，该操作会结束对应 Chat 的 PTY；同样支持在 `terminal.opened` 前仅传 `streamRequestId` 做关闭预取消。
 
-Chat 级终端对所有 agent 使用同一套本地 PTY 逻辑，不按 `mode`、ACP backend 或 sandbox runtime 做差异化禁用。macOS/Linux 使用 Unix PTY，Windows 使用 ConPTY / PowerShell PTY；Windows 需要 ConPTY 可用的系统版本（Windows 10 1809 / Windows Server 2019 及以上），旧系统会返回 `unsupported`。cwd 只由 Platform 根据 agent workspace 反查，不信任前端传入任意 cwd；agent 配置了显式 `runtimeConfig.workspaceRoot` 时使用该目录，未配置或配置 `@chat` 时使用当前宿主机 Chat 目录。无论 cwd 是否显式，terminal 都冻结 `AP_AGENT_CONFIG_HOME=<agentDir>/.config` 与 `AP_CHAT_DIR=<chatsDir>/<chatId>`。缺失 agent、缺失/非法 Chat ID、不可访问 workspace 或非目录 workspace 会拒绝。终端 status stream 汇总当前 owner boundary 下的 session，每项包含 `agentKey`、`chatId`、`terminalKey`、`scope:"chat"`、cwd、shell、状态与启动时间。终端输入与输出不会写入 chat/event log，也不进入 raw messages 或 events replay；只保存在 terminal manager 的短期 ring buffer，且 replay 只在相同 owner boundary、Agent、Chat 和 terminal key 下可见。WS monitor 只记录 terminal 输入/输出的类型、id 与字节数，不记录原始 preview。错误沿用现有 error frame，`type` 为 `invalid_request`、`forbidden`、`terminal_not_found`、`unsupported`、`conflict`、`too_many_requests` 或 `internal_error`。
+该接口定义为 Workspace Terminal。macOS/Linux 使用 Unix PTY，Windows 使用 ConPTY / PowerShell PTY；cwd 只由 Platform 从 Agent 的最终 Workspace 解析，不信任前端 cwd，也不会回退 Chat。没有 Workspace、Workspace 不存在或不是目录时拒绝打开。terminal 冻结 `AP_AGENT_CONFIG_HOME=<agentDir>/.config`、`AP_WORKSPACE_DIR=<workspace>` 与 `AP_CHAT_DIR=<chatsDir>/<chatId>`。如果未来需要 Chat Terminal，将使用独立显式类型，不复用本接口的 fallback。
 
 ## 相关文件
 

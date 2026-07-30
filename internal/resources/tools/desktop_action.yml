@@ -1,8 +1,6 @@
 name: desktop_action
 label: 桌面端动作
 description: Execute an allowlisted Desktop or WebClient action. desktop.* actions use the local Desktop Action Bridge; webclient.* actions use the WebClient WebSocket that originated the run.
-submitResultFormat: json-compact
-type: function
 inputSchema:
   type: object
   properties:

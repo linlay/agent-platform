@@ -108,6 +108,8 @@ func TestGetRejectsEveryNonAllowlistedPath(t *testing.T) {
 }
 
 func TestValidateCandidateResources(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	knowledgeRoot := t.TempDir()
 	registry := stubRegistry{agents: map[string]catalog.AgentDefinition{
 		"member": {Key: "member", Mode: "REACT", ModelKey: "chat-model"},
 	}}
@@ -122,11 +124,11 @@ func TestValidateCandidateResources(t *testing.T) {
 	}{
 		{
 			name: "agent valid", resourceType: "agent", resourceKey: "coder-demo", wantValid: true,
-			content: "key: coder-demo\nname: Demo\nmode: CODER\nmodelConfig:\n  modelKey: chat-model\nruntimeConfig:\n  workspaceRoot: '@chat'\n",
+			content: "key: coder-demo\nname: Demo\nmode: CODER\nmodelConfig:\n  modelKey: chat-model\nruntimeConfig:\n  workspaceRoot: " + workspaceRoot + "\n",
 		},
 		{
 			name: "agent key mismatch", resourceType: "agent", resourceKey: "coder-demo", wantValid: false,
-			content: "key: another\nname: Demo\nmode: CODER\nmodelConfig:\n  modelKey: chat-model\nruntimeConfig:\n  workspaceRoot: '@chat'\n",
+			content: "key: another\nname: Demo\nmode: CODER\nmodelConfig:\n  modelKey: chat-model\nruntimeConfig:\n  workspaceRoot: " + workspaceRoot + "\n",
 		},
 		{
 			name: "agent syntax error", resourceType: "agent", resourceKey: "coder-demo", wantValid: false,
@@ -134,11 +136,11 @@ func TestValidateCandidateResources(t *testing.T) {
 		},
 		{
 			name: "kbase agent valid", resourceType: "agent", resourceKey: "kbase-demo", wantValid: true,
-			content: "key: kbase-demo\nname: Knowledge\nmode: KBASE\nkbaseConfig:\n  embedding:\n    modelKey: embedding-model\nmodelConfig:\n  modelKey: chat-model\nruntimeConfig:\n  workspaceRoot: /tmp/knowledge\n",
+			content: "key: kbase-demo\nname: Knowledge\nmode: KBASE\nruntimeConfig:\n  workspaceRoot: " + knowledgeRoot + "\nkbaseConfig:\n  embedding:\n    modelKey: embedding-model\nmodelConfig:\n  modelKey: chat-model\n",
 		},
 		{
 			name: "kbase agent invalid workspace", resourceType: "agent", resourceKey: "kbase-demo", wantValid: false,
-			content: "key: kbase-demo\nname: Knowledge\nmode: KBASE\nkbaseConfig:\n  embedding:\n    modelKey: embedding-model\nmodelConfig:\n  modelKey: chat-model\nruntimeConfig:\n  workspaceRoot: '@chat'\n",
+			content: "key: kbase-demo\nname: Knowledge\nmode: KBASE\nruntimeConfig:\n  workspaceRoot: @chat\nkbaseConfig:\n  embedding:\n    modelKey: embedding-model\nmodelConfig:\n  modelKey: chat-model\n",
 		},
 		{
 			name: "team valid", resourceType: "team", resourceKey: "research", wantValid: true,
@@ -238,7 +240,7 @@ func (s stubRegistry) Skills(string) []api.SkillSummary { return nil }
 func (s stubRegistry) SkillDefinition(string) (catalog.SkillDefinition, bool) {
 	return catalog.SkillDefinition{}, false
 }
-func (s stubRegistry) Tools(string, string) []api.ToolSummary { return nil }
+func (s stubRegistry) Tools(string) []api.ToolSummary { return nil }
 func (s stubRegistry) Tool(string) (api.ToolDetailResponse, bool) {
 	return api.ToolDetailResponse{}, false
 }

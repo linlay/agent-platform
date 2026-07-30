@@ -10,8 +10,8 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/frontendtools"
 	"agent-platform/internal/hitl"
+	"agent-platform/internal/toolinteraction"
 )
 
 func (s *Server) hydrateDeferredAwaitings() {
@@ -304,7 +304,7 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 		AwaitingID: req.AwaitingID,
 		SubmitID:   req.SubmitID,
 		Continued:  continued,
-		Detail:     "Frontend submit accepted",
+		Detail:     "Tool interaction submit accepted",
 	}, nil
 }
 
@@ -376,7 +376,7 @@ func (s *Server) resolveNonContinuableDeferredSubmit(deferred DeferredAwaiting, 
 		AwaitingID: req.AwaitingID,
 		SubmitID:   req.SubmitID,
 		Continued:  false,
-		Detail:     "Frontend submit accepted; original run was not continued",
+		Detail:     "Tool interaction submit accepted; original run was not continued",
 	}, nil
 }
 
@@ -385,14 +385,14 @@ func (s *Server) normalizeDeferredSubmit(deferred DeferredAwaiting, params api.S
 	switch mode {
 	case "question":
 		var (
-			handler frontendtools.Handler
+			handler toolinteraction.Handler
 			ok      bool
 		)
-		if s.deps.FrontendTools != nil {
-			handler, ok = s.deps.FrontendTools.Handler("ask_user_question")
+		if s.deps.ToolInteractions != nil {
+			handler, ok = s.deps.ToolInteractions.Handler("ask_user_question")
 		}
 		if !ok || handler == nil {
-			handler = frontendtools.NewAskUserQuestionHandler()
+			handler = toolinteraction.NewAskUserQuestionHandler()
 		}
 		return handler.NormalizeSubmit(deferred.Ask.Payload, params)
 	case "approval", "form", "planning":
@@ -520,7 +520,7 @@ func (s *Server) resolvePersistedAwaitingSubmit(req api.SubmitRequest) (api.Subm
 			AwaitingID: req.AwaitingID,
 			SubmitID:   req.SubmitID,
 			Continued:  continued,
-			Detail:     "Frontend submit accepted",
+			Detail:     "Tool interaction submit accepted",
 		}, true, nil
 	}
 	return api.SubmitResponse{
@@ -530,7 +530,7 @@ func (s *Server) resolvePersistedAwaitingSubmit(req api.SubmitRequest) (api.Subm
 		RunID:      req.RunID,
 		AwaitingID: req.AwaitingID,
 		SubmitID:   req.SubmitID,
-		Detail:     "Frontend submit already resolved",
+		Detail:     "Tool interaction submit already resolved",
 	}, true, nil
 }
 

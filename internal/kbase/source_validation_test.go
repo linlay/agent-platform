@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestValidateSourceChatsSeparation(t *testing.T) {
+func TestValidateWorkspaceChatsSeparation(t *testing.T) {
 	root := t.TempDir()
 	chatsRoot := filepath.Join(root, "runtime", "chats")
 	separateRoot := filepath.Join(root, "knowledge")
@@ -18,21 +18,22 @@ func TestValidateSourceChatsSeparation(t *testing.T) {
 	}
 
 	tests := []struct {
-		name       string
-		sourceRoot string
-		wantErr    bool
+		name          string
+		workspaceRoot string
+		wantErr       bool
 	}{
-		{name: "separate", sourceRoot: separateRoot},
-		{name: "same", sourceRoot: chatsRoot, wantErr: true},
-		{name: "source_contains_chats", sourceRoot: filepath.Dir(filepath.Dir(chatsRoot)), wantErr: true},
-		{name: "source_under_chats", sourceRoot: filepath.Join(chatsRoot, "knowledge"), wantErr: true},
+		{name: "separate", workspaceRoot: separateRoot},
+		{name: "filesystem_root", workspaceRoot: string(filepath.Separator), wantErr: true},
+		{name: "same", workspaceRoot: chatsRoot, wantErr: true},
+		{name: "workspace_contains_chats", workspaceRoot: filepath.Dir(filepath.Dir(chatsRoot)), wantErr: true},
+		{name: "workspace_under_chats", workspaceRoot: filepath.Join(chatsRoot, "knowledge"), wantErr: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if err := os.MkdirAll(test.sourceRoot, 0o755); err != nil {
+			if err := os.MkdirAll(test.workspaceRoot, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			err := ValidateSourceChatsSeparation(test.sourceRoot, chatsRoot)
+			err := ValidateWorkspaceChatsSeparation(test.workspaceRoot, chatsRoot)
 			if (err != nil) != test.wantErr {
 				t.Fatalf("error = %v, wantErr=%v", err, test.wantErr)
 			}
@@ -40,7 +41,7 @@ func TestValidateSourceChatsSeparation(t *testing.T) {
 	}
 }
 
-func TestValidateSourceChatsSeparationUsesCanonicalSymlinkTargets(t *testing.T) {
+func TestValidateWorkspaceChatsSeparationUsesCanonicalSymlinkTargets(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink setup is not portable on Windows")
 	}
@@ -53,7 +54,7 @@ func TestValidateSourceChatsSeparationUsesCanonicalSymlinkTargets(t *testing.T) 
 	if err := os.Symlink(chatsRoot, sourceLink); err != nil {
 		t.Skipf("symlink unavailable: %v", err)
 	}
-	if err := ValidateSourceChatsSeparation(sourceLink, chatsRoot); err == nil {
+	if err := ValidateWorkspaceChatsSeparation(sourceLink, chatsRoot); err == nil {
 		t.Fatal("symlinked source resolving to chats root must be rejected")
 	}
 }

@@ -142,7 +142,7 @@ func TestUploadReturnsContainerPathWhenAgentUsesContainerRuntime(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode upload response: %v", err)
 	}
-	if response.Data.Upload.Path != "/workspace/notes.txt" {
+	if response.Data.Upload.Path != "/chat/notes.txt" {
 		t.Fatalf("upload path = %q", response.Data.Upload.Path)
 	}
 	if strings.Contains(rec.Body.String(), "sandboxPath") {

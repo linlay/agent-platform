@@ -55,6 +55,7 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 		RunID:           req.RunID,
 		Subject:         prepared.session.Subject,
 		ResourceBaseURL: prepared.resourceBaseURL,
+		WorkspaceRoot:   prepared.session.WorkspaceRoot,
 		References:      req.References,
 	})
 	if err != nil {

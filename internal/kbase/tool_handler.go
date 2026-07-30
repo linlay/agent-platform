@@ -178,7 +178,6 @@ func (h *ToolHandler) invokeStatus(agentKey string) (contracts.ToolExecutionResu
 		"mode":                      status.Mode,
 		"storageLocation":           status.StorageLocation,
 		"storageDir":                status.StorageDir,
-		"sourceRoot":                status.SourceRoot,
 		"workspaceRoot":             status.WorkspaceRoot,
 		"indexing":                  status.Indexing,
 		"stale":                     status.Stale,
@@ -250,17 +249,22 @@ func kbaseToolFailure(err error) contracts.ToolExecutionResult {
 		structured["stale"] = true
 		structured["unavailable"] = true
 	}
-	return contracts.ToolExecutionResult{
+	result := contracts.ToolExecutionResult{
 		Output:     strings.TrimSpace(err.Error()),
 		Structured: structured,
 		Error:      code,
 		ExitCode:   -1,
 	}
+	result.Output = contracts.CompactToolModelOutput(result.Structured, result.Output)
+	return result
 }
 
 func kbaseStructuredResult(payload map[string]any) contracts.ToolExecutionResult {
-	encoded, _ := json.Marshal(payload)
-	return contracts.ToolExecutionResult{Output: string(encoded), Structured: payload, ExitCode: 0}
+	return contracts.ToolExecutionResult{
+		Output:     contracts.CompactToolModelOutput(payload, ""),
+		Structured: payload,
+		ExitCode:   0,
+	}
 }
 
 func toolStringArg(args map[string]any, key string) string {

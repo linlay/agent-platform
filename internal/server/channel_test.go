@@ -48,7 +48,7 @@ func (r channelTestCatalogRegistry) SkillDefinition(string) (catalog.SkillDefini
 	return catalog.SkillDefinition{}, false
 }
 
-func (r channelTestCatalogRegistry) Tools(string, string) []api.ToolSummary { return nil }
+func (r channelTestCatalogRegistry) Tools(string) []api.ToolSummary { return nil }
 
 func (r channelTestCatalogRegistry) Tool(string) (api.ToolDetailResponse, bool) {
 	return api.ToolDetailResponse{}, false

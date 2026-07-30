@@ -33,14 +33,22 @@ func CommonPromptValues(ctx PromptContext) map[string]string {
 	if language == "" {
 		language = "中文"
 	}
+	workspaceDir := strings.TrimSpace(ctx.WorkspaceDir)
+	if workspaceDir == "" {
+		workspaceDir = "unavailable"
+	}
+	chatDir := strings.TrimSpace(ctx.ChatDir)
+	if chatDir == "" {
+		chatDir = "unavailable"
+	}
 	return map[string]string{
 		"agent_key":           strings.TrimSpace(ctx.AgentKey),
 		"agent_name":          strings.TrimSpace(ctx.AgentName),
 		"mode":                strings.TrimSpace(ctx.Mode),
 		"planning_mode":       fmt.Sprintf("%t", ctx.PlanningMode),
 		"editing_mode":        fmt.Sprintf("%t", ctx.EditingMode),
-		"workspace_dir":       strings.TrimSpace(ctx.WorkspaceDir),
-		"chat_dir":            strings.TrimSpace(ctx.ChatDir),
+		"workspace_dir":       workspaceDir,
+		"chat_dir":            chatDir,
 		"current_date":        time.Now().Format("2006-01-02"),
 		"timezone":            LocalTimezoneName(),
 		"language_preference": language,

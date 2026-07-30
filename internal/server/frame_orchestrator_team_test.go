@@ -200,7 +200,7 @@ func TestFrameOrchestratorTeamCustomTaskUsesSameDelegationPath(t *testing.T) {
 func TestFrameOrchestratorTeamDelegationMergesFilesWithOriginalReferences(t *testing.T) {
 	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
 		MainToolID: "team-tool",
-		Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: "writer", Files: []string{"/workspace/draft.md", "/workspace/draft.md"}}},
+		Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: "writer", Files: []string{"/chat/draft.md", "/chat/draft.md"}}},
 	}}}
 	defs := map[string]catalog.AgentDefinition{
 		"writer":   {Key: "writer", Name: "Writer", Mode: "REACT"},
@@ -219,7 +219,7 @@ func TestFrameOrchestratorTeamDelegationMergesFilesWithOriginalReferences(t *tes
 		t.Fatal(err)
 	}
 	o.chats = store
-	o.request.References = []api.Reference{{ID: "original", Type: "file", Name: "source.md", Path: "/workspace/source.md"}}
+	o.request.References = []api.Reference{{ID: "original", Type: "file", Name: "source.md"}}
 	var childRequest api.QueryRequest
 	o.buildQuerySession = func(_ context.Context, req api.QueryRequest, _ chat.Summary, def catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
 		childRequest = req
@@ -230,8 +230,62 @@ func TestFrameOrchestratorTeamDelegationMergesFilesWithOriginalReferences(t *tes
 	if err != nil || failed || interrupted {
 		t.Fatalf("Run() = failed=%v interrupted=%v err=%v", failed, interrupted, err)
 	}
-	if len(childRequest.References) != 2 || childRequest.References[0].ID != "original" || childRequest.References[1].Path != "/workspace/draft.md" {
+	if len(childRequest.References) != 2 || childRequest.References[0].ID != "original" ||
+		childRequest.References[1].Path != "" || childRequest.References[1].Name != "draft.md" {
 		t.Fatalf("files and original references were not merged and deduplicated: %#v", childRequest.References)
+	}
+}
+
+func TestFrameOrchestratorMaterializesInheritedWorkspaceReferenceIntoChat(t *testing.T) {
+	parentWorkspace := t.TempDir()
+	sourcePath := filepath.Join(parentWorkspace, "shared.md")
+	if err := os.WriteFile(sourcePath, []byte("shared from parent workspace"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
+		MainToolID: "team-tool",
+		Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: "writer"}},
+	}}}
+	defs := map[string]catalog.AgentDefinition{
+		"writer": {Key: "writer", Name: "Writer", Mode: "REACT"},
+	}
+	child := &stubOrchestratableStream{finalText: "done"}
+	o := newTeamFrameOrchestrator(t, main, map[string]contracts.AgentStream{"writer": child}, defs, nil, nil)
+	store, err := chat.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.chats = store
+	o.session.WorkspaceRoot = parentWorkspace
+	o.request.References = []api.Reference{{
+		ID:   "workspace-source",
+		Type: "file",
+		Name: "shared.md",
+		Path: "@workspace/shared.md",
+	}}
+	var childRequest api.QueryRequest
+	o.buildQuerySession = func(_ context.Context, req api.QueryRequest, _ chat.Summary, def catalog.AgentDefinition, _ querySessionBuildOptions) (contracts.QuerySession, error) {
+		childRequest = req
+		return contracts.QuerySession{RunID: req.RunID, ChatID: req.ChatID, AgentKey: def.Key, Mode: def.Mode}, nil
+	}
+
+	failed, interrupted, err := o.Run(main)
+	if err != nil || failed || interrupted {
+		t.Fatalf("Run() = failed=%v interrupted=%v err=%v", failed, interrupted, err)
+	}
+	if len(childRequest.References) != 1 || childRequest.References[0].Path != "" {
+		t.Fatalf("expected URL-only child reference, got %#v", childRequest.References)
+	}
+	fileParam := resourceFileParam(childRequest.References[0].URL)
+	if fileParam == "" {
+		t.Fatalf("expected materialized Chat resource URL, got %#v", childRequest.References[0])
+	}
+	materialized, err := store.ResolveResource(fileParam)
+	if err != nil {
+		t.Fatalf("resolve materialized resource: %v", err)
+	}
+	if data, err := os.ReadFile(materialized); err != nil || string(data) != "shared from parent workspace" {
+		t.Fatalf("unexpected materialized content %q err=%v", string(data), err)
 	}
 }
 

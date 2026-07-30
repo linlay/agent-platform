@@ -282,7 +282,7 @@ func collectAssistantToolNames(message map[string]any, out map[string]string) {
 }
 
 func compactToolResultID(message map[string]any) string {
-	for _, key := range []string{"tool_call_id", "_toolId", "toolId", "actionId", "_actionId"} {
+	for _, key := range []string{"tool_call_id", "_toolId", "toolId"} {
 		if id := strings.TrimSpace(stringFromAny(message[key])); id != "" {
 			return id
 		}

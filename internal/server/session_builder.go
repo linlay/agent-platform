@@ -215,16 +215,12 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		resolvedPlanExecuteSettings.Execute.Tools = appendKBaseCapabilityToolsToExplicitStage(resolvedPlanExecuteSettings.Execute.Tools)
 		resolvedCoderPlanningSettings.Execute.Tools = appendKBaseCapabilityToolsToExplicitStage(resolvedCoderPlanningSettings.Execute.Tools)
 	}
-	kbaseSourceRoot := ""
-	if agentDef.KBaseConfig.Enabled {
-		kbaseSourceRoot = strings.TrimSpace(agentDef.KBaseConfig.Source.Root)
-	}
 	var scopedFilePolicy *contracts.ScopedFilePolicy
 	if agentkbase.IsMode(agentDef.Mode) {
 		scopedFilePolicy = &contracts.ScopedFilePolicy{
-			Root:                  kbaseSourceRoot,
-			SourceMutationEnabled: editingMode,
-			RequireExistingParent: true,
+			WorkspaceRoot:            resolvedWorkspaceRoot,
+			WorkspaceMutationEnabled: editingMode,
+			RequireExistingParent:    true,
 		}
 	}
 
@@ -248,7 +244,6 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		CapabilityPrompts:             capabilityPrompts,
 		PlanningMode:                  agentcoder.PlanningModeEnabled(agentDef.Mode, req.PlanningMode != nil && *req.PlanningMode),
 		EditingMode:                   editingMode,
-		KBaseSourceRoot:               kbaseSourceRoot,
 		ScopedFilePolicy:              scopedFilePolicy,
 		TeamID:                        req.TeamID,
 		Created:                       options.Created,
@@ -284,6 +279,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		AgentHasRuntimeSandbox:        hasRuntimeSandbox(agentDef.Runtime),
 		AgentHasMemoryConfig:          agentDef.MemoryEnabled,
 		WorkspaceRoot:                 resolvedWorkspaceRoot,
+		ChatRoot:                      strings.TrimSpace(runtimeContext.LocalPaths.ChatDir),
 		AccessLevel:                   normalizedAccessLevel(req.AccessLevel),
 		SkillHookDirs:                 skillHookDirs,
 		RuntimeEnvOverrides:           runtimeEnvOverrides,
@@ -338,6 +334,8 @@ func (s *Server) buildCurrentMessages(req api.QueryRequest, session contracts.Qu
 	}
 	return querymessages.BuildMessagesWithOptions(s.deps.Config.Paths.ChatsDir, req.ChatID, req.Role, req.Message, req.References, isVision, false, querymessages.BuildOptions{
 		AdvancedUserPrompt: session.AdvancedUserPrompt,
+		WorkspaceDir:       session.WorkspaceRoot,
+		ChatDir:            session.ChatRoot,
 		RunID:              session.RunID,
 		RequestID:          session.RequestID,
 		AgentKey:           session.AgentKey,

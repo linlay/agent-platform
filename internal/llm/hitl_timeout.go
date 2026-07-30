@@ -7,7 +7,7 @@ import (
 	. "agent-platform/internal/contracts"
 )
 
-func resolveFrontendAwaitTimeout(toolName string, tool api.ToolDetailResponse, args map[string]any, budget Budget) int64 {
+func resolveInteractionAwaitTimeout(toolName string, tool api.ToolDetailResponse, args map[string]any, budget Budget) int64 {
 	mode := strings.ToLower(strings.TrimSpace(AnyStringNode(args["mode"])))
 	if mode == "" {
 		if strings.EqualFold(strings.TrimSpace(toolName), "ask_user_question") {

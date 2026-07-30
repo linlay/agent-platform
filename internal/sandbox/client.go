@@ -32,8 +32,9 @@ type EnvironmentAgentPromptResult struct {
 }
 
 type RuntimeInfo struct {
-	Engine string
-	OK     bool
+	Engine             string
+	WorkspaceProtocols []string
+	OK                 bool
 }
 
 func NewContainerHubClient(cfg config.ContainerHubConfig) *ContainerHubClient {
@@ -94,7 +95,24 @@ func (c *ContainerHubClient) StopSession(ctx context.Context, sessionID string) 
 }
 
 func (c *ContainerHubClient) GetRuntimeInfo() RuntimeInfo {
-	req, err := http.NewRequest(http.MethodGet, c.baseURL+"/api/runtime-info", nil)
+	return c.getRuntimeInfo(context.Background())
+}
+
+func (c *ContainerHubClient) RequireWorkspaceProtocol(ctx context.Context, protocol string) error {
+	info := c.getRuntimeInfo(ctx)
+	if !info.OK {
+		return fmt.Errorf("container-hub runtime info is unavailable; cannot verify workspace protocol %q", protocol)
+	}
+	for _, supported := range info.WorkspaceProtocols {
+		if strings.EqualFold(strings.TrimSpace(supported), strings.TrimSpace(protocol)) {
+			return nil
+		}
+	}
+	return fmt.Errorf("container-hub does not support required workspace protocol %q", protocol)
+}
+
+func (c *ContainerHubClient) getRuntimeInfo(ctx context.Context) RuntimeInfo {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/runtime-info", nil)
 	if err != nil {
 		return RuntimeInfo{}
 	}
@@ -115,9 +133,35 @@ func (c *ContainerHubClient) GetRuntimeInfo() RuntimeInfo {
 		return RuntimeInfo{}
 	}
 	return RuntimeInfo{
-		Engine: strings.TrimSpace(firstStringValue(decoded, "engine")),
-		OK:     true,
+		Engine:             strings.TrimSpace(firstStringValue(decoded, "engine")),
+		WorkspaceProtocols: stringSliceValue(decoded["workspace_protocols"]),
+		OK:                 true,
 	}
+}
+
+func stringSliceValue(value any) []string {
+	var values []string
+	switch typed := value.(type) {
+	case []any:
+		for _, item := range typed {
+			if normalized := strings.TrimSpace(contracts.AnyStringNode(item)); normalized != "" {
+				values = append(values, normalized)
+			}
+		}
+	case []string:
+		for _, item := range typed {
+			if normalized := strings.TrimSpace(item); normalized != "" {
+				values = append(values, normalized)
+			}
+		}
+	case string:
+		for _, item := range strings.Split(typed, ",") {
+			if normalized := strings.TrimSpace(item); normalized != "" {
+				values = append(values, normalized)
+			}
+		}
+	}
+	return values
 }
 
 func (c *ContainerHubClient) GetEnvironmentAgentPrompt(environmentID string) (EnvironmentAgentPromptResult, error) {

@@ -174,7 +174,6 @@ func defaultConfig(options LoadOptions) Config {
 		},
 		AccessPolicy: defaultAccessPolicyConfig(),
 		Bash: BashConfig{
-			WorkingDirectory: "",
 			AllowedCommands: []string{
 				"ls", "pwd", "cat", "head", "tail", "top", "free", "df", "git", "rg", "find",
 				"echo", "printf", "sed", "awk", "grep", "wc", "sort", "uniq", "tr", "cut", "xargs",
@@ -189,7 +188,6 @@ func defaultConfig(options LoadOptions) Config {
 			MaxCommandChars:      16000,
 		},
 		FileTools: FileToolsConfig{
-			WorkingDirectory:       "",
 			MaxReadBytes:           1 << 20,
 			MaxWriteBytes:          1 << 20,
 			MaxBatchOps:            20,
@@ -229,7 +227,6 @@ func defaultLSPDiagnosticsHookConfig() LSPDiagnosticsHookConfig {
 
 func defaultAccessPolicyConfig() AccessPolicyConfig {
 	return AccessPolicyConfig{
-		WorkingDirectory: "@workspace",
 		Levels: map[string]AccessPolicyLevelConfig{
 			"default": {
 				ReadRoots:     []string{"@workspace", "@chat", "@agent", "@skills"},
@@ -312,13 +309,7 @@ func (c *Config) normalize(configRoot string) error {
 		return err
 	}
 	c.ContainerHub.Enabled = strings.TrimSpace(c.ContainerHub.BaseURL) != ""
-	if c.Bash.WorkingDirectory == "" {
-		c.Bash.WorkingDirectory = "."
-	}
 	c.AccessPolicy = normalizeAccessPolicyConfig(c.AccessPolicy)
-	if c.FileTools.WorkingDirectory == "" {
-		c.FileTools.WorkingDirectory = c.Bash.WorkingDirectory
-	}
 	if c.FileTools.MaxReadBytes <= 0 {
 		c.FileTools.MaxReadBytes = 1 << 20
 	}
@@ -547,9 +538,6 @@ func normalizeImageGenerateResponseFormat(value string) string {
 
 func normalizeAccessPolicyConfig(cfg AccessPolicyConfig) AccessPolicyConfig {
 	defaults := defaultAccessPolicyConfig()
-	if strings.TrimSpace(cfg.WorkingDirectory) == "" {
-		cfg.WorkingDirectory = defaults.WorkingDirectory
-	}
 	if len(cfg.Levels) == 0 {
 		cfg.Levels = defaults.Levels
 	}

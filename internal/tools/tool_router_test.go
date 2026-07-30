@@ -15,6 +15,15 @@ type stubBackendToolExecutor struct {
 	defs []api.ToolDetailResponse
 }
 
+func mustNewToolRouter(t *testing.T, backend ToolExecutor, mcp McpClient, mcpTools toolCatalog, interaction interactionSubmitter, extraDefs ...api.ToolDetailResponse) *ToolRouter {
+	t.Helper()
+	router, err := NewToolRouter(backend, mcp, mcpTools, interaction, extraDefs...)
+	if err != nil {
+		t.Fatalf("new tool router: %v", err)
+	}
+	return router
+}
+
 func (s stubBackendToolExecutor) Definitions() []api.ToolDetailResponse {
 	return append([]api.ToolDetailResponse(nil), s.defs...)
 }
@@ -35,10 +44,10 @@ func (b *recordingPolicyBackend) Invoke(_ context.Context, name string, _ map[st
 
 func TestToolRouterEnforcesReadOnlyExecutionPolicy(t *testing.T) {
 	backend := &recordingPolicyBackend{defs: []api.ToolDetailResponse{
-		{Name: "file_read", Meta: map[string]any{"kind": "backend", "sourceCategory": "platform"}},
-		{Name: "file_write", Meta: map[string]any{"kind": "backend", "sourceCategory": "platform"}},
+		{Name: "file_read", Meta: map[string]any{"sourceCategory": "platform"}},
+		{Name: "file_write", Meta: map[string]any{"sourceCategory": "platform"}},
 	}}
-	router := NewToolRouter(backend, nil, nil, nil, nil)
+	router := mustNewToolRouter(t, backend, nil, nil, nil)
 	execCtx := &ExecutionContext{ToolExecutionPolicy: ToolExecutionPolicyReadOnly}
 	denied, err := router.Invoke(context.Background(), "file_write", map[string]any{}, execCtx)
 	if err != nil {
@@ -56,15 +65,31 @@ func TestToolRouterEnforcesReadOnlyExecutionPolicy(t *testing.T) {
 	}
 }
 
+func TestToolRouterRejectsUnregisteredToolWithoutCallingBackend(t *testing.T) {
+	backend := &recordingPolicyBackend{}
+	router := mustNewToolRouter(t, backend, nil, nil, nil)
+	result, err := router.Invoke(context.Background(), "missing_tool", nil, &ExecutionContext{})
+	if err != nil || result.Error != "tool_not_registered" || result.ExitCode != -1 {
+		t.Fatalf("unexpected unregistered result=%#v err=%v", result, err)
+	}
+	if len(backend.calls) != 0 {
+		t.Fatalf("unregistered tool reached backend: %#v", backend.calls)
+	}
+}
+
 func (s stubBackendToolExecutor) Invoke(context.Context, string, map[string]any, *ExecutionContext) (ToolExecutionResult, error) {
 	return ToolExecutionResult{}, nil
 }
 
-type captureFrontendSubmitter struct {
+type captureInteractionSubmitter struct {
 	hadDeadline bool
 }
 
-func (s *captureFrontendSubmitter) Await(ctx context.Context, _ *ExecutionContext, _ map[string]any) (ToolExecutionResult, error) {
+func (s *captureInteractionSubmitter) Handles(toolName string) bool {
+	return strings.EqualFold(strings.TrimSpace(toolName), "ask_user_question")
+}
+
+func (s *captureInteractionSubmitter) Await(ctx context.Context, _ *ExecutionContext, _ map[string]any) (ToolExecutionResult, error) {
 	_, s.hadDeadline = ctx.Deadline()
 	return ToolExecutionResult{Output: "ok", ExitCode: 0}, nil
 }
@@ -89,9 +114,9 @@ func TestToolRouterRegisterHandlerRoutesNormalizedBackendName(t *testing.T) {
 	backend := &recordingPolicyBackend{defs: []api.ToolDetailResponse{{
 		Name: "special_lookup",
 		Key:  "special_alias",
-		Meta: map[string]any{"kind": "backend", "sourceCategory": "platform"},
+		Meta: map[string]any{"sourceCategory": "platform"},
 	}}}
-	router := NewToolRouter(backend, nil, nil, nil, nil)
+	router := mustNewToolRouter(t, backend, nil, nil, nil)
 	handler := &captureNamedToolHandler{names: []string{"  SPECIAL_LOOKUP  "}}
 	if err := router.RegisterHandler(handler); err != nil {
 		t.Fatalf("register handler: %v", err)
@@ -111,10 +136,10 @@ func TestToolRouterRegisterHandlerRoutesNormalizedBackendName(t *testing.T) {
 
 func TestToolRouterRegisterHandlerRejectsConflictsAtomically(t *testing.T) {
 	backend := &recordingPolicyBackend{defs: []api.ToolDetailResponse{
-		{Name: "one", Meta: map[string]any{"kind": "backend"}},
-		{Name: "two", Meta: map[string]any{"kind": "backend"}},
+		{Name: "one"},
+		{Name: "two"},
 	}}
-	router := NewToolRouter(backend, nil, nil, nil, nil)
+	router := mustNewToolRouter(t, backend, nil, nil, nil)
 	first := &captureNamedToolHandler{names: []string{"one"}}
 	if err := router.RegisterHandler(first); err != nil {
 		t.Fatalf("register first handler: %v", err)
@@ -133,11 +158,11 @@ func TestToolRouterRegisterHandlerRejectsConflictsAtomically(t *testing.T) {
 	}
 }
 
-func TestToolRouterReloadRuntimeToolDefinitions(t *testing.T) {
+func TestToolRouterReloadRuntimeToolDefinitionsRejectsUnknownTool(t *testing.T) {
 	root := t.TempDir()
-	router := NewToolRouter(stubBackendToolExecutor{
-		defs: []api.ToolDetailResponse{{Name: "datetime", Meta: map[string]any{"kind": "backend"}}},
-	}, nil, nil, nil, nil)
+	router := mustNewToolRouter(t, stubBackendToolExecutor{
+		defs: []api.ToolDetailResponse{{Name: "datetime"}},
+	}, nil, nil, nil)
 
 	if _, ok := router.Tool("leave_form"); ok {
 		t.Fatal("did not expect runtime tool before reload")
@@ -145,7 +170,6 @@ func TestToolRouterReloadRuntimeToolDefinitions(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "leave_form.yml"), []byte(`
 name: leave_form
 description: Collect leave details.
-type: frontend
 viewportType: html
 viewportKey: leave_form
 inputSchema:
@@ -157,18 +181,105 @@ inputSchema:
 		t.Fatalf("write runtime tool: %v", err)
 	}
 
-	if err := router.ReloadRuntimeToolDefinitions(root); err != nil {
-		t.Fatalf("reload runtime tools: %v", err)
+	if err := router.ReloadRuntimeToolDefinitions(root); err == nil || !strings.Contains(err.Error(), "has no registered implementation") {
+		t.Fatalf("expected unknown runtime tool rejection, got %v", err)
 	}
-	tool, ok := router.Tool("leave_form")
-	if !ok {
-		t.Fatal("expected runtime frontend tool after reload")
+}
+
+func TestLoadRuntimeToolDefinitionsRejectsRemovedClassificationFields(t *testing.T) {
+	for _, field := range []string{"type", "kind", "toolAction", "submitResultFormat"} {
+		t.Run(field, func(t *testing.T) {
+			root := t.TempDir()
+			content := "name: datetime\n" + field + ": legacy\n"
+			if err := os.WriteFile(filepath.Join(root, "datetime.yml"), []byte(content), 0o644); err != nil {
+				t.Fatalf("write runtime tool: %v", err)
+			}
+			if _, err := LoadRuntimeToolDefinitions(root); err == nil || !strings.Contains(err.Error(), "no longer supported") {
+				t.Fatalf("expected removed field %q to fail, got %v", field, err)
+			}
+		})
 	}
-	if tool.Meta["kind"] != "frontend" || tool.Meta["viewportKey"] != "leave_form" {
-		t.Fatalf("unexpected runtime tool metadata %#v", tool.Meta)
+}
+
+func TestToolRouterViewportMetadataDoesNotChangeBackendRouting(t *testing.T) {
+	backend := &recordingPolicyBackend{defs: []api.ToolDetailResponse{{
+		Name: "ordinary_tool",
+		Meta: map[string]any{
+			"viewportType": "html",
+			"viewportKey":  "ordinary_card",
+		},
+	}}}
+	interaction := &captureInteractionSubmitter{}
+	router := mustNewToolRouter(t, backend, nil, nil, interaction)
+
+	result, err := router.Invoke(context.Background(), "ordinary_tool", nil, &ExecutionContext{})
+	if err != nil || result.Output != "ok" {
+		t.Fatalf("invoke ordinary tool: result=%#v err=%v", result, err)
 	}
-	if tool.Meta["sourceCategory"] != "external" {
-		t.Fatalf("expected runtime tool sourceCategory external, got %#v", tool.Meta)
+	if interaction.hadDeadline || len(backend.calls) != 1 || backend.calls[0] != "ordinary_tool" {
+		t.Fatalf("viewport metadata changed routing: backend=%#v interaction=%#v", backend.calls, interaction)
+	}
+}
+
+func TestToolRouterMCPViewportMetadataDoesNotCreateInteractionAwaiting(t *testing.T) {
+	interaction := &captureInteractionSubmitter{}
+	def := api.ToolDetailResponse{
+		Name: "ask_user_question",
+		Meta: map[string]any{
+			"sourceType":   "mcp",
+			"serverKey":    "remote",
+			"viewportType": "builtin",
+			"viewportKey":  "question",
+		},
+	}
+	router := mustNewToolRouter(
+		t,
+		stubBackendToolExecutor{},
+		outputSchemaMCPClient{payload: map[string]any{"structuredContent": map[string]any{"source": "mcp"}}},
+		outputSchemaToolCatalog{def: def},
+		interaction,
+	)
+
+	result, err := router.Invoke(context.Background(), "ask_user_question", nil, &ExecutionContext{})
+	if err != nil || result.Structured["source"] != "mcp" {
+		t.Fatalf("expected MCP invocation, result=%#v err=%v", result, err)
+	}
+	if interaction.hadDeadline {
+		t.Fatal("MCP viewport metadata must not route through the interaction handler")
+	}
+}
+
+func TestToolRouterRejectsInvalidAskViewportOverlay(t *testing.T) {
+	backend := stubBackendToolExecutor{defs: []api.ToolDetailResponse{{
+		Name: "ask_user_question",
+		Meta: map[string]any{
+			"viewportType": "builtin",
+			"viewportKey":  "question",
+		},
+	}}}
+	_, err := NewToolRouter(backend, nil, nil, nil, api.ToolDetailResponse{
+		Name: "ask_user_question",
+		Meta: map[string]any{
+			"viewportType": "builtin",
+			"viewportKey":  "legacy_question_dialog",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "viewportKey=question") {
+		t.Fatalf("expected invalid ask viewport overlay rejection, got %v", err)
+	}
+}
+
+func TestToolRouterRequiresRegisteredAskInteractionHandler(t *testing.T) {
+	backend := stubBackendToolExecutor{defs: []api.ToolDetailResponse{{
+		Name: "ask_user_question",
+		Meta: map[string]any{
+			"viewportType": "builtin",
+			"viewportKey":  "question",
+		},
+	}}}
+	_, err := NewToolRouter(backend, nil, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "requires a registered interaction handler") {
+		t.Fatalf("expected missing ask interaction handler rejection, got %v", err)
 	}
 }
 
@@ -192,7 +303,6 @@ func TestBackendOverlayKeepsPlatformSourceCategory(t *testing.T) {
 		[]api.ToolDetailResponse{{
 			Name: "datetime",
 			Meta: map[string]any{
-				"kind":           "backend",
 				"sourceType":     "local",
 				"sourceCategory": "platform",
 				"sourceKey":      "datetime",
@@ -202,7 +312,6 @@ func TestBackendOverlayKeepsPlatformSourceCategory(t *testing.T) {
 			Name:  "datetime",
 			Label: "日期时间",
 			Meta: map[string]any{
-				"kind":           "backend",
 				"sourceType":     "agent-local",
 				"sourceCategory": "external",
 				"sourceKey":      "datetime-overlay",
@@ -263,15 +372,16 @@ func TestNormalizeMCPResultPreservesBusinessErrorCode(t *testing.T) {
 	}
 }
 
-func TestToolRouterFrontendToolDoesNotUseToolTimeoutDeadline(t *testing.T) {
-	frontend := &captureFrontendSubmitter{}
-	router := NewToolRouter(stubBackendToolExecutor{}, nil, nil, frontend, nil, api.ToolDetailResponse{
+func TestToolRouterInteractionToolDoesNotUseToolTimeoutDeadline(t *testing.T) {
+	interaction := &captureInteractionSubmitter{}
+	router := mustNewToolRouter(t, stubBackendToolExecutor{defs: []api.ToolDetailResponse{{
 		Name: "ask_user_question",
 		Meta: map[string]any{
-			"kind":       "frontend",
-			"sourceType": "local",
+			"sourceType":   "local",
+			"viewportType": "builtin",
+			"viewportKey":  "question",
 		},
-	})
+	}}}, nil, nil, interaction)
 
 	result, err := router.Invoke(context.Background(), "ask_user_question", map[string]any{"mode": "question"}, &ExecutionContext{
 		Budget: Budget{
@@ -282,10 +392,10 @@ func TestToolRouterFrontendToolDoesNotUseToolTimeoutDeadline(t *testing.T) {
 		t.Fatalf("Invoke returned error: %v", err)
 	}
 	if result.ExitCode != 0 {
-		t.Fatalf("expected successful frontend result, got %#v", result)
+		t.Fatalf("expected successful interaction result, got %#v", result)
 	}
-	if frontend.hadDeadline {
-		t.Fatal("frontend tools should not inherit budget.tool.timeout as a context deadline")
+	if interaction.hadDeadline {
+		t.Fatal("interaction tools should not inherit budget.tool.timeout as a context deadline")
 	}
 }
 
@@ -306,5 +416,24 @@ func TestToolInvocationResultStatus(t *testing.T) {
 				t.Fatalf("toolInvocationResultStatus() = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestRuntimeCompactModelOutputPolicyIsCodeOwned(t *testing.T) {
+	for _, name := range []string{
+		"bash", "bash_sandbox",
+		"desktop_action", "desktop_cdp",
+		"file_read", "file_write", "file_edit", "file_glob", "file_grep",
+		"image_generate", "vision_recognize", "web_fetch",
+		"regex",
+	} {
+		if !runtimeToolUsesCompactModelOutput(name) {
+			t.Errorf("expected %s to use compact model output", name)
+		}
+	}
+	for _, name := range []string{"datetime", "memory_read", "plan_get_tasks", "artifact_publish"} {
+		if runtimeToolUsesCompactModelOutput(name) {
+			t.Errorf("expected %s to keep its standard model output", name)
+		}
 	}
 }

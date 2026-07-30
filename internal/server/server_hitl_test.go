@@ -21,7 +21,7 @@ import (
 	"agent-platform/internal/contracts"
 )
 
-func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
+func TestInteractionSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	var providerCallCount atomic.Int32
 	secondTurnMessages := make(chan []map[string]any, 1)
 
@@ -1224,10 +1224,10 @@ func (s *recordingSandbox) Execute(_ context.Context, _ *contracts.ExecutionCont
 	s.commands = append(s.commands, command)
 	s.envs = append(s.envs, contracts.CloneStringMap(env))
 	return contracts.SandboxExecutionResult{
-		ExitCode:         0,
-		Stdout:           "executed: " + command,
-		Stderr:           "",
-		WorkingDirectory: cwd,
+		ExitCode: 0,
+		Stdout:   "executed: " + command,
+		Stderr:   "",
+		Cwd:      cwd,
 	}, nil
 }
 
@@ -1239,7 +1239,7 @@ func (s *scriptedSandbox) OpenIfNeeded(_ context.Context, _ *contracts.Execution
 
 func (s *scriptedSandbox) Execute(_ context.Context, _ *contracts.ExecutionContext, command string, cwd string, _ int64, env map[string]string) (contracts.SandboxExecutionResult, error) {
 	if s.execute == nil {
-		return contracts.SandboxExecutionResult{ExitCode: 0, WorkingDirectory: cwd}, nil
+		return contracts.SandboxExecutionResult{ExitCode: 0, Cwd: cwd}, nil
 	}
 	return s.execute(command, cwd, env), nil
 }
@@ -1473,9 +1473,9 @@ func TestSandboxBashResultShapeAcrossStreamBoundaries(t *testing.T) {
 		body, secondTurn := runSandboxBashQueryForResultShape(t, &scriptedSandbox{
 			execute: func(command string, cwd string, _ map[string]string) contracts.SandboxExecutionResult {
 				return contracts.SandboxExecutionResult{
-					ExitCode:         0,
-					Stdout:           "listed from " + cwd + ": " + command + "\n",
-					WorkingDirectory: cwd,
+					ExitCode: 0,
+					Stdout:   "listed from " + cwd + ": " + command + "\n",
+					Cwd:      cwd,
 				}
 			},
 		})
@@ -1494,10 +1494,10 @@ func TestSandboxBashResultShapeAcrossStreamBoundaries(t *testing.T) {
 		body, secondTurn := runSandboxBashQueryForResultShape(t, &scriptedSandbox{
 			execute: func(_ string, cwd string, _ map[string]string) contracts.SandboxExecutionResult {
 				return contracts.SandboxExecutionResult{
-					ExitCode:         2,
-					Stdout:           "",
-					Stderr:           "ls: sample: No such file or directory\n",
-					WorkingDirectory: cwd,
+					ExitCode: 2,
+					Stdout:   "",
+					Stderr:   "ls: sample: No such file or directory\n",
+					Cwd:      cwd,
 				}
 			},
 		})
@@ -1660,7 +1660,6 @@ func TestBashHITLSimpleBashApproveFlow(t *testing.T) {
 				Description: "Execute mock bash command",
 				Parameters:  map[string]any{"type": "object"},
 				Meta: map[string]any{
-					"kind":          "backend",
 					"sourceType":    "mcp",
 					"sourceKey":     "mock",
 					"serverKey":     "mock",
@@ -1798,8 +1797,8 @@ func TestBashHITLDockerRMIApproveFlow(t *testing.T) {
 	if _, ok := resultPayload["hitl"]; ok {
 		t.Fatalf("did not expect hitl key, got %#v", resultPayload)
 	}
-	if strings.Contains(body, `"frontend_submit_invalid_payload"`) {
-		t.Fatalf("did not expect frontend_submit_invalid_payload, got %s", body)
+	if strings.Contains(body, `"tool_interaction_invalid_payload"`) {
+		t.Fatalf("did not expect tool_interaction_invalid_payload, got %s", body)
 	}
 }
 

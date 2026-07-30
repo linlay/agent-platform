@@ -1,4 +1,4 @@
-package frontendtools
+package toolinteraction
 
 import (
 	"encoding/json"
@@ -83,7 +83,7 @@ func (h *AskUserQuestionHandler) ValidateArgs(args map[string]any) error {
 	return nil
 }
 
-func (h *AskUserQuestionHandler) BuildInitialAwaitAsk(toolID string, runID string, _ api.ToolDetailResponse, args map[string]any, chunkIndex int, timeout int64) *stream.AwaitAsk {
+func (h *AskUserQuestionHandler) BuildInitialAwaitAsk(toolID string, runID string, tool api.ToolDetailResponse, args map[string]any, chunkIndex int, timeout int64) *stream.AwaitAsk {
 	if chunkIndex != 0 {
 		return nil
 	}
@@ -91,10 +91,15 @@ func (h *AskUserQuestionHandler) BuildInitialAwaitAsk(toolID string, runID strin
 	if len(questions) == 0 {
 		return nil
 	}
+	viewportType := strings.TrimSpace(contracts.AnyStringNode(tool.Meta["viewportType"]))
+	viewportKey := strings.TrimSpace(contracts.AnyStringNode(tool.Meta["viewportKey"]))
+	if viewportType == "" || viewportKey == "" {
+		return nil
+	}
 	return &stream.AwaitAsk{
 		AwaitingID:   toolID,
-		ViewportType: "builtin",
-		ViewportKey:  "question",
+		ViewportType: viewportType,
+		ViewportKey:  viewportKey,
 		Mode:         "question",
 		Timeout:      timeout,
 		RunID:        runID,
@@ -143,17 +148,8 @@ func (h *AskUserQuestionHandler) NormalizeSubmit(args map[string]any, params any
 	}, nil
 }
 
-func (h *AskUserQuestionHandler) FormatSubmitResult(format string, result contracts.ToolExecutionResult) (string, bool) {
-	switch strings.ToLower(strings.TrimSpace(format)) {
-	case "summary":
-		return formatQuestionSummary(result), true
-	case "kv":
-		return formatQuestionKV(result), true
-	case "qa":
-		return formatQuestionQA(result), true
-	default:
-		return "", false
-	}
+func (h *AskUserQuestionHandler) FormatModelOutput(result contracts.ToolExecutionResult) string {
+	return formatQuestionQA(result)
 }
 
 func buildAwaitQuestions(args map[string]any) []any {
@@ -238,39 +234,6 @@ func normalizeQuestionSubmitValue(definition map[string]any, answerMap map[strin
 		return nil, fmt.Errorf("answer is required")
 	}
 	return answerMap["answer"], nil
-}
-
-func formatQuestionSummary(result contracts.ToolExecutionResult) string {
-	answers, ok := structuredAnswers(result)
-	if !ok || len(answers) == 0 {
-		return result.Output
-	}
-	lines := make([]string, 0, len(answers)+1)
-	lines = append(lines, "用户回答了以下问题:")
-	for _, answer := range answers {
-		key := formatAnswerKey(answer)
-		if key == "" {
-			return result.Output
-		}
-		lines = append(lines, "- "+key+": "+formatAnswerValue(answer["answer"]))
-	}
-	return strings.Join(lines, "\n")
-}
-
-func formatQuestionKV(result contracts.ToolExecutionResult) string {
-	answers, ok := structuredAnswers(result)
-	if !ok || len(answers) == 0 {
-		return result.Output
-	}
-	items := make([]string, 0, len(answers))
-	for _, answer := range answers {
-		key := formatAnswerKey(answer)
-		if key == "" {
-			return result.Output
-		}
-		items = append(items, key+"="+formatAnswerValue(answer["answer"]))
-	}
-	return strings.Join(items, "; ")
 }
 
 func formatQuestionQA(result contracts.ToolExecutionResult) string {

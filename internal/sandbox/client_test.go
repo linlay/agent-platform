@@ -72,7 +72,7 @@ func TestRunLevelSandboxSessionIDReusesRunIDAcrossRequestIDs(t *testing.T) {
 		sessionID := strings.TrimSpace(contracts.AnyStringNode(payload["session_id"]))
 		sessionIDs = append(sessionIDs, sessionID)
 		env, _ := payload["env"].(map[string]any)
-		if env["AP_AGENT_CONFIG_HOME"] != "/agent/.config" || env["AP_CHAT_DIR"] != "/workspace" {
+		if env["AP_AGENT_CONFIG_HOME"] != "/agent/.config" || env["AP_WORKSPACE_DIR"] != "/workspace" || env["AP_CHAT_DIR"] != "/chat" {
 			t.Fatalf("create session platform env = %#v", env)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -88,8 +88,8 @@ func TestRunLevelSandboxSessionIDReusesRunIDAcrossRequestIDs(t *testing.T) {
 		RequestTimeout:       1,
 	}, paths)
 
-	first := sandboxTestExecutionContext("run_shared", "req_alpha")
-	second := sandboxTestExecutionContext("run_shared", "req_beta")
+	first := sandboxTestExecutionContext("run_shared", "req_alpha", sandboxWorkspace(paths))
+	second := sandboxTestExecutionContext("run_shared", "req_beta", sandboxWorkspace(paths))
 	if err := service.OpenIfNeeded(context.Background(), first); err != nil {
 		t.Fatalf("first OpenIfNeeded() error = %v", err)
 	}
@@ -100,13 +100,13 @@ func TestRunLevelSandboxSessionIDReusesRunIDAcrossRequestIDs(t *testing.T) {
 	if len(sessionIDs) != 1 {
 		t.Fatalf("expected one create call reused by both contexts, got %#v", sessionIDs)
 	}
-	if sessionIDs[0] != "run-run_shared" {
+	if !strings.HasPrefix(sessionIDs[0], "run-run_shared-") {
 		t.Fatalf("unexpected create session ID: %#v", sessionIDs)
 	}
-	if first.SandboxSession.SessionID != "run-run_shared" {
+	if first.SandboxSession.SessionID != sessionIDs[0] {
 		t.Fatalf("unexpected first bound session ID: %#v", first.SandboxSession)
 	}
-	if second.SandboxSession.SessionID != "run-run_shared" {
+	if second.SandboxSession.SessionID != sessionIDs[0] {
 		t.Fatalf("unexpected second bound session ID: %#v", second.SandboxSession)
 	}
 	if _, err := os.Stat(filepath.Join(paths.ChatsDir, "chat_1")); err != nil {
@@ -140,10 +140,10 @@ func TestLongLivedSandboxSessionsAreIsolatedByAgentAndChat(t *testing.T) {
 				RequestTimeout:       1,
 			}, paths)
 
-			first := sandboxTestExecutionContext("run-a", "req-a")
+			first := sandboxTestExecutionContext("run-a", "req-a", sandboxWorkspace(paths))
 			first.Session.RuntimeLevel = level
 			first.Session.ChatID = "chat-a"
-			second := sandboxTestExecutionContext("run-b", "req-b")
+			second := sandboxTestExecutionContext("run-b", "req-b", sandboxWorkspace(paths))
 			second.Session.RuntimeLevel = level
 			second.Session.ChatID = "chat-b"
 			if err := service.OpenIfNeeded(context.Background(), first); err != nil {
@@ -161,12 +161,23 @@ func TestLongLivedSandboxSessionsAreIsolatedByAgentAndChat(t *testing.T) {
 			}
 			for index, payload := range payloads {
 				wantChat := []string{"chat-a", "chat-b"}[index]
+				wantWorkspace, err := filepath.EvalSymlinks(sandboxWorkspace(paths))
+				if err != nil {
+					t.Fatal(err)
+				}
+				wantChatRoot, err := filepath.EvalSymlinks(filepath.Join(paths.ChatsDir, wantChat))
+				if err != nil {
+					t.Fatal(err)
+				}
 				env, _ := payload["env"].(map[string]any)
-				if env["AP_AGENT_CONFIG_HOME"] != "/agent/.config" || env["AP_CHAT_DIR"] != "/workspace" {
+				if env["AP_AGENT_CONFIG_HOME"] != "/agent/.config" || env["AP_WORKSPACE_DIR"] != "/workspace" || env["AP_CHAT_DIR"] != "/chat" {
 					t.Fatalf("payload %d platform env = %#v", index, env)
 				}
-				if got := workspaceMountSource(payload); got != filepath.Join(paths.ChatsDir, wantChat) {
-					t.Fatalf("payload %d workspace source = %q, want %q", index, got, filepath.Join(paths.ChatsDir, wantChat))
+				if got := workspaceMountSource(payload); got != wantWorkspace {
+					t.Fatalf("payload %d workspace source = %q, want %q", index, got, wantWorkspace)
+				}
+				if got := chatMountSource(payload); got != wantChatRoot {
+					t.Fatalf("payload %d chat source = %q, want %q", index, got, wantChatRoot)
 				}
 			}
 		})
@@ -184,17 +195,100 @@ func workspaceMountSource(payload map[string]any) string {
 	return ""
 }
 
+func chatMountSource(payload map[string]any) string {
+	mounts, _ := payload["mounts"].([]any)
+	for _, raw := range mounts {
+		mount, _ := raw.(map[string]any)
+		if mount["destination"] == "/chat" {
+			return strings.TrimSpace(contracts.AnyStringNode(mount["source"]))
+		}
+	}
+	return ""
+}
+
 func TestRunLevelSandboxSessionIDFallsBackToRunIDWithoutRequestID(t *testing.T) {
-	got := runSessionID(contracts.QuerySession{RunID: "run_without_request"})
-	if got != "run-run_without_request" {
-		t.Fatalf("runSessionID() = %q, want %q", got, "run-run_without_request")
+	got := runSessionID(contracts.QuerySession{RunID: "run_without_request"}, "mounts")
+	if got != "run-run_without_request-mounts" {
+		t.Fatalf("runSessionID() = %q, want %q", got, "run-run_without_request-mounts")
+	}
+}
+
+func TestContainerHubCreateUsesDualRootV2AndMaskedPaths(t *testing.T) {
+	var createPayload map[string]any
+	runtimeInfoCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/runtime-info":
+			runtimeInfoCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"engine":"docker","workspace_protocols":["dual-root-v2"]}`))
+		case "/api/sessions/create":
+			if err := json.NewDecoder(r.Body).Decode(&createPayload); err != nil {
+				t.Fatal(err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"session_id":"masked-session"}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	paths := sandboxTestPaths(t, "reader")
+	service := NewContainerHubSandboxService(config.ContainerHubConfig{
+		Enabled: true, BaseURL: server.URL, DefaultEnvironmentID: "daily-office-pro", RequestTimeout: 1,
+	}, paths)
+	execCtx := sandboxTestExecutionContext("run-mask", "req-mask", filepath.Dir(paths.ChatsDir))
+	execCtx.Session.ChatID = "chat-mask"
+	if err := service.OpenIfNeeded(context.Background(), execCtx); err != nil {
+		t.Fatalf("OpenIfNeeded() error = %v", err)
+	}
+	if runtimeInfoCalls != 1 {
+		t.Fatalf("runtime info calls = %d, want 1", runtimeInfoCalls)
+	}
+	if createPayload["workspaceProtocol"] != workspaceChatSandboxProtocol {
+		t.Fatalf("workspaceProtocol = %#v", createPayload["workspaceProtocol"])
+	}
+	masks, _ := createPayload["masked_paths"].([]any)
+	if len(masks) != 1 || masks[0] != "/workspace/chats" {
+		t.Fatalf("masked_paths = %#v", createPayload["masked_paths"])
+	}
+	if createPayload["cwd"] != "/workspace" {
+		t.Fatalf("cwd = %#v", createPayload["cwd"])
+	}
+}
+
+func TestContainerHubCreateRejectsMaskWhenHubDoesNotDeclareDualRootV2(t *testing.T) {
+	createCalled := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/runtime-info":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"engine":"docker"}`))
+		case "/api/sessions/create":
+			createCalled = true
+		}
+	}))
+	defer server.Close()
+
+	paths := sandboxTestPaths(t, "reader")
+	service := NewContainerHubSandboxService(config.ContainerHubConfig{
+		Enabled: true, BaseURL: server.URL, DefaultEnvironmentID: "daily-office-pro", RequestTimeout: 1,
+	}, paths)
+	execCtx := sandboxTestExecutionContext("run-old-hub", "req-old-hub", filepath.Dir(paths.ChatsDir))
+	if err := service.OpenIfNeeded(context.Background(), execCtx); err == nil ||
+		!strings.Contains(err.Error(), "does not support required workspace protocol") {
+		t.Fatalf("OpenIfNeeded() error = %v", err)
+	}
+	if createCalled {
+		t.Fatal("session create must not be sent to an incompatible Hub")
 	}
 }
 
 func TestRunLevelSandboxSessionIDUsesSubTaskID(t *testing.T) {
-	got := runSessionID(contracts.QuerySession{RunID: "run_1", SubTaskID: "sub_1"})
-	if got != "run-run_1-sub_1" {
-		t.Fatalf("runSessionID() = %q, want %q", got, "run-run_1-sub_1")
+	got := runSessionID(contracts.QuerySession{RunID: "run_1", SubTaskID: "sub_1"}, "mounts")
+	if got != "run-run_1-sub_1-mounts" {
+		t.Fatalf("runSessionID() = %q, want %q", got, "run-run_1-sub_1-mounts")
 	}
 }
 
@@ -203,24 +297,29 @@ func TestSandboxEnvironmentUsesReservedContainerContextAfterInvocationOverrides(
 		Session: contracts.QuerySession{
 			RuntimeContext: contracts.RuntimeRequestContext{
 				LocalPaths:   contracts.LocalPaths{AgentDir: "/host/runtime/agents/reader"},
-				SandboxPaths: contracts.SandboxPaths{AgentDir: "/agent", WorkspaceDir: "/workspace"},
+				SandboxPaths: contracts.SandboxPaths{AgentDir: "/agent", WorkspaceDir: "/workspace", ChatDir: "/chat"},
 			},
 		},
 		RuntimeEnvOverrides: map[string]string{
 			"HTTP_PROXY":           "http://agent-proxy",
 			"AP_AGENT_CONFIG_HOME": "/wrong-config",
+			"AP_WORKSPACE_DIR":     "/wrong-workspace",
 			"AP_CHAT_DIR":          "/wrong-chat",
 		},
 	}, map[string]string{
 		"HTTP_PROXY":           "http://call-proxy",
 		"AP_AGENT_CONFIG_HOME": "/call-config",
+		"AP_WORKSPACE_DIR":     "/call-workspace",
 		"AP_CHAT_DIR":          "/call-chat",
 	})
 
 	if got, want := env["AP_AGENT_CONFIG_HOME"], "/agent/.config"; got != want {
 		t.Fatalf("AP_AGENT_CONFIG_HOME = %q, want %q", got, want)
 	}
-	if got, want := env["AP_CHAT_DIR"], "/workspace"; got != want {
+	if got, want := env["AP_WORKSPACE_DIR"], "/workspace"; got != want {
+		t.Fatalf("AP_WORKSPACE_DIR = %q, want %q", got, want)
+	}
+	if got, want := env["AP_CHAT_DIR"], "/chat"; got != want {
 		t.Fatalf("AP_CHAT_DIR = %q, want %q", got, want)
 	}
 	if got, want := env["HTTP_PROXY"], "http://call-proxy"; got != want {
@@ -243,7 +342,8 @@ func TestSandboxEnvironmentUsesLocalEnginePaths(t *testing.T) {
 			RuntimeContext: contracts.RuntimeRequestContext{
 				SandboxPaths: contracts.SandboxPaths{
 					AgentDir:     "/runtime/agents/reader",
-					WorkspaceDir: "/runtime/chats/chat-a",
+					WorkspaceDir: "/projects/reader",
+					ChatDir:      "/runtime/chats/chat-a",
 				},
 			},
 		},
@@ -255,20 +355,69 @@ func TestSandboxEnvironmentUsesLocalEnginePaths(t *testing.T) {
 	if env["AP_CHAT_DIR"] != "/runtime/chats/chat-a" {
 		t.Fatalf("local AP_CHAT_DIR = %q", env["AP_CHAT_DIR"])
 	}
+	if env["AP_WORKSPACE_DIR"] != "/projects/reader" {
+		t.Fatalf("local AP_WORKSPACE_DIR = %q", env["AP_WORKSPACE_DIR"])
+	}
 }
 
-func sandboxTestExecutionContext(runID string, requestID string) *contracts.ExecutionContext {
-	return sandboxTestExecutionContextWithSubTaskID(runID, requestID, "")
+func TestSandboxSessionFingerprintChangesWithResolvedEnvironment(t *testing.T) {
+	paths := sandboxTestPaths(t, "reader")
+	service := NewContainerHubSandboxService(config.ContainerHubConfig{
+		Enabled:              true,
+		DefaultEnvironmentID: "daily-office-pro",
+	}, paths)
+	first := sandboxTestExecutionContext("run-a", "req-a", sandboxWorkspace(paths))
+	second := sandboxTestExecutionContext("run-b", "req-b", sandboxWorkspace(paths))
+	first.RuntimeEnvOverrides = map[string]string{"HTTP_PROXY": "http://proxy-a"}
+	second.RuntimeEnvOverrides = map[string]string{"HTTP_PROXY": "http://proxy-b"}
+
+	_, _, firstFingerprint, err := service.resolveSessionMountIdentity(first, "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, secondFingerprint, err := service.resolveSessionMountIdentity(second, "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstFingerprint == secondFingerprint {
+		t.Fatalf("resolved environment change must produce a new session fingerprint: %q", firstFingerprint)
+	}
 }
 
-func sandboxTestExecutionContextWithSubTaskID(runID string, requestID string, subTaskID string) *contracts.ExecutionContext {
+func TestLocalSandboxEngineUsesHostDualRootsAndWorkspaceCwd(t *testing.T) {
+	workspace := t.TempDir()
+	chatDir := t.TempDir()
+	mounts := localEngineMounts([]MountSpec{
+		{Name: "workspace", Source: workspace, Destination: "/workspace"},
+		{Name: "chat-dir", Source: chatDir, Destination: "/chat"},
+	})
+	if mounts[0].Destination != workspace || mounts[1].Destination != chatDir {
+		t.Fatalf("local engine mounts = %#v", mounts)
+	}
+	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
+		RuntimeContext: contracts.RuntimeRequestContext{
+			SandboxPaths: contracts.SandboxPaths{WorkspaceDir: workspace, ChatDir: chatDir},
+		},
+	}}
+	if got := sandboxWorkspaceCwd(execCtx); got != workspace {
+		t.Fatalf("local engine cwd = %q, want %q", got, workspace)
+	}
+}
+
+func sandboxTestExecutionContext(runID string, requestID string, workspaceRoot string) *contracts.ExecutionContext {
+	return sandboxTestExecutionContextWithSubTaskID(runID, requestID, "", workspaceRoot)
+}
+
+func sandboxTestExecutionContextWithSubTaskID(runID string, requestID string, subTaskID string, workspaceRoot string) *contracts.ExecutionContext {
 	return &contracts.ExecutionContext{
 		Session: contracts.QuerySession{
 			RequestID:              requestID,
 			RunID:                  runID,
 			SubTaskID:              subTaskID,
 			ChatID:                 "chat_1",
+			ChatRoot:               "",
 			AgentKey:               "reader",
+			WorkspaceRoot:          workspaceRoot,
 			RuntimeEnvironmentID:   "daily-office-pro",
 			RuntimeLevel:           "run",
 			RuntimeEnvOverrides:    map[string]string{},
@@ -278,10 +427,15 @@ func sandboxTestExecutionContextWithSubTaskID(runID string, requestID string, su
 				SandboxPaths: contracts.SandboxPaths{
 					AgentDir:     "/agent",
 					WorkspaceDir: "/workspace",
+					ChatDir:      "/chat",
 				},
 			},
 		},
 	}
+}
+
+func sandboxWorkspace(paths config.PathsConfig) string {
+	return filepath.Join(filepath.Dir(paths.ChatsDir), "workspace")
 }
 
 func sandboxTestPaths(t *testing.T, agentKey string) config.PathsConfig {
@@ -295,6 +449,9 @@ func sandboxTestPaths(t *testing.T, agentKey string) config.PathsConfig {
 	}
 	if err := os.MkdirAll(filepath.Join(paths.AgentsDir, agentKey), 0o755); err != nil {
 		t.Fatalf("create test agent dir: %v", err)
+	}
+	if err := os.MkdirAll(sandboxWorkspace(paths), 0o755); err != nil {
+		t.Fatalf("create test workspace: %v", err)
 	}
 	return paths
 }

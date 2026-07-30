@@ -63,7 +63,7 @@ func hitlTimeoutAnswer(mode string, timeoutSeconds int64) map[string]any {
 	return AwaitingTimeoutAnswer(mode, timeoutSeconds, timeoutSeconds)
 }
 
-func frontendSubmitAwaitingAnswer(invocation *preparedToolInvocation, result ToolExecutionResult) map[string]any {
+func interactionSubmitAwaitingAnswer(invocation *preparedToolInvocation, result ToolExecutionResult) map[string]any {
 	if len(result.Structured) == 0 {
 		return nil
 	}
@@ -72,9 +72,9 @@ func frontendSubmitAwaitingAnswer(invocation *preparedToolInvocation, result Too
 	}
 	mode := strings.TrimSpace(AnyStringNode(invocation.args["mode"]))
 	switch result.Error {
-	case "frontend_submit_timeout":
+	case "tool_interaction_timeout":
 		return result.Structured
-	case "frontend_submit_invalid_payload":
+	case "tool_interaction_invalid_payload":
 		return AwaitingErrorAnswer(mode, "invalid_submit", AnyStringNode(result.Structured["message"]))
 	default:
 		return nil
@@ -151,11 +151,11 @@ func hitlTimeoutToolResult(invocation *preparedToolInvocation) ToolExecutionResu
 	}
 }
 
-func frontendSubmitInvalidPayloadResult(invocation *preparedToolInvocation, awaitingID string, params any, err error) ToolExecutionResult {
+func interactionSubmitInvalidPayloadResult(invocation *preparedToolInvocation, awaitingID string, params any, err error) ToolExecutionResult {
 	payload := apperrors.Payload(
-		apperrors.CodeFrontendSubmitInvalidPayload,
+		apperrors.CodeInteractionSubmitInvalidPayload,
 		err.Error(),
-		apperrors.WithScope(apperrors.ScopeFrontendSubmit),
+		apperrors.WithScope(apperrors.ScopeInteractionSubmit),
 		apperrors.WithCategory(apperrors.CategoryTool),
 		apperrors.WithDiagnostics(map[string]any{
 			"awaitingId": awaitingID,
@@ -164,9 +164,9 @@ func frontendSubmitInvalidPayloadResult(invocation *preparedToolInvocation, awai
 		}),
 	)
 	return ToolExecutionResult{
-		Output:     formatToolErrorOutput("frontend_submit_invalid_payload", err.Error()),
+		Output:     formatToolErrorOutput("tool_interaction_invalid_payload", err.Error()),
 		Structured: payload,
-		Error:      "frontend_submit_invalid_payload",
+		Error:      "tool_interaction_invalid_payload",
 		ExitCode:   -1,
 	}
 }

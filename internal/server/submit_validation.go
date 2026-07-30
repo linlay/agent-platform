@@ -9,7 +9,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/frontendtools"
+	"agent-platform/internal/toolinteraction"
 )
 
 func validateSubmitIdentity(req api.SubmitRequest) error {
@@ -158,7 +158,7 @@ func validateSubmitParams(ctx contracts.AwaitingSubmitContext, params api.Submit
 		}
 	}
 	if strings.EqualFold(strings.TrimSpace(ctx.Mode), "question") && len(ctx.Questions) > 0 {
-		if _, err := frontendtools.NewAskUserQuestionHandler().NormalizeSubmit(map[string]any{
+		if _, err := toolinteraction.NewAskUserQuestionHandler().NormalizeSubmit(map[string]any{
 			"questions": ctx.Questions,
 		}, params); err != nil {
 			return err

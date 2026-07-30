@@ -337,8 +337,8 @@ func appendSandboxContextPaths(lines *[]string, paths SandboxPaths, localMode bo
 		rootDirDesc = "root 目录"
 		panDirDesc = "用户网盘目录"
 	}
-	appendContextDir(lines, "workspace_dir", paths.WorkspaceDir, "工具默认工作目录 / 权限工作根")
-	appendContextDir(lines, "chat_dir", paths.WorkspaceDir, "当前会话文件目录，可存放产物、临时代码和临时文件")
+	appendSemanticRoot(lines, "workspace_dir", paths.WorkspaceDir, "相对路径根 / 权限工作根")
+	appendSemanticRoot(lines, "chat_dir", paths.ChatDir, "当前会话文件目录，可存放产物、临时代码和临时文件")
 	appendContextDir(lines, "root_dir", paths.RootDir, rootDirDesc)
 	appendContextDir(lines, "skills_dir", paths.SkillsDir, "当前 agent 私有技能目录")
 	appendContextDir(lines, "agent_dir", paths.AgentDir, "当前 agent 定义目录")
@@ -357,8 +357,8 @@ func appendSandboxContextPaths(lines *[]string, paths SandboxPaths, localMode bo
 }
 
 func appendLocalContextPaths(lines *[]string, paths LocalPaths) {
-	appendContextDir(lines, "workspace_dir", paths.WorkspaceDir, "工具默认工作目录 / 权限工作根")
-	appendContextDir(lines, "chat_dir", paths.ChatAttachmentsDir, "当前会话文件目录，可存放产物、临时代码和临时文件")
+	appendSemanticRoot(lines, "workspace_dir", paths.WorkspaceDir, "相对路径根 / 权限工作根")
+	appendSemanticRoot(lines, "chat_dir", paths.ChatDir, "当前会话文件目录，可存放产物、临时代码和临时文件")
 	appendContextDir(lines, "root_dir", paths.RootDir, "root 目录")
 	appendContextDir(lines, "skills_dir", paths.SkillsDir, "当前 agent 私有技能目录")
 	appendContextDir(lines, "agent_dir", paths.AgentDir, "当前 agent 定义目录")
@@ -374,6 +374,14 @@ func appendLocalContextPaths(lines *[]string, paths LocalPaths) {
 	appendContextDir(lines, "mcp_servers_dir", paths.MCPServersDir, "MCP 服务注册目录")
 	appendContextDir(lines, "viewport_servers_dir", paths.ViewportServersDir, "Viewport 服务注册目录")
 	appendContextDir(lines, "pan_dir", paths.PanDir, "用户网盘目录")
+}
+
+func appendSemanticRoot(lines *[]string, key, value, desc string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		value = "unavailable"
+	}
+	*lines = append(*lines, key+": "+value+" # "+desc)
 }
 
 // appendContextDir adds a dir entry only if mounted (non-empty), with a description.

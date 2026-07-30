@@ -11,36 +11,44 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
 	. "agent-platform/internal/contracts"
-	"agent-platform/internal/frontendtools"
+	"agent-platform/internal/toolinteraction"
 )
 
-type FrontendSubmitCoordinator struct {
-	frontend *frontendtools.Registry
+type InteractionSubmitCoordinator struct {
+	interactions *toolinteraction.Registry
 }
 
-func NewFrontendSubmitCoordinator(frontend *frontendtools.Registry) *FrontendSubmitCoordinator {
-	return &FrontendSubmitCoordinator{frontend: frontend}
+func NewInteractionSubmitCoordinator(interactions *toolinteraction.Registry) *InteractionSubmitCoordinator {
+	return &InteractionSubmitCoordinator{interactions: interactions}
 }
 
-func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *ExecutionContext, args map[string]any) (ToolExecutionResult, error) {
+func (c *InteractionSubmitCoordinator) Handles(toolName string) bool {
+	if c == nil || c.interactions == nil {
+		return false
+	}
+	_, ok := c.interactions.Handler(toolName)
+	return ok
+}
+
+func (c *InteractionSubmitCoordinator) Await(ctx context.Context, execCtx *ExecutionContext, args map[string]any) (ToolExecutionResult, error) {
 	if execCtx == nil || execCtx.RunControl == nil {
 		return ToolExecutionResult{}, ErrRunControlUnavailable
 	}
 	toolName := execCtx.CurrentToolName
 	awaitingID := execCtx.CurrentToolID
 	var (
-		handler frontendtools.Handler
+		handler toolinteraction.Handler
 		ok      bool
 	)
-	if c.frontend != nil {
-		handler, ok = c.frontend.Handler(toolName)
+	if c.interactions != nil {
+		handler, ok = c.interactions.Handler(toolName)
 	}
 	if !ok {
 		execCtx.RunControl.ClearExpectedSubmit(awaitingID)
 		payload := apperrors.Payload(
-			apperrors.CodeFrontendToolHandlerNotRegistered,
-			"frontend tool handler not registered: "+toolName,
-			apperrors.WithScope(apperrors.ScopeFrontendSubmit),
+			apperrors.CodeToolInteractionHandlerNotRegistered,
+			"tool interaction handler not registered: "+toolName,
+			apperrors.WithScope(apperrors.ScopeInteractionSubmit),
 			apperrors.WithCategory(apperrors.CategoryTool),
 			apperrors.WithDiagnostics(map[string]any{
 				"awaitingId": awaitingID,
@@ -50,11 +58,11 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 		return ToolExecutionResult{
 			Output:     marshalJSON(payload),
 			Structured: payload,
-			Error:      "frontend_tool_handler_not_registered",
+			Error:      "tool_interaction_handler_not_registered",
 			ExitCode:   -1,
 		}, nil
 	}
-	timeout := frontendSubmitTimeout(execCtx)
+	timeout := interactionSubmitTimeout(execCtx)
 	execCtx.RunLoopState = RunLoopStateWaitingSubmit
 	execCtx.RunControl.TransitionState(RunLoopStateWaitingSubmit)
 	waitStarted := time.Now()
@@ -64,11 +72,11 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 		if errors.Is(err, context.DeadlineExceeded) {
 			elapsed := time.Since(waitStarted).Milliseconds() / 1000
 			timeoutSec := int64(timeout.Seconds())
-			detailedMsg := resolveFrontendTimeoutMessage(toolName, awaitingID, timeoutSec, elapsed)
+			detailedMsg := resolveInteractionTimeoutMessage(toolName, awaitingID, timeoutSec, elapsed)
 			return ToolExecutionResult{
 				Output:     detailedMsg,
 				Structured: AwaitingTimeoutAnswer(strings.TrimSpace(AnyStringNode(args["mode"])), timeoutSec, elapsed),
-				Error:      "frontend_submit_timeout",
+				Error:      "tool_interaction_timeout",
 				ExitCode:   -1,
 			}, nil
 		}
@@ -80,9 +88,9 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 	normalized, normalizeErr := handler.NormalizeSubmit(args, result.Request.Params)
 	if normalizeErr != nil {
 		payload := apperrors.Payload(
-			apperrors.CodeFrontendSubmitInvalidPayload,
+			apperrors.CodeInteractionSubmitInvalidPayload,
 			normalizeErr.Error(),
-			apperrors.WithScope(apperrors.ScopeFrontendSubmit),
+			apperrors.WithScope(apperrors.ScopeInteractionSubmit),
 			apperrors.WithCategory(apperrors.CategoryTool),
 			apperrors.WithDiagnostics(map[string]any{
 				"awaitingId": awaitingID,
@@ -91,9 +99,9 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 			}),
 		)
 		return ToolExecutionResult{
-			Output:     formatToolErrorOutput("frontend_submit_invalid_payload", normalizeErr.Error()),
+			Output:     formatToolErrorOutput("tool_interaction_invalid_payload", normalizeErr.Error()),
 			Structured: payload,
-			Error:      "frontend_submit_invalid_payload",
+			Error:      "tool_interaction_invalid_payload",
 			ExitCode:   -1,
 			SubmitInfo: &SubmitInfo{
 				RunID:      result.Request.RunID,
@@ -103,13 +111,12 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 			},
 		}, nil
 	}
-	data, _ := json.Marshal(normalized)
 	rawParams := result.Request.Params
 	if strings.EqualFold(AnyStringNode(normalized["status"]), "error") {
 		rawParams = nil
 	}
-	return ToolExecutionResult{
-		Output:     string(data),
+	toolResult := ToolExecutionResult{
+		Output:     marshalJSON(normalized),
 		Structured: normalized,
 		RawParams:  rawParams,
 		ExitCode:   0,
@@ -119,10 +126,12 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 			SubmitID:   result.Request.SubmitID,
 			Params:     result.Request.Params,
 		},
-	}, nil
+	}
+	toolResult.Output = handler.FormatModelOutput(toolResult)
+	return toolResult, nil
 }
 
-func frontendSubmitTimeout(execCtx *ExecutionContext) time.Duration {
+func interactionSubmitTimeout(execCtx *ExecutionContext) time.Duration {
 	if execCtx != nil && execCtx.RunControl != nil {
 		if awaitingCtx, ok := execCtx.RunControl.LookupAwaiting(execCtx.CurrentToolID); ok && awaitingCtx.Timeout > 0 {
 			return time.Duration(awaitingCtx.Timeout) * time.Second
@@ -146,14 +155,14 @@ func argsModeFromExecContext(execCtx *ExecutionContext) string {
 	return "form"
 }
 
-func resolveFrontendTimeoutMessage(toolName string, awaitingID string, timeout int64, elapsed int64) string {
+func resolveInteractionTimeoutMessage(toolName string, awaitingID string, timeout int64, elapsed int64) string {
 	if toolName == "" {
 		toolName = "unknown"
 	}
 	if awaitingID == "" {
 		awaitingID = "unknown"
 	}
-	return "Frontend tool submit timeout: tool=" + toolName + ", awaitingId=" + awaitingID + ", elapsed=" + formatInt64(elapsed) + ", timeout=" + formatInt64(timeout)
+	return "Tool interaction submit timeout: tool=" + toolName + ", awaitingId=" + awaitingID + ", elapsed=" + formatInt64(elapsed) + ", timeout=" + formatInt64(timeout)
 }
 
 func formatInt64(value int64) string {

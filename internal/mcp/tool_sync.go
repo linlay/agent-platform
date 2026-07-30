@@ -195,9 +195,6 @@ func applyServerToolOverride(base ToolDefinition, override *ToolDefinition) Tool
 	if len(override.Parameters) > 0 {
 		merged.Parameters = contracts.CloneMap(override.Parameters)
 	}
-	if override.ToolAction {
-		merged.ToolAction = true
-	}
 	if strings.TrimSpace(override.ViewportType) != "" {
 		merged.ViewportType = strings.TrimSpace(override.ViewportType)
 	}

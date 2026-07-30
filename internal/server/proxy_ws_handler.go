@@ -422,6 +422,7 @@ func (s *Server) runProxyWebSocket(
 		RunID:           prepared.req.RunID,
 		Subject:         prepared.session.Subject,
 		ResourceBaseURL: prepared.resourceBaseURL,
+		WorkspaceRoot:   prepared.session.WorkspaceRoot,
 		References:      prepared.req.References,
 	})
 	if err != nil {
@@ -515,6 +516,7 @@ func (s *Server) runProxyInboundChannel(
 		RunID:           prepared.req.RunID,
 		Subject:         prepared.session.Subject,
 		ResourceBaseURL: prepared.resourceBaseURL,
+		WorkspaceRoot:   prepared.session.WorkspaceRoot,
 		References:      prepared.req.References,
 	})
 	if err != nil {
@@ -635,6 +637,7 @@ func (s *Server) runProxySSE(
 		RunID:           prepared.req.RunID,
 		Subject:         prepared.session.Subject,
 		ResourceBaseURL: prepared.resourceBaseURL,
+		WorkspaceRoot:   prepared.session.WorkspaceRoot,
 		References:      prepared.req.References,
 	})
 	if err != nil {

@@ -22,7 +22,7 @@ type Registry interface {
 	Teams() []api.TeamSummary
 	Skills(tag string) []api.SkillSummary
 	SkillDefinition(key string) (SkillDefinition, bool)
-	Tools(kind string, tag string) []api.ToolSummary
+	Tools(tag string) []api.ToolSummary
 	Tool(name string) (api.ToolDetailResponse, bool)
 	DefaultAgentKey() string
 	AgentDefinition(key string) (AgentDefinition, bool)

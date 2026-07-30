@@ -247,8 +247,8 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) uploadReferencePath(targetName string, targetPath string, agentKey string) string {
-	if s.referencePathsUseContainerForAgentKey(agentKey) {
-		return "/workspace/" + filepath.ToSlash(targetName)
+	if s.agentUsesContainerHubForKey(agentKey) {
+		return "/chat/" + filepath.ToSlash(targetName)
 	}
 	if abs, err := filepath.Abs(targetPath); err == nil {
 		return abs
@@ -256,25 +256,22 @@ func (s *Server) uploadReferencePath(targetName string, targetPath string, agent
 	return filepath.Clean(targetPath)
 }
 
-func (s *Server) referencePathsUseContainerForAgentKey(agentKey string) bool {
+func (s *Server) agentUsesContainerHubForKey(agentKey string) bool {
 	if s == nil || s.deps.Config.IsLocalMode() {
 		return false
 	}
 	if strings.TrimSpace(agentKey) == "" || s.deps.Registry == nil {
-		return s.deps.Config.ContainerHub.Enabled
-	}
-	if def, ok := s.deps.Registry.AgentDefinition(agentKey); ok {
-		return s.referencePathsUseContainer(def)
-	}
-	return s.deps.Config.ContainerHub.Enabled
-}
-
-func (s *Server) referencePathsUseContainer(def catalog.AgentDefinition) bool {
-	if s == nil || s.deps.Config.IsLocalMode() {
 		return false
 	}
-	if isProxyAgentMode(def.Mode) {
-		return true
+	if def, ok := s.deps.Registry.AgentDefinition(agentKey); ok {
+		return s.agentUsesContainerHub(def)
+	}
+	return false
+}
+
+func (s *Server) agentUsesContainerHub(def catalog.AgentDefinition) bool {
+	if s == nil || s.deps.Config.IsLocalMode() {
+		return false
 	}
 	return s.deps.Config.ContainerHub.Enabled && hasRuntimeSandbox(def.Runtime)
 }

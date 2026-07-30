@@ -23,12 +23,12 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/frontendtools"
 	"agent-platform/internal/llm"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
 	"agent-platform/internal/reload"
 	"agent-platform/internal/stream"
+	"agent-platform/internal/toolinteraction"
 	"agent-platform/internal/tools"
 )
 
@@ -42,9 +42,6 @@ var disallowedPersistedEventTypes = []string{
 	"tool.start",
 	"tool.args",
 	"tool.end",
-	"action.start",
-	"action.args",
-	"action.end",
 }
 
 func newServerFromFixture(t *testing.T, fixture testFixture) *Server {
@@ -58,7 +55,7 @@ func newServerFromFixture(t *testing.T, fixture testFixture) *Server {
 		Runs:            fixture.runs,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
-		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
+		DeltaMappers:    llm.DeltaMapperFactory{Interactions: fixture.interactions},
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
@@ -81,7 +78,7 @@ type testFixture struct {
 	runs            contracts.RunManager
 	agent           contracts.AgentEngine
 	tools           contracts.ToolExecutor
-	frontend        *frontendtools.Registry
+	interactions    *toolinteraction.Registry
 	sandbox         contracts.SandboxClient
 	mcp             contracts.McpClient
 	viewport        contracts.ViewportClient
@@ -159,6 +156,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	agentsDir := filepath.Join(root, "agents")
 	teamsDir := filepath.Join(root, "teams")
 	skillsDir := filepath.Join(root, "skills-market")
+	workspaceDir := filepath.Join(root, "workspace")
 	providersDir := filepath.Join(registriesDir, "providers")
 	modelsDir := filepath.Join(registriesDir, "models")
 	if err := os.MkdirAll(providersDir, 0o755); err != nil {
@@ -175,6 +173,9 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	}
 	if err := os.MkdirAll(filepath.Join(skillsDir, "mock-skill", "assets"), 0o755); err != nil {
 		t.Fatalf("mkdir skills dir: %v", err)
+	}
+	if err := os.MkdirAll(workspaceDir, 0o755); err != nil {
+		t.Fatalf("mkdir workspace dir: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(providersDir, "mock.yml"), []byte(strings.Join([]string{
 		"key: mock",
@@ -229,6 +230,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		"runtimeConfig:",
 		"  environmentId: shell",
 		"  level: RUN",
+		"  workspaceRoot: " + filepath.ToSlash(workspaceDir),
 		"  env:",
 		"    HTTP_PROXY: http://agent-proxy",
 		"    TZ: Asia/Shanghai",
@@ -263,6 +265,9 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	if err := os.WriteFile(filepath.Join(skillsDir, "mock-skill", "assets", "mock-skill.png"), []byte{0x89, 'P', 'N', 'G'}, 0o644); err != nil {
 		t.Fatalf("write skill icon: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(skillsDir, "mock-skill", "assets", "logo.bin"), []byte{0x00, 0x01, 0x02}, 0o644); err != nil {
+		t.Fatalf("write binary skill asset: %v", err)
+	}
 
 	cfg := config.Config{
 		Server: config.ServerConfig{
@@ -290,16 +295,15 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 			MaxPromptChars: 8000,
 		},
 		Bash: config.BashConfig{
-			WorkingDirectory: root,
-			AllowedCommands:  []string{"pwd", "echo", "ls", "cat"},
-			ShellExecutable:  "bash",
-			MaxCommandChars:  16000,
+			AllowedCommands: []string{"pwd", "echo", "ls", "cat"},
+			ShellExecutable: "bash",
+			MaxCommandChars: 16000,
 		},
 		ContainerHub: config.ContainerHubConfig{
 			Enabled:        true,
 			BaseURL:        containerHubServer.URL,
 			RequestTimeout: 1,
-			ResolvedEngine: "local",
+			ResolvedEngine: "docker",
 		},
 	}
 	if options.configure != nil {
@@ -328,7 +332,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	if sandboxClient == nil {
 		sandboxClient = contracts.NewNoopSandboxClient()
 	}
-	backendTools, err := tools.NewRuntimeToolExecutor(cfg, sandboxClient, chats, memories, nil)
+	runtimeTools, err := tools.NewRuntimeToolExecutor(cfg, sandboxClient, chats, memories, nil)
 	if err != nil {
 		t.Fatalf("new runtime tool executor: %v", err)
 	}
@@ -336,7 +340,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	if mcp == nil {
 		mcp = contracts.NewNoopMcpClient()
 	}
-	frontendRegistry := frontendtools.NewDefaultRegistry()
+	interactionRegistry := toolinteraction.NewDefaultRegistry()
 	var mcpTools interface {
 		Definitions() []api.ToolDetailResponse
 		Tool(name string) (api.ToolDetailResponse, bool)
@@ -344,7 +348,10 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	if len(options.mcpTools.defs) > 0 {
 		mcpTools = options.mcpTools
 	}
-	toolExecutor := tools.NewToolRouter(backendTools, mcp, mcpTools, llm.NewFrontendSubmitCoordinator(frontendRegistry), contracts.NewNoopActionInvoker())
+	toolExecutor, err := tools.NewToolRouter(runtimeTools, mcp, mcpTools, llm.NewInteractionSubmitCoordinator(interactionRegistry))
+	if err != nil {
+		t.Fatalf("new tool router: %v", err)
+	}
 	registry, err := catalog.NewFileRegistry(cfg, toolExecutor.Definitions())
 	if err != nil {
 		t.Fatalf("new file registry: %v", err)
@@ -357,26 +364,26 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 
 	runs := contracts.NewInMemoryRunManager()
 	sandbox := sandboxClient
-	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, frontendRegistry, sandbox)
+	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, interactionRegistry, sandbox)
 	viewport := contracts.NewNoopViewportClient()
 	server, err := New(Dependencies{
-		Config:          cfg,
-		Chats:           chats,
-		Memory:          memories,
-		Registry:        registry,
-		Models:          modelRegistry,
-		Runs:            runs,
-		Agent:           agentEngine,
-		Tools:           toolExecutor,
-		DeltaMappers:    llm.DeltaMapperFactory{Frontend: frontendRegistry},
-		SystemInits:     llm.SystemInitProfileBuilder{Models: modelRegistry},
-		Sandbox:         sandbox,
-		MCP:             mcp,
-		FrontendTools:   frontendRegistry,
-		Viewport:        viewport,
-		CatalogReloader: reloader,
-		Notifications:   notifications,
-		Channels:        channelpkg.NewRegistry(cfg.Channels),
+		Config:           cfg,
+		Chats:            chats,
+		Memory:           memories,
+		Registry:         registry,
+		Models:           modelRegistry,
+		Runs:             runs,
+		Agent:            agentEngine,
+		Tools:            toolExecutor,
+		DeltaMappers:     llm.DeltaMapperFactory{Interactions: interactionRegistry},
+		SystemInits:      llm.SystemInitProfileBuilder{Models: modelRegistry},
+		Sandbox:          sandbox,
+		MCP:              mcp,
+		ToolInteractions: interactionRegistry,
+		Viewport:         viewport,
+		CatalogReloader:  reloader,
+		Notifications:    notifications,
+		Channels:         channelpkg.NewRegistry(cfg.Channels),
 	})
 	if err != nil {
 		t.Fatalf("new server: %v", err)
@@ -392,7 +399,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		runs:            runs,
 		agent:           agentEngine,
 		tools:           toolExecutor,
-		frontend:        frontendRegistry,
+		interactions:    interactionRegistry,
 		sandbox:         sandbox,
 		mcp:             mcp,
 		viewport:        viewport,
@@ -814,7 +821,6 @@ func assertLiveSSEExcludesHistoricalSnapshots(t *testing.T, body string) {
 		"reasoning.snapshot",
 		"content.snapshot",
 		"tool.snapshot",
-		"action.snapshot",
 		"planning.snapshot",
 	)
 }

@@ -40,7 +40,7 @@ type WebClientActionResponse struct {
 	Data  json.RawMessage
 }
 
-type WebClientActionInvoker interface {
+type WebClientRequestInvoker interface {
 	InvokeWebClientAction(
 		ctx context.Context,
 		target WebClientTarget,

@@ -80,6 +80,33 @@ func TestFinalizePlanningCreatesMarkdownFile(t *testing.T) {
 	}
 }
 
+func TestFinalizePlanningRejectsInvalidChatContext(t *testing.T) {
+	root := t.TempDir()
+	executor := &RuntimeToolExecutor{cfg: config.Config{Paths: config.PathsConfig{ChatsDir: root}}}
+	execCtx := &ExecutionContext{Session: QuerySession{
+		RunID:        "run_invalid_chat",
+		ChatID:       "../bad-chat",
+		PlanningMode: true,
+	}}
+
+	result, err := executor.Invoke(context.Background(), FinalizePlanningToolName, map[string]any{
+		"markdown": standardPlanningMarkdown("invalid chat"),
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invoke finalize_planning: %v", err)
+	}
+	if result.Error != "chat_dir_unavailable" || result.ExitCode == 0 {
+		t.Fatalf("expected invalid Chat context rejection, got %#v", result)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("read chats root: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("invalid Chat context must not write planning state, got %#v", entries)
+	}
+}
+
 func TestFinalizePlanningDoesNotPersistSnapshotRefs(t *testing.T) {
 	root := t.TempDir()
 	store, err := chat.NewFileStore(root)

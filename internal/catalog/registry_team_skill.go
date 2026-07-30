@@ -75,15 +75,10 @@ func (r *FileRegistry) Skills(tag string) []api.SkillSummary {
 	return items
 }
 
-func (r *FileRegistry) Tools(kind string, tag string) []api.ToolSummary {
-	needleKind := strings.ToLower(strings.TrimSpace(kind))
+func (r *FileRegistry) Tools(tag string) []api.ToolSummary {
 	needleTag := strings.ToLower(strings.TrimSpace(tag))
 	items := make([]api.ToolSummary, 0, len(r.tools))
 	for _, tool := range r.tools {
-		metaKind, _ := tool.Meta["kind"].(string)
-		if needleKind != "" && strings.ToLower(metaKind) != needleKind {
-			continue
-		}
 		if needleTag != "" && !matchesToolTag(tool, needleTag) {
 			continue
 		}
@@ -98,7 +93,6 @@ func (r *FileRegistry) Tools(kind string, tag string) []api.ToolSummary {
 			Name:           tool.Name,
 			Label:          tool.Label,
 			Description:    tool.Description,
-			Kind:           strings.TrimSpace(metaKind),
 			SourceType:     sourceType,
 			SourceCategory: sourceCategory,
 			ServerKey:      serverKey,
@@ -126,9 +120,6 @@ func toolSummarySourceCategory(tool api.ToolDetailResponse) string {
 		return "external"
 	case "local":
 		return "platform"
-	}
-	if strings.EqualFold(strings.TrimSpace(anyStringValue(tool.Meta["kind"])), "external") {
-		return "external"
 	}
 	return ""
 }
@@ -194,7 +185,6 @@ func matchesToolTag(tool api.ToolDetailResponse, needle string) bool {
 		tool.Label,
 		tool.Description,
 		tool.AfterCallHint,
-		stringNode(tool.Meta["kind"]),
 		stringNode(tool.Meta["viewportType"]),
 		stringNode(tool.Meta["viewportKey"]),
 	}

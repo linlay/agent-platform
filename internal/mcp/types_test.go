@@ -25,8 +25,13 @@ func TestToolDefinitionToAPIToolUsesViewportTypeMeta(t *testing.T) {
 	if apiTool.Meta["viewportType"] != "builtin" {
 		t.Fatalf("expected viewportType meta, got %#v", apiTool.Meta)
 	}
-	if _, exists := apiTool.Meta["toolType"]; exists {
-		t.Fatalf("did not expect toolType meta, got %#v", apiTool.Meta)
+	if apiTool.Meta["viewportKey"] != "confirm_dialog" {
+		t.Fatalf("expected viewportKey meta, got %#v", apiTool.Meta)
+	}
+	for _, field := range []string{"type", "kind", "toolAction", "submitResultFormat"} {
+		if _, exists := apiTool.Meta[field]; exists {
+			t.Fatalf("did not expect %s meta, got %#v", field, apiTool.Meta)
+		}
 	}
 }
 

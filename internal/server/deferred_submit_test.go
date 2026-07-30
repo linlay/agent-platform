@@ -87,7 +87,7 @@ func TestDeferredPlanningApproveContinuationUsesCoderExecuteSystem(t *testing.T)
 		Runs:            restartedRuns,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
-		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
+		DeltaMappers:    llm.DeltaMapperFactory{Interactions: fixture.interactions},
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
@@ -163,7 +163,7 @@ func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
 		Runs:            fixture.runs,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
-		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
+		DeltaMappers:    llm.DeltaMapperFactory{Interactions: fixture.interactions},
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
@@ -267,7 +267,7 @@ func TestDeferredQuestionSubmitRejectsInvalidAnswerAndAllowsRetry(t *testing.T) 
 		Runs:            fixture.runs,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
-		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
+		DeltaMappers:    llm.DeltaMapperFactory{Interactions: fixture.interactions},
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
@@ -439,7 +439,7 @@ func TestDeferredSubmitWSRestoresPendingAwaitingAfterRestart(t *testing.T) {
 		Runs:            fixture.runs,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
-		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
+		DeltaMappers:    llm.DeltaMapperFactory{Interactions: fixture.interactions},
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
@@ -557,7 +557,7 @@ func TestDeferredSubmitSubmitIDIsIdempotent(t *testing.T) {
 		Runs:            fixture.runs,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
-		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
+		DeltaMappers:    llm.DeltaMapperFactory{Interactions: fixture.interactions},
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
@@ -729,7 +729,7 @@ func TestDeferredSubmitRestoresQuestionAndPlanAfterRestart(t *testing.T) {
 		Runs:            fixture.runs,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
-		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
+		DeltaMappers:    llm.DeltaMapperFactory{Interactions: fixture.interactions},
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
@@ -841,7 +841,7 @@ func TestDeferredSubmitRejectsExpiredAwaiting(t *testing.T) {
 		Runs:            fixture.runs,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
-		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
+		DeltaMappers:    llm.DeltaMapperFactory{Interactions: fixture.interactions},
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
@@ -895,7 +895,7 @@ func TestHydrationSkipsExpiredAwaitings(t *testing.T) {
 		Runs:            fixture.runs,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
-		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
+		DeltaMappers:    llm.DeltaMapperFactory{Interactions: fixture.interactions},
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
@@ -979,7 +979,7 @@ func TestHydrationClearsDanglingAndAnsweredAwaitings(t *testing.T) {
 		Runs:            fixture.runs,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
-		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
+		DeltaMappers:    llm.DeltaMapperFactory{Interactions: fixture.interactions},
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
@@ -1021,7 +1021,7 @@ func TestDeferredSubmitAcceptsWithinTimeout(t *testing.T) {
 		Runs:            fixture.runs,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
-		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
+		DeltaMappers:    llm.DeltaMapperFactory{Interactions: fixture.interactions},
 		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
@@ -1066,6 +1066,21 @@ func seedDeferredAwaitingPayload(t *testing.T, store chat.Store, chatID string, 
 	}
 	for key, value := range askPayload {
 		ask[key] = value
+	}
+	if strings.EqualFold(mode, "planning") {
+		planning := contracts.AnyMapNode(ask["planning"])
+		if strings.TrimSpace(contracts.AnyStringNode(planning["planningFile"])) == "" {
+			planningID := strings.TrimSpace(contracts.AnyStringNode(planning["planningId"]))
+			planningFile := filepath.Join(store.ChatDir(chatID), chat.ToolRootDirName, chat.ToolPlanningDirName, planningID+".md")
+			if err := os.MkdirAll(filepath.Dir(planningFile), 0o755); err != nil {
+				t.Fatalf("mkdir planning dir: %v", err)
+			}
+			if err := os.WriteFile(planningFile, []byte("# Planning"), 0o644); err != nil {
+				t.Fatalf("write planning file: %v", err)
+			}
+			planning["planningFile"] = planningFile
+			ask["planning"] = planning
+		}
 	}
 	if err := store.AppendStepLine(chatID, chat.StepLine{
 		ChatID:    chatID,

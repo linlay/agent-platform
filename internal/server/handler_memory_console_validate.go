@@ -508,7 +508,7 @@ func memoryPreviewPathsContext(context contracts.RuntimeRequestContext, sandbox 
 	lines := []string{"Runtime Context: Paths"}
 	if sandbox || context.SandboxContext != nil {
 		appendMemoryPreviewKeyValue(&lines, "workspace_dir", context.SandboxPaths.WorkspaceDir)
-		appendMemoryPreviewKeyValue(&lines, "chat_dir", context.SandboxPaths.WorkspaceDir)
+		appendMemoryPreviewKeyValue(&lines, "chat_dir", context.SandboxPaths.ChatDir)
 		appendMemoryPreviewKeyValue(&lines, "root_dir", context.SandboxPaths.RootDir)
 		appendMemoryPreviewKeyValue(&lines, "skills_dir", context.SandboxPaths.SkillsDir)
 		appendMemoryPreviewKeyValue(&lines, "agent_dir", context.SandboxPaths.AgentDir)
@@ -517,7 +517,7 @@ func memoryPreviewPathsContext(context contracts.RuntimeRequestContext, sandbox 
 		appendMemoryPreviewKeyValue(&lines, "memory_dir", context.SandboxPaths.MemoryDir)
 	} else {
 		appendMemoryPreviewKeyValue(&lines, "workspace_dir", context.LocalPaths.WorkspaceDir)
-		appendMemoryPreviewKeyValue(&lines, "chat_dir", context.LocalPaths.ChatAttachmentsDir)
+		appendMemoryPreviewKeyValue(&lines, "chat_dir", context.LocalPaths.ChatDir)
 		appendMemoryPreviewKeyValue(&lines, "root_dir", context.LocalPaths.RootDir)
 		appendMemoryPreviewKeyValue(&lines, "skills_dir", context.LocalPaths.SkillsDir)
 		appendMemoryPreviewKeyValue(&lines, "agent_dir", context.LocalPaths.AgentDir)

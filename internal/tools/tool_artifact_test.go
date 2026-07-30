@@ -22,7 +22,7 @@ func TestPublishArtifactsUsesSourceBasenameAndIgnoresName(t *testing.T) {
 		t.Fatalf("write source: %v", err)
 	}
 
-	result := publishArtifacts(chatsRoot, "chat-1", "run-1", []any{
+	result := publishArtifacts(chatsRoot, "chat-1", "run-1", workspace, []any{
 		map[string]any{
 			"path": sourcePath,
 			"name": "服务前端全部迁移为 Webview",
@@ -63,7 +63,7 @@ func TestPublishArtifactsKeepsExtensionlessSourceName(t *testing.T) {
 		t.Fatalf("write source: %v", err)
 	}
 
-	result := publishArtifacts(chatsRoot, "chat-1", "run-1", []any{
+	result := publishArtifacts(chatsRoot, "chat-1", "run-1", workspace, []any{
 		map[string]any{"path": sourcePath},
 	})
 	published := result.PublishedArtifacts
@@ -91,7 +91,7 @@ func TestInvokeArtifactPublishReturnsErrorWhenNoArtifactsPublished(t *testing.T)
 		"artifacts": []any{
 			map[string]any{"path": "/Users/example/Downloads/report.pptx"},
 		},
-	}, &ExecutionContext{Session: QuerySession{ChatID: "chat-1", RunID: "run-1"}})
+	}, &ExecutionContext{Session: QuerySession{ChatID: "chat-1", RunID: "run-1", WorkspaceRoot: workspace}})
 	if err != nil {
 		t.Fatalf("invoke artifact publish: %v", err)
 	}
@@ -106,6 +106,32 @@ func TestInvokeArtifactPublishReturnsErrorWhenNoArtifactsPublished(t *testing.T)
 	failures := result.Structured["failedArtifacts"].([]map[string]any)
 	if failures[0]["code"] != "path_not_allowed" {
 		t.Fatalf("expected path_not_allowed failure, got %#v", failures[0])
+	}
+}
+
+func TestResolveArtifactSourcePathSupportsWorkspaceAndChatAliases(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	chatDir := filepath.Join(root, "chats", "chat-1")
+	for _, dir := range []string{filepath.Join(workspace, "output"), filepath.Join(chatDir, "generated")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, path := range []string{filepath.Join(workspace, "output", "report.md"), filepath.Join(chatDir, "generated", "report.md")} {
+		if err := os.WriteFile(path, []byte("report"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	workspacePath, code, message := resolveArtifactSourcePath("@workspace/output/report.md", workspace, chatDir)
+	if code != "" || message != "" || workspacePath != realPath(t, filepath.Join(workspace, "output", "report.md")) {
+		t.Fatalf("resolve @workspace: path=%q code=%q message=%q", workspacePath, code, message)
+	}
+
+	chatPath, code, message := resolveArtifactSourcePath("@chat/generated/report.md", workspace, chatDir)
+	if code != "" || message != "" || chatPath != realPath(t, filepath.Join(chatDir, "generated", "report.md")) {
+		t.Fatalf("resolve @chat: path=%q code=%q message=%q", chatPath, code, message)
 	}
 }
 
@@ -130,7 +156,7 @@ func TestInvokeArtifactPublishPersistsManifestBeforeReturningSuccess(t *testing.
 
 	executor := &RuntimeToolExecutor{cfg: config.Config{}, chats: store}
 	executor.cfg.Paths.ChatsDir = chatsRoot
-	result, err := executor.invokeArtifactPublish(map[string]any{"artifacts": []any{map[string]any{"path": sourcePath}}}, &ExecutionContext{Session: QuerySession{ChatID: "chat-1", RunID: "run-1"}})
+	result, err := executor.invokeArtifactPublish(map[string]any{"artifacts": []any{map[string]any{"path": sourcePath}}}, &ExecutionContext{Session: QuerySession{ChatID: "chat-1", RunID: "run-1", WorkspaceRoot: workspace}})
 	if err != nil || result.ExitCode != 0 {
 		t.Fatalf("publish artifact: result=%#v err=%v", result, err)
 	}
@@ -172,7 +198,7 @@ func TestInvokeArtifactPublishFailsWhenManifestCannotBeWritten(t *testing.T) {
 
 	executor := &RuntimeToolExecutor{cfg: config.Config{}, chats: store}
 	executor.cfg.Paths.ChatsDir = chatsRoot
-	result, err := executor.invokeArtifactPublish(map[string]any{"artifacts": []any{map[string]any{"path": sourcePath}}}, &ExecutionContext{Session: QuerySession{ChatID: "chat-1", RunID: "run-1"}})
+	result, err := executor.invokeArtifactPublish(map[string]any{"artifacts": []any{map[string]any{"path": sourcePath}}}, &ExecutionContext{Session: QuerySession{ChatID: "chat-1", RunID: "run-1", WorkspaceRoot: workspace}})
 	if err != nil {
 		t.Fatalf("publish artifact: %v", err)
 	}
@@ -191,7 +217,7 @@ func TestPublishArtifactsReportsMissingFile(t *testing.T) {
 	defer restoreCwd()
 
 	chatsRoot := filepath.Join(workspace, "chats")
-	result := publishArtifacts(chatsRoot, "chat-1", "run-1", []any{
+	result := publishArtifacts(chatsRoot, "chat-1", "run-1", workspace, []any{
 		map[string]any{"path": "missing.txt"},
 	})
 	if result.Status != "error" {
@@ -217,7 +243,7 @@ func TestPublishArtifactsReportsBatchFailureWhenAnyItemFails(t *testing.T) {
 		t.Fatalf("write source: %v", err)
 	}
 
-	result := publishArtifacts(chatsRoot, "chat-1", "run-1", []any{
+	result := publishArtifacts(chatsRoot, "chat-1", "run-1", workspace, []any{
 		map[string]any{"path": sourcePath},
 		map[string]any{"path": "/Users/example/Downloads/report.pptx"},
 	})
@@ -250,7 +276,7 @@ func TestInvokeArtifactPublishHidesPublishedArtifactsWhenBatchFails(t *testing.T
 			map[string]any{"path": sourcePath},
 			map[string]any{"path": "/Users/example/Downloads/report.pptx"},
 		},
-	}, &ExecutionContext{Session: QuerySession{ChatID: "chat-1", RunID: "run-1"}})
+	}, &ExecutionContext{Session: QuerySession{ChatID: "chat-1", RunID: "run-1", WorkspaceRoot: workspace}})
 	if err != nil {
 		t.Fatalf("invoke artifact publish: %v", err)
 	}
@@ -289,10 +315,10 @@ func TestPublishArtifactsOverwritesSameRunArtifactFilename(t *testing.T) {
 		t.Fatalf("write second source: %v", err)
 	}
 
-	first := publishArtifacts(chatsRoot, "chat-1", "run-1", []any{
+	first := publishArtifacts(chatsRoot, "chat-1", "run-1", workspace, []any{
 		map[string]any{"path": firstSource},
 	})
-	second := publishArtifacts(chatsRoot, "chat-1", "run-1", []any{
+	second := publishArtifacts(chatsRoot, "chat-1", "run-1", workspace, []any{
 		map[string]any{"path": secondSource},
 	})
 	if first.Status != "published" || second.Status != "published" {

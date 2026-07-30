@@ -859,10 +859,12 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithQuestions(t *testing.T) {
 	})
 
 	viewportEvents := dispatcher.Dispatch(AwaitAsk{
-		AwaitingID: "tool_1",
-		Mode:       "approval",
-		Timeout:    120,
-		RunID:      "run_1",
+		AwaitingID:   "tool_1",
+		Mode:         "approval",
+		Timeout:      120,
+		RunID:        "run_1",
+		ViewportType: "builtin",
+		ViewportKey:  "approval",
 		Approvals: []any{
 			map[string]any{
 				"id":            "cmd-1",
@@ -887,7 +889,7 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithQuestions(t *testing.T) {
 	}
 }
 
-func TestDispatcherDefaultsQuestionAwaitAskViewport(t *testing.T) {
+func TestDispatcherDoesNotInferQuestionAwaitAskViewport(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",
 		ChatID: "chat_1",
@@ -904,8 +906,11 @@ func TestDispatcherDefaultsQuestionAwaitAskViewport(t *testing.T) {
 	})
 	assertEventTypes(t, events, "awaiting.ask")
 	payload := events[0].ToData()
-	if payload["viewportType"] != "builtin" || payload["viewportKey"] != "question" {
-		t.Fatalf("expected builtin question viewport metadata, got %#v", payload)
+	if _, ok := payload["viewportType"]; ok {
+		t.Fatalf("dispatcher must not infer viewportType from awaiting mode, got %#v", payload)
+	}
+	if _, ok := payload["viewportKey"]; ok {
+		t.Fatalf("dispatcher must not infer viewportKey from awaiting mode, got %#v", payload)
 	}
 }
 
@@ -917,9 +922,11 @@ func TestDispatcherEmitsPlanningModeAwaitAsk(t *testing.T) {
 	})
 
 	events := dispatcher.Dispatch(AwaitAsk{
-		AwaitingID: "run_1_coder_planning_confirm_1",
-		Mode:       "planning",
-		RunID:      "run_1",
+		AwaitingID:   "run_1_coder_planning_confirm_1",
+		Mode:         "planning",
+		RunID:        "run_1",
+		ViewportType: "builtin",
+		ViewportKey:  "planning",
 		Planning: map[string]any{
 			"id":         "confirm",
 			"planningId": "run_1_planning_1",
@@ -1144,28 +1151,6 @@ func TestEventDataMarshalsReasoningSnapshotWithContractKeyOrder(t *testing.T) {
 		}
 		prev = idx
 	}
-}
-
-func TestDispatcherEmitsActionSnapshotAndResultLifecycle(t *testing.T) {
-	dispatcher := NewDispatcher(StreamRequest{
-		RunID:  "run_1",
-		ChatID: "chat_1",
-	})
-
-	_ = dispatcher.Dispatch(ActionArgs{
-		ActionID:    "action_1",
-		ActionName:  "approval_action",
-		Description: "Need confirmation",
-		Delta:       `{"confirmed":`,
-	})
-	endEvents := dispatcher.Dispatch(ActionEnd{ActionID: "action_1"})
-	assertEventTypes(t, endEvents, "action.end", "action.snapshot")
-
-	resultEvents := dispatcher.Dispatch(ActionResult{
-		ActionID: "action_1",
-		Result:   map[string]any{"confirmed": true},
-	})
-	assertEventTypes(t, resultEvents, "action.result")
 }
 
 func TestDispatcherFailClosesOpenBlocksAndEmitsRunError(t *testing.T) {

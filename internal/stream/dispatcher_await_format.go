@@ -293,35 +293,5 @@ func (d *StreamEventDispatcher) newAwaitAskEvent(input AwaitAsk) StreamEvent {
 }
 
 func awaitAskViewport(input AwaitAsk) (string, string) {
-	viewportType := strings.TrimSpace(input.ViewportType)
-	viewportKey := strings.TrimSpace(input.ViewportKey)
-	mode := strings.ToLower(strings.TrimSpace(input.Mode))
-	switch mode {
-	case "question":
-		if viewportType == "" {
-			viewportType = "builtin"
-		}
-		if viewportKey == "" {
-			viewportKey = "question"
-		}
-	case "approval":
-		if viewportType == "" {
-			viewportType = "builtin"
-		}
-		if viewportKey == "" {
-			viewportKey = "approval"
-		}
-	case "form":
-		if viewportType == "" {
-			viewportType = "html"
-		}
-	case "planning":
-		if viewportType == "" {
-			viewportType = "builtin"
-		}
-		if viewportKey == "" {
-			viewportKey = "planning"
-		}
-	}
-	return viewportType, viewportKey
+	return strings.TrimSpace(input.ViewportType), strings.TrimSpace(input.ViewportKey)
 }

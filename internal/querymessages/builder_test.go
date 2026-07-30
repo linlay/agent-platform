@@ -183,3 +183,59 @@ func TestBuildContentAdvancedVisionKeepsImageBlocks(t *testing.T) {
 		t.Fatalf("expected image block, got %#v", blocks[1])
 	}
 }
+
+func TestBuildContentVisionResolvesContainerWorkspacePathToHostWorkspace(t *testing.T) {
+	chatsDir := t.TempDir()
+	chatID := "chat-workspace-image"
+	chatDir := filepath.Join(chatsDir, chatID)
+	workspaceDir := t.TempDir()
+	if err := os.MkdirAll(chatDir, 0o755); err != nil {
+		t.Fatalf("mkdir chat dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspaceDir, "diagram.png"), []byte("png-bytes"), 0o644); err != nil {
+		t.Fatalf("write workspace image: %v", err)
+	}
+
+	content := BuildContentWithOptions(chatsDir, chatID, "inspect", []api.Reference{{
+		Name:     "diagram.png",
+		Path:     "/workspace/diagram.png",
+		MimeType: "image/png",
+	}}, true, false, BuildOptions{
+		WorkspaceDir: workspaceDir,
+		ChatDir:      chatDir,
+	})
+
+	blocks, ok := content.([]map[string]any)
+	if !ok || len(blocks) != 2 || blocks[1]["type"] != "image_url" {
+		t.Fatalf("expected workspace image block, got %#v", content)
+	}
+}
+
+func TestResolveImageHostPathRejectsWorkspacePathWithoutWorkspace(t *testing.T) {
+	if path, ok := resolveImageHostPath("/workspace/image.png", "image.png", "", t.TempDir()); ok || path != "" {
+		t.Fatalf("workspace path should be unavailable without workspace, got path=%q ok=%t", path, ok)
+	}
+}
+
+func TestResolveImageHostPathClassifiesChatBeforeContainingWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	chatDir := filepath.Join(workspace, "runtime", "chats", "chat-1")
+	if err := os.MkdirAll(chatDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	chatImage := filepath.Join(chatDir, "image.png")
+	if err := os.WriteFile(chatImage, []byte("png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	workspaceAlias := "@workspace/" + filepath.ToSlash(strings.TrimPrefix(chatImage, workspace+string(filepath.Separator)))
+	if path, ok := resolveImageHostPath(workspaceAlias, "image.png", workspace, chatDir); ok || path != "" {
+		t.Fatalf("workspace alias must not cross into chats root, got path=%q ok=%t", path, ok)
+	}
+	wantChatImage, err := filepath.EvalSymlinks(chatImage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path, ok := resolveImageHostPath(chatImage, "image.png", workspace, chatDir); !ok || path != wantChatImage {
+		t.Fatalf("absolute current-chat path = %q, %t, want %q", path, ok, wantChatImage)
+	}
+}

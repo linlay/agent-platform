@@ -27,19 +27,38 @@ func (s *stubSandboxClient) Execute(_ context.Context, _ *contracts.ExecutionCon
 
 func (s *stubSandboxClient) CloseQuietly(_ *contracts.ExecutionContext) {}
 
+func sandboxBashExecutionContext(t *testing.T) *contracts.ExecutionContext {
+	t.Helper()
+	workspace := t.TempDir()
+	chatDir := t.TempDir()
+	return &contracts.ExecutionContext{Session: contracts.QuerySession{
+		WorkspaceRoot:          workspace,
+		ChatRoot:               chatDir,
+		AccessLevel:            contracts.AccessLevelFullAccess,
+		AgentHasRuntimeSandbox: true,
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{WorkspaceDir: workspace, ChatDir: chatDir},
+			SandboxPaths: contracts.SandboxPaths{
+				WorkspaceDir: "/workspace",
+				ChatDir:      "/chat",
+			},
+		},
+	}}
+}
+
 func TestInvokeSandboxBashSuccessReturnsPlainStdout(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		sandbox: &stubSandboxClient{
 			result: contracts.SandboxExecutionResult{
-				ExitCode:         0,
-				Stdout:           "alpha\nbeta\n",
-				Stderr:           "",
-				WorkingDirectory: "/workspace",
+				ExitCode: 0,
+				Stdout:   "alpha\nbeta\n",
+				Stderr:   "",
+				Cwd:      "/workspace",
 			},
 		},
 	}
 
-	result, err := executor.invokeSandboxBash(context.Background(), map[string]any{"command": "ls"}, &contracts.ExecutionContext{})
+	result, err := executor.invokeSandboxBash(context.Background(), map[string]any{"command": "ls"}, sandboxBashExecutionContext(t))
 	if err != nil {
 		t.Fatalf("invokeSandboxBash returned error: %v", err)
 	}
@@ -58,15 +77,15 @@ func TestInvokeSandboxBashSuccessWithStderrReturnsStructuredJSON(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		sandbox: &stubSandboxClient{
 			result: contracts.SandboxExecutionResult{
-				ExitCode:         0,
-				Stdout:           "ok\n",
-				Stderr:           "warn\n",
-				WorkingDirectory: "/workspace",
+				ExitCode: 0,
+				Stdout:   "ok\n",
+				Stderr:   "warn\n",
+				Cwd:      "/workspace",
 			},
 		},
 	}
 
-	result, err := executor.invokeSandboxBash(context.Background(), map[string]any{"command": "sample"}, &contracts.ExecutionContext{})
+	result, err := executor.invokeSandboxBash(context.Background(), map[string]any{"command": "sample"}, sandboxBashExecutionContext(t))
 	if err != nil {
 		t.Fatalf("invokeSandboxBash returned error: %v", err)
 	}
@@ -95,15 +114,15 @@ func TestInvokeSandboxBashFailureReturnsStructuredJSON(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		sandbox: &stubSandboxClient{
 			result: contracts.SandboxExecutionResult{
-				ExitCode:         2,
-				Stdout:           "",
-				Stderr:           "ls: cannot access missing: No such file or directory\n",
-				WorkingDirectory: "/workspace",
+				ExitCode: 2,
+				Stdout:   "",
+				Stderr:   "ls: cannot access missing: No such file or directory\n",
+				Cwd:      "/workspace",
 			},
 		},
 	}
 
-	result, err := executor.invokeSandboxBash(context.Background(), map[string]any{"command": "ls missing"}, &contracts.ExecutionContext{})
+	result, err := executor.invokeSandboxBash(context.Background(), map[string]any{"command": "ls missing"}, sandboxBashExecutionContext(t))
 	if err != nil {
 		t.Fatalf("invokeSandboxBash returned error: %v", err)
 	}
@@ -131,9 +150,9 @@ func TestInvokeSandboxBashFailureReturnsStructuredJSON(t *testing.T) {
 func TestInvokeSandboxBashForwardsEnv(t *testing.T) {
 	sandbox := &stubSandboxClient{
 		result: contracts.SandboxExecutionResult{
-			ExitCode:         0,
-			Stdout:           "ok\n",
-			WorkingDirectory: "/workspace",
+			ExitCode: 0,
+			Stdout:   "ok\n",
+			Cwd:      "/workspace",
 		},
 	}
 	executor := &RuntimeToolExecutor{sandbox: sandbox}
@@ -141,7 +160,7 @@ func TestInvokeSandboxBashForwardsEnv(t *testing.T) {
 	_, err := executor.invokeSandboxBash(context.Background(), map[string]any{
 		"command": "echo ok",
 		"env":     map[string]any{"FOO": "bar"},
-	}, &contracts.ExecutionContext{})
+	}, sandboxBashExecutionContext(t))
 	if err != nil {
 		t.Fatalf("invokeSandboxBash returned error: %v", err)
 	}
@@ -151,7 +170,7 @@ func TestInvokeSandboxBashForwardsEnv(t *testing.T) {
 }
 
 func TestInvokeSandboxBashRejectsReservedEnvironment(t *testing.T) {
-	for _, key := range []string{"AP_AGENT_CONFIG_HOME", "AP_CHAT_DIR"} {
+	for _, key := range []string{"AP_AGENT_CONFIG_HOME", "AP_WORKSPACE_DIR", "AP_CHAT_DIR"} {
 		t.Run(key, func(t *testing.T) {
 			sandbox := &stubSandboxClient{}
 			executor := &RuntimeToolExecutor{sandbox: sandbox}
@@ -176,9 +195,9 @@ func TestInvokeSandboxBashRejectsReservedEnvironment(t *testing.T) {
 func TestInvokeSandboxBashDefaultsTimeoutToToolBudget(t *testing.T) {
 	sandbox := &stubSandboxClient{
 		result: contracts.SandboxExecutionResult{
-			ExitCode:         0,
-			Stdout:           "ok\n",
-			WorkingDirectory: "/workspace",
+			ExitCode: 0,
+			Stdout:   "ok\n",
+			Cwd:      "/workspace",
 		},
 	}
 	executor := &RuntimeToolExecutor{sandbox: sandbox}
@@ -186,7 +205,11 @@ func TestInvokeSandboxBashDefaultsTimeoutToToolBudget(t *testing.T) {
 	_, err := executor.invokeSandboxBash(
 		context.Background(),
 		map[string]any{"command": "echo ok", "timeout": 700},
-		&contracts.ExecutionContext{Budget: contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 600}}},
+		func() *contracts.ExecutionContext {
+			execCtx := sandboxBashExecutionContext(t)
+			execCtx.Budget = contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 600}}
+			return execCtx
+		}(),
 	)
 	if err != nil {
 		t.Fatalf("invokeSandboxBash returned error: %v", err)

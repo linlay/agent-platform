@@ -19,7 +19,7 @@ const AgentModeCoder = agentcoder.Mode
 const AgentModeKBase = agentkbase.Mode
 const AgentModeProxy = "PROXY"
 const AgentModeChannel = "CHANNEL"
-const AgentWorkspaceRootChat = "@chat"
+const removedChatWorkspaceRoot = "@chat"
 
 var defaultAgentVisibilityScopes = []string{"nav"}
 
@@ -191,9 +191,6 @@ func normalizeProjectPromptSource(source string) string {
 
 func cleanWorkspaceRoot(root string) string {
 	root = strings.TrimSpace(root)
-	if strings.EqualFold(root, AgentWorkspaceRootChat) {
-		return AgentWorkspaceRootChat
-	}
 	if root == "/" || root == "\\" {
 		if abs, err := filepath.Abs(root); err == nil {
 			return abs
@@ -222,21 +219,31 @@ func validateAgentWorkspace(workspace AgentWorkspaceConfig) error {
 	if root == "" {
 		return nil
 	}
-	if strings.EqualFold(root, AgentWorkspaceRootChat) {
-		return nil
+	if strings.EqualFold(root, removedChatWorkspaceRoot) {
+		return fmt.Errorf("runtimeConfig.workspaceRoot no longer supports %q; configure a real workspace directory", removedChatWorkspaceRoot)
 	}
 	if !filepath.IsAbs(root) {
-		return fmt.Errorf("runtimeConfig.workspaceRoot must be an absolute path or %q", AgentWorkspaceRootChat)
+		return fmt.Errorf("runtimeConfig.workspaceRoot must be an absolute path")
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		return fmt.Errorf("runtimeConfig.workspaceRoot must be an existing directory: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("runtimeConfig.workspaceRoot must be a directory: %s", root)
 	}
 	return nil
 }
 
 func validateAgentModeWorkspace(mode string, workspace AgentWorkspaceConfig, kbaseConfig kbase.Config, hasRuntimeSandbox bool) error {
-	if strings.EqualFold(strings.TrimSpace(mode), AgentModeKBase) {
-		if strings.TrimSpace(kbaseConfig.Source.Root) != "" {
-			return nil
-		}
-		return kbase.ValidateWorkspace(workspace.Root)
+	if kbaseConfig.Enabled && strings.TrimSpace(workspace.Root) == "" {
+		return fmt.Errorf("runtimeConfig.workspaceRoot is required when KBASE is enabled")
+	}
+	if agentcoder.IsMode(mode) && strings.TrimSpace(workspace.Root) == "" {
+		return fmt.Errorf("runtimeConfig.workspaceRoot is required for CODER agents")
+	}
+	if hasRuntimeSandbox && strings.TrimSpace(workspace.Root) == "" {
+		return fmt.Errorf("runtimeConfig.workspaceRoot is required for Container Hub sandbox agents")
 	}
 	return nil
 }

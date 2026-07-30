@@ -13,6 +13,8 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/pathutil"
+	"agent-platform/internal/rootpaths"
 )
 
 type proxyReferenceOptions struct {
@@ -20,6 +22,7 @@ type proxyReferenceOptions struct {
 	RunID           string
 	Subject         string
 	ResourceBaseURL string
+	WorkspaceRoot   string
 	References      []api.Reference
 	Files           []string
 }
@@ -27,11 +30,33 @@ type proxyReferenceOptions struct {
 func prepareProxyReferences(store chat.Store, ticketService *ResourceTicketService, options proxyReferenceOptions) ([]api.Reference, error) {
 	out := make([]api.Reference, 0, len(options.References)+len(options.Files))
 	for _, ref := range options.References {
-		ref = normalizeProxyReferencePath(ref, options.ChatID)
+		if resourceFileParam(ref.URL) == "" && strings.TrimSpace(ref.Path) != "" {
+			if ref.Path == "/workspace" || strings.HasPrefix(ref.Path, "/workspace/") {
+				return nil, fmt.Errorf("legacy path-only /workspace references are not accepted; re-materialize the file through the resource API")
+			}
+			materialized, err := materializeProxyFileReference(store, options.ChatID, options.RunID, options.WorkspaceRoot, ref.Path)
+			if err != nil {
+				return nil, err
+			}
+			if strings.TrimSpace(ref.ID) != "" {
+				materialized.ID = ref.ID
+			}
+			if strings.TrimSpace(ref.Type) != "" {
+				materialized.Type = ref.Type
+			}
+			if strings.TrimSpace(ref.Name) != "" {
+				materialized.Name = ref.Name
+			}
+			if strings.TrimSpace(ref.MimeType) != "" {
+				materialized.MimeType = ref.MimeType
+			}
+			ref = materialized
+		}
+		ref = normalizeProxyReferencePath(ref)
 		out = append(out, normalizeProxyReferenceURL(ref, ticketService, options))
 	}
 	for _, file := range options.Files {
-		ref, err := materializeProxyFileReference(store, options.ChatID, options.RunID, file)
+		ref, err := materializeProxyFileReference(store, options.ChatID, options.RunID, options.WorkspaceRoot, file)
 		if err != nil {
 			return nil, err
 		}
@@ -40,7 +65,7 @@ func prepareProxyReferences(store chat.Store, ticketService *ResourceTicketServi
 	return out, nil
 }
 
-func materializeProxyFileReference(store chat.Store, chatID string, runID string, rawPath string) (api.Reference, error) {
+func materializeProxyFileReference(store chat.Store, chatID string, runID string, workspaceRoot string, rawPath string) (api.Reference, error) {
 	if store == nil {
 		return api.Reference{}, fmt.Errorf("chat store is unavailable")
 	}
@@ -54,7 +79,12 @@ func materializeProxyFileReference(store chat.Store, chatID string, runID string
 	}
 
 	chatDir := store.ChatDir(chatID)
-	sourcePath, referencePath, err := resolveProxyFileSource(store, chatID, chatDir, rawPath)
+	canonicalChatDir, err := pathutil.Canonicalize(chatDir)
+	if err != nil {
+		return api.Reference{}, fmt.Errorf("resolve proxy chat directory: %w", err)
+	}
+	chatDir = canonicalChatDir.Host
+	sourcePath, err := resolveProxyFileSource(store, chatID, chatDir, workspaceRoot, rawPath)
 	if err != nil {
 		return api.Reference{}, err
 	}
@@ -83,9 +113,6 @@ func materializeProxyFileReference(store chat.Store, chatID string, runID string
 		if relErr != nil || isPathOutsideBase(relativePath) {
 			return api.Reference{}, fmt.Errorf("proxy materialized file escaped chat dir: %s", targetPath)
 		}
-		if referencePath == "" || !strings.HasPrefix(referencePath, "/workspace/") {
-			referencePath = "/workspace/" + filepath.ToSlash(relativePath)
-		}
 	}
 
 	relativePath = filepath.ToSlash(relativePath)
@@ -98,7 +125,7 @@ func materializeProxyFileReference(store chat.Store, chatID string, runID string
 		ID:        "proxy_file:" + strings.Trim(filepath.ToSlash(relativePath), "/"),
 		Type:      "file",
 		Name:      name,
-		Path:      referencePath,
+		Path:      "",
 		MimeType:  guessProxyMimeType(name),
 		SizeBytes: &size,
 		URL:       resourceURLForFileParam(filepath.ToSlash(filepath.Join(chatID, relativePath))),
@@ -106,53 +133,81 @@ func materializeProxyFileReference(store chat.Store, chatID string, runID string
 	}, nil
 }
 
-func resolveProxyFileSource(store chat.Store, chatID string, chatDir string, rawPath string) (string, string, error) {
+func resolveProxyFileSource(store chat.Store, chatID string, chatDir string, workspaceRoot string, rawPath string) (string, error) {
 	if fileParam := resourceFileParam(rawPath); fileParam != "" {
 		sourcePath, err := store.ResolveResource(fileParam)
 		if err != nil {
-			return "", "", err
+			return "", err
 		}
-		return sourcePath, referencePathForResourceFile(chatID, fileParam), nil
+		return sourcePath, nil
 	}
 
-	if strings.HasPrefix(rawPath, "/workspace") {
-		suffix := strings.TrimLeft(strings.TrimPrefix(rawPath, "/workspace"), "/")
-		sourcePath := filepath.Clean(filepath.Join(chatDir, suffix))
-		if !pathWithinBase(sourcePath, chatDir) {
-			return "", "", fmt.Errorf("proxy file escapes workspace: %s", rawPath)
+	semanticRoots, err := rootpaths.New(workspaceRoot, filepath.Dir(chatDir), chatDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve proxy roots: %w", err)
+	}
+	if rawPath == "/chat" || strings.HasPrefix(rawPath, "/chat/") ||
+		rawPath == "@chat" || strings.HasPrefix(rawPath, "@chat/") {
+		suffix := strings.TrimLeft(strings.TrimPrefix(strings.TrimPrefix(rawPath, "/chat"), "@chat"), "/")
+		zone, sourcePath, err := semanticRoots.Classify(filepath.Join(chatDir, filepath.FromSlash(suffix)))
+		if err != nil || zone != rootpaths.ZoneCurrentChat {
+			return "", fmt.Errorf("proxy file escapes chat: %s", rawPath)
 		}
-		return sourcePath, "/workspace/" + filepath.ToSlash(suffix), nil
+		return sourcePath.Host, nil
+	}
+	if rawPath == "/workspace" || strings.HasPrefix(rawPath, "/workspace/") ||
+		rawPath == "@workspace" || strings.HasPrefix(rawPath, "@workspace/") {
+		if strings.TrimSpace(workspaceRoot) == "" {
+			return "", fmt.Errorf("workspace_unavailable: proxy workspace file requires a workspace")
+		}
+		suffix := strings.TrimLeft(strings.TrimPrefix(strings.TrimPrefix(rawPath, "/workspace"), "@workspace"), "/")
+		zone, sourcePath, err := semanticRoots.Classify(filepath.Join(workspaceRoot, filepath.FromSlash(suffix)))
+		if err != nil {
+			return "", fmt.Errorf("proxy file escapes workspace: %s", rawPath)
+		}
+		if zone == rootpaths.ZoneCurrentChat || zone == rootpaths.ZoneOtherChat {
+			return "", fmt.Errorf("path_crosses_chat_root: proxy workspace file must use @chat for the current chat")
+		}
+		if zone != rootpaths.ZoneWorkspace {
+			return "", fmt.Errorf("proxy file escapes workspace: %s", rawPath)
+		}
+		return sourcePath.Host, nil
 	}
 
 	if !filepath.IsAbs(rawPath) {
-		sourcePath := filepath.Clean(filepath.Join(chatDir, rawPath))
-		if !pathWithinBase(sourcePath, chatDir) {
-			return "", "", fmt.Errorf("proxy file escapes chat dir: %s", rawPath)
+		if strings.TrimSpace(workspaceRoot) == "" {
+			return "", fmt.Errorf("workspace_unavailable: relative proxy file requires a workspace")
 		}
-		return sourcePath, "/workspace/" + filepath.ToSlash(rawPath), nil
+		zone, sourcePath, err := semanticRoots.Classify(filepath.Join(workspaceRoot, rawPath))
+		if err != nil {
+			return "", fmt.Errorf("proxy file escapes workspace: %s", rawPath)
+		}
+		if zone == rootpaths.ZoneCurrentChat || zone == rootpaths.ZoneOtherChat {
+			return "", fmt.Errorf("path_crosses_chat_root: relative proxy file must not enter the chats root")
+		}
+		if zone != rootpaths.ZoneWorkspace {
+			return "", fmt.Errorf("proxy file escapes workspace: %s", rawPath)
+		}
+		return sourcePath.Host, nil
 	}
 
-	sourcePath := filepath.Clean(rawPath)
-	if pathWithinBase(sourcePath, chatDir) {
-		rel, _ := filepath.Rel(chatDir, sourcePath)
-		return sourcePath, "/workspace/" + filepath.ToSlash(rel), nil
+	zone, sourcePath, err := semanticRoots.Classify(rawPath)
+	if err != nil {
+		return "", err
 	}
-	workingDir, err := os.Getwd()
-	if err != nil || !pathWithinBase(sourcePath, workingDir) {
-		return "", "", fmt.Errorf("proxy file must be under /workspace, current chat, or server workspace: %s", rawPath)
+	switch zone {
+	case rootpaths.ZoneCurrentChat, rootpaths.ZoneWorkspace:
+		return sourcePath.Host, nil
+	case rootpaths.ZoneOtherChat:
+		return "", fmt.Errorf("proxy file belongs to another chat: %s", rawPath)
+	default:
+		return "", fmt.Errorf("proxy file must be under the current workspace or chat: %s", rawPath)
 	}
-	return sourcePath, rawPath, nil
 }
 
-func normalizeProxyReferencePath(ref api.Reference, chatID string) api.Reference {
-	if path := referencePathForResourceFile(chatID, resourceFileParam(ref.URL)); path != "" {
-		ref.Path = path
-		return ref
-	}
-	if strings.TrimSpace(ref.Path) == "" {
-		if name := referenceName(ref); name != "" {
-			ref.Path = "/workspace/" + filepath.ToSlash(name)
-		}
+func normalizeProxyReferencePath(ref api.Reference) api.Reference {
+	if resourceFileParam(ref.URL) != "" {
+		ref.Path = ""
 	}
 	return ref
 }
@@ -251,15 +306,6 @@ func sameURLOrigin(parsed *url.URL, base string) bool {
 
 func resourceURLForFileParam(fileParam string) string {
 	return "/api/resource?file=" + url.QueryEscape(filepath.ToSlash(fileParam))
-}
-
-func referencePathForResourceFile(chatID string, fileParam string) string {
-	clean := filepath.ToSlash(filepath.Clean(fileParam))
-	prefix := strings.TrimSpace(chatID) + "/"
-	if strings.HasPrefix(clean, prefix) {
-		return "/workspace/" + strings.TrimPrefix(clean, prefix)
-	}
-	return ""
 }
 
 func safePathSegment(value string, fallback string) string {

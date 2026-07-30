@@ -19,34 +19,26 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	if name == "" {
 		return api.ToolDetailResponse{}, fmt.Errorf("name is required")
 	}
+	for _, field := range []string{"type", "kind", "toolAction", "submitResultFormat"} {
+		if _, exists := root[field]; exists {
+			return api.ToolDetailResponse{}, fmt.Errorf(
+				"tool %q field %s is no longer supported; tool execution and model output formatting are defined by its registered implementation",
+				name,
+				field,
+			)
+		}
+	}
 	parameters := AnyMapNode(root["inputSchema"])
 	if len(parameters) == 0 {
 		parameters = AnyMapNode(root["parameters"])
 	}
 	outputSchema := AnyMapNode(root["outputSchema"])
-	typeValue := strings.ToLower(AnyStringNode(root["type"]))
 	viewportType := AnyStringNode(root["viewportType"])
 	viewportKey := AnyStringNode(root["viewportKey"])
-	kind := "backend"
 	external := AnyMapNode(root["external"])
 	_, hasExternal := root["external"]
-	if typeValue == "external" || len(external) > 0 || hasExternal {
+	if len(external) > 0 || hasExternal {
 		return api.ToolDetailResponse{}, fmt.Errorf("external stdio tool %q is no longer supported; configure an MCP server with transport: stdio", name)
-	}
-	switch typeValue {
-	case "frontend":
-		kind = "frontend"
-	case "action":
-		kind = "action"
-	case "backend", "builtin", "function", "":
-		kind = "backend"
-	default:
-		kind = "backend"
-	}
-	if AnyBoolNode(root["toolAction"]) {
-		kind = "action"
-	} else if viewportType != "" || viewportKey != "" {
-		kind = "frontend"
 	}
 
 	sourceType := strings.TrimSpace(options.sourceType)
@@ -73,7 +65,6 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	}
 
 	meta := map[string]any{
-		"kind":           kind,
 		"sourceType":     sourceType,
 		"sourceCategory": sourceCategory,
 	}
@@ -102,9 +93,6 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	if len(tags) > 0 {
 		meta["tags"] = tags
 	}
-	if toolAction, ok := root["toolAction"].(bool); ok {
-		meta["toolAction"] = toolAction
-	}
 	if viewportType != "" {
 		meta["viewportType"] = viewportType
 	}
@@ -116,9 +104,6 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	}
 	if sourceKey != "" {
 		meta["sourceKey"] = sourceKey
-	}
-	if submitResultFormat := AnyStringNode(root["submitResultFormat"]); submitResultFormat != "" {
-		meta["submitResultFormat"] = submitResultFormat
 	}
 	return api.ToolDetailResponse{
 		Key:           fallbackToolString(AnyStringNode(root["key"]), name),

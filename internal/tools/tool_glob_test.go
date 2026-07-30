@@ -11,6 +11,18 @@ import (
 	"agent-platform/internal/filetools"
 )
 
+func TestInvokeGlobWithoutPathRequiresWorkspace(t *testing.T) {
+	result, err := (&RuntimeToolExecutor{}).invokeGlob(context.Background(), map[string]any{
+		"pattern": "*.go",
+	}, &contracts.ExecutionContext{})
+	if err != nil {
+		t.Fatalf("invokeGlob: %v", err)
+	}
+	if result.Error != "workspace_unavailable" || result.ExitCode == 0 {
+		t.Fatalf("expected workspace_unavailable, got %#v", result)
+	}
+}
+
 func TestInvokeGlobMatchesHiddenNestedAndExcludesVCS(t *testing.T) {
 	requireRipgrep(t)
 	root := t.TempDir()
@@ -32,7 +44,7 @@ func TestInvokeGlobMatchesHiddenNestedAndExcludesVCS(t *testing.T) {
 
 	result, err := executor.invokeGlob(context.Background(), map[string]any{
 		"pattern": "*.go",
-	}, &contracts.ExecutionContext{})
+	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeGlob: %v", err)
 	}
@@ -87,7 +99,7 @@ func TestInvokeGlobPaginationUsesModifiedTimeOrder(t *testing.T) {
 		"pattern":    "*.go",
 		"head_limit": 1,
 		"offset":     1,
-	}, &contracts.ExecutionContext{})
+	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeGlob: %v", err)
 	}
@@ -115,7 +127,7 @@ func TestInvokeGlobNoMatchReturnsEmptySuccess(t *testing.T) {
 
 	result, err := executor.invokeGlob(context.Background(), map[string]any{
 		"pattern": "*.md",
-	}, &contracts.ExecutionContext{})
+	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeGlob: %v", err)
 	}
@@ -137,7 +149,7 @@ func TestInvokeGlobRejectsInvalidPattern(t *testing.T) {
 
 	result, err := executor.invokeGlob(context.Background(), map[string]any{
 		"pattern": "[",
-	}, &contracts.ExecutionContext{})
+	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeGlob: %v", err)
 	}
@@ -156,7 +168,7 @@ func TestInvokeGlobPathEscapeRequiresAndConsumesApproval(t *testing.T) {
 	result, err := executor.invokeGlob(context.Background(), map[string]any{
 		"pattern": "*.go",
 		"path":    outside,
-	}, &contracts.ExecutionContext{})
+	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeGlob: %v", err)
 	}
@@ -164,7 +176,7 @@ func TestInvokeGlobPathEscapeRequiresAndConsumesApproval(t *testing.T) {
 		t.Fatalf("expected read approval requirement, got %#v", result.Structured)
 	}
 
-	execCtx := &contracts.ExecutionContext{}
+	execCtx := fileToolExecutionContext(root)
 	plan := fileToolAccessPlan(t, executor, filetools.ReadAccess, outside)
 	filetools.RegisterExactReadApproval(execCtx, plan.Fingerprint)
 	approved, err := executor.invokeGlob(context.Background(), map[string]any{
@@ -194,7 +206,7 @@ func TestInvokeGlobRejectsMissingAndNonDirectoryPath(t *testing.T) {
 	nonDirectory, err := executor.invokeGlob(context.Background(), map[string]any{
 		"pattern": "*.txt",
 		"path":    filePath,
-	}, &contracts.ExecutionContext{})
+	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeGlob non-directory: %v", err)
 	}
@@ -205,7 +217,7 @@ func TestInvokeGlobRejectsMissingAndNonDirectoryPath(t *testing.T) {
 	missing, err := executor.invokeGlob(context.Background(), map[string]any{
 		"pattern": "*.txt",
 		"path":    filepath.Join(root, "missing"),
-	}, &contracts.ExecutionContext{})
+	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeGlob missing: %v", err)
 	}

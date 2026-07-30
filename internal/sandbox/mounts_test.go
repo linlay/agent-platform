@@ -16,7 +16,7 @@ func TestMountResolverUsesAgentLocalSkillsForRunAndAgentLevels(t *testing.T) {
 			paths := mountResolverTestPaths(t, "reader")
 			resolver := NewContainerHubMountResolver(paths)
 
-			mounts, err := resolver.Resolve("chat-1", "reader", level, nil)
+			mounts, err := resolver.Resolve(mountResolverWorkspace(t, paths), "chat-1", "reader", level, nil)
 			if err != nil {
 				t.Fatalf("Resolve() error = %v", err)
 			}
@@ -41,10 +41,44 @@ func TestMountResolverRequiresValidChatID(t *testing.T) {
 
 	for _, chatID := range []string{"", "../other-chat", "nested/chat"} {
 		t.Run(strings.ReplaceAll(chatID, "/", "_"), func(t *testing.T) {
-			if _, err := resolver.Resolve(chatID, "reader", "run", nil); err == nil || !strings.Contains(err.Error(), "valid chatId is required") {
+			if _, err := resolver.Resolve(mountResolverWorkspace(t, paths), chatID, "reader", "run", nil); err == nil || !strings.Contains(err.Error(), "valid chatId is required") {
 				t.Fatalf("Resolve(%q) error = %v, want valid chatId error", chatID, err)
 			}
 		})
+	}
+}
+
+func TestMountResolverMasksChatsRootWhenWorkspaceContainsIt(t *testing.T) {
+	paths := mountResolverTestPaths(t, "reader")
+	workspace := filepath.Dir(paths.ChatsDir)
+	resolver := NewContainerHubMountResolver(paths)
+
+	layout, err := resolver.ResolveLayout(workspace, "chat-1", "reader", "run", nil)
+	if err != nil {
+		t.Fatalf("ResolveLayout() error = %v", err)
+	}
+	if len(layout.MaskedPaths) != 1 || layout.MaskedPaths[0] != "/workspace/chats" {
+		t.Fatalf("masked paths = %#v, want /workspace/chats", layout.MaskedPaths)
+	}
+	if mount, ok := mountByDestination(layout.Mounts, "/workspace"); !ok || mount.Source != realMountPath(t, workspace) {
+		t.Fatalf("workspace mount = %#v, ok=%v", mount, ok)
+	}
+	if _, ok := mountByDestination(layout.Mounts, "/chat"); !ok {
+		t.Fatalf("current chat mount missing: %#v", layout.Mounts)
+	}
+}
+
+func TestMountResolverRejectsWorkspaceEqualToOrInsideChatsRoot(t *testing.T) {
+	paths := mountResolverTestPaths(t, "reader")
+	resolver := NewContainerHubMountResolver(paths)
+	inside := filepath.Join(paths.ChatsDir, "project")
+	if err := os.MkdirAll(inside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, workspace := range []string{paths.ChatsDir, inside} {
+		if _, err := resolver.ResolveLayout(workspace, "chat-1", "reader", "run", nil); err == nil {
+			t.Fatalf("workspace %q must be rejected", workspace)
+		}
 	}
 }
 
@@ -55,7 +89,7 @@ func TestMountResolverDoesNotFallbackToSkillsMarketWhenAgentSkillsUnavailable(t 
 	}
 	resolver := NewContainerHubMountResolver(paths)
 
-	mounts, err := resolver.Resolve("chat-1", "reader", "run", nil)
+	mounts, err := resolver.Resolve(mountResolverWorkspace(t, paths), "chat-1", "reader", "run", nil)
 	if err == nil {
 		t.Fatalf("expected skills-dir error, got mounts %#v", mounts)
 	}
@@ -68,7 +102,7 @@ func TestMountResolverGlobalLevelDoesNotMountSkillsMarketByDefault(t *testing.T)
 	paths := mountResolverTestPaths(t, "reader")
 	resolver := NewContainerHubMountResolver(paths)
 
-	mounts, err := resolver.Resolve("chat-1", "reader", "global", nil)
+	mounts, err := resolver.Resolve(mountResolverWorkspace(t, paths), "chat-1", "reader", "global", nil)
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
@@ -84,7 +118,7 @@ func TestMountResolverExplicitSkillsMarketExtraMount(t *testing.T) {
 	paths := mountResolverTestPaths(t, "reader")
 	resolver := NewContainerHubMountResolver(paths)
 
-	mounts, err := resolver.Resolve("chat-1", "reader", "run", []contracts.SandboxExtraMount{
+	mounts, err := resolver.Resolve(mountResolverWorkspace(t, paths), "chat-1", "reader", "run", []contracts.SandboxExtraMount{
 		{Platform: "skills-market", Mode: "ro"},
 	})
 	if err != nil {
@@ -108,7 +142,7 @@ func TestMountResolverIgnoresNonAllowlistedPathEnv(t *testing.T) {
 	t.Setenv("AGENTS_DIR", envRoot)
 	resolver := NewContainerHubMountResolver(paths)
 
-	mounts, err := resolver.Resolve("chat-1", "reader", "run", nil)
+	mounts, err := resolver.Resolve(mountResolverWorkspace(t, paths), "chat-1", "reader", "run", nil)
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
@@ -154,14 +188,25 @@ func TestMountResolverUsesAPRuntimeHostPathEnv(t *testing.T) {
 	t.Setenv("AP_RUNTIME_REGISTRIES_DIR", hostRegistries)
 
 	resolver := NewContainerHubMountResolver(paths)
-	mounts, err := resolver.Resolve("chat-1", "reader", "run", []contracts.SandboxExtraMount{
+	mounts, err := resolver.Resolve(mountResolverWorkspace(t, paths), "chat-1", "reader", "run", []contracts.SandboxExtraMount{
 		{Platform: "providers", Mode: "ro"},
 	})
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
-	if mount, ok := mountByDestination(mounts, "/workspace"); !ok || mount.Source != filepath.Join(hostChats, "chat-1") {
+	wantWorkspace, err := filepath.EvalSymlinks(mountResolverWorkspace(t, paths))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantChat, err := filepath.EvalSymlinks(filepath.Join(hostChats, "chat-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mount, ok := mountByDestination(mounts, "/workspace"); !ok || mount.Source != wantWorkspace || mount.ReadOnly {
 		t.Fatalf("workspace mount = %#v, ok=%v", mount, ok)
+	}
+	if mount, ok := mountByDestination(mounts, "/chat"); !ok || mount.Source != wantChat || mount.ReadOnly {
+		t.Fatalf("chat mount = %#v, ok=%v", mount, ok)
 	}
 	if mount, ok := mountByDestination(mounts, "/memory"); !ok || mount.Source != filepath.Join(hostMemory, "reader") {
 		t.Fatalf("memory mount = %#v, ok=%v", mount, ok)
@@ -179,7 +224,7 @@ func TestMountResolverRejectsContainerAPRuntimeHostPath(t *testing.T) {
 	t.Setenv("AP_RUNTIME_CHATS_DIR", "/opt/runtime/chats")
 	resolver := NewContainerHubMountResolver(paths)
 
-	_, err := resolver.Resolve("chat-1", "reader", "run", nil)
+	_, err := resolver.Resolve(mountResolverWorkspace(t, paths), "chat-1", "reader", "run", nil)
 	if err == nil {
 		t.Fatal("expected Resolve() to reject container runtime path")
 	}
@@ -213,6 +258,15 @@ func mountResolverTestPaths(t *testing.T, agentKey string) config.PathsConfig {
 	return paths
 }
 
+func mountResolverWorkspace(t *testing.T, paths config.PathsConfig) string {
+	t.Helper()
+	workspace := filepath.Join(filepath.Dir(paths.ChatsDir), "workspace")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir test workspace %q: %v", workspace, err)
+	}
+	return workspace
+}
+
 func mountByDestination(mounts []MountSpec, destination string) (MountSpec, bool) {
 	for _, mount := range mounts {
 		if mount.Destination == destination {
@@ -220,4 +274,13 @@ func mountByDestination(mounts []MountSpec, destination string) (MountSpec, bool
 		}
 	}
 	return MountSpec{}, false
+}
+
+func realMountPath(t *testing.T, rawPath string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(rawPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resolved
 }

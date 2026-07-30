@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -19,12 +18,11 @@ func TestParseConfigCapabilityFields(t *testing.T) {
 
 	cfg, err := ParseConfig(map[string]any{
 		"enabled": true,
-		"source":  map[string]any{"root": " ./knowledge "},
 	})
 	if err != nil {
 		t.Fatalf("parse capability config: %v", err)
 	}
-	if !cfg.Enabled || cfg.Source.Root != "./knowledge" {
+	if !cfg.Enabled {
 		t.Fatalf("unexpected capability fields: %#v", cfg)
 	}
 
@@ -40,35 +38,10 @@ func TestParseConfigCapabilityFields(t *testing.T) {
 		{"enabled": "true"},
 		{"source": "./knowledge"},
 		{"source": map[string]any{"root": 42}},
+		{"source": map[string]any{"root": "/knowledge"}},
 	} {
 		if _, err := ParseConfig(raw); err == nil {
 			t.Fatalf("invalid capability config accepted: %#v", raw)
-		}
-	}
-}
-
-func TestResolveSourceRootPolicy(t *testing.T) {
-	agentDir := t.TempDir()
-	resolved, err := ResolveSourceRoot("./knowledge", agentDir)
-	if err != nil {
-		t.Fatalf("resolve directory source: %v", err)
-	}
-	if resolved != filepath.Join(agentDir, "knowledge") {
-		t.Fatalf("resolved source = %q", resolved)
-	}
-
-	for _, test := range []struct {
-		root     string
-		agentDir string
-		want     string
-	}{
-		{root: "", agentDir: agentDir, want: "is required"},
-		{root: "@chat", agentDir: agentDir, want: "must not be"},
-		{root: ".", agentDir: "", want: "only supported for directory agents"},
-		{root: string(filepath.Separator), agentDir: agentDir, want: "filesystem root"},
-	} {
-		if _, err := ResolveSourceRoot(test.root, test.agentDir); err == nil || !strings.Contains(err.Error(), test.want) {
-			t.Fatalf("ResolveSourceRoot(%q) error = %v, want %q", test.root, err, test.want)
 		}
 	}
 }
@@ -135,7 +108,7 @@ func TestOptionalStartupStorageFailureReportsDegradedStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("optional degraded status: %v", err)
 	}
-	if !status.Degraded || !status.Stale || status.Error == "" || status.SourceRoot != spec.Config.Source.Root {
+	if !status.Degraded || !status.Stale || status.Error == "" || status.WorkspaceRoot != spec.WorkspaceRoot {
 		t.Fatalf("unexpected degraded status: %#v", status)
 	}
 	if _, err := manager.Search(context.Background(), "docs", "policy", SearchOptions{}); KindOf(err) != ErrorUnavailable {

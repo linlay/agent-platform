@@ -37,9 +37,10 @@ func (s kbaseCatalogSource) Agent(key string) (kbase.AgentSpec, bool) {
 		return kbase.AgentSpec{}, false
 	}
 	return kbase.AgentSpec{
-		Key:         definition.Key,
-		Requirement: definition.KBaseRequirement,
-		Config:      definition.KBaseConfig,
+		Key:           definition.Key,
+		Requirement:   definition.KBaseRequirement,
+		WorkspaceRoot: definition.Workspace.Root,
+		Config:        definition.KBaseConfig,
 	}, true
 }
 

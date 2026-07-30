@@ -1,8 +1,6 @@
 name: web_fetch
 label: 网页抓取
 description: Fetch a public HTTP(S) URL, convert the content to markdown-like text, and apply a prompt using the configured small model. Use this for public web pages; authenticated or private URLs are not supported.
-submitResultFormat: json-compact
-type: function
 inputSchema:
   type: object
   properties:

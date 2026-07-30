@@ -30,9 +30,6 @@ func (s *llmRunStream) lookupBashAccessReview(invocation *preparedToolInvocation
 	if invocation == nil || !isBashTool(invocation.toolName) {
 		return accesspolicy.BashPlan{Decision: accesspolicy.DecisionAllow}
 	}
-	if s.session.AgentHasRuntimeSandbox || (s.execCtx != nil && s.execCtx.Session.AgentHasRuntimeSandbox) {
-		return accesspolicy.BashPlan{Decision: accesspolicy.DecisionAllow}
-	}
 	if s.engine == nil {
 		return accesspolicy.BashPlan{Decision: accesspolicy.DecisionAllow}
 	}
@@ -52,9 +49,6 @@ func (s *llmRunStream) lookupBashAccessReview(invocation *preparedToolInvocation
 
 func (s *llmRunStream) rawBashAccessReview(invocation *preparedToolInvocation) accesspolicy.BashPlan {
 	if invocation == nil || !isBashTool(invocation.toolName) || s.engine == nil {
-		return accesspolicy.BashPlan{Decision: accesspolicy.DecisionAllow}
-	}
-	if s.session.AgentHasRuntimeSandbox || (s.execCtx != nil && s.execCtx.Session.AgentHasRuntimeSandbox) {
 		return accesspolicy.BashPlan{Decision: accesspolicy.DecisionAllow}
 	}
 	cwd := strings.TrimSpace(mapStringArg(invocation.args, "cwd"))
@@ -103,12 +97,7 @@ func (s *llmRunStream) buildFileAccessPlan(invocation *preparedToolInvocation) (
 	if !ok {
 		return nil, false
 	}
-	fileCfg := s.sessionFileToolsConfig(mode)
 	session := s.fileAccessSession()
-	if strings.TrimSpace(session.WorkspaceRoot) == "" && strings.TrimSpace(session.RuntimeContext.LocalPaths.WorkspaceDir) == "" && strings.TrimSpace(fileCfg.WorkingDirectory) != "" {
-		session.WorkspaceRoot = fileCfg.WorkingDirectory
-		session.RuntimeContext.LocalPaths.WorkspaceDir = fileCfg.WorkingDirectory
-	}
 	plan, err := filetools.BuildAccessPlanFromPolicy(s.engine.cfg.AccessPolicy, session, mode, rawPath)
 	if err != nil {
 		return nil, false
@@ -137,8 +126,7 @@ func hasLocalFileRoots(session QuerySession) bool {
 	return strings.TrimSpace(session.WorkspaceRoot) != "" ||
 		session.ScopedFilePolicy != nil ||
 		strings.TrimSpace(paths.WorkspaceDir) != "" ||
-		strings.TrimSpace(paths.WorkingDirectory) != "" ||
-		strings.TrimSpace(paths.ChatAttachmentsDir) != "" ||
+		strings.TrimSpace(paths.ChatDir) != "" ||
 		strings.TrimSpace(paths.AgentDir) != "" ||
 		strings.TrimSpace(paths.SkillsDir) != "" ||
 		strings.TrimSpace(paths.SkillsMarketDir) != ""
@@ -171,13 +159,8 @@ func (s *llmRunStream) combinedFileWriteApprovalPlans(invocation *preparedToolIn
 	return accessPlan, writePlan, true
 }
 
-func (s *llmRunStream) sessionFileToolsConfig(mode filetools.AccessMode) config.FileToolsConfig {
-	cfg := s.engine.cfg.FileTools
-	session := s.fileAccessSession()
-	if workspaceRoot := filetools.SessionWorkspaceRoot(session); workspaceRoot != "" {
-		cfg.WorkingDirectory = workspaceRoot
-	}
-	return cfg
+func (s *llmRunStream) sessionFileToolsConfig(_ filetools.AccessMode) config.FileToolsConfig {
+	return s.engine.cfg.FileTools
 }
 
 func (s *llmRunStream) fileWritePlanNeedsApproval(plan filetools.WritePlan) bool {
@@ -190,6 +173,7 @@ func (s *llmRunStream) fileWritePlanNeedsApproval(plan filetools.WritePlan) bool
 		return false
 	}
 	return !filetools.PathInSessionWorkspace(session, plan.FilePath) &&
+		!filetools.PathInSessionChat(session, plan.FilePath) &&
 		!filetools.PathInSessionHostWriteRoot(session, plan.FilePath)
 }
 

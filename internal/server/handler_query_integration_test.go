@@ -671,7 +671,7 @@ func TestQueryRequestQueryIncludesParamsAndReferences(t *testing.T) {
 	body := bytes.NewBufferString(`{
 		"message":"include request context",
 		"params":{"channel":"desktop","nested":{"enabled":true}},
-		"references":[{"id":"ref_1","type":"file","name":"notes.txt","path":"/tmp/notes.txt","mimeType":"text/plain"}]
+		"references":[{"id":"ref_1","type":"file","name":"notes.txt","path":"@workspace/notes.txt","mimeType":"text/plain"}]
 	}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/query", body)
 	req.Header.Set("Content-Type", "application/json")
@@ -756,7 +756,7 @@ func assertRequestQueryContext(t *testing.T, message map[string]any) {
 	if reference["id"] != "ref_1" || reference["type"] != "file" || reference["name"] != "notes.txt" {
 		t.Fatalf("unexpected request.query reference, got %#v", reference)
 	}
-	if reference["path"] != "/tmp/notes.txt" {
+	if reference["path"] != "/workspace/notes.txt" {
 		t.Fatalf("expected request.query reference path, got %#v", reference)
 	}
 }
@@ -967,7 +967,7 @@ func TestQueryCanExecuteBackendToolLoop(t *testing.T) {
 		t.Fatalf("did not expect toolType in live sse, got %s", body)
 	}
 	if strings.Contains(body, `"viewportKey":`) {
-		t.Fatalf("did not expect viewportKey for backend tool, got %s", body)
+		t.Fatalf("did not expect viewportKey for ordinary tool, got %s", body)
 	}
 	if !strings.Contains(body, "完成工具调用后") || !strings.Contains(body, "的最终回答") {
 		t.Fatalf("expected live sse deltas for final assistant content, got %s", body)

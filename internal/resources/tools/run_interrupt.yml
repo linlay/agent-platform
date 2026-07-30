@@ -1,7 +1,6 @@
 name: run_interrupt
 label: 中断独立运行
 description: Interrupt an independent run previously created by run_query for this caller and subject. Do not use this tool for the current run or for agent_invoke or agent_delegate child tasks.
-type: function
 clientVisible: true
 explicitOnly: true
 readOnly: false

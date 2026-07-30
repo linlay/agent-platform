@@ -1,4 +1,4 @@
-package frontendtools
+package toolinteraction
 
 import (
 	"strings"
@@ -13,12 +13,11 @@ type Handler interface {
 	ValidateArgs(args map[string]any) error
 	BuildInitialAwaitAsk(toolID string, runID string, tool api.ToolDetailResponse, args map[string]any, chunkIndex int, timeout int64) *stream.AwaitAsk
 	NormalizeSubmit(args map[string]any, params any) (map[string]any, error)
-	FormatSubmitResult(format string, result contracts.ToolExecutionResult) (string, bool)
+	FormatModelOutput(result contracts.ToolExecutionResult) string
 }
 
 type Registry struct {
 	handlers map[string]Handler
-	fallback Handler
 }
 
 func NewRegistry(handlers ...Handler) *Registry {
@@ -37,11 +36,9 @@ func NewRegistry(handlers ...Handler) *Registry {
 }
 
 func NewDefaultRegistry() *Registry {
-	registry := NewRegistry(
+	return NewRegistry(
 		NewAskUserQuestionHandler(),
 	)
-	registry.fallback = NewGenericFormHandler()
-	return registry
 }
 
 func (r *Registry) Handler(toolName string) (Handler, bool) {
@@ -51,9 +48,6 @@ func (r *Registry) Handler(toolName string) (Handler, bool) {
 	handler, ok := r.handlers[normalizeToolName(toolName)]
 	if ok {
 		return handler, true
-	}
-	if r.fallback != nil {
-		return r.fallback, true
 	}
 	return nil, false
 }

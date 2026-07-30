@@ -52,9 +52,13 @@ func PromptTemplateValues(session contracts.QuerySession, req api.QueryRequest, 
 		session.WorkspaceRoot,
 	)
 	chatDir := agentcontract.FirstNonBlank(
-		session.RuntimeContext.LocalPaths.ChatAttachmentsDir,
-		session.RuntimeContext.SandboxPaths.WorkspaceDir,
+		session.RuntimeContext.LocalPaths.ChatDir,
+		session.RuntimeContext.SandboxPaths.ChatDir,
 	)
+	if session.AgentHasRuntimeSandbox {
+		workspaceDir = agentcontract.FirstNonBlank(session.RuntimeContext.SandboxPaths.WorkspaceDir, workspaceDir)
+		chatDir = agentcontract.FirstNonBlank(session.RuntimeContext.SandboxPaths.ChatDir, chatDir)
+	}
 	values := agentcontract.CommonPromptValues(agentcontract.PromptContext{
 		AgentKey: session.AgentKey, AgentName: session.AgentName, Mode: session.Mode,
 		PlanningMode: session.PlanningMode, WorkspaceDir: workspaceDir, ChatDir: chatDir,

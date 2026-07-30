@@ -27,7 +27,7 @@ KBASE 已是 mode 中立的公共能力，`internal/kbase` 同时服务专用 `m
 
 ## 索引与恢复
 
-首次 refresh 和 `force: true` 都创建新的蓝绿 generation。普通手工 refresh、启动 refresh 与周期 reconcile 会扫描 `kbaseConfig.source.root` 做全量文件对账，但只修改新增、变化或删除的文件；watcher refresh 直接消费 debounce 后的相对路径 change set，不遍历无关目录。事件溢出或待处理路径超过 1000 时自动退化为完整 reconcile。
+首次 refresh 和 `force: true` 都创建新的蓝绿 generation。普通手工 refresh、启动 refresh 与周期 reconcile 会扫描 `runtimeConfig.workspaceRoot` 做全量文件对账，但只修改新增、变化或删除的文件；watcher refresh 直接消费 debounce 后的相对路径 change set，不遍历无关目录。事件溢出或待处理路径超过 1000 时自动退化为完整 reconcile。
 
 新增文件执行抽取、切块和 embedding；修改文件先比较文件 SHA 与 chunk set，内容未变时只更新控制面元数据，chunk 变化时从 active generation 读取同文件旧向量并按 `contentHash + embedding model + dimension` 复用；删除文件执行幂等 `delete-file`。删除 tombstone 默认保留 `maintenance.version-retention` 后清理。每次跨 Lance/control 写入都先记录 file operation，重启后的 refresh 会验证并完成可确认的操作。
 
@@ -43,8 +43,8 @@ KBASE 仍只检索从文本格式和文档抽取出的文本；chat、memory 及
 
 ## Editing 与索引解耦
 
-专用 KBASE 在 main/editing 两种 stage 都提供同一组通用文本文件工具，`editingMode:true` 只开放 Source mutation。Source 落盘不注册 KBASE `FileChangeHook`，也不从 mutation 同步调用 Manager refresh；工具成功不承诺同一 run 立即可检索。
+专用 KBASE 在 main/editing 两种 stage 都提供同一组通用文本文件工具，`editingMode:true` 只开放 Workspace mutation。Workspace 落盘不注册 KBASE `FileChangeHook`，也不从 mutation 同步调用 Manager refresh；工具成功不承诺同一 run 立即可检索。
 
-Source 变化与任何外部编辑一样由目录 watcher 捕获。watcher 在 debounce 后直接消费相对路径 change set，有 active generation 时执行目标文件 delta；首次索引、`force` 或 `indexHash` 变化仍按既有 generation 规则 rebuild。`include/exclude` 与 extractor 只决定是否进入索引，不阻止文件工具保存。当前 Chat 目录和 external 不属于 Source watcher。
+Workspace 变化与任何外部编辑一样由目录 watcher 捕获。watcher 在 debounce 后直接消费相对路径 change set，有 active generation 时执行目标文件 delta；首次索引、`force` 或 `indexHash` 变化仍按既有 generation 规则 rebuild。`include/exclude` 与 extractor 只决定是否进入索引，不阻止文件工具保存。当前 Chat 目录和 external 不属于 Workspace watcher。
 
 watcher 失败时保留已经保存的文件并报告 capability degraded；后续 watcher reconcile 或用户明确发起的 `kbase_refresh` 可恢复。该链路不增加数据库 schema 或第二套索引器。

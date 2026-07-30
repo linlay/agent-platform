@@ -19,7 +19,6 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/frontendtools"
 	"agent-platform/internal/gateway"
 	"agent-platform/internal/kbase"
 	"agent-platform/internal/llm"
@@ -36,6 +35,7 @@ import (
 	"agent-platform/internal/server"
 	"agent-platform/internal/skills"
 	"agent-platform/internal/supportpkg"
+	"agent-platform/internal/toolinteraction"
 	"agent-platform/internal/tools"
 	"agent-platform/internal/viewport"
 	"agent-platform/internal/ws"
@@ -155,18 +155,18 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	runManager := contracts.NewInMemoryRunManager()
 	wsHub := ws.NewHub()
 	sandboxClient := sandbox.NewContainerHubSandboxService(cfg.ContainerHub, cfg.Paths)
-	backendTools, err := tools.NewRuntimeToolExecutor(cfg, sandboxClient, chatStore, memoryStore, skillCandidateStore)
+	runtimeToolExecutor, err := tools.NewRuntimeToolExecutor(cfg, sandboxClient, chatStore, memoryStore, skillCandidateStore)
 	if err != nil {
 		return nil, fmt.Errorf("init runtime tools: %w", err)
 	}
-	backendTools.WithWebClientActionInvoker(wsHub)
-	backendTools.WithRuntimeEnv(hostEnv)
-	backendTools.WithModelRegistry(modelRegistry)
+	runtimeToolExecutor.WithWebClientRequestInvoker(wsHub)
+	runtimeToolExecutor.WithRuntimeEnv(hostEnv)
+	runtimeToolExecutor.WithModelRegistry(modelRegistry)
 	var lspManager *lsp.Manager
 	if cfg.FileTools.Hooks.AfterFileChange.LSPDiagnostics.Enabled {
 		lspManager = lsp.NewManager(cfg.FileTools.Hooks.AfterFileChange.LSPDiagnostics)
 	}
-	// artifactPusher 在下面 notifications 就绪后再接入 backendTools，
+	// artifactPusher 在下面 notifications 就绪后再接入 runtimeToolExecutor，
 	// 这样它发出的 push frame 能走到 WS hub，转给网关做 artifact 预告。
 	mcpRegistry, err := mcp.NewRegistry(filepath.Join(cfg.Paths.RegistriesDir, "mcp-servers"))
 	if err != nil {
@@ -188,8 +188,17 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	if err != nil {
 		return nil, fmt.Errorf("load runtime tools: %w", err)
 	}
-	frontendRegistry := frontendtools.NewDefaultRegistry()
-	toolExecutor := tools.NewToolRouter(backendTools, mcpClient, mcpToolSync, llm.NewFrontendSubmitCoordinator(frontendRegistry), contracts.NewNoopActionInvoker(), append([]api.ToolDetailResponse(nil), runtimeTools...)...)
+	interactionRegistry := toolinteraction.NewDefaultRegistry()
+	toolExecutor, err := tools.NewToolRouter(
+		runtimeToolExecutor,
+		mcpClient,
+		mcpToolSync,
+		llm.NewInteractionSubmitCoordinator(interactionRegistry),
+		append([]api.ToolDetailResponse(nil), runtimeTools...)...,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("initialize tool router: %w", err)
+	}
 
 	registryStartedAt := time.Now()
 	registry, err := catalog.NewFileRegistry(cfg, toolExecutor.Definitions())
@@ -208,7 +217,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	kbaseSource := kbaseCatalogSource{registry: registry}
 	kbaseManager := kbase.NewManager(kbaseManagerOptions(cfg), kbaseSource, modelRegistry).WithSupportPackages(supportPackages)
 	if lspManager != nil {
-		backendTools.WithFileChangeHooks(lspManager)
+		runtimeToolExecutor.WithFileChangeHooks(lspManager)
 	}
 	if err := kbaseManager.ValidateConfiguration(); err != nil {
 		return nil, fmt.Errorf("validate KBASE storage ownership: %w", err)
@@ -244,12 +253,12 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		return nil, fmt.Errorf("register KBASE tools: %w", err)
 	}
 
-	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, frontendRegistry, sandboxClient)
+	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, interactionRegistry, sandboxClient)
 	var notifications contracts.NotificationSink = wsHub
 	// gatewayResolver 在 Registry 构建完成后（server 依赖就绪之后）绑定。
 	// pusher 先拿到 resolver 指针，Registry 构建完调用 SetRegistry 就能工作。
 	gatewayResolver := &lazyGatewayResolver{chats: chatStore}
-	backendTools.WithArtifactPusher(artifactpusher.New(artifactpusher.Config{
+	runtimeToolExecutor.WithArtifactPusher(artifactpusher.New(artifactpusher.Config{
 		Resolver:      gatewayResolver,
 		UploadPath:    config.GatewayUploadPath,
 		ChatsDir:      cfg.Paths.ChatsDir,
@@ -329,7 +338,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Tools:             toolExecutor,
 		Sandbox:           sandboxClient,
 		MCP:               mcpClient,
-		FrontendTools:     frontendRegistry,
+		ToolInteractions:  interactionRegistry,
 		Viewport: viewport.NewServiceWithServers(
 			viewport.NewRegistry(viewport.DefaultRoot(cfg.Paths.RegistriesDir)),
 			viewport.NewSyncer(viewport.NewServerRegistry(viewport.DefaultServersRoot(cfg.Paths.RegistriesDir)), nil),
@@ -340,7 +349,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		SkillCandidates:        skillCandidateStore,
 		Channels:               channelReg,
 		AutomationOrchestrator: automationOrchestrator,
-		DeltaMappers:           llm.DeltaMapperFactory{Frontend: frontendRegistry},
+		DeltaMappers:           llm.DeltaMapperFactory{Interactions: interactionRegistry},
 		SystemInits: llm.NewSystemInitProfileBuilder(modelRegistry, llm.SystemInitDefaults{
 			PlanMaxSteps:             cfg.Defaults.Plan.MaxSteps,
 			PlanMaxWorkRoundsPerTask: cfg.Defaults.Plan.MaxWorkRoundsPerTask,

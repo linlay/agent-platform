@@ -2,11 +2,16 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
@@ -15,6 +20,8 @@ import (
 const (
 	chatReferenceContextMessageLimit = 12
 	chatReferenceContextCharLimit    = 12_000
+	remoteReferenceMaxBytes          = 50 * 1024 * 1024
+	remoteReferenceTimeout           = 30 * time.Second
 )
 
 func (s *Server) prepareQueryReferences(ctx context.Context, currentChatID string, references []api.Reference) ([]api.Reference, error) {
@@ -49,10 +56,117 @@ func (s *Server) prepareQueryReferences(ctx context.Context, currentChatID strin
 			seen[identity] = struct{}{}
 			prepared = append(prepared, normalized)
 		default:
-			prepared = append(prepared, reference)
+			normalized, err := s.prepareFileResourceReference(ctx, currentChatID, reference)
+			if err != nil {
+				return nil, err
+			}
+			prepared = append(prepared, normalized)
 		}
 	}
 	return prepared, nil
+}
+
+func (s *Server) prepareFileResourceReference(ctx context.Context, currentChatID string, reference api.Reference) (api.Reference, error) {
+	rawURL := strings.TrimSpace(reference.URL)
+	fileParam := resourceFileParam(rawURL)
+	if fileParam == "" {
+		return reference, nil
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return api.Reference{}, queryReferenceStatusError(http.StatusBadRequest, "resource_reference_unavailable", "invalid resource reference URL")
+	}
+	if !parsed.IsAbs() {
+		if s == nil || s.deps.Chats == nil {
+			return api.Reference{}, queryReferenceStatusError(http.StatusServiceUnavailable, "resource_reference_unavailable", "resource references are unavailable")
+		}
+		if _, err := s.deps.Chats.ResolveResource(fileParam); err != nil {
+			return api.Reference{}, queryReferenceStatusError(http.StatusBadRequest, "resource_reference_unavailable", "local resource reference was not found")
+		}
+		return reference, nil
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return api.Reference{}, queryReferenceStatusError(http.StatusBadRequest, "resource_reference_unavailable", "remote resource reference must use http or https")
+	}
+	return s.materializeRemoteResourceReference(ctx, currentChatID, reference, parsed)
+}
+
+func (s *Server) materializeRemoteResourceReference(
+	ctx context.Context,
+	currentChatID string,
+	reference api.Reference,
+	parsed *url.URL,
+) (api.Reference, error) {
+	if s == nil || s.deps.Chats == nil {
+		return api.Reference{}, queryReferenceStatusError(http.StatusServiceUnavailable, "resource_reference_unavailable", "resource references are unavailable")
+	}
+	if !chat.ValidChatID(strings.TrimSpace(currentChatID)) {
+		return api.Reference{}, queryReferenceStatusError(http.StatusBadRequest, "resource_reference_unavailable", "current chat is invalid")
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, remoteReferenceTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		return api.Reference{}, queryReferenceStatusError(http.StatusBadRequest, "resource_reference_unavailable", "invalid remote resource request")
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return api.Reference{}, queryReferenceStatusError(http.StatusBadGateway, "resource_reference_unavailable", "remote resource download failed: "+err.Error())
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return api.Reference{}, queryReferenceStatusError(
+			http.StatusBadGateway,
+			"resource_reference_unavailable",
+			fmt.Sprintf("remote resource returned HTTP %d", resp.StatusCode),
+		)
+	}
+
+	rawName := strings.TrimSpace(reference.Name)
+	if rawName == "" {
+		rawName = filepath.Base(filepath.FromSlash(resourceFileParam(parsed.String())))
+	}
+	fileName := safeFilename(rawName)
+	urlHash := sha256.Sum256([]byte(parsed.String()))
+	relativePath := filepath.Join("references", fmt.Sprintf("%x-%s", urlHash[:8], fileName))
+	targetPath := filepath.Join(s.deps.Chats.ChatDir(currentChatID), relativePath)
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		return api.Reference{}, queryReferenceStatusError(http.StatusInternalServerError, "resource_reference_unavailable", err.Error())
+	}
+	temp, err := os.CreateTemp(filepath.Dir(targetPath), ".remote-reference-*")
+	if err != nil {
+		return api.Reference{}, queryReferenceStatusError(http.StatusInternalServerError, "resource_reference_unavailable", err.Error())
+	}
+	tempPath := temp.Name()
+	defer os.Remove(tempPath)
+	hasher := sha256.New()
+	size, copyErr := io.Copy(io.MultiWriter(temp, hasher), io.LimitReader(resp.Body, remoteReferenceMaxBytes+1))
+	closeErr := temp.Close()
+	if copyErr != nil {
+		return api.Reference{}, queryReferenceStatusError(http.StatusBadGateway, "resource_reference_unavailable", "remote resource download failed: "+copyErr.Error())
+	}
+	if closeErr != nil {
+		return api.Reference{}, queryReferenceStatusError(http.StatusInternalServerError, "resource_reference_unavailable", closeErr.Error())
+	}
+	if size > remoteReferenceMaxBytes {
+		return api.Reference{}, queryReferenceStatusError(http.StatusRequestEntityTooLarge, "resource_reference_too_large", "remote resource exceeds 50 MiB")
+	}
+	if err := os.Chmod(tempPath, 0o644); err != nil {
+		return api.Reference{}, queryReferenceStatusError(http.StatusInternalServerError, "resource_reference_unavailable", err.Error())
+	}
+	if err := os.Rename(tempPath, targetPath); err != nil {
+		return api.Reference{}, queryReferenceStatusError(http.StatusInternalServerError, "resource_reference_unavailable", err.Error())
+	}
+
+	reference.Path = ""
+	reference.Name = fileName
+	reference.SizeBytes = &size
+	reference.SHA256 = fmt.Sprintf("%x", hasher.Sum(nil))
+	if mimeType := strings.TrimSpace(resp.Header.Get("Content-Type")); mimeType != "" {
+		reference.MimeType = mimeType
+	}
+	reference.URL = resourceURLForFileParam(filepath.ToSlash(filepath.Join(currentChatID, relativePath)))
+	return reference, nil
 }
 
 func (s *Server) prepareChatReference(ctx context.Context, currentChatID string, reference api.Reference) (api.Reference, error) {

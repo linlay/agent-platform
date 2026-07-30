@@ -65,43 +65,6 @@ commands:
 	}
 }
 
-func TestSkillCheckerToolLookup(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "dangerous.yml"), []byte(`
-commands:
-  - command: rm
-    subcommands:
-      - match: -rf /
-        level: 1
-  - command: git
-    subcommands:
-      - match: push --force
-        level: 1
-        viewportType: html
-        viewportKey: git_force_push
-`), 0o644); err != nil {
-		t.Fatalf("write rules: %v", err)
-	}
-
-	checker, err := NewSkillChecker([]string{root})
-	if err != nil {
-		t.Fatalf("new skill checker: %v", err)
-	}
-	if _, ok := checker.Tool("_hitl_confirm_dialog_"); !ok {
-		t.Fatal("expected builtin confirm dialog tool")
-	}
-	tool, ok := checker.Tool("_hitl_git_force_push_")
-	if !ok {
-		t.Fatal("expected html viewport tool")
-	}
-	if tool.Meta["viewportType"] != "html" || tool.Meta["viewportKey"] != "git_force_push" {
-		t.Fatalf("unexpected tool meta: %#v", tool.Meta)
-	}
-	if len(checker.Tools()) != 2 {
-		t.Fatalf("expected 2 synthetic tools, got %#v", checker.Tools())
-	}
-}
-
 func TestSkillCheckerScansAllCommandSegments(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "dangerous.yml"), []byte(`

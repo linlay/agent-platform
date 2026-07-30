@@ -2,12 +2,58 @@ package server
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 )
+
+func TestPrepareQueryReferencesMaterializesRemoteResourceIntoCurrentChat(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/resource" || r.URL.Query().Get("file") != "source-chat/report.md" || r.URL.Query().Get("t") != "ticket" {
+			t.Fatalf("unexpected remote resource request: %s", r.URL.String())
+		}
+		w.Header().Set("Content-Type", "text/markdown")
+		_, _ = w.Write([]byte("remote report\n"))
+	}))
+	defer upstream.Close()
+
+	store, err := chat.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	server := &Server{deps: Dependencies{Chats: store}}
+
+	prepared, err := server.prepareQueryReferences(context.Background(), "chat-current", []api.Reference{{
+		ID:   "remote-report",
+		Type: "file",
+		URL:  upstream.URL + "/api/resource?file=source-chat%2Freport.md&t=ticket",
+	}})
+	if err != nil {
+		t.Fatalf("prepare remote reference: %v", err)
+	}
+	if len(prepared) != 1 || prepared[0].Path != "" || prepared[0].Name != "report.md" ||
+		prepared[0].MimeType != "text/markdown" || prepared[0].SHA256 == "" ||
+		prepared[0].SizeBytes == nil || *prepared[0].SizeBytes != int64(len("remote report\n")) {
+		t.Fatalf("unexpected materialized reference: %#v", prepared)
+	}
+	fileParam := resourceFileParam(prepared[0].URL)
+	if !strings.HasPrefix(fileParam, "chat-current/") {
+		t.Fatalf("expected current Chat resource URL, got %q", prepared[0].URL)
+	}
+	materialized, err := store.ResolveResource(fileParam)
+	if err != nil {
+		t.Fatalf("resolve materialized reference: %v", err)
+	}
+	if data, err := os.ReadFile(materialized); err != nil || string(data) != "remote report\n" {
+		t.Fatalf("unexpected materialized file %q err=%v", string(data), err)
+	}
+}
 
 func TestPrepareSiteReferenceKeepsOnlyPointerMetadata(t *testing.T) {
 	got, err := prepareSiteReference(api.Reference{

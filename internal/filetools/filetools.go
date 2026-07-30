@@ -100,6 +100,10 @@ func PathInSessionWorkspace(session QuerySession, path string) bool {
 	return accesspolicy.PathInSessionWorkspace(session, path)
 }
 
+func PathInSessionChat(session QuerySession, path string) bool {
+	return accesspolicy.PathInSessionChat(session, path)
+}
+
 func PathInSessionHostWriteRoot(session QuerySession, path string) bool {
 	return accesspolicy.PathInSessionHostAccessRoot(session, accesspolicy.WriteAccess, path)
 }

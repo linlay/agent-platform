@@ -1,8 +1,6 @@
 name: kbase_refresh
 label: 刷新知识库
 description: Trigger a KBASE index refresh for the current KBASE agent. Use force only when the index should be rebuilt from scratch.
-submitResultFormat: json-compact
-type: function
 clientVisible: true
 readOnly: false
 inputSchema:

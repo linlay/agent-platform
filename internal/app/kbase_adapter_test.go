@@ -26,7 +26,7 @@ func TestKBaseCatalogSourceExposesOnlyEnabledCapabilities(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	writeAgent("active.yml", "key: active\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\nkbaseConfig:\n  enabled: true\n  source:\n    root: "+filepath.ToSlash(knowledgeDir)+"\n")
+	writeAgent("active.yml", "key: active\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\nruntimeConfig:\n  workspaceRoot: "+filepath.ToSlash(knowledgeDir)+"\nkbaseConfig:\n  enabled: true\n")
 	writeAgent("disabled.yml", "key: disabled\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\nkbaseConfig:\n  enabled: false\n")
 
 	registry, err := catalog.NewFileRegistry(config.Config{Paths: config.PathsConfig{
@@ -41,7 +41,7 @@ func TestKBaseCatalogSourceExposesOnlyEnabledCapabilities(t *testing.T) {
 	if !ok {
 		t.Fatal("enabled KBASE capability was not exposed")
 	}
-	if spec.Key != "active" || !spec.Config.Enabled || spec.Config.Source.Root != filepath.Clean(knowledgeDir) {
+	if spec.Key != "active" || !spec.Config.Enabled || spec.WorkspaceRoot != filepath.Clean(knowledgeDir) {
 		t.Fatalf("unexpected active spec: %#v", spec)
 	}
 	if _, ok := source.Agent("disabled"); ok {

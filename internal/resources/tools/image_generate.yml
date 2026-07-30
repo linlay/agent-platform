@@ -1,8 +1,6 @@
 name: image_generate
 label: 图像生成
 description: Generate images through the globally configured image generation model. Use this when the user explicitly asks to create or render an image.
-submitResultFormat: json-compact
-type: function
 explicitOnly: true
 inputSchema:
   type: object

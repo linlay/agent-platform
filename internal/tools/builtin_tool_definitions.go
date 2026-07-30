@@ -102,10 +102,28 @@ func LoadEmbeddedToolDefinitions() ([]api.ToolDetailResponse, error) {
 			return nil, fmt.Errorf("missing embedded builtin tool definition: %s", name)
 		}
 	}
+	if err := validateRequiredToolInteractionMetadata(defs); err != nil {
+		return nil, err
+	}
 	if err := applyBuiltinToolCatalogVisibility(defs, builtinToolCatalogPath); err != nil {
 		return nil, err
 	}
 	return defs, nil
+}
+
+func validateRequiredToolInteractionMetadata(defs []api.ToolDetailResponse) error {
+	for _, def := range defs {
+		if !strings.EqualFold(strings.TrimSpace(def.Name), "ask_user_question") {
+			continue
+		}
+		viewportType, _ := def.Meta["viewportType"].(string)
+		viewportKey, _ := def.Meta["viewportKey"].(string)
+		if !strings.EqualFold(strings.TrimSpace(viewportType), "builtin") || strings.TrimSpace(viewportKey) != "question" {
+			return fmt.Errorf("tool ask_user_question requires viewportType=builtin and viewportKey=question")
+		}
+		return nil
+	}
+	return nil
 }
 
 func applyBuiltinToolCatalogVisibility(defs []api.ToolDetailResponse, path string) error {

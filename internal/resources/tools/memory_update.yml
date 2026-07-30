@@ -1,7 +1,6 @@
 name: memory_update
 label: 更新记忆
 description: Update an existing memory's title, content, category, scope, tags, status, or confidence.
-type: function
 clientVisible: false
 inputSchema:
   type: object

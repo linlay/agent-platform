@@ -911,12 +911,13 @@ func (o *frameOrchestrator) runChildTaskWithOptions(index int, task preparedSubT
 	if options.InheritOriginalContext {
 		baseReferences = append(baseReferences, o.request.References...)
 	}
-	if len(task.spec.Files) > 0 {
+	if len(task.spec.Files) > 0 || len(baseReferences) > 0 {
 		references, err := prepareProxyReferences(o.chats, o.resourceTickets, proxyReferenceOptions{
 			ChatID:          subReq.ChatID,
 			RunID:           subReq.RunID,
 			Subject:         o.session.Subject,
 			ResourceBaseURL: o.resourceBaseURL,
+			WorkspaceRoot:   o.session.WorkspaceRoot,
 			References:      baseReferences,
 			Files:           task.spec.Files,
 		})
@@ -1279,16 +1280,6 @@ func routeChildStreamInput(parentRunID string, taskID string, input stream.Strea
 	case stream.ToolResult:
 		value.ToolID = namespaceChildID(taskID, value.ToolID)
 		return value
-	case stream.ActionArgs:
-		value.TaskID = taskID
-		value.ActionID = namespaceChildID(taskID, value.ActionID)
-		return value
-	case stream.ActionEnd:
-		value.ActionID = namespaceChildID(taskID, value.ActionID)
-		return value
-	case stream.ActionResult:
-		value.ActionID = namespaceChildID(taskID, value.ActionID)
-		return value
 	case stream.SourcePublish:
 		value.TaskID = taskID
 		value.PublishID = namespaceChildID(taskID, value.PublishID)
@@ -1330,7 +1321,6 @@ func routeChildStreamInput(parentRunID string, taskID string, input stream.Strea
 	case stream.ModelTurnDiscard:
 		value.TaskID = taskID
 		value.ToolIDs = namespaceChildIDs(taskID, value.ToolIDs)
-		value.ActionIDs = namespaceChildIDs(taskID, value.ActionIDs)
 		return value
 	default:
 		return input

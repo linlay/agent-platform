@@ -11,6 +11,7 @@ import (
 	"agent-platform/internal/filetools"
 	media "agent-platform/internal/multimodal"
 	"agent-platform/internal/referenceprompt"
+	"agent-platform/internal/rootpaths"
 )
 
 const advancedUserPromptSchema = "agent_platform.user_prompt.v1"
@@ -20,6 +21,8 @@ const AdvancedUserPromptSystemPrompt = "User messages may include a platform-gen
 
 type BuildOptions struct {
 	AdvancedUserPrompt bool
+	WorkspaceDir       string
+	ChatDir            string
 	RunID              string
 	RequestID          string
 	AgentKey           string
@@ -61,7 +64,7 @@ func BuildContentWithOptions(chatsDir string, chatID string, text string, refere
 		return messageText
 	}
 
-	imageBlocks := collectImageBlocks(chatsDir, chatID, references, logMedia)
+	imageBlocks := collectImageBlocks(chatsDir, chatID, references, logMedia, options)
 	if len(imageBlocks) == 0 {
 		return messageText
 	}
@@ -150,11 +153,16 @@ func resolveTimezoneName(now time.Time, configured string) string {
 	return "Local"
 }
 
-func collectImageBlocks(chatsDir string, chatID string, references []api.Reference, logMedia bool) []map[string]any {
+func collectImageBlocks(chatsDir string, chatID string, references []api.Reference, logMedia bool, options BuildOptions) []map[string]any {
 	if len(references) == 0 || strings.TrimSpace(chatsDir) == "" || strings.TrimSpace(chatID) == "" {
 		return nil
 	}
 
+	chatDir := strings.TrimSpace(options.ChatDir)
+	if chatDir == "" {
+		chatDir = filepath.Join(chatsDir, chatID)
+	}
+	workspaceDir := strings.TrimSpace(options.WorkspaceDir)
 	blocks := make([]map[string]any, 0, len(references))
 	for _, ref := range references {
 		mime := strings.ToLower(strings.TrimSpace(ref.MimeType))
@@ -170,9 +178,10 @@ func collectImageBlocks(chatsDir string, chatID string, references []api.Referen
 		if name == "" {
 			continue
 		}
-		hostPath := filepath.Join(chatsDir, chatID, name)
-		if path := strings.TrimSpace(ref.Path); path != "" && filepath.IsAbs(path) && !strings.HasPrefix(filepath.ToSlash(path), "/workspace/") {
-			hostPath = path
+		hostPath, ok := resolveImageHostPath(strings.TrimSpace(ref.Path), name, workspaceDir, chatDir)
+		if !ok {
+			log.Printf("[llm][multimodal] skip image ref name=%q path=%q: path is unavailable", name, ref.Path)
+			continue
 		}
 		image, err := media.LoadImageFile(hostPath, mime, media.DefaultImageLoadOptions())
 		if err != nil {
@@ -185,4 +194,70 @@ func collectImageBlocks(chatsDir string, chatID string, references []api.Referen
 		blocks = append(blocks, media.OpenAIImageBlock(image))
 	}
 	return blocks
+}
+
+func resolveImageHostPath(rawPath string, name string, workspaceDir string, chatDir string) (string, bool) {
+	if rawPath == "" {
+		return filepath.Join(chatDir, name), true
+	}
+	roots, err := rootpaths.New(workspaceDir, filepath.Dir(chatDir), chatDir)
+	if err != nil {
+		return "", false
+	}
+	slashed := filepath.ToSlash(rawPath)
+	for _, candidate := range []struct {
+		prefix string
+		root   string
+		zone   rootpaths.Zone
+	}{
+		{prefix: "/chat", root: chatDir, zone: rootpaths.ZoneCurrentChat},
+		{prefix: "@chat", root: chatDir, zone: rootpaths.ZoneCurrentChat},
+		{prefix: "/workspace", root: workspaceDir, zone: rootpaths.ZoneWorkspace},
+		{prefix: "@workspace", root: workspaceDir, zone: rootpaths.ZoneWorkspace},
+	} {
+		if slashed != candidate.prefix && !strings.HasPrefix(slashed, candidate.prefix+"/") {
+			continue
+		}
+		if strings.TrimSpace(candidate.root) == "" {
+			return "", false
+		}
+		suffix := strings.TrimLeft(strings.TrimPrefix(slashed, candidate.prefix), "/")
+		resolved, ok := pathWithinRoot(filepath.Join(candidate.root, filepath.FromSlash(suffix)), candidate.root)
+		if !ok {
+			return "", false
+		}
+		zone, canonical, err := roots.Classify(resolved)
+		if err != nil || zone != candidate.zone {
+			return "", false
+		}
+		return canonical.Host, true
+	}
+	if filepath.IsAbs(rawPath) {
+		zone, canonical, err := roots.Classify(rawPath)
+		if err != nil || (zone != rootpaths.ZoneCurrentChat && zone != rootpaths.ZoneWorkspace) {
+			return "", false
+		}
+		return canonical.Host, true
+	}
+	if strings.TrimSpace(workspaceDir) == "" {
+		return "", false
+	}
+	resolved, ok := pathWithinRoot(filepath.Join(workspaceDir, rawPath), workspaceDir)
+	if !ok {
+		return "", false
+	}
+	zone, canonical, err := roots.Classify(resolved)
+	if err != nil || zone != rootpaths.ZoneWorkspace {
+		return "", false
+	}
+	return canonical.Host, true
+}
+
+func pathWithinRoot(candidate string, root string) (string, bool) {
+	candidate = filepath.Clean(candidate)
+	rel, err := filepath.Rel(filepath.Clean(root), candidate)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return candidate, true
 }

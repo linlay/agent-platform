@@ -40,18 +40,18 @@ func ValidateScopedWrite(session contracts.QuerySession, path string) error {
 	if policy == nil {
 		return nil
 	}
-	if strings.TrimSpace(policy.Root) == "" {
-		return scopedError("kbase_editing_path_outside_source", "KBASE editing source root is unavailable")
+	if strings.TrimSpace(policy.WorkspaceRoot) == "" {
+		return scopedError("kbase_editing_path_outside_workspace", "KBASE editing workspace root is unavailable")
 	}
-	inSource, err := scopedPathWithinRoot(policy.Root, path)
+	inWorkspace, err := scopedPathWithinRoot(policy.WorkspaceRoot, path)
 	if err != nil {
-		return scopedError("kbase_editing_path_outside_source", err.Error())
+		return scopedError("kbase_editing_path_outside_workspace", err.Error())
 	}
-	if !inSource {
+	if !inWorkspace {
 		return nil
 	}
-	if !policy.SourceMutationEnabled {
-		return scopedError("kbase_editing_mode_required", "KBASE source mutation requires editingMode=true")
+	if !policy.WorkspaceMutationEnabled {
+		return scopedError("kbase_editing_mode_required", "KBASE workspace mutation requires editingMode=true")
 	}
 	info, err := os.Stat(path)
 	switch {
@@ -77,7 +77,7 @@ func ScopedPathInSource(session contracts.QuerySession, path string) bool {
 	if policy == nil {
 		return false
 	}
-	inside, err := scopedPathWithinRoot(policy.Root, path)
+	inside, err := scopedPathWithinRoot(policy.WorkspaceRoot, path)
 	return err == nil && inside
 }
 

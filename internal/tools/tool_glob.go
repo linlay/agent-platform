@@ -24,10 +24,10 @@ func (t *RuntimeToolExecutor) invokeGlob(ctx context.Context, args map[string]an
 	if rawPath == "" {
 		rawPath = "."
 	}
-	accessSession := accessPolicySessionWithFallback(execCtx, t.cfg.FileTools.WorkingDirectory)
+	accessSession := accessPolicySession(execCtx)
 	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessSession, filetools.ReadAccess, rawPath)
 	if err != nil {
-		return fileToolError("glob_invalid_path", err.Error()), nil
+		return filePathResolutionError("glob_invalid_path", err), nil
 	}
 	if access.Blocked {
 		return fileToolError("glob_path_blocked", access.Reason), nil

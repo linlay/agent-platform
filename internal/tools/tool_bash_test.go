@@ -115,15 +115,14 @@ func TestInvokeHostBashSuccessReturnsPlainStdout(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory: root,
-				AllowedCommands:  []string{"echo"},
-				ShellExecutable:  "bash",
-				MaxCommandChars:  16000,
+				AllowedCommands: []string{"echo"},
+				ShellExecutable: "bash",
+				MaxCommandChars: 16000,
 			},
 		},
 	}
 
-	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "echo hello"}, nil)
+	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "echo hello"}, bashExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
 	}
@@ -146,7 +145,6 @@ func TestInvokeHostBashPipefailPreservesUpstreamFailure(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:     root,
 				AllowedCommands:      []string{"false", "tail"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
@@ -157,7 +155,7 @@ func TestInvokeHostBashPipefailPreservesUpstreamFailure(t *testing.T) {
 
 	result, err := executor.invokeHostBash(context.Background(), map[string]any{
 		"command": "false | tail -200",
-	}, nil)
+	}, bashExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
 	}
@@ -178,7 +176,6 @@ func TestInvokeHostBashSuccessWithStderrReturnsStructuredJSON(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			AccessPolicy: config.AccessPolicyConfig{
-				WorkingDirectory: root,
 				Levels: map[string]config.AccessPolicyLevelConfig{
 					contracts.AccessLevelDefault: {
 						Approvals: config.AccessPolicyApprovalConfig{
@@ -188,15 +185,14 @@ func TestInvokeHostBashSuccessWithStderrReturnsStructuredJSON(t *testing.T) {
 				},
 			},
 			Bash: config.BashConfig{
-				WorkingDirectory: root,
-				AllowedCommands:  []string{"sh"},
-				ShellExecutable:  "bash",
-				MaxCommandChars:  16000,
+				AllowedCommands: []string{"sh"},
+				ShellExecutable: "bash",
+				MaxCommandChars: 16000,
 			},
 		},
 	}
 
-	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "sh " + scriptPath}, nil)
+	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "sh " + scriptPath}, bashExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
 	}
@@ -226,7 +222,6 @@ func TestInvokeHostBashDoesNotWaitForBackgroundProcessOutput(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:     root,
 				AllowedCommands:      []string{"echo", "sleep"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
@@ -236,7 +231,7 @@ func TestInvokeHostBashDoesNotWaitForBackgroundProcessOutput(t *testing.T) {
 	}
 
 	start := time.Now()
-	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "sleep 2 & echo done"}, nil)
+	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "sleep 2 & echo done"}, bashExecutionContext(root))
 	elapsed := time.Since(start)
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
@@ -257,7 +252,6 @@ func TestInvokeHostBashDefaultsTimeoutToToolBudget(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:     root,
 				AllowedCommands:      []string{"sleep"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
@@ -270,7 +264,10 @@ func TestInvokeHostBashDefaultsTimeoutToToolBudget(t *testing.T) {
 	result, err := executor.invokeHostBash(
 		context.Background(),
 		map[string]any{"command": "sleep 2"},
-		&contracts.ExecutionContext{Budget: contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 1}}},
+		&contracts.ExecutionContext{
+			Session: contracts.QuerySession{WorkspaceRoot: root},
+			Budget:  contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 1}},
+		},
 	)
 	elapsed := time.Since(start)
 	if err != nil {
@@ -307,10 +304,9 @@ func TestInvokeHostBashDefaultsCwdToSessionWorkspace(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory: root,
-				AllowedCommands:  []string{"pwd"},
-				ShellExecutable:  "bash",
-				MaxCommandChars:  16000,
+				AllowedCommands: []string{"pwd"},
+				ShellExecutable: "bash",
+				MaxCommandChars: 16000,
 			},
 		},
 	}
@@ -331,15 +327,14 @@ func TestInvokeHostBashFailureReturnsStructuredJSON(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory: root,
-				AllowedCommands:  []string{"ls"},
-				ShellExecutable:  "bash",
-				MaxCommandChars:  16000,
+				AllowedCommands: []string{"ls"},
+				ShellExecutable: "bash",
+				MaxCommandChars: 16000,
 			},
 		},
 	}
 
-	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "ls missing"}, nil)
+	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "ls missing"}, bashExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
 	}
@@ -371,18 +366,18 @@ func TestInvokeHostBashFailureReturnsStructuredJSON(t *testing.T) {
 }
 
 func TestInvokeHostBashEarlyReturnStaysHumanReadable(t *testing.T) {
+	root := t.TempDir()
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory: t.TempDir(),
-				AllowedCommands:  []string{"echo"},
-				ShellExecutable:  "bash",
-				MaxCommandChars:  16000,
+				AllowedCommands: []string{"echo"},
+				ShellExecutable: "bash",
+				MaxCommandChars: 16000,
 			},
 		},
 	}
 
-	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "cat secret.txt"}, nil)
+	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "cat secret.txt"}, bashExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
 	}
@@ -406,7 +401,6 @@ func TestInvokeHostBashSupportsPerCallCwd(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:     root,
 				AllowedCommands:      []string{"env"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
@@ -421,7 +415,7 @@ func TestInvokeHostBashSupportsPerCallCwd(t *testing.T) {
 			"command": "pwd",
 			"cwd":     nested,
 		},
-		nil,
+		bashExecutionContext(root),
 	)
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
@@ -445,7 +439,6 @@ func TestInvokeHostBashAllowsShellSyntaxByDefault(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:     root,
 				AllowedCommands:      []string{"pwd", "cd"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
@@ -459,7 +452,7 @@ func TestInvokeHostBashAllowsShellSyntaxByDefault(t *testing.T) {
 		map[string]any{
 			"command": "cd nested && pwd",
 		},
-		nil,
+		bashExecutionContext(root),
 	)
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
@@ -479,7 +472,6 @@ func TestInvokeHostBashAllowsExitStatusSpecialParameter(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:     root,
 				AllowedCommands:      []string{"false", "echo"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
@@ -493,7 +485,7 @@ func TestInvokeHostBashAllowsExitStatusSpecialParameter(t *testing.T) {
 		map[string]any{
 			"command": `false; echo "Exit code: $?"`,
 		},
-		nil,
+		bashExecutionContext(root),
 	)
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
@@ -511,7 +503,6 @@ func TestInvokeHostBashIgnoresPerCallEnv(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:     root,
 				AllowedCommands:      []string{"bash"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
@@ -526,7 +517,7 @@ func TestInvokeHostBashIgnoresPerCallEnv(t *testing.T) {
 			"command": "env",
 			"env":     map[string]any{"TEST_HOST_ENV": "call-value"},
 		},
-		nil,
+		bashExecutionContext(root),
 	)
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
@@ -541,7 +532,6 @@ func TestInvokeHostBashAppliesAgentEnvOverrides(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:     root,
 				AllowedCommands:      []string{"bash"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
@@ -556,6 +546,7 @@ func TestInvokeHostBashAppliesAgentEnvOverrides(t *testing.T) {
 			"command": "echo \"$TEST_HOST_ENV\"",
 		},
 		&contracts.ExecutionContext{
+			Session:             contracts.QuerySession{WorkspaceRoot: root},
 			RuntimeEnvOverrides: map[string]string{"TEST_HOST_ENV": "agent-value"},
 		},
 	)
@@ -586,8 +577,9 @@ func TestMergeCommandEnvInjectsReservedAgentAndChatContextAfterRuntimeOverrides(
 	}
 	execCtx := &contracts.ExecutionContext{
 		Session: contracts.QuerySession{
+			WorkspaceRoot: root,
 			RuntimeContext: contracts.RuntimeRequestContext{
-				LocalPaths: contracts.LocalPaths{AgentDir: agentDir, ChatAttachmentsDir: chatDir},
+				LocalPaths: contracts.LocalPaths{AgentDir: agentDir, WorkspaceDir: root, ChatDir: chatDir},
 			},
 		},
 	}
@@ -597,8 +589,12 @@ func TestMergeCommandEnvInjectsReservedAgentAndChatContextAfterRuntimeOverrides(
 	if got := valuesFor(mergeCommandEnv(execCtx))["AP_CHAT_DIR"]; got != chatDir {
 		t.Fatalf("default AP_CHAT_DIR = %q, want %q", got, chatDir)
 	}
+	if got := valuesFor(mergeCommandEnv(execCtx))["AP_WORKSPACE_DIR"]; got != root {
+		t.Fatalf("default AP_WORKSPACE_DIR = %q, want %q", got, root)
+	}
 	execCtx.RuntimeEnvOverrides = map[string]string{
 		"AP_AGENT_CONFIG_HOME": "/agent-custom",
+		"AP_WORKSPACE_DIR":     "/wrong-workspace",
 		"AP_CHAT_DIR":          "/wrong-chat",
 	}
 	got := valuesFor(mergeCommandEnv(execCtx))
@@ -608,6 +604,9 @@ func TestMergeCommandEnvInjectsReservedAgentAndChatContextAfterRuntimeOverrides(
 	if got["AP_CHAT_DIR"] != chatDir {
 		t.Fatalf("AP_CHAT_DIR = %q, want reserved value %q", got["AP_CHAT_DIR"], chatDir)
 	}
+	if got["AP_WORKSPACE_DIR"] != root {
+		t.Fatalf("AP_WORKSPACE_DIR = %q, want reserved value %q", got["AP_WORKSPACE_DIR"], root)
+	}
 }
 
 func TestInvokeHostBashSoftSecurityRequiresApproval(t *testing.T) {
@@ -615,7 +614,6 @@ func TestInvokeHostBashSoftSecurityRequiresApproval(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:     root,
 				AllowedCommands:      []string{"printf"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
@@ -624,7 +622,7 @@ func TestInvokeHostBashSoftSecurityRequiresApproval(t *testing.T) {
 		},
 	}
 
-	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "printf ok > owner.md"}, &contracts.ExecutionContext{})
+	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "printf ok > owner.md"}, bashExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
 	}
@@ -639,7 +637,6 @@ func TestInvokeHostBashConsumesMatchingSoftSecurityApproval(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:     root,
 				AllowedCommands:      []string{"printf"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
@@ -648,6 +645,7 @@ func TestInvokeHostBashConsumesMatchingSoftSecurityApproval(t *testing.T) {
 		},
 	}
 	execCtx := &contracts.ExecutionContext{
+		Session: contracts.QuerySession{WorkspaceRoot: root},
 		BashSecurityApprovals: map[string]int{
 			bashsec.ApprovalFingerprint(command): 1,
 		},
@@ -677,7 +675,6 @@ func TestInvokeHostBashRejectsMismatchedSoftSecurityApproval(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:     root,
 				AllowedCommands:      []string{"printf"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
@@ -686,6 +683,7 @@ func TestInvokeHostBashRejectsMismatchedSoftSecurityApproval(t *testing.T) {
 		},
 	}
 	execCtx := &contracts.ExecutionContext{
+		Session: contracts.QuerySession{WorkspaceRoot: root},
 		BashSecurityApprovals: map[string]int{
 			bashsec.ApprovalFingerprint("printf ok > other.md"): 1,
 		},
@@ -710,7 +708,6 @@ func TestInvokeHostBashAccessPolicyRequiresApprovalForOutsidePath(t *testing.T) 
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:     root,
 				AllowedCommands:      []string{"cat"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
@@ -742,7 +739,6 @@ func TestInvokeHostBashAutoApprovedAccessAddsMetadata(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:     root,
 				AllowedCommands:      []string{"cat"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
@@ -781,7 +777,6 @@ func TestInvokeHostBashAutoApprovedReadWithDevNullRedirection(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:     root,
 				AllowedCommands:      []string{"*"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
@@ -819,7 +814,6 @@ func TestInvokeHostBashRealOutsideRedirectionStillRequiresAccessApproval(t *test
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:     root,
 				AllowedCommands:      []string{"*"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
@@ -854,7 +848,6 @@ func TestInvokeHostBashFullAccessStillKeepsBashsecHardBlock(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:     root,
 				AllowedCommands:      []string{"*"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
@@ -894,5 +887,16 @@ func TestBashResultHardErrorReturnsStructuredJSON(t *testing.T) {
 	}
 	if payload["error"] != "sandbox_execute_failed" {
 		t.Fatalf("expected error in marshaled output, got %#v", payload)
+	}
+}
+
+func bashExecutionContext(workspaceRoot string) *contracts.ExecutionContext {
+	return &contracts.ExecutionContext{
+		Session: contracts.QuerySession{
+			WorkspaceRoot: workspaceRoot,
+			RuntimeContext: contracts.RuntimeRequestContext{
+				LocalPaths: contracts.LocalPaths{WorkspaceDir: workspaceRoot},
+			},
+		},
 	}
 }

@@ -5,14 +5,12 @@ description: |
   Do not use bash redirection, heredocs, cat/echo/printf/tee, or interpreter one-liners to edit files when this tool is available.
   Existing files must be fully read in the same run before editing; external changes after read return file_edit_modified_since_read. Successful results include lineStats with addedLines, deletedLines, and editedLines.
   Existing text files keep their detected encoding when it is UTF-8, gb18030/gbk, or the current Windows ACP unless encoding is supplied.
-submitResultFormat: json-compact
-type: function
 inputSchema:
   type: object
   properties:
     file_path:
       type: string
-      description: Required. Absolute path, or a path relative to the file-tools working-directory in configs/tools.yml, for the file to edit.
+      description: Required. Absolute path, @workspace/@chat path, or a path relative to the current Workspace.
     old_string:
       type: string
       description: Required. Exact UTF-8 text to replace. Use an empty string only to create a new file or write an empty existing file.

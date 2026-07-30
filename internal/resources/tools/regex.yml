@@ -9,8 +9,6 @@ description: |
   textual matching affects correctness. This tool is read-only and works only
   on the supplied text; to inspect a file, read it first with file_read and
   pass the returned content here.
-submitResultFormat: json-compact
-type: function
 inputSchema:
   type: object
   properties:

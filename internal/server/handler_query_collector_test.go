@@ -18,15 +18,14 @@ func TestQueryEventCollectorDiscardsOnlyIncompleteModelTurn(t *testing.T) {
 	consume("llm.request", nil)
 	consume("reasoning.snapshot", map[string]any{"reasoningId": "reasoning-bad", "text": "partial reasoning"})
 	consume("tool.snapshot", map[string]any{"toolId": "tool-bad", "toolName": "file_write", "arguments": `{"path":"cut`})
-	consume("action.snapshot", map[string]any{"actionId": "action-bad", "actionName": "desktop", "arguments": map[string]any{"partial": true}})
+	consume("tool.snapshot", map[string]any{"toolId": "desktop-bad", "toolName": "desktop_action", "arguments": map[string]any{"partial": true}})
 	consume("content.delta", map[string]any{"delta": "partial"})
 	consume("run.activity", map[string]any{
 		"status": "retrying",
 		"recovery": map[string]any{
 			"action":       "discard_incomplete_model_turn",
 			"reasoningIds": []string{"reasoning-bad"},
-			"toolIds":      []string{"tool-bad"},
-			"actionIds":    []string{"action-bad"},
+			"toolIds":      []string{"tool-bad", "desktop-bad"},
 		},
 	})
 	consume("content.delta", map[string]any{"delta": "success"})

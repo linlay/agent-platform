@@ -1,7 +1,6 @@
 name: agent_invoke
 label: 调度智能体
 description: Dispatch 1 to 5 sub-agents in parallel, stream each sub-agent's activity live, and continue after all final answers are returned as one aggregated tool result.
-type: function
 clientVisible: true
 inputSchema:
   type: object
@@ -25,7 +24,7 @@ inputSchema:
             description: Optional. Short title shown in the task panel while the sub-agent is active.
           files:
             type: array
-            description: Optional. Local files the sub-agent must inspect. Use explicit /workspace/... paths or current-chat resource URLs; PROXY sub-agents receive these as downloadable references.
+            description: Optional. Local files the sub-agent must inspect. Cross-agent files are materialized through the current Chat; PROXY/CHANNEL adapters receive ticketed resource URLs.
             items:
               type: string
             maxItems: 10

@@ -202,7 +202,7 @@ func TestWebFetchBinaryPersistsAndAppliesPrompt(t *testing.T) {
 	execCtx := &contracts.ExecutionContext{
 		Session: contracts.QuerySession{
 			RuntimeContext: contracts.RuntimeRequestContext{
-				LocalPaths: contracts.LocalPaths{ChatAttachmentsDir: chatDir},
+				LocalPaths: contracts.LocalPaths{ChatDir: chatDir},
 			},
 		},
 	}

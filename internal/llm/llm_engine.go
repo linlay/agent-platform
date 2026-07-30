@@ -13,19 +13,19 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
-	"agent-platform/internal/frontendtools"
 	"agent-platform/internal/hitl"
 	. "agent-platform/internal/models"
 	"agent-platform/internal/querymessages"
+	"agent-platform/internal/toolinteraction"
 )
 
 type LLMAgentEngine struct {
-	cfg        config.Config
-	models     *ModelRegistry
-	tools      ToolExecutor
-	frontend   *frontendtools.Registry
-	sandbox    SandboxClient
-	httpClient *http.Client
+	cfg          config.Config
+	models       *ModelRegistry
+	tools        ToolExecutor
+	interactions *toolinteraction.Registry
+	sandbox      SandboxClient
+	httpClient   *http.Client
 }
 
 type runStreamOptions struct {
@@ -41,21 +41,21 @@ type runStreamOptions struct {
 	PostToolHook                 func(toolName string, toolID string) PostToolHookResult
 }
 
-func NewLLMAgentEngine(cfg config.Config, models *ModelRegistry, tools ToolExecutor, frontend *frontendtools.Registry, sandbox SandboxClient) *LLMAgentEngine {
-	return NewLLMAgentEngineWithHTTPClient(cfg, models, tools, frontend, sandbox, nil)
+func NewLLMAgentEngine(cfg config.Config, models *ModelRegistry, tools ToolExecutor, interactions *toolinteraction.Registry, sandbox SandboxClient) *LLMAgentEngine {
+	return NewLLMAgentEngineWithHTTPClient(cfg, models, tools, interactions, sandbox, nil)
 }
 
-func NewLLMAgentEngineWithHTTPClient(cfg config.Config, models *ModelRegistry, tools ToolExecutor, frontend *frontendtools.Registry, sandbox SandboxClient, httpClient *http.Client) *LLMAgentEngine {
+func NewLLMAgentEngineWithHTTPClient(cfg config.Config, models *ModelRegistry, tools ToolExecutor, interactions *toolinteraction.Registry, sandbox SandboxClient, httpClient *http.Client) *LLMAgentEngine {
 	if httpClient == nil {
 		httpClient = &http.Client{}
 	}
 	return &LLMAgentEngine{
-		cfg:        cfg,
-		models:     models,
-		tools:      tools,
-		frontend:   frontend,
-		sandbox:    sandbox,
-		httpClient: httpClient,
+		cfg:          cfg,
+		models:       models,
+		tools:        tools,
+		interactions: interactions,
+		sandbox:      sandbox,
+		httpClient:   httpClient,
 	}
 }
 
@@ -269,6 +269,8 @@ func (e *LLMAgentEngine) buildCurrentMessagesForRequest(req api.QueryRequest, se
 	}
 	return querymessages.BuildMessagesWithOptions(e.cfg.Paths.ChatsDir, req.ChatID, req.Role, req.Message, req.References, isVision, e.llmConsoleEnabled(llmConsoleMedia), querymessages.BuildOptions{
 		AdvancedUserPrompt: session.AdvancedUserPrompt,
+		WorkspaceDir:       session.WorkspaceRoot,
+		ChatDir:            session.ChatRoot,
 		RunID:              session.RunID,
 		RequestID:          session.RequestID,
 		AgentKey:           session.AgentKey,

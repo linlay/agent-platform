@@ -1,7 +1,6 @@
 name: memory_search
 label: 搜索记忆
 description: Search persisted agent memory with FTS and optional hybrid vector retrieval.
-type: function
 clientVisible: false
 inputSchema:
   type: object

@@ -30,7 +30,7 @@ func (s *statusService) Status(agentKey string) (Status, error) {
 			return Status{AgentKey: agentKey, Mode: Mode}, specErr
 		}
 		return Status{
-			AgentKey: spec.Key, Mode: Mode, SourceRoot: spec.Config.Source.Root, WorkspaceRoot: spec.Config.Source.Root,
+			AgentKey: spec.Key, Mode: Mode, WorkspaceRoot: spec.WorkspaceRoot,
 			StorageLocation: spec.Config.Storage.Location, StorageDir: s.resolver.StorageDirForSpec(spec),
 			Stale: true, Degraded: true, Error: failure.Error(), Engine: "lancedb", SchemaVersion: ControlSchemaVersion,
 		}, nil
@@ -41,7 +41,7 @@ func (s *statusService) Status(agentKey string) (Status, error) {
 	}
 	status := Status{
 		AgentKey: cfg.AgentKey, Mode: Mode, StorageLocation: cfg.Storage, StorageDir: cfg.StorageDir,
-		SourceRoot: cfg.WorkspaceRoot, WorkspaceRoot: cfg.WorkspaceRoot, Embedding: cfg.Embedding, Chunk: cfg.Chunk,
+		WorkspaceRoot: cfg.WorkspaceRoot, Embedding: cfg.Embedding, Chunk: cfg.Chunk,
 		Indexing: s.refresh.IsIndexing(cfg.AgentKey, cfg.StorageDir), ConfigHash: desiredIndexHash(cfg),
 		Engine: "lancedb", SchemaVersion: ControlSchemaVersion, StorageDiskUsage: storageDiskUsage(cfg.StorageDir),
 		PendingChanges: s.refresh.PendingChanges(cfg.StorageDir),

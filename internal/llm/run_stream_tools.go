@@ -48,7 +48,7 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 		return nil, deltas, message
 	}
 
-	if validationErr := s.validateFrontendToolArgs(toolCall.Function.Name, args); validationErr != nil {
+	if validationErr := s.validateInteractionToolArgs(toolCall.Function.Name, args); validationErr != nil {
 		deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, "invalid tool arguments: "+validationErr.Error(), "invalid_tool_arguments")
 		return nil, deltas, message
 	}
@@ -227,7 +227,7 @@ func (s *llmRunStream) invocationMayAwaitBeforeResult(invocation *preparedToolIn
 	if strings.TrimSpace(invocation.approvalDecision) != "" {
 		return false
 	}
-	if s.isFrontendTool(invocation.toolName) {
+	if s.isInteractionTool(invocation.toolName) {
 		return true
 	}
 	if isPlanningWriteTool(invocation.toolName) {
@@ -249,15 +249,17 @@ func (s *llmRunStream) invocationMayAwaitBeforeResult(invocation *preparedToolIn
 	return false
 }
 
-func (s *llmRunStream) isFrontendTool(toolName string) bool {
+func (s *llmRunStream) isInteractionTool(toolName string) bool {
 	tool, ok := s.lookupToolDefinition(toolName)
-	if !ok {
+	if !ok || s.engine.interactions == nil {
 		return false
 	}
-	toolKind, _ := tool.Meta["kind"].(string)
 	sourceType, _ := tool.Meta["sourceType"].(string)
-	return !strings.EqualFold(strings.TrimSpace(sourceType), "mcp") &&
-		strings.EqualFold(strings.TrimSpace(toolKind), "frontend")
+	if strings.EqualFold(strings.TrimSpace(sourceType), "mcp") {
+		return false
+	}
+	_, ok = s.engine.interactions.Handler(toolName)
+	return ok
 }
 
 func (s *llmRunStream) canInvokeQueuedToolCallsConcurrently(invocations []*preparedToolInvocation) bool {
@@ -455,7 +457,7 @@ func (s *llmRunStream) consumeActiveToolBatch() error {
 	batch.remaining--
 
 	if !prepared.suppressLive {
-		s.appendFrontendSubmitDeltas(invocation, prepared.result)
+		s.appendInteractionSubmitDeltas(invocation, prepared.result)
 		s.emitToolResultLive(invocation, prepared.result)
 		appendSourcePublishDelta(&s.pending, s.session, invocation, prepared.result)
 		appendPublishedArtifactDelta(&s.pending, s.session, invocation, prepared.result.Structured["publishedArtifacts"])
@@ -804,7 +806,7 @@ func (s *llmRunStream) invokeToolAndPublishResult(invocation *preparedToolInvoca
 		s.appendFinalPlanningDeltas(invocation.toolID, result)
 		return nil
 	}
-	s.appendFrontendSubmitDeltas(invocation, result)
+	s.appendInteractionSubmitDeltas(invocation, result)
 	s.appendOriginalToolResult(invocation, result)
 	if isPlanTool(invocation.toolName) && s.execCtx != nil && s.execCtx.PlanState != nil && len(s.execCtx.PlanState.Tasks) > 0 {
 		s.pending = append(s.pending, DeltaPlanUpdate{
@@ -818,7 +820,7 @@ func (s *llmRunStream) invokeToolAndPublishResult(invocation *preparedToolInvoca
 	return nil
 }
 
-func (s *llmRunStream) appendFrontendSubmitDeltas(invocation *preparedToolInvocation, result ToolExecutionResult) {
+func (s *llmRunStream) appendInteractionSubmitDeltas(invocation *preparedToolInvocation, result ToolExecutionResult) {
 	if result.SubmitInfo != nil {
 		s.pending = append(s.pending, DeltaRequestSubmit{
 			RequestID:  s.session.RequestID,
@@ -828,7 +830,7 @@ func (s *llmRunStream) appendFrontendSubmitDeltas(invocation *preparedToolInvoca
 			SubmitID:   result.SubmitInfo.SubmitID,
 			Params:     result.SubmitInfo.Params,
 		})
-		if answer := frontendSubmitAwaitingAnswer(invocation, result); len(answer) > 0 {
+		if answer := interactionSubmitAwaitingAnswer(invocation, result); len(answer) > 0 {
 			if result.SubmitInfo.SubmitID != "" {
 				answer["submitId"] = result.SubmitInfo.SubmitID
 			}
@@ -838,7 +840,7 @@ func (s *llmRunStream) appendFrontendSubmitDeltas(invocation *preparedToolInvoca
 			})
 		}
 	} else if len(result.Structured) > 0 {
-		if answer := frontendSubmitAwaitingAnswer(invocation, result); len(answer) > 0 {
+		if answer := interactionSubmitAwaitingAnswer(invocation, result); len(answer) > 0 {
 			s.pending = append(s.pending, DeltaAwaitingAnswer{
 				AwaitingID: invocation.toolID,
 				Answer:     CloneMap(answer),
@@ -1166,11 +1168,7 @@ func applyHITLMetadata(result ToolExecutionResult, invocation *preparedToolInvoc
 }
 
 func (s *llmRunStream) toolResultContent(toolName string, result ToolExecutionResult) string {
-	toolDef, ok := s.lookupToolDefinition(toolName)
-	if !ok {
-		return result.Output
-	}
-	return formatSubmitResultForLLM(toolDef, s.engine.frontend, result)
+	return result.Output
 }
 
 func bashSecurityBlockedToolResult(review bashsec.ReviewResult) ToolExecutionResult {
@@ -1277,22 +1275,18 @@ func (s *llmRunStream) preToolInvocationDeltas(toolID string, toolName string, p
 	if !ok {
 		return nil
 	}
-	toolKind, _ := tool.Meta["kind"].(string)
 	sourceType, _ := tool.Meta["sourceType"].(string)
 	if strings.EqualFold(strings.TrimSpace(sourceType), "mcp") {
 		return nil
 	}
-	if !strings.EqualFold(strings.TrimSpace(toolKind), "frontend") {
+	if s.engine.interactions == nil {
 		return nil
 	}
-	if s.engine.frontend == nil {
-		return nil
-	}
-	handler, ok := s.engine.frontend.Handler(toolName)
+	handler, ok := s.engine.interactions.Handler(toolName)
 	if !ok {
 		return nil
 	}
-	toolTimeout := resolveFrontendAwaitTimeout(toolName, tool, payload, s.execCtx.Budget)
+	toolTimeout := resolveInteractionAwaitTimeout(toolName, tool, payload, s.execCtx.Budget)
 	awaitAsk := handler.BuildInitialAwaitAsk(toolID, s.session.RunID, tool, payload, 0, toolTimeout)
 	if s.runControl != nil && awaitAsk != nil {
 		s.runControl.ExpectSubmit(awaitingContextFromStreamAsk(awaitAsk))
@@ -1301,11 +1295,6 @@ func (s *llmRunStream) preToolInvocationDeltas(toolID string, toolName string, p
 }
 
 func (s *llmRunStream) lookupToolDefinition(toolName string) (api.ToolDetailResponse, bool) {
-	if s.checker != nil {
-		if tool, ok := s.checker.Tool(toolName); ok {
-			return tool, true
-		}
-	}
 	for _, tool := range s.session.ModeToolDefinitions {
 		if strings.EqualFold(strings.TrimSpace(tool.Name), strings.TrimSpace(toolName)) ||
 			strings.EqualFold(strings.TrimSpace(tool.Key), strings.TrimSpace(toolName)) {

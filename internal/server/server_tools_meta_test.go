@@ -30,7 +30,6 @@ func TestAdminToolsListIgnoresQueryAndFlattensMetadata(t *testing.T) {
 			Key:  "bash",
 			Name: "bash",
 			Meta: map[string]any{
-				"kind":           "backend",
 				"sourceType":     "local",
 				"sourceCategory": "platform",
 			},
@@ -39,7 +38,6 @@ func TestAdminToolsListIgnoresQueryAndFlattensMetadata(t *testing.T) {
 			Key:  "qs_read",
 			Name: "qs_read",
 			Meta: map[string]any{
-				"kind":           "backend",
 				"sourceType":     "mcp",
 				"sourceCategory": "mcp",
 				"serverKey":      "qiuerscript",
@@ -49,7 +47,6 @@ func TestAdminToolsListIgnoresQueryAndFlattensMetadata(t *testing.T) {
 			Key:  "remote_tool",
 			Name: "remote_tool",
 			Meta: map[string]any{
-				"kind":           "backend",
 				"sourceType":     "mcp",
 				"sourceCategory": "mcp",
 				"serverKey":      "demo",
@@ -59,7 +56,6 @@ func TestAdminToolsListIgnoresQueryAndFlattensMetadata(t *testing.T) {
 			Key:  "agent_delegate",
 			Name: "agent_delegate",
 			Meta: map[string]any{
-				"kind":           "backend",
 				"sourceType":     "local",
 				"sourceCategory": "platform",
 				"catalogVisible": false,
@@ -71,9 +67,9 @@ func TestAdminToolsListIgnoresQueryAndFlattensMetadata(t *testing.T) {
 	if len(all) != 3 {
 		t.Fatalf("expected all three tools, got %#v", all)
 	}
-	assertToolSummary(t, all, "bash", "backend", "local", "platform", "")
-	assertToolSummary(t, all, "qs_read", "backend", "mcp", "mcp", "qiuerscript")
-	assertToolSummary(t, all, "remote_tool", "backend", "mcp", "mcp", "demo")
+	assertToolSummary(t, all, "bash", "local", "platform", "")
+	assertToolSummary(t, all, "qs_read", "mcp", "mcp", "qiuerscript")
+	assertToolSummary(t, all, "remote_tool", "mcp", "mcp", "demo")
 	assertAdminToolsResponseOmitsMeta(t, server, "/api/admin/tools")
 
 	assertToolNames(t, requestAdminTools(t, server, "/api/admin/tools?source=mcp"), []string{"bash", "qs_read", "remote_tool"})
@@ -128,14 +124,11 @@ func requestAdminTools(t *testing.T, server *Server, path string) []api.ToolSumm
 	return response.Data
 }
 
-func assertToolSummary(t *testing.T, tools []api.ToolSummary, name string, wantKind string, wantSourceType string, wantSourceCategory string, wantServerKey string) {
+func assertToolSummary(t *testing.T, tools []api.ToolSummary, name string, wantSourceType string, wantSourceCategory string, wantServerKey string) {
 	t.Helper()
 	for _, tool := range tools {
 		if tool.Name != name {
 			continue
-		}
-		if tool.Kind != wantKind {
-			t.Fatalf("tool %s kind = %q, want %q", name, tool.Kind, wantKind)
 		}
 		if tool.SourceType != wantSourceType {
 			t.Fatalf("tool %s sourceType = %q, want %q", name, tool.SourceType, wantSourceType)
@@ -166,6 +159,9 @@ func assertAdminToolsResponseOmitsMeta(t *testing.T, server *Server, path string
 	for _, tool := range response.Data {
 		if _, ok := tool["meta"]; ok {
 			t.Fatalf("expected /api/admin/tools item to omit meta, got %#v", tool)
+		}
+		if _, ok := tool["kind"]; ok {
+			t.Fatalf("expected /api/admin/tools item to omit kind, got %#v", tool)
 		}
 		if tool["sourceType"] == "mcp" {
 			if tool["serverKey"] == "" {

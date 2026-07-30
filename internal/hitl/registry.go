@@ -3,8 +3,6 @@ package hitl
 import (
 	"strings"
 	"sync"
-
-	"agent-platform/internal/api"
 )
 
 type Registry struct {
@@ -14,14 +12,12 @@ type Registry struct {
 	version int64
 	rules   []FlatRule
 	byCmd   map[string][]FlatRule
-	tools   map[string]api.ToolDetailResponse
 }
 
 func NewRegistry(root string) (*Registry, error) {
 	registry := &Registry{
 		root:  root,
 		byCmd: map[string][]FlatRule{},
-		tools: map[string]api.ToolDetailResponse{},
 	}
 	if err := registry.Reload(); err != nil {
 		return nil, err
@@ -34,25 +30,14 @@ func (r *Registry) Reload() error {
 	if err != nil {
 		return err
 	}
-	byCmd, tools := buildIndexes(rules)
+	byCmd := buildIndexes(rules)
 
 	r.mu.Lock()
 	r.rules = append([]FlatRule(nil), rules...)
 	r.byCmd = byCmd
-	r.tools = tools
 	r.version++
 	r.mu.Unlock()
 	return nil
-}
-
-func (r *Registry) Tool(name string) (api.ToolDetailResponse, bool) {
-	if r == nil {
-		return api.ToolDetailResponse{}, false
-	}
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	def, ok := r.tools[strings.ToLower(strings.TrimSpace(name))]
-	return def, ok
 }
 
 func (r *Registry) Check(command string, chatLevel int) InterceptResult {
@@ -60,10 +45,6 @@ func (r *Registry) Check(command string, chatLevel int) InterceptResult {
 	byCmd := r.byCmd
 	r.mu.RUnlock()
 	return checkRules(byCmd, command, chatLevel)
-}
-
-func syntheticToolName(viewportKey string) string {
-	return "_hitl_" + strings.TrimSpace(viewportKey) + "_"
 }
 
 func matchesTokens(commandTokens []string, matchTokens []string) bool {
@@ -149,25 +130,4 @@ func hasPassThroughFlag(argTokens []string, flags []string) bool {
 		}
 	}
 	return false
-}
-
-func buildSyntheticToolDefinition(rule FlatRule) api.ToolDetailResponse {
-	name := syntheticToolName(rule.ViewportKey)
-	return api.ToolDetailResponse{
-		Key:         name,
-		Name:        name,
-		Label:       "Bash HITL Viewport Metadata",
-		Description: "Synthetic metadata entry for Bash HITL viewport lookup. Intercepted bash commands emit awaiting events directly and no longer synthesize approval tool calls.",
-		Parameters: map[string]any{
-			"type": "object",
-		},
-		Meta: map[string]any{
-			"kind":          "frontend",
-			"sourceType":    "hitl",
-			"sourceKey":     rule.FileKey,
-			"clientVisible": true,
-			"viewportType":  rule.ViewportType,
-			"viewportKey":   rule.ViewportKey,
-		},
-	}
 }

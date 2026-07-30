@@ -4,8 +4,6 @@ description: |
   Find files by path/name glob without reading file contents. Use this when
   you know part of a filename, extension, or directory pattern and need matching
   paths, not content matches.
-submitResultFormat: json-compact
-type: function
 inputSchema:
   type: object
   properties:
@@ -14,7 +12,7 @@ inputSchema:
       description: Required. Ripgrep-style glob pattern to match file paths, such as '*.go', '**/*.{ts,tsx}', or 'internal/**/*.go'.
     path:
       type: string
-      description: Directory to search. Defaults to the file-tools working-directory in configs/tools.yml.
+      description: Directory to search. Defaults to the current Workspace; use @chat to search the current Chat directory.
     head_limit:
       type: integer
       description: Maximum number of matching paths to return after offset. Defaults to 100; 0 means unlimited.

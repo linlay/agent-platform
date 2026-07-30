@@ -49,9 +49,6 @@ func (w *StepWriter) taskIDForEvent(event stream.EventData) string {
 	if toolID := strings.TrimSpace(event.String("toolId")); toolID != "" {
 		return strings.TrimSpace(w.toolTaskIDs[toolID])
 	}
-	if actionID := strings.TrimSpace(event.String("actionId")); actionID != "" {
-		return strings.TrimSpace(w.actionTaskIDs[actionID])
-	}
 	return ""
 }
 

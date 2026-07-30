@@ -222,7 +222,7 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 	if normalizeErr != nil {
 		for index, invocation := range batch.invocations {
 			s.applyHITLDecision(invocation, batch.matchAt(index), batch.awaitingID, "reject", normalizeErr.Error(), false)
-			result := frontendSubmitInvalidPayloadResult(invocation, batch.awaitingID, submitResult.Request.Params, normalizeErr)
+			result := interactionSubmitInvalidPayloadResult(invocation, batch.awaitingID, submitResult.Request.Params, normalizeErr)
 			invocation.queuedResult = &result
 		}
 		s.hitlPendingBatch = nil
@@ -364,7 +364,7 @@ func (s *llmRunStream) buildHITLNoticeEntry(invocation *preparedToolInvocation) 
 	}, true
 }
 
-func formatHITLFrontendSummary(entries []hitlNoticeEntry) string {
+func formatHITLClientSummary(entries []hitlNoticeEntry) string {
 	if len(entries) == 0 {
 		return ""
 	}
@@ -535,14 +535,14 @@ func formatHITLFormSummaryLine(entry hitlNoticeEntry) string {
 }
 
 func buildHITLBatchSummaryAndApproval(entries []hitlNoticeEntry) (string, *chat.StepApproval) {
-	frontendSummary := formatHITLFrontendSummary(entries)
+	clientSummary := formatHITLClientSummary(entries)
 	llmNotice := formatHITLLLMNotice(entries)
-	if frontendSummary == "" || llmNotice == "" {
+	if clientSummary == "" || llmNotice == "" {
 		return "", nil
 	}
 
 	approval := &chat.StepApproval{
-		Summary:   frontendSummary,
+		Summary:   clientSummary,
 		Notice:    llmNotice,
 		Decisions: make([]chat.StepApprovalDecision, 0, len(entries)),
 	}

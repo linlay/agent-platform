@@ -46,8 +46,8 @@ func TestAgentFileEndpointReadsCoderAndKBaseWorkspaceFiles(t *testing.T) {
 	}
 }
 
-func TestOpenDirectoryUsesDedicatedKBaseSourceRoot(t *testing.T) {
-	fixture, _, kbaseSourceRoot := newAgentFileTestFixture(t)
+func TestOpenDirectoryUsesDedicatedKBaseWorkspaceRoot(t *testing.T) {
+	fixture, _, kbaseWorkspaceRoot := newAgentFileTestFixture(t)
 	openedPath := ""
 	previousOpen := openDirectoryPath
 	openDirectoryPath = func(path string) error {
@@ -62,7 +62,7 @@ func TestOpenDirectoryUsesDedicatedKBaseSourceRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open KBASE source directory: %v", err)
 	}
-	want := filepath.Clean(kbaseSourceRoot)
+	want := filepath.Clean(kbaseWorkspaceRoot)
 	if !response.Opened || response.DirectoryPath != want || openedPath != want {
 		t.Fatalf("unexpected KBASE open-directory response=%#v openedPath=%q want=%q", response, openedPath, want)
 	}
@@ -127,7 +127,7 @@ func TestAgentFileEndpointRejectsWorkspaceEscapes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			agentKey := "coder-file"
 			if tc.name == "missing stable workspace" {
-				agentKey = "mock-agent"
+				agentKey = "react-no-workspace"
 			}
 			rec := httptest.NewRecorder()
 			fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, agentFileURL(agentKey, tc.path, ""), nil))
@@ -148,6 +148,22 @@ func TestAgentFileEndpointRejectsWorkspaceEscapes(t *testing.T) {
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, agentFileURL("coder-file", "docs/outside-link.md", ""), nil))
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("expected symlink escape 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAgentFileEndpointExcludesChatsFromFilesystemRootWorkspace(t *testing.T) {
+	fixture, _, _ := newAgentFileTestFixture(t)
+	chatFile := filepath.Join(fixture.cfg.Paths.ChatsDir, "chat-root", "upload.txt")
+	if err := os.MkdirAll(filepath.Dir(chatFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(chatFile, []byte("chat"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, agentFileURL("root-workspace", chatFile, ""), nil))
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "must not enter the chats root") {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -355,6 +371,8 @@ func newAgentFileTestFixture(t *testing.T) (testFixture, string, string) {
 				filepath.Join(kbaseWorkspace, "docs"),
 				filepath.Join(cfg.Paths.AgentsDir, "coder-file"),
 				filepath.Join(cfg.Paths.AgentsDir, "kbase-file"),
+				filepath.Join(cfg.Paths.AgentsDir, "react-no-workspace"),
+				filepath.Join(cfg.Paths.AgentsDir, "root-workspace"),
 			} {
 				if err := os.MkdirAll(dir, 0o755); err != nil {
 					t.Fatalf("mkdir %s: %v", dir, err)
@@ -371,6 +389,12 @@ func newAgentFileTestFixture(t *testing.T) (testFixture, string, string) {
 			}
 			writeAgentFileTestAgent(t, filepath.Join(cfg.Paths.AgentsDir, "coder-file", "agent.yml"), "coder-file", "CODER", coderWorkspace)
 			writeAgentFileTestAgent(t, filepath.Join(cfg.Paths.AgentsDir, "kbase-file", "agent.yml"), "kbase-file", "KBASE", kbaseWorkspace)
+			writeAgentFileTestAgent(t, filepath.Join(cfg.Paths.AgentsDir, "root-workspace", "agent.yml"), "root-workspace", "REACT", string(filepath.Separator))
+			if err := os.WriteFile(filepath.Join(cfg.Paths.AgentsDir, "react-no-workspace", "agent.yml"), []byte(
+				"key: react-no-workspace\nname: react-no-workspace\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\n",
+			), 0o644); err != nil {
+				t.Fatalf("write no-workspace agent: %v", err)
+			}
 		},
 	})
 	return fixture, coderWorkspace, kbaseWorkspace
@@ -385,17 +409,12 @@ func writeAgentFileTestAgent(t *testing.T, path string, key string, mode string,
 		"modelConfig:",
 		"  modelKey: mock-model",
 	}
+	lines = append(lines,
+		"runtimeConfig:",
+		"  workspaceRoot: "+filepath.ToSlash(workspace),
+	)
 	if strings.EqualFold(mode, "KBASE") {
-		lines = append(lines,
-			"kbaseConfig:",
-			"  source:",
-			"    root: "+filepath.ToSlash(workspace),
-		)
-	} else {
-		lines = append(lines,
-			"runtimeConfig:",
-			"  workspaceRoot: "+filepath.ToSlash(workspace),
-		)
+		lines = append(lines, "kbaseConfig:")
 	}
 	content := strings.Join(lines, "\n") + "\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {

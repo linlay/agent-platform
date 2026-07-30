@@ -196,10 +196,6 @@ type LSPPosition struct {
 	Character int `json:"character"`
 }
 
-type ActionInvoker interface {
-	Invoke(ctx context.Context, actionName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error)
-}
-
 type SandboxClient interface {
 	OpenIfNeeded(ctx context.Context, execCtx *ExecutionContext) error
 	Execute(ctx context.Context, execCtx *ExecutionContext, command string, cwd string, timeout int64, env map[string]string) (SandboxExecutionResult, error)
@@ -247,7 +243,7 @@ type QuerySession struct {
 	// It is runtime-only and is deliberately excluded from persisted/session
 	// protocol payloads.
 	WebClientTarget WebClientTarget `json:"-"`
-	// RunQueryOrigin marks a root run created by the run_query backend tool.
+	// RunQueryOrigin marks a root run created by the run_query tool.
 	// It is runtime-only: the public request cannot forge it, and a marked run
 	// is forbidden from calling any run tool.
 	RunQueryOrigin *RunQueryOrigin `json:"-"`
@@ -271,7 +267,6 @@ type QuerySession struct {
 	CapabilityPrompts             []string
 	PlanningMode                  bool
 	EditingMode                   bool
-	KBaseSourceRoot               string
 	ScopedFilePolicy              *ScopedFilePolicy
 	TeamID                        string
 	Created                       bool
@@ -318,6 +313,7 @@ type QuerySession struct {
 	AgentHasRuntimeSandbox bool
 	AgentHasMemoryConfig   bool
 	WorkspaceRoot          string
+	ChatRoot               string
 	AccessLevel            string
 	SkillHookDirs          []string
 	// RuntimeEnvOverrides carries agent/skill-level env defaults for both sandbox and host bash execution.
@@ -345,12 +341,12 @@ type SandboxExtraMount struct {
 }
 
 // ScopedFilePolicy is a run-scoped gate for dedicated structured file tools.
-// Path authorization remains owned by AccessPolicy. Root identifies the
-// dedicated source for source-specific mutation safeguards.
+// Path authorization remains owned by AccessPolicy. WorkspaceRoot identifies
+// the dedicated KBASE workspace for workspace-specific mutation safeguards.
 type ScopedFilePolicy struct {
-	Root                  string
-	SourceMutationEnabled bool
-	RequireExistingParent bool
+	WorkspaceRoot            string
+	WorkspaceMutationEnabled bool
+	RequireExistingParent    bool
 }
 
 type HostAccessRoots struct {
@@ -425,12 +421,16 @@ type ExecutionContext struct {
 type SandboxSession struct {
 	SessionID     string
 	EnvironmentID string
-	DefaultCwd    string
 	Level         string
+	ReuseKey      string
 }
 
 type ToolExecutionResult struct {
-	Output            string
+	// Output is the final text returned to the model. Tool implementations own
+	// its formatting; the LLM layer must not rewrite it from configuration.
+	Output string
+	// Structured is the original business payload used by streams, persistence,
+	// and application consumers. Model-output compaction must not mutate it.
 	Structured        map[string]any
 	RawParams         any
 	HITL              map[string]any
@@ -515,10 +515,10 @@ func cloneAwaitingSubmitValues(values []any) []any {
 }
 
 type SandboxExecutionResult struct {
-	ExitCode         int
-	Stdout           string
-	Stderr           string
-	WorkingDirectory string
+	ExitCode int
+	Stdout   string
+	Stderr   string
+	Cwd      string
 }
 
 type ActiveRun struct {
@@ -683,20 +683,6 @@ func (n *NoopToolExecutor) Invoke(_ context.Context, toolName string, args map[s
 	return result, ErrNotImplemented
 }
 
-type NoopActionInvoker struct{}
-
-func NewNoopActionInvoker() *NoopActionInvoker { return &NoopActionInvoker{} }
-
-func (n *NoopActionInvoker) Invoke(_ context.Context, actionName string, args map[string]any, _ *ExecutionContext) (ToolExecutionResult, error) {
-	result := ToolExecutionResult{
-		Output:     "status: not_implemented",
-		Structured: map[string]any{"actionName": actionName, "args": args, "status": "not_implemented"},
-		Error:      "not_implemented",
-		ExitCode:   -1,
-	}
-	return result, ErrNotImplemented
-}
-
 type NoopSandboxClient struct{}
 
 func NewNoopSandboxClient() *NoopSandboxClient { return &NoopSandboxClient{} }
@@ -705,10 +691,10 @@ func (n *NoopSandboxClient) OpenIfNeeded(_ context.Context, _ *ExecutionContext)
 
 func (n *NoopSandboxClient) Execute(_ context.Context, _ *ExecutionContext, command string, cwd string, _ int64, _ map[string]string) (SandboxExecutionResult, error) {
 	result := SandboxExecutionResult{
-		ExitCode:         -1,
-		Stdout:           "",
-		Stderr:           "status: not_implemented",
-		WorkingDirectory: cwd,
+		ExitCode: -1,
+		Stdout:   "",
+		Stderr:   "status: not_implemented",
+		Cwd:      cwd,
 	}
 	return result, ErrNotImplemented
 }

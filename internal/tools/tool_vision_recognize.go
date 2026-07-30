@@ -159,9 +159,13 @@ func (t *RuntimeToolExecutor) loadVisionReferenceImage(name string, options mult
 }
 
 func (t *RuntimeToolExecutor) loadVisionFileImage(path string, options multimodal.ImageLoadOptions, execCtx *ExecutionContext) (multimodal.ImagePayload, error) {
-	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessPolicySessionWithFallback(execCtx, t.cfg.FileTools.WorkingDirectory), filetools.ReadAccess, path)
+	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessPolicySession(execCtx), filetools.ReadAccess, path)
 	if err != nil {
-		return multimodal.ImagePayload{}, visionToolResultError{visionToolError("vision_file_path_invalid", err.Error(), nil)}
+		code := "vision_file_path_invalid"
+		if strings.Contains(err.Error(), "workspace_unavailable") {
+			code = "workspace_unavailable"
+		}
+		return multimodal.ImagePayload{}, visionToolResultError{visionToolError(code, err.Error(), nil)}
 	}
 	if access.Blocked {
 		return multimodal.ImagePayload{}, visionToolResultError{visionToolError("vision_file_path_blocked", access.Reason, map[string]any{"filePath": access.Path})}

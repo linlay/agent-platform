@@ -139,8 +139,8 @@ func (s *watchSupervisor) ensure(ctx context.Context) {
 	desired := map[string]AgentSpec{}
 	for _, spec := range s.resolver.Specs() {
 		spec.Key = strings.TrimSpace(spec.Key)
-		spec.Config.Source.Root = strings.TrimSpace(spec.Config.Source.Root)
-		if spec.Key != "" && spec.Config.Source.Root != "" {
+		spec.WorkspaceRoot = strings.TrimSpace(spec.WorkspaceRoot)
+		if spec.Key != "" && spec.WorkspaceRoot != "" {
 			desired[spec.Key] = spec
 		}
 	}
@@ -172,7 +172,7 @@ func (s *watchSupervisor) ensure(ctx context.Context) {
 
 func (s *watchSupervisor) startWatcher(ctx context.Context, spec AgentSpec) {
 	agentKey := strings.TrimSpace(spec.Key)
-	workspace := strings.TrimSpace(spec.Config.Source.Root)
+	workspace := strings.TrimSpace(spec.WorkspaceRoot)
 	debounce := s.debounce
 	if debounce <= 0 {
 		debounce = 2 * time.Second
@@ -230,11 +230,11 @@ func (s *watchSupervisor) startWatcher(ctx context.Context, spec AgentSpec) {
 
 func watcherSignature(spec AgentSpec) string {
 	payload := struct {
-		SourceRoot      string
+		WorkspaceRoot   string
 		StorageLocation string
 		Exclude         []string
 	}{
-		SourceRoot:      strings.TrimSpace(spec.Config.Source.Root),
+		WorkspaceRoot:   strings.TrimSpace(spec.WorkspaceRoot),
 		StorageLocation: strings.ToLower(strings.TrimSpace(spec.Config.Storage.Location)),
 		Exclude:         append([]string(nil), spec.Config.Exclude...),
 	}

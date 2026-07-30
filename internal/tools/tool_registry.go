@@ -35,13 +35,11 @@ func LoadRuntimeToolDefinitions(root string) ([]api.ToolDetailResponse, error) {
 		}
 		tree, err := config.LoadYAMLTree(path)
 		if err != nil {
-			log.Printf("[tools] skip invalid tool file %s: %v", path, err)
-			continue
+			return nil, fmt.Errorf("parse runtime tool %s: %w", path, err)
 		}
 		rootNode, ok := tree.(map[string]any)
 		if !ok {
-			log.Printf("[tools] skip invalid tool file %s: object root required", path)
-			continue
+			return nil, fmt.Errorf("parse runtime tool %s: object root required", path)
 		}
 		if isDeprecatedExternalToolConfig(path, rootNode) {
 			return nil, deprecatedExternalToolConfigError(path)
@@ -54,8 +52,7 @@ func LoadRuntimeToolDefinitions(root string) ([]api.ToolDetailResponse, error) {
 		options := toolDefinitionParseOptions{sourceType: "agent-local", sourceCategory: "external"}
 		def, err := parseToolDefinition(file.root, options)
 		if err != nil {
-			log.Printf("[tools] skip invalid tool file %s: %v", file.path, err)
-			continue
+			return nil, fmt.Errorf("parse runtime tool %s: %w", file.path, err)
 		}
 		out = append(out, def)
 	}
@@ -125,20 +122,11 @@ func MergeToolDefinitions(base []api.ToolDetailResponse, runtime []api.ToolDetai
 			continue
 		}
 		index, exists := byName[key]
-		runtimeKind, _ := def.Meta["kind"].(string)
-		if strings.EqualFold(runtimeKind, "backend") {
-			if !exists {
-				log.Printf("[tools] skip backend tool %q because no Go implementation is registered", def.Name)
-				continue
-			}
-			merged[index] = mergeBackendToolDefinition(merged[index], def)
-			continue
-		}
 		if exists {
+			merged[index] = mergeRuntimeToolDefinition(merged[index], def)
 			continue
 		}
-		byName[key] = len(merged)
-		merged = append(merged, cloneToolDefinition(def))
+		log.Printf("[tools] skip runtime tool %q because no implementation is registered", def.Name)
 	}
 	for _, def := range mcp {
 		key := normalizeToolName(def)
@@ -163,7 +151,7 @@ func normalizeToolName(def api.ToolDetailResponse) string {
 	return strings.ToLower(name)
 }
 
-func mergeBackendToolDefinition(runtime api.ToolDetailResponse, overlay api.ToolDetailResponse) api.ToolDetailResponse {
+func mergeRuntimeToolDefinition(runtime api.ToolDetailResponse, overlay api.ToolDetailResponse) api.ToolDetailResponse {
 	merged := cloneToolDefinition(runtime)
 	if strings.TrimSpace(overlay.Key) != "" {
 		merged.Key = overlay.Key
@@ -174,7 +162,7 @@ func mergeBackendToolDefinition(runtime api.ToolDetailResponse, overlay api.Tool
 	if strings.TrimSpace(overlay.Label) != "" {
 		merged.Label = overlay.Label
 	}
-	if strings.TrimSpace(merged.Description) == "" && strings.TrimSpace(overlay.Description) != "" {
+	if strings.TrimSpace(overlay.Description) != "" {
 		merged.Description = overlay.Description
 	}
 	if strings.TrimSpace(overlay.AfterCallHint) != "" {

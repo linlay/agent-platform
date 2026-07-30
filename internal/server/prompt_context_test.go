@@ -21,10 +21,14 @@ func TestResolveSandboxPathsLocalModeDisabledHub(t *testing.T) {
 	cfg := testPromptContextConfig(t)
 	cfg.ContainerHub.Enabled = false
 	def := testPromptContextDefinition(cfg.Paths)
+	localPaths := testPromptContextLocalPaths(t, cfg)
 
-	paths := resolveSandboxPaths(cfg, def, "chat-1")
-	if paths.WorkspaceDir != absTestPath(t, filepath.Join(cfg.Paths.ChatsDir, "chat-1")) {
+	paths := resolveSandboxPaths(cfg, def, localPaths)
+	if paths.WorkspaceDir != localPaths.WorkspaceDir {
 		t.Fatalf("workspace dir = %q", paths.WorkspaceDir)
+	}
+	if paths.ChatDir != localPaths.ChatDir {
+		t.Fatalf("chat dir = %q", paths.ChatDir)
 	}
 	if paths.RootDir != absTestPath(t, cfg.Paths.RootDir) {
 		t.Fatalf("root dir = %q", paths.RootDir)
@@ -50,10 +54,14 @@ func TestResolveSandboxPathsLocalModeLocalEngine(t *testing.T) {
 	cfg.ContainerHub.Enabled = true
 	cfg.ContainerHub.ResolvedEngine = "local"
 	def := testPromptContextDefinition(cfg.Paths)
+	localPaths := testPromptContextLocalPaths(t, cfg)
 
-	paths := resolveSandboxPaths(cfg, def, "chat-1")
-	if paths.WorkspaceDir != absTestPath(t, filepath.Join(cfg.Paths.ChatsDir, "chat-1")) {
+	paths := resolveSandboxPaths(cfg, def, localPaths)
+	if paths.WorkspaceDir != localPaths.WorkspaceDir {
 		t.Fatalf("workspace dir = %q", paths.WorkspaceDir)
+	}
+	if paths.ChatDir != localPaths.ChatDir {
+		t.Fatalf("chat dir = %q", paths.ChatDir)
 	}
 	if paths.SkillsMarketDir != absTestPath(t, cfg.Paths.SkillsMarketDir) {
 		t.Fatalf("skills market dir = %q", paths.SkillsMarketDir)
@@ -80,9 +88,12 @@ func TestResolveSandboxPathsContainerMode(t *testing.T) {
 	cfg.ContainerHub.ResolvedEngine = "docker"
 	def := testPromptContextDefinition(cfg.Paths)
 
-	paths := resolveSandboxPaths(cfg, def, "chat-1")
+	paths := resolveSandboxPaths(cfg, def, contracts.LocalPaths{})
 	if paths.WorkspaceDir != "/workspace" {
 		t.Fatalf("workspace dir = %q", paths.WorkspaceDir)
+	}
+	if paths.ChatDir != "/chat" {
+		t.Fatalf("chat dir = %q", paths.ChatDir)
 	}
 	if paths.AgentDir != "/agent" {
 		t.Fatalf("agent dir = %q", paths.AgentDir)
@@ -102,7 +113,7 @@ func TestResolveLocalPathsIncludesAgentAndRegistryPaths(t *testing.T) {
 	agentDir := filepath.Join(cfg.Paths.AgentsDir, "demo-agent")
 	chatDir := filepath.Join(cfg.Paths.ChatsDir, "chat-1")
 	if err := os.MkdirAll(chatDir, 0o755); err != nil {
-		t.Fatalf("create chat attachments dir: %v", err)
+		t.Fatalf("create chat dir: %v", err)
 	}
 
 	paths, err := resolveLocalPaths(cfg.Paths, "chat-1", agentDir, "")
@@ -139,32 +150,25 @@ func TestResolveLocalPathsIncludesAgentAndRegistryPaths(t *testing.T) {
 	if paths.ViewportsDir != filepath.Join(filepath.Dir(filepath.Clean(cfg.Paths.RegistriesDir)), "viewports") {
 		t.Fatalf("viewports dir = %q", paths.ViewportsDir)
 	}
-	if paths.ChatAttachmentsDir != filepath.Join(cfg.Paths.ChatsDir, "chat-1") {
-		t.Fatalf("chat attachments dir = %q", paths.ChatAttachmentsDir)
+	if paths.ChatDir != absTestPath(t, filepath.Join(cfg.Paths.ChatsDir, "chat-1")) {
+		t.Fatalf("chat dir = %q", paths.ChatDir)
 	}
-	if paths.WorkingDirectory == "" {
-		t.Fatal("expected working directory to be populated")
+	if paths.WorkspaceDir != "" {
+		t.Fatalf("workspace dir = %q, want empty", paths.WorkspaceDir)
 	}
 }
 
-func TestResolveLocalPathsResolvesChatWorkspaceRoot(t *testing.T) {
+func TestResolveLocalPathsRejectsChatWorkspaceRoot(t *testing.T) {
 	t.Parallel()
 
 	cfg := testPromptContextConfig(t)
-	paths, err := resolveLocalPaths(cfg.Paths, "chat-1", "", catalog.AgentWorkspaceRootChat)
-	if err != nil {
-		t.Fatalf("resolveLocalPaths() error = %v", err)
-	}
-	want := absTestPath(t, filepath.Join(cfg.Paths.ChatsDir, "chat-1"))
-	if paths.WorkspaceDir != want {
-		t.Fatalf("workspace dir = %q, want %q", paths.WorkspaceDir, want)
-	}
-	if paths.WorkingDirectory != want {
-		t.Fatalf("working dir = %q, want %q", paths.WorkingDirectory, want)
+	_, err := resolveLocalPaths(cfg.Paths, "chat-1", "", "@chat")
+	if err == nil || !strings.Contains(err.Error(), `workspaceRoot no longer supports "@chat"`) {
+		t.Fatalf("expected @chat rejection, got %v", err)
 	}
 }
 
-func TestResolveLocalPathsCreatesChatAttachmentsDir(t *testing.T) {
+func TestResolveLocalPathsCreatesChatDir(t *testing.T) {
 	t.Parallel()
 
 	cfg := testPromptContextConfig(t)
@@ -173,29 +177,31 @@ func TestResolveLocalPathsCreatesChatAttachmentsDir(t *testing.T) {
 		t.Fatalf("resolveLocalPaths() error = %v", err)
 	}
 	want := absTestPath(t, filepath.Join(cfg.Paths.ChatsDir, "chat-missing"))
-	if paths.ChatAttachmentsDir != want {
-		t.Fatalf("chat attachments dir = %q, want %q", paths.ChatAttachmentsDir, want)
+	if paths.ChatDir != want {
+		t.Fatalf("chat dir = %q, want %q", paths.ChatDir, want)
 	}
 	if stat, err := os.Stat(want); err != nil || !stat.IsDir() {
-		t.Fatalf("expected chat attachments dir to be created, stat=%#v err=%v", stat, err)
+		t.Fatalf("expected chat dir to be created, stat=%#v err=%v", stat, err)
 	}
-	if paths.WorkingDirectory == "" {
-		t.Fatal("expected working directory to be populated")
+	if paths.WorkspaceDir != "" {
+		t.Fatalf("workspace dir = %q, want empty", paths.WorkspaceDir)
 	}
 }
 
-func TestResolveLocalWorkspaceDirUsesChatDirWhenChatIDProvided(t *testing.T) {
+func TestResolveLocalPathsNeverUsesChatAsWorkspace(t *testing.T) {
 	t.Parallel()
 
 	cfg := testPromptContextConfig(t)
-
-	workspaceDir := resolveLocalWorkspaceDir(cfg.Paths, "chat-1")
-	if workspaceDir != absTestPath(t, filepath.Join(cfg.Paths.ChatsDir, "chat-1")) {
-		t.Fatalf("workspace dir = %q", workspaceDir)
+	paths, err := resolveLocalPaths(cfg.Paths, "chat-1", "", "")
+	if err != nil {
+		t.Fatalf("resolveLocalPaths() error = %v", err)
+	}
+	if paths.WorkspaceDir != "" || paths.ChatDir == "" {
+		t.Fatalf("unexpected dual roots: %#v", paths)
 	}
 }
 
-func TestBuildRuntimeContextDefaultsHostWorkspaceToChatDir(t *testing.T) {
+func TestBuildRuntimeContextLeavesHostWorkspaceUnavailable(t *testing.T) {
 	t.Parallel()
 
 	cfg := testPromptContextConfig(t)
@@ -219,14 +225,11 @@ func TestBuildRuntimeContextDefaultsHostWorkspaceToChatDir(t *testing.T) {
 		t.Fatalf("buildRuntimeRequestContext() error = %v", err)
 	}
 	want := absTestPath(t, filepath.Join(cfg.Paths.ChatsDir, "chat-default"))
-	if context.LocalPaths.WorkspaceDir != want {
-		t.Fatalf("workspace dir = %q, want %q", context.LocalPaths.WorkspaceDir, want)
+	if context.LocalPaths.WorkspaceDir != "" {
+		t.Fatalf("workspace dir = %q, want empty", context.LocalPaths.WorkspaceDir)
 	}
-	if context.LocalPaths.ChatAttachmentsDir != want {
-		t.Fatalf("chat attachments dir = %q, want %q", context.LocalPaths.ChatAttachmentsDir, want)
-	}
-	if context.LocalPaths.WorkingDirectory != want {
-		t.Fatalf("working dir = %q, want %q", context.LocalPaths.WorkingDirectory, want)
+	if context.LocalPaths.ChatDir != want {
+		t.Fatalf("chat dir = %q, want %q", context.LocalPaths.ChatDir, want)
 	}
 }
 
@@ -241,6 +244,10 @@ func TestBuildRuntimeContextKeepsExplicitWorkspaceAndChatDir(t *testing.T) {
 		},
 	}
 
+	workspace := filepath.Join(filepath.Dir(cfg.Paths.ChatsDir), "workspace")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
 	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
 		agentKey: "admin-agent",
 		chatID:   "chat-admin",
@@ -249,7 +256,7 @@ func TestBuildRuntimeContextKeepsExplicitWorkspaceAndChatDir(t *testing.T) {
 			Mode:     "REACT",
 			AgentDir: filepath.Join(cfg.Paths.AgentsDir, "admin-agent"),
 			Workspace: catalog.AgentWorkspaceConfig{
-				Root: "/",
+				Root: workspace,
 			},
 		},
 	})
@@ -257,14 +264,11 @@ func TestBuildRuntimeContextKeepsExplicitWorkspaceAndChatDir(t *testing.T) {
 		t.Fatalf("buildRuntimeRequestContext() error = %v", err)
 	}
 	wantChatDir := absTestPath(t, filepath.Join(cfg.Paths.ChatsDir, "chat-admin"))
-	if context.LocalPaths.WorkspaceDir != "/" {
-		t.Fatalf("workspace dir = %q, want /", context.LocalPaths.WorkspaceDir)
+	if context.LocalPaths.WorkspaceDir != absTestPath(t, workspace) {
+		t.Fatalf("workspace dir = %q, want %q", context.LocalPaths.WorkspaceDir, workspace)
 	}
-	if context.LocalPaths.ChatAttachmentsDir != wantChatDir {
-		t.Fatalf("chat attachments dir = %q, want %q", context.LocalPaths.ChatAttachmentsDir, wantChatDir)
-	}
-	if context.LocalPaths.WorkingDirectory != "/" {
-		t.Fatalf("working dir = %q, want /", context.LocalPaths.WorkingDirectory)
+	if context.LocalPaths.ChatDir != wantChatDir {
+		t.Fatalf("chat dir = %q, want %q", context.LocalPaths.ChatDir, wantChatDir)
 	}
 }
 
@@ -290,6 +294,9 @@ func TestBuildRuntimeContextSkipsSandboxContextWhenHubDisabled(t *testing.T) {
 		definition: catalog.AgentDefinition{
 			Key:      "demo-agent",
 			AgentDir: filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
+			Workspace: catalog.AgentWorkspaceConfig{
+				Root: testPromptContextWorkspace(t, cfg),
+			},
 			Runtime: map[string]any{
 				"environmentId": "shell",
 			},
@@ -439,6 +446,9 @@ func TestBuildRuntimeContextIncludesSandboxContextWhenSandboxConfigured(t *testi
 		definition: catalog.AgentDefinition{
 			Key:      "demo-agent",
 			AgentDir: filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
+			Workspace: catalog.AgentWorkspaceConfig{
+				Root: testPromptContextWorkspace(t, cfg),
+			},
 			Runtime: map[string]any{
 				"environmentId": "browser",
 				"level":         "run",
@@ -523,6 +533,9 @@ func TestBuildRuntimeContextIncludesSkillsMarketOnlyWithExplicitMount(t *testing
 		definition: catalog.AgentDefinition{
 			Key:      "demo-agent",
 			AgentDir: filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
+			Workspace: catalog.AgentWorkspaceConfig{
+				Root: testPromptContextWorkspace(t, cfg),
+			},
 			Runtime: map[string]any{
 				"sandboxMounts": []map[string]any{
 					{"platform": "skills-market", "mode": "ro"},
@@ -541,7 +554,7 @@ func TestBuildRuntimeContextIncludesSkillsMarketOnlyWithExplicitMount(t *testing
 	}
 }
 
-func TestBuildRuntimeContextBackfillsSandboxReferencePaths(t *testing.T) {
+func TestBuildRuntimeContextUsesChatPathsForContainerResources(t *testing.T) {
 	t.Parallel()
 
 	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -573,6 +586,9 @@ func TestBuildRuntimeContextBackfillsSandboxReferencePaths(t *testing.T) {
 		definition: catalog.AgentDefinition{
 			Key:      "demo-agent",
 			AgentDir: filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
+			Workspace: catalog.AgentWorkspaceConfig{
+				Root: testPromptContextWorkspace(t, cfg),
+			},
 			Runtime: map[string]any{
 				"environmentId": "shell",
 				"level":         "run",
@@ -582,11 +598,38 @@ func TestBuildRuntimeContextBackfillsSandboxReferencePaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildRuntimeRequestContext() error = %v", err)
 	}
-	if got := context.References[0].Path; got != "/workspace/report.docx" {
+	if got := context.References[0].Path; got != "" {
 		t.Fatalf("reference path from name = %q", got)
 	}
-	if got := context.References[1].Path; got != "/workspace/from-url.docx" {
+	if got := context.References[1].Path; got != "/chat/from-url.docx" {
 		t.Fatalf("reference path from URL = %q", got)
+	}
+}
+
+func TestTranslateReferencePathForHostUsesStrictDualRoots(t *testing.T) {
+	workspace := t.TempDir()
+	chatDir := t.TempDir()
+	workspaceFile := filepath.Join(workspace, "src", "main.go")
+	chatFile := filepath.Join(chatDir, "upload.txt")
+	if err := os.MkdirAll(filepath.Dir(workspaceFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(workspaceFile, []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(chatFile, []byte("upload\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths := contracts.LocalPaths{WorkspaceDir: workspace, ChatDir: chatDir}
+	if got, err := translateReferencePathForHost("src/main.go", paths); err != nil || got != absTestPath(t, workspaceFile) {
+		t.Fatalf("workspace reference = %q, err=%v", got, err)
+	}
+	if got, err := translateReferencePathForHost("@chat/upload.txt", paths); err != nil || got != absTestPath(t, chatFile) {
+		t.Fatalf("chat reference = %q, err=%v", got, err)
+	}
+	if _, err := translateReferencePathForHost("src/main.go", contracts.LocalPaths{ChatDir: chatDir}); err == nil ||
+		!strings.Contains(err.Error(), "workspace_unavailable") {
+		t.Fatalf("expected missing workspace error, got %v", err)
 	}
 }
 
@@ -863,12 +906,39 @@ func testPromptContextDefinition(paths config.PathsConfig) catalog.AgentDefiniti
 	}
 }
 
+func testPromptContextLocalPaths(t *testing.T, cfg config.Config) contracts.LocalPaths {
+	t.Helper()
+	workspace := testPromptContextWorkspace(t, cfg)
+	chatDir := filepath.Join(cfg.Paths.ChatsDir, "chat-1")
+	for _, dir := range []string{chatDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("create test path %q: %v", dir, err)
+		}
+	}
+	return contracts.LocalPaths{
+		WorkspaceDir: absTestPath(t, workspace),
+		ChatDir:      absTestPath(t, chatDir),
+	}
+}
+
+func testPromptContextWorkspace(t *testing.T, cfg config.Config) string {
+	t.Helper()
+	workspace := filepath.Join(filepath.Dir(cfg.Paths.ChatsDir), "workspace")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("create test workspace %q: %v", workspace, err)
+	}
+	return workspace
+}
+
 func absTestPath(t *testing.T, path string) string {
 	t.Helper()
 
 	absolute, err := filepath.Abs(filepath.Clean(path))
 	if err != nil {
 		t.Fatalf("filepath.Abs(%q) error = %v", path, err)
+	}
+	if canonical, err := filepath.EvalSymlinks(absolute); err == nil {
+		return filepath.Clean(canonical)
 	}
 	return absolute
 }
@@ -885,7 +955,7 @@ func (testCatalogRegistry) Skills(string) []api.SkillSummary { return nil }
 func (testCatalogRegistry) SkillDefinition(string) (catalog.SkillDefinition, bool) {
 	return catalog.SkillDefinition{}, false
 }
-func (testCatalogRegistry) Tools(string, string) []api.ToolSummary { return nil }
+func (testCatalogRegistry) Tools(string) []api.ToolSummary { return nil }
 func (testCatalogRegistry) Tool(string) (api.ToolDetailResponse, bool) {
 	return api.ToolDetailResponse{}, false
 }

@@ -20,7 +20,7 @@ import (
 	. "agent-platform/internal/contracts"
 )
 
-type recordingWebClientActionInvoker struct {
+type recordingWebClientRequestInvoker struct {
 	target   WebClientTarget
 	request  WebClientActionRequest
 	response WebClientActionResponse
@@ -32,7 +32,7 @@ func webClientResponseCode(code int) *int {
 	return &code
 }
 
-func (r *recordingWebClientActionInvoker) InvokeWebClientAction(
+func (r *recordingWebClientRequestInvoker) InvokeWebClientAction(
 	_ context.Context,
 	target WebClientTarget,
 	request WebClientActionRequest,
@@ -91,7 +91,7 @@ func TestInvokeDesktopActionCallsBridge(t *testing.T) {
 }
 
 func TestInvokeDesktopActionForwardsWebClientActionAsFlatRequest(t *testing.T) {
-	invoker := &recordingWebClientActionInvoker{
+	invoker := &recordingWebClientRequestInvoker{
 		response: WebClientActionResponse{
 			Frame: "response",
 			Type:  webClientSidebarSetState,
@@ -101,7 +101,7 @@ func TestInvokeDesktopActionForwardsWebClientActionAsFlatRequest(t *testing.T) {
 			Data:  json.RawMessage(`{"applied":true,"sidebar":"right","open":true,"tab":"debug"}`),
 		},
 	}
-	executor := newDesktopTestExecutor("http://desktop-bridge.invalid", "").WithWebClientActionInvoker(invoker)
+	executor := newDesktopTestExecutor("http://desktop-bridge.invalid", "").WithWebClientRequestInvoker(invoker)
 	target := WebClientTarget{
 		BoundaryKey: "device:web-1",
 		SurfaceID:   "surface-1",
@@ -140,8 +140,8 @@ func TestInvokeDesktopActionForwardsWebClientActionAsFlatRequest(t *testing.T) {
 }
 
 func TestInvokeDesktopActionValidatesWebClientSidebarArgsBeforeSending(t *testing.T) {
-	invoker := &recordingWebClientActionInvoker{}
-	executor := (&RuntimeToolExecutor{}).WithWebClientActionInvoker(invoker)
+	invoker := &recordingWebClientRequestInvoker{}
+	executor := (&RuntimeToolExecutor{}).WithWebClientRequestInvoker(invoker)
 	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
 		"action": webClientSidebarSetState,
 		"args": map[string]any{
@@ -162,7 +162,7 @@ func TestInvokeDesktopActionValidatesWebClientSidebarArgsBeforeSending(t *testin
 }
 
 func TestInvokeDesktopActionForwardsWebClientOpenURL(t *testing.T) {
-	invoker := &recordingWebClientActionInvoker{
+	invoker := &recordingWebClientRequestInvoker{
 		response: WebClientActionResponse{
 			Frame: "response",
 			Type:  webClientSidebarOpenURL,
@@ -172,7 +172,7 @@ func TestInvokeDesktopActionForwardsWebClientOpenURL(t *testing.T) {
 			Data:  json.RawMessage(`{"applied":true,"sidebar":"right","open":true,"tab":"web","url":"https://www.sina.com.cn/","title":"新浪"}`),
 		},
 	}
-	executor := (&RuntimeToolExecutor{}).WithWebClientActionInvoker(invoker)
+	executor := (&RuntimeToolExecutor{}).WithWebClientRequestInvoker(invoker)
 	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
 		"requestId": "web-url-1",
 		"action":    webClientSidebarOpenURL,
@@ -204,8 +204,8 @@ func TestInvokeDesktopActionRejectsInvalidWebClientOpenURLArgs(t *testing.T) {
 		{"url": "https://example.com", "unexpected": true},
 	}
 	for _, actionArgs := range tests {
-		invoker := &recordingWebClientActionInvoker{}
-		executor := (&RuntimeToolExecutor{}).WithWebClientActionInvoker(invoker)
+		invoker := &recordingWebClientRequestInvoker{}
+		executor := (&RuntimeToolExecutor{}).WithWebClientRequestInvoker(invoker)
 		result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
 			"action": webClientSidebarOpenURL,
 			"args":   actionArgs,
@@ -223,8 +223,8 @@ func TestInvokeDesktopActionRejectsInvalidWebClientOpenURLArgs(t *testing.T) {
 }
 
 func TestInvokeDesktopActionRejectsNonObjectWebClientArgs(t *testing.T) {
-	invoker := &recordingWebClientActionInvoker{}
-	executor := (&RuntimeToolExecutor{}).WithWebClientActionInvoker(invoker)
+	invoker := &recordingWebClientRequestInvoker{}
+	executor := (&RuntimeToolExecutor{}).WithWebClientRequestInvoker(invoker)
 	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
 		"action": webClientSidebarGetState,
 		"args":   "not-an-object",
@@ -286,8 +286,8 @@ func TestInvokeDesktopActionRejectsInvalidWebClientResponseFrames(t *testing.T) 
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			invoker := &recordingWebClientActionInvoker{response: test.response}
-			executor := (&RuntimeToolExecutor{}).WithWebClientActionInvoker(invoker)
+			invoker := &recordingWebClientRequestInvoker{response: test.response}
+			executor := (&RuntimeToolExecutor{}).WithWebClientRequestInvoker(invoker)
 			result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
 				"requestId": "web-request-1",
 				"action":    webClientSidebarSetState,
@@ -342,11 +342,11 @@ func TestInvokeDesktopActionMapsWebClientProviderFailures(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			invoker := &recordingWebClientActionInvoker{
+			invoker := &recordingWebClientRequestInvoker{
 				response: test.response,
 				err:      test.err,
 			}
-			executor := (&RuntimeToolExecutor{}).WithWebClientActionInvoker(invoker)
+			executor := (&RuntimeToolExecutor{}).WithWebClientRequestInvoker(invoker)
 			result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
 				"requestId": "web-request-1",
 				"action":    webClientSidebarGetState,

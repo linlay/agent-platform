@@ -42,7 +42,7 @@ budget:
     retry-count: 5
   tool:
     max-calls: 100
-    # 单次后端工具调用硬上限：bash/file/external 等工具不能超过该秒数。
+    # 单次工具调用硬上限：bash/file/MCP 等工具不能超过该秒数。
     timeout: 600
     retry-count: 0
   hitl:
@@ -83,7 +83,8 @@ container-hub:
   destroy-queue-delay: 5
 
   # Default mounts come from runtime directory config:
-  # /workspace -> AP_RUNTIME_CHATS_DIR/<chatId> (rw)
+  # /workspace -> canonical runtimeConfig.workspaceRoot (rw)
+  # /chat      -> AP_RUNTIME_CHATS_DIR/<chatId> (rw)
   # /root      -> paths.root-dir (rw)
   # /skills    -> paths.agents-dir/<agentKey>/skills (ro, only run/agent; global skips it)
   # /pan       -> AP_RUNTIME_PAN_DIR (rw)
@@ -93,8 +94,12 @@ container-hub:
   #
   # runtimeConfig.sandboxMounts controls Container Hub session mounts:
   # platform + mode             -> on-demand platform mount; skills-market mounts to /skills-market
-  # destination + mode          -> override default mount mode
+  # destination + mode          -> override non-reserved default mount mode
   # source + destination + mode -> add a custom mount
+  # Protocol: dual-root-v2. When ChatsRoot is inside Workspace, Platform also
+  # sends a reserved /workspace/<ChatsRoot-relative> mask so Chat is visible
+  # only through /chat.
+  # /workspace, /chat, masks, and their descendants are reserved and cannot be overridden.
 
 desktop:
   action:

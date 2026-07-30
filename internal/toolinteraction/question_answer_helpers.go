@@ -1,4 +1,4 @@
-package frontendtools
+package toolinteraction
 
 import (
 	"encoding/json"
@@ -98,13 +98,6 @@ func structuredAnswers(result contracts.ToolExecutionResult) ([]map[string]any, 
 		answers = append(answers, answer)
 	}
 	return answers, true
-}
-
-func formatAnswerKey(answer map[string]any) string {
-	if header := strings.TrimSpace(contracts.AnyStringNode(answer["header"])); header != "" {
-		return header
-	}
-	return strings.TrimSpace(contracts.AnyStringNode(answer["question"]))
 }
 
 func formatAnswerValue(value any) string {

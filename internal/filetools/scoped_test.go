@@ -80,7 +80,7 @@ func TestScopedFilePolicyUsesCanonicalSourceAndCurrentChatRoots(t *testing.T) {
 		}
 	}
 	session := scopedTestSession(source, true)
-	session.RuntimeContext.LocalPaths.ChatAttachmentsDir = chatDir
+	session.RuntimeContext.LocalPaths.ChatDir = chatDir
 
 	sourcePath := filepath.Join(source, "policy.md")
 	chatPath := filepath.Join(chatDir, "report.txt")
@@ -115,9 +115,9 @@ func scopedTestSession(root string, editing bool) contracts.QuerySession {
 	return contracts.QuerySession{
 		WorkspaceRoot: root,
 		ScopedFilePolicy: &contracts.ScopedFilePolicy{
-			Root:                  root,
-			SourceMutationEnabled: editing,
-			RequireExistingParent: true,
+			WorkspaceRoot:            root,
+			WorkspaceMutationEnabled: editing,
+			RequireExistingParent:    true,
 		},
 	}
 }

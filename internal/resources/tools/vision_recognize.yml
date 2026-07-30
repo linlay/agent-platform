@@ -1,8 +1,6 @@
 name: vision_recognize
 label: 图像识别
 description: Recognize images through the globally configured vision model. Use this when the active model cannot inspect images directly, or when OCR/visual extraction is needed as a tool result.
-submitResultFormat: json-compact
-type: function
 explicitOnly: true
 inputSchema:
   type: object

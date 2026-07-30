@@ -1742,7 +1742,6 @@ func TestLoadAPEnvAndRuntimeYAMLWithToolsYAMLConfig(t *testing.T) {
 	}, func() {
 		content := "" +
 			"bash:\n" +
-			"  working-directory: " + filepath.ToSlash(filepath.Join("var", "runtime")) + "\n" +
 			"  allowed-commands: pwd,echo\n" +
 			"  shell-features-enabled: true\n" +
 			"  shell-args:\n" +
@@ -1775,9 +1774,6 @@ func TestLoadAPEnvAndRuntimeYAMLWithToolsYAMLConfig(t *testing.T) {
 				}
 				if !cfg.Bash.ShellFeaturesEnabled {
 					t.Fatalf("expected shell features enabled from yaml")
-				}
-				if cfg.Bash.WorkingDirectory != filepath.Join("var", "runtime") {
-					t.Fatalf("unexpected working directory: %q", cfg.Bash.WorkingDirectory)
 				}
 				if len(cfg.Bash.AllowedCommands) != 2 {
 					t.Fatalf("unexpected allowed commands: %#v", cfg.Bash.AllowedCommands)
@@ -1828,7 +1824,6 @@ func TestAccessPolicyConfigYAMLOverrides(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "" +
 			"access-policy:\n" +
-			"  working-directory: \"@workspace\"\n" +
 			"  levels:\n" +
 			"    default:\n" +
 			"      read-roots:\n" +
@@ -1933,7 +1928,6 @@ func TestFileToolsConfigYAMLOverrides(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "" +
 			"file-tools:\n" +
-			"  working-directory: " + filepath.ToSlash(filepath.Join("tmp", "files")) + "\n" +
 			"  max-read-bytes: 1234\n" +
 			"  max-write-bytes: 5678\n" +
 			"  max-batch-ops: 9\n" +
@@ -1944,9 +1938,6 @@ func TestFileToolsConfigYAMLOverrides(t *testing.T) {
 			cfg, err := Load()
 			if err != nil {
 				t.Fatalf("load config: %v", err)
-			}
-			if cfg.FileTools.WorkingDirectory != filepath.Join("tmp", "files") {
-				t.Fatalf("unexpected file working dir: %q", cfg.FileTools.WorkingDirectory)
 			}
 			if cfg.FileTools.MaxReadBytes != 1234 || cfg.FileTools.MaxWriteBytes != 5678 || cfg.FileTools.MaxBatchOps != 9 {
 				t.Fatalf("unexpected file limits: %#v", cfg.FileTools)
@@ -1974,6 +1965,22 @@ func TestFileToolsConfigRejectsInvalidReadBeforeWriteScope(t *testing.T) {
 			}
 		})
 	})
+}
+
+func TestToolsConfigRejectsRemovedWorkingDirectoryKeys(t *testing.T) {
+	for _, section := range []string{"access-policy", "bash", "file-tools"} {
+		t.Run(section, func(t *testing.T) {
+			withIsolatedEnv(t, nil, func() {
+				content := section + ":\n  working-directory: \"@workspace\"\n"
+				withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
+					_, err := Load()
+					if err == nil || !strings.Contains(err.Error(), section+".working-directory was removed") {
+						t.Fatalf("expected removed working-directory error for %s, got %v", section, err)
+					}
+				})
+			})
+		})
+	}
 }
 
 func TestToolsConfigRejectsRemovedPathPolicyKeys(t *testing.T) {
@@ -2069,7 +2076,6 @@ func TestToolsConfigYAMLOverrides(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "" +
 			"access-policy:\n" +
-			"  working-directory: \"@workspace\"\n" +
 			"  levels:\n" +
 			"    default:\n" +
 			"      read-roots:\n" +
@@ -2081,13 +2087,11 @@ func TestToolsConfigYAMLOverrides(t *testing.T) {
 			"        read-outside-roots: block\n" +
 			"        write-outside-roots: hitl\n" +
 			"bash:\n" +
-			"  working-directory: " + filepath.ToSlash(filepath.Join("var", "host")) + "\n" +
 			"  allowed-commands: pwd,echo\n" +
 			"  shell-features-enabled: true\n" +
 			"  shell-executable: bash\n" +
 			"  max-command-chars: 4321\n" +
 			"file-tools:\n" +
-			"  working-directory: " + filepath.ToSlash(filepath.Join("tmp", "merged-files")) + "\n" +
 			"  max-read-bytes: 1234\n" +
 			"  max-write-bytes: 5678\n" +
 			"  max-batch-ops: 9\n" +
@@ -2109,14 +2113,11 @@ func TestToolsConfigYAMLOverrides(t *testing.T) {
 						if level.Approvals.ReadOutsideRoots != "block" {
 							t.Fatalf("unexpected read outside action: %#v", level.Approvals)
 						}
-						if cfg.Bash.WorkingDirectory != filepath.Join("var", "host") || cfg.Bash.ShellExecutable != "bash" || cfg.Bash.MaxCommandChars != 4321 {
+						if cfg.Bash.ShellExecutable != "bash" || cfg.Bash.MaxCommandChars != 4321 {
 							t.Fatalf("unexpected bash config: %#v", cfg.Bash)
 						}
 						if strings.Join(cfg.Bash.AllowedCommands, ",") != "pwd,echo" {
 							t.Fatalf("unexpected allowed commands: %#v", cfg.Bash.AllowedCommands)
-						}
-						if cfg.FileTools.WorkingDirectory != filepath.Join("tmp", "merged-files") {
-							t.Fatalf("unexpected file working dir: %q", cfg.FileTools.WorkingDirectory)
 						}
 						if cfg.FileTools.MaxReadBytes != 1234 || cfg.FileTools.MaxWriteBytes != 5678 || cfg.FileTools.MaxBatchOps != 9 {
 							t.Fatalf("unexpected file limits: %#v", cfg.FileTools)

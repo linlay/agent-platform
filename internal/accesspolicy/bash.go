@@ -54,12 +54,13 @@ func ReviewBashCommand(cfg config.AccessPolicyConfig, session QuerySession, comm
 	if command == "" {
 		return bashPlan(command, accessLevel, DecisionAllow, "", "", "")
 	}
-	workingDir := strings.TrimSpace(cwd)
-	if workingDir == "" {
-		workingDir = WorkingDirectory(cfg, session)
+	cwdPath := strings.TrimSpace(cwd)
+	if cwdPath == "" {
+		cwdPath = "@workspace"
 	}
-	if !filepath.IsAbs(workingDir) {
-		workingDir = filepath.Join(WorkingDirectory(cfg, session), workingDir)
+	workingDir, err := ResolveSessionPath(session, cwdPath)
+	if err != nil {
+		return bashPlan(command, accessLevel, DecisionBlock, err.Error(), "bash-access:cwd", cwdPath)
 	}
 	workingDir, _ = NormalizePath(workingDir)
 	autoPlan := BashPlan{}

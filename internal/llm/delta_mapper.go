@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	. "agent-platform/internal/contracts"
-	"agent-platform/internal/frontendtools"
 	"agent-platform/internal/stream"
+	"agent-platform/internal/toolinteraction"
 )
 
 type DeltaMapper struct {
@@ -24,16 +24,14 @@ type DeltaMapper struct {
 	toolArgChunkCounters map[string]int
 	toolArgBuffers       map[string]*strings.Builder
 	pendingToolAwaitAsks map[string]*stream.AwaitAsk
-	actionToolIDs        map[string]bool
 	attemptReasoningIDs  map[string]bool
 	attemptContentIDs    map[string]bool
 	attemptToolIDs       map[string]bool
-	attemptActionIDs     map[string]bool
 	toolRegistry         ToolDefinitionLookup
-	frontend             *frontendtools.Registry
+	interactions         *toolinteraction.Registry
 }
 
-func NewDeltaMapper(runID string, chatID string, budget Budget, toolRegistry ToolDefinitionLookup, frontend *frontendtools.Registry) *DeltaMapper {
+func NewDeltaMapper(runID string, chatID string, budget Budget, toolRegistry ToolDefinitionLookup, interactions *toolinteraction.Registry) *DeltaMapper {
 	return &DeltaMapper{
 		runID:                runID,
 		chatID:               chatID,
@@ -42,13 +40,11 @@ func NewDeltaMapper(runID string, chatID string, budget Budget, toolRegistry Too
 		toolArgChunkCounters: map[string]int{},
 		toolArgBuffers:       map[string]*strings.Builder{},
 		pendingToolAwaitAsks: map[string]*stream.AwaitAsk{},
-		actionToolIDs:        map[string]bool{},
 		attemptReasoningIDs:  map[string]bool{},
 		attemptContentIDs:    map[string]bool{},
 		attemptToolIDs:       map[string]bool{},
-		attemptActionIDs:     map[string]bool{},
 		toolRegistry:         toolRegistry,
-		frontend:             frontend,
+		interactions:         interactions,
 	}
 }
 
@@ -56,15 +52,15 @@ func (m *DeltaMapper) CloneIsolated(runID string, chatID string) StreamDeltaMapp
 	if m == nil {
 		return nil
 	}
-	return NewDeltaMapper(runID, chatID, m.budget, m.toolRegistry, m.frontend)
+	return NewDeltaMapper(runID, chatID, m.budget, m.toolRegistry, m.interactions)
 }
 
 type DeltaMapperFactory struct {
-	Frontend *frontendtools.Registry
+	Interactions *toolinteraction.Registry
 }
 
 func (f DeltaMapperFactory) NewDeltaMapper(runID string, chatID string, budget Budget, toolRegistry ToolDefinitionLookup) StreamDeltaMapper {
-	return NewDeltaMapper(runID, chatID, budget, toolRegistry, f.Frontend)
+	return NewDeltaMapper(runID, chatID, budget, toolRegistry, f.Interactions)
 }
 
 func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
@@ -109,23 +105,12 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		if toolID == "" {
 			return nil
 		}
-		viewportType, toolLabel, toolDescription := m.resolveToolMetadata(value.Name)
-		if viewportType == "action" {
-			m.actionToolIDs[toolID] = true
-			m.attemptActionIDs[toolID] = true
-			m.lastKind = "action"
-			return []stream.StreamInput{stream.ActionArgs{
-				ActionID:    toolID,
-				Delta:       value.ArgsDelta,
-				ActionName:  value.Name,
-				Description: toolDescription,
-			}}
-		}
+		toolLabel, toolDescription := m.resolveToolMetadata(value.Name)
 		chunkIndex := m.toolArgChunkCounters[toolID]
 		m.toolArgChunkCounters[toolID] = chunkIndex + 1
 		m.attemptToolIDs[toolID] = true
 		m.lastKind = "tool"
-		awaitAsk, emitAwaitBeforeToolArgs := m.buildFrontendToolAwaitAsk(toolID, value.Name, value.ArgsDelta, chunkIndex)
+		awaitAsk, emitAwaitBeforeToolArgs := m.buildInteractionAwaitAsk(toolID, value.Name, value.ArgsDelta, chunkIndex)
 		if awaitAsk != nil && strings.EqualFold(strings.TrimSpace(value.Name), "ask_user_question") {
 			m.pendingToolAwaitAsks[toolID] = awaitAsk
 			awaitAsk = nil
@@ -150,10 +135,6 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		inputs := make([]stream.StreamInput, 0, len(value.ToolIDs))
 		for _, toolID := range value.ToolIDs {
 			delete(m.toolArgBuffers, toolID)
-			if m.actionToolIDs[toolID] {
-				inputs = append(inputs, stream.ActionEnd{ActionID: toolID})
-				continue
-			}
 			inputs = append(inputs, stream.ToolEnd{
 				ToolID:     toolID,
 				FileChange: CloneMap(value.FileChanges[toolID]),
@@ -166,19 +147,10 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		return inputs
 	case DeltaToolResult:
 		m.lastKind = ""
-		_, toolLabel, toolDescription := m.resolveToolMetadata(value.ToolName)
+		toolLabel, toolDescription := m.resolveToolMetadata(value.ToolName)
 		sseResult := sseResultValue(value.Result)
 		resultError := value.Result.Error
 		resultExitCode := value.Result.ExitCode
-		if m.actionToolIDs[value.ToolID] {
-			delete(m.actionToolIDs, value.ToolID)
-			return []stream.StreamInput{stream.ActionResult{
-				ActionID:    value.ToolID,
-				ActionName:  value.ToolName,
-				Description: toolDescription,
-				Result:      structuredOrOutput(value.Result),
-			}}
-		}
 		return []stream.StreamInput{stream.ToolResult{
 			ToolID:          value.ToolID,
 			ToolName:        value.ToolName,
@@ -212,7 +184,6 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			ReasoningIDs:   sortedStringSet(m.attemptReasoningIDs),
 			ContentIDs:     sortedStringSet(m.attemptContentIDs),
 			ToolIDs:        sortedStringSet(m.attemptToolIDs),
-			ActionIDs:      sortedStringSet(m.attemptActionIDs),
 		}
 		m.resetModelTurnState(true)
 		return []stream.StreamInput{input}
@@ -447,11 +418,6 @@ func (m *DeltaMapper) resetModelTurnState(discard bool) {
 	if m == nil {
 		return
 	}
-	if discard {
-		for actionID := range m.attemptActionIDs {
-			delete(m.actionToolIDs, actionID)
-		}
-	}
 	m.activeReasoningID = ""
 	m.activeContentID = ""
 	m.lastKind = ""
@@ -462,7 +428,6 @@ func (m *DeltaMapper) resetModelTurnState(discard bool) {
 	m.attemptReasoningIDs = map[string]bool{}
 	m.attemptContentIDs = map[string]bool{}
 	m.attemptToolIDs = map[string]bool{}
-	m.attemptActionIDs = map[string]bool{}
 }
 
 func sortedStringSet(values map[string]bool) []string {
@@ -490,19 +455,15 @@ func cloneRawMessageMaps(messages []map[string]any) []map[string]any {
 	return out
 }
 
-func (m *DeltaMapper) buildFrontendToolAwaitAsk(toolID string, toolName string, argsDelta string, chunkIndex int) (*stream.AwaitAsk, bool) {
-	if m.frontend == nil || m.toolRegistry == nil {
+func (m *DeltaMapper) buildInteractionAwaitAsk(toolID string, toolName string, argsDelta string, chunkIndex int) (*stream.AwaitAsk, bool) {
+	if m.interactions == nil || m.toolRegistry == nil {
 		return nil, false
 	}
 	tool, ok := m.toolRegistry.Tool(toolName)
 	if !ok {
 		return nil, false
 	}
-	kind, _ := tool.Meta["kind"].(string)
-	if !strings.EqualFold(strings.TrimSpace(kind), "frontend") {
-		return nil, false
-	}
-	handler, ok := m.frontend.Handler(toolName)
+	handler, ok := m.interactions.Handler(toolName)
 	if !ok {
 		return nil, false
 	}
@@ -521,14 +482,14 @@ func (m *DeltaMapper) buildFrontendToolAwaitAsk(toolID string, toolName string, 
 			return nil, false
 		}
 		delete(m.toolArgBuffers, toolID)
-		timeout := resolveFrontendAwaitTimeout(toolName, tool, args, m.budget)
+		timeout := resolveInteractionAwaitTimeout(toolName, tool, args, m.budget)
 		return handler.BuildInitialAwaitAsk(toolID, m.runID, tool, args, 0, timeout), true
 	}
 	if strings.TrimSpace(argsDelta) != "" {
 		var args map[string]any
 		if err := json.Unmarshal([]byte(argsDelta), &args); err == nil {
 			if err := handler.ValidateArgs(args); err == nil {
-				timeout := resolveFrontendAwaitTimeout(toolName, tool, args, m.budget)
+				timeout := resolveInteractionAwaitTimeout(toolName, tool, args, m.budget)
 				return handler.BuildInitialAwaitAsk(toolID, m.runID, tool, args, chunkIndex, timeout), false
 			}
 			return nil, false
@@ -552,23 +513,13 @@ func (m *DeltaMapper) resolveToolID(index int, candidate string, toolName string
 	return ""
 }
 
-func (m *DeltaMapper) resolveToolMetadata(toolName string) (string, string, string) {
+func (m *DeltaMapper) resolveToolMetadata(toolName string) (string, string) {
 	if m.toolRegistry == nil {
-		return "", "", ""
+		return "", ""
 	}
 	tool, ok := m.toolRegistry.Tool(toolName)
 	if !ok {
-		return "", "", ""
+		return "", ""
 	}
-
-	kind, _ := tool.Meta["kind"].(string)
-	switch strings.ToLower(strings.TrimSpace(kind)) {
-	case "action":
-		return "action", tool.Label, tool.Description
-	case "frontend":
-		viewportType, _ := tool.Meta["viewportType"].(string)
-		return strings.TrimSpace(viewportType), tool.Label, tool.Description
-	default:
-		return "", tool.Label, tool.Description
-	}
+	return tool.Label, tool.Description
 }

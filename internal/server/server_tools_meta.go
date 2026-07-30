@@ -62,7 +62,6 @@ func (s *Server) listTools() []api.ToolSummary {
 			continue
 		}
 		tool = canonical
-		metaKind, _ := tool.Meta["kind"].(string)
 		sourceCategory := toolSourceCategory(tool)
 		normalized := strings.ToLower(strings.TrimSpace(tool.Name))
 		if _, ok := seen[normalized]; ok {
@@ -79,7 +78,6 @@ func (s *Server) listTools() []api.ToolSummary {
 			Name:           tool.Name,
 			Label:          tool.Label,
 			Description:    tool.Description,
-			Kind:           strings.TrimSpace(metaKind),
 			SourceType:     sourceType,
 			SourceCategory: sourceCategory,
 			ServerKey:      serverKey,
@@ -112,10 +110,6 @@ func toolSourceCategory(tool api.ToolDetailResponse) string {
 		return "external"
 	case "local":
 		return "platform"
-	}
-	kind := strings.ToLower(strings.TrimSpace(anyStringValue(tool.Meta["kind"])))
-	if kind == "external" {
-		return "external"
 	}
 	return ""
 }

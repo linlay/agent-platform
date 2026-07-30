@@ -30,7 +30,7 @@ func TestKBaseEditingAdversarialWritesFollowCanonicalAccessPolicy(t *testing.T) 
 		ReadRoots:  []string{hostAccess},
 		WriteRoots: []string{hostAccess},
 	}
-	chatDir := baseContext.Session.RuntimeContext.LocalPaths.ChatAttachmentsDir
+	chatDir := baseContext.Session.RuntimeContext.LocalPaths.ChatDir
 	otherChatDir := filepath.Join(filepath.Dir(chatDir), "chat-other")
 	if err := os.MkdirAll(otherChatDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -331,7 +331,7 @@ func TestKBaseReadOnlySourceMutationGateCannotBeWidened(t *testing.T) {
 	baseExecutor := fileToolExecutor(source, false)
 	baseExecutor.cfg.FileTools.RequireReadBeforeWrite = false
 	baseContext := kbaseExecutionContext(source, false)
-	baseContext.Session.RuntimeContext.LocalPaths.ChatAttachmentsDir = chatDir
+	baseContext.Session.RuntimeContext.LocalPaths.ChatDir = chatDir
 	baseContext.Session.AccessLevel = contracts.AccessLevelDefault
 
 	assertSourceGate := func(t *testing.T, executor *RuntimeToolExecutor, execCtx *contracts.ExecutionContext, toolName string, args map[string]any) {

@@ -17,7 +17,6 @@ import (
 	"agent-platform/internal/builtins"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
-	"agent-platform/internal/filetools"
 	"agent-platform/internal/runtimeenv"
 	"agent-platform/internal/textcodec"
 )
@@ -45,16 +44,20 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	if len(t.cfg.Bash.AllowedCommands) == 0 {
 		return ToolExecutionResult{Output: "Bash command whitelist is empty", Error: "command_whitelist_empty", ExitCode: -1}, nil
 	}
-	workingDir := defaultStringArg(args, "cwd", t.cfg.Bash.WorkingDirectory)
-	if execCtx != nil && strings.TrimSpace(stringArg(args, "cwd")) == "" {
-		if workspaceRoot := filetools.SessionWorkspaceRoot(execCtx.Session); workspaceRoot != "" {
-			workingDir = workspaceRoot
+	session := accessPolicySession(execCtx)
+	rawCwd := strings.TrimSpace(stringArg(args, "cwd"))
+	if rawCwd == "" {
+		rawCwd = "@workspace"
+	}
+	workingDir, err := accesspolicy.ResolveSessionPath(session, rawCwd)
+	if err != nil {
+		code := "bash_invalid_cwd"
+		if strings.Contains(err.Error(), "workspace_unavailable") {
+			code = "workspace_unavailable"
 		}
+		return ToolExecutionResult{Output: err.Error(), Error: code, ExitCode: -1}, nil
 	}
-	if workingDir == "" {
-		workingDir = "."
-	}
-	accessReview := accesspolicy.ReviewBashCommand(t.cfg.AccessPolicy, accessPolicySessionWithFallback(execCtx, workingDir), command, workingDir, bashSecurityKnownVariables(execCtx))
+	accessReview := accesspolicy.ReviewBashCommand(t.cfg.AccessPolicy, session, command, workingDir, bashSecurityKnownVariables(execCtx))
 	switch accessReview.Decision {
 	case accesspolicy.DecisionAllow, accesspolicy.DecisionAutoApproved:
 	case accesspolicy.DecisionRequiresApproval:
@@ -65,7 +68,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 		return ToolExecutionResult{Output: accessReview.Reason, Error: "bash_access_blocked", ExitCode: -1}, nil
 	}
 	if !t.cfg.Bash.ShellFeaturesEnabled {
-		if err := validateStrictCommand(command, t.cfg.Bash, workingDir); err != nil {
+		if err := validateStrictCommand(command, t.cfg.Bash); err != nil {
 			return ToolExecutionResult{Output: err.Error(), Error: "command_not_allowed", ExitCode: -1}, nil
 		}
 	}
@@ -160,17 +163,17 @@ func readBashOutputFile(file *os.File, runtimeInfo runtimeenv.Info) (string, err
 	return textcodec.DecodeSubprocessOutput(output, runtimeInfo), nil
 }
 
-func appendBashAccessPolicyMetadata(result *ToolExecutionResult, review accesspolicy.BashPlan, stdout, stderr, workingDir string, exitCode int) {
+func appendBashAccessPolicyMetadata(result *ToolExecutionResult, review accesspolicy.BashPlan, stdout, stderr, cwd string, exitCode int) {
 	if result == nil || !review.AutoApproved() {
 		return
 	}
 	if result.Structured == nil {
 		result.Structured = map[string]any{
-			"exitCode":         exitCode,
-			"mode":             "host",
-			"workingDirectory": workingDir,
-			"stdout":           stdout,
-			"stderr":           stderr,
+			"exitCode": exitCode,
+			"mode":     "host",
+			"cwd":      cwd,
+			"stdout":   stdout,
+			"stderr":   stderr,
 		}
 	}
 	result.Structured["accessPolicy"] = map[string]any{
@@ -284,7 +287,8 @@ func bashSecurityKnownVariables(execCtx *ExecutionContext) map[string]string {
 		execCtx.RuntimeEnvOverrides,
 		agentconfig.HostEnvironment(
 			execCtx.Session.RuntimeContext.LocalPaths.AgentDir,
-			execCtx.Session.RuntimeContext.LocalPaths.ChatAttachmentsDir,
+			execCtx.Session.RuntimeContext.LocalPaths.WorkspaceDir,
+			execCtx.Session.RuntimeContext.LocalPaths.ChatDir,
 		),
 	)
 }
@@ -294,7 +298,7 @@ var unsupportedBashCommands = map[string]bool{
 	"coproc": true, "fg": true, "bg": true, "jobs": true,
 }
 
-func validateStrictCommand(command string, cfg config.BashConfig, workingDirectory string) error {
+func validateStrictCommand(command string, cfg config.BashConfig) error {
 	if strings.ContainsAny(command, "\n;&|<>(){}") {
 		return fmt.Errorf("Unsupported syntax for bash")
 	}
@@ -341,16 +345,18 @@ func stringMapArg(args map[string]any, key string) map[string]string {
 func mergeCommandEnv(execCtx *ExecutionContext) []string {
 	env := append([]string(nil), os.Environ()...)
 	var agentDir string
+	var workspaceDir string
 	var chatDir string
 	var runtimeEnv map[string]string
 	if execCtx != nil {
 		agentDir = execCtx.Session.RuntimeContext.LocalPaths.AgentDir
-		chatDir = execCtx.Session.RuntimeContext.LocalPaths.ChatAttachmentsDir
+		workspaceDir = execCtx.Session.RuntimeContext.LocalPaths.WorkspaceDir
+		chatDir = execCtx.Session.RuntimeContext.LocalPaths.ChatDir
 		runtimeEnv = execCtx.RuntimeEnvOverrides
 	}
 	overrides := agentconfig.Merge(
 		runtimeEnv,
-		agentconfig.HostEnvironment(agentDir, chatDir),
+		agentconfig.HostEnvironment(agentDir, workspaceDir, chatDir),
 	)
 	if len(overrides) == 0 {
 		return builtins.EnsureBinInEnv(env)

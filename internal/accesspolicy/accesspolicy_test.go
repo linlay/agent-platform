@@ -68,8 +68,8 @@ func TestDefaultLevelAllowsChatReadWriteWithExplicitWorkspace(t *testing.T) {
 		WorkspaceRoot: workspace,
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{
-				WorkspaceDir:       workspace,
-				ChatAttachmentsDir: chatDir,
+				WorkspaceDir: workspace,
+				ChatDir:      chatDir,
 			},
 		},
 	}
@@ -90,6 +90,52 @@ func TestDefaultLevelAllowsChatReadWriteWithExplicitWorkspace(t *testing.T) {
 	}
 	if !writePlan.Allowed() || writePlan.RequiresApproval() {
 		t.Fatalf("expected chat write allowed, got %#v", writePlan)
+	}
+}
+
+func TestWorkspaceContainingChatsUsesChatFirstSemanticClassification(t *testing.T) {
+	workspace := t.TempDir()
+	chatsDir := filepath.Join(workspace, "runtime", "chats")
+	chatDir := filepath.Join(chatsDir, "chat-1")
+	otherChatDir := filepath.Join(chatsDir, "chat-2")
+	for _, dir := range []string{chatDir, otherChatDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	session := contracts.QuerySession{
+		WorkspaceRoot: workspace,
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{
+				WorkspaceDir: workspace,
+				ChatsDir:     chatsDir,
+				ChatDir:      chatDir,
+			},
+		},
+	}
+	currentChatFile := filepath.Join(chatDir, "upload.txt")
+	if PathInSessionWorkspace(session, currentChatFile) {
+		t.Fatal("current chat file must not be classified as workspace")
+	}
+	if !PathInSessionChat(session, currentChatFile) {
+		t.Fatal("current chat file must be classified as current chat")
+	}
+	currentPlan, err := BuildPathPlan(config.AccessPolicyConfig{}, session, ReadAccess, currentChatFile)
+	if err != nil || !currentPlan.Allowed() {
+		t.Fatalf("current chat access = %#v, %v", currentPlan, err)
+	}
+	otherPlan, err := BuildPathPlan(config.AccessPolicyConfig{}, session, ReadAccess, filepath.Join(otherChatDir, "private.txt"))
+	if err != nil || !otherPlan.RequiresApproval() {
+		t.Fatalf("other chat access = %#v, %v, want HITL", otherPlan, err)
+	}
+	for _, rawPath := range []string{
+		"runtime/chats/chat-1/upload.txt",
+		"@workspace/runtime/chats/chat-1/upload.txt",
+	} {
+		if _, err := ResolveSessionPath(session, rawPath); err == nil ||
+			!strings.Contains(err.Error(), "path_crosses_chat_root") {
+			t.Fatalf("ResolveSessionPath(%q) error = %v", rawPath, err)
+		}
 	}
 }
 
@@ -188,8 +234,8 @@ func TestAutoApproveAndFullAccessLevels(t *testing.T) {
 		WorkspaceRoot: workspace,
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{
-				WorkspaceDir:       workspace,
-				ChatAttachmentsDir: chatDir,
+				WorkspaceDir: workspace,
+				ChatDir:      chatDir,
 			},
 		},
 	}
@@ -232,7 +278,7 @@ func TestAutoApproveAndFullAccessLevels(t *testing.T) {
 	}
 }
 
-func TestBashAccessPolicyDefaultCwdAndPathDecisions(t *testing.T) {
+func TestBashAccessPolicyWorkspaceCwdAndPathDecisions(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
 	outside := filepath.Join(root, "outside")
@@ -284,8 +330,8 @@ func TestBashAccessPolicyAllowsChatWriteRoot(t *testing.T) {
 		WorkspaceRoot: workspace,
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{
-				WorkspaceDir:       workspace,
-				ChatAttachmentsDir: chatDir,
+				WorkspaceDir: workspace,
+				ChatDir:      chatDir,
 			},
 		},
 	}

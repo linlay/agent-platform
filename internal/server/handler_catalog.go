@@ -733,10 +733,10 @@ func validatedAgentDirectory(path string) (string, error) {
 	if path == "" {
 		return "", newAgentStatusError(http.StatusBadRequest, "invalid_request", "agent directory is empty")
 	}
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return "", newAgentStatusError(http.StatusBadRequest, "invalid_request", err.Error())
+	if !filepath.IsAbs(path) {
+		return "", newAgentStatusError(http.StatusBadRequest, "invalid_request", "agent directory must be absolute")
 	}
+	abs := filepath.Clean(path)
 	info, err := os.Stat(abs)
 	if err != nil {
 		if os.IsNotExist(err) {

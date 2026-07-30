@@ -50,6 +50,9 @@ type Config struct {
 type LoadOptions struct {
 	ConfigDir string
 	Port      string
+	// IgnoreRemovedWorkingDirectoryForAudit is reserved for the read-only
+	// workspace/chat migration audit. Normal startup must leave it false.
+	IgnoreRemovedWorkingDirectoryForAudit bool
 }
 
 type ServerConfig struct {
@@ -432,7 +435,6 @@ type DesktopBridgeConfig struct {
 }
 
 type BashConfig struct {
-	WorkingDirectory     string
 	AllowedCommands      []string
 	ShellFeaturesEnabled bool
 	ShellExecutable      string
@@ -441,7 +443,6 @@ type BashConfig struct {
 }
 
 type FileToolsConfig struct {
-	WorkingDirectory       string
 	MaxReadBytes           int
 	MaxWriteBytes          int
 	MaxBatchOps            int
@@ -452,8 +453,7 @@ type FileToolsConfig struct {
 }
 
 type AccessPolicyConfig struct {
-	WorkingDirectory string
-	Levels           map[string]AccessPolicyLevelConfig
+	Levels map[string]AccessPolicyLevelConfig
 }
 
 type AccessPolicyLevelConfig struct {
@@ -598,7 +598,7 @@ func Load(optionValues ...LoadOptions) (Config, error) {
 	options.Port = strings.TrimSpace(options.Port)
 
 	cfg := defaultConfig(options)
-	if err := cfg.applyStructuredConfig(options.ConfigDir); err != nil {
+	if err := cfg.applyStructuredConfig(options.ConfigDir, options.IgnoreRemovedWorkingDirectoryForAudit); err != nil {
 		return Config{}, err
 	}
 	cfg.applyEnv(options)

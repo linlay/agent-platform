@@ -8,10 +8,10 @@ import (
 
 	"agent-platform/internal/api"
 	contracts "agent-platform/internal/contracts"
-	"agent-platform/internal/frontendtools"
+	"agent-platform/internal/toolinteraction"
 )
 
-func frontendAwaitingContext(awaitingID string) contracts.AwaitingSubmitContext {
+func interactionAwaitingContext(awaitingID string) contracts.AwaitingSubmitContext {
 	return contracts.AwaitingSubmitContext{
 		AwaitingID: awaitingID,
 		Mode:       "question",
@@ -19,7 +19,7 @@ func frontendAwaitingContext(awaitingID string) contracts.AwaitingSubmitContext 
 	}
 }
 
-func frontendSubmitParams(t *testing.T, value any) api.SubmitParams {
+func interactionSubmitParams(t *testing.T, value any) api.SubmitParams {
 	t.Helper()
 	params, err := api.EncodeSubmitParams(value)
 	if err != nil {
@@ -28,13 +28,13 @@ func frontendSubmitParams(t *testing.T, value any) api.SubmitParams {
 	return params
 }
 
-func TestFrontendSubmitCoordinatorAwait_AskUserQuestionPreservesRawParams(t *testing.T) {
-	rawParams := frontendSubmitParams(t, []map[string]any{
+func TestInteractionSubmitCoordinatorAwait_AskUserQuestionPreservesRawParams(t *testing.T) {
+	rawParams := interactionSubmitParams(t, []map[string]any{
 		{"answer": "Weekend"},
 		{"answer": 2},
 	})
 	control := contracts.NewRunControl(context.Background(), "run_1")
-	control.ExpectSubmit(frontendAwaitingContext("tool_1"))
+	control.ExpectSubmit(interactionAwaitingContext("tool_1"))
 	ack := control.ResolveSubmit(api.SubmitRequest{
 		RunID:      "run_1",
 		AwaitingID: "tool_1",
@@ -44,7 +44,7 @@ func TestFrontendSubmitCoordinatorAwait_AskUserQuestionPreservesRawParams(t *tes
 		t.Fatalf("expected submit to be accepted, got %#v", ack)
 	}
 
-	result, err := NewFrontendSubmitCoordinator(frontendtools.NewDefaultRegistry()).Await(context.Background(), &contracts.ExecutionContext{
+	result, err := NewInteractionSubmitCoordinator(toolinteraction.NewDefaultRegistry()).Await(context.Background(), &contracts.ExecutionContext{
 		RunControl:      control,
 		CurrentToolID:   "tool_1",
 		CurrentToolName: "ask_user_question",
@@ -73,18 +73,21 @@ func TestFrontendSubmitCoordinatorAwait_AskUserQuestionPreservesRawParams(t *tes
 	if result.Structured["status"] != "answered" {
 		t.Fatalf("expected answered status in Structured, got %#v", result.Structured)
 	}
+	if result.Output != "问题：Pick a plan\n回答：Weekend\n问题：How many people?\n回答：2" {
+		t.Fatalf("expected fixed QA model output, got %q", result.Output)
+	}
 	if answers[0]["id"] != "q1" || answers[1]["id"] != "q2" {
 		t.Fatalf("expected normalized ids from question definitions, got %#v", answers)
 	}
 }
 
-func TestFrontendSubmitCoordinatorAwait_AskUserQuestionIgnoresSubmittedIDs(t *testing.T) {
-	rawParams := frontendSubmitParams(t, []map[string]any{
+func TestInteractionSubmitCoordinatorAwait_AskUserQuestionIgnoresSubmittedIDs(t *testing.T) {
+	rawParams := interactionSubmitParams(t, []map[string]any{
 		{"id": "wrong-1", "answer": "Weekend"},
 		{"id": "wrong-2", "answer": 2},
 	})
 	control := contracts.NewRunControl(context.Background(), "run_1")
-	control.ExpectSubmit(frontendAwaitingContext("tool_1"))
+	control.ExpectSubmit(interactionAwaitingContext("tool_1"))
 	ack := control.ResolveSubmit(api.SubmitRequest{
 		RunID:      "run_1",
 		AwaitingID: "tool_1",
@@ -94,7 +97,7 @@ func TestFrontendSubmitCoordinatorAwait_AskUserQuestionIgnoresSubmittedIDs(t *te
 		t.Fatalf("expected submit to be accepted, got %#v", ack)
 	}
 
-	result, err := NewFrontendSubmitCoordinator(frontendtools.NewDefaultRegistry()).Await(context.Background(), &contracts.ExecutionContext{
+	result, err := NewInteractionSubmitCoordinator(toolinteraction.NewDefaultRegistry()).Await(context.Background(), &contracts.ExecutionContext{
 		RunControl:      control,
 		CurrentToolID:   "tool_1",
 		CurrentToolName: "ask_user_question",
@@ -122,8 +125,8 @@ func TestFrontendSubmitCoordinatorAwait_AskUserQuestionIgnoresSubmittedIDs(t *te
 	}
 }
 
-func TestFrontendSubmitCoordinatorAwait_AskUserQuestionCancelClearsRawParams(t *testing.T) {
-	rawParams := frontendSubmitParams(t, []map[string]any{})
+func TestInteractionSubmitCoordinatorAwait_AskUserQuestionCancelClearsRawParams(t *testing.T) {
+	rawParams := interactionSubmitParams(t, []map[string]any{})
 	control := contracts.NewRunControl(context.Background(), "run_1")
 	control.ExpectSubmit(contracts.AwaitingSubmitContext{
 		AwaitingID: "tool_1",
@@ -139,7 +142,7 @@ func TestFrontendSubmitCoordinatorAwait_AskUserQuestionCancelClearsRawParams(t *
 		t.Fatalf("expected submit to be accepted, got %#v", ack)
 	}
 
-	result, err := NewFrontendSubmitCoordinator(frontendtools.NewDefaultRegistry()).Await(context.Background(), &contracts.ExecutionContext{
+	result, err := NewInteractionSubmitCoordinator(toolinteraction.NewDefaultRegistry()).Await(context.Background(), &contracts.ExecutionContext{
 		RunControl:      control,
 		CurrentToolID:   "tool_1",
 		CurrentToolName: "ask_user_question",
@@ -168,14 +171,14 @@ func TestFrontendSubmitCoordinatorAwait_AskUserQuestionCancelClearsRawParams(t *
 	}
 }
 
-func TestFrontendSubmitCoordinatorAwait_MissingHandlerReturnsConfigError(t *testing.T) {
+func TestInteractionSubmitCoordinatorAwait_MissingHandlerReturnsConfigError(t *testing.T) {
 	control := contracts.NewRunControl(context.Background(), "run_1")
 	control.ExpectSubmit(contracts.AwaitingSubmitContext{AwaitingID: "tool_1", Mode: "question"})
 
-	result, err := NewFrontendSubmitCoordinator(frontendtools.NewRegistry()).Await(context.Background(), &contracts.ExecutionContext{
+	result, err := NewInteractionSubmitCoordinator(toolinteraction.NewRegistry()).Await(context.Background(), &contracts.ExecutionContext{
 		RunControl:      control,
 		CurrentToolID:   "tool_1",
-		CurrentToolName: "_missing_frontend_tool_",
+		CurrentToolName: "_missing_interaction_tool_",
 		Budget: contracts.Budget{
 			Tool: contracts.RetryPolicy{Timeout: 1},
 		},
@@ -183,16 +186,16 @@ func TestFrontendSubmitCoordinatorAwait_MissingHandlerReturnsConfigError(t *test
 	if err != nil {
 		t.Fatalf("Await returned error: %v", err)
 	}
-	if result.Error != "frontend_tool_handler_not_registered" {
+	if result.Error != "tool_interaction_handler_not_registered" {
 		t.Fatalf("expected missing handler error, got %#v", result)
 	}
-	if !strings.Contains(result.Output, "frontend tool handler not registered") {
+	if !strings.Contains(result.Output, "tool interaction handler not registered") {
 		t.Fatalf("expected config error output, got %q", result.Output)
 	}
 }
 
-func TestFrontendSubmitCoordinatorAwait_TimeoutReturnsCompactStructuredError(t *testing.T) {
-	result, err := NewFrontendSubmitCoordinator(frontendtools.NewDefaultRegistry()).Await(context.Background(), &contracts.ExecutionContext{
+func TestInteractionSubmitCoordinatorAwait_TimeoutReturnsCompactStructuredError(t *testing.T) {
+	result, err := NewInteractionSubmitCoordinator(toolinteraction.NewDefaultRegistry()).Await(context.Background(), &contracts.ExecutionContext{
 		RunControl:      contracts.NewRunControl(context.Background(), "run_1"),
 		CurrentToolID:   "tool_1",
 		CurrentToolName: "ask_user_question",
@@ -203,10 +206,10 @@ func TestFrontendSubmitCoordinatorAwait_TimeoutReturnsCompactStructuredError(t *
 	if err != nil {
 		t.Fatalf("Await returned error: %v", err)
 	}
-	if result.Error != "frontend_submit_timeout" {
+	if result.Error != "tool_interaction_timeout" {
 		t.Fatalf("expected timeout error code, got %#v", result)
 	}
-	if !strings.Contains(result.Output, "Frontend tool submit timeout:") {
+	if !strings.Contains(result.Output, "Tool interaction submit timeout:") {
 		t.Fatalf("expected readable timeout output, got %q", result.Output)
 	}
 	expected := map[string]any{
@@ -225,7 +228,7 @@ func TestFrontendSubmitCoordinatorAwait_TimeoutReturnsCompactStructuredError(t *
 	}
 }
 
-func TestFrontendSubmitCoordinatorAwait_UsesAwaitingAskTimeoutOverToolBudget(t *testing.T) {
+func TestInteractionSubmitCoordinatorAwait_UsesAwaitingAskTimeoutOverToolBudget(t *testing.T) {
 	control := contracts.NewRunControl(context.Background(), "run_1")
 	control.SetObserverCount(0)
 	control.ExpectSubmit(contracts.AwaitingSubmitContext{
@@ -235,7 +238,7 @@ func TestFrontendSubmitCoordinatorAwait_UsesAwaitingAskTimeoutOverToolBudget(t *
 		Timeout:    1,
 	})
 
-	result, err := NewFrontendSubmitCoordinator(frontendtools.NewDefaultRegistry()).Await(context.Background(), &contracts.ExecutionContext{
+	result, err := NewInteractionSubmitCoordinator(toolinteraction.NewDefaultRegistry()).Await(context.Background(), &contracts.ExecutionContext{
 		RunControl:      control,
 		CurrentToolID:   "tool_1",
 		CurrentToolName: "ask_user_question",
@@ -246,7 +249,7 @@ func TestFrontendSubmitCoordinatorAwait_UsesAwaitingAskTimeoutOverToolBudget(t *
 	if err != nil {
 		t.Fatalf("Await returned error: %v", err)
 	}
-	if result.Error != "frontend_submit_timeout" {
+	if result.Error != "tool_interaction_timeout" {
 		t.Fatalf("expected timeout error code, got %#v", result)
 	}
 	if !strings.Contains(result.Output, "timeout=1") {
@@ -254,7 +257,7 @@ func TestFrontendSubmitCoordinatorAwait_UsesAwaitingAskTimeoutOverToolBudget(t *
 	}
 }
 
-func TestFrontendSubmitTimeoutUsesDisplayedAwaitingAskTimeout(t *testing.T) {
+func TestInteractionSubmitTimeoutUsesDisplayedAwaitingAskTimeout(t *testing.T) {
 	control := contracts.NewRunControl(context.Background(), "run_1")
 	control.ExpectSubmit(contracts.AwaitingSubmitContext{
 		AwaitingID: "tool_1",
@@ -263,7 +266,7 @@ func TestFrontendSubmitTimeoutUsesDisplayedAwaitingAskTimeout(t *testing.T) {
 		Timeout:    600,
 	})
 
-	timeout := frontendSubmitTimeout(&contracts.ExecutionContext{
+	timeout := interactionSubmitTimeout(&contracts.ExecutionContext{
 		RunControl:      control,
 		CurrentToolID:   "tool_1",
 		CurrentToolName: "ask_user_question",

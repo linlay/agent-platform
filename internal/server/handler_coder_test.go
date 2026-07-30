@@ -36,6 +36,7 @@ func writeAnthropicProviderSSE(t *testing.T, w http.ResponseWriter, frames ...st
 
 func setupCoderRuntime(t *testing.T, cfg *config.Config) {
 	t.Helper()
+	workspace := setupCoderTestWorkspace(t, cfg, "mock-coder-workspace")
 	modelPath := filepath.Join(cfg.Paths.RegistriesDir, "models", "coder-model.yml")
 	if err := os.WriteFile(modelPath, []byte(strings.Join([]string{
 		"key: coder-model",
@@ -65,6 +66,7 @@ func setupCoderRuntime(t *testing.T, cfg *config.Config) {
 		"runtimeConfig:",
 		"  environmentId: shell",
 		"  level: RUN",
+		"  workspaceRoot: " + filepath.ToSlash(workspace),
 		"mode: CODER",
 		"stageSettings:",
 		"  execute:",
@@ -73,6 +75,15 @@ func setupCoderRuntime(t *testing.T, cfg *config.Config) {
 	}, "\n")), 0o644); err != nil {
 		t.Fatalf("write coder agent config: %v", err)
 	}
+}
+
+func setupCoderTestWorkspace(t *testing.T, cfg *config.Config, name string) string {
+	t.Helper()
+	workspace := filepath.Join(filepath.Dir(cfg.Paths.AgentsDir), name)
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir coder workspace: %v", err)
+	}
+	return workspace
 }
 
 func TestCoderModelOptionsHTTP(t *testing.T) {
@@ -213,6 +224,7 @@ func TestCoderModelOptionsForACPCoderAgentOnlyShowsACPPassthrough(t *testing.T) 
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
 		setupRuntime: func(_ string, cfg *config.Config) {
+			workspace := setupCoderTestWorkspace(t, cfg, "codex-workspace")
 			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "providers", "ready.yml"), []byte(strings.Join([]string{
 				"key: ready",
 				"baseUrl: http://127.0.0.1:1",
@@ -260,6 +272,7 @@ func TestCoderModelOptionsForACPCoderAgentOnlyShowsACPPassthrough(t *testing.T) 
 				"  modelKey: gpt-5.5",
 				"runtimeConfig:",
 				"  acpBridgeId: codex",
+				"  workspaceRoot: " + filepath.ToSlash(workspace),
 			}, "\n")), 0o644); err != nil {
 				t.Fatalf("write acp agent: %v", err)
 			}
@@ -336,6 +349,7 @@ func TestCoderModelOptionsForACPCoderAgentUsesProxyModelDiscovery(t *testing.T) 
 			}
 		},
 		setupRuntime: func(_ string, cfg *config.Config) {
+			workspace := setupCoderTestWorkspace(t, cfg, "codex-workspace")
 			agentDir := filepath.Join(cfg.Paths.AgentsDir, "codex-agent")
 			if err := os.MkdirAll(agentDir, 0o755); err != nil {
 				t.Fatalf("mkdir acp agent: %v", err)
@@ -348,6 +362,7 @@ func TestCoderModelOptionsForACPCoderAgentUsesProxyModelDiscovery(t *testing.T) 
 				"  modelKey: claude-opus-4-6",
 				"runtimeConfig:",
 				"  acpBridgeId: codex",
+				"  workspaceRoot: " + filepath.ToSlash(workspace),
 			}, "\n")), 0o644); err != nil {
 				t.Fatalf("write acp agent: %v", err)
 			}
@@ -438,6 +453,7 @@ func TestAgentDetailIncludesModelOptionsOnlyForACPCoder(t *testing.T) {
 			}
 		},
 		setupRuntime: func(_ string, cfg *config.Config) {
+			workspace := setupCoderTestWorkspace(t, cfg, "shared-coder-workspace")
 			for key, body := range map[string]string{
 				"codex-agent": strings.Join([]string{
 					"key: codex-agent",
@@ -447,6 +463,7 @@ func TestAgentDetailIncludesModelOptionsOnlyForACPCoder(t *testing.T) {
 					"  modelKey: claude-opus-4-6",
 					"runtimeConfig:",
 					"  acpBridgeId: codex",
+					"  workspaceRoot: " + filepath.ToSlash(workspace),
 				}, "\n"),
 				"native-agent": strings.Join([]string{
 					"key: native-agent",
@@ -454,6 +471,8 @@ func TestAgentDetailIncludesModelOptionsOnlyForACPCoder(t *testing.T) {
 					"mode: CODER",
 					"modelConfig:",
 					"  modelKey: mock-model",
+					"runtimeConfig:",
+					"  workspaceRoot: " + filepath.ToSlash(workspace),
 				}, "\n"),
 			} {
 				agentDir := filepath.Join(cfg.Paths.AgentsDir, key)
@@ -565,6 +584,7 @@ func TestCoderModelOptionsForNativeCoderAgentHidesACPPassthrough(t *testing.T) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
 		setupRuntime: func(_ string, cfg *config.Config) {
+			workspace := setupCoderTestWorkspace(t, cfg, "native-workspace")
 			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "providers", "ready.yml"), []byte(strings.Join([]string{
 				"key: ready",
 				"baseUrl: http://127.0.0.1:1",
@@ -600,6 +620,8 @@ func TestCoderModelOptionsForNativeCoderAgentHidesACPPassthrough(t *testing.T) {
 				"mode: CODER",
 				"modelConfig:",
 				"  modelKey: ready-model",
+				"runtimeConfig:",
+				"  workspaceRoot: " + filepath.ToSlash(workspace),
 			}, "\n")), 0o644); err != nil {
 				t.Fatalf("write native agent: %v", err)
 			}

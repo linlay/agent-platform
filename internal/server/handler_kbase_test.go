@@ -93,10 +93,9 @@ func TestHandleKBaseStatusMappingAndMethods(t *testing.T) {
 
 func handlerKBaseAgent(key, workspace string) kbase.AgentSpec {
 	return kbase.AgentSpec{
-		Key: key, Requirement: kbase.RequirementRequired,
+		Key: key, Requirement: kbase.RequirementRequired, WorkspaceRoot: workspace,
 		Config: kbase.Config{
 			Enabled:   true,
-			Source:    kbase.SourceConfig{Root: workspace},
 			Embedding: kbase.EmbeddingConfig{ModelKey: "embedding"},
 			Storage:   kbase.StorageConfig{Location: "runtime"},
 			Include:   []string{"**/*.md"},

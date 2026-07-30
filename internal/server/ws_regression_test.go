@@ -939,7 +939,7 @@ func (wsRegressionCatalogRegistry) SkillDefinition(string) (catalog.SkillDefinit
 	return catalog.SkillDefinition{}, false
 }
 
-func (wsRegressionCatalogRegistry) Tools(string, string) []api.ToolSummary { return nil }
+func (wsRegressionCatalogRegistry) Tools(string) []api.ToolSummary { return nil }
 
 func (wsRegressionCatalogRegistry) Tool(string) (api.ToolDetailResponse, bool) {
 	return api.ToolDetailResponse{}, false

@@ -124,11 +124,11 @@ func TestMCPResultUsesOutputSchemaWithoutGuessingBusinessFieldNames(t *testing.T
 		t.Run(tc.name, func(t *testing.T) {
 			def := base
 			def.OutputSchema = tc.schema
-			router := NewToolRouter(
+			router := mustNewToolRouter(
+				t,
 				stubBackendToolExecutor{},
 				outputSchemaMCPClient{payload: map[string]any{"structuredContent": tc.structured}},
 				outputSchemaToolCatalog{def: def},
-				nil,
 				nil,
 			)
 			result, err := router.Invoke(context.Background(), def.Name, nil, nil)

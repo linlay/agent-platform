@@ -31,7 +31,7 @@ import (
 //   - flat：{chatId, requestId, fileName, sha256?, url?, mimeType?, sizeBytes?}
 //
 // 下载 key 由网关在 upload.url 中下发。下载完的字节复用 /api/upload
-// 内部管线落盘到 {ChatsDir}/{chatId}/，sandbox 会把该目录挂进容器 /workspace。
+// 内部管线落盘到 {ChatsDir}/{chatId}/，sandbox 会把该目录挂进容器 /chat。
 func (s *Server) wsDownload(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	payloadData, statusErr := s.rewriteChannelRequestPayload(ctx, req.Type, req.Payload)
 	if statusErr != nil {

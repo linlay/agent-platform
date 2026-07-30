@@ -15,25 +15,25 @@ type AdminAgentDiagnostic struct {
 }
 
 type AdminAgent struct {
-	Key          string
-	Name         string
-	Icon         any
-	Description  string
-	Role         string
-	Mode         string
-	ModelKey     string
-	Tools        []string
-	Skills       []string
-	Workspace    AgentWorkspaceConfig
-	Controls     []map[string]any
+	Key           string
+	Name          string
+	Icon          any
+	Description   string
+	Role          string
+	Mode          string
+	ModelKey      string
+	Tools         []string
+	Skills        []string
+	Workspace     AgentWorkspaceConfig
+	Controls      []map[string]any
 	ChannelConfig AgentChannelConfig
-	Meta         map[string]any
-	Status       string
-	Diagnostics  []AdminAgentDiagnostic
-	Source       EditableAgentSource
-	Definition   map[string]any
-	SoulPrompt   string
-	AgentsPrompt string
+	Meta          map[string]any
+	Status        string
+	Diagnostics   []AdminAgentDiagnostic
+	Source        EditableAgentSource
+	Definition    map[string]any
+	SoulPrompt    string
+	AgentsPrompt  string
 }
 
 func cloneAdminAgent(src AdminAgent) AdminAgent {

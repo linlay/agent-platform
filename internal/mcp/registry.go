@@ -205,10 +205,10 @@ func parseServerTree(path string, tree any) (ServerDefinition, error) {
 		ReadTimeout:    firstInt(root["read-timeout"], nil, defaultReadTimeout),
 		Retry:          firstInt(root["retry"], nil, 1),
 	}
-	for _, item := range listMaps(root["tools"]) {
+	for index, item := range listMaps(root["tools"]) {
 		tool, err := parseToolDefinition(item)
 		if err != nil {
-			continue
+			return ServerDefinition{}, fmt.Errorf("tools[%d]: %w", index, err)
 		}
 		server.Tools = append(server.Tools, tool)
 	}
@@ -249,6 +249,11 @@ func hasAnyKey(values map[string]any, keys ...string) bool {
 }
 
 func parseToolDefinition(root map[string]any) (ToolDefinition, error) {
+	for _, field := range []string{"type", "kind", "toolAction", "submitResultFormat"} {
+		if _, ok := root[field]; ok {
+			return ToolDefinition{}, fmt.Errorf("MCP tool field %s is no longer supported; MCP tools use the unified tool model", field)
+		}
+	}
 	name := strings.TrimSpace(contracts.FirstNonEmptyString(root["name"]))
 	if name == "" {
 		return ToolDefinition{}, fmt.Errorf("tool name is required")
@@ -267,7 +272,6 @@ func parseToolDefinition(root map[string]any) (ToolDefinition, error) {
 		AfterCallHint: strings.TrimSpace(contracts.FirstNonEmptyString(root["afterCallHint"])),
 		Parameters:    contracts.CloneMap(parameters),
 		OutputSchema:  contracts.CloneMap(contracts.AnyMapNode(root["outputSchema"])),
-		ToolAction:    firstBool(root["toolAction"], false),
 		ViewportType:  strings.TrimSpace(contracts.FirstNonEmptyString(root["viewportType"])),
 		ViewportKey:   strings.TrimSpace(contracts.FirstNonEmptyString(root["viewportKey"])),
 		Aliases:       aliases,

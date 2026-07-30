@@ -252,9 +252,9 @@ func TestWatcherSignatureTracksOnlyBindingInputs(t *testing.T) {
 	}
 
 	for name, mutate := range map[string]func(*AgentSpec){
-		"source":  func(spec *AgentSpec) { spec.Config.Source.Root = "/workspace/other" },
-		"storage": func(spec *AgentSpec) { spec.Config.Storage.Location = "workspace" },
-		"exclude": func(spec *AgentSpec) { spec.Config.Exclude = append(spec.Config.Exclude, "private/**") },
+		"workspace": func(spec *AgentSpec) { spec.WorkspaceRoot = "/workspace/other" },
+		"storage":   func(spec *AgentSpec) { spec.Config.Storage.Location = "workspace" },
+		"exclude":   func(spec *AgentSpec) { spec.Config.Exclude = append(spec.Config.Exclude, "private/**") },
 	} {
 		t.Run(name, func(t *testing.T) {
 			changed := base

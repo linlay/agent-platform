@@ -35,7 +35,7 @@ LOCAL_BACKEND_BIN := $(LOCAL_BACKEND_DIR)/$(LOCAL_BINARY)
 LOCAL_PLUGINS_DIR := $(LOCAL_RELEASE_ROOT)/plugins
 LOCAL_BUILTINS_BIN := build/builtins/$(LOCAL_GOOS)-$(ARCH)/bin
 
-.PHONY: run build-local run-local test test-integration test-program-deploy test-release-program-clean docker-build docker-up docker-down release release-program release-program-all clean
+.PHONY: run build-local run-local audit-workspace-chat test test-integration test-program-deploy test-release-program-clean docker-build docker-up docker-down release release-program release-program-all clean
 
 ifeq ($(OS),Windows_NT)
 run: run-local
@@ -55,6 +55,9 @@ build-local:
 run-local: build-local
 	set -a; [ ! -f .env ] || . ./.env; set +a; SERVER_PORT="$${SERVER_PORT:-11949}" AP_BUILTINS_BIN="$${AP_BUILTINS_BIN:-$(abspath $(LOCAL_BUILTINS_BIN))}" PATH="$(abspath $(LOCAL_BUILTINS_BIN)):$$PATH" "$(LOCAL_BACKEND_BIN)" --config-dir .
 endif
+
+audit-workspace-chat:
+	go run ./cmd/audit-workspace-chat-config --config-dir .
 
 test:
 	@for pkg in $$(go list ./...); do \

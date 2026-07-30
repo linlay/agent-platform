@@ -322,11 +322,9 @@ func shouldOmitPayloadField(eventType string, key string, value any) bool {
 		return key == "chatName"
 	case "reasoning.start", "reasoning.snapshot",
 		"content.start", "content.snapshot",
-		"tool.start", "tool.snapshot",
-		"action.start", "action.snapshot":
+		"tool.start", "tool.snapshot":
 		return key == "taskId" || key == "reasoningLabel" || key == "toolName" || key == "toolLabel" ||
-			key == "toolDescription" || key == "viewportKey" || key == "actionName" ||
-			key == "description" || key == "arguments"
+			key == "toolDescription" || key == "viewportKey" || key == "arguments"
 	case "source.publish":
 		return key == "taskId" || key == "toolId" || key == "query"
 	case "planning.start", "planning.delta", "planning.end", "planning.snapshot":
@@ -401,16 +399,6 @@ func eventPayloadKeyOrder(eventType string) []string {
 		return []string{"toolId", "toolName", "result", "durationMs", "fileChange", "hitl", "approval"}
 	case "source.publish":
 		return []string{"publishId", "runId", "taskId", "toolId", "kind", "query", "sourceCount", "chunkCount", "sources"}
-	case "action.start":
-		return []string{"actionId", "runId", "taskId", "actionName", "description"}
-	case "action.args":
-		return []string{"actionId", "delta"}
-	case "action.end":
-		return []string{"actionId"}
-	case "action.snapshot":
-		return []string{"actionId", "runId", "actionName", "taskId", "description", "arguments"}
-	case "action.result":
-		return []string{"actionId", "result"}
 	case "plan.create", "plan.update":
 		return []string{"planId", "chatId", "plan"}
 	case "planning.start":

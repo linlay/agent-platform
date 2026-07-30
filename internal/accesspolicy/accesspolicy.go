@@ -10,6 +10,7 @@ import (
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
+	"agent-platform/internal/rootpaths"
 )
 
 type AccessMode string
@@ -72,12 +73,11 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 	}
 	accessLevel := sessionAccessLevel(session)
 	level := EffectiveLevel(cfg, accessLevel)
-	workingDir := WorkingDirectory(cfg, session)
-	candidate := pathutil.ExpandHome(rawPath)
-	if !filepath.IsAbs(candidate) {
-		candidate = filepath.Join(workingDir, candidate)
+	workspaceRoot := SessionWorkspaceRoot(session)
+	candidate, err := ResolveSessionPath(session, rawPath)
+	if err != nil {
+		return PathPlan{}, err
 	}
-	candidate = filepath.Clean(candidate)
 	realCandidate, err := pathutil.Canonicalize(candidate)
 	if err != nil {
 		return PathPlan{}, err
@@ -90,9 +90,9 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 		action = level.Approvals.WriteOutsideRoots
 	}
 	roots = appendSessionHostAccessRoots(roots, session, mode)
-	root, ok := firstAllowedRoot(session, workingDir, roots, realCandidate)
+	root, ok := firstAllowedRoot(session, workspaceRoot, roots, realCandidate)
 	if mode == WriteAccess && ok {
-		if readonlyRoot, readonly := firstAllowedRoot(session, workingDir, level.ReadonlyRoots, realCandidate); readonly {
+		if readonlyRoot, readonly := firstAllowedRoot(session, workspaceRoot, level.ReadonlyRoots, realCandidate); readonly {
 			return buildPathPlan(mode, rawPath, realCandidate, readonlyRoot, accessLevel, DecisionBlock, "path is under a readonly root"), nil
 		}
 	}
@@ -124,42 +124,10 @@ func EffectiveLevel(cfg config.AccessPolicyConfig, accessLevel string) Level {
 	}
 }
 
-func WorkingDirectory(cfg config.AccessPolicyConfig, session QuerySession) string {
-	raw := strings.TrimSpace(cfg.WorkingDirectory)
-	if raw == "" {
-		raw = "@workspace"
-	}
-	if expanded := expandRootAlias(raw, session); expanded != "" {
-		return expanded
-	}
-	if strings.EqualFold(raw, "@workspace") {
-		if abs, err := filepath.Abs("."); err == nil {
-			return filepath.Clean(abs)
-		}
-		return "."
-	}
-	if filepath.IsAbs(raw) {
-		return filepath.Clean(pathutil.ExpandHome(raw))
-	}
-	if workspace := SessionWorkspaceRoot(session); workspace != "" {
-		return workspace
-	}
-	if abs, err := filepath.Abs(raw); err == nil {
-		return filepath.Clean(abs)
-	}
-	return filepath.Clean(raw)
-}
-
 func SessionWorkspaceRoot(session QuerySession) string {
 	root := strings.TrimSpace(session.WorkspaceRoot)
 	if root == "" {
 		root = strings.TrimSpace(session.RuntimeContext.LocalPaths.WorkspaceDir)
-	}
-	if root == "" {
-		root = strings.TrimSpace(session.RuntimeContext.LocalPaths.ChatAttachmentsDir)
-	}
-	if root == "" {
-		root = strings.TrimSpace(session.RuntimeContext.LocalPaths.WorkingDirectory)
 	}
 	if root == "" {
 		return ""
@@ -175,15 +143,24 @@ func PathInSessionWorkspace(session QuerySession, path string) bool {
 	if strings.TrimSpace(path) == "" {
 		return false
 	}
-	for _, root := range []string{
-		SessionWorkspaceRoot(session),
-		SessionChatDir(session),
-	} {
-		if pathInSessionRoot(root, path) {
-			return true
-		}
+	roots, err := sessionRoots(session)
+	if err != nil {
+		return false
 	}
-	return false
+	zone, _, err := roots.Classify(path)
+	return err == nil && zone == rootpaths.ZoneWorkspace
+}
+
+func PathInSessionChat(session QuerySession, path string) bool {
+	if strings.TrimSpace(path) == "" {
+		return false
+	}
+	roots, err := sessionRoots(session)
+	if err != nil {
+		return false
+	}
+	zone, _, err := roots.Classify(path)
+	return err == nil && zone == rootpaths.ZoneCurrentChat
 }
 
 func PathInSessionHostAccessRoot(session QuerySession, mode AccessMode, path string) bool {
@@ -197,27 +174,143 @@ func PathInSessionHostAccessRoot(session QuerySession, mode AccessMode, path str
 	if len(roots) == 0 {
 		return false
 	}
-	workingDir := SessionWorkspaceRoot(session)
-	if workingDir == "" {
-		workingDir = SessionChatDir(session)
-	}
-	if workingDir == "" {
-		workingDir = "."
-	}
-	candidate := pathutil.ExpandHome(path)
-	if !filepath.IsAbs(candidate) {
-		candidate = filepath.Join(workingDir, candidate)
+	workspaceRoot := SessionWorkspaceRoot(session)
+	candidate, err := ResolveSessionPath(session, path)
+	if err != nil {
+		return false
 	}
 	candidateCanonical, err := pathutil.Canonicalize(candidate)
 	if err != nil {
 		return false
 	}
-	_, ok := firstAllowedRoot(session, workingDir, roots, candidateCanonical)
+	_, ok := firstAllowedRoot(session, workspaceRoot, roots, candidateCanonical)
 	return ok
 }
 
 func SessionChatDir(session QuerySession) string {
-	return cleanAbs(session.RuntimeContext.LocalPaths.ChatAttachmentsDir)
+	if root := cleanAbs(session.ChatRoot); root != "" {
+		return root
+	}
+	return cleanAbs(session.RuntimeContext.LocalPaths.ChatDir)
+}
+
+func SessionChatsRoot(session QuerySession) string {
+	return cleanAbs(session.RuntimeContext.LocalPaths.ChatsDir)
+}
+
+func ResolveSessionPath(session QuerySession, rawPath string) (string, error) {
+	rawPath = strings.TrimSpace(rawPath)
+	if rawPath == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	if alias, suffix, ok := splitRootQualifiedPath(rawPath); ok {
+		root := expandRootAlias(alias, session)
+		if root == "" {
+			if strings.EqualFold(alias, "@workspace") {
+				return "", fmt.Errorf("workspace_unavailable: workspace is required")
+			}
+			return "", fmt.Errorf("path root %s is unavailable", alias)
+		}
+		if suffix == "" {
+			resolved := filepath.Clean(root)
+			if strings.EqualFold(alias, "@workspace") {
+				return requireSessionWorkspacePath(session, resolved)
+			}
+			return resolved, nil
+		}
+		resolved := filepath.Clean(filepath.Join(root, filepath.FromSlash(suffix)))
+		rel, err := filepath.Rel(root, resolved)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return "", fmt.Errorf("path escapes %s", alias)
+		}
+		if strings.EqualFold(alias, "@workspace") {
+			return requireSessionWorkspacePath(session, resolved)
+		}
+		return resolved, nil
+	}
+	candidate := pathutil.ExpandHome(rawPath)
+	if translated, ok, err := translateExecutionPath(session, candidate); ok || err != nil {
+		return translated, err
+	}
+	if filepath.IsAbs(candidate) {
+		return filepath.Clean(candidate), nil
+	}
+	workspaceRoot := SessionWorkspaceRoot(session)
+	if workspaceRoot == "" {
+		return "", fmt.Errorf("workspace_unavailable: relative paths require a workspace")
+	}
+	return requireSessionWorkspacePath(session, filepath.Clean(filepath.Join(workspaceRoot, candidate)))
+}
+
+func translateExecutionPath(session QuerySession, rawPath string) (string, bool, error) {
+	if !session.AgentHasRuntimeSandbox {
+		return "", false, nil
+	}
+	for _, roots := range []struct {
+		execution string
+		host      string
+		workspace bool
+	}{
+		{execution: session.RuntimeContext.SandboxPaths.ChatDir, host: SessionChatDir(session)},
+		{execution: session.RuntimeContext.SandboxPaths.WorkspaceDir, host: SessionWorkspaceRoot(session), workspace: true},
+	} {
+		executionRoot := filepath.ToSlash(strings.TrimRight(strings.TrimSpace(roots.execution), `/\`))
+		hostRoot := strings.TrimSpace(roots.host)
+		candidate := filepath.ToSlash(strings.TrimSpace(rawPath))
+		if executionRoot == "" || hostRoot == "" {
+			continue
+		}
+		if candidate != executionRoot && !strings.HasPrefix(candidate, executionRoot+"/") {
+			continue
+		}
+		suffix := strings.TrimPrefix(candidate, executionRoot)
+		suffix = strings.TrimLeft(suffix, "/")
+		resolved := filepath.Clean(filepath.Join(hostRoot, filepath.FromSlash(suffix)))
+		rel, err := filepath.Rel(hostRoot, resolved)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return "", true, fmt.Errorf("path escapes sandbox root %s", executionRoot)
+		}
+		if roots.workspace {
+			resolved, err = requireSessionWorkspacePath(session, resolved)
+			return resolved, true, err
+		}
+		return resolved, true, nil
+	}
+	return "", false, nil
+}
+
+func requireSessionWorkspacePath(session QuerySession, candidate string) (string, error) {
+	roots, err := sessionRoots(session)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := roots.RequireWorkspacePath(candidate)
+	if err != nil {
+		return "", err
+	}
+	return resolved.Host, nil
+}
+
+func sessionRoots(session QuerySession) (rootpaths.Roots, error) {
+	return rootpaths.New(
+		SessionWorkspaceRoot(session),
+		SessionChatsRoot(session),
+		SessionChatDir(session),
+	)
+}
+
+func splitRootQualifiedPath(rawPath string) (string, string, bool) {
+	normalized := filepath.ToSlash(strings.TrimSpace(rawPath))
+	for _, alias := range []string{"@workspace", "@chat", "@agent", "@skills", "@skills-market", "@owner"} {
+		if strings.EqualFold(normalized, alias) {
+			return alias, "", true
+		}
+		prefix := alias + "/"
+		if strings.HasPrefix(strings.ToLower(normalized), prefix) {
+			return alias, normalized[len(prefix):], true
+		}
+	}
+	return "", "", false
 }
 
 func pathInSessionRoot(root string, path string) bool {
@@ -380,26 +473,49 @@ func outsideRootsReason(mode AccessMode) string {
 	return "read path is outside allowed roots"
 }
 
-func firstAllowedRoot(session QuerySession, workingDir string, roots []string, candidate pathutil.Canonical) (pathutil.Canonical, bool) {
+func firstAllowedRoot(session QuerySession, workspaceRoot string, roots []string, candidate pathutil.Canonical) (pathutil.Canonical, bool) {
 	for _, root := range roots {
 		root = strings.TrimSpace(root)
 		if root == "" {
 			continue
 		}
 		checkRoot := root
+		rootAlias := strings.ToLower(checkRoot)
+		workspaceRelative := !filepath.IsAbs(checkRoot) && !strings.HasPrefix(checkRoot, "@")
 		if expanded := expandRootAlias(checkRoot, session); expanded != "" {
 			checkRoot = expanded
-		} else if strings.EqualFold(checkRoot, "@workspace") {
-			checkRoot = workingDir
 		} else if strings.HasPrefix(checkRoot, "@") {
 			continue
 		}
 		if !filepath.IsAbs(checkRoot) {
-			checkRoot = filepath.Join(workingDir, checkRoot)
+			if workspaceRoot == "" {
+				continue
+			}
+			checkRoot = filepath.Join(workspaceRoot, checkRoot)
 		}
 		checkRootCanonical, err := pathutil.Canonicalize(checkRoot)
 		if err != nil {
 			continue
+		}
+		switch rootAlias {
+		case "@workspace":
+			semanticRoots, err := sessionRoots(session)
+			if err != nil || semanticRoots.ClassifyCanonical(candidate) != rootpaths.ZoneWorkspace {
+				continue
+			}
+		case "@chat":
+			semanticRoots, err := sessionRoots(session)
+			if err != nil || semanticRoots.ClassifyCanonical(candidate) != rootpaths.ZoneCurrentChat {
+				continue
+			}
+		}
+		if workspaceRelative {
+			semanticRoots, err := sessionRoots(session)
+			if err != nil ||
+				semanticRoots.ClassifyCanonical(checkRootCanonical) != rootpaths.ZoneWorkspace ||
+				semanticRoots.ClassifyCanonical(candidate) != rootpaths.ZoneWorkspace {
+				continue
+			}
 		}
 		if pathutil.WithinRoot(candidate, checkRootCanonical) {
 			return checkRootCanonical, true

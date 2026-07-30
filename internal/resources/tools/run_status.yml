@@ -1,7 +1,6 @@
 name: run_status
 label: 查询独立运行状态
 description: Read the current status and result snapshot of an independent run previously created by run_query for this caller and subject. Do not use this tool for the current run or for agent_invoke or agent_delegate child tasks.
-type: function
 clientVisible: true
 explicitOnly: true
 readOnly: true

@@ -1108,7 +1108,6 @@ type ToolSummary struct {
 	Name           string `json:"name"`
 	Label          string `json:"label,omitempty"`
 	Description    string `json:"description,omitempty"`
-	Kind           string `json:"kind"`
 	SourceType     string `json:"sourceType"`
 	SourceCategory string `json:"sourceCategory"`
 	ServerKey      string `json:"serverKey,omitempty"`

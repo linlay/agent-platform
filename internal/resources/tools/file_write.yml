@@ -5,14 +5,12 @@ description: |
   Do not use bash redirection, heredocs, cat/echo/printf/tee, or interpreter one-liners to write files when this tool is available.
   Existing files must be fully read in the same run before writing; external changes after read return file_modified_since_read. Successful results include lineStats with addedLines, deletedLines, and editedLines.
   When encoding is omitted, existing text files keep their detected encoding when it is UTF-8, gb18030/gbk, or the current Windows ACP; new files default to UTF-8.
-submitResultFormat: json-compact
-type: function
 inputSchema:
   type: object
   properties:
     file_path:
       type: string
-      description: Required. Absolute path, or a path relative to the file-tools working-directory in configs/tools.yml, for the file to create or overwrite.
+      description: Required. Absolute path, @workspace/@chat path, or a path relative to the current Workspace.
     content:
       type: string
       description: Required. Complete text contents to write. Existing file contents are replaced.

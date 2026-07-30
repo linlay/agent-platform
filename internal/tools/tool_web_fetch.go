@@ -424,7 +424,7 @@ func webFetchChatDir(execCtx *ExecutionContext) string {
 	if execCtx == nil {
 		return ""
 	}
-	if dir := strings.TrimSpace(execCtx.Session.RuntimeContext.LocalPaths.ChatAttachmentsDir); dir != "" {
+	if dir := strings.TrimSpace(execCtx.Session.RuntimeContext.LocalPaths.ChatDir); dir != "" {
 		return dir
 	}
 	return ""

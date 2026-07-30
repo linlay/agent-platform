@@ -16,12 +16,13 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
+	"agent-platform/internal/pathutil"
 	"agent-platform/internal/timecontract"
 
 	gws "github.com/gorilla/websocket"
 )
 
-func TestProxyQueryForwardsRuntimeWorkspaceRootAsCWD(t *testing.T) {
+func TestProxyQueryDoesNotForwardHostWorkspaceAsCWD(t *testing.T) {
 	workspace := t.TempDir()
 	captured := make(chan map[string]any, 1)
 	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -77,8 +78,11 @@ func TestProxyQueryForwardsRuntimeWorkspaceRootAsCWD(t *testing.T) {
 	if payload["accessLevel"] != "default" {
 		t.Fatalf("expected upstream accessLevel default, got %#v", payload)
 	}
-	if params["channel"] != "desktop" || params["cwd"] != filepath.Clean(workspace) {
+	if params["channel"] != "desktop" {
 		t.Fatalf("unexpected upstream params %#v", params)
+	}
+	if _, ok := params["cwd"]; ok {
+		t.Fatalf("host cwd must not cross the proxy boundary: %#v", params)
 	}
 }
 
@@ -527,7 +531,7 @@ func TestProxyQueryRejectsRequestCWDParam(t *testing.T) {
 	}
 }
 
-func TestProxyQueryDefaultsToWebSocketAndForwardsRuntimeWorkspaceRootAsCWD(t *testing.T) {
+func TestProxyQueryDefaultsToWebSocketWithoutForwardingHostCWD(t *testing.T) {
 	workspace := t.TempDir()
 	captured := make(chan map[string]any, 1)
 	upgrader := gws.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
@@ -619,8 +623,11 @@ func TestProxyQueryDefaultsToWebSocketAndForwardsRuntimeWorkspaceRootAsCWD(t *te
 	if !ok {
 		t.Fatalf("expected params object, got %#v", inner["params"])
 	}
-	if params["channel"] != "desktop" || params["cwd"] != filepath.Clean(workspace) {
+	if params["channel"] != "desktop" {
 		t.Fatalf("unexpected upstream websocket params %#v", params)
+	}
+	if _, ok := params["cwd"]; ok {
+		t.Fatalf("host cwd must not cross the websocket proxy boundary: %#v", params)
 	}
 }
 
@@ -800,8 +807,11 @@ func TestACPCoderQueryUsesGlobalProxyAndForwardsWorkspaceAndModel(t *testing.T) 
 		t.Fatalf("expected platform agent key, got %#v", inner["agentKey"])
 	}
 	params, ok := inner["params"].(map[string]any)
-	if !ok || params["cwd"] != filepath.Clean(workspace) || params["channel"] != "desktop" {
+	if !ok || params["channel"] != "desktop" {
 		t.Fatalf("unexpected upstream params %#v", inner["params"])
+	}
+	if _, ok := params["cwd"]; ok {
+		t.Fatalf("host cwd must not cross the ACP adapter boundary: %#v", params)
 	}
 	model, ok := inner["model"].(map[string]any)
 	if !ok || model["key"] != "mock-model" || model["modelId"] != "mock-model-id" {
@@ -1085,7 +1095,66 @@ func TestProxyRequestTimeoutUsesACPBridgeMilliseconds(t *testing.T) {
 	}
 }
 
-func TestProxyQueryPayloadWithWorkspaceAddsCWDForWebSocket(t *testing.T) {
+func TestResolveProxyFileSourceSupportsWorkspaceAndChatAliases(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	chatDir := filepath.Join(root, "chats", "chat-1")
+	for _, dir := range []string{workspace, chatDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	workspacePath, err := resolveProxyFileSource(nil, "chat-1", chatDir, workspace, "@workspace/src/main.go")
+	wantWorkspacePath, canonicalErr := pathutil.Canonicalize(filepath.Join(workspace, "src", "main.go"))
+	if canonicalErr != nil {
+		t.Fatal(canonicalErr)
+	}
+	if err != nil || workspacePath != wantWorkspacePath.Host {
+		t.Fatalf("resolve @workspace: path=%q err=%v", workspacePath, err)
+	}
+
+	chatPath, err := resolveProxyFileSource(nil, "chat-1", chatDir, workspace, "@chat/input.txt")
+	wantChatPath, canonicalErr := pathutil.Canonicalize(filepath.Join(chatDir, "input.txt"))
+	if canonicalErr != nil {
+		t.Fatal(canonicalErr)
+	}
+	if err != nil || chatPath != wantChatPath.Host {
+		t.Fatalf("resolve @chat: path=%q err=%v", chatPath, err)
+	}
+}
+
+func TestResolveProxyFileSourceExcludesChatsFromFilesystemRootWorkspace(t *testing.T) {
+	root := t.TempDir()
+	chatsRoot := filepath.Join(root, "chats")
+	chatDir := filepath.Join(chatsRoot, "chat-1")
+	otherChatDir := filepath.Join(chatsRoot, "chat-2")
+	for _, dir := range []string{chatDir, otherChatDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	currentChatPath := filepath.Join(chatDir, "input.txt")
+	wantCurrentChatPath, canonicalErr := pathutil.Canonicalize(currentChatPath)
+	if canonicalErr != nil {
+		t.Fatal(canonicalErr)
+	}
+	if got, err := resolveProxyFileSource(nil, "chat-1", chatDir, root, "@chat/input.txt"); err != nil || got != wantCurrentChatPath.Host {
+		t.Fatalf("resolve current chat: path=%q err=%v", got, err)
+	}
+	for _, rawPath := range []string{
+		filepath.Join("chats", "chat-1", "input.txt"),
+		"@workspace/chats/chat-1/input.txt",
+		filepath.Join(otherChatDir, "input.txt"),
+	} {
+		if _, err := resolveProxyFileSource(nil, "chat-1", chatDir, root, rawPath); err == nil {
+			t.Fatalf("expected chat path %q to be rejected as workspace input", rawPath)
+		}
+	}
+}
+
+func TestProxyQueryPayloadWithWorkspaceDoesNotExposeHostCWD(t *testing.T) {
 	req := api.QueryRequest{
 		RequestID:   "req-1",
 		RunID:       "run-1",
@@ -1116,8 +1185,11 @@ func TestProxyQueryPayloadWithWorkspaceAddsCWDForWebSocket(t *testing.T) {
 	if inner["planningMode"] != false {
 		t.Fatalf("expected explicit planningMode=false, got %#v", inner["planningMode"])
 	}
-	if params["channel"] != "desktop" || params["cwd"] != "/workspace/project" {
+	if params["channel"] != "desktop" {
 		t.Fatalf("unexpected websocket params %#v", params)
+	}
+	if _, ok := params["cwd"]; ok {
+		t.Fatalf("host cwd must not be forwarded: %#v", params)
 	}
 }
 

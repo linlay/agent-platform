@@ -5,8 +5,8 @@ import (
 
 	"agent-platform/internal/api"
 	contracts "agent-platform/internal/contracts"
-	"agent-platform/internal/frontendtools"
 	"agent-platform/internal/stream"
+	"agent-platform/internal/toolinteraction"
 )
 
 type stubToolLookup map[string]api.ToolDetailResponse
@@ -185,44 +185,6 @@ func TestDeltaMapper_InvalidChunkedQuestionArgsDoNotEmitStandaloneAwaitAsk(t *te
 	}
 }
 
-func TestDeltaMapper_GenericFrontendToolEmitsFormAwaitAsk(t *testing.T) {
-	tools := stubToolLookup{
-		"leave_form": {
-			Name:  "leave_form",
-			Label: "Leave Form",
-			Meta: map[string]any{
-				"kind":         "frontend",
-				"viewportType": "html",
-				"viewportKey":  "leave_form",
-			},
-		},
-	}
-	mapper := NewDeltaMapper("run_1", "chat_1", contracts.Budget{Hitl: contracts.HitlPolicy{Timeout: 5}}, tools, frontendtools.NewDefaultRegistry())
-
-	inputs := mapper.Map(contracts.DeltaToolCall{
-		Index:     0,
-		ID:        "tool_1",
-		Name:      "leave_form",
-		ArgsDelta: `{"employeeName":"Lin","reason":"family"}`,
-	})
-	if len(inputs) != 1 {
-		t.Fatalf("expected one mapped input, got %#v", inputs)
-	}
-	args, ok := inputs[0].(stream.ToolArgs)
-	if !ok {
-		t.Fatalf("expected ToolArgs input, got %#v", inputs[0])
-	}
-	if args.AwaitAsk == nil {
-		t.Fatalf("expected generic frontend await ask, got %#v", args)
-	}
-	if args.AwaitAsk.Mode != "form" || args.AwaitAsk.ViewportType != "html" || args.AwaitAsk.ViewportKey != "leave_form" {
-		t.Fatalf("unexpected await ask %#v", args.AwaitAsk)
-	}
-	if len(args.AwaitAsk.Forms) != 1 {
-		t.Fatalf("expected one form, got %#v", args.AwaitAsk.Forms)
-	}
-}
-
 func TestDeltaMapper_DebugLLMChat(t *testing.T) {
 	mapper := NewDeltaMapper("run_1", "chat_1", contracts.Budget{}, nil, nil)
 
@@ -296,11 +258,10 @@ func TestDeltaMapper_RunActivity(t *testing.T) {
 	}
 }
 
-func TestDeltaMapper_ModelTurnCommitPreservesActionResultRouting(t *testing.T) {
+func TestDeltaMapper_ModelTurnCommitUsesUnifiedToolRouting(t *testing.T) {
 	mapper := NewDeltaMapper("run_1", "chat_1", contracts.Budget{}, stubToolLookup{
 		"desktop_action": {
 			Name: "desktop_action",
-			Meta: map[string]any{"kind": "action"},
 		},
 	}, nil)
 
@@ -311,10 +272,10 @@ func TestDeltaMapper_ModelTurnCommitPreservesActionResultRouting(t *testing.T) {
 		ArgsDelta: `{}`,
 	})
 	if len(inputs) != 1 {
-		t.Fatalf("expected action args, got %#v", inputs)
+		t.Fatalf("expected tool args, got %#v", inputs)
 	}
-	if _, ok := inputs[0].(stream.ActionArgs); !ok {
-		t.Fatalf("expected ActionArgs, got %#v", inputs[0])
+	if _, ok := inputs[0].(stream.ToolArgs); !ok {
+		t.Fatalf("expected ToolArgs, got %#v", inputs[0])
 	}
 	mapper.Map(contracts.DeltaToolEnd{ToolIDs: []string{"action_1"}})
 	mapper.Map(contracts.DeltaModelTurnCommit{RunSeq: 1})
@@ -325,18 +286,17 @@ func TestDeltaMapper_ModelTurnCommitPreservesActionResultRouting(t *testing.T) {
 		Result:   contracts.ToolExecutionResult{Output: "ok"},
 	})
 	if len(resultInputs) != 1 {
-		t.Fatalf("expected one action result, got %#v", resultInputs)
+		t.Fatalf("expected one tool result, got %#v", resultInputs)
 	}
-	if _, ok := resultInputs[0].(stream.ActionResult); !ok {
-		t.Fatalf("commit lost action routing metadata: %#v", resultInputs[0])
+	if _, ok := resultInputs[0].(stream.ToolResult); !ok {
+		t.Fatalf("commit lost tool routing metadata: %#v", resultInputs[0])
 	}
 }
 
-func TestDeltaMapper_ModelTurnDiscardClearsActionResultRouting(t *testing.T) {
+func TestDeltaMapper_ModelTurnDiscardTracksUnifiedToolID(t *testing.T) {
 	mapper := NewDeltaMapper("run_1", "chat_1", contracts.Budget{}, stubToolLookup{
 		"desktop_action": {
 			Name: "desktop_action",
-			Meta: map[string]any{"kind": "action"},
 		},
 	}, nil)
 	mapper.Map(contracts.DeltaToolCall{
@@ -350,20 +310,20 @@ func TestDeltaMapper_ModelTurnDiscardClearsActionResultRouting(t *testing.T) {
 		t.Fatalf("expected one discard input, got %#v", discardInputs)
 	}
 	discard, ok := discardInputs[0].(stream.ModelTurnDiscard)
-	if !ok || len(discard.ActionIDs) != 1 || discard.ActionIDs[0] != "action_1" {
-		t.Fatalf("discard did not report action id: %#v", discardInputs[0])
+	if !ok || len(discard.ToolIDs) != 1 || discard.ToolIDs[0] != "action_1" {
+		t.Fatalf("discard did not report tool id: %#v", discardInputs[0])
 	}
 
 	resultInputs := mapper.Map(contracts.DeltaToolResult{
 		ToolID:   "action_1",
 		ToolName: "desktop_action",
-		Result:   contracts.ToolExecutionResult{Output: "must not route as action"},
+		Result:   contracts.ToolExecutionResult{Output: "tool result"},
 	})
 	if len(resultInputs) != 1 {
 		t.Fatalf("expected one fallback tool result, got %#v", resultInputs)
 	}
 	if _, ok := resultInputs[0].(stream.ToolResult); !ok {
-		t.Fatalf("discard retained action routing metadata: %#v", resultInputs[0])
+		t.Fatalf("discard lost unified tool routing: %#v", resultInputs[0])
 	}
 }
 
@@ -432,16 +392,17 @@ func newQuestionDeltaMapper() *DeltaMapper {
 		"ask_user_question": {
 			Name: "ask_user_question",
 			Meta: map[string]any{
-				"kind":          "frontend",
 				"clientVisible": false,
+				"viewportType":  "builtin",
+				"viewportKey":   "question",
 			},
 		},
 	}
-	return NewDeltaMapper("run_1", "chat_1", contracts.Budget{Hitl: contracts.HitlPolicy{Timeout: 5}}, tools, frontendtools.NewDefaultRegistry())
+	return NewDeltaMapper("run_1", "chat_1", contracts.Budget{Hitl: contracts.HitlPolicy{Timeout: 5}}, tools, toolinteraction.NewDefaultRegistry())
 }
 
 func TestDeltaMapperCloneIsolatedStartsFreshState(t *testing.T) {
-	mapper := NewDeltaMapper("run_1", "chat_1", contracts.Budget{Hitl: contracts.HitlPolicy{Timeout: 5}}, stubToolLookup{}, frontendtools.NewDefaultRegistry())
+	mapper := NewDeltaMapper("run_1", "chat_1", contracts.Budget{Hitl: contracts.HitlPolicy{Timeout: 5}}, stubToolLookup{}, toolinteraction.NewDefaultRegistry())
 
 	first := mapper.Map(contracts.DeltaContent{Text: "root"})
 	content, ok := first[0].(stream.ContentDelta)
@@ -467,7 +428,7 @@ func TestDeltaMapperCloneIsolatedStartsFreshState(t *testing.T) {
 }
 
 func TestDeltaMapper_ArtifactPublishPreservesBatchPayload(t *testing.T) {
-	mapper := NewDeltaMapper("run_1", "chat_1", contracts.Budget{Hitl: contracts.HitlPolicy{Timeout: 5}}, stubToolLookup{}, frontendtools.NewDefaultRegistry())
+	mapper := NewDeltaMapper("run_1", "chat_1", contracts.Budget{Hitl: contracts.HitlPolicy{Timeout: 5}}, stubToolLookup{}, toolinteraction.NewDefaultRegistry())
 
 	inputs := mapper.Map(contracts.DeltaArtifactPublish{
 		ChatID:        "chat_1",
@@ -493,7 +454,7 @@ func TestDeltaMapper_ArtifactPublishPreservesBatchPayload(t *testing.T) {
 }
 
 func TestDeltaMapper_SourcePublishPreservesPayload(t *testing.T) {
-	mapper := NewDeltaMapper("run_1", "chat_1", contracts.Budget{Hitl: contracts.HitlPolicy{Timeout: 5}}, stubToolLookup{}, frontendtools.NewDefaultRegistry())
+	mapper := NewDeltaMapper("run_1", "chat_1", contracts.Budget{Hitl: contracts.HitlPolicy{Timeout: 5}}, stubToolLookup{}, toolinteraction.NewDefaultRegistry())
 
 	inputs := mapper.Map(contracts.DeltaSourcePublish{
 		RunID:  "run_1",

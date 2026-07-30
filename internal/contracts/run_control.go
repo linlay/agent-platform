@@ -342,7 +342,7 @@ func (c *RunControl) awaitSubmit(ctx context.Context, awaitingID string, timeout
 		return SubmitResult{}, false, ErrRunControlUnavailable
 	}
 	if awaitingID == "" {
-		return SubmitResult{}, false, ErrFrontendSubmitMissingAwaitID
+		return SubmitResult{}, false, ErrInteractionSubmitMissingAwaitID
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -366,7 +366,7 @@ func (c *RunControl) awaitSubmit(ctx context.Context, awaitingID string, timeout
 	}
 	if _, exists := c.submitWaiters[awaitingID]; exists {
 		c.mu.Unlock()
-		return SubmitResult{}, false, ErrFrontendSubmitAlreadyWaiting
+		return SubmitResult{}, false, ErrInteractionSubmitAlreadyWaiting
 	}
 	awaitingCtx := c.awaitingSubmits[awaitingID]
 	if pending, exists := c.pendingSubmits[awaitingID]; exists {
@@ -546,13 +546,13 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 		if strings.TrimSpace(req.SubmitID) != "" && strings.TrimSpace(resolved.Request.SubmitID) == strings.TrimSpace(req.SubmitID) {
 			detail := resolved.Detail
 			if detail == "" {
-				detail = "Frontend submit accepted"
+				detail = "Tool interaction submit accepted"
 			}
 			return SubmitAck{Accepted: true, Status: "accepted", SubmitID: req.SubmitID, Detail: detail}
 		}
 		detail := resolved.Detail
 		if detail == "" {
-			detail = "Frontend submit already resolved"
+			detail = "Tool interaction submit already resolved"
 		}
 		return SubmitAck{Accepted: false, Status: "already_resolved", SubmitID: firstNonBlankSubmitID(resolved.Request.SubmitID, req.SubmitID), Detail: detail}
 	}
@@ -563,7 +563,7 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 		resolved := SubmitResult{
 			Request: deliverReq,
 			Status:  "accepted",
-			Detail:  "Frontend submit accepted",
+			Detail:  "Tool interaction submit accepted",
 		}
 		c.recordResolvedSubmitLocked(publicAwaitingID, awaitingID, resolved)
 		c.deleteAwaitingAliasesLocked(awaitingID)
@@ -572,27 +572,27 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 		accepted := SubmitResult{
 			Request: deliverReq,
 			Status:  "accepted",
-			Detail:  "Frontend submit accepted",
+			Detail:  "Tool interaction submit accepted",
 		}
 		c.pendingSubmits[awaitingID] = accepted
 		c.recordResolvedSubmitLocked(publicAwaitingID, awaitingID, accepted)
 		delete(c.awaitingSubmits, awaitingID)
 		c.deleteAwaitingAliasesLocked(awaitingID)
 		c.mu.Unlock()
-		return SubmitAck{Accepted: true, Status: "accepted", SubmitID: req.SubmitID, Detail: "Frontend submit accepted"}
+		return SubmitAck{Accepted: true, Status: "accepted", SubmitID: req.SubmitID, Detail: "Tool interaction submit accepted"}
 	}
 	c.mu.Unlock()
 	if !ok {
-		return SubmitAck{Accepted: false, Status: "unmatched", SubmitID: req.SubmitID, Detail: "No pending frontend submit waiter found"}
+		return SubmitAck{Accepted: false, Status: "unmatched", SubmitID: req.SubmitID, Detail: "No pending tool interaction submit waiter found"}
 	}
 	if !waiter.deliver(SubmitResult{
 		Request: deliverReq,
 		Status:  "accepted",
-		Detail:  "Frontend submit accepted",
+		Detail:  "Tool interaction submit accepted",
 	}) {
-		return SubmitAck{Accepted: false, Status: "unmatched", SubmitID: req.SubmitID, Detail: "Frontend submit waiter is no longer active"}
+		return SubmitAck{Accepted: false, Status: "unmatched", SubmitID: req.SubmitID, Detail: "Tool interaction submit waiter is no longer active"}
 	}
-	return SubmitAck{Accepted: true, Status: "accepted", SubmitID: req.SubmitID, Detail: "Frontend submit accepted"}
+	return SubmitAck{Accepted: true, Status: "accepted", SubmitID: req.SubmitID, Detail: "Tool interaction submit accepted"}
 }
 
 func (c *RunControl) LookupAwaiting(awaitingID string) (AwaitingSubmitContext, bool) {
@@ -649,7 +649,7 @@ func (c *RunControl) LookupResolvedSubmit(awaitingID string) (SubmitAck, bool) {
 	}
 	detail := strings.TrimSpace(resolved.Detail)
 	if detail == "" {
-		detail = "Frontend submit already resolved"
+		detail = "Tool interaction submit already resolved"
 	}
 	return SubmitAck{
 		Accepted: false,

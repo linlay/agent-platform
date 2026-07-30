@@ -103,6 +103,9 @@ func TestBuildQuerySessionUsesCoderProfileDefaults(t *testing.T) {
 	root := t.TempDir()
 	agentsDir := filepath.Join(root, "agents")
 	workspace := filepath.Join(root, "workspace")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
 	agentDir := filepath.Join(agentsDir, "coder-app")
 	if err := os.MkdirAll(agentDir, 0o755); err != nil {
 		t.Fatalf("mkdir agent dir: %v", err)
@@ -162,8 +165,8 @@ func TestBuildQuerySessionUsesCoderProfileDefaults(t *testing.T) {
 	if owner := contracts.ResolveRunOwner(session.RunOwner); owner.AgentKey != "coder-app" || owner.TeamID != "" || owner.ExecutionAgentKey != "coder-app" {
 		t.Fatalf("unexpected explicit Agent owner %#v", owner)
 	}
-	if session.WorkspaceRoot != filepath.Clean(workspace) {
-		t.Fatalf("workspace root = %q, want %q", session.WorkspaceRoot, filepath.Clean(workspace))
+	if session.WorkspaceRoot != absTestPath(t, workspace) {
+		t.Fatalf("workspace root = %q, want %q", session.WorkspaceRoot, absTestPath(t, workspace))
 	}
 	if session.ModeSystemPrompt != "configured coder system prompt" {
 		t.Fatalf("coder system prompt = %q, want configured prompt", session.ModeSystemPrompt)
@@ -187,6 +190,9 @@ func TestBuildQuerySessionInjectsKBaseSystemPrompt(t *testing.T) {
 	root := t.TempDir()
 	agentsDir := filepath.Join(root, "agents")
 	workspace := filepath.Join(root, "workspace")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir source workspace: %v", err)
+	}
 	agentDir := filepath.Join(agentsDir, "docs-kbase")
 	if err := os.MkdirAll(agentDir, 0o755); err != nil {
 		t.Fatalf("mkdir agent dir: %v", err)
@@ -239,8 +245,8 @@ func TestBuildQuerySessionInjectsKBaseSystemPrompt(t *testing.T) {
 	if session.Mode != catalog.AgentModeKBase {
 		t.Fatalf("mode = %q, want %q", session.Mode, catalog.AgentModeKBase)
 	}
-	if session.WorkspaceRoot != filepath.Clean(workspace) {
-		t.Fatalf("workspace root = %q, want %q", session.WorkspaceRoot, filepath.Clean(workspace))
+	if session.WorkspaceRoot != absTestPath(t, workspace) {
+		t.Fatalf("workspace root = %q, want %q", session.WorkspaceRoot, absTestPath(t, workspace))
 	}
 	if session.ModeSystemPrompt != "configured kbase system prompt" {
 		t.Fatalf("kbase system prompt = %q, want configured prompt", session.ModeSystemPrompt)
@@ -258,13 +264,13 @@ func TestBuildQuerySessionFreezesDedicatedKBaseEditingPolicy(t *testing.T) {
 	}
 	cfg := config.Config{Paths: config.PathsConfig{ChatsDir: filepath.Join(root, "chats")}}
 	def := catalog.AgentDefinition{
-		Key:      "docs-kbase",
-		Name:     "Docs",
-		Mode:     catalog.AgentModeKBase,
-		ModelKey: "mock-model",
+		Key:       "docs-kbase",
+		Name:      "Docs",
+		Mode:      catalog.AgentModeKBase,
+		ModelKey:  "mock-model",
+		Workspace: catalog.AgentWorkspaceConfig{Root: sourceRoot},
 		KBaseConfig: kbase.Config{
 			Enabled: true,
-			Source:  kbase.SourceConfig{Root: sourceRoot},
 		},
 		KBaseRequirement: kbase.RequirementRequired,
 	}
@@ -284,19 +290,19 @@ func TestBuildQuerySessionFreezesDedicatedKBaseEditingPolicy(t *testing.T) {
 		kbase.ToolSearch, kbase.ToolFiles, kbase.ToolRead, kbase.ToolStatus, kbase.ToolRefresh, kbase.ToolDatetime,
 		"file_read", "file_glob", "file_grep", "file_write", "file_edit",
 	}
-	if !session.EditingMode || session.KBaseSourceRoot != sourceRoot || session.WorkspaceRoot != sourceRoot {
+	canonicalSource := absTestPath(t, sourceRoot)
+	if !session.EditingMode || session.WorkspaceRoot != canonicalSource {
 		t.Fatalf("unexpected editing snapshot: %#v", session)
 	}
-	if session.RuntimeContext.LocalPaths.WorkspaceDir != sourceRoot ||
-		session.RuntimeContext.LocalPaths.WorkingDirectory != sourceRoot ||
-		session.RuntimeContext.LocalPaths.ChatAttachmentsDir != filepath.Join(cfg.Paths.ChatsDir, "chat-edit") {
+	if session.RuntimeContext.LocalPaths.WorkspaceDir != canonicalSource ||
+		session.RuntimeContext.LocalPaths.ChatDir != absTestPath(t, filepath.Join(cfg.Paths.ChatsDir, "chat-edit")) {
 		t.Fatalf("unexpected editing paths: %#v", session.RuntimeContext.LocalPaths)
 	}
 	if !reflect.DeepEqual(session.ToolNames, wantTools) {
 		t.Fatalf("editing tools = %#v, want %#v", session.ToolNames, wantTools)
 	}
-	if session.ScopedFilePolicy == nil || session.ScopedFilePolicy.Root != sourceRoot ||
-		!session.ScopedFilePolicy.SourceMutationEnabled || !session.ScopedFilePolicy.RequireExistingParent {
+	if session.ScopedFilePolicy == nil || session.ScopedFilePolicy.WorkspaceRoot != canonicalSource ||
+		!session.ScopedFilePolicy.WorkspaceMutationEnabled || !session.ScopedFilePolicy.RequireExistingParent {
 		t.Fatalf("unexpected scoped file policy: %#v", session.ScopedFilePolicy)
 	}
 
@@ -307,14 +313,13 @@ func TestBuildQuerySessionFreezesDedicatedKBaseEditingPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build read-only session: %v", err)
 	}
-	if readOnly.EditingMode || readOnly.ScopedFilePolicy == nil || readOnly.ScopedFilePolicy.SourceMutationEnabled {
+	if readOnly.EditingMode || readOnly.ScopedFilePolicy == nil || readOnly.ScopedFilePolicy.WorkspaceMutationEnabled {
 		t.Fatalf("read-only KBASE must retain a source mutation gate: %#v", readOnly.ScopedFilePolicy)
 	}
-	if readOnly.WorkspaceRoot != sourceRoot || readOnly.RuntimeContext.LocalPaths.WorkspaceDir != sourceRoot {
+	if readOnly.WorkspaceRoot != canonicalSource || readOnly.RuntimeContext.LocalPaths.WorkspaceDir != canonicalSource {
 		t.Fatalf("read-only KBASE workspace must remain the source root: %#v", readOnly.RuntimeContext.LocalPaths)
 	}
-	if readOnly.RuntimeContext.LocalPaths.WorkingDirectory != sourceRoot ||
-		readOnly.RuntimeContext.LocalPaths.ChatAttachmentsDir != filepath.Join(cfg.Paths.ChatsDir, "chat-read") {
+	if readOnly.RuntimeContext.LocalPaths.ChatDir != absTestPath(t, filepath.Join(cfg.Paths.ChatsDir, "chat-read")) {
 		t.Fatalf("read-only KBASE paths must keep source workspace and separate chat directory: %#v", readOnly.RuntimeContext.LocalPaths)
 	}
 	if !reflect.DeepEqual(readOnly.ToolNames, wantTools) {
@@ -328,7 +333,7 @@ func TestBuildQuerySessionFreezesDedicatedKBaseEditingPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build params-only session: %v", err)
 	}
-	if paramsOnly.EditingMode || paramsOnly.ScopedFilePolicy == nil || paramsOnly.ScopedFilePolicy.SourceMutationEnabled {
+	if paramsOnly.EditingMode || paramsOnly.ScopedFilePolicy == nil || paramsOnly.ScopedFilePolicy.WorkspaceMutationEnabled {
 		t.Fatalf("params.editingMode must not enable KBASE editing: %#v", paramsOnly)
 	}
 }
@@ -336,15 +341,19 @@ func TestBuildQuerySessionFreezesDedicatedKBaseEditingPolicy(t *testing.T) {
 func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{Paths: config.PathsConfig{ChatsDir: filepath.Join(root, "chats")}}
+	workspace := filepath.Join(root, "knowledge")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	def := catalog.AgentDefinition{
-		Key:      "zenmi",
-		Name:     "Zenmi",
-		Mode:     "REACT",
-		ModelKey: "mock-model",
-		Tools:    append([]string{"datetime"}, kbase.DefaultToolNames()...),
+		Key:       "zenmi",
+		Name:      "Zenmi",
+		Mode:      "REACT",
+		ModelKey:  "mock-model",
+		Tools:     append([]string{"datetime"}, kbase.DefaultToolNames()...),
+		Workspace: catalog.AgentWorkspaceConfig{Root: workspace},
 		KBaseConfig: kbase.Config{
 			Enabled: true,
-			Source:  kbase.SourceConfig{Root: filepath.Join(root, "knowledge")},
 		},
 		KBaseRequirement: kbase.RequirementOptional,
 	}
@@ -364,8 +373,8 @@ func TestBuildQuerySessionFreezesEmbeddedKBaseCapability(t *testing.T) {
 	if session.ScopedFilePolicy != nil || session.EditingMode {
 		t.Fatalf("ordinary Agent capability must not inherit dedicated KBASE editing policy: %#v", session.ScopedFilePolicy)
 	}
-	if got, want := session.WorkspaceRoot, filepath.Join(cfg.Paths.ChatsDir, "chat-1"); got != want {
-		t.Fatalf("ordinary Agent workspace changed by KBASE capability: got %q want %q", got, want)
+	if got := session.WorkspaceRoot; got != absTestPath(t, workspace) {
+		t.Fatalf("ordinary Agent KBASE capability workspace = %q, want %q", got, workspace)
 	}
 	def.KBaseConfig.Enabled = false
 	if !session.KBaseEnabled || len(session.CapabilityPrompts) != 1 {
@@ -394,7 +403,7 @@ func TestKBaseCapabilityExtendsExplicitStageTools(t *testing.T) {
 	}
 }
 
-func TestBuildQuerySessionDefaultsHostWorkspaceToChatDir(t *testing.T) {
+func TestBuildQuerySessionDoesNotDefaultHostWorkspaceToChatDir(t *testing.T) {
 	root := t.TempDir()
 	cfg := config.Config{
 		Paths: config.PathsConfig{
@@ -415,12 +424,12 @@ func TestBuildQuerySessionDefaultsHostWorkspaceToChatDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build query session: %v", err)
 	}
-	want := filepath.Join(cfg.Paths.ChatsDir, "chat-1")
-	if session.WorkspaceRoot != want {
-		t.Fatalf("workspace root = %q, want %q", session.WorkspaceRoot, want)
+	want := absTestPath(t, filepath.Join(cfg.Paths.ChatsDir, "chat-1"))
+	if session.WorkspaceRoot != "" {
+		t.Fatalf("workspace root = %q, want empty", session.WorkspaceRoot)
 	}
-	if session.RuntimeContext.LocalPaths.ChatAttachmentsDir != want {
-		t.Fatalf("chat attachments dir = %q, want %q", session.RuntimeContext.LocalPaths.ChatAttachmentsDir, want)
+	if session.RuntimeContext.LocalPaths.ChatDir != want {
+		t.Fatalf("chat dir = %q, want %q", session.RuntimeContext.LocalPaths.ChatDir, want)
 	}
 	if stat, err := os.Stat(want); err != nil || !stat.IsDir() {
 		t.Fatalf("expected chat dir to be created, stat=%#v err=%v", stat, err)
@@ -448,12 +457,12 @@ func TestBuildQuerySessionDoesNotDefaultProxyWorkspaceToChatDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build query session: %v", err)
 	}
-	wantChatDir := filepath.Join(cfg.Paths.ChatsDir, "chat-1")
+	wantChatDir := absTestPath(t, filepath.Join(cfg.Paths.ChatsDir, "chat-1"))
 	if session.WorkspaceRoot != "" {
 		t.Fatalf("workspace root = %q, want empty for proxy without workspaceRoot", session.WorkspaceRoot)
 	}
-	if session.RuntimeContext.LocalPaths.ChatAttachmentsDir != wantChatDir {
-		t.Fatalf("chat attachments dir = %q, want %q", session.RuntimeContext.LocalPaths.ChatAttachmentsDir, wantChatDir)
+	if session.RuntimeContext.LocalPaths.ChatDir != wantChatDir {
+		t.Fatalf("chat dir = %q, want %q", session.RuntimeContext.LocalPaths.ChatDir, wantChatDir)
 	}
 }
 
@@ -554,6 +563,9 @@ func TestBuildQuerySessionAdvancedUserPromptDisabledForProxyAgent(t *testing.T) 
 func TestBuildQuerySessionLoadsWorkspaceAgentsForCoder(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatalf("mkdir workspace: %v", err)
 	}
@@ -858,6 +870,9 @@ func TestBuildQuerySessionPlanningModeOnlyAppliesToCoder(t *testing.T) {
 	root := t.TempDir()
 	agentsDir := filepath.Join(root, "agents")
 	workspace := filepath.Join(root, "workspace")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
 	if err := os.MkdirAll(filepath.Join(agentsDir, "coder-app"), 0o755); err != nil {
 		t.Fatalf("mkdir coder dir: %v", err)
 	}

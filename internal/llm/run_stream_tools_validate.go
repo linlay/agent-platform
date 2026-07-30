@@ -4,19 +4,11 @@ import (
 	"strings"
 )
 
-func (s *llmRunStream) validateFrontendToolArgs(toolName string, args map[string]any) error {
-	tool, ok := s.lookupToolDefinition(toolName)
-	if !ok {
+func (s *llmRunStream) validateInteractionToolArgs(toolName string, args map[string]any) error {
+	if s.engine.interactions == nil {
 		return nil
 	}
-	toolKind, _ := tool.Meta["kind"].(string)
-	if !strings.EqualFold(strings.TrimSpace(toolKind), "frontend") {
-		return nil
-	}
-	if s.engine.frontend == nil {
-		return nil
-	}
-	handler, ok := s.engine.frontend.Handler(toolName)
+	handler, ok := s.engine.interactions.Handler(toolName)
 	if !ok {
 		return nil
 	}

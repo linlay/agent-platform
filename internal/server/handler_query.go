@@ -499,13 +499,6 @@ func (b *queryFullTextBuilder) Consume(event stream.EventData) {
 	case "tool.result":
 		name := firstNonBlankString(event.String("toolName"), event.String("toolId"), "tool")
 		b.appendPart("Tool result: "+name, formatFullTextValue(event.Value("result")))
-	case "action.snapshot":
-		id := firstNonBlankString(event.String("actionId"), "action")
-		name := firstNonBlankString(event.String("actionName"), id)
-		b.appendModelPart("action", id, "Action: "+name, formatFullTextValue(event.Value("arguments")))
-	case "action.result":
-		name := firstNonBlankString(event.String("actionId"), "action")
-		b.appendPart("Action result: "+name, formatFullTextValue(event.Value("result")))
 	case "planning.snapshot":
 		b.appendPart("Plan", formatFullTextValue(event.Value("text")))
 	case "planning.start":
@@ -550,7 +543,6 @@ func (b *queryFullTextBuilder) DiscardModelTurn(recovery any) {
 	payload, _ := recovery.(map[string]any)
 	reasoningIDs := stringSetFromAny(payload["reasoningIds"])
 	toolIDs := stringSetFromAny(payload["toolIds"])
-	actionIDs := stringSetFromAny(payload["actionIds"])
 	for id := range reasoningIDs {
 		delete(b.reasoningBuffers, id)
 		delete(b.reasoningRecorded, id)
@@ -560,7 +552,7 @@ func (b *queryFullTextBuilder) DiscardModelTurn(recovery any) {
 		delete(b.toolNames, id)
 		delete(b.toolRecorded, id)
 	}
-	if len(reasoningIDs)+len(toolIDs)+len(actionIDs) == 0 {
+	if len(reasoningIDs)+len(toolIDs) == 0 {
 		return
 	}
 	filtered := b.parts[:0]
@@ -572,10 +564,6 @@ func (b *queryFullTextBuilder) DiscardModelTurn(recovery any) {
 			}
 		case "tool":
 			if toolIDs[part.id] {
-				continue
-			}
-		case "action":
-			if actionIDs[part.id] {
 				continue
 			}
 		}

@@ -14,7 +14,6 @@ func (d *StreamEventDispatcher) handleModelTurnDiscard(input ModelTurnDiscard) [
 	reasoningIDs := compactIDs(input.ReasoningIDs)
 	contentIDs := compactIDs(input.ContentIDs)
 	toolIDs := compactIDs(input.ToolIDs)
-	actionIDs := compactIDs(input.ActionIDs)
 
 	if active, ok := d.state.activeReasonings[scope]; ok {
 		reasoningIDs = appendIDIfMissing(reasoningIDs, active.ID)
@@ -31,14 +30,6 @@ func (d *StreamEventDispatcher) handleModelTurnDiscard(input ModelTurnDiscard) [
 		toolIDs = appendIDIfMissing(toolIDs, toolID)
 		delete(d.state.openTools, toolID)
 	}
-	for actionID, block := range d.state.openActions {
-		if taskScope(block.TaskID) != scope {
-			continue
-		}
-		actionIDs = appendIDIfMissing(actionIDs, actionID)
-		delete(d.state.openActions, actionID)
-	}
-
 	for _, id := range reasoningIDs {
 		delete(d.state.reasoningBuffer, id)
 	}
@@ -50,10 +41,6 @@ func (d *StreamEventDispatcher) handleModelTurnDiscard(input ModelTurnDiscard) [
 		delete(d.state.toolEndAtByID, id)
 		delete(d.state.emittedAwaitings, id)
 	}
-	for _, id := range actionIDs {
-		delete(d.state.actionArgsBuffer, id)
-	}
-
 	recovery := map[string]any{
 		"action": discardIncompleteModelTurnAction,
 		"runSeq": input.RunSeq,
@@ -66,9 +53,6 @@ func (d *StreamEventDispatcher) handleModelTurnDiscard(input ModelTurnDiscard) [
 	}
 	if len(toolIDs) > 0 {
 		recovery["toolIds"] = toolIDs
-	}
-	if len(actionIDs) > 0 {
-		recovery["actionIds"] = actionIDs
 	}
 
 	status := "discarded"

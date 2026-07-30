@@ -24,7 +24,7 @@ func TestInvokeGrepFilesWithMatchesGlob(t *testing.T) {
 	result, err := executor.invokeGrep(context.Background(), map[string]any{
 		"pattern": "Alpha",
 		"glob":    "*.go",
-	}, &contracts.ExecutionContext{})
+	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeGrep: %v", err)
 	}
@@ -34,6 +34,18 @@ func TestInvokeGrepFilesWithMatchesGlob(t *testing.T) {
 	results := stringSliceResult(t, result.Structured["results"])
 	if len(results) != 1 || results[0] != filepath.Join(realPath(t, root), "a.go") {
 		t.Fatalf("unexpected results: %#v", results)
+	}
+}
+
+func TestInvokeGrepWithoutPathRequiresWorkspace(t *testing.T) {
+	result, err := (&RuntimeToolExecutor{}).invokeGrep(context.Background(), map[string]any{
+		"pattern": "needle",
+	}, &contracts.ExecutionContext{})
+	if err != nil {
+		t.Fatalf("invokeGrep: %v", err)
+	}
+	if result.Error != "workspace_unavailable" || result.ExitCode == 0 {
+		t.Fatalf("expected workspace_unavailable, got %#v", result)
 	}
 }
 
@@ -47,7 +59,7 @@ func TestInvokeGrepNoMatchReturnsEmptySuccess(t *testing.T) {
 		"pattern":     ".",
 		"glob":        "*.d.ts",
 		"output_mode": "content",
-	}, &contracts.ExecutionContext{})
+	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeGrep: %v", err)
 	}
@@ -81,7 +93,7 @@ func TestInvokeGrepContentCountTypeAndPagination(t *testing.T) {
 		"output_mode": "content",
 		"head_limit":  float64(1),
 		"offset":      float64(1),
-	}, &contracts.ExecutionContext{})
+	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("content grep: %v", err)
 	}
@@ -97,7 +109,7 @@ func TestInvokeGrepContentCountTypeAndPagination(t *testing.T) {
 		"pattern":     "needle",
 		"type":        "go",
 		"output_mode": "count",
-	}, &contracts.ExecutionContext{})
+	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("count grep: %v", err)
 	}
@@ -118,7 +130,7 @@ func TestInvokeGrepContextMultilineAndDashPattern(t *testing.T) {
 		"pattern":     "needle",
 		"output_mode": "content",
 		"-A":          float64(1),
-	}, &contracts.ExecutionContext{})
+	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("context grep: %v", err)
 	}
@@ -130,7 +142,7 @@ func TestInvokeGrepContextMultilineAndDashPattern(t *testing.T) {
 		"pattern":     "foo.*bar",
 		"output_mode": "content",
 		"multiline":   true,
-	}, &contracts.ExecutionContext{})
+	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("multiline grep: %v", err)
 	}
@@ -141,7 +153,7 @@ func TestInvokeGrepContextMultilineAndDashPattern(t *testing.T) {
 	dash, err := executor.invokeGrep(context.Background(), map[string]any{
 		"pattern":     "-after",
 		"output_mode": "content",
-	}, &contracts.ExecutionContext{})
+	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("dash grep: %v", err)
 	}
@@ -160,7 +172,7 @@ func TestInvokeGrepPathEscapeRequiresApproval(t *testing.T) {
 	result, err := executor.invokeGrep(context.Background(), map[string]any{
 		"pattern": "needle",
 		"path":    outside,
-	}, &contracts.ExecutionContext{})
+	}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeGrep: %v", err)
 	}
@@ -183,8 +195,9 @@ func TestInvokeGrepAllowsSessionSkillsDir(t *testing.T) {
 	mustWriteFile(t, filepath.Join(skillDir, "SKILL.md"), "# Automation\n\ncalendar needle\n")
 	executor := fileToolExecutor(root, false)
 	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
+		WorkspaceRoot: root,
 		RuntimeContext: contracts.RuntimeRequestContext{
-			LocalPaths: contracts.LocalPaths{SkillsDir: skillsRoot},
+			LocalPaths: contracts.LocalPaths{WorkspaceDir: root, SkillsDir: skillsRoot},
 		},
 	}}
 
@@ -213,7 +226,7 @@ func TestInvokeGrepConsumesReadPathApproval(t *testing.T) {
 	outside := t.TempDir()
 	mustWriteFile(t, filepath.Join(outside, "secret.txt"), "needle\n")
 	executor := fileToolExecutor(root, false)
-	execCtx := &contracts.ExecutionContext{}
+	execCtx := fileToolExecutionContext(root)
 	plan := fileToolAccessPlan(t, executor, filetools.ReadAccess, outside)
 	filetools.RegisterExactReadApproval(execCtx, plan.Fingerprint)
 
@@ -240,7 +253,7 @@ func TestInvokeGrepRipgrepMissing(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	t.Chdir(root)
 
-	result, err := executor.invokeGrep(context.Background(), map[string]any{"pattern": "needle"}, &contracts.ExecutionContext{})
+	result, err := executor.invokeGrep(context.Background(), map[string]any{"pattern": "needle"}, fileToolExecutionContext(root))
 	if err != nil {
 		t.Fatalf("invokeGrep: %v", err)
 	}

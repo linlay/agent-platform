@@ -14,6 +14,8 @@ const (
 	// EnvAgentConfigHome is the shared root for agent-owned static tool
 	// configuration. Tools append their own name below this directory.
 	EnvAgentConfigHome = "AP_AGENT_CONFIG_HOME"
+	// EnvWorkspaceDir is the current agent's project workspace.
+	EnvWorkspaceDir = "AP_WORKSPACE_DIR"
 	// EnvChatDir is the current chat's writable runtime directory. Tools keep
 	// chat-scoped state below this directory.
 	EnvChatDir = "AP_CHAT_DIR"
@@ -22,38 +24,52 @@ const (
 // HostEnvironment returns the platform-owned environment for a host process.
 // Absent paths are intentionally omitted so non-chat administrative callers
 // can continue to run without a fabricated execution context.
-func HostEnvironment(agentDir string, chatDir string) map[string]string {
+func HostEnvironment(agentDir string, workspaceDir string, chatDir string) map[string]string {
 	agentDir = strings.TrimSpace(agentDir)
 	configHome := ""
 	if agentDir != "" {
 		configHome = filepath.Join(filepath.Clean(agentDir), ".config")
 	}
+	workspaceDir = strings.TrimSpace(workspaceDir)
+	if workspaceDir != "" {
+		workspaceDir = filepath.Clean(workspaceDir)
+	}
 	chatDir = strings.TrimSpace(chatDir)
 	if chatDir != "" {
 		chatDir = filepath.Clean(chatDir)
 	}
-	return environment(configHome, chatDir)
+	return environment(configHome, workspaceDir, chatDir)
 }
 
 // ContainerEnvironment is the equivalent for a Linux container path. It must
 // not use filepath.Join because the platform process may run on Windows.
-func ContainerEnvironment(agentDir string, chatDir string) map[string]string {
+func ContainerEnvironment(agentDir string, workspaceDir string, chatDir string) map[string]string {
 	agentDir = strings.TrimSpace(agentDir)
 	configHome := ""
 	if agentDir != "" {
 		configHome = path.Join(agentDir, ".config")
 	}
+	workspaceDir = strings.TrimSpace(workspaceDir)
+	if workspaceDir != "" {
+		workspaceDir = path.Clean(workspaceDir)
+	}
 	chatDir = strings.TrimSpace(chatDir)
 	if chatDir != "" {
 		chatDir = path.Clean(chatDir)
 	}
-	return environment(configHome, chatDir)
+	return environment(configHome, workspaceDir, chatDir)
 }
 
-func environment(configHome string, chatDir string) map[string]string {
+func environment(configHome string, workspaceDir string, chatDir string) map[string]string {
 	var values map[string]string
 	if configHome != "" {
 		values = map[string]string{EnvAgentConfigHome: configHome}
+	}
+	if workspaceDir != "" && workspaceDir != "." {
+		if values == nil {
+			values = make(map[string]string, 3)
+		}
+		values[EnvWorkspaceDir] = workspaceDir
 	}
 	if chatDir != "" && chatDir != "." {
 		if values == nil {
@@ -69,6 +85,8 @@ func environment(configHome string, chatDir string) map[string]string {
 func IsReserved(key string) bool {
 	switch {
 	case strings.EqualFold(strings.TrimSpace(key), EnvAgentConfigHome):
+		return true
+	case strings.EqualFold(strings.TrimSpace(key), EnvWorkspaceDir):
 		return true
 	case strings.EqualFold(strings.TrimSpace(key), EnvChatDir):
 		return true

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 )
@@ -144,8 +145,8 @@ func TestBuildAccessPlanFromPolicyUsesSessionAliases(t *testing.T) {
 		WorkspaceRoot: workspace,
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{
-				WorkspaceDir:       workspace,
-				ChatAttachmentsDir: chatDir,
+				WorkspaceDir: workspace,
+				ChatDir:      chatDir,
 			},
 		},
 	}
@@ -182,8 +183,8 @@ func TestBuildAccessPlanFromPolicyPreservesAccessPolicyForKBaseWrites(t *testing
 		WorkspaceRoot: workspace,
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{
-				WorkspaceDir:       workspace,
-				ChatAttachmentsDir: chatDir,
+				WorkspaceDir: workspace,
+				ChatDir:      chatDir,
 			},
 		},
 		RuntimeHostAccess: contracts.HostAccessRoots{
@@ -191,8 +192,8 @@ func TestBuildAccessPlanFromPolicyPreservesAccessPolicyForKBaseWrites(t *testing
 			WriteRoots: []string{hostDir},
 		},
 		ScopedFilePolicy: &contracts.ScopedFilePolicy{
-			Root:                  workspace,
-			SourceMutationEnabled: true,
+			WorkspaceRoot:            workspace,
+			WorkspaceMutationEnabled: true,
 		},
 	}
 
@@ -233,7 +234,7 @@ func TestPathInSessionWorkspaceAllowsRootWorkspace(t *testing.T) {
 	}
 }
 
-func TestPathInSessionWorkspaceAllowsChatDirWithExplicitWorkspace(t *testing.T) {
+func TestPathInSessionChatDoesNotMergeIntoExplicitWorkspace(t *testing.T) {
 	workspace := t.TempDir()
 	chatDir := filepath.Join(t.TempDir(), "chat-1")
 	path := filepath.Join(chatDir, "artifact.md")
@@ -241,12 +242,15 @@ func TestPathInSessionWorkspaceAllowsChatDirWithExplicitWorkspace(t *testing.T) 
 		WorkspaceRoot: workspace,
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{
-				WorkspaceDir:       workspace,
-				ChatAttachmentsDir: chatDir,
+				WorkspaceDir: workspace,
+				ChatDir:      chatDir,
 			},
 		},
 	}
-	if !PathInSessionWorkspace(session, path) {
+	if PathInSessionWorkspace(session, path) {
+		t.Fatalf("expected %s not to be inside session workspace", path)
+	}
+	if !accesspolicy.PathInSessionChat(session, path) {
 		t.Fatalf("expected %s to be inside session chat dir", path)
 	}
 }
@@ -350,11 +354,10 @@ func TestBuildEditPlanWithAccessWithoutDescription(t *testing.T) {
 
 func accessPolicyForRoot(root string) config.AccessPolicyConfig {
 	return config.AccessPolicyConfig{
-		WorkingDirectory: root,
 		Levels: map[string]config.AccessPolicyLevelConfig{
 			contracts.AccessLevelDefault: {
-				ReadRoots:  []string{"."},
-				WriteRoots: []string{"."},
+				ReadRoots:  []string{root},
+				WriteRoots: []string{root},
 			},
 		},
 	}
@@ -362,7 +365,11 @@ func accessPolicyForRoot(root string) config.AccessPolicyConfig {
 
 func mustAccessPlan(t *testing.T, cfg config.AccessPolicyConfig, mode AccessMode, rawPath string) AccessPlan {
 	t.Helper()
-	plan, err := BuildAccessPlanFromPolicy(cfg, contracts.QuerySession{}, mode, rawPath)
+	root := ""
+	if level, ok := cfg.Levels[contracts.AccessLevelDefault]; ok && len(level.ReadRoots) > 0 {
+		root = level.ReadRoots[0]
+	}
+	plan, err := BuildAccessPlanFromPolicy(cfg, contracts.QuerySession{WorkspaceRoot: root}, mode, rawPath)
 	if err != nil {
 		t.Fatalf("build access plan: %v", err)
 	}

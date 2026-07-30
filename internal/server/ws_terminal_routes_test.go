@@ -541,7 +541,7 @@ func TestWebSocketTerminalDetachRequiresMatchingTerminalStream(t *testing.T) {
 	closeTerminalByID(t, conn, "term_close_detach", terminalID)
 }
 
-func TestWebSocketTerminalOpensForAnyAgentModeWithDefaultWorkspace(t *testing.T) {
+func TestWebSocketTerminalOpensAtConfiguredWorkspace(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
@@ -553,7 +553,11 @@ func TestWebSocketTerminalOpensForAnyAgentModeWithDefaultWorkspace(t *testing.T)
 	})
 	server := httptest.NewServer(fixture.server)
 	defer server.Close()
-	wantCWD := filepath.Join(fixture.cfg.Paths.ChatsDir, "chat-react")
+	def, ok := fixture.registry.AgentDefinition("mock-agent")
+	if !ok {
+		t.Fatal("mock-agent not found")
+	}
+	wantCWD := absTestPath(t, def.Workspace.Root)
 
 	conn := dialTestWebSocket(t, server.URL)
 	defer conn.Close()
@@ -631,26 +635,30 @@ func TestWebSocketTerminalUnknownSessionControlsReturnNotFound(t *testing.T) {
 	}
 }
 
-func TestOpenTerminalSessionUsesChatWorkspaceFallbackForAnyAgent(t *testing.T) {
+func TestOpenTerminalSessionRequiresConfiguredWorkspace(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
-		setupRuntime: func(_ string, cfg *config.Config) {
-			writeTerminalTestAgentFile(t, cfg, "coder-empty", strings.Join([]string{
-				"key: coder-empty",
+		setupRuntime: func(root string, cfg *config.Config) {
+			workspace := filepath.Join(root, "terminal-workspace")
+			if err := os.MkdirAll(workspace, 0o755); err != nil {
+				t.Fatalf("mkdir terminal workspace: %v", err)
+			}
+			writeTerminalTestAgentFile(t, cfg, "react-empty", strings.Join([]string{
+				"key: react-empty",
 				"name: Empty Workspace",
-				"mode: CODER",
+				"mode: REACT",
 				"modelConfig:",
 				"  modelKey: mock-model",
 			}, "\n"))
-			writeTerminalTestAgentFile(t, cfg, "coder-chat", strings.Join([]string{
-				"key: coder-chat",
-				"name: Chat Workspace",
-				"mode: CODER",
+			writeTerminalTestAgentFile(t, cfg, "react-workspace", strings.Join([]string{
+				"key: react-workspace",
+				"name: Workspace",
+				"mode: REACT",
 				"modelConfig:",
 				"  modelKey: mock-model",
 				"runtimeConfig:",
-				"  workspaceRoot: \"@chat\"",
+				"  workspaceRoot: " + filepath.ToSlash(workspace),
 			}, "\n"))
 			writeTerminalTestAgentFile(t, cfg, "coder-sandbox", strings.Join([]string{
 				"key: coder-sandbox",
@@ -661,25 +669,26 @@ func TestOpenTerminalSessionUsesChatWorkspaceFallbackForAnyAgent(t *testing.T) {
 				"runtimeConfig:",
 				"  environmentId: toolbox",
 				"  level: run",
+				"  workspaceRoot: " + filepath.ToSlash(workspace),
 			}, "\n"))
 		},
 	})
-	wantCWD := filepath.Join(fixture.cfg.Paths.ChatsDir, "chat-terminal")
+	workspaceDef, ok := fixture.registry.AgentDefinition("react-workspace")
+	if !ok {
+		t.Fatal("react-workspace not found")
+	}
+	wantCWD := absTestPath(t, workspaceDef.Workspace.Root)
 
 	successes := []struct {
 		name    string
 		payload terminalOpenPayload
 	}{
 		{
-			name:    "empty workspace uses chat directory",
-			payload: terminalOpenPayload{AgentKey: "coder-empty", ChatID: "chat-terminal", TerminalKey: "empty", Cols: 80, Rows: 24},
+			name:    "react uses configured workspace",
+			payload: terminalOpenPayload{AgentKey: "react-workspace", ChatID: "chat-terminal", TerminalKey: "react", Cols: 80, Rows: 24},
 		},
 		{
-			name:    "@chat workspace uses chat directory",
-			payload: terminalOpenPayload{AgentKey: "coder-chat", ChatID: "chat-terminal", TerminalKey: "chat", Cols: 80, Rows: 24},
-		},
-		{
-			name:    "sandbox agent uses the same terminal path",
+			name:    "sandbox agent uses configured host workspace",
 			payload: terminalOpenPayload{AgentKey: "coder-sandbox", ChatID: "chat-terminal", TerminalKey: "sandbox", Cols: 80, Rows: 24},
 		},
 	}
@@ -709,6 +718,12 @@ func TestOpenTerminalSessionUsesChatWorkspaceFallbackForAnyAgent(t *testing.T) {
 		wantText   string
 	}{
 		{
+			name:       "workspace unavailable",
+			payload:    terminalOpenPayload{AgentKey: "react-empty", ChatID: "chat-terminal", Cols: 80, Rows: 24},
+			wantStatus: http.StatusBadRequest,
+			wantText:   "workspace_unavailable",
+		},
+		{
 			name:       "missing agent",
 			payload:    terminalOpenPayload{AgentKey: "missing-agent", ChatID: "chat-terminal", Cols: 80, Rows: 24},
 			wantStatus: http.StatusBadRequest,
@@ -716,7 +731,7 @@ func TestOpenTerminalSessionUsesChatWorkspaceFallbackForAnyAgent(t *testing.T) {
 		},
 		{
 			name:       "missing chat",
-			payload:    terminalOpenPayload{AgentKey: "coder-empty", Cols: 80, Rows: 24},
+			payload:    terminalOpenPayload{AgentKey: "react-workspace", Cols: 80, Rows: 24},
 			wantStatus: http.StatusBadRequest,
 			wantText:   "valid chatId is required",
 		},

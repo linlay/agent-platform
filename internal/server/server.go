@@ -16,12 +16,12 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/frontendtools"
 	"agent-platform/internal/kbase"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
 	"agent-platform/internal/skills"
 	terminalpkg "agent-platform/internal/terminal"
+	"agent-platform/internal/toolinteraction"
 	"agent-platform/internal/ws"
 )
 
@@ -51,7 +51,7 @@ type Dependencies struct {
 	Sandbox                contracts.SandboxClient
 	MCP                    contracts.McpClient
 	Viewport               contracts.ViewportClient
-	FrontendTools          *frontendtools.Registry
+	ToolInteractions       *toolinteraction.Registry
 	CatalogReloader        contracts.CatalogReloader
 	Notifications          contracts.NotificationSink
 	SkillCandidates        skills.CandidateStore

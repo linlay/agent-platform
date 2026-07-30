@@ -59,10 +59,6 @@ func AllowsReadOnly(def api.ToolDetailResponse, found bool) bool {
 	if !found {
 		return false
 	}
-	kind := strings.ToLower(strings.TrimSpace(stringMeta(def.Meta, "kind")))
-	if kind == "frontend" || kind == "action" {
-		return false
-	}
 	name := strings.ToLower(strings.TrimSpace(def.Name))
 	if name == "" {
 		name = strings.ToLower(strings.TrimSpace(def.Key))

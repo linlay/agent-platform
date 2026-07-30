@@ -3,7 +3,6 @@ package hitl
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -53,37 +52,6 @@ commands:
 	}
 	if force.Rule.Match != "push --force" {
 		t.Fatalf("expected more specific rule to win, got %#v", force.Rule)
-	}
-}
-
-func TestRegistryToolLookup(t *testing.T) {
-	root := t.TempDir()
-	content := `
-commands:
-  - command: git
-    subcommands:
-      - match: push
-        level: 2
-        viewportType: builtin
-        viewportKey: confirm_dialog
-`
-	if err := os.WriteFile(filepath.Join(root, "rules.yml"), []byte(content), 0o644); err != nil {
-		t.Fatalf("write rule file: %v", err)
-	}
-
-	registry, err := NewRegistry(root)
-	if err != nil {
-		t.Fatalf("new registry: %v", err)
-	}
-	tool, ok := registry.Tool("_hitl_confirm_dialog_")
-	if !ok {
-		t.Fatalf("expected synthetic tool definition")
-	}
-	if tool.Meta["viewportType"] != "builtin" || tool.Meta["viewportKey"] != "confirm_dialog" {
-		t.Fatalf("unexpected synthetic tool meta: %#v", tool.Meta)
-	}
-	if !strings.Contains(tool.Description, "awaiting events directly") {
-		t.Fatalf("expected synthetic tool description to describe direct awaiting events, got %#v", tool.Description)
 	}
 }
 

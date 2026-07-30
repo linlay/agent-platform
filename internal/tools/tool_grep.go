@@ -33,10 +33,10 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 	if rawPath == "" {
 		rawPath = "."
 	}
-	accessSession := accessPolicySessionWithFallback(execCtx, t.cfg.FileTools.WorkingDirectory)
+	accessSession := accessPolicySession(execCtx)
 	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessSession, filetools.ReadAccess, rawPath)
 	if err != nil {
-		return fileToolError("grep_invalid_path", err.Error()), nil
+		return filePathResolutionError("grep_invalid_path", err), nil
 	}
 	if access.Blocked {
 		return fileToolError("grep_path_blocked", access.Reason), nil

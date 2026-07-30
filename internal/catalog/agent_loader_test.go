@@ -206,8 +206,9 @@ func TestParseAgentFileMergesStageSettingsBudgetIntoResolvedBudget(t *testing.T)
 
 func TestParseCoderUsesPlanningStageAndRejectsLegacyPlanStage(t *testing.T) {
 	root := t.TempDir()
+	workspace := filepath.ToSlash(t.TempDir())
 	planningPath := filepath.Join(root, "planning.yml")
-	planningConfig := "key: coder-planning\nname: Coder Planning\nmode: CODER\nmodelConfig:\n  modelKey: demo-model\nstageSettings:\n  planning:\n    modelConfig:\n      modelKey: planning-model\n    budget:\n      maxSteps: 17\nbudget:\n  stages:\n    planning:\n      maxSteps: 19\n"
+	planningConfig := "key: coder-planning\nname: Coder Planning\nmode: CODER\nmodelConfig:\n  modelKey: demo-model\nruntimeConfig:\n  workspaceRoot: " + workspace + "\nstageSettings:\n  planning:\n    modelConfig:\n      modelKey: planning-model\n    budget:\n      maxSteps: 17\nbudget:\n  stages:\n    planning:\n      maxSteps: 19\n"
 	if err := os.WriteFile(planningPath, []byte(planningConfig), 0o644); err != nil {
 		t.Fatalf("write planning config: %v", err)
 	}
@@ -224,7 +225,7 @@ func TestParseCoderUsesPlanningStageAndRejectsLegacyPlanStage(t *testing.T) {
 	}
 
 	legacyPath := filepath.Join(root, "legacy.yml")
-	legacyConfig := "key: coder-legacy\nname: Coder Legacy\nmode: CODER\nmodelConfig:\n  modelKey: demo-model\nstageSettings:\n  plan: {}\n"
+	legacyConfig := "key: coder-legacy\nname: Coder Legacy\nmode: CODER\nmodelConfig:\n  modelKey: demo-model\nruntimeConfig:\n  workspaceRoot: " + workspace + "\nstageSettings:\n  plan: {}\n"
 	if err := os.WriteFile(legacyPath, []byte(legacyConfig), 0o644); err != nil {
 		t.Fatalf("write legacy config: %v", err)
 	}
@@ -334,6 +335,8 @@ func TestParseAgentFileRejectsNonACPAgentsWithoutModelConfig(t *testing.T) {
 				"key: coder-demo",
 				"name: Coder Demo",
 				"mode: CODER",
+				"runtimeConfig:",
+				"  workspaceRoot: " + filepath.ToSlash(t.TempDir()),
 			},
 		},
 		{
@@ -344,6 +347,7 @@ func TestParseAgentFileRejectsNonACPAgentsWithoutModelConfig(t *testing.T) {
 				"mode: KBASE",
 				"runtimeConfig:",
 				"  workspaceRoot: " + filepath.ToSlash(t.TempDir()),
+				"kbaseConfig:",
 			},
 		},
 	}
@@ -689,6 +693,7 @@ func TestLoadAgentsWithAdminSkipsInvalidDefinitions(t *testing.T) {
 
 func TestParseAgentFileReadsVisibility(t *testing.T) {
 	root := t.TempDir()
+	workspace := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
 		"key: demo\n" +
@@ -698,6 +703,7 @@ func TestParseAgentFileReadsVisibility(t *testing.T) {
 		"  modelKey: demo-model\n" +
 		"runtimeConfig:\n" +
 		"  environmentId: shell\n" +
+		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
 		"visibility:\n" +
 		"  scopes:\n" +
 		"    - internal\n" +
@@ -780,6 +786,7 @@ func TestParseAgentFileLoadsRuntimeEnv(t *testing.T) {
 
 func TestParseAgentFileUsesRuntimeConfig(t *testing.T) {
 	root := t.TempDir()
+	workspace := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
 		"key: demo\n" +
@@ -788,6 +795,7 @@ func TestParseAgentFileUsesRuntimeConfig(t *testing.T) {
 		"  modelKey: demo-model\n" +
 		"runtimeConfig:\n" +
 		"  environmentId: runtime\n" +
+		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
 		"  env:\n" +
 		"    HTTP_PROXY: runtime\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -810,6 +818,9 @@ func TestParseAgentFileUsesRuntimeConfig(t *testing.T) {
 func TestParseAgentFileSupportsCoderWorkspace(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "project")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
 		"key: coder\n" +
@@ -856,6 +867,9 @@ func TestParseAgentFileSupportsCoderWorkspace(t *testing.T) {
 func TestParseAgentFileSupportsACPCoderBridgeID(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "project")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
 		"key: coder\n" +
@@ -895,12 +909,14 @@ func TestParseAgentFileSupportsACPCoderBridgeID(t *testing.T) {
 
 func TestParseAgentFileRejectsACPCoderPromptFiles(t *testing.T) {
 	root := t.TempDir()
+	workspace := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
 		"key: coder\n" +
 		"mode: CODER\n" +
 		"runtimeConfig:\n" +
 		"  acpBridgeId: codex\n" +
+		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
 		"projectConfig:\n" +
 		"  promptFiles:\n" +
 		"    - AGENTS.md\n"
@@ -916,12 +932,14 @@ func TestParseAgentFileRejectsACPCoderPromptFiles(t *testing.T) {
 
 func TestParseAgentFileRejectsACPCoderProxyConfig(t *testing.T) {
 	root := t.TempDir()
+	workspace := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
 		"key: coder\n" +
 		"mode: CODER\n" +
 		"runtimeConfig:\n" +
 		"  acpBridgeId: codex\n" +
+		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
 		"proxyConfig:\n" +
 		"  baseUrl: http://127.0.0.1:3211\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -936,11 +954,13 @@ func TestParseAgentFileRejectsACPCoderProxyConfig(t *testing.T) {
 
 func TestParseAgentFileRejectsACPCoderPlatformTools(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "agent.yml")
+	workspace := t.TempDir()
 	content := "" +
 		"key: coder\n" +
 		"mode: CODER\n" +
 		"runtimeConfig:\n" +
 		"  acpBridgeId: codex\n" +
+		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
 		"toolConfig:\n" +
 		"  tools: [artifact_publish]\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -956,6 +976,9 @@ func TestParseAgentFileRejectsACPCoderPlatformTools(t *testing.T) {
 func TestParseAgentFileUsesACPBackendFromBridgeID(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "project")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
 		"key: coder\n" +
@@ -995,6 +1018,9 @@ func TestParseAgentFileRejectsLegacyACPProxyID(t *testing.T) {
 func TestParseAgentFileAppliesCoderProfileDefaults(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "project")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
 		"key: coder\n" +
@@ -1036,6 +1062,9 @@ func TestParseAgentFileAppliesCoderProfileDefaults(t *testing.T) {
 func TestParseAgentFileAllowsCoderProfileOverrides(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "project")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
 		"key: coder\n" +
@@ -1071,32 +1100,55 @@ func TestParseAgentFileAllowsCoderProfileOverrides(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileAllowsCoderWithoutWorkspace(t *testing.T) {
+func TestParseAgentFileRejectsCoderWithoutWorkspace(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	if err := os.WriteFile(path, []byte("key: coder\nmode: CODER\nmodelConfig:\n  modelKey: mock-model\n"), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
-	if err != nil {
-		t.Fatalf("parse agent file: %v", err)
+	if _, err := parseAgentFile(path); err == nil || !strings.Contains(err.Error(), "workspaceRoot is required for CODER") {
+		t.Fatalf("expected CODER workspace requirement, got %v", err)
 	}
-	if def.Workspace.Root != "" {
-		t.Fatalf("workspace root = %q, want empty runtime default", def.Workspace.Root)
+}
+
+func TestAgentModeWorkspaceAdmissionMatrix(t *testing.T) {
+	workspace := AgentWorkspaceConfig{Root: "/workspace"}
+	enabledKBase := kbase.Config{Enabled: true}
+	tests := []struct {
+		name        string
+		mode        string
+		workspace   AgentWorkspaceConfig
+		kbase       kbase.Config
+		sandbox     bool
+		wantErr     bool
+		errContains string
+	}{
+		{name: "coder host requires workspace", mode: AgentModeCoder, wantErr: true, errContains: "workspaceRoot is required for CODER"},
+		{name: "coder host accepts workspace", mode: AgentModeCoder, workspace: workspace},
+		{name: "react host may omit workspace", mode: "REACT"},
+		{name: "plan execute host may omit workspace", mode: "PLAN_EXECUTE"},
+		{name: "proxy host may omit workspace", mode: AgentModeProxy},
+		{name: "channel host may omit workspace", mode: AgentModeChannel},
+		{name: "react sandbox requires workspace", mode: "REACT", sandbox: true, wantErr: true, errContains: "workspaceRoot is required for Container Hub sandbox"},
+		{name: "plan execute sandbox accepts workspace", mode: "PLAN_EXECUTE", workspace: workspace, sandbox: true},
+		{name: "kbase uses workspace", mode: AgentModeKBase, workspace: workspace, kbase: enabledKBase},
+		{name: "kbase requires workspace", mode: AgentModeKBase, kbase: enabledKBase, wantErr: true, errContains: "runtimeConfig.workspaceRoot is required"},
 	}
-	if !containsString(def.Tools, "vision_recognize") {
-		t.Fatalf("expected CODER default tools to include vision_recognize, got %#v", def.Tools)
-	}
-	for _, tool := range []string{"plan_add_tasks", "plan_get_tasks", "plan_update_task"} {
-		if !containsString(def.Tools, tool) {
-			t.Fatalf("expected CODER default tools to include %s, got %#v", tool, def.Tools)
-		}
-	}
-	for _, tool := range []string{"memory_write", "memory_read", "memory_search"} {
-		if containsString(def.Tools, tool) {
-			t.Fatalf("expected CODER default tools not to include %s without memoryConfig, got %#v", tool, def.Tools)
-		}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateAgentModeWorkspace(test.mode, test.workspace, test.kbase, test.sandbox)
+			if test.wantErr {
+				if err == nil || !strings.Contains(err.Error(), test.errContains) {
+					t.Fatalf("expected error containing %q, got %v", test.errContains, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected admission error: %v", err)
+			}
+		})
 	}
 }
 
@@ -1209,7 +1261,8 @@ func TestParseAgentFileKBaseDefaultChunkUsesEstimatedTokens(t *testing.T) {
 		"modelConfig:\n" +
 		"  modelKey: mock-model\n" +
 		"runtimeConfig:\n" +
-		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n"
+		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
+		"kbaseConfig:\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
@@ -1349,10 +1402,10 @@ func TestDirectoryReactAgentAttachesKBaseCapability(t *testing.T) {
 		"name: Zenmi\n" +
 		"mode: REACT\n" +
 		"modelConfig:\n  modelKey: mock-model\n" +
+		"runtimeConfig:\n  workspaceRoot: " + filepath.ToSlash(knowledgeDir) + "\n" +
 		"toolConfig:\n  tools:\n    - datetime\n" +
 		"kbaseConfig:\n" +
 		"  enabled: true\n" +
-		"  source:\n    root: ./knowledge\n" +
 		"  embedding:\n    modelKey: openai-embedding\n"
 	if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent: %v", err)
@@ -1369,11 +1422,8 @@ func TestDirectoryReactAgentAttachesKBaseCapability(t *testing.T) {
 	if !def.KBaseConfig.Enabled || def.KBaseRequirement != kbase.RequirementOptional {
 		t.Fatalf("unexpected capability: enabled=%v requirement=%q", def.KBaseConfig.Enabled, def.KBaseRequirement)
 	}
-	if def.KBaseConfig.Source.Root != filepath.Clean(knowledgeDir) {
-		t.Fatalf("source root = %q, want %q", def.KBaseConfig.Source.Root, knowledgeDir)
-	}
-	if def.Workspace.Root != "" {
-		t.Fatalf("ordinary Agent workspace changed by KBASE capability: %q", def.Workspace.Root)
+	if def.Workspace.Root != filepath.Clean(knowledgeDir) {
+		t.Fatalf("workspace root = %q, want %q", def.Workspace.Root, knowledgeDir)
 	}
 	for _, tool := range append([]string{"datetime"}, kbase.DefaultToolNames()...) {
 		if !containsString(def.Tools, tool) {
@@ -1382,14 +1432,13 @@ func TestDirectoryReactAgentAttachesKBaseCapability(t *testing.T) {
 	}
 }
 
-func TestDedicatedKBaseLoadedWorkspaceIsFinalSourceRoot(t *testing.T) {
+func TestDedicatedKBaseLoadsConfiguredWorkspace(t *testing.T) {
 	root := t.TempDir()
 	agentsDir := filepath.Join(root, "agents")
 	agentDir := filepath.Join(agentsDir, "docs")
-	runtimeWorkspace := filepath.Join(root, "legacy-workspace")
 	sourceRoot := filepath.Join(root, "knowledge")
 	chatsDir := filepath.Join(root, "chats")
-	for _, path := range []string{agentDir, runtimeWorkspace, sourceRoot, chatsDir} {
+	for _, path := range []string{agentDir, sourceRoot, chatsDir} {
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -1397,9 +1446,8 @@ func TestDedicatedKBaseLoadedWorkspaceIsFinalSourceRoot(t *testing.T) {
 	content := "key: docs\n" +
 		"mode: KBASE\n" +
 		"modelConfig:\n  modelKey: mock-model\n" +
-		"runtimeConfig:\n  workspaceRoot: " + filepath.ToSlash(runtimeWorkspace) + "\n" +
+		"runtimeConfig:\n  workspaceRoot: " + filepath.ToSlash(sourceRoot) + "\n" +
 		"kbaseConfig:\n" +
-		"  source:\n    root: " + filepath.ToSlash(sourceRoot) + "\n" +
 		"  embedding:\n    modelKey: openai-embedding\n"
 	if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
@@ -1414,11 +1462,26 @@ func TestDedicatedKBaseLoadedWorkspaceIsFinalSourceRoot(t *testing.T) {
 		t.Fatalf("dedicated KBASE missing; admin=%#v", admin["docs"])
 	}
 	want := filepath.Clean(sourceRoot)
-	if def.KBaseConfig.Source.Root != want || def.Workspace.Root != want {
-		t.Fatalf("dedicated KBASE source/workspace = %q/%q, want %q", def.KBaseConfig.Source.Root, def.Workspace.Root, want)
+	if def.Workspace.Root != want {
+		t.Fatalf("dedicated KBASE workspace = %q, want %q", def.Workspace.Root, want)
 	}
 	if got := admin["docs"].Workspace.Root; got != want {
 		t.Fatalf("admin KBASE workspace = %q, want %q", got, want)
+	}
+}
+
+func TestParseAgentFileRejectsRemovedKBaseSource(t *testing.T) {
+	workspace := t.TempDir()
+	sourceRoot := t.TempDir()
+	path := filepath.Join(t.TempDir(), "agent.yml")
+	content := "key: docs\nmode: KBASE\nmodelConfig:\n  modelKey: mock-model\n" +
+		"runtimeConfig:\n  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
+		"kbaseConfig:\n  source:\n    root: " + filepath.ToSlash(sourceRoot) + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseAgentFile(path); err == nil || !strings.Contains(err.Error(), "kbaseConfig.source has been removed") {
+		t.Fatalf("expected removed KBASE source rejection, got %v", err)
 	}
 }
 
@@ -1444,7 +1507,8 @@ func TestLoadAgentsWithAdminIsolatesKBaseSourceChatsOverlap(t *testing.T) {
 			"name: " + key + "\n" +
 			"mode: KBASE\n" +
 			"modelConfig:\n  modelKey: mock-model\n" +
-			"kbaseConfig:\n  source:\n    root: " + filepath.ToSlash(sourceRoot) + "\n"
+			"runtimeConfig:\n  workspaceRoot: " + filepath.ToSlash(sourceRoot) + "\n" +
+			"kbaseConfig:\n"
 		if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -1457,7 +1521,8 @@ func TestLoadAgentsWithAdminIsolatesKBaseSourceChatsOverlap(t *testing.T) {
 		"name: optional-overlap\n" +
 		"mode: REACT\n" +
 		"modelConfig:\n  modelKey: mock-model\n" +
-		"kbaseConfig:\n  enabled: true\n  source:\n    root: " + filepath.ToSlash(chatsDir) + "\n"
+		"runtimeConfig:\n  workspaceRoot: " + filepath.ToSlash(chatsDir) + "\n" +
+		"kbaseConfig:\n  enabled: true\n"
 	if err := os.WriteFile(filepath.Join(optionalDir, "agent.yml"), []byte(optionalContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1478,7 +1543,7 @@ func TestLoadAgentsWithAdminIsolatesKBaseSourceChatsOverlap(t *testing.T) {
 		}
 		invalid := admin[key]
 		if invalid.Status != AdminAgentStatusInvalid || len(invalid.Diagnostics) != 1 ||
-			invalid.Diagnostics[0].Code != "invalid_kbase_source_overlap" {
+			invalid.Diagnostics[0].Code != "invalid_kbase_workspace_overlap" {
 			t.Fatalf("unexpected overlap diagnostic for %q: %#v", key, invalid)
 		}
 	}
@@ -1500,7 +1565,8 @@ func TestLoadAgentsWithAdminIsolatesKBaseSourceChatsOverlap(t *testing.T) {
 		"name: overlap\n" +
 		"mode: KBASE\n" +
 		"modelConfig:\n  modelKey: mock-model\n" +
-		"kbaseConfig:\n  source:\n    root: " + filepath.ToSlash(recoveredSource) + "\n"
+		"runtimeConfig:\n  workspaceRoot: " + filepath.ToSlash(recoveredSource) + "\n" +
+		"kbaseConfig:\n"
 	if err := os.WriteFile(filepath.Join(agentsDir, "overlap", "agent.yml"), []byte(recoveredContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1513,10 +1579,11 @@ func TestLoadAgentsWithAdminIsolatesKBaseSourceChatsOverlap(t *testing.T) {
 	}
 }
 
-func TestFlatAgentRejectsRelativeKBaseSource(t *testing.T) {
+func TestFlatAgentRejectsRelativeKBaseWorkspace(t *testing.T) {
 	agentsDir := t.TempDir()
 	content := "key: flat\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\n" +
-		"kbaseConfig:\n  enabled: true\n  source:\n    root: ./knowledge\n"
+		"runtimeConfig:\n  workspaceRoot: ./knowledge\n" +
+		"kbaseConfig:\n  enabled: true\n"
 	if err := os.WriteFile(filepath.Join(agentsDir, "flat.yml"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent: %v", err)
 	}
@@ -1525,26 +1592,26 @@ func TestFlatAgentRejectsRelativeKBaseSource(t *testing.T) {
 		t.Fatalf("load agents: %v", err)
 	}
 	if _, ok := agents["flat"]; ok {
-		t.Fatal("flat agent with relative KBASE source must not load")
+		t.Fatal("flat agent with relative KBASE workspace must not load")
 	}
-	if got := admin["flat"]; got.Status != AdminAgentStatusInvalid || len(got.Diagnostics) == 0 || !strings.Contains(got.Diagnostics[0].Message, "only supported for directory agents") {
+	if got := admin["flat"]; got.Status != AdminAgentStatusInvalid || len(got.Diagnostics) == 0 || !strings.Contains(got.Diagnostics[0].Message, "must be an absolute path") {
 		t.Fatalf("unexpected admin diagnostic: %#v", got)
 	}
 }
 
 func TestOrdinaryAgentKBaseEnablementIsExplicitAndModeLimited(t *testing.T) {
-	sourceRoot := filepath.ToSlash(t.TempDir())
+	workspaceRoot := filepath.ToSlash(t.TempDir())
 	base := "modelConfig:\n  modelKey: mock-model\n"
 	tests := []struct {
 		name    string
 		content string
 		want    string
 	}{
-		{name: "missing enabled", content: "key: react\nmode: REACT\n" + base + "kbaseConfig:\n  source:\n    root: " + sourceRoot + "\n", want: "enabled must be explicitly configured"},
-		{name: "enabled missing source", content: "key: react\nmode: REACT\n" + base + "kbaseConfig:\n  enabled: true\n", want: "source.root is required"},
-		{name: "ACP coder", content: "key: coder\nmode: CODER\n" + base + "runtimeConfig:\n  acpBridgeId: bridge\n  workspaceRoot: " + sourceRoot + "\n" + "kbaseConfig:\n  enabled: true\n  source:\n    root: " + sourceRoot + "\n", want: "not supported for ACP CODER"},
-		{name: "proxy", content: "key: proxy\nmode: PROXY\n" + base + "kbaseConfig:\n  enabled: true\n  source:\n    root: " + sourceRoot + "\n", want: "only supported for REACT"},
-		{name: "channel", content: "key: channel\nmode: CHANNEL\n" + base + "kbaseConfig:\n  enabled: true\n  source:\n    root: " + sourceRoot + "\n", want: "only supported for REACT"},
+		{name: "missing enabled", content: "key: react\nmode: REACT\n" + base + "kbaseConfig:\n  tags:\n    - docs\n", want: "enabled must be explicitly configured"},
+		{name: "enabled missing workspace", content: "key: react\nmode: REACT\n" + base + "kbaseConfig:\n  enabled: true\n", want: "workspaceRoot is required"},
+		{name: "ACP coder", content: "key: coder\nmode: CODER\n" + base + "runtimeConfig:\n  acpBridgeId: bridge\n  workspaceRoot: " + workspaceRoot + "\n" + "kbaseConfig:\n  enabled: true\n", want: "not supported for ACP CODER"},
+		{name: "proxy", content: "key: proxy\nmode: PROXY\n" + base + "runtimeConfig:\n  workspaceRoot: " + workspaceRoot + "\nkbaseConfig:\n  enabled: true\n", want: "only supported for REACT"},
+		{name: "channel", content: "key: channel\nmode: CHANNEL\n" + base + "runtimeConfig:\n  workspaceRoot: " + workspaceRoot + "\nkbaseConfig:\n  enabled: true\n", want: "only supported for REACT"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1560,12 +1627,13 @@ func TestOrdinaryAgentKBaseEnablementIsExplicitAndModeLimited(t *testing.T) {
 }
 
 func TestPlanExecuteAndNativeCoderAttachKBaseCapability(t *testing.T) {
-	sourceRoot := filepath.ToSlash(t.TempDir())
+	workspaceRoot := filepath.ToSlash(t.TempDir())
 	for _, mode := range []string{"PLAN-EXECUTE", "CODER"} {
 		t.Run(mode, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "agent.yml")
 			content := "key: attached\nmode: " + mode + "\nmodelConfig:\n  modelKey: mock-model\n" +
-				"kbaseConfig:\n  enabled: true\n  source:\n    root: " + sourceRoot + "\n"
+				"runtimeConfig:\n  workspaceRoot: " + workspaceRoot + "\n" +
+				"kbaseConfig:\n  enabled: true\n"
 			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 				t.Fatal(err)
 			}
@@ -1586,11 +1654,11 @@ func TestPlanExecuteAndNativeCoderAttachKBaseCapability(t *testing.T) {
 }
 
 func TestKBaseCapabilityDisableAndDedicatedModeCompatibility(t *testing.T) {
-	sourceRoot := filepath.ToSlash(t.TempDir())
+	workspaceRoot := filepath.ToSlash(t.TempDir())
 	disabledPath := filepath.Join(t.TempDir(), "disabled.yml")
 	disabled := "key: disabled\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\n" +
 		"toolConfig:\n  tools:\n    - datetime\n" +
-		"kbaseConfig:\n  enabled: false\n  source:\n    root: ./retained\n  retrieval:\n    topK: 12\n"
+		"kbaseConfig:\n  enabled: false\n  retrieval:\n    topK: 12\n"
 	if err := os.WriteFile(disabledPath, []byte(disabled), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1604,27 +1672,17 @@ func TestKBaseCapabilityDisableAndDedicatedModeCompatibility(t *testing.T) {
 
 	dedicatedPath := filepath.Join(t.TempDir(), "kbase.yml")
 	dedicated := "key: docs\nmode: KBASE\nmodelConfig:\n  modelKey: mock-model\n" +
-		"kbaseConfig:\n  source:\n    root: " + sourceRoot + "\n"
+		"runtimeConfig:\n  workspaceRoot: " + workspaceRoot + "\n" +
+		"kbaseConfig:\n"
 	if err := os.WriteFile(dedicatedPath, []byte(dedicated), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	dedicatedDef, err := parseAgentFile(dedicatedPath)
 	if err != nil {
-		t.Fatalf("parse dedicated KBASE source: %v", err)
+		t.Fatalf("parse dedicated KBASE workspace: %v", err)
 	}
-	if !dedicatedDef.KBaseConfig.Enabled || dedicatedDef.KBaseRequirement != kbase.RequirementRequired || dedicatedDef.KBaseConfig.Source.Root != filepath.Clean(sourceRoot) {
+	if !dedicatedDef.KBaseConfig.Enabled || dedicatedDef.KBaseRequirement != kbase.RequirementRequired || dedicatedDef.Workspace.Root != filepath.Clean(workspaceRoot) {
 		t.Fatalf("unexpected dedicated capability: %#v", dedicatedDef.KBaseConfig)
-	}
-
-	for _, root := range []string{"@chat", string(filepath.Separator)} {
-		path := filepath.Join(t.TempDir(), "invalid.yml")
-		content := "key: invalid\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\nkbaseConfig:\n  enabled: true\n  source:\n    root: " + root + "\n"
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := parseAgentFile(path); err == nil {
-			t.Fatalf("source root %q must be rejected", root)
-		}
 	}
 
 	falsePath := filepath.Join(t.TempDir(), "false.yml")
@@ -1672,16 +1730,16 @@ func TestParseAgentFileRejectsKBaseWithoutWorkspace(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileRejectsKBaseChatWorkspace(t *testing.T) {
+func TestParseAgentFileRejectsLegacyKBaseSource(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
-	if err := os.WriteFile(path, []byte("key: docs\nmode: KBASE\nruntimeConfig:\n  workspaceRoot: @chat\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("key: docs\nmode: KBASE\nkbaseConfig:\n  source:\n    root: @chat\n"), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
 
 	_, err := parseAgentFile(path)
-	if err == nil || !strings.Contains(err.Error(), "not \"@chat\"") {
-		t.Fatalf("expected KBASE @chat workspace rejection, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "kbaseConfig.source has been removed") {
+		t.Fatalf("expected legacy KBASE source rejection, got %v", err)
 	}
 }
 
@@ -1693,7 +1751,10 @@ func TestParseAgentFileRejectsKBaseWithoutModelConfig(t *testing.T) {
 		"key: docs\n" +
 		"mode: KBASE\n" +
 		"runtimeConfig:\n" +
-		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n"
+		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
+		"kbaseConfig:\n" +
+		"  retrieval:\n" +
+		"    topK: 8\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
@@ -1725,7 +1786,7 @@ func TestParseAgentFileExpandsHomeWorkspaceRoot(t *testing.T) {
 
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
-	if err := os.WriteFile(path, []byte("key: coder\nmode: CODER\nmodelConfig:\n  modelKey: mock-model\nruntimeConfig:\n  workspaceRoot: ~/project\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("key: coder\nmode: CODER\nmodelConfig:\n  modelKey: mock-model\nruntimeConfig:\n  workspaceRoot: ~/\n"), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
 
@@ -1733,7 +1794,7 @@ func TestParseAgentFileExpandsHomeWorkspaceRoot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	want := filepath.Join(home, "project")
+	want := filepath.Clean(home)
 	if def.Workspace.Root != want {
 		t.Fatalf("workspace root = %q, want %q", def.Workspace.Root, want)
 	}
@@ -1773,7 +1834,7 @@ func TestParseAgentFileRejectsOtherUserHomeWorkspaceRoot(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileAcceptsChatWorkspaceRoot(t *testing.T) {
+func TestParseAgentFileRejectsChatWorkspaceRoot(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
@@ -1787,12 +1848,8 @@ func TestParseAgentFileAcceptsChatWorkspaceRoot(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
-	if err != nil {
-		t.Fatalf("parse agent file: %v", err)
-	}
-	if def.Workspace.Root != AgentWorkspaceRootChat {
-		t.Fatalf("workspace root = %q, want %q", def.Workspace.Root, AgentWorkspaceRootChat)
+	if _, err := parseAgentFile(path); err == nil || !strings.Contains(err.Error(), `no longer supports "@chat"`) {
+		t.Fatalf("expected @chat workspace rejection, got %v", err)
 	}
 }
 
@@ -1826,6 +1883,7 @@ func TestParseAgentFileAcceptsSlashWorkspaceRoot(t *testing.T) {
 func TestParseAgentFileReadsHostAccessAndSandboxMounts(t *testing.T) {
 	root := t.TempDir()
 	owner := filepath.Join(root, "owner")
+	workspace := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
 		"key: bootstrap\n" +
@@ -1833,7 +1891,7 @@ func TestParseAgentFileReadsHostAccessAndSandboxMounts(t *testing.T) {
 		"modelConfig:\n" +
 		"  modelKey: mock-model\n" +
 		"runtimeConfig:\n" +
-		"  workspaceRoot: \"@chat\"\n" +
+		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
 		"  hostAccess:\n" +
 		"    readRoots:\n" +
 		"      - \"@owner\"\n" +
@@ -1867,6 +1925,9 @@ func TestParseAgentFileReadsHostAccessAndSandboxMounts(t *testing.T) {
 func TestParseAgentFileRuntimeWorkspaceRootSetsCoderWorkspace(t *testing.T) {
 	root := t.TempDir()
 	runtimeWorkspace := filepath.Join(root, "runtime-project")
+	if err := os.MkdirAll(runtimeWorkspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
 		"key: coder\n" +
@@ -1891,6 +1952,9 @@ func TestParseAgentFileRuntimeWorkspaceRootSetsCoderWorkspace(t *testing.T) {
 func TestParseAgentFileLoadsProjectConfig(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "project")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
 		"key: coder\n" +
@@ -1928,7 +1992,7 @@ func TestParseAgentFileLoadsProjectConfig(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileAllowsSandboxCoderWithoutHostWorkspace(t *testing.T) {
+func TestParseAgentFileRejectsSandboxCoderWithoutHostWorkspace(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
@@ -1943,12 +2007,8 @@ func TestParseAgentFileAllowsSandboxCoderWithoutHostWorkspace(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
-	if err != nil {
-		t.Fatalf("parse agent file: %v", err)
-	}
-	if def.Workspace.Root != "" {
-		t.Fatalf("workspace root = %q, want empty for sandbox coder", def.Workspace.Root)
+	if _, err := parseAgentFile(path); err == nil || !strings.Contains(err.Error(), "workspaceRoot is required for CODER") {
+		t.Fatalf("expected sandbox CODER workspace requirement, got %v", err)
 	}
 }
 

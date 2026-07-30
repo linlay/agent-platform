@@ -234,7 +234,6 @@ type StoredMessage struct {
 	ContentID        string           `json:"_contentId,omitempty"`
 	MsgID            string           `json:"_msgId,omitempty"`
 	ToolID           string           `json:"_toolId,omitempty"`
-	ActionID         string           `json:"_actionId,omitempty"`
 	ActorType        string           `json:"actorType,omitempty"`
 	TeamID           string           `json:"teamId,omitempty"`
 	AgentKey         string           `json:"agentKey,omitempty"`
@@ -251,7 +250,6 @@ type StoredToolCall struct {
 	Type     string         `json:"type"`
 	Function StoredFunction `json:"function"`
 	ToolID   string         `json:"_toolId,omitempty"`
-	ActionID string         `json:"_actionId,omitempty"`
 }
 
 type StoredFunction struct {

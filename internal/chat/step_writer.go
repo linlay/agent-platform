@@ -12,7 +12,7 @@ import (
 //
 //   - internal stage markers flush the current step and start a new one
 //   - artifact publication audits are attached only to their matching tool step
-//   - snapshot events (reasoning/content/tool/action) become StoredMessages
+//   - snapshot events (reasoning/content/tool) become StoredMessages
 //   - request.submit + awaiting.answer are merged into SubmitLines
 //   - request.steer becomes a typed EventLine so chat detail can replay it
 type StepWriter struct {
@@ -33,11 +33,9 @@ type StepWriter struct {
 	closedTaskIDs    map[string]bool
 	stepLiveSeq      int64
 
-	// tool/action name tracking (for tool.result → StoredMessage.Name)
-	toolNames     map[string]string
-	actionNames   map[string]string
-	toolTaskIDs   map[string]string
-	actionTaskIDs map[string]string
+	// tool name tracking (for tool.result → StoredMessage.Name)
+	toolNames   map[string]string
+	toolTaskIDs map[string]string
 
 	// msgId generation
 	currentMsgID  string
@@ -85,9 +83,7 @@ func NewStepWriter(store StepLineStore, chatID, runID, mode string, opts ...Step
 		taskBuffers:   map[string]*taskStepBuffer{},
 		closedTaskIDs: map[string]bool{},
 		toolNames:     map[string]string{},
-		actionNames:   map[string]string{},
 		toolTaskIDs:   map[string]string{},
-		actionTaskIDs: map[string]string{},
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -245,54 +241,6 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 	case "request.steer":
 		w.flushCurrentStep()
 		w.appendTypedEventLine(event, "steer")
-
-	case "action.snapshot":
-		w.ensureStep()
-		w.ensureMsgID()
-		actionID := event.String("actionId")
-		actionName := event.String("actionName")
-		taskID := event.String("taskId")
-		ts := event.Timestamp
-		w.actionNames[actionID] = actionName
-		if strings.TrimSpace(taskID) != "" {
-			w.actionTaskIDs[actionID] = taskID
-		}
-		w.appendStoredMessage(event, StoredMessage{
-			Role: "assistant",
-			ToolCalls: []StoredToolCall{{
-				ID:   actionID,
-				Type: "function",
-				Function: StoredFunction{
-					Name:      actionName,
-					Arguments: event.String("arguments"),
-				},
-				ActionID: actionID,
-			}},
-			MsgID: w.currentMsgID,
-			Ts:    &ts,
-		})
-
-	case "action.result":
-		w.flushAssistantStepBeforeToolResult(event)
-		w.ensureStep()
-		actionID := event.String("actionId")
-		ts := event.Timestamp
-		w.appendStoredMessage(stream.EventData{
-			Seq:       event.Seq,
-			Type:      event.Type,
-			Timestamp: event.Timestamp,
-			Payload: map[string]any{
-				"taskId": w.actionTaskIDs[actionID],
-			},
-		}, StoredMessage{
-			Role:       "tool",
-			Name:       w.actionNames[actionID],
-			ToolCallID: actionID,
-			Content:    textContent(formatResult(event.Value("result"))),
-			ActionID:   actionID,
-			Ts:         &ts,
-		})
-		w.needNewMsgID = true
 
 	case "plan.create", "plan.update":
 		// Live-only for new JSONL writes. Plan task state is persisted in .tools/plan-tasks.

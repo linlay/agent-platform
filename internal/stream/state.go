@@ -6,7 +6,6 @@ type StreamEventStateData struct {
 	planID            string
 	activeTaskID      string
 	openTools         map[string]toolBlockState
-	openActions       map[string]actionBlockState
 	contentSeen       bool
 	lastContentID     string
 	fullContent       string
@@ -16,7 +15,6 @@ type StreamEventStateData struct {
 	reasoningBuffer   map[string]string
 	contentBuffer     map[string]string
 	toolArgsBuffer    map[string]string
-	actionArgsBuffer  map[string]string
 	emittedAwaitings  map[string]bool
 	toolEndAtByID     map[string]int64
 	awaitingAskAtByID map[string]int64
@@ -71,22 +69,14 @@ type toolBlockState struct {
 	Description string
 }
 
-type actionBlockState struct {
-	TaskID      string
-	Name        string
-	Description string
-}
-
 func NewStateData() *StreamEventStateData {
 	return &StreamEventStateData{
 		activeReasonings:  map[string]activeReasoningState{},
 		activeContents:    map[string]activeContentState{},
 		openTools:         map[string]toolBlockState{},
-		openActions:       map[string]actionBlockState{},
 		reasoningBuffer:   map[string]string{},
 		contentBuffer:     map[string]string{},
 		toolArgsBuffer:    map[string]string{},
-		actionArgsBuffer:  map[string]string{},
 		emittedAwaitings:  map[string]bool{},
 		toolEndAtByID:     map[string]int64{},
 		awaitingAskAtByID: map[string]int64{},

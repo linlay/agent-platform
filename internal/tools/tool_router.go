@@ -20,39 +20,44 @@ type toolCatalog interface {
 	Tool(name string) (api.ToolDetailResponse, bool)
 }
 
-type frontendSubmitter interface {
+type interactionSubmitter interface {
+	Handles(toolName string) bool
 	Await(ctx context.Context, execCtx *ExecutionContext, args map[string]any) (ToolExecutionResult, error)
 }
 
 type ToolRouter struct {
 	mu          sync.RWMutex
-	backend     ToolExecutor
+	runtime     ToolExecutor
 	mcp         McpClient
 	mcpTools    toolCatalog
-	frontend    frontendSubmitter
-	action      ActionInvoker
+	interaction interactionSubmitter
 	localDefs   []api.ToolDetailResponse
 	localByName map[string]api.ToolDetailResponse
 	handlers    map[string]NamedToolHandler
 }
 
-func NewToolRouter(backend ToolExecutor, mcp McpClient, mcpTools toolCatalog, frontend frontendSubmitter, action ActionInvoker, extraDefs ...api.ToolDetailResponse) *ToolRouter {
-	localDefs, localByName := buildLocalToolDefinitions(backend.Definitions(), extraDefs)
+func NewToolRouter(runtime ToolExecutor, mcp McpClient, mcpTools toolCatalog, interaction interactionSubmitter, extraDefs ...api.ToolDetailResponse) (*ToolRouter, error) {
+	localDefs, localByName, err := buildLocalToolDefinitions(runtime.Definitions(), extraDefs)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateRequiredInteractionHandler(localDefs, interaction); err != nil {
+		return nil, err
+	}
 	return &ToolRouter{
-		backend:     backend,
+		runtime:     runtime,
 		mcp:         mcp,
 		mcpTools:    mcpTools,
-		frontend:    frontend,
-		action:      action,
+		interaction: interaction,
 		localDefs:   localDefs,
 		localByName: localByName,
 		handlers:    map[string]NamedToolHandler{},
-	}
+	}, nil
 }
 
 // RegisterHandler atomically assigns every normalized tool name advertised by
 // handler. Definitions remain owned by the catalog; handlers only replace the
-// backend implementation for already-defined backend tools.
+// implementation for already-defined local tools.
 func (r *ToolRouter) RegisterHandler(handler NamedToolHandler) error {
 	if r == nil {
 		return fmt.Errorf("register named tool handler: router is nil")
@@ -89,10 +94,6 @@ func (r *ToolRouter) RegisterHandler(handler NamedToolHandler) error {
 		if _, exists := r.handlers[canonicalName]; exists {
 			return fmt.Errorf("register named tool handler: tool %q already has a handler", canonicalName)
 		}
-		kind, _ := def.Meta["kind"].(string)
-		if normalizedKind := strings.ToLower(strings.TrimSpace(kind)); normalizedKind != "" && normalizedKind != "backend" {
-			return fmt.Errorf("register named tool handler: tool %q is not a backend tool", canonicalName)
-		}
 		normalizedNames = append(normalizedNames, canonicalName)
 	}
 	for _, name := range normalizedNames {
@@ -101,23 +102,35 @@ func (r *ToolRouter) RegisterHandler(handler NamedToolHandler) error {
 	return nil
 }
 
-func buildLocalToolDefinitions(base []api.ToolDetailResponse, extraDefs []api.ToolDetailResponse) ([]api.ToolDetailResponse, map[string]api.ToolDetailResponse) {
+func buildLocalToolDefinitions(base []api.ToolDetailResponse, extraDefs []api.ToolDetailResponse) ([]api.ToolDetailResponse, map[string]api.ToolDetailResponse, error) {
 	baseDefs := append([]api.ToolDetailResponse(nil), base...)
-	var runtimeDefs []api.ToolDetailResponse
+	implemented := make(map[string]struct{}, len(baseDefs)*2)
+	for _, def := range baseDefs {
+		if name := normalizeToolName(def); name != "" {
+			implemented[name] = struct{}{}
+		}
+	}
+	runtimeDefs := make([]api.ToolDetailResponse, 0, len(extraDefs))
 	for _, def := range extraDefs {
-		kind, _ := def.Meta["kind"].(string)
-		if strings.EqualFold(kind, "mcp") {
+		if strings.EqualFold(strings.TrimSpace(AnyStringNode(def.Meta["sourceType"])), "mcp") {
 			continue
+		}
+		name := normalizeToolName(def)
+		if _, ok := implemented[name]; !ok {
+			return nil, nil, fmt.Errorf("runtime tool %q has no registered implementation; add a Go handler or expose it through MCP", def.Name)
 		}
 		runtimeDefs = append(runtimeDefs, def)
 	}
 	localDefs := MergeToolDefinitions(baseDefs, runtimeDefs, nil)
+	if err := validateRequiredToolInteractionMetadata(localDefs); err != nil {
+		return nil, nil, err
+	}
 	localByName := make(map[string]api.ToolDetailResponse, len(localDefs)*2)
 	for _, def := range localDefs {
 		localByName[strings.ToLower(strings.TrimSpace(def.Name))] = def
 		localByName[strings.ToLower(strings.TrimSpace(def.Key))] = def
 	}
-	return localDefs, localByName
+	return localDefs, localByName, nil
 }
 
 func (r *ToolRouter) ReloadRuntimeToolDefinitions(root string) error {
@@ -128,12 +141,31 @@ func (r *ToolRouter) ReloadRuntimeToolDefinitions(root string) error {
 	if err != nil {
 		return err
 	}
-	baseDefs := r.backend.Definitions()
-	localDefs, localByName := buildLocalToolDefinitions(baseDefs, runtimeDefs)
+	baseDefs := r.runtime.Definitions()
+	localDefs, localByName, err := buildLocalToolDefinitions(baseDefs, runtimeDefs)
+	if err != nil {
+		return err
+	}
+	if err := validateRequiredInteractionHandler(localDefs, r.interaction); err != nil {
+		return err
+	}
 	r.mu.Lock()
 	r.localDefs = localDefs
 	r.localByName = localByName
 	r.mu.Unlock()
+	return nil
+}
+
+func validateRequiredInteractionHandler(defs []api.ToolDetailResponse, interaction interactionSubmitter) error {
+	for _, def := range defs {
+		if !strings.EqualFold(strings.TrimSpace(def.Name), "ask_user_question") {
+			continue
+		}
+		if interaction == nil || !interaction.Handles(def.Name) {
+			return fmt.Errorf("tool ask_user_question requires a registered interaction handler")
+		}
+		return nil
+	}
 	return nil
 }
 
@@ -152,7 +184,7 @@ func (r *ToolRouter) ReadFileHistory(chatID string, runID string, filePath strin
 	if r == nil {
 		return "", ErrNotImplemented
 	}
-	reader, ok := r.backend.(FileHistoryReader)
+	reader, ok := r.runtime.(FileHistoryReader)
 	if !ok {
 		return "", ErrNotImplemented
 	}
@@ -165,19 +197,17 @@ func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[strin
 		return toolpolicy.DisabledResult(toolName), nil
 	}
 	if !ok {
-		return r.invokeWithPolicy(ctx, toolName, execCtx, func(callCtx context.Context) (ToolExecutionResult, error) {
-			return r.backend.Invoke(callCtx, toolName, args, execCtx)
-		})
+		return ToolExecutionResult{
+			Output:   "tool not registered: " + strings.TrimSpace(toolName),
+			Error:    "tool_not_registered",
+			ExitCode: -1,
+		}, nil
 	}
 
 	sourceType, _ := def.Meta["sourceType"].(string)
-	kind, _ := def.Meta["kind"].(string)
-	if !strings.EqualFold(strings.TrimSpace(sourceType), "mcp") && strings.EqualFold(strings.TrimSpace(kind), "frontend") {
-		result, err := r.invokeFrontendWithPolicy(ctx, def.Name, execCtx, func(callCtx context.Context) (ToolExecutionResult, error) {
-			if r.frontend == nil {
-				return ToolExecutionResult{Output: "frontend submitter not configured", Error: "frontend_not_configured", ExitCode: -1}, nil
-			}
-			return r.frontend.Await(callCtx, execCtx, args)
+	if !strings.EqualFold(strings.TrimSpace(sourceType), "mcp") && r.interaction != nil && r.interaction.Handles(def.Name) {
+		result, err := r.invokeInteractionWithPolicy(ctx, def.Name, execCtx, func(callCtx context.Context) (ToolExecutionResult, error) {
+			return r.interaction.Await(callCtx, execCtx, args)
 		})
 		return validateDeclaredOutputSchema(def, result, err)
 	}
@@ -185,20 +215,10 @@ func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[strin
 		if strings.EqualFold(strings.TrimSpace(sourceType), "mcp") {
 			return r.invokeMCPTool(callCtx, def, args, execCtx), nil
 		}
-		switch strings.ToLower(strings.TrimSpace(kind)) {
-		case "action":
-			if r.action == nil {
-				return ToolExecutionResult{Output: "action invoker not configured", Error: "action_not_configured", ExitCode: -1}, nil
-			}
-			return r.action.Invoke(callCtx, def.Name, args, execCtx)
-		case "backend":
-			fallthrough
-		default:
-			if handler := r.namedHandler(def.Name); handler != nil {
-				return handler.Invoke(callCtx, def.Name, args, execCtx)
-			}
-			return r.backend.Invoke(callCtx, toolName, args, execCtx)
+		if handler := r.namedHandler(def.Name); handler != nil {
+			return handler.Invoke(callCtx, def.Name, args, execCtx)
 		}
+		return r.runtime.Invoke(callCtx, toolName, args, execCtx)
 	})
 	return validateDeclaredOutputSchema(def, result, err)
 }
@@ -447,7 +467,7 @@ func toolInvocationResultStatus(result ToolExecutionResult) string {
 	return "ok"
 }
 
-func (r *ToolRouter) invokeFrontendWithPolicy(ctx context.Context, toolName string, execCtx *ExecutionContext, invoke func(context.Context) (ToolExecutionResult, error)) (ToolExecutionResult, error) {
+func (r *ToolRouter) invokeInteractionWithPolicy(ctx context.Context, toolName string, execCtx *ExecutionContext, invoke func(context.Context) (ToolExecutionResult, error)) (ToolExecutionResult, error) {
 	if execCtx != nil {
 		budget := NormalizeBudget(execCtx.Budget)
 		if result, exceeded := toolCallsExceededResult(execCtx, budget, toolName); exceeded {

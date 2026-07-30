@@ -79,6 +79,11 @@ func storedMessageToEventsWithOptions(msg map[string]any, runID, taskID, stage s
 				if tcMap == nil {
 					continue
 				}
+				// Legacy action calls remain in historical JSONL bytes, but the
+				// unified tool runtime must neither reinterpret nor replay them.
+				if _, legacyAction := tcMap["_actionId"]; legacyAction {
+					continue
+				}
 				fn, _ := tcMap["function"].(map[string]any)
 				if fn == nil {
 					fn = map[string]any{}
@@ -89,88 +94,58 @@ func storedMessageToEventsWithOptions(msg map[string]any, runID, taskID, stage s
 					continue
 				}
 				fnArgs, _ := fn["arguments"].(string)
-				actionID, _ := tcMap["_actionId"].(string)
 				toolID, _ := tcMap["_toolId"].(string)
 
-				if actionID != "" {
-					payload := map[string]any{
-						"actionId":   actionID,
-						"runId":      runID,
-						"actionName": fnName,
-						"taskId":     taskID,
-						"arguments":  fnArgs,
-					}
-					addReplayLiveSeq(payload, liveSeq)
-					events = append(events, stream.EventData{
-						Seq:       nextSeq(),
-						Type:      "action.snapshot",
-						Timestamp: ts,
-						Payload:   payload,
-					})
-				} else {
-					id := toolID
-					if id == "" {
-						id = callID
-					}
-					payload := map[string]any{
-						"toolId":    id,
-						"runId":     runID,
-						"toolName":  fnName,
-						"taskId":    taskID,
-						"arguments": fnArgs,
-					}
-					addReplayLiveSeq(payload, liveSeq)
-					events = append(events, stream.EventData{
-						Seq:       nextSeq(),
-						Type:      "tool.snapshot",
-						Timestamp: ts,
-						Payload:   payload,
-					})
+				id := toolID
+				if id == "" {
+					id = callID
 				}
+				payload := map[string]any{
+					"toolId":    id,
+					"runId":     runID,
+					"toolName":  fnName,
+					"taskId":    taskID,
+					"arguments": fnArgs,
+				}
+				addReplayLiveSeq(payload, liveSeq)
+				events = append(events, stream.EventData{
+					Seq:       nextSeq(),
+					Type:      "tool.snapshot",
+					Timestamp: ts,
+					Payload:   payload,
+				})
 			}
 		}
 
 	case "tool":
+		if _, legacyAction := msg["_actionId"]; legacyAction {
+			return nil, nil
+		}
 		if options.HideTeamCoordinatorInternals || agentteam.IsHiddenTool(stringFromAny(msg["name"])) {
 			return nil, nil
 		}
 		text := extractTextFromContent(msg["content"])
-		actionID, _ := msg["_actionId"].(string)
 		toolID, _ := msg["_toolId"].(string)
 		toolCallID, _ := msg["tool_call_id"].(string)
 
-		if actionID != "" {
-			payload := map[string]any{
-				"actionId": toolCallID,
-				"result":   text,
-			}
-			addReplayLiveSeq(payload, liveSeq)
-			events = append(events, stream.EventData{
-				Seq:       nextSeq(),
-				Type:      "action.result",
-				Timestamp: ts,
-				Payload:   payload,
-			})
-		} else {
-			id := toolID
-			if id == "" {
-				id = toolCallID
-			}
-			payload := map[string]any{
-				"toolId": id,
-				"result": text,
-			}
-			if _, ok := msg["durationMs"]; ok {
-				payload["durationMs"] = msg["durationMs"]
-			}
-			addReplayLiveSeq(payload, liveSeq)
-			events = append(events, stream.EventData{
-				Seq:       nextSeq(),
-				Type:      "tool.result",
-				Timestamp: ts,
-				Payload:   payload,
-			})
+		id := toolID
+		if id == "" {
+			id = toolCallID
 		}
+		payload := map[string]any{
+			"toolId": id,
+			"result": text,
+		}
+		if _, ok := msg["durationMs"]; ok {
+			payload["durationMs"] = msg["durationMs"]
+		}
+		addReplayLiveSeq(payload, liveSeq)
+		events = append(events, stream.EventData{
+			Seq:       nextSeq(),
+			Type:      "tool.result",
+			Timestamp: ts,
+			Payload:   payload,
+		})
 	}
 
 	return events, nil

@@ -96,7 +96,7 @@ type SandboxDigest struct {
 type LocalPaths struct {
 	RuntimeHome        string
 	WorkspaceDir       string
-	WorkingDirectory   string
+	ChatDir            string
 	RootDir            string
 	PanDir             string
 	AgentDir           string
@@ -104,7 +104,6 @@ type LocalPaths struct {
 	TeamsDir           string
 	ChatsDir           string
 	MemoryDir          string
-	DataDir            string
 	SkillsDir          string
 	SkillsMarketDir    string
 	AutomationsDir     string
@@ -115,12 +114,11 @@ type LocalPaths struct {
 	ViewportServersDir string
 	ToolsDir           string
 	ViewportsDir       string
-	ChatAttachmentsDir string
 }
 
 type SandboxPaths struct {
-	Cwd                string
 	WorkspaceDir       string
+	ChatDir            string
 	RootDir            string
 	SkillsDir          string
 	SkillsMarketDir    string

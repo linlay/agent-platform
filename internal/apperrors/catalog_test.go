@@ -73,7 +73,7 @@ func TestPayloadContextOverridesRemainStable(t *testing.T) {
 		{name: "model budget", code: CodeModelCallsExceeded, category: CategoryModel, scope: ScopeModel, wantStatus: 400},
 		{name: "task failure", code: CodeTaskFailed, category: CategorySystem, scope: ScopeTask, wantStatus: 500},
 		{name: "plan context", code: CodePlanContextUnavailable, category: CategorySystem, scope: ScopeRun, wantStatus: 503},
-		{name: "frontend submit", code: CodeFrontendSubmitInvalidPayload, category: CategoryTool, scope: ScopeFrontendSubmit, wantStatus: 400},
+		{name: "tool interaction submit", code: CodeInteractionSubmitInvalidPayload, category: CategoryTool, scope: ScopeInteractionSubmit, wantStatus: 400},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

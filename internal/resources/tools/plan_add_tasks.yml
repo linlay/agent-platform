@@ -1,7 +1,6 @@
 name: plan_add_tasks
 label: 创建任务
 description: Create plan tasks, supporting multiple tasks in a single call. Defaults to appending tasks to the current plan. Use mode=new only when starting a distinct new plan; this creates a new planId and makes the provided tasks the complete initial task list for that plan. Each task must include a description, and success returns multi-line text in the format taskId | status | description.
-type: function
 clientVisible: true
 inputSchema:
   type: object

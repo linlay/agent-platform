@@ -3,6 +3,7 @@ package tools
 import (
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 
 	"agent-platform/internal/chat"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/rootpaths"
 )
 
 func (t *RuntimeToolExecutor) invokeArtifactPublish(args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
@@ -26,7 +28,13 @@ func (t *RuntimeToolExecutor) invokeArtifactPublish(args map[string]any, execCtx
 	if execCtx != nil {
 		log.Printf("[artifact-publish] chatsDir=%s chatID=%s runID=%s artifacts=%v",
 			t.cfg.Paths.ChatsDir, execCtx.Session.ChatID, execCtx.Session.RunID, artifacts)
-		result = publishArtifacts(t.cfg.Paths.ChatsDir, execCtx.Session.ChatID, execCtx.Session.RunID, artifacts)
+		result = publishArtifacts(
+			t.cfg.Paths.ChatsDir,
+			execCtx.Session.ChatID,
+			execCtx.Session.RunID,
+			execCtx.Session.WorkspaceRoot,
+			artifacts,
+		)
 		if result.Status == "published" {
 			publishedAt := time.Now().UnixMilli()
 			manifestWriter, ok := t.chats.(chat.ArtifactManifestWriter)
@@ -60,10 +68,9 @@ func (t *RuntimeToolExecutor) invokeArtifactPublish(args map[string]any, execCtx
 	return toolResult, nil
 }
 
-// publishArtifacts resolves artifact paths from the sandbox /workspace to the
-// local chat directory. Files already inside the current chat stay in place;
-// files outside the chat but inside the server workspace are materialized into
-// artifacts/<runId>/. Mirrors Java ArtifactPublishService.publish().
+// publishArtifacts resolves artifact paths from the semantic workspace or chat
+// roots and materializes every published file under the current chat's
+// artifacts/<runId>/ directory.
 type artifactPublishResult struct {
 	Status             string
 	Artifacts          any
@@ -134,7 +141,7 @@ func coerceArtifactList(raw any) []any {
 	return nil
 }
 
-func publishArtifacts(chatsRoot string, chatID string, runID string, raw any) artifactPublishResult {
+func publishArtifacts(chatsRoot string, chatID string, runID string, workspaceRoot string, raw any) artifactPublishResult {
 	result := artifactPublishResult{
 		Status:             "error",
 		Artifacts:          raw,
@@ -170,7 +177,7 @@ func publishArtifacts(chatsRoot string, chatID string, runID string, raw any) ar
 			continue
 		}
 
-		sourcePath, resolveCode, resolveMessage := resolveArtifactSourcePath(rawPath, chatDir)
+		sourcePath, resolveCode, resolveMessage := resolveArtifactSourcePath(rawPath, workspaceRoot, chatDir)
 		if sourcePath == "" {
 			log.Printf("[artifact-publish] skip: path resolve failed rawPath=%s chatDir=%s", rawPath, chatDir)
 			result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure(rawPath, resolveCode, resolveMessage))
@@ -190,29 +197,25 @@ func publishArtifacts(chatsRoot string, chatID string, runID string, raw any) ar
 
 		filename := filepath.Base(sourcePath)
 
-		targetPath := sourcePath
+		artifactsDir := filepath.Join(chatDir, "artifacts", runID)
+		if err := os.MkdirAll(artifactsDir, 0o755); err != nil {
+			log.Printf("[artifact-publish] skip: create artifacts dir failed dir=%s err=%v", artifactsDir, err)
+			result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure(rawPath, "artifact_dir_failed", "failed to create artifact directory: "+err.Error()))
+			continue
+		}
+		targetPath := filepath.Join(artifactsDir, filename)
+		if !samePath(sourcePath, targetPath) {
+			if copyErr := copyFile(sourcePath, targetPath); copyErr != nil {
+				log.Printf("[artifact-publish] skip: copy failed source=%s target=%s err=%v", sourcePath, targetPath, copyErr)
+				result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure(rawPath, "copy_failed", "failed to copy artifact into chat directory: "+copyErr.Error()))
+				continue
+			}
+		}
 		relativePath, relErr := filepath.Rel(chatDir, targetPath)
 		if relErr != nil || isPathOutsideBase(relativePath) {
-			artifactsDir := filepath.Join(chatDir, "artifacts", runID)
-			if err := os.MkdirAll(artifactsDir, 0o755); err != nil {
-				log.Printf("[artifact-publish] skip: create artifacts dir failed dir=%s err=%v", artifactsDir, err)
-				result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure(rawPath, "artifact_dir_failed", "failed to create artifact directory: "+err.Error()))
-				continue
-			}
-			targetPath = filepath.Join(artifactsDir, filename)
-			if !samePath(sourcePath, targetPath) {
-				if copyErr := copyFile(sourcePath, targetPath); copyErr != nil {
-					log.Printf("[artifact-publish] skip: copy failed source=%s target=%s err=%v", sourcePath, targetPath, copyErr)
-					result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure(rawPath, "copy_failed", "failed to copy artifact into chat directory: "+copyErr.Error()))
-					continue
-				}
-			}
-			relativePath, relErr = filepath.Rel(chatDir, targetPath)
-			if relErr != nil || isPathOutsideBase(relativePath) {
-				log.Printf("[artifact-publish] skip: target escaped chat dir target=%s chatDir=%s", targetPath, chatDir)
-				result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure(rawPath, "copy_failed", "published artifact target escaped chat directory"))
-				continue
-			}
+			log.Printf("[artifact-publish] skip: target escaped chat dir target=%s chatDir=%s", targetPath, chatDir)
+			result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure(rawPath, "copy_failed", "published artifact target escaped chat directory"))
+			continue
 		}
 
 		sha256hex := sha256Hex(targetPath)
@@ -232,40 +235,71 @@ func publishArtifacts(chatsRoot string, chatID string, runID string, raw any) ar
 	return result
 }
 
-func resolveArtifactSourcePath(rawPath string, chatDir string) (string, string, string) {
-	const sandboxPrefix = "/workspace"
+func resolveArtifactSourcePath(rawPath string, workspaceRoot string, chatDir string) (string, string, string) {
 	normalized := strings.TrimSpace(rawPath)
-	if strings.HasPrefix(normalized, sandboxPrefix) {
-		suffix := strings.TrimPrefix(normalized, sandboxPrefix)
+	roots, err := rootpaths.New(workspaceRoot, filepath.Dir(chatDir), chatDir)
+	if err != nil {
+		return "", "path_not_allowed", err.Error()
+	}
+	if normalized == "/chat" || strings.HasPrefix(normalized, "/chat/") ||
+		normalized == "@chat" || strings.HasPrefix(normalized, "@chat/") {
+		suffix := strings.TrimPrefix(strings.TrimPrefix(normalized, "/chat"), "@chat")
 		suffix = strings.TrimLeft(suffix, "/")
-		if suffix == "" {
-			return chatDir, "", ""
-		}
 		resolved := filepath.Clean(filepath.Join(chatDir, suffix))
-		if !pathWithinBase(resolved, chatDir) {
-			return "", "path_not_allowed", "artifact path must stay within the current chat workspace"
+		zone, candidate, err := roots.Classify(resolved)
+		if err != nil || zone != rootpaths.ZoneCurrentChat {
+			return "", "path_not_allowed", "artifact path must stay within the current chat"
 		}
-		return resolved, "", ""
+		return candidate.Host, "", ""
+	}
+	if normalized == "/workspace" || strings.HasPrefix(normalized, "/workspace/") ||
+		normalized == "@workspace" || strings.HasPrefix(normalized, "@workspace/") {
+		if strings.TrimSpace(workspaceRoot) == "" {
+			return "", "workspace_unavailable", "artifact workspace path requires a workspace"
+		}
+		suffix := strings.TrimLeft(strings.TrimPrefix(strings.TrimPrefix(normalized, "/workspace"), "@workspace"), "/")
+		resolved := filepath.Clean(filepath.Join(workspaceRoot, filepath.FromSlash(suffix)))
+		candidate, err := roots.RequireWorkspacePath(resolved)
+		if err != nil {
+			if errors.Is(err, rootpaths.ErrPathCrossesChatRoot) {
+				return "", "path_crosses_chat_root", err.Error()
+			}
+			return "", "path_not_allowed", "artifact path must stay within the current workspace"
+		}
+		if roots.ClassifyCanonical(candidate) != rootpaths.ZoneWorkspace {
+			return "", "path_not_allowed", "artifact path must stay within the current workspace"
+		}
+		return candidate.Host, "", ""
 	}
 	if !filepath.IsAbs(normalized) {
-		resolved := filepath.Clean(filepath.Join(chatDir, normalized))
-		if !pathWithinBase(resolved, chatDir) {
-			return "", "path_not_allowed", "artifact path must stay within the current chat workspace"
+		if strings.TrimSpace(workspaceRoot) == "" {
+			return "", "workspace_unavailable", "relative artifact paths require a workspace"
 		}
-		return resolved, "", ""
+		resolved := filepath.Clean(filepath.Join(workspaceRoot, normalized))
+		candidate, err := roots.RequireWorkspacePath(resolved)
+		if err != nil {
+			if errors.Is(err, rootpaths.ErrPathCrossesChatRoot) {
+				return "", "path_crosses_chat_root", err.Error()
+			}
+			return "", "path_not_allowed", "artifact path must stay within the current workspace"
+		}
+		if roots.ClassifyCanonical(candidate) != rootpaths.ZoneWorkspace {
+			return "", "path_not_allowed", "artifact path must stay within the current workspace"
+		}
+		return candidate.Host, "", ""
 	}
-	resolved := filepath.Clean(normalized)
-	if pathWithinBase(resolved, chatDir) {
-		return resolved, "", ""
-	}
-	workspaceRoot, err := os.Getwd()
+	zone, candidate, err := roots.Classify(normalized)
 	if err != nil {
-		return "", "path_not_allowed", "could not determine server workspace root"
+		return "", "path_not_allowed", err.Error()
 	}
-	if pathWithinBase(resolved, workspaceRoot) {
-		return resolved, "", ""
+	switch zone {
+	case rootpaths.ZoneCurrentChat, rootpaths.ZoneWorkspace:
+		return candidate.Host, "", ""
+	case rootpaths.ZoneOtherChat:
+		return "", "path_not_allowed", "artifact path belongs to another chat"
+	default:
+		return "", "path_not_allowed", "artifact path is outside the current workspace and chat"
 	}
-	return "", "path_not_allowed", "artifact path is outside the current chat workspace and server workspace"
 }
 
 func samePath(left string, right string) bool {

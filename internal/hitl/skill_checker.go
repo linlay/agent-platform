@@ -4,14 +4,12 @@ import (
 	"sort"
 	"strings"
 
-	"agent-platform/internal/api"
 	"agent-platform/internal/bashast"
 )
 
 type SkillChecker struct {
 	rules []FlatRule
 	byCmd map[string][]FlatRule
-	tools map[string]api.ToolDetailResponse
 }
 
 func NewSkillChecker(skillHookDirs []string) (*SkillChecker, error) {
@@ -36,11 +34,10 @@ func NewSkillChecker(skillHookDirs []string) (*SkillChecker, error) {
 		byKey[key] = len(deduped)
 		deduped = append(deduped, rule)
 	}
-	byCmd, tools := buildIndexes(deduped)
+	byCmd := buildIndexes(deduped)
 	return &SkillChecker{
 		rules: deduped,
 		byCmd: byCmd,
-		tools: tools,
 	}, nil
 }
 
@@ -51,30 +48,10 @@ func (c *SkillChecker) Check(command string, chatLevel int) InterceptResult {
 	return checkRules(c.byCmd, command, chatLevel)
 }
 
-func (c *SkillChecker) Tool(name string) (api.ToolDetailResponse, bool) {
-	if c == nil {
-		return api.ToolDetailResponse{}, false
-	}
-	def, ok := c.tools[strings.ToLower(strings.TrimSpace(name))]
-	return def, ok
-}
-
-func (c *SkillChecker) Tools() []api.ToolDetailResponse {
-	if c == nil {
-		return nil
-	}
-	return toolList(c.tools)
-}
-
-func buildIndexes(rules []FlatRule) (map[string][]FlatRule, map[string]api.ToolDetailResponse) {
+func buildIndexes(rules []FlatRule) map[string][]FlatRule {
 	byCmd := make(map[string][]FlatRule, len(rules))
-	tools := make(map[string]api.ToolDetailResponse, len(rules))
 	for _, rule := range rules {
 		byCmd[rule.Command] = append(byCmd[rule.Command], rule)
-		toolName := syntheticToolName(rule.ViewportKey)
-		if _, exists := tools[toolName]; !exists {
-			tools[toolName] = buildSyntheticToolDefinition(rule)
-		}
 	}
 	for command := range byCmd {
 		sort.SliceStable(byCmd[command], func(i int, j int) bool {
@@ -89,7 +66,7 @@ func buildIndexes(rules []FlatRule) (map[string][]FlatRule, map[string]api.ToolD
 			return left.Order < right.Order
 		})
 	}
-	return byCmd, tools
+	return byCmd
 }
 
 func checkRules(byCmd map[string][]FlatRule, command string, chatLevel int) InterceptResult {
@@ -202,20 +179,4 @@ func betterInterceptResult(current InterceptResult, candidate InterceptResult) (
 		return candidate, true
 	}
 	return current, false
-}
-
-func toolList(tools map[string]api.ToolDetailResponse) []api.ToolDetailResponse {
-	if len(tools) == 0 {
-		return nil
-	}
-	keys := make([]string, 0, len(tools))
-	for key := range tools {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	out := make([]api.ToolDetailResponse, 0, len(keys))
-	for _, key := range keys {
-		out = append(out, tools[key])
-	}
-	return out
 }

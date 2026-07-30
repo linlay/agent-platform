@@ -5,17 +5,19 @@ import (
 	"testing"
 
 	"agent-platform/internal/catalog"
+	"agent-platform/internal/config"
 )
 
 func TestTerminalEnvironmentUsesReservedAgentAndChatContext(t *testing.T) {
 	agentDir := filepath.Join("/runtime", "agents", "reader")
+	workspaceDir := filepath.Join("/projects", "reader")
 	chatDir := filepath.Join("/runtime", "chats", "chat-a")
 	entries := terminalEnvironment(catalog.AgentDefinition{
 		AgentDir: agentDir,
 		Runtime: map[string]any{
 			"env": map[string]string{"HTTP_PROXY": "http://proxy"},
 		},
-	}, chatDir)
+	}, workspaceDir, chatDir)
 	got := terminalEnvironmentValues(entries)
 	if want := filepath.Join(agentDir, ".config"); got["AP_AGENT_CONFIG_HOME"] != want {
 		t.Fatalf("AP_AGENT_CONFIG_HOME = %q, want %q", got["AP_AGENT_CONFIG_HOME"], want)
@@ -32,25 +34,48 @@ func TestTerminalEnvironmentUsesReservedAgentAndChatContext(t *testing.T) {
 	if got["AP_CHAT_DIR"] != chatDir {
 		t.Fatalf("AP_CHAT_DIR = %q, want %q", got["AP_CHAT_DIR"], chatDir)
 	}
+	if got["AP_WORKSPACE_DIR"] != workspaceDir {
+		t.Fatalf("AP_WORKSPACE_DIR = %q, want %q", got["AP_WORKSPACE_DIR"], workspaceDir)
+	}
 }
 
 func TestTerminalEnvironmentRejectsRuntimeOverridesByApplyingPlatformContextLast(t *testing.T) {
 	agentDir := filepath.Join("/runtime", "agents", "reader")
+	workspaceDir := filepath.Join("/projects", "reader")
 	chatDir := filepath.Join("/runtime", "chats", "chat-a")
 	got := terminalEnvironmentValues(terminalEnvironment(catalog.AgentDefinition{
 		AgentDir: agentDir,
 		Runtime: map[string]any{
 			"env": map[string]string{
 				"AP_AGENT_CONFIG_HOME": "/custom",
+				"AP_WORKSPACE_DIR":     "/wrong-workspace",
 				"AP_CHAT_DIR":          "/wrong-chat",
 			},
 		},
-	}, chatDir))
+	}, workspaceDir, chatDir))
 	if want := filepath.Join(agentDir, ".config"); got["AP_AGENT_CONFIG_HOME"] != want {
 		t.Fatalf("AP_AGENT_CONFIG_HOME = %q, want %q", got["AP_AGENT_CONFIG_HOME"], want)
 	}
 	if got["AP_CHAT_DIR"] != chatDir {
 		t.Fatalf("AP_CHAT_DIR = %q, want %q", got["AP_CHAT_DIR"], chatDir)
+	}
+	if got["AP_WORKSPACE_DIR"] != workspaceDir {
+		t.Fatalf("AP_WORKSPACE_DIR = %q, want %q", got["AP_WORKSPACE_DIR"], workspaceDir)
+	}
+}
+
+func TestResolveTerminalWorkspaceAllowsFilesystemRoot(t *testing.T) {
+	server := &Server{deps: Dependencies{Config: config.Config{
+		Paths: config.PathsConfig{ChatsDir: filepath.Join(t.TempDir(), "chats")},
+	}}}
+	got, statusErr := server.resolveTerminalWorkspace(catalog.AgentDefinition{
+		Workspace: catalog.AgentWorkspaceConfig{Root: string(filepath.Separator)},
+	})
+	if statusErr != nil {
+		t.Fatalf("resolve filesystem-root terminal workspace: %v", statusErr)
+	}
+	if got != string(filepath.Separator) {
+		t.Fatalf("terminal workspace = %q, want filesystem root", got)
 	}
 }
 

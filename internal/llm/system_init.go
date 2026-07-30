@@ -310,7 +310,6 @@ func ComputeSystemInitFingerprint(session contracts.QuerySession, stage string, 
 	}
 	if session.EditingMode {
 		payload["editingMode"] = true
-		payload["kbaseSourceRoot"] = session.KBaseSourceRoot
 		payload["scopedFilePolicy"] = session.ScopedFilePolicy
 	}
 	raw, _ := json.Marshal(payload)

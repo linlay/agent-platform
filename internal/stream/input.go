@@ -59,31 +59,6 @@ type ToolResult struct {
 
 func (ToolResult) streamInputTag() {}
 
-type ActionArgs struct {
-	ActionID    string
-	Delta       string
-	TaskID      string
-	ActionName  string
-	Description string
-}
-
-func (ActionArgs) streamInputTag() {}
-
-type ActionEnd struct {
-	ActionID string
-}
-
-func (ActionEnd) streamInputTag() {}
-
-type ActionResult struct {
-	ActionID    string
-	ActionName  string
-	Description string
-	Result      any
-}
-
-func (ActionResult) streamInputTag() {}
-
 type StageMarker struct {
 	Stage string
 }
@@ -112,7 +87,6 @@ type ModelTurnDiscard struct {
 	ReasoningIDs   []string
 	ContentIDs     []string
 	ToolIDs        []string
-	ActionIDs      []string
 }
 
 func (ModelTurnDiscard) streamInputTag() {}

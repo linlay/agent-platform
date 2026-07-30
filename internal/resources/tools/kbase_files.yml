@@ -1,8 +1,6 @@
 name: kbase_files
 label: 浏览知识库文件
 description: List files and compact directory tree entries from the current KBASE index. This reads indexed KBASE metadata only, not the host filesystem.
-submitResultFormat: json-compact
-type: function
 clientVisible: true
 readOnly: true
 inputSchema:

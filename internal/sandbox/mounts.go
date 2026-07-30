@@ -10,6 +10,8 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/pathutil"
+	"agent-platform/internal/rootpaths"
 )
 
 type ContainerHubMountResolver struct {
@@ -23,51 +25,85 @@ type MountSpec struct {
 	ReadOnly    bool
 }
 
+type SessionMountLayout struct {
+	Mounts      []MountSpec
+	MaskedPaths []string
+}
+
 func NewContainerHubMountResolver(paths config.PathsConfig) *ContainerHubMountResolver {
 	return &ContainerHubMountResolver{paths: paths}
 }
 
-func (r *ContainerHubMountResolver) Resolve(chatID string, agentKey string, level string, sandboxMounts []contracts.SandboxExtraMount) ([]MountSpec, error) {
+func (r *ContainerHubMountResolver) Resolve(workspaceRoot string, chatID string, agentKey string, level string, sandboxMounts []contracts.SandboxExtraMount) ([]MountSpec, error) {
+	layout, err := r.ResolveLayout(workspaceRoot, chatID, agentKey, level, sandboxMounts)
+	return layout.Mounts, err
+}
+
+func (r *ContainerHubMountResolver) ResolveLayout(workspaceRoot string, chatID string, agentKey string, level string, sandboxMounts []contracts.SandboxExtraMount) (SessionMountLayout, error) {
+	workspaceRoot = strings.TrimSpace(workspaceRoot)
+	if workspaceRoot == "" {
+		return SessionMountLayout{}, fmt.Errorf("container-hub mount validation failed for workspace: workspace is required")
+	}
+	workspaceCanonical, err := pathutil.Canonicalize(workspaceRoot)
+	if err != nil {
+		return SessionMountLayout{}, fmt.Errorf("container-hub mount validation failed for workspace: %w", err)
+	}
+	if err := validateMountDirectory("workspace", workspaceCanonical.Host, "/workspace"); err != nil {
+		return SessionMountLayout{}, err
+	}
 	chatID = strings.TrimSpace(chatID)
 	if !chat.ValidChatID(chatID) {
-		return nil, fmt.Errorf("container-hub mount validation failed for data-dir: valid chatId is required")
+		return SessionMountLayout{}, fmt.Errorf("container-hub mount validation failed for data-dir: valid chatId is required")
 	}
 	agentKey = strings.TrimSpace(agentKey)
 	if agentKey == "" {
-		return nil, fmt.Errorf("container-hub mount validation failed for agent-self: agentKey is required")
+		return SessionMountLayout{}, fmt.Errorf("container-hub mount validation failed for agent-self: agentKey is required")
 	}
-	workspaceRoot, err := hostPath("AP_RUNTIME_CHATS_DIR", r.paths.ChatsDir)
+	chatsRoot, err := hostPath("AP_RUNTIME_CHATS_DIR", r.paths.ChatsDir)
 	if err != nil {
-		return nil, fmt.Errorf("container-hub mount validation failed for data-dir: %w", err)
+		return SessionMountLayout{}, fmt.Errorf("container-hub mount validation failed for chat-dir: %w", err)
 	}
-	workspaceSource := filepath.Join(workspaceRoot, chatID)
-	if err := os.MkdirAll(workspaceSource, 0o755); err != nil {
-		return nil, err
+	chatSource := filepath.Join(chatsRoot, chatID)
+	if err := os.MkdirAll(chatSource, 0o755); err != nil {
+		return SessionMountLayout{}, err
+	}
+	chatCanonical, err := pathutil.Canonicalize(chatSource)
+	if err != nil {
+		return SessionMountLayout{}, fmt.Errorf("container-hub mount validation failed for chat-dir: %w", err)
+	}
+	semanticRoots, err := rootpaths.New(workspaceCanonical.Host, chatsRoot, chatCanonical.Host)
+	if err != nil {
+		return SessionMountLayout{}, fmt.Errorf("container-hub mount validation failed: %w", err)
+	}
+	maskedPaths, err := semanticRoots.ContainerMaskedPaths()
+	if err != nil {
+		return SessionMountLayout{}, fmt.Errorf("container-hub mount validation failed: %w", err)
 	}
 
 	mounts := []MountSpec{
-		{Name: "data-dir", Source: workspaceSource, Destination: "/workspace", ReadOnly: false},
+		{Name: "workspace", Source: workspaceCanonical.Host, Destination: "/workspace", ReadOnly: false},
+		{Name: "chat-dir", Source: chatCanonical.Host, Destination: "/chat", ReadOnly: false},
 	}
 
 	if rootDir, err := hostPath("ROOT_DIR", r.paths.RootDir); err == nil && rootDir != "" {
 		mounts = append(mounts, MountSpec{Name: "root-dir", Source: rootDir, Destination: "/root", ReadOnly: false})
 	} else if err != nil {
-		return nil, fmt.Errorf("container-hub mount validation failed for root-dir: %w", err)
+		return SessionMountLayout{}, fmt.Errorf("container-hub mount validation failed for root-dir: %w", err)
 	}
 	if panDir, err := hostPath("AP_RUNTIME_PAN_DIR", r.paths.PanDir); err == nil && panDir != "" {
 		mounts = append(mounts, MountSpec{Name: "pan-dir", Source: panDir, Destination: "/pan", ReadOnly: false})
 	} else if err != nil {
-		return nil, fmt.Errorf("container-hub mount validation failed for pan-dir: %w", err)
+		return SessionMountLayout{}, fmt.Errorf("container-hub mount validation failed for pan-dir: %w", err)
 	}
 	if agentDir, err := r.agentSource(agentKey); err == nil && agentDir != "" {
 		mounts = append(mounts, MountSpec{Name: "agent-self", Source: agentDir, Destination: "/agent", ReadOnly: true})
 	} else if err != nil {
-		return nil, err
+		return SessionMountLayout{}, err
 	}
 
 	skillsSource, err := r.skillsSource(agentKey, level)
 	if err != nil {
-		return nil, err
+		return SessionMountLayout{}, err
 	}
 	if skillsSource != "" {
 		mounts = append(mounts, MountSpec{Name: "skills-dir", Source: skillsSource, Destination: "/skills", ReadOnly: true})
@@ -75,18 +111,18 @@ func (r *ContainerHubMountResolver) Resolve(chatID string, agentKey string, leve
 	if ownerDir, err := r.ownerSource(); err == nil && ownerDir != "" {
 		mounts = append(mounts, MountSpec{Name: "owner-dir", Source: ownerDir, Destination: "/owner", ReadOnly: true})
 	} else if err != nil {
-		return nil, err
+		return SessionMountLayout{}, err
 	}
 	if memoryDir, err := r.memorySource(agentKey); err == nil && memoryDir != "" {
 		mounts = append(mounts, MountSpec{Name: "memory-dir", Source: memoryDir, Destination: "/memory", ReadOnly: true})
 	} else if err != nil {
-		return nil, err
+		return SessionMountLayout{}, err
 	}
 	if err := r.applySandboxMounts(&mounts, agentKey, sandboxMounts); err != nil {
-		return nil, err
+		return SessionMountLayout{}, err
 	}
 
-	return mounts, nil
+	return SessionMountLayout{Mounts: mounts, MaskedPaths: maskedPaths}, nil
 }
 
 func (r *ContainerHubMountResolver) applySandboxMounts(mounts *[]MountSpec, agentKey string, sandboxMounts []contracts.SandboxExtraMount) error {
@@ -95,6 +131,9 @@ func (r *ContainerHubMountResolver) applySandboxMounts(mounts *[]MountSpec, agen
 			continue
 		}
 		destination := normalizeContainerPath(sandboxMount.Destination)
+		if isReservedRootDestination(destination) {
+			return fmt.Errorf("container-hub mount validation failed for sandbox-mount: %s is reserved by Agent Platform", destination)
+		}
 		if isDefaultMountOverride(sandboxMount, destination) {
 			readOnly, err := parseMountMode(sandboxMount.Mode, "default-mount-override", destination)
 			if err != nil {
@@ -224,7 +263,6 @@ func (r *ContainerHubMountResolver) platformMountDef(platform string, agentKey s
 	defs := map[string]platformMountDefinition{
 		"agent":         {destination: "/agent", overrideOnly: true},
 		"agents":        {destination: "/agents", source: func() (string, error) { return hostPath("AGENTS_DIR", r.paths.AgentsDir) }},
-		"chats":         {destination: "/chats", source: func() (string, error) { return hostPath("AP_RUNTIME_CHATS_DIR", r.paths.ChatsDir) }},
 		"memory":        {destination: "/memory", overrideOnly: true},
 		"mcp-servers":   {destination: "/mcp-servers", source: func() (string, error) { return r.registryChildSource("mcp-servers") }},
 		"models":        {destination: "/models", source: func() (string, error) { return r.registryChildSource("models") }},
@@ -260,11 +298,20 @@ func normalizeContainerPath(path string) string {
 
 func isDefaultMountDestination(destination string) bool {
 	switch destination {
-	case "/workspace", "/root", "/skills", "/pan", "/agent", "/owner", "/memory":
+	case "/workspace", "/chat", "/root", "/skills", "/pan", "/agent", "/owner", "/memory":
 		return true
 	default:
 		return false
 	}
+}
+
+func isReservedRootDestination(destination string) bool {
+	for _, root := range []string{"/workspace", "/chat"} {
+		if destination == root || strings.HasPrefix(destination, root+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func appendMount(mounts *[]MountSpec, mount MountSpec) error {

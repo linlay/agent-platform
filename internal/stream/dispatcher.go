@@ -30,12 +30,6 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		return d.handleToolEnd(value)
 	case ToolResult:
 		return d.handleToolResult(value)
-	case ActionArgs:
-		return d.handleActionArgs(value)
-	case ActionEnd:
-		return d.handleActionEnd(value)
-	case ActionResult:
-		return d.handleActionResult(value)
 	case StageMarker:
 		return nil
 	case ModelTurnCommit:

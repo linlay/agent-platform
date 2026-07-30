@@ -1,7 +1,6 @@
 name: memory_forget
 label: 归档记忆
 description: Mark a memory as archived, superseded, or contested. Defaults to archived.
-type: function
 clientVisible: false
 inputSchema:
   type: object

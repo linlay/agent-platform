@@ -15,6 +15,8 @@ import (
 	"agent-platform/internal/contracts"
 )
 
+const workspaceChatSandboxProtocol = "dual-root-v2"
+
 type ContainerHubSandboxService struct {
 	cfg            config.ContainerHubConfig
 	client         *ContainerHubClient
@@ -99,14 +101,17 @@ func (s *ContainerHubSandboxService) Execute(ctx context.Context, execCtx *contr
 	if err := s.OpenIfNeeded(ctx, execCtx); err != nil {
 		return contracts.SandboxExecutionResult{}, err
 	}
-	workingDirectory := cwd
-	if strings.TrimSpace(workingDirectory) == "" {
-		workingDirectory = execCtx.SandboxSession.DefaultCwd
+	executionCwd := strings.TrimSpace(cwd)
+	if executionCwd == "" {
+		executionCwd = strings.TrimSpace(execCtx.Session.RuntimeContext.SandboxPaths.WorkspaceDir)
+	}
+	if executionCwd == "" {
+		return contracts.SandboxExecutionResult{}, fmt.Errorf("workspace_unavailable: sandbox execution requires a workspace")
 	}
 	payload := map[string]any{
 		"command": "/bin/sh",
 		"args":    []string{"-lc", command},
-		"cwd":     workingDirectory,
+		"cwd":     executionCwd,
 	}
 	if timeout > 0 {
 		payload["timeout"] = timeout
@@ -120,20 +125,21 @@ func (s *ContainerHubSandboxService) Execute(ctx context.Context, execCtx *contr
 	}
 	if !isJSON {
 		return contracts.SandboxExecutionResult{
-			ExitCode:         0,
-			Stdout:           rawText,
-			WorkingDirectory: workingDirectory,
+			ExitCode: 0,
+			Stdout:   rawText,
+			Cwd:      executionCwd,
 		}, nil
 	}
 	var parsed map[string]any
 	_ = json.Unmarshal([]byte(rawText), &parsed)
-	// container-hub error envelope uses snake_case: exit_code / stdout / stderr / working_directory
+	// Container Hub uses snake_case for command results. Its reported cwd is
+	// intentionally ignored; Platform's requested cwd remains authoritative.
 	exitCode := intValue(parsed["exit_code"], -1)
 	return contracts.SandboxExecutionResult{
-		ExitCode:         exitCode,
-		Stdout:           stringValue(parsed["stdout"]),
-		Stderr:           stringValue(parsed["stderr"]),
-		WorkingDirectory: workingDirectory,
+		ExitCode: exitCode,
+		Stdout:   stringValue(parsed["stdout"]),
+		Stderr:   stringValue(parsed["stderr"]),
+		Cwd:      executionCwd,
 	}, nil
 }
 
@@ -144,16 +150,20 @@ func (s *ContainerHubSandboxService) CloseQuietly(execCtx *contracts.ExecutionCo
 	session := execCtx.SandboxSession
 	switch session.Level {
 	case "agent":
-		s.releaseAgentSession(agentChatSessionKey(execCtx.Session))
+		s.releaseAgentSession(session.ReuseKey)
 	case "global":
 	default:
-		s.releaseRunSession(runSessionID(execCtx.Session))
+		s.releaseRunSession(session.ReuseKey)
 	}
 	execCtx.SandboxSession = nil
 }
 
 func (s *ContainerHubSandboxService) acquireRunSession(ctx context.Context, execCtx *contracts.ExecutionContext) error {
-	sessionKey := runSessionID(execCtx.Session)
+	mounts, maskedPaths, fingerprint, err := s.resolveSessionMountIdentity(execCtx, "run")
+	if err != nil {
+		return err
+	}
+	sessionKey := runSessionID(execCtx.Session, fingerprint)
 	s.mu.Lock()
 	if managed := s.runSessions[sessionKey]; managed != nil {
 		managed.activeUsers++
@@ -161,14 +171,14 @@ func (s *ContainerHubSandboxService) acquireRunSession(ctx context.Context, exec
 		execCtx.SandboxSession = &contracts.SandboxSession{
 			SessionID:     managed.session.SessionID,
 			EnvironmentID: managed.session.EnvironmentID,
-			DefaultCwd:    managed.session.DefaultCwd,
 			Level:         "run",
+			ReuseKey:      sessionKey,
 		}
 		s.mu.Unlock()
 		return nil
 	}
 	s.mu.Unlock()
-	if err := s.createAndBind(ctx, execCtx, "run", sessionKey); err != nil {
+	if err := s.createAndBind(ctx, execCtx, "run", sessionKey, sessionKey, mounts, maskedPaths); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -177,17 +187,21 @@ func (s *ContainerHubSandboxService) acquireRunSession(ctx context.Context, exec
 	return nil
 }
 
-func runSessionID(session contracts.QuerySession) string {
+func runSessionID(session contracts.QuerySession, fingerprint string) string {
 	runID := strings.TrimSpace(session.RunID)
 	subTaskID := strings.TrimSpace(session.SubTaskID)
 	if subTaskID == "" {
-		return "run-" + runID
+		return "run-" + runID + "-" + fingerprint
 	}
-	return "run-" + runID + "-" + subTaskID
+	return "run-" + runID + "-" + subTaskID + "-" + fingerprint
 }
 
 func (s *ContainerHubSandboxService) acquireAgentSession(ctx context.Context, execCtx *contracts.ExecutionContext) error {
-	sessionKey := agentChatSessionKey(execCtx.Session)
+	mounts, maskedPaths, fingerprint, err := s.resolveSessionMountIdentity(execCtx, "agent")
+	if err != nil {
+		return err
+	}
+	sessionKey := agentChatSessionKey(execCtx.Session, fingerprint)
 	s.mu.Lock()
 	if managed := s.agentSessions[sessionKey]; managed != nil {
 		managed.activeUsers++
@@ -195,14 +209,14 @@ func (s *ContainerHubSandboxService) acquireAgentSession(ctx context.Context, ex
 		execCtx.SandboxSession = &contracts.SandboxSession{
 			SessionID:     managed.session.SessionID,
 			EnvironmentID: managed.session.EnvironmentID,
-			DefaultCwd:    managed.session.DefaultCwd,
 			Level:         "agent",
+			ReuseKey:      sessionKey,
 		}
 		s.mu.Unlock()
 		return nil
 	}
 	s.mu.Unlock()
-	if err := s.createAndBind(ctx, execCtx, "agent", scopedSandboxSessionID("agent", sessionKey)); err != nil {
+	if err := s.createAndBind(ctx, execCtx, "agent", scopedSandboxSessionID("agent", sessionKey), sessionKey, mounts, maskedPaths); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -212,7 +226,11 @@ func (s *ContainerHubSandboxService) acquireAgentSession(ctx context.Context, ex
 }
 
 func (s *ContainerHubSandboxService) acquireGlobalSession(ctx context.Context, execCtx *contracts.ExecutionContext) error {
-	sessionKey := agentChatSessionKey(execCtx.Session)
+	mounts, maskedPaths, fingerprint, err := s.resolveSessionMountIdentity(execCtx, "global")
+	if err != nil {
+		return err
+	}
+	sessionKey := agentChatSessionKey(execCtx.Session, fingerprint)
 	s.mu.Lock()
 	if managed := s.globalSessions[sessionKey]; managed != nil {
 		managed.activeUsers++
@@ -220,14 +238,14 @@ func (s *ContainerHubSandboxService) acquireGlobalSession(ctx context.Context, e
 		execCtx.SandboxSession = &contracts.SandboxSession{
 			SessionID:     managed.session.SessionID,
 			EnvironmentID: managed.session.EnvironmentID,
-			DefaultCwd:    managed.session.DefaultCwd,
 			Level:         "global",
+			ReuseKey:      sessionKey,
 		}
 		s.mu.Unlock()
 		return nil
 	}
 	s.mu.Unlock()
-	if err := s.createAndBind(ctx, execCtx, "global", scopedSandboxSessionID("global", sessionKey)); err != nil {
+	if err := s.createAndBind(ctx, execCtx, "global", scopedSandboxSessionID("global", sessionKey), sessionKey, mounts, maskedPaths); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -236,8 +254,70 @@ func (s *ContainerHubSandboxService) acquireGlobalSession(ctx context.Context, e
 	return nil
 }
 
-func agentChatSessionKey(session contracts.QuerySession) string {
-	return strings.TrimSpace(session.AgentKey) + "\x00" + strings.TrimSpace(session.ChatID)
+func agentChatSessionKey(session contracts.QuerySession, fingerprint string) string {
+	return strings.TrimSpace(session.AgentKey) + "\x00" +
+		strings.TrimSpace(session.ChatID) + "\x00" +
+		fingerprint
+}
+
+func (s *ContainerHubSandboxService) resolveSessionMountIdentity(execCtx *contracts.ExecutionContext, level string) ([]MountSpec, []string, string, error) {
+	layout, err := s.mounts.ResolveLayout(
+		execCtx.Session.WorkspaceRoot,
+		execCtx.Session.ChatID,
+		execCtx.Session.AgentKey,
+		level,
+		execCtx.Session.RuntimeExtraMounts,
+	)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	mounts := layout.Mounts
+	maskedPaths := layout.MaskedPaths
+	if strings.EqualFold(strings.TrimSpace(s.cfg.ResolvedEngine), "local") {
+		mounts = localEngineMounts(mounts)
+		maskedPaths = nil
+	}
+	raw, _ := json.Marshal(struct {
+		Protocol        string
+		EnvironmentID   string
+		WorkspaceSource string
+		ChatSource      string
+		Environment     map[string]string
+		Mounts          []MountSpec
+		MaskedPaths     []string
+	}{
+		Protocol:        workspaceChatSandboxProtocol,
+		EnvironmentID:   s.resolveEnvironmentID(execCtx),
+		WorkspaceSource: mountSource(mounts, "/workspace"),
+		ChatSource:      mountSource(mounts, "/chat"),
+		Environment:     sandboxEnvironment(execCtx, nil),
+		Mounts:          mounts,
+		MaskedPaths:     maskedPaths,
+	})
+	sum := sha256.Sum256(raw)
+	return mounts, maskedPaths, fmt.Sprintf("%x", sum[:8]), nil
+}
+
+func localEngineMounts(mounts []MountSpec) []MountSpec {
+	out := append([]MountSpec(nil), mounts...)
+	for index := range out {
+		switch out[index].Destination {
+		case "/workspace", "/chat":
+			out[index].Destination = out[index].Source
+		}
+	}
+	return out
+}
+
+func mountSource(mounts []MountSpec, destination string) string {
+	for _, mount := range mounts {
+		if mount.Destination == destination ||
+			(destination == "/workspace" && mount.Name == "workspace") ||
+			(destination == "/chat" && mount.Name == "chat-dir") {
+			return mount.Source
+		}
+	}
+	return ""
 }
 
 func scopedSandboxSessionID(prefix string, sessionKey string) string {
@@ -329,11 +409,15 @@ func (s *ContainerHubSandboxService) releaseRunSession(sessionKey string) {
 	}()
 }
 
-func (s *ContainerHubSandboxService) createAndBind(ctx context.Context, execCtx *contracts.ExecutionContext, level string, sessionID string) error {
-	mounts, err := s.mounts.Resolve(execCtx.Session.ChatID, execCtx.Session.AgentKey, level, execCtx.Session.RuntimeExtraMounts)
-	if err != nil {
-		return err
-	}
+func (s *ContainerHubSandboxService) createAndBind(
+	ctx context.Context,
+	execCtx *contracts.ExecutionContext,
+	level string,
+	sessionID string,
+	reuseKey string,
+	mounts []MountSpec,
+	maskedPaths []string,
+) error {
 	environmentID := s.resolveEnvironmentID(execCtx)
 	if environmentID == "" {
 		return fmt.Errorf("container-hub environment id is required")
@@ -347,15 +431,23 @@ func (s *ContainerHubSandboxService) createAndBind(ctx context.Context, execCtx 
 		})
 	}
 	payload := map[string]any{
-		"session_id":       sessionID,
-		"environment_name": environmentID,
-		"cwd":              "/workspace",
-		"mounts":           payloadMounts,
+		"session_id":        sessionID,
+		"environment_name":  environmentID,
+		"cwd":               sandboxWorkspaceCwd(execCtx),
+		"mounts":            payloadMounts,
+		"workspaceProtocol": workspaceChatSandboxProtocol,
 		"labels": map[string]string{
-			"runId":    execCtx.Session.RunID,
-			"chatId":   execCtx.Session.ChatID,
-			"agentKey": execCtx.Session.AgentKey,
+			"runId":             execCtx.Session.RunID,
+			"chatId":            execCtx.Session.ChatID,
+			"agentKey":          execCtx.Session.AgentKey,
+			"workspaceProtocol": workspaceChatSandboxProtocol,
 		},
+	}
+	if len(maskedPaths) > 0 {
+		if err := s.client.RequireWorkspaceProtocol(ctx, workspaceChatSandboxProtocol); err != nil {
+			return err
+		}
+		payload["masked_paths"] = append([]string(nil), maskedPaths...)
 	}
 	if sessionEnv := sandboxEnvironment(execCtx, nil); len(sessionEnv) > 0 {
 		payload["env"] = sessionEnv
@@ -368,20 +460,22 @@ func (s *ContainerHubSandboxService) createAndBind(ctx context.Context, execCtx 
 	if returnedSessionID == "" {
 		returnedSessionID = sessionID
 	}
-	defaultCwd := stringValue(response["cwd"])
-	if defaultCwd == "" {
-		defaultCwd = execCtx.Session.RuntimeContext.SandboxPaths.WorkspaceDir
-	}
-	if defaultCwd == "" {
-		defaultCwd = "/workspace"
-	}
 	execCtx.SandboxSession = &contracts.SandboxSession{
 		SessionID:     returnedSessionID,
 		EnvironmentID: environmentID,
-		DefaultCwd:    defaultCwd,
 		Level:         level,
+		ReuseKey:      reuseKey,
 	}
 	return nil
+}
+
+func sandboxWorkspaceCwd(execCtx *contracts.ExecutionContext) string {
+	if execCtx != nil {
+		if workspace := strings.TrimSpace(execCtx.Session.RuntimeContext.SandboxPaths.WorkspaceDir); workspace != "" {
+			return workspace
+		}
+	}
+	return "/workspace"
 }
 
 func sandboxEnvironment(execCtx *contracts.ExecutionContext, invocationEnv map[string]string) map[string]string {
@@ -394,6 +488,7 @@ func sandboxEnvironment(execCtx *contracts.ExecutionContext, invocationEnv map[s
 		agentconfig.ContainerEnvironment(
 			execCtx.Session.RuntimeContext.SandboxPaths.AgentDir,
 			execCtx.Session.RuntimeContext.SandboxPaths.WorkspaceDir,
+			execCtx.Session.RuntimeContext.SandboxPaths.ChatDir,
 		),
 	)
 }

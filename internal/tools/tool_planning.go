@@ -42,6 +42,9 @@ func (t *RuntimeToolExecutor) invokePlanningWrite(toolName string, args map[stri
 	execCtx.PlanningRevision = revision
 	planningID := planutil.PlanningIDForRevision(planningRunID(execCtx), revision)
 	planningFile := planutil.PlanningFileForChat(chatsDir, execCtx.Session.ChatID, planningID)
+	if planningFile == "" {
+		return ToolExecutionResult{Output: "失败: 当前 Chat 目录不可用", Error: "chat_dir_unavailable", ExitCode: -1}, nil
+	}
 	if err := os.MkdirAll(filepath.Dir(planningFile), 0o755); err != nil {
 		return ToolExecutionResult{Output: "失败: 创建 planning 目录失败: " + err.Error(), Error: planningToolErrorCode(toolName, "failed"), ExitCode: -1}, nil
 	}

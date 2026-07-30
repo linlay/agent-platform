@@ -1,6 +1,6 @@
 # agent-platform
 
-本仓库是 `agent-platform` 的 Go 版运行时实现，当前以 Java runtime 的 `.env` / `application.yml` 契约为事实源，支持目录驱动的 agents / teams / skills catalog、带隐藏协调器的 orchestrated Team、`run_query` / `run_status` / `run_interrupt` 独立根 run 工具组、JWT 鉴权、resource ticket、chat 文件落盘、memory learn、Container Hub sandbox、LanceDB 本地混合检索 KBASE，以及最小 OpenAI 协议模型与 backend tool loop。
+本仓库是 `agent-platform` 的 Go 版运行时实现，当前以 Java runtime 的 `.env` / `application.yml` 契约为事实源，支持目录驱动的 agents / teams / skills catalog、带隐藏协调器的 orchestrated Team、`run_query` / `run_status` / `run_interrupt` 独立根 run 工具组、JWT 鉴权、resource ticket、chat 文件落盘、memory learn、Container Hub sandbox、LanceDB 本地混合检索 KBASE，以及最小 OpenAI 协议模型与统一 tool loop。
 
 > 项目事实、架构与开发约束见 [AGENTS.md](./AGENTS.md)，补充说明见 [docs/](./docs)。
 
@@ -52,9 +52,9 @@
 - `POST /api/submit` 使用 awaiting 协议：请求体必须包含 `runId`、`awaitingId`，并按 run 类型携带 `agentKey` 或 `teamId`。
 - 文件传输按“HTTP 数据面 + WebSocket 控制面”划分：浏览器上传继续使用 `POST /api/upload`，下载继续使用 `GET /api/resource?file=...`；upload ticket 中的 `path` 是智能体执行环境内的可读路径，`url` 只用于平台资源访问；`/ws` 只传文件引用与状态，不承载文件字节。当前 `/ws` 的 `/api/upload` 仅支持网关发送 `url + metadata`，由 platform 再通过 HTTP 拉取文件并落盘。
 - 文件工具的 `file_read` / `file_glob` / `file_grep` 与 `file_write` / `file_edit` 白名单独立于 bash allowed paths，默认均为 `.,/tmp`；越权访问会走 `mode=approval`，可单次批准或用 `approve_rule_run` 在当前 run 内批准同一规则。
-- 专用 `mode: KBASE` 始终以最终 Source root 作为 Workspace，并在 main/editing 两种 stage 提供相同的五个通用文本文件工具；当前 Chat 目录独立可读写。单次 `/api/query` 顶层 `editingMode:true` 只允许 Source mutation，未开启时 Source 仍可读但不可 write/edit；所有目录先服从 AccessPolicy/HITL，Source 索引由 KBASE watcher 异步维护。普通 Agent 附加的 KBASE capability 与其他 mode 不支持该字段。
+- 专用 `mode: KBASE` 与普通 KBASE capability 都以 `runtimeConfig.workspaceRoot` 为唯一内容根；专用 mode 在 main/editing 两种 stage 提供相同的五个通用文本文件工具，当前 Chat 目录独立可读写。单次 `/api/query` 顶层 `editingMode:true` 只允许 KBASE Workspace mutation，未开启时 Workspace 仍可读但不可 write/edit；所有目录先服从 AccessPolicy/HITL，索引由 KBASE watcher 异步维护。普通 Agent 附加的 KBASE capability 与其他 mode 不支持该字段。
 
-当前仍未与 Java 版完全对齐的能力主要集中在 frontend tool 完整闭环、MCP 全量生产验证，以及更深层的 memory / automation 执行编排细节；MCP 的 HTTP/stdio client、严格 `2025-11-25` 版本校验、session 生命周期与 tool sync 已接通。
+当前仍未与 Java 版完全对齐的能力主要集中在 MCP 全量生产验证，以及更深层的 memory / automation 执行编排细节；MCP 的 HTTP/stdio client、严格 `2025-11-25` 版本校验、session 生命周期与 tool sync 已接通。平台工具模型已统一，不再区分 frontend/action/backend/builtin。
 
 ## 2. 快速开始
 
@@ -161,7 +161,7 @@ RUN_SOCKET_TESTS=1 make test-integration
 
 本地启动变量从 `.env.example` 复制到 `.env`。`.env` 不提交；`.env.example` 只保留启动/部署 allowlist。运行时配置使用 `configs/runtime.yml`，工具运行时配置使用 `configs/tools.yml`，AI 工具配置使用 `configs/ai-tools.yml`，默认值的单一事实源仍以代码和 `configs/*.example.yml` 模板为准。更完整的高级与排障配置参考见 [配置化说明](./docs/配置化说明.md)。
 
-MCP server 配置位于 `${AP_RUNTIME_REGISTRIES_DIR}/mcp-servers/*.yml`，支持默认的 `streamable-http` 与 `stdio`。两种 transport 都只接受协议版本 `2025-11-25`；stdio 子进程必须使用标准 MCP，旧 `tools-dir/service.yml`、`type: external`、`external:` 与 `kind: external-service` 会在启动或热重载时硬失败。配置示例和迁移边界见 [MCP与前端工具](./docs/MCP与前端工具.md)。
+MCP server 配置位于 `${AP_RUNTIME_REGISTRIES_DIR}/mcp-servers/*.yml`，支持默认的 `streamable-http` 与 `stdio`。两种 transport 都只接受协议版本 `2025-11-25`；stdio 子进程必须使用标准 MCP，旧 `tools-dir/service.yml`、`type: external`、`external:` 与 `kind: external-service` 会在启动或热重载时硬失败。配置示例和迁移边界见 [MCP与工具交互](./docs/MCP与工具交互.md)。
 
 ### 根 `.env.example`
 
@@ -286,23 +286,28 @@ make docker-up
 - 容器内 runtime 根目录固定为 `/opt/runtime`，应用通过 `AP_RUNTIME_DIR=/opt/runtime` 解析子目录
 - `./configs` 只读挂载到 `/opt/configs`
 
-Container Hub 默认基础挂载当前最多 7 个：
+Container Hub 使用严格双根协议，基础挂载包括：
 
-- `/workspace` -> `AP_RUNTIME_CHATS_DIR/<chatId>`（`rw`）
+- `/workspace` -> 当前 Agent 的 canonical `runtimeConfig.workspaceRoot`，`rw`
+- `/chat` -> `AP_RUNTIME_CHATS_DIR/<chatId>`（`rw`）
 - `/root` -> `paths.root-dir`（`rw`）
 - `/skills` -> `paths.agents-dir/<agentKey>/skills`（仅 `run/agent`，`global` 默认不挂载），`ro`
 - `/pan` -> `AP_RUNTIME_PAN_DIR`（`rw`）
 - `/agent` -> `paths.agents-dir/<agentKey>`（`ro`，必挂载；目录缺失会 fail-fast）
-
-目录型 agent 可在 `<agentDir>/.config/` 保存工具静态配置。平台在启动 host bash/tool、agent terminal 与 Container Hub session/command 时统一注入并冻结两个保留变量：`AP_AGENT_CONFIG_HOME` 是 agent 级静态配置根，host/terminal 使用 `<agentDir>/.config`，Container 使用 `/agent/.config`；`AP_CHAT_DIR` 是 chat 级可写目录，host/terminal 使用 `AP_RUNTIME_CHATS_DIR/<chatId>`，Container 使用映射到同一宿主目录的 `/workspace`。平台会提前创建 Chat 目录；agent `runtimeConfig.env`、skill `.runtime-env.json` 与调用级 env 均不得声明这两个变量。各 builtin 在配置根下追加自己的目录，例如 dbx 使用 `dbx/`、httpx 使用 `httpx/`；HTTPX 的 chat state/secret 分别位于 `$AP_CHAT_DIR/.state/httpx` 与 `$AP_CHAT_DIR/.secret/httpx`，缺少合法 `AP_CHAT_DIR` 时不回退 global。平台不会改写 `XDG_CONFIG_HOME`，也不维护系统配置根变量。
 - `/owner` -> `paths.owner-dir`（`ro`，目录缺失时自动创建）
 - `/memory` -> `AP_RUNTIME_MEMORY_DIR/<agentKey>`（`ro`，目录缺失时自动创建）
+
+容器 session 与未显式指定 cwd 的命令固定使用 `/workspace`。协议为 `dual-root-v2`。当 ChatsRoot 位于 Workspace 内时，Platform 下发 `/workspace/<ChatsRoot-relative>` mask，Hub 按 Workspace bind → mask tmpfs → current Chat bind 的顺序创建容器，确保 Chat 只从 `/chat` 可见。`/workspace`、`/chat`、mask 及其子路径是保留挂载目标，`runtimeConfig.sandboxMounts` 不能覆盖。session 复用身份包含 environment、canonical Workspace、canonical Chat、mask 和完整 mount fingerprint。
+
+目录型 agent 可在 `<agentDir>/.config/` 保存工具静态配置。平台冻结三个保留变量：`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`。Host/terminal 分别注入真实 Workspace（无 Workspace 时省略）和 Chat；Container 固定注入 `/workspace` 与 `/chat`。agent `runtimeConfig.env`、skill `.runtime-env.json` 与调用级 env 均不得覆盖。HTTPX 的 chat state/secret 位于 `$AP_CHAT_DIR/.state/httpx` 与 `$AP_CHAT_DIR/.secret/httpx`，缺少合法 `AP_CHAT_DIR` 时不回退 global。
 
 `runtimeConfig.sandboxMounts` 会真实影响 Container Hub session mounts：
 
 - `platform + mode`：恢复按需平台挂载，或覆盖默认 `/agent`、`/owner`、`/memory` 模式；`platform: skills-market` 会显式挂载 `/skills-market`
-- `destination + mode`：覆盖默认基础挂载模式
+- `destination + mode`：覆盖非保留的默认基础挂载模式
 - `source + destination + mode`：新增自定义挂载，不能拿来覆盖默认基础挂载路径
+
+发布前运行 `make audit-workspace-chat`，只读列出旧 `working-directory`、无 Workspace 的 CODER/sandbox/KBASE、`workspaceRoot:@chat`、旧 `kbaseConfig.source`、非法 Workspace/Chats 关系和保留挂载冲突。普通 Workspace 可以包含 ChatsRoot；KBASE Workspace 仍要求完全分离。
 
 `configs/runtime.example.yml` 的 `container-hub` 节展开 `base-url`、默认 environment 和运行策略默认值；代码默认值仍作为未配置时的兜底。除 `AP_CONTAINER_HUB_BASE_URL` 外，Container Hub token、environment id、超时和 sandbox 策略统一写入 `container-hub.*`，用于对接 `agent-container-hub` 的 `AUTH_TOKEN` Bearer 鉴权。
 
@@ -336,11 +341,11 @@ npm run sync:assets
 
 完整打包细节见 [版本化打包方案](./docs/版本化打包方案.md)。
 
-KBASE 已下沉为可组合的 Agent 公共能力：`mode: KBASE` 仍是强制启用、严格工具边界的专用预设，`REACT`、`PLAN-EXECUTE` 和原生非 ACP `CODER` 也可以通过 `kbaseConfig.enabled: true` 挂载同一套索引、watcher、检索和引用能力。目录式 Agent 可将 `kbaseConfig.source.root` 写成相对 `agent.yml` 的路径，适合把可迁移文档放在 Agent 自身的 `knowledge/` 中；平铺 Agent 必须使用绝对路径或 `~/...`。完整配置和兼容矩阵见 [智能体配置说明](./docs/智能体配置说明.md)。
+KBASE 已下沉为可组合的 Agent 公共能力：`mode: KBASE` 仍是强制启用、严格工具边界的专用预设，`REACT`、`PLAN-EXECUTE` 和原生非 ACP `CODER` 也可以通过 `kbaseConfig.enabled: true` 挂载同一套索引、watcher、检索和引用能力。所有 enabled KBASE 都以 `runtimeConfig.workspaceRoot` 为唯一内容根；旧 `kbaseConfig.source` 会硬失败。完整配置和兼容矩阵见 [智能体配置说明](./docs/智能体配置说明.md)。
 
 KBASE 固定使用 LanceDB generation 检索；SQLite `control.db` 只保存 generation、文件状态、refresh run 和恢复日志，不保存检索数据。SQLite runtime store 仅支持当前 schema：启动时仅会认领标记为 `application_id=0,user_version=0` 且完整结构匹配的库，其余库不会被迁移或改写。专用 `mode: KBASE` 的存储不匹配会隔离该 Agent；普通 Agent 的附加知识库会保留 Agent 可运行并把能力标为 degraded。详见 [KBASE LanceDB 检索与控制面](./docs/KBASE-LanceDB迁移.md)。当前 KBASE 仍只生成文本 chunk 与文本 embedding，不宣称具备图片、音频或视频语义检索。
 
-KBASE Editing 使用通用文本文件规则，不按索引格式硬编码扩展名或 UTF-8；删除、重命名、建目录、Bash 和二进制 Office/PDF 通用写入仍不开放。目录权限由 AccessPolicy/HITL 决定，source 写入由 watcher 异步索引。完整约定见 [KBASE 编辑模式](./docs/KBASE编辑模式.md)。
+KBASE Editing 使用通用文本文件规则，不按索引格式硬编码扩展名或 UTF-8；删除、重命名、建目录、Bash 和二进制 Office/PDF 通用写入仍不开放。目录权限由 AccessPolicy/HITL 决定，Workspace 写入由 watcher 异步索引。完整约定见 [KBASE 编辑模式](./docs/KBASE编辑模式.md)。
 
 ## 5. 运维
 
@@ -378,7 +383,7 @@ docker compose logs -f
 - [HITL协议](./docs/HITL协议.md)
 - [自动化](./docs/自动化.md)
 - [智能体调度（含 `agent_invoke`、TEAM 隐藏调度与独立 run 工具组）](./docs/子智能体调度.md)
-- [MCP与前端工具](./docs/MCP与前端工具.md)
+- [MCP与工具交互](./docs/MCP与工具交互.md)
 - [会话存储与回放](./docs/会话存储与回放.md)
 - [鉴权与安全边界](./docs/鉴权与安全边界.md)
 - [版本化打包方案](./docs/版本化打包方案.md)

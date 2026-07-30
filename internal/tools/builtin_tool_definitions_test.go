@@ -57,6 +57,20 @@ func TestLoadEmbeddedToolDefinitionsIncludesAskUserBuiltins(t *testing.T) {
 	}
 }
 
+func TestEmbeddedToolDefinitionsHaveNoLegacyClassificationMetadata(t *testing.T) {
+	defs, err := LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatalf("load embedded tool definitions: %v", err)
+	}
+	for _, def := range defs {
+		for _, key := range []string{"type", "kind", "toolAction", "submitResultFormat"} {
+			if _, exists := def.Meta[key]; exists {
+				t.Fatalf("tool %q unexpectedly contains legacy metadata %q: %#v", def.Name, key, def.Meta)
+			}
+		}
+	}
+}
+
 func TestEmbeddedRunToolSchemasAndMetadata(t *testing.T) {
 	defs, err := LoadEmbeddedToolDefinitions()
 	if err != nil {
@@ -84,6 +98,9 @@ func TestEmbeddedRunToolSchemasAndMetadata(t *testing.T) {
 			t.Fatalf("unexpected %s metadata: %#v", def.Name, def.Meta)
 		}
 		if def.Name == "run_query" {
+			if def.Parameters["type"] != "object" {
+				t.Fatalf("run_query schema root type = %#v, want object", def.Parameters["type"])
+			}
 			branches, ok := def.Parameters["oneOf"].([]any)
 			if !ok || len(branches) != 2 {
 				t.Fatalf("run_query oneOf = %#v, want 2 branches", def.Parameters["oneOf"])
@@ -250,9 +267,6 @@ func TestWebFetchToolSchemaMatchesContract(t *testing.T) {
 	for _, def := range defs {
 		if def.Name == "web_fetch" {
 			webFetchDef = def.Parameters
-			if def.Meta["submitResultFormat"] != "json-compact" {
-				t.Fatalf("unexpected submit result format: %#v", def.Meta)
-			}
 			break
 		}
 	}
@@ -284,7 +298,7 @@ func TestImageGenerateToolSchemaMatchesContract(t *testing.T) {
 	for _, def := range defs {
 		if def.Name == "image_generate" {
 			imageGenerateDef = def.Parameters
-			if def.Meta["submitResultFormat"] != "json-compact" || def.Meta["explicitOnly"] != true {
+			if def.Meta["explicitOnly"] != true {
 				t.Fatalf("unexpected image_generate metadata: %#v", def.Meta)
 			}
 			break
@@ -359,7 +373,7 @@ func TestAskUserToolSchemasMatchContract(t *testing.T) {
 		switch def.Name {
 		case "ask_user_question":
 			questionDef = def.Parameters
-			if def.Meta["kind"] != "frontend" {
+			if def.Meta["viewportType"] != "builtin" || def.Meta["viewportKey"] != "question" {
 				t.Fatalf("unexpected question tool metadata: %#v", def.Meta)
 			}
 		}

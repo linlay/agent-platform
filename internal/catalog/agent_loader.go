@@ -13,6 +13,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/kbase"
+	"agent-platform/internal/rootpaths"
 )
 
 func resolveDirectoryAgentConfig(dirPath string) string {
@@ -84,15 +85,22 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, market
 			}
 		}
 	}
-	if err := resolveLoadedKBaseSource(&def, source); err != nil {
-		log.Printf("[catalog][agents] skip %s %s: KBASE source error: %v", source.Kind, name, err)
-		adminItems[adminKey] = invalidAdminAgent(source, adminKey, definition, "invalid_config", err)
-		return err
-	}
 	if def.KBaseConfig.Enabled {
-		if err := kbase.ValidateSourceChatsSeparation(def.KBaseConfig.Source.Root, chatsDir); err != nil {
-			log.Printf("[catalog][agents] skip %s %s: KBASE source/chats overlap: %v", source.Kind, name, err)
-			adminItems[adminKey] = invalidAdminAgent(source, adminKey, definition, "invalid_kbase_source_overlap", err)
+		if err := kbase.ValidateWorkspaceChatsSeparation(def.Workspace.Root, chatsDir); err != nil {
+			log.Printf("[catalog][agents] skip %s %s: KBASE workspace/chats overlap: %v", source.Kind, name, err)
+			adminItems[adminKey] = invalidAdminAgent(source, adminKey, definition, "invalid_kbase_workspace_overlap", err)
+			return err
+		}
+	}
+	if strings.TrimSpace(def.Workspace.Root) != "" {
+		if err := validateAgentWorkspace(def.Workspace); err != nil {
+			log.Printf("[catalog][agents] skip %s %s: invalid workspace: %v", source.Kind, name, err)
+			adminItems[adminKey] = invalidAdminAgent(source, adminKey, definition, "invalid_workspace", err)
+			return err
+		}
+		if _, err := rootpaths.New(def.Workspace.Root, chatsDir, ""); err != nil {
+			log.Printf("[catalog][agents] skip %s %s: invalid workspace/chats relation: %v", source.Kind, name, err)
+			adminItems[adminKey] = invalidAdminAgent(source, adminKey, definition, "invalid_workspace_overlap", err)
 			return err
 		}
 	}
@@ -695,15 +703,12 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 	if err := configureAgentKBaseCapability(&def, kbaseConfig); err != nil {
 		return AgentDefinition{}, nil, err
 	}
-	if err := validateAgentWorkspace(def.Workspace); err != nil {
-		return AgentDefinition{}, nil, err
-	}
 	hasRuntimeSandbox := strings.TrimSpace(stringNode(def.Runtime["environmentId"])) != ""
 	if err := validateAgentModeWorkspace(def.Mode, def.Workspace, def.KBaseConfig, hasRuntimeSandbox); err != nil {
 		return AgentDefinition{}, nil, err
 	}
-	if strings.EqualFold(def.Mode, AgentModeKBase) && strings.TrimSpace(def.KBaseConfig.Source.Root) == "" {
-		def.KBaseConfig.Source.Root = strings.TrimSpace(def.Workspace.Root)
+	if err := validateAgentWorkspace(def.Workspace); err != nil {
+		return AgentDefinition{}, nil, err
 	}
 	if err := ValidateAgentCoderBackend(def); err != nil {
 		return AgentDefinition{}, nil, err
@@ -959,7 +964,6 @@ func configureAgentKBaseCapability(def *AgentDefinition, raw map[string]any) err
 		return nil
 	}
 	isKBaseMode := strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeKBase)
-	legacyKBaseWorkspace := isKBaseMode && strings.TrimSpace(def.KBaseConfig.Source.Root) == ""
 	_, enabledSet := raw["enabled"]
 	if isKBaseMode {
 		if enabledSet && !def.KBaseConfig.Enabled {
@@ -983,44 +987,6 @@ func configureAgentKBaseCapability(def *AgentDefinition, raw map[string]any) err
 				return fmt.Errorf("kbaseConfig.enabled is only supported for REACT, PLAN-EXECUTE, native CODER, or KBASE agents")
 			}
 		}
-	}
-	if def.KBaseConfig.Enabled {
-		root := strings.TrimSpace(def.KBaseConfig.Source.Root)
-		if root == "" && !isKBaseMode {
-			return fmt.Errorf("kbaseConfig.source.root is required when KBASE is enabled")
-		}
-		if !legacyKBaseWorkspace && strings.EqualFold(root, kbase.WorkspaceRootChat) {
-			return fmt.Errorf("kbaseConfig.source.root must not be %q", kbase.WorkspaceRootChat)
-		}
-		if !legacyKBaseWorkspace && (filepath.IsAbs(root) || root == "~" || strings.HasPrefix(root, "~/")) {
-			resolved, err := kbase.ResolveSourceRoot(root, "")
-			if err != nil {
-				return err
-			}
-			def.KBaseConfig.Source.Root = resolved
-		}
-	}
-	return nil
-}
-
-func resolveLoadedKBaseSource(def *AgentDefinition, source EditableAgentSource) error {
-	if def == nil || !def.KBaseConfig.Enabled {
-		return nil
-	}
-	baseDir := ""
-	if source.Kind == "directory" {
-		baseDir = source.AgentDir
-	}
-	root, err := kbase.ResolveSourceRoot(def.KBaseConfig.Source.Root, baseDir)
-	if err != nil {
-		return err
-	}
-	def.KBaseConfig.Source.Root = root
-	if strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeKBase) {
-		// A dedicated KBASE agent has exactly one workspace: its final,
-		// canonical knowledge source. runtimeConfig.workspaceRoot is retained
-		// only as the legacy input used when source.root was omitted.
-		def.Workspace.Root = root
 	}
 	return nil
 }

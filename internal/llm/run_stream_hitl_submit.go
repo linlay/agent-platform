@@ -63,7 +63,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 	normalized, normalizeErr := s.normalizeHITLSubmitAndEmitAnswer(awaitingID, awaitArgs, submitResult)
 	if normalizeErr != nil {
 		s.applyHITLDecision(invocation, *match, awaitingID, "reject", normalizeErr.Error(), false)
-		s.appendOriginalToolResult(invocation, frontendSubmitInvalidPayloadResult(invocation, awaitingID, submitResult.Request.Params, normalizeErr))
+		s.appendOriginalToolResult(invocation, interactionSubmitInvalidPayloadResult(invocation, awaitingID, submitResult.Request.Params, normalizeErr))
 		return nil
 	}
 
@@ -81,9 +81,9 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 			rebuiltCommand, rebuildErr := reconstructCommandWithPayload(mapStringArg(invocation.args, "command"), formPayload)
 			if rebuildErr != nil {
 				payload := apperrors.Payload(
-					apperrors.CodeFrontendSubmitInvalidPayload,
+					apperrors.CodeInteractionSubmitInvalidPayload,
 					rebuildErr.Error(),
-					apperrors.WithScope(apperrors.ScopeFrontendSubmit),
+					apperrors.WithScope(apperrors.ScopeInteractionSubmit),
 					apperrors.WithCategory(apperrors.CategoryTool),
 					apperrors.WithDiagnostics(map[string]any{
 						"awaitingId": awaitingID,
@@ -94,7 +94,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 				result := ToolExecutionResult{
 					Output:     marshalJSON(payload),
 					Structured: payload,
-					Error:      "frontend_submit_invalid_payload",
+					Error:      "tool_interaction_invalid_payload",
 					ExitCode:   -1,
 				}
 				s.applyHITLDecision(invocation, *match, awaitingID, "reject", rebuildErr.Error(), false)

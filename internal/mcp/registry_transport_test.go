@@ -83,6 +83,19 @@ func TestRegistryRejectsInvalidTransportFieldCombinations(t *testing.T) {
 	}
 }
 
+func TestRegistryRejectsRemovedToolClassificationFields(t *testing.T) {
+	for _, field := range []string{"type", "kind", "toolAction", "submitResultFormat"} {
+		t.Run(field, func(t *testing.T) {
+			root := t.TempDir()
+			writeMCPRegistryFile(t, filepath.Join(root, "server.yml"), "serverKey: demo\nbaseUrl: http://127.0.0.1:8080\ntools:\n  - name: lookup\n    "+field+": legacy\n")
+			_, err := NewRegistry(root)
+			if err == nil || !strings.Contains(err.Error(), field+" is no longer supported") {
+				t.Fatalf("NewRegistry error = %v, want removed field %q rejection", err, field)
+			}
+		})
+	}
+}
+
 func writeMCPRegistryFile(t *testing.T, path string, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(strings.TrimLeft(content, "\n")), 0o644); err != nil {

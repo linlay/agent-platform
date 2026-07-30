@@ -9,14 +9,14 @@ import (
 	"agent-platform/internal/deprecation"
 )
 
-func (c *Config) applyStructuredConfig(configRoot string) error {
+func (c *Config) applyStructuredConfig(configRoot string, ignoreRemovedWorkingDirectory bool) error {
 	if err := c.applyRuntimeFile(configFile(configRoot, "configs/runtime.yml")); err != nil {
 		return err
 	}
 	if err := c.applyKBaseSettingsFile(configFile(configRoot, "configs/kbase-settings.yml")); err != nil {
 		return err
 	}
-	if err := c.applyToolsFile(configFile(configRoot, "configs/tools.yml")); err != nil {
+	if err := c.applyToolsFile(configFile(configRoot, "configs/tools.yml"), ignoreRemovedWorkingDirectory); err != nil {
 		return err
 	}
 	c.applyPromptsFile(configFile(configRoot, "configs/prompts.yml"))
@@ -363,7 +363,6 @@ func parseHitlModeBudgetConfig(raw any, fallback HitlModeBudgetConfig) HitlModeB
 }
 
 func (c *Config) applyAccessPolicyValues(values map[string]any) {
-	c.AccessPolicy.WorkingDirectory = stringValue(anyValue(values["working-directory"], c.AccessPolicy.WorkingDirectory), c.AccessPolicy.WorkingDirectory)
 	if levels, ok := values["levels"].(map[string]any); ok && len(levels) > 0 {
 		parsed := make(map[string]AccessPolicyLevelConfig, len(levels))
 		for name, raw := range levels {
@@ -413,7 +412,6 @@ func parseAccessPolicyApprovals(raw any, fallback AccessPolicyApprovalConfig) Ac
 }
 
 func (c *Config) applyBashValues(values map[string]any) {
-	c.Bash.WorkingDirectory = stringValue(anyValue(values["working-directory"], c.Bash.WorkingDirectory), c.Bash.WorkingDirectory)
 	c.Bash.AllowedCommands = csvOrList(anyValue(values["allowed-commands"], c.Bash.AllowedCommands), c.Bash.AllowedCommands)
 	c.Bash.ShellFeaturesEnabled = boolValue(anyValue(values["shell-features-enabled"], c.Bash.ShellFeaturesEnabled), c.Bash.ShellFeaturesEnabled)
 	c.Bash.ShellExecutable = stringValue(anyValue(values["shell-executable"], c.Bash.ShellExecutable), c.Bash.ShellExecutable)
@@ -441,7 +439,6 @@ func (c *Config) applySandboxBashValues(values map[string]any) {
 }
 
 func (c *Config) applyFileToolsValues(path string, values map[string]any) error {
-	c.FileTools.WorkingDirectory = stringValue(anyValue(values["working-directory"], c.FileTools.WorkingDirectory), c.FileTools.WorkingDirectory)
 	c.FileTools.MaxReadBytes = intValue(anyValue(values["max-read-bytes"], c.FileTools.MaxReadBytes), c.FileTools.MaxReadBytes)
 	c.FileTools.MaxWriteBytes = intValue(anyValue(values["max-write-bytes"], c.FileTools.MaxWriteBytes), c.FileTools.MaxWriteBytes)
 	c.FileTools.MaxBatchOps = intValue(anyValue(values["max-batch-ops"], c.FileTools.MaxBatchOps), c.FileTools.MaxBatchOps)
@@ -462,7 +459,7 @@ func (c *Config) applyFileToolsValues(path string, values map[string]any) error 
 	return nil
 }
 
-func (c *Config) applyToolsFile(path string) error {
+func (c *Config) applyToolsFile(path string, ignoreRemovedWorkingDirectory bool) error {
 	values, err := loadYAMLMap(path)
 	if err != nil {
 		return err
@@ -471,9 +468,15 @@ func (c *Config) applyToolsFile(path string) error {
 		return nil
 	}
 	if accessPolicy, ok := values["access-policy"].(map[string]any); ok && len(accessPolicy) > 0 {
+		if err := rejectRemovedWorkingDirectoryKeyUnlessAudit(path, "access-policy", accessPolicy, ignoreRemovedWorkingDirectory); err != nil {
+			return err
+		}
 		c.applyAccessPolicyValues(accessPolicy)
 	}
 	if bash, ok := values["bash"].(map[string]any); ok && len(bash) > 0 {
+		if err := rejectRemovedWorkingDirectoryKeyUnlessAudit(path, "bash", bash, ignoreRemovedWorkingDirectory); err != nil {
+			return err
+		}
 		if err := rejectRemovedPathPolicyKeys(path, "bash", bash, "allowed-paths", "path-checked-commands", "path-check-bypass-commands"); err != nil {
 			return err
 		}
@@ -483,12 +486,29 @@ func (c *Config) applyToolsFile(path string) error {
 		c.applySandboxBashValues(sandboxBash)
 	}
 	if fileTools, ok := values["file-tools"].(map[string]any); ok && len(fileTools) > 0 {
+		if err := rejectRemovedWorkingDirectoryKeyUnlessAudit(path, "file-tools", fileTools, ignoreRemovedWorkingDirectory); err != nil {
+			return err
+		}
 		if err := rejectRemovedPathPolicyKeys(path, "file-tools", fileTools, "allowed-read-paths", "allowed-write-paths"); err != nil {
 			return err
 		}
 		if err := c.applyFileToolsValues(path, fileTools); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func rejectRemovedWorkingDirectoryKeyUnlessAudit(path string, section string, values map[string]any, ignore bool) error {
+	if ignore {
+		return nil
+	}
+	return rejectRemovedWorkingDirectoryKey(path, section, values)
+}
+
+func rejectRemovedWorkingDirectoryKey(path string, section string, values map[string]any) error {
+	if _, ok := values["working-directory"]; ok {
+		return fmt.Errorf("%s: %s.working-directory was removed; relative paths are always workspace-relative", path, section)
 	}
 	return nil
 }

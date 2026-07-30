@@ -31,7 +31,7 @@ type RuntimeToolExecutor struct {
 	models          *models.ModelRegistry
 	skillCandidates skills.CandidateStore
 	artifactPusher  ArtifactPusher
-	webClientAction WebClientActionInvoker
+	webClientAction WebClientRequestInvoker
 	fileChangeHooks []FileChangeHook
 	fileStateMu     sync.Mutex
 	httpClient      *http.Client
@@ -75,7 +75,7 @@ func (t *RuntimeToolExecutor) WithArtifactPusher(pusher ArtifactPusher) *Runtime
 	return t
 }
 
-func (t *RuntimeToolExecutor) WithWebClientActionInvoker(invoker WebClientActionInvoker) *RuntimeToolExecutor {
+func (t *RuntimeToolExecutor) WithWebClientRequestInvoker(invoker WebClientRequestInvoker) *RuntimeToolExecutor {
 	if t != nil {
 		t.webClientAction = invoker
 	}
@@ -118,6 +118,14 @@ func (t *RuntimeToolExecutor) runtimeInfo() runtimeenv.Info {
 }
 
 func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	result, err := t.invoke(ctx, toolName, args, execCtx)
+	if err == nil && runtimeToolUsesCompactModelOutput(toolName) {
+		result.Output = CompactToolModelOutput(result.Structured, result.Output)
+	}
+	return result, err
+}
+
+func (t *RuntimeToolExecutor) invoke(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	if execCtx != nil && execCtx.ReadFileState == nil {
 		execCtx.ReadFileState = map[string]ReadFileSnapshot{}
 	}
@@ -208,6 +216,19 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 	}
 }
 
+func runtimeToolUsesCompactModelOutput(toolName string) bool {
+	switch strings.ToLower(strings.TrimSpace(toolName)) {
+	case "bash", "bash_sandbox",
+		"desktop_action", "desktop_cdp",
+		"file_read", "file_write", "file_edit", "file_glob", "file_grep",
+		"image_generate", "vision_recognize", "web_fetch",
+		"regex":
+		return true
+	default:
+		return false
+	}
+}
+
 func sessionToolAllowed(toolNames []string, requested string) bool {
 	requested = strings.TrimSpace(requested)
 	for _, toolName := range toolNames {
@@ -240,7 +261,7 @@ func structuredResult(payload map[string]any) ToolExecutionResult {
 	return structuredResultWithExit(payload, 0)
 }
 
-func bashResult(stdout, stderr, mode, workingDirectory string, exitCode int, hardError string) ToolExecutionResult {
+func bashResult(stdout, stderr, mode, cwd string, exitCode int, hardError string) ToolExecutionResult {
 	if exitCode == 0 && stderr == "" && strings.TrimSpace(hardError) == "" {
 		return ToolExecutionResult{
 			Output:   stdout,
@@ -249,11 +270,11 @@ func bashResult(stdout, stderr, mode, workingDirectory string, exitCode int, har
 	}
 
 	payload := map[string]any{
-		"exitCode":         exitCode,
-		"mode":             mode,
-		"workingDirectory": workingDirectory,
-		"stdout":           stdout,
-		"stderr":           stderr,
+		"exitCode": exitCode,
+		"mode":     mode,
+		"cwd":      cwd,
+		"stdout":   stdout,
+		"stderr":   stderr,
 	}
 	if strings.TrimSpace(hardError) != "" {
 		payload["error"] = hardError

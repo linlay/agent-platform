@@ -165,10 +165,10 @@ type recordingRuntimeRegistry struct {
 	reasons []string
 }
 
-func (r *recordingRuntimeRegistry) Agents(string) []api.AgentSummary       { return nil }
-func (r *recordingRuntimeRegistry) Teams() []api.TeamSummary               { return nil }
-func (r *recordingRuntimeRegistry) Skills(string) []api.SkillSummary       { return nil }
-func (r *recordingRuntimeRegistry) Tools(string, string) []api.ToolSummary { return nil }
+func (r *recordingRuntimeRegistry) Agents(string) []api.AgentSummary { return nil }
+func (r *recordingRuntimeRegistry) Teams() []api.TeamSummary         { return nil }
+func (r *recordingRuntimeRegistry) Skills(string) []api.SkillSummary { return nil }
+func (r *recordingRuntimeRegistry) Tools(string) []api.ToolSummary   { return nil }
 func (r *recordingRuntimeRegistry) Tool(string) (api.ToolDetailResponse, bool) {
 	return api.ToolDetailResponse{}, false
 }

@@ -470,7 +470,11 @@ func rewriteDerivedResourceURL(value string, sourceChatID string, targetChatID s
 }
 
 func rewriteDerivedAbsolutePath(value string, sourceDir string, targetDir string) string {
-	if strings.TrimSpace(value) == "" || strings.HasPrefix(filepath.ToSlash(value), "/workspace/") || !filepath.IsAbs(value) {
+	slashValue := filepath.ToSlash(value)
+	if strings.TrimSpace(value) == "" ||
+		strings.HasPrefix(slashValue, "/workspace/") ||
+		strings.HasPrefix(slashValue, "/chat/") ||
+		!filepath.IsAbs(value) {
 		return value
 	}
 	cleanValue := filepath.Clean(value)

@@ -39,6 +39,7 @@ func TestAgentHTTPCRUDAndEditableDetail(t *testing.T) {
 			"runtimeConfig": map[string]any{
 				"environmentId": "shell",
 				"level":         "RUN",
+				"workspaceRoot": t.TempDir(),
 				"env":           map[string]any{"HTTP_PROXY": "http://agent-proxy"},
 			},
 		},
@@ -99,7 +100,8 @@ func TestAgentCRUDRejectsLegacyACPProxyID(t *testing.T) {
 		"key":  "legacy-acp-agent",
 		"mode": "CODER",
 		"runtimeConfig": map[string]any{
-			"acpProxyId": "codex",
+			"acpProxyId":    "codex",
+			"workspaceRoot": t.TempDir(),
 		},
 	}
 	legacyBody, err := json.Marshal(map[string]any{
@@ -121,7 +123,8 @@ func TestAgentCRUDRejectsLegacyACPProxyID(t *testing.T) {
 			"key":  "bridge-agent",
 			"mode": "CODER",
 			"runtimeConfig": map[string]any{
-				"acpBridgeId": "codex",
+				"acpBridgeId":   "codex",
+				"workspaceRoot": t.TempDir(),
 			},
 		},
 	})
@@ -566,6 +569,9 @@ func TestAgentCreateKBasePreservesExplicitModelAndEmbeddingConfig(t *testing.T) 
 					"effort": "HIGH",
 				},
 			},
+			"runtimeConfig": map[string]any{
+				"workspaceRoot": workspaceDir,
+			},
 			"kbaseConfig": map[string]any{
 				"embedding": map[string]any{
 					"modelKey": "explicit-embedding-model-key",
@@ -575,9 +581,6 @@ func TestAgentCreateKBasePreservesExplicitModelAndEmbeddingConfig(t *testing.T) 
 					"maxTokens":     1200,
 					"overlapTokens": 120,
 				},
-			},
-			"runtimeConfig": map[string]any{
-				"workspaceRoot": workspaceDir,
 			},
 		},
 	})
@@ -630,13 +633,13 @@ func TestAgentCreateKBaseRejectsRemovedExplicitEmbeddingConfig(t *testing.T) {
 	body, err := json.Marshal(map[string]any{
 		"definition": map[string]any{
 			"mode": "KBASE",
+			"runtimeConfig": map[string]any{
+				"workspaceRoot": workspaceDir,
+			},
 			"kbaseConfig": map[string]any{
 				"embedding": map[string]any{
 					"providerKey": "openai",
 				},
-			},
-			"runtimeConfig": map[string]any{
-				"workspaceRoot": workspaceDir,
 			},
 		},
 	})
@@ -673,14 +676,14 @@ func TestAgentCreateKBaseRejectsInvalidChunkUnit(t *testing.T) {
 	body, err := json.Marshal(map[string]any{
 		"definition": map[string]any{
 			"mode": "KBASE",
+			"runtimeConfig": map[string]any{
+				"workspaceRoot": workspaceDir,
+			},
 			"kbaseConfig": map[string]any{
 				"chunk": map[string]any{
 					"unit":      "exactTokens",
 					"maxTokens": 1000,
 				},
-			},
-			"runtimeConfig": map[string]any{
-				"workspaceRoot": workspaceDir,
 			},
 		},
 	})
@@ -1209,7 +1212,11 @@ func TestAgentModelConfigUpdatePersistsACPServiceTierFromProxyModels(t *testing.
 				"codex": {BaseURL: upstream.URL, TimeoutMS: 5000},
 			}
 		},
-		setupRuntime: func(_ string, cfg *config.Config) {
+		setupRuntime: func(root string, cfg *config.Config) {
+			workspace := filepath.Join(root, "codex-workspace")
+			if err := os.MkdirAll(workspace, 0o755); err != nil {
+				t.Fatalf("mkdir acp workspace: %v", err)
+			}
 			agentDir := filepath.Join(cfg.Paths.AgentsDir, "codex-agent")
 			if err := os.MkdirAll(agentDir, 0o755); err != nil {
 				t.Fatalf("mkdir acp agent: %v", err)
@@ -1220,6 +1227,7 @@ func TestAgentModelConfigUpdatePersistsACPServiceTierFromProxyModels(t *testing.
 				"mode: CODER",
 				"runtimeConfig:",
 				"  acpBridgeId: codex",
+				"  workspaceRoot: " + filepath.ToSlash(workspace),
 			}, "\n")), 0o644); err != nil {
 				t.Fatalf("write acp agent: %v", err)
 			}
@@ -1288,7 +1296,11 @@ func TestAgentModelConfigUpdateRejectsUnsupportedACPServiceTier(t *testing.T) {
 				"codex": {BaseURL: upstream.URL, TimeoutMS: 5000},
 			}
 		},
-		setupRuntime: func(_ string, cfg *config.Config) {
+		setupRuntime: func(root string, cfg *config.Config) {
+			workspace := filepath.Join(root, "codex-workspace")
+			if err := os.MkdirAll(workspace, 0o755); err != nil {
+				t.Fatalf("mkdir acp workspace: %v", err)
+			}
 			agentDir := filepath.Join(cfg.Paths.AgentsDir, "codex-agent")
 			if err := os.MkdirAll(agentDir, 0o755); err != nil {
 				t.Fatalf("mkdir acp agent: %v", err)
@@ -1299,6 +1311,7 @@ func TestAgentModelConfigUpdateRejectsUnsupportedACPServiceTier(t *testing.T) {
 				"mode: CODER",
 				"runtimeConfig:",
 				"  acpBridgeId: codex",
+				"  workspaceRoot: " + filepath.ToSlash(workspace),
 			}, "\n")), 0o644); err != nil {
 				t.Fatalf("write acp agent: %v", err)
 			}
@@ -1406,21 +1419,13 @@ func (r agentDirectoryTestRegistry) AgentDefinition(key string) (catalog.AgentDe
 	return def, ok
 }
 
-func TestAgentOpenDirectoryUsesRegisteredWorkspaceAndReturnsAbsolutePath(t *testing.T) {
+func TestAgentOpenDirectoryUsesRegisteredAbsoluteWorkspace(t *testing.T) {
 	workspaceDir := t.TempDir()
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get working directory: %v", err)
-	}
-	relativeWorkspace, err := filepath.Rel(cwd, workspaceDir)
-	if err != nil {
-		t.Fatalf("make relative workspace path: %v", err)
-	}
 	server := &Server{deps: Dependencies{Registry: agentDirectoryTestRegistry{
 		definitions: map[string]catalog.AgentDefinition{
-			"relative-agent": {
-				Key:       "relative-agent",
-				Workspace: catalog.AgentWorkspaceConfig{Root: relativeWorkspace},
+			"workspace-agent": {
+				Key:       "workspace-agent",
+				Workspace: catalog.AgentWorkspaceConfig{Root: workspaceDir},
 			},
 		},
 	}}}
@@ -1435,7 +1440,7 @@ func TestAgentOpenDirectoryUsesRegisteredWorkspaceAndReturnsAbsolutePath(t *test
 
 	rec := httptest.NewRecorder()
 	server.handleAgentOpenDirectory(rec, httptest.NewRequest(http.MethodPost, "/api/agent/open-directory", bytes.NewBufferString(
-		`{"agentKey":" relative-agent ","directoryType":" workspace "}`,
+		`{"agentKey":" workspace-agent ","directoryType":" workspace "}`,
 	)))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -1444,7 +1449,7 @@ func TestAgentOpenDirectoryUsesRegisteredWorkspaceAndReturnsAbsolutePath(t *test
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode open directory response: %v", err)
 	}
-	if response.Data.AgentKey != "relative-agent" || response.Data.DirectoryType != "workspace" ||
+	if response.Data.AgentKey != "workspace-agent" || response.Data.DirectoryType != "workspace" ||
 		response.Data.DirectoryPath != workspaceDir || openedPath != workspaceDir {
 		t.Fatalf("unexpected response=%#v openedPath=%q", response.Data, openedPath)
 	}
@@ -1477,6 +1482,10 @@ func TestAgentOpenDirectoryValidatesRequestAndRegisteredDirectory(t *testing.T) 
 				Key:      "file-config",
 				AgentDir: filePath,
 			},
+			"relative-config": {
+				Key:      "relative-config",
+				AgentDir: "relative/config",
+			},
 		},
 	}}}
 
@@ -1501,6 +1510,7 @@ func TestAgentOpenDirectoryValidatesRequestAndRegisteredDirectory(t *testing.T) 
 		{name: "empty config directory", body: `{"agentKey":"empty-config","directoryType":"config"}`, status: http.StatusBadRequest},
 		{name: "registered directory missing", body: `{"agentKey":"missing-config","directoryType":"config"}`, status: http.StatusNotFound},
 		{name: "registered path is a file", body: `{"agentKey":"file-config","directoryType":"config"}`, status: http.StatusBadRequest},
+		{name: "registered directory is relative", body: `{"agentKey":"relative-config","directoryType":"config"}`, status: http.StatusBadRequest},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1795,6 +1805,7 @@ func TestAgentUpdateNameEndpoint(t *testing.T) {
 			"runtimeConfig": map[string]any{
 				"environmentId": "shell",
 				"level":         "RUN",
+				"workspaceRoot": t.TempDir(),
 				"env":           map[string]any{"HTTP_PROXY": "http://agent-proxy"},
 			},
 		},

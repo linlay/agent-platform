@@ -60,7 +60,7 @@ func approvalMatchesToolMessages(approval *StepApproval, messages []StoredMessag
 			continue
 		}
 		hasToolMessage = true
-		for _, id := range []string{message.ToolCallID, message.ToolID, message.ActionID} {
+		for _, id := range []string{message.ToolCallID, message.ToolID} {
 			id = strings.TrimSpace(id)
 			if id != "" {
 				toolIDs[id] = struct{}{}
@@ -191,9 +191,6 @@ func storedMessageUpsertKey(message StoredMessage) string {
 	if id := strings.TrimSpace(message.ToolID); id != "" {
 		return strings.TrimSpace(message.Role) + ":tool:" + id
 	}
-	if id := strings.TrimSpace(message.ActionID); id != "" {
-		return strings.TrimSpace(message.Role) + ":action:" + id
-	}
 	if id := strings.TrimSpace(message.ToolCallID); id != "" {
 		return strings.TrimSpace(message.Role) + ":tool-call:" + id
 	}
@@ -248,9 +245,6 @@ func storedToolCallKey(call StoredToolCall) string {
 	if id := strings.TrimSpace(call.ToolID); id != "" {
 		return "tool:" + id
 	}
-	if id := strings.TrimSpace(call.ActionID); id != "" {
-		return "action:" + id
-	}
 	if id := strings.TrimSpace(call.ID); id != "" {
 		return "call:" + id
 	}
@@ -258,7 +252,7 @@ func storedToolCallKey(call StoredToolCall) string {
 }
 
 func storedToolCallTextLen(call StoredToolCall) int {
-	return len(call.Function.Arguments) + len(call.Function.Name) + len(call.ID) + len(call.ToolID) + len(call.ActionID)
+	return len(call.Function.Arguments) + len(call.Function.Name) + len(call.ID) + len(call.ToolID)
 }
 
 func canonicalizeStoredToolResultOrder(messages []StoredMessage) []StoredMessage {
@@ -417,7 +411,7 @@ func assistantToolCallOrder(messages []StoredMessage) []string {
 }
 
 func storedToolCallRuntimeID(call StoredToolCall) string {
-	for _, id := range []string{call.ToolID, call.ActionID, call.ID} {
+	for _, id := range []string{call.ToolID, call.ID} {
 		if value := strings.TrimSpace(id); value != "" {
 			return value
 		}
@@ -426,7 +420,7 @@ func storedToolCallRuntimeID(call StoredToolCall) string {
 }
 
 func storedToolResultID(message StoredMessage) string {
-	for _, id := range []string{message.ToolCallID, message.ToolID, message.ActionID} {
+	for _, id := range []string{message.ToolCallID, message.ToolID} {
 		if value := strings.TrimSpace(id); value != "" {
 			return value
 		}

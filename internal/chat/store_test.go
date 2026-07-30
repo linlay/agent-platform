@@ -1207,24 +1207,6 @@ func TestStoredMessageToEventsPreservesTimestamp(t *testing.T) {
 			wantType: "content.snapshot",
 		},
 		{
-			name: "action snapshot",
-			msg: map[string]any{
-				"role": "assistant",
-				"ts":   ts,
-				"tool_calls": []any{
-					map[string]any{
-						"id":        "action-call-1",
-						"_actionId": "stored-action",
-						"function": map[string]any{
-							"name":      "approval_action",
-							"arguments": "{\"approved\":true}",
-						},
-					},
-				},
-			},
-			wantType: "action.snapshot",
-		},
-		{
 			name: "tool snapshot",
 			msg: map[string]any{
 				"role": "assistant",
@@ -1241,17 +1223,6 @@ func TestStoredMessageToEventsPreservesTimestamp(t *testing.T) {
 				},
 			},
 			wantType: "tool.snapshot",
-		},
-		{
-			name: "action result",
-			msg: map[string]any{
-				"role":         "tool",
-				"ts":           ts,
-				"_actionId":    "stored-action",
-				"tool_call_id": "action-call-1",
-				"content":      "approved",
-			},
-			wantType: "action.result",
 		},
 		{
 			name: "tool result",
@@ -1284,6 +1255,54 @@ func TestStoredMessageToEventsPreservesTimestamp(t *testing.T) {
 			}
 			if tc.name == "tool result" && events[0].Value("durationMs") != int64(42) {
 				t.Fatalf("expected tool.result durationMs to replay, got %#v", events[0])
+			}
+		})
+	}
+}
+
+func TestStoredMessageToEventsDoesNotReplayLegacyActionsAsTools(t *testing.T) {
+	testCases := []struct {
+		name string
+		msg  map[string]any
+	}{
+		{
+			name: "assistant action call",
+			msg: map[string]any{
+				"role": "assistant",
+				"ts":   testEpochMillis(1),
+				"tool_calls": []any{
+					map[string]any{
+						"id":        "legacy-action-call",
+						"_actionId": "legacy-action",
+						"function": map[string]any{
+							"name":      "legacy_action",
+							"arguments": "{}",
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "action result",
+			msg: map[string]any{
+				"role":         "tool",
+				"ts":           testEpochMillis(2),
+				"_actionId":    "legacy-action",
+				"tool_call_id": "legacy-action-call",
+				"name":         "legacy_action",
+				"content":      "legacy result",
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			events, err := storedMessageToEvents(tc.msg, "run_1", "task_1", "execute", 0, func() int64 { return 1 })
+			if err != nil {
+				t.Fatalf("stored message to events: %v", err)
+			}
+			if len(events) != 0 {
+				t.Fatalf("legacy action must not be replayed as a tool event, got %#v", events)
 			}
 		})
 	}
@@ -1421,64 +1440,6 @@ func TestLoadChatSynthesizedRunStartContainsAgentKey(t *testing.T) {
 	}
 	if runStart.String("agentKey") != "my-agent" {
 		t.Fatalf("expected run.start agentKey my-agent, got %#v", runStart)
-	}
-}
-
-func TestStepWriterActionSnapshotPersistsTsAndReplaysTimestamp(t *testing.T) {
-	store, err := NewFileStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new file store: %v", err)
-	}
-
-	if _, _, err := store.EnsureChat("chat-action-ts", "agent", "", "hello"); err != nil {
-		t.Fatalf("ensure chat: %v", err)
-	}
-
-	writer := NewStepWriter(store, "chat-action-ts", "run-action-ts", "react")
-	onEventForTest(writer, stream.EventData{
-		Type:      "action.snapshot",
-		Timestamp: testEpochMillis(3456),
-		Payload: map[string]any{
-			"actionId":   "action-1",
-			"actionName": "approval_action",
-			"arguments":  "{\"approved\":true}",
-		},
-	})
-	writer.Flush()
-
-	lines, err := readJSONLines(store.chatJSONLPath("chat-action-ts"))
-	if err != nil {
-		t.Fatalf("read chat jsonl: %v", err)
-	}
-	if len(lines) != 1 {
-		t.Fatalf("expected one persisted line, got %#v", lines)
-	}
-
-	messages, _ := lines[0]["messages"].([]any)
-	if len(messages) != 1 {
-		t.Fatalf("expected one persisted message, got %#v", lines[0])
-	}
-	msg, _ := messages[0].(map[string]any)
-	if got := int64FromAny(msg["ts"]); got != testEpochMillis(3456) {
-		t.Fatalf("expected persisted ts=%d, got %#v", testEpochMillis(3456), msg)
-	}
-
-	detail, err := store.LoadChat("chat-action-ts")
-	if err != nil {
-		t.Fatalf("load chat: %v", err)
-	}
-
-	found := false
-	for _, event := range detail.Events {
-		if event.Type == "action.snapshot" {
-			found = true
-			if event.Timestamp != testEpochMillis(3456) {
-				t.Fatalf("expected replayed action.snapshot timestamp %d, got %#v", testEpochMillis(3456), event)
-			}
-		}
-	}
-	if !found {
-		t.Fatalf("expected action.snapshot in replayed events, got %#v", detail.Events)
 	}
 }
 

@@ -66,7 +66,7 @@ func (s *llmRunStream) toolResultChatDir() string {
 	if s == nil {
 		return ""
 	}
-	if dir := strings.TrimSpace(s.session.RuntimeContext.LocalPaths.ChatAttachmentsDir); dir != "" {
+	if dir := strings.TrimSpace(s.session.RuntimeContext.LocalPaths.ChatDir); dir != "" {
 		return dir
 	}
 	if s.engine != nil {

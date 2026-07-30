@@ -346,7 +346,7 @@ func sanitizeOpenAIToolResultMessages(messages []openAIMessage) []openAIMessage 
 		if _, ok := structured["contentBase64"]; !ok {
 			continue
 		}
-		data, err := json.Marshal(compactStructuredResultForLLM(structured))
+		data, err := json.Marshal(contracts.CompactStructuredForModel(structured))
 		if err != nil {
 			continue
 		}

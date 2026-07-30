@@ -68,9 +68,8 @@ func TestKBaseReadOnlyFingerprintIgnoresEditingPolicySnapshot(t *testing.T) {
 	session.Mode = agentkbase.Mode
 	session.KBaseEnabled = true
 	changed := session
-	changed.KBaseSourceRoot = "/knowledge"
 	changed.ScopedFilePolicy = &contracts.ScopedFilePolicy{
-		Root:                  "/knowledge",
+		WorkspaceRoot:         "/knowledge",
 		RequireExistingParent: true,
 	}
 	tools := []api.ToolDetailResponse{{Name: "kbase_search", Description: "search"}}
@@ -452,11 +451,11 @@ func TestKBaseEditingBuildsIndependentSystemInitProfile(t *testing.T) {
 	session := fingerprintTestSession()
 	session.Mode = "KBASE"
 	session.EditingMode = true
-	session.KBaseSourceRoot = "/knowledge"
+	session.WorkspaceRoot = "/knowledge"
 	session.ToolNames = agentkbase.EditingToolNames()
 	session.ScopedFilePolicy = &contracts.ScopedFilePolicy{
-		Root:                  "/knowledge",
-		SourceMutationEnabled: true,
+		WorkspaceRoot:            "/knowledge",
+		WorkspaceMutationEnabled: true,
 	}
 	toolDefs := make([]api.ToolDetailResponse, 0, len(session.ToolNames)+1)
 	for _, name := range append(append([]string(nil), session.ToolNames...), "bash") {
@@ -481,16 +480,14 @@ func TestKBaseMainBuildsSameFileToolSchemasWithReadOnlySourcePrompt(t *testing.T
 	session := fingerprintTestSession()
 	session.Mode = agentkbase.Mode
 	session.KBaseEnabled = true
-	session.KBaseSourceRoot = "/knowledge"
 	session.WorkspaceRoot = "/knowledge"
 	session.ToolNames = agentkbase.DefaultToolNames()
 	session.RuntimeContext.LocalPaths = contracts.LocalPaths{
-		WorkspaceDir:       "/knowledge",
-		WorkingDirectory:   "/knowledge",
-		ChatAttachmentsDir: "/runtime/chats/chat-1",
+		WorkspaceDir: "/knowledge",
+		ChatDir:      "/runtime/chats/chat-1",
 	}
 	session.ScopedFilePolicy = &contracts.ScopedFilePolicy{
-		Root:                  "/knowledge",
+		WorkspaceRoot:         "/knowledge",
 		RequireExistingParent: true,
 	}
 	toolDefs := make([]api.ToolDetailResponse, 0, len(session.ToolNames)+1)

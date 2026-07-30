@@ -3,7 +3,6 @@ package kbase
 import (
 	"fmt"
 	"math"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -14,14 +13,12 @@ import (
 const (
 	ChunkUnitChars           = "chars"
 	ChunkUnitEstimatedTokens = "estimatedTokens"
-	WorkspaceRootChat        = "@chat"
 	RetrievalFusionRRF       = "rrf"
 )
 
 // Config is the effective per-agent KBASE configuration.
 type Config struct {
 	Enabled   bool
-	Source    SourceConfig
 	Tags      []string
 	Embedding EmbeddingConfig
 	Storage   StorageConfig
@@ -141,8 +138,6 @@ func ParseConfig(node map[string]any) (Config, error) {
 		}
 		cfg.Enabled = enabled
 	}
-	source := anyMap(node["source"])
-	cfg.Source = SourceConfig{Root: strings.TrimSpace(anyString(source["root"]))}
 	cfg.Tags = anyStrings(node["tags"])
 	embedding := anyMap(node["embedding"])
 	cfg.Embedding = EmbeddingConfig{ModelKey: anyString(embedding["modelKey"])}
@@ -260,21 +255,8 @@ func ValidateConfigSchema(node map[string]any) error {
 			return fmt.Errorf("kbaseConfig.enabled must be a boolean")
 		}
 	}
-	if rawSource, exists := node["source"]; exists {
-		var source map[string]any
-		switch rawSource.(type) {
-		case map[string]any, map[any]any:
-			source = anyMap(rawSource)
-		default:
-			if rawSource != nil {
-				return fmt.Errorf("kbaseConfig.source must be a map")
-			}
-		}
-		if rawRoot, exists := source["root"]; exists {
-			if _, ok := rawRoot.(string); !ok {
-				return fmt.Errorf("kbaseConfig.source.root must be a string")
-			}
-		}
+	if _, exists := node["source"]; exists {
+		return fmt.Errorf("kbaseConfig.source has been removed; configure runtimeConfig.workspaceRoot")
 	}
 	if rawTags, exists := node["tags"]; exists {
 		switch tags := rawTags.(type) {
@@ -371,22 +353,6 @@ func ValidateConfig(cfg Config) error {
 	}
 	if cfg.Retrieval.CandidateMax < cfg.Retrieval.CandidateFloor || cfg.Retrieval.CandidateMax > 2000 {
 		return fmt.Errorf("kbaseConfig.retrieval.candidateMax must be between candidateFloor and 2000")
-	}
-	return nil
-}
-
-func ValidateWorkspace(root string) error {
-	root = strings.TrimSpace(root)
-	if root == "" {
-		return fmt.Errorf("runtimeConfig.workspaceRoot is required for mode: KBASE")
-	}
-	if strings.EqualFold(root, WorkspaceRootChat) {
-		return fmt.Errorf("runtimeConfig.workspaceRoot for mode: KBASE must be an absolute path or ~/ path, not %q", WorkspaceRootChat)
-	}
-	// Catalog expands ~/ before mode validation, so at this boundary only an
-	// absolute value is valid.
-	if !filepath.IsAbs(root) {
-		return fmt.Errorf("runtimeConfig.workspaceRoot for mode: KBASE must be an absolute path or ~/ path")
 	}
 	return nil
 }

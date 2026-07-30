@@ -205,11 +205,12 @@ func TestPrepareQueryNonSandboxAgentCreatesChatDirectory(t *testing.T) {
 	if stat, err := os.Stat(chats.ChatDir("chat-no-dir")); err != nil || !stat.IsDir() {
 		t.Fatalf("expected chat directory to be created, stat=%#v err=%v", stat, err)
 	}
-	if prepared.session.RuntimeContext.LocalPaths.ChatAttachmentsDir != chats.ChatDir("chat-no-dir") {
-		t.Fatalf("chat attachments dir = %q, want %q", prepared.session.RuntimeContext.LocalPaths.ChatAttachmentsDir, chats.ChatDir("chat-no-dir"))
+	wantChatDir := absTestPath(t, chats.ChatDir("chat-no-dir"))
+	if prepared.session.RuntimeContext.LocalPaths.ChatDir != wantChatDir {
+		t.Fatalf("chat dir = %q, want %q", prepared.session.RuntimeContext.LocalPaths.ChatDir, wantChatDir)
 	}
-	if prepared.session.RuntimeContext.LocalPaths.WorkspaceDir != chats.ChatDir("chat-no-dir") {
-		t.Fatalf("workspace dir = %q, want %q", prepared.session.RuntimeContext.LocalPaths.WorkspaceDir, chats.ChatDir("chat-no-dir"))
+	if prepared.session.RuntimeContext.LocalPaths.WorkspaceDir != "" {
+		t.Fatalf("workspace dir = %q, want empty", prepared.session.RuntimeContext.LocalPaths.WorkspaceDir)
 	}
 }
 
@@ -601,6 +602,7 @@ func TestPrepareQueryFailsFastWhenSandboxAgentRequiresDisabledContainerHub(t *te
 	server := &Server{deps: Dependencies{
 		Config: config.Config{
 			ContainerHub: config.ContainerHubConfig{Enabled: false},
+			Paths:        config.PathsConfig{ChatsDir: t.TempDir()},
 		},
 		Chats: chats,
 		Registry: queryMemoryRegistry{
@@ -611,6 +613,7 @@ func TestPrepareQueryFailsFastWhenSandboxAgentRequiresDisabledContainerHub(t *te
 				Runtime: map[string]any{
 					"environmentId": "shell",
 				},
+				Workspace: catalog.AgentWorkspaceConfig{Root: t.TempDir()},
 			},
 		},
 	}}

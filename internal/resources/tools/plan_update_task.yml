@@ -1,7 +1,6 @@
 name: plan_update_task
 label: 更新任务
 description: "Update the status or description of a task in the current plan. status supports init, in_progress, completed, failed, and canceled. On success it returns OK; on failure it returns a failure reason."
-type: function
 clientVisible: true
 inputSchema:
   type: object

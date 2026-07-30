@@ -1,7 +1,6 @@
 name: memory_promote
 label: 提升记忆
 description: Promote an observation memory into a fact.
-type: function
 clientVisible: false
 inputSchema:
   type: object

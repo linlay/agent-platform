@@ -7,8 +7,6 @@ description: |
   Use this tool to locate matching files or lines. When the user needs an
   exact count or capture extraction from known text, prefer regex instead;
   for file content, read the relevant file content first and then call regex.
-submitResultFormat: json-compact
-type: function
 inputSchema:
   type: object
   properties:
@@ -17,7 +15,7 @@ inputSchema:
       description: Required. Regex pattern to search for, using ripgrep syntax.
     path:
       type: string
-      description: File or directory to search. Defaults to the file-tools working-directory in configs/tools.yml.
+      description: File or directory to search. Defaults to the current Workspace; use @chat to search the current Chat directory.
     glob:
       type: string
       description: Glob filter, such as '*.go' or '*.{ts,tsx}'.

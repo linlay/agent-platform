@@ -21,7 +21,7 @@ func TestMaybeSpillToolResultLeavesSmallResultInline(t *testing.T) {
 		session: contracts.QuerySession{
 			ChatID: "chat-small",
 			RuntimeContext: contracts.RuntimeRequestContext{
-				LocalPaths: contracts.LocalPaths{ChatAttachmentsDir: chatDir},
+				LocalPaths: contracts.LocalPaths{ChatDir: chatDir},
 			},
 		},
 	}
@@ -46,7 +46,7 @@ func TestMaybeSpillToolResultWritesFullResultAndReturnsPreview(t *testing.T) {
 		session: contracts.QuerySession{
 			ChatID: "chat-large",
 			RuntimeContext: contracts.RuntimeRequestContext{
-				LocalPaths: contracts.LocalPaths{ChatAttachmentsDir: chatDir},
+				LocalPaths: contracts.LocalPaths{ChatDir: chatDir},
 			},
 		},
 	}
@@ -109,7 +109,7 @@ func TestMaybeSpillToolResultStaysInlineInReadOnlyMode(t *testing.T) {
 		session: contracts.QuerySession{
 			ChatID: "chat-btw-large",
 			RuntimeContext: contracts.RuntimeRequestContext{
-				LocalPaths: contracts.LocalPaths{ChatAttachmentsDir: chatDir},
+				LocalPaths: contracts.LocalPaths{ChatDir: chatDir},
 			},
 		},
 	}
@@ -130,7 +130,7 @@ func TestMaybeSpillToolResultConvertsLargePlainBashOutputToStructuredPreview(t *
 		session: contracts.QuerySession{
 			ChatID: "chat-bash",
 			RuntimeContext: contracts.RuntimeRequestContext{
-				LocalPaths: contracts.LocalPaths{ChatAttachmentsDir: chatDir},
+				LocalPaths: contracts.LocalPaths{ChatDir: chatDir},
 			},
 		},
 	}
@@ -171,7 +171,7 @@ func TestMaybeSpillToolResultPreviewPreservesUTF8(t *testing.T) {
 		session: contracts.QuerySession{
 			ChatID: "chat-utf8",
 			RuntimeContext: contracts.RuntimeRequestContext{
-				LocalPaths: contracts.LocalPaths{ChatAttachmentsDir: chatDir},
+				LocalPaths: contracts.LocalPaths{ChatDir: chatDir},
 			},
 		},
 	}
@@ -204,7 +204,7 @@ func TestMaybeSpillToolResultIncludesRegexAndVisionRecognize(t *testing.T) {
 				session: contracts.QuerySession{
 					ChatID: "chat-" + toolName,
 					RuntimeContext: contracts.RuntimeRequestContext{
-						LocalPaths: contracts.LocalPaths{ChatAttachmentsDir: chatDir},
+						LocalPaths: contracts.LocalPaths{ChatDir: chatDir},
 					},
 				},
 			}
@@ -234,7 +234,7 @@ func TestMaybeSpillToolResultSkipsNonEligibleTool(t *testing.T) {
 		session: contracts.QuerySession{
 			ChatID: "chat-agent",
 			RuntimeContext: contracts.RuntimeRequestContext{
-				LocalPaths: contracts.LocalPaths{ChatAttachmentsDir: chatDir},
+				LocalPaths: contracts.LocalPaths{ChatDir: chatDir},
 			},
 		},
 	}
@@ -261,7 +261,7 @@ func TestMaybeSpillToolResultSkipsRawParams(t *testing.T) {
 		session: contracts.QuerySession{
 			ChatID: "chat-raw",
 			RuntimeContext: contracts.RuntimeRequestContext{
-				LocalPaths: contracts.LocalPaths{ChatAttachmentsDir: chatDir},
+				LocalPaths: contracts.LocalPaths{ChatDir: chatDir},
 			},
 		},
 	}

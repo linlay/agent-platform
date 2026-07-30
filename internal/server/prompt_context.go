@@ -13,6 +13,8 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/pathutil"
+	"agent-platform/internal/rootpaths"
 	"agent-platform/internal/sandbox"
 )
 
@@ -68,12 +70,23 @@ type runtimeRequestContextInput struct {
 
 func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (contracts.RuntimeRequestContext, error) {
 	workspaceRoot := effectiveLocalWorkspaceRoot(input.definition)
+	if strings.EqualFold(catalog.NormalizeAgentModeForRuntime(input.definition.Mode), catalog.AgentModeCoder) &&
+		strings.TrimSpace(workspaceRoot) == "" {
+		return contracts.RuntimeRequestContext{}, fmt.Errorf("workspace_unavailable: CODER requires a workspace")
+	}
+	if hasRuntimeSandbox(input.definition.Runtime) && strings.TrimSpace(workspaceRoot) == "" {
+		return contracts.RuntimeRequestContext{}, fmt.Errorf("workspace_unavailable: Container Hub sandbox requires a workspace")
+	}
 	localPaths, err := resolveLocalPaths(s.deps.Config.Paths, input.chatID, input.definition.AgentDir, workspaceRoot)
 	if err != nil {
 		return contracts.RuntimeRequestContext{}, err
 	}
 	if promptContextHasPlatformMount(input.definition.Runtime["sandboxMounts"], "skills-market") {
 		localPaths.SkillsMarketDir = cleanOrEmpty(s.deps.Config.Paths.SkillsMarketDir)
+	}
+	references, err := s.normalizeReferencePathsForAgent(input.references, input.chatID, input.definition, localPaths)
+	if err != nil {
+		return contracts.RuntimeRequestContext{}, err
 	}
 	context := contracts.RuntimeRequestContext{
 		AgentKey:     input.agentKey,
@@ -82,9 +95,9 @@ func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (c
 		ChatName:     input.chatName,
 		LocalMode:    s.deps.Config.IsLocalMode(),
 		Scene:        input.scene,
-		References:   s.normalizeReferencePathsForAgent(input.references, input.chatID, input.definition),
+		References:   references,
 		LocalPaths:   localPaths,
-		SandboxPaths: resolveSandboxPaths(s.deps.Config, input.definition, input.chatID),
+		SandboxPaths: resolveSandboxPaths(s.deps.Config, input.definition, localPaths),
 	}
 	agentDigests, err := buildContextAgentDigests(s.deps.Registry, input.definition)
 	if err != nil {
@@ -104,42 +117,224 @@ func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (c
 	return context, nil
 }
 
-func (s *Server) normalizeReferencePathsForAgent(references []api.Reference, chatID string, def catalog.AgentDefinition) []api.Reference {
+func (s *Server) normalizeReferencePathsForAgent(
+	references []api.Reference,
+	chatID string,
+	def catalog.AgentDefinition,
+	localPaths contracts.LocalPaths,
+) ([]api.Reference, error) {
 	if len(references) == 0 {
-		return references
+		return references, nil
 	}
 	normalized := append([]api.Reference(nil), references...)
 	for i := range normalized {
-		if path := s.referencePathForAgent(normalized[i], chatID, def); path != "" {
+		path, err := s.referencePathForAgent(normalized[i], chatID, def, localPaths)
+		if err != nil {
+			return nil, err
+		}
+		if path != "" {
 			normalized[i].Path = path
 		}
 	}
-	return normalized
+	return normalized, nil
 }
 
-func (s *Server) referencePathForAgent(reference api.Reference, chatID string, def catalog.AgentDefinition) string {
+func (s *Server) referencePathForAgent(
+	reference api.Reference,
+	chatID string,
+	def catalog.AgentDefinition,
+	localPaths contracts.LocalPaths,
+) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(reference.Type)) {
 	case "chat", "site":
-		return ""
+		return "", nil
 	}
-	if s.referencePathsUseContainer(def) {
-		if rel := referenceResourceRelativePath(chatID, reference); rel != "" {
-			return "/workspace/" + filepath.ToSlash(rel)
+	if resourceFileParam(reference.URL) == "" {
+		rawPath := strings.TrimSpace(reference.Path)
+		if rawPath == "/workspace" || strings.HasPrefix(rawPath, "/workspace/") {
+			return "", fmt.Errorf("path-only /workspace references are not accepted; re-materialize the file through the resource API")
 		}
-		return strings.TrimSpace(reference.Path)
+	}
+	if s.agentUsesContainerHub(def) {
+		if fileParam := resourceFileParam(reference.URL); fileParam != "" {
+			rel, ok := currentChatResourceRelativePath(chatID, fileParam)
+			if !ok {
+				return "", fmt.Errorf("reference resource must be materialized in the current chat before Container Hub execution")
+			}
+			return "/chat/" + filepath.ToSlash(rel), nil
+		}
+		return translateReferencePathForContainer(reference.Path, localPaths)
 	}
 	if fileParam := resourceFileParam(reference.URL); fileParam != "" && s != nil && s.deps.Chats != nil {
 		if path, err := s.deps.Chats.ResolveResource(fileParam); err == nil {
-			return path
+			return path, nil
 		}
 	}
 	if strings.TrimSpace(reference.Path) != "" {
-		return strings.TrimSpace(reference.Path)
+		return translateReferencePathForHost(reference.Path, localPaths)
 	}
 	if rel := referenceResourceRelativePath(chatID, reference); rel != "" && s != nil && s.deps.Chats != nil {
-		return filepath.Join(s.deps.Chats.ChatDir(chatID), filepath.FromSlash(rel))
+		return filepath.Join(s.deps.Chats.ChatDir(chatID), filepath.FromSlash(rel)), nil
 	}
-	return ""
+	return "", nil
+}
+
+func translateReferencePathForHost(rawPath string, localPaths contracts.LocalPaths) (string, error) {
+	rawPath = strings.TrimSpace(rawPath)
+	if rawPath == "" {
+		return "", nil
+	}
+	for _, item := range []struct {
+		alias string
+		root  string
+	}{
+		{alias: "@chat", root: localPaths.ChatDir},
+		{alias: "@workspace", root: localPaths.WorkspaceDir},
+	} {
+		normalized := filepath.ToSlash(rawPath)
+		if strings.EqualFold(normalized, item.alias) {
+			if strings.TrimSpace(item.root) == "" {
+				return "", fmt.Errorf("%s_unavailable: reference root is unavailable", strings.TrimPrefix(item.alias, "@"))
+			}
+			resolved := filepath.Clean(item.root)
+			if item.alias == "@workspace" {
+				return requireReferenceWorkspacePath(resolved, localPaths)
+			}
+			return resolved, nil
+		}
+		prefix := item.alias + "/"
+		if strings.HasPrefix(strings.ToLower(normalized), prefix) {
+			if strings.TrimSpace(item.root) == "" {
+				return "", fmt.Errorf("%s_unavailable: reference root is unavailable", strings.TrimPrefix(item.alias, "@"))
+			}
+			resolved, err := referencePathWithinHostRoot(item.root, normalized[len(prefix):], item.alias)
+			if err != nil || item.alias != "@workspace" {
+				return resolved, err
+			}
+			return requireReferenceWorkspacePath(resolved, localPaths)
+		}
+	}
+	if rawPath == "/chat" || strings.HasPrefix(rawPath, "/chat/") {
+		return referencePathWithinHostRoot(localPaths.ChatDir, strings.TrimLeft(strings.TrimPrefix(rawPath, "/chat"), "/"), "@chat")
+	}
+	if !filepath.IsAbs(pathutil.ExpandHome(rawPath)) {
+		if strings.TrimSpace(localPaths.WorkspaceDir) == "" {
+			return "", fmt.Errorf("workspace_unavailable: relative reference path requires a workspace")
+		}
+		resolved, err := referencePathWithinHostRoot(localPaths.WorkspaceDir, rawPath, "@workspace")
+		if err != nil {
+			return "", err
+		}
+		return requireReferenceWorkspacePath(resolved, localPaths)
+	}
+	roots, err := localSemanticRoots(localPaths)
+	if err != nil {
+		return "", err
+	}
+	zone, candidate, err := roots.Classify(rawPath)
+	if err != nil {
+		return "", err
+	}
+	switch zone {
+	case rootpaths.ZoneCurrentChat, rootpaths.ZoneWorkspace:
+		return candidate.Host, nil
+	case rootpaths.ZoneOtherChat:
+		return "", fmt.Errorf("reference path belongs to another chat")
+	default:
+		return "", fmt.Errorf("reference path must be under the current workspace or chat")
+	}
+}
+
+func referencePathWithinHostRoot(root string, suffix string, alias string) (string, error) {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return "", fmt.Errorf("%s_unavailable: reference root is unavailable", strings.TrimPrefix(alias, "@"))
+	}
+	resolved := filepath.Clean(filepath.Join(root, filepath.FromSlash(suffix)))
+	rel, err := filepath.Rel(root, resolved)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("reference path escapes %s", alias)
+	}
+	canonical, err := pathutil.Canonicalize(resolved)
+	if err != nil {
+		return "", err
+	}
+	rootCanonical, err := pathutil.Canonicalize(root)
+	if err != nil || !pathutil.WithinRoot(canonical, rootCanonical) {
+		return "", fmt.Errorf("reference path escapes %s", alias)
+	}
+	return canonical.Host, nil
+}
+
+func translateReferencePathForContainer(rawPath string, localPaths contracts.LocalPaths) (string, error) {
+	rawPath = strings.TrimSpace(rawPath)
+	if rawPath == "" {
+		return "", nil
+	}
+	if rawPath == "/chat" || strings.HasPrefix(rawPath, "/chat/") {
+		return filepath.ToSlash(rawPath), nil
+	}
+	if rawPath == "/workspace" || strings.HasPrefix(rawPath, "/workspace/") {
+		return "", fmt.Errorf("path-only /workspace references are not accepted; use a resource URL or @workspace")
+	}
+	hostPath, err := translateReferencePathForHost(rawPath, localPaths)
+	if err != nil {
+		return "", err
+	}
+	roots, err := localSemanticRoots(localPaths)
+	if err != nil {
+		return "", err
+	}
+	zone, candidate, err := roots.Classify(hostPath)
+	if err != nil {
+		return "", err
+	}
+	var hostRoot string
+	var containerRoot string
+	switch zone {
+	case rootpaths.ZoneCurrentChat:
+		hostRoot = roots.Chat.Host
+		containerRoot = "/chat"
+	case rootpaths.ZoneWorkspace:
+		hostRoot = roots.Workspace.Host
+		containerRoot = "/workspace"
+	default:
+		return "", fmt.Errorf("container reference path must be under the current workspace or chat")
+	}
+	rel, err := filepath.Rel(hostRoot, candidate.Host)
+	if err != nil {
+		return "", err
+	}
+	if rel == "." {
+		return containerRoot, nil
+	}
+	return containerRoot + "/" + filepath.ToSlash(rel), nil
+}
+
+func localSemanticRoots(localPaths contracts.LocalPaths) (rootpaths.Roots, error) {
+	return rootpaths.New(localPaths.WorkspaceDir, localPaths.ChatsDir, localPaths.ChatDir)
+}
+
+func requireReferenceWorkspacePath(candidate string, localPaths contracts.LocalPaths) (string, error) {
+	roots, err := localSemanticRoots(localPaths)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := roots.RequireWorkspacePath(candidate)
+	if err != nil {
+		return "", err
+	}
+	return resolved.Host, nil
+}
+
+func currentChatResourceRelativePath(chatID string, fileParam string) (string, bool) {
+	clean := filepath.ToSlash(filepath.Clean(fileParam))
+	prefix := strings.TrimSpace(chatID) + "/"
+	if strings.TrimSpace(chatID) == "" || !strings.HasPrefix(clean, prefix) {
+		return "", false
+	}
+	rel := strings.TrimPrefix(clean, prefix)
+	return rel, rel != "" && rel != "."
 }
 
 func referenceResourceRelativePath(chatID string, reference api.Reference) string {
@@ -295,26 +490,20 @@ func buildRequiredSkillConstraint(requiredSkillKeys []string) string {
 }
 
 func effectiveLocalWorkspaceRoot(def catalog.AgentDefinition) string {
-	if strings.EqualFold(strings.TrimSpace(def.Mode), catalog.AgentModeKBase) {
-		if root := strings.TrimSpace(def.KBaseConfig.Source.Root); root != "" {
-			return root
-		}
-	}
-	workspaceRoot := strings.TrimSpace(def.Workspace.Root)
-	if workspaceRoot == "" && !hasRuntimeSandbox(def.Runtime) && !isProxyAgentMode(def.Mode) {
-		return catalog.AgentWorkspaceRootChat
-	}
-	return workspaceRoot
+	return strings.TrimSpace(def.Workspace.Root)
 }
 
 func resolveLocalPaths(paths config.PathsConfig, chatID string, agentDir string, workspaceRoot string) (contracts.LocalPaths, error) {
 	runtimeHome := filepath.Dir(filepath.Clean(paths.AgentsDir))
-	workingDirectory, _ := os.Getwd()
-	workspaceRoot = resolveHostWorkspaceRoot(paths, chatID, workspaceRoot)
-	if workspaceRoot != "" {
-		workingDirectory = workspaceRoot
+	var err error
+	workspaceRoot, err = resolveHostWorkspaceRoot(workspaceRoot)
+	if err != nil {
+		return contracts.LocalPaths{}, err
 	}
-	attachmentsDir, err := ensureChatAttachmentsDir(paths, chatID)
+	if err := validateWorkspaceChatsSeparation(workspaceRoot, paths.ChatsDir); err != nil {
+		return contracts.LocalPaths{}, err
+	}
+	chatDir, err := ensureChatDir(paths, chatID)
 	if err != nil {
 		return contracts.LocalPaths{}, err
 	}
@@ -326,7 +515,7 @@ func resolveLocalPaths(paths config.PathsConfig, chatID string, agentDir string,
 	return contracts.LocalPaths{
 		RuntimeHome:        runtimeHome,
 		WorkspaceDir:       workspaceRoot,
-		WorkingDirectory:   cleanOrEmpty(workingDirectory),
+		ChatDir:            chatDir,
 		RootDir:            cleanOrEmpty(paths.RootDir),
 		PanDir:             cleanOrEmpty(paths.PanDir),
 		AgentDir:           agentDir,
@@ -334,7 +523,6 @@ func resolveLocalPaths(paths config.PathsConfig, chatID string, agentDir string,
 		TeamsDir:           cleanOrEmpty(paths.TeamsDir),
 		ChatsDir:           cleanOrEmpty(paths.ChatsDir),
 		MemoryDir:          cleanOrEmpty(paths.MemoryDir),
-		DataDir:            cleanOrEmpty(paths.ChatsDir),
 		SkillsDir:          agentSkillsDir,
 		AutomationsDir:     cleanOrEmpty(paths.AutomationsDir),
 		OwnerDir:           cleanOrEmpty(paths.OwnerDir),
@@ -344,33 +532,57 @@ func resolveLocalPaths(paths config.PathsConfig, chatID string, agentDir string,
 		ViewportServersDir: cleanOrEmpty(filepath.Join(paths.RegistriesDir, "viewport-servers")),
 		ToolsDir:           cleanOrEmpty(paths.ToolsDir),
 		ViewportsDir:       cleanOrEmpty(filepath.Join(filepath.Dir(filepath.Clean(paths.RegistriesDir)), "viewports")),
-		ChatAttachmentsDir: attachmentsDir,
 	}, nil
 }
 
-func resolveHostWorkspaceRoot(paths config.PathsConfig, chatID string, workspaceRoot string) string {
-	workspaceRoot = strings.TrimSpace(workspaceRoot)
-	if workspaceRoot == "" {
-		return ""
+func validateWorkspaceChatsSeparation(workspaceRoot string, chatsRoot string) error {
+	if strings.TrimSpace(workspaceRoot) == "" || strings.TrimSpace(chatsRoot) == "" {
+		return nil
 	}
-	if strings.EqualFold(workspaceRoot, catalog.AgentWorkspaceRootChat) {
-		return chatAttachmentsDirPath(paths, chatID)
+	if _, err := rootpaths.New(workspaceRoot, chatsRoot, ""); err != nil {
+		return fmt.Errorf("workspace/chats validation failed: %w", err)
 	}
-	return cleanOrEmpty(workspaceRoot)
+	return nil
 }
 
-func ensureChatAttachmentsDir(paths config.PathsConfig, chatID string) (string, error) {
-	dir := chatAttachmentsDirPath(paths, chatID)
+func resolveHostWorkspaceRoot(workspaceRoot string) (string, error) {
+	workspaceRoot = strings.TrimSpace(workspaceRoot)
+	if workspaceRoot == "" {
+		return "", nil
+	}
+	if strings.EqualFold(workspaceRoot, "@chat") {
+		return "", fmt.Errorf("workspaceRoot no longer supports %q", "@chat")
+	}
+	canonical, err := pathutil.Canonicalize(workspaceRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace directory %s: %w", workspaceRoot, err)
+	}
+	info, err := os.Stat(canonical.Host)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace directory %s: %w", workspaceRoot, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("workspace path is not a directory: %s", workspaceRoot)
+	}
+	return canonical.Host, nil
+}
+
+func ensureChatDir(paths config.PathsConfig, chatID string) (string, error) {
+	dir := chatDirPath(paths, chatID)
 	if dir == "" {
 		return "", nil
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("create chat directory %s: %w", dir, err)
 	}
-	return dir, nil
+	canonical, err := pathutil.Canonicalize(dir)
+	if err != nil {
+		return "", fmt.Errorf("resolve chat directory %s: %w", dir, err)
+	}
+	return canonical.Host, nil
 }
 
-func chatAttachmentsDirPath(paths config.PathsConfig, chatID string) string {
+func chatDirPath(paths config.PathsConfig, chatID string) string {
 	chatID = strings.TrimSpace(chatID)
 	chatsDir := strings.TrimSpace(paths.ChatsDir)
 	if chatID == "" || chatsDir == "" {
@@ -379,14 +591,14 @@ func chatAttachmentsDirPath(paths config.PathsConfig, chatID string) string {
 	return absOrEmpty(filepath.Join(chatsDir, chatID))
 }
 
-func resolveSandboxPaths(cfg config.Config, def catalog.AgentDefinition, chatID string) contracts.SandboxPaths {
+func resolveSandboxPaths(cfg config.Config, def catalog.AgentDefinition, localPaths contracts.LocalPaths) contracts.SandboxPaths {
 	if cfg.IsLocalMode() {
-		return resolveLocalSandboxPaths(cfg, def, chatID)
+		return resolveLocalSandboxPaths(cfg, def, localPaths)
 	}
-	return resolveContainerSandboxPaths(cfg, def, chatID)
+	return resolveContainerSandboxPaths(cfg, def)
 }
 
-func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition, chatID string) contracts.SandboxPaths {
+func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition) contracts.SandboxPaths {
 	level := strings.ToLower(strings.TrimSpace(anyString(def.Runtime["level"])))
 	if level == "" {
 		level = strings.ToLower(strings.TrimSpace(cfg.ContainerHub.DefaultSandboxLevel))
@@ -438,8 +650,8 @@ func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 	}
 
 	return contracts.SandboxPaths{
-		Cwd:                "/workspace",
 		WorkspaceDir:       "/workspace",
+		ChatDir:            "/chat",
 		RootDir:            ifNonEmpty(cfg.Paths.RootDir, "/root"),
 		SkillsDir:          boolPath(hasSkillsDir, "/skills"),
 		SkillsMarketDir:    skillsMarketDir,
@@ -460,7 +672,7 @@ func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 	}
 }
 
-func resolveLocalSandboxPaths(cfg config.Config, def catalog.AgentDefinition, chatID string) contracts.SandboxPaths {
+func resolveLocalSandboxPaths(cfg config.Config, def catalog.AgentDefinition, localPaths contracts.LocalPaths) contracts.SandboxPaths {
 	level := strings.ToLower(strings.TrimSpace(anyString(def.Runtime["level"])))
 	if level == "" {
 		level = strings.ToLower(strings.TrimSpace(cfg.ContainerHub.DefaultSandboxLevel))
@@ -471,10 +683,9 @@ func resolveLocalSandboxPaths(cfg config.Config, def catalog.AgentDefinition, ch
 	hasAgentDir := strings.TrimSpace(def.AgentDir) != ""
 	hasSkillsDir := level != "global" && hasAgentDir
 
-	workspaceDir := resolveLocalWorkspaceDir(cfg.Paths, chatID)
 	paths := contracts.SandboxPaths{
-		Cwd:          workspaceDir,
-		WorkspaceDir: workspaceDir,
+		WorkspaceDir: localPaths.WorkspaceDir,
+		ChatDir:      localPaths.ChatDir,
 		RootDir:      absOrEmpty(cfg.Paths.RootDir),
 		SkillsDir:    resolveLocalSkillsDir(hasSkillsDir, level, def.AgentDir, cfg.Paths.SkillsMarketDir),
 		PanDir:       absOrEmpty(cfg.Paths.PanDir),
@@ -742,17 +953,6 @@ func absOrEmpty(path string) string {
 		return clean
 	}
 	return absolute
-}
-
-func resolveLocalWorkspaceDir(paths config.PathsConfig, chatID string) string {
-	if strings.TrimSpace(chatID) != "" {
-		return absOrEmpty(filepath.Join(paths.ChatsDir, strings.TrimSpace(chatID)))
-	}
-	workingDirectory, err := os.Getwd()
-	if err != nil {
-		return ""
-	}
-	return absOrEmpty(workingDirectory)
 }
 
 func resolveLocalSkillsDir(hasSkillsDir bool, level string, agentDir string, skillsMarketDir string) string {

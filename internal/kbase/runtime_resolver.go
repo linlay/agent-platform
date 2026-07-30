@@ -59,7 +59,7 @@ func (r *capabilityResolver) HasRequired() bool {
 
 func (r *capabilityResolver) StorageDirForSpec(spec AgentSpec) string {
 	if strings.EqualFold(strings.TrimSpace(spec.Config.Storage.Location), "workspace") {
-		return filepath.Join(strings.TrimSpace(spec.Config.Source.Root), ".kbase")
+		return filepath.Join(strings.TrimSpace(spec.WorkspaceRoot), ".kbase")
 	}
 	return filepath.Join(r.options.RuntimeDir, strings.TrimSpace(spec.Key))
 }
@@ -73,12 +73,12 @@ func (r *capabilityResolver) Resolve(agentKey string) (resolvedConfig, *Embedder
 		return resolvedConfig{}, nil, err
 	}
 	agentKey = strings.TrimSpace(agentKey)
-	workspace := strings.TrimSpace(definition.Config.Source.Root)
-	if workspace == "" || strings.EqualFold(workspace, WorkspaceRootChat) {
-		return resolvedConfig{}, nil, fmt.Errorf("agent %s kbaseConfig.source.root is required for KBASE", agentKey)
+	workspace := strings.TrimSpace(definition.WorkspaceRoot)
+	if workspace == "" {
+		return resolvedConfig{}, nil, fmt.Errorf("agent %s runtimeConfig.workspaceRoot is required for KBASE", agentKey)
 	}
 	if !filepath.IsAbs(workspace) {
-		return resolvedConfig{}, nil, fmt.Errorf("agent %s kbaseConfig.source.root must resolve to an absolute path", agentKey)
+		return resolvedConfig{}, nil, fmt.Errorf("agent %s runtimeConfig.workspaceRoot must resolve to an absolute path", agentKey)
 	}
 	embedding, provider, err := r.ResolveEmbedding(agentKey, definition.Config.Embedding)
 	if err != nil {

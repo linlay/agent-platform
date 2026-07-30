@@ -23,10 +23,10 @@ import (
 )
 
 func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
-	accessSession := accessPolicySessionWithFallback(execCtx, t.cfg.FileTools.WorkingDirectory)
+	accessSession := accessPolicySession(execCtx)
 	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessSession, filetools.ReadAccess, stringArg(args, "file_path"))
 	if err != nil {
-		return fileToolError("file_read_invalid_path", err.Error()), nil
+		return filePathResolutionError("file_read_invalid_path", err), nil
 	}
 	if access.Blocked {
 		return fileToolError("file_read_path_blocked", access.Reason), nil
@@ -172,10 +172,10 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 
 func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	accessCfg := t.sessionFileToolsConfig(filetools.WriteAccess, execCtx)
-	accessSession := accessPolicySessionWithFallback(execCtx, accessCfg.WorkingDirectory)
+	accessSession := accessPolicySession(execCtx)
 	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessSession, filetools.WriteAccess, stringArg(args, "file_path"))
 	if err != nil {
-		return fileToolError("file_write_invalid_plan", err.Error()), nil
+		return filePathResolutionError("file_write_invalid_plan", err), nil
 	}
 	if access.Blocked {
 		return fileToolError("file_write_path_blocked", access.Reason), nil
@@ -300,10 +300,10 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 
 func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	accessCfg := t.sessionFileToolsConfig(filetools.WriteAccess, execCtx)
-	accessSession := accessPolicySessionWithFallback(execCtx, accessCfg.WorkingDirectory)
+	accessSession := accessPolicySession(execCtx)
 	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessSession, filetools.WriteAccess, stringArg(args, "file_path"))
 	if err != nil {
-		return fileToolError("file_edit_invalid_plan", err.Error()), nil
+		return filePathResolutionError("file_edit_invalid_plan", err), nil
 	}
 	access.CommandText = "file_edit " + access.Path
 	if access.Blocked {
@@ -483,6 +483,9 @@ func (t *RuntimeToolExecutor) appendFileChangeHookResults(ctx context.Context, e
 	if strings.TrimSpace(event.WorkspaceRoot) == "" {
 		return
 	}
+	if !filetools.PathInSessionWorkspace(execCtx.Session, event.FilePath) {
+		return
+	}
 	results := make([]FileChangeHookResult, 0, len(t.fileChangeHooks))
 	for _, hook := range t.fileChangeHooks {
 		if hook == nil {
@@ -549,21 +552,16 @@ func fileChangeWorkspaceRoot(execCtx *ExecutionContext) string {
 	return filetools.SessionWorkspaceRoot(execCtx.Session)
 }
 
-func (t *RuntimeToolExecutor) sessionFileToolsConfig(mode filetools.AccessMode, execCtx *ExecutionContext) config.FileToolsConfig {
-	cfg := t.cfg.FileTools
-	if execCtx != nil {
-		if workspaceRoot := filetools.SessionWorkspaceRoot(execCtx.Session); workspaceRoot != "" {
-			cfg.WorkingDirectory = workspaceRoot
-		}
-	}
-	return cfg
+func (t *RuntimeToolExecutor) sessionFileToolsConfig(_ filetools.AccessMode, _ *ExecutionContext) config.FileToolsConfig {
+	return t.cfg.FileTools
 }
 
 func writeAllowedBySessionWorkspace(execCtx *ExecutionContext, path string) bool {
 	if execCtx == nil {
 		return false
 	}
-	return filetools.PathInSessionWorkspace(execCtx.Session, path)
+	return filetools.PathInSessionWorkspace(execCtx.Session, path) ||
+		filetools.PathInSessionChat(execCtx.Session, path)
 }
 
 func writeAllowedBySessionHostAccess(execCtx *ExecutionContext, path string) bool {
@@ -573,10 +571,9 @@ func writeAllowedBySessionHostAccess(execCtx *ExecutionContext, path string) boo
 	return filetools.PathInSessionHostWriteRoot(execCtx.Session, path)
 }
 
-func accessPolicySessionWithFallback(execCtx *ExecutionContext, fallbackWorkspace string) QuerySession {
-	fallbackWorkspace = strings.TrimSpace(fallbackWorkspace)
+func accessPolicySession(execCtx *ExecutionContext) QuerySession {
 	if execCtx == nil {
-		return QuerySession{WorkspaceRoot: fallbackWorkspace}
+		return QuerySession{}
 	}
 	if execCtx.RunControl != nil {
 		if accessLevel, _ := execCtx.RunControl.AccessLevelSnapshot(); strings.TrimSpace(accessLevel) != "" {
@@ -587,10 +584,6 @@ func accessPolicySessionWithFallback(execCtx *ExecutionContext, fallbackWorkspac
 	session := execCtx.Session
 	if strings.TrimSpace(session.AccessLevel) == "" {
 		session.AccessLevel = execCtx.AccessLevel
-	}
-	if strings.TrimSpace(session.WorkspaceRoot) == "" && strings.TrimSpace(session.RuntimeContext.LocalPaths.WorkspaceDir) == "" && fallbackWorkspace != "" {
-		session.WorkspaceRoot = fallbackWorkspace
-		session.RuntimeContext.LocalPaths.WorkspaceDir = fallbackWorkspace
 	}
 	return session
 }
@@ -937,6 +930,16 @@ func addLineNumbers(content string, startLine int) string {
 
 func fileToolError(code string, message string) ToolExecutionResult {
 	return fileToolErrorWithFields(code, message, nil)
+}
+
+func filePathResolutionError(defaultCode string, err error) ToolExecutionResult {
+	if err != nil && strings.Contains(err.Error(), "workspace_unavailable") {
+		return fileToolError("workspace_unavailable", err.Error())
+	}
+	if err == nil {
+		return fileToolError(defaultCode, "")
+	}
+	return fileToolError(defaultCode, err.Error())
 }
 
 func fileToolErrorWithFields(code string, message string, fields map[string]any) ToolExecutionResult {

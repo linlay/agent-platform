@@ -322,7 +322,6 @@ func searchMessageText(msg map[string]any) string {
 			parts = append(parts,
 				stringValue(call["id"]),
 				stringValue(call["_toolId"]),
-				stringValue(call["_actionId"]),
 				stringValue(function["name"]),
 				stringValue(function["arguments"]),
 			)

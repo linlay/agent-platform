@@ -2,7 +2,6 @@ package platformconfig
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 
 	agentcoder "agent-platform/internal/agent/coder"
@@ -212,12 +211,19 @@ func hasErrorDiagnostic(diagnostics []map[string]any) bool {
 }
 
 func successResult(payload map[string]any) contracts.ToolExecutionResult {
-	data, _ := json.Marshal(payload)
-	return contracts.ToolExecutionResult{Output: string(data), Structured: payload, ExitCode: 0}
+	return contracts.ToolExecutionResult{
+		Output:     contracts.CompactToolModelOutput(payload, ""),
+		Structured: payload,
+		ExitCode:   0,
+	}
 }
 
 func errorResult(code string, message string) contracts.ToolExecutionResult {
 	payload := map[string]any{"error": code, "message": strings.TrimSpace(message)}
-	data, _ := json.Marshal(payload)
-	return contracts.ToolExecutionResult{Output: string(data), Structured: payload, Error: code, ExitCode: -1}
+	return contracts.ToolExecutionResult{
+		Output:     contracts.CompactToolModelOutput(payload, ""),
+		Structured: payload,
+		Error:      code,
+		ExitCode:   -1,
+	}
 }

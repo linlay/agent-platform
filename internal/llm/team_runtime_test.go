@@ -9,13 +9,13 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/frontendtools"
+	"agent-platform/internal/toolinteraction"
 )
 
 func TestPrepareToolCallTeamDelegateEmitsHiddenDispatch(t *testing.T) {
 	members := []contracts.TeamMember{{Key: "writer", Name: "Writer"}, {Key: "reviewer", Name: "Reviewer"}}
 	stream := &llmRunStream{
-		engine: &LLMAgentEngine{tools: stubToolExecutor{}, frontend: frontendtools.NewDefaultRegistry()},
+		engine: &LLMAgentEngine{tools: stubToolExecutor{}, interactions: toolinteraction.NewDefaultRegistry()},
 		session: contracts.QuerySession{
 			RunID:       "run-team",
 			Mode:        agentteam.Mode,
@@ -48,7 +48,7 @@ func TestPrepareToolCallTeamDelegateEmitsHiddenDispatch(t *testing.T) {
 
 func TestPrepareToolCallTeamDelegateValidatesFrozenRoster(t *testing.T) {
 	stream := &llmRunStream{
-		engine: &LLMAgentEngine{tools: stubToolExecutor{}, frontend: frontendtools.NewDefaultRegistry()},
+		engine: &LLMAgentEngine{tools: stubToolExecutor{}, interactions: toolinteraction.NewDefaultRegistry()},
 		session: contracts.QuerySession{
 			RunID:       "run-team",
 			Mode:        agentteam.Mode,
@@ -72,7 +72,7 @@ func TestPrepareToolCallTeamDelegateValidatesFrozenRoster(t *testing.T) {
 
 func TestPrepareToolCallRejectsAgentDelegateOutsideTeam(t *testing.T) {
 	stream := &llmRunStream{
-		engine:  &LLMAgentEngine{tools: stubToolExecutor{}, frontend: frontendtools.NewDefaultRegistry()},
+		engine:  &LLMAgentEngine{tools: stubToolExecutor{}, interactions: toolinteraction.NewDefaultRegistry()},
 		session: contracts.QuerySession{RunID: "run-agent", Mode: "REACT"},
 		execCtx: &contracts.ExecutionContext{},
 	}
@@ -157,7 +157,7 @@ func TestTeamModeUsesAutoProviderToolChoiceAndRetainsMandatoryDelegation(t *test
 		config.Config{},
 		newSystemInitTestModelRegistry(t),
 		stubToolExecutor{defs: []api.ToolDetailResponse{tool}},
-		frontendtools.NewDefaultRegistry(),
+		toolinteraction.NewDefaultRegistry(),
 		contracts.NewNoopSandboxClient(),
 	)
 	session := contracts.QuerySession{

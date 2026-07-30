@@ -21,9 +21,9 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/frontendtools"
 	"agent-platform/internal/llm"
 	"agent-platform/internal/stream"
+	"agent-platform/internal/toolinteraction"
 )
 
 type orchestratorRegistry struct {
@@ -212,7 +212,7 @@ func newTestFrameOrchestratorWithContext(runCtx context.Context, agent contracts
 				WorkspaceRoot: agentDef.Workspace.Root,
 			}, nil
 		},
-		mapper: llm.NewDeltaMapper("run_1", "chat_1", contracts.Budget{Hitl: contracts.HitlPolicy{Timeout: 5}}, nil, frontendtools.NewDefaultRegistry()),
+		mapper: llm.NewDeltaMapper("run_1", "chat_1", contracts.Budget{Hitl: contracts.HitlPolicy{Timeout: 5}}, nil, toolinteraction.NewDefaultRegistry()),
 		emitDelta: func(delta contracts.AgentDelta) {
 			if emitted != nil {
 				*emitted = append(*emitted, delta)
@@ -427,8 +427,8 @@ func TestFrameOrchestratorRunsProxySubAgent(t *testing.T) {
 		t.Fatalf("expected upstream proxy chatId override, got %#v", upstreamPayload)
 	}
 	params, _ := upstreamPayload["params"].(map[string]any)
-	if params["cwd"] != workspace {
-		t.Fatalf("expected proxy child cwd from workspace root, got %#v", upstreamPayload)
+	if _, ok := params["cwd"]; ok {
+		t.Fatalf("remote proxy adapter must not receive a host cwd, got %#v", upstreamPayload)
 	}
 	if _, ok := upstreamPayload["stream"]; ok {
 		t.Fatalf("did not expect proxy child payload to force stream flag: %#v", upstreamPayload)
@@ -486,7 +486,7 @@ func TestFrameOrchestratorMaterializesProxySubAgentFiles(t *testing.T) {
 				SubAgentKey: "remote",
 				TaskText:    "read the draft",
 				TaskName:    "远端阅读",
-				Files:       []string{"/workspace/draft.md"},
+				Files:       []string{"/chat/draft.md"},
 			}),
 		},
 	}
@@ -519,7 +519,10 @@ func TestFrameOrchestratorMaterializesProxySubAgentFiles(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected reference map, got %#v", refs[0])
 	}
-	if ref["path"] != "/workspace/draft.md" || ref["name"] != "draft.md" {
+	if ref["path"] != nil && ref["path"] != "" {
+		t.Fatalf("remote reference must not expose a local execution path: %#v", ref)
+	}
+	if ref["name"] != "draft.md" {
 		t.Fatalf("unexpected reference metadata %#v", ref)
 	}
 	refURL, _ := ref["url"].(string)
@@ -1147,7 +1150,7 @@ func TestSubTaskReactStepPersistsContentMessage(t *testing.T) {
 	}
 	child := &stubOrchestratableStream{finalText: "马到成功"}
 	assembler := stream.NewAssembler(stream.StreamRequest{RunID: "run_1", ChatID: "chat_1"})
-	mapper := llm.NewDeltaMapper("run_1", "chat_1", contracts.Budget{Hitl: contracts.HitlPolicy{Timeout: 5}}, nil, frontendtools.NewDefaultRegistry())
+	mapper := llm.NewDeltaMapper("run_1", "chat_1", contracts.Budget{Hitl: contracts.HitlPolicy{Timeout: 5}}, nil, toolinteraction.NewDefaultRegistry())
 	writer := chat.NewStepWriter(store, "chat_1", "run_1", "react")
 	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{streams: []contracts.AgentStream{child}}, map[string]catalog.AgentDefinition{
 		"writer": {Key: "writer", Name: "Writer", Mode: "REACT"},

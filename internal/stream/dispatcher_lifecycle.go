@@ -64,22 +64,14 @@ func (d *StreamEventDispatcher) closeForSwitch(next string, taskID string) []Str
 	case "reasoning":
 		events := d.closeContentScope(scope)
 		events = append(events, d.closeAllToolsForScope(scope)...)
-		events = append(events, d.closeAllActionsForScope(scope)...)
 		return events
 	case "content":
 		events := d.closeReasoningScope(scope)
 		events = append(events, d.closeAllToolsForScope(scope)...)
-		events = append(events, d.closeAllActionsForScope(scope)...)
 		return events
 	case "tool":
 		events := d.closeReasoningScope(scope)
 		events = append(events, d.closeContentScope(scope)...)
-		events = append(events, d.closeAllActionsForScope(scope)...)
-		return events
-	case "action":
-		events := d.closeReasoningScope(scope)
-		events = append(events, d.closeContentScope(scope)...)
-		events = append(events, d.closeAllToolsForScope(scope)...)
 		return events
 	default:
 		return d.closeOpenBlocks()
@@ -208,7 +200,6 @@ func (d *StreamEventDispatcher) closeOpenBlocks() []StreamEvent {
 	events := d.closeReasoning()
 	events = append(events, d.closeContent()...)
 	events = append(events, d.closeAllTools()...)
-	events = append(events, d.closeAllActions()...)
 	return events
 }
 
@@ -217,7 +208,6 @@ func (d *StreamEventDispatcher) closeOpenBlocksForTask(taskID string) []StreamEv
 	events := d.closeReasoningScope(scope)
 	events = append(events, d.closeContentScope(scope)...)
 	events = append(events, d.closeAllToolsForScope(scope)...)
-	events = append(events, d.closeAllActionsForScope(scope)...)
 	return events
 }
 

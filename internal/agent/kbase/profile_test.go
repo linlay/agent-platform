@@ -51,12 +51,12 @@ func TestEditingProfileUsesIndependentStageCacheAndExactTools(t *testing.T) {
 
 func TestEditingPromptUsesAccessPolicyAndAsynchronousIndexing(t *testing.T) {
 	prompt := RenderSystemPrompt(contracts.QuerySession{
-		Mode:            Mode,
-		EditingMode:     true,
-		KBaseSourceRoot: "/knowledge",
-		ToolNames:       EditingToolNames(),
+		Mode:          Mode,
+		EditingMode:   true,
+		WorkspaceRoot: "/knowledge",
+		ToolNames:     EditingToolNames(),
 		RuntimeContext: contracts.RuntimeRequestContext{
-			LocalPaths: contracts.LocalPaths{ChatAttachmentsDir: "/runtime/chats/chat-1"},
+			LocalPaths: contracts.LocalPaths{WorkspaceDir: "/knowledge", ChatDir: "/runtime/chats/chat-1"},
 		},
 	}, api.QueryRequest{Message: "update policy"}, EditingToolNames(), EditingStage)
 	for _, want := range []string{
@@ -64,7 +64,7 @@ func TestEditingPromptUsesAccessPolicyAndAsynchronousIndexing(t *testing.T) {
 		"/runtime/chats/chat-1",
 		"file_edit",
 		"AccessPolicy",
-		"knowledge source is the workspace",
+		"configured Workspace is the knowledge root",
 		"explicit current chat directory path",
 		"directory watcher",
 		"does not mean the change is immediately searchable",
@@ -79,13 +79,13 @@ func TestEditingPromptUsesAccessPolicyAndAsynchronousIndexing(t *testing.T) {
 
 func TestMainPromptDefinesSourceWorkspaceAndWritableChatDirectory(t *testing.T) {
 	prompt := RenderSystemPrompt(contracts.QuerySession{
-		Mode:            Mode,
-		KBaseSourceRoot: "/knowledge",
-		ToolNames:       DefaultToolNames(),
+		Mode:          Mode,
+		WorkspaceRoot: "/knowledge",
+		ToolNames:     DefaultToolNames(),
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{
-				WorkspaceDir:       "/knowledge",
-				ChatAttachmentsDir: "/runtime/chats/chat-1",
+				WorkspaceDir: "/knowledge",
+				ChatDir:      "/runtime/chats/chat-1",
 			},
 		},
 	}, api.QueryRequest{Message: "write a report"}, DefaultToolNames(), MainStage)

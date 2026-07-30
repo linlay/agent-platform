@@ -1,15 +1,16 @@
 # Windows tool runtime config. Copy to configs/tools.yml to customize locally.
 
 access-policy:
-  working-directory: "@workspace"
   levels:
     default:
       read-roots:
         - "@workspace"
+        - "@chat"
         - "@agent"
         - "@skills"
       write-roots:
         - "@workspace"
+        - "@chat"
       readonly-roots:
         - "@agent"
         - "@skills"
@@ -25,7 +26,7 @@ access-policy:
       inherit: default
       approvals:
         read-outside-roots: auto
-        write-outside-roots: auto
+        write-outside-roots: hitl
         bash-complex-filesystem: auto
         bash-opaque-command: auto
         bash-write-in-write-roots: allow
@@ -44,7 +45,6 @@ access-policy:
         bash-write-in-write-roots: allow
 
 bash:
-  working-directory: .
   allowed-commands: '*'
   shell-features-enabled: true
   shell-executable: powershell.exe
@@ -72,7 +72,6 @@ sandbox-bash:
     audit-auto-approvals: true
 
 file-tools:
-  working-directory: .
   max-read-bytes: 1048576
   max-write-bytes: 1048576
   max-batch-ops: 20
