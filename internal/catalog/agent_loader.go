@@ -27,8 +27,18 @@ func resolveDirectoryAgentConfig(dirPath string) string {
 }
 
 func loadAgentsWithAdmin(root, marketDir, chatsDir string, globalMemoryEnabled bool) (map[string]AgentDefinition, map[string]AdminAgent, error) {
+	ruAgentsDir := filepath.Join(filepath.Dir(filepath.Clean(root)), "ru-agents")
+	assembler, err := newRuntimeAgentAssembler(ruAgentsDir, marketDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	return loadAgentsWithAdminAssembler(root, marketDir, chatsDir, globalMemoryEnabled, assembler)
+}
+
+func loadAgentsWithAdminAssembler(root, marketDir, chatsDir string, globalMemoryEnabled bool, assembler *runtimeAgentAssembler) (map[string]AgentDefinition, map[string]AdminAgent, error) {
 	items := map[string]AgentDefinition{}
 	adminItems := map[string]AdminAgent{}
+	expectedRuntimeAgents := map[string]struct{}{}
 	err := visitRuntimeEntries(
 		root,
 		func(root string) {
@@ -38,20 +48,32 @@ func loadAgentsWithAdmin(root, marketDir, chatsDir string, globalMemoryEnabled b
 			return !strings.HasPrefix(name, ".") && ShouldLoadRuntimeName(name)
 		},
 		func(name string, entry os.DirEntry) {
+			if source, ok := runtimeAgentSource(root, name, entry); ok {
+				key := adminAgentFallbackKey(source)
+				if definition, err := readAdminAgentDefinitionMap(source.Path); err == nil {
+					key = adminAgentKey(source, key, definition)
+				}
+				if validRuntimeComponent(key) {
+					expectedRuntimeAgents[key] = struct{}{}
+				}
+			}
 			// Individual Agent definitions are isolated: loadAgentSourceIntoMaps
 			// records diagnostics and preserves an invalid AdminAgent entry when
 			// parsing or validation fails, while valid Agents remain available.
 			// Root traversal failures are still returned by visitRuntimeEntries.
-			_ = loadAgentSourceIntoMaps(root, name, entry, marketDir, chatsDir, globalMemoryEnabled, items, adminItems)
+			_ = loadAgentSourceIntoMaps(root, name, entry, marketDir, chatsDir, globalMemoryEnabled, assembler, items, adminItems)
 		},
 	)
 	if err != nil {
 		return nil, nil, err
 	}
+	if err := assembler.cleanupDeleted(expectedRuntimeAgents); err != nil {
+		log.Printf("[catalog][agents] cleanup deleted runtime agents: %v", err)
+	}
 	return items, adminItems, nil
 }
 
-func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, marketDir, chatsDir string, globalMemoryEnabled bool, items map[string]AgentDefinition, adminItems map[string]AdminAgent) error {
+func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, marketDir, chatsDir string, globalMemoryEnabled bool, assembler *runtimeAgentAssembler, items map[string]AgentDefinition, adminItems map[string]AdminAgent) error {
 	source, ok := runtimeAgentSource(root, name, entry)
 	if !ok {
 		return nil
@@ -76,15 +98,6 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, market
 		adminItems[fallbackKey] = invalidAdminAgent(source, fallbackKey, definition, "key_mismatch", err)
 		return err
 	}
-	if source.Kind == "directory" {
-		loadAgentPrompts(source.AgentDir, &def, definition)
-		def.AgentDir = source.AgentDir
-		if marketDir != "" && len(def.Skills) > 0 {
-			if err := reconcileDeclaredSkills(source.AgentDir, def.Skills, marketDir); err != nil {
-				log.Printf("[catalog][skills] sync %s: %v", def.Key, err)
-			}
-		}
-	}
 	if def.KBaseConfig.Enabled {
 		if err := kbase.ValidateWorkspaceChatsSeparation(def.Workspace.Root, chatsDir); err != nil {
 			log.Printf("[catalog][agents] skip %s %s: KBASE workspace/chats overlap: %v", source.Kind, name, err)
@@ -104,6 +117,16 @@ func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, market
 			return err
 		}
 	}
+	runtimeDir, err := assembler.assemble(source, def)
+	if err != nil {
+		code := runtimeAgentAssemblyDiagnosticCode(err)
+		log.Printf("[catalog][agents] skip %s %s: runtime assembly failed: %v", source.Kind, name, err)
+		adminItems[adminKey] = invalidAdminAgent(source, adminKey, definition, code, err)
+		return err
+	}
+	def.AgentDir = source.AgentDir
+	def.RuntimeDir = runtimeDir
+	loadAgentPrompts(runtimeDir, &def, definition)
 	def = applyGlobalAgentFlags(def, globalMemoryEnabled)
 	items[def.Key] = def
 	adminItems[def.Key] = readyAdminAgent(def, source, definition)

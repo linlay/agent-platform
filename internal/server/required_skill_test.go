@@ -11,7 +11,8 @@ import (
 
 func TestResolveRequiredSkillKeysRequiresConfiguredResolvableSkill(t *testing.T) {
 	marketDir := t.TempDir()
-	skillDir := filepath.Join(marketDir, "design")
+	runtimeDir := t.TempDir()
+	skillDir := filepath.Join(runtimeDir, "skills", "design")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatalf("mkdir skill: %v", err)
 	}
@@ -19,8 +20,9 @@ func TestResolveRequiredSkillKeysRequiresConfiguredResolvableSkill(t *testing.T)
 		t.Fatalf("write skill: %v", err)
 	}
 	def := catalog.AgentDefinition{
-		Key:    "coder",
-		Skills: []string{"design"},
+		Key:        "coder",
+		RuntimeDir: runtimeDir,
+		Skills:     []string{"design"},
 	}
 
 	got, err := resolveRequiredSkillKeys(def, marketDir, []string{" design ", "DESIGN"})

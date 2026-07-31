@@ -8,7 +8,7 @@
 
 - 已具备独立 HTTP 服务、统一 JSON 包裹与 `POST /api/query` 真流式 SSE。
 - 已具备 chat 摘要、事件流、raw messages、上传资源落盘、归档与搜索。
-- 已具备目录驱动的 agents / teams / skills / tools catalog。
+- 已具备目录驱动的 agents / teams / skills / tools catalog，并在 Catalog 发布前将 Agent 定义、Agent 自有 Skill、市场 Skill 和 `.config` 组装到稳定的 `ru-agents/<agentKey>` 执行目录。
 - 已具备 OpenAI / Anthropic 协议模型调用、统一 Tool、Container Hub sandbox 与 tools。
 - 已具备由 `build/builtins/<os>-<arch>/` cache 固定、校验并随服务包分发的 Host builtins（rg/dbx/httpx/kbase-lance-engine/poppler-pdftotext）；`file_grep/file_glob` 稳定包装 rg，dbx/httpx 保持 CLI，KBASE PDF 默认调用 Poppler `pdftotext` launcher。
 - 已具备 HITL question / approval / form、运行中 submit / steer / interrupt 协议入口。
@@ -162,6 +162,7 @@ make test
 ## 9. 已知约束与注意事项
 
 - `configs/` 下配置启动时读取，运行中修改需要重启 runtime。
+- `agents/` 与 `skills-market/` 是可编辑事实源；Query、Terminal、Host Tool、Container Hub 与 Skill runtime 只使用 Platform 生成的 `ru-agents/`。该目录不提交、不打包、不允许人工编辑；Agent/Skill 热重载会重组稳定目录。
 - `POST /api/query` 默认逐事件 flush；启用 `configs/runtime.yml -> h2a.render.*` 缓冲后，客户端看到的输出可能不再逐事件抵达。
 - WebSocket 是控制面，浏览器/普通客户端文件字节仍走 `POST /api/upload` 和 `GET /api/resource`。
 - `runtimeConfig.env` 不会通过 catalog API 回显，避免泄露代理、凭据或私有 endpoint。
@@ -180,6 +181,7 @@ make test
 ## 特色功能文档索引
 
 - [智能体配置说明](docs/智能体配置说明.md)：agent / team / skill 定义、CODER、KBASE、目录式 Team、prompt files、memoryConfig、runtimeConfig。
+- [Agent运行时组装](docs/Agent运行时组装.md)：`ru-agents`、Agent 自有/市场 Skill 选择、`.config` 冲突与热重载。
 - [配置化说明](docs/配置化说明.md)：环境变量、`configs/*.yml`、默认值、优先级、废弃变量。
 - [工具目录权限](docs/工具目录权限.md)：Bash、FileTools、allowed paths、越权审批、读后写闭环。
 - [真流式和H2A](docs/真流式和H2A.md)：SSE、heartbeat、`[DONE]`、attach、backlog、H2A 缓冲。

@@ -13,7 +13,7 @@ func TestTerminalEnvironmentUsesReservedAgentAndChatContext(t *testing.T) {
 	workspaceDir := filepath.Join("/projects", "reader")
 	chatDir := filepath.Join("/runtime", "chats", "chat-a")
 	entries := terminalEnvironment(catalog.AgentDefinition{
-		AgentDir: agentDir,
+		RuntimeDir: agentDir,
 		Runtime: map[string]any{
 			"env": map[string]string{"HTTP_PROXY": "http://proxy"},
 		},
@@ -44,7 +44,7 @@ func TestTerminalEnvironmentRejectsRuntimeOverridesByApplyingPlatformContextLast
 	workspaceDir := filepath.Join("/projects", "reader")
 	chatDir := filepath.Join("/runtime", "chats", "chat-a")
 	got := terminalEnvironmentValues(terminalEnvironment(catalog.AgentDefinition{
-		AgentDir: agentDir,
+		RuntimeDir: agentDir,
 		Runtime: map[string]any{
 			"env": map[string]string{
 				"AP_AGENT_CONFIG_HOME": "/custom",

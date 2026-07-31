@@ -14,6 +14,7 @@ coverage.out
 
 # Runtime generated directories (generated/overridden locally)
 /runtime/
+/ru-agents/
 /run/
 /agents/
 /teams/

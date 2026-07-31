@@ -46,6 +46,9 @@ func TestLoadDefaults(t *testing.T) {
 				if cfg.Paths.ToolsDir != filepath.Join("runtime", "tools") {
 					t.Fatalf("unexpected tools dir: %q", cfg.Paths.ToolsDir)
 				}
+				if cfg.Paths.RUAgentsDir != ProjectFile(filepath.Join("runtime", "ru-agents")) {
+					t.Fatalf("unexpected ru-agents dir: %q", cfg.Paths.RUAgentsDir)
+				}
 				if cfg.Paths.KBaseDir != filepath.Join("runtime", "kbase") {
 					t.Fatalf("unexpected kbase dir: %q", cfg.Paths.KBaseDir)
 				}
@@ -1516,6 +1519,7 @@ func TestLoadRuntimePathsFromYAML(t *testing.T) {
 		"  tools-dir: var/yaml-tools\n" +
 		"  owner-dir: var/yaml-owner\n" +
 		"  agents-dir: var/yaml-agents\n" +
+		"  ru-agents-dir: var/yaml-ru-agents\n" +
 		"  teams-dir: var/yaml-teams\n" +
 		"  root-dir: var/yaml-root\n" +
 		"  automations-dir: var/yaml-automations\n" +
@@ -1542,6 +1546,10 @@ func TestLoadRuntimePathsFromYAML(t *testing.T) {
 				}
 				if cfg.Paths.AgentsDir != filepath.Join("var", "yaml-agents") {
 					t.Fatalf("unexpected agents dir: %q", cfg.Paths.AgentsDir)
+				}
+				wantRUAgentsDir := ProjectFile(filepath.Join("var", "yaml-ru-agents"))
+				if cfg.Paths.RUAgentsDir != wantRUAgentsDir {
+					t.Fatalf("unexpected ru-agents dir: %q", cfg.Paths.RUAgentsDir)
 				}
 				if cfg.Paths.TeamsDir != filepath.Join("var", "yaml-teams") {
 					t.Fatalf("unexpected teams dir: %q", cfg.Paths.TeamsDir)
@@ -1579,6 +1587,53 @@ func TestLoadRuntimePathsFromYAML(t *testing.T) {
 			})
 		})
 	})
+}
+
+func TestRUAgentsDirHasNoDedicatedEnvironmentOverride(t *testing.T) {
+	t.Setenv("AP_RUNTIME_RU_AGENTS_DIR", filepath.Join(t.TempDir(), "ignored"))
+	withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), nil, func() {
+		withProjectFileContents(t, filepath.Join("configs", "kbase-settings.yml"), nil, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(cfg.Paths.RUAgentsDir, "ignored") {
+				t.Fatalf("unexpected dedicated environment override: %q", cfg.Paths.RUAgentsDir)
+			}
+		})
+	})
+}
+
+func TestValidateRUAgentsDirRejectsOverlapAndFilesystemRoot(t *testing.T) {
+	root := t.TempDir()
+	base := PathsConfig{
+		AgentsDir:       filepath.Join(root, "agents"),
+		TeamsDir:        filepath.Join(root, "teams"),
+		SkillsMarketDir: filepath.Join(root, "skills-market"),
+		ChatsDir:        filepath.Join(root, "chats"),
+		MemoryDir:       filepath.Join(root, "memory"),
+		KBaseDir:        filepath.Join(root, "kbase"),
+	}
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "same", path: base.AgentsDir, want: "agents-dir"},
+		{name: "contains source", path: root, want: "agents-dir"},
+		{name: "inside source", path: filepath.Join(base.AgentsDir, "generated"), want: "agents-dir"},
+		{name: "filesystem root", path: string(filepath.Separator), want: "filesystem root"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			paths := base
+			paths.RUAgentsDir = tc.path
+			err := validateRUAgentsDir(paths)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("validateRUAgentsDir(%q) = %v, want %q", tc.path, err, tc.want)
+			}
+		})
+	}
 }
 
 func TestLoadRuntimeDirAllowsCommonDirectoryOverrides(t *testing.T) {

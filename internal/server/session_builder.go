@@ -160,7 +160,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	workspaceAgentsPrompt, err := agentcoder.LoadWorkspacePrompt(agentcoder.WorkspacePromptPolicy{
 		Mode:                    agentDef.Mode,
 		ACPBridgeID:             agentDef.ACPBridgeID,
-		AgentDir:                agentDef.AgentDir,
+		AgentDir:                agentDef.RuntimeDir,
 		WorkspaceRoot:           resolvedWorkspaceRoot,
 		ProjectPromptFiles:      coderProjectPromptFiles(agentDef.Project.PromptFiles),
 		WorkspaceAgentsEnabled:  s.deps.Config.CoderSettings.WorkspaceAgents.Enabled,
@@ -171,7 +171,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	}
 	skillHookDirs, runtimeEnvOverrides, err := resolveSkillRuntimeSettings(
 		runtimeAgentEnv(agentDef.Runtime["env"]),
-		agentDef.AgentDir,
+		agentDef.RuntimeDir,
 		s.deps.Config.Paths.SkillsMarketDir,
 		agentDef.Skills,
 	)

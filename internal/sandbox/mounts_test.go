@@ -24,7 +24,7 @@ func TestMountResolverUsesAgentLocalSkillsForRunAndAgentLevels(t *testing.T) {
 			if !ok {
 				t.Fatalf("expected /skills mount, got %#v", mounts)
 			}
-			want := filepath.Join(paths.AgentsDir, "reader", "skills")
+			want := filepath.Join(paths.RUAgentsDir, "reader", "skills")
 			if mount.Source != want {
 				t.Fatalf("skills source = %q, want %q", mount.Source, want)
 			}
@@ -84,7 +84,10 @@ func TestMountResolverRejectsWorkspaceEqualToOrInsideChatsRoot(t *testing.T) {
 
 func TestMountResolverDoesNotFallbackToSkillsMarketWhenAgentSkillsUnavailable(t *testing.T) {
 	paths := mountResolverTestPaths(t, "reader")
-	if err := os.WriteFile(filepath.Join(paths.AgentsDir, "reader", "skills"), []byte("not a dir"), 0o644); err != nil {
+	if err := os.RemoveAll(filepath.Join(paths.RUAgentsDir, "reader", "skills")); err != nil {
+		t.Fatalf("remove skills fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(paths.RUAgentsDir, "reader", "skills"), []byte("not a dir"), 0o644); err != nil {
 		t.Fatalf("write skills file fixture: %v", err)
 	}
 	resolver := NewContainerHubMountResolver(paths)
@@ -150,14 +153,14 @@ func TestMountResolverIgnoresNonAllowlistedPathEnv(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected /agent mount, got %#v", mounts)
 	}
-	if want := filepath.Join(paths.AgentsDir, "reader"); agentMount.Source != want {
+	if want := filepath.Join(paths.RUAgentsDir, "reader"); agentMount.Source != want {
 		t.Fatalf("agent source = %q, want %q", agentMount.Source, want)
 	}
 	skillsMount, ok := mountByDestination(mounts, "/skills")
 	if !ok {
 		t.Fatalf("expected /skills mount, got %#v", mounts)
 	}
-	if want := filepath.Join(paths.AgentsDir, "reader", "skills"); skillsMount.Source != want {
+	if want := filepath.Join(paths.RUAgentsDir, "reader", "skills"); skillsMount.Source != want {
 		t.Fatalf("skills source = %q, want %q", skillsMount.Source, want)
 	}
 }
@@ -240,13 +243,14 @@ func mountResolverTestPaths(t *testing.T, agentKey string) config.PathsConfig {
 	paths := config.PathsConfig{
 		ChatsDir:        filepath.Join(root, "chats"),
 		AgentsDir:       filepath.Join(root, "agents"),
+		RUAgentsDir:     filepath.Join(root, "ru-agents"),
 		OwnerDir:        filepath.Join(root, "owner"),
 		MemoryDir:       filepath.Join(root, "memory"),
 		SkillsMarketDir: filepath.Join(root, "skills-market"),
 	}
 	for _, dir := range []string{
 		paths.ChatsDir,
-		filepath.Join(paths.AgentsDir, agentKey),
+		filepath.Join(paths.RUAgentsDir, agentKey, "skills"),
 		paths.OwnerDir,
 		paths.MemoryDir,
 		paths.SkillsMarketDir,

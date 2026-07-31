@@ -262,7 +262,7 @@ type platformMountDefinition struct {
 func (r *ContainerHubMountResolver) platformMountDef(platform string, agentKey string) (platformMountDefinition, bool) {
 	defs := map[string]platformMountDefinition{
 		"agent":         {destination: "/agent", overrideOnly: true},
-		"agents":        {destination: "/agents", source: func() (string, error) { return hostPath("AGENTS_DIR", r.paths.AgentsDir) }},
+		"agents":        {destination: "/agents", source: func() (string, error) { return hostPath("RU_AGENTS_DIR", r.paths.EffectiveRUAgentsDir()) }},
 		"memory":        {destination: "/memory", overrideOnly: true},
 		"mcp-servers":   {destination: "/mcp-servers", source: func() (string, error) { return r.registryChildSource("mcp-servers") }},
 		"models":        {destination: "/models", source: func() (string, error) { return r.registryChildSource("models") }},
@@ -349,14 +349,14 @@ func (r *ContainerHubMountResolver) skillsSource(agentKey string, level string) 
 	if strings.EqualFold(level, "global") {
 		return "", nil
 	}
-	agentDir, err := hostPath("AGENTS_DIR", r.paths.AgentsDir)
+	agentDir, err := hostPath("RU_AGENTS_DIR", r.paths.EffectiveRUAgentsDir())
 	if err != nil {
 		return "", fmt.Errorf("container-hub mount validation failed for skills-dir: %w", err)
 	}
 	if agentKey != "" {
 		localSkills := filepath.Join(agentDir, agentKey, "skills")
-		if err := os.MkdirAll(localSkills, 0o755); err != nil {
-			return "", fmt.Errorf("container-hub mount validation failed for skills-dir: %w", err)
+		if err := validateMountDirectory("skills-dir", localSkills, "/skills"); err != nil {
+			return "", err
 		}
 		return localSkills, nil
 	}
@@ -364,12 +364,12 @@ func (r *ContainerHubMountResolver) skillsSource(agentKey string, level string) 
 }
 
 func (r *ContainerHubMountResolver) agentSource(agentKey string) (string, error) {
-	agentsRoot, err := hostPath("AGENTS_DIR", r.paths.AgentsDir)
+	agentsRoot, err := hostPath("RU_AGENTS_DIR", r.paths.EffectiveRUAgentsDir())
 	if err != nil {
 		return "", fmt.Errorf("container-hub mount validation failed for agent-self: %w", err)
 	}
 	if agentsRoot == "" {
-		return "", fmt.Errorf("container-hub mount validation failed for agent-self: AGENTS_DIR is required")
+		return "", fmt.Errorf("container-hub mount validation failed for agent-self: RUAgentsDir is required")
 	}
 	agentDir := filepath.Join(agentsRoot, agentKey)
 	if stat, err := os.Stat(agentDir); err == nil && stat.IsDir() {

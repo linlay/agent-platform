@@ -38,7 +38,7 @@ func TestResolveSkillRuntimeSettingsMergesEnvAndHookDirsInOrder(t *testing.T) {
 	agentDir := t.TempDir()
 	marketDir := t.TempDir()
 	alphaDir := writeSkillRuntimeFixture(t, filepath.Join(agentDir, "skills"), "alpha", `{"NODE_ENV":"development","DEBUG":"1"}`)
-	betaDir := writeSkillRuntimeFixture(t, marketDir, "beta", `{"NODE_ENV":"production","TZ":"UTC"}`)
+	betaDir := writeSkillRuntimeFixture(t, filepath.Join(agentDir, "skills"), "beta", `{"NODE_ENV":"production","TZ":"UTC"}`)
 
 	agentEnv := map[string]string{
 		"NODE_ENV": "test",
@@ -67,12 +67,13 @@ func TestResolveSkillRuntimeSettingsMergesEnvAndHookDirsInOrder(t *testing.T) {
 
 func TestResolveSkillRuntimeSettingsSkipsMissingSkills(t *testing.T) {
 	marketDir := t.TempDir()
-	betaDir := writeSkillRuntimeFixture(t, marketDir, "beta", `{"TZ":"UTC"}`)
+	runtimeDir := t.TempDir()
+	betaDir := writeSkillRuntimeFixture(t, filepath.Join(runtimeDir, "skills"), "beta", `{"TZ":"UTC"}`)
 
 	agentEnv := map[string]string{
 		"HTTP_PROXY": "http://agent",
 	}
-	hookDirs, env, err := resolveSkillRuntimeSettings(agentEnv, "", marketDir, []string{"missing", "beta"})
+	hookDirs, env, err := resolveSkillRuntimeSettings(agentEnv, runtimeDir, marketDir, []string{"missing", "beta"})
 	if err != nil {
 		t.Fatalf("resolveSkillRuntimeSettings() error = %v", err)
 	}
@@ -86,9 +87,10 @@ func TestResolveSkillRuntimeSettingsSkipsMissingSkills(t *testing.T) {
 
 func TestResolveSkillRuntimeSettingsSupportsHyphenatedSkillIDs(t *testing.T) {
 	marketDir := t.TempDir()
-	platformAdminDir := writeSkillRuntimeFixture(t, marketDir, "platform-admin", `{"DANGEROUS_COMMANDS":"1"}`)
+	runtimeDir := t.TempDir()
+	platformAdminDir := writeSkillRuntimeFixture(t, filepath.Join(runtimeDir, "skills"), "platform-admin", `{"DANGEROUS_COMMANDS":"1"}`)
 
-	hookDirs, env, err := resolveSkillRuntimeSettings(nil, "", marketDir, []string{"platform-admin"})
+	hookDirs, env, err := resolveSkillRuntimeSettings(nil, runtimeDir, marketDir, []string{"platform-admin"})
 	if err != nil {
 		t.Fatalf("resolveSkillRuntimeSettings() error = %v", err)
 	}

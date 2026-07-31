@@ -442,12 +442,13 @@ func sandboxTestPaths(t *testing.T, agentKey string) config.PathsConfig {
 	t.Helper()
 	root := t.TempDir()
 	paths := config.PathsConfig{
-		ChatsDir:  filepath.Join(root, "chats"),
-		AgentsDir: filepath.Join(root, "agents"),
-		OwnerDir:  filepath.Join(root, "owner"),
-		MemoryDir: filepath.Join(root, "memory"),
+		ChatsDir:    filepath.Join(root, "chats"),
+		AgentsDir:   filepath.Join(root, "agents"),
+		RUAgentsDir: filepath.Join(root, "ru-agents"),
+		OwnerDir:    filepath.Join(root, "owner"),
+		MemoryDir:   filepath.Join(root, "memory"),
 	}
-	if err := os.MkdirAll(filepath.Join(paths.AgentsDir, agentKey), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(paths.RUAgentsDir, agentKey, "skills"), 0o755); err != nil {
 		t.Fatalf("create test agent dir: %v", err)
 	}
 	if err := os.MkdirAll(sandboxWorkspace(paths), 0o755); err != nil {

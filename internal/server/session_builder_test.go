@@ -616,10 +616,11 @@ func TestBuildQuerySessionLoadsConfiguredProjectPromptsForCoder(t *testing.T) {
 		t.Fatalf("write agent AGENTS.md: %v", err)
 	}
 	def := catalog.AgentDefinition{
-		Key:      "coder-app",
-		Mode:     catalog.AgentModeCoder,
-		ModelKey: "mock-model",
-		AgentDir: agentDir,
+		Key:        "coder-app",
+		Mode:       catalog.AgentModeCoder,
+		ModelKey:   "mock-model",
+		AgentDir:   filepath.Join(root, "agents", "coder-app"),
+		RuntimeDir: agentDir,
 		Workspace: catalog.AgentWorkspaceConfig{
 			Root: workspace,
 		},

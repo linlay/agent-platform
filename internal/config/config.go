@@ -64,6 +64,7 @@ type PathsConfig struct {
 	ToolsDir        string
 	OwnerDir        string
 	AgentsDir       string
+	RUAgentsDir     string
 	TeamsDir        string
 	RootDir         string
 	AutomationsDir  string
@@ -72,6 +73,19 @@ type PathsConfig struct {
 	KBaseDir        string
 	PanDir          string
 	SkillsMarketDir string
+}
+
+// EffectiveRUAgentsDir returns the configured assembled Agent root. The
+// sibling fallback keeps programmatic Config construction aligned with the
+// default produced by Load; loaded configuration always has RUAgentsDir set.
+func (p PathsConfig) EffectiveRUAgentsDir() string {
+	if value := strings.TrimSpace(p.RUAgentsDir); value != "" {
+		return value
+	}
+	if agentsDir := strings.TrimSpace(p.AgentsDir); agentsDir != "" {
+		return filepath.Join(filepath.Dir(filepath.Clean(agentsDir)), "ru-agents")
+	}
+	return ""
 }
 
 type CatalogConfig struct {
@@ -618,7 +632,74 @@ func Load(optionValues ...LoadOptions) (Config, error) {
 	if err := validateExplicitDirEnv("AP_RUNTIME_PAN_DIR", cfg.Paths.PanDir); err != nil {
 		return Config{}, err
 	}
+	if err := validateRUAgentsDir(cfg.Paths); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
+}
+
+func validateRUAgentsDir(paths PathsConfig) error {
+	runtimeDir, err := filepath.Abs(filepath.Clean(strings.TrimSpace(paths.RUAgentsDir)))
+	if err != nil || strings.TrimSpace(paths.RUAgentsDir) == "" {
+		if err != nil {
+			return fmt.Errorf("resolve paths.ru-agents-dir: %w", err)
+		}
+		return fmt.Errorf("paths.ru-agents-dir must not be empty")
+	}
+	if runtimeDir == filepath.Clean(string(filepath.Separator)) || runtimeDir == filepath.VolumeName(runtimeDir)+string(filepath.Separator) {
+		return fmt.Errorf("paths.ru-agents-dir must not be a filesystem root")
+	}
+	for name, candidate := range map[string]string{
+		"registries-dir":    paths.RegistriesDir,
+		"tools-dir":         paths.ToolsDir,
+		"owner-dir":         paths.OwnerDir,
+		"agents-dir":        paths.AgentsDir,
+		"teams-dir":         paths.TeamsDir,
+		"root-dir":          paths.RootDir,
+		"automations-dir":   paths.AutomationsDir,
+		"chats-dir":         paths.ChatsDir,
+		"memory-dir":        paths.MemoryDir,
+		"kbase-dir":         paths.KBaseDir,
+		"pan-dir":           paths.PanDir,
+		"skills-market-dir": paths.SkillsMarketDir,
+	} {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		other, absErr := filepath.Abs(filepath.Clean(candidate))
+		if absErr != nil {
+			return fmt.Errorf("resolve paths.%s: %w", name, absErr)
+		}
+		if pathsOverlap(runtimeDir, other) {
+			return fmt.Errorf("paths.ru-agents-dir must not overlap paths.%s", name)
+		}
+	}
+	return nil
+}
+
+func pathsOverlap(left string, right string) bool {
+	left = filepath.Clean(left)
+	right = filepath.Clean(right)
+	if samePath(left, right) {
+		return true
+	}
+	return pathWithin(left, right) || pathWithin(right, left)
+}
+
+func samePath(left string, right string) bool {
+	if strings.EqualFold(left, right) {
+		return true
+	}
+	return left == right
+}
+
+func pathWithin(path string, root string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return rel != "." && rel != ".." && !filepath.IsAbs(rel) && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func (c Config) ServerAddress() string {

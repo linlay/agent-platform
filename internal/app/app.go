@@ -86,10 +86,11 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		}
 	}
 	log.Printf(
-		"loaded config in %s (registries=%s agents=%s teams=%s skills=%s chats=%s memory=%s)",
+		"loaded config in %s (registries=%s agents=%s ru-agents=%s teams=%s skills=%s chats=%s memory=%s)",
 		startupElapsed(configStartedAt),
 		cfg.Paths.RegistriesDir,
 		cfg.Paths.AgentsDir,
+		cfg.Paths.RUAgentsDir,
 		cfg.Paths.TeamsDir,
 		cfg.Paths.SkillsMarketDir,
 		cfg.Paths.ChatsDir,
@@ -204,8 +205,9 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	registry, err := catalog.NewFileRegistry(cfg, toolExecutor.Definitions())
 	if err != nil {
 		return nil, fmt.Errorf(
-			"load catalog registry (agents=%s teams=%s skills=%s): %w",
+			"load catalog registry (agents=%s ru-agents=%s teams=%s skills=%s): %w",
 			cfg.Paths.AgentsDir,
+			cfg.Paths.RUAgentsDir,
 			cfg.Paths.TeamsDir,
 			cfg.Paths.SkillsMarketDir,
 			err,

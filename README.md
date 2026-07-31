@@ -84,7 +84,7 @@ make build-local
 make run-local
 ```
 
-`make build-local` 只把 runtime 写到 `release-local/backend/agent-platform`，不会变更 `release-local/bin/`。builtin 缺失或本机构建失败由同步脚本失败报告。由于 runtime 位于 `backend/` 下，启动时只扫描服务包根目录的 `plugins/`，与 Desktop 服务包形态一致。`runtime/` 仍只用于 agents、chats、skills-market、registries、memory 等运行数据。
+`make build-local` 只把 runtime 写到 `release-local/backend/agent-platform`，不会变更 `release-local/bin/`。builtin 缺失或本机构建失败由同步脚本失败报告。由于 runtime 位于 `backend/` 下，启动时只扫描服务包根目录的 `plugins/`，与 Desktop 服务包形态一致。`runtime/` 仍只用于 agents、chats、skills-market、registries、memory 等运行数据；Platform 会由 agents 与 skills-market 重建 `ru-agents/` 作为唯一 Agent 执行目录。
 
 常用验证：
 
@@ -180,7 +180,7 @@ Auth 默认开启，默认公钥文件为 `configs/local-public-key.pem`；相�
 
 以下低频项统一改到 `configs/runtime.yml`：
 
-- 低频 runtime 子目录：`paths.owner-dir`、`paths.agents-dir`、`paths.teams-dir`、`paths.root-dir`、`paths.automations-dir`、`paths.skills-market-dir`
+- 低频 runtime 子目录：`paths.owner-dir`、`paths.agents-dir`、`paths.ru-agents-dir`、`paths.teams-dir`、`paths.root-dir`、`paths.automations-dir`、`paths.skills-market-dir`
 - memory 深度调优：`memory.*`
 
 Logging 默认值已经源码化，不提供 runtime YAML 入口；只保留 `AP_DEBUG_LLM_CONSOLE` 和 `AP_DEBUG_LLM_CHAT_RECORD` 作为现场调试 allowlist。LLM 交互日志、memory 参数和内部运行默认值的适用人群和注意事项统一见 [配置化说明](./docs/配置化说明.md)。
@@ -291,15 +291,15 @@ Container Hub 使用严格双根协议，基础挂载包括：
 - `/workspace` -> 当前 Agent 的 canonical `runtimeConfig.workspaceRoot`，`rw`
 - `/chat` -> `AP_RUNTIME_CHATS_DIR/<chatId>`（`rw`）
 - `/root` -> `paths.root-dir`（`rw`）
-- `/skills` -> `paths.agents-dir/<agentKey>/skills`（仅 `run/agent`，`global` 默认不挂载），`ro`
+- `/skills` -> `paths.ru-agents-dir/<agentKey>/skills`（仅 `run/agent`，`global` 默认不挂载），`ro`
 - `/pan` -> `AP_RUNTIME_PAN_DIR`（`rw`）
-- `/agent` -> `paths.agents-dir/<agentKey>`（`ro`，必挂载；目录缺失会 fail-fast）
+- `/agent` -> `paths.ru-agents-dir/<agentKey>`（`ro`，必挂载；目录缺失会 fail-fast）
 - `/owner` -> `paths.owner-dir`（`ro`，目录缺失时自动创建）
 - `/memory` -> `AP_RUNTIME_MEMORY_DIR/<agentKey>`（`ro`，目录缺失时自动创建）
 
 容器 session 与未显式指定 cwd 的命令固定使用 `/workspace`。协议为 `dual-root-v2`。当 ChatsRoot 位于 Workspace 内时，Platform 下发 `/workspace/<ChatsRoot-relative>` mask，Hub 按 Workspace bind → mask tmpfs → current Chat bind 的顺序创建容器，确保 Chat 只从 `/chat` 可见。`/workspace`、`/chat`、mask 及其子路径是保留挂载目标，`runtimeConfig.sandboxMounts` 不能覆盖。session 复用身份包含 environment、canonical Workspace、canonical Chat、mask 和完整 mount fingerprint。
 
-目录型 agent 可在 `<agentDir>/.config/` 保存工具静态配置。平台冻结三个保留变量：`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`。Host/terminal 分别注入真实 Workspace（无 Workspace 时省略）和 Chat；Container 固定注入 `/workspace` 与 `/chat`。agent `runtimeConfig.env`、skill `.runtime-env.json` 与调用级 env 均不得覆盖。HTTPX 的 chat state/secret 位于 `$AP_CHAT_DIR/.state/httpx` 与 `$AP_CHAT_DIR/.secret/httpx`，缺少合法 `AP_CHAT_DIR` 时不回退 global。
+目录型 agent 可在源目录 `.config/` 保存专属覆盖，Skill `.config/` 提供可分发默认值；Platform 合并到 `ru-agents/<agentKey>/.config/`。平台冻结三个保留变量：`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`。Host/terminal 分别注入生成配置目录、真实 Workspace（无 Workspace 时省略）和 Chat；Container 固定注入 `/agent/.config`、`/workspace` 与 `/chat`。agent `runtimeConfig.env`、skill `.runtime-env.json` 与调用级 env 均不得覆盖。HTTPX 的 chat state/secret 位于 `$AP_CHAT_DIR/.state/httpx` 与 `$AP_CHAT_DIR/.secret/httpx`，缺少合法 `AP_CHAT_DIR` 时不回退 global。完整组装、冲突和迁移规则见 [Agent 运行时组装](./docs/Agent运行时组装.md)。
 
 `runtimeConfig.sandboxMounts` 会真实影响 Container Hub session mounts：
 

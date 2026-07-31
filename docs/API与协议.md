@@ -849,7 +849,7 @@ open 成功后先返回 `terminal.opened`，再返回可选 replay output，之�
 
 `detach` 只释放当前 WS 连接上的 terminal subscriber；该 Chat 的 PTY、cwd 与输出回放 buffer 保持不变。`streamRequestId` 必须指向当前 WS 连接上的 terminal stream；如果同时传入 `terminalId`，后端会校验两者绑定关系。浏览器隐藏 terminal 面板、SPA 切换 Chat、组件卸载都应使用 `detach`；新 Chat 使用自己的 `chatId` open，不复用旧 Chat 的 PTY。如果 open 请求已发出但尚未收到 `terminal.opened`，前端可只传 `streamRequestId` 进行预取消。只有用户关闭 terminal tab 时才调用 `/api/terminal/close`，该操作会结束对应 Chat 的 PTY；同样支持在 `terminal.opened` 前仅传 `streamRequestId` 做关闭预取消。
 
-该接口定义为 Workspace Terminal。macOS/Linux 使用 Unix PTY，Windows 使用 ConPTY / PowerShell PTY；cwd 只由 Platform 从 Agent 的最终 Workspace 解析，不信任前端 cwd，也不会回退 Chat。没有 Workspace、Workspace 不存在或不是目录时拒绝打开。terminal 冻结 `AP_AGENT_CONFIG_HOME=<agentDir>/.config`、`AP_WORKSPACE_DIR=<workspace>` 与 `AP_CHAT_DIR=<chatsDir>/<chatId>`。如果未来需要 Chat Terminal，将使用独立显式类型，不复用本接口的 fallback。
+该接口定义为 Workspace Terminal。macOS/Linux 使用 Unix PTY，Windows 使用 ConPTY / PowerShell PTY；cwd 只由 Platform 从 Agent 的最终 Workspace 解析，不信任前端 cwd，也不会回退 Chat。没有 Workspace、Workspace 不存在或不是目录时拒绝打开。terminal 冻结 `AP_AGENT_CONFIG_HOME=<ru-agents>/<agentKey>/.config`、`AP_WORKSPACE_DIR=<workspace>` 与 `AP_CHAT_DIR=<chatsDir>/<chatId>`。如果未来需要 Chat Terminal，将使用独立显式类型，不复用本接口的 fallback。
 
 ## 相关文件
 

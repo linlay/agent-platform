@@ -33,7 +33,7 @@ func TestResolveSandboxPathsLocalModeDisabledHub(t *testing.T) {
 	if paths.RootDir != absTestPath(t, cfg.Paths.RootDir) {
 		t.Fatalf("root dir = %q", paths.RootDir)
 	}
-	if paths.AgentDir != absTestPath(t, def.AgentDir) {
+	if paths.AgentDir != absTestPath(t, def.RuntimeDir) {
 		t.Fatalf("agent dir = %q", paths.AgentDir)
 	}
 	if paths.OwnerDir != absTestPath(t, cfg.Paths.OwnerDir) {
@@ -42,7 +42,7 @@ func TestResolveSandboxPathsLocalModeDisabledHub(t *testing.T) {
 	if paths.MemoryDir != absTestPath(t, cfg.Paths.MemoryDir) {
 		t.Fatalf("memory dir = %q", paths.MemoryDir)
 	}
-	if paths.SkillsDir != absTestPath(t, filepath.Join(def.AgentDir, "skills")) {
+	if paths.SkillsDir != absTestPath(t, filepath.Join(def.RuntimeDir, "skills")) {
 		t.Fatalf("skills dir = %q", paths.SkillsDir)
 	}
 }
@@ -66,7 +66,7 @@ func TestResolveSandboxPathsLocalModeLocalEngine(t *testing.T) {
 	if paths.SkillsMarketDir != absTestPath(t, cfg.Paths.SkillsMarketDir) {
 		t.Fatalf("skills market dir = %q", paths.SkillsMarketDir)
 	}
-	if paths.AgentsDir != absTestPath(t, cfg.Paths.AgentsDir) {
+	if paths.AgentsDir != absTestPath(t, cfg.Paths.RUAgentsDir) {
 		t.Fatalf("agents dir = %q", paths.AgentsDir)
 	}
 	if paths.ModelsDir != absTestPath(t, filepath.Join(cfg.Paths.RegistriesDir, "models")) {
@@ -216,9 +216,10 @@ func TestBuildRuntimeContextLeavesHostWorkspaceUnavailable(t *testing.T) {
 		agentKey: "demo-agent",
 		chatID:   "chat-default",
 		definition: catalog.AgentDefinition{
-			Key:      "demo-agent",
-			Mode:     "REACT",
-			AgentDir: filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
+			Key:        "demo-agent",
+			Mode:       "REACT",
+			AgentDir:   filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
+			RuntimeDir: filepath.Join(cfg.Paths.RUAgentsDir, "demo-agent"),
 		},
 	})
 	if err != nil {
@@ -252,9 +253,10 @@ func TestBuildRuntimeContextKeepsExplicitWorkspaceAndChatDir(t *testing.T) {
 		agentKey: "admin-agent",
 		chatID:   "chat-admin",
 		definition: catalog.AgentDefinition{
-			Key:      "admin-agent",
-			Mode:     "REACT",
-			AgentDir: filepath.Join(cfg.Paths.AgentsDir, "admin-agent"),
+			Key:        "admin-agent",
+			Mode:       "REACT",
+			AgentDir:   filepath.Join(cfg.Paths.AgentsDir, "admin-agent"),
+			RuntimeDir: filepath.Join(cfg.Paths.RUAgentsDir, "admin-agent"),
 			Workspace: catalog.AgentWorkspaceConfig{
 				Root: workspace,
 			},
@@ -292,8 +294,9 @@ func TestBuildRuntimeContextSkipsSandboxContextWhenHubDisabled(t *testing.T) {
 		chatName: "Chat 1",
 		scene:    &api.Scene{URL: "https://example.com"},
 		definition: catalog.AgentDefinition{
-			Key:      "demo-agent",
-			AgentDir: filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
+			Key:        "demo-agent",
+			AgentDir:   filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
+			RuntimeDir: filepath.Join(cfg.Paths.RUAgentsDir, "demo-agent"),
 			Workspace: catalog.AgentWorkspaceConfig{
 				Root: testPromptContextWorkspace(t, cfg),
 			},
@@ -330,6 +333,7 @@ func TestBuildRuntimeContextFiltersAgentDigestsByContextAgents(t *testing.T) {
 		definition: catalog.AgentDefinition{
 			Key:           "router",
 			AgentDir:      filepath.Join(cfg.Paths.AgentsDir, "router"),
+			RuntimeDir:    filepath.Join(cfg.Paths.RUAgentsDir, "router"),
 			ContextTags:   []string{"agents"},
 			ContextAgents: []string{"planner", "coder"},
 		},
@@ -359,6 +363,7 @@ func TestBuildRuntimeContextIncludesAllAgentDigestsWhenAgentsTagHasNoSelector(t 
 		definition: catalog.AgentDefinition{
 			Key:         "router",
 			AgentDir:    filepath.Join(cfg.Paths.AgentsDir, "router"),
+			RuntimeDir:  filepath.Join(cfg.Paths.RUAgentsDir, "router"),
 			ContextTags: []string{"agents"},
 		},
 	})
@@ -387,6 +392,7 @@ func TestBuildRuntimeContextSkipsAgentDigestsWithoutAgentsTag(t *testing.T) {
 		definition: catalog.AgentDefinition{
 			Key:           "router",
 			AgentDir:      filepath.Join(cfg.Paths.AgentsDir, "router"),
+			RuntimeDir:    filepath.Join(cfg.Paths.RUAgentsDir, "router"),
 			ContextTags:   []string{"system"},
 			ContextAgents: []string{"coder"},
 		},
@@ -416,6 +422,7 @@ func TestBuildRuntimeContextRejectsUnknownContextAgent(t *testing.T) {
 		definition: catalog.AgentDefinition{
 			Key:           "router",
 			AgentDir:      filepath.Join(cfg.Paths.AgentsDir, "router"),
+			RuntimeDir:    filepath.Join(cfg.Paths.RUAgentsDir, "router"),
 			ContextTags:   []string{"agents"},
 			ContextAgents: []string{"missing-agent"},
 		},
@@ -444,8 +451,9 @@ func TestBuildRuntimeContextIncludesSandboxContextWhenSandboxConfigured(t *testi
 		chatID:   "chat-1",
 		chatName: "Chat 1",
 		definition: catalog.AgentDefinition{
-			Key:      "demo-agent",
-			AgentDir: filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
+			Key:        "demo-agent",
+			AgentDir:   filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
+			RuntimeDir: filepath.Join(cfg.Paths.RUAgentsDir, "demo-agent"),
 			Workspace: catalog.AgentWorkspaceConfig{
 				Root: testPromptContextWorkspace(t, cfg),
 			},
@@ -484,8 +492,9 @@ func TestBuildRuntimeContextKeepsLocalPathsWithoutSandboxConfigInContainerMode(t
 		chatID:   "chat-1",
 		chatName: "Chat 1",
 		definition: catalog.AgentDefinition{
-			Key:      "demo-agent",
-			AgentDir: agentDir,
+			Key:        "demo-agent",
+			AgentDir:   filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
+			RuntimeDir: agentDir,
 		},
 	})
 	if err != nil {
@@ -531,8 +540,9 @@ func TestBuildRuntimeContextIncludesSkillsMarketOnlyWithExplicitMount(t *testing
 		chatID:   "chat-1",
 		chatName: "Chat 1",
 		definition: catalog.AgentDefinition{
-			Key:      "demo-agent",
-			AgentDir: filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
+			Key:        "demo-agent",
+			AgentDir:   filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
+			RuntimeDir: filepath.Join(cfg.Paths.RUAgentsDir, "demo-agent"),
 			Workspace: catalog.AgentWorkspaceConfig{
 				Root: testPromptContextWorkspace(t, cfg),
 			},
@@ -584,8 +594,9 @@ func TestBuildRuntimeContextUsesChatPathsForContainerResources(t *testing.T) {
 			{ID: "ref-url", URL: "/api/resource?file=chat-1%2Ffrom-url.docx"},
 		},
 		definition: catalog.AgentDefinition{
-			Key:      "demo-agent",
-			AgentDir: filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
+			Key:        "demo-agent",
+			AgentDir:   filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
+			RuntimeDir: filepath.Join(cfg.Paths.RUAgentsDir, "demo-agent"),
 			Workspace: catalog.AgentWorkspaceConfig{
 				Root: testPromptContextWorkspace(t, cfg),
 			},
@@ -664,8 +675,8 @@ func TestBuildSkillCatalogPromptPrefersAgentLocalSkillAndParsesFrontMatter(t *te
 	}
 
 	prompt := buildSkillCatalogPrompt(catalog.AgentDefinition{
-		AgentDir: agentDir,
-		Skills:   []string{"demo"},
+		RuntimeDir: agentDir,
+		Skills:     []string{"demo"},
 	}, marketDir, contracts.DefaultPromptAppendConfig())
 
 	if !strings.Contains(prompt, "skillId: demo") {
@@ -781,7 +792,7 @@ func TestBuildSkillCatalogPromptPrependsInstructionsBeforeCatalogHeader(t *testi
 
 	agentDir := t.TempDir()
 	marketDir := t.TempDir()
-	skillDir := filepath.Join(marketDir, "demo")
+	skillDir := filepath.Join(agentDir, "skills", "demo")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatalf("mkdir skill dir: %v", err)
 	}
@@ -795,8 +806,8 @@ func TestBuildSkillCatalogPromptPrependsInstructionsBeforeCatalogHeader(t *testi
 	appendConfig.Skill.CatalogHeader = "skills header"
 
 	prompt := buildSkillCatalogPrompt(catalog.AgentDefinition{
-		AgentDir: agentDir,
-		Skills:   []string{"demo"},
+		RuntimeDir: agentDir,
+		Skills:     []string{"demo"},
 	}, marketDir, appendConfig)
 
 	labelIdx := strings.Index(prompt, "Skill instructions:\n")
@@ -816,7 +827,7 @@ func TestBuildSkillCatalogPromptLeavesInstructionsUnlabeledWhenLabelEmpty(t *tes
 
 	agentDir := t.TempDir()
 	marketDir := t.TempDir()
-	skillDir := filepath.Join(marketDir, "demo")
+	skillDir := filepath.Join(agentDir, "skills", "demo")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatalf("mkdir skill dir: %v", err)
 	}
@@ -830,8 +841,8 @@ func TestBuildSkillCatalogPromptLeavesInstructionsUnlabeledWhenLabelEmpty(t *tes
 	appendConfig.Skill.CatalogHeader = "skills header"
 
 	prompt := buildSkillCatalogPrompt(catalog.AgentDefinition{
-		AgentDir: agentDir,
-		Skills:   []string{"demo"},
+		RuntimeDir: agentDir,
+		Skills:     []string{"demo"},
 	}, marketDir, appendConfig)
 
 	if !strings.Contains(prompt, "global skill instructions") {
@@ -849,8 +860,8 @@ func TestBuildSkillCatalogPromptReturnsEmptyWhenNoSkillsResolve(t *testing.T) {
 	appendConfig.Skill.InstructionsPrompt = "global skill instructions"
 
 	prompt := buildSkillCatalogPrompt(catalog.AgentDefinition{
-		AgentDir: t.TempDir(),
-		Skills:   []string{"missing"},
+		RuntimeDir: t.TempDir(),
+		Skills:     []string{"missing"},
 	}, t.TempDir(), appendConfig)
 	if prompt != "" {
 		t.Fatalf("expected empty prompt when no skills resolve, got %q", prompt)
@@ -867,6 +878,7 @@ func testPromptContextConfig(t *testing.T) config.Config {
 			ToolsDir:        filepath.Join(root, "runtime", "tools"),
 			OwnerDir:        filepath.Join(root, "runtime", "owner"),
 			AgentsDir:       filepath.Join(root, "runtime", "agents"),
+			RUAgentsDir:     filepath.Join(root, "runtime", "ru-agents"),
 			TeamsDir:        filepath.Join(root, "runtime", "teams"),
 			RootDir:         filepath.Join(root, "runtime", "root"),
 			AutomationsDir:  filepath.Join(root, "runtime", "automations"),
@@ -885,8 +897,9 @@ func testPromptContextConfig(t *testing.T) config.Config {
 
 func testPromptContextDefinition(paths config.PathsConfig) catalog.AgentDefinition {
 	return catalog.AgentDefinition{
-		Key:      "demo-agent",
-		AgentDir: filepath.Join(paths.AgentsDir, "demo-agent"),
+		Key:        "demo-agent",
+		AgentDir:   filepath.Join(paths.AgentsDir, "demo-agent"),
+		RuntimeDir: filepath.Join(paths.RUAgentsDir, "demo-agent"),
 		Runtime: map[string]any{
 			"level": "run",
 			"sandboxMounts": []map[string]any{

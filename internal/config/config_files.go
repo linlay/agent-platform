@@ -65,6 +65,7 @@ func (c *Config) applyPathsValues(values map[string]any) {
 	c.Paths.ToolsDir = stringValue(anyValue(values["tools-dir"], c.Paths.ToolsDir), c.Paths.ToolsDir)
 	c.Paths.OwnerDir = stringValue(anyValue(values["owner-dir"], c.Paths.OwnerDir), c.Paths.OwnerDir)
 	c.Paths.AgentsDir = stringValue(anyValue(values["agents-dir"], c.Paths.AgentsDir), c.Paths.AgentsDir)
+	c.Paths.RUAgentsDir = stringValue(anyValue(values["ru-agents-dir"], c.Paths.RUAgentsDir), c.Paths.RUAgentsDir)
 	c.Paths.TeamsDir = stringValue(anyValue(values["teams-dir"], c.Paths.TeamsDir), c.Paths.TeamsDir)
 	c.Paths.RootDir = stringValue(anyValue(values["root-dir"], c.Paths.RootDir), c.Paths.RootDir)
 	c.Paths.AutomationsDir = stringValue(anyValue(values["automations-dir"], c.Paths.AutomationsDir), c.Paths.AutomationsDir)

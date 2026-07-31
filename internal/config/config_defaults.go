@@ -19,6 +19,7 @@ func defaultConfig(options LoadOptions) Config {
 		ToolsDir:        filepath.Join(runtimeRoot, "tools"),
 		OwnerDir:        filepath.Join(runtimeRoot, "owner"),
 		AgentsDir:       filepath.Join(runtimeRoot, "agents"),
+		RUAgentsDir:     filepath.Join(runtimeRoot, "ru-agents"),
 		TeamsDir:        filepath.Join(runtimeRoot, "teams"),
 		RootDir:         filepath.Join(runtimeRoot, "root"),
 		AutomationsDir:  filepath.Join(runtimeRoot, "automations"),
@@ -271,6 +272,15 @@ func (c *Config) normalize(configRoot string) error {
 	c.Paths.ToolsDir = filepath.Clean(c.Paths.ToolsDir)
 	c.Paths.OwnerDir = filepath.Clean(c.Paths.OwnerDir)
 	c.Paths.AgentsDir = filepath.Clean(c.Paths.AgentsDir)
+	ruAgentsDir := filepath.Clean(c.Paths.RUAgentsDir)
+	if !filepath.IsAbs(ruAgentsDir) {
+		ruAgentsDir = filepath.Join(resolveConfigRoot(configRoot), ruAgentsDir)
+	}
+	ruAgentsDir, err := filepath.Abs(ruAgentsDir)
+	if err != nil {
+		return fmt.Errorf("resolve paths.ru-agents-dir: %w", err)
+	}
+	c.Paths.RUAgentsDir = ruAgentsDir
 	c.Paths.TeamsDir = filepath.Clean(c.Paths.TeamsDir)
 	c.Paths.RootDir = filepath.Clean(c.Paths.RootDir)
 	c.Paths.AutomationsDir = filepath.Clean(c.Paths.AutomationsDir)

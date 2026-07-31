@@ -65,6 +65,7 @@ type AgentDefinition struct {
 	StageSettings    map[string]any
 	RuntimePrompts   AgentRuntimePrompts
 	AgentDir         string
+	RuntimeDir       string `json:"-"`
 
 	// PROXY mode: forward /api/query to a remote AGW-compatible service.
 	ProxyConfig *ProxyConfig
@@ -276,8 +277,9 @@ type SkillDefinition struct {
 }
 
 type FileRegistry struct {
-	cfg   config.Config
-	tools []api.ToolDetailResponse
+	cfg       config.Config
+	tools     []api.ToolDetailResponse
+	assembler *runtimeAgentAssembler
 
 	mu          sync.RWMutex
 	agents      map[string]AgentDefinition
@@ -291,9 +293,14 @@ type FileRegistry struct {
 }
 
 func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*FileRegistry, error) {
+	assembler, err := newRuntimeAgentAssembler(cfg.Paths.EffectiveRUAgentsDir(), cfg.Paths.SkillsMarketDir)
+	if err != nil {
+		return nil, err
+	}
 	registry := &FileRegistry{
 		cfg:                  cfg,
 		tools:                dedupeToolDefinitions(append([]api.ToolDetailResponse(nil), toolDefs...)),
+		assembler:            assembler,
 		agents:               map[string]AgentDefinition{},
 		adminAgents:          map[string]AdminAgent{},
 		runtimeInvalidAgents: map[string]AdminAgentDiagnostic{},
@@ -317,7 +324,7 @@ func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*Fil
 func (r *FileRegistry) Reload(_ context.Context, reason string) error {
 	switch reason {
 	case "agents":
-		agents, adminAgents, err := loadAgentsWithAdmin(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsMarketDir, r.cfg.Paths.ChatsDir, r.cfg.Memory.Enabled)
+		agents, adminAgents, err := loadAgentsWithAdminAssembler(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsMarketDir, r.cfg.Paths.ChatsDir, r.cfg.Memory.Enabled, r.assembler)
 		if err != nil {
 			return err
 		}
@@ -348,7 +355,7 @@ func (r *FileRegistry) Reload(_ context.Context, reason string) error {
 	}
 
 	// Full reload (startup, config, or unknown reason)
-	agents, adminAgents, err := loadAgentsWithAdmin(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsMarketDir, r.cfg.Paths.ChatsDir, r.cfg.Memory.Enabled)
+	agents, adminAgents, err := loadAgentsWithAdminAssembler(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsMarketDir, r.cfg.Paths.ChatsDir, r.cfg.Memory.Enabled, r.assembler)
 	if err != nil {
 		return err
 	}

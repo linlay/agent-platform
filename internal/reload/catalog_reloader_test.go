@@ -57,6 +57,7 @@ func TestBackgroundWatchEntriesExcludeConfigs(t *testing.T) {
 	cfg := config.Config{
 		Paths: config.PathsConfig{
 			AgentsDir:       filepath.Join("runtime", "agents"),
+			RUAgentsDir:     filepath.Join("runtime", "ru-agents"),
 			TeamsDir:        filepath.Join("runtime", "teams"),
 			SkillsMarketDir: filepath.Join("runtime", "skills-market"),
 			RegistriesDir:   filepath.Join("runtime", "registries"),
@@ -71,6 +72,9 @@ func TestBackgroundWatchEntriesExcludeConfigs(t *testing.T) {
 		clean := filepath.ToSlash(filepath.Clean(entry.path))
 		if strings.HasPrefix(clean, "configs/") || clean == "configs" || strings.Contains(clean, "/configs/") {
 			t.Fatalf("background watcher must not include configs path: %#v", entry)
+		}
+		if clean == filepath.ToSlash(filepath.Clean(cfg.Paths.RUAgentsDir)) {
+			t.Fatalf("background watcher must not include generated ru-agents: %#v", entry)
 		}
 	}
 
@@ -110,6 +114,17 @@ func TestMergePendingReloadReasonEscalatesMixedChangesToConfig(t *testing.T) {
 				t.Fatalf("mergePendingReloadReason(%q, %q) = %q, want %q", tc.pending, tc.next, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestAgentLocalSkillChangesResolveToAgentsReload(t *testing.T) {
+	agentsDir := filepath.Join(t.TempDir(), "agents")
+	changed := filepath.Join(agentsDir, "writer", "skills", "office", "SKILL.md")
+	if got := resolveChangeReason(changed, []watchEntry{{path: agentsDir, reason: "agents"}}); got != "agents" {
+		t.Fatalf("agent-local Skill reload reason = %q", got)
+	}
+	if catalog.ShouldIgnoreRuntimeWatchPath(changed) {
+		t.Fatalf("agent-local Skill change must not be ignored: %s", changed)
 	}
 }
 

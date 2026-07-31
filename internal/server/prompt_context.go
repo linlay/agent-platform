@@ -77,7 +77,7 @@ func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (c
 	if hasRuntimeSandbox(input.definition.Runtime) && strings.TrimSpace(workspaceRoot) == "" {
 		return contracts.RuntimeRequestContext{}, fmt.Errorf("workspace_unavailable: Container Hub sandbox requires a workspace")
 	}
-	localPaths, err := resolveLocalPaths(s.deps.Config.Paths, input.chatID, input.definition.AgentDir, workspaceRoot)
+	localPaths, err := resolveLocalPaths(s.deps.Config.Paths, input.chatID, input.definition.RuntimeDir, workspaceRoot)
 	if err != nil {
 		return contracts.RuntimeRequestContext{}, err
 	}
@@ -381,6 +381,7 @@ func resourceFileName(rawURL string) string {
 }
 
 func buildSkillCatalogPrompt(def catalog.AgentDefinition, marketDir string, appendConfig contracts.PromptAppendConfig) string {
+	_ = marketDir
 	if len(def.Skills) == 0 {
 		return ""
 	}
@@ -395,7 +396,7 @@ func buildSkillCatalogPrompt(def catalog.AgentDefinition, marketDir string, appe
 			continue
 		}
 		seen[skillID] = struct{}{}
-		definition, ok, err := catalog.ResolveSkillDefinition(def.AgentDir, marketDir, skillID)
+		definition, ok, err := catalog.ResolveRuntimeSkillDefinition(def.RuntimeDir, skillID)
 		if err != nil {
 			log.Printf("[server][skill-catalog][warn] resolve skill %s failed: %v", skillID, err)
 			continue
@@ -430,6 +431,7 @@ func buildSkillCatalogPrompt(def catalog.AgentDefinition, marketDir string, appe
 }
 
 func resolveRequiredSkillKeys(def catalog.AgentDefinition, marketDir string, requested []string) ([]string, error) {
+	_ = marketDir
 	if len(requested) == 0 {
 		return nil, nil
 	}
@@ -455,7 +457,7 @@ func resolveRequiredSkillKeys(def catalog.AgentDefinition, marketDir string, req
 		if !ok {
 			return nil, fmt.Errorf("required skill %q is not configured for agent %q", key, def.Key)
 		}
-		definition, found, err := catalog.ResolveSkillDefinition(def.AgentDir, marketDir, configuredKey)
+		definition, found, err := catalog.ResolveRuntimeSkillDefinition(def.RuntimeDir, configuredKey)
 		if err != nil {
 			return nil, fmt.Errorf("resolve required skill %q: %w", configuredKey, err)
 		}
@@ -494,7 +496,8 @@ func effectiveLocalWorkspaceRoot(def catalog.AgentDefinition) string {
 }
 
 func resolveLocalPaths(paths config.PathsConfig, chatID string, agentDir string, workspaceRoot string) (contracts.LocalPaths, error) {
-	runtimeHome := filepath.Dir(filepath.Clean(paths.AgentsDir))
+	ruAgentsDir := paths.EffectiveRUAgentsDir()
+	runtimeHome := filepath.Dir(filepath.Clean(ruAgentsDir))
 	var err error
 	workspaceRoot, err = resolveHostWorkspaceRoot(workspaceRoot)
 	if err != nil {
@@ -519,7 +522,7 @@ func resolveLocalPaths(paths config.PathsConfig, chatID string, agentDir string,
 		RootDir:            cleanOrEmpty(paths.RootDir),
 		PanDir:             cleanOrEmpty(paths.PanDir),
 		AgentDir:           agentDir,
-		AgentsDir:          cleanOrEmpty(paths.AgentsDir),
+		AgentsDir:          cleanOrEmpty(ruAgentsDir),
 		TeamsDir:           cleanOrEmpty(paths.TeamsDir),
 		ChatsDir:           cleanOrEmpty(paths.ChatsDir),
 		MemoryDir:          cleanOrEmpty(paths.MemoryDir),
@@ -606,7 +609,7 @@ func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 	if level == "" {
 		level = "run"
 	}
-	hasAgentDir := def.AgentDir != ""
+	hasAgentDir := def.RuntimeDir != ""
 	hasSkillsDir := level != "global" && hasAgentDir
 
 	var skillsMarketDir string
@@ -680,16 +683,16 @@ func resolveLocalSandboxPaths(cfg config.Config, def catalog.AgentDefinition, lo
 	if level == "" {
 		level = "run"
 	}
-	hasAgentDir := strings.TrimSpace(def.AgentDir) != ""
+	hasAgentDir := strings.TrimSpace(def.RuntimeDir) != ""
 	hasSkillsDir := level != "global" && hasAgentDir
 
 	paths := contracts.SandboxPaths{
 		WorkspaceDir: localPaths.WorkspaceDir,
 		ChatDir:      localPaths.ChatDir,
 		RootDir:      absOrEmpty(cfg.Paths.RootDir),
-		SkillsDir:    resolveLocalSkillsDir(hasSkillsDir, level, def.AgentDir, cfg.Paths.SkillsMarketDir),
+		SkillsDir:    resolveLocalSkillsDir(hasSkillsDir, level, def.RuntimeDir, cfg.Paths.SkillsMarketDir),
 		PanDir:       absOrEmpty(cfg.Paths.PanDir),
-		AgentDir:     absOrEmpty(def.AgentDir),
+		AgentDir:     absOrEmpty(def.RuntimeDir),
 		OwnerDir:     absOrEmpty(cfg.Paths.OwnerDir),
 		MemoryDir:    absOrEmpty(cfg.Paths.MemoryDir),
 	}
@@ -698,7 +701,7 @@ func resolveLocalSandboxPaths(cfg config.Config, def catalog.AgentDefinition, lo
 		case "skills-market":
 			paths.SkillsMarketDir = absOrEmpty(cfg.Paths.SkillsMarketDir)
 		case "agents":
-			paths.AgentsDir = absOrEmpty(cfg.Paths.AgentsDir)
+			paths.AgentsDir = absOrEmpty(cfg.Paths.EffectiveRUAgentsDir())
 		case "teams":
 			paths.TeamsDir = absOrEmpty(cfg.Paths.TeamsDir)
 		case "automations":

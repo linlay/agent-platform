@@ -77,7 +77,7 @@ func (s *Server) openTerminalSession(payload terminalOpenPayload, ownerKey strin
 func terminalEnvironment(def catalog.AgentDefinition, workspaceDir string, chatDir string) []string {
 	env := agentconfig.Merge(
 		runtimeAgentEnv(def.Runtime["env"]),
-		agentconfig.HostEnvironment(def.AgentDir, workspaceDir, chatDir),
+		agentconfig.HostEnvironment(def.RuntimeDir, workspaceDir, chatDir),
 	)
 	keys := make([]string, 0, len(env))
 	for key := range env {

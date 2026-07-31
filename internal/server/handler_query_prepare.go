@@ -794,6 +794,7 @@ func runtimeAgentEnv(value any) map[string]string {
 }
 
 func resolveSkillRuntimeSettings(agentEnv map[string]string, agentDir string, marketDir string, skillKeys []string) ([]string, map[string]string, error) {
+	_ = marketDir
 	runtimeEnv := contracts.CloneStringMap(agentEnv)
 	if err := agentconfig.ValidateUserEnvironment(runtimeEnv); err != nil {
 		return nil, nil, err
@@ -812,7 +813,7 @@ func resolveSkillRuntimeSettings(agentEnv map[string]string, agentDir string, ma
 			continue
 		}
 		seen[skillKey] = struct{}{}
-		def, ok, err := catalog.ResolveSkillDefinition(agentDir, marketDir, skillKey)
+		def, ok, err := catalog.ResolveRuntimeSkillDefinition(agentDir, skillKey)
 		if err != nil {
 			return nil, nil, fmt.Errorf("resolve skill runtime %q: %w", skillKey, err)
 		}

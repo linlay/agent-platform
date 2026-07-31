@@ -76,9 +76,9 @@ func (r *RuntimeCatalogReloader) AddObserver(observer CatalogReloadObserver) {
 
 // Reload dispatches reloads by reason. Reload spec:
 //
-//	agents          → reload agents (re-syncs declared skills from skills-market)
+//	agents          → reload agents and rebuild assembled runtime agents
 //	teams           → reload teams
-//	skills          → reload skills + reload agents (cascade for synced skills)
+//	skills          → reload skills + reload agents (cascade for assembled skills)
 //	models          → reload models + reload agents (cascade for affected agents)
 //	providers       → reload providers only (independent)
 //	tools           → reload runtime tool definitions + reload agents (cascade)
@@ -250,7 +250,7 @@ func StartBackgroundReloaders(ctx context.Context, cfg config.Config, reloader c
 		Roots:     roots,
 		Debounce:  reloadDebounce,
 		Ignore: func(path string) bool {
-			return catalog.ShouldIgnoreRuntimeWatchPath(path) || isAgentSkillsSubpath(path, cfg.Paths.AgentsDir)
+			return catalog.ShouldIgnoreRuntimeWatchPath(path)
 		},
 		OnEvent: func(event runtimewatch.Event) {
 			reason := resolveChangeReason(event.Path, entries)
@@ -306,22 +306,6 @@ func backgroundWatchEntries(cfg config.Config) []watchEntry {
 		{filepath.Join(cfg.Paths.RegistriesDir, "mcp-servers"), "mcp-servers"},
 		{filepath.Join(cfg.Paths.RegistriesDir, "viewport-servers"), "viewport-servers"},
 	}
-}
-
-// isAgentSkillsSubpath returns true if changedPath is inside
-// {agentsDir}/{agentKey}/skills/... — those files are managed by
-// reconcileDeclaredSkills and must not retrigger a reload.
-func isAgentSkillsSubpath(changedPath, agentsDir string) bool {
-	if agentsDir == "" {
-		return false
-	}
-	rel, err := filepath.Rel(agentsDir, changedPath)
-	if err != nil || strings.HasPrefix(rel, "..") {
-		return false
-	}
-	parts := strings.Split(filepath.ToSlash(rel), "/")
-	// {agentKey}/skills/... → at least 2 parts with parts[1] == "skills"
-	return len(parts) >= 2 && parts[1] == "skills"
 }
 
 func resolveChangeReason(changedPath string, dirs []watchEntry) string {
