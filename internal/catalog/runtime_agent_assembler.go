@@ -61,9 +61,17 @@ func newRuntimeAgentAssembler(root, marketDir string) (*runtimeAgentAssembler, e
 		marketDir: strings.TrimSpace(marketDir),
 		locks:     map[string]*sync.Mutex{},
 	}
-	if info, err := os.Lstat(assembler.root); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("ru-agents directory must not be a symlink: %s", assembler.root)
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+	if info, err := os.Lstat(assembler.root); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, fmt.Errorf("ru-agents directory must not be a symlink: %s", assembler.root)
+		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("ru-agents path must be a directory: %s", assembler.root)
+		}
+		if err := os.RemoveAll(assembler.root); err != nil {
+			return nil, fmt.Errorf("reset ru-agents directory: %w", err)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("inspect ru-agents directory: %w", err)
 	}
 	if err := os.MkdirAll(assembler.root, 0o700); err != nil {
@@ -73,9 +81,6 @@ func newRuntimeAgentAssembler(root, marketDir string) (*runtimeAgentAssembler, e
 		return nil, fmt.Errorf("protect ru-agents directory: %w", err)
 	}
 	staging := filepath.Join(assembler.root, ".staging")
-	if err := os.RemoveAll(staging); err != nil {
-		return nil, fmt.Errorf("clean ru-agents staging directory: %w", err)
-	}
 	if err := os.MkdirAll(staging, 0o700); err != nil {
 		return nil, fmt.Errorf("create ru-agents staging directory: %w", err)
 	}

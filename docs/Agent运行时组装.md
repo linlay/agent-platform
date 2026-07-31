@@ -70,15 +70,15 @@ Agent runtimeConfig.env
 
 ## 发布与热重载
 
-启动时 Platform 清理遗留 `.staging`，为每个 Agent 建立候选目录，重新解析 Agent 和 Skill runtime 内容，全部校验成功后才更新稳定目录。
+启动时 Platform 无条件删除并重建整个 `ru-agents/`，不会复用上次进程遗留的稳定目录或 `.staging`；随后为每个 Agent 建立候选目录，重新解析 Agent 和 Skill runtime 内容，全部校验成功后才安装到新的稳定目录。启动组装失败的 Agent 不会留下旧执行副本。
 
-稳定根 `ru-agents/<agentKey>` 不改名：
+运行中的热重载不会清空整个根目录。稳定根 `ru-agents/<agentKey>` 不改名：
 
 - 新文件和替换文件通过同目录临时文件加 rename 安装。
 - 新内容先安装，陈旧内容最后删除。
 - 不提供跨文件快照，也不保留历史版本。
 - 单 Agent 组装失败只隔离该 Agent，其他 Agent 继续发布。
-- 候选校验失败不修改该 Agent 的稳定目录，但新 Catalog 不再发布其定义。
+- 热重载候选校验失败不修改该 Agent 的稳定目录，但新 Catalog 不再发布其定义。
 - Agent 删除后清理对应稳定目录；活跃 Run 不主动中断。
 
 `agents/`（包括 Agent 自有 Skill）或 `skills-market/` 变化都会触发全量 Agent 重组。`ru-agents/` 本身不加入 watcher，避免生成循环。既有 QuerySession 的 prompt、env 和 Team snapshot 不重算；后续打开的 Skill 文件、脚本、hook 和 `.config` 会读取稳定目录中的新内容。

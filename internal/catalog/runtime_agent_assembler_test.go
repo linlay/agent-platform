@@ -10,6 +10,40 @@ import (
 	"agent-platform/internal/config"
 )
 
+func TestRuntimeAgentAssemblerClearsRuntimeRootAtStartup(t *testing.T) {
+	root := t.TempDir()
+	ruAgentsDir := filepath.Join(root, "ru-agents")
+	writeRuntimeAssemblerFile(t, filepath.Join(ruAgentsDir, "stale-agent", "agent.yml"), "key: stale-agent\n")
+	writeRuntimeAssemblerFile(t, filepath.Join(ruAgentsDir, ".staging", "abandoned", "partial"), "stale")
+	writeRuntimeAssemblerFile(t, filepath.Join(ruAgentsDir, "unexpected.txt"), "stale")
+
+	if _, err := newRuntimeAgentAssembler(ruAgentsDir, filepath.Join(root, "skills-market")); err != nil {
+		t.Fatalf("new assembler: %v", err)
+	}
+	entries, err := os.ReadDir(ruAgentsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != ".staging" || !entries[0].IsDir() {
+		t.Fatalf("startup must reset ru-agents before rebuilding: %#v", entries)
+	}
+	if mode := mustRuntimeAssemblerMode(t, ruAgentsDir); mode.Perm() != 0o700 {
+		t.Fatalf("ru-agents permissions = %o", mode.Perm())
+	}
+}
+
+func TestRuntimeAgentAssemblerRejectsNonDirectoryRootWithoutDeletingIt(t *testing.T) {
+	root := t.TempDir()
+	ruAgentsPath := filepath.Join(root, "ru-agents")
+	writeRuntimeAssemblerFile(t, ruAgentsPath, "preserve")
+
+	if _, err := newRuntimeAgentAssembler(ruAgentsPath, filepath.Join(root, "skills-market")); err == nil ||
+		!strings.Contains(err.Error(), "must be a directory") {
+		t.Fatalf("expected non-directory root rejection, got %v", err)
+	}
+	assertRuntimeAssemblerContent(t, ruAgentsPath, "preserve")
+}
+
 func TestRuntimeAgentAssemblerUsesLocalSkillAndMergesConfig(t *testing.T) {
 	root := t.TempDir()
 	agentsDir := filepath.Join(root, "agents")

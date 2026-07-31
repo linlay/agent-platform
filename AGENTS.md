@@ -162,7 +162,7 @@ make test
 ## 9. 已知约束与注意事项
 
 - `configs/` 下配置启动时读取，运行中修改需要重启 runtime。
-- `agents/` 与 `skills-market/` 是可编辑事实源；Query、Terminal、Host Tool、Container Hub 与 Skill runtime 只使用 Platform 生成的 `ru-agents/`。该目录不提交、不打包、不允许人工编辑；Agent/Skill 热重载会重组稳定目录。
+- `agents/` 与 `skills-market/` 是可编辑事实源；Query、Terminal、Host Tool、Container Hub 与 Skill runtime 只使用 Platform 生成的 `ru-agents/`。该目录不提交、不打包、不允许人工编辑；Platform 启动时无条件清空并完整重建，Agent/Skill 热重载只更新稳定目录而不清空整个根。
 - `POST /api/query` 默认逐事件 flush；启用 `configs/runtime.yml -> h2a.render.*` 缓冲后，客户端看到的输出可能不再逐事件抵达。
 - WebSocket 是控制面，浏览器/普通客户端文件字节仍走 `POST /api/upload` 和 `GET /api/resource`。
 - `runtimeConfig.env` 不会通过 catalog API 回显，避免泄露代理、凭据或私有 endpoint。
