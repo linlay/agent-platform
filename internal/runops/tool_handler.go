@@ -61,15 +61,15 @@ func (h *ToolHandler) Invoke(ctx context.Context, toolName string, args map[stri
 	}
 }
 
-func (h *ToolHandler) callerOrigin(execCtx *contracts.ExecutionContext) (contracts.RunQueryOrigin, *contracts.ToolExecutionResult) {
+func (h *ToolHandler) callerOrigin(execCtx *contracts.ExecutionContext) (contracts.RunOrigin, *contracts.ToolExecutionResult) {
 	if execCtx == nil {
 		result := errorResult("run_context_required", "run tools require an active main Agent run")
-		return contracts.RunQueryOrigin{}, &result
+		return contracts.RunOrigin{}, &result
 	}
 	session := execCtx.Session
-	if session.RunQueryOrigin != nil {
+	if session.RunOrigin != nil {
 		result := errorResult("run_chaining_not_allowed", "a run created by run_query cannot call run tools")
-		return contracts.RunQueryOrigin{}, &result
+		return contracts.RunOrigin{}, &result
 	}
 	owner := contracts.ResolveRunOwner(session.RunOwner)
 	callerAgentKey := strings.TrimSpace(session.AgentKey)
@@ -79,21 +79,21 @@ func (h *ToolHandler) callerOrigin(execCtx *contracts.ExecutionContext) (contrac
 		callerAgentKey == "" ||
 		owner.AgentKey != callerAgentKey {
 		result := errorResult("run_caller_not_allowed", "run tools are only available to an ordinary main Agent root run")
-		return contracts.RunQueryOrigin{}, &result
+		return contracts.RunOrigin{}, &result
 	}
-	return contracts.RunQueryOrigin{
-		CallerAgentKey: callerAgentKey,
-		Subject:        strings.TrimSpace(session.Subject),
-		ParentChatID:   strings.TrimSpace(session.ChatID),
-		ParentRunID:    strings.TrimSpace(session.RunID),
-		ToolID:         strings.TrimSpace(execCtx.CurrentToolID),
+	return contracts.RunOrigin{
+		AgentKey: callerAgentKey,
+		Subject:  strings.TrimSpace(session.Subject),
+		ChatID:   strings.TrimSpace(session.ChatID),
+		RunID:    strings.TrimSpace(session.RunID),
+		ToolID:   strings.TrimSpace(execCtx.CurrentToolID),
 	}, nil
 }
 
 func (h *ToolHandler) query(
 	ctx context.Context,
 	args map[string]any,
-	origin contracts.RunQueryOrigin,
+	origin contracts.RunOrigin,
 	parentControl *contracts.RunControl,
 ) (contracts.ToolExecutionResult, error) {
 	message := strings.TrimSpace(contracts.AnyStringNode(args["message"]))
@@ -103,11 +103,11 @@ func (h *ToolHandler) query(
 	if message == "" || (agentKey == "") == (teamID == "") {
 		return errorResult("invalid_request", "message and exactly one of agentKey or teamId are required"), nil
 	}
-	if origin.ParentRunID == "" || origin.ToolID == "" {
+	if origin.RunID == "" || origin.ToolID == "" {
 		return errorResult("run_context_required", "query requires parent runId and toolId"), nil
 	}
 
-	key := origin.ParentRunID + "\x00" + origin.ToolID
+	key := origin.RunID + "\x00" + origin.ToolID
 	start, leader := h.beginIdempotentStart(key)
 	if !leader {
 		select {
@@ -140,7 +140,7 @@ func (h *ToolHandler) query(
 	return successResult("query", true, "accepted", snapshot), nil
 }
 
-func (h *ToolHandler) status(args map[string]any, origin contracts.RunQueryOrigin) (contracts.ToolExecutionResult, error) {
+func (h *ToolHandler) status(args map[string]any, origin contracts.RunOrigin) (contracts.ToolExecutionResult, error) {
 	runID := strings.TrimSpace(contracts.AnyStringNode(args["runId"]))
 	if runID == "" {
 		return errorResult("invalid_request", "runId is required"), nil
@@ -155,7 +155,7 @@ func (h *ToolHandler) status(args map[string]any, origin contracts.RunQueryOrigi
 	return successResult("status", true, snapshot.Status, snapshot), nil
 }
 
-func (h *ToolHandler) interrupt(args map[string]any, origin contracts.RunQueryOrigin) (contracts.ToolExecutionResult, error) {
+func (h *ToolHandler) interrupt(args map[string]any, origin contracts.RunOrigin) (contracts.ToolExecutionResult, error) {
 	runID := strings.TrimSpace(contracts.AnyStringNode(args["runId"]))
 	if runID == "" {
 		return errorResult("invalid_request", "runId is required"), nil
@@ -183,10 +183,10 @@ func (h *ToolHandler) interrupt(args map[string]any, origin contracts.RunQueryOr
 	return successResult("interrupt", response.Accepted, response.Status, snapshot), nil
 }
 
-func (h *ToolHandler) requireOwnedRun(runID string, origin contracts.RunQueryOrigin) *contracts.ToolExecutionResult {
+func (h *ToolHandler) requireOwnedRun(runID string, origin contracts.RunOrigin) *contracts.ToolExecutionResult {
 	snapshot, err := h.service.GetRunStatus(runID)
 	if err == nil && snapshot.Origin != nil &&
-		snapshot.Origin.CallerAgentKey == origin.CallerAgentKey &&
+		snapshot.Origin.AgentKey == origin.AgentKey &&
 		snapshot.Origin.Subject == origin.Subject {
 		return nil
 	}

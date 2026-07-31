@@ -45,7 +45,7 @@ func (s *Server) StartRun(_ context.Context, request contracts.RunStartRequest) 
 		TeamID:     teamID,
 		Role:       api.QueryRoleUser,
 		Message:    message,
-		ChatSource: api.ChatSourceRunQueryPrefix + normalizeChatSourcePart(request.Origin.CallerAgentKey),
+		ChatSource: api.ChatSourceRunQueryPrefix + normalizeChatSourcePart(request.Origin.AgentKey),
 	}
 	ctx := s.backgroundCtx
 	ctx = withChatSourceContext(ctx, req.ChatSource)
@@ -62,13 +62,13 @@ func (s *Server) StartRun(_ context.Context, request contracts.RunStartRequest) 
 		return contracts.RunSnapshot{}, mapRunAdmissionError(err, agentKey, teamID)
 	}
 	origin := request.Origin
-	prepared.session.RunQueryOrigin = &origin
+	prepared.session.RunOrigin = &origin
 	auditMetadata := map[string]any{
-		"runQueryOrigin": map[string]any{
-			"callerAgentKey": strings.TrimSpace(origin.CallerAgentKey),
-			"parentChatId":   strings.TrimSpace(origin.ParentChatID),
-			"parentRunId":    strings.TrimSpace(origin.ParentRunID),
-			"toolId":         strings.TrimSpace(origin.ToolID),
+		"runOrigin": map[string]any{
+			"agentKey": strings.TrimSpace(origin.AgentKey),
+			"chatId":   strings.TrimSpace(origin.ChatID),
+			"runId":    strings.TrimSpace(origin.RunID),
+			"toolId":   strings.TrimSpace(origin.ToolID),
 		},
 	}
 	prepared.req.TrustedQueryMetadata = contracts.CloneMap(auditMetadata)
@@ -114,7 +114,7 @@ func (s *Server) GetRunStatus(runID string) (contracts.RunSnapshot, error) {
 		LastSeq:     status.LastSeq,
 		StartedAt:   status.StartedAt,
 		CompletedAt: status.CompletedAt,
-		Origin:      cloneRunQueryOrigin(status.RunQueryOrigin),
+		Origin:      cloneRunOrigin(status.RunOrigin),
 	}
 	if status.State == contracts.RunLoopStateWaitingSubmit {
 		if lister, ok := s.deps.Runs.(contracts.ActiveAwaitingLister); ok {
@@ -276,7 +276,7 @@ func runToolError(code string, message string) error {
 	return &contracts.RunToolError{Code: strings.TrimSpace(code), Message: strings.TrimSpace(message)}
 }
 
-func cloneRunQueryOrigin(origin *contracts.RunQueryOrigin) *contracts.RunQueryOrigin {
+func cloneRunOrigin(origin *contracts.RunOrigin) *contracts.RunOrigin {
 	if origin == nil {
 		return nil
 	}

@@ -28,12 +28,12 @@ func TestStartRunRegistersIndependentAgentAndTeamRuns(t *testing.T) {
 	agentTargetRun, err := fixture.server.StartRun(cancelled, contracts.RunStartRequest{
 		AgentKey: "mock-agent",
 		Message:  "detached agent",
-		Origin: contracts.RunQueryOrigin{
-			CallerAgentKey: "zenmi",
-			Subject:        "alice",
-			ParentChatID:   "parent-chat",
-			ParentRunID:    "parent-run",
-			ToolID:         "tool-agent",
+		Origin: contracts.RunOrigin{
+			AgentKey: "zenmi",
+			Subject:  "alice",
+			ChatID:   "parent-chat",
+			RunID:    "parent-run",
+			ToolID:   "tool-agent",
 		},
 	})
 	if err != nil {
@@ -46,12 +46,13 @@ func TestStartRunRegistersIndependentAgentAndTeamRuns(t *testing.T) {
 	if !ok {
 		t.Fatal("Agent target run was returned before registration")
 	}
-	if runStatus.RunQueryOrigin == nil ||
-		runStatus.RunQueryOrigin.CallerAgentKey != "zenmi" ||
-		runStatus.RunQueryOrigin.Subject != "alice" ||
-		runStatus.RunQueryOrigin.ParentRunID != "parent-run" ||
-		runStatus.RunQueryOrigin.ToolID != "tool-agent" {
-		t.Fatalf("runtime origin was not retained: %#v", runStatus.RunQueryOrigin)
+	if runStatus.RunOrigin == nil ||
+		runStatus.RunOrigin.AgentKey != "zenmi" ||
+		runStatus.RunOrigin.Subject != "alice" ||
+		runStatus.RunOrigin.ChatID != "parent-chat" ||
+		runStatus.RunOrigin.RunID != "parent-run" ||
+		runStatus.RunOrigin.ToolID != "tool-agent" {
+		t.Fatalf("runtime origin was not retained: %#v", runStatus.RunOrigin)
 	}
 
 	agentTargetRun = waitRunTerminal(t, fixture.server, agentTargetRun.RunID)
@@ -70,26 +71,30 @@ func TestStartRunRegistersIndependentAgentAndTeamRuns(t *testing.T) {
 		t.Fatalf("load run-query jsonl: %v", err)
 	}
 	for _, expected := range []string{
-		`"runQueryOrigin"`,
-		`"callerAgentKey":"zenmi"`,
-		`"parentRunId":"parent-run"`,
+		`"runOrigin"`,
+		`"agentKey":"zenmi"`,
+		`"chatId":"parent-chat"`,
+		`"runId":"parent-run"`,
 		`"toolId":"tool-agent"`,
 	} {
 		if !strings.Contains(jsonl, expected) {
 			t.Fatalf("request.query is missing %s: %s", expected, jsonl)
 		}
 	}
-	if strings.Contains(jsonl, `"subject":"alice"`) {
-		t.Fatalf("request.query persisted subject: %s", jsonl)
+	for _, forbidden := range []string{`"runQueryOrigin"`, `"callerAgentKey"`, `"parentChatId"`, `"parentRunId"`, `"subject":"alice"`} {
+		if strings.Contains(jsonl, forbidden) {
+			t.Fatalf("request.query persisted obsolete or private field %s: %s", forbidden, jsonl)
+		}
 	}
 
 	teamRun, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{
 		TeamID:  "default",
 		Message: "detached team",
-		Origin: contracts.RunQueryOrigin{
-			CallerAgentKey: "zenmi",
-			ParentRunID:    "parent-run",
-			ToolID:         "tool-team",
+		Origin: contracts.RunOrigin{
+			AgentKey: "zenmi",
+			ChatID:   "parent-chat",
+			RunID:    "parent-run",
+			ToolID:   "tool-team",
 		},
 	})
 	if err != nil {
@@ -175,7 +180,7 @@ func TestStartRunIgnoresCatalogVisibility(t *testing.T) {
 	started, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{
 		AgentKey: "mock-agent",
 		Message:  "run by exact key",
-		Origin:   contracts.RunQueryOrigin{CallerAgentKey: "zenmi", ParentRunID: "parent", ToolID: "visibility"},
+		Origin:   contracts.RunOrigin{AgentKey: "zenmi", RunID: "parent", ToolID: "visibility"},
 	})
 	if err != nil {
 		t.Fatalf("start internal-only catalog Agent: %v", err)
@@ -272,7 +277,7 @@ func TestGetRunStatusReportsQuestionAwaiting(t *testing.T) {
 	started, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{
 		AgentKey: "mock-agent",
 		Message:  "ask first",
-		Origin:   contracts.RunQueryOrigin{CallerAgentKey: "zenmi", ParentRunID: "parent", ToolID: "tool"},
+		Origin:   contracts.RunOrigin{AgentKey: "zenmi", RunID: "parent", ToolID: "tool"},
 	})
 	if err != nil {
 		t.Fatalf("start: %v", err)
@@ -373,7 +378,7 @@ func TestInterruptRunsDetachedSSEProxy(t *testing.T) {
 	started, err := fixture.server.StartRun(context.Background(), contracts.RunStartRequest{
 		AgentKey: "mock-agent",
 		Message:  "proxy work",
-		Origin:   contracts.RunQueryOrigin{CallerAgentKey: "zenmi", ParentRunID: "parent", ToolID: "proxy-tool"},
+		Origin:   contracts.RunOrigin{AgentKey: "zenmi", ChatID: "parent-chat", RunID: "parent", ToolID: "proxy-tool"},
 	})
 	if err != nil {
 		t.Fatalf("start proxy: %v", err)
@@ -400,6 +405,21 @@ func TestInterruptRunsDetachedSSEProxy(t *testing.T) {
 	}
 	if status := waitRunFinished(t, fixture.server, started.RunID, "interrupted"); status.Status != "interrupted" {
 		t.Fatalf("unexpected proxy status %#v", status)
+	}
+	jsonl, err := fixture.chats.LoadJSONLContent(started.ChatID)
+	if err != nil {
+		t.Fatalf("load proxy run JSONL: %v", err)
+	}
+	for _, expected := range []string{
+		`"runOrigin"`,
+		`"agentKey":"zenmi"`,
+		`"chatId":"parent-chat"`,
+		`"runId":"parent"`,
+		`"toolId":"proxy-tool"`,
+	} {
+		if !strings.Contains(jsonl, expected) {
+			t.Fatalf("proxy request.query is missing %s: %s", expected, jsonl)
+		}
 	}
 }
 

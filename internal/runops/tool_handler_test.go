@@ -115,7 +115,7 @@ func TestRunAllowsSelfTargetAndRejectsChainingAndUnownedRuns(t *testing.T) {
 	}
 
 	chainedCtx := runToolExecContext("alice", "tool-chain")
-	chainedCtx.Session.RunQueryOrigin = &contracts.RunQueryOrigin{CallerAgentKey: "zenmi"}
+	chainedCtx.Session.RunOrigin = &contracts.RunOrigin{AgentKey: "zenmi"}
 	chained, _ := handler.Invoke(context.Background(), QueryToolName, map[string]any{
 		"agentKey": "webOperator", "message": "loop",
 	}, chainedCtx)

@@ -243,10 +243,10 @@ type QuerySession struct {
 	// It is runtime-only and is deliberately excluded from persisted/session
 	// protocol payloads.
 	WebClientTarget WebClientTarget `json:"-"`
-	// RunQueryOrigin marks a root run created by the run_query tool.
+	// RunOrigin marks a root run created by the run_query tool.
 	// It is runtime-only: the public request cannot forge it, and a marked run
 	// is forbidden from calling any run tool.
-	RunQueryOrigin *RunQueryOrigin `json:"-"`
+	RunOrigin *RunOrigin `json:"-"`
 	// RunOwner is the required public run owner. Session producers must set it
 	// explicitly; AgentKey and TeamID are not fallback ownership fields.
 	RunOwner RunOwner
@@ -546,18 +546,18 @@ type RunStatusInfo struct {
 	AccessLevel        string
 	AccessLevelVersion int64
 	EditingMode        bool
-	RunQueryOrigin     *RunQueryOrigin `json:"-"`
+	RunOrigin          *RunOrigin `json:"-"`
 }
 
-// RunQueryOrigin is the trusted runtime identity attached to a detached run
+// RunOrigin is the trusted runtime identity attached to a detached run
 // created by run_query. Subject participates in ownership checks but is not
 // persisted into request.query audit metadata.
-type RunQueryOrigin struct {
-	CallerAgentKey string
-	Subject        string
-	ParentChatID   string
-	ParentRunID    string
-	ToolID         string
+type RunOrigin struct {
+	AgentKey string
+	Subject  string
+	ChatID   string
+	RunID    string
+	ToolID   string
 }
 
 type RunStartRequest struct {
@@ -565,7 +565,7 @@ type RunStartRequest struct {
 	TeamID   string
 	ChatID   string
 	Message  string
-	Origin   RunQueryOrigin
+	Origin   RunOrigin
 }
 
 type RunAwaiting struct {
@@ -576,18 +576,18 @@ type RunAwaiting struct {
 }
 
 type RunSnapshot struct {
-	RunID       string          `json:"runId"`
-	ChatID      string          `json:"chatId"`
-	AgentKey    string          `json:"agentKey,omitempty"`
-	TeamID      string          `json:"teamId,omitempty"`
-	Status      string          `json:"status"`
-	LastSeq     int64           `json:"lastSeq"`
-	StartedAt   int64           `json:"startedAt"`
-	CompletedAt int64           `json:"completedAt,omitempty"`
-	Awaiting    *RunAwaiting    `json:"awaiting,omitempty"`
-	Content     string          `json:"content,omitempty"`
-	Error       map[string]any  `json:"error,omitempty"`
-	Origin      *RunQueryOrigin `json:"-"`
+	RunID       string         `json:"runId"`
+	ChatID      string         `json:"chatId"`
+	AgentKey    string         `json:"agentKey,omitempty"`
+	TeamID      string         `json:"teamId,omitempty"`
+	Status      string         `json:"status"`
+	LastSeq     int64          `json:"lastSeq"`
+	StartedAt   int64          `json:"startedAt"`
+	CompletedAt int64          `json:"completedAt,omitempty"`
+	Awaiting    *RunAwaiting   `json:"awaiting,omitempty"`
+	Content     string         `json:"content,omitempty"`
+	Error       map[string]any `json:"error,omitempty"`
+	Origin      *RunOrigin     `json:"-"`
 }
 
 type RunToolService interface {

@@ -13,12 +13,12 @@ import (
 )
 
 type managedRun struct {
-	run            ActiveRun
-	control        *RunControl
-	eventBus       *stream.RunEventBus
-	runQueryOrigin *RunQueryOrigin
-	startedAt      time.Time
-	completedAt    time.Time
+	run         ActiveRun
+	control     *RunControl
+	eventBus    *stream.RunEventBus
+	runOrigin   *RunOrigin
+	startedAt   time.Time
+	completedAt time.Time
 }
 
 type InMemoryRunManager struct {
@@ -108,11 +108,11 @@ func (m *InMemoryRunManager) registerLocked(session QuerySession) (context.Conte
 	})
 	control.SetObserverCount(0)
 	m.runs[session.RunID] = &managedRun{
-		run:            run,
-		control:        control,
-		eventBus:       eventBus,
-		runQueryOrigin: cloneRunQueryOrigin(session.RunQueryOrigin),
-		startedAt:      startedAt,
+		run:       run,
+		control:   control,
+		eventBus:  eventBus,
+		runOrigin: cloneRunOrigin(session.RunOrigin),
+		startedAt: startedAt,
 	}
 	return WithRunControl(control.Context(), control), control, run
 }
@@ -266,7 +266,7 @@ func (m *InMemoryRunManager) RunStatus(runID string) (RunStatusInfo, bool) {
 		OldestSeq:         state.eventBus.OldestSeq(),
 		ObserverCount:     state.eventBus.ObserverCount(),
 		StartedAt:         state.startedAt.UnixMilli(),
-		RunQueryOrigin:    cloneRunQueryOrigin(state.runQueryOrigin),
+		RunOrigin:         cloneRunOrigin(state.runOrigin),
 		EditingMode:       state.run.EditingMode,
 	}
 	info.AccessLevel, info.AccessLevelVersion = state.control.AccessLevelSnapshot()
@@ -349,7 +349,7 @@ func runStatusInfoFromManagedRun(state *managedRun) RunStatusInfo {
 		OldestSeq:         state.eventBus.OldestSeq(),
 		ObserverCount:     state.eventBus.ObserverCount(),
 		StartedAt:         state.startedAt.UnixMilli(),
-		RunQueryOrigin:    cloneRunQueryOrigin(state.runQueryOrigin),
+		RunOrigin:         cloneRunOrigin(state.runOrigin),
 		EditingMode:       state.run.EditingMode,
 	}
 	info.AccessLevel, info.AccessLevelVersion = state.control.AccessLevelSnapshot()
@@ -359,7 +359,7 @@ func runStatusInfoFromManagedRun(state *managedRun) RunStatusInfo {
 	return info
 }
 
-func cloneRunQueryOrigin(origin *RunQueryOrigin) *RunQueryOrigin {
+func cloneRunOrigin(origin *RunOrigin) *RunOrigin {
 	if origin == nil {
 		return nil
 	}
