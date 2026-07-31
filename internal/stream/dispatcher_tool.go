@@ -171,6 +171,11 @@ func (d *StreamEventDispatcher) closeTool(toolID string, fileChange map[string]a
 }
 
 func buildToolResultValue(input ToolResult) any {
+	if structured, ok := input.Result.(map[string]any); ok &&
+		input.Error != "" &&
+		strings.EqualFold(strings.TrimSpace(anyString(structured["error"])), strings.TrimSpace(input.Error)) {
+		return clonePayload(structured)
+	}
 	if isBashToolResult(input.ToolName) {
 		return input.Result
 	}

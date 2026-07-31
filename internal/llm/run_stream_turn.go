@@ -848,6 +848,7 @@ func (s *llmRunStream) handleInterruptIfNeeded() error {
 			s.pending = append(s.pending, s.modelTurnDiscardDelta(s.modelCall, ErrRunInterrupted, false, s.modelCall.attempt))
 			s.modelCall = nil
 		}
+		s.appendInterruptedWaitingResults()
 		s.currentTurn = nil
 		s.activeToolBatch = nil
 		s.pending = append(s.pending, DeltaRunCancel{RunID: s.session.RunID})

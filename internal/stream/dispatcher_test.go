@@ -102,6 +102,38 @@ func TestDispatcherPreservesBashHardErrorWithoutWrappingResult(t *testing.T) {
 	}
 }
 
+func TestDispatcherPreservesStructuredInterruptedResultForNonBash(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{RunID: "run_1", ChatID: "chat_1"})
+	payload := map[string]any{
+		"error":      "run_interrupted",
+		"exitCode":   -1,
+		"output":     "tool execution was cancelled before execution",
+		"executed":   false,
+		"awaitingId": "await_1",
+	}
+	events := dispatcher.Dispatch(ToolResult{
+		ToolID:   "tool_1",
+		ToolName: "file_read",
+		Result:   payload,
+		Error:    "run_interrupted",
+		ExitCode: -1,
+	})
+	assertEventTypes(t, events, "tool.result")
+	result, ok := events[0].Data().Value("result").(map[string]any)
+	if !ok {
+		t.Fatalf("expected flat structured result, got %#v", events[0].Data().Value("result"))
+	}
+	if result["error"] != "run_interrupted" ||
+		result["output"] != "tool execution was cancelled before execution" ||
+		result["executed"] != false ||
+		result["awaitingId"] != "await_1" {
+		t.Fatalf("unexpected structured interrupted result %#v", result)
+	}
+	if _, nested := result["result"]; nested {
+		t.Fatalf("structured interrupted result was wrapped twice: %#v", result)
+	}
+}
+
 func TestDispatcherEmitsAwaitingAnswerDuration(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",

@@ -389,6 +389,11 @@ func (s *Server) wsChat(ctx context.Context, conn *ws.Conn, req ws.RequestFrame)
 		conn.CompleteRequest(req.ID)
 		return
 	}
+	if errors.Is(loadErr, chat.ErrChatHistoryIncomplete) {
+		s.sendWSStatusError(conn, req.ID, chatHistoryIncompleteStatusError(payload.ChatID, loadErr))
+		conn.CompleteRequest(req.ID)
+		return
+	}
 	var conflictErr *contracts.ActiveRunConflictError
 	if errors.As(loadErr, &conflictErr) {
 		conn.SendError(req.ID, activeRunConflictCode, 409, activeRunConflictMessage, activeRunConflictInfo(conflictErr))

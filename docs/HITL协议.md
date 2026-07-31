@@ -62,6 +62,8 @@ native CODER planning 的 `planning approve` 有独立 run 边界：后端先在
 - `request.submit` 记录前端原始数组，`awaiting.answer` 才是后端归一化结果。
 - `awaiting.ask` 会在发出时立即 flush 当前 JSONL step，完整现场保存在 step 的 `awaiting[]`；`CHATS.AWAITING_*` 只记录当前等待状态，不再为 `awaiting.ask` 写 event line。
 - 有 awaiting 的 tool-call 批次，确认前不会产生 sibling `tool.result`；确认后所有结果落到同 `seq` 的 `_type:"react-tool"` continuation，且每个 `tool_call.id` 在下一次模型调用前必须恰好对应一个 `role:"tool"` result。
+- run 在 awaiting 期间被 interrupt 时，后端按 `awaiting.answer -> tool.result(s) -> run.cancel` 发布。`awaiting.answer` 使用 `status:"error"`、`error.code/reason:"run_interrupted"`；所有可证明尚未执行的等待调用及其 queued sibling 都生成一个 matching result，正文固定为 `{"error":"run_interrupted","exitCode":-1,"output":"...","executed":false,"awaitingId":"..."}`。这里不会伪造 `decision:"reject"` 或 `role:"user"` approval。
+- `executed:false` 只表示平台能证明调用尚未开始。已经进入普通工具执行或并发执行批次、但没有确定结果的调用不补 synthetic result，后续回放返回 `chat_history_incomplete`。
 - interrupt 取消整个 Team 根 run；steer 写入协调器 run，不直接定向某个正在等待的成员。
 
 ## 相关文件

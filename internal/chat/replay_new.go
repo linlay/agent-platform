@@ -482,7 +482,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				rd.events = append(rd.events, event)
 			}
 			if len(answer) > 0 {
-				answer = cloneStringAnyMap(answer)
+				answer = replayAwaitingAnswerPayload(answer, int64FromAny(line["updatedAt"]))
 				clearReplayCursorFields(answer)
 				if _, ok := answer["runId"]; !ok && runID != "" {
 					answer["runId"] = runID

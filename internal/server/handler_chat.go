@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/apperrors"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
@@ -366,6 +367,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat not found"))
 		return
 	}
+	if errors.Is(err, chat.ErrChatHistoryIncomplete) {
+		writeStatusError(w, chatHistoryIncompleteStatusError(chatID, err))
+		return
+	}
 	var conflictErr *contracts.ActiveRunConflictError
 	if errors.As(err, &conflictErr) {
 		writeActiveRunConflict(w, conflictErr)
@@ -380,6 +385,24 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, api.Success(response))
+}
+
+func chatHistoryIncompleteStatusError(chatID string, err error) *statusError {
+	message := chat.ErrChatHistoryIncomplete.Error()
+	if err != nil {
+		message = err.Error()
+	}
+	payload := apperrors.Payload(
+		apperrors.CodeChatHistoryIncomplete,
+		message,
+		apperrors.WithDiagnostic("chatId", strings.TrimSpace(chatID)),
+	)
+	return &statusError{
+		status:  http.StatusConflict,
+		code:    string(apperrors.CodeChatHistoryIncomplete),
+		message: message,
+		data:    map[string]any{"error": payload},
+	}
 }
 
 func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {

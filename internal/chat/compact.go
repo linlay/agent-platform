@@ -96,15 +96,15 @@ func (s *FileStore) BuildCompactSnapshot(chatID string, keptRunCount int) (Compa
 		return CompactSnapshot{}, ErrNoCompactableHistory
 	}
 
-	allLines, err := filterLegacyIncompleteModelTurns(recordValues(records), eligibleRuns)
+	allLines, err := filterLegacyIncompleteModelTurnsWithRuns(recordValues(records), eligibleRuns)
 	if err != nil {
 		return CompactSnapshot{}, err
 	}
-	coveredLines, err = filterLegacyIncompleteModelTurns(coveredLines, eligibleRuns)
+	coveredLines, err = filterLegacyIncompleteModelTurnsWithRuns(coveredLines, eligibleRuns)
 	if err != nil {
 		return CompactSnapshot{}, err
 	}
-	tailLines, err := filterLegacyIncompleteModelTurns(recordValues(records[boundaryIndex:]), eligibleRuns)
+	tailLines, err := filterLegacyIncompleteModelTurnsWithRuns(recordValues(records[boundaryIndex:]), eligibleRuns)
 	if err != nil {
 		return CompactSnapshot{}, err
 	}

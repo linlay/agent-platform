@@ -38,7 +38,7 @@ func validatePersistedTimeContract(lines []map[string]any, baseLocation string) 
 		if err := validatePersistedSubmitPayload(line["submit"], location+".submit"); err != nil {
 			return err
 		}
-		if err := validatePersistedSubmitPayload(line["answer"], location+".answer"); err != nil {
+		if err := validatePersistedAnswerPayload(line["answer"], location+".answer"); err != nil {
 			return err
 		}
 		if err := validatePersistedStepMessages(line["messages"], location+".messages"); err != nil {
@@ -90,6 +90,17 @@ func validatePersistedAwaiting(raw any, location string) error {
 func validatePersistedSubmitPayload(raw any, location string) error {
 	item, ok := raw.(map[string]any)
 	if !ok || len(item) == 0 {
+		return nil
+	}
+	return requirePersistedEpochMillis(item, "timestamp", location)
+}
+
+func validatePersistedAnswerPayload(raw any, location string) error {
+	item, ok := raw.(map[string]any)
+	if !ok || len(item) == 0 {
+		return nil
+	}
+	if _, hasTimestamp := item["timestamp"]; !hasTimestamp && isInterruptedAwaitingAnswerPayload(item) {
 		return nil
 	}
 	return requirePersistedEpochMillis(item, "timestamp", location)

@@ -223,7 +223,7 @@ func (w *StepWriter) writeSubmitLine(answer stream.EventData) {
 		w.pendingSubmitTimestamp = 0
 		return
 	}
-	answerPayload := eventPayloadWithoutSeq(answer)
+	answerPayload := compactInterruptedAwaitingAnswer(eventPayloadWithoutSeq(answer))
 	if answer.Timestamp > 0 {
 		if err := w.store.AppendSubmitLine(w.chatID, SubmitLine{
 			ChatID:    w.chatID,

@@ -355,7 +355,7 @@ commit 前遇到 EOF、非法流帧、连接中断或可重试的 provider strea
 
 客户端收到该 recovery 后应按给出的 id 移除已经展示的半截 reasoning、content 或 tool。重试耗尽时平台发送 `run.error`，未提交 attempt 不进入 JSONL 或 run summary。model turn 与后续 tool batch 是两个独立事务边界：turn commit 后，完整 tool call 会保留；工具执行失败写正常失败 tool result。工具已经开始执行或可能产生副作用时，平台不会通过回滚 turn 自动重试，避免重复执行。
 
-旧会话历史如果存在无法安全判定工具是否执行过的末尾调用，后续 query 在本地返回 HTTP `409`，错误码为 `chat_history_incomplete`，不会把有歧义的历史发给 provider。
+旧会话历史如果存在无法安全判定工具是否执行过的末尾调用，HTTP 与 WebSocket `/api/chat` 以及后续 query 都返回 `409 chat_history_incomplete`，不会把有歧义的历史发给 provider。仅当 run 以 cancel 结束、末尾调用保留未关闭 awaiting、没有 submit/answer/result 冲突，且每个缺失调用都能映射到该 awaiting 时，读取逻辑视图才会在内存中补出 `run_interrupted` answer/result；原始 JSONL 与数据库不回写。已经开始执行而结果未知的调用不会标记为 `executed:false`。
 
 可运行的 HTTP JSON 模式 curl：
 
