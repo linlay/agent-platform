@@ -404,7 +404,10 @@ func buildSkillCatalogPrompt(def catalog.AgentDefinition, marketDir string, appe
 		if !ok {
 			continue
 		}
-		lines := []string{"skillId: " + definition.Key}
+		lines := []string{
+			"skillId: " + definition.Key,
+			"instructionsPath: @skills/" + definition.Key + "/SKILL.md",
+		}
 		if strings.TrimSpace(definition.Name) != "" {
 			lines = append(lines, "name: "+strings.TrimSpace(definition.Name))
 		}
@@ -425,6 +428,9 @@ func buildSkillCatalogPrompt(def catalog.AgentDefinition, marketDir string, appe
 			sections = append(sections, instructionsPrompt)
 		}
 	}
+	sections = append(sections, `Skill loading contract:
+- When a listed skill applies, read its exact instructionsPath with file_read before acting.
+- Do not use Bash, directory traversal, or filesystem search to discover installed skill locations.`)
 	sections = append(sections, strings.TrimSpace(appendConfig.Skill.CatalogHeader))
 	sections = append(sections, strings.Join(blocks, "\n\n---\n\n"))
 	return strings.Join(sections, "\n\n")

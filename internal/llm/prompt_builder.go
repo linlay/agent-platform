@@ -83,6 +83,7 @@ func buildSystemPromptSections(session QuerySession, req api.QueryRequest, optio
 		appendSection("advanced-user-prompt-protocol", "Advanced User Prompt Protocol", "query.advanced_user_prompt", querymessages.AdvancedUserPromptSystemPrompt)
 	}
 	appendRuntimeSystemPromptSections(&sections, session, req)
+	appendSection("runtime-path-policy", "Runtime Context: Path Policy", "runtime.path_policy", buildRuntimePathPolicySection(session, options.ToolDefinitions))
 	appendSection("runtime-plan-tasks", "Runtime Context: Current Plan Tasks", "runtime.plan_tasks", buildPlanTaskContextSection(session, toolNames, options.Stage))
 	appendSection("stage-instructions", "Stage Instructions Prompt", "stage.instructions", stageInstructionsPrompt)
 	appendSection("stage-system", "Stage System Prompt", "stage.system", stageSystemPrompt)
@@ -147,6 +148,61 @@ func appendRuntimeMemorySystemPromptSections(sections *[]systemPromptSection, se
 	if len(*sections) == before {
 		appendSection("memory-agent", "Runtime Context: Agent Memory", "memory.agent", buildMemorySection(session, req))
 	}
+}
+
+func buildRuntimePathPolicySection(session QuerySession, definitions []api.ToolDetailResponse) string {
+	if sessionHasWorkspace(session) {
+		return ""
+	}
+	tools := make(map[string]struct{}, len(definitions))
+	for _, definition := range definitions {
+		if name := normalizedToolDefinitionName(definition); name != "" {
+			tools[name] = struct{}{}
+		}
+	}
+	hasTool := func(names ...string) bool {
+		for _, name := range names {
+			if _, ok := tools[name]; ok {
+				return true
+			}
+		}
+		return false
+	}
+	hasSkills := strings.TrimSpace(session.SkillCatalogPrompt) != ""
+	if len(tools) == 0 && !hasSkills {
+		return ""
+	}
+	hasPathTools := hasTool(
+		"bash",
+		"file_read",
+		"file_write",
+		"file_edit",
+		"file_glob",
+		"file_grep",
+		"artifact_publish",
+		"vision_recognize",
+	)
+	if !hasPathTools && !hasSkills {
+		return ""
+	}
+
+	lines := []string{
+		"Runtime Context: Path Policy",
+		"- Workspace is unavailable. The current Chat is a separate semantic root and is never an implicit Workspace fallback.",
+	}
+	if hasTool("bash") {
+		lines = append(lines, `- Every bash call must pass an explicit cwd. Use cwd: "@chat" for normal scratch, input, and output work.`)
+	}
+	if hasTool("file_glob", "file_grep") {
+		lines = append(lines, `- file_glob and file_grep must pass an explicit path, normally "@chat".`)
+	}
+	if hasTool("file_read", "file_write", "file_edit", "artifact_publish", "vision_recognize") {
+		lines = append(lines, "- File paths must use an explicit semantic root such as @chat, @agent, @skills, @skills-market, or @owner, or an allowed absolute path. Relative paths and @workspace fail with workspace_unavailable.")
+	}
+	if hasSkills {
+		lines = append(lines, "- Load an applicable skill directly from @skills/<skillId>/SKILL.md with file_read. Do not search or traverse directories to discover its location.")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func buildPlanTaskContextSection(session QuerySession, toolNames []string, stage string) string {

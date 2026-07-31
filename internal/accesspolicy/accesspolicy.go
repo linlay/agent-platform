@@ -207,7 +207,7 @@ func ResolveSessionPath(session QuerySession, rawPath string) (string, error) {
 		root := expandRootAlias(alias, session)
 		if root == "" {
 			if strings.EqualFold(alias, "@workspace") {
-				return "", fmt.Errorf("workspace_unavailable: workspace is required")
+				return "", fmt.Errorf("workspace_unavailable: workspace is required; use an explicit root such as @chat")
 			}
 			return "", fmt.Errorf("path root %s is unavailable", alias)
 		}
@@ -237,7 +237,7 @@ func ResolveSessionPath(session QuerySession, rawPath string) (string, error) {
 	}
 	workspaceRoot := SessionWorkspaceRoot(session)
 	if workspaceRoot == "" {
-		return "", fmt.Errorf("workspace_unavailable: relative paths require a workspace")
+		return "", fmt.Errorf("workspace_unavailable: relative paths require a workspace; use an explicit root such as @chat")
 	}
 	return requireSessionWorkspacePath(session, filepath.Clean(filepath.Join(workspaceRoot, candidate)))
 }

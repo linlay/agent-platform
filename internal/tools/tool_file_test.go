@@ -185,7 +185,6 @@ func TestInvokeReadAllowsSessionAgentDir(t *testing.T) {
 }
 
 func TestInvokeReadAllowsSessionSkillsDir(t *testing.T) {
-	root := t.TempDir()
 	skillsDir := filepath.Join(t.TempDir(), "agent-a", "skills", "automation")
 	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
 		t.Fatalf("mkdir skills dir: %v", err)
@@ -194,16 +193,15 @@ func TestInvokeReadAllowsSessionSkillsDir(t *testing.T) {
 	if err := os.WriteFile(skillFile, []byte("# Automation\n\nUse calendars.\n"), 0o644); err != nil {
 		t.Fatalf("write skill fixture: %v", err)
 	}
-	executor := fileToolExecutor(root, true)
+	executor := fileToolExecutor(t.TempDir(), true)
 	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
-		WorkspaceRoot: root,
 		RuntimeContext: contracts.RuntimeRequestContext{
-			LocalPaths: contracts.LocalPaths{WorkspaceDir: root, SkillsDir: filepath.Dir(skillsDir)},
+			LocalPaths: contracts.LocalPaths{SkillsDir: filepath.Dir(skillsDir)},
 		},
 	}}
 
 	result, err := executor.invokeRead(map[string]any{
-		"file_path":        skillFile,
+		"file_path":        "@skills/automation/SKILL.md",
 		"add_line_numbers": false,
 	}, execCtx)
 	if err != nil {

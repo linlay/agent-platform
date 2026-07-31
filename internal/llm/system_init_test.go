@@ -252,6 +252,63 @@ func TestCachedSystemInitConversions(t *testing.T) {
 	}
 }
 
+func TestWorkspaceLessSystemInitAndDirectDefinitionsStayIdentical(t *testing.T) {
+	session := fingerprintTestSession()
+	session.ToolNames = []string{"bash", "file_glob"}
+	session.ChatRoot = "/runtime/chats/chat-1"
+	session.RuntimeContext.LocalPaths.ChatDir = session.ChatRoot
+	toolDefs := []api.ToolDetailResponse{
+		{
+			Name: "bash",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"command": map[string]any{"type": "string"},
+					"cwd":     map[string]any{"type": "string"},
+				},
+				"required": []any{"command"},
+			},
+		},
+		{
+			Name: "file_glob",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"pattern": map[string]any{"type": "string"},
+					"path":    map[string]any{"type": "string"},
+				},
+				"required": []any{"pattern"},
+			},
+		},
+	}
+
+	direct := toOpenAIToolSpecs(effectiveToolDefinitions(toolDefs, session.ToolNames, session))
+	profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, toolDefs, 12, 4, 12, config.PromptsConfig{})
+	if len(profiles) != 1 {
+		t.Fatalf("expected one profile, got %#v", profiles)
+	}
+	cached, err := cachedToolSpecsToOpenAI(profiles[0].Tools)
+	if err != nil {
+		t.Fatalf("cached tool specs: %v", err)
+	}
+	if !reflect.DeepEqual(direct, cached) {
+		t.Fatalf("system-init and direct tool definitions differ:\ndirect=%#v\ncached=%#v", direct, cached)
+	}
+	for _, spec := range cached {
+		required := schemaRequiredSet(spec.Function.Parameters)
+		switch spec.Function.Name {
+		case "bash":
+			if !required["cwd"] {
+				t.Fatalf("cached bash schema does not require cwd: %#v", spec.Function.Parameters)
+			}
+		case "file_glob":
+			if !required["path"] {
+				t.Fatalf("cached file_glob schema does not require path: %#v", spec.Function.Parameters)
+			}
+		}
+	}
+}
+
 func TestPlanExecuteSystemInitProfilesUseRuntimeSettings(t *testing.T) {
 	session := fingerprintTestSession()
 	session.Mode = "PLAN_EXECUTE"
@@ -276,7 +333,18 @@ func TestPlanExecuteSystemInitProfilesUseRuntimeSettings(t *testing.T) {
 	toolDefs := []api.ToolDetailResponse{
 		{Name: "custom_plan", Description: "plan"},
 		{Name: "plan_add_tasks", Description: "add tasks"},
-		{Name: "bash", Description: "run shell"},
+		{
+			Name:        "bash",
+			Description: "run shell",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"command": map[string]any{"type": "string"},
+					"cwd":     map[string]any{"type": "string"},
+				},
+				"required": []any{"command"},
+			},
+		},
 		{Name: "custom_exec", Description: "exec"},
 		{Name: "plan_update_task", Description: "update task"},
 	}
@@ -307,8 +375,24 @@ func TestPlanExecuteSystemInitProfilesUseRuntimeSettings(t *testing.T) {
 	assertToolNames(t, byKey["plan-execute:plan"].Tools, []string{"custom_plan", "plan_add_tasks"})
 	assertToolNames(t, byKey["plan-execute:execute"].Tools, appendUniqueTools(stageToolsOrDefault(settings.Execute, session.ToolNames), "plan_update_task"))
 	assertToolNames(t, byKey["plan-execute:summary"].Tools, nil)
-	if byKey["plan-execute:execute"].SystemMessage["content"] != "execute primary" {
-		t.Fatalf("unexpected execute system message %#v", byKey["plan-execute:execute"].SystemMessage)
+	executeSpecs, err := cachedToolSpecsToOpenAI(byKey["plan-execute:execute"].Tools)
+	if err != nil {
+		t.Fatalf("decode execute tool specs: %v", err)
+	}
+	for _, spec := range executeSpecs {
+		if spec.Function.Name == "bash" && !schemaRequiredSet(spec.Function.Parameters)["cwd"] {
+			t.Fatalf("PLAN_EXECUTE execute stage must require bash.cwd without Workspace: %#v", spec.Function.Parameters)
+		}
+	}
+	executeContent, _ := byKey["plan-execute:execute"].SystemMessage["content"].(string)
+	for _, expected := range []string{
+		"Runtime Context: Path Policy",
+		`cwd: "@chat"`,
+		"execute primary",
+	} {
+		if !strings.Contains(executeContent, expected) {
+			t.Fatalf("expected execute system message to contain %q, got %#v", expected, byKey["plan-execute:execute"].SystemMessage)
+		}
 	}
 	if byKey["plan-execute:summary"].SystemMessage["content"] != "summary primary" {
 		t.Fatalf("unexpected summary system message %#v", byKey["plan-execute:summary"].SystemMessage)

@@ -319,7 +319,7 @@ func ComputeSystemInitFingerprint(session contracts.QuerySession, stage string, 
 
 func buildDefaultSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, stage string) contracts.SystemInitProfile {
 	toolNames := coderRuntimeToolNamesForStage(session, stage, session.ToolNames)
-	effectiveDefs := effectiveToolDefinitions(toolDefs, toolNames, session.AgentHasRuntimeSandbox)
+	effectiveDefs := effectiveToolDefinitions(toolDefs, toolNames, session)
 	systemPrompt := buildSystemPrompt(session, req, session.ModelKey, PromptBuildOptions{
 		Stage:                 stage,
 		ToolDefinitions:       effectiveDefs,
@@ -350,7 +350,7 @@ func buildDefaultSystemInitProfile(session contracts.QuerySession, req api.Query
 
 func buildPlanSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, settings contracts.PlanExecuteSettings, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
 	tools := planSystemInitTools(settings.Plan)
-	effectiveDefs := effectiveToolDefinitions(toolDefs, tools, session.AgentHasRuntimeSandbox)
+	effectiveDefs := effectiveToolDefinitions(toolDefs, tools, session)
 	systemPrompt := buildSystemPrompt(session, req, session.ModelKey, PromptBuildOptions{
 		Stage:                 "plan",
 		ToolDefinitions:       effectiveDefs,
@@ -371,11 +371,12 @@ func buildPlanSystemInitProfile(session contracts.QuerySession, req api.QueryReq
 
 func buildExecuteSystemInitProfile(session contracts.QuerySession, settings contracts.PlanExecuteSettings, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
 	tools := appendUniqueTools(stageToolsOrDefault(settings.Execute, session.ToolNames), "plan_update_task")
-	effectiveDefs := effectiveToolDefinitions(toolDefs, tools, session.AgentHasRuntimeSandbox)
+	effectiveDefs := effectiveToolDefinitions(toolDefs, tools, session)
 	systemPrompt := strings.TrimSpace(settings.Execute.PrimaryPrompt())
 	if systemPrompt == "" {
 		systemPrompt = "Execute the current task."
 	}
+	systemPrompt = joinPromptSections(buildRuntimePathPolicySection(session, effectiveDefs), systemPrompt)
 	specs := toOpenAIToolSpecs(effectiveDefs)
 	return contracts.SystemInitProfile{
 		AgentKey:      strings.TrimSpace(session.AgentKey),
@@ -427,7 +428,7 @@ func buildCoderPlanningPlanningSystemInitProfile(session contracts.QuerySession,
 }
 
 func buildCoderPlanningSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, spec agentcontract.SystemInitSpec, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
-	effectiveDefs := effectiveToolDefinitions(toolDefs, spec.ToolNames, session.AgentHasRuntimeSandbox)
+	effectiveDefs := effectiveToolDefinitions(toolDefs, spec.ToolNames, session)
 	systemPrompt := strings.TrimSpace(spec.SystemPrompt)
 	if spec.UseSharedSystemPrompt {
 		systemPrompt = buildSystemPrompt(session, req, session.ModelKey, PromptBuildOptions{

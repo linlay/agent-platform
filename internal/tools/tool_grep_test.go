@@ -47,6 +47,36 @@ func TestInvokeGrepWithoutPathRequiresWorkspace(t *testing.T) {
 	if result.Error != "workspace_unavailable" || result.ExitCode == 0 {
 		t.Fatalf("expected workspace_unavailable, got %#v", result)
 	}
+	if !strings.Contains(result.Output, "pass path explicitly") || !strings.Contains(result.Output, "@chat") {
+		t.Fatalf("expected actionable workspace_unavailable output, got %#v", result)
+	}
+}
+
+func TestInvokeGrepWithoutWorkspaceAllowsExplicitChatPath(t *testing.T) {
+	requireRipgrep(t)
+	chatDir := t.TempDir()
+	mustWriteFile(t, filepath.Join(chatDir, "upload.txt"), "needle\n")
+	executor := fileToolExecutor(t.TempDir(), false)
+	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{ChatDir: chatDir},
+		},
+	}}
+
+	result, err := executor.invokeGrep(context.Background(), map[string]any{
+		"pattern": "needle",
+		"path":    "@chat",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeGrep: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected explicit Chat grep success, got %#v", result)
+	}
+	results := stringSliceResult(t, result.Structured["results"])
+	if len(results) != 1 || results[0] != filepath.Join(realPath(t, chatDir), "upload.txt") {
+		t.Fatalf("unexpected explicit Chat grep results: %#v", results)
+	}
 }
 
 func TestInvokeGrepNoMatchReturnsEmptySuccess(t *testing.T) {

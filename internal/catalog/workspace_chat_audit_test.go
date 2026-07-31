@@ -3,6 +3,7 @@ package catalog
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"agent-platform/internal/config"
@@ -58,6 +59,7 @@ func TestAuditWorkspaceChatConfigReportsMaskRequirementAndOrphanReferences(t *te
 		}
 	}
 	writeAuditAgent(t, agentsDir, "root-agent", "key: root-agent\nmode: REACT\nmodelConfig:\n  modelKey: mock\nruntimeConfig:\n  environmentId: shell\n  workspaceRoot: "+filepath.ToSlash(root)+"\ncontextConfig:\n  agents:\n    - missing-agent\n")
+	writeAuditAgent(t, agentsDir, "workspace-less", "key: workspace-less\nmode: REACT\nmodelConfig:\n  modelKey: mock\ntoolConfig:\n  tools:\n    - bash\n    - file_read\n    - file_glob\n")
 	teamDir := filepath.Join(teamsDir, "demo")
 	if err := os.MkdirAll(teamDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -80,6 +82,12 @@ func TestAuditWorkspaceChatConfigReportsMaskRequirementAndOrphanReferences(t *te
 	}
 	if finding, ok := got["root-agent:container_workspace_mask_required"]; !ok || finding.Severity != "info" {
 		t.Fatalf("missing informational mask finding: %#v", findings)
+	}
+	if finding, ok := got["workspace-less:workspace_less_explicit_paths_required"]; !ok ||
+		finding.Severity != "info" ||
+		!strings.Contains(finding.Message, "bash.cwd") ||
+		!strings.Contains(finding.Message, "file_glob.path") {
+		t.Fatalf("missing Workspace-less explicit path diagnostic: %#v", findings)
 	}
 	for _, key := range []string{
 		"root-agent:orphan_agent_reference",

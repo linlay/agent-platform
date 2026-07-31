@@ -57,7 +57,7 @@ run-local: build-local
 endif
 
 audit-workspace-chat:
-	go run ./cmd/audit-workspace-chat-config --config-dir .
+	set -a; [ ! -f .env ] || . ./.env; set +a; go run ./cmd/audit-workspace-chat-config --config-dir .
 
 test:
 	@for pkg in $$(go list ./...); do \

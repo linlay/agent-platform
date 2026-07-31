@@ -322,6 +322,72 @@ func TestInvokeHostBashDefaultsCwdToSessionWorkspace(t *testing.T) {
 	}
 }
 
+func TestInvokeHostBashWithoutWorkspaceRequiresExplicitCwd(t *testing.T) {
+	executor := &RuntimeToolExecutor{
+		cfg: config.Config{
+			Bash: config.BashConfig{
+				AllowedCommands: []string{"pwd"},
+				ShellExecutable: "bash",
+				MaxCommandChars: 16000,
+			},
+		},
+	}
+
+	result, err := executor.invokeHostBash(
+		context.Background(),
+		map[string]any{"command": "pwd"},
+		&contracts.ExecutionContext{Session: contracts.QuerySession{}},
+	)
+	if err != nil {
+		t.Fatalf("invokeHostBash returned error: %v", err)
+	}
+	if result.Error != "workspace_unavailable" ||
+		!strings.Contains(result.Output, "pass cwd explicitly") ||
+		!strings.Contains(result.Output, "@chat") {
+		t.Fatalf("expected actionable workspace_unavailable result, got %#v", result)
+	}
+}
+
+func TestInvokeHostBashWithoutWorkspaceAllowsExplicitChatAndAgentCwd(t *testing.T) {
+	root := t.TempDir()
+	chatDir := filepath.Join(root, "chats", "chat-1")
+	agentDir := filepath.Join(root, "agents", "bootstrap")
+	for _, dir := range []string{chatDir, agentDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	executor := &RuntimeToolExecutor{
+		cfg: config.Config{
+			Bash: config.BashConfig{
+				AllowedCommands: []string{"pwd"},
+				ShellExecutable: "bash",
+				MaxCommandChars: 16000,
+			},
+		},
+	}
+	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{ChatDir: chatDir, AgentDir: agentDir},
+		},
+	}}
+
+	for alias, want := range map[string]string{"@chat": chatDir, "@agent": agentDir} {
+		result, err := executor.invokeHostBash(
+			context.Background(),
+			map[string]any{"command": "pwd", "cwd": alias},
+			execCtx,
+		)
+		if err != nil {
+			t.Fatalf("invokeHostBash(%s) returned error: %v", alias, err)
+		}
+		want, _ = filepath.EvalSymlinks(want)
+		if result.Error != "" || strings.TrimSpace(result.Output) != want {
+			t.Fatalf("expected pwd in %s %q, got %#v", alias, want, result)
+		}
+	}
+}
+
 func TestInvokeHostBashFailureReturnsStructuredJSON(t *testing.T) {
 	root := t.TempDir()
 	executor := &RuntimeToolExecutor{

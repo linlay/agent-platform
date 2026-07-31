@@ -10,7 +10,7 @@ inputSchema:
   properties:
     file_path:
       type: string
-      description: Required. Absolute path, @workspace/@chat path, or a path relative to the current Workspace.
+      description: Required. Absolute path, an explicit @workspace/@chat/@agent/@skills/@skills-market/@owner path, or a path relative to the current Workspace.
     content:
       type: string
       description: Required. Complete text contents to write. Existing file contents are replaced.

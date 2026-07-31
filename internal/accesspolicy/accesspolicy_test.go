@@ -93,6 +93,30 @@ func TestDefaultLevelAllowsChatReadWriteWithExplicitWorkspace(t *testing.T) {
 	}
 }
 
+func TestResolveSessionPathWithoutWorkspaceRequiresExplicitSemanticRoot(t *testing.T) {
+	chatDir := t.TempDir()
+	session := contracts.QuerySession{
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{ChatDir: chatDir},
+		},
+	}
+
+	resolved, err := ResolveSessionPath(session, "@chat/upload.txt")
+	if err != nil {
+		t.Fatalf("resolve explicit Chat path: %v", err)
+	}
+	if want := filepath.Join(chatDir, "upload.txt"); resolved != want {
+		t.Fatalf("resolved Chat path = %q, want %q", resolved, want)
+	}
+	for _, rawPath := range []string{"upload.txt", "@workspace/upload.txt"} {
+		if _, err := ResolveSessionPath(session, rawPath); err == nil ||
+			!strings.Contains(err.Error(), "workspace_unavailable") ||
+			!strings.Contains(err.Error(), "@chat") {
+			t.Fatalf("ResolveSessionPath(%q) error = %v, want actionable workspace_unavailable", rawPath, err)
+		}
+	}
+}
+
 func TestWorkspaceContainingChatsUsesChatFirstSemanticClassification(t *testing.T) {
 	workspace := t.TempDir()
 	chatsDir := filepath.Join(workspace, "runtime", "chats")

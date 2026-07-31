@@ -14,6 +14,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"agent-platform/internal/accesspolicy"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/textcodec"
@@ -30,10 +31,13 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 		return fileToolError("grep_invalid_pattern", "pattern is required"), nil
 	}
 	rawPath := strings.TrimSpace(stringArg(args, "path"))
+	accessSession := accessPolicySession(execCtx)
 	if rawPath == "" {
+		if strings.TrimSpace(accesspolicy.SessionWorkspaceRoot(accessSession)) == "" {
+			return fileToolError("workspace_unavailable", "workspace_unavailable: no Workspace; pass path explicitly, usually @chat"), nil
+		}
 		rawPath = "."
 	}
-	accessSession := accessPolicySession(execCtx)
 	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessSession, filetools.ReadAccess, rawPath)
 	if err != nil {
 		return filePathResolutionError("grep_invalid_path", err), nil

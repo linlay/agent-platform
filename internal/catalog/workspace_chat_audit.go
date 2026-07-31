@@ -86,6 +86,15 @@ func AuditWorkspaceChatConfig(cfg config.Config) ([]WorkspaceChatAuditFinding, e
 			}
 		}
 		if strings.TrimSpace(def.Workspace.Root) == "" {
+			if tools := workspaceLessPathTools(def.Tools); len(tools) > 0 {
+				findings = append(findings, WorkspaceChatAuditFinding{
+					AgentKey:   strings.TrimSpace(key),
+					Code:       "workspace_less_explicit_paths_required",
+					Message:    fmt.Sprintf("Workspace-less agent exposes path-sensitive tools (%s); required explicit arguments: %s", strings.Join(tools, ", "), strings.Join(workspaceLessExplicitPathRequirements(tools), ", ")),
+					Severity:   "info",
+					SourcePath: filepath.Clean(source.Path),
+				})
+			}
 			continue
 		}
 		if workspaceErr := validateAgentWorkspace(def.Workspace); workspaceErr != nil {
@@ -121,6 +130,55 @@ func AuditWorkspaceChatConfig(cfg config.Config) ([]WorkspaceChatAuditFinding, e
 		return findings[i].Code < findings[j].Code
 	})
 	return findings, nil
+}
+
+func workspaceLessExplicitPathRequirements(tools []string) []string {
+	requirements := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		switch strings.ToLower(strings.TrimSpace(tool)) {
+		case "bash":
+			requirements = append(requirements, "bash.cwd (usually @chat)")
+		case "file_glob":
+			requirements = append(requirements, "file_glob.path")
+		case "file_grep":
+			requirements = append(requirements, "file_grep.path")
+		case "artifact_publish":
+			requirements = append(requirements, "artifact_publish source @chat/...")
+		case "vision_recognize":
+			requirements = append(requirements, "vision_recognize reference_name or explicit file_path")
+		case "file_read", "file_write", "file_edit":
+			requirements = append(requirements, tool+".file_path with an explicit semantic root")
+		}
+	}
+	return requirements
+}
+
+func workspaceLessPathTools(tools []string) []string {
+	pathSensitive := map[string]struct{}{
+		"artifact_publish": {},
+		"bash":             {},
+		"file_edit":        {},
+		"file_glob":        {},
+		"file_grep":        {},
+		"file_read":        {},
+		"file_write":       {},
+		"vision_recognize": {},
+	}
+	found := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, tool := range tools {
+		normalized := strings.ToLower(strings.TrimSpace(tool))
+		if _, ok := pathSensitive[normalized]; !ok {
+			continue
+		}
+		if _, duplicate := seen[normalized]; duplicate {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		found = append(found, normalized)
+	}
+	sort.Strings(found)
+	return found
 }
 
 func auditTeamReferences(teamsDir string) ([]workspaceChatAuditReference, error) {

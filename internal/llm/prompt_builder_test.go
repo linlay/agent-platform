@@ -86,6 +86,53 @@ func TestBuildSystemPromptIncludesStableReferenceProtocol(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPromptIncludesWorkspaceLessPathPolicy(t *testing.T) {
+	prompt := buildSystemPrompt(QuerySession{
+		AgentKey:           "demo",
+		Mode:               "REACT",
+		SkillCatalogPrompt: "skillId: demo\ninstructionsPath: @skills/demo/SKILL.md",
+		RuntimeContext: RuntimeRequestContext{
+			LocalPaths: LocalPaths{ChatDir: "/runtime/chats/chat-1"},
+		},
+	}, api.QueryRequest{}, "", PromptBuildOptions{
+		ToolDefinitions: []api.ToolDetailResponse{
+			{Name: "bash"},
+			{Name: "file_read"},
+			{Name: "file_glob"},
+		},
+	})
+
+	for _, expected := range []string{
+		"Runtime Context: Path Policy",
+		"Workspace is unavailable",
+		`cwd: "@chat"`,
+		`explicit path, normally "@chat"`,
+		"@skills/<skillId>/SKILL.md",
+		"Do not search or traverse directories",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("expected workspace-less prompt to contain %q, got %q", expected, prompt)
+		}
+	}
+}
+
+func TestBuildSystemPromptSkipsWorkspaceLessPathPolicyWithWorkspace(t *testing.T) {
+	prompt := buildSystemPrompt(QuerySession{
+		AgentKey:      "demo",
+		Mode:          "REACT",
+		WorkspaceRoot: "/workspace",
+		RuntimeContext: RuntimeRequestContext{
+			LocalPaths: LocalPaths{WorkspaceDir: "/workspace", ChatDir: "/runtime/chats/chat-1"},
+		},
+	}, api.QueryRequest{}, "", PromptBuildOptions{
+		ToolDefinitions: []api.ToolDetailResponse{{Name: "bash"}},
+	})
+
+	if strings.Contains(prompt, "Runtime Context: Path Policy") {
+		t.Fatalf("did not expect workspace-less path policy for Workspace session, got %q", prompt)
+	}
+}
+
 func TestBuildSystemPromptIncludesCurrentPlanTasksWhenPlanToolsAvailable(t *testing.T) {
 	context := "Runtime Context: Current Plan Tasks\nplanId: old_plan\ntasks:\n- task_1 | in_progress | resume"
 	prompt := buildSystemPrompt(QuerySession{

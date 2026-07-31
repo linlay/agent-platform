@@ -92,7 +92,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	}
 	allowedTools = coderRuntimeToolNamesForStage(session, options.Stage, allowedTools)
 	allToolDefs := mergeToolDefinitions(e.tools.Definitions(), session.ModeToolDefinitions)
-	effectiveDefs := effectiveToolDefinitions(allToolDefs, allowedTools, session.AgentHasRuntimeSandbox)
+	effectiveDefs := effectiveToolDefinitions(allToolDefs, allowedTools, session)
 	toolSpecs := toOpenAIToolSpecs(effectiveDefs)
 	execCtx := options.ExecCtx
 	if execCtx == nil {
@@ -387,27 +387,177 @@ func filterToolDefinitions(defs []api.ToolDetailResponse, allowed []string) []ap
 	return filtered
 }
 
-func effectiveToolDefinitions(defs []api.ToolDetailResponse, allowed []string, useSandboxBash bool) []api.ToolDetailResponse {
+func effectiveToolDefinitions(defs []api.ToolDetailResponse, allowed []string, session QuerySession) []api.ToolDetailResponse {
 	filtered := filterToolDefinitions(defs, allowed)
-	if !useSandboxBash {
-		return filtered
-	}
-	sandboxBash, ok := sandboxBashAsPublicBash(defs)
-	if !ok {
-		return filtered
-	}
-	out := make([]api.ToolDetailResponse, 0, len(filtered))
-	for _, def := range filtered {
-		if isToolDefinitionNamed(def, "bash_sandbox") || isToolDefinitionNamed(def, "_sandbox_bash_") {
-			continue
+	if session.AgentHasRuntimeSandbox {
+		if sandboxBash, ok := sandboxBashAsPublicBash(defs); ok {
+			out := make([]api.ToolDetailResponse, 0, len(filtered))
+			for _, def := range filtered {
+				if isToolDefinitionNamed(def, "bash_sandbox") || isToolDefinitionNamed(def, "_sandbox_bash_") {
+					continue
+				}
+				if isToolDefinitionNamed(def, "bash") {
+					out = append(out, sandboxBash)
+					continue
+				}
+				out = append(out, def)
+			}
+			filtered = out
 		}
-		if isToolDefinitionNamed(def, "bash") {
-			out = append(out, sandboxBash)
-			continue
+	}
+
+	out := cloneToolDefinitions(filtered)
+	if !sessionHasWorkspace(session) {
+		for index := range out {
+			hardenWorkspaceLessToolDefinition(&out[index])
 		}
-		out = append(out, def)
 	}
 	return out
+}
+
+func sessionHasWorkspace(session QuerySession) bool {
+	if strings.TrimSpace(session.WorkspaceRoot) != "" ||
+		strings.TrimSpace(session.RuntimeContext.LocalPaths.WorkspaceDir) != "" {
+		return true
+	}
+	if session.AgentHasRuntimeSandbox || session.RuntimeContext.SandboxContext != nil {
+		return strings.TrimSpace(session.RuntimeContext.SandboxPaths.WorkspaceDir) != ""
+	}
+	return false
+}
+
+func cloneToolDefinitions(defs []api.ToolDetailResponse) []api.ToolDetailResponse {
+	out := make([]api.ToolDetailResponse, len(defs))
+	for index, def := range defs {
+		out[index] = def
+		out[index].Parameters = cloneToolSchemaMap(def.Parameters)
+		out[index].OutputSchema = cloneToolSchemaMap(def.OutputSchema)
+		out[index].Meta = cloneToolSchemaMap(def.Meta)
+	}
+	return out
+}
+
+func cloneToolSchemaMap(src map[string]any) map[string]any {
+	if src == nil {
+		return nil
+	}
+	out := make(map[string]any, len(src))
+	for key, value := range src {
+		out[key] = cloneToolSchemaValue(value)
+	}
+	return out
+}
+
+func cloneToolSchemaValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneToolSchemaMap(typed)
+	case []any:
+		out := make([]any, len(typed))
+		for index, item := range typed {
+			out[index] = cloneToolSchemaValue(item)
+		}
+		return out
+	case []string:
+		return append([]string(nil), typed...)
+	default:
+		return value
+	}
+}
+
+func hardenWorkspaceLessToolDefinition(def *api.ToolDetailResponse) {
+	if def == nil {
+		return
+	}
+	switch normalizedToolDefinitionName(*def) {
+	case "bash":
+		requireToolParameter(def.Parameters, "cwd")
+		setToolParameterDescription(def.Parameters, "cwd",
+			"Required because this run has no Workspace. Use @chat for the current Chat working directory; use another explicit semantic root only when the task targets it. Omitting cwd returns workspace_unavailable.")
+		appendToolDefinitionNote(def, "This run has no Workspace. Every call must pass an explicit cwd, normally @chat.")
+	case "file_glob":
+		requireToolParameter(def.Parameters, "path")
+		setToolParameterDescription(def.Parameters, "path",
+			"Required because this run has no Workspace. Use @chat to search the current Chat directory, or another explicit semantic root or absolute path. Relative paths and @workspace return workspace_unavailable.")
+	case "file_grep":
+		requireToolParameter(def.Parameters, "path")
+		setToolParameterDescription(def.Parameters, "path",
+			"Required because this run has no Workspace. Use @chat to search the current Chat directory, or another explicit semantic root or absolute path. Relative paths and @workspace return workspace_unavailable.")
+	case "file_read", "file_write", "file_edit":
+		setToolParameterDescription(def.Parameters, "file_path",
+			"Required. This run has no Workspace, so relative paths and @workspace are unavailable. Use an explicit @chat, @agent, @skills, @skills-market, or @owner path, or an allowed absolute path.")
+	case "artifact_publish":
+		setNestedToolParameterDescription(def.Parameters, []string{"properties", "artifacts", "items", "properties", "path"},
+			"Required. This run has no Workspace, so publish an existing file through an explicit @chat/... path. Relative and @workspace paths return workspace_unavailable.")
+		appendToolDefinitionNote(def, "This run has no Workspace. Artifact sources must use explicit @chat/... paths.")
+	case "vision_recognize":
+		setNestedToolParameterDescription(def.Parameters, []string{"properties", "images", "items", "properties", "file_path"},
+			"Explicit host image path. This run has no Workspace, so relative paths and @workspace are unavailable. Prefer reference_name for a current Chat attachment or screenshot; otherwise use an explicit semantic-root or allowed absolute path.")
+	}
+}
+
+func normalizedToolDefinitionName(def api.ToolDetailResponse) string {
+	name := strings.ToLower(strings.TrimSpace(def.Name))
+	if name == "" {
+		name = strings.ToLower(strings.TrimSpace(def.Key))
+	}
+	return name
+}
+
+func requireToolParameter(schema map[string]any, name string) {
+	if schema == nil || strings.TrimSpace(name) == "" {
+		return
+	}
+	required := make([]any, 0)
+	switch values := schema["required"].(type) {
+	case []any:
+		required = append(required, values...)
+	case []string:
+		for _, value := range values {
+			required = append(required, value)
+		}
+	}
+	for _, value := range required {
+		if strings.EqualFold(strings.TrimSpace(valueAsString(value)), name) {
+			schema["required"] = required
+			return
+		}
+	}
+	schema["required"] = append(required, name)
+}
+
+func valueAsString(value any) string {
+	text, _ := value.(string)
+	return text
+}
+
+func setToolParameterDescription(schema map[string]any, name string, description string) {
+	properties, _ := schema["properties"].(map[string]any)
+	property, _ := properties[name].(map[string]any)
+	if property == nil {
+		return
+	}
+	property["description"] = strings.TrimSpace(description)
+}
+
+func setNestedToolParameterDescription(schema map[string]any, path []string, description string) {
+	current := schema
+	for _, name := range path {
+		next, _ := current[name].(map[string]any)
+		if next == nil {
+			return
+		}
+		current = next
+	}
+	current["description"] = strings.TrimSpace(description)
+}
+
+func appendToolDefinitionNote(def *api.ToolDetailResponse, note string) {
+	note = strings.TrimSpace(note)
+	if def == nil || note == "" || strings.Contains(def.Description, note) {
+		return
+	}
+	def.Description = strings.TrimSpace(strings.Join([]string{def.Description, note}, "\n"))
 }
 
 func mergeToolDefinitions(base []api.ToolDetailResponse, local []api.ToolDetailResponse) []api.ToolDetailResponse {

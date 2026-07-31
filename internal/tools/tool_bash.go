@@ -47,6 +47,13 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	session := accessPolicySession(execCtx)
 	rawCwd := strings.TrimSpace(stringArg(args, "cwd"))
 	if rawCwd == "" {
+		if strings.TrimSpace(accesspolicy.SessionWorkspaceRoot(session)) == "" {
+			return ToolExecutionResult{
+				Output:   "workspace_unavailable: no Workspace; pass cwd explicitly, usually @chat",
+				Error:    "workspace_unavailable",
+				ExitCode: -1,
+			}, nil
+		}
 		rawCwd = "@workspace"
 	}
 	workingDir, err := accesspolicy.ResolveSessionPath(session, rawCwd)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,6 +21,36 @@ func TestInvokeGlobWithoutPathRequiresWorkspace(t *testing.T) {
 	}
 	if result.Error != "workspace_unavailable" || result.ExitCode == 0 {
 		t.Fatalf("expected workspace_unavailable, got %#v", result)
+	}
+	if !strings.Contains(result.Output, "pass path explicitly") || !strings.Contains(result.Output, "@chat") {
+		t.Fatalf("expected actionable workspace_unavailable output, got %#v", result)
+	}
+}
+
+func TestInvokeGlobWithoutWorkspaceAllowsExplicitChatPath(t *testing.T) {
+	requireRipgrep(t)
+	chatDir := t.TempDir()
+	mustWriteFile(t, filepath.Join(chatDir, "upload.xlsx"), "fixture\n")
+	executor := fileToolExecutor(t.TempDir(), false)
+	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{ChatDir: chatDir},
+		},
+	}}
+
+	result, err := executor.invokeGlob(context.Background(), map[string]any{
+		"pattern": "*.xlsx",
+		"path":    "@chat",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeGlob: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected explicit Chat glob success, got %#v", result)
+	}
+	results := stringSliceResult(t, result.Structured["results"])
+	if len(results) != 1 || results[0] != filepath.Join(realPath(t, chatDir), "upload.xlsx") {
+		t.Fatalf("unexpected explicit Chat glob results: %#v", results)
 	}
 }
 
