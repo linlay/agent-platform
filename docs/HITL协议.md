@@ -35,6 +35,14 @@ native CODER planning 的 `planning approve` 有独立 run 边界：后端先在
 
 整批取消统一提交 `params: []`，后端归一化为 `status:"error"` 与 `error.code:"user_dismissed"`。
 
+## 跨进程重启
+
+Platform 启动时以 `CHATS.AWAITING_*` pending summary 为入口，对照同一 awaiting 的物理 step、answer、matching tool result 与 run completion 做幂等对账。`question` 在未超时或 `timeout=0` 时恢复，提交答案后从原 query、raw messages、ask 与答案重建 continuation，并保持原公开 `runId`；`planning` 不受停机时长或历史 timeout 字段影响，始终恢复。native CODER planning approve 仍结束原 planning run 并启动新的 execution run，reject 继续原 planning 流程。
+
+`approval` / `form` 不跨进程恢复：已超时写 `error.code:"timeout"`，未超时写 `error.code:"runtime_restarted"`。已超时的 `question` 同样写 `timeout`；无法从持久化 task/tool 上下文安全确定子智能体或 Team continuation 的 `question` / `planning` 写 `runtime_restarted`。这些自动终态不伪造 `request.submit`，而是依次持久化 `awaiting.answer(status:"error")`、同原因且 `executed:false` 的 matching tool result、`finishReason:"cancel"` 的 run completion，最后清除 pending summary。任一步写入失败都会中止 Server 初始化；再次启动会从已有记录继续，不重复写 answer、result 或 completion。
+
+没有 pending summary 的孤立历史 `awaiting.ask` 不迁移、也不恢复为活动态。`/api/chat.awaiting` 是客户端判断可提交状态的唯一事实源；历史 ask 只保留用于时间线和匹配完整交互内容。
+
 ## 配置与接口
 
 - `POST /api/submit`
@@ -55,6 +63,7 @@ native CODER planning 的 `planning approve` 有独立 run 边界：后端先在
 - `approval.options[]` 与 `plan.options[]` 的内置动作只下发 `decision` code，按钮文案由 webclient 按当前语言本地化；`question.options[].label` 仍是用户可见答案文本与答案匹配值，`form.title/form` 仍是业务或工具内容。
 - 对 `question` / `approval` / `form`，`awaiting.ask.timeout == 0` 表示无限等待、不自动超时；`timeout > 0` 表示后端从发出等待项开始按真实时间独立倒计时。planning confirmation 的 `mode:"planning"` 永远省略该字段，含义同样是永久等待；前端不得为它显示倒计时。observer / attach / detach 状态不会暂停或延长后端超时。
 - `awaiting.answer.error.code == "timeout"` 时，`error.message` 会包含超时秒数与详细原因，并可携带 `timeoutSeconds`、`elapsedSeconds`、`reason:"submit_not_received_before_timeout"`。
+- `/api/submit` 对已自动终态或已经由其他提交处理的 known awaiting 返回 HTTP 409：`awaiting_expired`、`awaiting_interrupted` 或 `already_resolved`。响应 `data` 携带 `chatId/runId/awaitingId/status/errorCode` 和结构化 `error`；真正不存在或 `chatId/runId/awaitingId` 身份不匹配时返回 HTTP 400 `unknown_awaiting`。
 - `awaiting.payload` 已删除，问题、审批项、表单定义直接内联在 `awaiting.ask`。
 
 ## 约束与注意事项
@@ -74,4 +83,5 @@ native CODER planning 的 `planning approve` 有独立 run 边界：后端先在
 - `internal/llm/run_stream_hitl_shell.go`
 - `internal/server/submit_validation.go`
 - `internal/server/deferred_awaiting.go`
+- `internal/server/restart_awaiting.go`
 - `docs/手工测试用例.md`

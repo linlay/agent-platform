@@ -147,11 +147,27 @@ func chatCreatedPayload(chatID string, chatName string, agentKey string, created
 }
 
 func (s *Server) loadChatDetail(ctx context.Context, chatID string, includeRawMessages bool) (api.ChatDetailResponse, error) {
-	detail, err := s.deps.Chats.LoadChat(chatID)
+	summary, err := s.deps.Chats.Summary(chatID)
 	if err != nil {
 		return api.ChatDetailResponse{}, err
 	}
-	summary, err := s.deps.Chats.Summary(chatID)
+	if summary != nil && summary.PendingAwaiting != nil {
+		pendingID := strings.TrimSpace(summary.PendingAwaiting.AwaitingID)
+		if info, reconcileErr := s.validPendingAwaitingInfo(chatID, summary.PendingAwaiting); reconcileErr != nil {
+			return api.ChatDetailResponse{}, reconcileErr
+		} else if info == nil {
+			summary, err = s.deps.Chats.Summary(chatID)
+			if err != nil {
+				return api.ChatDetailResponse{}, err
+			}
+			if s.deferredAwaitings != nil {
+				if terminal, ok := s.deferredAwaitings.Lookup(pendingID); ok && terminal.TerminalCode == "" {
+					s.deferredAwaitings.Remove(pendingID)
+				}
+			}
+		}
+	}
+	detail, err := s.deps.Chats.LoadChat(chatID)
 	if err != nil {
 		return api.ChatDetailResponse{}, err
 	}

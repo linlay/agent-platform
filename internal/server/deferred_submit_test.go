@@ -24,6 +24,55 @@ import (
 	gws "github.com/gorilla/websocket"
 )
 
+type awaitingReconcileFailureStore struct {
+	chat.Store
+	stage string
+}
+
+func (s *awaitingReconcileFailureStore) LoadAwaitingStep(chatID string, awaitingID string) (*chat.PersistedAwaitingStep, error) {
+	reader, ok := s.Store.(chat.AwaitingRecoveryReader)
+	if !ok {
+		return nil, errors.New("awaiting recovery reader unavailable")
+	}
+	return reader.LoadAwaitingStep(chatID, awaitingID)
+}
+
+func (s *awaitingReconcileFailureStore) LoadRunStartedAt(chatID string, runID string) (int64, error) {
+	reader, ok := s.Store.(chat.RunStartReader)
+	if !ok {
+		return 0, errors.New("run start reader unavailable")
+	}
+	return reader.LoadRunStartedAt(chatID, runID)
+}
+
+func (s *awaitingReconcileFailureStore) AppendSubmitLine(chatID string, line chat.SubmitLine) error {
+	if s.stage == "answer" {
+		return errors.New("injected awaiting answer failure")
+	}
+	return s.Store.AppendSubmitLine(chatID, line)
+}
+
+func (s *awaitingReconcileFailureStore) AppendStepLine(chatID string, line chat.StepLine) error {
+	if s.stage == "tool_result" && line.Type == chat.StepLineTypeReactTool {
+		return errors.New("injected awaiting tool result failure")
+	}
+	return s.Store.AppendStepLine(chatID, line)
+}
+
+func (s *awaitingReconcileFailureStore) OnRunCompleted(completion chat.RunCompletion) error {
+	if s.stage == "completion" {
+		return errors.New("injected awaiting completion failure")
+	}
+	return s.Store.OnRunCompleted(completion)
+}
+
+func (s *awaitingReconcileFailureStore) ClearPendingAwaiting(chatID string, awaitingID string) error {
+	if s.stage == "clear_pending" {
+		return errors.New("injected awaiting clear failure")
+	}
+	return s.Store.ClearPendingAwaiting(chatID, awaitingID)
+}
+
 func TestDeferredPlanningApproveContinuationUsesCoderExecuteSystem(t *testing.T) {
 	var providerCallCount atomic.Int32
 	notifications := &recordingNotificationSink{}
@@ -569,7 +618,7 @@ func TestDeferredSubmitSubmitIDIsIdempotent(t *testing.T) {
 		t.Fatalf("new restarted server: %v", err)
 	}
 
-	submit := func(submitID string) api.SubmitResponse {
+	submit := func(submitID string, wantHTTPStatus int) api.SubmitResponse {
 		t.Helper()
 		body, err := json.Marshal(api.SubmitRequest{
 			ChatID:     "chat-idempotent",
@@ -588,8 +637,8 @@ func TestDeferredSubmitSubmitIDIsIdempotent(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		restarted.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("submit expected 200, got %d: %s", rec.Code, rec.Body.String())
+		if rec.Code != wantHTTPStatus {
+			t.Fatalf("submit expected %d, got %d: %s", wantHTTPStatus, rec.Code, rec.Body.String())
 		}
 		var response api.ApiResponse[api.SubmitResponse]
 		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
@@ -598,15 +647,15 @@ func TestDeferredSubmitSubmitIDIsIdempotent(t *testing.T) {
 		return response.Data
 	}
 
-	first := submit("submit-idem-1")
+	first := submit("submit-idem-1", http.StatusOK)
 	if !first.Accepted || first.Status != "accepted" || first.SubmitID != "submit-idem-1" {
 		t.Fatalf("unexpected first submit response %#v", first)
 	}
-	second := submit("submit-idem-1")
+	second := submit("submit-idem-1", http.StatusOK)
 	if !second.Accepted || second.Status != "accepted" || second.SubmitID != "submit-idem-1" {
 		t.Fatalf("unexpected retry submit response %#v", second)
 	}
-	third := submit("submit-idem-2")
+	third := submit("submit-idem-2", http.StatusConflict)
 	if third.Accepted || third.Status != "already_resolved" || third.SubmitID != "submit-idem-2" {
 		t.Fatalf("unexpected conflicting submit response %#v", third)
 	}
@@ -665,7 +714,7 @@ func TestDeferredSubmitRestoresQuestionAndPlanAfterRestart(t *testing.T) {
 			name:       "approval",
 			mode:       "approval",
 			awaitingID: "await-approval",
-			restorable: true,
+			restorable: false,
 			ask: map[string]any{
 				"approvals": []any{
 					map[string]any{"id": "cmd-1", "command": "chmod 777 ~/a.sh"},
@@ -679,7 +728,7 @@ func TestDeferredSubmitRestoresQuestionAndPlanAfterRestart(t *testing.T) {
 			name:       "form",
 			mode:       "form",
 			awaitingID: "await-form",
-			restorable: true,
+			restorable: false,
 			ask: map[string]any{
 				"forms": []any{
 					map[string]any{"id": "form-1", "command": "mock create-leave", "form": map[string]any{"days": 1}},
@@ -769,8 +818,8 @@ func TestDeferredSubmitRestoresQuestionAndPlanAfterRestart(t *testing.T) {
 				req := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewReader(body))
 				req.Header.Set("Content-Type", "application/json")
 				restarted.ServeHTTP(rec, req)
-				if rec.Code != http.StatusBadRequest {
-					t.Fatalf("non-restorable submit expected 400, got %d: %s", rec.Code, rec.Body.String())
+				if rec.Code != http.StatusConflict {
+					t.Fatalf("non-restorable submit expected 409, got %d: %s", rec.Code, rec.Body.String())
 				}
 				return
 			}
@@ -858,10 +907,10 @@ func TestDeferredSubmitRejectsExpiredAwaiting(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"agentKey":"mock-agent","runId":"run-expired","awaitingId":"await-expired","params":[{"id":"q1","answer":"Approve"}]}`))
 	req.Header.Set("Content-Type", "application/json")
 	restarted.ServeHTTP(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("submit expected 400, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("submit expected 409, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "awaiting has expired") && !strings.Contains(rec.Body.String(), "unknown awaitingId") {
+	if !strings.Contains(rec.Body.String(), "awaiting_expired") {
 		t.Fatalf("expected expired submit error, got %s", rec.Body.String())
 	}
 
@@ -931,6 +980,92 @@ func TestHydrationSkipsExpiredAwaitings(t *testing.T) {
 		t.Fatalf("submit fresh expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 	waitForRecordedNotificationType(t, notifications, "run.finished")
+}
+
+func TestHydrationReconcilesRestartAwaitingModesAndStructuredConflicts(t *testing.T) {
+	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	})
+	nowMs := time.Now().UnixMilli()
+	seedDeferredAwaiting(t, fixture.chats, "chat-expired-question", "run-expired-question", "await-expired-question", "question", 1, nowMs-5_000)
+	seedDeferredAwaitingPayload(t, fixture.chats, "chat-restarted-approval", "run-restarted-approval", "await-restarted-approval", "approval", 600, nowMs-1_000, map[string]any{
+		"approvals": []any{map[string]any{"id": "tool-approval", "command": "touch marker"}},
+	})
+	seedDeferredAwaitingPayload(t, fixture.chats, "chat-expired-form", "run-expired-form", "await-expired-form", "form", 1, nowMs-5_000, map[string]any{
+		"forms": []any{map[string]any{"id": "tool-form", "command": "create record", "form": map[string]any{"name": "demo"}}},
+	})
+	seedDeferredAwaitingPayload(t, fixture.chats, "chat-old-planning", "run-old-planning", "await-old-planning", "planning", 1, nowMs-7*24*60*60*1000, map[string]any{
+		"planning": map[string]any{"id": "confirm", "planningId": "run-old-planning_planning_1"},
+	})
+	seedDeferredAwaiting(t, fixture.chats, "chat-old-question-no-timeout", "run-old-question-no-timeout", "await-old-question-no-timeout", "question", 0, nowMs-7*24*60*60*1000)
+
+	restarted, err := New(deferredRestartDependencies(fixture, fixture.chats, nil))
+	if err != nil {
+		t.Fatalf("new restarted server: %v", err)
+	}
+
+	assertRestartTerminalizedAwaiting(t, fixture.chats, "chat-expired-question", "run-expired-question", "await-expired-question", "timeout")
+	assertRestartTerminalizedAwaiting(t, fixture.chats, "chat-restarted-approval", "run-restarted-approval", "await-restarted-approval", "runtime_restarted")
+	assertRestartTerminalizedAwaiting(t, fixture.chats, "chat-expired-form", "run-expired-form", "await-expired-form", "timeout")
+	for _, chatID := range []string{"chat-old-planning", "chat-old-question-no-timeout"} {
+		summary, summaryErr := fixture.chats.Summary(chatID)
+		if summaryErr != nil {
+			t.Fatalf("load %s summary: %v", chatID, summaryErr)
+		}
+		if summary == nil || summary.PendingAwaiting == nil {
+			t.Fatalf("expected %s awaiting to remain recoverable, got %#v", chatID, summary)
+		}
+	}
+
+	assertAwaitingSubmitConflict(t, restarted, "chat-expired-question", "run-expired-question", "await-expired-question", http.StatusConflict, "awaiting_expired", "expired")
+	assertAwaitingSubmitConflict(t, restarted, "chat-restarted-approval", "run-restarted-approval", "await-restarted-approval", http.StatusConflict, "awaiting_interrupted", "interrupted")
+	assertAwaitingSubmitConflict(t, restarted, "chat-expired-form", "run-expired-form", "await-expired-form", http.StatusConflict, "awaiting_expired", "expired")
+	assertAwaitingSubmitConflict(t, restarted, "chat-wrong-identity", "run-expired-question", "await-expired-question", http.StatusBadRequest, "unknown_awaiting", "unknown")
+	assertAwaitingSubmitConflict(t, restarted, "chat-unknown", "run-unknown", "await-unknown", http.StatusBadRequest, "unknown_awaiting", "unknown")
+}
+
+func TestHydrationReconciliationIsIdempotentAcrossEveryWriteStage(t *testing.T) {
+	for _, stage := range []string{"answer", "tool_result", "completion", "clear_pending"} {
+		t.Run(stage, func(t *testing.T) {
+			fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+				writeProviderSSE(t, w, `[DONE]`)
+			})
+			chatID := "chat-reconcile-" + stage
+			runID := "run-reconcile-" + stage
+			awaitingID := "await-reconcile-" + stage
+			seedDeferredAwaiting(t, fixture.chats, chatID, runID, awaitingID, "question", 1, time.Now().UnixMilli()-5_000)
+
+			failing := &awaitingReconcileFailureStore{Store: fixture.chats, stage: stage}
+			if _, err := New(deferredRestartDependencies(fixture, failing, nil)); err == nil || !strings.Contains(err.Error(), "reconcile persisted awaitings") {
+				t.Fatalf("expected startup reconciliation failure at %s, got %v", stage, err)
+			}
+			summary, err := fixture.chats.Summary(chatID)
+			if err != nil {
+				t.Fatalf("load pending summary after %s failure: %v", stage, err)
+			}
+			if summary == nil || summary.PendingAwaiting == nil {
+				t.Fatalf("pending awaiting was cleared before %s completed: %#v", stage, summary)
+			}
+
+			if _, err := New(deferredRestartDependencies(fixture, fixture.chats, nil)); err != nil {
+				t.Fatalf("resume reconciliation after %s failure: %v", stage, err)
+			}
+			assertRestartTerminalizedAwaiting(t, fixture.chats, chatID, runID, awaitingID, "timeout")
+
+			if err := fixture.chats.SetPendingAwaiting(chatID, chat.PendingAwaiting{
+				AwaitingID: awaitingID,
+				RunID:      runID,
+				Mode:       "question",
+				CreatedAt:  time.Now().UnixMilli() - 5_000,
+			}); err != nil {
+				t.Fatalf("restore stale pending marker: %v", err)
+			}
+			if _, err := New(deferredRestartDependencies(fixture, fixture.chats, nil)); err != nil {
+				t.Fatalf("repeat reconciliation after %s: %v", stage, err)
+			}
+			assertRestartTerminalizedAwaiting(t, fixture.chats, chatID, runID, awaitingID, "timeout")
+		})
+	}
 }
 
 func TestHydrationClearsDanglingAndAnsweredAwaitings(t *testing.T) {
@@ -1082,12 +1217,42 @@ func seedDeferredAwaitingPayload(t *testing.T, store chat.Store, chatID string, 
 			ask["planning"] = planning
 		}
 	}
+	toolID := awaitingID
+	toolName := "ask_user_question"
+	if strings.EqualFold(mode, "approval") {
+		toolName = "bash"
+		if approvals, _ := ask["approvals"].([]any); len(approvals) > 0 {
+			if candidate := strings.TrimSpace(contracts.AnyStringNode(contracts.AnyMapNode(approvals[0])["id"])); candidate != "" {
+				toolID = candidate
+			}
+		}
+	} else if strings.EqualFold(mode, "form") {
+		toolName = "bash"
+		if forms, _ := ask["forms"].([]any); len(forms) > 0 {
+			if candidate := strings.TrimSpace(contracts.AnyStringNode(contracts.AnyMapNode(forms[0])["id"])); candidate != "" {
+				toolID = candidate
+			}
+		}
+	} else if strings.EqualFold(mode, "planning") {
+		toolName = "finalize_planning"
+	}
+	messageTs := createdAt
 	if err := store.AppendStepLine(chatID, chat.StepLine{
 		ChatID:    chatID,
 		RunID:     runID,
 		UpdatedAt: createdAt,
 		Type:      "react",
-		Awaiting:  []map[string]any{ask},
+		Seq:       1,
+		Messages: []chat.StoredMessage{{
+			Role: "assistant",
+			ToolCalls: []chat.StoredToolCall{{
+				ID:       toolID,
+				Type:     "function",
+				Function: chat.StoredFunction{Name: toolName, Arguments: "{}"},
+			}},
+			Ts: &messageTs,
+		}},
+		Awaiting: []map[string]any{ask},
 	}); err != nil {
 		t.Fatalf("append awaiting step line: %v", err)
 	}
@@ -1099,6 +1264,165 @@ func seedDeferredAwaitingPayload(t *testing.T, store chat.Store, chatID string, 
 	}); err != nil {
 		t.Fatalf("set pending awaiting: %v", err)
 	}
+}
+
+func deferredRestartDependencies(fixture testFixture, store chat.Store, notifications contracts.NotificationSink) Dependencies {
+	return Dependencies{
+		Config:          fixture.cfg,
+		Chats:           store,
+		Memory:          fixture.memories,
+		Registry:        fixture.registry,
+		Models:          fixture.modelRegistry,
+		Runs:            fixture.runs,
+		Agent:           fixture.agent,
+		Tools:           fixture.tools,
+		DeltaMappers:    llm.DeltaMapperFactory{Interactions: fixture.interactions},
+		SystemInits:     llm.SystemInitProfileBuilder{Models: fixture.modelRegistry},
+		Sandbox:         fixture.sandbox,
+		MCP:             fixture.mcp,
+		Viewport:        fixture.viewport,
+		CatalogReloader: fixture.catalogReloader,
+		Notifications:   notifications,
+	}
+}
+
+func assertAwaitingSubmitConflict(
+	t *testing.T,
+	server http.Handler,
+	chatID string,
+	runID string,
+	awaitingID string,
+	wantHTTPStatus int,
+	wantErrorCode string,
+	wantStatus string,
+) {
+	t.Helper()
+	body, err := json.Marshal(api.SubmitRequest{
+		ChatID:     chatID,
+		AgentKey:   "mock-agent",
+		RunID:      runID,
+		AwaitingID: awaitingID,
+		SubmitID:   "submit-after-terminal",
+		Params: mustEncodeSubmitParams(t, []map[string]any{
+			{"id": "q1", "answer": "Approve"},
+		}),
+	})
+	if err != nil {
+		t.Fatalf("marshal terminal submit: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	server.ServeHTTP(rec, req)
+	if rec.Code != wantHTTPStatus {
+		t.Fatalf("submit %s expected HTTP %d, got %d: %s", awaitingID, wantHTTPStatus, rec.Code, rec.Body.String())
+	}
+	var response api.ApiResponse[map[string]any]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode terminal submit response: %v", err)
+	}
+	if response.Msg != wantErrorCode || contracts.AnyStringNode(response.Data["errorCode"]) != wantErrorCode || contracts.AnyStringNode(response.Data["status"]) != wantStatus {
+		t.Fatalf("unexpected terminal response %#v", response)
+	}
+	if nested := contracts.AnyMapNode(response.Data["error"]); contracts.AnyStringNode(nested["code"]) != wantErrorCode {
+		t.Fatalf("expected nested error code %s, got %#v", wantErrorCode, response.Data)
+	}
+	if contracts.AnyStringNode(response.Data["chatId"]) != chatID || contracts.AnyStringNode(response.Data["runId"]) != runID || contracts.AnyStringNode(response.Data["awaitingId"]) != awaitingID {
+		t.Fatalf("expected terminal response identity, got %#v", response.Data)
+	}
+}
+
+func assertRestartTerminalizedAwaiting(t *testing.T, store chat.Store, chatID string, runID string, awaitingID string, wantErrorCode string) {
+	t.Helper()
+	summary, err := store.Summary(chatID)
+	if err != nil {
+		t.Fatalf("load terminal summary: %v", err)
+	}
+	if summary == nil || summary.PendingAwaiting != nil {
+		t.Fatalf("expected terminal pending awaiting cleared, got %#v", summary)
+	}
+	latest, err := store.LoadLatestAwaitingSubmit(chatID, awaitingID)
+	if err != nil || latest == nil {
+		t.Fatalf("load terminal answer: %#v, %v", latest, err)
+	}
+	if contracts.AnyStringNode(latest.Answer["status"]) != "error" || contracts.AnyStringNode(contracts.AnyMapNode(latest.Answer["error"])["code"]) != wantErrorCode {
+		t.Fatalf("unexpected terminal answer %#v", latest.Answer)
+	}
+	if len(latest.Submit) != 0 {
+		t.Fatalf("automatic terminal answer must not fabricate request.submit: %#v", latest.Submit)
+	}
+
+	lines := decodeDeferredChatJSONL(t, store, chatID)
+	answerCount := 0
+	toolResultCount := 0
+	requestSubmitCount := 0
+	for _, line := range lines {
+		if strings.TrimSpace(contracts.AnyStringNode(line["_type"])) == "submit" {
+			answer := contracts.AnyMapNode(line["answer"])
+			if contracts.AnyStringNode(answer["awaitingId"]) == awaitingID {
+				answerCount++
+			}
+			submit := contracts.AnyMapNode(line["submit"])
+			if contracts.AnyStringNode(submit["awaitingId"]) == awaitingID {
+				requestSubmitCount++
+			}
+		}
+		if strings.TrimSpace(contracts.AnyStringNode(line["_type"])) != chat.StepLineTypeReactTool || contracts.AnyStringNode(line["runId"]) != runID {
+			continue
+		}
+		messages, _ := line["messages"].([]any)
+		for _, rawMessage := range messages {
+			message := contracts.AnyMapNode(rawMessage)
+			if contracts.AnyStringNode(message["role"]) != "tool" {
+				continue
+			}
+			content, _ := message["content"].([]any)
+			for _, rawPart := range content {
+				part := contracts.AnyMapNode(rawPart)
+				var payload map[string]any
+				if err := json.Unmarshal([]byte(contracts.AnyStringNode(part["text"])), &payload); err != nil {
+					continue
+				}
+				if contracts.AnyStringNode(payload["awaitingId"]) == awaitingID {
+					toolResultCount++
+					if payload["executed"] != false || contracts.AnyStringNode(payload["error"]) != wantErrorCode {
+						t.Fatalf("unexpected terminal tool result %#v", payload)
+					}
+				}
+			}
+		}
+	}
+	if answerCount != 1 || toolResultCount != 1 || requestSubmitCount != 0 {
+		t.Fatalf("terminal records answer=%d toolResult=%d requestSubmit=%d lines=%#v", answerCount, toolResultCount, requestSubmitCount, lines)
+	}
+	runs, err := store.ListRuns(chatID)
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("load terminal run: %#v, %v", runs, err)
+	}
+	if runs[0].RunID != runID || runs[0].FinishReason != "cancel" || runs[0].CompletedAt <= 0 {
+		t.Fatalf("unexpected terminal run %#v", runs[0])
+	}
+}
+
+func decodeDeferredChatJSONL(t *testing.T, store chat.Store, chatID string) []map[string]any {
+	t.Helper()
+	content, err := store.LoadJSONLContent(chatID)
+	if err != nil {
+		t.Fatalf("load chat jsonl: %v", err)
+	}
+	decoder := json.NewDecoder(strings.NewReader(content))
+	var lines []map[string]any
+	for {
+		var line map[string]any
+		if err := decoder.Decode(&line); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			t.Fatalf("decode chat jsonl: %v", err)
+		}
+		lines = append(lines, line)
+	}
+	return lines
 }
 
 func seedCoderPlanningAwaitingForDeferredSubmit(t *testing.T, store chat.Store, chatID string, runID string, awaitingID string, chatsDir string) {

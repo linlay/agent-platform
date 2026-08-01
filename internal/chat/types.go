@@ -328,6 +328,28 @@ type PersistedAwaitingSubmit struct {
 	Answer     map[string]any
 }
 
+// PersistedAwaitingStep is the physical model-turn context that emitted an
+// awaiting.ask. Recovery uses this raw context instead of logical history so
+// a partially written restart reconciliation can be completed idempotently.
+type PersistedAwaitingStep struct {
+	RunID           string
+	TaskID          string
+	TaskStatus      string
+	TaskSubAgentKey string
+	TeamID          string
+	Presentation    string
+	Stage           string
+	Seq             int
+	Ask             *PersistedAwaitingAsk
+	ToolCalls       []PersistedAwaitingToolCall
+	ResultToolIDs   map[string]bool
+}
+
+type PersistedAwaitingToolCall struct {
+	ID   string
+	Name string
+}
+
 type Detail struct {
 	ChatID        string
 	ChatName      string

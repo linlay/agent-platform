@@ -162,7 +162,7 @@ chat 摘要会在新数据中返回可选 `mode`；`/api/chat.runs[]`、`/api/ag
 
 `/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 摘要，以及 `/api/chat` 详情顶层在新数据中可包含 `source`，表示 chat 首次创建来源。当前只记录 query 与 automation 两类：`query` / `query:<user>` 表示由 query 创建，`automation:<automationId>` 表示由 automation 创建。旧数据为空、上传创建或派生创建时省略。channel 远程用户调用本机智能体仍属于 query source；gateway 可在受信 channel 请求中传 `sourceUser`，否则服务端会从形如 `wecom#single#user1#...` 的 chatId 中取远端用户段作为 `query:<user>`。`sourceChannel` 是 gateway/channel 路由标签，不承载 query / automation 语义。
 
-`/api/chat` 详情固定返回顶层 `createdAt` 与 `updatedAt`；Desktop 不得从 runs、events 或本机时间推断它们。每个 `runs[]` 的 `startedAt` 由注册时捕获并持久化；已完成 run 的 `completedAt` 必填，仍在执行的 run 则省略 `completedAt`（绝不输出 `0`）。`activeRun.startedAt` 与对应 push `run.started.startedAt` 是同一个已捕获时刻；push `run.finished.finishedAt` 与完成记录的 `completedAt` 相同。`/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 以及 `/api/chat` 的 chat 详情，在存在可恢复等待项时都包含顶层 `awaiting`：`awaitingId`、`runId`、`mode`、`status:"awaiting"`、`createdAt`。完整问题、审批项、表单和 planning 定义仍从 chat events 中的 `awaiting.ask` 获取。
+`/api/chat` 详情固定返回顶层 `createdAt` 与 `updatedAt`；Desktop 不得从 runs、events 或本机时间推断它们。每个 `runs[]` 的 `startedAt` 由注册时捕获并持久化；已完成 run 的 `completedAt` 必填，仍在执行的 run 则省略 `completedAt`（绝不输出 `0`）。`activeRun.startedAt` 与对应 push `run.started.startedAt` 是同一个已捕获时刻；push `run.finished.finishedAt` 与完成记录的 `completedAt` 相同。`/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 以及 `/api/chat` 的 chat 详情，在存在可恢复等待项时都包含顶层 `awaiting`：`awaitingId`、`runId`、`mode`、`status:"awaiting"`、`createdAt`。完整问题、审批项、表单和 planning 定义仍从 chat events 中的 `awaiting.ask` 获取；没有顶层 `awaiting` 的历史 ask 不可提交。Platform 重启时，未超时/无限等待的 question 与永久 planning 可恢复，approval/form 会按 timeout 或 runtime restart 原因终态化。
 
 `POST /api/chat/derive` 只支持 active chat 存储，不从 archive 直接派生。`sourceRunId` 省略时使用 source chat 的 `lastRunId`；source chat 必须没有 active run 和 pending awaiting，且目标 source run 已完成。服务端会创建新的独立 `chatId`，复制截至 source run 的可回放 JSONL 历史与必要资源，并为复制出的历史 run 生成新的 runId；返回 `lastRunId` 是新 chat 中映射后的 runId。派生成功后客户端继续用新 `chatId` 调 `/api/query`，后续运行不会写回原 chat。
 
@@ -214,6 +214,8 @@ Automation 的 Team 身份规则与 query 一致：只配置 `teamId`，同时�
 | POST | `/api/steer` | body: `agentKey` 或 `teamId`、`runId`、`message`、`requestId`、`chatId`、`steerId` | steer ack |
 | POST | `/api/interrupt` | body: `agentKey` 或 `teamId`、`runId`、`message`、`requestId`、`chatId` | interrupt ack |
 | POST | `/api/access-level` | body: `agentKey` 或 `teamId`、`runId`、`accessLevel`、`requestId`、`reason` | 动态更新 native run 的 accessLevel |
+
+`POST /api/submit` 成功仍返回 200。已知终态返回 409，`msg` / `data.errorCode` 为 `awaiting_expired`、`awaiting_interrupted` 或 `already_resolved`；`data` 同时包含 `chatId`、`runId`、`awaitingId`、`status`、`detail` 与结构化 `error`。真正不存在或 awaiting 身份不匹配返回 400 `unknown_awaiting`。同一 `submitId` 在 answer 已持久化但 continuation 尚未恢复完成的崩溃窗口内仍可作为幂等重试继续完成原提交，不会重复写 submit/answer。
 
 `/api/query` 的 `stream` 是 JSON body 字段；省略或传 `true` 时返回 SSE，结束帧为 `data: [DONE]`。传 `false` 时服务端仍执行完整 run、持久化 chat，并在结束后返回普通 JSON。默认只返回最终回答，响应示例见下文。
 

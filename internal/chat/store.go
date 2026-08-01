@@ -37,6 +37,14 @@ type RunStartReader interface {
 	LoadRunStartedAt(chatID string, runID string) (int64, error)
 }
 
+// AwaitingRecoveryReader exposes the physical step that produced an
+// awaiting. It is optional because only the production FileStore participates
+// in restart reconciliation; lightweight test and branch stores need not
+// claim durable recovery support.
+type AwaitingRecoveryReader interface {
+	LoadAwaitingStep(chatID string, awaitingID string) (*PersistedAwaitingStep, error)
+}
+
 type Store interface {
 	StepLineStore
 	EnsureChat(chatID string, agentKey string, teamID string, firstMessage string) (Summary, bool, error)

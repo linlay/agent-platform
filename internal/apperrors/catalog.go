@@ -19,6 +19,7 @@ var definitions = []Definition{
 	def(CodeMethodNotAllowed, CategoryRequest, ScopeRequest, http.StatusMethodNotAllowed, false),
 	def(CodeInvalidLocale, CategoryRequest, ScopeRequest, http.StatusBadRequest, false),
 	def(CodeUnsupportedOperation, CategoryRequest, ScopeRequest, http.StatusBadRequest, false),
+	def(CodeUnknownAwaiting, CategoryRequest, ScopeInteractionSubmit, http.StatusBadRequest, false),
 	def(CodeTimeContractViolation, CategoryRequest, ScopeRequest, http.StatusUnprocessableEntity, false),
 	def(CodeChatStorageSchemaViolation, CategoryChatRun, ScopeChat, http.StatusUnprocessableEntity, false),
 
@@ -106,6 +107,9 @@ var definitions = []Definition{
 	def(CodeHitlTimeout, CategoryPolicy, ScopeTool, http.StatusGatewayTimeout, true),
 	def(CodeApprovalTimeout, CategoryPolicy, ScopeTool, http.StatusGatewayTimeout, true),
 	def(CodeUserDismissed, CategoryPolicy, ScopeInteractionSubmit, http.StatusConflict, false),
+	def(CodeAwaitingExpired, CategoryPolicy, ScopeInteractionSubmit, http.StatusConflict, false),
+	def(CodeAwaitingInterrupted, CategoryPolicy, ScopeInteractionSubmit, http.StatusConflict, false),
+	def(CodeAwaitingAlreadyResolved, CategoryPolicy, ScopeInteractionSubmit, http.StatusConflict, false),
 	def(CodeInteractionSubmitTimeout, CategoryPolicy, ScopeInteractionSubmit, http.StatusGatewayTimeout, true),
 	def(CodeInteractionSubmitInvalidPayload, CategoryPolicy, ScopeInteractionSubmit, http.StatusBadRequest, false),
 	def(CodeToolInteractionHandlerNotRegistered, CategoryPolicy, ScopeInteractionSubmit, http.StatusInternalServerError, false),

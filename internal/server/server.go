@@ -178,7 +178,9 @@ func New(deps Dependencies) (*Server, error) {
 	if s.backgroundCtx == nil {
 		s.backgroundCtx = context.Background()
 	}
-	s.hydrateDeferredAwaitings()
+	if err := s.hydrateDeferredAwaitings(); err != nil {
+		return nil, fmt.Errorf("reconcile persisted awaitings: %w", err)
+	}
 	if hub, ok := deps.Notifications.(*ws.Hub); ok {
 		s.wsHandler = s.newWSHandler(hub)
 	}

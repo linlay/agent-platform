@@ -14,6 +14,9 @@ type DeferredAwaiting struct {
 	Mode       string
 	CreatedAt  int64
 	Ask        *chat.PersistedAwaitingAsk
+	// TerminalCode keeps a restart-time tombstone addressable by awaitingId
+	// even after the chat's pending summary has been cleared.
+	TerminalCode string
 }
 
 type DeferredAwaitingStore struct {

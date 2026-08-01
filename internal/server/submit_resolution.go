@@ -14,31 +14,54 @@ import (
 	"agent-platform/internal/toolinteraction"
 )
 
-func (s *Server) hydrateDeferredAwaitings() {
+func (s *Server) hydrateDeferredAwaitings() error {
 	if s == nil || s.deps.Chats == nil || s.deferredAwaitings == nil {
-		return
+		return nil
 	}
 
 	items, err := s.deps.Chats.LoadAllPendingAwaitings()
 	if err != nil {
-		log.Printf("[server][awaiting] load pending awaitings failed: %v", err)
-		return
+		return fmt.Errorf("load pending awaitings: %w", err)
 	}
 	for _, item := range items {
 		nowMs := time.Now().UnixMilli()
 		if mode := strings.ToLower(strings.TrimSpace(item.Mode)); mode != "" && !isAwaitingGateMode(mode) {
 			log.Printf("[server][awaiting] clearing non-restorable pending awaiting chatId=%s awaitingId=%s mode=%s", item.ChatID, item.AwaitingID, item.Mode)
-			_ = s.deps.Chats.ClearPendingAwaiting(item.ChatID, item.AwaitingID)
+			if err := s.deps.Chats.ClearPendingAwaiting(item.ChatID, item.AwaitingID); err != nil {
+				return fmt.Errorf("clear non-restorable awaiting chatId=%s awaitingId=%s: %w", item.ChatID, item.AwaitingID, err)
+			}
+			continue
+		}
+		latest, err := s.deps.Chats.LoadLatestAwaitingSubmit(item.ChatID, item.AwaitingID)
+		if err != nil {
+			return fmt.Errorf("load awaiting answer chatId=%s awaitingId=%s: %w", item.ChatID, item.AwaitingID, err)
+		}
+		step, err := s.loadPersistedAwaitingStep(item.ChatID, item.AwaitingID)
+		if err != nil {
+			return fmt.Errorf("load awaiting step chatId=%s awaitingId=%s: %w", item.ChatID, item.AwaitingID, err)
+		}
+		if latest != nil {
+			if restartTerminalAwaitingCode(latest.Answer) != "" {
+				if err := s.finishRestartTerminalAwaiting(item, step, latest.Answer, latest.UpdatedAt); err != nil {
+					return err
+				}
+			} else if err := s.deps.Chats.ClearPendingAwaiting(item.ChatID, item.AwaitingID); err != nil {
+				return fmt.Errorf("clear answered awaiting chatId=%s awaitingId=%s: %w", item.ChatID, item.AwaitingID, err)
+			}
 			continue
 		}
 		ask, err := s.deps.Chats.LoadAwaitingAsk(item.ChatID, item.AwaitingID)
 		if err != nil {
-			log.Printf("[server][awaiting] load awaiting ask failed chatId=%s awaitingId=%s err=%v", item.ChatID, item.AwaitingID, err)
-			continue
+			return fmt.Errorf("load awaiting ask chatId=%s awaitingId=%s: %w", item.ChatID, item.AwaitingID, err)
+		}
+		if ask == nil && step != nil {
+			ask = step.Ask
 		}
 		if ask == nil {
 			log.Printf("[server][awaiting] clearing dangling pending awaiting chatId=%s awaitingId=%s", item.ChatID, item.AwaitingID)
-			_ = s.deps.Chats.ClearPendingAwaiting(item.ChatID, item.AwaitingID)
+			if err := s.deps.Chats.ClearPendingAwaiting(item.ChatID, item.AwaitingID); err != nil {
+				return fmt.Errorf("clear dangling awaiting chatId=%s awaitingId=%s: %w", item.ChatID, item.AwaitingID, err)
+			}
 			continue
 		}
 		if ask.Payload == nil {
@@ -59,13 +82,37 @@ func (s *Server) hydrateDeferredAwaitings() {
 		effectiveMode := firstNonBlank(item.Mode, ask.Mode, stringValue(ask.Payload["mode"]))
 		if !isAwaitingGateMode(effectiveMode) {
 			log.Printf("[server][awaiting] clearing non-restorable pending awaiting chatId=%s awaitingId=%s mode=%s", item.ChatID, item.AwaitingID, effectiveMode)
-			_ = s.deps.Chats.ClearPendingAwaiting(item.ChatID, item.AwaitingID)
+			if err := s.deps.Chats.ClearPendingAwaiting(item.ChatID, item.AwaitingID); err != nil {
+				return fmt.Errorf("clear invalid awaiting chatId=%s awaitingId=%s: %w", item.ChatID, item.AwaitingID, err)
+			}
 			continue
 		}
 		timeoutSec := contracts.AnyIntNode(ask.Payload["timeout"])
-		if timeoutSec > 0 && nowMs-item.CreatedAt > int64(timeoutSec)*1000 {
-			log.Printf("[server][awaiting] clearing expired deferred awaiting chatId=%s awaitingId=%s age=%dms timeout=%ds", item.ChatID, item.AwaitingID, nowMs-item.CreatedAt, timeoutSec)
-			_ = s.deps.Chats.ClearPendingAwaiting(item.ChatID, item.AwaitingID)
+		if awaitingTimeoutApplies(effectiveMode) && timeoutSec > 0 && nowMs-item.CreatedAt > int64(timeoutSec)*1000 {
+			log.Printf("[server][awaiting] terminalizing expired deferred awaiting chatId=%s awaitingId=%s age=%dms timeout=%ds", item.ChatID, item.AwaitingID, nowMs-item.CreatedAt, timeoutSec)
+			answer := contracts.AwaitingTimeoutAnswer(effectiveMode, int64(timeoutSec), maxInt64((nowMs-item.CreatedAt)/1000, int64(timeoutSec)))
+			if err := s.finishRestartTerminalAwaiting(item, step, answer, nowMs); err != nil {
+				return err
+			}
+			continue
+		}
+		if !isContinuableDeferredAwaitingMode(effectiveMode) {
+			log.Printf("[server][awaiting] terminalizing non-continuable deferred awaiting chatId=%s awaitingId=%s mode=%s", item.ChatID, item.AwaitingID, effectiveMode)
+			answer := contracts.AwaitingErrorAnswer(effectiveMode, "runtime_restarted", "Platform restarted while waiting; submit the operation again")
+			errorPayload := contracts.AnyMapNode(answer["error"])
+			errorPayload["reason"] = "runtime_restarted"
+			if err := s.finishRestartTerminalAwaiting(item, step, answer, nowMs); err != nil {
+				return err
+			}
+			continue
+		}
+		if !persistedAwaitingCanContinue(step, item.AwaitingID) {
+			answer := contracts.AwaitingErrorAnswer(effectiveMode, "runtime_restarted", "Platform could not reconstruct the persisted awaiting context")
+			errorPayload := contracts.AnyMapNode(answer["error"])
+			errorPayload["reason"] = "continuation_context_unavailable"
+			if err := s.finishRestartTerminalAwaiting(item, step, answer, nowMs); err != nil {
+				return err
+			}
 			continue
 		}
 		s.deferredAwaitings.Register(DeferredAwaiting{
@@ -77,6 +124,7 @@ func (s *Server) hydrateDeferredAwaitings() {
 			Ask:        ask,
 		})
 	}
+	return nil
 }
 
 func (s *Server) resolveSubmit(req api.SubmitRequest) (api.SubmitResponse, int, string, error) {
@@ -101,8 +149,13 @@ func (s *Server) resolveSubmit(req api.SubmitRequest) (api.SubmitResponse, int, 
 		code := 0
 		msg := "success"
 		if ack.Status == "already_resolved" {
-			code = 409
-			msg = "already_resolved"
+			return api.SubmitResponse{}, 0, "", awaitingSubmitConflictError(
+				req,
+				activeSubmitChatID(s, req),
+				"already_resolved",
+				"already_resolved",
+				"Tool interaction submit already resolved",
+			)
 		}
 		return api.SubmitResponse{
 			Accepted:   ack.Accepted,
@@ -116,6 +169,15 @@ func (s *Server) resolveSubmit(req api.SubmitRequest) (api.SubmitResponse, int, 
 	}
 
 	if response, code, msg, ok := s.resolveAlreadyHandledActiveSubmit(req); ok {
+		if code == 409 {
+			return api.SubmitResponse{}, 0, "", awaitingSubmitConflictError(
+				req,
+				response.ChatID,
+				"already_resolved",
+				"already_resolved",
+				response.Detail,
+			)
+		}
 		return response, code, msg, nil
 	}
 
@@ -188,7 +250,7 @@ func (s *Server) prepareActiveSubmitContinuation(req api.SubmitRequest, awaiting
 
 func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitResponse, error) {
 	if s == nil || s.deferredAwaitings == nil {
-		return api.SubmitResponse{}, fmt.Errorf("unknown awaitingId")
+		return api.SubmitResponse{}, unknownAwaitingSubmitError(req)
 	}
 
 	deferred, ok := s.deferredAwaitings.Lookup(req.AwaitingID)
@@ -197,19 +259,37 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 		if handled || err != nil {
 			return response, err
 		}
-		return api.SubmitResponse{}, fmt.Errorf("unknown awaitingId")
+		return api.SubmitResponse{}, unknownAwaitingSubmitError(req)
 	}
 	if strings.TrimSpace(req.ChatID) != "" && strings.TrimSpace(req.ChatID) != strings.TrimSpace(deferred.ChatID) {
-		return api.SubmitResponse{}, fmt.Errorf("chatId does not match awaiting")
+		return api.SubmitResponse{}, unknownAwaitingSubmitError(req)
+	}
+	switch strings.TrimSpace(deferred.TerminalCode) {
+	case "timeout":
+		return api.SubmitResponse{}, awaitingSubmitConflictError(req, deferred.ChatID, "expired", "awaiting_expired", "awaiting has expired")
+	case "runtime_restarted":
+		return api.SubmitResponse{}, awaitingSubmitConflictError(req, deferred.ChatID, "interrupted", "awaiting_interrupted", "awaiting was interrupted by a Platform restart")
 	}
 	if deferred.Ask == nil || deferred.Ask.Payload == nil {
-		return api.SubmitResponse{}, fmt.Errorf("unknown awaitingId")
+		return api.SubmitResponse{}, unknownAwaitingSubmitError(req)
 	}
 	timeoutSec := contracts.AnyIntNode(deferred.Ask.Payload["timeout"])
-	if timeoutSec > 0 && time.Now().UnixMilli()-deferred.CreatedAt > int64(timeoutSec)*1000 {
-		s.deferredAwaitings.Remove(req.AwaitingID)
-		_ = s.deps.Chats.ClearPendingAwaiting(deferred.ChatID, req.AwaitingID)
-		return api.SubmitResponse{}, fmt.Errorf("awaiting has expired")
+	if nowMs := time.Now().UnixMilli(); awaitingTimeoutApplies(deferred.Mode) && timeoutSec > 0 && nowMs-deferred.CreatedAt > int64(timeoutSec)*1000 {
+		step, err := s.loadPersistedAwaitingStep(deferred.ChatID, req.AwaitingID)
+		if err != nil {
+			return api.SubmitResponse{}, err
+		}
+		answer := contracts.AwaitingTimeoutAnswer(deferred.Mode, int64(timeoutSec), maxInt64((nowMs-deferred.CreatedAt)/1000, int64(timeoutSec)))
+		if err := s.finishRestartTerminalAwaiting(chat.PendingAwaitingWithChat{
+			ChatID:     deferred.ChatID,
+			AwaitingID: req.AwaitingID,
+			RunID:      req.RunID,
+			Mode:       deferred.Mode,
+			CreatedAt:  deferred.CreatedAt,
+		}, step, answer, nowMs); err != nil {
+			return api.SubmitResponse{}, err
+		}
+		return api.SubmitResponse{}, awaitingSubmitConflictError(req, deferred.ChatID, "expired", "awaiting_expired", "awaiting has expired")
 	}
 	if err := validateDeferredSubmitParams(deferred.Mode, req.Params); err != nil {
 		if strings.EqualFold(strings.TrimSpace(deferred.Mode), "question") {
@@ -497,6 +577,12 @@ func (s *Server) resolvePersistedAwaitingSubmit(req api.SubmitRequest) (api.Subm
 	if strings.TrimSpace(latest.RunID) != "" && strings.TrimSpace(latest.RunID) != strings.TrimSpace(req.RunID) {
 		return api.SubmitResponse{}, false, nil
 	}
+	switch restartTerminalAwaitingCode(latest.Answer) {
+	case "timeout":
+		return api.SubmitResponse{}, true, awaitingSubmitConflictError(req, chatID, "expired", "awaiting_expired", "awaiting has expired")
+	case "runtime_restarted":
+		return api.SubmitResponse{}, true, awaitingSubmitConflictError(req, chatID, "interrupted", "awaiting_interrupted", "awaiting was interrupted by a Platform restart")
+	}
 	if strings.TrimSpace(req.SubmitID) != "" && strings.TrimSpace(latest.SubmitID) == strings.TrimSpace(req.SubmitID) {
 		mode := firstNonBlank(stringValue(latest.Answer["mode"]), stringValue(latest.Submit["mode"]))
 		deferred := DeferredAwaiting{
@@ -523,15 +609,7 @@ func (s *Server) resolvePersistedAwaitingSubmit(req api.SubmitRequest) (api.Subm
 			Detail:     "Tool interaction submit accepted",
 		}, true, nil
 	}
-	return api.SubmitResponse{
-		Accepted:   false,
-		Status:     "already_resolved",
-		ChatID:     chatID,
-		RunID:      req.RunID,
-		AwaitingID: req.AwaitingID,
-		SubmitID:   req.SubmitID,
-		Detail:     "Tool interaction submit already resolved",
-	}, true, nil
+	return api.SubmitResponse{}, true, awaitingSubmitConflictError(req, chatID, "already_resolved", "already_resolved", "Tool interaction submit already resolved")
 }
 
 func activeSubmitChatID(s *Server, req api.SubmitRequest) string {

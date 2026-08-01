@@ -94,8 +94,22 @@ func (s *Server) validPendingAwaitingInfo(chatID string, pending *chat.PendingAw
 		return nil, nil
 	}
 	timeoutSec := contracts.AnyIntNode(ask.Payload["timeout"])
-	if timeoutSec > 0 && time.Now().UnixMilli()-pending.CreatedAt > int64(timeoutSec)*1000 {
-		s.clearPendingAwaitingGate(chatID, awaitingID)
+	if awaitingTimeoutApplies(effectiveMode) && timeoutSec > 0 && time.Now().UnixMilli()-pending.CreatedAt > int64(timeoutSec)*1000 {
+		resolvedAt := time.Now().UnixMilli()
+		step, err := s.loadPersistedAwaitingStep(chatID, awaitingID)
+		if err != nil {
+			return nil, err
+		}
+		answer := contracts.AwaitingTimeoutAnswer(effectiveMode, int64(timeoutSec), maxInt64((resolvedAt-pending.CreatedAt)/1000, int64(timeoutSec)))
+		if err := s.finishRestartTerminalAwaiting(chat.PendingAwaitingWithChat{
+			ChatID:     chatID,
+			AwaitingID: awaitingID,
+			RunID:      firstNonBlank(pending.RunID, ask.RunID, stringValue(ask.Payload["runId"])),
+			Mode:       effectiveMode,
+			CreatedAt:  pending.CreatedAt,
+		}, step, answer, resolvedAt); err != nil {
+			return nil, err
+		}
 		return nil, nil
 	}
 	return awaitingPendingInfo(chatID, api.Awaiting{
@@ -263,4 +277,8 @@ func isContinuableDeferredAwaitingMode(mode string) bool {
 	default:
 		return false
 	}
+}
+
+func awaitingTimeoutApplies(mode string) bool {
+	return !strings.EqualFold(strings.TrimSpace(mode), "planning")
 }

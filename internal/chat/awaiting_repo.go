@@ -77,6 +77,127 @@ func (s *FileStore) LoadLatestAwaitingSubmit(chatID string, awaitingID string) (
 	return loadPersistedAwaitingSubmitFromLines(lines, chatID, awaitingID, ""), nil
 }
 
+func (s *FileStore) LoadAwaitingStep(chatID string, awaitingID string) (*PersistedAwaitingStep, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	lines, err := readPersistedJSONLines(s.chatJSONLPath(chatID))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return loadPersistedAwaitingStepFromLines(lines, awaitingID), nil
+}
+
+func loadPersistedAwaitingStepFromLines(lines []map[string]any, awaitingID string) *PersistedAwaitingStep {
+	awaitingID = strings.TrimSpace(awaitingID)
+	if awaitingID == "" {
+		return nil
+	}
+
+	var latest *PersistedAwaitingStep
+	for _, line := range lines {
+		lineType := strings.TrimSpace(stringValue(line["_type"]))
+		if lineType != StepLineTypeReact && lineType != StepLineTypeReactTool {
+			continue
+		}
+		var matchedAsk *PersistedAwaitingAsk
+		for _, raw := range anyValueSlice(line["awaiting"]) {
+			candidate := persistedAwaitingAskFromMap(mapValue(raw), stringValue(line["runId"]))
+			if candidate != nil && candidate.AwaitingID == awaitingID {
+				matchedAsk = candidate
+				break
+			}
+		}
+		if matchedAsk == nil {
+			continue
+		}
+		latest = &PersistedAwaitingStep{
+			RunID:           strings.TrimSpace(stringValue(line["runId"])),
+			TaskID:          strings.TrimSpace(stringValue(line["taskId"])),
+			TaskStatus:      strings.TrimSpace(stringValue(line["taskStatus"])),
+			TaskSubAgentKey: strings.TrimSpace(stringValue(line["taskSubAgentKey"])),
+			TeamID:          strings.TrimSpace(stringValue(line["teamId"])),
+			Presentation:    strings.TrimSpace(stringValue(line["presentation"])),
+			Stage:           strings.TrimSpace(stringValue(line["stage"])),
+			Seq:             int(int64FromAny(line["seq"])),
+			Ask:             matchedAsk,
+			ToolCalls:       persistedAwaitingToolCalls(line["messages"]),
+			ResultToolIDs:   map[string]bool{},
+		}
+	}
+	if latest == nil {
+		return nil
+	}
+
+	for _, line := range lines {
+		lineType := strings.TrimSpace(stringValue(line["_type"]))
+		if lineType != StepLineTypeReact && lineType != StepLineTypeReactTool {
+			continue
+		}
+		if strings.TrimSpace(stringValue(line["runId"])) != latest.RunID ||
+			strings.TrimSpace(stringValue(line["taskId"])) != latest.TaskID ||
+			int(int64FromAny(line["seq"])) != latest.Seq {
+			continue
+		}
+		for _, rawMessage := range anyValueSlice(line["messages"]) {
+			message := mapValue(rawMessage)
+			if !strings.EqualFold(strings.TrimSpace(stringValue(message["role"])), "tool") {
+				continue
+			}
+			toolID := strings.TrimSpace(stringValue(message["tool_call_id"]))
+			if toolID == "" {
+				toolID = strings.TrimSpace(stringValue(message["_toolId"]))
+			}
+			if toolID != "" {
+				latest.ResultToolIDs[toolID] = true
+			}
+		}
+	}
+	return latest
+}
+
+func persistedAwaitingToolCalls(rawMessages any) []PersistedAwaitingToolCall {
+	var result []PersistedAwaitingToolCall
+	seen := map[string]bool{}
+	for _, rawMessage := range anyValueSlice(rawMessages) {
+		message := mapValue(rawMessage)
+		if !strings.EqualFold(strings.TrimSpace(stringValue(message["role"])), "assistant") {
+			continue
+		}
+		for _, rawCall := range anyValueSlice(message["tool_calls"]) {
+			call := mapValue(rawCall)
+			toolID := strings.TrimSpace(stringValue(call["id"]))
+			if toolID == "" || seen[toolID] {
+				continue
+			}
+			seen[toolID] = true
+			result = append(result, PersistedAwaitingToolCall{
+				ID:   toolID,
+				Name: strings.TrimSpace(stringValue(mapValue(call["function"])["name"])),
+			})
+		}
+	}
+	return result
+}
+
+func anyValueSlice(value any) []any {
+	switch typed := value.(type) {
+	case []any:
+		return typed
+	case []map[string]any:
+		result := make([]any, 0, len(typed))
+		for _, item := range typed {
+			result = append(result, item)
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
 func (s *FileStore) LoadRunQuery(chatID string, runID string) (*QueryLine, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

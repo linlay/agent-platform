@@ -328,6 +328,7 @@ type SubmitResponse struct {
 	AwaitingID string `json:"awaitingId"`
 	SubmitID   string `json:"submitId,omitempty"`
 	Continued  bool   `json:"continued,omitempty"`
+	ErrorCode  string `json:"errorCode,omitempty"`
 	Detail     string `json:"detail"`
 }
 

@@ -493,6 +493,46 @@ func (s *Server) persistDeferredAwaitingToolAnswer(chatID string, runID string, 
 	if chatID == "" || runID == "" || awaitingID == "" || len(answer) == 0 {
 		return nil
 	}
+	if reader, ok := s.deps.Chats.(chat.AwaitingRecoveryReader); ok {
+		step, err := reader.LoadAwaitingStep(chatID, awaitingID)
+		if err != nil {
+			return err
+		}
+		if step != nil {
+			call, ok := deferredAwaitingAnswerToolCall(step, awaitingID)
+			if ok {
+				if step.ResultToolIDs[call.ID] {
+					return nil
+				}
+				content, _ := json.Marshal(answer)
+				ts := resolvedAt
+				return s.deps.Chats.AppendStepLine(chatID, chat.StepLine{
+					ChatID:          chatID,
+					RunID:           runID,
+					UpdatedAt:       resolvedAt,
+					TaskID:          step.TaskID,
+					TaskStatus:      step.TaskStatus,
+					TaskSubAgentKey: step.TaskSubAgentKey,
+					TeamID:          step.TeamID,
+					Presentation:    step.Presentation,
+					Stage:           step.Stage,
+					Seq:             step.Seq,
+					Type:            chat.StepLineTypeReactTool,
+					Messages: []chat.StoredMessage{{
+						Role:       "tool",
+						Name:       call.Name,
+						ToolCallID: call.ID,
+						ToolID:     call.ID,
+						Content: []chat.ContentPart{{
+							Type: "text",
+							Text: string(content),
+						}},
+						Ts: &ts,
+					}},
+				})
+			}
+		}
+	}
 	history, err := s.deps.Chats.LoadRawMessages(chatID, chat.DefaultHistoryRunWindow)
 	if err != nil {
 		return err
@@ -521,6 +561,25 @@ func (s *Server) persistDeferredAwaitingToolAnswer(chatID string, runID string, 
 			Ts: &resolvedAt,
 		}},
 	})
+}
+
+func deferredAwaitingAnswerToolCall(step *chat.PersistedAwaitingStep, publicAwaitingID string) (chat.PersistedAwaitingToolCall, bool) {
+	if step == nil {
+		return chat.PersistedAwaitingToolCall{}, false
+	}
+	rawAwaitingID := strings.TrimSpace(publicAwaitingID)
+	if taskID := strings.TrimSpace(step.TaskID); taskID != "" {
+		rawAwaitingID = rawAwaitingIDForTask(taskID, rawAwaitingID)
+	}
+	for _, call := range step.ToolCalls {
+		if strings.TrimSpace(call.ID) == rawAwaitingID && strings.TrimSpace(call.Name) != "" {
+			return call, true
+		}
+	}
+	if len(step.ToolCalls) == 1 && strings.TrimSpace(step.ToolCalls[0].Name) != "" {
+		return step.ToolCalls[0], true
+	}
+	return chat.PersistedAwaitingToolCall{}, false
 }
 
 func historyHasToolResult(history []map[string]any, awaitingID string) bool {

@@ -51,6 +51,7 @@ const (
 	CodeMethodNotAllowed           Code = "method_not_allowed"
 	CodeInvalidLocale              Code = "invalid_locale"
 	CodeUnsupportedOperation       Code = "unsupported_operation"
+	CodeUnknownAwaiting            Code = "unknown_awaiting"
 	CodeTimeContractViolation      Code = "time_contract_violation"
 	CodeChatStorageSchemaViolation Code = "chat_storage_schema_violation"
 
@@ -138,6 +139,9 @@ const (
 	CodeHitlTimeout                         Code = "hitl_timeout"
 	CodeApprovalTimeout                     Code = "approval_timeout"
 	CodeUserDismissed                       Code = "user_dismissed"
+	CodeAwaitingExpired                     Code = "awaiting_expired"
+	CodeAwaitingInterrupted                 Code = "awaiting_interrupted"
+	CodeAwaitingAlreadyResolved             Code = "already_resolved"
 	CodeInteractionSubmitTimeout            Code = "tool_interaction_timeout"
 	CodeInteractionSubmitInvalidPayload     Code = "tool_interaction_invalid_payload"
 	CodeToolInteractionHandlerNotRegistered Code = "tool_interaction_handler_not_registered"
