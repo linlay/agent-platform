@@ -3,6 +3,7 @@ package contracts
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -13,12 +14,16 @@ import (
 )
 
 type managedRun struct {
-	run         ActiveRun
-	control     *RunControl
-	eventBus    *stream.RunEventBus
-	runOrigin   *RunOrigin
-	startedAt   time.Time
-	completedAt time.Time
+	run                 ActiveRun
+	control             *RunControl
+	eventBus            *stream.RunEventBus
+	runOrigin           *RunOrigin
+	startedAt           time.Time
+	activeSince         time.Time
+	reaperStartOverride bool
+	completedAt         time.Time
+	recoveredAwaitingID string
+	recoveredClaimed    bool
 }
 
 type InMemoryRunManager struct {
@@ -108,13 +113,103 @@ func (m *InMemoryRunManager) registerLocked(session QuerySession) (context.Conte
 	})
 	control.SetObserverCount(0)
 	m.runs[session.RunID] = &managedRun{
-		run:       run,
-		control:   control,
-		eventBus:  eventBus,
-		runOrigin: cloneRunOrigin(session.RunOrigin),
-		startedAt: startedAt,
+		run:         run,
+		control:     control,
+		eventBus:    eventBus,
+		runOrigin:   cloneRunOrigin(session.RunOrigin),
+		startedAt:   startedAt,
+		activeSince: startedAt,
 	}
 	return WithRunControl(control.Context(), control), control, run
+}
+
+func (m *InMemoryRunManager) RegisterRecoveredAwaiting(_ context.Context, session QuerySession, awaitingID string, initialSeq int64) (RecoveredAwaitingRun, error) {
+	m.startReaper()
+	awaitingID = strings.TrimSpace(awaitingID)
+	if strings.TrimSpace(session.RunID) == "" || awaitingID == "" || initialSeq < 0 {
+		return RecoveredAwaitingRun{}, fmt.Errorf("recovered awaiting identity and cursor are required")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.runs[session.RunID]; exists {
+		return RecoveredAwaitingRun{}, fmt.Errorf("run already registered: %s", session.RunID)
+	}
+	if scopeID := querySessionRunScopeID(session); scopeID != "" {
+		_, runIDs := m.activeRunMatchLocked(scopeID)
+		if len(runIDs) > 0 {
+			return RecoveredAwaitingRun{}, &ActiveRunConflictError{ChatID: session.ChatID, RunIDs: runIDs}
+		}
+	}
+	runCtx, control, _ := m.registerLocked(session)
+	state := m.runs[session.RunID]
+	state.activeSince = time.Now()
+	state.reaperStartOverride = true
+	state.recoveredAwaitingID = awaitingID
+	if !state.eventBus.SeedCursor(initialSeq) {
+		delete(m.runs, session.RunID)
+		control.Finish()
+		return RecoveredAwaitingRun{}, fmt.Errorf("seed recovered run cursor")
+	}
+	control.TransitionState(RunLoopStateWaitingSubmit)
+	return recoveredAwaitingRunFromManaged(runCtx, state, initialSeq), nil
+}
+
+func (m *InMemoryRunManager) ClaimRecoveredAwaiting(runID string, awaitingID string) (RecoveredAwaitingRun, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	state := m.runs[strings.TrimSpace(runID)]
+	if state == nil || strings.TrimSpace(state.recoveredAwaitingID) != strings.TrimSpace(awaitingID) || state.recoveredClaimed || !state.completedAt.IsZero() {
+		return RecoveredAwaitingRun{}, false
+	}
+	state.recoveredClaimed = true
+	state.control.TransitionState(RunLoopStateResuming)
+	return recoveredAwaitingRunFromManaged(WithRunControl(state.control.Context(), state.control), state, state.eventBus.LatestSeq()), true
+}
+
+func (m *InMemoryRunManager) ReleaseRecoveredAwaiting(runID string, awaitingID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	state := m.runs[strings.TrimSpace(runID)]
+	if state == nil || strings.TrimSpace(state.recoveredAwaitingID) != strings.TrimSpace(awaitingID) || !state.recoveredClaimed || !state.completedAt.IsZero() {
+		return false
+	}
+	state.recoveredClaimed = false
+	state.control.TransitionState(RunLoopStateWaitingSubmit)
+	return true
+}
+
+func (m *InMemoryRunManager) ActivateRecoveredAwaiting(runID string, awaitingID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	state := m.runs[strings.TrimSpace(runID)]
+	if state == nil || strings.TrimSpace(state.recoveredAwaitingID) != strings.TrimSpace(awaitingID) || !state.recoveredClaimed || !state.completedAt.IsZero() {
+		return false
+	}
+	state.recoveredAwaitingID = ""
+	state.recoveredClaimed = false
+	state.activeSince = time.Now()
+	return true
+}
+
+func (m *InMemoryRunManager) IsRecoveredAwaiting(runID string, awaitingID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	state := m.runs[strings.TrimSpace(runID)]
+	return state != nil && strings.TrimSpace(state.recoveredAwaitingID) == strings.TrimSpace(awaitingID) && state.completedAt.IsZero()
+}
+
+func recoveredAwaitingRunFromManaged(ctx context.Context, state *managedRun, initialSeq int64) RecoveredAwaitingRun {
+	if state == nil {
+		return RecoveredAwaitingRun{}
+	}
+	return RecoveredAwaitingRun{
+		Context:    ctx,
+		Control:    state.control,
+		Run:        state.run,
+		EventBus:   state.eventBus,
+		AwaitingID: state.recoveredAwaitingID,
+		InitialSeq: initialSeq,
+	}
 }
 
 func (m *InMemoryRunManager) Submit(req api.SubmitRequest) SubmitAck {
@@ -414,7 +509,11 @@ func (m *InMemoryRunManager) reapExpiredRuns() {
 			}
 			continue
 		}
-		if m.maxBackgroundDuration > 0 && now.Sub(state.startedAt) > m.maxBackgroundDuration {
+		activeSince := state.startedAt
+		if state.reaperStartOverride && !state.activeSince.IsZero() {
+			activeSince = state.activeSince
+		}
+		if m.maxBackgroundDuration > 0 && now.Sub(activeSince) > m.maxBackgroundDuration {
 			toInterrupt = append(toInterrupt, state)
 		}
 	}

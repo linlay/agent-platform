@@ -100,7 +100,7 @@ func (s *Server) resolveAwaitingContinuationAdmission(chatID string, requestedAg
 }
 
 func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq api.SubmitRequest, answer map[string]any) (bool, error) {
-	return s.startAwaitingContinuationWithAdmission(deferred, submitReq, answer, nil)
+	return s.startAwaitingContinuationWithAdmission(deferred, submitReq, answer, nil, nil)
 }
 
 func (s *Server) startAwaitingContinuationWithAdmission(
@@ -108,6 +108,7 @@ func (s *Server) startAwaitingContinuationWithAdmission(
 	submitReq api.SubmitRequest,
 	answer map[string]any,
 	admission *awaitingContinuationAdmission,
+	recovered *contracts.RecoveredAwaitingRun,
 ) (bool, error) {
 	if s == nil || s.deps.Runs == nil || s.deps.Chats == nil || s.deps.Agent == nil || s.deps.Registry == nil {
 		return false, nil
@@ -124,8 +125,29 @@ func (s *Server) startAwaitingContinuationWithAdmission(
 		return false, fmt.Errorf("runId is required")
 	}
 	runID := firstNonBlank(submitReq.ContinuationRunID, sourceRunID)
-	if _, ok := s.deps.Runs.RunStatus(runID); ok {
-		return true, nil
+	if recovered == nil {
+		if _, ok := s.deps.Runs.RunStatus(runID); ok {
+			return true, nil
+		}
+	} else if strings.TrimSpace(recovered.Run.RunID) != sourceRunID || strings.TrimSpace(recovered.AwaitingID) != strings.TrimSpace(submitReq.AwaitingID) {
+		return false, fmt.Errorf("recovered awaiting claim does not match continuation")
+	}
+	if recovered != nil && recovered.Control == nil {
+		return false, fmt.Errorf("recovered awaiting control is unavailable")
+	}
+	if recovered != nil && recovered.EventBus == nil {
+		return false, fmt.Errorf("recovered awaiting event bus is unavailable")
+	}
+	if recovered != nil && recovered.Control.Interrupted() {
+		return false, contracts.ErrRunInterrupted
+	}
+	if recovered != nil && recovered.Control.Finished() {
+		return false, contracts.ErrRunFinished
+	}
+	if recovered == nil {
+		// New registrations keep the existing continuation behavior.
+	} else if _, ok := s.deps.Runs.RunStatus(sourceRunID); !ok {
+		return false, fmt.Errorf("recovered awaiting run is unavailable")
 	}
 	chatID := firstNonBlank(submitReq.ChatID, deferred.ChatID)
 	if chatID == "" {
@@ -215,6 +237,10 @@ func (s *Server) startAwaitingContinuationWithAdmission(
 	}
 	session.HistoryMessages = awaitingContinuationHistory(session.HistoryMessages, sourceRunID, submitReq.AwaitingID, mode, answer)
 
+	initialSeq := s.continuationInitialSeq(chatID, sourceRunID, runID)
+	if recovered != nil && strings.TrimSpace(runID) == sourceRunID {
+		initialSeq = recovered.EventBus.LatestSeq()
+	}
 	prepared := preparedQuery{
 		req:          req,
 		summary:      summary,
@@ -223,25 +249,48 @@ func (s *Server) startAwaitingContinuationWithAdmission(
 		teamSnapshot: teamSnapshot,
 		session:      session,
 		continueRun:  !newExecutionRun,
-		initialSeq:   s.continuationInitialSeq(chatID, sourceRunID, runID),
+		initialSeq:   initialSeq,
 	}
 	if newExecutionRun {
 		prepared.syntheticBootstrap = coderPlanningApproveSyntheticBootstrap(session)
 	} else if continuationSystem != nil {
 		prepared.syntheticBootstrap = systemInitSyntheticBootstrap(session.ChatID, *continuationSystem)
 	}
-	registered, statusErr := s.registerQueryRun(context.Background(), prepared)
-	if statusErr != nil {
-		return false, statusErr
+	var registered registeredQueryRun
+	var eventBus *stream.RunEventBus
+	if recovered != nil && !newExecutionRun {
+		status, ok := s.deps.Runs.RunStatus(sourceRunID)
+		if !ok {
+			return false, fmt.Errorf("recovered awaiting status is unavailable")
+		}
+		registered = registeredQueryRun{
+			RunCtx: recovered.Context, Control: recovered.Control, Managed: true, StartedAtMillis: status.StartedAt,
+		}
+		eventBus = recovered.EventBus
+		if runs, ok := s.deps.Runs.(contracts.RecoveredAwaitingRunService); !ok || !runs.ActivateRecoveredAwaiting(sourceRunID, submitReq.AwaitingID) {
+			return false, fmt.Errorf("activate recovered awaiting run")
+		}
+	} else {
+		if recovered != nil && newExecutionRun {
+			if err := s.completeRecoveredPlanningRun(deferred, recovered); err != nil {
+				return false, err
+			}
+		}
+		var statusErr *statusError
+		registered, statusErr = s.registerQueryRun(context.Background(), prepared)
+		if statusErr != nil {
+			return false, statusErr
+		}
+		var eventBusOK bool
+		eventBus, eventBusOK = s.deps.Runs.EventBus(runID)
+		if !eventBusOK {
+			s.deps.Runs.Interrupt(serverSetupInterruptRequest(req, contracts.InterruptReasonEventBusUnavailable, "run event bus unavailable"))
+			s.finishRegisteredQueryRun(prepared, registered)
+			return false, fmt.Errorf("run event bus unavailable")
+		}
+		s.broadcast("run.started", runStartedPushPayload(runID, chatID, agentKey, registered.StartedAtMillis))
 	}
 	runCtx, control := registered.RunCtx, registered.Control
-	eventBus, ok := s.deps.Runs.EventBus(runID)
-	if !ok {
-		s.deps.Runs.Interrupt(serverSetupInterruptRequest(req, contracts.InterruptReasonEventBusUnavailable, "run event bus unavailable"))
-		s.finishRegisteredQueryRun(prepared, registered)
-		return false, fmt.Errorf("run event bus unavailable")
-	}
-	s.broadcast("run.started", runStartedPushPayload(runID, chatID, agentKey, registered.StartedAtMillis))
 
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
 	stepWriter := chat.NewStepWriter(s.deps.Chats, chatID, runID, agentDef.Mode)
@@ -346,7 +395,7 @@ func (s *Server) startRunContinuation(continuation contracts.DeltaRunContinuatio
 		RunID:      sourceRunID,
 		AwaitingID: submitReq.AwaitingID,
 		Mode:       mode,
-	}, submitReq, contracts.CloneMap(continuation.Answer), admission)
+	}, submitReq, contracts.CloneMap(continuation.Answer), admission, nil)
 	if err != nil {
 		return "", err
 	}

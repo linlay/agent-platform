@@ -37,9 +37,13 @@ native CODER planning 的 `planning approve` 有独立 run 边界：后端先在
 
 ## 跨进程重启
 
-Platform 启动时以 `CHATS.AWAITING_*` pending summary 为入口，对照同一 awaiting 的物理 step、answer、matching tool result 与 run completion 做幂等对账。`question` 在未超时或 `timeout=0` 时恢复，提交答案后从原 query、raw messages、ask 与答案重建 continuation，并保持原公开 `runId`；`planning` 不受停机时长或历史 timeout 字段影响，始终恢复。native CODER planning approve 仍结束原 planning run 并启动新的 execution run，reject 继续原 planning 流程。
+Platform 启动时以 `CHATS.AWAITING_*` pending summary 为入口，对照同一 awaiting 的物理 step、answer、matching tool result 与 run completion 做幂等对账。`question` 在未超时或 `timeout=0` 时恢复，`planning` 不受停机时长或历史 timeout 字段影响，始终恢复。可恢复项不只注册 deferred submit：启动 hydration 还会为原公开 `runId` 注册真实的 suspended active run，保留原 `startedAt`、公开 owner、access level 与 run scope，状态为 `WAITING_SUBMIT`，EventBus cursor 从该 run 已持久化的最大 `liveSeq` 开始。因此重启后 `/api/chat` 会同时返回权威 `awaiting` 与可 attach 的 `activeRun`，客户端应在用户点击提交之前立即使用 `activeRun.lastSeq` attach。
+
+恢复后的 question 与 planning reject 提交会原子 claim suspended run，状态短暂进入 `RESUMING`；`request.submit` 和 `awaiting.answer` 先按连续 live seq 持久化并发布到同一 EventBus，再从原 query、raw messages、ask 与答案重建 continuation。该路径保持原公开 `runId`，不重复发布 `run.started`，已在 submit 前 attach 的连接会直接收到后续 reasoning/content/tool 事件。native CODER planning approve 则先在旧 suspended planning run 上持久化并发布 submit、answer、tool result 与 `run.complete`，关闭旧 attach 后再启动新 execution run。
 
 `approval` / `form` 不跨进程恢复：已超时写 `error.code:"timeout"`，未超时写 `error.code:"runtime_restarted"`。已超时的 `question` 同样写 `timeout`；无法从持久化 task/tool 上下文安全确定子智能体或 Team continuation 的 `question` / `planning` 写 `runtime_restarted`。这些自动终态不伪造 `request.submit`，而是依次持久化 `awaiting.answer(status:"error")`、同原因且 `executed:false` 的 matching tool result、`finishReason:"cancel"` 的 run completion，最后清除 pending summary。任一步写入失败都会中止 Server 初始化；再次启动会从已有记录继续，不重复写 answer、result 或 completion。
+
+恢复后的 question 剩余 timeout 由 suspended run supervisor 继续计时；`/api/interrupt` 和 reaper 也由同一 supervisor 收口。终态会按 `awaiting.answer -> tool.result(s) -> run.cancel` 的顺序发布到已 attach 连接，然后 freeze EventBus 并移除 active run。Platform 自身关闭仅取消进程内 supervisor，不伪造用户中断，pending 留给下次 hydration。
 
 没有 pending summary 的孤立历史 `awaiting.ask` 不迁移、也不恢复为活动态。`/api/chat.awaiting` 是客户端判断可提交状态的唯一事实源；历史 ask 只保留用于时间线和匹配完整交互内容。
 

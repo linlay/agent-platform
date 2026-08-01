@@ -101,14 +101,21 @@ func (s *Server) validPendingAwaitingInfo(chatID string, pending *chat.PendingAw
 			return nil, err
 		}
 		answer := contracts.AwaitingTimeoutAnswer(effectiveMode, int64(timeoutSec), maxInt64((resolvedAt-pending.CreatedAt)/1000, int64(timeoutSec)))
-		if err := s.finishRestartTerminalAwaiting(chat.PendingAwaitingWithChat{
+		item := chat.PendingAwaitingWithChat{
 			ChatID:     chatID,
 			AwaitingID: awaitingID,
 			RunID:      firstNonBlank(pending.RunID, ask.RunID, stringValue(ask.Payload["runId"])),
 			Mode:       effectiveMode,
 			CreatedAt:  pending.CreatedAt,
-		}, step, answer, resolvedAt); err != nil {
+		}
+		finished, err := s.finishRecoveredAwaiting(item, step, answer, resolvedAt)
+		if err != nil {
 			return nil, err
+		}
+		if !finished {
+			if err := s.finishRestartTerminalAwaiting(item, step, answer, resolvedAt); err != nil {
+				return nil, err
+			}
 		}
 		return nil, nil
 	}

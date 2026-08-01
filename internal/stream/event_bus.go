@@ -151,6 +151,22 @@ func (b *RunEventBus) Publish(event EventData) {
 	}
 }
 
+// SeedCursor restores the last sequence already covered by persisted chat
+// replay without fabricating an in-memory event. It is only valid before the
+// recovered bus has accepted events or observers.
+func (b *RunEventBus) SeedCursor(seq int64) bool {
+	if b == nil || seq < 0 {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.frozen || len(b.events) != 0 || len(b.observers) != 0 || b.oldestSeq != 0 || b.latestSeq != 0 {
+		return false
+	}
+	b.latestSeq = seq
+	return true
+}
+
 func (b *RunEventBus) Subscribe(afterSeq int64) (*Observer, error) {
 	if b == nil {
 		return nil, fmt.Errorf("event bus unavailable")

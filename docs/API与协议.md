@@ -109,6 +109,7 @@ GET /ws -> request / response / stream / push / error frames
 | GET | `/api/admin/skills` | 无 | skills-market skill 列表，包含状态、图标 URL、摘要诊断、更新时间、大小与引用 agent |
 | GET | `/api/admin/skills/detail` | query: `key`、`openPath` | skill 详情，返回 `fileManifest.entries[]` 与可选 `openedFile` |
 | POST | `/api/admin/skills/create` | body: `key`、`skillMd`、`files[]` | 创建后的 skill 详情 |
+| POST | `/api/admin/skills/import` | multipart: `key`、`file` | 原子校验并导入完整 ZIP，返回创建后的 skill 详情 |
 | POST | `/api/admin/skills/delete` | body: `key` | 删除结果；仍被 agent 引用时返回 409 和 `usedByAgents` |
 | GET/PUT | `/api/admin/skills/file` | query/body: `key`、`path`、`content`、`baseSha256` | 读取或保存 UTF-8 文本文件 |
 | POST | `/api/admin/skills/file/create` | body: `key`、`path`、`content` | 创建文本文件 |
@@ -131,6 +132,8 @@ GET /ws -> request / response / stream / push / error frames
 `/api/admin/skills` 只编辑 `paths.skills-market-dir` 下的共享 skill 目录，不直接编辑 agent 本地 `skills/` 同步副本。文件路径必须是相对路径，服务端拒绝目录逃逸和 symlink 跟随；JSON 文本读写限制为 UTF-8 且不超过 1 MiB，二进制或大文件通过 upload/download 接口处理。保存、上传、删除或重命名 skill 文件后会触发 `skills` reload 并级联 reload `agents`，使声明该 skill 的 agent 本地副本重新同步。
 
 `/api/admin/skills` 管理 Skill 的结构和二进制文件操作；可编辑文本内容可通过 `/api/admin/source` 的 Skill target 读取和保存。`detail` 不内联全量文件内容，而返回轻量 `fileManifest`：`revision`、`defaultOpenPath`、文件统计和预排序扁平 `entries[]`。每个 entry 使用完整相对 `path` 作为稳定 ID，并带 `parentPath/depth/order/contentKind/language/role/editable/downloadable/uploadable/renamable/deletable`。`openPath` 指向可编辑 UTF-8 文本文件时，`detail` 额外返回 `openedFile`；二进制或过大文件只返回 metadata。保存使用 `baseSha256` 做并发保护，冲突返回 409。创建、删除、重命名、上传和 mkdir 的 mutation 响应会返回新的 `fileManifest` 与 `selectedPath`，方便前端直接刷新文件树。列表和详情摘要会在 skill 目录存在 regular、非 symlink 的 `assets/<skill-id>.png` 时返回 `icon` 下载 URL；未提供图标时省略字段，由客户端负责默认图。`file/download` 只下载单一文件；`download` 返回 ZIP，包含安全的普通 skill 文件、跳过 symlink 与 `.runtime-env.json`，并限制未压缩内容为 256 MiB。
+
+`POST /api/admin/skills/import` 只接受单个不超过 32 MiB 的 ZIP，Skill Key 必须尚不存在。ZIP 可直接以 `SKILL.md` 为根，也可只有一层包装目录；`__MACOSX` 与 `.DS_Store` 被忽略。服务端拒绝目录逃逸、反斜杠路径、symlink、非普通文件、重复或大小写冲突路径、文件/目录冲突，并限制单文件 32 MiB、未压缩总量 256 MiB、最多 4096 个 entry。解包先进入 catalog 与 watcher 都忽略的隐藏 staging，完整验证 `SKILL.md`、`.runtime-env.json` 和 runtime 文件后再原子 rename；重名返回 409，非 ZIP 返回 415，包内诊断返回 422 `data.error.diagnostics[]`，所有失败都不保留目标目录。成功后沿用 `skills` reload 和 Agent 重组；reload 失败会删除刚导入的目录并恢复旧 catalog。
 
 `/api/admin/registries` 是列表接口，不返回 registry 文件绝对路径、完整 `diagnostics[]` 或文件大小；编辑器应通过 `/api/admin/registries/detail` 获取 `source`、完整诊断、`content`、`parsed` 与 `size`。
 
@@ -162,11 +165,11 @@ chat 摘要会在新数据中返回可选 `mode`；`/api/chat.runs[]`、`/api/ag
 
 `/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 摘要，以及 `/api/chat` 详情顶层在新数据中可包含 `source`，表示 chat 首次创建来源。当前只记录 query 与 automation 两类：`query` / `query:<user>` 表示由 query 创建，`automation:<automationId>` 表示由 automation 创建。旧数据为空、上传创建或派生创建时省略。channel 远程用户调用本机智能体仍属于 query source；gateway 可在受信 channel 请求中传 `sourceUser`，否则服务端会从形如 `wecom#single#user1#...` 的 chatId 中取远端用户段作为 `query:<user>`。`sourceChannel` 是 gateway/channel 路由标签，不承载 query / automation 语义。
 
-`/api/chat` 详情固定返回顶层 `createdAt` 与 `updatedAt`；Desktop 不得从 runs、events 或本机时间推断它们。每个 `runs[]` 的 `startedAt` 由注册时捕获并持久化；已完成 run 的 `completedAt` 必填，仍在执行的 run 则省略 `completedAt`（绝不输出 `0`）。`activeRun.startedAt` 与对应 push `run.started.startedAt` 是同一个已捕获时刻；push `run.finished.finishedAt` 与完成记录的 `completedAt` 相同。`/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 以及 `/api/chat` 的 chat 详情，在存在可恢复等待项时都包含顶层 `awaiting`：`awaitingId`、`runId`、`mode`、`status:"awaiting"`、`createdAt`。完整问题、审批项、表单和 planning 定义仍从 chat events 中的 `awaiting.ask` 获取；没有顶层 `awaiting` 的历史 ask 不可提交。Platform 重启时，未超时/无限等待的 question 与永久 planning 可恢复，approval/form 会按 timeout 或 runtime restart 原因终态化。
+`/api/chat` 详情固定返回顶层 `createdAt` 与 `updatedAt`；Desktop 不得从 runs、events 或本机时间推断它们。每个 `runs[]` 的 `startedAt` 由注册时捕获并持久化；已完成 run 的 `completedAt` 必填，仍在执行的 run 则省略 `completedAt`（绝不输出 `0`）。`activeRun.startedAt` 与对应 push `run.started.startedAt` 是同一个已捕获时刻；push `run.finished.finishedAt` 与完成记录的 `completedAt` 相同。`/api/chats` 的 chat 摘要、`/api/agents?includeChats=...` 的 `chats[]` 以及 `/api/chat` 的 chat 详情，在存在可恢复等待项时都包含顶层 `awaiting`：`awaitingId`、`runId`、`mode`、`status:"awaiting"`、`createdAt`。完整问题、审批项、表单和 planning 定义仍从 chat events 中的 `awaiting.ask` 获取；没有顶层 `awaiting` 的历史 ask 不可提交。Platform 重启时，未超时/无限等待的 question 与永久 planning 可恢复，approval/form 会按 timeout 或 runtime restart 原因终态化。可恢复 question/planning 还会同时返回同一 `runId` 的 `activeRun`，其 `state:"WAITING_SUBMIT"`、`startedAt` 保留原 run 时刻，且对应 Platform 内已真实注册的 suspended run，不是 API 层合成摘要。
 
 `POST /api/chat/derive` 只支持 active chat 存储，不从 archive 直接派生。`sourceRunId` 省略时使用 source chat 的 `lastRunId`；source chat 必须没有 active run 和 pending awaiting，且目标 source run 已完成。服务端会创建新的独立 `chatId`，复制截至 source run 的可回放 JSONL 历史与必要资源，并为复制出的历史 run 生成新的 runId；返回 `lastRunId` 是新 chat 中映射后的 runId。派生成功后客户端继续用新 `chatId` 调 `/api/query`，后续运行不会写回原 chat。
 
-`/api/chat` 返回 active run 时，`activeRun.lastSeq` 是本次 chat detail 已返回历史 events 覆盖到的 live stream 游标，客户端应用这些 events 后可把它作为 `/api/attach.lastSeq`。它来自 `chatId.jsonl` 每行顶层 `liveSeq` 的 replay 结果，不是内存 run 当前最新 seq；内存最新 seq 只用于服务端运行状态。
+`/api/chat` 返回 active run 时，`activeRun.lastSeq` 是本次 chat detail 已返回历史 events 覆盖到的 live stream 游标，客户端应用这些 events 后可把它作为 `/api/attach.lastSeq`。它来自 `chatId.jsonl` 每行顶层 `liveSeq` 的 replay 结果，不是内存 run 当前最新 seq；内存最新 seq 只用于服务端运行状态。对 `WAITING_SUBMIT` active run，该 attach 应在 submit 前建立并保持等待；submit 成功不应再创建第二个 attach，同一连接会从 `request.submit` / `awaiting.answer` 开始继续接收该 run 的后续事件。
 
 `/api/chat/jsonl`、`/api/chat/system-prompt`、chat/archive replay、搜索结果与 `/api/chat/llm-trace` 都在读取前验证各自明确拥有的时间字段。JSONL 的 line `updatedAt`、event `timestamp`、`messages[].ts` 和 awaiting/submit 时间保持严格；trace 中 `sentAt`、`responseStartedAt`、`completedAt` 以及 `interrupt.interruptedAt` 均为 epoch milliseconds，对应的 `sentTime`、`responseStartedTime`、`completedTime`、`interrupt.interruptedTime` 为 RFC3339Nano 可读时间。字符串、秒、浮点、零值或缺少必填平台时间会返回 `422 time_contract_violation`；trace 中外部 request/response/tool payload 保持透明。
 

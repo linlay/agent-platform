@@ -21,7 +21,7 @@ HTTP query
 
 `GET /api/attach?runId=...&agentKey=...&lastSeq=...` 用于续接 Agent-owned run；orchestrated Team 改传 `teamId`。服务端按公开 owner 校验归属；run 超过 retention 或序号已过期时返回 `SEQ_EXPIRED`。
 
-从 `/api/chat` 冷启动恢复 active run 时，客户端应使用 `activeRun.lastSeq` 作为 attach 游标。该值来自本次 chat detail 已返回历史 events 的 `liveSeq` 覆盖边界；`liveSeq` 由 `chatId.jsonl` 每行顶层字段 replay 注入，不是内存 event bus 的最新 seq。
+从 `/api/chat` 冷启动恢复 active run 时，客户端应使用 `activeRun.lastSeq` 作为 attach 游标。该值来自本次 chat detail 已返回历史 events 的 `liveSeq` 覆盖边界；`liveSeq` 由 `chatId.jsonl` 每行顶层字段 replay 注入，不是内存 event bus 的最新 seq。Platform 重启后可恢复的 question/planning 会以原 `runId` 注册 `WAITING_SUBMIT` suspended active run；客户端 replay `/api/chat` 后应立即 attach，即使当前没有新事件也保持 observer。用户后续提交时，Platform 会复用该 EventBus 发布连续 seq 的 submit/answer 和 continuation，不重播 `run.started`；客户端不需要、也不应在 submit 后再补 attach。
 
 WebSocket 客户端切换 current chat 时，应对旧 chat 的 active run 发送 `/api/detach`，关闭当前 WS 连接上的 live stream observer；新 chat 打开后再按需 `/api/attach`。detach 只释放 UI 订阅流，不中断后台 run，也不会暂停 HITL / awaiting timeout。HTTP/SSE 不新增 detach endpoint，仍由客户端关闭 EventSource 或 fetch stream。
 

@@ -252,3 +252,27 @@ func TestRunEventBusConcurrentPublishSubscribe(t *testing.T) {
 	bus.Freeze()
 	wg.Wait()
 }
+
+func TestRunEventBusSeedCursorKeepsRecoveredAttachOpenAtHistoryBoundary(t *testing.T) {
+	bus := NewRunEventBus(10, 0, nil)
+	if !bus.SeedCursor(29) || bus.LatestSeq() != 29 || bus.OldestSeq() != 0 {
+		t.Fatalf("unexpected seeded cursor oldest=%d latest=%d", bus.OldestSeq(), bus.LatestSeq())
+	}
+	observer, err := bus.Subscribe(29)
+	if err != nil {
+		t.Fatalf("subscribe at recovered cursor: %v", err)
+	}
+	defer bus.Unsubscribe(observer.ID)
+	bus.Publish(EventData{Seq: 30, Type: "request.submit"})
+	select {
+	case event := <-observer.Events:
+		if event.Seq != 30 || event.Type != "request.submit" {
+			t.Fatalf("unexpected recovered event %#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for recovered event")
+	}
+	if bus.SeedCursor(40) {
+		t.Fatal("must not reseed a live event bus")
+	}
+}

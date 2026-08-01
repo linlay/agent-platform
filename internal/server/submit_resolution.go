@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/hitl"
+	"agent-platform/internal/stream"
 	"agent-platform/internal/toolinteraction"
 )
 
@@ -115,14 +117,24 @@ func (s *Server) hydrateDeferredAwaitings() error {
 			}
 			continue
 		}
+		recoveryItem := item
+		recoveryItem.RunID = firstNonBlank(item.RunID, ask.RunID)
+		recoveryItem.Mode = effectiveMode
+		recovered, err := s.registerRecoveredAwaitingRun(recoveryItem, step)
+		if err != nil {
+			return fmt.Errorf("register recovered awaiting run chatId=%s runId=%s awaitingId=%s: %w", recoveryItem.ChatID, recoveryItem.RunID, recoveryItem.AwaitingID, err)
+		}
+		supervisorCtx, cancelSupervisor := context.WithCancel(s.backgroundCtx)
 		s.deferredAwaitings.Register(DeferredAwaiting{
-			ChatID:     item.ChatID,
-			AwaitingID: item.AwaitingID,
-			RunID:      firstNonBlank(item.RunID, ask.RunID),
-			Mode:       effectiveMode,
-			CreatedAt:  item.CreatedAt,
-			Ask:        ask,
+			ChatID:           item.ChatID,
+			AwaitingID:       item.AwaitingID,
+			RunID:            recoveryItem.RunID,
+			Mode:             effectiveMode,
+			CreatedAt:        item.CreatedAt,
+			Ask:              ask,
+			supervisorCancel: cancelSupervisor,
 		})
+		go s.superviseRecoveredAwaiting(supervisorCtx, recoveryItem, step, recovered)
 	}
 	return nil
 }
@@ -280,14 +292,21 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 			return api.SubmitResponse{}, err
 		}
 		answer := contracts.AwaitingTimeoutAnswer(deferred.Mode, int64(timeoutSec), maxInt64((nowMs-deferred.CreatedAt)/1000, int64(timeoutSec)))
-		if err := s.finishRestartTerminalAwaiting(chat.PendingAwaitingWithChat{
+		item := chat.PendingAwaitingWithChat{
 			ChatID:     deferred.ChatID,
 			AwaitingID: req.AwaitingID,
 			RunID:      req.RunID,
 			Mode:       deferred.Mode,
 			CreatedAt:  deferred.CreatedAt,
-		}, step, answer, nowMs); err != nil {
+		}
+		finished, err := s.finishRecoveredAwaiting(item, step, answer, nowMs)
+		if err != nil {
 			return api.SubmitResponse{}, err
+		}
+		if !finished {
+			if err := s.finishRestartTerminalAwaiting(item, step, answer, nowMs); err != nil {
+				return api.SubmitResponse{}, err
+			}
 		}
 		return api.SubmitResponse{}, awaitingSubmitConflictError(req, deferred.ChatID, "expired", "awaiting_expired", "awaiting has expired")
 	}
@@ -324,8 +343,29 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 	if err != nil {
 		return api.SubmitResponse{}, err
 	}
-	if agentcoder.StartsNewExecutionRun(deferred.Mode, normalized, continuationAdmission.agentDef.Mode, continuationAdmission.agentDef.ACPBridgeID) && strings.TrimSpace(req.ContinuationRunID) == "" {
+	startsNewExecutionRun := agentcoder.StartsNewExecutionRun(deferred.Mode, normalized, continuationAdmission.agentDef.Mode, continuationAdmission.agentDef.ACPBridgeID)
+	if startsNewExecutionRun && strings.TrimSpace(req.ContinuationRunID) == "" {
 		req.ContinuationRunID = newRunID()
+	}
+	var recovered *contracts.RecoveredAwaitingRun
+	var recoveredStep *chat.PersistedAwaitingStep
+	if runs, ok := s.deps.Runs.(contracts.RecoveredAwaitingRunService); ok && runs.IsRecoveredAwaiting(req.RunID, req.AwaitingID) {
+		claimed, claimedOK := runs.ClaimRecoveredAwaiting(req.RunID, req.AwaitingID)
+		if !claimedOK {
+			return api.SubmitResponse{}, awaitingSubmitConflictError(req, deferred.ChatID, "already_resolved", "already_resolved", "awaiting continuation is already resuming")
+		}
+		recovered = &claimed
+		if startsNewExecutionRun {
+			recoveredStep, err = s.loadPersistedAwaitingStep(deferred.ChatID, req.AwaitingID)
+			if err != nil {
+				return api.SubmitResponse{}, err
+			}
+		}
+		defer func() {
+			if recovered != nil {
+				runs.ReleaseRecoveredAwaiting(req.RunID, req.AwaitingID)
+			}
+		}()
 	}
 
 	resolvedAt := time.Now().UnixMilli()
@@ -349,11 +389,24 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 	if duration, ok := awaitingDurationMs(deferred.CreatedAt, resolvedAt); ok {
 		answerPayload["durationMs"] = duration
 	}
+	var submitEvent stream.EventData
+	var answerEvent stream.EventData
+	lineLiveSeq := int64(0)
+	if recovered != nil {
+		submitEvent = stream.EventData{
+			Seq: recovered.EventBus.LatestSeq() + 1, Type: "request.submit", Timestamp: resolvedAt, Payload: contracts.CloneMap(submitPayload),
+		}
+		answerEvent = stream.EventData{
+			Seq: submitEvent.Seq + 1, Type: "awaiting.answer", Timestamp: resolvedAt, Payload: contracts.CloneMap(answerPayload),
+		}
+		lineLiveSeq = answerEvent.Seq
+	}
 
 	if err := s.deps.Chats.AppendSubmitLine(deferred.ChatID, chat.SubmitLine{
 		ChatID:    deferred.ChatID,
 		RunID:     req.RunID,
 		UpdatedAt: resolvedAt,
+		LiveSeq:   lineLiveSeq,
 		Submit:    submitPayload,
 		Answer:    answerPayload,
 		Type:      "submit",
@@ -368,12 +421,24 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 	}
 	s.deferredAwaitings.Remove(req.AwaitingID)
 	s.broadcastDeferredAwaitingAnswer(deferred, answerPayload, resolvedAt)
-	continued, continueErr := s.startAwaitingContinuationWithAdmission(deferred, req, answerPayload, &continuationAdmission)
+	if recovered != nil {
+		recovered.EventBus.Publish(submitEvent)
+		recovered.EventBus.Publish(answerEvent)
+		if startsNewExecutionRun {
+			if toolPayload := recoveredAnsweredToolResult(recoveredStep, req.AwaitingID, answerPayload); len(toolPayload) > 0 {
+				publishRecoveredEvent(recovered.EventBus, "tool.result", resolvedAt, toolPayload)
+			}
+		}
+	}
+	continued, continueErr := s.startAwaitingContinuationWithAdmission(deferred, req, answerPayload, &continuationAdmission, recovered)
 	if continueErr != nil {
 		log.Printf("[server][awaiting] continue run failed chatId=%s runId=%s awaitingId=%s err=%v", deferred.ChatID, req.RunID, req.AwaitingID, continueErr)
 		if statusErr, ok := continueErr.(*statusError); ok && statusErr.code == "time_contract_violation" {
 			return api.SubmitResponse{}, statusErr
 		}
+	}
+	if continued {
+		recovered = nil
 	}
 
 	return api.SubmitResponse{

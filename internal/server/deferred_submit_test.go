@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -19,6 +20,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/llm"
+	"agent-platform/internal/stream"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
@@ -147,6 +149,12 @@ func TestDeferredPlanningApproveContinuationUsesCoderExecuteSystem(t *testing.T)
 	if err != nil {
 		t.Fatalf("new restarted server: %v", err)
 	}
+	planningCursor := restarted.persistedRunLiveSeq(chatID, runID)
+	planningObserver, err := restartedRuns.AttachObserver(runID, planningCursor)
+	if err != nil {
+		t.Fatalf("attach recovered planning run: %v", err)
+	}
+	defer restartedRuns.DetachObserver(runID, planningObserver.ID)
 
 	params, err := api.EncodeSubmitParams([]map[string]any{{"id": "confirm", "decision": "approve"}})
 	if err != nil {
@@ -177,11 +185,39 @@ func TestDeferredPlanningApproveContinuationUsesCoderExecuteSystem(t *testing.T)
 	if !response.Data.Accepted || !response.Data.Continued {
 		t.Fatalf("expected continued submit response, got %#v", response.Data)
 	}
+	var planningEvents []stream.EventData
+	planningDeadline := time.After(2 * time.Second)
+	for {
+		select {
+		case event, open := <-planningObserver.Events:
+			if !open {
+				goto planningComplete
+			}
+			planningEvents = append(planningEvents, event)
+		case <-planningDeadline:
+			t.Fatalf("timed out waiting for recovered planning run completion: %#v", planningEvents)
+		}
+	}
 
-	waitForRecordedNotificationType(t, notifications, "run.finished")
+planningComplete:
+	wantPlanningTypes := []string{"request.submit", "awaiting.answer", "tool.result", "run.complete"}
+	if len(planningEvents) != len(wantPlanningTypes) {
+		t.Fatalf("recovered planning events = %#v, want %v", planningEvents, wantPlanningTypes)
+	}
+	for index, wantType := range wantPlanningTypes {
+		if planningEvents[index].Type != wantType || planningEvents[index].Seq != planningCursor+int64(index)+1 {
+			t.Fatalf("planning event %d = %#v, want type=%s seq=%d", index, planningEvents[index], wantType, planningCursor+int64(index)+1)
+		}
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for providerCallCount.Load() != 1 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
 	if got := providerCallCount.Load(); got != 1 {
 		t.Fatalf("expected one provider call, got %d", got)
 	}
+	waitForRecordedNotificationType(t, notifications, "run.finished")
 	assertDeferredPlanningApproveJSONL(t, fixture.chats, chatID, runID, awaitingID, "submit-deferred-planning")
 }
 
@@ -223,6 +259,23 @@ func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new restarted server: %v", err)
 	}
+	status, ok := fixture.runs.RunStatus("run-http")
+	if !ok || status.State != contracts.RunLoopStateWaitingSubmit || status.StartedAt != persistedStartedAt {
+		t.Fatalf("expected recovered WAITING_SUBMIT active run, got %#v", status)
+	}
+	attachCursor := restarted.persistedRunLiveSeq("chat-http", "run-http")
+	chatDetail, err := restarted.loadChatDetail(context.Background(), "chat-http", false)
+	if err != nil {
+		t.Fatalf("load recovered chat detail: %v", err)
+	}
+	if chatDetail.Awaiting == nil || chatDetail.Awaiting.AwaitingID != "await-http" || chatDetail.ActiveRun == nil || chatDetail.ActiveRun.RunID != "run-http" || chatDetail.ActiveRun.State != string(contracts.RunLoopStateWaitingSubmit) || chatDetail.ActiveRun.LastSeq != attachCursor {
+		t.Fatalf("expected authoritative awaiting plus attachable activeRun, got awaiting=%#v activeRun=%#v", chatDetail.Awaiting, chatDetail.ActiveRun)
+	}
+	observer, err := fixture.runs.AttachObserver("run-http", attachCursor)
+	if err != nil {
+		t.Fatalf("attach recovered run at cursor %d: %v", attachCursor, err)
+	}
+	defer fixture.runs.DetachObserver("run-http", observer.ID)
 
 	reqBody := bytes.NewBufferString(`{"chatId":"chat-http","submitId":"submit-http","agentKey":"mock-agent","runId":"run-http","awaitingId":"await-http","params":[{"id":"q1","answer":"Approve"}]}`)
 	rec := httptest.NewRecorder()
@@ -243,6 +296,21 @@ func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
 	if response.Data.SubmitID != "submit-http" || !response.Data.Continued {
 		t.Fatalf("expected submitId echo and continued response, got %#v", response.Data)
 	}
+	for index, wantType := range []string{"request.submit", "awaiting.answer"} {
+		select {
+		case event := <-observer.Events:
+			if event.Type != wantType || event.Seq != attachCursor+int64(index)+1 {
+				t.Fatalf("unexpected recovered attach event %#v, want type=%s seq=%d", event, wantType, attachCursor+int64(index)+1)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for recovered attach event %s", wantType)
+		}
+	}
+	go func() {
+		for range observer.Events {
+		}
+		observer.MarkDone()
+	}()
 	waitForRecordedNotificationType(t, notifications, "run.finished")
 	if status, ok := fixture.runs.RunStatus("run-http"); !ok || status.StartedAt != persistedStartedAt {
 		t.Fatalf("restarted run lifecycle start = %#v; want %d", status, persistedStartedAt)
@@ -283,8 +351,14 @@ func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
 	if !foundSubmit || !foundAnswer {
 		t.Fatalf("expected submit replay in chat detail, got %#v", detail.Events)
 	}
-	if eventTypes := notifications.EventTypes(); len(eventTypes) < 2 || eventTypes[0] != "awaiting.answered" || eventTypes[1] != "run.started" {
-		t.Fatalf("expected awaiting.answered then run.started notifications, got %#v", eventTypes)
+	if eventTypes := notifications.EventTypes(); len(eventTypes) == 0 || eventTypes[0] != "awaiting.answered" {
+		t.Fatalf("expected awaiting.answered notification, got %#v", eventTypes)
+	} else {
+		for _, eventType := range eventTypes[1:] {
+			if eventType == "run.started" {
+				t.Fatalf("recovered same-run continuation must not emit duplicate run.started: %#v", eventTypes)
+			}
+		}
 	}
 	if payloads := notifications.Payloads(); len(payloads) == 0 || payloads[0]["durationMs"] == nil || payloads[0]["answeredAt"] == nil || payloads[0]["resolvedAt"] != nil {
 		t.Fatalf("expected deferred awaiting.answered notification durationMs and answeredAt, got %#v", payloads)
@@ -980,6 +1054,111 @@ func TestHydrationSkipsExpiredAwaitings(t *testing.T) {
 		t.Fatalf("submit fresh expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 	waitForRecordedNotificationType(t, notifications, "run.finished")
+}
+
+func TestRecoveredAwaitingSupervisorTerminalizesTimeoutOnAttachedRun(t *testing.T) {
+	notifications := &recordingNotificationSink{}
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{notifications: notifications})
+
+	createdAt := time.Now().UnixMilli() - 1200
+	seedDeferredAwaiting(t, fixture.chats, "chat-runtime-timeout", "run-runtime-timeout", "await-runtime-timeout", "question", 2, createdAt)
+	restarted, err := New(deferredRestartDependencies(fixture, fixture.chats, notifications))
+	if err != nil {
+		t.Fatalf("new restarted server: %v", err)
+	}
+	cursor := restarted.persistedRunLiveSeq("chat-runtime-timeout", "run-runtime-timeout")
+	observer, err := fixture.runs.AttachObserver("run-runtime-timeout", cursor)
+	if err != nil {
+		t.Fatalf("attach recovered timeout run: %v", err)
+	}
+	defer fixture.runs.DetachObserver("run-runtime-timeout", observer.ID)
+
+	var events []stream.EventData
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case event, ok := <-observer.Events:
+			if !ok {
+				goto completed
+			}
+			events = append(events, event)
+		case <-deadline:
+			t.Fatalf("timed out waiting for recovered timeout events: %#v", events)
+		}
+	}
+
+completed:
+	wantTypes := []string{"awaiting.answer", "tool.result", "run.cancel"}
+	if len(events) != len(wantTypes) {
+		t.Fatalf("recovered timeout events = %#v, want %v", events, wantTypes)
+	}
+	for index, wantType := range wantTypes {
+		if events[index].Type != wantType || events[index].Seq != cursor+int64(index)+1 {
+			t.Fatalf("event %d = %#v, want type=%s seq=%d", index, events[index], wantType, cursor+int64(index)+1)
+		}
+	}
+	result := contracts.AnyMapNode(events[1].Payload["result"])
+	if result["executed"] != false || contracts.AnyStringNode(result["error"]) != "timeout" || contracts.AnyStringNode(result["awaitingId"]) != "await-runtime-timeout" {
+		t.Fatalf("unexpected recovered timeout tool result %#v", result)
+	}
+	if _, active, err := fixture.runs.ActiveRunForChat("chat-runtime-timeout"); err != nil || active {
+		t.Fatalf("recovered timeout run remained active: active=%v err=%v", active, err)
+	}
+	assertRestartTerminalizedAwaiting(t, fixture.chats, "chat-runtime-timeout", "run-runtime-timeout", "await-runtime-timeout", "timeout")
+	waitForRecordedNotificationType(t, notifications, "run.finished")
+}
+
+func TestRecoveredAwaitingSupervisorTerminalizesInterrupt(t *testing.T) {
+	notifications := &recordingNotificationSink{}
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{notifications: notifications})
+
+	seedDeferredAwaiting(t, fixture.chats, "chat-runtime-interrupt", "run-runtime-interrupt", "await-runtime-interrupt", "question", 0, time.Now().UnixMilli())
+	restarted, err := New(deferredRestartDependencies(fixture, fixture.chats, notifications))
+	if err != nil {
+		t.Fatalf("new restarted server: %v", err)
+	}
+	cursor := restarted.persistedRunLiveSeq("chat-runtime-interrupt", "run-runtime-interrupt")
+	observer, err := fixture.runs.AttachObserver("run-runtime-interrupt", cursor)
+	if err != nil {
+		t.Fatalf("attach recovered interrupt run: %v", err)
+	}
+	defer fixture.runs.DetachObserver("run-runtime-interrupt", observer.ID)
+	ack := fixture.runs.Interrupt(api.InterruptRequest{
+		ChatID: "chat-runtime-interrupt", RunID: "run-runtime-interrupt", InterruptReason: "user_requested",
+	})
+	if !ack.Accepted {
+		t.Fatalf("interrupt recovered run: %#v", ack)
+	}
+
+	var events []stream.EventData
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case event, ok := <-observer.Events:
+			if !ok {
+				goto completed
+			}
+			events = append(events, event)
+		case <-deadline:
+			t.Fatalf("timed out waiting for recovered interrupt events: %#v", events)
+		}
+	}
+
+completed:
+	wantTypes := []string{"awaiting.answer", "tool.result", "run.cancel"}
+	if len(events) != len(wantTypes) {
+		t.Fatalf("recovered interrupt events = %#v, want %v", events, wantTypes)
+	}
+	for index, wantType := range wantTypes {
+		if events[index].Type != wantType || events[index].Seq != cursor+int64(index)+1 {
+			t.Fatalf("event %d = %#v, want type=%s seq=%d", index, events[index], wantType, cursor+int64(index)+1)
+		}
+	}
+	assertRestartTerminalizedAwaiting(t, fixture.chats, "chat-runtime-interrupt", "run-runtime-interrupt", "await-runtime-interrupt", "run_interrupted")
 }
 
 func TestHydrationReconcilesRestartAwaitingModesAndStructuredConflicts(t *testing.T) {

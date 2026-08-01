@@ -706,6 +706,54 @@ func TestInMemoryRunManagerReaperTreatsMaxBackgroundDurationAsGlobalLimit(t *tes
 	}
 }
 
+func TestInMemoryRunManagerRecoveredAwaitingIsAttachableAndClaimedOnce(t *testing.T) {
+	manager := NewInMemoryRunManager()
+	startedAt := time.Now().Add(-48 * time.Hour).UnixMilli()
+	recovered, err := manager.RegisterRecoveredAwaiting(context.Background(), QuerySession{
+		RunID: "run_recovered", ChatID: "chat_recovered", AgentKey: "agent_1",
+		RunOwner: AgentRunOwner("agent_1", ""), StartedAtMillis: startedAt,
+	}, "await_1", 29)
+	if err != nil {
+		t.Fatalf("register recovered awaiting: %v", err)
+	}
+	status, ok := manager.RunStatus("run_recovered")
+	if !ok || status.State != RunLoopStateWaitingSubmit || status.StartedAt != startedAt || status.LastSeq != 29 {
+		t.Fatalf("unexpected recovered status %#v", status)
+	}
+	observer, err := manager.AttachObserver("run_recovered", 29)
+	if err != nil {
+		t.Fatalf("attach recovered run: %v", err)
+	}
+	defer manager.DetachObserver("run_recovered", observer.ID)
+	claim, ok := manager.ClaimRecoveredAwaiting("run_recovered", "await_1")
+	if !ok || claim.Control != recovered.Control || claim.EventBus != recovered.EventBus || claim.InitialSeq != 29 {
+		t.Fatalf("unexpected recovered claim %#v ok=%v", claim, ok)
+	}
+	if _, duplicate := manager.ClaimRecoveredAwaiting("run_recovered", "await_1"); duplicate {
+		t.Fatal("recovered awaiting must be claimed once")
+	}
+	if !manager.ActivateRecoveredAwaiting("run_recovered", "await_1") || manager.IsRecoveredAwaiting("run_recovered", "await_1") {
+		t.Fatal("expected recovered awaiting to become a normal active run")
+	}
+}
+
+func TestInMemoryRunManagerRecoveredAwaitingReaperStartsAtHydration(t *testing.T) {
+	manager := NewInMemoryRunManager()
+	manager.maxBackgroundDuration = time.Hour
+	_, err := manager.RegisterRecoveredAwaiting(context.Background(), QuerySession{
+		RunID: "run_old_recovered", ChatID: "chat_old_recovered", AgentKey: "agent_1",
+		RunOwner: AgentRunOwner("agent_1", ""), StartedAtMillis: time.Now().Add(-7 * 24 * time.Hour).UnixMilli(),
+	}, "await_old", 7)
+	if err != nil {
+		t.Fatalf("register recovered awaiting: %v", err)
+	}
+	manager.reapExpiredRuns()
+	status, ok := manager.RunStatus("run_old_recovered")
+	if !ok || status.State != RunLoopStateWaitingSubmit {
+		t.Fatalf("recovered run was reaped from persisted startedAt: %#v", status)
+	}
+}
+
 func mustReadEvent(t *testing.T, events <-chan stream.EventData) stream.EventData {
 	t.Helper()
 	select {

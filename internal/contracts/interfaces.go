@@ -128,6 +128,26 @@ type ExclusiveRunRegistrar interface {
 	RegisterExclusiveForChat(parent context.Context, session QuerySession) (ExclusiveRunRegistration, error)
 }
 
+type RecoveredAwaitingRun struct {
+	Context    context.Context
+	Control    *RunControl
+	Run        ActiveRun
+	EventBus   *stream.RunEventBus
+	AwaitingID string
+	InitialSeq int64
+}
+
+// RecoveredAwaitingRunService owns the observation shell used by a persisted
+// question/planning wait. The shell is active and attachable before submit,
+// but can be claimed exactly once when its continuation is rebuilt.
+type RecoveredAwaitingRunService interface {
+	RegisterRecoveredAwaiting(parent context.Context, session QuerySession, awaitingID string, initialSeq int64) (RecoveredAwaitingRun, error)
+	ClaimRecoveredAwaiting(runID string, awaitingID string) (RecoveredAwaitingRun, bool)
+	ReleaseRecoveredAwaiting(runID string, awaitingID string) bool
+	ActivateRecoveredAwaiting(runID string, awaitingID string) bool
+	IsRecoveredAwaiting(runID string, awaitingID string) bool
+}
+
 type ActiveAwaitingLister interface {
 	ActiveAwaitings(runID string) []AwaitingSubmitContext
 }
@@ -644,6 +664,7 @@ const (
 	RunLoopStateModelStreaming RunLoopState = "MODEL_STREAMING"
 	RunLoopStateToolExecuting  RunLoopState = "TOOL_EXECUTING"
 	RunLoopStateWaitingSubmit  RunLoopState = "WAITING_SUBMIT"
+	RunLoopStateResuming       RunLoopState = "RESUMING"
 	RunLoopStateCompleted      RunLoopState = "COMPLETED"
 	RunLoopStateCancelled      RunLoopState = "CANCELLED"
 	RunLoopStateFailed         RunLoopState = "FAILED"
