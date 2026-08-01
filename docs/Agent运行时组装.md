@@ -22,6 +22,8 @@ Agent Platform 将可编辑事实源与执行目录分离：
 
 `ru-agents` 不是来源追踪系统：不生成版本目录、Skill lock、provenance 或来源 API，也不进入 release bundle、`zenmind-env/package.sh` 产物或环境 overlay。服务启动或 Catalog 热重载时可从事实源完整重建。
 
+模型的 system runtime context 同样保持这条边界：`agents_dir` 指向可编辑事实源 `agents/`，`ru_agents_dir` 指向 Platform 生成且禁止人工编辑的 `ru-agents/`，`agent_dir` 指向当前 Agent 的 `ru-agents/<agentKey>` 运行目录。Host/local 普通运行可同时看到源目录与生成目录；Container Hub 不默认暴露 Agent 事实源，已有 `platform: agents` 挂载仍只提供生成目录 `/agents`，并在上下文中标记为 `ru_agents_dir`。沙箱治理任务缺少 `agents_dir` 时必须停止，不能从 `/agents`、`runtime_home` 或相邻目录推断事实源。
+
 ## 路径配置
 
 `paths.ru-agents-dir` 默认解析为 `<AP_RUNTIME_DIR>/ru-agents`，只支持 `configs/runtime.yml`，没有独立环境变量：

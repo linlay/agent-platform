@@ -66,8 +66,11 @@ func TestResolveSandboxPathsLocalModeLocalEngine(t *testing.T) {
 	if paths.SkillsMarketDir != absTestPath(t, cfg.Paths.SkillsMarketDir) {
 		t.Fatalf("skills market dir = %q", paths.SkillsMarketDir)
 	}
-	if paths.AgentsDir != absTestPath(t, cfg.Paths.RUAgentsDir) {
-		t.Fatalf("agents dir = %q", paths.AgentsDir)
+	if paths.AgentsDir != "" {
+		t.Fatalf("agents source dir = %q, want unavailable in sandbox", paths.AgentsDir)
+	}
+	if paths.RUAgentsDir != absTestPath(t, cfg.Paths.RUAgentsDir) {
+		t.Fatalf("ru-agents dir = %q", paths.RUAgentsDir)
 	}
 	if paths.ModelsDir != absTestPath(t, filepath.Join(cfg.Paths.RegistriesDir, "models")) {
 		t.Fatalf("models dir = %q", paths.ModelsDir)
@@ -104,27 +107,39 @@ func TestResolveSandboxPathsContainerMode(t *testing.T) {
 	if paths.MemoryDir != "/memory" {
 		t.Fatalf("memory dir = %q", paths.MemoryDir)
 	}
+	if paths.AgentsDir != "" {
+		t.Fatalf("agents source dir = %q, want unavailable in sandbox", paths.AgentsDir)
+	}
+	if paths.RUAgentsDir != "/agents" {
+		t.Fatalf("ru-agents dir = %q", paths.RUAgentsDir)
+	}
 }
 
 func TestResolveLocalPathsIncludesAgentAndRegistryPaths(t *testing.T) {
 	t.Parallel()
 
 	cfg := testPromptContextConfig(t)
-	agentDir := filepath.Join(cfg.Paths.AgentsDir, "demo-agent")
+	runtimeAgentDir := filepath.Join(cfg.Paths.RUAgentsDir, "demo-agent")
 	chatDir := filepath.Join(cfg.Paths.ChatsDir, "chat-1")
 	if err := os.MkdirAll(chatDir, 0o755); err != nil {
 		t.Fatalf("create chat dir: %v", err)
 	}
 
-	paths, err := resolveLocalPaths(cfg.Paths, "chat-1", agentDir, "")
+	paths, err := resolveLocalPaths(cfg.Paths, "chat-1", runtimeAgentDir, "")
 	if err != nil {
 		t.Fatalf("resolveLocalPaths() error = %v", err)
 	}
-	if paths.AgentDir != agentDir {
+	if paths.AgentDir != runtimeAgentDir {
 		t.Fatalf("agent dir = %q", paths.AgentDir)
 	}
-	if paths.SkillsDir != filepath.Join(agentDir, "skills") {
+	if paths.SkillsDir != filepath.Join(runtimeAgentDir, "skills") {
 		t.Fatalf("skills dir = %q", paths.SkillsDir)
+	}
+	if paths.AgentsDir != cfg.Paths.AgentsDir {
+		t.Fatalf("agents source dir = %q", paths.AgentsDir)
+	}
+	if paths.RUAgentsDir != cfg.Paths.RUAgentsDir {
+		t.Fatalf("ru-agents dir = %q", paths.RUAgentsDir)
 	}
 	if paths.SkillsMarketDir != "" {
 		t.Fatalf("expected no default skills market dir, got %q", paths.SkillsMarketDir)
@@ -271,6 +286,15 @@ func TestBuildRuntimeContextKeepsExplicitWorkspaceAndChatDir(t *testing.T) {
 	}
 	if context.LocalPaths.ChatDir != wantChatDir {
 		t.Fatalf("chat dir = %q, want %q", context.LocalPaths.ChatDir, wantChatDir)
+	}
+	if context.LocalPaths.AgentDir != absTestPath(t, filepath.Join(cfg.Paths.RUAgentsDir, "admin-agent")) {
+		t.Fatalf("agent runtime dir = %q", context.LocalPaths.AgentDir)
+	}
+	if context.LocalPaths.AgentsDir != cfg.Paths.AgentsDir {
+		t.Fatalf("agents source dir = %q", context.LocalPaths.AgentsDir)
+	}
+	if context.LocalPaths.RUAgentsDir != cfg.Paths.RUAgentsDir {
+		t.Fatalf("ru-agents dir = %q", context.LocalPaths.RUAgentsDir)
 	}
 }
 

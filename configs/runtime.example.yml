@@ -87,9 +87,9 @@ container-hub:
   # /workspace -> canonical runtimeConfig.workspaceRoot (rw)
   # /chat      -> AP_RUNTIME_CHATS_DIR/<chatId> (rw)
   # /root      -> paths.root-dir (rw)
-  # /skills    -> paths.agents-dir/<agentKey>/skills (ro, only run/agent; global skips it)
+  # /skills    -> paths.ru-agents-dir/<agentKey>/skills (ro, only run/agent; global skips it)
   # /pan       -> AP_RUNTIME_PAN_DIR (rw)
-  # /agent     -> paths.agents-dir/<agentKey> (ro, required)
+  # /agent     -> paths.ru-agents-dir/<agentKey> (ro, required)
   # /owner     -> paths.owner-dir (ro)
   # /memory    -> AP_RUNTIME_MEMORY_DIR/<agentKey> (ro)
   #

@@ -528,7 +528,8 @@ func resolveLocalPaths(paths config.PathsConfig, chatID string, agentDir string,
 		RootDir:            cleanOrEmpty(paths.RootDir),
 		PanDir:             cleanOrEmpty(paths.PanDir),
 		AgentDir:           agentDir,
-		AgentsDir:          cleanOrEmpty(ruAgentsDir),
+		AgentsDir:          cleanOrEmpty(paths.AgentsDir),
+		RUAgentsDir:        cleanOrEmpty(ruAgentsDir),
 		TeamsDir:           cleanOrEmpty(paths.TeamsDir),
 		ChatsDir:           cleanOrEmpty(paths.ChatsDir),
 		MemoryDir:          cleanOrEmpty(paths.MemoryDir),
@@ -620,7 +621,7 @@ func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 
 	var skillsMarketDir string
 	ownerDir := ifNonEmpty(cfg.Paths.OwnerDir, "/owner")
-	var agentsDir string
+	var ruAgentsDir string
 	var teamsDir string
 	var automationsDir string
 	var chatsDir string
@@ -636,7 +637,7 @@ func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 		case "skills-market":
 			skillsMarketDir = "/skills-market"
 		case "agents":
-			agentsDir = "/agents"
+			ruAgentsDir = "/agents"
 		case "teams":
 			teamsDir = "/teams"
 		case "automations":
@@ -667,7 +668,7 @@ func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 		PanDir:             ifNonEmpty(cfg.Paths.PanDir, "/pan"),
 		AgentDir:           boolPath(hasAgentDir, "/agent"),
 		OwnerDir:           ownerDir,
-		AgentsDir:          agentsDir,
+		RUAgentsDir:        ruAgentsDir,
 		TeamsDir:           teamsDir,
 		AutomationsDir:     automationsDir,
 		ChatsDir:           chatsDir,
@@ -707,7 +708,7 @@ func resolveLocalSandboxPaths(cfg config.Config, def catalog.AgentDefinition, lo
 		case "skills-market":
 			paths.SkillsMarketDir = absOrEmpty(cfg.Paths.SkillsMarketDir)
 		case "agents":
-			paths.AgentsDir = absOrEmpty(cfg.Paths.EffectiveRUAgentsDir())
+			paths.RUAgentsDir = absOrEmpty(cfg.Paths.EffectiveRUAgentsDir())
 		case "teams":
 			paths.TeamsDir = absOrEmpty(cfg.Paths.TeamsDir)
 		case "automations":

@@ -615,6 +615,7 @@ func TestBuildSystemEnvironmentSectionUsesLocalPathsWithoutSandbox(t *testing.T)
 				OwnerDir:           "/Users/tester/Project/app/runtime/owner",
 				SkillsMarketDir:    "/Users/tester/Project/app/runtime/skills-market",
 				AgentsDir:          "/Users/tester/Project/app/runtime/agents",
+				RUAgentsDir:        "/Users/tester/Project/app/runtime/ru-agents",
 				TeamsDir:           "/Users/tester/Project/app/runtime/teams",
 				AutomationsDir:     "/Users/tester/Project/app/runtime/automations",
 				ChatsDir:           "/Users/tester/Project/app/runtime/chats",
@@ -646,6 +647,12 @@ func TestBuildSystemEnvironmentSectionUsesLocalPathsWithoutSandbox(t *testing.T)
 	}
 	if strings.Contains(section, "workspace_dir: /workspace") {
 		t.Fatalf("expected local paths instead of sandbox paths, got %q", section)
+	}
+	if !strings.Contains(section, "agents_dir: /Users/tester/Project/app/runtime/agents # Agent 可编辑事实源目录") {
+		t.Fatalf("expected editable agents source in system environment, got %q", section)
+	}
+	if !strings.Contains(section, "ru_agents_dir: /Users/tester/Project/app/runtime/ru-agents # Platform 生成的 Agent 执行目录，禁止人工编辑") {
+		t.Fatalf("expected generated agent runtime root in system environment, got %q", section)
 	}
 	if strings.Contains(section, "tools_dir:") || strings.Contains(section, "viewports_dir:") {
 		t.Fatalf("expected tools_dir and viewports_dir to be removed, got %q", section)
@@ -722,7 +729,7 @@ func TestBuildSystemEnvironmentSectionUsesSandboxPathsWhenSandboxEnabled(t *test
 				AgentDir:           "/agent",
 				OwnerDir:           "/owner",
 				SkillsMarketDir:    "/skills-market",
-				AgentsDir:          "/agents",
+				RUAgentsDir:        "/agents",
 				TeamsDir:           "/teams",
 				AutomationsDir:     "/automations",
 				ChatsDir:           "/chats",
@@ -746,6 +753,12 @@ func TestBuildSystemEnvironmentSectionUsesSandboxPathsWhenSandboxEnabled(t *test
 	}
 	if strings.Contains(section, "/Users/tester/Project/app/agent-platform") {
 		t.Fatalf("expected sandbox paths to win when sandbox is enabled, got %q", section)
+	}
+	if strings.Contains("\n"+section, "\nagents_dir:") {
+		t.Fatalf("expected sandbox agents source to remain unavailable, got %q", section)
+	}
+	if !strings.Contains(section, "ru_agents_dir: /agents # Platform 生成的 Agent 执行目录，禁止人工编辑") {
+		t.Fatalf("expected existing /agents mount to be identified as generated runtime content, got %q", section)
 	}
 	if strings.Contains(section, "tools_dir:") || strings.Contains(section, "viewports_dir:") {
 		t.Fatalf("expected tools_dir and viewports_dir to be removed, got %q", section)

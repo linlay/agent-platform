@@ -136,6 +136,28 @@ func TestMountResolverExplicitSkillsMarketExtraMount(t *testing.T) {
 	}
 }
 
+func TestMountResolverExplicitAgentsMountKeepsGeneratedRuntimeRoot(t *testing.T) {
+	paths := mountResolverTestPaths(t, "reader")
+	resolver := NewContainerHubMountResolver(paths)
+
+	mounts, err := resolver.Resolve(mountResolverWorkspace(t, paths), "chat-1", "reader", "run", []contracts.SandboxExtraMount{
+		{Platform: "agents", Mode: "ro"},
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	mount, ok := mountByDestination(mounts, "/agents")
+	if !ok {
+		t.Fatalf("expected explicit /agents mount, got %#v", mounts)
+	}
+	if mount.Source != paths.RUAgentsDir || !mount.ReadOnly {
+		t.Fatalf("unexpected generated agents mount: %#v", mount)
+	}
+	if mount.Source == paths.AgentsDir {
+		t.Fatalf("platform: agents must not expose editable agent sources: %#v", mount)
+	}
+}
+
 func TestMountResolverIgnoresNonAllowlistedPathEnv(t *testing.T) {
 	paths := mountResolverTestPaths(t, "reader")
 	envRoot := filepath.Join(t.TempDir(), "env-agents")

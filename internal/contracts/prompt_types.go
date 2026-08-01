@@ -101,6 +101,7 @@ type LocalPaths struct {
 	PanDir             string
 	AgentDir           string
 	AgentsDir          string
+	RUAgentsDir        string
 	TeamsDir           string
 	ChatsDir           string
 	MemoryDir          string
@@ -126,6 +127,7 @@ type SandboxPaths struct {
 	AgentDir           string
 	OwnerDir           string
 	AgentsDir          string
+	RUAgentsDir        string
 	TeamsDir           string
 	AutomationsDir     string
 	ChatsDir           string
