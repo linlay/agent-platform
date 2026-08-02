@@ -69,6 +69,7 @@ func TestShouldWatchRuntimeDir(t *testing.T) {
 		{name: "cutej.bootstrap", want: false},
 		{name: "dailyOfficeProAssistant.bootstrap", want: false},
 		{name: "Agent.Bootstrap", want: false},
+		{name: ".skill-import-abcd1234", want: false},
 
 		// Backup directories — should NOT be watched
 		{name: "cutej.bak.20260612-142448", want: false},

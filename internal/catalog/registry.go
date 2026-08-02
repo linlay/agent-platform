@@ -293,6 +293,9 @@ type FileRegistry struct {
 }
 
 func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*FileRegistry, error) {
+	if err := cleanupEditableSkillImportStaging(cfg.Paths.SkillsMarketDir); err != nil {
+		return nil, fmt.Errorf("cleanup skill import staging: %w", err)
+	}
 	assembler, err := newRuntimeAgentAssembler(cfg.Paths.EffectiveRUAgentsDir(), cfg.Paths.SkillsMarketDir)
 	if err != nil {
 		return nil, err

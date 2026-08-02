@@ -3,7 +3,9 @@ package server
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -162,6 +164,98 @@ func TestDeleteAdminSkillInUseReturnsConflict(t *testing.T) {
 	}
 }
 
+func TestAdminSkillImportCreatesSkillAndMapsFailures(t *testing.T) {
+	fixture := newTestFixture(t)
+	archive := serverSkillImportZIP(t, map[string]string{
+		"SKILL.md":            "---\nname: Imported Skill\ndescription: Imported from ZIP\n---\n\nUse it.\n",
+		"references/guide.md": "guide\n",
+	})
+	body, contentType := skillImportBody(t, "imported-skill", "imported-skill.zip", archive)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/skills/import", body)
+	req.Header.Set("Content-Type", contentType)
+	fixture.server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected import 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var response api.ApiResponse[api.AdminSkillDetailResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode import response: %v", err)
+	}
+	if response.Data.Skill.Key != "imported-skill" || response.Data.Skill.Name != "Imported Skill" || response.Data.OpenedFile == nil {
+		t.Fatalf("unexpected import response: %#v", response.Data)
+	}
+	if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.SkillsMarketDir, "imported-skill", "references", "guide.md")); err != nil {
+		t.Fatalf("stat imported file: %v", err)
+	}
+
+	duplicateBody, duplicateType := skillImportBody(t, "imported-skill", "imported-skill.zip", archive)
+	duplicate := httptest.NewRecorder()
+	duplicateReq := httptest.NewRequest(http.MethodPost, "/api/admin/skills/import", duplicateBody)
+	duplicateReq.Header.Set("Content-Type", duplicateType)
+	fixture.server.ServeHTTP(duplicate, duplicateReq)
+	if duplicate.Code != http.StatusConflict {
+		t.Fatalf("expected duplicate 409, got %d: %s", duplicate.Code, duplicate.Body.String())
+	}
+
+	invalidBody, invalidType := skillImportBody(t, "invalid-skill", "invalid-skill.zip", serverSkillImportZIP(t, map[string]string{"README.md": "missing skill"}))
+	invalid := httptest.NewRecorder()
+	invalidReq := httptest.NewRequest(http.MethodPost, "/api/admin/skills/import", invalidBody)
+	invalidReq.Header.Set("Content-Type", invalidType)
+	fixture.server.ServeHTTP(invalid, invalidReq)
+	if invalid.Code != http.StatusUnprocessableEntity || !strings.Contains(invalid.Body.String(), "diagnostics") || !strings.Contains(invalid.Body.String(), "missing_skill_md") {
+		t.Fatalf("expected validation 422 with diagnostics, got %d: %s", invalid.Code, invalid.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.SkillsMarketDir, "invalid-skill")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected invalid import to leave no directory, got %v", err)
+	}
+
+	nonZIPBody, nonZIPType := skillImportBody(t, "not-zip", "not-zip.zip", []byte("not a zip"))
+	nonZIP := httptest.NewRecorder()
+	nonZIPReq := httptest.NewRequest(http.MethodPost, "/api/admin/skills/import", nonZIPBody)
+	nonZIPReq.Header.Set("Content-Type", nonZIPType)
+	fixture.server.ServeHTTP(nonZIP, nonZIPReq)
+	if nonZIP.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("expected non-ZIP 415, got %d: %s", nonZIP.Code, nonZIP.Body.String())
+	}
+
+	wrongFieldBody, wrongFieldType := skillImportBodyWithFileFields(t, "wrong-field", "wrong-field.zip", archive, "archive")
+	wrongField := httptest.NewRecorder()
+	wrongFieldReq := httptest.NewRequest(http.MethodPost, "/api/admin/skills/import", wrongFieldBody)
+	wrongFieldReq.Header.Set("Content-Type", wrongFieldType)
+	fixture.server.ServeHTTP(wrongField, wrongFieldReq)
+	if wrongField.Code != http.StatusBadRequest {
+		t.Fatalf("expected wrong file field 400, got %d: %s", wrongField.Code, wrongField.Body.String())
+	}
+
+	multipleBody, multipleType := skillImportBodyWithFileFields(t, "multiple-files", "multiple-files.zip", archive, "file", "file")
+	multiple := httptest.NewRecorder()
+	multipleReq := httptest.NewRequest(http.MethodPost, "/api/admin/skills/import", multipleBody)
+	multipleReq.Header.Set("Content-Type", multipleType)
+	fixture.server.ServeHTTP(multiple, multipleReq)
+	if multiple.Code != http.StatusBadRequest {
+		t.Fatalf("expected multiple files 400, got %d: %s", multiple.Code, multiple.Body.String())
+	}
+}
+
+func TestAdminSkillImportRollsBackWhenCatalogReloadFails(t *testing.T) {
+	fixture := newTestFixture(t)
+	fixture.catalogReloader = failingSkillImportReloader{}
+	fixture.server = newServerFromFixture(t, fixture)
+	archive := serverSkillImportZIP(t, map[string]string{"SKILL.md": "# Rollback Skill\n"})
+	body, contentType := skillImportBody(t, "rollback-skill", "rollback-skill.zip", archive)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/skills/import", body)
+	req.Header.Set("Content-Type", contentType)
+	fixture.server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected reload failure 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.SkillsMarketDir, "rollback-skill")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected imported directory rollback, got %v", err)
+	}
+}
+
 func TestAdminSkillDownloadReturnsZipArchive(t *testing.T) {
 	fixture := newTestFixture(t)
 	rec := httptest.NewRecorder()
@@ -292,6 +386,57 @@ func skillUploadBody(t *testing.T, key string, path string, data []byte) (io.Rea
 	}
 	if err := writer.Close(); err != nil {
 		t.Fatalf("close multipart writer: %v", err)
+	}
+	return &body, writer.FormDataContentType()
+}
+
+type failingSkillImportReloader struct{}
+
+func (failingSkillImportReloader) Reload(context.Context, string) error {
+	return errors.New("reload failed")
+}
+
+func serverSkillImportZIP(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	var output bytes.Buffer
+	writer := zip.NewWriter(&output)
+	for name, content := range files {
+		file, err := writer.Create(name)
+		if err != nil {
+			t.Fatalf("create ZIP entry %s: %v", name, err)
+		}
+		if _, err := file.Write([]byte(content)); err != nil {
+			t.Fatalf("write ZIP entry %s: %v", name, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close skill import ZIP: %v", err)
+	}
+	return output.Bytes()
+}
+
+func skillImportBody(t *testing.T, key string, filename string, data []byte) (io.Reader, string) {
+	return skillImportBodyWithFileFields(t, key, filename, data, "file")
+}
+
+func skillImportBodyWithFileFields(t *testing.T, key string, filename string, data []byte, fieldNames ...string) (io.Reader, string) {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("key", key); err != nil {
+		t.Fatalf("write import key: %v", err)
+	}
+	for _, fieldName := range fieldNames {
+		part, err := writer.CreateFormFile(fieldName, filename)
+		if err != nil {
+			t.Fatalf("create import file: %v", err)
+		}
+		if _, err := part.Write(data); err != nil {
+			t.Fatalf("write import file: %v", err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close import multipart: %v", err)
 	}
 	return &body, writer.FormDataContentType()
 }

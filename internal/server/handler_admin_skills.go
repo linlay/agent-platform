@@ -5,12 +5,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,6 +27,7 @@ type adminSkillRegistry interface {
 	AdminSkills() ([]catalog.AdminSkill, error)
 	AdminSkill(key string) (catalog.AdminSkill, bool, error)
 	CreateEditableSkill(key string, skillMd string, files []catalog.EditableSkillInlineFile) (catalog.AdminSkill, error)
+	ImportEditableSkillArchive(key string, source io.ReaderAt, size int64) (catalog.AdminSkill, error)
 	DeleteEditableSkill(key string) error
 	EditableSkillUsage(key string) ([]string, error)
 	ReadEditableSkillFile(key string, relPath string) (catalog.EditableSkillFileContent, error)
@@ -86,6 +90,65 @@ func (s *Server) handleAdminSkillCreate(w http.ResponseWriter, r *http.Request) 
 	}
 	response, err := s.adminSkillDetail(created.Key, "SKILL.md")
 	s.writeAgentHTTPResponse(w, response, err)
+}
+
+func (s *Server) handleAdminSkillImport(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, catalog.EditableSkillMaxUploadBytes+(1<<20))
+	if err := r.ParseMultipartForm(catalog.EditableSkillMaxUploadBytes); err != nil {
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			s.writeAgentHTTPResponse(w, nil, mapSkillEditError(catalog.ErrSkillArchiveUploadTooLarge))
+		} else {
+			writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid multipart form"))
+		}
+		return
+	}
+	key := strings.TrimSpace(r.FormValue("key"))
+	if key == "" {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "key is required"))
+		return
+	}
+	file, header, err := pickSkillArchiveUpload(r.MultipartForm)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
+		return
+	}
+	defer file.Close()
+	if !strings.EqualFold(filepath.Ext(strings.TrimSpace(header.Filename)), ".zip") {
+		s.writeAgentHTTPResponse(w, nil, mapSkillEditError(catalog.ErrSkillArchiveInvalid))
+		return
+	}
+	if header.Size <= 0 {
+		s.writeAgentHTTPResponse(w, nil, mapSkillEditError(catalog.ErrSkillArchiveInvalid))
+		return
+	}
+	if header.Size > catalog.EditableSkillMaxUploadBytes {
+		s.writeAgentHTTPResponse(w, nil, mapSkillEditError(catalog.ErrSkillArchiveUploadTooLarge))
+		return
+	}
+	created, err := s.importAdminSkill(r.Context(), key, file, header.Size)
+	if err != nil {
+		s.writeAgentHTTPResponse(w, nil, err)
+		return
+	}
+	response, err := s.adminSkillDetail(created.Key, "SKILL.md")
+	s.writeAgentHTTPResponse(w, response, err)
+}
+
+func pickSkillArchiveUpload(form *multipart.Form) (multipart.File, *multipart.FileHeader, error) {
+	if form == nil {
+		return nil, nil, errors.New("file is required")
+	}
+	fileCount := 0
+	for _, headers := range form.File {
+		fileCount += len(headers)
+	}
+	headers := form.File["file"]
+	if fileCount != 1 || len(headers) != 1 {
+		return nil, nil, errors.New("exactly one file field is required")
+	}
+	file, err := headers[0].Open()
+	return file, headers[0], err
 }
 
 func (s *Server) handleAdminSkillDelete(w http.ResponseWriter, r *http.Request) {
@@ -211,6 +274,29 @@ func (s *Server) createAdminSkill(ctx context.Context, req api.CreateAdminSkillR
 	}
 	if err := s.reloadAdminSkills(ctx); err != nil {
 		return catalog.AdminSkill{}, err
+	}
+	if refreshed, found, err := registry.AdminSkill(item.Key); err == nil && found {
+		item = refreshed
+	}
+	return item, nil
+}
+
+func (s *Server) importAdminSkill(ctx context.Context, key string, source io.ReaderAt, size int64) (catalog.AdminSkill, error) {
+	registry, err := s.adminSkillRegistry()
+	if err != nil {
+		return catalog.AdminSkill{}, err
+	}
+	item, err := registry.ImportEditableSkillArchive(key, source, size)
+	if err != nil {
+		return catalog.AdminSkill{}, mapSkillEditError(err)
+	}
+	if err := s.reloadAdminSkills(ctx); err != nil {
+		rollbackErr := registry.DeleteEditableSkill(item.Key)
+		if rollbackErr == nil {
+			_ = s.reloadAdminSkills(context.WithoutCancel(ctx))
+			return catalog.AdminSkill{}, err
+		}
+		return catalog.AdminSkill{}, fmt.Errorf("reload imported skill: %w; rollback failed: %v", err, rollbackErr)
 	}
 	if refreshed, found, err := registry.AdminSkill(item.Key); err == nil && found {
 		item = refreshed
@@ -931,13 +1017,28 @@ func mapSkillEditError(err error) error {
 	if err == nil {
 		return nil
 	}
+	var archiveValidation *catalog.SkillArchiveValidationError
+	if errors.As(err, &archiveValidation) {
+		diagnostics := make([]api.AdminAgentDiagnostic, 0, len(archiveValidation.Diagnostics))
+		for _, diagnostic := range archiveValidation.Diagnostics {
+			diagnostics = append(diagnostics, api.AdminAgentDiagnostic{
+				Severity:   "error",
+				Code:       diagnostic.Code,
+				Message:    diagnostic.Message,
+				SourcePath: diagnostic.SourcePath,
+			})
+		}
+		return newAgentStatusErrorWithData(http.StatusUnprocessableEntity, "invalid_archive", archiveValidation.Error(), map[string]any{"diagnostics": diagnostics})
+	}
 	switch {
 	case errors.Is(err, catalog.ErrSkillNotFound):
 		return newAgentStatusError(http.StatusNotFound, "not_found", err.Error())
 	case errors.Is(err, catalog.ErrSkillAlreadyExists), errors.Is(err, catalog.ErrSkillConflict):
 		return newAgentStatusError(http.StatusConflict, "conflict", err.Error())
-	case errors.Is(err, catalog.ErrSkillFileTooLarge), errors.Is(err, catalog.ErrSkillArchiveTooLarge):
+	case errors.Is(err, catalog.ErrSkillFileTooLarge), errors.Is(err, catalog.ErrSkillArchiveTooLarge), errors.Is(err, catalog.ErrSkillArchiveUploadTooLarge), errors.Is(err, catalog.ErrSkillArchiveTooManyFiles):
 		return newAgentStatusError(http.StatusRequestEntityTooLarge, "payload_too_large", err.Error())
+	case errors.Is(err, catalog.ErrSkillArchiveInvalid):
+		return newAgentStatusError(http.StatusUnsupportedMediaType, "unsupported_media_type", err.Error())
 	case errors.Is(err, catalog.ErrSkillFileBinary), errors.Is(err, catalog.ErrSkillUnsupportedEncoding):
 		return newAgentStatusError(http.StatusUnsupportedMediaType, "unsupported_media_type", err.Error())
 	case errors.Is(err, catalog.ErrSkillSymlink):

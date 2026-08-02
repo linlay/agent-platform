@@ -32,6 +32,9 @@ func ShouldWatchRuntimeDir(name string) bool {
 		return false
 	}
 	lower := strings.ToLower(name)
+	if strings.HasPrefix(lower, editableSkillImportStagingPrefix) {
+		return false
+	}
 	// Staging directories created before bootstrap renames them.
 	if strings.HasSuffix(lower, ".bootstrap") {
 		return false

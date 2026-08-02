@@ -27,22 +27,45 @@ const (
 	EditableSkillMaxTextBytes    int64 = 1 << 20
 	EditableSkillMaxUploadBytes  int64 = 32 << 20
 	EditableSkillMaxArchiveBytes int64 = 256 << 20
+	EditableSkillMaxArchiveFiles       = 4096
+
+	editableSkillImportStagingPrefix = ".skill-import-"
 )
 
 var (
-	ErrSkillAlreadyExists       = errors.New("skill already exists")
-	ErrSkillNotFound            = errors.New("skill not found")
-	ErrInvalidSkillKey          = errors.New("invalid skill key")
-	ErrInvalidSkillPath         = errors.New("invalid skill path")
-	ErrSkillFileTooLarge        = errors.New("skill file too large")
-	ErrSkillArchiveTooLarge     = errors.New("skill archive exceeds the maximum uncompressed size")
-	ErrSkillFileBinary          = errors.New("skill file is binary")
-	ErrSkillConflict            = errors.New("skill file conflict")
-	ErrSkillUnsupportedEncoding = errors.New("unsupported skill file encoding")
-	ErrSkillSymlink             = errors.New("skill path contains symlink")
-	ErrSkillIsDirectory         = errors.New("skill path is a directory")
-	ErrSkillDirectoryNotEmpty   = errors.New("skill directory is not empty")
+	ErrSkillAlreadyExists         = errors.New("skill already exists")
+	ErrSkillNotFound              = errors.New("skill not found")
+	ErrInvalidSkillKey            = errors.New("invalid skill key")
+	ErrInvalidSkillPath           = errors.New("invalid skill path")
+	ErrSkillFileTooLarge          = errors.New("skill file too large")
+	ErrSkillArchiveTooLarge       = errors.New("skill archive exceeds the maximum uncompressed size")
+	ErrSkillArchiveUploadTooLarge = errors.New("skill archive exceeds the maximum upload size")
+	ErrSkillArchiveTooManyFiles   = errors.New("skill archive contains too many entries")
+	ErrSkillArchiveInvalid        = errors.New("skill archive is not a valid zip")
+	ErrSkillFileBinary            = errors.New("skill file is binary")
+	ErrSkillConflict              = errors.New("skill file conflict")
+	ErrSkillUnsupportedEncoding   = errors.New("unsupported skill file encoding")
+	ErrSkillSymlink               = errors.New("skill path contains symlink")
+	ErrSkillIsDirectory           = errors.New("skill path is a directory")
+	ErrSkillDirectoryNotEmpty     = errors.New("skill directory is not empty")
 )
+
+type SkillArchiveDiagnostic struct {
+	Code       string
+	Message    string
+	SourcePath string
+}
+
+type SkillArchiveValidationError struct {
+	Diagnostics []SkillArchiveDiagnostic
+}
+
+func (e *SkillArchiveValidationError) Error() string {
+	if e == nil || len(e.Diagnostics) == 0 {
+		return "skill archive validation failed"
+	}
+	return e.Diagnostics[0].Message
+}
 
 type EditableSkillSource struct {
 	Kind     string
@@ -405,6 +428,404 @@ func (r *FileRegistry) WriteEditableSkillArchive(key string, destination io.Writ
 	return archive.Close()
 }
 
+// ImportEditableSkillArchive validates and atomically installs a ZIP archive
+// into the shared skills market. The archive may either contain SKILL.md at
+// its root or wrap the complete skill in one top-level directory.
+func (r *FileRegistry) ImportEditableSkillArchive(key string, source io.ReaderAt, size int64) (AdminSkill, error) {
+	if r == nil {
+		return AdminSkill{}, fmt.Errorf("skill registry is not configured")
+	}
+	root := strings.TrimSpace(r.cfg.Paths.SkillsMarketDir)
+	if root == "" {
+		return AdminSkill{}, fmt.Errorf("skills market directory is not configured")
+	}
+	if err := ValidateEditableSkillKey(key); err != nil {
+		return AdminSkill{}, err
+	}
+	key = strings.TrimSpace(key)
+	if source == nil || size <= 0 {
+		return AdminSkill{}, ErrSkillArchiveInvalid
+	}
+	if size > EditableSkillMaxUploadBytes {
+		return AdminSkill{}, ErrSkillArchiveUploadTooLarge
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return AdminSkill{}, err
+	}
+	finalDir, err := editableSkillDir(root, key)
+	if err != nil {
+		return AdminSkill{}, err
+	}
+	if _, err := os.Lstat(finalDir); err == nil {
+		return AdminSkill{}, ErrSkillAlreadyExists
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return AdminSkill{}, err
+	}
+
+	reader, err := zip.NewReader(source, size)
+	if err != nil {
+		return AdminSkill{}, ErrSkillArchiveInvalid
+	}
+	entries, err := planEditableSkillArchiveImport(reader.File)
+	if err != nil {
+		return AdminSkill{}, err
+	}
+
+	stagingDir, err := os.MkdirTemp(root, editableSkillImportStagingPrefix)
+	if err != nil {
+		return AdminSkill{}, err
+	}
+	removeStaging := true
+	defer func() {
+		if removeStaging {
+			_ = os.RemoveAll(stagingDir)
+		}
+	}()
+	if err := os.Chmod(stagingDir, 0o755); err != nil {
+		return AdminSkill{}, err
+	}
+	var extractedBytes int64
+	for _, entry := range entries {
+		written, err := extractEditableSkillArchiveEntry(stagingDir, entry, EditableSkillMaxArchiveBytes-extractedBytes)
+		if err != nil {
+			return AdminSkill{}, err
+		}
+		extractedBytes += written
+	}
+	if err := validateImportedEditableSkill(stagingDir); err != nil {
+		return AdminSkill{}, err
+	}
+
+	if err := os.Rename(stagingDir, finalDir); err != nil {
+		if _, statErr := os.Lstat(finalDir); statErr == nil {
+			return AdminSkill{}, ErrSkillAlreadyExists
+		}
+		return AdminSkill{}, err
+	}
+	removeStaging = false
+	usage := r.skillUsageByAgent()
+	item, err := buildAdminSkill(root, key, usage[key], true)
+	if err != nil {
+		_ = os.RemoveAll(finalDir)
+		return AdminSkill{}, err
+	}
+	if item.Status != AdminSkillStatusReady {
+		diagnostics := make([]SkillArchiveDiagnostic, 0, len(item.Diagnostics))
+		for _, diagnostic := range item.Diagnostics {
+			diagnostics = append(diagnostics, SkillArchiveDiagnostic{
+				Code:       diagnostic.Code,
+				Message:    diagnostic.Message,
+				SourcePath: archiveDiagnosticRelativePath(finalDir, diagnostic.SourcePath),
+			})
+		}
+		_ = os.RemoveAll(finalDir)
+		return AdminSkill{}, &SkillArchiveValidationError{Diagnostics: diagnostics}
+	}
+	return item, nil
+}
+
+type editableSkillArchiveImportEntry struct {
+	file *zip.File
+	path string
+	dir  bool
+	mode fs.FileMode
+}
+
+func planEditableSkillArchiveImport(files []*zip.File) ([]editableSkillArchiveImportEntry, error) {
+	if len(files) > EditableSkillMaxArchiveFiles {
+		return nil, ErrSkillArchiveTooManyFiles
+	}
+	type candidate struct {
+		file *zip.File
+		path string
+		dir  bool
+		mode fs.FileMode
+	}
+	candidates := make([]candidate, 0, len(files))
+	for _, file := range files {
+		if file == nil {
+			continue
+		}
+		rawPath := file.Name
+		if rawPath == "" {
+			return nil, skillArchiveValidationError("invalid_path", "ZIP entry path is empty", "")
+		}
+		if strings.Contains(rawPath, `\`) || strings.Contains(rawPath, "\x00") || path.IsAbs(rawPath) || filepath.IsAbs(rawPath) {
+			return nil, skillArchiveValidationError("invalid_path", "ZIP entry path is not a safe relative path", rawPath)
+		}
+		isDir := file.FileInfo().IsDir() || strings.HasSuffix(rawPath, "/")
+		trimmedPath := strings.TrimSuffix(rawPath, "/")
+		if strings.TrimSpace(trimmedPath) != trimmedPath || trimmedPath == "" || path.Clean(trimmedPath) != trimmedPath {
+			return nil, skillArchiveValidationError("invalid_path", "ZIP entry path is not normalized", rawPath)
+		}
+		if _, err := validateEditableSkillRelativePath(trimmedPath); err != nil {
+			return nil, skillArchiveValidationError("invalid_path", "ZIP entry path escapes the skill directory", rawPath)
+		}
+		parts := strings.Split(trimmedPath, "/")
+		if parts[0] == "__MACOSX" || path.Base(trimmedPath) == ".DS_Store" {
+			continue
+		}
+		mode := file.Mode()
+		if mode&os.ModeSymlink != 0 {
+			return nil, skillArchiveValidationError("symlink_not_allowed", "ZIP symlink entries are not allowed", rawPath)
+		}
+		if !isDir && !mode.IsRegular() {
+			return nil, skillArchiveValidationError("unsupported_entry", "ZIP entry is not a regular file", rawPath)
+		}
+		candidates = append(candidates, candidate{file: file, path: trimmedPath, dir: isDir, mode: mode})
+	}
+	if len(candidates) == 0 {
+		return nil, skillArchiveValidationError("empty_archive", "ZIP archive does not contain skill files", "")
+	}
+
+	prefix := ""
+	rootSkillMD := false
+	for _, candidate := range candidates {
+		if candidate.path == "SKILL.md" && !candidate.dir {
+			rootSkillMD = true
+			break
+		}
+	}
+	if !rootSkillMD {
+		firstSegment := strings.SplitN(candidates[0].path, "/", 2)[0]
+		for _, candidate := range candidates {
+			parts := strings.SplitN(candidate.path, "/", 2)
+			if parts[0] != firstSegment {
+				return nil, skillArchiveValidationError("missing_skill_md", "ZIP must contain SKILL.md at its root or inside one top-level directory", "SKILL.md")
+			}
+		}
+		wrappedSkillMD := firstSegment + "/SKILL.md"
+		for _, candidate := range candidates {
+			if candidate.path == wrappedSkillMD && !candidate.dir {
+				prefix = firstSegment + "/"
+				rootSkillMD = true
+				break
+			}
+		}
+	}
+	if !rootSkillMD {
+		return nil, skillArchiveValidationError("missing_skill_md", "ZIP must contain a root SKILL.md file", "SKILL.md")
+	}
+
+	entries := make([]editableSkillArchiveImportEntry, 0, len(candidates))
+	seen := map[string]string{}
+	kinds := map[string]bool{}
+	var totalSize uint64
+	for _, candidate := range candidates {
+		relPath := candidate.path
+		if prefix != "" {
+			if relPath == strings.TrimSuffix(prefix, "/") && candidate.dir {
+				continue
+			}
+			if !strings.HasPrefix(relPath, prefix) {
+				return nil, skillArchiveValidationError("invalid_layout", "ZIP contains entries outside its top-level skill directory", candidate.path)
+			}
+			relPath = strings.TrimPrefix(relPath, prefix)
+		}
+		if _, err := validateEditableSkillRelativePath(relPath); err != nil {
+			return nil, skillArchiveValidationError("invalid_path", "ZIP entry path escapes the skill directory", candidate.path)
+		}
+		folded := strings.ToLower(relPath)
+		if previous, ok := seen[folded]; ok {
+			return nil, skillArchiveValidationError("duplicate_path", fmt.Sprintf("ZIP contains conflicting paths %q and %q", previous, relPath), relPath)
+		}
+		seen[folded] = relPath
+		kinds[folded] = candidate.dir
+		if !candidate.dir {
+			if candidate.file.UncompressedSize64 > uint64(EditableSkillMaxUploadBytes) {
+				return nil, ErrSkillFileTooLarge
+			}
+			if candidate.file.UncompressedSize64 > uint64(EditableSkillMaxArchiveBytes)-totalSize {
+				return nil, ErrSkillArchiveTooLarge
+			}
+			totalSize += candidate.file.UncompressedSize64
+		}
+		entries = append(entries, editableSkillArchiveImportEntry{file: candidate.file, path: relPath, dir: candidate.dir, mode: candidate.mode})
+	}
+	for folded, relPath := range seen {
+		parts := strings.Split(folded, "/")
+		for i := 1; i < len(parts); i++ {
+			parent := strings.Join(parts[:i], "/")
+			if isDir, ok := kinds[parent]; ok && !isDir {
+				return nil, skillArchiveValidationError("path_conflict", fmt.Sprintf("ZIP file %q conflicts with a child path", seen[parent]), relPath)
+			}
+		}
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		if entries[i].dir != entries[j].dir {
+			return entries[i].dir
+		}
+		return entries[i].path < entries[j].path
+	})
+	return entries, nil
+}
+
+func extractEditableSkillArchiveEntry(stagingDir string, entry editableSkillArchiveImportEntry, remainingArchiveBytes int64) (int64, error) {
+	target, cleanRel, err := resolveEditableSkillPath(stagingDir, entry.path)
+	if err != nil {
+		return 0, skillArchiveValidationError("invalid_path", "ZIP entry path escapes the skill directory", entry.path)
+	}
+	if entry.dir {
+		if err := os.MkdirAll(target, 0o755); err != nil {
+			return 0, err
+		}
+		return 0, os.Chmod(target, 0o755)
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return 0, err
+	}
+	input, err := entry.file.Open()
+	if err != nil {
+		return 0, skillArchiveValidationError("corrupt_entry", "ZIP entry cannot be opened", entry.path)
+	}
+	defer input.Close()
+	output, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return 0, skillArchiveValidationError("duplicate_path", "ZIP entry path is duplicated", entry.path)
+		}
+		return 0, err
+	}
+	writeLimit := EditableSkillMaxUploadBytes
+	if remainingArchiveBytes < writeLimit {
+		writeLimit = remainingArchiveBytes
+	}
+	limited := &io.LimitedReader{R: input, N: writeLimit + 1}
+	written, copyErr := io.Copy(output, limited)
+	closeErr := output.Close()
+	if copyErr != nil {
+		return 0, skillArchiveValidationError("corrupt_entry", "ZIP entry could not be extracted", entry.path)
+	}
+	if closeErr != nil {
+		return 0, closeErr
+	}
+	if written > remainingArchiveBytes {
+		return 0, ErrSkillArchiveTooLarge
+	}
+	if written > EditableSkillMaxUploadBytes {
+		return 0, ErrSkillFileTooLarge
+	}
+	if uint64(written) != entry.file.UncompressedSize64 {
+		return 0, skillArchiveValidationError("corrupt_entry", "ZIP entry size does not match its header", entry.path)
+	}
+	mode := entry.mode.Perm()
+	if mode == 0 {
+		mode = 0o644
+	}
+	mode |= 0o600
+	if err := os.Chmod(target, mode); err != nil {
+		return 0, err
+	}
+	if err := validateEditableSkillSpecialFile(target, filepath.ToSlash(cleanRel)); err != nil {
+		return 0, skillArchiveValidationError("invalid_special_file", err.Error(), entry.path)
+	}
+	return written, nil
+}
+
+func validateImportedEditableSkill(skillDir string) error {
+	skillPath := filepath.Join(skillDir, "SKILL.md")
+	info, err := os.Lstat(skillPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return skillArchiveValidationError("missing_skill_md", "SKILL.md is required", "SKILL.md")
+	}
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return skillArchiveValidationError("invalid_skill_md", "SKILL.md must be a regular file", "SKILL.md")
+	}
+	if info.Size() > EditableSkillMaxTextBytes {
+		return skillArchiveValidationError("skill_md_too_large", "SKILL.md exceeds the maximum text size", "SKILL.md")
+	}
+	if err := validateEditableSkillSpecialFile(skillPath, "SKILL.md"); err != nil {
+		return skillArchiveValidationError("invalid_skill_md", err.Error(), "SKILL.md")
+	}
+	envPath := filepath.Join(skillDir, ".runtime-env.json")
+	if envInfo, err := os.Lstat(envPath); err == nil {
+		if !envInfo.Mode().IsRegular() {
+			return skillArchiveValidationError("invalid_runtime_env", ".runtime-env.json must be a regular file", ".runtime-env.json")
+		}
+		if envInfo.Size() > EditableSkillMaxTextBytes {
+			return skillArchiveValidationError("runtime_env_too_large", ".runtime-env.json exceeds the maximum text size", ".runtime-env.json")
+		}
+		if err := validateEditableSkillSpecialFile(envPath, ".runtime-env.json"); err != nil {
+			return skillArchiveValidationError("invalid_runtime_env", err.Error(), ".runtime-env.json")
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	diagnostics, err := validateEditableSkillRuntimeFiles(skillDir)
+	if err != nil {
+		return err
+	}
+	if len(diagnostics) > 0 {
+		items := make([]SkillArchiveDiagnostic, 0, len(diagnostics))
+		for _, diagnostic := range diagnostics {
+			items = append(items, SkillArchiveDiagnostic{
+				Code:       diagnostic.Code,
+				Message:    diagnostic.Message,
+				SourcePath: archiveDiagnosticRelativePath(skillDir, diagnostic.SourcePath),
+			})
+		}
+		return &SkillArchiveValidationError{Diagnostics: items}
+	}
+	return nil
+}
+
+func skillArchiveValidationError(code string, message string, sourcePath string) error {
+	return &SkillArchiveValidationError{Diagnostics: []SkillArchiveDiagnostic{{
+		Code:       strings.TrimSpace(code),
+		Message:    strings.TrimSpace(message),
+		SourcePath: filepath.ToSlash(strings.TrimSpace(sourcePath)),
+	}}}
+}
+
+func archiveDiagnosticRelativePath(root string, sourcePath string) string {
+	sourcePath = strings.TrimSpace(sourcePath)
+	if sourcePath == "" {
+		return ""
+	}
+	relPath, err := filepath.Rel(root, sourcePath)
+	if err != nil || strings.HasPrefix(relPath, "..") {
+		return filepath.ToSlash(sourcePath)
+	}
+	return filepath.ToSlash(relPath)
+}
+
+func cleanupEditableSkillImportStaging(root string) error {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(root)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), editableSkillImportStagingPrefix) {
+			continue
+		}
+		pathOnDisk := filepath.Join(root, entry.Name())
+		info, err := os.Lstat(pathOnDisk)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			if err := os.Remove(pathOnDisk); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := os.RemoveAll(pathOnDisk); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type editableSkillArchiveFile struct {
 	path string
 	size int64
@@ -765,6 +1186,9 @@ func ValidateEditableSkillKey(key string) error {
 		return fmt.Errorf("%w: skill key is required", ErrInvalidSkillKey)
 	}
 	if key == "." || key == ".." || strings.HasPrefix(key, ".") {
+		return ErrInvalidSkillKey
+	}
+	if !ShouldLoadRuntimeName(key) {
 		return ErrInvalidSkillKey
 	}
 	if filepath.IsAbs(key) || strings.ContainsAny(key, `/\`) || strings.Contains(key, "\x00") {
