@@ -103,15 +103,3 @@ AP_CHAT_DIR=<chatsDir>/<chatId>
 ```
 
 Container 中三个值分别是 `/agent/.config`、`/workspace`、`/chat`。Workspace/Chat 双根和 KBASE 的 `runtimeConfig.workspaceRoot` 契约不受 Agent 组装影响。
-
-## Office 配置迁移
-
-Office bridge 等可分发默认配置应放在对应市场 Skill 的 `.config`：
-
-```text
-skills-market/zoffice-docx/.config/httpx/office-docx-bridge.toml
-skills-market/zoffice-pptx/.config/httpx/office-pptx-bridge.toml
-skills-market/zoffice-xlsx/.config/httpx/office-xlsx-bridge.toml
-```
-
-Agent 原始 `.config/httpx/` 只保留真正的 Agent 专属覆盖。
