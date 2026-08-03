@@ -359,14 +359,14 @@ func TestBuildRuntimeContextFiltersAgentDigestsByContextAgents(t *testing.T) {
 			AgentDir:      filepath.Join(cfg.Paths.AgentsDir, "router"),
 			RuntimeDir:    filepath.Join(cfg.Paths.RUAgentsDir, "router"),
 			ContextTags:   []string{"agents"},
-			ContextAgents: []string{"planner", "coder"},
+			ContextAgents: []string{"router", "planner", "coder"},
 		},
 	})
 	if err != nil {
 		t.Fatalf("buildRuntimeRequestContext() error = %v", err)
 	}
 	if len(context.AgentDigests) != 2 || context.AgentDigests[0].Key != "planner" || context.AgentDigests[1].Key != "coder" {
-		t.Fatalf("agent digests = %#v, want planner/coder", context.AgentDigests)
+		t.Fatalf("agent digests = %#v, want current router skipped and planner/coder preserved", context.AgentDigests)
 	}
 }
 
@@ -394,8 +394,38 @@ func TestBuildRuntimeContextIncludesAllAgentDigestsWhenAgentsTagHasNoSelector(t 
 	if err != nil {
 		t.Fatalf("buildRuntimeRequestContext() error = %v", err)
 	}
-	if len(context.AgentDigests) != 3 {
-		t.Fatalf("agent digests = %#v, want all three", context.AgentDigests)
+	if len(context.AgentDigests) != 3 || context.AgentDigests[0].Key != "coder" || context.AgentDigests[1].Key != "planner" || context.AgentDigests[2].Key != "customer-service" {
+		t.Fatalf("agent digests = %#v, want all three non-current candidates in catalog order", context.AgentDigests)
+	}
+}
+
+func TestBuildRuntimeContextOmitsCandidatesWhenSelectorOnlyContainsCurrentAgent(t *testing.T) {
+	t.Parallel()
+
+	cfg := testPromptContextConfig(t)
+	s := &Server{
+		deps: Dependencies{
+			Config:   cfg,
+			Registry: testCatalogRegistry{agents: testContextAgentSummaries()},
+		},
+	}
+
+	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
+		agentKey: "router",
+		chatID:   "chat-router",
+		definition: catalog.AgentDefinition{
+			Key:           "router",
+			AgentDir:      filepath.Join(cfg.Paths.AgentsDir, "router"),
+			RuntimeDir:    filepath.Join(cfg.Paths.RUAgentsDir, "router"),
+			ContextTags:   []string{"agents"},
+			ContextAgents: []string{"router"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildRuntimeRequestContext() error = %v", err)
+	}
+	if len(context.AgentDigests) != 0 {
+		t.Fatalf("agent digests = %#v, want current-only selector omitted", context.AgentDigests)
 	}
 }
 
@@ -1016,6 +1046,7 @@ var _ catalog.Registry = testCatalogRegistry{}
 
 func testContextAgentSummaries() []api.AgentSummary {
 	return []api.AgentSummary{
+		{Key: "router", Name: "Router", Role: "route", Description: "routes work"},
 		{Key: "coder", Name: "Coder", Role: "code", Description: "writes code"},
 		{Key: "planner", Name: "Planner", Role: "plan", Description: "plans work"},
 		{Key: "customer-service", Name: "Customer Service", Role: "support", Description: "helps customers"},

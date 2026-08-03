@@ -258,7 +258,7 @@ orchestrator:
 
 目录中可选的 `SOUL.md` 与 `AGENTS.md` 只补充 Team 人格和工作规则，不能覆盖内置调度约束。Team 请求只传 `teamId`，传入 `agentKey` 返回 400；隐藏总控统一通过 embedded builtin `agent_delegate` 委派一个或多个冻结 roster 成员，并用 `plan_add_tasks/plan_get_tasks/plan_update_task` 管理复杂任务。成员结果全部回注总控，根回答只由总控生成。协调器 key 和隐藏工具不进入普通 Agent/Tool catalog，也不作为公开 run 身份返回。完整配置和协议见 [智能体配置说明](./docs/智能体配置说明.md)、[子智能体调度](./docs/子智能体调度.md) 与 [API与协议](./docs/API与协议.md)。
 
-普通主 Agent 还可分别显式挂载 `run_query`、`run_status`、`run_interrupt`，用于发起、查询和中断标准独立 Agent/Team 根 run。它们与 `agent_invoke` 不同：不复用父 `chatId/runId`，query 在目标 run 注册后立即返回，父 run 中断不取消目标；后续控制只允许同一调用 Agent 与 subject 操作自己通过 `run_query` 创建的 run。目标不使用白名单或 `contextConfig.agents`，精确 catalog 名称存在即可调用；目标 run 禁止再次调用任一 run 工具。旧 `agent_run_query`、`agent_run_status`、`agent_run_interrupt` 已删除，Agent 配置引用旧名会硬失败。完整契约见 [子智能体调度](./docs/子智能体调度.md)。
+普通主 Agent 还可分别显式挂载 `run_query`、`run_status`、`run_interrupt`，用于发起、查询和中断标准独立 Agent/Team 根 run。它们与 `agent_invoke` 不同：不复用父 `chatId/runId`，query 在目标 run 注册后立即返回，父 run 中断不取消目标；后续控制只允许同一调用 Agent 与 subject 操作自己通过 `run_query` 创建的 run。目标不使用白名单或 `contextConfig.agents`，精确 catalog 名称存在即可调用；“当前智能体”“本智能体”“你自己”固定解析为 system prompt 的 `Agent Identity.key`。目标 run 禁止再次调用任一 run 工具。旧 `agent_run_query`、`agent_run_status`、`agent_run_interrupt` 已删除，Agent 配置引用旧名会硬失败。完整契约见 [子智能体调度](./docs/子智能体调度.md)。
 
 ## 4. 部署
 
@@ -312,7 +312,7 @@ Container Hub 使用严格双根协议，基础挂载包括：
 
 `configs/runtime.example.yml` 的 `container-hub` 节展开 `base-url`、默认 environment 和运行策略默认值；代码默认值仍作为未配置时的兜底。除 `AP_CONTAINER_HUB_BASE_URL` 外，Container Hub token、environment id、超时和 sandbox 策略统一写入 `container-hub.*`，用于对接 `agent-container-hub` 的 `AUTH_TOKEN` Bearer 鉴权。
 
-`context tags` 不是全局默认集合，而是每个 agent 从 `contextConfig.tags` 读取。当前支持/归一化后的标签有 `system`、`session`、`owner`、`agents`。`agents` 只表示向 prompt 注入 agent 摘要上下文，不授予 `agent_invoke`、run 工具、channel 或 catalog 权限，也不是 `run_query` 目标白名单；`contextConfig.agents` 缺省时表示全部，也可用 YAML list 或逗号字符串指定部分 agent key。
+`context tags` 不是全局默认集合，而是每个 agent 从 `contextConfig.tags` 读取。当前支持/归一化后的标签有 `system`、`session`、`owner`、`agents`。`agents` 只表示向 prompt 注入 `Runtime Context: Sub-Agent Candidates` 候选摘要，不授予 `agent_invoke`、run 工具、channel 或 catalog 权限，也不是 `run_query` 目标白名单；当前 Agent 始终从候选中排除，`contextConfig.agents` 缺省时表示其余全部 Agent，也可用 YAML list 或逗号字符串指定部分 agent key。
 
 `sandbox` 不再属于 `context tags`。只要 agent 声明了 `runtimeConfig.environmentId`，运行时就会自动注入 sandbox context。
 

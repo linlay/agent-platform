@@ -379,7 +379,7 @@ func memoryPreviewRuntimeSections(context contracts.RuntimeRequestContext, agent
 		sections = append(sections, memoryPreviewRuntimeSection{
 			category: "runtime.agents",
 			source:   "runtime.context",
-			title:    "Runtime Context: Agents",
+			title:    "Runtime Context: Sub-Agent Candidates",
 			content:  memoryPreviewAgentsContext(context.AgentDigests),
 		})
 	}
@@ -404,6 +404,9 @@ func memoryPreviewRuntimeSections(context contracts.RuntimeRequestContext, agent
 
 func memoryPreviewAgentIdentity(agentDef catalog.AgentDefinition) string {
 	lines := []string{"Agent Identity"}
+	if strings.TrimSpace(agentDef.Key) != "" {
+		lines = append(lines, "以下是当前执行本次 run 的智能体身份。\u201c当前智能体\u201d\u201c本智能体\u201d\u201c你自己\u201d均指本节的 key。")
+	}
 	appendMemoryPreviewKeyValue(&lines, "key", agentDef.Key)
 	appendMemoryPreviewKeyValue(&lines, "name", agentDef.Name)
 	appendMemoryPreviewKeyValue(&lines, "role", agentDef.Role)
@@ -467,7 +470,12 @@ func memoryPreviewAgentsContext(digests []contracts.AgentDigest) string {
 	if len(digests) == 0 {
 		return ""
 	}
-	lines := []string{"Runtime Context: Agents"}
+	lines := []string{
+		"Runtime Context: Sub-Agent Candidates",
+		"以下是为当前智能体选择的可调用/委派子智能体候选摘要，仅供目标选择和任务路由参考。",
+		"这些候选不是当前智能体，也不构成 agent_invoke、agent_delegate、run_query 或 catalog 的权限或目标白名单；当前智能体及其 key 只由 Agent Identity 定义。",
+		"如需了解某个候选的完整配置，可以自行查看 agents 目录下对应的 agent.yml。",
+	}
 	for _, digest := range digests {
 		if strings.TrimSpace(digest.Key) == "" {
 			continue
@@ -478,7 +486,7 @@ func memoryPreviewAgentsContext(digests []contracts.AgentDigest) string {
 		appendMemoryPreviewKeyValue(&lines, "role", digest.Role)
 		appendMemoryPreviewKeyValue(&lines, "description", digest.Description)
 	}
-	if len(lines) == 1 {
+	if len(lines) == 4 {
 		return ""
 	}
 	return strings.Join(lines, "\n")

@@ -99,7 +99,7 @@ func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (c
 		LocalPaths:   localPaths,
 		SandboxPaths: resolveSandboxPaths(s.deps.Config, input.definition, localPaths),
 	}
-	agentDigests, err := buildContextAgentDigests(s.deps.Registry, input.definition)
+	agentDigests, err := buildContextAgentDigests(s.deps.Registry, input.definition, input.agentKey)
 	if err != nil {
 		return contracts.RuntimeRequestContext{}, err
 	}
@@ -771,13 +771,24 @@ func buildAgentDigests(registry catalog.Registry) []contracts.AgentDigest {
 	return digests
 }
 
-func buildContextAgentDigests(registry catalog.Registry, def catalog.AgentDefinition) ([]contracts.AgentDigest, error) {
+func buildContextAgentDigests(registry catalog.Registry, def catalog.AgentDefinition, currentAgentKey string) ([]contracts.AgentDigest, error) {
 	if !agentHasContextTag(def, "agents") {
 		return nil, nil
 	}
 	digests := buildAgentDigests(registry)
+	currentAgentKey = strings.TrimSpace(currentAgentKey)
+	if currentAgentKey == "" {
+		currentAgentKey = strings.TrimSpace(def.Key)
+	}
 	if len(def.ContextAgents) == 0 {
-		return digests, nil
+		filtered := make([]contracts.AgentDigest, 0, len(digests))
+		for _, digest := range digests {
+			if strings.TrimSpace(digest.Key) == currentAgentKey {
+				continue
+			}
+			filtered = append(filtered, digest)
+		}
+		return filtered, nil
 	}
 	byKey := make(map[string]contracts.AgentDigest, len(digests))
 	for _, digest := range digests {
@@ -790,6 +801,9 @@ func buildContextAgentDigests(registry catalog.Registry, def catalog.AgentDefini
 	for _, agentKey := range def.ContextAgents {
 		agentKey = strings.TrimSpace(agentKey)
 		if agentKey == "" {
+			continue
+		}
+		if agentKey == currentAgentKey {
 			continue
 		}
 		digest, ok := byKey[agentKey]

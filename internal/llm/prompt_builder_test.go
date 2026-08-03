@@ -54,6 +54,7 @@ func TestBuildSystemPromptInjectsAgentIdentityWithoutSoulIdentity(t *testing.T) 
 
 	for _, expected := range []string{
 		"Agent Identity",
+		"当前智能体\u201d\u201c本智能体\u201d\u201c你自己\u201d均指本节的 key",
 		"key: demo",
 		"name: Demo",
 		"role: Prompt Tester",
@@ -902,14 +903,34 @@ func TestBuildSystemPromptIncludesAgentsContext(t *testing.T) {
 		},
 	}, api.QueryRequest{}, "", PromptBuildOptions{})
 
-	if !strings.Contains(prompt, "Runtime Context: Agents") {
+	if !strings.Contains(prompt, "Runtime Context: Sub-Agent Candidates") {
 		t.Fatalf("expected agents context header, got %q", prompt)
+	}
+	for _, expected := range []string{
+		"可调用/委派子智能体候选摘要",
+		"这些候选不是当前智能体",
+		"当前智能体及其 key 只由 Agent Identity 定义",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("expected sub-agent candidate semantics %q, got %q", expected, prompt)
+		}
 	}
 	if !strings.Contains(prompt, "key: coder") || !strings.Contains(prompt, "key: planner") {
 		t.Fatalf("expected selected agent digests, got %q", prompt)
 	}
-	if strings.Contains(prompt, "Runtime Context: All Agents") {
-		t.Fatalf("expected new agents context header, got %q", prompt)
+	if strings.Contains(prompt, "Runtime Context: Agents") || strings.Contains(prompt, "Runtime Context: All Agents") {
+		t.Fatalf("expected only sub-agent candidates context header, got %q", prompt)
+	}
+}
+
+func TestBuildSystemPromptOmitsSubAgentCandidatesWhenEmpty(t *testing.T) {
+	prompt := buildSystemPrompt(QuerySession{
+		AgentKey:    "demo",
+		ContextTags: []string{"agents"},
+	}, api.QueryRequest{}, "", PromptBuildOptions{})
+
+	if strings.Contains(prompt, "Runtime Context: Sub-Agent Candidates") {
+		t.Fatalf("expected empty sub-agent candidates section to be omitted, got %q", prompt)
 	}
 }
 

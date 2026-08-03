@@ -10,11 +10,51 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/catalog"
+	"agent-platform/internal/contracts"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
 )
+
+func TestMemoryPreviewUsesCurrentIdentityAndSubAgentCandidateSemantics(t *testing.T) {
+	identity := memoryPreviewAgentIdentity(catalog.AgentDefinition{
+		Key:         "cutej",
+		Name:        "小君",
+		Role:        "平台总管",
+		Description: "治理平台",
+		Mode:        "REACT",
+	})
+	for _, expected := range []string{
+		"当前智能体\u201d\u201c本智能体\u201d\u201c你自己\u201d均指本节的 key",
+		"key: cutej",
+	} {
+		if !strings.Contains(identity, expected) {
+			t.Fatalf("expected identity preview %q, got %q", expected, identity)
+		}
+	}
+
+	candidates := memoryPreviewAgentsContext([]contracts.AgentDigest{{
+		Key:         "webOperator",
+		Name:        "网驭",
+		Role:        "网页操作",
+		Description: "操作当前网页",
+	}})
+	for _, expected := range []string{
+		"Runtime Context: Sub-Agent Candidates",
+		"可调用/委派子智能体候选摘要",
+		"这些候选不是当前智能体",
+		"key: webOperator",
+	} {
+		if !strings.Contains(candidates, expected) {
+			t.Fatalf("expected candidate preview %q, got %q", expected, candidates)
+		}
+	}
+	if strings.Contains(candidates, "Runtime Context: Agents") {
+		t.Fatalf("legacy agents context title remained in preview: %q", candidates)
+	}
+}
 
 func TestHandleMemoryScopesReturnsEditableScopes(t *testing.T) {
 	fixture := newMemoryEnabledTestFixture(t)
