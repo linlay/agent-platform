@@ -45,6 +45,7 @@ type AutomationQueryResponse struct {
 type AutomationExecutionBrief struct {
 	ID            string `json:"id"`
 	Status        string `json:"status"`
+	ZoneID        string `json:"zoneId"`
 	StartedAt     int64  `json:"startedAt"`
 	StartedTime   string `json:"startedTime"`
 	CompletedAt   *int64 `json:"completedAt,omitempty"`
@@ -62,6 +63,7 @@ type AutomationExecutionResponse struct {
 	TeamID         string `json:"teamId,omitempty"`
 	Status         string `json:"status"`
 	Error          string `json:"error"`
+	ZoneID         string `json:"zoneId"`
 	StartedAt      int64  `json:"startedAt"`
 	StartedTime    string `json:"startedTime"`
 	CompletedAt    *int64 `json:"completedAt,omitempty"`

@@ -275,7 +275,11 @@ func (o *Orchestrator) fire(reg *Registration) (bool, error) {
 		return true, reg.ctx.Err()
 	}
 	defer o.releaseDispatchSlot()
-	return stop, o.dispatcher.Dispatch(reg.ctx, dispatchDef)
+	zoneID := time.Local.String()
+	if reg.location != nil {
+		zoneID = reg.location.String()
+	}
+	return stop, o.dispatcher.Dispatch(reg.ctx, dispatchDef, zoneID)
 }
 
 func (o *Orchestrator) startWatcher(ctx context.Context) error {

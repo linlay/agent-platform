@@ -527,6 +527,59 @@ func TestOrchestratorFallsBackToLocalWhenZonesMissing(t *testing.T) {
 	}
 }
 
+func TestOrchestratorFirePersistsEffectiveZoneSnapshot(t *testing.T) {
+	store, err := NewExecutionStore(t.TempDir(), "executions.db")
+	if err != nil {
+		t.Fatalf("new execution store: %v", err)
+	}
+	defer store.Close()
+
+	orchestrator := NewOrchestrator(
+		nil,
+		NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }, nil, store),
+		config.AutomationConfig{PoolSize: 1},
+	)
+	tests := []struct {
+		id             string
+		automationZone string
+		defaultZone    string
+		wantZone       string
+	}{
+		{id: "explicit", automationZone: "UTC", defaultZone: "Asia/Shanghai", wantZone: "UTC"},
+		{id: "default", defaultZone: "Asia/Shanghai", wantZone: "Asia/Shanghai"},
+		{id: "local", wantZone: time.Local.String()},
+	}
+	for _, tt := range tests {
+		ctx, cancel := context.WithCancel(context.Background())
+		reg := &Registration{
+			Definition: Definition{
+				ID:       tt.id,
+				Name:     tt.id,
+				Enabled:  true,
+				AgentKey: "agent-a",
+				Query:    Query{Message: "run"},
+			},
+			location: resolveAutomationLocation(tt.automationZone, tt.defaultZone),
+			ctx:      ctx,
+			cancel:   cancel,
+		}
+		orchestrator.registrations[tt.id] = reg
+		if stop, err := orchestrator.fire(reg); err != nil || stop {
+			cancel()
+			t.Fatalf("fire %s: stop=%v err=%v", tt.id, stop, err)
+		}
+		cancel()
+
+		items, total, err := store.ListByAutomation(tt.id, 10, 0)
+		if err != nil {
+			t.Fatalf("list %s executions: %v", tt.id, err)
+		}
+		if total != 1 || len(items) != 1 || items[0].ZoneID != tt.wantZone {
+			t.Fatalf("execution %s zone snapshot: total=%d items=%#v want=%q", tt.id, total, items, tt.wantZone)
+		}
+	}
+}
+
 func TestOrchestratorAutomationsReturnsActiveRegistrations(t *testing.T) {
 	root := t.TempDir()
 	writeAutomation(t, filepath.Join(root, "b.yml"), automationBody("second", "17 9 * * *", ""))

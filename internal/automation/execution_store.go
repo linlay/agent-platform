@@ -38,6 +38,10 @@ func NewExecutionStore(dir, dbFileName string) (*ExecutionStore, error) {
 	}
 	store := &ExecutionStore{dbPath: filepath.Join(dir, dbFileName)}
 	if err := store.initDB(); err != nil {
+		if store.db != nil {
+			_ = store.db.Close()
+			store.db = nil
+		}
 		return nil, err
 	}
 	return store, nil
@@ -49,6 +53,15 @@ func (s *ExecutionStore) initDB() error {
 		return err
 	}
 	s.db = db
+	tableExists, err := executionTableExists(db)
+	if err != nil {
+		return err
+	}
+	if tableExists {
+		if err := validateExecutionSchema(db, s.dbPath); err != nil {
+			return err
+		}
+	}
 
 	statements := []string{
 		`CREATE TABLE IF NOT EXISTS AUTOMATION_EXECUTIONS (
@@ -58,6 +71,7 @@ func (s *ExecutionStore) initDB() error {
 			SOURCE_FILE_   TEXT NOT NULL DEFAULT '',
 			AGENT_KEY_     TEXT NOT NULL DEFAULT '',
 			TEAM_ID_       TEXT NOT NULL DEFAULT '',
+			ZONE_ID_       TEXT NOT NULL,
 			STATUS_        TEXT NOT NULL DEFAULT 'running',
 			ERROR_         TEXT NOT NULL DEFAULT '',
 			STARTED_AT_    INTEGER NOT NULL,
@@ -72,12 +86,68 @@ func (s *ExecutionStore) initDB() error {
 			return fmt.Errorf("init execution schema: %w", err)
 		}
 	}
+	return validateExecutionSchema(db, s.dbPath)
+}
+
+func executionTableExists(db *sql.DB) (bool, error) {
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='AUTOMATION_EXECUTIONS'`).Scan(&count); err != nil {
+		return false, fmt.Errorf("inspect execution schema: %w", err)
+	}
+	return count > 0, nil
+}
+
+func validateExecutionSchema(db *sql.DB, dbPath string) error {
+	rows, err := db.Query(`PRAGMA table_info(AUTOMATION_EXECUTIONS)`)
+	if err != nil {
+		return fmt.Errorf("inspect execution schema: %w", err)
+	}
+	defer rows.Close()
+
+	foundZoneID := false
+	for rows.Next() {
+		var (
+			cid          int
+			name         string
+			columnType   string
+			notNull      int
+			defaultValue sql.NullString
+			primaryKey   int
+		)
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return fmt.Errorf("inspect execution schema: %w", err)
+		}
+		if name != "ZONE_ID_" {
+			continue
+		}
+		foundZoneID = true
+		if !strings.EqualFold(strings.TrimSpace(columnType), "TEXT") || notNull != 1 {
+			return incompatibleExecutionSchemaError(dbPath, "ZONE_ID_ must be TEXT NOT NULL")
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("inspect execution schema: %w", err)
+	}
+	if !foundZoneID {
+		return incompatibleExecutionSchemaError(dbPath, "ZONE_ID_ is missing")
+	}
 	return nil
 }
 
-func (s *ExecutionStore) RecordStart(automationID, automationName, sourceFile, agentKey, teamID string) (string, error) {
+func incompatibleExecutionSchemaError(dbPath, reason string) error {
+	return fmt.Errorf("automation execution schema is incompatible (%s): delete %s before restarting", reason, dbPath)
+}
+
+func (s *ExecutionStore) RecordStart(automationID, automationName, sourceFile, agentKey, teamID, zoneID string) (string, error) {
 	if s == nil || s.db == nil {
 		return "", nil
+	}
+	zoneID = strings.TrimSpace(zoneID)
+	if zoneID == "" {
+		return "", fmt.Errorf("zoneId is required")
+	}
+	if _, err := time.LoadLocation(zoneID); err != nil {
+		return "", fmt.Errorf("invalid zoneId %q: %w", zoneID, err)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -85,14 +155,15 @@ func (s *ExecutionStore) RecordStart(automationID, automationName, sourceFile, a
 	executionID := generateExecutionID()
 	startedAt := time.Now().UnixMilli()
 	_, err := s.db.Exec(`INSERT INTO AUTOMATION_EXECUTIONS (
-			ID_, AUTOMATION_ID_, AUTOMATION_NAME_, SOURCE_FILE_, AGENT_KEY_, TEAM_ID_, STATUS_, STARTED_AT_
-		) VALUES (?, ?, ?, ?, ?, ?, 'running', ?)`,
+			ID_, AUTOMATION_ID_, AUTOMATION_NAME_, SOURCE_FILE_, AGENT_KEY_, TEAM_ID_, ZONE_ID_, STATUS_, STARTED_AT_
+		) VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?)`,
 		executionID,
 		strings.TrimSpace(automationID),
 		strings.TrimSpace(automationName),
 		strings.TrimSpace(sourceFile),
 		strings.TrimSpace(agentKey),
 		strings.TrimSpace(teamID),
+		zoneID,
 		startedAt,
 	)
 	if err != nil {
@@ -156,7 +227,7 @@ func (s *ExecutionStore) ListByAutomation(automationID string, limit, offset int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM AUTOMATION_EXECUTIONS WHERE AUTOMATION_ID_=?`, automationID).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := s.db.Query(`SELECT ID_, AUTOMATION_ID_, AUTOMATION_NAME_, SOURCE_FILE_, AGENT_KEY_, TEAM_ID_,
+	rows, err := s.db.Query(`SELECT ID_, AUTOMATION_ID_, AUTOMATION_NAME_, SOURCE_FILE_, AGENT_KEY_, TEAM_ID_, ZONE_ID_,
 			STATUS_, ERROR_, STARTED_AT_, COMPLETED_AT_, DURATION_MS_
 		FROM AUTOMATION_EXECUTIONS
 		WHERE AUTOMATION_ID_=?
@@ -183,7 +254,7 @@ func (s *ExecutionStore) LastExecution(automationID string) (*Execution, error) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	row := s.db.QueryRow(`SELECT ID_, AUTOMATION_ID_, AUTOMATION_NAME_, SOURCE_FILE_, AGENT_KEY_, TEAM_ID_,
+	row := s.db.QueryRow(`SELECT ID_, AUTOMATION_ID_, AUTOMATION_NAME_, SOURCE_FILE_, AGENT_KEY_, TEAM_ID_, ZONE_ID_,
 			STATUS_, ERROR_, STARTED_AT_, COMPLETED_AT_, DURATION_MS_
 		FROM AUTOMATION_EXECUTIONS
 		WHERE AUTOMATION_ID_=?
@@ -212,7 +283,7 @@ func (s *ExecutionStore) ListRecent(limit, offset int) ([]Execution, int, error)
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM AUTOMATION_EXECUTIONS`).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := s.db.Query(`SELECT ID_, AUTOMATION_ID_, AUTOMATION_NAME_, SOURCE_FILE_, AGENT_KEY_, TEAM_ID_,
+	rows, err := s.db.Query(`SELECT ID_, AUTOMATION_ID_, AUTOMATION_NAME_, SOURCE_FILE_, AGENT_KEY_, TEAM_ID_, ZONE_ID_,
 			STATUS_, ERROR_, STARTED_AT_, COMPLETED_AT_, DURATION_MS_
 		FROM AUTOMATION_EXECUTIONS
 		ORDER BY STARTED_AT_ DESC, ID_ DESC
@@ -267,6 +338,7 @@ func scanExecution(scanner executionScanner) (Execution, error) {
 		&item.SourceFile,
 		&item.AgentKey,
 		&item.TeamID,
+		&item.ZoneID,
 		&item.Status,
 		&item.Error,
 		&item.StartedAt,
@@ -280,6 +352,9 @@ func scanExecution(scanner executionScanner) (Execution, error) {
 	}
 	if durationMs.Valid {
 		item.DurationMs = &durationMs.Int64
+	}
+	if _, err := time.LoadLocation(item.ZoneID); err != nil {
+		return Execution{}, fmt.Errorf("invalid persisted zoneId %q: %w", item.ZoneID, err)
 	}
 	if err := timecontract.ValidateEpochMillis(item.StartedAt, "startedAt", "automation.executions"); err != nil {
 		return Execution{}, err

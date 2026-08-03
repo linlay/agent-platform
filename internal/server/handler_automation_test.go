@@ -90,8 +90,9 @@ func TestAutomationHTTPCRUDAndExecutionHistory(t *testing.T) {
 	if create.ID != "daily-demo" || create.Query.Message != "hello" || create.NextFireAt == nil || *create.NextFireAt <= 0 || create.NextFireTime == nil {
 		t.Fatalf("unexpected create response %#v", create)
 	}
+	assertAutomationReadableTimeMatches(t, *create.NextFireTime, *create.NextFireAt, time.UTC)
 
-	executionID, err := fixture.executions.RecordStart(create.ID, create.Name, create.SourceFile, create.AgentKey, create.TeamID)
+	executionID, err := fixture.executions.RecordStart(create.ID, create.Name, create.SourceFile, create.AgentKey, create.TeamID, "Asia/Shanghai")
 	if err != nil {
 		t.Fatalf("record start: %v", err)
 	}
@@ -103,14 +104,14 @@ func TestAutomationHTTPCRUDAndExecutionHistory(t *testing.T) {
 	if list.Total != 1 || len(list.Items) != 1 || list.Items[0].NextFireAt == nil || *list.Items[0].NextFireAt <= 0 || list.Items[0].NextFireTime == nil || list.Items[0].LastExecution == nil || list.Items[0].LastExecution.Status != "success" {
 		t.Fatalf("unexpected list response %#v", list)
 	}
-	assertAutomationReadableTime(t, list.Items[0].LastExecution.StartedTime)
-	if !strings.HasSuffix(list.Items[0].LastExecution.StartedTime, "+08:00") {
-		t.Fatalf("expected last execution time in automation zone, got %#v", list.Items[0].LastExecution)
+	if list.Items[0].LastExecution.ZoneID != "Asia/Shanghai" {
+		t.Fatalf("expected execution zone snapshot, got %#v", list.Items[0].LastExecution)
 	}
+	assertAutomationReadableTimeMatches(t, list.Items[0].LastExecution.StartedTime, list.Items[0].LastExecution.StartedAt, time.UTC)
 	if list.Items[0].LastExecution.CompletedAt == nil || *list.Items[0].LastExecution.CompletedAt <= 0 || strings.TrimSpace(list.Items[0].LastExecution.CompletedTime) == "" {
 		t.Fatalf("expected completed timing on last execution %#v", list.Items[0].LastExecution)
 	}
-	assertAutomationReadableTime(t, list.Items[0].LastExecution.CompletedTime)
+	assertAutomationReadableTimeMatches(t, list.Items[0].LastExecution.CompletedTime, *list.Items[0].LastExecution.CompletedAt, time.UTC)
 
 	update := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/automation/update", map[string]any{
 		"id":          create.ID,
@@ -143,14 +144,14 @@ func TestAutomationHTTPCRUDAndExecutionHistory(t *testing.T) {
 	if history.Items[0].StartedAt <= 0 || strings.TrimSpace(history.Items[0].StartedTime) == "" {
 		t.Fatalf("expected started timing on history item %#v", history.Items[0])
 	}
-	assertAutomationReadableTime(t, history.Items[0].StartedTime)
-	if !strings.HasSuffix(history.Items[0].StartedTime, "Z") {
-		t.Fatalf("expected deleted automation history time to fall back to UTC, got %#v", history.Items[0])
+	if history.Items[0].ZoneID != "Asia/Shanghai" {
+		t.Fatalf("expected persisted execution zone after automation deletion, got %#v", history.Items[0])
 	}
+	assertAutomationReadableTimeMatches(t, history.Items[0].StartedTime, history.Items[0].StartedAt, time.UTC)
 	if history.Items[0].CompletedAt == nil || *history.Items[0].CompletedAt <= 0 || strings.TrimSpace(history.Items[0].CompletedTime) == "" {
 		t.Fatalf("expected completed timing on history item %#v", history.Items[0])
 	}
-	assertAutomationReadableTime(t, history.Items[0].CompletedTime)
+	assertAutomationReadableTimeMatches(t, history.Items[0].CompletedTime, *history.Items[0].CompletedAt, time.UTC)
 }
 
 func TestAutomationHTTPCreateAndUpdatePreserveQueryMessageExactly(t *testing.T) {
@@ -198,8 +199,8 @@ func TestAutomationHTTPCreateAndUpdatePreserveQueryMessageExactly(t *testing.T) 
 	}
 }
 
-func TestMapAutomationSummaryKeepsNextFireMillisecondPrecision(t *testing.T) {
-	server := &Server{}
+func TestMapAutomationSummaryUsesPlatformDisplayZoneAndKeepsNextFireEpochPrecision(t *testing.T) {
+	server := &Server{deps: Dependencies{Config: config.Config{Automation: config.AutomationConfig{DefaultZoneID: "UTC"}}}}
 	next := time.Date(2026, time.January, 2, 3, 4, 5, 123_456_000, time.FixedZone("UTC+8", 8*60*60))
 	response, err := server.mapAutomationSummary(automation.Definition{ID: "precision", Name: "Precision", Enabled: true}, &next)
 	if err != nil {
@@ -208,15 +209,11 @@ func TestMapAutomationSummaryKeepsNextFireMillisecondPrecision(t *testing.T) {
 	if response.NextFireAt == nil || response.NextFireTime == nil {
 		t.Fatalf("expected paired next fire values, got %#v", response)
 	}
-	parsed, err := time.Parse(time.RFC3339Nano, *response.NextFireTime)
-	if err != nil {
-		t.Fatalf("parse nextFireTime: %v", err)
+	if *response.NextFireAt != next.UnixMilli() {
+		t.Fatalf("nextFireAt changed: got %d want %d", *response.NextFireAt, next.UnixMilli())
 	}
-	if parsed.UnixMilli() != *response.NextFireAt {
-		t.Fatalf("next fire pair lost precision: at=%d time=%q parsed=%d", *response.NextFireAt, *response.NextFireTime, parsed.UnixMilli())
-	}
-	if parsed.Nanosecond()%int(time.Millisecond) != 0 {
-		t.Fatalf("nextFireTime must represent the exact epoch-ms instant, got %q", *response.NextFireTime)
+	if got, want := *response.NextFireTime, "2026-01-01 19:04:05"; got != want {
+		t.Fatalf("nextFireTime = %q, want platform display %q", got, want)
 	}
 }
 
@@ -359,13 +356,16 @@ func postAutomationJSON[T any](t *testing.T, server *Server, path string, payloa
 	return parsed.Data
 }
 
-func assertAutomationReadableTime(t *testing.T, value string) {
+func assertAutomationReadableTimeMatches(t *testing.T, value string, epochMillis int64, loc *time.Location) {
 	t.Helper()
 	if strings.TrimSpace(value) == "" {
 		t.Fatal("expected readable time")
 	}
-	if _, err := time.Parse(time.RFC3339Nano, value); err != nil {
-		t.Fatalf("expected RFC3339Nano time, got %q: %v", value, err)
+	if got, want := value, time.UnixMilli(epochMillis).In(loc).Format("2006-01-02 15:04:05"); got != want {
+		t.Fatalf("readable time = %q, want %q", got, want)
+	}
+	if _, err := time.ParseInLocation("2006-01-02 15:04:05", value, loc); err != nil {
+		t.Fatalf("expected automation display time, got %q: %v", value, err)
 	}
 }
 

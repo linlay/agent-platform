@@ -29,6 +29,7 @@ type Execution struct {
 	SourceFile     string
 	AgentKey       string
 	TeamID         string
+	ZoneID         string
 	Status         string
 	Error          string
 	StartedAt      int64

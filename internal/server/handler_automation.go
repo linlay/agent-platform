@@ -292,7 +292,7 @@ func (s *Server) listAutomationExecutions(req api.AutomationExecutionsRequest) (
 	if err != nil {
 		return api.AutomationExecutionListResponse{}, err
 	}
-	loc := s.automationLocationForAutomationID(id)
+	loc := s.automationDisplayLocation()
 	response := api.AutomationExecutionListResponse{Items: make([]api.AutomationExecutionResponse, 0, len(items)), Total: total}
 	for _, item := range items {
 		response.Items = append(response.Items, mapAutomationExecution(item, loc))
@@ -348,10 +348,9 @@ func (s *Server) mapAutomationSummary(def automation.Definition, next *time.Time
 		if err := timecontract.ValidateEpochMillis(nextFireAt, "nextFireAt", "automation.nextFire"); err != nil {
 			return api.AutomationSummaryResponse{}, err
 		}
-		// Pair the readable value with the exact millisecond representation sent
-		// on the wire. Formatting the original cron time could retain
-		// sub-millisecond nanoseconds and describe a different instant.
-		formatted := time.UnixMilli(nextFireAt).In(next.Location()).Format(time.RFC3339Nano)
+		// nextFireAt remains the authoritative instant. nextFireTime is a
+		// second-precision display value in the platform timezone.
+		formatted := automationReadableTimeMillis(nextFireAt, s.automationDisplayLocation())
 		resp.NextFireAt = &nextFireAt
 		resp.NextFireTime = &formatted
 	}
@@ -361,7 +360,7 @@ func (s *Server) mapAutomationSummary(def automation.Definition, next *time.Time
 			return api.AutomationSummaryResponse{}, err
 		}
 		if last != nil {
-			resp.LastExecution = mapAutomationExecutionBrief(*last, s.automationLocationForDefinition(def))
+			resp.LastExecution = mapAutomationExecutionBrief(*last, s.automationDisplayLocation())
 		}
 	}
 	return resp, nil
@@ -422,6 +421,7 @@ func mapAutomationExecutionBrief(item automation.Execution, loc *time.Location) 
 	resp := &api.AutomationExecutionBrief{
 		ID:          item.ID,
 		Status:      item.Status,
+		ZoneID:      item.ZoneID,
 		StartedAt:   item.StartedAt,
 		StartedTime: automationReadableTimeMillis(item.StartedAt, loc),
 		CompletedAt: cloneInt64Ptr(item.CompletedAt),
@@ -444,6 +444,7 @@ func mapAutomationExecution(item automation.Execution, loc *time.Location) api.A
 		TeamID:         item.TeamID,
 		Status:         item.Status,
 		Error:          item.Error,
+		ZoneID:         item.ZoneID,
 		StartedAt:      item.StartedAt,
 		StartedTime:    automationReadableTimeMillis(item.StartedAt, loc),
 		CompletedAt:    cloneInt64Ptr(item.CompletedAt),
@@ -455,21 +456,11 @@ func mapAutomationExecution(item automation.Execution, loc *time.Location) api.A
 	return resp
 }
 
-func (s *Server) automationLocationForAutomationID(automationID string) *time.Location {
-	if s != nil && s.deps.AutomationRegistry != nil {
-		if defs, err := s.deps.AutomationRegistry.Load(); err == nil {
-			for _, def := range defs {
-				if def.ID == automationID {
-					return s.automationLocationForDefinition(def)
-				}
-			}
-		}
+func (s *Server) automationDisplayLocation() *time.Location {
+	if s == nil {
+		return time.Local
 	}
 	return loadAutomationAPILocation("", s.deps.Config.Automation.DefaultZoneID)
-}
-
-func (s *Server) automationLocationForDefinition(def automation.Definition) *time.Location {
-	return loadAutomationAPILocation(def.Environment.ZoneID, s.deps.Config.Automation.DefaultZoneID)
 }
 
 func loadAutomationAPILocation(zoneID string, defaultZoneID string) *time.Location {
@@ -494,7 +485,7 @@ func automationReadableTimeMillis(ms int64, loc *time.Location) string {
 	if loc == nil {
 		loc = time.Local
 	}
-	return time.UnixMilli(ms).In(loc).Format(time.RFC3339Nano)
+	return time.UnixMilli(ms).In(loc).Format("2006-01-02 15:04:05")
 }
 
 func (s *Server) nextAutomationID(name string) (string, error) {

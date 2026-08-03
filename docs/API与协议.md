@@ -19,7 +19,7 @@
 platform 自己定义和拥有的 API、JSONL、SSE、WebSocket 与 trace 生命周期时间点，统一使用未加引号的 Unix epoch milliseconds JSON 整数（Go `int64`、客户端 `number`）。可接受范围固定为 `1000000000000..9007199254740991`：这既拒绝十位 Unix 秒，也保证 JavaScript number 精确表示。
 
 - 已声明的平台字段（例如 chat/run 的 `createdAt`、`updatedAt`、`startedAt`、`completedAt`，stream envelope 的 `timestamp`，以及 `expiresAt`）必须是 epoch-ms。可选字段缺失时必须省略；不得输出 `0`、`null`、数字字符串、ISO 字符串或浮点数。
-- 已声明的可读时间（`*Time` 或 `iso`）必须是带 `Z` 或 offset 的 RFC3339 / RFC3339Nano；若协议声明它与 epoch-ms 字段配对，两者必须表示同一毫秒时刻。
+- 除 Automation 展示时间外，已声明的可读时间（`*Time` 或 `iso`）必须是带 `Z` 或 offset 的 RFC3339 / RFC3339Nano；若协议声明它与 epoch-ms 字段配对，两者必须表示同一毫秒时刻。Automation 的 `nextFireTime`、`startedTime`、`completedTime` 是例外：它们统一按 Platform `automation.default-zone-id`（无效或未配置时回退进程 `time.Local`）输出 `YYYY-MM-DD HH:mm:ss`，只用于展示，秒精度且不携带时区，不能用于还原精确时间点。
 - 名字不是契约：外部 tool result、MCP content、Desktop action result、trace request/response/tool payload 的 `createdAt`、`timestamp`、`iso` 等业务字段不会因名称被平台推断为时间。
 - 工具结果只有在其可选 `outputSchema` 显式声明时才校验时间：`x-platform-time: "epoch-ms"` 表示严格毫秒整数，`format: "date-time"` 表示 RFC3339 可读字符串，`x-platform-time-pair` 表示显式配对。未声明 `outputSchema` 的工具结果是透明 JSON。
 - 任何 producer、持久化 JSONL/archive、trace 或上游 child/proxy stream 违反此契约，HTTP/WS 返回 `422`，其 `data.error` 固定含有 `code:"time_contract_violation"`、`field`、`location`、`expected:"epoch_ms_int64"`。已开始的 stream 会先发送平台本地 `run.error` 后结束；服务端绝不以当前时间、run ID 或完成时间修补原事件。
@@ -202,7 +202,9 @@ Archive 摘要、详情和搜索结果都会返回时间字段：`createdAt` 为
 
 `query` 对象包含 `message`、`chatId`、`role`、`params`。`role` 可选值为 `user`、`assistant`、`automation`、`system`；automation 未显式配置时默认为 `automation`。
 
-Automation 摘要和详情中的 `nextFireAt` 是下次触发时间的 epoch milliseconds；`nextFireTime` 是按 automation `zoneId` 格式化的 RFC3339 展示时间。`lastExecution` 与 execution history 中的 `startedAt`、`completedAt` 为 epoch milliseconds；对应的 `startedTime`、`completedTime` 为按 automation 时区格式化的 RFC3339Nano 可读时间。
+Automation 摘要和详情中的 `nextFireAt` 是下次触发时间的 epoch milliseconds；`lastExecution` 与 execution history 中的 `startedAt`、`completedAt` 同样是 epoch milliseconds。这些 `*At` 字段是排序、计算和客户端本地化的唯一权威时间。对应的 `nextFireTime`、`startedTime`、`completedTime` 均由 Platform 按 `automation.default-zone-id`（无效或未配置时回退进程 `time.Local`）转换为 `YYYY-MM-DD HH:mm:ss`，只用于阅读，不保留毫秒或时区信息。
+
+Execution 的 `zoneId` 是创建 execution 时解析出的有效业务时区快照，解析顺序为 automation `environment.zoneId`、Platform `automation.default-zone-id`、进程 `time.Local`。它不会随 automation 后续修改或删除而变化，也不参与上述 `*Time` 展示转换。
 
 Automation 的 Team 身份规则与 query 一致：只配置 `teamId`，同时传 `agentKey` 会被拒绝。触发时由隐藏协调器接管，不会选择或回显虚拟 Agent key。
 

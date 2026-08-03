@@ -26,7 +26,7 @@ func NewDispatcher(dispatch DispatchFunc, _ Broadcaster, executions *ExecutionSt
 	}
 }
 
-func (d *Dispatcher) Dispatch(ctx context.Context, def Definition) error {
+func (d *Dispatcher) Dispatch(ctx context.Context, def Definition, zoneID string) error {
 	if d == nil || d.dispatch == nil {
 		return nil
 	}
@@ -46,7 +46,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, def Definition) error {
 	)
 	executionID := ""
 	if d.executions != nil {
-		id, recordErr := d.executions.RecordStart(def.ID, def.Name, def.SourceFile, def.AgentKey, def.TeamID)
+		id, recordErr := d.executions.RecordStart(def.ID, def.Name, def.SourceFile, def.AgentKey, def.TeamID, zoneID)
 		if recordErr != nil {
 			log.Printf("[automation] execution record start failed id=%s source=%s err=%v", def.ID, def.SourceFile, recordErr)
 		} else {
