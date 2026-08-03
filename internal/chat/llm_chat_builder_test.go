@@ -495,13 +495,12 @@ func TestBuildLLMChatFromJSONLReplaysSteerWithoutInputMessages(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append first step: %v", err)
 	}
-	if err := store.AppendEventLine(chatID, EventLine{
+	if err := store.AppendSteerLine(chatID, SteerLine{
 		Type:      "steer",
 		ChatID:    chatID,
 		RunID:     "run-1",
 		UpdatedAt: testEpochMillis(3),
-		Event: map[string]any{
-			"type":    "request.steer",
+		Steer: map[string]any{
 			"runId":   "run-1",
 			"chatId":  chatID,
 			"steerId": "steer-1",

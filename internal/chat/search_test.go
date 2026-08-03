@@ -66,6 +66,21 @@ func TestSearchSessionFindsQueryMessageAndEvent(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append event: %v", err)
 	}
+	if err := appendSteerLineForTest(store, "chat-1", SteerLine{
+		ChatID:    "chat-1",
+		RunID:     "run-1",
+		UpdatedAt: testEpochMillis(310),
+		Type:      "steer",
+		Steer: map[string]any{
+			"chatId":  "chat-1",
+			"runId":   "run-1",
+			"steerId": "steer-1",
+			"message": "Please shorten the rollback checklist",
+			"role":    "user",
+		},
+	}); err != nil {
+		t.Fatalf("append steer: %v", err)
+	}
 
 	hits, err := store.SearchSession("chat-1", "rollback", 10)
 	if err != nil {
@@ -80,6 +95,7 @@ func TestSearchSessionFindsQueryMessageAndEvent(t *testing.T) {
 	foundQuery := false
 	foundMessage := false
 	foundSource := false
+	foundSteer := false
 	for _, hit := range hits {
 		if hit.Kind == "query" && hit.Role == "user" {
 			foundQuery = true
@@ -90,8 +106,11 @@ func TestSearchSessionFindsQueryMessageAndEvent(t *testing.T) {
 		if hit.Kind == "event" && hit.Meta["type"] == "source.publish" {
 			foundSource = true
 		}
+		if hit.Kind == "event" && hit.Meta["type"] == "request.steer" {
+			foundSteer = true
+		}
 	}
-	if !foundQuery || !foundMessage || !foundSource {
+	if !foundQuery || !foundMessage || !foundSource || !foundSteer {
 		t.Fatalf("expected query and message hits, got %#v", hits)
 	}
 }

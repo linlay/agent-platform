@@ -11,13 +11,14 @@ func TestDecodeJSONLRecordsAcceptsCurrentPhysicalLineSyntax(t *testing.T) {
 	content := strings.Join([]string{
 		`{"_type":"query","chatId":"chat-1","runId":"run-1","updatedAt":1700000000001,"query":{"role":"user","message":"hello"}}`,
 		`{"_type":"react","chatId":"chat-1","runId":"run-1","updatedAt":1700000000002,"stage":"execute","messages":[]}`,
+		`{"_type":"steer","chatId":"chat-1","runId":"run-1","updatedAt":1700000000003,"liveSeq":3,"steer":{"requestId":"req-1","chatId":"chat-1","runId":"run-1","steerId":"steer-1","message":"shorter","role":"user"}}`,
 	}, "\r\n")
 
 	records, err := decodeJSONLRecords([]byte(content), "chat.jsonl", true)
 	if err != nil {
 		t.Fatalf("decode current JSONL: %v", err)
 	}
-	if len(records) != 2 || stringFromAny(records[0].Value["_type"]) != "query" || stringFromAny(records[1].Value["stage"]) != "execute" {
+	if len(records) != 3 || stringFromAny(records[0].Value["_type"]) != "query" || stringFromAny(records[1].Value["stage"]) != "execute" || stringFromAny(records[2].Value["_type"]) != "steer" {
 		t.Fatalf("unexpected records %#v", records)
 	}
 	if err := ValidateJSONLContent(content, "chat.jsonl"); err != nil {
@@ -75,6 +76,13 @@ func TestDecodeJSONLRecordsRejectsUnsupportedSchema(t *testing.T) {
 		{name: "imprecise step system ref", content: `{"_type":"react","updatedAt":1700000000001,"messages":[],"systemRef":{"agentKey":"a","cacheKey":"react:main","fingerprint":"sha256:x","mode":"react"}}`, field: "system"},
 		{name: "awaiting event", content: `{"_type":"event","updatedAt":1700000000001,"event":{"type":"awaiting.ask","timestamp":1700000000001}}`, field: "event.type"},
 		{name: "planning snapshot event", content: `{"_type":"event","updatedAt":1700000000001,"event":{"type":"planning.snapshot","timestamp":1700000000001}}`, field: "event.type"},
+		{name: "legacy generic steer event", content: `{"_type":"event","chatId":"chat-1","runId":"run-1","updatedAt":1700000000001,"event":{"type":"request.steer","timestamp":1700000000001}}`, field: "event.type"},
+		{name: "legacy steer event", content: `{"_type":"steer","chatId":"chat-1","runId":"run-1","updatedAt":1700000000001,"event":{"type":"request.steer","timestamp":1700000000001}}`, field: "event"},
+		{name: "missing steer payload", content: `{"_type":"steer","chatId":"chat-1","runId":"run-1","updatedAt":1700000000001}`, field: "steer"},
+		{name: "steer event type", content: `{"_type":"steer","chatId":"chat-1","runId":"run-1","updatedAt":1700000000001,"steer":{"type":"request.steer","chatId":"chat-1","runId":"run-1","steerId":"steer-1","message":"shorter","role":"user"}}`, field: "steer.type"},
+		{name: "steer event timestamp", content: `{"_type":"steer","chatId":"chat-1","runId":"run-1","updatedAt":1700000000001,"steer":{"timestamp":1700000000001,"chatId":"chat-1","runId":"run-1","steerId":"steer-1","message":"shorter","role":"user"}}`, field: "steer.timestamp"},
+		{name: "empty steer request id", content: `{"_type":"steer","chatId":"chat-1","runId":"run-1","updatedAt":1700000000001,"steer":{"requestId":"","chatId":"chat-1","runId":"run-1","steerId":"steer-1","message":"shorter","role":"user"}}`, field: "steer.requestId"},
+		{name: "steer identity mismatch", content: `{"_type":"steer","chatId":"chat-1","runId":"run-1","updatedAt":1700000000001,"steer":{"chatId":"chat-other","runId":"run-1","steerId":"steer-1","message":"shorter","role":"user"}}`, field: "steer.chatId"},
 		{name: "query awaiting", content: `{"_type":"query","updatedAt":1700000000001,"awaiting":[]}`, field: "awaiting"},
 		{name: "plan awaiting mode", content: `{"_type":"react","updatedAt":1700000000001,"messages":[],"awaiting":[{"type":"awaiting.ask","mode":"plan","timestamp":1700000000001}]}`, field: "awaiting[0].mode"},
 		{name: "planning id fallback", content: `{"_type":"react","updatedAt":1700000000001,"messages":[],"awaiting":[{"type":"awaiting.ask","mode":"planning","timestamp":1700000000001,"planning":{"id":"p1","planningFile":"/tmp/p1.md"}}]}`, field: "awaiting[0].planning.planningId"},
@@ -113,7 +121,7 @@ func TestCurrentJSONLSchemaRejectsInvalidDataAcrossActiveReaders(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	invalid := validJSONLQueryLine(chatID) + "\n" + `{"type":"react","chatId":"` + chatID + `","runId":"run-1","updatedAt":1700000000002,"messages":[]}` + "\n"
+	invalid := validJSONLQueryLine(chatID) + "\n" + `{"_type":"steer","chatId":"` + chatID + `","runId":"run-1","updatedAt":1700000000002,"event":{"type":"request.steer","timestamp":1700000000002}}` + "\n"
 	if err := os.WriteFile(store.chatJSONLPath(chatID), []byte(invalid), 0o644); err != nil {
 		t.Fatal(err)
 	}

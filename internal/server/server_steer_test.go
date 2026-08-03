@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -223,6 +224,18 @@ func assertSteerPersistedWithoutInputMessage(t *testing.T, jsonlContent string, 
 		}
 		if entry["_type"] == "steer" {
 			foundSteer = true
+			if _, ok := entry["event"]; ok {
+				t.Fatalf("did not expect event wrapper on steer line: %s", line)
+			}
+			steer, ok := entry["steer"].(map[string]any)
+			if !ok || steer["message"] != steerMessage || steer["role"] != "user" || strings.TrimSpace(fmt.Sprint(steer["chatId"])) == "" || strings.TrimSpace(fmt.Sprint(steer["runId"])) == "" || strings.TrimSpace(fmt.Sprint(steer["steerId"])) == "" {
+				t.Fatalf("unexpected steer payload on line: %s", line)
+			}
+			for _, field := range []string{"type", "timestamp", "seq", "liveSeq", "requestId"} {
+				if _, ok := steer[field]; ok {
+					t.Fatalf("did not expect steer.%s on line: %s", field, line)
+				}
+			}
 		}
 		if inputMessages, ok := entry["inputMessages"]; ok {
 			encoded, err := json.Marshal(inputMessages)

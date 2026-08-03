@@ -14,7 +14,7 @@ import (
 //   - artifact publication audits are attached only to their matching tool step
 //   - snapshot events (reasoning/content/tool) become StoredMessages
 //   - request.submit + awaiting.answer are merged into SubmitLines
-//   - request.steer becomes a typed EventLine so chat detail can replay it
+//   - request.steer becomes a dedicated SteerLine so chat detail can replay it
 type StepWriter struct {
 	store  StepLineStore
 	chatID string
@@ -240,7 +240,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 
 	case "request.steer":
 		w.flushCurrentStep()
-		w.appendTypedEventLine(event, "steer")
+		w.appendSteerLine(event)
 
 	case "plan.create", "plan.update":
 		// Live-only for new JSONL writes. Plan task state is persisted in .tools/plan-tasks.

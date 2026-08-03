@@ -262,6 +262,32 @@ func (w *StepWriter) appendTypedEventLine(event stream.EventData, lineType strin
 	}
 }
 
+func (w *StepWriter) appendSteerLine(event stream.EventData) {
+	if w.store == nil || event.Timestamp <= 0 {
+		return
+	}
+	steer := map[string]any{
+		"chatId":  w.chatID,
+		"runId":   w.runID,
+		"steerId": event.String("steerId"),
+		"message": event.String("message"),
+		"role":    "user",
+	}
+	if requestID := strings.TrimSpace(event.String("requestId")); requestID != "" {
+		steer["requestId"] = requestID
+	}
+	if err := w.store.AppendSteerLine(w.chatID, SteerLine{
+		ChatID:    w.chatID,
+		RunID:     w.runID,
+		UpdatedAt: event.Timestamp,
+		LiveSeq:   event.Seq,
+		Steer:     steer,
+		Type:      "steer",
+	}); err != nil {
+		w.recordPersistenceError(err)
+	}
+}
+
 func (w *StepWriter) appendArtifactEvent(event stream.EventData) bool {
 	if w == nil || strings.TrimSpace(event.String("toolId")) == "" {
 		return false

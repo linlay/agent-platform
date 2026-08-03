@@ -494,7 +494,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				}
 				rd.events = append(rd.events, event)
 			}
-		case "event", "steer":
+		case "event":
 			lineLiveSeq := int64FromAny(line["liveSeq"])
 			event, _ := line["event"].(map[string]any)
 			if len(event) == 0 {
@@ -518,6 +518,15 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			}
 			rd := ensureRun(runs, &runOrder, runID)
 			rd.events = append(rd.events, parsed)
+		case "steer":
+			steer := cloneStringAnyMap(anyMap(line["steer"]))
+			addReplayLiveSeq(steer, int64FromAny(line["liveSeq"]))
+			rd := ensureRun(runs, &runOrder, runID)
+			rd.events = append(rd.events, stream.EventData{
+				Type:      "request.steer",
+				Timestamp: int64FromAny(line["updatedAt"]),
+				Payload:   steer,
+			})
 		}
 	}
 

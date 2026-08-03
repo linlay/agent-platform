@@ -152,7 +152,7 @@ func TestArchiveReadersRejectInvalidJSONLWithoutPartialResults(t *testing.T) {
 	if err := store.ArchiveChat(archived); err != nil {
 		t.Fatalf("archive chat: %v", err)
 	}
-	invalid := `{"type":"query","chatId":"` + chatID + `","runId":"run-archive","updatedAt":1700000001000}` + "\n"
+	invalid := `{"_type":"steer","chatId":"` + chatID + `","runId":"run-archive","updatedAt":1700000001000,"event":{"type":"request.steer","timestamp":1700000001000}}` + "\n"
 	if _, err := store.db.Exec("UPDATE ARCHIVED_CHATS SET JSONL_CONTENT_=? WHERE CHAT_ID_=?", invalid, chatID); err != nil {
 		t.Fatalf("seed invalid archived JSONL: %v", err)
 	}

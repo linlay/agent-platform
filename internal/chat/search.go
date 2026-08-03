@@ -243,7 +243,7 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 					})
 				}
 			}
-		case "event", "steer":
+		case "event":
 			event, _ := line["event"].(map[string]any)
 			text := searchEventText(event)
 			if score := sessionSearchScore(text, needle); score > 0 {
@@ -256,6 +256,22 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 					Score:     score,
 					Meta: map[string]any{
 						"type": stringValue(event["type"]),
+					},
+				})
+			}
+		case "steer":
+			steer, _ := line["steer"].(map[string]any)
+			text := searchEventText(steer)
+			if score := sessionSearchScore(text, needle); score > 0 {
+				appendHit(SearchHit{
+					Kind:      "event",
+					ChatID:    chatID,
+					RunID:     runID,
+					Timestamp: ts,
+					Snippet:   buildSnippet(text, needle),
+					Score:     score,
+					Meta: map[string]any{
+						"type": "request.steer",
 					},
 				})
 			}

@@ -19,6 +19,7 @@ type StepLineStore interface {
 	AppendQueryLine(chatID string, line QueryLine) error
 	AppendStepLine(chatID string, line StepLine) error
 	AppendEventLine(chatID string, line EventLine) error
+	AppendSteerLine(chatID string, line SteerLine) error
 	AppendSubmitLine(chatID string, line SubmitLine) error
 }
 

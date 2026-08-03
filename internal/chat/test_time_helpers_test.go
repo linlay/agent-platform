@@ -98,6 +98,14 @@ func appendEventLineForTest(store *FileStore, chatID string, line EventLine) err
 	return store.AppendEventLine(chatID, line)
 }
 
+func appendSteerLineForTest(store *FileStore, chatID string, line SteerLine) error {
+	line.UpdatedAt = testRequiredEpochMillis(line.UpdatedAt)
+	if err := ensureRunStartedForTest(store, chatID, line.RunID, line.UpdatedAt); err != nil {
+		return err
+	}
+	return store.AppendSteerLine(chatID, line)
+}
+
 func appendSubmitLineForTest(store *FileStore, chatID string, line SubmitLine) error {
 	line.UpdatedAt = testRequiredEpochMillis(line.UpdatedAt)
 	for _, payload := range []map[string]any{line.Submit, line.Answer} {

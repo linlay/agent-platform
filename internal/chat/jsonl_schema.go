@@ -26,6 +26,24 @@ var currentJSONLLineTypes = map[string]struct{}{
 	ToolCompactLineType:       {},
 }
 
+var currentSteerLineFields = map[string]struct{}{
+	"_type":     {},
+	"chatId":    {},
+	"runId":     {},
+	"updatedAt": {},
+	"liveSeq":   {},
+	"steer":     {},
+}
+
+var currentSteerPayloadFields = map[string]struct{}{
+	"requestId": {},
+	"chatId":    {},
+	"runId":     {},
+	"steerId":   {},
+	"message":   {},
+	"role":      {},
+}
+
 // JSONLSchemaViolation reports persisted chat data that does not satisfy the
 // current storage schema. It deliberately exposes only structural metadata.
 type JSONLSchemaViolation struct {
@@ -129,6 +147,11 @@ func validateCurrentJSONLLine(line map[string]any) error {
 	if _, ok := currentJSONLLineTypes[lineType]; !ok {
 		return newJSONLSchemaViolation(line, "_type", chatStorageSchemaExpectedLineTypes, lineType, "unsupported line type")
 	}
+	if lineType == "steer" {
+		if err := validateCurrentSteerSchema(line); err != nil {
+			return err
+		}
+	}
 
 	event, hasEvent := line["event"].(map[string]any)
 	if lineType == "event" {
@@ -140,6 +163,8 @@ func validateCurrentJSONLLine(line map[string]any) error {
 		switch strings.TrimSpace(stringFromAny(event["type"])) {
 		case "awaiting.ask", "planning.snapshot":
 			return newJSONLSchemaViolation(line, "event.type", "persistable event type", stringFromAny(event["type"]), "event type is not persisted as an event line")
+		case "request.steer":
+			return newJSONLSchemaViolation(line, "event.type", "non-steer event type", stringFromAny(event["type"]), "request.steer is persisted only as a steer line")
 		}
 	}
 
@@ -148,6 +173,52 @@ func validateCurrentJSONLLine(line map[string]any) error {
 	}
 	if err := validatePersistedSystemInitSchema([]map[string]any{line}); err != nil {
 		return newJSONLSchemaViolation(line, "system", "single query.system and exact step.systemRef", "invalid", err.Error())
+	}
+	return nil
+}
+
+func validateCurrentSteerSchema(line map[string]any) error {
+	for field, value := range line {
+		if _, ok := currentSteerLineFields[field]; !ok {
+			return newJSONLSchemaViolation(line, field, "steer line known fields", jsonValueType(value), "unknown steer line field")
+		}
+	}
+	for _, field := range []string{"chatId", "runId"} {
+		value, ok := line[field].(string)
+		if !ok || strings.TrimSpace(value) == "" {
+			return newJSONLSchemaViolation(line, field, "non-empty string", jsonValueType(line[field]), "steer line identity field is required")
+		}
+	}
+
+	rawSteer, found := line["steer"]
+	steer, ok := rawSteer.(map[string]any)
+	if !found || !ok || len(steer) == 0 {
+		return newJSONLSchemaViolation(line, "steer", "non-empty JSON object", jsonValueType(rawSteer), "steer payload is required")
+	}
+	for field, value := range steer {
+		if _, ok := currentSteerPayloadFields[field]; !ok {
+			return newJSONLSchemaViolation(line, "steer."+field, "steer payload known fields", jsonValueType(value), "unknown steer payload field")
+		}
+	}
+	for _, field := range []string{"chatId", "runId", "steerId", "message", "role"} {
+		value, ok := steer[field].(string)
+		if !ok || strings.TrimSpace(value) == "" {
+			return newJSONLSchemaViolation(line, "steer."+field, "non-empty string", jsonValueType(steer[field]), "steer payload field is required")
+		}
+	}
+	if requestID, found := steer["requestId"]; found {
+		value, ok := requestID.(string)
+		if !ok || strings.TrimSpace(value) == "" {
+			return newJSONLSchemaViolation(line, "steer.requestId", "non-empty string when present", jsonValueType(requestID), "empty requestId must be omitted")
+		}
+	}
+	if stringFromAny(steer["role"]) != "user" {
+		return newJSONLSchemaViolation(line, "steer.role", "user", stringFromAny(steer["role"]), "steer role must be user")
+	}
+	for _, field := range []string{"chatId", "runId"} {
+		if stringFromAny(steer[field]) != stringFromAny(line[field]) {
+			return newJSONLSchemaViolation(line, "steer."+field, "value matching top-level "+field, "mismatch", "steer payload identity must match its line")
+		}
 	}
 	return nil
 }

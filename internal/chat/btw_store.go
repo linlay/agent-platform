@@ -196,6 +196,13 @@ func (b *BTWBranchStore) AppendEventLine(_ string, line EventLine) error {
 	return b.append(line)
 }
 
+func (b *BTWBranchStore) AppendSteerLine(_ string, line SteerLine) error {
+	if b == nil || b.owner == nil {
+		return ErrBTWNotFound
+	}
+	return b.append(line)
+}
+
 func (b *BTWBranchStore) AppendSubmitLine(_ string, line SubmitLine) error {
 	if b == nil || b.owner == nil {
 		return ErrBTWNotFound

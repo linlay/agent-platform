@@ -1529,10 +1529,12 @@ func TestStepWriterPersistsLiveSeqAndReplaysIt(t *testing.T) {
 		Type:      "request.steer",
 		Timestamp: testEpochMillis(1007),
 		Payload: map[string]any{
-			"runId":   "run-live-seq",
-			"chatId":  "chat-live-seq",
-			"message": "nudge",
-			"role":    "user",
+			"requestId": "   ",
+			"runId":     "wrong-run",
+			"chatId":    "wrong-chat",
+			"steerId":   "steer-live-seq",
+			"message":   "nudge",
+			"role":      "assistant",
 		},
 	})
 	writer.Flush()
@@ -1620,15 +1622,20 @@ func TestStepWriterPersistsLiveSeqAndReplaysIt(t *testing.T) {
 	if _, ok := answer["seq"]; ok {
 		t.Fatalf("did not expect persisted answer seq, got %#v", answer)
 	}
-	steerEvent, _ := steerLine["event"].(map[string]any)
+	steer, _ := steerLine["steer"].(map[string]any)
 	if got := int64FromAny(steerLine["liveSeq"]); got != 8 {
 		t.Fatalf("expected steer line liveSeq=8, got %#v", steerLine)
 	}
-	if _, ok := steerEvent["liveSeq"]; ok {
-		t.Fatalf("did not expect nested steer liveSeq, got %#v", steerEvent)
+	if _, ok := steerLine["event"]; ok {
+		t.Fatalf("did not expect event on steer line, got %#v", steerLine)
 	}
-	if _, ok := steerEvent["seq"]; ok {
-		t.Fatalf("did not expect persisted steer seq, got %#v", steerEvent)
+	for _, field := range []string{"type", "timestamp", "seq", "liveSeq", "requestId"} {
+		if _, ok := steer[field]; ok {
+			t.Fatalf("did not expect nested steer %s, got %#v", field, steer)
+		}
+	}
+	if steer["chatId"] != "chat-live-seq" || steer["runId"] != "run-live-seq" || steer["steerId"] != "steer-live-seq" || steer["message"] != "nudge" || steer["role"] != "user" {
+		t.Fatalf("unexpected canonical steer payload %#v", steer)
 	}
 
 	detail, err := store.LoadChat("chat-live-seq")
@@ -6001,17 +6008,19 @@ func TestLoadChatReplaysSteerLine(t *testing.T) {
 		t.Fatalf("append query line: %v", err)
 	}
 
-	if err := appendEventLineForTest(store, "chat-steer", EventLine{
+	if err := appendSteerLineForTest(store, "chat-steer", SteerLine{
 		ChatID:    "chat-steer",
 		RunID:     "run-steer",
 		UpdatedAt: testEpochMillis(1001),
+		LiveSeq:   21,
 		Type:      "steer",
-		Event: map[string]any{
-			"type":      "request.steer",
+		Steer: map[string]any{
 			"requestId": "req-steer",
 			"chatId":    "chat-steer",
+			"runId":     "run-steer",
 			"steerId":   "steer-1",
 			"message":   "focus on the root cause",
+			"role":      "user",
 		},
 	}); err != nil {
 		t.Fatalf("append steer line: %v", err)
@@ -6037,7 +6046,10 @@ func TestLoadChatReplaysSteerLine(t *testing.T) {
 		}
 	}
 	if detail.Events[3].String("runId") != "run-steer" {
-		t.Fatalf("expected runId to be backfilled on request.steer, got %#v", detail.Events[3])
+		t.Fatalf("expected runId on request.steer, got %#v", detail.Events[3])
+	}
+	if detail.Events[3].Timestamp != testEpochMillis(1001) || int64FromAny(detail.Events[3].Value("liveSeq")) != 21 {
+		t.Fatalf("expected steer timestamp/liveSeq from line envelope, got %#v", detail.Events[3])
 	}
 }
 

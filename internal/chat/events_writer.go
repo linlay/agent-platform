@@ -31,6 +31,10 @@ func (s *FileStore) AppendEventLine(chatID string, line EventLine) error {
 	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
 }
 
+func (s *FileStore) AppendSteerLine(chatID string, line SteerLine) error {
+	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
+}
+
 func (s *FileStore) AppendSubmitLine(chatID string, line SubmitLine) error {
 	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
 }

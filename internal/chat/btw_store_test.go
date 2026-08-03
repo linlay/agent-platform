@@ -76,12 +76,35 @@ func TestBTWBranchCopiesParentAndAppendsIndependently(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("append branch query: %v", err)
 	}
+	if err := branch.AppendSteerLine(chatID, SteerLine{
+		Type:      "steer",
+		ChatID:    chatID,
+		RunID:     "run-btw",
+		UpdatedAt: testEpochMillis(102),
+		LiveSeq:   2,
+		Steer: map[string]any{
+			"chatId":  chatID,
+			"runId":   "run-btw",
+			"steerId": "steer-btw",
+			"message": "side clarification",
+			"role":    "user",
+		},
+	}); err != nil {
+		t.Fatalf("append branch steer: %v", err)
+	}
 	parentAfter, err := os.ReadFile(store.chatJSONLPath(chatID))
 	if err != nil {
 		t.Fatalf("read parent after: %v", err)
 	}
 	if string(parentAfter) != string(parentBefore) {
 		t.Fatalf("branch append changed parent JSONL")
+	}
+	branchAfter, err := os.ReadFile(branch.Path())
+	if err != nil {
+		t.Fatalf("read branch after steer: %v", err)
+	}
+	if !strings.Contains(string(branchAfter), `"_type":"steer"`) || !strings.Contains(string(branchAfter), `"steer":{`) || strings.Contains(string(branchAfter), `"event":{"type":"request.steer"`) {
+		t.Fatalf("unexpected branch steer persistence: %s", branchAfter)
 	}
 	messages, err := branch.LoadRawMessages(10)
 	if err != nil {
