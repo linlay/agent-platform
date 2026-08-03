@@ -64,6 +64,34 @@ run_deploy "$existing_output" --ai-image-generate-model-key ignored-model-key
   exit 1
 }
 
+reset_output="$tmp_dir/reset-output"
+reset_backup="$tmp_dir/config-backups/v0.3.26-to-v0.3.27/agent-platform"
+mkdir -p "$reset_output/configs"
+printf 'ENGINE=local\nOLD_FIELD=remove-me\nAP_CHAT_RESOURCE_TICKET_SECRET=ticket-secret\n' >"$reset_output/.env"
+printf 'stale-yaml\n' >"$reset_output/configs/ai-tools.yml"
+run_deploy "$reset_output" \
+  --desktop-config-reset \
+  --desktop-config-backup-dir "$reset_backup" \
+  --desktop-version-from v0.3.26 \
+  --desktop-version-to v0.3.27
+grep -Fqx 'ENGINE=local' "$reset_backup/.env"
+grep -Fqx 'OLD_FIELD=remove-me' "$reset_backup/.env"
+grep -Fqx 'AP_CHAT_RESOURCE_TICKET_SECRET=ticket-secret' "$reset_output/.env"
+! grep -Fq 'ENGINE=' "$reset_output/.env"
+! grep -Fq 'OLD_FIELD=' "$reset_output/.env"
+cmp "$REPO_ROOT/configs/ai-tools.example.yml" "$reset_output/configs/ai-tools.yml"
+
+printf 'FAILED_ONLY=diagnostic\n' >>"$reset_output/.env"
+run_deploy "$reset_output" \
+  --desktop-config-reset \
+  --desktop-config-backup-dir "$reset_backup" \
+  --desktop-version-from v0.3.26 \
+  --desktop-version-to v0.3.27
+grep -Fqx 'ENGINE=local' "$reset_backup/.env"
+grep -Fqx 'FAILED_ONLY=diagnostic' "${reset_backup}.failed/.env"
+grep -Fqx 'AP_CHAT_RESOURCE_TICKET_SECRET=ticket-secret' "$reset_output/.env"
+! grep -Fq 'FAILED_ONLY=' "$reset_output/.env"
+
 set +e
 missing_value_output="$(
   run_deploy "$tmp_dir/missing-value" --ai-image-generate-model-key 2>&1

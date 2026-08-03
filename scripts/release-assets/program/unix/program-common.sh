@@ -29,6 +29,10 @@ DEPLOY_KBASE_MODEL_KEY=""
 DEPLOY_KBASE_REASONING_EFFORT=""
 DEPLOY_KBASE_EMBEDDING_MODEL_KEY=""
 DEPLOY_PUBLIC_KEY_SOURCE_FILE=""
+DEPLOY_DESKTOP_CONFIG_RESET=0
+DEPLOY_DESKTOP_CONFIG_BACKUP_DIR=""
+DEPLOY_DESKTOP_VERSION_FROM=""
+DEPLOY_DESKTOP_VERSION_TO=""
 
 program_die() {
   echo "[program] $*" >&2
@@ -177,6 +181,25 @@ program_apply_deploy_flags() {
         DEPLOY_PUBLIC_KEY_SOURCE_FILE="$2"
         shift 2
         ;;
+      --desktop-config-reset)
+        DEPLOY_DESKTOP_CONFIG_RESET=1
+        shift
+        ;;
+      --desktop-config-backup-dir)
+        [[ $# -ge 2 ]] || program_die "missing value for --desktop-config-backup-dir"
+        DEPLOY_DESKTOP_CONFIG_BACKUP_DIR="$2"
+        shift 2
+        ;;
+      --desktop-version-from)
+        [[ $# -ge 2 ]] || program_die "missing value for --desktop-version-from"
+        DEPLOY_DESKTOP_VERSION_FROM="$2"
+        shift 2
+        ;;
+      --desktop-version-to)
+        [[ $# -ge 2 ]] || program_die "missing value for --desktop-version-to"
+        DEPLOY_DESKTOP_VERSION_TO="$2"
+        shift 2
+        ;;
       --config-dir|--state-dir|--log-dir|--port|--daemon)
         program_reject_deploy_start_arg "$1"
         ;;
@@ -194,6 +217,12 @@ program_apply_deploy_flags() {
   program_require_arg_value "--container-hub-base-url" "$DEPLOY_CONTAINER_HUB_BASE_URL"
   program_require_arg_value "--public-key-source-file" "$DEPLOY_PUBLIC_KEY_SOURCE_FILE"
   program_require_file "$DEPLOY_PUBLIC_KEY_SOURCE_FILE"
+  if [[ "$DEPLOY_DESKTOP_CONFIG_RESET" == "1" ]]; then
+    program_validate_desktop_config_reset_args \
+      "$DEPLOY_DESKTOP_CONFIG_BACKUP_DIR" \
+      "$DEPLOY_DESKTOP_VERSION_FROM" \
+      "$DEPLOY_DESKTOP_VERSION_TO"
+  fi
 }
 
 program_initialize_config() {
@@ -220,6 +249,60 @@ program_initialize_config() {
       [[ -f "$target" ]] || cp "$source" "$target"
     done
   fi
+}
+
+program_validate_desktop_config_reset_args() {
+  local backup_dir="$1"
+  local version_from="$2"
+  local version_to="$3"
+  [[ "$backup_dir" == /* ]] || program_die "--desktop-config-backup-dir must be absolute"
+  [[ -n "${version_from//[[:space:]]/}" ]] || program_die "missing value for --desktop-version-from"
+  [[ -n "${version_to//[[:space:]]/}" ]] || program_die "missing value for --desktop-version-to"
+  [[ "$backup_dir" != "$CONFIG_ROOT" && "$backup_dir" != "$CONFIG_ROOT/"* ]] || \
+    program_die "Desktop config backup directory must be outside the service config directory"
+}
+
+program_secure_config_tree() {
+  local target="$1"
+  [[ -e "$target" ]] || return
+  find "$target" -type d -exec chmod 700 {} +
+  find "$target" -type f -exec chmod 600 {} +
+}
+
+program_reset_desktop_config() {
+  local backup_dir="$1"
+  local backup_parent
+  local failed_dir="${backup_dir}.failed"
+  backup_parent="$(dirname "$backup_dir")"
+  mkdir -p "$backup_parent"
+  chmod 700 "$backup_parent"
+  if [[ -e "$backup_dir" ]]; then
+    rm -rf "$failed_dir"
+    if [[ -e "$CONFIG_ROOT" ]]; then
+      mv "$CONFIG_ROOT" "$failed_dir"
+      program_secure_config_tree "$failed_dir"
+    fi
+  elif [[ -e "$CONFIG_ROOT" ]]; then
+    mv "$CONFIG_ROOT" "$backup_dir"
+    program_secure_config_tree "$backup_dir"
+  fi
+  mkdir -p "$CONFIG_ROOT"
+  chmod 700 "$CONFIG_ROOT"
+  program_refresh_paths
+}
+
+program_read_env_literal_value() {
+  local file="$1"
+  local name="$2"
+  [[ -f "$file" ]] || return 1
+  awk -v name="$name" '
+    $0 ~ "^[[:space:]]*(export[[:space:]]+)?" name "[[:space:]]*=" {
+      line = $0
+      sub("^[[:space:]]*(export[[:space:]]+)?" name "[[:space:]]*=", "", line)
+      print line
+      exit
+    }
+  ' "$file"
 }
 
 program_set_env_value() {
