@@ -966,6 +966,18 @@ type SkillSummary struct {
 	Meta        map[string]any `json:"meta,omitempty"`
 }
 
+type AgentSkillResponse struct {
+	Key           string `json:"key"`
+	Name          string `json:"name"`
+	Description   string `json:"description,omitempty"`
+	AgentHasSkill bool   `json:"agentHasSkill"`
+}
+
+type AgentSkillsResponse struct {
+	AgentKey string               `json:"agentKey"`
+	Skills   []AgentSkillResponse `json:"skills"`
+}
+
 type AdminSkillSummary struct {
 	Key             string                       `json:"key"`
 	Name            string                       `json:"name"`

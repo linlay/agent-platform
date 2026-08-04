@@ -10,6 +10,7 @@
 
 - `GET /api/agents`
 - `GET /api/agent?agentKey=...`
+- `GET /api/skills?agentKey=...`
 - `GET /api/teams`
 - `GET /api/admin/skills`
 - `GET /api/admin/tools`
@@ -94,6 +95,7 @@ curl http://127.0.0.1:11949/api/agents
 curl "http://127.0.0.1:11949/api/agents?includeChats=5"
 curl "http://127.0.0.1:11949/api/agents?includeTeam=true&includeChats=5"
 curl "http://127.0.0.1:11949/api/agent?agentKey=default_agent"
+curl "http://127.0.0.1:11949/api/skills?agentKey=default_agent"
 curl http://127.0.0.1:11949/api/chats
 ```
 

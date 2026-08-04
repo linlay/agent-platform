@@ -325,6 +325,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/monitor/ws/connections", s.method(http.MethodGet, s.handleMonitorWSConnections))
 	s.router.HandleFunc("/api/monitor/ws/messages", s.method(http.MethodGet, s.handleMonitorWSMessages))
 	s.router.HandleFunc("/api/teams", s.method(http.MethodGet, s.handleTeams))
+	s.router.HandleFunc("/api/skills", s.method(http.MethodGet, s.handleAgentSkills))
 	s.router.HandleFunc("/api/admin/skills", s.method(http.MethodGet, s.handleSkills))
 	s.router.HandleFunc("/api/admin/skills/detail", s.method(http.MethodGet, s.handleAdminSkillDetail))
 	s.router.HandleFunc("/api/admin/skills/create", s.method(http.MethodPost, s.handleAdminSkillCreate))
