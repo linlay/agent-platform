@@ -167,10 +167,10 @@ func defaultConfig(options LoadOptions) Config {
 		},
 		Desktop: DesktopConfig{
 			Action: DesktopBridgeConfig{
-				RequestTimeout: 20, // seconds
+				RequestTimeout: 120, // seconds
 			},
 			CDP: DesktopBridgeConfig{
-				RequestTimeout: 20, // seconds
+				RequestTimeout: 120, // seconds
 			},
 		},
 		AccessPolicy: defaultAccessPolicyConfig(),
@@ -394,7 +394,7 @@ func normalizeDesktopBridgeConfig(cfg DesktopBridgeConfig) DesktopBridgeConfig {
 	cfg.Host = strings.TrimSpace(cfg.Host)
 	cfg.Path = strings.TrimSpace(cfg.Path)
 	if cfg.RequestTimeout <= 0 {
-		cfg.RequestTimeout = 20
+		cfg.RequestTimeout = 120
 	}
 	if cfg.Host == "" || cfg.Port <= 0 || cfg.Path == "" {
 		cfg.BridgeURL = ""

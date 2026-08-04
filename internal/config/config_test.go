@@ -25,12 +25,12 @@ func TestLoadDefaults(t *testing.T) {
 			"    host: 127.0.0.1\n" +
 			"    port: 11788\n" +
 			"    path: /actions/call\n" +
-			"    request-timeout: 20\n" +
+			"    request-timeout: 120\n" +
 			"  cdp:\n" +
 			"    host: 127.0.0.1\n" +
 			"    port: 11788\n" +
 			"    path: /cdp/call\n" +
-			"    request-timeout: 20\n"
+			"    request-timeout: 120\n"
 		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &runtimeConfig, func() {
 			withProjectFileContents(t, filepath.Join("configs", "kbase-settings.yml"), nil, func() {
 				cfg, err := Load()
@@ -472,6 +472,12 @@ func TestLoadDesktopConfigMissingFileLeavesBridgeUnconfigured(t *testing.T) {
 				}
 				if cfg.Desktop.CDP.BridgeURL != "" {
 					t.Fatalf("expected missing desktop cdp bridge url, got %q", cfg.Desktop.CDP.BridgeURL)
+				}
+				if cfg.Desktop.Action.RequestTimeout != 120 {
+					t.Fatalf("expected default desktop action timeout 120, got %d", cfg.Desktop.Action.RequestTimeout)
+				}
+				if cfg.Desktop.CDP.RequestTimeout != 120 {
+					t.Fatalf("expected default desktop cdp timeout 120, got %d", cfg.Desktop.CDP.RequestTimeout)
 				}
 			})
 		})
