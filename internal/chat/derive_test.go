@@ -143,7 +143,7 @@ func TestDeriveChatCopiesResourcesAndRewritesReferences(t *testing.T) {
 		"name":       "notes.txt",
 		"mimeType":   "text/plain",
 		"sizeBytes":  5,
-		"url":        "/api/resource?file=chat-source-res%2Fnotes.txt",
+		"url":        "chat-source-res/notes.txt",
 	}}); err != nil {
 		t.Fatalf("append included artifact manifest: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestDeriveChatCopiesResourcesAndRewritesReferences(t *testing.T) {
 	if len(manifest.Items) != 1 || manifest.Items[0].ArtifactID != "artifact-included" || manifest.Items[0].RunID != result.LastRunID {
 		t.Fatalf("unexpected derived artifact manifest %#v", manifest)
 	}
-	if !strings.Contains(manifest.Items[0].URL, "file=chat-derived-res%2Fnotes.txt") {
+	if manifest.Items[0].URL != "chat-derived-res/notes.txt" {
 		t.Fatalf("derived artifact URL = %q", manifest.Items[0].URL)
 	}
 

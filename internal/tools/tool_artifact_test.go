@@ -358,6 +358,11 @@ func TestArtifactPublishSchemaDoesNotExposeName(t *testing.T) {
 	if !strings.Contains(schema, "/Users/.../Downloads") {
 		t.Fatalf("artifact_publish schema should warn against arbitrary local Downloads paths")
 	}
+	for _, requiredRule := range []string{"publishedArtifacts[n].url", "must never be shown", "Never hand", "file://", "absolute"} {
+		if !strings.Contains(schema, requiredRule) {
+			t.Fatalf("artifact_publish schema missing resource Markdown rule %q", requiredRule)
+		}
+	}
 }
 
 func assertCount(t *testing.T, got any, want int) {

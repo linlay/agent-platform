@@ -55,7 +55,7 @@ func TestPushOneSendsResourcePushedAfterUploadSuccess(t *testing.T) {
 		"name":       "report.txt",
 		"mimeType":   "text/plain",
 		"type":       "file",
-		"url":        "/api/resource?file=chat-1/report.txt",
+		"url":        "chat-1/report.txt",
 	})
 
 	if !uploadCalled {
@@ -110,6 +110,17 @@ func TestPushOneDoesNotSendResourcePushedAfterUploadFailure(t *testing.T) {
 
 	if notifications.eventType != "" || notifications.data != nil {
 		t.Fatalf("did not expect notification after failed upload, got type=%q data=%#v", notifications.eventType, notifications.data)
+	}
+}
+
+func TestExtractResourceFileParamSupportsLogicalAndLegacyURLs(t *testing.T) {
+	for input, want := range map[string]string{
+		"chat-1/artifacts/run-1/%E5%A4%8F%E6%97%A5%20%E6%B5%B7%E6%8A%A5.png": "chat-1/artifacts/run-1/夏日 海报.png",
+		"/api/resource?file=chat-1%2Fartifacts%2Frun-1%2Freport.png":         "chat-1/artifacts/run-1/report.png",
+	} {
+		if got := extractResourceFileParam(input); got != want {
+			t.Fatalf("extractResourceFileParam(%q)=%q want=%q", input, got, want)
+		}
 	}
 }
 

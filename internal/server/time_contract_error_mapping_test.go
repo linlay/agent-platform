@@ -65,6 +65,10 @@ func (s timeContractEnsureChatStore) EnsureChat(string, string, string, string) 
 	return chat.Summary{}, false, s.err
 }
 
+func (s timeContractEnsureChatStore) EnsureChatWithSource(string, string, string, string, string) (chat.Summary, bool, error) {
+	return chat.Summary{}, false, s.err
+}
+
 func testTimeContractViolation(field string) error {
 	return &timecontract.Violation{
 		Field:    field,

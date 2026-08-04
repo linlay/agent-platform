@@ -51,7 +51,7 @@
 - `GET /api/attach` 与 `POST /api/submit` / `steer` / `interrupt` 按公开 run owner 校验：普通 Agent 携带 `agentKey`，Team 只携带 `teamId`，不得提交隐藏协调器 key 或 `agentKey`。
 - `POST /api/submit` 使用 awaiting 协议：请求体必须包含 `runId`、`awaitingId`，并按 run 类型携带 `agentKey` 或 `teamId`。
 - Platform 重启会从持久化 pending summary 恢复未超时/无限等待的 question 与永久 planning；approval/form 或已超时等待项会补齐 error answer、未执行 tool result 和 cancel completion，再清除 pending。
-- 文件传输按“HTTP 数据面 + WebSocket 控制面”划分：浏览器上传继续使用 `POST /api/upload`，下载继续使用 `GET /api/resource?file=...`；upload ticket 中的 `path` 是智能体执行环境内的可读路径，`url` 只用于平台资源访问；`/ws` 只传文件引用与状态，不承载文件字节。当前 `/ws` 的 `/api/upload` 仅支持网关发送 `url + metadata`，由 platform 再通过 HTTP 拉取文件并落盘。
+- 文件传输按“HTTP 数据面 + WebSocket 控制面”划分：浏览器上传继续使用 `POST /api/upload`，实际下载继续使用 `GET /api/resource?file=...`；新图片/产物结果的 `url` 是 `<chatId>/<relativePath>` 逻辑引用，由客户端转换成该 HTTP 请求，历史 `/api/resource?file=...` 保持只读兼容。`path` 只供智能体工具读取或继续发布，绝不进入 Markdown；`/ws` 只传文件引用与状态，不承载文件字节。
 - 文件工具的 `file_read` / `file_glob` / `file_grep` 与 `file_write` / `file_edit` 白名单独立于 bash allowed paths，默认均为 `.,/tmp`；越权访问会走 `mode=approval`，可单次批准或用 `approve_rule_run` 在当前 run 内批准同一规则。
 - 专用 `mode: KBASE` 与普通 KBASE capability 都以 `runtimeConfig.workspaceRoot` 为唯一内容根；专用 mode 在 main/editing 两种 stage 提供相同的五个通用文本文件工具，当前 Chat 目录独立可读写。单次 `/api/query` 顶层 `editingMode:true` 只允许 KBASE Workspace mutation，未开启时 Workspace 仍可读但不可 write/edit；所有目录先服从 AccessPolicy/HITL，索引由 KBASE watcher 异步维护。普通 Agent 附加的 KBASE capability 与其他 mode 不支持该字段。
 

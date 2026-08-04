@@ -24,7 +24,8 @@ func TestDispatcherEmitsBatchedArtifactPublish(t *testing.T) {
 				"name":       "report.md",
 				"mimeType":   "text/markdown",
 				"sizeBytes":  123,
-				"url":        "/api/resource?file=chat_1%2Freport.md",
+				"sha256":     "abc123",
+				"url":        "chat_1/artifacts/run_1/report.md",
 			},
 			{
 				"artifactId": "artifact_2",
@@ -32,12 +33,16 @@ func TestDispatcherEmitsBatchedArtifactPublish(t *testing.T) {
 				"name":       "summary.txt",
 				"mimeType":   "text/plain",
 				"sizeBytes":  45,
-				"url":        "/api/resource?file=chat_1%2Fsummary.txt",
+				"sha256":     "def456",
+				"url":        "chat_1/artifacts/run_1/summary.txt",
 			},
 		},
 	})
 
 	assertEventTypes(t, events, "artifact.publish")
+	if events[0].Timestamp < 1_000_000_000_000 {
+		t.Fatalf("expected epoch-millisecond timestamp, got %d", events[0].Timestamp)
+	}
 	payload := events[0].Data()
 	if payload.String("chatId") != "chat_1" || payload.String("runId") != "run_1" || payload.String("taskId") != "task_1" || payload.String("toolId") != "call_artifact" {
 		t.Fatalf("unexpected routing fields %#v", payload)
@@ -69,7 +74,7 @@ func TestEventDataMarshalsArtifactPublishWithContractKeyOrder(t *testing.T) {
 				"mimeType":   "text/markdown",
 				"sizeBytes":  123,
 				"sha256":     "abc123",
-				"url":        "/api/resource?file=chat_1%2Freport.md",
+				"url":        "chat_1/artifacts/run_1/report.md",
 			},
 			{
 				"artifactId": "artifact_2",
@@ -77,7 +82,8 @@ func TestEventDataMarshalsArtifactPublishWithContractKeyOrder(t *testing.T) {
 				"name":       "summary.txt",
 				"mimeType":   "text/plain",
 				"sizeBytes":  45,
-				"url":        "/api/resource?file=chat_1%2Fsummary.txt",
+				"sha256":     "def456",
+				"url":        "chat_1/artifacts/run_1/summary.txt",
 			},
 		},
 	})

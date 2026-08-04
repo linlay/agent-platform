@@ -135,6 +135,9 @@ func materializeProxyFileReference(store chat.Store, chatID string, runID string
 
 func resolveProxyFileSource(store chat.Store, chatID string, chatDir string, workspaceRoot string, rawPath string) (string, error) {
 	if fileParam := resourceFileParam(rawPath); fileParam != "" {
+		if store == nil {
+			return "", fmt.Errorf("resource store unavailable")
+		}
 		sourcePath, err := store.ResolveResource(fileParam)
 		if err != nil {
 			return "", err
@@ -213,15 +216,23 @@ func normalizeProxyReferencePath(ref api.Reference) api.Reference {
 }
 
 func normalizeProxyReferenceURL(ref api.Reference, ticketService *ResourceTicketService, options proxyReferenceOptions) api.Reference {
-	if strings.TrimSpace(ref.URL) == "" {
+	rawURL := strings.TrimSpace(ref.URL)
+	if rawURL == "" {
 		return ref
 	}
-	parsed, err := url.Parse(strings.TrimSpace(ref.URL))
+	fileParam := resourceFileParam(rawURL)
+	if fileParam == "" {
+		return ref
+	}
+	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		return ref
 	}
 	if !isResourceURL(parsed, ref.URL) {
-		return ref
+		parsed, err = url.Parse(resourceURLForFileParam(fileParam))
+		if err != nil {
+			return ref
+		}
 	}
 	base := strings.TrimRight(strings.TrimSpace(options.ResourceBaseURL), "/")
 	if parsed.IsAbs() && !sameURLOrigin(parsed, base) {
@@ -273,14 +284,26 @@ func requestBaseURL(r *http.Request) string {
 }
 
 func resourceFileParam(rawURL string) string {
-	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	raw := strings.TrimSpace(rawURL)
+	parsed, err := url.Parse(raw)
 	if err != nil {
 		return ""
 	}
-	if !isResourceURL(parsed, rawURL) {
+	if isResourceURL(parsed, rawURL) {
+		return parsed.Query().Get("file")
+	}
+	if raw == "@chat" || strings.HasPrefix(raw, "@chat/") ||
+		raw == "@workspace" || strings.HasPrefix(raw, "@workspace/") ||
+		raw == "/chat" || strings.HasPrefix(raw, "/chat/") ||
+		raw == "/workspace" || strings.HasPrefix(raw, "/workspace/") ||
+		strings.HasPrefix(raw, "/") || strings.Contains(raw, `\`) {
 		return ""
 	}
-	return parsed.Query().Get("file")
+	chatID, relativePath, err := chat.ParseResourceKey(raw)
+	if err != nil {
+		return ""
+	}
+	return filepath.ToSlash(filepath.Join(chatID, relativePath))
 }
 
 func isResourceURL(parsed *url.URL, rawURL string) bool {

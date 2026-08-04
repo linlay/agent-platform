@@ -101,6 +101,163 @@ func TestUploadAndResourceRoundTrip(t *testing.T) {
 	}
 }
 
+func TestResourceServesEncodedImageInlineAndRejectsUnsafeKeys(t *testing.T) {
+	fixture := newTestFixture(t)
+	chatID := "chat-resource-image"
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "image"); err != nil {
+		t.Fatal(err)
+	}
+	filename := "夏日 海报 #1%.png"
+	imageBytes := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 1, 2, 3}
+	if err := os.MkdirAll(fixture.chats.ChatDir(chatID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fixture.chats.ChatDir(chatID), filename), imageBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := chat.BuildResourceRef(chatID, filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	requestURL := "/api/resource?file=" + url.QueryEscape(ref)
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, requestURL, nil))
+	if rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), imageBytes) {
+		t.Fatalf("resource response status=%d body=%q", rec.Code, rec.Body.Bytes())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "image/png" {
+		t.Fatalf("Content-Type=%q", got)
+	}
+	if got := rec.Header().Get("Content-Disposition"); !strings.HasPrefix(got, "inline") || !strings.Contains(got, "filename") {
+		t.Fatalf("Content-Disposition=%q", got)
+	}
+
+	legacyRec := httptest.NewRecorder()
+	legacyURL := "/api/resource?file=" + url.QueryEscape(chatID+"/"+filename)
+	fixture.server.ServeHTTP(legacyRec, httptest.NewRequest(http.MethodGet, legacyURL, nil))
+	if legacyRec.Code != http.StatusOK || !bytes.Equal(legacyRec.Body.Bytes(), imageBytes) {
+		t.Fatalf("legacy resource response status=%d body=%q", legacyRec.Code, legacyRec.Body.Bytes())
+	}
+
+	outside := filepath.Join(t.TempDir(), "outside.png")
+	if err := os.WriteFile(outside, imageBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(fixture.chats.ChatDir(chatID), "escaped.png")); err == nil {
+		symlinkRec := httptest.NewRecorder()
+		fixture.server.ServeHTTP(symlinkRec, httptest.NewRequest(http.MethodGet, "/api/resource?file="+url.QueryEscape(chatID+"/escaped.png"), nil))
+		if symlinkRec.Code == http.StatusOK {
+			t.Fatal("symlink escape unexpectedly succeeded")
+		}
+	}
+
+	downloadRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(downloadRec, httptest.NewRequest(http.MethodGet, requestURL+"&download=true", nil))
+	if got := downloadRec.Header().Get("Content-Disposition"); !strings.HasPrefix(got, "attachment") {
+		t.Fatalf("download Content-Disposition=%q", got)
+	}
+
+	for _, unsafe := range []string{
+		"/Users/alice/image.png",
+		`C:\Users\alice\image.png`,
+		"https://example.com/image.png",
+		chatID + "/%2e%2e/secret.png",
+	} {
+		unsafeRec := httptest.NewRecorder()
+		fixture.server.ServeHTTP(unsafeRec, httptest.NewRequest(http.MethodGet, "/api/resource?file="+url.QueryEscape(unsafe), nil))
+		if unsafeRec.Code == http.StatusOK {
+			t.Fatalf("unsafe resource key %q unexpectedly succeeded", unsafe)
+		}
+	}
+}
+
+func TestResourceFallsBackToArchivedChatCopy(t *testing.T) {
+	fixture := newTestFixture(t)
+	archives, err := chat.NewArchiveStore(fixture.cfg.Paths.ChatsDir)
+	if err != nil {
+		t.Fatalf("new archive store: %v", err)
+	}
+	fixture.server.deps.Archives = archives
+
+	chatID := "chat-archived-resource"
+	filename := "归档 海报.png"
+	imageBytes := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 4, 5, 6}
+	if err := os.MkdirAll(archives.ChatDir(chatID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(archives.ChatDir(chatID), filename), imageBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ref, err := chat.BuildResourceRef(chatID, filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/resource?file="+url.QueryEscape(ref), nil))
+	if rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), imageBytes) {
+		t.Fatalf("archived resource response status=%d body=%q", rec.Code, rec.Body.Bytes())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "image/png" {
+		t.Fatalf("Content-Type=%q", got)
+	}
+}
+
+func TestResourceBearerCookieOwnershipAndInvalidBearerPrecedence(t *testing.T) {
+	fixture := newTestFixture(t)
+	privateKey, publicKeyPath := writeTestJWTKeyPair(t, fixture.cfg.Paths.ChatsDir)
+	fixture.cfg.Auth = config.AuthConfig{Enabled: true, LocalPublicKeyFile: publicKeyPath, Issuer: "agent-platform-local"}
+	server := newServerFromFixture(t, fixture)
+	chatID := "chat-owned-resource"
+	if _, _, err := fixture.chats.EnsureChatWithSource(chatID, "mock-agent", "", "owned", api.ChatSourceQueryPrefix+"alice"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(fixture.chats.ChatDir(chatID), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fixture.chats.ChatDir(chatID), "image.png"), []byte("owned"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resourceURL := "/api/resource?file=" + url.QueryEscape(chatID+"/image.png")
+	issue := func(subject string) string {
+		return mustSignRS256JWT(t, privateKey, map[string]any{"sub": subject, "iss": "agent-platform-local", "exp": float64(4102444800)})
+	}
+
+	bearerReq := httptest.NewRequest(http.MethodGet, resourceURL, nil)
+	bearerReq.Header.Set("Authorization", "Bearer "+issue("alice"))
+	bearerRec := httptest.NewRecorder()
+	server.ServeHTTP(bearerRec, bearerReq)
+	if bearerRec.Code != http.StatusOK {
+		t.Fatalf("owner bearer status=%d body=%s", bearerRec.Code, bearerRec.Body.String())
+	}
+
+	cookieReq := httptest.NewRequest(http.MethodGet, resourceURL, nil)
+	cookieReq.AddCookie(&http.Cookie{Name: "access_token", Value: issue("alice")})
+	cookieRec := httptest.NewRecorder()
+	server.ServeHTTP(cookieRec, cookieReq)
+	if cookieRec.Code != http.StatusOK {
+		t.Fatalf("owner cookie status=%d body=%s", cookieRec.Code, cookieRec.Body.String())
+	}
+
+	otherReq := httptest.NewRequest(http.MethodGet, resourceURL, nil)
+	otherReq.Header.Set("Authorization", "Bearer "+issue("bob"))
+	otherRec := httptest.NewRecorder()
+	server.ServeHTTP(otherRec, otherReq)
+	if otherRec.Code != http.StatusForbidden {
+		t.Fatalf("cross-owner status=%d body=%s", otherRec.Code, otherRec.Body.String())
+	}
+
+	invalidReq := httptest.NewRequest(http.MethodGet, resourceURL, nil)
+	invalidReq.Header.Set("Authorization", "Bearer invalid")
+	invalidReq.AddCookie(&http.Cookie{Name: "access_token", Value: issue("alice")})
+	invalidRec := httptest.NewRecorder()
+	server.ServeHTTP(invalidRec, invalidReq)
+	if invalidRec.Code != http.StatusUnauthorized {
+		t.Fatalf("invalid bearer with valid cookie status=%d body=%s", invalidRec.Code, invalidRec.Body.String())
+	}
+}
+
 func TestUploadReturnsContainerPathWhenAgentUsesContainerRuntime(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w,

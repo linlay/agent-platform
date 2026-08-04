@@ -2,12 +2,14 @@ package server
 
 import (
 	"bufio"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -50,30 +52,39 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "file is required"))
 		return
 	}
-	if chat.IsToolInternalPath(fileParam) {
+	if chat.IsToolInternalPath(fileParam) || chat.IsBTWInternalPath(fileParam) {
 		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource access denied"))
 		return
 	}
+	chatID, relativePath, parseErr := chat.ParseResourceKey(fileParam)
+	if parseErr != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid resource key"))
+		return
+	}
+	principal := PrincipalFromContext(r.Context())
 	if s.deps.Config.ResourceTicket.Enabled() {
-		principal := PrincipalFromContext(r.Context())
 		ticket := strings.TrimSpace(r.URL.Query().Get("t"))
 		if principal == nil {
 			if ticket == "" {
 				writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource ticket required"))
 				return
 			}
-			chatID, err := s.ticketService.Verify(ticket)
+			ticketChatID, err := s.ticketService.Verify(ticket)
 			if err != nil {
 				writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, err.Error()))
 				return
 			}
-			if !resourceBelongsToChat(fileParam, chatID) {
+			if ticketChatID != chatID {
 				writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource ticket chat mismatch"))
 				return
 			}
 		}
 	}
-	path, err := s.deps.Chats.ResolveResource(fileParam)
+	if principal != nil && !s.principalCanAccessResourceChat(principal, chatID) {
+		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource access denied"))
+		return
+	}
+	path, err := s.resolveResourcePath(chatID, relativePath, fileParam)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "resource not found"))
@@ -82,7 +93,79 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource access denied"))
 		return
 	}
-	http.ServeFile(w, r, path)
+	file, err := os.Open(path)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "resource not found"))
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "resource not found"))
+		return
+	}
+	contentType := resourceContentType(info.Name(), file)
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	disposition := ""
+	if resourceDownloadRequested(r) {
+		disposition = "attachment"
+	} else if strings.HasPrefix(strings.ToLower(contentType), "image/") {
+		disposition = "inline"
+	}
+	if disposition != "" {
+		w.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": info.Name()}))
+	}
+	if strings.HasPrefix(strings.ToLower(contentType), "image/svg+xml") {
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
+	}
+	http.ServeContent(w, r, info.Name(), info.ModTime(), file)
+}
+
+func (s *Server) resolveResourcePath(chatID string, relativePath string, originalKey string) (string, error) {
+	path, err := s.deps.Chats.ResolveResource(originalKey)
+	if err == nil || !errors.Is(err, os.ErrNotExist) || s.deps.Archives == nil {
+		return path, err
+	}
+	return s.deps.Archives.ResolveResource(chatID, relativePath)
+}
+
+func (s *Server) principalCanAccessResourceChat(principal *Principal, chatID string) bool {
+	if principal == nil || strings.TrimSpace(principal.Subject) == "" {
+		return true
+	}
+	if summary, err := s.deps.Chats.Summary(chatID); err == nil && summary != nil {
+		return queryPrincipalCanReferenceChat(WithPrincipal(context.Background(), principal), *summary)
+	}
+	if s.deps.Archives == nil {
+		return false
+	}
+	archived, err := s.deps.Archives.LoadArchived(chatID)
+	if err != nil || archived == nil {
+		return false
+	}
+	summary := chat.Summary{ChatID: archived.Summary.ChatID, Source: archived.Summary.Source}
+	return queryPrincipalCanReferenceChat(WithPrincipal(context.Background(), principal), summary)
+}
+
+func resourceContentType(filename string, file *os.File) string {
+	contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(filename)))
+	if contentType != "" {
+		return contentType
+	}
+	buffer := make([]byte, 512)
+	n, _ := file.Read(buffer)
+	_, _ = file.Seek(0, io.SeekStart)
+	return http.DetectContentType(buffer[:n])
+}
+
+func resourceDownloadRequested(r *http.Request) bool {
+	switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("download"))) {
+	case "1", "true", "yes":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Server) handleToolResult(w http.ResponseWriter, r *http.Request) {
@@ -196,7 +279,11 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		chatID = newChatID()
 	}
 	agentKey := strings.TrimSpace(r.FormValue("agentKey"))
-	summary, created, err := s.deps.Chats.EnsureChat(chatID, agentKey, "", r.FormValue("name"))
+	source := ""
+	if principal := PrincipalFromContext(r.Context()); principal != nil && strings.TrimSpace(principal.Subject) != "" {
+		source = api.ChatSourceQueryPrefix + strings.TrimSpace(principal.Subject)
+	}
+	summary, created, err := s.deps.Chats.EnsureChatWithSource(chatID, agentKey, "", r.FormValue("name"), source)
 	if err != nil {
 		if isTimeContractViolation(err) {
 			writeTimeContractViolation(w, err)

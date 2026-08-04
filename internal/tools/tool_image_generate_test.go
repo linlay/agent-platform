@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -8,7 +9,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	neturl "net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,14 +99,20 @@ func TestImageGenerateRejectsNonImageModel(t *testing.T) {
 
 func TestImageGenerateUsesModelImageDefaults(t *testing.T) {
 	var captured map[string]any
-	modelServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var modelServer *httptest.Server
+	modelServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/asset.png" {
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write([]byte("model image"))
+			return
+		}
 		if r.URL.Path != "/custom/images" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
 			t.Fatalf("decode model request: %v", err)
 		}
-		_, _ = w.Write([]byte(`{"data":[{"url":"https://cdn.example/model-default.png"}]}`))
+		_, _ = w.Write([]byte(`{"data":[{"url":"` + modelServer.URL + `/asset.png"}]}`))
 	}))
 	defer modelServer.Close()
 
@@ -199,12 +205,9 @@ func TestImageGenerateB64ResponsePersistsArtifact(t *testing.T) {
 	if relativePath != filename || strings.Contains(relativePath, "/") {
 		t.Fatalf("expected root relative path, got %#v", image)
 	}
-	decodedURL, err := neturl.QueryUnescape(strings.TrimPrefix(contracts.AnyStringNode(image["url"]), "/api/resource?file="))
-	if err != nil {
-		t.Fatalf("decode image url: %v", err)
-	}
-	if decodedURL != filepath.ToSlash(filepath.Join("chat-1", filename)) {
-		t.Fatalf("expected URL to target chat root file, got %q", decodedURL)
+	resourceURL := contracts.AnyStringNode(image["url"])
+	if resourceURL != filepath.ToSlash(filepath.Join("chat-1", filename)) {
+		t.Fatalf("expected URL to target chat root file, got %q", resourceURL)
 	}
 	if _, err := os.Stat(filepath.Join(chatsRoot, "chat-1", "artifacts", "run-1")); !os.IsNotExist(err) {
 		t.Fatalf("did not expect artifact directory, stat err=%v", err)
@@ -221,17 +224,43 @@ func TestImageGenerateB64ResponsePersistsArtifact(t *testing.T) {
 		image["mimeType"] != "image/png" ||
 		image["sizeBytes"] != len(imageBytes) ||
 		image["revisedPrompt"] != "clearer prompt" ||
-		!strings.HasPrefix(contracts.AnyStringNode(image["url"]), "/api/resource?file=") {
+		strings.HasPrefix(resourceURL, "/") {
 		t.Fatalf("unexpected image metadata: %#v", image)
 	}
 	if result.Structured["rawCreated"] != int64(123) {
 		t.Fatalf("expected rawCreated, got %#v", result.Structured)
 	}
+
+	publishedResult := publishArtifacts(chatsRoot, "chat-1", "run-1", "", []any{
+		map[string]any{"path": path},
+	})
+	if publishedResult.Status != "published" || len(publishedResult.PublishedArtifacts) != 1 {
+		t.Fatalf("expected generated image to publish, got %#v", publishedResult)
+	}
+	published := publishedResult.PublishedArtifacts[0]
+	wantPublishedURL := filepath.ToSlash(filepath.Join("chat-1", "artifacts", "run-1", filename))
+	if published["url"] != wantPublishedURL {
+		t.Fatalf("published URL=%#v want=%q", published["url"], wantPublishedURL)
+	}
+	if published["url"] == resourceURL {
+		t.Fatalf("published artifact must use its copied URL, source URL=%q", resourceURL)
+	}
+	publishedBytes, err := os.ReadFile(filepath.Join(chatsRoot, "chat-1", "artifacts", "run-1", filename))
+	if err != nil || !bytes.Equal(publishedBytes, imageBytes) {
+		t.Fatalf("read published copy: err=%v bytes=%q", err, publishedBytes)
+	}
 }
 
-func TestImageGenerateURLResponseDoesNotPersistArtifact(t *testing.T) {
-	modelServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"data":[{"url":"https://cdn.example/image.png","revised_prompt":"cdn prompt"}]}`))
+func TestImageGenerateURLResponsePersistsArtifact(t *testing.T) {
+	imageBytes := []byte("downloaded image bytes")
+	var modelServer *httptest.Server
+	modelServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/image.png" {
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(imageBytes)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"url":"` + modelServer.URL + `/image.png","revised_prompt":"cdn prompt"}]}`))
 	}))
 	defer modelServer.Close()
 
@@ -251,8 +280,16 @@ func TestImageGenerateURLResponseDoesNotPersistArtifact(t *testing.T) {
 	if result.Error != "" || !ok || len(images) != 1 {
 		t.Fatalf("expected URL image result, got %#v", result)
 	}
-	if images[0]["url"] != "https://cdn.example/image.png" || images[0]["path"] != nil {
+	path := contracts.AnyStringNode(images[0]["path"])
+	if path == "" || filepath.Dir(path) != filepath.Join(chatsRoot, "chat-1") {
 		t.Fatalf("unexpected URL image metadata: %#v", images[0])
+	}
+	if images[0]["url"] != filepath.ToSlash(filepath.Join("chat-1", filepath.Base(path))) || images[0]["revisedPrompt"] != "cdn prompt" {
+		t.Fatalf("unexpected materialized URL image metadata: %#v", images[0])
+	}
+	persisted, err := os.ReadFile(path)
+	if err != nil || string(persisted) != string(imageBytes) {
+		t.Fatalf("unexpected downloaded image bytes=%q err=%v", persisted, err)
 	}
 	if _, err := os.Stat(filepath.Join(chatsRoot, "chat-1", "artifacts", "run-1")); !os.IsNotExist(err) {
 		t.Fatalf("did not expect artifact directory, stat err=%v", err)
@@ -277,6 +314,19 @@ func TestImageGenerateRejectsEmptyData(t *testing.T) {
 	}
 	if result.Error != "image_generate_model_response_invalid" {
 		t.Fatalf("expected invalid response error, got %#v", result)
+	}
+}
+
+func TestImageGenerateDescriptionKeepsPathInternalAndRequiresReturnedURL(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "resources", "tools", "image_generate.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	description := string(data)
+	for _, requiredRule := range []string{"images[n].url", "absolute host path", "never show", "Never construct", "file://"} {
+		if !strings.Contains(description, requiredRule) {
+			t.Fatalf("image_generate description missing resource Markdown rule %q", requiredRule)
+		}
 	}
 }
 

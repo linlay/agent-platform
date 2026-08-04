@@ -77,6 +77,17 @@ retry: 1
 
 工具定义可选声明 `outputSchema`。没有 `outputSchema` 的 MCP 或 Desktop action result 按不透明 JSON 透传；平台不会根据 `createdAt`、`timestamp`、`iso` 等字段名猜测时间语义。
 
+## 图片生成与产物发布 URL
+
+`image_generate` 和 `artifact_publish` 的工具说明共同约束模型输出：`path` 只用于工具间传递，可以是经授权的当前 Workspace/Chat 内 Host 绝对路径，禁止展示、写进 Markdown 或转换成 `file://`；用户可见内容只能逐字复制工具返回的 `url`，禁止手工拼接或编码资源地址。图片生成后使用 `images[n].url`；再次发布后改用 `publishedArtifacts[n].url`，因为后者指向 `artifacts/<runId>/` 发布副本。缺少有效 `url` 时必须报告资源物化或发布失败，不得伪造 Markdown。
+
+```markdown
+![夏日海报](chat_01/generated.png)
+[下载夏日海报](chat_01/artifacts/run_01/generated.png)
+```
+
+新工具结果不返回 `/api/resource?file=...`；该形式仅供既有聊天只读兼容。浏览器数据层负责把逻辑引用转换为实际的 `GET /api/resource?file=<query-encoded-key>`。
+
 ## `desktop_action` 的 WebClient Provider
 
 Agent 仍然只看到一个 `desktop_action`。它的 Action 白名单由 `internal/resources/tools/desktop_action.yml` 静态声明，不存在 WebClient Surface 注册或 capability 协商：

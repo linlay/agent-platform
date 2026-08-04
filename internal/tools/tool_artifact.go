@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -221,13 +220,18 @@ func publishArtifacts(chatsRoot string, chatID string, runID string, workspaceRo
 		sha256hex := sha256Hex(targetPath)
 		publishedFilename := filepath.Base(targetPath)
 		relativePath = filepath.ToSlash(relativePath)
+		resourceURL, resourceErr := chat.BuildResourceRef(chatID, relativePath)
+		if resourceErr != nil {
+			result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure(rawPath, "resource_url_failed", "failed to create published artifact URL: "+resourceErr.Error()))
+			continue
+		}
 		result.PublishedArtifacts = append(result.PublishedArtifacts, map[string]any{
 			"artifactId": artifactID,
 			"name":       publishedFilename,
 			"mimeType":   guessMimeType(publishedFilename),
 			"sizeBytes":  info.Size(),
 			"sha256":     sha256hex,
-			"url":        artifactResourceURL(chatID, relativePath),
+			"url":        resourceURL,
 			"type":       defaultStringArg(mapped, "type", "file"),
 		})
 	}
@@ -237,6 +241,15 @@ func publishArtifacts(chatsRoot string, chatID string, runID string, workspaceRo
 
 func resolveArtifactSourcePath(rawPath string, workspaceRoot string, chatDir string) (string, string, string) {
 	normalized := strings.TrimSpace(rawPath)
+	lower := strings.ToLower(normalized)
+	if strings.HasPrefix(lower, "file://") || strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+		return "", "path_not_allowed", "artifact path must be a local filesystem path"
+	}
+	if strings.HasPrefix(normalized, `\\`) || (len(normalized) >= 3 && normalized[1] == ':' && ((normalized[0] >= 'A' && normalized[0] <= 'Z') || (normalized[0] >= 'a' && normalized[0] <= 'z')) && (normalized[2] == '\\' || normalized[2] == '/')) {
+		if !filepath.IsAbs(normalized) {
+			return "", "path_not_allowed", "artifact path uses an absolute path syntax unsupported by this host"
+		}
+	}
 	roots, err := rootpaths.New(workspaceRoot, filepath.Dir(chatDir), chatDir)
 	if err != nil {
 		return "", "path_not_allowed", err.Error()
@@ -304,11 +317,6 @@ func resolveArtifactSourcePath(rawPath string, workspaceRoot string, chatDir str
 
 func samePath(left string, right string) bool {
 	return filepath.Clean(left) == filepath.Clean(right)
-}
-
-func artifactResourceURL(chatID string, relativePath string) string {
-	file := filepath.ToSlash(filepath.Join(chatID, relativePath))
-	return "/api/resource?file=" + url.QueryEscape(file)
 }
 
 func pathWithinBase(path string, base string) bool {

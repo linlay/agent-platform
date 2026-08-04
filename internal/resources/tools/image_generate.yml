@@ -1,6 +1,16 @@
 name: image_generate
 label: 图像生成
-description: Generate images through the globally configured image generation model. Use this when the user explicitly asks to create or render an image.
+description: |
+  Generate images through the globally configured image generation model. Use
+  this when the user explicitly asks to create or render an image. Every
+  successful images[] item contains an internal path and a user-visible url.
+  path may be an absolute host path and is only for passing to another tool;
+  never show it, mention it, or put it in Markdown. To display a generated
+  image, copy the exact images[n].url into Markdown, for example
+  ![description](chatId/image.png). Never construct or encode a resource URL,
+  and never output file://, @chat, /chat, a POSIX/Windows absolute path, or
+  chat_dir. If an image has no valid url, do not fabricate image Markdown;
+  tell the user that image materialization failed.
 explicitOnly: true
 inputSchema:
   type: object

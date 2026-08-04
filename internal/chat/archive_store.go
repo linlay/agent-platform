@@ -488,22 +488,11 @@ func (s *ArchiveStore) ResolveResource(chatID, file string) (string, error) {
 	if !ValidChatID(chatID) {
 		return "", os.ErrPermission
 	}
-	clean := filepath.Clean(strings.TrimSpace(file))
-	if clean == "." || filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
+	segments, err := validatedResourceSegments(strings.TrimSpace(file))
+	if err != nil {
 		return "", os.ErrPermission
 	}
-	if IsToolInternalPath(clean) || IsBTWInternalPath(clean) {
-		return "", os.ErrPermission
-	}
-	path := filepath.Join(s.ChatDir(chatID), clean)
-	rel, err := filepath.Rel(s.ChatDir(chatID), path)
-	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
-		return "", os.ErrPermission
-	}
-	if _, err := os.Stat(path); err != nil {
-		return "", err
-	}
-	return path, nil
+	return resolveResourceInChatDir(s.ChatDir(chatID), strings.Join(segments, "/"))
 }
 
 func (s *ArchiveStore) ChatDir(chatID string) string {

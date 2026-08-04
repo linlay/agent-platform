@@ -502,18 +502,35 @@ func (s *FileStore) TeamChatStats() (map[string]AgentChatStats, error) {
 }
 
 func (s *FileStore) ResolveResource(file string) (string, error) {
-	clean := filepath.Clean(file)
-	if clean == "." || strings.HasPrefix(clean, "..") {
+	chatID, relativePath, err := ParseResourceKey(file)
+	if err != nil {
 		return "", os.ErrPermission
 	}
-	if IsToolInternalPath(clean) || IsBTWInternalPath(clean) {
-		return "", os.ErrPermission
-	}
-	path := filepath.Join(s.root, clean)
-	if _, err := os.Stat(path); err != nil {
+	return resolveResourceInChatDir(s.ChatDir(chatID), relativePath)
+}
+
+func resolveResourceInChatDir(chatDir string, relativePath string) (string, error) {
+	base, err := filepath.EvalSymlinks(filepath.Clean(chatDir))
+	if err != nil {
 		return "", err
 	}
-	return path, nil
+	target := filepath.Join(base, filepath.FromSlash(relativePath))
+	resolved, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(base, resolved)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", os.ErrPermission
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", os.ErrNotExist
+	}
+	return resolved, nil
 }
 
 func (s *FileStore) ChatDir(chatID string) string {

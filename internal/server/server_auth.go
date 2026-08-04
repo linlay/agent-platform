@@ -53,19 +53,26 @@ func (s *Server) withPrincipal(r *http.Request, w http.ResponseWriter) *http.Req
 		return r
 	}
 	if r.Method == http.MethodGet && (r.URL.Path == "/api/resource" || r.URL.Path == "/api/tool-result") {
-		if !s.deps.Config.ResourceTicket.Enabled() {
-			return r
-		}
-		if strings.TrimSpace(r.URL.Query().Get("t")) != "" {
+		if s.deps.Config.ResourceTicket.Enabled() && strings.TrimSpace(r.URL.Query().Get("t")) != "" && strings.TrimSpace(r.Header.Get("Authorization")) == "" {
 			return r
 		}
 	}
 	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
-	if !strings.HasPrefix(authorization, "Bearer ") {
+	token := ""
+	if authorization != "" {
+		if !strings.HasPrefix(authorization, "Bearer ") {
+			writeAuthError(w)
+			return nil
+		}
+		token = strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer "))
+	} else if cookie, err := r.Cookie("access_token"); err == nil {
+		token = strings.TrimSpace(cookie.Value)
+	}
+	if token == "" {
 		writeAuthError(w)
 		return nil
 	}
-	principal, err := s.authVerifier.Verify(strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer ")))
+	principal, err := s.authVerifier.Verify(token)
 	if err != nil {
 		writeAuthError(w)
 		return nil

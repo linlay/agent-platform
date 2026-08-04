@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 )
 
@@ -105,6 +106,11 @@ func (p *Pusher) pushOne(chatID string, artifact map[string]any) {
 	relative := extractResourceFileParam(artifactURL)
 	if relative == "" {
 		log.Printf("[artifact-pusher] skip: cannot extract file param chatId=%s artifactId=%s url=%s", chatID, artifactID, artifactURL)
+		return
+	}
+	resourceChatID, _, parseErr := chat.ParseResourceKey(relative)
+	if parseErr != nil || resourceChatID != chatID {
+		log.Printf("[artifact-pusher] skip: resource chat mismatch chatId=%s artifactId=%s url=%s", chatID, artifactID, artifactURL)
 		return
 	}
 	localPath := p.resolveLocalPath(relative)
@@ -234,9 +240,8 @@ func (p *Pusher) resolveLocalPath(relative string) string {
 	return abs
 }
 
-// extractResourceFileParam parses "/api/resource?file=<relative>" and returns
-// the decoded file parameter. Returns "" when rawURL is absolute or not
-// /api/resource-shaped.
+// extractResourceFileParam accepts both the new logical resource reference
+// and the legacy /api/resource?file= transport URL.
 func extractResourceFileParam(rawURL string) string {
 	raw := strings.TrimSpace(rawURL)
 	if raw == "" {
@@ -246,10 +251,14 @@ func extractResourceFileParam(rawURL string) string {
 	if err != nil {
 		return ""
 	}
-	if parsed.Path != "" && !strings.HasSuffix(parsed.Path, "/api/resource") {
+	if parsed.Path == "/api/resource" || strings.HasSuffix(parsed.Path, "/api/resource") {
+		return parsed.Query().Get("file")
+	}
+	chatID, relativePath, err := chat.ParseResourceKey(raw)
+	if err != nil {
 		return ""
 	}
-	return parsed.Query().Get("file")
+	return filepath.ToSlash(filepath.Join(chatID, relativePath))
 }
 
 func truncate(s string, max int) string {

@@ -445,7 +445,19 @@ func shouldRewriteDerivedPath(key string) bool {
 
 func rewriteDerivedResourceURL(value string, sourceChatID string, targetChatID string) string {
 	trimmed := strings.TrimSpace(value)
-	if trimmed == "" || !strings.Contains(trimmed, "/api/resource") {
+	if trimmed == "" {
+		return value
+	}
+	if logicalChatID, relativePath, err := ParseResourceKey(trimmed); err == nil {
+		if logicalChatID != sourceChatID {
+			return value
+		}
+		if rewritten, buildErr := BuildResourceRef(targetChatID, relativePath); buildErr == nil {
+			return rewritten
+		}
+		return value
+	}
+	if !strings.Contains(trimmed, "/api/resource") {
 		return value
 	}
 	parsed, err := url.Parse(trimmed)

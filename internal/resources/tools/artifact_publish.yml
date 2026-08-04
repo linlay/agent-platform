@@ -9,7 +9,14 @@ description: |
   current Chat artifacts directory. Arbitrary user-local absolute paths such
   as /Users/.../Downloads must first be uploaded, imported, or copied into a
   controlled root. The batch succeeds only when every item is published;
-  trust the returned publishedArtifacts list as the publication result.
+  trust the returned publishedArtifacts list as the publication result. path
+  is an internal input and may be an authorized absolute host path, but it
+  must never be shown to the user or placed in Markdown. After publication,
+  use only the exact publishedArtifacts[n].url for preview and download links,
+  and prefer that published-copy url over any source image url. Never hand
+  build or encode /api/resource URLs, and never output file://, @chat, /chat,
+  chat_dir, or POSIX/Windows absolute paths. If no valid published url is
+  returned, do not fabricate a Markdown link; report that publication failed.
 clientVisible: true
 inputSchema:
   type: object
@@ -23,7 +30,7 @@ inputSchema:
         properties:
           path:
             type: string
-            description: Required. Existing file in the current Workspace or Chat. The source basename becomes the download filename; republishing it in the same run overwrites the prior published copy.
+            description: Required. Internal source path. Existing file in the current Workspace or Chat; authorized absolute host paths are accepted. Never expose this value in Markdown. The source basename becomes the download filename; republishing it in the same run overwrites the prior published copy.
           description:
             type: string
             description: Short description of this artifact.

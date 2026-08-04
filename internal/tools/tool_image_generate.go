@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -18,6 +19,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/models"
@@ -99,7 +101,7 @@ func (t *RuntimeToolExecutor) invokeImageGenerate(ctx context.Context, args map[
 	if err != nil {
 		return imageGenerateToolError("image_generate_model_request_failed", err.Error(), map[string]any{"modelKey": model.Key, "profile": profileName}), nil
 	}
-	images, err := t.materializeGeneratedImages(decoded.Data, profile, execCtx)
+	images, err := t.materializeGeneratedImages(callCtx, decoded.Data, profile, execCtx)
 	if err != nil {
 		return imageGenerateToolError("image_generate_model_response_invalid", err.Error(), map[string]any{"modelKey": model.Key, "profile": profileName}), nil
 	}
@@ -253,7 +255,7 @@ func parseImageGenerateResponseFormat(value string) (string, bool) {
 	}
 }
 
-func (t *RuntimeToolExecutor) materializeGeneratedImages(items []imageGenerateData, profile config.ImageGenerateProfileConfig, execCtx *ExecutionContext) ([]map[string]any, error) {
+func (t *RuntimeToolExecutor) materializeGeneratedImages(ctx context.Context, items []imageGenerateData, profile config.ImageGenerateProfileConfig, execCtx *ExecutionContext) ([]map[string]any, error) {
 	if len(items) == 0 {
 		return nil, fmt.Errorf("model returned empty data")
 	}
@@ -265,36 +267,83 @@ func (t *RuntimeToolExecutor) materializeGeneratedImages(items []imageGenerateDa
 		if text := strings.TrimSpace(item.RevisedPrompt); text != "" {
 			image["revisedPrompt"] = text
 		}
+		var data []byte
+		var imageMime string
+		var err error
 		if rawURL := strings.TrimSpace(item.URL); rawURL != "" {
-			image["url"] = rawURL
-			images = append(images, image)
-			continue
-		}
-		if strings.TrimSpace(item.B64JSON) == "" {
-			return nil, fmt.Errorf("image item %d has neither url nor b64_json", index)
-		}
-		data, imageMime, err := decodeGeneratedImageBase64(item.B64JSON, profile.OutputMimeType)
-		if err != nil {
-			return nil, fmt.Errorf("decode image item %d: %w", index, err)
+			data, imageMime, err = t.downloadGeneratedImage(ctx, rawURL)
+			if err != nil {
+				return nil, fmt.Errorf("download image item %d: %w", index, err)
+			}
+		} else {
+			if strings.TrimSpace(item.B64JSON) == "" {
+				return nil, fmt.Errorf("image item %d has neither url nor b64_json", index)
+			}
+			data, imageMime, err = decodeGeneratedImageBase64(item.B64JSON, profile.OutputMimeType)
+			if err != nil {
+				return nil, fmt.Errorf("decode image item %d: %w", index, err)
+			}
 		}
 		image["mimeType"] = imageMime
 		image["sizeBytes"] = len(data)
 		sum := sha256.Sum256(data)
 		image["sha256"] = hex.EncodeToString(sum[:])
-		if profile.PersistArtifact {
-			artifact, err := persistGeneratedImageArtifact(t.cfg.Paths.ChatsDir, execCtx, data, imageMime, index)
-			if err != nil {
-				return nil, err
-			}
-			for key, value := range artifact {
-				image[key] = value
-			}
-		} else {
-			image["b64Json"] = base64.StdEncoding.EncodeToString(data)
+		artifact, err := persistGeneratedImageArtifact(t.cfg.Paths.ChatsDir, execCtx, data, imageMime, index)
+		if err != nil {
+			return nil, err
+		}
+		for key, value := range artifact {
+			image[key] = value
 		}
 		images = append(images, image)
 	}
 	return images, nil
+}
+
+const maxGeneratedImageBytes = 32 << 20
+
+func (t *RuntimeToolExecutor) downloadGeneratedImage(ctx context.Context, rawURL string) ([]byte, string, error) {
+	parsed, err := neturl.Parse(strings.TrimSpace(rawURL))
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return nil, "", fmt.Errorf("provider image URL must use http or https")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		return nil, "", err
+	}
+	client := t.httpClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, "", fmt.Errorf("provider image download failed with status %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxGeneratedImageBytes+1))
+	if err != nil {
+		return nil, "", err
+	}
+	if len(data) == 0 || len(data) > maxGeneratedImageBytes {
+		return nil, "", fmt.Errorf("provider image exceeds %d bytes or is empty", maxGeneratedImageBytes)
+	}
+	imageMime := ""
+	if contentType, _, parseErr := mime.ParseMediaType(resp.Header.Get("Content-Type")); parseErr == nil && strings.HasPrefix(strings.ToLower(contentType), "image/") {
+		imageMime = normalizeGeneratedImageMime(contentType)
+	}
+	if imageMime == "" {
+		detected := strings.ToLower(http.DetectContentType(data))
+		if strings.HasPrefix(detected, "image/") {
+			imageMime = normalizeGeneratedImageMime(detected)
+		}
+	}
+	if imageMime == "" {
+		return nil, "", fmt.Errorf("provider response is not an image")
+	}
+	return data, imageMime, nil
 }
 
 func decodeGeneratedImageBase64(raw string, fallbackMime string) ([]byte, string, error) {
@@ -348,28 +397,52 @@ func persistGeneratedImageArtifact(chatsRoot string, execCtx *ExecutionContext, 
 		runID = "manual"
 	}
 	runID = safeGeneratedImageNameSegment(runID)
-	chatDir := filepath.Join(chatsRoot, chatID)
+	chatDir, err := filepath.Abs(filepath.Join(chatsRoot, chatID))
+	if err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(chatDir, 0o755); err != nil {
 		return nil, err
 	}
 	ext := generatedImageExtension(imageMime)
 	timestamp := time.Now().UnixMilli()
-	name := fmt.Sprintf("image_generate_%s_%d_%d%s", runID, timestamp, index, ext)
-	targetPath := filepath.Join(chatDir, name)
-	if err := os.WriteFile(targetPath, data, 0o644); err != nil {
-		return nil, err
+	var name string
+	var targetPath string
+	for collision := 0; ; collision++ {
+		name = fmt.Sprintf("image_generate_%s_%d_%d%s", runID, timestamp+int64(collision), index, ext)
+		targetPath = filepath.Join(chatDir, name)
+		file, openErr := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if errors.Is(openErr, os.ErrExist) {
+			continue
+		}
+		if openErr != nil {
+			return nil, openErr
+		}
+		_, writeErr := file.Write(data)
+		closeErr := file.Close()
+		if writeErr != nil {
+			return nil, writeErr
+		}
+		if closeErr != nil {
+			return nil, closeErr
+		}
+		break
 	}
 	relativePath, err := filepath.Rel(chatDir, targetPath)
 	if err != nil || isPathOutsideBase(relativePath) {
 		return nil, fmt.Errorf("generated image escaped chat directory")
 	}
 	relativePath = filepath.ToSlash(relativePath)
+	resourceURL, err := chat.BuildResourceRef(chatID, relativePath)
+	if err != nil {
+		return nil, err
+	}
 	return map[string]any{
 		"artifactId":   fmt.Sprintf("image_generate_%d_%d", timestamp, index),
 		"name":         filepath.Base(targetPath),
 		"path":         targetPath,
 		"relativePath": relativePath,
-		"url":          artifactResourceURL(chatID, relativePath),
+		"url":          resourceURL,
 		"type":         "image",
 	}, nil
 }
