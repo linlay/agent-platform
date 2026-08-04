@@ -6,10 +6,11 @@ inputSchema:
   properties:
     method:
       type: string
-      description: Required. Chrome DevTools Protocol method name to execute through the Desktop CDP Bridge. Use a Domain.method value such as Target.getTargets, Runtime.evaluate, or Page.captureScreenshot. Do not pass HTTP gateway endpoints such as /json/version, /json, or /json/list as method values.
+      description: Required. Chrome DevTools Protocol method name to execute through the Desktop CDP Bridge. Use a Domain.method value such as Target.getTargets, Target.closeTarget, Runtime.evaluate, or Page.captureScreenshot. Do not pass HTTP gateway endpoints such as /json/version, /json, or /json/list as method values, and do not invent Target.refreshTarget; use Page.reload for one target.
       enum:
         - Target.getTargets
         - Target.getCurrentTarget
+        - Target.closeTarget
         - Page.bringToFront
         - Page.enable
         - Page.navigate
@@ -28,11 +29,11 @@ inputSchema:
         - Network.disable
     params:
       type: object
-      description: JSON parameters for the selected CDP method. Use native JSON value types; for example Runtime.evaluate returnByValue and awaitPromise must be booleans true/false, not strings "true"/"false".
+      description: JSON parameters for the selected CDP method. Use native JSON value types; for example Runtime.evaluate returnByValue and awaitPromise must be booleans true/false, not strings "true"/"false". Prefer the top-level targetId for Target.closeTarget; params.targetId exists only for CDP compatibility, and conflicting values are invalid.
       additionalProperties: true
     targetId:
       type: string
-      description: Optional Desktop-managed target id to route the CDP call to.
+      description: Desktop-managed target id required for every method except Target.getCurrentTarget and Target.getTargets. Target.closeTarget closes only a target in the current Desktop surface and returns success true.
     sessionId:
       type: string
       description: Optional CDP session id for an attached target session.

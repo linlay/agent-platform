@@ -17,10 +17,11 @@ inputSchema:
         - desktop.copilot.getPagePreferences
         - desktop.copilot.setPagePreference
         - desktop.web.listSurfaces
-        - desktop.web.getActiveSurface
+        - desktop.web.getSurfaceState
         - desktop.web.activateSurface
         - desktop.web.navigate
         - desktop.web.reload
+        - desktop.web.refreshSurface
         - desktop.web.goBack
         - desktop.web.openTab
         - desktop.web.closeTab

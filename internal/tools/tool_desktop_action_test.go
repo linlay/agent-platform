@@ -753,12 +753,13 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 		"desktop.theme.set",
 		"desktop.web.activateSurface",
 		"desktop.web.closeTab",
-		"desktop.web.getActiveSurface",
+		"desktop.web.getSurfaceState",
 		"desktop.web.goBack",
 		"desktop.web.list",
 		"desktop.web.listSurfaces",
 		"desktop.web.navigate",
 		"desktop.web.openTab",
+		"desktop.web.refreshSurface",
 		"desktop.web.reload",
 		"desktop.web.switchTab",
 		"desktop.web.webapp.getStatus",
@@ -808,6 +809,7 @@ func TestDesktopCDPMethodSchemaUsesRecommendedEnum(t *testing.T) {
 		"Runtime.evaluate",
 		"Target.getCurrentTarget",
 		"Target.getTargets",
+		"Target.closeTarget",
 	}
 	sort.Strings(want)
 
