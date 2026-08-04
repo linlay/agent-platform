@@ -255,6 +255,47 @@ func TestWebSocketQueryAvailabilityRouteRemoved(t *testing.T) {
 	}
 }
 
+func TestWebSocketQueryRejectsRemovedRequiredSkillKeys(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.WriteQueueSize = 8
+			cfg.WebSocket.PingInterval = 30000
+		},
+	})
+
+	server := httptest.NewServer(fixture.server)
+	defer server.Close()
+	conn, _, err := gws.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/ws", nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+	readConnectedPush(t, conn)
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/query",
+		ID:    "req_removed_skill_field",
+		Payload: ws.MarshalPayload(map[string]any{
+			"message":           "old field",
+			"requiredSkillKeys": []string{"mock-skill"},
+		}),
+	}); err != nil {
+		t.Fatalf("write query request: %v", err)
+	}
+	var frame ws.ErrorFrame
+	if err := conn.ReadJSON(&frame); err != nil {
+		t.Fatalf("read query error: %v", err)
+	}
+	if frame.Frame != ws.FrameError || frame.Type != "required_skill_keys_removed" ||
+		frame.ID != "req_removed_skill_field" || frame.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected query error: %#v", frame)
+	}
+}
+
 func TestWebSocketChatReturnsActiveRunConflict(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)

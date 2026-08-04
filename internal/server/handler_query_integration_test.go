@@ -670,6 +670,7 @@ func TestQueryRequestQueryIncludesParamsAndReferences(t *testing.T) {
 
 	body := bytes.NewBufferString(`{
 		"message":"include request context",
+		"mustUseSkills":[" mock-skill ","MOCK-SKILL"],
 		"params":{"channel":"desktop","nested":{"enabled":true}},
 		"references":[{"id":"ref_1","type":"file","name":"notes.txt","path":"@workspace/notes.txt","mimeType":"text/plain"}]
 	}`)
@@ -714,10 +715,10 @@ func TestQueryRequestQueryIncludesParamsAndReferences(t *testing.T) {
 	}
 }
 
-func TestQueryRejectsUnavailableRequiredSkillWithExplicitCode(t *testing.T) {
+func TestQueryRejectsRemovedRequiredSkillKeysWithExplicitCode(t *testing.T) {
 	fixture := newTestFixture(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{
-		"message":"must use unavailable skill",
+		"message":"old field",
 		"requiredSkillKeys":["missing-skill"]
 	}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -727,13 +728,118 @@ func TestQueryRejectsUnavailableRequiredSkillWithExplicitCode(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), `"code":"required_skill_unavailable"`) {
-		t.Fatalf("expected required_skill_unavailable, got %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), `"code":"required_skill_keys_removed"`) {
+		t.Fatalf("expected required_skill_keys_removed, got %s", rec.Body.String())
+	}
+}
+
+func TestQueryRejectsUnavailableMustUseSkillWithExplicitCode(t *testing.T) {
+	fixture := newTestFixture(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{
+		"message":"must use unavailable skill",
+		"mustUseSkills":["missing-skill"]
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"must_use_skill_unavailable"`) {
+		t.Fatalf("expected must_use_skill_unavailable, got %s", rec.Body.String())
+	}
+}
+
+func TestQueryRejectsMustUseSkillsForTeam(t *testing.T) {
+	fixture := newTestFixture(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{
+		"message":"team",
+		"teamId":"default",
+		"mustUseSkills":["mock-skill"]
+	}`))
+	_, err := fixture.server.prepareQueryAdmission(req, true)
+	var statusErr *statusError
+	if !errors.As(err, &statusErr) || statusErr.status != http.StatusBadRequest || statusErr.code != "must_use_skills_unsupported" {
+		t.Fatalf("expected Team mustUseSkills rejection, got %#v", err)
+	}
+}
+
+func TestQueryExtraMustUseSkillAddsMarketContextAndReadonlyMount(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, nil, testFixtureOptions{
+		setupRuntime: func(_ string, cfg *config.Config) {
+			writeTestSkill(t, cfg.Paths.SkillsMarketDir, "market-extra")
+			extraDir := filepath.Join(cfg.Paths.SkillsMarketDir, "market-extra")
+			if err := os.MkdirAll(filepath.Join(extraDir, ".bash-hooks"), 0o755); err != nil {
+				t.Fatalf("mkdir extra skill hooks: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(extraDir, ".runtime-env.json"), []byte(`{"MARKET_EXTRA":"must-not-merge"}`), 0o644); err != nil {
+				t.Fatalf("write extra skill env: %v", err)
+			}
+		},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{
+		"message":"use both",
+		"agentKey":"mock-agent",
+		"mustUseSkills":["mock-skill","market-extra"]
+	}`))
+	admission, err := fixture.server.prepareQueryAdmission(req, true)
+	if err != nil {
+		t.Fatalf("prepare admission: %v", err)
+	}
+	prepared, err := fixture.server.completeQueryPreparation(context.Background(), admission, nil)
+	if err != nil {
+		t.Fatalf("complete preparation: %v", err)
+	}
+	if strings.Join(prepared.session.MustUseSkills, ",") != "mock-skill,market-extra" {
+		t.Fatalf("mustUseSkills = %#v", prepared.session.MustUseSkills)
+	}
+	if prepared.session.RuntimeContext.LocalPaths.SkillsMarketDir != fixture.cfg.Paths.SkillsMarketDir {
+		t.Fatalf("local skills-market = %q", prepared.session.RuntimeContext.LocalPaths.SkillsMarketDir)
+	}
+	if prepared.session.RuntimeContext.SandboxPaths.SkillsMarketDir != "/skills-market" {
+		t.Fatalf("sandbox skills-market = %q", prepared.session.RuntimeContext.SandboxPaths.SkillsMarketDir)
+	}
+	marketMounts := 0
+	for _, mount := range prepared.session.RuntimeExtraMounts {
+		if strings.EqualFold(mount.Platform, "skills-market") {
+			marketMounts++
+			if mount.Mode != "ro" {
+				t.Fatalf("market mount must be readonly: %#v", mount)
+			}
+		}
+	}
+	if marketMounts != 1 {
+		t.Fatalf("expected one market mount, got %#v", prepared.session.RuntimeExtraMounts)
+	}
+	if _, exists := prepared.session.RuntimeEnvOverrides["MARKET_EXTRA"]; exists {
+		t.Fatalf("extra skill runtime env must not be merged: %#v", prepared.session.RuntimeEnvOverrides)
+	}
+	for _, hookDir := range prepared.session.SkillHookDirs {
+		if strings.Contains(hookDir, "market-extra") {
+			t.Fatalf("extra skill bash hooks must not be merged: %#v", prepared.session.SkillHookDirs)
+		}
+	}
+	for _, expected := range []string{
+		"instructionsPath: @skills/mock-skill/SKILL.md",
+		"instructionsPath: @skills-market/market-extra/SKILL.md",
+		"None may be skipped",
+	} {
+		if !strings.Contains(prepared.session.SkillCatalogPrompt, expected) {
+			t.Fatalf("expected %q in prompt: %s", expected, prepared.session.SkillCatalogPrompt)
+		}
 	}
 }
 
 func assertRequestQueryContext(t *testing.T, message map[string]any) {
 	t.Helper()
+	mustUseSkills, ok := message["mustUseSkills"].([]any)
+	if !ok || len(mustUseSkills) != 1 || mustUseSkills[0] != "mock-skill" {
+		t.Fatalf("expected normalized mustUseSkills, got %#v", message)
+	}
+	if _, exists := message["requiredSkillKeys"]; exists {
+		t.Fatalf("request.query must not expose removed requiredSkillKeys: %#v", message)
+	}
 	params, ok := message["params"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected request.query params object, got %#v", message)

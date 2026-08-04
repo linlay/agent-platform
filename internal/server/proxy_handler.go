@@ -79,8 +79,8 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 	if req.PlanningMode != nil {
 		bodyPayload["planningMode"] = *req.PlanningMode
 	}
-	if len(req.RequiredSkillKeys) > 0 {
-		bodyPayload["requiredSkillKeys"] = append([]string(nil), req.RequiredSkillKeys...)
+	if len(req.MustUseSkills) > 0 {
+		bodyPayload["mustUseSkills"] = append([]string(nil), req.MustUseSkills...)
 	}
 	body, err := json.Marshal(bodyPayload)
 	if err != nil {
@@ -181,8 +181,8 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 		if req.PlanningMode != nil {
 			queryPayload["planningMode"] = *req.PlanningMode
 		}
-		if len(req.RequiredSkillKeys) > 0 {
-			queryPayload["requiredSkillKeys"] = append([]string(nil), req.RequiredSkillKeys...)
+		if len(req.MustUseSkills) > 0 {
+			queryPayload["mustUseSkills"] = append([]string(nil), req.MustUseSkills...)
 		}
 		stepWriter.OnEvent(stream.EventData{
 			Type:      "request.query",

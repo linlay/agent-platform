@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -143,18 +144,18 @@ type QueryRequest struct {
 	Message   string `json:"message"`
 	// Trusted channel hint for the remote actor. Ignored outside gateway
 	// contexts when deriving chat summary source.
-	SourceUser        string             `json:"sourceUser,omitempty"`
-	References        []Reference        `json:"references,omitempty"`
-	Params            map[string]any     `json:"params,omitempty"`
-	Scene             *Scene             `json:"scene,omitempty"`
-	Stream            *bool              `json:"stream,omitempty"`
-	IncludeUsage      bool               `json:"includeUsage,omitempty"`
-	IncludeFullText   bool               `json:"includeFullText,omitempty"`
-	PlanningMode      *bool              `json:"planningMode,omitempty"`
-	EditingMode       *bool              `json:"editingMode,omitempty"`
-	RequiredSkillKeys []string           `json:"requiredSkillKeys,omitempty"`
-	AccessLevel       string             `json:"accessLevel,omitempty"`
-	Model             *QueryModelOptions `json:"model,omitempty"`
+	SourceUser      string             `json:"sourceUser,omitempty"`
+	References      []Reference        `json:"references,omitempty"`
+	Params          map[string]any     `json:"params,omitempty"`
+	Scene           *Scene             `json:"scene,omitempty"`
+	Stream          *bool              `json:"stream,omitempty"`
+	IncludeUsage    bool               `json:"includeUsage,omitempty"`
+	IncludeFullText bool               `json:"includeFullText,omitempty"`
+	PlanningMode    *bool              `json:"planningMode,omitempty"`
+	EditingMode     *bool              `json:"editingMode,omitempty"`
+	MustUseSkills   []string           `json:"mustUseSkills,omitempty"`
+	AccessLevel     string             `json:"accessLevel,omitempty"`
+	Model           *QueryModelOptions `json:"model,omitempty"`
 
 	// Internal runtime hint: the stream bootstrap already emitted the synthetic
 	// request.query for this run, so agent mode prefixes must not emit it again.
@@ -167,6 +168,27 @@ type QueryRequest struct {
 	// TrustedQueryMetadata is merged into the persisted request.query event.
 	// External JSON input cannot set this field.
 	TrustedQueryMetadata map[string]any `json:"-"`
+}
+
+const RequiredSkillKeysRemovedMessage = "requiredSkillKeys has been removed; use mustUseSkills"
+
+var ErrRequiredSkillKeysRemoved = errors.New(RequiredSkillKeysRemovedMessage)
+
+func (r *QueryRequest) UnmarshalJSON(data []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if _, exists := fields["requiredSkillKeys"]; exists {
+		return ErrRequiredSkillKeysRemoved
+	}
+	type queryRequestAlias QueryRequest
+	var decoded queryRequestAlias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*r = QueryRequest(decoded)
+	return nil
 }
 
 type QueryResponse struct {

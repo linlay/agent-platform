@@ -216,7 +216,7 @@ Automation 的 Team 身份规则与 query 一致：只配置 `teamId`，同时�
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
-| POST | `/api/query` | body: `message`、`agentKey`、`teamId`、`chatId`、`runId`、`requestId`、`role`、`references`、`requiredSkillKeys`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`planningMode`、`editingMode`、`accessLevel`、`model` | 默认 SSE stream；`stream:false` 时返回 JSON |
+| POST | `/api/query` | body: `message`、`agentKey`、`teamId`、`chatId`、`runId`、`requestId`、`role`、`references`、`mustUseSkills`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`planningMode`、`editingMode`、`accessLevel`、`model` | 默认 SSE stream；`stream:false` 时返回 JSON |
 | POST | `/api/btw` | body: `chatId`、`message`、可选 `btwId`、`runId`、`requestId`、`references`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`accessLevel`、`model` | 创建或继续隐藏只读分支；复用 query SSE，`stream:false` 返回带 `btwId` 的 JSON |
 | GET | `/api/attach` | query: `runId`、`agentKey` 或 `teamId`、`lastSeq` | 按公开 owner 续接 run 的 SSE stream |
 | POST | `/api/submit` | body: `agentKey` 或 `teamId`、`runId`、`awaitingId`、`params` | HITL submit ack |
@@ -230,7 +230,11 @@ Automation 的 Team 身份规则与 query 一致：只配置 `teamId`，同时�
 
 `editingMode` 只认顶层 JSON boolean。仅 `editingMode:true` 且目标为专用 `mode: KBASE` 时生效；普通 Agent 附加 KBASE capability、CODER、PROXY、CHANNEL 和 Team 返回 HTTP 400，`msg=editing_mode_unsupported`。专用 KBASE 在 true/false 两种状态下都以最终 `runtimeConfig.workspaceRoot` 作为 Workspace，并提供相同的五个文件工具；`false` 或省略只表示 Workspace mutation 未授权，Workspace 仍可读，当前 Chat 目录仍可读写。`params.editingMode` 不生效。开启时，`request.query` live event、chat JSONL、replay/export 和运行中 `activeRun` 保留 `editingMode:true`；false 时省略。它是单次 run 授权，不写 Agent 配置，也不会从上一轮继承。
 
-`requiredSkillKeys` 是单次 run 的强制 Skill 约束。当前客户端只发送零个或一个 key；服务端会去重后验证每个 key 同时属于目标 Agent 的 `skillConfig.skills` 且能从 skills market 成功解析。任一项不可用时返回 HTTP 400，`msg=required_skill_unavailable`，不会静默降级。通过验证的 key 会进入 session、system-init fingerprint 与 `request.query`，并在系统级 Skill 约束中要求本次运行加载并遵循对应 `SKILL.md`。Team 不接受该字段。
+`mustUseSkills` 是单次 run 的强制 Skill 数组。服务端对各项 trim、忽略空值、按大小写不敏感去重并保留首次出现顺序，不设置额外数量上限。已经配置在目标 Agent 的 Skill 从 `ru-agents/<agentKey>/skills/<key>` 解析，模型看到的指令路径为 `@skills/<key>/SKILL.md`；未配置的额外 Skill 必须存在于当前有效 skills-market catalog，并从共享市场解析为 `@skills-market/<key>/SKILL.md`。任一项缺失、无合法 `SKILL.md` 或当前无法解析时，整个请求在 run 启动前以 HTTP 400、`msg=must_use_skill_unavailable` 失败，不会部分执行或静默降级。
+
+存在额外 Skill 时，Container session 只追加一次整个 skills-market 的只读挂载 `/skills-market`；已有显式 `platform: skills-market` 挂载会去重并按只读使用。Host session 直接开放真实 `skills-market` 根的只读 `@skills-market` 访问。系统 Prompt 会列出每个 Skill 的精确 `instructionsPath`，并要求全部读取和遵循。额外 Skill 不参与 Agent `.config`、`.runtime-env.json` 或 `.bash-hooks` 合并，不增加 Tool、MCP、mount 权限或 `accessLevel`；平台也不生成内容快照，continuation 会按当前 catalog 和磁盘内容重新验证。
+
+规范化后的 `mustUseSkills` 会进入 session、system-init fingerprint、live/persist/replay 的 `request.query`、synthetic query，以及 Proxy/Channel 转发 payload。Proxy、Channel 与 ACP 路由入口只负责规范化和透传，不用本机 catalog 代替远端判定；真正执行 query 的 Platform 按上述规则解析、挂载和失败。orchestrated Team 的非空数组返回 HTTP 400、`must_use_skills_unsupported`。旧字段 `requiredSkillKeys` 已删除；HTTP 与 WebSocket query 入口只要出现该字段（即使为空）都会返回 `required_skill_keys_removed`，不会按未知字段忽略。
 
 `teamId` 的 HTTP、WebSocket、Automation、submit continuation 与子智能体准入共享同一 resolver。chat 创建后 `teamId` 固定；Team 的公开 owner 是 Team，query 只使用 `teamId`。运行时在 run 内合成内部 `TEAM` 协调器，任何 `agentKey` 都会被视为绕过调度器。
 

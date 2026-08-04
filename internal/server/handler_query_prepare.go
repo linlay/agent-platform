@@ -101,6 +101,17 @@ func releaseQuery(release queryReleaseFunc) {
 func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (queryAdmission, error) {
 	var req api.QueryRequest
 	if err := decodeJSON(r, &req); err != nil {
+		if errors.Is(err, api.ErrRequiredSkillKeysRemoved) {
+			const code = "required_skill_keys_removed"
+			return queryAdmission{}, &statusError{
+				status:  http.StatusBadRequest,
+				code:    code,
+				message: api.RequiredSkillKeysRemovedMessage,
+				data: map[string]any{
+					"error": map[string]any{"code": code, "message": api.RequiredSkillKeysRemovedMessage},
+				},
+			}
+		}
 		message := "invalid request body"
 		if strings.Contains(err.Error(), api.ReferenceSandboxPathRemovedMessage) {
 			message = api.ReferenceSandboxPathRemovedMessage
@@ -218,23 +229,24 @@ func (s *Server) prepareQueryAdmissionRequest(
 			},
 		}
 	}
-	requiredSkillKeys, err := resolveRequiredSkillKeys(
-		agentDef,
-		s.deps.Config.Paths.SkillsMarketDir,
-		req.RequiredSkillKeys,
-	)
-	if err != nil {
-		const code = "required_skill_unavailable"
+	req.MustUseSkills = normalizeMustUseSkills(req.MustUseSkills)
+	if orchestratedTeam && len(req.MustUseSkills) > 0 {
+		const code = "must_use_skills_unsupported"
+		const message = "mustUseSkills is not supported for Team runs"
 		return queryAdmission{}, &statusError{
 			status:  http.StatusBadRequest,
 			code:    code,
-			message: err.Error(),
+			message: message,
 			data: map[string]any{
-				"error": map[string]any{"code": code, "message": err.Error()},
+				"error": map[string]any{"code": code, "message": message},
 			},
 		}
 	}
-	req.RequiredSkillKeys = requiredSkillKeys
+	mustUseSkills, err := s.resolveQueryMustUseSkills(agentDef, req.MustUseSkills)
+	if err != nil {
+		return queryAdmission{}, mustUseSkillUnavailableStatus(err)
+	}
+	req.MustUseSkills = mustUseSkills.Keys
 	preparedReferences, err := s.prepareQueryReferences(ctx, chatID, req.References)
 	if err != nil {
 		return queryAdmission{}, err
@@ -871,7 +883,7 @@ func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEv
 		Model:              prepared.req.Model,
 		PlanningMode:       prepared.session.PlanningMode,
 		EditingMode:        prepared.session.EditingMode,
-		RequiredSkillKeys:  prepared.session.RequiredSkillKeys,
+		MustUseSkills:      prepared.session.MustUseSkills,
 		IncludeUsage:       prepared.req.IncludeUsage,
 		IncludeFullText:    prepared.req.IncludeFullText,
 		AccessLevel:        prepared.session.AccessLevel,

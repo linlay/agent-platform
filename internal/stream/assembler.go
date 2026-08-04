@@ -6,27 +6,27 @@ import (
 )
 
 type StreamRequest struct {
-	RequestID         string
-	RunID             string
-	ChatID            string
-	ChatName          string
-	AgentKey          string
-	TeamID            string
-	Message           string
-	Role              string
-	Scene             *SceneRef
-	References        any
-	Params            map[string]any
-	Model             any
-	PlanningMode      bool
-	EditingMode       bool
-	RequiredSkillKeys []string
-	IncludeUsage      bool
-	IncludeFullText   bool
-	AccessLevel       string
-	Created           bool
-	ContinueRun       bool
-	InitialSeq        int64
+	RequestID       string
+	RunID           string
+	ChatID          string
+	ChatName        string
+	AgentKey        string
+	TeamID          string
+	Message         string
+	Role            string
+	Scene           *SceneRef
+	References      any
+	Params          map[string]any
+	Model           any
+	PlanningMode    bool
+	EditingMode     bool
+	MustUseSkills   []string
+	IncludeUsage    bool
+	IncludeFullText bool
+	AccessLevel     string
+	Created         bool
+	ContinueRun     bool
+	InitialSeq      int64
 	// StartedAtMillis is the authoritative lifecycle clock captured by the run
 	// manager. It is intentionally distinct from the timestamps of bootstrap
 	// request/chat events: only run.start must describe that exact registration
@@ -130,8 +130,8 @@ func (a *StreamEventAssembler) BootstrapWithRaw() ([]StreamEvent, []StreamEvent)
 	if a.request.EditingMode {
 		queryPayload["editingMode"] = true
 	}
-	if len(a.request.RequiredSkillKeys) > 0 {
-		queryPayload["requiredSkillKeys"] = append([]string(nil), a.request.RequiredSkillKeys...)
+	if len(a.request.MustUseSkills) > 0 {
+		queryPayload["mustUseSkills"] = append([]string(nil), a.request.MustUseSkills...)
 	}
 	if a.request.IncludeUsage {
 		queryPayload["includeUsage"] = true
@@ -210,8 +210,8 @@ func syntheticQueryPayload(request StreamRequest, value SyntheticQuery) map[stri
 	if value.Hidden {
 		payload["hidden"] = true
 	}
-	if len(request.RequiredSkillKeys) > 0 {
-		payload["requiredSkillKeys"] = append([]string(nil), request.RequiredSkillKeys...)
+	if len(request.MustUseSkills) > 0 {
+		payload["mustUseSkills"] = append([]string(nil), request.MustUseSkills...)
 	}
 	for key, item := range request.QueryMetadata {
 		if _, reserved := payload[key]; reserved {

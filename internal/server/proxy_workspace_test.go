@@ -687,7 +687,7 @@ func TestChannelImportQueryUsesPlatformWSFrameAndRemoteAgentKey(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me"}`)
+	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me","mustUseSkills":[" remote-only ","REMOTE-ONLY"]}`)
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", body))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -708,6 +708,10 @@ func TestChannelImportQueryUsesPlatformWSFrameAndRemoteAgentKey(t *testing.T) {
 	}
 	if inner["agentKey"] != "coder" {
 		t.Fatalf("expected remote agent key coder, got %#v", inner["agentKey"])
+	}
+	skills, ok := inner["mustUseSkills"].([]any)
+	if !ok || len(skills) != 1 || skills[0] != "remote-only" {
+		t.Fatalf("expected normalized remote mustUseSkills, got %#v", inner["mustUseSkills"])
 	}
 }
 
@@ -1162,6 +1166,9 @@ func TestProxyQueryPayloadWithWorkspaceDoesNotExposeHostCWD(t *testing.T) {
 		AgentKey:    "proxy-agent",
 		Message:     "hello",
 		AccessLevel: "default",
+		MustUseSkills: []string{
+			"pdf",
+		},
 		PlanningMode: func() *bool {
 			v := false
 			return &v
@@ -1184,6 +1191,12 @@ func TestProxyQueryPayloadWithWorkspaceDoesNotExposeHostCWD(t *testing.T) {
 	}
 	if inner["planningMode"] != false {
 		t.Fatalf("expected explicit planningMode=false, got %#v", inner["planningMode"])
+	}
+	if skills, ok := inner["mustUseSkills"].([]string); !ok || len(skills) != 1 || skills[0] != "pdf" {
+		t.Fatalf("expected mustUseSkills to be forwarded, got %#v", inner["mustUseSkills"])
+	}
+	if _, exists := inner["requiredSkillKeys"]; exists {
+		t.Fatalf("removed requiredSkillKeys must not be forwarded: %#v", inner)
 	}
 	if params["channel"] != "desktop" {
 		t.Fatalf("unexpected websocket params %#v", params)

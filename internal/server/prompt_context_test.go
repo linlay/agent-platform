@@ -618,6 +618,37 @@ func TestBuildRuntimeContextIncludesSkillsMarketOnlyWithExplicitMount(t *testing
 	}
 }
 
+func TestBuildRuntimeContextExposesDynamicSkillsMarketInHostMode(t *testing.T) {
+	t.Parallel()
+
+	cfg := testPromptContextConfig(t)
+	cfg.ContainerHub.Enabled = false
+	s := &Server{
+		deps: Dependencies{
+			Config:   cfg,
+			Registry: testCatalogRegistry{},
+		},
+	}
+
+	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
+		agentKey:           "demo-agent",
+		chatID:             "chat-1",
+		role:               "user",
+		definition:         catalog.AgentDefinition{Key: "demo-agent"},
+		exposeSkillsMarket: true,
+	})
+	if err != nil {
+		t.Fatalf("buildRuntimeRequestContext() error = %v", err)
+	}
+	want := absTestPath(t, cfg.Paths.SkillsMarketDir)
+	if context.LocalPaths.SkillsMarketDir != want {
+		t.Fatalf("local skills market dir = %q, want %q", context.LocalPaths.SkillsMarketDir, want)
+	}
+	if context.SandboxPaths.SkillsMarketDir != want {
+		t.Fatalf("host sandbox skills market dir = %q, want %q", context.SandboxPaths.SkillsMarketDir, want)
+	}
+}
+
 func TestBuildRuntimeContextUsesChatPathsForContainerResources(t *testing.T) {
 	t.Parallel()
 

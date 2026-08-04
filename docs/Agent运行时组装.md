@@ -18,7 +18,7 @@ Agent Platform 将可编辑事实源与执行目录分离：
         └── .config/
 ```
 
-`agents/` 和 `skills-market/` 只在 Catalog 管理、编辑和组装阶段读取。Query、Host Tool、Workspace Terminal、Container Hub 与 Skill runtime 统一使用 `ru-agents/<agentKey>`。`AgentConfigDir`、Admin Source、Agent CRUD 和“打开配置目录”仍指向原始 `agents/`。
+`agents/` 和 `skills-market/` 默认只在 Catalog 管理、编辑和组装阶段读取。Agent 配置内声明的 Skill 以及 Query、Workspace Terminal 和常规 Skill runtime 统一使用 `ru-agents/<agentKey>`。唯一的 run-scoped 例外是 query 的 `mustUseSkills` 选中了 Agent 未配置的市场 Skill：该 run 只读访问共享 `skills-market`，不修改稳定 `ru-agents`，也不创建或复制到额外的 run-runtime。`AgentConfigDir`、Admin Source、Agent CRUD 和“打开配置目录”仍指向原始 `agents/`。
 
 `ru-agents` 不是来源追踪系统：不生成版本目录、Skill lock、provenance 或来源 API，也不进入 release bundle、`zenmind-env/package.sh` 产物或环境 overlay。服务启动或 Catalog 热重载时可从事实源完整重建。
 
@@ -46,6 +46,18 @@ paths:
 5. 重复 ID 保留第一次。
 
 选中的 Skill 会完整复制到 `ru-agents/<agentKey>/skills/<id>`，包括 `SKILL.md`、`.bash-hooks`、`.runtime-env.json`、scripts、references 和 assets。Standalone YAML Agent 会在运行目录生成规范的 `agent.yml`，只能使用市场 Skill。
+
+## 单次 run 的 `mustUseSkills`
+
+`POST /api/query` 可以用 `mustUseSkills: []` 强制本次 run 使用一个或多个 Skill。这不会修改 Agent YAML，也不会改变 `ru-agents/<agentKey>`：
+
+- 已在 `skillConfig.skills` 中配置的 key 从稳定运行目录解析，指令路径是 `@skills/<key>/SKILL.md`。
+- 未配置的 key 必须属于当前有效 skills-market catalog，并在 run 启动和 continuation 时重新验证真实 `SKILL.md`；指令路径是 `@skills-market/<key>/SKILL.md`。
+- 只要有一个 key 不可用，整个 run 以 `must_use_skill_unavailable` 失败，不执行其余部分。
+- Prompt 按请求顺序列出全部精确路径，并把“读取且遵循全部指令”作为强制约束。
+- 不复制 Skill、不生成快照、不创建 `run-runtime/`；运行中读取市场当前内容。
+
+额外市场 Skill 只提供目录内容、scripts、references 和 assets 的只读访问。本次动态选择不合并它的 `.config`、`.runtime-env.json` 或 `.bash-hooks`，也不注入 Tool、MCP、其他 mount、hostAccess 或更高 `accessLevel`。这些运行时扩展只有写入 Agent `skillConfig.skills` 并完成常规 `ru-agents` 组装后才生效。
 
 ## `.config` 合并
 
@@ -92,7 +104,7 @@ Container Hub：
 - `/agent` -> `ru-agents/<agentKey>`，`ro`
 - `/skills` -> `ru-agents/<agentKey>/skills`，`ro`
 - 显式 `platform: agents` 的 `/agents` -> `ru-agents`
-- 显式 `platform: skills-market` 仍挂共享市场，只保留原有显式挂载语义
+- 显式 `platform: skills-market` 挂共享市场；若本次 `mustUseSkills` 含额外市场 Skill，则即使 Agent 未显式声明也动态追加一次 `/skills-market` 全市场只读挂载，已有同类挂载去重
 
 Host Tool 与 Workspace Terminal：
 
@@ -103,3 +115,5 @@ AP_CHAT_DIR=<chatsDir>/<chatId>
 ```
 
 Container 中三个值分别是 `/agent/.config`、`/workspace`、`/chat`。Workspace/Chat 双根和 KBASE 的 `runtimeConfig.workspaceRoot` 契约不受 Agent 组装影响。
+
+Host run 的额外 `mustUseSkills` 不创建 mount：session 直接把真实 skills-market 根注册为只读 `@skills-market` 语义路径。未选择额外 Skill 且 Agent 未显式配置市场挂载时，该路径仍不暴露。

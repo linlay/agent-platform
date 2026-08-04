@@ -57,15 +57,16 @@ func buildPromptAppendConfig(global config.PromptsConfig, def catalog.AgentDefin
 }
 
 type runtimeRequestContextInput struct {
-	agentKey   string
-	teamID     string
-	role       string
-	chatID     string
-	chatName   string
-	scene      *api.Scene
-	references []api.Reference
-	principal  *Principal
-	definition catalog.AgentDefinition
+	agentKey           string
+	teamID             string
+	role               string
+	chatID             string
+	chatName           string
+	scene              *api.Scene
+	references         []api.Reference
+	principal          *Principal
+	definition         catalog.AgentDefinition
+	exposeSkillsMarket bool
 }
 
 func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (contracts.RuntimeRequestContext, error) {
@@ -81,12 +82,20 @@ func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (c
 	if err != nil {
 		return contracts.RuntimeRequestContext{}, err
 	}
-	if promptContextHasPlatformMount(input.definition.Runtime["sandboxMounts"], "skills-market") {
+	if input.exposeSkillsMarket || promptContextHasPlatformMount(input.definition.Runtime["sandboxMounts"], "skills-market") {
 		localPaths.SkillsMarketDir = cleanOrEmpty(s.deps.Config.Paths.SkillsMarketDir)
 	}
 	references, err := s.normalizeReferencePathsForAgent(input.references, input.chatID, input.definition, localPaths)
 	if err != nil {
 		return contracts.RuntimeRequestContext{}, err
+	}
+	sandboxPaths := resolveSandboxPaths(s.deps.Config, input.definition, localPaths)
+	if input.exposeSkillsMarket {
+		if s.deps.Config.IsLocalMode() {
+			sandboxPaths.SkillsMarketDir = localPaths.SkillsMarketDir
+		} else {
+			sandboxPaths.SkillsMarketDir = "/skills-market"
+		}
 	}
 	context := contracts.RuntimeRequestContext{
 		AgentKey:     input.agentKey,
@@ -97,7 +106,7 @@ func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (c
 		Scene:        input.scene,
 		References:   references,
 		LocalPaths:   localPaths,
-		SandboxPaths: resolveSandboxPaths(s.deps.Config, input.definition, localPaths),
+		SandboxPaths: sandboxPaths,
 	}
 	agentDigests, err := buildContextAgentDigests(s.deps.Registry, input.definition, input.agentKey)
 	if err != nil {
@@ -380,12 +389,46 @@ func resourceFileName(rawURL string) string {
 	return parsed.Path
 }
 
-func buildSkillCatalogPrompt(def catalog.AgentDefinition, marketDir string, appendConfig contracts.PromptAppendConfig) string {
+type skillMarketCatalog interface {
+	Skills(tag string) []api.SkillSummary
+	SkillDefinition(key string) (catalog.SkillDefinition, bool)
+}
+
+type resolvedMustUseSkill struct {
+	Key              string
+	InstructionsPath string
+	Extra            bool
+	Definition       catalog.SkillDefinition
+}
+
+type mustUseSkillResolution struct {
+	Skills         []resolvedMustUseSkill
+	Keys           []string
+	HasExtraSkills bool
+}
+
+func mustUseSkillUnavailableStatus(err error) *statusError {
+	const code = "must_use_skill_unavailable"
+	message := "must-use skill is unavailable"
+	if err != nil && strings.TrimSpace(err.Error()) != "" {
+		message = err.Error()
+	}
+	return &statusError{
+		status:  400,
+		code:    code,
+		message: message,
+		data: map[string]any{
+			"error": map[string]any{"code": code, "message": message},
+		},
+	}
+}
+
+func buildSkillCatalogPrompt(def catalog.AgentDefinition, marketDir string, appendConfig contracts.PromptAppendConfig, mustUseSkills ...resolvedMustUseSkill) string {
 	_ = marketDir
-	if len(def.Skills) == 0 {
+	if len(def.Skills) == 0 && len(mustUseSkills) == 0 {
 		return ""
 	}
-	blocks := make([]string, 0, len(def.Skills))
+	blocks := make([]string, 0, len(def.Skills)+len(mustUseSkills))
 	seen := map[string]struct{}{}
 	for _, configuredSkill := range def.Skills {
 		skillID := strings.ToLower(strings.TrimSpace(configuredSkill))
@@ -404,17 +447,18 @@ func buildSkillCatalogPrompt(def catalog.AgentDefinition, marketDir string, appe
 		if !ok {
 			continue
 		}
-		lines := []string{
-			"skillId: " + definition.Key,
-			"instructionsPath: @skills/" + definition.Key + "/SKILL.md",
+		blocks = append(blocks, skillCatalogBlock(definition, "@skills/"+definition.Key+"/SKILL.md"))
+	}
+	for _, skill := range mustUseSkills {
+		normalized := strings.ToLower(strings.TrimSpace(skill.Key))
+		if normalized == "" {
+			continue
 		}
-		if strings.TrimSpace(definition.Name) != "" {
-			lines = append(lines, "name: "+strings.TrimSpace(definition.Name))
+		if _, ok := seen[normalized]; ok {
+			continue
 		}
-		if strings.TrimSpace(definition.Description) != "" {
-			lines = append(lines, "description: "+strings.TrimSpace(definition.Description))
-		}
-		blocks = append(blocks, strings.Join(lines, "\n"))
+		seen[normalized] = struct{}{}
+		blocks = append(blocks, skillCatalogBlock(skill.Definition, skill.InstructionsPath))
 	}
 	if len(blocks) == 0 {
 		return ""
@@ -436,22 +480,29 @@ func buildSkillCatalogPrompt(def catalog.AgentDefinition, marketDir string, appe
 	return strings.Join(sections, "\n\n")
 }
 
-func resolveRequiredSkillKeys(def catalog.AgentDefinition, marketDir string, requested []string) ([]string, error) {
-	_ = marketDir
-	if len(requested) == 0 {
-		return nil, nil
+func skillCatalogBlock(definition catalog.SkillDefinition, instructionsPath string) string {
+	lines := []string{
+		"skillId: " + definition.Key,
+		"instructionsPath: " + strings.TrimSpace(instructionsPath),
 	}
-	configured := make(map[string]string, len(def.Skills))
-	for _, key := range def.Skills {
-		normalized := strings.ToLower(strings.TrimSpace(key))
-		if normalized != "" {
-			configured[normalized] = strings.TrimSpace(key)
-		}
+	if strings.TrimSpace(definition.Name) != "" {
+		lines = append(lines, "name: "+strings.TrimSpace(definition.Name))
+	}
+	if strings.TrimSpace(definition.Description) != "" {
+		lines = append(lines, "description: "+strings.TrimSpace(definition.Description))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func normalizeMustUseSkills(requested []string) []string {
+	if len(requested) == 0 {
+		return nil
 	}
 	resolved := make([]string, 0, len(requested))
 	seen := map[string]struct{}{}
 	for _, key := range requested {
-		normalized := strings.ToLower(strings.TrimSpace(key))
+		trimmed := strings.TrimSpace(key)
+		normalized := strings.ToLower(trimmed)
 		if normalized == "" {
 			continue
 		}
@@ -459,32 +510,105 @@ func resolveRequiredSkillKeys(def catalog.AgentDefinition, marketDir string, req
 			continue
 		}
 		seen[normalized] = struct{}{}
-		configuredKey, ok := configured[normalized]
-		if !ok {
-			return nil, fmt.Errorf("required skill %q is not configured for agent %q", key, def.Key)
-		}
-		definition, found, err := catalog.ResolveRuntimeSkillDefinition(def.RuntimeDir, configuredKey)
-		if err != nil {
-			return nil, fmt.Errorf("resolve required skill %q: %w", configuredKey, err)
-		}
-		if !found {
-			return nil, fmt.Errorf("required skill %q could not be resolved", configuredKey)
-		}
-		resolved = append(resolved, definition.Key)
+		resolved = append(resolved, trimmed)
 	}
-	return resolved, nil
+	return resolved
 }
 
-func buildRequiredSkillConstraint(requiredSkillKeys []string) string {
-	if len(requiredSkillKeys) == 0 {
+func resolveMustUseSkills(def catalog.AgentDefinition, marketDir string, market skillMarketCatalog, requested []string) (mustUseSkillResolution, error) {
+	normalizedRequested := normalizeMustUseSkills(requested)
+	if len(normalizedRequested) == 0 {
+		return mustUseSkillResolution{}, nil
+	}
+	configured := make(map[string]string, len(def.Skills))
+	for _, key := range def.Skills {
+		trimmed := strings.TrimSpace(key)
+		if trimmed != "" {
+			configured[strings.ToLower(trimmed)] = trimmed
+		}
+	}
+	result := mustUseSkillResolution{
+		Skills: make([]resolvedMustUseSkill, 0, len(normalizedRequested)),
+		Keys:   make([]string, 0, len(normalizedRequested)),
+	}
+	for _, requestedKey := range normalizedRequested {
+		normalized := strings.ToLower(requestedKey)
+		if configuredKey, ok := configured[normalized]; ok {
+			definition, found, err := catalog.ResolveRuntimeSkillDefinition(def.RuntimeDir, configuredKey)
+			if err != nil {
+				return mustUseSkillResolution{}, fmt.Errorf("resolve must-use skill %q: %w", configuredKey, err)
+			}
+			if !found {
+				return mustUseSkillResolution{}, fmt.Errorf("must-use skill %q could not be resolved from agent runtime", configuredKey)
+			}
+			result.Skills = append(result.Skills, resolvedMustUseSkill{
+				Key:              definition.Key,
+				InstructionsPath: "@skills/" + definition.Key + "/SKILL.md",
+				Definition:       definition,
+			})
+			result.Keys = append(result.Keys, definition.Key)
+			continue
+		}
+
+		marketKey, ok := resolveMarketSkillKey(market, requestedKey)
+		if !ok {
+			return mustUseSkillResolution{}, fmt.Errorf("must-use skill %q is unavailable in the active skills market", requestedKey)
+		}
+		definition, found, err := catalog.ResolveSkillDefinition("", marketDir, marketKey)
+		if err != nil {
+			return mustUseSkillResolution{}, fmt.Errorf("resolve must-use market skill %q: %w", marketKey, err)
+		}
+		if !found {
+			return mustUseSkillResolution{}, fmt.Errorf("must-use skill %q could not be resolved from the skills market", marketKey)
+		}
+		result.Skills = append(result.Skills, resolvedMustUseSkill{
+			Key:              definition.Key,
+			InstructionsPath: "@skills-market/" + definition.Key + "/SKILL.md",
+			Extra:            true,
+			Definition:       definition,
+		})
+		result.Keys = append(result.Keys, definition.Key)
+		result.HasExtraSkills = true
+	}
+	return result, nil
+}
+
+func (s *Server) resolveQueryMustUseSkills(def catalog.AgentDefinition, requested []string) (mustUseSkillResolution, error) {
+	normalized := normalizeMustUseSkills(requested)
+	if isProxyRoutedAgent(def) {
+		return mustUseSkillResolution{Keys: normalized}, nil
+	}
+	return resolveMustUseSkills(def, s.deps.Config.Paths.SkillsMarketDir, s.deps.Registry, normalized)
+}
+
+func resolveMarketSkillKey(market skillMarketCatalog, requested string) (string, bool) {
+	if market == nil {
+		return "", false
+	}
+	requested = strings.TrimSpace(requested)
+	for _, summary := range market.Skills("") {
+		if !strings.EqualFold(strings.TrimSpace(summary.Key), requested) {
+			continue
+		}
+		definition, ok := market.SkillDefinition(summary.Key)
+		if !ok || strings.TrimSpace(definition.Key) == "" {
+			return "", false
+		}
+		return definition.Key, true
+	}
+	return "", false
+}
+
+func buildMustUseSkillConstraint(skills []resolvedMustUseSkill) string {
+	if len(skills) == 0 {
 		return ""
 	}
 	lines := []string{
-		"Required skills for this run:",
+		"Must-use skills for this run:",
 	}
-	for _, key := range requiredSkillKeys {
-		if normalized := strings.TrimSpace(key); normalized != "" {
-			lines = append(lines, "- "+normalized)
+	for _, skill := range skills {
+		if key := strings.TrimSpace(skill.Key); key != "" {
+			lines = append(lines, "- skillId: "+key+"\n  instructionsPath: "+strings.TrimSpace(skill.InstructionsPath))
 		}
 	}
 	if len(lines) == 1 {
@@ -492,7 +616,7 @@ func buildRequiredSkillConstraint(requiredSkillKeys []string) string {
 	}
 	lines = append(
 		lines,
-		"You must load the complete SKILL.md instructions for every required skill above and follow them for this run. This requirement is mandatory and must not be silently ignored or replaced by another skill.",
+		"You must read the complete SKILL.md at every instructionsPath above and follow all of them for this run. None may be skipped, silently ignored, or replaced by another skill.",
 	)
 	return strings.Join(lines, "\n")
 }

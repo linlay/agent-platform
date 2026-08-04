@@ -92,8 +92,8 @@ func proxyQueryPayload(req api.QueryRequest, proxy *catalog.ProxyConfig, referen
 	if req.PlanningMode != nil {
 		payload["planningMode"] = *req.PlanningMode
 	}
-	if len(req.RequiredSkillKeys) > 0 {
-		payload["requiredSkillKeys"] = append([]string(nil), req.RequiredSkillKeys...)
+	if len(req.MustUseSkills) > 0 {
+		payload["mustUseSkills"] = append([]string(nil), req.MustUseSkills...)
 	}
 	return map[string]any{
 		"frame":   "request",
@@ -662,8 +662,8 @@ func newProxyEventRecorder(
 	if req.PlanningMode != nil {
 		queryPayload["planningMode"] = *req.PlanningMode
 	}
-	if len(req.RequiredSkillKeys) > 0 {
-		queryPayload["requiredSkillKeys"] = append([]string(nil), req.RequiredSkillKeys...)
+	if len(req.MustUseSkills) > 0 {
+		queryPayload["mustUseSkills"] = append([]string(nil), req.MustUseSkills...)
 	}
 	for key, value := range req.TrustedQueryMetadata {
 		if _, reserved := queryPayload[key]; !reserved {

@@ -8,7 +8,7 @@
 
 - 已具备独立 HTTP 服务、统一 JSON 包裹与 `POST /api/query` 真流式 SSE。
 - 已具备 chat 摘要、事件流、raw messages、上传资源落盘、归档与搜索。
-- 已具备目录驱动的 agents / teams / skills / tools catalog，并在 Catalog 发布前将 Agent 定义、Agent 自有 Skill、市场 Skill 和 `.config` 组装到稳定的 `ru-agents/<agentKey>` 执行目录。
+- 已具备目录驱动的 agents / teams / skills / tools catalog，并在 Catalog 发布前将 Agent 定义、Agent 自有 Skill、市场 Skill 和 `.config` 组装到稳定的 `ru-agents/<agentKey>` 执行目录；query `mustUseSkills` 可在单次普通 Agent run 中强制使用额外市场 Skill，并以 Host 只读语义路径或 Container 全市场只读挂载直接访问 `skills-market`，不复制、不生成 run-runtime。
 - 已具备 OpenAI / Anthropic 协议模型调用、统一 Tool、Container Hub sandbox 与 tools。
 - 已具备由 `build/builtins/<os>-<arch>/` cache 固定、校验并随服务包分发的 Host builtins（rg/dbx/httpx/kbase-lance-engine/poppler-pdftotext）；`file_grep/file_glob` 稳定包装 rg，dbx/httpx 保持 CLI，KBASE PDF 默认调用 Poppler `pdftotext` launcher。
 - 已具备 HITL question / approval / form、运行中 submit / steer / interrupt 协议入口，以及 question/planning 跨进程恢复和不可恢复等待项的幂等终态对账。
@@ -163,7 +163,7 @@ make test
 ## 9. 已知约束与注意事项
 
 - `configs/` 下配置启动时读取，运行中修改需要重启 runtime。
-- `agents/` 与 `skills-market/` 是可编辑事实源；Query、Terminal、Host Tool、Container Hub 与 Skill runtime 只使用 Platform 生成的 `ru-agents/`。该目录不提交、不打包、不允许人工编辑；Platform 启动时无条件清空并完整重建，Agent/Skill 热重载只更新稳定目录而不清空整个根。
+- `agents/` 与 `skills-market/` 是可编辑事实源；Agent 配置内 Skill、Terminal 与常规 Skill runtime 只使用 Platform 生成的 `ru-agents/`。该目录不提交、不打包、不允许人工编辑；Platform 启动时无条件清空并完整重建，Agent/Skill 热重载只更新稳定目录而不清空整个根。唯一的 query 运行时例外是普通 Agent 的非空 `mustUseSkills` 含未配置 Skill：必须从当前有效 skills-market catalog 重新验证；Host 直接开放真实 `@skills-market` 只读根，Container 去重后挂载整个 `/skills-market` 为只读。该例外不合并额外 Skill 的 `.config`、`.runtime-env.json`、`.bash-hooks`，不增加 Tool/MCP/access 权限；Team 明确拒绝。
 - `POST /api/query` 默认逐事件 flush；启用 `configs/runtime.yml -> h2a.render.*` 缓冲后，客户端看到的输出可能不再逐事件抵达。
 - WebSocket 是控制面，浏览器/普通客户端文件字节仍走 `POST /api/upload` 和 `GET /api/resource?file=<逻辑资源键>`；新 Markdown 使用 `<chatId>/<relativePath>` 逻辑引用，历史 endpoint URL 只读兼容。
 - `runtimeConfig.env` 不会通过 catalog API 回显，避免泄露代理、凭据或私有 endpoint。

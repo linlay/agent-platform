@@ -262,14 +262,14 @@ func TestAssemblerBootstrapIncludesPlanningModeWhenEnabled(t *testing.T) {
 	}
 }
 
-func TestAssemblerBootstrapIncludesRequiredSkillKeys(t *testing.T) {
+func TestAssemblerBootstrapIncludesMustUseSkills(t *testing.T) {
 	assembler := NewAssembler(StreamRequest{
-		RequestID:         "req-required-skill",
-		RunID:             "run-required-skill",
-		ChatID:            "chat-required-skill",
-		AgentKey:          "coder",
-		Message:           "design this",
-		RequiredSkillKeys: []string{"product-design"},
+		RequestID:     "req-required-skill",
+		RunID:         "run-required-skill",
+		ChatID:        "chat-required-skill",
+		AgentKey:      "coder",
+		Message:       "design this",
+		MustUseSkills: []string{"product-design"},
 	})
 	events := assembler.Bootstrap()
 	if len(events) == 0 {
@@ -279,18 +279,18 @@ func TestAssemblerBootstrapIncludesRequiredSkillKeys(t *testing.T) {
 	if payload["type"] != "request.query" {
 		t.Fatalf("expected request.query bootstrap, got %#v", payload)
 	}
-	keys, ok := payload["requiredSkillKeys"].([]string)
+	keys, ok := payload["mustUseSkills"].([]string)
 	if !ok || len(keys) != 1 || keys[0] != "product-design" {
 		t.Fatalf("required skill keys missing from request.query: %#v", payload)
 	}
 }
 
-func TestAssemblerSyntheticQueryIncludesRequiredSkillKeys(t *testing.T) {
+func TestAssemblerSyntheticQueryIncludesMustUseSkills(t *testing.T) {
 	assembler := NewAssembler(StreamRequest{
-		RequestID:         "request-1",
-		RunID:             "run-1",
-		ChatID:            "chat-1",
-		RequiredSkillKeys: []string{"product-design"},
+		RequestID:     "request-1",
+		RunID:         "run-1",
+		ChatID:        "chat-1",
+		MustUseSkills: []string{"product-design"},
 	})
 
 	events := assembler.Consume(SyntheticQuery{
@@ -302,9 +302,9 @@ func TestAssemblerSyntheticQueryIncludesRequiredSkillKeys(t *testing.T) {
 		t.Fatalf("unexpected events: %#v", events)
 	}
 	payload := events[0].Payload
-	keys, ok := payload["requiredSkillKeys"].([]string)
+	keys, ok := payload["mustUseSkills"].([]string)
 	if !ok || len(keys) != 1 || keys[0] != "product-design" {
-		t.Fatalf("requiredSkillKeys = %#v", payload["requiredSkillKeys"])
+		t.Fatalf("mustUseSkills = %#v", payload["mustUseSkills"])
 	}
 }
 

@@ -37,15 +37,11 @@ var memoryInjectionEnabled = false
 
 func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, summary chat.Summary, agentDef catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
 	editingMode := agentkbase.EditingModeEnabled(agentDef.Mode, req.EditingMode != nil && *req.EditingMode)
-	requiredSkillKeys, err := resolveRequiredSkillKeys(
-		agentDef,
-		s.deps.Config.Paths.SkillsMarketDir,
-		req.RequiredSkillKeys,
-	)
+	mustUseSkills, err := s.resolveQueryMustUseSkills(agentDef, req.MustUseSkills)
 	if err != nil {
-		return contracts.QuerySession{}, err
+		return contracts.QuerySession{}, mustUseSkillUnavailableStatus(err)
 	}
-	req.RequiredSkillKeys = requiredSkillKeys
+	req.MustUseSkills = mustUseSkills.Keys
 	if !strings.EqualFold(strings.TrimSpace(agentDef.Mode), agentteam.Mode) {
 		if err := catalog.ValidateOrdinaryAgentTools(agentDef.Tools); err != nil {
 			return contracts.QuerySession{}, err
@@ -125,15 +121,16 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		principal = PrincipalFromContext(ctx)
 	}
 	runtimeContext, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
-		agentKey:   req.AgentKey,
-		teamID:     req.TeamID,
-		role:       defaultRole(req.Role),
-		chatID:     req.ChatID,
-		chatName:   summary.ChatName,
-		scene:      req.Scene,
-		references: req.References,
-		principal:  principal,
-		definition: agentDef,
+		agentKey:           req.AgentKey,
+		teamID:             req.TeamID,
+		role:               defaultRole(req.Role),
+		chatID:             req.ChatID,
+		chatName:           summary.ChatName,
+		scene:              req.Scene,
+		references:         req.References,
+		principal:          principal,
+		definition:         agentDef,
+		exposeSkillsMarket: mustUseSkills.HasExtraSkills,
 	})
 	if err != nil {
 		return contracts.QuerySession{}, err
@@ -141,12 +138,12 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	req.References = runtimeContext.References
 
 	promptAppend := buildPromptAppendConfig(s.deps.Config.Prompts, agentDef)
-	skillCatalogPrompt := buildSkillCatalogPrompt(agentDef, s.deps.Config.Paths.SkillsMarketDir, promptAppend)
-	if requiredSkillConstraint := buildRequiredSkillConstraint(req.RequiredSkillKeys); requiredSkillConstraint != "" {
+	skillCatalogPrompt := buildSkillCatalogPrompt(agentDef, s.deps.Config.Paths.SkillsMarketDir, promptAppend, mustUseSkills.Skills...)
+	if mustUseSkillConstraint := buildMustUseSkillConstraint(mustUseSkills.Skills); mustUseSkillConstraint != "" {
 		if skillCatalogPrompt != "" {
-			skillCatalogPrompt += "\n\n" + requiredSkillConstraint
+			skillCatalogPrompt += "\n\n" + mustUseSkillConstraint
 		} else {
-			skillCatalogPrompt = requiredSkillConstraint
+			skillCatalogPrompt = mustUseSkillConstraint
 		}
 	}
 	resolvedWorkspaceRoot := strings.TrimSpace(runtimeContext.LocalPaths.WorkspaceDir)
@@ -248,7 +245,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		TeamID:                        req.TeamID,
 		Created:                       options.Created,
 		SkillKeys:                     append([]string(nil), agentDef.Skills...),
-		RequiredSkillKeys:             append([]string(nil), req.RequiredSkillKeys...),
+		MustUseSkills:                 append([]string(nil), req.MustUseSkills...),
 		ContextTags:                   append([]string(nil), agentDef.ContextTags...),
 		Budget:                        contracts.CloneMap(agentDef.Budget),
 		StageSettings:                 contracts.CloneMap(agentDef.StageSettings),
@@ -274,7 +271,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		ModeSystemPrompt:              agentbuiltin.ConfiguredSystemPrompt(agentDef.Mode, s.deps.Config.CoderPrompts.SystemPrompt, s.deps.Config.KBasePrompts.SystemPrompt),
 		RuntimeEnvironmentID:          extractRuntimeField(agentDef.Runtime, "environmentId"),
 		RuntimeLevel:                  extractRuntimeField(agentDef.Runtime, "level"),
-		RuntimeExtraMounts:            runtimeExtraMounts(agentDef.Runtime["sandboxMounts"]),
+		RuntimeExtraMounts:            runtimeExtraMountsForMustUseSkills(agentDef.Runtime["sandboxMounts"], mustUseSkills.HasExtraSkills && hasRuntimeSandbox(agentDef.Runtime)),
 		RuntimeHostAccess:             runtimeHostAccess(agentDef.HostAccess),
 		AgentHasRuntimeSandbox:        hasRuntimeSandbox(agentDef.Runtime),
 		AgentHasMemoryConfig:          agentDef.MemoryEnabled,
