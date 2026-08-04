@@ -2,6 +2,8 @@ name: ask_user_question
 label: 向用户提问
 description: |
   Ask the user for missing input; this is not a generic confirmation button.
+  Any question that requires a user response must use this tool; do not ask it
+  in ordinary assistant text.
   Use it only when the user explicitly wants discussion or a choice, or when a
   key user decision is missing and cannot be resolved by reading context,
   inference, or a safe default. Do not use it to reconfirm clear instructions.
