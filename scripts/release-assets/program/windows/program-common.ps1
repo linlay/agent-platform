@@ -224,9 +224,13 @@ function Assert-DesktopConfigResetArgs([string]$BackupDir, [string]$VersionFrom,
 
 function Protect-ProgramConfigTree([string]$Target) {
   if (-not (Test-Path -LiteralPath $Target)) { return }
-  $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-  & icacls.exe $Target '/inheritance:r' '/grant:r' ("{0}:(OI)(CI)F" -f $identity) '*S-1-5-18:(OI)(CI)F' '/T' '/C' | Out-Null
-  if ($LASTEXITCODE -ne 0) { Fail-Program "failed to restrict permissions for $Target" }
+  $identity = '*' + [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+  $items = @((Get-Item -LiteralPath $Target -Force)) + @(Get-ChildItem -LiteralPath $Target -Recurse -Force)
+  foreach ($item in $items) {
+    $permissions = if ($item.PSIsContainer) { '(OI)(CI)F' } else { 'F' }
+    & icacls.exe $item.FullName '/inheritance:r' '/grant:r' ("{0}:{1}" -f $identity, $permissions) ("*S-1-5-18:{0}" -f $permissions) | Out-Null
+    if ($LASTEXITCODE -ne 0) { Fail-Program "failed to restrict permissions for $($item.FullName)" }
+  }
 }
 
 function Reset-DesktopProgramConfig([string]$BackupDir) {
@@ -531,7 +535,9 @@ function Start-ProgramBackend {
       New-Item -ItemType File -Path $Script:ErrorLogFile -Force | Out-Null
     }
 
-    $backendArgs = @('--config-dir', $Script:ConfigRoot)
+    # Windows PowerShell joins Start-Process ArgumentList values into one command line.
+    # Quote the path explicitly so config roots containing spaces remain one argument.
+    $backendArgs = @('--config-dir', ('"{0}"' -f $Script:ConfigRoot))
     if (-not [string]::IsNullOrWhiteSpace($Script:ProgramPort)) {
       $backendArgs += @('--port', $Script:ProgramPort)
     }

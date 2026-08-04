@@ -15,6 +15,7 @@ $PROGRAM_NAME = "agent-platform"
 $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
 $REPO_ROOT = Split-Path -Parent $SCRIPT_DIR
 $PROGRAM_RELEASE_ASSETS_DIR = Join-Path $SCRIPT_DIR "release-assets/program"
+$PROGRAM_COMMON_TEST = Join-Path $PROGRAM_RELEASE_ASSETS_DIR "windows/program-common_test.ps1"
 $RELEASE_DIR = Join-Path $REPO_ROOT "dist/release"
 
 function Get-DetectedArch {
@@ -285,6 +286,8 @@ Push-Location $REPO_ROOT
 try {
     Test-ReleaseTools
     Test-RequiredFile (Join-Path $SCRIPT_DIR "stage-builtins.ps1")
+    Test-RequiredFile $PROGRAM_COMMON_TEST
+    & $PROGRAM_COMMON_TEST
 
     # Resolve version: read from file if not provided
     $VERSION_FILE = Join-Path $REPO_ROOT "VERSION"
