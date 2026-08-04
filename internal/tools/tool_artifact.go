@@ -220,7 +220,7 @@ func publishArtifacts(chatsRoot string, chatID string, runID string, workspaceRo
 		sha256hex := sha256Hex(targetPath)
 		publishedFilename := filepath.Base(targetPath)
 		relativePath = filepath.ToSlash(relativePath)
-		resourceURL, resourceErr := chat.BuildResourceRef(chatID, relativePath)
+		resourceURL, resourceErr := chat.BuildChatScopeRef(relativePath)
 		if resourceErr != nil {
 			result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure(rawPath, "resource_url_failed", "failed to create published artifact URL: "+resourceErr.Error()))
 			continue
@@ -249,6 +249,10 @@ func resolveArtifactSourcePath(rawPath string, workspaceRoot string, chatDir str
 		if !filepath.IsAbs(normalized) {
 			return "", "path_not_allowed", "artifact path uses an absolute path syntax unsupported by this host"
 		}
+	}
+	cleanedAbsolute := filepath.Clean(normalized)
+	if filepath.IsAbs(normalized) && (cleanedAbsolute == "/tmp" || strings.HasPrefix(cleanedAbsolute, "/tmp"+string(os.PathSeparator))) {
+		return cleanedAbsolute, "", ""
 	}
 	roots, err := rootpaths.New(workspaceRoot, filepath.Dir(chatDir), chatDir)
 	if err != nil {

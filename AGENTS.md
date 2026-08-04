@@ -93,7 +93,7 @@ Chat 默认由 `AP_RUNTIME_CHATS_DIR` 控制，主要包含：
 
 - `chats.db`：chat 摘要索引。
 - `<chatId>.jsonl`：运行事件、StepLine、system init 与 raw messages。
-- `<chatId>/<uploaded-or-generated-file>`：上传与图片生成资源；工具返回内部 `path` 和稳定逻辑 `url`，用户可见内容只使用 `url`。
+- `<chatId>/<uploaded-or-generated-file>`：上传与图片生成资源；工具返回内部绝对 `path` 和相对于当前 Chat 的稳定 `url`（不含 `chatId`），用户可见内容只使用 `url`。
 - `<chatId>/artifacts/<runId>/<filename>`：`artifact_publish` 的发布副本；发布结果 URL 必须指向该副本。
 
 Memory 默认由 `AP_RUNTIME_MEMORY_DIR` 控制，当前以 SQLite store 为主，支持 FTS、可选 embedding、observation / fact 生命周期、`/api/learn` 与 memory tools。
@@ -165,7 +165,7 @@ make test
 - `configs/` 下配置启动时读取，运行中修改需要重启 runtime。
 - `agents/` 与 `skills-market/` 是可编辑事实源；Agent 配置内 Skill、Terminal 与常规 Skill runtime 只使用 Platform 生成的 `ru-agents/`。该目录不提交、不打包、不允许人工编辑；Platform 启动时无条件清空并完整重建，Agent/Skill 热重载只更新稳定目录而不清空整个根。唯一的 query 运行时例外是普通 Agent 的非空 `mustUseSkills` 含未配置 Skill：必须从当前有效 skills-market catalog 重新验证；Host 直接开放真实 `@skills-market` 只读根，Container 去重后挂载整个 `/skills-market` 为只读。该例外不合并额外 Skill 的 `.config`、`.runtime-env.json`、`.bash-hooks`，不增加 Tool/MCP/access 权限；Team 明确拒绝。
 - `POST /api/query` 默认逐事件 flush；启用 `configs/runtime.yml -> h2a.render.*` 缓冲后，客户端看到的输出可能不再逐事件抵达。
-- WebSocket 是控制面，浏览器/普通客户端文件字节仍走 `POST /api/upload` 和 `GET /api/resource?file=<逻辑资源键>`；新 Markdown 使用 `<chatId>/<relativePath>` 逻辑引用，历史 endpoint URL 只读兼容。
+- WebSocket 是控制面，浏览器/普通客户端文件字节仍走 `POST /api/upload` 和隐藏的 `GET /api/resource` 数据面。新 Markdown 的 Chat 文件只使用相对于当前 Chat 的 `<relativePath>`，也可引用普通 Agent Workspace 内的 POSIX 绝对路径、`/tmp/...` 与 HTTP(S)/data/blob；真实 `/api/resource` 请求地址和 `<currentChatId>/<relativePath>` 都不是 Markdown 协议，历史 endpoint Markdown 不迁移且不再预览。
 - `runtimeConfig.env` 不会通过 catalog API 回显，避免泄露代理、凭据或私有 endpoint。
 - 文件工具权限独立于 Bash 权限，越权路径通过 HITL approval 兜底。
 - `AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR` 与 `AP_CHAT_DIR` 是 Platform 在 host bash/tool、Container Hub 与 Workspace Terminal 启动时注入并冻结的保留变量；agent、skill 和调用级 env 均不得覆盖。Host 分别使用真实 Workspace/Chat，Container 固定使用 `/workspace` 与 `/chat`；`/workspace` 必须映射 canonical Workspace，绝不能映射 Chat。

@@ -8,15 +8,19 @@ import (
 )
 
 func TestBuildAndParseResourceRef(t *testing.T) {
-	ref, err := BuildResourceRef("chat_01", "artifacts/run_01/夏日 海报 #1%.png")
+	ref, err := BuildChatScopeRef("artifacts/run_01/夏日 海报 #1%.png")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "chat_01/artifacts/run_01/%E5%A4%8F%E6%97%A5%20%E6%B5%B7%E6%8A%A5%20%231%25.png"
+	want := "artifacts/run_01/%E5%A4%8F%E6%97%A5%20%E6%B5%B7%E6%8A%A5%20%231%25.png"
 	if ref != want {
 		t.Fatalf("ref=%q want=%q", ref, want)
 	}
-	chatID, relativePath, err := ParseResourceKey(ref)
+	key, err := BuildResourceKey("chat_01", "artifacts/run_01/夏日 海报 #1%.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	chatID, relativePath, err := ParseResourceKey(key)
 	if err != nil {
 		t.Fatal(err)
 	}

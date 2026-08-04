@@ -82,7 +82,14 @@ func TestUploadAndResourceRoundTrip(t *testing.T) {
 	if response.Data.Upload.Path != wantUploadPath {
 		t.Fatalf("upload path = %q, want %q", response.Data.Upload.Path, wantUploadPath)
 	}
-	resourceReq := httptest.NewRequest(http.MethodGet, response.Data.Upload.URL, nil)
+	if response.Data.Upload.URL != "notes.txt" {
+		t.Fatalf("upload public URL = %q, want ChatScope relative path", response.Data.Upload.URL)
+	}
+	resourceKey, err := chat.BuildResourceKey(response.Data.ChatID, response.Data.Upload.URL)
+	if err != nil {
+		t.Fatalf("build resource key: %v", err)
+	}
+	resourceReq := httptest.NewRequest(http.MethodGet, "/api/resource?file="+url.QueryEscape(resourceKey), nil)
 	resourceRec := httptest.NewRecorder()
 	server.ServeHTTP(resourceRec, resourceReq)
 	if resourceRec.Code != http.StatusOK {
@@ -115,7 +122,7 @@ func TestResourceServesEncodedImageInlineAndRejectsUnsafeKeys(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(fixture.chats.ChatDir(chatID), filename), imageBytes, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ref, err := chat.BuildResourceRef(chatID, filename)
+	ref, err := chat.BuildResourceKey(chatID, filename)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,6 +179,124 @@ func TestResourceServesEncodedImageInlineAndRejectsUnsafeKeys(t *testing.T) {
 	}
 }
 
+func TestAbsoluteResourceEnforcesWorkspaceChatOwnerAndTeamBoundaries(t *testing.T) {
+	fixture := newTestFixture(t)
+	chatID := "chat-absolute-resource"
+	if _, _, err := fixture.chats.EnsureChatWithSource(chatID, "mock-agent", "", "absolute", api.ChatSourceQueryPrefix+"alice"); err != nil {
+		t.Fatal(err)
+	}
+	agentDef, ok := fixture.registry.AgentDefinition("mock-agent")
+	if !ok {
+		t.Fatal("mock-agent definition not found")
+	}
+	imagePath := filepath.Join(agentDef.Workspace.Root, "夏日 海报 #1%.png")
+	imageBytes := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 7, 8, 9}
+	if err := os.WriteFile(imagePath, imageBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	requestAbsolute := func(subject string, requestChatID string, path string, suffix string) *httptest.ResponseRecorder {
+		t.Helper()
+		requestURL := "/api/resource?chatId=" + url.QueryEscape(requestChatID) + "&file=" + url.QueryEscape(path) + suffix
+		req := httptest.NewRequest(http.MethodGet, requestURL, nil)
+		if subject != "" {
+			req = req.WithContext(WithPrincipal(req.Context(), &Principal{Subject: subject}))
+		}
+		rec := httptest.NewRecorder()
+		fixture.server.ServeHTTP(rec, req)
+		return rec
+	}
+
+	rec := requestAbsolute("alice", chatID, imagePath, "")
+	if rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), imageBytes) {
+		t.Fatalf("workspace resource status=%d body=%q", rec.Code, rec.Body.Bytes())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "image/png" {
+		t.Fatalf("workspace Content-Type=%q", got)
+	}
+	if got := rec.Header().Get("Content-Disposition"); !strings.HasPrefix(got, "inline") {
+		t.Fatalf("workspace Content-Disposition=%q", got)
+	}
+	downloadRec := requestAbsolute("alice", chatID, imagePath, "&download=true")
+	if got := downloadRec.Header().Get("Content-Disposition"); !strings.HasPrefix(got, "attachment") {
+		t.Fatalf("workspace download Content-Disposition=%q", got)
+	}
+
+	outsidePath := filepath.Join(filepath.Dir(agentDef.Workspace.Root), "outside.png")
+	if err := os.WriteFile(outsidePath, imageBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if outsideRec := requestAbsolute("alice", chatID, outsidePath, ""); outsideRec.Code != http.StatusForbidden {
+		t.Fatalf("outside workspace status=%d body=%s", outsideRec.Code, outsideRec.Body.String())
+	}
+	chatAbsolutePath := filepath.Join(fixture.chats.ChatDir(chatID), "chat-internal.png")
+	if err := os.MkdirAll(filepath.Dir(chatAbsolutePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(chatAbsolutePath, imageBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if chatAbsoluteRec := requestAbsolute("alice", chatID, chatAbsolutePath, ""); chatAbsoluteRec.Code != http.StatusForbidden {
+		t.Fatalf("chat absolute path status=%d body=%s", chatAbsoluteRec.Code, chatAbsoluteRec.Body.String())
+	}
+	if unauthenticatedRec := requestAbsolute("", chatID, imagePath, ""); unauthenticatedRec.Code != http.StatusForbidden {
+		t.Fatalf("unauthenticated absolute status=%d body=%s", unauthenticatedRec.Code, unauthenticatedRec.Body.String())
+	}
+	if ticketOnlyRec := requestAbsolute("", chatID, imagePath, "&t=resource-ticket"); ticketOnlyRec.Code != http.StatusForbidden {
+		t.Fatalf("ticket-only absolute status=%d body=%s", ticketOnlyRec.Code, ticketOnlyRec.Body.String())
+	}
+	if otherUserRec := requestAbsolute("bob", chatID, imagePath, ""); otherUserRec.Code != http.StatusForbidden {
+		t.Fatalf("other user absolute status=%d body=%s", otherUserRec.Code, otherUserRec.Body.String())
+	}
+
+	otherChatID := "chat-absolute-other-owner"
+	if _, _, err := fixture.chats.EnsureChatWithSource(otherChatID, "mock-agent", "", "other", api.ChatSourceQueryPrefix+"bob"); err != nil {
+		t.Fatal(err)
+	}
+	if wrongChatRec := requestAbsolute("alice", otherChatID, imagePath, ""); wrongChatRec.Code != http.StatusForbidden {
+		t.Fatalf("wrong chat status=%d body=%s", wrongChatRec.Code, wrongChatRec.Body.String())
+	}
+
+	teamChatID := "chat-team-absolute"
+	if _, _, err := fixture.chats.EnsureChatWithSource(teamChatID, "", "team-1", "team", api.ChatSourceQueryPrefix+"alice"); err != nil {
+		t.Fatal(err)
+	}
+	if teamRec := requestAbsolute("alice", teamChatID, imagePath, ""); teamRec.Code != http.StatusForbidden {
+		t.Fatalf("team absolute status=%d body=%s", teamRec.Code, teamRec.Body.String())
+	}
+
+	tmpFile, err := os.CreateTemp("/tmp", "agent-platform-resource-*.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpPath := tmpFile.Name()
+	t.Cleanup(func() { _ = os.Remove(tmpPath) })
+	if _, err := tmpFile.Write(imageBytes); err != nil {
+		_ = tmpFile.Close()
+		t.Fatal(err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if tmpRec := requestAbsolute("alice", chatID, tmpPath, ""); tmpRec.Code != http.StatusOK || !bytes.Equal(tmpRec.Body.Bytes(), imageBytes) {
+		t.Fatalf("tmp resource status=%d body=%q", tmpRec.Code, tmpRec.Body.Bytes())
+	}
+
+	tmpLink := tmpPath + "-link.png"
+	t.Cleanup(func() { _ = os.Remove(tmpLink) })
+	if err := os.Symlink(outsidePath, tmpLink); err != nil {
+		t.Fatal(err)
+	}
+	if tmpLinkRec := requestAbsolute("alice", chatID, tmpLink, ""); tmpLinkRec.Code != http.StatusOK || !bytes.Equal(tmpLinkRec.Body.Bytes(), imageBytes) {
+		t.Fatalf("tmp symlink status=%d body=%q", tmpLinkRec.Code, tmpLinkRec.Body.Bytes())
+	}
+
+	traversalPath := "/tmp/../" + strings.TrimPrefix(filepath.ToSlash(outsidePath), "/")
+	if traversalRec := requestAbsolute("alice", chatID, traversalPath, ""); traversalRec.Code != http.StatusForbidden {
+		t.Fatalf("cleaned tmp traversal status=%d body=%s", traversalRec.Code, traversalRec.Body.String())
+	}
+}
+
 func TestResourceFallsBackToArchivedChatCopy(t *testing.T) {
 	fixture := newTestFixture(t)
 	archives, err := chat.NewArchiveStore(fixture.cfg.Paths.ChatsDir)
@@ -189,7 +314,7 @@ func TestResourceFallsBackToArchivedChatCopy(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(archives.ChatDir(chatID), filename), imageBytes, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ref, err := chat.BuildResourceRef(chatID, filename)
+	ref, err := chat.BuildResourceKey(chatID, filename)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,6 +363,30 @@ func TestResourceBearerCookieOwnershipAndInvalidBearerPrecedence(t *testing.T) {
 	server.ServeHTTP(cookieRec, cookieReq)
 	if cookieRec.Code != http.StatusOK {
 		t.Fatalf("owner cookie status=%d body=%s", cookieRec.Code, cookieRec.Body.String())
+	}
+
+	agentDef, ok := fixture.registry.AgentDefinition("mock-agent")
+	if !ok {
+		t.Fatal("mock-agent definition not found")
+	}
+	workspaceImage := filepath.Join(agentDef.Workspace.Root, "authenticated.png")
+	if err := os.WriteFile(workspaceImage, []byte("workspace-owned"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	absoluteURL := "/api/resource?chatId=" + url.QueryEscape(chatID) + "&file=" + url.QueryEscape(workspaceImage)
+	absoluteBearerReq := httptest.NewRequest(http.MethodGet, absoluteURL, nil)
+	absoluteBearerReq.Header.Set("Authorization", "Bearer "+issue("alice"))
+	absoluteBearerRec := httptest.NewRecorder()
+	server.ServeHTTP(absoluteBearerRec, absoluteBearerReq)
+	if absoluteBearerRec.Code != http.StatusOK || absoluteBearerRec.Body.String() != "workspace-owned" {
+		t.Fatalf("absolute bearer status=%d body=%s", absoluteBearerRec.Code, absoluteBearerRec.Body.String())
+	}
+	absoluteCookieReq := httptest.NewRequest(http.MethodGet, absoluteURL, nil)
+	absoluteCookieReq.AddCookie(&http.Cookie{Name: "access_token", Value: issue("alice")})
+	absoluteCookieRec := httptest.NewRecorder()
+	server.ServeHTTP(absoluteCookieRec, absoluteCookieReq)
+	if absoluteCookieRec.Code != http.StatusOK || absoluteCookieRec.Body.String() != "workspace-owned" {
+		t.Fatalf("absolute cookie status=%d body=%s", absoluteCookieRec.Code, absoluteCookieRec.Body.String())
 	}
 
 	otherReq := httptest.NewRequest(http.MethodGet, resourceURL, nil)
@@ -301,6 +450,9 @@ func TestUploadReturnsContainerPathWhenAgentUsesContainerRuntime(t *testing.T) {
 	}
 	if response.Data.Upload.Path != "/chat/notes.txt" {
 		t.Fatalf("upload path = %q", response.Data.Upload.Path)
+	}
+	if response.Data.Upload.URL != "notes.txt" {
+		t.Fatalf("upload URL = %q", response.Data.Upload.URL)
 	}
 	if strings.Contains(rec.Body.String(), "sandboxPath") {
 		t.Fatalf("upload response must not include sandboxPath: %s", rec.Body.String())
@@ -550,6 +702,15 @@ func postTestUpload(t *testing.T, server *Server, chatID string, requestID strin
 	return response.Data
 }
 
+func uploadResourceRequestURL(t *testing.T, upload api.UploadResponse) string {
+	t.Helper()
+	resourceKey, err := chat.BuildResourceKey(upload.ChatID, upload.Upload.URL)
+	if err != nil {
+		t.Fatalf("build upload resource key: %v", err)
+	}
+	return "/api/resource?file=" + url.QueryEscape(resourceKey)
+}
+
 func TestResourceRoundTripRequiresValidTicketWhenEnabled(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
@@ -592,7 +753,8 @@ func TestResourceRoundTripRequiresValidTicketWhenEnabled(t *testing.T) {
 		t.Fatalf("decode upload response: %v", err)
 	}
 
-	resourceReq := httptest.NewRequest(http.MethodGet, response.Data.Upload.URL, nil)
+	resourceURL := uploadResourceRequestURL(t, response.Data)
+	resourceReq := httptest.NewRequest(http.MethodGet, resourceURL, nil)
 	resourceRec := httptest.NewRecorder()
 	server.ServeHTTP(resourceRec, resourceReq)
 	if resourceRec.Code != http.StatusForbidden {
@@ -600,7 +762,7 @@ func TestResourceRoundTripRequiresValidTicketWhenEnabled(t *testing.T) {
 	}
 
 	validTicket := fixture.server.ticketService.Issue("tester", response.Data.ChatID)
-	resourceReq = httptest.NewRequest(http.MethodGet, response.Data.Upload.URL+"&t="+url.QueryEscape(validTicket), nil)
+	resourceReq = httptest.NewRequest(http.MethodGet, resourceURL+"&t="+url.QueryEscape(validTicket), nil)
 	resourceRec = httptest.NewRecorder()
 	server.ServeHTTP(resourceRec, resourceReq)
 	if resourceRec.Code != http.StatusOK {
@@ -611,7 +773,7 @@ func TestResourceRoundTripRequiresValidTicketWhenEnabled(t *testing.T) {
 	}
 
 	wrongTicket := fixture.server.ticketService.Issue("tester", "chat_other")
-	resourceReq = httptest.NewRequest(http.MethodGet, response.Data.Upload.URL+"&t="+url.QueryEscape(wrongTicket), nil)
+	resourceReq = httptest.NewRequest(http.MethodGet, resourceURL+"&t="+url.QueryEscape(wrongTicket), nil)
 	resourceRec = httptest.NewRecorder()
 	server.ServeHTTP(resourceRec, resourceReq)
 	if resourceRec.Code != http.StatusForbidden {
@@ -724,7 +886,7 @@ func TestWebSocketUploadDownloadsGatewayURLAndReturnsUploadTicket(t *testing.T) 
 		t.Fatalf("expected sha256 to match, got %#v", frame.Data.Upload)
 	}
 
-	resourceReq := httptest.NewRequest(http.MethodGet, frame.Data.Upload.URL, nil)
+	resourceReq := httptest.NewRequest(http.MethodGet, uploadResourceRequestURL(t, frame.Data), nil)
 	resourceRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(resourceRec, resourceReq)
 	if resourceRec.Code != http.StatusOK {

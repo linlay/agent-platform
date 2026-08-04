@@ -1,6 +1,9 @@
 package stream
 
-import "strings"
+import (
+	"net/url"
+	"strings"
+)
 
 type StreamEventDispatcher struct {
 	request StreamRequest
@@ -57,11 +60,11 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 	case TaskError:
 		return d.handleTaskError(value)
 	case ArtifactPublish:
-		artifactCount := value.ArtifactCount
-		if artifactCount <= 0 {
-			artifactCount = len(value.Artifacts)
+		artifacts := publicArtifactItems(value.Artifacts, d.request.ChatID)
+		artifactCount := len(artifacts)
+		if artifactCount == 0 {
+			return nil
 		}
-		artifacts := append([]map[string]any(nil), value.Artifacts...)
 		payload := map[string]any{
 			"chatId":        value.ChatID,
 			"runId":         value.RunID,
@@ -292,6 +295,40 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 	default:
 		return nil
 	}
+}
+
+func publicArtifactItems(items []map[string]any, chatID string) []map[string]any {
+	result := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		resourceURL, _ := item["url"].(string)
+		if !validChatScopeURL(resourceURL, chatID) {
+			continue
+		}
+		cloned := clonePayload(item)
+		result = append(result, cloned)
+	}
+	return result
+}
+
+func validChatScopeURL(value string, chatID string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.HasPrefix(value, "/") || strings.Contains(value, "\\") || strings.ContainsAny(value, "?#") || strings.Contains(value, "//") {
+		return false
+	}
+	if strings.Contains(value, ":") {
+		return false
+	}
+	segments := strings.Split(value, "/")
+	for index, segment := range segments {
+		decoded, err := url.PathUnescape(segment)
+		if err != nil || decoded == "" || decoded == "." || decoded == ".." || strings.ContainsAny(decoded, "/\\") {
+			return false
+		}
+		if index == 0 && strings.TrimSpace(chatID) != "" && decoded == strings.TrimSpace(chatID) {
+			return false
+		}
+	}
+	return true
 }
 
 func usageSnapshotEvent(runID string, taskID string, chatID string, modelKey string, reasoningEffort string, contextWindow int, currentContextSize int, estimatedNextCallSize int, currentPromptTokens int, currentCompletionTokens int, currentTotalTokens int, currentCachedTokens int, currentReasoningTokens int, currentPromptCacheHitTokens int, currentPromptCacheMissTokens int, currentLLMChatCompletionCount int, currentToolCallCount int, currentFirstTokenLatencyMs int64, currentGenerationDurationMs int64, runPromptTokens int, runCompletionTokens int, runTotalTokens int, runCachedTokens int, runReasoningTokens int, runPromptCacheHitTokens int, runPromptCacheMissTokens int, runLLMChatCompletionCount int, runToolCallCount int, runFirstTokenLatencyTotalMs int64, runFirstTokenLatencyCount int, runGenerationDurationMs int64) StreamEvent {

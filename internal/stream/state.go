@@ -14,6 +14,7 @@ type StreamEventStateData struct {
 	fullReasoning     string
 	reasoningBuffer   map[string]string
 	contentBuffer     map[string]string
+	contentGuards     map[string]*MarkdownDestinationGuard
 	toolArgsBuffer    map[string]string
 	emittedAwaitings  map[string]bool
 	toolEndAtByID     map[string]int64
@@ -76,6 +77,7 @@ func NewStateData() *StreamEventStateData {
 		openTools:         map[string]toolBlockState{},
 		reasoningBuffer:   map[string]string{},
 		contentBuffer:     map[string]string{},
+		contentGuards:     map[string]*MarkdownDestinationGuard{},
 		toolArgsBuffer:    map[string]string{},
 		emittedAwaitings:  map[string]bool{},
 		toolEndAtByID:     map[string]int64{},

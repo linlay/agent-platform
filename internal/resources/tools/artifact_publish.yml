@@ -3,20 +3,21 @@ label: 发布产物
 description: |
   Publish files as user-visible artifacts for the current run. You MUST call
   this tool whenever a requested deliverable file exists. Sources must be
-  inside the current Workspace or Chat: use /workspace/... or /chat/... in
-  Container Hub, @workspace/@chat aliases, host paths inside those roots, or
-  Workspace-relative paths. Published copies are always stored under the
-  current Chat artifacts directory. Arbitrary user-local absolute paths such
-  as /Users/.../Downloads must first be uploaded, imported, or copied into a
-  controlled root. The batch succeeds only when every item is published;
+  inside the current Workspace or Chat, or under /tmp: use /workspace/... or
+  /chat/... in Container Hub, @workspace/@chat aliases, authorized host paths,
+  Workspace-relative paths, or /tmp/... paths. Published copies are always
+  stored under the current Chat artifacts directory. The batch succeeds only
+  when every item is published;
   trust the returned publishedArtifacts list as the publication result. path
   is an internal input and may be an authorized absolute host path, but it
   must never be shown to the user or placed in Markdown. After publication,
   use only the exact publishedArtifacts[n].url for preview and download links,
-  and prefer that published-copy url over any source image url. Never hand
-  build or encode /api/resource URLs, and never output file://, @chat, /chat,
-  chat_dir, or POSIX/Windows absolute paths. If no valid published url is
-  returned, do not fabricate a Markdown link; report that publication failed.
+  and prefer that published-copy url over any source image url. The returned
+  url is relative to the current Chat and never contains chatId or the internal
+  /api/resource transport endpoint. Never hand build or encode transport URLs,
+  and never output the source path, file://, @chat, /chat, or chat_dir. If no
+  valid published url is returned, do not fabricate a Markdown link; report
+  that publication failed.
 clientVisible: true
 inputSchema:
   type: object
@@ -30,7 +31,7 @@ inputSchema:
         properties:
           path:
             type: string
-            description: Required. Internal source path. Existing file in the current Workspace or Chat; authorized absolute host paths are accepted. Never expose this value in Markdown. The source basename becomes the download filename; republishing it in the same run overwrites the prior published copy.
+            description: Required. Internal source path. Existing file in the current Workspace, Chat, or /tmp; authorized absolute host paths are accepted. Never expose this value in Markdown. The source basename becomes the download filename; republishing it in the same run overwrites the prior published copy.
           description:
             type: string
             description: Short description of this artifact.

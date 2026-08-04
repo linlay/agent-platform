@@ -17,6 +17,7 @@ func (d *StreamEventDispatcher) handleContentDelta(input ContentDelta) []StreamE
 			},
 		}
 		d.state.lastContentID = input.ContentID
+		d.state.contentGuards[input.ContentID] = newMarkdownDestinationGuard(d.request.ChatID)
 		payload := map[string]any{
 			"contentId": input.ContentID,
 			"runId":     d.request.RunID,
@@ -25,13 +26,22 @@ func (d *StreamEventDispatcher) handleContentDelta(input ContentDelta) []StreamE
 		appendContentActorPayload(payload, input.ActorType, input.TeamID, input.AgentKey, input.Presentation)
 		events = append(events, NewEvent("content.start", payload))
 	}
+	guard := d.state.contentGuards[input.ContentID]
+	if guard == nil {
+		guard = newMarkdownDestinationGuard(d.request.ChatID)
+		d.state.contentGuards[input.ContentID] = guard
+	}
+	safeDelta := guard.Write(input.Delta)
+	if safeDelta == "" {
+		return events
+	}
 	d.state.contentSeen = true
 	d.state.lastContentID = input.ContentID
-	d.state.contentBuffer[input.ContentID] += input.Delta
-	d.state.fullContent += input.Delta
+	d.state.contentBuffer[input.ContentID] += safeDelta
+	d.state.fullContent += safeDelta
 	payload := map[string]any{
 		"contentId": input.ContentID,
-		"delta":     input.Delta,
+		"delta":     safeDelta,
 	}
 	if taskID != "" {
 		payload["taskId"] = taskID
@@ -60,11 +70,26 @@ func (d *StreamEventDispatcher) closeContentScope(scope string) []StreamEvent {
 	delete(d.state.activeContents, scope)
 	contentID := active.ID
 	block := active.Block
+	var events []StreamEvent
+	if guard := d.state.contentGuards[contentID]; guard != nil {
+		if tail := guard.Flush(); tail != "" {
+			d.state.contentSeen = true
+			d.state.contentBuffer[contentID] += tail
+			d.state.fullContent += tail
+			payload := map[string]any{"contentId": contentID, "delta": tail}
+			if block.TaskID != "" {
+				payload["taskId"] = block.TaskID
+			}
+			appendContentActorPayload(payload, block.ActorType, block.TeamID, block.AgentKey, block.Presentation)
+			events = append(events, NewEvent("content.delta", payload))
+		}
+	}
+	delete(d.state.contentGuards, contentID)
 	endPayload := map[string]any{
 		"contentId": contentID,
 	}
 	appendContentActorPayload(endPayload, block.ActorType, block.TeamID, block.AgentKey, block.Presentation)
-	events := []StreamEvent{NewEvent("content.end", endPayload)}
+	events = append(events, NewEvent("content.end", endPayload))
 	if d.state.contentSeen {
 		payload := map[string]any{
 			"contentId": contentID,

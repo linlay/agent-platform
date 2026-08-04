@@ -206,7 +206,7 @@ func TestImageGenerateB64ResponsePersistsArtifact(t *testing.T) {
 		t.Fatalf("expected root relative path, got %#v", image)
 	}
 	resourceURL := contracts.AnyStringNode(image["url"])
-	if resourceURL != filepath.ToSlash(filepath.Join("chat-1", filename)) {
+	if resourceURL != filename {
 		t.Fatalf("expected URL to target chat root file, got %q", resourceURL)
 	}
 	if _, err := os.Stat(filepath.Join(chatsRoot, "chat-1", "artifacts", "run-1")); !os.IsNotExist(err) {
@@ -238,7 +238,7 @@ func TestImageGenerateB64ResponsePersistsArtifact(t *testing.T) {
 		t.Fatalf("expected generated image to publish, got %#v", publishedResult)
 	}
 	published := publishedResult.PublishedArtifacts[0]
-	wantPublishedURL := filepath.ToSlash(filepath.Join("chat-1", "artifacts", "run-1", filename))
+	wantPublishedURL := filepath.ToSlash(filepath.Join("artifacts", "run-1", filename))
 	if published["url"] != wantPublishedURL {
 		t.Fatalf("published URL=%#v want=%q", published["url"], wantPublishedURL)
 	}
@@ -284,7 +284,7 @@ func TestImageGenerateURLResponsePersistsArtifact(t *testing.T) {
 	if path == "" || filepath.Dir(path) != filepath.Join(chatsRoot, "chat-1") {
 		t.Fatalf("unexpected URL image metadata: %#v", images[0])
 	}
-	if images[0]["url"] != filepath.ToSlash(filepath.Join("chat-1", filepath.Base(path))) || images[0]["revisedPrompt"] != "cdn prompt" {
+	if images[0]["url"] != filepath.Base(path) || images[0]["revisedPrompt"] != "cdn prompt" {
 		t.Fatalf("unexpected materialized URL image metadata: %#v", images[0])
 	}
 	persisted, err := os.ReadFile(path)

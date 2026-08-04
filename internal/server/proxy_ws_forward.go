@@ -288,7 +288,69 @@ func normalizeProxyEventIdentity(event stream.EventData, req api.QueryRequest) s
 	if strings.TrimSpace(req.AgentKey) != "" {
 		event.Payload["agentKey"] = req.AgentKey
 	}
+	if event.Type == "artifact.publish" {
+		normalizeProxyArtifactURLs(&event, req.ChatID)
+	}
 	return event
+}
+
+func normalizeProxyArtifactURLs(event *stream.EventData, chatID string) {
+	if event == nil || event.Payload == nil {
+		return
+	}
+	rawItems, ok := event.Payload["artifacts"].([]map[string]any)
+	if !ok {
+		if genericItems, genericOK := event.Payload["artifacts"].([]any); genericOK {
+			rawItems = make([]map[string]any, 0, len(genericItems))
+			for _, rawItem := range genericItems {
+				if item, itemOK := rawItem.(map[string]any); itemOK {
+					rawItems = append(rawItems, item)
+				}
+			}
+		}
+	}
+	items := make([]map[string]any, 0, len(rawItems))
+	for _, item := range rawItems {
+		publicURL, valid := proxyPublicArtifactURL(contracts.AnyStringNode(item["url"]), chatID)
+		if !valid {
+			continue
+		}
+		cloned := make(map[string]any, len(item))
+		for key, value := range item {
+			cloned[key] = value
+		}
+		cloned["url"] = publicURL
+		items = append(items, cloned)
+	}
+	event.Payload["artifacts"] = items
+	event.Payload["artifactCount"] = len(items)
+}
+
+func proxyPublicArtifactURL(raw string, chatID string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	chatID = strings.TrimSpace(chatID)
+	if raw == "" || chatID == "" {
+		return "", false
+	}
+	parsed, err := url.Parse(raw)
+	if err == nil && isResourceURL(parsed, raw) {
+		resourceChatID, relativePath, parseErr := chat.ParseResourceKey(strings.TrimSpace(parsed.Query().Get("file")))
+		if parseErr != nil || resourceChatID != chatID {
+			return "", false
+		}
+		publicURL, buildErr := chat.BuildChatScopeRef(relativePath)
+		return publicURL, buildErr == nil
+	}
+	if resourceChatID, relativePath, parseErr := chat.ParseResourceKey(raw); parseErr == nil && resourceChatID == chatID {
+		publicURL, buildErr := chat.BuildChatScopeRef(relativePath)
+		return publicURL, buildErr == nil
+	}
+	resourceChatID, relativePath, parseErr := chat.ParseResourceKey(chatID + "/" + raw)
+	if parseErr != nil || resourceChatID != chatID {
+		return "", false
+	}
+	publicURL, buildErr := chat.BuildChatScopeRef(relativePath)
+	return publicURL, buildErr == nil
 }
 
 func proxyRunErrorEvent(req api.QueryRequest, err error) stream.EventData {
@@ -617,6 +679,8 @@ type proxyEventRecorder struct {
 	reasonings        map[string]*proxyContentBucket
 	tools             map[string]*proxyToolBucket
 	planningSnapshots map[string]bool
+	markdownGuards    map[string]*stream.MarkdownDestinationGuard
+	markdownText      map[string]*strings.Builder
 }
 
 type proxyContentBucket struct {
@@ -687,6 +751,8 @@ func newProxyEventRecorder(
 		reasonings:        map[string]*proxyContentBucket{},
 		tools:             map[string]*proxyToolBucket{},
 		planningSnapshots: map[string]bool{},
+		markdownGuards:    map[string]*stream.MarkdownDestinationGuard{},
+		markdownText:      map[string]*strings.Builder{},
 	}
 	recorder.usageTracker = newProxyUsageTracker(chatUsage, &recorder.runUsage, models, billing)
 	return recorder
@@ -699,8 +765,65 @@ func (r *proxyEventRecorder) DecorateEvent(event *stream.EventData) {
 	r.usageTracker.Decorate(event)
 }
 
+func (r *proxyEventRecorder) sanitizeMarkdownEvent(event *stream.EventData) {
+	if r == nil || event == nil {
+		return
+	}
+	contentID := strings.TrimSpace(event.String("contentId"))
+	switch event.Type {
+	case "content.start":
+		if contentID != "" {
+			r.markdownGuards[contentID] = stream.NewMarkdownDestinationGuard(r.req.ChatID)
+			r.markdownText[contentID] = &strings.Builder{}
+		}
+	case "content.delta":
+		if contentID == "" {
+			return
+		}
+		guard := r.markdownGuards[contentID]
+		if guard == nil {
+			guard = stream.NewMarkdownDestinationGuard(r.req.ChatID)
+			r.markdownGuards[contentID] = guard
+		}
+		safeDelta := guard.Write(event.String("delta"))
+		event.Payload["delta"] = safeDelta
+		buffer := r.markdownText[contentID]
+		if buffer == nil {
+			buffer = &strings.Builder{}
+			r.markdownText[contentID] = buffer
+		}
+		buffer.WriteString(safeDelta)
+	case "content.end":
+		guard := r.markdownGuards[contentID]
+		delete(r.markdownGuards, contentID)
+		buffer := r.markdownText[contentID]
+		delete(r.markdownText, contentID)
+		if text := event.String("text"); text != "" {
+			fullGuard := stream.NewMarkdownDestinationGuard(r.req.ChatID)
+			event.Payload["text"] = fullGuard.Write(text) + fullGuard.Flush()
+		} else {
+			var safeText strings.Builder
+			if buffer != nil {
+				safeText.WriteString(buffer.String())
+			}
+			if guard != nil {
+				safeText.WriteString(guard.Flush())
+			}
+			event.Payload["text"] = safeText.String()
+		}
+	case "content.snapshot":
+		if text := event.String("text"); text != "" {
+			fullGuard := stream.NewMarkdownDestinationGuard(r.req.ChatID)
+			event.Payload["text"] = fullGuard.Write(text) + fullGuard.Flush()
+		}
+	}
+}
+
 func publishProxyLiveEvent(eventBus *stream.RunEventBus, recorder *proxyEventRecorder, req api.QueryRequest, seq *int64, event stream.EventData) (stream.EventData, error) {
 	event = normalizeProxyEventIdentity(event, req)
+	if recorder != nil {
+		recorder.sanitizeMarkdownEvent(&event)
+	}
 	if err := timecontract.ValidateEpochMillis(event.Timestamp, "timestamp", "proxy.upstream.event"); err != nil {
 		return stream.EventData{}, err
 	}

@@ -452,7 +452,7 @@ func rewriteDerivedResourceURL(value string, sourceChatID string, targetChatID s
 		if logicalChatID != sourceChatID {
 			return value
 		}
-		if rewritten, buildErr := BuildResourceRef(targetChatID, relativePath); buildErr == nil {
+		if rewritten, buildErr := BuildChatScopeRef(relativePath); buildErr == nil {
 			return rewritten
 		}
 		return value
@@ -470,15 +470,14 @@ func rewriteDerivedResourceURL(value string, sourceChatID string, targetChatID s
 		return value
 	}
 	slashFile := filepath.ToSlash(fileParam)
-	if slashFile == sourceChatID {
-		query.Set("file", targetChatID)
-	} else if strings.HasPrefix(slashFile, sourceChatID+"/") {
-		query.Set("file", targetChatID+strings.TrimPrefix(slashFile, sourceChatID))
-	} else {
+	if !strings.HasPrefix(slashFile, sourceChatID+"/") {
 		return value
 	}
-	parsed.RawQuery = query.Encode()
-	return parsed.String()
+	relativePath := strings.TrimPrefix(slashFile, sourceChatID+"/")
+	if rewritten, buildErr := BuildChatScopeRef(relativePath); buildErr == nil {
+		return rewritten
+	}
+	return value
 }
 
 func rewriteDerivedAbsolutePath(value string, sourceDir string, targetDir string) string {

@@ -47,7 +47,7 @@ GET /ws -> request / response / stream / push / error frames
 
 文件传输按“HTTP 数据面 + WebSocket 控制面”划分：浏览器上传走 `POST /api/upload`，下载走 `GET /api/resource`；WebSocket `/api/upload` 用于 gateway 发送 `url + metadata` 下载通知，由 platform 按 metadata 中的 URL 自己通过 HTTP 拉取并校验（该 URL 可指向 gateway 的 `/api/pull/...`）。反向推送本地资源走 WS `/api/resource`，platform 再把文件字节 HTTP POST 到 gateway 的 `pushURL`（通常是 `/api/push/...`）；WS `/api/push` 不存在。
 
-资源协议分为两层，不能混用：工具结果和 Markdown 使用不带前导 `/` 的逻辑相对 URI 引用，例如 `chat_01/generated.png` 或 `chat_01/artifacts/run_01/generated.png`；浏览器实际取字节时仍使用 `GET /api/resource?file=<经过 query 编码的逻辑引用>`。前端负责把当前 chat 的逻辑引用转换成该请求，后端工具和模型都不得手工拼接 `/api/resource`。历史 Markdown 中已经存在的 `/api/resource?file=...` 保持只读兼容，并由客户端原样请求，不会二次包装。
+资源协议分为 Markdown 地址与隐藏 HTTP 数据面两层，不能混用。当前 Chat 文件在工具结果和 Markdown 中使用不带 `chatId`、前导 `/` 的 ChatScope 相对 URI，例如 `generated.png` 或 `artifacts/run_01/generated.png`；普通 Agent 还可在 Markdown 中使用当前 Workspace 的 POSIX 绝对路径与 `/tmp/...`，HTTP(S)、`data:`、`blob:` 原样使用。前端只在统一资源 adapter 内将 ChatScope 地址转换为 `GET /api/resource?file=<chatId>/<relativePath>`，将绝对路径转换为 `GET /api/resource?chatId=<chatId>&file=<absolutePath>`。真实 `/api/resource` 请求地址与 `<currentChatId>/<relativePath>` 都不是 Markdown 地址；后端工具、模型和公开事件不得生成它们，历史 endpoint Markdown 不迁移且不再预览。
 
 ## HTTP API 定义
 
@@ -460,14 +460,17 @@ KBASE API 接受所有 `kbaseConfig.enabled: true` 的 Agent，包括专用 `mod
 
 | 输入形式 | `image_generate` | `artifact_publish.path` | Markdown / 工具返回 `url` | `/api/resource?file=` |
 |---|---|---|---|---|
-| Workspace 相对路径 | 不适用 | 接受，按当前 Workspace 解析 | 禁止 | 禁止 |
-| 当前 Chat/Workspace 内的 Host 绝对路径 | 内部 `path` 可返回 | 接受，canonical 后仍须属于当前根 | 禁止展示 | 禁止 |
+| Workspace 相对路径 | 不适用 | 接受，按当前 Workspace 解析 | 不作为本地 Markdown 地址 | 不作为资源键 |
+| 当前 Chat 内的 Host 绝对路径 | 内部 `path` 可返回 | 接受 | 禁止展示；改用 ChatScope `url` | 拒绝；使用 ChatScope 逻辑键读取 |
+| 普通 Agent Workspace 内的 POSIX 绝对路径 | 内部 `path` 可返回 | 接受，canonical 后仍须属于当前根 | 允许实时引用 | 必须同时传当前 `chatId` 与 Bearer/Cookie |
+| `/tmp/...` | 不适用 | 接受 | 普通 Agent 允许实时引用；Team 禁止 | 清理后按词法 `/tmp` 前缀放行，明确允许 symlink 跳出 |
 | `@chat`、`@workspace`、Container `/chat`、`/workspace` | 不适用 | 接受并映射到当前受控根 | 禁止展示 | 禁止 |
-| 其他 chat 或受控根之外的绝对路径 | 不适用 | 拒绝 | 禁止 | 拒绝 |
+| 其他 chat 或 Workspace/`/tmp` 之外的绝对路径 | 不适用 | 拒绝 | 禁止 | 拒绝 |
 | `file://`、Windows/UNC 异主机绝对路径 | 不适用 | 拒绝 | 禁止 | 拒绝 |
-| `http://`、`https://` | provider 图片响应先下载并物化到当前 Chat | 拒绝作为发布源 | 普通外链可保持外链 | 不作为资源键 |
-| `chatId/relative/path` 逻辑引用 | 作为 `url` 返回 | 不作为 `path` | 唯一允许的本地资源新格式 | 接受 |
-| 历史 `/api/resource?file=...` | 不再新生成 | 不作为 `path` | 仅兼容历史记录 | 原样请求 |
+| `http://`、`https://`、`data:`、`blob:` | provider 图片响应先下载并物化到当前 Chat | 拒绝作为发布源 | 允许原样引用 | 不作为资源键 |
+| `relative/path` ChatScope 引用 | 作为 `url` 返回 | 不作为 `path` | 当前 Chat 稳定资源格式 | adapter 加当前 `chatId` 后接受 |
+| `<currentChatId>/relative/path` | 不再生成 | 不作为 `path` | 禁止 | 仅可作为隐藏 HTTP 逻辑键 |
+| 历史 `/api/resource?file=...` | 不再生成 | 不作为 `path` | 不迁移、不预览 | endpoint 本身继续作为内部数据面 |
 
 KBASE 工具只读取 active 索引库，不直接访问宿主文件系统。`kbase_search` 支持 `pathPrefix`、`pathGlob`、`type` 与 `offset` 做 scoped retrieval；`kbase_files` 支持按 `path`、`pattern`、`status`、`type`、`mode=files|tree`、`depth`、`head_limit`、`offset` 浏览已索引/已扫描文件元数据。Lance 路径并行取 vector 与 FTS 候选并使用加权 RRF 融合；`matchType` 为 `vector|fts|hybrid`，score 归一化到 `[0,1]`。`matchCount` 是受 candidate 上限约束的两路去重并集数，不是全库总命中数。
 
@@ -544,13 +547,15 @@ curl -sS -X POST http://127.0.0.1:11949/api/kbase/docs_kbase/refresh \
 |---|---|---|---|
 | GET | `/api/file` | query: `agentKey`、`path`、`response` 可选 | agent workspace 文件；默认 JSON metadata/text，`response=content` 返回文件内容流 |
 | GET | `/api/viewport` | query: `viewportKey`、`viewportType` | viewport 模板或 fallback |
-| GET | `/api/resource` | query: `file`、`t` | chat 资源文件；`t` 为可选 resource ticket |
+| GET | `/api/resource` | query: `file`、`chatId`、`t`、`download` | ChatScope 或普通 Agent Workspace/`/tmp` 资源字节；绝对路径必须传 `chatId` |
 | GET | `/api/tool-result` | query: `chatId`、`path`、`t` | `.tools/results/<toolId>.json` 完整工具结果；`t` 为可选 resource ticket |
 | POST | `/api/upload` | multipart: `requestId`、`chatId`、`file` | upload ticket 与资源访问信息 |
 
 `/api/file` 与 `/api/agent/open-directory` 的 `directoryType:"workspace"` 都使用 `runtimeConfig.workspaceRoot`。`path` 可以是 Workspace 相对路径，也可以是宿主机绝对路径；绝对路径经 canonical 解析后必须分类为 Workspace，进入整个 ChatsRoot 会返回 `path_crosses_chat_root`，`..` 与 symlink escape 会返回 forbidden。默认响应使用统一 JSON 包裹，文本文件内联 `content`，二进制/PDF/图片只返回 metadata 与 `contentUrl`；`response=content` 时直接返回文件字节流，不使用 JSON 包裹。该接口不读取 KBASE 索引库，也不扩大 `hostAccess.readRoots`。
 
-`/api/resource` 的 `file` 只接受 `<chatId>/<relativePath>` 逻辑资源键。每个路径段可使用 URI path 编码；整个键作为 query 值时还须由标准 URL API 再做 query 编码。例如工具返回 `chat_01/%E5%A4%8F%E6%97%A5%20%E6%B5%B7%E6%8A%A5%20%231%25.png`，实际请求可为 `/api/resource?file=chat_01%2F%25E5%25A4%258F...`。服务端逐段只解码一次并执行 canonical/symlink 边界检查，拒绝绝对路径、scheme、反斜线、路径穿越、其他 chat 所有权和 `.tools`/`.btw` 内部目录。active 文件不存在时会在同一 chat 的 archive 副本中查找，使聊天回放 URL 保持稳定。响应直接返回原始字节和准确 `Content-Type`；图片默认 `Content-Disposition: inline`，`download=true` 改为 `attachment`。
+`/api/resource` 的 ChatScope 数据面使用 `file=<chatId>/<relativePath>` 逻辑资源键。Markdown 的 `relativePath` 每段先做 URI path 编码，adapter 再把整个逻辑键做 query 编码；服务端逐段只解码一次并执行 canonical/symlink 边界检查，拒绝路径穿越、其他 chat 所有权和 `.tools`/`.btw` 内部目录。active 文件不存在时会在同一 chat 的 archive 副本中查找，使生成和发布资源可稳定回放。
+
+绝对路径数据面使用 `file=<POSIX absolutePath>&chatId=<currentChatId>`，仅接受 Bearer/Cookie 主体，resource ticket 不能授权。服务端从 chat owner 解析 `agentKey` 和当前 `AgentDefinition.workspaceRoot`：普通 Agent 只允许 canonical 后仍在 Workspace 的路径，Team chat 一律拒绝绝对路径。`/tmp/...` 在 `filepath.Clean` 后仅按字符串前缀判定并对普通 Agent 放行；这是显式接受的边界，符号链接可跳出 `/tmp`，而 `/tmp/../...` 清理后不再享受该规则。Workspace 和 `/tmp` 都是实时引用，文件变化或删除会直接影响回放。两种读取均返回原始字节和准确 `Content-Type`；图片默认 `Content-Disposition: inline`，`download=true` 改为 `attachment`。
 
 resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界.md)。
 

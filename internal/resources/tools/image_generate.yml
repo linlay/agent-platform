@@ -7,10 +7,12 @@ description: |
   path may be an absolute host path and is only for passing to another tool;
   never show it, mention it, or put it in Markdown. To display a generated
   image, copy the exact images[n].url into Markdown, for example
-  ![description](chatId/image.png). Never construct or encode a resource URL,
-  and never output file://, @chat, /chat, a POSIX/Windows absolute path, or
-  chat_dir. If an image has no valid url, do not fabricate image Markdown;
-  tell the user that image materialization failed.
+  ![description](image.png). The returned url is relative to the current Chat;
+  it never contains chatId or the internal /api/resource transport endpoint.
+  Never construct or encode a resource URL, and never output the returned
+  path, file://, @chat, /chat, or chat_dir. If an image has no valid url, do
+  not fabricate image Markdown; tell the user that image materialization
+  failed.
 explicitOnly: true
 inputSchema:
   type: object

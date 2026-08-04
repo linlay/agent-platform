@@ -25,7 +25,7 @@ func TestDispatcherEmitsBatchedArtifactPublish(t *testing.T) {
 				"mimeType":   "text/markdown",
 				"sizeBytes":  123,
 				"sha256":     "abc123",
-				"url":        "chat_1/artifacts/run_1/report.md",
+				"url":        "artifacts/run_1/report.md",
 			},
 			{
 				"artifactId": "artifact_2",
@@ -34,7 +34,7 @@ func TestDispatcherEmitsBatchedArtifactPublish(t *testing.T) {
 				"mimeType":   "text/plain",
 				"sizeBytes":  45,
 				"sha256":     "def456",
-				"url":        "chat_1/artifacts/run_1/summary.txt",
+				"url":        "artifacts/run_1/summary.txt",
 			},
 		},
 	})
@@ -74,7 +74,7 @@ func TestEventDataMarshalsArtifactPublishWithContractKeyOrder(t *testing.T) {
 				"mimeType":   "text/markdown",
 				"sizeBytes":  123,
 				"sha256":     "abc123",
-				"url":        "chat_1/artifacts/run_1/report.md",
+				"url":        "artifacts/run_1/report.md",
 			},
 			{
 				"artifactId": "artifact_2",
@@ -83,7 +83,7 @@ func TestEventDataMarshalsArtifactPublishWithContractKeyOrder(t *testing.T) {
 				"mimeType":   "text/plain",
 				"sizeBytes":  45,
 				"sha256":     "def456",
-				"url":        "chat_1/artifacts/run_1/summary.txt",
+				"url":        "artifacts/run_1/summary.txt",
 			},
 		},
 	})
@@ -118,5 +118,21 @@ func TestEventDataMarshalsArtifactPublishWithContractKeyOrder(t *testing.T) {
 	}
 	if !strings.Contains(text, `"artifactId":"artifact_1"`) || !strings.Contains(text, `"artifactId":"artifact_2"`) {
 		t.Fatalf("expected artifact ids in payload, got %s", text)
+	}
+}
+
+func TestDispatcherDropsArtifactPublishWithNonPublicURL(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{RunID: "run_1", ChatID: "chat_1"})
+	events := dispatcher.Dispatch(ArtifactPublish{
+		ChatID: "chat_1",
+		RunID:  "run_1",
+		Artifacts: []map[string]any{
+			{"artifactId": "legacy", "url": "/api/resource?file=chat_1%2Fold.png"},
+			{"artifactId": "prefixed", "url": "chat_1/artifacts/run_1/a.png"},
+			{"artifactId": "absolute", "url": "/Users/alice/a.png"},
+		},
+	})
+	if len(events) != 0 {
+		t.Fatalf("invalid public artifact URLs must not be emitted: %#v", events)
 	}
 }

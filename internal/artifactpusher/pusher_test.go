@@ -55,7 +55,7 @@ func TestPushOneSendsResourcePushedAfterUploadSuccess(t *testing.T) {
 		"name":       "report.txt",
 		"mimeType":   "text/plain",
 		"type":       "file",
-		"url":        "chat-1/report.txt",
+		"url":        "report.txt",
 	})
 
 	if !uploadCalled {
@@ -115,10 +115,10 @@ func TestPushOneDoesNotSendResourcePushedAfterUploadFailure(t *testing.T) {
 
 func TestExtractResourceFileParamSupportsLogicalAndLegacyURLs(t *testing.T) {
 	for input, want := range map[string]string{
-		"chat-1/artifacts/run-1/%E5%A4%8F%E6%97%A5%20%E6%B5%B7%E6%8A%A5.png": "chat-1/artifacts/run-1/夏日 海报.png",
-		"/api/resource?file=chat-1%2Fartifacts%2Frun-1%2Freport.png":         "chat-1/artifacts/run-1/report.png",
+		"artifacts/run-1/%E5%A4%8F%E6%97%A5%20%E6%B5%B7%E6%8A%A5.png": "chat-1/artifacts/run-1/夏日 海报.png",
+		"/api/resource?file=chat-1%2Fartifacts%2Frun-1%2Freport.png":  "chat-1/artifacts/run-1/report.png",
 	} {
-		if got := extractResourceFileParam(input); got != want {
+		if got := extractResourceFileParam(input, "chat-1"); got != want {
 			t.Fatalf("extractResourceFileParam(%q)=%q want=%q", input, got, want)
 		}
 	}

@@ -12,7 +12,6 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -22,6 +21,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/rootpaths"
 )
 
 const uploadManifestName = ".uploads.jsonl"
@@ -50,6 +50,10 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 	fileParam := r.URL.Query().Get("file")
 	if fileParam == "" {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "file is required"))
+		return
+	}
+	if filepath.IsAbs(fileParam) {
+		s.handleAbsoluteResource(w, r, fileParam)
 		return
 	}
 	if chat.IsToolInternalPath(fileParam) || chat.IsBTWInternalPath(fileParam) {
@@ -93,6 +97,75 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource access denied"))
 		return
 	}
+	s.serveResourcePath(w, r, path)
+}
+
+func (s *Server) handleAbsoluteResource(w http.ResponseWriter, r *http.Request, rawPath string) {
+	chatID := strings.TrimSpace(r.URL.Query().Get("chatId"))
+	if !chat.ValidChatID(chatID) {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "chatId is required for absolute resource paths"))
+		return
+	}
+	principal := PrincipalFromContext(r.Context())
+	if principal == nil || strings.TrimSpace(principal.Subject) == "" {
+		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "authenticated principal required for absolute resource paths"))
+		return
+	}
+	if !s.principalCanAccessResourceChat(principal, chatID) {
+		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource access denied"))
+		return
+	}
+	agentKey, teamID, ok := s.resourceChatOwner(chatID)
+	if !ok || strings.TrimSpace(teamID) != "" || strings.TrimSpace(agentKey) == "" {
+		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "absolute resource paths are unavailable for this chat"))
+		return
+	}
+	cleanPath := filepath.Clean(strings.TrimSpace(rawPath))
+	if !filepath.IsAbs(cleanPath) || strings.ContainsRune(cleanPath, 0) {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid absolute resource path"))
+		return
+	}
+	if cleanPath == "/tmp" || strings.HasPrefix(cleanPath, "/tmp"+string(os.PathSeparator)) {
+		s.serveResourcePath(w, r, cleanPath)
+		return
+	}
+	if s.deps.Registry == nil {
+		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "absolute resource path is outside the current workspace"))
+		return
+	}
+	agentDef, ok := s.deps.Registry.AgentDefinition(agentKey)
+	if !ok || strings.TrimSpace(agentDef.Workspace.Root) == "" {
+		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "absolute resource path is outside the current workspace"))
+		return
+	}
+	roots, err := rootpaths.New(agentDef.Workspace.Root, s.deps.Config.Paths.ChatsDir, s.deps.Chats.ChatDir(chatID))
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource access denied"))
+		return
+	}
+	zone, candidate, err := roots.Classify(cleanPath)
+	if err != nil || zone != rootpaths.ZoneWorkspace {
+		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "absolute resource path is outside the current workspace"))
+		return
+	}
+	s.serveResourcePath(w, r, candidate.Host)
+}
+
+func (s *Server) resourceChatOwner(chatID string) (string, string, bool) {
+	if summary, err := s.deps.Chats.Summary(chatID); err == nil && summary != nil {
+		return strings.TrimSpace(summary.AgentKey), strings.TrimSpace(summary.TeamID), true
+	}
+	if s.deps.Archives == nil {
+		return "", "", false
+	}
+	archived, err := s.deps.Archives.LoadArchived(chatID)
+	if err != nil || archived == nil {
+		return "", "", false
+	}
+	return strings.TrimSpace(archived.Summary.AgentKey), strings.TrimSpace(archived.Summary.TeamID), true
+}
+
+func (s *Server) serveResourcePath(w http.ResponseWriter, r *http.Request, path string) {
 	file, err := os.Open(path)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "resource not found"))
@@ -315,7 +388,11 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resourceURL := "/api/resource?file=" + url.QueryEscape(filepath.ToSlash(filepath.Join(chatID, targetName)))
+	resourceURL, err := chat.BuildChatScopeRef(targetName)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, "failed to create upload resource reference"))
+		return
+	}
 	referencePath := s.uploadReferencePath(targetName, targetPath, agentKey)
 	writeJSON(w, http.StatusOK, api.Success(api.UploadResponse{
 		RequestID: requestID,

@@ -80,6 +80,30 @@ func TestPublishArtifactsKeepsExtensionlessSourceName(t *testing.T) {
 	}
 }
 
+func TestPublishArtifactsEncodesSpecialFilenameInChatScopeURL(t *testing.T) {
+	workspace := t.TempDir()
+	chatsRoot := filepath.Join(workspace, "chats")
+	filename := "夏日 海报 #1%.png"
+	sourcePath := filepath.Join(workspace, filename)
+	if err := os.WriteFile(sourcePath, []byte("image"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := publishArtifacts(chatsRoot, "chat-1", "run-1", workspace, []any{
+		map[string]any{"path": sourcePath},
+	})
+	if result.Status != "published" || len(result.PublishedArtifacts) != 1 {
+		t.Fatalf("publish result=%#v", result)
+	}
+	wantURL := "artifacts/run-1/%E5%A4%8F%E6%97%A5%20%E6%B5%B7%E6%8A%A5%20%231%25.png"
+	if got := result.PublishedArtifacts[0]["url"]; got != wantURL {
+		t.Fatalf("published URL=%#v want=%q", got, wantURL)
+	}
+	if got := result.PublishedArtifacts[0]["path"]; got != nil {
+		t.Fatalf("published public metadata must not expose path: %#v", got)
+	}
+}
+
 func TestInvokeArtifactPublishReturnsErrorWhenNoArtifactsPublished(t *testing.T) {
 	workspace := t.TempDir()
 	restoreCwd := chdirForArtifactTest(t, workspace)
@@ -355,10 +379,10 @@ func TestArtifactPublishSchemaDoesNotExposeName(t *testing.T) {
 	if !strings.Contains(schema, "publishedArtifacts") {
 		t.Fatalf("artifact_publish schema should remind agents to trust publishedArtifacts")
 	}
-	if !strings.Contains(schema, "/Users/.../Downloads") {
-		t.Fatalf("artifact_publish schema should warn against arbitrary local Downloads paths")
+	if !strings.Contains(schema, "/tmp") {
+		t.Fatalf("artifact_publish schema should document /tmp inputs")
 	}
-	for _, requiredRule := range []string{"publishedArtifacts[n].url", "must never be shown", "Never hand", "file://", "absolute"} {
+	for _, requiredRule := range []string{"publishedArtifacts[n].url", "must never be shown", "Never hand", "file://", "absolute", "never contains chatId"} {
 		if !strings.Contains(schema, requiredRule) {
 			t.Fatalf("artifact_publish schema missing resource Markdown rule %q", requiredRule)
 		}

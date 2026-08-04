@@ -35,6 +35,7 @@ func (d *StreamEventDispatcher) handleModelTurnDiscard(input ModelTurnDiscard) [
 	}
 	for _, id := range contentIDs {
 		delete(d.state.contentBuffer, id)
+		delete(d.state.contentGuards, id)
 	}
 	for _, id := range toolIDs {
 		delete(d.state.toolArgsBuffer, id)

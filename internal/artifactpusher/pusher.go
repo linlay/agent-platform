@@ -103,7 +103,7 @@ func (p *Pusher) pushOne(chatID string, artifact map[string]any) {
 		fileName = "artifact.bin"
 	}
 
-	relative := extractResourceFileParam(artifactURL)
+	relative := extractResourceFileParam(artifactURL, chatID)
 	if relative == "" {
 		log.Printf("[artifact-pusher] skip: cannot extract file param chatId=%s artifactId=%s url=%s", chatID, artifactID, artifactURL)
 		return
@@ -242,7 +242,7 @@ func (p *Pusher) resolveLocalPath(relative string) string {
 
 // extractResourceFileParam accepts both the new logical resource reference
 // and the legacy /api/resource?file= transport URL.
-func extractResourceFileParam(rawURL string) string {
+func extractResourceFileParam(rawURL string, chatID string) string {
 	raw := strings.TrimSpace(rawURL)
 	if raw == "" {
 		return ""
@@ -252,7 +252,13 @@ func extractResourceFileParam(rawURL string) string {
 		return ""
 	}
 	if parsed.Path == "/api/resource" || strings.HasSuffix(parsed.Path, "/api/resource") {
-		return parsed.Query().Get("file")
+		raw = parsed.Query().Get("file")
+	} else {
+		resourceChatID, relativePath, parseErr := chat.ParseResourceKey(chatID + "/" + raw)
+		if parseErr != nil || resourceChatID != chatID {
+			return ""
+		}
+		return filepath.ToSlash(filepath.Join(resourceChatID, relativePath))
 	}
 	chatID, relativePath, err := chat.ParseResourceKey(raw)
 	if err != nil {

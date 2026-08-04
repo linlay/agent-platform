@@ -7,24 +7,34 @@ import (
 	"strings"
 )
 
-// BuildResourceRef returns the model-visible, relative URI reference for a
-// file stored inside a chat. It deliberately does not expose the HTTP
-// transport endpoint or any host filesystem path.
-func BuildResourceRef(chatID string, relativePath string) (string, error) {
-	chatID = strings.TrimSpace(chatID)
-	if !ValidChatID(chatID) {
-		return "", fmt.Errorf("invalid chat id")
-	}
+// BuildChatScopeRef returns the model-visible URI reference for a file stored
+// inside the current chat. The current chat id is runtime context and must not
+// be embedded in Markdown.
+func BuildChatScopeRef(relativePath string) (string, error) {
 	segments, err := validatedResourceSegments(relativePath)
 	if err != nil {
 		return "", err
 	}
-	encoded := make([]string, 0, len(segments)+1)
-	encoded = append(encoded, url.PathEscape(chatID))
+	encoded := make([]string, 0, len(segments))
 	for _, segment := range segments {
 		encoded = append(encoded, url.PathEscape(segment))
 	}
 	return strings.Join(encoded, "/"), nil
+}
+
+// BuildResourceKey returns the logical key consumed by the HTTP resource data
+// plane. Unlike BuildChatScopeRef, this value is never written into Markdown
+// or public tool/event URL fields.
+func BuildResourceKey(chatID string, relativePath string) (string, error) {
+	chatID = strings.TrimSpace(chatID)
+	if !ValidChatID(chatID) {
+		return "", fmt.Errorf("invalid chat id")
+	}
+	reference, err := BuildChatScopeRef(relativePath)
+	if err != nil {
+		return "", err
+	}
+	return url.PathEscape(chatID) + "/" + reference, nil
 }
 
 // ParseResourceKey parses the decoded value of /api/resource's file query.
