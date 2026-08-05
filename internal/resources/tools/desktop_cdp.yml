@@ -1,6 +1,6 @@
 name: desktop_cdp
 label: 桌面端CDP
-description: Call the local Desktop CDP Bridge to execute Chrome DevTools Protocol methods on Desktop-managed targets.
+description: Call the local Desktop CDP Bridge to inspect or control page content on Desktop-managed targets. Use desktop_action for high-level surface/tab control and desktop.website.* or desktop.webapp.* lifecycle actions.
 inputSchema:
   type: object
   properties:

@@ -26,17 +26,24 @@ inputSchema:
         - desktop.web.openTab
         - desktop.web.closeTab
         - desktop.web.switchTab
-        - desktop.web.list
-        - desktop.web.website.list
-        - desktop.web.website.add
-        - desktop.web.website.update
-        - desktop.web.website.remove
-        - desktop.web.webapp.getStatus
-        - desktop.web.webapp.start
-        - desktop.web.webapp.stop
-        - desktop.web.webapp.restart
-        - desktop.web.webapp.open
-        - desktop.web.webapp.installAndOpen
+        - desktop.site.list
+        - desktop.website.list
+        - desktop.website.add
+        - desktop.website.update
+        - desktop.website.remove
+        - desktop.website.open
+        - desktop.webapp.getStatus
+        - desktop.webapp.checkRuntime
+        - desktop.webapp.start
+        - desktop.webapp.stop
+        - desktop.webapp.restart
+        - desktop.webapp.open
+        - desktop.webapp.updatePreferences
+        - desktop.webapp.install
+        - desktop.webapp.uninstall
+        - desktop.webapp.getPublishStatus
+        - desktop.webapp.publish
+        - desktop.webapp.unpublish
         - desktop.controlCenter.listServices
         - desktop.controlCenter.getServiceStatus
         - desktop.controlCenter.getServiceDetail
