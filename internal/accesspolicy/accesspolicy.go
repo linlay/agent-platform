@@ -301,7 +301,7 @@ func sessionRoots(session QuerySession) (rootpaths.Roots, error) {
 
 func splitRootQualifiedPath(rawPath string) (string, string, bool) {
 	normalized := filepath.ToSlash(strings.TrimSpace(rawPath))
-	for _, alias := range []string{"@workspace", "@chat", "@agent", "@skills", "@skills-market", "@owner"} {
+	for _, alias := range []string{"@workspace", "@chat", "@agent", "@skills", "@skills-center", "@owner"} {
 		if strings.EqualFold(normalized, alias) {
 			return alias, "", true
 		}
@@ -382,7 +382,7 @@ func defaultLevelConfig(name string) config.AccessPolicyLevelConfig {
 		return config.AccessPolicyLevelConfig{
 			ReadRoots:     []string{"@workspace", "@chat", "@agent", "@skills"},
 			WriteRoots:    []string{"@workspace", "@chat"},
-			ReadonlyRoots: []string{"@agent", "@skills", "@skills-market"},
+			ReadonlyRoots: []string{"@agent", "@skills", "@skills-center"},
 			Approvals: config.AccessPolicyApprovalConfig{
 				ReadOutsideRoots:      "hitl",
 				WriteOutsideRoots:     "hitl",
@@ -534,8 +534,8 @@ func expandRootAlias(root string, session QuerySession) string {
 		return cleanAbs(session.RuntimeContext.LocalPaths.AgentDir)
 	case "@skills":
 		return cleanAbs(session.RuntimeContext.LocalPaths.SkillsDir)
-	case "@skills-market":
-		return cleanAbs(session.RuntimeContext.LocalPaths.SkillsMarketDir)
+	case "@skills-center":
+		return cleanAbs(session.RuntimeContext.LocalPaths.SkillsCenterDir)
 	case "@owner":
 		return cleanAbs(session.RuntimeContext.LocalPaths.OwnerDir)
 	default:

@@ -438,18 +438,18 @@ func runtimeExtraMounts(value any) []contracts.SandboxExtraMount {
 	return out
 }
 
-func runtimeExtraMountsForMustUseSkills(value any, includeSkillsMarket bool) []contracts.SandboxExtraMount {
+func runtimeExtraMountsForMustUseSkills(value any, includeSkillsCenter bool) []contracts.SandboxExtraMount {
 	mounts := runtimeExtraMounts(value)
-	if !includeSkillsMarket {
+	if !includeSkillsCenter {
 		return mounts
 	}
 	for index := range mounts {
-		if strings.EqualFold(strings.TrimSpace(mounts[index].Platform), "skills-market") {
+		if strings.EqualFold(strings.TrimSpace(mounts[index].Platform), "skills-center") {
 			mounts[index].Mode = "ro"
 			return mounts
 		}
 	}
-	return append(mounts, contracts.SandboxExtraMount{Platform: "skills-market", Mode: "ro"})
+	return append(mounts, contracts.SandboxExtraMount{Platform: "skills-center", Mode: "ro"})
 }
 
 func stringValue(value any) string {

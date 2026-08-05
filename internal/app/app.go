@@ -92,7 +92,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		cfg.Paths.AgentsDir,
 		cfg.Paths.RUAgentsDir,
 		cfg.Paths.TeamsDir,
-		cfg.Paths.SkillsMarketDir,
+		cfg.Paths.SkillsCenterDir,
 		cfg.Paths.ChatsDir,
 		cfg.Paths.MemoryDir,
 	)
@@ -209,7 +209,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			cfg.Paths.AgentsDir,
 			cfg.Paths.RUAgentsDir,
 			cfg.Paths.TeamsDir,
-			cfg.Paths.SkillsMarketDir,
+			cfg.Paths.SkillsCenterDir,
 			err,
 		)
 	}
@@ -282,7 +282,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	log.Printf("background file watchers started (agents=%s teams=%s skills=%s)",
 		cfg.Paths.AgentsDir,
 		cfg.Paths.TeamsDir,
-		cfg.Paths.SkillsMarketDir,
+		cfg.Paths.SkillsCenterDir,
 	)
 
 	var channelReg *channel.Registry

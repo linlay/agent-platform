@@ -478,6 +478,10 @@ function Resolve-ProgramRuntimeRoot {
 
 function Initialize-ProgramRuntime {
   Resolve-ProgramRuntimeRoot
+  $removedSkillsMarketDir = Join-Path $Script:RuntimeRoot 'skills-market'
+  if (Test-Path -LiteralPath $removedSkillsMarketDir) {
+    Fail-Program "legacy runtime directory is not supported: $removedSkillsMarketDir; back up the old runtime and restore a new environment containing skills-center"
+  }
   New-Item -ItemType Directory -Force -Path `
     $Script:RunDir, `
     $Script:LogDir, `
@@ -495,7 +499,7 @@ function Initialize-ProgramRuntime {
     (Join-Path $Script:RuntimeRoot 'chats'), `
     (Join-Path $Script:RuntimeRoot 'memory'), `
     (Join-Path $Script:RuntimeRoot 'pan'), `
-    (Join-Path $Script:RuntimeRoot 'skills-market') | Out-Null
+    (Join-Path $Script:RuntimeRoot 'skills-center') | Out-Null
 }
 
 function Clear-StaleProgramPid {

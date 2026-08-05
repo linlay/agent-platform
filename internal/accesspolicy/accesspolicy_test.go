@@ -15,7 +15,7 @@ func TestDefaultLevelAllowsWorkspaceAgentAndSkillsRead(t *testing.T) {
 	workspace := filepath.Join(root, "workspace")
 	agent := filepath.Join(root, "agent")
 	skills := filepath.Join(agent, "skills")
-	market := filepath.Join(root, "skills-market")
+	center := filepath.Join(root, "skills-center")
 	session := contracts.QuerySession{
 		AccessLevel:   contracts.AccessLevelDefault,
 		WorkspaceRoot: workspace,
@@ -24,7 +24,7 @@ func TestDefaultLevelAllowsWorkspaceAgentAndSkillsRead(t *testing.T) {
 				WorkspaceDir:    workspace,
 				AgentDir:        agent,
 				SkillsDir:       skills,
-				SkillsMarketDir: market,
+				SkillsCenterDir: center,
 			},
 		},
 	}
@@ -44,12 +44,12 @@ func TestDefaultLevelAllowsWorkspaceAgentAndSkillsRead(t *testing.T) {
 		}
 	}
 
-	plan, err := BuildPathPlan(cfg, session, ReadAccess, filepath.Join(market, "shared", "SKILL.md"))
+	plan, err := BuildPathPlan(cfg, session, ReadAccess, filepath.Join(center, "shared", "SKILL.md"))
 	if err != nil {
-		t.Fatalf("build market read plan: %v", err)
+		t.Fatalf("build center read plan: %v", err)
 	}
 	if !plan.RequiresApproval() {
-		t.Fatalf("expected skills-market read approval, got %#v", plan)
+		t.Fatalf("expected skills-center read approval, got %#v", plan)
 	}
 }
 

@@ -28,8 +28,8 @@ func TestMountResolverUsesAgentLocalSkillsForRunAndAgentLevels(t *testing.T) {
 			if mount.Source != want {
 				t.Fatalf("skills source = %q, want %q", mount.Source, want)
 			}
-			if mount.Source == paths.SkillsMarketDir {
-				t.Fatalf("expected agent-local skills, got skills market source %q", mount.Source)
+			if mount.Source == paths.SkillsCenterDir {
+				t.Fatalf("expected agent-local skills, got skills center source %q", mount.Source)
 			}
 		})
 	}
@@ -82,7 +82,7 @@ func TestMountResolverRejectsWorkspaceEqualToOrInsideChatsRoot(t *testing.T) {
 	}
 }
 
-func TestMountResolverDoesNotFallbackToSkillsMarketWhenAgentSkillsUnavailable(t *testing.T) {
+func TestMountResolverDoesNotFallbackToSkillsCenterWhenAgentSkillsUnavailable(t *testing.T) {
 	paths := mountResolverTestPaths(t, "reader")
 	if err := os.RemoveAll(filepath.Join(paths.RUAgentsDir, "reader", "skills")); err != nil {
 		t.Fatalf("remove skills fixture: %v", err)
@@ -101,7 +101,7 @@ func TestMountResolverDoesNotFallbackToSkillsMarketWhenAgentSkillsUnavailable(t 
 	}
 }
 
-func TestMountResolverGlobalLevelDoesNotMountSkillsMarketByDefault(t *testing.T) {
+func TestMountResolverGlobalLevelDoesNotMountSkillsCenterByDefault(t *testing.T) {
 	paths := mountResolverTestPaths(t, "reader")
 	resolver := NewContainerHubMountResolver(paths)
 
@@ -112,27 +112,27 @@ func TestMountResolverGlobalLevelDoesNotMountSkillsMarketByDefault(t *testing.T)
 	if mount, ok := mountByDestination(mounts, "/skills"); ok {
 		t.Fatalf("expected no default /skills mount in global level, got %#v", mount)
 	}
-	if mount, ok := mountByDestination(mounts, "/skills-market"); ok {
-		t.Fatalf("expected no default /skills-market mount, got %#v", mount)
+	if mount, ok := mountByDestination(mounts, "/skills-center"); ok {
+		t.Fatalf("expected no default /skills-center mount, got %#v", mount)
 	}
 }
 
-func TestMountResolverExplicitSkillsMarketExtraMount(t *testing.T) {
+func TestMountResolverExplicitSkillsCenterExtraMount(t *testing.T) {
 	paths := mountResolverTestPaths(t, "reader")
 	resolver := NewContainerHubMountResolver(paths)
 
 	mounts, err := resolver.Resolve(mountResolverWorkspace(t, paths), "chat-1", "reader", "run", []contracts.SandboxExtraMount{
-		{Platform: "skills-market", Mode: "ro"},
+		{Platform: "skills-center", Mode: "ro"},
 	})
 	if err != nil {
 		t.Fatalf("Resolve() error = %v", err)
 	}
-	mount, ok := mountByDestination(mounts, "/skills-market")
+	mount, ok := mountByDestination(mounts, "/skills-center")
 	if !ok {
-		t.Fatalf("expected explicit /skills-market mount, got %#v", mounts)
+		t.Fatalf("expected explicit /skills-center mount, got %#v", mounts)
 	}
-	if mount.Source != paths.SkillsMarketDir || !mount.ReadOnly {
-		t.Fatalf("unexpected skills-market mount: %#v", mount)
+	if mount.Source != paths.SkillsCenterDir || !mount.ReadOnly {
+		t.Fatalf("unexpected skills-center mount: %#v", mount)
 	}
 }
 
@@ -268,14 +268,14 @@ func mountResolverTestPaths(t *testing.T, agentKey string) config.PathsConfig {
 		RUAgentsDir:     filepath.Join(root, "ru-agents"),
 		OwnerDir:        filepath.Join(root, "owner"),
 		MemoryDir:       filepath.Join(root, "memory"),
-		SkillsMarketDir: filepath.Join(root, "skills-market"),
+		SkillsCenterDir: filepath.Join(root, "skills-center"),
 	}
 	for _, dir := range []string{
 		paths.ChatsDir,
 		filepath.Join(paths.RUAgentsDir, agentKey, "skills"),
 		paths.OwnerDir,
 		paths.MemoryDir,
-		paths.SkillsMarketDir,
+		paths.SkillsCenterDir,
 	} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("mkdir test dir %q: %v", dir, err)

@@ -197,7 +197,7 @@ func buildRuntimePathPolicySection(session QuerySession, definitions []api.ToolD
 		lines = append(lines, `- file_glob and file_grep must pass an explicit path, normally "@chat".`)
 	}
 	if hasTool("file_read", "file_write", "file_edit", "artifact_publish", "vision_recognize") {
-		lines = append(lines, "- File paths must use an explicit semantic root such as @chat, @agent, @skills, @skills-market, or @owner, or an allowed absolute path. Relative paths and @workspace fail with workspace_unavailable.")
+		lines = append(lines, "- File paths must use an explicit semantic root such as @chat, @agent, @skills, @skills-center, or @owner, or an allowed absolute path. Relative paths and @workspace fail with workspace_unavailable.")
 	}
 	if hasSkills {
 		lines = append(lines, "- Load an applicable skill directly from @skills/<skillId>/SKILL.md with file_read. Do not search or traverse directories to discover its location.")
@@ -402,7 +402,7 @@ func appendSandboxContextPaths(lines *[]string, paths SandboxPaths, localMode bo
 	appendContextDir(lines, "skills_dir", paths.SkillsDir, "当前 agent 私有技能目录")
 	appendContextDir(lines, "agent_dir", paths.AgentDir, "当前 agent 运行目录")
 	appendContextDir(lines, "owner_dir", paths.OwnerDir, "owner 用户档案目录")
-	appendContextDir(lines, "skills_market_dir", paths.SkillsMarketDir, "共享技能市场目录")
+	appendContextDir(lines, "skills_center_dir", paths.SkillsCenterDir, "共享技能中心目录")
 	appendContextDir(lines, "agents_dir", paths.AgentsDir, "Agent 可编辑事实源目录")
 	appendContextDir(lines, "ru_agents_dir", paths.RUAgentsDir, "Platform 生成的 Agent 执行目录，禁止人工编辑")
 	appendContextDir(lines, "teams_dir", paths.TeamsDir, "团队配置目录")
@@ -423,7 +423,7 @@ func appendLocalContextPaths(lines *[]string, paths LocalPaths) {
 	appendContextDir(lines, "skills_dir", paths.SkillsDir, "当前 agent 私有技能目录")
 	appendContextDir(lines, "agent_dir", paths.AgentDir, "当前 agent 运行目录")
 	appendContextDir(lines, "owner_dir", paths.OwnerDir, "owner 用户档案目录")
-	appendContextDir(lines, "skills_market_dir", paths.SkillsMarketDir, "共享技能市场目录")
+	appendContextDir(lines, "skills_center_dir", paths.SkillsCenterDir, "共享技能中心目录")
 	appendContextDir(lines, "agents_dir", paths.AgentsDir, "Agent 可编辑事实源目录")
 	appendContextDir(lines, "ru_agents_dir", paths.RUAgentsDir, "Platform 生成的 Agent 执行目录，禁止人工编辑")
 	appendContextDir(lines, "teams_dir", paths.TeamsDir, "团队配置目录")

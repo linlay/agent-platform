@@ -72,7 +72,7 @@ type PathsConfig struct {
 	MemoryDir       string
 	KBaseDir        string
 	PanDir          string
-	SkillsMarketDir string
+	SkillsCenterDir string
 }
 
 // EffectiveRUAgentsDir returns the configured assembled Agent root. The
@@ -622,6 +622,9 @@ func Load(optionValues ...LoadOptions) (Config, error) {
 	if err := cfg.normalize(options.ConfigDir); err != nil {
 		return Config{}, err
 	}
+	if err := validateRemovedSkillsMarketRuntimeDirs(defaultRuntimeRoot(), cfg.Paths.SkillsCenterDir); err != nil {
+		return Config{}, err
+	}
 
 	if strings.TrimSpace(cfg.Server.Port) == "" {
 		return Config{}, fmt.Errorf("SERVER_PORT must not be empty")
@@ -661,7 +664,7 @@ func validateRUAgentsDir(paths PathsConfig) error {
 		"memory-dir":        paths.MemoryDir,
 		"kbase-dir":         paths.KBaseDir,
 		"pan-dir":           paths.PanDir,
-		"skills-market-dir": paths.SkillsMarketDir,
+		"skills-center-dir": paths.SkillsCenterDir,
 	} {
 		candidate = strings.TrimSpace(candidate)
 		if candidate == "" {

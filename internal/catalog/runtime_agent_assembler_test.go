@@ -17,7 +17,7 @@ func TestRuntimeAgentAssemblerClearsRuntimeRootAtStartup(t *testing.T) {
 	writeRuntimeAssemblerFile(t, filepath.Join(ruAgentsDir, ".staging", "abandoned", "partial"), "stale")
 	writeRuntimeAssemblerFile(t, filepath.Join(ruAgentsDir, "unexpected.txt"), "stale")
 
-	if _, err := newRuntimeAgentAssembler(ruAgentsDir, filepath.Join(root, "skills-market")); err != nil {
+	if _, err := newRuntimeAgentAssembler(ruAgentsDir, filepath.Join(root, "skills-center")); err != nil {
 		t.Fatalf("new assembler: %v", err)
 	}
 	entries, err := os.ReadDir(ruAgentsDir)
@@ -37,7 +37,7 @@ func TestRuntimeAgentAssemblerRejectsNonDirectoryRootWithoutDeletingIt(t *testin
 	ruAgentsPath := filepath.Join(root, "ru-agents")
 	writeRuntimeAssemblerFile(t, ruAgentsPath, "preserve")
 
-	if _, err := newRuntimeAgentAssembler(ruAgentsPath, filepath.Join(root, "skills-market")); err == nil ||
+	if _, err := newRuntimeAgentAssembler(ruAgentsPath, filepath.Join(root, "skills-center")); err == nil ||
 		!strings.Contains(err.Error(), "must be a directory") {
 		t.Fatalf("expected non-directory root rejection, got %v", err)
 	}
@@ -47,10 +47,10 @@ func TestRuntimeAgentAssemblerRejectsNonDirectoryRootWithoutDeletingIt(t *testin
 func TestRuntimeAgentAssemblerUsesLocalSkillAndMergesConfig(t *testing.T) {
 	root := t.TempDir()
 	agentsDir := filepath.Join(root, "agents")
-	marketDir := filepath.Join(root, "skills-market")
+	centerDir := filepath.Join(root, "skills-center")
 	ruAgentsDir := filepath.Join(root, "ru-agents")
 	writeRuntimeAssemblerAgent(t, agentsDir, "writer", []string{"office"})
-	writeRuntimeAssemblerSkill(t, filepath.Join(marketDir, "office"), "Market Office")
+	writeRuntimeAssemblerSkill(t, filepath.Join(centerDir, "office"), "Center Office")
 	writeRuntimeAssemblerSkill(t, filepath.Join(agentsDir, "writer", "skills", "office"), "Local Office")
 	writeRuntimeAssemblerFile(t, filepath.Join(agentsDir, "writer", "skills", "office", ".runtime-env.json"), `{"OFFICE_SOURCE":"local"}`)
 	writeRuntimeAssemblerFile(t, filepath.Join(agentsDir, "writer", "skills", "office", "scripts", "run.sh"), "#!/bin/sh\n")
@@ -67,13 +67,13 @@ func TestRuntimeAgentAssemblerUsesLocalSkillAndMergesConfig(t *testing.T) {
 	writeRuntimeAssemblerFile(t, filepath.Join(agentsDir, "writer", "AGENTS.md"), "runtime agents")
 	writeRuntimeAssemblerFile(t, filepath.Join(agentsDir, "writer", "templates", "prompt.md"), "template")
 
-	assembler, err := newRuntimeAgentAssembler(ruAgentsDir, marketDir)
+	assembler, err := newRuntimeAgentAssembler(ruAgentsDir, centerDir)
 	if err != nil {
 		t.Fatalf("new assembler: %v", err)
 	}
 	agents, admin, err := loadAgentsWithAdminAssembler(
 		agentsDir,
-		marketDir,
+		centerDir,
 		filepath.Join(root, "chats"),
 		true,
 		assembler,
@@ -135,7 +135,7 @@ func TestRuntimeAgentAssemblerUsesLocalSkillAndMergesConfig(t *testing.T) {
 	if err := os.RemoveAll(def.AgentDir); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.RemoveAll(marketDir); err != nil {
+	if err := os.RemoveAll(centerDir); err != nil {
 		t.Fatal(err)
 	}
 	if _, found, err := ResolveRuntimeSkillDefinition(def.RuntimeDir, "office"); err != nil || !found {
@@ -146,24 +146,24 @@ func TestRuntimeAgentAssemblerUsesLocalSkillAndMergesConfig(t *testing.T) {
 func TestRuntimeAgentAssemblerRejectsSkillConfigConflictsButAllowsIdenticalFiles(t *testing.T) {
 	root := t.TempDir()
 	agentsDir := filepath.Join(root, "agents")
-	marketDir := filepath.Join(root, "skills-market")
+	centerDir := filepath.Join(root, "skills-center")
 	ruAgentsDir := filepath.Join(root, "ru-agents")
 	writeRuntimeAssemblerAgent(t, agentsDir, "conflict", []string{"alpha", "beta"})
 	writeRuntimeAssemblerAgent(t, agentsDir, "identical", []string{"same-a", "same-b"})
 	writeRuntimeAssemblerAgent(t, agentsDir, "healthy", nil)
 	for _, id := range []string{"alpha", "beta", "same-a", "same-b"} {
-		writeRuntimeAssemblerSkill(t, filepath.Join(marketDir, id), id)
+		writeRuntimeAssemblerSkill(t, filepath.Join(centerDir, id), id)
 	}
-	writeRuntimeAssemblerFile(t, filepath.Join(marketDir, "alpha", ".config", "httpx", "bridge.toml"), "alpha")
-	writeRuntimeAssemblerFile(t, filepath.Join(marketDir, "beta", ".config", "httpx", "bridge.toml"), "beta")
-	writeRuntimeAssemblerFile(t, filepath.Join(marketDir, "same-a", ".config", "httpx", "bridge.toml"), "same")
-	writeRuntimeAssemblerFile(t, filepath.Join(marketDir, "same-b", ".config", "httpx", "bridge.toml"), "same")
+	writeRuntimeAssemblerFile(t, filepath.Join(centerDir, "alpha", ".config", "httpx", "bridge.toml"), "alpha")
+	writeRuntimeAssemblerFile(t, filepath.Join(centerDir, "beta", ".config", "httpx", "bridge.toml"), "beta")
+	writeRuntimeAssemblerFile(t, filepath.Join(centerDir, "same-a", ".config", "httpx", "bridge.toml"), "same")
+	writeRuntimeAssemblerFile(t, filepath.Join(centerDir, "same-b", ".config", "httpx", "bridge.toml"), "same")
 
-	assembler, err := newRuntimeAgentAssembler(ruAgentsDir, marketDir)
+	assembler, err := newRuntimeAgentAssembler(ruAgentsDir, centerDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	agents, admin, err := loadAgentsWithAdminAssembler(agentsDir, marketDir, filepath.Join(root, "chats"), true, assembler)
+	agents, admin, err := loadAgentsWithAdminAssembler(agentsDir, centerDir, filepath.Join(root, "chats"), true, assembler)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,19 +195,19 @@ func TestRuntimeAgentAssemblerRejectsCaseFoldAndStructuralConflicts(t *testing.T
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
 			agentsDir := filepath.Join(root, "agents")
-			marketDir := filepath.Join(root, "skills-market")
+			centerDir := filepath.Join(root, "skills-center")
 			writeRuntimeAssemblerAgent(t, agentsDir, "broken", []string{"alpha", "beta"})
 			for _, id := range []string{"alpha", "beta"} {
-				writeRuntimeAssemblerSkill(t, filepath.Join(marketDir, id), id)
+				writeRuntimeAssemblerSkill(t, filepath.Join(centerDir, id), id)
 			}
-			writeRuntimeAssemblerFile(t, filepath.Join(marketDir, "alpha", ".config", filepath.FromSlash(tc.alphaRel)), "alpha")
-			writeRuntimeAssemblerFile(t, filepath.Join(marketDir, "beta", ".config", filepath.FromSlash(tc.betaRel)), "beta")
+			writeRuntimeAssemblerFile(t, filepath.Join(centerDir, "alpha", ".config", filepath.FromSlash(tc.alphaRel)), "alpha")
+			writeRuntimeAssemblerFile(t, filepath.Join(centerDir, "beta", ".config", filepath.FromSlash(tc.betaRel)), "beta")
 
-			assembler, err := newRuntimeAgentAssembler(filepath.Join(root, "ru-agents"), marketDir)
+			assembler, err := newRuntimeAgentAssembler(filepath.Join(root, "ru-agents"), centerDir)
 			if err != nil {
 				t.Fatal(err)
 			}
-			agents, admin, err := loadAgentsWithAdminAssembler(agentsDir, marketDir, filepath.Join(root, "chats"), true, assembler)
+			agents, admin, err := loadAgentsWithAdminAssembler(agentsDir, centerDir, filepath.Join(root, "chats"), true, assembler)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -225,23 +225,23 @@ func TestRuntimeAgentAssemblerRejectsCaseFoldAndStructuralConflicts(t *testing.T
 func TestRuntimeAgentAssemblerDoesNotFallbackWhenLocalSkillIsInvalid(t *testing.T) {
 	root := t.TempDir()
 	agentsDir := filepath.Join(root, "agents")
-	marketDir := filepath.Join(root, "skills-market")
+	centerDir := filepath.Join(root, "skills-center")
 	writeRuntimeAssemblerAgent(t, agentsDir, "writer", []string{"office"})
-	writeRuntimeAssemblerSkill(t, filepath.Join(marketDir, "office"), "Market Office")
+	writeRuntimeAssemblerSkill(t, filepath.Join(centerDir, "office"), "Center Office")
 	if err := os.MkdirAll(filepath.Join(agentsDir, "writer", "skills", "office"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	assembler, err := newRuntimeAgentAssembler(filepath.Join(root, "ru-agents"), marketDir)
+	assembler, err := newRuntimeAgentAssembler(filepath.Join(root, "ru-agents"), centerDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	agents, admin, err := loadAgentsWithAdminAssembler(agentsDir, marketDir, filepath.Join(root, "chats"), true, assembler)
+	agents, admin, err := loadAgentsWithAdminAssembler(agentsDir, centerDir, filepath.Join(root, "chats"), true, assembler)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := agents["writer"]; ok {
-		t.Fatal("invalid local skill must not fall back to market")
+		t.Fatal("invalid local skill must not fall back to center")
 	}
 	if diagnostic := firstRuntimeAssemblerDiagnostic(admin["writer"]); !strings.Contains(diagnostic.Message, "agent-local skill") {
 		t.Fatalf("diagnostic = %#v", diagnostic)
@@ -251,7 +251,7 @@ func TestRuntimeAgentAssemblerDoesNotFallbackWhenLocalSkillIsInvalid(t *testing.
 func TestRuntimeAgentAssemblerSupportsStandaloneAgentAndStableHotUpdate(t *testing.T) {
 	root := t.TempDir()
 	agentsDir := filepath.Join(root, "agents")
-	marketDir := filepath.Join(root, "skills-market")
+	centerDir := filepath.Join(root, "skills-center")
 	ruAgentsDir := filepath.Join(root, "ru-agents")
 	if err := os.MkdirAll(agentsDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -266,13 +266,13 @@ func TestRuntimeAgentAssemblerSupportsStandaloneAgentAndStableHotUpdate(t *testi
 		"  skills:",
 		"    - office",
 	}, "\n"))
-	writeRuntimeAssemblerSkill(t, filepath.Join(marketDir, "office"), "Office v1")
+	writeRuntimeAssemblerSkill(t, filepath.Join(centerDir, "office"), "Office v1")
 
 	cfg := config.Config{
 		Paths: config.PathsConfig{
 			AgentsDir:       agentsDir,
 			RUAgentsDir:     ruAgentsDir,
-			SkillsMarketDir: marketDir,
+			SkillsCenterDir: centerDir,
 			ChatsDir:        filepath.Join(root, "chats"),
 		},
 	}
@@ -294,7 +294,7 @@ func TestRuntimeAgentAssemblerSupportsStandaloneAgentAndStableHotUpdate(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeRuntimeAssemblerFile(t, filepath.Join(marketDir, "office", "SKILL.md"), "# Office v2\n")
+	writeRuntimeAssemblerFile(t, filepath.Join(centerDir, "office", "SKILL.md"), "# Office v2\n")
 	if err := registry.Reload(nil, "agents"); err != nil {
 		t.Fatalf("reload agents: %v", err)
 	}
@@ -306,7 +306,7 @@ func TestRuntimeAgentAssemblerSupportsStandaloneAgentAndStableHotUpdate(t *testi
 		t.Fatal("stable runtime Agent directory was replaced during hot reload")
 	}
 	assertRuntimeAssemblerContent(t, filepath.Join(def.RuntimeDir, "skills", "office", "SKILL.md"), "# Office v2")
-	if err := os.Remove(filepath.Join(marketDir, "office", "SKILL.md")); err != nil {
+	if err := os.Remove(filepath.Join(centerDir, "office", "SKILL.md")); err != nil {
 		t.Fatal(err)
 	}
 	if err := registry.Reload(nil, "agents"); err != nil {
@@ -316,7 +316,7 @@ func TestRuntimeAgentAssemblerSupportsStandaloneAgentAndStableHotUpdate(t *testi
 		t.Fatal("invalid candidate Agent remains published")
 	}
 	assertRuntimeAssemblerContent(t, filepath.Join(def.RuntimeDir, "skills", "office", "SKILL.md"), "# Office v2")
-	writeRuntimeAssemblerFile(t, filepath.Join(marketDir, "office", "SKILL.md"), "# Office v3\n")
+	writeRuntimeAssemblerFile(t, filepath.Join(centerDir, "office", "SKILL.md"), "# Office v3\n")
 	if err := registry.Reload(nil, "agents"); err != nil {
 		t.Fatalf("reload repaired candidate: %v", err)
 	}

@@ -765,15 +765,15 @@ func TestQueryRejectsMustUseSkillsForTeam(t *testing.T) {
 	}
 }
 
-func TestQueryExtraMustUseSkillAddsMarketContextAndReadonlyMount(t *testing.T) {
+func TestQueryExtraMustUseSkillAddsCenterContextAndReadonlyMount(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, nil, testFixtureOptions{
 		setupRuntime: func(_ string, cfg *config.Config) {
-			writeTestSkill(t, cfg.Paths.SkillsMarketDir, "market-extra")
-			extraDir := filepath.Join(cfg.Paths.SkillsMarketDir, "market-extra")
+			writeTestSkill(t, cfg.Paths.SkillsCenterDir, "center-extra")
+			extraDir := filepath.Join(cfg.Paths.SkillsCenterDir, "center-extra")
 			if err := os.MkdirAll(filepath.Join(extraDir, ".bash-hooks"), 0o755); err != nil {
 				t.Fatalf("mkdir extra skill hooks: %v", err)
 			}
-			if err := os.WriteFile(filepath.Join(extraDir, ".runtime-env.json"), []byte(`{"MARKET_EXTRA":"must-not-merge"}`), 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(extraDir, ".runtime-env.json"), []byte(`{"CENTER_EXTRA":"must-not-merge"}`), 0o644); err != nil {
 				t.Fatalf("write extra skill env: %v", err)
 			}
 		},
@@ -781,7 +781,7 @@ func TestQueryExtraMustUseSkillAddsMarketContextAndReadonlyMount(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{
 		"message":"use both",
 		"agentKey":"mock-agent",
-		"mustUseSkills":["mock-skill","market-extra"]
+		"mustUseSkills":["mock-skill","center-extra"]
 	}`))
 	admission, err := fixture.server.prepareQueryAdmission(req, true)
 	if err != nil {
@@ -791,38 +791,38 @@ func TestQueryExtraMustUseSkillAddsMarketContextAndReadonlyMount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("complete preparation: %v", err)
 	}
-	if strings.Join(prepared.session.MustUseSkills, ",") != "mock-skill,market-extra" {
+	if strings.Join(prepared.session.MustUseSkills, ",") != "mock-skill,center-extra" {
 		t.Fatalf("mustUseSkills = %#v", prepared.session.MustUseSkills)
 	}
-	if prepared.session.RuntimeContext.LocalPaths.SkillsMarketDir != fixture.cfg.Paths.SkillsMarketDir {
-		t.Fatalf("local skills-market = %q", prepared.session.RuntimeContext.LocalPaths.SkillsMarketDir)
+	if prepared.session.RuntimeContext.LocalPaths.SkillsCenterDir != fixture.cfg.Paths.SkillsCenterDir {
+		t.Fatalf("local skills-center = %q", prepared.session.RuntimeContext.LocalPaths.SkillsCenterDir)
 	}
-	if prepared.session.RuntimeContext.SandboxPaths.SkillsMarketDir != "/skills-market" {
-		t.Fatalf("sandbox skills-market = %q", prepared.session.RuntimeContext.SandboxPaths.SkillsMarketDir)
+	if prepared.session.RuntimeContext.SandboxPaths.SkillsCenterDir != "/skills-center" {
+		t.Fatalf("sandbox skills-center = %q", prepared.session.RuntimeContext.SandboxPaths.SkillsCenterDir)
 	}
-	marketMounts := 0
+	centerMounts := 0
 	for _, mount := range prepared.session.RuntimeExtraMounts {
-		if strings.EqualFold(mount.Platform, "skills-market") {
-			marketMounts++
+		if strings.EqualFold(mount.Platform, "skills-center") {
+			centerMounts++
 			if mount.Mode != "ro" {
-				t.Fatalf("market mount must be readonly: %#v", mount)
+				t.Fatalf("center mount must be readonly: %#v", mount)
 			}
 		}
 	}
-	if marketMounts != 1 {
-		t.Fatalf("expected one market mount, got %#v", prepared.session.RuntimeExtraMounts)
+	if centerMounts != 1 {
+		t.Fatalf("expected one center mount, got %#v", prepared.session.RuntimeExtraMounts)
 	}
-	if _, exists := prepared.session.RuntimeEnvOverrides["MARKET_EXTRA"]; exists {
+	if _, exists := prepared.session.RuntimeEnvOverrides["CENTER_EXTRA"]; exists {
 		t.Fatalf("extra skill runtime env must not be merged: %#v", prepared.session.RuntimeEnvOverrides)
 	}
 	for _, hookDir := range prepared.session.SkillHookDirs {
-		if strings.Contains(hookDir, "market-extra") {
+		if strings.Contains(hookDir, "center-extra") {
 			t.Fatalf("extra skill bash hooks must not be merged: %#v", prepared.session.SkillHookDirs)
 		}
 	}
 	for _, expected := range []string{
 		"instructionsPath: @skills/mock-skill/SKILL.md",
-		"instructionsPath: @skills-market/market-extra/SKILL.md",
+		"instructionsPath: @skills-center/center-extra/SKILL.md",
 		"None may be skipped",
 	} {
 		if !strings.Contains(prepared.session.SkillCatalogPrompt, expected) {

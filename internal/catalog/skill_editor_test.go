@@ -38,7 +38,7 @@ func TestEditableSkillAdminScansInvalidRuntimeEnvUsageAndSymlink(t *testing.T) {
 		}
 	}
 	registry := &FileRegistry{
-		cfg: config.Config{Paths: config.PathsConfig{SkillsMarketDir: root}},
+		cfg: config.Config{Paths: config.PathsConfig{SkillsCenterDir: root}},
 		adminAgents: map[string]AdminAgent{
 			"agent-a": {Key: "agent-a", Skills: []string{"demo-skill"}},
 		},
@@ -71,7 +71,7 @@ func TestEditableSkillAdminScansInvalidRuntimeEnvUsageAndSymlink(t *testing.T) {
 
 func TestEditableSkillPathGuardsAndBinaryRead(t *testing.T) {
 	root := t.TempDir()
-	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsMarketDir: root}}}
+	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsCenterDir: root}}}
 	if _, err := registry.CreateEditableSkill("../bad", "# Bad\n", nil); !errors.Is(err, ErrInvalidSkillKey) {
 		t.Fatalf("expected invalid key, got %v", err)
 	}
@@ -128,7 +128,7 @@ func TestWriteEditableSkillArchiveIncludesSafeFilesOnly(t *testing.T) {
 		}
 	}
 
-	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsMarketDir: root}}}
+	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsCenterDir: root}}}
 	var output bytes.Buffer
 	if err := registry.WriteEditableSkillArchive("demo-skill", &output); err != nil {
 		t.Fatalf("write archive: %v", err)
@@ -179,7 +179,7 @@ func TestWriteEditableSkillArchiveRejectsOversizedContent(t *testing.T) {
 	if err := os.Truncate(oversized, EditableSkillMaxArchiveBytes+1); err != nil {
 		t.Fatalf("create sparse oversized file: %v", err)
 	}
-	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsMarketDir: root}}}
+	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsCenterDir: root}}}
 	if err := registry.WriteEditableSkillArchive("demo-skill", io.Discard); !errors.Is(err, ErrSkillArchiveTooLarge) {
 		t.Fatalf("expected archive size rejection, got %v", err)
 	}
@@ -187,7 +187,7 @@ func TestWriteEditableSkillArchiveRejectsOversizedContent(t *testing.T) {
 
 func TestImportEditableSkillArchiveSupportsRootAndWrappedLayouts(t *testing.T) {
 	root := t.TempDir()
-	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsMarketDir: root}}}
+	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsCenterDir: root}}}
 
 	rootArchive := buildSkillImportZIP(t, []skillImportZIPEntry{
 		{name: "SKILL.md", content: []byte("---\nname: Root Skill\ndescription: Imported\n---\n\nUse it.\n"), mode: 0o644},
@@ -236,7 +236,7 @@ func TestImportEditableSkillArchiveSupportsRootAndWrappedLayouts(t *testing.T) {
 
 func TestDownloadedEditableSkillArchiveCanBeReimported(t *testing.T) {
 	root := t.TempDir()
-	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsMarketDir: root}}}
+	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsCenterDir: root}}}
 	if _, err := registry.CreateEditableSkill("source-skill", "# Source Skill\n", []EditableSkillInlineFile{
 		{Path: "references/guide.md", Content: "guide\n"},
 	}); err != nil {
@@ -266,7 +266,7 @@ func TestDownloadedEditableSkillArchiveCanBeReimported(t *testing.T) {
 
 func TestImportEditableSkillArchiveConcurrentDuplicateHasSingleWinner(t *testing.T) {
 	root := t.TempDir()
-	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsMarketDir: root}}}
+	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsCenterDir: root}}}
 	archive := buildSkillImportZIP(t, []skillImportZIPEntry{{name: "SKILL.md", content: []byte("# Concurrent\n")}})
 
 	start := make(chan struct{})
@@ -400,7 +400,7 @@ func TestImportEditableSkillArchiveRejectsUnsafeOrInvalidContentWithoutResidue(t
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
-			registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsMarketDir: root}}}
+			registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsCenterDir: root}}}
 			archive := buildSkillImportZIP(t, tc.entries)
 			_, err := registry.ImportEditableSkillArchive("demo-skill", bytes.NewReader(archive), int64(len(archive)))
 			var validationErr *SkillArchiveValidationError
@@ -423,7 +423,7 @@ func TestImportEditableSkillArchiveRejectsUnsafeOrInvalidContentWithoutResidue(t
 
 func TestImportEditableSkillArchiveRejectsInvalidDuplicateAndLimits(t *testing.T) {
 	root := t.TempDir()
-	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsMarketDir: root}}}
+	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsCenterDir: root}}}
 	if _, err := registry.ImportEditableSkillArchive("invalid", bytes.NewReader([]byte("not a zip")), int64(len("not a zip"))); !errors.Is(err, ErrSkillArchiveInvalid) {
 		t.Fatalf("expected invalid archive error, got %v", err)
 	}
@@ -500,7 +500,7 @@ func TestAdminSkillIconRequiresRegularFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Demo\n"), 0o644); err != nil {
 		t.Fatalf("write skill: %v", err)
 	}
-	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsMarketDir: root}}}
+	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsCenterDir: root}}}
 
 	item, found, err := registry.AdminSkill("demo-skill")
 	if err != nil || !found || item.IconPath != "" {

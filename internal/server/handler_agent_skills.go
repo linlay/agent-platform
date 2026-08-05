@@ -41,12 +41,12 @@ func (s *Server) listSkillsForAgent(agentKey string) (api.AgentSkillsResponse, e
 		return api.AgentSkillsResponse{}, agentSkillsStatusError(http.StatusNotFound, "agent_not_found", "agent not found")
 	}
 
-	marketSkills := s.deps.Registry.Skills("")
+	centerSkills := s.deps.Registry.Skills("")
 	response := api.AgentSkillsResponse{
 		AgentKey: definition.Key,
-		Skills:   make([]api.AgentSkillResponse, 0, len(marketSkills)+len(definition.Skills)),
+		Skills:   make([]api.AgentSkillResponse, 0, len(centerSkills)+len(definition.Skills)),
 	}
-	seen := make(map[string]struct{}, len(marketSkills)+len(definition.Skills))
+	seen := make(map[string]struct{}, len(centerSkills)+len(definition.Skills))
 	for _, configuredKey := range definition.Skills {
 		configuredKey = strings.TrimSpace(configuredKey)
 		normalized := strings.ToLower(configuredKey)
@@ -79,8 +79,8 @@ func (s *Server) listSkillsForAgent(agentKey string) (api.AgentSkillsResponse, e
 			AgentHasSkill: true,
 		})
 	}
-	for _, marketSkill := range marketSkills {
-		normalized := strings.ToLower(strings.TrimSpace(marketSkill.Key))
+	for _, centerSkill := range centerSkills {
+		normalized := strings.ToLower(strings.TrimSpace(centerSkill.Key))
 		if normalized == "" {
 			continue
 		}
@@ -89,9 +89,9 @@ func (s *Server) listSkillsForAgent(agentKey string) (api.AgentSkillsResponse, e
 		}
 		seen[normalized] = struct{}{}
 		response.Skills = append(response.Skills, api.AgentSkillResponse{
-			Key:         marketSkill.Key,
-			Name:        marketSkill.Name,
-			Description: marketSkill.Description,
+			Key:         centerSkill.Key,
+			Name:        centerSkill.Name,
+			Description: centerSkill.Description,
 		})
 	}
 	return response, nil

@@ -262,6 +262,8 @@ func (s *Server) agentEditor() (editableAgentRegistry, error) {
 }
 
 func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (api.AgentDetailResponse, error) {
+	s.adminAgentMutationMu.Lock()
+	defer s.adminAgentMutationMu.Unlock()
 	editor, err := s.agentEditor()
 	if err != nil {
 		return api.AgentDetailResponse{}, err
@@ -385,6 +387,8 @@ func (s *Server) normalizeGeneratedModeCreation(key string, definition map[strin
 }
 
 func (s *Server) updateAgent(ctx context.Context, req api.UpdateAgentRequest) (api.AgentDetailResponse, error) {
+	s.adminAgentMutationMu.Lock()
+	defer s.adminAgentMutationMu.Unlock()
 	editor, err := s.agentEditor()
 	if err != nil {
 		return api.AgentDetailResponse{}, err
@@ -400,6 +404,8 @@ func (s *Server) updateAgent(ctx context.Context, req api.UpdateAgentRequest) (a
 }
 
 func (s *Server) updateAgentName(ctx context.Context, key string, name string) (api.AgentDetailResponse, error) {
+	s.adminAgentMutationMu.Lock()
+	defer s.adminAgentMutationMu.Unlock()
 	editor, err := s.agentEditor()
 	if err != nil {
 		return api.AgentDetailResponse{}, err
@@ -420,6 +426,8 @@ func (s *Server) updateAgentName(ctx context.Context, key string, name string) (
 }
 
 func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgentModelConfigRequest) (api.AgentModelConfigResponse, error) {
+	s.adminAgentMutationMu.Lock()
+	defer s.adminAgentMutationMu.Unlock()
 	editor, err := s.agentEditor()
 	if err != nil {
 		return api.AgentModelConfigResponse{}, err
@@ -531,6 +539,8 @@ func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgent
 }
 
 func (s *Server) deleteAgent(ctx context.Context, req api.DeleteAgentRequest) (map[string]any, error) {
+	s.adminAgentMutationMu.Lock()
+	defer s.adminAgentMutationMu.Unlock()
 	editor, err := s.agentEditor()
 	if err != nil {
 		return nil, err

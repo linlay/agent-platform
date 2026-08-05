@@ -66,7 +66,7 @@ type runtimeRequestContextInput struct {
 	references         []api.Reference
 	principal          *Principal
 	definition         catalog.AgentDefinition
-	exposeSkillsMarket bool
+	exposeSkillsCenter bool
 }
 
 func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (contracts.RuntimeRequestContext, error) {
@@ -82,19 +82,19 @@ func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (c
 	if err != nil {
 		return contracts.RuntimeRequestContext{}, err
 	}
-	if input.exposeSkillsMarket || promptContextHasPlatformMount(input.definition.Runtime["sandboxMounts"], "skills-market") {
-		localPaths.SkillsMarketDir = cleanOrEmpty(s.deps.Config.Paths.SkillsMarketDir)
+	if input.exposeSkillsCenter || promptContextHasPlatformMount(input.definition.Runtime["sandboxMounts"], "skills-center") {
+		localPaths.SkillsCenterDir = cleanOrEmpty(s.deps.Config.Paths.SkillsCenterDir)
 	}
 	references, err := s.normalizeReferencePathsForAgent(input.references, input.chatID, input.definition, localPaths)
 	if err != nil {
 		return contracts.RuntimeRequestContext{}, err
 	}
 	sandboxPaths := resolveSandboxPaths(s.deps.Config, input.definition, localPaths)
-	if input.exposeSkillsMarket {
+	if input.exposeSkillsCenter {
 		if s.deps.Config.IsLocalMode() {
-			sandboxPaths.SkillsMarketDir = localPaths.SkillsMarketDir
+			sandboxPaths.SkillsCenterDir = localPaths.SkillsCenterDir
 		} else {
-			sandboxPaths.SkillsMarketDir = "/skills-market"
+			sandboxPaths.SkillsCenterDir = "/skills-center"
 		}
 	}
 	context := contracts.RuntimeRequestContext{
@@ -389,7 +389,7 @@ func resourceFileName(rawURL string) string {
 	return parsed.Path
 }
 
-type skillMarketCatalog interface {
+type skillCenterCatalog interface {
 	Skills(tag string) []api.SkillSummary
 	SkillDefinition(key string) (catalog.SkillDefinition, bool)
 }
@@ -423,8 +423,8 @@ func mustUseSkillUnavailableStatus(err error) *statusError {
 	}
 }
 
-func buildSkillCatalogPrompt(def catalog.AgentDefinition, marketDir string, appendConfig contracts.PromptAppendConfig, mustUseSkills ...resolvedMustUseSkill) string {
-	_ = marketDir
+func buildSkillCatalogPrompt(def catalog.AgentDefinition, centerDir string, appendConfig contracts.PromptAppendConfig, mustUseSkills ...resolvedMustUseSkill) string {
+	_ = centerDir
 	if len(def.Skills) == 0 && len(mustUseSkills) == 0 {
 		return ""
 	}
@@ -515,7 +515,7 @@ func normalizeMustUseSkills(requested []string) []string {
 	return resolved
 }
 
-func resolveMustUseSkills(def catalog.AgentDefinition, marketDir string, market skillMarketCatalog, requested []string) (mustUseSkillResolution, error) {
+func resolveMustUseSkills(def catalog.AgentDefinition, centerDir string, center skillCenterCatalog, requested []string) (mustUseSkillResolution, error) {
 	normalizedRequested := normalizeMustUseSkills(requested)
 	if len(normalizedRequested) == 0 {
 		return mustUseSkillResolution{}, nil
@@ -550,20 +550,20 @@ func resolveMustUseSkills(def catalog.AgentDefinition, marketDir string, market 
 			continue
 		}
 
-		marketKey, ok := resolveMarketSkillKey(market, requestedKey)
+		centerKey, ok := resolveCenterSkillKey(center, requestedKey)
 		if !ok {
-			return mustUseSkillResolution{}, fmt.Errorf("must-use skill %q is unavailable in the active skills market", requestedKey)
+			return mustUseSkillResolution{}, fmt.Errorf("must-use skill %q is unavailable in the active skills center", requestedKey)
 		}
-		definition, found, err := catalog.ResolveSkillDefinition("", marketDir, marketKey)
+		definition, found, err := catalog.ResolveSkillDefinition("", centerDir, centerKey)
 		if err != nil {
-			return mustUseSkillResolution{}, fmt.Errorf("resolve must-use market skill %q: %w", marketKey, err)
+			return mustUseSkillResolution{}, fmt.Errorf("resolve must-use center skill %q: %w", centerKey, err)
 		}
 		if !found {
-			return mustUseSkillResolution{}, fmt.Errorf("must-use skill %q could not be resolved from the skills market", marketKey)
+			return mustUseSkillResolution{}, fmt.Errorf("must-use skill %q could not be resolved from the skills center", centerKey)
 		}
 		result.Skills = append(result.Skills, resolvedMustUseSkill{
 			Key:              definition.Key,
-			InstructionsPath: "@skills-market/" + definition.Key + "/SKILL.md",
+			InstructionsPath: "@skills-center/" + definition.Key + "/SKILL.md",
 			Extra:            true,
 			Definition:       definition,
 		})
@@ -578,19 +578,19 @@ func (s *Server) resolveQueryMustUseSkills(def catalog.AgentDefinition, requeste
 	if isProxyRoutedAgent(def) {
 		return mustUseSkillResolution{Keys: normalized}, nil
 	}
-	return resolveMustUseSkills(def, s.deps.Config.Paths.SkillsMarketDir, s.deps.Registry, normalized)
+	return resolveMustUseSkills(def, s.deps.Config.Paths.SkillsCenterDir, s.deps.Registry, normalized)
 }
 
-func resolveMarketSkillKey(market skillMarketCatalog, requested string) (string, bool) {
-	if market == nil {
+func resolveCenterSkillKey(center skillCenterCatalog, requested string) (string, bool) {
+	if center == nil {
 		return "", false
 	}
 	requested = strings.TrimSpace(requested)
-	for _, summary := range market.Skills("") {
+	for _, summary := range center.Skills("") {
 		if !strings.EqualFold(strings.TrimSpace(summary.Key), requested) {
 			continue
 		}
-		definition, ok := market.SkillDefinition(summary.Key)
+		definition, ok := center.SkillDefinition(summary.Key)
 		if !ok || strings.TrimSpace(definition.Key) == "" {
 			return "", false
 		}
@@ -743,7 +743,7 @@ func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 	hasAgentDir := def.RuntimeDir != ""
 	hasSkillsDir := level != "global" && hasAgentDir
 
-	var skillsMarketDir string
+	var skillsCenterDir string
 	ownerDir := ifNonEmpty(cfg.Paths.OwnerDir, "/owner")
 	var ruAgentsDir string
 	var teamsDir string
@@ -758,8 +758,8 @@ func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 	var viewportsDir string
 	for _, mount := range promptContextSandboxMounts(def.Runtime["sandboxMounts"]) {
 		switch strings.ToLower(strings.TrimSpace(anyString(mount["platform"]))) {
-		case "skills-market":
-			skillsMarketDir = "/skills-market"
+		case "skills-center":
+			skillsCenterDir = "/skills-center"
 		case "agents":
 			ruAgentsDir = "/agents"
 		case "teams":
@@ -788,7 +788,7 @@ func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 		ChatDir:            "/chat",
 		RootDir:            ifNonEmpty(cfg.Paths.RootDir, "/root"),
 		SkillsDir:          boolPath(hasSkillsDir, "/skills"),
-		SkillsMarketDir:    skillsMarketDir,
+		SkillsCenterDir:    skillsCenterDir,
 		PanDir:             ifNonEmpty(cfg.Paths.PanDir, "/pan"),
 		AgentDir:           boolPath(hasAgentDir, "/agent"),
 		OwnerDir:           ownerDir,
@@ -821,7 +821,7 @@ func resolveLocalSandboxPaths(cfg config.Config, def catalog.AgentDefinition, lo
 		WorkspaceDir: localPaths.WorkspaceDir,
 		ChatDir:      localPaths.ChatDir,
 		RootDir:      absOrEmpty(cfg.Paths.RootDir),
-		SkillsDir:    resolveLocalSkillsDir(hasSkillsDir, level, def.RuntimeDir, cfg.Paths.SkillsMarketDir),
+		SkillsDir:    resolveLocalSkillsDir(hasSkillsDir, level, def.RuntimeDir, cfg.Paths.SkillsCenterDir),
 		PanDir:       absOrEmpty(cfg.Paths.PanDir),
 		AgentDir:     absOrEmpty(def.RuntimeDir),
 		OwnerDir:     absOrEmpty(cfg.Paths.OwnerDir),
@@ -829,8 +829,8 @@ func resolveLocalSandboxPaths(cfg config.Config, def catalog.AgentDefinition, lo
 	}
 	for _, mount := range promptContextSandboxMounts(def.Runtime["sandboxMounts"]) {
 		switch strings.ToLower(strings.TrimSpace(anyString(mount["platform"]))) {
-		case "skills-market":
-			paths.SkillsMarketDir = absOrEmpty(cfg.Paths.SkillsMarketDir)
+		case "skills-center":
+			paths.SkillsCenterDir = absOrEmpty(cfg.Paths.SkillsCenterDir)
 		case "agents":
 			paths.RUAgentsDir = absOrEmpty(cfg.Paths.EffectiveRUAgentsDir())
 		case "teams":
@@ -1103,7 +1103,7 @@ func absOrEmpty(path string) string {
 	return absolute
 }
 
-func resolveLocalSkillsDir(hasSkillsDir bool, level string, agentDir string, skillsMarketDir string) string {
+func resolveLocalSkillsDir(hasSkillsDir bool, level string, agentDir string, skillsCenterDir string) string {
 	if !hasSkillsDir {
 		return ""
 	}

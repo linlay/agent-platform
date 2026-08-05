@@ -63,8 +63,8 @@ func TestResolveSandboxPathsLocalModeLocalEngine(t *testing.T) {
 	if paths.ChatDir != localPaths.ChatDir {
 		t.Fatalf("chat dir = %q", paths.ChatDir)
 	}
-	if paths.SkillsMarketDir != absTestPath(t, cfg.Paths.SkillsMarketDir) {
-		t.Fatalf("skills market dir = %q", paths.SkillsMarketDir)
+	if paths.SkillsCenterDir != absTestPath(t, cfg.Paths.SkillsCenterDir) {
+		t.Fatalf("skills center dir = %q", paths.SkillsCenterDir)
 	}
 	if paths.AgentsDir != "" {
 		t.Fatalf("agents source dir = %q, want unavailable in sandbox", paths.AgentsDir)
@@ -141,8 +141,8 @@ func TestResolveLocalPathsIncludesAgentAndRegistryPaths(t *testing.T) {
 	if paths.RUAgentsDir != cfg.Paths.RUAgentsDir {
 		t.Fatalf("ru-agents dir = %q", paths.RUAgentsDir)
 	}
-	if paths.SkillsMarketDir != "" {
-		t.Fatalf("expected no default skills market dir, got %q", paths.SkillsMarketDir)
+	if paths.SkillsCenterDir != "" {
+		t.Fatalf("expected no default skills center dir, got %q", paths.SkillsCenterDir)
 	}
 	if paths.TeamsDir != cfg.Paths.TeamsDir {
 		t.Fatalf("teams dir = %q", paths.TeamsDir)
@@ -569,12 +569,12 @@ func TestBuildRuntimeContextKeepsLocalPathsWithoutSandboxConfigInContainerMode(t
 	if context.SandboxPaths.WorkspaceDir != "/workspace" {
 		t.Fatalf("sandbox workspace dir = %q", context.SandboxPaths.WorkspaceDir)
 	}
-	if context.LocalPaths.SkillsMarketDir != "" {
-		t.Fatalf("expected local skills market dir to be omitted by default, got %q", context.LocalPaths.SkillsMarketDir)
+	if context.LocalPaths.SkillsCenterDir != "" {
+		t.Fatalf("expected local skills center dir to be omitted by default, got %q", context.LocalPaths.SkillsCenterDir)
 	}
 }
 
-func TestBuildRuntimeContextIncludesSkillsMarketOnlyWithExplicitMount(t *testing.T) {
+func TestBuildRuntimeContextIncludesSkillsCenterOnlyWithExplicitMount(t *testing.T) {
 	t.Parallel()
 
 	cfg := testPromptContextConfig(t)
@@ -602,7 +602,7 @@ func TestBuildRuntimeContextIncludesSkillsMarketOnlyWithExplicitMount(t *testing
 			},
 			Runtime: map[string]any{
 				"sandboxMounts": []map[string]any{
-					{"platform": "skills-market", "mode": "ro"},
+					{"platform": "skills-center", "mode": "ro"},
 				},
 			},
 		},
@@ -610,15 +610,15 @@ func TestBuildRuntimeContextIncludesSkillsMarketOnlyWithExplicitMount(t *testing
 	if err != nil {
 		t.Fatalf("buildRuntimeRequestContext() error = %v", err)
 	}
-	if context.LocalPaths.SkillsMarketDir != cfg.Paths.SkillsMarketDir {
-		t.Fatalf("local skills market dir = %q", context.LocalPaths.SkillsMarketDir)
+	if context.LocalPaths.SkillsCenterDir != cfg.Paths.SkillsCenterDir {
+		t.Fatalf("local skills center dir = %q", context.LocalPaths.SkillsCenterDir)
 	}
-	if context.SandboxPaths.SkillsMarketDir != "/skills-market" {
-		t.Fatalf("sandbox skills market dir = %q", context.SandboxPaths.SkillsMarketDir)
+	if context.SandboxPaths.SkillsCenterDir != "/skills-center" {
+		t.Fatalf("sandbox skills center dir = %q", context.SandboxPaths.SkillsCenterDir)
 	}
 }
 
-func TestBuildRuntimeContextExposesDynamicSkillsMarketInHostMode(t *testing.T) {
+func TestBuildRuntimeContextExposesDynamicSkillsCenterInHostMode(t *testing.T) {
 	t.Parallel()
 
 	cfg := testPromptContextConfig(t)
@@ -635,17 +635,17 @@ func TestBuildRuntimeContextExposesDynamicSkillsMarketInHostMode(t *testing.T) {
 		chatID:             "chat-1",
 		role:               "user",
 		definition:         catalog.AgentDefinition{Key: "demo-agent"},
-		exposeSkillsMarket: true,
+		exposeSkillsCenter: true,
 	})
 	if err != nil {
 		t.Fatalf("buildRuntimeRequestContext() error = %v", err)
 	}
-	want := absTestPath(t, cfg.Paths.SkillsMarketDir)
-	if context.LocalPaths.SkillsMarketDir != want {
-		t.Fatalf("local skills market dir = %q, want %q", context.LocalPaths.SkillsMarketDir, want)
+	want := absTestPath(t, cfg.Paths.SkillsCenterDir)
+	if context.LocalPaths.SkillsCenterDir != want {
+		t.Fatalf("local skills center dir = %q, want %q", context.LocalPaths.SkillsCenterDir, want)
 	}
-	if context.SandboxPaths.SkillsMarketDir != want {
-		t.Fatalf("host sandbox skills market dir = %q, want %q", context.SandboxPaths.SkillsMarketDir, want)
+	if context.SandboxPaths.SkillsCenterDir != want {
+		t.Fatalf("host sandbox skills center dir = %q, want %q", context.SandboxPaths.SkillsCenterDir, want)
 	}
 }
 
@@ -733,14 +733,14 @@ func TestBuildSkillCatalogPromptPrefersAgentLocalSkillAndParsesFrontMatter(t *te
 	t.Parallel()
 
 	agentDir := t.TempDir()
-	marketDir := t.TempDir()
+	centerDir := t.TempDir()
 	localSkillDir := filepath.Join(agentDir, "skills", "demo")
-	marketSkillDir := filepath.Join(marketDir, "demo")
+	centerSkillDir := filepath.Join(centerDir, "demo")
 	if err := os.MkdirAll(localSkillDir, 0o755); err != nil {
 		t.Fatalf("mkdir local skill: %v", err)
 	}
-	if err := os.MkdirAll(marketSkillDir, 0o755); err != nil {
-		t.Fatalf("mkdir market skill: %v", err)
+	if err := os.MkdirAll(centerSkillDir, 0o755); err != nil {
+		t.Fatalf("mkdir center skill: %v", err)
 	}
 	localSkill := strings.Join([]string{
 		"---",
@@ -755,14 +755,14 @@ func TestBuildSkillCatalogPromptPrefersAgentLocalSkillAndParsesFrontMatter(t *te
 	if err := os.WriteFile(filepath.Join(localSkillDir, "SKILL.md"), []byte(localSkill), 0o644); err != nil {
 		t.Fatalf("write local skill: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(marketSkillDir, "SKILL.md"), []byte("# Market Skill\n\nMarket description"), 0o644); err != nil {
-		t.Fatalf("write market skill: %v", err)
+	if err := os.WriteFile(filepath.Join(centerSkillDir, "SKILL.md"), []byte("# Center Skill\n\nCenter description"), 0o644); err != nil {
+		t.Fatalf("write center skill: %v", err)
 	}
 
 	prompt := buildSkillCatalogPrompt(catalog.AgentDefinition{
 		RuntimeDir: agentDir,
 		Skills:     []string{"demo"},
-	}, marketDir, contracts.DefaultPromptAppendConfig())
+	}, centerDir, contracts.DefaultPromptAppendConfig())
 
 	if !strings.Contains(prompt, "skillId: demo") {
 		t.Fatalf("expected skill block, got %q", prompt)
@@ -783,8 +783,8 @@ func TestBuildSkillCatalogPromptPrefersAgentLocalSkillAndParsesFrontMatter(t *te
 	if strings.Contains(prompt, `name: name: "Local Skill"`) {
 		t.Fatalf("expected front matter to be parsed, got %q", prompt)
 	}
-	if strings.Contains(prompt, "Market Skill") {
-		t.Fatalf("expected local skill to win over market fallback, got %q", prompt)
+	if strings.Contains(prompt, "Center Skill") {
+		t.Fatalf("expected local skill to win over center fallback, got %q", prompt)
 	}
 }
 
@@ -883,7 +883,7 @@ func TestBuildSkillCatalogPromptPrependsInstructionsBeforeCatalogHeader(t *testi
 	t.Parallel()
 
 	agentDir := t.TempDir()
-	marketDir := t.TempDir()
+	centerDir := t.TempDir()
 	skillDir := filepath.Join(agentDir, "skills", "demo")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatalf("mkdir skill dir: %v", err)
@@ -900,7 +900,7 @@ func TestBuildSkillCatalogPromptPrependsInstructionsBeforeCatalogHeader(t *testi
 	prompt := buildSkillCatalogPrompt(catalog.AgentDefinition{
 		RuntimeDir: agentDir,
 		Skills:     []string{"demo"},
-	}, marketDir, appendConfig)
+	}, centerDir, appendConfig)
 
 	labelIdx := strings.Index(prompt, "Skill instructions:\n")
 	instructionsIdx := strings.Index(prompt, "global skill instructions")
@@ -918,7 +918,7 @@ func TestBuildSkillCatalogPromptLeavesInstructionsUnlabeledWhenLabelEmpty(t *tes
 	t.Parallel()
 
 	agentDir := t.TempDir()
-	marketDir := t.TempDir()
+	centerDir := t.TempDir()
 	skillDir := filepath.Join(agentDir, "skills", "demo")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatalf("mkdir skill dir: %v", err)
@@ -935,7 +935,7 @@ func TestBuildSkillCatalogPromptLeavesInstructionsUnlabeledWhenLabelEmpty(t *tes
 	prompt := buildSkillCatalogPrompt(catalog.AgentDefinition{
 		RuntimeDir: agentDir,
 		Skills:     []string{"demo"},
-	}, marketDir, appendConfig)
+	}, centerDir, appendConfig)
 
 	if !strings.Contains(prompt, "global skill instructions") {
 		t.Fatalf("expected instructions in prompt, got %q", prompt)
@@ -977,7 +977,7 @@ func testPromptContextConfig(t *testing.T) config.Config {
 			ChatsDir:        filepath.Join(root, "runtime", "chats"),
 			MemoryDir:       filepath.Join(root, "runtime", "memory"),
 			PanDir:          filepath.Join(root, "runtime", "pan"),
-			SkillsMarketDir: filepath.Join(root, "runtime", "skills-market"),
+			SkillsCenterDir: filepath.Join(root, "runtime", "skills-center"),
 		},
 		ContainerHub: config.ContainerHubConfig{
 			Enabled:             true,
@@ -995,7 +995,7 @@ func testPromptContextDefinition(paths config.PathsConfig) catalog.AgentDefiniti
 		Runtime: map[string]any{
 			"level": "run",
 			"sandboxMounts": []map[string]any{
-				{"platform": "skills-market", "mode": "ro"},
+				{"platform": "skills-center", "mode": "ro"},
 				{"platform": "agents"},
 				{"platform": "teams"},
 				{"platform": "automations"},

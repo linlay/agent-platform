@@ -87,10 +87,38 @@ func (s *Server) adminAgentDetail(agentKey string) (api.AdminAgentDetailResponse
 			if err != nil {
 				return api.AdminAgentDetailResponse{}, err
 			}
-			return adminAgentDetailFromAgentDetail(detail, item), nil
+			return s.withAdminAgentPrivateSkills(adminAgentDetailFromAgentDetail(detail, item))
 		}
 	}
-	return adminAgentDetailFromAdminAgent(item), nil
+	return s.withAdminAgentPrivateSkills(adminAgentDetailFromAdminAgent(item))
+}
+
+type adminAgentPrivateSkillReader interface {
+	EditableAgentPrivateSkills(agentKey string) ([]catalog.AdminAgentPrivateSkill, error)
+}
+
+func (s *Server) withAdminAgentPrivateSkills(detail api.AdminAgentDetailResponse) (api.AdminAgentDetailResponse, error) {
+	registry, ok := s.deps.Registry.(adminAgentPrivateSkillReader)
+	if !ok || registry == nil {
+		return detail, nil
+	}
+	items, err := registry.EditableAgentPrivateSkills(detail.Key)
+	if err != nil {
+		return api.AdminAgentDetailResponse{}, mapAgentEditError(err)
+	}
+	detail.PrivateSkills = make([]api.AdminAgentPrivateSkill, 0, len(items))
+	for _, item := range items {
+		detail.PrivateSkills = append(detail.PrivateSkills, api.AdminAgentPrivateSkill{
+			Key:             item.Key,
+			Name:            item.Name,
+			Description:     item.Description,
+			Status:          item.Status,
+			Diagnostics:     adminSkillDiagnostics(item.Diagnostics),
+			Enabled:         item.Enabled,
+			OverridesCenter: item.OverridesCenter,
+		})
+	}
+	return detail, nil
 }
 
 func buildAdminAgentSummary(item catalog.AdminAgent) api.AdminAgentSummary {

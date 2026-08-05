@@ -5,7 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"agent-platform/internal/deprecation"
 )
+
+const removedSkillsMarketDirName = "skills-market"
 
 func (c *Config) applyEnv(options LoadOptions) {
 	if strings.TrimSpace(options.Port) == "" {
@@ -62,6 +66,29 @@ func validateExplicitDirEnv(key string, path string) error {
 	}
 	if !stat.IsDir() {
 		return fmt.Errorf("%s is not a directory: %s", key, path)
+	}
+	return nil
+}
+
+func validateRemovedSkillsMarketRuntimeDirs(runtimeRoot string, skillsCenterDir string) error {
+	candidates := []string{filepath.Join(filepath.Clean(runtimeRoot), removedSkillsMarketDirName)}
+	if centerDir := strings.TrimSpace(skillsCenterDir); centerDir != "" {
+		candidates = append(candidates, filepath.Join(filepath.Dir(filepath.Clean(centerDir)), removedSkillsMarketDirName))
+	}
+	checked := make(map[string]struct{}, len(candidates))
+	for _, legacyDir := range candidates {
+		legacyDir = filepath.Clean(legacyDir)
+		if _, exists := checked[legacyDir]; exists {
+			continue
+		}
+		checked[legacyDir] = struct{}{}
+		if _, err := os.Lstat(legacyDir); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return fmt.Errorf("inspect removed skills-market runtime directory %s: %w", legacyDir, err)
+		}
+		return deprecation.New("legacy runtime directory %q is not supported; back up the old runtime and restore a new environment containing skills-center", legacyDir)
 	}
 	return nil
 }

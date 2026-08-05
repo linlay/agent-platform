@@ -100,18 +100,19 @@ type ChannelConnectionSnapshotProvider interface {
 }
 
 type Server struct {
-	router            *http.ServeMux
-	deps              Dependencies
-	authVerifier      *JWTVerifier
-	ticketService     *ResourceTicketService
-	wsHandler         *ws.Handler
-	terminals         *terminalpkg.Manager
-	deferredAwaitings *DeferredAwaitingStore
-	uploadMu          sync.Mutex
-	adminSourceMu     sync.Mutex
-	proxyMu           sync.RWMutex
-	proxyRuns         map[string]*proxyRunRoute
-	backgroundCtx     context.Context
+	router               *http.ServeMux
+	deps                 Dependencies
+	authVerifier         *JWTVerifier
+	ticketService        *ResourceTicketService
+	wsHandler            *ws.Handler
+	terminals            *terminalpkg.Manager
+	deferredAwaitings    *DeferredAwaitingStore
+	uploadMu             sync.Mutex
+	adminSourceMu        sync.Mutex
+	adminAgentMutationMu sync.Mutex
+	proxyMu              sync.RWMutex
+	proxyRuns            map[string]*proxyRunRoute
+	backgroundCtx        context.Context
 }
 
 type syncQueryContextKey struct{}

@@ -667,23 +667,39 @@ type UpdateAdminSourceRequest struct {
 }
 
 type AdminAgentDetailResponse struct {
-	Key          string                 `json:"key"`
-	Name         string                 `json:"name"`
-	Icon         any                    `json:"icon,omitempty"`
-	Description  string                 `json:"description,omitempty"`
-	Role         string                 `json:"role,omitempty"`
-	Model        string                 `json:"model,omitempty"`
-	Mode         string                 `json:"mode,omitempty"`
-	Tools        []string               `json:"tools"`
-	Skills       []string               `json:"skills"`
-	Controls     []map[string]any       `json:"controls"`
-	Meta         map[string]any         `json:"meta"`
-	Definition   map[string]any         `json:"definition,omitempty"`
-	SoulPrompt   string                 `json:"soulPrompt,omitempty"`
-	AgentsPrompt string                 `json:"agentsPrompt,omitempty"`
-	Source       *AgentSource           `json:"source,omitempty"`
-	Status       string                 `json:"status"`
-	Diagnostics  []AdminAgentDiagnostic `json:"diagnostics,omitempty"`
+	Key           string                   `json:"key"`
+	Name          string                   `json:"name"`
+	Icon          any                      `json:"icon,omitempty"`
+	Description   string                   `json:"description,omitempty"`
+	Role          string                   `json:"role,omitempty"`
+	Model         string                   `json:"model,omitempty"`
+	Mode          string                   `json:"mode,omitempty"`
+	Tools         []string                 `json:"tools"`
+	Skills        []string                 `json:"skills"`
+	Controls      []map[string]any         `json:"controls"`
+	Meta          map[string]any           `json:"meta"`
+	Definition    map[string]any           `json:"definition,omitempty"`
+	SoulPrompt    string                   `json:"soulPrompt,omitempty"`
+	AgentsPrompt  string                   `json:"agentsPrompt,omitempty"`
+	Source        *AgentSource             `json:"source,omitempty"`
+	Status        string                   `json:"status"`
+	Diagnostics   []AdminAgentDiagnostic   `json:"diagnostics,omitempty"`
+	PrivateSkills []AdminAgentPrivateSkill `json:"privateSkills,omitempty"`
+}
+
+type AdminAgentPrivateSkill struct {
+	Key             string                 `json:"key"`
+	Name            string                 `json:"name"`
+	Description     string                 `json:"description,omitempty"`
+	Status          string                 `json:"status"`
+	Diagnostics     []AdminAgentDiagnostic `json:"diagnostics,omitempty"`
+	Enabled         bool                   `json:"enabled"`
+	OverridesCenter bool                   `json:"overridesCenter"`
+}
+
+type DeleteAdminAgentPrivateSkillRequest struct {
+	AgentKey string `json:"agentKey"`
+	Key      string `json:"key"`
 }
 
 type AdminRegistrySummary struct {

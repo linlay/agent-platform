@@ -41,13 +41,13 @@ func runtimeAgentAssemblyDiagnosticCode(err error) string {
 
 type runtimeAgentAssembler struct {
 	root      string
-	marketDir string
+	centerDir string
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex
 }
 
-func newRuntimeAgentAssembler(root, marketDir string) (*runtimeAgentAssembler, error) {
+func newRuntimeAgentAssembler(root, centerDir string) (*runtimeAgentAssembler, error) {
 	root = strings.TrimSpace(root)
 	if root == "" {
 		return nil, fmt.Errorf("ru-agents directory is required")
@@ -58,7 +58,7 @@ func newRuntimeAgentAssembler(root, marketDir string) (*runtimeAgentAssembler, e
 	}
 	assembler := &runtimeAgentAssembler{
 		root:      filepath.Clean(absolute),
-		marketDir: strings.TrimSpace(marketDir),
+		centerDir: strings.TrimSpace(centerDir),
 		locks:     map[string]*sync.Mutex{},
 	}
 	if info, err := os.Lstat(assembler.root); err == nil {
@@ -251,27 +251,27 @@ func (a *runtimeAgentAssembler) resolveSkillSource(source EditableAgentSource, s
 			return "", fmt.Errorf("inspect agent-local skill %q: %w", skillID, err)
 		}
 	}
-	if strings.TrimSpace(a.marketDir) == "" {
-		return "", fmt.Errorf("skill %q is not available: skills-market is not configured", skillID)
+	if strings.TrimSpace(a.centerDir) == "" {
+		return "", fmt.Errorf("skill %q is not available: skills-center is not configured", skillID)
 	}
-	market := filepath.Join(a.marketDir, skillID)
-	if !insideDir(a.marketDir, market) {
-		return "", fmt.Errorf("skill %q resolves outside skills-market", skillID)
+	center := filepath.Join(a.centerDir, skillID)
+	if !insideDir(a.centerDir, center) {
+		return "", fmt.Errorf("skill %q resolves outside skills-center", skillID)
 	}
-	info, err := os.Lstat(market)
+	info, err := os.Lstat(center)
 	if errors.Is(err, os.ErrNotExist) {
-		return "", fmt.Errorf("skill %q does not exist in agent or skills-market", skillID)
+		return "", fmt.Errorf("skill %q does not exist in agent or skills-center", skillID)
 	}
 	if err != nil {
-		return "", fmt.Errorf("inspect market skill %q: %w", skillID, err)
+		return "", fmt.Errorf("inspect center skill %q: %w", skillID, err)
 	}
 	if !info.IsDir() {
-		return "", fmt.Errorf("market skill %q is not a directory", skillID)
+		return "", fmt.Errorf("center skill %q is not a directory", skillID)
 	}
-	if err := validateSourceSkill(market, skillID, "market"); err != nil {
+	if err := validateSourceSkill(center, skillID, "center"); err != nil {
 		return "", err
 	}
-	return market, nil
+	return center, nil
 }
 
 func validateSourceSkill(dir, skillID, source string) error {

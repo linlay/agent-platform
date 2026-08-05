@@ -281,9 +281,10 @@ type FileRegistry struct {
 	tools     []api.ToolDetailResponse
 	assembler *runtimeAgentAssembler
 
-	mu          sync.RWMutex
-	agents      map[string]AgentDefinition
-	adminAgents map[string]AdminAgent
+	mu             sync.RWMutex
+	privateSkillMu sync.Mutex
+	agents         map[string]AgentDefinition
+	adminAgents    map[string]AdminAgent
 	// runtimeInvalidAgents records startup-only runtime validation failures
 	// (currently incompatible KBASE control stores). A catalog reload must not
 	// resurrect one of these agents or try to adopt its storage again.
@@ -293,10 +294,10 @@ type FileRegistry struct {
 }
 
 func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*FileRegistry, error) {
-	if err := cleanupEditableSkillImportStaging(cfg.Paths.SkillsMarketDir); err != nil {
+	if err := cleanupEditableSkillImportStaging(cfg.Paths.SkillsCenterDir); err != nil {
 		return nil, fmt.Errorf("cleanup skill import staging: %w", err)
 	}
-	assembler, err := newRuntimeAgentAssembler(cfg.Paths.EffectiveRUAgentsDir(), cfg.Paths.SkillsMarketDir)
+	assembler, err := newRuntimeAgentAssembler(cfg.Paths.EffectiveRUAgentsDir(), cfg.Paths.SkillsCenterDir)
 	if err != nil {
 		return nil, err
 	}
@@ -327,7 +328,7 @@ func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*Fil
 func (r *FileRegistry) Reload(_ context.Context, reason string) error {
 	switch reason {
 	case "agents":
-		agents, adminAgents, err := loadAgentsWithAdminAssembler(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsMarketDir, r.cfg.Paths.ChatsDir, r.cfg.Memory.Enabled, r.assembler)
+		agents, adminAgents, err := loadAgentsWithAdminAssembler(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsCenterDir, r.cfg.Paths.ChatsDir, r.cfg.Memory.Enabled, r.assembler)
 		if err != nil {
 			return err
 		}
@@ -347,7 +348,7 @@ func (r *FileRegistry) Reload(_ context.Context, reason string) error {
 		r.mu.Unlock()
 		return nil
 	case "skills":
-		skills, err := loadSkills(r.cfg.Paths.SkillsMarketDir, r.cfg.Skills.MaxPromptChars)
+		skills, err := loadSkills(r.cfg.Paths.SkillsCenterDir, r.cfg.Skills.MaxPromptChars)
 		if err != nil {
 			return err
 		}
@@ -358,7 +359,7 @@ func (r *FileRegistry) Reload(_ context.Context, reason string) error {
 	}
 
 	// Full reload (startup, config, or unknown reason)
-	agents, adminAgents, err := loadAgentsWithAdminAssembler(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsMarketDir, r.cfg.Paths.ChatsDir, r.cfg.Memory.Enabled, r.assembler)
+	agents, adminAgents, err := loadAgentsWithAdminAssembler(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsCenterDir, r.cfg.Paths.ChatsDir, r.cfg.Memory.Enabled, r.assembler)
 	if err != nil {
 		return err
 	}
@@ -366,7 +367,7 @@ func (r *FileRegistry) Reload(_ context.Context, reason string) error {
 	if err != nil {
 		return err
 	}
-	skills, err := loadSkills(r.cfg.Paths.SkillsMarketDir, r.cfg.Skills.MaxPromptChars)
+	skills, err := loadSkills(r.cfg.Paths.SkillsCenterDir, r.cfg.Skills.MaxPromptChars)
 	if err != nil {
 		return err
 	}

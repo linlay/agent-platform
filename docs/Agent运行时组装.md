@@ -7,7 +7,7 @@ Agent Platform 将可编辑事实源与执行目录分离：
 ```text
 <AP_RUNTIME_DIR>/
 ├── agents/                         # Agent 定义与 Agent 自有 Skill
-├── skills-market/                  # 共享 Skill
+├── skills-center/                  # 共享 Skill
 └── ru-agents/                      # Platform 生成，禁止人工编辑
     ├── .staging/
     └── <agentKey>/
@@ -18,7 +18,7 @@ Agent Platform 将可编辑事实源与执行目录分离：
         └── .config/
 ```
 
-`agents/` 和 `skills-market/` 默认只在 Catalog 管理、编辑和组装阶段读取。Agent 配置内声明的 Skill 以及 Query、Workspace Terminal 和常规 Skill runtime 统一使用 `ru-agents/<agentKey>`。唯一的 run-scoped 例外是 query 的 `mustUseSkills` 选中了 Agent 未配置的市场 Skill：该 run 只读访问共享 `skills-market`，不修改稳定 `ru-agents`，也不创建或复制到额外的 run-runtime。`AgentConfigDir`、Admin Source、Agent CRUD 和“打开配置目录”仍指向原始 `agents/`。
+`agents/` 和 `skills-center/` 默认只在 Catalog 管理、编辑和组装阶段读取。Agent 配置内声明的 Skill 以及 Query、Workspace Terminal 和常规 Skill runtime 统一使用 `ru-agents/<agentKey>`。唯一的 run-scoped 例外是 query 的 `mustUseSkills` 选中了 Agent 未配置的技能中心 Skill：该 run 只读访问共享 `skills-center`，不修改稳定 `ru-agents`，也不创建或复制到额外的 run-runtime。`AgentConfigDir`、Admin Source、Agent CRUD 和“打开配置目录”仍指向原始 `agents/`。
 
 `ru-agents` 不是来源追踪系统：不生成版本目录、Skill lock、provenance 或来源 API，也不进入 release bundle、`zenmind-env/package.sh` 产物或环境 overlay。服务启动或 Catalog 热重载时可从事实源完整重建。
 
@@ -33,31 +33,33 @@ paths:
   ru-agents-dir: ./runtime/ru-agents
 ```
 
-该路径会解析为绝对路径，并且不能是文件系统根，也不能与 agents、skills-market、teams、chats、memory、kbase、registries、tools、owner、root、automations 或 pan 等根目录相同或互相包含。
+该路径会解析为绝对路径，并且不能是文件系统根，也不能与 agents、skills-center、teams、chats、memory、kbase、registries、tools、owner、root、automations 或 pan 等根目录相同或互相包含。
 
 ## Skill 来源选择
 
 `skillConfig.skills` 仍只声明 Skill ID，不增加 `source`：
 
 1. `<agentsDir>/<agentKey>/skills/<id>` 存在时，必须是带合法 `SKILL.md` 的 Agent 自有 Skill。
-2. 本地目录存在但不合法时，Agent 无效，不回退市场。
-3. 本地不存在时，从 `<skills-market>/<id>` 读取。
-4. 两处都不存在或市场 Skill 非法时，Agent 无效。
+2. 本地目录存在但不合法时，Agent 无效，不回退技能中心。
+3. 本地不存在时，从 `<skills-center>/<id>` 读取。
+4. 两处都不存在或技能中心 Skill 非法时，Agent 无效。
 5. 重复 ID 保留第一次。
 
-选中的 Skill 会完整复制到 `ru-agents/<agentKey>/skills/<id>`，包括 `SKILL.md`、`.bash-hooks`、`.runtime-env.json`、scripts、references 和 assets。Standalone YAML Agent 会在运行目录生成规范的 `agent.yml`，只能使用市场 Skill。
+选中的 Skill 会完整复制到 `ru-agents/<agentKey>/skills/<id>`，包括 `SKILL.md`、`.bash-hooks`、`.runtime-env.json`、scripts、references 和 assets。Standalone YAML Agent 会在运行目录生成规范的 `agent.yml`，只能使用技能中心 Skill。
+
+目录型 Agent 的专属 Skill 可由 Admin Agent 页面导入。导入时 Key 自动取 ZIP 内 `SKILL.md` frontmatter 的 `key`，没有 `key` 则取 `name`；ZIP 只写入 `<agentsDir>/<agentKey>/skills/<id>`，并自动将 ID 加到 `skillConfig.skills`，它永远不复制到 `skills-center`。若与技能中心 Skill 同名，该 Agent 使用专属版本，其他 Agent 继续使用技能中心版本。专属 Skill 的删除仅能在该 Agent 的管理入口完成；技能中心不会展示、编辑或删除它。
 
 ## 单次 run 的 `mustUseSkills`
 
 `POST /api/query` 可以用 `mustUseSkills: []` 强制本次 run 使用一个或多个 Skill。这不会修改 Agent YAML，也不会改变 `ru-agents/<agentKey>`：
 
 - 已在 `skillConfig.skills` 中配置的 key 从稳定运行目录解析，指令路径是 `@skills/<key>/SKILL.md`。
-- 未配置的 key 必须属于当前有效 skills-market catalog，并在 run 启动和 continuation 时重新验证真实 `SKILL.md`；指令路径是 `@skills-market/<key>/SKILL.md`。
+- 未配置的 key 必须属于当前有效 skills-center catalog，并在 run 启动和 continuation 时重新验证真实 `SKILL.md`；指令路径是 `@skills-center/<key>/SKILL.md`。
 - 只要有一个 key 不可用，整个 run 以 `must_use_skill_unavailable` 失败，不执行其余部分。
 - Prompt 按请求顺序列出全部精确路径，并把“读取且遵循全部指令”作为强制约束。
-- 不复制 Skill、不生成快照、不创建 `run-runtime/`；运行中读取市场当前内容。
+- 不复制 Skill、不生成快照、不创建 `run-runtime/`；运行中读取技能中心当前内容。
 
-额外市场 Skill 只提供目录内容、scripts、references 和 assets 的只读访问。本次动态选择不合并它的 `.config`、`.runtime-env.json` 或 `.bash-hooks`，也不注入 Tool、MCP、其他 mount、hostAccess 或更高 `accessLevel`。这些运行时扩展只有写入 Agent `skillConfig.skills` 并完成常规 `ru-agents` 组装后才生效。
+额外技能中心 Skill 只提供目录内容、scripts、references 和 assets 的只读访问。本次动态选择不合并它的 `.config`、`.runtime-env.json` 或 `.bash-hooks`，也不注入 Tool、MCP、其他 mount、hostAccess 或更高 `accessLevel`。这些运行时扩展只有写入 Agent `skillConfig.skills` 并完成常规 `ru-agents` 组装后才生效。
 
 ## `.config` 合并
 
@@ -95,7 +97,7 @@ Agent runtimeConfig.env
 - 热重载候选校验失败不修改该 Agent 的稳定目录，但新 Catalog 不再发布其定义。
 - Agent 删除后清理对应稳定目录；活跃 Run 不主动中断。
 
-`agents/`（包括 Agent 自有 Skill）或 `skills-market/` 变化都会触发全量 Agent 重组。`ru-agents/` 本身不加入 watcher，避免生成循环。既有 QuerySession 的 prompt、env 和 Team snapshot 不重算；后续打开的 Skill 文件、脚本、hook 和 `.config` 会读取稳定目录中的新内容。
+`agents/`（包括 Agent 自有 Skill）或 `skills-center/` 变化都会触发全量 Agent 重组。`ru-agents/` 本身不加入 watcher，避免生成循环。既有 QuerySession 的 prompt、env 和 Team snapshot 不重算；后续打开的 Skill 文件、脚本、hook 和 `.config` 会读取稳定目录中的新内容。
 
 ## Sandbox 与保留变量
 
@@ -104,7 +106,7 @@ Container Hub：
 - `/agent` -> `ru-agents/<agentKey>`，`ro`
 - `/skills` -> `ru-agents/<agentKey>/skills`，`ro`
 - 显式 `platform: agents` 的 `/agents` -> `ru-agents`
-- 显式 `platform: skills-market` 挂共享市场；若本次 `mustUseSkills` 含额外市场 Skill，则即使 Agent 未显式声明也动态追加一次 `/skills-market` 全市场只读挂载，已有同类挂载去重
+- 显式 `platform: skills-center` 挂共享技能中心；若本次 `mustUseSkills` 含额外技能中心 Skill，则即使 Agent 未显式声明也动态追加一次 `/skills-center` 整个技能中心只读挂载，已有同类挂载去重
 
 Host Tool 与 Workspace Terminal：
 
@@ -116,4 +118,4 @@ AP_CHAT_DIR=<chatsDir>/<chatId>
 
 Container 中三个值分别是 `/agent/.config`、`/workspace`、`/chat`。Workspace/Chat 双根和 KBASE 的 `runtimeConfig.workspaceRoot` 契约不受 Agent 组装影响。
 
-Host run 的额外 `mustUseSkills` 不创建 mount：session 直接把真实 skills-market 根注册为只读 `@skills-market` 语义路径。未选择额外 Skill 且 Agent 未显式配置市场挂载时，该路径仍不暴露。
+Host run 的额外 `mustUseSkills` 不创建 mount：session 直接把真实 skills-center 根注册为只读 `@skills-center` 语义路径。未选择额外 Skill 且 Agent 未显式配置技能中心挂载时，该路径仍不暴露。

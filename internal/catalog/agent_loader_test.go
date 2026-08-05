@@ -649,7 +649,7 @@ func TestParseAgentFileRejectsRetiredPublicModes(t *testing.T) {
 
 func TestLoadAgentsWithAdminSkipsInvalidDefinitions(t *testing.T) {
 	root := t.TempDir()
-	marketDir := filepath.Join(root, "market")
+	centerDir := filepath.Join(root, "center")
 	var logs bytes.Buffer
 	previousLogOutput := log.Writer()
 	log.SetOutput(&logs)
@@ -670,7 +670,7 @@ func TestLoadAgentsWithAdminSkipsInvalidDefinitions(t *testing.T) {
 		}
 	}
 
-	agents, admin, err := loadAgentsWithAdmin(root, marketDir, filepath.Join(root, "chats"), true)
+	agents, admin, err := loadAgentsWithAdmin(root, centerDir, filepath.Join(root, "chats"), true)
 	if err != nil {
 		t.Fatalf("load agents with invalid definitions: %v", err)
 	}

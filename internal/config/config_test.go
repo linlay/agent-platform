@@ -1,11 +1,14 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"agent-platform/internal/deprecation"
 )
 
 func assertKBaseLanceDefaults(t *testing.T, cfg KBaseConfig) {
@@ -1507,6 +1510,9 @@ func TestLoadRuntimeDirDerivesRuntimePaths(t *testing.T) {
 		if cfg.Paths.PanDir != filepath.Join(runtimeRoot, "pan") {
 			t.Fatalf("unexpected pan dir: %q", cfg.Paths.PanDir)
 		}
+		if cfg.Paths.SkillsCenterDir != filepath.Join(runtimeRoot, "skills-center") {
+			t.Fatalf("unexpected skills center dir: %q", cfg.Paths.SkillsCenterDir)
+		}
 		if cfg.Providers.ExternalDir != filepath.Join(runtimeRoot, "registries", "providers") {
 			t.Fatalf("unexpected providers dir: %q", cfg.Providers.ExternalDir)
 		}
@@ -1518,6 +1524,66 @@ func TestLoadRuntimeDirDerivesRuntimePaths(t *testing.T) {
 		}
 		if cfg.Logging.Memory.File != filepath.Join(runtimeRoot, "memory", "memory.log") {
 			t.Fatalf("unexpected memory log file: %q", cfg.Logging.Memory.File)
+		}
+	})
+}
+
+func TestLoadRejectsRemovedSkillsMarketPathKey(t *testing.T) {
+	runtimeConfig := "paths:\n  skills-market-dir: var/removed-skills-market\n"
+	withIsolatedEnv(t, nil, func() {
+		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &runtimeConfig, func() {
+			withProjectFileContents(t, filepath.Join("configs", "kbase-settings.yml"), nil, func() {
+				_, err := Load()
+				if err == nil || !deprecation.Is(err) || !strings.Contains(err.Error(), "paths.skills-market-dir was removed") {
+					t.Fatalf("expected removed skills-market-dir error, got %v", err)
+				}
+			})
+		})
+	})
+}
+
+func TestLoadRejectsRemovedSkillsMarketRuntimeDirectory(t *testing.T) {
+	for _, withCenter := range []bool{false, true} {
+		t.Run(fmt.Sprintf("center_exists_%t", withCenter), func(t *testing.T) {
+			runtimeRoot := t.TempDir()
+			legacyDir := filepath.Join(runtimeRoot, "skills-market")
+			if err := os.MkdirAll(legacyDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if withCenter {
+				if err := os.MkdirAll(filepath.Join(runtimeRoot, "skills-center"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			withIsolatedEnv(t, map[string]string{"AP_RUNTIME_DIR": runtimeRoot}, func() {
+				withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), nil, func() {
+					withProjectFileContents(t, filepath.Join("configs", "kbase-settings.yml"), nil, func() {
+						_, err := Load()
+						if err == nil || !deprecation.Is(err) || !strings.Contains(err.Error(), legacyDir) {
+							t.Fatalf("expected removed runtime directory error, got %v", err)
+						}
+					})
+				})
+			})
+		})
+	}
+}
+
+func TestLoadRejectsRemovedSkillsMarketRuntimeDirectoryWithCustomCenterDir(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	legacyDir := filepath.Join(runtimeRoot, "skills-market")
+	if err := os.Mkdir(legacyDir, 0o755); err != nil {
+		t.Fatalf("mkdir legacy runtime dir: %v", err)
+	}
+	customCenterDir := filepath.Join(t.TempDir(), "skills-center")
+	withIsolatedEnv(t, map[string]string{"AP_RUNTIME_DIR": runtimeRoot}, func() {
+		configDir := t.TempDir()
+		runtimeConfig := fmt.Sprintf("paths:\n  skills-center-dir: %q\n", customCenterDir)
+		if err := os.WriteFile(filepath.Join(configDir, "runtime.yml"), []byte(runtimeConfig), 0o600); err != nil {
+			t.Fatalf("write runtime config: %v", err)
+		}
+		if _, err := Load(LoadOptions{ConfigDir: configDir}); err == nil || !deprecation.Is(err) || !strings.Contains(err.Error(), legacyDir) {
+			t.Fatalf("expected AP_RUNTIME_DIR legacy directory error, got %v", err)
 		}
 	})
 }
@@ -1537,7 +1603,7 @@ func TestLoadRuntimePathsFromYAML(t *testing.T) {
 		"  memory-dir: var/yaml-memory\n" +
 		"  kbase-dir: var/yaml-kbase\n" +
 		"  pan-dir: var/yaml-pan\n" +
-		"  skills-market-dir: var/yaml-skills-market\n"
+		"  skills-center-dir: var/yaml-skills-center\n"
 	withIsolatedEnv(t, nil, func() {
 		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &runtimeConfig, func() {
 			withProjectFileContents(t, filepath.Join("configs", "kbase-settings.yml"), nil, func() {
@@ -1582,8 +1648,8 @@ func TestLoadRuntimePathsFromYAML(t *testing.T) {
 				if cfg.Paths.PanDir != filepath.Join("var", "yaml-pan") {
 					t.Fatalf("unexpected pan dir: %q", cfg.Paths.PanDir)
 				}
-				if cfg.Paths.SkillsMarketDir != filepath.Join("var", "yaml-skills-market") {
-					t.Fatalf("unexpected skills market dir: %q", cfg.Paths.SkillsMarketDir)
+				if cfg.Paths.SkillsCenterDir != filepath.Join("var", "yaml-skills-center") {
+					t.Fatalf("unexpected skills center dir: %q", cfg.Paths.SkillsCenterDir)
 				}
 				if cfg.Providers.ExternalDir != filepath.Join("var", "yaml-registries", "providers") {
 					t.Fatalf("unexpected providers dir: %q", cfg.Providers.ExternalDir)
@@ -1619,7 +1685,7 @@ func TestValidateRUAgentsDirRejectsOverlapAndFilesystemRoot(t *testing.T) {
 	base := PathsConfig{
 		AgentsDir:       filepath.Join(root, "agents"),
 		TeamsDir:        filepath.Join(root, "teams"),
-		SkillsMarketDir: filepath.Join(root, "skills-market"),
+		SkillsCenterDir: filepath.Join(root, "skills-center"),
 		ChatsDir:        filepath.Join(root, "chats"),
 		MemoryDir:       filepath.Join(root, "memory"),
 		KBaseDir:        filepath.Join(root, "kbase"),
@@ -2572,7 +2638,6 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"AP_RUNTIME_MEMORY_DIR",
 		"AP_RUNTIME_KBASE_DIR",
 		"AP_RUNTIME_PAN_DIR",
-		"SKILLS_MARKET_DIR",
 		"TOOLS_DIR",
 		"AP_CONTAINER_HUB_BASE_URL",
 		"AP_CONTAINER_HUB_AUTH_TOKEN",

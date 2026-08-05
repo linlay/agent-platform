@@ -15,7 +15,7 @@
 #   memory-dir: ./runtime/memory
 #   kbase-dir: ./runtime/kbase
 #   pan-dir: ./runtime/pan
-#   skills-market-dir: ./runtime/skills-market
+#   skills-center-dir: ./runtime/skills-center
 
 skills:
   max-prompt-chars: 8000
@@ -94,7 +94,7 @@ container-hub:
   # /memory    -> AP_RUNTIME_MEMORY_DIR/<agentKey> (ro)
   #
   # runtimeConfig.sandboxMounts controls Container Hub session mounts:
-  # platform + mode             -> on-demand platform mount; skills-market mounts to /skills-market
+  # platform + mode             -> on-demand platform mount; skills-center mounts to /skills-center
   # destination + mode          -> override non-reserved default mount mode
   # source + destination + mode -> add a custom mount
   # Protocol: dual-root-v2. When ChatsRoot is inside Workspace, Platform also

@@ -545,7 +545,7 @@ func TestBuildSessionSectionMergesContextAndAuth(t *testing.T) {
 				OwnerDir:        "/Users/tester/Project/app/runtime/owner",
 				MemoryDir:       "/Users/tester/Project/app/runtime/memory",
 				SkillsDir:       "/Users/tester/Project/app/runtime/agents/demo-agent/skills",
-				SkillsMarketDir: "/Users/tester/Project/app/runtime/skills-market",
+				SkillsCenterDir: "/Users/tester/Project/app/runtime/skills-center",
 			},
 			SandboxPaths: SandboxPaths{
 				WorkspaceDir: "/workspace",
@@ -614,7 +614,7 @@ func TestBuildSystemEnvironmentSectionUsesLocalPathsWithoutSandbox(t *testing.T)
 				SkillsDir:          "/Users/tester/Project/app/runtime/agents/demo-agent/skills",
 				AgentDir:           "/Users/tester/Project/app/runtime/agents/demo-agent",
 				OwnerDir:           "/Users/tester/Project/app/runtime/owner",
-				SkillsMarketDir:    "/Users/tester/Project/app/runtime/skills-market",
+				SkillsCenterDir:    "/Users/tester/Project/app/runtime/skills-center",
 				AgentsDir:          "/Users/tester/Project/app/runtime/agents",
 				RUAgentsDir:        "/Users/tester/Project/app/runtime/ru-agents",
 				TeamsDir:           "/Users/tester/Project/app/runtime/teams",
@@ -729,7 +729,7 @@ func TestBuildSystemEnvironmentSectionUsesSandboxPathsWhenSandboxEnabled(t *test
 				SkillsDir:          "/skills",
 				AgentDir:           "/agent",
 				OwnerDir:           "/owner",
-				SkillsMarketDir:    "/skills-market",
+				SkillsCenterDir:    "/skills-center",
 				RUAgentsDir:        "/agents",
 				TeamsDir:           "/teams",
 				AutomationsDir:     "/automations",
@@ -781,7 +781,7 @@ func TestBuildSystemEnvironmentSectionUsesSandboxPathsWhenSandboxEnabled(t *test
 	assertLastField(t, section, "pan_dir:")
 }
 
-func TestBuildSystemEnvironmentSectionOmitsSkillsMarketByDefault(t *testing.T) {
+func TestBuildSystemEnvironmentSectionOmitsSkillsCenterByDefault(t *testing.T) {
 	localSection := buildSystemEnvironmentSection(QuerySession{
 		RuntimeContext: RuntimeRequestContext{
 			LocalPaths: LocalPaths{
@@ -790,8 +790,8 @@ func TestBuildSystemEnvironmentSectionOmitsSkillsMarketByDefault(t *testing.T) {
 			},
 		},
 	})
-	if strings.Contains(localSection, "skills_market_dir:") {
-		t.Fatalf("expected local system environment to omit skills_market_dir, got %q", localSection)
+	if strings.Contains(localSection, "skills_center_dir:") {
+		t.Fatalf("expected local system environment to omit skills_center_dir, got %q", localSection)
 	}
 
 	sandboxSection := buildSystemEnvironmentSection(QuerySession{
@@ -804,21 +804,21 @@ func TestBuildSystemEnvironmentSectionOmitsSkillsMarketByDefault(t *testing.T) {
 			},
 		},
 	})
-	if strings.Contains(sandboxSection, "skills_market_dir:") {
-		t.Fatalf("expected sandbox system environment to omit skills_market_dir, got %q", sandboxSection)
+	if strings.Contains(sandboxSection, "skills_center_dir:") {
+		t.Fatalf("expected sandbox system environment to omit skills_center_dir, got %q", sandboxSection)
 	}
 }
 
-func TestBuildSystemEnvironmentSectionIncludesExplicitSkillsMarket(t *testing.T) {
+func TestBuildSystemEnvironmentSectionIncludesExplicitSkillsCenter(t *testing.T) {
 	localSection := buildSystemEnvironmentSection(QuerySession{
 		RuntimeContext: RuntimeRequestContext{
 			LocalPaths: LocalPaths{
-				SkillsMarketDir: "/runtime/skills-market",
+				SkillsCenterDir: "/runtime/skills-center",
 			},
 		},
 	})
-	if !strings.Contains(localSection, "skills_market_dir: /runtime/skills-market") {
-		t.Fatalf("expected explicit local skills_market_dir, got %q", localSection)
+	if !strings.Contains(localSection, "skills_center_dir: /runtime/skills-center") {
+		t.Fatalf("expected explicit local skills_center_dir, got %q", localSection)
 	}
 
 	sandboxSection := buildSystemEnvironmentSection(QuerySession{
@@ -826,12 +826,12 @@ func TestBuildSystemEnvironmentSectionIncludesExplicitSkillsMarket(t *testing.T)
 		RuntimeContext: RuntimeRequestContext{
 			SandboxPaths: SandboxPaths{
 				WorkspaceDir:    "/workspace",
-				SkillsMarketDir: "/skills-market",
+				SkillsCenterDir: "/skills-center",
 			},
 		},
 	})
-	if !strings.Contains(sandboxSection, "skills_market_dir: /skills-market") {
-		t.Fatalf("expected explicit sandbox skills_market_dir, got %q", sandboxSection)
+	if !strings.Contains(sandboxSection, "skills_center_dir: /skills-center") {
+		t.Fatalf("expected explicit sandbox skills_center_dir, got %q", sandboxSection)
 	}
 }
 

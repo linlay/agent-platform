@@ -155,7 +155,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	registriesDir := filepath.Join(root, "registries")
 	agentsDir := filepath.Join(root, "agents")
 	teamsDir := filepath.Join(root, "teams")
-	skillsDir := filepath.Join(root, "skills-market")
+	skillsDir := filepath.Join(root, "skills-center")
 	workspaceDir := filepath.Join(root, "workspace")
 	providersDir := filepath.Join(registriesDir, "providers")
 	modelsDir := filepath.Join(registriesDir, "models")
@@ -235,7 +235,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		"    HTTP_PROXY: http://agent-proxy",
 		"    TZ: Asia/Shanghai",
 		"  sandboxMounts:",
-		"    - platform: skills-market",
+		"    - platform: skills-center",
 		"      destination: /skills",
 		"      mode: ro",
 		"mode: REACT",
@@ -277,7 +277,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 			RegistriesDir:   registriesDir,
 			AgentsDir:       agentsDir,
 			TeamsDir:        teamsDir,
-			SkillsMarketDir: skillsDir,
+			SkillsCenterDir: skillsDir,
 			ChatsDir:        filepath.Join(root, "custom-chats"),
 			MemoryDir:       filepath.Join(root, "custom-memory"),
 		},

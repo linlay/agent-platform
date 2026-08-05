@@ -129,7 +129,7 @@ func hasLocalFileRoots(session QuerySession) bool {
 		strings.TrimSpace(paths.ChatDir) != "" ||
 		strings.TrimSpace(paths.AgentDir) != "" ||
 		strings.TrimSpace(paths.SkillsDir) != "" ||
-		strings.TrimSpace(paths.SkillsMarketDir) != ""
+		strings.TrimSpace(paths.SkillsCenterDir) != ""
 }
 
 func (s *llmRunStream) lookupFileAccessPlan(invocation *preparedToolInvocation) *filetools.AccessPlan {

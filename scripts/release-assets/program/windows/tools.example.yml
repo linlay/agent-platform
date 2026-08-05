@@ -14,7 +14,7 @@ access-policy:
       readonly-roots:
         - "@agent"
         - "@skills"
-        - "@skills-market"
+        - "@skills-center"
       approvals:
         read-outside-roots: hitl
         write-outside-roots: hitl

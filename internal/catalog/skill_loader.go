@@ -13,9 +13,9 @@ import (
 )
 
 // ResolveSkillDefinition loads a declared skill from real host paths.
-// Agent-local skills win; the skills market is used as a fallback.
-func ResolveSkillDefinition(agentDir, marketDir, skillID string) (SkillDefinition, bool, error) {
-	for _, skillDir := range candidateSkillDirs(agentDir, marketDir, skillID) {
+// Agent-local skills win; the skills center is used as a fallback.
+func ResolveSkillDefinition(agentDir, centerDir, skillID string) (SkillDefinition, bool, error) {
+	for _, skillDir := range candidateSkillDirs(agentDir, centerDir, skillID) {
 		def, ok, err := loadSkillDefinitionFromDir(skillDir, skillID, 0)
 		if err != nil {
 			return SkillDefinition{}, false, err
@@ -29,7 +29,7 @@ func ResolveSkillDefinition(agentDir, marketDir, skillID string) (SkillDefinitio
 
 // ResolveRuntimeSkillDefinition loads a declared skill only from an assembled
 // runtime Agent. Runtime execution must never fall back to source agents or the
-// shared skills market.
+// shared skills center.
 func ResolveRuntimeSkillDefinition(runtimeDir, skillID string) (SkillDefinition, bool, error) {
 	return loadSkillDefinitionFromDir(filepath.Join(runtimeDir, "skills", skillID), skillID, 0)
 }
@@ -69,13 +69,13 @@ func loadSkills(root string, maxPromptChars int) (map[string]SkillDefinition, er
 	return items, nil
 }
 
-func candidateSkillDirs(agentDir, marketDir, skillID string) []string {
+func candidateSkillDirs(agentDir, centerDir, skillID string) []string {
 	dirs := make([]string, 0, 2)
 	if strings.TrimSpace(agentDir) != "" {
 		dirs = append(dirs, filepath.Join(agentDir, "skills", skillID))
 	}
-	if strings.TrimSpace(marketDir) != "" {
-		dirs = append(dirs, filepath.Join(marketDir, skillID))
+	if strings.TrimSpace(centerDir) != "" {
+		dirs = append(dirs, filepath.Join(centerDir, skillID))
 	}
 	return dirs
 }

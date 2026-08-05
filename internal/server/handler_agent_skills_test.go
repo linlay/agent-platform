@@ -16,7 +16,7 @@ import (
 	gws "github.com/gorilla/websocket"
 )
 
-func TestAgentSkillsReturnsConfiguredAndMarketUnion(t *testing.T) {
+func TestAgentSkillsReturnsConfiguredAndCenterUnion(t *testing.T) {
 	fixture := newAgentSkillsTestFixture(t, false)
 
 	recorder := httptest.NewRecorder()
@@ -121,7 +121,7 @@ func newAgentSkillsTestFixture(t *testing.T, withWebSocket bool) testFixture {
 				t.Fatalf("write agent config: %v", err)
 			}
 			writeTestSkill(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "skills"), "private-skill")
-			writeTestSkill(t, cfg.Paths.SkillsMarketDir, "market-extra")
+			writeTestSkill(t, cfg.Paths.SkillsCenterDir, "center-extra")
 		},
 	}
 	if withWebSocket {
@@ -144,7 +144,7 @@ func assertAgentSkillsResponse(t *testing.T, response api.AgentSkillsResponse) {
 		t.Fatalf("expected 3 skills, got %#v", response.Skills)
 	}
 
-	wantKeys := []string{"mock-skill", "private-skill", "market-extra"}
+	wantKeys := []string{"mock-skill", "private-skill", "center-extra"}
 	wantConfigured := []bool{true, true, false}
 	for index := range wantKeys {
 		got := response.Skills[index]

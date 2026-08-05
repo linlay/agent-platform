@@ -235,6 +235,13 @@ func TestAdminSourceRejectsInvalidAgentEditsAndStaleWrites(t *testing.T) {
 
 func TestAdminAgentDetailReturnsDiagnosticsForInvalidAgents(t *testing.T) {
 	fixture := setupAdminAgentsFixture(t)
+	for _, key := range []string{"mock-agent", "invalid-yaml"} {
+		check := httptest.NewRecorder()
+		fixture.server.ServeHTTP(check, httptest.NewRequest(http.MethodGet, "/api/admin/agents/detail?agentKey="+key, nil))
+		if check.Code != http.StatusOK {
+			t.Fatalf("admin detail for %s status = %d body=%s", key, check.Code, check.Body.String())
+		}
+	}
 
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/agents/detail?agentKey=invalid-semantic", nil))

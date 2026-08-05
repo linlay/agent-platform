@@ -73,7 +73,7 @@ func (c *Config) applyPathsValues(values map[string]any) {
 	c.Paths.MemoryDir = stringValue(anyValue(values["memory-dir"], c.Paths.MemoryDir), c.Paths.MemoryDir)
 	c.Paths.KBaseDir = stringValue(anyValue(values["kbase-dir"], c.Paths.KBaseDir), c.Paths.KBaseDir)
 	c.Paths.PanDir = stringValue(anyValue(values["pan-dir"], c.Paths.PanDir), c.Paths.PanDir)
-	c.Paths.SkillsMarketDir = stringValue(anyValue(values["skills-market-dir"], c.Paths.SkillsMarketDir), c.Paths.SkillsMarketDir)
+	c.Paths.SkillsCenterDir = stringValue(anyValue(values["skills-center-dir"], c.Paths.SkillsCenterDir), c.Paths.SkillsCenterDir)
 }
 
 func (c *Config) applySkillsValues(values map[string]any) {
@@ -195,6 +195,9 @@ func (c *Config) applyRuntimeFile(path string) error {
 		return nil
 	}
 	if paths, ok := values["paths"].(map[string]any); ok && len(paths) > 0 {
+		if _, exists := paths["skills-market-dir"]; exists {
+			return deprecation.New("%s: paths.skills-market-dir was removed; use paths.skills-center-dir", path)
+		}
 		c.applyPathsValues(paths)
 	}
 	if skills, ok := values["skills"].(map[string]any); ok && len(skills) > 0 {

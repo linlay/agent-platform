@@ -805,8 +805,8 @@ func runtimeAgentEnv(value any) map[string]string {
 	}
 }
 
-func resolveSkillRuntimeSettings(agentEnv map[string]string, agentDir string, marketDir string, skillKeys []string) ([]string, map[string]string, error) {
-	_ = marketDir
+func resolveSkillRuntimeSettings(agentEnv map[string]string, agentDir string, centerDir string, skillKeys []string) ([]string, map[string]string, error) {
+	_ = centerDir
 	runtimeEnv := contracts.CloneStringMap(agentEnv)
 	if err := agentconfig.ValidateUserEnvironment(runtimeEnv); err != nil {
 		return nil, nil, err

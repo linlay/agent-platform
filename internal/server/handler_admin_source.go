@@ -154,6 +154,8 @@ func (s *Server) readAdminAgentTextSource(target api.AdminSourceTarget) (api.Adm
 }
 
 func (s *Server) writeAdminAgentTextSource(ctx context.Context, target api.AdminSourceTarget, content string, baseSHA256 string) (api.AdminSourceResponse, error) {
+	s.adminAgentMutationMu.Lock()
+	defer s.adminAgentMutationMu.Unlock()
 	editor, err := s.adminAgentSourceEditor()
 	if err != nil {
 		return api.AdminSourceResponse{}, err
@@ -251,7 +253,7 @@ func (s *Server) writeAdminSkillTextSource(ctx context.Context, target api.Admin
 func adminSourceFromSkillFile(target api.AdminSourceTarget, pathOnDisk string, file catalog.EditableSkillFileContent) api.AdminSourceResponse {
 	return api.AdminSourceResponse{
 		Target:    target,
-		Source:    api.AgentSource{Kind: "skills-market", Path: pathOnDisk},
+		Source:    api.AgentSource{Kind: "skills-center", Path: pathOnDisk},
 		Content:   file.Content,
 		Encoding:  file.Encoding,
 		SHA256:    file.SHA256,

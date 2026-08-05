@@ -26,16 +26,16 @@ func resolveDirectoryAgentConfig(dirPath string) string {
 	return ""
 }
 
-func loadAgentsWithAdmin(root, marketDir, chatsDir string, globalMemoryEnabled bool) (map[string]AgentDefinition, map[string]AdminAgent, error) {
+func loadAgentsWithAdmin(root, centerDir, chatsDir string, globalMemoryEnabled bool) (map[string]AgentDefinition, map[string]AdminAgent, error) {
 	ruAgentsDir := filepath.Join(filepath.Dir(filepath.Clean(root)), "ru-agents")
-	assembler, err := newRuntimeAgentAssembler(ruAgentsDir, marketDir)
+	assembler, err := newRuntimeAgentAssembler(ruAgentsDir, centerDir)
 	if err != nil {
 		return nil, nil, err
 	}
-	return loadAgentsWithAdminAssembler(root, marketDir, chatsDir, globalMemoryEnabled, assembler)
+	return loadAgentsWithAdminAssembler(root, centerDir, chatsDir, globalMemoryEnabled, assembler)
 }
 
-func loadAgentsWithAdminAssembler(root, marketDir, chatsDir string, globalMemoryEnabled bool, assembler *runtimeAgentAssembler) (map[string]AgentDefinition, map[string]AdminAgent, error) {
+func loadAgentsWithAdminAssembler(root, centerDir, chatsDir string, globalMemoryEnabled bool, assembler *runtimeAgentAssembler) (map[string]AgentDefinition, map[string]AdminAgent, error) {
 	items := map[string]AgentDefinition{}
 	adminItems := map[string]AdminAgent{}
 	expectedRuntimeAgents := map[string]struct{}{}
@@ -61,7 +61,7 @@ func loadAgentsWithAdminAssembler(root, marketDir, chatsDir string, globalMemory
 			// records diagnostics and preserves an invalid AdminAgent entry when
 			// parsing or validation fails, while valid Agents remain available.
 			// Root traversal failures are still returned by visitRuntimeEntries.
-			_ = loadAgentSourceIntoMaps(root, name, entry, marketDir, chatsDir, globalMemoryEnabled, assembler, items, adminItems)
+			_ = loadAgentSourceIntoMaps(root, name, entry, centerDir, chatsDir, globalMemoryEnabled, assembler, items, adminItems)
 		},
 	)
 	if err != nil {
@@ -73,7 +73,7 @@ func loadAgentsWithAdminAssembler(root, marketDir, chatsDir string, globalMemory
 	return items, adminItems, nil
 }
 
-func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, marketDir, chatsDir string, globalMemoryEnabled bool, assembler *runtimeAgentAssembler, items map[string]AgentDefinition, adminItems map[string]AdminAgent) error {
+func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, centerDir, chatsDir string, globalMemoryEnabled bool, assembler *runtimeAgentAssembler, items map[string]AgentDefinition, adminItems map[string]AdminAgent) error {
 	source, ok := runtimeAgentSource(root, name, entry)
 	if !ok {
 		return nil
@@ -854,7 +854,7 @@ func cleanAgentHostAccessRoot(root string) (string, error) {
 		return "", nil
 	}
 	switch strings.ToLower(root) {
-	case "@workspace", "@chat", "@agent", "@skills", "@skills-market", "@owner":
+	case "@workspace", "@chat", "@agent", "@skills", "@skills-center", "@owner":
 		return strings.ToLower(root), nil
 	}
 	if root == "~" || strings.HasPrefix(root, "~/") {

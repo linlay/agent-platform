@@ -86,7 +86,7 @@ make build-local
 make run-local
 ```
 
-`make build-local` 只把 runtime 写到 `release-local/backend/agent-platform`，不会变更 `release-local/bin/`。builtin 缺失或本机构建失败由同步脚本失败报告。由于 runtime 位于 `backend/` 下，启动时只扫描服务包根目录的 `plugins/`，与 Desktop 服务包形态一致。`runtime/` 仍只用于 agents、chats、skills-market、registries、memory 等运行数据；Platform 会由 agents 与 skills-market 重建 `ru-agents/` 作为唯一 Agent 执行目录。
+`make build-local` 只把 runtime 写到 `release-local/backend/agent-platform`，不会变更 `release-local/bin/`。builtin 缺失或本机构建失败由同步脚本失败报告。由于 runtime 位于 `backend/` 下，启动时只扫描服务包根目录的 `plugins/`，与 Desktop 服务包形态一致。`runtime/` 仍只用于 agents、chats、skills-center、registries、memory 等运行数据；Platform 会由 agents 与 skills-center 重建 `ru-agents/` 作为唯一 Agent 执行目录。
 
 常用验证：
 
@@ -183,7 +183,7 @@ Auth 默认开启，默认公钥文件为 `configs/local-public-key.pem`；相�
 
 以下低频项统一改到 `configs/runtime.yml`：
 
-- 低频 runtime 子目录：`paths.owner-dir`、`paths.agents-dir`、`paths.ru-agents-dir`、`paths.teams-dir`、`paths.root-dir`、`paths.automations-dir`、`paths.skills-market-dir`
+- 低频 runtime 子目录：`paths.owner-dir`、`paths.agents-dir`、`paths.ru-agents-dir`、`paths.teams-dir`、`paths.root-dir`、`paths.automations-dir`、`paths.skills-center-dir`
 - memory 深度调优：`memory.*`
 
 Logging 默认值已经源码化，不提供 runtime YAML 入口；只保留 `AP_DEBUG_LLM_CONSOLE` 和 `AP_DEBUG_LLM_CHAT_RECORD` 作为现场调试 allowlist。LLM 交互日志、memory 参数和内部运行默认值的适用人群和注意事项统一见 [配置化说明](./docs/配置化说明.md)。
@@ -306,7 +306,7 @@ Container Hub 使用严格双根协议，基础挂载包括：
 
 `runtimeConfig.sandboxMounts` 会真实影响 Container Hub session mounts：
 
-- `platform + mode`：恢复按需平台挂载，或覆盖默认 `/agent`、`/owner`、`/memory` 模式；`platform: skills-market` 会显式挂载 `/skills-market`
+- `platform + mode`：恢复按需平台挂载，或覆盖默认 `/agent`、`/owner`、`/memory` 模式；`platform: skills-center` 会显式挂载 `/skills-center`
 - `destination + mode`：覆盖非保留的默认基础挂载模式
 - `source + destination + mode`：新增自定义挂载，不能拿来覆盖默认基础挂载路径
 

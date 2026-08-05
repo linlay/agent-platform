@@ -130,7 +130,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		references:         req.References,
 		principal:          principal,
 		definition:         agentDef,
-		exposeSkillsMarket: mustUseSkills.HasExtraSkills,
+		exposeSkillsCenter: mustUseSkills.HasExtraSkills,
 	})
 	if err != nil {
 		return contracts.QuerySession{}, err
@@ -138,7 +138,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	req.References = runtimeContext.References
 
 	promptAppend := buildPromptAppendConfig(s.deps.Config.Prompts, agentDef)
-	skillCatalogPrompt := buildSkillCatalogPrompt(agentDef, s.deps.Config.Paths.SkillsMarketDir, promptAppend, mustUseSkills.Skills...)
+	skillCatalogPrompt := buildSkillCatalogPrompt(agentDef, s.deps.Config.Paths.SkillsCenterDir, promptAppend, mustUseSkills.Skills...)
 	if mustUseSkillConstraint := buildMustUseSkillConstraint(mustUseSkills.Skills); mustUseSkillConstraint != "" {
 		if skillCatalogPrompt != "" {
 			skillCatalogPrompt += "\n\n" + mustUseSkillConstraint
@@ -169,7 +169,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	skillHookDirs, runtimeEnvOverrides, err := resolveSkillRuntimeSettings(
 		runtimeAgentEnv(agentDef.Runtime["env"]),
 		agentDef.RuntimeDir,
-		s.deps.Config.Paths.SkillsMarketDir,
+		s.deps.Config.Paths.SkillsCenterDir,
 		agentDef.Skills,
 	)
 	if err != nil {

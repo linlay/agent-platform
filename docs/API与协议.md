@@ -59,7 +59,7 @@ GET /ws -> request / response / stream / push / error frames
 |---|---|---|---|
 | GET | `/api/agents` | query: `includeChats`、`includeTeam`、`scope`、`mode` | agent 列表；可选混入 Team 与最近 chat 摘要 |
 | GET | `/api/agent` | query: `agentKey` | 单个运行时 agent 详情，不返回编辑专用字段 |
-| GET | `/api/skills` | query: `agentKey` | 有效市场 Skill 与该 Agent 已配置 Skill 的并集 |
+| GET | `/api/skills` | query: `agentKey` | 有效技能中心 Skill 与该 Agent 已配置 Skill 的并集 |
 | POST | `/api/agent/model-config` | body: `agentKey`/`key`、`modelKey`、`reasoningEffort` | 更新 CODER agent 的运行时默认模型配置 |
 | POST | `/api/agent/open-directory` | body: `agentKey`、`directoryType` | 打开 Agent 工作目录或配置目录 |
 | GET | `/api/teams` | 无 | 目录式 Team 列表 |
@@ -68,7 +68,7 @@ GET /ws -> request / response / stream / push / error frames
 
 `/api/agents` 的 `scope` 可取 `nav`、`copilot`、`invoke`、`internal`、`all`，省略时为 `all`；`includeChats` 为 `0..50`，省略时不附带 chat。可选 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；只接受 `REACT`、`CODER`、`KBASE`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`（大小写无关）。`PLAN_EXECUTE`、`ONESHOT`、ACP 别名、`TEAM` 和未知值均返回 400。`mode` 与 `scope` 为 AND，筛选普通 agent catalog 自身的 `mode`，不改变 `includeChats` 按 agentKey 获取 chat 的规则。
 
-`GET /api/skills` 是 WebClient slash 技能选择器的只读接口，要求精确的 `agentKey`。响应 `data` 固定为 `{ "agentKey": "...", "skills": [...] }`，每个 Skill 只包含 `key`、`name`、可选 `description` 与布尔值 `agentHasSkill`；不使用 `items`，也不返回 `meta` 或运行时选择来源。Agent 已配置 Skill 先按 Agent 配置顺序返回并标记为 `true`，其中包括只存在于 Agent 本地 `skills/` 的 Skill；随后按当前有效 skills-market catalog 的稳定顺序追加其余 Skill并标记为 `false`。两组按 key 大小写不敏感去重，`skills` 无结果时仍返回空数组。缺少 `agentKey` 返回 400 `agent_key_required`，Agent 不存在返回 404 `agent_not_found`，已配置 Skill 无法从稳定 Agent runtime 解析时返回 503 `skill_catalog_unavailable`。
+`GET /api/skills` 是 WebClient slash 技能选择器的只读接口，要求精确的 `agentKey`。响应 `data` 固定为 `{ "agentKey": "...", "skills": [...] }`，每个 Skill 只包含 `key`、`name`、可选 `description` 与布尔值 `agentHasSkill`；不使用 `items`，也不返回 `meta` 或运行时选择来源。Agent 已配置 Skill 先按 Agent 配置顺序返回并标记为 `true`，其中包括只存在于 Agent 本地 `skills/` 的 Skill；随后按当前有效 skills-center catalog 的稳定顺序追加其余 Skill并标记为 `false`。两组按 key 大小写不敏感去重，`skills` 无结果时仍返回空数组。缺少 `agentKey` 返回 400 `agent_key_required`，Agent 不存在返回 404 `agent_not_found`，已配置 Skill 无法从稳定 Agent runtime 解析时返回 503 `skill_catalog_unavailable`。
 
 普通 Agent 摘要中的 `workspaceDir` 表示该 Agent 的运行工作区，`agentConfigDir` 表示 catalog 已解析的 Agent 配置目录；两者互不替代。`agentConfigDir` 原样返回运行时 `AgentDefinition.AgentDir`，为空时省略。`/api/agent` 继续通过现有的 `source.agentDir` 返回编辑来源目录，不新增顶层字段。
 
@@ -112,8 +112,10 @@ GET /ws -> request / response / stream / push / error frames
 | POST | `/api/admin/agents/update` | body: `key`/`agentKey`、`definition`、`soulPrompt`、`agentsPrompt` | 更新后的 agent 详情 |
 | POST | `/api/admin/agents/update-name` | body: `key`/`agentKey`、`name` | 更新后的 agent 详情 |
 | POST | `/api/admin/agents/delete` | body: `key`/`agentKey` | 删除结果 |
+| POST | `/api/admin/agents/skills/import` | multipart: `agentKey`、`file`、`confirmCenterOverride`；兼容可选 `key` | 为一个目录型 Agent 导入并启用专属 ZIP Skill，返回更新后的 admin agent detail |
+| POST | `/api/admin/agents/skills/delete` | body: `agentKey`、`key` | 删除该 Agent 的专属 Skill 与其配置引用，返回更新后的 admin agent detail |
 | GET | `/api/admin/agents/editor-options` | 无 | agent 编辑器可选项 |
-| GET | `/api/admin/skills` | 无 | skills-market skill 列表，包含状态、图标 URL、摘要诊断、更新时间、大小与引用 agent |
+| GET | `/api/admin/skills` | 无 | skills-center skill 列表，包含状态、图标 URL、摘要诊断、更新时间、大小与引用 agent |
 | GET | `/api/admin/skills/detail` | query: `key`、`openPath` | skill 详情，返回 `fileManifest.entries[]` 与可选 `openedFile` |
 | POST | `/api/admin/skills/create` | body: `key`、`skillMd`、`files[]` | 创建后的 skill 详情 |
 | POST | `/api/admin/skills/import` | multipart: `key`、`file` | 原子校验并导入完整 ZIP，返回创建后的 skill 详情 |
@@ -136,7 +138,9 @@ GET /ws -> request / response / stream / push / error frames
 
 `/api/admin/tools` 中 `kind` 表示调用方式（如 `backend`、`frontend`、`action`），`sourceType` 表示定义来源类型（如 `local`、`agent-local`、`mcp`），`sourceCategory` 表示来源分类：`platform` 为 runtime 自带工具，`external` 可用于 `paths.tools-dir` 下普通 frontend/action/agent-local YAML 的来源分类，`mcp` 为 MCP registry 同步工具。`external` 不再表示子进程调用协议。MCP 工具额外返回 `serverKey`。列表响应只返回 `key`、`name`、`label`、`description`、`kind`、`sourceType`、`sourceCategory`、`serverKey`，不透出内部 tool definition `meta`；接口不接收 query 过滤参数。
 
-`/api/admin/skills` 只编辑 `paths.skills-market-dir` 下的共享 skill 目录，不直接编辑 agent 本地 `skills/` 同步副本。文件路径必须是相对路径，服务端拒绝目录逃逸和 symlink 跟随；JSON 文本读写限制为 UTF-8 且不超过 1 MiB，二进制或大文件通过 upload/download 接口处理。保存、上传、删除或重命名 skill 文件后会触发 `skills` reload 并级联 reload `agents`，使声明该 skill 的 agent 本地副本重新同步。
+`/api/admin/skills` 只编辑 `paths.skills-center-dir` 下的共享 skill 目录，不直接编辑 agent 本地 `skills/` 同步副本。文件路径必须是相对路径，服务端拒绝目录逃逸和 symlink 跟随；JSON 文本读写限制为 UTF-8 且不超过 1 MiB，二进制或大文件通过 upload/download 接口处理。保存、上传、删除或重命名 skill 文件后会触发 `skills` reload 并级联 reload `agents`，使声明该 skill 的 agent 本地副本重新同步。
+
+`POST /api/admin/agents/skills/import` 只面向目录型普通 Agent。它沿用共享 Skill ZIP 的校验和限额，但将内容写入 `<agents>/<agentKey>/skills/<key>/`，并原子地把 key 加入该 Agent 的 `skillConfig.skills` 后 reload agents；导入失败或 reload 失败都会恢复 Agent YAML 并清理本地目录。未传 `key` 时，服务端从 ZIP 的 `SKILL.md` frontmatter 读取 `key`，否则读取 `name` 作为 Skill Key；旧调用方仍可显式传 Key。专属 Skill 不会出现在 `/api/admin/skills`，也不能由共享 Skill 删除接口删除。若 key 已存在于 skills-center，必须显式传 `confirmCenterOverride=true`；该专属版本只对当前 Agent 优先。Admin Agent Detail 的 `privateSkills[]` 返回本地摘要、是否启用及 `overridesCenter`，不返回本地路径或文件内容。专属删除同样只在 Agent 路由执行，并同时删目录和配置引用。
 
 `/api/admin/skills` 管理 Skill 的结构和二进制文件操作；可编辑文本内容可通过 `/api/admin/source` 的 Skill target 读取和保存。`detail` 不内联全量文件内容，而返回轻量 `fileManifest`：`revision`、`defaultOpenPath`、文件统计和预排序扁平 `entries[]`。每个 entry 使用完整相对 `path` 作为稳定 ID，并带 `parentPath/depth/order/contentKind/language/role/editable/downloadable/uploadable/renamable/deletable`。`openPath` 指向可编辑 UTF-8 文本文件时，`detail` 额外返回 `openedFile`；二进制或过大文件只返回 metadata。保存使用 `baseSha256` 做并发保护，冲突返回 409。创建、删除、重命名、上传和 mkdir 的 mutation 响应会返回新的 `fileManifest` 与 `selectedPath`，方便前端直接刷新文件树。列表和详情摘要会在 skill 目录存在 regular、非 symlink 的 `assets/<skill-id>.png` 时返回 `icon` 下载 URL；未提供图标时省略字段，由客户端负责默认图。`file/download` 只下载单一文件；`download` 返回 ZIP，包含安全的普通 skill 文件、跳过 symlink 与 `.runtime-env.json`，并限制未压缩内容为 256 MiB。
 
@@ -233,9 +237,9 @@ Automation 的 Team 身份规则与 query 一致：只配置 `teamId`，同时�
 
 `editingMode` 只认顶层 JSON boolean。仅 `editingMode:true` 且目标为专用 `mode: KBASE` 时生效；普通 Agent 附加 KBASE capability、CODER、PROXY、CHANNEL 和 Team 返回 HTTP 400，`msg=editing_mode_unsupported`。专用 KBASE 在 true/false 两种状态下都以最终 `runtimeConfig.workspaceRoot` 作为 Workspace，并提供相同的五个文件工具；`false` 或省略只表示 Workspace mutation 未授权，Workspace 仍可读，当前 Chat 目录仍可读写。`params.editingMode` 不生效。开启时，`request.query` live event、chat JSONL、replay/export 和运行中 `activeRun` 保留 `editingMode:true`；false 时省略。它是单次 run 授权，不写 Agent 配置，也不会从上一轮继承。
 
-`mustUseSkills` 是单次 run 的强制 Skill 数组。服务端对各项 trim、忽略空值、按大小写不敏感去重并保留首次出现顺序，不设置额外数量上限。已经配置在目标 Agent 的 Skill 从 `ru-agents/<agentKey>/skills/<key>` 解析，模型看到的指令路径为 `@skills/<key>/SKILL.md`；未配置的额外 Skill 必须存在于当前有效 skills-market catalog，并从共享市场解析为 `@skills-market/<key>/SKILL.md`。任一项缺失、无合法 `SKILL.md` 或当前无法解析时，整个请求在 run 启动前以 HTTP 400、`msg=must_use_skill_unavailable` 失败，不会部分执行或静默降级。
+`mustUseSkills` 是单次 run 的强制 Skill 数组。服务端对各项 trim、忽略空值、按大小写不敏感去重并保留首次出现顺序，不设置额外数量上限。已经配置在目标 Agent 的 Skill 从 `ru-agents/<agentKey>/skills/<key>` 解析，模型看到的指令路径为 `@skills/<key>/SKILL.md`；未配置的额外 Skill 必须存在于当前有效 skills-center catalog，并从共享技能中心解析为 `@skills-center/<key>/SKILL.md`。任一项缺失、无合法 `SKILL.md` 或当前无法解析时，整个请求在 run 启动前以 HTTP 400、`msg=must_use_skill_unavailable` 失败，不会部分执行或静默降级。
 
-存在额外 Skill 时，Container session 只追加一次整个 skills-market 的只读挂载 `/skills-market`；已有显式 `platform: skills-market` 挂载会去重并按只读使用。Host session 直接开放真实 `skills-market` 根的只读 `@skills-market` 访问。系统 Prompt 会列出每个 Skill 的精确 `instructionsPath`，并要求全部读取和遵循。额外 Skill 不参与 Agent `.config`、`.runtime-env.json` 或 `.bash-hooks` 合并，不增加 Tool、MCP、mount 权限或 `accessLevel`；平台也不生成内容快照，continuation 会按当前 catalog 和磁盘内容重新验证。
+存在额外 Skill 时，Container session 只追加一次整个 skills-center 的只读挂载 `/skills-center`；已有显式 `platform: skills-center` 挂载会去重并按只读使用。Host session 直接开放真实 `skills-center` 根的只读 `@skills-center` 访问。系统 Prompt 会列出每个 Skill 的精确 `instructionsPath`，并要求全部读取和遵循。额外 Skill 不参与 Agent `.config`、`.runtime-env.json` 或 `.bash-hooks` 合并，不增加 Tool、MCP、mount 权限或 `accessLevel`；平台也不生成内容快照，continuation 会按当前 catalog 和磁盘内容重新验证。
 
 规范化后的 `mustUseSkills` 会进入 session、system-init fingerprint、live/persist/replay 的 `request.query`、synthetic query，以及 Proxy/Channel 转发 payload。Proxy、Channel 与 ACP 路由入口只负责规范化和透传，不用本机 catalog 代替远端判定；真正执行 query 的 Platform 按上述规则解析、挂载和失败。orchestrated Team 的非空数组返回 HTTP 400、`must_use_skills_unsupported`。旧字段 `requiredSkillKeys` 已删除；HTTP 与 WebSocket query 入口只要出现该字段（即使为空）都会返回 `required_skill_keys_removed`，不会按未知字段忽略。
 

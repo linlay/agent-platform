@@ -298,7 +298,7 @@ func backgroundWatchEntries(cfg config.Config) []watchEntry {
 	return []watchEntry{
 		{cfg.Paths.AgentsDir, "agents"},
 		{cfg.Paths.TeamsDir, "teams"},
-		{cfg.Paths.SkillsMarketDir, "skills"},
+		{cfg.Paths.SkillsCenterDir, "skills"},
 		{filepath.Join(cfg.Paths.RegistriesDir, "models"), "models"},
 		{filepath.Join(cfg.Paths.RegistriesDir, "providers"), "providers"},
 		{cfg.Paths.ToolsDir, "tools"},

@@ -8,7 +8,7 @@
 
 - 已具备独立 HTTP 服务、统一 JSON 包裹与 `POST /api/query` 真流式 SSE。
 - 已具备 chat 摘要、事件流、raw messages、上传资源落盘、归档与搜索。
-- 已具备目录驱动的 agents / teams / skills / tools catalog，并在 Catalog 发布前将 Agent 定义、Agent 自有 Skill、市场 Skill 和 `.config` 组装到稳定的 `ru-agents/<agentKey>` 执行目录；query `mustUseSkills` 可在单次普通 Agent run 中强制使用额外市场 Skill，并以 Host 只读语义路径或 Container 全市场只读挂载直接访问 `skills-market`，不复制、不生成 run-runtime。
+- 已具备目录驱动的 agents / teams / skills / tools catalog，并在 Catalog 发布前将 Agent 定义、Agent 自有 Skill、技能中心 Skill 和 `.config` 组装到稳定的 `ru-agents/<agentKey>` 执行目录；query `mustUseSkills` 可在单次普通 Agent run 中强制使用额外技能中心 Skill，并以 Host 只读语义路径或 Container 整个技能中心只读挂载直接访问 `skills-center`，不复制、不生成 run-runtime。
 - 已具备 OpenAI / Anthropic 协议模型调用、统一 Tool、Container Hub sandbox 与 tools。
 - 已具备由 `build/builtins/<os>-<arch>/` cache 固定、校验并随服务包分发的 Host builtins（rg/dbx/httpx/kbase-lance-engine/poppler-pdftotext）；`file_grep/file_glob` 稳定包装 rg，dbx/httpx 保持 CLI，KBASE PDF 默认调用 Poppler `pdftotext` launcher。
 - 已具备 HITL question / approval / form、运行中 submit / steer / interrupt 协议入口，以及 question/planning 跨进程恢复和不可恢复等待项的幂等终态对账。
@@ -119,7 +119,7 @@ KBASE 默认由 `AP_RUNTIME_KBASE_DIR` 控制，每个 agent storageDir 可包�
 
 主要接口分组：
 
-- Catalog：`/api/agents`、`/api/agent`、`/api/skills`、`/api/teams`、`/api/admin/skills`、`/api/admin/tools`；`/api/skills` 同时支持 HTTP 与 WebSocket，按 `agentKey` 返回有效市场 Skill 和该 Agent 已配置 Skill 的并集，并用 `agentHasSkill` 标识 Agent 当前是否已有。
+- Catalog：`/api/agents`、`/api/agent`、`/api/skills`、`/api/teams`、`/api/admin/skills`、`/api/admin/tools`；`/api/skills` 同时支持 HTTP 与 WebSocket，按 `agentKey` 返回有效技能中心 Skill 和该 Agent 已配置 Skill 的并集，并用 `agentHasSkill` 标识 Agent 当前是否已有。
 - Chat：`/api/chats`、`/api/chat`、`/api/chats/search`、`/api/read`、`/api/chat/export`。
 - Archive：`/api/archives`、`/api/archive`、`/api/archives/search`。
 - Run：`/api/query`、`/api/attach`、`/api/submit`、`/api/steer`、`/api/interrupt`。
@@ -163,7 +163,7 @@ make test
 ## 9. 已知约束与注意事项
 
 - `configs/` 下配置启动时读取，运行中修改需要重启 runtime。
-- `agents/` 与 `skills-market/` 是可编辑事实源；Agent 配置内 Skill、Terminal 与常规 Skill runtime 只使用 Platform 生成的 `ru-agents/`。该目录不提交、不打包、不允许人工编辑；Platform 启动时无条件清空并完整重建，Agent/Skill 热重载只更新稳定目录而不清空整个根。唯一的 query 运行时例外是普通 Agent 的非空 `mustUseSkills` 含未配置 Skill：必须从当前有效 skills-market catalog 重新验证；Host 直接开放真实 `@skills-market` 只读根，Container 去重后挂载整个 `/skills-market` 为只读。该例外不合并额外 Skill 的 `.config`、`.runtime-env.json`、`.bash-hooks`，不增加 Tool/MCP/access 权限；Team 明确拒绝。
+- `agents/` 与 `skills-center/` 是可编辑事实源；Agent 配置内 Skill、Terminal 与常规 Skill runtime 只使用 Platform 生成的 `ru-agents/`。该目录不提交、不打包、不允许人工编辑；Platform 启动时无条件清空并完整重建，Agent/Skill 热重载只更新稳定目录而不清空整个根。唯一的 query 运行时例外是普通 Agent 的非空 `mustUseSkills` 含未配置 Skill：必须从当前有效 skills-center catalog 重新验证；Host 直接开放真实 `@skills-center` 只读根，Container 去重后挂载整个 `/skills-center` 为只读。该例外不合并额外 Skill 的 `.config`、`.runtime-env.json`、`.bash-hooks`，不增加 Tool/MCP/access 权限；Team 明确拒绝。
 - `POST /api/query` 默认逐事件 flush；启用 `configs/runtime.yml -> h2a.render.*` 缓冲后，客户端看到的输出可能不再逐事件抵达。
 - WebSocket 是控制面，浏览器/普通客户端文件字节仍走 `POST /api/upload` 和隐藏的 `GET /api/resource` 数据面。新 Markdown 的 Chat 文件只使用相对于当前 Chat 的 `<relativePath>`，也可引用普通 Agent Workspace 内的 POSIX 绝对路径、`/tmp/...` 与 HTTP(S)/data/blob；真实 `/api/resource` 请求地址和 `<currentChatId>/<relativePath>` 都不是 Markdown 协议，历史 endpoint Markdown 不迁移且不再预览。
 - `runtimeConfig.env` 不会通过 catalog API 回显，避免泄露代理、凭据或私有 endpoint。
@@ -182,7 +182,7 @@ make test
 ## 特色功能文档索引
 
 - [智能体配置说明](docs/智能体配置说明.md)：agent / team / skill 定义、CODER、KBASE、目录式 Team、prompt files、memoryConfig、runtimeConfig。
-- [Agent运行时组装](docs/Agent运行时组装.md)：`ru-agents`、Agent 自有/市场 Skill 选择、`.config` 冲突与热重载。
+- [Agent运行时组装](docs/Agent运行时组装.md)：`ru-agents`、Agent 自有/技能中心 Skill 选择、`.config` 冲突与热重载。
 - [配置化说明](docs/配置化说明.md)：环境变量、`configs/*.yml`、默认值、优先级、废弃变量。
 - [工具目录权限](docs/工具目录权限.md)：Bash、FileTools、allowed paths、越权审批、读后写闭环。
 - [真流式和H2A](docs/真流式和H2A.md)：SSE、heartbeat、`[DONE]`、attach、backlog、H2A 缓冲。

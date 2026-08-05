@@ -59,7 +59,7 @@ func TestBackgroundWatchEntriesExcludeConfigs(t *testing.T) {
 			AgentsDir:       filepath.Join("runtime", "agents"),
 			RUAgentsDir:     filepath.Join("runtime", "ru-agents"),
 			TeamsDir:        filepath.Join("runtime", "teams"),
-			SkillsMarketDir: filepath.Join("runtime", "skills-market"),
+			SkillsCenterDir: filepath.Join("runtime", "skills-center"),
 			RegistriesDir:   filepath.Join("runtime", "registries"),
 			ToolsDir:        filepath.Join("runtime", "tools"),
 		},

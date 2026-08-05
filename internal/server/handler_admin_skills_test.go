@@ -185,7 +185,7 @@ func TestAdminSkillImportCreatesSkillAndMapsFailures(t *testing.T) {
 	if response.Data.Skill.Key != "imported-skill" || response.Data.Skill.Name != "Imported Skill" || response.Data.OpenedFile == nil {
 		t.Fatalf("unexpected import response: %#v", response.Data)
 	}
-	if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.SkillsMarketDir, "imported-skill", "references", "guide.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "imported-skill", "references", "guide.md")); err != nil {
 		t.Fatalf("stat imported file: %v", err)
 	}
 
@@ -206,7 +206,7 @@ func TestAdminSkillImportCreatesSkillAndMapsFailures(t *testing.T) {
 	if invalid.Code != http.StatusUnprocessableEntity || !strings.Contains(invalid.Body.String(), "diagnostics") || !strings.Contains(invalid.Body.String(), "missing_skill_md") {
 		t.Fatalf("expected validation 422 with diagnostics, got %d: %s", invalid.Code, invalid.Body.String())
 	}
-	if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.SkillsMarketDir, "invalid-skill")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "invalid-skill")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected invalid import to leave no directory, got %v", err)
 	}
 
@@ -251,7 +251,7 @@ func TestAdminSkillImportRollsBackWhenCatalogReloadFails(t *testing.T) {
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected reload failure 500, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.SkillsMarketDir, "rollback-skill")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "rollback-skill")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected imported directory rollback, got %v", err)
 	}
 }
@@ -296,7 +296,7 @@ func TestAdminSkillDownloadReturnsZipArchive(t *testing.T) {
 
 func TestAdminSkillDownloadRejectsOversizedArchive(t *testing.T) {
 	fixture := newTestFixture(t)
-	oversized := filepath.Join(fixture.cfg.Paths.SkillsMarketDir, "mock-skill", "archive-too-large.bin")
+	oversized := filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "mock-skill", "archive-too-large.bin")
 	if err := os.WriteFile(oversized, nil, 0o644); err != nil {
 		t.Fatalf("create oversized file: %v", err)
 	}

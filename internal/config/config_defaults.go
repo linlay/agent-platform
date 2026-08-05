@@ -10,10 +10,7 @@ import (
 )
 
 func defaultConfig(options LoadOptions) Config {
-	runtimeRoot := strings.TrimSpace(os.Getenv("AP_RUNTIME_DIR"))
-	if runtimeRoot == "" {
-		runtimeRoot = "runtime"
-	}
+	runtimeRoot := defaultRuntimeRoot()
 	paths := PathsConfig{
 		RegistriesDir:   filepath.Join(runtimeRoot, "registries"),
 		ToolsDir:        filepath.Join(runtimeRoot, "tools"),
@@ -27,7 +24,7 @@ func defaultConfig(options LoadOptions) Config {
 		MemoryDir:       filepath.Join(runtimeRoot, "memory"),
 		KBaseDir:        filepath.Join(runtimeRoot, "kbase"),
 		PanDir:          filepath.Join(runtimeRoot, "pan"),
-		SkillsMarketDir: filepath.Join(runtimeRoot, "skills-market"),
+		SkillsCenterDir: filepath.Join(runtimeRoot, "skills-center"),
 	}
 	return Config{
 		Server: ServerConfig{Port: "8080"},
@@ -35,7 +32,7 @@ func defaultConfig(options LoadOptions) Config {
 		Agents: CatalogConfig{ExternalDir: paths.AgentsDir},
 		Teams:  CatalogConfig{ExternalDir: paths.TeamsDir},
 		Skills: SkillCatalogConfig{
-			CatalogConfig:  CatalogConfig{ExternalDir: paths.SkillsMarketDir},
+			CatalogConfig:  CatalogConfig{ExternalDir: paths.SkillsCenterDir},
 			MaxPromptChars: 8000,
 		},
 		VisionRecognize: VisionRecognizeConfig{
@@ -204,6 +201,14 @@ func defaultConfig(options LoadOptions) Config {
 	}
 }
 
+func defaultRuntimeRoot() string {
+	runtimeRoot := strings.TrimSpace(os.Getenv("AP_RUNTIME_DIR"))
+	if runtimeRoot == "" {
+		return "runtime"
+	}
+	return runtimeRoot
+}
+
 func memoryLogFileDefault(memoryDir string) string {
 	if strings.TrimSpace(memoryDir) == "" {
 		return ""
@@ -232,7 +237,7 @@ func defaultAccessPolicyConfig() AccessPolicyConfig {
 			"default": {
 				ReadRoots:     []string{"@workspace", "@chat", "@agent", "@skills"},
 				WriteRoots:    []string{"@workspace", "@chat"},
-				ReadonlyRoots: []string{"@agent", "@skills", "@skills-market"},
+				ReadonlyRoots: []string{"@agent", "@skills", "@skills-center"},
 				Approvals: AccessPolicyApprovalConfig{
 					ReadOutsideRoots:      "hitl",
 					WriteOutsideRoots:     "hitl",
@@ -288,11 +293,11 @@ func (c *Config) normalize(configRoot string) error {
 	c.Paths.MemoryDir = filepath.Clean(c.Paths.MemoryDir)
 	c.Paths.KBaseDir = filepath.Clean(c.Paths.KBaseDir)
 	c.Paths.PanDir = filepath.Clean(c.Paths.PanDir)
-	c.Paths.SkillsMarketDir = filepath.Clean(c.Paths.SkillsMarketDir)
+	c.Paths.SkillsCenterDir = filepath.Clean(c.Paths.SkillsCenterDir)
 
 	c.Agents.ExternalDir = filepath.Clean(c.Paths.AgentsDir)
 	c.Teams.ExternalDir = filepath.Clean(c.Paths.TeamsDir)
-	c.Skills.ExternalDir = filepath.Clean(c.Paths.SkillsMarketDir)
+	c.Skills.ExternalDir = filepath.Clean(c.Paths.SkillsCenterDir)
 	c.Automation.ExternalDir = filepath.Clean(c.Paths.AutomationsDir)
 	c.Memory.StorageDir = filepath.Clean(c.Paths.MemoryDir)
 	c.Logging.LLMInteraction.RecordDir = filepath.Clean(c.Paths.ChatsDir)

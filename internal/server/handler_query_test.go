@@ -36,7 +36,7 @@ func writeSkillRuntimeFixture(t *testing.T, root string, skillID string, env str
 
 func TestResolveSkillRuntimeSettingsMergesEnvAndHookDirsInOrder(t *testing.T) {
 	agentDir := t.TempDir()
-	marketDir := t.TempDir()
+	centerDir := t.TempDir()
 	alphaDir := writeSkillRuntimeFixture(t, filepath.Join(agentDir, "skills"), "alpha", `{"NODE_ENV":"development","DEBUG":"1"}`)
 	betaDir := writeSkillRuntimeFixture(t, filepath.Join(agentDir, "skills"), "beta", `{"NODE_ENV":"production","TZ":"UTC"}`)
 
@@ -44,7 +44,7 @@ func TestResolveSkillRuntimeSettingsMergesEnvAndHookDirsInOrder(t *testing.T) {
 		"NODE_ENV": "test",
 		"BASE":     "1",
 	}
-	hookDirs, env, err := resolveSkillRuntimeSettings(agentEnv, agentDir, marketDir, []string{"alpha", "beta", "alpha"})
+	hookDirs, env, err := resolveSkillRuntimeSettings(agentEnv, agentDir, centerDir, []string{"alpha", "beta", "alpha"})
 	if err != nil {
 		t.Fatalf("resolveSkillRuntimeSettings() error = %v", err)
 	}
@@ -66,14 +66,14 @@ func TestResolveSkillRuntimeSettingsMergesEnvAndHookDirsInOrder(t *testing.T) {
 }
 
 func TestResolveSkillRuntimeSettingsSkipsMissingSkills(t *testing.T) {
-	marketDir := t.TempDir()
+	centerDir := t.TempDir()
 	runtimeDir := t.TempDir()
 	betaDir := writeSkillRuntimeFixture(t, filepath.Join(runtimeDir, "skills"), "beta", `{"TZ":"UTC"}`)
 
 	agentEnv := map[string]string{
 		"HTTP_PROXY": "http://agent",
 	}
-	hookDirs, env, err := resolveSkillRuntimeSettings(agentEnv, runtimeDir, marketDir, []string{"missing", "beta"})
+	hookDirs, env, err := resolveSkillRuntimeSettings(agentEnv, runtimeDir, centerDir, []string{"missing", "beta"})
 	if err != nil {
 		t.Fatalf("resolveSkillRuntimeSettings() error = %v", err)
 	}
@@ -86,11 +86,11 @@ func TestResolveSkillRuntimeSettingsSkipsMissingSkills(t *testing.T) {
 }
 
 func TestResolveSkillRuntimeSettingsSupportsHyphenatedSkillIDs(t *testing.T) {
-	marketDir := t.TempDir()
+	centerDir := t.TempDir()
 	runtimeDir := t.TempDir()
 	platformAdminDir := writeSkillRuntimeFixture(t, filepath.Join(runtimeDir, "skills"), "platform-admin", `{"DANGEROUS_COMMANDS":"1"}`)
 
-	hookDirs, env, err := resolveSkillRuntimeSettings(nil, runtimeDir, marketDir, []string{"platform-admin"})
+	hookDirs, env, err := resolveSkillRuntimeSettings(nil, runtimeDir, centerDir, []string{"platform-admin"})
 	if err != nil {
 		t.Fatalf("resolveSkillRuntimeSettings() error = %v", err)
 	}

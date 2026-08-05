@@ -571,6 +571,10 @@ program_resolve_runtime_root() {
 
 program_prepare_runtime_dirs() {
   program_resolve_runtime_root
+  local removed_skills_market_dir="$RUNTIME_ROOT/skills-market"
+  if [[ -e "$removed_skills_market_dir" || -L "$removed_skills_market_dir" ]]; then
+    program_die "legacy runtime directory is not supported: $removed_skills_market_dir; back up the old runtime and restore a new environment containing skills-center"
+  fi
   mkdir -p \
     "$RUN_DIR" \
     "$LOG_DIR" \
@@ -588,7 +592,7 @@ program_prepare_runtime_dirs() {
     "$RUNTIME_ROOT/chats" \
     "$RUNTIME_ROOT/memory" \
     "$RUNTIME_ROOT/pan" \
-    "$RUNTIME_ROOT/skills-market"
+    "$RUNTIME_ROOT/skills-center"
 }
 
 program_update_backend_args() {

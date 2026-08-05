@@ -36,6 +36,19 @@ type AdminAgent struct {
 	AgentsPrompt  string
 }
 
+// AdminAgentPrivateSkill is a skill stored in an individual directory-style
+// Agent source.  It deliberately carries no filesystem path: the admin API
+// exposes the logical skill identity only.
+type AdminAgentPrivateSkill struct {
+	Key             string
+	Name            string
+	Description     string
+	Status          string
+	Diagnostics     []AdminSkillDiagnostic
+	Enabled         bool
+	OverridesCenter bool
+}
+
 func cloneAdminAgent(src AdminAgent) AdminAgent {
 	dst := src
 	dst.Tools = append([]string(nil), src.Tools...)

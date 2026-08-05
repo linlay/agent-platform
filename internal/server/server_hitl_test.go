@@ -1353,7 +1353,7 @@ func TestBashHITLApproveFlowReplaysApprovalSummaryInChatRawMessages(t *testing.T
 			cfg.Defaults.Budget.Hitl.Timeout = 600
 		},
 		setupRuntime: func(_ string, cfg *config.Config) {
-			root := filepath.Join(cfg.Paths.SkillsMarketDir, "mock-skill", ".bash-hooks")
+			root := filepath.Join(cfg.Paths.SkillsCenterDir, "mock-skill", ".bash-hooks")
 			if err := os.MkdirAll(root, 0o755); err != nil {
 				t.Fatalf("mkdir skill bash-hooks dir: %v", err)
 			}
@@ -1916,7 +1916,7 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 			}
 		},
 		setupRuntime: func(_ string, cfg *config.Config) {
-			root := filepath.Join(cfg.Paths.SkillsMarketDir, "mock-skill", ".bash-hooks")
+			root := filepath.Join(cfg.Paths.SkillsCenterDir, "mock-skill", ".bash-hooks")
 			if err := os.MkdirAll(root, 0o755); err != nil {
 				t.Fatalf("mkdir skill bash-hooks dir: %v", err)
 			}

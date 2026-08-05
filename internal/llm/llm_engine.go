@@ -485,7 +485,7 @@ func hardenWorkspaceLessToolDefinition(def *api.ToolDetailResponse) {
 			"Required because this run has no Workspace. Use @chat to search the current Chat directory, or another explicit semantic root or absolute path. Relative paths and @workspace return workspace_unavailable.")
 	case "file_read", "file_write", "file_edit":
 		setToolParameterDescription(def.Parameters, "file_path",
-			"Required. This run has no Workspace, so relative paths and @workspace are unavailable. Use an explicit @chat, @agent, @skills, @skills-market, or @owner path, or an allowed absolute path.")
+			"Required. This run has no Workspace, so relative paths and @workspace are unavailable. Use an explicit @chat, @agent, @skills, @skills-center, or @owner path, or an allowed absolute path.")
 	case "artifact_publish":
 		setNestedToolParameterDescription(def.Parameters, []string{"properties", "artifacts", "items", "properties", "path"},
 			"Required. This run has no Workspace, so publish an existing file through an explicit @chat/... path. Relative and @workspace paths return workspace_unavailable.")
