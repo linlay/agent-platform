@@ -246,6 +246,13 @@ func (r *FileRegistry) findEditableAgent(key string) (EditableAgentFiles, bool, 
 	if err := validateEditableAgentKey(key); err != nil {
 		return EditableAgentFiles{}, false, err
 	}
+	key = strings.TrimSpace(key)
+	// Loaded admin entries already carry the exact source path, including for
+	// invalid Agent definitions. Prefer it so an unrelated malformed YAML file
+	// cannot make reading or updating a healthy Agent fail.
+	if source, found := r.adminAgentSource(key); found {
+		return readEditableAgentSource(key, source)
+	}
 	root := strings.TrimSpace(r.cfg.Paths.AgentsDir)
 	if root == "" {
 		return EditableAgentFiles{}, false, fmt.Errorf("agents directory is not configured")
@@ -265,14 +272,20 @@ func (r *FileRegistry) findEditableAgent(key string) (EditableAgentFiles, bool, 
 		if entry.IsDir() {
 			source, ok, err := editableDirectorySource(root, name)
 			if err != nil {
-				return EditableAgentFiles{}, false, err
+				if name == key {
+					return EditableAgentFiles{}, false, err
+				}
+				continue
 			}
 			if !ok {
 				continue
 			}
 			files, match, err := readEditableAgentSource(key, source)
 			if err != nil {
-				return EditableAgentFiles{}, false, err
+				if name == key {
+					return EditableAgentFiles{}, false, err
+				}
+				continue
 			}
 			if match {
 				return files, true, nil
@@ -285,7 +298,10 @@ func (r *FileRegistry) findEditableAgent(key string) (EditableAgentFiles, bool, 
 		source := EditableAgentSource{Kind: "file", Path: filepath.Join(root, name)}
 		files, match, err := readEditableAgentSource(key, source)
 		if err != nil {
-			return EditableAgentFiles{}, false, err
+			if strings.TrimSuffix(name, filepath.Ext(name)) == key {
+				return EditableAgentFiles{}, false, err
+			}
+			continue
 		}
 		if match {
 			return files, true, nil
