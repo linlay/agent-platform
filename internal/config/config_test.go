@@ -299,6 +299,10 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 		"system-prompt: |\n",
 		"You are CODER, an interactive coding agent",
 		"When referencing existing local workspace files",
+		"# Response presentation",
+		"Use an ECharts chart only when it materially improves",
+		"The block content must be valid JSON",
+		"```echarts\n",
 		"planning-prompt: |\n",
 	} {
 		if !strings.Contains(coderPromptsExample, want) {
