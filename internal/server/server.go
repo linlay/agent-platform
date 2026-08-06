@@ -35,6 +35,10 @@ type KBaseService interface {
 	ReconcileWatchers(ctx context.Context)
 }
 
+type MCPToolSyncStatusProvider interface {
+	ServerStatus(serverKey string) (api.MCPServerToolSyncStatus, bool)
+}
+
 type Dependencies struct {
 	BackgroundContext      context.Context
 	Config                 config.Config
@@ -50,6 +54,7 @@ type Dependencies struct {
 	Tools                  contracts.ToolExecutor
 	Sandbox                contracts.SandboxClient
 	MCP                    contracts.McpClient
+	MCPToolSyncStatus      MCPToolSyncStatusProvider
 	Viewport               contracts.ViewportClient
 	ToolInteractions       *toolinteraction.Registry
 	CatalogReloader        contracts.CatalogReloader

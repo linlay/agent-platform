@@ -3,9 +3,11 @@ package mcp
 import (
 	"context"
 	"log"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
@@ -15,10 +17,25 @@ type ToolSync struct {
 	registry *Registry
 	client   *Client
 
+	refreshMu        sync.Mutex
 	mu               sync.RWMutex
 	toolsByName      map[string]api.ToolDetailResponse
 	aliasToCanonical map[string]string
 	snapshots        map[string]serverToolSnapshot
+	statuses         map[string]api.MCPServerToolSyncStatus
+	registryVersion  int64
+}
+
+const (
+	ToolSyncStatusPending     = "pending"
+	ToolSyncStatusSyncing     = "syncing"
+	ToolSyncStatusReady       = "ready"
+	ToolSyncStatusUnavailable = "unavailable"
+)
+
+type ToolSyncResult struct {
+	Tools   []api.ToolDetailResponse
+	Changed bool
 }
 
 type serverToolSnapshot struct {
@@ -33,18 +50,26 @@ func NewToolSync(registry *Registry, client *Client) *ToolSync {
 		toolsByName:      map[string]api.ToolDetailResponse{},
 		aliasToCanonical: map[string]string{},
 		snapshots:        map[string]serverToolSnapshot{},
+		statuses:         map[string]api.MCPServerToolSyncStatus{},
 	}
 }
 
 func (s *ToolSync) Load(ctx context.Context) ([]api.ToolDetailResponse, error) {
-	return s.refreshTools(ctx, nil)
+	result, err := s.refreshTools(ctx, nil)
+	return result.Tools, err
 }
 
 func (s *ToolSync) RefreshServer(ctx context.Context, serverKey string) ([]api.ToolDetailResponse, error) {
-	return s.refreshTools(ctx, map[string]struct{}{normalizeKey(serverKey): {}})
+	result, err := s.refreshTools(ctx, map[string]struct{}{normalizeKey(serverKey): {}})
+	return result.Tools, err
 }
 
 func (s *ToolSync) RefreshServers(ctx context.Context, serverKeys []string) ([]api.ToolDetailResponse, error) {
+	result, err := s.RefreshServersWithResult(ctx, serverKeys)
+	return result.Tools, err
+}
+
+func (s *ToolSync) RefreshServersWithResult(ctx context.Context, serverKeys []string) (ToolSyncResult, error) {
 	targets := map[string]struct{}{}
 	for _, key := range serverKeys {
 		if normalized := normalizeKey(key); normalized != "" {
@@ -52,6 +77,25 @@ func (s *ToolSync) RefreshServers(ctx context.Context, serverKeys []string) ([]a
 		}
 	}
 	return s.refreshTools(ctx, targets)
+}
+
+func (s *ToolSync) ServerStatus(serverKey string) (api.MCPServerToolSyncStatus, bool) {
+	if s == nil {
+		return api.MCPServerToolSyncStatus{}, false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	status, ok := s.statuses[normalizeKey(serverKey)]
+	return cloneServerSyncStatus(status), ok
+}
+
+func (s *ToolSync) SyncedRegistryVersion() int64 {
+	if s == nil {
+		return 0
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.registryVersion
 }
 
 func (s *ToolSync) Definitions() []api.ToolDetailResponse {
@@ -93,13 +137,22 @@ func (s *ToolSync) ResolveAlias(name string) (string, bool) {
 	return canonical, ok
 }
 
-func (s *ToolSync) refreshTools(ctx context.Context, targets map[string]struct{}) ([]api.ToolDetailResponse, error) {
+func (s *ToolSync) refreshTools(ctx context.Context, targets map[string]struct{}) (ToolSyncResult, error) {
+	s.refreshMu.Lock()
+	defer s.refreshMu.Unlock()
+
 	servers := s.registry.Servers()
 	activeKeys := make(map[string]struct{}, len(servers))
 	s.mu.RLock()
+	previousTools := cloneToolMap(s.toolsByName)
+	previousStatuses := comparableServerStatuses(s.statuses)
 	nextSnapshots := make(map[string]serverToolSnapshot, len(s.snapshots))
 	for key, snapshot := range s.snapshots {
 		nextSnapshots[key] = cloneSnapshot(snapshot)
+	}
+	nextStatuses := make(map[string]api.MCPServerToolSyncStatus, len(s.statuses))
+	for key, status := range s.statuses {
+		nextStatuses[key] = cloneServerSyncStatus(status)
 	}
 	s.mu.RUnlock()
 
@@ -111,26 +164,126 @@ func (s *ToolSync) refreshTools(ctx context.Context, targets map[string]struct{}
 				continue
 			}
 		}
+		attemptedAt := time.Now().UnixMilli()
+		status := nextStatuses[serverKey]
+		if status.Status == "" {
+			status.Status = ToolSyncStatusPending
+		}
+		status.Status = ToolSyncStatusSyncing
+		status.LastSyncAttemptAt = attemptedAt
+		status.Diagnostic = nil
+		nextStatuses[serverKey] = status
+		s.setServerStatus(serverKey, status)
+
 		snapshot, err := s.syncServer(ctx, server)
 		if err != nil {
 			log.Printf("[mcp] failed to sync server %q: %v", server.Key, err)
+			status.Status = ToolSyncStatusUnavailable
+			status.Diagnostic = &api.AdminRegistryListDiagnostic{
+				Severity: "error",
+				Code:     "mcp_sync_failed",
+				Message:  sanitizeSyncError(server, err),
+			}
+			nextStatuses[serverKey] = status
 			continue
 		}
 		nextSnapshots[serverKey] = snapshot
+		status.Status = ToolSyncStatusReady
+		status.LastSyncSuccessAt = time.Now().UnixMilli()
+		status.Diagnostic = nil
+		nextStatuses[serverKey] = status
 	}
 	for key := range nextSnapshots {
 		if _, ok := activeKeys[key]; !ok {
 			delete(nextSnapshots, key)
 		}
 	}
+	for key := range nextStatuses {
+		if _, ok := activeKeys[key]; !ok {
+			delete(nextStatuses, key)
+		}
+	}
 
 	toolsByName, aliasToCanonical := mergeSnapshots(servers, nextSnapshots)
+	changed := !reflect.DeepEqual(previousTools, toolsByName) ||
+		!reflect.DeepEqual(previousStatuses, comparableServerStatuses(nextStatuses))
 	s.mu.Lock()
 	s.snapshots = nextSnapshots
 	s.toolsByName = toolsByName
 	s.aliasToCanonical = aliasToCanonical
+	s.statuses = nextStatuses
+	s.registryVersion = s.registry.Version()
 	s.mu.Unlock()
-	return cloneSortedToolDefinitions(toolsByName), nil
+	return ToolSyncResult{Tools: cloneSortedToolDefinitions(toolsByName), Changed: changed}, nil
+}
+
+func (s *ToolSync) setServerStatus(serverKey string, status api.MCPServerToolSyncStatus) {
+	s.mu.Lock()
+	if s.statuses == nil {
+		s.statuses = map[string]api.MCPServerToolSyncStatus{}
+	}
+	s.statuses[serverKey] = cloneServerSyncStatus(status)
+	s.mu.Unlock()
+}
+
+type comparableServerStatus struct {
+	Status  string
+	Code    string
+	Message string
+}
+
+func comparableServerStatuses(statuses map[string]api.MCPServerToolSyncStatus) map[string]comparableServerStatus {
+	out := make(map[string]comparableServerStatus, len(statuses))
+	for key, status := range statuses {
+		item := comparableServerStatus{Status: status.Status}
+		if status.Diagnostic != nil {
+			item.Code = status.Diagnostic.Code
+			item.Message = status.Diagnostic.Message
+		}
+		out[key] = item
+	}
+	return out
+}
+
+func sanitizeSyncError(server ServerDefinition, err error) string {
+	message := strings.TrimSpace(err.Error())
+	secrets := make([]string, 0, len(server.Headers)+len(server.Env)+1)
+	secrets = append(secrets, server.AuthToken)
+	for _, value := range server.Headers {
+		secrets = append(secrets, value)
+	}
+	for _, value := range server.Env {
+		secrets = append(secrets, value)
+	}
+	for _, secret := range secrets {
+		if secret = strings.TrimSpace(secret); secret != "" {
+			message = strings.ReplaceAll(message, secret, "[redacted]")
+		}
+	}
+	if len(message) > 512 {
+		message = message[:512]
+	}
+	if message == "" {
+		return "MCP tool synchronization failed"
+	}
+	return message
+}
+
+func cloneServerSyncStatus(status api.MCPServerToolSyncStatus) api.MCPServerToolSyncStatus {
+	cloned := status
+	if status.Diagnostic != nil {
+		diagnostic := *status.Diagnostic
+		cloned.Diagnostic = &diagnostic
+	}
+	return cloned
+}
+
+func cloneToolMap(tools map[string]api.ToolDetailResponse) map[string]api.ToolDetailResponse {
+	out := make(map[string]api.ToolDetailResponse, len(tools))
+	for key, tool := range tools {
+		out[key] = cloneTool(tool)
+	}
+	return out
 }
 
 func (s *ToolSync) syncServer(ctx context.Context, server ServerDefinition) (serverToolSnapshot, error) {

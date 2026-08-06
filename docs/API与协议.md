@@ -106,7 +106,7 @@ GET /ws -> request / response / stream / push / error frames
 |---|---|---|---|
 | GET | `/api/admin/agents` | 无 | admin agent 列表，包含 invalid agent 诊断 |
 | GET | `/api/admin/agents/detail` | query: `agentKey` | admin agent 详情，包含编辑配置、来源和诊断 |
-| GET/PUT | `/api/admin/source` | GET query: `type`、`key`、`path`、`category`、`file`；PUT body: `target`、`content`、`baseSha256` | 读取或保存受控的 Agent、Skill、Automation、Registry 文本 source；保存使用可选哈希防止覆盖并发修改 |
+| GET/PUT/DELETE | `/api/admin/source` | GET query: `type`、`key`、`path`、`category`、`file`；PUT body: `target`、`content`、`baseSha256`；DELETE body: `target`、`baseSha256` | 读取或保存受控的 Agent、Skill、Automation、Registry 文本 source；删除目前仅允许 `registry/mcp-servers`；mutation 使用可选哈希防止覆盖并发修改 |
 | GET/PUT | `/api/admin/agents/order` | PUT body: `order` | agent 展示顺序 |
 | POST | `/api/admin/agents/create` | body: `key`、`definition`、`soulPrompt`、`agentsPrompt` | 创建后的 agent 详情 |
 | POST | `/api/admin/agents/update` | body: `key`/`agentKey`、`definition`、`soulPrompt`、`agentsPrompt` | 更新后的 agent 详情 |
@@ -134,7 +134,7 @@ GET /ws -> request / response / stream / push / error frames
 | GET/PUT | `/api/admin/registries/detail` | query/body: `category`、`file`、`content` | registry 文件详情或保存结果 |
 | POST | `/api/admin/registries/validate` | body: `category`、`file`、`content` | registry 内容校验结果 |
 
-`/api/admin/source` 的 target 是逻辑标识而不是文件系统路径：`agent` 与 `automation` 使用 `key`，`skill` 使用 `key` 与相对 `path`，`registry` 使用 `category` 与 `file`。响应固定返回 target、实际受控来源、原始 `content`、`encoding`、`sha256`、`size` 和 `updatedAt`；文本必须为 UTF-8 且不超过 1 MiB。Agent 保存只允许该 agent 的 `agent.yml`，并 reload agent catalog；Skill 与 Automation 保存分别 reload 对应 catalog / orchestrator。Registry 保存保留现有的运行时生效生命周期，不承诺热加载。旧的 Skill 文件结构、二进制上传下载接口，以及 Registry detail 接口仍保留兼容。
+`/api/admin/source` 的 target 是逻辑标识而不是文件系统路径：`agent` 与 `automation` 使用 `key`，`skill` 使用 `key` 与相对 `path`，`registry` 使用 `category` 与 `file`。GET 响应固定返回 target、实际受控来源、原始 `content`、`encoding`、`sha256`、`size` 和 `updatedAt`；文本必须为 UTF-8 且不超过 1 MiB。Agent 保存只允许该 agent 的 `agent.yml`，并 reload agent catalog；Skill 与 Automation 保存分别 reload 对应 catalog / orchestrator。`registry/mcp-servers` 的 PUT 保存与 DELETE 删除都在成功响应前执行 MCP registry/tool sync；DELETE 成功返回 `target` 与 `deleted: true`，reload 硬失败时会恢复原 YAML。旧的 Skill 文件结构、二进制上传下载接口，以及 Registry detail 接口仍保留兼容。
 
 `/api/admin/tools` 中 `kind` 表示调用方式（如 `backend`、`frontend`、`action`），`sourceType` 表示定义来源类型（如 `local`、`agent-local`、`mcp`），`sourceCategory` 表示来源分类：`platform` 为 runtime 自带工具，`external` 可用于 `paths.tools-dir` 下普通 frontend/action/agent-local YAML 的来源分类，`mcp` 为 MCP registry 同步工具。`external` 不再表示子进程调用协议。MCP 工具额外返回 `serverKey`。列表响应只返回 `key`、`name`、`label`、`description`、`kind`、`sourceType`、`sourceCategory`、`serverKey`，不透出内部 tool definition `meta`；接口不接收 query 过滤参数。
 
@@ -147,6 +147,8 @@ GET /ws -> request / response / stream / push / error frames
 `POST /api/admin/skills/import` 只接受单个不超过 32 MiB 的 ZIP，Skill Key 必须尚不存在。ZIP 可直接以 `SKILL.md` 为根，也可只有一层包装目录；`__MACOSX` 与 `.DS_Store` 被忽略。服务端拒绝目录逃逸、反斜杠路径、symlink、非普通文件、重复或大小写冲突路径、文件/目录冲突，并限制单文件 32 MiB、未压缩总量 256 MiB、最多 4096 个 entry。解包先进入 catalog 与 watcher 都忽略的隐藏 staging，完整验证 `SKILL.md`、`.runtime-env.json` 和 runtime 文件后再原子 rename；重名返回 409，非 ZIP 返回 415，包内诊断返回 422 `data.error.diagnostics[]`，所有失败都不保留目标目录。成功后沿用 `skills` reload 和 Agent 重组；reload 失败会删除刚导入的目录并恢复旧 catalog。
 
 `/api/admin/registries` 是列表接口，不返回 registry 文件绝对路径、完整 `diagnostics[]` 或文件大小；编辑器应通过 `/api/admin/registries/detail` 获取 `source`、完整诊断、`content`、`parsed` 与 `size`。
+
+MCP Server 列表项的 `summary` 额外包含 `toolCount` 与 `syncStatus`。`syncStatus` 取值为 `pending`、`syncing`、`ready`、`unavailable` 或 `disabled`；可选的 `lastSyncAttemptAt`、`lastSyncSuccessAt` 使用 epoch milliseconds，可选 `syncDiagnostic` 只返回脱敏后的 `severity/code/message`。顶层 `status` 仍只表示 YAML 配置状态。通过通用 `PUT /api/admin/source`、`DELETE /api/admin/source` 或兼容的 `PUT /api/admin/registries/detail` 变更 `category=mcp-servers` 时，服务会在成功响应前完成 MCP registry 与工具同步；保存时远端不可达不会回滚合法配置，而是返回后由后台重试；删除或禁用 Server 会立即清理对应工具。
 
 Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `baseUrl`；model 暴露 `provider/protocol/type/isVision/isReasoner/isFunction/maxInputTokens/maxOutputTokens/timeout`；MCP server 暴露 `transport/toolCount`，其中 HTTP 项另有 `baseUrl`，stdio 项不返回 `baseUrl`、`command`、`args` 或 `env`，`toolCount` 是当前已同步注册的 MCP 工具数量；viewport server 仅暴露 `baseUrl`，当前不返回 viewport 数量。
 

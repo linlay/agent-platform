@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -40,7 +41,7 @@ func (s *Server) handleAdminRegistryDetail(w http.ResponseWriter, r *http.Reques
 			writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid payload"))
 			return
 		}
-		response, err := s.saveAdminRegistryDetail(req)
+		response, err := s.saveAdminRegistryDetail(r.Context(), req)
 		s.writeAgentHTTPResponse(w, response, err)
 	default:
 		w.Header().Set("Allow", http.MethodGet+", "+http.MethodPut)
@@ -117,6 +118,26 @@ func (s *Server) adminRegistryListSummary(summary api.AdminRegistrySummary) api.
 		summary.Summary = map[string]any{}
 	}
 	summary.Summary["toolCount"] = s.adminRegistryMCPToolCount(summary.Key)
+	if summary.Status == "disabled" {
+		summary.Summary["syncStatus"] = "disabled"
+		return summary
+	}
+	if s.deps.MCPToolSyncStatus != nil {
+		if status, ok := s.deps.MCPToolSyncStatus.ServerStatus(summary.Key); ok {
+			summary.Summary["syncStatus"] = status.Status
+			if status.LastSyncAttemptAt > 0 {
+				summary.Summary["lastSyncAttemptAt"] = status.LastSyncAttemptAt
+			}
+			if status.LastSyncSuccessAt > 0 {
+				summary.Summary["lastSyncSuccessAt"] = status.LastSyncSuccessAt
+			}
+			if status.Diagnostic != nil {
+				summary.Summary["syncDiagnostic"] = status.Diagnostic
+			}
+			return summary
+		}
+	}
+	summary.Summary["syncStatus"] = "pending"
 	return summary
 }
 
@@ -203,7 +224,14 @@ func (s *Server) readAdminRegistryDetail(category string, file string) (api.Admi
 	}, nil
 }
 
-func (s *Server) saveAdminRegistryDetail(req api.AdminRegistryDetailRequest) (api.AdminRegistryDetailResponse, error) {
+func (s *Server) saveAdminRegistryDetail(ctx context.Context, req api.AdminRegistryDetailRequest) (api.AdminRegistryDetailResponse, error) {
+	if strings.TrimSpace(req.Category) == "mcp-servers" {
+		target := api.AdminSourceTarget{Type: "registry", Category: req.Category, File: req.File}
+		if _, err := s.writeAdminRegistryTextSource(ctx, target, req.Content, ""); err != nil {
+			return api.AdminRegistryDetailResponse{}, err
+		}
+		return s.readAdminRegistryDetail(req.Category, req.File)
+	}
 	path, err := s.adminRegistryFilePath(req.Category, req.File)
 	if err != nil {
 		return api.AdminRegistryDetailResponse{}, err

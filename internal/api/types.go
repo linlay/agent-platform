@@ -666,6 +666,16 @@ type UpdateAdminSourceRequest struct {
 	BaseSHA256 string            `json:"baseSha256,omitempty"`
 }
 
+type DeleteAdminSourceRequest struct {
+	Target     AdminSourceTarget `json:"target"`
+	BaseSHA256 string            `json:"baseSha256,omitempty"`
+}
+
+type DeleteAdminSourceResponse struct {
+	Target  AdminSourceTarget `json:"target"`
+	Deleted bool              `json:"deleted"`
+}
+
 type AdminAgentDetailResponse struct {
 	Key           string                   `json:"key"`
 	Name          string                   `json:"name"`
@@ -719,6 +729,13 @@ type AdminRegistryListDiagnostic struct {
 	Severity string `json:"severity"`
 	Code     string `json:"code"`
 	Message  string `json:"message"`
+}
+
+type MCPServerToolSyncStatus struct {
+	Status            string                       `json:"status"`
+	LastSyncAttemptAt int64                        `json:"lastSyncAttemptAt,omitempty"`
+	LastSyncSuccessAt int64                        `json:"lastSyncSuccessAt,omitempty"`
+	Diagnostic        *AdminRegistryListDiagnostic `json:"diagnostic,omitempty"`
 }
 
 type AdminRegistryListItem struct {

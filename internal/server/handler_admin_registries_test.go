@@ -114,8 +114,29 @@ func setupAdminRegistriesFixture(t *testing.T) testFixture {
 	})
 }
 
+type stubMCPToolSyncStatusProvider struct {
+	statuses map[string]api.MCPServerToolSyncStatus
+}
+
+func (s stubMCPToolSyncStatusProvider) ServerStatus(serverKey string) (api.MCPServerToolSyncStatus, bool) {
+	status, ok := s.statuses[serverKey]
+	return status, ok
+}
+
 func TestAdminRegistriesEndpointIncludesInvalidFiles(t *testing.T) {
 	fixture := setupAdminRegistriesFixture(t)
+	fixture.server.deps.MCPToolSyncStatus = stubMCPToolSyncStatusProvider{statuses: map[string]api.MCPServerToolSyncStatus{
+		"demo-mcp": {
+			Status:            "unavailable",
+			LastSyncAttemptAt: 1786000000000,
+			LastSyncSuccessAt: 1785990000000,
+			Diagnostic: &api.AdminRegistryListDiagnostic{
+				Severity: "error",
+				Code:     "mcp_sync_failed",
+				Message:  "connection refused",
+			},
+		},
+	}}
 
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/registries", nil))
@@ -151,6 +172,8 @@ func TestAdminRegistriesEndpointIncludesInvalidFiles(t *testing.T) {
 	}
 	if item := byFile["mcp-servers/demo.yml"]; item.Status != "ready" || item.Key != "demo-mcp" || item.Summary["transport"] != "streamable-http" || item.Summary["baseUrl"] != "http://localhost:11969" || intFromAny(item.Summary["toolCount"]) != 2 {
 		t.Fatalf("mcp server list summary should expose runtime tool count: %#v", item)
+	} else if item.Summary["syncStatus"] != "unavailable" || intFromAny(item.Summary["lastSyncAttemptAt"]) != 1786000000000 || item.Summary["syncDiagnostic"] == nil {
+		t.Fatalf("mcp server list summary should expose tool sync status: %#v", item)
 	}
 	if item := byFile["mcp-servers/stdio.yml"]; item.Status != "ready" || item.Key != "stdio-mcp" || item.Summary["transport"] != "stdio" {
 		t.Fatalf("stdio mcp summary missing transport: %#v", item)
@@ -169,6 +192,28 @@ func TestAdminRegistriesEndpointIncludesInvalidFiles(t *testing.T) {
 	}
 	if item := byFile["providers/warning-only.yml"]; item.Status != "ready" || item.Diagnostic == nil || item.Diagnostic.Severity != "warning" || item.Diagnostic.Code != "missing_api_key" || item.DiagnosticCount != 1 {
 		t.Fatalf("warning-only provider diagnostic summary missing: %#v", item)
+	}
+}
+
+func TestAdminRegistryDetailMCPWriteReloadsSynchronously(t *testing.T) {
+	fixture := setupAdminRegistriesFixture(t)
+	reloader := &recordingServerCatalogReloader{}
+	fixture.server.deps.CatalogReloader = reloader
+	payload, err := json.Marshal(api.AdminRegistryDetailRequest{
+		Category: "mcp-servers",
+		File:     "created-detail.yml",
+		Content:  "serverKey: created-detail\nbaseUrl: http://127.0.0.1:11969\n",
+	})
+	if err != nil {
+		t.Fatalf("marshal registry detail: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/api/admin/registries/detail", bytes.NewReader(payload)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("save mcp registry detail status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(reloader.reasons) != 1 || reloader.reasons[0] != "mcp-servers" {
+		t.Fatalf("mcp registry detail reload reasons = %#v", reloader.reasons)
 	}
 }
 

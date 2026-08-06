@@ -6,6 +6,8 @@ Go runtime 使用官方 Go MCP SDK `github.com/modelcontextprotocol/go-sdk` `v1.
 
 MCP registry、session client、availability gate、reconnect、tool sync 与热重载已经接通。平台只保留一种 Tool；本地、MCP、用户问题交互和 Desktop 能力共享同一工具定义与 `tool.*` 事件协议。
 
+`registries/mcp-servers/*.yml` 由文件 watcher 热重载；管理端通过 `PUT /api/admin/source` 保存或 `DELETE /api/admin/source` 删除 MCP YAML 时会在响应前主动执行同一条 registry/session/tool sync 链路，不依赖 watcher 的 debounce。删除使用 `baseSha256` 防止误删并发修改，reload 硬失败时恢复原 YAML；删除或禁用 Server 会立即清理对应工具。合法配置即使远端暂时不可用也会保留，ToolSync 标记为 `unavailable` 并由 reconnect loop 重试；已有成功快照在临时失败期间继续保留。重连恢复或工具集合变化会发送 `catalog.updated(reason=mcp-servers)`，客户端无需重启 runtime。
+
 服务包根目录的 `bin/{rg,dbx,httpx,pdftotext}` 属于 Host builtin executable，不是 MCP server。只有明确注册到 `registries/mcp-servers/*.yml` 的 HTTP endpoint 或 stdio command 才进入 MCP 生命周期。
 
 ## 核心流程
@@ -117,7 +119,7 @@ Qiuerscript 已按此方式迁移。`qs_read`、`qs_glob`、`qs_grep`、`qs_writ
 ## 管理接口
 
 - `/api/admin/tools`：MCP 工具返回 `sourceType/sourceCategory: mcp` 与 `serverKey`。
-- `/api/admin/registries`：MCP summary 返回 `transport`。HTTP 项返回 `baseUrl`；stdio 项不返回无意义的 `baseUrl`，也不暴露 `command`、`args` 或 `env`。
+- `/api/admin/registries`：MCP summary 返回 `transport`、`toolCount`、`syncStatus`，以及可选的 `lastSyncAttemptAt`、`lastSyncSuccessAt`、`syncDiagnostic`。HTTP 项返回 `baseUrl`；stdio 项不返回无意义的 `baseUrl`，也不暴露 `command`、`args`、`env` 或同步错误中的 secret。
 - `/api/admin/registries/detail`：用于查看或保存完整 registry YAML；敏感配置不要提交到仓库。
 
 ## 约束与注意事项

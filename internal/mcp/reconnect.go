@@ -3,20 +3,27 @@ package mcp
 import (
 	"context"
 	"time"
+
+	"agent-platform/internal/contracts"
 )
 
 type ReconnectLoop struct {
-	registry *Registry
-	sync     *ToolSync
-	gate     *AvailabilityGate
-	interval time.Duration
+	registry      *Registry
+	sync          *ToolSync
+	gate          *AvailabilityGate
+	interval      time.Duration
+	notifications contracts.NotificationSink
 }
 
-func NewReconnectLoop(registry *Registry, sync *ToolSync, gate *AvailabilityGate, interval time.Duration) *ReconnectLoop {
+func NewReconnectLoop(registry *Registry, sync *ToolSync, gate *AvailabilityGate, interval time.Duration, notifications ...contracts.NotificationSink) *ReconnectLoop {
 	if interval <= 0 {
 		interval = 10 * time.Second
 	}
-	return &ReconnectLoop{registry: registry, sync: sync, gate: gate, interval: interval}
+	var sink contracts.NotificationSink
+	if len(notifications) > 0 {
+		sink = notifications[0]
+	}
+	return &ReconnectLoop{registry: registry, sync: sync, gate: gate, interval: interval, notifications: sink}
 }
 
 func (r *ReconnectLoop) Start(ctx context.Context) {
@@ -40,7 +47,13 @@ func (r *ReconnectLoop) Start(ctx context.Context) {
 				if len(due) == 0 {
 					continue
 				}
-				_, _ = r.sync.RefreshServers(ctx, due)
+				result, _ := r.sync.RefreshServersWithResult(ctx, due)
+				if result.Changed && r.notifications != nil {
+					r.notifications.Broadcast("catalog.updated", map[string]any{
+						"reason":    "mcp-servers",
+						"updatedAt": time.Now().UnixMilli(),
+					})
+				}
 			}
 		}
 	}()

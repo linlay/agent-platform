@@ -2,17 +2,21 @@ package server
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
 type recordingServerCatalogReloader struct {
 	reasons []string
+	err     error
 }
 
 func (r *recordingServerCatalogReloader) Reload(_ context.Context, reason string) error {
 	r.reasons = append(r.reasons, reason)
-	return nil
+	return r.err
 }
+
+var errServerCatalogReload = errors.New("catalog reload failed")
 
 type recordingAgentCardRefresh struct {
 	calls int

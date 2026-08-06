@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -45,6 +46,10 @@ func (r *Registry) Reload() error {
 		return err
 	}
 	r.mu.Lock()
+	if reflect.DeepEqual(r.servers, servers) {
+		r.mu.Unlock()
+		return nil
+	}
 	r.servers = servers
 	r.version++
 	r.mu.Unlock()

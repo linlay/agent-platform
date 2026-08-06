@@ -6,6 +6,7 @@ import (
 	"log"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -52,6 +53,7 @@ type RuntimeCatalogReloader struct {
 	notifications    contracts.NotificationSink
 	agentReconcilers []AgentCatalogReconciler
 	observers        []CatalogReloadObserver
+	reloadMu         sync.Mutex
 	lastReloadNs     atomic.Int64
 }
 
@@ -88,6 +90,8 @@ func (r *RuntimeCatalogReloader) AddObserver(observer CatalogReloadObserver) {
 //	viewports       → broadcast update only (local viewports are read on-demand)
 //	default / config → full reload
 func (r *RuntimeCatalogReloader) Reload(ctx context.Context, reason string) error {
+	r.reloadMu.Lock()
+	defer r.reloadMu.Unlock()
 	start := time.Now()
 
 	switch reason {
@@ -156,6 +160,12 @@ func (r *RuntimeCatalogReloader) Reload(ctx context.Context, reason string) erro
 		log.Printf("[reload] local viewports changed; registry reads templates on demand")
 	default:
 		// startup / config / unknown — full reload
+		if r.mcp != nil {
+			if err := r.mcp.Reload(ctx); err != nil {
+				log.Printf("[reload] %s mcp registry reload failed: %v", reason, err)
+				return err
+			}
+		}
 		if r.tools != nil {
 			if err := r.tools.ReloadRuntimeToolDefinitions(r.toolsDir); err != nil {
 				log.Printf("[reload] %s tools reload failed: %v", reason, err)

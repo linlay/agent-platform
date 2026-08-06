@@ -18,6 +18,15 @@ type recordingCatalogReloader struct {
 	reasons chan string
 }
 
+type recordingMCPRegistryReloader struct {
+	calls int
+}
+
+func (r *recordingMCPRegistryReloader) Reload(context.Context) error {
+	r.calls++
+	return nil
+}
+
 func (r recordingCatalogReloader) Reload(_ context.Context, reason string) error {
 	r.reasons <- reason
 	return nil
@@ -114,6 +123,17 @@ func TestMergePendingReloadReasonEscalatesMixedChangesToConfig(t *testing.T) {
 				t.Fatalf("mergePendingReloadReason(%q, %q) = %q, want %q", tc.pending, tc.next, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestFullConfigReloadIncludesMCPRegistry(t *testing.T) {
+	mcpReloader := &recordingMCPRegistryReloader{}
+	reloader := NewRuntimeCatalogReloader(nil, nil, mcpReloader, nil, "", nil)
+	if err := reloader.Reload(context.Background(), "config"); err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	if mcpReloader.calls != 1 {
+		t.Fatalf("mcp reload calls = %d, want 1", mcpReloader.calls)
 	}
 }
 

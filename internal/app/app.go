@@ -278,7 +278,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	reloader.AddObserver(cardReporter)
 	kbaseManager.Start(backgroundCtx)
 	reload.StartBackgroundReloaders(backgroundCtx, cfg, reloader)
-	mcp.NewReconnectLoop(mcpRegistry, mcpToolSync, mcpGate, 10*time.Second).Start(backgroundCtx)
+	mcp.NewReconnectLoop(mcpRegistry, mcpToolSync, mcpGate, 10*time.Second, notifications).Start(backgroundCtx)
 	log.Printf("background file watchers started (agents=%s teams=%s skills=%s)",
 		cfg.Paths.AgentsDir,
 		cfg.Paths.TeamsDir,
@@ -340,6 +340,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Tools:             toolExecutor,
 		Sandbox:           sandboxClient,
 		MCP:               mcpClient,
+		MCPToolSyncStatus: mcpToolSync,
 		ToolInteractions:  interactionRegistry,
 		Viewport: viewport.NewServiceWithServers(
 			viewport.NewRegistry(viewport.DefaultRoot(cfg.Paths.RegistriesDir)),

@@ -82,6 +82,92 @@ func TestAdminSourceRegistryReadWriteAndConflict(t *testing.T) {
 	}
 }
 
+func TestAdminSourceMCPWriteReloadsSynchronouslyAndRollsBackHardFailure(t *testing.T) {
+	fixture := setupAdminRegistriesFixture(t)
+	target := api.AdminSourceTarget{Type: "registry", Category: "mcp-servers", File: "created-mcp.yml"}
+	content := "serverKey: created-mcp\nbaseUrl: http://127.0.0.1:11969\n"
+	reloader := &recordingServerCatalogReloader{}
+	fixture.server.deps.CatalogReloader = reloader
+
+	saved := putAdminSourceForTest(t, fixture.server, target, content, "")
+	if saved.Content != content || len(reloader.reasons) != 1 || reloader.reasons[0] != "mcp-servers" {
+		t.Fatalf("mcp source save=%#v reloads=%#v", saved, reloader.reasons)
+	}
+
+	reloader.err = errServerCatalogReload
+	failedContent := strings.Replace(content, "11969", "11970", 1)
+	payload, err := json.Marshal(api.UpdateAdminSourceRequest{Target: target, Content: failedContent, BaseSHA256: saved.SHA256})
+	if err != nil {
+		t.Fatalf("marshal failed update: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/api/admin/source", bytes.NewReader(payload)))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("failed reload status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if reread := getAdminSourceForTest(t, fixture.server, target); reread.Content != content {
+		t.Fatalf("hard reload failure did not restore previous source: %#v", reread)
+	}
+}
+
+func TestAdminSourceMCPDeleteReloadsSynchronouslyAndChecksConflict(t *testing.T) {
+	fixture := setupAdminRegistriesFixture(t)
+	target := api.AdminSourceTarget{Type: "registry", Category: "mcp-servers", File: "demo.yml"}
+	read := getAdminSourceForTest(t, fixture.server, target)
+	reloader := &recordingServerCatalogReloader{}
+	fixture.server.deps.CatalogReloader = reloader
+
+	conflictPayload, err := json.Marshal(api.DeleteAdminSourceRequest{Target: target, BaseSHA256: "stale"})
+	if err != nil {
+		t.Fatalf("marshal delete conflict: %v", err)
+	}
+	conflict := httptest.NewRecorder()
+	fixture.server.ServeHTTP(conflict, httptest.NewRequest(http.MethodDelete, "/api/admin/source", bytes.NewReader(conflictPayload)))
+	if conflict.Code != http.StatusConflict {
+		t.Fatalf("stale delete status = %d body=%s", conflict.Code, conflict.Body.String())
+	}
+	if reread := getAdminSourceForTest(t, fixture.server, target); reread.Content != read.Content {
+		t.Fatalf("stale delete changed source: %#v", reread)
+	}
+
+	deleted := deleteAdminSourceForTest(t, fixture.server, target, read.SHA256)
+	if !deleted.Deleted || deleted.Target != target {
+		t.Fatalf("delete response = %#v", deleted)
+	}
+	if len(reloader.reasons) != 1 || reloader.reasons[0] != "mcp-servers" {
+		t.Fatalf("delete reloads = %#v", reloader.reasons)
+	}
+	missing := httptest.NewRecorder()
+	fixture.server.ServeHTTP(missing, httptest.NewRequest(http.MethodGet, "/api/admin/source?type=registry&category=mcp-servers&file=demo.yml", nil))
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("deleted source status = %d body=%s", missing.Code, missing.Body.String())
+	}
+}
+
+func TestAdminSourceMCPDeleteRollsBackHardReloadFailure(t *testing.T) {
+	fixture := setupAdminRegistriesFixture(t)
+	target := api.AdminSourceTarget{Type: "registry", Category: "mcp-servers", File: "demo.yml"}
+	read := getAdminSourceForTest(t, fixture.server, target)
+	reloader := &recordingServerCatalogReloader{err: errServerCatalogReload}
+	fixture.server.deps.CatalogReloader = reloader
+
+	payload, err := json.Marshal(api.DeleteAdminSourceRequest{Target: target, BaseSHA256: read.SHA256})
+	if err != nil {
+		t.Fatalf("marshal failed delete: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/api/admin/source", bytes.NewReader(payload)))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("failed delete reload status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if reread := getAdminSourceForTest(t, fixture.server, target); reread.Content != read.Content {
+		t.Fatalf("failed delete did not restore source: %#v", reread)
+	}
+	if len(reloader.reasons) != 2 {
+		t.Fatalf("delete rollback reloads = %#v", reloader.reasons)
+	}
+}
+
 func TestAdminSourceAutomationReadWriteAndReload(t *testing.T) {
 	fixture := newAutomationTestServer(t, false)
 	created := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/automation/create", map[string]any{
@@ -198,6 +284,24 @@ func putAdminSourceForTest(t *testing.T, server *Server, target api.AdminSourceT
 	var response api.ApiResponse[api.AdminSourceResponse]
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode saved admin source response: %v", err)
+	}
+	return response.Data
+}
+
+func deleteAdminSourceForTest(t *testing.T, server *Server, target api.AdminSourceTarget, baseSHA256 string) api.DeleteAdminSourceResponse {
+	t.Helper()
+	payload, err := json.Marshal(api.DeleteAdminSourceRequest{Target: target, BaseSHA256: baseSHA256})
+	if err != nil {
+		t.Fatalf("marshal admin source delete: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/api/admin/source", bytes.NewReader(payload)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("delete admin source status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var response api.ApiResponse[api.DeleteAdminSourceResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode deleted admin source response: %v", err)
 	}
 	return response.Data
 }
