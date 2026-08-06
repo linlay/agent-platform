@@ -178,6 +178,27 @@ func TestLoadDefaults(t *testing.T) {
 	})
 }
 
+func TestLoadAcceptsMissingAbsoluteIdentityFile(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		identityFile := filepath.Join(t.TempDir(), "desktop state", "sso-access-token.txt")
+		cfg, err := Load(LoadOptions{IdentityFile: identityFile})
+		if err != nil {
+			t.Fatalf("load config with missing identity file: %v", err)
+		}
+		if cfg.IdentityFile != filepath.Clean(identityFile) {
+			t.Fatalf("identity file = %q, want %q", cfg.IdentityFile, filepath.Clean(identityFile))
+		}
+	})
+}
+
+func TestLoadRejectsRelativeIdentityFile(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		if _, err := Load(LoadOptions{IdentityFile: "state/desktop/sso-access-token.txt"}); err == nil || !strings.Contains(err.Error(), "absolute path") {
+			t.Fatalf("expected relative identity file error, got %v", err)
+		}
+	})
+}
+
 func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 	runtimeExampleBytes, err := os.ReadFile(ProjectFile("configs/runtime.example.yml"))
 	if err != nil {

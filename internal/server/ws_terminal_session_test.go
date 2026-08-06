@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
 )
@@ -36,6 +37,9 @@ func TestTerminalEnvironmentUsesReservedAgentAndChatContext(t *testing.T) {
 	}
 	if got["AP_WORKSPACE_DIR"] != workspaceDir {
 		t.Fatalf("AP_WORKSPACE_DIR = %q, want %q", got["AP_WORKSPACE_DIR"], workspaceDir)
+	}
+	if _, ok := got[agentconfig.EnvAccessToken]; ok {
+		t.Fatalf("Workspace Terminal must not receive the Desktop access token: %#v", got)
 	}
 }
 

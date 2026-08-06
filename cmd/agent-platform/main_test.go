@@ -13,6 +13,7 @@ func TestParseConfigOptions(t *testing.T) {
 	options, err := parseConfigOptions([]string{
 		"--config-dir", "/tmp/config",
 		"--port", "7078",
+		"--identity-file", "/tmp/desktop state/sso-access-token.txt",
 	})
 	if err != nil {
 		t.Fatalf("parse options: %v", err)
@@ -22,6 +23,19 @@ func TestParseConfigOptions(t *testing.T) {
 	}
 	if options.Port != "7078" {
 		t.Fatalf("expected port 7078, got %q", options.Port)
+	}
+	if options.IdentityFile != "/tmp/desktop state/sso-access-token.txt" {
+		t.Fatalf("expected identity file to be preserved, got %q", options.IdentityFile)
+	}
+}
+
+func TestParseConfigOptionsLeavesIdentityFileUnsetByDefault(t *testing.T) {
+	options, err := parseConfigOptions(nil)
+	if err != nil {
+		t.Fatalf("parse default options: %v", err)
+	}
+	if options.IdentityFile != "" {
+		t.Fatalf("default identity file = %q, want empty", options.IdentityFile)
 	}
 }
 

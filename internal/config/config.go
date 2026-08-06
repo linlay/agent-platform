@@ -8,6 +8,7 @@ import (
 )
 
 type Config struct {
+	IdentityFile    string
 	Server          ServerConfig
 	Paths           PathsConfig
 	Agents          CatalogConfig
@@ -48,8 +49,9 @@ type Config struct {
 }
 
 type LoadOptions struct {
-	ConfigDir string
-	Port      string
+	ConfigDir    string
+	Port         string
+	IdentityFile string
 	// IgnoreRemovedWorkingDirectoryForAudit is reserved for the read-only
 	// workspace/chat migration audit. Normal startup must leave it false.
 	IgnoreRemovedWorkingDirectoryForAudit bool
@@ -610,6 +612,13 @@ func Load(optionValues ...LoadOptions) (Config, error) {
 	}
 	options.ConfigDir = resolveConfigRoot(options.ConfigDir)
 	options.Port = strings.TrimSpace(options.Port)
+	options.IdentityFile = strings.TrimSpace(options.IdentityFile)
+	if options.IdentityFile != "" {
+		if !filepath.IsAbs(options.IdentityFile) {
+			return Config{}, fmt.Errorf("identity file must be an absolute path")
+		}
+		options.IdentityFile = filepath.Clean(options.IdentityFile)
+	}
 
 	cfg := defaultConfig(options)
 	if err := cfg.applyStructuredConfig(options.ConfigDir, options.IgnoreRemovedWorkingDirectoryForAudit); err != nil {

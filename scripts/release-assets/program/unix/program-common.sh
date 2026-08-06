@@ -16,6 +16,7 @@ LOG_DIR="$RUN_DIR"
 LOG_FILE="$LOG_DIR/$APP_NAME.log"
 PID_FILE="$RUN_DIR/$APP_NAME.pid"
 PROGRAM_PORT=""
+IDENTITY_FILE=""
 BACKEND_ARGS=()
 DEPLOY_AP_RUNTIME_DIR=""
 DEPLOY_CONTAINER_HUB_BASE_URL=""
@@ -83,6 +84,11 @@ program_apply_layout_flags() {
       --port)
         [[ $# -ge 2 ]] || program_die "missing value for --port"
         PROGRAM_PORT="$2"
+        shift 2
+        ;;
+      --identity-file)
+        [[ $# -ge 2 ]] || program_die "missing value for --identity-file"
+        IDENTITY_FILE="$2"
         shift 2
         ;;
       *)
@@ -200,7 +206,7 @@ program_apply_deploy_flags() {
         DEPLOY_DESKTOP_VERSION_TO="$2"
         shift 2
         ;;
-      --config-dir|--state-dir|--log-dir|--port|--daemon)
+      --config-dir|--state-dir|--log-dir|--port|--identity-file|--daemon)
         program_reject_deploy_start_arg "$1"
         ;;
       --force)
@@ -599,6 +605,9 @@ program_update_backend_args() {
   BACKEND_ARGS=(--config-dir "$CONFIG_ROOT")
   if [[ -n "$PROGRAM_PORT" ]]; then
     BACKEND_ARGS+=(--port "$PROGRAM_PORT")
+  fi
+  if [[ -n "$IDENTITY_FILE" ]]; then
+    BACKEND_ARGS+=(--identity-file "$IDENTITY_FILE")
   fi
 }
 

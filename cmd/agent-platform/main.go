@@ -126,6 +126,7 @@ func parseConfigOptions(args []string) (config.LoadOptions, error) {
 	options := config.LoadOptions{}
 	fs.StringVar(&options.ConfigDir, "config-dir", "", "configuration root containing .env and configs/")
 	fs.StringVar(&options.Port, "port", "", "server listen port")
+	fs.StringVar(&options.IdentityFile, "identity-file", "", "absolute path to the Desktop identity token file")
 	if err := fs.Parse(args); err != nil {
 		return config.LoadOptions{}, err
 	}

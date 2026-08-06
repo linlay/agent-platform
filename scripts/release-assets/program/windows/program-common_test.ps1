@@ -51,9 +51,11 @@ $processTestRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("agent-platform 
 $fakeBackend = Join-Path $processTestRoot 'fake-agent-platform.exe'
 $capturedArgsFile = Join-Path $processTestRoot 'captured-args.txt'
 $configRoot = Join-Path $processTestRoot 'CuteJ Data\.cutej\.desktop\config\services\agent-platform'
+$identityFile = Join-Path $processTestRoot 'CuteJ Data\.cutej\.desktop\state\desktop\sso-access-token.txt'
 $runDir = Join-Path $processTestRoot 'run'
 $logDir = Join-Path $processTestRoot 'logs'
 $previousCapturePath = $env:AGENT_PLATFORM_TEST_CAPTURE_ARGS
+$previousDelayMs = $env:AGENT_PLATFORM_TEST_BACKEND_DELAY_MS
 
 try {
   New-Item -ItemType Directory -Force -Path $configRoot, $runDir, $logDir | Out-Null
@@ -67,7 +69,9 @@ public static class FakeAgentPlatformBackend
     public static int Main(string[] args)
     {
         File.WriteAllLines(Environment.GetEnvironmentVariable("AGENT_PLATFORM_TEST_CAPTURE_ARGS"), args);
-        Thread.Sleep(5000);
+        int delayMs;
+        if (!int.TryParse(Environment.GetEnvironmentVariable("AGENT_PLATFORM_TEST_BACKEND_DELAY_MS"), out delayMs)) delayMs = 0;
+        Thread.Sleep(delayMs);
         return 0;
     }
 }
@@ -80,8 +84,10 @@ public static class FakeAgentPlatformBackend
   $Script:RunDir = $runDir
   $Script:LogDir = $logDir
   $Script:ProgramPort = '17078'
+  $Script:IdentityFile = $identityFile
   Update-ProgramPaths
   $env:AGENT_PLATFORM_TEST_CAPTURE_ARGS = $capturedArgsFile
+  $env:AGENT_PLATFORM_TEST_BACKEND_DELAY_MS = '5000'
 
   Start-ProgramBackend -Daemon
 
@@ -94,7 +100,7 @@ public static class FakeAgentPlatformBackend
   }
 
   $capturedArgs = @(Get-Content -LiteralPath $capturedArgsFile)
-  $expectedArgs = @('--config-dir', $configRoot, '--port', '17078')
+  $expectedArgs = @('--config-dir', $configRoot, '--port', '17078', '--identity-file', $identityFile)
   if ($capturedArgs.Count -ne $expectedArgs.Count) {
     throw "expected $($expectedArgs.Count) daemon arguments, got $($capturedArgs.Count): $($capturedArgs -join ' | ')"
   }
@@ -103,7 +109,23 @@ public static class FakeAgentPlatformBackend
       throw "daemon argument $i mismatch: expected '$($expectedArgs[$i])', got '$($capturedArgs[$i])'"
     }
   }
-  Write-Host '[test] agent-platform daemon preserves spaced config paths'
+  Write-Host '[test] agent-platform daemon preserves spaced identity paths'
+
+  $daemonPid = (Get-Content -LiteralPath $Script:PidFile -Raw).Trim()
+  Stop-Process -Id ([int]$daemonPid) -Force
+  Remove-Item -LiteralPath $Script:PidFile, $capturedArgsFile -Force
+  $env:AGENT_PLATFORM_TEST_BACKEND_DELAY_MS = '0'
+  Start-ProgramBackend
+  $capturedForegroundArgs = @(Get-Content -LiteralPath $capturedArgsFile)
+  if ($capturedForegroundArgs.Count -ne $expectedArgs.Count) {
+    throw "expected $($expectedArgs.Count) foreground arguments, got $($capturedForegroundArgs.Count): $($capturedForegroundArgs -join ' | ')"
+  }
+  for ($i = 0; $i -lt $expectedArgs.Count; $i++) {
+    if ($capturedForegroundArgs[$i] -cne $expectedArgs[$i]) {
+      throw "foreground argument $i mismatch: expected '$($expectedArgs[$i])', got '$($capturedForegroundArgs[$i])'"
+    }
+  }
+  Write-Host '[test] agent-platform foreground preserves spaced identity paths'
 } finally {
   if (Test-Path -LiteralPath $Script:PidFile -PathType Leaf) {
     $testPid = (Get-Content -LiteralPath $Script:PidFile -Raw -ErrorAction SilentlyContinue).Trim()
@@ -112,6 +134,7 @@ public static class FakeAgentPlatformBackend
     }
   }
   $env:AGENT_PLATFORM_TEST_CAPTURE_ARGS = $previousCapturePath
+  $env:AGENT_PLATFORM_TEST_BACKEND_DELAY_MS = $previousDelayMs
   if (Test-Path -LiteralPath $processTestRoot) {
     Remove-Item -LiteralPath $processTestRoot -Recurse -Force -ErrorAction SilentlyContinue
   }

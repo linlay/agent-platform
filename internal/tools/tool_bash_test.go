@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/bashsec"
 	"agent-platform/internal/config"
 	contracts "agent-platform/internal/contracts"
@@ -672,6 +673,83 @@ func TestMergeCommandEnvInjectsReservedAgentAndChatContextAfterRuntimeOverrides(
 	}
 	if got["AP_WORKSPACE_DIR"] != root {
 		t.Fatalf("AP_WORKSPACE_DIR = %q, want reserved value %q", got["AP_WORKSPACE_DIR"], root)
+	}
+}
+
+func TestMergeBashCommandEnvReadsCurrentIdentityTokenAndRejectsOverrides(t *testing.T) {
+	identityFile := filepath.Join(t.TempDir(), "desktop state", "sso-access-token.txt")
+	if err := os.MkdirAll(filepath.Dir(identityFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AP_ACCESS_TOKEN", "ambient-token")
+	valuesFor := func(env []string) map[string]string {
+		t.Helper()
+		values := map[string]string{}
+		for _, item := range env {
+			key, value, ok := strings.Cut(item, "=")
+			if ok {
+				values[key] = value
+			}
+		}
+		return values
+	}
+	execCtx := &contracts.ExecutionContext{
+		RuntimeEnvOverrides: map[string]string{"AP_ACCESS_TOKEN": "runtime-token"},
+	}
+
+	if _, ok := valuesFor(mergeBashCommandEnv(execCtx, identityFile))[agentconfig.EnvAccessToken]; ok {
+		t.Fatal("missing identity file must remove inherited and runtime access tokens")
+	}
+	if err := os.WriteFile(identityFile, []byte("token-a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := valuesFor(mergeBashCommandEnv(execCtx, identityFile))[agentconfig.EnvAccessToken]; got != "token-a" {
+		t.Fatalf("AP_ACCESS_TOKEN = %q, want token-a", got)
+	}
+	if err := os.WriteFile(identityFile, []byte("token-b\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := valuesFor(mergeBashCommandEnv(execCtx, identityFile))[agentconfig.EnvAccessToken]; got != "token-b" {
+		t.Fatalf("AP_ACCESS_TOKEN = %q, want token-b", got)
+	}
+	if err := os.Remove(identityFile); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := valuesFor(mergeBashCommandEnv(execCtx, identityFile))[agentconfig.EnvAccessToken]; ok {
+		t.Fatal("removed identity file must remove AP_ACCESS_TOKEN from the next Host Bash")
+	}
+}
+
+func TestInvokeHostBashInjectsCurrentIdentityToken(t *testing.T) {
+	root := t.TempDir()
+	identityFile := filepath.Join(root, "desktop state", "sso-access-token.txt")
+	if err := os.MkdirAll(filepath.Dir(identityFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(identityFile, []byte("current-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	executor := &RuntimeToolExecutor{
+		cfg: config.Config{
+			IdentityFile: identityFile,
+			Bash: config.BashConfig{
+				AllowedCommands: []string{"printenv"},
+				ShellExecutable: "bash",
+				MaxCommandChars: 16000,
+			},
+		},
+	}
+
+	result, err := executor.invokeHostBash(
+		context.Background(),
+		map[string]any{"command": "printenv AP_ACCESS_TOKEN"},
+		bashExecutionContext(root),
+	)
+	if err != nil {
+		t.Fatalf("invokeHostBash returned error: %v", err)
+	}
+	if result.ExitCode != 0 || result.Output != "current-token\n" {
+		t.Fatalf("Host Bash did not receive current identity token: %#v", result)
 	}
 }
 

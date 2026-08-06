@@ -89,7 +89,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	shellExecutable, shellArgs := resolveHostShellInvocation(t.cfg.Bash, command, runtimeInfo.GOOS)
 	cmd := exec.CommandContext(runCtx, shellExecutable, shellArgs...)
 	cmd.Dir = workingDir
-	cmd.Env = mergeCommandEnv(execCtx)
+	cmd.Env = mergeBashCommandEnv(execCtx, t.cfg.IdentityFile)
 
 	stdoutFile, err := os.CreateTemp("", "agent-platform-bash-stdout-*.log")
 	if err != nil {
@@ -383,6 +383,27 @@ func mergeCommandEnv(execCtx *ExecutionContext) []string {
 		}
 	}
 	return builtins.EnsureBinInEnv(env)
+}
+
+func mergeBashCommandEnv(execCtx *ExecutionContext, identityFile string) []string {
+	env := removeEnvironmentKey(mergeCommandEnv(execCtx), agentconfig.EnvAccessToken)
+	token, err := agentconfig.ReadAccessTokenFile(identityFile)
+	if err != nil || token == "" {
+		return env
+	}
+	return append(env, agentconfig.EnvAccessToken+"="+token)
+}
+
+func removeEnvironmentKey(env []string, key string) []string {
+	filtered := make([]string, 0, len(env))
+	for _, item := range env {
+		name, _, ok := strings.Cut(item, "=")
+		if ok && strings.EqualFold(strings.TrimSpace(name), key) {
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	return filtered
 }
 
 func containsString(values []string, needle string) bool {

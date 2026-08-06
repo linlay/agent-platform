@@ -16,6 +16,7 @@ $Script:PidFile = Join-Path $Script:RunDir 'agent-platform.pid'
 $Script:LogFile = Join-Path $Script:LogDir 'agent-platform.log'
 $Script:ErrorLogFile = Join-Path $Script:LogDir 'agent-platform.stderr.log'
 $Script:ProgramPort = ''
+$Script:IdentityFile = ''
 $Script:DeployAPRuntimeDir = ''
 $Script:DeployContainerHubBaseUrl = ''
 $Script:DeployAIVisionGeneralModelKey = ''
@@ -64,6 +65,7 @@ function Set-ProgramLayoutOption([string]$Name, [string]$Value) {
     '--state-dir' { $Script:RunDir = $Value }
     '--log-dir' { $Script:LogDir = $Value }
     '--port' { $Script:ProgramPort = $Value }
+    '--identity-file' { $Script:IdentityFile = $Value }
     default { Fail-Program "unsupported argument: $Name" }
   }
   Update-ProgramPaths
@@ -72,7 +74,7 @@ function Set-ProgramLayoutOption([string]$Name, [string]$Value) {
 function Set-ProgramLayoutArgs([string[]]$Arguments) {
   for ($i = 0; $i -lt $Arguments.Length; $i++) {
     $name = $Arguments[$i]
-    if (@('--config-dir', '--state-dir', '--log-dir', '--port') -notcontains $name) {
+    if (@('--config-dir', '--state-dir', '--log-dir', '--port', '--identity-file') -notcontains $name) {
       Fail-Program "unsupported argument: $name"
     }
     if ($i + 1 -ge $Arguments.Length) {
@@ -132,7 +134,7 @@ function Set-ProgramDeployOption([string]$Name, [string]$Value) {
 function Set-ProgramDeployArgs([string[]]$Arguments) {
   for ($i = 0; $i -lt $Arguments.Length; $i++) {
     $name = $Arguments[$i]
-    if (@('--config-dir', '--state-dir', '--log-dir', '--port', '--daemon') -contains $name) {
+    if (@('--config-dir', '--state-dir', '--log-dir', '--port', '--identity-file', '--daemon') -contains $name) {
       Reject-ProgramDeployStartArg $name
     }
     if ($name -eq '--force') {
@@ -545,6 +547,9 @@ function Start-ProgramBackend {
     if (-not [string]::IsNullOrWhiteSpace($Script:ProgramPort)) {
       $backendArgs += @('--port', $Script:ProgramPort)
     }
+    if (-not [string]::IsNullOrWhiteSpace($Script:IdentityFile)) {
+      $backendArgs += @('--identity-file', ('"{0}"' -f $Script:IdentityFile))
+    }
     $proc = Start-Process -FilePath $Script:BackendBin -ArgumentList $backendArgs -WorkingDirectory $Script:BundleRoot -WindowStyle Hidden -RedirectStandardOutput $Script:LogFile -RedirectStandardError $Script:ErrorLogFile -PassThru
     $proc.Id | Set-Content -LiteralPath $Script:PidFile
     Start-Sleep -Seconds 1
@@ -561,6 +566,9 @@ function Start-ProgramBackend {
   $backendArgs = @('--config-dir', $Script:ConfigRoot)
   if (-not [string]::IsNullOrWhiteSpace($Script:ProgramPort)) {
     $backendArgs += @('--port', $Script:ProgramPort)
+  }
+  if (-not [string]::IsNullOrWhiteSpace($Script:IdentityFile)) {
+    $backendArgs += @('--identity-file', $Script:IdentityFile)
   }
   & $Script:BackendBin @backendArgs
 }

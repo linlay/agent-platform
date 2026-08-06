@@ -60,7 +60,7 @@ func TestMergeUsesPlatformEnvironmentAsFinalOverrides(t *testing.T) {
 }
 
 func TestValidateUserEnvironmentRejectsPlatformVariables(t *testing.T) {
-	for _, key := range []string{EnvAgentConfigHome, EnvWorkspaceDir, EnvChatDir, "ap_workspace_dir", "ap_chat_dir"} {
+	for _, key := range []string{EnvAgentConfigHome, EnvWorkspaceDir, EnvChatDir, EnvAccessToken, "ap_workspace_dir", "ap_chat_dir", "ap_access_token"} {
 		if err := ValidateUserEnvironment(map[string]string{key: "/custom"}); err == nil {
 			t.Fatalf("expected reserved environment error for %q", key)
 		}

@@ -82,7 +82,7 @@ Agent runtimeConfig.env
   < ...
 ```
 
-后声明 Skill 覆盖前面的同名键。`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR` 始终由 Platform 最后注入，Agent、Skill 和调用级 env 都不得声明。
+后声明 Skill 覆盖前面的同名键。`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`、`AP_ACCESS_TOKEN` 都是 Platform 保留变量，Agent、Skill 和调用级 env 不得声明。前三者按 Host/Container 执行上下文最后注入；`AP_ACCESS_TOKEN` 仅由普通 Agent Host Bash 在进程创建前读取 `--identity-file` 指定文件后注入。
 
 ## 发布与热重载
 
@@ -115,6 +115,14 @@ AP_AGENT_CONFIG_HOME=<ru-agents>/<agentKey>/.config
 AP_WORKSPACE_DIR=<canonical workspace>
 AP_CHAT_DIR=<chatsDir>/<chatId>
 ```
+
+普通 Agent Host Bash 还可获得：
+
+```text
+AP_ACCESS_TOKEN=<identity-file 当前非空单行内容>
+```
+
+该 token 每次新建 Bash 都重新读取，不缓存；Workspace Terminal、`file_grep/file_glob`、Container、Proxy、ACP、MCP、LSP 和 sidecar 不自动获得它。文件缺失、不可读、为空或非法时省略变量，Bash 仍正常启动。
 
 Container 中三个值分别是 `/agent/.config`、`/workspace`、`/chat`。Workspace/Chat 双根和 KBASE 的 `runtimeConfig.workspaceRoot` 契约不受 Agent 组装影响。
 

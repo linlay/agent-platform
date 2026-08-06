@@ -19,6 +19,9 @@ const (
 	// EnvChatDir is the current chat's writable runtime directory. Tools keep
 	// chat-scoped state below this directory.
 	EnvChatDir = "AP_CHAT_DIR"
+	// EnvAccessToken is the Desktop identity token injected only into ordinary
+	// agent Host Bash processes.
+	EnvAccessToken = "AP_ACCESS_TOKEN"
 )
 
 // HostEnvironment returns the platform-owned environment for a host process.
@@ -89,6 +92,8 @@ func IsReserved(key string) bool {
 	case strings.EqualFold(strings.TrimSpace(key), EnvWorkspaceDir):
 		return true
 	case strings.EqualFold(strings.TrimSpace(key), EnvChatDir):
+		return true
+	case strings.EqualFold(strings.TrimSpace(key), EnvAccessToken):
 		return true
 	default:
 		return false

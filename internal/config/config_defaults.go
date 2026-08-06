@@ -27,10 +27,11 @@ func defaultConfig(options LoadOptions) Config {
 		SkillsCenterDir: filepath.Join(runtimeRoot, "skills-center"),
 	}
 	return Config{
-		Server: ServerConfig{Port: "8080"},
-		Paths:  paths,
-		Agents: CatalogConfig{ExternalDir: paths.AgentsDir},
-		Teams:  CatalogConfig{ExternalDir: paths.TeamsDir},
+		IdentityFile: options.IdentityFile,
+		Server:       ServerConfig{Port: "8080"},
+		Paths:        paths,
+		Agents:       CatalogConfig{ExternalDir: paths.AgentsDir},
+		Teams:        CatalogConfig{ExternalDir: paths.TeamsDir},
 		Skills: SkillCatalogConfig{
 			CatalogConfig:  CatalogConfig{ExternalDir: paths.SkillsCenterDir},
 			MaxPromptChars: 8000,
