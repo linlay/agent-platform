@@ -13,7 +13,7 @@ import (
 )
 
 type adminAgentPrivateSkillRegistry interface {
-	BeginImportEditableAgentPrivateSkillArchive(agentKey, key string, source io.ReaderAt, size int64, confirmCenterOverride bool) (*catalog.EditableAgentPrivateSkillMutation, error)
+	BeginImportEditableAgentPrivateSkillArchive(agentKey, key string, source io.ReaderAt, size int64) (*catalog.EditableAgentPrivateSkillMutation, error)
 	BeginDeleteEditableAgentPrivateSkill(agentKey, key string) (*catalog.EditableAgentPrivateSkillMutation, error)
 	RollbackEditableAgentPrivateSkillMutation(mutation *catalog.EditableAgentPrivateSkillMutation) error
 	CommitEditableAgentPrivateSkillMutation(mutation *catalog.EditableAgentPrivateSkillMutation) error
@@ -65,7 +65,7 @@ func (s *Server) handleAdminAgentPrivateSkillImport(w http.ResponseWriter, r *ht
 			return
 		}
 	}
-	response, err := s.importAdminAgentPrivateSkill(r.Context(), agentKey, key, file, header.Size, parseLooseBool(r.FormValue("confirmCenterOverride")))
+	response, err := s.importAdminAgentPrivateSkill(r.Context(), agentKey, key, file, header.Size)
 	s.writeAgentHTTPResponse(w, response, err)
 }
 
@@ -79,14 +79,14 @@ func (s *Server) handleAdminAgentPrivateSkillDelete(w http.ResponseWriter, r *ht
 	s.writeAgentHTTPResponse(w, response, err)
 }
 
-func (s *Server) importAdminAgentPrivateSkill(ctx context.Context, agentKey, key string, source io.ReaderAt, size int64, confirmCenterOverride bool) (api.AdminAgentDetailResponse, error) {
+func (s *Server) importAdminAgentPrivateSkill(ctx context.Context, agentKey, key string, source io.ReaderAt, size int64) (api.AdminAgentDetailResponse, error) {
 	s.adminAgentMutationMu.Lock()
 	defer s.adminAgentMutationMu.Unlock()
 	editor, err := s.adminAgentPrivateSkillEditor()
 	if err != nil {
 		return api.AdminAgentDetailResponse{}, err
 	}
-	mutation, err := editor.BeginImportEditableAgentPrivateSkillArchive(agentKey, key, source, size, confirmCenterOverride)
+	mutation, err := editor.BeginImportEditableAgentPrivateSkillArchive(agentKey, key, source, size)
 	if err != nil {
 		return api.AdminAgentDetailResponse{}, mapPrivateSkillEditError(err)
 	}
@@ -168,9 +168,6 @@ func fmtPrivateSkillRollbackError(reloadErr, rollbackErr error) error {
 func mapPrivateSkillEditError(err error) error {
 	if errors.Is(err, catalog.ErrAgentPrivateSkillDirectoryRequired) {
 		return newAgentStatusError(http.StatusConflict, "directory_agent_required", err.Error())
-	}
-	if errors.Is(err, catalog.ErrAgentPrivateSkillOverrideConfirm) {
-		return newAgentStatusErrorWithData(http.StatusConflict, "center_skill_override_confirmation_required", err.Error(), map[string]any{"requiresConfirmation": true})
 	}
 	return mapSkillEditError(err)
 }

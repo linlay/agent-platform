@@ -38,7 +38,7 @@ func TestAgentPrivateSkillMutationLockIsHeldUntilFinalized(t *testing.T) {
 		t.Fatalf("create Agent: %v", err)
 	}
 	archive := buildSkillImportZIP(t, []skillImportZIPEntry{{name: "SKILL.md", content: []byte("# Private\n")}})
-	first, err := registry.BeginImportEditableAgentPrivateSkillArchive("demo", "first", bytes.NewReader(archive), int64(len(archive)), false)
+	first, err := registry.BeginImportEditableAgentPrivateSkillArchive("demo", "first", bytes.NewReader(archive), int64(len(archive)))
 	if err != nil {
 		t.Fatalf("begin first mutation: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestAgentPrivateSkillMutationLockIsHeldUntilFinalized(t *testing.T) {
 	}
 	secondDone := make(chan mutationResult, 1)
 	go func() {
-		mutation, err := registry.BeginImportEditableAgentPrivateSkillArchive("demo", "second", bytes.NewReader(archive), int64(len(archive)), false)
+		mutation, err := registry.BeginImportEditableAgentPrivateSkillArchive("demo", "second", bytes.NewReader(archive), int64(len(archive)))
 		secondDone <- mutationResult{mutation: mutation, err: err}
 	}()
 	select {

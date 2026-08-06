@@ -14,7 +14,6 @@ import (
 
 var (
 	ErrAgentPrivateSkillDirectoryRequired = errors.New("agent-private skills require a directory agent")
-	ErrAgentPrivateSkillOverrideConfirm   = errors.New("center skill override requires confirmation")
 )
 
 // EditableAgentPrivateSkillMutation is an opaque, reversible filesystem and
@@ -109,7 +108,7 @@ func (r *FileRegistry) listEditableAgentPrivateSkills(files EditableAgentFiles) 
 // BeginImportEditableAgentPrivateSkillArchive installs a validated archive and
 // adds its key to the Agent definition. The caller must rollback it when the
 // following catalog reload fails.
-func (r *FileRegistry) BeginImportEditableAgentPrivateSkillArchive(agentKey, key string, source io.ReaderAt, size int64, confirmCenterOverride bool) (*EditableAgentPrivateSkillMutation, error) {
+func (r *FileRegistry) BeginImportEditableAgentPrivateSkillArchive(agentKey, key string, source io.ReaderAt, size int64) (*EditableAgentPrivateSkillMutation, error) {
 	if r == nil {
 		return nil, fmt.Errorf("agent registry is not configured")
 	}
@@ -140,9 +139,6 @@ func (r *FileRegistry) BeginImportEditableAgentPrivateSkillArchive(agentKey, key
 	root, err := editableAgentPrivateSkillsRoot(files.Source)
 	if err != nil {
 		return nil, err
-	}
-	if r.centerSkillExists(key) && !confirmCenterOverride {
-		return nil, ErrAgentPrivateSkillOverrideConfirm
 	}
 	finalDir, err = importEditableSkillArchiveIntoRoot(root, key, source, size)
 	if err != nil {

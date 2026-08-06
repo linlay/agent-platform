@@ -112,7 +112,7 @@ GET /ws -> request / response / stream / push / error frames
 | POST | `/api/admin/agents/update` | body: `key`/`agentKey`、`definition`、`soulPrompt`、`agentsPrompt` | 更新后的 agent 详情 |
 | POST | `/api/admin/agents/update-name` | body: `key`/`agentKey`、`name` | 更新后的 agent 详情 |
 | POST | `/api/admin/agents/delete` | body: `key`/`agentKey` | 删除结果 |
-| POST | `/api/admin/agents/skills/import` | multipart: `agentKey`、`file`、`confirmCenterOverride`；兼容可选 `key` | 为一个目录型 Agent 导入并启用专属 ZIP Skill，返回更新后的 admin agent detail |
+| POST | `/api/admin/agents/skills/import` | multipart: `agentKey`、`file`；兼容可选 `key` | 为一个目录型 Agent 导入并启用专属 ZIP Skill，返回更新后的 admin agent detail |
 | POST | `/api/admin/agents/skills/delete` | body: `agentKey`、`key` | 删除该 Agent 的专属 Skill 与其配置引用，返回更新后的 admin agent detail |
 | GET | `/api/admin/agents/editor-options` | 无 | agent 编辑器可选项 |
 | GET | `/api/admin/skills` | 无 | skills-center skill 列表，包含状态、图标 URL、摘要诊断、更新时间、大小与引用 agent |
@@ -140,7 +140,7 @@ GET /ws -> request / response / stream / push / error frames
 
 `/api/admin/skills` 只编辑 `paths.skills-center-dir` 下的共享 skill 目录，不直接编辑 agent 本地 `skills/` 同步副本。文件路径必须是相对路径，服务端拒绝目录逃逸和 symlink 跟随；JSON 文本读写限制为 UTF-8 且不超过 1 MiB，二进制或大文件通过 upload/download 接口处理。保存、上传、删除或重命名 skill 文件后会触发 `skills` reload 并级联 reload `agents`，使声明该 skill 的 agent 本地副本重新同步。
 
-`POST /api/admin/agents/skills/import` 只面向目录型普通 Agent。它沿用共享 Skill ZIP 的校验和限额，但将内容写入 `<agents>/<agentKey>/skills/<key>/`，并原子地把 key 加入该 Agent 的 `skillConfig.skills` 后 reload agents；导入失败或 reload 失败都会恢复 Agent YAML 并清理本地目录。未传 `key` 时，服务端从 ZIP 的 `SKILL.md` frontmatter 读取 `key`，否则读取 `name` 作为 Skill Key；旧调用方仍可显式传 Key。专属 Skill 不会出现在 `/api/admin/skills`，也不能由共享 Skill 删除接口删除。若 key 已存在于 skills-center，必须显式传 `confirmCenterOverride=true`；该专属版本只对当前 Agent 优先。Admin Agent Detail 的 `privateSkills[]` 返回本地摘要、是否启用及 `overridesCenter`，不返回本地路径或文件内容。专属删除同样只在 Agent 路由执行，并同时删目录和配置引用。
+`POST /api/admin/agents/skills/import` 只面向目录型普通 Agent。它沿用共享 Skill ZIP 的校验和限额，但将内容写入 `<agents>/<agentKey>/skills/<key>/`，并原子地把 key 加入该 Agent 的 `skillConfig.skills` 后 reload agents；导入失败或 reload 失败都会恢复 Agent YAML 并清理本地目录。未传 `key` 时，服务端从 ZIP 的 `SKILL.md` frontmatter 读取 `key`，否则读取 `name` 作为 Skill Key；旧调用方仍可显式传 Key。专属 Skill 不会出现在 `/api/admin/skills`，也不能由共享 Skill 删除接口删除。导入准入不查询 skills-center；若两者 Key 相同，该专属版本只对当前 Agent 优先，其他 Agent 仍可使用技能中心版本。Admin Agent Detail 的 `privateSkills[]` 返回本地摘要、是否启用及 `overridesCenter`，不返回本地路径或文件内容。专属删除同样只在 Agent 路由执行，并同时删目录和配置引用。
 
 `/api/admin/skills` 管理 Skill 的结构和二进制文件操作；可编辑文本内容可通过 `/api/admin/source` 的 Skill target 读取和保存。`detail` 不内联全量文件内容，而返回轻量 `fileManifest`：`revision`、`defaultOpenPath`、文件统计和预排序扁平 `entries[]`。每个 entry 使用完整相对 `path` 作为稳定 ID，并带 `parentPath/depth/order/contentKind/language/role/editable/downloadable/uploadable/renamable/deletable`。`openPath` 指向可编辑 UTF-8 文本文件时，`detail` 额外返回 `openedFile`；二进制或过大文件只返回 metadata。保存使用 `baseSha256` 做并发保护，冲突返回 409。创建、删除、重命名、上传和 mkdir 的 mutation 响应会返回新的 `fileManifest` 与 `selectedPath`，方便前端直接刷新文件树。列表和详情摘要会在 skill 目录存在 regular、非 symlink 的 `assets/<skill-id>.png` 时返回 `icon` 下载 URL；未提供图标时省略字段，由客户端负责默认图。`file/download` 只下载单一文件；`download` 返回 ZIP，包含安全的普通 skill 文件、跳过 symlink 与 `.runtime-env.json`，并限制未压缩内容为 256 MiB。
 

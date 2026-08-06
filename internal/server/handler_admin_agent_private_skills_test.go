@@ -41,7 +41,7 @@ func TestAdminAgentPrivateSkillImportAndDelete(t *testing.T) {
 		"SKILL.md":            "---\nname: personal-helper\ndescription: Agent only\n---\n\nUse it.\n",
 		"references/guide.md": "guide\n",
 	})
-	body, contentType := agentPrivateSkillImportBody(t, "mock-agent", "", "personal-helper.zip", archive, false)
+	body, contentType := agentPrivateSkillImportBody(t, "mock-agent", "", "personal-helper.zip", archive)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/agents/skills/import", body)
 	req.Header.Set("Content-Type", contentType)
@@ -85,34 +85,24 @@ func TestAdminAgentPrivateSkillImportAndDelete(t *testing.T) {
 	}
 }
 
-func TestAdminAgentPrivateSkillOverrideRequiresConfirmationAndDoesNotBlockCenterDelete(t *testing.T) {
+func TestAdminAgentPrivateSkillOverrideDoesNotRequireCenterConfirmationOrBlockCenterDelete(t *testing.T) {
 	fixture := newTestFixture(t)
 	archive := serverSkillImportZIP(t, map[string]string{"SKILL.md": "# Private Mock Skill\n"})
-	body, contentType := agentPrivateSkillImportBody(t, "mock-agent", "mock-skill", "mock-skill.zip", archive, false)
+	body, contentType := agentPrivateSkillImportBody(t, "mock-agent", "mock-skill", "mock-skill.zip", archive)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/agents/skills/import", body)
 	req.Header.Set("Content-Type", contentType)
 	fixture.server.ServeHTTP(rec, req)
-	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "requiresConfirmation") {
-		t.Fatalf("override without confirmation = %d body=%s", rec.Code, rec.Body.String())
-	}
-
-	body, contentType = agentPrivateSkillImportBodyWithConfirmationField(t, "mock-agent", "mock-skill", "mock-skill.zip", archive, "confirmMarketOverride")
-	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/api/admin/agents/skills/import", body)
-	req.Header.Set("Content-Type", contentType)
-	fixture.server.ServeHTTP(rec, req)
-	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "requiresConfirmation") {
-		t.Fatalf("removed confirmation field must be ignored = %d body=%s", rec.Code, rec.Body.String())
-	}
-
-	body, contentType = agentPrivateSkillImportBody(t, "mock-agent", "mock-skill", "mock-skill.zip", archive, true)
-	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/api/admin/agents/skills/import", body)
-	req.Header.Set("Content-Type", contentType)
-	fixture.server.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("confirmed override = %d body=%s", rec.Code, rec.Body.String())
+		t.Fatalf("private import with same center key = %d body=%s", rec.Code, rec.Body.String())
+	}
+	duplicateBody, duplicateContentType := agentPrivateSkillImportBody(t, "mock-agent", "mock-skill", "mock-skill.zip", archive)
+	duplicate := httptest.NewRecorder()
+	duplicateRequest := httptest.NewRequest(http.MethodPost, "/api/admin/agents/skills/import", duplicateBody)
+	duplicateRequest.Header.Set("Content-Type", duplicateContentType)
+	fixture.server.ServeHTTP(duplicate, duplicateRequest)
+	if duplicate.Code != http.StatusConflict {
+		t.Fatalf("duplicate private key should conflict locally: %d body=%s", duplicate.Code, duplicate.Body.String())
 	}
 	definition, found := fixture.registry.AgentDefinition("mock-agent")
 	if !found {
@@ -142,7 +132,7 @@ func TestAdminAgentPrivateSkillImportRollsBackOnReloadFailure(t *testing.T) {
 	fixture.catalogReloader = failingSkillImportReloader{}
 	fixture.server = newServerFromFixture(t, fixture)
 	archive := serverSkillImportZIP(t, map[string]string{"SKILL.md": "# Rollback\n"})
-	body, contentType := agentPrivateSkillImportBody(t, "mock-agent", "rollback-skill", "rollback-skill.zip", archive, false)
+	body, contentType := agentPrivateSkillImportBody(t, "mock-agent", "rollback-skill", "rollback-skill.zip", archive)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/agents/skills/import", body)
 	req.Header.Set("Content-Type", contentType)
@@ -165,7 +155,7 @@ func TestAdminAgentPrivateSkillImportRollsBackOnReloadFailure(t *testing.T) {
 func TestAdminAgentPrivateSkillDeleteRollsBackOnReloadFailure(t *testing.T) {
 	fixture := newTestFixture(t)
 	archive := serverSkillImportZIP(t, map[string]string{"SKILL.md": "# Rollback delete\n"})
-	body, contentType := agentPrivateSkillImportBody(t, "mock-agent", "rollback-delete", "rollback-delete.zip", archive, false)
+	body, contentType := agentPrivateSkillImportBody(t, "mock-agent", "rollback-delete", "rollback-delete.zip", archive)
 	imported := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/agents/skills/import", body)
 	req.Header.Set("Content-Type", contentType)
@@ -217,7 +207,7 @@ func TestAdminAgentPrivateSkillImportRejectsInvalidArchiveAndFlatAgent(t *testin
 	})
 
 	invalidArchive := serverSkillImportZIP(t, map[string]string{"README.md": "missing skill manifest"})
-	body, contentType := agentPrivateSkillImportBody(t, "mock-agent", "invalid-private", "invalid-private.zip", invalidArchive, false)
+	body, contentType := agentPrivateSkillImportBody(t, "mock-agent", "invalid-private", "invalid-private.zip", invalidArchive)
 	invalid := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/agents/skills/import", body)
 	req.Header.Set("Content-Type", contentType)
@@ -230,7 +220,7 @@ func TestAdminAgentPrivateSkillImportRejectsInvalidArchiveAndFlatAgent(t *testin
 	}
 
 	validArchive := serverSkillImportZIP(t, map[string]string{"SKILL.md": "# Flat agent skill\n"})
-	body, contentType = agentPrivateSkillImportBody(t, "flat-agent", "flat-private", "flat-private.zip", validArchive, false)
+	body, contentType = agentPrivateSkillImportBody(t, "flat-agent", "flat-private", "flat-private.zip", validArchive)
 	flat := httptest.NewRecorder()
 	req = httptest.NewRequest(http.MethodPost, "/api/admin/agents/skills/import", body)
 	req.Header.Set("Content-Type", contentType)
@@ -271,26 +261,13 @@ func TestAdminAgentPrivateSkillDetailUsesRelativeDiagnosticPaths(t *testing.T) {
 	t.Fatal("invalid private skill is missing from admin detail")
 }
 
-func agentPrivateSkillImportBody(t *testing.T, agentKey, key, filename string, data []byte, confirmOverride bool) (io.Reader, string) {
-	confirmationField := ""
-	if confirmOverride {
-		confirmationField = "confirmCenterOverride"
-	}
-	return agentPrivateSkillImportBodyWithConfirmationField(t, agentKey, key, filename, data, confirmationField)
-}
-
-func agentPrivateSkillImportBodyWithConfirmationField(t *testing.T, agentKey, key, filename string, data []byte, confirmationField string) (io.Reader, string) {
+func agentPrivateSkillImportBody(t *testing.T, agentKey, key, filename string, data []byte) (io.Reader, string) {
 	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	for name, value := range map[string]string{"agentKey": agentKey, "key": key} {
 		if err := writer.WriteField(name, value); err != nil {
 			t.Fatalf("write %s: %v", name, err)
-		}
-	}
-	if confirmationField != "" {
-		if err := writer.WriteField(confirmationField, "true"); err != nil {
-			t.Fatalf("write confirmation: %v", err)
 		}
 	}
 	file, err := writer.CreateFormFile("file", filename)
