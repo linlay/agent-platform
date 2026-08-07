@@ -1091,7 +1091,7 @@ func syncBroadcastChatUpdated(notifications contracts.NotificationSink, completi
 	notifications.Broadcast("chat.updated", map[string]any{
 		"chatId":         completion.ChatID,
 		"lastRunId":      completion.RunID,
-		"lastRunContent": completion.AssistantText,
+		"lastRunContent": chat.PreviewLastRunContent(completion.AssistantText),
 		"updatedAt":      completion.UpdatedAtMillis,
 	})
 }

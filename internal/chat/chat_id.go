@@ -2,7 +2,19 @@ package chat
 
 import (
 	"path/filepath"
+	"regexp"
 	"strings"
+)
+
+var (
+	thinkingBlockPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`(?is)<thinking\b[^>]*>.*?</thinking\s*>`),
+		regexp.MustCompile(`(?is)<think\b[^>]*>.*?</think\s*>`),
+	}
+	thinkingOpenPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`(?is)<thinking\b[^>]*>.*\z`),
+		regexp.MustCompile(`(?is)<think\b[^>]*>.*\z`),
+	}
 )
 
 func defaultChatName(message string) string {
@@ -22,6 +34,22 @@ func truncateRunes(text string, max int) string {
 		return string(runes[:max])
 	}
 	return text
+}
+
+// PreviewLastRunContent strips model thinking tags then truncates for sidebar/API preview.
+func PreviewLastRunContent(assistantText string) string {
+	return truncateRunes(stripThinkingTags(assistantText), 200)
+}
+
+func stripThinkingTags(text string) string {
+	out := text
+	for _, re := range thinkingBlockPatterns {
+		out = re.ReplaceAllString(out, "")
+	}
+	for _, re := range thinkingOpenPatterns {
+		out = re.ReplaceAllString(out, "")
+	}
+	return strings.TrimSpace(out)
 }
 
 func ValidChatID(chatID string) bool {
