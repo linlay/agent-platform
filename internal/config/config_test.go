@@ -55,6 +55,9 @@ func TestLoadDefaults(t *testing.T) {
 				if cfg.Paths.KBaseDir != filepath.Join("runtime", "kbase") {
 					t.Fatalf("unexpected kbase dir: %q", cfg.Paths.KBaseDir)
 				}
+				if cfg.IdentityFile != ProjectFile(filepath.Join("runtime", "identity", "access-token")) {
+					t.Fatalf("unexpected default identity file: %q", cfg.IdentityFile)
+				}
 				if cfg.KBase.Refresh.Debounce.String() != "2s" || cfg.KBase.Refresh.ReconcileInterval.String() != "10m0s" {
 					t.Fatalf("unexpected kbase refresh defaults: %#v", cfg.KBase.Refresh)
 				}
@@ -178,8 +181,8 @@ func TestLoadDefaults(t *testing.T) {
 	})
 }
 
-func TestLoadAcceptsMissingAbsoluteIdentityFile(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
+func TestLoadExplicitIdentityFileOverridesRuntimeDefault(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{"AP_RUNTIME_DIR": filepath.Join(t.TempDir(), "runtime")}, func() {
 		identityFile := filepath.Join(t.TempDir(), "desktop state", "sso-access-token.txt")
 		cfg, err := Load(LoadOptions{IdentityFile: identityFile})
 		if err != nil {
@@ -188,6 +191,55 @@ func TestLoadAcceptsMissingAbsoluteIdentityFile(t *testing.T) {
 		if cfg.IdentityFile != filepath.Clean(identityFile) {
 			t.Fatalf("identity file = %q, want %q", cfg.IdentityFile, filepath.Clean(identityFile))
 		}
+	})
+}
+
+func TestLoadDerivesIdentityFileFromRuntimeDir(t *testing.T) {
+	t.Run("absolute", func(t *testing.T) {
+		runtimeRoot := filepath.Join(t.TempDir(), "runtime")
+		withIsolatedEnv(t, map[string]string{"AP_RUNTIME_DIR": runtimeRoot}, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			want := filepath.Join(runtimeRoot, "identity", "access-token")
+			if cfg.IdentityFile != want {
+				t.Fatalf("identity file = %q, want %q", cfg.IdentityFile, want)
+			}
+		})
+	})
+
+	t.Run("relative to config root", func(t *testing.T) {
+		configRoot := t.TempDir()
+		runtimeRoot := filepath.Join("var", "runtime")
+		withIsolatedEnv(t, map[string]string{"AP_RUNTIME_DIR": runtimeRoot}, func() {
+			cfg, err := Load(LoadOptions{ConfigDir: configRoot})
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			want := filepath.Join(configRoot, runtimeRoot, "identity", "access-token")
+			if cfg.IdentityFile != want {
+				t.Fatalf("identity file = %q, want %q", cfg.IdentityFile, want)
+			}
+		})
+	})
+
+	t.Run("home relative", func(t *testing.T) {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			t.Fatalf("resolve user home: %v", err)
+		}
+		runtimeRoot := filepath.Join("~", "agent-platform-runtime")
+		withIsolatedEnv(t, map[string]string{"AP_RUNTIME_DIR": runtimeRoot}, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			want := filepath.Join(home, "agent-platform-runtime", "identity", "access-token")
+			if cfg.IdentityFile != want {
+				t.Fatalf("identity file = %q, want %q", cfg.IdentityFile, want)
+			}
+		})
 	})
 }
 

@@ -210,6 +210,46 @@ func defaultRuntimeRoot() string {
 	return runtimeRoot
 }
 
+func resolveIdentityFile(configRoot string, configured string) (string, error) {
+	configured = strings.TrimSpace(configured)
+	if configured != "" {
+		if !filepath.IsAbs(configured) {
+			return "", fmt.Errorf("identity file must be an absolute path")
+		}
+		return filepath.Clean(configured), nil
+	}
+
+	runtimeRoot, err := expandRuntimeRootHome(defaultRuntimeRoot())
+	if err != nil {
+		return "", err
+	}
+	if !filepath.IsAbs(runtimeRoot) {
+		runtimeRoot = filepath.Join(resolveConfigRoot(configRoot), runtimeRoot)
+	}
+	identityFile, err := filepath.Abs(filepath.Join(runtimeRoot, "identity", "access-token"))
+	if err != nil {
+		return "", fmt.Errorf("resolve default identity file: %w", err)
+	}
+	return filepath.Clean(identityFile), nil
+}
+
+func expandRuntimeRootHome(runtimeRoot string) (string, error) {
+	if runtimeRoot != "~" && !strings.HasPrefix(runtimeRoot, "~/") && !strings.HasPrefix(runtimeRoot, `~\`) {
+		return runtimeRoot, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		if err == nil {
+			err = fmt.Errorf("home directory is empty")
+		}
+		return "", fmt.Errorf("expand AP_RUNTIME_DIR home: %w", err)
+	}
+	if runtimeRoot == "~" {
+		return home, nil
+	}
+	return filepath.Join(home, runtimeRoot[2:]), nil
+}
+
 func memoryLogFileDefault(memoryDir string) string {
 	if strings.TrimSpace(memoryDir) == "" {
 		return ""

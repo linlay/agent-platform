@@ -612,13 +612,11 @@ func Load(optionValues ...LoadOptions) (Config, error) {
 	}
 	options.ConfigDir = resolveConfigRoot(options.ConfigDir)
 	options.Port = strings.TrimSpace(options.Port)
-	options.IdentityFile = strings.TrimSpace(options.IdentityFile)
-	if options.IdentityFile != "" {
-		if !filepath.IsAbs(options.IdentityFile) {
-			return Config{}, fmt.Errorf("identity file must be an absolute path")
-		}
-		options.IdentityFile = filepath.Clean(options.IdentityFile)
+	identityFile, err := resolveIdentityFile(options.ConfigDir, options.IdentityFile)
+	if err != nil {
+		return Config{}, err
 	}
+	options.IdentityFile = identityFile
 
 	cfg := defaultConfig(options)
 	if err := cfg.applyStructuredConfig(options.ConfigDir, options.IgnoreRemovedWorkingDirectoryForAudit); err != nil {

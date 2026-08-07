@@ -720,24 +720,31 @@ func TestMergeBashCommandEnvReadsCurrentIdentityTokenAndRejectsOverrides(t *test
 	}
 }
 
-func TestInvokeHostBashInjectsCurrentIdentityToken(t *testing.T) {
+func TestInvokeHostBashInjectsCurrentDefaultIdentityToken(t *testing.T) {
 	root := t.TempDir()
-	identityFile := filepath.Join(root, "desktop state", "sso-access-token.txt")
+	runtimeRoot := filepath.Join(root, "runtime")
+	identityFile := filepath.Join(runtimeRoot, "identity", "access-token")
 	if err := os.MkdirAll(filepath.Dir(identityFile), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(identityFile, []byte("current-token\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("AP_RUNTIME_DIR", runtimeRoot)
+	cfg, err := config.Load(config.LoadOptions{ConfigDir: root})
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.IdentityFile != identityFile {
+		t.Fatalf("identity file = %q, want default %q", cfg.IdentityFile, identityFile)
+	}
+	cfg.Bash = config.BashConfig{
+		AllowedCommands: []string{"printenv"},
+		ShellExecutable: "bash",
+		MaxCommandChars: 16000,
+	}
 	executor := &RuntimeToolExecutor{
-		cfg: config.Config{
-			IdentityFile: identityFile,
-			Bash: config.BashConfig{
-				AllowedCommands: []string{"printenv"},
-				ShellExecutable: "bash",
-				MaxCommandChars: 16000,
-			},
-		},
+		cfg: cfg,
 	}
 
 	result, err := executor.invokeHostBash(
