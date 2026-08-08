@@ -6,13 +6,11 @@ import (
 	"errors"
 	"fmt"
 	neturl "net/url"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
-	"agent-platform/internal/filetools"
 	"agent-platform/internal/modelrequest"
 	"agent-platform/internal/models"
 	"agent-platform/internal/multimodal"
@@ -102,92 +100,38 @@ func (t *RuntimeToolExecutor) loadVisionImages(args map[string]any, execCtx *Exe
 	}
 	images := make([]multimodal.ImagePayload, 0, len(rawImages))
 	for _, raw := range rawImages {
-		item := AnyMapNode(raw)
-		referenceName := strings.TrimSpace(FirstNonEmptyString(item["reference_name"], item["referenceName"]))
-		filePath := strings.TrimSpace(FirstNonEmptyString(item["file_path"], item["filePath"]))
-		if (referenceName == "" && filePath == "") || (referenceName != "" && filePath != "") {
-			return nil, visionToolError("vision_image_source_invalid", "each image must provide exactly one of reference_name or file_path", nil), true
+		resolved, result, handled := t.resolveToolImageSource(raw, execCtx, visionImageSourcePolicy())
+		if handled {
+			return nil, result, true
 		}
-		var image multimodal.ImagePayload
-		var err error
-		if referenceName != "" {
-			image, err = t.loadVisionReferenceImage(referenceName, options, execCtx)
-		} else {
-			image, err = t.loadVisionFileImage(filePath, options, execCtx)
-		}
+		image, err := multimodal.LoadImageFile(resolved.Path, resolved.MimeHint, options)
 		if err != nil {
-			if result, ok := err.(visionToolResultError); ok {
-				return nil, result.result, true
+			if errors.Is(err, multimodal.ErrUnsupportedImageMime) {
+				return nil, visionToolError("vision_image_unsupported", "unsupported image mime", map[string]any{"filePath": resolved.Path}), true
+			}
+			if errors.Is(err, multimodal.ErrImageTooLarge) {
+				return nil, visionToolError("vision_image_too_large", err.Error(), map[string]any{"filePath": resolved.Path}), true
 			}
 			return nil, visionToolError("vision_image_load_failed", err.Error(), nil), true
 		}
+		image.Name = resolved.Name
 		images = append(images, image)
 	}
 	return images, ToolExecutionResult{}, false
 }
 
-func (t *RuntimeToolExecutor) loadVisionReferenceImage(name string, options multimodal.ImageLoadOptions, execCtx *ExecutionContext) (multimodal.ImagePayload, error) {
-	if !isPlainFileName(name) {
-		return multimodal.ImagePayload{}, visionToolResultError{visionToolError("vision_reference_name_invalid", "reference_name must be a file name without path separators", map[string]any{"referenceName": name})}
+func visionImageSourcePolicy() toolImageSourcePolicy {
+	return toolImageSourcePolicy{
+		SourceInvalidCode:        "vision_image_source_invalid",
+		ReferenceNameInvalidCode: "vision_reference_name_invalid",
+		ChatUnavailableCode:      "vision_chat_context_unavailable",
+		FilePathInvalidCode:      "vision_file_path_invalid",
+		FilePathBlockedCode:      "vision_file_path_blocked",
+		DeviceBlockedCode:        "vision_file_device_blocked",
+		ApprovalRequiredCode:     "vision_recognize_approval_required",
+		ApprovalMessage:          "vision_recognize read exceeds allowed roots",
+		Error:                    visionToolError,
 	}
-	chatID := ""
-	if execCtx != nil {
-		chatID = strings.TrimSpace(execCtx.Request.ChatID)
-		if chatID == "" {
-			chatID = strings.TrimSpace(execCtx.Session.ChatID)
-		}
-	}
-	if chatID == "" || strings.TrimSpace(t.cfg.Paths.ChatsDir) == "" {
-		return multimodal.ImagePayload{}, visionToolResultError{visionToolError("vision_chat_context_unavailable", "chat context is required to load reference_name images", nil)}
-	}
-	mimeHint := ""
-	if execCtx != nil {
-		for _, ref := range execCtx.Request.References {
-			if strings.EqualFold(strings.TrimSpace(ref.Name), name) {
-				mimeHint = ref.MimeType
-				break
-			}
-		}
-	}
-	path := filepath.Join(t.cfg.Paths.ChatsDir, chatID, name)
-	image, err := multimodal.LoadImageFile(path, mimeHint, options)
-	if err != nil {
-		return multimodal.ImagePayload{}, err
-	}
-	image.Name = name
-	return image, nil
-}
-
-func (t *RuntimeToolExecutor) loadVisionFileImage(path string, options multimodal.ImageLoadOptions, execCtx *ExecutionContext) (multimodal.ImagePayload, error) {
-	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessPolicySession(execCtx), filetools.ReadAccess, path)
-	if err != nil {
-		code := "vision_file_path_invalid"
-		if strings.Contains(err.Error(), "workspace_unavailable") {
-			code = "workspace_unavailable"
-		}
-		return multimodal.ImagePayload{}, visionToolResultError{visionToolError(code, err.Error(), nil)}
-	}
-	if access.Blocked {
-		return multimodal.ImagePayload{}, visionToolResultError{visionToolError("vision_file_path_blocked", access.Reason, map[string]any{"filePath": access.Path})}
-	}
-	if filetools.IsBlockedDeviceFile(access.Path) {
-		return multimodal.ImagePayload{}, visionToolResultError{visionToolError("vision_file_device_blocked", "device file is blocked", map[string]any{"filePath": access.Path})}
-	}
-	if !access.AllowedByWhitelist && !access.AutoApproved && !filetools.ConsumeReadApproval(execCtx, access) {
-		return multimodal.ImagePayload{}, visionToolResultError{fileAccessApprovalRequired("vision_recognize_approval_required", "vision_recognize read exceeds allowed roots", access)}
-	}
-	image, err := multimodal.LoadImageFile(access.Path, "", options)
-	if err != nil {
-		if errors.Is(err, multimodal.ErrUnsupportedImageMime) {
-			return multimodal.ImagePayload{}, visionToolResultError{visionToolError("vision_image_unsupported", "unsupported image mime", map[string]any{"filePath": access.Path})}
-		}
-		if errors.Is(err, multimodal.ErrImageTooLarge) {
-			return multimodal.ImagePayload{}, visionToolResultError{visionToolError("vision_image_too_large", err.Error(), map[string]any{"filePath": access.Path})}
-		}
-		return multimodal.ImagePayload{}, err
-	}
-	image.Name = filepath.Base(access.Path)
-	return image, nil
 }
 
 func (t *RuntimeToolExecutor) completeVisionRecognition(ctx context.Context, model models.ModelDefinition, provider models.ProviderDefinition, profile config.VisionRecognizeProfileConfig, outputFormat string, prompt string, images []multimodal.ImagePayload) (string, map[string]any, error) {
@@ -448,23 +392,4 @@ func visionToolError(code string, message string, diagnostics map[string]any) To
 	result := structuredResultWithExit(payload, -1)
 	result.Error = strings.TrimSpace(code)
 	return result
-}
-
-type visionToolResultError struct {
-	result ToolExecutionResult
-}
-
-func (e visionToolResultError) Error() string {
-	return e.result.Error
-}
-
-func isPlainFileName(name string) bool {
-	name = strings.TrimSpace(name)
-	if name == "" || name == "." || name == ".." {
-		return false
-	}
-	if filepath.Base(name) != name {
-		return false
-	}
-	return !strings.ContainsAny(name, `/\`)
 }

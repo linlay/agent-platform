@@ -579,6 +579,12 @@ func normalizeImageGenerateProfileConfig(profile ImageGenerateProfileConfig) Ima
 	if profile.MaxPromptChars <= 0 {
 		profile.MaxPromptChars = 4000
 	}
+	if profile.MaxImages <= 0 {
+		profile.MaxImages = 4
+	}
+	if profile.MaxImageBytes <= 0 {
+		profile.MaxImageBytes = 20 << 20
+	}
 	profile.EndpointPath = strings.TrimSpace(profile.EndpointPath)
 	return profile
 }

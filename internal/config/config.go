@@ -286,6 +286,8 @@ type ImageGenerateProfileConfig struct {
 	ResponseFormat  string
 	OutputMimeType  string
 	MaxPromptChars  int
+	MaxImages       int
+	MaxImageBytes   int
 	PersistArtifact bool
 	EndpointPath    string
 }

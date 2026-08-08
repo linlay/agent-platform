@@ -389,7 +389,7 @@ func TestAdminRegistryDetailSaveValidateAndPathGuard(t *testing.T) {
 		t.Fatalf("expected embedding dimension diagnostics, got %#v", validateResp.Data)
 	}
 
-	validateBody = bytes.NewBufferString(`{"category":"models","file":"draft-image.yml","content":"key: draft-image\nprovider: mock\nmodelId: gpt-image-1\ntype: image-generation\nimage:\n  endpointPath: /v1/images/generations\n"}`)
+	validateBody = bytes.NewBufferString(`{"category":"models","file":"draft-image.yml","content":"key: draft-image\nprovider: mock\nmodelId: gpt-image-1\ntype: image-generation\nimage:\n  endpointPath: /v1/images/generations\n  edit:\n    endpointPath: /v1/images/edits\n    requestFormat: openai-multipart\n    maskProtocol: openai-alpha\n"}`)
 	rec = httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/registries/validate", validateBody))
 	if rec.Code != http.StatusOK {
@@ -401,6 +401,20 @@ func TestAdminRegistryDetailSaveValidateAndPathGuard(t *testing.T) {
 	}
 	if validateResp.Data.Status != "ready" || validateResp.Data.Summary["type"] != "image-generation" {
 		t.Fatalf("expected ready image validate response, got %#v", validateResp.Data)
+	}
+
+	validateBody = bytes.NewBufferString(`{"category":"models","file":"bad-image.yml","content":"key: bad-image\nprovider: mock\nmodelId: bad-image\ntype: image-generation\nimage:\n  edit:\n    endpointPath: /v1/chat/completions\n    requestFormat: openai-chat-completions\n    maskProtocol: openai-alpha\n"}`)
+	rec = httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/registries/validate", validateBody))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("validate invalid image edit status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	validateResp = api.ApiResponse[api.AdminRegistryValidateResponse]{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &validateResp); err != nil {
+		t.Fatalf("decode invalid image edit response: %v", err)
+	}
+	if validateResp.Data.Status != "invalid" || len(validateResp.Data.Diagnostics) == 0 || validateResp.Data.Diagnostics[0].Code != "missing_image_endpoint" && validateResp.Data.Diagnostics[0].Code != "invalid_image_edit" {
+		t.Fatalf("expected invalid image edit diagnostics, got %#v", validateResp.Data)
 	}
 
 	rec = httptest.NewRecorder()

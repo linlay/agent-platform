@@ -377,6 +377,18 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 			if endpoint == "" {
 				addWarning("missing_image_endpoint", "image.endpointPath is empty; runtime will use the OpenAI-compatible default")
 			}
+			if rawEdit, exists := image["edit"]; exists {
+				edit := contracts.AnyMapNode(rawEdit)
+				editConfig := models.ModelImageEditConfig{
+					EndpointPath:  strings.TrimSpace(contracts.FirstNonEmptyString(edit["endpointPath"], edit["endpoint-path"])),
+					RequestFormat: strings.ToLower(strings.TrimSpace(contracts.FirstNonEmptyString(edit["requestFormat"], edit["request-format"]))),
+					MaskProtocol:  strings.ToLower(strings.TrimSpace(contracts.FirstNonEmptyString(edit["maskProtocol"], edit["mask-protocol"]))),
+					Configured:    true,
+				}
+				if err := models.ValidateModelImageEditConfig(editConfig); err != nil {
+					addError("invalid_image_edit", "image.edit "+err.Error())
+				}
+			}
 		}
 	case "mcp-servers":
 		if adminRegistryKey(category, file, root) == "" {

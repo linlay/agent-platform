@@ -1310,6 +1310,8 @@ func TestLoadImageGenerateConfigFromFile(t *testing.T) {
 				profile.ResponseFormat != "b64_json" ||
 				profile.OutputMimeType != "image/png" ||
 				profile.MaxPromptChars != 4000 ||
+				profile.MaxImages != 4 ||
+				profile.MaxImageBytes != 20<<20 ||
 				!profile.PersistArtifact ||
 				profile.EndpointPath != "/v1/images/generations" {
 				t.Fatalf("unexpected profile defaults: %#v", profile)

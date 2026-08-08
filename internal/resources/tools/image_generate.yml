@@ -1,8 +1,11 @@
 name: image_generate
 label: 图像生成
 description: |
-  Generate images through the globally configured image generation model. Use
-  this when the user explicitly asks to create or render an image. Every
+  Generate or edit images through the globally configured image model. Use
+  this when the user explicitly asks to create, transform, or inpaint an image.
+  Without images this performs text-to-image generation. With images, images[0]
+  is the edit target and later items are references. An optional mask applies
+  only to images[0]. Every
   successful images[] item contains an internal path and a user-visible url.
   path may be an absolute host path and is only for passing to another tool;
   never show it, mention it, or put it in Markdown. To display a generated
@@ -19,7 +22,56 @@ inputSchema:
   properties:
     prompt:
       type: string
-      description: Required. Text prompt describing the image to generate.
+      description: Required. Text prompt describing the image to generate or the requested edit.
+    images:
+      type: array
+      description: Optional. One to four input images. images[0] is the edit target; later images are references. Each item must use a current-chat reference_name or an access-policy-checked file_path.
+      minItems: 1
+      maxItems: 4
+      items:
+        type: object
+        properties:
+          reference_name:
+            type: string
+            description: Current chat attachment file name without path separators.
+          file_path:
+            type: string
+            description: Explicit local image path. Semantic roots such as @chat, @agent, and @skills are supported and checked by access policy.
+        oneOf:
+          - type: object
+            required:
+              - reference_name
+          - type: object
+            required:
+              - file_path
+        additionalProperties: false
+    mask:
+      type: object
+      description: Optional inpainting mask for images[0]. Requires images and a model whose YAML declares native mask support.
+      properties:
+        reference_name:
+          type: string
+          description: Current chat mask attachment file name without path separators.
+        file_path:
+          type: string
+          description: Explicit local mask path checked by access policy.
+        mode:
+          type: string
+          description: Required. Mask interpretation. alpha edits transparent pixels; white_edit edits white pixels; black_edit edits black pixels.
+          enum:
+            - alpha
+            - white_edit
+            - black_edit
+      required:
+        - mode
+      oneOf:
+        - type: object
+          required:
+            - reference_name
+        - type: object
+          required:
+            - file_path
+      additionalProperties: false
     profile:
       type: string
       description: Optional. Profile name from configs/ai-tools.yml > image-generate. Defaults to default-profile.

@@ -313,13 +313,22 @@ func TestImageGenerateToolSchemaMatchesContract(t *testing.T) {
 		t.Fatal("expected image_generate builtin tool definition")
 	}
 	properties := mapChild(t, imageGenerateDef, "properties")
-	for _, want := range []string{"prompt", "profile", "size", "response_format", "n"} {
+	for _, want := range []string{"prompt", "images", "mask", "profile", "size", "response_format", "n"} {
 		if _, ok := properties[want]; !ok {
 			t.Fatalf("expected image_generate property %q", want)
 		}
 	}
 	if !enumContains(t, properties["response_format"], "b64_json") || !enumContains(t, properties["response_format"], "url") {
 		t.Fatalf("expected image_generate response_format enum, got %#v", properties["response_format"])
+	}
+	images := contracts.AnyMapNode(properties["images"])
+	if contracts.AnyIntNode(images["minItems"]) != 1 || contracts.AnyIntNode(images["maxItems"]) != 4 {
+		t.Fatalf("expected image_generate images bounds, got %#v", images)
+	}
+	mask := contracts.AnyMapNode(properties["mask"])
+	maskProperties := contracts.AnyMapNode(mask["properties"])
+	if !enumContains(t, maskProperties["mode"], "alpha") || !enumContains(t, maskProperties["mode"], "white_edit") || !enumContains(t, maskProperties["mode"], "black_edit") {
+		t.Fatalf("expected image_generate mask modes, got %#v", maskProperties["mode"])
 	}
 	required, ok := imageGenerateDef["required"].([]any)
 	if !ok {

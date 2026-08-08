@@ -296,6 +296,10 @@ func TestLoadModelRegistryParsesTypedModels(t *testing.T) {
 		"  responseFormats:",
 		"    - b64_json",
 		"    - url",
+		"  edit:",
+		"    endpointPath: /v1/images/edits",
+		"    requestFormat: openai-multipart",
+		"    maskProtocol: openai-alpha",
 	}, "\n")), 0o644); err != nil {
 		t.Fatalf("write image model: %v", err)
 	}
@@ -340,7 +344,10 @@ func TestLoadModelRegistryParsesTypedModels(t *testing.T) {
 		image.Image.Timeout != 120 ||
 		image.Image.DefaultSize != "1024x1024" ||
 		len(image.Image.ResponseFormats) != 2 ||
-		image.Image.ResponseFormats[1] != "url" {
+		image.Image.ResponseFormats[1] != "url" ||
+		image.Image.Edit.EndpointPath != "/v1/images/edits" ||
+		image.Image.Edit.RequestFormat != ImageEditRequestFormatOpenAIMultipart ||
+		image.Image.Edit.MaskProtocol != ImageMaskProtocolOpenAIAlpha {
 		t.Fatalf("unexpected image model: %#v", image)
 	}
 	vl, _, err := registry.GetVL("vl-model")
@@ -372,6 +379,29 @@ func TestLoadModelRegistryRejectsInvalidModelType(t *testing.T) {
 	_, err := LoadModelRegistry(root)
 	if err == nil || !strings.Contains(err.Error(), "invalid type") {
 		t.Fatalf("expected invalid type error, got %v", err)
+	}
+}
+
+func TestLoadModelRegistryRejectsInvalidImageEditConfig(t *testing.T) {
+	root := t.TempDir()
+	writeTestProviderAndModel(t, root, "apiKey: plain-text")
+	content := strings.Join([]string{
+		"key: bad-image",
+		"provider: mock",
+		"type: image-generation",
+		"modelId: bad-image",
+		"image:",
+		"  endpointPath: /v1/images/generations",
+		"  edit:",
+		"    endpointPath: /v1/chat/completions",
+		"    requestFormat: openai-chat-completions",
+		"    maskProtocol: openai-alpha",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(root, "models", "bad-image.yml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadModelRegistry(root); err == nil || !strings.Contains(err.Error(), "openai-alpha requires requestFormat openai-multipart") {
+		t.Fatalf("expected invalid image edit config, got %v", err)
 	}
 }
 

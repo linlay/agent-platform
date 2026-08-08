@@ -40,15 +40,47 @@ web-fetch:
         You extract and summarize fetched web content according to the user's prompt.
 
 image-generate:
-  enabled: false
+  enabled: true
   default-profile: general
   profiles:
     general:
-      model-key:
+      model-key: babelark-gpt-image-2
       size: 1024x1024
       response-format: b64_json
       output-mime-type: image/png
       max-prompt-chars: 4000
+      max-images: 4
+      max-image-bytes: 20971520
+      persist-artifact: true
+
+    babelark-gpt-image-2:
+      model-key: babelark-gpt-image-2
+      size: 1024x1024
+      response-format: b64_json
+      output-mime-type: image/png
+      max-prompt-chars: 4000
+      max-images: 4
+      max-image-bytes: 20971520
+      persist-artifact: true
+
+    babelark-gemini-3_1-flash-image-preview:
+      model-key: babelark-gemini-3_1-flash-image-preview
+      size: 1024x1024
+      response-format: b64_json
+      output-mime-type: image/png
+      max-prompt-chars: 4000
+      max-images: 4
+      max-image-bytes: 20971520
+      persist-artifact: true
+
+    babelark-gemini-3_1-flash-lite-image:
+      model-key: babelark-gemini-3_1-flash-lite-image
+      size: 1024x1024
+      response-format: b64_json
+      output-mime-type: image/png
+      max-prompt-chars: 4000
+      max-images: 4
+      max-image-bytes: 20971520
       persist-artifact: true
 
 speech:

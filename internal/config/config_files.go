@@ -936,6 +936,8 @@ func defaultImageGenerateProfileConfig() ImageGenerateProfileConfig {
 		ResponseFormat:  "b64_json",
 		OutputMimeType:  "image/png",
 		MaxPromptChars:  4000,
+		MaxImages:       4,
+		MaxImageBytes:   20 << 20,
 		PersistArtifact: true,
 	}
 }
@@ -951,6 +953,8 @@ func parseImageGenerateProfileConfig(raw any, fallback ImageGenerateProfileConfi
 	fallback.ResponseFormat = stringValue(anyValue(values["response-format"], fallback.ResponseFormat), fallback.ResponseFormat)
 	fallback.OutputMimeType = stringValue(anyValue(values["output-mime-type"], fallback.OutputMimeType), fallback.OutputMimeType)
 	fallback.MaxPromptChars = intValue(anyValue(values["max-prompt-chars"], fallback.MaxPromptChars), fallback.MaxPromptChars)
+	fallback.MaxImages = intValue(anyValue(values["max-images"], fallback.MaxImages), fallback.MaxImages)
+	fallback.MaxImageBytes = intValue(anyValue(values["max-image-bytes"], fallback.MaxImageBytes), fallback.MaxImageBytes)
 	fallback.PersistArtifact = boolValue(anyValue(values["persist-artifact"], fallback.PersistArtifact), fallback.PersistArtifact)
 	fallback.EndpointPath = stringValue(anyValue(values["endpoint-path"], fallback.EndpointPath), fallback.EndpointPath)
 	return fallback

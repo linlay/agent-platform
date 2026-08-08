@@ -90,7 +90,22 @@ type ModelImageConfig struct {
 	Timeout         int
 	DefaultSize     string
 	ResponseFormats []string
+	Edit            ModelImageEditConfig
 }
+
+type ModelImageEditConfig struct {
+	EndpointPath  string
+	RequestFormat string
+	MaskProtocol  string
+	Configured    bool
+}
+
+const (
+	ImageEditRequestFormatOpenAIMultipart       = "openai-multipart"
+	ImageEditRequestFormatOpenAIChatCompletions = "openai-chat-completions"
+	ImageMaskProtocolNone                       = "none"
+	ImageMaskProtocolOpenAIAlpha                = "openai-alpha"
+)
 
 type ModelPricing struct {
 	Currency       string
@@ -263,6 +278,41 @@ func validateModelForRuntime(model ModelDefinition, modelType string) error {
 	}
 	if modelType == ModelTypeEmbedding && model.Embedding.Dimension <= 0 {
 		return fmt.Errorf("model %s embedding.dimension is required", model.Key)
+	}
+	if modelType == ModelTypeImageGeneration {
+		if err := ValidateModelImageEditConfig(model.Image.Edit); err != nil {
+			return fmt.Errorf("model %s image.edit: %w", model.Key, err)
+		}
+	}
+	return nil
+}
+
+func ValidateModelImageEditConfig(edit ModelImageEditConfig) error {
+	format := strings.ToLower(strings.TrimSpace(edit.RequestFormat))
+	maskProtocol := strings.ToLower(strings.TrimSpace(edit.MaskProtocol))
+	endpoint := strings.TrimSpace(edit.EndpointPath)
+	if !edit.Configured && format == "" && maskProtocol == "" && endpoint == "" {
+		return nil
+	}
+	if endpoint == "" {
+		return fmt.Errorf("endpointPath is required")
+	}
+	switch format {
+	case ImageEditRequestFormatOpenAIMultipart, ImageEditRequestFormatOpenAIChatCompletions:
+	default:
+		return fmt.Errorf("requestFormat must be %s or %s", ImageEditRequestFormatOpenAIMultipart, ImageEditRequestFormatOpenAIChatCompletions)
+	}
+	if maskProtocol == "" {
+		maskProtocol = ImageMaskProtocolNone
+	}
+	switch maskProtocol {
+	case ImageMaskProtocolNone:
+	case ImageMaskProtocolOpenAIAlpha:
+		if format != ImageEditRequestFormatOpenAIMultipart {
+			return fmt.Errorf("maskProtocol %s requires requestFormat %s", ImageMaskProtocolOpenAIAlpha, ImageEditRequestFormatOpenAIMultipart)
+		}
+	default:
+		return fmt.Errorf("maskProtocol must be %s or %s", ImageMaskProtocolNone, ImageMaskProtocolOpenAIAlpha)
 	}
 	return nil
 }
@@ -605,7 +655,7 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 		if err != nil {
 			return nil, fmt.Errorf("load model %s: %w", entry.Name(), err)
 		}
-		result[key] = ModelDefinition{
+		model := ModelDefinition{
 			Key:                    key,
 			Name:                   strings.TrimSpace(stringNode(values["name"])),
 			Icon:                   strings.TrimSpace(stringNode(values["icon"])),
@@ -627,6 +677,12 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 			Embedding:              loadModelEmbedding(values["embedding"]),
 			Image:                  loadModelImage(values["image"]),
 		}
+		if modelType == ModelTypeImageGeneration {
+			if err := ValidateModelImageEditConfig(model.Image.Edit); err != nil {
+				return nil, fmt.Errorf("load model %s: image.edit: %w", entry.Name(), err)
+			}
+		}
+		result[key] = model
 	}
 	return result, nil
 }
@@ -653,6 +709,24 @@ func loadModelImage(raw any) ModelImageConfig {
 		Timeout:         intNode(values["timeout"]),
 		DefaultSize:     strings.TrimSpace(contracts.FirstNonEmptyString(values["defaultSize"], values["default-size"])),
 		ResponseFormats: firstStringSliceNode(values["responseFormats"], values["response-formats"]),
+		Edit:            loadModelImageEdit(values["edit"]),
+	}
+}
+
+func loadModelImageEdit(raw any) ModelImageEditConfig {
+	if raw == nil {
+		return ModelImageEditConfig{}
+	}
+	values := contracts.AnyMapNode(raw)
+	maskProtocol := strings.ToLower(strings.TrimSpace(contracts.FirstNonEmptyString(values["maskProtocol"], values["mask-protocol"])))
+	if maskProtocol == "" {
+		maskProtocol = ImageMaskProtocolNone
+	}
+	return ModelImageEditConfig{
+		EndpointPath:  strings.TrimSpace(contracts.FirstNonEmptyString(values["endpointPath"], values["endpoint-path"])),
+		RequestFormat: strings.ToLower(strings.TrimSpace(contracts.FirstNonEmptyString(values["requestFormat"], values["request-format"]))),
+		MaskProtocol:  maskProtocol,
+		Configured:    true,
 	}
 }
 

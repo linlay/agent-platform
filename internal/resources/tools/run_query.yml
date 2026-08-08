@@ -6,7 +6,9 @@ description: |
   that target-owned Chat instead. Return its chatId and runId immediately. This
   tool does not wait for the target result, and the target continues if the
   caller run is interrupted. When targeting the current Agent, set agentKey to
-  the exact Agent Identity.key from the current system prompt.
+  the exact Agent Identity.key from the current system prompt. Chinese phrases
+  “当前智能体”, “本智能体”, and “你自己” always mean that current Agent; do not
+  substitute a key from Runtime Context: Sub-Agent Candidates.
 clientVisible: true
 explicitOnly: true
 readOnly: false

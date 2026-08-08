@@ -7,6 +7,11 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"image"
+	"image/color"
+	"image/jpeg"
+	"image/png"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -317,6 +322,252 @@ func TestImageGenerateRejectsEmptyData(t *testing.T) {
 	}
 }
 
+func TestImageGenerateMultipartEditWithNormalizedMask(t *testing.T) {
+	outputBytes := testPNGBytes(t, 2, 1, []color.NRGBA{{R: 1, A: 255}, {B: 2, A: 255}})
+	var sawRequest bool
+	modelServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawRequest = true
+		if r.URL.Path != "/v1/images/edits" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if err := r.ParseMultipartForm(64 << 20); err != nil {
+			t.Fatalf("parse multipart: %v", err)
+		}
+		if got := r.FormValue("model"); got != "image-model-id" {
+			t.Fatalf("model=%q", got)
+		}
+		if got := r.FormValue("prompt"); got != "move the robot" {
+			t.Fatalf("prompt=%q", got)
+		}
+		if got := len(r.MultipartForm.File["image[]"]); got != 2 {
+			t.Fatalf("image[] count=%d", got)
+		}
+		maskFiles := r.MultipartForm.File["mask"]
+		if len(maskFiles) != 1 || maskFiles[0].Header.Get("Content-Type") != "image/png" {
+			t.Fatalf("unexpected mask files: %#v", maskFiles)
+		}
+		file, err := maskFiles[0].Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		maskBytes, err := io.ReadAll(file)
+		_ = file.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		decodedMask, err := png.Decode(bytes.NewReader(maskBytes))
+		if err != nil {
+			t.Fatalf("decode normalized mask: %v", err)
+		}
+		_, _, _, firstAlpha := decodedMask.At(0, 0).RGBA()
+		_, _, _, secondAlpha := decodedMask.At(1, 0).RGBA()
+		if firstAlpha != 0 || secondAlpha != 0xffff {
+			t.Fatalf("normalized white_edit alpha=(%d,%d)", firstAlpha, secondAlpha)
+		}
+		_, _ = w.Write([]byte("{\"data\":[{\"b64_json\":\"" + base64.StdEncoding.EncodeToString(outputBytes) + "\"}]}"))
+	}))
+	defer modelServer.Close()
+
+	chatsRoot := t.TempDir()
+	chatDir := filepath.Join(chatsRoot, "chat-1")
+	if err := os.MkdirAll(chatDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeImageGenerateTestPNG(t, filepath.Join(chatDir, "target.png"), 2, 1, []color.NRGBA{{A: 255}, {A: 255}})
+	writeImageGenerateTestPNG(t, filepath.Join(chatDir, "reference.png"), 2, 1, []color.NRGBA{{G: 10, A: 255}, {G: 20, A: 255}})
+	writeImageGenerateTestPNG(t, filepath.Join(chatDir, "mask.png"), 2, 1, []color.NRGBA{{R: 255, G: 255, B: 255, A: 255}, {A: 255}})
+
+	registry := writeImageGenerateRegistryWithImageConfig(t, modelServer.URL, true, []string{
+		"  endpointPath: /v1/images/generations",
+		"  responseFormats:",
+		"    - b64_json",
+		"  edit:",
+		"    endpointPath: /v1/images/edits",
+		"    requestFormat: openai-multipart",
+		"    maskProtocol: openai-alpha",
+	})
+	executor := imageGenerateTestExecutor(defaultImageGenerateTestConfig(), registry, chatsRoot)
+	result, err := executor.invokeImageGenerate(context.Background(), map[string]any{
+		"prompt": "move the robot",
+		"images": []any{
+			map[string]any{"reference_name": "target.png"},
+			map[string]any{"reference_name": "reference.png"},
+		},
+		"mask": map[string]any{"reference_name": "mask.png", "mode": "white_edit"},
+	}, &contracts.ExecutionContext{Session: contracts.QuerySession{ChatID: "chat-1", RunID: "run-1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sawRequest || result.Error != "" || result.Structured["operation"] != "inpainting" {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
+func TestImageGenerateChatCompletionEditUsesUnifiedInputs(t *testing.T) {
+	outputBytes := testPNGBytes(t, 1, 1, []color.NRGBA{{R: 9, A: 255}})
+	var captured map[string]any
+	modelServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatal(err)
+		}
+		dataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(outputBytes)
+		_, _ = w.Write([]byte("{\"choices\":[{\"message\":{\"images\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"" + dataURL + "\"}}]}}],\"usage\":{\"total_tokens\":3}}"))
+	}))
+	defer modelServer.Close()
+
+	chatsRoot := t.TempDir()
+	chatDir := filepath.Join(chatsRoot, "chat-1")
+	if err := os.MkdirAll(chatDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeImageGenerateTestPNG(t, filepath.Join(chatDir, "target.png"), 1, 1, []color.NRGBA{{A: 255}})
+	writeImageGenerateTestPNG(t, filepath.Join(chatDir, "reference.png"), 1, 1, []color.NRGBA{{B: 20, A: 255}})
+	registry := writeImageGenerateRegistryWithImageConfig(t, modelServer.URL, true, []string{
+		"  endpointPath: /v1/images/generations",
+		"  responseFormats:",
+		"    - b64_json",
+		"  edit:",
+		"    endpointPath: /v1/chat/completions",
+		"    requestFormat: openai-chat-completions",
+		"    maskProtocol: none",
+	})
+	executor := imageGenerateTestExecutor(defaultImageGenerateTestConfig(), registry, chatsRoot)
+	result, err := executor.invokeImageGenerate(context.Background(), map[string]any{
+		"prompt": "edit",
+		"images": []any{
+			map[string]any{"reference_name": "target.png"},
+			map[string]any{"reference_name": "reference.png"},
+		},
+	}, &contracts.ExecutionContext{Session: contracts.QuerySession{ChatID: "chat-1", RunID: "run-1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Error != "" || result.Structured["operation"] != "edit" {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	modalities, _ := captured["modalities"].([]any)
+	if len(modalities) != 2 || modalities[1] != "image" {
+		t.Fatalf("modalities=%#v", captured["modalities"])
+	}
+	messages, _ := captured["messages"].([]any)
+	content, _ := contracts.AnyMapNode(messages[0])["content"].([]any)
+	if len(content) != 3 {
+		t.Fatalf("content=%#v", content)
+	}
+}
+
+func TestImageGenerateRejectsUnsupportedMaskBeforeReadingImages(t *testing.T) {
+	registry := writeImageGenerateRegistryWithImageConfig(t, "http://127.0.0.1:1", true, []string{
+		"  endpointPath: /v1/images/generations",
+		"  edit:",
+		"    endpointPath: /v1/chat/completions",
+		"    requestFormat: openai-chat-completions",
+		"    maskProtocol: none",
+	})
+	executor := imageGenerateTestExecutor(defaultImageGenerateTestConfig(), registry, "")
+	result, err := executor.invokeImageGenerate(context.Background(), map[string]any{
+		"prompt": "edit",
+		"images": []any{
+			map[string]any{"reference_name": "missing.png"},
+		},
+		"mask": map[string]any{"reference_name": "missing-mask.png", "mode": "alpha"},
+	}, &contracts.ExecutionContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Error != "image_generate_mask_unsupported" {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
+func TestImageGenerateMaskRequiresImages(t *testing.T) {
+	registry := writeImageGenerateRegistry(t, "http://127.0.0.1:1", true)
+	executor := imageGenerateTestExecutor(defaultImageGenerateTestConfig(), registry, "")
+	result, err := executor.invokeImageGenerate(context.Background(), map[string]any{
+		"prompt": "edit",
+		"mask":   map[string]any{"reference_name": "mask.png", "mode": "alpha"},
+	}, &contracts.ExecutionContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Error != "image_generate_mask_requires_images" {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
+func TestDecodeGeneratedImageBase64SniffsActualJPEG(t *testing.T) {
+	var encoded bytes.Buffer
+	if err := jpeg.Encode(&encoded, image.NewNRGBA(image.Rect(0, 0, 1, 1)), nil); err != nil {
+		t.Fatal(err)
+	}
+	_, mimeType, err := decodeGeneratedImageBase64(base64.StdEncoding.EncodeToString(encoded.Bytes()), "image/png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mimeType != "image/jpeg" {
+		t.Fatalf("mimeType=%q", mimeType)
+	}
+}
+
+func TestDownloadGeneratedImageSniffsBytesBeforeHeader(t *testing.T) {
+	var encoded bytes.Buffer
+	if err := jpeg.Encode(&encoded, image.NewNRGBA(image.Rect(0, 0, 1, 1)), nil); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(encoded.Bytes())
+	}))
+	defer server.Close()
+	executor := &RuntimeToolExecutor{httpClient: server.Client()}
+	_, mimeType, err := executor.downloadGeneratedImage(context.Background(), server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mimeType != "image/jpeg" {
+		t.Fatalf("mimeType=%q", mimeType)
+	}
+}
+
+func TestNormalizeImageGenerateMaskModesAndDimensions(t *testing.T) {
+	target := testPNGBytes(t, 2, 1, []color.NRGBA{{A: 255}, {A: 255}})
+	tests := []struct {
+		name      string
+		mode      string
+		pixels    []color.NRGBA
+		wantAlpha [2]uint32
+	}{
+		{name: "alpha", mode: "alpha", pixels: []color.NRGBA{{A: 0}, {A: 255}}, wantAlpha: [2]uint32{0, 0xffff}},
+		{name: "white edit", mode: "white_edit", pixels: []color.NRGBA{{R: 255, G: 255, B: 255, A: 255}, {A: 255}}, wantAlpha: [2]uint32{0, 0xffff}},
+		{name: "black edit", mode: "black_edit", pixels: []color.NRGBA{{A: 255}, {R: 255, G: 255, B: 255, A: 255}}, wantAlpha: [2]uint32{0, 0xffff}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mask := testPNGBytes(t, 2, 1, test.pixels)
+			converted, err := normalizeImageGenerateMask(target, mask, "image/png", test.mode)
+			if err != nil {
+				t.Fatal(err)
+			}
+			decoded, err := png.Decode(bytes.NewReader(converted))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _, _, first := decoded.At(0, 0).RGBA()
+			_, _, _, second := decoded.At(1, 0).RGBA()
+			if first != test.wantAlpha[0] || second != test.wantAlpha[1] {
+				t.Fatalf("alpha=(%d,%d), want=%v", first, second, test.wantAlpha)
+			}
+		})
+	}
+	wrongSize := testPNGBytes(t, 1, 1, []color.NRGBA{{A: 255}})
+	if _, err := normalizeImageGenerateMask(target, wrongSize, "image/png", "alpha"); err == nil || !strings.Contains(err.Error(), "must match") {
+		t.Fatalf("expected dimension mismatch, got %v", err)
+	}
+}
+
 func TestImageGenerateDescriptionKeepsPathInternalAndRequiresReturnedURL(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "resources", "tools", "image_generate.yml"))
 	if err != nil {
@@ -424,4 +675,24 @@ func writeImageGenerateRegistryWithModel(t *testing.T, baseURL string, withAPIKe
 		t.Fatalf("load model registry: %v", err)
 	}
 	return registry
+}
+
+func writeImageGenerateTestPNG(t *testing.T, path string, width int, height int, pixels []color.NRGBA) {
+	t.Helper()
+	if err := os.WriteFile(path, testPNGBytes(t, width, height, pixels), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func testPNGBytes(t *testing.T, width int, height int, pixels []color.NRGBA) []byte {
+	t.Helper()
+	img := image.NewNRGBA(image.Rect(0, 0, width, height))
+	for index, pixel := range pixels {
+		img.SetNRGBA(index%width, index/width, pixel)
+	}
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, img); err != nil {
+		t.Fatal(err)
+	}
+	return encoded.Bytes()
 }

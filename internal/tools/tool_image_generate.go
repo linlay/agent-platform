@@ -68,6 +68,10 @@ func (t *RuntimeToolExecutor) invokeImageGenerate(ctx context.Context, args map[
 	if strings.TrimSpace(provider.BaseURL) == "" || strings.TrimSpace(provider.APIKey) == "" {
 		return imageGenerateToolError("image_generate_provider_config_invalid", "provider baseUrl and apiKey are required", map[string]any{"provider": provider.Key}), nil
 	}
+	inputImages, inputMask, inputResult, handled := t.loadImageGenerateInputs(args, execCtx, profile, model)
+	if handled {
+		return inputResult, nil
+	}
 
 	size := strings.TrimSpace(FirstNonEmptyString(args["size"], profile.Size, model.Image.DefaultSize))
 	if size == "" {
@@ -85,19 +89,23 @@ func (t *RuntimeToolExecutor) invokeImageGenerate(ctx context.Context, args map[
 		return imageGenerateToolError("image_generate_n_invalid", "n must be between 1 and 4", map[string]any{"n": n}), nil
 	}
 
-	body := map[string]any{
-		"model":           model.ModelID,
-		"prompt":          prompt,
-		"size":            size,
-		"response_format": responseFormat,
-		"n":               n,
-	}
-	body = mergeVisionRequestCompat(body, provider, model)
-
 	start := time.Now()
 	callCtx, cancel := context.WithTimeout(ctx, time.Duration(imageGenerateTimeout(model, profile))*time.Second)
 	defer cancel()
-	decoded, err := t.completeImageGenerate(callCtx, model, provider, profile, body)
+	var decoded imageGenerateResponse
+	if len(inputImages) == 0 {
+		body := map[string]any{
+			"model":           model.ModelID,
+			"prompt":          prompt,
+			"size":            size,
+			"response_format": responseFormat,
+			"n":               n,
+		}
+		body = mergeVisionRequestCompat(body, provider, model)
+		decoded, err = t.completeImageGenerate(callCtx, model, provider, profile, body)
+	} else {
+		decoded, err = t.completeImageGenerateEdit(callCtx, model, provider, prompt, size, responseFormat, n, inputImages, inputMask)
+	}
 	if err != nil {
 		return imageGenerateToolError("image_generate_model_request_failed", err.Error(), map[string]any{"modelKey": model.Key, "profile": profileName}), nil
 	}
@@ -118,6 +126,14 @@ func (t *RuntimeToolExecutor) invokeImageGenerate(ctx context.Context, args map[
 		"images":         images,
 		"durationMs":     time.Since(start).Milliseconds(),
 	}
+	operation := "generation"
+	if len(inputImages) > 0 {
+		operation = "edit"
+	}
+	if inputMask != nil {
+		operation = "inpainting"
+	}
+	payload["operation"] = operation
 	if decoded.Created > 0 {
 		payload["rawCreated"] = decoded.Created
 	}
@@ -176,8 +192,8 @@ func (t *RuntimeToolExecutor) completeImageGenerate(ctx context.Context, model m
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return imageGenerateResponse{}, fmt.Errorf("image generation request failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
 	}
-	var decoded imageGenerateResponse
-	if err := json.Unmarshal(data, &decoded); err != nil {
+	decoded, err := decodeImageGenerateResponse(data)
+	if err != nil {
 		return imageGenerateResponse{}, err
 	}
 	if decoded.Error != nil && strings.TrimSpace(decoded.Error.Message) != "" {
@@ -330,15 +346,13 @@ func (t *RuntimeToolExecutor) downloadGeneratedImage(ctx context.Context, rawURL
 	if len(data) == 0 || len(data) > maxGeneratedImageBytes {
 		return nil, "", fmt.Errorf("provider image exceeds %d bytes or is empty", maxGeneratedImageBytes)
 	}
-	imageMime := ""
+	headerMime := ""
 	if contentType, _, parseErr := mime.ParseMediaType(resp.Header.Get("Content-Type")); parseErr == nil && strings.HasPrefix(strings.ToLower(contentType), "image/") {
-		imageMime = normalizeGeneratedImageMime(contentType)
+		headerMime = normalizeGeneratedImageMime(contentType)
 	}
+	imageMime := detectedGeneratedImageMime(data)
 	if imageMime == "" {
-		detected := strings.ToLower(http.DetectContentType(data))
-		if strings.HasPrefix(detected, "image/") {
-			imageMime = normalizeGeneratedImageMime(detected)
-		}
+		imageMime = headerMime
 	}
 	if imageMime == "" {
 		return nil, "", fmt.Errorf("provider response is not an image")
@@ -348,7 +362,7 @@ func (t *RuntimeToolExecutor) downloadGeneratedImage(ctx context.Context, rawURL
 
 func decodeGeneratedImageBase64(raw string, fallbackMime string) ([]byte, string, error) {
 	value := strings.TrimSpace(raw)
-	imageMime := normalizeGeneratedImageMime(fallbackMime)
+	imageMime := ""
 	if strings.HasPrefix(strings.ToLower(value), "data:") {
 		header, payload, ok := strings.Cut(value, ",")
 		if !ok {
@@ -371,10 +385,21 @@ func decodeGeneratedImageBase64(raw string, fallbackMime string) ([]byte, string
 	if err != nil {
 		return nil, "", err
 	}
+	if detected := detectedGeneratedImageMime(data); detected != "" {
+		imageMime = detected
+	}
 	if imageMime == "" {
-		imageMime = "image/png"
+		imageMime = normalizeGeneratedImageMime(fallbackMime)
 	}
 	return data, imageMime, nil
+}
+
+func detectedGeneratedImageMime(data []byte) string {
+	detected := strings.ToLower(http.DetectContentType(data))
+	if strings.HasPrefix(detected, "image/") {
+		return normalizeGeneratedImageMime(detected)
+	}
+	return ""
 }
 
 func normalizeGeneratedImageMime(value string) string {
