@@ -40,6 +40,74 @@ type AgentFileResponse struct {
 	ContentURL     string `json:"contentUrl,omitempty"`
 }
 
+type ProjectTreeEntry struct {
+	Name           string `json:"name"`
+	Path           string `json:"path"`
+	Kind           string `json:"kind"`
+	TargetKind     string `json:"targetKind,omitempty"`
+	Accessible     bool   `json:"accessible"`
+	SizeBytes      int64  `json:"sizeBytes,omitempty"`
+	ModifiedUnixMs int64  `json:"modifiedUnixMs,omitempty"`
+}
+
+type ProjectTreeResponse struct {
+	AgentKey      string             `json:"agentKey"`
+	Mode          string             `json:"mode"`
+	WorkspaceName string             `json:"workspaceName"`
+	Path          string             `json:"path"`
+	Revision      string             `json:"revision"`
+	Entries       []ProjectTreeEntry `json:"entries"`
+	NextCursor    string             `json:"nextCursor,omitempty"`
+}
+
+type ProjectHistoryVersion struct {
+	Exists    bool   `json:"exists"`
+	SHA256    string `json:"sha256,omitempty"`
+	SizeBytes int64  `json:"sizeBytes,omitempty"`
+}
+
+type ProjectChangeItem struct {
+	RunID      string                `json:"runId"`
+	Path       string                `json:"path"`
+	ChangeType string                `json:"changeType"`
+	UpdatedAt  int64                 `json:"updatedAt,omitempty"`
+	Original   ProjectHistoryVersion `json:"original"`
+	Current    ProjectHistoryVersion `json:"current"`
+}
+
+type ProjectChangeRun struct {
+	RunID     string `json:"runId"`
+	UpdatedAt int64  `json:"updatedAt,omitempty"`
+	FileCount int    `json:"fileCount"`
+}
+
+type ProjectChangesResponse struct {
+	AgentKey   string              `json:"agentKey"`
+	ChatID     string              `json:"chatId"`
+	Revision   string              `json:"revision"`
+	Runs       []ProjectChangeRun  `json:"runs"`
+	Items      []ProjectChangeItem `json:"items"`
+	NextCursor string              `json:"nextCursor,omitempty"`
+}
+
+type ProjectDiffVersion struct {
+	Exists    bool   `json:"exists"`
+	Content   string `json:"content,omitempty"`
+	Encoding  string `json:"encoding,omitempty"`
+	SHA256    string `json:"sha256,omitempty"`
+	SizeBytes int64  `json:"sizeBytes,omitempty"`
+}
+
+type ProjectDiffResponse struct {
+	AgentKey   string             `json:"agentKey"`
+	ChatID     string             `json:"chatId"`
+	RunID      string             `json:"runId"`
+	Path       string             `json:"path"`
+	ChangeType string             `json:"changeType"`
+	Original   ProjectDiffVersion `json:"original"`
+	Current    ProjectDiffVersion `json:"current"`
+}
+
 func Success[T any](data T) ApiResponse[T] {
 	return ApiResponse[T]{
 		Code: 0,

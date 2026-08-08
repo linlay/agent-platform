@@ -163,6 +163,31 @@ type FileHistoryReader interface {
 	ReadFileHistory(chatID string, runID string, filePath string, version string) (string, error)
 }
 
+// ProjectFileHistoryReader exposes the metadata needed by the read-only
+// Project workspace browser. It is deliberately separate from
+// FileHistoryReader so existing lightweight test doubles do not need to
+// implement directory-style history discovery.
+type ProjectFileHistoryReader interface {
+	FileHistoryReader
+	ListFileHistory(chatID string, runID string) ([]FileHistoryRecord, error)
+}
+
+type FileHistoryRecord struct {
+	RunID           string
+	FilePath        string
+	Original        FileHistoryVersion
+	Current         FileHistoryVersion
+	UpdatedAtUnixMs int64
+}
+
+type FileHistoryVersion struct {
+	Present         bool
+	Exists          bool
+	SHA256          string
+	SizeBytes       int64
+	UpdatedAtUnixMs int64
+}
+
 type FileChangeHook interface {
 	AfterFileChange(ctx context.Context, event FileChangeEvent) FileChangeHookResult
 }

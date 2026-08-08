@@ -191,6 +191,17 @@ func (r *ToolRouter) ReadFileHistory(chatID string, runID string, filePath strin
 	return reader.ReadFileHistory(chatID, runID, filePath, version)
 }
 
+func (r *ToolRouter) ListFileHistory(chatID string, runID string) ([]FileHistoryRecord, error) {
+	if r == nil || r.runtime == nil {
+		return nil, ErrNotImplemented
+	}
+	reader, ok := r.runtime.(ProjectFileHistoryReader)
+	if !ok {
+		return nil, ErrNotImplemented
+	}
+	return reader.ListFileHistory(chatID, runID)
+}
+
 func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	def, ok := r.lookup(toolName)
 	if execCtx != nil && IsReadOnlyToolExecutionPolicy(execCtx.ToolExecutionPolicy) && !toolpolicy.AllowsReadOnly(def, ok) {

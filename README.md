@@ -31,6 +31,10 @@
 - `GET /api/viewport?viewportKey=...`
 - `GET /api/resource?file=...`
 - `POST /api/upload`
+- `GET /api/file?agentKey=...&path=...`
+- `GET /api/project/tree?agentKey=...`
+- `GET /api/project/changes?agentKey=...&chatId=...`
+- `GET /api/project/diff?agentKey=...&chatId=...&runId=...&path=...`
 
 返回格式约定：
 

@@ -552,12 +552,21 @@ curl -sS -X POST http://127.0.0.1:11949/api/kbase/docs_kbase/refresh \
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
 | GET | `/api/file` | query: `agentKey`、`path`、`response` 可选 | agent workspace 文件；默认 JSON metadata/text，`response=content` 返回文件内容流 |
+| GET | `/api/project/tree` | query: `agentKey`、`path`、`limit`、`cursor` | CODER/KBASE Workspace 单层目录树，目录优先稳定排序 |
+| GET | `/api/project/changes` | query: `agentKey`、`chatId`、可选 `runId/limit/cursor` | 当前 Chat 的 Run 文件历史列表 |
+| GET | `/api/project/diff` | query: `agentKey`、`chatId`、`runId`、`path`、可选 `encoding` | 单个 Run 快照的原始/当前文本 |
 | GET | `/api/viewport` | query: `viewportKey`、`viewportType` | viewport 模板或 fallback |
 | GET | `/api/resource` | query: `file`、`chatId`、`t`、`download` | ChatScope 或普通 Agent Workspace/`/tmp` 资源字节；绝对路径必须传 `chatId` |
 | GET | `/api/tool-result` | query: `chatId`、`path`、`t` | `.tools/results/<toolId>.json` 完整工具结果；`t` 为可选 resource ticket |
 | POST | `/api/upload` | multipart: `requestId`、`chatId`、`file` | upload ticket 与资源访问信息 |
 
 `/api/file` 与 `/api/agent/open-directory` 的 `directoryType:"workspace"` 都使用 `runtimeConfig.workspaceRoot`。`path` 可以是 Workspace 相对路径，也可以是宿主机绝对路径；绝对路径经 canonical 解析后必须分类为 Workspace，进入整个 ChatsRoot 会返回 `path_crosses_chat_root`，`..` 与 symlink escape 会返回 forbidden。默认响应使用统一 JSON 包裹，文本文件内联 `content`，二进制/PDF/图片只返回 metadata 与 `contentUrl`；`response=content` 时直接返回文件字节流，不使用 JSON 包裹。该接口不读取 KBASE 索引库，也不扩大 `hostAccess.readRoots`。
+
+Project 三个端点是只读 HTTP 数据面，只接受服务端从 `agentKey` 解析出的精确 `mode: CODER|KBASE`，不接受 Team、其他 mode 或客户端 `workspaceRoot`。所有 `path` 都是 Workspace 相对 POSIX 路径：拒绝绝对路径、反斜杠、`..`、ChatsRoot、symlink 逃逸和 device file。KBASE 不要求 `editingMode:true`。
+
+`/api/project/tree` 每次只枚举一个目录，默认 `limit=200`、最大 1000；目录优先并按名称稳定排序。游标绑定响应 `revision`，继续分页前目录发生变化会返回 HTTP 409，错误码为 `data.error.code=directory_changed`。目录 symlink 不允许展开；指向 Workspace 内普通文件的 symlink 可交给 `/api/file` 预览，逃逸、断链、目录目标或非普通文件保留 `kind:"symlink"` 但返回 `accessible:false`。Workspace 为文件系统根时仍屏蔽整个 ChatsRoot。
+
+`/api/project/changes` 验证 Chat owner 与 Agent 一致；指定 `runId` 时还会验证 Run 属于该 Chat。不指定 Run 时按每个 Run 的独立基线返回现有 file-history，不跨 Run 聚合；已离开当前 Workspace 的历史条目不回显。空目录和空历史分别固定返回 `entries:[]`、`runs:[]`、`items:[]`，不会返回 `null`。`/api/project/diff` 从同一历史存储一次返回 `original/current` 两侧；新增和删除由各侧 `exists` 表达。任一快照超过 `file-tools.max-read-bytes` 返回 413 `diff_too_large`，二进制、含二进制控制内容、无法按请求编码解码的快照返回 415 `unsupported_media_type`。Bash、ACP 或外部程序绕过 FileTools 的写入没有历史快照，只能通过 `/api/file` 读取实时内容，不会生成伪 Diff。
 
 `/api/resource` 的 ChatScope 数据面使用 `file=<chatId>/<relativePath>` 逻辑资源键。Markdown 的 `relativePath` 每段先做 URI path 编码，adapter 再把整个逻辑键做 query 编码；服务端逐段只解码一次并执行 canonical/symlink 边界检查，拒绝路径穿越、其他 chat 所有权和 `.tools`/`.btw` 内部目录。active 文件不存在时会在同一 chat 的 archive 副本中查找，使生成和发布资源可稳定回放。
 

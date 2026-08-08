@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -142,6 +143,77 @@ func (t *RuntimeToolExecutor) ReadFileHistory(chatID string, runID string, fileP
 		return "", err
 	}
 	return string(data), nil
+}
+
+func (t *RuntimeToolExecutor) ListFileHistory(chatID string, runID string) ([]FileHistoryRecord, error) {
+	if t == nil || t.chats == nil {
+		return nil, ErrNotImplemented
+	}
+	chatID = strings.TrimSpace(chatID)
+	runID = strings.TrimSpace(runID)
+	if !chat.ValidChatID(chatID) || (runID != "" && !validFileHistoryRunID(runID)) {
+		return nil, os.ErrPermission
+	}
+
+	runIDs := []string{}
+	if runID != "" {
+		runIDs = append(runIDs, runID)
+	} else {
+		root := filepath.Join(t.chats.ChatDir(chatID), chat.ToolRootDirName, chat.ToolStateDirName, fileHistoryDirName)
+		entries, err := os.ReadDir(root)
+		if errors.Is(err, os.ErrNotExist) {
+			return []FileHistoryRecord{}, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range entries {
+			if entry.IsDir() && validFileHistoryRunID(entry.Name()) {
+				runIDs = append(runIDs, entry.Name())
+			}
+		}
+		sort.Strings(runIDs)
+	}
+
+	t.fileStateMu.Lock()
+	defer t.fileStateMu.Unlock()
+	result := make([]FileHistoryRecord, 0)
+	for _, id := range runIDs {
+		manifestPath := filepath.Join(t.fileHistoryRunDir(chatID, id), fileHistoryManifestName)
+		manifest, err := readFileHistoryManifest(manifestPath)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		for _, entry := range manifest.Files {
+			if strings.TrimSpace(entry.FilePath) == "" {
+				continue
+			}
+			result = append(result, FileHistoryRecord{
+				RunID:           id,
+				FilePath:        entry.FilePath,
+				Original:        contractFileHistoryVersion(entry.Original),
+				Current:         contractFileHistoryVersion(entry.Current),
+				UpdatedAtUnixMs: entry.UpdatedAtUnixMs,
+			})
+		}
+	}
+	return result, nil
+}
+
+func contractFileHistoryVersion(entry *fileHistoryVersionEntry) FileHistoryVersion {
+	if entry == nil {
+		return FileHistoryVersion{}
+	}
+	return FileHistoryVersion{
+		Present:         true,
+		Exists:          entry.Exists,
+		SHA256:          entry.SHA256,
+		SizeBytes:       int64(entry.SizeBytes),
+		UpdatedAtUnixMs: entry.UpdatedAtUnixMs,
+	}
 }
 
 func (t *RuntimeToolExecutor) buildFileHistoryVersion(runDir string, content []byte, exists bool, updatedAt int64) (*fileHistoryVersionEntry, error) {

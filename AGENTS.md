@@ -125,7 +125,7 @@ KBASE 默认由 `AP_RUNTIME_KBASE_DIR` 控制，每个 agent storageDir 可包�
 - Run：`/api/query`、`/api/attach`、`/api/submit`、`/api/steer`、`/api/interrupt`。
 - Memory：`/api/learn`、memory console 相关接口。
 - KBASE：`/api/kbase/{agentKey}/status`、`/api/kbase/{agentKey}/refresh` 以及五个 KBASE tools。
-- Resource：`/api/upload`、`/api/resource`。
+- Project / Resource：`/api/project/tree`、`/api/project/changes`、`/api/project/diff`、`/api/upload`、`/api/resource`。Project 只读接口只接受 CODER/KBASE 的 Workspace 相对 POSIX 路径，复用 file-history 作为 Run Diff 基线。
 - Viewport / WebSocket：`/api/viewport`、`/ws`。
 
 详细协议拆分到专题文档：REST / SSE / WebSocket 见 [API与协议](docs/API与协议.md)，真流式与 attach 见 [真流式和H2A](docs/真流式和H2A.md)，HITL 见 [HITL协议](docs/HITL协议.md)。
