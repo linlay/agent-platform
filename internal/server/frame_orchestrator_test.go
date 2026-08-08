@@ -253,6 +253,85 @@ func TestFrameOrchestratorRejectsInvalidSubAgentMode(t *testing.T) {
 	}
 }
 
+func TestFrameOrchestratorRejectsSelfInvocationBeforeCatalogLookup(t *testing.T) {
+	mainStream := &stubOrchestratableStream{
+		deltas: []contracts.AgentDelta{
+			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{
+				SubAgentKey: "  parent-agent  ",
+				TaskText:    "delegate to myself",
+			}),
+		},
+	}
+	engine := &orchestratorAgentEngine{}
+	var emitted []contracts.AgentDelta
+	orchestrator := newTestFrameOrchestrator(engine, nil, &emitted, nil)
+	orchestrator.session.AgentKey = "parent-agent"
+
+	streamFailed, streamInterrupted, err := orchestrator.Run(mainStream)
+	if err != nil || streamFailed || streamInterrupted {
+		t.Fatalf("unexpected orchestrator result err=%v failed=%v interrupted=%v", err, streamFailed, streamInterrupted)
+	}
+	if len(mainStream.injected) != 1 || !mainStream.injected[0].isError || mainStream.injected[0].text != "agent_invoke cannot target the current agent" {
+		t.Fatalf("expected self-target error tool result, got %#v", mainStream.injected)
+	}
+	if len(emitted) != 0 || len(engine.sessions) != 0 {
+		t.Fatalf("self invocation started child work: emitted=%#v sessions=%#v", emitted, engine.sessions)
+	}
+}
+
+func TestFrameOrchestratorSelfInvocationComparisonIsCaseSensitive(t *testing.T) {
+	mainStream := &stubOrchestratableStream{
+		deltas: []contracts.AgentDelta{
+			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{
+				SubAgentKey: "Parent-Agent",
+				TaskText:    "use an exact catalog key",
+			}),
+		},
+	}
+	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{}, nil, nil, nil)
+	orchestrator.session.AgentKey = "parent-agent"
+
+	streamFailed, streamInterrupted, err := orchestrator.Run(mainStream)
+	if err != nil || streamFailed || streamInterrupted {
+		t.Fatalf("unexpected orchestrator result err=%v failed=%v interrupted=%v", err, streamFailed, streamInterrupted)
+	}
+	if len(mainStream.injected) != 1 || !mainStream.injected[0].isError || mainStream.injected[0].text != "sub-agent not found: Parent-Agent" {
+		t.Fatalf("case-distinct target was treated as self: %#v", mainStream.injected)
+	}
+}
+
+func TestFrameOrchestratorRejectsEntireBatchContainingSelfInvocation(t *testing.T) {
+	mainStream := &stubOrchestratableStream{
+		deltas: []contracts.AgentDelta{
+			newInvokeAgentsDelta(
+				contracts.SubAgentTaskSpec{SubAgentKey: "writer", TaskText: "write"},
+				contracts.SubAgentTaskSpec{SubAgentKey: " parent-agent ", TaskText: "review myself"},
+			),
+		},
+	}
+	children := map[string]contracts.AgentStream{
+		"writer": &stubOrchestratableStream{finalText: "writer result"},
+	}
+	engine := &orchestratorAgentEngine{streamsByAgentKey: children}
+	var emitted []contracts.AgentDelta
+	var routed []stream.StreamInput
+	orchestrator := newTestFrameOrchestrator(engine, map[string]catalog.AgentDefinition{
+		"writer": {Key: "writer", Mode: "REACT"},
+	}, &emitted, &routed)
+	orchestrator.session.AgentKey = "parent-agent"
+
+	streamFailed, streamInterrupted, err := orchestrator.Run(mainStream)
+	if err != nil || streamFailed || streamInterrupted {
+		t.Fatalf("unexpected orchestrator result err=%v failed=%v interrupted=%v", err, streamFailed, streamInterrupted)
+	}
+	if len(mainStream.injected) != 1 || !mainStream.injected[0].isError || mainStream.injected[0].text != "agent_invoke cannot target the current agent" {
+		t.Fatalf("expected self-target batch rejection, got %#v", mainStream.injected)
+	}
+	if len(emitted) != 0 || len(routed) != 0 || len(engine.sessions) != 0 || len(children) != 1 {
+		t.Fatalf("self-target batch started work: emitted=%#v routed=%#v sessions=%#v children=%#v", emitted, routed, engine.sessions, children)
+	}
+}
+
 func TestFrameOrchestratorAllowsKBaseSubAgent(t *testing.T) {
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{

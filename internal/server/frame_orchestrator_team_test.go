@@ -162,6 +162,35 @@ func TestFrameOrchestratorTeamDelegationRejectsDuplicateMemberSet(t *testing.T) 
 	}
 }
 
+func TestFrameOrchestratorTeamDelegationRejectsSelfTarget(t *testing.T) {
+	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
+		MainToolID: "team-tool",
+		Tasks:      []contracts.SubAgentTaskSpec{{SubAgentKey: " writer "}},
+	}}}
+	defs := map[string]catalog.AgentDefinition{
+		"writer":   {Key: "writer", Name: "Writer", Mode: "REACT"},
+		"reviewer": {Key: "reviewer", Name: "Reviewer", Mode: "REACT"},
+	}
+	children := map[string]contracts.AgentStream{
+		"writer": &stubOrchestratableStream{finalText: "member answer"},
+	}
+	var routed []stream.StreamInput
+	var emitted []contracts.AgentDelta
+	o := newTeamFrameOrchestrator(t, main, children, defs, &routed, &emitted)
+	o.session.AgentKey = "writer"
+
+	failed, interrupted, err := o.Run(main)
+	if err != nil || failed || interrupted {
+		t.Fatalf("Run() = failed=%v interrupted=%v err=%v", failed, interrupted, err)
+	}
+	if len(main.injected) != 1 || !main.injected[0].isError || main.injected[0].text != "agent_delegate cannot target the current agent" {
+		t.Fatalf("self delegation was not rejected: %#v", main.injected)
+	}
+	if len(routed) != 0 || len(emitted) != 0 || len(children) != 1 {
+		t.Fatalf("self delegation started work: routed=%#v emitted=%#v children=%#v", routed, emitted, children)
+	}
+}
+
 func TestFrameOrchestratorTeamCustomTaskUsesSameDelegationPath(t *testing.T) {
 	main := &stubOrchestratableStream{deltas: []contracts.AgentDelta{contracts.DeltaTeamDispatch{
 		MainToolID: "team-tool",

@@ -164,6 +164,17 @@ func (o *frameOrchestrator) handleSubAgentBatch(mainStream contracts.AgentStream
 		o.injectMainToolError(main, invoke.MainToolID, fmt.Sprintf("invalid agent_invoke call: tasks must contain between 1 and %d items", contracts.MaxInvokeAgentTasks))
 		return nil
 	}
+	for _, task := range invoke.Tasks {
+		subAgentKey := strings.TrimSpace(task.SubAgentKey)
+		if subAgentKey == "" || strings.TrimSpace(task.TaskText) == "" {
+			o.injectMainToolError(main, invoke.MainToolID, "invalid agent_invoke call: every task requires subAgentKey and task")
+			return nil
+		}
+		if sameAgentKey(subAgentKey, o.session.AgentKey) {
+			o.injectMainToolError(main, invoke.MainToolID, "agent_invoke cannot target the current agent")
+			return nil
+		}
+	}
 	if strings.TrimSpace(o.session.TeamID) != "" && o.teamSnapshot == nil {
 		resolved, found := resolveCatalogTeam(o.registry, o.session.TeamID)
 		if !found {
@@ -179,10 +190,6 @@ func (o *frameOrchestrator) handleSubAgentBatch(mainStream contracts.AgentStream
 		taskName := strings.TrimSpace(task.TaskName)
 		if taskName == "" {
 			taskName = subAgentKey
-		}
-		if subAgentKey == "" || taskText == "" {
-			o.injectMainToolError(main, invoke.MainToolID, "invalid agent_invoke call: every task requires subAgentKey and task")
-			return nil
 		}
 		var agentDef catalog.AgentDefinition
 		var found bool
@@ -379,6 +386,10 @@ func (o *frameOrchestrator) handleTeamDispatch(mainStream contracts.AgentStream,
 	seenMembers := make(map[string]struct{}, len(dispatch.Tasks))
 	for _, spec := range dispatch.Tasks {
 		memberKey := strings.TrimSpace(spec.SubAgentKey)
+		if sameAgentKey(memberKey, o.session.AgentKey) {
+			o.injectMainToolError(main, dispatch.MainToolID, "agent_delegate cannot target the current agent")
+			return false, nil
+		}
 		lookupKey := strings.ToLower(memberKey)
 		if _, duplicate := seenMembers[lookupKey]; duplicate {
 			o.injectMainToolError(main, dispatch.MainToolID, fmt.Sprintf("member %q may only appear once in agent_delegate", memberKey))
@@ -1249,6 +1260,12 @@ func containsInvokeAgentsTool(toolNames []string) bool {
 		}
 	}
 	return false
+}
+
+func sameAgentKey(left string, right string) bool {
+	left = strings.TrimSpace(left)
+	right = strings.TrimSpace(right)
+	return left != "" && right != "" && left == right
 }
 
 func isProxyAgentMode(mode string) bool {

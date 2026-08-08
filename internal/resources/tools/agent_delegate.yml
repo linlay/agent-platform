@@ -1,6 +1,6 @@
 name: agent_delegate
 label: 委派团队成员
-description: Delegate work to one or more agents in the current Team.
+description: Delegate work to one or more other agents in the current Team. The current executing agent cannot be a target.
 clientVisible: true
 explicitOnly: true
 internalOnly: true
@@ -22,7 +22,7 @@ inputSchema:
         properties:
           agentKey:
             type: string
-            description: Required. Exact agentKey from the frozen Team roster.
+            description: Required. Exact agentKey from the frozen Team roster. It must differ from the current executing agent key.
           task:
             type: string
             description: Optional. Task prompt. Defaults to the original user request.
