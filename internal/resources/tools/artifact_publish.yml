@@ -17,7 +17,11 @@ description: |
   /api/resource transport endpoint. Never hand build or encode transport URLs,
   and never output the source path, file://, @chat, /chat, or chat_dir. If no
   valid published url is returned, do not fabricate a Markdown link; report
-  that publication failed.
+  that publication failed. Inline Markdown, ECharts, HTML, code, or other text
+  shown directly in the response is not a file deliverable: do not create or
+  publish a file unless the user explicitly requests a file, download, or
+  export and that deliverable file actually exists. Temporary/support files
+  and edits to existing Workspace files are not deliverables by themselves.
 clientVisible: true
 inputSchema:
   type: object

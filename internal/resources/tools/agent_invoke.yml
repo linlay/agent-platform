@@ -1,6 +1,9 @@
 name: agent_invoke
 label: 调度智能体
-description: Dispatch 1 to 5 other sub-agents in parallel, stream each sub-agent's activity live, and continue after all final answers are returned as one aggregated tool result. Never target the current Agent Identity.key.
+description: |
+  Dispatch 1 to 5 other sub-agents in parallel, stream each sub-agent's
+  activity live, and continue after all final answers are returned as one
+  aggregated tool result. Never target the current Agent Identity.key.
 clientVisible: true
 inputSchema:
   type: object

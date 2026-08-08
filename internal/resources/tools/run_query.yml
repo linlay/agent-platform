@@ -1,6 +1,12 @@
 name: run_query
 label: 发起独立运行
-description: Start an independent root run for exactly one catalog Agent or Team and return its chatId and runId immediately. This tool does not wait for the target result, and the target continues if the caller run is interrupted. Use agent_invoke instead when the current response must wait for and consume sub-agent results.
+description: |
+  Start an independent root run for exactly one catalog Agent or Team. By
+  default, it creates a new Chat/thread; when chatId is provided, it continues
+  that target-owned Chat instead. Return its chatId and runId immediately. This
+  tool does not wait for the target result, and the target continues if the
+  caller run is interrupted. When targeting the current Agent, set agentKey to
+  the exact Agent Identity.key from the current system prompt.
 clientVisible: true
 explicitOnly: true
 readOnly: false
@@ -16,7 +22,7 @@ inputSchema:
         agentKey:
           type: string
           minLength: 1
-          description: Required. Exact catalog key of the target Agent.
+          description: Required. Exact catalog key of the target Agent. When targeting the current Agent, use the exact Agent Identity.key from the current system prompt.
         chatId:
           type: string
           minLength: 1
@@ -34,7 +40,7 @@ inputSchema:
         teamId:
           type: string
           minLength: 1
-          description: Required. Exact catalog ID of the target Team.
+          description: Required. Exact catalog ID of the target Team. Use the target Team's exact catalog teamId.
         chatId:
           type: string
           minLength: 1

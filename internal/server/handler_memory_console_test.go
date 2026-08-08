@@ -18,7 +18,7 @@ import (
 	gws "github.com/gorilla/websocket"
 )
 
-func TestMemoryPreviewUsesCurrentIdentityAndSubAgentCandidateSemantics(t *testing.T) {
+func TestMemoryPreviewKeepsIdentityFactsSeparateFromSubAgentCandidateSemantics(t *testing.T) {
 	identity := memoryPreviewAgentIdentity(catalog.AgentDefinition{
 		Key:         "cutej",
 		Name:        "小君",
@@ -27,12 +27,18 @@ func TestMemoryPreviewUsesCurrentIdentityAndSubAgentCandidateSemantics(t *testin
 		Mode:        "REACT",
 	})
 	for _, expected := range []string{
-		"当前智能体\u201d\u201c本智能体\u201d\u201c你自己\u201d均指本节的 key",
 		"key: cutej",
+		"name: 小君",
+		"role: 平台总管",
+		"description: 治理平台",
+		"mode: REACT",
 	} {
 		if !strings.Contains(identity, expected) {
 			t.Fatalf("expected identity preview %q, got %q", expected, identity)
 		}
+	}
+	if strings.Contains(identity, "当前智能体") || strings.Contains(identity, "本智能体") || strings.Contains(identity, "你自己") {
+		t.Fatalf("expected identity preview to contain facts only, got %q", identity)
 	}
 
 	candidates := memoryPreviewAgentsContext([]contracts.AgentDigest{{

@@ -382,7 +382,7 @@ func TestArtifactPublishSchemaDoesNotExposeName(t *testing.T) {
 	if !strings.Contains(schema, "/tmp") {
 		t.Fatalf("artifact_publish schema should document /tmp inputs")
 	}
-	for _, requiredRule := range []string{"publishedArtifacts[n].url", "must never be shown", "Never hand", "file://", "absolute", "never contains chatId"} {
+	for _, requiredRule := range []string{"publishedArtifacts[n].url", "must never be shown", "Never hand", "file://", "absolute", "never contains chatId", "Inline Markdown", "explicitly requests", "Temporary/support files"} {
 		if !strings.Contains(schema, requiredRule) {
 			t.Fatalf("artifact_publish schema missing resource Markdown rule %q", requiredRule)
 		}

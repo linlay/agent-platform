@@ -264,9 +264,6 @@ func buildAgentIdentitySection(session QuerySession) string {
 	// engine contract. That key is deliberately runtime-only and must not enter
 	// persisted prompts or any model-visible/public diagnostics.
 	if session.TeamRuntime == nil {
-		if strings.TrimSpace(session.AgentKey) != "" {
-			lines = append(lines, "以下是当前执行本次 run 的智能体身份。\u201c当前智能体\u201d\u201c本智能体\u201d\u201c你自己\u201d均指本节的 key。")
-		}
 		appendKeyValue(&lines, "key", session.AgentKey)
 	}
 	appendKeyValue(&lines, "name", session.AgentName)

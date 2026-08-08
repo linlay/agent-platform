@@ -98,6 +98,11 @@ func TestEmbeddedRunToolSchemasAndMetadata(t *testing.T) {
 			t.Fatalf("unexpected %s metadata: %#v", def.Name, def.Meta)
 		}
 		if def.Name == "run_query" {
+			for _, requiredRule := range []string{"Agent Identity.key", "当前智能体", "本智能体", "你自己", "Sub-Agent Candidates"} {
+				if !strings.Contains(def.Description, requiredRule) {
+					t.Fatalf("run_query description missing current-agent rule %q: %q", requiredRule, def.Description)
+				}
+			}
 			if def.Parameters["type"] != "object" {
 				t.Fatalf("run_query schema root type = %#v, want object", def.Parameters["type"])
 			}

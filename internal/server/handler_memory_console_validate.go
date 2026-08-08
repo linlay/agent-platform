@@ -404,9 +404,6 @@ func memoryPreviewRuntimeSections(context contracts.RuntimeRequestContext, agent
 
 func memoryPreviewAgentIdentity(agentDef catalog.AgentDefinition) string {
 	lines := []string{"Agent Identity"}
-	if strings.TrimSpace(agentDef.Key) != "" {
-		lines = append(lines, "以下是当前执行本次 run 的智能体身份。\u201c当前智能体\u201d\u201c本智能体\u201d\u201c你自己\u201d均指本节的 key。")
-	}
 	appendMemoryPreviewKeyValue(&lines, "key", agentDef.Key)
 	appendMemoryPreviewKeyValue(&lines, "name", agentDef.Name)
 	appendMemoryPreviewKeyValue(&lines, "role", agentDef.Role)

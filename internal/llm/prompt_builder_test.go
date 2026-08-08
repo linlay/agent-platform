@@ -54,7 +54,6 @@ func TestBuildSystemPromptInjectsAgentIdentityWithoutSoulIdentity(t *testing.T) 
 
 	for _, expected := range []string{
 		"Agent Identity",
-		"当前智能体\u201d\u201c本智能体\u201d\u201c你自己\u201d均指本节的 key",
 		"key: demo",
 		"name: Demo",
 		"role: Prompt Tester",
@@ -64,6 +63,9 @@ func TestBuildSystemPromptInjectsAgentIdentityWithoutSoulIdentity(t *testing.T) 
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("expected %q in prompt, got %q", expected, prompt)
 		}
+	}
+	if strings.Contains(prompt, "当前智能体") || strings.Contains(prompt, "本智能体") || strings.Contains(prompt, "你自己") {
+		t.Fatalf("expected agent identity to contain facts only, got %q", prompt)
 	}
 	if strings.Count(prompt, "Agent Identity") != 1 {
 		t.Fatalf("expected a single agent identity section, got %q", prompt)

@@ -1,6 +1,8 @@
 name: agent_delegate
 label: 委派团队成员
-description: Delegate work to one or more other agents in the current Team. The current executing agent cannot be a target.
+description: |
+  Delegate work to one or more other agents in the current Team. The current
+  executing agent cannot be a target.
 clientVisible: true
 explicitOnly: true
 internalOnly: true
