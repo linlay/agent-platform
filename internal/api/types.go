@@ -983,15 +983,16 @@ type AgentEditorOptionsResponse struct {
 }
 
 type AgentEditorModelOption struct {
-	Key           string `json:"key"`
-	Name          string `json:"name,omitempty"`
-	Icon          string `json:"icon,omitempty"`
-	Provider      string `json:"provider,omitempty"`
-	ModelID       string `json:"modelId,omitempty"`
-	Protocol      string `json:"protocol,omitempty"`
-	IsVision      bool   `json:"isVision"`
-	ContextWindow int    `json:"contextWindow,omitempty"`
-	Timeout       int    `json:"timeout,omitempty"`
+	Key              string   `json:"key"`
+	Name             string   `json:"name,omitempty"`
+	Icon             string   `json:"icon,omitempty"`
+	Provider         string   `json:"provider,omitempty"`
+	ModelID          string   `json:"modelId,omitempty"`
+	Protocol         string   `json:"protocol,omitempty"`
+	IsVision         bool     `json:"isVision"`
+	ContextWindow    int      `json:"contextWindow,omitempty"`
+	Timeout          int      `json:"timeout,omitempty"`
+	ReasoningEfforts []string `json:"reasoningEfforts"`
 }
 
 type AgentEditorOption struct {

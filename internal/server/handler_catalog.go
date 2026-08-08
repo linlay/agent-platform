@@ -22,6 +22,7 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/kbase"
+	"agent-platform/internal/models"
 	"agent-platform/internal/ws"
 )
 
@@ -274,6 +275,9 @@ func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (a
 	key := strings.TrimSpace(req.Key)
 	definition := s.applyCreateDefaultAgentConfig(req.Definition)
 	key, definition = s.normalizeGeneratedModeCreation(key, definition)
+	if err := catalog.NormalizeAgentReasoningConfig("agent definition", definition); err != nil {
+		return api.AgentDetailResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_agent_definition", err.Error())
+	}
 	if _, err := editor.CreateEditableAgent(key, definition, req.SoulPrompt, req.AgentsPrompt); err != nil {
 		return api.AgentDetailResponse{}, mapAgentEditError(err)
 	}
@@ -397,7 +401,11 @@ func (s *Server) updateAgent(ctx context.Context, req api.UpdateAgentRequest) (a
 		return api.AgentDetailResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_agent_definition", err.Error())
 	}
 	key := firstNonBlank(req.Key, req.AgentKey)
-	if _, err := editor.UpdateEditableAgent(key, req.Definition, req.SoulPrompt, req.AgentsPrompt); err != nil {
+	definition := contracts.CloneMap(req.Definition)
+	if err := catalog.NormalizeAgentReasoningConfig("agent definition", definition); err != nil {
+		return api.AgentDetailResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_agent_definition", err.Error())
+	}
+	if _, err := editor.UpdateEditableAgent(key, definition, req.SoulPrompt, req.AgentsPrompt); err != nil {
 		return api.AgentDetailResponse{}, mapAgentEditError(err)
 	}
 	return s.reloadAndLoadAgent(ctx, key)
@@ -443,7 +451,7 @@ func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgent
 	}
 	reasoningEffort, ok := normalizeCoderReasoningEffort(req.ReasoningEffort)
 	if !ok {
-		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "reasoningEffort must be NONE, LOW, MEDIUM, or HIGH")
+		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "reasoningEffort must be NONE, LOW, MEDIUM, HIGH, XHIGH, or MAX")
 	}
 	serviceTier, ok := normalizeQueryModelServiceTier(req.ServiceTier)
 	if !ok {
@@ -591,24 +599,29 @@ func (s *Server) openAgentDirectory(req api.OpenAgentDirectoryRequest) (api.Open
 }
 
 func (s *Server) buildAgentEditorOptions() api.AgentEditorOptionsResponse {
-	models := []api.AgentEditorModelOption{}
+	modelOptions := []api.AgentEditorModelOption{}
 	if s.deps.Models != nil {
 		for _, model := range s.deps.Models.List() {
-			models = append(models, api.AgentEditorModelOption{
-				Key:           model.Key,
-				Name:          model.Name,
-				Icon:          model.Icon,
-				Provider:      model.Provider,
-				ModelID:       model.ModelID,
-				Protocol:      model.Protocol,
-				IsVision:      model.IsVision,
-				ContextWindow: model.ContextWindow,
-				Timeout:       model.Timeout,
+			reasoningEfforts := make([]string, 0)
+			if model.IsReasoner && !models.IsACPPassthroughModel(model) {
+				reasoningEfforts = models.ActiveReasoningEfforts()
+			}
+			modelOptions = append(modelOptions, api.AgentEditorModelOption{
+				Key:              model.Key,
+				Name:             model.Name,
+				Icon:             model.Icon,
+				Provider:         model.Provider,
+				ModelID:          model.ModelID,
+				Protocol:         model.Protocol,
+				IsVision:         model.IsVision,
+				ContextWindow:    model.ContextWindow,
+				Timeout:          model.Timeout,
+				ReasoningEfforts: reasoningEfforts,
 			})
 		}
 	}
 	return api.AgentEditorOptionsResponse{
-		Models: models,
+		Models: modelOptions,
 		ContextTags: []api.AgentEditorOption{
 			{Key: "system", Label: "system"},
 			{Key: "session", Label: "session"},

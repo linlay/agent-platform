@@ -12,6 +12,7 @@ import (
 	"agent-platform/internal/apperrors"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/modelrequest"
+	"agent-platform/internal/models"
 )
 
 type openAIProtocol struct {
@@ -128,6 +129,11 @@ func (p *openAIProtocol) PrepareRequest(params protocolStreamParams) (preparedPr
 	}
 	if compatRequest := compatRequestOverrides(params.protocolConfig, params.stageSettings.ReasoningEnabled); len(compatRequest) > 0 {
 		requestBody = mergeAnyMaps(requestBody, compatRequest)
+	}
+	if params.stageSettings.ReasoningEnabled {
+		if effort, ok := models.ResolveReasoningEffort(params.model.ReasoningEffortMapping, params.stageSettings.ReasoningEffort); ok {
+			requestBody["reasoning_effort"] = strings.ToLower(effort)
+		}
 	}
 	modelrequest.ApplyOpenAICompatibleSampling(requestBody, params.stageSettings.Sampling)
 	body, err := json.Marshal(requestBody)

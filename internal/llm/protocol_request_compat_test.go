@@ -180,6 +180,51 @@ func TestOpenAIProtocolPrepareRequestReasoningContentCompat(t *testing.T) {
 	}
 }
 
+func TestOpenAIProtocolPrepareRequestMapsReasoningEffort(t *testing.T) {
+	flash := map[string]string{"LOW": "LOW", "MEDIUM": "HIGH", "HIGH": "HIGH", "XHIGH": "HIGH", "MAX": "MAX"}
+	pro := map[string]string{"LOW": "HIGH", "MEDIUM": "HIGH", "HIGH": "HIGH", "XHIGH": "MAX", "MAX": "MAX"}
+	tests := []struct {
+		name      string
+		mapping   map[string]string
+		enabled   bool
+		logical   string
+		want      string
+		wantField bool
+	}{
+		{name: "flash low", mapping: flash, enabled: true, logical: "LOW", want: "low", wantField: true},
+		{name: "flash medium", mapping: flash, enabled: true, logical: "MEDIUM", want: "high", wantField: true},
+		{name: "flash high", mapping: flash, enabled: true, logical: "HIGH", want: "high", wantField: true},
+		{name: "flash xhigh", mapping: flash, enabled: true, logical: "XHIGH", want: "high", wantField: true},
+		{name: "flash max", mapping: flash, enabled: true, logical: "MAX", want: "max", wantField: true},
+		{name: "pro low", mapping: pro, enabled: true, logical: "LOW", want: "high", wantField: true},
+		{name: "pro medium", mapping: pro, enabled: true, logical: "MEDIUM", want: "high", wantField: true},
+		{name: "pro high", mapping: pro, enabled: true, logical: "HIGH", want: "high", wantField: true},
+		{name: "pro xhigh", mapping: pro, enabled: true, logical: "XHIGH", want: "max", wantField: true},
+		{name: "pro max", mapping: pro, enabled: true, logical: "MAX", want: "max", wantField: true},
+		{name: "none disabled", mapping: flash, enabled: false, logical: "NONE"},
+		{name: "mapping absent preserves wire behavior", enabled: true, logical: "HIGH"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			protocol := &openAIProtocol{engine: NewLLMAgentEngineWithHTTPClient(config.Config{}, nil, nil, nil, nil, &http.Client{})}
+			prepared, err := protocol.PrepareRequest(protocolStreamParams{
+				provider:       ProviderDefinition{Key: "mock", BaseURL: "https://example.com", APIKey: "token"},
+				model:          ModelDefinition{Protocol: "OPENAI", ModelID: "mock-model", ReasoningEffortMapping: tc.mapping},
+				protocolConfig: protocolRuntimeConfig{EndpointPath: "/v1/chat/completions"},
+				stageSettings:  StageSettings{ReasoningEnabled: tc.enabled, ReasoningEffort: tc.logical},
+				messages:       []openAIMessage{{Role: "user", Content: "hello"}},
+			})
+			if err != nil {
+				t.Fatalf("PrepareRequest returned error: %v", err)
+			}
+			got, exists := prepared.RequestBody["reasoning_effort"]
+			if exists != tc.wantField || (exists && got != tc.want) {
+				t.Fatalf("reasoning_effort=(%#v,%v), want (%q,%v)", got, exists, tc.want, tc.wantField)
+			}
+		})
+	}
+}
+
 func TestOpenAIProtocolPrepareRequestPreservesToolMessageOrderAndGaps(t *testing.T) {
 	protocol := &openAIProtocol{engine: NewLLMAgentEngineWithHTTPClient(config.Config{}, nil, nil, nil, nil, &http.Client{})}
 	prepared, err := protocol.PrepareRequest(protocolStreamParams{

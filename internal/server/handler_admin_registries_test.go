@@ -195,6 +195,28 @@ func TestAdminRegistriesEndpointIncludesInvalidFiles(t *testing.T) {
 	}
 }
 
+func TestAdminRegistryDiagnosticsRejectsReasoningEffortMappingOnACPModel(t *testing.T) {
+	mapping := map[string]any{
+		"LOW": "LOW", "MEDIUM": "HIGH", "HIGH": "HIGH", "XHIGH": "HIGH", "MAX": "MAX",
+	}
+	server := &Server{}
+	diagnostics := server.adminRegistryDiagnostics("models", "acp.yml", map[string]any{
+		"key": "acp", "modelId": "gpt-5-codex", "protocol": "ACP_PASSTHROUGH", "reasoningEffortMapping": mapping,
+	}, "/models/acp.yml")
+	found := false
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == "invalid_reasoning_effort_mapping" && strings.Contains(diagnostic.Message, "native OPENAI chat models") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected mapping diagnostic, got %#v", diagnostics)
+	}
+	if summary := adminRegistryPublicSummary("models", map[string]any{"reasoningEffortMapping": mapping}); summary["reasoningEffortMapping"] != nil {
+		t.Fatalf("mapping must not be exposed through catalog summary: %#v", summary)
+	}
+}
+
 func TestAdminRegistryDetailMCPWriteReloadsSynchronously(t *testing.T) {
 	fixture := setupAdminRegistriesFixture(t)
 	reloader := &recordingServerCatalogReloader{}

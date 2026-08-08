@@ -13,6 +13,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/kbase"
+	"agent-platform/internal/models"
 	"agent-platform/internal/rootpaths"
 )
 
@@ -642,6 +643,9 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 		return AgentDefinition{}, nil, err
 	}
 	modelConfig := mapNode(root["modelConfig"])
+	if err := NormalizeAgentReasoningConfig(path, root); err != nil {
+		return AgentDefinition{}, nil, err
+	}
 	if err := validateAgentSamplingConfig(path, root); err != nil {
 		return AgentDefinition{}, nil, err
 	}
@@ -1107,6 +1111,42 @@ func validateAgentSamplingConfig(path string, root map[string]any) error {
 			if err := contracts.ValidateSamplingSettings(modelConfig["sampling"], "stageSettings."+stage+".modelConfig.sampling"); err != nil {
 				return fmt.Errorf("%s: %w", path, err)
 			}
+		}
+	}
+	return nil
+}
+
+func NormalizeAgentReasoningConfig(path string, root map[string]any) error {
+	locations := []struct {
+		name string
+		node map[string]any
+	}{
+		{name: "modelConfig.reasoning", node: mapNode(mapNode(root["modelConfig"])["reasoning"])},
+	}
+	stageSettings := mapNode(root["stageSettings"])
+	for _, stage := range []string{"plan", "planning", "execute", "summary"} {
+		reasoning := mapNode(mapNode(mapNode(stageSettings[stage])["modelConfig"])["reasoning"])
+		locations = append(locations, struct {
+			name string
+			node map[string]any
+		}{name: "stageSettings." + stage + ".modelConfig.reasoning", node: reasoning})
+	}
+	for _, location := range locations {
+		raw, exists := location.node["effort"]
+		if !exists {
+			continue
+		}
+		value, ok := raw.(string)
+		if !ok {
+			return fmt.Errorf("%s: %s.effort must be NONE, LOW, MEDIUM, HIGH, XHIGH, or MAX", path, location.name)
+		}
+		normalized, ok := models.NormalizeReasoningEffort(value)
+		if !ok || normalized == "" {
+			return fmt.Errorf("%s: %s.effort must be NONE, LOW, MEDIUM, HIGH, XHIGH, or MAX", path, location.name)
+		}
+		location.node["effort"] = normalized
+		if normalized == models.ReasoningEffortNone {
+			location.node["enabled"] = false
 		}
 	}
 	return nil

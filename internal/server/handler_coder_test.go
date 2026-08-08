@@ -135,16 +135,18 @@ func TestCoderModelOptionsHTTP(t *testing.T) {
 	if response.Data.DefaultModelKey != "mock-model" || response.Data.DefaultReasoningEffort != "MEDIUM" {
 		t.Fatalf("unexpected defaults %#v", response.Data)
 	}
-	if len(response.Data.ReasoningEfforts) != 4 ||
+	if len(response.Data.ReasoningEfforts) != 6 ||
 		response.Data.ReasoningEfforts[0].Key != "NONE" ||
 		response.Data.ReasoningEfforts[1].Key != "LOW" ||
 		response.Data.ReasoningEfforts[2].Key != "MEDIUM" ||
-		response.Data.ReasoningEfforts[3].Key != "HIGH" {
+		response.Data.ReasoningEfforts[3].Key != "HIGH" ||
+		response.Data.ReasoningEfforts[4].Key != "XHIGH" ||
+		response.Data.ReasoningEfforts[5].Key != "MAX" {
 		t.Fatalf("unexpected reasoning efforts %#v", response.Data.ReasoningEfforts)
 	}
 	foundCoderModel := false
 	for _, model := range response.Data.Models {
-		if model.Key == "coder-model" && model.Name == "Coder Model" && model.Icon == "Coder Model Icon" && model.IsReasoner && model.IsVision && model.ContextWindow == 200000 {
+		if model.Key == "coder-model" && model.Name == "Coder Model" && model.Icon == "Coder Model Icon" && model.IsReasoner && model.IsVision && model.ContextWindow == 200000 && strings.Join(model.ReasoningEfforts, ",") == "LOW,MEDIUM,HIGH,XHIGH,MAX" {
 			foundCoderModel = true
 		}
 		if model.Key == "embedding-model" || model.Key == "image-model" || model.Key == "vl-model" {
@@ -744,7 +746,7 @@ func TestCoderModelOptionsWS(t *testing.T) {
 		t.Fatalf("decode options data: %v", err)
 	}
 	if optionsFrame.Frame != ws.FrameResponse || optionsFrame.ID != "coder-options" ||
-		options.DefaultModelKey != "mock-model" || options.DefaultReasoningEffort != "MEDIUM" || len(options.ReasoningEfforts) != 4 {
+		options.DefaultModelKey != "mock-model" || options.DefaultReasoningEffort != "MEDIUM" || len(options.ReasoningEfforts) != 6 {
 		t.Fatalf("unexpected options frame %#v data=%#v", optionsFrame, options)
 	}
 	foundIcon := false
@@ -805,14 +807,42 @@ func TestQueryModelOptionsValidation(t *testing.T) {
 		}
 	})
 
-	t.Run("none reasoning effort rejects non coder request model", func(t *testing.T) {
+	for _, effort := range []string{"XHIGH", "MAX"} {
+		t.Run(strings.ToLower(effort)+" reasoning effort accepts native request model", func(t *testing.T) {
+			fixture := newTestFixture(t)
+			def, ok := fixture.registry.AgentDefinition("mock-agent")
+			if !ok {
+				t.Fatal("mock-agent not found")
+			}
+			if err := fixture.server.validateQueryModelOptions(&api.QueryModelOptions{ReasoningEffort: effort}, def); err != nil {
+				t.Fatalf("native %s reasoning effort rejected: %v", effort, err)
+			}
+		})
+	}
+
+	t.Run("extra high compatibility alias normalizes in request model", func(t *testing.T) {
 		fixture := newTestFixture(t)
-		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"hi","agentKey":"mock-agent","model":{"reasoningEffort":"NONE"}}`))
-		req.Header.Set("Content-Type", "application/json")
-		fixture.server.ServeHTTP(rec, req)
-		if rec.Code != http.StatusBadRequest {
-			t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+		def, ok := fixture.registry.AgentDefinition("mock-agent")
+		if !ok {
+			t.Fatal("mock-agent not found")
+		}
+		options := &api.QueryModelOptions{ReasoningEffort: "extra_high"}
+		if err := fixture.server.validateQueryModelOptions(options, def); err != nil {
+			t.Fatalf("EXTRA_HIGH reasoning effort rejected: %v", err)
+		}
+		if options.ReasoningEffort != "XHIGH" {
+			t.Fatalf("request effort=%q want XHIGH", options.ReasoningEffort)
+		}
+	})
+
+	t.Run("none reasoning effort accepts native non coder request model", func(t *testing.T) {
+		fixture := newTestFixture(t)
+		def, ok := fixture.registry.AgentDefinition("mock-agent")
+		if !ok {
+			t.Fatal("mock-agent not found")
+		}
+		if err := fixture.server.validateQueryModelOptions(&api.QueryModelOptions{ReasoningEffort: "NONE"}, def); err != nil {
+			t.Fatalf("native NONE reasoning effort rejected: %v", err)
 		}
 	})
 }

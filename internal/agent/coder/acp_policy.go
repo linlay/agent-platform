@@ -9,17 +9,20 @@ import (
 	"agent-platform/internal/models"
 )
 
-var defaultReasoningEfforts = []api.ReasoningEffortOption{
+var defaultACPReasoningEfforts = []api.ReasoningEffortOption{
 	{Key: "NONE", Label: "NONE"},
 	{Key: "LOW", Label: "LOW"},
 	{Key: "MEDIUM", Label: "MEDIUM"},
 	{Key: "HIGH", Label: "HIGH"},
 }
 
-var reasoningEffortOrder = []string{"NONE", "LOW", "MEDIUM", "HIGH", "XHIGH", "MAX"}
-
 func DefaultReasoningEffortOptions() []api.ReasoningEffortOption {
-	return append([]api.ReasoningEffortOption(nil), defaultReasoningEfforts...)
+	efforts := models.ReasoningEfforts()
+	options := make([]api.ReasoningEffortOption, 0, len(efforts))
+	for _, effort := range efforts {
+		options = append(options, api.ReasoningEffortOption{Key: effort, Label: effort})
+	}
+	return options
 }
 
 func ModelConfigFromOptions(options api.CoderModelOptionsResponse) map[string]any {
@@ -165,10 +168,10 @@ func ReasoningEffortOptions(isACPBackend bool, modelOptions []api.CoderModelOpti
 		}
 	}
 	if !hasRuntimeEffort {
-		return DefaultReasoningEffortOptions()
+		return append([]api.ReasoningEffortOption(nil), defaultACPReasoningEfforts...)
 	}
 	options := make([]api.ReasoningEffortOption, 0, len(seen))
-	for _, effort := range reasoningEffortOrder {
+	for _, effort := range models.ReasoningEfforts() {
 		if _, ok := seen[effort]; !ok {
 			continue
 		}
@@ -204,24 +207,7 @@ func ServiceTierLabel(serviceTier string) string {
 }
 
 func NormalizeReasoningEffort(value string) (string, bool) {
-	switch strings.ToUpper(strings.TrimSpace(value)) {
-	case "":
-		return "", true
-	case "NONE":
-		return "NONE", true
-	case "LOW":
-		return "LOW", true
-	case "MEDIUM":
-		return "MEDIUM", true
-	case "HIGH":
-		return "HIGH", true
-	case "XHIGH", "EXTRA_HIGH":
-		return "XHIGH", true
-	case "MAX":
-		return "MAX", true
-	default:
-		return "", false
-	}
+	return models.NormalizeReasoningEffort(value)
 }
 
 func NormalizeServiceTier(value string) (string, bool) {

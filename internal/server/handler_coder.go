@@ -76,6 +76,10 @@ func (s *Server) listModelOptionsForAgent(agentKey string) []api.CoderModelOptio
 		if !s.shouldShowModelOption(model) {
 			continue
 		}
+		reasoningEfforts := append([]string(nil), model.ReasoningEfforts...)
+		if model.IsReasoner && !models.IsACPPassthroughModel(model) {
+			reasoningEfforts = models.ActiveReasoningEfforts()
+		}
 		options = append(options, api.CoderModelOption{
 			Key:              model.Key,
 			Name:             model.Name,
@@ -87,7 +91,7 @@ func (s *Server) listModelOptionsForAgent(agentKey string) []api.CoderModelOptio
 			IsVision:         model.IsVision,
 			ContextWindow:    model.ContextWindow,
 			Timeout:          model.Timeout,
-			ReasoningEfforts: append([]string(nil), model.ReasoningEfforts...),
+			ReasoningEfforts: reasoningEfforts,
 			ServiceTiers:     append([]string(nil), model.ServiceTiers...),
 		})
 	}

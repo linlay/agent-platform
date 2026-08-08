@@ -101,6 +101,19 @@ func TestReasoningEffortOptionsAndACPModelAllowance(t *testing.T) {
 	if got := ReasoningEffortOptions(false, modelOptions); !reflect.DeepEqual(got, DefaultReasoningEffortOptions()) {
 		t.Fatalf("non-ACP reasoning efforts should use defaults, got %#v", got)
 	}
+	if got := ReasoningEffortOptions(true, nil); !reflect.DeepEqual(got, defaultACPReasoningEfforts) {
+		t.Fatalf("ACP fallback reasoning efforts changed: %#v", got)
+	}
+	wantNative := []string{"NONE", "LOW", "MEDIUM", "HIGH", "XHIGH", "MAX"}
+	gotNative := DefaultReasoningEffortOptions()
+	if len(gotNative) != len(wantNative) {
+		t.Fatalf("native reasoning effort count=%d want %d", len(gotNative), len(wantNative))
+	}
+	for index, effort := range wantNative {
+		if gotNative[index].Key != effort {
+			t.Fatalf("native reasoning effort[%d]=%q want %q", index, gotNative[index].Key, effort)
+		}
+	}
 	if !ReasoningEffortAllowedForACPModel("HIGH", "alpha", modelOptions) {
 		t.Fatalf("expected HIGH to be allowed for alpha")
 	}

@@ -109,15 +109,15 @@ function Set-ProgramDeployOption([string]$Name, [string]$Value) {
     '--ai-image-generate-model-key' { $Script:DeployAIImageGenerateModelKey = $Value }
     '--coder-model-key' { $Script:DeployCoderModelKey = $Value }
     '--coder-reasoning-effort' {
-      if (@('NONE', 'LOW', 'MEDIUM', 'HIGH') -notcontains $Value) {
-        Fail-Program '--coder-reasoning-effort must be one of NONE, LOW, MEDIUM, HIGH'
+      if (@('NONE', 'LOW', 'MEDIUM', 'HIGH', 'XHIGH', 'MAX') -notcontains $Value) {
+        Fail-Program '--coder-reasoning-effort must be one of NONE, LOW, MEDIUM, HIGH, XHIGH, MAX'
       }
       $Script:DeployCoderReasoningEffort = $Value
     }
     '--kbase-model-key' { $Script:DeployKBaseModelKey = $Value }
     '--kbase-reasoning-effort' {
-      if (@('NONE', 'LOW', 'MEDIUM', 'HIGH') -notcontains $Value) {
-        Fail-Program '--kbase-reasoning-effort must be one of NONE, LOW, MEDIUM, HIGH'
+      if (@('NONE', 'LOW', 'MEDIUM', 'HIGH', 'XHIGH', 'MAX') -notcontains $Value) {
+        Fail-Program '--kbase-reasoning-effort must be one of NONE, LOW, MEDIUM, HIGH, XHIGH, MAX'
       }
       $Script:DeployKBaseReasoningEffort = $Value
     }

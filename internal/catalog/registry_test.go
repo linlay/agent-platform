@@ -568,6 +568,86 @@ func TestParseAgentFileMapsModelReasoningIntoStageSettings(t *testing.T) {
 	}
 }
 
+func TestParseAgentFileNormalizesSixLevelReasoningEffort(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	if err := os.WriteFile(path, []byte(
+		"key: reasoned-alias\n"+
+			"name: Reasoned Alias\n"+
+			"mode: REACT\n"+
+			"modelConfig:\n"+
+			"  modelKey: demo-model\n"+
+			"  reasoning:\n"+
+			"    enabled: true\n"+
+			"    effort: extra_high\n"+
+			"stageSettings:\n"+
+			"  execute:\n"+
+			"    modelConfig:\n"+
+			"      reasoning:\n"+
+			"        effort: max\n",
+	), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, raw, err := parseAgentFileRaw(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if effort := mapNode(mapNode(raw["modelConfig"])["reasoning"])["effort"]; effort != "XHIGH" {
+		t.Fatalf("top-level effort=%#v want XHIGH", effort)
+	}
+	execute := mapNode(def.StageSettings["execute"])
+	if effort := mapNode(mapNode(execute["modelConfig"])["reasoning"])["effort"]; effort != "MAX" {
+		t.Fatalf("execute effort=%#v want MAX", effort)
+	}
+}
+
+func TestParseAgentFileRejectsInvalidReasoningEffort(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	if err := os.WriteFile(path, []byte(
+		"key: bad-reasoning\n"+
+			"name: Bad Reasoning\n"+
+			"mode: REACT\n"+
+			"modelConfig:\n"+
+			"  modelKey: demo-model\n"+
+			"  reasoning:\n"+
+			"    effort: fastest\n",
+	), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+	_, err := parseAgentFile(path)
+	if err == nil || !strings.Contains(err.Error(), "NONE, LOW, MEDIUM, HIGH, XHIGH, or MAX") {
+		t.Fatalf("expected reasoning effort validation error, got %v", err)
+	}
+}
+
+func TestParseAgentFileNoneReasoningEffortDisablesReasoning(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	if err := os.WriteFile(path, []byte(
+		"key: no-reasoning\n"+
+			"name: No Reasoning\n"+
+			"mode: REACT\n"+
+			"modelConfig:\n"+
+			"  modelKey: demo-model\n"+
+			"  reasoning:\n"+
+			"    enabled: true\n"+
+			"    effort: NONE\n",
+	), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	execute := mapNode(def.StageSettings["execute"])
+	reasoning := mapNode(mapNode(execute["modelConfig"])["reasoning"])
+	if reasoning["enabled"] != false || reasoning["effort"] != "NONE" {
+		t.Fatalf("NONE should disable reasoning, got %#v", reasoning)
+	}
+}
+
 func TestParseAgentFilePreservesExplicitStageReasoningOverrides(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")

@@ -424,7 +424,7 @@ curl -sS -X POST http://127.0.0.1:11949/api/query \
 }
 ```
 
-对于 native agent，`model.key` 必须存在于 model registry；`model.modelId` 由后端转发给 ACP CODER 上游时补齐，优先来自 model registry 的 `modelId`，为空时回退到 key；`model.reasoningEffort` 一般可取 `LOW`、`MEDIUM`、`HIGH`，CODER agent 额外支持 `NONE` 用于关闭本次 run 的 reasoning。PROXY agent 会把 `model` 对象原样透传给上游，platform 不做本地 model registry 校验，也不写入本地 session/stage settings。该配置只影响当前 run，不写回 agent 配置。
+对于 native agent，`model.key` 必须存在于 model registry；`model.modelId` 由后端转发给 ACP CODER 上游时补齐，优先来自 model registry 的 `modelId`，为空时回退到 key；`model.reasoningEffort` 统一接受 `NONE`、`LOW`、`MEDIUM`、`HIGH`、`XHIGH`、`MAX`，其中 `NONE` 用于关闭本次 run 的 reasoning。输入兼容别名 `EXTRA_HIGH` 会归一为 `XHIGH`，不会通过 API 返回或持久化。PROXY agent 会把 `model` 对象原样透传给上游，platform 不做本地 model registry 校验，也不写入本地 session/stage settings。该配置只影响当前 run，不写回 agent 配置。
 
 `accessLevel` 在 `/api/query` 中作为 run 初始值；运行中可通过 `/api/access-level` 调整：
 
@@ -443,10 +443,12 @@ curl -sS -X POST http://127.0.0.1:11949/api/query \
 
 `GET /api/model-options` 返回聊天输入区运行时可选项。前端按当前 agent `mode` 自行决定是否展示该控件：
 
-- `models`: 当前 model registry 中可展示的聊天模型，字段为 `key/name/icon/provider/modelId/protocol/isReasoner/isVision/contextWindow`。`icon` 是可选的模型图标标识；ACP 透传模型仅在上游 `/api/models` 返回该字段时携带。普通模型要求 `type: chat`、provider 存在且 `apiKey` 非空；`protocol: ACP_PASSTHROUGH` 的 ACP 透传模型不要求 provider。`type: embedding`、`type: image-generation` 与 `type: vl` 均不会出现在聊天模型选项中。
-- `reasoningEfforts`: 固定为 `NONE`、`LOW`、`MEDIUM`、`HIGH`，其中 `NONE` 表示关闭思考深度
+- `models`: 当前 model registry 中可展示的聊天模型，字段为 `key/name/icon/provider/modelId/protocol/isReasoner/isVision/contextWindow/reasoningEfforts`。native reasoner model 的 `reasoningEfforts` 固定为五个启用档位 `LOW/MEDIUM/HIGH/XHIGH/MAX`；ACP 透传模型继续使用 bridge 声明。`icon` 是可选的模型图标标识；ACP 透传模型仅在上游 `/api/models` 返回该字段时携带。普通模型要求 `type: chat`、provider 存在且 `apiKey` 非空；`protocol: ACP_PASSTHROUGH` 的 ACP 透传模型不要求 provider。`type: embedding`、`type: image-generation` 与 `type: vl` 均不会出现在聊天模型选项中。
+- `reasoningEfforts`: native model options 固定为 `NONE`、`LOW`、`MEDIUM`、`HIGH`、`XHIGH`、`MAX`，其中 `NONE` 表示关闭思考深度；ACP CODER 仍按 bridge 的模型发现结果生成
 - `defaultModelKey`: 可展示模型中的默认模型；优先普通可调用模型，没有时可回退到 ACP 透传模型，无默认模型时为空
 - `defaultReasoningEffort`: 固定为 `MEDIUM`
+
+`GET /api/admin/agents/editor-options` 的 reasoner model 同样返回 `reasoningEfforts: [LOW, MEDIUM, HIGH, XHIGH, MAX]`。这里及聊天、usage、回放中记录的均为用户选择的逻辑档位；provider 实际映射值不会作为额外字段回显。
 
 其中 `contextWindow` 是 API 响应字段名；model registry YAML 中对应配置字段为 `maxInputTokens`。
 

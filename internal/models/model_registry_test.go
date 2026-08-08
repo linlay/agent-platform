@@ -488,6 +488,101 @@ func TestDefaultSkipsProviderModelsWithEmptyAPIKey(t *testing.T) {
 	}
 }
 
+func TestLoadModelRegistryParsesAndClonesReasoningEffortMapping(t *testing.T) {
+	root := t.TempDir()
+	writeTestProviderAndModel(t, root, "apiKey: plain-text", strings.Join([]string{
+		"type: chat",
+		"reasoningEffortMapping:",
+		"  LOW: LOW",
+		"  MEDIUM: HIGH",
+		"  HIGH: HIGH",
+		"  XHIGH: HIGH",
+		"  MAX: MAX",
+	}, "\n"))
+
+	registry, err := LoadModelRegistry(root)
+	if err != nil {
+		t.Fatalf("LoadModelRegistry returned error: %v", err)
+	}
+	model, err := registry.GetModel("mock-model")
+	if err != nil {
+		t.Fatalf("GetModel returned error: %v", err)
+	}
+	if model.ReasoningEffortMapping[ReasoningEffortMedium] != ReasoningEffortHigh || model.ReasoningEffortMapping[ReasoningEffortXHigh] != ReasoningEffortHigh {
+		t.Fatalf("unexpected mapping %#v", model.ReasoningEffortMapping)
+	}
+	model.ReasoningEffortMapping[ReasoningEffortLow] = ReasoningEffortMax
+	again, err := registry.GetModel("mock-model")
+	if err != nil {
+		t.Fatalf("GetModel returned error: %v", err)
+	}
+	if again.ReasoningEffortMapping[ReasoningEffortLow] != ReasoningEffortLow {
+		t.Fatalf("registry mapping was mutated through clone: %#v", again.ReasoningEffortMapping)
+	}
+}
+
+func TestLoadModelRegistryRejectsInvalidReasoningEffortMapping(t *testing.T) {
+	tests := []struct {
+		name       string
+		modelLines []string
+		want       string
+	}{
+		{
+			name: "missing enabled effort",
+			modelLines: []string{
+				"reasoningEffortMapping:", "  LOW: LOW", "  MEDIUM: HIGH", "  HIGH: HIGH", "  XHIGH: HIGH",
+			},
+			want: "must define MAX",
+		},
+		{
+			name: "none key",
+			modelLines: []string{
+				"reasoningEffortMapping:", "  NONE: LOW", "  LOW: LOW", "  MEDIUM: HIGH", "  HIGH: HIGH", "  XHIGH: HIGH", "  MAX: MAX",
+			},
+			want: `key "NONE"`,
+		},
+		{
+			name: "invalid value",
+			modelLines: []string{
+				"reasoningEffortMapping:", "  LOW: LOW", "  MEDIUM: HIGH", "  HIGH: HIGH", "  XHIGH: EXTRA_HIGH", "  MAX: MAX",
+			},
+			want: "reasoningEffortMapping.XHIGH",
+		},
+		{
+			name: "anthropic protocol",
+			modelLines: []string{
+				"protocol: ANTHROPIC", "reasoningEffortMapping:", "  LOW: LOW", "  MEDIUM: HIGH", "  HIGH: HIGH", "  XHIGH: HIGH", "  MAX: MAX",
+			},
+			want: "native OPENAI chat models",
+		},
+		{
+			name: "acp passthrough protocol",
+			modelLines: []string{
+				"protocol: ACP_PASSTHROUGH", "reasoningEffortMapping:", "  LOW: LOW", "  MEDIUM: HIGH", "  HIGH: HIGH", "  XHIGH: HIGH", "  MAX: MAX",
+			},
+			want: "native OPENAI chat models",
+		},
+		{
+			name: "non chat model",
+			modelLines: []string{
+				"type: embedding", "embedding:", "  dimension: 8", "reasoningEffortMapping:", "  LOW: LOW", "  MEDIUM: HIGH", "  HIGH: HIGH", "  XHIGH: HIGH", "  MAX: MAX",
+			},
+			want: "only supported for type: chat",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeTestProviderAndModel(t, root, "apiKey: plain-text", tc.modelLines...)
+			_, err := LoadModelRegistry(root)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected error containing %q, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
 func writeTestProviderAndModel(t *testing.T, root string, apiKeyLine string, modelLines ...string) {
 	t.Helper()
 

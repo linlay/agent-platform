@@ -349,6 +349,11 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 		if models.IsACPPassthroughProtocol(protocol) && modelType != models.ModelTypeChat {
 			addError("invalid_protocol", "ACP_PASSTHROUGH is only supported for type: chat")
 		}
+		if _, exists := root["reasoningEffortMapping"]; exists {
+			if _, err := models.ParseReasoningEffortMapping(root["reasoningEffortMapping"], modelType, protocol); err != nil {
+				addError("invalid_reasoning_effort_mapping", err.Error())
+			}
+		}
 		if !models.IsACPPassthroughProtocol(protocol) {
 			provider := strings.TrimSpace(contracts.FirstNonEmptyString(root["provider"]))
 			if provider == "" {

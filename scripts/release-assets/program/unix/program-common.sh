@@ -158,8 +158,8 @@ program_apply_deploy_flags() {
         [[ $# -ge 2 ]] || program_die "missing value for --coder-reasoning-effort"
         DEPLOY_CODER_REASONING_EFFORT="$2"
         case "$DEPLOY_CODER_REASONING_EFFORT" in
-          NONE|LOW|MEDIUM|HIGH) ;;
-          *) program_die "--coder-reasoning-effort must be one of NONE, LOW, MEDIUM, HIGH" ;;
+          NONE|LOW|MEDIUM|HIGH|XHIGH|MAX) ;;
+          *) program_die "--coder-reasoning-effort must be one of NONE, LOW, MEDIUM, HIGH, XHIGH, MAX" ;;
         esac
         shift 2
         ;;
@@ -172,8 +172,8 @@ program_apply_deploy_flags() {
         [[ $# -ge 2 ]] || program_die "missing value for --kbase-reasoning-effort"
         DEPLOY_KBASE_REASONING_EFFORT="$2"
         case "$DEPLOY_KBASE_REASONING_EFFORT" in
-          NONE|LOW|MEDIUM|HIGH) ;;
-          *) program_die "--kbase-reasoning-effort must be one of NONE, LOW, MEDIUM, HIGH" ;;
+          NONE|LOW|MEDIUM|HIGH|XHIGH|MAX) ;;
+          *) program_die "--kbase-reasoning-effort must be one of NONE, LOW, MEDIUM, HIGH, XHIGH, MAX" ;;
         esac
         shift 2
         ;;

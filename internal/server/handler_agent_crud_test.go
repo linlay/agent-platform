@@ -749,7 +749,7 @@ func TestAgentCreateCoderAndOpenDirectory(t *testing.T) {
 		configure: func(cfg *config.Config) {
 			cfg.CoderSettings.DefaultAgent = config.CoderDefaultAgentConfig{
 				ModelKey:        "mock-model",
-				ReasoningEffort: "MEDIUM",
+				ReasoningEffort: "MAX",
 				Budget: map[string]any{
 					"timeout":  3600,
 					"maxSteps": 240,
@@ -809,7 +809,7 @@ func TestAgentCreateCoderAndOpenDirectory(t *testing.T) {
 	}
 	modelConfig, _ := created.Definition["modelConfig"].(map[string]any)
 	reasoning, _ := modelConfig["reasoning"].(map[string]any)
-	if modelConfig["modelKey"] != "mock-model" || reasoning["effort"] != "MEDIUM" {
+	if modelConfig["modelKey"] != "mock-model" || reasoning["effort"] != "MAX" {
 		t.Fatalf("expected coder default model config, got %#v", modelConfig)
 	}
 	budget, _ := created.Definition["budget"].(map[string]any)
@@ -955,7 +955,7 @@ func TestAgentCreateCoderPreservesExplicitModelConfig(t *testing.T) {
 			"modelConfig": map[string]any{
 				"modelKey": "mock-model",
 				"reasoning": map[string]any{
-					"effort": "LOW",
+					"effort": "extra_high",
 				},
 			},
 			"budget": map[string]any{
@@ -971,7 +971,7 @@ func TestAgentCreateCoderPreservesExplicitModelConfig(t *testing.T) {
 	})
 	modelConfig, _ := created.Definition["modelConfig"].(map[string]any)
 	reasoning, _ := modelConfig["reasoning"].(map[string]any)
-	if modelConfig["modelKey"] != "mock-model" || reasoning["effort"] != "LOW" {
+	if modelConfig["modelKey"] != "mock-model" || reasoning["effort"] != "XHIGH" {
 		t.Fatalf("expected explicit coder model config to win, got %#v", modelConfig)
 	}
 	budget, _ := created.Definition["budget"].(map[string]any)
@@ -1086,7 +1086,7 @@ func TestAgentModelConfigUpdatePersistsCoderDefaults(t *testing.T) {
 	body, err := json.Marshal(map[string]any{
 		"agentKey":        created.Key,
 		"modelKey":        "mock-model",
-		"reasoningEffort": "HIGH",
+		"reasoningEffort": "extra_high",
 	})
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)
@@ -1108,12 +1108,12 @@ func TestAgentModelConfigUpdatePersistsCoderDefaults(t *testing.T) {
 	}
 	rawModelConfig, _ := rawResponse.Data["modelConfig"].(map[string]any)
 	rawReasoning, _ := rawModelConfig["reasoning"].(map[string]any)
-	if rawModelConfig["modelKey"] != "mock-model" || rawReasoning["enabled"] != true || rawReasoning["effort"] != "HIGH" {
+	if rawModelConfig["modelKey"] != "mock-model" || rawReasoning["enabled"] != true || rawReasoning["effort"] != "XHIGH" {
 		t.Fatalf("expected compact persisted model config, got %#v", rawModelConfig)
 	}
 	modelConfig := rawModelConfig
 	reasoning, _ := modelConfig["reasoning"].(map[string]any)
-	if modelConfig["modelKey"] != "mock-model" || reasoning["enabled"] != true || reasoning["effort"] != "HIGH" {
+	if modelConfig["modelKey"] != "mock-model" || reasoning["enabled"] != true || reasoning["effort"] != "XHIGH" {
 		t.Fatalf("expected persisted model config, got %#v", modelConfig)
 	}
 	data, err := os.ReadFile(created.Source.Path)
@@ -1122,8 +1122,17 @@ func TestAgentModelConfigUpdatePersistsCoderDefaults(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "modelKey: mock-model") ||
 		!strings.Contains(string(data), "enabled: true") ||
-		!strings.Contains(string(data), "effort: HIGH") {
+		!strings.Contains(string(data), "effort: XHIGH") {
 		t.Fatalf("agent.yml did not persist model config:\n%s", data)
+	}
+	updated := postAgentJSON[api.AgentModelConfigResponse](t, fixture.server, "/api/agent/model-config", map[string]any{
+		"agentKey":        created.Key,
+		"modelKey":        "mock-model",
+		"reasoningEffort": "MAX",
+	})
+	updatedReasoning, _ := updated.ModelConfig["reasoning"].(map[string]any)
+	if updatedReasoning["effort"] != "MAX" {
+		t.Fatalf("expected MAX model config, got %#v", updated.ModelConfig)
 	}
 }
 
@@ -1611,6 +1620,9 @@ func TestAgentEditorOptionsHTTP(t *testing.T) {
 	if len(response.Data.Models) != 1 || response.Data.Models[0].Key != "mock-model" || response.Data.Models[0].Name != "Mock Model" || response.Data.Models[0].Icon != "Mock Model Icon" {
 		t.Fatalf("expected mock model option, got %#v", response.Data.Models)
 	}
+	if response.Data.Models[0].ReasoningEfforts == nil || len(response.Data.Models[0].ReasoningEfforts) != 0 {
+		t.Fatalf("non-reasoner model should return an empty reasoning effort list, got %#v", response.Data.Models[0].ReasoningEfforts)
+	}
 	if got := response.Data.Modes; len(got) != 5 ||
 		got[0].Key != "REACT" || got[0].Label != "REACT" ||
 		got[1].Key != "PLAN-EXECUTE" || got[1].Label != "PLAN-EXECUTE" ||
@@ -1635,6 +1647,45 @@ func TestAgentEditorOptionsHTTP(t *testing.T) {
 	if len(response.Data.ChannelConfigSchema.ImportFields) != 2 || len(response.Data.ChannelConfigSchema.ExportFields) != 2 || len(response.Data.ChannelConfigSchema.AllowFields) != 5 {
 		t.Fatalf("unexpected channel schema %#v", response.Data.ChannelConfigSchema)
 	}
+}
+
+func TestAgentEditorOptionsExposeFiveEffortsForNativeReasoner(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		setupRuntime: func(_ string, cfg *config.Config) {
+			path := filepath.Join(cfg.Paths.RegistriesDir, "models", "reasoner.yml")
+			if err := os.WriteFile(path, []byte(strings.Join([]string{
+				"key: reasoner",
+				"name: Reasoner",
+				"provider: mock",
+				"protocol: OPENAI",
+				"modelId: reasoner",
+				"isReasoner: true",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write reasoner model: %v", err)
+			}
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/agents/editor-options", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("options returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var response api.ApiResponse[api.AgentEditorOptionsResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode options response: %v", err)
+	}
+	for _, model := range response.Data.Models {
+		if model.Key == "reasoner" {
+			if got := strings.Join(model.ReasoningEfforts, ","); got != "LOW,MEDIUM,HIGH,XHIGH,MAX" {
+				t.Fatalf("reasoner efforts=%q", got)
+			}
+			return
+		}
+	}
+	t.Fatalf("reasoner model missing from %#v", response.Data.Models)
 }
 
 func TestAgentCRUDSafetyErrors(t *testing.T) {

@@ -507,11 +507,9 @@ func (s *Server) validateQueryModelOptions(options *api.QueryModelOptions, agent
 	}
 	reasoningEffort, ok := normalizeQueryModelReasoningEffort(reasoningEffort)
 	if !ok {
-		return &statusError{status: http.StatusBadRequest, message: "model.reasoningEffort must be LOW, MEDIUM, HIGH, XHIGH, or MAX; CODER agents also support NONE"}
+		return &statusError{status: http.StatusBadRequest, message: "model.reasoningEffort must be NONE, LOW, MEDIUM, HIGH, XHIGH, or MAX"}
 	}
-	if reasoningEffort == "NONE" && !agentcoder.IsMode(agentDef.Mode) {
-		return &statusError{status: http.StatusBadRequest, message: "model.reasoningEffort NONE is only supported for CODER agents"}
-	}
+	options.ReasoningEffort = reasoningEffort
 	if reasoningEffort != "" && reasoningEffort != "NONE" && catalog.AgentUsesACPCoderBackend(agentDef) {
 		acpOptions, err, listed := s.listACPCoderModelOptions(agentDef.Key)
 		if listed {
@@ -521,11 +519,6 @@ func (s *Server) validateQueryModelOptions(options *api.QueryModelOptions, agent
 			if !reasoningEffortAllowedForACPModel(reasoningEffort, modelKey, acpOptions) {
 				return &statusError{status: http.StatusBadRequest, message: "model.reasoningEffort " + reasoningEffort + " is not available for ACP CODER"}
 			}
-		}
-	}
-	if reasoningEffort == "XHIGH" || reasoningEffort == "MAX" {
-		if !catalog.AgentUsesACPCoderBackend(agentDef) {
-			return &statusError{status: http.StatusBadRequest, message: "model.reasoningEffort " + reasoningEffort + " is only supported for ACP CODER"}
 		}
 	}
 	serviceTier, ok = normalizeQueryModelServiceTier(serviceTier)
