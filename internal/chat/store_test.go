@@ -38,6 +38,82 @@ func TestEnsureChatDoesNotCreateChatDirectory(t *testing.T) {
 	}
 }
 
+func TestPromotePendingChatNameUsesFirstQueryOnce(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+	summary, created, err := store.EnsureChat("chat-upload-first", "", "", "")
+	if err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if !created || summary.ChatName != PendingChatName {
+		t.Fatalf("expected pending upload chat name, got %#v", summary)
+	}
+
+	summary, promoted, err := store.PromotePendingChatName("chat-upload-first", "  请分析这张图片  ")
+	if err != nil {
+		t.Fatalf("promote pending chat name: %v", err)
+	}
+	if !promoted || summary.ChatName != "请分析这张图片" {
+		t.Fatalf("expected first query to promote chat name, got promoted=%v summary=%#v", promoted, summary)
+	}
+
+	summary, promoted, err = store.PromotePendingChatName("chat-upload-first", "第二条问题")
+	if err != nil {
+		t.Fatalf("promote named chat: %v", err)
+	}
+	if promoted || summary.ChatName != "请分析这张图片" {
+		t.Fatalf("expected established chat name to remain unchanged, got promoted=%v summary=%#v", promoted, summary)
+	}
+}
+
+func TestPromotePendingChatNameDoesNotRenameChatWithHistory(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-pending-history", "agent", "", ""); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if _, err := store.db.Exec("UPDATE CHATS SET LAST_RUN_ID_='run-existing' WHERE CHAT_ID_='chat-pending-history'"); err != nil {
+		t.Fatalf("seed last run: %v", err)
+	}
+
+	summary, promoted, err := store.PromotePendingChatName("chat-pending-history", "new question")
+	if err != nil {
+		t.Fatalf("promote pending chat with history: %v", err)
+	}
+	if promoted || summary.ChatName != PendingChatName {
+		t.Fatalf("expected historical pending name to remain unchanged, got promoted=%v summary=%#v", promoted, summary)
+	}
+}
+
+func TestPromotePendingChatNameReplacesLegacyPlaceholders(t *testing.T) {
+	for _, legacyName := range []string{"default", "<no chat name>"} {
+		t.Run(legacyName, func(t *testing.T) {
+			store, err := NewFileStore(t.TempDir())
+			if err != nil {
+				t.Fatalf("new chat store: %v", err)
+			}
+			if _, _, err := store.EnsureChat("chat-legacy-default", "agent", "", ""); err != nil {
+				t.Fatalf("ensure chat: %v", err)
+			}
+			if _, err := store.db.Exec("UPDATE CHATS SET CHAT_NAME_=? WHERE CHAT_ID_='chat-legacy-default'", legacyName); err != nil {
+				t.Fatalf("seed legacy placeholder name: %v", err)
+			}
+
+			summary, promoted, err := store.PromotePendingChatName("chat-legacy-default", "first real question")
+			if err != nil {
+				t.Fatalf("promote legacy placeholder name: %v", err)
+			}
+			if !promoted || summary.ChatName != "first real question" {
+				t.Fatalf("expected legacy placeholder to be replaced, got promoted=%v summary=%#v", promoted, summary)
+			}
+		})
+	}
+}
+
 func TestFileStoreSetPendingAwaitingPersistsIntoSummaryAndListChats(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {

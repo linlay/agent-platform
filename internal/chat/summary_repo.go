@@ -85,6 +85,48 @@ func (s *FileStore) Summary(chatID string) (*Summary, error) {
 	return s.loadSummary(chatID)
 }
 
+func (s *FileStore) PromotePendingChatName(chatID string, firstMessage string) (Summary, bool, error) {
+	chatID = strings.TrimSpace(chatID)
+	firstMessage = strings.TrimSpace(firstMessage)
+	if chatID == "" {
+		return Summary{}, false, ErrChatNotFound
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	existing, err := s.loadSummary(chatID)
+	if err != nil {
+		return Summary{}, false, err
+	}
+	if existing == nil {
+		return Summary{}, false, ErrChatNotFound
+	}
+	if firstMessage == "" || !isPendingChatName(existing.ChatName) || strings.TrimSpace(existing.LastRunID) != "" {
+		return *existing, false, nil
+	}
+
+	chatName := defaultChatName(firstMessage)
+	now := time.Now().UnixMilli()
+	result, err := s.db.Exec(`UPDATE CHATS SET CHAT_NAME_=?, UPDATED_AT_=?
+		WHERE CHAT_ID_=? AND CHAT_NAME_=? AND LAST_RUN_ID_=''`, chatName, now, chatID, existing.ChatName)
+	if err != nil {
+		return Summary{}, false, err
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return Summary{}, false, err
+	}
+	summary, err := s.loadSummary(chatID)
+	if err != nil {
+		return Summary{}, false, err
+	}
+	if summary == nil {
+		return Summary{}, false, ErrChatNotFound
+	}
+	return *summary, updated > 0, nil
+}
+
 func (s *FileStore) RenameChat(chatID string, chatName string) (Summary, error) {
 	chatID = strings.TrimSpace(chatID)
 	chatName = strings.TrimSpace(chatName)

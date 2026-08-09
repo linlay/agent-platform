@@ -136,17 +136,23 @@ func (r queryMemoryRegistry) AgentDefinition(key string) (catalog.AgentDefinitio
 	return catalog.AgentDefinition{}, false
 }
 
-func TestPrepareQueryUpdatesExistingChatAgentKey(t *testing.T) {
+func TestPrepareQueryPromotesUploadCreatedChatNameAndUpdatesAgentKey(t *testing.T) {
 	chats, err := chat.NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
-	if _, _, err := chats.EnsureChat("chat-agent-drift", "", "", "uploaded image"); err != nil {
+	createdSummary, _, err := chats.EnsureChat("chat-agent-drift", "", "", "")
+	if err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
+	if createdSummary.ChatName != chat.PendingChatName {
+		t.Fatalf("expected upload-created placeholder name, got %q", createdSummary.ChatName)
+	}
+	notifications := &recordingNotificationSink{}
 
 	server := &Server{deps: Dependencies{
-		Chats: chats,
+		Chats:         chats,
+		Notifications: notifications,
 		Registry: queryMemoryRegistry{
 			def: catalog.AgentDefinition{
 				Key:      "agent-a",
@@ -164,6 +170,9 @@ func TestPrepareQueryUpdatesExistingChatAgentKey(t *testing.T) {
 	if prepared.summary.AgentKey != "agent-a" {
 		t.Fatalf("expected prepared summary agent-a, got %q", prepared.summary.AgentKey)
 	}
+	if prepared.summary.ChatName != "use uploaded image" {
+		t.Fatalf("expected prepared chat name from first query, got %q", prepared.summary.ChatName)
+	}
 
 	summary, err := chats.Summary("chat-agent-drift")
 	if err != nil {
@@ -171,6 +180,16 @@ func TestPrepareQueryUpdatesExistingChatAgentKey(t *testing.T) {
 	}
 	if summary.AgentKey != "agent-a" {
 		t.Fatalf("expected stored agent-a, got %q", summary.AgentKey)
+	}
+	if summary.ChatName != "use uploaded image" {
+		t.Fatalf("expected stored chat name from first query, got %q", summary.ChatName)
+	}
+	if events := notifications.EventTypes(); !reflect.DeepEqual(events, []string{"chat.renamed"}) {
+		t.Fatalf("expected chat.renamed notification, got %#v", events)
+	}
+	payloads := notifications.Payloads()
+	if len(payloads) != 1 || payloads[0]["chatId"] != "chat-agent-drift" || payloads[0]["chatName"] != "use uploaded image" || payloads[0]["agentKey"] != "agent-a" {
+		t.Fatalf("unexpected chat.renamed payload %#v", payloads)
 	}
 }
 

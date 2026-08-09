@@ -78,6 +78,9 @@ func TestUploadAndResourceRoundTrip(t *testing.T) {
 	if summary == nil || summary.Source != "" {
 		t.Fatalf("expected upload-created chat to omit source, got %#v", summary)
 	}
+	if summary.ChatName != chat.PendingChatName {
+		t.Fatalf("expected upload-created chat to use pending name, got %#v", summary)
+	}
 	wantUploadPath := filepath.Join(fixture.cfg.Paths.ChatsDir, response.Data.ChatID, "notes.txt")
 	if response.Data.Upload.Path != wantUploadPath {
 		t.Fatalf("upload path = %q, want %q", response.Data.Upload.Path, wantUploadPath)

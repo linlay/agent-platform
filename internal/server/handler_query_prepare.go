@@ -302,10 +302,19 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 		summary.AgentKey = agentKey
 		summary.AgentMode = persistedAgentMode
 	}
+	chatNamePromoted := false
+	if !created {
+		summary, chatNamePromoted, err = s.deps.Chats.PromotePendingChatName(chatID, req.Message)
+		if err != nil {
+			return preparedQuery{}, err
+		}
+	}
 	if created {
 		// automation/system role 只影响 chat 内部 request.query 的展示语义，
 		// 不影响会话在列表里的可见性。
 		s.broadcast("chat.created", chatCreatedPayload(chatID, summary.ChatName, agentKey, summary.CreatedAt, summary.Source))
+	} else if chatNamePromoted {
+		s.broadcast("chat.renamed", map[string]any{"chatId": summary.ChatID, "chatName": summary.ChatName, "agentKey": summary.AgentKey})
 	}
 	sessionReq := req
 	if admission.orchestratedTeam {
