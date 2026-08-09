@@ -83,6 +83,7 @@ inputSchema:
         - desktop.pet.set
         - webclient.sidebar.getState
         - webclient.sidebar.openUrl
+        - webclient.sidebar.refreshUrl
         - webclient.sidebar.setState
     args:
       type: object

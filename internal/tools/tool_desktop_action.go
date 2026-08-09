@@ -28,9 +28,10 @@ const desktopCdpCaptureScreenshotMethod = "Page.captureScreenshot"
 const desktopCdpScreenshotMimeType = "image/png"
 
 const (
-	webClientSidebarGetState = "webclient.sidebar.getState"
-	webClientSidebarOpenURL  = "webclient.sidebar.openUrl"
-	webClientSidebarSetState = "webclient.sidebar.setState"
+	webClientSidebarGetState   = "webclient.sidebar.getState"
+	webClientSidebarOpenURL    = "webclient.sidebar.openUrl"
+	webClientSidebarRefreshURL = "webclient.sidebar.refreshUrl"
+	webClientSidebarSetState   = "webclient.sidebar.setState"
 )
 
 const (
@@ -329,14 +330,7 @@ func validateWebClientActionArgs(action string, args map[string]any) string {
 				return "webclient.sidebar.openUrl contains an unsupported argument: " + key
 			}
 		}
-		rawURL, ok := args["url"].(string)
-		if !ok || strings.TrimSpace(rawURL) == "" {
-			return "url must be a non-empty string"
-		}
-		if utf8.RuneCountInString(strings.TrimSpace(rawURL)) > webClientSidebarURLMaxLength {
-			return fmt.Sprintf("url must be at most %d characters", webClientSidebarURLMaxLength)
-		}
-		if validationErr := validateWebClientSidebarURL(rawURL); validationErr != "" {
+		if validationErr := validateWebClientSidebarURLArg(args); validationErr != "" {
 			return validationErr
 		}
 		if title, hasTitle := args["title"]; hasTitle {
@@ -349,9 +343,27 @@ func validateWebClientActionArgs(action string, args map[string]any) string {
 			}
 		}
 		return ""
+	case webClientSidebarRefreshURL:
+		for key := range args {
+			if key != "url" {
+				return "webclient.sidebar.refreshUrl contains an unsupported argument: " + key
+			}
+		}
+		return validateWebClientSidebarURLArg(args)
 	default:
 		return "unsupported webclient action"
 	}
+}
+
+func validateWebClientSidebarURLArg(args map[string]any) string {
+	rawURL, ok := args["url"].(string)
+	if !ok || strings.TrimSpace(rawURL) == "" {
+		return "url must be a non-empty string"
+	}
+	if utf8.RuneCountInString(strings.TrimSpace(rawURL)) > webClientSidebarURLMaxLength {
+		return fmt.Sprintf("url must be at most %d characters", webClientSidebarURLMaxLength)
+	}
+	return validateWebClientSidebarURL(rawURL)
 }
 
 func validateWebClientSidebarURL(rawURL string) string {

@@ -101,9 +101,11 @@ Agent 仍然只看到一个 `desktop_action`。它的 Action 白名单由 `inter
 - `desktop.*` 继续调用 Desktop Action Bridge。
 - `webclient.*` 通过发起当前 run 的 WebClient WebSocket 发送反向 request；失败不会回退 Desktop。
 
-WebSocket 映射是扁平的：`desktop_action.action` 直接成为 request `type`，`desktop_action.args` 直接成为 `payload`，`requestId` 成为 `id`；`confirmationSummary` 只属于 Desktop Provider，不会发给 WebClient。第一阶段开放 `webclient.sidebar.getState`、`webclient.sidebar.setState` 与 `webclient.sidebar.openUrl`，Platform 和 WebClient 都做精确参数校验。
+WebSocket 映射是扁平的：`desktop_action.action` 直接成为 request `type`，`desktop_action.args` 直接成为 `payload`，`requestId` 成为 `id`；`confirmationSummary` 只属于 Desktop Provider，不会发给 WebClient。当前开放 `webclient.sidebar.getState`、`webclient.sidebar.setState`、`webclient.sidebar.openUrl` 与 `webclient.sidebar.refreshUrl`，Platform 和 WebClient 都做精确参数校验。
 
 `webclient.sidebar.openUrl` 使用 `{url, title?}` 创建或激活当前 WebClient 右侧栏中的 Web Preview，并切换到 `web` tab。裸域名会按 HTTPS 规范化；只接受 HTTP(S)，拒绝协议相对 URL、携带用户名或密码的 URL 以及额外参数。该 Action 的成功只代表 WebClient 状态已应用，不保证目标站点允许 iframe 嵌入；遇到 CSP 或 `X-Frame-Options` 拒绝时由现有 Preview 展示加载失败，不回退到 Desktop bridge 或外部浏览器。
+
+`webclient.sidebar.refreshUrl` 使用精确的 `{url}` 重载已存在的规范化 Web Preview。URL 校验与 `openUrl` 一致，但不创建 Preview、不打开右侧栏、不切换 tab 或活动 Preview；当前视图不支持右侧栏或目标 URL 未打开时，WebClient 返回 `unsupported_in_current_view`。成功只表示刷新信号已应用，不保证 iframe 重新加载成功。
 
 WebSocket query 直接绑定当前连接，不检查连接自报的 `source`；即使没有 `surfaceId`，该 run 仍可按 WebSocket session 定位原连接。HTTP SSE query 通过 `X-Agent-WebClient-Device-Id` 与 `X-Agent-WebClient-Surface-Id` 绑定同一认证主体和 device 边界内的逻辑 surface；device header 与 `/ws?deviceId=...` 相同，认证 JWT 已含 device claim 时以 claim 为准。`source` 仅用于监控和日志，不是安全边界或 capability 声明。run 只保存逻辑目标，因此相同 surface 的 WebSocket 重连可以继续接收反向 request。Team 内部成员与 `agent_invoke` 子 run 继承根 run 目标，automation 与 `run_query` 创建的独立根 run 不继承。目标元数据不进入 prompt、事件、chat 或数据库。
 
@@ -131,7 +133,7 @@ Qiuerscript 已按此方式迁移。`qs_read`、`qs_glob`、`qs_grep`、`qs_writ
 - MCP tool 名称与本地工具冲突时，本地工具优先。
 - MCP server 暂时不可用或协议版本不兼容时，调用返回结构化 MCP unavailable 错误。
 - `qiuerscript-tool` 在 stdin 关闭后正常退出，不支持私有 `shutdown` RPC。
-- `desktop_action` 的三个 WebClient sidebar Action 已闭环；这里的 Action 是 Desktop/WebClient 业务操作名，不是 Tool 类型，也不会生成 `action.*` stream 事件。
+- `desktop_action` 的四个 WebClient sidebar Action 已闭环；这里的 Action 是 Desktop/WebClient 业务操作名，不是 Tool 类型，也不会生成 `action.*` stream 事件。
 - `ask_user_question` 由 `internal/toolinteraction` 中明确注册的 handler 负责等待、submit 规范化和固定 QA 模型输出；没有通用 YAML 表单 fallback。
 - HITL viewport 细节见 [HITL协议](HITL协议.md)。
 

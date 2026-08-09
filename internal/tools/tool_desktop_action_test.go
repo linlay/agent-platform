@@ -194,6 +194,36 @@ func TestInvokeDesktopActionForwardsWebClientOpenURL(t *testing.T) {
 	}
 }
 
+func TestInvokeDesktopActionForwardsWebClientRefreshURL(t *testing.T) {
+	invoker := &recordingWebClientRequestInvoker{
+		response: WebClientActionResponse{
+			Frame: "response",
+			Type:  webClientSidebarRefreshURL,
+			ID:    "web-refresh-1",
+			Code:  webClientResponseCode(0),
+			Msg:   "success",
+			Data:  json.RawMessage(`{"applied":true,"sidebar":"right","open":false,"tab":null,"url":"https://example.com/"}`),
+		},
+	}
+	executor := (&RuntimeToolExecutor{}).WithWebClientRequestInvoker(invoker)
+	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"requestId": "web-refresh-1",
+		"action":    webClientSidebarRefreshURL,
+		"args": map[string]any{
+			"url": "example.com",
+		},
+	}, &ExecutionContext{Session: QuerySession{WebClientTarget: WebClientTarget{SessionID: "ws-1"}}})
+	if err != nil {
+		t.Fatalf("invoke webclient action: %v", err)
+	}
+	if result.ExitCode != 0 || result.Structured["applied"] != true || result.Structured["url"] != "https://example.com/" {
+		t.Fatalf("unexpected webclient refreshUrl result: %#v", result)
+	}
+	if invoker.request.Type != webClientSidebarRefreshURL || invoker.request.Payload["url"] != "example.com" {
+		t.Fatalf("unexpected flat refreshUrl request: %#v", invoker.request)
+	}
+}
+
 func TestInvokeDesktopActionRejectsInvalidWebClientOpenURLArgs(t *testing.T) {
 	tests := []map[string]any{
 		{},
@@ -218,6 +248,33 @@ func TestInvokeDesktopActionRejectsInvalidWebClientOpenURLArgs(t *testing.T) {
 		}
 		if invoker.calls != 0 {
 			t.Fatalf("invalid openUrl args reached invoker: %#v", actionArgs)
+		}
+	}
+}
+
+func TestInvokeDesktopActionRejectsInvalidWebClientRefreshURLArgs(t *testing.T) {
+	tests := []map[string]any{
+		{},
+		{"url": "javascript:alert(1)"},
+		{"url": "//example.com"},
+		{"url": "https://user:secret@example.com"},
+		{"url": "https://example.com", "title": "not supported"},
+	}
+	for _, actionArgs := range tests {
+		invoker := &recordingWebClientRequestInvoker{}
+		executor := (&RuntimeToolExecutor{}).WithWebClientRequestInvoker(invoker)
+		result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+			"action": webClientSidebarRefreshURL,
+			"args":   actionArgs,
+		}, &ExecutionContext{Session: QuerySession{WebClientTarget: WebClientTarget{SessionID: "ws-1"}}})
+		if err != nil {
+			t.Fatalf("invoke webclient action: %v", err)
+		}
+		if result.ExitCode != -1 || result.Error != "invalid_args" {
+			t.Fatalf("expected invalid_args for %#v, got %#v", actionArgs, result)
+		}
+		if invoker.calls != 0 {
+			t.Fatalf("invalid refreshUrl args reached invoker: %#v", actionArgs)
 		}
 	}
 }
@@ -788,6 +845,7 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 		"desktop.website.update",
 		"webclient.sidebar.getState",
 		"webclient.sidebar.openUrl",
+		"webclient.sidebar.refreshUrl",
 		"webclient.sidebar.setState",
 	}
 	sort.Strings(want)

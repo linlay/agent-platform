@@ -644,6 +644,8 @@ Platform 也可以在已绑定的 WebClient 控制连接上发起反向 request�
 }
 ```
 
+右侧栏 Web Preview 另支持 `webclient.sidebar.refreshUrl`，payload 必须精确为 `{ "url": "<existing-http-or-https-url>" }`。它只刷新已存在的规范化 URL，不创建、打开或激活 Preview；目标不存在或当前路由不支持右侧栏时，WebClient 返回 `unsupported_in_current_view`（409）。
+
 服务端响应帧：
 
 ```json
