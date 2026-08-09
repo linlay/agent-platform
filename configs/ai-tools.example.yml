@@ -63,8 +63,8 @@ image-generate:
       max-image-bytes: 20971520
       persist-artifact: true
 
-    babelark-gemini-3_1-flash-image-preview:
-      model-key: babelark-gemini-3_1-flash-image-preview
+    babelark-gemini-3_1-flash-image:
+      model-key: babelark-gemini-3_1-flash-image
       size: 1024x1024
       response-format: b64_json
       output-mime-type: image/png

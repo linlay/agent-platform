@@ -373,9 +373,19 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 			}
 		case models.ModelTypeImageGeneration:
 			image := contracts.AnyMapNode(root["image"])
-			endpoint := strings.TrimSpace(contracts.FirstNonEmptyString(image["endpointPath"], image["endpoint-path"]))
-			if endpoint == "" {
-				addWarning("missing_image_endpoint", "image.endpointPath is empty; runtime will use the OpenAI-compatible default")
+			if _, exists := image["endpointPath"]; exists {
+				addError("legacy_image_endpoint", "image.endpointPath is no longer supported; configure image.generation.endpointPath")
+			}
+			if _, exists := image["endpoint-path"]; exists {
+				addError("legacy_image_endpoint", "image.endpoint-path is no longer supported; configure image.generation.endpointPath")
+			}
+			generation := contracts.AnyMapNode(image["generation"])
+			generationConfig := models.ModelImageGenerationConfig{
+				EndpointPath:  strings.TrimSpace(contracts.FirstNonEmptyString(generation["endpointPath"], generation["endpoint-path"])),
+				RequestFormat: strings.ToLower(strings.TrimSpace(contracts.FirstNonEmptyString(generation["requestFormat"], generation["request-format"]))),
+			}
+			if err := models.ValidateModelImageGenerationConfig(generationConfig); err != nil {
+				addError("invalid_image_generation", "image.generation "+err.Error())
 			}
 			if rawEdit, exists := image["edit"]; exists {
 				edit := contracts.AnyMapNode(rawEdit)

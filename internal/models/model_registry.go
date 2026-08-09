@@ -86,11 +86,16 @@ type ModelEmbeddingConfig struct {
 }
 
 type ModelImageConfig struct {
-	EndpointPath    string
 	Timeout         int
 	DefaultSize     string
 	ResponseFormats []string
+	Generation      ModelImageGenerationConfig
 	Edit            ModelImageEditConfig
+}
+
+type ModelImageGenerationConfig struct {
+	EndpointPath  string
+	RequestFormat string
 }
 
 type ModelImageEditConfig struct {
@@ -101,10 +106,12 @@ type ModelImageEditConfig struct {
 }
 
 const (
-	ImageEditRequestFormatOpenAIMultipart       = "openai-multipart"
-	ImageEditRequestFormatOpenAIChatCompletions = "openai-chat-completions"
-	ImageMaskProtocolNone                       = "none"
-	ImageMaskProtocolOpenAIAlpha                = "openai-alpha"
+	ImageGenerationRequestFormatOpenAIImagesJSON      = "openai-images-json"
+	ImageGenerationRequestFormatOpenAIChatCompletions = "openai-chat-completions"
+	ImageEditRequestFormatOpenAIImagesMultipart       = "openai-images-multipart"
+	ImageEditRequestFormatOpenAIChatCompletions       = "openai-chat-completions"
+	ImageMaskProtocolNone                             = "none"
+	ImageMaskProtocolOpenAIAlpha                      = "openai-alpha"
 )
 
 type ModelPricing struct {
@@ -280,11 +287,33 @@ func validateModelForRuntime(model ModelDefinition, modelType string) error {
 		return fmt.Errorf("model %s embedding.dimension is required", model.Key)
 	}
 	if modelType == ModelTypeImageGeneration {
-		if err := ValidateModelImageEditConfig(model.Image.Edit); err != nil {
-			return fmt.Errorf("model %s image.edit: %w", model.Key, err)
+		if err := ValidateModelImageConfig(model.Image); err != nil {
+			return fmt.Errorf("model %s image: %w", model.Key, err)
 		}
 	}
 	return nil
+}
+
+func ValidateModelImageConfig(image ModelImageConfig) error {
+	if err := ValidateModelImageGenerationConfig(image.Generation); err != nil {
+		return fmt.Errorf("generation: %w", err)
+	}
+	if err := ValidateModelImageEditConfig(image.Edit); err != nil {
+		return fmt.Errorf("edit: %w", err)
+	}
+	return nil
+}
+
+func ValidateModelImageGenerationConfig(generation ModelImageGenerationConfig) error {
+	if strings.TrimSpace(generation.EndpointPath) == "" {
+		return fmt.Errorf("endpointPath is required")
+	}
+	switch strings.ToLower(strings.TrimSpace(generation.RequestFormat)) {
+	case ImageGenerationRequestFormatOpenAIImagesJSON, ImageGenerationRequestFormatOpenAIChatCompletions:
+		return nil
+	default:
+		return fmt.Errorf("requestFormat must be %s or %s", ImageGenerationRequestFormatOpenAIImagesJSON, ImageGenerationRequestFormatOpenAIChatCompletions)
+	}
 }
 
 func ValidateModelImageEditConfig(edit ModelImageEditConfig) error {
@@ -298,9 +327,9 @@ func ValidateModelImageEditConfig(edit ModelImageEditConfig) error {
 		return fmt.Errorf("endpointPath is required")
 	}
 	switch format {
-	case ImageEditRequestFormatOpenAIMultipart, ImageEditRequestFormatOpenAIChatCompletions:
+	case ImageEditRequestFormatOpenAIImagesMultipart, ImageEditRequestFormatOpenAIChatCompletions:
 	default:
-		return fmt.Errorf("requestFormat must be %s or %s", ImageEditRequestFormatOpenAIMultipart, ImageEditRequestFormatOpenAIChatCompletions)
+		return fmt.Errorf("requestFormat must be %s or %s", ImageEditRequestFormatOpenAIImagesMultipart, ImageEditRequestFormatOpenAIChatCompletions)
 	}
 	if maskProtocol == "" {
 		maskProtocol = ImageMaskProtocolNone
@@ -308,8 +337,8 @@ func ValidateModelImageEditConfig(edit ModelImageEditConfig) error {
 	switch maskProtocol {
 	case ImageMaskProtocolNone:
 	case ImageMaskProtocolOpenAIAlpha:
-		if format != ImageEditRequestFormatOpenAIMultipart {
-			return fmt.Errorf("maskProtocol %s requires requestFormat %s", ImageMaskProtocolOpenAIAlpha, ImageEditRequestFormatOpenAIMultipart)
+		if format != ImageEditRequestFormatOpenAIImagesMultipart {
+			return fmt.Errorf("maskProtocol %s requires requestFormat %s", ImageMaskProtocolOpenAIAlpha, ImageEditRequestFormatOpenAIImagesMultipart)
 		}
 	default:
 		return fmt.Errorf("maskProtocol must be %s or %s", ImageMaskProtocolNone, ImageMaskProtocolOpenAIAlpha)
@@ -678,8 +707,15 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 			Image:                  loadModelImage(values["image"]),
 		}
 		if modelType == ModelTypeImageGeneration {
-			if err := ValidateModelImageEditConfig(model.Image.Edit); err != nil {
-				return nil, fmt.Errorf("load model %s: image.edit: %w", entry.Name(), err)
+			imageValues := contracts.AnyMapNode(values["image"])
+			if _, exists := imageValues["endpointPath"]; exists {
+				return nil, fmt.Errorf("load model %s: image.endpointPath is no longer supported; configure image.generation.endpointPath", entry.Name())
+			}
+			if _, exists := imageValues["endpoint-path"]; exists {
+				return nil, fmt.Errorf("load model %s: image.endpoint-path is no longer supported; configure image.generation.endpointPath", entry.Name())
+			}
+			if err := ValidateModelImageConfig(model.Image); err != nil {
+				return nil, fmt.Errorf("load model %s: image: %w", entry.Name(), err)
 			}
 		}
 		result[key] = model
@@ -705,11 +741,22 @@ func loadModelImage(raw any) ModelImageConfig {
 		return ModelImageConfig{}
 	}
 	return ModelImageConfig{
-		EndpointPath:    strings.TrimSpace(contracts.FirstNonEmptyString(values["endpointPath"], values["endpoint-path"])),
 		Timeout:         intNode(values["timeout"]),
 		DefaultSize:     strings.TrimSpace(contracts.FirstNonEmptyString(values["defaultSize"], values["default-size"])),
 		ResponseFormats: firstStringSliceNode(values["responseFormats"], values["response-formats"]),
+		Generation:      loadModelImageGeneration(values["generation"]),
 		Edit:            loadModelImageEdit(values["edit"]),
+	}
+}
+
+func loadModelImageGeneration(raw any) ModelImageGenerationConfig {
+	if raw == nil {
+		return ModelImageGenerationConfig{}
+	}
+	values := contracts.AnyMapNode(raw)
+	return ModelImageGenerationConfig{
+		EndpointPath:  strings.TrimSpace(contracts.FirstNonEmptyString(values["endpointPath"], values["endpoint-path"])),
+		RequestFormat: strings.ToLower(strings.TrimSpace(contracts.FirstNonEmptyString(values["requestFormat"], values["request-format"]))),
 	}
 }
 

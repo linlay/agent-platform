@@ -9,7 +9,7 @@
 - 已具备独立 HTTP 服务、统一 JSON 包裹与 `POST /api/query` 真流式 SSE。
 - 已具备 chat 摘要、事件流、raw messages、上传资源落盘、归档与搜索。
 - 已具备目录驱动的 agents / teams / skills / tools catalog，并在 Catalog 发布前将 Agent 定义、Agent 自有 Skill、技能中心 Skill 和 `.config` 组装到稳定的 `ru-agents/<agentKey>` 执行目录；query `mustUseSkills` 可在单次普通 Agent run 中强制使用额外技能中心 Skill，并以 Host 只读语义路径或 Container 整个技能中心只读挂载直接访问 `skills-center`，不复制、不生成 run-runtime。
-- 已具备 OpenAI / Anthropic 协议模型调用、统一 Tool、Container Hub sandbox 与 tools；`image_generate` 以统一参数支持文生图、最多四张本地/Chat 参考图的图生图，以及模型 YAML 显式声明的原生 mask/inpainting，供应商请求由 `image.edit.requestFormat` 适配。
+- 已具备 OpenAI / Anthropic 协议模型调用、统一 Tool、Container Hub sandbox 与 tools；`image_generate` 以统一参数支持文生图、最多四张本地/Chat 参考图的图生图，以及模型 YAML 显式声明的原生 mask/inpainting，生成和编辑请求分别由模型 YAML 的 `image.generation`、`image.edit` 协议块适配。
 - 已具备由 `build/builtins/<os>-<arch>/` cache 固定、校验并随服务包分发的 Host builtins（rg/dbx/httpx/kbase-lance-engine/poppler-pdftotext）；`file_grep/file_glob` 稳定包装 rg，dbx/httpx 保持 CLI，KBASE PDF 默认调用 Poppler `pdftotext` launcher。
 - 已具备 HITL question / approval / form、运行中 submit / steer / interrupt 协议入口，以及 question/planning 跨进程恢复和不可恢复等待项的幂等终态对账。
 - 已具备 SQLite memory、FTS、可选 embedding、learn / consolidate / feedback 与 memory tools。

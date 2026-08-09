@@ -858,18 +858,25 @@ func (c *Config) applyWebFetchValues(values map[string]any) {
 	c.WebFetch.Profiles = parsed
 }
 
-func (c *Config) applyImageGenerateValues(values map[string]any) {
+func (c *Config) applyImageGenerateValues(values map[string]any) error {
 	c.ImageGenerate.Enabled = boolValue(anyValue(values["enabled"], c.ImageGenerate.Enabled), c.ImageGenerate.Enabled)
 	c.ImageGenerate.DefaultProfile = stringValue(anyValue(values["default-profile"], c.ImageGenerate.DefaultProfile), c.ImageGenerate.DefaultProfile)
 	profiles, _ := values["profiles"].(map[string]any)
 	if len(profiles) == 0 {
-		return
+		return nil
 	}
 	parsed := make(map[string]ImageGenerateProfileConfig, len(profiles))
 	for key, raw := range profiles {
 		profileKey := strings.TrimSpace(key)
 		if profileKey == "" {
 			continue
+		}
+		profileValues, _ := raw.(map[string]any)
+		if _, exists := profileValues["endpoint-path"]; exists {
+			return fmt.Errorf("image-generate profile %s: endpoint-path is no longer supported; configure the model image.generation/edit endpointPath", profileKey)
+		}
+		if _, exists := profileValues["endpointPath"]; exists {
+			return fmt.Errorf("image-generate profile %s: endpointPath is no longer supported; configure the model image.generation/edit endpointPath", profileKey)
 		}
 		base := defaultImageGenerateProfileConfig()
 		if existing, ok := c.ImageGenerate.Profiles[profileKey]; ok {
@@ -878,6 +885,7 @@ func (c *Config) applyImageGenerateValues(values map[string]any) {
 		parsed[profileKey] = parseImageGenerateProfileConfig(raw, base)
 	}
 	c.ImageGenerate.Profiles = parsed
+	return nil
 }
 
 func (c *Config) applyAIToolsFile(path string) error {
@@ -895,7 +903,9 @@ func (c *Config) applyAIToolsFile(path string) error {
 		c.applyWebFetchValues(webFetch)
 	}
 	if imageGenerate, ok := values["image-generate"].(map[string]any); ok && len(imageGenerate) > 0 {
-		c.applyImageGenerateValues(imageGenerate)
+		if err := c.applyImageGenerateValues(imageGenerate); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -956,7 +966,6 @@ func parseImageGenerateProfileConfig(raw any, fallback ImageGenerateProfileConfi
 	fallback.MaxImages = intValue(anyValue(values["max-images"], fallback.MaxImages), fallback.MaxImages)
 	fallback.MaxImageBytes = intValue(anyValue(values["max-image-bytes"], fallback.MaxImageBytes), fallback.MaxImageBytes)
 	fallback.PersistArtifact = boolValue(anyValue(values["persist-artifact"], fallback.PersistArtifact), fallback.PersistArtifact)
-	fallback.EndpointPath = stringValue(anyValue(values["endpoint-path"], fallback.EndpointPath), fallback.EndpointPath)
 	return fallback
 }
 

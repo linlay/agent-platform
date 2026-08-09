@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 
@@ -51,6 +52,7 @@ func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient, chats chat
 		}
 		filtered = append(filtered, def)
 	}
+	configureImageGenerateProfileSchema(filtered, cfg.ImageGenerate)
 	return &RuntimeToolExecutor{
 		cfg:             cfg,
 		sandbox:         sandbox,
@@ -61,6 +63,42 @@ func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient, chats chat
 		defs:            filtered,
 		runtimeEnv:      runtimeenv.Detect(),
 	}, nil
+}
+
+func configureImageGenerateProfileSchema(definitions []api.ToolDetailResponse, cfg config.ImageGenerateConfig) {
+	profileNames := make([]string, 0, len(cfg.Profiles))
+	for name := range cfg.Profiles {
+		if name = strings.TrimSpace(name); name != "" {
+			profileNames = append(profileNames, name)
+		}
+	}
+	sort.Strings(profileNames)
+
+	for index := range definitions {
+		if definitions[index].Name != "image_generate" {
+			continue
+		}
+		properties := AnyMapNode(definitions[index].Parameters["properties"])
+		profile := AnyMapNode(properties["profile"])
+		if len(profile) == 0 {
+			return
+		}
+		if len(profileNames) > 0 {
+			enum := make([]any, len(profileNames))
+			for index, name := range profileNames {
+				enum[index] = name
+			}
+			profile["enum"] = enum
+		} else {
+			delete(profile, "enum")
+		}
+		description := "Optional. Configured image-generation profile. Omit it to use the configured default profile"
+		if defaultProfile := strings.TrimSpace(cfg.DefaultProfile); defaultProfile != "" {
+			description += " (" + defaultProfile + ")"
+		}
+		profile["description"] = description + "."
+		return
+	}
 }
 
 func (t *RuntimeToolExecutor) Definitions() []api.ToolDetailResponse {

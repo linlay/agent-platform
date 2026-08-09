@@ -25,36 +25,40 @@ inputSchema:
       description: Required. Text prompt describing the image to generate or the requested edit.
     images:
       type: array
-      description: Optional. One to four input images. images[0] is the edit target; later images are references. Each item must use a current-chat reference_name or an access-policy-checked file_path.
+      description: Optional. One to four input images. images[0] is the edit target; later images are references. Use {"source_type":"reference_name","value":"image.png"} for a current-chat attachment or {"source_type":"file_path","value":"@chat/image.png"} for an access-policy-checked path.
       minItems: 1
       maxItems: 4
       items:
         type: object
         properties:
-          reference_name:
+          source_type:
             type: string
-            description: Current chat attachment file name without path separators.
-          file_path:
-            type: string
-            description: Explicit local image path. Semantic roots such as @chat, @agent, and @skills are supported and checked by access policy.
-        oneOf:
-          - type: object
-            required:
+            description: Required. How value is resolved.
+            enum:
               - reference_name
-          - type: object
-            required:
               - file_path
+          value:
+            type: string
+            minLength: 1
+            description: Required. Current-chat attachment name when source_type is reference_name; otherwise an explicit image path. Semantic roots such as @chat, @agent, and @skills are supported for file_path and checked by access policy.
+        required:
+          - source_type
+          - value
         additionalProperties: false
     mask:
       type: object
       description: Optional inpainting mask for images[0]. Requires images and a model whose YAML declares native mask support.
       properties:
-        reference_name:
+        source_type:
           type: string
-          description: Current chat mask attachment file name without path separators.
-        file_path:
+          description: Required. How value is resolved.
+          enum:
+            - reference_name
+            - file_path
+        value:
           type: string
-          description: Explicit local mask path checked by access policy.
+          minLength: 1
+          description: Required. Current-chat attachment name when source_type is reference_name; otherwise an explicit mask path checked by access policy.
         mode:
           type: string
           description: Required. Mask interpretation. alpha edits transparent pixels; white_edit edits white pixels; black_edit edits black pixels.
@@ -63,18 +67,13 @@ inputSchema:
             - white_edit
             - black_edit
       required:
+        - source_type
+        - value
         - mode
-      oneOf:
-        - type: object
-          required:
-            - reference_name
-        - type: object
-          required:
-            - file_path
       additionalProperties: false
     profile:
       type: string
-      description: Optional. Profile name from configs/ai-tools.yml > image-generate. Defaults to default-profile.
+      description: Optional. Profile name from configs/ai-tools.yml > image-generate. Omit it to use the configured default profile. Available values are injected at startup.
     size:
       type: string
       description: Optional. Image size to send to the provider, overriding the selected profile.

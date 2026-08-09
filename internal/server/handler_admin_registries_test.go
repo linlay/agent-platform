@@ -389,7 +389,7 @@ func TestAdminRegistryDetailSaveValidateAndPathGuard(t *testing.T) {
 		t.Fatalf("expected embedding dimension diagnostics, got %#v", validateResp.Data)
 	}
 
-	validateBody = bytes.NewBufferString(`{"category":"models","file":"draft-image.yml","content":"key: draft-image\nprovider: mock\nmodelId: gpt-image-1\ntype: image-generation\nimage:\n  endpointPath: /v1/images/generations\n  edit:\n    endpointPath: /v1/images/edits\n    requestFormat: openai-multipart\n    maskProtocol: openai-alpha\n"}`)
+	validateBody = bytes.NewBufferString(`{"category":"models","file":"draft-image.yml","content":"key: draft-image\nprovider: mock\nmodelId: gpt-image-1\ntype: image-generation\nimage:\n  generation:\n    endpointPath: /v1/images/generations\n    requestFormat: openai-images-json\n  edit:\n    endpointPath: /v1/images/edits\n    requestFormat: openai-images-multipart\n    maskProtocol: openai-alpha\n"}`)
 	rec = httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/registries/validate", validateBody))
 	if rec.Code != http.StatusOK {
@@ -403,7 +403,7 @@ func TestAdminRegistryDetailSaveValidateAndPathGuard(t *testing.T) {
 		t.Fatalf("expected ready image validate response, got %#v", validateResp.Data)
 	}
 
-	validateBody = bytes.NewBufferString(`{"category":"models","file":"bad-image.yml","content":"key: bad-image\nprovider: mock\nmodelId: bad-image\ntype: image-generation\nimage:\n  edit:\n    endpointPath: /v1/chat/completions\n    requestFormat: openai-chat-completions\n    maskProtocol: openai-alpha\n"}`)
+	validateBody = bytes.NewBufferString(`{"category":"models","file":"bad-image.yml","content":"key: bad-image\nprovider: mock\nmodelId: bad-image\ntype: image-generation\nimage:\n  generation:\n    endpointPath: /v1/chat/completions\n    requestFormat: openai-chat-completions\n  edit:\n    endpointPath: /v1/chat/completions\n    requestFormat: openai-chat-completions\n    maskProtocol: openai-alpha\n"}`)
 	rec = httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/registries/validate", validateBody))
 	if rec.Code != http.StatusOK {
@@ -413,8 +413,43 @@ func TestAdminRegistryDetailSaveValidateAndPathGuard(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &validateResp); err != nil {
 		t.Fatalf("decode invalid image edit response: %v", err)
 	}
-	if validateResp.Data.Status != "invalid" || len(validateResp.Data.Diagnostics) == 0 || validateResp.Data.Diagnostics[0].Code != "missing_image_endpoint" && validateResp.Data.Diagnostics[0].Code != "invalid_image_edit" {
+	if validateResp.Data.Status != "invalid" || len(validateResp.Data.Diagnostics) == 0 || validateResp.Data.Diagnostics[0].Code != "invalid_image_edit" {
 		t.Fatalf("expected invalid image edit diagnostics, got %#v", validateResp.Data)
+	}
+
+	for _, test := range []struct {
+		name    string
+		content string
+		code    string
+	}{
+		{name: "missing generation", content: "key: missing-generation\nprovider: mock\nmodelId: image\ntype: image-generation\nimage:\n  timeout: 120\n", code: "invalid_image_generation"},
+		{name: "legacy endpoint", content: "key: legacy-image\nprovider: mock\nmodelId: image\ntype: image-generation\nimage:\n  endpointPath: /v1/images/generations\n", code: "legacy_image_endpoint"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body, err := json.Marshal(map[string]any{"category": "models", "file": "invalid-image.yml", "content": test.content})
+			if err != nil {
+				t.Fatal(err)
+			}
+			recorder := httptest.NewRecorder()
+			fixture.server.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/admin/registries/validate", bytes.NewReader(body)))
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("status = %d body=%s", recorder.Code, recorder.Body.String())
+			}
+			response := api.ApiResponse[api.AdminRegistryValidateResponse]{}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, diagnostic := range response.Data.Diagnostics {
+				if diagnostic.Code == test.code {
+					found = true
+					break
+				}
+			}
+			if response.Data.Status != "invalid" || !found {
+				t.Fatalf("expected %s diagnostic, got %#v", test.code, response.Data)
+			}
+		})
 	}
 
 	rec = httptest.NewRecorder()

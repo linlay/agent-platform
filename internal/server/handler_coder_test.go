@@ -116,7 +116,9 @@ func TestCoderModelOptionsHTTP(t *testing.T) {
 				"type: image-generation",
 				"modelId: gpt-image-1",
 				"image:",
-				"  endpointPath: /v1/images/generations",
+				"  generation:",
+				"    endpointPath: /v1/images/generations",
+				"    requestFormat: openai-images-json",
 			}, "\n")), 0o644); err != nil {
 				t.Fatalf("write image model config: %v", err)
 			}

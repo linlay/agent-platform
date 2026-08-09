@@ -289,7 +289,6 @@ type ImageGenerateProfileConfig struct {
 	MaxImages       int
 	MaxImageBytes   int
 	PersistArtifact bool
-	EndpointPath    string
 }
 
 type AutomationConfig struct {

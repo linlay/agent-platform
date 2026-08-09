@@ -290,15 +290,17 @@ func TestLoadModelRegistryParsesTypedModels(t *testing.T) {
 		"type: image-generation",
 		"modelId: gpt-image-1",
 		"image:",
-		"  endpointPath: /v1/images/generations",
 		"  timeout: 120",
 		"  defaultSize: 1024x1024",
 		"  responseFormats:",
 		"    - b64_json",
 		"    - url",
+		"  generation:",
+		"    endpointPath: /v1/images/generations",
+		"    requestFormat: openai-images-json",
 		"  edit:",
 		"    endpointPath: /v1/images/edits",
-		"    requestFormat: openai-multipart",
+		"    requestFormat: openai-images-multipart",
 		"    maskProtocol: openai-alpha",
 	}, "\n")), 0o644); err != nil {
 		t.Fatalf("write image model: %v", err)
@@ -340,13 +342,14 @@ func TestLoadModelRegistryParsesTypedModels(t *testing.T) {
 		t.Fatalf("GetImageGeneration returned error: %v", err)
 	}
 	if image.Type != ModelTypeImageGeneration ||
-		image.Image.EndpointPath != "/v1/images/generations" ||
+		image.Image.Generation.EndpointPath != "/v1/images/generations" ||
+		image.Image.Generation.RequestFormat != ImageGenerationRequestFormatOpenAIImagesJSON ||
 		image.Image.Timeout != 120 ||
 		image.Image.DefaultSize != "1024x1024" ||
 		len(image.Image.ResponseFormats) != 2 ||
 		image.Image.ResponseFormats[1] != "url" ||
 		image.Image.Edit.EndpointPath != "/v1/images/edits" ||
-		image.Image.Edit.RequestFormat != ImageEditRequestFormatOpenAIMultipart ||
+		image.Image.Edit.RequestFormat != ImageEditRequestFormatOpenAIImagesMultipart ||
 		image.Image.Edit.MaskProtocol != ImageMaskProtocolOpenAIAlpha {
 		t.Fatalf("unexpected image model: %#v", image)
 	}
@@ -391,7 +394,9 @@ func TestLoadModelRegistryRejectsInvalidImageEditConfig(t *testing.T) {
 		"type: image-generation",
 		"modelId: bad-image",
 		"image:",
-		"  endpointPath: /v1/images/generations",
+		"  generation:",
+		"    endpointPath: /v1/images/generations",
+		"    requestFormat: openai-images-json",
 		"  edit:",
 		"    endpointPath: /v1/chat/completions",
 		"    requestFormat: openai-chat-completions",
@@ -400,8 +405,80 @@ func TestLoadModelRegistryRejectsInvalidImageEditConfig(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "models", "bad-image.yml"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadModelRegistry(root); err == nil || !strings.Contains(err.Error(), "openai-alpha requires requestFormat openai-multipart") {
+	if _, err := LoadModelRegistry(root); err == nil || !strings.Contains(err.Error(), "openai-alpha requires requestFormat openai-images-multipart") {
 		t.Fatalf("expected invalid image edit config, got %v", err)
+	}
+}
+
+func TestValidateModelImageConfigAcceptsSupportedRequestFormats(t *testing.T) {
+	for _, generationFormat := range []string{
+		ImageGenerationRequestFormatOpenAIImagesJSON,
+		ImageGenerationRequestFormatOpenAIChatCompletions,
+	} {
+		for _, edit := range []ModelImageEditConfig{
+			{},
+			{Configured: true, EndpointPath: "/v1/images/edits", RequestFormat: ImageEditRequestFormatOpenAIImagesMultipart, MaskProtocol: ImageMaskProtocolNone},
+			{Configured: true, EndpointPath: "/v1/images/edits", RequestFormat: ImageEditRequestFormatOpenAIImagesMultipart, MaskProtocol: ImageMaskProtocolOpenAIAlpha},
+			{Configured: true, EndpointPath: "/v1/chat/completions", RequestFormat: ImageEditRequestFormatOpenAIChatCompletions, MaskProtocol: ImageMaskProtocolNone},
+		} {
+			image := ModelImageConfig{
+				Generation: ModelImageGenerationConfig{EndpointPath: "/configured", RequestFormat: generationFormat},
+				Edit:       edit,
+			}
+			if err := ValidateModelImageConfig(image); err != nil {
+				t.Fatalf("generation=%q edit=%#v: %v", generationFormat, edit, err)
+			}
+		}
+	}
+}
+
+func TestValidateModelImageConfigRejectsMissingAndUnknownFormats(t *testing.T) {
+	tests := []struct {
+		name  string
+		image ModelImageConfig
+		want  string
+	}{
+		{name: "missing generation", image: ModelImageConfig{}, want: "generation: endpointPath is required"},
+		{name: "unknown generation", image: ModelImageConfig{Generation: ModelImageGenerationConfig{EndpointPath: "/generate", RequestFormat: "unknown"}}, want: "generation: requestFormat"},
+		{name: "missing edit endpoint", image: ModelImageConfig{Generation: ModelImageGenerationConfig{EndpointPath: "/generate", RequestFormat: ImageGenerationRequestFormatOpenAIImagesJSON}, Edit: ModelImageEditConfig{Configured: true, RequestFormat: ImageEditRequestFormatOpenAIImagesMultipart}}, want: "edit: endpointPath is required"},
+		{name: "unknown edit", image: ModelImageConfig{Generation: ModelImageGenerationConfig{EndpointPath: "/generate", RequestFormat: ImageGenerationRequestFormatOpenAIImagesJSON}, Edit: ModelImageEditConfig{Configured: true, EndpointPath: "/edit", RequestFormat: "unknown"}}, want: "edit: requestFormat"},
+		{name: "chat alpha", image: ModelImageConfig{Generation: ModelImageGenerationConfig{EndpointPath: "/generate", RequestFormat: ImageGenerationRequestFormatOpenAIImagesJSON}, Edit: ModelImageEditConfig{Configured: true, EndpointPath: "/chat", RequestFormat: ImageEditRequestFormatOpenAIChatCompletions, MaskProtocol: ImageMaskProtocolOpenAIAlpha}}, want: "requires requestFormat openai-images-multipart"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := ValidateModelImageConfig(test.image); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error=%v want substring %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestLoadModelRegistryRejectsLegacyImageEndpointAndMissingGeneration(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		imageLines []string
+		want       string
+	}{
+		{name: "legacy endpoint", imageLines: []string{"  endpointPath: /v1/images/generations"}, want: "image.endpointPath is no longer supported"},
+		{name: "missing generation", imageLines: []string{"  timeout: 120"}, want: "image: generation: endpointPath is required"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeTestProviderAndModel(t, root, "apiKey: plain-text")
+			content := strings.Join(append([]string{
+				"key: invalid-image",
+				"provider: mock",
+				"type: image-generation",
+				"modelId: invalid-image",
+				"image:",
+			}, test.imageLines...), "\n")
+			if err := os.WriteFile(filepath.Join(root, "models", "invalid-image.yml"), []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadModelRegistry(root); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error=%v want substring %q", err, test.want)
+			}
+		})
 	}
 }
 

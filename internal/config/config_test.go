@@ -1290,8 +1290,7 @@ func TestLoadImageGenerateConfigFromFile(t *testing.T) {
 			"  default-profile: general\n" +
 			"  profiles:\n" +
 			"    general:\n" +
-			"      model-key: babelark-gemini-3_1-flash-image-preview\n" +
-			"      endpoint-path: /v1/images/generations\n"
+			"      model-key: babelark-gemini-3_1-flash-image\n"
 		withProjectFileContents(t, filepath.Join("configs", "ai-tools.yml"), &content, func() {
 			cfg, err := Load()
 			if err != nil {
@@ -1304,7 +1303,7 @@ func TestLoadImageGenerateConfigFromFile(t *testing.T) {
 				t.Fatalf("unexpected default profile: %q", cfg.ImageGenerate.DefaultProfile)
 			}
 			profile := cfg.ImageGenerate.Profiles["general"]
-			if profile.ModelKey != "babelark-gemini-3_1-flash-image-preview" ||
+			if profile.ModelKey != "babelark-gemini-3_1-flash-image" ||
 				profile.Timeout != 0 ||
 				profile.Size != "1024x1024" ||
 				profile.ResponseFormat != "b64_json" ||
@@ -1312,9 +1311,25 @@ func TestLoadImageGenerateConfigFromFile(t *testing.T) {
 				profile.MaxPromptChars != 4000 ||
 				profile.MaxImages != 4 ||
 				profile.MaxImageBytes != 20<<20 ||
-				!profile.PersistArtifact ||
-				profile.EndpointPath != "/v1/images/generations" {
+				!profile.PersistArtifact {
 				t.Fatalf("unexpected profile defaults: %#v", profile)
+			}
+		})
+	})
+}
+
+func TestLoadImageGenerateConfigRejectsProfileEndpointOverride(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		content := "" +
+			"image-generate:\n" +
+			"  enabled: true\n" +
+			"  profiles:\n" +
+			"    general:\n" +
+			"      model-key: image-model\n" +
+			"      endpoint-path: /v1/images/generations\n"
+		withProjectFileContents(t, filepath.Join("configs", "ai-tools.yml"), &content, func() {
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "endpoint-path is no longer supported") {
+				t.Fatalf("expected endpoint override rejection, got %v", err)
 			}
 		})
 	})

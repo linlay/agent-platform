@@ -62,6 +62,30 @@ func (t *RuntimeToolExecutor) loadImageGenerateInputs(args map[string]any, execC
 	if len(imageItems) > maxImages {
 		return nil, nil, imageGenerateToolError("image_generate_too_many_images", fmt.Sprintf("images exceeds max-images: %d", maxImages), map[string]any{"maxImages": maxImages}), true
 	}
+	normalizedSources := make([]map[string]any, 0, len(imageItems))
+	for index, raw := range imageItems {
+		normalized, result, handled := normalizeImageGenerateSource(raw, fmt.Sprintf("images[%d]", index), index, false)
+		if handled {
+			return nil, nil, result, true
+		}
+		normalizedSources = append(normalizedSources, normalized)
+	}
+	var normalizedMaskSource map[string]any
+	maskMode := ""
+	if maskProvided {
+		var result ToolExecutionResult
+		var handled bool
+		normalizedMaskSource, result, handled = normalizeImageGenerateSource(rawMask, "mask", -1, true)
+		if handled {
+			return nil, nil, result, true
+		}
+		maskMode = strings.ToLower(strings.TrimSpace(AnyStringNode(AnyMapNode(rawMask)["mode"])))
+		switch maskMode {
+		case "alpha", "white_edit", "black_edit":
+		default:
+			return nil, nil, imageGenerateToolError("image_generate_mask_mode_invalid", "mask.mode must be alpha, white_edit, or black_edit", nil), true
+		}
+	}
 
 	edit := model.Image.Edit
 	if strings.TrimSpace(edit.RequestFormat) == "" {
@@ -81,8 +105,8 @@ func (t *RuntimeToolExecutor) loadImageGenerateInputs(args map[string]any, execC
 		options.MaxBytes = defaultImageGenerateMaxImageBytes
 	}
 	images := make([]multimodal.ImagePayload, 0, len(imageItems))
-	for _, raw := range imageItems {
-		imagePayload, result, handled := t.loadPreservedImageGenerateSource(raw, execCtx, options)
+	for _, source := range normalizedSources {
+		imagePayload, result, handled := t.loadPreservedImageGenerateSource(source, execCtx, options)
 		if handled {
 			return nil, nil, result, true
 		}
@@ -91,14 +115,7 @@ func (t *RuntimeToolExecutor) loadImageGenerateInputs(args map[string]any, execC
 	if !maskProvided {
 		return images, nil, ToolExecutionResult{}, false
 	}
-	maskNode := AnyMapNode(rawMask)
-	mode := strings.ToLower(strings.TrimSpace(AnyStringNode(maskNode["mode"])))
-	switch mode {
-	case "alpha", "white_edit", "black_edit":
-	default:
-		return nil, nil, imageGenerateToolError("image_generate_mask_mode_invalid", "mask.mode must be alpha, white_edit, or black_edit", nil), true
-	}
-	maskImage, result, handled := t.loadPreservedImageGenerateSource(rawMask, execCtx, options)
+	maskImage, result, handled := t.loadPreservedImageGenerateSource(normalizedMaskSource, execCtx, options)
 	if handled {
 		return nil, nil, result, true
 	}
@@ -110,11 +127,67 @@ func (t *RuntimeToolExecutor) loadImageGenerateInputs(args map[string]any, execC
 	if err != nil {
 		return nil, nil, imageGenerateToolError("image_generate_mask_invalid", "decode mask: "+err.Error(), nil), true
 	}
-	normalized, err := normalizeImageGenerateMask(targetData, maskData, maskImage.MimeType, mode)
+	normalized, err := normalizeImageGenerateMask(targetData, maskData, maskImage.MimeType, maskMode)
 	if err != nil {
 		return nil, nil, imageGenerateToolError("image_generate_mask_invalid", err.Error(), nil), true
 	}
 	return images, &imageGenerateMaskPayload{Name: normalizedMaskFilename(maskImage.Name), Data: normalized}, ToolExecutionResult{}, false
+}
+
+func normalizeImageGenerateSource(raw any, label string, index int, allowMode bool) (map[string]any, ToolExecutionResult, bool) {
+	example := map[string]any{"source_type": "reference_name", "value": "image.png"}
+	diagnostics := map[string]any{"source": label, "example": example}
+	if index >= 0 {
+		diagnostics["index"] = index
+	}
+	node, ok := raw.(map[string]any)
+	if !ok {
+		diagnostics["actualType"] = fmt.Sprintf("%T", raw)
+		return nil, imageGenerateToolError(
+			"image_generate_image_source_invalid",
+			label+" must be an object like {\"source_type\":\"reference_name\",\"value\":\"image.png\"}",
+			diagnostics,
+		), true
+	}
+	for key := range node {
+		if key == "source_type" || key == "value" || (allowMode && key == "mode") {
+			continue
+		}
+		diagnostics["property"] = key
+		allowed := "source_type and value"
+		if allowMode {
+			allowed += " plus mode"
+		}
+		return nil, imageGenerateToolError(
+			"image_generate_image_source_invalid",
+			label+" only accepts "+allowed+"; legacy reference_name/file_path properties are not supported",
+			diagnostics,
+		), true
+	}
+	sourceType, sourceTypeOK := node["source_type"].(string)
+	sourceType = strings.TrimSpace(sourceType)
+	value, valueOK := node["value"].(string)
+	value = strings.TrimSpace(value)
+	if !sourceTypeOK || !valueOK || value == "" {
+		return nil, imageGenerateToolError(
+			"image_generate_image_source_invalid",
+			label+" requires non-empty string fields source_type and value; example: {\"source_type\":\"reference_name\",\"value\":\"image.png\"}",
+			diagnostics,
+		), true
+	}
+	switch sourceType {
+	case "reference_name":
+		return map[string]any{"reference_name": value}, ToolExecutionResult{}, false
+	case "file_path":
+		return map[string]any{"file_path": value}, ToolExecutionResult{}, false
+	default:
+		diagnostics["sourceType"] = sourceType
+		return nil, imageGenerateToolError(
+			"image_generate_image_source_invalid",
+			label+".source_type must be reference_name or file_path",
+			diagnostics,
+		), true
+	}
 }
 
 func (t *RuntimeToolExecutor) loadPreservedImageGenerateSource(raw any, execCtx *ExecutionContext, options multimodal.ImageLoadOptions) (multimodal.ImagePayload, ToolExecutionResult, bool) {
@@ -242,15 +315,43 @@ func normalizedMaskFilename(name string) string {
 	return base + ".png"
 }
 
+func (t *RuntimeToolExecutor) completeImageGenerate(ctx context.Context, model models.ModelDefinition, provider models.ProviderDefinition, prompt string, size string, responseFormat string, n int) (imageGenerateResponse, error) {
+	switch strings.ToLower(strings.TrimSpace(model.Image.Generation.RequestFormat)) {
+	case models.ImageGenerationRequestFormatOpenAIImagesJSON:
+		body := map[string]any{
+			"model":           model.ModelID,
+			"prompt":          prompt,
+			"size":            size,
+			"response_format": responseFormat,
+			"n":               n,
+		}
+		body = mergeVisionRequestCompat(body, provider, model)
+		payload, err := json.Marshal(body)
+		if err != nil {
+			return imageGenerateResponse{}, err
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, imageGenerateRequestEndpoint(provider, model.Image.Generation.EndpointPath), bytes.NewReader(payload))
+		if err != nil {
+			return imageGenerateResponse{}, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		return t.doImageGenerateRequest(req, model, provider, "image generation")
+	case models.ImageGenerationRequestFormatOpenAIChatCompletions:
+		return t.completeImageGenerateChat(ctx, model, provider, model.Image.Generation.EndpointPath, "image generation", prompt, nil)
+	default:
+		return imageGenerateResponse{}, fmt.Errorf("unsupported image generation request format %q", model.Image.Generation.RequestFormat)
+	}
+}
+
 func (t *RuntimeToolExecutor) completeImageGenerateEdit(ctx context.Context, model models.ModelDefinition, provider models.ProviderDefinition, prompt string, size string, responseFormat string, n int, images []multimodal.ImagePayload, mask *imageGenerateMaskPayload) (imageGenerateResponse, error) {
 	switch strings.ToLower(strings.TrimSpace(model.Image.Edit.RequestFormat)) {
-	case models.ImageEditRequestFormatOpenAIMultipart:
+	case models.ImageEditRequestFormatOpenAIImagesMultipart:
 		return t.completeImageGenerateMultipartEdit(ctx, model, provider, prompt, size, responseFormat, n, images, mask)
 	case models.ImageEditRequestFormatOpenAIChatCompletions:
 		if mask != nil {
 			return imageGenerateResponse{}, fmt.Errorf("mask is not supported by openai-chat-completions image editing")
 		}
-		return t.completeImageGenerateChatEdit(ctx, model, provider, prompt, size, responseFormat, n, images)
+		return t.completeImageGenerateChat(ctx, model, provider, model.Image.Edit.EndpointPath, "image edit", prompt, images)
 	default:
 		return imageGenerateResponse{}, fmt.Errorf("unsupported image edit request format %q", model.Image.Edit.RequestFormat)
 	}
@@ -287,7 +388,7 @@ func (t *RuntimeToolExecutor) completeImageGenerateMultipartEdit(ctx context.Con
 	if err := writer.Close(); err != nil {
 		return imageGenerateResponse{}, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, imageGenerateEditEndpoint(provider, model), &body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, imageGenerateRequestEndpoint(provider, model.Image.Edit.EndpointPath), &body)
 	if err != nil {
 		return imageGenerateResponse{}, err
 	}
@@ -311,7 +412,7 @@ func writeImageGenerateMultipartFile(writer *multipart.Writer, fieldName string,
 	return err
 }
 
-func (t *RuntimeToolExecutor) completeImageGenerateChatEdit(ctx context.Context, model models.ModelDefinition, provider models.ProviderDefinition, prompt string, size string, responseFormat string, n int, images []multimodal.ImagePayload) (imageGenerateResponse, error) {
+func (t *RuntimeToolExecutor) completeImageGenerateChat(ctx context.Context, model models.ModelDefinition, provider models.ProviderDefinition, endpointPath string, operation string, prompt string, images []multimodal.ImagePayload) (imageGenerateResponse, error) {
 	content := []map[string]any{{"type": "text", "text": prompt}}
 	for _, imagePayload := range images {
 		content = append(content, multimodal.OpenAIImageBlock(imagePayload))
@@ -321,22 +422,19 @@ func (t *RuntimeToolExecutor) completeImageGenerateChatEdit(ctx context.Context,
 		"messages": []map[string]any{
 			{"role": "user", "content": content},
 		},
-		"modalities":      []string{"text", "image"},
-		"size":            size,
-		"response_format": responseFormat,
-		"n":               n,
+		"modalities": []string{"text", "image"},
 	}
 	body = mergeVisionRequestCompat(body, provider, model)
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return imageGenerateResponse{}, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, imageGenerateEditEndpoint(provider, model), bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, imageGenerateRequestEndpoint(provider, endpointPath), bytes.NewReader(payload))
 	if err != nil {
 		return imageGenerateResponse{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	return t.doImageGenerateRequest(req, model, provider, "image edit")
+	return t.doImageGenerateRequest(req, model, provider, operation)
 }
 
 func (t *RuntimeToolExecutor) doImageGenerateRequest(req *http.Request, model models.ModelDefinition, provider models.ProviderDefinition, operation string) (imageGenerateResponse, error) {
@@ -370,8 +468,8 @@ func (t *RuntimeToolExecutor) doImageGenerateRequest(req *http.Request, model mo
 	return decoded, nil
 }
 
-func imageGenerateEditEndpoint(provider models.ProviderDefinition, model models.ModelDefinition) string {
-	endpoint := strings.TrimSpace(model.Image.Edit.EndpointPath)
+func imageGenerateRequestEndpoint(provider models.ProviderDefinition, endpointPath string) string {
+	endpoint := strings.TrimSpace(endpointPath)
 	if parsed, err := neturl.Parse(endpoint); err == nil && parsed.Scheme != "" && parsed.Host != "" {
 		return endpoint
 	}

@@ -122,11 +122,13 @@ func TestImageGenerateUsesModelImageDefaults(t *testing.T) {
 	defer modelServer.Close()
 
 	registry := writeImageGenerateRegistryWithImageConfig(t, modelServer.URL, true, []string{
-		"  endpointPath: /custom/images",
 		"  timeout: 3",
 		"  defaultSize: 768x768",
 		"  responseFormats:",
 		"    - url",
+		"  generation:",
+		"    endpointPath: /custom/images",
+		"    requestFormat: openai-images-json",
 	})
 	cfg := defaultImageGenerateTestConfig()
 	cfg.Profiles["general"] = config.ImageGenerateProfileConfig{
@@ -378,23 +380,31 @@ func TestImageGenerateMultipartEditWithNormalizedMask(t *testing.T) {
 	writeImageGenerateTestPNG(t, filepath.Join(chatDir, "mask.png"), 2, 1, []color.NRGBA{{R: 255, G: 255, B: 255, A: 255}, {A: 255}})
 
 	registry := writeImageGenerateRegistryWithImageConfig(t, modelServer.URL, true, []string{
-		"  endpointPath: /v1/images/generations",
 		"  responseFormats:",
 		"    - b64_json",
+		"  generation:",
+		"    endpointPath: /v1/images/generations",
+		"    requestFormat: openai-images-json",
 		"  edit:",
 		"    endpointPath: /v1/images/edits",
-		"    requestFormat: openai-multipart",
+		"    requestFormat: openai-images-multipart",
 		"    maskProtocol: openai-alpha",
 	})
 	executor := imageGenerateTestExecutor(defaultImageGenerateTestConfig(), registry, chatsRoot)
 	result, err := executor.invokeImageGenerate(context.Background(), map[string]any{
 		"prompt": "move the robot",
 		"images": []any{
-			map[string]any{"reference_name": "target.png"},
-			map[string]any{"reference_name": "reference.png"},
+			map[string]any{"source_type": "reference_name", "value": "target.png"},
+			map[string]any{"source_type": "file_path", "value": "@chat/reference.png"},
 		},
-		"mask": map[string]any{"reference_name": "mask.png", "mode": "white_edit"},
-	}, &contracts.ExecutionContext{Session: contracts.QuerySession{ChatID: "chat-1", RunID: "run-1"}})
+		"mask": map[string]any{"source_type": "reference_name", "value": "mask.png", "mode": "white_edit"},
+	}, &contracts.ExecutionContext{Session: contracts.QuerySession{
+		ChatID: "chat-1",
+		RunID:  "run-1",
+		RuntimeContext: contracts.RuntimeRequestContext{LocalPaths: contracts.LocalPaths{
+			ChatDir: chatDir,
+		}},
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -426,9 +436,11 @@ func TestImageGenerateChatCompletionEditUsesUnifiedInputs(t *testing.T) {
 	writeImageGenerateTestPNG(t, filepath.Join(chatDir, "target.png"), 1, 1, []color.NRGBA{{A: 255}})
 	writeImageGenerateTestPNG(t, filepath.Join(chatDir, "reference.png"), 1, 1, []color.NRGBA{{B: 20, A: 255}})
 	registry := writeImageGenerateRegistryWithImageConfig(t, modelServer.URL, true, []string{
-		"  endpointPath: /v1/images/generations",
 		"  responseFormats:",
 		"    - b64_json",
+		"  generation:",
+		"    endpointPath: /v1/chat/completions",
+		"    requestFormat: openai-chat-completions",
 		"  edit:",
 		"    endpointPath: /v1/chat/completions",
 		"    requestFormat: openai-chat-completions",
@@ -438,8 +450,8 @@ func TestImageGenerateChatCompletionEditUsesUnifiedInputs(t *testing.T) {
 	result, err := executor.invokeImageGenerate(context.Background(), map[string]any{
 		"prompt": "edit",
 		"images": []any{
-			map[string]any{"reference_name": "target.png"},
-			map[string]any{"reference_name": "reference.png"},
+			map[string]any{"source_type": "reference_name", "value": "target.png"},
+			map[string]any{"source_type": "reference_name", "value": "reference.png"},
 		},
 	}, &contracts.ExecutionContext{Session: contracts.QuerySession{ChatID: "chat-1", RunID: "run-1"}})
 	if err != nil {
@@ -457,11 +469,66 @@ func TestImageGenerateChatCompletionEditUsesUnifiedInputs(t *testing.T) {
 	if len(content) != 3 {
 		t.Fatalf("content=%#v", content)
 	}
+	for _, imagesOnlyField := range []string{"size", "response_format", "n"} {
+		if _, exists := captured[imagesOnlyField]; exists {
+			t.Fatalf("chat edit must not send %s: %#v", imagesOnlyField, captured)
+		}
+	}
+}
+
+func TestImageGenerateChatCompletionGenerationUsesConfiguredEndpoint(t *testing.T) {
+	outputBytes := testPNGBytes(t, 1, 1, []color.NRGBA{{G: 7, A: 255}})
+	var captured map[string]any
+	modelServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatal(err)
+		}
+		dataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(outputBytes)
+		_, _ = w.Write([]byte("{\"choices\":[{\"message\":{\"images\":[{\"image_url\":{\"url\":\"" + dataURL + "\"}}]}}]}"))
+	}))
+	defer modelServer.Close()
+
+	registry := writeImageGenerateRegistryWithImageConfig(t, modelServer.URL, true, []string{
+		"  responseFormats:",
+		"    - b64_json",
+		"  generation:",
+		"    endpointPath: /v1/chat/completions",
+		"    requestFormat: openai-chat-completions",
+		"  edit:",
+		"    endpointPath: /v1/chat/completions",
+		"    requestFormat: openai-chat-completions",
+		"    maskProtocol: none",
+	})
+	executor := imageGenerateTestExecutor(defaultImageGenerateTestConfig(), registry, t.TempDir())
+	result, err := executor.invokeImageGenerate(context.Background(), map[string]any{"prompt": "draw"}, &contracts.ExecutionContext{
+		Session: contracts.QuerySession{ChatID: "chat-1", RunID: "run-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Error != "" || result.Structured["operation"] != "generation" {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	messages, _ := captured["messages"].([]any)
+	content, _ := contracts.AnyMapNode(messages[0])["content"].([]any)
+	if len(content) != 1 || contracts.AnyMapNode(content[0])["type"] != "text" {
+		t.Fatalf("generation content=%#v", content)
+	}
+	for _, imagesOnlyField := range []string{"size", "response_format", "n"} {
+		if _, exists := captured[imagesOnlyField]; exists {
+			t.Fatalf("chat generation must not send %s: %#v", imagesOnlyField, captured)
+		}
+	}
 }
 
 func TestImageGenerateRejectsUnsupportedMaskBeforeReadingImages(t *testing.T) {
 	registry := writeImageGenerateRegistryWithImageConfig(t, "http://127.0.0.1:1", true, []string{
-		"  endpointPath: /v1/images/generations",
+		"  generation:",
+		"    endpointPath: /v1/chat/completions",
+		"    requestFormat: openai-chat-completions",
 		"  edit:",
 		"    endpointPath: /v1/chat/completions",
 		"    requestFormat: openai-chat-completions",
@@ -471,9 +538,9 @@ func TestImageGenerateRejectsUnsupportedMaskBeforeReadingImages(t *testing.T) {
 	result, err := executor.invokeImageGenerate(context.Background(), map[string]any{
 		"prompt": "edit",
 		"images": []any{
-			map[string]any{"reference_name": "missing.png"},
+			map[string]any{"source_type": "reference_name", "value": "missing.png"},
 		},
-		"mask": map[string]any{"reference_name": "missing-mask.png", "mode": "alpha"},
+		"mask": map[string]any{"source_type": "reference_name", "value": "missing-mask.png", "mode": "alpha"},
 	}, &contracts.ExecutionContext{})
 	if err != nil {
 		t.Fatal(err)
@@ -488,13 +555,98 @@ func TestImageGenerateMaskRequiresImages(t *testing.T) {
 	executor := imageGenerateTestExecutor(defaultImageGenerateTestConfig(), registry, "")
 	result, err := executor.invokeImageGenerate(context.Background(), map[string]any{
 		"prompt": "edit",
-		"mask":   map[string]any{"reference_name": "mask.png", "mode": "alpha"},
+		"mask":   map[string]any{"source_type": "reference_name", "value": "mask.png", "mode": "alpha"},
 	}, &contracts.ExecutionContext{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Error != "image_generate_mask_requires_images" {
 		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
+func TestImageGenerateRejectsLegacyAndMalformedSourcesBeforeProviderCall(t *testing.T) {
+	registry := writeImageGenerateRegistryWithImageConfig(t, "http://127.0.0.1:1", true, []string{
+		"  generation:",
+		"    endpointPath: /v1/chat/completions",
+		"    requestFormat: openai-chat-completions",
+		"  edit:",
+		"    endpointPath: /v1/chat/completions",
+		"    requestFormat: openai-chat-completions",
+		"    maskProtocol: none",
+	})
+	executor := imageGenerateTestExecutor(defaultImageGenerateTestConfig(), registry, "")
+	tests := []struct {
+		name   string
+		source any
+	}{
+		{name: "string element", source: "image.png"},
+		{name: "legacy reference_name", source: map[string]any{"reference_name": "image.png"}},
+		{name: "legacy file_path", source: map[string]any{"file_path": "@chat/image.png"}},
+		{name: "unknown source type", source: map[string]any{"source_type": "url", "value": "https://example.com/image.png"}},
+		{name: "empty value", source: map[string]any{"source_type": "reference_name", "value": "  "}},
+		{name: "unknown property", source: map[string]any{"source_type": "reference_name", "value": "image.png", "extra": true}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := executor.invokeImageGenerate(context.Background(), map[string]any{
+				"prompt": "edit",
+				"images": []any{test.source},
+			}, &contracts.ExecutionContext{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Error != "image_generate_image_source_invalid" || result.Structured["index"] != 0 {
+				t.Fatalf("unexpected result: %#v", result)
+			}
+			if _, ok := result.Structured["example"].(map[string]any); !ok || !strings.Contains(contracts.AnyStringNode(result.Structured["message"]), "source_type") {
+				t.Fatalf("missing indexed migration example: %#v", result.Structured)
+			}
+		})
+	}
+}
+
+func TestImageGenerateFilePathOutsideReadRootsRequiresHITL(t *testing.T) {
+	registry := writeImageGenerateRegistryWithImageConfig(t, "http://127.0.0.1:1", true, []string{
+		"  generation:",
+		"    endpointPath: /v1/chat/completions",
+		"    requestFormat: openai-chat-completions",
+		"  edit:",
+		"    endpointPath: /v1/chat/completions",
+		"    requestFormat: openai-chat-completions",
+		"    maskProtocol: none",
+	})
+	chatDir := t.TempDir()
+	externalDir := t.TempDir()
+	externalImage := filepath.Join(externalDir, "external.png")
+	writeImageGenerateTestPNG(t, externalImage, 1, 1, []color.NRGBA{{A: 255}})
+	executor := imageGenerateTestExecutor(defaultImageGenerateTestConfig(), registry, filepath.Dir(chatDir))
+	executor.cfg.AccessPolicy = config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{
+		contracts.AccessLevelDefault: {
+			ReadRoots: []string{"@chat"},
+			Approvals: config.AccessPolicyApprovalConfig{ReadOutsideRoots: "hitl"},
+		},
+	}}
+	result, err := executor.invokeImageGenerate(context.Background(), map[string]any{
+		"prompt": "edit",
+		"images": []any{
+			map[string]any{"source_type": "file_path", "value": externalImage},
+		},
+	}, &contracts.ExecutionContext{Session: contracts.QuerySession{
+		ChatID: "chat-1",
+		RuntimeContext: contracts.RuntimeRequestContext{LocalPaths: contracts.LocalPaths{
+			ChatDir: chatDir,
+		}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalExternalImage, err := filepath.EvalSymlinks(externalImage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Error != "image_generate_approval_required" || result.Structured["filePath"] != canonicalExternalImage {
+		t.Fatalf("unexpected HITL result: %#v", result)
 	}
 }
 
@@ -620,12 +772,14 @@ func writeImageGenerateRegistry(t *testing.T, baseURL string, withAPIKey bool) *
 
 func writeImageGenerateRegistryWithType(t *testing.T, baseURL string, withAPIKey bool, modelType string) *models.ModelRegistry {
 	return writeImageGenerateRegistryWithModel(t, baseURL, withAPIKey, modelType, []string{
-		"  endpointPath: /v1/images/generations",
 		"  timeout: 120",
 		"  defaultSize: 1024x1024",
 		"  responseFormats:",
 		"    - b64_json",
 		"    - url",
+		"  generation:",
+		"    endpointPath: /v1/images/generations",
+		"    requestFormat: openai-images-json",
 	})
 }
 

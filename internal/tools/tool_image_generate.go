@@ -1,12 +1,10 @@
 package tools
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -94,15 +92,7 @@ func (t *RuntimeToolExecutor) invokeImageGenerate(ctx context.Context, args map[
 	defer cancel()
 	var decoded imageGenerateResponse
 	if len(inputImages) == 0 {
-		body := map[string]any{
-			"model":           model.ModelID,
-			"prompt":          prompt,
-			"size":            size,
-			"response_format": responseFormat,
-			"n":               n,
-		}
-		body = mergeVisionRequestCompat(body, provider, model)
-		decoded, err = t.completeImageGenerate(callCtx, model, provider, profile, body)
+		decoded, err = t.completeImageGenerate(callCtx, model, provider, prompt, size, responseFormat, n)
 	} else {
 		decoded, err = t.completeImageGenerateEdit(callCtx, model, provider, prompt, size, responseFormat, n, inputImages, inputMask)
 	}
@@ -162,63 +152,6 @@ type imageGenerateErrorDetail struct {
 	Code    any    `json:"code"`
 }
 
-func (t *RuntimeToolExecutor) completeImageGenerate(ctx context.Context, model models.ModelDefinition, provider models.ProviderDefinition, profile config.ImageGenerateProfileConfig, body map[string]any) (imageGenerateResponse, error) {
-	payload, err := json.Marshal(body)
-	if err != nil {
-		return imageGenerateResponse{}, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, imageGenerateEndpoint(provider, model, profile), bytes.NewReader(payload))
-	if err != nil {
-		return imageGenerateResponse{}, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+provider.APIKey)
-	for key, value := range visionProtocolHeaders(provider, model, model.Protocol) {
-		req.Header.Set(key, value)
-	}
-	client := t.httpClient
-	if client == nil {
-		client = http.DefaultClient
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return imageGenerateResponse{}, err
-	}
-	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return imageGenerateResponse{}, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return imageGenerateResponse{}, fmt.Errorf("image generation request failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
-	}
-	decoded, err := decodeImageGenerateResponse(data)
-	if err != nil {
-		return imageGenerateResponse{}, err
-	}
-	if decoded.Error != nil && strings.TrimSpace(decoded.Error.Message) != "" {
-		return imageGenerateResponse{}, fmt.Errorf("%s", decoded.Error.Message)
-	}
-	return decoded, nil
-}
-
-func imageGenerateEndpoint(provider models.ProviderDefinition, model models.ModelDefinition, profile config.ImageGenerateProfileConfig) string {
-	endpoint := strings.TrimSpace(profile.EndpointPath)
-	if endpoint == "" {
-		endpoint = strings.TrimSpace(model.Image.EndpointPath)
-	}
-	if endpoint == "" {
-		endpoint = defaultImageGenerateEndpointPath(provider.BaseURL)
-	}
-	if parsed, err := neturl.Parse(endpoint); err == nil && parsed.Scheme != "" && parsed.Host != "" {
-		return endpoint
-	}
-	if !strings.HasPrefix(endpoint, "/") {
-		endpoint = "/" + endpoint
-	}
-	return strings.TrimRight(provider.BaseURL, "/") + endpoint
-}
-
 func imageGenerateTimeout(model models.ModelDefinition, profile config.ImageGenerateProfileConfig) int {
 	if profile.Timeout > 0 {
 		return profile.Timeout
@@ -227,13 +160,6 @@ func imageGenerateTimeout(model models.ModelDefinition, profile config.ImageGene
 		return model.Image.Timeout
 	}
 	return 120
-}
-
-func defaultImageGenerateEndpointPath(baseURL string) string {
-	if normalizedBasePath(baseURL) == "/v1" {
-		return "/images/generations"
-	}
-	return "/v1/images/generations"
 }
 
 func resolveImageGenerateResponseFormat(override string, fallback string, allowed []string) (string, bool) {

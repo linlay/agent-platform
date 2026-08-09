@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 )
 
@@ -325,8 +326,37 @@ func TestImageGenerateToolSchemaMatchesContract(t *testing.T) {
 	if contracts.AnyIntNode(images["minItems"]) != 1 || contracts.AnyIntNode(images["maxItems"]) != 4 {
 		t.Fatalf("expected image_generate images bounds, got %#v", images)
 	}
+	imageItem := contracts.AnyMapNode(images["items"])
+	imageProperties := contracts.AnyMapNode(imageItem["properties"])
+	if _, exists := imageItem["oneOf"]; exists {
+		t.Fatalf("image_generate images item must not use oneOf: %#v", imageItem)
+	}
+	if _, exists := imageProperties["reference_name"]; exists {
+		t.Fatalf("legacy reference_name property must not exist: %#v", imageProperties)
+	}
+	if _, exists := imageProperties["file_path"]; exists {
+		t.Fatalf("legacy file_path property must not exist: %#v", imageProperties)
+	}
+	if !reflect.DeepEqual(imageItem["required"], []any{"source_type", "value"}) || imageItem["additionalProperties"] != false {
+		t.Fatalf("unexpected image source contract: %#v", imageItem)
+	}
+	if !enumContains(t, imageProperties["source_type"], "reference_name") || !enumContains(t, imageProperties["source_type"], "file_path") {
+		t.Fatalf("unexpected image source_type enum: %#v", imageProperties["source_type"])
+	}
 	mask := contracts.AnyMapNode(properties["mask"])
 	maskProperties := contracts.AnyMapNode(mask["properties"])
+	if _, exists := mask["oneOf"]; exists {
+		t.Fatalf("image_generate mask must not use oneOf: %#v", mask)
+	}
+	if _, exists := maskProperties["reference_name"]; exists {
+		t.Fatalf("legacy mask reference_name property must not exist: %#v", maskProperties)
+	}
+	if _, exists := maskProperties["file_path"]; exists {
+		t.Fatalf("legacy mask file_path property must not exist: %#v", maskProperties)
+	}
+	if !reflect.DeepEqual(mask["required"], []any{"source_type", "value", "mode"}) || mask["additionalProperties"] != false {
+		t.Fatalf("unexpected mask source contract: %#v", mask)
+	}
 	if !enumContains(t, maskProperties["mode"], "alpha") || !enumContains(t, maskProperties["mode"], "white_edit") || !enumContains(t, maskProperties["mode"], "black_edit") {
 		t.Fatalf("expected image_generate mask modes, got %#v", maskProperties["mode"])
 	}
@@ -337,6 +367,35 @@ func TestImageGenerateToolSchemaMatchesContract(t *testing.T) {
 	if len(required) != 1 || required[0] != "prompt" {
 		t.Fatalf("unexpected image_generate required fields: %#v", required)
 	}
+}
+
+func TestImageGenerateToolSchemaInjectsSortedProfileEnum(t *testing.T) {
+	executor, err := NewRuntimeToolExecutor(config.Config{ImageGenerate: config.ImageGenerateConfig{
+		DefaultProfile: "gemini-full",
+		Profiles: map[string]config.ImageGenerateProfileConfig{
+			"gemini-lite": {},
+			"gpt-image-2": {},
+			"gemini-full": {},
+		},
+	}}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, definition := range executor.Definitions() {
+		if definition.Name != "image_generate" {
+			continue
+		}
+		properties := contracts.AnyMapNode(definition.Parameters["properties"])
+		profile := contracts.AnyMapNode(properties["profile"])
+		if !reflect.DeepEqual(profile["enum"], []any{"gemini-full", "gemini-lite", "gpt-image-2"}) {
+			t.Fatalf("profile enum=%#v", profile["enum"])
+		}
+		if !strings.Contains(contracts.AnyStringNode(profile["description"]), "Omit") || !strings.Contains(contracts.AnyStringNode(profile["description"]), "gemini-full") {
+			t.Fatalf("profile description=%#v", profile["description"])
+		}
+		return
+	}
+	t.Fatal("image_generate definition not found")
 }
 
 func TestRegexToolSchemaMatchesContract(t *testing.T) {
