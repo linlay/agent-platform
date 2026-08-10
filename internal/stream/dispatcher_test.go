@@ -52,6 +52,22 @@ func TestDispatcherEmitsToolSnapshotAndResultLifecycle(t *testing.T) {
 	assertDurationMsPresent(t, resultEvents[0])
 }
 
+func TestDispatcherMarksInternalOnlyToolResult(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{RunID: "run_1", ChatID: "chat_1"})
+	events := dispatcher.Dispatch(ToolResult{
+		ToolID:       "tool_1",
+		ToolName:     "memory_write",
+		Result:       `{"error":"tool_calls_exceeded","executed":false}`,
+		Error:        "tool_calls_exceeded",
+		ExitCode:     -1,
+		InternalOnly: true,
+	})
+	assertEventTypes(t, events, "tool.result")
+	if events[0].Data().Value("internalOnly") != true {
+		t.Fatalf("expected internalOnly marker on tool.result, got %#v", events[0].Data())
+	}
+}
+
 func TestDispatcherPreservesFailedToolExitCode(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",

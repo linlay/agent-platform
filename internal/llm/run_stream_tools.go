@@ -346,7 +346,7 @@ type batchToolCallResult struct {
 	execCtx      *ExecutionContext
 	err          error
 	received     bool
-	suppressLive bool
+	internalOnly bool
 }
 
 type activeToolBatch struct {
@@ -380,15 +380,18 @@ func (s *llmRunStream) startToolCallBatch(invocations []*preparedToolInvocation)
 			continue
 		}
 		if result := s.checkBudgetBeforeToolCall(invocation.toolName); result != nil {
-			suppressLive := false
+			internalOnly := false
 			if result.Error == string(apperrors.CodeToolCallsExceeded) {
-				suppressLive = !s.recordTerminalToolBudgetError(*result)
+				internalOnly = !s.recordTerminalToolBudgetError(*result)
+				if internalOnly {
+					*result = toolBudgetSkippedResult(*result)
+				}
 			}
 			resultCh <- batchToolCallResult{
 				index:        index,
 				invocation:   invocation,
 				result:       *result,
-				suppressLive: suppressLive,
+				internalOnly: internalOnly,
 			}
 			continue
 		}
@@ -456,12 +459,12 @@ func (s *llmRunStream) consumeActiveToolBatch() error {
 	batch.results[result.index] = prepared
 	batch.remaining--
 
-	if !prepared.suppressLive {
+	if !prepared.internalOnly {
 		s.appendInteractionSubmitDeltas(invocation, prepared.result)
-		s.emitToolResultLive(invocation, prepared.result)
 		appendSourcePublishDelta(&s.pending, s.session, invocation, prepared.result)
 		appendPublishedArtifactDelta(&s.pending, s.session, invocation, prepared.result.Structured["publishedArtifacts"])
 	}
+	s.emitToolResult(invocation, prepared.result, prepared.internalOnly)
 
 	if batch.remaining == 0 {
 		return s.finalizeActiveToolBatch(batch)
@@ -638,6 +641,7 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 	if result := s.checkBudgetBeforeToolCall(invocation.toolName); result != nil {
 		s.recordTerminalToolBudgetError(*result)
 		s.appendOriginalToolResult(invocation, *result)
+		s.resolveQueuedToolCallsAfterBudgetExceeded()
 		s.emitRecordedTerminalToolBudgetError()
 		return nil
 	}
@@ -1086,14 +1090,74 @@ func (s *llmRunStream) prepareToolResultForPublish(invocation *preparedToolInvoc
 }
 
 func (s *llmRunStream) emitToolResultLive(invocation *preparedToolInvocation, result ToolExecutionResult) {
+	s.emitToolResult(invocation, result, false)
+}
+
+func (s *llmRunStream) emitToolResult(invocation *preparedToolInvocation, result ToolExecutionResult, internalOnly bool) {
 	if invocation == nil {
 		return
 	}
 	s.pending = append(s.pending, DeltaToolResult{
-		ToolID:   invocation.toolID,
-		ToolName: invocation.toolName,
-		Result:   result,
+		ToolID:       invocation.toolID,
+		ToolName:     invocation.toolName,
+		Result:       result,
+		InternalOnly: internalOnly,
 	})
+}
+
+func (s *llmRunStream) resolveQueuedToolCallsAfterBudgetExceeded() {
+	invocations := append([]*preparedToolInvocation(nil), s.queuedToolCalls...)
+	s.queuedToolCalls = nil
+	for _, invocation := range invocations {
+		if invocation == nil {
+			continue
+		}
+		s.beginToolInvocation(invocation)
+		resolved := s.prepareToolResultForPublish(invocation, s.budgetResultForSkippedInvocation(invocation))
+		s.emitToolResult(invocation, resolved, true)
+		s.appendToolResultMessageOrdered(invocation, resolved)
+		if s.runControl != nil {
+			s.runControl.ClearExpectedSubmit(invocation.toolID)
+		}
+	}
+}
+
+func (s *llmRunStream) budgetResultForSkippedInvocation(invocation *preparedToolInvocation) ToolExecutionResult {
+	if result := s.checkBudgetBeforeToolCall(invocation.toolName); result != nil {
+		return toolBudgetSkippedResult(*result)
+	}
+	payload := CloneMap(s.terminalErrorPayload)
+	if len(payload) == 0 {
+		payload = apperrors.Payload(
+			apperrors.CodeToolCallsExceeded,
+			"tool call budget exceeded",
+			apperrors.WithScope(apperrors.ScopeTool),
+			apperrors.WithCategory(apperrors.CategoryTool),
+		)
+	}
+	diagnostics := CloneMap(AnyMapNode(payload["diagnostics"]))
+	if diagnostics == nil {
+		diagnostics = map[string]any{}
+	}
+	diagnostics["toolCalls"] = s.execCtx.ToolCalls
+	diagnostics["toolName"] = invocation.toolName
+	payload["diagnostics"] = diagnostics
+	return toolBudgetSkippedResult(ToolExecutionResult{
+		Structured: payload,
+		Error:      string(apperrors.CodeToolCallsExceeded),
+		ExitCode:   -1,
+	})
+}
+
+func toolBudgetSkippedResult(result ToolExecutionResult) ToolExecutionResult {
+	payload := CloneMap(result.Structured)
+	if payload == nil {
+		payload = map[string]any{}
+	}
+	payload["executed"] = false
+	result.Structured = payload
+	result.Output = MarshalJSON(payload)
+	return result
 }
 
 func (s *llmRunStream) appendToolResultMessageOrdered(invocation *preparedToolInvocation, result ToolExecutionResult) {

@@ -323,7 +323,7 @@ Chat 与 Site 沿用同一 `references` 数组，但不按文件路径处理：
 
 实时 SSE / WS stream 中所有工具统一发送 `tool.start`、`tool.args`、`tool.end`、`tool.snapshot`、`tool.result`，不再存在 `action.*` 事件。Bash 进程非零退出时，`tool.result` 保留真实 `exitCode` 并作为可恢复的工具失败展示，不会自动升级为终止性的 `run.error`；成功但写入 stderr 的命令仍保持 `exitCode: 0`。持久化到 `chatId.jsonl` 时，同一 assistant turn 的多个工具调用会合并为一条 assistant message 的 `tool_calls[]`；如果该组存在 awaiting，确认前不会执行任何 sibling tool，确认后的所有结果写入同 `seq` 的 `_type:"react-tool"` continuation。
 
-`budget.tool.maxCalls` 是平台硬限制。计数包含被拒绝的尝试，因此上限为 `60` 时，第 `61` 次调用不会进入 ToolRouter，而是先发送一次失败 `tool.result`，随后立即发送唯一的 `run.error` 并结束，不再请求模型补答。同一并行批次中，已在预算内的 sibling 正常收尾；其余越限 sibling 都不会执行，也不会重复发布越限 `tool.result`。终止错误沿用公共错误结构：
+`budget.tool.maxCalls` 是平台硬限制。计数包含被拒绝的尝试，因此上限为 `60` 时，第 `61` 次调用不会进入 ToolRouter，而是先发送一次失败 `tool.result`。如果同一 assistant turn 在该调用之后还有 sibling，平台会先为所有确定尚未执行的 sibling 写入内部 `executed:false` 结果，保证持久化历史中的每个 `tool_call_id` 都有对应结果；这些内部结果不进入 SSE、WebSocket、attach、普通 Chat 回放或 full-text。串行和并行批次都完成上述收尾后，才发送唯一的 `run.error` 并结束，不再请求模型补答；已在预算内启动的并行 sibling 仍正常收尾。终止错误沿用公共错误结构：
 
 ```json
 {
@@ -346,6 +346,8 @@ Chat 与 Site 沿用同一 `references` 数组，但不按文件路径处理：
 ```
 
 该 `run.error` 是完成态事实：SSE、WebSocket、`/api/attach` 和 `run_status` 返回同一错误，run summary 持久化为 `finishReason:"error"`，运行状态为 `FAILED`。首个终态获胜；平台确定错误后到达的 `/api/interrupt` 返回 `accepted:false, status:"unmatched"`，不能把失败覆盖为 cancel。`stream:false` 仍完成相同持久化，但 HTTP 返回错误 envelope。
+
+预算错误闭合后的历史可以安全用于同一 Chat 的后续新 run。部署修复前已经缺少 tool result、且执行状态无法证明的历史不会自动修复，仍按 `chat_history_incomplete` 返回 `409`。
 
 orchestrated Team 的总控 reasoning 和 `agent_delegate` 工具事件会被过滤，不进入客户端事件流。成员输出继续使用现有 `task.*` 与 task-scoped `content.*`：成员事件带 `taskId`，可带 `teamId`、成员 `agentKey`、`presentation:"task"`，并在 `actor` 中标记 `type:"agent"`。一项和多项委派使用相同终止规则，成员正文不会成为根回答；最终非流式 `content`、run summary 与 `AssistantText` 只取总控生成的唯一 Team 最终正文。
 

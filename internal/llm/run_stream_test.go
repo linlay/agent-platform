@@ -1463,6 +1463,101 @@ func TestRunStreamToolBudgetExceededTerminatesAndClearsActiveCall(t *testing.T) 
 	}
 }
 
+func TestRunStreamSerialToolBudgetResolvesQueuedSiblingsBeforeRunError(t *testing.T) {
+	control := contracts.NewRunControl(context.Background(), "run-tool-budget-serial-batch")
+	executor := &recordingToolExecutor{}
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools: executor,
+		},
+		session: contracts.QuerySession{
+			RunID:  "run-tool-budget-serial-batch",
+			ChatID: "chat-tool-budget-serial-batch",
+		},
+		runControl: control,
+		execCtx: &contracts.ExecutionContext{
+			StartedAt: time.Now(),
+			Budget: contracts.Budget{
+				Tool: contracts.RetryPolicy{MaxCalls: 100},
+			},
+			ToolCalls: 99,
+		},
+	}
+	for index := 0; index < 6; index++ {
+		stream.queuedToolCalls = append(stream.queuedToolCalls, &preparedToolInvocation{
+			toolID:   fmt.Sprintf("tool-%d", index+100),
+			toolName: "plan_update_task",
+			args:     map[string]any{"taskId": fmt.Sprintf("task-%d", index+1)},
+		})
+	}
+
+	var deltas []contracts.AgentDelta
+	for !stream.finished {
+		if stream.activeToolCall == nil {
+			if err := stream.invokeQueuedToolCallsAndPostHook(); err != nil {
+				t.Fatalf("activate serial tool: %v", err)
+			}
+		}
+		if stream.activeToolCall != nil {
+			if err := stream.invokeActiveToolCallAndPostHook(); err != nil {
+				t.Fatalf("invoke serial tool: %v", err)
+			}
+		}
+		deltas = append(deltas, stream.pending...)
+		stream.pending = nil
+	}
+
+	executor.mu.Lock()
+	recorded := append([]recordedToolInvocation(nil), executor.invocations...)
+	executor.mu.Unlock()
+	if len(recorded) != 1 || recorded[0].name != "plan_update_task" {
+		t.Fatalf("only the within-budget sibling may execute, got %#v", recorded)
+	}
+	if stream.execCtx.ToolCalls != 105 {
+		t.Fatalf("toolCalls = %d, want 105 attempted calls", stream.execCtx.ToolCalls)
+	}
+	if stream.activeToolCall != nil || len(stream.queuedToolCalls) != 0 {
+		t.Fatalf("terminal budget left active or queued calls: active=%#v queued=%#v", stream.activeToolCall, stream.queuedToolCalls)
+	}
+	if len(stream.messages) != 6 {
+		t.Fatalf("all six sibling calls must have tool messages, got %#v", stream.messages)
+	}
+
+	visibleBudgetResults := 0
+	internalBudgetResults := 0
+	runErrorCount := 0
+	for index, delta := range deltas {
+		switch typed := delta.(type) {
+		case contracts.DeltaToolResult:
+			if typed.Result.Error != string(apperrors.CodeToolCallsExceeded) {
+				continue
+			}
+			if typed.InternalOnly {
+				internalBudgetResults++
+				if typed.Result.Structured["executed"] != false {
+					t.Fatalf("internal sibling result must record executed=false: %#v", typed.Result)
+				}
+			} else {
+				visibleBudgetResults++
+			}
+		case contracts.DeltaError:
+			if contracts.AnyStringNode(typed.Error["code"]) == string(apperrors.CodeToolCallsExceeded) {
+				runErrorCount++
+				if index != len(deltas)-1 {
+					t.Fatalf("run.error must follow all sibling results, deltas=%#v", deltas)
+				}
+			}
+		}
+	}
+	if visibleBudgetResults != 1 || internalBudgetResults != 4 || runErrorCount != 1 {
+		t.Fatalf("unexpected terminal result counts: visible=%d internal=%d runError=%d deltas=%#v", visibleBudgetResults, internalBudgetResults, runErrorCount, deltas)
+	}
+	if !stream.finished || control.State() != contracts.RunLoopStateFailed {
+		t.Fatalf("expected failed terminal state, finished=%v state=%s", stream.finished, control.State())
+	}
+}
+
 func TestRunStreamParallelToolBudgetPublishesOneRejectionAndOneRunError(t *testing.T) {
 	control := contracts.NewRunControl(context.Background(), "run-tool-budget-batch")
 	executor := &recordingToolExecutor{}
@@ -1517,13 +1612,21 @@ func TestRunStreamParallelToolBudgetPublishesOneRejectionAndOneRunError(t *testi
 		t.Fatalf("all siblings must be internally resolved, messages=%#v", stream.messages)
 	}
 
-	rejectionCount := 0
+	visibleRejectionCount := 0
+	internalRejectionCount := 0
 	runErrorCount := 0
 	for index, delta := range deltas {
 		switch typed := delta.(type) {
 		case contracts.DeltaToolResult:
 			if typed.Result.Error == string(apperrors.CodeToolCallsExceeded) {
-				rejectionCount++
+				if typed.InternalOnly {
+					internalRejectionCount++
+					if typed.Result.Structured["executed"] != false {
+						t.Fatalf("internal parallel sibling result must record executed=false: %#v", typed.Result)
+					}
+				} else {
+					visibleRejectionCount++
+				}
 			}
 		case contracts.DeltaError:
 			if contracts.AnyStringNode(typed.Error["code"]) == string(apperrors.CodeToolCallsExceeded) {
@@ -1534,8 +1637,8 @@ func TestRunStreamParallelToolBudgetPublishesOneRejectionAndOneRunError(t *testi
 			}
 		}
 	}
-	if rejectionCount != 1 || runErrorCount != 1 {
-		t.Fatalf("expected one public rejection and one terminal error, rejection=%d error=%d deltas=%#v", rejectionCount, runErrorCount, deltas)
+	if visibleRejectionCount != 1 || internalRejectionCount != 1 || runErrorCount != 1 {
+		t.Fatalf("expected one public rejection, one internal sibling result and one terminal error, visible=%d internal=%d error=%d deltas=%#v", visibleRejectionCount, internalRejectionCount, runErrorCount, deltas)
 	}
 	if !stream.finished || control.State() != contracts.RunLoopStateFailed {
 		t.Fatalf("expected failed terminal state, finished=%v state=%s", stream.finished, control.State())

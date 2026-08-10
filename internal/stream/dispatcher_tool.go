@@ -46,6 +46,9 @@ func (d *StreamEventDispatcher) handleToolResult(input ToolResult) []StreamEvent
 		"toolName": input.ToolName,
 		"result":   buildToolResultValue(input),
 	}
+	if input.InternalOnly {
+		payload["internalOnly"] = true
+	}
 	if isBashToolResult(input.ToolName) {
 		if input.ExitCode != 0 {
 			payload["exitCode"] = input.ExitCode
@@ -66,8 +69,10 @@ func (d *StreamEventDispatcher) handleToolResult(input ToolResult) []StreamEvent
 		delete(d.state.toolEndAtByID, input.ToolID)
 	}
 	events = append(events, resultEvent)
-	if eventType, memoryPayload := d.memoryToolResultEvent(input); eventType != "" && len(memoryPayload) > 0 {
-		events = append(events, NewEvent(eventType, memoryPayload))
+	if !input.InternalOnly {
+		if eventType, memoryPayload := d.memoryToolResultEvent(input); eventType != "" && len(memoryPayload) > 0 {
+			events = append(events, NewEvent(eventType, memoryPayload))
+		}
 	}
 	return events
 }

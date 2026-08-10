@@ -161,6 +161,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			Error:           resultError,
 			ExitCode:        resultExitCode,
 			FileChange:      toolResultFileChange(value.ToolName, value.Result),
+			InternalOnly:    value.InternalOnly,
 		}}
 	case DeltaStageMarker:
 		m.lastKind = ""

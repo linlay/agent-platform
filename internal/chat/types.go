@@ -247,6 +247,7 @@ type StoredMessage struct {
 	TeamID           string           `json:"teamId,omitempty"`
 	AgentKey         string           `json:"agentKey,omitempty"`
 	Presentation     string           `json:"presentation,omitempty"`
+	InternalOnly     bool             `json:"_internalOnly,omitempty"`
 }
 
 type ContentPart struct {

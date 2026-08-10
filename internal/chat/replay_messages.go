@@ -121,6 +121,9 @@ func storedMessageToEventsWithOptions(msg map[string]any, runID, taskID, stage s
 		if _, legacyAction := msg["_actionId"]; legacyAction {
 			return nil, nil
 		}
+		if boolFromAny(msg["_internalOnly"]) {
+			return nil, nil
+		}
 		if options.HideTeamCoordinatorInternals || agentteam.IsHiddenTool(stringFromAny(msg["name"])) {
 			return nil, nil
 		}

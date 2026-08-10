@@ -218,13 +218,14 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 				"taskId": w.toolTaskIDs[toolID],
 			},
 		}, StoredMessage{
-			Role:       "tool",
-			Name:       toolName,
-			ToolCallID: toolID,
-			Content:    textContent(formatResult(event.Value("result"))),
-			ToolID:     toolID,
-			DurationMs: durationMs,
-			Ts:         &ts,
+			Role:         "tool",
+			Name:         toolName,
+			ToolCallID:   toolID,
+			Content:      textContent(formatResult(event.Value("result"))),
+			ToolID:       toolID,
+			DurationMs:   durationMs,
+			Ts:           &ts,
+			InternalOnly: boolFromAny(event.Value("internalOnly")),
 		})
 		w.needNewMsgID = true
 

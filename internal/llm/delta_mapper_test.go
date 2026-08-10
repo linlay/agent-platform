@@ -281,14 +281,16 @@ func TestDeltaMapper_ModelTurnCommitUsesUnifiedToolRouting(t *testing.T) {
 	mapper.Map(contracts.DeltaModelTurnCommit{RunSeq: 1})
 
 	resultInputs := mapper.Map(contracts.DeltaToolResult{
-		ToolID:   "action_1",
-		ToolName: "desktop_action",
-		Result:   contracts.ToolExecutionResult{Output: "ok"},
+		ToolID:       "action_1",
+		ToolName:     "desktop_action",
+		Result:       contracts.ToolExecutionResult{Output: "ok"},
+		InternalOnly: true,
 	})
 	if len(resultInputs) != 1 {
 		t.Fatalf("expected one tool result, got %#v", resultInputs)
 	}
-	if _, ok := resultInputs[0].(stream.ToolResult); !ok {
+	result, ok := resultInputs[0].(stream.ToolResult)
+	if !ok || !result.InternalOnly {
 		t.Fatalf("commit lost tool routing metadata: %#v", resultInputs[0])
 	}
 }

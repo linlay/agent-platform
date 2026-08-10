@@ -3343,6 +3343,108 @@ func TestQueryToolBudgetExceededIsVisibleAndDurable(t *testing.T) {
 	}
 }
 
+func TestQuerySerialToolBudgetPersistsAllSiblingsAndAllowsNextRun(t *testing.T) {
+	fixture, providerCalls := newSerialToolBudgetExceededFixture(t)
+	const chatID = "chat-tool-budget-serial-siblings"
+
+	firstReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(
+		`{"chatId":"`+chatID+`","runId":"loyw3v30","agentKey":"mock-agent","message":"update every task"}`,
+	))
+	firstReq.Header.Set("Content-Type", "application/json")
+	firstRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(firstRec, firstReq)
+	if firstRec.Code != http.StatusOK {
+		t.Fatalf("expected terminal SSE 200, got %d: %s", firstRec.Code, firstRec.Body.String())
+	}
+
+	visibleBudgetResults := 0
+	runErrors := 0
+	for _, message := range decodeSSEMessages(t, firstRec.Body.String()) {
+		switch stringValue(message["type"]) {
+		case "tool.result":
+			result, _ := message["result"].(map[string]any)
+			if stringValue(result["error"]) == "tool_calls_exceeded" {
+				visibleBudgetResults++
+			}
+		case "run.error":
+			errorPayload, _ := message["error"].(map[string]any)
+			if stringValue(errorPayload["code"]) == "tool_calls_exceeded" {
+				runErrors++
+			}
+		}
+	}
+	if visibleBudgetResults != 1 || runErrors != 1 || providerCalls.Load() != 2 {
+		t.Fatalf("unexpected first-run terminal events: visibleBudget=%d runErrors=%d providerCalls=%d body=%s", visibleBudgetResults, runErrors, providerCalls.Load(), firstRec.Body.String())
+	}
+
+	raw, err := fixture.chats.LoadJSONLContent(chatID)
+	if err != nil {
+		t.Fatalf("load serial budget jsonl: %v", err)
+	}
+	resultMessages := map[string]map[string]any{}
+	for _, rawLine := range strings.Split(strings.TrimSpace(raw), "\n") {
+		var line map[string]any
+		if err := json.Unmarshal([]byte(rawLine), &line); err != nil {
+			t.Fatalf("decode serial budget jsonl line: %v", err)
+		}
+		messages, _ := line["messages"].([]any)
+		for _, rawMessage := range messages {
+			message, _ := rawMessage.(map[string]any)
+			if stringValue(message["role"]) != "tool" {
+				continue
+			}
+			resultMessages[stringValue(message["tool_call_id"])] = message
+		}
+	}
+	for _, toolID := range []string{"tool_update_1", "tool_update_2", "tool_update_3"} {
+		if resultMessages[toolID] == nil {
+			t.Fatalf("missing persisted sibling result for %s: %#v", toolID, resultMessages)
+		}
+	}
+	if resultMessages["tool_update_2"]["_internalOnly"] == true {
+		t.Fatalf("first over-budget result must remain public: %#v", resultMessages["tool_update_2"])
+	}
+	if resultMessages["tool_update_3"]["_internalOnly"] != true {
+		t.Fatalf("later over-budget sibling must be storage-only: %#v", resultMessages["tool_update_3"])
+	}
+	var persistedResult map[string]any
+	if err := json.Unmarshal([]byte(textFromJSONLMessageContentForServerTest(resultMessages["tool_update_3"]["content"])), &persistedResult); err != nil {
+		t.Fatalf("decode persisted internal sibling result: %v", err)
+	}
+	var skippedPayload map[string]any
+	if err := json.Unmarshal([]byte(stringValue(persistedResult["output"])), &skippedPayload); err != nil {
+		t.Fatalf("decode skipped sibling payload: %v", err)
+	}
+	if skippedPayload["executed"] != false {
+		t.Fatalf("internal sibling result must record executed=false: %#v", resultMessages["tool_update_3"])
+	}
+
+	chatRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID, nil))
+	if chatRec.Code != http.StatusOK {
+		t.Fatalf("complete budget history must replay, got %d: %s", chatRec.Code, chatRec.Body.String())
+	}
+	var detail api.ApiResponse[api.ChatDetailResponse]
+	if err := json.Unmarshal(chatRec.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("decode chat detail: %v", err)
+	}
+	for _, event := range detail.Data.Events {
+		if event.Type == "tool.result" && event.String("toolId") == "tool_update_3" {
+			t.Fatalf("internal sibling result leaked into ordinary chat replay: %#v", event)
+		}
+	}
+
+	continueReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(
+		`{"chatId":"`+chatID+`","runId":"loyw3v31","agentKey":"mock-agent","message":"continue","stream":false}`,
+	))
+	continueReq.Header.Set("Content-Type", "application/json")
+	continueRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(continueRec, continueReq)
+	if continueRec.Code != http.StatusOK || providerCalls.Load() != 3 {
+		t.Fatalf("next run must load the completed history: status=%d providerCalls=%d body=%s", continueRec.Code, providerCalls.Load(), continueRec.Body.String())
+	}
+}
+
 func TestQueryNonStreamToolBudgetExceededPersistsError(t *testing.T) {
 	fixture, providerCalls := newToolBudgetExceededFixture(t)
 	const chatID = "chat-tool-budget-sync"
@@ -3408,6 +3510,63 @@ func newToolBudgetExceededFixture(t *testing.T) (testFixture, *atomic.Int32) {
 			)
 			if content == string(data) {
 				t.Fatal("agent budget fixture was not updated")
+			}
+			if err := os.WriteFile(agentPath, []byte(content), 0o644); err != nil {
+				t.Fatalf("write agent config: %v", err)
+			}
+		},
+	})
+	return fixture, &providerCalls
+}
+
+func newSerialToolBudgetExceededFixture(t *testing.T) (testFixture, *atomic.Int32) {
+	t.Helper()
+	var providerCalls atomic.Int32
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		switch call := providerCalls.Add(1); call {
+		case 1:
+			writeProviderSSE(t, w,
+				providerToolCallFrame(t, "tool_add_tasks", "plan_add_tasks", map[string]any{
+					"tasks": []map[string]any{
+						{"taskId": "task-1", "description": "first"},
+						{"taskId": "task-2", "description": "second"},
+						{"taskId": "task-3", "description": "third"},
+					},
+				}),
+				`[DONE]`,
+			)
+		case 2:
+			writeProviderSSE(t, w,
+				providerToolCallsFrame(t, []providerToolCallSpec{
+					{ID: "tool_update_1", Name: "plan_update_task", Args: map[string]any{"taskId": "task-1", "status": "completed"}},
+					{ID: "tool_update_2", Name: "plan_update_task", Args: map[string]any{"taskId": "task-2", "status": "completed"}},
+					{ID: "tool_update_3", Name: "plan_update_task", Args: map[string]any{"taskId": "task-3", "status": "in_progress"}},
+				}),
+				`[DONE]`,
+			)
+		case 3:
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"content":"continued safely"},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+		default:
+			t.Fatalf("unexpected provider call %d", call)
+		}
+	}, testFixtureOptions{
+		setupRuntime: func(_ string, cfg *config.Config) {
+			agentPath := filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml")
+			data, err := os.ReadFile(agentPath)
+			if err != nil {
+				t.Fatalf("read agent config: %v", err)
+			}
+			content := strings.Replace(
+				string(data),
+				"  tool:\n    timeout: 210",
+				"  tool:\n    maxCalls: 2\n    timeout: 210",
+				1,
+			)
+			if content == string(data) {
+				t.Fatal("serial budget fixture was not updated")
 			}
 			if err := os.WriteFile(agentPath, []byte(content), 0o644); err != nil {
 				t.Fatalf("write agent config: %v", err)

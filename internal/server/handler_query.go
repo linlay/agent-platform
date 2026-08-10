@@ -471,6 +471,9 @@ func (b *queryFullTextBuilder) Consume(event stream.EventData) {
 	if b == nil {
 		return
 	}
+	if event.Type == "tool.result" && event.Value("internalOnly") == true {
+		return
+	}
 	switch event.Type {
 	case "reasoning.delta":
 		id := firstNonBlankString(event.String("reasoningId"), "reasoning")

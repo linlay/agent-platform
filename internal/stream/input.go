@@ -55,6 +55,7 @@ type ToolResult struct {
 	Error           string
 	ExitCode        int
 	FileChange      map[string]any
+	InternalOnly    bool
 }
 
 func (ToolResult) streamInputTag() {}

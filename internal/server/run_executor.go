@@ -680,6 +680,9 @@ func shouldPublishClientEvent(data stream.EventData) bool {
 	if data.Type == "request.query" && strings.TrimSpace(data.String("kind")) == "system-init" {
 		return false
 	}
+	if data.Type == "tool.result" && data.Value("internalOnly") == true {
+		return false
+	}
 	return isClientVisibleEvent(data.Type)
 }
 

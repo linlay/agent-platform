@@ -41,9 +41,10 @@ type DeltaToolEnd struct {
 func (DeltaToolEnd) agentDeltaTag() {}
 
 type DeltaToolResult struct {
-	ToolID   string
-	ToolName string
-	Result   ToolExecutionResult
+	ToolID       string
+	ToolName     string
+	Result       ToolExecutionResult
+	InternalOnly bool
 }
 
 func (DeltaToolResult) agentDeltaTag() {}

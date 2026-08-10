@@ -174,6 +174,26 @@ func TestSystemInitQueryIsNotPublishedToClients(t *testing.T) {
 	}
 }
 
+func TestInternalOnlyToolResultIsNotPublishedToClients(t *testing.T) {
+	event := stream.EventData{
+		Type: "tool.result",
+		Payload: map[string]any{
+			"toolId":       "tool-skipped",
+			"internalOnly": true,
+			"result":       `{"error":"tool_calls_exceeded","executed":false}`,
+		},
+	}
+	if shouldPublishClientEvent(event) {
+		t.Fatalf("internal-only tool result must remain storage-only: %#v", event)
+	}
+
+	builder := newQueryFullTextBuilder()
+	builder.Consume(event)
+	if got := builder.Text(""); got != "" {
+		t.Fatalf("internal-only tool result leaked into full text: %q", got)
+	}
+}
+
 func TestRunEventProcessorKeepsTerminalUsageWhenOnlyLLMChatCompletionCountKnown(t *testing.T) {
 	runUsage := chat.UsageData{}
 	processor := &runEventProcessor{

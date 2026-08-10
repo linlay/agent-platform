@@ -2277,6 +2277,66 @@ func TestStepWriterFormatsStructuredToolResultAsJSON(t *testing.T) {
 	}
 }
 
+func TestStepWriterPersistsInternalToolResultWithoutChatReplay(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-internal-tool-result", "run-internal-tool-result", "react")
+	onEventForTest(writer, stream.EventData{
+		Type:      "tool.snapshot",
+		Timestamp: testEpochMillis(1001),
+		Payload: map[string]any{
+			"toolId":    "tool-skipped",
+			"toolName":  "plan_update_task",
+			"arguments": `{"taskId":"task-1"}`,
+		},
+	})
+	onEventForTest(writer, stream.EventData{
+		Type:      "tool.result",
+		Timestamp: testEpochMillis(1002),
+		Payload: map[string]any{
+			"toolId":       "tool-skipped",
+			"toolName":     "plan_update_task",
+			"internalOnly": true,
+			"result": map[string]any{
+				"error":    "tool_calls_exceeded",
+				"executed": false,
+			},
+		},
+	})
+	writer.Flush()
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-internal-tool-result"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("expected tool call and tool result lines, got %#v", lines)
+	}
+	if toIntValue(lines[0]["seq"]) != toIntValue(lines[1]["seq"]) {
+		t.Fatalf("internal tool result must reuse the assistant turn seq: %#v", lines)
+	}
+	messages, _ := lines[1]["messages"].([]any)
+	if len(messages) != 1 {
+		t.Fatalf("expected one persisted internal result, got %#v", lines[1])
+	}
+	message, _ := messages[0].(map[string]any)
+	if message["_internalOnly"] != true || message["tool_call_id"] != "tool-skipped" {
+		t.Fatalf("internal tool result lost storage marker or call id: %#v", message)
+	}
+	message["ts"] = testEpochMillis(1002)
+
+	events, err := storedMessageToEvents(message, "run-internal-tool-result", "", "react", 0, func() int64 { return 1 })
+	if err != nil {
+		t.Fatalf("replay internal tool result: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("internal tool result must not appear in ordinary chat replay: %#v", events)
+	}
+}
+
 func TestStepWriterSplitsEachLLMRequestIntoReactStep(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
