@@ -96,6 +96,12 @@ Mask 必须与第一张图同尺寸并显式指定 `mode`：`alpha` 表示透明
 
 新工具结果不返回 `/api/resource?file=...`；该形式仅供既有聊天只读兼容。浏览器数据层负责把逻辑引用转换为实际的 `GET /api/resource?file=<query-encoded-key>`。
 
+## `desktop_action` 的 Chat Work Panel
+
+`desktop.chatWorkPanel.getState/open/close/openTab/activateTab/closeTab` 操作当前 run 所属 Chat 的 Desktop 工作面板。模型参数不包含 `chatId`、`surfaceId` 或 `agentKey`；`tool_desktop_action.go` 与 `desktop_cdp` 都从 `ExecutionContext.Session` 生成同一份可信 `source`，模型不能覆盖。
+
+需要实际操作网页时，先调用 `desktop.chatWorkPanel.openTab({url,title?})` 或 `getState` 取得 Tab 的 `targetId`，再调用 `desktop_cdp`。Desktop 仅允许当前激活 surface target，或 `ownerChatId` 与可信 `source.chatId` 一致的 Work Panel target；Work Panel 不进入普通 `desktop.web.listSurfaces` 或 `Target.getTargets`。
+
 ## `desktop_action` 的 WebClient Provider
 
 Agent 仍然只看到一个 `desktop_action`。它的 Action 白名单由 `internal/resources/tools/desktop_action.yml` 静态声明，不存在 WebClient Surface 注册或 capability 协商：
