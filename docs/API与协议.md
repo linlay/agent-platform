@@ -727,7 +727,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `reason` | stream | stream 结束或中断原因 |
 | `lastSeq` | stream | 已发送事件序号，可用于 attach |
 
-当 `POST /api/query` 使用 SSE 时，WebClient 同时保持 `/ws` 控制连接，并在 query 请求中发送 `X-Agent-WebClient-Device-Id` 与 `X-Agent-WebClient-Surface-Id`。前者与 `/ws?deviceId=...` 使用同一个 localStorage device 标识；认证 JWT 已含 device claim 时以 claim 为准。Platform 只在相同认证主体与 device 边界中解析该 surface，不会选择最近活跃标签页。WebSocket query 则直接绑定发起 query 的连接。WebClient 反向 request 默认等待 20 秒。
+当 `POST /api/query` 使用 SSE 时，WebClient 同时保持 `/ws` 控制连接，并在 query 与后续 `GET /api/attach` 中发送 `X-Agent-WebClient-Device-Id`、`X-Agent-WebClient-Surface-Id`。前者与 `/ws?deviceId=...` 使用同一个 localStorage device 标识；认证 JWT 已含 device claim 时以 claim 为准。WebSocket query/attach 则直接使用发起请求的连接。每次成功且具有有效 target 的 attach 都把该连接或逻辑 surface 设为 run 的最新反向 Action target；失败 attach 和不带 target headers 的普通 HTTP attach 不改变原绑定。WebClient 反向 request 默认等待 20 秒。
 
 回放事件的 `seq` 是展示序号。`chatId.jsonl` 使用每行顶层 `liveSeq` 记录该行覆盖到的原始 live stream 序号；replay 时会把它注入到对应事件 payload，供 attach cursor 使用。
 

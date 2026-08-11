@@ -70,6 +70,7 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 	}
 	defer sseWriter.Close()
 	sseWriter.StartHeartbeat()
+	bindRunWebClientTarget(s.deps.Runs, runID, webClientTargetFromHTTPRequest(r))
 
 	for {
 		select {

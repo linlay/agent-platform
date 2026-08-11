@@ -3,6 +3,7 @@ package contracts
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -49,6 +50,72 @@ func TestInMemoryRunManagerRegisterDetachesFromParentContext(t *testing.T) {
 	}
 	if control.Interrupted() || control.Finished() {
 		t.Fatalf("did not expect run to be interrupted or finished")
+	}
+}
+
+func TestInMemoryRunManagerWebClientTargetIsLastWriterWins(t *testing.T) {
+	manager := NewInMemoryRunManager()
+	initial := WebClientTarget{SessionID: "ws-initial"}
+	manager.Register(context.Background(), QuerySession{
+		RunID:           "run_target",
+		ChatID:          "chat_target",
+		AgentKey:        "agent_1",
+		RunOwner:        AgentRunOwner("agent_1", ""),
+		WebClientTarget: initial,
+	})
+
+	if got, ok := manager.ResolveWebClientTarget("run_target"); !ok || got != initial {
+		t.Fatalf("initial target = %#v, %v, want %#v", got, ok, initial)
+	}
+	latest := WebClientTarget{
+		BoundaryKey: "subject:user\x00device:device-2",
+		Subject:     "user",
+		SurfaceID:   "surface-2",
+	}
+	if !manager.BindWebClientTarget("run_target", latest) {
+		t.Fatal("expected latest target to bind")
+	}
+	if got, ok := manager.ResolveWebClientTarget("run_target"); !ok || got != latest {
+		t.Fatalf("latest target = %#v, %v, want %#v", got, ok, latest)
+	}
+	if manager.BindWebClientTarget("run_target", WebClientTarget{}) {
+		t.Fatal("zero target must not clear the latest binding")
+	}
+	if got, ok := manager.ResolveWebClientTarget("run_target"); !ok || got != latest {
+		t.Fatalf("zero bind changed target to %#v, %v", got, ok)
+	}
+	if manager.BindWebClientTarget("missing", initial) {
+		t.Fatal("missing run must reject target binding")
+	}
+}
+
+func TestInMemoryRunManagerWebClientTargetConcurrentBindsRemainAtomic(t *testing.T) {
+	manager := NewInMemoryRunManager()
+	manager.Register(context.Background(), QuerySession{
+		RunID:    "run_concurrent_target",
+		ChatID:   "chat_concurrent_target",
+		AgentKey: "agent_1",
+		RunOwner: AgentRunOwner("agent_1", ""),
+	})
+
+	var wg sync.WaitGroup
+	for index := 0; index < 32; index++ {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			manager.BindWebClientTarget("run_concurrent_target", WebClientTarget{
+				SessionID: fmt.Sprintf("ws-%d", index),
+			})
+		}(index)
+	}
+	wg.Wait()
+
+	latest := WebClientTarget{SessionID: "ws-latest-completed"}
+	if !manager.BindWebClientTarget("run_concurrent_target", latest) {
+		t.Fatal("bind latest completed target")
+	}
+	if got, ok := manager.ResolveWebClientTarget("run_concurrent_target"); !ok || got != latest {
+		t.Fatalf("target after concurrent binds = %#v, %v, want %#v", got, ok, latest)
 	}
 }
 
@@ -725,6 +792,16 @@ func TestInMemoryRunManagerRecoveredAwaitingIsAttachableAndClaimedOnce(t *testin
 		t.Fatalf("attach recovered run: %v", err)
 	}
 	defer manager.DetachObserver("run_recovered", observer.ID)
+	if _, ok := manager.ResolveWebClientTarget("run_recovered"); ok {
+		t.Fatal("recovered awaiting run must initially allow a missing target")
+	}
+	recoveredTarget := WebClientTarget{SessionID: "ws-recovered"}
+	if !manager.BindWebClientTarget("run_recovered", recoveredTarget) {
+		t.Fatal("bind target after recovered awaiting attach")
+	}
+	if got, ok := manager.ResolveWebClientTarget("run_recovered"); !ok || got != recoveredTarget {
+		t.Fatalf("recovered awaiting target = %#v, %v, want %#v", got, ok, recoveredTarget)
+	}
 	claim, ok := manager.ClaimRecoveredAwaiting("run_recovered", "await_1")
 	if !ok || claim.Control != recovered.Control || claim.EventBus != recovered.EventBus || claim.InitialSeq != 29 {
 		t.Fatalf("unexpected recovered claim %#v ok=%v", claim, ok)

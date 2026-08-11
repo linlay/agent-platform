@@ -115,7 +115,9 @@ WebSocket 映射是扁平的：`desktop_action.action` 直接成为 request `typ
 
 `webclient.sidebar.refreshUrl` 使用精确的 `{url}` 重载已存在的规范化 Web Preview。URL 校验与 `openUrl` 一致，但不创建 Preview、不打开右侧栏、不切换 tab 或活动 Preview；当前视图不支持右侧栏或目标 URL 未打开时，WebClient 返回 `unsupported_in_current_view`。成功只表示刷新信号已应用，不保证 iframe 重新加载成功。
 
-WebSocket query 直接绑定当前连接，不检查连接自报的 `source`；即使没有 `surfaceId`，该 run 仍可按 WebSocket session 定位原连接。HTTP SSE query 通过 `X-Agent-WebClient-Device-Id` 与 `X-Agent-WebClient-Surface-Id` 绑定同一认证主体和 device 边界内的逻辑 surface；device header 与 `/ws?deviceId=...` 相同，认证 JWT 已含 device claim 时以 claim 为准。`source` 仅用于监控和日志，不是安全边界或 capability 声明。run 只保存逻辑目标，因此相同 surface 的 WebSocket 重连可以继续接收反向 request。Team 内部成员与 `agent_invoke` 子 run 继承根 run 目标，automation 与 `run_query` 创建的独立根 run 不继承。目标元数据不进入 prompt、事件、chat 或数据库。
+WebSocket query 直接绑定当前连接，不检查连接自报的 `source`；即使没有 `surfaceId`，该 run 仍可按 WebSocket session 定位原连接。HTTP SSE query 与 attach 通过 `X-Agent-WebClient-Device-Id`、`X-Agent-WebClient-Surface-Id` 绑定同一认证主体和 device 边界内的逻辑 surface；device header 与 `/ws?deviceId=...` 相同，认证 JWT 已含 device claim 时以 claim 为准。WS attach 直接使用发起 attach 的连接。每次成功且携带有效 WebClient target 的 attach 都以 last-writer-wins 更新该 run 的反向 Action target；失败 attach 或普通无 target attach 不改变已有绑定，已发出的 Action 不迁移。Team 内部成员与 `agent_invoke` 子 run 按根 run 动态读取相同 target，planning 新 execution run 继承 source run 的当前 target，automation 与 `run_query` 创建的独立根 run 不继承。目标元数据只保存在运行内存，不进入 prompt、事件、chat 或数据库。
+
+`desktop_action_target_unavailable` 保持稳定错误码，并用 `details.reason` 区分 `run_target_missing`（run 尚无 target）与 `target_connection_unavailable`（已绑定 target 当前无可用连接）。
 
 ## 旧 external stdio 配置已删除
 

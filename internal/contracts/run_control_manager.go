@@ -17,6 +17,7 @@ type managedRun struct {
 	run                 ActiveRun
 	control             *RunControl
 	eventBus            *stream.RunEventBus
+	webClientTarget     WebClientTarget
 	runOrigin           *RunOrigin
 	startedAt           time.Time
 	activeSince         time.Time
@@ -113,14 +114,47 @@ func (m *InMemoryRunManager) registerLocked(session QuerySession) (context.Conte
 	})
 	control.SetObserverCount(0)
 	m.runs[session.RunID] = &managedRun{
-		run:         run,
-		control:     control,
-		eventBus:    eventBus,
-		runOrigin:   cloneRunOrigin(session.RunOrigin),
-		startedAt:   startedAt,
-		activeSince: startedAt,
+		run:             run,
+		control:         control,
+		eventBus:        eventBus,
+		webClientTarget: session.WebClientTarget,
+		runOrigin:       cloneRunOrigin(session.RunOrigin),
+		startedAt:       startedAt,
+		activeSince:     startedAt,
 	}
 	return WithRunControl(control.Context(), control), control, run
+}
+
+// BindWebClientTarget atomically makes target the action destination for the
+// run. A successful attach is intentionally last-writer-wins, while callers
+// without a usable WebClient target cannot clear an existing binding.
+func (m *InMemoryRunManager) BindWebClientTarget(runID string, target WebClientTarget) bool {
+	runID = strings.TrimSpace(runID)
+	if m == nil || runID == "" || target.IsZero() {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	state := m.runs[runID]
+	if state == nil {
+		return false
+	}
+	state.webClientTarget = target
+	return true
+}
+
+func (m *InMemoryRunManager) ResolveWebClientTarget(runID string) (WebClientTarget, bool) {
+	runID = strings.TrimSpace(runID)
+	if m == nil || runID == "" {
+		return WebClientTarget{}, false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	state := m.runs[runID]
+	if state == nil || state.webClientTarget.IsZero() {
+		return WebClientTarget{}, false
+	}
+	return state.webClientTarget, true
 }
 
 func (m *InMemoryRunManager) RegisterRecoveredAwaiting(_ context.Context, session QuerySession, awaitingID string, initialSeq int64) (RecoveredAwaitingRun, error) {

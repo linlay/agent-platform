@@ -66,6 +66,82 @@ func TestHandleAttachDefaultsMissingLastSeqToZero(t *testing.T) {
 	}
 }
 
+func TestHandleAttachBindsLatestWebClientTargetAfterSuccess(t *testing.T) {
+	runs := contracts.NewInMemoryRunManager()
+	initial := contracts.WebClientTarget{SessionID: "ws-initial"}
+	session := contracts.QuerySession{
+		RunID:           "run_attach_target",
+		ChatID:          "chat_attach_target",
+		AgentKey:        "agent_1",
+		RunOwner:        contracts.AgentRunOwner("agent_1", ""),
+		WebClientTarget: initial,
+	}
+	_, _, _ = runs.Register(context.Background(), session)
+	eventBus, _ := runs.EventBus(session.RunID)
+	runs.Finish(session.RunID)
+	eventBus.Freeze()
+
+	server := &Server{deps: Dependencies{
+		Config: config.Config{SSE: config.SSEConfig{}},
+		Runs:   runs,
+	}}
+	req := httptest.NewRequest(http.MethodGet, "/api/attach?runId="+session.RunID+"&agentKey="+session.AgentKey, nil)
+	req.Header.Set(webClientDeviceIDHeader, "device-2")
+	req.Header.Set(webClientSurfaceIDHeader, "surface-2")
+	rec := httptest.NewRecorder()
+	server.handleAttach(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("attach status = %d, body=%s", rec.Code, rec.Body.String())
+	}
+	target, ok := runs.ResolveWebClientTarget(session.RunID)
+	if !ok || target.BoundaryKey != "device:device-2" || target.SurfaceID != "surface-2" {
+		t.Fatalf("attached target = %#v, %v", target, ok)
+	}
+}
+
+func TestHandleAttachWithoutTargetOrWithInvalidOwnerDoesNotReplaceBinding(t *testing.T) {
+	runs := contracts.NewInMemoryRunManager()
+	initial := contracts.WebClientTarget{SessionID: "ws-initial"}
+	session := contracts.QuerySession{
+		RunID:           "run_attach_keep_target",
+		ChatID:          "chat_attach_keep_target",
+		AgentKey:        "agent_1",
+		RunOwner:        contracts.AgentRunOwner("agent_1", ""),
+		WebClientTarget: initial,
+	}
+	_, _, _ = runs.Register(context.Background(), session)
+	eventBus, _ := runs.EventBus(session.RunID)
+	runs.Finish(session.RunID)
+	eventBus.Freeze()
+	server := &Server{deps: Dependencies{
+		Config: config.Config{SSE: config.SSEConfig{}},
+		Runs:   runs,
+	}}
+
+	server.handleAttach(httptest.NewRecorder(), httptest.NewRequest(
+		http.MethodGet,
+		"/api/attach?runId="+session.RunID+"&agentKey="+session.AgentKey,
+		nil,
+	))
+	invalid := httptest.NewRequest(
+		http.MethodGet,
+		"/api/attach?runId="+session.RunID+"&agentKey=other-agent",
+		nil,
+	)
+	invalid.Header.Set(webClientDeviceIDHeader, "device-invalid")
+	invalid.Header.Set(webClientSurfaceIDHeader, "surface-invalid")
+	invalidRec := httptest.NewRecorder()
+	server.handleAttach(invalidRec, invalid)
+
+	if invalidRec.Code != http.StatusForbidden {
+		t.Fatalf("invalid attach status = %d", invalidRec.Code)
+	}
+	if target, ok := runs.ResolveWebClientTarget(session.RunID); !ok || target != initial {
+		t.Fatalf("existing target changed to %#v, %v", target, ok)
+	}
+}
+
 func TestHandleAttachTerminatesInvalidObserverEventWithLocalTimeContractError(t *testing.T) {
 	runs := contracts.NewInMemoryRunManager()
 	session := contracts.QuerySession{

@@ -219,6 +219,9 @@ func (s *Server) startAwaitingContinuationWithAdmission(
 	if continuationStartedAt != 0 {
 		session.StartedAtMillis = continuationStartedAt
 	}
+	if newExecutionRun {
+		session.WebClientTarget = resolveRunWebClientTarget(s.deps.Runs, sourceRunID)
+	}
 	var continuationSystem *chat.QueryLineSystem
 	if planningApprove {
 		if err := s.preparePlanningApproveContinuation(req, originalQuery, &session); err != nil {

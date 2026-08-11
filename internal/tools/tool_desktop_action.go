@@ -198,8 +198,21 @@ func (t *RuntimeToolExecutor) invokeWebClientAction(
 	if t == nil || t.webClientAction == nil {
 		return desktopActionErrorResult("desktop_action_provider_unavailable", "webclient action provider is unavailable", map[string]any{"action": action}), nil
 	}
-	if execCtx == nil || execCtx.Session.WebClientTarget.IsZero() {
-		return desktopActionErrorResult("desktop_action_target_unavailable", "webclient target is unavailable for this run", map[string]any{"action": action}), nil
+	target := WebClientTarget{}
+	if execCtx != nil {
+		if t.webClientTargets != nil {
+			if current, ok := t.webClientTargets.ResolveWebClientTarget(execCtx.Session.RunID); ok {
+				target = current
+			}
+		} else {
+			target = execCtx.Session.WebClientTarget
+		}
+	}
+	if target.IsZero() {
+		return desktopActionErrorResult("desktop_action_target_unavailable", "webclient target is unavailable for this run", map[string]any{
+			"action": action,
+			"reason": "run_target_missing",
+		}), nil
 	}
 	if requestID == "" {
 		requestID = fmt.Sprintf("wsa-%d", webClientActionRequestSeq.Add(1))
@@ -210,7 +223,7 @@ func (t *RuntimeToolExecutor) invokeWebClientAction(
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	response, err := t.webClientAction.InvokeWebClientAction(requestCtx, execCtx.Session.WebClientTarget, WebClientActionRequest{
+	response, err := t.webClientAction.InvokeWebClientAction(requestCtx, target, WebClientActionRequest{
 		ID:      requestID,
 		Type:    action,
 		Payload: cloneDesktopMap(actionArgs),
@@ -220,7 +233,10 @@ func (t *RuntimeToolExecutor) invokeWebClientAction(
 		case errors.Is(err, context.DeadlineExceeded):
 			return desktopActionErrorResult("desktop_action_client_timeout", "webclient action request timed out", map[string]any{"action": action}), nil
 		case errors.Is(err, ErrWebClientTargetUnavailable):
-			return desktopActionErrorResult("desktop_action_target_unavailable", "webclient target is unavailable for this run", map[string]any{"action": action}), nil
+			return desktopActionErrorResult("desktop_action_target_unavailable", "webclient target is unavailable for this run", map[string]any{
+				"action": action,
+				"reason": "target_connection_unavailable",
+			}), nil
 		case errors.Is(err, ErrWebClientDisconnected):
 			return desktopActionErrorResult("desktop_action_client_disconnected", "webclient disconnected before completing the action", map[string]any{"action": action}), nil
 		default:

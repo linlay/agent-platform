@@ -147,6 +147,7 @@ func (s *Server) wsAttach(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 	conn.AttachObserver(req.ID, observer.ID, func() {
 		s.deps.Runs.DetachObserver(payload.RunID, observer.ID)
 	})
+	bindRunWebClientTarget(s.deps.Runs, payload.RunID, conn.WebClientTarget())
 	conn.StartStreamForward(req.ID, observer)
 }
 

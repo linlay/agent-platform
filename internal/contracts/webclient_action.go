@@ -47,3 +47,11 @@ type WebClientRequestInvoker interface {
 		request WebClientActionRequest,
 	) (WebClientActionResponse, error)
 }
+
+// WebClientTargetStore keeps the latest runtime-only WebClient action target
+// for a root run. Bind operations are last-writer-wins; zero targets never
+// replace an existing binding.
+type WebClientTargetStore interface {
+	BindWebClientTarget(runID string, target WebClientTarget) bool
+	ResolveWebClientTarget(runID string) (WebClientTarget, bool)
+}

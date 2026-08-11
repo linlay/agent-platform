@@ -25,19 +25,20 @@ type ArtifactPusher interface {
 }
 
 type RuntimeToolExecutor struct {
-	cfg             config.Config
-	sandbox         SandboxClient
-	chats           chat.Store
-	memory          memory.Store
-	models          *models.ModelRegistry
-	skillCandidates skills.CandidateStore
-	artifactPusher  ArtifactPusher
-	webClientAction WebClientRequestInvoker
-	fileChangeHooks []FileChangeHook
-	fileStateMu     sync.Mutex
-	httpClient      *http.Client
-	defs            []api.ToolDetailResponse
-	runtimeEnv      runtimeenv.Info
+	cfg              config.Config
+	sandbox          SandboxClient
+	chats            chat.Store
+	memory           memory.Store
+	models           *models.ModelRegistry
+	skillCandidates  skills.CandidateStore
+	artifactPusher   ArtifactPusher
+	webClientAction  WebClientRequestInvoker
+	webClientTargets WebClientTargetStore
+	fileChangeHooks  []FileChangeHook
+	fileStateMu      sync.Mutex
+	httpClient       *http.Client
+	defs             []api.ToolDetailResponse
+	runtimeEnv       runtimeenv.Info
 }
 
 func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient, chats chat.Store, memoryStore memory.Store, skillCandidates skills.CandidateStore) (*RuntimeToolExecutor, error) {
@@ -116,6 +117,13 @@ func (t *RuntimeToolExecutor) WithArtifactPusher(pusher ArtifactPusher) *Runtime
 func (t *RuntimeToolExecutor) WithWebClientRequestInvoker(invoker WebClientRequestInvoker) *RuntimeToolExecutor {
 	if t != nil {
 		t.webClientAction = invoker
+	}
+	return t
+}
+
+func (t *RuntimeToolExecutor) WithWebClientTargetStore(store WebClientTargetStore) *RuntimeToolExecutor {
+	if t != nil {
+		t.webClientTargets = store
 	}
 	return t
 }

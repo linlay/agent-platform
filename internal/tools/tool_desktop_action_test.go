@@ -139,6 +139,85 @@ func TestInvokeDesktopActionForwardsWebClientActionAsFlatRequest(t *testing.T) {
 	}
 }
 
+func TestInvokeDesktopActionUsesLatestRunTarget(t *testing.T) {
+	runs := NewInMemoryRunManager()
+	stale := WebClientTarget{SessionID: "ws-stale"}
+	latest := WebClientTarget{SessionID: "ws-latest"}
+	runs.Register(context.Background(), QuerySession{
+		RunID:           "run-latest-target",
+		ChatID:          "chat-latest-target",
+		AgentKey:        "agent-1",
+		RunOwner:        AgentRunOwner("agent-1", ""),
+		WebClientTarget: stale,
+	})
+	if !runs.BindWebClientTarget("run-latest-target", latest) {
+		t.Fatal("bind latest target")
+	}
+	invoker := &recordingWebClientRequestInvoker{
+		response: WebClientActionResponse{
+			Frame: "response",
+			Type:  webClientSidebarGetState,
+			ID:    "web-latest-target",
+			Code:  webClientResponseCode(0),
+			Data:  json.RawMessage(`{}`),
+		},
+	}
+	executor := (&RuntimeToolExecutor{}).
+		WithWebClientRequestInvoker(invoker).
+		WithWebClientTargetStore(runs)
+	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"requestId": "web-latest-target",
+		"action":    webClientSidebarGetState,
+		"args":      map[string]any{},
+	}, &ExecutionContext{Session: QuerySession{
+		RunID:           "run-latest-target",
+		SubTaskID:       "sub-agent-1",
+		WebClientTarget: stale,
+	}})
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("invoke latest target: result=%#v err=%v", result, err)
+	}
+	if invoker.target != latest {
+		t.Fatalf("invocation target = %#v, want %#v", invoker.target, latest)
+	}
+}
+
+func TestInvokeDesktopActionDoesNotInheritTargetForIndependentRootRun(t *testing.T) {
+	runs := NewInMemoryRunManager()
+	rootTarget := WebClientTarget{SessionID: "ws-root"}
+	runs.Register(context.Background(), QuerySession{
+		RunID:           "run-root",
+		ChatID:          "chat-root",
+		AgentKey:        "agent-1",
+		RunOwner:        AgentRunOwner("agent-1", ""),
+		WebClientTarget: rootTarget,
+	})
+	runs.Register(context.Background(), QuerySession{
+		RunID:    "run-independent",
+		ChatID:   "chat-independent",
+		AgentKey: "agent-1",
+		RunOwner: AgentRunOwner("agent-1", ""),
+	})
+	executor := (&RuntimeToolExecutor{}).
+		WithWebClientRequestInvoker(&recordingWebClientRequestInvoker{}).
+		WithWebClientTargetStore(runs)
+	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"action": webClientSidebarGetState,
+		"args":   map[string]any{},
+	}, &ExecutionContext{Session: QuerySession{
+		RunID: "run-independent",
+		// A stale copied context must not bypass the authoritative runtime store.
+		WebClientTarget: rootTarget,
+	}})
+	if err != nil {
+		t.Fatalf("invoke independent run: %v", err)
+	}
+	details, _ := result.Structured["details"].(map[string]any)
+	if result.Error != "desktop_action_target_unavailable" || details["reason"] != "run_target_missing" {
+		t.Fatalf("independent run inherited target: %#v", result)
+	}
+}
+
 func TestInvokeDesktopActionValidatesWebClientSidebarArgsBeforeSending(t *testing.T) {
 	invoker := &recordingWebClientRequestInvoker{}
 	executor := (&RuntimeToolExecutor{}).WithWebClientRequestInvoker(invoker)
@@ -415,7 +494,28 @@ func TestInvokeDesktopActionMapsWebClientProviderFailures(t *testing.T) {
 			if result.ExitCode != -1 || result.Error != test.wantCode {
 				t.Fatalf("expected %s, got %#v", test.wantCode, result)
 			}
+			if test.err == ErrWebClientTargetUnavailable {
+				details, _ := result.Structured["details"].(map[string]any)
+				if details["reason"] != "target_connection_unavailable" {
+					t.Fatalf("unexpected target unavailable details: %#v", details)
+				}
+			}
 		})
+	}
+}
+
+func TestInvokeDesktopActionReportsMissingRunTargetReason(t *testing.T) {
+	executor := (&RuntimeToolExecutor{}).WithWebClientRequestInvoker(&recordingWebClientRequestInvoker{})
+	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"action": webClientSidebarGetState,
+		"args":   map[string]any{},
+	}, &ExecutionContext{Session: QuerySession{RunID: "run-without-target"}})
+	if err != nil {
+		t.Fatalf("invoke webclient action: %v", err)
+	}
+	details, _ := result.Structured["details"].(map[string]any)
+	if result.Error != "desktop_action_target_unavailable" || details["reason"] != "run_target_missing" {
+		t.Fatalf("unexpected missing target result: %#v", result)
 	}
 }
 

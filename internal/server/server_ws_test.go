@@ -922,6 +922,104 @@ func TestWebSocketRunStreamClosesDuringShutdown(t *testing.T) {
 	}
 }
 
+func TestWebSocketAttachLatestSuccessfulConnectionOwnsWebClientTarget(t *testing.T) {
+	hub := ws.NewHub()
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{notifications: hub})
+	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	runID := "run_ws_latest_target"
+	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
+		RunID:    runID,
+		ChatID:   "chat_ws_latest_target",
+		AgentKey: "mock-agent",
+		RunOwner: contracts.AgentRunOwner("mock-agent", ""),
+	})
+
+	server := newLoopbackServer(t, fixture.server)
+	dial := func(surfaceID string) (*gws.Conn, string) {
+		t.Helper()
+		wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws?deviceId=device-latest&surfaceId=" + url.QueryEscape(surfaceID)
+		conn, _, err := gws.DefaultDialer.Dial(wsURL, nil)
+		if err != nil {
+			t.Fatalf("dial websocket %s: %v", surfaceID, err)
+		}
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			conn.Close()
+			t.Fatalf("read connected push %s: %v", surfaceID, err)
+		}
+		var connected struct {
+			Frame string         `json:"frame"`
+			Type  string         `json:"type"`
+			Data  map[string]any `json:"data"`
+		}
+		if err := json.Unmarshal(raw, &connected); err != nil || connected.Frame != ws.FramePush || connected.Type != "connected" {
+			conn.Close()
+			t.Fatalf("unexpected connected frame %s: %s err=%v", surfaceID, raw, err)
+		}
+		sessionID := strings.TrimSpace(stringValue(connected.Data["sessionId"]))
+		if sessionID == "" {
+			conn.Close()
+			t.Fatalf("missing session id in %s", raw)
+		}
+		return conn, sessionID
+	}
+	waitTarget := func(sessionID string) {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for {
+			target, ok := runs.ResolveWebClientTarget(runID)
+			if ok && target.SessionID == sessionID {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("target did not move to %s; got %#v, %v", sessionID, target, ok)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	attach := func(conn *gws.Conn, requestID string, agentKey string) {
+		t.Helper()
+		if err := conn.WriteJSON(ws.RequestFrame{
+			Frame: ws.FrameRequest,
+			Type:  "/api/attach",
+			ID:    requestID,
+			Payload: ws.MarshalPayload(map[string]any{
+				"agentKey": agentKey,
+				"runId":    runID,
+			}),
+		}); err != nil {
+			t.Fatalf("write attach %s: %v", requestID, err)
+		}
+	}
+
+	connA, sessionA := dial("surface-a")
+	defer connA.Close()
+	attach(connA, "attach-a", "mock-agent")
+	waitTarget(sessionA)
+
+	connB, sessionB := dial("surface-b")
+	defer connB.Close()
+	attach(connB, "attach-b-invalid", "other-agent")
+	_ = connB.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, raw, err := connB.ReadMessage()
+	if err != nil {
+		t.Fatalf("read invalid attach error: %v", err)
+	}
+	var errorFrame ws.ErrorFrame
+	if err := json.Unmarshal(raw, &errorFrame); err != nil || errorFrame.Frame != ws.FrameError || errorFrame.Code != http.StatusForbidden {
+		t.Fatalf("unexpected invalid attach response: %s err=%v", raw, err)
+	}
+	if target, ok := runs.ResolveWebClientTarget(runID); !ok || target.SessionID != sessionA {
+		t.Fatalf("failed attach changed target: %#v, %v", target, ok)
+	}
+
+	_ = connB.SetReadDeadline(time.Time{})
+	attach(connB, "attach-b", "mock-agent")
+	waitTarget(sessionB)
+}
+
 func TestWebSocketDetachReleasesRunObserverWithoutFinishingRun(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
@@ -1654,6 +1752,12 @@ Plan should stream over websocket.
 	assertStringSliceExcludes(t, eventTypes, "planning.snapshot")
 	if executionRunID == "" || executionRunID == runID {
 		t.Fatalf("expected distinct execution run id, got %q old=%q", executionRunID, runID)
+	}
+	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	sourceTarget, sourceOK := runs.ResolveWebClientTarget(runID)
+	executionTarget, executionOK := runs.ResolveWebClientTarget(executionRunID)
+	if !sourceOK || !executionOK || sourceTarget.IsZero() || executionTarget != sourceTarget {
+		t.Fatalf("planning execution target = %#v, %v; source = %#v, %v", executionTarget, executionOK, sourceTarget, sourceOK)
 	}
 
 	attachRequestID := "req_attach_planning_execute"

@@ -41,3 +41,17 @@ func webClientTargetFromHTTPRequest(r *http.Request) contracts.WebClientTarget {
 		SurfaceID:   surfaceID,
 	}
 }
+
+func bindRunWebClientTarget(runs contracts.RunManager, runID string, target contracts.WebClientTarget) bool {
+	store, ok := runs.(contracts.WebClientTargetStore)
+	return ok && store.BindWebClientTarget(runID, target)
+}
+
+func resolveRunWebClientTarget(runs contracts.RunManager, runID string) contracts.WebClientTarget {
+	store, ok := runs.(contracts.WebClientTargetStore)
+	if !ok {
+		return contracts.WebClientTarget{}
+	}
+	target, _ := store.ResolveWebClientTarget(runID)
+	return target
+}
