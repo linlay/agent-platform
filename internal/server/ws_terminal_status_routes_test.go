@@ -18,8 +18,8 @@ import (
 type terminalStatusSessionForTest struct {
 	TerminalID  string
 	AgentKey    string
-	ChatID      string
 	TerminalKey string
+	Scope       string
 	Status      string
 }
 
@@ -86,8 +86,8 @@ func TestWebSocketTerminalStatusStreamPublishesSessionSnapshot(t *testing.T) {
 		for _, session := range sessions {
 			if session.TerminalID == terminalID &&
 				session.AgentKey == "coder-terminal-status" &&
-				session.ChatID == "chat-status" &&
-				session.TerminalKey == "main" {
+				session.TerminalKey == "main" &&
+				session.Scope == "agent" {
 				return true
 			}
 		}
@@ -133,6 +133,9 @@ func terminalStatusSessionsFromFrame(t *testing.T, data []byte) []terminalStatus
 	if frame.Event == nil {
 		t.Fatalf("terminal status frame missing event: %s", string(data))
 	}
+	if scope := strings.TrimSpace(stringValue(frame.Event.Payload["scope"])); scope != "agent" {
+		t.Fatalf("terminal status scope = %q, want agent: %s", scope, string(data))
+	}
 	rawSessions, ok := frame.Event.Payload["sessions"].([]any)
 	if !ok {
 		t.Fatalf("terminal status frame missing sessions: %s", string(data))
@@ -143,11 +146,14 @@ func terminalStatusSessionsFromFrame(t *testing.T, data []byte) []terminalStatus
 		if !ok {
 			t.Fatalf("terminal status session must be object: %#v", raw)
 		}
+		if _, exists := item["chatId"]; exists {
+			t.Fatalf("terminal status session must not expose chatId: %#v", item)
+		}
 		sessions = append(sessions, terminalStatusSessionForTest{
 			TerminalID:  strings.TrimSpace(stringValue(item["terminalId"])),
 			AgentKey:    strings.TrimSpace(stringValue(item["agentKey"])),
-			ChatID:      strings.TrimSpace(stringValue(item["chatId"])),
 			TerminalKey: strings.TrimSpace(stringValue(item["terminalKey"])),
+			Scope:       strings.TrimSpace(stringValue(item["scope"])),
 			Status:      strings.TrimSpace(stringValue(item["status"])),
 		})
 	}

@@ -9,16 +9,15 @@ import (
 	"agent-platform/internal/config"
 )
 
-func TestTerminalEnvironmentUsesReservedAgentAndChatContext(t *testing.T) {
+func TestTerminalEnvironmentUsesReservedAgentAndWorkspaceContext(t *testing.T) {
 	agentDir := filepath.Join("/runtime", "agents", "reader")
 	workspaceDir := filepath.Join("/projects", "reader")
-	chatDir := filepath.Join("/runtime", "chats", "chat-a")
 	entries := terminalEnvironment(catalog.AgentDefinition{
 		RuntimeDir: agentDir,
 		Runtime: map[string]any{
 			"env": map[string]string{"HTTP_PROXY": "http://proxy"},
 		},
-	}, workspaceDir, chatDir)
+	}, workspaceDir)
 	got := terminalEnvironmentValues(entries)
 	if want := filepath.Join(agentDir, ".config"); got["AP_AGENT_CONFIG_HOME"] != want {
 		t.Fatalf("AP_AGENT_CONFIG_HOME = %q, want %q", got["AP_AGENT_CONFIG_HOME"], want)
@@ -32,8 +31,8 @@ func TestTerminalEnvironmentUsesReservedAgentAndChatContext(t *testing.T) {
 	if got["HTTP_PROXY"] != "http://proxy" || got["TERM"] != "xterm-256color" || got["COLORTERM"] != "truecolor" {
 		t.Fatalf("unexpected terminal environment: %#v", got)
 	}
-	if got["AP_CHAT_DIR"] != chatDir {
-		t.Fatalf("AP_CHAT_DIR = %q, want %q", got["AP_CHAT_DIR"], chatDir)
+	if _, ok := got[agentconfig.EnvChatDir]; ok {
+		t.Fatalf("Workspace Terminal must not receive AP_CHAT_DIR: %#v", got)
 	}
 	if got["AP_WORKSPACE_DIR"] != workspaceDir {
 		t.Fatalf("AP_WORKSPACE_DIR = %q, want %q", got["AP_WORKSPACE_DIR"], workspaceDir)
@@ -46,7 +45,6 @@ func TestTerminalEnvironmentUsesReservedAgentAndChatContext(t *testing.T) {
 func TestTerminalEnvironmentRejectsRuntimeOverridesByApplyingPlatformContextLast(t *testing.T) {
 	agentDir := filepath.Join("/runtime", "agents", "reader")
 	workspaceDir := filepath.Join("/projects", "reader")
-	chatDir := filepath.Join("/runtime", "chats", "chat-a")
 	got := terminalEnvironmentValues(terminalEnvironment(catalog.AgentDefinition{
 		RuntimeDir: agentDir,
 		Runtime: map[string]any{
@@ -54,14 +52,18 @@ func TestTerminalEnvironmentRejectsRuntimeOverridesByApplyingPlatformContextLast
 				"AP_AGENT_CONFIG_HOME": "/custom",
 				"AP_WORKSPACE_DIR":     "/wrong-workspace",
 				"AP_CHAT_DIR":          "/wrong-chat",
+				"AP_ACCESS_TOKEN":      "wrong-token",
 			},
 		},
-	}, workspaceDir, chatDir))
+	}, workspaceDir))
 	if want := filepath.Join(agentDir, ".config"); got["AP_AGENT_CONFIG_HOME"] != want {
 		t.Fatalf("AP_AGENT_CONFIG_HOME = %q, want %q", got["AP_AGENT_CONFIG_HOME"], want)
 	}
-	if got["AP_CHAT_DIR"] != chatDir {
-		t.Fatalf("AP_CHAT_DIR = %q, want %q", got["AP_CHAT_DIR"], chatDir)
+	if _, ok := got[agentconfig.EnvChatDir]; ok {
+		t.Fatalf("Workspace Terminal must remove AP_CHAT_DIR overrides: %#v", got)
+	}
+	if _, ok := got[agentconfig.EnvAccessToken]; ok {
+		t.Fatalf("Workspace Terminal must remove AP_ACCESS_TOKEN overrides: %#v", got)
 	}
 	if got["AP_WORKSPACE_DIR"] != workspaceDir {
 		t.Fatalf("AP_WORKSPACE_DIR = %q, want %q", got["AP_WORKSPACE_DIR"], workspaceDir)

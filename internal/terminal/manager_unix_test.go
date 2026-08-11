@@ -3,6 +3,7 @@
 package terminal
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -13,7 +14,6 @@ func TestManagerRunsInteractivePTY(t *testing.T) {
 	result, err := manager.Open(OpenRequest{
 		OwnerKey:    "owner-a",
 		AgentKey:    "coder",
-		ChatID:      "chat-a",
 		TerminalKey: "main",
 		CWD:         t.TempDir(),
 		Shell:       "/bin/sh",
@@ -42,8 +42,8 @@ func TestManagerRunsInteractivePTY(t *testing.T) {
 			if !ok {
 				t.Fatalf("events closed before exit; output=%q", output.String())
 			}
-			if event.ChatID != "chat-a" || event.Scope != ScopeChat {
-				t.Fatalf("event context = chatId %q scope %q, want chat-a/chat", event.ChatID, event.Scope)
+			if event.Scope != ScopeAgent {
+				t.Fatalf("event scope = %q, want agent", event.Scope)
 			}
 			if event.Type == EventOutput {
 				output.WriteString(event.Data)
@@ -60,13 +60,12 @@ func TestManagerRunsInteractivePTY(t *testing.T) {
 	}
 }
 
-func TestManagerOpen_reusesChatTerminalAndReplaysOutput_whenSameKeyReattaches(t *testing.T) {
+func TestManagerOpen_reusesAgentTerminalAndReplaysOutput_whenSameKeyReattaches(t *testing.T) {
 	manager := NewManager()
 	workspace := t.TempDir()
 	first, err := manager.Open(OpenRequest{
 		OwnerKey:    "owner-a",
 		AgentKey:    "coder",
-		ChatID:      "chat-a",
 		TerminalKey: "main",
 		CWD:         workspace,
 		Shell:       "/bin/sh",
@@ -93,7 +92,6 @@ func TestManagerOpen_reusesChatTerminalAndReplaysOutput_whenSameKeyReattaches(t 
 	second, err := manager.Open(OpenRequest{
 		OwnerKey:    "owner-a",
 		AgentKey:    "coder",
-		ChatID:      "chat-a",
 		TerminalKey: "main",
 		CWD:         workspace,
 		Shell:       "/bin/sh",
@@ -123,42 +121,45 @@ func TestManagerOpen_reusesChatTerminalAndReplaysOutput_whenSameKeyReattaches(t 
 	waitForTerminalExit(t, secondSub.Events())
 }
 
-func TestManagerOpen_isolatesTerminalByChat(t *testing.T) {
-	manager := NewManager()
-	workspace := t.TempDir()
-	first, err := manager.Open(OpenRequest{
-		OwnerKey:    "owner-a",
-		AgentKey:    "coder",
-		ChatID:      "chat-a",
-		TerminalKey: "main",
-		CWD:         workspace,
-		Shell:       "/bin/sh",
-	})
-	if err != nil {
-		t.Fatalf("open first chat terminal: %v", err)
+func TestManagerOpen_rejectsSameKeyWhenWorkspaceOrShellChanges(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*OpenRequest)
+	}{
+		{
+			name: "workspace",
+			mutate: func(req *OpenRequest) {
+				req.CWD = t.TempDir()
+			},
+		},
+		{
+			name: "shell",
+			mutate: func(req *OpenRequest) {
+				req.Shell = "/bin/bash"
+			},
+		},
 	}
-	manager.Start(first.Session)
-	defer first.Session.Close("closed")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := NewManager()
+			request := OpenRequest{
+				OwnerKey:    "owner-a",
+				AgentKey:    "coder",
+				TerminalKey: "main",
+				CWD:         t.TempDir(),
+				Shell:       "/bin/sh",
+			}
+			first, err := manager.Open(request)
+			if err != nil {
+				t.Fatalf("open first terminal: %v", err)
+			}
+			defer manager.Discard(first.Session)
 
-	second, err := manager.Open(OpenRequest{
-		OwnerKey:    "owner-a",
-		AgentKey:    "coder",
-		ChatID:      "chat-b",
-		TerminalKey: "main",
-		CWD:         workspace,
-		Shell:       "/bin/sh",
-	})
-	if err != nil {
-		t.Fatalf("open second chat terminal: %v", err)
-	}
-	manager.Start(second.Session)
-	defer second.Session.Close("closed")
-
-	if second.Reused || second.Session.ID() == first.Session.ID() {
-		t.Fatalf("cross-chat terminal was reused: first=%q second=%q", first.Session.ID(), second.Session.ID())
-	}
-	if first.Session.ChatID() != "chat-a" || second.Session.ChatID() != "chat-b" {
-		t.Fatalf("terminal chat identity mismatch: first=%q second=%q", first.Session.ChatID(), second.Session.ChatID())
+			tt.mutate(&request)
+			if _, err := manager.Open(request); !errors.Is(err, ErrSessionConflict) {
+				t.Fatalf("open changed %s error = %v, want ErrSessionConflict", tt.name, err)
+			}
+		})
 	}
 }
 
@@ -168,7 +169,6 @@ func TestManagerOpen_isolatesAgentTerminalByOwner(t *testing.T) {
 	first, err := manager.Open(OpenRequest{
 		OwnerKey:    "owner-a",
 		AgentKey:    "coder",
-		ChatID:      "chat-a",
 		TerminalKey: "main",
 		CWD:         workspace,
 		Shell:       "/bin/sh",
@@ -189,7 +189,6 @@ func TestManagerOpen_isolatesAgentTerminalByOwner(t *testing.T) {
 	second, err := manager.Open(OpenRequest{
 		OwnerKey:    "owner-b",
 		AgentKey:    "coder",
-		ChatID:      "chat-a",
 		TerminalKey: "main",
 		CWD:         workspace,
 		Shell:       "/bin/sh",
@@ -216,7 +215,6 @@ func TestManagerOpen_isolatesAgentTerminalByAgentKey(t *testing.T) {
 	first, err := manager.Open(OpenRequest{
 		OwnerKey:    "owner-a",
 		AgentKey:    "coder-alpha",
-		ChatID:      "chat-a",
 		TerminalKey: "main",
 		CWD:         workspace,
 		Shell:       "/bin/sh",
@@ -233,7 +231,6 @@ func TestManagerOpen_isolatesAgentTerminalByAgentKey(t *testing.T) {
 	second, err := manager.Open(OpenRequest{
 		OwnerKey:    "owner-a",
 		AgentKey:    "coder-beta",
-		ChatID:      "chat-a",
 		TerminalKey: "main",
 		CWD:         workspace,
 		Shell:       "/bin/sh",
@@ -266,7 +263,6 @@ func TestManagerListReportsBusyOnlyForForegroundCommand(t *testing.T) {
 	result, err := manager.Open(OpenRequest{
 		OwnerKey:    "owner-a",
 		AgentKey:    "coder",
-		ChatID:      "chat-a",
 		TerminalKey: "main",
 		CWD:         t.TempDir(),
 		Shell:       "/bin/sh",
@@ -293,7 +289,6 @@ func TestManagerOpen_rejectsInvalidTerminalKey(t *testing.T) {
 	_, err := manager.Open(OpenRequest{
 		OwnerKey:    "owner-a",
 		AgentKey:    "coder",
-		ChatID:      "chat-a",
 		TerminalKey: strings.Repeat("x", maxTerminalKeyBytes+1),
 		CWD:         t.TempDir(),
 		Shell:       "/bin/sh",
@@ -309,7 +304,6 @@ func TestManagerDiscardRemovesUnstartedSessionFromRegistry(t *testing.T) {
 	first, err := manager.Open(OpenRequest{
 		OwnerKey:    "owner-a",
 		AgentKey:    "coder",
-		ChatID:      "chat-a",
 		TerminalKey: "main",
 		CWD:         workspace,
 		Shell:       "/bin/sh",
@@ -326,7 +320,6 @@ func TestManagerDiscardRemovesUnstartedSessionFromRegistry(t *testing.T) {
 	second, err := manager.Open(OpenRequest{
 		OwnerKey:    "owner-a",
 		AgentKey:    "coder",
-		ChatID:      "chat-a",
 		TerminalKey: "main",
 		CWD:         workspace,
 		Shell:       "/bin/sh",
@@ -357,7 +350,6 @@ func TestManagerOpenChecksSessionLimitBeforeStartingPTY(t *testing.T) {
 	_, err := manager.Open(OpenRequest{
 		OwnerKey:    "owner-a",
 		AgentKey:    "coder",
-		ChatID:      "chat-a",
 		TerminalKey: "main",
 		CWD:         t.TempDir(),
 		Shell:       "/definitely/missing/shell",
@@ -374,20 +366,18 @@ func TestManagerOpen_ignoresFinishedSessionAwaitingRemoval(t *testing.T) {
 		id:          "term_stale",
 		ownerKey:    "owner-a",
 		agentKey:    "coder",
-		chatID:      "chat-a",
 		terminalKey: "main",
 		cwd:         workspace,
 		shell:       "/bin/sh",
 	}
 	stale.finished.Store(true)
-	registryKey := chatSessionKey(stale.OwnerKey(), stale.AgentKey(), stale.ChatID(), stale.TerminalKey())
+	registryKey := agentSessionKey(stale.OwnerKey(), stale.AgentKey(), stale.TerminalKey())
 	manager.sessions[stale.ID()] = stale
-	manager.chatSessions[registryKey] = stale.ID()
+	manager.agentSessions[registryKey] = stale.ID()
 
 	result, err := manager.Open(OpenRequest{
 		OwnerKey:    "owner-a",
 		AgentKey:    "coder",
-		ChatID:      "chat-a",
 		TerminalKey: "main",
 		CWD:         workspace,
 		Shell:       "/bin/sh",
@@ -406,8 +396,8 @@ func TestManagerOpen_ignoresFinishedSessionAwaitingRemoval(t *testing.T) {
 	if result.Session.ID() == stale.ID() {
 		t.Fatalf("opened stale terminal id %q", stale.ID())
 	}
-	if manager.chatSessions[registryKey] != result.Session.ID() {
-		t.Fatalf("registry points to %q, want %q", manager.chatSessions[registryKey], result.Session.ID())
+	if manager.agentSessions[registryKey] != result.Session.ID() {
+		t.Fatalf("registry points to %q, want %q", manager.agentSessions[registryKey], result.Session.ID())
 	}
 	if _, ok := manager.sessions[stale.ID()]; ok {
 		t.Fatalf("stale session should be removed from manager registry")

@@ -17,7 +17,7 @@ const (
 	EventExit   = "terminal.exit"
 
 	DefaultTerminalKey = "main"
-	ScopeChat          = "chat"
+	ScopeAgent         = "agent"
 	StatusIdle         = "idle"
 	StatusBusy         = "busy"
 
@@ -39,7 +39,6 @@ type OpenRequest struct {
 	OwnerKey    string
 	AgentKey    string
 	TerminalKey string
-	ChatID      string
 	CWD         string
 	Shell       string
 	Cols        int
@@ -58,7 +57,6 @@ type Event struct {
 	AgentKey    string
 	TerminalKey string
 	Scope       string
-	ChatID      string
 	CWD         string
 	Shell       string
 	Data        string
@@ -69,16 +67,16 @@ type Event struct {
 }
 
 type Manager struct {
-	mu           sync.RWMutex
-	nextID       atomic.Int64
-	sessions     map[string]*Session
-	chatSessions map[string]string
+	mu            sync.RWMutex
+	nextID        atomic.Int64
+	sessions      map[string]*Session
+	agentSessions map[string]string
 }
 
 func NewManager() *Manager {
 	return &Manager{
-		sessions:     map[string]*Session{},
-		chatSessions: map[string]string{},
+		sessions:      map[string]*Session{},
+		agentSessions: map[string]string{},
 	}
 }
 
@@ -93,7 +91,6 @@ func (m *Manager) Open(req OpenRequest) (OpenResult, error) {
 		return OpenResult{}, keyErr
 	}
 	req.TerminalKey = terminalKey
-	req.ChatID = strings.TrimSpace(req.ChatID)
 	req.CWD = strings.TrimSpace(req.CWD)
 	req.Shell = strings.TrimSpace(req.Shell)
 	req.Cols, req.Rows = normalizeSize(req.Cols, req.Rows)
@@ -103,9 +100,6 @@ func (m *Manager) Open(req OpenRequest) (OpenResult, error) {
 	if req.AgentKey == "" {
 		return OpenResult{}, fmt.Errorf("agentKey is required")
 	}
-	if req.ChatID == "" {
-		return OpenResult{}, fmt.Errorf("chatId is required")
-	}
 	if req.CWD == "" {
 		return OpenResult{}, fmt.Errorf("cwd is required")
 	}
@@ -113,8 +107,8 @@ func (m *Manager) Open(req OpenRequest) (OpenResult, error) {
 		return OpenResult{}, fmt.Errorf("shell is required")
 	}
 
-	registryKey := chatSessionKey(req.OwnerKey, req.AgentKey, req.ChatID, req.TerminalKey)
-	if session, ok, err := m.lookupChatSession(registryKey, req.CWD, req.Shell); ok || err != nil {
+	registryKey := agentSessionKey(req.OwnerKey, req.AgentKey, req.TerminalKey)
+	if session, ok, err := m.lookupAgentSession(registryKey, req.CWD, req.Shell); ok || err != nil {
 		return OpenResult{Session: session, Reused: ok}, err
 	}
 	if err := m.checkSessionLimits(req.OwnerKey, req.AgentKey); err != nil {
@@ -137,9 +131,8 @@ func (m *Manager) Open(req OpenRequest) (OpenResult, error) {
 		id:          id,
 		ownerKey:    req.OwnerKey,
 		agentKey:    req.AgentKey,
-		chatID:      req.ChatID,
 		terminalKey: req.TerminalKey,
-		scope:       ScopeChat,
+		scope:       ScopeAgent,
 		cwd:         req.CWD,
 		shell:       req.Shell,
 		proc:        proc,
@@ -148,7 +141,7 @@ func (m *Manager) Open(req OpenRequest) (OpenResult, error) {
 		startedAt:   time.Now(),
 	}
 	m.mu.Lock()
-	if sessionID := m.chatSessions[registryKey]; sessionID != "" {
+	if sessionID := m.agentSessions[registryKey]; sessionID != "" {
 		existing := m.sessions[sessionID]
 		if existing != nil {
 			if existing.Finished() {
@@ -177,7 +170,7 @@ func (m *Manager) Open(req OpenRequest) (OpenResult, error) {
 		session.id = newTerminalID(m.nextID.Add(1))
 	}
 	m.sessions[session.id] = session
-	m.chatSessions[registryKey] = session.id
+	m.agentSessions[registryKey] = session.id
 	m.mu.Unlock()
 	return OpenResult{Session: session}, nil
 }
@@ -231,9 +224,9 @@ func (m *Manager) remove(terminalID string) {
 	terminalID = strings.TrimSpace(terminalID)
 	session := m.sessions[terminalID]
 	if session != nil {
-		registryKey := chatSessionKey(session.OwnerKey(), session.AgentKey(), session.ChatID(), session.TerminalKey())
-		if m.chatSessions[registryKey] == terminalID {
-			delete(m.chatSessions, registryKey)
+		registryKey := agentSessionKey(session.OwnerKey(), session.AgentKey(), session.TerminalKey())
+		if m.agentSessions[registryKey] == terminalID {
+			delete(m.agentSessions, registryKey)
 		}
 	}
 	delete(m.sessions, terminalID)
@@ -265,9 +258,9 @@ func (m *Manager) lookupOwned(ownerKey string, terminalID string) (*Session, err
 	return session, nil
 }
 
-func (m *Manager) lookupChatSession(registryKey string, cwd string, shell string) (*Session, bool, error) {
+func (m *Manager) lookupAgentSession(registryKey string, cwd string, shell string) (*Session, bool, error) {
 	m.mu.RLock()
-	sessionID := m.chatSessions[registryKey]
+	sessionID := m.agentSessions[registryKey]
 	session := m.sessions[sessionID]
 	m.mu.RUnlock()
 	if session == nil || session.Finished() {
@@ -326,10 +319,9 @@ func normalizeTerminalKey(terminalKey string) (string, error) {
 	return terminalKey, nil
 }
 
-func chatSessionKey(ownerKey string, agentKey string, chatID string, terminalKey string) string {
+func agentSessionKey(ownerKey string, agentKey string, terminalKey string) string {
 	return strings.TrimSpace(ownerKey) + "\x00" +
 		strings.TrimSpace(agentKey) + "\x00" +
-		strings.TrimSpace(chatID) + "\x00" +
 		strings.TrimSpace(terminalKey)
 }
 

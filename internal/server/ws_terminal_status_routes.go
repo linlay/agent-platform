@@ -106,7 +106,7 @@ func terminalStatusStreamEvent(seq int64, sessions []terminalpkg.SessionInfo) st
 		Type:      "terminal.status",
 		Timestamp: time.Now().UnixMilli(),
 		Payload: map[string]any{
-			"scope":    terminalpkg.ScopeChat,
+			"scope":    terminalpkg.ScopeAgent,
 			"sessions": sessions,
 		},
 	}
@@ -118,8 +118,6 @@ func terminalStatusFingerprint(sessions []terminalpkg.SessionInfo) string {
 		builder.WriteString(session.TerminalID)
 		builder.WriteByte('\x00')
 		builder.WriteString(session.AgentKey)
-		builder.WriteByte('\x00')
-		builder.WriteString(session.ChatID)
 		builder.WriteByte('\x00')
 		builder.WriteString(session.TerminalKey)
 		builder.WriteByte('\x00')

@@ -81,8 +81,7 @@ func (s *Server) wsTerminalOpen(_ context.Context, conn *ws.Conn, req ws.Request
 		TerminalID:  session.ID(),
 		AgentKey:    session.AgentKey(),
 		TerminalKey: session.TerminalKey(),
-		Scope:       terminalpkg.ScopeChat,
-		ChatID:      session.ChatID(),
+		Scope:       terminalpkg.ScopeAgent,
 		CWD:         session.CWD(),
 		Shell:       session.Shell(),
 		Reused:      openResult.Reused,
@@ -224,9 +223,6 @@ func terminalStreamEvent(seq int64, event terminalpkg.Event) stream.EventData {
 	}
 	if event.Scope != "" {
 		payload["scope"] = event.Scope
-	}
-	if event.ChatID != "" {
-		payload["chatId"] = event.ChatID
 	}
 	if event.CWD != "" {
 		payload["cwd"] = event.CWD

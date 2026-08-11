@@ -14,7 +14,6 @@ func TestManagerRunsInteractivePTYOnWindows(t *testing.T) {
 	result, err := manager.Open(OpenRequest{
 		OwnerKey:    "owner-a",
 		AgentKey:    "coder",
-		ChatID:      "chat-a",
 		TerminalKey: "main",
 		CWD:         t.TempDir(),
 		Shell:       "powershell.exe",

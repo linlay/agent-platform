@@ -82,7 +82,7 @@ Agent runtimeConfig.env
   < ...
 ```
 
-后声明 Skill 覆盖前面的同名键。`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`、`AP_ACCESS_TOKEN` 都是 Platform 保留变量，Agent、Skill 和调用级 env 不得声明。前三者按 Host/Container 执行上下文最后注入；`AP_ACCESS_TOKEN` 仅由普通 Agent Host Bash 在进程创建前读取有效 identity 文件后注入，默认文件为 `<AP_RUNTIME_DIR>/identity/access-token`，显式 `--identity-file <absolute-path>` 优先。
+后声明 Skill 覆盖前面的同名键。`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`、`AP_ACCESS_TOKEN` 都是 Platform 保留变量，Agent、Skill 和调用级 env 不得声明。前三者按 Host/Container 执行上下文最后注入；Workspace Terminal 只注入前两个变量；`AP_ACCESS_TOKEN` 仅由普通 Agent Host Bash 在进程创建前读取有效 identity 文件后注入，默认文件为 `<AP_RUNTIME_DIR>/identity/access-token`，显式 `--identity-file <absolute-path>` 优先。
 
 ## 发布与热重载
 
@@ -108,13 +108,22 @@ Container Hub：
 - 显式 `platform: agents` 的 `/agents` -> `ru-agents`
 - 显式 `platform: skills-center` 挂共享技能中心；若本次 `mustUseSkills` 含额外技能中心 Skill，则即使 Agent 未显式声明也动态追加一次 `/skills-center` 整个技能中心只读挂载，已有同类挂载去重
 
-Host Tool 与 Workspace Terminal：
+Host Tool：
 
 ```text
 AP_AGENT_CONFIG_HOME=<ru-agents>/<agentKey>/.config
 AP_WORKSPACE_DIR=<canonical workspace>
 AP_CHAT_DIR=<chatsDir>/<chatId>
 ```
+
+Workspace Terminal：
+
+```text
+AP_AGENT_CONFIG_HOME=<ru-agents>/<agentKey>/.config
+AP_WORKSPACE_DIR=<canonical workspace>
+```
+
+Workspace Terminal 是 Agent/Workspace 级长生命周期 PTY，不注入 `AP_CHAT_DIR`；未来若需要 Chat Terminal，必须使用独立显式类型。
 
 普通 Agent Host Bash 还可获得：
 
