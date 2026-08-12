@@ -703,3 +703,89 @@ func TestRenderChatMarkdownSkipsAutomationQuery(t *testing.T) {
 		t.Fatalf("expected assistant content to remain, got:\n%s", markdown)
 	}
 }
+
+func TestHandleChatExportShareReturnsVersionedSafeSnapshot(t *testing.T) {
+	fixture := newTestFixture(t)
+	chatID := "chat-share-export"
+	seedSearchableChat(t, fixture.chats, chatID)
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat/export?audience=share&chatId="+chatID, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get(chatExportAudienceHeader); got != "share" {
+		t.Fatalf("share audience header=%q", got)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/json" {
+		t.Fatalf("content-type=%q", got)
+	}
+	var response api.ApiResponse[sharedConversationSnapshot]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.SchemaVersion != 1 || len(response.Data.Entries) != 1 {
+		t.Fatalf("unexpected snapshot: %#v", response.Data)
+	}
+	if response.Data.Entries[0].Type != "message" || response.Data.Entries[0].Role != "user" || response.Data.Entries[0].Content != "rollback plan" {
+		t.Fatalf("unexpected user message: %#v", response.Data.Entries[0])
+	}
+	body := rec.Body.String()
+	for _, forbidden := range []string{"mock-agent", "agentKey", "chatId", "runId"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("share snapshot leaked %q: %s", forbidden, body)
+		}
+	}
+}
+
+func TestBuildSharedConversationSnapshotIncludesOnlyVisibleConversation(t *testing.T) {
+	snapshot := buildSharedConversationSnapshot(&chat.Summary{
+		ChatName:  "Safe share",
+		CreatedAt: testEpochMillis,
+		UpdatedAt: testEpochMillis + 300,
+	}, []stream.EventData{
+		{Type: "request.query", Timestamp: testEpochMillis + 100, Payload: map[string]any{"role": "automation", "message": "private automation"}},
+		{Type: "request.query", Timestamp: testEpochMillis + 200, Payload: map[string]any{"role": "user", "message": "public question", "runId": "run-private"}},
+		{Type: "reasoning.snapshot", Timestamp: testEpochMillis + 250, Payload: map[string]any{"text": "check assumptions", "reasoningLabel": "分析问题", "runId": "run-private"}},
+		{Type: "reasoning.snapshot", Timestamp: testEpochMillis + 275, Payload: map[string]any{"text": "compare options"}},
+		{Type: "content.snapshot", Timestamp: testEpochMillis + 300, Payload: map[string]any{"text": "public answer", "runId": "run-private"}},
+		{Type: "run.complete", Timestamp: testEpochMillis + 450, Payload: map[string]any{"runId": "run-private"}},
+	})
+	if len(snapshot.Entries) != 4 {
+		t.Fatalf("unexpected entries: %#v", snapshot.Entries)
+	}
+	if snapshot.Entries[0].Type != "message" || snapshot.Entries[0].Role != "user" ||
+		snapshot.Entries[1].Type != "reasoning" || snapshot.Entries[1].Content != "check assumptions" || snapshot.Entries[1].Label != "分析问题" ||
+		snapshot.Entries[1].DurationMs != 250 ||
+		snapshot.Entries[2].Type != "reasoning" || snapshot.Entries[2].Content != "compare options" ||
+		snapshot.Entries[3].Type != "message" || snapshot.Entries[3].Role != "assistant" {
+		t.Fatalf("unexpected entry order: %#v", snapshot.Entries)
+	}
+	encoded, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatalf("marshal snapshot: %v", err)
+	}
+	for _, forbidden := range []string{"private automation", "run-private", "runId"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("snapshot leaked %q: %s", forbidden, encoded)
+		}
+	}
+}
+
+func TestHandleChatExportDefaultRemainsMarkdown(t *testing.T) {
+	fixture := newTestFixture(t)
+	chatID := "chat-download-export"
+	seedSearchableChat(t, fixture.chats, chatID)
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat/export?chatId="+chatID, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get(chatExportAudienceHeader); got != "" {
+		t.Fatalf("unexpected share audience header=%q", got)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "text/markdown; charset=utf-8" {
+		t.Fatalf("content-type=%q", got)
+	}
+}

@@ -24,6 +24,25 @@ var (
 	errChatSystemPromptNotFound = errors.New("system prompt not found")
 )
 
+const chatExportAudienceHeader = "X-ZenMind-Chat-Export-Audience"
+
+type sharedConversationSnapshot struct {
+	SchemaVersion int                       `json:"schemaVersion"`
+	Title         string                    `json:"title"`
+	CreatedAt     int64                     `json:"createdAt"`
+	UpdatedAt     int64                     `json:"updatedAt"`
+	Entries       []sharedConversationEntry `json:"entries"`
+}
+
+type sharedConversationEntry struct {
+	Type       string `json:"type"`
+	Role       string `json:"role,omitempty"`
+	Content    string `json:"content"`
+	Label      string `json:"label,omitempty"`
+	DurationMs int64  `json:"durationMs,omitempty"`
+	CreatedAt  int64  `json:"createdAt,omitempty"`
+}
+
 func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 	chatID := strings.TrimSpace(r.URL.Query().Get("chatId"))
 	if chatID == "" {
@@ -65,12 +84,96 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("audience")), "share") {
+		w.Header().Set(chatExportAudienceHeader, "share")
+		writeJSON(w, http.StatusOK, api.Success(buildSharedConversationSnapshot(summary, detail.Events)))
+		return
+	}
+
 	markdown := renderChatMarkdown(summary.ChatName, summary.AgentKey, detail.Events)
 	filename := safeExportFilename(summary.ChatName, chatID)
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, filename))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(markdown))
+}
+
+func buildSharedConversationSnapshot(summary *chat.Summary, events []stream.EventData) sharedConversationSnapshot {
+	title := strings.TrimSpace(summary.ChatName)
+	if title == "" {
+		title = "Chat"
+	}
+	runQueryAt := make(map[string]int64)
+	runCompletedAt := make(map[string]int64)
+	for _, event := range events {
+		runID := strings.TrimSpace(event.String("runId"))
+		if runID == "" {
+			continue
+		}
+		switch event.Type {
+		case "request.query":
+			if api.QueryRoleVisible(event.String("role")) {
+				runQueryAt[runID] = event.Timestamp
+			}
+		case "run.complete":
+			runCompletedAt[runID] = event.Timestamp
+		}
+	}
+	durationForRun := func(runID string) int64 {
+		startedAt, hasStart := runQueryAt[strings.TrimSpace(runID)]
+		completedAt, hasCompletion := runCompletedAt[strings.TrimSpace(runID)]
+		if !hasStart || !hasCompletion || completedAt <= startedAt {
+			return 0
+		}
+		return completedAt - startedAt
+	}
+
+	entries := make([]sharedConversationEntry, 0)
+	for _, event := range events {
+		entryType := ""
+		var role string
+		var content string
+		var label string
+		var durationMs int64
+		switch event.Type {
+		case "request.query":
+			if !api.QueryRoleVisible(event.String("role")) {
+				continue
+			}
+			entryType = "message"
+			role = "user"
+			content = strings.TrimSpace(event.String("message"))
+		case "reasoning.snapshot":
+			entryType = "reasoning"
+			content = strings.TrimSpace(event.String("text"))
+			label = strings.TrimSpace(event.String("reasoningLabel"))
+			durationMs = durationForRun(event.String("runId"))
+		case "content.snapshot":
+			entryType = "message"
+			role = "assistant"
+			content = strings.TrimSpace(event.String("text"))
+		default:
+			continue
+		}
+		if content == "" {
+			continue
+		}
+		entries = append(entries, sharedConversationEntry{
+			Type:       entryType,
+			Role:       role,
+			Content:    content,
+			Label:      label,
+			DurationMs: durationMs,
+			CreatedAt:  event.Timestamp,
+		})
+	}
+	return sharedConversationSnapshot{
+		SchemaVersion: 1,
+		Title:         title,
+		CreatedAt:     summary.CreatedAt,
+		UpdatedAt:     summary.UpdatedAt,
+		Entries:       entries,
+	}
 }
 
 func (s *Server) handleChatJSONL(w http.ResponseWriter, r *http.Request) {
