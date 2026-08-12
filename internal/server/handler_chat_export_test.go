@@ -704,70 +704,121 @@ func TestRenderChatMarkdownSkipsAutomationQuery(t *testing.T) {
 	}
 }
 
-func TestHandleChatExportShareReturnsVersionedSafeSnapshot(t *testing.T) {
+func TestHandleChatExportReturnsVersionedTranscript(t *testing.T) {
 	fixture := newTestFixture(t)
-	chatID := "chat-share-export"
+	chatID := "chat-transcript-export"
 	seedSearchableChat(t, fixture.chats, chatID)
 
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat/export?audience=share&chatId="+chatID, nil))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat/export?format=transcript-json&chatId="+chatID, nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if got := rec.Header().Get(chatExportAudienceHeader); got != "share" {
-		t.Fatalf("share audience header=%q", got)
 	}
 	if got := rec.Header().Get("Content-Type"); got != "application/json" {
 		t.Fatalf("content-type=%q", got)
 	}
-	var response api.ApiResponse[sharedConversationSnapshot]
+	var response api.ApiResponse[chatTranscriptExport]
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if response.Data.SchemaVersion != 1 || len(response.Data.Entries) != 1 {
-		t.Fatalf("unexpected snapshot: %#v", response.Data)
+	if response.Data.ExportVersion != 1 || response.Data.Kind != "chat-transcript" || len(response.Data.Turns) != 1 {
+		t.Fatalf("unexpected transcript: %#v", response.Data)
 	}
-	if response.Data.Entries[0].Type != "message" || response.Data.Entries[0].Role != "user" || response.Data.Entries[0].Content != "rollback plan" {
-		t.Fatalf("unexpected user message: %#v", response.Data.Entries[0])
+	if len(response.Data.Turns[0].Items) != 1 || response.Data.Turns[0].Items[0].Kind != "user-message" || response.Data.Turns[0].Items[0].Content != "rollback plan" {
+		t.Fatalf("unexpected user message: %#v", response.Data.Turns[0].Items)
 	}
 	body := rec.Body.String()
-	for _, forbidden := range []string{"mock-agent", "agentKey", "chatId", "runId"} {
+	for _, forbidden := range []string{"mock-agent", "agentKey", "chatId", "runId", "schemaVersion", "durationMs"} {
 		if strings.Contains(body, forbidden) {
-			t.Fatalf("share snapshot leaked %q: %s", forbidden, body)
+			t.Fatalf("transcript leaked %q: %s", forbidden, body)
 		}
 	}
 }
 
-func TestBuildSharedConversationSnapshotIncludesOnlyVisibleConversation(t *testing.T) {
-	snapshot := buildSharedConversationSnapshot(&chat.Summary{
-		ChatName:  "Safe share",
+func TestBuildChatTranscriptExportIncludesOnlyVisibleRootConversation(t *testing.T) {
+	transcript := buildChatTranscriptExport(&chat.Summary{
+		ChatName:  "Transcript",
 		CreatedAt: testEpochMillis,
 		UpdatedAt: testEpochMillis + 300,
 	}, []stream.EventData{
-		{Type: "request.query", Timestamp: testEpochMillis + 100, Payload: map[string]any{"role": "automation", "message": "private automation"}},
+		{Type: "request.query", Timestamp: testEpochMillis + 100, Payload: map[string]any{"role": "automation", "message": "private automation", "runId": "run-automation"}},
+		{Type: "content.snapshot", Timestamp: testEpochMillis + 150, Payload: map[string]any{"text": "private automation result", "runId": "run-automation"}},
 		{Type: "request.query", Timestamp: testEpochMillis + 200, Payload: map[string]any{"role": "user", "message": "public question", "runId": "run-private"}},
 		{Type: "reasoning.snapshot", Timestamp: testEpochMillis + 250, Payload: map[string]any{"text": "check assumptions", "reasoningLabel": "分析问题", "runId": "run-private"}},
-		{Type: "reasoning.snapshot", Timestamp: testEpochMillis + 275, Payload: map[string]any{"text": "compare options"}},
+		{Type: "reasoning.snapshot", Timestamp: testEpochMillis + 275, Payload: map[string]any{"text": "orphan reasoning"}},
 		{Type: "content.snapshot", Timestamp: testEpochMillis + 300, Payload: map[string]any{"text": "public answer", "runId": "run-private"}},
+		{Type: "request.query", Timestamp: testEpochMillis + 325, Payload: map[string]any{"role": "user", "message": "private child", "runId": "run-private", "taskId": "task-private"}},
+		{Type: "reasoning.snapshot", Timestamp: testEpochMillis + 350, Payload: map[string]any{"text": "visible delegated reasoning", "runId": "run-private", "taskId": "task-private"}},
+		{Type: "content.snapshot", Timestamp: testEpochMillis + 375, Payload: map[string]any{"text": "visible delegated answer", "runId": "run-private", "taskId": "task-private"}},
 		{Type: "run.complete", Timestamp: testEpochMillis + 450, Payload: map[string]any{"runId": "run-private"}},
-	})
-	if len(snapshot.Entries) != 4 {
-		t.Fatalf("unexpected entries: %#v", snapshot.Entries)
+	}, true)
+	if len(transcript.Turns) != 1 {
+		t.Fatalf("unexpected turns: %#v", transcript.Turns)
 	}
-	if snapshot.Entries[0].Type != "message" || snapshot.Entries[0].Role != "user" ||
-		snapshot.Entries[1].Type != "reasoning" || snapshot.Entries[1].Content != "check assumptions" || snapshot.Entries[1].Label != "分析问题" ||
-		snapshot.Entries[1].DurationMs != 250 ||
-		snapshot.Entries[2].Type != "reasoning" || snapshot.Entries[2].Content != "compare options" ||
-		snapshot.Entries[3].Type != "message" || snapshot.Entries[3].Role != "assistant" {
-		t.Fatalf("unexpected entry order: %#v", snapshot.Entries)
+	turn := transcript.Turns[0]
+	if turn.StartedAt != testEpochMillis+200 || turn.CompletedAt != testEpochMillis+450 || len(turn.Items) != 5 ||
+		turn.Items[0].Kind != "user-message" ||
+		turn.Items[1].Kind != "assistant-reasoning" || turn.Items[1].Content != "check assumptions" || turn.Items[1].Label != "分析问题" ||
+		turn.Items[2].Kind != "assistant-message" ||
+		turn.Items[3].Kind != "assistant-reasoning" || turn.Items[3].Content != "visible delegated reasoning" ||
+		turn.Items[4].Kind != "assistant-message" || turn.Items[4].Content != "visible delegated answer" {
+		t.Fatalf("unexpected transcript turn: %#v", turn)
 	}
-	encoded, err := json.Marshal(snapshot)
+	encoded, err := json.Marshal(transcript)
 	if err != nil {
-		t.Fatalf("marshal snapshot: %v", err)
+		t.Fatalf("marshal transcript: %v", err)
 	}
-	for _, forbidden := range []string{"private automation", "run-private", "runId"} {
+	for _, forbidden := range []string{"private automation", "orphan reasoning", "private child", "run-private", "runId", "durationMs"} {
 		if strings.Contains(string(encoded), forbidden) {
-			t.Fatalf("snapshot leaked %q: %s", forbidden, encoded)
+			t.Fatalf("transcript leaked %q: %s", forbidden, encoded)
+		}
+	}
+}
+
+func TestBuildChatTranscriptExportOmitsReasoningByDefault(t *testing.T) {
+	transcript := buildChatTranscriptExport(&chat.Summary{ChatName: "Transcript", CreatedAt: testEpochMillis, UpdatedAt: testEpochMillis + 300}, []stream.EventData{
+		{Type: "request.query", Timestamp: testEpochMillis + 100, Payload: map[string]any{"role": "user", "message": "question", "runId": "run-1"}},
+		{Type: "reasoning.snapshot", Timestamp: testEpochMillis + 200, Payload: map[string]any{"text": "reasoning", "runId": "run-1"}},
+		{Type: "content.snapshot", Timestamp: testEpochMillis + 300, Payload: map[string]any{"text": "answer", "runId": "run-1"}},
+	}, false)
+	if len(transcript.Turns) != 1 || len(transcript.Turns[0].Items) != 2 {
+		t.Fatalf("unexpected transcript: %#v", transcript)
+	}
+	for _, item := range transcript.Turns[0].Items {
+		if item.Kind == "assistant-reasoning" {
+			t.Fatalf("reasoning should be omitted: %#v", transcript)
+		}
+	}
+}
+
+func TestBuildChatTranscriptExportOmitsUnreliableCompletionTime(t *testing.T) {
+	transcript := buildChatTranscriptExport(&chat.Summary{ChatName: "Transcript", CreatedAt: testEpochMillis, UpdatedAt: testEpochMillis + 300}, []stream.EventData{
+		{Type: "request.query", Timestamp: testEpochMillis + 100, Payload: map[string]any{"role": "user", "message": "question", "runId": "run-1"}},
+		{Type: "content.snapshot", Timestamp: testEpochMillis + 200, Payload: map[string]any{"text": "partial answer", "runId": "run-1"}},
+		{Type: "run.complete", Timestamp: testEpochMillis + 50, Payload: map[string]any{"runId": "run-1"}},
+	}, false)
+	if len(transcript.Turns) != 1 || transcript.Turns[0].CompletedAt != 0 {
+		t.Fatalf("unreliable completion should be omitted: %#v", transcript)
+	}
+	encoded, err := json.Marshal(transcript)
+	if err != nil {
+		t.Fatalf("marshal transcript: %v", err)
+	}
+	if strings.Contains(string(encoded), "completedAt") {
+		t.Fatalf("unreliable completion leaked into transcript: %s", encoded)
+	}
+}
+
+func TestHandleChatExportRejectsInvalidFormatOptions(t *testing.T) {
+	fixture := newTestFixture(t)
+	for _, path := range []string{
+		"/api/chat/export?chatId=chat-1&format=unknown",
+		"/api/chat/export?chatId=chat-1&format=transcript-json&includeReasoning=yes",
+	} {
+		rec := httptest.NewRecorder()
+		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("path=%s status=%d body=%s", path, rec.Code, rec.Body.String())
 		}
 	}
 }
@@ -781,9 +832,6 @@ func TestHandleChatExportDefaultRemainsMarkdown(t *testing.T) {
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat/export?chatId="+chatID, nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if got := rec.Header().Get(chatExportAudienceHeader); got != "" {
-		t.Fatalf("unexpected share audience header=%q", got)
 	}
 	if got := rec.Header().Get("Content-Type"); got != "text/markdown; charset=utf-8" {
 		t.Fatalf("content-type=%q", got)

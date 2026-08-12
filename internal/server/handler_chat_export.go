@@ -24,26 +24,36 @@ var (
 	errChatSystemPromptNotFound = errors.New("system prompt not found")
 )
 
-const chatExportAudienceHeader = "X-ZenMind-Chat-Export-Audience"
+const chatTranscriptExportFormat = "transcript-json"
 
-type sharedConversationSnapshot struct {
-	SchemaVersion int                       `json:"schemaVersion"`
-	Title         string                    `json:"title"`
-	CreatedAt     int64                     `json:"createdAt"`
-	UpdatedAt     int64                     `json:"updatedAt"`
-	Entries       []sharedConversationEntry `json:"entries"`
+type chatTranscriptExport struct {
+	ExportVersion int                  `json:"exportVersion"`
+	Kind          string               `json:"kind"`
+	Title         string               `json:"title"`
+	CreatedAt     int64                `json:"createdAt"`
+	UpdatedAt     int64                `json:"updatedAt"`
+	Turns         []chatTranscriptTurn `json:"turns"`
 }
 
-type sharedConversationEntry struct {
-	Type       string `json:"type"`
-	Role       string `json:"role,omitempty"`
-	Content    string `json:"content"`
-	Label      string `json:"label,omitempty"`
-	DurationMs int64  `json:"durationMs,omitempty"`
-	CreatedAt  int64  `json:"createdAt,omitempty"`
+type chatTranscriptTurn struct {
+	StartedAt   int64                `json:"startedAt"`
+	CompletedAt int64                `json:"completedAt,omitempty"`
+	Items       []chatTranscriptItem `json:"items"`
+}
+
+type chatTranscriptItem struct {
+	Kind      string `json:"kind"`
+	Content   string `json:"content"`
+	Label     string `json:"label,omitempty"`
+	CreatedAt int64  `json:"createdAt"`
 }
 
 func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
+	format, includeReasoning, err := parseChatExportOptions(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
+		return
+	}
 	chatID := strings.TrimSpace(r.URL.Query().Get("chatId"))
 	if chatID == "" {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "chatId is required"))
@@ -84,9 +94,8 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("audience")), "share") {
-		w.Header().Set(chatExportAudienceHeader, "share")
-		writeJSON(w, http.StatusOK, api.Success(buildSharedConversationSnapshot(summary, detail.Events)))
+	if format == chatTranscriptExportFormat {
+		writeJSON(w, http.StatusOK, api.Success(buildChatTranscriptExport(summary, detail.Events, includeReasoning)))
 		return
 	}
 
@@ -98,81 +107,123 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(markdown))
 }
 
-func buildSharedConversationSnapshot(summary *chat.Summary, events []stream.EventData) sharedConversationSnapshot {
+func parseChatExportOptions(r *http.Request) (string, bool, error) {
+	format := strings.TrimSpace(r.URL.Query().Get("format"))
+	if format != "" && format != chatTranscriptExportFormat {
+		return "", false, fmt.Errorf("unsupported export format %q", format)
+	}
+	includeReasoningValue := strings.TrimSpace(r.URL.Query().Get("includeReasoning"))
+	switch includeReasoningValue {
+	case "", "false":
+		return format, false, nil
+	case "true":
+		return format, true, nil
+	default:
+		return "", false, errors.New("includeReasoning must be true or false")
+	}
+}
+
+func buildChatTranscriptExport(summary *chat.Summary, events []stream.EventData, includeReasoning bool) chatTranscriptExport {
 	title := strings.TrimSpace(summary.ChatName)
 	if title == "" {
 		title = "Chat"
 	}
-	runQueryAt := make(map[string]int64)
-	runCompletedAt := make(map[string]int64)
+	turnIndexByRunID := make(map[string]int)
+	turns := make([]chatTranscriptTurn, 0)
+	boundTurns := make([]bool, 0)
+	pendingTurnIndex := -1
 	for _, event := range events {
-		runID := strings.TrimSpace(event.String("runId"))
-		if runID == "" {
-			continue
-		}
 		switch event.Type {
 		case "request.query":
-			if api.QueryRoleVisible(event.String("role")) {
-				runQueryAt[runID] = event.Timestamp
-			}
-		case "run.complete":
-			runCompletedAt[runID] = event.Timestamp
-		}
-	}
-	durationForRun := func(runID string) int64 {
-		startedAt, hasStart := runQueryAt[strings.TrimSpace(runID)]
-		completedAt, hasCompletion := runCompletedAt[strings.TrimSpace(runID)]
-		if !hasStart || !hasCompletion || completedAt <= startedAt {
-			return 0
-		}
-		return completedAt - startedAt
-	}
-
-	entries := make([]sharedConversationEntry, 0)
-	for _, event := range events {
-		entryType := ""
-		var role string
-		var content string
-		var label string
-		var durationMs int64
-		switch event.Type {
-		case "request.query":
-			if !api.QueryRoleVisible(event.String("role")) {
+			if strings.TrimSpace(event.String("taskId")) != "" || !api.QueryRoleVisible(event.String("role")) {
 				continue
 			}
-			entryType = "message"
-			role = "user"
-			content = strings.TrimSpace(event.String("message"))
+			content := strings.TrimSpace(event.String("message"))
+			if content == "" {
+				continue
+			}
+			runID := strings.TrimSpace(event.String("runId"))
+			if runID != "" {
+				if _, exists := turnIndexByRunID[runID]; exists {
+					continue
+				}
+			}
+			turnIndex := len(turns)
+			turns = append(turns, chatTranscriptTurn{
+				StartedAt: event.Timestamp,
+				Items: []chatTranscriptItem{{
+					Kind:      "user-message",
+					Content:   content,
+					CreatedAt: event.Timestamp,
+				}},
+			})
+			boundTurns = append(boundTurns, runID != "")
+			if runID != "" {
+				turnIndexByRunID[runID] = turnIndex
+				pendingTurnIndex = -1
+			} else {
+				pendingTurnIndex = turnIndex
+			}
+		case "run.start":
+			runID := strings.TrimSpace(event.String("runId"))
+			if runID == "" || pendingTurnIndex < 0 {
+				continue
+			}
+			if _, exists := turnIndexByRunID[runID]; !exists {
+				turnIndexByRunID[runID] = pendingTurnIndex
+				boundTurns[pendingTurnIndex] = true
+			}
+			pendingTurnIndex = -1
+		}
+	}
+	for _, event := range events {
+		runID := strings.TrimSpace(event.String("runId"))
+		turnIndex, ok := turnIndexByRunID[runID]
+		if !ok {
+			continue
+		}
+		turn := &turns[turnIndex]
+		var item chatTranscriptItem
+		switch event.Type {
+		case "request.query":
+			continue
 		case "reasoning.snapshot":
-			entryType = "reasoning"
-			content = strings.TrimSpace(event.String("text"))
-			label = strings.TrimSpace(event.String("reasoningLabel"))
-			durationMs = durationForRun(event.String("runId"))
+			if !includeReasoning {
+				continue
+			}
+			item.Kind = "assistant-reasoning"
+			item.Content = strings.TrimSpace(event.String("text"))
+			item.Label = strings.TrimSpace(event.String("reasoningLabel"))
 		case "content.snapshot":
-			entryType = "message"
-			role = "assistant"
-			content = strings.TrimSpace(event.String("text"))
+			item.Kind = "assistant-message"
+			item.Content = strings.TrimSpace(event.String("text"))
+		case "run.complete":
+			if event.Timestamp >= turn.StartedAt {
+				turn.CompletedAt = event.Timestamp
+			}
+			continue
 		default:
 			continue
 		}
-		if content == "" {
+		if item.Content == "" {
 			continue
 		}
-		entries = append(entries, sharedConversationEntry{
-			Type:       entryType,
-			Role:       role,
-			Content:    content,
-			Label:      label,
-			DurationMs: durationMs,
-			CreatedAt:  event.Timestamp,
-		})
+		item.CreatedAt = event.Timestamp
+		turn.Items = append(turn.Items, item)
 	}
-	return sharedConversationSnapshot{
-		SchemaVersion: 1,
+	visibleTurns := make([]chatTranscriptTurn, 0, len(turns))
+	for index, turn := range turns {
+		if boundTurns[index] && len(turn.Items) > 0 {
+			visibleTurns = append(visibleTurns, turn)
+		}
+	}
+	return chatTranscriptExport{
+		ExportVersion: 1,
+		Kind:          "chat-transcript",
 		Title:         title,
 		CreatedAt:     summary.CreatedAt,
 		UpdatedAt:     summary.UpdatedAt,
-		Entries:       entries,
+		Turns:         visibleTurns,
 	}
 }
 

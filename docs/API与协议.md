@@ -167,7 +167,7 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 | POST | `/api/chat/rename` | body: `chatId`、`chatName` | 重命名结果 |
 | POST | `/api/chat/derive` | body: `sourceChatId`、`sourceRunId`、`chatId`、`chatName` | 从已完成 run 派生新 chat |
 | POST | `/api/chat/archive` | body: `chatId`、`reason` | 归档结果 |
-| GET | `/api/chat/export` | query: `chatId`，可选 `audience=share` | 默认 Markdown 导出；`audience=share` 按原事件顺序返回可见 user/assistant 消息与全部 `reasoning.snapshot` 的 `schemaVersion=1` JSON 快照，reasoning 可携带由同一 run 的可见 query 至 `run.complete` 计算出的 `durationMs`，并设置 `X-ZenMind-Chat-Export-Audience: share` |
+| GET | `/api/chat/export` | query: `chatId`，可选 `format=transcript-json`、`includeReasoning=true\|false` | 默认 Markdown 导出；结构化格式返回消费者无关的 `exportVersion=1` Transcript，按可见根 query 组织 turns，并可选择包含 reasoning |
 | GET | `/api/chat/jsonl` | query: `chatId` | 原始 chat JSONL 文本；active 不存在时回退 archive |
 | GET | `/api/chat/system-prompt` | query: `chatId`、`runId`、`agentKey` | 获取该 agent 在历史 run 中首次使用的持久化 system message；服务端从 run 的 system-init / step `systemRef` 解析快照 |
 | GET | `/api/chat/llm-trace` | query: `file=<chatId>/.llm-records/<runId>_NNN.json` | 原始 LLM chat trace JSON 文本 |
@@ -409,7 +409,7 @@ curl -sS -X POST http://127.0.0.1:11949/api/query \
 
 `params` 是业务透传对象，平台不读取、不写入、不约定内部 key。
 
-`role` 可选值为 `user`、`assistant`、`automation`、`system`，普通 query 缺省为 `user`。`automation` / `system` 的 `request.query` 会保留在 trace 中，但不会作为可见用户消息参与搜索、Markdown 导出或分享快照。分享快照使用有序 `entries`，只投影可见 query、`reasoning.snapshot` 与 `content.snapshot`；reasoning 的可选 `durationMs` 只在同一 `runId` 同时存在可见 query 与 `run.complete` 时计算，runId 本身不会输出。快照不包含 `chatId`、`runId`、`agentKey`、reasoningId、工具调用和系统提示。调用方必须检查显式 audience 响应头，不能把普通导出当作分享快照降级上传。`role` 只影响本次 query 展示语义，不决定 chat 摘要的 `source`；外部请求不能通过 `role=automation` 或传入 `source` 伪造 automation 创建来源。普通 HTTP `/api/query` 传入 `sourceUser` 也不会改变 source；该字段只在受信 channel/gateway 上下文中作为远端用户提示使用。
+`role` 可选值为 `user`、`assistant`、`automation`、`system`，普通 query 缺省为 `user`。`automation` / `system` 的 `request.query` 会保留在 trace 中，但不会作为可见用户消息参与搜索、Markdown 或结构化 Transcript 导出。`format=transcript-json` 返回消费者无关的有序 `turns`：每个 turn 只由能够与根 run 生命周期可靠关联的可见根 query 建立，关联的 `reasoning.snapshot` 与 `content.snapshot` 按事件顺序投影为 item；无法关联到可见根 query 的事件、省略的子任务 query、工具调用和系统提示均不导出。可靠 `run.complete` 只形成可选 `completedAt`，导出中不包含 `chatId`、`runId`、`agentKey`、reasoningId 或计算后的 duration。`includeReasoning` 省略或为 `false` 时不输出 reasoning；未知 format 或非法 boolean 返回 400。`role` 只影响本次 query 展示语义，不决定 chat 摘要的 `source`；外部请求不能通过 `role=automation` 或传入 `source` 伪造 automation 创建来源。普通 HTTP `/api/query` 传入 `sourceUser` 也不会改变 source；该字段只在受信 channel/gateway 上下文中作为远端用户提示使用。
 
 `model` 可做本次 run 的模型覆盖：
 
