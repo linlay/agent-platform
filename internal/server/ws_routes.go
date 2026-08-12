@@ -114,6 +114,24 @@ func strictNumericDateSeconds(value any) (int64, error) {
 func (s *Server) newWSHandler(hub *ws.Hub) *ws.Handler {
 	handler := ws.NewHandler(s.deps.Config.WebSocket, time.Duration(s.deps.Config.SSE.HeartbeatInterval)*time.Second, hub, wsTokenAuthenticator{server: s})
 	handler.SetDefaultLocale(i18n.DefaultLocale)
+	if s.deps.ChannelSessions != nil {
+		handler.SetChannelLifecycleCallbacks(ws.ConnectionLifecycleCallbacks{
+			OnOpened: func(conn *ws.Conn) {
+				channelID := channelIDFromContext(conn.Context())
+				timeout := 10 * time.Second
+				if def, ok := s.deps.Channels.Lookup(channelID); ok && def.Reconnect.HandshakeTimeout > 0 {
+					timeout = time.Duration(def.Reconnect.HandshakeTimeout) * time.Second
+				}
+				s.deps.ChannelSessions.ChannelConnected(channelID, conn, timeout)
+			},
+			OnPush: func(conn *ws.Conn, push ws.PushFrame) {
+				s.deps.ChannelSessions.ChannelPush(channelIDFromContext(conn.Context()), conn, push)
+			},
+			OnClosed: func(conn *ws.Conn) {
+				s.deps.ChannelSessions.ChannelDisconnected(channelIDFromContext(conn.Context()), conn)
+			},
+		})
+	}
 	s.registerWSRoutes(handler)
 	handler.SetDispatch(s.logWSDispatch(handler.Dispatch))
 	return handler

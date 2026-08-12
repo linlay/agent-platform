@@ -83,7 +83,7 @@ func TestClientConnectDispatchBroadcastAndReconnect(t *testing.T) {
 	if first.authorization != "Bearer dev-token" {
 		t.Fatalf("expected Authorization header to be forwarded, got %q", first.authorization)
 	}
-	// 反向 WS 模式下 client 不再主动发 push.connected —— 让网关按自己的节奏发注册 ACK。
+	// Channel client 不主动发普通 /ws 使用的 push.connected；对端稍后声明注册协议能力。
 
 	if err := first.conn.WriteJSON(ws.RequestFrame{
 		Frame:   ws.FrameRequest,

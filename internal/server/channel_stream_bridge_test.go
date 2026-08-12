@@ -58,7 +58,6 @@ func TestChannelImportQueryUsesServerModeInboundChannel(t *testing.T) {
 		t.Fatalf("dial channel websocket: %v", err)
 	}
 	defer peer.Close()
-	readConnectedPush(t, peer)
 
 	queryDone := make(chan struct {
 		status int

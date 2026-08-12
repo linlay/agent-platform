@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/automation"
@@ -71,6 +72,7 @@ type Dependencies struct {
 	GatewayResolver  GatewayResolver
 	AgentCardStatus  AgentCardStatusProvider
 	AgentCardRefresh AgentCardRefreshScheduler
+	ChannelSessions  ChannelSessionObserver
 }
 
 // GatewayResolver 是 ws_routes 下载时用来按 chatId 选对应 gateway 的只读视图，
@@ -85,6 +87,12 @@ type AgentCardStatusProvider interface {
 
 type AgentCardRefreshScheduler interface {
 	ScheduleRefresh()
+}
+
+type ChannelSessionObserver interface {
+	ChannelConnected(channelID string, conn *ws.Conn, handshakeTimeout time.Duration)
+	ChannelPush(channelID string, conn *ws.Conn, push ws.PushFrame)
+	ChannelDisconnected(channelID string, conn *ws.Conn)
 }
 
 type ChannelRegistry interface {

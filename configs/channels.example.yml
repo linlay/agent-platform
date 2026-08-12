@@ -1,7 +1,8 @@
 # Channel only describes the connection. Agent import/export is declared in
 # each agent.yml channelConfig.
-# Gateway Agent Card reporting is enabled only for mode: client channels and
-# only for explicit agent channelConfig.exports with allow.query: true.
+# Agent export registration v1 runs on mode: client connections and on every
+# active mode: server session after the peer sends push connected. It only
+# includes explicit agent channelConfig.exports with allow.query: true.
 
 # channels:
 #   # Platform actively connects to another platform/adaptor.
@@ -21,7 +22,8 @@
 
 #   # Platform exposes /ws/channel for other platforms/adaptors to connect in.
 #   # A mode: CHANNEL agent may reuse the latest active connection on this
-#   # channel; if no peer is connected, query returns 503.
+#   # channel; every active session independently reconciles local exports.
+#   # If no peer is connected, a CHANNEL-mode query returns 503.
 #   public-entry:
 #     mode: server
 #     endpoint:

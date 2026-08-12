@@ -22,6 +22,14 @@ import (
 
 type RouteHandler func(context.Context, *Conn, RequestFrame)
 
+// ConnectionLifecycleCallbacks exposes transport lifecycle and peer push
+// frames to channel-specific coordinators. Callbacks must return quickly.
+type ConnectionLifecycleCallbacks struct {
+	OnOpened func(*Conn)
+	OnPush   func(*Conn, PushFrame)
+	OnClosed func(*Conn)
+}
+
 type outboundMessage struct {
 	frame     any
 	msgType   int
@@ -109,9 +117,11 @@ type Conn struct {
 	closeReason         string
 	localeMu            sync.RWMutex
 	locale              string
+	lifecycleMu         sync.RWMutex
+	lifecycle           ConnectionLifecycleCallbacks
 
 	// silent=true 时：Run 不主动发 push.connected，writeLoop 不发 push.heartbeat / auth.expiring。
-	// 用于 agent-platform 反向连出到网关的场景——网关按自己的节奏发注册 ACK，我们只做被动应答。
+	// Channel 连接仍保留 WebSocket ping、双向 request/response 和对端 push 回调。
 	silent bool
 
 	authMu sync.RWMutex
@@ -146,9 +156,8 @@ func (c *Conn) RequestBaseURL() string {
 
 var nextSessionID atomic.Int64
 
-// NewSilentConn 是 NewConn 的变体，用于 agent-platform 反向连出到网关的场景：
-// 不主动发 push.connected / heartbeat / auth.expiring，其他行为（读 request frame、
-// hub 广播、stream/response 等）完全复用。
+// NewSilentConn 是 NewConn 的 Channel 连接变体：不主动发普通客户端使用的
+// push.connected / heartbeat / auth.expiring；WebSocket ping、双向请求和对端 push 保留。
 func NewSilentConn(socket *gws.Conn, hub *Hub, cfg config.WebSocketConfig, heartbeatInterval time.Duration, auth AuthSession) *Conn {
 	c := NewConn(socket, hub, cfg, heartbeatInterval, auth)
 	c.silent = true
@@ -281,6 +290,42 @@ func (c *Conn) UpdateAuth(auth AuthSession) {
 	c.authMu.Unlock()
 }
 
+func (c *Conn) SetLifecycleCallbacks(callbacks ConnectionLifecycleCallbacks) {
+	if c == nil {
+		return
+	}
+	c.lifecycleMu.Lock()
+	c.lifecycle = callbacks
+	c.lifecycleMu.Unlock()
+}
+
+func (c *Conn) notifyOpened() {
+	c.lifecycleMu.RLock()
+	callback := c.lifecycle.OnOpened
+	c.lifecycleMu.RUnlock()
+	if callback != nil {
+		callback(c)
+	}
+}
+
+func (c *Conn) notifyPush(push PushFrame) {
+	c.lifecycleMu.RLock()
+	callback := c.lifecycle.OnPush
+	c.lifecycleMu.RUnlock()
+	if callback != nil {
+		callback(c, push)
+	}
+}
+
+func (c *Conn) notifyClosed() {
+	c.lifecycleMu.RLock()
+	callback := c.lifecycle.OnClosed
+	c.lifecycleMu.RUnlock()
+	if callback != nil {
+		callback(c)
+	}
+}
+
 func (c *Conn) Run(dispatch RouteHandler) {
 	if c == nil || c.socket == nil {
 		return
@@ -301,6 +346,7 @@ func (c *Conn) Run(dispatch RouteHandler) {
 	})
 
 	go c.writeLoop()
+	c.notifyOpened()
 	if !c.silent {
 		c.SendPush("connected", map[string]any{"sessionId": c.sessionID})
 	}
@@ -321,13 +367,19 @@ func (c *Conn) Run(dispatch RouteHandler) {
 				c.recordInboundMessage(data, req, "")
 				continue
 			}
-			// silent 模式（反向连到网关）下，网关会按 Java DownstreamAgentPush 协议
-			// 主动发 push.connected / push.heartbeat 等 server-push 帧。platform 只是
-			// 反向被动端，不需要主动消费 push，但也不应回 invalid_request 污染连接。
-			// 对 push 帧静默放行，其他未知帧仍记录日志便于排查（不回 error 帧）。
+			// Channel connections are silent from the platform side. Their peer
+			// pushes (notably the v1 connected capability declaration) are handed
+			// to the channel lifecycle coordinator.
 			if c.silent {
 				errText := ""
-				if req.Frame != FramePush {
+				if req.Frame == FramePush {
+					var push PushFrame
+					if err := json.Unmarshal(data, &push); err != nil {
+						errText = "invalid push frame"
+					} else {
+						c.notifyPush(push)
+					}
+				} else {
 					errText = "unexpected frame"
 					log.Printf("gateway-reverse: unexpected frame dropped: frame=%s type=%s id=%s", req.Frame, req.Type, req.ID)
 				}
@@ -983,6 +1035,7 @@ func (c *Conn) close(code int, text string) {
 		if c.hub != nil {
 			c.hub.unregister(c)
 		}
+		c.notifyClosed()
 		c.mu.Lock()
 		streams := make([]*streamEntry, 0, len(c.activeStreams))
 		for _, entry := range c.activeStreams {

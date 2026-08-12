@@ -806,68 +806,66 @@ Channel WS 复用标准 `platform-ws` 帧：`request`、`response`、`stream`、
 
 当本地 `mode: CHANNEL` agent 引用 `mode: server` channel 时，运行时会复用该 channel 已接入的 `/ws/channel?channelId=...` 连接向对端发送 `request` 帧，并按相同 `id` 收回 `stream / response / error` 帧。`mode: client` 与 `mode: server` 只表示连接建立方向，不表示 agent 的拥有方；server channel 未连接时会返回 `503 channel <channelId> is not connected`。
 
-### Gateway Agent Card 申报
+### Channel Agent 接出注册 v1
 
-platform 主动连接 `mode: client` gateway 后，会通过现有 `platform-ws` request/response 申报当前 channel 的 Agent Card。只有本地 agent 中显式声明了匹配 `channelConfig.exports` 且 `allow.query: true` 的导出项会被申报，线上 `agentKey` 使用 `externalAgentKey`；`mode: server` 的 `/ws/channel` 连接本期不做反向申报。
+Channel 有两个互不替代的维度：`channel.mode` 只决定 WebSocket 由哪一方建立；本地 `mode: CHANNEL` agent 是静态接入远端 Agent，普通 agent 的 `channelConfig.exports` 才是把本地 Agent 接出给对端。本节协议只管理接出，不接收对端动态注册，也不动态创建本地 Agent。
 
-请求使用 `id` 作为唯一关联 ID，payload 不重复携带 `requestId`：
+无论 WebSocket 由谁发起，只要本 Platform 有接出项，本 Platform 都是 `agent.register / agent.unregister / agent.list` 的请求发送方：
+
+- `mode: client`：Platform 主动连接对端，收到对端 v1 `push connected` 后开始对账。
+- `mode: server`：对端连接 `/ws/channel?channelId=...`。Platform 不在该连接上发送普通 `/ws` 使用的 `push connected`，但仍发送 WebSocket ping；收到对端 v1 `push connected` 后开始对账。
+- 普通 `/ws` 的 connected、heartbeat 和鉴权行为保持不变。
+- 同一 `mode: server` channel 的每条活跃连接是独立 Session，各自注册、解除和查询；相同 `platformKey` 不合并。
+
+对端声明示例：
+
+```json
+{
+  "frame": "push",
+  "type": "connected",
+  "data": {
+    "sessionId": "2f43b83d-82f1-4d8d-95b3-508a90fdb481",
+    "platformKey": "desktop-standard-ws",
+    "registrationMode": "MULTI_EMPLOYEE",
+    "status": "ACTIVE",
+    "agentRegistration": {
+      "version": "1",
+      "maxAgentsPerPlatformChannel": 100,
+      "supportedCapabilities": ["query", "steer", "interrupt", "hitl"]
+    },
+    "timestamp": 1786502400000
+  }
+}
+```
+
+应用层 connected 等待使用 channel 的 `reconnect.handshakeTimeout`，默认 10 秒。超时只把接出注册标为 `error`，不关闭连接；迟到的有效声明仍可恢复。内容相同的重复声明会被忽略；同一连接的 `platformKey`、注册版本或 `registrationMode` 发生冲突时，该 Session 停止注册对账，其他 channel 功能不受影响。
+
+注册对象只来自普通 Agent 上匹配 channel、且 `allow.query: true` 的 export；`mode: CHANNEL` Agent 不会被注册。请求一次只处理一个 Agent，payload 只包含 `agentKey / name / role / description / capabilities`：
 
 ```json
 {
   "frame": "request",
-  "type": "agent.card.update",
-  "id": "card_01J...",
+  "type": "agent.register",
+  "id": "register-agent-001",
   "payload": {
     "agentKey": "support-agent",
-    "agentCard": {
-      "name": "售后数字分身",
-      "description": "擅长售后工单、客户投诉、退款记录分析。",
-      "skills": [
-        {
-          "id": "kb.query.support-agent",
-          "name": "知识库问答",
-          "description": "查询该智能体的本地知识库。",
-          "tags": ["售后", "工单", "退款"]
-        }
-      ],
-      "tools": [
-        {
-          "id": "kbase_search",
-          "name": "知识库搜索",
-          "description": "搜索已索引的本地知识库。",
-          "tags": ["knowledge-base", "search"]
-        }
-      ]
-    }
+    "name": "售后数字分身",
+    "role": "售后支持",
+    "description": "协助处理售后问题",
+    "capabilities": ["all"]
   }
 }
 ```
 
-gateway 必须用相同的 `id` 和 `type` 回应，并回显 `agentKey`：
+`agentKey` 使用 `externalAgentKey`，省略时回退本地 Agent key；`name` 为空时也回退本地 key。`role`、`description` 为空时省略。能力按 export allow 映射：`query <- query`、`steer <- steer`、`interrupt <- interrupt`、`hitl <- submit`。`fileTransfer`、Skill、Tool、Tag 和 KBASE 隐式能力均不注册，也不会因注册协议扩大现有文件权限。四项全部启用且对端 v1 正好支持四项稳定能力时发送 `["all"]`；否则按 `query, steer, interrupt, hitl` 固定顺序发送显式列表。Gateway 在响应和 list 中返回展开后的能力。
 
-```json
-{
-  "frame": "response",
-  "type": "agent.card.update",
-  "id": "card_01J...",
-  "code": 0,
-  "msg": "success",
-  "data": {
-    "agentKey": "support-agent",
-    "accepted": true
-  }
-}
-```
+每轮对账先调用 `agent.list`，其结果是当前认证连接 `platformKey` 下所有活跃 Session 的注册。Platform 只读取和操作 `ownedByCurrentSession:true` 的项目：先解除本 Session 已持有但本地不再有效的 Agent，再注册缺失项或完整更新字段不同的项，最后再次 list 验证。初始 list 失败时不执行变更；`NOT_REGISTERED` 按幂等成功处理。Catalog 热重载以 2 秒 debounce 触发新一轮对账并取消旧 generation；断线取消所有请求并依赖 Gateway 清理本 Session 路由。
 
-业务拒绝仍返回成功送达的 `response`，设置 `accepted: false`，并可在 `data.reason` 给出脱敏原因；格式错误等协议问题沿用 `error` frame。不使用 `push agent.card.ack`。
+请求等待 10 秒；网络错误和 5xx 最多尝试三轮，约按 2 秒、4 秒抖动退避，4xx 不自动重试。每条 Session 最多并发 4 个注册或解除请求，`SINGLE_EMPLOYEE` 固定为 1；若本地存在多个有效 export，整条 Session 标为配置错误，不会任意选择一个。
 
-连接成功和每次重连后会立即全量申报。Agent、Skill、Tool、MCP 或 KBASE 标签成功重载后，platform 以 2 秒 debounce 合并变化并重新全量申报；每轮最多并发 4 张卡，每张等待响应 10 秒。超时、断流或 5xx 最多尝试 3 次并按约 2 秒、4 秒退避；`accepted: false` 与 4xx 不自动重试，只等待配置变化或重连。断线会取消旧连接上的待处理请求。
+`GET /api/admin/channels` 与 `GET /api/monitor/channels` 继续在每个 export 上使用兼容字段 `cardStatus`，状态值为 `error / rejected / retrying / pending / accepted / offline`。server channel 多 Session 按最严重状态聚合；只有所有具备有效 v1 connected 的活跃 Session 均经最终 list 确认一致时才是 `accepted`，没有活跃 Session 时为 `offline`。
 
-`skills` 和 `tools` 始终为数组，每项只包含 `id/name/description/tags`。卡片不会读取或发送 prompt、workspace/path、知识库原文、工具参数 schema、环境变量或认证配置；发送前还会拒绝明显的绝对路径和凭证模式。字段超长、条目过多、声明无法解析或总帧超限时整张卡在本地标记为 invalid/error，不发送残缺卡片。名称、描述和标签属于公开配置，维护者必须预先完成客户隐私脱敏。
-
-本结构仅借用 A2A Agent Skill 的展示模型，是 gateway 的简化卡；未包含[完整 A2A 1.0 Agent Card 定义](https://github.com/a2aproject/A2A/blob/main/specification/a2a.proto)要求的接口、版本、capabilities、安全与输入输出模式等字段，`tools` 也是平台自定义扩展，不宣称完整兼容 A2A Agent Card。
-
-`GET /api/admin/channels` 与 `GET /api/monitor/channels` 的每个 export 可包含 `cardStatus`，字段包括 `status`、`requestId`、`attempt`、`updatedAt`、可选 `acceptedAt` 和脱敏 `reason`。状态值为 `pending / accepted / rejected / retrying / error / offline`。
+本次升级只实现 Agent 接出注册、解除、查询和对账。注册成功的 `registrationId` 会保存，但尚不用于 Query/Run 路由；新版 Query Stream、Run TTL、HITL Schema、Steer/Interrupt/Submit 控制路由均未实现。完整 Gateway 帧定义见 [Gateway Agent 注册与调用协议](Gateway-Agent注册与调用协议.md)。
 
 ## 约束与注意事项
 

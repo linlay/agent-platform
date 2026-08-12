@@ -274,7 +274,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			backgroundCancel()
 		}
 	}()
-	cardReporter := gateway.NewAgentCardReporter(backgroundCtx, registry, toolExecutor)
+	cardReporter := gateway.NewAgentCardReporter(backgroundCtx, registry)
 	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcp.NewRegistryReloader(mcpRegistry, mcpToolSync), toolExecutor, cfg.Paths.ToolsDir, notifications, kbaseManager)
 	reloader.AddObserver(cardReporter)
 	kbaseManager.Start(backgroundCtx)
@@ -365,6 +365,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		GatewayResolver:      gatewayResolver,
 		AgentCardStatus:      cardReporter,
 		AgentCardRefresh:     cardReporter,
+		ChannelSessions:      cardReporter,
 	})
 	if err != nil {
 		if automationExecutionStore != nil {

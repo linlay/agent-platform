@@ -303,7 +303,6 @@ func dialAgentFileWebSocket(t *testing.T, baseURL string, path string) *gws.Conn
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)
 	}
-	waitForPushFrameType(t, conn, "connected")
 	return conn
 }
 

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
@@ -15,6 +16,24 @@ import (
 
 	gws "github.com/gorilla/websocket"
 )
+
+type channelSessionObserverStub struct {
+	opened chan *ws.Conn
+	pushes chan ws.PushFrame
+	closed chan *ws.Conn
+}
+
+func (s *channelSessionObserverStub) ChannelConnected(_ string, conn *ws.Conn, _ time.Duration) {
+	s.opened <- conn
+}
+
+func (s *channelSessionObserverStub) ChannelPush(_ string, _ *ws.Conn, push ws.PushFrame) {
+	s.pushes <- push
+}
+
+func (s *channelSessionObserverStub) ChannelDisconnected(_ string, conn *ws.Conn) {
+	s.closed <- conn
+}
 
 func TestWebSocketChannelsRouteRemovedAndAgentsIgnoreChannelFilter(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
@@ -168,7 +187,12 @@ func TestChannelWebSocketRequiresServerModeChannel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial channel websocket: %v", err)
 	}
-	readConnectedPush(t, conn)
+	if err := conn.SetReadDeadline(time.Now().Add(50 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := conn.ReadMessage(); err == nil {
+		t.Fatal("channel websocket must not send the ordinary client connected push")
+	}
 	_ = conn.Close()
 
 	rec := httptest.NewRecorder()
@@ -181,6 +205,51 @@ func TestChannelWebSocketRequiresServerModeChannel(t *testing.T) {
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ws/channel?channelId=peer-a", nil))
 	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "server mode") {
 		t.Fatalf("expected client-mode channel to be rejected, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestServerChannelForwardsPeerConnectedPushToSessionObserver(t *testing.T) {
+	observer := &channelSessionObserverStub{opened: make(chan *ws.Conn, 1), pushes: make(chan ws.PushFrame, 1), closed: make(chan *ws.Conn, 1)}
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.WriteQueueSize = 8
+			cfg.WebSocket.PingInterval = 30
+			cfg.Channels = []config.ChannelConfig{{ID: "public-entry", Mode: config.ChannelModeServer, Endpoint: config.ChannelEndpointConfig{Path: "/ws/channel"}}}
+		},
+	})
+	fixture.server.deps.ChannelSessions = observer
+	fixture.server.wsHandler = fixture.server.newWSHandler(fixture.server.deps.Notifications.(*ws.Hub))
+	server := httptest.NewServer(fixture.server)
+	defer server.Close()
+	conn, _, err := gws.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/ws/channel?channelId=public-entry", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-observer.opened:
+	case <-time.After(time.Second):
+		t.Fatal("channel session open was not observed")
+	}
+	push := ws.PushFrame{Frame: ws.FramePush, Type: "connected", Data: map[string]any{"sessionId": "remote-session"}}
+	if err := conn.WriteJSON(push); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-observer.pushes:
+		if got.Type != "connected" {
+			t.Fatalf("unexpected push %#v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("channel connected push was not observed")
+	}
+	_ = conn.Close()
+	select {
+	case <-observer.closed:
+	case <-time.After(time.Second):
+		t.Fatal("channel session close was not observed")
 	}
 }
 

@@ -48,12 +48,9 @@ type Registry struct {
 }
 
 type ConnectionObserver interface {
-	GatewayConnected(gatewayID string, channelID string, conn *ws.Conn)
-	GatewayDisconnected(gatewayID string, channelID string, conn *ws.Conn)
-}
-
-type registrationObserver interface {
-	GatewayRegistered(gatewayID string, channelID string)
+	ChannelConnected(channelID string, conn *ws.Conn, handshakeTimeout time.Duration)
+	ChannelPush(channelID string, conn *ws.Conn, push ws.PushFrame)
+	ChannelDisconnected(channelID string, conn *ws.Conn)
 }
 
 // New 创建 Registry。rootCtx 用于给每个 connector.Start 传递；Registry 自己不起 goroutine。
@@ -122,14 +119,21 @@ func (r *Registry) Register(entry config.GatewayEntry) error {
 			OnConnected: func(conn *ws.Conn) {
 				for _, observer := range r.observers {
 					if observer != nil {
-						observer.GatewayConnected(id, channelKey, conn)
+						observer.ChannelConnected(channelKey, conn, time.Duration(entry.HandshakeTimeout)*time.Second)
+					}
+				}
+			},
+			OnPush: func(conn *ws.Conn, push ws.PushFrame) {
+				for _, observer := range r.observers {
+					if observer != nil {
+						observer.ChannelPush(channelKey, conn, push)
 					}
 				}
 			},
 			OnDisconnected: func(conn *ws.Conn) {
 				for _, observer := range r.observers {
 					if observer != nil {
-						observer.GatewayDisconnected(id, channelKey, conn)
+						observer.ChannelDisconnected(channelKey, conn)
 					}
 				}
 			},
@@ -139,11 +143,6 @@ func (r *Registry) Register(entry config.GatewayEntry) error {
 		r.hub,
 		r.dispatch,
 	)
-	for _, observer := range r.observers {
-		if registered, ok := observer.(registrationObserver); ok {
-			registered.GatewayRegistered(id, channelKey)
-		}
-	}
 	client.Start(r.rootCtx)
 
 	e := &Entry{

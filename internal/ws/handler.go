@@ -25,6 +25,7 @@ type Handler struct {
 	upgrader          gws.Upgrader
 	routes            map[string]RouteHandler
 	dispatch          RouteHandler
+	channelLifecycle  ConnectionLifecycleCallbacks
 }
 
 func NewHandler(cfg config.WebSocketConfig, heartbeatInterval time.Duration, hub *Hub, authenticator TokenAuthenticator) *Handler {
@@ -62,6 +63,13 @@ func (h *Handler) SetDispatch(dispatch RouteHandler) {
 	h.dispatch = dispatch
 }
 
+func (h *Handler) SetChannelLifecycleCallbacks(callbacks ConnectionLifecycleCallbacks) {
+	if h == nil {
+		return
+	}
+	h.channelLifecycle = callbacks
+}
+
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h == nil {
 		http.NotFound(w, r)
@@ -94,6 +102,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	conn := NewConn(socket, h.hub, h.cfg, h.heartbeatInterval, auth)
+	if _, channelConnection := GatewayFromContext(auth.Context); channelConnection {
+		conn.silent = true
+		conn.SetLifecycleCallbacks(h.channelLifecycle)
+	}
 	conn.SetLocale(wsLocaleFromRequest(r, h.defaultLocale))
 	conn.SetRequestBaseURL(wsRequestBaseURL(r))
 	conn.SetClientInfo(r.RemoteAddr, r.UserAgent())

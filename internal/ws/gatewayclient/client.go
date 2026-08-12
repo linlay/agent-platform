@@ -30,6 +30,7 @@ type Config struct {
 	ReconnectMin     time.Duration
 	ReconnectMax     time.Duration
 	OnConnected      func(*ws.Conn)
+	OnPush           func(*ws.Conn, ws.PushFrame)
 	OnDisconnected   func(*ws.Conn)
 }
 
@@ -177,18 +178,17 @@ func (c *Client) run() {
 		log.Printf("gateway websocket connected: url=%s", c.cfg.URL)
 		startedAt := time.Now()
 		conn := ws.NewSilentConn(socket, c.hub, c.wsCfg, c.heartbeat, ws.AuthSession{Context: connCtx})
+		conn.SetLifecycleCallbacks(ws.ConnectionLifecycleCallbacks{
+			OnOpened: c.cfg.OnConnected,
+			OnPush:   c.cfg.OnPush,
+			OnClosed: c.cfg.OnDisconnected,
+		})
 		runDone := make(chan struct{})
 		go func() {
 			conn.Run(c.dispatch)
 			close(runDone)
 		}()
-		if c.cfg.OnConnected != nil {
-			c.cfg.OnConnected(conn)
-		}
 		<-runDone
-		if c.cfg.OnDisconnected != nil {
-			c.cfg.OnDisconnected(conn)
-		}
 		connCancel()
 		c.connected.Store(false)
 		c.curSocket.Store(nil)
