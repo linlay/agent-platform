@@ -159,7 +159,7 @@ func imageGenerateTimeout(model models.ModelDefinition, profile config.ImageGene
 	if model.Image.Timeout > 0 {
 		return model.Image.Timeout
 	}
-	return 120
+	return 180
 }
 
 func resolveImageGenerateResponseFormat(override string, fallback string, allowed []string) (string, bool) {

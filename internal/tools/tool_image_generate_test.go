@@ -35,6 +35,22 @@ func TestImageGenerateDisabled(t *testing.T) {
 	}
 }
 
+func TestImageGenerateTimeoutPrecedenceAndDefault(t *testing.T) {
+	model := models.ModelDefinition{Image: models.ModelImageConfig{Timeout: 150}}
+	profile := config.ImageGenerateProfileConfig{Timeout: 90}
+	if got := imageGenerateTimeout(model, profile); got != 90 {
+		t.Fatalf("profile timeout = %d, want 90", got)
+	}
+	profile.Timeout = 0
+	if got := imageGenerateTimeout(model, profile); got != 150 {
+		t.Fatalf("model timeout = %d, want 150", got)
+	}
+	model.Image.Timeout = 0
+	if got := imageGenerateTimeout(model, profile); got != 180 {
+		t.Fatalf("default timeout = %d, want 180", got)
+	}
+}
+
 func TestImageGenerateMissingProfile(t *testing.T) {
 	registry := writeImageGenerateRegistry(t, "http://127.0.0.1:1", true)
 	executor := imageGenerateTestExecutor(defaultImageGenerateTestConfig(), registry, "")
@@ -55,7 +71,7 @@ func TestImageGenerateMissingModel(t *testing.T) {
 	cfg := defaultImageGenerateTestConfig()
 	cfg.Profiles["general"] = config.ImageGenerateProfileConfig{
 		ModelKey:        "missing-model",
-		Timeout:         120,
+		Timeout:         180,
 		Size:            "1024x1024",
 		ResponseFormat:  "b64_json",
 		OutputMimeType:  "image/png",
@@ -740,7 +756,7 @@ func defaultImageGenerateTestConfig() config.ImageGenerateConfig {
 		Profiles: map[string]config.ImageGenerateProfileConfig{
 			"general": {
 				ModelKey:        "image-model",
-				Timeout:         120,
+				Timeout:         180,
 				Size:            "1024x1024",
 				ResponseFormat:  "b64_json",
 				OutputMimeType:  "image/png",
@@ -772,7 +788,7 @@ func writeImageGenerateRegistry(t *testing.T, baseURL string, withAPIKey bool) *
 
 func writeImageGenerateRegistryWithType(t *testing.T, baseURL string, withAPIKey bool, modelType string) *models.ModelRegistry {
 	return writeImageGenerateRegistryWithModel(t, baseURL, withAPIKey, modelType, []string{
-		"  timeout: 120",
+		"  timeout: 180",
 		"  defaultSize: 1024x1024",
 		"  responseFormats:",
 		"    - b64_json",
