@@ -40,6 +40,13 @@ func TestBuildSessionToolNamesFiltersInvokeAgentsWhenDisallowed(t *testing.T) {
 	}
 }
 
+func TestBuildSessionToolNamesKeepsEmptyAfterInvokeAgentsIsRemoved(t *testing.T) {
+	got := buildSessionToolNames([]string{contracts.InvokeAgentsToolName}, false)
+	if len(got) != 0 {
+		t.Fatalf("removing agent_invoke must leave an empty allowlist, got %#v", got)
+	}
+}
+
 func TestBuildQuerySessionRejectsAgentDelegateForOrdinaryAgent(t *testing.T) {
 	server := &Server{}
 	_, err := server.BuildQuerySession(context.Background(), api.QueryRequest{}, chat.Summary{}, catalog.AgentDefinition{
@@ -57,18 +64,6 @@ func TestBuildQuerySessionRejectsRemovedRunTool(t *testing.T) {
 	}, querySessionBuildOptions{})
 	if err == nil || !strings.Contains(err.Error(), "tool agent_run_query was removed; use run_query") {
 		t.Fatalf("expected session-level removed tool rejection, got %v", err)
-	}
-}
-
-func TestDefaultSessionToolNamesWithoutInvokeMaterializesSafeDefaults(t *testing.T) {
-	got := defaultSessionToolNamesWithoutInvoke([]api.ToolDetailResponse{
-		{Name: "file_read"},
-		{Name: contracts.InvokeAgentsToolName},
-		{Name: "private_tool", Meta: map[string]any{"explicitOnly": true}},
-	})
-	want := []string{"file_read"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("defaultSessionToolNamesWithoutInvoke() = %#v, want %#v", got, want)
 	}
 }
 

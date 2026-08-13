@@ -521,6 +521,124 @@ main {
   overflow-wrap: anywhere;
 }
 
+.channel-export-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.channel-export-heading h4 {
+  margin-bottom: 0;
+}
+
+.channel-export-summary {
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 800;
+  text-align: right;
+}
+
+.channel-export-list {
+  display: grid;
+  gap: 7px;
+}
+
+.channel-export-card {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.72);
+  padding: 9px 10px;
+}
+
+.channel-export-card.registration-accepted {
+  border-left-color: var(--success);
+  background: rgba(8, 116, 67, 0.035);
+}
+
+.channel-export-card.registration-progress {
+  border-left-color: var(--warning);
+  background: rgba(var(--warm-rgb), 0.035);
+}
+
+.channel-export-card.registration-failed {
+  border-left-color: var(--danger);
+  background: rgba(180, 35, 24, 0.035);
+}
+
+.channel-export-card.registration-inactive {
+  border-left-color: var(--muted);
+}
+
+.channel-export-card-head {
+  display: flex;
+  align-items: flex-start;
+}
+
+.channel-export-identity {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.channel-export-identity strong,
+.channel-export-identity span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.channel-registration-chip {
+  flex: 0 0 auto;
+}
+
+.chip-registration-progress {
+  background: rgba(var(--warm-rgb), 0.13);
+  color: var(--warning);
+}
+
+.chip-registration-failed {
+  background: rgba(180, 35, 24, 0.11);
+  color: var(--danger);
+}
+
+.channel-registration-reason {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 7px;
+  border-top: 1px solid var(--line);
+  padding-top: 7px;
+}
+
+.channel-registration-reason strong {
+  min-width: 0;
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+
+.channel-registration-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 7px;
+  border-top: 1px solid var(--line);
+  padding-top: 7px;
+}
+
+.channel-registration-trail {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.channel-export-more {
+  padding: 5px 2px;
+  text-align: center;
+}
+
 .filterbar {
   display: flex;
   flex-wrap: wrap;

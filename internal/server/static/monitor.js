@@ -354,6 +354,7 @@
     }
     var connection = objectValue(selected.connection);
     var agents = objectValue(selected.agents);
+    var exports = arrayValue(agents.exports);
     var config = objectValue(selected.config);
     var head = create("div", "channel-detail-head");
     var title = create("div", "");
@@ -388,9 +389,10 @@
     dom.channelDetail.appendChild(detailBlock("Agents", [
       ["importCount", agents.importCount],
       ["exportCount", agents.exportCount],
+      ["registeredExports", registeredExportCount(exports) + " / " + exports.length],
     ]));
     dom.channelDetail.appendChild(agentListBlock("导入 agent", arrayValue(agents.imports), formatChannelImport));
-    dom.channelDetail.appendChild(agentListBlock("导出 agent", arrayValue(agents.exports), formatChannelExport));
+    dom.channelDetail.appendChild(exportAgentListBlock(exports));
   }
 
   function appendChannelStatusCell(row, status) {
@@ -456,27 +458,177 @@
     return block;
   }
 
+  function exportAgentListBlock(values) {
+    var block = create("section", "channel-detail-block channel-export-block");
+    var heading = create("div", "channel-export-heading");
+    var title = document.createElement("h4");
+    var summary = create("span", "channel-export-summary");
+    var list = create("div", "channel-export-list");
+    setText(title, "导出 agent / 注册状态 (" + values.length + ")");
+    setText(summary, formatRegistrationSummary(values));
+    heading.append(title, summary);
+
+    if (!values.length) {
+      var empty = create("div", "muted");
+      setText(empty, "无");
+      list.appendChild(empty);
+    } else {
+      values.slice(0, 80).forEach(function (rawItem) {
+        list.appendChild(exportAgentCard(rawItem));
+      });
+      if (values.length > 80) {
+        var more = create("div", "channel-export-more muted");
+        setText(more, "另有 " + (values.length - 80) + " 个导出 agent 未显示");
+        list.appendChild(more);
+      }
+    }
+    block.append(heading, list);
+    return block;
+  }
+
+  function exportAgentCard(rawItem) {
+    var item = objectValue(rawItem);
+    var cardStatus = objectValue(item.cardStatus);
+    var status = effectiveRegistrationStatus(item);
+    var card = create("article", "channel-export-card");
+    card.classList.add(registrationStatusClass(status));
+
+    var head = create("div", "channel-export-card-head");
+    var identity = create("div", "channel-export-identity");
+    var name = document.createElement("strong");
+    var key = create("span", "mono muted");
+    setText(name, firstValue(item.name, item.agentKey));
+    setText(key, item.agentKey);
+    identity.append(name, key);
+    head.appendChild(identity);
+    card.appendChild(head);
+
+    if (cardStatus.reason) {
+      var reason = create("div", "channel-registration-reason");
+      var reasonLabel = create("span", "muted");
+      var reasonValue = document.createElement("strong");
+      setText(reasonLabel, "原因");
+      setText(reasonValue, cardStatus.reason);
+      reason.append(reasonLabel, reasonValue);
+      card.appendChild(reason);
+    }
+
+    var result = create("div", "channel-registration-result");
+    var trailValues = [];
+    if (cardStatus.acceptedAt) {
+      trailValues.push("接受于 " + formatOptionalTime(cardStatus.acceptedAt));
+    } else if (cardStatus.updatedAt) {
+      trailValues.push("更新于 " + formatOptionalTime(cardStatus.updatedAt));
+    }
+    if (cardStatus.attempt) {
+      trailValues.push("尝试 " + cardStatus.attempt + " 次");
+    }
+    if (cardStatus.requestId) {
+      trailValues.push("requestId=" + cardStatus.requestId);
+    }
+    var trail = create("div", "channel-registration-trail mono muted");
+    var badge = create("span", "chip channel-registration-chip");
+    setText(trail, trailValues.join(" · "));
+    trail.hidden = trailValues.length === 0;
+    setText(badge, registrationStatusLabel(status));
+    badge.classList.add(registrationStatusChipClass(status));
+    result.append(trail, badge);
+    card.appendChild(result);
+    return card;
+  }
+
+  function effectiveRegistrationStatus(item) {
+    item = objectValue(item);
+    if (parseBooleanFlag(objectValue(item.allow).query) !== true) {
+      return "disabled";
+    }
+    return String(objectValue(item.cardStatus).status || "unknown").toLowerCase();
+  }
+
+  function registrationStatusLabel(status) {
+    return {
+      accepted: "accept",
+      pending: "等待注册",
+      retrying: "注册重试中",
+      rejected: "注册被拒绝",
+      error: "注册失败",
+      offline: "Channel 离线",
+      disabled: "未启用注册",
+      unknown: "状态未知",
+    }[status] || "未知：" + status;
+  }
+
+  function registrationStatusClass(status) {
+    if (status === "accepted") {
+      return "registration-accepted";
+    }
+    if (status === "pending" || status === "retrying") {
+      return "registration-progress";
+    }
+    if (status === "rejected" || status === "error") {
+      return "registration-failed";
+    }
+    return "registration-inactive";
+  }
+
+  function registrationStatusChipClass(status) {
+    if (status === "accepted") {
+      return "chip-active";
+    }
+    if (status === "pending" || status === "retrying") {
+      return "chip-registration-progress";
+    }
+    if (status === "rejected" || status === "error") {
+      return "chip-registration-failed";
+    }
+    return "chip-unavailable";
+  }
+
+  function registrationCounts(values) {
+    return values.reduce(function (counts, item) {
+      var status = effectiveRegistrationStatus(item);
+      counts.total += 1;
+      if (status === "accepted") {
+        counts.accepted += 1;
+      } else if (status === "pending" || status === "retrying") {
+        counts.progress += 1;
+      } else if (status === "rejected" || status === "error") {
+        counts.failed += 1;
+      } else {
+        counts.inactive += 1;
+      }
+      return counts;
+    }, { total: 0, accepted: 0, progress: 0, failed: 0, inactive: 0 });
+  }
+
+  function registeredExportCount(values) {
+    return registrationCounts(values).accepted;
+  }
+
+  function formatRegistrationSummary(values) {
+    if (!values.length) {
+      return "无导出配置";
+    }
+    var counts = registrationCounts(values);
+    var parts = ["已注册 " + counts.accepted + " / " + counts.total];
+    if (counts.progress) {
+      parts.push("处理中 " + counts.progress);
+    }
+    if (counts.failed) {
+      parts.push("异常 " + counts.failed);
+    }
+    if (counts.inactive) {
+      parts.push("未注册 " + counts.inactive);
+    }
+    return parts.join(" · ");
+  }
+
   function formatChannelImport(item) {
     item = objectValue(item);
     return [
       firstValue(item.name, item.agentKey),
       item.remoteAgentKey ? "remote=" + item.remoteAgentKey : "",
     ].filter(Boolean).join(" · ");
-  }
-
-  function formatChannelExport(item) {
-    item = objectValue(item);
-    return [
-      firstValue(item.name, item.agentKey),
-      item.externalAgentKey ? "external=" + item.externalAgentKey : "",
-      "allow=" + allowedOperations(objectValue(item.allow)).join(","),
-    ].filter(Boolean).join(" · ");
-  }
-
-  function allowedOperations(allow) {
-    return ["query", "submit", "steer", "interrupt", "fileTransfer"].filter(function (key) {
-      return parseBooleanFlag(allow[key]) === true;
-    });
   }
 
   function renderSessionSelect() {

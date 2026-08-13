@@ -133,6 +133,90 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	}
 }
 
+func TestReactEmptyToolAllowlistDoesNotExposePlatformOrMCPTools(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		toolConfig string
+	}{
+		{name: "omitted"},
+		{name: "explicit empty", toolConfig: "toolConfig:\n  tools: []\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+				var payload map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Fatalf("decode model request: %v", err)
+				}
+				if toolNames := providerRequestToolNames(payload["tools"]); len(toolNames) != 0 {
+					t.Fatalf("empty REACT allowlist exposed tools: %#v", toolNames)
+				}
+				writeProviderSSE(t, w,
+					`{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
+					`[DONE]`,
+				)
+			}, testFixtureOptions{
+				mcpTools: stubMCPToolCatalog{defs: []api.ToolDetailResponse{{
+					Key:  "remote_mcp_tool",
+					Name: "remote_mcp_tool",
+					Meta: map[string]any{"sourceType": "mcp", "serverKey": "remote"},
+				}}},
+				setupRuntime: func(_ string, cfg *config.Config) {
+					definition := "key: mock-agent\nname: Mock Agent\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\n" + tc.toolConfig
+					if err := os.WriteFile(filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []byte(definition), 0o644); err != nil {
+						t.Fatalf("write REACT agent: %v", err)
+					}
+				},
+			})
+
+			body := bytes.NewBufferString(`{"chatId":"chat-empty-tools","message":"hello","agentKey":"mock-agent"}`)
+			req := httptest.NewRequest(http.MethodPost, "/api/query", body)
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			fixture.server.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestReactExplicitToolAllowlistExposesOnlyConfiguredTool(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode model request: %v", err)
+		}
+		if toolNames := providerRequestToolNames(payload["tools"]); !reflect.DeepEqual(toolNames, []string{"web_fetch"}) {
+			t.Fatalf("explicit REACT allowlist = %#v, want web_fetch only", toolNames)
+		}
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{
+		mcpTools: stubMCPToolCatalog{defs: []api.ToolDetailResponse{{
+			Key:  "remote_mcp_tool",
+			Name: "remote_mcp_tool",
+			Meta: map[string]any{"sourceType": "mcp", "serverKey": "remote"},
+		}}},
+		setupRuntime: func(_ string, cfg *config.Config) {
+			definition := "key: mock-agent\nname: Mock Agent\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\ntoolConfig:\n  tools:\n    - web_fetch\n"
+			if err := os.WriteFile(filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []byte(definition), 0o644); err != nil {
+				t.Fatalf("write REACT agent: %v", err)
+			}
+		},
+	})
+
+	body := bytes.NewBufferString(`{"chatId":"chat-explicit-tools","message":"hello","agentKey":"mock-agent"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/query", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestQueryChatSourceCannotBeSpoofedByExternalPayload(t *testing.T) {
 	fixture := newTestFixture(t)
 	server := fixture.server

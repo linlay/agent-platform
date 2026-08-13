@@ -27,7 +27,6 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 			"provider tool call missing toolCallId",
 		)}}, nil
 	}
-
 	args := map[string]any{}
 	if strings.TrimSpace(toolCall.Function.Arguments) != "" {
 		if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
@@ -1369,7 +1368,7 @@ func (s *llmRunStream) lookupToolDefinition(toolName string) (api.ToolDetailResp
 	if s.execCtx != nil && s.execCtx.Session.AgentHasRuntimeSandbox {
 		effectiveSession.AgentHasRuntimeSandbox = true
 	}
-	for _, tool := range effectiveToolDefinitions(s.engine.tools.Definitions(), nil, effectiveSession) {
+	for _, tool := range effectiveToolDefinitions(s.engine.tools.Definitions(), []string{toolName}, effectiveSession) {
 		if strings.EqualFold(strings.TrimSpace(tool.Name), strings.TrimSpace(toolName)) {
 			return tool, true
 		}

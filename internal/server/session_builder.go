@@ -184,23 +184,11 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 
 	configuredToolNames := effectiveAgentTools(agentDef)
 	toolNames := buildSessionToolNames(configuredToolNames, options.AllowInvokeAgents)
-	if !options.AllowInvokeAgents {
-		switch {
-		case len(configuredToolNames) == 0 && s.deps.Tools != nil:
-			// An empty allowlist normally means "all default tools" to the LLM
-			// layer. Materialize that default set here so agent_invoke can be
-			// removed from child sessions instead of being reintroduced later.
-			toolNames = defaultSessionToolNamesWithoutInvoke(s.deps.Tools.Definitions())
-		case len(configuredToolNames) > 0 && len(toolNames) == 0:
-			// Preserve an explicit "no remaining tools" selection. A non-matching
-			// sentinel makes the downstream definition filter return an empty set.
-			toolNames = []string{"__no_child_tools__"}
-		}
-	}
 	toolNames = agentcoder.RuntimeToolNamesForAgent(agentDef.Mode, agentDef.ACPBridgeID, agentcoder.MainStage, toolNames)
 	if agentkbase.IsMode(agentDef.Mode) {
 		toolNames = agentkbase.DefaultToolNames()
 	}
+	log.Printf("[server][session-tools] agent=%s mode=%s count=%d tools=%v", agentDef.Key, agentDef.Mode, len(toolNames), toolNames)
 	capabilityPrompts := []string(nil)
 	if agentDef.KBaseConfig.Enabled && !strings.EqualFold(agentDef.Mode, catalog.AgentModeKBase) {
 		capabilityPrompts = append(capabilityPrompts, kbase.DefaultCapabilityPrompt)
@@ -421,30 +409,6 @@ func buildSessionToolNames(base []string, allowInvokeAgents bool) []string {
 			continue
 		}
 		if !allowInvokeAgents && key == strings.ToLower(contracts.InvokeAgentsToolName) {
-			continue
-		}
-		seen[key] = struct{}{}
-		tools = append(tools, name)
-	}
-	return tools
-}
-
-func defaultSessionToolNamesWithoutInvoke(defs []api.ToolDetailResponse) []string {
-	tools := make([]string, 0, len(defs))
-	seen := map[string]struct{}{}
-	for _, def := range defs {
-		if explicitOnly, _ := def.Meta["explicitOnly"].(bool); explicitOnly {
-			continue
-		}
-		name := strings.TrimSpace(def.Name)
-		if name == "" {
-			name = strings.TrimSpace(def.Key)
-		}
-		key := strings.ToLower(name)
-		if key == "" || key == strings.ToLower(contracts.InvokeAgentsToolName) {
-			continue
-		}
-		if _, exists := seen[key]; exists {
 			continue
 		}
 		seen[key] = struct{}{}

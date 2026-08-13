@@ -201,7 +201,7 @@ func TestMonitorStaticRoutes(t *testing.T) {
 			path:          "/monitor/monitor.js",
 			wantStatus:    http.StatusOK,
 			wantType:      "text/javascript",
-			wantBodyParts: []string{"requestJSON", "/api/monitor/channels", "sessionId", "connectionView", "channelModeFilter", "active", "copyPayloadText", "copyUserAgentText"},
+			wantBodyParts: []string{"requestJSON", "/api/monitor/channels", "sessionId", "connectionView", "channelModeFilter", "active", "copyPayloadText", "copyUserAgentText", "exportAgentListBlock", "registeredExports", "accept", "注册失败", "requestId"},
 			wantAbsent:    []string{"Authorization", "access_token", "agent-platform.monitor.accessToken", "history.replaceState", "sessionStorage"},
 		},
 		{

@@ -8,18 +8,19 @@ import (
 	"agent-platform/internal/contracts"
 )
 
-func TestFilterToolDefinitionsSkipsExplicitOnlyWhenAllowedToolsEmpty(t *testing.T) {
+func TestFilterToolDefinitionsRequiresExplicitAllowlist(t *testing.T) {
 	defs := []api.ToolDetailResponse{
 		{Name: "datetime"},
 		{Name: "vision_recognize", Meta: map[string]any{"explicitOnly": true}},
 	}
 
-	filtered := filterToolDefinitions(defs, nil)
-	if len(filtered) != 1 || filtered[0].Name != "datetime" {
-		t.Fatalf("expected only non-explicit tool, got %#v", filtered)
+	for _, allowed := range [][]string{nil, {}} {
+		if filtered := filterToolDefinitions(defs, allowed); len(filtered) != 0 {
+			t.Fatalf("empty allowlist must expose no tools, got %#v", filtered)
+		}
 	}
 
-	filtered = filterToolDefinitions(defs, []string{"vision_recognize"})
+	filtered := filterToolDefinitions(defs, []string{"vision_recognize"})
 	if len(filtered) != 1 || filtered[0].Name != "vision_recognize" {
 		t.Fatalf("expected explicit tool when allowed by name, got %#v", filtered)
 	}
@@ -31,8 +32,8 @@ func TestFilterToolDefinitionsRequiresExplicitPlatformConfigGrant(t *testing.T) 
 		{Name: "platform_config", Meta: map[string]any{"explicitOnly": true}},
 	}
 
-	if filtered := filterToolDefinitions(defs, nil); len(filtered) != 1 || filtered[0].Name != "datetime" {
-		t.Fatalf("platform_config must be hidden without an explicit tool list, got %#v", filtered)
+	if filtered := filterToolDefinitions(defs, nil); len(filtered) != 0 {
+		t.Fatalf("empty allowlist must hide every tool, got %#v", filtered)
 	}
 	if filtered := filterToolDefinitions(defs, []string{"datetime"}); len(filtered) != 1 || filtered[0].Name != "datetime" {
 		t.Fatalf("platform_config must be hidden from unrelated explicit grants, got %#v", filtered)
@@ -83,12 +84,42 @@ func TestEffectiveToolDefinitionsUseSandboxBashSchema(t *testing.T) {
 		t.Fatalf("expected sandbox bash parameters to include description, got %#v", sandboxDefs[0].Parameters)
 	}
 
-	allSandboxDefs := effectiveToolDefinitions(defs, nil, contracts.QuerySession{
+	emptySandboxDefs := effectiveToolDefinitions(defs, nil, contracts.QuerySession{
 		AgentHasRuntimeSandbox: true,
 		WorkspaceRoot:          "/workspace",
 	})
-	if len(allSandboxDefs) != 1 || allSandboxDefs[0].Name != "bash" {
-		t.Fatalf("expected internal bash_sandbox to be hidden from sandbox tool list, got %#v", allSandboxDefs)
+	if len(emptySandboxDefs) != 0 {
+		t.Fatalf("empty sandbox allowlist must expose no tools, got %#v", emptySandboxDefs)
+	}
+}
+
+func TestResolveAllowedToolNamesDistinguishesInheritedAndExplicitEmpty(t *testing.T) {
+	session := contracts.QuerySession{
+		Mode:      "CODER",
+		ToolNames: []string{"bash"},
+	}
+
+	inherited := resolveAllowedToolNames(session, "coder", nil)
+	for _, name := range []string{"bash", "plan_add_tasks", "plan_get_tasks", "plan_update_task"} {
+		if !containsToolName(inherited, name) {
+			t.Fatalf("inherited CODER tools missing %q: %#v", name, inherited)
+		}
+	}
+	if explicitEmpty := resolveAllowedToolNames(session, "coder", []string{}); len(explicitEmpty) != 0 {
+		t.Fatalf("explicit empty stage allowlist must disable all tools, got %#v", explicitEmpty)
+	}
+}
+
+func TestExplicitEmptyStageAllowlistRejectsCachedToolSpecs(t *testing.T) {
+	cached := toOpenAIToolSpecs([]api.ToolDetailResponse{{Name: "datetime"}})
+	if cachedToolsCompatibleWithStageOverride([]string{}, cached) {
+		t.Fatal("cached tool specs must not override an explicit empty stage allowlist")
+	}
+	if !cachedToolsCompatibleWithStageOverride(nil, cached) {
+		t.Fatal("nil stage allowlist should inherit the prepared session cache")
+	}
+	if !cachedToolsCompatibleWithStageOverride([]string{"datetime"}, cached) {
+		t.Fatal("non-empty stage allowlist retains existing mode-specific cache behavior")
 	}
 }
 
@@ -172,7 +203,8 @@ func TestEffectiveToolDefinitionsRequireExplicitRootsWithoutWorkspace(t *testing
 		},
 	}
 
-	workspaceLess := effectiveToolDefinitions(defs, nil, contracts.QuerySession{
+	allowed := []string{"bash", "file_glob", "file_grep", "file_read", "artifact_publish", "vision_recognize"}
+	workspaceLess := effectiveToolDefinitions(defs, allowed, contracts.QuerySession{
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{ChatDir: "/runtime/chats/chat-1"},
 		},
@@ -224,7 +256,7 @@ func TestEffectiveToolDefinitionsRequireExplicitRootsWithoutWorkspace(t *testing
 	if got := nestedSchemaDescription(defs[4].Parameters, "properties", "artifacts", "items", "properties", "path"); got != "path" {
 		t.Fatalf("nested source artifact schema was mutated: %q", got)
 	}
-	withWorkspace := effectiveToolDefinitions(defs, nil, contracts.QuerySession{
+	withWorkspace := effectiveToolDefinitions(defs, allowed, contracts.QuerySession{
 		WorkspaceRoot: "/workspace",
 		RuntimeContext: contracts.RuntimeRequestContext{
 			LocalPaths: contracts.LocalPaths{WorkspaceDir: "/workspace", ChatDir: "/runtime/chats/chat-2"},
@@ -236,6 +268,15 @@ func TestEffectiveToolDefinitionsRequireExplicitRootsWithoutWorkspace(t *testing
 	if schemaRequiredSet(toolDefinitionByName(t, withWorkspace, "file_glob").Parameters)["path"] {
 		t.Fatalf("Workspace session unexpectedly requires file_glob.path: %#v", withWorkspace)
 	}
+}
+
+func containsToolName(tools []string, want string) bool {
+	for _, tool := range tools {
+		if tool == want {
+			return true
+		}
+	}
+	return false
 }
 
 func nestedSchemaDescription(schema map[string]any, path ...string) string {

@@ -86,11 +86,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	protocolConfig := resolveProtocolRuntimeConfig(provider, model)
 	stageSettings := stageSettingsForSession(session, options.Stage)
 	budgetStage := budgetStageForName(session, options.Stage)
-	allowedTools := session.ToolNames
-	if options.ToolNames != nil {
-		allowedTools = options.ToolNames
-	}
-	allowedTools = coderRuntimeToolNamesForStage(session, options.Stage, allowedTools)
+	allowedTools := resolveAllowedToolNames(session, options.Stage, options.ToolNames)
 	allToolDefs := mergeToolDefinitions(e.tools.Definitions(), session.ModeToolDefinitions)
 	effectiveDefs := effectiveToolDefinitions(allToolDefs, allowedTools, session)
 	toolSpecs := toOpenAIToolSpecs(effectiveDefs)
@@ -129,6 +125,9 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	cacheKey := SystemInitCacheKey(session.Mode, options.Stage)
 	cachedSystem, cachedTools, cacheOK := resolveCachedSystemInit(session, cacheKey)
 	if cacheOK && !cachedSystemInitHasPlanTaskContext(cachedSystem, session.PlanTaskContext) {
+		cacheOK = false
+	}
+	if cacheOK && !cachedToolsCompatibleWithStageOverride(options.ToolNames, cachedTools) {
 		cacheOK = false
 	}
 	useCachedSystemInit := cacheOK && !(len(options.Messages) > 0 && options.PreserveProvidedSystemPrompt)
@@ -359,14 +358,7 @@ func planExecuteStageSettingsForName(settings PlanExecuteSettings, stage string)
 
 func filterToolDefinitions(defs []api.ToolDetailResponse, allowed []string) []api.ToolDetailResponse {
 	if len(allowed) == 0 {
-		filtered := make([]api.ToolDetailResponse, 0, len(defs))
-		for _, def := range defs {
-			if explicitOnly, _ := def.Meta["explicitOnly"].(bool); explicitOnly {
-				continue
-			}
-			filtered = append(filtered, def)
-		}
-		return filtered
+		return nil
 	}
 	allowedSet := map[string]struct{}{}
 	for _, name := range allowed {
@@ -385,6 +377,20 @@ func filterToolDefinitions(defs []api.ToolDetailResponse, allowed []string) []ap
 		}
 	}
 	return filtered
+}
+
+func resolveAllowedToolNames(session QuerySession, stage string, override []string) []string {
+	if override != nil {
+		if len(override) == 0 {
+			return nil
+		}
+		return coderRuntimeToolNamesForStage(session, stage, override)
+	}
+	return coderRuntimeToolNamesForStage(session, stage, session.ToolNames)
+}
+
+func cachedToolsCompatibleWithStageOverride(override []string, cached []openAIToolSpec) bool {
+	return override == nil || len(override) > 0 || len(cached) == 0
 }
 
 func effectiveToolDefinitions(defs []api.ToolDetailResponse, allowed []string, session QuerySession) []api.ToolDetailResponse {

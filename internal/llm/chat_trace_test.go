@@ -137,7 +137,9 @@ func TestLLMChatTraceWritesToolLoopFiles(t *testing.T) {
 	}
 	engine := newTraceTestEngine(t, recordDir, server.URL, executor)
 	req := api.QueryRequest{ChatID: "chat_1", Message: "Use tool"}
-	stream, err := engine.newRunStream(context.Background(), req, traceTestSessionWithSystemCache(t, engine, req), true)
+	session := traceTestSession()
+	session.ToolNames = []string{"datetime"}
+	stream, err := engine.newRunStream(context.Background(), req, traceTestSessionWithSystemCache(t, engine, req, session), true)
 	if err != nil {
 		t.Fatalf("newRunStream: %v", err)
 	}
