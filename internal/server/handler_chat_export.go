@@ -24,7 +24,23 @@ var (
 	errChatSystemPromptNotFound = errors.New("system prompt not found")
 )
 
-const chatTranscriptExportFormat = "transcript-json"
+const chatSafeJSONLExportFormat = "raw"
+
+type chatTranscriptJSONLMetadata struct {
+	Type          string `json:"type"`
+	ExportVersion int    `json:"exportVersion"`
+	Kind          string `json:"kind"`
+	Title         string `json:"title"`
+	CreatedAt     int64  `json:"createdAt"`
+	UpdatedAt     int64  `json:"updatedAt"`
+}
+
+type chatTranscriptJSONLTurn struct {
+	Type        string               `json:"type"`
+	StartedAt   int64                `json:"startedAt"`
+	CompletedAt int64                `json:"completedAt,omitempty"`
+	Items       []chatTranscriptItem `json:"items"`
+}
 
 type chatTranscriptExport struct {
 	ExportVersion int                  `json:"exportVersion"`
@@ -49,7 +65,7 @@ type chatTranscriptItem struct {
 }
 
 func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
-	format, includeReasoning, err := parseChatExportOptions(r)
+	format, err := parseChatExportFormat(r)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
@@ -94,8 +110,8 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if format == chatTranscriptExportFormat {
-		writeJSON(w, http.StatusOK, api.Success(buildChatTranscriptExport(summary, detail.Events, includeReasoning)))
+	if format == chatSafeJSONLExportFormat {
+		writeChatTranscriptJSONL(w, chatID, buildChatTranscriptExport(summary, detail.Events))
 		return
 	}
 
@@ -107,23 +123,42 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(markdown))
 }
 
-func parseChatExportOptions(r *http.Request) (string, bool, error) {
+func parseChatExportFormat(r *http.Request) (string, error) {
 	format := strings.TrimSpace(r.URL.Query().Get("format"))
-	if format != "" && format != chatTranscriptExportFormat {
-		return "", false, fmt.Errorf("unsupported export format %q", format)
+	if format != "" && format != chatSafeJSONLExportFormat {
+		return "", fmt.Errorf("unsupported export format %q", format)
 	}
-	includeReasoningValue := strings.TrimSpace(r.URL.Query().Get("includeReasoning"))
-	switch includeReasoningValue {
-	case "", "false":
-		return format, false, nil
-	case "true":
-		return format, true, nil
-	default:
-		return "", false, errors.New("includeReasoning must be true or false")
+	return format, nil
+}
+
+func writeChatTranscriptJSONL(w http.ResponseWriter, chatID string, transcript chatTranscriptExport) {
+	w.Header().Set("Content-Type", "application/x-ndjson; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, safeTranscriptJSONLFilename(transcript.Title, chatID)))
+	w.WriteHeader(http.StatusOK)
+	encoder := json.NewEncoder(w)
+	if err := encoder.Encode(chatTranscriptJSONLMetadata{
+		Type:          "metadata",
+		ExportVersion: transcript.ExportVersion,
+		Kind:          transcript.Kind,
+		Title:         transcript.Title,
+		CreatedAt:     transcript.CreatedAt,
+		UpdatedAt:     transcript.UpdatedAt,
+	}); err != nil {
+		return
+	}
+	for _, turn := range transcript.Turns {
+		if err := encoder.Encode(chatTranscriptJSONLTurn{
+			Type:        "turn",
+			StartedAt:   turn.StartedAt,
+			CompletedAt: turn.CompletedAt,
+			Items:       turn.Items,
+		}); err != nil {
+			return
+		}
 	}
 }
 
-func buildChatTranscriptExport(summary *chat.Summary, events []stream.EventData, includeReasoning bool) chatTranscriptExport {
+func buildChatTranscriptExport(summary *chat.Summary, events []stream.EventData) chatTranscriptExport {
 	title := strings.TrimSpace(summary.ChatName)
 	if title == "" {
 		title = "Chat"
@@ -188,9 +223,6 @@ func buildChatTranscriptExport(summary *chat.Summary, events []stream.EventData,
 		case "request.query":
 			continue
 		case "reasoning.snapshot":
-			if !includeReasoning {
-				continue
-			}
 			item.Kind = "assistant-reasoning"
 			item.Content = strings.TrimSpace(event.String("text"))
 			item.Label = strings.TrimSpace(event.String("reasoningLabel"))
@@ -591,6 +623,14 @@ func markdownLine(text string) string {
 }
 
 func safeExportFilename(chatName string, chatID string) string {
+	return safeExportFilenameWithExtension(chatName, chatID, ".md")
+}
+
+func safeTranscriptJSONLFilename(chatName string, chatID string) string {
+	return safeExportFilenameWithExtension(chatName, chatID, ".jsonl")
+}
+
+func safeExportFilenameWithExtension(chatName string, chatID string, extension string) string {
 	base := strings.TrimSpace(chatName)
 	if base == "" {
 		base = strings.TrimSpace(chatID)
@@ -603,7 +643,7 @@ func safeExportFilename(chatName string, chatID string) string {
 	if base == "" {
 		base = "chat"
 	}
-	return base + ".md"
+	return base + extension
 }
 
 func safeJSONLFilename(chatID string) string {
