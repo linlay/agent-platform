@@ -703,3 +703,198 @@ func TestRenderChatMarkdownSkipsAutomationQuery(t *testing.T) {
 		t.Fatalf("expected assistant content to remain, got:\n%s", markdown)
 	}
 }
+
+func TestHandleChatExportReturnsVersionedTranscriptJSONL(t *testing.T) {
+	fixture := newTestFixture(t)
+	chatID := "chat-transcript-export"
+	seedSearchableChat(t, fixture.chats, chatID)
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat/export?format=raw&chatId="+chatID, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/x-ndjson; charset=utf-8" {
+		t.Fatalf("content-type=%q", got)
+	}
+	if got := rec.Header().Get("Content-Disposition"); got != `attachment; filename="rollback plan.jsonl"` {
+		t.Fatalf("content-disposition=%q", got)
+	}
+	lines := strings.Split(strings.TrimSpace(rec.Body.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected metadata and one turn, got %d lines: %s", len(lines), rec.Body.String())
+	}
+	var metadata chatTranscriptJSONLMetadata
+	if err := json.Unmarshal([]byte(lines[0]), &metadata); err != nil {
+		t.Fatalf("decode metadata: %v", err)
+	}
+	if metadata.Type != "metadata" || metadata.ExportVersion != 1 || metadata.Kind != "chat-transcript" || metadata.Title != "rollback plan" {
+		t.Fatalf("unexpected metadata: %#v", metadata)
+	}
+	var turn chatTranscriptJSONLTurn
+	if err := json.Unmarshal([]byte(lines[1]), &turn); err != nil {
+		t.Fatalf("decode turn: %v", err)
+	}
+	if turn.Type != "turn" || len(turn.Items) != 1 || turn.Items[0].Kind != "user-message" || turn.Items[0].Content != "rollback plan" {
+		t.Fatalf("unexpected turn: %#v", turn)
+	}
+	body := rec.Body.String()
+	for _, forbidden := range []string{"mock-agent", "agentKey", "chatId", "runId", "schemaVersion", "durationMs"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("transcript leaked %q: %s", forbidden, body)
+		}
+	}
+}
+
+func TestWriteChatTranscriptJSONLPreservesTurnOrder(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeChatTranscriptJSONL(rec, "chat-1", chatTranscriptExport{
+		ExportVersion: 1,
+		Kind:          "chat-transcript",
+		Title:         `../Ordered: turns`,
+		CreatedAt:     testEpochMillis,
+		UpdatedAt:     testEpochMillis + 500,
+		Turns: []chatTranscriptTurn{
+			{
+				StartedAt: testEpochMillis + 100,
+				Items: []chatTranscriptItem{{
+					Kind:      "user-message",
+					Content:   "first",
+					CreatedAt: testEpochMillis + 100,
+				}},
+			},
+			{
+				StartedAt: testEpochMillis + 200,
+				Items: []chatTranscriptItem{{
+					Kind:      "assistant-message",
+					Content:   "second",
+					CreatedAt: testEpochMillis + 300,
+				}},
+			},
+		},
+	})
+	if got := rec.Header().Get("Content-Disposition"); got != `attachment; filename="Ordered_ turns.jsonl"` {
+		t.Fatalf("content-disposition=%q", got)
+	}
+
+	lines := strings.Split(strings.TrimSpace(rec.Body.String()), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected metadata and two turns, got %d lines: %s", len(lines), rec.Body.String())
+	}
+	for index, want := range []string{"first", "second"} {
+		var turn chatTranscriptJSONLTurn
+		if err := json.Unmarshal([]byte(lines[index+1]), &turn); err != nil {
+			t.Fatalf("decode turn %d: %v", index, err)
+		}
+		if turn.Type != "turn" || len(turn.Items) != 1 || turn.Items[0].Content != want {
+			t.Fatalf("turn %d out of order: %#v", index, turn)
+		}
+	}
+}
+
+func TestBuildChatTranscriptExportIncludesOnlyVisibleRootConversation(t *testing.T) {
+	transcript := buildChatTranscriptExport(&chat.Summary{
+		ChatName:  "Transcript",
+		CreatedAt: testEpochMillis,
+		UpdatedAt: testEpochMillis + 300,
+	}, []stream.EventData{
+		{Type: "request.query", Timestamp: testEpochMillis + 100, Payload: map[string]any{"role": "automation", "message": "private automation", "runId": "run-automation"}},
+		{Type: "content.snapshot", Timestamp: testEpochMillis + 150, Payload: map[string]any{"text": "private automation result", "runId": "run-automation"}},
+		{Type: "request.query", Timestamp: testEpochMillis + 200, Payload: map[string]any{"role": "user", "message": "public question", "runId": "run-private"}},
+		{Type: "reasoning.snapshot", Timestamp: testEpochMillis + 250, Payload: map[string]any{"text": "check assumptions", "reasoningLabel": "分析问题", "runId": "run-private"}},
+		{Type: "reasoning.snapshot", Timestamp: testEpochMillis + 275, Payload: map[string]any{"text": "orphan reasoning"}},
+		{Type: "content.snapshot", Timestamp: testEpochMillis + 300, Payload: map[string]any{"text": "public answer", "runId": "run-private"}},
+		{Type: "request.query", Timestamp: testEpochMillis + 325, Payload: map[string]any{"role": "user", "message": "private child", "runId": "run-private", "taskId": "task-private"}},
+		{Type: "reasoning.snapshot", Timestamp: testEpochMillis + 350, Payload: map[string]any{"text": "visible delegated reasoning", "runId": "run-private", "taskId": "task-private"}},
+		{Type: "content.snapshot", Timestamp: testEpochMillis + 375, Payload: map[string]any{"text": "visible delegated answer", "runId": "run-private", "taskId": "task-private"}},
+		{Type: "run.complete", Timestamp: testEpochMillis + 450, Payload: map[string]any{"runId": "run-private"}},
+	})
+	if len(transcript.Turns) != 1 {
+		t.Fatalf("unexpected turns: %#v", transcript.Turns)
+	}
+	turn := transcript.Turns[0]
+	if turn.StartedAt != testEpochMillis+200 || turn.CompletedAt != testEpochMillis+450 || len(turn.Items) != 5 ||
+		turn.Items[0].Kind != "user-message" ||
+		turn.Items[1].Kind != "assistant-reasoning" || turn.Items[1].Content != "check assumptions" || turn.Items[1].Label != "分析问题" ||
+		turn.Items[2].Kind != "assistant-message" ||
+		turn.Items[3].Kind != "assistant-reasoning" || turn.Items[3].Content != "visible delegated reasoning" ||
+		turn.Items[4].Kind != "assistant-message" || turn.Items[4].Content != "visible delegated answer" {
+		t.Fatalf("unexpected transcript turn: %#v", turn)
+	}
+	encoded, err := json.Marshal(transcript)
+	if err != nil {
+		t.Fatalf("marshal transcript: %v", err)
+	}
+	for _, forbidden := range []string{"private automation", "orphan reasoning", "private child", "run-private", "runId", "durationMs"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("transcript leaked %q: %s", forbidden, encoded)
+		}
+	}
+}
+
+func TestBuildChatTranscriptExportAlwaysIncludesReasoning(t *testing.T) {
+	transcript := buildChatTranscriptExport(&chat.Summary{ChatName: "Transcript", CreatedAt: testEpochMillis, UpdatedAt: testEpochMillis + 300}, []stream.EventData{
+		{Type: "request.query", Timestamp: testEpochMillis + 100, Payload: map[string]any{"role": "user", "message": "question", "runId": "run-1"}},
+		{Type: "reasoning.snapshot", Timestamp: testEpochMillis + 200, Payload: map[string]any{"text": "reasoning", "runId": "run-1"}},
+		{Type: "content.snapshot", Timestamp: testEpochMillis + 300, Payload: map[string]any{"text": "answer", "runId": "run-1"}},
+	})
+	if len(transcript.Turns) != 1 || len(transcript.Turns[0].Items) != 3 {
+		t.Fatalf("unexpected transcript: %#v", transcript)
+	}
+	if transcript.Turns[0].Items[1].Kind != "assistant-reasoning" || transcript.Turns[0].Items[1].Content != "reasoning" {
+		t.Fatalf("reasoning should be included: %#v", transcript)
+	}
+}
+
+func TestBuildChatTranscriptExportOmitsUnreliableCompletionTime(t *testing.T) {
+	transcript := buildChatTranscriptExport(&chat.Summary{ChatName: "Transcript", CreatedAt: testEpochMillis, UpdatedAt: testEpochMillis + 300}, []stream.EventData{
+		{Type: "request.query", Timestamp: testEpochMillis + 100, Payload: map[string]any{"role": "user", "message": "question", "runId": "run-1"}},
+		{Type: "content.snapshot", Timestamp: testEpochMillis + 200, Payload: map[string]any{"text": "partial answer", "runId": "run-1"}},
+		{Type: "run.complete", Timestamp: testEpochMillis + 50, Payload: map[string]any{"runId": "run-1"}},
+	})
+	if len(transcript.Turns) != 1 || transcript.Turns[0].CompletedAt != 0 {
+		t.Fatalf("unreliable completion should be omitted: %#v", transcript)
+	}
+	encoded, err := json.Marshal(transcript)
+	if err != nil {
+		t.Fatalf("marshal transcript: %v", err)
+	}
+	if strings.Contains(string(encoded), "completedAt") {
+		t.Fatalf("unreliable completion leaked into transcript: %s", encoded)
+	}
+}
+
+func TestHandleChatExportRejectsUnknownFormat(t *testing.T) {
+	fixture := newTestFixture(t)
+	path := "/api/chat/export?chatId=chat-1&format=unknown"
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "application/json" {
+		t.Fatalf("content-type=%q", got)
+	}
+	var response api.ApiResponse[any]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("response=%#v", response)
+	}
+}
+
+func TestHandleChatExportDefaultRemainsMarkdown(t *testing.T) {
+	fixture := newTestFixture(t)
+	chatID := "chat-download-export"
+	seedSearchableChat(t, fixture.chats, chatID)
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat/export?chatId="+chatID, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "text/markdown; charset=utf-8" {
+		t.Fatalf("content-type=%q", got)
+	}
+}

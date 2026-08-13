@@ -167,8 +167,8 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 | POST | `/api/chat/rename` | body: `chatId`、`chatName` | 重命名结果 |
 | POST | `/api/chat/derive` | body: `sourceChatId`、`sourceRunId`、`chatId`、`chatName` | 从已完成 run 派生新 chat |
 | POST | `/api/chat/archive` | body: `chatId`、`reason` | 归档结果 |
-| GET | `/api/chat/export` | query: `chatId` | Markdown 导出 |
-| GET | `/api/chat/jsonl` | query: `chatId` | 原始 chat JSONL 文本；active 不存在时回退 archive |
+| GET | `/api/chat/export` | query: `chatId`，可选 `format=raw` | 默认 Markdown 导出；`raw` 返回消费者无关的安全 JSONL Transcript，首行为 `metadata`，之后每个可见 turn 一行，并包含关联的 reasoning |
+| GET | `/api/chat/jsonl` | query: `chatId` | 原始持久化 chat JSONL 文本；active 不存在时回退 archive，不得作为公开分享输入 |
 | GET | `/api/chat/system-prompt` | query: `chatId`、`runId`、`agentKey` | 获取该 agent 在历史 run 中首次使用的持久化 system message；服务端从 run 的 system-init / step `systemRef` 解析快照 |
 | GET | `/api/chat/llm-trace` | query: `file=<chatId>/.llm-records/<runId>_NNN.json` | 原始 LLM chat trace JSON 文本 |
 
@@ -409,7 +409,14 @@ curl -sS -X POST http://127.0.0.1:11949/api/query \
 
 `params` 是业务透传对象，平台不读取、不写入、不约定内部 key。
 
-`role` 可选值为 `user`、`assistant`、`automation`、`system`，普通 query 缺省为 `user`。`automation` / `system` 的 `request.query` 会保留在 trace 中，但不会作为可见用户消息参与搜索或 Markdown 导出。`role` 只影响本次 query 展示语义，不决定 chat 摘要的 `source`；外部请求不能通过 `role=automation` 或传入 `source` 伪造 automation 创建来源。普通 HTTP `/api/query` 传入 `sourceUser` 也不会改变 source；该字段只在受信 channel/gateway 上下文中作为远端用户提示使用。
+`role` 可选值为 `user`、`assistant`、`automation`、`system`，普通 query 缺省为 `user`。`automation` / `system` 的 `request.query` 会保留在 trace 中，但不会作为可见用户消息参与搜索、Markdown 或安全 Transcript 导出。`format=raw` 返回消费者无关的 JSONL：第一行是 `type=metadata` 的 `exportVersion=1` 元数据，之后每个 `type=turn` 记录只由能够与根 run 生命周期可靠关联的可见根 query 建立，关联的 `reasoning.snapshot` 与 `content.snapshot` 按事件顺序投影为 `items`；无法关联到可见根 query 的事件、省略的子任务 query、工具调用和系统提示均不导出。可靠 `run.complete` 只形成可选 `completedAt`，导出中不包含 `chatId`、`runId`、`agentKey`、reasoningId 或计算后的 duration。成功响应使用 `Content-Type: application/x-ndjson; charset=utf-8` 和安全标题的 `.jsonl` 附件名，不使用 `ApiResponse` 包裹；错误响应仍为 JSON `ApiResponse`。未知 format 返回 400。`/api/chat/jsonl` 返回原始持久化数据，与安全导出不是同一契约。`role` 只影响本次 query 展示语义，不决定 chat 摘要的 `source`；外部请求不能通过 `role=automation` 或传入 `source` 伪造 automation 创建来源。普通 HTTP `/api/query` 传入 `sourceUser` 也不会改变 source；该字段只在受信 channel/gateway 上下文中作为远端用户提示使用。
+
+安全 JSONL 示例：
+
+```jsonl
+{"type":"metadata","exportVersion":1,"kind":"chat-transcript","title":"示例","createdAt":1700000000000,"updatedAt":1700000001000}
+{"type":"turn","startedAt":1700000000000,"completedAt":1700000001000,"items":[{"kind":"user-message","content":"你好","createdAt":1700000000000},{"kind":"assistant-reasoning","content":"分析问题","label":"正在思考","createdAt":1700000000500},{"kind":"assistant-message","content":"你好","createdAt":1700000001000}]}
+```
 
 `model` 可做本次 run 的模型覆盖：
 

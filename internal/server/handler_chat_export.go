@@ -24,7 +24,52 @@ var (
 	errChatSystemPromptNotFound = errors.New("system prompt not found")
 )
 
+const chatSafeJSONLExportFormat = "raw"
+
+type chatTranscriptJSONLMetadata struct {
+	Type          string `json:"type"`
+	ExportVersion int    `json:"exportVersion"`
+	Kind          string `json:"kind"`
+	Title         string `json:"title"`
+	CreatedAt     int64  `json:"createdAt"`
+	UpdatedAt     int64  `json:"updatedAt"`
+}
+
+type chatTranscriptJSONLTurn struct {
+	Type        string               `json:"type"`
+	StartedAt   int64                `json:"startedAt"`
+	CompletedAt int64                `json:"completedAt,omitempty"`
+	Items       []chatTranscriptItem `json:"items"`
+}
+
+type chatTranscriptExport struct {
+	ExportVersion int                  `json:"exportVersion"`
+	Kind          string               `json:"kind"`
+	Title         string               `json:"title"`
+	CreatedAt     int64                `json:"createdAt"`
+	UpdatedAt     int64                `json:"updatedAt"`
+	Turns         []chatTranscriptTurn `json:"turns"`
+}
+
+type chatTranscriptTurn struct {
+	StartedAt   int64                `json:"startedAt"`
+	CompletedAt int64                `json:"completedAt,omitempty"`
+	Items       []chatTranscriptItem `json:"items"`
+}
+
+type chatTranscriptItem struct {
+	Kind      string `json:"kind"`
+	Content   string `json:"content"`
+	Label     string `json:"label,omitempty"`
+	CreatedAt int64  `json:"createdAt"`
+}
+
 func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
+	format, err := parseChatExportFormat(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
+		return
+	}
 	chatID := strings.TrimSpace(r.URL.Query().Get("chatId"))
 	if chatID == "" {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "chatId is required"))
@@ -65,12 +110,153 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if format == chatSafeJSONLExportFormat {
+		writeChatTranscriptJSONL(w, chatID, buildChatTranscriptExport(summary, detail.Events))
+		return
+	}
+
 	markdown := renderChatMarkdown(summary.ChatName, summary.AgentKey, detail.Events)
 	filename := safeExportFilename(summary.ChatName, chatID)
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, filename))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(markdown))
+}
+
+func parseChatExportFormat(r *http.Request) (string, error) {
+	format := strings.TrimSpace(r.URL.Query().Get("format"))
+	if format != "" && format != chatSafeJSONLExportFormat {
+		return "", fmt.Errorf("unsupported export format %q", format)
+	}
+	return format, nil
+}
+
+func writeChatTranscriptJSONL(w http.ResponseWriter, chatID string, transcript chatTranscriptExport) {
+	w.Header().Set("Content-Type", "application/x-ndjson; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, safeTranscriptJSONLFilename(transcript.Title, chatID)))
+	w.WriteHeader(http.StatusOK)
+	encoder := json.NewEncoder(w)
+	if err := encoder.Encode(chatTranscriptJSONLMetadata{
+		Type:          "metadata",
+		ExportVersion: transcript.ExportVersion,
+		Kind:          transcript.Kind,
+		Title:         transcript.Title,
+		CreatedAt:     transcript.CreatedAt,
+		UpdatedAt:     transcript.UpdatedAt,
+	}); err != nil {
+		return
+	}
+	for _, turn := range transcript.Turns {
+		if err := encoder.Encode(chatTranscriptJSONLTurn{
+			Type:        "turn",
+			StartedAt:   turn.StartedAt,
+			CompletedAt: turn.CompletedAt,
+			Items:       turn.Items,
+		}); err != nil {
+			return
+		}
+	}
+}
+
+func buildChatTranscriptExport(summary *chat.Summary, events []stream.EventData) chatTranscriptExport {
+	title := strings.TrimSpace(summary.ChatName)
+	if title == "" {
+		title = "Chat"
+	}
+	turnIndexByRunID := make(map[string]int)
+	turns := make([]chatTranscriptTurn, 0)
+	boundTurns := make([]bool, 0)
+	pendingTurnIndex := -1
+	for _, event := range events {
+		switch event.Type {
+		case "request.query":
+			if strings.TrimSpace(event.String("taskId")) != "" || !api.QueryRoleVisible(event.String("role")) {
+				continue
+			}
+			content := strings.TrimSpace(event.String("message"))
+			if content == "" {
+				continue
+			}
+			runID := strings.TrimSpace(event.String("runId"))
+			if runID != "" {
+				if _, exists := turnIndexByRunID[runID]; exists {
+					continue
+				}
+			}
+			turnIndex := len(turns)
+			turns = append(turns, chatTranscriptTurn{
+				StartedAt: event.Timestamp,
+				Items: []chatTranscriptItem{{
+					Kind:      "user-message",
+					Content:   content,
+					CreatedAt: event.Timestamp,
+				}},
+			})
+			boundTurns = append(boundTurns, runID != "")
+			if runID != "" {
+				turnIndexByRunID[runID] = turnIndex
+				pendingTurnIndex = -1
+			} else {
+				pendingTurnIndex = turnIndex
+			}
+		case "run.start":
+			runID := strings.TrimSpace(event.String("runId"))
+			if runID == "" || pendingTurnIndex < 0 {
+				continue
+			}
+			if _, exists := turnIndexByRunID[runID]; !exists {
+				turnIndexByRunID[runID] = pendingTurnIndex
+				boundTurns[pendingTurnIndex] = true
+			}
+			pendingTurnIndex = -1
+		}
+	}
+	for _, event := range events {
+		runID := strings.TrimSpace(event.String("runId"))
+		turnIndex, ok := turnIndexByRunID[runID]
+		if !ok {
+			continue
+		}
+		turn := &turns[turnIndex]
+		var item chatTranscriptItem
+		switch event.Type {
+		case "request.query":
+			continue
+		case "reasoning.snapshot":
+			item.Kind = "assistant-reasoning"
+			item.Content = strings.TrimSpace(event.String("text"))
+			item.Label = strings.TrimSpace(event.String("reasoningLabel"))
+		case "content.snapshot":
+			item.Kind = "assistant-message"
+			item.Content = strings.TrimSpace(event.String("text"))
+		case "run.complete":
+			if event.Timestamp >= turn.StartedAt {
+				turn.CompletedAt = event.Timestamp
+			}
+			continue
+		default:
+			continue
+		}
+		if item.Content == "" {
+			continue
+		}
+		item.CreatedAt = event.Timestamp
+		turn.Items = append(turn.Items, item)
+	}
+	visibleTurns := make([]chatTranscriptTurn, 0, len(turns))
+	for index, turn := range turns {
+		if boundTurns[index] && len(turn.Items) > 0 {
+			visibleTurns = append(visibleTurns, turn)
+		}
+	}
+	return chatTranscriptExport{
+		ExportVersion: 1,
+		Kind:          "chat-transcript",
+		Title:         title,
+		CreatedAt:     summary.CreatedAt,
+		UpdatedAt:     summary.UpdatedAt,
+		Turns:         visibleTurns,
+	}
 }
 
 func (s *Server) handleChatJSONL(w http.ResponseWriter, r *http.Request) {
@@ -437,6 +623,14 @@ func markdownLine(text string) string {
 }
 
 func safeExportFilename(chatName string, chatID string) string {
+	return safeExportFilenameWithExtension(chatName, chatID, ".md")
+}
+
+func safeTranscriptJSONLFilename(chatName string, chatID string) string {
+	return safeExportFilenameWithExtension(chatName, chatID, ".jsonl")
+}
+
+func safeExportFilenameWithExtension(chatName string, chatID string, extension string) string {
 	base := strings.TrimSpace(chatName)
 	if base == "" {
 		base = strings.TrimSpace(chatID)
@@ -449,7 +643,7 @@ func safeExportFilename(chatName string, chatID string) string {
 	if base == "" {
 		base = "chat"
 	}
-	return base + ".md"
+	return base + extension
 }
 
 func safeJSONLFilename(chatID string) string {
