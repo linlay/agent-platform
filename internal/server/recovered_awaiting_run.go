@@ -135,7 +135,7 @@ func (s *Server) finishRecoveredAwaiting(item chat.PendingAwaitingWithChat, step
 	s.broadcastDeferredAwaitingAnswer(DeferredAwaiting{
 		ChatID: item.ChatID, RunID: item.RunID, AwaitingID: item.AwaitingID, Mode: item.Mode,
 	}, payload, resolvedAt)
-	s.broadcast("run.finished", runFinishedPushPayload(item.RunID, item.ChatID, resolvedAt))
+	s.broadcast("run.finished", runFinishedPushPayload(item.RunID, item.ChatID, "cancel", resolvedAt))
 	return true, nil
 }
 
@@ -251,6 +251,6 @@ func (s *Server) completeRecoveredPlanningRun(deferred DeferredAwaiting, recover
 	}
 	recovered.EventBus.Freeze()
 	s.deps.Runs.Finish(deferred.RunID)
-	s.broadcast("run.finished", runFinishedPushPayload(deferred.RunID, deferred.ChatID, completedAt))
+	s.broadcast("run.finished", runFinishedPushPayload(deferred.RunID, deferred.ChatID, "complete", completedAt))
 	return nil
 }

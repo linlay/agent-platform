@@ -346,7 +346,7 @@ func TestRunExecutorFinalizesAfterStreamDrain(t *testing.T) {
 			order = append(order, "chat.unread")
 			mu.Unlock()
 		},
-		OnComplete: func(string, int64) {
+		OnComplete: func(chat.RunCompletion) {
 			mu.Lock()
 			order = append(order, "run.finished")
 			mu.Unlock()

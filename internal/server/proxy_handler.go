@@ -458,7 +458,7 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 			persistedCompletion = &completion
 		}
 	}
-	s.broadcast("run.finished", runFinishedPushPayload(req.RunID, req.ChatID, completedAt))
+	s.broadcast("run.finished", runFinishedPushPayload(req.RunID, req.ChatID, finishReason, completedAt))
 	if persistedCompletion != nil {
 		s.broadcastRunCompletionNotifications(*persistedCompletion)
 	}

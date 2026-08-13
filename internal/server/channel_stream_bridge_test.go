@@ -431,6 +431,9 @@ func TestChannelImportStreamOnlySynthesizesControlPushes(t *testing.T) {
 	if finishedAt, ok := runFinished["finishedAt"].(float64); !ok || finishedAt < 1_000_000_000_000 {
 		t.Fatalf("expected epoch-ms run.finished finishedAt, got %#v", runFinished)
 	}
+	if runFinished["status"] != "completed" || runFinished["finishReason"] != "complete" {
+		t.Fatalf("unexpected run.finished terminal status %#v", runFinished)
+	}
 	if _, exists := runFinished["timestamp"]; exists {
 		t.Fatalf("run.finished must not include timestamp: %#v", runFinished)
 	}

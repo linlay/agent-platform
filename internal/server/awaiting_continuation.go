@@ -327,9 +327,14 @@ func (s *Server) startAwaitingContinuationWithAdmission(
 			}
 			s.broadcastChatReadState("chat.unread", summary, agentUnreadCount)
 		},
-		OnComplete: func(doneRunID string, completedAtMillis int64) {
-			s.deps.Runs.Finish(doneRunID)
-			s.broadcast("run.finished", runFinishedPushPayload(doneRunID, chatID, completedAtMillis))
+		OnComplete: func(completion chat.RunCompletion) {
+			s.deps.Runs.Finish(completion.RunID)
+			s.broadcast("run.finished", runFinishedPushPayload(
+				completion.RunID,
+				chatID,
+				completion.FinishReason,
+				completion.UpdatedAtMillis,
+			))
 		},
 	})
 	return true, nil

@@ -222,11 +222,16 @@ func (s *Server) startPreparedLocalRun(
 		OnUnreadChanged:   onUnreadChanged,
 		OnPersisted:       onPersisted,
 		OnContinuation:    onContinuation,
-		OnComplete: func(runID string, completedAtMillis int64) {
+		OnComplete: func(completion chat.RunCompletion) {
 			releaseQuery(prepared.release)
-			s.deps.Runs.Finish(runID)
+			s.deps.Runs.Finish(completion.RunID)
 			if !execution.HiddenRun {
-				s.broadcast("run.finished", runFinishedPushPayload(runID, prepared.req.ChatID, completedAtMillis))
+				s.broadcast("run.finished", runFinishedPushPayload(
+					completion.RunID,
+					prepared.req.ChatID,
+					completion.FinishReason,
+					completion.UpdatedAtMillis,
+				))
 			}
 		},
 	})
@@ -841,6 +846,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 	}
 
 	completedAtMillis := int64(0)
+	pushFinishReason := "error"
 	if !execution.HiddenRun {
 		s.broadcast("run.started", runStartedPushPayload(prepared.req.RunID, prepared.req.ChatID, prepared.req.AgentKey, registered.StartedAtMillis))
 		defer func() {
@@ -851,7 +857,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 			if completedAtMillis == 0 {
 				completedAtMillis = time.Now().UnixMilli()
 			}
-			s.broadcast("run.finished", runFinishedPushPayload(prepared.req.RunID, prepared.req.ChatID, completedAtMillis))
+			s.broadcast("run.finished", runFinishedPushPayload(prepared.req.RunID, prepared.req.ChatID, pushFinishReason, completedAtMillis))
 		}()
 	}
 
@@ -900,6 +906,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		processor.stepWriter.Flush()
 		persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, registered.StartedAtMillis, control, principal), assistantText.String(), runUsage, "error", false)
 		completedAtMillis = completion.UpdatedAtMillis
+		pushFinishReason = completion.FinishReason
 		if persisted {
 			syncBroadcastChatUpdated(s.deps.Notifications, completion)
 		}
@@ -953,6 +960,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		processor.stepWriter.Flush()
 		persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, registered.StartedAtMillis, control, principal), assistantText.String(), runUsage, "error", false)
 		completedAtMillis = completion.UpdatedAtMillis
+		pushFinishReason = completion.FinishReason
 		if persisted {
 			syncBroadcastChatUpdated(s.deps.Notifications, completion)
 		}
@@ -1026,6 +1034,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		}
 		persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, registered.StartedAtMillis, control, principal), assistantText.String(), runUsage, finishReason, false)
 		completedAtMillis = completion.UpdatedAtMillis
+		pushFinishReason = completion.FinishReason
 		if persisted {
 			syncBroadcastChatUpdated(s.deps.Notifications, completion)
 		}
@@ -1049,6 +1058,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 	processor.stepWriter.Flush()
 	persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, registered.StartedAtMillis, control, principal), assistantText.String(), runUsage, "complete", true)
 	completedAtMillis = completion.UpdatedAtMillis
+	pushFinishReason = completion.FinishReason
 	if persisted {
 		syncBroadcastChatUpdated(s.deps.Notifications, completion)
 	}

@@ -691,7 +691,7 @@ WebClient 对反向 request 成功时返回同 `id`、同 Action `type` 的 resp
 | `heartbeat` | `timestamp` |
 | `auth.expiring` | `expiresAt` |
 | `run.started` | `runId`、`chatId`、`agentKey`、必填 `startedAt` |
-| `run.finished` | `runId`、`chatId`、必填 `finishedAt` |
+| `run.finished` | `runId`、`chatId`、`status`、`finishReason`、必填 `finishedAt` |
 | `chat.created` | `chatId`、`chatName`、`agentKey`、`createdAt`、`source` |
 | `chat.updated` | `chatId`、`lastRunId`、`lastRunContent`、`updatedAt` |
 | `chat.unread` | `chatId`、`agentKey`、`lastRunId`、`createdAt`（等于本次 run 完成后写入的 chat `updatedAt`）、`readRunId`、`agentUnreadCount` |
@@ -708,6 +708,8 @@ WebClient 对反向 request 成功时返回同 `id`、同 Action `type` 的 resp
 | `resource.pushed` | `chatId`、`artifactId`、`name`、`mimeType`、`sha256`、`sizeBytes`、`pushedAt` |
 
 除 `heartbeat.timestamp` 外，platform 主动发送的 push payload 不使用 `timestamp`；它们用上表的业务语义时间字段。这是硬切换，不会双写旧字段，前端与服务端需要同版本发布。SSE 与 WebSocket `frame:"stream"` 的 `event.timestamp` 仍是每个业务流事件必填的 epoch milliseconds。`auth.refresh` response 在 JWT 存在 `exp` 时才返回 `expiresAt = exp * 1000`；没有 `exp` 时省略字段。`auth.expiring.expiresAt` 同样始终是 epoch milliseconds。客户端不得把缺失 `readAt` / `expiresAt` 解释为 1970 或当前时间。
+
+`run.finished` 是 run 退出 active 状态的终态通知：`finishReason` 只允许 `complete | error | cancel`，对应的 `status` 分别是 `completed | failed | interrupted`。前端必须以 `status` 判断结果，不得仅因收到 `run.finished` 就当作成功；完整错误内容仍从同一 run 的 stream `run.error` 获取。
 
 `awaiting.asking.timeout` 与 stream 中的 `awaiting.ask.timeout` 语义一致：对普通 HITL 等待项，`0` 表示无限等待、不自动超时；大于 `0` 时由后端按真实时间独立倒计时，observer / attach / detach 状态不会暂停或延长后端超时。CODER planning confirmation 使用 `mode:"planning"` 和同时包含 `planningId + planningFile` 的 `planning` payload，永远省略 `timeout`，表示永久等待；它不同于 `plan_*` / plan-tasks 的执行任务计划。awaiting mode 只允许 `question | approval | form | planning`。
 

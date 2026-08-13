@@ -44,10 +44,9 @@ type RunExecutorParams struct {
 	OnUnreadChanged   func(chat.Summary)
 	OnPersisted       func(chat.RunCompletion)
 	OnContinuation    func(contracts.DeltaRunContinuation) (string, error)
-	// OnComplete receives the same completion timestamp that is persisted for
-	// the run.  Callers use it for run.finished rather than inventing a second
-	// wall-clock value while publishing the notification.
-	OnComplete func(runID string, completedAtMillis int64)
+	// OnComplete receives the same terminal record used for persistence. Callers
+	// use it for run.finished so its time and status cannot drift from the run.
+	OnComplete func(chat.RunCompletion)
 }
 
 type runEventProcessor struct {
@@ -699,7 +698,7 @@ func runExecutor(params RunExecutorParams) {
 			params.EventBus.FreezeAndWait()
 		}
 		if params.OnComplete != nil {
-			params.OnComplete(params.Session.RunID, completion.UpdatedAtMillis)
+			params.OnComplete(completion)
 		}
 		if shouldStartRunContinuation(persisted, completion, continuation) && params.OnContinuation != nil {
 			if _, err := params.OnContinuation(*continuation); err != nil {

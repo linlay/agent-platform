@@ -354,6 +354,7 @@ func (s *Server) runProxyWebSocket(
 		// cleanup. A persistence error must not cause run.finished to invent a
 		// second, later timestamp.
 		completedAtMillis := time.Now().UnixMilli()
+		finishReason := "error"
 		var (
 			persisted  bool
 			completion chat.RunCompletion
@@ -363,13 +364,16 @@ func (s *Server) runProxyWebSocket(
 			if completion.UpdatedAtMillis != 0 {
 				completedAtMillis = completion.UpdatedAtMillis
 			}
+			if strings.TrimSpace(completion.FinishReason) != "" {
+				finishReason = completion.FinishReason
+			}
 		}
 		if eventBus != nil {
 			eventBus.FreezeAndWait()
 		}
 		releaseQuery(prepared.release)
 		s.deps.Runs.Finish(prepared.req.RunID)
-		s.broadcast("run.finished", runFinishedPushPayload(prepared.req.RunID, prepared.req.ChatID, completedAtMillis))
+		s.broadcast("run.finished", runFinishedPushPayload(prepared.req.RunID, prepared.req.ChatID, finishReason, completedAtMillis))
 		if persisted {
 			s.broadcastRunCompletionNotifications(completion)
 		}

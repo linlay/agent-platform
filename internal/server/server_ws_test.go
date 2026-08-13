@@ -686,7 +686,17 @@ func TestWebSocketRunCompletionPushOrdering(t *testing.T) {
 		switch {
 		case meta.Frame == ws.FrameStream && meta.ID == "req_query_order" && meta.Reason != "":
 			sequence = append(sequence, "stream.done")
-		case meta.Frame == ws.FramePush && (meta.Type == "run.finished" || meta.Type == "chat.unread" || meta.Type == "chat.updated"):
+		case meta.Frame == ws.FramePush && meta.Type == "run.finished":
+			var frame ws.PushFrame
+			if err := json.Unmarshal(raw, &frame); err != nil {
+				t.Fatalf("decode websocket run.finished: %v", err)
+			}
+			data, _ := frame.Data.(map[string]any)
+			if data["status"] != "completed" || data["finishReason"] != "complete" {
+				t.Fatalf("unexpected run.finished terminal status %#v", data)
+			}
+			sequence = append(sequence, meta.Type)
+		case meta.Frame == ws.FramePush && (meta.Type == "chat.unread" || meta.Type == "chat.updated"):
 			sequence = append(sequence, meta.Type)
 		}
 	}
