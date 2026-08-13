@@ -1126,17 +1126,21 @@ func TestFrameOrchestratorWritesSubAgentQueryAndSystemLines(t *testing.T) {
 	assembler := stream.NewAssembler(stream.StreamRequest{RunID: "run_1", ChatID: "chat_1"})
 	writer := chat.NewStepWriter(store, "chat_1", "run_1", "react")
 	orchestrator.chats = store
-	orchestrator.nextLiveSeq = assembler.NextSeq
+	orchestrator.currentLiveSeq = assembler.CurrentSeq
 	orchestrator.emitDelta = func(delta contracts.AgentDelta) {
 		for _, input := range orchestrator.mapper.Map(delta) {
-			for _, event := range assembler.Consume(input) {
+			for _, emission := range assembler.ConsumeEmissions(input) {
+				event := emission.Event
+				event.Seq = emission.Cursor
 				writer.OnEvent(event.Data())
 			}
 		}
 	}
 	orchestrator.emitInputs = func(inputs ...stream.StreamInput) {
 		for _, input := range inputs {
-			for _, event := range assembler.Consume(input) {
+			for _, emission := range assembler.ConsumeEmissions(input) {
+				event := emission.Event
+				event.Seq = emission.Cursor
 				writer.OnEvent(event.Data())
 			}
 		}
@@ -1164,15 +1168,13 @@ func TestFrameOrchestratorWritesSubAgentQueryAndSystemLines(t *testing.T) {
 		t.Fatalf("read chat jsonl: %v", err)
 	}
 	var queryCount, embeddedSystemCount, standaloneSystemCount int
-	queryLiveSeqs := map[int64]bool{}
-	allLiveSeqs := map[int64]string{}
+	var previousLiveSeq int64
 	for _, line := range lines {
 		if liveSeq := testInt64Value(line["liveSeq"]); liveSeq > 0 {
-			if previous, ok := allLiveSeqs[liveSeq]; ok {
-				t.Fatalf("duplicate liveSeq %d on %s and %#v", liveSeq, previous, line)
+			if liveSeq < previousLiveSeq {
+				t.Fatalf("liveSeq coverage boundary moved backwards from %d to %d in %#v", previousLiveSeq, liveSeq, line)
 			}
-			lineType, _ := line["_type"].(string)
-			allLiveSeqs[liveSeq] = lineType
+			previousLiveSeq = liveSeq
 		}
 		switch line["_type"] {
 		case "query":
@@ -1183,10 +1185,6 @@ func TestFrameOrchestratorWritesSubAgentQueryAndSystemLines(t *testing.T) {
 			if liveSeq <= 0 {
 				t.Fatalf("expected child query to carry positive liveSeq, got %#v", line)
 			}
-			if queryLiveSeqs[liveSeq] {
-				t.Fatalf("duplicate child query liveSeq %d in %#v", liveSeq, line)
-			}
-			queryLiveSeqs[liveSeq] = true
 			if _, ok := line["taskGroupId"]; ok {
 				t.Fatalf("did not expect taskGroupId on child query line %#v", line)
 			}
@@ -1238,14 +1236,18 @@ func TestSubTaskReactStepPersistsContentMessage(t *testing.T) {
 	orchestrator.mapper = mapper
 	orchestrator.emitDelta = func(delta contracts.AgentDelta) {
 		for _, input := range mapper.Map(delta) {
-			for _, event := range assembler.Consume(input) {
+			for _, emission := range assembler.ConsumeEmissions(input) {
+				event := emission.Event
+				event.Seq = emission.Cursor
 				writer.OnEvent(event.Data())
 			}
 		}
 	}
 	orchestrator.emitInputs = func(inputs ...stream.StreamInput) {
 		for _, input := range inputs {
-			for _, event := range assembler.Consume(input) {
+			for _, emission := range assembler.ConsumeEmissions(input) {
+				event := emission.Event
+				event.Seq = emission.Cursor
 				writer.OnEvent(event.Data())
 			}
 		}

@@ -904,7 +904,9 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 			syncBroadcastChatUpdated(s.deps.Notifications, completion)
 		}
 	}
-	writeEvent := func(event stream.StreamEvent) error {
+	writeEmission := func(emission stream.EventEmission) error {
+		event := emission.Event
+		event.Seq = emission.Cursor
 		data, visible, err := processor.Consume(event)
 		if err != nil {
 			if isTimeContractViolation(err) {
@@ -912,10 +914,10 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 			}
 			return err
 		}
-		if observeEvent != nil {
+		if observeEvent != nil && emission.Normalized {
 			observeEvent(data)
 		}
-		if !visible {
+		if !emission.Visible || !visible {
 			return nil
 		}
 		clientData := clientVisibleEventData(data)
@@ -934,8 +936,8 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		return nil
 	}
 
-	for _, event := range assembler.Bootstrap() {
-		if err := writeEvent(event); err != nil {
+	for _, emission := range assembler.BootstrapEmissions() {
+		if err := writeEmission(emission); err != nil {
 			return queryRunResult{}, err
 		}
 	}
@@ -943,8 +945,8 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 	agentStream, err := s.deps.Agent.Stream(runCtx, prepared.req, prepared.session)
 	if err != nil {
 		control.TransitionState(contracts.RunLoopStateFailed)
-		for _, event := range assembler.Fail(err) {
-			if writeErr := writeEvent(event); writeErr != nil {
+		for _, emission := range assembler.FailEmissions(err) {
+			if writeErr := writeEmission(emission); writeErr != nil {
 				return queryRunResult{}, writeErr
 			}
 		}
@@ -980,8 +982,8 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 			streamFailed = true
 			streamErr = nextErr
 			control.TransitionState(contracts.RunLoopStateFailed)
-			for _, event := range assembler.Fail(nextErr) {
-				if writeErr := writeEvent(event); writeErr != nil {
+			for _, emission := range assembler.FailEmissions(nextErr) {
+				if writeErr := writeEmission(emission); writeErr != nil {
 					return queryRunResult{}, writeErr
 				}
 			}
@@ -990,8 +992,8 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		inputs := mapper.Map(delta)
 		for _, input := range inputs {
 			applyModelTurnControl(processor, input)
-			for _, event := range assembler.Consume(input) {
-				if err := writeEvent(event); err != nil {
+			for _, emission := range assembler.ConsumeEmissions(input) {
+				if err := writeEmission(emission); err != nil {
 					return queryRunResult{}, err
 				}
 			}
@@ -1036,8 +1038,8 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		}, nil
 	}
 
-	for _, event := range assembler.Complete() {
-		if err := writeEvent(event); err != nil {
+	for _, emission := range assembler.CompleteEmissions() {
+		if err := writeEmission(emission); err != nil {
 			return queryRunResult{}, err
 		}
 	}

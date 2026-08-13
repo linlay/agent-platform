@@ -43,6 +43,13 @@ func (n *SseEventNormalizer) Normalize(events []StreamEvent) []StreamEvent {
 	return out
 }
 
+// IsVisible applies the stateful tool visibility policy to a single event.
+// Callers that assign public stream sequence numbers must call this before
+// reserving a sequence so hidden tool lifecycle events do not create gaps.
+func (n *SseEventNormalizer) IsVisible(event StreamEvent) bool {
+	return !n.shouldDrop(event)
+}
+
 func (n *SseEventNormalizer) shouldDrop(event StreamEvent) bool {
 	toolName, _ := event.Payload["toolName"].(string)
 	if strings.HasPrefix(toolName, "_hidden_") {

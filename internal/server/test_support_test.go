@@ -674,13 +674,12 @@ func assertSSEMessagesHaveSeqAndTimestamp(t *testing.T, body string) {
 	if len(messages) == 0 {
 		t.Fatalf("expected sse messages, got body %s", body)
 	}
-	prevSeq := 0.0
-	for _, msg := range messages {
+	for index, msg := range messages {
 		seq, ok := msg["seq"].(float64)
-		if !ok || seq <= prevSeq {
-			t.Fatalf("expected ascending seq, got %#v", messages)
+		want := float64(index + 1)
+		if !ok || seq != want {
+			t.Fatalf("expected contiguous public seq=%v at index %d, got %#v", want, index, messages)
 		}
-		prevSeq = seq
 		if _, ok := msg["type"].(string); !ok {
 			t.Fatalf("expected type field, got %#v", msg)
 		}

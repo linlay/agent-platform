@@ -66,6 +66,17 @@ type StreamEventAssembler struct {
 	request    StreamRequest
 }
 
+// EventEmission carries one internal event through persistence and publication.
+// Cursor is the latest public stream sequence after processing the event.
+// Hidden events keep Event.Seq at zero and reuse the current Cursor without
+// reserving a public sequence number.
+type EventEmission struct {
+	Event      StreamEvent
+	Normalized bool
+	Visible    bool
+	Cursor     int64
+}
+
 func NewAssembler(request StreamRequest) *StreamEventAssembler {
 	assembler := &StreamEventAssembler{
 		dispatcher: NewDispatcher(request),
@@ -98,11 +109,10 @@ func (a *StreamEventAssembler) SetRunStartedAtMillis(value int64) {
 }
 
 func (a *StreamEventAssembler) Bootstrap() []StreamEvent {
-	_, normalized := a.BootstrapWithRaw()
-	return normalized
+	return visibleEmissionEvents(a.BootstrapEmissions())
 }
 
-func (a *StreamEventAssembler) BootstrapWithRaw() ([]StreamEvent, []StreamEvent) {
+func (a *StreamEventAssembler) BootstrapEmissions() []EventEmission {
 	queryPayload := map[string]any{
 		"requestId": a.request.RequestID,
 		"runId":     a.request.RunID,
@@ -174,8 +184,7 @@ func (a *StreamEventAssembler) BootstrapWithRaw() ([]StreamEvent, []StreamEvent)
 		runStartEvent.Timestamp = a.request.StartedAtMillis
 	}
 	events = append(events, runStartEvent)
-	raw := a.stamp(events)
-	return raw, a.normalizer.Normalize(raw)
+	return a.emit(events)
 }
 
 func syntheticQueryPayload(request StreamRequest, value SyntheticQuery) map[string]any {
@@ -248,43 +257,67 @@ func isEmptyValue(value any) bool {
 }
 
 func (a *StreamEventAssembler) Consume(input StreamInput) []StreamEvent {
-	_, normalized := a.ConsumeWithRaw(input)
-	return normalized
+	return visibleEmissionEvents(a.ConsumeEmissions(input))
 }
 
-func (a *StreamEventAssembler) ConsumeWithRaw(input StreamInput) ([]StreamEvent, []StreamEvent) {
-	raw := a.stamp(a.dispatcher.Dispatch(input))
-	return raw, a.normalizer.Normalize(raw)
+func (a *StreamEventAssembler) ConsumeEmissions(input StreamInput) []EventEmission {
+	return a.emit(a.dispatcher.Dispatch(input))
 }
 
 func (a *StreamEventAssembler) Complete() []StreamEvent {
-	_, normalized := a.CompleteWithRaw()
-	return normalized
+	return visibleEmissionEvents(a.CompleteEmissions())
 }
 
-func (a *StreamEventAssembler) CompleteWithRaw() ([]StreamEvent, []StreamEvent) {
-	raw := a.stamp(a.dispatcher.Complete())
-	return raw, a.normalizer.Normalize(raw)
+func (a *StreamEventAssembler) CompleteEmissions() []EventEmission {
+	return a.emit(a.dispatcher.Complete())
 }
 
 func (a *StreamEventAssembler) Fail(err error) []StreamEvent {
-	_, normalized := a.FailWithRaw(err)
-	return normalized
+	return visibleEmissionEvents(a.FailEmissions(err))
 }
 
-func (a *StreamEventAssembler) FailWithRaw(err error) ([]StreamEvent, []StreamEvent) {
-	raw := a.stamp(a.dispatcher.Fail(err))
-	return raw, a.normalizer.Normalize(raw)
+func (a *StreamEventAssembler) FailEmissions(err error) []EventEmission {
+	return a.emit(a.dispatcher.Fail(err))
 }
 
-// NextSeq reserves the next run-local live sequence number.
-func (a *StreamEventAssembler) NextSeq() int64 {
-	return a.seq.Add(1)
+// CurrentSeq returns the latest public run-local stream cursor without
+// reserving another sequence number.
+func (a *StreamEventAssembler) CurrentSeq() int64 {
+	if a == nil {
+		return 0
+	}
+	return a.seq.Load()
 }
 
-func (a *StreamEventAssembler) stamp(events []StreamEvent) []StreamEvent {
-	for idx := range events {
-		events[idx].Seq = a.NextSeq()
+func (a *StreamEventAssembler) emit(events []StreamEvent) []EventEmission {
+	if len(events) == 0 {
+		return nil
+	}
+	emissions := make([]EventEmission, 0, len(events))
+	for _, event := range events {
+		normalized := a.normalizer.IsVisible(event)
+		visible := normalized && IsClientVisibleEventData(event.Data())
+		cursor := a.seq.Load()
+		if visible {
+			cursor = a.seq.Add(1)
+			event.Seq = cursor
+		} else {
+			event.Seq = 0
+		}
+		emissions = append(emissions, EventEmission{Event: event, Normalized: normalized, Visible: visible, Cursor: cursor})
+	}
+	return emissions
+}
+
+func visibleEmissionEvents(emissions []EventEmission) []StreamEvent {
+	if len(emissions) == 0 {
+		return nil
+	}
+	events := make([]StreamEvent, 0, len(emissions))
+	for _, emission := range emissions {
+		if emission.Visible {
+			events = append(events, emission.Event)
+		}
 	}
 	return events
 }

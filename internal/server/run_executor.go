@@ -660,30 +660,8 @@ func usageHasData(usage chat.UsageData) bool {
 		usage.FirstTokenLatencyTotalMs > 0 || usage.FirstTokenLatencyCount > 0 || usage.GenerationDurationMs > 0
 }
 
-func isClientVisibleEvent(eventType string) bool {
-	if eventType == "llm.request" {
-		return false
-	}
-	if eventType == "debug.llmChat" {
-		return true
-	}
-	if eventType == "usage.snapshot" {
-		return true
-	}
-	if eventType == "run.activity" {
-		return true
-	}
-	return !strings.HasSuffix(eventType, ".snapshot")
-}
-
 func shouldPublishClientEvent(data stream.EventData) bool {
-	if data.Type == "request.query" && strings.TrimSpace(data.String("kind")) == "system-init" {
-		return false
-	}
-	if data.Type == "tool.result" && data.Value("internalOnly") == true {
-		return false
-	}
-	return isClientVisibleEvent(data.Type)
+	return stream.IsClientVisibleEventData(data)
 }
 
 func clientVisibleEventData(data stream.EventData) stream.EventData {
@@ -789,15 +767,18 @@ func runExecutor(params RunExecutorParams) {
 	}
 
 	var timeContractErr error
-	publishBatch := func(rawEvents []stream.StreamEvent, normalizedEvents []stream.StreamEvent) error {
+	publishEmissions := func(emissions []stream.EventEmission) error {
 		if timeContractErr != nil {
 			return timeContractErr
 		}
-		if len(rawEvents) == 0 && len(normalizedEvents) == 0 {
+		if len(emissions) == 0 {
 			return nil
 		}
-		processed := make(map[int64]stream.EventData, len(rawEvents))
-		for _, event := range rawEvents {
+		for _, emission := range emissions {
+			event := emission.Event
+			// Storage records the public coverage boundary. Hidden events reuse
+			// the latest cursor but never reserve or publish that sequence.
+			event.Seq = emission.Cursor
 			data, _, err := processor.Consume(event)
 			if err != nil {
 				timeContractErr = err
@@ -807,30 +788,12 @@ func runExecutor(params RunExecutorParams) {
 				cancelExecution()
 				return err
 			}
-			processed[event.Seq] = data
 			handleAwaitingLifecycle(params, data, tracker)
-		}
-		for _, event := range normalizedEvents {
-			data, ok := processed[event.Seq]
-			if !ok {
-				var err error
-				data, _, err = processor.Consume(event)
-				if err != nil {
-					timeContractErr = err
-					cancelExecution()
-					return err
-				}
-				handleAwaitingLifecycle(params, data, tracker)
-			}
-			if shouldPublishClientEvent(data) && params.EventBus != nil {
+			if emission.Visible && params.EventBus != nil {
 				params.EventBus.Publish(clientVisibleEventData(data))
 			}
 		}
 		return nil
-	}
-
-	publishAssembler := func(rawEvents []stream.StreamEvent, normalizedEvents []stream.StreamEvent) error {
-		return publishBatch(rawEvents, normalizedEvents)
 	}
 	failTimeContract := func(err error) {
 		if params.RunControl != nil {
@@ -840,7 +803,7 @@ func runExecutor(params RunExecutorParams) {
 		persisted, completion = persistRunCompletionWithReason(params, assistantText.String(), runUsage, "error", false)
 	}
 
-	if err := publishAssembler(params.Assembler.BootstrapWithRaw()); err != nil {
+	if err := publishEmissions(params.Assembler.BootstrapEmissions()); err != nil {
 		failTimeContract(err)
 		return
 	}
@@ -850,7 +813,7 @@ func runExecutor(params RunExecutorParams) {
 		if params.RunControl != nil {
 			params.RunControl.TransitionState(contracts.RunLoopStateFailed)
 		}
-		if publishErr := publishAssembler(params.Assembler.FailWithRaw(err)); publishErr != nil {
+		if publishErr := publishEmissions(params.Assembler.FailEmissions(err)); publishErr != nil {
 			failTimeContract(publishErr)
 			return
 		}
@@ -894,7 +857,7 @@ func runExecutor(params RunExecutorParams) {
 			if marker, ok := input.(stream.StageMarker); ok && params.StepWriter != nil {
 				params.StepWriter.OnStageMarker(marker.Stage)
 			}
-			if err := publishAssembler(params.Assembler.ConsumeWithRaw(input)); err != nil {
+			if err := publishEmissions(params.Assembler.ConsumeEmissions(input)); err != nil {
 				return
 			}
 		}
@@ -908,7 +871,7 @@ func runExecutor(params RunExecutorParams) {
 			if marker, ok := input.(stream.StageMarker); ok && params.StepWriter != nil {
 				params.StepWriter.OnStageMarker(marker.Stage)
 			}
-			if err := publishAssembler(params.Assembler.ConsumeWithRaw(input)); err != nil {
+			if err := publishEmissions(params.Assembler.ConsumeEmissions(input)); err != nil {
 				return
 			}
 		}
@@ -930,7 +893,7 @@ func runExecutor(params RunExecutorParams) {
 		mapper:            params.Mapper,
 		emitDelta:         emitDelta,
 		emitInputs:        emitInputs,
-		nextLiveSeq:       params.Assembler.NextSeq,
+		currentLiveSeq:    params.Assembler.CurrentSeq,
 	}
 
 	streamFailed, streamInterrupted, orchestrateErr := orchestrator.Run(agentStream)
@@ -943,7 +906,7 @@ func runExecutor(params RunExecutorParams) {
 		if params.RunControl != nil {
 			params.RunControl.TransitionState(contracts.RunLoopStateFailed)
 		}
-		if publishErr := publishAssembler(params.Assembler.FailWithRaw(orchestrateErr)); publishErr != nil {
+		if publishErr := publishEmissions(params.Assembler.FailEmissions(orchestrateErr)); publishErr != nil {
 			failTimeContract(publishErr)
 			return
 		}
@@ -966,7 +929,7 @@ func runExecutor(params RunExecutorParams) {
 		return
 	}
 
-	if err := publishAssembler(params.Assembler.CompleteWithRaw()); err != nil {
+	if err := publishEmissions(params.Assembler.CompleteEmissions()); err != nil {
 		failTimeContract(err)
 		return
 	}

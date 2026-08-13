@@ -27,6 +27,25 @@ type EventData struct {
 	Payload   map[string]any
 }
 
+// IsClientVisibleEventData is the common publication policy for native stream
+// events. It deliberately excludes storage-only model requests and snapshots
+// before the assembler assigns the public stream sequence.
+func IsClientVisibleEventData(data EventData) bool {
+	if data.Type == "request.query" && strings.TrimSpace(data.String("kind")) == "system-init" {
+		return false
+	}
+	if data.Type == "tool.result" && data.Value("internalOnly") == true {
+		return false
+	}
+	if data.Type == "llm.request" {
+		return false
+	}
+	if data.Type == "debug.llmChat" || data.Type == "usage.snapshot" || data.Type == "run.activity" {
+		return true
+	}
+	return !strings.HasSuffix(data.Type, ".snapshot")
+}
+
 func NewEvent(eventType string, payload map[string]any) StreamEvent {
 	payload = normalizeAwaitingAskPayload(eventType, clonePayload(payload))
 	return StreamEvent{

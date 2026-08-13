@@ -75,6 +75,28 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	}
 	chatID := chatsResp.Data[0].ChatID
 	assertUUIDLike(t, chatID)
+	publicSeqs := map[int64]bool{}
+	for _, message := range decodeSSEMessages(t, bodyText) {
+		publicSeqs[int64(message["seq"].(float64))] = true
+	}
+	jsonl, err := fixture.chats.LoadJSONLContent(chatID)
+	if err != nil {
+		t.Fatalf("load jsonl: %v", err)
+	}
+	decoder := json.NewDecoder(strings.NewReader(jsonl))
+	for {
+		var line map[string]any
+		if err := decoder.Decode(&line); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			t.Fatalf("decode jsonl: %v", err)
+		}
+		liveSeq := int64(contracts.AnyIntNode(line["liveSeq"]))
+		if liveSeq > 0 && !publicSeqs[liveSeq] {
+			t.Fatalf("jsonl liveSeq=%d was not published in SSE: line=%#v public=%#v", liveSeq, line, publicSeqs)
+		}
+	}
 
 	chatReq := httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID+"&includeRawMessages=true", nil)
 	chatRec := httptest.NewRecorder()

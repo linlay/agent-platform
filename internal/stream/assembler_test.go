@@ -29,8 +29,13 @@ func TestAssemblerBootstrapAndComplete(t *testing.T) {
 		t.Fatalf("expected no terminal events before Complete, got %#v", complete)
 	}
 
-	finalEvents := assembler.Complete()
-	assertStampedTypes(t, finalEvents, "content.end", "content.snapshot", "run.complete")
+	finalEmissions := assembler.CompleteEmissions()
+	assertEmissionTypes(t, finalEmissions, "content.end", "content.snapshot", "run.complete")
+	if finalEmissions[1].Visible || finalEmissions[1].Event.Seq != 0 || finalEmissions[1].Cursor != finalEmissions[0].Event.Seq {
+		t.Fatalf("content.snapshot must reuse the current public cursor without publishing: %#v", finalEmissions[1])
+	}
+	finalEvents := visibleEmissionEvents(finalEmissions)
+	assertStampedTypes(t, finalEvents, "content.end", "run.complete")
 
 	runComplete := finalEvents[len(finalEvents)-1].ToData()
 	if _, ok := runComplete["chatId"]; ok {
@@ -165,11 +170,71 @@ func TestAssemblerContinuationCanBootstrapSystemRegistrationQuery(t *testing.T) 
 		},
 	})
 
-	bootstrap := assembler.Bootstrap()
-	assertStampedTypes(t, bootstrap, "request.query", "run.start")
-	query := bootstrap[0].ToData()
+	emissions := assembler.BootstrapEmissions()
+	assertEmissionTypes(t, emissions, "request.query", "run.start")
+	if emissions[0].Visible || emissions[0].Event.Seq != 0 || emissions[0].Cursor != 0 {
+		t.Fatalf("system registration query must not reserve a public sequence: %#v", emissions[0])
+	}
+	bootstrap := visibleEmissionEvents(emissions)
+	assertStampedTypes(t, bootstrap, "run.start")
+	query := emissions[0].Event.ToData()
 	if query["kind"] != "system-init" || query["hidden"] != true {
 		t.Fatalf("unexpected continuation system registration %#v", query)
+	}
+}
+
+func TestAssemblerInternalEventsDoNotAdvancePublicSequence(t *testing.T) {
+	assembler := NewAssembler(StreamRequest{
+		RunID: "run_visible_seq", ChatID: "chat_visible_seq", AgentKey: "agent", Message: "hello", Role: "user",
+	})
+	assertStampedTypes(t, assembler.Bootstrap(), "request.query", "run.start")
+	if got := assembler.CurrentSeq(); got != 2 {
+		t.Fatalf("bootstrap public cursor=%d want 2", got)
+	}
+
+	request := assembler.ConsumeEmissions(InputLLMRequest{ChatID: "chat_visible_seq", ModelKey: "model"})
+	assertEmissionTypes(t, request, "llm.request")
+	if request[0].Visible || request[0].Event.Seq != 0 || request[0].Cursor != 2 || assembler.CurrentSeq() != 2 {
+		t.Fatalf("llm.request advanced public cursor: %#v current=%d", request[0], assembler.CurrentSeq())
+	}
+
+	activity := assembler.Consume(InputRunActivity{ChatID: "chat_visible_seq", Phase: "model_call", Status: "waiting"})
+	assertStampedTypes(t, activity, "run.activity")
+	if activity[0].Seq != 3 {
+		t.Fatalf("run.activity seq=%d want 3", activity[0].Seq)
+	}
+
+	content := assembler.Consume(ContentDelta{ContentID: "run_visible_seq_c_1", Delta: "answer"})
+	assertStampedTypes(t, content, "content.start", "content.delta")
+	final := assembler.CompleteEmissions()
+	assertEmissionTypes(t, final, "content.end", "content.snapshot", "run.complete")
+	if final[0].Event.Seq != 6 || final[1].Visible || final[1].Cursor != 6 || final[2].Event.Seq != 7 {
+		t.Fatalf("snapshot created a public sequence gap: %#v", final)
+	}
+}
+
+func TestAssemblerHiddenToolEventsDoNotAdvancePublicSequence(t *testing.T) {
+	assembler := NewAssembler(StreamRequest{RunID: "run_hidden_tool", ChatID: "chat_hidden_tool"})
+	assembler.RegisterHiddenTools("internal_tool")
+
+	start := assembler.ConsumeEmissions(ToolArgs{ToolID: "tool_1", ToolName: "internal_tool", Delta: "{}"})
+	assertEmissionTypes(t, start, "tool.start", "tool.args")
+	for _, emission := range start {
+		if emission.Visible || emission.Event.Seq != 0 || emission.Cursor != 0 {
+			t.Fatalf("hidden tool event advanced public cursor: %#v", emission)
+		}
+	}
+	end := assembler.ConsumeEmissions(ToolEnd{ToolID: "tool_1"})
+	assertEmissionTypes(t, end, "tool.end", "tool.snapshot")
+	result := assembler.ConsumeEmissions(ToolResult{ToolID: "tool_1", ToolName: "internal_tool", Result: "ok"})
+	assertEmissionTypes(t, result, "tool.result")
+	if assembler.CurrentSeq() != 0 {
+		t.Fatalf("hidden tool lifecycle advanced public cursor to %d", assembler.CurrentSeq())
+	}
+
+	activity := assembler.Consume(InputRunActivity{ChatID: "chat_hidden_tool", Phase: "model_call", Status: "completed"})
+	if len(activity) != 1 || activity[0].Seq != 1 {
+		t.Fatalf("first public event after hidden tool=%#v want seq 1", activity)
 	}
 }
 
@@ -385,4 +450,13 @@ func assertStampedTypes(t *testing.T, events []StreamEvent, want ...string) {
 			t.Fatalf("expected timestamp on event %#v", event)
 		}
 	}
+}
+
+func assertEmissionTypes(t *testing.T, emissions []EventEmission, want ...string) {
+	t.Helper()
+	events := make([]StreamEvent, 0, len(emissions))
+	for _, emission := range emissions {
+		events = append(events, emission.Event)
+	}
+	assertEventTypes(t, events, want...)
 }

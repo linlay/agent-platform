@@ -38,7 +38,7 @@ type frameOrchestrator struct {
 	mapper            contracts.StreamDeltaMapper
 	emitDelta         func(contracts.AgentDelta)
 	emitInputs        func(...stream.StreamInput)
-	nextLiveSeq       func() int64
+	currentLiveSeq    func() int64
 	taskCounter       int
 	teamAwaitCounter  int
 }
@@ -1214,8 +1214,8 @@ func (o *frameOrchestrator) writeChildTaskQueryAndSystem(subReq api.QueryRequest
 		system, _ = o.prepareSystemInit(subReq, subSession, false)
 	}
 	var liveSeq int64
-	if o.nextLiveSeq != nil {
-		liveSeq = o.nextLiveSeq()
+	if o.currentLiveSeq != nil {
+		liveSeq = o.currentLiveSeq()
 	}
 	_ = o.chats.AppendQueryLine(o.summary.ChatID, chat.QueryLine{
 		Type:         "query",

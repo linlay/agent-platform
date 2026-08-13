@@ -31,7 +31,7 @@ JWT `exp` / `iat` 与 resource ticket payload 的 `e` 仍是 token 内部的 Num
 
 Chat JSONL 每条物理行只允许一个 JSON object，`_type` 必填且只允许 `query`、`react`、`react-tool`、`event`、`steer`、`submit`、`compact.checkpoint`、`compact.tool`。空行、多行 object、同行多个 JSON 值、数组、标量、语法错误、非法 `_type` 及非法 system/planning/awaiting 结构统一返回 HTTP/WS `422 chat_storage_schema_violation`。
 
-`_type:"steer"` 的持久化行使用专用 `steer` object，不使用通用 `event`：顶层 `updatedAt/liveSeq` 分别保存事件时间与原始 live cursor，`steer` 只保存 `requestId/chatId/runId/steerId/message/role` 业务字段，且 `requestId` 为空时省略。回放时重新合成扁平 `type:"request.steer"` 与 `timestamp`；SSE、WebSocket stream 和 `/api/chat.events[]` 的对外事件结构不变。旧 `_type:"steer" + event` 以及 `_type:"event" + event.type:"request.steer"` 均属于不支持的存储 schema，不兼容读取或迁移。
+`_type:"steer"` 的持久化行使用专用 `steer` object，不使用通用 `event`：顶层 `updatedAt/liveSeq` 分别保存事件时间与公开 live cursor，`steer` 只保存 `requestId/chatId/runId/steerId/message/role` 业务字段，且 `requestId` 为空时省略。回放时重新合成扁平 `type:"request.steer"` 与 `timestamp`；SSE、WebSocket stream 和 `/api/chat.events[]` 的对外事件结构不变。旧 `_type:"steer" + event` 以及 `_type:"event" + event.type:"request.steer"` 均属于不支持的存储 schema，不兼容读取或迁移。
 
 HTTP 的 `data.error` 与 WebSocket error frame 的 `data` 包含 `code`、`field`、`location`、`expected`、可选 `actual`、`status:422`、`retryable:false`。`location` 使用 1-based 物理行号；响应不会携带完整 JSONL 行或 system prompt。时间字段不合法仍使用 `time_contract_violation`。
 
@@ -182,7 +182,7 @@ chat 摘要会在新数据中返回可选 `mode`；`/api/chat.runs[]`、`/api/ag
 
 `POST /api/chat/derive` 只支持 active chat 存储，不从 archive 直接派生。`sourceRunId` 省略时使用 source chat 的 `lastRunId`；source chat 必须没有 active run 和 pending awaiting，且目标 source run 已完成。服务端会创建新的独立 `chatId`，复制截至 source run 的可回放 JSONL 历史与必要资源，并为复制出的历史 run 生成新的 runId；返回 `lastRunId` 是新 chat 中映射后的 runId。派生成功后客户端继续用新 `chatId` 调 `/api/query`，后续运行不会写回原 chat。
 
-`/api/chat` 返回 active run 时，`activeRun.lastSeq` 是本次 chat detail 已返回历史 events 覆盖到的 live stream 游标，客户端应用这些 events 后可把它作为 `/api/attach.lastSeq`。它来自 `chatId.jsonl` 每行顶层 `liveSeq` 的 replay 结果，不是内存 run 当前最新 seq；内存最新 seq 只用于服务端运行状态。对 `WAITING_SUBMIT` active run，该 attach 应在 submit 前建立并保持等待；submit 成功不应再创建第二个 attach，同一连接会从 `request.submit` / `awaiting.answer` 开始继续接收该 run 的后续事件。
+`/api/chat` 返回 active run 时，`activeRun.lastSeq` 是本次 chat detail 已返回历史 events 覆盖到的公开 live stream 游标，客户端应用这些 events 后可把它作为 `/api/attach.lastSeq`。它来自 `chatId.jsonl` 每行顶层 `liveSeq` 的 replay 结果，不是内存 run 当前最新 seq；内存最新 seq 只用于服务端运行状态。新的 Native / Team run 只在事件实际发布时递增该游标，内部事件复用最近公开游标；历史 run 的旧游标不迁移。对 `WAITING_SUBMIT` active run，该 attach 应在 submit 前建立并保持等待；submit 成功不应再创建第二个 attach，同一连接会从 `request.submit` / `awaiting.answer` 开始继续接收该 run 的后续事件。
 
 `/api/chat/jsonl`、`/api/chat/system-prompt`、chat/archive replay、搜索结果与 `/api/chat/llm-trace` 都在读取前验证各自明确拥有的时间字段。JSONL 的 line `updatedAt`、event `timestamp`、`messages[].ts` 和 awaiting/submit 时间保持严格；trace 中 `sentAt`、`responseStartedAt`、`completedAt` 以及 `interrupt.interruptedAt` 均为 epoch milliseconds，对应的 `sentTime`、`responseStartedTime`、`completedTime`、`interrupt.interruptedTime` 为 RFC3339Nano 可读时间。字符串、秒、浮点、零值或缺少必填平台时间会返回 `422 time_contract_violation`；trace 中外部 request/response/tool payload 保持透明。
 
@@ -729,7 +729,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 
 当 `POST /api/query` 使用 SSE 时，WebClient 同时保持 `/ws` 控制连接，并在 query 与后续 `GET /api/attach` 中发送 `X-Agent-WebClient-Device-Id`、`X-Agent-WebClient-Surface-Id`。前者与 `/ws?deviceId=...` 使用同一个 localStorage device 标识；认证 JWT 已含 device claim 时以 claim 为准。WebSocket query/attach 则直接使用发起请求的连接。每次成功且具有有效 target 的 attach 都把该连接或逻辑 surface 设为 run 的最新反向 Action target；失败 attach 和不带 target headers 的普通 HTTP attach 不改变原绑定。WebClient 反向 request 默认等待 20 秒。
 
-回放事件的 `seq` 是展示序号。`chatId.jsonl` 使用每行顶层 `liveSeq` 记录该行覆盖到的原始 live stream 序号；replay 时会把它注入到对应事件 payload，供 attach cursor 使用。
+回放事件的 `seq` 是展示序号。`chatId.jsonl` 使用每行顶层 `liveSeq` 记录该行覆盖到的公开 live stream 游标；replay 时会把它注入到对应事件 payload，供 attach cursor 使用。新的 Native / Team run 对外事件序号严格连续，`llm.request`、内部 snapshot、隐藏工具等不发布事件不占号；PROXY / CHANNEL 保持上游序号语义。
 
 ### WS Route
 
