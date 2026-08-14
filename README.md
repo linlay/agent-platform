@@ -341,7 +341,7 @@ powershell -ExecutionPolicy Bypass -File scripts/sync-local-builtins.ps1 -Target
 make release ARCH=amd64
 ```
 
-产物写入 `dist/release/`，包含纯 Go runtime、配置模板、启停脚本、`bin/{rg,dbx,httpx,kbase-lance-engine,pdftotext}`、`libexec/poppler-pdftotext/`、builtins manifest、许可证 notice、压缩包 SHA-256 与大小报告。program manifest 声明 `desktop.runtimeResources: "v1"`；`deploy.sh` / `deploy.ps1` 将 Desktop 传入的 env.zip 与稳定设备标识交给统一的 `agent-platform runtime-resource-sync` 子命令，由 Platform 迁移已有 runtime 的 Agent、Skill、Tool、Team 与 Registry；新版包声明 `provider-register.json` 时，还会重新生成并注入 Provider API key。`release-program` 只复制并复验 `build/builtins/<os>-<arch>/` 中由 `sync-local-builtins.sh` 原子生成的 cache，不会构建 Rust sidecar，也不会读取相邻 `agent-platform-builtins`。Docker 构建需要预先执行 `./scripts/sync-local-builtins.sh --target linux/<arch>`，使匹配的 Linux cache 位于 `build/builtins/`。Desktop 宿主集成时执行资源同步：
+产物写入 `dist/release/`，包含纯 Go runtime、配置模板、启停脚本、`bin/{rg,dbx,httpx,kbase-lance-engine,pdftotext}`、`libexec/poppler-pdftotext/`、builtins manifest、许可证 notice、压缩包 SHA-256 与大小报告。program manifest 声明 `desktop.runtimeResources: "v1"`；`deploy.sh` / `deploy.ps1` 将 Desktop 传入的 env.zip 与稳定设备标识交给统一的 `agent-platform runtime-resource-sync` 子命令，由 Platform 迁移已有 runtime 的 Agent、Skill、Tool、Team 与 Registry。包内四类一级资源及同路径 Registry 是发行方权威版本，同名目标会覆盖；新版包声明 `provider-register.json` 时，还会重新生成并注入 Provider API key。`release-program` 只复制并复验 `build/builtins/<os>-<arch>/` 中由 `sync-local-builtins.sh` 原子生成的 cache，不会构建 Rust sidecar，也不会读取相邻 `agent-platform-builtins`。Docker 构建需要预先执行 `./scripts/sync-local-builtins.sh --target linux/<arch>`，使匹配的 Linux cache 位于 `build/builtins/`。Desktop 宿主集成时执行资源同步：
 
 ```bash
 npm run sync:assets
