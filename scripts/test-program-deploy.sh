@@ -102,6 +102,7 @@ AGENT_PLATFORM_TEST_CAPTURE_RESOURCE_ARGS="$resource_args" run_deploy "$reset_ou
   --ai-image-generate-model-key th-gpt-image-2 \
   --runtime-resource-source "$resource_source" \
   --runtime-resource-previous-source "$resource_previous_source" \
+  --desktop-device-id desktop-device-123 \
   --runtime-resource-mode version-change
 captured_resource_args=()
 while IFS= read -r captured_resource_arg; do
@@ -113,6 +114,7 @@ expected_resource_args=(
   --runtime-resource-source "$resource_source"
   --desktop-version-from v0.3.26
   --desktop-version-to v0.3.27
+  --desktop-device-id desktop-device-123
   --mode version-change
   --runtime-resource-previous-source "$resource_previous_source"
 )
@@ -125,6 +127,7 @@ set +e
 AGENT_PLATFORM_TEST_RESOURCE_EXIT_CODE=19 run_deploy "$reset_output" \
   --desktop-version-from v0.3.26 \
   --desktop-version-to v0.3.27 \
+  --desktop-device-id desktop-device-123 \
   --runtime-resource-source "$resource_source" \
   --runtime-resource-mode version-change >/dev/null 2>&1
 resource_failure_status=$?

@@ -18,6 +18,7 @@ import (
 
 const (
 	archiveRoot            = "env"
+	providerRegisterFile   = "provider-register.json"
 	maxArchiveFileBytes    = int64(2 << 30)
 	maxArchiveContentBytes = int64(8 << 30)
 )
@@ -27,12 +28,13 @@ var resourceScopes = []string{"agents", "skills-center", "tools", "teams", "regi
 var unitScopes = []string{"agents", "skills-center", "tools", "teams"}
 
 type archiveInventory struct {
-	version       string
-	versionRaw    string
-	sha256        string
-	extractedRoot string
-	units         map[string]struct{}
-	registryFiles map[string]struct{}
+	version              string
+	versionRaw           string
+	sha256               string
+	extractedRoot        string
+	providerRegisterPath string
+	units                map[string]struct{}
+	registryFiles        map[string]struct{}
 }
 
 func extractArchive(sourcePath, expectedVersion, workRoot string) (archiveInventory, error) {
@@ -133,13 +135,18 @@ func extractArchive(sourcePath, expectedVersion, workRoot string) (archiveInvent
 	if err != nil {
 		return archiveInventory{}, err
 	}
+	providerRegisterPath, err := optionalRegularFilePath(filepath.Join(extractedRoot, providerRegisterFile))
+	if err != nil {
+		return archiveInventory{}, err
+	}
 	return archiveInventory{
-		version:       version,
-		versionRaw:    versionRaw,
-		sha256:        digest,
-		extractedRoot: extractedRoot,
-		units:         units,
-		registryFiles: registryFiles,
+		version:              version,
+		versionRaw:           versionRaw,
+		sha256:               digest,
+		extractedRoot:        extractedRoot,
+		providerRegisterPath: providerRegisterPath,
+		units:                units,
+		registryFiles:        registryFiles,
 	}, nil
 }
 
@@ -171,7 +178,7 @@ func validateArchiveEntry(entry *zip.File) (string, bool, error) {
 }
 
 func isPlatformResourcePath(relative string) bool {
-	if relative == "VERSION" {
+	if relative == "VERSION" || relative == providerRegisterFile {
 		return true
 	}
 	first := strings.SplitN(relative, "/", 2)[0]
@@ -181,6 +188,20 @@ func isPlatformResourcePath(relative string) bool {
 		}
 	}
 	return false
+}
+
+func optionalRegularFilePath(filePath string) (string, error) {
+	info, err := os.Lstat(filePath)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("runtime resource ZIP %s must be a regular file", providerRegisterFile)
+	}
+	return filePath, nil
 }
 
 func extractZipFile(entry *zip.File, target string) error {

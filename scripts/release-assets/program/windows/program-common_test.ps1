@@ -140,6 +140,7 @@ public static class FakeAgentPlatformBackend
   $Script:DeployRuntimeResourceMode = 'version-change'
   $Script:DeployDesktopVersionFrom = 'v0.3.26'
   $Script:DeployDesktopVersionTo = 'v0.3.27'
+  $Script:DeployDesktopDeviceId = 'desktop-device-123'
   $env:AGENT_PLATFORM_TEST_CAPTURE_ARGS = $capturedArgsFile
   $env:AGENT_PLATFORM_TEST_BACKEND_EXIT_CODE = '0'
   Invoke-ProgramRuntimeResourceSync
@@ -150,6 +151,7 @@ public static class FakeAgentPlatformBackend
     '--runtime-resource-source', $resourceSource,
     '--desktop-version-from', 'v0.3.26',
     '--desktop-version-to', 'v0.3.27',
+    '--desktop-device-id', 'desktop-device-123',
     '--mode', 'version-change',
     '--runtime-resource-previous-source', $resourcePreviousSource
   )

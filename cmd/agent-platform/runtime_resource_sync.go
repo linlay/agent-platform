@@ -19,6 +19,7 @@ func runRuntimeResourceSync(args []string, output io.Writer) error {
 	flags.StringVar(&options.PreviousSource, "runtime-resource-previous-source", "", "optional previous Desktop env.zip")
 	flags.StringVar(&options.DesktopFrom, "desktop-version-from", "", "previous Desktop version or legacy")
 	flags.StringVar(&options.DesktopTo, "desktop-version-to", "", "target Desktop version")
+	flags.StringVar(&options.DesktopDeviceID, "desktop-device-id", "", "stable Desktop device id used by provider registration")
 	flags.StringVar(&options.Mode, "mode", "", "version-change or manual-import")
 	if err := flags.Parse(args); err != nil {
 		return fmt.Errorf("parse runtime-resource-sync arguments: %w", err)

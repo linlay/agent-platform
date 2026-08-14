@@ -91,6 +91,15 @@ func Sync(options Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	regeneratedProviderKeys, err := applyProviderRegistration(
+		candidateRoot,
+		current.providerRegisterPath,
+		options.DesktopDeviceID,
+	)
+	if err != nil {
+		return Result{}, err
+	}
+	stats.RegeneratedProviderKeys = regeneratedProviderKeys
 	if err := os.WriteFile(filepath.Join(candidateRoot, "VERSION"), []byte(current.versionRaw+"\n"), 0o600); err != nil {
 		return Result{}, fmt.Errorf("write candidate VERSION: %w", err)
 	}

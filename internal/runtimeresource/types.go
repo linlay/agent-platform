@@ -13,6 +13,7 @@ type Options struct {
 	PreviousSource   string
 	DesktopFrom      string
 	DesktopTo        string
+	DesktopDeviceID  string
 	Mode             string
 	Now              func() time.Time
 	BeforePublish    func() error
@@ -26,6 +27,7 @@ type Stats struct {
 	AddedRegistryFiles          int `json:"addedRegistryFiles"`
 	OverwrittenRegistryFiles    int `json:"overwrittenRegistryFiles"`
 	RemovedManagedRegistryFiles int `json:"removedManagedRegistryFiles"`
+	RegeneratedProviderKeys     int `json:"regeneratedProviderKeys"`
 }
 
 type Result struct {

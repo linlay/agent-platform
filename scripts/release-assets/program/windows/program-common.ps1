@@ -36,6 +36,7 @@ $Script:DeployDesktopVersionTo = ''
 $Script:DeployRuntimeResourceSource = ''
 $Script:DeployRuntimeResourcePreviousSource = ''
 $Script:DeployRuntimeResourceMode = ''
+$Script:DeployDesktopDeviceId = ''
 $Script:Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
 function Fail-Program([string]$Message) {
@@ -132,6 +133,7 @@ function Set-ProgramDeployOption([string]$Name, [string]$Value) {
     '--runtime-resource-source' { $Script:DeployRuntimeResourceSource = $Value }
     '--runtime-resource-previous-source' { $Script:DeployRuntimeResourcePreviousSource = $Value }
     '--runtime-resource-mode' { $Script:DeployRuntimeResourceMode = $Value }
+    '--desktop-device-id' { $Script:DeployDesktopDeviceId = $Value }
     default { Fail-Program "unsupported deploy argument: $Name" }
   }
   Update-ProgramPaths
@@ -169,7 +171,8 @@ function Set-ProgramDeployArgs([string[]]$Arguments) {
       '--desktop-version-to',
       '--runtime-resource-source',
       '--runtime-resource-previous-source',
-      '--runtime-resource-mode'
+      '--runtime-resource-mode',
+      '--desktop-device-id'
     ) -notcontains $name) {
       Fail-Program "unsupported deploy argument: $name"
     }
@@ -191,7 +194,8 @@ function Set-ProgramDeployArgs([string[]]$Arguments) {
   }
   if (-not [string]::IsNullOrWhiteSpace($Script:DeployRuntimeResourceSource) -or
       -not [string]::IsNullOrWhiteSpace($Script:DeployRuntimeResourcePreviousSource) -or
-      -not [string]::IsNullOrWhiteSpace($Script:DeployRuntimeResourceMode)) {
+      -not [string]::IsNullOrWhiteSpace($Script:DeployRuntimeResourceMode) -or
+      -not [string]::IsNullOrWhiteSpace($Script:DeployDesktopDeviceId)) {
     Assert-ProgramArgValue '--runtime-resource-source' $Script:DeployRuntimeResourceSource
     if (-not (Test-Path -LiteralPath $Script:DeployRuntimeResourceSource -PathType Leaf)) {
       Fail-Program "required file not found: $Script:DeployRuntimeResourceSource"
@@ -205,6 +209,7 @@ function Set-ProgramDeployArgs([string[]]$Arguments) {
     }
     Assert-ProgramArgValue '--desktop-version-from' $Script:DeployDesktopVersionFrom
     Assert-ProgramArgValue '--desktop-version-to' $Script:DeployDesktopVersionTo
+    Assert-ProgramArgValue '--desktop-device-id' $Script:DeployDesktopDeviceId
   }
 }
 
@@ -216,6 +221,7 @@ function Invoke-ProgramRuntimeResourceSync {
     '--runtime-resource-source', $Script:DeployRuntimeResourceSource,
     '--desktop-version-from', $Script:DeployDesktopVersionFrom,
     '--desktop-version-to', $Script:DeployDesktopVersionTo,
+    '--desktop-device-id', $Script:DeployDesktopDeviceId,
     '--mode', $Script:DeployRuntimeResourceMode
   )
   if (-not [string]::IsNullOrWhiteSpace($Script:DeployRuntimeResourcePreviousSource)) {

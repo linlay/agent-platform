@@ -2,7 +2,10 @@ package runtimeresource
 
 import (
 	"archive/zip"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,6 +13,150 @@ import (
 	"testing"
 	"time"
 )
+
+func TestSyncRegeneratesProviderAPIKeyFromPackagedRegistration(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	writeTestFile(t, filepath.Join(runtimeRoot, "registries", "providers", "th-main.yml"), strings.Join([]string{
+		"key: th-main",
+		"baseUrl: https://old.example.com",
+		"apiKey: old-runtime-key",
+		"defaultModel: th-model",
+	}, "\n"))
+
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requestCount++
+		if request.Method != http.MethodPost {
+			t.Errorf("method=%s", request.Method)
+		}
+		if authorization := request.Header.Get("Authorization"); authorization != "Bearer package-grant" {
+			t.Errorf("authorization=%q", authorization)
+		}
+		var body map[string]string
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		if body["name"] != "desktop-device-123" {
+			t.Errorf("request body=%#v", body)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"key":"new-generated-key"}`))
+	}))
+	defer server.Close()
+
+	source := writeTestZip(t, providerRegistrationTestEntries(t, server.URL))
+	result, err := Sync(Options{
+		RuntimeDir:      runtimeRoot,
+		Source:          source,
+		DesktopFrom:     "1.0.0",
+		DesktopTo:       "2.0.0",
+		DesktopDeviceID: "desktop-device-123",
+		Mode:            ModeVersionChange,
+		Now:             fixedNow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requestCount != 1 || result.Stats.RegeneratedProviderKeys != 1 {
+		t.Fatalf("requestCount=%d result=%#v", requestCount, result)
+	}
+	providerPath := filepath.Join(runtimeRoot, "registries", "providers", "th-main.yml")
+	providerContent, err := os.ReadFile(providerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(providerContent), "apiKey: new-generated-key") || strings.Contains(string(providerContent), "old-runtime-key") {
+		t.Fatalf("provider API key was not regenerated: %s", providerContent)
+	}
+	assertTestFile(t, filepath.Join(result.BackupDir, "registries", "providers", "th-main.yml"), strings.Join([]string{
+		"key: th-main",
+		"baseUrl: https://old.example.com",
+		"apiKey: old-runtime-key",
+		"defaultModel: th-model",
+	}, "\n"))
+	assertMissing(t, filepath.Join(runtimeRoot, providerRegisterFile))
+}
+
+func TestProviderRegistrationFailureDoesNotPublishOrCommit(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	providerPath := filepath.Join(runtimeRoot, "registries", "providers", "th-main.yml")
+	writeTestFile(t, providerPath, "key: th-main\napiKey: old-runtime-key\n")
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusBadGateway)
+	}))
+	defer server.Close()
+
+	_, err := Sync(Options{
+		RuntimeDir:      runtimeRoot,
+		Source:          writeTestZip(t, providerRegistrationTestEntries(t, server.URL)),
+		DesktopFrom:     "1.0.0",
+		DesktopTo:       "2.0.0",
+		DesktopDeviceID: "desktop-device-123",
+		Mode:            ModeVersionChange,
+	})
+	if err == nil || !strings.Contains(err.Error(), "HTTP 502") {
+		t.Fatalf("error=%v", err)
+	}
+	assertTestFile(t, providerPath, "key: th-main\napiKey: old-runtime-key\n")
+	assertMissing(t, filepath.Join(runtimeRoot, stateDirectoryName, stateFileName))
+	assertMissing(t, filepath.Join(runtimeRoot, stateDirectoryName, journalFileName))
+}
+
+func TestPackagedProviderRegistrationRequiresDesktopDeviceID(t *testing.T) {
+	requested := false
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		requested = true
+	}))
+	defer server.Close()
+	_, err := Sync(Options{
+		RuntimeDir:  t.TempDir(),
+		Source:      writeTestZip(t, providerRegistrationTestEntries(t, server.URL)),
+		DesktopFrom: "1.0.0",
+		DesktopTo:   "2.0.0",
+		Mode:        ModeVersionChange,
+	})
+	if err == nil || !strings.Contains(err.Error(), "--desktop-device-id") {
+		t.Fatalf("error=%v", err)
+	}
+	if requested {
+		t.Fatal("provider registration request ran without a device id")
+	}
+}
+
+func providerRegistrationTestEntries(t *testing.T, endpoint string) map[string]string {
+	t.Helper()
+	register, err := json.Marshal(map[string]any{
+		"enabled":  true,
+		"endpoint": endpoint,
+		"grant": map[string]string{
+			"type":  "jwt",
+			"token": "package-grant",
+		},
+		"providers": []string{"th-main"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return map[string]string{
+		"env/VERSION":                "v2.0.0\n",
+		"env/provider-register.json": string(register),
+		"env/registries/providers/th-main.yml": strings.Join([]string{
+			"key: th-main",
+			"baseUrl: https://new.example.com",
+			"apiKey:",
+			"defaultModel: th-model",
+			"protocols:",
+			"  OPENAI:",
+			"    endpointPath: /v1/chat/completions",
+		}, "\n"),
+		"env/registries/models/th-model.yml": strings.Join([]string{
+			"key: th-model",
+			"provider: th-main",
+			"protocol: OPENAI",
+			"modelId: th-model",
+		}, "\n"),
+	}
+}
 
 func TestSyncMergesAllPlatformResourceDomains(t *testing.T) {
 	runtimeRoot := t.TempDir()

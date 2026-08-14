@@ -37,6 +37,7 @@ DEPLOY_DESKTOP_VERSION_TO=""
 DEPLOY_RUNTIME_RESOURCE_SOURCE=""
 DEPLOY_RUNTIME_RESOURCE_PREVIOUS_SOURCE=""
 DEPLOY_RUNTIME_RESOURCE_MODE=""
+DEPLOY_DESKTOP_DEVICE_ID=""
 
 program_die() {
   echo "[program] $*" >&2
@@ -224,6 +225,11 @@ program_apply_deploy_flags() {
         DEPLOY_RUNTIME_RESOURCE_MODE="$2"
         shift 2
         ;;
+      --desktop-device-id)
+        [[ $# -ge 2 ]] || program_die "missing value for --desktop-device-id"
+        DEPLOY_DESKTOP_DEVICE_ID="$2"
+        shift 2
+        ;;
       --config-dir|--state-dir|--log-dir|--port|--identity-file|--daemon)
         program_reject_deploy_start_arg "$1"
         ;;
@@ -247,7 +253,7 @@ program_apply_deploy_flags() {
       "$DEPLOY_DESKTOP_VERSION_FROM" \
       "$DEPLOY_DESKTOP_VERSION_TO"
   fi
-  if [[ -n "$DEPLOY_RUNTIME_RESOURCE_SOURCE" || -n "$DEPLOY_RUNTIME_RESOURCE_PREVIOUS_SOURCE" || -n "$DEPLOY_RUNTIME_RESOURCE_MODE" ]]; then
+  if [[ -n "$DEPLOY_RUNTIME_RESOURCE_SOURCE" || -n "$DEPLOY_RUNTIME_RESOURCE_PREVIOUS_SOURCE" || -n "$DEPLOY_RUNTIME_RESOURCE_MODE" || -n "$DEPLOY_DESKTOP_DEVICE_ID" ]]; then
     program_require_arg_value "--runtime-resource-source" "$DEPLOY_RUNTIME_RESOURCE_SOURCE"
     program_require_file "$DEPLOY_RUNTIME_RESOURCE_SOURCE"
     if [[ -n "$DEPLOY_RUNTIME_RESOURCE_PREVIOUS_SOURCE" ]]; then
@@ -259,6 +265,7 @@ program_apply_deploy_flags() {
     esac
     program_require_arg_value "--desktop-version-from" "$DEPLOY_DESKTOP_VERSION_FROM"
     program_require_arg_value "--desktop-version-to" "$DEPLOY_DESKTOP_VERSION_TO"
+    program_require_arg_value "--desktop-device-id" "$DEPLOY_DESKTOP_DEVICE_ID"
   fi
 }
 
@@ -270,6 +277,7 @@ program_sync_runtime_resources() {
     --runtime-resource-source "$DEPLOY_RUNTIME_RESOURCE_SOURCE"
     --desktop-version-from "$DEPLOY_DESKTOP_VERSION_FROM"
     --desktop-version-to "$DEPLOY_DESKTOP_VERSION_TO"
+    --desktop-device-id "$DEPLOY_DESKTOP_DEVICE_ID"
     --mode "$DEPLOY_RUNTIME_RESOURCE_MODE"
   )
   if [[ -n "$DEPLOY_RUNTIME_RESOURCE_PREVIOUS_SOURCE" ]]; then
