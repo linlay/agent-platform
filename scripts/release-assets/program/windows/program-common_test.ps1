@@ -56,6 +56,7 @@ $runDir = Join-Path $processTestRoot 'run'
 $logDir = Join-Path $processTestRoot 'logs'
 $previousCapturePath = $env:AGENT_PLATFORM_TEST_CAPTURE_ARGS
 $previousDelayMs = $env:AGENT_PLATFORM_TEST_BACKEND_DELAY_MS
+$previousExitCode = $env:AGENT_PLATFORM_TEST_BACKEND_EXIT_CODE
 
 try {
   New-Item -ItemType Directory -Force -Path $configRoot, $runDir, $logDir | Out-Null
@@ -72,7 +73,9 @@ public static class FakeAgentPlatformBackend
         int delayMs;
         if (!int.TryParse(Environment.GetEnvironmentVariable("AGENT_PLATFORM_TEST_BACKEND_DELAY_MS"), out delayMs)) delayMs = 0;
         Thread.Sleep(delayMs);
-        return 0;
+        int exitCode;
+        if (!int.TryParse(Environment.GetEnvironmentVariable("AGENT_PLATFORM_TEST_BACKEND_EXIT_CODE"), out exitCode)) exitCode = 0;
+        return exitCode;
     }
 }
 '@
@@ -126,6 +129,42 @@ public static class FakeAgentPlatformBackend
     }
   }
   Write-Host '[test] agent-platform foreground preserves spaced identity paths'
+
+  $resourceSource = Join-Path $processTestRoot 'current env.zip'
+  $resourcePreviousSource = Join-Path $processTestRoot 'previous env.zip'
+  [System.IO.File]::WriteAllText($resourceSource, '')
+  [System.IO.File]::WriteAllText($resourcePreviousSource, '')
+  $Script:DeployAPRuntimeDir = Join-Path $processTestRoot 'runtime root'
+  $Script:DeployRuntimeResourceSource = $resourceSource
+  $Script:DeployRuntimeResourcePreviousSource = $resourcePreviousSource
+  $Script:DeployRuntimeResourceMode = 'version-change'
+  $Script:DeployDesktopVersionFrom = 'v0.3.26'
+  $Script:DeployDesktopVersionTo = 'v0.3.27'
+  $env:AGENT_PLATFORM_TEST_CAPTURE_ARGS = $capturedArgsFile
+  $env:AGENT_PLATFORM_TEST_BACKEND_EXIT_CODE = '0'
+  Invoke-ProgramRuntimeResourceSync
+  $capturedResourceArgs = @(Get-Content -LiteralPath $capturedArgsFile)
+  $expectedResourceArgs = @(
+    'runtime-resource-sync',
+    '--ap-runtime-dir', $Script:DeployAPRuntimeDir,
+    '--runtime-resource-source', $resourceSource,
+    '--desktop-version-from', 'v0.3.26',
+    '--desktop-version-to', 'v0.3.27',
+    '--mode', 'version-change',
+    '--runtime-resource-previous-source', $resourcePreviousSource
+  )
+  if (($capturedResourceArgs -join "`n") -cne ($expectedResourceArgs -join "`n")) {
+    throw "runtime resource arguments were not forwarded exactly: $($capturedResourceArgs -join ' | ')"
+  }
+  $env:AGENT_PLATFORM_TEST_BACKEND_EXIT_CODE = '23'
+  $syncFailed = $false
+  try {
+    Invoke-ProgramRuntimeResourceSync
+  } catch {
+    $syncFailed = $_.Exception.Message -like '*exit code 23*'
+  }
+  if (-not $syncFailed) { throw 'runtime resource subcommand failure did not fail deploy' }
+  Write-Host '[test] runtime resource sync arguments and failures are forwarded'
 } finally {
   if (Test-Path -LiteralPath $Script:PidFile -PathType Leaf) {
     $testPid = (Get-Content -LiteralPath $Script:PidFile -Raw -ErrorAction SilentlyContinue).Trim()
@@ -135,6 +174,7 @@ public static class FakeAgentPlatformBackend
   }
   $env:AGENT_PLATFORM_TEST_CAPTURE_ARGS = $previousCapturePath
   $env:AGENT_PLATFORM_TEST_BACKEND_DELAY_MS = $previousDelayMs
+  $env:AGENT_PLATFORM_TEST_BACKEND_EXIT_CODE = $previousExitCode
   if (Test-Path -LiteralPath $processTestRoot) {
     Remove-Item -LiteralPath $processTestRoot -Recurse -Force -ErrorAction SilentlyContinue
   }

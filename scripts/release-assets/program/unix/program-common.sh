@@ -34,6 +34,9 @@ DEPLOY_DESKTOP_CONFIG_RESET=0
 DEPLOY_DESKTOP_CONFIG_BACKUP_DIR=""
 DEPLOY_DESKTOP_VERSION_FROM=""
 DEPLOY_DESKTOP_VERSION_TO=""
+DEPLOY_RUNTIME_RESOURCE_SOURCE=""
+DEPLOY_RUNTIME_RESOURCE_PREVIOUS_SOURCE=""
+DEPLOY_RUNTIME_RESOURCE_MODE=""
 
 program_die() {
   echo "[program] $*" >&2
@@ -206,6 +209,21 @@ program_apply_deploy_flags() {
         DEPLOY_DESKTOP_VERSION_TO="$2"
         shift 2
         ;;
+      --runtime-resource-source)
+        [[ $# -ge 2 ]] || program_die "missing value for --runtime-resource-source"
+        DEPLOY_RUNTIME_RESOURCE_SOURCE="$2"
+        shift 2
+        ;;
+      --runtime-resource-previous-source)
+        [[ $# -ge 2 ]] || program_die "missing value for --runtime-resource-previous-source"
+        DEPLOY_RUNTIME_RESOURCE_PREVIOUS_SOURCE="$2"
+        shift 2
+        ;;
+      --runtime-resource-mode)
+        [[ $# -ge 2 ]] || program_die "missing value for --runtime-resource-mode"
+        DEPLOY_RUNTIME_RESOURCE_MODE="$2"
+        shift 2
+        ;;
       --config-dir|--state-dir|--log-dir|--port|--identity-file|--daemon)
         program_reject_deploy_start_arg "$1"
         ;;
@@ -229,6 +247,35 @@ program_apply_deploy_flags() {
       "$DEPLOY_DESKTOP_VERSION_FROM" \
       "$DEPLOY_DESKTOP_VERSION_TO"
   fi
+  if [[ -n "$DEPLOY_RUNTIME_RESOURCE_SOURCE" || -n "$DEPLOY_RUNTIME_RESOURCE_PREVIOUS_SOURCE" || -n "$DEPLOY_RUNTIME_RESOURCE_MODE" ]]; then
+    program_require_arg_value "--runtime-resource-source" "$DEPLOY_RUNTIME_RESOURCE_SOURCE"
+    program_require_file "$DEPLOY_RUNTIME_RESOURCE_SOURCE"
+    if [[ -n "$DEPLOY_RUNTIME_RESOURCE_PREVIOUS_SOURCE" ]]; then
+      program_require_file "$DEPLOY_RUNTIME_RESOURCE_PREVIOUS_SOURCE"
+    fi
+    case "$DEPLOY_RUNTIME_RESOURCE_MODE" in
+      version-change|manual-import) ;;
+      *) program_die "--runtime-resource-mode must be version-change or manual-import" ;;
+    esac
+    program_require_arg_value "--desktop-version-from" "$DEPLOY_DESKTOP_VERSION_FROM"
+    program_require_arg_value "--desktop-version-to" "$DEPLOY_DESKTOP_VERSION_TO"
+  fi
+}
+
+program_sync_runtime_resources() {
+  [[ -n "$DEPLOY_RUNTIME_RESOURCE_SOURCE" ]] || return 0
+  local args=(
+    runtime-resource-sync
+    --ap-runtime-dir "$DEPLOY_AP_RUNTIME_DIR"
+    --runtime-resource-source "$DEPLOY_RUNTIME_RESOURCE_SOURCE"
+    --desktop-version-from "$DEPLOY_DESKTOP_VERSION_FROM"
+    --desktop-version-to "$DEPLOY_DESKTOP_VERSION_TO"
+    --mode "$DEPLOY_RUNTIME_RESOURCE_MODE"
+  )
+  if [[ -n "$DEPLOY_RUNTIME_RESOURCE_PREVIOUS_SOURCE" ]]; then
+    args+=(--runtime-resource-previous-source "$DEPLOY_RUNTIME_RESOURCE_PREVIOUS_SOURCE")
+  fi
+  "$BACKEND_BIN" "${args[@]}"
 }
 
 program_initialize_config() {

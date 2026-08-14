@@ -18,6 +18,10 @@ Initialize-ProgramDeployConfig
 if ($Script:DeployDesktopConfigReset -and -not [string]::IsNullOrWhiteSpace($ChatResourceTicketSecret)) {
   Set-ProgramEnvValue $Script:EnvFile 'AP_CHAT_RESOURCE_TICKET_SECRET' $ChatResourceTicketSecret
 }
+if (-not [string]::IsNullOrWhiteSpace($Script:DeployRuntimeResourceSource)) {
+  Write-Host '[program-deploy] synchronizing Platform runtime resources'
+  Invoke-ProgramRuntimeResourceSync
+}
 if ($Script:DeployDesktopConfigReset) {
   Protect-ProgramConfigTree $Script:ConfigRoot
 }

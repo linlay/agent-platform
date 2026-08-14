@@ -13,7 +13,15 @@ cp "$REPO_ROOT/scripts/release-assets/program/unix/program-common.sh" "$bundle_r
 cp "$REPO_ROOT/configs/ai-tools.example.yml" "$bundle_root/configs/ai-tools.example.yml"
 printf '{}\n' >"$bundle_root/manifest.json"
 printf 'AP_RUNTIME_DIR=\nAP_CONTAINER_HUB_BASE_URL=\n' >"$bundle_root/.env.example"
-printf '#!/usr/bin/env bash\n' >"$bundle_root/backend/agent-platform"
+cat >"$bundle_root/backend/agent-platform" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "runtime-resource-sync" ]]; then
+  if [[ -n "${AGENT_PLATFORM_TEST_CAPTURE_RESOURCE_ARGS:-}" ]]; then
+    printf '%s\n' "$@" >"$AGENT_PLATFORM_TEST_CAPTURE_RESOURCE_ARGS"
+  fi
+  exit "${AGENT_PLATFORM_TEST_RESOURCE_EXIT_CODE:-0}"
+fi
+EOF
 printf 'test-public-key\n' >"$tmp_dir/local-public-key.pem"
 chmod +x "$bundle_root/deploy.sh" "$bundle_root/scripts/program-common.sh" "$bundle_root/backend/agent-platform"
 
@@ -80,6 +88,51 @@ grep -Fqx 'AP_CHAT_RESOURCE_TICKET_SECRET=ticket-secret' "$reset_output/.env"
 ! grep -Fq 'ENGINE=' "$reset_output/.env"
 ! grep -Fq 'OLD_FIELD=' "$reset_output/.env"
 cmp "$REPO_ROOT/configs/ai-tools.example.yml" "$reset_output/configs/ai-tools.yml"
+
+resource_source="$tmp_dir/current env.zip"
+resource_previous_source="$tmp_dir/previous env.zip"
+: >"$resource_source"
+: >"$resource_previous_source"
+resource_args="$tmp_dir/runtime-resource-args.txt"
+AGENT_PLATFORM_TEST_CAPTURE_RESOURCE_ARGS="$resource_args" run_deploy "$reset_output" \
+  --desktop-config-reset \
+  --desktop-config-backup-dir "$reset_backup" \
+  --desktop-version-from v0.3.26 \
+  --desktop-version-to v0.3.27 \
+  --ai-image-generate-model-key th-gpt-image-2 \
+  --runtime-resource-source "$resource_source" \
+  --runtime-resource-previous-source "$resource_previous_source" \
+  --runtime-resource-mode version-change
+captured_resource_args=()
+while IFS= read -r captured_resource_arg; do
+  captured_resource_args+=("$captured_resource_arg")
+done <"$resource_args"
+expected_resource_args=(
+  runtime-resource-sync
+  --ap-runtime-dir "$reset_output/runtime"
+  --runtime-resource-source "$resource_source"
+  --desktop-version-from v0.3.26
+  --desktop-version-to v0.3.27
+  --mode version-change
+  --runtime-resource-previous-source "$resource_previous_source"
+)
+[[ "${captured_resource_args[*]}" == "${expected_resource_args[*]}" ]] || {
+  echo "[program-deploy-test] runtime resource arguments were not forwarded exactly" >&2
+  exit 1
+}
+
+set +e
+AGENT_PLATFORM_TEST_RESOURCE_EXIT_CODE=19 run_deploy "$reset_output" \
+  --desktop-version-from v0.3.26 \
+  --desktop-version-to v0.3.27 \
+  --runtime-resource-source "$resource_source" \
+  --runtime-resource-mode version-change >/dev/null 2>&1
+resource_failure_status=$?
+set -e
+[[ "$resource_failure_status" -eq 19 ]] || {
+  echo "[program-deploy-test] runtime resource failure did not fail deploy" >&2
+  exit 1
+}
 
 printf 'FAILED_ONLY=diagnostic\n' >>"$reset_output/.env"
 run_deploy "$reset_output" \

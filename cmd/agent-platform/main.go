@@ -29,6 +29,13 @@ type shutdownServer interface {
 }
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "runtime-resource-sync" {
+		if err := runRuntimeResourceSync(os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) == 2 && os.Args[1] == "healthcheck" {
 		if err := runHealthcheck(); err != nil {
 			fmt.Fprintln(os.Stderr, err)

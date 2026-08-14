@@ -341,7 +341,7 @@ powershell -ExecutionPolicy Bypass -File scripts/sync-local-builtins.ps1 -Target
 make release ARCH=amd64
 ```
 
-产物写入 `dist/release/`，包含纯 Go runtime、配置模板、启停脚本、`bin/{rg,dbx,httpx,kbase-lance-engine,pdftotext}`、`libexec/poppler-pdftotext/`、builtins manifest、许可证 notice、压缩包 SHA-256 与大小报告。`release-program` 只复制并复验 `build/builtins/<os>-<arch>/` 中由 `sync-local-builtins.sh` 原子生成的 cache，不会构建 Rust sidecar，也不会读取相邻 `agent-platform-builtins`。Docker 构建需要预先执行 `./scripts/sync-local-builtins.sh --target linux/<arch>`，使匹配的 Linux cache 位于 `build/builtins/`。Desktop 宿主集成时执行资源同步：
+产物写入 `dist/release/`，包含纯 Go runtime、配置模板、启停脚本、`bin/{rg,dbx,httpx,kbase-lance-engine,pdftotext}`、`libexec/poppler-pdftotext/`、builtins manifest、许可证 notice、压缩包 SHA-256 与大小报告。program manifest 声明 `desktop.runtimeResources: "v1"`；`deploy.sh` / `deploy.ps1` 将 Desktop 传入的 env.zip 交给统一的 `agent-platform runtime-resource-sync` 子命令，由 Platform 迁移已有 runtime 的 Agent、Skill、Tool、Team 与 Registry。`release-program` 只复制并复验 `build/builtins/<os>-<arch>/` 中由 `sync-local-builtins.sh` 原子生成的 cache，不会构建 Rust sidecar，也不会读取相邻 `agent-platform-builtins`。Docker 构建需要预先执行 `./scripts/sync-local-builtins.sh --target linux/<arch>`，使匹配的 Linux cache 位于 `build/builtins/`。Desktop 宿主集成时执行资源同步：
 
 ```bash
 npm run sync:assets
@@ -387,6 +387,7 @@ docker compose logs -f
 - [真流式和H2A](./docs/真流式和H2A.md)
 - [记忆系统](./docs/记忆系统.md)
 - [运行时和沙箱](./docs/运行时和沙箱.md)
+- [运行时资源迁移](./docs/运行时资源迁移.md)
 - [API与协议](./docs/API与协议.md)
 - [HITL协议](./docs/HITL协议.md)
 - [自动化](./docs/自动化.md)

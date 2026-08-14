@@ -120,6 +120,7 @@
     "defaultPort": 11949
   },
   "desktop": {
+    "runtimeResources": "v1",
     "displayOrder": 2,
     "autoStart": true,
     "assetFileName": "__ASSET_FILENAME__",

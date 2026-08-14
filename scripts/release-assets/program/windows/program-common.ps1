@@ -33,6 +33,9 @@ $Script:DeployDesktopConfigReset = $false
 $Script:DeployDesktopConfigBackupDir = ''
 $Script:DeployDesktopVersionFrom = ''
 $Script:DeployDesktopVersionTo = ''
+$Script:DeployRuntimeResourceSource = ''
+$Script:DeployRuntimeResourcePreviousSource = ''
+$Script:DeployRuntimeResourceMode = ''
 $Script:Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
 function Fail-Program([string]$Message) {
@@ -126,6 +129,9 @@ function Set-ProgramDeployOption([string]$Name, [string]$Value) {
     '--desktop-config-backup-dir' { $Script:DeployDesktopConfigBackupDir = $Value }
     '--desktop-version-from' { $Script:DeployDesktopVersionFrom = $Value }
     '--desktop-version-to' { $Script:DeployDesktopVersionTo = $Value }
+    '--runtime-resource-source' { $Script:DeployRuntimeResourceSource = $Value }
+    '--runtime-resource-previous-source' { $Script:DeployRuntimeResourcePreviousSource = $Value }
+    '--runtime-resource-mode' { $Script:DeployRuntimeResourceMode = $Value }
     default { Fail-Program "unsupported deploy argument: $Name" }
   }
   Update-ProgramPaths
@@ -160,7 +166,10 @@ function Set-ProgramDeployArgs([string[]]$Arguments) {
       '--public-key-source-file',
       '--desktop-config-backup-dir',
       '--desktop-version-from',
-      '--desktop-version-to'
+      '--desktop-version-to',
+      '--runtime-resource-source',
+      '--runtime-resource-previous-source',
+      '--runtime-resource-mode'
     ) -notcontains $name) {
       Fail-Program "unsupported deploy argument: $name"
     }
@@ -179,6 +188,42 @@ function Set-ProgramDeployArgs([string[]]$Arguments) {
   }
   if ($Script:DeployDesktopConfigReset) {
     Assert-DesktopConfigResetArgs $Script:DeployDesktopConfigBackupDir $Script:DeployDesktopVersionFrom $Script:DeployDesktopVersionTo
+  }
+  if (-not [string]::IsNullOrWhiteSpace($Script:DeployRuntimeResourceSource) -or
+      -not [string]::IsNullOrWhiteSpace($Script:DeployRuntimeResourcePreviousSource) -or
+      -not [string]::IsNullOrWhiteSpace($Script:DeployRuntimeResourceMode)) {
+    Assert-ProgramArgValue '--runtime-resource-source' $Script:DeployRuntimeResourceSource
+    if (-not (Test-Path -LiteralPath $Script:DeployRuntimeResourceSource -PathType Leaf)) {
+      Fail-Program "required file not found: $Script:DeployRuntimeResourceSource"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($Script:DeployRuntimeResourcePreviousSource) -and
+        -not (Test-Path -LiteralPath $Script:DeployRuntimeResourcePreviousSource -PathType Leaf)) {
+      Fail-Program "required file not found: $Script:DeployRuntimeResourcePreviousSource"
+    }
+    if (@('version-change', 'manual-import') -notcontains $Script:DeployRuntimeResourceMode) {
+      Fail-Program '--runtime-resource-mode must be version-change or manual-import'
+    }
+    Assert-ProgramArgValue '--desktop-version-from' $Script:DeployDesktopVersionFrom
+    Assert-ProgramArgValue '--desktop-version-to' $Script:DeployDesktopVersionTo
+  }
+}
+
+function Invoke-ProgramRuntimeResourceSync {
+  if ([string]::IsNullOrWhiteSpace($Script:DeployRuntimeResourceSource)) { return }
+  $arguments = @(
+    'runtime-resource-sync',
+    '--ap-runtime-dir', $Script:DeployAPRuntimeDir,
+    '--runtime-resource-source', $Script:DeployRuntimeResourceSource,
+    '--desktop-version-from', $Script:DeployDesktopVersionFrom,
+    '--desktop-version-to', $Script:DeployDesktopVersionTo,
+    '--mode', $Script:DeployRuntimeResourceMode
+  )
+  if (-not [string]::IsNullOrWhiteSpace($Script:DeployRuntimeResourcePreviousSource)) {
+    $arguments += @('--runtime-resource-previous-source', $Script:DeployRuntimeResourcePreviousSource)
+  }
+  & $Script:BackendBin @arguments
+  if ($LASTEXITCODE -ne 0) {
+    Fail-Program "runtime-resource-sync failed with exit code $LASTEXITCODE"
   }
 }
 
