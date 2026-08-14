@@ -72,6 +72,29 @@ func TestEmbeddedToolDefinitionsHaveNoLegacyClassificationMetadata(t *testing.T)
 	}
 }
 
+func TestEmbeddedToolInputSchemasUsePortableSubset(t *testing.T) {
+	defs, err := LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatalf("load embedded tool definitions: %v", err)
+	}
+	for _, def := range defs {
+		if def.Parameters["type"] != "object" {
+			t.Fatalf("tool %s input schema root type = %#v, want object", def.Name, def.Parameters["type"])
+		}
+		if _, ok := def.Parameters["properties"].(map[string]any); !ok {
+			t.Fatalf("tool %s input schema root properties = %#v, want object", def.Name, def.Parameters["properties"])
+		}
+		for _, keyword := range []string{"oneOf", "anyOf", "allOf", "enum", "const", "not"} {
+			if _, exists := def.Parameters[keyword]; exists {
+				t.Fatalf("tool %s input schema root must not use %s: %#v", def.Name, keyword, def.Parameters)
+			}
+		}
+		if err := validatePortableEmbeddedSchema(def.Parameters, "$", def.Name); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestEmbeddedRunToolSchemasAndMetadata(t *testing.T) {
 	defs, err := LoadEmbeddedToolDefinitions()
 	if err != nil {
@@ -104,29 +127,23 @@ func TestEmbeddedRunToolSchemasAndMetadata(t *testing.T) {
 					t.Fatalf("run_query description missing current-agent rule %q: %q", requiredRule, def.Description)
 				}
 			}
-			if def.Parameters["type"] != "object" {
-				t.Fatalf("run_query schema root type = %#v, want object", def.Parameters["type"])
+			if def.Parameters["type"] != "object" || def.Parameters["additionalProperties"] != false {
+				t.Fatalf("run_query schema is not a closed object: %#v", def.Parameters)
 			}
-			branches, ok := def.Parameters["oneOf"].([]any)
-			if !ok || len(branches) != 2 {
-				t.Fatalf("run_query oneOf = %#v, want 2 branches", def.Parameters["oneOf"])
+			if _, exists := def.Parameters["oneOf"]; exists {
+				t.Fatalf("run_query schema must not use oneOf: %#v", def.Parameters)
 			}
-			for index, raw := range branches {
-				branch, ok := raw.(map[string]any)
-				if !ok || branch["additionalProperties"] != false {
-					t.Fatalf("run_query branch %d is not closed: %#v", index, raw)
+			properties := mapChild(t, def.Parameters, "properties")
+			for _, field := range []string{"message", "agentKey", "teamId", "chatId"} {
+				if _, exists := properties[field]; !exists {
+					t.Fatalf("run_query schema is missing %s: %#v", field, properties)
 				}
-				properties, _ := branch["properties"].(map[string]any)
-				if _, exists := properties["action"]; exists {
-					t.Fatalf("run_query branch %d still exposes action: %#v", index, raw)
-				}
-				wantRequired := []any{"message", "agentKey"}
-				if index == 1 {
-					wantRequired = []any{"message", "teamId"}
-				}
-				if required, _ := branch["required"].([]any); !reflect.DeepEqual(required, wantRequired) {
-					t.Fatalf("run_query branch %d required = %#v, want %#v", index, required, wantRequired)
-				}
+			}
+			if _, exists := properties["action"]; exists {
+				t.Fatalf("run_query schema still exposes action: %#v", properties)
+			}
+			if required, _ := def.Parameters["required"].([]any); !reflect.DeepEqual(required, []any{"message"}) {
+				t.Fatalf("run_query required = %#v, want [message]", required)
 			}
 			continue
 		}
@@ -482,14 +499,14 @@ func TestAskUserToolSchemasMatchContract(t *testing.T) {
 	if fmt.Sprint(questionOptionsSchema["minItems"]) != "1" {
 		t.Fatalf("expected ask user question options minItems=1, got %#v", questionOptionsSchema["minItems"])
 	}
-	allOf, ok := mapChild(t, questionsField, "items")["allOf"].([]any)
-	if !ok || len(allOf) == 0 {
-		t.Fatalf("expected conditional schema on ask user question items, got %#v", mapChild(t, questionsField, "items")["allOf"])
+	if fmt.Sprint(questionsField["minItems"]) != "1" {
+		t.Fatalf("expected ask user question questions minItems=1, got %#v", questionsField["minItems"])
 	}
-	conditional := mapChild(t, allOf[0].(map[string]any), "then")
-	condRequired, ok := conditional["required"].([]any)
-	if !ok || len(condRequired) != 1 || condRequired[0] != "options" {
-		t.Fatalf("expected select conditional to require options, got %#v", conditional["required"])
+	questionItemSchema := mapChild(t, questionsField, "items")
+	for _, keyword := range []string{"oneOf", "anyOf", "allOf", "if", "then", "else"} {
+		if _, exists := questionItemSchema[keyword]; exists {
+			t.Fatalf("ask user question items must not use %s: %#v", keyword, questionItemSchema)
+		}
 	}
 	questionOptionProperties := mapChild(t, questionOptions, "properties")
 	if _, ok := questionOptionProperties["value"]; ok {
@@ -656,6 +673,11 @@ func TestPlatformConfigSchemaUsesExactReadAllowlist(t *testing.T) {
 	if got, want := path["enum"], []any{"agents.creation.coder", "agents.creation.kbase"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("platform_config path enum = %#v, want %#v", got, want)
 	}
+	for _, keyword := range []string{"oneOf", "anyOf", "allOf", "if", "then", "else"} {
+		if _, exists := platformConfig.Parameters[keyword]; exists {
+			t.Fatalf("platform_config schema must not use %s: %#v", keyword, platformConfig.Parameters)
+		}
+	}
 }
 
 func TestEmbeddedToolDescriptionsAreEnglishFriendlyAndComplete(t *testing.T) {
@@ -757,4 +779,34 @@ func formatSchemaPath(prefix string, name string) string {
 func stringValue(value any) string {
 	text, _ := value.(string)
 	return text
+}
+
+func validatePortableEmbeddedSchema(schema map[string]any, path string, toolName string) error {
+	for _, keyword := range []string{"oneOf", "anyOf", "allOf", "const", "not", "if", "then", "else"} {
+		if _, exists := schema[keyword]; exists {
+			return fmt.Errorf("tool %s input schema %s must not use %s", toolName, path, keyword)
+		}
+	}
+	if properties, ok := schema["properties"].(map[string]any); ok {
+		for name, rawChild := range properties {
+			child, ok := rawChild.(map[string]any)
+			if !ok {
+				return fmt.Errorf("tool %s input schema %s.%s must be an object", toolName, path, name)
+			}
+			if err := validatePortableEmbeddedSchema(child, path+"."+name, toolName); err != nil {
+				return err
+			}
+		}
+	}
+	if items, ok := schema["items"].(map[string]any); ok {
+		if err := validatePortableEmbeddedSchema(items, path+"[]", toolName); err != nil {
+			return err
+		}
+	}
+	if additional, ok := schema["additionalProperties"].(map[string]any); ok {
+		if err := validatePortableEmbeddedSchema(additional, path+".*", toolName); err != nil {
+			return err
+		}
+	}
+	return nil
 }

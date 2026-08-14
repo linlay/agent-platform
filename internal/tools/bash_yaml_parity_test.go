@@ -36,6 +36,16 @@ func TestBashYAMLParity(t *testing.T) {
 	if reverse := difference(hostProps, containerProps); len(reverse) != 0 {
 		t.Fatalf("expected host props to be subset of container props, got extra=%v", reverse)
 	}
+	env := contracts.AnyMapNode(contracts.AnyMapNode(containerDef["properties"])["env"])
+	if env["type"] != "array" {
+		t.Fatalf("expected bash_sandbox env to be an array, got %#v", env)
+	}
+	item := contracts.AnyMapNode(env["items"])
+	if item["type"] != "object" || item["additionalProperties"] != false {
+		t.Fatalf("expected bash_sandbox env item to be a closed object, got %#v", item)
+	}
+	assertKeySet(t, propertyKeys(item), []string{"name", "value"})
+	assertRequiredKeys(t, item, []string{"name", "value"})
 }
 
 func propertyKeys(schema map[string]any) []string {

@@ -17,7 +17,10 @@ func (t *RuntimeToolExecutor) invokeSandboxBash(ctx context.Context, args map[st
 	if command == "" {
 		return ToolExecutionResult{Output: "Missing argument: command", Error: "missing_command", ExitCode: -1}, nil
 	}
-	invocationEnv := stringMapArg(args, "env")
+	invocationEnv, err := sandboxInvocationEnvArg(args)
+	if err != nil {
+		return ToolExecutionResult{Output: err.Error(), Error: "invalid_environment", ExitCode: -1}, nil
+	}
 	if err := agentconfig.ValidateUserEnvironment(invocationEnv); err != nil {
 		return ToolExecutionResult{Output: err.Error(), Error: "reserved_environment_variable", ExitCode: -1}, nil
 	}
@@ -56,6 +59,62 @@ func (t *RuntimeToolExecutor) invokeSandboxBash(ctx context.Context, args map[st
 		return ToolExecutionResult{Output: err.Error(), Error: "sandbox_execute_failed", ExitCode: -1}, nil
 	}
 	return bashResult(result.Stdout, result.Stderr, "sandbox", result.Cwd, result.ExitCode, ""), nil
+}
+
+func sandboxInvocationEnvArg(args map[string]any) (map[string]string, error) {
+	raw, exists := args["env"]
+	if !exists {
+		return nil, nil
+	}
+	items, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("env must be an array of name/value objects")
+	}
+	values := make(map[string]string, len(items))
+	for index, rawItem := range items {
+		item, ok := rawItem.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("env[%d] must be an object", index)
+		}
+		for key := range item {
+			if key != "name" && key != "value" {
+				return nil, fmt.Errorf("env[%d] contains unsupported field %q", index, key)
+			}
+		}
+		name, nameOK := item["name"].(string)
+		if !nameOK || !validSandboxEnvironmentName(name) {
+			return nil, fmt.Errorf("env[%d].name must match [A-Za-z_][A-Za-z0-9_]*", index)
+		}
+		value, valueOK := item["value"].(string)
+		if !valueOK {
+			return nil, fmt.Errorf("env[%d].value must be a string", index)
+		}
+		if _, duplicate := values[name]; duplicate {
+			return nil, fmt.Errorf("env contains duplicate variable %q", name)
+		}
+		values[name] = value
+	}
+	if len(values) == 0 {
+		return nil, nil
+	}
+	return values, nil
+}
+
+func validSandboxEnvironmentName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for index := 0; index < len(name); index++ {
+		char := name[index]
+		if (char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') || char == '_' {
+			continue
+		}
+		if index > 0 && char >= '0' && char <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func resolveSandboxCwd(execCtx *ExecutionContext, raw string) (string, error) {

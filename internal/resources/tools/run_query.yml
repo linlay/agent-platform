@@ -14,40 +14,23 @@ explicitOnly: true
 readOnly: false
 inputSchema:
   type: object
-  oneOf:
-    - type: object
-      properties:
-        message:
-          type: string
-          minLength: 1
-          description: Required. Task message to send to the target Agent.
-        agentKey:
-          type: string
-          minLength: 1
-          description: Required. Exact catalog key of the target Agent. When targeting the current Agent, use the exact Agent Identity.key from the current system prompt.
-        chatId:
-          type: string
-          minLength: 1
-          description: Optional. Existing chat owned by the target Agent to continue.
-      required:
-        - message
-        - agentKey
-      additionalProperties: false
-    - type: object
-      properties:
-        message:
-          type: string
-          minLength: 1
-          description: Required. Task message to send to the target Team.
-        teamId:
-          type: string
-          minLength: 1
-          description: Required. Exact catalog ID of the target Team. Use the target Team's exact catalog teamId.
-        chatId:
-          type: string
-          minLength: 1
-          description: Optional. Existing chat owned by the target Team to continue.
-      required:
-        - message
-        - teamId
-      additionalProperties: false
+  properties:
+    message:
+      type: string
+      minLength: 1
+      description: Required. Task message to send to the target Agent or Team.
+    agentKey:
+      type: string
+      minLength: 1
+      description: Optional. Exact catalog key of the target Agent. Provide exactly one of agentKey or teamId. When targeting the current Agent, use the exact Agent Identity.key from the current system prompt.
+    teamId:
+      type: string
+      minLength: 1
+      description: Optional. Exact catalog ID of the target Team. Provide exactly one of agentKey or teamId.
+    chatId:
+      type: string
+      minLength: 1
+      description: Optional. Existing Chat owned by the selected target to continue.
+  required:
+    - message
+  additionalProperties: false

@@ -9,7 +9,52 @@ import (
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	. "agent-platform/internal/models"
+	runtimetools "agent-platform/internal/tools"
 )
+
+func TestEmbeddedToolSchemasRemainPortableAfterProtocolSerialization(t *testing.T) {
+	defs, err := runtimetools.LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatalf("load embedded tool definitions: %v", err)
+	}
+	openAISpecs := toOpenAIToolSpecs(defs)
+	assertSerializedToolSchemaRoots(t, "openai", map[string]any{"tools": openAIToolSpecsToAny(openAISpecs)}, "parameters")
+	assertSerializedToolSchemaRoots(t, "anthropic", map[string]any{"tools": toAnthropicToolSpecs(openAISpecs)}, "input_schema")
+}
+
+func assertSerializedToolSchemaRoots(t *testing.T, protocol string, payload map[string]any, schemaKey string) {
+	t.Helper()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal %s tool payload: %v", protocol, err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal %s tool payload: %v", protocol, err)
+	}
+	items, _ := decoded["tools"].([]any)
+	if len(items) == 0 {
+		t.Fatalf("%s tool payload is empty", protocol)
+	}
+	for index, rawItem := range items {
+		item := AnyMapNode(rawItem)
+		name := AnyStringNode(item["name"])
+		if protocol == "openai" {
+			function := AnyMapNode(item["function"])
+			name = AnyStringNode(function["name"])
+			item = function
+		}
+		schema := AnyMapNode(item[schemaKey])
+		if schema["type"] != "object" {
+			t.Fatalf("%s tool %d (%s) schema type = %#v, want object", protocol, index, name, schema["type"])
+		}
+		for _, keyword := range []string{"oneOf", "anyOf", "allOf", "enum", "const", "not"} {
+			if _, exists := schema[keyword]; exists {
+				t.Fatalf("%s tool %d (%s) schema root uses %s: %#v", protocol, index, name, keyword, schema)
+			}
+		}
+	}
+}
 
 func TestCompatRequestOverridesMergeAlwaysAndReasoningScopedEntries(t *testing.T) {
 	provider := ProviderDefinition{
