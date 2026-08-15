@@ -1086,6 +1086,7 @@ type AdminSkillSummary struct {
 	Description     string                       `json:"description,omitempty"`
 	Icon            string                       `json:"icon,omitempty"`
 	Meta            map[string]any               `json:"meta,omitempty"`
+	Version         string                       `json:"version,omitempty"`
 	Status          string                       `json:"status"`
 	Diagnostic      *AdminRegistryListDiagnostic `json:"diagnostic,omitempty"`
 	DiagnosticCount int                          `json:"diagnosticCount,omitempty"`

@@ -935,8 +935,65 @@ func TestLoadSkillsParsesFullFrontMatterMetadata(t *testing.T) {
 	if !reflect.DeepEqual(got.Metadata, wantMetadata) {
 		t.Fatalf("Metadata = %#v", got.Metadata)
 	}
+	if got.Version != "1.0.0" {
+		t.Fatalf("Version = %q, want %q", got.Version, "1.0.0")
+	}
 	if !strings.Contains(got.Prompt, "\n---\n\nAnother section") {
 		t.Fatalf("expected body separators to remain in prompt, got %q", got.Prompt)
+	}
+}
+
+func TestLoadSkillVersionPrecedence(t *testing.T) {
+	cases := []struct {
+		name    string
+		skillMd string
+		want    string
+	}{
+		{
+			name:    "top level wins over metadata",
+			skillMd: "---\nname: Demo\nversion: 2.0.0\nmetadata:\n  version: \"1.0.0\"\n---\n",
+			want:    "2.0.0",
+		},
+		{
+			name:    "metadata fallback",
+			skillMd: "---\nname: Demo\nmetadata:\n  version: \"1.0.0\"\n---\n",
+			want:    "1.0.0",
+		},
+		{
+			name:    "top level unquoted",
+			skillMd: "---\nname: Demo\nversion: 0.0.0\n---\n",
+			want:    "0.0.0",
+		},
+		{
+			name:    "missing version",
+			skillMd: "---\nname: Demo\n---\n",
+			want:    "",
+		},
+		{
+			name:    "blank version treated as missing",
+			skillMd: "---\nname: Demo\nversion: \"\"\n---\n",
+			want:    "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			skillDir := filepath.Join(root, "demo-skill")
+			if err := os.MkdirAll(skillDir, 0o755); err != nil {
+				t.Fatalf("mkdir skill: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(tc.skillMd), 0o644); err != nil {
+				t.Fatalf("write skill: %v", err)
+			}
+			skills, err := loadSkills(root, 0)
+			if err != nil {
+				t.Fatalf("load skills: %v", err)
+			}
+			got := skills["demo-skill"]
+			if got.Version != tc.want {
+				t.Fatalf("Version = %q, want %q", got.Version, tc.want)
+			}
+		})
 	}
 }
 
