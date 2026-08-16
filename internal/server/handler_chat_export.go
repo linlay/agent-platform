@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,44 +25,26 @@ var (
 	errChatSystemPromptNotFound = errors.New("system prompt not found")
 )
 
-const chatSafeJSONLExportFormat = "raw"
+const (
+	chatSafeSSEExportFormat = "sse"
+	chatShareVersion        = 1
+	maxChatShareBytes       = 2 << 20
+	maxChatShareEvents      = 2000
+	maxChatShareContent     = 200_000
+	maxChatShareTitle       = 300
+	maxChatShareLabel       = 300
+)
 
-type chatTranscriptJSONLMetadata struct {
-	Type          string `json:"type"`
-	ExportVersion int    `json:"exportVersion"`
-	Kind          string `json:"kind"`
-	Title         string `json:"title"`
-	CreatedAt     int64  `json:"createdAt"`
-	UpdatedAt     int64  `json:"updatedAt"`
-}
+var (
+	errChatShareEmpty    = errors.New("chat has no shareable conversation")
+	errChatShareTooLarge = errors.New("chat share exceeds the public snapshot limit")
+)
 
-type chatTranscriptJSONLTurn struct {
-	Type        string               `json:"type"`
-	StartedAt   int64                `json:"startedAt"`
-	CompletedAt int64                `json:"completedAt,omitempty"`
-	Items       []chatTranscriptItem `json:"items"`
-}
-
-type chatTranscriptExport struct {
-	ExportVersion int                  `json:"exportVersion"`
-	Kind          string               `json:"kind"`
-	Title         string               `json:"title"`
-	CreatedAt     int64                `json:"createdAt"`
-	UpdatedAt     int64                `json:"updatedAt"`
-	Turns         []chatTranscriptTurn `json:"turns"`
-}
-
-type chatTranscriptTurn struct {
-	StartedAt   int64                `json:"startedAt"`
-	CompletedAt int64                `json:"completedAt,omitempty"`
-	Items       []chatTranscriptItem `json:"items"`
-}
-
-type chatTranscriptItem struct {
-	Kind      string `json:"kind"`
-	Content   string `json:"content"`
-	Label     string `json:"label,omitempty"`
-	CreatedAt int64  `json:"createdAt"`
+type chatShareTurn struct {
+	query        stream.EventData
+	events       []stream.EventData
+	bound        bool
+	terminalSeen bool
 }
 
 func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
@@ -110,8 +93,30 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if format == chatSafeJSONLExportFormat {
-		writeChatTranscriptJSONL(w, chatID, buildChatTranscriptExport(summary, detail.Events))
+	if format == chatSafeSSEExportFormat {
+		events, buildErr := buildChatShareEvents(summary, detail.Events)
+		if errors.Is(buildErr, errChatShareEmpty) {
+			writeJSON(w, http.StatusUnprocessableEntity, api.Failure(http.StatusUnprocessableEntity, buildErr.Error()))
+			return
+		}
+		if errors.Is(buildErr, errChatShareTooLarge) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, api.Failure(http.StatusRequestEntityTooLarge, buildErr.Error()))
+			return
+		}
+		if buildErr != nil {
+			writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, buildErr.Error()))
+			return
+		}
+		body, encodeErr := encodeChatShareSSE(events)
+		if errors.Is(encodeErr, errChatShareTooLarge) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, api.Failure(http.StatusRequestEntityTooLarge, encodeErr.Error()))
+			return
+		}
+		if encodeErr != nil {
+			writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, encodeErr.Error()))
+			return
+		}
+		writeChatShareSSE(w, chatID, summary.ChatName, body)
 		return
 	}
 
@@ -125,52 +130,38 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 
 func parseChatExportFormat(r *http.Request) (string, error) {
 	format := strings.TrimSpace(r.URL.Query().Get("format"))
-	if format != "" && format != chatSafeJSONLExportFormat {
+	if format != "" && format != chatSafeSSEExportFormat {
 		return "", fmt.Errorf("unsupported export format %q", format)
 	}
 	return format, nil
 }
 
-func writeChatTranscriptJSONL(w http.ResponseWriter, chatID string, transcript chatTranscriptExport) {
-	w.Header().Set("Content-Type", "application/x-ndjson; charset=utf-8")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, safeTranscriptJSONLFilename(transcript.Title, chatID)))
+func writeChatShareSSE(w http.ResponseWriter, chatID string, chatName string, body []byte) {
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, safeShareSSEFilename(chatName, chatID)))
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(http.StatusOK)
-	encoder := json.NewEncoder(w)
-	if err := encoder.Encode(chatTranscriptJSONLMetadata{
-		Type:          "metadata",
-		ExportVersion: transcript.ExportVersion,
-		Kind:          transcript.Kind,
-		Title:         transcript.Title,
-		CreatedAt:     transcript.CreatedAt,
-		UpdatedAt:     transcript.UpdatedAt,
-	}); err != nil {
-		return
-	}
-	for _, turn := range transcript.Turns {
-		if err := encoder.Encode(chatTranscriptJSONLTurn{
-			Type:        "turn",
-			StartedAt:   turn.StartedAt,
-			CompletedAt: turn.CompletedAt,
-			Items:       turn.Items,
-		}); err != nil {
-			return
-		}
-	}
+	_, _ = w.Write(body)
 }
 
-func buildChatTranscriptExport(summary *chat.Summary, events []stream.EventData) chatTranscriptExport {
+func buildChatShareEvents(summary *chat.Summary, events []stream.EventData) ([]stream.EventData, error) {
 	title := strings.TrimSpace(summary.ChatName)
 	if title == "" {
 		title = "Chat"
 	}
+	if len([]byte(title)) > maxChatShareTitle {
+		return nil, errChatShareTooLarge
+	}
 	turnIndexByRunID := make(map[string]int)
-	turns := make([]chatTranscriptTurn, 0)
-	boundTurns := make([]bool, 0)
+	turns := make([]chatShareTurn, 0)
 	pendingTurnIndex := -1
 	for _, event := range events {
 		switch event.Type {
 		case "request.query":
 			if strings.TrimSpace(event.String("taskId")) != "" || !api.QueryRoleVisible(event.String("role")) {
+				// A following run.start belongs to this hidden query, not to an
+				// earlier visible query that happened to omit runId.
+				pendingTurnIndex = -1
 				continue
 			}
 			content := strings.TrimSpace(event.String("message"))
@@ -184,15 +175,17 @@ func buildChatTranscriptExport(summary *chat.Summary, events []stream.EventData)
 				}
 			}
 			turnIndex := len(turns)
-			turns = append(turns, chatTranscriptTurn{
-				StartedAt: event.Timestamp,
-				Items: []chatTranscriptItem{{
-					Kind:      "user-message",
-					Content:   content,
-					CreatedAt: event.Timestamp,
-				}},
+			if len([]byte(content)) > maxChatShareContent {
+				return nil, errChatShareTooLarge
+			}
+			turns = append(turns, chatShareTurn{
+				query: stream.EventData{
+					Type:      "request.query",
+					Timestamp: event.Timestamp,
+					Payload:   map[string]any{"message": content},
+				},
 			})
-			boundTurns = append(boundTurns, runID != "")
+			turns[turnIndex].bound = runID != ""
 			if runID != "" {
 				turnIndexByRunID[runID] = turnIndex
 				pendingTurnIndex = -1
@@ -206,7 +199,7 @@ func buildChatTranscriptExport(summary *chat.Summary, events []stream.EventData)
 			}
 			if _, exists := turnIndexByRunID[runID]; !exists {
 				turnIndexByRunID[runID] = pendingTurnIndex
-				boundTurns[pendingTurnIndex] = true
+				turns[pendingTurnIndex].bound = true
 			}
 			pendingTurnIndex = -1
 		}
@@ -218,45 +211,88 @@ func buildChatTranscriptExport(summary *chat.Summary, events []stream.EventData)
 			continue
 		}
 		turn := &turns[turnIndex]
-		var item chatTranscriptItem
+		if turn.terminalSeen {
+			continue
+		}
+		var safe stream.EventData
 		switch event.Type {
 		case "request.query":
 			continue
+		case "run.start":
+			safe = stream.EventData{Type: event.Type, Timestamp: event.Timestamp}
 		case "reasoning.snapshot":
-			item.Kind = "assistant-reasoning"
-			item.Content = strings.TrimSpace(event.String("text"))
-			item.Label = strings.TrimSpace(event.String("reasoningLabel"))
-		case "content.snapshot":
-			item.Kind = "assistant-message"
-			item.Content = strings.TrimSpace(event.String("text"))
-		case "run.complete":
-			if event.Timestamp >= turn.StartedAt {
-				turn.CompletedAt = event.Timestamp
+			text := strings.TrimSpace(event.String("text"))
+			label := strings.TrimSpace(event.String("reasoningLabel"))
+			if text == "" {
+				continue
 			}
-			continue
+			if len([]byte(text)) > maxChatShareContent || len([]byte(label)) > maxChatShareLabel {
+				return nil, errChatShareTooLarge
+			}
+			payload := map[string]any{"text": text}
+			if label != "" {
+				payload["reasoningLabel"] = label
+			}
+			safe = stream.EventData{Type: event.Type, Timestamp: event.Timestamp, Payload: payload}
+		case "content.snapshot":
+			text := strings.TrimSpace(event.String("text"))
+			if text == "" {
+				continue
+			}
+			if len([]byte(text)) > maxChatShareContent {
+				return nil, errChatShareTooLarge
+			}
+			safe = stream.EventData{Type: event.Type, Timestamp: event.Timestamp, Payload: map[string]any{"text": text}}
+		case "run.complete", "run.cancel", "run.error":
+			if event.Timestamp < turn.query.Timestamp {
+				continue
+			}
+			safe = stream.EventData{Type: event.Type, Timestamp: event.Timestamp}
+			turn.terminalSeen = true
 		default:
 			continue
 		}
-		if item.Content == "" {
+		turn.events = append(turn.events, safe)
+	}
+	shareEvents := []stream.EventData{{
+		Type:      "chat.start",
+		Timestamp: summary.CreatedAt,
+		Payload: map[string]any{
+			"shareVersion": chatShareVersion,
+			"chatName":     title,
+		},
+	}}
+	for _, turn := range turns {
+		if !turn.bound {
 			continue
 		}
-		item.CreatedAt = event.Timestamp
-		turn.Items = append(turn.Items, item)
-	}
-	visibleTurns := make([]chatTranscriptTurn, 0, len(turns))
-	for index, turn := range turns {
-		if boundTurns[index] && len(turn.Items) > 0 {
-			visibleTurns = append(visibleTurns, turn)
+		shareEvents = append(shareEvents, turn.query)
+		shareEvents = append(shareEvents, turn.events...)
+		if len(shareEvents)-1 > maxChatShareEvents {
+			return nil, errChatShareTooLarge
 		}
 	}
-	return chatTranscriptExport{
-		ExportVersion: 1,
-		Kind:          "chat-transcript",
-		Title:         title,
-		CreatedAt:     summary.CreatedAt,
-		UpdatedAt:     summary.UpdatedAt,
-		Turns:         visibleTurns,
+	if len(shareEvents) == 1 {
+		return nil, errChatShareEmpty
 	}
+	return shareEvents, nil
+}
+
+func encodeChatShareSSE(events []stream.EventData) ([]byte, error) {
+	var out bytes.Buffer
+	for index := range events {
+		events[index].Seq = int64(index + 1)
+		raw, _, err := stream.EncodeJSONFrame("message", events[index])
+		if err != nil {
+			return nil, err
+		}
+		if out.Len()+len(raw)+len(stream.DoneFrame) > maxChatShareBytes {
+			return nil, errChatShareTooLarge
+		}
+		out.WriteString(raw)
+	}
+	out.WriteString(stream.DoneFrame)
+	return out.Bytes(), nil
 }
 
 func (s *Server) handleChatJSONL(w http.ResponseWriter, r *http.Request) {
@@ -626,8 +662,8 @@ func safeExportFilename(chatName string, chatID string) string {
 	return safeExportFilenameWithExtension(chatName, chatID, ".md")
 }
 
-func safeTranscriptJSONLFilename(chatName string, chatID string) string {
-	return safeExportFilenameWithExtension(chatName, chatID, ".jsonl")
+func safeShareSSEFilename(chatName string, chatID string) string {
+	return safeExportFilenameWithExtension(chatName, chatID, ".sse")
 }
 
 func safeExportFilenameWithExtension(chatName string, chatID string, extension string) string {

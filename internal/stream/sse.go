@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 )
 
 const DoneSentinel = "[DONE]"
+const DoneFrame = "event: message\ndata: " + DoneSentinel + "\n\n"
 
 type Options struct {
 	SSE            config.SSEConfig
@@ -93,19 +95,37 @@ func (w *Writer) Close() error {
 }
 
 func (w *Writer) WriteJSON(eventName string, payload any) error {
-	data, err := json.Marshal(payload)
+	raw, dataLength, err := EncodeJSONFrame(eventName, payload)
 	if err != nil {
 		return err
 	}
 	frame := frame{
-		raw:       fmt.Sprintf("event: %s\ndata: %s\n\n", eventName, data),
+		raw:       raw,
 		eventType: eventTypeFromPayload(payload),
 		runID:     stringField(payload, "runId"),
 		chatID:    stringField(payload, "chatId"),
 		terminal:  isTerminalEvent(payload),
-		length:    len(data),
+		length:    dataLength,
 	}
 	return w.writeFrame(frame)
+}
+
+// EncodeJSONFrame is the single JSON framing primitive used by both live SSE
+// and finite share snapshots. It only serializes one event and does not own
+// streaming, buffering, heartbeat, or terminal semantics.
+func EncodeJSONFrame(eventName string, payload any) (string, int, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", 0, err
+	}
+	var frame strings.Builder
+	frame.Grow(len("event: \ndata: \n\n") + len(eventName) + len(data))
+	frame.WriteString("event: ")
+	frame.WriteString(eventName)
+	frame.WriteString("\ndata: ")
+	frame.Write(data)
+	frame.WriteString("\n\n")
+	return frame.String(), len(data), nil
 }
 
 func (w *Writer) WriteComment(comment string) error {
@@ -120,7 +140,7 @@ func (w *Writer) WriteComment(comment string) error {
 
 func (w *Writer) WriteDone() error {
 	return w.writeFrame(frame{
-		raw:       fmt.Sprintf("event: message\ndata: %s\n\n", DoneSentinel),
+		raw:       DoneFrame,
 		eventType: DoneSentinel,
 		terminal:  true,
 		length:    len(DoneSentinel),

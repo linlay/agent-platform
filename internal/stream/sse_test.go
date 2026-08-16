@@ -7,6 +7,24 @@ import (
 	"time"
 )
 
+func TestEncodeJSONFrameMatchesLiveSSEWireFormat(t *testing.T) {
+	raw, length, err := EncodeJSONFrame("message", map[string]any{
+		"seq":       1,
+		"type":      "content.snapshot",
+		"text":      "hello\nworld",
+		"timestamp": int64(1_700_000_000_000),
+	})
+	if err != nil {
+		t.Fatalf("encode json frame: %v", err)
+	}
+	if raw != "event: message\ndata: {\"seq\":1,\"text\":\"hello\\nworld\",\"timestamp\":1700000000000,\"type\":\"content.snapshot\"}\n\n" {
+		t.Fatalf("unexpected frame: %q", raw)
+	}
+	if length != len(`{"seq":1,"text":"hello\nworld","timestamp":1700000000000,"type":"content.snapshot"}`) {
+		t.Fatalf("payload length=%d", length)
+	}
+}
+
 func TestWriterWritesImmediatelyWhenBufferingDisabled(t *testing.T) {
 	rec := httptest.NewRecorder()
 	writer, err := NewWriter(rec, Options{})
