@@ -88,7 +88,7 @@ func SnapshotFromState(chatID string, runID string, state *contracts.PlanRuntime
 		ChatID:        strings.TrimSpace(chatID),
 		RunID:         strings.TrimSpace(runID),
 		PlanID:        strings.TrimSpace(state.PlanID),
-		CurrentTaskID: strings.TrimSpace(state.ActiveTaskID),
+		CurrentTaskID: CurrentTaskID(state),
 		UpdatedAt:     time.Now().UnixMilli(),
 		Tasks:         make([]TaskSnapshot, 0, len(state.Tasks)),
 	}
@@ -117,7 +117,6 @@ func StateFromSnapshot(snapshot *Snapshot) *contracts.PlanRuntimeState {
 			state.PlanID = "plan"
 		}
 	}
-	currentTaskID := strings.TrimSpace(snapshot.CurrentTaskID)
 	for _, task := range snapshot.Tasks {
 		taskID := strings.TrimSpace(task.TaskID)
 		description := strings.TrimSpace(task.Description)
@@ -130,13 +129,11 @@ func StateFromSnapshot(snapshot *Snapshot) *contracts.PlanRuntimeState {
 			Description: description,
 			Status:      status,
 		})
-		if taskID == currentTaskID && !isTerminalStatus(status) {
-			state.ActiveTaskID = taskID
-		}
 	}
 	if len(state.Tasks) == 0 {
 		return nil
 	}
+	ReconcileState(state)
 	return state
 }
 
@@ -148,7 +145,7 @@ func FormatStateContext(state *contracts.PlanRuntimeState) string {
 	if planID := strings.TrimSpace(state.PlanID); planID != "" {
 		lines = append(lines, "planId: "+planID)
 	}
-	if activeTaskID := strings.TrimSpace(state.ActiveTaskID); activeTaskID != "" {
+	if activeTaskID := CurrentTaskID(state); activeTaskID != "" {
 		lines = append(lines, "currentTaskId: "+activeTaskID)
 	}
 	lines = append(lines, "tasks:")
@@ -269,15 +266,6 @@ func newerSnapshot(current *Snapshot, currentPath string, currentModTime int64, 
 		return currentModTime > bestModTime
 	}
 	return currentPath > bestPath
-}
-
-func isTerminalStatus(status string) bool {
-	switch status {
-	case "completed", "failed", "canceled":
-		return true
-	default:
-		return false
-	}
 }
 
 func validChatID(chatID string) bool {

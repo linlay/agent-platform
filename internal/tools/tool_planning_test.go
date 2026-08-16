@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	planutil "agent-platform/internal/planning"
+	"agent-platform/internal/plantasks"
 )
 
 func TestFinalizePlanningCreatesMarkdownFile(t *testing.T) {
@@ -278,6 +280,9 @@ func TestPlanGetTasksRestoresLatestSnapshot(t *testing.T) {
 	if execCtx.PlanState == nil || execCtx.PlanState.PlanID != "old_plan" || execCtx.PlanState.ActiveTaskID != "task_2" {
 		t.Fatalf("expected execCtx plan state to be restored, got %#v", execCtx.PlanState)
 	}
+	if _, err := os.Stat(plantasks.Path(root, "chat_1", "run_new")); !os.IsNotExist(err) {
+		t.Fatalf("read-only restore wrote a new snapshot: %v", err)
+	}
 }
 
 func TestPlanAddTasksPersistsPlanTaskSnapshot(t *testing.T) {
@@ -311,7 +316,7 @@ func TestPlanAddTasksPersistsPlanTaskSnapshot(t *testing.T) {
 		t.Fatalf("expected updatedAt to be populated, got %#v", snapshot)
 	}
 	if len(snapshot.Tasks) != 2 || snapshot.Tasks[0].TaskID != "task_1" || snapshot.Tasks[0].Status != "init" ||
-		snapshot.Tasks[1].TaskID != "task_2" || snapshot.Tasks[1].Status != "in_progress" {
+		snapshot.Tasks[1].TaskID != "task_2" || snapshot.Tasks[1].Status != "init" {
 		t.Fatalf("unexpected snapshot tasks: %#v", snapshot.Tasks)
 	}
 }
@@ -448,7 +453,7 @@ func TestPlanUpdateTaskRestoresSnapshotAndWritesNewRunSnapshot(t *testing.T) {
 
 	result, err := executor.Invoke(context.Background(), PlanUpdateTaskToolName, map[string]any{
 		"taskId": "task_1",
-		"status": "completed",
+		"status": "in_progress",
 	}, execCtx)
 	if err != nil {
 		t.Fatalf("invoke plan_update_task: %v", err)
@@ -458,7 +463,7 @@ func TestPlanUpdateTaskRestoresSnapshotAndWritesNewRunSnapshot(t *testing.T) {
 	}
 
 	snapshot := readPlanTasksSnapshotForTest(t, root, "chat_1", "run_new")
-	if snapshot.RunID != "run_new" || snapshot.PlanID != "old_plan" || len(snapshot.Tasks) != 1 || snapshot.Tasks[0].Status != "completed" {
+	if snapshot.RunID != "run_new" || snapshot.PlanID != "old_plan" || snapshot.CurrentTaskID != "task_1" || len(snapshot.Tasks) != 1 || snapshot.Tasks[0].Status != "in_progress" {
 		t.Fatalf("unexpected new run snapshot: %#v", snapshot)
 	}
 }
@@ -635,6 +640,65 @@ func TestPlanUpdateTaskSupportsInProgressAndDescriptionUpdate(t *testing.T) {
 	}
 	if _, ok := result.Structured["currentTaskId"]; ok {
 		t.Fatalf("did not expect currentTaskId after terminal update, got %#v", result.Structured)
+	}
+}
+
+func TestPlanUpdateTaskRejectsOutOfOrderUpdatesWithoutPersisting(t *testing.T) {
+	root := t.TempDir()
+	executor := &RuntimeToolExecutor{cfg: config.Config{Paths: config.PathsConfig{ChatsDir: root}}}
+	execCtx := &ExecutionContext{
+		Session: QuerySession{RunID: "run_tasks", ChatID: "chat_1"},
+		PlanState: &PlanRuntimeState{
+			PlanID:       "run_tasks_plan",
+			ActiveTaskID: "task_2",
+			Tasks: []PlanTask{
+				{TaskID: "task_1", Description: "done", Status: "completed"},
+				{TaskID: "task_2", Description: "active", Status: "in_progress"},
+				{TaskID: "task_3", Description: "next", Status: "init"},
+				{TaskID: "task_4", Description: "last", Status: "init"},
+			},
+		},
+	}
+
+	assertRejected := func(taskID string, status string, wantCode string, wantBlocking string) {
+		t.Helper()
+		before := *execCtx.PlanState
+		before.Tasks = append([]PlanTask(nil), execCtx.PlanState.Tasks...)
+		result, err := executor.Invoke(context.Background(), PlanUpdateTaskToolName, map[string]any{"taskId": taskID, "status": status}, execCtx)
+		if err != nil {
+			t.Fatalf("invoke rejected update: %v", err)
+		}
+		if result.ExitCode == 0 || result.Error != wantCode || AnyStringNode(result.Structured["fromStatus"]) == "" || AnyStringNode(result.Structured["toStatus"]) != status {
+			t.Fatalf("unexpected rejected update result: %#v", result)
+		}
+		if wantBlocking != "" && AnyStringNode(result.Structured["blockingTaskId"]) != wantBlocking {
+			t.Fatalf("blockingTaskId=%q want %q in %#v", AnyStringNode(result.Structured["blockingTaskId"]), wantBlocking, result.Structured)
+		}
+		if !reflect.DeepEqual(execCtx.PlanState, &before) {
+			t.Fatalf("rejected update mutated state: before=%#v after=%#v", &before, execCtx.PlanState)
+		}
+		if _, statErr := os.Stat(plantasks.Path(root, "chat_1", "run_tasks")); !os.IsNotExist(statErr) {
+			t.Fatalf("rejected update persisted snapshot: %v", statErr)
+		}
+	}
+
+	assertRejected("task_3", "completed", "plan_task_not_current", "")
+	assertRejected("task_4", "in_progress", "plan_task_predecessor_incomplete", "task_2")
+
+	for _, update := range []struct {
+		taskID string
+		status string
+	}{
+		{taskID: "task_2", status: "completed"},
+		{taskID: "task_3", status: "in_progress"},
+	} {
+		result, err := executor.Invoke(context.Background(), PlanUpdateTaskToolName, map[string]any{"taskId": update.taskID, "status": update.status}, execCtx)
+		if err != nil || result.ExitCode != 0 {
+			t.Fatalf("apply ordered update %#v: result=%#v err=%v", update, result, err)
+		}
+	}
+	if execCtx.PlanState.ActiveTaskID != "task_3" || execCtx.PlanState.Tasks[2].Status != "in_progress" || execCtx.PlanState.Tasks[3].Status != "init" {
+		t.Fatalf("unexpected ordered plan state: %#v", execCtx.PlanState)
 	}
 }
 

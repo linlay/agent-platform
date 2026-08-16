@@ -1,6 +1,6 @@
 name: plan_get_tasks
 label: 读取任务
-description: Get the current plan snapshot, returning the task list and current taskId when present. If no tasks have been created yet, returns an empty plan snapshot.
+description: Get the current ordered plan snapshot. At most one task can be in_progress; currentTaskId identifies it when present. If no tasks exist, returns an empty plan snapshot.
 clientVisible: true
 inputSchema:
   type: object

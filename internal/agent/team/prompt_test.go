@@ -24,7 +24,9 @@ func TestBuildSystemPromptKeepsHardCodedRulesAheadOfCustomGuidance(t *testing.T)
 	})
 	for _, required := range []string{
 		"Every new user turn must call agent_delegate",
-		"first create a task plan with plan_add_tasks",
+		"first create an ordered task plan with plan_add_tasks",
+		"Finish the current in_progress stage before starting the next",
+		"member concurrency does not make multiple plan stages active",
 		"maximum concurrent delegated members: 5",
 		"agentKey=billing; name=Billing; role=invoice specialist",
 		"agentKey=tech; name=Technical; description=debugs products",

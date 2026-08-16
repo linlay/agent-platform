@@ -1763,6 +1763,116 @@ func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t
 	}
 }
 
+func TestPlanExecuteRejectsFutureTaskCompletionAndKeepsSequentialProgress(t *testing.T) {
+	var providerCallCount atomic.Int32
+
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode model request: %v", err)
+		}
+		switch call := providerCallCount.Add(1); call {
+		case 1:
+			writeProviderSSE(t, w,
+				providerToolCallFrame(t, "tool_plan", "plan_add_tasks", map[string]any{
+					"tasks": []map[string]any{
+						{"taskId": "task_alpha", "description": "first"},
+						{"taskId": "task_beta", "description": "second"},
+					},
+				}),
+				`[DONE]`,
+			)
+		case 2:
+			writeProviderSSE(t, w,
+				providerToolCallFrame(t, "tool_future_done", "plan_update_task", map[string]any{
+					"taskId": "task_beta",
+					"status": "completed",
+				}),
+				`[DONE]`,
+			)
+		case 3:
+			writeProviderSSE(t, w,
+				providerToolCallFrame(t, "tool_alpha_done", "plan_update_task", map[string]any{
+					"taskId": "task_alpha",
+					"status": "completed",
+				}),
+				`[DONE]`,
+			)
+		case 4:
+			writeProviderSSE(t, w,
+				providerToolCallFrame(t, "tool_beta_done", "plan_update_task", map[string]any{
+					"taskId": "task_beta",
+					"status": "completed",
+				}),
+				`[DONE]`,
+			)
+		case 5:
+			if toolNames := providerRequestToolNames(payload["tools"]); len(toolNames) != 0 {
+				t.Fatalf("summary stage should not expose tools, got %#v", toolNames)
+			}
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"content":"sequential completion"},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+		default:
+			t.Fatalf("unexpected provider call %d", call)
+		}
+	}, testFixtureOptions{
+		setupRuntime: func(_ string, cfg *config.Config) {
+			agentPath := filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml")
+			if err := os.WriteFile(agentPath, []byte(strings.Join([]string{
+				"key: mock-agent",
+				"name: Mock Agent",
+				"role: test",
+				"description: ordered plan test",
+				"modelConfig:",
+				"  modelKey: mock-model",
+				"mode: PLAN-EXECUTE",
+				"stageSettings:",
+				"  maxWorkRoundsPerTask: 4",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write plan-execute agent config: %v", err)
+			}
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"run ordered tasks","agentKey":"mock-agent"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	futureRejected := false
+	alphaComplete := -1
+	betaStart := -1
+	for index, message := range decodeSSEMessages(t, rec.Body.String()) {
+		switch stringValue(message["type"]) {
+		case "tool.result":
+			if stringValue(message["toolId"]) != "tool_future_done" {
+				continue
+			}
+			result, _ := message["result"].(map[string]any)
+			futureRejected = stringValue(result["error"]) == "plan_task_not_current"
+		case "task.complete":
+			if stringValue(message["taskId"]) == "task_alpha" {
+				alphaComplete = index
+			}
+		case "task.start":
+			if stringValue(message["taskId"]) == "task_beta" {
+				betaStart = index
+			}
+		}
+	}
+	if !futureRejected {
+		t.Fatalf("future task completion was not rejected: %s", rec.Body.String())
+	}
+	if alphaComplete < 0 || betaStart < 0 || alphaComplete >= betaStart {
+		t.Fatalf("future rejection advanced the pipeline: alphaComplete=%d betaStart=%d body=%s", alphaComplete, betaStart, rec.Body.String())
+	}
+}
+
 func TestCoderPlanningModeQuestionsConfirmThenExecutes(t *testing.T) {
 	var providerCallCount atomic.Int32
 

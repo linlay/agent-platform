@@ -47,6 +47,25 @@ func TestStateFromSnapshotNormalizesTasksAndActiveTask(t *testing.T) {
 	}
 }
 
+func TestStateFromSnapshotIgnoresStaleCurrentTaskAndDemotesLaterActiveTasks(t *testing.T) {
+	state := StateFromSnapshot(&Snapshot{
+		RunID:         "run_old",
+		CurrentTaskID: "task_4",
+		Tasks: []TaskSnapshot{
+			{TaskID: "task_1", Description: "done", Status: "completed"},
+			{TaskID: "task_2", Description: "active", Status: "in_progress"},
+			{TaskID: "task_3", Description: "already done", Status: "completed"},
+			{TaskID: "task_4", Description: "legacy active", Status: "in_progress"},
+		},
+	})
+	if state == nil {
+		t.Fatal("expected restored state")
+	}
+	if state.ActiveTaskID != "task_2" || state.Tasks[1].Status != "in_progress" || state.Tasks[2].Status != "completed" || state.Tasks[3].Status != "init" {
+		t.Fatalf("unexpected restored normalization: %#v", state)
+	}
+}
+
 func TestFormatStateContextIncludesPlanTasks(t *testing.T) {
 	state := StateFromSnapshot(&Snapshot{
 		PlanID:        "plan_old",
