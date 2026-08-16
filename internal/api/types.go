@@ -209,6 +209,7 @@ type QueryRequest struct {
 	AgentKey  string `json:"agentKey,omitempty"`
 	TeamID    string `json:"teamId,omitempty"`
 	Role      string `json:"role,omitempty"`
+	Hidden    *bool  `json:"hidden,omitempty"`
 	Message   string `json:"message"`
 	// Trusted channel hint for the remote actor. Ignored outside gateway
 	// contexts when deriving chat summary source.

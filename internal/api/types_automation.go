@@ -17,7 +17,7 @@ type AutomationExecutionListResponse struct {
 type AutomationSummaryResponse struct {
 	ID            string                    `json:"id"`
 	Name          string                    `json:"name"`
-	Description   string                    `json:"description"`
+	Description   string                    `json:"description,omitempty"`
 	Cron          string                    `json:"cron"`
 	AgentKey      string                    `json:"agentKey,omitempty"`
 	Enabled       bool                      `json:"enabled"`
@@ -39,6 +39,7 @@ type AutomationQueryResponse struct {
 	Message string         `json:"message"`
 	ChatID  string         `json:"chatId,omitempty"`
 	Role    string         `json:"role,omitempty"`
+	Hidden  *bool          `json:"hidden,omitempty"`
 	Params  map[string]any `json:"params,omitempty"`
 }
 
@@ -73,7 +74,7 @@ type AutomationExecutionResponse struct {
 
 type CreateAutomationRequest struct {
 	Name          string                 `json:"name"`
-	Description   string                 `json:"description"`
+	Description   string                 `json:"description,omitempty"`
 	Cron          string                 `json:"cron"`
 	AgentKey      string                 `json:"agentKey,omitempty"`
 	Enabled       *bool                  `json:"enabled,omitempty"`
@@ -87,6 +88,7 @@ type AutomationQueryRequest struct {
 	Message string         `json:"message"`
 	ChatID  string         `json:"chatId,omitempty"`
 	Role    string         `json:"role,omitempty"`
+	Hidden  *bool          `json:"hidden,omitempty"`
 	Params  map[string]any `json:"params,omitempty"`
 }
 

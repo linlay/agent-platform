@@ -207,17 +207,17 @@ Archive 摘要、详情和搜索结果都会返回时间字段：`createdAt` 为
 |---|---|---|---|
 | POST | `/api/automations` | body: `tag` | automation 列表 |
 | POST | `/api/automation` | body: `id` 或 `automationId` | automation 详情 |
-| POST | `/api/automation/create` | body: `name`、`description`、`cron`、`agentKey`、`enabled`、`teamId`、`zoneId`、`remainingRuns`、`query` | 创建后的 automation 详情 |
+| POST | `/api/automation/create` | body: `name`、`cron`、`query`，以及 `agentKey` / `teamId` 二选一；可选 `description`、`enabled`、`zoneId`、`remainingRuns` | 创建后的 automation 详情 |
 | POST | `/api/automation/update` | body: `id` 或 `automationId`，以及可更新字段 | 更新后的 automation 详情 |
 | POST | `/api/automation/delete` | body: `id` 或 `automationId` | 删除结果 |
 | POST | `/api/automation/toggle` | body: `id` 或 `automationId`、`enabled` | 启停后的 automation 详情 |
 | POST | `/api/automation/executions` | body: `id` 或 `automationId`、`limit`、`offset` | execution history |
 
-`query` 对象包含 `message`、`chatId`、`role`、`params`。`role` 可选值为 `user`、`assistant`、`automation`、`system`；automation 未显式配置时默认为 `automation`。
+`query` 对象包含必填 `message`，以及可选 `chatId`、`role`、`hidden`、`params`。`role` 可选值为 `user`、`assistant`、`automation`、`system`，省略时按 `automation` 执行；`hidden` 省略时按 `true` 执行，只隐藏 Chat 时间线里的 automation query 消息，不隐藏 chat、run 或模型回复，显式 `false` 可显示该 query。省略值在 Automation 详情中继续省略，结构化更新不会把计算后的默认值写回 YAML。
 
 Automation 摘要和详情中的 `nextFireAt` 是下次触发时间的 epoch milliseconds；`lastExecution` 与 execution history 中的 `startedAt`、`completedAt` 同样是 epoch milliseconds。这些 `*At` 字段是排序、计算和客户端本地化的唯一权威时间。对应的 `nextFireTime`、`startedTime`、`completedTime` 均由 Platform 按 `automation.default-zone-id`（无效或未配置时回退进程 `time.Local`）转换为 `YYYY-MM-DD HH:mm:ss`，只用于阅读，不保留毫秒或时区信息。
 
-Execution 的 `zoneId` 是创建 execution 时解析出的有效业务时区快照，解析顺序为 automation `environment.zoneId`、Platform `automation.default-zone-id`、进程 `time.Local`。它不会随 automation 后续修改或删除而变化，也不参与上述 `*Time` 展示转换。
+Automation 的 `description` 和 `zoneId` 均可省略。Execution 的 `zoneId` 是创建 execution 时解析出的有效业务时区快照，解析顺序为 automation `environment.zoneId`、Platform `automation.default-zone-id`、进程 `time.Local`。它不会随 automation 后续修改或删除而变化，也不参与上述 `*Time` 展示转换。
 
 Automation 的 Team 身份规则与 query 一致：只配置 `teamId`，同时传 `agentKey` 会被拒绝。触发时由隐藏协调器接管，不会选择或回显虚拟 Agent key。
 
@@ -408,6 +408,8 @@ curl -sS -X POST http://127.0.0.1:11949/api/query \
 ```
 
 `params` 是业务透传对象，平台不读取、不写入、不约定内部 key。
+
+`hidden` 是可选的 `request.query` 时间线展示标记；省略时普通 query 不隐藏，Automation 调度会按自身默认值传入 `true`。
 
 `role` 可选值为 `user`、`assistant`、`automation`、`system`，普通 query 缺省为 `user`。`automation` / `system` 的 `request.query` 会保留在 trace 中，但不会作为可见用户消息参与搜索、Markdown 或安全 Transcript 导出。`format=raw` 返回消费者无关的 JSONL：第一行是 `type=metadata` 的 `exportVersion=1` 元数据，之后每个 `type=turn` 记录只由能够与根 run 生命周期可靠关联的可见根 query 建立，关联的 `reasoning.snapshot` 与 `content.snapshot` 按事件顺序投影为 `items`；无法关联到可见根 query 的事件、省略的子任务 query、工具调用和系统提示均不导出。可靠 `run.complete` 只形成可选 `completedAt`，导出中不包含 `chatId`、`runId`、`agentKey`、reasoningId 或计算后的 duration。成功响应使用 `Content-Type: application/x-ndjson; charset=utf-8` 和安全标题的 `.jsonl` 附件名，不使用 `ApiResponse` 包裹；错误响应仍为 JSON `ApiResponse`。未知 format 返回 400。`/api/chat/jsonl` 返回原始持久化数据，与安全导出不是同一契约。`role` 只影响本次 query 展示语义，不决定 chat 摘要的 `source`；外部请求不能通过 `role=automation` 或传入 `source` 伪造 automation 创建来源。普通 HTTP `/api/query` 传入 `sourceUser` 也不会改变 source；该字段只在受信 channel/gateway 上下文中作为远端用户提示使用。
 

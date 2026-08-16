@@ -12,7 +12,9 @@ import (
 func renderDefinition(def Definition) []byte {
 	var b strings.Builder
 	writeYAMLKeyValue(&b, 0, "name", def.Name)
-	writeYAMLKeyValue(&b, 0, "description", def.Description)
+	if strings.TrimSpace(def.Description) != "" {
+		writeYAMLKeyValue(&b, 0, "description", def.Description)
+	}
 	writeYAMLKeyValue(&b, 0, "enabled", def.Enabled)
 	writeYAMLKeyValue(&b, 0, "cron", def.Cron)
 	if def.RemainingRuns != nil {
@@ -39,6 +41,9 @@ func renderDefinition(def Definition) []byte {
 	}
 	if strings.TrimSpace(def.Query.Role) != "" {
 		writeYAMLKeyValue(&b, 2, "role", def.Query.Role)
+	}
+	if def.Query.Hidden != nil {
+		writeYAMLKeyValue(&b, 2, "hidden", *def.Query.Hidden)
 	}
 	writeYAMLExactString(&b, 2, "message", def.Query.Message)
 	if len(def.Query.Params) > 0 {

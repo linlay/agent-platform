@@ -143,9 +143,14 @@ func TestRegistrySkipsExampleAutomationDefinition(t *testing.T) {
 	}
 }
 
-func TestRegistryDefaultsQueryRoleToAutomation(t *testing.T) {
+func TestRegistryKeepsOmittedQueryDefaultsOutOfDefinition(t *testing.T) {
 	root := t.TempDir()
-	writeAutomation(t, filepath.Join(root, "daily.yml"), automationBody("hello", "17 9 * * *", ""))
+	writeAutomation(t, filepath.Join(root, "daily.yml"), "name: Daily\n"+
+		"enabled: true\n"+
+		"cron: '17 9 * * *'\n"+
+		"agentKey: demo-agent\n"+
+		"query:\n"+
+		"  message: hello\n")
 
 	defs, err := NewRegistry(root, nil).Load()
 	if err != nil {
@@ -154,8 +159,12 @@ func TestRegistryDefaultsQueryRoleToAutomation(t *testing.T) {
 	if len(defs) != 1 {
 		t.Fatalf("expected one automation, got %#v", defs)
 	}
-	if defs[0].Query.Role != "automation" {
-		t.Fatalf("expected default query role automation, got %#v", defs[0].Query)
+	if defs[0].Description != "" || defs[0].Environment.ZoneID != "" || defs[0].Query.Role != "" || defs[0].Query.Hidden != nil {
+		t.Fatalf("expected omitted optional fields to remain omitted, got %#v", defs[0])
+	}
+	request := defs[0].ToQueryRequest()
+	if request.Role != "automation" || request.Hidden == nil || !*request.Hidden {
+		t.Fatalf("expected execution defaults role=automation and hidden=true, got %#v", request)
 	}
 }
 

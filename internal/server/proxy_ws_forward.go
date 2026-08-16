@@ -89,6 +89,9 @@ func proxyQueryPayload(req api.QueryRequest, proxy *catalog.ProxyConfig, referen
 		"scene":       req.Scene,
 		"stream":      true,
 	}
+	if req.Hidden != nil {
+		payload["hidden"] = *req.Hidden
+	}
 	if req.PlanningMode != nil {
 		payload["planningMode"] = *req.PlanningMode
 	}
@@ -716,6 +719,9 @@ func newProxyEventRecorder(
 		"agentKey":  req.AgentKey,
 		"role":      req.Role,
 		"message":   req.Message,
+	}
+	if req.Hidden != nil {
+		queryPayload["hidden"] = *req.Hidden
 	}
 	if req.IncludeUsage {
 		queryPayload["includeUsage"] = true

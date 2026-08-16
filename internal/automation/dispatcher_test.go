@@ -51,6 +51,9 @@ func TestDispatcherBuildsStructuredQueryRequest(t *testing.T) {
 	if got.Role != "automation" || got.Message != "hello" {
 		t.Fatalf("unexpected role/message %#v", got)
 	}
+	if got.Hidden == nil || !*got.Hidden {
+		t.Fatalf("expected omitted automation query.hidden to execute as hidden, got %#v", got)
+	}
 	if len(got.References) != 1 || got.Scene == nil || got.Scene.Title != "demo" {
 		t.Fatalf("unexpected refs/scene %#v", got)
 	}

@@ -50,6 +50,7 @@ type Query struct {
 	RequestID  string
 	ChatID     string
 	Role       string
+	Hidden     *bool
 	Message    string
 	References []api.Reference
 	Params     map[string]any
@@ -58,6 +59,7 @@ type Query struct {
 
 func (d Definition) ToQueryRequest() api.QueryRequest {
 	params := contracts.CloneMap(d.Query.Params)
+	hidden := EffectiveQueryHidden(d.Query.Hidden)
 	chatSource := ""
 	if id := strings.TrimSpace(d.ID); id != "" {
 		chatSource = api.ChatSourceAutomationPrefix + id
@@ -69,12 +71,17 @@ func (d Definition) ToQueryRequest() api.QueryRequest {
 		AgentKey:   d.AgentKey,
 		TeamID:     d.TeamID,
 		Role:       EffectiveQueryRole(d.Query.Role),
+		Hidden:     &hidden,
 		Message:    d.Query.Message,
 		References: append([]api.Reference(nil), d.Query.References...),
 		Params:     params,
 		Scene:      cloneScene(d.Query.Scene),
 		ChatSource: chatSource,
 	}
+}
+
+func EffectiveQueryHidden(hidden *bool) bool {
+	return hidden == nil || *hidden
 }
 
 func EffectiveQueryRole(role string) string {

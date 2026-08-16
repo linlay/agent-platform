@@ -291,9 +291,6 @@ func (r *Registry) parseDefinitionTree(path string, id string, tree any) (Defini
 		return Definition{}, fmt.Errorf("name is required")
 	}
 	description := stringNode(root["description"])
-	if description == "" {
-		return Definition{}, fmt.Errorf("description is required")
-	}
 	cronExpr := stringNode(root["cron"])
 	if cronExpr == "" {
 		return Definition{}, fmt.Errorf("cron is required")
@@ -401,7 +398,10 @@ func parseQuery(node map[string]any) (Query, error) {
 	if err != nil {
 		return Query{}, err
 	}
-	role, err = normalizeAutomationQueryRole(role)
+	if _, err := normalizeAutomationQueryRole(role); err != nil {
+		return Query{}, err
+	}
+	hidden, err := optionalBoolNode(node, "hidden")
 	if err != nil {
 		return Query{}, err
 	}
@@ -422,6 +422,7 @@ func parseQuery(node map[string]any) (Query, error) {
 		RequestID:  requestID,
 		ChatID:     chatID,
 		Role:       role,
+		Hidden:     hidden,
 		Message:    message,
 		References: references,
 		Params:     params,
@@ -501,9 +502,6 @@ func (r *Registry) Validate(def Definition) error {
 	}
 	if strings.TrimSpace(def.Name) == "" {
 		return fmt.Errorf("name is required")
-	}
-	if strings.TrimSpace(def.Description) == "" {
-		return fmt.Errorf("description is required")
 	}
 	if strings.TrimSpace(def.Cron) == "" {
 		return fmt.Errorf("cron is required")
@@ -656,6 +654,18 @@ func optionalStringNode(node map[string]any, key string) (string, error) {
 		return "", fmt.Errorf("invalid query.%s", key)
 	}
 	return strings.TrimSpace(text), nil
+}
+
+func optionalBoolNode(node map[string]any, key string) (*bool, error) {
+	value, ok := node[key]
+	if !ok || value == nil {
+		return nil, nil
+	}
+	boolean, ok := value.(bool)
+	if !ok {
+		return nil, fmt.Errorf("invalid query.%s", key)
+	}
+	return &boolean, nil
 }
 
 func stringNode(value any) string {

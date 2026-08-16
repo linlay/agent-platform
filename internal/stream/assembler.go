@@ -14,6 +14,7 @@ type StreamRequest struct {
 	TeamID          string
 	Message         string
 	Role            string
+	Hidden          *bool
 	Scene           *SceneRef
 	References      any
 	Params          map[string]any
@@ -121,6 +122,9 @@ func (a *StreamEventAssembler) BootstrapEmissions() []EventEmission {
 		"teamId":    a.request.TeamID,
 		"role":      a.request.Role,
 		"message":   a.request.Message,
+	}
+	if a.request.Hidden != nil {
+		queryPayload["hidden"] = *a.request.Hidden
 	}
 	if a.request.AccessLevel != "" {
 		queryPayload["accessLevel"] = a.request.AccessLevel
