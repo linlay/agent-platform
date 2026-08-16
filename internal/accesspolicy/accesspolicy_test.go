@@ -68,6 +68,70 @@ func TestTempRootIsEffectiveForFileAndSimpleBashPaths(t *testing.T) {
 	}
 }
 
+func TestChatAndTempScriptExecutionRespectsAccessLevel(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	chatDir := filepath.Join(root, "chats", "chat-1")
+	tempRoot := filepath.Join(root, "temp")
+	for _, dir := range []string{workspace, chatDir, tempRoot} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+
+	baseSession := contracts.QuerySession{
+		WorkspaceRoot: workspace,
+		ChatRoot:      chatDir,
+		TempRoot:      tempRoot,
+		TempRoots:     []string{tempRoot},
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{
+				WorkspaceDir: workspace,
+				ChatDir:      chatDir,
+			},
+			SandboxPaths: contracts.SandboxPaths{
+				WorkspaceDir: "/workspace",
+				ChatDir:      "/chat",
+			},
+		},
+	}
+
+	tests := []struct {
+		name    string
+		sandbox bool
+		cwd     string
+		command string
+	}{
+		{name: "host chat python", cwd: "@chat", command: "python3 task.py"},
+		{name: "host temp node", cwd: "@temp", command: "node task.js"},
+		{name: "sandbox chat python", sandbox: true, cwd: "/chat", command: "python3 task.py"},
+		{name: "sandbox temp node", sandbox: true, cwd: "/tmp", command: "node task.js"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			defaultSession := baseSession
+			defaultSession.AccessLevel = contracts.AccessLevelDefault
+			defaultSession.AgentHasRuntimeSandbox = test.sandbox
+			defaultPlan := ReviewBashCommand(config.AccessPolicyConfig{}, defaultSession, test.command, test.cwd, nil)
+			if !defaultPlan.RequiresApproval() || !strings.HasPrefix(defaultPlan.RuleKey, "bash-access:opaque:") {
+				t.Fatalf("default script execution must require opaque approval: %#v", defaultPlan)
+			}
+
+			autoSession := baseSession
+			autoSession.AccessLevel = contracts.AccessLevelAutoApprove
+			autoSession.AgentHasRuntimeSandbox = test.sandbox
+			autoPlan := ReviewBashCommand(config.AccessPolicyConfig{}, autoSession, test.command, test.cwd, nil)
+			if !autoPlan.AutoApproved() || !strings.HasPrefix(autoPlan.RuleKey, "bash-access:opaque:") {
+				t.Fatalf("auto_approve script execution must be auto-approved: %#v", autoPlan)
+			}
+			if autoPlan.AccessLevel != contracts.AccessLevelAutoApprove {
+				t.Fatalf("access level = %q, want auto_approve", autoPlan.AccessLevel)
+			}
+		})
+	}
+}
+
 func TestTempRootReadonlyAndSymlinkEscapeRemainBlocked(t *testing.T) {
 	workspace := t.TempDir()
 	session := withSystemTempRoots(contracts.QuerySession{
