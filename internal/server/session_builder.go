@@ -19,6 +19,7 @@ import (
 	"agent-platform/internal/memory"
 	"agent-platform/internal/plantasks"
 	"agent-platform/internal/querymessages"
+	"agent-platform/internal/temppaths"
 )
 
 type querySessionBuildOptions struct {
@@ -212,6 +213,8 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	session := contracts.QuerySession{
 		RequestID:                     req.RequestID,
 		RunID:                         req.RunID,
+		TempRoot:                      systemTempRoot(),
+		TempRoots:                     systemTempRoots(),
 		SubTaskID:                     options.SubTaskID,
 		ChatID:                        req.ChatID,
 		ChatName:                      summary.ChatName,
@@ -280,6 +283,18 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	}
 	session.CurrentMessages = s.buildCurrentMessages(req, session)
 	return session, nil
+}
+
+func systemTempRoot() string {
+	root, ok := temppaths.System().Primary()
+	if !ok {
+		return ""
+	}
+	return root.Host
+}
+
+func systemTempRoots() []string {
+	return temppaths.System().Paths()
 }
 
 func appendKBaseCapabilityToolsToExplicitStage(tools []string) []string {

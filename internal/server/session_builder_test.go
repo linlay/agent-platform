@@ -163,6 +163,9 @@ func TestBuildQuerySessionUsesCoderProfileDefaults(t *testing.T) {
 	if session.WorkspaceRoot != absTestPath(t, workspace) {
 		t.Fatalf("workspace root = %q, want %q", session.WorkspaceRoot, absTestPath(t, workspace))
 	}
+	if session.TempRoot != systemTempRoot() || !reflect.DeepEqual(session.TempRoots, systemTempRoots()) {
+		t.Fatalf("temporary roots were not frozen into session: primary=%q roots=%#v", session.TempRoot, session.TempRoots)
+	}
 	if session.ModeSystemPrompt != "configured coder system prompt" {
 		t.Fatalf("coder system prompt = %q, want configured prompt", session.ModeSystemPrompt)
 	}

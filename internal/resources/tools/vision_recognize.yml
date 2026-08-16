@@ -17,7 +17,7 @@ inputSchema:
             description: Current chat attachment file name to inspect. The name must not include path separators.
           file_path:
             type: string
-            description: Explicit host image file path to inspect. Semantic roots such as @chat, @agent, and @skills are supported. This path is checked by access-policy rules in configs/tools.yml.
+            description: Explicit host image file path to inspect. Semantic roots such as @chat, @agent, @skills, and @temp are supported. This path is checked by access-policy rules in configs/tools.yml.
         additionalProperties: false
     prompt:
       type: string

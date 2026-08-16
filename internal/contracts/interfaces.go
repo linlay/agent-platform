@@ -270,6 +270,11 @@ type RunLimits struct {
 type QuerySession struct {
 	RequestID string
 	RunID     string
+	// TempRoot and TempRoots are the process-start temporary-directory snapshot
+	// attached by trusted session producers. They are runtime-only so callers
+	// cannot expand file access by forging protocol fields.
+	TempRoot  string   `json:"-"`
+	TempRoots []string `json:"-"`
 	// StartedAtMillis is an optional lifecycle clock override used only when a
 	// previously persisted run is resumed after a process restart. A zero value
 	// means the run manager captures a fresh registration clock for a new run.

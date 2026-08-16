@@ -4,6 +4,8 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/temppaths"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,6 +50,54 @@ func TestPublishArtifactsUsesSourceBasenameAndIgnoresName(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(chatsRoot, "chat-1", "artifacts", "run-1", "服务前端全部迁移为 Webview.md")); err != nil {
 		t.Fatalf("expected copied artifact with source basename: %v", err)
+	}
+}
+
+func TestPublishArtifactsAcceptsTempAliasAndRejectsSymlinkEscape(t *testing.T) {
+	primary, ok := temppaths.System().Primary()
+	if !ok {
+		t.Fatal("system temporary root is unavailable")
+	}
+	sourceDir, err := os.MkdirTemp(primary.Host, "agent-platform-artifact-temp-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(sourceDir) })
+	sourcePath := filepath.Join(sourceDir, "report.md")
+	if err := os.WriteFile(sourcePath, []byte("temporary report\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	workspace := t.TempDir()
+	chatsRoot := filepath.Join(t.TempDir(), "chats")
+	aliasPath := "@temp/" + filepath.ToSlash(filepath.Join(filepath.Base(sourceDir), "report.md"))
+	for index, candidate := range []string{aliasPath, sourcePath} {
+		result := publishArtifacts(chatsRoot, "chat-1", "run-"+fmt.Sprint(index), workspace, []any{
+			map[string]any{"path": candidate},
+		})
+		if result.Status != "published" || len(result.PublishedArtifacts) != 1 {
+			t.Fatalf("temporary artifact %q was not published: %#v", candidate, result)
+		}
+	}
+
+	escapeTarget, err := filepath.Abs("tool_artifact_test.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state, _, _, classifyErr := temppaths.System().Classify(escapeTarget); classifyErr != nil || state != temppaths.Outside {
+		t.Skipf("test source is not outside system temporary roots: state=%s err=%v", state, classifyErr)
+	}
+	linkPath := filepath.Join(sourceDir, "escape.md")
+	if err := os.Symlink(escapeTarget, linkPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	for _, candidate := range []string{
+		"@temp/" + filepath.ToSlash(filepath.Join(filepath.Base(sourceDir), "escape.md")),
+		linkPath,
+	} {
+		resolved, code, _ := resolveArtifactSourcePath(candidate, workspace, filepath.Join(chatsRoot, "chat-1"))
+		if resolved != "" || code != "path_not_allowed" {
+			t.Fatalf("temporary symlink escape %q resolved=%q code=%q", candidate, resolved, code)
+		}
 	}
 }
 
@@ -379,8 +429,8 @@ func TestArtifactPublishSchemaDoesNotExposeName(t *testing.T) {
 	if !strings.Contains(schema, "publishedArtifacts") {
 		t.Fatalf("artifact_publish schema should remind agents to trust publishedArtifacts")
 	}
-	if !strings.Contains(schema, "/tmp") {
-		t.Fatalf("artifact_publish schema should document /tmp inputs")
+	if !strings.Contains(schema, "@temp") {
+		t.Fatalf("artifact_publish schema should document @temp inputs")
 	}
 	for _, requiredRule := range []string{"publishedArtifacts[n].url", "must never be shown", "Never hand", "file://", "absolute", "never contains chatId", "Inline Markdown", "explicitly requests", "Temporary/support files"} {
 		if !strings.Contains(schema, requiredRule) {

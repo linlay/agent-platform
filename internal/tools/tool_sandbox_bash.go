@@ -133,6 +133,7 @@ func resolveSandboxCwd(execCtx *ExecutionContext, raw string) (string, error) {
 	}{
 		{alias: "@workspace", root: workspace},
 		{alias: "@chat", root: chatDir},
+		{alias: "@temp", root: "/tmp"},
 	} {
 		if strings.EqualFold(raw, item.alias) {
 			if item.root == "" {

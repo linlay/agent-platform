@@ -14,6 +14,7 @@ import (
 	"agent-platform/internal/chat"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/rootpaths"
+	"agent-platform/internal/temppaths"
 )
 
 func (t *RuntimeToolExecutor) invokeArtifactPublish(args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
@@ -242,6 +243,8 @@ func publishArtifacts(chatsRoot string, chatID string, runID string, workspaceRo
 func resolveArtifactSourcePath(rawPath string, workspaceRoot string, chatDir string) (string, string, string) {
 	normalized := strings.TrimSpace(rawPath)
 	lower := strings.ToLower(normalized)
+	semanticPath := filepath.ToSlash(normalized)
+	semanticLower := strings.ToLower(semanticPath)
 	if strings.HasPrefix(lower, "file://") || strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
 		return "", "path_not_allowed", "artifact path must be a local filesystem path"
 	}
@@ -250,9 +253,25 @@ func resolveArtifactSourcePath(rawPath string, workspaceRoot string, chatDir str
 			return "", "path_not_allowed", "artifact path uses an absolute path syntax unsupported by this host"
 		}
 	}
-	cleanedAbsolute := filepath.Clean(normalized)
-	if filepath.IsAbs(normalized) && (cleanedAbsolute == "/tmp" || strings.HasPrefix(cleanedAbsolute, "/tmp"+string(os.PathSeparator))) {
-		return cleanedAbsolute, "", ""
+	if semanticLower == "@temp" || strings.HasPrefix(semanticLower, "@temp/") {
+		suffix := strings.TrimLeft(semanticPath[len("@temp"):], "/")
+		state, candidate, _, err := temppaths.System().ResolveAtPrimary(suffix)
+		if err != nil || state != temppaths.Inside {
+			return "", "path_not_allowed", "artifact path must stay within the temporary root"
+		}
+		return candidate.Host, "", ""
+	}
+	if filepath.IsAbs(normalized) {
+		state, candidate, _, err := temppaths.System().Classify(normalized)
+		if err != nil {
+			return "", "path_not_allowed", err.Error()
+		}
+		switch state {
+		case temppaths.Inside:
+			return candidate.Host, "", ""
+		case temppaths.Escape:
+			return "", "path_not_allowed", "artifact path escapes the temporary root"
+		}
 	}
 	roots, err := rootpaths.New(workspaceRoot, filepath.Dir(chatDir), chatDir)
 	if err != nil {

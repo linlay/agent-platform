@@ -6,7 +6,7 @@ inputSchema:
   properties:
     file_path:
       type: string
-      description: Required. Absolute path, an explicit @workspace/@chat/@agent/@skills/@skills-center/@owner path, or a path relative to the current Workspace.
+      description: Required. Absolute path, an explicit @workspace/@chat/@agent/@skills/@skills-center/@owner/@temp path, or a path relative to the current Workspace.
     offset:
       type: integer
       description: One-based line number to start reading from. Defaults to the beginning of the file.

@@ -858,7 +858,7 @@ func cleanAgentHostAccessRoot(root string) (string, error) {
 		return "", nil
 	}
 	switch strings.ToLower(root) {
-	case "@workspace", "@chat", "@agent", "@skills", "@skills-center", "@owner":
+	case "@workspace", "@chat", "@agent", "@skills", "@skills-center", "@owner", "@temp":
 		return strings.ToLower(root), nil
 	}
 	if root == "~" || strings.HasPrefix(root, "~/") {

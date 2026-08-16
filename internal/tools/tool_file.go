@@ -191,7 +191,7 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 		return fileToolError("file_write_invalid_plan", err.Error()), nil
 	}
 	scopedSource := filetools.ScopedPathInSource(accessSession, access.Path)
-	requiresWriteApproval := t.cfg.FileTools.RequireWriteApproval && !writeAllowedBySessionHostAccess(execCtx, plan.FilePath) && !writeAllowedBySessionWorkspace(execCtx, plan.FilePath) && !writeAutoApprovedByAccessLevel(access)
+	requiresWriteApproval := t.cfg.FileTools.RequireWriteApproval && !writeAllowedBySessionHostAccess(execCtx, plan.FilePath) && !writeAllowedBySessionWorkspace(execCtx, plan.FilePath) && !writeAllowedBySessionTemp(execCtx, plan.FilePath) && !writeAutoApprovedByAccessLevel(access)
 	if requiresWriteApproval && !filetools.ConsumeWriteApproval(execCtx, plan) {
 		result := structuredResultWithExit(map[string]any{
 			"error":       "file_write_approval_required",
@@ -320,7 +320,7 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 		return fileToolError("file_edit_invalid_plan", err.Error()), nil
 	}
 	scopedSource := filetools.ScopedPathInSource(accessSession, access.Path)
-	requiresWriteApproval := t.cfg.FileTools.RequireWriteApproval && !writeAllowedBySessionHostAccess(execCtx, plan.FilePath) && !writeAllowedBySessionWorkspace(execCtx, plan.FilePath) && !writeAutoApprovedByAccessLevel(access)
+	requiresWriteApproval := t.cfg.FileTools.RequireWriteApproval && !writeAllowedBySessionHostAccess(execCtx, plan.FilePath) && !writeAllowedBySessionWorkspace(execCtx, plan.FilePath) && !writeAllowedBySessionTemp(execCtx, plan.FilePath) && !writeAutoApprovedByAccessLevel(access)
 	if requiresWriteApproval && !filetools.ConsumeWriteApproval(execCtx, plan) {
 		result := structuredResultWithExit(map[string]any{
 			"error":       "file_edit_approval_required",
@@ -569,6 +569,13 @@ func writeAllowedBySessionHostAccess(execCtx *ExecutionContext, path string) boo
 		return false
 	}
 	return filetools.PathInSessionHostWriteRoot(execCtx.Session, path)
+}
+
+func writeAllowedBySessionTemp(execCtx *ExecutionContext, path string) bool {
+	if execCtx == nil {
+		return false
+	}
+	return filetools.PathInSessionTemp(execCtx.Session, path)
 }
 
 func accessPolicySession(execCtx *ExecutionContext) QuerySession {

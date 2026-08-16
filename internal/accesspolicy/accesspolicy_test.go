@@ -8,7 +8,144 @@ import (
 
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/temppaths"
 )
+
+func TestTempRootIsEffectiveForFileAndSimpleBashPaths(t *testing.T) {
+	workspace := t.TempDir()
+	session := withSystemTempRoots(contracts.QuerySession{
+		AccessLevel:   contracts.AccessLevelDefault,
+		WorkspaceRoot: workspace,
+	})
+	cfg := config.AccessPolicyConfig{
+		Levels: map[string]config.AccessPolicyLevelConfig{
+			contracts.AccessLevelDefault: {
+				ReadRoots:  []string{"@workspace"},
+				WriteRoots: []string{"@workspace"},
+				Approvals: config.AccessPolicyApprovalConfig{
+					ReadOutsideRoots:      "hitl",
+					WriteOutsideRoots:     "hitl",
+					BashComplexFilesystem: "hitl",
+					BashOpaqueCommand:     "hitl",
+					BashWriteInWriteRoots: "allow",
+				},
+			},
+		},
+	}
+	primary, ok := temppaths.System().Primary()
+	if !ok {
+		t.Fatal("system temporary root is unavailable")
+	}
+	absolute := filepath.Join(primary.Host, "agent-platform-access-policy", "note.txt")
+	for _, rawPath := range []string{"@temp/agent-platform-access-policy/note.txt", absolute} {
+		for _, mode := range []AccessMode{ReadAccess, WriteAccess} {
+			plan, err := BuildPathPlan(cfg, session, mode, rawPath)
+			if err != nil {
+				t.Fatalf("BuildPathPlan(%s, %q): %v", mode, rawPath, err)
+			}
+			if !plan.Allowed() || plan.RequiresApproval() {
+				t.Fatalf("temporary %s path should be allowed: %#v", mode, plan)
+			}
+		}
+	}
+
+	for _, command := range []string{
+		"mkdir " + filepath.Dir(absolute),
+		"touch " + absolute,
+		"cp " + absolute + " " + absolute + ".copy",
+		"mv " + absolute + ".copy " + absolute + ".renamed",
+		"chmod 600 " + absolute,
+		"rm " + absolute + ".renamed",
+	} {
+		plan := ReviewBashCommand(cfg, session, command, workspace, nil)
+		if !plan.Allowed() || plan.RequiresApproval() {
+			t.Fatalf("temporary bash path should not require path approval for %q: %#v", command, plan)
+		}
+	}
+	opaque := ReviewBashCommand(cfg, session, "python3 "+absolute, workspace, nil)
+	if !opaque.RequiresApproval() || !strings.Contains(opaque.RuleKey, "bash-access:opaque") {
+		t.Fatalf("temporary script execution must keep opaque-command approval: %#v", opaque)
+	}
+}
+
+func TestTempRootReadonlyAndSymlinkEscapeRemainBlocked(t *testing.T) {
+	workspace := t.TempDir()
+	session := withSystemTempRoots(contracts.QuerySession{
+		AccessLevel:   contracts.AccessLevelDefault,
+		WorkspaceRoot: workspace,
+	})
+	readonlyCfg := config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{
+		contracts.AccessLevelDefault: {ReadonlyRoots: []string{"@temp"}},
+	}}
+	readonly, err := BuildPathPlan(readonlyCfg, session, WriteAccess, "@temp/readonly.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !readonly.Blocked() || !strings.Contains(readonly.Reason, "readonly") {
+		t.Fatalf("explicit temporary readonly root should block writes: %#v", readonly)
+	}
+
+	primary, ok := temppaths.System().Primary()
+	if !ok {
+		t.Fatal("system temporary root is unavailable")
+	}
+	outside, err := filepath.Abs("accesspolicy_test.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state, _, _, classifyErr := temppaths.System().Classify(outside); classifyErr != nil || state != temppaths.Outside {
+		t.Skipf("test source is not outside system temporary roots: state=%s err=%v", state, classifyErr)
+	}
+	handle, err := os.CreateTemp(primary.Host, "agent-platform-temp-escape-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := handle.Name()
+	_ = handle.Close()
+	_ = os.Remove(link)
+	t.Cleanup(func() { _ = os.Remove(link) })
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	escape, err := BuildPathPlan(config.AccessPolicyConfig{}, session, ReadAccess, link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !escape.Blocked() || !strings.Contains(escape.Reason, "escapes") {
+		t.Fatalf("temporary symlink escape should be blocked: %#v", escape)
+	}
+}
+
+func TestSandboxTmpPathMapsToFrozenHostTempRoot(t *testing.T) {
+	workspace := t.TempDir()
+	tempRoot := t.TempDir()
+	session := contracts.QuerySession{
+		WorkspaceRoot:          workspace,
+		TempRoot:               tempRoot,
+		TempRoots:              []string{tempRoot},
+		AgentHasRuntimeSandbox: true,
+		RuntimeContext: contracts.RuntimeRequestContext{
+			SandboxPaths: contracts.SandboxPaths{WorkspaceDir: "/workspace", ChatDir: "/chat"},
+		},
+	}
+	plan, err := BuildPathPlan(config.AccessPolicyConfig{}, session, WriteAccess, "/tmp/nested/note.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(realPathForTest(t, tempRoot), "nested", "note.txt")
+	if !plan.Allowed() || plan.Path != want {
+		t.Fatalf("sandbox /tmp path was not mapped to frozen host temporary root: %#v want=%q", plan, want)
+	}
+}
+
+func withSystemTempRoots(session contracts.QuerySession) contracts.QuerySession {
+	resolver := temppaths.System()
+	if primary, ok := resolver.Primary(); ok {
+		session.TempRoot = primary.Host
+	}
+	session.TempRoots = resolver.Paths()
+	return session
+}
 
 func TestDefaultLevelAllowsWorkspaceAgentAndSkillsRead(t *testing.T) {
 	root := t.TempDir()

@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +24,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
+	"agent-platform/internal/temppaths"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
@@ -225,12 +227,14 @@ func TestAbsoluteResourceEnforcesWorkspaceChatOwnerAndTeamBoundaries(t *testing.
 		t.Fatalf("workspace download Content-Disposition=%q", got)
 	}
 
-	outsidePath := filepath.Join(filepath.Dir(agentDef.Workspace.Root), "outside.png")
-	if err := os.WriteFile(outsidePath, imageBytes, 0o644); err != nil {
+	outsidePath, err := filepath.Abs("handler_resource_integration_test.go")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if outsideRec := requestAbsolute("alice", chatID, outsidePath, ""); outsideRec.Code != http.StatusForbidden {
-		t.Fatalf("outside workspace status=%d body=%s", outsideRec.Code, outsideRec.Body.String())
+	if state, _, _, classifyErr := temppaths.System().Classify(outsidePath); classifyErr == nil && state == temppaths.Outside {
+		if outsideRec := requestAbsolute("alice", chatID, outsidePath, ""); outsideRec.Code != http.StatusForbidden {
+			t.Fatalf("outside workspace status=%d body=%s", outsideRec.Code, outsideRec.Body.String())
+		}
 	}
 	chatAbsolutePath := filepath.Join(fixture.chats.ChatDir(chatID), "chat-internal.png")
 	if err := os.MkdirAll(filepath.Dir(chatAbsolutePath), 0o755); err != nil {
@@ -268,7 +272,7 @@ func TestAbsoluteResourceEnforcesWorkspaceChatOwnerAndTeamBoundaries(t *testing.
 		t.Fatalf("team absolute status=%d body=%s", teamRec.Code, teamRec.Body.String())
 	}
 
-	tmpFile, err := os.CreateTemp("/tmp", "agent-platform-resource-*.png")
+	tmpFile, err := os.CreateTemp("", "agent-platform-resource-*.png")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,19 +288,59 @@ func TestAbsoluteResourceEnforcesWorkspaceChatOwnerAndTeamBoundaries(t *testing.
 	if tmpRec := requestAbsolute("alice", chatID, tmpPath, ""); tmpRec.Code != http.StatusOK || !bytes.Equal(tmpRec.Body.Bytes(), imageBytes) {
 		t.Fatalf("tmp resource status=%d body=%q", tmpRec.Code, tmpRec.Body.Bytes())
 	}
+	canonicalTmpPath, err := filepath.EvalSymlinks(tmpPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if canonicalTmpRec := requestAbsolute("alice", chatID, canonicalTmpPath, ""); canonicalTmpRec.Code != http.StatusOK || !bytes.Equal(canonicalTmpRec.Body.Bytes(), imageBytes) {
+		t.Fatalf("canonical tmp resource status=%d body=%q", canonicalTmpRec.Code, canonicalTmpRec.Body.Bytes())
+	}
+	if runtime.GOOS == "darwin" {
+		aliasFile, aliasErr := os.CreateTemp("/tmp", "agent-platform-resource-alias-*.png")
+		if aliasErr != nil {
+			t.Fatal(aliasErr)
+		}
+		aliasPath := aliasFile.Name()
+		t.Cleanup(func() { _ = os.Remove(aliasPath) })
+		if _, aliasErr = aliasFile.Write(imageBytes); aliasErr != nil {
+			_ = aliasFile.Close()
+			t.Fatal(aliasErr)
+		}
+		if aliasErr = aliasFile.Close(); aliasErr != nil {
+			t.Fatal(aliasErr)
+		}
+		privatePath, aliasErr := filepath.EvalSymlinks(aliasPath)
+		if aliasErr != nil {
+			t.Fatal(aliasErr)
+		}
+		for _, candidate := range []string{aliasPath, privatePath} {
+			aliasRec := requestAbsolute("alice", chatID, candidate, "")
+			if aliasRec.Code != http.StatusOK || !bytes.Equal(aliasRec.Body.Bytes(), imageBytes) {
+				t.Fatalf("macOS tmp alias %q status=%d body=%q", candidate, aliasRec.Code, aliasRec.Body.Bytes())
+			}
+		}
+	}
 
 	tmpLink := tmpPath + "-link.png"
 	t.Cleanup(func() { _ = os.Remove(tmpLink) })
-	if err := os.Symlink(outsidePath, tmpLink); err != nil {
+	escapeTarget, err := filepath.Abs("handler_resource_integration_test.go")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if tmpLinkRec := requestAbsolute("alice", chatID, tmpLink, ""); tmpLinkRec.Code != http.StatusOK || !bytes.Equal(tmpLinkRec.Body.Bytes(), imageBytes) {
-		t.Fatalf("tmp symlink status=%d body=%q", tmpLinkRec.Code, tmpLinkRec.Body.Bytes())
+	if state, _, _, classifyErr := temppaths.System().Classify(escapeTarget); classifyErr == nil && state == temppaths.Outside {
+		if err := os.Symlink(escapeTarget, tmpLink); err != nil {
+			t.Fatal(err)
+		}
+		if tmpLinkRec := requestAbsolute("alice", chatID, tmpLink, ""); tmpLinkRec.Code != http.StatusForbidden {
+			t.Fatalf("tmp symlink escape status=%d body=%q", tmpLinkRec.Code, tmpLinkRec.Body.Bytes())
+		}
 	}
 
-	traversalPath := "/tmp/../" + strings.TrimPrefix(filepath.ToSlash(outsidePath), "/")
-	if traversalRec := requestAbsolute("alice", chatID, traversalPath, ""); traversalRec.Code != http.StatusForbidden {
-		t.Fatalf("cleaned tmp traversal status=%d body=%s", traversalRec.Code, traversalRec.Body.String())
+	if runtime.GOOS != "windows" {
+		traversalPath := "/tmp/../" + strings.TrimPrefix(filepath.ToSlash(outsidePath), "/")
+		if traversalRec := requestAbsolute("alice", chatID, traversalPath, ""); traversalRec.Code != http.StatusForbidden {
+			t.Fatalf("cleaned tmp traversal status=%d body=%s", traversalRec.Code, traversalRec.Body.String())
+		}
 	}
 }
 

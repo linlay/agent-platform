@@ -136,6 +136,7 @@ KBASE 默认由 `AP_RUNTIME_KBASE_DIR` 控制，每个 agent storageDir 可包�
 - `.env`、真实 `configs/*.yml`、真实 `configs/*.pem`、真实 token 和私钥不得提交。
 - 工具运行时配置以 `configs/tools.yml` 为外部事实源，包含 access policy、bash 和 file tools。
 - `configs/tools.yml` 中的旧 YAML 路径策略键（如 `bash.allowed-paths`、`file-tools.allowed-read-paths`）会在启动阶段硬失败；Go 配置结构中的旧路径字段也已删除，目录权限统一走 `tools.access-policy`。
+- `@temp` 是进程启动时冻结的通用临时根：Unix/macOS 使用 `os.TempDir()` 与 canonical `/tmp`，Windows 只使用 `os.TempDir()`；effective default read/write roots 无条件包含它。临时根内 FileTools 跳过路径和通用写审批，但保留写前读、并发校验、大小与 history；Bash 执行审批规则不因 `@temp` 改变，临时根 symlink/junction 逃逸硬拒绝。
 - 新增能力优先放进对应 `internal/*` 模块，不在 server 层堆业务逻辑。
 - TEAM 是内部专用 mode：公共机制进入 `internal/agent`，调度规则进入 `internal/agent/team`。普通 `AgentDefinition` 必须拒绝 `mode: TEAM`，隐藏协调器不得注册到 `/api/agents`、`/api/agent` 或普通 `agent_invoke` 目标中。
 - 新增 API 保持统一 JSON 包裹、字段命名和错误语义。
@@ -165,7 +166,7 @@ make test
 - `configs/` 下配置启动时读取，运行中修改需要重启 runtime。
 - `agents/` 与 `skills-center/` 是可编辑事实源；Agent 配置内 Skill、Terminal 与常规 Skill runtime 只使用 Platform 生成的 `ru-agents/`。该目录不提交、不打包、不允许人工编辑；Platform 启动时无条件清空并完整重建，Agent/Skill 热重载只更新稳定目录而不清空整个根。唯一的 query 运行时例外是普通 Agent 的非空 `mustUseSkills` 含未配置 Skill：必须从当前有效 skills-center catalog 重新验证；Host 直接开放真实 `@skills-center` 只读根，Container 去重后挂载整个 `/skills-center` 为只读。该例外不合并额外 Skill 的 `.config`、`.runtime-env.json`、`.bash-hooks`，不增加 Tool/MCP/access 权限；Team 明确拒绝。
 - `POST /api/query` 默认逐事件 flush；启用 `configs/runtime.yml -> h2a.render.*` 缓冲后，客户端看到的输出可能不再逐事件抵达。
-- WebSocket 是控制面，浏览器/普通客户端文件字节仍走 `POST /api/upload` 和隐藏的 `GET /api/resource` 数据面。新 Markdown 的 Chat 文件只使用相对于当前 Chat 的 `<relativePath>`，也可引用普通 Agent Workspace 内的 POSIX 绝对路径、`/tmp/...` 与 HTTP(S)/data/blob；真实 `/api/resource` 请求地址和 `<currentChatId>/<relativePath>` 都不是 Markdown 协议，历史 endpoint Markdown 不迁移且不再预览。
+- WebSocket 是控制面，浏览器/普通客户端文件字节仍走 `POST /api/upload` 和隐藏的 `GET /api/resource` 数据面。新 Markdown 的 Chat 文件只使用相对于当前 Chat 的 `<relativePath>`，也可引用普通 Agent Workspace 或冻结临时根内的实际 Host 绝对路径与 HTTP(S)/data/blob；Markdown 不使用 `@temp`。真实 `/api/resource` 请求地址和 `<currentChatId>/<relativePath>` 都不是 Markdown 协议，历史 endpoint Markdown 不迁移且不再预览。
 - `runtimeConfig.env` 不会通过 catalog API 回显，避免泄露代理、凭据或私有 endpoint。
 - 文件工具权限独立于 Bash 权限，越权路径通过 HITL approval 兜底。
 - `AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR` 与 `AP_ACCESS_TOKEN` 是 Platform 保留变量，agent、skill 和调用级 env 均不得覆盖。host bash/tool 与 Container Hub 使用前三者的 canonical 路径；Workspace Terminal 只使用 canonical `AP_AGENT_CONFIG_HOME` 与 `AP_WORKSPACE_DIR`，不注入 `AP_CHAT_DIR`。`AP_ACCESS_TOKEN` 仅在普通 Agent Host Bash 创建前从有效 identity 单行文件即时读取并注入，默认文件为 `<AP_RUNTIME_DIR>/identity/access-token`，显式 `--identity-file <absolute-path>` 优先，不进入 Terminal、Container、Proxy、ACP、MCP、LSP 或 sidecar。文件缺失、不可读、为空或非法时省略该变量，不缓存也不中断 Bash。

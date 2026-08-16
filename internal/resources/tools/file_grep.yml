@@ -15,7 +15,7 @@ inputSchema:
       description: Required. Regex pattern to search for, using ripgrep syntax.
     path:
       type: string
-      description: File or directory to search. Defaults to the current Workspace. Explicit semantic roots include @workspace, @chat, @agent, @skills, @skills-center, and @owner. A Workspace-less session requires path.
+      description: File or directory to search. Defaults to the current Workspace. Explicit semantic roots include @workspace, @chat, @agent, @skills, @skills-center, @owner, and @temp. A Workspace-less session requires path.
     glob:
       type: string
       description: Glob filter, such as '*.go' or '*.{ts,tsx}'.

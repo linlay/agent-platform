@@ -40,7 +40,7 @@ inputSchema:
           value:
             type: string
             minLength: 1
-            description: Required. Current-chat attachment name when source_type is reference_name; otherwise an explicit image path. Semantic roots such as @chat, @agent, and @skills are supported for file_path and checked by access policy.
+            description: Required. Current-chat attachment name when source_type is reference_name; otherwise an explicit image path. Semantic roots such as @chat, @agent, @skills, and @temp are supported for file_path and checked by access policy.
         required:
           - source_type
           - value
