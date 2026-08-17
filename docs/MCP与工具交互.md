@@ -98,11 +98,21 @@ Mask 必须与第一张图同尺寸并显式指定 `mode`：`alpha` 表示透明
 
 新工具结果不返回 `/api/resource?file=...`；该形式仅供既有聊天只读兼容。浏览器数据层负责把逻辑引用转换为实际的 `GET /api/resource?file=<query-encoded-key>`。
 
-## `desktop_action` 的 Chat Work Panel
+## `desktop_action` 的 WorkPanel
 
-`desktop.chatWorkPanel.getState/open/close/openTab/activateTab/closeTab` 操作当前 run 所属 Chat 的 Desktop 工作面板。模型参数不包含 `chatId`、`surfaceId` 或 `agentKey`；`tool_desktop_action.go` 与 `desktop_cdp` 都从 `ExecutionContext.Session` 生成同一份可信 `source`，模型不能覆盖。
+`desktop.workpanel.*` 只操作当前 run 所属 Chat 的 Desktop 工作面板。动作 `args` 顶层不接受 `chatId`、`workspaceId`、`surfaceId`、`agentKey`、`stableKey`、`preload` 或 `webPreferences`；`tool_desktop_action.go` 与 `desktop_cdp` 都从 `ExecutionContext.Session` 生成同一份可信 `source`，模型不能覆盖。合法 WebClient descriptor 的 `context` 可以携带契约要求且与可信 Chat 一致的上下文身份，但不能用它改选所属 Chat。
 
-需要实际操作网页时，先调用 `desktop.chatWorkPanel.openTab({url,title?})` 或 `getState` 取得 Tab 的 `targetId`，再调用 `desktop_cdp`。Desktop 仅允许当前激活 surface target，或 `ownerChatId` 与可信 `source.chatId` 一致的 Work Panel target；Work Panel 不进入普通 `desktop.web.listSurfaces` 或 `Target.getTargets`。
+当前公开动作及精确参数如下：
+
+- `desktop.workpanel.getState`：无参数，读取工作区、条目和活动条目。
+- `desktop.workpanel.openTab({descriptor})`：按规范描述符打开或激活一个确定性 Tab。网页描述符使用 `{kind:"web",url,title?,pinned?,closable?}`；WebClient 描述符必须遵守其 module、route 和 context 契约。
+- `desktop.workpanel.openWeb({url})`：规范化 HTTP(S) URL，并打开或激活对应 WebView。
+- `desktop.workpanel.refreshWeb({url})`：按规范化 URL 精确查找已经打开的 WebView，原位重载并激活，不创建新条目。
+- `desktop.workpanel.activateTab({tabId})`：激活 `getState` 返回的 `state.items[].itemId`。
+- `desktop.workpanel.closeTab({tabId})`：关闭可关闭且未固定的 Tab。
+- `desktop.workpanel.closeWorkpanel`：无参数，关闭当前 Chat 的整个 WorkPanel；存在固定或不可关闭的非概览条目时会被拒绝。
+
+`openWeb` 与 `refreshWeb` 只接受显式 `http:` 或 `https:` URL，拒绝用户名和密码。WorkPanel 的 `tabId` 是条目 ID，不是 CDP `targetId`；不要把它传给 `desktop_cdp`。WorkPanel 也不进入普通 `desktop.web.listSurfaces` 或 `Target.getTargets`，因此高层 Tab/WebView 操作应使用上述动作；只有已经获得独立 CDP `targetId` 时才能进行页面级 CDP 调用，Desktop 仍会校验其 `ownerChatId` 与可信 `source.chatId` 一致。
 
 ## `desktop_action` 的 WebClient Provider
 

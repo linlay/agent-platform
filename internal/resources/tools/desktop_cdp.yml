@@ -1,6 +1,6 @@
 name: desktop_cdp
 label: 桌面端CDP
-description: Call the local Desktop CDP Bridge to inspect or control page content on Desktop-managed targets. Use desktop_action for high-level surface/tab control. For a chat-owned Work Panel, call desktop.chatWorkPanel.getState or openTab first to obtain its targetId; Desktop authorizes only targets owned by the current run's trusted chat context.
+description: Call the local Desktop CDP Bridge to inspect or control page content on Desktop-managed targets. Use desktop_action for high-level surface/tab control. For a chat-owned WorkPanel, desktop.workpanel.* manages its tabs and WebViews; a WorkPanel tabId is not a CDP targetId, and Desktop authorizes supplied WorkPanel CDP targets only when they belong to the current run's trusted chat.
 inputSchema:
   type: object
   properties:
@@ -33,7 +33,7 @@ inputSchema:
       additionalProperties: true
     targetId:
       type: string
-      description: Desktop-managed target id required for every method except Target.getCurrentTarget and Target.getTargets. It may identify the current Desktop surface or a Work Panel target owned by the current run's chat. Obtain Work Panel target ids through desktop.chatWorkPanel.getState/openTab.
+      description: Desktop-managed target id required for every method except Target.getCurrentTarget and Target.getTargets. It may identify the current Desktop surface or a WorkPanel target owned by the current run's chat. Do not pass a desktop.workpanel.* tabId here; WorkPanel tab ids and CDP target ids are different identifiers.
     sessionId:
       type: string
       description: Optional CDP session id for an attached target session.
