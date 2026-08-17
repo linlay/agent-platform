@@ -162,9 +162,10 @@ func (s *planPipelineStream) advanceTaskExecution() error {
 	task := &s.execCtx.PlanState.Tasks[s.taskIndex]
 
 	if task.Status == "" || task.Status == "init" {
-		task.Status = "in_progress"
+		if transitionErr := plantasks.ApplyTaskUpdate(s.execCtx.PlanState, task.TaskID, "in_progress", ""); transitionErr != nil {
+			return fmt.Errorf("activate plan task %s: %w", task.TaskID, transitionErr)
+		}
 	}
-	s.execCtx.PlanState.ActiveTaskID = task.TaskID
 	s.pending = append(s.pending,
 		DeltaStageMarker{Stage: fmt.Sprintf("execute-task-%d", s.taskIndex+1)},
 	)
@@ -288,12 +289,14 @@ func (s *planPipelineStream) emitTaskTerminal(task *PlanTask, status string) {
 		})
 	}
 	s.taskIndex++
-	s.execCtx.PlanState.ActiveTaskID = ""
+	plantasks.ReconcileState(s.execCtx.PlanState)
 }
 
 func (s *planPipelineStream) emitTaskFailure(task *PlanTask, message string) {
-	task.Status = "failed"
-	s.execCtx.PlanState.ActiveTaskID = ""
+	if transitionErr := plantasks.ApplyTaskUpdate(s.execCtx.PlanState, task.TaskID, "failed", ""); transitionErr != nil {
+		task.Status = "failed"
+		plantasks.ReconcileState(s.execCtx.PlanState)
+	}
 	s.persistPlanTasksSnapshot()
 	s.pending = append(s.pending, DeltaPlanUpdate{
 		PlanID: s.execCtx.PlanState.PlanID,

@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"agent-platform/internal/api"
 )
 
 func TestRegistryPersistLoadPreservesQueryMessageExactly(t *testing.T) {
@@ -46,6 +48,81 @@ func TestRegistryPersistLoadPreservesQueryMessageExactly(t *testing.T) {
 	}
 	if got := definitions[0].ToQueryRequest().Message; got != message {
 		t.Fatalf("execution query message changed, want %q got %q", message, got)
+	}
+}
+
+func TestRegistryPersistOmitsEmptyAutomationDefaults(t *testing.T) {
+	root := t.TempDir()
+	registry := NewRegistry(root, nil)
+	definition := Definition{
+		ID:       "minimal",
+		Name:     "Minimal",
+		Enabled:  true,
+		Cron:     "0 9 * * *",
+		AgentKey: "zenmi",
+		Query:    Query{Message: "hello"},
+	}
+
+	if err := registry.Persist(definition); err != nil {
+		t.Fatalf("persist automation: %v", err)
+	}
+	persisted, err := os.ReadFile(filepath.Join(root, "minimal.yml"))
+	if err != nil {
+		t.Fatalf("read persisted automation: %v", err)
+	}
+	content := string(persisted)
+	for _, field := range []string{"description:", "environment:", "  role:", "  hidden:"} {
+		if strings.Contains(content, field) {
+			t.Fatalf("expected default field %q to be omitted, got:\n%s", field, content)
+		}
+	}
+
+	definitions, err := registry.Load()
+	if err != nil || len(definitions) != 1 {
+		t.Fatalf("reload persisted automation: definitions=%#v err=%v", definitions, err)
+	}
+	request := definitions[0].ToQueryRequest()
+	if request.Role != api.QueryRoleAutomation || request.Hidden == nil || !*request.Hidden {
+		t.Fatalf("unexpected execution defaults %#v", request)
+	}
+}
+
+func TestRegistryPersistPreservesExplicitVisibleAutomationQuery(t *testing.T) {
+	root := t.TempDir()
+	registry := NewRegistry(root, nil)
+	hidden := false
+	definition := Definition{
+		ID:       "visible",
+		Name:     "Visible",
+		Enabled:  true,
+		Cron:     "0 9 * * *",
+		AgentKey: "zenmi",
+		Query: Query{
+			Role:    api.QueryRoleAutomation,
+			Hidden:  &hidden,
+			Message: "hello",
+		},
+	}
+
+	if err := registry.Persist(definition); err != nil {
+		t.Fatalf("persist automation: %v", err)
+	}
+	persisted, err := os.ReadFile(filepath.Join(root, "visible.yml"))
+	if err != nil {
+		t.Fatalf("read persisted automation: %v", err)
+	}
+	content := string(persisted)
+	if !strings.Contains(content, "  role: automation\n") || !strings.Contains(content, "  hidden: false\n") {
+		t.Fatalf("expected explicit query overrides, got:\n%s", content)
+	}
+
+	definitions, err := registry.Load()
+	if err != nil || len(definitions) != 1 {
+		t.Fatalf("reload persisted automation: definitions=%#v err=%v", definitions, err)
+	}
+	request := definitions[0].ToQueryRequest()
+	if request.Hidden == nil || *request.Hidden {
+		t.Fatalf("expected explicit visible query, got %#v", request)
 	}
 }
 

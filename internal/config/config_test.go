@@ -170,10 +170,10 @@ func TestLoadDefaults(t *testing.T) {
 					t.Fatalf("unexpected default desktop cdp bridge url: %q", cfg.Desktop.CDP.BridgeURL)
 				}
 				defaultLevel := cfg.AccessPolicy.Levels["default"]
-				if got := strings.Join(defaultLevel.ReadRoots, ","); got != "@workspace,@chat,@agent,@skills" {
+				if got := strings.Join(defaultLevel.ReadRoots, ","); got != "@workspace,@chat,@agent,@skills,@temp" {
 					t.Fatalf("unexpected default access-policy read roots: %#v", defaultLevel.ReadRoots)
 				}
-				if got := strings.Join(defaultLevel.WriteRoots, ","); got != "@workspace,@chat" {
+				if got := strings.Join(defaultLevel.WriteRoots, ","); got != "@workspace,@chat,@temp" {
 					t.Fatalf("unexpected default access-policy write roots: %#v", defaultLevel.WriteRoots)
 				}
 			})
@@ -2063,10 +2063,10 @@ func TestAccessPolicyConfigYAMLOverrides(t *testing.T) {
 				t.Fatalf("load config: %v", err)
 			}
 			level := cfg.AccessPolicy.Levels["default"]
-			if strings.Join(level.ReadRoots, ",") != "@workspace,@chat" {
+			if strings.Join(level.ReadRoots, ",") != "@workspace,@chat,@temp" {
 				t.Fatalf("unexpected read roots: %#v", level.ReadRoots)
 			}
-			if strings.Join(level.WriteRoots, ",") != "@workspace,@chat" {
+			if strings.Join(level.WriteRoots, ",") != "@workspace,@chat,@temp" {
 				t.Fatalf("unexpected write roots: %#v", level.WriteRoots)
 			}
 			if level.Approvals.ReadOutsideRoots != "block" {
@@ -2328,7 +2328,7 @@ func TestToolsConfigYAMLOverrides(t *testing.T) {
 							t.Fatalf("load config: %v", err)
 						}
 						level := cfg.AccessPolicy.Levels["default"]
-						if strings.Join(level.ReadRoots, ",") != "@workspace" {
+						if strings.Join(level.ReadRoots, ",") != "@workspace,@temp" {
 							t.Fatalf("unexpected read roots: %#v", level.ReadRoots)
 						}
 						if level.Approvals.ReadOutsideRoots != "block" {

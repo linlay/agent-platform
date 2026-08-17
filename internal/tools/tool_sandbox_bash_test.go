@@ -159,13 +159,60 @@ func TestInvokeSandboxBashForwardsEnv(t *testing.T) {
 
 	_, err := executor.invokeSandboxBash(context.Background(), map[string]any{
 		"command": "echo ok",
-		"env":     map[string]any{"FOO": "bar"},
+		"env": []any{
+			map[string]any{"name": "FOO", "value": "bar"},
+			map[string]any{"name": "EMPTY", "value": ""},
+		},
 	}, sandboxBashExecutionContext(t))
 	if err != nil {
 		t.Fatalf("invokeSandboxBash returned error: %v", err)
 	}
 	if sandbox.env["FOO"] != "bar" {
 		t.Fatalf("expected env to be forwarded, got %#v", sandbox.env)
+	}
+	if value, exists := sandbox.env["EMPTY"]; !exists || value != "" {
+		t.Fatalf("expected empty env value to be forwarded, got %#v", sandbox.env)
+	}
+}
+
+func TestInvokeSandboxBashRejectsInvalidEnvironment(t *testing.T) {
+	tests := []struct {
+		name string
+		env  any
+	}{
+		{name: "null", env: nil},
+		{name: "legacy object", env: map[string]any{"FOO": "bar"}},
+		{name: "non object item", env: []any{"FOO=bar"}},
+		{name: "missing name", env: []any{map[string]any{"value": "bar"}}},
+		{name: "missing value", env: []any{map[string]any{"name": "FOO"}}},
+		{name: "non string value", env: []any{map[string]any{"name": "FOO", "value": true}}},
+		{name: "invalid empty name", env: []any{map[string]any{"name": "", "value": "bar"}}},
+		{name: "invalid leading digit", env: []any{map[string]any{"name": "1FOO", "value": "bar"}}},
+		{name: "invalid punctuation", env: []any{map[string]any{"name": "FOO-BAR", "value": "bar"}}},
+		{name: "duplicate name", env: []any{
+			map[string]any{"name": "FOO", "value": "one"},
+			map[string]any{"name": "FOO", "value": "two"},
+		}},
+		{name: "extra field", env: []any{map[string]any{"name": "FOO", "value": "bar", "secret": true}}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sandbox := &stubSandboxClient{}
+			executor := &RuntimeToolExecutor{sandbox: sandbox}
+			result, err := executor.invokeSandboxBash(context.Background(), map[string]any{
+				"command": "echo ok",
+				"env":     tc.env,
+			}, sandboxBashExecutionContext(t))
+			if err != nil {
+				t.Fatalf("invokeSandboxBash returned error: %v", err)
+			}
+			if result.Error != "invalid_environment" || result.ExitCode != -1 {
+				t.Fatalf("unexpected invalid environment result: %#v", result)
+			}
+			if sandbox.env != nil {
+				t.Fatalf("sandbox execute received invalid environment: %#v", sandbox.env)
+			}
+		})
 	}
 }
 
@@ -177,7 +224,9 @@ func TestInvokeSandboxBashRejectsReservedEnvironment(t *testing.T) {
 
 			result, err := executor.invokeSandboxBash(context.Background(), map[string]any{
 				"command": "echo ok",
-				"env":     map[string]any{key: "/custom"},
+				"env": []any{
+					map[string]any{"name": key, "value": "/custom"},
+				},
 			}, &contracts.ExecutionContext{})
 			if err != nil {
 				t.Fatalf("invokeSandboxBash returned error: %v", err)

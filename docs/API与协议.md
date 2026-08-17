@@ -47,7 +47,7 @@ GET /ws -> request / response / stream / push / error frames
 
 文件传输按“HTTP 数据面 + WebSocket 控制面”划分：浏览器上传走 `POST /api/upload`，下载走 `GET /api/resource`；WebSocket `/api/upload` 用于 gateway 发送 `url + metadata` 下载通知，由 platform 按 metadata 中的 URL 自己通过 HTTP 拉取并校验（该 URL 可指向 gateway 的 `/api/pull/...`）。反向推送本地资源走 WS `/api/resource`，platform 再把文件字节 HTTP POST 到 gateway 的 `pushURL`（通常是 `/api/push/...`）；WS `/api/push` 不存在。
 
-资源协议分为 Markdown 地址与隐藏 HTTP 数据面两层，不能混用。当前 Chat 文件在工具结果和 Markdown 中使用不带 `chatId`、前导 `/` 的 ChatScope 相对 URI，例如 `generated.png` 或 `artifacts/run_01/generated.png`；普通 Agent 还可在 Markdown 中使用当前 Workspace 的 POSIX 绝对路径与 `/tmp/...`，HTTP(S)、`data:`、`blob:` 原样使用。前端只在统一资源 adapter 内将 ChatScope 地址转换为 `GET /api/resource?file=<chatId>/<relativePath>`，将绝对路径转换为 `GET /api/resource?chatId=<chatId>&file=<absolutePath>`。真实 `/api/resource` 请求地址与 `<currentChatId>/<relativePath>` 都不是 Markdown 地址；后端工具、模型和公开事件不得生成它们，历史 endpoint Markdown 不迁移且不再预览。
+资源协议分为 Markdown 地址与隐藏 HTTP 数据面两层，不能混用。当前 Chat 文件在工具结果和 Markdown 中使用不带 `chatId`、前导 `/` 的 ChatScope 相对 URI，例如 `generated.png` 或 `artifacts/run_01/generated.png`；普通 Agent 还可在 Markdown 中使用当前 Workspace 或冻结临时根内的实际 Host 绝对路径，HTTP(S)、`data:`、`blob:` 原样使用。`@temp` 只是工具语义根，不是 Markdown 地址。前端只在统一资源 adapter 内将 ChatScope 地址转换为 `GET /api/resource?file=<chatId>/<relativePath>`，将绝对路径转换为 `GET /api/resource?chatId=<chatId>&file=<absolutePath>`。真实 `/api/resource` 请求地址与 `<currentChatId>/<relativePath>` 都不是 Markdown 地址；后端工具、模型和公开事件不得生成它们，历史 endpoint Markdown 不迁移且不再预览。
 
 ## HTTP API 定义
 
@@ -115,7 +115,7 @@ GET /ws -> request / response / stream / push / error frames
 | POST | `/api/admin/agents/skills/import` | multipart: `agentKey`、`file`；兼容可选 `key` | 为一个目录型 Agent 导入并启用专属 ZIP Skill，返回更新后的 admin agent detail |
 | POST | `/api/admin/agents/skills/delete` | body: `agentKey`、`key` | 删除该 Agent 的专属 Skill 与其配置引用，返回更新后的 admin agent detail |
 | GET | `/api/admin/agents/editor-options` | 无 | agent 编辑器可选项 |
-| GET | `/api/admin/skills` | 无 | skills-center skill 列表，包含状态、图标 URL、摘要诊断、更新时间、大小与引用 agent |
+| GET | `/api/admin/skills` | 无 | skills-center skill 列表，包含状态、图标 URL、可选 `version`、摘要诊断、更新时间、大小与引用 agent |
 | GET | `/api/admin/skills/detail` | query: `key`、`openPath` | skill 详情，返回 `fileManifest.entries[]` 与可选 `openedFile` |
 | POST | `/api/admin/skills/create` | body: `key`、`skillMd`、`files[]` | 创建后的 skill 详情 |
 | POST | `/api/admin/skills/import` | multipart: `key`、`file` | 原子校验并导入完整 ZIP，返回创建后的 skill 详情 |
@@ -142,7 +142,7 @@ GET /ws -> request / response / stream / push / error frames
 
 `POST /api/admin/agents/skills/import` 只面向目录型普通 Agent。它沿用共享 Skill ZIP 的校验和限额，但将内容写入 `<agents>/<agentKey>/skills/<key>/`，并原子地把 key 加入该 Agent 的 `skillConfig.skills` 后 reload agents；导入失败或 reload 失败都会恢复 Agent YAML 并清理本地目录。未传 `key` 时，服务端从 ZIP 的 `SKILL.md` frontmatter 读取 `key`，否则读取 `name` 作为 Skill Key；旧调用方仍可显式传 Key。专属 Skill 不会出现在 `/api/admin/skills`，也不能由共享 Skill 删除接口删除。导入准入不查询 skills-center；若两者 Key 相同，该专属版本只对当前 Agent 优先，其他 Agent 仍可使用技能中心版本。Admin Agent Detail 的 `privateSkills[]` 返回本地摘要、是否启用及 `overridesCenter`，不返回本地路径或文件内容。专属删除同样只在 Agent 路由执行，并同时删目录和配置引用。
 
-`/api/admin/skills` 管理 Skill 的结构和二进制文件操作；可编辑文本内容可通过 `/api/admin/source` 的 Skill target 读取和保存。`detail` 不内联全量文件内容，而返回轻量 `fileManifest`：`revision`、`defaultOpenPath`、文件统计和预排序扁平 `entries[]`。每个 entry 使用完整相对 `path` 作为稳定 ID，并带 `parentPath/depth/order/contentKind/language/role/editable/downloadable/uploadable/renamable/deletable`。`openPath` 指向可编辑 UTF-8 文本文件时，`detail` 额外返回 `openedFile`；二进制或过大文件只返回 metadata。保存使用 `baseSha256` 做并发保护，冲突返回 409。创建、删除、重命名、上传和 mkdir 的 mutation 响应会返回新的 `fileManifest` 与 `selectedPath`，方便前端直接刷新文件树。列表和详情摘要会在 skill 目录存在 regular、非 symlink 的 `assets/<skill-id>.png` 时返回 `icon` 下载 URL；未提供图标时省略字段，由客户端负责默认图。`file/download` 只下载单一文件；`download` 返回 ZIP，包含安全的普通 skill 文件、跳过 symlink 与 `.runtime-env.json`，并限制未压缩内容为 256 MiB。
+`/api/admin/skills` 管理 Skill 的结构和二进制文件操作；可编辑文本内容可通过 `/api/admin/source` 的 Skill target 读取和保存。`detail` 不内联全量文件内容，而返回轻量 `fileManifest`：`revision`、`defaultOpenPath`、文件统计和预排序扁平 `entries[]`。每个 entry 使用完整相对 `path` 作为稳定 ID，并带 `parentPath/depth/order/contentKind/language/role/editable/downloadable/uploadable/renamable/deletable`。`openPath` 指向可编辑 UTF-8 文本文件时，`detail` 额外返回 `openedFile`；二进制或过大文件只返回 metadata。保存使用 `baseSha256` 做并发保护，冲突返回 409。创建、删除、重命名、上传和 mkdir 的 mutation 响应会返回新的 `fileManifest` 与 `selectedPath`，方便前端直接刷新文件树。列表和详情摘要会在 skill 目录存在 regular、非 symlink 的 `assets/<skill-id>.png` 时返回 `icon` 下载 URL；未提供图标时省略字段，由客户端负责默认图。skill 摘要从 `SKILL.md` frontmatter 提取可选 `version`：顶层 `version` 优先，缺失或空白时回退 `metadata.version`；两者皆无或空白时省略字段。`file/download` 只下载单一文件；`download` 返回 ZIP，包含安全的普通 skill 文件、跳过 symlink 与 `.runtime-env.json`，并限制未压缩内容为 256 MiB。
 
 `POST /api/admin/skills/import` 只接受单个不超过 32 MiB 的 ZIP，Skill Key 必须尚不存在。ZIP 可直接以 `SKILL.md` 为根，也可只有一层包装目录；`__MACOSX` 与 `.DS_Store` 被忽略。服务端拒绝目录逃逸、反斜杠路径、symlink、非普通文件、重复或大小写冲突路径、文件/目录冲突，并限制单文件 32 MiB、未压缩总量 256 MiB、最多 4096 个 entry。解包先进入 catalog 与 watcher 都忽略的隐藏 staging，完整验证 `SKILL.md`、`.runtime-env.json` 和 runtime 文件后再原子 rename；重名返回 409，非 ZIP 返回 415，包内诊断返回 422 `data.error.diagnostics[]`，所有失败都不保留目标目录。成功后沿用 `skills` reload 和 Agent 重组；reload 失败会删除刚导入的目录并恢复旧 catalog。
 
@@ -207,17 +207,17 @@ Archive 摘要、详情和搜索结果都会返回时间字段：`createdAt` 为
 |---|---|---|---|
 | POST | `/api/automations` | body: `tag` | automation 列表 |
 | POST | `/api/automation` | body: `id` 或 `automationId` | automation 详情 |
-| POST | `/api/automation/create` | body: `name`、`description`、`cron`、`agentKey`、`enabled`、`teamId`、`zoneId`、`remainingRuns`、`query` | 创建后的 automation 详情 |
+| POST | `/api/automation/create` | body: `name`、`cron`、`query`，以及 `agentKey` / `teamId` 二选一；可选 `description`、`enabled`、`zoneId`、`remainingRuns` | 创建后的 automation 详情 |
 | POST | `/api/automation/update` | body: `id` 或 `automationId`，以及可更新字段 | 更新后的 automation 详情 |
 | POST | `/api/automation/delete` | body: `id` 或 `automationId` | 删除结果 |
 | POST | `/api/automation/toggle` | body: `id` 或 `automationId`、`enabled` | 启停后的 automation 详情 |
 | POST | `/api/automation/executions` | body: `id` 或 `automationId`、`limit`、`offset` | execution history |
 
-`query` 对象包含 `message`、`chatId`、`role`、`params`。`role` 可选值为 `user`、`assistant`、`automation`、`system`；automation 未显式配置时默认为 `automation`。
+`query` 对象包含必填 `message`，以及可选 `chatId`、`role`、`hidden`、`params`。`role` 可选值为 `user`、`assistant`、`automation`、`system`，省略时按 `automation` 执行；`hidden` 省略时按 `true` 执行，只隐藏 Chat 时间线里的 automation query 消息，不隐藏 chat、run 或模型回复，显式 `false` 可显示该 query。省略值在 Automation 详情中继续省略，结构化更新不会把计算后的默认值写回 YAML。
 
 Automation 摘要和详情中的 `nextFireAt` 是下次触发时间的 epoch milliseconds；`lastExecution` 与 execution history 中的 `startedAt`、`completedAt` 同样是 epoch milliseconds。这些 `*At` 字段是排序、计算和客户端本地化的唯一权威时间。对应的 `nextFireTime`、`startedTime`、`completedTime` 均由 Platform 按 `automation.default-zone-id`（无效或未配置时回退进程 `time.Local`）转换为 `YYYY-MM-DD HH:mm:ss`，只用于阅读，不保留毫秒或时区信息。
 
-Execution 的 `zoneId` 是创建 execution 时解析出的有效业务时区快照，解析顺序为 automation `environment.zoneId`、Platform `automation.default-zone-id`、进程 `time.Local`。它不会随 automation 后续修改或删除而变化，也不参与上述 `*Time` 展示转换。
+Automation 的 `description` 和 `zoneId` 均可省略。Execution 的 `zoneId` 是创建 execution 时解析出的有效业务时区快照，解析顺序为 automation `environment.zoneId`、Platform `automation.default-zone-id`、进程 `time.Local`。它不会随 automation 后续修改或删除而变化，也不参与上述 `*Time` 展示转换。
 
 Automation 的 Team 身份规则与 query 一致：只配置 `teamId`，同时传 `agentKey` 会被拒绝。触发时由隐藏协调器接管，不会选择或回显虚拟 Agent key。
 
@@ -409,6 +409,8 @@ curl -sS -X POST http://127.0.0.1:11949/api/query \
 
 `params` 是业务透传对象，平台不读取、不写入、不约定内部 key。
 
+`hidden` 是可选的 `request.query` 时间线展示标记；省略时普通 query 不隐藏，Automation 调度会按自身默认值传入 `true`。
+
 `role` 可选值为 `user`、`assistant`、`automation`、`system`，普通 query 缺省为 `user`。`automation` / `system` 的 `request.query` 会保留在 trace 中，但不会作为可见用户消息参与搜索、Markdown 或安全分享导出。`format=sse` 是公开分享链路唯一的数据协议：第一帧必须是带 `shareVersion=1` 的 `chat.start`，之后仅投影能够与根 run 生命周期可靠关联的 `request.query`、可选 `run.start`、`reasoning.snapshot`、`content.snapshot` 和运行终态，最后以唯一的 `[DONE]` 帧结束。无法关联到可见根 query 的事件、子任务 query、工具调用、附件、系统提示和错误诊断均不导出；事件不包含 `chatId`、`runId`、`agentKey`、reasoningId 或原始运行 payload。Profile 最多包含 2000 个对话事件，单段正文不超过 200 KB，标题和 reasoning label 不超过 300 字节。Desktop 只允许限长后原字节转发，不得派生第二套网络 DTO 或重新序列化。成功响应使用 `Content-Type: text/event-stream; charset=utf-8` 和安全标题的 `.sse` 附件名，不使用 `ApiResponse` 包裹；空投影返回 422，超过 2 MiB 返回 413，错误响应仍为 JSON `ApiResponse`。未知 format 返回 400。`/api/chat/jsonl` 返回原始持久化数据，与安全导出不是同一契约。`role` 只影响本次 query 展示语义，不决定 chat 摘要的 `source`；外部请求不能通过 `role=automation` 或传入 `source` 伪造 automation 创建来源。普通 HTTP `/api/query` 传入 `sourceUser` 也不会改变 source；该字段只在受信 channel/gateway 上下文中作为远端用户提示使用。
 
 安全 Share SSE 示例：
@@ -496,10 +498,10 @@ KBASE API 接受所有 `kbaseConfig.enabled: true` 的 Agent，包括专用 `mod
 | Workspace 相对路径 | 不适用 | 接受，按当前 Workspace 解析 | 不作为本地 Markdown 地址 | 不作为资源键 |
 | 当前 Chat 内的 Host 绝对路径 | 内部 `path` 可返回 | 接受 | 禁止展示；改用 ChatScope `url` | 拒绝；使用 ChatScope 逻辑键读取 |
 | 普通 Agent Workspace 内的 POSIX 绝对路径 | 内部 `path` 可返回 | 接受，canonical 后仍须属于当前根 | 允许实时引用 | 必须同时传当前 `chatId` 与 Bearer/Cookie |
-| `/tmp/...` | 不适用 | 接受 | 普通 Agent 允许实时引用；Team 禁止 | 清理后按词法 `/tmp` 前缀放行，明确允许 symlink 跳出 |
-| `@chat`、`@workspace`、Container `/chat`、`/workspace` | 不适用 | 接受并映射到当前受控根 | 禁止展示 | 禁止 |
-| 其他 chat 或 Workspace/`/tmp` 之外的绝对路径 | 不适用 | 拒绝 | 禁止 | 拒绝 |
-| `file://`、Windows/UNC 异主机绝对路径 | 不适用 | 拒绝 | 禁止 | 拒绝 |
+| 冻结临时根内的实际 Host 绝对路径 | 不适用 | 接受，按最终 canonical 目标校验 | 普通 Agent 允许实时引用；Team 禁止 | 必须同时传当前 `chatId` 与 Bearer/Cookie；symlink/junction 逃逸拒绝 |
+| `@chat`、`@workspace`、`@temp`、Container `/chat`、`/workspace` | 不适用 | 接受并映射到当前受控根 | 禁止展示 `@*`；临时文件应使用实际 Host 绝对路径 | 禁止语义根；只接受 ChatScope 或实际绝对路径 |
+| 其他 chat 或 Workspace/冻结临时根之外的绝对路径 | 不适用 | 拒绝 | 禁止 | 拒绝 |
+| `file://`、当前 Host 不支持的异平台/UNC 绝对路径 | 不适用 | 拒绝 | 禁止 | 拒绝 |
 | `http://`、`https://`、`data:`、`blob:` | provider 图片响应先下载并物化到当前 Chat | 拒绝作为发布源 | 允许原样引用 | 不作为资源键 |
 | `relative/path` ChatScope 引用 | 作为 `url` 返回 | 不作为 `path` | 当前 Chat 稳定资源格式 | adapter 加当前 `chatId` 后接受 |
 | `<currentChatId>/relative/path` | 不再生成 | 不作为 `path` | 禁止 | 仅可作为隐藏 HTTP 逻辑键 |
@@ -583,7 +585,7 @@ curl -sS -X POST http://127.0.0.1:11949/api/kbase/docs_kbase/refresh \
 | GET | `/api/project/changes` | query: `agentKey`、`chatId`、可选 `runId/limit/cursor` | 当前 Chat 的 Run 文件历史列表 |
 | GET | `/api/project/diff` | query: `agentKey`、`chatId`、`runId`、`path`、可选 `encoding` | 单个 Run 快照的原始/当前文本 |
 | GET | `/api/viewport` | query: `viewportKey`、`viewportType` | viewport 模板或 fallback |
-| GET | `/api/resource` | query: `file`、`chatId`、`t`、`download` | ChatScope 或普通 Agent Workspace/`/tmp` 资源字节；绝对路径必须传 `chatId` |
+| GET | `/api/resource` | query: `file`、`chatId`、`t`、`download` | ChatScope 或普通 Agent Workspace/冻结临时根资源字节；绝对路径必须传 `chatId` |
 | GET | `/api/tool-result` | query: `chatId`、`path`、`t` | `.tools/results/<toolId>.json` 完整工具结果；`t` 为可选 resource ticket |
 | POST | `/api/upload` | multipart: `requestId`、`chatId`、`name`、`file` | upload ticket 与资源访问信息 |
 
@@ -599,7 +601,7 @@ Project 三个端点是只读 HTTP 数据面，只接受服务端从 `agentKey` 
 
 `/api/resource` 的 ChatScope 数据面使用 `file=<chatId>/<relativePath>` 逻辑资源键。Markdown 的 `relativePath` 每段先做 URI path 编码，adapter 再把整个逻辑键做 query 编码；服务端逐段只解码一次并执行 canonical/symlink 边界检查，拒绝路径穿越、其他 chat 所有权和 `.tools`/`.btw` 内部目录。active 文件不存在时会在同一 chat 的 archive 副本中查找，使生成和发布资源可稳定回放。
 
-绝对路径数据面使用 `file=<POSIX absolutePath>&chatId=<currentChatId>`，仅接受 Bearer/Cookie 主体，resource ticket 不能授权。服务端从 chat owner 解析 `agentKey` 和当前 `AgentDefinition.workspaceRoot`：普通 Agent 只允许 canonical 后仍在 Workspace 的路径，Team chat 一律拒绝绝对路径。`/tmp/...` 在 `filepath.Clean` 后仅按字符串前缀判定并对普通 Agent 放行；这是显式接受的边界，符号链接可跳出 `/tmp`，而 `/tmp/../...` 清理后不再享受该规则。Workspace 和 `/tmp` 都是实时引用，文件变化或删除会直接影响回放。两种读取均返回原始字节和准确 `Content-Type`；图片默认 `Content-Disposition: inline`，`download=true` 改为 `attachment`。
+绝对路径数据面使用 `file=<hostAbsolutePath>&chatId=<currentChatId>`，仅接受 Bearer/Cookie 主体，resource ticket 不能授权。服务端从 chat owner 解析 `agentKey` 和当前 `AgentDefinition.workspaceRoot`：普通 Agent 允许 canonical 后仍在 Workspace 或冻结临时根的路径，当前/其他 Chat 的绝对路径必须改用 ChatScope，Team chat 一律拒绝绝对路径。临时根由进程启动时的统一解析器冻结：Unix/macOS 纳入 `os.TempDir()` 与 canonical `/tmp`，macOS 自动把 `/tmp`、`/private/tmp` 视为同一根；Windows 只纳入 `os.TempDir()`，不硬编码 `C:\Windows\Temp`。所有临时请求按最终 canonical 目标校验，symlink/junction 逃逸与 `..` 逃逸拒绝。Workspace 和临时绝对路径都是实时引用，文件变化或删除会直接影响回放。两种读取均返回原始字节和准确 `Content-Type`；图片默认 `Content-Disposition: inline`，`download=true` 改为 `attachment`。
 
 resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界.md)。
 

@@ -323,32 +323,6 @@ func validateStrictCommand(command string, cfg config.BashConfig) error {
 	return nil
 }
 
-func stringMapArg(args map[string]any, key string) map[string]string {
-	raw, ok := args[key]
-	if !ok || raw == nil {
-		return nil
-	}
-	switch value := raw.(type) {
-	case map[string]string:
-		return CloneStringMap(value)
-	case map[string]any:
-		result := make(map[string]string, len(value))
-		for envKey, envValue := range value {
-			text, ok := envValue.(string)
-			if !ok {
-				continue
-			}
-			result[envKey] = text
-		}
-		if len(result) == 0 {
-			return nil
-		}
-		return result
-	default:
-		return nil
-	}
-}
-
 func mergeCommandEnv(execCtx *ExecutionContext) []string {
 	env := append([]string(nil), os.Environ()...)
 	var agentDir string

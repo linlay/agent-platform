@@ -86,6 +86,7 @@ type AdminSkill struct {
 	Description  string
 	IconPath     string
 	Meta         map[string]any
+	Version      string
 	Status       string
 	Diagnostics  []AdminSkillDiagnostic
 	Source       EditableSkillSource
@@ -1312,18 +1313,20 @@ func buildAdminSkill(root string, key string, usedBy []string, includeFiles bool
 			item.Status = AdminSkillStatusInvalid
 			item.Diagnostics = append(item.Diagnostics, skillDiagnostic("error", "empty_skill_md", "SKILL.md must not be empty", skillPath))
 		}
-		name, description, triggers, metadata := parseSkillPromptMetadata(prompt)
+		name, description, triggers, metadata, version := parseSkillPromptMetadata(prompt)
 		def := SkillDefinition{
 			Key:             key,
 			Name:            skillDisplayName(name, description, key),
 			Description:     description,
 			Triggers:        triggers,
 			Metadata:        metadata,
+			Version:         version,
 			Prompt:          prompt,
 			PromptTruncated: false,
 		}
 		item.Name = def.Name
 		item.Description = def.Description
+		item.Version = version
 		item.Meta = skillSummaryMeta(def)
 	}
 	if item.Meta == nil {

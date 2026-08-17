@@ -76,6 +76,9 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 		"model":       req.Model,
 		"scene":       req.Scene,
 	}
+	if req.Hidden != nil {
+		bodyPayload["hidden"] = *req.Hidden
+	}
 	if req.PlanningMode != nil {
 		bodyPayload["planningMode"] = *req.PlanningMode
 	}
@@ -171,6 +174,9 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 			"agentKey":  req.AgentKey,
 			"role":      req.Role,
 			"message":   req.Message,
+		}
+		if req.Hidden != nil {
+			queryPayload["hidden"] = *req.Hidden
 		}
 		if req.IncludeUsage {
 			queryPayload["includeUsage"] = true

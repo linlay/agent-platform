@@ -11,6 +11,7 @@ import (
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
 	"agent-platform/internal/rootpaths"
+	"agent-platform/internal/temppaths"
 )
 
 type AccessMode string
@@ -82,6 +83,13 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 	if err != nil {
 		return PathPlan{}, err
 	}
+	tempState, _, tempRoot, tempErr := sessionTempResolver(session).Classify(candidate)
+	if tempErr != nil {
+		return PathPlan{}, tempErr
+	}
+	if tempState == temppaths.Escape {
+		return buildPathPlan(mode, rawPath, realCandidate, tempRoot, accessLevel, DecisionBlock, "temporary path escapes its declared root"), nil
+	}
 
 	roots := level.ReadRoots
 	action := level.Approvals.ReadOutsideRoots
@@ -115,6 +123,10 @@ func EffectiveLevel(cfg config.AccessPolicyConfig, accessLevel string) Level {
 		normalized = AccessLevelDefault
 	}
 	raw := resolveLevelConfig(cfg, normalized, map[string]bool{})
+	if normalized != AccessLevelFullAccess {
+		raw.ReadRoots = appendRequiredRoot(raw.ReadRoots, "@temp")
+		raw.WriteRoots = appendRequiredRoot(raw.WriteRoots, "@temp")
+	}
 	return Level{
 		Name:          normalized,
 		ReadRoots:     raw.ReadRoots,
@@ -122,6 +134,15 @@ func EffectiveLevel(cfg config.AccessPolicyConfig, accessLevel string) Level {
 		ReadonlyRoots: raw.ReadonlyRoots,
 		Approvals:     raw.Approvals,
 	}
+}
+
+func appendRequiredRoot(roots []string, required string) []string {
+	for _, root := range roots {
+		if strings.EqualFold(strings.TrimSpace(root), required) {
+			return roots
+		}
+	}
+	return append(roots, required)
 }
 
 func SessionWorkspaceRoot(session QuerySession) string {
@@ -161,6 +182,11 @@ func PathInSessionChat(session QuerySession, path string) bool {
 	}
 	zone, _, err := roots.Classify(path)
 	return err == nil && zone == rootpaths.ZoneCurrentChat
+}
+
+func PathInSessionTemp(session QuerySession, path string) bool {
+	state, _, _, err := sessionTempResolver(session).Classify(path)
+	return err == nil && state == temppaths.Inside
 }
 
 func PathInSessionHostAccessRoot(session QuerySession, mode AccessMode, path string) bool {
@@ -246,6 +272,7 @@ func translateExecutionPath(session QuerySession, rawPath string) (string, bool,
 	if !session.AgentHasRuntimeSandbox {
 		return "", false, nil
 	}
+	tempRoot := expandRootAlias("@temp", session)
 	for _, roots := range []struct {
 		execution string
 		host      string
@@ -253,6 +280,7 @@ func translateExecutionPath(session QuerySession, rawPath string) (string, bool,
 	}{
 		{execution: session.RuntimeContext.SandboxPaths.ChatDir, host: SessionChatDir(session)},
 		{execution: session.RuntimeContext.SandboxPaths.WorkspaceDir, host: SessionWorkspaceRoot(session), workspace: true},
+		{execution: "/tmp", host: tempRoot},
 	} {
 		executionRoot := filepath.ToSlash(strings.TrimRight(strings.TrimSpace(roots.execution), `/\`))
 		hostRoot := strings.TrimSpace(roots.host)
@@ -301,7 +329,7 @@ func sessionRoots(session QuerySession) (rootpaths.Roots, error) {
 
 func splitRootQualifiedPath(rawPath string) (string, string, bool) {
 	normalized := filepath.ToSlash(strings.TrimSpace(rawPath))
-	for _, alias := range []string{"@workspace", "@chat", "@agent", "@skills", "@skills-center", "@owner"} {
+	for _, alias := range []string{"@workspace", "@chat", "@agent", "@skills", "@skills-center", "@owner", "@temp"} {
 		if strings.EqualFold(normalized, alias) {
 			return alias, "", true
 		}
@@ -380,8 +408,8 @@ func defaultLevelConfig(name string) config.AccessPolicyLevelConfig {
 		}
 	default:
 		return config.AccessPolicyLevelConfig{
-			ReadRoots:     []string{"@workspace", "@chat", "@agent", "@skills"},
-			WriteRoots:    []string{"@workspace", "@chat"},
+			ReadRoots:     []string{"@workspace", "@chat", "@agent", "@skills", "@temp"},
+			WriteRoots:    []string{"@workspace", "@chat", "@temp"},
 			ReadonlyRoots: []string{"@agent", "@skills", "@skills-center"},
 			Approvals: config.AccessPolicyApprovalConfig{
 				ReadOutsideRoots:      "hitl",
@@ -481,6 +509,12 @@ func firstAllowedRoot(session QuerySession, workspaceRoot string, roots []string
 		}
 		checkRoot := root
 		rootAlias := strings.ToLower(checkRoot)
+		if rootAlias == "@temp" {
+			if tempRoot, ok := sessionTempResolver(session).MatchCanonical(candidate); ok {
+				return tempRoot, true
+			}
+			continue
+		}
 		workspaceRelative := !filepath.IsAbs(checkRoot) && !strings.HasPrefix(checkRoot, "@")
 		if expanded := expandRootAlias(checkRoot, session); expanded != "" {
 			checkRoot = expanded
@@ -538,9 +572,22 @@ func expandRootAlias(root string, session QuerySession) string {
 		return cleanAbs(session.RuntimeContext.LocalPaths.SkillsCenterDir)
 	case "@owner":
 		return cleanAbs(session.RuntimeContext.LocalPaths.OwnerDir)
+	case "@temp":
+		if root, ok := sessionTempResolver(session).Primary(); ok {
+			return root.Host
+		}
+		return ""
 	default:
 		return ""
 	}
+}
+
+func sessionTempResolver(session QuerySession) temppaths.Resolver {
+	primary := strings.TrimSpace(session.TempRoot)
+	if primary == "" && len(session.TempRoots) > 0 {
+		primary = strings.TrimSpace(session.TempRoots[0])
+	}
+	return temppaths.New(primary, session.TempRoots...)
 }
 
 func appendSessionHostAccessRoots(roots []string, session QuerySession, mode AccessMode) []string {

@@ -17,10 +17,21 @@ inputSchema:
       type: integer
       description: Execution timeout in seconds.
     env:
-      type: object
+      type: array
       description: 本次命令追加的环境变量（合并到 session 默认 env 之上）。
-      additionalProperties:
-        type: string
+      items:
+        type: object
+        properties:
+          name:
+            type: string
+            description: Required. Environment variable name.
+          value:
+            type: string
+            description: Required. Environment variable value. An empty value is allowed.
+        required:
+          - name
+          - value
+        additionalProperties: false
   required:
     - command
   additionalProperties: false

@@ -10,7 +10,7 @@ inputSchema:
   properties:
     file_path:
       type: string
-      description: Required. Absolute path, an explicit @workspace/@chat/@agent/@skills/@skills-center/@owner path, or a path relative to the current Workspace.
+      description: Required. Absolute path, an explicit @workspace/@chat/@agent/@skills/@skills-center/@owner/@temp path, or a path relative to the current Workspace.
     old_string:
       type: string
       description: Required. Exact UTF-8 text to replace. Use an empty string only to create a new file or write an empty existing file.

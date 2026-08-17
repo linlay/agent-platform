@@ -94,7 +94,7 @@ func loadSkillDefinitionFromDir(skillDir, skillID string, maxPromptChars int) (S
 	}
 
 	prompt := strings.TrimSpace(string(content))
-	name, description, triggers, metadata := parseSkillPromptMetadata(prompt)
+	name, description, triggers, metadata, version := parseSkillPromptMetadata(prompt)
 	truncated := maxPromptChars > 0 && len(prompt) > maxPromptChars
 
 	bashHooksDir, err := resolveSkillBashHooksDir(skillDir)
@@ -112,6 +112,7 @@ func loadSkillDefinitionFromDir(skillDir, skillID string, maxPromptChars int) (S
 		Description:     description,
 		Triggers:        triggers,
 		Metadata:        metadata,
+		Version:         version,
 		Prompt:          prompt,
 		PromptTruncated: truncated,
 		BashHooksDir:    bashHooksDir,

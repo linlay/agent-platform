@@ -879,6 +879,7 @@ func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEv
 		TeamID:             prepared.req.TeamID,
 		Message:            prepared.req.Message,
 		Role:               role,
+		Hidden:             prepared.req.Hidden,
 		Scene:              sceneRef,
 		References:         prepared.req.References,
 		Params:             prepared.req.Params,

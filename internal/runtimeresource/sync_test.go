@@ -158,18 +158,21 @@ func providerRegistrationTestEntries(t *testing.T, endpoint string) map[string]s
 	}
 }
 
-func TestSyncMergesAllPlatformResourceDomains(t *testing.T) {
+func TestSyncOverwritesAllPackagedPlatformResourceDomains(t *testing.T) {
 	runtimeRoot := t.TempDir()
 	if os.PathSeparator == '/' {
 		if err := os.Chmod(runtimeRoot, 0o750); err != nil {
 			t.Fatal(err)
 		}
 	}
+	writeTestFile(t, filepath.Join(runtimeRoot, "VERSION"), "v1.9.0\n")
 	for _, scope := range unitScopes {
 		writeTestFile(t, filepath.Join(runtimeRoot, scope, "existing", "content.txt"), "user-"+scope)
+		writeTestFile(t, filepath.Join(runtimeRoot, scope, "existing", "local-only.txt"), "local-"+scope)
+		writeTestFile(t, filepath.Join(runtimeRoot, scope, "unknown", "content.txt"), "unknown-"+scope)
 	}
 	existingScript := filepath.Join(runtimeRoot, "agents", "existing", "keep-mode.sh")
-	writeTestFile(t, existingScript, "#!/bin/sh\n")
+	writeTestFile(t, existingScript, "#!/bin/sh\necho old\n")
 	if err := os.Chmod(existingScript, 0o640); err != nil {
 		t.Fatal(err)
 	}
@@ -181,13 +184,14 @@ func TestSyncMergesAllPlatformResourceDomains(t *testing.T) {
 		entries["env/"+scope+"/existing/content.txt"] = "package-" + scope
 		entries["env/"+scope+"/new/content.txt"] = "new-" + scope
 	}
+	entries["env/agents/existing/keep-mode.sh"] = "#!/bin/sh\necho new\n"
 	entries["env/agents/new/run.sh"] = "#!/bin/sh\n"
 	entries["env/registries/authoritative.yml"] = "new-registry"
 	source := writeTestZip(t, entries)
 	result, err := Sync(Options{
 		RuntimeDir:  runtimeRoot,
 		Source:      source,
-		DesktopFrom: "legacy",
+		DesktopFrom: "1.9.0",
 		DesktopTo:   "2.0.0",
 		Mode:        ModeVersionChange,
 		Now:         fixedNow,
@@ -195,29 +199,74 @@ func TestSyncMergesAllPlatformResourceDomains(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Changed || result.Stats.AddedUnits != 4 || result.Stats.PreservedUnits != 4 ||
+	if !result.Changed || result.Stats.AddedUnits != 4 || result.Stats.OverwrittenUnits != 4 ||
+		result.Stats.PreservedUnits != 0 ||
 		result.Stats.OverwrittenRegistryFiles != 1 {
 		t.Fatalf("unexpected result: %#v", result)
 	}
 	for _, scope := range unitScopes {
-		assertTestFile(t, filepath.Join(runtimeRoot, scope, "existing", "content.txt"), "user-"+scope)
+		assertTestFile(t, filepath.Join(runtimeRoot, scope, "existing", "content.txt"), "package-"+scope)
+		assertMissing(t, filepath.Join(runtimeRoot, scope, "existing", "local-only.txt"))
 		assertTestFile(t, filepath.Join(runtimeRoot, scope, "new", "content.txt"), "new-"+scope)
+		assertTestFile(t, filepath.Join(runtimeRoot, scope, "unknown", "content.txt"), "unknown-"+scope)
 	}
+	assertTestFile(t, existingScript, "#!/bin/sh\necho new\n")
 	assertTestFile(t, filepath.Join(runtimeRoot, "registries", "authoritative.yml"), "new-registry")
 	assertTestFile(t, filepath.Join(runtimeRoot, "registries", "user-extra.yml"), "user-registry")
+	assertTestFile(t, filepath.Join(runtimeRoot, "VERSION"), "v2.0.0\n")
+	if prefix := "1.9.0-to-2.0.0-"; !strings.HasPrefix(filepath.Base(result.BackupDir), prefix) {
+		t.Fatalf("backup directory %q does not start with %q", result.BackupDir, prefix)
+	}
+	assertTestFile(t, filepath.Join(result.BackupDir, "VERSION"), "v1.9.0\n")
+	assertTestFile(t, filepath.Join(result.BackupDir, "agents", "existing", "content.txt"), "user-agents")
+	assertTestFile(t, filepath.Join(result.BackupDir, "agents", "existing", "local-only.txt"), "local-agents")
 	state := readTestState(t, runtimeRoot)
-	for _, wanted := range []string{"agents/new", "skills-center/new", "tools/new", "teams/new"} {
+	for _, wanted := range []string{
+		"agents/existing", "agents/new",
+		"skills-center/existing", "skills-center/new",
+		"tools/existing", "tools/new",
+		"teams/existing", "teams/new",
+	} {
 		if !slices.Contains(state.ManagedUnits, wanted) {
 			t.Fatalf("state did not record %s: %#v", wanted, state.ManagedUnits)
 		}
 	}
-	if slices.Contains(state.ManagedUnits, "agents/existing") {
-		t.Fatalf("user-owned colliding Agent was incorrectly claimed: %#v", state.ManagedUnits)
-	}
 	if os.PathSeparator == '/' {
 		assertTestMode(t, runtimeRoot, 0o750)
-		assertTestMode(t, existingScript, 0o640)
+		assertTestMode(t, existingScript, 0o755)
 		assertTestMode(t, filepath.Join(runtimeRoot, "agents", "new", "run.sh"), 0o755)
+	}
+}
+
+func TestSyncReplacesBundledUnitsAcrossFileAndDirectoryTypes(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	writeTestFile(t, filepath.Join(runtimeRoot, "tools", "conflict", "user.txt"), "user-directory")
+	writeTestFile(t, filepath.Join(runtimeRoot, "teams", "conflict"), "user-file")
+
+	result, err := Sync(Options{
+		RuntimeDir: runtimeRoot,
+		Source: writeTestZip(t, map[string]string{
+			"env/VERSION":                    "v2\n",
+			"env/tools/conflict":             "package-file",
+			"env/teams/conflict/content.txt": "package-directory",
+		}),
+		DesktopFrom: "1",
+		DesktopTo:   "2",
+		Mode:        ModeVersionChange,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Stats.OverwrittenUnits != 2 || result.Stats.AddedUnits != 0 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	assertTestFile(t, filepath.Join(runtimeRoot, "tools", "conflict"), "package-file")
+	assertTestFile(t, filepath.Join(runtimeRoot, "teams", "conflict", "content.txt"), "package-directory")
+	state := readTestState(t, runtimeRoot)
+	for _, wanted := range []string{"tools/conflict", "teams/conflict"} {
+		if !slices.Contains(state.ManagedUnits, wanted) {
+			t.Fatalf("state did not record %s: %#v", wanted, state.ManagedUnits)
+		}
 	}
 }
 
@@ -255,6 +304,30 @@ func TestSyncRemovesOnlyPreviouslyManagedResources(t *testing.T) {
 	assertTestFile(t, filepath.Join(runtimeRoot, "registries", "unknown.yml"), "unknown")
 }
 
+func TestReadStateAcceptsV1StatsWithoutOverwrittenUnits(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), stateFileName)
+	writeTestFile(t, statePath, strings.Join([]string{
+		`{`,
+		`  "schemaVersion": 1,`,
+		`  "transactionId": "legacy-transaction",`,
+		`  "desktopVersion": "1.0.0",`,
+		`  "packageSha256": "legacy-sha",`,
+		`  "completedAt": "2026-08-14T00:00:00Z",`,
+		`  "managedUnits": ["agents/managed"],`,
+		`  "managedRegistryFiles": ["registries/models/managed.yml"],`,
+		`  "stats": {"addedUnits": 1, "preservedUnits": 2}`,
+		`}`,
+	}, "\n"))
+
+	state, exists, err := readState(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exists || state.Stats.AddedUnits != 1 || state.Stats.PreservedUnits != 2 || state.Stats.OverwrittenUnits != 0 {
+		t.Fatalf("unexpected legacy state: exists=%v state=%#v", exists, state)
+	}
+}
+
 func TestVersionChangeIdempotencyIgnoresSourceSHA(t *testing.T) {
 	runtimeRoot := t.TempDir()
 	first := writeTestZip(t, map[string]string{
@@ -278,6 +351,8 @@ func TestVersionChangeIdempotencyIgnoresSourceSHA(t *testing.T) {
 		t.Fatalf("same version unexpectedly changed resources: %#v", result)
 	}
 
+	writeTestFile(t, filepath.Join(runtimeRoot, "teams", "manual", "content.txt"), "old-manual")
+	writeTestFile(t, filepath.Join(runtimeRoot, "teams", "manual", "local-only.txt"), "remove-me")
 	manual := writeTestZip(t, map[string]string{
 		"env/VERSION":                  "v2.0.0\n",
 		"env/teams/manual/content.txt": "manual",
@@ -289,7 +364,11 @@ func TestVersionChangeIdempotencyIgnoresSourceSHA(t *testing.T) {
 	if !manualResult.Changed {
 		t.Fatal("manual import should run at the same Desktop version")
 	}
+	if manualResult.Stats.OverwrittenUnits != 1 {
+		t.Fatalf("manual import did not overwrite the packaged unit: %#v", manualResult)
+	}
 	assertTestFile(t, filepath.Join(runtimeRoot, "teams", "manual", "content.txt"), "manual")
+	assertMissing(t, filepath.Join(runtimeRoot, "teams", "manual", "local-only.txt"))
 }
 
 func TestRegistryImageSchemaUsesActualModelLoader(t *testing.T) {
@@ -386,13 +465,16 @@ func TestSyncRejectsUnsafeOrInvalidArchives(t *testing.T) {
 
 func TestPublishFailureRollsBackWithoutCommittingState(t *testing.T) {
 	runtimeRoot := t.TempDir()
+	writeTestFile(t, filepath.Join(runtimeRoot, "VERSION"), "v1\n")
 	writeTestFile(t, filepath.Join(runtimeRoot, "registries", "authoritative.yml"), "old")
 	existingScript := filepath.Join(runtimeRoot, "agents", "existing", "rollback.sh")
-	writeTestFile(t, existingScript, "#!/bin/sh\n")
+	writeTestFile(t, existingScript, "#!/bin/sh\necho old\n")
+	writeTestFile(t, filepath.Join(runtimeRoot, "agents", "existing", "local-only.txt"), "restore-me")
 	if err := os.Chmod(existingScript, 0o710); err != nil {
 		t.Fatal(err)
 	}
 	source := writeTestZip(t, map[string]string{
+		"env/agents/existing/rollback.sh":  "#!/bin/sh\necho new\n",
 		"env/VERSION":                      "v2\n",
 		"env/registries/authoritative.yml": "new",
 	})
@@ -414,6 +496,9 @@ func TestPublishFailureRollsBackWithoutCommittingState(t *testing.T) {
 		t.Fatalf("error=%v", err)
 	}
 	assertTestFile(t, filepath.Join(runtimeRoot, "registries", "authoritative.yml"), "old")
+	assertTestFile(t, existingScript, "#!/bin/sh\necho old\n")
+	assertTestFile(t, filepath.Join(runtimeRoot, "agents", "existing", "local-only.txt"), "restore-me")
+	assertTestFile(t, filepath.Join(runtimeRoot, "VERSION"), "v1\n")
 	if os.PathSeparator == '/' {
 		assertTestMode(t, existingScript, 0o710)
 	}

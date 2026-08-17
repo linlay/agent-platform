@@ -276,8 +276,8 @@ func defaultAccessPolicyConfig() AccessPolicyConfig {
 	return AccessPolicyConfig{
 		Levels: map[string]AccessPolicyLevelConfig{
 			"default": {
-				ReadRoots:     []string{"@workspace", "@chat", "@agent", "@skills"},
-				WriteRoots:    []string{"@workspace", "@chat"},
+				ReadRoots:     []string{"@workspace", "@chat", "@agent", "@skills", "@temp"},
+				WriteRoots:    []string{"@workspace", "@chat", "@temp"},
 				ReadonlyRoots: []string{"@agent", "@skills", "@skills-center"},
 				Approvals: AccessPolicyApprovalConfig{
 					ReadOutsideRoots:      "hitl",
@@ -620,8 +620,22 @@ func normalizeAccessPolicyConfig(cfg AccessPolicyConfig) AccessPolicyConfig {
 		level.Approvals = normalizeAccessPolicyApprovals(level.Approvals)
 		normalizedLevels[normalizedName] = level
 	}
+	if level, ok := normalizedLevels["default"]; ok {
+		level.ReadRoots = appendAccessPolicyRoot(level.ReadRoots, "@temp")
+		level.WriteRoots = appendAccessPolicyRoot(level.WriteRoots, "@temp")
+		normalizedLevels["default"] = level
+	}
 	cfg.Levels = normalizedLevels
 	return cfg
+}
+
+func appendAccessPolicyRoot(roots []string, required string) []string {
+	for _, root := range roots {
+		if strings.EqualFold(strings.TrimSpace(root), required) {
+			return roots
+		}
+	}
+	return append(roots, required)
 }
 
 func normalizeAccessPolicyRoots(roots []string) []string {

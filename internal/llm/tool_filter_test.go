@@ -224,7 +224,7 @@ func TestEffectiveToolDefinitionsRequireExplicitRootsWithoutWorkspace(t *testing
 	readProperties, _ := readDefinition.Parameters["properties"].(map[string]any)
 	filePath, _ := readProperties["file_path"].(map[string]any)
 	description, _ := filePath["description"].(string)
-	for _, expected := range []string{"@chat", "@skills", "relative paths", "@workspace"} {
+	for _, expected := range []string{"@chat", "@skills", "@temp", "relative paths", "@workspace"} {
 		if !strings.Contains(description, expected) {
 			t.Fatalf("expected file_read.file_path description to contain %q, got %q", expected, description)
 		}
@@ -235,7 +235,8 @@ func TestEffectiveToolDefinitionsRequireExplicitRootsWithoutWorkspace(t *testing
 		"properties", "artifacts", "items", "properties", "path",
 	)
 	if !strings.Contains(artifactPathDescription, "@chat/...") ||
-		!strings.Contains(artifactDefinition.Description, "Artifact sources must use explicit @chat/... paths") {
+		!strings.Contains(artifactPathDescription, "@temp/...") ||
+		!strings.Contains(artifactDefinition.Description, "Artifact sources must use explicit @chat/... or @temp/... paths") {
 		t.Fatalf("expected Workspace-less artifact source contract, got %#v", artifactDefinition)
 	}
 	visionDefinition := toolDefinitionByName(t, workspaceLess, "vision_recognize")

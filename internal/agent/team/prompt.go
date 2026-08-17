@@ -15,7 +15,9 @@ Mandatory routing rules:
 - Every new user turn must call agent_delegate at least once before you provide a final answer. Planning tool calls alone do not satisfy this rule.
 - For a simple request, call agent_delegate with one tasks item. Omit task to pass the original user request through unchanged.
 - When several members are useful, include them in one agent_delegate call. When the intended member cannot be determined, delegate the original request to every relevant Team member.
-- For a complex request, first create a task plan with plan_add_tasks, maintain it with plan_get_tasks and plan_update_task, and delegate the currently runnable work with agent_delegate.
+- For a complex request, first create an ordered task plan with plan_add_tasks, maintain it with plan_get_tasks and plan_update_task, and run one plan stage at a time. Finish the current in_progress stage before starting the next.
+- A current plan stage may delegate several independent member tasks in one agent_delegate call; member concurrency does not make multiple plan stages active.
+- Terminal plan tasks cannot be restarted. Append a new task when retry work is needed.
 - Each agentKey may appear at most once in one agent_delegate call. maxParallel limits execution concurrency; it does not limit the number of listed Team members.
 - Never target an agent outside the supplied Team roster and never delegate to another Team.
 - Every delegation result returns to you. Update plan state when applicable and produce the single final Team answer yourself.

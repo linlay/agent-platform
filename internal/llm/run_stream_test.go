@@ -4256,6 +4256,332 @@ func TestBashAccessAutoApproveRecordsApprovalSummary(t *testing.T) {
 	}
 }
 
+func TestRunAuthoredChatAndTempScriptsAutoApproveWithoutAwaiting(t *testing.T) {
+	tests := []struct {
+		name       string
+		sandbox    bool
+		filePath   string
+		cwd        string
+		command    string
+		sandboxCwd string
+	}{
+		{name: "host chat python", filePath: "@chat/task.py", cwd: "@chat", command: "python3 task.py"},
+		{name: "host temp node", filePath: "@temp/task.js", cwd: "@temp", command: "node task.js"},
+		{name: "sandbox chat python", sandbox: true, filePath: "@chat/task.py", cwd: "@chat", command: "python3 task.py", sandboxCwd: "/chat"},
+		{name: "sandbox temp node", sandbox: true, filePath: "@temp/task.js", cwd: "/tmp", command: "node task.js", sandboxCwd: "/tmp"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			workspace := filepath.Join(root, "workspace")
+			chatDir := filepath.Join(root, "chats", "chat-1")
+			tempRoot := filepath.Join(root, "temp")
+			for _, dir := range []string{workspace, chatDir, tempRoot} {
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					t.Fatalf("mkdir %s: %v", dir, err)
+				}
+			}
+			session := contracts.QuerySession{
+				RequestID:              "req_1",
+				ChatID:                 "chat_1",
+				RunID:                  "run_1",
+				AccessLevel:            contracts.AccessLevelAutoApprove,
+				WorkspaceRoot:          workspace,
+				ChatRoot:               chatDir,
+				TempRoot:               tempRoot,
+				TempRoots:              []string{tempRoot},
+				AgentHasRuntimeSandbox: test.sandbox,
+				RuntimeContext: contracts.RuntimeRequestContext{
+					LocalPaths: contracts.LocalPaths{
+						WorkspaceDir: workspace,
+						ChatDir:      chatDir,
+					},
+					SandboxPaths: contracts.SandboxPaths{
+						WorkspaceDir: "/workspace",
+						ChatDir:      "/chat",
+					},
+				},
+			}
+			executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{
+				backendToolDefinition("file_write"),
+				bashToolDefinition(),
+			}}
+			stream := &llmRunStream{
+				ctx:     context.Background(),
+				session: session,
+				engine:  &LLMAgentEngine{tools: executor},
+				execCtx: &contracts.ExecutionContext{Session: session, AccessLevel: contracts.AccessLevelAutoApprove},
+			}
+			var approvals []chat.StepApproval
+			stream.onApprovalSummary = func(approval chat.StepApproval) {
+				copied := approval
+				copied.Decisions = append([]chat.StepApprovalDecision(nil), approval.Decisions...)
+				approvals = append(approvals, copied)
+			}
+
+			stream.activeToolCall = &preparedToolInvocation{
+				toolID:   "tool_write",
+				toolName: "file_write",
+				args: map[string]any{
+					"file_path": test.filePath,
+					"content":   "print('ok')\n",
+				},
+			}
+			if err := stream.invokeActiveToolCall(); err != nil {
+				t.Fatalf("invoke file_write: %v", err)
+			}
+			if stream.hitlPendingCall != nil {
+				t.Fatalf("file_write unexpectedly entered HITL: %#v", stream.hitlPendingCall)
+			}
+			stream.pending = nil
+
+			cwd := test.cwd
+			if test.sandbox && test.sandboxCwd != "" {
+				cwd = test.sandboxCwd
+			}
+			stream.activeToolCall = &preparedToolInvocation{
+				toolID:   "tool_bash",
+				toolName: "bash",
+				args:     map[string]any{"command": test.command, "cwd": cwd},
+			}
+			if err := stream.invokeActiveToolCall(); err != nil {
+				t.Fatalf("invoke bash: %v", err)
+			}
+			if stream.hitlPendingCall != nil {
+				t.Fatalf("auto-approved script execution entered HITL: %#v", stream.hitlPendingCall)
+			}
+			for _, delta := range stream.pending {
+				if _, ok := delta.(contracts.DeltaAwaitAsk); ok {
+					t.Fatalf("auto-approved script emitted awaiting.ask: %#v", stream.pending)
+				}
+			}
+			if len(executor.invocations) != 2 || executor.invocations[0].name != "file_write" || executor.invocations[1].name != "bash" {
+				t.Fatalf("expected file_write then bash, got %#v", executor.invocations)
+			}
+			if len(approvals) != 1 || len(approvals[0].Decisions) != 1 {
+				t.Fatalf("expected one auto-approval audit, got %#v", approvals)
+			}
+			decision := approvals[0].Decisions[0]
+			if decision.Decision != "auto_approved" || decision.Reason != "accessLevel=auto_approve" ||
+				!strings.HasPrefix(decision.RuleKey, "bash-access:opaque:") {
+				t.Fatalf("unexpected script auto-approval decision: %#v", decision)
+			}
+		})
+	}
+}
+
+func TestOpaqueScriptAutoApprovalWorksInConcurrentBatch(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	chatDir := filepath.Join(root, "chats", "chat-1")
+	tempRoot := filepath.Join(root, "temp")
+	for _, dir := range []string{workspace, chatDir, tempRoot} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	session := contracts.QuerySession{
+		RequestID:     "req_batch",
+		ChatID:        "chat_1",
+		RunID:         "run_batch",
+		AccessLevel:   contracts.AccessLevelAutoApprove,
+		WorkspaceRoot: workspace,
+		ChatRoot:      chatDir,
+		TempRoot:      tempRoot,
+		TempRoots:     []string{tempRoot},
+		RuntimeContext: contracts.RuntimeRequestContext{LocalPaths: contracts.LocalPaths{
+			WorkspaceDir: workspace,
+			ChatDir:      chatDir,
+		}},
+	}
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}}
+	stream := &llmRunStream{
+		ctx:     context.Background(),
+		session: session,
+		engine:  &LLMAgentEngine{tools: executor},
+		execCtx: &contracts.ExecutionContext{Session: session, AccessLevel: contracts.AccessLevelAutoApprove},
+		queuedToolCalls: []*preparedToolInvocation{
+			{toolID: "tool_python", toolName: "bash", args: map[string]any{"command": "python3 task.py", "cwd": "@chat"}},
+			{toolID: "tool_node", toolName: "bash", args: map[string]any{"command": "node task.js", "cwd": "@temp"}},
+		},
+	}
+	var approvals []chat.StepApproval
+	stream.onApprovalSummary = func(approval chat.StepApproval) {
+		copied := approval
+		copied.Decisions = append([]chat.StepApprovalDecision(nil), approval.Decisions...)
+		approvals = append(approvals, copied)
+	}
+
+	if err := stream.invokeQueuedToolCallsAndPostHook(); err != nil {
+		t.Fatalf("invoke queued tools: %v", err)
+	}
+	if stream.activeToolBatch == nil {
+		t.Fatal("expected host script calls to use concurrent batch")
+	}
+	for stream.activeToolBatch != nil {
+		if err := stream.consumeActiveToolBatch(); err != nil {
+			t.Fatalf("consume tool batch: %v", err)
+		}
+	}
+	for _, delta := range stream.pending {
+		if _, ok := delta.(contracts.DeltaAwaitAsk); ok {
+			t.Fatalf("auto-approved batch emitted awaiting.ask: %#v", stream.pending)
+		}
+	}
+	if len(executor.invocations) != 2 {
+		t.Fatalf("expected both script calls to execute, got %#v", executor.invocations)
+	}
+	if len(approvals) != 1 || len(approvals[0].Decisions) != 2 {
+		t.Fatalf("expected one two-command auto-approval audit, got %#v", approvals)
+	}
+	for _, decision := range approvals[0].Decisions {
+		if decision.Decision != "auto_approved" || decision.Reason != "accessLevel=auto_approve" ||
+			!strings.HasPrefix(decision.RuleKey, "bash-access:opaque:") {
+			t.Fatalf("unexpected batch auto-approval decision: %#v", decision)
+		}
+	}
+}
+
+func TestPendingOpaqueScriptApprovalResolvesAfterAccessLevelUpdate(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	chatDir := filepath.Join(root, "chats", "chat-1")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	if err := os.MkdirAll(chatDir, 0o755); err != nil {
+		t.Fatalf("mkdir chat: %v", err)
+	}
+	session := contracts.QuerySession{
+		RequestID:     "req_dynamic",
+		ChatID:        "chat_1",
+		RunID:         "run_dynamic",
+		AccessLevel:   contracts.AccessLevelDefault,
+		WorkspaceRoot: workspace,
+		ChatRoot:      chatDir,
+		RuntimeContext: contracts.RuntimeRequestContext{LocalPaths: contracts.LocalPaths{
+			WorkspaceDir: workspace,
+			ChatDir:      chatDir,
+		}},
+	}
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{
+		backendToolDefinition("file_write"),
+		bashToolDefinition(),
+	}}
+	control := contracts.NewRunControl(context.Background(), session.RunID)
+	control.SetInitialAccessLevel(contracts.AccessLevelDefault)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	stream := &llmRunStream{
+		ctx:        ctx,
+		session:    session,
+		runControl: control,
+		engine:     &LLMAgentEngine{tools: executor},
+		execCtx: &contracts.ExecutionContext{
+			Session:     session,
+			AccessLevel: contracts.AccessLevelDefault,
+			RunControl:  control,
+		},
+	}
+	var recordedApproval *chat.StepApproval
+	stream.onApprovalSummary = func(approval chat.StepApproval) {
+		copied := approval
+		copied.Decisions = append([]chat.StepApprovalDecision(nil), approval.Decisions...)
+		recordedApproval = &copied
+	}
+	stream.syncAccessLevelFromRunControl()
+
+	stream.activeToolCall = &preparedToolInvocation{
+		toolID:   "tool_write",
+		toolName: "file_write",
+		args:     map[string]any{"file_path": "@chat/task.py", "content": "print('ok')\n"},
+	}
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invoke file_write: %v", err)
+	}
+	stream.pending = nil
+
+	stream.activeToolCall = &preparedToolInvocation{
+		toolID:   "tool_bash",
+		toolName: "bash",
+		args:     map[string]any{"command": "python3 task.py", "cwd": "@chat"},
+	}
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invoke default bash: %v", err)
+	}
+	if stream.hitlPendingCall == nil || len(executor.invocations) != 1 {
+		t.Fatalf("default script execution must wait before bash, pending=%#v invocations=%#v", stream.hitlPendingCall, executor.invocations)
+	}
+	stream.pending = nil
+
+	done := make(chan error, 1)
+	go func() { done <- stream.fillPending() }()
+	waitForRunState(t, control, contracts.RunLoopStateWaitingSubmit)
+	control.UpdateAccessLevel(contracts.AccessLevelAutoApprove)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("fill pending: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for opaque script auto approval")
+	}
+	if len(executor.invocations) != 2 || executor.invocations[1].name != "bash" {
+		t.Fatalf("expected bash execution after access-level update, got %#v", executor.invocations)
+	}
+	if len(stream.pending) != 2 {
+		t.Fatalf("expected awaiting answer and tool result, got %#v", stream.pending)
+	}
+	if answer, ok := stream.pending[0].(contracts.DeltaAwaitingAnswer); !ok || answer.Answer["status"] != "answered" {
+		t.Fatalf("expected automatic awaiting answer, got %#v", stream.pending[0])
+	}
+	if recordedApproval == nil || len(recordedApproval.Decisions) != 1 {
+		t.Fatalf("expected one auto-approval audit, got %#v", recordedApproval)
+	}
+	decision := recordedApproval.Decisions[0]
+	if decision.Decision != "auto_approved" || decision.Reason != "accessLevel=auto_approve" ||
+		!strings.HasPrefix(decision.RuleKey, "bash-access:opaque:") {
+		t.Fatalf("unexpected dynamic auto-approval decision: %#v", decision)
+	}
+}
+
+func TestOpaqueScriptAutoApprovalDoesNotBypassBashSecurityBlock(t *testing.T) {
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}}
+	session := contracts.QuerySession{
+		RunID:       "run_block",
+		AccessLevel: contracts.AccessLevelAutoApprove,
+	}
+	stream := &llmRunStream{
+		ctx:     context.Background(),
+		session: session,
+		engine:  &LLMAgentEngine{tools: executor},
+		execCtx: &contracts.ExecutionContext{Session: session, AccessLevel: contracts.AccessLevelAutoApprove},
+		activeToolCall: &preparedToolInvocation{
+			toolID:   "tool_node",
+			toolName: "bash",
+			args:     map[string]any{"command": `node -e 'require("child_process")'`, "cwd": "@temp"},
+		},
+	}
+
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invoke blocked node: %v", err)
+	}
+	if len(executor.invocations) != 0 {
+		t.Fatalf("bash security block must prevent execution, got %#v", executor.invocations)
+	}
+	if stream.hitlPendingCall != nil {
+		t.Fatalf("hard block must not become an approval wait: %#v", stream.hitlPendingCall)
+	}
+	if len(stream.pending) != 1 {
+		t.Fatalf("expected one blocked tool result, got %#v", stream.pending)
+	}
+	result, ok := stream.pending[0].(contracts.DeltaToolResult)
+	if !ok || result.Result.Error != "bash_security_blocked" {
+		t.Fatalf("expected bash_security_blocked result, got %#v", stream.pending[0])
+	}
+}
+
 func TestFileReadFullAccessDoesNotRecordApprovalSummary(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()

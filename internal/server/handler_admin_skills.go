@@ -634,6 +634,7 @@ func buildAdminSkillSummary(item catalog.AdminSkill) api.AdminSkillSummary {
 		Name:         firstNonBlank(item.Name, item.Key),
 		Description:  item.Description,
 		Meta:         cloneMeta(item.Meta),
+		Version:      item.Version,
 		Status:       firstNonBlank(item.Status, catalog.AdminSkillStatusInvalid),
 		UpdatedAt:    item.UpdatedAt,
 		Size:         item.Size,

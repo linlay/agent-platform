@@ -22,6 +22,7 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/rootpaths"
+	"agent-platform/internal/temppaths"
 )
 
 const uploadManifestName = ".uploads.jsonl"
@@ -125,8 +126,28 @@ func (s *Server) handleAbsoluteResource(w http.ResponseWriter, r *http.Request, 
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid absolute resource path"))
 		return
 	}
-	if cleanPath == "/tmp" || strings.HasPrefix(cleanPath, "/tmp"+string(os.PathSeparator)) {
-		s.serveResourcePath(w, r, cleanPath)
+	chatRoots, chatRootsErr := rootpaths.New("", s.deps.Config.Paths.ChatsDir, s.deps.Chats.ChatDir(chatID))
+	if chatRootsErr != nil {
+		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource access denied"))
+		return
+	}
+	chatZone, _, chatClassifyErr := chatRoots.Classify(cleanPath)
+	if chatClassifyErr != nil || pathWithinBase(cleanPath, s.deps.Config.Paths.ChatsDir) ||
+		chatZone == rootpaths.ZoneCurrentChat || chatZone == rootpaths.ZoneOtherChat {
+		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "absolute Chat resource paths are unavailable; use a ChatScope resource key"))
+		return
+	}
+	tempState, tempPath, _, tempErr := temppaths.System().Classify(cleanPath)
+	if tempErr != nil {
+		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource access denied"))
+		return
+	}
+	if tempState == temppaths.Escape {
+		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource access denied"))
+		return
+	}
+	if tempState == temppaths.Inside {
+		s.serveResourcePath(w, r, tempPath.Host)
 		return
 	}
 	if s.deps.Registry == nil {

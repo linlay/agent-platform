@@ -18,6 +18,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
+	"agent-platform/internal/temppaths"
 	textencoding "golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/text/transform"
@@ -45,6 +46,47 @@ func TestInvokeReadReadsAllowedFileWithLineRange(t *testing.T) {
 	}
 	if result.Structured["content"] != "two\n" {
 		t.Fatalf("unexpected content: %#v", result.Structured)
+	}
+}
+
+func TestTempFileWriteReadAndEditSkipHITL(t *testing.T) {
+	primary, ok := temppaths.System().Primary()
+	if !ok {
+		t.Fatal("system temporary root is unavailable")
+	}
+	tempDir, err := os.MkdirTemp(primary.Host, "agent-platform-file-tool-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(tempDir) })
+	workspace := t.TempDir()
+	executor := fileToolExecutor(workspace, true)
+	execCtx := fileToolExecutionContext(workspace)
+	execCtx.Session.TempRoot = primary.Host
+	execCtx.Session.TempRoots = temppaths.System().Paths()
+	aliasPath := "@temp/" + filepath.ToSlash(filepath.Join(filepath.Base(tempDir), "note.txt"))
+
+	written, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path": aliasPath,
+		"content":   "old",
+	}, execCtx)
+	if err != nil || written.Error != "" || written.ExitCode != 0 {
+		t.Fatalf("temporary write should not require approval: result=%#v err=%v", written, err)
+	}
+	read, err := executor.invokeRead(map[string]any{"file_path": aliasPath, "add_line_numbers": false}, execCtx)
+	if err != nil || read.Error != "" || read.Structured["content"] != "old" {
+		t.Fatalf("temporary read failed: result=%#v err=%v", read, err)
+	}
+	edited, err := executor.invokeEdit(context.Background(), map[string]any{
+		"file_path":  aliasPath,
+		"old_string": "old",
+		"new_string": "new",
+	}, execCtx)
+	if err != nil || edited.Error != "" || edited.ExitCode != 0 {
+		t.Fatalf("temporary edit should not require approval: result=%#v err=%v", edited, err)
+	}
+	if content, readErr := os.ReadFile(filepath.Join(tempDir, "note.txt")); readErr != nil || string(content) != "new" {
+		t.Fatalf("temporary file content=%q err=%v", string(content), readErr)
 	}
 }
 

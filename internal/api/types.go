@@ -209,6 +209,7 @@ type QueryRequest struct {
 	AgentKey  string `json:"agentKey,omitempty"`
 	TeamID    string `json:"teamId,omitempty"`
 	Role      string `json:"role,omitempty"`
+	Hidden    *bool  `json:"hidden,omitempty"`
 	Message   string `json:"message"`
 	// Trusted channel hint for the remote actor. Ignored outside gateway
 	// contexts when deriving chat summary source.
@@ -1086,6 +1087,7 @@ type AdminSkillSummary struct {
 	Description     string                       `json:"description,omitempty"`
 	Icon            string                       `json:"icon,omitempty"`
 	Meta            map[string]any               `json:"meta,omitempty"`
+	Version         string                       `json:"version,omitempty"`
 	Status          string                       `json:"status"`
 	Diagnostic      *AdminRegistryListDiagnostic `json:"diagnostic,omitempty"`
 	DiagnosticCount int                          `json:"diagnosticCount,omitempty"`

@@ -3,9 +3,10 @@ label: 发布产物
 description: |
   Publish files as user-visible artifacts for the current run. You MUST call
   this tool whenever a requested deliverable file exists. Sources must be
-  inside the current Workspace or Chat, or under /tmp: use /workspace/... or
-  /chat/... in Container Hub, @workspace/@chat aliases, authorized host paths,
-  Workspace-relative paths, or /tmp/... paths. Published copies are always
+  inside the current Workspace or Chat, or under the process temporary roots:
+  use /workspace/... or /chat/... in Container Hub, @workspace/@chat/@temp
+  aliases, authorized host paths, Workspace-relative paths, or an actual Host
+  temporary absolute path. Published copies are always
   stored under the current Chat artifacts directory. The batch succeeds only
   when every item is published;
   trust the returned publishedArtifacts list as the publication result. path
@@ -35,7 +36,7 @@ inputSchema:
         properties:
           path:
             type: string
-            description: Required. Internal source path. Existing file in the current Workspace, Chat, or /tmp; authorized absolute host paths are accepted. Never expose this value in Markdown. The source basename becomes the download filename; republishing it in the same run overwrites the prior published copy.
+            description: Required. Internal source path. Existing file in the current Workspace, Chat, or @temp; authorized absolute host paths are accepted. Never expose this value in Markdown. The source basename becomes the download filename; republishing it in the same run overwrites the prior published copy.
           description:
             type: string
             description: Short description of this artifact.

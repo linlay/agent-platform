@@ -325,19 +325,19 @@ func applyCandidate(
 		source := filepath.Join(current.extractedRoot, filepath.FromSlash(relative))
 		target := filepath.Join(candidateRoot, filepath.FromSlash(relative))
 		if _, err := os.Lstat(target); err == nil {
-			stats.PreservedUnits++
-			if _, wasManaged := oldUnits[relative]; wasManaged {
-				managedUnits[relative] = struct{}{}
+			if err := os.RemoveAll(target); err != nil {
+				return nil, nil, stats, fmt.Errorf("replace bundled unit %s: %w", relative, err)
 			}
-			continue
+			stats.OverwrittenUnits++
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return nil, nil, stats, err
+		} else {
+			stats.AddedUnits++
 		}
 		if err := copyResourcePath(source, target); err != nil {
-			return nil, nil, stats, fmt.Errorf("add bundled unit %s: %w", relative, err)
+			return nil, nil, stats, fmt.Errorf("publish bundled unit %s into candidate: %w", relative, err)
 		}
 		managedUnits[relative] = struct{}{}
-		stats.AddedUnits++
 	}
 
 	for relative := range oldRegistryFiles {

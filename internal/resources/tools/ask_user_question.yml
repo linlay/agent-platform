@@ -24,6 +24,7 @@ inputSchema:
     questions:
       type: array
       description: Required. List of questions to present to the user in a single prompt. Every item must include `question` and `type`. For free-input prompts, use `type=text`, `number`, `password`, `date`, or `datetime`; do not send a free-input question that only sets `allowFreeText`. Use `type=date` for a local date string such as `YYYY-MM-DD`, `type=datetime` for a local date/time string such as `YYYY-MM-DDTHH:mm`, `type=select` for single-choice option picking, and `type=multi-select` for multiple selections.
+      minItems: 1
       items:
         type: object
         properties:
@@ -78,17 +79,6 @@ inputSchema:
         required:
           - question
           - type
-        allOf:
-          -
-            if:
-              properties:
-                type:
-                  enum:
-                    - select
-                    - multi-select
-            then:
-              required:
-                - options
         additionalProperties: false
   required:
     - mode

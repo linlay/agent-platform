@@ -66,6 +66,26 @@ func TestAssemblerBootstrapPreservesEditingModeOnlyWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestAssemblerBootstrapPreservesExplicitQueryVisibility(t *testing.T) {
+	hidden := true
+	requestQuery := NewAssembler(StreamRequest{
+		RequestID: "req_hidden", RunID: "run_hidden", ChatID: "chat_hidden",
+		AgentKey: "docs", Message: "scheduled", Role: "automation", Hidden: &hidden,
+	}).Bootstrap()[0].ToData()
+	if requestQuery["hidden"] != true {
+		t.Fatalf("expected hidden=true in request.query, got %#v", requestQuery)
+	}
+
+	visible := false
+	requestQuery = NewAssembler(StreamRequest{
+		RequestID: "req_visible", RunID: "run_visible", ChatID: "chat_visible",
+		AgentKey: "docs", Message: "scheduled", Role: "automation", Hidden: &visible,
+	}).Bootstrap()[0].ToData()
+	if requestQuery["hidden"] != false {
+		t.Fatalf("expected hidden=false in request.query, got %#v", requestQuery)
+	}
+}
+
 func TestAssemblerBootstrapSkipsChatStartForExistingChat(t *testing.T) {
 	assembler := NewAssembler(StreamRequest{
 		RequestID: "req_2",

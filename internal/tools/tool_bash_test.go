@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -915,6 +916,75 @@ func TestInvokeHostBashAutoApprovedAccessAddsMetadata(t *testing.T) {
 	meta, _ := result.Structured["accessPolicy"].(map[string]any)
 	if meta["decision"] != "auto_approved" || meta["accessLevel"] != contracts.AccessLevelAutoApprove {
 		t.Fatalf("expected auto approval metadata, got %#v", result.Structured["accessPolicy"])
+	}
+}
+
+func TestInvokeHostBashAutoApprovesChatAndTempScripts(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	chatDir := filepath.Join(root, "chats", "chat-1")
+	tempRoot := filepath.Join(root, "temp")
+	binDir := filepath.Join(root, "bin")
+	for _, dir := range []string{workspace, chatDir, tempRoot, binDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+
+	executor := &RuntimeToolExecutor{
+		cfg: config.Config{
+			Bash: config.BashConfig{
+				AllowedCommands:      []string{"python3", "node"},
+				ShellFeaturesEnabled: true,
+				ShellExecutable:      "bash",
+				MaxCommandChars:      16000,
+			},
+		},
+	}
+	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
+		AccessLevel:   contracts.AccessLevelAutoApprove,
+		WorkspaceRoot: workspace,
+		ChatRoot:      chatDir,
+		TempRoot:      tempRoot,
+		TempRoots:     []string{tempRoot},
+		RuntimeContext: contracts.RuntimeRequestContext{LocalPaths: contracts.LocalPaths{
+			WorkspaceDir: workspace,
+			ChatDir:      chatDir,
+		}},
+	}}
+
+	tests := []struct {
+		name        string
+		interpreter string
+		cwd         string
+		script      string
+	}{
+		{name: "chat python", interpreter: "python3", cwd: "@chat", script: "task.py"},
+		{name: "temp node", interpreter: "node", cwd: "@temp", script: "task.js"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fakeInterpreter := filepath.Join(binDir, test.interpreter)
+			if err := os.WriteFile(fakeInterpreter, []byte("#!/bin/sh\nprintf 'ran:%s\\n' \"$1\"\n"), 0o755); err != nil {
+				t.Fatalf("write fake interpreter: %v", err)
+			}
+			command := fakeInterpreter + " " + test.script
+			result, err := executor.invokeHostBash(context.Background(), map[string]any{
+				"command": command,
+				"cwd":     test.cwd,
+			}, execCtx)
+			if err != nil {
+				t.Fatalf("invokeHostBash returned error: %v", err)
+			}
+			if result.Error != "" || result.ExitCode != 0 || result.Output != "ran:"+test.script+"\n" {
+				t.Fatalf("unexpected script result: %#v", result)
+			}
+			meta, _ := result.Structured["accessPolicy"].(map[string]any)
+			if meta["decision"] != "auto_approved" || meta["accessLevel"] != contracts.AccessLevelAutoApprove ||
+				!strings.HasPrefix(fmt.Sprint(meta["ruleKey"]), "bash-access:opaque:") {
+				t.Fatalf("expected opaque auto approval metadata, got %#v", result.Structured["accessPolicy"])
+			}
+		})
 	}
 }
 

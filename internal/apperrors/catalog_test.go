@@ -44,6 +44,9 @@ func TestInternalRuntimeCodesAreCatalogedWithExistingMetadata(t *testing.T) {
 	tests := []Definition{
 		{Code: CodePlanningNotCreated, Category: CategoryModel, Scope: ScopeRun, HTTPStatus: 500, Retryable: false, UserSafeMessageKey: string(CodePlanningNotCreated)},
 		{Code: CodePlanNotCreated, Category: CategorySystem, Scope: ScopeRun, HTTPStatus: 500, Retryable: false, UserSafeMessageKey: string(CodePlanNotCreated)},
+		{Code: CodePlanTaskPredecessorIncomplete, Category: CategoryTool, Scope: ScopeTask, HTTPStatus: 409, Retryable: false, UserSafeMessageKey: string(CodePlanTaskPredecessorIncomplete)},
+		{Code: CodePlanTaskNotCurrent, Category: CategoryTool, Scope: ScopeTask, HTTPStatus: 409, Retryable: false, UserSafeMessageKey: string(CodePlanTaskNotCurrent)},
+		{Code: CodeInvalidPlanTaskTransition, Category: CategoryTool, Scope: ScopeTask, HTTPStatus: 409, Retryable: false, UserSafeMessageKey: string(CodeInvalidPlanTaskTransition)},
 		{Code: CodeMissingToolCallID, Category: CategoryModel, Scope: ScopeModel, HTTPStatus: 500, Retryable: false, UserSafeMessageKey: string(CodeMissingToolCallID)},
 		{Code: CodeToolCallsNotAllowed, Category: CategorySystem, Scope: ScopeRun, HTTPStatus: 500, Retryable: false, UserSafeMessageKey: string(CodeToolCallsNotAllowed)},
 		{Code: CodeBTWToolLimitReached, Category: CategoryTool, Scope: ScopeTool, HTTPStatus: 500, Retryable: false, UserSafeMessageKey: string(CodeBTWToolLimitReached)},

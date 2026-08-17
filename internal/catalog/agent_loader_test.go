@@ -1895,9 +1895,10 @@ func TestParseAgentFileReadsHostAccessAndSandboxMounts(t *testing.T) {
 		"  hostAccess:\n" +
 		"    readRoots:\n" +
 		"      - \"@owner\"\n" +
+		"      - \"@temp\"\n" +
 		"      - " + filepath.ToSlash(owner) + "\n" +
 		"    writeRoots:\n" +
-		"      - \"@owner\"\n" +
+		"      - \"@temp\"\n" +
 		"  sandboxMounts:\n" +
 		"    - platform: owner\n" +
 		"      target: /owner\n" +
@@ -1910,10 +1911,10 @@ func TestParseAgentFileReadsHostAccessAndSandboxMounts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if !reflect.DeepEqual(def.HostAccess.ReadRoots, []string{"@owner", filepath.Clean(owner)}) {
+	if !reflect.DeepEqual(def.HostAccess.ReadRoots, []string{"@owner", "@temp", filepath.Clean(owner)}) {
 		t.Fatalf("host read roots = %#v", def.HostAccess.ReadRoots)
 	}
-	if !reflect.DeepEqual(def.HostAccess.WriteRoots, []string{"@owner"}) {
+	if !reflect.DeepEqual(def.HostAccess.WriteRoots, []string{"@temp"}) {
 		t.Fatalf("host write roots = %#v", def.HostAccess.WriteRoots)
 	}
 	mounts, _ := def.Runtime["sandboxMounts"].([]map[string]any)

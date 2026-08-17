@@ -107,6 +107,42 @@ func TestGetRejectsEveryNonAllowlistedPath(t *testing.T) {
 	}
 }
 
+func TestValidateRequiresConditionalArgumentsAtRuntime(t *testing.T) {
+	handler := NewToolHandler(config.Config{}, nil)
+	tests := []struct {
+		name string
+		args map[string]any
+		code string
+	}{
+		{
+			name: "missing resource key",
+			args: map[string]any{"action": "validate", "resourceType": "agent", "content": "key: demo"},
+			code: "invalid_request",
+		},
+		{
+			name: "missing content",
+			args: map[string]any{"action": "validate", "resourceType": "agent", "resourceKey": "demo"},
+			code: "invalid_request",
+		},
+		{
+			name: "missing resource type",
+			args: map[string]any{"action": "validate", "resourceKey": "demo", "content": "key: demo"},
+			code: "unsupported_resource_type",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := handler.Invoke(context.Background(), ToolName, tc.args, nil)
+			if err != nil {
+				t.Fatalf("validate returned error: %v", err)
+			}
+			if result.Error != tc.code || result.ExitCode != -1 {
+				t.Fatalf("validate result = %#v, want error %s", result, tc.code)
+			}
+		})
+	}
+}
+
 func TestValidateCandidateResources(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	knowledgeRoot := t.TempDir()

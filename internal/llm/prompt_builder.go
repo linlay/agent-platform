@@ -191,13 +191,13 @@ func buildRuntimePathPolicySection(session QuerySession, definitions []api.ToolD
 		"- Workspace is unavailable. The current Chat is a separate semantic root and is never an implicit Workspace fallback.",
 	}
 	if hasTool("bash") {
-		lines = append(lines, `- Every bash call must pass an explicit cwd. Use cwd: "@chat" for normal scratch, input, and output work.`)
+		lines = append(lines, `- Every bash call must pass an explicit cwd. Use cwd: "@chat" for Chat files or cwd: "@temp" for temporary work.`)
 	}
 	if hasTool("file_glob", "file_grep") {
-		lines = append(lines, `- file_glob and file_grep must pass an explicit path, normally "@chat".`)
+		lines = append(lines, `- file_glob and file_grep must pass an explicit path, normally "@chat" or "@temp".`)
 	}
 	if hasTool("file_read", "file_write", "file_edit", "artifact_publish", "vision_recognize") {
-		lines = append(lines, "- File paths must use an explicit semantic root such as @chat, @agent, @skills, @skills-center, or @owner, or an allowed absolute path. Relative paths and @workspace fail with workspace_unavailable.")
+		lines = append(lines, "- File paths must use an explicit semantic root such as @chat, @agent, @skills, @skills-center, @owner, or @temp, or an allowed absolute path. Relative paths and @workspace fail with workspace_unavailable.")
 	}
 	if hasSkills {
 		lines = append(lines, "- Load an applicable skill directly from @skills/<skillId>/SKILL.md with file_read. Do not search or traverse directories to discover its location.")

@@ -154,6 +154,31 @@ func TestAutomationHTTPCRUDAndExecutionHistory(t *testing.T) {
 	assertAutomationReadableTimeMatches(t, history.Items[0].CompletedTime, *history.Items[0].CompletedAt, time.UTC)
 }
 
+func TestAutomationHTTPCreateAllowsOmittedDescriptionAndQueryDefaults(t *testing.T) {
+	fixture := newAutomationTestServer(t, false)
+
+	created := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/automation/create", map[string]any{
+		"name":     "Minimal Automation",
+		"cron":     "0 9 * * *",
+		"agentKey": "demo-agent",
+		"query": map[string]any{
+			"message": "hello",
+		},
+	})
+	if created.Description != "" || created.ZoneID != "" || created.Query.Role != "" || created.Query.Hidden != nil {
+		t.Fatalf("expected optional response fields to remain omitted, got %#v", created)
+	}
+
+	definitions, err := fixture.server.deps.AutomationRegistry.Load()
+	if err != nil || len(definitions) != 1 {
+		t.Fatalf("load automation registry: definitions=%#v err=%v", definitions, err)
+	}
+	request := definitions[0].ToQueryRequest()
+	if request.Role != api.QueryRoleAutomation || request.Hidden == nil || !*request.Hidden {
+		t.Fatalf("unexpected execution defaults %#v", request)
+	}
+}
+
 func TestAutomationHTTPCreateAndUpdatePreserveQueryMessageExactly(t *testing.T) {
 	fixture := newAutomationTestServer(t, false)
 	createMessage := "  initial automation message  "

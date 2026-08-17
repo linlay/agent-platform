@@ -270,6 +270,7 @@ type SkillDefinition struct {
 	Description     string
 	Triggers        []string
 	Metadata        map[string]any
+	Version         string
 	Prompt          string
 	PromptTruncated bool
 	BashHooksDir    string

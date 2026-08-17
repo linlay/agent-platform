@@ -8,6 +8,7 @@ import (
 
 	"agent-platform/internal/apperrors"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/plantasks"
 )
 
 func (t *RuntimeToolExecutor) invokePlanAddTasks(args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
@@ -33,7 +34,7 @@ func (t *RuntimeToolExecutor) invokePlanAddTasks(args map[string]any, execCtx *E
 			tasks = append(tasks, PlanTask{
 				TaskID:      taskID,
 				Description: strings.TrimSpace(description),
-				Status:      NormalizePlanTaskStatus(AnyStringNode(taskMap["status"])),
+				Status:      "init",
 			})
 		}
 	}
@@ -49,7 +50,7 @@ func (t *RuntimeToolExecutor) invokePlanAddTasks(args map[string]any, execCtx *E
 		tasks = append(tasks, PlanTask{
 			TaskID:      taskID,
 			Description: strings.TrimSpace(description),
-			Status:      NormalizePlanTaskStatus(AnyStringNode(args["status"])),
+			Status:      "init",
 		})
 	}
 	state := ensurePlanState(execCtx)
@@ -61,6 +62,7 @@ func (t *RuntimeToolExecutor) invokePlanAddTasks(args map[string]any, execCtx *E
 		state.PlanID = execCtx.Session.RunID + "_plan"
 	}
 	state.Tasks = append(state.Tasks, tasks...)
+	plantasks.ReconcileState(state)
 	t.persistPlanTasksSnapshot(execCtx, state)
 	lines := make([]string, 0, len(tasks))
 	for _, task := range tasks {
@@ -99,25 +101,22 @@ func (t *RuntimeToolExecutor) invokePlanUpdateTask(args map[string]any, execCtx 
 	if status == "" {
 		return ToolExecutionResult{Output: "失败: 非法状态，仅支持 init/in_progress/completed/failed/canceled", Error: "invalid_task_status", ExitCode: -1}, nil
 	}
+	found := false
 	for index := range state.Tasks {
-		storedTaskID := strings.TrimSpace(state.Tasks[index].TaskID)
-		if storedTaskID != strings.TrimSpace(taskID) {
-			continue
+		if strings.TrimSpace(state.Tasks[index].TaskID) == strings.TrimSpace(taskID) {
+			found = true
+			break
 		}
-		state.Tasks[index].Status = status
-		if description := strings.TrimSpace(AnyStringNode(args["description"])); description != "" {
-			state.Tasks[index].Description = description
-		}
-		if status == "in_progress" {
-			state.ActiveTaskID = storedTaskID
-		}
-		if strings.TrimSpace(state.ActiveTaskID) == storedTaskID && (status == "completed" || status == "failed" || status == "canceled") {
-			state.ActiveTaskID = ""
-		}
-		t.persistPlanTasksSnapshot(execCtx, state)
-		return ToolExecutionResult{Output: "OK", Structured: planStatePayload(state), ExitCode: 0}, nil
 	}
-	return ToolExecutionResult{Output: "失败: taskId 不存在", Error: "task_not_found", ExitCode: -1}, nil
+	if !found {
+		return ToolExecutionResult{Output: "失败: taskId 不存在", Error: "task_not_found", ExitCode: -1}, nil
+	}
+	description := strings.TrimSpace(AnyStringNode(args["description"]))
+	if transitionErr := plantasks.ApplyTaskUpdate(state, taskID, status, description); transitionErr != nil {
+		return planTaskTransitionFailure(state, transitionErr), nil
+	}
+	t.persistPlanTasksSnapshot(execCtx, state)
+	return ToolExecutionResult{Output: "OK", Structured: planStatePayload(state), ExitCode: 0}, nil
 }
 
 func ensurePlanState(execCtx *ExecutionContext) *PlanRuntimeState {
@@ -139,10 +138,30 @@ func planStatePayload(state *PlanRuntimeState) map[string]any {
 		"planId": state.PlanID,
 		"plan":   PlanTasksArray(state),
 	}
-	if state.ActiveTaskID != "" {
-		payload["currentTaskId"] = state.ActiveTaskID
+	if currentTaskID := plantasks.CurrentTaskID(state); currentTaskID != "" {
+		payload["currentTaskId"] = currentTaskID
 	}
 	return payload
+}
+
+func planTaskTransitionFailure(state *PlanRuntimeState, transitionErr *plantasks.TransitionError) ToolExecutionResult {
+	payload := planStatePayload(state)
+	payload["error"] = string(transitionErr.Code)
+	payload["taskId"] = transitionErr.TaskID
+	payload["fromStatus"] = transitionErr.FromStatus
+	payload["toStatus"] = transitionErr.ToStatus
+	if transitionErr.CurrentTaskID != "" {
+		payload["currentTaskId"] = transitionErr.CurrentTaskID
+	}
+	if transitionErr.BlockingTaskID != "" {
+		payload["blockingTaskId"] = transitionErr.BlockingTaskID
+	}
+	return ToolExecutionResult{
+		Output:     MarshalJSON(payload),
+		Structured: payload,
+		Error:      string(transitionErr.Code),
+		ExitCode:   -1,
+	}
 }
 
 var planTaskCounter atomic.Int64

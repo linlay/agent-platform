@@ -22,6 +22,7 @@ type Options struct {
 
 type Stats struct {
 	AddedUnits                  int `json:"addedUnits"`
+	OverwrittenUnits            int `json:"overwrittenUnits"`
 	PreservedUnits              int `json:"preservedUnits"`
 	RemovedManagedUnits         int `json:"removedManagedUnits"`
 	AddedRegistryFiles          int `json:"addedRegistryFiles"`

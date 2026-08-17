@@ -2,12 +2,17 @@ package catalog
 
 import "strings"
 
-func parseSkillPromptMetadata(prompt string) (string, string, []string, map[string]any) {
+func parseSkillPromptMetadata(prompt string) (string, string, []string, map[string]any, string) {
 	frontMatter, body := parseSkillFrontMatter(prompt)
 	name := frontMatterString(frontMatter["name"])
 	description := frontMatterString(frontMatter["description"])
 	triggers := frontMatterStringSlice(frontMatter["triggers"])
 	metadata := frontMatterMap(frontMatter["metadata"])
+
+	version := strings.TrimSpace(frontMatterString(frontMatter["version"]))
+	if version == "" {
+		version = strings.TrimSpace(frontMatterString(metadata["version"]))
+	}
 
 	heading := firstMarkdownHeading(body)
 	firstLine := firstNonEmptyMarkdownLine(body)
@@ -21,7 +26,7 @@ func parseSkillPromptMetadata(prompt string) (string, string, []string, map[stri
 			name = description
 		}
 	}
-	return strings.TrimSpace(name), strings.TrimSpace(description), triggers, metadata
+	return strings.TrimSpace(name), strings.TrimSpace(description), triggers, metadata, version
 }
 
 func parseSkillFrontMatter(prompt string) (map[string]any, string) {

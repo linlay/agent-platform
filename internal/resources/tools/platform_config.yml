@@ -19,13 +19,13 @@ inputSchema:
         - validate
     path:
       type: string
-      description: Required for get. Exact allowlisted configuration path.
+      description: Required when action=get. Exact allowlisted configuration path.
       enum:
         - agents.creation.coder
         - agents.creation.kbase
     resourceType:
       type: string
-      description: Required for validate. Candidate resource type.
+      description: Required when action=validate. Candidate resource type.
       enum:
         - agent
         - team
@@ -33,32 +33,11 @@ inputSchema:
         - mcp-server
     resourceKey:
       type: string
-      description: Required for validate. Intended directory key or MCP server key.
+      description: Required when action=validate. Intended directory key or MCP server key.
     content:
       type: string
       maxLength: 1048576
-      description: Required for validate. Full candidate agent.yml, team.yml, SKILL.md, or MCP server YAML content.
+      description: Required when action=validate. Full candidate agent.yml, team.yml, SKILL.md, or MCP server YAML content.
   required:
     - action
-  allOf:
-    -
-      if:
-        properties:
-          action:
-            enum:
-              - get
-      then:
-        required:
-          - path
-    -
-      if:
-        properties:
-          action:
-            enum:
-              - validate
-      then:
-        required:
-          - resourceType
-          - resourceKey
-          - content
   additionalProperties: false

@@ -164,6 +164,46 @@ func TestDeleteAdminSkillInUseReturnsConflict(t *testing.T) {
 	}
 }
 
+func TestAdminSkillVersionField(t *testing.T) {
+	fixture := newTestFixture(t)
+	createSkill := func(key string, skillMd string) {
+		t.Helper()
+		body := mustSkillJSON(t, api.CreateAdminSkillRequest{Key: key, SkillMd: skillMd})
+		created := getAPIData[api.AdminSkillDetailResponse](t, fixture.server, http.MethodPost, "/api/admin/skills/create", body)
+		if created.Skill.Key != key {
+			t.Fatalf("unexpected create response: %#v", created)
+		}
+	}
+	createSkill("version-top", "---\nname: Top Version\nversion: 0.0.0\n---\n\nBody\n")
+	createSkill("version-meta", "---\nname: Meta Version\nmetadata:\n  version: 1.2.3\n---\n\nBody\n")
+	createSkill("version-both", "---\nname: Both Version\nversion: 9.9.9\nmetadata:\n  version: 1.0.0\n---\n\nBody\n")
+	createSkill("version-none", "---\nname: No Version\n---\n\nBody\n")
+
+	items := getAPIData[[]api.AdminSkillSummary](t, fixture.server, http.MethodGet, "/api/admin/skills", nil)
+	want := map[string]string{
+		"version-top":  "0.0.0",
+		"version-meta": "1.2.3",
+		"version-both": "9.9.9",
+		"version-none": "",
+	}
+	seen := map[string]bool{}
+	for _, item := range items {
+		expected, ok := want[item.Key]
+		if !ok {
+			continue
+		}
+		seen[item.Key] = true
+		if item.Version != expected {
+			t.Fatalf("skill %s Version = %q, want %q", item.Key, item.Version, expected)
+		}
+	}
+	for key := range want {
+		if !seen[key] {
+			t.Fatalf("skill %s missing from list response", key)
+		}
+	}
+}
+
 func TestAdminSkillImportCreatesSkillAndMapsFailures(t *testing.T) {
 	fixture := newTestFixture(t)
 	archive := serverSkillImportZIP(t, map[string]string{
