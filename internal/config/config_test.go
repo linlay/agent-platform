@@ -22,18 +22,7 @@ func assertKBaseLanceDefaults(t *testing.T, cfg KBaseConfig) {
 
 func TestLoadDefaults(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
-		runtimeConfig := "" +
-			"desktop:\n" +
-			"  action:\n" +
-			"    host: 127.0.0.1\n" +
-			"    port: 11788\n" +
-			"    path: /actions/call\n" +
-			"    request-timeout: 120\n" +
-			"  cdp:\n" +
-			"    host: 127.0.0.1\n" +
-			"    port: 11788\n" +
-			"    path: /cdp/call\n" +
-			"    request-timeout: 120\n"
+		runtimeConfig := ""
 		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &runtimeConfig, func() {
 			withProjectFileContents(t, filepath.Join("configs", "kbase-settings.yml"), nil, func() {
 				cfg, err := Load()
@@ -163,11 +152,8 @@ func TestLoadDefaults(t *testing.T) {
 				if !cfg.Memory.Enabled {
 					t.Fatalf("expected memory runtime enabled by default")
 				}
-				if cfg.Desktop.Action.BridgeURL != "http://127.0.0.1:11788/actions/call" {
-					t.Fatalf("unexpected default desktop action bridge url: %q", cfg.Desktop.Action.BridgeURL)
-				}
-				if cfg.Desktop.CDP.BridgeURL != "http://127.0.0.1:11788/cdp/call" {
-					t.Fatalf("unexpected default desktop cdp bridge url: %q", cfg.Desktop.CDP.BridgeURL)
+				if cfg.RuntimeMode != RuntimeModeStandalone {
+					t.Fatalf("unexpected default runtime mode: %q", cfg.RuntimeMode)
 				}
 				defaultLevel := cfg.AccessPolicy.Levels["default"]
 				if got := strings.Join(defaultLevel.ReadRoots, ","); got != "@workspace,@chat,@agent,@skills,@temp" {
@@ -190,6 +176,21 @@ func TestLoadExplicitIdentityFileOverridesRuntimeDefault(t *testing.T) {
 		}
 		if cfg.IdentityFile != filepath.Clean(identityFile) {
 			t.Fatalf("identity file = %q, want %q", cfg.IdentityFile, filepath.Clean(identityFile))
+		}
+	})
+}
+
+func TestLoadRuntimeModeFromStartupOptions(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		cfg, err := Load(LoadOptions{RuntimeMode: "desktop"})
+		if err != nil {
+			t.Fatalf("load desktop runtime mode: %v", err)
+		}
+		if cfg.RuntimeMode != RuntimeModeDesktop {
+			t.Fatalf("runtime mode = %q, want desktop", cfg.RuntimeMode)
+		}
+		if _, err := Load(LoadOptions{RuntimeMode: "browser"}); err == nil || !strings.Contains(err.Error(), "standalone or desktop") {
+			t.Fatalf("expected invalid runtime mode error, got %v", err)
 		}
 	})
 }
@@ -539,66 +540,6 @@ func TestLoadRuntimeCoderPlanningDefaults(t *testing.T) {
 	})
 }
 
-func TestLoadDesktopConfigMissingFileLeavesBridgeUnconfigured(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), nil, func() {
-			withProjectFileContents(t, filepath.Join("configs", "desktop.yml"), nil, func() {
-				cfg, err := Load()
-				if err != nil {
-					t.Fatalf("load config: %v", err)
-				}
-				if cfg.Desktop.Action.BridgeURL != "" {
-					t.Fatalf("expected missing desktop action bridge url, got %q", cfg.Desktop.Action.BridgeURL)
-				}
-				if cfg.Desktop.CDP.BridgeURL != "" {
-					t.Fatalf("expected missing desktop cdp bridge url, got %q", cfg.Desktop.CDP.BridgeURL)
-				}
-				if cfg.Desktop.Action.RequestTimeout != 120 {
-					t.Fatalf("expected default desktop action timeout 120, got %d", cfg.Desktop.Action.RequestTimeout)
-				}
-				if cfg.Desktop.CDP.RequestTimeout != 120 {
-					t.Fatalf("expected default desktop cdp timeout 120, got %d", cfg.Desktop.CDP.RequestTimeout)
-				}
-			})
-		})
-	})
-}
-
-func TestLoadDesktopConfigFromFile(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		content := "" +
-			"desktop:\n" +
-			"  action:\n" +
-			"    host: 127.0.0.2\n" +
-			"    port: 17001\n" +
-			"    path: actions/custom\n" +
-			"    request-timeout: 12\n" +
-			"  cdp:\n" +
-			"    host: localhost\n" +
-			"    port: 17002\n" +
-			"    path: /cdp/custom\n" +
-			"    request-timeout: 56\n"
-		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if cfg.Desktop.Action.BridgeURL != "http://127.0.0.2:17001/actions/custom" {
-				t.Fatalf("unexpected desktop action bridge url: %q", cfg.Desktop.Action.BridgeURL)
-			}
-			if cfg.Desktop.Action.RequestTimeout != 12 {
-				t.Fatalf("unexpected desktop action timeout: %d", cfg.Desktop.Action.RequestTimeout)
-			}
-			if cfg.Desktop.CDP.BridgeURL != "http://localhost:17002/cdp/custom" {
-				t.Fatalf("unexpected desktop cdp bridge url: %q", cfg.Desktop.CDP.BridgeURL)
-			}
-			if cfg.Desktop.CDP.RequestTimeout != 56 {
-				t.Fatalf("unexpected desktop cdp timeout: %d", cfg.Desktop.CDP.RequestTimeout)
-			}
-		})
-	})
-}
-
 func TestLoadRuntimeConfigFromFile(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "" +
@@ -635,17 +576,6 @@ func TestLoadRuntimeConfigFromFile(t *testing.T) {
 			"  default-sandbox-level: agent\n" +
 			"  agent-idle-timeout: 654321\n" +
 			"  destroy-queue-delay: 2345\n" +
-			"desktop:\n" +
-			"  action:\n" +
-			"    host: 127.0.0.3\n" +
-			"    port: 17101\n" +
-			"    path: actions/runtime\n" +
-			"    request-timeout: 23\n" +
-			"  cdp:\n" +
-			"    host: localhost\n" +
-			"    port: 17102\n" +
-			"    path: /cdp/runtime\n" +
-			"    request-timeout: 67\n" +
 			"cors:\n" +
 			"  enabled: true\n" +
 			"  path-pattern: /runtime/**\n" +
@@ -659,54 +589,46 @@ func TestLoadRuntimeConfigFromFile(t *testing.T) {
 			"billing:\n" +
 			"  currency: USD\n"
 		withProjectFileContents(t, filepath.Join("configs", "container-hub.yml"), nil, func() {
-			withProjectFileContents(t, filepath.Join("configs", "desktop.yml"), nil, func() {
-				withProjectFileContents(t, filepath.Join("configs", "cors.yml"), nil, func() {
-					withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
-						cfg, err := Load()
-						if err != nil {
-							t.Fatalf("load config: %v", err)
-						}
-						if cfg.ContainerHub.BaseURL != "http://runtime-hub" || cfg.ContainerHub.AuthToken != "runtime-token" || cfg.ContainerHub.DefaultEnvironmentID != "runtime-env" {
-							t.Fatalf("unexpected container hub identity: %#v", cfg.ContainerHub)
-						}
-						if cfg.ContainerHub.RequestTimeout != 123 || cfg.ContainerHub.DefaultSandboxLevel != "agent" || cfg.ContainerHub.AgentIdleTimeout != 654321 || cfg.ContainerHub.DestroyQueueDelay != 2345 {
-							t.Fatalf("unexpected container hub runtime settings: %#v", cfg.ContainerHub)
-						}
-						if cfg.ResourceTicket.TTLSeconds != 777 {
-							t.Fatalf("unexpected resource ticket ttl: %d", cfg.ResourceTicket.TTLSeconds)
-						}
-						if !cfg.Query.AdvancedUserPrompt {
-							t.Fatalf("expected advanced user prompt from runtime yaml")
-						}
-						if cfg.Desktop.Action.BridgeURL != "http://127.0.0.3:17101/actions/runtime" || cfg.Desktop.Action.RequestTimeout != 23 {
-							t.Fatalf("unexpected desktop action config: %#v", cfg.Desktop.Action)
-						}
-						if cfg.Desktop.CDP.BridgeURL != "http://localhost:17102/cdp/runtime" || cfg.Desktop.CDP.RequestTimeout != 67 {
-							t.Fatalf("unexpected desktop cdp config: %#v", cfg.Desktop.CDP)
-						}
-						if !cfg.CORS.Enabled || cfg.CORS.PathPattern != "/runtime/**" || !cfg.CORS.AllowCredentials || cfg.CORS.MaxAgeSeconds != 99 {
-							t.Fatalf("unexpected cors scalar config: %#v", cfg.CORS)
-						}
-						if strings.Join(cfg.CORS.AllowedOriginPatterns, ",") != "http://runtime.local" || strings.Join(cfg.CORS.AllowedMethods, ",") != "GET,POST" || strings.Join(cfg.CORS.AllowedHeaders, ",") != "X-Runtime" || strings.Join(cfg.CORS.ExposedHeaders, ",") != "X-Expose" {
-							t.Fatalf("unexpected cors list config: %#v", cfg.CORS)
-						}
-						if cfg.Billing.Currency != "USD" {
-							t.Fatalf("unexpected billing currency: %#v", cfg.Billing)
-						}
-						if cfg.Defaults.Budget.Timeout != 301 ||
-							cfg.Defaults.Budget.Model.Timeout != 121 ||
-							cfg.Defaults.Budget.Tool.Timeout != 122 ||
-							cfg.Defaults.Budget.Stages["execute"].MaxSteps != 9 ||
-							cfg.Defaults.Budget.Stages["execute"].Tool.Timeout != 123 {
-							t.Fatalf("unexpected runtime budget config: %#v", cfg.Defaults.Budget)
-						}
-						if cfg.Defaults.Budget.Hitl.Timeout != 610 ||
-							cfg.Defaults.Budget.Hitl.Question.Timeout != 620 ||
-							cfg.Defaults.Budget.Hitl.Approval.Timeout != 630 ||
-							cfg.Defaults.Budget.Hitl.Form.Timeout != 640 {
-							t.Fatalf("unexpected runtime HITL budget config: %#v", cfg.Defaults.Budget.Hitl)
-						}
-					})
+			withProjectFileContents(t, filepath.Join("configs", "cors.yml"), nil, func() {
+				withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
+					cfg, err := Load()
+					if err != nil {
+						t.Fatalf("load config: %v", err)
+					}
+					if cfg.ContainerHub.BaseURL != "http://runtime-hub" || cfg.ContainerHub.AuthToken != "runtime-token" || cfg.ContainerHub.DefaultEnvironmentID != "runtime-env" {
+						t.Fatalf("unexpected container hub identity: %#v", cfg.ContainerHub)
+					}
+					if cfg.ContainerHub.RequestTimeout != 123 || cfg.ContainerHub.DefaultSandboxLevel != "agent" || cfg.ContainerHub.AgentIdleTimeout != 654321 || cfg.ContainerHub.DestroyQueueDelay != 2345 {
+						t.Fatalf("unexpected container hub runtime settings: %#v", cfg.ContainerHub)
+					}
+					if cfg.ResourceTicket.TTLSeconds != 777 {
+						t.Fatalf("unexpected resource ticket ttl: %d", cfg.ResourceTicket.TTLSeconds)
+					}
+					if !cfg.Query.AdvancedUserPrompt {
+						t.Fatalf("expected advanced user prompt from runtime yaml")
+					}
+					if !cfg.CORS.Enabled || cfg.CORS.PathPattern != "/runtime/**" || !cfg.CORS.AllowCredentials || cfg.CORS.MaxAgeSeconds != 99 {
+						t.Fatalf("unexpected cors scalar config: %#v", cfg.CORS)
+					}
+					if strings.Join(cfg.CORS.AllowedOriginPatterns, ",") != "http://runtime.local" || strings.Join(cfg.CORS.AllowedMethods, ",") != "GET,POST" || strings.Join(cfg.CORS.AllowedHeaders, ",") != "X-Runtime" || strings.Join(cfg.CORS.ExposedHeaders, ",") != "X-Expose" {
+						t.Fatalf("unexpected cors list config: %#v", cfg.CORS)
+					}
+					if cfg.Billing.Currency != "USD" {
+						t.Fatalf("unexpected billing currency: %#v", cfg.Billing)
+					}
+					if cfg.Defaults.Budget.Timeout != 301 ||
+						cfg.Defaults.Budget.Model.Timeout != 121 ||
+						cfg.Defaults.Budget.Tool.Timeout != 122 ||
+						cfg.Defaults.Budget.Stages["execute"].MaxSteps != 9 ||
+						cfg.Defaults.Budget.Stages["execute"].Tool.Timeout != 123 {
+						t.Fatalf("unexpected runtime budget config: %#v", cfg.Defaults.Budget)
+					}
+					if cfg.Defaults.Budget.Hitl.Timeout != 610 ||
+						cfg.Defaults.Budget.Hitl.Question.Timeout != 620 ||
+						cfg.Defaults.Budget.Hitl.Approval.Timeout != 630 ||
+						cfg.Defaults.Budget.Hitl.Form.Timeout != 640 {
+						t.Fatalf("unexpected runtime HITL budget config: %#v", cfg.Defaults.Budget.Hitl)
+					}
 				})
 			})
 		})

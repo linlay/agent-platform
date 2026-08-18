@@ -35,6 +35,7 @@
       loadingState: document.getElementById("loading-state"),
       errorBanner: document.getElementById("error-banner"),
       generatedAt: document.getElementById("generated-at"),
+      runtimeModeBadge: document.getElementById("runtime-mode-badge"),
       overviewGrid: document.getElementById("overview-grid"),
       channelsCount: document.getElementById("channels-count"),
       channelsError: document.getElementById("channels-error"),
@@ -156,6 +157,8 @@
       updateKnownSessionIds();
       renderAll();
     } catch (error) {
+      state.overview = {};
+      renderOverview({});
       setError(readableError(error));
     } finally {
       setLoading(false);
@@ -192,6 +195,7 @@
 
   function renderOverview(overview) {
     var ws = objectValue(overview.ws);
+    var runtime = objectValue(overview.runtime);
     var connections = getConnections();
     var messages = getMessages();
     var latestConnection = objectValue(ws.latestConnection);
@@ -202,6 +206,7 @@
     );
 
     setText(dom.generatedAt, generatedAt ? "生成时间 " + formatTime(generatedAt) : "未加载");
+    renderRuntimeMode(runtime.mode);
 
     var totalSessions = state.knownSessionIds.length || collectSessionIds(connections, messages).length;
     var recentMessageCount = messages.length || arrayValue(ws.recentMessages).length;
@@ -210,6 +215,8 @@
 
     var metrics = [
       { label: "服务状态", value: status, tone: generatedAt ? "ok" : "warn" },
+      { label: "运行形态", value: runtimeModeLabel(runtime.mode), tone: runtime.mode === "desktop" || runtime.mode === "standalone" ? "ok" : "warn" },
+      { label: "Action Transport", value: runtime.actionTransport || "未提供" },
       { label: "在线连接数", value: onlineConnections },
       { label: "会话数", value: totalSessions },
       { label: "最近消息数", value: recentMessageCount },
@@ -238,6 +245,20 @@
       item.append(label, value);
       dom.overviewGrid.appendChild(item);
     });
+  }
+
+  function runtimeModeLabel(mode) {
+    if (mode === "desktop") return "Desktop 服务";
+    if (mode === "standalone") return "独立服务";
+    return "未知";
+  }
+
+  function renderRuntimeMode(mode) {
+    if (!dom.runtimeModeBadge) return;
+    dom.runtimeModeBadge.classList.remove("runtime-mode-desktop", "runtime-mode-standalone", "runtime-mode-unknown");
+    var normalized = mode === "desktop" || mode === "standalone" ? mode : "unknown";
+    dom.runtimeModeBadge.classList.add("runtime-mode-" + normalized);
+    setText(dom.runtimeModeBadge, normalized === "unknown" ? "运行形态未知" : "运行形态 · " + runtimeModeLabel(normalized));
   }
 
   function renderChannels() {

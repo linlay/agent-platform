@@ -17,6 +17,7 @@ LOG_FILE="$LOG_DIR/$APP_NAME.log"
 PID_FILE="$RUN_DIR/$APP_NAME.pid"
 PROGRAM_PORT=""
 IDENTITY_FILE=""
+RUNTIME_MODE="standalone"
 BACKEND_ARGS=()
 DEPLOY_AP_RUNTIME_DIR=""
 DEPLOY_CONTAINER_HUB_BASE_URL=""
@@ -94,6 +95,15 @@ program_apply_layout_flags() {
         [[ $# -ge 2 ]] || program_die "missing value for --identity-file"
         IDENTITY_FILE="$2"
         shift 2
+        ;;
+      --runtime-mode)
+        [[ $# -ge 2 ]] || program_die "missing value for --runtime-mode"
+        RUNTIME_MODE="$2"
+        shift 2
+        ;;
+      --runtime-mode=*)
+        RUNTIME_MODE="${1#--runtime-mode=}"
+        shift
         ;;
       *)
         program_die "unsupported argument: $1"
@@ -230,7 +240,7 @@ program_apply_deploy_flags() {
         DEPLOY_DESKTOP_DEVICE_ID="$2"
         shift 2
         ;;
-      --config-dir|--state-dir|--log-dir|--port|--identity-file|--daemon)
+      --config-dir|--state-dir|--log-dir|--port|--identity-file|--runtime-mode|--runtime-mode=*|--daemon)
         program_reject_deploy_start_arg "$1"
         ;;
       --force)
@@ -658,6 +668,7 @@ program_prepare_runtime_dirs() {
 
 program_update_backend_args() {
   BACKEND_ARGS=(--config-dir "$CONFIG_ROOT")
+  BACKEND_ARGS+=(--runtime-mode "$RUNTIME_MODE")
   if [[ -n "$PROGRAM_PORT" ]]; then
     BACKEND_ARGS+=(--port "$PROGRAM_PORT")
   fi

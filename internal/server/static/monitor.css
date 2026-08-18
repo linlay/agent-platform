@@ -130,6 +130,9 @@ select:focus-visible {
 
 .title-block {
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .title-block h1 {
@@ -139,6 +142,35 @@ select:focus-visible {
   font-weight: 800;
   line-height: 1.2;
   letter-spacing: 0;
+}
+
+.runtime-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 9px;
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.runtime-mode-desktop {
+  color: #d8f7ff;
+  border-color: #1688a7;
+  background: #0c5268;
+}
+
+.runtime-mode-standalone {
+  color: #e8efff;
+  border-color: #536ca8;
+  background: #33446f;
+}
+
+.runtime-mode-unknown {
+  color: var(--muted);
+  background: var(--panel);
 }
 
 .toolbar {

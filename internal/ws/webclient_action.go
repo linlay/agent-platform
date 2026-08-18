@@ -96,6 +96,10 @@ func (h *Hub) unregisterWebClientLocked(conn *Conn) {
 }
 
 func (h *Hub) resolveWebClientConnection(target contracts.WebClientTarget) (*Conn, bool) {
+	return h.resolveClientConnection(target)
+}
+
+func (h *Hub) resolveClientConnection(target contracts.ClientTarget) (*Conn, bool) {
 	if h == nil || target.IsZero() {
 		return nil, false
 	}

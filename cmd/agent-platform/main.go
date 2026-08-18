@@ -78,8 +78,9 @@ func main() {
 	}
 	runtimeDescription := resolvedRuntimeDescription(application.Config)
 	log.Printf(
-		"server ready: %s addr=%s app_init=%s total=%s",
+		"server ready: %s runtimeMode=%s actionTransport=reverse-websocket addr=%s app_init=%s total=%s",
 		runtimeDescription,
+		application.Config.RuntimeMode,
 		server.Addr,
 		startupElapsed(appInitStartedAt),
 		startupElapsed(startedAt),
@@ -134,6 +135,7 @@ func parseConfigOptions(args []string) (config.LoadOptions, error) {
 	fs.StringVar(&options.ConfigDir, "config-dir", "", "configuration root containing .env and configs/")
 	fs.StringVar(&options.Port, "port", "", "server listen port")
 	fs.StringVar(&options.IdentityFile, "identity-file", "", "absolute identity token file overriding the AP_RUNTIME_DIR default")
+	fs.StringVar(&options.RuntimeMode, "runtime-mode", string(config.RuntimeModeStandalone), "runtime host mode: standalone or desktop")
 	if err := fs.Parse(args); err != nil {
 		return config.LoadOptions{}, err
 	}

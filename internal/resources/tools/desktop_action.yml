@@ -1,6 +1,6 @@
 name: desktop_action
 label: 桌面端动作
-description: Execute an allowlisted Desktop or WebClient action. desktop.* actions use the local Desktop Action Bridge; webclient.* actions use the WebClient WebSocket that originated the run. Use desktop.workpanel.* for high-level tab and WebView control in the WorkPanel bound to the current run's trusted chat.
+description: Execute an allowlisted Desktop or WebClient action through the current run's reverse WebSocket target. In Desktop runtime mode, desktop.* routes to Desktop Main Broker. In standalone mode, only desktop.workpanel.* routes to the originating agent-webclient; other desktop.* actions are unsupported. webclient.* keeps its flat WebClient request protocol. No route falls back to local HTTP or another client window.
 inputSchema:
   type: object
   properties:

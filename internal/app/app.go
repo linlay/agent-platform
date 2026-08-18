@@ -161,7 +161,8 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		return nil, fmt.Errorf("init runtime tools: %w", err)
 	}
 	runtimeToolExecutor.WithWebClientRequestInvoker(wsHub)
-	runtimeToolExecutor.WithWebClientTargetStore(runManager)
+	runtimeToolExecutor.WithClientRequestInvoker(wsHub)
+	runtimeToolExecutor.WithClientTargetStore(runManager)
 	runtimeToolExecutor.WithRuntimeEnv(hostEnv)
 	runtimeToolExecutor.WithModelRegistry(modelRegistry)
 	var lspManager *lsp.Manager

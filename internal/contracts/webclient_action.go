@@ -7,22 +7,53 @@ import (
 )
 
 var (
-	ErrWebClientTargetUnavailable = errors.New("webclient target unavailable")
-	ErrWebClientDisconnected      = errors.New("webclient disconnected")
+	ErrClientTargetUnavailable    = errors.New("client target unavailable")
+	ErrClientDisconnected         = errors.New("client disconnected")
+	ErrWebClientTargetUnavailable = ErrClientTargetUnavailable
+	ErrWebClientDisconnected      = ErrClientDisconnected
 )
 
-// WebClientTarget is runtime-only routing metadata for the WebClient surface
-// that originated a root run. It must never be persisted or exposed to the
-// model.
-type WebClientTarget struct {
+// ClientTarget is runtime-only routing metadata for the client surface that
+// originated a root run. It must never be persisted or exposed to the model.
+type ClientTarget struct {
 	SessionID   string
 	BoundaryKey string
 	Subject     string
 	SurfaceID   string
 }
 
-func (t WebClientTarget) IsZero() bool {
+func (t ClientTarget) IsZero() bool {
 	return t.SessionID == "" && (t.BoundaryKey == "" || t.SurfaceID == "")
+}
+
+type WebClientTarget = ClientTarget
+
+type ClientRequest struct {
+	ID      string
+	Type    string
+	Payload map[string]any
+}
+
+type ClientResponseFrame struct {
+	Frame    string          `json:"frame"`
+	Type     string          `json:"type,omitempty"`
+	ID       string          `json:"id"`
+	StreamID string          `json:"streamId,omitempty"`
+	Reason   string          `json:"reason,omitempty"`
+	LastSeq  int64           `json:"lastSeq,omitempty"`
+	Code     *int            `json:"code,omitempty"`
+	Msg      string          `json:"msg,omitempty"`
+	Data     json.RawMessage `json:"data,omitempty"`
+	Event    json.RawMessage `json:"event,omitempty"`
+}
+
+type ClientRequestInvoker interface {
+	InvokeClientRequest(
+		ctx context.Context,
+		target ClientTarget,
+		request ClientRequest,
+		onFrame func(ClientResponseFrame) error,
+	) error
 }
 
 type WebClientActionRequest struct {
@@ -54,4 +85,9 @@ type WebClientRequestInvoker interface {
 type WebClientTargetStore interface {
 	BindWebClientTarget(runID string, target WebClientTarget) bool
 	ResolveWebClientTarget(runID string) (WebClientTarget, bool)
+}
+
+type ClientTargetStore interface {
+	BindClientTarget(runID string, target ClientTarget) bool
+	ResolveClientTarget(runID string) (ClientTarget, bool)
 }

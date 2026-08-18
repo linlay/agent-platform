@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
@@ -26,6 +27,155 @@ type recordingWebClientRequestInvoker struct {
 	response WebClientActionResponse
 	err      error
 	calls    int
+}
+
+type httpBackedClientRequestInvoker struct {
+	actionURL string
+	cdpURL    string
+}
+
+type scriptedClientRequestInvoker struct {
+	frames      []ClientResponseFrame
+	err         error
+	calls       int
+	target      ClientTarget
+	request     ClientRequest
+	deadline    time.Time
+	hadDeadline bool
+}
+
+func (i *scriptedClientRequestInvoker) InvokeClientRequest(ctx context.Context, target ClientTarget, request ClientRequest, onFrame func(ClientResponseFrame) error) error {
+	i.calls++
+	i.target = target
+	i.request = request
+	i.deadline, i.hadDeadline = ctx.Deadline()
+	for _, frame := range i.frames {
+		if err := onFrame(frame); err != nil {
+			return err
+		}
+	}
+	return i.err
+}
+
+func TestDesktopReverseRequestUsesCallerToolDeadline(t *testing.T) {
+	code := 0
+	data, _ := json.Marshal(map[string]any{"ok": true, "action": "desktop.theme.get", "result": map[string]any{}})
+	invoker := &scriptedClientRequestInvoker{frames: []ClientResponseFrame{{
+		Frame: "response", Type: desktopActionRequestType, ID: "deadline-request", Code: &code, Data: data,
+	}}}
+	executor := &RuntimeToolExecutor{
+		cfg:           config.Config{RuntimeMode: config.RuntimeModeDesktop},
+		clientRequest: invoker,
+		clientTargets: emptyRunClientTargetStore{},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
+	defer cancel()
+	wantDeadline, _ := ctx.Deadline()
+	result, err := executor.invokeDesktopAction(ctx, map[string]any{
+		"requestId": "deadline-request", "action": "desktop.theme.get", "args": map[string]any{},
+	}, &ExecutionContext{})
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("invoke desktop action: result=%#v err=%v", result, err)
+	}
+	if !invoker.hadDeadline || !invoker.deadline.Equal(wantDeadline) {
+		t.Fatalf("reverse request deadline = %v, want caller tool deadline %v", invoker.deadline, wantDeadline)
+	}
+}
+
+func TestDesktopRuntimeModeRoutingMatrix(t *testing.T) {
+	code := 0
+	inline, _ := json.Marshal(map[string]any{"ok": true, "action": "desktop.workpanel.getState", "result": map[string]any{"ok": true}})
+	invoker := &scriptedClientRequestInvoker{frames: []ClientResponseFrame{{
+		Frame: "response", Type: desktopActionRequestType, ID: "standalone-workpanel", Code: &code, Data: inline,
+	}}}
+	executor := &RuntimeToolExecutor{
+		cfg:           config.Config{RuntimeMode: config.RuntimeModeStandalone},
+		clientRequest: invoker,
+		clientTargets: emptyRunClientTargetStore{},
+	}
+	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"requestId": "standalone-workpanel", "action": "desktop.workpanel.getState", "args": map[string]any{},
+	}, &ExecutionContext{})
+	if err != nil || result.ExitCode != 0 || invoker.calls != 1 || invoker.request.Type != desktopActionRequestType {
+		t.Fatalf("standalone WorkPanel route failed: result=%#v calls=%d request=%#v err=%v", result, invoker.calls, invoker.request, err)
+	}
+
+	unsupported, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"action": "desktop.theme.get", "args": map[string]any{},
+	}, &ExecutionContext{})
+	if err != nil || unsupported.Error != "desktop_action_unsupported_runtime" || invoker.calls != 1 {
+		t.Fatalf("standalone Desktop action was not rejected before dispatch: result=%#v calls=%d err=%v", unsupported, invoker.calls, err)
+	}
+	cdp, err := executor.invokeDesktopCDP(context.Background(), map[string]any{
+		"method": "Runtime.evaluate", "params": map[string]any{"expression": "1"},
+	}, &ExecutionContext{})
+	if err != nil || cdp.Error != "desktop_cdp_unsupported_runtime" || invoker.calls != 1 {
+		t.Fatalf("standalone CDP was not rejected before dispatch: result=%#v calls=%d err=%v", cdp, invoker.calls, err)
+	}
+}
+
+func TestDesktopReverseRequestDoesNotUseStaleSessionTargetWhenRunTargetIsMissing(t *testing.T) {
+	runs := NewInMemoryRunManager()
+	runs.Register(context.Background(), QuerySession{
+		RunID: "run-without-reverse-target", ChatID: "chat-1", AgentKey: "agent-1", RunOwner: AgentRunOwner("agent-1", ""),
+	})
+	invoker := &scriptedClientRequestInvoker{}
+	executor := &RuntimeToolExecutor{
+		cfg:           config.Config{RuntimeMode: config.RuntimeModeStandalone},
+		clientRequest: invoker,
+		clientTargets: runs,
+	}
+	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"action": "desktop.workpanel.getState", "args": map[string]any{},
+	}, &ExecutionContext{Session: QuerySession{
+		RunID: "run-without-reverse-target", WebClientTarget: ClientTarget{SessionID: "stale-session"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Error != "desktop_action_target_unavailable" || invoker.calls != 0 {
+		t.Fatalf("stale session target was used: result=%#v calls=%d", result, invoker.calls)
+	}
+}
+
+func (i *httpBackedClientRequestInvoker) InvokeClientRequest(ctx context.Context, _ ClientTarget, request ClientRequest, onFrame func(ClientResponseFrame) error) error {
+	endpoint := i.actionURL
+	if request.Type == desktopCDPRequestType {
+		endpoint = i.cdpURL
+	}
+	body, err := json.Marshal(request.Payload)
+	if err != nil {
+		return err
+	}
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	httpRequest.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(httpRequest)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	var data json.RawMessage
+	if err := json.NewDecoder(response.Body).Decode(&data); err != nil {
+		return err
+	}
+	code := 0
+	return onFrame(ClientResponseFrame{Frame: "response", Type: request.Type, ID: request.ID, Code: &code, Msg: "success", Data: data})
+}
+
+type emptyRunClientTargetStore struct{}
+
+func (emptyRunClientTargetStore) BindWebClientTarget(string, WebClientTarget) bool { return false }
+func (emptyRunClientTargetStore) ResolveWebClientTarget(string) (WebClientTarget, bool) {
+	return WebClientTarget{SessionID: "ws-desktop-test"}, true
+}
+func (s emptyRunClientTargetStore) BindClientTarget(runID string, target ClientTarget) bool {
+	return s.BindWebClientTarget(runID, target)
+}
+func (s emptyRunClientTargetStore) ResolveClientTarget(runID string) (ClientTarget, bool) {
+	return s.ResolveWebClientTarget(runID)
 }
 
 func webClientResponseCode(code int) *int {
@@ -69,9 +219,10 @@ func TestInvokeDesktopActionCallsBridge(t *testing.T) {
 			"themeMode": "dark",
 		},
 	}, &ExecutionContext{Session: QuerySession{
-		RunID:    "run-1",
-		ChatID:   "chat-1",
-		AgentKey: "desktopAssistant",
+		RunID:           "run-1",
+		ChatID:          "chat-1",
+		AgentKey:        "desktopAssistant",
+		WebClientTarget: WebClientTarget{SessionID: "ws-desktop-test"},
 	}})
 	if err != nil {
 		t.Fatalf("invoke desktop action: %v", err)
@@ -88,6 +239,162 @@ func TestInvokeDesktopActionCallsBridge(t *testing.T) {
 	if got.Source.RunID != "run-1" || got.Source.ChatID != "chat-1" || got.Source.AgentKey != "desktopAssistant" {
 		t.Fatalf("unexpected source: %#v", got.Source)
 	}
+}
+
+func TestInvokeDesktopActionReassemblesValidatedStream(t *testing.T) {
+	payload := []byte(`{"ok":true,"action":"desktop.controlCenter.readServiceLog","result":{"content":"streamed"}}`)
+	streamID := "stream-json-1"
+	frames := make([]ClientResponseFrame, 0, 3)
+	for index, chunk := range [][]byte{payload[:len(payload)/2], payload[len(payload)/2:]} {
+		event, _ := json.Marshal(desktopStreamEvent{
+			Seq:       int64(index + 1),
+			Type:      desktopResponseDeltaEventType,
+			Timestamp: 1771888000000 + int64(index),
+			Encoding:  "base64",
+			Chunk:     base64.StdEncoding.EncodeToString(chunk),
+		})
+		frames = append(frames, ClientResponseFrame{Frame: "stream", ID: "stream-request", StreamID: streamID, Event: event})
+	}
+	code := 0
+	terminal, _ := json.Marshal(map[string]any{
+		"streamed":    true,
+		"streamId":    streamID,
+		"encoding":    "base64",
+		"contentType": "application/json",
+		"chunkCount":  2,
+		"totalBytes":  len(payload),
+	})
+	frames = append(frames, ClientResponseFrame{Frame: "response", Type: desktopActionRequestType, ID: "stream-request", Code: &code, Data: terminal})
+	executor := &RuntimeToolExecutor{
+		cfg:           config.Config{RuntimeMode: config.RuntimeModeDesktop},
+		clientRequest: &scriptedClientRequestInvoker{frames: frames},
+		clientTargets: emptyRunClientTargetStore{},
+	}
+	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"requestId": "stream-request",
+		"action":    "desktop.controlCenter.readServiceLog",
+	}, &ExecutionContext{})
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("streamed desktop action failed: result=%#v err=%v", result, err)
+	}
+	response := cloneDesktopMapValue(result.Structured["response"])
+	resultNode := cloneDesktopMapValue(response["result"])
+	if resultNode["content"] != "streamed" {
+		t.Fatalf("unexpected streamed result: %#v", result.Structured)
+	}
+}
+
+func TestInvokeDesktopActionRejectsInvalidStreamManifest(t *testing.T) {
+	event, _ := json.Marshal(desktopStreamEvent{
+		Seq:       1,
+		Type:      desktopResponseDeltaEventType,
+		Timestamp: 1771888000000,
+		Encoding:  "base64",
+		Chunk:     base64.StdEncoding.EncodeToString([]byte(`{"ok":true}`)),
+	})
+	code := 0
+	terminal, _ := json.Marshal(map[string]any{
+		"streamed": true, "streamId": "wrong-stream", "encoding": "base64", "chunkCount": 1, "totalBytes": 11,
+	})
+	executor := &RuntimeToolExecutor{
+		cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop},
+		clientRequest: &scriptedClientRequestInvoker{frames: []ClientResponseFrame{
+			{Frame: "stream", ID: "invalid-stream", StreamID: "stream-1", Event: event},
+			{Frame: "response", Type: desktopActionRequestType, ID: "invalid-stream", Code: &code, Data: terminal},
+		}},
+		clientTargets: emptyRunClientTargetStore{},
+	}
+	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"requestId": "invalid-stream", "action": "desktop.controlCenter.readServiceLog",
+	}, &ExecutionContext{})
+	if err != nil {
+		t.Fatalf("invoke invalid stream: %v", err)
+	}
+	if result.ExitCode != -1 || result.Error != "desktop_action_invalid_client_response" {
+		t.Fatalf("expected invalid stream response, got %#v", result)
+	}
+}
+
+func TestInvokeDesktopCDPStreamsScreenshotToChatFileAndCleansInvalidPartial(t *testing.T) {
+	chatRoot := t.TempDir()
+	chatID := "chat-stream-screenshot"
+	png := testDesktopScreenshotPNG(t)
+	streamID := "stream-screenshot-1"
+	frames := make([]ClientResponseFrame, 0, 3)
+	for index, chunk := range [][]byte{png[:len(png)/2], png[len(png)/2:]} {
+		event, _ := json.Marshal(desktopStreamEvent{
+			Seq:       int64(index + 1),
+			Type:      desktopScreenshotDeltaEventType,
+			Timestamp: 1771888000000 + int64(index),
+			Encoding:  "base64",
+			Chunk:     base64.StdEncoding.EncodeToString(chunk),
+		})
+		frames = append(frames, ClientResponseFrame{Frame: "stream", ID: "screenshot-request", StreamID: streamID, Event: event})
+	}
+	code := 0
+	terminal, _ := json.Marshal(map[string]any{
+		"ok": true, "method": desktopCdpCaptureScreenshotMethod,
+		"result": map[string]any{"data": map[string]any{
+			"streamed": true, "streamId": streamID, "encoding": "base64", "chunkCount": 2, "totalBytes": len(png),
+		}},
+	})
+	frames = append(frames, ClientResponseFrame{Frame: "response", Type: desktopCDPRequestType, ID: "screenshot-request", Code: &code, Data: terminal})
+	executor := &RuntimeToolExecutor{
+		cfg: config.Config{
+			RuntimeMode: config.RuntimeModeDesktop,
+			Paths:       config.PathsConfig{ChatsDir: chatRoot},
+		},
+		clientRequest: &scriptedClientRequestInvoker{frames: frames},
+		clientTargets: emptyRunClientTargetStore{},
+	}
+	result, err := executor.invokeDesktopCDP(context.Background(), map[string]any{
+		"requestId": "screenshot-request", "method": desktopCdpCaptureScreenshotMethod,
+	}, &ExecutionContext{Session: QuerySession{ChatID: chatID}})
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("streamed screenshot failed: result=%#v err=%v", result, err)
+	}
+	response := cloneDesktopMapValue(result.Structured["response"])
+	resultNode := cloneDesktopMapValue(response["result"])
+	metadata := cloneDesktopMapValue(resultNode["data"])
+	filePath, _ := metadata["filePath"].(string)
+	written, readErr := os.ReadFile(filePath)
+	if readErr != nil || !bytes.Equal(written, png) {
+		t.Fatalf("unexpected streamed screenshot file: path=%q err=%v", filePath, readErr)
+	}
+
+	badEvent, _ := json.Marshal(desktopStreamEvent{
+		Seq: 1, Type: desktopScreenshotDeltaEventType, Timestamp: 1771888000000,
+		Encoding: "base64", Chunk: base64.StdEncoding.EncodeToString(png[:4]),
+	})
+	badExecutor := *executor
+	badExecutor.clientRequest = &scriptedClientRequestInvoker{frames: []ClientResponseFrame{
+		{Frame: "stream", ID: "bad-screenshot", StreamID: "bad-stream", Event: badEvent},
+		{Frame: "stream", ID: "bad-screenshot", StreamID: "bad-stream", Event: json.RawMessage(`{"seq":3,"type":"desktop.cdp.screenshot.delta","timestamp":1771888000001,"encoding":"base64","chunk":"AA=="}`)},
+	}}
+	badResult, badErr := badExecutor.invokeDesktopCDP(context.Background(), map[string]any{
+		"requestId": "bad-screenshot", "method": desktopCdpCaptureScreenshotMethod,
+	}, &ExecutionContext{Session: QuerySession{ChatID: chatID}})
+	if badErr != nil || badResult.ExitCode != -1 || badResult.Error != "desktop_cdp_invalid_client_response" {
+		t.Fatalf("expected invalid screenshot stream failure, got result=%#v err=%v", badResult, badErr)
+	}
+	entries, err := os.ReadDir(filepath.Join(chatRoot, chatID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".tmp") {
+			t.Fatalf("partial screenshot was not cleaned: %s", entry.Name())
+		}
+	}
+	oversized, err := newDesktopScreenshotSink(executor, &ExecutionContext{Session: QuerySession{ChatID: chatID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oversized.size = desktopMaxDecodedResponseBytes
+	if err := oversized.write([]byte{0}); err == nil || !strings.Contains(err.Error(), "64 MiB") {
+		t.Fatalf("expected screenshot size limit, got %v", err)
+	}
+	oversized.abort()
 }
 
 func TestInvokeDesktopActionForwardsWebClientActionAsFlatRequest(t *testing.T) {
@@ -543,9 +850,10 @@ func TestInvokeDesktopCDPCallsBridge(t *testing.T) {
 			"expression": "6 * 7",
 		},
 	}, &ExecutionContext{Session: QuerySession{
-		RunID:    "run-cdp",
-		ChatID:   "chat-cdp",
-		AgentKey: "desktopAssistant",
+		RunID:           "run-cdp",
+		ChatID:          "chat-cdp",
+		AgentKey:        "desktopAssistant",
+		WebClientTarget: WebClientTarget{SessionID: "ws-desktop-test"},
 	}})
 	if err != nil {
 		t.Fatalf("invoke desktop cdp: %v", err)
@@ -1010,15 +1318,15 @@ func TestDesktopCDPMethodSchemaUsesRecommendedEnum(t *testing.T) {
 	}
 }
 
-func TestInvokeDesktopActionRequiresConfiguredBridge(t *testing.T) {
-	result, err := (&RuntimeToolExecutor{}).invokeDesktopAction(context.Background(), map[string]any{
+func TestInvokeDesktopActionRequiresClientProvider(t *testing.T) {
+	result, err := (&RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}}).invokeDesktopAction(context.Background(), map[string]any{
 		"action": "desktop.controlCenter.listServices",
 	}, &ExecutionContext{})
 	if err != nil {
 		t.Fatalf("invoke desktop action: %v", err)
 	}
-	if result.ExitCode != -1 || result.Error != "desktop_action_bridge_not_configured" {
-		t.Fatalf("expected bridge not configured failure, got exit=%d error=%q output=%s", result.ExitCode, result.Error, result.Output)
+	if result.ExitCode != -1 || result.Error != "desktop_action_provider_unavailable" {
+		t.Fatalf("expected provider unavailable failure, got exit=%d error=%q output=%s", result.ExitCode, result.Error, result.Output)
 	}
 }
 
@@ -1110,14 +1418,9 @@ func desktopScreenshotServer(t *testing.T, data string, ok bool) *httptest.Serve
 }
 
 func newDesktopTestExecutor(actionURL string, cdpURL string) *RuntimeToolExecutor {
-	return &RuntimeToolExecutor{cfg: config.Config{Desktop: config.DesktopConfig{
-		Action: config.DesktopBridgeConfig{
-			BridgeURL:      actionURL,
-			RequestTimeout: 20,
-		},
-		CDP: config.DesktopBridgeConfig{
-			BridgeURL:      cdpURL,
-			RequestTimeout: 20,
-		},
-	}}}
+	return &RuntimeToolExecutor{
+		cfg:           config.Config{RuntimeMode: config.RuntimeModeDesktop},
+		clientRequest: &httpBackedClientRequestInvoker{actionURL: actionURL, cdpURL: cdpURL},
+		clientTargets: emptyRunClientTargetStore{},
+	}
 }

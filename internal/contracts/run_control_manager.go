@@ -157,6 +157,14 @@ func (m *InMemoryRunManager) ResolveWebClientTarget(runID string) (WebClientTarg
 	return state.webClientTarget, true
 }
 
+func (m *InMemoryRunManager) BindClientTarget(runID string, target ClientTarget) bool {
+	return m.BindWebClientTarget(runID, target)
+}
+
+func (m *InMemoryRunManager) ResolveClientTarget(runID string) (ClientTarget, bool) {
+	return m.ResolveWebClientTarget(runID)
+}
+
 func (m *InMemoryRunManager) RegisterRecoveredAwaiting(_ context.Context, session QuerySession, awaitingID string, initialSeq int64) (RecoveredAwaitingRun, error) {
 	m.startReaper()
 	awaitingID = strings.TrimSpace(awaitingID)

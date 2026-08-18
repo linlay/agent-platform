@@ -1,6 +1,6 @@
 name: desktop_cdp
 label: 桌面端CDP
-description: Call the local Desktop CDP Bridge to inspect or control page content on Desktop-managed targets. Use desktop_action for high-level surface/tab control. For a chat-owned WorkPanel, desktop.workpanel.* manages its tabs and WebViews; a WorkPanel tabId is not a CDP targetId, and Desktop authorizes supplied WorkPanel CDP targets only when they belong to the current run's trusted chat.
+description: Call Desktop CDP through the current run's reverse WebSocket target. This tool is supported only in Desktop runtime mode and never falls back to local HTTP or another client window. Use desktop_action for high-level surface/tab control. For a chat-owned WorkPanel, desktop.workpanel.* manages its tabs and WebViews; a WorkPanel tabId is not a CDP targetId, and Desktop authorizes supplied WorkPanel CDP targets only when they belong to the current run's trusted chat.
 inputSchema:
   type: object
   properties:

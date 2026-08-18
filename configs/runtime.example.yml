@@ -102,19 +102,6 @@ container-hub:
   # only through /chat.
   # /workspace, /chat, masks, and their descendants are reserved and cannot be overridden.
 
-desktop:
-  action:
-    host: 127.0.0.1
-    port: 11788
-    path: /actions/call
-    request-timeout: 120
-
-  cdp:
-    host: 127.0.0.1
-    port: 11788
-    path: /cdp/call
-    request-timeout: 120
-
 cors:
   enabled: false
   path-pattern: /api/**

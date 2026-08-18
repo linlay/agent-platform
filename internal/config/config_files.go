@@ -43,23 +43,6 @@ func loadYAMLMap(path string) (map[string]any, error) {
 	return values, nil
 }
 
-func (c *Config) applyDesktopValues(values map[string]any) {
-	c.Desktop.Action = parseDesktopBridgeConfig(values["action"], c.Desktop.Action)
-	c.Desktop.CDP = parseDesktopBridgeConfig(values["cdp"], c.Desktop.CDP)
-}
-
-func parseDesktopBridgeConfig(raw any, fallback DesktopBridgeConfig) DesktopBridgeConfig {
-	values, _ := raw.(map[string]any)
-	if len(values) == 0 {
-		return fallback
-	}
-	fallback.Host = stringValue(anyValue(values["host"], fallback.Host), fallback.Host)
-	fallback.Port = intValue(anyValue(values["port"], fallback.Port), fallback.Port)
-	fallback.Path = stringValue(anyValue(values["path"], fallback.Path), fallback.Path)
-	fallback.RequestTimeout = intValue(anyValue(values["request-timeout"], fallback.RequestTimeout), fallback.RequestTimeout)
-	return fallback
-}
-
 func (c *Config) applyPathsValues(values map[string]any) {
 	c.Paths.RegistriesDir = stringValue(anyValue(values["registries-dir"], c.Paths.RegistriesDir), c.Paths.RegistriesDir)
 	c.Paths.ToolsDir = stringValue(anyValue(values["tools-dir"], c.Paths.ToolsDir), c.Paths.ToolsDir)
@@ -216,9 +199,6 @@ func (c *Config) applyRuntimeFile(path string) error {
 		if err := c.applyContainerHubValues(path, containerHub); err != nil {
 			return err
 		}
-	}
-	if desktop, ok := values["desktop"].(map[string]any); ok && len(desktop) > 0 {
-		c.applyDesktopValues(desktop)
 	}
 	if cors, ok := values["cors"].(map[string]any); ok && len(cors) > 0 {
 		c.applyCORSValues(cors)

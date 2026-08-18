@@ -160,6 +160,8 @@ func TestMonitorStaticRoutes(t *testing.T) {
 			wantType:   "text/html",
 			wantBodyParts: []string{
 				"智能体平台监控",
+				"运行形态未知",
+				"runtime-mode-badge",
 				`name="referrer" content="no-referrer"`,
 				"refresh-button",
 				`name="connection-view" value="active"`,
@@ -201,7 +203,7 @@ func TestMonitorStaticRoutes(t *testing.T) {
 			path:          "/monitor/monitor.js",
 			wantStatus:    http.StatusOK,
 			wantType:      "text/javascript",
-			wantBodyParts: []string{"requestJSON", "/api/monitor/channels", "sessionId", "connectionView", "channelModeFilter", "active", "copyPayloadText", "copyUserAgentText", "exportAgentListBlock", "registeredExports", "accept", "注册失败", "requestId"},
+			wantBodyParts: []string{"requestJSON", "/api/monitor/channels", "sessionId", "connectionView", "channelModeFilter", "active", "copyPayloadText", "copyUserAgentText", "exportAgentListBlock", "registeredExports", "accept", "注册失败", "requestId", "运行形态 · ", "Action Transport"},
 			wantAbsent:    []string{"Authorization", "access_token", "agent-platform.monitor.accessToken", "history.replaceState", "sessionStorage"},
 		},
 		{
