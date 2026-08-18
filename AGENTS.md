@@ -136,7 +136,7 @@ KBASE 默认由 `AP_RUNTIME_KBASE_DIR` 控制，每个 agent storageDir 可包�
 - `.env`、真实 `configs/*.yml`、真实 `configs/*.pem`、真实 token 和私钥不得提交。
 - 工具运行时配置以 `configs/tools.yml` 为外部事实源，包含 access policy、bash 和 file tools。
 - `configs/tools.yml` 中的旧 YAML 路径策略键（如 `bash.allowed-paths`、`file-tools.allowed-read-paths`）会在启动阶段硬失败；Go 配置结构中的旧路径字段也已删除，目录权限统一走 `tools.access-policy`。
-- `@temp` 是进程启动时冻结的通用临时根：Unix/macOS 使用 `os.TempDir()` 与 canonical `/tmp`，Windows 只使用 `os.TempDir()`；effective default read/write roots 无条件包含它。临时根内 FileTools 跳过路径和通用写审批，但保留写前读、并发校验、大小与 history；Bash 执行审批规则不因 `@temp` 改变，临时根 symlink/junction 逃逸硬拒绝。
+- `@temp` 是进程启动时冻结的通用临时根：Unix/macOS 使用 `os.TempDir()` 与 canonical `/tmp`，Windows 只使用 `os.TempDir()`；effective default read/write roots 无条件包含它。临时根内 FileTools 跳过路径、LLM 预审批和通用写审批，但保留写前读、并发校验、大小与 history。单条 `python`/`python3` 直接执行临时 `.py`，或单条 `node` 直接执行临时 `.js/.mjs/.cjs` 时，各 accessLevel 均按普通 allow 执行；内联代码、重定向、复合命令和其他 opaque command 不适用。bashsec hard block、readonly、KBASE mutation gate 与临时根 symlink/junction 逃逸仍优先。
 - 新增能力优先放进对应 `internal/*` 模块，不在 server 层堆业务逻辑。
 - TEAM 是内部专用 mode：公共机制进入 `internal/agent`，调度规则进入 `internal/agent/team`。普通 `AgentDefinition` 必须拒绝 `mode: TEAM`，隐藏协调器不得注册到 `/api/agents`、`/api/agent` 或普通 `agent_invoke` 目标中。
 - 新增 API 保持统一 JSON 包裹、字段命名和错误语义。

@@ -4256,19 +4256,21 @@ func TestBashAccessAutoApproveRecordsApprovalSummary(t *testing.T) {
 	}
 }
 
-func TestRunAuthoredChatAndTempScriptsAutoApproveWithoutAwaiting(t *testing.T) {
+func TestRunAuthoredChatAndTempScriptsAvoidUnexpectedAwaiting(t *testing.T) {
 	tests := []struct {
-		name       string
-		sandbox    bool
-		filePath   string
-		cwd        string
-		command    string
-		sandboxCwd string
+		name            string
+		sandbox         bool
+		filePath        string
+		cwd             string
+		command         string
+		sandboxCwd      string
+		accessLevel     string
+		expectApprovals int
 	}{
-		{name: "host chat python", filePath: "@chat/task.py", cwd: "@chat", command: "python3 task.py"},
-		{name: "host temp node", filePath: "@temp/task.js", cwd: "@temp", command: "node task.js"},
-		{name: "sandbox chat python", sandbox: true, filePath: "@chat/task.py", cwd: "@chat", command: "python3 task.py", sandboxCwd: "/chat"},
-		{name: "sandbox temp node", sandbox: true, filePath: "@temp/task.js", cwd: "/tmp", command: "node task.js", sandboxCwd: "/tmp"},
+		{name: "host chat python", filePath: "@chat/task.py", cwd: "@chat", command: "python3 task.py", accessLevel: contracts.AccessLevelAutoApprove, expectApprovals: 1},
+		{name: "host temp node", filePath: "@temp/task.js", cwd: "@temp", command: "node task.js", accessLevel: contracts.AccessLevelDefault},
+		{name: "sandbox chat python", sandbox: true, filePath: "@chat/task.py", cwd: "@chat", command: "python3 task.py", sandboxCwd: "/chat", accessLevel: contracts.AccessLevelAutoApprove, expectApprovals: 1},
+		{name: "sandbox temp node", sandbox: true, filePath: "@temp/task.js", cwd: "/tmp", command: "node task.js", sandboxCwd: "/tmp", accessLevel: contracts.AccessLevelDefault},
 	}
 
 	for _, test := range tests {
@@ -4286,7 +4288,7 @@ func TestRunAuthoredChatAndTempScriptsAutoApproveWithoutAwaiting(t *testing.T) {
 				RequestID:              "req_1",
 				ChatID:                 "chat_1",
 				RunID:                  "run_1",
-				AccessLevel:            contracts.AccessLevelAutoApprove,
+				AccessLevel:            test.accessLevel,
 				WorkspaceRoot:          workspace,
 				ChatRoot:               chatDir,
 				TempRoot:               tempRoot,
@@ -4310,8 +4312,11 @@ func TestRunAuthoredChatAndTempScriptsAutoApproveWithoutAwaiting(t *testing.T) {
 			stream := &llmRunStream{
 				ctx:     context.Background(),
 				session: session,
-				engine:  &LLMAgentEngine{tools: executor},
-				execCtx: &contracts.ExecutionContext{Session: session, AccessLevel: contracts.AccessLevelAutoApprove},
+				engine: &LLMAgentEngine{
+					cfg:   config.Config{FileTools: config.FileToolsConfig{RequireWriteApproval: true}},
+					tools: executor,
+				},
+				execCtx: &contracts.ExecutionContext{Session: session, AccessLevel: test.accessLevel},
 			}
 			var approvals []chat.StepApproval
 			stream.onApprovalSummary = func(approval chat.StepApproval) {
@@ -4359,19 +4364,24 @@ func TestRunAuthoredChatAndTempScriptsAutoApproveWithoutAwaiting(t *testing.T) {
 			if len(executor.invocations) != 2 || executor.invocations[0].name != "file_write" || executor.invocations[1].name != "bash" {
 				t.Fatalf("expected file_write then bash, got %#v", executor.invocations)
 			}
-			if len(approvals) != 1 || len(approvals[0].Decisions) != 1 {
-				t.Fatalf("expected one auto-approval audit, got %#v", approvals)
+			if len(approvals) != test.expectApprovals {
+				t.Fatalf("approval audit count = %d, want %d: %#v", len(approvals), test.expectApprovals, approvals)
 			}
-			decision := approvals[0].Decisions[0]
-			if decision.Decision != "auto_approved" || decision.Reason != "accessLevel=auto_approve" ||
-				!strings.HasPrefix(decision.RuleKey, "bash-access:opaque:") {
-				t.Fatalf("unexpected script auto-approval decision: %#v", decision)
+			if test.expectApprovals == 1 {
+				if len(approvals[0].Decisions) != 1 {
+					t.Fatalf("expected one auto-approval decision, got %#v", approvals)
+				}
+				decision := approvals[0].Decisions[0]
+				if decision.Decision != "auto_approved" || decision.Reason != "accessLevel=auto_approve" ||
+					!strings.HasPrefix(decision.RuleKey, "bash-access:opaque:") {
+					t.Fatalf("unexpected script auto-approval decision: %#v", decision)
+				}
 			}
 		})
 	}
 }
 
-func TestOpaqueScriptAutoApprovalWorksInConcurrentBatch(t *testing.T) {
+func TestChatAndTempScriptExecutionWorksInConcurrentBatch(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
 	chatDir := filepath.Join(root, "chats", "chat-1")
@@ -4432,8 +4442,8 @@ func TestOpaqueScriptAutoApprovalWorksInConcurrentBatch(t *testing.T) {
 	if len(executor.invocations) != 2 {
 		t.Fatalf("expected both script calls to execute, got %#v", executor.invocations)
 	}
-	if len(approvals) != 1 || len(approvals[0].Decisions) != 2 {
-		t.Fatalf("expected one two-command auto-approval audit, got %#v", approvals)
+	if len(approvals) != 1 || len(approvals[0].Decisions) != 1 {
+		t.Fatalf("expected one chat-command auto-approval audit, got %#v", approvals)
 	}
 	for _, decision := range approvals[0].Decisions {
 		if decision.Decision != "auto_approved" || decision.Reason != "accessLevel=auto_approve" ||

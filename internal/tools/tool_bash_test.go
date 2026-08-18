@@ -919,7 +919,7 @@ func TestInvokeHostBashAutoApprovedAccessAddsMetadata(t *testing.T) {
 	}
 }
 
-func TestInvokeHostBashAutoApprovesChatAndTempScripts(t *testing.T) {
+func TestInvokeHostBashAppliesChatAndTempScriptApprovalRules(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
 	chatDir := filepath.Join(root, "chats", "chat-1")
@@ -958,9 +958,11 @@ func TestInvokeHostBashAutoApprovesChatAndTempScripts(t *testing.T) {
 		interpreter string
 		cwd         string
 		script      string
+		accessLevel string
+		expectAudit bool
 	}{
-		{name: "chat python", interpreter: "python3", cwd: "@chat", script: "task.py"},
-		{name: "temp node", interpreter: "node", cwd: "@temp", script: "task.js"},
+		{name: "auto-approved chat python", interpreter: "python3", cwd: "@chat", script: "task.py", accessLevel: contracts.AccessLevelAutoApprove, expectAudit: true},
+		{name: "default temp node", interpreter: "node", cwd: "@temp", script: "task.js", accessLevel: contracts.AccessLevelDefault},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -969,6 +971,7 @@ func TestInvokeHostBashAutoApprovesChatAndTempScripts(t *testing.T) {
 				t.Fatalf("write fake interpreter: %v", err)
 			}
 			command := fakeInterpreter + " " + test.script
+			execCtx.Session.AccessLevel = test.accessLevel
 			result, err := executor.invokeHostBash(context.Background(), map[string]any{
 				"command": command,
 				"cwd":     test.cwd,
@@ -979,10 +982,14 @@ func TestInvokeHostBashAutoApprovesChatAndTempScripts(t *testing.T) {
 			if result.Error != "" || result.ExitCode != 0 || result.Output != "ran:"+test.script+"\n" {
 				t.Fatalf("unexpected script result: %#v", result)
 			}
-			meta, _ := result.Structured["accessPolicy"].(map[string]any)
-			if meta["decision"] != "auto_approved" || meta["accessLevel"] != contracts.AccessLevelAutoApprove ||
-				!strings.HasPrefix(fmt.Sprint(meta["ruleKey"]), "bash-access:opaque:") {
-				t.Fatalf("expected opaque auto approval metadata, got %#v", result.Structured["accessPolicy"])
+			meta, hasAudit := result.Structured["accessPolicy"].(map[string]any)
+			if test.expectAudit {
+				if !hasAudit || meta["decision"] != "auto_approved" || meta["accessLevel"] != contracts.AccessLevelAutoApprove ||
+					!strings.HasPrefix(fmt.Sprint(meta["ruleKey"]), "bash-access:opaque:") {
+					t.Fatalf("expected opaque auto approval metadata, got %#v", result.Structured["accessPolicy"])
+				}
+			} else if hasAudit {
+				t.Fatalf("temporary script allow must not be recorded as an auto approval: %#v", meta)
 			}
 		})
 	}

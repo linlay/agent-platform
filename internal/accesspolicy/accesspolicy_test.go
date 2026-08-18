@@ -62,9 +62,10 @@ func TestTempRootIsEffectiveForFileAndSimpleBashPaths(t *testing.T) {
 			t.Fatalf("temporary bash path should not require path approval for %q: %#v", command, plan)
 		}
 	}
-	opaque := ReviewBashCommand(cfg, session, "python3 "+absolute, workspace, nil)
-	if !opaque.RequiresApproval() || !strings.Contains(opaque.RuleKey, "bash-access:opaque") {
-		t.Fatalf("temporary script execution must keep opaque-command approval: %#v", opaque)
+	script := filepath.Join(primary.Host, "agent-platform-access-policy", "task.py")
+	opaque := ReviewBashCommand(cfg, session, "python3 "+script, workspace, nil)
+	if !opaque.Allowed() || opaque.RequiresApproval() || opaque.AutoApproved() || opaque.RuleKey != "bash-access:temp-script" {
+		t.Fatalf("direct temporary script execution must be allowed without approval: %#v", opaque)
 	}
 }
 
@@ -99,13 +100,14 @@ func TestChatAndTempScriptExecutionRespectsAccessLevel(t *testing.T) {
 	tests := []struct {
 		name    string
 		sandbox bool
+		temp    bool
 		cwd     string
 		command string
 	}{
 		{name: "host chat python", cwd: "@chat", command: "python3 task.py"},
-		{name: "host temp node", cwd: "@temp", command: "node task.js"},
+		{name: "host temp node", temp: true, cwd: "@temp", command: "node task.js"},
 		{name: "sandbox chat python", sandbox: true, cwd: "/chat", command: "python3 task.py"},
-		{name: "sandbox temp node", sandbox: true, cwd: "/tmp", command: "node task.js"},
+		{name: "sandbox temp node", sandbox: true, temp: true, cwd: "/tmp", command: "node task.js"},
 	}
 
 	for _, test := range tests {
@@ -114,21 +116,58 @@ func TestChatAndTempScriptExecutionRespectsAccessLevel(t *testing.T) {
 			defaultSession.AccessLevel = contracts.AccessLevelDefault
 			defaultSession.AgentHasRuntimeSandbox = test.sandbox
 			defaultPlan := ReviewBashCommand(config.AccessPolicyConfig{}, defaultSession, test.command, test.cwd, nil)
-			if !defaultPlan.RequiresApproval() || !strings.HasPrefix(defaultPlan.RuleKey, "bash-access:opaque:") {
-				t.Fatalf("default script execution must require opaque approval: %#v", defaultPlan)
+			if test.temp {
+				if !defaultPlan.Allowed() || defaultPlan.RequiresApproval() || defaultPlan.AutoApproved() || defaultPlan.RuleKey != "bash-access:temp-script" {
+					t.Fatalf("default temporary script execution must be allowed: %#v", defaultPlan)
+				}
+			} else if !defaultPlan.RequiresApproval() || !strings.HasPrefix(defaultPlan.RuleKey, "bash-access:opaque:") {
+				t.Fatalf("default chat script execution must require opaque approval: %#v", defaultPlan)
 			}
 
 			autoSession := baseSession
 			autoSession.AccessLevel = contracts.AccessLevelAutoApprove
 			autoSession.AgentHasRuntimeSandbox = test.sandbox
 			autoPlan := ReviewBashCommand(config.AccessPolicyConfig{}, autoSession, test.command, test.cwd, nil)
-			if !autoPlan.AutoApproved() || !strings.HasPrefix(autoPlan.RuleKey, "bash-access:opaque:") {
-				t.Fatalf("auto_approve script execution must be auto-approved: %#v", autoPlan)
+			if test.temp {
+				if !autoPlan.Allowed() || autoPlan.RequiresApproval() || autoPlan.AutoApproved() || autoPlan.RuleKey != "bash-access:temp-script" {
+					t.Fatalf("auto_approve temporary script execution must be allowed without an approval decision: %#v", autoPlan)
+				}
+			} else if !autoPlan.AutoApproved() || !strings.HasPrefix(autoPlan.RuleKey, "bash-access:opaque:") {
+				t.Fatalf("auto_approve chat script execution must be auto-approved: %#v", autoPlan)
 			}
 			if autoPlan.AccessLevel != contracts.AccessLevelAutoApprove {
 				t.Fatalf("access level = %q, want auto_approve", autoPlan.AccessLevel)
 			}
 		})
+	}
+}
+
+func TestTempScriptExecutionExceptionIsNarrow(t *testing.T) {
+	root := t.TempDir()
+	session := contracts.QuerySession{
+		AccessLevel:   contracts.AccessLevelDefault,
+		WorkspaceRoot: filepath.Join(root, "workspace"),
+		TempRoot:      filepath.Join(root, "temp"),
+		TempRoots:     []string{filepath.Join(root, "temp")},
+	}
+	for _, dir := range []string{session.WorkspaceRoot, session.TempRoot} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+
+	for _, command := range []string{
+		`python3 -c 'print("ok")'`,
+		`node -e 'console.log("ok")'`,
+		`python3 task.py > output.txt`,
+		`python3 task.py && true`,
+		`bash task.py`,
+		`python3 task.txt`,
+	} {
+		plan := ReviewBashCommand(config.AccessPolicyConfig{}, session, command, "@temp", nil)
+		if !plan.RequiresApproval() || plan.RuleKey == "bash-access:temp-script" {
+			t.Fatalf("non-direct temporary script command must keep normal approval for %q: %#v", command, plan)
+		}
 	}
 }
 
@@ -177,6 +216,15 @@ func TestTempRootReadonlyAndSymlinkEscapeRemainBlocked(t *testing.T) {
 	}
 	if !escape.Blocked() || !strings.Contains(escape.Reason, "escapes") {
 		t.Fatalf("temporary symlink escape should be blocked: %#v", escape)
+	}
+	scriptLink := link + ".py"
+	if err := os.Symlink(outside, scriptLink); err != nil {
+		t.Skipf("script symlink unavailable: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Remove(scriptLink) })
+	scriptEscape := ReviewBashCommand(config.AccessPolicyConfig{}, session, "python3 "+scriptLink, "@temp", nil)
+	if !scriptEscape.Blocked() || !strings.Contains(scriptEscape.Reason, "blocked") {
+		t.Fatalf("temporary script symlink escape should be blocked: %#v", scriptEscape)
 	}
 }
 

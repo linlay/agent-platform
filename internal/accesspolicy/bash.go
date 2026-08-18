@@ -86,6 +86,14 @@ func ReviewBashCommand(cfg config.AccessPolicyConfig, session QuerySession, comm
 		}
 		base := normalizedCommandBase(cmd.Argv[0])
 		if isOpaqueCommand(base) {
+			if len(result.Commands) == 1 && len(cmd.Redirects) == 0 {
+				if plan, handled := directTempScriptExecutionPlan(cfg, session, command, accessLevel, base, cmd.Argv, workingDir); handled {
+					if plan.Allowed() && autoPlan.AutoApproved() {
+						return autoPlan
+					}
+					return plan
+				}
+			}
 			return opaqueBashPlan(command, accessLevel, level.Approvals.BashOpaqueCommand, base, workingDir)
 		}
 		for _, redirect := range cmd.Redirects {
@@ -327,6 +335,43 @@ func isOpaqueCommand(base string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func directTempScriptExecutionPlan(cfg config.AccessPolicyConfig, session QuerySession, command string, accessLevel string, base string, argv []string, cwd string) (BashPlan, bool) {
+	scriptPath, ok := directScriptPath(base, argv)
+	if !ok {
+		return BashPlan{}, false
+	}
+	pathPlan, err := BuildPathPlan(cfg, session, ReadAccess, resolveAgainstCwd(scriptPath, cwd))
+	if err != nil {
+		return BashPlan{}, false
+	}
+	if pathPlan.Blocked() {
+		return bashPlanFromPath(command, pathPlan, "temporary script path is blocked"), true
+	}
+	if !PathInSessionTemp(session, pathPlan.Path) {
+		return BashPlan{}, false
+	}
+	return bashPlan(command, accessLevel, DecisionAllow, "", "bash-access:temp-script", command), true
+}
+
+func directScriptPath(base string, argv []string) (string, bool) {
+	if len(argv) < 2 {
+		return "", false
+	}
+	scriptPath := strings.TrimSpace(argv[1])
+	if scriptPath == "" || strings.HasPrefix(scriptPath, "-") {
+		return "", false
+	}
+	extension := strings.ToLower(filepath.Ext(scriptPath))
+	switch base {
+	case "python", "python3":
+		return scriptPath, extension == ".py"
+	case "node":
+		return scriptPath, extension == ".js" || extension == ".mjs" || extension == ".cjs"
+	default:
+		return "", false
 	}
 }
 

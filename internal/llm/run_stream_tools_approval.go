@@ -174,6 +174,7 @@ func (s *llmRunStream) fileWritePlanNeedsApproval(plan filetools.WritePlan) bool
 	}
 	return !filetools.PathInSessionWorkspace(session, plan.FilePath) &&
 		!filetools.PathInSessionChat(session, plan.FilePath) &&
+		!filetools.PathInSessionTemp(session, plan.FilePath) &&
 		!filetools.PathInSessionHostWriteRoot(session, plan.FilePath)
 }
 
