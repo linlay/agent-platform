@@ -75,12 +75,8 @@ func invokeRegisteredOperation(h *ToolHandler, operationName string, params map[
 		return h.get(strings.TrimSpace(stringValue(params, "path")))
 	case "catalog.validate":
 		return h.validate(strings.ToLower(strings.TrimSpace(stringValue(params, "resourceType"))), strings.TrimSpace(stringValue(params, "resourceKey")), stringValue(params, "content"))
-	case "run.env.bind", "run.env.set", "run.env.unset", "run.env.bulk":
+	case "run.env.set", "run.env.unset":
 		return h.mutateEnvironment(operationName, params, execCtx)
-	case "run.env.get":
-		return h.getEnvironment(operationName, params, execCtx)
-	case "run.env.list":
-		return h.listEnvironment(operationName, params, execCtx)
 	case "runtime.status":
 		return h.runtimeStatus(operationName, params, execCtx)
 	case "security.explain":
@@ -91,7 +87,7 @@ func invokeRegisteredOperation(h *ToolHandler, operationName string, params map[
 
 func validateOperationParams(operationName string, params map[string]any) error {
 	switch operationName {
-	case "capabilities.list", "run.env.list", "runtime.status":
+	case "capabilities.list", "runtime.status":
 		return requireFields(params, nil, nil)
 	case "catalog.defaults.get":
 		if err := requireFields(params, []string{"path"}, nil); err != nil {
@@ -103,7 +99,7 @@ func validateOperationParams(operationName string, params map[string]any) error 
 			return err
 		}
 		return requireStringFields(params, "resourceType", "resourceKey", "content")
-	case "run.env.bind", "run.env.set":
+	case "run.env.set":
 		if err := requireFields(params, []string{"key", "value"}, []string{"expectedRevision", "idempotencyKey"}); err != nil {
 			return err
 		}
@@ -113,19 +109,6 @@ func validateOperationParams(operationName string, params map[string]any) error 
 			return err
 		}
 		return requireStringFields(params, "key")
-	case "run.env.get":
-		if err := requireFields(params, []string{"key"}, nil); err != nil {
-			return err
-		}
-		return requireStringFields(params, "key")
-	case "run.env.bulk":
-		if err := requireFields(params, []string{"changes"}, []string{"expectedRevision", "idempotencyKey"}); err != nil {
-			return err
-		}
-		if _, ok := params["changes"].([]any); !ok {
-			return fmt.Errorf("params.changes must be an array")
-		}
-		return nil
 	case "security.explain":
 		if err := requireFields(params, []string{"operation"}, []string{"key", "path", "access"}); err != nil {
 			return err
@@ -391,7 +374,7 @@ func (h *ToolHandler) capabilities(execCtx *contracts.ExecutionContext, _ []stri
 	}
 	return successResult(map[string]any{
 		"agentKey": agentKey, "operations": allowed,
-		"limits":         map[string]any{"maxDynamicKeys": h.cfg.PlatformControl.MaxDynamicKeys, "maxValueBytes": h.cfg.PlatformControl.MaxValueBytes, "maxTotalBytes": h.cfg.PlatformControl.MaxTotalBytes, "maxBulkOperations": h.cfg.PlatformControl.MaxBulkOperations},
+		"limits":         map[string]any{"maxDynamicKeys": h.cfg.PlatformControl.MaxDynamicKeys, "maxValueBytes": h.cfg.PlatformControl.MaxValueBytes, "maxTotalBytes": h.cfg.PlatformControl.MaxTotalBytes},
 		"runEnvRevision": revision,
 	})
 }
@@ -419,14 +402,6 @@ func (h *ToolHandler) mutateEnvironment(operationName string, params map[string]
 	if strings.TrimSpace(execCtx.Session.SubTaskID) != "" || strings.TrimSpace(execCtx.Session.TeamID) != "" {
 		return errorResult("run_env_mutation_forbidden", "only an ordinary root agent run may mutate its environment")
 	}
-	approval := MutationApproval(map[string]any{"operation": operationName, "params": params}, execCtx.RunEnvPolicy)
-	if approval.Required {
-		toolID := strings.TrimSpace(execCtx.CurrentToolID)
-		if toolID == "" || !execCtx.PlatformControlApprovals[toolID] {
-			return errorResult("run_env_approval_required", "this run environment mutation requires approval")
-		}
-		delete(execCtx.PlatformControlApprovals, toolID)
-	}
 	optional := []string{"expectedRevision", "idempotencyKey"}
 	request := runenv.MutationRequest{DefaultIdempotencyKey: strings.TrimSpace(execCtx.Session.RunID) + ":" + strings.TrimSpace(execCtx.CurrentToolID)}
 	if expected, ok, err := optionalRevision(params["expectedRevision"]); err != nil {
@@ -444,18 +419,16 @@ func (h *ToolHandler) mutateEnvironment(operationName string, params map[string]
 		}
 	}
 	switch operationName {
-	case "run.env.bind", "run.env.set":
+	case "run.env.set":
 		if err := requireFields(params, []string{"key", "value"}, optional); err != nil {
 			return errorResult("platform_control_invalid_params", err.Error())
 		}
 		if err := requireStringFields(params, "key", "value"); err != nil {
 			return errorResult("platform_control_invalid_params", err.Error())
 		}
-		operation := runenv.OperationBind
-		if operationName == "run.env.set" {
-			operation = runenv.OperationSet
-		}
-		request.Operations = []runenv.Mutation{{Operation: operation, Name: stringValue(params, "key"), Value: stringValue(params, "value")}}
+		request.Operation = runenv.OperationSet
+		request.Name = stringValue(params, "key")
+		request.Value = stringValue(params, "value")
 	case "run.env.unset":
 		if err := requireFields(params, []string{"key"}, optional); err != nil {
 			return errorResult("platform_control_invalid_params", err.Error())
@@ -463,108 +436,14 @@ func (h *ToolHandler) mutateEnvironment(operationName string, params map[string]
 		if err := requireStringFields(params, "key"); err != nil {
 			return errorResult("platform_control_invalid_params", err.Error())
 		}
-		request.Operations = []runenv.Mutation{{Operation: runenv.OperationUnset, Name: stringValue(params, "key")}}
-	case "run.env.bulk":
-		if err := requireFields(params, []string{"changes"}, optional); err != nil {
-			return errorResult("platform_control_invalid_params", err.Error())
-		}
-		changes, ok := params["changes"].([]any)
-		if !ok || len(changes) == 0 {
-			return errorResult("platform_control_invalid_params", "params.changes must be a non-empty array")
-		}
-		for index, raw := range changes {
-			change, ok := raw.(map[string]any)
-			if !ok {
-				return errorResult("platform_control_invalid_params", fmt.Sprintf("params.changes[%d] must be an object", index))
-			}
-			op := strings.ToLower(strings.TrimSpace(stringValue(change, "operation")))
-			allowedFields := []string{"operation", "key"}
-			if op == "bind" || op == "set" {
-				allowedFields = append(allowedFields, "value")
-			}
-			if err := requireFields(change, allowedFields, nil); err != nil {
-				return errorResult("platform_control_invalid_params", fmt.Sprintf("params.changes[%d]: %v", index, err))
-			}
-			if err := requireStringFields(change, allowedFields...); err != nil {
-				return errorResult("platform_control_invalid_params", fmt.Sprintf("params.changes[%d]: %v", index, err))
-			}
-			mutation := runenv.Mutation{Operation: runenv.Operation(op), Name: stringValue(change, "key"), Value: stringValue(change, "value")}
-			if mutation.Operation != runenv.OperationBind && mutation.Operation != runenv.OperationSet && mutation.Operation != runenv.OperationUnset {
-				return errorResult("platform_control_invalid_params", fmt.Sprintf("params.changes[%d].operation must be bind, set, or unset", index))
-			}
-			request.Operations = append(request.Operations, mutation)
-		}
+		request.Operation = runenv.OperationUnset
+		request.Name = stringValue(params, "key")
 	}
 	result, err := execCtx.RunEnvironment.Mutate(request)
 	if err != nil {
 		return runEnvironmentError(err)
 	}
-	return successResult(map[string]any{"changed": result.Changed, "idempotent": result.Idempotent, "items": result.Items})
-}
-
-func (h *ToolHandler) getEnvironment(operationName string, params map[string]any, execCtx *contracts.ExecutionContext) contracts.ToolExecutionResult {
-	if err := requireFields(params, []string{"key"}, nil); err != nil {
-		return errorResult("platform_control_invalid_params", err.Error())
-	}
-	if err := requireStringFields(params, "key"); err != nil {
-		return errorResult("platform_control_invalid_params", err.Error())
-	}
-	if execCtx == nil || execCtx.RunEnvironment == nil {
-		return errorResult("run_env_unavailable", "current run has no dynamic environment state")
-	}
-	name := strings.ToUpper(strings.TrimSpace(stringValue(params, "key")))
-	consumerPolicy, allowed := execCtx.RunEnvPolicy.Key(name)
-	if !allowed {
-		return errorResult("run_env_key_forbidden", "run environment key is not configured for the current agent")
-	}
-	item, _, err := execCtx.RunEnvironment.Get(name, execCtx.StaticRuntimeEnv)
-	if err != nil {
-		return runEnvironmentError(err)
-	}
-	item.Targets = intersectTargets(item.Targets, consumerPolicy.Targets)
-	if len(item.Targets) == 0 {
-		return errorResult("run_env_key_forbidden", "run environment key has no execution target shared with the owner policy")
-	}
-	return successResult(map[string]any{"item": item})
-}
-
-func (h *ToolHandler) listEnvironment(operationName string, params map[string]any, execCtx *contracts.ExecutionContext) contracts.ToolExecutionResult {
-	if err := requireFields(params, nil, nil); err != nil {
-		return errorResult("platform_control_invalid_params", err.Error())
-	}
-	if execCtx == nil || execCtx.RunEnvironment == nil {
-		return errorResult("run_env_unavailable", "current run has no dynamic environment state")
-	}
-	items, _, err := execCtx.RunEnvironment.List(execCtx.StaticRuntimeEnv)
-	if err != nil {
-		return runEnvironmentError(err)
-	}
-	visible := make([]runenv.Metadata, 0, len(items))
-	for _, item := range items {
-		consumerPolicy, allowed := execCtx.RunEnvPolicy.Key(item.Name)
-		if !allowed {
-			continue
-		}
-		item.Targets = intersectTargets(item.Targets, consumerPolicy.Targets)
-		if len(item.Targets) > 0 {
-			visible = append(visible, item)
-		}
-	}
-	return successResult(map[string]any{"items": visible})
-}
-
-func intersectTargets(owner, consumer []runenv.Target) []runenv.Target {
-	allowed := make(map[runenv.Target]bool, len(consumer))
-	for _, target := range consumer {
-		allowed[target] = true
-	}
-	out := make([]runenv.Target, 0, len(owner))
-	for _, target := range owner {
-		if allowed[target] {
-			out = append(out, target)
-		}
-	}
-	return out
+	return successResult(map[string]any{"key": result.Key, "changed": result.Changed, "idempotent": result.Idempotent, "revision": result.Revision})
 }
 
 func (h *ToolHandler) runtimeStatus(operationName string, params map[string]any, execCtx *contracts.ExecutionContext) contracts.ToolExecutionResult {
@@ -615,13 +494,8 @@ func (h *ToolHandler) securityExplain(operationName string, params map[string]an
 		} else if execCtx == nil || execCtx.RunEnvironment == nil {
 			keyData["allowed"] = false
 			keyData["reason"] = "run environment unavailable"
-		} else if policy, ok := execCtx.RunEnvPolicy.Key(key); ok {
-			keyData["allowed"] = true
-			keyData["mode"] = policy.Mode
-			keyData["targets"] = policy.Targets
 		} else {
-			keyData["allowed"] = false
-			keyData["reason"] = "key is not declared by runtimeConfig.runEnv"
+			keyData["allowed"] = true
 		}
 		data["key"] = keyData
 	}
@@ -689,19 +563,17 @@ func runEnvironmentError(err error) contracts.ToolExecutionResult {
 		code = "run_env_closed"
 	case errors.Is(err, runenv.ErrRevisionConflict):
 		code = "run_env_revision_conflict"
-	case strings.Contains(message, "already bound"):
-		code = "run_env_already_bound"
+	case errors.Is(err, runenv.ErrKeyNotSet):
+		code = "run_env_key_not_set"
 	case strings.Contains(message, "idempotency key"):
 		code = "run_env_idempotency_conflict"
 	case strings.Contains(message, "name must match"):
 		code = "run_env_key_invalid"
-	case strings.Contains(message, "not configured"), strings.Contains(message, "reserved or denied"), strings.Contains(message, "denied by platform policy"):
+	case strings.Contains(message, "reserved or denied"), strings.Contains(message, "denied by platform policy"):
 		code = "run_env_key_forbidden"
-	case strings.Contains(message, "not bind-only"), strings.Contains(message, "not mutable"), strings.Contains(message, "cannot be unset"):
-		code = "run_env_operation_forbidden"
-	case strings.Contains(message, "value must"), strings.Contains(message, "value exceeds"), strings.Contains(message, "value does not match"):
+	case strings.Contains(message, "value must"), strings.Contains(message, "value exceeds"):
 		code = "run_env_value_invalid"
-	case strings.Contains(message, "dynamic keys"), strings.Contains(message, "total bytes"), strings.Contains(message, "bulk operation exceeds"):
+	case strings.Contains(message, "dynamic keys"), strings.Contains(message, "total bytes"):
 		code = "run_env_limit_exceeded"
 	case strings.Contains(message, "checkpoint"):
 		code = "run_env_checkpoint_failed"

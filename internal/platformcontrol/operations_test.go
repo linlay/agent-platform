@@ -1,19 +1,16 @@
 package platformcontrol
 
 import (
-	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
-
-	"agent-platform/internal/runenv"
 )
 
 func TestSanitizeArgumentsRemovesEverySensitiveValue(t *testing.T) {
 	const secret = "plain-value-must-not-survive"
 	const candidate = "candidate-content-must-not-survive"
 	const idempotency = "idempotency-key-must-not-survive"
-	raw := `{"operation":"run.env.bulk","params":{"changes":[{"operation":"set","key":"TOKEN","value":"` + secret + `"}],"content":"` + candidate + `","idempotencyKey":"` + idempotency + `"}}`
+	raw := `{"operation":"run.env.set","params":{"key":"TOKEN","value":"` + secret + `","content":"` + candidate + `","idempotencyKey":"` + idempotency + `"}}`
 
 	sanitized := SanitizeArguments(raw)
 	for _, forbidden := range []string{secret, candidate, idempotency} {
@@ -26,24 +23,15 @@ func TestSanitizeArgumentsRemovesEverySensitiveValue(t *testing.T) {
 	}
 }
 
-func TestMutationApprovalDoesNotModifyInvocationArguments(t *testing.T) {
-	policy, err := runenv.ParsePolicy(map[string]any{
-		"TOKEN": map[string]any{"mode": "mutable", "approval": "each-change"},
-	})
-	if err != nil {
-		t.Fatal(err)
+func TestOperationRegistryOnlyExposesSetAndUnsetForRunEnvironment(t *testing.T) {
+	want := []string{"capabilities.list", "catalog.defaults.get", "catalog.validate", "run.env.set", "run.env.unset", "runtime.status", "security.explain"}
+	if got := OperationNames(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("operations = %#v, want %#v", got, want)
 	}
-	args := map[string]any{"operation": "run.env.set", "params": map[string]any{
-		"key": "TOKEN", "value": "actual-value", "idempotencyKey": "actual-key",
-	}}
-	before, _ := json.Marshal(args)
-	metadata := MutationApproval(args, policy)
-	after, _ := json.Marshal(args)
-	if !metadata.Required || !reflect.DeepEqual(before, after) {
-		t.Fatalf("approval metadata modified invocation: required=%v before=%s after=%s", metadata.Required, before, after)
-	}
-	if !strings.Contains(metadata.Display, "source=run.dynamic") || strings.Contains(metadata.Display, "actual-value") {
-		t.Fatalf("approval display is missing safe source metadata or leaked a value: %q", metadata.Display)
+	for _, removed := range []string{"run.env.bind", "run.env.get", "run.env.list", "run.env.bulk"} {
+		if _, ok := LookupOperation(removed); ok {
+			t.Fatalf("removed operation %q is still registered", removed)
+		}
 	}
 }
 
@@ -59,13 +47,11 @@ func TestEveryOperationDescriptorOwnsValidationAndInvocation(t *testing.T) {
 	}
 }
 
-func TestOperationStagesComeFromDescriptor(t *testing.T) {
-	readOnly, _ := LookupOperation("run.env.list")
-	if !readOnly.AllowsExecutionPolicy("") || !readOnly.AllowsExecutionPolicy("read_only") {
-		t.Fatalf("read-only descriptor must allow main and planning stages: %#v", readOnly)
-	}
-	mutation, _ := LookupOperation("run.env.bind")
-	if !mutation.AllowsExecutionPolicy("") || mutation.AllowsExecutionPolicy("read_only") {
-		t.Fatalf("mutation descriptor must allow main but reject planning: %#v", mutation)
+func TestSetAndUnsetStagesComeFromDescriptor(t *testing.T) {
+	for _, name := range []string{"run.env.set", "run.env.unset"} {
+		mutation, _ := LookupOperation(name)
+		if !mutation.AllowsExecutionPolicy("") || mutation.AllowsExecutionPolicy("read_only") {
+			t.Fatalf("mutation descriptor must allow main but reject planning: %#v", mutation)
+		}
 	}
 }

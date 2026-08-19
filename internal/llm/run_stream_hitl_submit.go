@@ -10,7 +10,6 @@ import (
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/hitl"
-	"agent-platform/internal/platformcontrol"
 )
 
 func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
@@ -269,11 +268,6 @@ func (s *llmRunStream) buildFormApprovalArgs(command string, result hitl.Interce
 
 func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) map[string]any {
 	command := mapStringArg(invocation.args, "command")
-	if s.execCtx != nil {
-		if metadata := platformcontrol.MutationApproval(invocation.args, s.execCtx.RunEnvPolicy); metadata.Required {
-			command = metadata.Display
-		}
-	}
 	combinedAccessPlan, combinedWritePlan, combinedWriteApproval := s.combinedFileWriteApprovalPlans(invocation)
 	if combinedWriteApproval {
 		command = s.fileToolApprovalDisplayCommand(invocation, combinedAccessPlan, combinedWritePlan)

@@ -1367,15 +1367,9 @@ func TestHydrationTerminalizesMissingRunEnvironmentCheckpoint(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			updated := strings.Replace(string(data), "  env:\n", strings.Join([]string{
-				"  runEnv:",
-				"    DOCUMENT_ID:",
-				"      mode: bind",
-				"      targets: [host]",
-				"  env:",
-			}, "\n")+"\n", 1)
+			updated := strings.Replace(string(data), "    - ask_user_question\n", "    - ask_user_question\n    - platform_control\n", 1)
 			if updated == string(data) {
-				t.Fatal("failed to insert test runEnv policy")
+				t.Fatal("failed to mount platform_control")
 			}
 			if err := os.WriteFile(agentPath, []byte(updated), 0o644); err != nil {
 				t.Fatal(err)
@@ -1386,7 +1380,10 @@ func TestHydrationTerminalizesMissingRunEnvironmentCheckpoint(t *testing.T) {
 	const chatID = "chat-run-env-restore-failure"
 	const runID = "run-run-env-restore-failure"
 	const awaitingID = "await-run-env-restore-failure"
-	seedDeferredAwaiting(t, fixture.chats, chatID, runID, awaitingID, "question", 60, time.Now().UnixMilli()-1000)
+	seedDeferredAwaitingPayload(t, fixture.chats, chatID, runID, awaitingID, "question", 60, time.Now().UnixMilli()-1000, map[string]any{
+		"_runEnvRevision": 1,
+		"questions":       []any{map[string]any{"id": "q1", "question": "Need confirmation", "type": "text"}},
+	})
 
 	deps := deferredRestartDependencies(fixture, fixture.chats, contracts.NewNoopNotificationSink())
 	root := t.TempDir()
@@ -1418,6 +1415,12 @@ func seedDeferredAwaitingPayload(t *testing.T, store chat.Store, chatID string, 
 		"timestamp":  createdAt,
 		"mode":       mode,
 		"timeout":    timeoutSec,
+	}
+	var runEnvRevision *uint64
+	if rawRevision, exists := askPayload["_runEnvRevision"]; exists {
+		revision := uint64(contracts.AnyIntNode(rawRevision))
+		runEnvRevision = &revision
+		delete(askPayload, "_runEnvRevision")
 	}
 	for key, value := range askPayload {
 		ask[key] = value
@@ -1472,7 +1475,8 @@ func seedDeferredAwaitingPayload(t *testing.T, store chat.Store, chatID string, 
 			}},
 			Ts: &messageTs,
 		}},
-		Awaiting: []map[string]any{ask},
+		Awaiting:       []map[string]any{ask},
+		RunEnvRevision: runEnvRevision,
 	}); err != nil {
 		t.Fatalf("append awaiting step line: %v", err)
 	}

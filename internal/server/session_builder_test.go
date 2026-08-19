@@ -14,6 +14,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/kbase"
+	"agent-platform/internal/runenv"
 )
 
 func TestBuildSessionToolNamesDoesNotAutoAddInvokeAgents(t *testing.T) {
@@ -65,6 +66,43 @@ func TestBuildQuerySessionRejectsRemovedRunTool(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "tool agent_run_query was removed; use run_query") {
 		t.Fatalf("expected session-level removed tool rejection, got %v", err)
 	}
+}
+
+func TestBuildQuerySessionCreatesOnlyRootNativeLazyRunEnvironment(t *testing.T) {
+	root := t.TempDir()
+	store := runenv.NewStore(filepath.Join(root, "state"), filepath.Join(root, "identity", "run-env.key"), runenv.Limits{})
+	runs := contracts.NewInMemoryRunManager()
+	server := &Server{deps: Dependencies{RunEnvironments: store, Runs: runs}}
+	definition := catalog.AgentDefinition{Key: "ordinary", Mode: "REACT", Tools: []string{"platform_control"}}
+	request := api.QueryRequest{AgentKey: "ordinary", ChatID: "chat-root", RunID: "run-root", Role: "user"}
+	session, err := server.BuildQuerySession(context.Background(), request, chat.Summary{ChatID: "chat-root"}, definition, querySessionBuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if session.RunEnvironment == nil || session.RunEnvironment.Revision() != 0 {
+		t.Fatalf("root lazy scope = %#v", session.RunEnvironment)
+	}
+	if entries, err := os.ReadDir(filepath.Join(root, "state")); err == nil && len(entries) != 0 {
+		t.Fatalf("lazy scope created checkpoint files: %#v", entries)
+	} else if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	runs.Register(context.Background(), session)
+	child, err := server.BuildQuerySession(context.Background(), request, chat.Summary{ChatID: "chat-root"}, definition, querySessionBuildOptions{SubTaskID: "task-child"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.RunEnvironment != nil {
+		t.Fatal("subtask acquired the root run environment")
+	}
+	withoutTool, err := server.BuildQuerySession(context.Background(), api.QueryRequest{AgentKey: "plain", ChatID: "chat-plain", RunID: "run-plain", Role: "user"}, chat.Summary{ChatID: "chat-plain"}, catalog.AgentDefinition{Key: "plain", Mode: "REACT"}, querySessionBuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withoutTool.RunEnvironment != nil {
+		t.Fatal("agent without platform_control acquired a run environment")
+	}
+	runs.Finish("run-root")
 }
 
 func TestExcludeHistoryRunPreventsDuplicateTeamMemberUserMessage(t *testing.T) {

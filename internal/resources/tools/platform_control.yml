@@ -19,12 +19,8 @@ inputSchema:
         - capabilities.list
         - catalog.defaults.get
         - catalog.validate
-        - run.env.bind
         - run.env.set
         - run.env.unset
-        - run.env.get
-        - run.env.list
-        - run.env.bulk
         - runtime.status
         - security.explain
     params:

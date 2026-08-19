@@ -500,13 +500,11 @@ func (c *Config) applyPlatformControlValues(path string, values map[string]any) 
 	c.PlatformControl.MaxDynamicKeys = intValue(anyValue(values["max-dynamic-keys"], c.PlatformControl.MaxDynamicKeys), c.PlatformControl.MaxDynamicKeys)
 	c.PlatformControl.MaxValueBytes = intValue(anyValue(values["max-value-bytes"], c.PlatformControl.MaxValueBytes), c.PlatformControl.MaxValueBytes)
 	c.PlatformControl.MaxTotalBytes = intValue(anyValue(values["max-total-bytes"], c.PlatformControl.MaxTotalBytes), c.PlatformControl.MaxTotalBytes)
-	c.PlatformControl.MaxBulkOperations = intValue(anyValue(values["max-bulk-operations"], c.PlatformControl.MaxBulkOperations), c.PlatformControl.MaxBulkOperations)
 	c.PlatformControl.CheckpointKeyFile = stringValue(anyValue(values["checkpoint-key-file"], c.PlatformControl.CheckpointKeyFile), c.PlatformControl.CheckpointKeyFile)
 	for field, value := range map[string]int{
-		"max-dynamic-keys":    c.PlatformControl.MaxDynamicKeys,
-		"max-value-bytes":     c.PlatformControl.MaxValueBytes,
-		"max-total-bytes":     c.PlatformControl.MaxTotalBytes,
-		"max-bulk-operations": c.PlatformControl.MaxBulkOperations,
+		"max-dynamic-keys": c.PlatformControl.MaxDynamicKeys,
+		"max-value-bytes":  c.PlatformControl.MaxValueBytes,
+		"max-total-bytes":  c.PlatformControl.MaxTotalBytes,
 	} {
 		if value <= 0 {
 			return fmt.Errorf("%s: platform-control.%s must be greater than zero", path, field)

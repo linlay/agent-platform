@@ -157,7 +157,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	runManager := contracts.NewInMemoryRunManager()
 	runEnvironmentStore := runenv.NewStore(cfg.Paths.RunStateDir, cfg.PlatformControl.CheckpointKeyFile, runenv.Limits{
 		MaxDynamicKeys: cfg.PlatformControl.MaxDynamicKeys, MaxValueBytes: cfg.PlatformControl.MaxValueBytes,
-		MaxTotalBytes: cfg.PlatformControl.MaxTotalBytes, MaxBulkOperations: cfg.PlatformControl.MaxBulkOperations,
+		MaxTotalBytes: cfg.PlatformControl.MaxTotalBytes,
 		ExtraDeniedKeys: append([]string(nil), cfg.PlatformControl.DenyKeys...),
 	})
 	wsHub := ws.NewHub()

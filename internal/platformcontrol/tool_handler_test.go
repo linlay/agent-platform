@@ -319,31 +319,24 @@ func TestExplicitToolGrantDoesNotDependOnAgentOrSkills(t *testing.T) {
 	}
 }
 
-func TestRunEnvironmentOperationsAreValueBlindAndApprovalAware(t *testing.T) {
+func TestRunEnvironmentSetUnsetAreValueBlindAndRootScoped(t *testing.T) {
 	root := t.TempDir()
-	policy, err := runenv.ParsePolicy(map[string]any{
-		"DOCUMENT_ID":    map[string]any{"mode": "bind", "secret": false, "approval": "none", "targets": []any{"host"}},
-		"ROTATING_TOKEN": map[string]any{"mode": "mutable", "secret": true, "approval": "each-change", "targets": []any{"host"}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	store := runenv.NewStore(filepath.Join(root, "state"), filepath.Join(root, "identity", "key"), runenv.Limits{})
-	state, err := store.New(runenv.Identity{RunID: "run-1", ChatID: "chat-1", Owner: "agent:office", AgentKey: "office"}, policy)
+	scope, err := store.NewScope(runenv.Identity{RunID: "run-1", ChatID: "chat-1", Owner: "agent:office", AgentKey: "office"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer state.Destroy()
+	defer scope.Destroy()
 	cfg := config.Config{PlatformControl: config.PlatformControlConfig{Enabled: true}}
 	handler := NewToolHandler(cfg, nil)
-	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{RunID: "run-1", AgentKey: "office"}, RunEnvironment: state, RunEnvPolicy: policy, CurrentToolID: "tool-bind"}
+	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{RunID: "run-1", AgentKey: "office"}, RunEnvironment: scope, CurrentToolID: "tool-set"}
 	capabilities, _ := handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "capabilities.list", "params": map[string]any{}}, execCtx)
 	if capabilities.Error != "" {
 		t.Fatalf("capabilities failed: %#v", capabilities)
 	}
 	capabilityData := capabilities.Structured["data"].(map[string]any)
 	capabilityOperations := capabilityData["operations"].([]string)
-	for _, required := range []string{"run.env.bind", "run.env.get"} {
+	for _, required := range []string{"run.env.set", "run.env.unset"} {
 		found := false
 		for _, operation := range capabilityOperations {
 			if operation == required {
@@ -355,79 +348,37 @@ func TestRunEnvironmentOperationsAreValueBlindAndApprovalAware(t *testing.T) {
 			t.Fatalf("capabilities omitted %s: %#v", required, capabilityData)
 		}
 	}
-	result, _ := handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "run.env.bind", "params": map[string]any{"key": "DOCUMENT_ID", "value": "document-secret-id"}}, execCtx)
+	result, _ := handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "run.env.set", "params": map[string]any{"key": "DOCUMENT_ID", "value": "document-secret-id", "idempotencyKey": "set-doc"}}, execCtx)
 	if result.Error != "" || strings.Contains(result.Output, "document-secret-id") {
-		t.Fatalf("bind result leaked or failed: %#v", result)
+		t.Fatalf("set result leaked or failed: %#v", result)
 	}
-	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "run.env.get", "params": map[string]any{"key": "DOCUMENT_ID"}}, execCtx)
+	data := result.Structured["data"].(map[string]any)
+	if data["key"] != "DOCUMENT_ID" || data["changed"] != true || data["revision"] != uint64(1) {
+		t.Fatalf("set result shape = %#v", data)
+	}
+	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "run.env.unset", "params": map[string]any{"key": "DOCUMENT_ID", "idempotencyKey": "unset-doc"}}, execCtx)
 	if result.Error != "" || strings.Contains(result.Output, "document-secret-id") {
-		t.Fatalf("get result leaked or failed: %#v", result)
+		t.Fatalf("unset failed or leaked: %#v", result)
 	}
-	execCtx.CurrentToolID = "tool-set"
-	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "run.env.set", "params": map[string]any{"key": "ROTATING_TOKEN", "value": "top-secret"}}, execCtx)
-	if result.Error != "run_env_approval_required" {
-		t.Fatalf("unapproved mutation = %#v", result)
+	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "run.env.unset", "params": map[string]any{"key": "DOCUMENT_ID"}}, execCtx)
+	if result.Error != "run_env_key_not_set" {
+		t.Fatalf("repeated unset = %#v", result)
 	}
-	execCtx.PlatformControlApprovals = map[string]bool{"tool-set": true}
-	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "run.env.set", "params": map[string]any{"key": "ROTATING_TOKEN", "value": "top-secret"}}, execCtx)
-	if result.Error != "" || strings.Contains(result.Output, "top-secret") {
-		t.Fatalf("approved mutation leaked or failed: %#v", result)
+	child := &contracts.ExecutionContext{Session: contracts.QuerySession{RunID: "run-1", AgentKey: "office", SubTaskID: "child"}, RunEnvironment: scope}
+	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "run.env.set", "params": map[string]any{"key": "CHILD", "value": "forbidden"}}, child)
+	if result.Error != "run_env_mutation_forbidden" {
+		t.Fatalf("child mutation = %#v", result)
 	}
 }
 
-func TestChildEnvironmentMetadataUsesPolicyIntersection(t *testing.T) {
-	root := t.TempDir()
-	ownerPolicy, err := runenv.ParsePolicy(map[string]any{
-		"SHARED_HOST":      map[string]any{"mode": "mutable", "targets": []any{"host"}},
-		"OWNER_ONLY":       map[string]any{"mode": "mutable", "targets": []any{"host"}},
-		"CONTAINER_SHARED": map[string]any{"mode": "mutable", "targets": []any{"container"}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	childPolicy, err := runenv.ParsePolicy(map[string]any{
-		"SHARED_HOST":      map[string]any{"mode": "bind", "targets": []any{"host"}},
-		"CONTAINER_SHARED": map[string]any{"mode": "mutable", "targets": []any{"host"}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	store := runenv.NewStore(filepath.Join(root, "state"), filepath.Join(root, "identity", "key"), runenv.Limits{})
-	state, err := store.New(runenv.Identity{RunID: "run-child", ChatID: "chat-child", Owner: "agent:owner", AgentKey: "owner"}, ownerPolicy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer state.Destroy()
-	if _, err := state.Mutate(runenv.MutationRequest{Operations: []runenv.Mutation{
-		{Operation: runenv.OperationSet, Name: "SHARED_HOST", Value: "shared"},
-		{Operation: runenv.OperationSet, Name: "OWNER_ONLY", Value: "private"},
-		{Operation: runenv.OperationSet, Name: "CONTAINER_SHARED", Value: "container"},
-	}}); err != nil {
-		t.Fatal(err)
-	}
-
+func TestRemovedRunEnvironmentOperationsAreInvalid(t *testing.T) {
 	cfg := config.Config{PlatformControl: config.PlatformControlConfig{Enabled: true}}
 	handler := NewToolHandler(cfg, nil)
-	execCtx := &contracts.ExecutionContext{
-		Session:        contracts.QuerySession{RunID: "run-child", AgentKey: "child", SubTaskID: "task-1"},
-		RunEnvironment: state, RunEnvPolicy: childPolicy,
-	}
-	result, _ := handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "run.env.get", "params": map[string]any{"key": "OWNER_ONLY"}}, execCtx)
-	if result.Error != "run_env_key_forbidden" {
-		t.Fatalf("owner-only metadata leaked to child: %#v", result)
-	}
-	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "run.env.get", "params": map[string]any{"key": "CONTAINER_SHARED"}}, execCtx)
-	if result.Error != "run_env_key_forbidden" {
-		t.Fatalf("disjoint target metadata leaked to child: %#v", result)
-	}
-	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "run.env.list", "params": map[string]any{}}, execCtx)
-	if result.Error != "" {
-		t.Fatalf("list failed: %#v", result)
-	}
-	data := result.Structured["data"].(map[string]any)
-	items := data["items"].([]runenv.Metadata)
-	if len(items) != 1 || items[0].Name != "SHARED_HOST" || !reflect.DeepEqual(items[0].Targets, []runenv.Target{runenv.TargetHost}) {
-		t.Fatalf("child metadata intersection = %#v", items)
+	for _, operation := range []string{"run.env.bind", "run.env.get", "run.env.list", "run.env.bulk"} {
+		result, _ := handler.Invoke(context.Background(), ToolName, map[string]any{"operation": operation, "params": map[string]any{}}, &contracts.ExecutionContext{})
+		if result.Error != "platform_control_invalid_operation" {
+			t.Fatalf("%s result = %#v", operation, result)
+		}
 	}
 }
 

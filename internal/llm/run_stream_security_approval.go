@@ -8,7 +8,6 @@ import (
 	"agent-platform/internal/bashsec"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/hitl"
-	"agent-platform/internal/platformcontrol"
 )
 
 func (s *llmRunStream) registerBashSecurityApproval(fingerprint string) {
@@ -200,13 +199,5 @@ func fileAccessInterceptResult(plan filetools.AccessPlan) hitl.InterceptResult {
 		OriginalCommand: plan.CommandText,
 		MatchedCommand:  plan.CommandText,
 		MatchedWhole:    true,
-	}
-}
-
-func platformControlInterceptResult(metadata platformcontrol.ApprovalMetadata) hitl.InterceptResult {
-	return hitl.InterceptResult{
-		Intercepted:     true,
-		Rule:            hitl.FlatRule{RuleKey: "platform-control::run-env", Level: 2, Title: "Run environment change approval", ViewportType: "builtin", ViewportKey: "approval"},
-		OriginalCommand: metadata.Display, MatchedCommand: metadata.Display, MatchedWhole: true,
 	}
 }

@@ -156,29 +156,31 @@ type ToolCompactLine struct {
 // line number. Continuation lines such as HITL-split tool results may reuse the
 // same seq as the assistant tool-call step that caused them.
 type StepLine struct {
-	ChatID          string                    `json:"chatId"`
-	RunID           string                    `json:"runId"`
-	UpdatedAt       int64                     `json:"updatedAt"`
-	LiveSeq         int64                     `json:"liveSeq,omitempty"`
-	ModelKey        string                    `json:"modelKey,omitempty"`
-	ReasoningEffort string                    `json:"reasoningEffort,omitempty"`
-	TaskID          string                    `json:"taskId,omitempty"`
-	TaskStatus      string                    `json:"taskStatus,omitempty"`
-	TaskSubAgentKey string                    `json:"taskSubAgentKey,omitempty"`
-	TeamID          string                    `json:"teamId,omitempty"`
-	Presentation    string                    `json:"presentation,omitempty"`
-	SystemRef       map[string]any            `json:"systemRef,omitempty"`
-	Debug           map[string]any            `json:"debug,omitempty"`
-	InputMessages   []map[string]any          `json:"inputMessages,omitempty"`
-	Messages        []StoredMessage           `json:"messages"`
-	Awaiting        []map[string]any          `json:"awaiting,omitempty"`
-	Usage           map[string]any            `json:"usage,omitempty"`
-	ContextWindow   map[string]any            `json:"contextWindow,omitempty"`
-	Type            string                    `json:"_type"`
-	Stage           string                    `json:"stage,omitempty"`
-	Seq             int                       `json:"seq,omitempty"`
-	Artifacts       *ArtifactPublicationState `json:"artifacts,omitempty"`
-	Sources         *SourceState              `json:"sources,omitempty"`
+	ChatID          string           `json:"chatId"`
+	RunID           string           `json:"runId"`
+	UpdatedAt       int64            `json:"updatedAt"`
+	LiveSeq         int64            `json:"liveSeq,omitempty"`
+	ModelKey        string           `json:"modelKey,omitempty"`
+	ReasoningEffort string           `json:"reasoningEffort,omitempty"`
+	TaskID          string           `json:"taskId,omitempty"`
+	TaskStatus      string           `json:"taskStatus,omitempty"`
+	TaskSubAgentKey string           `json:"taskSubAgentKey,omitempty"`
+	TeamID          string           `json:"teamId,omitempty"`
+	Presentation    string           `json:"presentation,omitempty"`
+	SystemRef       map[string]any   `json:"systemRef,omitempty"`
+	Debug           map[string]any   `json:"debug,omitempty"`
+	InputMessages   []map[string]any `json:"inputMessages,omitempty"`
+	Messages        []StoredMessage  `json:"messages"`
+	Awaiting        []map[string]any `json:"awaiting,omitempty"`
+	// RunEnvRevision is private recovery metadata and is never emitted as a stream event.
+	RunEnvRevision *uint64                   `json:"_runEnvRevision,omitempty"`
+	Usage          map[string]any            `json:"usage,omitempty"`
+	ContextWindow  map[string]any            `json:"contextWindow,omitempty"`
+	Type           string                    `json:"_type"`
+	Stage          string                    `json:"stage,omitempty"`
+	Seq            int                       `json:"seq,omitempty"`
+	Artifacts      *ArtifactPublicationState `json:"artifacts,omitempty"`
+	Sources        *SourceState              `json:"sources,omitempty"`
 }
 
 type StepApproval struct {
@@ -342,17 +344,19 @@ type PersistedAwaitingSubmit struct {
 // awaiting.ask. Recovery uses this raw context instead of logical history so
 // a partially written restart reconciliation can be completed idempotently.
 type PersistedAwaitingStep struct {
-	RunID           string
-	TaskID          string
-	TaskStatus      string
-	TaskSubAgentKey string
-	TeamID          string
-	Presentation    string
-	Stage           string
-	Seq             int
-	Ask             *PersistedAwaitingAsk
-	ToolCalls       []PersistedAwaitingToolCall
-	ResultToolIDs   map[string]bool
+	RunID             string
+	TaskID            string
+	TaskStatus        string
+	TaskSubAgentKey   string
+	TeamID            string
+	Presentation      string
+	Stage             string
+	Seq               int
+	RunEnvRevision    uint64
+	HasRunEnvRevision bool
+	Ask               *PersistedAwaitingAsk
+	ToolCalls         []PersistedAwaitingToolCall
+	ResultToolIDs     map[string]bool
 }
 
 type PersistedAwaitingToolCall struct {

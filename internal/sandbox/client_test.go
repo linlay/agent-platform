@@ -390,19 +390,14 @@ func TestSandboxCommandSnapshotUpdatesWithoutChangingSessionFingerprint(t *testi
 	paths := sandboxTestPaths(t, "reader")
 	service := NewContainerHubSandboxService(config.ContainerHubConfig{Enabled: true, DefaultEnvironmentID: "daily-office-pro"}, paths)
 	execCtx := sandboxTestExecutionContext("run-dynamic", "req-dynamic", sandboxWorkspace(paths))
-	policy, err := runenv.ParsePolicy(map[string]any{"SESSION_CONTEXT": map[string]any{"mode": "mutable", "targets": []any{"container"}}})
-	if err != nil {
-		t.Fatal(err)
-	}
 	store := runenv.NewStore(filepath.Join(t.TempDir(), "state"), filepath.Join(t.TempDir(), "identity", "run-env.key"), runenv.Limits{})
-	state, err := store.New(runenv.Identity{RunID: "run-dynamic", ChatID: "chat-1", Owner: "agent:reader", AgentKey: "reader"}, policy)
+	scope, err := store.NewScope(runenv.Identity{RunID: "run-dynamic", ChatID: "chat-1", Owner: "agent:reader", AgentKey: "reader"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer state.Destroy()
+	defer scope.Destroy()
 	execCtx.StaticRuntimeEnv = map[string]string{"SESSION_CONTEXT": "static"}
-	execCtx.RunEnvironment = state
-	execCtx.RunEnvPolicy = policy
+	execCtx.RunEnvironment = scope
 	_, _, beforeFingerprint, err := service.resolveSessionMountIdentity(execCtx, "run")
 	if err != nil {
 		t.Fatal(err)
@@ -410,7 +405,7 @@ func TestSandboxCommandSnapshotUpdatesWithoutChangingSessionFingerprint(t *testi
 	if value := sandboxSessionEnvironment(execCtx)["SESSION_CONTEXT"]; value != "static" {
 		t.Fatalf("session base = %q", value)
 	}
-	if _, err := state.Mutate(runenv.MutationRequest{Operations: []runenv.Mutation{{Operation: runenv.OperationSet, Name: "SESSION_CONTEXT", Value: "dynamic"}}}); err != nil {
+	if _, err := scope.Mutate(runenv.MutationRequest{Operation: runenv.OperationSet, Name: "SESSION_CONTEXT", Value: "dynamic"}); err != nil {
 		t.Fatal(err)
 	}
 	if value := mustSandboxCommandEnvironment(t, execCtx, nil)["SESSION_CONTEXT"]; value != "dynamic" {
@@ -423,13 +418,13 @@ func TestSandboxCommandSnapshotUpdatesWithoutChangingSessionFingerprint(t *testi
 	if beforeFingerprint != afterFingerprint {
 		t.Fatalf("dynamic revision changed reuse fingerprint: %q != %q", beforeFingerprint, afterFingerprint)
 	}
-	if _, err := state.Mutate(runenv.MutationRequest{Operations: []runenv.Mutation{{Operation: runenv.OperationUnset, Name: "SESSION_CONTEXT"}}}); err != nil {
+	if _, err := scope.Mutate(runenv.MutationRequest{Operation: runenv.OperationUnset, Name: "SESSION_CONTEXT"}); err != nil {
 		t.Fatal(err)
 	}
 	if value := mustSandboxCommandEnvironment(t, execCtx, nil)["SESSION_CONTEXT"]; value != "static" {
 		t.Fatalf("unset did not fall back to static: %q", value)
 	}
-	if err := state.Destroy(); err != nil {
+	if err := scope.Destroy(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := sandboxCommandEnvironment(execCtx, nil); !errors.Is(err, runenv.ErrClosed) {

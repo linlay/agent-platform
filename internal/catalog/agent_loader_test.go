@@ -785,7 +785,7 @@ func TestParseAgentFileLoadsRuntimeEnv(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileUsesRuntimeConfig(t *testing.T) {
+func TestParseAgentFileSilentlyIgnoresLegacyRunEnv(t *testing.T) {
 	root := t.TempDir()
 	workspace := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
@@ -820,9 +820,8 @@ func TestParseAgentFileUsesRuntimeConfig(t *testing.T) {
 	if !ok || got["HTTP_PROXY"] != "runtime" {
 		t.Fatalf("runtime env = %#v, want runtime HTTP_PROXY", def.Runtime["env"])
 	}
-	policy, ok := def.RunEnvPolicy.Key("DOCUMENT_ID")
-	if !ok || policy.Mode != "bind" || len(policy.Targets) != 2 {
-		t.Fatalf("run env policy = %#v", def.RunEnvPolicy)
+	if _, exists := def.Runtime["runEnv"]; exists {
+		t.Fatalf("legacy runEnv leaked into runtime model: %#v", def.Runtime)
 	}
 }
 

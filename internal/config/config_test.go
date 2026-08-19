@@ -1944,14 +1944,13 @@ func TestLoadPlatformControlLimits(t *testing.T) {
 		"  max-dynamic-keys: 12\n" +
 		"  max-value-bytes: 512\n" +
 		"  max-total-bytes: 4096\n" +
-		"  max-bulk-operations: 4\n" +
 		"  deny-keys: [CUSTOM_DENY]\n"
 	withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
 		cfg, err := Load()
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.PlatformControl.MaxDynamicKeys != 12 || cfg.PlatformControl.MaxValueBytes != 512 || cfg.PlatformControl.MaxTotalBytes != 4096 || cfg.PlatformControl.MaxBulkOperations != 4 {
+		if cfg.PlatformControl.MaxDynamicKeys != 12 || cfg.PlatformControl.MaxValueBytes != 512 || cfg.PlatformControl.MaxTotalBytes != 4096 {
 			t.Fatalf("limits = %#v", cfg.PlatformControl)
 		}
 		if !reflect.DeepEqual(cfg.PlatformControl.DenyKeys, []string{"CUSTOM_DENY"}) {

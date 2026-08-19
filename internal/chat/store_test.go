@@ -1755,7 +1755,8 @@ func TestStepWriterEmbedsAwaitingInStepLine(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-awaiting-step", "run-awaiting-step", "react")
+	revision := uint64(3)
+	writer := NewStepWriter(store, "chat-awaiting-step", "run-awaiting-step", "react", WithRunEnvironmentRevision(func() uint64 { return revision }))
 	onEventForTest(writer, stream.EventData{
 		Type:      "tool.snapshot",
 		Timestamp: testEpochMillis(1001),
@@ -1811,6 +1812,9 @@ func TestStepWriterEmbedsAwaitingInStepLine(t *testing.T) {
 	if got := toIntValue(lines[0]["updatedAt"]); got != int(testEpochMillis(1002)) {
 		t.Fatalf("expected awaiting step updatedAt=%d, got %#v", testEpochMillis(1002), lines[0])
 	}
+	if got := toIntValue(lines[0]["_runEnvRevision"]); got != 3 {
+		t.Fatalf("expected private run env revision 3, got %#v", lines[0])
+	}
 	awaiting, _ := lines[0]["awaiting"].([]any)
 	if len(awaiting) != 1 {
 		t.Fatalf("expected embedded awaiting events on step line, got %#v", lines[0])
@@ -1823,6 +1827,13 @@ func TestStepWriterEmbedsAwaitingInStepLine(t *testing.T) {
 		if _, ok := item["seq"]; ok {
 			t.Fatalf("did not expect seq on embedded awaiting item, got %#v", item)
 		}
+		if _, ok := item["_runEnvRevision"]; ok {
+			t.Fatalf("private revision leaked into awaiting event: %#v", item)
+		}
+	}
+	persisted, err := store.LoadAwaitingStep("chat-awaiting-step", "tool-1")
+	if err != nil || persisted == nil || !persisted.HasRunEnvRevision || persisted.RunEnvRevision != 3 {
+		t.Fatalf("persisted awaiting revision = %#v, %v", persisted, err)
 	}
 	messages, _ := lines[0]["messages"].([]any)
 	if len(messages) != 1 {

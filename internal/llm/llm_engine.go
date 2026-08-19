@@ -115,7 +115,6 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	if execCtx.RunEnvironment == nil {
 		execCtx.RunEnvironment = session.RunEnvironment
 	}
-	execCtx.RunEnvPolicy = session.RunEnvPolicy
 	if execCtx.RunControl == nil {
 		execCtx.RunControl = RunControlFromContext(ctx)
 	}

@@ -104,7 +104,6 @@ type PlatformControlConfig struct {
 	MaxDynamicKeys    int
 	MaxValueBytes     int
 	MaxTotalBytes     int
-	MaxBulkOperations int
 	CheckpointKeyFile string
 }
 

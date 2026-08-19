@@ -1,7 +1,6 @@
 package runenv
 
 import (
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -10,112 +9,180 @@ import (
 	"testing"
 )
 
-func TestStateBindSetUnsetAndMetadataNeverRevealValues(t *testing.T) {
-	store, identity, policy := testStore(t)
-	state, err := store.New(identity, policy)
+func TestScopeIsLazyUntilFirstSuccessfulSet(t *testing.T) {
+	store, identity := testStore(t, Limits{})
+	scope, err := store.NewScope(identity)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bound, err := state.Mutate(MutationRequest{Operations: []Mutation{{Operation: OperationBind, Name: "DOCUMENT_ID", Value: "doc-123"}}, DefaultIdempotencyKey: "run:tool-1"})
-	if err != nil || !bound.Changed || bound.Revision != 1 {
-		t.Fatalf("bind = %#v, %v", bound, err)
+	if exists, err := store.HasCheckpoint(identity); err != nil || exists {
+		t.Fatalf("new scope checkpoint exists=%v err=%v", exists, err)
 	}
-	retry, err := state.Mutate(MutationRequest{Operations: []Mutation{{Operation: OperationBind, Name: "DOCUMENT_ID", Value: "doc-123"}}, DefaultIdempotencyKey: "run:tool-1"})
-	if err != nil || !retry.Idempotent || retry.Revision != 1 {
-		t.Fatalf("retry = %#v, %v", retry, err)
+	if _, err := scope.Mutate(MutationRequest{Operation: OperationUnset, Name: "MISSING"}); !errors.Is(err, ErrKeyNotSet) {
+		t.Fatalf("missing unset error = %v", err)
 	}
-	if _, err := state.Mutate(MutationRequest{Operations: []Mutation{{Operation: OperationBind, Name: "DOCUMENT_ID", Value: "doc-456"}}}); err == nil || !strings.Contains(err.Error(), "already bound") {
-		t.Fatalf("bind replacement error = %v", err)
+	if _, err := scope.Mutate(MutationRequest{Operation: OperationSet, Name: "PATH", Value: "bad"}); err == nil {
+		t.Fatal("reserved key must fail")
 	}
-	set, err := state.Mutate(MutationRequest{Operations: []Mutation{{Operation: OperationSet, Name: "SESSION_TOKEN", Value: "secret-token"}}})
-	if err != nil || set.Revision != 2 {
-		t.Fatalf("set = %#v, %v", set, err)
+	if exists, err := store.HasCheckpoint(identity); err != nil || exists || scope.Revision() != 0 {
+		t.Fatalf("failed mutation materialized state: exists=%v revision=%d err=%v", exists, scope.Revision(), err)
 	}
-	items, _, err := state.List(map[string]string{"SESSION_TOKEN": "static-fallback"})
-	if err != nil {
-		t.Fatal(err)
+	result, err := scope.Mutate(MutationRequest{Operation: OperationSet, Name: "DOCUMENT_ID", Value: "doc-1"})
+	if err != nil || !result.Changed || result.Revision != 1 || result.Key != "DOCUMENT_ID" {
+		t.Fatalf("first set = %#v, %v", result, err)
 	}
-	raw, _ := json.Marshal(items)
-	if strings.Contains(string(raw), "doc-123") || strings.Contains(string(raw), "secret-token") {
-		t.Fatalf("metadata leaked values: %s", raw)
+	if exists, err := store.HasCheckpoint(identity); err != nil || !exists {
+		t.Fatalf("successful set checkpoint exists=%v err=%v", exists, err)
 	}
-	unset, err := state.Mutate(MutationRequest{Operations: []Mutation{{Operation: OperationUnset, Name: "SESSION_TOKEN"}}})
-	if err != nil || unset.Revision != 3 {
+}
+
+func TestFailedFirstSetDoesNotMaterializeStateOrCheckpoint(t *testing.T) {
+	store, identity := testStore(t, Limits{MaxValueBytes: 100, MaxTotalBytes: 1})
+	scope, _ := store.NewScope(identity)
+	if _, err := scope.Mutate(MutationRequest{Operation: OperationSet, Name: "VALUE", Value: "too large"}); err == nil {
+		t.Fatal("expected total limit error")
+	}
+	if scope.state != nil || scope.Revision() != 0 {
+		t.Fatalf("failed first set materialized state: %#v", scope.state)
+	}
+	if exists, err := store.HasCheckpoint(identity); err != nil || exists {
+		t.Fatalf("failed first set checkpoint exists=%v err=%v", exists, err)
+	}
+	if _, err := os.Stat(store.keyFile); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed first set created checkpoint key: %v", err)
+	}
+	nonzero := uint64(1)
+	if _, err := scope.Mutate(MutationRequest{Operation: OperationSet, Name: "VALUE", Value: "x", ExpectedRevision: &nonzero}); !errors.Is(err, ErrRevisionConflict) {
+		t.Fatalf("failed first set revision error = %v", err)
+	}
+	if scope.state != nil {
+		t.Fatalf("revision-conflicted first set materialized state: %#v", scope.state)
+	}
+	if _, err := os.Stat(store.keyFile); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("revision-conflicted first set created checkpoint key: %v", err)
+	}
+}
+
+func TestSetOverwriteEmptyMultilineAndUnsetSemantics(t *testing.T) {
+	store, identity := testStore(t, Limits{})
+	scope, _ := store.NewScope(identity)
+	set := func(value string, idempotency string) MutationResult {
+		t.Helper()
+		result, err := scope.Mutate(MutationRequest{Operation: OperationSet, Name: "DOCUMENT_ID", Value: value, IdempotencyKey: idempotency})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	if got := set("", ""); got.Revision != 1 || !got.Changed {
+		t.Fatalf("empty set = %#v", got)
+	}
+	if got := set("", ""); got.Revision != 1 || got.Changed {
+		t.Fatalf("same set = %#v", got)
+	}
+	if got := set("line 1\nline 2", "set-lines"); got.Revision != 2 || !got.Changed {
+		t.Fatalf("multiline set = %#v", got)
+	}
+	if got := set("line 1\nline 2", "set-lines"); got.Revision != 2 || !got.Changed || !got.Idempotent {
+		t.Fatalf("set retry = %#v", got)
+	}
+	snapshot, revision, err := scope.Snapshot()
+	if err != nil || revision != 2 || snapshot["DOCUMENT_ID"] != "line 1\nline 2" {
+		t.Fatalf("snapshot=%#v revision=%d err=%v", snapshot, revision, err)
+	}
+	unset, err := scope.Mutate(MutationRequest{Operation: OperationUnset, Name: "DOCUMENT_ID", IdempotencyKey: "unset-doc"})
+	if err != nil || !unset.Changed || unset.Revision != 3 {
 		t.Fatalf("unset = %#v, %v", unset, err)
 	}
-	item, _, err := state.Get("SESSION_TOKEN", map[string]string{"SESSION_TOKEN": "static-fallback"})
-	if err != nil || !item.Present || item.Source != "static" {
-		t.Fatalf("fallback metadata = %#v, %v", item, err)
+	retry, err := scope.Mutate(MutationRequest{Operation: OperationUnset, Name: "DOCUMENT_ID", IdempotencyKey: "unset-doc"})
+	if err != nil || !retry.Idempotent || retry.Revision != 3 || !retry.Changed {
+		t.Fatalf("unset retry = %#v, %v", retry, err)
 	}
-}
-
-func TestStateBulkIsAtomicAndRevisionChecked(t *testing.T) {
-	store, identity, policy := testStore(t)
-	state, err := store.New(identity, policy)
+	if _, err := scope.Mutate(MutationRequest{Operation: OperationUnset, Name: "DOCUMENT_ID"}); !errors.Is(err, ErrKeyNotSet) {
+		t.Fatalf("repeated unset error = %v", err)
+	}
+	restored, err := NewStore(store.root, store.keyFile, Limits{}).RestoreScope(identity, 3)
 	if err != nil {
 		t.Fatal(err)
 	}
+	restoredRetry, err := restored.Mutate(MutationRequest{Operation: OperationUnset, Name: "DOCUMENT_ID", IdempotencyKey: "unset-doc"})
+	if err != nil || !restoredRetry.Idempotent || restoredRetry.Revision != 3 {
+		t.Fatalf("restored unset retry = %#v, %v", restoredRetry, err)
+	}
+	if snapshot, _, _ := scope.Snapshot(); len(snapshot) != 0 {
+		t.Fatalf("unset left dynamic values: %#v", snapshot)
+	}
+}
+
+func TestUnsetCannotRemoveAnotherRunValue(t *testing.T) {
+	store, firstIdentity := testStore(t, Limits{})
+	first, _ := store.NewScope(firstIdentity)
+	if _, err := first.Mutate(MutationRequest{Operation: OperationSet, Name: "SHARED", Value: "first"}); err != nil {
+		t.Fatal(err)
+	}
+	secondIdentity := firstIdentity
+	secondIdentity.RunID = "run-2"
+	second, _ := store.NewScope(secondIdentity)
+	if _, err := second.Mutate(MutationRequest{Operation: OperationUnset, Name: "SHARED"}); !errors.Is(err, ErrKeyNotSet) {
+		t.Fatalf("other run unset error = %v", err)
+	}
+	snapshot, _, _ := first.Snapshot()
+	if snapshot["SHARED"] != "first" {
+		t.Fatalf("other run changed first scope: %#v", snapshot)
+	}
+}
+
+func TestRevisionIdempotencyLimitsAndValidation(t *testing.T) {
+	store, identity := testStore(t, Limits{MaxDynamicKeys: 1, MaxValueBytes: 16, MaxTotalBytes: 8, ExtraDeniedKeys: []string{"DENIED"}})
+	scope, _ := store.NewScope(identity)
 	expected := uint64(0)
-	result, err := state.Mutate(MutationRequest{ExpectedRevision: &expected, Operations: []Mutation{
-		{Operation: OperationBind, Name: "DOCUMENT_ID", Value: "doc-123"},
-		{Operation: OperationSet, Name: "SESSION_TOKEN", Value: "token-a"},
-	}})
-	if err != nil || result.Revision != 1 {
-		t.Fatalf("bulk = %#v, %v", result, err)
+	if _, err := scope.Mutate(MutationRequest{Operation: OperationSet, Name: "FIRST", Value: "12345678", ExpectedRevision: &expected, IdempotencyKey: "first"}); err != nil {
+		t.Fatal(err)
 	}
 	stale := uint64(0)
-	if _, err := state.Mutate(MutationRequest{ExpectedRevision: &stale, Operations: []Mutation{{Operation: OperationSet, Name: "SESSION_TOKEN", Value: "token-b"}}}); !errors.Is(err, ErrRevisionConflict) {
-		t.Fatalf("revision error = %v", err)
+	if _, err := scope.Mutate(MutationRequest{Operation: OperationSet, Name: "FIRST", Value: "changed", ExpectedRevision: &stale}); !errors.Is(err, ErrRevisionConflict) {
+		t.Fatalf("stale revision error = %v", err)
 	}
-	if _, err := state.Mutate(MutationRequest{Operations: []Mutation{
-		{Operation: OperationSet, Name: "SESSION_TOKEN", Value: "token-b"},
-		{Operation: OperationSet, Name: "DOCUMENT_ID", Value: "invalid-mode"},
-	}}); err == nil {
-		t.Fatal("expected invalid bulk to fail")
+	if _, err := scope.Mutate(MutationRequest{Operation: OperationSet, Name: "SECOND", Value: "x"}); err == nil || !strings.Contains(err.Error(), "dynamic keys") {
+		t.Fatalf("key limit error = %v", err)
 	}
-	snapshot, revision, err := state.Snapshot(TargetHost, policy)
-	if err != nil || revision != 1 || snapshot["SESSION_TOKEN"] != "token-a" {
-		t.Fatalf("atomic snapshot = %#v rev=%d err=%v", snapshot, revision, err)
+	if _, err := scope.Mutate(MutationRequest{Operation: OperationSet, Name: "FIRST", Value: "123456789"}); err == nil || !strings.Contains(err.Error(), "total bytes") {
+		t.Fatalf("total limit error = %v", err)
+	}
+	for name, value := range map[string]string{
+		"DENIED":   "x",
+		"PATH":     "x",
+		"BAD-NAME": "x",
+		"NUL":      "x\x00y",
+		"UTF8":     string([]byte{0xff}),
+	} {
+		if _, err := scope.Mutate(MutationRequest{Operation: OperationSet, Name: name, Value: value}); err == nil {
+			t.Fatalf("invalid mutation accepted for %s", name)
+		}
+	}
+	if _, err := scope.Mutate(MutationRequest{Operation: OperationSet, Name: "FIRST", Value: "different", IdempotencyKey: "first"}); err == nil || !strings.Contains(err.Error(), "idempotency key") {
+		t.Fatalf("idempotency conflict = %v", err)
 	}
 }
 
-func TestCheckpointRestoreIsAuthenticatedAndCleanupIsFinal(t *testing.T) {
-	store, identity, policy := testStore(t)
-	state, err := store.New(identity, policy)
+func TestCheckpointV2RestoreAuthenticationAndCleanup(t *testing.T) {
+	store, identity := testStore(t, Limits{})
+	scope, _ := store.NewScope(identity)
+	if _, err := scope.Mutate(MutationRequest{Operation: OperationSet, Name: "DOCUMENT_ID", Value: "doc-123"}); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := NewStore(store.root, store.keyFile, Limits{}).RestoreScope(identity, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := state.Mutate(MutationRequest{Operations: []Mutation{{Operation: OperationBind, Name: "DOCUMENT_ID", Value: "doc-123"}}}); err != nil {
-		t.Fatal(err)
-	}
-	restored, err := NewStore(store.root, store.keyFile, Limits{}).Restore(identity, policy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	snapshot, revision, err := restored.Snapshot(TargetHost, policy)
+	snapshot, revision, err := restored.Snapshot()
 	if err != nil || revision != 1 || snapshot["DOCUMENT_ID"] != "doc-123" {
-		t.Fatalf("restored = %#v rev=%d err=%v", snapshot, revision, err)
+		t.Fatalf("restored=%#v revision=%d err=%v", snapshot, revision, err)
 	}
 	wrongOwner := identity
 	wrongOwner.Owner = "agent:other"
-	if _, err := NewStore(store.root, store.keyFile, Limits{}).Restore(wrongOwner, policy); err == nil {
+	if _, err := NewStore(store.root, store.keyFile, Limits{}).RestoreScope(wrongOwner, 1); err == nil {
 		t.Fatal("owner mismatch must fail closed")
-	}
-	changedPolicy, err := ParsePolicy(map[string]any{"DOCUMENT_ID": map[string]any{"mode": "bind", "targets": []any{"container"}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := NewStore(store.root, store.keyFile, Limits{}).Restore(identity, changedPolicy); err == nil {
-		t.Fatal("policy mismatch must fail closed")
-	}
-	wrongKeyStore := NewStore(store.root, filepath.Join(filepath.Dir(store.keyFile), "wrong-run-env.key"), Limits{})
-	wrongIdentity := identity
-	wrongIdentity.RunID = "run-created-with-wrong-key"
-	if _, err := wrongKeyStore.New(wrongIdentity, policy); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := wrongKeyStore.Restore(identity, policy); err == nil {
-		t.Fatal("wrong checkpoint key must fail closed")
 	}
 	path := store.path(identity)
 	raw, err := os.ReadFile(path)
@@ -126,7 +193,7 @@ func TestCheckpointRestoreIsAuthenticatedAndCleanupIsFinal(t *testing.T) {
 	if err := os.WriteFile(path, raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewStore(store.root, store.keyFile, Limits{}).Restore(identity, policy); err == nil {
+	if _, err := NewStore(store.root, store.keyFile, Limits{}).RestoreScope(identity, 1); err == nil {
 		t.Fatal("tampered checkpoint must fail closed")
 	}
 	if err := restored.Destroy(); err != nil {
@@ -135,81 +202,65 @@ func TestCheckpointRestoreIsAuthenticatedAndCleanupIsFinal(t *testing.T) {
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("checkpoint remains after destroy: %v", err)
 	}
-	if _, _, err := restored.Snapshot(TargetHost, policy); !errors.Is(err, ErrClosed) {
+	if _, _, err := restored.Snapshot(); !errors.Is(err, ErrClosed) {
 		t.Fatalf("closed snapshot error = %v", err)
 	}
 }
 
-func TestSnapshotAndMutationAreLinearizable(t *testing.T) {
-	store, identity, policy := testStore(t)
-	state, err := store.New(identity, policy)
+func TestRestoreRevisionZeroMissingAndV1FailClosed(t *testing.T) {
+	store, identity := testStore(t, Limits{})
+	if scope, err := store.RestoreScope(identity, 0); err != nil || scope.Revision() != 0 {
+		t.Fatalf("revision zero restore = %#v, %v", scope, err)
+	}
+	if _, err := store.RestoreScope(identity, 1); err == nil {
+		t.Fatal("missing checkpoint at positive revision must fail")
+	}
+	key, err := store.loadOrCreateKey()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := state.Mutate(MutationRequest{Operations: []Mutation{{Operation: OperationSet, Name: "SESSION_TOKEN", Value: "value-a"}}}); err != nil {
-		t.Fatal(err)
-	}
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		for index := 0; index < 500; index++ {
-			value := "value-a"
-			if index%2 == 0 {
-				value = "value-b"
-			}
-			if _, err := state.Mutate(MutationRequest{Operations: []Mutation{{Operation: OperationSet, Name: "SESSION_TOKEN", Value: value}}}); err != nil {
-				t.Errorf("mutate: %v", err)
-				return
-			}
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		for index := 0; index < 500; index++ {
-			snapshot, _, err := state.Snapshot(TargetHost, policy)
-			if err != nil {
-				t.Errorf("snapshot: %v", err)
-				return
-			}
-			if value := snapshot["SESSION_TOKEN"]; value != "value-a" && value != "value-b" {
-				t.Errorf("partial value %q", value)
-				return
-			}
-		}
-	}()
-	wg.Wait()
-}
-
-func TestPolicyRejectsReservedNamesInvalidTargetsAndUnsafeValues(t *testing.T) {
-	if _, err := ParsePolicy(map[string]any{"Path": map[string]any{"mode": "mutable"}}); err == nil {
-		t.Fatal("mixed-case reserved key must fail")
-	}
-	if _, err := ParsePolicy(map[string]any{"SAFE_KEY": map[string]any{"mode": "mutable", "targets": []any{"mcp"}}}); err == nil {
-		t.Fatal("invalid target must fail")
-	}
-	policy, err := ParsePolicy(map[string]any{"SAFE_KEY": map[string]any{"mode": "mutable", "maxBytes": 8.0}})
+	payload := []byte(`{"version":1,"revision":1,"values":{"A":"Yg=="}}`)
+	encrypted, err := encryptCheckpoint(key, payload, aad(identity))
+	zero(key)
 	if err != nil {
 		t.Fatal(err)
 	}
-	item, _ := policy.Key("SAFE_KEY")
-	for _, value := range []string{"", "line1\nline2", "contains\x00nul", "too-long-value"} {
-		if err := item.ValidateValue(value, 4096); err == nil {
-			t.Fatalf("unsafe value %q was accepted", value)
-		}
+	if err := os.MkdirAll(store.root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store.path(identity), encrypted, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewStore(store.root, store.keyFile, Limits{}).RestoreScope(identity, 1); err == nil || !strings.Contains(err.Error(), "version 1") {
+		t.Fatalf("v1 restore error = %v", err)
+	}
+	if _, err := NewStore(store.root, store.keyFile, Limits{}).RestoreScope(identity, 0); err == nil {
+		t.Fatal("revision zero with checkpoint must fail closed")
 	}
 }
 
-func testStore(t *testing.T) (*Store, Identity, Policy) {
+func TestConcurrentFirstSetCreatesOneLinearizableState(t *testing.T) {
+	store, identity := testStore(t, Limits{})
+	scope, _ := store.NewScope(identity)
+	var wait sync.WaitGroup
+	wait.Add(8)
+	for index := 0; index < 8; index++ {
+		go func() {
+			defer wait.Done()
+			if _, err := scope.Mutate(MutationRequest{Operation: OperationSet, Name: "VALUE", Value: "same"}); err != nil {
+				t.Errorf("set: %v", err)
+			}
+		}()
+	}
+	wait.Wait()
+	if scope.Revision() != 1 {
+		t.Fatalf("revision = %d, want 1", scope.Revision())
+	}
+}
+
+func testStore(t *testing.T, limits Limits) (*Store, Identity) {
 	t.Helper()
 	root := t.TempDir()
-	policy, err := ParsePolicy(map[string]any{
-		"DOCUMENT_ID":   map[string]any{"mode": "bind", "secret": false, "pattern": `doc-[0-9]{3}`, "maxBytes": 7, "targets": []any{"host", "container"}},
-		"SESSION_TOKEN": map[string]any{"mode": "mutable", "secret": true, "targets": []any{"host"}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	store := NewStore(filepath.Join(root, "state"), filepath.Join(root, "identity", "run-env.key"), Limits{})
-	return store, Identity{RunID: "run-1", ChatID: "chat-1", Subject: "alice", Owner: "agent:office", AgentKey: "office"}, policy
+	store := NewStore(filepath.Join(root, "state"), filepath.Join(root, "identity", "run-env.key"), limits)
+	return store, Identity{RunID: "run-1", ChatID: "chat-1", Subject: "alice", Owner: "agent:office", AgentKey: "office"}
 }

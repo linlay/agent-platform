@@ -8,8 +8,8 @@ import (
 
 func TestPlatformControlOperationAwareConcurrencyAndPlanningPolicy(t *testing.T) {
 	stream := &llmRunStream{execCtx: &contracts.ExecutionContext{ToolExecutionPolicy: "read_only"}}
-	read := &preparedToolInvocation{toolName: "platform_control", args: map[string]any{"operation": "run.env.get", "params": map[string]any{"key": "DOCUMENT_ID"}}}
-	write := &preparedToolInvocation{toolName: "platform_control", args: map[string]any{"operation": "run.env.bind", "params": map[string]any{"key": "DOCUMENT_ID", "value": "value"}}}
+	read := &preparedToolInvocation{toolName: "platform_control", args: map[string]any{"operation": "runtime.status", "params": map[string]any{}}}
+	write := &preparedToolInvocation{toolName: "platform_control", args: map[string]any{"operation": "run.env.set", "params": map[string]any{"key": "DOCUMENT_ID", "value": "value"}}}
 	unknown := &preparedToolInvocation{toolName: "platform_control", args: map[string]any{"operation": "future.operation"}}
 
 	if !stream.isConcurrentToolInvocation(read) {

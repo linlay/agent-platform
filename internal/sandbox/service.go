@@ -13,7 +13,6 @@ import (
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/runenv"
 )
 
 const workspaceChatSandboxProtocol = "dual-root-v2"
@@ -504,7 +503,7 @@ func sandboxCommandEnvironment(execCtx *contracts.ExecutionContext, invocationEn
 	dynamic := map[string]string(nil)
 	if execCtx.RunEnvironment != nil {
 		var err error
-		dynamic, _, err = execCtx.RunEnvironment.Snapshot(runenv.TargetContainer, execCtx.RunEnvPolicy)
+		dynamic, _, err = execCtx.RunEnvironment.Snapshot()
 		if err != nil {
 			return nil, err
 		}

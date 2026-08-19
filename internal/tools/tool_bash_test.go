@@ -1126,23 +1126,19 @@ func TestHostBashReadsRunEnvironmentSnapshotWithoutChangingProcessEnvironment(t 
 		t.Skip("shell command assertion uses POSIX quoting")
 	}
 	root := t.TempDir()
-	policy, err := runenv.ParsePolicy(map[string]any{"RUN_LOCAL_VALUE": map[string]any{"mode": "mutable", "targets": []any{"host"}}})
-	if err != nil {
-		t.Fatal(err)
-	}
 	store := runenv.NewStore(filepath.Join(root, "state"), filepath.Join(root, "identity", "run-env.key"), runenv.Limits{})
-	state, err := store.New(runenv.Identity{RunID: "run-host", ChatID: "chat-host", Owner: "agent:test", AgentKey: "test"}, policy)
+	scope, err := store.NewScope(runenv.Identity{RunID: "run-host", ChatID: "chat-host", Owner: "agent:test", AgentKey: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer state.Destroy()
-	if _, err := state.Mutate(runenv.MutationRequest{Operations: []runenv.Mutation{{Operation: runenv.OperationSet, Name: "RUN_LOCAL_VALUE", Value: "dynamic-value"}}}); err != nil {
+	defer scope.Destroy()
+	if _, err := scope.Mutate(runenv.MutationRequest{Operation: runenv.OperationSet, Name: "RUN_LOCAL_VALUE", Value: "dynamic-value"}); err != nil {
 		t.Fatal(err)
 	}
 	before, presentBefore := os.LookupEnv("RUN_LOCAL_VALUE")
 	executor := &RuntimeToolExecutor{cfg: config.Config{Bash: config.BashConfig{AllowedCommands: []string{"bash"}, ShellFeaturesEnabled: true, ShellExecutable: "bash", MaxCommandChars: 16000}}}
 	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": `printf '%s' "$RUN_LOCAL_VALUE"`}, &contracts.ExecutionContext{
-		Session: contracts.QuerySession{WorkspaceRoot: root}, RunEnvironment: state, RunEnvPolicy: policy,
+		Session: contracts.QuerySession{WorkspaceRoot: root}, StaticRuntimeEnv: map[string]string{"RUN_LOCAL_VALUE": "static-value"}, RunEnvironment: scope,
 	})
 	if err != nil || result.Error != "" || result.Output != "dynamic-value" {
 		t.Fatalf("bash result=%#v err=%v", result, err)
@@ -1151,10 +1147,19 @@ func TestHostBashReadsRunEnvironmentSnapshotWithoutChangingProcessEnvironment(t 
 	if before != after || presentBefore != presentAfter {
 		t.Fatalf("process environment changed: before=(%q,%v) after=(%q,%v)", before, presentBefore, after, presentAfter)
 	}
-	if err := state.Destroy(); err != nil {
+	if _, err := scope.Mutate(runenv.MutationRequest{Operation: runenv.OperationUnset, Name: "RUN_LOCAL_VALUE"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := mergeCommandEnv(&contracts.ExecutionContext{RunEnvironment: state, RunEnvPolicy: policy}); !errors.Is(err, runenv.ErrClosed) {
+	result, err = executor.invokeHostBash(context.Background(), map[string]any{"command": `printf '%s' "$RUN_LOCAL_VALUE"`}, &contracts.ExecutionContext{
+		Session: contracts.QuerySession{WorkspaceRoot: root}, StaticRuntimeEnv: map[string]string{"RUN_LOCAL_VALUE": "static-value"}, RunEnvironment: scope,
+	})
+	if err != nil || result.Error != "" || result.Output != "static-value" {
+		t.Fatalf("bash fallback result=%#v err=%v", result, err)
+	}
+	if err := scope.Destroy(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mergeCommandEnv(&contracts.ExecutionContext{RunEnvironment: scope}); !errors.Is(err, runenv.ErrClosed) {
 		t.Fatalf("closed run environment snapshot error = %v, want ErrClosed", err)
 	}
 }

@@ -13,7 +13,7 @@ import (
 func TestDeltaMapperBuffersAndRedactsPlatformControlArguments(t *testing.T) {
 	mapper := NewDeltaMapper("run-1", "chat-1", contracts.Budget{}, nil, nil)
 	const secret = "document-id-must-never-reach-events"
-	first := mapper.Map(contracts.DeltaToolCall{Index: 0, ID: "tool-control", Name: "platform_control", ArgsDelta: `{"operation":"run.env.bind","params":{"key":"DOCUMENT_ID","value":"`})
+	first := mapper.Map(contracts.DeltaToolCall{Index: 0, ID: "tool-control", Name: "platform_control", ArgsDelta: `{"operation":"run.env.set","params":{"key":"DOCUMENT_ID","value":"`})
 	second := mapper.Map(contracts.DeltaToolCall{Index: 0, ID: "tool-control", ArgsDelta: secret + `"}}`})
 	if len(first) != 0 || len(second) != 0 {
 		t.Fatalf("sensitive chunks were emitted before tool end: first=%#v second=%#v", first, second)

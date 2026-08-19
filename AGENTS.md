@@ -12,7 +12,7 @@
 - 已具备 OpenAI / Anthropic 协议模型调用、统一 Tool、Container Hub sandbox 与 tools；`image_generate` 以统一参数支持文生图、最多四张本地/Chat 参考图的图生图，以及模型 YAML 显式声明的原生 mask/inpainting，生成和编辑请求分别由模型 YAML 的 `image.generation`、`image.edit` 协议块适配。
 - 已具备由 `build/builtins/<os>-<arch>/` cache 固定、校验并随服务包分发的 Host builtins（rg/dbx/httpx/kbase-lance-engine/poppler-pdftotext）；`file_grep/file_glob` 稳定包装 rg，dbx/httpx 保持 CLI，KBASE PDF 默认调用 Poppler `pdftotext` launcher。
 - 已具备 HITL question / approval / form、运行中 submit / steer / interrupt 协议入口，以及 question/planning 跨进程恢复和不可恢复等待项的幂等终态对账。
-- 已具备固定 Schema 的 `platform_control` system control plane：Agent 显式挂载 Tool 即可调用全部注册 operation，`runtimeConfig.runEnv` 逐 key 约束动态环境，当前 root run 动态环境使用并发 State、AES-GCM checkpoint、operation-aware barrier/HITL 和 Host/Container command snapshot；不修改 Platform 进程环境。
+- 已具备固定 Schema 的 `platform_control` system control plane：Agent 显式挂载 Tool 即可调用全部注册 operation；`run.env.*` 仅保留当前普通 native root run 的 `set/unset`，使用 lazy State、AES-GCM v2 checkpoint、operation-aware barrier 和 Host/Container 新 command snapshot，不修改 Platform 进程环境。遗留 `runtimeConfig.runEnv` 静默忽略。
 - 已具备 SQLite memory、FTS、可选 embedding、learn / consolidate / feedback 与 memory tools。
 - 已具备可由普通 Agent 挂载、并保留专用 `mode: KBASE` 预设的 KBASE 文本知识库公共能力，包括 LanceDB generation 检索、加权 RRF、目录增量 watcher 与本地 Rust sidecar 管理；SQLite `control.db` 只负责 generation、文件状态与恢复日志。
 - 已具备以 `runtimeConfig.workspaceRoot` 为唯一内容根的 KBASE 公共能力；专用 `mode: KBASE` 在 main/editing 两种 stage 使用相同的通用文本文件工具，当前 Chat 目录独立可写；单 run `editingMode` 只控制 KBASE Workspace mutation，写入与索引解耦，由 KBASE 目录 watcher 异步维护。
@@ -52,7 +52,7 @@ cmd/agent-platform/main.go
 - `internal/kbase`：mode 中立的 KBASE 公共能力；`Manager` 只作为公开门面和组件装配点，内部由 capability resolver/state、storage validator/auditor、watch/lifecycle supervisor、refresh coordinator、generation service、query/status/files service 与 Lance runtime 分别维护配置解析、存储契约、调度、索引/恢复、检索和 sidecar 生命周期。app adapter 只向 Manager 暴露 enabled capability，`AgentSpec.WorkspaceRoot` 是唯一内容根事实；未启用与不存在统一按 not found 处理。该包同时维护公共 prompt、HTTP 业务错误与五个工具 handler；不得 import `internal/agent` 或 `internal/catalog`。
 - `internal/agent/team`：内部 TEAM profile、硬编码调度规则、成员 roster prompt、session-local 隐藏工具与调度状态机；TEAM 不能配置成普通 agent。
 - `internal/runops`：显式挂载的 `run_query` / `run_status` / `run_interrupt` named handler、调用方/subject 所有权、父 run/tool ID 幂等与禁止链式调用；实际 query admission、detached executor 和 Proxy 控制复用 `internal/server` facade。
-- `internal/platformcontrol` 与 `internal/runenv`：统一 system control operation registry/handler，以及当前 run policy、并发 State、HMAC 幂等和 AES-GCM checkpoint。
+- `internal/platformcontrol` 与 `internal/runenv`：统一 system control operation registry/handler，以及当前普通 native root run 的 lazy Scope、并发 State、HMAC 幂等和 AES-GCM v2 checkpoint。
 - `internal/server`：HTTP 路由、请求校验、响应包裹、SSE / WebSocket 协调。
 - `internal/llm`：模型协议、prompt 构建、run stream、HITL、planning、tool loop。
 - `internal/tools`：通用 tool registry/router、Bash、FileTools、memory、desktop、MCP tool 调用；mode 工具通过命名 handler 接入，不在 executor 中增加 mode switch。
@@ -170,7 +170,7 @@ make test
 - `POST /api/query` 默认逐事件 flush；启用 `configs/runtime.yml -> h2a.render.*` 缓冲后，客户端看到的输出可能不再逐事件抵达。
 - WebSocket 是控制面，浏览器/普通客户端文件字节仍走 `POST /api/upload` 和隐藏的 `GET /api/resource` 数据面。新 Markdown 的 Chat 文件只使用相对于当前 Chat 的 `<relativePath>`，也可引用普通 Agent Workspace 或冻结临时根内的实际 Host 绝对路径与 HTTP(S)/data/blob；Markdown 不使用 `@temp`。真实 `/api/resource` 请求地址和 `<currentChatId>/<relativePath>` 都不是 Markdown 协议，历史 endpoint Markdown 不迁移且不再预览。
 - `runtimeConfig.env` 不会通过 catalog API 回显，避免泄露代理、凭据或私有 endpoint。
-- `platform_control` 对所有 Agent 使用同一固定 Schema；Agent 显式挂载 Tool 即获得全部注册 operation，Skill 与 `mustUseSkills` 不会替 Agent 挂载 Tool，动态 key 仍由 Agent `runtimeConfig.runEnv` 决定。旧 `platform_config` 以及 `platform-control.profiles/bindings` 配置硬失败。
+- `platform_control` 对所有 Agent 使用同一固定 Schema；Agent 显式挂载 Tool 即获得全部注册 operation，Skill 与 `mustUseSkills` 不会替 Agent 挂载 Tool。动态 key 无需预声明，只有当前普通 native root run 成功 set 的 key 才能 unset；子 Agent、Team、ACP、Proxy、Channel、Terminal、MCP、LSP、sidecar 和已启动进程不继承。旧 `platform_config` 以及 `platform-control.profiles/bindings` 配置硬失败，遗留 `runtimeConfig.runEnv` 静默忽略。
 - 文件工具权限独立于 Bash 权限，越权路径通过 HITL approval 兜底。
 - `AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR` 与 `AP_ACCESS_TOKEN` 是 Platform 保留变量，agent、skill 和调用级 env 均不得覆盖。host bash/tool 与 Container Hub 使用前三者的 canonical 路径；Workspace Terminal 只使用 canonical `AP_AGENT_CONFIG_HOME` 与 `AP_WORKSPACE_DIR`，不注入 `AP_CHAT_DIR`。`AP_ACCESS_TOKEN` 仅在普通 Agent Host Bash 创建前从有效 identity 单行文件即时读取并注入，默认文件为 `<AP_RUNTIME_DIR>/identity/access-token`，显式 `--identity-file <absolute-path>` 优先，不进入 Terminal、Container、Proxy、ACP、MCP、LSP 或 sidecar。文件缺失、不可读、为空或非法时省略该变量，不缓存也不中断 Bash。
 - 专用 KBASE 未开启 editing 时 Workspace 可读但不可 mutation，当前 Chat 目录仍按 `@chat` 可读写；开启后 Workspace mutation 在 shipped default policy 下免逐次 HITL。external 和其他 chatId 默认进入 HITL，`writeRoots`、hostAccess、`full_access` 或 approval 可按通用策略放宽；这些授权不能放宽非 editing KBASE Workspace，管理员显式 block 仍优先。Workspace mutation 不触发同步索引 hook，KBASE watcher 按 debounce 与 change set 异步刷新。

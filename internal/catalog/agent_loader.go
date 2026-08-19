@@ -15,7 +15,6 @@ import (
 	"agent-platform/internal/kbase"
 	"agent-platform/internal/models"
 	"agent-platform/internal/rootpaths"
-	"agent-platform/internal/runenv"
 )
 
 func resolveDirectoryAgentConfig(dirPath string) string {
@@ -712,13 +711,6 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 		}
 		if len(runtimeEnv) > 0 {
 			def.Runtime["env"] = runtimeEnv
-		}
-		def.RunEnvPolicy, err = runenv.ParsePolicy(runtimeConfig["runEnv"])
-		if err != nil {
-			return AgentDefinition{}, nil, err
-		}
-		if !def.RunEnvPolicy.Empty() && (AgentIsProxyMode(def.Mode) || AgentIsChannelMode(def.Mode) || strings.TrimSpace(def.ACPBridgeID) != "") {
-			return AgentDefinition{}, nil, fmt.Errorf("runtimeConfig.runEnv is not supported for ACP, PROXY, or CHANNEL agents")
 		}
 		def.HostAccess, err = parseAgentHostAccess(runtimeConfig["hostAccess"])
 		if err != nil {

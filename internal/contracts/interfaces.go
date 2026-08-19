@@ -369,10 +369,8 @@ type QuerySession struct {
 	SkillHookDirs          []string
 	// StaticRuntimeEnv is the immutable Agent/Skill environment frozen at admission.
 	StaticRuntimeEnv map[string]string
-	// RunEnvironment is shared by all execution-context clones for this run.
-	RunEnvironment *runenv.State `json:"-"`
-	// RunEnvPolicy is the current execution agent's consumer policy.
-	RunEnvPolicy runenv.Policy `json:"-"`
+	// RunEnvironment is the root run's lazy dynamic environment scope.
+	RunEnvironment *runenv.Scope `json:"-"`
 	// ToolExecutionPolicy constrains execution without changing the tool specs
 	// sent to the model.
 	ToolExecutionPolicy string
@@ -439,12 +437,9 @@ type ExecutionContext struct {
 	PlanningState         *PlanningRuntimeState
 	PlanningRevision      int
 	StaticRuntimeEnv      map[string]string
-	RunEnvironment        *runenv.State
-	RunEnvPolicy          runenv.Policy
-	// PlatformControlApprovals stores one-shot approvals keyed by tool call ID.
-	PlatformControlApprovals map[string]bool
-	AccessLevel              string
-	ToolExecutionPolicy      string
+	RunEnvironment        *runenv.Scope
+	AccessLevel           string
+	ToolExecutionPolicy   string
 	// AccessPolicyApprovals stores one-shot approvals for exact host bash access-policy fingerprints.
 	AccessPolicyApprovals map[string]int
 	// AccessPolicyRuleApprovals stores run-scoped approvals for host bash access-policy rules.

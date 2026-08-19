@@ -199,7 +199,6 @@ func defaultConfig(options LoadOptions) Config {
 			MaxDynamicKeys:    32,
 			MaxValueBytes:     4096,
 			MaxTotalBytes:     32768,
-			MaxBulkOperations: 16,
 			CheckpointKeyFile: filepath.Join(runtimeRoot, "identity", "run-env.key"),
 		},
 	}

@@ -9,7 +9,6 @@ import (
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
-	"agent-platform/internal/runenv"
 )
 
 func (s *llmRunStream) lookupBashSecurityReview(invocation *preparedToolInvocation) bashsec.ReviewResult {
@@ -232,7 +231,7 @@ func (s *llmRunStream) knownRuntimeVariables() map[string]string {
 	}
 	variables := CloneStringMap(s.execCtx.StaticRuntimeEnv)
 	if s.execCtx.RunEnvironment != nil {
-		if dynamic, _, err := s.execCtx.RunEnvironment.Snapshot(runenv.TargetHost, s.execCtx.RunEnvPolicy); err == nil {
+		if dynamic, _, err := s.execCtx.RunEnvironment.Snapshot(); err == nil {
 			for key, value := range dynamic {
 				variables[key] = value
 			}

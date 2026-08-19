@@ -586,8 +586,6 @@ func (s *llmRunStream) concurrentExecutionContext(invocation *preparedToolInvoca
 	cloned.RunLoopState = RunLoopStateToolExecuting
 	cloned.StaticRuntimeEnv = CloneStringMap(s.execCtx.StaticRuntimeEnv)
 	cloned.RunEnvironment = s.execCtx.RunEnvironment
-	cloned.RunEnvPolicy = s.execCtx.RunEnvPolicy
-	cloned.PlatformControlApprovals = cloneBoolMap(s.execCtx.PlatformControlApprovals)
 	cloned.AccessPolicyApprovals = cloneIntMap(s.execCtx.AccessPolicyApprovals)
 	cloned.AccessPolicyRuleApprovals = cloneBoolMap(s.execCtx.AccessPolicyRuleApprovals)
 	cloned.BashSecurityApprovals = cloneIntMap(s.execCtx.BashSecurityApprovals)

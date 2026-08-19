@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"sync"
 )
@@ -16,61 +15,45 @@ import (
 var (
 	ErrClosed           = errors.New("run environment is closed")
 	ErrRevisionConflict = errors.New("run environment revision conflict")
+	ErrKeyNotSet        = errors.New("run environment key was not set by the current run")
 )
 
 type Limits struct {
-	MaxDynamicKeys    int
-	MaxValueBytes     int
-	MaxTotalBytes     int
-	MaxBulkOperations int
-	ExtraDeniedKeys   []string
+	MaxDynamicKeys  int
+	MaxValueBytes   int
+	MaxTotalBytes   int
+	ExtraDeniedKeys []string
 }
 
 type Identity struct {
-	RunID      string
-	ChatID     string
-	Subject    string
-	Owner      string
-	AgentKey   string
-	PolicyHash string
+	RunID    string
+	ChatID   string
+	Subject  string
+	Owner    string
+	AgentKey string
 }
 
 type Operation string
 
 const (
-	OperationBind  Operation = "bind"
 	OperationSet   Operation = "set"
 	OperationUnset Operation = "unset"
 )
 
-type Mutation struct {
-	Operation Operation
-	Name      string
-	Value     string
-}
-
 type MutationRequest struct {
-	Operations            []Mutation
+	Operation             Operation
+	Name                  string
+	Value                 string
 	ExpectedRevision      *uint64
 	IdempotencyKey        string
 	DefaultIdempotencyKey string
 }
 
 type MutationResult struct {
-	Revision   uint64
-	Changed    bool
-	Idempotent bool
-	Items      []Metadata
-}
-
-type Metadata struct {
-	Name     string   `json:"name"`
-	Present  bool     `json:"present"`
-	Mode     Mode     `json:"mode"`
-	Source   string   `json:"source"`
-	Secret   bool     `json:"secret"`
-	Targets  []Target `json:"targets"`
-	Revision uint64   `json:"revision"`
+	Key        string `json:"key"`
+	Revision   uint64 `json:"revision"`
+	Changed    bool   `json:"changed"`
+	Idempotent bool   `json:"idempotent"`
 }
 
 type storedIdempotency struct {
@@ -81,7 +64,6 @@ type storedIdempotency struct {
 type State struct {
 	mu          sync.RWMutex
 	identity    Identity
-	policy      Policy
 	limits      Limits
 	values      map[string][]byte
 	revision    uint64
@@ -91,21 +73,11 @@ type State struct {
 	secret      []byte
 }
 
-func newState(identity Identity, policy Policy, limits Limits, store *Store, secret []byte) *State {
-	identity.PolicyHash = policy.Hash()
+func newState(identity Identity, limits Limits, store *Store, secret []byte) *State {
 	return &State{
-		identity: identity, policy: policy, limits: normalizeLimits(limits), values: map[string][]byte{},
+		identity: identity, limits: normalizeLimits(limits), values: map[string][]byte{},
 		idempotency: map[string]storedIdempotency{}, store: store, secret: append([]byte(nil), secret...),
 	}
-}
-
-func (s *State) Policy() Policy {
-	if s == nil {
-		return Policy{}
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.policy
 }
 
 func (s *State) Revision() uint64 {
@@ -117,88 +89,20 @@ func (s *State) Revision() uint64 {
 	return s.revision
 }
 
-func (s *State) Snapshot(target Target, consumer Policy) (map[string]string, uint64, error) {
+func (s *State) Snapshot() (map[string]string, uint64, error) {
 	if s == nil {
-		return nil, 0, nil
+		return map[string]string{}, 0, nil
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.closed {
 		return nil, s.revision, ErrClosed
 	}
-	out := map[string]string{}
+	out := make(map[string]string, len(s.values))
 	for name, value := range s.values {
-		ownerPolicy, ok := s.policy.Key(name)
-		if !ok || !ownerPolicy.AllowsTarget(target) {
-			continue
-		}
-		consumerPolicy, allowed := consumer.Key(name)
-		if !allowed || !consumerPolicy.AllowsTarget(target) {
-			continue
-		}
 		out[name] = string(value)
 	}
 	return out, s.revision, nil
-}
-
-func (s *State) List(static map[string]string) ([]Metadata, uint64, error) {
-	if s == nil {
-		return nil, 0, nil
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.closed {
-		return nil, s.revision, ErrClosed
-	}
-	names := make([]string, 0, len(s.policy.Keys))
-	for name := range s.policy.Keys {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	items := make([]Metadata, 0, len(names))
-	for _, name := range names {
-		item := s.policy.Keys[name]
-		_, dynamic := s.values[name]
-		_, base := lookupStatic(static, name)
-		source := "none"
-		if base {
-			source = "static"
-		}
-		if dynamic {
-			source = "dynamic"
-		}
-		items = append(items, Metadata{
-			Name: name, Present: dynamic || base, Mode: item.Mode, Source: source,
-			Secret: item.Secret, Targets: append([]Target(nil), item.Targets...), Revision: s.revision,
-		})
-	}
-	return items, s.revision, nil
-}
-
-func (s *State) Get(name string, static map[string]string) (Metadata, uint64, error) {
-	if s == nil {
-		return Metadata{}, 0, nil
-	}
-	name = strings.ToUpper(strings.TrimSpace(name))
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.closed {
-		return Metadata{}, s.revision, ErrClosed
-	}
-	item, ok := s.policy.Key(name)
-	if !ok {
-		return Metadata{}, s.revision, fmt.Errorf("run environment key is not configured: %s", name)
-	}
-	_, dynamic := s.values[name]
-	_, base := lookupStatic(static, name)
-	source := "none"
-	if base {
-		source = "static"
-	}
-	if dynamic {
-		source = "dynamic"
-	}
-	return Metadata{Name: name, Present: dynamic || base, Mode: item.Mode, Source: source, Secret: item.Secret, Targets: append([]Target(nil), item.Targets...), Revision: s.revision}, s.revision, nil
 }
 
 func (s *State) Mutate(request MutationRequest) (MutationResult, error) {
@@ -210,13 +114,11 @@ func (s *State) Mutate(request MutationRequest) (MutationResult, error) {
 	if s.closed {
 		return MutationResult{}, ErrClosed
 	}
-	if len(request.Operations) == 0 {
-		return MutationResult{}, fmt.Errorf("at least one mutation is required")
+	name := NormalizeName(request.Name)
+	if err := ValidateName(name, s.limits.ExtraDeniedKeys); err != nil {
+		return MutationResult{}, err
 	}
-	if len(request.Operations) > s.limits.MaxBulkOperations {
-		return MutationResult{}, fmt.Errorf("bulk operation exceeds %d items", s.limits.MaxBulkOperations)
-	}
-	fingerprint, idempotencyID := s.requestFingerprints(request)
+	fingerprint, idempotencyID := s.requestFingerprints(request, name)
 	if idempotencyID != "" {
 		if previous, ok := s.idempotency[idempotencyID]; ok {
 			if !hmac.Equal([]byte(previous.Fingerprint), []byte(fingerprint)) {
@@ -230,76 +132,34 @@ func (s *State) Mutate(request MutationRequest) (MutationResult, error) {
 	if request.ExpectedRevision != nil && *request.ExpectedRevision != s.revision {
 		return MutationResult{}, fmt.Errorf("%w: expected %d, current %d", ErrRevisionConflict, *request.ExpectedRevision, s.revision)
 	}
+
 	next := cloneValues(s.values)
 	changed := false
-	seen := map[string]bool{}
-	items := make([]Metadata, 0, len(request.Operations))
-	for _, mutation := range request.Operations {
-		name := strings.ToUpper(strings.TrimSpace(mutation.Name))
-		if seen[name] {
+	switch request.Operation {
+	case OperationSet:
+		if err := ValidateValue(request.Value, s.limits.MaxValueBytes); err != nil {
 			zeroValues(next)
-			return MutationResult{}, fmt.Errorf("bulk operation contains duplicate key %s", name)
+			return MutationResult{}, fmt.Errorf("%s: %w", name, err)
 		}
-		seen[name] = true
-		if err := ValidateName(name, s.limits.ExtraDeniedKeys); err != nil {
-			zeroValues(next)
-			return MutationResult{}, err
-		}
-		policy, ok := s.policy.Key(name)
-		if !ok {
-			zeroValues(next)
-			return MutationResult{}, fmt.Errorf("run environment key is not configured: %s", name)
-		}
-		switch mutation.Operation {
-		case OperationBind:
-			if policy.Mode != ModeBind {
-				zeroValues(next)
-				return MutationResult{}, fmt.Errorf("run environment key %s is not bind-only", name)
-			}
-			if err := policy.ValidateValue(mutation.Value, s.limits.MaxValueBytes); err != nil {
-				zeroValues(next)
-				return MutationResult{}, fmt.Errorf("%s: %w", name, err)
-			}
-			if previous, exists := next[name]; exists {
-				if !bytes.Equal(previous, []byte(mutation.Value)) {
-					zeroValues(next)
-					return MutationResult{}, fmt.Errorf("run environment key %s is already bound", name)
-				}
-			} else {
-				next[name] = []byte(mutation.Value)
-				changed = true
-			}
-		case OperationSet:
-			if policy.Mode != ModeMutable {
-				zeroValues(next)
-				return MutationResult{}, fmt.Errorf("run environment key %s is not mutable", name)
-			}
-			if err := policy.ValidateValue(mutation.Value, s.limits.MaxValueBytes); err != nil {
-				zeroValues(next)
-				return MutationResult{}, fmt.Errorf("%s: %w", name, err)
-			}
-			if previous, exists := next[name]; !exists || !bytes.Equal(previous, []byte(mutation.Value)) {
-				if exists {
-					zero(previous)
-				}
-				next[name] = []byte(mutation.Value)
-				changed = true
-			}
-		case OperationUnset:
-			if policy.Mode != ModeMutable {
-				zeroValues(next)
-				return MutationResult{}, fmt.Errorf("run environment key %s cannot be unset", name)
-			}
-			if previous, exists := next[name]; exists {
+		if previous, exists := next[name]; !exists || !bytes.Equal(previous, []byte(request.Value)) {
+			if exists {
 				zero(previous)
-				delete(next, name)
-				changed = true
 			}
-		default:
-			zeroValues(next)
-			return MutationResult{}, fmt.Errorf("unsupported run environment mutation %q", mutation.Operation)
+			next[name] = []byte(request.Value)
+			changed = true
 		}
-		items = append(items, Metadata{Name: name, Present: mutation.Operation != OperationUnset || next[name] != nil, Mode: policy.Mode, Source: "dynamic", Secret: policy.Secret, Targets: append([]Target(nil), policy.Targets...)})
+	case OperationUnset:
+		previous, exists := next[name]
+		if !exists {
+			zeroValues(next)
+			return MutationResult{}, fmt.Errorf("%w: %s", ErrKeyNotSet, name)
+		}
+		zero(previous)
+		delete(next, name)
+		changed = true
+	default:
+		zeroValues(next)
+		return MutationResult{}, fmt.Errorf("unsupported run environment mutation %q", request.Operation)
 	}
 	if len(next) > s.limits.MaxDynamicKeys {
 		zeroValues(next)
@@ -317,16 +177,7 @@ func (s *State) Mutate(request MutationRequest) (MutationResult, error) {
 	if changed {
 		nextRevision++
 	}
-	for index := range items {
-		items[index].Revision = nextRevision
-		if items[index].Source == "dynamic" {
-			_, items[index].Present = next[items[index].Name]
-			if !items[index].Present {
-				items[index].Source = "none"
-			}
-		}
-	}
-	result := MutationResult{Revision: nextRevision, Changed: changed, Items: items}
+	result := MutationResult{Key: name, Revision: nextRevision, Changed: changed}
 	nextIdempotency := cloneIdempotency(s.idempotency)
 	if idempotencyID != "" {
 		nextIdempotency[idempotencyID] = storedIdempotency{Fingerprint: fingerprint, Result: result}
@@ -367,7 +218,7 @@ func (s *State) Destroy() error {
 	return store.release(identity, s)
 }
 
-func (s *State) requestFingerprints(request MutationRequest) (string, string) {
+func (s *State) requestFingerprints(request MutationRequest, normalizedName string) (string, string) {
 	key := strings.TrimSpace(request.IdempotencyKey)
 	if key == "" {
 		key = strings.TrimSpace(request.DefaultIdempotencyKey)
@@ -378,7 +229,11 @@ func (s *State) requestFingerprints(request MutationRequest) (string, string) {
 	mac := hmac.New(sha256.New, s.secret)
 	mac.Write([]byte("id:" + key))
 	id := hex.EncodeToString(mac.Sum(nil))
-	payload, _ := json.Marshal(request.Operations)
+	payload, _ := json.Marshal(struct {
+		Operation Operation `json:"operation"`
+		Name      string    `json:"name"`
+		Value     string    `json:"value,omitempty"`
+	}{Operation: request.Operation, Name: normalizedName, Value: request.Value})
 	mac.Reset()
 	mac.Write([]byte("args:"))
 	mac.Write(payload)
@@ -394,9 +249,6 @@ func normalizeLimits(limits Limits) Limits {
 	}
 	if limits.MaxTotalBytes <= 0 {
 		limits.MaxTotalBytes = 32768
-	}
-	if limits.MaxBulkOperations <= 0 {
-		limits.MaxBulkOperations = 16
 	}
 	return limits
 }
@@ -414,6 +266,7 @@ func zeroValues(values map[string][]byte) {
 		zero(value)
 	}
 }
+
 func zero(value []byte) {
 	for index := range value {
 		value[index] = 0
@@ -426,13 +279,4 @@ func cloneIdempotency(values map[string]storedIdempotency) map[string]storedIdem
 		out[key] = value
 	}
 	return out
-}
-
-func lookupStatic(values map[string]string, name string) (string, bool) {
-	for key, value := range values {
-		if strings.EqualFold(key, name) {
-			return value, true
-		}
-	}
-	return "", false
 }

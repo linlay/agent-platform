@@ -17,7 +17,6 @@ import (
 	"agent-platform/internal/builtins"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
-	"agent-platform/internal/runenv"
 	"agent-platform/internal/runtimeenv"
 	"agent-platform/internal/textcodec"
 )
@@ -297,7 +296,7 @@ func bashSecurityKnownVariables(execCtx *ExecutionContext) map[string]string {
 	}
 	runtimeEnv := execCtx.StaticRuntimeEnv
 	if execCtx.RunEnvironment != nil {
-		if dynamic, _, err := execCtx.RunEnvironment.Snapshot(runenv.TargetHost, execCtx.RunEnvPolicy); err == nil {
+		if dynamic, _, err := execCtx.RunEnvironment.Snapshot(); err == nil {
 			runtimeEnv = agentconfig.Merge(runtimeEnv, dynamic)
 		}
 	}
@@ -347,7 +346,7 @@ func mergeCommandEnv(execCtx *ExecutionContext) ([]string, error) {
 		runtimeEnv = execCtx.StaticRuntimeEnv
 	}
 	if execCtx != nil && execCtx.RunEnvironment != nil {
-		dynamic, _, err := execCtx.RunEnvironment.Snapshot(runenv.TargetHost, execCtx.RunEnvPolicy)
+		dynamic, _, err := execCtx.RunEnvironment.Snapshot()
 		if err != nil {
 			return nil, fmt.Errorf("snapshot run environment: %w", err)
 		}

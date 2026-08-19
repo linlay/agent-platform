@@ -16,7 +16,7 @@ import (
 	"sync"
 )
 
-const checkpointVersion = 1
+const checkpointVersion = 2
 
 type Store struct {
 	root    string
@@ -37,38 +37,31 @@ func NewStore(root string, keyFile string, limits Limits) *Store {
 	return &Store{root: filepath.Clean(root), keyFile: filepath.Clean(keyFile), limits: normalizeLimits(limits), states: map[string]*State{}}
 }
 
-func (s *Store) New(identity Identity, policy Policy) (*State, error) {
+func (s *Store) NewScope(identity Identity) (*Scope, error) {
 	if s == nil {
 		return nil, fmt.Errorf("run environment store is unavailable")
 	}
-	if strings.TrimSpace(identity.RunID) == "" || strings.TrimSpace(identity.ChatID) == "" || strings.TrimSpace(identity.Owner) == "" {
-		return nil, fmt.Errorf("run environment identity requires runId, chatId, and owner")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	indexKey := strings.TrimSpace(identity.RunID)
-	if existing := s.states[indexKey]; existing != nil {
-		return nil, fmt.Errorf("run environment state already exists: %s", indexKey)
-	}
-	key, err := s.loadOrCreateKey()
-	if err != nil {
+	if err := validateIdentity(identity); err != nil {
 		return nil, err
 	}
-	state := newState(identity, policy, s.limits, s, key)
-	if err := s.save(state.identity, 0, state.values, state.idempotency); err != nil {
-		zero(key)
-		return nil, err
-	}
-	zero(key)
-	s.states[indexKey] = state
-	return state, nil
+	return newScope(identity, s), nil
 }
 
-func (s *Store) Restore(identity Identity, policy Policy) (*State, error) {
+func (s *Store) RestoreScope(identity Identity, expectedRevision uint64) (*Scope, error) {
 	if s == nil {
 		return nil, fmt.Errorf("run environment store is unavailable")
 	}
-	identity.PolicyHash = policy.Hash()
+	if err := validateIdentity(identity); err != nil {
+		return nil, err
+	}
+	if expectedRevision == 0 {
+		if exists, err := s.HasCheckpoint(identity); err != nil {
+			return nil, err
+		} else if exists {
+			return nil, fmt.Errorf("unexpected run environment checkpoint at revision 0")
+		}
+		return newScope(identity, s), nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	indexKey := strings.TrimSpace(identity.RunID)
@@ -99,13 +92,84 @@ func (s *Store) Restore(identity Identity, policy Policy) (*State, error) {
 		zero(key)
 		return nil, fmt.Errorf("unsupported run environment checkpoint version %d", saved.Version)
 	}
-	state := newState(identity, policy, s.limits, s, key)
+	if saved.Revision != expectedRevision {
+		zero(key)
+		return nil, fmt.Errorf("run environment checkpoint revision mismatch: expected %d, found %d", expectedRevision, saved.Revision)
+	}
+	if err := s.validateValues(saved.Values); err != nil {
+		zero(key)
+		return nil, fmt.Errorf("validate run environment checkpoint: %w", err)
+	}
+	state := newState(identity, s.limits, s, key)
 	zero(key)
 	state.revision = saved.Revision
 	state.values = cloneValues(saved.Values)
 	state.idempotency = cloneIdempotency(saved.Idempotency)
 	s.states[indexKey] = state
+	scope := newScope(identity, s)
+	scope.state = state
+	return scope, nil
+}
+
+func (s *Store) HasCheckpoint(identity Identity) (bool, error) {
+	if s == nil {
+		return false, fmt.Errorf("run environment store is unavailable")
+	}
+	if err := validateIdentity(identity); err != nil {
+		return false, err
+	}
+	_, err := os.Stat(s.path(identity))
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return false, err
+}
+
+func (s *Store) materialize(identity Identity) (*State, error) {
+	if s == nil {
+		return nil, fmt.Errorf("run environment store is unavailable")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	indexKey := strings.TrimSpace(identity.RunID)
+	if existing := s.states[indexKey]; existing != nil {
+		return nil, fmt.Errorf("run environment state already exists: %s", indexKey)
+	}
+	key, err := s.loadOrCreateKey()
+	if err != nil {
+		return nil, err
+	}
+	state := newState(identity, s.limits, s, key)
+	zero(key)
+	s.states[indexKey] = state
 	return state, nil
+}
+
+func (s *Store) validateValues(values map[string][]byte) error {
+	if len(values) > s.limits.MaxDynamicKeys {
+		return fmt.Errorf("run environment exceeds %d dynamic keys", s.limits.MaxDynamicKeys)
+	}
+	total := 0
+	for rawName, value := range values {
+		name := NormalizeName(rawName)
+		if rawName != name {
+			return fmt.Errorf("environment variable name %q is not canonical", rawName)
+		}
+		if err := ValidateName(name, s.limits.ExtraDeniedKeys); err != nil {
+			return err
+		}
+		if err := ValidateValue(string(value), s.limits.MaxValueBytes); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		total += len(value)
+	}
+	if total > s.limits.MaxTotalBytes {
+		return fmt.Errorf("run environment exceeds %d total bytes", s.limits.MaxTotalBytes)
+	}
+	return nil
 }
 
 func (s *Store) save(identity Identity, revision uint64, values map[string][]byte, idempotency map[string]storedIdempotency) error {
@@ -232,6 +296,13 @@ func (s *Store) readKey() ([]byte, error) {
 	return key, nil
 }
 
+func validateIdentity(identity Identity) error {
+	if strings.TrimSpace(identity.RunID) == "" || strings.TrimSpace(identity.ChatID) == "" || strings.TrimSpace(identity.Owner) == "" {
+		return fmt.Errorf("run environment identity requires runId, chatId, and owner")
+	}
+	return nil
+}
+
 func encryptCheckpoint(key, plain, aadValue []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -267,7 +338,7 @@ func decryptCheckpoint(key, encrypted, aadValue []byte) ([]byte, error) {
 func aad(identity Identity) []byte {
 	raw, _ := json.Marshal([]string{
 		strings.TrimSpace(identity.RunID), strings.TrimSpace(identity.ChatID), strings.TrimSpace(identity.Subject),
-		strings.TrimSpace(identity.Owner), strings.TrimSpace(identity.AgentKey), strings.TrimSpace(identity.PolicyHash),
+		strings.TrimSpace(identity.Owner), strings.TrimSpace(identity.AgentKey),
 	})
 	return raw
 }

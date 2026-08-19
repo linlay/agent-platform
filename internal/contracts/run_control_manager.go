@@ -26,7 +26,7 @@ type managedRun struct {
 	completedAt         time.Time
 	recoveredAwaitingID string
 	recoveredClaimed    bool
-	runEnvironment      *runenv.State
+	runEnvironment      *runenv.Scope
 }
 
 type InMemoryRunManager struct {
@@ -379,7 +379,7 @@ func (m *InMemoryRunManager) Finish(runID string) {
 	}
 }
 
-func (m *InMemoryRunManager) RunEnvironment(runID string) (*runenv.State, bool) {
+func (m *InMemoryRunManager) RunEnvironment(runID string) (*runenv.Scope, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	state := m.runs[strings.TrimSpace(runID)]
