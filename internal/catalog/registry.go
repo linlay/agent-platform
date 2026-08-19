@@ -284,6 +284,7 @@ type FileRegistry struct {
 
 	mu             sync.RWMutex
 	privateSkillMu sync.Mutex
+	agentArchiveMu sync.Mutex
 	agents         map[string]AgentDefinition
 	adminAgents    map[string]AdminAgent
 	// runtimeInvalidAgents records startup-only runtime validation failures

@@ -109,6 +109,7 @@ GET /ws -> request / response / stream / push / error frames
 | GET/PUT/DELETE | `/api/admin/source` | GET query: `type`、`key`、`path`、`category`、`file`；PUT body: `target`、`content`、`baseSha256`；DELETE body: `target`、`baseSha256` | 读取或保存受控的 Agent、Skill、Automation、Registry 文本 source；删除目前仅允许 `registry/mcp-servers`；mutation 使用可选哈希防止覆盖并发修改 |
 | GET/PUT | `/api/admin/agents/order` | PUT body: `order` | agent 展示顺序 |
 | POST | `/api/admin/agents/create` | body: `key`、`definition`、`soulPrompt`、`agentsPrompt` | 创建后的 agent 详情 |
+| POST | `/api/admin/agents/import` | multipart: `file`、可选 `overwrite` | 导入完整 Agent ZIP，返回包含 `status` 与 `diagnostics` 的 admin agent 详情 |
 | POST | `/api/admin/agents/update` | body: `key`/`agentKey`、`definition`、`soulPrompt`、`agentsPrompt` | 更新后的 agent 详情 |
 | POST | `/api/admin/agents/update-name` | body: `key`/`agentKey`、`name` | 更新后的 agent 详情 |
 | POST | `/api/admin/agents/delete` | body: `key`/`agentKey` | 删除结果 |
@@ -133,6 +134,10 @@ GET /ws -> request / response / stream / push / error frames
 | GET | `/api/admin/registries` | 无 | registry 文件列表摘要，含状态、脱敏 summary、首条诊断摘要与诊断数量 |
 | GET/PUT | `/api/admin/registries/detail` | query/body: `category`、`file`、`content` | registry 文件详情或保存结果 |
 | POST | `/api/admin/registries/validate` | body: `category`、`file`、`content` | registry 内容校验结果 |
+
+`POST /api/admin/agents/import` 不接受单独的 Agent Key；Key 固定读取 ZIP 根目录或唯一一层包装目录内的 `agent.yml` / `agent.yaml`。导入会保留 Agent 目录的全部普通文件，包括 prompt、专属 Skills、`.config`、知识文件与其他资源。ZIP 校验拒绝路径逃逸、反斜杠路径、symlink、非普通文件、大小写冲突、重复路径及文件/目录冲突，并忽略 `__MACOSX` 与 `.DS_Store`。限制为 32 MiB 上传、32 MiB 单文件、256 MiB 解压总量、4096 个条目和 1 MiB UTF-8 Agent YAML。
+
+同 Key 已存在且 `overwrite` 省略或为 `false` 时返回 409，`data.error` 包含 `code`、`agentKey`、`existingName` 与 `overwriteRequired:true`。确认后以同一 ZIP 和 `overwrite=true` 重试会整目录替换旧来源；目录型 Agent 原位替换，平铺 YAML Agent 转换为规范目录来源，不合并或保留旧 `.config`、专属 Skills 或资源。导入使用隐藏 staging/backup 完成原子切换；catalog 硬重载失败时恢复旧来源，回滚失败返回明确的 500 诊断。ZIP 布局、YAML、Key 或公共 mode 等结构性错误返回 422 和文件级 diagnostics，非 ZIP 返回 415，超限返回 413。若 catalog 可以重载、但该 Agent 因本机模型、工具、Workspace、KBASE 或 Skill 缺失而为 `invalid`，导入结果仍保留并以 200 返回无效状态与 diagnostics。
 
 `/api/admin/source` 的 target 是逻辑标识而不是文件系统路径：`agent` 与 `automation` 使用 `key`，`skill` 使用 `key` 与相对 `path`，`registry` 使用 `category` 与 `file`。GET 响应固定返回 target、实际受控来源、原始 `content`、`encoding`、`sha256`、`size` 和 `updatedAt`；文本必须为 UTF-8 且不超过 1 MiB。Agent 保存只允许该 agent 的 `agent.yml`，并 reload agent catalog；Skill 与 Automation 保存分别 reload 对应 catalog / orchestrator。`registry/mcp-servers` 的 PUT 保存与 DELETE 删除都在成功响应前执行 MCP registry/tool sync；DELETE 成功返回 `target` 与 `deleted: true`，reload 硬失败时会恢复原 YAML。旧的 Skill 文件结构、二进制上传下载接口，以及 Registry detail 接口仍保留兼容。
 
