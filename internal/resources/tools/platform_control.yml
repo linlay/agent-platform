@@ -2,8 +2,8 @@ name: platform_control
 label: 平台控制
 description: |
   Operate the Agent Platform system control plane. Select one fixed operation
-  and pass its parameters in params. Authorization is enforced by the server;
-  follow the active Skill for operation-specific parameters.
+  and pass its parameters in params. The explicit tool grant exposes every
+  registered operation; follow the active Skill for operation-specific parameters.
 clientVisible: true
 explicitOnly: true
 readOnly: false

@@ -100,23 +100,12 @@ type PathsConfig struct {
 
 type PlatformControlConfig struct {
 	Enabled           bool
-	Profiles          map[string]PlatformControlProfileConfig
-	Bindings          []PlatformControlBindingConfig
 	DenyKeys          []string
 	MaxDynamicKeys    int
 	MaxValueBytes     int
 	MaxTotalBytes     int
 	MaxBulkOperations int
 	CheckpointKeyFile string
-}
-
-type PlatformControlProfileConfig struct {
-	Operations []string
-}
-
-type PlatformControlBindingConfig struct {
-	Profile   string
-	AgentKeys []string
 }
 
 // EffectiveRUAgentsDir returns the configured assembled Agent root. The

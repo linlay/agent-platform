@@ -60,7 +60,7 @@
 - `image_generate` 对 Agent 使用统一参数：无输入图时文生图，最多四张 Chat/本地输入图时图生图；生成和编辑端点及请求格式完全由模型 YAML 选择 Images JSON、Images Multipart 或 Chat Completions，不按模型名/provider 分支。可选 mask 支持 alpha、白区编辑和黑区编辑三种显式语义，仅在模型声明原生 `openai-alpha` 能力时执行局部重绘。
 - 文件工具与 Bash 共享 `AccessPolicy`；effective `default` 无条件包含 `@temp` 读写根。`@temp` 在 Unix/macOS 覆盖启动时 `os.TempDir()` 与 canonical `/tmp`（macOS 的 `/tmp`、`/private/tmp` 等价），Windows 只覆盖启动时 `os.TempDir()`。临时根内结构化文件读写免路径/通用写审批，但写前读、并发校验、大小与历史约束保留；Bash 命令白名单、bashsec、opaque/complex 命令与执行审批模式不变。
 - 专用 `mode: KBASE` 与普通 KBASE capability 都以 `runtimeConfig.workspaceRoot` 为唯一内容根；专用 mode 在 main/editing 两种 stage 提供相同的五个通用文本文件工具，当前 Chat 目录独立可读写。单次 `/api/query` 顶层 `editingMode:true` 只允许 KBASE Workspace mutation，未开启时 Workspace 仍可读但不可 write/edit；所有目录先服从 AccessPolicy/HITL，索引由 KBASE watcher 异步维护。普通 Agent 附加的 KBASE capability 与其他 mode 不支持该字段。
-- `platform_control` 对所有显式配置它的 Agent 暴露同一固定 Schema，并由 `configs/tools.yml` profile 与 Agent `runtimeConfig.runEnv` 分别控制 operation 和 key。首期支持能力发现、Catalog 默认值/候选校验、脱敏 runtime/security 查询和当前 root run 环境变量；动态值以加密 checkpoint 支持 question/planning 同 RunID 恢复，只在新建 Host/Container 命令前生成独立快照，绝不调用 `os.Setenv`。
+- `platform_control` 对所有显式配置它的 Agent 暴露同一固定 Schema 和全部注册 operation，Agent `runtimeConfig.runEnv` 逐 key 控制动态环境。首期支持能力发现、Catalog 默认值/候选校验、脱敏 runtime/security 查询和当前 root run 环境变量；动态值以加密 checkpoint 支持 question/planning 同 RunID 恢复，只在新建 Host/Container 命令前生成独立快照，绝不调用 `os.Setenv`。
 
 当前仍未与 Java 版完全对齐的能力主要集中在 MCP 全量生产验证，以及更深层的 memory / automation 执行编排细节；MCP 的 HTTP/stdio client、严格 `2025-11-25` 版本校验、session 生命周期与 tool sync 已接通。平台工具模型已统一，不再区分 frontend/action/backend/builtin。
 
@@ -270,7 +270,7 @@ orchestrator:
 
 普通主 Agent 还可分别显式挂载 `run_query`、`run_status`、`run_interrupt`，用于发起、查询和中断标准独立 Agent/Team 根 run。它们与 `agent_invoke` 不同：不复用父 `chatId/runId`，query 在目标 run 注册后立即返回，父 run 中断不取消目标；后续控制只允许同一调用 Agent 与 subject 操作自己通过 `run_query` 创建的 run。目标不使用白名单或 `contextConfig.agents`，精确 catalog 名称存在即可调用；`run_query` 的工具描述负责把“当前智能体”“本智能体”“你自己”解析为 system prompt 的 `Agent Identity.key`，不得用候选摘要替代。目标 run 禁止再次调用任一 run 工具。旧 `agent_run_query`、`agent_run_status`、`agent_run_interrupt` 已删除，Agent 配置引用旧名会硬失败。完整契约见 [子智能体调度](./docs/子智能体调度.md)。
 
-`platform_control` 也必须由 Agent 的 `toolConfig.tools` 显式挂载。它的模型可见 Schema 不按 Agent 裁剪；实际 operation 由 `configs/tools.yml -> platform-control.profiles/bindings` 校验，未绑定 Agent 只能调用 `capabilities.list`。`run.env.*` 还要求 Agent 在 `runtimeConfig.runEnv` 逐 key 声明 bind/mutable、pattern、大小、HITL 和 host/container targets。旧 `platform_config` 不保留 alias，Catalog 引用会硬失败。完整契约见 [Platform 控制工具设计与实现](./docs/Platform控制工具设计.md)。
+`platform_control` 必须由 Agent 的 `toolConfig.tools` 显式挂载；挂载后即可调用全部注册 operation，模型可见 Schema 不按 Agent 裁剪。`run.env.*` 仍要求 Agent 在 `runtimeConfig.runEnv` 逐 key 声明 bind/mutable、pattern、大小、HITL 和 host/container targets。Skill 与 `mustUseSkills` 不会替 Agent 挂载 Tool。旧 `platform_config` 和旧 `platform-control.profiles/bindings` 不保留兼容，加载时会硬失败。完整契约见 [Platform 控制工具设计与实现](./docs/Platform控制工具设计.md)。
 
 ## 4. 部署
 

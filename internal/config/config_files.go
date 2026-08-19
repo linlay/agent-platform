@@ -490,6 +490,11 @@ func (c *Config) applyToolsFile(path string, ignoreRemovedWorkingDirectory bool)
 }
 
 func (c *Config) applyPlatformControlValues(path string, values map[string]any) error {
+	for _, removed := range []string{"profiles", "bindings"} {
+		if _, ok := values[removed]; ok {
+			return fmt.Errorf("%s: platform-control.%s was removed; explicitly mounting platform_control now grants every registered operation", path, removed)
+		}
+	}
 	c.PlatformControl.Enabled = boolValue(anyValue(values["enabled"], c.PlatformControl.Enabled), c.PlatformControl.Enabled)
 	c.PlatformControl.DenyKeys = csvOrList(anyValue(values["deny-keys"], c.PlatformControl.DenyKeys), c.PlatformControl.DenyKeys)
 	c.PlatformControl.MaxDynamicKeys = intValue(anyValue(values["max-dynamic-keys"], c.PlatformControl.MaxDynamicKeys), c.PlatformControl.MaxDynamicKeys)
@@ -505,34 +510,6 @@ func (c *Config) applyPlatformControlValues(path string, values map[string]any) 
 	} {
 		if value <= 0 {
 			return fmt.Errorf("%s: platform-control.%s must be greater than zero", path, field)
-		}
-	}
-	profiles := map[string]PlatformControlProfileConfig{}
-	if rawProfiles, ok := values["profiles"].(map[string]any); ok {
-		for rawName, rawProfile := range rawProfiles {
-			name := strings.TrimSpace(rawName)
-			profileMap, ok := rawProfile.(map[string]any)
-			if name == "" || !ok {
-				return fmt.Errorf("%s: platform-control profile %q must be an object", path, rawName)
-			}
-			profiles[name] = PlatformControlProfileConfig{Operations: csvOrList(profileMap["operations"], nil)}
-		}
-	}
-	c.PlatformControl.Profiles = profiles
-	c.PlatformControl.Bindings = nil
-	if rawBindings, ok := values["bindings"].([]any); ok {
-		for index, rawBinding := range rawBindings {
-			bindingMap, ok := rawBinding.(map[string]any)
-			if !ok {
-				return fmt.Errorf("%s: platform-control.bindings[%d] must be an object", path, index)
-			}
-			profile := strings.TrimSpace(stringValue(bindingMap["profile"], ""))
-			if _, ok := profiles[profile]; !ok {
-				return fmt.Errorf("%s: platform-control.bindings[%d] references unknown profile %q", path, index, profile)
-			}
-			c.PlatformControl.Bindings = append(c.PlatformControl.Bindings, PlatformControlBindingConfig{
-				Profile: profile, AgentKeys: csvOrList(bindingMap["agentKeys"], nil),
-			})
 		}
 	}
 	return nil

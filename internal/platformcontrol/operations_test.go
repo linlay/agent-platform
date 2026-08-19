@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"agent-platform/internal/config"
 	"agent-platform/internal/runenv"
 )
 
@@ -48,23 +47,13 @@ func TestMutationApprovalDoesNotModifyInvocationArguments(t *testing.T) {
 	}
 }
 
-func TestValidateConfigurationRejectsUnknownBindingProfile(t *testing.T) {
-	err := ValidateConfiguration(config.PlatformControlConfig{
-		Profiles: map[string]config.PlatformControlProfileConfig{"run-env": {Operations: []string{"capabilities.list"}}},
-		Bindings: []config.PlatformControlBindingConfig{{Profile: "missing", AgentKeys: []string{"office"}}},
-	})
-	if err == nil || !strings.Contains(err.Error(), "unknown profile") {
-		t.Fatalf("ValidateConfiguration error = %v", err)
-	}
-}
-
 func TestEveryOperationDescriptorOwnsValidationAndInvocation(t *testing.T) {
 	for _, name := range OperationNames() {
 		descriptor, ok := LookupOperation(name)
 		if !ok || descriptor.Name != name || descriptor.Validate == nil || descriptor.Invoke == nil {
 			t.Fatalf("incomplete descriptor for %q: %#v", name, descriptor)
 		}
-		if descriptor.RiskClass == "" || descriptor.RequiredCapability == "" || len(descriptor.AllowedStages) == 0 {
+		if descriptor.RiskClass == "" || len(descriptor.AllowedStages) == 0 {
 			t.Fatalf("descriptor metadata is incomplete for %q: %#v", name, descriptor)
 		}
 	}

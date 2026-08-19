@@ -279,43 +279,43 @@ func TestValidateDoesNotEchoCandidateSecrets(t *testing.T) {
 	}
 }
 
-func TestProfileAuthorizationDoesNotDependOnSkills(t *testing.T) {
-	cfg := config.Config{PlatformControl: config.PlatformControlConfig{Enabled: true,
-		Profiles: map[string]config.PlatformControlProfileConfig{
-			"run-env":        {Operations: []string{"capabilities.list", "run.env.list"}},
-			"platform-admin": {Operations: OperationNames()},
-		},
-		Bindings: []config.PlatformControlBindingConfig{
-			{Profile: "run-env", AgentKeys: []string{"online-office"}},
-			{Profile: "platform-admin", AgentKeys: []string{"zenmi"}},
-		},
-	}}
+func TestExplicitToolGrantDoesNotDependOnAgentOrSkills(t *testing.T) {
+	cfg := config.Config{PlatformControl: config.PlatformControlConfig{Enabled: true}}
 	handler := NewToolHandler(cfg, nil)
 	online := &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "online-office", SkillKeys: []string{"platform-admin"}, MustUseSkills: []string{"platform-admin"}}}
 	result, _ := handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "runtime.status"}, online)
-	if result.Error != "platform_control_operation_forbidden" {
-		t.Fatalf("skill escalated profile: %#v", result)
-	}
-	admin := &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "zenmi"}}
-	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "runtime.status"}, admin)
 	if result.Error != "" {
-		t.Fatalf("admin status denied: %#v", result)
+		t.Fatalf("mounted operation denied: %#v", result)
 	}
-	unbound := &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "unbound"}}
-	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "capabilities.list"}, unbound)
+	other := &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "unbound"}}
+	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "runtime.status"}, other)
+	if result.Error != "" {
+		t.Fatalf("agent-specific authorization remained: %#v", result)
+	}
+	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "capabilities.list"}, other)
 	if result.Error != "" {
 		t.Fatalf("capabilities.list denied: %#v", result)
 	}
 	data := result.Structured["data"].(map[string]any)
-	if operations := data["operations"].([]string); !reflect.DeepEqual(operations, []string{"capabilities.list"}) {
-		t.Fatalf("unbound operations = %#v", operations)
+	if _, exists := data["profiles"]; exists {
+		t.Fatalf("capabilities retained removed profiles: %#v", data)
 	}
-	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "capabilities.list"}, admin)
-	data = result.Structured["data"].(map[string]any)
-	for _, operation := range data["operations"].([]string) {
+	operations := data["operations"].([]string)
+	for _, operation := range operations {
 		if strings.HasPrefix(operation, "run.env.") {
 			t.Fatalf("capabilities advertised unavailable run env operation: %#v", data)
 		}
+	}
+	hasOperation := func(target string) bool {
+		for _, operation := range operations {
+			if operation == target {
+				return true
+			}
+		}
+		return false
+	}
+	if !hasOperation("runtime.status") || !hasOperation("catalog.validate") {
+		t.Fatalf("capabilities omitted mounted operations: %#v", data)
 	}
 }
 
@@ -334,9 +334,27 @@ func TestRunEnvironmentOperationsAreValueBlindAndApprovalAware(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer state.Destroy()
-	cfg := config.Config{PlatformControl: config.PlatformControlConfig{Enabled: true, Profiles: map[string]config.PlatformControlProfileConfig{"run-env": {Operations: OperationNames()}}, Bindings: []config.PlatformControlBindingConfig{{Profile: "run-env", AgentKeys: []string{"office"}}}}}
+	cfg := config.Config{PlatformControl: config.PlatformControlConfig{Enabled: true}}
 	handler := NewToolHandler(cfg, nil)
 	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{RunID: "run-1", AgentKey: "office"}, RunEnvironment: state, RunEnvPolicy: policy, CurrentToolID: "tool-bind"}
+	capabilities, _ := handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "capabilities.list", "params": map[string]any{}}, execCtx)
+	if capabilities.Error != "" {
+		t.Fatalf("capabilities failed: %#v", capabilities)
+	}
+	capabilityData := capabilities.Structured["data"].(map[string]any)
+	capabilityOperations := capabilityData["operations"].([]string)
+	for _, required := range []string{"run.env.bind", "run.env.get"} {
+		found := false
+		for _, operation := range capabilityOperations {
+			if operation == required {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("capabilities omitted %s: %#v", required, capabilityData)
+		}
+	}
 	result, _ := handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "run.env.bind", "params": map[string]any{"key": "DOCUMENT_ID", "value": "document-secret-id"}}, execCtx)
 	if result.Error != "" || strings.Contains(result.Output, "document-secret-id") {
 		t.Fatalf("bind result leaked or failed: %#v", result)
@@ -388,10 +406,7 @@ func TestChildEnvironmentMetadataUsesPolicyIntersection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := config.Config{PlatformControl: config.PlatformControlConfig{Enabled: true,
-		Profiles: map[string]config.PlatformControlProfileConfig{"run-env": {Operations: []string{"run.env.get", "run.env.list"}}},
-		Bindings: []config.PlatformControlBindingConfig{{Profile: "run-env", AgentKeys: []string{"child"}}},
-	}}
+	cfg := config.Config{PlatformControl: config.PlatformControlConfig{Enabled: true}}
 	handler := NewToolHandler(cfg, nil)
 	execCtx := &contracts.ExecutionContext{
 		Session:        contracts.QuerySession{RunID: "run-child", AgentKey: "child", SubTaskID: "task-1"},
@@ -418,10 +433,7 @@ func TestChildEnvironmentMetadataUsesPolicyIntersection(t *testing.T) {
 
 func TestSecurityExplainIncludesReadAndWritePathDecision(t *testing.T) {
 	workspace := t.TempDir()
-	cfg := config.Config{AccessPolicy: config.AccessPolicyConfig{}, PlatformControl: config.PlatformControlConfig{Enabled: true,
-		Profiles: map[string]config.PlatformControlProfileConfig{"platform-admin": {Operations: OperationNames()}},
-		Bindings: []config.PlatformControlBindingConfig{{Profile: "platform-admin", AgentKeys: []string{"admin"}}},
-	}}
+	cfg := config.Config{AccessPolicy: config.AccessPolicyConfig{}, PlatformControl: config.PlatformControlConfig{Enabled: true}}
 	handler := NewToolHandler(cfg, nil)
 	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "admin", WorkspaceRoot: workspace}}
 	result, err := handler.Invoke(context.Background(), ToolName, map[string]any{
@@ -448,10 +460,6 @@ func TestSecurityExplainIncludesReadAndWritePathDecision(t *testing.T) {
 
 func invokeTestOperation(handler *ToolHandler, operation string, params map[string]any) (contracts.ToolExecutionResult, error) {
 	handler.cfg.PlatformControl.Enabled = true
-	handler.cfg.PlatformControl.Profiles = map[string]config.PlatformControlProfileConfig{
-		"platform-admin": {Operations: OperationNames()},
-	}
-	handler.cfg.PlatformControl.Bindings = []config.PlatformControlBindingConfig{{Profile: "platform-admin", AgentKeys: []string{"admin"}}}
 	result, err := handler.Invoke(context.Background(), ToolName, map[string]any{"operation": operation, "params": params}, &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "admin"}})
 	if data, ok := result.Structured["data"].(map[string]any); ok {
 		result.Structured = data

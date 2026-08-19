@@ -77,9 +77,6 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
-	if err := platformcontrol.ValidateConfiguration(cfg.PlatformControl); err != nil {
-		return nil, fmt.Errorf("load platform-control config: %w", err)
-	}
 	if cfg.ContainerHub.Enabled {
 		runtimeInfo := sandbox.NewContainerHubClient(cfg.ContainerHub).GetRuntimeInfo()
 		if runtimeInfo.OK {

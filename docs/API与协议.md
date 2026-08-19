@@ -37,7 +37,7 @@ HTTP 的 `data.error` 与 WebSocket error frame 的 `data` 包含 `code`、`fiel
 
 ## 核心流程
 
-`platform_control` 是 run 内的 system tool，不是 HTTP 协议扩展。动态环境变量由 Agent 在当前 run 中调用 `run.env.*` 修改；`POST /api/query`、前端和 Chat API 都不传 `documentId`、run env 或 profile 字段。
+`platform_control` 是 run 内的 system tool，不是 HTTP 协议扩展。动态环境变量由 Agent 在当前 run 中调用 `run.env.*` 修改；`POST /api/query`、前端和 Chat API 都不传 `documentId`、run env 或 platform-control 授权字段。
 
 ```text
 普通 JSON API -> ApiResponse envelope

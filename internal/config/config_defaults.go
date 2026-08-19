@@ -196,7 +196,6 @@ func defaultConfig(options LoadOptions) Config {
 		},
 		PlatformControl: PlatformControlConfig{
 			Enabled:           true,
-			Profiles:          map[string]PlatformControlProfileConfig{},
 			MaxDynamicKeys:    32,
 			MaxValueBytes:     4096,
 			MaxTotalBytes:     32768,

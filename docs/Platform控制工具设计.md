@@ -6,7 +6,7 @@
 
 `platform_control` 是 Agent Platform 的 system control plane。首期提供能力发现、Catalog 默认值/候选校验、当前 run 环境变量、脱敏运行状态和安全解释，不提供进程全局环境修改、持久配置写入、重启、策略修改、secret reveal 或任意命令执行。
 
-所有显式配置该工具的 Agent 看到同一份固定 JSON Schema。Agent、Skill、profile 和 stage 只影响服务端授权结果，不裁剪模型可见 Schema。Skill 只负责说明操作方法；Skill 热重载和 `mustUseSkills` 都不能授予 Tool、operation、环境变量 key、MCP 或文件访问权限。
+所有显式配置该工具的 Agent 看到同一份固定 JSON Schema，并可调用全部注册 operation。stage、root/child/team 形态和 run env 状态只决定 operation 当前是否可执行，不再存在按 Agent/profile 的二次 operation 授权。Skill 只负责说明操作方法；Skill 热重载和 `mustUseSkills` 都不能替 Agent 挂载 Tool，也不能授予环境变量 key、MCP 或文件访问权限。
 
 旧 `platform_config` 已移除且没有模型可见 alias。Agent 配置引用旧名称会在 Catalog 校验时硬失败并提示改用 `platform_control`。历史 Chat 只回放，不迁移或重新执行历史 tool call。
 
@@ -53,7 +53,7 @@ inputSchema:
 
 ```text
 Name, RiskClass, ReadOnly, Barrier, SensitivePaths,
-AllowedStages, RequiredCapability
+AllowedStages
 ```
 
 LLM planning 准入、并发调度、HITL 和参数脱敏读取 operation descriptor，不再仅按工具级 `readOnly:false` 判断。
@@ -76,11 +76,11 @@ LLM planning 准入、并发调度、HITL 和参数脱敏读取 operation descri
 
 ### 3.1 能力、Catalog、Runtime 与 Security
 
-- `capabilities.list`：`params={}`。返回调用者实际获准的 operations、命中的 profiles、run env 限制和 revision；不枚举隐藏权限。
+- `capabilities.list`：`params={}`。返回当前 run/stage 实际可执行的 operations、run env 限制和 revision；不再返回 profiles。
 - `catalog.defaults.get`：`params.path` 只接受 `agents.creation.coder` 或 `agents.creation.kbase`，返回现有创建默认值，不回显凭据。
 - `catalog.validate`：严格接收 `resourceType/resourceKey/content`；类型为 `agent/team/skill/mcp-server`，content 最大 1 MiB。只校验 candidate，不写文件或触发热重载。
 - `runtime.status`：`params={}`。返回 Platform Control、Container Hub、Memory 和当前 run env 的脱敏摘要。
-- `security.explain`：接收目标 `operation`，可附 `key/path`；解释 descriptor、profile 与 runEnv key policy，不修改策略。
+- `security.explain`：接收目标 `operation`，可附 `key/path`；解释 descriptor、stage/root/team/run-env 可用性与 runEnv key policy，不修改策略。
 
 ### 3.2 `run.env.*`
 
@@ -100,7 +100,6 @@ LLM planning 准入、并发调度、HITL 和参数脱敏读取 operation descri
 | `platform_control_invalid_operation` | operation 不在固定 registry |
 | `platform_control_invalid_params` | 字段缺失、类型错误、未知字段或字段数量超限 |
 | `platform_control_disabled` | 全局关闭 |
-| `platform_control_operation_forbidden` | 当前 Agent profile 未授权 |
 | `platform_control_stage_forbidden` | planning/read-only stage 请求 mutation |
 | `run_env_unavailable` | 当前 run 没有动态 State |
 | `run_env_mutation_forbidden` | Team 或子 Agent 请求 mutation |
@@ -113,9 +112,9 @@ LLM planning 准入、并发调度、HITL 和参数脱敏读取 operation descri
 | `run_env_idempotency_conflict` | 同一幂等键用于不同 payload |
 | `run_env_checkpoint_failed` / `run_env_restore_failed` | 加密状态写入或恢复失败 |
 
-## 4. 授权事实源
+## 4. 工具挂载与动态 key 事实源
 
-`configs/tools.yml -> platform-control` 是 operation profile 的唯一事实源：
+可选的 `configs/tools.yml -> platform-control` 只用于覆盖全局开关、run-env 限额、追加 denylist 和 checkpoint key；普通部署省略整节并使用代码默认值：
 
 ```yaml
 platform-control:
@@ -125,21 +124,9 @@ platform-control:
   max-total-bytes: 32768
   max-bulk-operations: 16
   deny-keys: []
-  profiles:
-    run-env:
-      operations: [capabilities.list, run.env.bind, run.env.set, run.env.unset, run.env.get, run.env.list, run.env.bulk]
-    platform-admin:
-      operations: [capabilities.list, catalog.defaults.get, catalog.validate, run.env.bind, run.env.set, run.env.unset, run.env.get, run.env.list, run.env.bulk, runtime.status, security.explain]
-  bindings:
-    - profile: run-env
-      agentKeys: [builtin-httpx.demo, cutej]
-    - profile: platform-admin
-      agentKeys: [cutej, desktopAssistant, zenmi, zenmiKnowledge]
 ```
 
-随包示例把当前在线办公 Agent `builtin-httpx.demo`、`cutej` 绑定 `run-env`，把 `cutej`、`desktopAssistant`、`zenmi`、`zenmiKnowledge` 绑定 `platform-admin`；实际部署仍以 `configs/tools.yml` 为事实源。空 `agentKeys` 不授权任何 Agent。同一 Agent 可命中多个 profile，operation 取并集；因此 `cutej` 同时拥有两组能力。未绑定 profile 时只有 `capabilities.list`。未知 profile、未知/重复 operation、重复/空 Agent key 会使启动失败。
-
-profile 不会自动把工具加入 Agent。Agent 仍必须在 `toolConfig.tools` 中显式配置 `platform_control`；`explicitOnly:true` 保证其他 Agent 不会偶然获得它。
+Agent 必须在 `toolConfig.tools` 中显式配置 `platform_control`；`explicitOnly:true` 保证其他 Agent 不会偶然获得它。显式挂载就是完整 operation 授权，不再通过 `profiles/bindings` 按 Agent 二次分组。旧 `platform-control.profiles` 和 `platform-control.bindings` 会使配置加载硬失败，避免无效配置被静默忽略。
 
 每个动态 key 还必须由 Agent 的 `runtimeConfig.runEnv` 声明：
 
@@ -206,7 +193,7 @@ mutation 默认以 `runId + toolId` 幂等；显式 `idempotencyKey` 允许 1–
 [bash/httpx, run.env.bind] -> 前者看到旧 revision
 ```
 
-`approval: each-change` 使用现有 approval HITL。展示内容只有 operation、key、value byte length、`source=run.dynamic` 和 targets，不含 value。进入等待时若未显式给 revision，Platform 注入当前 `expectedRevision`；批准后执行前重新走 operation/profile/policy/revision/value 全部校验。批准令牌按 tool ID 一次性消费。
+`approval: each-change` 使用现有 approval HITL。展示内容只有 operation、key、value byte length、`source=run.dynamic` 和 targets，不含 value。进入等待时若未显式给 revision，Platform 注入当前 `expectedRevision`；批准后执行前重新走 operation/stage/policy/revision/value 全部校验。批准令牌按 tool ID 一次性消费。
 
 等待中的 approval 不持久化明文参数。进程重启后沿用现有“approval 不可恢复”的终态对账；question/planning 可恢复路径见下一节。
 
@@ -268,7 +255,7 @@ TOML 不使用 `from="shell"`、`/bin/sh` 或 `KEY=value httpx`。相邻 httpx b
 | 位置 | 职责 |
 | --- | --- |
 | `internal/platformcontrol/operations.go` | operation registry、descriptor、approval 摘要与参数脱敏 |
-| `internal/platformcontrol/tool_handler.go` | profile 授权、严格参数校验、11 个 operation 和固定 envelope |
+| `internal/platformcontrol/tool_handler.go` | 严格参数校验、当前 run/stage 可用性、11 个 operation 和固定 envelope |
 | `internal/runenv/policy.go` | Agent policy、name/value/target/full-match 校验与 hard deny |
 | `internal/runenv/state.go` | RWMutex State、snapshot、bind/set/unset/bulk、revision 与 HMAC 幂等 |
 | `internal/runenv/store.go` | AES-GCM checkpoint、恢复、原子替换和 Store 索引 |
@@ -285,11 +272,11 @@ TOML 不使用 `from="shell"`、`/bin/sh` 或 `KEY=value httpx`。相邻 httpx b
 
 ## 11. 测试矩阵与发布门禁
 
-Go 自动化覆盖 policy/value 限制、bind 幂等、mutable/unset 回退、bulk 原子性、revision、HMAC 幂等、并发 snapshot、checkpoint 恢复/篡改/cleanup、profile/Skill 不提权、child policy 交集、operation-aware planning/barrier、SSE 参数脱敏、Host 环境继承且父进程不变、Container reuse/command snapshot 和 Windows 大小写环境合并。
+Go 自动化覆盖显式 Tool 授予全部 operation、policy/value 限制、bind 幂等、mutable/unset 回退、bulk 原子性、revision、HMAC 幂等、并发 snapshot、checkpoint 恢复/篡改/cleanup、Skill 不挂载 Tool、child policy 交集、operation-aware planning/barrier、SSE 参数脱敏、Host 环境继承且父进程不变、Container reuse/command snapshot 和 Windows 大小写环境合并。
 
 | 层级 | 必须覆盖 |
 | --- | --- |
-| Unit | 11 个 operation 的严格参数、profile/stage/root-child-team、name/value/limit、bind/set/unset/bulk、revision/幂等、脱敏 |
+| Unit | 11 个 operation 的严格参数、显式 Tool/stage/root-child-team、name/value/limit、bind/set/unset/bulk、revision/幂等、脱敏 |
 | Concurrency | bind→bash 与逆序、需审批 barrier 不重排、snapshot/mutation 线性化、两个 run 不串值、`go test -race ./...` |
 | Lifecycle | question/planning 恢复、缺文件/篡改/错密钥/policy 变更 fail-closed、所有终态 cleanup |
 | Execution | Linux/macOS Host、Windows PowerShell/CreateProcess、Container 复用 session 的新 command；Terminal/MCP/ACP/LSP/sidecar 负向用例 |
@@ -308,7 +295,7 @@ make test
 
 ## 12. 分阶段交付
 
-1. 控制面重构：不兼容删除 `platform_config`，引入固定 Schema、operation registry、profile 与现有 Catalog 能力迁移。
+1. 控制面重构：不兼容删除 `platform_config`，引入固定 Schema、operation registry 与现有 Catalog 能力迁移；后续移除 operation profiles，显式挂载 Tool 即授予全部 operation。
 2. Run env 核心：引入 policy/State/Store/checkpoint，冻结静态层，接入 Host/Container command snapshot 和统一终态销毁。
 3. LLM/HITL/回放安全：按 descriptor 执行 planning/barrier/approval，对工具参数全链路缓冲和脱敏，恢复失败终结单个 run。
 4. Online office 迁移：httpx 增加 env/trim/full-match/output_template，online-docx 切换为 bind + env，移除 shell 路径。

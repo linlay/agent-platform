@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 
 	agentcoder "agent-platform/internal/agent/coder"
@@ -54,10 +53,6 @@ func (h *ToolHandler) Invoke(_ context.Context, _ string, args map[string]any, e
 	}
 	if !h.cfg.PlatformControl.Enabled {
 		return operationError(operationName, "platform_control_disabled", "platform_control is disabled", execCtx), nil
-	}
-	allowed, _ := h.operationAllowed(execCtx, operationName)
-	if !allowed {
-		return operationError(operationName, "platform_control_operation_forbidden", "operation is not permitted for the current agent", execCtx), nil
 	}
 	if execCtx != nil && !descriptor.AllowsExecutionPolicy(execCtx.ToolExecutionPolicy) {
 		return operationError(operationName, "platform_control_stage_forbidden", "operation is not permitted in the current stage", execCtx), nil
@@ -377,44 +372,6 @@ func requireStringFields(params map[string]any, fields ...string) error {
 	return nil
 }
 
-func (h *ToolHandler) operationAllowed(execCtx *contracts.ExecutionContext, operation string) (bool, []string) {
-	if operation == "capabilities.list" {
-		return true, nil
-	}
-	agentKey := ""
-	if execCtx != nil {
-		agentKey = strings.TrimSpace(execCtx.Session.AgentKey)
-	}
-	profiles := make([]string, 0)
-	allowed := false
-	for _, binding := range h.cfg.PlatformControl.Bindings {
-		matched := false
-		for _, key := range binding.AgentKeys {
-			if strings.EqualFold(strings.TrimSpace(key), agentKey) {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			continue
-		}
-		profile, ok := h.cfg.PlatformControl.Profiles[binding.Profile]
-		if !ok {
-			continue
-		}
-		if !containsFold(profiles, binding.Profile) {
-			profiles = append(profiles, binding.Profile)
-		}
-		for _, candidate := range profile.Operations {
-			if strings.EqualFold(strings.TrimSpace(candidate), operation) {
-				allowed = true
-			}
-		}
-	}
-	sort.Strings(profiles)
-	return allowed, profiles
-}
-
 func (h *ToolHandler) capabilities(execCtx *contracts.ExecutionContext, _ []string) contracts.ToolExecutionResult {
 	agentKey := ""
 	revision := uint64(0)
@@ -424,53 +381,19 @@ func (h *ToolHandler) capabilities(execCtx *contracts.ExecutionContext, _ []stri
 			revision = execCtx.RunEnvironment.Revision()
 		}
 	}
-	allowed := []string{"capabilities.list"}
-	profiles := []string{}
-	seen := map[string]bool{"capabilities.list": true}
-	for _, binding := range h.cfg.PlatformControl.Bindings {
-		matched := false
-		for _, key := range binding.AgentKeys {
-			if strings.EqualFold(strings.TrimSpace(key), agentKey) {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			continue
-		}
-		profile, ok := h.cfg.PlatformControl.Profiles[binding.Profile]
-		if !ok {
-			continue
-		}
-		if !containsFold(profiles, binding.Profile) {
-			profiles = append(profiles, binding.Profile)
-		}
-		for _, operation := range profile.Operations {
-			operation = strings.ToLower(strings.TrimSpace(operation))
-			descriptor, exists := LookupOperation(operation)
-			available, _ := operationAvailable(execCtx, descriptor)
-			if exists && available && !seen[operation] {
-				seen[operation] = true
-				allowed = append(allowed, operation)
-			}
+	allowed := make([]string, 0, len(descriptors))
+	for _, operation := range OperationNames() {
+		descriptor, exists := LookupOperation(operation)
+		available, _ := operationAvailable(execCtx, descriptor)
+		if exists && available {
+			allowed = append(allowed, operation)
 		}
 	}
-	sort.Strings(allowed)
-	sort.Strings(profiles)
 	return successResult(map[string]any{
-		"agentKey": agentKey, "profiles": profiles, "operations": allowed,
+		"agentKey": agentKey, "operations": allowed,
 		"limits":         map[string]any{"maxDynamicKeys": h.cfg.PlatformControl.MaxDynamicKeys, "maxValueBytes": h.cfg.PlatformControl.MaxValueBytes, "maxTotalBytes": h.cfg.PlatformControl.MaxTotalBytes, "maxBulkOperations": h.cfg.PlatformControl.MaxBulkOperations},
 		"runEnvRevision": revision,
 	})
-}
-
-func containsFold(values []string, target string) bool {
-	for _, value := range values {
-		if strings.EqualFold(strings.TrimSpace(value), strings.TrimSpace(target)) {
-			return true
-		}
-	}
-	return false
 }
 
 func operationAvailable(execCtx *contracts.ExecutionContext, descriptor Descriptor) (bool, string) {
@@ -673,18 +596,15 @@ func (h *ToolHandler) securityExplain(operationName string, params map[string]an
 	}
 	target := strings.ToLower(strings.TrimSpace(stringValue(params, "operation")))
 	descriptor, known := LookupOperation(target)
-	authorized, profiles := h.operationAllowed(execCtx, target)
 	available, unavailableReason := operationAvailable(execCtx, descriptor)
-	allowed := known && authorized && available
-	data := map[string]any{"operation": target, "known": known, "allowed": allowed, "authorizedByProfile": authorized, "profiles": profiles}
+	allowed := known && available
+	data := map[string]any{"operation": target, "known": known, "allowed": allowed}
 	if known {
 		data["riskClass"] = descriptor.RiskClass
 		data["readOnly"] = descriptor.ReadOnly
 		data["barrier"] = descriptor.Barrier
-		if authorized && !available {
+		if !available {
 			data["reason"] = unavailableReason
-		} else if !authorized {
-			data["reason"] = "operation is not granted by the current agent profile"
 		}
 	}
 	if key := strings.ToUpper(strings.TrimSpace(stringValue(params, "key"))); key != "" {

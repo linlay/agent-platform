@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 
-	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/runenv"
 )
@@ -14,35 +13,34 @@ import (
 const ToolName = "platform_control"
 
 type Descriptor struct {
-	Name               string
-	RiskClass          string
-	ReadOnly           bool
-	Barrier            bool
-	SensitivePaths     []string
-	AllowedStages      []string
-	RequiredCapability string
-	Validate           func(map[string]any) error
-	Invoke             func(*ToolHandler, string, map[string]any, *contracts.ExecutionContext) contracts.ToolExecutionResult
+	Name           string
+	RiskClass      string
+	ReadOnly       bool
+	Barrier        bool
+	SensitivePaths []string
+	AllowedStages  []string
+	Validate       func(map[string]any) error
+	Invoke         func(*ToolHandler, string, map[string]any, *contracts.ExecutionContext) contracts.ToolExecutionResult
 }
 
 var descriptors = map[string]Descriptor{
-	"capabilities.list":    operation("capabilities.list", "low", true, false, nil, "all", "capabilities"),
-	"catalog.defaults.get": operation("catalog.defaults.get", "low", true, false, nil, "all", "catalog"),
-	"catalog.validate":     operation("catalog.validate", "low", true, false, []string{"params.content"}, "all", "catalog"),
-	"run.env.bind":         operation("run.env.bind", "high", false, true, []string{"params.value", "params.idempotencyKey"}, "main", "run.env"),
-	"run.env.set":          operation("run.env.set", "high", false, true, []string{"params.value", "params.idempotencyKey"}, "main", "run.env"),
-	"run.env.unset":        operation("run.env.unset", "high", false, true, []string{"params.idempotencyKey"}, "main", "run.env"),
-	"run.env.get":          operation("run.env.get", "low", true, false, nil, "all", "run.env"),
-	"run.env.list":         operation("run.env.list", "low", true, false, nil, "all", "run.env"),
-	"run.env.bulk":         operation("run.env.bulk", "high", false, true, []string{"params.changes.*.value", "params.idempotencyKey"}, "main", "run.env"),
-	"runtime.status":       operation("runtime.status", "low", true, false, nil, "all", "runtime"),
-	"security.explain":     operation("security.explain", "low", true, false, nil, "all", "security"),
+	"capabilities.list":    operation("capabilities.list", "low", true, false, nil, "all"),
+	"catalog.defaults.get": operation("catalog.defaults.get", "low", true, false, nil, "all"),
+	"catalog.validate":     operation("catalog.validate", "low", true, false, []string{"params.content"}, "all"),
+	"run.env.bind":         operation("run.env.bind", "high", false, true, []string{"params.value", "params.idempotencyKey"}, "main"),
+	"run.env.set":          operation("run.env.set", "high", false, true, []string{"params.value", "params.idempotencyKey"}, "main"),
+	"run.env.unset":        operation("run.env.unset", "high", false, true, []string{"params.idempotencyKey"}, "main"),
+	"run.env.get":          operation("run.env.get", "low", true, false, nil, "all"),
+	"run.env.list":         operation("run.env.list", "low", true, false, nil, "all"),
+	"run.env.bulk":         operation("run.env.bulk", "high", false, true, []string{"params.changes.*.value", "params.idempotencyKey"}, "main"),
+	"runtime.status":       operation("runtime.status", "low", true, false, nil, "all"),
+	"security.explain":     operation("security.explain", "low", true, false, nil, "all"),
 }
 
-func operation(name, risk string, readOnly, barrier bool, sensitive []string, stage, capability string) Descriptor {
+func operation(name, risk string, readOnly, barrier bool, sensitive []string, stage string) Descriptor {
 	return Descriptor{
 		Name: name, RiskClass: risk, ReadOnly: readOnly, Barrier: barrier, SensitivePaths: sensitive,
-		AllowedStages: []string{stage}, RequiredCapability: capability,
+		AllowedStages: []string{stage},
 	}
 }
 
@@ -82,46 +80,6 @@ func OperationNames() []string {
 	}
 	sort.Strings(names)
 	return names
-}
-
-func ValidateConfiguration(cfg config.PlatformControlConfig) error {
-	for name, profile := range cfg.Profiles {
-		if strings.TrimSpace(name) == "" {
-			return fmt.Errorf("platform-control profile name must not be empty")
-		}
-		seen := map[string]bool{}
-		for _, raw := range profile.Operations {
-			operation := strings.ToLower(strings.TrimSpace(raw))
-			if _, ok := LookupOperation(operation); !ok {
-				return fmt.Errorf("platform-control profile %s contains unsupported operation %q", name, raw)
-			}
-			if seen[operation] {
-				return fmt.Errorf("platform-control profile %s contains duplicate operation %q", name, operation)
-			}
-			seen[operation] = true
-		}
-	}
-	for index, binding := range cfg.Bindings {
-		profileName := strings.TrimSpace(binding.Profile)
-		if profileName == "" {
-			return fmt.Errorf("platform-control binding %d profile must not be empty", index)
-		}
-		if _, ok := cfg.Profiles[profileName]; !ok {
-			return fmt.Errorf("platform-control binding %d references unknown profile %q", index, profileName)
-		}
-		seen := map[string]bool{}
-		for _, raw := range binding.AgentKeys {
-			key := strings.ToLower(strings.TrimSpace(raw))
-			if key == "" {
-				return fmt.Errorf("platform-control binding %d contains an empty agent key", index)
-			}
-			if seen[key] {
-				return fmt.Errorf("platform-control binding %d contains duplicate agent key %q", index, raw)
-			}
-			seen[key] = true
-		}
-	}
-	return nil
 }
 
 func InvocationDescriptor(toolName string, args map[string]any) (Descriptor, bool) {

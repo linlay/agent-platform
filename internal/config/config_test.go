@@ -1938,20 +1938,14 @@ func TestLoadAPEnvAndRuntimeYAMLWithToolsYAMLConfig(t *testing.T) {
 	})
 }
 
-func TestLoadPlatformControlProfilesAndLimits(t *testing.T) {
+func TestLoadPlatformControlLimits(t *testing.T) {
 	content := "platform-control:\n" +
 		"  enabled: true\n" +
 		"  max-dynamic-keys: 12\n" +
 		"  max-value-bytes: 512\n" +
 		"  max-total-bytes: 4096\n" +
 		"  max-bulk-operations: 4\n" +
-		"  deny-keys: [CUSTOM_DENY]\n" +
-		"  profiles:\n" +
-		"    run-env:\n" +
-		"      operations: [capabilities.list, run.env.bind]\n" +
-		"  bindings:\n" +
-		"    - profile: run-env\n" +
-		"      agentKeys: [office]\n"
+		"  deny-keys: [CUSTOM_DENY]\n"
 	withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
 		cfg, err := Load()
 		if err != nil {
@@ -1960,13 +1954,27 @@ func TestLoadPlatformControlProfilesAndLimits(t *testing.T) {
 		if cfg.PlatformControl.MaxDynamicKeys != 12 || cfg.PlatformControl.MaxValueBytes != 512 || cfg.PlatformControl.MaxTotalBytes != 4096 || cfg.PlatformControl.MaxBulkOperations != 4 {
 			t.Fatalf("limits = %#v", cfg.PlatformControl)
 		}
-		if got := cfg.PlatformControl.Profiles["run-env"].Operations; !reflect.DeepEqual(got, []string{"capabilities.list", "run.env.bind"}) {
-			t.Fatalf("operations = %#v", got)
-		}
-		if len(cfg.PlatformControl.Bindings) != 1 || !reflect.DeepEqual(cfg.PlatformControl.Bindings[0].AgentKeys, []string{"office"}) {
-			t.Fatalf("bindings = %#v", cfg.PlatformControl.Bindings)
+		if !reflect.DeepEqual(cfg.PlatformControl.DenyKeys, []string{"CUSTOM_DENY"}) {
+			t.Fatalf("deny keys = %#v", cfg.PlatformControl.DenyKeys)
 		}
 	})
+}
+
+func TestLoadRejectsRemovedPlatformControlAuthorization(t *testing.T) {
+	for _, field := range []string{"profiles", "bindings"} {
+		t.Run(field, func(t *testing.T) {
+			content := "platform-control:\n  " + field + ": {}\n"
+			if field == "bindings" {
+				content = "platform-control:\n  bindings: []\n"
+			}
+			withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
+				_, err := Load()
+				if err == nil || !strings.Contains(err.Error(), "platform-control."+field+" was removed") {
+					t.Fatalf("Load error = %v", err)
+				}
+			})
+		})
+	}
 }
 
 func TestLoadBashShellArgsFromFile(t *testing.T) {
