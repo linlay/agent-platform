@@ -100,3 +100,47 @@ file-tools:
           rust:
             command: rust-analyzer
             args: []
+
+# System control-plane authorization. Skills only explain how to use this
+# tool; they never add an operation or run-env key permission.
+platform-control:
+  enabled: true
+  max-dynamic-keys: 32
+  max-value-bytes: 4096
+  max-total-bytes: 32768
+  max-bulk-operations: 16
+  deny-keys: []
+  profiles:
+    run-env:
+      operations:
+        - capabilities.list
+        - run.env.bind
+        - run.env.set
+        - run.env.unset
+        - run.env.get
+        - run.env.list
+        - run.env.bulk
+    platform-admin:
+      operations:
+        - capabilities.list
+        - catalog.defaults.get
+        - catalog.validate
+        - run.env.bind
+        - run.env.set
+        - run.env.unset
+        - run.env.get
+        - run.env.list
+        - run.env.bulk
+        - runtime.status
+        - security.explain
+  bindings:
+    - profile: run-env
+      agentKeys:
+        - builtin-httpx.demo
+        - cutej
+    - profile: platform-admin
+      agentKeys:
+        - cutej
+        - desktopAssistant
+        - zenmi
+        - zenmiKnowledge

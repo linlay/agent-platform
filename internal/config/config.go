@@ -41,6 +41,7 @@ type Config struct {
 	Bash            BashConfig
 	SandboxBash     SandboxBashConfig
 	FileTools       FileToolsConfig
+	PlatformControl PlatformControlConfig
 	WebSocket       WebSocketConfig
 	// Gateways 是多 gateway 反向连接列表（wecom / feishu / ding / ...）。
 	Gateways []GatewayEntry
@@ -94,6 +95,28 @@ type PathsConfig struct {
 	KBaseDir        string
 	PanDir          string
 	SkillsCenterDir string
+	RunStateDir     string
+}
+
+type PlatformControlConfig struct {
+	Enabled           bool
+	Profiles          map[string]PlatformControlProfileConfig
+	Bindings          []PlatformControlBindingConfig
+	DenyKeys          []string
+	MaxDynamicKeys    int
+	MaxValueBytes     int
+	MaxTotalBytes     int
+	MaxBulkOperations int
+	CheckpointKeyFile string
+}
+
+type PlatformControlProfileConfig struct {
+	Operations []string
+}
+
+type PlatformControlBindingConfig struct {
+	Profile   string
+	AgentKeys []string
 }
 
 // EffectiveRUAgentsDir returns the configured assembled Agent root. The

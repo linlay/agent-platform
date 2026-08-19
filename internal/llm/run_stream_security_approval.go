@@ -8,6 +8,7 @@ import (
 	"agent-platform/internal/bashsec"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/hitl"
+	"agent-platform/internal/platformcontrol"
 )
 
 func (s *llmRunStream) registerBashSecurityApproval(fingerprint string) {
@@ -52,7 +53,7 @@ func (s *llmRunStream) sandboxBashSecurityOverrideAction(invocation *preparedToo
 	}
 	overrides := s.engine.cfg.SandboxBash.Security.BashsecOverrides
 	command := strings.TrimSpace(mapStringArg(invocation.args, "command"))
-	if sandboxBashHasHeredocOutputRedirection(command, s.execCtxRuntimeEnvOverrides()) {
+	if sandboxBashHasHeredocOutputRedirection(command, s.knownRuntimeVariables()) {
 		if action := strings.TrimSpace(overrides.HeredocOutputRedirection); action != "" {
 			return action
 		}
@@ -75,13 +76,6 @@ func (s *llmRunStream) executeSandboxBashSecurityOverride(invocation *preparedTo
 	default:
 		return false, nil
 	}
-}
-
-func (s *llmRunStream) execCtxRuntimeEnvOverrides() map[string]string {
-	if s == nil || s.execCtx == nil {
-		return nil
-	}
-	return s.execCtx.RuntimeEnvOverrides
 }
 
 func sandboxBashHasHeredocOutputRedirection(command string, variables map[string]string) bool {
@@ -206,5 +200,13 @@ func fileAccessInterceptResult(plan filetools.AccessPlan) hitl.InterceptResult {
 		OriginalCommand: plan.CommandText,
 		MatchedCommand:  plan.CommandText,
 		MatchedWhole:    true,
+	}
+}
+
+func platformControlInterceptResult(metadata platformcontrol.ApprovalMetadata) hitl.InterceptResult {
+	return hitl.InterceptResult{
+		Intercepted:     true,
+		Rule:            hitl.FlatRule{RuleKey: "platform-control::run-env", Level: 2, Title: "Run environment change approval", ViewportType: "builtin", ViewportKey: "approval"},
+		OriginalCommand: metadata.Display, MatchedCommand: metadata.Display, MatchedWhole: true,
 	}
 }

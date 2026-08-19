@@ -13,6 +13,7 @@ import (
 
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/observability"
+	"agent-platform/internal/platformcontrol"
 )
 
 type llmChatTrace struct {
@@ -200,10 +201,14 @@ func (t *llmChatTrace) appendToolCalls(toolCalls []openAIToolCall) {
 	defer t.mu.Unlock()
 	items, _ := t.payload["toolCalls"].([]any)
 	for _, call := range toolCalls {
+		arguments := call.Function.Arguments
+		if strings.EqualFold(strings.TrimSpace(call.Function.Name), platformcontrol.ToolName) {
+			arguments = platformcontrol.SanitizeArguments(arguments)
+		}
 		items = append(items, map[string]any{
 			"toolId":       strings.TrimSpace(call.ID),
 			"toolName":     strings.TrimSpace(call.Function.Name),
-			"rawArguments": call.Function.Arguments,
+			"rawArguments": arguments,
 		})
 	}
 	t.payload["toolCalls"] = items
@@ -320,12 +325,16 @@ func traceReadableTimeKey(atKey string) string {
 func traceResponseToolCalls(toolCalls []openAIToolCall) []any {
 	out := make([]any, 0, len(toolCalls))
 	for _, call := range toolCalls {
+		arguments := call.Function.Arguments
+		if strings.EqualFold(strings.TrimSpace(call.Function.Name), platformcontrol.ToolName) {
+			arguments = platformcontrol.SanitizeArguments(arguments)
+		}
 		out = append(out, map[string]any{
 			"id":   strings.TrimSpace(call.ID),
 			"type": strings.TrimSpace(call.Type),
 			"function": map[string]any{
 				"name":      strings.TrimSpace(call.Function.Name),
-				"arguments": call.Function.Arguments,
+				"arguments": arguments,
 			},
 		})
 	}

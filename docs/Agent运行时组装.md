@@ -80,9 +80,14 @@ Agent runtimeConfig.env
   < Skill 1 .runtime-env.json
   < Skill 2 .runtime-env.json
   < ...
+  < current run dynamic env
+  < invocation env
+  < Platform reserved context
 ```
 
-后声明 Skill 覆盖前面的同名键。`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`、`AP_ACCESS_TOKEN` 都是 Platform 保留变量，Agent、Skill 和调用级 env 不得声明。前三者按 Host/Container 执行上下文最后注入；Workspace Terminal 只注入前两个变量；`AP_ACCESS_TOKEN` 仅由普通 Agent Host Bash 在进程创建前读取有效 identity 文件后注入，默认文件为 `<AP_RUNTIME_DIR>/identity/access-token`，显式 `--identity-file <absolute-path>` 优先。
+后声明 Skill 覆盖前面的同名键。动态层由 `platform_control run.env.*` 修改当前 root run 的共享 State，不写回 Agent、Skill 或 `ru-agents`。`mustUseSkills` 不合并动态权限或额外 Skill runtime env。`AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR`、`AP_ACCESS_TOKEN` 都是 Platform 保留变量，Agent、Skill、动态层和调用级 env 不得声明。前三者按 Host/Container 执行上下文最后注入；Workspace Terminal 只注入前两个变量；`AP_ACCESS_TOKEN` 仅由普通 Agent Host Bash 在进程创建前读取有效 identity 文件后注入，默认文件为 `<AP_RUNTIME_DIR>/identity/access-token`，显式 `--identity-file <absolute-path>` 优先。
+
+ExecutionContext clone 只复制静态 map，动态 State 指针在同一 run 内共享。子 Agent 只有自己也在 `runtimeConfig.runEnv` 声明同名 key 且 targets 与父 policy 相交时才会获得该 value snapshot，并且不能 mutation。`run_query` 新 root、Team、Terminal、MCP、ACP、LSP 与长期服务不继承该 State。
 
 ## 发布与热重载
 

@@ -682,8 +682,8 @@ func TestPrepareQueryAllowsRuntimeEnvWithoutContainerHub(t *testing.T) {
 	if prepared.session.AgentHasRuntimeSandbox {
 		t.Fatal("expected env-only runtime config to avoid sandbox routing")
 	}
-	if got := prepared.session.RuntimeEnvOverrides["HTTP_PROXY"]; got != "http://127.0.0.1:8001" {
-		t.Fatalf("RuntimeEnvOverrides[HTTP_PROXY] = %q", got)
+	if got := prepared.session.StaticRuntimeEnv["HTTP_PROXY"]; got != "http://127.0.0.1:8001" {
+		t.Fatalf("StaticRuntimeEnv[HTTP_PROXY] = %q", got)
 	}
 	if !containsString(prepared.session.ToolNames, "bash") {
 		t.Fatalf("expected bash tool for runtime env overrides, got %#v", prepared.session.ToolNames)
@@ -734,8 +734,8 @@ func TestPrepareQueryDesktopParamsDoNotGrantToolsOrRuntimeEnv(t *testing.T) {
 		"CDP_HOST": "127.0.0.1",
 		"CDP_PORT": "11789",
 	}
-	if !reflect.DeepEqual(prepared.session.RuntimeEnvOverrides, expectedRuntimeEnv) {
-		t.Fatalf("unexpected runtime env overrides: %#v", prepared.session.RuntimeEnvOverrides)
+	if !reflect.DeepEqual(prepared.session.StaticRuntimeEnv, expectedRuntimeEnv) {
+		t.Fatalf("unexpected static runtime env: %#v", prepared.session.StaticRuntimeEnv)
 	}
 }
 

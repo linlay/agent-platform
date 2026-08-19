@@ -1,0 +1,484 @@
+package platformcontrol
+
+import (
+	"context"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+
+	agentcoder "agent-platform/internal/agent/coder"
+	agentkbase "agent-platform/internal/agent/kbase"
+	"agent-platform/internal/api"
+	"agent-platform/internal/catalog"
+	"agent-platform/internal/config"
+	"agent-platform/internal/contracts"
+	"agent-platform/internal/runenv"
+)
+
+func TestGetCoderCreationDefaultsMatchesModeCreateDefaults(t *testing.T) {
+	cfg := config.Config{
+		CoderSettings: config.CoderSettingsConfig{
+			DefaultAgent: config.CoderDefaultAgentConfig{
+				ModelKey:        "coder-model",
+				ReasoningEffort: "HIGH",
+				Budget:          map[string]any{"maxSteps": 88},
+			},
+			ACPBridges: map[string]config.CoderACPBridgeConfig{
+				"secret-bridge": {AuthToken: "sk-do-not-leak"},
+			},
+		},
+		ResourceTicket: config.ResourceTicketConfig{Secret: "resource-ticket-secret"},
+		ContainerHub:   config.ContainerHubConfig{AuthToken: "container-hub-secret"},
+		Gateways:       []config.GatewayEntry{{ID: "private-gateway", JwtToken: "gateway-jwt-secret"}},
+	}
+	handler := NewToolHandler(cfg, nil)
+	result, err := invokeTestOperation(handler, "catalog.defaults.get", map[string]any{"path": CoderCreationPath})
+	if err != nil || result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("get coder defaults failed: result=%#v err=%v", result, err)
+	}
+	want := agentcoder.ApplyCreateDefaults(map[string]any{"mode": agentcoder.Mode}, agentcoder.CreateDefaults{
+		ModelKey: "coder-model", ReasoningEffort: "HIGH", Budget: map[string]any{"maxSteps": 88},
+	})
+	if got := result.Structured["definitionDefaults"]; !reflect.DeepEqual(got, want) {
+		t.Fatalf("definitionDefaults = %#v, want %#v", got, want)
+	}
+	if result.Structured["ready"] != true {
+		t.Fatalf("ready = %#v, want true", result.Structured["ready"])
+	}
+	for _, secret := range []string{"sk-do-not-leak", "secret-bridge", "resource-ticket-secret", "container-hub-secret", "gateway-jwt-secret"} {
+		if strings.Contains(result.Output, secret) {
+			t.Fatalf("response leaked sensitive configuration %q: %s", secret, result.Output)
+		}
+	}
+}
+
+func TestGetCoderCreationDefaultsReportsMissingModel(t *testing.T) {
+	result, _ := invokeTestOperation(NewToolHandler(config.Config{}, nil), "catalog.defaults.get", map[string]any{"path": CoderCreationPath})
+	if result.Structured["ready"] != false {
+		t.Fatalf("ready = %#v, want false", result.Structured["ready"])
+	}
+	if got, want := result.Structured["missingFields"], []string{"modelConfig.modelKey"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("missingFields = %#v, want %#v", got, want)
+	}
+}
+
+func TestGetKBaseCreationDefaultsAndMissingFields(t *testing.T) {
+	t.Run("ready", func(t *testing.T) {
+		cfg := config.Config{KBase: config.KBaseConfig{
+			DefaultAgent: config.KBaseDefaultAgentConfig{ModelKey: "answer-model", ReasoningEffort: "MEDIUM"},
+			Embedding:    config.KBaseEmbeddingConfig{ModelKey: "embedding-model"},
+		}}
+		result, _ := invokeTestOperation(NewToolHandler(cfg, nil), "catalog.defaults.get", map[string]any{"path": KBaseCreationPath})
+		want := agentkbase.ApplyCreateDefaults(map[string]any{"mode": agentkbase.Mode}, agentkbase.CreateDefaults{
+			ModelKey: "answer-model", ReasoningEffort: "MEDIUM", EmbeddingModelKey: "embedding-model",
+		})
+		if !reflect.DeepEqual(result.Structured["definitionDefaults"], want) || result.Structured["ready"] != true {
+			t.Fatalf("unexpected KBASE defaults: %#v", result.Structured)
+		}
+	})
+
+	t.Run("missing", func(t *testing.T) {
+		result, _ := invokeTestOperation(NewToolHandler(config.Config{}, nil), "catalog.defaults.get", map[string]any{"path": KBaseCreationPath})
+		if result.Structured["ready"] != false {
+			t.Fatalf("ready = %#v, want false", result.Structured["ready"])
+		}
+		missing, _ := result.Structured["missingFields"].([]string)
+		want := []string{"modelConfig.modelKey", "kbaseConfig.embedding.modelKey"}
+		if !reflect.DeepEqual(missing, want) {
+			t.Fatalf("missingFields = %#v, want %#v", missing, want)
+		}
+	})
+}
+
+func TestGetRejectsEveryNonAllowlistedPath(t *testing.T) {
+	handler := NewToolHandler(config.Config{}, nil)
+	for _, path := range []string{"agents.creation", "agents.creation.coder.modelConfig.modelKey", "paths.agentsDir", "*", ""} {
+		result, _ := invokeTestOperation(handler, "catalog.defaults.get", map[string]any{"path": path})
+		if result.Error != "unsupported_config_path" {
+			t.Fatalf("path %q error = %q, want unsupported_config_path", path, result.Error)
+		}
+	}
+}
+
+func TestValidateRequiresConditionalArgumentsAtRuntime(t *testing.T) {
+	handler := NewToolHandler(config.Config{}, nil)
+	tests := []struct {
+		name string
+		args map[string]any
+		code string
+	}{
+		{
+			name: "missing resource key",
+			args: map[string]any{"resourceType": "agent", "content": "key: demo"},
+			code: "platform_control_invalid_params",
+		},
+		{
+			name: "missing content",
+			args: map[string]any{"resourceType": "agent", "resourceKey": "demo"},
+			code: "platform_control_invalid_params",
+		},
+		{
+			name: "missing resource type",
+			args: map[string]any{"resourceKey": "demo", "content": "key: demo"},
+			code: "platform_control_invalid_params",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := invokeTestOperation(handler, "catalog.validate", tc.args)
+			if err != nil {
+				t.Fatalf("validate returned error: %v", err)
+			}
+			if result.Error != tc.code || result.ExitCode != -1 {
+				t.Fatalf("validate result = %#v, want error %s", result, tc.code)
+			}
+		})
+	}
+}
+
+func TestInvokeStrictlyValidatesFixedEnvelope(t *testing.T) {
+	handler := NewToolHandler(config.Config{PlatformControl: config.PlatformControlConfig{Enabled: true}}, nil)
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+		code string
+	}{
+		{name: "missing operation", args: map[string]any{}, code: "platform_control_invalid_params"},
+		{name: "non-string operation", args: map[string]any{"operation": 7}, code: "platform_control_invalid_params"},
+		{name: "null params", args: map[string]any{"operation": "capabilities.list", "params": nil}, code: "platform_control_invalid_params"},
+		{name: "unknown operation", args: map[string]any{"operation": "future.operation"}, code: "platform_control_invalid_operation"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := handler.Invoke(context.Background(), ToolName, tc.args, &contracts.ExecutionContext{})
+			if err != nil || result.Error != tc.code {
+				t.Fatalf("Invoke() result=%#v err=%v, want %s", result, err, tc.code)
+			}
+		})
+	}
+}
+
+func TestValidateCandidateResources(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	knowledgeRoot := t.TempDir()
+	registry := stubRegistry{agents: map[string]catalog.AgentDefinition{
+		"member": {Key: "member", Mode: "REACT", ModelKey: "chat-model"},
+	}}
+	handler := NewToolHandler(config.Config{Skills: config.SkillCatalogConfig{MaxPromptChars: 8000}}, registry)
+
+	tests := []struct {
+		name         string
+		resourceType string
+		resourceKey  string
+		content      string
+		wantValid    bool
+	}{
+		{
+			name: "agent valid", resourceType: "agent", resourceKey: "coder-demo", wantValid: true,
+			content: "key: coder-demo\nname: Demo\nmode: CODER\nmodelConfig:\n  modelKey: chat-model\nruntimeConfig:\n  workspaceRoot: " + workspaceRoot + "\n",
+		},
+		{
+			name: "agent key mismatch", resourceType: "agent", resourceKey: "coder-demo", wantValid: false,
+			content: "key: another\nname: Demo\nmode: CODER\nmodelConfig:\n  modelKey: chat-model\nruntimeConfig:\n  workspaceRoot: " + workspaceRoot + "\n",
+		},
+		{
+			name: "agent syntax error", resourceType: "agent", resourceKey: "coder-demo", wantValid: false,
+			content: "key: coder-demo\n  broken: value\n",
+		},
+		{
+			name: "kbase agent valid", resourceType: "agent", resourceKey: "kbase-demo", wantValid: true,
+			content: "key: kbase-demo\nname: Knowledge\nmode: KBASE\nruntimeConfig:\n  workspaceRoot: " + knowledgeRoot + "\nkbaseConfig:\n  embedding:\n    modelKey: embedding-model\nmodelConfig:\n  modelKey: chat-model\n",
+		},
+		{
+			name: "kbase agent invalid workspace", resourceType: "agent", resourceKey: "kbase-demo", wantValid: false,
+			content: "key: kbase-demo\nname: Knowledge\nmode: KBASE\nruntimeConfig:\n  workspaceRoot: @chat\nkbaseConfig:\n  embedding:\n    modelKey: embedding-model\nmodelConfig:\n  modelKey: chat-model\n",
+		},
+		{
+			name: "team valid", resourceType: "team", resourceKey: "research", wantValid: true,
+			content: "name: Research\nagentKeys:\n  - member\norchestrator:\n  modelConfig:\n    modelKey: chat-model\n",
+		},
+		{
+			name: "team unknown member", resourceType: "team", resourceKey: "research", wantValid: false,
+			content: "name: Research\nagentKeys:\n  - missing\norchestrator:\n  modelConfig:\n    modelKey: chat-model\n",
+		},
+		{
+			name: "team syntax error", resourceType: "team", resourceKey: "research", wantValid: false,
+			content: "name: Research\n  broken: value\n",
+		},
+		{
+			name: "team empty members", resourceType: "team", resourceKey: "research", wantValid: false,
+			content: "name: Research\nagentKeys: []\norchestrator:\n  modelConfig:\n    modelKey: chat-model\n",
+		},
+		{
+			name: "team invalid concurrency", resourceType: "team", resourceKey: "research", wantValid: false,
+			content: "name: Research\nagentKeys:\n  - member\norchestrator:\n  modelConfig:\n    modelKey: chat-model\n  maxParallel: 6\n",
+		},
+		{
+			name: "skill valid", resourceType: "skill", resourceKey: "demo-skill", wantValid: true,
+			content: "---\nname: demo-skill\ndescription: Demo skill\n---\n\n# Demo\n\nFollow the workflow.\n",
+		},
+		{
+			name: "skill missing frontmatter", resourceType: "skill", resourceKey: "demo-skill", wantValid: false,
+			content: "# Demo\n",
+		},
+		{
+			name: "skill frontmatter syntax error", resourceType: "skill", resourceKey: "demo-skill", wantValid: false,
+			content: "---\nname: demo-skill\n  broken: value\ndescription: Demo\n---\n\n# Demo\n",
+		},
+		{
+			name: "mcp valid", resourceType: "mcp-server", resourceKey: "remote", wantValid: true,
+			content: "serverKey: remote\ntransport: streamable-http\nbaseUrl: http://127.0.0.1:8080/mcp\n",
+		},
+		{
+			name: "mcp mixed transports", resourceType: "mcp-server", resourceKey: "remote", wantValid: false,
+			content: "serverKey: remote\ntransport: streamable-http\nbaseUrl: http://127.0.0.1:8080/mcp\ncommand: node\n",
+		},
+		{
+			name: "mcp key mismatch", resourceType: "mcp-server", resourceKey: "remote", wantValid: false,
+			content: "serverKey: another\ntransport: streamable-http\nbaseUrl: http://127.0.0.1:8080/mcp\n",
+		},
+		{
+			name: "mcp syntax error", resourceType: "mcp-server", resourceKey: "remote", wantValid: false,
+			content: "serverKey: remote\n  broken: value\n",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := invokeTestOperation(handler, "catalog.validate", map[string]any{
+				"resourceType": tc.resourceType,
+				"resourceKey":  tc.resourceKey,
+				"content":      tc.content,
+			})
+			if err != nil || result.Error != "" {
+				t.Fatalf("validate failed: result=%#v err=%v", result, err)
+			}
+			if got, _ := result.Structured["valid"].(bool); got != tc.wantValid {
+				t.Fatalf("valid = %v, want %v; diagnostics=%#v", got, tc.wantValid, result.Structured["diagnostics"])
+			}
+			if strings.Contains(result.Output, tc.content) {
+				t.Fatalf("validation response echoed candidate content")
+			}
+		})
+	}
+}
+
+func TestValidateDoesNotEchoCandidateSecrets(t *testing.T) {
+	const secret = "mcp-secret-value-that-must-not-leak"
+	content := "serverKey: remote\ntransport: streamable-http\nbaseUrl: http://127.0.0.1:8080/mcp\nauthToken: " + secret + "\n"
+	result, err := invokeTestOperation(NewToolHandler(config.Config{}, nil), "catalog.validate", map[string]any{
+		"resourceType": "mcp-server",
+		"resourceKey":  "remote",
+		"content":      content,
+	})
+	if err != nil || result.Error != "" || result.Structured["valid"] != true {
+		t.Fatalf("validate secret-bearing candidate failed: result=%#v err=%v", result, err)
+	}
+	if strings.Contains(result.Output, secret) || strings.Contains(result.Output, content) {
+		t.Fatalf("validation response leaked candidate secret or content: %s", result.Output)
+	}
+}
+
+func TestProfileAuthorizationDoesNotDependOnSkills(t *testing.T) {
+	cfg := config.Config{PlatformControl: config.PlatformControlConfig{Enabled: true,
+		Profiles: map[string]config.PlatformControlProfileConfig{
+			"run-env":        {Operations: []string{"capabilities.list", "run.env.list"}},
+			"platform-admin": {Operations: OperationNames()},
+		},
+		Bindings: []config.PlatformControlBindingConfig{
+			{Profile: "run-env", AgentKeys: []string{"online-office"}},
+			{Profile: "platform-admin", AgentKeys: []string{"zenmi"}},
+		},
+	}}
+	handler := NewToolHandler(cfg, nil)
+	online := &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "online-office", SkillKeys: []string{"platform-admin"}, MustUseSkills: []string{"platform-admin"}}}
+	result, _ := handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "runtime.status"}, online)
+	if result.Error != "platform_control_operation_forbidden" {
+		t.Fatalf("skill escalated profile: %#v", result)
+	}
+	admin := &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "zenmi"}}
+	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "runtime.status"}, admin)
+	if result.Error != "" {
+		t.Fatalf("admin status denied: %#v", result)
+	}
+	unbound := &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "unbound"}}
+	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "capabilities.list"}, unbound)
+	if result.Error != "" {
+		t.Fatalf("capabilities.list denied: %#v", result)
+	}
+	data := result.Structured["data"].(map[string]any)
+	if operations := data["operations"].([]string); !reflect.DeepEqual(operations, []string{"capabilities.list"}) {
+		t.Fatalf("unbound operations = %#v", operations)
+	}
+	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "capabilities.list"}, admin)
+	data = result.Structured["data"].(map[string]any)
+	for _, operation := range data["operations"].([]string) {
+		if strings.HasPrefix(operation, "run.env.") {
+			t.Fatalf("capabilities advertised unavailable run env operation: %#v", data)
+		}
+	}
+}
+
+func TestRunEnvironmentOperationsAreValueBlindAndApprovalAware(t *testing.T) {
+	root := t.TempDir()
+	policy, err := runenv.ParsePolicy(map[string]any{
+		"DOCUMENT_ID":    map[string]any{"mode": "bind", "secret": false, "approval": "none", "targets": []any{"host"}},
+		"ROTATING_TOKEN": map[string]any{"mode": "mutable", "secret": true, "approval": "each-change", "targets": []any{"host"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := runenv.NewStore(filepath.Join(root, "state"), filepath.Join(root, "identity", "key"), runenv.Limits{})
+	state, err := store.New(runenv.Identity{RunID: "run-1", ChatID: "chat-1", Owner: "agent:office", AgentKey: "office"}, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Destroy()
+	cfg := config.Config{PlatformControl: config.PlatformControlConfig{Enabled: true, Profiles: map[string]config.PlatformControlProfileConfig{"run-env": {Operations: OperationNames()}}, Bindings: []config.PlatformControlBindingConfig{{Profile: "run-env", AgentKeys: []string{"office"}}}}}
+	handler := NewToolHandler(cfg, nil)
+	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{RunID: "run-1", AgentKey: "office"}, RunEnvironment: state, RunEnvPolicy: policy, CurrentToolID: "tool-bind"}
+	result, _ := handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "run.env.bind", "params": map[string]any{"key": "DOCUMENT_ID", "value": "document-secret-id"}}, execCtx)
+	if result.Error != "" || strings.Contains(result.Output, "document-secret-id") {
+		t.Fatalf("bind result leaked or failed: %#v", result)
+	}
+	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "run.env.get", "params": map[string]any{"key": "DOCUMENT_ID"}}, execCtx)
+	if result.Error != "" || strings.Contains(result.Output, "document-secret-id") {
+		t.Fatalf("get result leaked or failed: %#v", result)
+	}
+	execCtx.CurrentToolID = "tool-set"
+	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "run.env.set", "params": map[string]any{"key": "ROTATING_TOKEN", "value": "top-secret"}}, execCtx)
+	if result.Error != "run_env_approval_required" {
+		t.Fatalf("unapproved mutation = %#v", result)
+	}
+	execCtx.PlatformControlApprovals = map[string]bool{"tool-set": true}
+	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "run.env.set", "params": map[string]any{"key": "ROTATING_TOKEN", "value": "top-secret"}}, execCtx)
+	if result.Error != "" || strings.Contains(result.Output, "top-secret") {
+		t.Fatalf("approved mutation leaked or failed: %#v", result)
+	}
+}
+
+func TestChildEnvironmentMetadataUsesPolicyIntersection(t *testing.T) {
+	root := t.TempDir()
+	ownerPolicy, err := runenv.ParsePolicy(map[string]any{
+		"SHARED_HOST":      map[string]any{"mode": "mutable", "targets": []any{"host"}},
+		"OWNER_ONLY":       map[string]any{"mode": "mutable", "targets": []any{"host"}},
+		"CONTAINER_SHARED": map[string]any{"mode": "mutable", "targets": []any{"container"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	childPolicy, err := runenv.ParsePolicy(map[string]any{
+		"SHARED_HOST":      map[string]any{"mode": "bind", "targets": []any{"host"}},
+		"CONTAINER_SHARED": map[string]any{"mode": "mutable", "targets": []any{"host"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := runenv.NewStore(filepath.Join(root, "state"), filepath.Join(root, "identity", "key"), runenv.Limits{})
+	state, err := store.New(runenv.Identity{RunID: "run-child", ChatID: "chat-child", Owner: "agent:owner", AgentKey: "owner"}, ownerPolicy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Destroy()
+	if _, err := state.Mutate(runenv.MutationRequest{Operations: []runenv.Mutation{
+		{Operation: runenv.OperationSet, Name: "SHARED_HOST", Value: "shared"},
+		{Operation: runenv.OperationSet, Name: "OWNER_ONLY", Value: "private"},
+		{Operation: runenv.OperationSet, Name: "CONTAINER_SHARED", Value: "container"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Config{PlatformControl: config.PlatformControlConfig{Enabled: true,
+		Profiles: map[string]config.PlatformControlProfileConfig{"run-env": {Operations: []string{"run.env.get", "run.env.list"}}},
+		Bindings: []config.PlatformControlBindingConfig{{Profile: "run-env", AgentKeys: []string{"child"}}},
+	}}
+	handler := NewToolHandler(cfg, nil)
+	execCtx := &contracts.ExecutionContext{
+		Session:        contracts.QuerySession{RunID: "run-child", AgentKey: "child", SubTaskID: "task-1"},
+		RunEnvironment: state, RunEnvPolicy: childPolicy,
+	}
+	result, _ := handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "run.env.get", "params": map[string]any{"key": "OWNER_ONLY"}}, execCtx)
+	if result.Error != "run_env_key_forbidden" {
+		t.Fatalf("owner-only metadata leaked to child: %#v", result)
+	}
+	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "run.env.get", "params": map[string]any{"key": "CONTAINER_SHARED"}}, execCtx)
+	if result.Error != "run_env_key_forbidden" {
+		t.Fatalf("disjoint target metadata leaked to child: %#v", result)
+	}
+	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{"operation": "run.env.list", "params": map[string]any{}}, execCtx)
+	if result.Error != "" {
+		t.Fatalf("list failed: %#v", result)
+	}
+	data := result.Structured["data"].(map[string]any)
+	items := data["items"].([]runenv.Metadata)
+	if len(items) != 1 || items[0].Name != "SHARED_HOST" || !reflect.DeepEqual(items[0].Targets, []runenv.Target{runenv.TargetHost}) {
+		t.Fatalf("child metadata intersection = %#v", items)
+	}
+}
+
+func TestSecurityExplainIncludesReadAndWritePathDecision(t *testing.T) {
+	workspace := t.TempDir()
+	cfg := config.Config{AccessPolicy: config.AccessPolicyConfig{}, PlatformControl: config.PlatformControlConfig{Enabled: true,
+		Profiles: map[string]config.PlatformControlProfileConfig{"platform-admin": {Operations: OperationNames()}},
+		Bindings: []config.PlatformControlBindingConfig{{Profile: "platform-admin", AgentKeys: []string{"admin"}}},
+	}}
+	handler := NewToolHandler(cfg, nil)
+	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "admin", WorkspaceRoot: workspace}}
+	result, err := handler.Invoke(context.Background(), ToolName, map[string]any{
+		"operation": "security.explain",
+		"params":    map[string]any{"operation": "run.env.set", "path": filepath.Join(workspace, "report.md"), "access": "write"},
+	}, execCtx)
+	if err != nil || result.Error != "" {
+		t.Fatalf("security.explain failed: result=%#v err=%v", result, err)
+	}
+	data := result.Structured["data"].(map[string]any)
+	pathData := data["path"].(map[string]any)
+	if pathData["allowed"] != true || pathData["access"] != "write" || pathData["resolvedPath"] == "" {
+		t.Fatalf("unexpected path decision: %#v", pathData)
+	}
+
+	result, _ = handler.Invoke(context.Background(), ToolName, map[string]any{
+		"operation": "security.explain",
+		"params":    map[string]any{"operation": "run.env.set", "path": workspace, "access": "execute"},
+	}, execCtx)
+	if result.Error != "platform_control_invalid_params" {
+		t.Fatalf("invalid access result = %#v", result)
+	}
+}
+
+func invokeTestOperation(handler *ToolHandler, operation string, params map[string]any) (contracts.ToolExecutionResult, error) {
+	handler.cfg.PlatformControl.Enabled = true
+	handler.cfg.PlatformControl.Profiles = map[string]config.PlatformControlProfileConfig{
+		"platform-admin": {Operations: OperationNames()},
+	}
+	handler.cfg.PlatformControl.Bindings = []config.PlatformControlBindingConfig{{Profile: "platform-admin", AgentKeys: []string{"admin"}}}
+	result, err := handler.Invoke(context.Background(), ToolName, map[string]any{"operation": operation, "params": params}, &contracts.ExecutionContext{Session: contracts.QuerySession{AgentKey: "admin"}})
+	if data, ok := result.Structured["data"].(map[string]any); ok {
+		result.Structured = data
+	}
+	return result, err
+}
+
+type stubRegistry struct {
+	agents map[string]catalog.AgentDefinition
+}
+
+func (s stubRegistry) Agents(string) []api.AgentSummary { return nil }
+func (s stubRegistry) Teams() []api.TeamSummary         { return nil }
+func (s stubRegistry) Skills(string) []api.SkillSummary { return nil }
+func (s stubRegistry) SkillDefinition(string) (catalog.SkillDefinition, bool) {
+	return catalog.SkillDefinition{}, false
+}
+func (s stubRegistry) Tools(string) []api.ToolSummary { return nil }
+func (s stubRegistry) Tool(string) (api.ToolDetailResponse, bool) {
+	return api.ToolDetailResponse{}, false
+}
+func (s stubRegistry) DefaultAgentKey() string { return "" }
+func (s stubRegistry) AgentDefinition(key string) (catalog.AgentDefinition, bool) {
+	def, ok := s.agents[key]
+	return def, ok
+}
+func (s stubRegistry) TeamDefinition(string) (catalog.TeamDefinition, bool) {
+	return catalog.TeamDefinition{}, false
+}
+func (s stubRegistry) Reload(context.Context, string) error { return nil }

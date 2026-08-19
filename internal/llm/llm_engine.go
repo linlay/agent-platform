@@ -109,9 +109,13 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	execCtx.AccessLevel = session.AccessLevel
 	execCtx.ToolExecutionPolicy = session.ToolExecutionPolicy
 	execCtx.RunLimits = session.RunLimits
-	if len(execCtx.RuntimeEnvOverrides) == 0 {
-		execCtx.RuntimeEnvOverrides = CloneStringMap(session.RuntimeEnvOverrides)
+	if len(execCtx.StaticRuntimeEnv) == 0 {
+		execCtx.StaticRuntimeEnv = CloneStringMap(session.StaticRuntimeEnv)
 	}
+	if execCtx.RunEnvironment == nil {
+		execCtx.RunEnvironment = session.RunEnvironment
+	}
+	execCtx.RunEnvPolicy = session.RunEnvPolicy
 	if execCtx.RunControl == nil {
 		execCtx.RunControl = RunControlFromContext(ctx)
 	}

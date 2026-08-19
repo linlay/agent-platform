@@ -74,7 +74,11 @@ func (t *RuntimeToolExecutor) invokeGlob(ctx context.Context, args map[string]an
 	}
 	rgArgs = append(rgArgs, "--glob", pattern, resolved.Path)
 	cmd := exec.CommandContext(ctx, rgPath, rgArgs...)
-	cmd.Env = mergeCommandEnv(execCtx)
+	commandEnv, err := mergeCommandEnv(execCtx)
+	if err != nil {
+		return fileToolError("run_env_snapshot_failed", err.Error()), nil
+	}
+	cmd.Env = commandEnv
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout

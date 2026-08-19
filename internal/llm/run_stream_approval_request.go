@@ -8,16 +8,18 @@ import (
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/hitl"
+	"agent-platform/internal/platformcontrol"
 )
 
 type approvalKind string
 
 const (
-	approvalKindFileAccess   approvalKind = "file_access"
-	approvalKindFileWrite    approvalKind = "file_write"
-	approvalKindBashSecurity approvalKind = "bash_security"
-	approvalKindBashAccess   approvalKind = "bash_access"
-	approvalKindHITL         approvalKind = "hitl"
+	approvalKindFileAccess      approvalKind = "file_access"
+	approvalKindFileWrite       approvalKind = "file_write"
+	approvalKindBashSecurity    approvalKind = "bash_security"
+	approvalKindBashAccess      approvalKind = "bash_access"
+	approvalKindHITL            approvalKind = "hitl"
+	approvalKindPlatformControl approvalKind = "platform_control"
 )
 
 type approvalFastPathMode int
@@ -39,6 +41,17 @@ type approvalRequest struct {
 }
 
 func (s *llmRunStream) approvalRequestForInvocation(invocation *preparedToolInvocation) (approvalRequest, bool) {
+	if invocation != nil && s.execCtx != nil {
+		if metadata := platformcontrol.MutationApproval(invocation.args, s.execCtx.RunEnvPolicy); metadata.Required {
+			params, _ := invocation.args["params"].(map[string]any)
+			if params != nil {
+				if _, exists := params["expectedRevision"]; !exists && s.execCtx.RunEnvironment != nil {
+					params["expectedRevision"] = s.execCtx.RunEnvironment.Revision()
+				}
+			}
+			return approvalRequest{kind: approvalKindPlatformControl, invocation: invocation, result: platformControlInterceptResult(metadata)}, true
+		}
+	}
 	if accessPlan, writePlan, ok := s.combinedFileWriteApprovalPlans(invocation); ok {
 		return approvalRequest{
 			kind:           approvalKindFileAccess,
@@ -162,6 +175,12 @@ func (s *llmRunStream) executeApprovedApprovalRequest(request approvalRequest) e
 		}
 	case approvalKindHITL:
 		return s.executeApprovedBashInvocation(request.invocation, request.result)
+	case approvalKindPlatformControl:
+		if s.execCtx.PlatformControlApprovals == nil {
+			s.execCtx.PlatformControlApprovals = map[string]bool{}
+		}
+		s.execCtx.PlatformControlApprovals[request.invocation.toolID] = true
+		return s.executeOriginalBash(request.invocation)
 	}
 	return s.executeOriginalBash(request.invocation)
 }

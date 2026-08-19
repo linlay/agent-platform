@@ -13,8 +13,6 @@ func TestWriterWritesImmediatelyWhenBufferingDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new writer: %v", err)
 	}
-	defer writer.Close()
-
 	if err := writer.WriteJSON("message", map[string]any{
 		"type":   "content.delta",
 		"runId":  "run_1",
@@ -124,6 +122,9 @@ func TestWriterFlushesByInterval(t *testing.T) {
 		t.Fatalf("write json: %v", err)
 	}
 	time.Sleep(1100 * time.Millisecond)
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
 
 	if !strings.Contains(rec.Body.String(), `"type":"content.delta"`) {
 		t.Fatalf("expected buffered event flushed by timer, got %s", rec.Body.String())

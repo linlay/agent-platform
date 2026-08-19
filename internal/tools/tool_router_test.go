@@ -65,6 +65,19 @@ func TestToolRouterEnforcesReadOnlyExecutionPolicy(t *testing.T) {
 	}
 }
 
+func TestPlatformControlReadOnlyPolicyUsesOperationDescriptor(t *testing.T) {
+	def := api.ToolDetailResponse{Name: "platform_control", Meta: map[string]any{"readOnly": false, "operationAware": true}}
+	if !allowsReadOnlyInvocation(def, true, "platform_control", map[string]any{"operation": "runtime.status"}) {
+		t.Fatal("read-only platform_control operation was denied by the final router")
+	}
+	if allowsReadOnlyInvocation(def, true, "platform_control", map[string]any{"operation": "run.env.set"}) {
+		t.Fatal("mutating platform_control operation was allowed by the final router")
+	}
+	if allowsReadOnlyInvocation(def, true, "platform_control", map[string]any{"operation": "future.operation"}) {
+		t.Fatal("unknown platform_control operation was allowed by the final router")
+	}
+}
+
 func TestToolRouterRejectsUnregisteredToolWithoutCallingBackend(t *testing.T) {
 	backend := &recordingPolicyBackend{}
 	router := mustNewToolRouter(t, backend, nil, nil, nil)

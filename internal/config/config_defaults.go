@@ -26,6 +26,7 @@ func defaultConfig(options LoadOptions) Config {
 		KBaseDir:        filepath.Join(runtimeRoot, "kbase"),
 		PanDir:          filepath.Join(runtimeRoot, "pan"),
 		SkillsCenterDir: filepath.Join(runtimeRoot, "skills-center"),
+		RunStateDir:     filepath.Join(runtimeRoot, "run-state"),
 	}
 	return Config{
 		IdentityFile: options.IdentityFile,
@@ -193,6 +194,15 @@ func defaultConfig(options LoadOptions) Config {
 				},
 			},
 		},
+		PlatformControl: PlatformControlConfig{
+			Enabled:           true,
+			Profiles:          map[string]PlatformControlProfileConfig{},
+			MaxDynamicKeys:    32,
+			MaxValueBytes:     4096,
+			MaxTotalBytes:     32768,
+			MaxBulkOperations: 16,
+			CheckpointKeyFile: filepath.Join(runtimeRoot, "identity", "run-env.key"),
+		},
 	}
 }
 
@@ -329,6 +339,8 @@ func (c *Config) normalize(configRoot string) error {
 	c.Paths.KBaseDir = filepath.Clean(c.Paths.KBaseDir)
 	c.Paths.PanDir = filepath.Clean(c.Paths.PanDir)
 	c.Paths.SkillsCenterDir = filepath.Clean(c.Paths.SkillsCenterDir)
+	c.Paths.RunStateDir = filepath.Clean(c.Paths.RunStateDir)
+	c.PlatformControl.CheckpointKeyFile = filepath.Clean(c.PlatformControl.CheckpointKeyFile)
 
 	c.Agents.ExternalDir = filepath.Clean(c.Paths.AgentsDir)
 	c.Teams.ExternalDir = filepath.Clean(c.Paths.TeamsDir)

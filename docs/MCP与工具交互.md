@@ -157,6 +157,7 @@ Qiuerscript 已按此方式迁移。`qs_read`、`qs_glob`、`qs_grep`、`qs_writ
 
 - MCP tool 名称与本地工具冲突时，本地工具优先。
 - MCP server 暂时不可用或协议版本不兼容时，调用返回结构化 MCP unavailable 错误。
+- MCP streamable HTTP 和 stdio session、ACP、Proxy、Channel、LSP、KBASE sidecar 与其他长期驻留服务不继承动态 run env。stdio MCP 子进程仍只使用 registry 启动时的静态 `env`；运行中 `platform_control run.env.*` 不重启或修改已存在 session。
 - `qiuerscript-tool` 在 stdin 关闭后正常退出，不支持私有 `shutdown` RPC。
 - `desktop_action` 的四个旧 WebClient sidebar Action、七个 Standalone WorkPanel Action 以及 Desktop Main Broker 反向 Action/CDP 已闭环；这里的 Action 是 Desktop/WebClient 业务操作名，不是 Tool 类型，也不会生成 `action.*` run stream 事件。
 - `ask_user_question` 由 `internal/toolinteraction` 中明确注册的 handler 负责等待、submit 规范化和固定 QA 模型输出；没有通用 YAML 表单 fallback。

@@ -57,6 +57,7 @@ func (c *Config) applyPathsValues(values map[string]any) {
 	c.Paths.KBaseDir = stringValue(anyValue(values["kbase-dir"], c.Paths.KBaseDir), c.Paths.KBaseDir)
 	c.Paths.PanDir = stringValue(anyValue(values["pan-dir"], c.Paths.PanDir), c.Paths.PanDir)
 	c.Paths.SkillsCenterDir = stringValue(anyValue(values["skills-center-dir"], c.Paths.SkillsCenterDir), c.Paths.SkillsCenterDir)
+	c.Paths.RunStateDir = stringValue(anyValue(values["run-state-dir"], c.Paths.RunStateDir), c.Paths.RunStateDir)
 }
 
 func (c *Config) applySkillsValues(values map[string]any) {
@@ -478,6 +479,60 @@ func (c *Config) applyToolsFile(path string, ignoreRemovedWorkingDirectory bool)
 		}
 		if err := c.applyFileToolsValues(path, fileTools); err != nil {
 			return err
+		}
+	}
+	if platformControl, ok := values["platform-control"].(map[string]any); ok && len(platformControl) > 0 {
+		if err := c.applyPlatformControlValues(path, platformControl); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Config) applyPlatformControlValues(path string, values map[string]any) error {
+	c.PlatformControl.Enabled = boolValue(anyValue(values["enabled"], c.PlatformControl.Enabled), c.PlatformControl.Enabled)
+	c.PlatformControl.DenyKeys = csvOrList(anyValue(values["deny-keys"], c.PlatformControl.DenyKeys), c.PlatformControl.DenyKeys)
+	c.PlatformControl.MaxDynamicKeys = intValue(anyValue(values["max-dynamic-keys"], c.PlatformControl.MaxDynamicKeys), c.PlatformControl.MaxDynamicKeys)
+	c.PlatformControl.MaxValueBytes = intValue(anyValue(values["max-value-bytes"], c.PlatformControl.MaxValueBytes), c.PlatformControl.MaxValueBytes)
+	c.PlatformControl.MaxTotalBytes = intValue(anyValue(values["max-total-bytes"], c.PlatformControl.MaxTotalBytes), c.PlatformControl.MaxTotalBytes)
+	c.PlatformControl.MaxBulkOperations = intValue(anyValue(values["max-bulk-operations"], c.PlatformControl.MaxBulkOperations), c.PlatformControl.MaxBulkOperations)
+	c.PlatformControl.CheckpointKeyFile = stringValue(anyValue(values["checkpoint-key-file"], c.PlatformControl.CheckpointKeyFile), c.PlatformControl.CheckpointKeyFile)
+	for field, value := range map[string]int{
+		"max-dynamic-keys":    c.PlatformControl.MaxDynamicKeys,
+		"max-value-bytes":     c.PlatformControl.MaxValueBytes,
+		"max-total-bytes":     c.PlatformControl.MaxTotalBytes,
+		"max-bulk-operations": c.PlatformControl.MaxBulkOperations,
+	} {
+		if value <= 0 {
+			return fmt.Errorf("%s: platform-control.%s must be greater than zero", path, field)
+		}
+	}
+	profiles := map[string]PlatformControlProfileConfig{}
+	if rawProfiles, ok := values["profiles"].(map[string]any); ok {
+		for rawName, rawProfile := range rawProfiles {
+			name := strings.TrimSpace(rawName)
+			profileMap, ok := rawProfile.(map[string]any)
+			if name == "" || !ok {
+				return fmt.Errorf("%s: platform-control profile %q must be an object", path, rawName)
+			}
+			profiles[name] = PlatformControlProfileConfig{Operations: csvOrList(profileMap["operations"], nil)}
+		}
+	}
+	c.PlatformControl.Profiles = profiles
+	c.PlatformControl.Bindings = nil
+	if rawBindings, ok := values["bindings"].([]any); ok {
+		for index, rawBinding := range rawBindings {
+			bindingMap, ok := rawBinding.(map[string]any)
+			if !ok {
+				return fmt.Errorf("%s: platform-control.bindings[%d] must be an object", path, index)
+			}
+			profile := strings.TrimSpace(stringValue(bindingMap["profile"], ""))
+			if _, ok := profiles[profile]; !ok {
+				return fmt.Errorf("%s: platform-control.bindings[%d] references unknown profile %q", path, index, profile)
+			}
+			c.PlatformControl.Bindings = append(c.PlatformControl.Bindings, PlatformControlBindingConfig{
+				Profile: profile, AgentKeys: csvOrList(bindingMap["agentKeys"], nil),
+			})
 		}
 	}
 	return nil

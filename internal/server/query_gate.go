@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -150,6 +151,7 @@ func awaitingPendingInfo(chatID string, awaiting api.Awaiting) *api.ChatErrorInf
 }
 
 func (s *Server) registerQueryRun(ctx context.Context, prepared preparedQuery) (registeredQueryRun, *statusError) {
+	defer s.cleanupUnregisteredRunEnvironment(prepared.session)
 	if s == nil || s.deps.Runs == nil {
 		return registeredQueryRun{}, &statusError{status: http.StatusInternalServerError, code: "internal_error", message: "run manager is not configured"}
 	}
@@ -212,6 +214,19 @@ func (s *Server) registerQueryRun(ctx context.Context, prepared preparedQuery) (
 	}
 	runCtx, control, _ := s.deps.Runs.Register(ctx, prepared.session)
 	return s.registeredQueryRun(runCtx, control, prepared)
+}
+
+func (s *Server) cleanupUnregisteredRunEnvironment(session contracts.QuerySession) {
+	state := session.RunEnvironment
+	if state == nil {
+		return
+	}
+	if existing, ok := lookupRunEnvironment(s.deps.Runs, session.RunID); ok && existing == state {
+		return
+	}
+	if err := state.Destroy(); err != nil {
+		log.Printf("[server][run-env] cleanup unregistered run=%s: %v", session.RunID, err)
+	}
 }
 
 // registeredQueryRun reads the single authoritative lifecycle timestamp from

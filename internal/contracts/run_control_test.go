@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/runenv"
 	"agent-platform/internal/stream"
 )
 
@@ -50,6 +53,48 @@ func TestInMemoryRunManagerRegisterDetachesFromParentContext(t *testing.T) {
 	}
 	if control.Interrupted() || control.Finished() {
 		t.Fatalf("did not expect run to be interrupted or finished")
+	}
+}
+
+func TestInMemoryRunManagerFinishDestroysRunEnvironment(t *testing.T) {
+	root := t.TempDir()
+	policy, err := runenv.ParsePolicy(map[string]any{
+		"DOCUMENT_ID": map[string]any{"mode": "bind", "targets": []any{"host"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpointDir := filepath.Join(root, "state")
+	store := runenv.NewStore(checkpointDir, filepath.Join(root, "identity", "run-env.key"), runenv.Limits{})
+	state, err := store.New(runenv.Identity{
+		RunID: "run_env_cleanup", ChatID: "chat_env_cleanup", Subject: "alice",
+		Owner: "agent:office", AgentKey: "office",
+	}, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manager := NewInMemoryRunManager()
+	manager.Register(context.Background(), QuerySession{
+		RunID: "run_env_cleanup", ChatID: "chat_env_cleanup", AgentKey: "office",
+		RunOwner: AgentRunOwner("office", ""), RunEnvironment: state,
+	})
+	if _, ok := manager.RunEnvironment("run_env_cleanup"); !ok {
+		t.Fatal("active run environment is unavailable")
+	}
+	manager.Finish("run_env_cleanup")
+	if _, ok := manager.RunEnvironment("run_env_cleanup"); ok {
+		t.Fatal("finished run environment remains available through manager")
+	}
+	if _, _, err := state.Snapshot(runenv.TargetHost, policy); !errors.Is(err, runenv.ErrClosed) {
+		t.Fatalf("finished run environment snapshot error = %v, want ErrClosed", err)
+	}
+	entries, err := os.ReadDir(checkpointDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("run checkpoint remains after Finish: %#v", entries)
 	}
 }
 

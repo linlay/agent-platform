@@ -16,6 +16,8 @@
 #   kbase-dir: ./runtime/kbase
 #   pan-dir: ./runtime/pan
 #   skills-center-dir: ./runtime/skills-center
+#   # Encrypted, run-local environment checkpoints. Keep this outside chats.
+#   run-state-dir: ./runtime/run-state
 
 skills:
   max-prompt-chars: 8000

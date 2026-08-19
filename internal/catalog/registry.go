@@ -13,6 +13,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/kbase"
+	"agent-platform/internal/runenv"
 )
 
 var ErrInvalidAgentSummaryScope = errors.New("invalid agent summary scope")
@@ -54,6 +55,7 @@ type AgentDefinition struct {
 	Skills           []string
 	Controls         []map[string]any
 	Runtime          map[string]any
+	RunEnvPolicy     runenv.Policy
 	HostAccess       AgentHostAccessConfig
 	Workspace        AgentWorkspaceConfig
 	Project          AgentProjectConfig

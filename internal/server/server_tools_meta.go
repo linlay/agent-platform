@@ -326,7 +326,7 @@ func normalizedAgentTools(def catalog.AgentDefinition) []string {
 		seen[key] = struct{}{}
 		tools = append(tools, name)
 	}
-	if len(def.Skills) > 0 || hasRuntimeSandbox(def.Runtime) || hasRuntimeEnvOverrides(def.Runtime) {
+	if len(def.Skills) > 0 || hasRuntimeSandbox(def.Runtime) || hasStaticRuntimeEnv(def.Runtime) {
 		if _, ok := seen["bash"]; !ok {
 			tools = append(tools, "bash")
 			seen["bash"] = struct{}{}
@@ -346,7 +346,7 @@ func hasRuntimeSandbox(runtime map[string]any) bool {
 	return strings.TrimSpace(stringValue(runtime["environmentId"])) != ""
 }
 
-func hasRuntimeEnvOverrides(runtime map[string]any) bool {
+func hasStaticRuntimeEnv(runtime map[string]any) bool {
 	if len(runtime) == 0 {
 		return false
 	}

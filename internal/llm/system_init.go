@@ -304,7 +304,7 @@ func ComputeSystemInitFingerprint(session contracts.QuerySession, stage string, 
 		"agentHasRuntimeSandbox":        session.AgentHasRuntimeSandbox,
 		"agentHasMemoryConfig":          session.AgentHasMemoryConfig,
 		"skillHookDirs":                 sortedStrings(session.SkillHookDirs),
-		"runtimeEnvOverrides":           session.RuntimeEnvOverrides,
+		"staticRuntimeEnv":              session.StaticRuntimeEnv,
 		"toolDefinitions":               stableToolDefinitions(toolDefs),
 		"teamRuntime":                   session.TeamRuntime,
 	}

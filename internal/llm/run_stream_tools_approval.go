@@ -9,6 +9,7 @@ import (
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
+	"agent-platform/internal/runenv"
 )
 
 func (s *llmRunStream) lookupBashSecurityReview(invocation *preparedToolInvocation) bashsec.ReviewResult {
@@ -54,7 +55,7 @@ func (s *llmRunStream) rawBashAccessReview(invocation *preparedToolInvocation) a
 	cwd := strings.TrimSpace(mapStringArg(invocation.args, "cwd"))
 	var variables map[string]string
 	if s.execCtx != nil {
-		variables = s.execCtx.RuntimeEnvOverrides
+		variables = s.knownRuntimeVariables()
 	}
 	cfg := config.AccessPolicyConfig{}
 	if s.engine != nil {
@@ -219,10 +220,25 @@ func fileAccessPlanInput(toolName string, args map[string]any) (filetools.Access
 }
 
 func (s *llmRunStream) reviewBashSecurity(command string) bashsec.ReviewResult {
-	if s == nil || s.execCtx == nil || len(s.execCtx.RuntimeEnvOverrides) == 0 {
+	if s == nil || s.execCtx == nil {
 		return bashsec.ReviewBashSecurity(command)
 	}
-	return bashsec.ReviewBashSecurityWithKnownVariables(command, s.execCtx.RuntimeEnvOverrides)
+	return bashsec.ReviewBashSecurityWithKnownVariables(command, s.knownRuntimeVariables())
+}
+
+func (s *llmRunStream) knownRuntimeVariables() map[string]string {
+	if s == nil || s.execCtx == nil {
+		return nil
+	}
+	variables := CloneStringMap(s.execCtx.StaticRuntimeEnv)
+	if s.execCtx.RunEnvironment != nil {
+		if dynamic, _, err := s.execCtx.RunEnvironment.Snapshot(runenv.TargetHost, s.execCtx.RunEnvPolicy); err == nil {
+			for key, value := range dynamic {
+				variables[key] = value
+			}
+		}
+	}
+	return variables
 }
 
 func (s *llmRunStream) executeApprovedFileAccessInvocation(invocation *preparedToolInvocation, plan filetools.AccessPlan) error {

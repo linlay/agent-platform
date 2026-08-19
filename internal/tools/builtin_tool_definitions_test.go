@@ -176,7 +176,7 @@ func TestLoadEmbeddedToolDefinitionsAppliesBuiltinToolCatalogVisibility(t *testi
 		"finalize_planning": true, "image_generate": true,
 		"kbase_files": true, "kbase_read": true, "kbase_refresh": true, "kbase_search": true, "kbase_status": true,
 		"plan_add_tasks": true, "plan_get_tasks": true, "plan_update_task": true,
-		"platform_config": true, "regex": true, "vision_recognize": true, "web_fetch": true,
+		"platform_control": true, "regex": true, "vision_recognize": true, "web_fetch": true,
 	}
 	for _, def := range defs {
 		visible, ok := def.Meta["catalogVisible"].(bool)
@@ -644,38 +644,38 @@ func TestKBaseToolReadOnlyMetadata(t *testing.T) {
 	}
 }
 
-func TestPlatformConfigSchemaUsesExactReadAllowlist(t *testing.T) {
+func TestPlatformControlSchemaIsFixedAndSimple(t *testing.T) {
 	defs, err := LoadEmbeddedToolDefinitions()
 	if err != nil {
 		t.Fatalf("load embedded tool definitions: %v", err)
 	}
-	var platformConfig api.ToolDetailResponse
+	var platformControl api.ToolDetailResponse
 	for _, def := range defs {
-		if def.Name == "platform_config" {
-			platformConfig = def
+		if def.Name == "platform_control" {
+			platformControl = def
 			break
 		}
 	}
-	if platformConfig.Name == "" {
-		t.Fatal("expected platform_config builtin tool definition")
+	if platformControl.Name == "" {
+		t.Fatal("expected platform_control builtin tool definition")
 	}
-	if platformConfig.Meta["readOnly"] != true {
-		t.Fatalf("platform_config readOnly = %#v, want true", platformConfig.Meta["readOnly"])
+	if platformControl.Meta["readOnly"] != false {
+		t.Fatalf("platform_control readOnly = %#v, want false", platformControl.Meta["readOnly"])
 	}
-	if platformConfig.Meta["explicitOnly"] != true {
-		t.Fatalf("platform_config explicitOnly = %#v, want true", platformConfig.Meta["explicitOnly"])
+	if platformControl.Meta["explicitOnly"] != true || platformControl.Meta["operationAware"] != true {
+		t.Fatalf("platform_control metadata = %#v", platformControl.Meta)
 	}
-	properties := mapChild(t, platformConfig.Parameters, "properties")
-	path, ok := properties["path"].(map[string]any)
+	properties := mapChild(t, platformControl.Parameters, "properties")
+	operation, ok := properties["operation"].(map[string]any)
 	if !ok {
-		t.Fatalf("platform_config path schema = %#v", properties["path"])
+		t.Fatalf("platform_control operation schema = %#v", properties["operation"])
 	}
-	if got, want := path["enum"], []any{"agents.creation.coder", "agents.creation.kbase"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("platform_config path enum = %#v, want %#v", got, want)
+	if got, want := operation["enum"], []any{"capabilities.list", "catalog.defaults.get", "catalog.validate", "run.env.bind", "run.env.set", "run.env.unset", "run.env.get", "run.env.list", "run.env.bulk", "runtime.status", "security.explain"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("platform_control operation enum = %#v, want %#v", got, want)
 	}
 	for _, keyword := range []string{"oneOf", "anyOf", "allOf", "if", "then", "else"} {
-		if _, exists := platformConfig.Parameters[keyword]; exists {
-			t.Fatalf("platform_config schema must not use %s: %#v", keyword, platformConfig.Parameters)
+		if _, exists := platformControl.Parameters[keyword]; exists {
+			t.Fatalf("platform_control schema must not use %s: %#v", keyword, platformControl.Parameters)
 		}
 	}
 }

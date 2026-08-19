@@ -20,6 +20,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/llm"
+	"agent-platform/internal/runenv"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/ws"
 
@@ -1354,6 +1355,46 @@ func TestDeferredSubmitAcceptsWithinTimeout(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("submit expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
+}
+
+func TestHydrationTerminalizesMissingRunEnvironmentCheckpoint(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		setupRuntime: func(_ string, cfg *config.Config) {
+			agentPath := filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml")
+			data, err := os.ReadFile(agentPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			updated := strings.Replace(string(data), "  env:\n", strings.Join([]string{
+				"  runEnv:",
+				"    DOCUMENT_ID:",
+				"      mode: bind",
+				"      targets: [host]",
+				"  env:",
+			}, "\n")+"\n", 1)
+			if updated == string(data) {
+				t.Fatal("failed to insert test runEnv policy")
+			}
+			if err := os.WriteFile(agentPath, []byte(updated), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		},
+	})
+
+	const chatID = "chat-run-env-restore-failure"
+	const runID = "run-run-env-restore-failure"
+	const awaitingID = "await-run-env-restore-failure"
+	seedDeferredAwaiting(t, fixture.chats, chatID, runID, awaitingID, "question", 60, time.Now().UnixMilli()-1000)
+
+	deps := deferredRestartDependencies(fixture, fixture.chats, contracts.NewNoopNotificationSink())
+	root := t.TempDir()
+	deps.RunEnvironments = runenv.NewStore(filepath.Join(root, "state"), filepath.Join(root, "identity", "missing.key"), runenv.Limits{})
+	if _, err := New(deps); err != nil {
+		t.Fatalf("run environment restore failure must terminalize only the affected run: %v", err)
+	}
+	assertRestartTerminalizedAwaiting(t, fixture.chats, chatID, runID, awaitingID, "run_env_restore_failed")
 }
 
 func seedDeferredAwaiting(t *testing.T, store chat.Store, chatID string, runID string, awaitingID string, mode string, timeoutSec int, createdAt int64) {

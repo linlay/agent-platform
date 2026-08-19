@@ -11,6 +11,7 @@ import (
 	"agent-platform/internal/apperrors"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/observability"
+	"agent-platform/internal/platformcontrol"
 	"agent-platform/internal/timecontract"
 	"agent-platform/internal/toolpolicy"
 )
@@ -204,7 +205,7 @@ func (r *ToolRouter) ListFileHistory(chatID string, runID string) ([]FileHistory
 
 func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	def, ok := r.lookup(toolName)
-	if execCtx != nil && IsReadOnlyToolExecutionPolicy(execCtx.ToolExecutionPolicy) && !toolpolicy.AllowsReadOnly(def, ok) {
+	if execCtx != nil && IsReadOnlyToolExecutionPolicy(execCtx.ToolExecutionPolicy) && !allowsReadOnlyInvocation(def, ok, toolName, args) {
 		return toolpolicy.DisabledResult(toolName), nil
 	}
 	if !ok {
@@ -232,6 +233,14 @@ func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[strin
 		return r.runtime.Invoke(callCtx, toolName, args, execCtx)
 	})
 	return validateDeclaredOutputSchema(def, result, err)
+}
+
+func allowsReadOnlyInvocation(def api.ToolDetailResponse, found bool, toolName string, args map[string]any) bool {
+	if strings.EqualFold(strings.TrimSpace(toolName), platformcontrol.ToolName) || strings.EqualFold(strings.TrimSpace(def.Name), platformcontrol.ToolName) {
+		descriptor, ok := platformcontrol.InvocationDescriptor(platformcontrol.ToolName, args)
+		return found && ok && descriptor.ReadOnly
+	}
+	return toolpolicy.AllowsReadOnly(def, found)
 }
 
 // validateDeclaredOutputSchema applies only a tool's explicit result schema.

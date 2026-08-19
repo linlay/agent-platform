@@ -71,7 +71,7 @@ func TestProxyWebSocketHTTPSSEObserverTerminatesInvalidEventWithLocalTimeContrac
 		for time.Now().Before(deadline) {
 			if eventBus, ok := runs.EventBus(runID); ok {
 				eventBus.Publish(stream.EventData{
-					Seq:       31,
+					Seq:       1,
 					Type:      "content.delta",
 					Timestamp: 1_700_000_000_000,
 					Payload: map[string]any{
@@ -81,7 +81,7 @@ func TestProxyWebSocketHTTPSSEObserverTerminatesInvalidEventWithLocalTimeContrac
 					},
 				})
 				eventBus.Publish(stream.EventData{
-					Seq:       32,
+					Seq:       2,
 					Type:      "content.delta",
 					Timestamp: 0,
 					Payload: map[string]any{
@@ -129,8 +129,8 @@ func TestProxyWebSocketHTTPSSEObserverTerminatesInvalidEventWithLocalTimeContrac
 		t.Fatalf("expected local run.error, got %s", body)
 	}
 	assertLocalTimeContractRunError(t, localError, "timestamp")
-	if got, ok := localError["seq"].(float64); !ok || got != 32 {
-		t.Fatalf("local error seq = %#v, want 32", localError["seq"])
+	if got, ok := localError["seq"].(float64); !ok || got != 2 {
+		t.Fatalf("local error seq = %#v, want 2", localError["seq"])
 	}
 
 	status, ok := runs.RunStatus(runID)

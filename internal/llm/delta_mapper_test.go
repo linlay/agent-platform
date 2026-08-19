@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"strings"
 	"testing"
 
 	"agent-platform/internal/api"
@@ -8,6 +9,24 @@ import (
 	"agent-platform/internal/stream"
 	"agent-platform/internal/toolinteraction"
 )
+
+func TestDeltaMapperBuffersAndRedactsPlatformControlArguments(t *testing.T) {
+	mapper := NewDeltaMapper("run-1", "chat-1", contracts.Budget{}, nil, nil)
+	const secret = "document-id-must-never-reach-events"
+	first := mapper.Map(contracts.DeltaToolCall{Index: 0, ID: "tool-control", Name: "platform_control", ArgsDelta: `{"operation":"run.env.bind","params":{"key":"DOCUMENT_ID","value":"`})
+	second := mapper.Map(contracts.DeltaToolCall{Index: 0, ID: "tool-control", ArgsDelta: secret + `"}}`})
+	if len(first) != 0 || len(second) != 0 {
+		t.Fatalf("sensitive chunks were emitted before tool end: first=%#v second=%#v", first, second)
+	}
+	inputs := mapper.Map(contracts.DeltaToolEnd{ToolIDs: []string{"tool-control"}})
+	if len(inputs) != 2 {
+		t.Fatalf("tool end inputs = %#v", inputs)
+	}
+	args, ok := inputs[0].(stream.ToolArgs)
+	if !ok || strings.Contains(args.Delta, secret) || !strings.Contains(args.Delta, "[REDACTED]") {
+		t.Fatalf("platform_control args were not safely redacted: %#v", inputs[0])
+	}
+}
 
 type stubToolLookup map[string]api.ToolDetailResponse
 
