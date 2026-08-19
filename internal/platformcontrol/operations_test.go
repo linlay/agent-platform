@@ -6,20 +6,31 @@ import (
 	"testing"
 )
 
-func TestSanitizeArgumentsRemovesEverySensitiveValue(t *testing.T) {
-	const secret = "plain-value-must-not-survive"
+func TestSanitizeArgumentsPreservesRunEnvironmentValueAndRedactsSensitiveMetadata(t *testing.T) {
+	const value = "plain-value-must-survive"
 	const candidate = "candidate-content-must-not-survive"
 	const idempotency = "idempotency-key-must-not-survive"
-	raw := `{"operation":"run.env.set","params":{"key":"TOKEN","value":"` + secret + `","content":"` + candidate + `","idempotencyKey":"` + idempotency + `"}}`
+	raw := `{"operation":"run.env.set","params":{"key":"DOCUMENT_ID","value":"` + value + `","content":"` + candidate + `","idempotencyKey":"` + idempotency + `"}}`
 
 	sanitized := SanitizeArguments(raw)
-	for _, forbidden := range []string{secret, candidate, idempotency} {
+	if !strings.Contains(sanitized, `"value":"`+value+`"`) || strings.Contains(sanitized, `"valueBytes"`) {
+		t.Fatalf("sanitized arguments did not preserve run environment value: %s", sanitized)
+	}
+	for _, forbidden := range []string{candidate, idempotency} {
 		if strings.Contains(sanitized, forbidden) {
 			t.Fatalf("sanitized arguments contain %q: %s", forbidden, sanitized)
 		}
 	}
-	if !strings.Contains(sanitized, `"value":"[REDACTED]"`) || !strings.Contains(sanitized, `"content":"[REDACTED]"`) || !strings.Contains(sanitized, `"idempotencyKey":"[REDACTED]"`) {
+	if !strings.Contains(sanitized, `"content":"[REDACTED]"`) || !strings.Contains(sanitized, `"idempotencyKey":"[REDACTED]"`) {
 		t.Fatalf("sanitized arguments do not retain safe shape: %s", sanitized)
+	}
+}
+
+func TestSanitizeArgumentsKeepsUnknownOperationValueFailClosed(t *testing.T) {
+	const value = "unknown-operation-value"
+	sanitized := SanitizeArguments(`{"operation":"unknown","params":{"value":"` + value + `"}}`)
+	if strings.Contains(sanitized, value) || !strings.Contains(sanitized, `"value":"[REDACTED]"`) {
+		t.Fatalf("unknown operation value was not fail-closed: %s", sanitized)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/accesspolicy"
+	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/bashsec"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
@@ -229,15 +230,13 @@ func (s *llmRunStream) knownRuntimeVariables() map[string]string {
 	if s == nil || s.execCtx == nil {
 		return nil
 	}
-	variables := CloneStringMap(s.execCtx.StaticRuntimeEnv)
+	var dynamic map[string]string
 	if s.execCtx.RunEnvironment != nil {
-		if dynamic, _, err := s.execCtx.RunEnvironment.Snapshot(); err == nil {
-			for key, value := range dynamic {
-				variables[key] = value
-			}
+		if snapshot, _, err := s.execCtx.RunEnvironment.Snapshot(); err == nil {
+			dynamic = snapshot
 		}
 	}
-	return variables
+	return agentconfig.Merge(s.execCtx.StaticRuntimeEnv, dynamic)
 }
 
 func (s *llmRunStream) executeApprovedFileAccessInvocation(invocation *preparedToolInvocation, plan filetools.AccessPlan) error {

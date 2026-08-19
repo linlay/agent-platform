@@ -270,7 +270,7 @@ orchestrator:
 
 普通主 Agent 还可分别显式挂载 `run_query`、`run_status`、`run_interrupt`，用于发起、查询和中断标准独立 Agent/Team 根 run。它们与 `agent_invoke` 不同：不复用父 `chatId/runId`，query 在目标 run 注册后立即返回，父 run 中断不取消目标；后续控制只允许同一调用 Agent 与 subject 操作自己通过 `run_query` 创建的 run。目标不使用白名单或 `contextConfig.agents`，精确 catalog 名称存在即可调用；`run_query` 的工具描述负责把“当前智能体”“本智能体”“你自己”解析为 system prompt 的 `Agent Identity.key`，不得用候选摘要替代。目标 run 禁止再次调用任一 run 工具。旧 `agent_run_query`、`agent_run_status`、`agent_run_interrupt` 已删除，Agent 配置引用旧名会硬失败。完整契约见 [子智能体调度](./docs/子智能体调度.md)。
 
-`platform_control` 必须由 Agent 的 `toolConfig.tools` 显式挂载；挂载后即可调用全部注册 operation，模型可见 Schema 不按 Agent 裁剪。动态环境只提供 `run.env.set/unset`，作用于当前普通 native root run，并只注入后续新建的 Host/Container Tool 子进程；只有当前 run 成功 set 的 key 才能 unset。Skill 与 `mustUseSkills` 不会替 Agent 挂载 Tool。旧 `platform_config` 和旧 `platform-control.profiles/bindings` 加载时硬失败，遗留 `runtimeConfig.runEnv` 静默忽略。完整契约见 [Platform 控制工具设计与实现](./docs/Platform控制工具设计.md)。
+`platform_control` 必须由 Agent 的 `toolConfig.tools` 显式挂载；挂载后即可调用全部注册 operation，模型可见 Schema 不按 Agent 裁剪。动态环境只提供 `run.env.set/unset`，作用于当前普通 native root run，并只注入后续新建的 Host/Container Tool 子进程；只有当前 run 成功 set 的 key 才能 unset。set value 作为普通 Tool 参数在会话、trace 和导出中可见，不得用于传递 Secret。Skill 与 `mustUseSkills` 不会替 Agent 挂载 Tool。旧 `platform_config` 和旧 `platform-control.profiles/bindings` 加载时硬失败，遗留 `runtimeConfig.runEnv` 静默忽略。完整契约见 [Platform 控制工具设计与实现](./docs/Platform控制工具设计.md)。
 
 ## 4. 部署
 

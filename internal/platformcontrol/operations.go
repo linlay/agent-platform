@@ -25,7 +25,7 @@ var descriptors = map[string]Descriptor{
 	"capabilities.list":    operation("capabilities.list", "low", true, false, nil, "all"),
 	"catalog.defaults.get": operation("catalog.defaults.get", "low", true, false, nil, "all"),
 	"catalog.validate":     operation("catalog.validate", "low", true, false, []string{"params.content"}, "all"),
-	"run.env.set":          operation("run.env.set", "high", false, true, []string{"params.value", "params.idempotencyKey"}, "main"),
+	"run.env.set":          operation("run.env.set", "high", false, true, []string{"params.idempotencyKey"}, "main"),
 	"run.env.unset":        operation("run.env.unset", "high", false, true, []string{"params.idempotencyKey"}, "main"),
 	"runtime.status":       operation("runtime.status", "low", true, false, nil, "all"),
 	"security.explain":     operation("security.explain", "low", true, false, nil, "all"),
@@ -90,11 +90,16 @@ func SanitizeArguments(raw string) string {
 	}
 	descriptor, known := InvocationDescriptor(ToolName, args)
 	failClosedPaths := []string{
-		"params.value", "params.content", "params.idempotencyKey",
+		"params.content", "params.idempotencyKey",
 	}
 	paths := append([]string(nil), failClosedPaths...)
 	if known {
 		paths = append(append([]string(nil), descriptor.SensitivePaths...), failClosedPaths...)
+	} else {
+		// Unknown operations have no trusted argument contract. Keep their
+		// generic value field fail-closed, while registered run.env.set values
+		// remain ordinary observable tool arguments.
+		paths = append(paths, "params.value")
 	}
 	for _, path := range paths {
 		redactSensitivePath(args, strings.Split(path, "."))

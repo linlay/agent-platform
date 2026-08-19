@@ -68,7 +68,7 @@ set/unset 成功数据统一为：
 }
 ```
 
-结果绝不返回 value。`value` 和 `idempotencyKey` 在进入 SSE、JSONL、raw messages、provider history、trace、console、日志、archive、export、search 与 tool result 前脱敏。
+成功结果不重复返回 value，但 `run.env.set.params.value` 是普通可观测 Tool 参数：它会原样进入 SSE、JSONL、raw messages、provider history、trace、archive、export 和 search，不得用于传递凭据或其他 Secret。`idempotencyKey` 和 `catalog.validate.params.content` 仍在这些边界前脱敏；未知 operation 的通用 `params.value` 仍 fail-closed。
 
 ## 校验与错误
 
@@ -80,7 +80,7 @@ set/unset 成功数据统一为：
 - optimistic `expectedRevision`；
 - HMAC 幂等指纹；
 - operation-aware scheduling barrier；
-- 敏感参数脱敏。
+- `idempotencyKey` 与 Catalog candidate content 脱敏；run-env value 不脱敏。
 
 主要错误码：
 
