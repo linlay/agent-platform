@@ -34,6 +34,7 @@ type RuntimeToolExecutor struct {
 	artifactPusher  ArtifactPusher
 	clientRequest   ClientRequestInvoker
 	clientTargets   ClientTargetStore
+	desktopMain     DesktopMainTargetProvider
 	fileChangeHooks []FileChangeHook
 	fileStateMu     sync.Mutex
 	httpClient      *http.Client
@@ -146,6 +147,13 @@ func (a webClientTargetStoreAdapter) ResolveClientTarget(runID string) (ClientTa
 func (t *RuntimeToolExecutor) WithClientTargetStore(store ClientTargetStore) *RuntimeToolExecutor {
 	if t != nil {
 		t.clientTargets = store
+	}
+	return t
+}
+
+func (t *RuntimeToolExecutor) WithDesktopMainTargetProvider(provider DesktopMainTargetProvider) *RuntimeToolExecutor {
+	if t != nil {
+		t.desktopMain = provider
 	}
 	return t
 }

@@ -132,6 +132,7 @@ type desktopActionSource struct {
 	RunID    string `json:"runId,omitempty"`
 	ChatID   string `json:"chatId,omitempty"`
 	AgentKey string `json:"agentKey,omitempty"`
+	TeamID   string `json:"teamId,omitempty"`
 }
 
 type desktopCDPRequest struct {
@@ -274,9 +275,9 @@ func (t *RuntimeToolExecutor) invokeDesktopClientRequest(ctx context.Context, re
 	if t == nil || t.clientRequest == nil {
 		return desktopActionErrorResult(toolName+"_provider_unavailable", "desktop client request provider is unavailable", nil), nil
 	}
-	target := t.resolveClientTarget(execCtx)
+	target, unavailableReason := t.resolveClientTarget(execCtx)
 	if target.IsZero() {
-		return desktopActionErrorResult(toolName+"_target_unavailable", "client target is unavailable for this run", map[string]any{"reason": "run_target_missing"}), nil
+		return desktopActionErrorResult(toolName+"_target_unavailable", "client target is unavailable for this run", map[string]any{"reason": unavailableReason}), nil
 	}
 	payloadMap, err := desktopPayloadMap(payload)
 	if err != nil {
@@ -284,13 +285,27 @@ func (t *RuntimeToolExecutor) invokeDesktopClientRequest(ctx context.Context, re
 	}
 	collector := newDesktopResponseCollector(t, screenshot, execCtx)
 	defer collector.abort()
-	err = t.clientRequest.InvokeClientRequest(ctx, target, ClientRequest{ID: requestID, Type: requestType, Payload: payloadMap}, collector.consume)
+	request := ClientRequest{ID: requestID, Type: requestType, Payload: payloadMap}
+	err = t.clientRequest.InvokeClientRequest(ctx, target, request, collector.consume)
+	if errors.Is(err, ErrClientTargetUnavailable) && t.cfg.RuntimeMode == config.RuntimeModeDesktop {
+		refreshedTarget, refreshedReason := t.resolveDesktopMainTarget(execCtx)
+		if !refreshedTarget.IsZero() && refreshedTarget != target {
+			target = refreshedTarget
+			unavailableReason = ""
+			err = t.clientRequest.InvokeClientRequest(ctx, target, request, collector.consume)
+		} else if refreshedReason != "" {
+			unavailableReason = refreshedReason
+		}
+	}
 	if err != nil {
 		switch {
 		case errors.Is(err, context.DeadlineExceeded):
 			return desktopActionErrorResult(toolName+"_client_timeout", "client request timed out", nil), nil
 		case errors.Is(err, ErrClientTargetUnavailable):
-			return desktopActionErrorResult(toolName+"_target_unavailable", "client target is unavailable for this run", map[string]any{"reason": "target_connection_unavailable"}), nil
+			if unavailableReason == "" {
+				unavailableReason = "target_connection_unavailable"
+			}
+			return desktopActionErrorResult(toolName+"_target_unavailable", "client target is unavailable for this run", map[string]any{"reason": unavailableReason}), nil
 		case errors.Is(err, ErrClientDisconnected):
 			return desktopActionErrorResult(toolName+"_client_disconnected", "client disconnected before completing the request", nil), nil
 		default:
@@ -361,17 +376,50 @@ func desktopClientRejectionDetails(frame ClientResponseFrame) map[string]any {
 	return details
 }
 
-func (t *RuntimeToolExecutor) resolveClientTarget(execCtx *ExecutionContext) ClientTarget {
+func (t *RuntimeToolExecutor) resolveClientTarget(execCtx *ExecutionContext) (ClientTarget, string) {
 	if execCtx == nil {
-		return ClientTarget{}
+		return ClientTarget{}, "run_target_missing"
 	}
 	if t.clientTargets != nil {
 		if current, ok := t.clientTargets.ResolveClientTarget(execCtx.Session.RunID); ok {
-			return current
+			return current, ""
 		}
-		return ClientTarget{}
+		if t.cfg.RuntimeMode == config.RuntimeModeDesktop {
+			return t.resolveDesktopMainTarget(execCtx)
+		}
+		return ClientTarget{}, "run_target_missing"
 	}
-	return execCtx.Session.WebClientTarget
+	if !execCtx.Session.WebClientTarget.IsZero() {
+		return execCtx.Session.WebClientTarget, ""
+	}
+	if t.cfg.RuntimeMode == config.RuntimeModeDesktop {
+		return t.resolveDesktopMainTarget(execCtx)
+	}
+	return ClientTarget{}, "run_target_missing"
+}
+
+func (t *RuntimeToolExecutor) resolveDesktopMainTarget(execCtx *ExecutionContext) (ClientTarget, string) {
+	if t == nil || t.desktopMain == nil {
+		return ClientTarget{}, "desktop_main_missing"
+	}
+	target, state := t.desktopMain.ResolveDesktopMainTarget()
+	switch state {
+	case DesktopMainTargetMissing:
+		return ClientTarget{}, "desktop_main_missing"
+	case DesktopMainTargetDisconnected:
+		return ClientTarget{}, "desktop_main_disconnected"
+	case DesktopMainTargetReady:
+		if target.IsZero() {
+			return ClientTarget{}, "desktop_main_disconnected"
+		}
+	default:
+		return ClientTarget{}, "desktop_main_missing"
+	}
+	if execCtx == nil || strings.TrimSpace(execCtx.Session.RunID) == "" || t.clientTargets == nil ||
+		!t.clientTargets.BindClientTarget(execCtx.Session.RunID, target) {
+		return ClientTarget{}, "run_target_missing"
+	}
+	return target, ""
 }
 
 func desktopPayloadMap(payload any) (map[string]any, error) {
@@ -799,6 +847,7 @@ func buildDesktopActionSource(execCtx *ExecutionContext) desktopActionSource {
 		RunID:    execCtx.Session.RunID,
 		ChatID:   execCtx.Session.ChatID,
 		AgentKey: execCtx.Session.AgentKey,
+		TeamID:   execCtx.Session.TeamID,
 	}
 }
 

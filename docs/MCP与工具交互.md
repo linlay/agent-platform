@@ -116,16 +116,20 @@ Mask 必须与第一张图同尺寸并显式指定 `mode`：`alpha` 表示透明
 
 ## Desktop 反向 Provider
 
-Agent 仍然只看到 `desktop_action` 与 `desktop_cdp`。Action 白名单由 `internal/resources/tools/desktop_action.yml` 静态声明；Platform 只使用当前 run 的内存 target，不选择最近连接、不回退其他窗口，也不重试可能已经执行的动作：
+Agent 仍然只看到 `desktop_action` 与 `desktop_cdp`。Action 白名单由 `internal/resources/tools/desktop_action.yml` 静态声明。Platform 为每个 run 保留独立的内存 target；Desktop 模式还在现有 WebSocket Hub 中维护唯一 `desktop-main` 默认连接，但它不是新的窗口/surface registry，也不允许 HTTP 或其他浏览器 fallback：
 
 - Desktop 模式：所有 `desktop.*` 与 `desktop_cdp` 通过 `desktop.action.call` / `desktop.cdp.call` 反向 request 发给 Desktop Main Broker，由 Broker 直接调用现有 Action/CDP 核心 handler。
 - Standalone 模式：只有七个 `desktop.workpanel.*` 动作通过 `desktop.action.call` 发给当前 agent-webclient；其他 `desktop.*` 返回 `desktop_action_unsupported_runtime`，CDP 返回 `desktop_cdp_unsupported_runtime`。
 
-`desktop.action.call` payload 为 `{requestId,action,args,source}`，`desktop.cdp.call` payload 为 `{requestId,method,params,targetId,sessionId,surfaceId,source}`；`source` 只由可信 run context 生成。小结果以标准 `response/error` 收口；大 JSON 通过 `desktop.bridge.response.delta` 分块，截图通过 `desktop.cdp.screenshot.delta` 分块，每个 chunk 不超过 256 KiB，解码后总量不超过 64 MiB。Platform 校验 streamId、连续 seq、编码、chunkCount、totalBytes 和最终响应；截图边收边写入当前 Chat 临时文件，成功后原子改名。超时或取消发送 `desktop.bridge.cancel`，迟到帧被丢弃且不会触发重发。
+`desktop.action.call` payload 为 `{requestId,action,args,source}`，`desktop.cdp.call` payload 为 `{requestId,method,params,targetId,sessionId,surfaceId,source}`；`source` 只由可信 run context 生成，并保留实际调用 run 的 `runId/chatId/agentKey/teamId`，不借用父 run 身份。小结果以标准 `response/error` 收口；大 JSON 通过 `desktop.bridge.response.delta` 分块，截图通过 `desktop.cdp.screenshot.delta` 分块，每个 chunk 不超过 256 KiB，解码后总量不超过 64 MiB。Platform 校验 streamId、连续 seq、编码、chunkCount、totalBytes 和最终响应；截图边收边写入当前 Chat 临时文件，成功后原子改名。超时或取消发送 `desktop.bridge.cancel`，迟到帧被丢弃且不会触发重发。
 
-WebSocket query 直接绑定当前连接，不检查连接自报的 `source`；即使没有 `surfaceId`，该 run 仍可按 WebSocket session 定位原连接。HTTP SSE query 与 attach 通过 `X-Agent-WebClient-Device-Id`、`X-Agent-WebClient-Surface-Id` 绑定同一认证主体和 device 边界内的逻辑 surface；device header 与 `/ws?deviceId=...` 相同，认证 JWT 已含 device claim 时以 claim 为准。WS attach 直接使用发起 attach 的连接。每次成功且携带有效 WebClient target 的 attach 都以 last-writer-wins 更新该 run 的反向 Action target；失败 attach 或普通无 target attach 不改变已有绑定，已发出的 Action 不迁移。Team 内部成员与 `agent_invoke` 子 run 按根 run 动态读取相同 target，planning 新 execution run 继承 source run 的当前 target，automation 与 `run_query` 创建的独立根 run 不继承。目标元数据只保存在运行内存，不进入 prompt、事件、chat 或数据库。
+WebSocket query 直接绑定当前连接，不检查连接自报的 `source`；即使没有 `surfaceId`，该 run 仍可按 WebSocket session 定位原连接。HTTP SSE query 与 attach 通过 `X-Agent-WebClient-Device-Id`、`X-Agent-WebClient-Surface-Id` 绑定同一认证主体和 device 边界内的逻辑 surface；device header 与 `/ws?deviceId=...` 相同，认证 JWT 已含 device claim 时以 claim 为准。WS attach 直接使用发起 attach 的连接。每次成功且携带有效 WebClient target 的 attach 都以 last-writer-wins 更新该 run 的反向 Action target；失败 attach 或普通无 target attach 不改变已有绑定，已发出的 Action 不迁移。Team 内部成员与 `agent_invoke` 子 run 按根 run 动态读取相同 target，planning 新 execution run 继承 source run 的当前 target。
 
-`desktop_action_target_unavailable` 保持稳定错误码，并用 `details.reason` 区分 `run_target_missing`（run 尚无 target）与 `target_connection_unavailable`（已绑定 target 当前无可用连接）；`desktop_cdp` 使用对应的 `desktop_cdp_target_unavailable`。
+Desktop 模式只将 `scope=app` 且 JWT `device_id` 与握手 `deviceId` 完全一致的已认证 `source=desktop-main` WebSocket 作为默认连接 generation；`source` 或 query device metadata 本身不构成授权。已有且可达的 run target 始终优先；automation、`run_query` 等独立根 run 首次调用 Desktop 工具时若无 target，才把当前默认连接写入该 run。旧 target 已无法解析且请求尚未发送时，可以原子改绑新 generation 并发送一次；连接在请求发送后断开时返回 `*_client_disconnected`，不得自动重放。父 run 终态不撤销独立子 run 的绑定。Standalone 不读取该默认连接。目标元数据只保存在运行内存，不进入 prompt、事件、chat 或数据库。
+
+`desktop_action_target_unavailable` 保持稳定错误码。Standalone 无 target 使用 `run_target_missing`；Desktop Main 从未建立使用 `desktop_main_missing`，曾建立但当前离线使用 `desktop_main_disconnected`，无法进一步归类的旧绑定仍使用 `target_connection_unavailable`。`desktop_cdp` 使用对应的 `desktop_cdp_target_unavailable` 与相同 reason。
+
+默认 Desktop target 只决定反向请求送达位置，不扩大 WorkPanel 或页面权限。`desktop.workpanel.*` 到达 Desktop 后仍必须通过该 run 的 canonical Chat/grant；没有 grant 的独立 run 返回 `source_chat_not_ready`，不能借用当前可见 Chat。Team WorkPanel 的现有限制同样不变。
 
 ## 旧 external stdio 配置已删除
 

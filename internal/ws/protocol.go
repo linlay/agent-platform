@@ -57,11 +57,13 @@ type ErrorFrame struct {
 }
 
 type AuthSession struct {
-	Context     context.Context
-	Subject     string
-	DeviceID    string
-	ExpiresAt   int64
-	Subprotocol string
+	Context          context.Context
+	Subject          string
+	DeviceID         string
+	DeviceIDVerified bool
+	Scope            string
+	ExpiresAt        int64
+	Subprotocol      string
 }
 
 type GatewayContext struct {

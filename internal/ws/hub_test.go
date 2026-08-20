@@ -33,7 +33,13 @@ func TestHubBroadcast(t *testing.T) {
 
 func TestHubWebClientSurfaceReplacesOldConnection(t *testing.T) {
 	hub := NewHub()
-	auth := AuthSession{Context: context.Background(), Subject: "user-1", DeviceID: "device-1"}
+	auth := AuthSession{
+		Context:          context.Background(),
+		Subject:          "user-1",
+		DeviceID:         "device-1",
+		DeviceIDVerified: true,
+		Scope:            "app",
+	}
 	first := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, auth)
 	first.SetClientMetadata("desktop-chat", "device-1")
 	first.SetClientSurfaceID("surface-1")
@@ -86,6 +92,91 @@ func TestHubWebClientSessionTargetDoesNotRequireSurfaceOrSource(t *testing.T) {
 	}
 	if got, ok := hub.resolveWebClientConnection(target); !ok || got != conn {
 		t.Fatalf("expected direct session resolution, got %#v ok=%v", got, ok)
+	}
+}
+
+func TestHubDesktopMainTargetTracksLatestConnectionGeneration(t *testing.T) {
+	hub := NewHub()
+	if target, state := hub.ResolveDesktopMainTarget(); !target.IsZero() || state != contracts.DesktopMainTargetMissing {
+		t.Fatalf("initial desktop main target = %#v state=%q", target, state)
+	}
+
+	auth := AuthSession{
+		Context:          context.Background(),
+		Subject:          "user-1",
+		DeviceID:         "device-1",
+		DeviceIDVerified: true,
+		Scope:            "app",
+	}
+	first := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, auth)
+	first.SetClientMetadata("desktop-main", "device-1")
+	hub.register(first)
+	firstTarget, state := hub.ResolveDesktopMainTarget()
+	if state != contracts.DesktopMainTargetReady || firstTarget.SessionID != first.SessionID() {
+		t.Fatalf("first desktop main target = %#v state=%q", firstTarget, state)
+	}
+	first.UpdateAuth(AuthSession{Context: context.Background(), Subject: "user-1", DeviceID: "device-1", DeviceIDVerified: true, Scope: "openid"})
+	if target, currentState := hub.ResolveDesktopMainTarget(); !target.IsZero() || currentState != contracts.DesktopMainTargetDisconnected {
+		t.Fatalf("invalid refreshed identity remained default = %#v state=%q", target, currentState)
+	}
+	first.UpdateAuth(auth)
+	if target, currentState := hub.ResolveDesktopMainTarget(); currentState != contracts.DesktopMainTargetReady || target.SessionID != first.SessionID() {
+		t.Fatalf("valid refreshed identity did not recover default = %#v state=%q", target, currentState)
+	}
+
+	second := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, auth)
+	second.SetClientMetadata("DESKTOP-MAIN", "device-1")
+	hub.register(second)
+	secondTarget, state := hub.ResolveDesktopMainTarget()
+	if state != contracts.DesktopMainTargetReady || secondTarget.SessionID != second.SessionID() {
+		t.Fatalf("replacement desktop main target = %#v state=%q", secondTarget, state)
+	}
+	if !first.isClosed() {
+		t.Fatal("replaced desktop main connection must close")
+	}
+
+	// A late unregister from the old generation cannot clear the replacement.
+	hub.unregister(first)
+	if target, currentState := hub.ResolveDesktopMainTarget(); currentState != contracts.DesktopMainTargetReady || target.SessionID != second.SessionID() {
+		t.Fatalf("late old-generation unregister changed target = %#v state=%q", target, currentState)
+	}
+
+	hub.unregister(second)
+	if target, currentState := hub.ResolveDesktopMainTarget(); !target.IsZero() || currentState != contracts.DesktopMainTargetDisconnected {
+		t.Fatalf("disconnected desktop main target = %#v state=%q", target, currentState)
+	}
+}
+
+func TestHubDesktopMainTargetRequiresDesktopSourceAndDevice(t *testing.T) {
+	tests := []struct {
+		name             string
+		source           string
+		deviceID         string
+		authDeviceID     string
+		deviceIDVerified bool
+		scope            string
+	}{
+		{name: "other source", source: "desktop-chat", deviceID: "device-1", authDeviceID: "device-1", deviceIDVerified: true, scope: "app"},
+		{name: "missing device", source: "desktop-main", deviceID: "", authDeviceID: "device-1", deviceIDVerified: true, scope: "app"},
+		{name: "unverified device", source: "desktop-main", deviceID: "device-1", authDeviceID: "device-1", scope: "app"},
+		{name: "wrong scope", source: "desktop-main", deviceID: "device-1", authDeviceID: "device-1", deviceIDVerified: true, scope: "openid"},
+		{name: "device mismatch", source: "desktop-main", deviceID: "device-query", authDeviceID: "device-token", deviceIDVerified: true, scope: "app"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			hub := NewHub()
+			conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{
+				Context:          context.Background(),
+				DeviceID:         test.authDeviceID,
+				DeviceIDVerified: test.deviceIDVerified,
+				Scope:            test.scope,
+			})
+			conn.SetClientMetadata(test.source, test.deviceID)
+			hub.register(conn)
+			if target, state := hub.ResolveDesktopMainTarget(); !target.IsZero() || state != contracts.DesktopMainTargetMissing {
+				t.Fatalf("unexpected desktop main target = %#v state=%q", target, state)
+			}
+		})
 	}
 }
 

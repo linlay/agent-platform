@@ -59,11 +59,14 @@ func (a wsTokenAuthenticator) VerifyToken(ctx context.Context, token string) (ws
 	if err != nil {
 		return ws.AuthSession{}, err
 	}
+	deviceID := firstStringClaim(principal.Claims, "deviceId", "device_id")
 	return ws.AuthSession{
-		Context:   WithPrincipal(ctx, principal),
-		Subject:   principal.Subject,
-		DeviceID:  firstStringClaim(principal.Claims, "deviceId", "device_id"),
-		ExpiresAt: expiresAt,
+		Context:          WithPrincipal(ctx, principal),
+		Subject:          principal.Subject,
+		DeviceID:         deviceID,
+		DeviceIDVerified: strings.TrimSpace(deviceID) != "",
+		Scope:            firstStringClaim(principal.Claims, "scope"),
+		ExpiresAt:        expiresAt,
 	}, nil
 }
 

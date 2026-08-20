@@ -7,7 +7,10 @@ import (
 	"agent-platform/internal/contracts"
 )
 
-const webClientSurfaceIDMaxRunes = 128
+const (
+	webClientSurfaceIDMaxRunes = 128
+	desktopMainClientSource    = "desktop-main"
+)
 
 func NormalizeWebClientDeviceID(deviceID string) string {
 	return monitorNormalizeDeviceID(deviceID)
@@ -116,4 +119,68 @@ func (h *Hub) resolveClientConnection(target contracts.ClientTarget) (*Conn, boo
 		}
 	}
 	return nil, false
+}
+
+func (h *Hub) registerDesktopMainLocked(conn *Conn) *Conn {
+	if h == nil || conn == nil {
+		return nil
+	}
+	if _, ok := conn.authenticatedDesktopMainTarget(); !ok {
+		return nil
+	}
+	replaced := h.desktopMainConn
+	h.desktopMainConn = conn
+	h.desktopMainSeen = true
+	if replaced == conn {
+		return nil
+	}
+	return replaced
+}
+
+func (h *Hub) unregisterDesktopMainLocked(conn *Conn) {
+	if h == nil || conn == nil || h.desktopMainConn != conn {
+		return
+	}
+	h.desktopMainConn = nil
+}
+
+func (h *Hub) ResolveDesktopMainTarget() (contracts.ClientTarget, contracts.DesktopMainTargetState) {
+	if h == nil {
+		return contracts.ClientTarget{}, contracts.DesktopMainTargetMissing
+	}
+	h.mu.RLock()
+	conn := h.desktopMainConn
+	seen := h.desktopMainSeen
+	h.mu.RUnlock()
+	if conn == nil || conn.isClosed() {
+		if seen {
+			return contracts.ClientTarget{}, contracts.DesktopMainTargetDisconnected
+		}
+		return contracts.ClientTarget{}, contracts.DesktopMainTargetMissing
+	}
+	target, ok := conn.authenticatedDesktopMainTarget()
+	if !ok {
+		return contracts.ClientTarget{}, contracts.DesktopMainTargetDisconnected
+	}
+	return target, contracts.DesktopMainTargetReady
+}
+
+func (c *Conn) authenticatedDesktopMainTarget() (contracts.ClientTarget, bool) {
+	if c == nil {
+		return contracts.ClientTarget{}, false
+	}
+	source, deviceID := c.monitorClientMetadata()
+	if source != desktopMainClientSource || strings.TrimSpace(deviceID) == "" {
+		return contracts.ClientTarget{}, false
+	}
+	c.authMu.RLock()
+	authDeviceID := monitorNormalizeDeviceID(c.auth.DeviceID)
+	deviceIDVerified := c.auth.DeviceIDVerified
+	authScope := strings.TrimSpace(c.auth.Scope)
+	c.authMu.RUnlock()
+	if !deviceIDVerified || authScope != "app" || authDeviceID == "" || deviceID != authDeviceID {
+		return contracts.ClientTarget{}, false
+	}
+	target := c.WebClientTarget()
+	return target, !target.IsZero()
 }

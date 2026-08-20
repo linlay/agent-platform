@@ -13,8 +13,9 @@ var (
 	ErrWebClientDisconnected      = ErrClientDisconnected
 )
 
-// ClientTarget is runtime-only routing metadata for the client surface that
-// originated a root run. It must never be persisted or exposed to the model.
+// ClientTarget is runtime-only routing metadata bound to a root run. It may
+// come from the originating client or the Desktop Main default connection,
+// and must never be persisted or exposed to the model.
 type ClientTarget struct {
 	SessionID   string
 	BoundaryKey string
@@ -48,6 +49,9 @@ type ClientResponseFrame struct {
 }
 
 type ClientRequestInvoker interface {
+	// ErrClientTargetUnavailable means no request was sent and callers may
+	// safely resolve a replacement target. ErrClientDisconnected may happen
+	// after dispatch, so side-effecting requests must not be replayed.
 	InvokeClientRequest(
 		ctx context.Context,
 		target ClientTarget,
@@ -67,4 +71,18 @@ type WebClientTargetStore interface {
 type ClientTargetStore interface {
 	BindClientTarget(runID string, target ClientTarget) bool
 	ResolveClientTarget(runID string) (ClientTarget, bool)
+}
+
+type DesktopMainTargetState string
+
+const (
+	DesktopMainTargetMissing      DesktopMainTargetState = "missing"
+	DesktopMainTargetDisconnected DesktopMainTargetState = "disconnected"
+	DesktopMainTargetReady        DesktopMainTargetState = "ready"
+)
+
+// DesktopMainTargetProvider exposes the current authenticated Desktop Main
+// reverse-request connection without changing run ownership or surface grants.
+type DesktopMainTargetProvider interface {
+	ResolveDesktopMainTarget() (ClientTarget, DesktopMainTargetState)
 }

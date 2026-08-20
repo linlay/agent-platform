@@ -168,6 +168,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}
 	runtimeToolExecutor.WithClientRequestInvoker(wsHub)
 	runtimeToolExecutor.WithClientTargetStore(runManager)
+	runtimeToolExecutor.WithDesktopMainTargetProvider(wsHub)
 	runtimeToolExecutor.WithRuntimeEnv(hostEnv)
 	runtimeToolExecutor.WithModelRegistry(modelRegistry)
 	var lspManager *lsp.Manager

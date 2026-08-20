@@ -170,7 +170,7 @@ RUN_SOCKET_TESTS=1 make test-integration
 
 本地启动变量从 `.env.example` 复制到 `.env`。`.env` 不提交；`.env.example` 只保留启动/部署 allowlist。运行时配置使用 `configs/runtime.yml`，工具运行时配置使用 `configs/tools.yml`，AI 工具配置使用 `configs/ai-tools.yml`，默认值的单一事实源仍以代码和 `configs/*.example.yml` 模板为准。更完整的高级与排障配置参考见 [配置化说明](./docs/配置化说明.md)。
 
-Platform 运行形态只由 `--runtime-mode=standalone|desktop` 指定，默认 `standalone`。Desktop 宿主启动内置 Platform 时固定传入 `desktop`；Platform 不根据端口、父进程、WS `source` 或 YAML 猜测运行形态。`desktop_action` / `desktop_cdp` 使用当前 run 绑定的反向 WebSocket target，不再调用本地 HTTP bridge，也不做失败回退。
+Platform 运行形态只由 `--runtime-mode=standalone|desktop` 指定，默认 `standalone`。Desktop 宿主启动内置 Platform 时固定传入 `desktop`；Platform 不根据端口、父进程、WS `source` 或 YAML 猜测运行形态。`desktop_action` / `desktop_cdp` 优先使用当前 run 绑定的反向 WebSocket target；Desktop 模式下，无绑定或旧连接在发送前已失效的 run 会补绑当前 `desktop-main`，Standalone 仍只认 run target。两种模式都不调用本地 HTTP bridge，也不重放已经发送的动作。
 
 MCP server 配置位于 `${AP_RUNTIME_REGISTRIES_DIR}/mcp-servers/*.yml`，支持默认的 `streamable-http` 与 `stdio`。两种 transport 都只接受协议版本 `2025-11-25`；stdio 子进程必须使用标准 MCP，旧 `tools-dir/service.yml`、`type: external`、`external:` 与 `kind: external-service` 会在启动或热重载时硬失败。配置示例和迁移边界见 [MCP与工具交互](./docs/MCP与工具交互.md)。
 
