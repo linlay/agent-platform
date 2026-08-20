@@ -7,24 +7,6 @@ import (
 	"time"
 )
 
-func TestEncodeJSONFrameMatchesLiveSSEWireFormat(t *testing.T) {
-	raw, length, err := EncodeJSONFrame("message", map[string]any{
-		"seq":       1,
-		"type":      "content.snapshot",
-		"text":      "hello\nworld",
-		"timestamp": int64(1_700_000_000_000),
-	})
-	if err != nil {
-		t.Fatalf("encode json frame: %v", err)
-	}
-	if raw != "event: message\ndata: {\"seq\":1,\"text\":\"hello\\nworld\",\"timestamp\":1700000000000,\"type\":\"content.snapshot\"}\n\n" {
-		t.Fatalf("unexpected frame: %q", raw)
-	}
-	if length != len(`{"seq":1,"text":"hello\nworld","timestamp":1700000000000,"type":"content.snapshot"}`) {
-		t.Fatalf("payload length=%d", length)
-	}
-}
-
 func TestWriterWritesImmediatelyWhenBufferingDisabled(t *testing.T) {
 	rec := httptest.NewRecorder()
 	writer, err := NewWriter(rec, Options{})
@@ -37,14 +19,15 @@ func TestWriterWritesImmediatelyWhenBufferingDisabled(t *testing.T) {
 		"type":   "content.delta",
 		"runId":  "run_1",
 		"chatId": "chat_1",
-		"delta":  "hello",
+		"delta":  "hello\nworld",
 	}); err != nil {
 		t.Fatalf("write json: %v", err)
 	}
 
 	body := rec.Body.String()
-	if !strings.Contains(body, `"type":"content.delta"`) {
-		t.Fatalf("expected immediate sse output, got %s", body)
+	want := "event: message\ndata: {\"chatId\":\"chat_1\",\"delta\":\"hello\\nworld\",\"runId\":\"run_1\",\"type\":\"content.delta\"}\n\n"
+	if body != want {
+		t.Fatalf("unexpected immediate sse output\nwant: %q\ngot:  %q", want, body)
 	}
 }
 

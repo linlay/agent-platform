@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/builtins"
+	"agent-platform/internal/conversationexport"
 )
 
 const (
@@ -111,6 +112,14 @@ func verifyBundleRoot(root, targetOS, targetArch string) error {
 		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(clean))); err != nil {
 			return fmt.Errorf("required bundle path %q: %w", clean, err)
 		}
+	}
+	templatePath := filepath.Join(root, "resources", "export", "conversation.template.html")
+	template, err := os.ReadFile(templatePath)
+	if err != nil {
+		return fmt.Errorf("read conversation export template: %w", err)
+	}
+	if _, err := conversationexport.NewHTMLRenderer(template); err != nil {
+		return fmt.Errorf("verify conversation export template: %w", err)
 	}
 
 	sidecarPath := filepath.Join(root, filepath.FromSlash(sidecarRelativePath))

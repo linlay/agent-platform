@@ -1,23 +1,18 @@
 package server
 
 import (
-	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"reflect"
-	"strconv"
 	"strings"
 	"testing"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
-	"agent-platform/internal/stream"
 	"agent-platform/internal/timecontract"
 	"agent-platform/internal/ws"
 
@@ -681,199 +676,9 @@ func seedLLMTraceFile(t *testing.T, fixture testFixture, fileParam string, conte
 	}
 }
 
-func TestRenderChatMarkdownSkipsAutomationQuery(t *testing.T) {
-	markdown := renderChatMarkdown("Automation", "agent-a", []stream.EventData{
-		{
-			Type:      "request.query",
-			Timestamp: testEpochMillis + 100,
-			Payload: map[string]any{
-				"message": "Secret automation prompt",
-				"role":    "automation",
-			},
-		},
-		{
-			Type:      "content.snapshot",
-			Timestamp: testEpochMillis + 200,
-			Payload: map[string]any{
-				"text": "Automation result",
-			},
-		},
-	})
-
-	if strings.Contains(markdown, "Secret automation prompt") || strings.Contains(markdown, "## User") {
-		t.Fatalf("expected automation query to be omitted, got:\n%s", markdown)
-	}
-	if !strings.Contains(markdown, "Automation result") {
-		t.Fatalf("expected assistant content to remain, got:\n%s", markdown)
-	}
-}
-
-func TestHandleChatExportReturnsVersionedShareSSE(t *testing.T) {
-	fixture := newTestFixture(t)
-	chatID := "chat-transcript-export"
-	seedSearchableChat(t, fixture.chats, chatID)
-
-	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat/export?format=sse&chatId="+chatID, nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
-	}
-	if got := rec.Header().Get("Content-Type"); got != "text/event-stream; charset=utf-8" {
-		t.Fatalf("content-type=%q", got)
-	}
-	if got := rec.Header().Get("Content-Disposition"); got != `attachment; filename="rollback plan.sse"` {
-		t.Fatalf("content-disposition=%q", got)
-	}
-	if got := rec.Header().Get("Content-Length"); got != strconv.Itoa(rec.Body.Len()) {
-		t.Fatalf("content-length=%q body=%d", got, rec.Body.Len())
-	}
-	messages := decodeSSEMessages(t, rec.Body.String())
-	if len(messages) < 2 {
-		t.Fatalf("expected chat metadata and query, got %#v", messages)
-	}
-	if messages[0]["type"] != "chat.start" || messages[0]["shareVersion"] != float64(1) || messages[0]["chatName"] != "rollback plan" {
-		t.Fatalf("unexpected share start: %#v", messages[0])
-	}
-	if messages[1]["type"] != "request.query" || messages[1]["message"] != "rollback plan" {
-		t.Fatalf("unexpected query: %#v", messages[1])
-	}
-	for index, message := range messages {
-		if message["seq"] != float64(index+1) {
-			t.Fatalf("message %d seq=%#v", index, message["seq"])
-		}
-	}
-	body := rec.Body.String()
-	if !strings.HasSuffix(body, stream.DoneFrame) {
-		t.Fatalf("share stream must end with done frame: %q", body)
-	}
-	for _, forbidden := range []string{"mock-agent", "agentKey", "chatId", "runId", "requestId", "taskId", "durationMs"} {
-		if strings.Contains(body, forbidden) {
-			t.Fatalf("share stream leaked %q: %s", forbidden, body)
-		}
-	}
-}
-
-func TestEncodeChatShareSSEPreservesEventOrder(t *testing.T) {
-	events := []stream.EventData{
-		{Type: "chat.start", Timestamp: testEpochMillis, Payload: map[string]any{"shareVersion": 1, "chatName": "Ordered"}},
-		{Type: "request.query", Timestamp: testEpochMillis + 100, Payload: map[string]any{"message": "first"}},
-		{Type: "content.snapshot", Timestamp: testEpochMillis + 200, Payload: map[string]any{"text": "second"}},
-	}
-	body, err := encodeChatShareSSE(events)
-	if err != nil {
-		t.Fatalf("encode share sse: %v", err)
-	}
-	messages := decodeSSEMessages(t, string(body))
-	if got := []string{messages[0]["type"].(string), messages[1]["type"].(string), messages[2]["type"].(string)}; !reflect.DeepEqual(got, []string{"chat.start", "request.query", "content.snapshot"}) {
-		t.Fatalf("event order=%#v", got)
-	}
-	if messages[1]["message"] != "first" || messages[2]["text"] != "second" || !strings.HasSuffix(string(body), stream.DoneFrame) {
-		t.Fatalf("unexpected body: %s", body)
-	}
-	again, err := encodeChatShareSSE(events)
-	if err != nil || !bytes.Equal(body, again) {
-		t.Fatalf("share encoding is not deterministic: err=%v", err)
-	}
-	largeEvents := []stream.EventData{{Type: "chat.start", Timestamp: testEpochMillis, Payload: map[string]any{"shareVersion": 1, "chatName": "Large"}}}
-	for seq := 0; seq < 11; seq++ {
-		largeEvents = append(largeEvents, stream.EventData{Type: "content.snapshot", Timestamp: testEpochMillis + int64(seq+1), Payload: map[string]any{"text": strings.Repeat("x", maxChatShareContent)}})
-	}
-	if _, err := encodeChatShareSSE(largeEvents); !errors.Is(err, errChatShareTooLarge) {
-		t.Fatalf("oversized encoded share err=%v", err)
-	}
-}
-
-func TestBuildChatShareEventsIncludesOnlyVisibleRootConversation(t *testing.T) {
-	events, err := buildChatShareEvents(&chat.Summary{
-		ChatName:  "Transcript",
-		CreatedAt: testEpochMillis,
-		UpdatedAt: testEpochMillis + 300,
-	}, []stream.EventData{
-		{Type: "request.query", Timestamp: testEpochMillis + 50, Payload: map[string]any{"role": "user", "message": "unbound visible decoy"}},
-		{Type: "request.query", Timestamp: testEpochMillis + 100, Payload: map[string]any{"role": "automation", "message": "private automation", "runId": "run-automation"}},
-		{Type: "run.start", Timestamp: testEpochMillis + 125, Payload: map[string]any{"runId": "run-automation"}},
-		{Type: "content.snapshot", Timestamp: testEpochMillis + 150, Payload: map[string]any{"text": "private automation result", "runId": "run-automation"}},
-		{Type: "request.query", Timestamp: testEpochMillis + 200, Payload: map[string]any{"role": "user", "message": "public question", "runId": "run-private"}},
-		{Type: "reasoning.snapshot", Timestamp: testEpochMillis + 250, Payload: map[string]any{"text": "check assumptions", "reasoningLabel": "分析问题", "runId": "run-private"}},
-		{Type: "reasoning.snapshot", Timestamp: testEpochMillis + 275, Payload: map[string]any{"text": "orphan reasoning"}},
-		{Type: "content.snapshot", Timestamp: testEpochMillis + 300, Payload: map[string]any{"text": "public answer", "runId": "run-private"}},
-		{Type: "request.query", Timestamp: testEpochMillis + 325, Payload: map[string]any{"role": "user", "message": "private child", "runId": "run-private", "taskId": "task-private"}},
-		{Type: "reasoning.snapshot", Timestamp: testEpochMillis + 350, Payload: map[string]any{"text": "visible delegated reasoning", "runId": "run-private", "taskId": "task-private"}},
-		{Type: "content.snapshot", Timestamp: testEpochMillis + 375, Payload: map[string]any{"text": "visible delegated answer", "runId": "run-private", "taskId": "task-private"}},
-		{Type: "run.complete", Timestamp: testEpochMillis + 450, Payload: map[string]any{"runId": "run-private"}},
-	})
-	if err != nil {
-		t.Fatalf("build share events: %v", err)
-	}
-	if got := chatShareEventTypes(events); !reflect.DeepEqual(got, []string{"chat.start", "request.query", "reasoning.snapshot", "content.snapshot", "reasoning.snapshot", "content.snapshot", "run.complete"}) {
-		t.Fatalf("unexpected event types: %#v", got)
-	}
-	if events[1].String("message") != "public question" || events[2].String("text") != "check assumptions" || events[2].String("reasoningLabel") != "分析问题" || events[4].String("text") != "visible delegated reasoning" || events[5].String("text") != "visible delegated answer" {
-		t.Fatalf("unexpected share events: %#v", events)
-	}
-	encoded, err := json.Marshal(events)
-	if err != nil {
-		t.Fatalf("marshal share events: %v", err)
-	}
-	for _, forbidden := range []string{"unbound visible decoy", "private automation", "orphan reasoning", "private child", "run-private", "runId", "taskId", "durationMs"} {
-		if strings.Contains(string(encoded), forbidden) {
-			t.Fatalf("share events leaked %q: %s", forbidden, encoded)
-		}
-	}
-}
-
-func TestBuildChatShareEventsAlwaysIncludesReasoning(t *testing.T) {
-	events, err := buildChatShareEvents(&chat.Summary{ChatName: "Transcript", CreatedAt: testEpochMillis, UpdatedAt: testEpochMillis + 300}, []stream.EventData{
-		{Type: "request.query", Timestamp: testEpochMillis + 100, Payload: map[string]any{"role": "user", "message": "question", "runId": "run-1"}},
-		{Type: "reasoning.snapshot", Timestamp: testEpochMillis + 200, Payload: map[string]any{"text": "reasoning", "runId": "run-1"}},
-		{Type: "content.snapshot", Timestamp: testEpochMillis + 300, Payload: map[string]any{"text": "answer", "runId": "run-1"}},
-	})
-	if err != nil {
-		t.Fatalf("build share events: %v", err)
-	}
-	if got := chatShareEventTypes(events); !reflect.DeepEqual(got, []string{"chat.start", "request.query", "reasoning.snapshot", "content.snapshot"}) || events[2].String("text") != "reasoning" {
-		t.Fatalf("reasoning should be included: %#v", events)
-	}
-}
-
-func TestBuildChatShareEventsOmitsUnreliableTerminal(t *testing.T) {
-	events, err := buildChatShareEvents(&chat.Summary{ChatName: "Transcript", CreatedAt: testEpochMillis, UpdatedAt: testEpochMillis + 300}, []stream.EventData{
-		{Type: "request.query", Timestamp: testEpochMillis + 100, Payload: map[string]any{"role": "user", "message": "question", "runId": "run-1"}},
-		{Type: "content.snapshot", Timestamp: testEpochMillis + 200, Payload: map[string]any{"text": "partial answer", "runId": "run-1"}},
-		{Type: "run.complete", Timestamp: testEpochMillis + 50, Payload: map[string]any{"runId": "run-1"}},
-	})
-	if err != nil {
-		t.Fatalf("build share events: %v", err)
-	}
-	if got := chatShareEventTypes(events); !reflect.DeepEqual(got, []string{"chat.start", "request.query", "content.snapshot"}) {
-		t.Fatalf("unreliable terminal should be omitted: %#v", events)
-	}
-}
-
-func TestBuildChatShareEventsRejectsEmptyAndOversizedContent(t *testing.T) {
-	if _, err := buildChatShareEvents(&chat.Summary{ChatName: "Empty", CreatedAt: testEpochMillis}, nil); !errors.Is(err, errChatShareEmpty) {
-		t.Fatalf("empty share err=%v", err)
-	}
-	if _, err := buildChatShareEvents(&chat.Summary{ChatName: "Large", CreatedAt: testEpochMillis}, []stream.EventData{{
-		Type:      "request.query",
-		Timestamp: testEpochMillis,
-		Payload:   map[string]any{"role": "user", "message": strings.Repeat("x", maxChatShareContent+1), "runId": "run-1"},
-	}}); !errors.Is(err, errChatShareTooLarge) {
-		t.Fatalf("oversized share err=%v", err)
-	}
-}
-
-func chatShareEventTypes(events []stream.EventData) []string {
-	types := make([]string, 0, len(events))
-	for _, event := range events {
-		types = append(types, event.Type)
-	}
-	return types
-}
-
 func TestHandleChatExportRejectsUnknownFormat(t *testing.T) {
 	fixture := newTestFixture(t)
-	for _, format := range []string{"unknown", "raw"} {
+	for _, format := range []string{"unknown", "raw", "sse"} {
 		t.Run(format, func(t *testing.T) {
 			path := "/api/chat/export?chatId=chat-1&format=" + format
 			rec := httptest.NewRecorder()
@@ -898,7 +703,7 @@ func TestHandleChatExportRejectsUnknownFormat(t *testing.T) {
 func TestHandleChatExportDefaultRemainsMarkdown(t *testing.T) {
 	fixture := newTestFixture(t)
 	chatID := "chat-download-export"
-	seedSearchableChat(t, fixture.chats, chatID)
+	seedCompletedConversationExport(t, fixture, chatID)
 
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat/export?chatId="+chatID, nil))

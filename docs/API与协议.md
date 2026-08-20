@@ -18,7 +18,7 @@
 
 platform 自己定义和拥有的 API、JSONL、SSE、WebSocket 与 trace 生命周期时间点，统一使用未加引号的 Unix epoch milliseconds JSON 整数（Go `int64`、客户端 `number`）。可接受范围固定为 `1000000000000..9007199254740991`：这既拒绝十位 Unix 秒，也保证 JavaScript number 精确表示。
 
-- 已声明的平台字段（例如 chat/run 的 `createdAt`、`updatedAt`、`startedAt`、`completedAt`，stream envelope 的 `timestamp`，以及 `expiresAt`）必须是 epoch-ms。可选字段缺失时必须省略；不得输出 `0`、`null`、数字字符串、ISO 字符串或浮点数。
+- 已声明的平台字段（例如 chat/run 的 `createdAt`、`updatedAt`、`startedAt`、`completedAt`，stream envelope 的 `timestamp`，以及 platform auth 的 `expiresAt`）必须是 epoch-ms。可选字段缺失时必须省略；除协议明确声明 nullable 的字段外，不得输出 `0`、`null`、数字字符串、ISO 字符串或浮点数。Tunnel 对话分享上游协议使用 RFC3339，但 Platform 在 adapter 边界转换为 epoch-ms；分享记录的永久 `expiresAt` 和尚未访问的 `lastAccessedAt` 是明确的 nullable 例外。
 - 除 Automation 展示时间外，已声明的可读时间（`*Time` 或 `iso`）必须是带 `Z` 或 offset 的 RFC3339 / RFC3339Nano；若协议声明它与 epoch-ms 字段配对，两者必须表示同一毫秒时刻。Automation 的 `nextFireTime`、`startedTime`、`completedTime` 是例外：它们统一按 Platform `automation.default-zone-id`（无效或未配置时回退进程 `time.Local`）输出 `YYYY-MM-DD HH:mm:ss`，只用于展示，秒精度且不携带时区，不能用于还原精确时间点。
 - 名字不是契约：外部 tool result、MCP content、Desktop action result、trace request/response/tool payload 的 `createdAt`、`timestamp`、`iso` 等业务字段不会因名称被平台推断为时间。
 - 工具结果只有在其可选 `outputSchema` 显式声明时才校验时间：`x-platform-time: "epoch-ms"` 表示严格毫秒整数，`format: "date-time"` 表示 RFC3339 可读字符串，`x-platform-time-pair` 表示显式配对。未声明 `outputSchema` 的工具结果是透明 JSON。
@@ -167,7 +167,10 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 | POST | `/api/chat/rename` | body: `chatId`、`chatName` | 重命名结果 |
 | POST | `/api/chat/derive` | body: `sourceChatId`、`sourceRunId`、`chatId`、`chatName` | 从已完成 run 派生新 chat |
 | POST | `/api/chat/archive` | body: `chatId`、`reason` | 归档结果 |
-| GET | `/api/chat/export` | query: `chatId`，可选 `format=sse` | 默认 Markdown 导出；`sse` 返回有限、版本化的安全 Share SSE 事件流 |
+| GET | `/api/chat/export` | query: `chatId`，可选 `format=markdown\|html` | 默认 Markdown；`html` 返回完整静态只读文档；`sse` 与未知格式返回 400 |
+| POST | `/api/chat/share` | body: `chatId`，可选 `expiration=5m\|30m\|1h\|3h\|1d\|5d\|15d\|30d\|permanent`；本机 Desktop 私有 Tunnel origin/token headers | 缺省 `30d`；生成同一 Snapshot 的 HTML 并由 Platform 上传 Tunnel，返回分享元数据 |
+| GET | `/api/chat/shares` | query: `chatId`；本机 Desktop 私有 Tunnel origin/token headers | 返回当前用户、当前会话的有效分享元数据，不代理公开 HTML |
+| DELETE | `/api/chat/share/{shareId}` | 本机 Desktop 私有 Tunnel origin/token headers | 由 Platform 撤销 Tunnel 分享 |
 | GET | `/api/chat/jsonl` | query: `chatId` | 原始持久化 chat JSONL 文本；active 不存在时回退 archive，不得作为公开分享输入 |
 | GET | `/api/chat/system-prompt` | query: `chatId`、`runId`、`agentKey` | 获取该 agent 在历史 run 中首次使用的持久化 system message；服务端从 run 的 system-init / step `systemRef` 解析快照 |
 | GET | `/api/chat/llm-trace` | query: `file=<chatId>/.llm-records/<runId>_NNN.json` | 原始 LLM chat trace JSON 文本 |
@@ -411,30 +414,11 @@ curl -sS -X POST http://127.0.0.1:11949/api/query \
 
 `hidden` 是可选的 `request.query` 时间线展示标记；省略时普通 query 不隐藏，Automation 调度会按自身默认值传入 `true`。
 
-`role` 可选值为 `user`、`assistant`、`automation`、`system`，普通 query 缺省为 `user`。`automation` / `system` 的 `request.query` 会保留在 trace 中，但不会作为可见用户消息参与搜索、Markdown 或安全分享导出。`format=sse` 是公开分享链路唯一的数据协议：第一帧必须是带 `shareVersion=1` 的 `chat.start`，之后仅投影能够与根 run 生命周期可靠关联的 `request.query`、可选 `run.start`、`reasoning.snapshot`、`content.snapshot` 和运行终态，最后以唯一的 `[DONE]` 帧结束。无法关联到可见根 query 的事件、子任务 query、工具调用、附件、系统提示和错误诊断均不导出；事件不包含 `chatId`、`runId`、`agentKey`、reasoningId 或原始运行 payload。Profile 最多包含 2000 个对话事件，单段正文不超过 200 KB，标题和 reasoning label 不超过 300 字节。Desktop 只允许限长后原字节转发，不得派生第二套网络 DTO 或重新序列化。成功响应使用 `Content-Type: text/event-stream; charset=utf-8` 和安全标题的 `.sse` 附件名，不使用 `ApiResponse` 包裹；空投影返回 422，超过 2 MiB 返回 413，错误响应仍为 JSON `ApiResponse`。未知 format 返回 400。`/api/chat/jsonl` 返回原始持久化数据，与安全导出不是同一契约。`role` 只影响本次 query 展示语义，不决定 chat 摘要的 `source`；外部请求不能通过 `role=automation` 或传入 `source` 伪造 automation 创建来源。普通 HTTP `/api/query` 传入 `sourceUser` 也不会改变 source；该字段只在受信 channel/gateway 上下文中作为远端用户提示使用。
+`role` 可选值为 `user`、`assistant`、`automation`、`system`，普通 query 缺省为 `user`。`automation` / `system` 的 `request.query` 会保留在 trace 中，但不会作为可见用户消息参与搜索或对话导出。`role` 只影响本次 query 展示语义，不决定 chat 摘要的 `source`；外部请求不能通过 `role=automation` 或传入 `source` 伪造 automation 创建来源。普通 HTTP `/api/query` 传入 `sourceUser` 也不会改变 source；该字段只在受信 channel/gateway 上下文中作为远端用户提示使用。
 
-安全 Share SSE 示例：
+导出和分享统一由 `Summary + LoadChat` 投影一次内部 `ConversationSnapshotV1`。它只包含已绑定的可见根 query、reasoning/content snapshot 和运行终态，不包含子任务、工具、系统提示、附件、内部 ID 或原始 payload。Markdown 仅写出已完成轮次的用户问题和最后一个 assistant 回答；HTML 使用启动时校验缓存的 WebClient 模板 artifact，把 HTML-escaped Snapshot JSON 一次注入唯一 marker，并把当前 `X-Conversation-Export-Asset-Origin` 注入五个资源 origin marker。模板最大 256 KiB，只允许 Snapshot JSON 作为非外链 script payload，显示 CSS/JS 必须引用带 SRI 的 `conversation-export/<hash>` 内容寻址资产；origin 必须是 HTTPS，只有 loopback 开发地址允许 HTTP，路径、凭据、query 和 fragment 均拒绝。Snapshot 与最终 HTML 均最大 20 MiB，消息总数最多 2000 条，不限制单条消息字节数。
 
-```text
-event: message
-data: {"seq":1,"type":"chat.start","shareVersion":1,"chatName":"示例","timestamp":1700000000000}
-
-event: message
-data: {"seq":2,"type":"request.query","message":"你好","timestamp":1700000000000}
-
-event: message
-data: {"seq":3,"type":"reasoning.snapshot","text":"分析问题","reasoningLabel":"正在思考","timestamp":1700000000500}
-
-event: message
-data: {"seq":4,"type":"content.snapshot","text":"你好","timestamp":1700000001000}
-
-event: message
-data: {"seq":5,"type":"run.complete","timestamp":1700000001000}
-
-event: message
-data: [DONE]
-
-```
+`POST /api/chat/share`、`GET /api/chat/shares` 和 `DELETE /api/chat/share/{shareId}` 只供受信 Desktop bridge 调用。创建请求严格拒绝未知字段和非法时效，旧 Desktop 缺少 `expiration` 时兼容为 `30d`。Platform 自身 access token 仍使用标准 `Authorization`；资源 origin 与 site token 分别使用 `X-Conversation-Export-Asset-Origin` 和 `X-Conversation-Share-Authorization`，不得进入 URL、日志或错误文本。Platform 将生成的完整 HTML Buffer 原样 POST 到 Tunnel，通过 `X-Conversation-ID` 关联 `chatId`，并通过 `X-Conversation-Share-Expiration` 透传受控枚举，文档版本使用 `X-Conversation-Document-Version`。Tunnel 返回的 RFC3339 时间只在 share client adapter 中校验并转换为 epoch-ms；Desktop API 得到的记录始终包含 `createdAt`、nullable `expiresAt` 与 nullable `lastAccessedAt`。匿名访问者随后从 Tunnel 的 `/share/{shareId}` 直接取得同一份 `text/html` 字节，Platform 不代理公开 GET，也不保存或缓存分享列表。不保留 SSE 回退协议。
 
 `model` 可做本次 run 的模型覆盖：
 

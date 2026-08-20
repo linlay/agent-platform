@@ -326,6 +326,10 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}
 
 	serverStartedAt := time.Now()
+	conversationHTMLTemplate, templateErr := loadConversationHTMLTemplate()
+	if templateErr != nil {
+		log.Printf("conversation HTML export unavailable: bundled template not found")
+	}
 	srv, err = server.New(server.Dependencies{
 		BackgroundContext: backgroundCtx,
 		Config:            cfg,
@@ -360,12 +364,13 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			CoderPlanningMaxSteps:    cfg.Defaults.CoderPlanning.MaxSteps,
 			Prompts:                  cfg.Prompts,
 		}),
-		AutomationRegistry:   automationRegistry,
-		AutomationExecutions: automationExecutionStore,
-		GatewayResolver:      gatewayResolver,
-		AgentCardStatus:      cardReporter,
-		AgentCardRefresh:     cardReporter,
-		ChannelSessions:      cardReporter,
+		AutomationRegistry:       automationRegistry,
+		AutomationExecutions:     automationExecutionStore,
+		GatewayResolver:          gatewayResolver,
+		AgentCardStatus:          cardReporter,
+		AgentCardRefresh:         cardReporter,
+		ChannelSessions:          cardReporter,
+		ConversationHTMLTemplate: conversationHTMLTemplate,
 	})
 	if err != nil {
 		if automationExecutionStore != nil {
