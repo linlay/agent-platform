@@ -653,21 +653,6 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 }
 ```
 
-Platform 也可以在已绑定的 WebClient 控制连接上发起反向 request。`type` 直接等于静态白名单中的 `webclient.*` Action，`payload` 直接等于 `desktop_action.args`，不增加中间 action envelope：
-
-```json
-{
-  "frame": "request",
-  "type": "webclient.sidebar.setState",
-  "id": "wsa-123",
-  "payload": {
-    "sidebar": "right",
-    "open": true,
-    "tab": "debug"
-  }
-}
-```
-
 Desktop/WorkPanel 统一反向请求使用带可信上下文的 envelope：
 
 ```json
@@ -676,8 +661,6 @@ Desktop/WorkPanel 统一反向请求使用带可信上下文的 envelope：
 ```
 
 Desktop 模式由 Main Broker 处理这两种 request；Standalone 只由当前根 agent-webclient 处理 `desktop.action.call` 中的七个 `desktop.workpanel.*`。目标必须来自当前 run，缺失或断连立即失败，不选择其他连接。大 JSON 使用 `desktop.bridge.response.delta`，CDP 截图使用 `desktop.cdp.screenshot.delta`；stream event 包含 `seq/type/timestamp/encoding/chunk`，终态 response manifest 包含 `streamed/streamId/encoding/chunkCount/totalBytes`。超时或取消时 Platform 发送 `{"frame":"push","type":"desktop.bridge.cancel","payload":{"requestId":"..."}}`。
-
-右侧栏 Web Preview 另支持 `webclient.sidebar.refreshUrl`，payload 必须精确为 `{ "url": "<existing-http-or-https-url>" }`。它只刷新已存在的规范化 URL，不创建、打开或激活 Preview；目标不存在或当前路由不支持右侧栏时，WebClient 返回 `unsupported_in_current_view`（409）。
 
 服务端响应帧：
 
@@ -692,7 +675,7 @@ Desktop 模式由 Main Broker 处理这两种 request；Standalone 只由当前�
 }
 ```
 
-WebClient 对反向 request 成功时返回同 `id`、同 Action `type` 的 response；未知 Action 返回 `unknown_request_type`，参数错误返回 `invalid_request`，当前页面无法执行返回 `unsupported_in_current_view`。同一连接内重复使用 request `id` 返回 `duplicate_id`。
+反向 request 成功时返回同 `id`、同 request `type` 的 response；未知 request 返回 `unknown_request_type`，参数错误返回 `invalid_request`，当前页面无法执行返回 `unsupported_in_current_view`。同一连接内重复使用 request `id` 返回 `duplicate_id`。
 
 实时流帧：
 
@@ -760,7 +743,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `reason` | stream | stream 结束或中断原因 |
 | `lastSeq` | stream | 已发送事件序号，可用于 attach |
 
-当 `POST /api/query` 使用 SSE 时，WebClient 同时保持 `/ws` 控制连接，并在 query 与后续 `GET /api/attach` 中发送 `X-Agent-WebClient-Device-Id`、`X-Agent-WebClient-Surface-Id`。前者与 `/ws?deviceId=...` 使用同一个 localStorage device 标识；认证 JWT 已含 device claim 时以 claim 为准。WebSocket query/attach 则直接使用发起请求的连接。每次成功且具有有效 target 的 attach 都把该连接或逻辑 surface 设为 run 的最新反向 Action target；失败 attach 和不带 target headers 的普通 HTTP attach 不改变原绑定。旧 WebClient 扁平反向 request、Desktop Action 与 CDP 都使用当前 run 的通用 `budget.tool.timeout`，没有独立 Desktop 超时配置。
+当 `POST /api/query` 使用 SSE 时，WebClient 同时保持 `/ws` 控制连接，并在 query 与后续 `GET /api/attach` 中发送 `X-Agent-WebClient-Device-Id`、`X-Agent-WebClient-Surface-Id`。前者与 `/ws?deviceId=...` 使用同一个 localStorage device 标识；认证 JWT 已含 device claim 时以 claim 为准。WebSocket query/attach 则直接使用发起请求的连接。每次成功且具有有效 target 的 attach 都把该连接或逻辑 surface 设为 run 的最新反向 Action target；失败 attach 和不带 target headers 的普通 HTTP attach 不改变原绑定。统一 Desktop Action 与 CDP 都使用当前 run 的通用 `budget.tool.timeout`，没有独立 Desktop 超时配置。
 
 回放事件的 `seq` 是展示序号。`chatId.jsonl` 使用每行顶层 `liveSeq` 记录该行覆盖到的公开 live stream 游标；replay 时会把它注入到对应事件 payload，供 attach cursor 使用。新的 Native / Team run 对外事件序号严格连续，`llm.request`、内部 snapshot、隐藏工具等不发布事件不占号；PROXY / CHANNEL 保持上游序号语义。
 

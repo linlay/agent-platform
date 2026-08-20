@@ -56,30 +56,7 @@ type ClientRequestInvoker interface {
 	) error
 }
 
-type WebClientActionRequest struct {
-	ID      string
-	Type    string
-	Payload map[string]any
-}
-
-type WebClientActionResponse struct {
-	Frame string
-	Type  string
-	ID    string
-	Code  *int
-	Msg   string
-	Data  json.RawMessage
-}
-
-type WebClientRequestInvoker interface {
-	InvokeWebClientAction(
-		ctx context.Context,
-		target WebClientTarget,
-		request WebClientActionRequest,
-	) (WebClientActionResponse, error)
-}
-
-// WebClientTargetStore keeps the latest runtime-only WebClient action target
+// WebClientTargetStore keeps the latest runtime-only reverse-request target
 // for a root run. Bind operations are last-writer-wins; zero targets never
 // replace an existing binding.
 type WebClientTargetStore interface {

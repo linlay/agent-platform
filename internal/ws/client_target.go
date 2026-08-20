@@ -1,8 +1,6 @@
 package ws
 
 import (
-	"context"
-	"encoding/json"
 	"strings"
 	"unicode/utf8"
 
@@ -118,47 +116,4 @@ func (h *Hub) resolveClientConnection(target contracts.ClientTarget) (*Conn, boo
 		}
 	}
 	return nil, false
-}
-
-func (h *Hub) InvokeWebClientAction(
-	ctx context.Context,
-	target contracts.WebClientTarget,
-	request contracts.WebClientActionRequest,
-) (contracts.WebClientActionResponse, error) {
-	conn, ok := h.resolveWebClientConnection(target)
-	if !ok {
-		return contracts.WebClientActionResponse{}, contracts.ErrWebClientTargetUnavailable
-	}
-	payload, err := json.Marshal(request.Payload)
-	if err != nil {
-		return contracts.WebClientActionResponse{}, err
-	}
-	frames, cleanup, err := conn.OpenOutboundRequest(RequestFrame{
-		Frame:   FrameRequest,
-		Type:    request.Type,
-		ID:      request.ID,
-		Payload: payload,
-	})
-	if err != nil {
-		if conn.isClosed() {
-			return contracts.WebClientActionResponse{}, contracts.ErrWebClientDisconnected
-		}
-		return contracts.WebClientActionResponse{}, err
-	}
-	defer cleanup()
-	select {
-	case <-ctx.Done():
-		return contracts.WebClientActionResponse{}, ctx.Err()
-	case <-conn.Done():
-		return contracts.WebClientActionResponse{}, contracts.ErrWebClientDisconnected
-	case data, open := <-frames:
-		if !open {
-			return contracts.WebClientActionResponse{}, contracts.ErrWebClientDisconnected
-		}
-		var response contracts.WebClientActionResponse
-		if err := json.Unmarshal(data, &response); err != nil {
-			return contracts.WebClientActionResponse{}, err
-		}
-		return response, nil
-	}
 }

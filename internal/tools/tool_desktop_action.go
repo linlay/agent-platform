@@ -12,14 +12,12 @@ import (
 	"fmt"
 	"hash"
 	"math"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
-	"unicode/utf8"
 
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
@@ -35,18 +33,6 @@ const (
 	desktopResponseDeltaEventType   = "desktop.bridge.response.delta"
 	desktopScreenshotDeltaEventType = "desktop.cdp.screenshot.delta"
 	desktopMaxDecodedResponseBytes  = 64 << 20
-)
-
-const (
-	webClientSidebarGetState   = "webclient.sidebar.getState"
-	webClientSidebarOpenURL    = "webclient.sidebar.openUrl"
-	webClientSidebarRefreshURL = "webclient.sidebar.refreshUrl"
-	webClientSidebarSetState   = "webclient.sidebar.setState"
-)
-
-const (
-	webClientSidebarURLMaxLength   = 2048
-	webClientSidebarTitleMaxLength = 200
 )
 
 var desktopCdpBooleanParamKeys = map[string]bool{
@@ -87,7 +73,7 @@ var (
 	desktopActionAllowlistOnce sync.Once
 	desktopActionAllowlist     map[string]bool
 	desktopActionAllowlistErr  error
-	webClientActionRequestSeq  atomic.Uint64
+	desktopRequestSeq          atomic.Uint64
 )
 
 func getDesktopActionAllowlist() (map[string]bool, error) {
@@ -171,16 +157,9 @@ func (t *RuntimeToolExecutor) invokeDesktopAction(ctx context.Context, args map[
 		return desktopActionErrorResult("unknown_action", "desktop action is not allowlisted", map[string]any{"action": action}), nil
 	}
 
-	rawActionArgs, hasActionArgs := args["args"]
-	actionArgs, ok := rawActionArgs.(map[string]any)
-	if strings.HasPrefix(action, "webclient.") && hasActionArgs && !ok {
-		return desktopActionErrorResult("invalid_args", "webclient action args must be an object", map[string]any{"action": action}), nil
-	}
+	actionArgs, ok := args["args"].(map[string]any)
 	if !ok || actionArgs == nil {
 		actionArgs = map[string]any{}
-	}
-	if strings.HasPrefix(action, "webclient.") {
-		return t.invokeWebClientAction(ctx, action, actionArgs, strings.TrimSpace(stringArg(args, "requestId")), execCtx)
 	}
 	if t.cfg.RuntimeMode != config.RuntimeModeDesktop && !strings.HasPrefix(action, "desktop.workpanel.") {
 		return desktopActionErrorResult("desktop_action_unsupported_runtime", "desktop action is unavailable in standalone runtime mode", map[string]any{"action": action}), nil
@@ -202,217 +181,6 @@ func (t *RuntimeToolExecutor) invokeDesktopAction(ctx context.Context, args map[
 		Source:    buildDesktopActionSource(execCtx),
 	}
 	return t.invokeDesktopClientRequest(ctx, requestID, desktopActionRequestType, payload, "desktop_action", false, execCtx)
-}
-
-func (t *RuntimeToolExecutor) invokeWebClientAction(
-	ctx context.Context,
-	action string,
-	actionArgs map[string]any,
-	requestID string,
-	execCtx *ExecutionContext,
-) (ToolExecutionResult, error) {
-	if validationErr := validateWebClientActionArgs(action, actionArgs); validationErr != "" {
-		return desktopActionErrorResult("invalid_args", validationErr, map[string]any{"action": action}), nil
-	}
-	if t == nil || t.webClientAction == nil {
-		return desktopActionErrorResult("desktop_action_provider_unavailable", "webclient action provider is unavailable", map[string]any{"action": action}), nil
-	}
-	target := WebClientTarget{}
-	if execCtx != nil {
-		if t.clientTargets != nil && strings.TrimSpace(execCtx.Session.RunID) != "" {
-			if current, ok := t.clientTargets.ResolveClientTarget(execCtx.Session.RunID); ok {
-				target = current
-			}
-		} else {
-			target = execCtx.Session.WebClientTarget
-		}
-	}
-	if target.IsZero() {
-		return desktopActionErrorResult("desktop_action_target_unavailable", "webclient target is unavailable for this run", map[string]any{
-			"action": action,
-			"reason": "run_target_missing",
-		}), nil
-	}
-	if requestID == "" {
-		requestID = newDesktopRequestID("wsa")
-	}
-	response, err := t.webClientAction.InvokeWebClientAction(ctx, target, WebClientActionRequest{
-		ID:      requestID,
-		Type:    action,
-		Payload: cloneDesktopMap(actionArgs),
-	})
-	if err != nil {
-		switch {
-		case errors.Is(err, context.DeadlineExceeded):
-			return desktopActionErrorResult("desktop_action_client_timeout", "webclient action request timed out", map[string]any{"action": action}), nil
-		case errors.Is(err, ErrWebClientTargetUnavailable):
-			return desktopActionErrorResult("desktop_action_target_unavailable", "webclient target is unavailable for this run", map[string]any{
-				"action": action,
-				"reason": "target_connection_unavailable",
-			}), nil
-		case errors.Is(err, ErrWebClientDisconnected):
-			return desktopActionErrorResult("desktop_action_client_disconnected", "webclient disconnected before completing the action", map[string]any{"action": action}), nil
-		default:
-			return desktopActionErrorResult("desktop_action_invalid_client_response", err.Error(), map[string]any{"action": action}), nil
-		}
-	}
-	if response.ID != requestID {
-		return desktopActionErrorResult("desktop_action_invalid_client_response", "webclient response id does not match request", map[string]any{"action": action}), nil
-	}
-	switch strings.ToLower(strings.TrimSpace(response.Frame)) {
-	case "error":
-		if strings.TrimSpace(response.Type) == "" || response.Code == nil || *response.Code <= 0 {
-			return desktopActionErrorResult("desktop_action_invalid_client_response", "webclient error frame must include a type and positive code", map[string]any{"action": action}), nil
-		}
-		clientData, dataErr := decodeWebClientActionData(response.Data)
-		if dataErr != nil {
-			return desktopActionErrorResult("desktop_action_invalid_client_response", dataErr.Error(), map[string]any{"action": action}), nil
-		}
-		details := map[string]any{
-			"action":          action,
-			"clientErrorType": response.Type,
-			"clientCode":      *response.Code,
-		}
-		if clientData != nil {
-			details["clientData"] = clientData
-		}
-		return desktopActionErrorResult("desktop_action_client_rejected", firstDesktopActionMessage(response.Msg, "webclient rejected the action"), details), nil
-	case "response":
-		if response.Type != action {
-			return desktopActionErrorResult("desktop_action_invalid_client_response", "webclient response type does not match action", map[string]any{"action": action}), nil
-		}
-		if response.Code == nil {
-			return desktopActionErrorResult("desktop_action_invalid_client_response", "webclient response frame must include code", map[string]any{"action": action}), nil
-		}
-		if *response.Code != 0 {
-			return desktopActionErrorResult("desktop_action_client_rejected", firstDesktopActionMessage(response.Msg, "webclient rejected the action"), map[string]any{
-				"action":     action,
-				"clientCode": *response.Code,
-			}), nil
-		}
-	default:
-		return desktopActionErrorResult("desktop_action_invalid_client_response", "webclient returned an unsupported frame", map[string]any{"action": action}), nil
-	}
-	resultData, dataErr := decodeWebClientActionData(response.Data)
-	if dataErr != nil {
-		return desktopActionErrorResult("desktop_action_invalid_client_response", dataErr.Error(), map[string]any{"action": action}), nil
-	}
-	if resultData == nil {
-		resultData = map[string]any{}
-	}
-	return structuredResultWithExit(resultData, 0), nil
-}
-
-func decodeWebClientActionData(data json.RawMessage) (map[string]any, error) {
-	if len(data) == 0 || string(data) == "null" {
-		return nil, nil
-	}
-	decoded := map[string]any{}
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return nil, errors.New("webclient response data must be an object")
-	}
-	return decoded, nil
-}
-
-func validateWebClientActionArgs(action string, args map[string]any) string {
-	switch action {
-	case webClientSidebarGetState:
-		if len(args) != 0 {
-			return "webclient.sidebar.getState args must be empty"
-		}
-		return ""
-	case webClientSidebarSetState:
-		for key := range args {
-			switch key {
-			case "sidebar", "open", "tab":
-			default:
-				return "webclient.sidebar.setState contains an unsupported argument: " + key
-			}
-		}
-		sidebar, ok := args["sidebar"].(string)
-		if !ok || (sidebar != "left" && sidebar != "right") {
-			return "sidebar must be left or right"
-		}
-		open, ok := args["open"].(bool)
-		if !ok {
-			return "open must be a boolean"
-		}
-		tab, hasTab := args["tab"]
-		if sidebar == "left" && hasTab {
-			return "tab is not supported for the left sidebar"
-		}
-		if !open && hasTab {
-			return "tab is not supported when closing a sidebar"
-		}
-		if hasTab {
-			tabName, ok := tab.(string)
-			if !ok || (tabName != "overview" && tabName != "btw" && tabName != "debug") {
-				return "tab must be overview, btw, or debug"
-			}
-		}
-		return ""
-	case webClientSidebarOpenURL:
-		for key := range args {
-			switch key {
-			case "url", "title":
-			default:
-				return "webclient.sidebar.openUrl contains an unsupported argument: " + key
-			}
-		}
-		if validationErr := validateWebClientSidebarURLArg(args); validationErr != "" {
-			return validationErr
-		}
-		if title, hasTitle := args["title"]; hasTitle {
-			titleText, ok := title.(string)
-			if !ok {
-				return "title must be a string"
-			}
-			if utf8.RuneCountInString(strings.TrimSpace(titleText)) > webClientSidebarTitleMaxLength {
-				return fmt.Sprintf("title must be at most %d characters", webClientSidebarTitleMaxLength)
-			}
-		}
-		return ""
-	case webClientSidebarRefreshURL:
-		for key := range args {
-			if key != "url" {
-				return "webclient.sidebar.refreshUrl contains an unsupported argument: " + key
-			}
-		}
-		return validateWebClientSidebarURLArg(args)
-	default:
-		return "unsupported webclient action"
-	}
-}
-
-func validateWebClientSidebarURLArg(args map[string]any) string {
-	rawURL, ok := args["url"].(string)
-	if !ok || strings.TrimSpace(rawURL) == "" {
-		return "url must be a non-empty string"
-	}
-	if utf8.RuneCountInString(strings.TrimSpace(rawURL)) > webClientSidebarURLMaxLength {
-		return fmt.Sprintf("url must be at most %d characters", webClientSidebarURLMaxLength)
-	}
-	return validateWebClientSidebarURL(rawURL)
-}
-
-func validateWebClientSidebarURL(rawURL string) string {
-	candidate := strings.TrimSpace(rawURL)
-	if strings.HasPrefix(candidate, "//") {
-		return "url must be an absolute http or https URL"
-	}
-	parsed, err := url.Parse(candidate)
-	if err != nil || parsed.Scheme == "" {
-		parsed, err = url.Parse("https://" + candidate)
-	}
-	if err != nil ||
-		(!strings.EqualFold(parsed.Scheme, "http") && !strings.EqualFold(parsed.Scheme, "https")) ||
-		parsed.Hostname() == "" {
-		return "url must be a valid http or https URL"
-	}
-	if parsed.User != nil {
-		return "url must not contain credentials"
-	}
-	return ""
 }
 
 func firstDesktopActionMessage(message string, fallback string) string {
@@ -455,7 +223,7 @@ func newDesktopRequestID(prefix string) string {
 	if _, err := rand.Read(raw[:]); err == nil {
 		return prefix + "-" + hex.EncodeToString(raw[:])
 	}
-	return fmt.Sprintf("%s-%d-%d", prefix, time.Now().UnixNano(), webClientActionRequestSeq.Add(1))
+	return fmt.Sprintf("%s-%d-%d", prefix, time.Now().UnixNano(), desktopRequestSeq.Add(1))
 }
 
 func normalizeDesktopCDPParams(params map[string]any) map[string]any {

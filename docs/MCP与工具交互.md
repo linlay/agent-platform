@@ -114,21 +114,14 @@ Mask 必须与第一张图同尺寸并显式指定 `mode`：`alpha` 表示透明
 
 `openWeb` 与 `refreshWeb` 只接受显式 `http:` 或 `https:` URL，拒绝用户名和密码。WorkPanel 的 `tabId` 是条目 ID，不是 CDP `targetId`；不要把它传给 `desktop_cdp`。WorkPanel 也不进入普通 `desktop.web.listSurfaces` 或 `Target.getTargets`，因此高层 Tab/WebView 操作应使用上述动作；只有已经获得独立 CDP `targetId` 时才能进行页面级 CDP 调用，Desktop 仍会校验其 `ownerChatId` 与可信 `source.chatId` 一致。
 
-## Desktop / WebClient 反向 Provider
+## Desktop 反向 Provider
 
 Agent 仍然只看到 `desktop_action` 与 `desktop_cdp`。Action 白名单由 `internal/resources/tools/desktop_action.yml` 静态声明；Platform 只使用当前 run 的内存 target，不选择最近连接、不回退其他窗口，也不重试可能已经执行的动作：
 
 - Desktop 模式：所有 `desktop.*` 与 `desktop_cdp` 通过 `desktop.action.call` / `desktop.cdp.call` 反向 request 发给 Desktop Main Broker，由 Broker 直接调用现有 Action/CDP 核心 handler。
 - Standalone 模式：只有七个 `desktop.workpanel.*` 动作通过 `desktop.action.call` 发给当前 agent-webclient；其他 `desktop.*` 返回 `desktop_action_unsupported_runtime`，CDP 返回 `desktop_cdp_unsupported_runtime`。
-- `webclient.sidebar.*` 保持原有扁平反向 request，不改协议。
 
 `desktop.action.call` payload 为 `{requestId,action,args,source}`，`desktop.cdp.call` payload 为 `{requestId,method,params,targetId,sessionId,surfaceId,source}`；`source` 只由可信 run context 生成。小结果以标准 `response/error` 收口；大 JSON 通过 `desktop.bridge.response.delta` 分块，截图通过 `desktop.cdp.screenshot.delta` 分块，每个 chunk 不超过 256 KiB，解码后总量不超过 64 MiB。Platform 校验 streamId、连续 seq、编码、chunkCount、totalBytes 和最终响应；截图边收边写入当前 Chat 临时文件，成功后原子改名。超时或取消发送 `desktop.bridge.cancel`，迟到帧被丢弃且不会触发重发。
-
-旧扁平 WebClient 映射仍是：`desktop_action.action` 直接成为 request `type`，`desktop_action.args` 直接成为 `payload`，`requestId` 成为 `id`。当前开放 `webclient.sidebar.getState`、`webclient.sidebar.setState`、`webclient.sidebar.openUrl` 与 `webclient.sidebar.refreshUrl`，Platform 和 WebClient 都做精确参数校验。
-
-`webclient.sidebar.openUrl` 使用 `{url, title?}` 创建或激活当前 WebClient 右侧栏中的 Web Preview，并切换到 `web` tab。裸域名会按 HTTPS 规范化；只接受 HTTP(S)，拒绝协议相对 URL、携带用户名或密码的 URL 以及额外参数。该 Action 的成功只代表 WebClient 状态已应用，不保证目标站点允许 iframe 嵌入；遇到 CSP 或 `X-Frame-Options` 拒绝时由现有 Preview 展示加载失败，不回退到 Desktop bridge 或外部浏览器。
-
-`webclient.sidebar.refreshUrl` 使用精确的 `{url}` 重载已存在的规范化 Web Preview。URL 校验与 `openUrl` 一致，但不创建 Preview、不打开右侧栏、不切换 tab 或活动 Preview；当前视图不支持右侧栏或目标 URL 未打开时，WebClient 返回 `unsupported_in_current_view`。成功只表示刷新信号已应用，不保证 iframe 重新加载成功。
 
 WebSocket query 直接绑定当前连接，不检查连接自报的 `source`；即使没有 `surfaceId`，该 run 仍可按 WebSocket session 定位原连接。HTTP SSE query 与 attach 通过 `X-Agent-WebClient-Device-Id`、`X-Agent-WebClient-Surface-Id` 绑定同一认证主体和 device 边界内的逻辑 surface；device header 与 `/ws?deviceId=...` 相同，认证 JWT 已含 device claim 时以 claim 为准。WS attach 直接使用发起 attach 的连接。每次成功且携带有效 WebClient target 的 attach 都以 last-writer-wins 更新该 run 的反向 Action target；失败 attach 或普通无 target attach 不改变已有绑定，已发出的 Action 不迁移。Team 内部成员与 `agent_invoke` 子 run 按根 run 动态读取相同 target，planning 新 execution run 继承 source run 的当前 target，automation 与 `run_query` 创建的独立根 run 不继承。目标元数据只保存在运行内存，不进入 prompt、事件、chat 或数据库。
 

@@ -32,7 +32,6 @@ type RuntimeToolExecutor struct {
 	models          *models.ModelRegistry
 	skillCandidates skills.CandidateStore
 	artifactPusher  ArtifactPusher
-	webClientAction WebClientRequestInvoker
 	clientRequest   ClientRequestInvoker
 	clientTargets   ClientTargetStore
 	fileChangeHooks []FileChangeHook
@@ -111,13 +110,6 @@ func (t *RuntimeToolExecutor) Definitions() []api.ToolDetailResponse {
 func (t *RuntimeToolExecutor) WithArtifactPusher(pusher ArtifactPusher) *RuntimeToolExecutor {
 	if t != nil {
 		t.artifactPusher = pusher
-	}
-	return t
-}
-
-func (t *RuntimeToolExecutor) WithWebClientRequestInvoker(invoker WebClientRequestInvoker) *RuntimeToolExecutor {
-	if t != nil {
-		t.webClientAction = invoker
 	}
 	return t
 }
