@@ -537,7 +537,11 @@ func (t *RuntimeToolExecutor) invokeDesktopClientRequest(ctx context.Context, re
 		if strings.TrimSpace(frame.Type) == "" || frame.Code == nil || *frame.Code <= 0 {
 			return desktopActionErrorResult(toolName+"_invalid_client_response", "client error frame type or code is invalid", nil), nil
 		}
-		return desktopActionErrorResult(toolName+"_client_rejected", firstDesktopActionMessage(frame.Msg, "client rejected the request"), map[string]any{"clientErrorType": frame.Type, "clientCode": *frame.Code}), nil
+		return desktopActionErrorResult(
+			toolName+"_client_rejected",
+			firstDesktopActionMessage(frame.Msg, "client rejected the request"),
+			desktopClientRejectionDetails(*frame),
+		), nil
 	}
 	if frame.Type != requestType || frame.Code == nil {
 		return desktopActionErrorResult(toolName+"_invalid_client_response", "client response type or code is invalid", nil), nil
@@ -561,6 +565,32 @@ func (t *RuntimeToolExecutor) invokeDesktopClientRequest(ctx context.Context, re
 		return t.storeDesktopCdpScreenshot(result, execCtx), nil
 	}
 	return result, nil
+}
+
+func desktopClientRejectionDetails(frame ClientResponseFrame) map[string]any {
+	details := map[string]any{
+		"clientErrorType": frame.Type,
+		"clientCode":      *frame.Code,
+	}
+	if len(frame.Data) == 0 {
+		return details
+	}
+	var metadata struct {
+		Retryable *bool          `json:"retryable"`
+		Details   map[string]any `json:"details"`
+	}
+	if err := json.Unmarshal(frame.Data, &metadata); err != nil {
+		return details
+	}
+	if metadata.Retryable != nil {
+		details["retryable"] = *metadata.Retryable
+	}
+	for _, key := range []string{"recovery", "reason"} {
+		if value, ok := metadata.Details[key].(string); ok && strings.TrimSpace(value) != "" {
+			details[key] = strings.TrimSpace(value)
+		}
+	}
+	return details
 }
 
 func (t *RuntimeToolExecutor) resolveClientTarget(execCtx *ExecutionContext) ClientTarget {

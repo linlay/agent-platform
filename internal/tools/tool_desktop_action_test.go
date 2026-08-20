@@ -82,6 +82,41 @@ func TestDesktopReverseRequestUsesCallerToolDeadline(t *testing.T) {
 	}
 }
 
+func TestDesktopReverseRequestPreservesNonRetryableClientMetadata(t *testing.T) {
+	code := 409
+	data, _ := json.Marshal(map[string]any{
+		"retryable": false,
+		"details":   map[string]any{"recovery": "reattach_source_chat"},
+	})
+	invoker := &scriptedClientRequestInvoker{frames: []ClientResponseFrame{{
+		Frame: "error", Type: "source_chat_not_ready", ID: "workpanel-rejected", Code: &code,
+		Msg: "source_chat_not_ready: canonical Chat synchronization failed", Data: data,
+	}}}
+	executor := &RuntimeToolExecutor{
+		cfg:           config.Config{RuntimeMode: config.RuntimeModeStandalone},
+		clientRequest: invoker,
+		clientTargets: emptyRunClientTargetStore{},
+	}
+	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"requestId": "workpanel-rejected",
+		"action":    "desktop.workpanel.openWeb",
+		"args":      map[string]any{"url": "https://example.test/document"},
+	}, &ExecutionContext{Session: QuerySession{RunID: "run-1", ChatID: "chat-1", AgentKey: "agent-1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Error != "desktop_action_client_rejected" || result.ExitCode != -1 {
+		t.Fatalf("unexpected rejected result: %#v", result)
+	}
+	details, _ := result.Structured["details"].(map[string]any)
+	if details["clientErrorType"] != "source_chat_not_ready" || details["clientCode"] != 409 {
+		t.Fatalf("client rejection identity was not preserved: %#v", details)
+	}
+	if details["retryable"] != false || details["recovery"] != "reattach_source_chat" {
+		t.Fatalf("client retry metadata was not preserved: %#v", details)
+	}
+}
+
 func TestDesktopRuntimeModeRoutingMatrix(t *testing.T) {
 	code := 0
 	inline, _ := json.Marshal(map[string]any{"ok": true, "action": "desktop.workpanel.getState", "result": map[string]any{"ok": true}})
