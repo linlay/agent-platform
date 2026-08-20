@@ -14,7 +14,7 @@ inputSchema:
   properties:
     operation:
       type: string
-      description: Required system-control operation.
+      description: Required. System-control operation.
       enum:
         - capabilities.list
         - catalog.defaults.get
@@ -27,5 +27,6 @@ inputSchema:
       type: object
       maxProperties: 32
       description: Operation-specific parameters; follow the active Skill.
-  required: [operation]
+  required:
+    - operation
   additionalProperties: false
