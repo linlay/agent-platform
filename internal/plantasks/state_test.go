@@ -113,6 +113,46 @@ func TestApplyTaskUpdateAllowsEveryTerminalOutcomeAndThenNextTask(t *testing.T) 
 	}
 }
 
+func TestApplyTaskUpdateAllowsFirstInitTaskToMoveDirectlyToEveryTerminalOutcome(t *testing.T) {
+	for _, terminalStatus := range []string{"completed", "failed", "canceled"} {
+		t.Run(terminalStatus, func(t *testing.T) {
+			state := &contracts.PlanRuntimeState{Tasks: []contracts.PlanTask{
+				{TaskID: "task_1", Description: "first", Status: "init"},
+				{TaskID: "task_2", Description: "second", Status: "init"},
+			}}
+
+			if err := ApplyTaskUpdate(state, "task_1", terminalStatus, "finished first"); err != nil {
+				t.Fatalf("finish first directly as %s: %v", terminalStatus, err)
+			}
+			if state.ActiveTaskID != "" || state.Tasks[0].Status != terminalStatus || state.Tasks[0].Description != "finished first" {
+				t.Fatalf("unexpected direct terminal state after %s: %#v", terminalStatus, state)
+			}
+			if err := ApplyTaskUpdate(state, "task_2", "in_progress", ""); err != nil {
+				t.Fatalf("start second after direct %s: %v", terminalStatus, err)
+			}
+			if state.ActiveTaskID != "task_2" || state.Tasks[1].Status != "in_progress" {
+				t.Fatalf("unexpected next task state after %s: %#v", terminalStatus, state)
+			}
+		})
+	}
+}
+
+func TestApplyTaskUpdateRejectsDirectTerminalUpdateBehindPendingPredecessor(t *testing.T) {
+	state := &contracts.PlanRuntimeState{Tasks: []contracts.PlanTask{
+		{TaskID: "task_1", Description: "first", Status: "init"},
+		{TaskID: "task_2", Description: "second", Status: "init"},
+	}}
+
+	before := clonePlanState(state)
+	err := ApplyTaskUpdate(state, "task_2", "completed", "")
+	if err == nil || err.Code != apperrors.CodePlanTaskPredecessorIncomplete || err.BlockingTaskID != "task_1" {
+		t.Fatalf("complete blocked future task error=%#v", err)
+	}
+	if !reflect.DeepEqual(state, before) {
+		t.Fatalf("blocked direct terminal update mutated state: before=%#v after=%#v", before, state)
+	}
+}
+
 func TestReconcileStateKeepsOnlyRunnableActiveTask(t *testing.T) {
 	state := &contracts.PlanRuntimeState{
 		ActiveTaskID: "wrong",

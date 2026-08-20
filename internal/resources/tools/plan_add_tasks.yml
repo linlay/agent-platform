@@ -1,6 +1,6 @@
 name: plan_add_tasks
 label: 创建任务
-description: Create ordered plan tasks in init status, supporting multiple tasks in one call. Defaults to appending tasks to the current plan. Use mode=new only for a distinct new plan; this creates a new planId and makes the provided tasks the complete initial task list. Plan tasks run one at a time in array order. Success returns taskId | status | description lines.
+description: Optionally record an ordered plan as a lightweight progress aid. Multiple tasks may be added in one call and every new task starts in init. Creating tasks does not start them or require an immediate status update; decide whether and when to update them according to the work. Tasks remain ordered and at most one may be in_progress. Defaults to appending to the current plan. Use mode=new only for a distinct new plan; it creates a new planId and makes the provided tasks the complete initial list. Success returns taskId | status | description lines.
 clientVisible: true
 inputSchema:
   type: object
@@ -13,13 +13,13 @@ inputSchema:
       description: Optional. Defaults to append. Use new only when starting a distinct new plan; it creates a new planId and discards the previous plan tasks from the current plan state.
     tasks:
       type: array
-      description: Required. Ordered list of tasks to create. Every new task starts in init status.
+      description: Required. Ordered list of optional progress items to create. Every new task starts in init and remains there until explicitly updated.
       items:
         type: object
         properties:
           description:
             type: string
-            description: Required. Task description explaining the work that needs to be completed.
+            description: Required. Concise description of the work represented by this progress item.
         required:
           - description
         additionalProperties: false

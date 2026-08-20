@@ -643,6 +643,35 @@ func TestPlanUpdateTaskSupportsInProgressAndDescriptionUpdate(t *testing.T) {
 	}
 }
 
+func TestPlanUpdateTaskSupportsDirectTerminalUpdates(t *testing.T) {
+	for _, terminalStatus := range []string{"completed", "failed", "canceled"} {
+		t.Run(terminalStatus, func(t *testing.T) {
+			executor := &RuntimeToolExecutor{}
+			execCtx := &ExecutionContext{
+				Session: QuerySession{RunID: "run_tasks"},
+				PlanState: &PlanRuntimeState{
+					PlanID: "run_tasks_plan",
+					Tasks: []PlanTask{
+						{TaskID: "task_1", Status: "init", Description: "first"},
+						{TaskID: "task_2", Status: "init", Description: "second"},
+					},
+				},
+			}
+
+			result, err := executor.Invoke(context.Background(), PlanUpdateTaskToolName, map[string]any{
+				"taskId": "task_1",
+				"status": terminalStatus,
+			}, execCtx)
+			if err != nil || result.ExitCode != 0 {
+				t.Fatalf("direct terminal update %s: result=%#v err=%v", terminalStatus, result, err)
+			}
+			if execCtx.PlanState.ActiveTaskID != "" || execCtx.PlanState.Tasks[0].Status != terminalStatus || execCtx.PlanState.Tasks[1].Status != "init" {
+				t.Fatalf("unexpected plan after direct %s: %#v", terminalStatus, execCtx.PlanState)
+			}
+		})
+	}
+}
+
 func TestPlanUpdateTaskRejectsOutOfOrderUpdatesWithoutPersisting(t *testing.T) {
 	root := t.TempDir()
 	executor := &RuntimeToolExecutor{cfg: config.Config{Paths: config.PathsConfig{ChatsDir: root}}}

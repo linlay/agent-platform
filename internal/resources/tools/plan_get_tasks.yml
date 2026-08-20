@@ -1,6 +1,6 @@
 name: plan_get_tasks
 label: 读取任务
-description: Get the current ordered plan snapshot. At most one task can be in_progress; currentTaskId identifies it when present. If no tasks exist, returns an empty plan snapshot.
+description: Read the current ordered plan snapshot, including each task's status and currentTaskId when a task is in_progress. At most one task can be in_progress. This tool only reports state and does not prescribe or perform the next update. If no tasks exist, it returns an empty plan snapshot.
 clientVisible: true
 inputSchema:
   type: object

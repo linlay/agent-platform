@@ -67,7 +67,10 @@ func ApplyTaskUpdate(state *contracts.PlanRuntimeState, taskID string, toStatus 
 
 	switch fromStatus {
 	case "init":
-		if toStatus != "in_progress" {
+		if toStatus != "in_progress" && !IsTerminalStatus(toStatus) {
+			return failure(apperrors.CodeInvalidPlanTaskTransition, "")
+		}
+		if IsTerminalStatus(toStatus) && currentTaskID != "" {
 			return failure(apperrors.CodePlanTaskNotCurrent, currentTaskID)
 		}
 		if blockingTaskID := precedingNonTerminalTaskID(state, taskIndex); blockingTaskID != "" {
