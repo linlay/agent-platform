@@ -42,20 +42,12 @@ func validateCandidate(root string) error {
 		},
 		Skills: config.SkillCatalogConfig{MaxPromptChars: 1 << 20},
 	}
-	catalogRegistry, err := catalog.NewFileRegistry(cfg, toolDefinitions)
-	if err != nil {
+	if _, err := catalog.NewFileRegistry(cfg, toolDefinitions); err != nil {
 		return fmt.Errorf("validate Agent/Team/Skill resources: %w", err)
 	}
-	for _, agent := range catalogRegistry.AdminAgents() {
-		if agent.Status != catalog.AdminAgentStatusInvalid {
-			continue
-		}
-		message := "invalid Agent resource"
-		if len(agent.Diagnostics) > 0 && strings.TrimSpace(agent.Diagnostics[0].Message) != "" {
-			message = agent.Diagnostics[0].Message
-		}
-		return fmt.Errorf("validate Agent %s: %s", agent.Key, message)
-	}
+	// Individual invalid Agents are isolated by the catalog and remain visible
+	// through its admin diagnostics. They must not block an otherwise valid
+	// runtime resource transaction or prevent Agent Platform from starting.
 	if err := validateViewports(viewport.DefaultRoot(registriesDir)); err != nil {
 		return err
 	}
