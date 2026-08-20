@@ -1,6 +1,6 @@
 name: datetime
 label: 日期时间
-description: Get the current or offset date and time with optional timezone and chained offset support. The output also includes the lunar calendar.
+description: Get the current or an absolute base date and time with optional timezone and chained offset support. The output also includes the lunar calendar.
 inputSchema:
   type: object
   properties:
@@ -10,4 +10,7 @@ inputSchema:
     offset:
       type: string
       description: Chained time offset, for example +1D, +1D-3H+20m, +10M+25D, -2y, or +3w. Units are case-sensitive; y=year, M=month, w=week, D=day, H=hour, m=minute, and S=second. Leave blank or use 0 for the current time.
+    base:
+      type: string
+      description: Absolute base time. Accepts YYYY-MM-DD (interpreted as 00:00:00), YYYY-MM-DDTHH:mm:ss, YYYY-MM-DD HH:mm:ss, and RFC3339 YYYY-MM-DDTHH:mm:ssZ or YYYY-MM-DDTHH:mm:ss±HH:MM. Strictly validated. Without an embedded timezone the value is interpreted in `timezone`, defaulting to the system local timezone; with an embedded timezone the absolute instant is fixed and `timezone` only selects the display timezone. When provided, the result echoes the normalized base value and reports source input-base instead of system-clock.
   additionalProperties: false
