@@ -253,7 +253,16 @@ func TestHTMLRendererRejectsUnsafeAssetOrigins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, origin := range []string{"", "http://share.example.test", "https://user:pass@share.example.test", "https://share.example.test/path", "https://share.example.test/?query=1"} {
+	for _, origin := range []string{
+		"",
+		"http://share.example.test",
+		"https://127.0.0.2:11961",
+		"https://demo.localhost:11961",
+		"https://0.0.0.0:11961",
+		"https://user:pass@share.example.test",
+		"https://share.example.test/path",
+		"https://share.example.test/?query=1",
+	} {
 		if _, err := renderer.Render(SnapshotV1{Version: 1}, origin); !errors.Is(err, ErrAssetOriginInvalid) {
 			t.Fatalf("origin=%q err=%v", origin, err)
 		}

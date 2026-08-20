@@ -16,13 +16,21 @@ func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) 
 }
 
 func TestParseTunnelShareTarget(t *testing.T) {
-	for _, origin := range []string{"https://tunnel.example.test", "http://127.0.0.1:8080", "http://localhost:8080"} {
+	for _, origin := range []string{
+		"https://tunnel.example.test",
+		"http://localhost:8080",
+		"http://127.0.0.1:8080",
+		"http://[::1]:8080",
+	} {
 		if _, err := parseTunnelShareTarget(origin, "Bearer site-token"); err != nil {
 			t.Fatalf("valid origin %q: %v", origin, err)
 		}
 	}
 	for _, origin := range []string{
 		"http://tunnel.example.test",
+		"https://127.0.0.2:8080",
+		"https://demo.localhost:8080",
+		"https://0.0.0.0:8080",
 		"https://user@tunnel.example.test",
 		"https://tunnel.example.test/path",
 		"https://tunnel.example.test?token=bad",
@@ -33,6 +41,22 @@ func TestParseTunnelShareTarget(t *testing.T) {
 	}
 	if _, err := parseTunnelShareTarget("https://tunnel.example.test", "Bearer token with-space"); err == nil {
 		t.Fatal("invalid authorization accepted")
+	}
+}
+
+func TestValidTunnelShareMetadataRejectsReservedLocalHosts(t *testing.T) {
+	for _, shareURL := range []string{
+		"https://127.0.0.2/share/share_abc",
+		"https://demo.localhost/share/share_abc",
+		"https://0.0.0.0/share/share_abc",
+	} {
+		if validTunnelShareMetadata(tunnelShareResult{
+			ID:        "share_abc",
+			URL:       shareURL,
+			CreatedAt: 1_786_960_800_000,
+		}) {
+			t.Fatalf("reserved local share URL accepted: %q", shareURL)
+		}
 	}
 }
 

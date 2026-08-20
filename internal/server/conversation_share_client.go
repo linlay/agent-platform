@@ -7,11 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"agent-platform/internal/tunnelurl"
 )
 
 const (
@@ -76,21 +77,16 @@ func parseTunnelShareTarget(origin string, authorization string) (tunnelShareTar
 		return tunnelShareTarget{}, errors.New("invalid tunnel origin")
 	}
 	parsed.Path = ""
-	if parsed.Scheme != "https" && !(parsed.Scheme == "http" && isLoopbackHostname(parsed.Hostname())) {
+	if tunnelurl.IsForbiddenHostname(parsed.Hostname()) {
+		return tunnelShareTarget{}, errors.New("invalid tunnel origin")
+	}
+	if parsed.Scheme != "https" && !(parsed.Scheme == "http" && tunnelurl.IsLoopbackHostname(parsed.Hostname())) {
 		return tunnelShareTarget{}, errors.New("invalid tunnel origin")
 	}
 	if !strings.HasPrefix(authorization, "Bearer ") || strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer ")) == "" || strings.ContainsAny(strings.TrimPrefix(authorization, "Bearer "), " \t\r\n") {
 		return tunnelShareTarget{}, errors.New("invalid tunnel authorization")
 	}
 	return tunnelShareTarget{origin: parsed.String(), authorization: authorization}, nil
-}
-
-func isLoopbackHostname(hostname string) bool {
-	if strings.EqualFold(hostname, "localhost") {
-		return true
-	}
-	ip := net.ParseIP(hostname)
-	return ip != nil && ip.IsLoopback()
 }
 
 func (c *tunnelShareClient) Create(
@@ -316,8 +312,8 @@ func validTunnelShareMetadata(result tunnelShareResult) bool {
 		return false
 	}
 	shareURL, err := url.Parse(strings.TrimSpace(result.URL))
-	if err != nil || shareURL.User != nil || shareURL.Host == "" ||
-		(shareURL.Scheme != "https" && !(shareURL.Scheme == "http" && isLoopbackHostname(shareURL.Hostname()))) {
+	if err != nil || shareURL.User != nil || shareURL.Host == "" || tunnelurl.IsForbiddenHostname(shareURL.Hostname()) ||
+		(shareURL.Scheme != "https" && !(shareURL.Scheme == "http" && tunnelurl.IsLoopbackHostname(shareURL.Hostname()))) {
 		return false
 	}
 	if result.CreatedAt < 1_000_000_000_000 || result.CreatedAt > 9_007_199_254_740_991 {

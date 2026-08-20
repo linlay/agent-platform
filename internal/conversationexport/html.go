@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"net"
 	"net/url"
 	"regexp"
 	"strings"
+
+	"agent-platform/internal/tunnelurl"
 )
 
 const (
@@ -199,16 +200,11 @@ func normalizeAssetOrigin(value string) (string, error) {
 		strings.ContainsAny(value, "\r\n\t\"'<>") {
 		return "", ErrAssetOriginInvalid
 	}
-	if parsed.Scheme != "https" && !(parsed.Scheme == "http" && isLoopbackHost(parsed.Hostname())) {
+	if tunnelurl.IsForbiddenHostname(parsed.Hostname()) {
+		return "", ErrAssetOriginInvalid
+	}
+	if parsed.Scheme != "https" && !(parsed.Scheme == "http" && tunnelurl.IsLoopbackHostname(parsed.Hostname())) {
 		return "", ErrAssetOriginInvalid
 	}
 	return parsed.Scheme + "://" + parsed.Host, nil
-}
-
-func isLoopbackHost(hostname string) bool {
-	if strings.EqualFold(hostname, "localhost") {
-		return true
-	}
-	ip := net.ParseIP(hostname)
-	return ip != nil && ip.IsLoopback()
 }
