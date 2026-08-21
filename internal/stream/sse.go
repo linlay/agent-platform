@@ -25,6 +25,7 @@ type Writer struct {
 	opts           Options
 
 	mu            sync.Mutex
+	writeMu       sync.Mutex
 	pending       []frame
 	bufferedChars int
 	timer         *time.Timer
@@ -83,12 +84,24 @@ func (w *Writer) StartHeartbeat() {
 
 func (w *Writer) Close() error {
 	w.stopHeartbeat()
-	if err := w.flushPending(); err != nil {
-		return err
-	}
 	w.mu.Lock()
+	if w.closed {
+		w.mu.Unlock()
+		return nil
+	}
 	w.closed = true
+	toWrite := w.drainPendingLocked()
+	w.stopTimerLocked()
 	w.mu.Unlock()
+	if len(toWrite) > 0 {
+		if err := w.writeFrames(toWrite); err != nil {
+			return err
+		}
+	}
+	// A timer or heartbeat may already have passed the state lock. Wait until
+	// its underlying ResponseWriter call completes before Close returns.
+	w.writeMu.Lock()
+	w.writeMu.Unlock()
 	return nil
 }
 
@@ -225,6 +238,8 @@ func (w *Writer) stopHeartbeat() {
 }
 
 func (w *Writer) writeFrames(frames []frame) error {
+	w.writeMu.Lock()
+	defer w.writeMu.Unlock()
 	for _, frame := range frames {
 		if _, err := fmt.Fprint(w.responseWriter, frame.raw); err != nil {
 			return err

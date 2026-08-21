@@ -116,7 +116,11 @@ func (s *ContainerHubSandboxService) Execute(ctx context.Context, execCtx *contr
 	if timeout > 0 {
 		payload["timeout"] = timeout
 	}
-	if executionEnv := sandboxEnvironment(execCtx, env); len(executionEnv) > 0 {
+	executionEnv, err := sandboxCommandEnvironment(execCtx, env)
+	if err != nil {
+		return contracts.SandboxExecutionResult{}, fmt.Errorf("snapshot run environment: %w", err)
+	}
+	if len(executionEnv) > 0 {
 		payload["env"] = executionEnv
 	}
 	rawText, isJSON, err := s.client.ExecuteSessionRaw(ctx, execCtx.SandboxSession.SessionID, payload)
@@ -290,7 +294,7 @@ func (s *ContainerHubSandboxService) resolveSessionMountIdentity(execCtx *contra
 		EnvironmentID:   s.resolveEnvironmentID(execCtx),
 		WorkspaceSource: mountSource(mounts, "/workspace"),
 		ChatSource:      mountSource(mounts, "/chat"),
-		Environment:     sandboxEnvironment(execCtx, nil),
+		Environment:     sandboxSessionEnvironment(execCtx),
 		Mounts:          mounts,
 		MaskedPaths:     maskedPaths,
 	})
@@ -449,7 +453,7 @@ func (s *ContainerHubSandboxService) createAndBind(
 		}
 		payload["masked_paths"] = append([]string(nil), maskedPaths...)
 	}
-	if sessionEnv := sandboxEnvironment(execCtx, nil); len(sessionEnv) > 0 {
+	if sessionEnv := sandboxSessionEnvironment(execCtx); len(sessionEnv) > 0 {
 		payload["env"] = sessionEnv
 	}
 	response, err := s.client.CreateSession(ctx, payload)
@@ -478,19 +482,42 @@ func sandboxWorkspaceCwd(execCtx *contracts.ExecutionContext) string {
 	return "/workspace"
 }
 
-func sandboxEnvironment(execCtx *contracts.ExecutionContext, invocationEnv map[string]string) map[string]string {
+func sandboxSessionEnvironment(execCtx *contracts.ExecutionContext) map[string]string {
 	if execCtx == nil {
-		return contracts.CloneStringMap(invocationEnv)
+		return nil
 	}
 	return agentconfig.Merge(
-		execCtx.RuntimeEnvOverrides,
-		invocationEnv,
+		execCtx.StaticRuntimeEnv,
 		agentconfig.ContainerEnvironment(
 			execCtx.Session.RuntimeContext.SandboxPaths.AgentDir,
 			execCtx.Session.RuntimeContext.SandboxPaths.WorkspaceDir,
 			execCtx.Session.RuntimeContext.SandboxPaths.ChatDir,
 		),
 	)
+}
+
+func sandboxCommandEnvironment(execCtx *contracts.ExecutionContext, invocationEnv map[string]string) (map[string]string, error) {
+	if execCtx == nil {
+		return contracts.CloneStringMap(invocationEnv), nil
+	}
+	dynamic := map[string]string(nil)
+	if execCtx.RunEnvironment != nil {
+		var err error
+		dynamic, _, err = execCtx.RunEnvironment.Snapshot()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return agentconfig.Merge(
+		execCtx.StaticRuntimeEnv,
+		dynamic,
+		invocationEnv,
+		agentconfig.ContainerEnvironment(
+			execCtx.Session.RuntimeContext.SandboxPaths.AgentDir,
+			execCtx.Session.RuntimeContext.SandboxPaths.WorkspaceDir,
+			execCtx.Session.RuntimeContext.SandboxPaths.ChatDir,
+		),
+	), nil
 }
 
 func stringValue(value any) string {

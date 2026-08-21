@@ -80,3 +80,10 @@ file-tools:
   require-write-approval: true
   require-read-before-write: true
   read-before-write-scope: run
+
+platform-control:
+  enabled: true
+  max-dynamic-keys: 32
+  max-value-bytes: 4096
+  max-total-bytes: 32768
+  deny-keys: []

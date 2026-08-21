@@ -11,6 +11,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/platformcontrol"
 )
 
 const finalAnswerInstruction = "The tool execution loop has reached its configured step limit. Do not call any more tools. Based only on the conversation and tool results already available, provide the final answer or summary now."
@@ -366,7 +367,11 @@ func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 		return false, err
 	}
 
-	s.engine.logRawChunk(s.session.RunID, formatRawSSEFrame(eventName, rawChunk))
+	if sessionHasTool(s.session, platformcontrol.ToolName) {
+		s.engine.logRawChunk(s.session.RunID, "[REDACTED_RAW_PROVIDER_FRAME]")
+	} else {
+		s.engine.logRawChunk(s.session.RunID, formatRawSSEFrame(eventName, rawChunk))
+	}
 	if rawChunk == "" {
 		return false, nil
 	}
@@ -471,8 +476,8 @@ func (s *llmRunStream) finishCurrentTurn() error {
 			s.messages = append(s.messages, msg)
 		}
 		if turn.trace != nil {
-			turn.trace.appendToolCalls(toolCalls)
-			turn.trace.completeOK(content, turn.reasoning.String(), toolCalls, strings.TrimSpace(turn.finishReason), turn.usage)
+			turn.trace.appendToolCalls(sanitizedToolCalls(toolCalls))
+			turn.trace.completeOK(content, turn.reasoning.String(), sanitizedToolCalls(toolCalls), strings.TrimSpace(turn.finishReason), turn.usage)
 		}
 		s.emitPendingUsageDelta()
 		s.emitDebugLLMChatDelta(turn.trace)
@@ -497,8 +502,8 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		s.messages = append(s.messages, msg)
 	}
 	if turn.trace != nil {
-		turn.trace.appendToolCalls(toolCalls)
-		turn.trace.completeOK(content, turn.reasoning.String(), toolCalls, strings.TrimSpace(turn.finishReason), turn.usage)
+		turn.trace.appendToolCalls(sanitizedToolCalls(toolCalls))
+		turn.trace.completeOK(content, turn.reasoning.String(), sanitizedToolCalls(toolCalls), strings.TrimSpace(turn.finishReason), turn.usage)
 	}
 
 	s.emitPendingUsageDelta()
@@ -633,12 +638,34 @@ func (s *llmRunStream) newAssistantTurnMessage(turn *providerTurnStream, content
 		msg.Content = content
 	}
 	if len(toolCalls) > 0 {
-		msg.ToolCalls = toolCalls
+		msg.ToolCalls = sanitizedToolCalls(toolCalls)
 	}
 	if turn != nil && preserveReasoningContent(s.protocolConfig, s.stageSettings) {
 		msg.ReasoningContent = turn.reasoning.String()
 	}
 	return msg
+}
+
+func sanitizedToolCalls(toolCalls []openAIToolCall) []openAIToolCall {
+	if len(toolCalls) == 0 {
+		return nil
+	}
+	out := append([]openAIToolCall(nil), toolCalls...)
+	for index := range out {
+		if strings.EqualFold(strings.TrimSpace(out[index].Function.Name), platformcontrol.ToolName) {
+			out[index].Function.Arguments = platformcontrol.SanitizeArguments(out[index].Function.Arguments)
+		}
+	}
+	return out
+}
+
+func sessionHasTool(session QuerySession, name string) bool {
+	for _, toolName := range session.ToolNames {
+		if strings.EqualFold(strings.TrimSpace(toolName), name) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *llmRunStream) checkBudgetBeforeModelCall() map[string]any {

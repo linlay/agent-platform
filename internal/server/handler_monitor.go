@@ -7,8 +7,20 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/config"
 	"agent-platform/internal/ws"
 )
+
+type monitorRuntimeSummary struct {
+	Mode            config.RuntimeMode `json:"mode"`
+	ActionTransport string             `json:"actionTransport"`
+}
+
+type monitorOverview struct {
+	GeneratedAt int64                 `json:"generatedAt"`
+	Runtime     monitorRuntimeSummary `json:"runtime"`
+	WS          ws.MonitorWSSummary   `json:"ws"`
+}
 
 func (s *Server) handleMonitor(w http.ResponseWriter, r *http.Request) {
 	messageLimit, err := parseMonitorLimit(r, "messageLimit", 5, 1, 50)
@@ -16,7 +28,15 @@ func (s *Server) handleMonitor(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
 	}
-	writeJSON(w, http.StatusOK, api.Success(s.monitorHub().MonitorOverview(messageLimit)))
+	overview := s.monitorHub().MonitorOverview(messageLimit)
+	writeJSON(w, http.StatusOK, api.Success(monitorOverview{
+		GeneratedAt: overview.GeneratedAt,
+		Runtime: monitorRuntimeSummary{
+			Mode:            s.deps.Config.RuntimeMode,
+			ActionTransport: "reverse-websocket",
+		},
+		WS: overview.WS,
+	}))
 }
 
 func (s *Server) handleMonitorWSConnections(w http.ResponseWriter, r *http.Request) {

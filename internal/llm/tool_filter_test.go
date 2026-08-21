@@ -1,11 +1,13 @@
 package llm
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
+	platformtools "agent-platform/internal/tools"
 )
 
 func TestFilterToolDefinitionsRequiresExplicitAllowlist(t *testing.T) {
@@ -26,20 +28,48 @@ func TestFilterToolDefinitionsRequiresExplicitAllowlist(t *testing.T) {
 	}
 }
 
-func TestFilterToolDefinitionsRequiresExplicitPlatformConfigGrant(t *testing.T) {
+func TestFilterToolDefinitionsRequiresExplicitPlatformControlGrant(t *testing.T) {
 	defs := []api.ToolDetailResponse{
 		{Name: "datetime"},
-		{Name: "platform_config", Meta: map[string]any{"explicitOnly": true}},
+		{Name: "platform_control", Meta: map[string]any{"explicitOnly": true}},
 	}
 
 	if filtered := filterToolDefinitions(defs, nil); len(filtered) != 0 {
 		t.Fatalf("empty allowlist must hide every tool, got %#v", filtered)
 	}
 	if filtered := filterToolDefinitions(defs, []string{"datetime"}); len(filtered) != 1 || filtered[0].Name != "datetime" {
-		t.Fatalf("platform_config must be hidden from unrelated explicit grants, got %#v", filtered)
+		t.Fatalf("platform_control must be hidden from unrelated explicit grants, got %#v", filtered)
 	}
-	if filtered := filterToolDefinitions(defs, []string{"platform_config"}); len(filtered) != 1 || filtered[0].Name != "platform_config" {
-		t.Fatalf("platform_config explicit grant was not honored, got %#v", filtered)
+	if filtered := filterToolDefinitions(defs, []string{"platform_control"}); len(filtered) != 1 || filtered[0].Name != "platform_control" {
+		t.Fatalf("platform_control explicit grant was not honored, got %#v", filtered)
+	}
+}
+
+func TestPlatformControlSchemaIsByteIdenticalAcrossAgents(t *testing.T) {
+	defs, err := platformtools.LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatalf("load embedded tool definitions: %v", err)
+	}
+	var onlineSchema []byte
+	for _, session := range []contracts.QuerySession{
+		{AgentKey: "online-office", SkillKeys: []string{"online-docx"}},
+		{AgentKey: "cutej", SkillKeys: []string{"platform-admin"}},
+	} {
+		effective := effectiveToolDefinitions(defs, []string{"platform_control"}, session)
+		if len(effective) != 1 || effective[0].Name != "platform_control" {
+			t.Fatalf("unexpected platform_control definition for %s: %#v", session.AgentKey, effective)
+		}
+		encoded, err := json.Marshal(effective[0])
+		if err != nil {
+			t.Fatalf("marshal definition for %s: %v", session.AgentKey, err)
+		}
+		if session.AgentKey == "online-office" {
+			onlineSchema = encoded
+			continue
+		}
+		if string(encoded) != string(onlineSchema) {
+			t.Fatalf("platform_control schema differs by Agent/Skill\nonline=%s\nadmin=%s", onlineSchema, encoded)
+		}
 	}
 }
 

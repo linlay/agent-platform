@@ -73,7 +73,7 @@ func TestParseAgentFileRejectsInternalAgentDelegateTool(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileRejectsRemovedRunTools(t *testing.T) {
+func TestParseAgentFileRejectsRemovedTools(t *testing.T) {
 	for _, tc := range []struct {
 		legacy      string
 		replacement string
@@ -81,6 +81,7 @@ func TestParseAgentFileRejectsRemovedRunTools(t *testing.T) {
 		{legacy: "agent_run_query", replacement: "run_query"},
 		{legacy: " AGENT_RUN_STATUS ", replacement: "run_status"},
 		{legacy: "agent_run_interrupt", replacement: "run_interrupt"},
+		{legacy: "platform_config", replacement: "platform_control"},
 	} {
 		t.Run(strings.TrimSpace(tc.legacy), func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "agent.yml")
@@ -784,7 +785,7 @@ func TestParseAgentFileLoadsRuntimeEnv(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileUsesRuntimeConfig(t *testing.T) {
+func TestParseAgentFileSilentlyIgnoresLegacyRunEnv(t *testing.T) {
 	root := t.TempDir()
 	workspace := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
@@ -797,7 +798,13 @@ func TestParseAgentFileUsesRuntimeConfig(t *testing.T) {
 		"  environmentId: runtime\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
 		"  env:\n" +
-		"    HTTP_PROXY: runtime\n"
+		"    HTTP_PROXY: runtime\n" +
+		"  runEnv:\n" +
+		"    DOCUMENT_ID:\n" +
+		"      mode: bind\n" +
+		"      pattern: 'doc-[0-9]+'\n" +
+		"      maxBytes: 36\n" +
+		"      targets: [host, container]\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
@@ -812,6 +819,9 @@ func TestParseAgentFileUsesRuntimeConfig(t *testing.T) {
 	got, ok := def.Runtime["env"].(map[string]string)
 	if !ok || got["HTTP_PROXY"] != "runtime" {
 		t.Fatalf("runtime env = %#v, want runtime HTTP_PROXY", def.Runtime["env"])
+	}
+	if _, exists := def.Runtime["runEnv"]; exists {
+		t.Fatalf("legacy runEnv leaked into runtime model: %#v", def.Runtime)
 	}
 }
 

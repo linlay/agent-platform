@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/platformcontrol"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/toolinteraction"
 )
@@ -23,6 +24,8 @@ type DeltaMapper struct {
 	indexedToolIDs       map[int]string
 	toolArgChunkCounters map[string]int
 	toolArgBuffers       map[string]*strings.Builder
+	toolNames            map[string]string
+	sensitiveToolArgs    map[string]*strings.Builder
 	pendingToolAwaitAsks map[string]*stream.AwaitAsk
 	attemptReasoningIDs  map[string]bool
 	attemptContentIDs    map[string]bool
@@ -39,6 +42,8 @@ func NewDeltaMapper(runID string, chatID string, budget Budget, toolRegistry Too
 		indexedToolIDs:       map[int]string{},
 		toolArgChunkCounters: map[string]int{},
 		toolArgBuffers:       map[string]*strings.Builder{},
+		toolNames:            map[string]string{},
+		sensitiveToolArgs:    map[string]*strings.Builder{},
 		pendingToolAwaitAsks: map[string]*stream.AwaitAsk{},
 		attemptReasoningIDs:  map[string]bool{},
 		attemptContentIDs:    map[string]bool{},
@@ -105,12 +110,29 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		if toolID == "" {
 			return nil
 		}
-		toolLabel, toolDescription := m.resolveToolMetadata(value.Name)
+		toolName := strings.TrimSpace(value.Name)
+		if toolName != "" {
+			m.toolNames[toolID] = toolName
+		} else {
+			toolName = m.toolNames[toolID]
+		}
+		if strings.EqualFold(toolName, platformcontrol.ToolName) {
+			buffer := m.sensitiveToolArgs[toolID]
+			if buffer == nil {
+				buffer = &strings.Builder{}
+				m.sensitiveToolArgs[toolID] = buffer
+			}
+			buffer.WriteString(value.ArgsDelta)
+			m.attemptToolIDs[toolID] = true
+			m.lastKind = "tool"
+			return nil
+		}
+		toolLabel, toolDescription := m.resolveToolMetadata(toolName)
 		chunkIndex := m.toolArgChunkCounters[toolID]
 		m.toolArgChunkCounters[toolID] = chunkIndex + 1
 		m.attemptToolIDs[toolID] = true
 		m.lastKind = "tool"
-		awaitAsk, emitAwaitBeforeToolArgs := m.buildInteractionAwaitAsk(toolID, value.Name, value.ArgsDelta, chunkIndex)
+		awaitAsk, emitAwaitBeforeToolArgs := m.buildInteractionAwaitAsk(toolID, toolName, value.ArgsDelta, chunkIndex)
 		if awaitAsk != nil && strings.EqualFold(strings.TrimSpace(value.Name), "ask_user_question") {
 			m.pendingToolAwaitAsks[toolID] = awaitAsk
 			awaitAsk = nil
@@ -119,7 +141,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		toolArgs := stream.ToolArgs{
 			ToolID:          toolID,
 			Delta:           value.ArgsDelta,
-			ToolName:        value.Name,
+			ToolName:        toolName,
 			ToolLabel:       toolLabel,
 			ToolDescription: toolDescription,
 			ChunkIndex:      chunkIndex,
@@ -132,8 +154,14 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		return []stream.StreamInput{toolArgs}
 	case DeltaToolEnd:
 		m.lastKind = ""
-		inputs := make([]stream.StreamInput, 0, len(value.ToolIDs))
+		inputs := make([]stream.StreamInput, 0, len(value.ToolIDs)*2)
 		for _, toolID := range value.ToolIDs {
+			if buffer := m.sensitiveToolArgs[toolID]; buffer != nil {
+				toolName := m.toolNames[toolID]
+				toolLabel, toolDescription := m.resolveToolMetadata(toolName)
+				inputs = append(inputs, stream.ToolArgs{ToolID: toolID, Delta: platformcontrol.SanitizeArguments(buffer.String()), ToolName: toolName, ToolLabel: toolLabel, ToolDescription: toolDescription, ChunkIndex: 0})
+				delete(m.sensitiveToolArgs, toolID)
+			}
 			delete(m.toolArgBuffers, toolID)
 			inputs = append(inputs, stream.ToolEnd{
 				ToolID:     toolID,
@@ -143,6 +171,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 				inputs = append(inputs, *awaitAsk)
 				delete(m.pendingToolAwaitAsks, toolID)
 			}
+			delete(m.toolNames, toolID)
 		}
 		return inputs
 	case DeltaToolResult:
@@ -425,6 +454,8 @@ func (m *DeltaMapper) resetModelTurnState(discard bool) {
 	m.indexedToolIDs = map[int]string{}
 	m.toolArgChunkCounters = map[string]int{}
 	m.toolArgBuffers = map[string]*strings.Builder{}
+	m.toolNames = map[string]string{}
+	m.sensitiveToolArgs = map[string]*strings.Builder{}
 	m.pendingToolAwaitAsks = map[string]*stream.AwaitAsk{}
 	m.attemptReasoningIDs = map[string]bool{}
 	m.attemptContentIDs = map[string]bool{}

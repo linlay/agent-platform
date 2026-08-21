@@ -304,6 +304,43 @@ func TestSyncRemovesOnlyPreviouslyManagedResources(t *testing.T) {
 	assertTestFile(t, filepath.Join(runtimeRoot, "registries", "unknown.yml"), "unknown")
 }
 
+func TestSyncPreservesInvalidLocalAgentWithoutFailingUpgrade(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	invalidAgent := strings.Join([]string{
+		"key: desktopAssistant",
+		"name: Desktop Assistant",
+		"role: legacy local Agent",
+		"modelConfig:",
+		"  modelKey: legacy-model",
+		"toolConfig:",
+		"  tools:",
+		"    - platform_config",
+		"mode: REACT",
+	}, "\n")
+	agentPath := filepath.Join(runtimeRoot, "agents", "desktopAssistant", "agent.yml")
+	writeTestFile(t, agentPath, invalidAgent)
+
+	result, err := Sync(Options{
+		RuntimeDir:  runtimeRoot,
+		Source:      writeTestZip(t, map[string]string{"env/VERSION": "v2.0.0\n"}),
+		DesktopFrom: "1.0.0",
+		DesktopTo:   "2.0.0",
+		Mode:        ModeVersionChange,
+		Now:         fixedNow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Changed {
+		t.Fatalf("upgrade did not commit: %#v", result)
+	}
+	assertTestFile(t, agentPath, invalidAgent)
+	state := readTestState(t, runtimeRoot)
+	if state.DesktopVersion != "2.0.0" {
+		t.Fatalf("desktop version=%q want %q", state.DesktopVersion, "2.0.0")
+	}
+}
+
 func TestReadStateAcceptsV1StatsWithoutOverwrittenUnits(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), stateFileName)
 	writeTestFile(t, statePath, strings.Join([]string{

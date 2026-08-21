@@ -139,10 +139,10 @@
     },
     {
       "name": "httpx",
-      "version": "v0.1.6",
+      "version": "v0.1.8",
       "repository": "httpx",
       "source": "https://github.com/linlay/cli-httpx.git",
-      "commit": "63bbe34c6343ff0ac8ca8ce9d15b7e15b64d2355",
+      "commit": "e4ff55b87f078da7283cbad5a482de7d4b4d08aa",
       "kind": "archive",
       "required": true,
       "targets": {
@@ -157,14 +157,14 @@
           "sha256": "74dbd15fb6038ec7e7ffaec66b851385c4844691e485fbd7682325dc48cb6fe6"
         },
         "darwin-arm64": {
-          "version": "v0.1.6",
+          "version": "v0.1.8",
           "source": "https://github.com/linlay/cli-httpx.git",
-          "commit": "63bbe34c6343ff0ac8ca8ce9d15b7e15b64d2355",
-          "path": "dist/v0.1.6/httpx_v0.1.6_darwin_arm64.tar.gz",
+          "commit": "e4ff55b87f078da7283cbad5a482de7d4b4d08aa",
+          "path": "dist/v0.1.8/httpx_v0.1.8_darwin_arm64.tar.gz",
           "format": "tar.gz",
           "entry": "httpx",
           "output": "httpx",
-          "sha256": "8f804c034c91bdb8f79e623cf518d5b2bd9ebdd55aef362ace017bcaf4b5d8c3"
+          "sha256": "87af840d087cdce7eea982ca010c10b1763c9c056ed5109f7cd08f5cf01c0816"
         },
         "linux-amd64": {
           "version": "v0.1.1",

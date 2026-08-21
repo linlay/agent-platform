@@ -171,12 +171,15 @@ program_apply_layout_flags \
   --state-dir "$tmp_dir/run" \
   --log-dir "$tmp_dir/logs" \
   --port 17078 \
+  --runtime-mode=desktop \
   --identity-file "$identity_file"
 program_update_backend_args
 [[ "${BACKEND_ARGS[0]}" == "--config-dir" ]]
-[[ "${BACKEND_ARGS[2]}" == "--port" ]]
-[[ "${BACKEND_ARGS[4]}" == "--identity-file" ]]
-[[ "${BACKEND_ARGS[5]}" == "$identity_file" ]]
+[[ "${BACKEND_ARGS[2]}" == "--runtime-mode" ]]
+[[ "${BACKEND_ARGS[3]}" == "desktop" ]]
+[[ "${BACKEND_ARGS[4]}" == "--port" ]]
+[[ "${BACKEND_ARGS[6]}" == "--identity-file" ]]
+[[ "${BACKEND_ARGS[7]}" == "$identity_file" ]]
 
 fake_backend="$tmp_dir/fake agent-platform"
 printf '%s\n' \

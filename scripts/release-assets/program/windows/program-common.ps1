@@ -17,6 +17,7 @@ $Script:LogFile = Join-Path $Script:LogDir 'agent-platform.log'
 $Script:ErrorLogFile = Join-Path $Script:LogDir 'agent-platform.stderr.log'
 $Script:ProgramPort = ''
 $Script:IdentityFile = ''
+$Script:RuntimeMode = 'standalone'
 $Script:DeployAPRuntimeDir = ''
 $Script:DeployContainerHubBaseUrl = ''
 $Script:DeployAIVisionGeneralModelKey = ''
@@ -70,6 +71,7 @@ function Set-ProgramLayoutOption([string]$Name, [string]$Value) {
     '--log-dir' { $Script:LogDir = $Value }
     '--port' { $Script:ProgramPort = $Value }
     '--identity-file' { $Script:IdentityFile = $Value }
+    '--runtime-mode' { $Script:RuntimeMode = $Value }
     default { Fail-Program "unsupported argument: $Name" }
   }
   Update-ProgramPaths
@@ -78,7 +80,7 @@ function Set-ProgramLayoutOption([string]$Name, [string]$Value) {
 function Set-ProgramLayoutArgs([string[]]$Arguments) {
   for ($i = 0; $i -lt $Arguments.Length; $i++) {
     $name = $Arguments[$i]
-    if (@('--config-dir', '--state-dir', '--log-dir', '--port', '--identity-file') -notcontains $name) {
+    if (@('--config-dir', '--state-dir', '--log-dir', '--port', '--identity-file', '--runtime-mode') -notcontains $name) {
       Fail-Program "unsupported argument: $name"
     }
     if ($i + 1 -ge $Arguments.Length) {
@@ -594,7 +596,7 @@ function Start-ProgramBackend {
 
     # Windows PowerShell joins Start-Process ArgumentList values into one command line.
     # Quote the path explicitly so config roots containing spaces remain one argument.
-    $backendArgs = @('--config-dir', ('"{0}"' -f $Script:ConfigRoot))
+    $backendArgs = @('--config-dir', ('"{0}"' -f $Script:ConfigRoot), '--runtime-mode', $Script:RuntimeMode)
     if (-not [string]::IsNullOrWhiteSpace($Script:ProgramPort)) {
       $backendArgs += @('--port', $Script:ProgramPort)
     }
@@ -614,7 +616,7 @@ function Start-ProgramBackend {
     return
   }
 
-  $backendArgs = @('--config-dir', $Script:ConfigRoot)
+  $backendArgs = @('--config-dir', $Script:ConfigRoot, '--runtime-mode', $Script:RuntimeMode)
   if (-not [string]::IsNullOrWhiteSpace($Script:ProgramPort)) {
     $backendArgs += @('--port', $Script:ProgramPort)
   }

@@ -52,7 +52,7 @@ func (s *llmRunStream) sandboxBashSecurityOverrideAction(invocation *preparedToo
 	}
 	overrides := s.engine.cfg.SandboxBash.Security.BashsecOverrides
 	command := strings.TrimSpace(mapStringArg(invocation.args, "command"))
-	if sandboxBashHasHeredocOutputRedirection(command, s.execCtxRuntimeEnvOverrides()) {
+	if sandboxBashHasHeredocOutputRedirection(command, s.knownRuntimeVariables()) {
 		if action := strings.TrimSpace(overrides.HeredocOutputRedirection); action != "" {
 			return action
 		}
@@ -75,13 +75,6 @@ func (s *llmRunStream) executeSandboxBashSecurityOverride(invocation *preparedTo
 	default:
 		return false, nil
 	}
-}
-
-func (s *llmRunStream) execCtxRuntimeEnvOverrides() map[string]string {
-	if s == nil || s.execCtx == nil {
-		return nil
-	}
-	return s.execCtx.RuntimeEnvOverrides
 }
 
 func sandboxBashHasHeredocOutputRedirection(command string, variables map[string]string) bool {

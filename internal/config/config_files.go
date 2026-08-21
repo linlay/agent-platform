@@ -43,23 +43,6 @@ func loadYAMLMap(path string) (map[string]any, error) {
 	return values, nil
 }
 
-func (c *Config) applyDesktopValues(values map[string]any) {
-	c.Desktop.Action = parseDesktopBridgeConfig(values["action"], c.Desktop.Action)
-	c.Desktop.CDP = parseDesktopBridgeConfig(values["cdp"], c.Desktop.CDP)
-}
-
-func parseDesktopBridgeConfig(raw any, fallback DesktopBridgeConfig) DesktopBridgeConfig {
-	values, _ := raw.(map[string]any)
-	if len(values) == 0 {
-		return fallback
-	}
-	fallback.Host = stringValue(anyValue(values["host"], fallback.Host), fallback.Host)
-	fallback.Port = intValue(anyValue(values["port"], fallback.Port), fallback.Port)
-	fallback.Path = stringValue(anyValue(values["path"], fallback.Path), fallback.Path)
-	fallback.RequestTimeout = intValue(anyValue(values["request-timeout"], fallback.RequestTimeout), fallback.RequestTimeout)
-	return fallback
-}
-
 func (c *Config) applyPathsValues(values map[string]any) {
 	c.Paths.RegistriesDir = stringValue(anyValue(values["registries-dir"], c.Paths.RegistriesDir), c.Paths.RegistriesDir)
 	c.Paths.ToolsDir = stringValue(anyValue(values["tools-dir"], c.Paths.ToolsDir), c.Paths.ToolsDir)
@@ -74,6 +57,7 @@ func (c *Config) applyPathsValues(values map[string]any) {
 	c.Paths.KBaseDir = stringValue(anyValue(values["kbase-dir"], c.Paths.KBaseDir), c.Paths.KBaseDir)
 	c.Paths.PanDir = stringValue(anyValue(values["pan-dir"], c.Paths.PanDir), c.Paths.PanDir)
 	c.Paths.SkillsCenterDir = stringValue(anyValue(values["skills-center-dir"], c.Paths.SkillsCenterDir), c.Paths.SkillsCenterDir)
+	c.Paths.RunStateDir = stringValue(anyValue(values["run-state-dir"], c.Paths.RunStateDir), c.Paths.RunStateDir)
 }
 
 func (c *Config) applySkillsValues(values map[string]any) {
@@ -216,9 +200,6 @@ func (c *Config) applyRuntimeFile(path string) error {
 		if err := c.applyContainerHubValues(path, containerHub); err != nil {
 			return err
 		}
-	}
-	if desktop, ok := values["desktop"].(map[string]any); ok && len(desktop) > 0 {
-		c.applyDesktopValues(desktop)
 	}
 	if cors, ok := values["cors"].(map[string]any); ok && len(cors) > 0 {
 		c.applyCORSValues(cors)
@@ -498,6 +479,35 @@ func (c *Config) applyToolsFile(path string, ignoreRemovedWorkingDirectory bool)
 		}
 		if err := c.applyFileToolsValues(path, fileTools); err != nil {
 			return err
+		}
+	}
+	if platformControl, ok := values["platform-control"].(map[string]any); ok && len(platformControl) > 0 {
+		if err := c.applyPlatformControlValues(path, platformControl); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Config) applyPlatformControlValues(path string, values map[string]any) error {
+	for _, removed := range []string{"profiles", "bindings"} {
+		if _, ok := values[removed]; ok {
+			return fmt.Errorf("%s: platform-control.%s was removed; explicitly mounting platform_control now grants every registered operation", path, removed)
+		}
+	}
+	c.PlatformControl.Enabled = boolValue(anyValue(values["enabled"], c.PlatformControl.Enabled), c.PlatformControl.Enabled)
+	c.PlatformControl.DenyKeys = csvOrList(anyValue(values["deny-keys"], c.PlatformControl.DenyKeys), c.PlatformControl.DenyKeys)
+	c.PlatformControl.MaxDynamicKeys = intValue(anyValue(values["max-dynamic-keys"], c.PlatformControl.MaxDynamicKeys), c.PlatformControl.MaxDynamicKeys)
+	c.PlatformControl.MaxValueBytes = intValue(anyValue(values["max-value-bytes"], c.PlatformControl.MaxValueBytes), c.PlatformControl.MaxValueBytes)
+	c.PlatformControl.MaxTotalBytes = intValue(anyValue(values["max-total-bytes"], c.PlatformControl.MaxTotalBytes), c.PlatformControl.MaxTotalBytes)
+	c.PlatformControl.CheckpointKeyFile = stringValue(anyValue(values["checkpoint-key-file"], c.PlatformControl.CheckpointKeyFile), c.PlatformControl.CheckpointKeyFile)
+	for field, value := range map[string]int{
+		"max-dynamic-keys": c.PlatformControl.MaxDynamicKeys,
+		"max-value-bytes":  c.PlatformControl.MaxValueBytes,
+		"max-total-bytes":  c.PlatformControl.MaxTotalBytes,
+	} {
+		if value <= 0 {
+			return fmt.Errorf("%s: platform-control.%s must be greater than zero", path, field)
 		}
 	}
 	return nil

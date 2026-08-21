@@ -298,6 +298,9 @@ func ValidateOrdinaryAgentTools(tools []string) error {
 		if replacement, removed := removedRunTools[normalized]; removed {
 			return fmt.Errorf("tool %s was removed; use %s", normalized, replacement)
 		}
+		if normalized == "platform_config" {
+			return fmt.Errorf("tool platform_config was removed; use platform_control")
+		}
 		if normalized == strings.ToLower(agentteam.ToolDelegate) {
 			return fmt.Errorf("tool %s is internal and can only be used by an orchestrated Team coordinator", agentteam.ToolDelegate)
 		}

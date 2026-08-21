@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,33 +15,661 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 )
 
-type recordingWebClientRequestInvoker struct {
-	target   WebClientTarget
-	request  WebClientActionRequest
-	response WebClientActionResponse
-	err      error
-	calls    int
+type httpBackedClientRequestInvoker struct {
+	actionURL string
+	cdpURL    string
 }
 
-func webClientResponseCode(code int) *int {
-	return &code
+type scriptedClientRequestInvoker struct {
+	frames      []ClientResponseFrame
+	err         error
+	calls       int
+	target      ClientTarget
+	request     ClientRequest
+	deadline    time.Time
+	hadDeadline bool
 }
 
-func (r *recordingWebClientRequestInvoker) InvokeWebClientAction(
-	_ context.Context,
-	target WebClientTarget,
-	request WebClientActionRequest,
-) (WebClientActionResponse, error) {
-	r.calls++
-	r.target = target
-	r.request = request
-	return r.response, r.err
+type desktopMainTargetProviderStub struct {
+	mu     sync.Mutex
+	target ClientTarget
+	state  DesktopMainTargetState
+	calls  int
+}
+
+func (p *desktopMainTargetProviderStub) ResolveDesktopMainTarget() (ClientTarget, DesktopMainTargetState) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.calls++
+	return p.target, p.state
+}
+
+func (p *desktopMainTargetProviderStub) callCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.calls
+}
+
+type routingClientRequestInvoker struct {
+	mu       sync.Mutex
+	failures map[string]error
+	targets  []ClientTarget
+	requests []ClientRequest
+}
+
+func (i *routingClientRequestInvoker) InvokeClientRequest(_ context.Context, target ClientTarget, request ClientRequest, onFrame func(ClientResponseFrame) error) error {
+	i.mu.Lock()
+	i.targets = append(i.targets, target)
+	i.requests = append(i.requests, request)
+	err := i.failures[target.SessionID]
+	i.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	response := map[string]any{"ok": true, "result": map[string]any{}}
+	if action := strings.TrimSpace(AnyStringNode(request.Payload["action"])); action != "" {
+		response["action"] = action
+	}
+	if method := strings.TrimSpace(AnyStringNode(request.Payload["method"])); method != "" {
+		response["method"] = method
+	}
+	data, _ := json.Marshal(response)
+	code := 0
+	return onFrame(ClientResponseFrame{
+		Frame: "response", Type: request.Type, ID: request.ID, Code: &code, Msg: "success", Data: data,
+	})
+}
+
+func (i *routingClientRequestInvoker) snapshots() ([]ClientTarget, []ClientRequest) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return append([]ClientTarget(nil), i.targets...), append([]ClientRequest(nil), i.requests...)
+}
+
+func (i *scriptedClientRequestInvoker) InvokeClientRequest(ctx context.Context, target ClientTarget, request ClientRequest, onFrame func(ClientResponseFrame) error) error {
+	i.calls++
+	i.target = target
+	i.request = request
+	i.deadline, i.hadDeadline = ctx.Deadline()
+	for _, frame := range i.frames {
+		if err := onFrame(frame); err != nil {
+			return err
+		}
+	}
+	return i.err
+}
+
+func TestDesktopReverseRequestUsesCallerToolDeadline(t *testing.T) {
+	code := 0
+	data, _ := json.Marshal(map[string]any{"ok": true, "action": "desktop.theme.get", "result": map[string]any{}})
+	invoker := &scriptedClientRequestInvoker{frames: []ClientResponseFrame{{
+		Frame: "response", Type: desktopActionRequestType, ID: "deadline-request", Code: &code, Data: data,
+	}}}
+	executor := &RuntimeToolExecutor{
+		cfg:           config.Config{RuntimeMode: config.RuntimeModeDesktop},
+		clientRequest: invoker,
+		clientTargets: emptyRunClientTargetStore{},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
+	defer cancel()
+	wantDeadline, _ := ctx.Deadline()
+	result, err := executor.invokeDesktopAction(ctx, map[string]any{
+		"requestId": "deadline-request", "action": "desktop.theme.get", "args": map[string]any{},
+	}, &ExecutionContext{})
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("invoke desktop action: result=%#v err=%v", result, err)
+	}
+	if !invoker.hadDeadline || !invoker.deadline.Equal(wantDeadline) {
+		t.Fatalf("reverse request deadline = %v, want caller tool deadline %v", invoker.deadline, wantDeadline)
+	}
+}
+
+func TestDesktopReverseRequestPreservesNonRetryableClientMetadata(t *testing.T) {
+	code := 409
+	data, _ := json.Marshal(map[string]any{
+		"retryable": false,
+		"details":   map[string]any{"recovery": "reattach_source_chat"},
+	})
+	invoker := &scriptedClientRequestInvoker{frames: []ClientResponseFrame{{
+		Frame: "error", Type: "source_chat_not_ready", ID: "workpanel-rejected", Code: &code,
+		Msg: "source_chat_not_ready: canonical Chat synchronization failed", Data: data,
+	}}}
+	executor := &RuntimeToolExecutor{
+		cfg:           config.Config{RuntimeMode: config.RuntimeModeStandalone},
+		clientRequest: invoker,
+		clientTargets: emptyRunClientTargetStore{},
+	}
+	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"requestId": "workpanel-rejected",
+		"action":    "desktop.workpanel.openWeb",
+		"args":      map[string]any{"url": "https://example.test/document"},
+	}, &ExecutionContext{Session: QuerySession{RunID: "run-1", ChatID: "chat-1", AgentKey: "agent-1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Error != "desktop_action_client_rejected" || result.ExitCode != -1 {
+		t.Fatalf("unexpected rejected result: %#v", result)
+	}
+	details, _ := result.Structured["details"].(map[string]any)
+	if details["clientErrorType"] != "source_chat_not_ready" || details["clientCode"] != 409 {
+		t.Fatalf("client rejection identity was not preserved: %#v", details)
+	}
+	if details["retryable"] != false || details["recovery"] != "reattach_source_chat" {
+		t.Fatalf("client retry metadata was not preserved: %#v", details)
+	}
+}
+
+func TestDesktopRuntimeModeRoutingMatrix(t *testing.T) {
+	code := 0
+	inline, _ := json.Marshal(map[string]any{"ok": true, "action": "desktop.workpanel.getState", "result": map[string]any{"ok": true}})
+	invoker := &scriptedClientRequestInvoker{frames: []ClientResponseFrame{{
+		Frame: "response", Type: desktopActionRequestType, ID: "standalone-workpanel", Code: &code, Data: inline,
+	}}}
+	executor := &RuntimeToolExecutor{
+		cfg:           config.Config{RuntimeMode: config.RuntimeModeStandalone},
+		clientRequest: invoker,
+		clientTargets: emptyRunClientTargetStore{},
+	}
+	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"requestId": "standalone-workpanel", "action": "desktop.workpanel.getState", "args": map[string]any{},
+	}, &ExecutionContext{})
+	if err != nil || result.ExitCode != 0 || invoker.calls != 1 || invoker.request.Type != desktopActionRequestType {
+		t.Fatalf("standalone WorkPanel route failed: result=%#v calls=%d request=%#v err=%v", result, invoker.calls, invoker.request, err)
+	}
+
+	unsupported, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"action": "desktop.theme.get", "args": map[string]any{},
+	}, &ExecutionContext{})
+	if err != nil || unsupported.Error != "desktop_action_unsupported_runtime" || invoker.calls != 1 {
+		t.Fatalf("standalone Desktop action was not rejected before dispatch: result=%#v calls=%d err=%v", unsupported, invoker.calls, err)
+	}
+	cdp, err := executor.invokeDesktopCDP(context.Background(), map[string]any{
+		"method": "Runtime.evaluate", "params": map[string]any{"expression": "1"},
+	}, &ExecutionContext{})
+	if err != nil || cdp.Error != "desktop_cdp_unsupported_runtime" || invoker.calls != 1 {
+		t.Fatalf("standalone CDP was not rejected before dispatch: result=%#v calls=%d err=%v", cdp, invoker.calls, err)
+	}
+}
+
+func TestDesktopReverseRequestDoesNotUseStaleSessionTargetWhenRunTargetIsMissing(t *testing.T) {
+	runs := NewInMemoryRunManager()
+	runs.Register(context.Background(), QuerySession{
+		RunID: "run-without-reverse-target", ChatID: "chat-1", AgentKey: "agent-1", RunOwner: AgentRunOwner("agent-1", ""),
+	})
+	invoker := &scriptedClientRequestInvoker{}
+	executor := &RuntimeToolExecutor{
+		cfg:           config.Config{RuntimeMode: config.RuntimeModeStandalone},
+		clientRequest: invoker,
+		clientTargets: runs,
+	}
+	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"action": "desktop.workpanel.getState", "args": map[string]any{},
+	}, &ExecutionContext{Session: QuerySession{
+		RunID: "run-without-reverse-target", WebClientTarget: ClientTarget{SessionID: "stale-session"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Error != "desktop_action_target_unavailable" || invoker.calls != 0 {
+		t.Fatalf("stale session target was used: result=%#v calls=%d", result, invoker.calls)
+	}
+}
+
+func TestDesktopReverseRequestUsesLatestRunTarget(t *testing.T) {
+	code := 0
+	data, _ := json.Marshal(map[string]any{"ok": true, "action": "desktop.workpanel.getState", "result": map[string]any{}})
+	invoker := &scriptedClientRequestInvoker{frames: []ClientResponseFrame{{
+		Frame: "response", Type: desktopActionRequestType, ID: "latest-target", Code: &code, Data: data,
+	}}}
+	runs := NewInMemoryRunManager()
+	stale := ClientTarget{SessionID: "ws-stale"}
+	latest := ClientTarget{SessionID: "ws-latest"}
+	runs.Register(context.Background(), QuerySession{
+		RunID: "run-latest-target", ChatID: "chat-latest-target", AgentKey: "agent-1",
+		RunOwner: AgentRunOwner("agent-1", ""), WebClientTarget: stale,
+	})
+	if !runs.BindClientTarget("run-latest-target", latest) {
+		t.Fatal("bind latest target")
+	}
+	executor := (&RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeStandalone}}).
+		WithClientRequestInvoker(invoker).
+		WithClientTargetStore(runs)
+	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"requestId": "latest-target", "action": "desktop.workpanel.getState", "args": map[string]any{},
+	}, &ExecutionContext{Session: QuerySession{
+		RunID: "run-latest-target", SubTaskID: "sub-agent-1", WebClientTarget: stale,
+	}})
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("invoke latest target: result=%#v err=%v", result, err)
+	}
+	if invoker.target != latest {
+		t.Fatalf("invocation target = %#v, want %#v", invoker.target, latest)
+	}
+}
+
+func TestDesktopReverseRequestDoesNotInheritTargetForIndependentRootRun(t *testing.T) {
+	runs := NewInMemoryRunManager()
+	rootTarget := ClientTarget{SessionID: "ws-root"}
+	runs.Register(context.Background(), QuerySession{
+		RunID: "run-root", ChatID: "chat-root", AgentKey: "agent-1",
+		RunOwner: AgentRunOwner("agent-1", ""), WebClientTarget: rootTarget,
+	})
+	runs.Register(context.Background(), QuerySession{
+		RunID: "run-independent", ChatID: "chat-independent", AgentKey: "agent-1",
+		RunOwner: AgentRunOwner("agent-1", ""),
+	})
+	invoker := &scriptedClientRequestInvoker{}
+	provider := &desktopMainTargetProviderStub{target: ClientTarget{SessionID: "ws-desktop-main"}, state: DesktopMainTargetReady}
+	executor := (&RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeStandalone}}).
+		WithClientRequestInvoker(invoker).
+		WithClientTargetStore(runs).
+		WithDesktopMainTargetProvider(provider)
+	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"action": "desktop.workpanel.getState", "args": map[string]any{},
+	}, &ExecutionContext{Session: QuerySession{
+		RunID: "run-independent",
+		// A stale copied context must not bypass the authoritative runtime store.
+		WebClientTarget: rootTarget,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	details, _ := result.Structured["details"].(map[string]any)
+	if result.Error != "desktop_action_target_unavailable" || details["reason"] != "run_target_missing" || invoker.calls != 0 {
+		t.Fatalf("independent run inherited target: result=%#v calls=%d", result, invoker.calls)
+	}
+	if provider.callCount() != 0 {
+		t.Fatalf("standalone run resolved Desktop Main %d times", provider.callCount())
+	}
+}
+
+func TestDesktopRuntimeIndependentRunBindsDesktopMainTarget(t *testing.T) {
+	runs := NewInMemoryRunManager()
+	parentTarget := ClientTarget{SessionID: "ws-parent"}
+	runs.Register(context.Background(), QuerySession{
+		RunID: "run-parent", ChatID: "chat-parent", AgentKey: "agent-parent",
+		RunOwner: AgentRunOwner("agent-parent", ""), WebClientTarget: parentTarget,
+	})
+	origin := RunOrigin{AgentKey: "agent-parent", ChatID: "chat-parent", RunID: "run-parent", ToolID: "tool-run-query"}
+	runs.Register(context.Background(), QuerySession{
+		RunID: "run-independent", ChatID: "chat-independent", AgentKey: "agent-child",
+		RunOwner: AgentRunOwner("agent-child", ""), RunOrigin: &origin,
+	})
+	runs.Finish("run-parent")
+
+	desktopTarget := ClientTarget{SessionID: "ws-desktop-main-current"}
+	provider := &desktopMainTargetProviderStub{target: desktopTarget, state: DesktopMainTargetReady}
+	invoker := &routingClientRequestInvoker{}
+	executor := (&RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}}).
+		WithClientRequestInvoker(invoker).
+		WithClientTargetStore(runs).
+		WithDesktopMainTargetProvider(provider)
+	actions := []struct {
+		name string
+		args map[string]any
+	}{
+		{name: "desktop.website.add", args: map[string]any{"url": "https://weather.example.test", "label": "weather"}},
+		{name: "desktop.website.add", args: map[string]any{"url": "https://finance.example.test", "label": "finance"}},
+		{name: "desktop.website.add", args: map[string]any{"url": "https://news.example.test", "label": "news"}},
+		{name: "desktop.pet.show", args: map[string]any{}},
+		{name: "desktop.theme.set", args: map[string]any{"themeMode": "dark"}},
+	}
+	for index, action := range actions {
+		result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+			"requestId": "independent-action-" + string(rune('1'+index)),
+			"action":    action.name,
+			"args":      action.args,
+		}, &ExecutionContext{Session: QuerySession{
+			RunID: "run-independent", ChatID: "chat-independent", AgentKey: "agent-child", RunOrigin: &origin,
+		}})
+		if err != nil || result.ExitCode != 0 {
+			t.Fatalf("action %s failed: result=%#v err=%v", action.name, result, err)
+		}
+	}
+	if provider.callCount() != 1 {
+		t.Fatalf("desktop main provider calls = %d, want 1", provider.callCount())
+	}
+	if bound, ok := runs.ResolveClientTarget("run-independent"); !ok || bound != desktopTarget {
+		t.Fatalf("independent run target = %#v ok=%v, want %#v", bound, ok, desktopTarget)
+	}
+	targets, requests := invoker.snapshots()
+	if len(targets) != len(actions) || len(requests) != len(actions) {
+		t.Fatalf("reverse calls targets=%d requests=%d", len(targets), len(requests))
+	}
+	for index := range targets {
+		if targets[index] != desktopTarget {
+			t.Fatalf("action %d target = %#v", index, targets[index])
+		}
+		source, _ := requests[index].Payload["source"].(map[string]any)
+		if source["runId"] != "run-independent" || source["chatId"] != "chat-independent" || source["agentKey"] != "agent-child" {
+			t.Fatalf("action %d source identity = %#v", index, source)
+		}
+	}
+}
+
+func TestDesktopRuntimeKeepsExistingRunTarget(t *testing.T) {
+	runs := NewInMemoryRunManager()
+	existing := ClientTarget{SessionID: "ws-existing"}
+	runs.Register(context.Background(), QuerySession{
+		RunID: "run-existing", ChatID: "chat-existing", AgentKey: "agent-1",
+		RunOwner: AgentRunOwner("agent-1", ""), WebClientTarget: existing,
+	})
+	provider := &desktopMainTargetProviderStub{target: ClientTarget{SessionID: "ws-default"}, state: DesktopMainTargetReady}
+	invoker := &routingClientRequestInvoker{}
+	executor := (&RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}}).
+		WithClientRequestInvoker(invoker).
+		WithClientTargetStore(runs).
+		WithDesktopMainTargetProvider(provider)
+	actions := []string{"desktop.website.list", "desktop.pet.show", "desktop.theme.get", "desktop.workpanel.getState"}
+	for index, action := range actions {
+		result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+			"requestId": fmt.Sprintf("existing-target-%d", index), "action": action, "args": map[string]any{},
+		}, &ExecutionContext{Session: QuerySession{RunID: "run-existing", ChatID: "chat-existing", AgentKey: "agent-1"}})
+		if err != nil || result.ExitCode != 0 {
+			t.Fatalf("existing target action %s failed: result=%#v err=%v", action, result, err)
+		}
+	}
+	if provider.callCount() != 0 {
+		t.Fatalf("existing target unexpectedly resolved default %d times", provider.callCount())
+	}
+	targets, _ := invoker.snapshots()
+	if len(targets) != len(actions) {
+		t.Fatalf("existing target dispatch count = %d", len(targets))
+	}
+	for index, target := range targets {
+		if target != existing {
+			t.Fatalf("existing target dispatch %d = %#v", index, target)
+		}
+	}
+}
+
+func TestDesktopRuntimeRebindsStaleRunTargetBeforeDispatch(t *testing.T) {
+	runs := NewInMemoryRunManager()
+	stale := ClientTarget{SessionID: "ws-stale"}
+	current := ClientTarget{SessionID: "ws-current"}
+	runs.Register(context.Background(), QuerySession{
+		RunID: "run-stale", ChatID: "chat-stale", AgentKey: "agent-1",
+		RunOwner: AgentRunOwner("agent-1", ""), WebClientTarget: stale,
+	})
+	provider := &desktopMainTargetProviderStub{target: current, state: DesktopMainTargetReady}
+	invoker := &routingClientRequestInvoker{failures: map[string]error{stale.SessionID: ErrClientTargetUnavailable}}
+	executor := (&RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}}).
+		WithClientRequestInvoker(invoker).
+		WithClientTargetStore(runs).
+		WithDesktopMainTargetProvider(provider)
+	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"requestId": "stale-target", "action": "desktop.theme.get", "args": map[string]any{},
+	}, &ExecutionContext{Session: QuerySession{RunID: "run-stale", ChatID: "chat-stale", AgentKey: "agent-1"}})
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("stale target recovery failed: result=%#v err=%v", result, err)
+	}
+	targets, _ := invoker.snapshots()
+	if !reflect.DeepEqual(targets, []ClientTarget{stale, current}) {
+		t.Fatalf("stale target dispatch sequence = %#v", targets)
+	}
+	if bound, ok := runs.ResolveClientTarget("run-stale"); !ok || bound != current {
+		t.Fatalf("rebound target = %#v ok=%v", bound, ok)
+	}
+}
+
+func TestDesktopRuntimeDoesNotReplayAfterClientDisconnect(t *testing.T) {
+	runs := NewInMemoryRunManager()
+	stale := ClientTarget{SessionID: "ws-inflight"}
+	runs.Register(context.Background(), QuerySession{
+		RunID: "run-inflight", ChatID: "chat-inflight", AgentKey: "agent-1",
+		RunOwner: AgentRunOwner("agent-1", ""), WebClientTarget: stale,
+	})
+	provider := &desktopMainTargetProviderStub{target: ClientTarget{SessionID: "ws-replacement"}, state: DesktopMainTargetReady}
+	invoker := &routingClientRequestInvoker{failures: map[string]error{stale.SessionID: ErrClientDisconnected}}
+	executor := (&RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}}).
+		WithClientRequestInvoker(invoker).
+		WithClientTargetStore(runs).
+		WithDesktopMainTargetProvider(provider)
+	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"requestId": "inflight-disconnect", "action": "desktop.theme.set", "args": map[string]any{"themeMode": "dark"},
+	}, &ExecutionContext{Session: QuerySession{RunID: "run-inflight", ChatID: "chat-inflight", AgentKey: "agent-1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Error != "desktop_action_client_disconnected" {
+		t.Fatalf("disconnect result = %#v", result)
+	}
+	targets, _ := invoker.snapshots()
+	if !reflect.DeepEqual(targets, []ClientTarget{stale}) || provider.callCount() != 0 {
+		t.Fatalf("disconnected action was replayed: targets=%#v providerCalls=%d", targets, provider.callCount())
+	}
+}
+
+func TestDesktopRuntimeReportsDesktopMainAvailability(t *testing.T) {
+	tests := []struct {
+		name   string
+		state  DesktopMainTargetState
+		reason string
+	}{
+		{name: "never connected", state: DesktopMainTargetMissing, reason: "desktop_main_missing"},
+		{name: "disconnected", state: DesktopMainTargetDisconnected, reason: "desktop_main_disconnected"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runs := NewInMemoryRunManager()
+			runs.Register(context.Background(), QuerySession{
+				RunID: "run-no-target", ChatID: "chat-no-target", AgentKey: "agent-1", RunOwner: AgentRunOwner("agent-1", ""),
+			})
+			provider := &desktopMainTargetProviderStub{state: test.state}
+			invoker := &routingClientRequestInvoker{}
+			executor := (&RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}}).
+				WithClientRequestInvoker(invoker).
+				WithClientTargetStore(runs).
+				WithDesktopMainTargetProvider(provider)
+			result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+				"action": "desktop.theme.get", "args": map[string]any{},
+			}, &ExecutionContext{Session: QuerySession{RunID: "run-no-target", ChatID: "chat-no-target", AgentKey: "agent-1"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			details, _ := result.Structured["details"].(map[string]any)
+			if result.Error != "desktop_action_target_unavailable" || details["reason"] != test.reason {
+				t.Fatalf("availability result = %#v", result)
+			}
+			targets, _ := invoker.snapshots()
+			if len(targets) != 0 {
+				t.Fatalf("unavailable desktop target dispatched: %#v", targets)
+			}
+		})
+	}
+}
+
+func TestDesktopRuntimeDefaultTargetDoesNotGrantWorkPanel(t *testing.T) {
+	runs := NewInMemoryRunManager()
+	runs.Register(context.Background(), QuerySession{
+		RunID: "run-without-chat-grant", ChatID: "chat-detached", AgentKey: "agent-child",
+		RunOwner: AgentRunOwner("agent-child", ""),
+	})
+	desktopTarget := ClientTarget{SessionID: "ws-desktop-main"}
+	provider := &desktopMainTargetProviderStub{target: desktopTarget, state: DesktopMainTargetReady}
+	code := 409
+	data, _ := json.Marshal(map[string]any{
+		"retryable": false,
+		"details":   map[string]any{"recovery": "reattach_source_chat"},
+	})
+	invoker := &scriptedClientRequestInvoker{frames: []ClientResponseFrame{{
+		Frame: "error", Type: "source_chat_not_ready", ID: "detached-workpanel", Code: &code,
+		Msg: "WorkPanel source Run does not have a canonical Chat grant", Data: data,
+	}}}
+	executor := (&RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}}).
+		WithClientRequestInvoker(invoker).
+		WithClientTargetStore(runs).
+		WithDesktopMainTargetProvider(provider)
+	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"requestId": "detached-workpanel", "action": "desktop.workpanel.getState", "args": map[string]any{},
+	}, &ExecutionContext{Session: QuerySession{RunID: "run-without-chat-grant", ChatID: "chat-detached", AgentKey: "agent-child"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Error != "desktop_action_client_rejected" || invoker.target != desktopTarget {
+		t.Fatalf("detached WorkPanel result=%#v target=%#v", result, invoker.target)
+	}
+	details, _ := result.Structured["details"].(map[string]any)
+	if details["clientErrorType"] != "source_chat_not_ready" || details["recovery"] != "reattach_source_chat" {
+		t.Fatalf("detached WorkPanel details=%#v", details)
+	}
+	if bound, ok := runs.ResolveClientTarget("run-without-chat-grant"); !ok || bound != desktopTarget {
+		t.Fatalf("detached WorkPanel target was not logically bound: target=%#v ok=%v", bound, ok)
+	}
+}
+
+func TestDesktopRuntimeTeamSourceKeepsTeamIdentity(t *testing.T) {
+	runs := NewInMemoryRunManager()
+	runs.Register(context.Background(), QuerySession{
+		RunID: "run-team", ChatID: "chat-team", TeamID: "research",
+		RunOwner: TeamRunOwner("research", "__team_coordinator"),
+	})
+	provider := &desktopMainTargetProviderStub{target: ClientTarget{SessionID: "ws-desktop-main"}, state: DesktopMainTargetReady}
+	invoker := &routingClientRequestInvoker{}
+	executor := (&RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}}).
+		WithClientRequestInvoker(invoker).
+		WithClientTargetStore(runs).
+		WithDesktopMainTargetProvider(provider)
+	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"requestId": "team-action", "action": "desktop.theme.get", "args": map[string]any{},
+	}, &ExecutionContext{Session: QuerySession{RunID: "run-team", ChatID: "chat-team", TeamID: "research"}})
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("team action failed: result=%#v err=%v", result, err)
+	}
+	_, requests := invoker.snapshots()
+	source, _ := requests[0].Payload["source"].(map[string]any)
+	if source["runId"] != "run-team" || source["chatId"] != "chat-team" || source["teamId"] != "research" {
+		t.Fatalf("team source identity = %#v", source)
+	}
+	if _, exists := source["agentKey"]; exists {
+		t.Fatalf("team source must not synthesize agent identity: %#v", source)
+	}
+}
+
+func TestDesktopRuntimeCDPBindsDesktopMainTarget(t *testing.T) {
+	runs := NewInMemoryRunManager()
+	runs.Register(context.Background(), QuerySession{
+		RunID: "run-cdp-default", ChatID: "chat-cdp-default", AgentKey: "agent-1", RunOwner: AgentRunOwner("agent-1", ""),
+	})
+	desktopTarget := ClientTarget{SessionID: "ws-desktop-main"}
+	provider := &desktopMainTargetProviderStub{target: desktopTarget, state: DesktopMainTargetReady}
+	invoker := &routingClientRequestInvoker{}
+	executor := (&RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}}).
+		WithClientRequestInvoker(invoker).
+		WithClientTargetStore(runs).
+		WithDesktopMainTargetProvider(provider)
+	result, err := executor.invokeDesktopCDP(context.Background(), map[string]any{
+		"requestId": "cdp-default-target", "method": "Runtime.evaluate", "params": map[string]any{"expression": "1 + 1"},
+	}, &ExecutionContext{Session: QuerySession{RunID: "run-cdp-default", ChatID: "chat-cdp-default", AgentKey: "agent-1"}})
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("default CDP target failed: result=%#v err=%v", result, err)
+	}
+	targets, requests := invoker.snapshots()
+	if len(targets) != 1 || targets[0] != desktopTarget || requests[0].Type != desktopCDPRequestType {
+		t.Fatalf("default CDP route targets=%#v requests=%#v", targets, requests)
+	}
+}
+
+func TestDesktopRuntimeConcurrentRunsKeepReverseRequestsIsolated(t *testing.T) {
+	const runCount = 12
+	runs := NewInMemoryRunManager()
+	provider := &desktopMainTargetProviderStub{target: ClientTarget{SessionID: "ws-desktop-main"}, state: DesktopMainTargetReady}
+	invoker := &routingClientRequestInvoker{}
+	executor := (&RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}}).
+		WithClientRequestInvoker(invoker).
+		WithClientTargetStore(runs).
+		WithDesktopMainTargetProvider(provider)
+
+	var wg sync.WaitGroup
+	errors := make(chan error, runCount)
+	for index := 0; index < runCount; index++ {
+		runID := fmt.Sprintf("run-concurrent-%d", index)
+		chatID := fmt.Sprintf("chat-concurrent-%d", index)
+		requestID := fmt.Sprintf("request-concurrent-%d", index)
+		runs.Register(context.Background(), QuerySession{
+			RunID: runID, ChatID: chatID, AgentKey: "agent-1", RunOwner: AgentRunOwner("agent-1", ""),
+		})
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+				"requestId": requestID, "action": "desktop.theme.get", "args": map[string]any{},
+			}, &ExecutionContext{Session: QuerySession{RunID: runID, ChatID: chatID, AgentKey: "agent-1"}})
+			if err != nil {
+				errors <- err
+				return
+			}
+			if result.ExitCode != 0 {
+				errors <- fmt.Errorf("run %s result %#v", runID, result)
+			}
+		}()
+	}
+	wg.Wait()
+	close(errors)
+	for err := range errors {
+		t.Fatal(err)
+	}
+
+	targets, requests := invoker.snapshots()
+	if len(targets) != runCount || len(requests) != runCount {
+		t.Fatalf("concurrent reverse calls targets=%d requests=%d", len(targets), len(requests))
+	}
+	seen := map[string]string{}
+	for index, request := range requests {
+		if targets[index].SessionID != "ws-desktop-main" {
+			t.Fatalf("request %s target = %#v", request.ID, targets[index])
+		}
+		source, _ := request.Payload["source"].(map[string]any)
+		runID, _ := source["runId"].(string)
+		if previous, exists := seen[request.ID]; exists || runID == "" {
+			t.Fatalf("request identity collision id=%q previous=%q source=%#v", request.ID, previous, source)
+		}
+		seen[request.ID] = runID
+	}
+}
+
+func (i *httpBackedClientRequestInvoker) InvokeClientRequest(ctx context.Context, _ ClientTarget, request ClientRequest, onFrame func(ClientResponseFrame) error) error {
+	endpoint := i.actionURL
+	if request.Type == desktopCDPRequestType {
+		endpoint = i.cdpURL
+	}
+	body, err := json.Marshal(request.Payload)
+	if err != nil {
+		return err
+	}
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	httpRequest.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(httpRequest)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	var data json.RawMessage
+	if err := json.NewDecoder(response.Body).Decode(&data); err != nil {
+		return err
+	}
+	code := 0
+	return onFrame(ClientResponseFrame{Frame: "response", Type: request.Type, ID: request.ID, Code: &code, Msg: "success", Data: data})
+}
+
+type emptyRunClientTargetStore struct{}
+
+func (emptyRunClientTargetStore) BindClientTarget(string, ClientTarget) bool {
+	return false
+}
+func (emptyRunClientTargetStore) ResolveClientTarget(string) (ClientTarget, bool) {
+	return ClientTarget{SessionID: "ws-desktop-test"}, true
 }
 
 func TestInvokeDesktopActionCallsBridge(t *testing.T) {
@@ -69,9 +698,10 @@ func TestInvokeDesktopActionCallsBridge(t *testing.T) {
 			"themeMode": "dark",
 		},
 	}, &ExecutionContext{Session: QuerySession{
-		RunID:    "run-1",
-		ChatID:   "chat-1",
-		AgentKey: "desktopAssistant",
+		RunID:           "run-1",
+		ChatID:          "chat-1",
+		AgentKey:        "desktopAssistant",
+		WebClientTarget: WebClientTarget{SessionID: "ws-desktop-test"},
 	}})
 	if err != nil {
 		t.Fatalf("invoke desktop action: %v", err)
@@ -90,433 +720,160 @@ func TestInvokeDesktopActionCallsBridge(t *testing.T) {
 	}
 }
 
-func TestInvokeDesktopActionForwardsWebClientActionAsFlatRequest(t *testing.T) {
-	invoker := &recordingWebClientRequestInvoker{
-		response: WebClientActionResponse{
-			Frame: "response",
-			Type:  webClientSidebarSetState,
-			ID:    "web-request-1",
-			Code:  webClientResponseCode(0),
-			Msg:   "success",
-			Data:  json.RawMessage(`{"applied":true,"sidebar":"right","open":true,"tab":"debug"}`),
-		},
+func TestInvokeDesktopActionReassemblesValidatedStream(t *testing.T) {
+	payload := []byte(`{"ok":true,"action":"desktop.controlCenter.readServiceLog","result":{"content":"streamed"}}`)
+	streamID := "stream-json-1"
+	frames := make([]ClientResponseFrame, 0, 3)
+	for index, chunk := range [][]byte{payload[:len(payload)/2], payload[len(payload)/2:]} {
+		event, _ := json.Marshal(desktopStreamEvent{
+			Seq:       int64(index + 1),
+			Type:      desktopResponseDeltaEventType,
+			Timestamp: 1771888000000 + int64(index),
+			Encoding:  "base64",
+			Chunk:     base64.StdEncoding.EncodeToString(chunk),
+		})
+		frames = append(frames, ClientResponseFrame{Frame: "stream", ID: "stream-request", StreamID: streamID, Event: event})
 	}
-	executor := newDesktopTestExecutor("http://desktop-bridge.invalid", "").WithWebClientRequestInvoker(invoker)
-	target := WebClientTarget{
-		BoundaryKey: "device:web-1",
-		SurfaceID:   "surface-1",
-	}
-	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
-		"requestId":           "web-request-1",
-		"action":              webClientSidebarSetState,
-		"confirmationSummary": "must not be forwarded",
-		"args": map[string]any{
-			"sidebar": "right",
-			"open":    true,
-			"tab":     "debug",
-		},
-	}, &ExecutionContext{Session: QuerySession{WebClientTarget: target}})
-	if err != nil {
-		t.Fatalf("invoke webclient action: %v", err)
-	}
-	if result.ExitCode != 0 || result.Error != "" {
-		t.Fatalf("expected successful webclient result, got %#v", result)
-	}
-	if invoker.calls != 1 || !reflect.DeepEqual(invoker.target, target) {
-		t.Fatalf("unexpected invocation target: calls=%d target=%#v", invoker.calls, invoker.target)
-	}
-	if invoker.request.ID != "web-request-1" || invoker.request.Type != webClientSidebarSetState {
-		t.Fatalf("unexpected flat webclient request: %#v", invoker.request)
-	}
-	if invoker.request.Payload["sidebar"] != "right" || invoker.request.Payload["open"] != true || invoker.request.Payload["tab"] != "debug" {
-		t.Fatalf("unexpected webclient payload: %#v", invoker.request.Payload)
-	}
-	if _, exists := invoker.request.Payload["confirmationSummary"]; exists {
-		t.Fatalf("confirmationSummary must not be forwarded: %#v", invoker.request.Payload)
-	}
-	if result.Structured["applied"] != true || result.Structured["tab"] != "debug" {
-		t.Fatalf("unexpected structured result: %#v", result.Structured)
-	}
-}
-
-func TestInvokeDesktopActionUsesLatestRunTarget(t *testing.T) {
-	runs := NewInMemoryRunManager()
-	stale := WebClientTarget{SessionID: "ws-stale"}
-	latest := WebClientTarget{SessionID: "ws-latest"}
-	runs.Register(context.Background(), QuerySession{
-		RunID:           "run-latest-target",
-		ChatID:          "chat-latest-target",
-		AgentKey:        "agent-1",
-		RunOwner:        AgentRunOwner("agent-1", ""),
-		WebClientTarget: stale,
+	code := 0
+	terminal, _ := json.Marshal(map[string]any{
+		"streamed":    true,
+		"streamId":    streamID,
+		"encoding":    "base64",
+		"contentType": "application/json",
+		"chunkCount":  2,
+		"totalBytes":  len(payload),
 	})
-	if !runs.BindWebClientTarget("run-latest-target", latest) {
-		t.Fatal("bind latest target")
+	frames = append(frames, ClientResponseFrame{Frame: "response", Type: desktopActionRequestType, ID: "stream-request", Code: &code, Data: terminal})
+	executor := &RuntimeToolExecutor{
+		cfg:           config.Config{RuntimeMode: config.RuntimeModeDesktop},
+		clientRequest: &scriptedClientRequestInvoker{frames: frames},
+		clientTargets: emptyRunClientTargetStore{},
 	}
-	invoker := &recordingWebClientRequestInvoker{
-		response: WebClientActionResponse{
-			Frame: "response",
-			Type:  webClientSidebarGetState,
-			ID:    "web-latest-target",
-			Code:  webClientResponseCode(0),
-			Data:  json.RawMessage(`{}`),
-		},
-	}
-	executor := (&RuntimeToolExecutor{}).
-		WithWebClientRequestInvoker(invoker).
-		WithWebClientTargetStore(runs)
 	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
-		"requestId": "web-latest-target",
-		"action":    webClientSidebarGetState,
-		"args":      map[string]any{},
-	}, &ExecutionContext{Session: QuerySession{
-		RunID:           "run-latest-target",
-		SubTaskID:       "sub-agent-1",
-		WebClientTarget: stale,
-	}})
+		"requestId": "stream-request",
+		"action":    "desktop.controlCenter.readServiceLog",
+	}, &ExecutionContext{})
 	if err != nil || result.ExitCode != 0 {
-		t.Fatalf("invoke latest target: result=%#v err=%v", result, err)
+		t.Fatalf("streamed desktop action failed: result=%#v err=%v", result, err)
 	}
-	if invoker.target != latest {
-		t.Fatalf("invocation target = %#v, want %#v", invoker.target, latest)
+	response := cloneDesktopMapValue(result.Structured["response"])
+	resultNode := cloneDesktopMapValue(response["result"])
+	if resultNode["content"] != "streamed" {
+		t.Fatalf("unexpected streamed result: %#v", result.Structured)
 	}
 }
 
-func TestInvokeDesktopActionDoesNotInheritTargetForIndependentRootRun(t *testing.T) {
-	runs := NewInMemoryRunManager()
-	rootTarget := WebClientTarget{SessionID: "ws-root"}
-	runs.Register(context.Background(), QuerySession{
-		RunID:           "run-root",
-		ChatID:          "chat-root",
-		AgentKey:        "agent-1",
-		RunOwner:        AgentRunOwner("agent-1", ""),
-		WebClientTarget: rootTarget,
+func TestInvokeDesktopActionRejectsInvalidStreamManifest(t *testing.T) {
+	event, _ := json.Marshal(desktopStreamEvent{
+		Seq:       1,
+		Type:      desktopResponseDeltaEventType,
+		Timestamp: 1771888000000,
+		Encoding:  "base64",
+		Chunk:     base64.StdEncoding.EncodeToString([]byte(`{"ok":true}`)),
 	})
-	runs.Register(context.Background(), QuerySession{
-		RunID:    "run-independent",
-		ChatID:   "chat-independent",
-		AgentKey: "agent-1",
-		RunOwner: AgentRunOwner("agent-1", ""),
+	code := 0
+	terminal, _ := json.Marshal(map[string]any{
+		"streamed": true, "streamId": "wrong-stream", "encoding": "base64", "chunkCount": 1, "totalBytes": 11,
 	})
-	executor := (&RuntimeToolExecutor{}).
-		WithWebClientRequestInvoker(&recordingWebClientRequestInvoker{}).
-		WithWebClientTargetStore(runs)
+	executor := &RuntimeToolExecutor{
+		cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop},
+		clientRequest: &scriptedClientRequestInvoker{frames: []ClientResponseFrame{
+			{Frame: "stream", ID: "invalid-stream", StreamID: "stream-1", Event: event},
+			{Frame: "response", Type: desktopActionRequestType, ID: "invalid-stream", Code: &code, Data: terminal},
+		}},
+		clientTargets: emptyRunClientTargetStore{},
+	}
 	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
-		"action": webClientSidebarGetState,
-		"args":   map[string]any{},
-	}, &ExecutionContext{Session: QuerySession{
-		RunID: "run-independent",
-		// A stale copied context must not bypass the authoritative runtime store.
-		WebClientTarget: rootTarget,
-	}})
+		"requestId": "invalid-stream", "action": "desktop.controlCenter.readServiceLog",
+	}, &ExecutionContext{})
 	if err != nil {
-		t.Fatalf("invoke independent run: %v", err)
+		t.Fatalf("invoke invalid stream: %v", err)
 	}
-	details, _ := result.Structured["details"].(map[string]any)
-	if result.Error != "desktop_action_target_unavailable" || details["reason"] != "run_target_missing" {
-		t.Fatalf("independent run inherited target: %#v", result)
-	}
-}
-
-func TestInvokeDesktopActionValidatesWebClientSidebarArgsBeforeSending(t *testing.T) {
-	invoker := &recordingWebClientRequestInvoker{}
-	executor := (&RuntimeToolExecutor{}).WithWebClientRequestInvoker(invoker)
-	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
-		"action": webClientSidebarSetState,
-		"args": map[string]any{
-			"sidebar": "left",
-			"open":    true,
-			"tab":     "debug",
-		},
-	}, &ExecutionContext{Session: QuerySession{WebClientTarget: WebClientTarget{SessionID: "ws-1"}}})
-	if err != nil {
-		t.Fatalf("invoke webclient action: %v", err)
-	}
-	if result.ExitCode != -1 || result.Error != "invalid_args" {
-		t.Fatalf("expected invalid_args, got %#v", result)
-	}
-	if invoker.calls != 0 {
-		t.Fatalf("invalid action must not reach webclient invoker")
+	if result.ExitCode != -1 || result.Error != "desktop_action_invalid_client_response" {
+		t.Fatalf("expected invalid stream response, got %#v", result)
 	}
 }
 
-func TestInvokeDesktopActionForwardsWebClientOpenURL(t *testing.T) {
-	invoker := &recordingWebClientRequestInvoker{
-		response: WebClientActionResponse{
-			Frame: "response",
-			Type:  webClientSidebarOpenURL,
-			ID:    "web-url-1",
-			Code:  webClientResponseCode(0),
-			Msg:   "success",
-			Data:  json.RawMessage(`{"applied":true,"sidebar":"right","open":true,"tab":"web","url":"https://www.sina.com.cn/","title":"新浪"}`),
-		},
-	}
-	executor := (&RuntimeToolExecutor{}).WithWebClientRequestInvoker(invoker)
-	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
-		"requestId": "web-url-1",
-		"action":    webClientSidebarOpenURL,
-		"args": map[string]any{
-			"url":   "www.sina.com.cn",
-			"title": "新浪",
-		},
-	}, &ExecutionContext{Session: QuerySession{WebClientTarget: WebClientTarget{SessionID: "ws-1"}}})
-	if err != nil {
-		t.Fatalf("invoke webclient action: %v", err)
-	}
-	if result.ExitCode != 0 || result.Structured["url"] != "https://www.sina.com.cn/" {
-		t.Fatalf("unexpected webclient openUrl result: %#v", result)
-	}
-	if invoker.request.Type != webClientSidebarOpenURL ||
-		invoker.request.Payload["url"] != "www.sina.com.cn" ||
-		invoker.request.Payload["title"] != "新浪" {
-		t.Fatalf("unexpected flat openUrl request: %#v", invoker.request)
-	}
-}
-
-func TestInvokeDesktopActionForwardsWebClientRefreshURL(t *testing.T) {
-	invoker := &recordingWebClientRequestInvoker{
-		response: WebClientActionResponse{
-			Frame: "response",
-			Type:  webClientSidebarRefreshURL,
-			ID:    "web-refresh-1",
-			Code:  webClientResponseCode(0),
-			Msg:   "success",
-			Data:  json.RawMessage(`{"applied":true,"sidebar":"right","open":false,"tab":null,"url":"https://example.com/"}`),
-		},
-	}
-	executor := (&RuntimeToolExecutor{}).WithWebClientRequestInvoker(invoker)
-	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
-		"requestId": "web-refresh-1",
-		"action":    webClientSidebarRefreshURL,
-		"args": map[string]any{
-			"url": "example.com",
-		},
-	}, &ExecutionContext{Session: QuerySession{WebClientTarget: WebClientTarget{SessionID: "ws-1"}}})
-	if err != nil {
-		t.Fatalf("invoke webclient action: %v", err)
-	}
-	if result.ExitCode != 0 || result.Structured["applied"] != true || result.Structured["url"] != "https://example.com/" {
-		t.Fatalf("unexpected webclient refreshUrl result: %#v", result)
-	}
-	if invoker.request.Type != webClientSidebarRefreshURL || invoker.request.Payload["url"] != "example.com" {
-		t.Fatalf("unexpected flat refreshUrl request: %#v", invoker.request)
-	}
-}
-
-func TestInvokeDesktopActionRejectsInvalidWebClientOpenURLArgs(t *testing.T) {
-	tests := []map[string]any{
-		{},
-		{"url": "javascript:alert(1)"},
-		{"url": "//example.com"},
-		{"url": "https://user:secret@example.com"},
-		{"url": "https://example.com", "title": true},
-		{"url": "https://example.com", "unexpected": true},
-	}
-	for _, actionArgs := range tests {
-		invoker := &recordingWebClientRequestInvoker{}
-		executor := (&RuntimeToolExecutor{}).WithWebClientRequestInvoker(invoker)
-		result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
-			"action": webClientSidebarOpenURL,
-			"args":   actionArgs,
-		}, &ExecutionContext{Session: QuerySession{WebClientTarget: WebClientTarget{SessionID: "ws-1"}}})
-		if err != nil {
-			t.Fatalf("invoke webclient action: %v", err)
-		}
-		if result.ExitCode != -1 || result.Error != "invalid_args" {
-			t.Fatalf("expected invalid_args for %#v, got %#v", actionArgs, result)
-		}
-		if invoker.calls != 0 {
-			t.Fatalf("invalid openUrl args reached invoker: %#v", actionArgs)
-		}
-	}
-}
-
-func TestInvokeDesktopActionRejectsInvalidWebClientRefreshURLArgs(t *testing.T) {
-	tests := []map[string]any{
-		{},
-		{"url": "javascript:alert(1)"},
-		{"url": "//example.com"},
-		{"url": "https://user:secret@example.com"},
-		{"url": "https://example.com", "title": "not supported"},
-	}
-	for _, actionArgs := range tests {
-		invoker := &recordingWebClientRequestInvoker{}
-		executor := (&RuntimeToolExecutor{}).WithWebClientRequestInvoker(invoker)
-		result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
-			"action": webClientSidebarRefreshURL,
-			"args":   actionArgs,
-		}, &ExecutionContext{Session: QuerySession{WebClientTarget: WebClientTarget{SessionID: "ws-1"}}})
-		if err != nil {
-			t.Fatalf("invoke webclient action: %v", err)
-		}
-		if result.ExitCode != -1 || result.Error != "invalid_args" {
-			t.Fatalf("expected invalid_args for %#v, got %#v", actionArgs, result)
-		}
-		if invoker.calls != 0 {
-			t.Fatalf("invalid refreshUrl args reached invoker: %#v", actionArgs)
-		}
-	}
-}
-
-func TestInvokeDesktopActionRejectsNonObjectWebClientArgs(t *testing.T) {
-	invoker := &recordingWebClientRequestInvoker{}
-	executor := (&RuntimeToolExecutor{}).WithWebClientRequestInvoker(invoker)
-	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
-		"action": webClientSidebarGetState,
-		"args":   "not-an-object",
-	}, &ExecutionContext{Session: QuerySession{WebClientTarget: WebClientTarget{SessionID: "ws-1"}}})
-	if err != nil {
-		t.Fatalf("invoke webclient action: %v", err)
-	}
-	if result.ExitCode != -1 || result.Error != "invalid_args" {
-		t.Fatalf("expected invalid_args, got %#v", result)
-	}
-	if invoker.calls != 0 {
-		t.Fatalf("invalid action must not reach webclient invoker")
-	}
-}
-
-func TestInvokeDesktopActionRejectsInvalidWebClientResponseFrames(t *testing.T) {
-	tests := []struct {
-		name     string
-		response WebClientActionResponse
-	}{
-		{
-			name: "mismatched response type",
-			response: WebClientActionResponse{
-				Frame: "response",
-				Type:  webClientSidebarGetState,
-				ID:    "web-request-1",
-				Code:  webClientResponseCode(0),
-				Data:  json.RawMessage(`{}`),
-			},
-		},
-		{
-			name: "error without positive code",
-			response: WebClientActionResponse{
-				Frame: "error",
-				Type:  "invalid_request",
-				ID:    "web-request-1",
-				Code:  webClientResponseCode(0),
-			},
-		},
-		{
-			name: "response without code",
-			response: WebClientActionResponse{
-				Frame: "response",
-				Type:  webClientSidebarSetState,
-				ID:    "web-request-1",
-				Data:  json.RawMessage(`{}`),
-			},
-		},
-		{
-			name: "non object response data",
-			response: WebClientActionResponse{
-				Frame: "response",
-				Type:  webClientSidebarSetState,
-				ID:    "web-request-1",
-				Code:  webClientResponseCode(0),
-				Data:  json.RawMessage(`[]`),
-			},
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			invoker := &recordingWebClientRequestInvoker{response: test.response}
-			executor := (&RuntimeToolExecutor{}).WithWebClientRequestInvoker(invoker)
-			result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
-				"requestId": "web-request-1",
-				"action":    webClientSidebarSetState,
-				"args": map[string]any{
-					"sidebar": "right",
-					"open":    true,
-				},
-			}, &ExecutionContext{Session: QuerySession{WebClientTarget: WebClientTarget{SessionID: "ws-1"}}})
-			if err != nil {
-				t.Fatalf("invoke webclient action: %v", err)
-			}
-			if result.ExitCode != -1 || result.Error != "desktop_action_invalid_client_response" {
-				t.Fatalf("expected invalid client response, got %#v", result)
-			}
+func TestInvokeDesktopCDPStreamsScreenshotToChatFileAndCleansInvalidPartial(t *testing.T) {
+	chatRoot := t.TempDir()
+	chatID := "chat-stream-screenshot"
+	png := testDesktopScreenshotPNG(t)
+	streamID := "stream-screenshot-1"
+	frames := make([]ClientResponseFrame, 0, 3)
+	for index, chunk := range [][]byte{png[:len(png)/2], png[len(png)/2:]} {
+		event, _ := json.Marshal(desktopStreamEvent{
+			Seq:       int64(index + 1),
+			Type:      desktopScreenshotDeltaEventType,
+			Timestamp: 1771888000000 + int64(index),
+			Encoding:  "base64",
+			Chunk:     base64.StdEncoding.EncodeToString(chunk),
 		})
+		frames = append(frames, ClientResponseFrame{Frame: "stream", ID: "screenshot-request", StreamID: streamID, Event: event})
 	}
-}
+	code := 0
+	terminal, _ := json.Marshal(map[string]any{
+		"ok": true, "method": desktopCdpCaptureScreenshotMethod,
+		"result": map[string]any{"data": map[string]any{
+			"streamed": true, "streamId": streamID, "encoding": "base64", "chunkCount": 2, "totalBytes": len(png),
+		}},
+	})
+	frames = append(frames, ClientResponseFrame{Frame: "response", Type: desktopCDPRequestType, ID: "screenshot-request", Code: &code, Data: terminal})
+	executor := &RuntimeToolExecutor{
+		cfg: config.Config{
+			RuntimeMode: config.RuntimeModeDesktop,
+			Paths:       config.PathsConfig{ChatsDir: chatRoot},
+		},
+		clientRequest: &scriptedClientRequestInvoker{frames: frames},
+		clientTargets: emptyRunClientTargetStore{},
+	}
+	result, err := executor.invokeDesktopCDP(context.Background(), map[string]any{
+		"requestId": "screenshot-request", "method": desktopCdpCaptureScreenshotMethod,
+	}, &ExecutionContext{Session: QuerySession{ChatID: chatID}})
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("streamed screenshot failed: result=%#v err=%v", result, err)
+	}
+	response := cloneDesktopMapValue(result.Structured["response"])
+	resultNode := cloneDesktopMapValue(response["result"])
+	metadata := cloneDesktopMapValue(resultNode["data"])
+	filePath, _ := metadata["filePath"].(string)
+	written, readErr := os.ReadFile(filePath)
+	if readErr != nil || !bytes.Equal(written, png) {
+		t.Fatalf("unexpected streamed screenshot file: path=%q err=%v", filePath, readErr)
+	}
 
-func TestInvokeDesktopActionMapsWebClientProviderFailures(t *testing.T) {
-	tests := []struct {
-		name     string
-		response WebClientActionResponse
-		err      error
-		wantCode string
-	}{
-		{
-			name:     "timeout",
-			err:      context.DeadlineExceeded,
-			wantCode: "desktop_action_client_timeout",
-		},
-		{
-			name:     "disconnect",
-			err:      ErrWebClientDisconnected,
-			wantCode: "desktop_action_client_disconnected",
-		},
-		{
-			name:     "target unavailable",
-			err:      ErrWebClientTargetUnavailable,
-			wantCode: "desktop_action_target_unavailable",
-		},
-		{
-			name: "client rejection",
-			response: WebClientActionResponse{
-				Frame: "error",
-				Type:  "unknown_request_type",
-				ID:    "web-request-1",
-				Code:  webClientResponseCode(404),
-				Msg:   "unknown request type",
-			},
-			wantCode: "desktop_action_client_rejected",
-		},
+	badEvent, _ := json.Marshal(desktopStreamEvent{
+		Seq: 1, Type: desktopScreenshotDeltaEventType, Timestamp: 1771888000000,
+		Encoding: "base64", Chunk: base64.StdEncoding.EncodeToString(png[:4]),
+	})
+	badExecutor := *executor
+	badExecutor.clientRequest = &scriptedClientRequestInvoker{frames: []ClientResponseFrame{
+		{Frame: "stream", ID: "bad-screenshot", StreamID: "bad-stream", Event: badEvent},
+		{Frame: "stream", ID: "bad-screenshot", StreamID: "bad-stream", Event: json.RawMessage(`{"seq":3,"type":"desktop.cdp.screenshot.delta","timestamp":1771888000001,"encoding":"base64","chunk":"AA=="}`)},
+	}}
+	badResult, badErr := badExecutor.invokeDesktopCDP(context.Background(), map[string]any{
+		"requestId": "bad-screenshot", "method": desktopCdpCaptureScreenshotMethod,
+	}, &ExecutionContext{Session: QuerySession{ChatID: chatID}})
+	if badErr != nil || badResult.ExitCode != -1 || badResult.Error != "desktop_cdp_invalid_client_response" {
+		t.Fatalf("expected invalid screenshot stream failure, got result=%#v err=%v", badResult, badErr)
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			invoker := &recordingWebClientRequestInvoker{
-				response: test.response,
-				err:      test.err,
-			}
-			executor := (&RuntimeToolExecutor{}).WithWebClientRequestInvoker(invoker)
-			result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
-				"requestId": "web-request-1",
-				"action":    webClientSidebarGetState,
-				"args":      map[string]any{},
-			}, &ExecutionContext{Session: QuerySession{WebClientTarget: WebClientTarget{SessionID: "ws-1"}}})
-			if err != nil {
-				t.Fatalf("invoke webclient action: %v", err)
-			}
-			if result.ExitCode != -1 || result.Error != test.wantCode {
-				t.Fatalf("expected %s, got %#v", test.wantCode, result)
-			}
-			if test.err == ErrWebClientTargetUnavailable {
-				details, _ := result.Structured["details"].(map[string]any)
-				if details["reason"] != "target_connection_unavailable" {
-					t.Fatalf("unexpected target unavailable details: %#v", details)
-				}
-			}
-		})
-	}
-}
-
-func TestInvokeDesktopActionReportsMissingRunTargetReason(t *testing.T) {
-	executor := (&RuntimeToolExecutor{}).WithWebClientRequestInvoker(&recordingWebClientRequestInvoker{})
-	result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
-		"action": webClientSidebarGetState,
-		"args":   map[string]any{},
-	}, &ExecutionContext{Session: QuerySession{RunID: "run-without-target"}})
+	entries, err := os.ReadDir(filepath.Join(chatRoot, chatID))
 	if err != nil {
-		t.Fatalf("invoke webclient action: %v", err)
+		t.Fatal(err)
 	}
-	details, _ := result.Structured["details"].(map[string]any)
-	if result.Error != "desktop_action_target_unavailable" || details["reason"] != "run_target_missing" {
-		t.Fatalf("unexpected missing target result: %#v", result)
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".tmp") {
+			t.Fatalf("partial screenshot was not cleaned: %s", entry.Name())
+		}
 	}
+	oversized, err := newDesktopScreenshotSink(executor, &ExecutionContext{Session: QuerySession{ChatID: chatID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oversized.size = desktopMaxDecodedResponseBytes
+	if err := oversized.write([]byte{0}); err == nil || !strings.Contains(err.Error(), "64 MiB") {
+		t.Fatalf("expected screenshot size limit, got %v", err)
+	}
+	oversized.abort()
 }
 
 func TestInvokeDesktopCDPCallsBridge(t *testing.T) {
@@ -543,9 +900,10 @@ func TestInvokeDesktopCDPCallsBridge(t *testing.T) {
 			"expression": "6 * 7",
 		},
 	}, &ExecutionContext{Session: QuerySession{
-		RunID:    "run-cdp",
-		ChatID:   "chat-cdp",
-		AgentKey: "desktopAssistant",
+		RunID:           "run-cdp",
+		ChatID:          "chat-cdp",
+		AgentKey:        "desktopAssistant",
+		WebClientTarget: WebClientTarget{SessionID: "ws-desktop-test"},
 	}})
 	if err != nil {
 		t.Fatalf("invoke desktop cdp: %v", err)
@@ -793,8 +1151,13 @@ func TestInvokeDesktopActionAllowsCurrentDesktopActions(t *testing.T) {
 		"desktop.locale.set",
 		"desktop.copilot.getPagePreferences",
 		"desktop.copilot.setPagePreference",
-		"desktop.chatWorkPanel.getState",
-		"desktop.chatWorkPanel.openTab",
+		"desktop.workpanel.getState",
+		"desktop.workpanel.openTab",
+		"desktop.workpanel.openWeb",
+		"desktop.workpanel.refreshWeb",
+		"desktop.workpanel.activateTab",
+		"desktop.workpanel.closeTab",
+		"desktop.workpanel.closeWorkpanel",
 		"desktop.web.listSurfaces",
 		"desktop.webapp.getStatus",
 		"desktop.website.list",
@@ -883,12 +1246,13 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 		"desktop.controlCenter.restartService",
 		"desktop.controlCenter.startService",
 		"desktop.controlCenter.stopService",
-		"desktop.chatWorkPanel.activateTab",
-		"desktop.chatWorkPanel.close",
-		"desktop.chatWorkPanel.closeTab",
-		"desktop.chatWorkPanel.getState",
-		"desktop.chatWorkPanel.open",
-		"desktop.chatWorkPanel.openTab",
+		"desktop.workpanel.activateTab",
+		"desktop.workpanel.closeTab",
+		"desktop.workpanel.closeWorkpanel",
+		"desktop.workpanel.getState",
+		"desktop.workpanel.openTab",
+		"desktop.workpanel.openWeb",
+		"desktop.workpanel.refreshWeb",
 		"desktop.copilot.getPagePreferences",
 		"desktop.copilot.setPagePreference",
 		"desktop.general.deviceName",
@@ -951,10 +1315,6 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 		"desktop.website.open",
 		"desktop.website.remove",
 		"desktop.website.update",
-		"webclient.sidebar.getState",
-		"webclient.sidebar.openUrl",
-		"webclient.sidebar.refreshUrl",
-		"webclient.sidebar.setState",
 	}
 	sort.Strings(want)
 
@@ -1004,15 +1364,15 @@ func TestDesktopCDPMethodSchemaUsesRecommendedEnum(t *testing.T) {
 	}
 }
 
-func TestInvokeDesktopActionRequiresConfiguredBridge(t *testing.T) {
-	result, err := (&RuntimeToolExecutor{}).invokeDesktopAction(context.Background(), map[string]any{
+func TestInvokeDesktopActionRequiresClientProvider(t *testing.T) {
+	result, err := (&RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}}).invokeDesktopAction(context.Background(), map[string]any{
 		"action": "desktop.controlCenter.listServices",
 	}, &ExecutionContext{})
 	if err != nil {
 		t.Fatalf("invoke desktop action: %v", err)
 	}
-	if result.ExitCode != -1 || result.Error != "desktop_action_bridge_not_configured" {
-		t.Fatalf("expected bridge not configured failure, got exit=%d error=%q output=%s", result.ExitCode, result.Error, result.Output)
+	if result.ExitCode != -1 || result.Error != "desktop_action_provider_unavailable" {
+		t.Fatalf("expected provider unavailable failure, got exit=%d error=%q output=%s", result.ExitCode, result.Error, result.Output)
 	}
 }
 
@@ -1104,14 +1464,9 @@ func desktopScreenshotServer(t *testing.T, data string, ok bool) *httptest.Serve
 }
 
 func newDesktopTestExecutor(actionURL string, cdpURL string) *RuntimeToolExecutor {
-	return &RuntimeToolExecutor{cfg: config.Config{Desktop: config.DesktopConfig{
-		Action: config.DesktopBridgeConfig{
-			BridgeURL:      actionURL,
-			RequestTimeout: 20,
-		},
-		CDP: config.DesktopBridgeConfig{
-			BridgeURL:      cdpURL,
-			RequestTimeout: 20,
-		},
-	}}}
+	return &RuntimeToolExecutor{
+		cfg:           config.Config{RuntimeMode: config.RuntimeModeDesktop},
+		clientRequest: &httpBackedClientRequestInvoker{actionURL: actionURL, cdpURL: cdpURL},
+		clientTargets: emptyRunClientTargetStore{},
+	}
 }

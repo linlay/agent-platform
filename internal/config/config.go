@@ -9,6 +9,7 @@ import (
 
 type Config struct {
 	IdentityFile    string
+	RuntimeMode     RuntimeMode
 	Server          ServerConfig
 	Paths           PathsConfig
 	Agents          CatalogConfig
@@ -36,11 +37,11 @@ type Config struct {
 	Logging         LoggingConfig
 	CORS            CORSConfig
 	ContainerHub    ContainerHubConfig
-	Desktop         DesktopConfig
 	AccessPolicy    AccessPolicyConfig
 	Bash            BashConfig
 	SandboxBash     SandboxBashConfig
 	FileTools       FileToolsConfig
+	PlatformControl PlatformControlConfig
 	WebSocket       WebSocketConfig
 	// Gateways 是多 gateway 反向连接列表（wecom / feishu / ding / ...）。
 	Gateways []GatewayEntry
@@ -52,9 +53,28 @@ type LoadOptions struct {
 	ConfigDir    string
 	Port         string
 	IdentityFile string
+	RuntimeMode  string
 	// IgnoreRemovedWorkingDirectoryForAudit is reserved for the read-only
 	// workspace/chat migration audit. Normal startup must leave it false.
 	IgnoreRemovedWorkingDirectoryForAudit bool
+}
+
+type RuntimeMode string
+
+const (
+	RuntimeModeStandalone RuntimeMode = "standalone"
+	RuntimeModeDesktop    RuntimeMode = "desktop"
+)
+
+func ParseRuntimeMode(value string) (RuntimeMode, error) {
+	switch RuntimeMode(strings.ToLower(strings.TrimSpace(value))) {
+	case "", RuntimeModeStandalone:
+		return RuntimeModeStandalone, nil
+	case RuntimeModeDesktop:
+		return RuntimeModeDesktop, nil
+	default:
+		return "", fmt.Errorf("runtime-mode must be standalone or desktop")
+	}
 }
 
 type ServerConfig struct {
@@ -75,6 +95,16 @@ type PathsConfig struct {
 	KBaseDir        string
 	PanDir          string
 	SkillsCenterDir string
+	RunStateDir     string
+}
+
+type PlatformControlConfig struct {
+	Enabled           bool
+	DenyKeys          []string
+	MaxDynamicKeys    int
+	MaxValueBytes     int
+	MaxTotalBytes     int
+	CheckpointKeyFile string
 }
 
 // EffectiveRUAgentsDir returns the configured assembled Agent root. The
@@ -438,19 +468,6 @@ type ContainerHubConfig struct {
 	ResolvedEngine       string
 }
 
-type DesktopConfig struct {
-	Action DesktopBridgeConfig
-	CDP    DesktopBridgeConfig
-}
-
-type DesktopBridgeConfig struct {
-	Host           string
-	Port           int
-	Path           string
-	RequestTimeout int // seconds
-	BridgeURL      string
-}
-
 type BashConfig struct {
 	AllowedCommands      []string
 	ShellFeaturesEnabled bool
@@ -613,6 +630,11 @@ func Load(optionValues ...LoadOptions) (Config, error) {
 	}
 	options.ConfigDir = resolveConfigRoot(options.ConfigDir)
 	options.Port = strings.TrimSpace(options.Port)
+	runtimeMode, err := ParseRuntimeMode(options.RuntimeMode)
+	if err != nil {
+		return Config{}, err
+	}
+	options.RuntimeMode = string(runtimeMode)
 	identityFile, err := resolveIdentityFile(options.ConfigDir, options.IdentityFile)
 	if err != nil {
 		return Config{}, err

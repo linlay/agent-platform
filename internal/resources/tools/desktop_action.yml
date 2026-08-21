@@ -1,12 +1,12 @@
 name: desktop_action
 label: 桌面端动作
-description: Execute an allowlisted Desktop or WebClient action. desktop.* actions use the local Desktop Action Bridge; webclient.* actions use the WebClient WebSocket that originated the run. For real webpage work tied to this chat, use desktop.chatWorkPanel.openTab/getState and then desktop_cdp with the returned targetId.
+description: Execute an allowlisted Desktop action through the current run's reverse WebSocket target. In Desktop runtime mode, desktop.* routes to Desktop Main Broker. In standalone mode, only desktop.workpanel.* routes to the originating agent-webclient; other desktop.* actions are unsupported. No route falls back to local HTTP or another client window.
 inputSchema:
   type: object
   properties:
     action:
       type: string
-      description: Required. Allowlisted action name. desktop.* targets Desktop; webclient.* targets the originating WebClient surface.
+      description: Required. Allowlisted desktop.* action name.
       enum:
         - desktop.navigate.toRoute
         - desktop.general.deviceName
@@ -26,12 +26,13 @@ inputSchema:
         - desktop.web.openTab
         - desktop.web.closeTab
         - desktop.web.switchTab
-        - desktop.chatWorkPanel.getState
-        - desktop.chatWorkPanel.open
-        - desktop.chatWorkPanel.close
-        - desktop.chatWorkPanel.openTab
-        - desktop.chatWorkPanel.activateTab
-        - desktop.chatWorkPanel.closeTab
+        - desktop.workpanel.getState
+        - desktop.workpanel.openTab
+        - desktop.workpanel.openWeb
+        - desktop.workpanel.refreshWeb
+        - desktop.workpanel.activateTab
+        - desktop.workpanel.closeTab
+        - desktop.workpanel.closeWorkpanel
         - desktop.site.list
         - desktop.website.list
         - desktop.website.add
@@ -87,13 +88,9 @@ inputSchema:
         - desktop.pet.hide
         - desktop.pet.list
         - desktop.pet.set
-        - webclient.sidebar.getState
-        - webclient.sidebar.openUrl
-        - webclient.sidebar.refreshUrl
-        - webclient.sidebar.setState
     args:
       type: object
-      description: JSON arguments for the selected action. Use only fields documented by that action's static contract. desktop.chatWorkPanel.* never accepts chatId, surfaceId, or agentKey; Platform injects the trusted source from the run context.
+      description: JSON arguments for the selected action. Use only fields documented by that action's static contract. desktop.workpanel.* never accepts caller-selected top-level ownership or internal fields such as chatId, workspaceId, surfaceId, agentKey, stableKey, preload, or webPreferences; Platform injects the trusted source from the run context. A contract-valid webclient descriptor.context may carry matching contextual identities but cannot override the trusted owner chat.
       additionalProperties: true
     requestId:
       type: string

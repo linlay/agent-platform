@@ -14,6 +14,7 @@ func TestParseConfigOptions(t *testing.T) {
 		"--config-dir", "/tmp/config",
 		"--port", "7078",
 		"--identity-file", "/tmp/desktop state/sso-access-token.txt",
+		"--runtime-mode=desktop",
 	})
 	if err != nil {
 		t.Fatalf("parse options: %v", err)
@@ -27,6 +28,9 @@ func TestParseConfigOptions(t *testing.T) {
 	if options.IdentityFile != "/tmp/desktop state/sso-access-token.txt" {
 		t.Fatalf("expected identity file to be preserved, got %q", options.IdentityFile)
 	}
+	if options.RuntimeMode != "desktop" {
+		t.Fatalf("expected desktop runtime mode, got %q", options.RuntimeMode)
+	}
 }
 
 func TestParseConfigOptionsLeavesIdentityFileUnsetByDefault(t *testing.T) {
@@ -36,6 +40,9 @@ func TestParseConfigOptionsLeavesIdentityFileUnsetByDefault(t *testing.T) {
 	}
 	if options.IdentityFile != "" {
 		t.Fatalf("default identity file = %q, want empty", options.IdentityFile)
+	}
+	if options.RuntimeMode != "standalone" {
+		t.Fatalf("default runtime mode = %q, want standalone", options.RuntimeMode)
 	}
 }
 

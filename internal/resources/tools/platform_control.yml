@@ -1,0 +1,32 @@
+name: platform_control
+label: 平台控制
+description: |
+  Operate the Agent Platform system control plane. Select one fixed operation
+  and pass its parameters in params. The explicit tool grant exposes every
+  registered operation; follow the active Skill for operation-specific parameters.
+clientVisible: true
+explicitOnly: true
+readOnly: false
+operationAware: true
+tags: [platform, control, run-env, validation]
+inputSchema:
+  type: object
+  properties:
+    operation:
+      type: string
+      description: Required. System-control operation.
+      enum:
+        - capabilities.list
+        - catalog.defaults.get
+        - catalog.validate
+        - run.env.set
+        - run.env.unset
+        - runtime.status
+        - security.explain
+    params:
+      type: object
+      maxProperties: 32
+      description: Operation-specific parameters; follow the active Skill.
+  required:
+    - operation
+  additionalProperties: false

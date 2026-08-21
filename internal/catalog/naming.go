@@ -35,6 +35,9 @@ func ShouldWatchRuntimeDir(name string) bool {
 	if strings.HasPrefix(lower, editableSkillImportStagingPrefix) {
 		return false
 	}
+	if strings.HasPrefix(lower, editableAgentImportStagingPrefix) || strings.HasPrefix(lower, editableAgentImportBackupPrefix) {
+		return false
+	}
 	// Staging directories created before bootstrap renames them.
 	if strings.HasSuffix(lower, ".bootstrap") {
 		return false

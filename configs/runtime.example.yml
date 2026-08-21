@@ -16,6 +16,8 @@
 #   kbase-dir: ./runtime/kbase
 #   pan-dir: ./runtime/pan
 #   skills-center-dir: ./runtime/skills-center
+#   # Encrypted, run-local environment checkpoints. Keep this outside chats.
+#   run-state-dir: ./runtime/run-state
 
 skills:
   max-prompt-chars: 8000
@@ -101,19 +103,6 @@ container-hub:
   # sends a reserved /workspace/<ChatsRoot-relative> mask so Chat is visible
   # only through /chat.
   # /workspace, /chat, masks, and their descendants are reserved and cannot be overridden.
-
-desktop:
-  action:
-    host: 127.0.0.1
-    port: 11788
-    path: /actions/call
-    request-timeout: 120
-
-  cdp:
-    host: 127.0.0.1
-    port: 11788
-    path: /cdp/call
-    request-timeout: 120
 
 cors:
   enabled: false

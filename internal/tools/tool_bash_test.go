@@ -3,10 +3,12 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +17,7 @@ import (
 	"agent-platform/internal/bashsec"
 	"agent-platform/internal/config"
 	contracts "agent-platform/internal/contracts"
+	"agent-platform/internal/runenv"
 )
 
 func TestResolveHostShellInvocationDefaultsToPowerShellOnWindows(t *testing.T) {
@@ -614,8 +617,8 @@ func TestInvokeHostBashAppliesAgentEnvOverrides(t *testing.T) {
 			"command": "echo \"$TEST_HOST_ENV\"",
 		},
 		&contracts.ExecutionContext{
-			Session:             contracts.QuerySession{WorkspaceRoot: root},
-			RuntimeEnvOverrides: map[string]string{"TEST_HOST_ENV": "agent-value"},
+			Session:          contracts.QuerySession{WorkspaceRoot: root},
+			StaticRuntimeEnv: map[string]string{"TEST_HOST_ENV": "agent-value"},
 		},
 	)
 	if err != nil {
@@ -651,21 +654,21 @@ func TestMergeCommandEnvInjectsReservedAgentAndChatContextAfterRuntimeOverrides(
 			},
 		},
 	}
-	if got, want := valuesFor(mergeCommandEnv(execCtx))["AP_AGENT_CONFIG_HOME"], filepath.Join(agentDir, ".config"); got != want {
+	if got, want := valuesFor(mustMergeCommandEnv(t, execCtx))["AP_AGENT_CONFIG_HOME"], filepath.Join(agentDir, ".config"); got != want {
 		t.Fatalf("default AP_AGENT_CONFIG_HOME = %q, want %q", got, want)
 	}
-	if got := valuesFor(mergeCommandEnv(execCtx))["AP_CHAT_DIR"]; got != chatDir {
+	if got := valuesFor(mustMergeCommandEnv(t, execCtx))["AP_CHAT_DIR"]; got != chatDir {
 		t.Fatalf("default AP_CHAT_DIR = %q, want %q", got, chatDir)
 	}
-	if got := valuesFor(mergeCommandEnv(execCtx))["AP_WORKSPACE_DIR"]; got != root {
+	if got := valuesFor(mustMergeCommandEnv(t, execCtx))["AP_WORKSPACE_DIR"]; got != root {
 		t.Fatalf("default AP_WORKSPACE_DIR = %q, want %q", got, root)
 	}
-	execCtx.RuntimeEnvOverrides = map[string]string{
+	execCtx.StaticRuntimeEnv = map[string]string{
 		"AP_AGENT_CONFIG_HOME": "/agent-custom",
 		"AP_WORKSPACE_DIR":     "/wrong-workspace",
 		"AP_CHAT_DIR":          "/wrong-chat",
 	}
-	got := valuesFor(mergeCommandEnv(execCtx))
+	got := valuesFor(mustMergeCommandEnv(t, execCtx))
 	if want := filepath.Join(agentDir, ".config"); got["AP_AGENT_CONFIG_HOME"] != want {
 		t.Fatalf("AP_AGENT_CONFIG_HOME = %q, want reserved value %q", got["AP_AGENT_CONFIG_HOME"], want)
 	}
@@ -695,28 +698,28 @@ func TestMergeBashCommandEnvReadsCurrentIdentityTokenAndRejectsOverrides(t *test
 		return values
 	}
 	execCtx := &contracts.ExecutionContext{
-		RuntimeEnvOverrides: map[string]string{"AP_ACCESS_TOKEN": "runtime-token"},
+		StaticRuntimeEnv: map[string]string{"AP_ACCESS_TOKEN": "runtime-token"},
 	}
 
-	if _, ok := valuesFor(mergeBashCommandEnv(execCtx, identityFile))[agentconfig.EnvAccessToken]; ok {
+	if _, ok := valuesFor(mustMergeBashCommandEnv(t, execCtx, identityFile))[agentconfig.EnvAccessToken]; ok {
 		t.Fatal("missing identity file must remove inherited and runtime access tokens")
 	}
 	if err := os.WriteFile(identityFile, []byte("token-a\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := valuesFor(mergeBashCommandEnv(execCtx, identityFile))[agentconfig.EnvAccessToken]; got != "token-a" {
+	if got := valuesFor(mustMergeBashCommandEnv(t, execCtx, identityFile))[agentconfig.EnvAccessToken]; got != "token-a" {
 		t.Fatalf("AP_ACCESS_TOKEN = %q, want token-a", got)
 	}
 	if err := os.WriteFile(identityFile, []byte("token-b\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := valuesFor(mergeBashCommandEnv(execCtx, identityFile))[agentconfig.EnvAccessToken]; got != "token-b" {
+	if got := valuesFor(mustMergeBashCommandEnv(t, execCtx, identityFile))[agentconfig.EnvAccessToken]; got != "token-b" {
 		t.Fatalf("AP_ACCESS_TOKEN = %q, want token-b", got)
 	}
 	if err := os.Remove(identityFile); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := valuesFor(mergeBashCommandEnv(execCtx, identityFile))[agentconfig.EnvAccessToken]; ok {
+	if _, ok := valuesFor(mustMergeBashCommandEnv(t, execCtx, identityFile))[agentconfig.EnvAccessToken]; ok {
 		t.Fatal("removed identity file must remove AP_ACCESS_TOKEN from the next Host Bash")
 	}
 }
@@ -919,7 +922,7 @@ func TestInvokeHostBashAutoApprovedAccessAddsMetadata(t *testing.T) {
 	}
 }
 
-func TestInvokeHostBashAutoApprovesChatAndTempScripts(t *testing.T) {
+func TestInvokeHostBashAppliesChatAndTempScriptApprovalRules(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
 	chatDir := filepath.Join(root, "chats", "chat-1")
@@ -958,9 +961,11 @@ func TestInvokeHostBashAutoApprovesChatAndTempScripts(t *testing.T) {
 		interpreter string
 		cwd         string
 		script      string
+		accessLevel string
+		expectAudit bool
 	}{
-		{name: "chat python", interpreter: "python3", cwd: "@chat", script: "task.py"},
-		{name: "temp node", interpreter: "node", cwd: "@temp", script: "task.js"},
+		{name: "auto-approved chat python", interpreter: "python3", cwd: "@chat", script: "task.py", accessLevel: contracts.AccessLevelAutoApprove, expectAudit: true},
+		{name: "default temp node", interpreter: "node", cwd: "@temp", script: "task.js", accessLevel: contracts.AccessLevelDefault},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -969,6 +974,7 @@ func TestInvokeHostBashAutoApprovesChatAndTempScripts(t *testing.T) {
 				t.Fatalf("write fake interpreter: %v", err)
 			}
 			command := fakeInterpreter + " " + test.script
+			execCtx.Session.AccessLevel = test.accessLevel
 			result, err := executor.invokeHostBash(context.Background(), map[string]any{
 				"command": command,
 				"cwd":     test.cwd,
@@ -979,10 +985,14 @@ func TestInvokeHostBashAutoApprovesChatAndTempScripts(t *testing.T) {
 			if result.Error != "" || result.ExitCode != 0 || result.Output != "ran:"+test.script+"\n" {
 				t.Fatalf("unexpected script result: %#v", result)
 			}
-			meta, _ := result.Structured["accessPolicy"].(map[string]any)
-			if meta["decision"] != "auto_approved" || meta["accessLevel"] != contracts.AccessLevelAutoApprove ||
-				!strings.HasPrefix(fmt.Sprint(meta["ruleKey"]), "bash-access:opaque:") {
-				t.Fatalf("expected opaque auto approval metadata, got %#v", result.Structured["accessPolicy"])
+			meta, hasAudit := result.Structured["accessPolicy"].(map[string]any)
+			if test.expectAudit {
+				if !hasAudit || meta["decision"] != "auto_approved" || meta["accessLevel"] != contracts.AccessLevelAutoApprove ||
+					!strings.HasPrefix(fmt.Sprint(meta["ruleKey"]), "bash-access:opaque:") {
+					t.Fatalf("expected opaque auto approval metadata, got %#v", result.Structured["accessPolicy"])
+				}
+			} else if hasAudit {
+				t.Fatalf("temporary script allow must not be recorded as an auto approval: %#v", meta)
 			}
 		})
 	}
@@ -1111,6 +1121,66 @@ func TestBashResultHardErrorReturnsStructuredJSON(t *testing.T) {
 	}
 }
 
+func TestHostBashReadsRunEnvironmentSnapshotWithoutChangingProcessEnvironment(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell command assertion uses POSIX quoting")
+	}
+	root := t.TempDir()
+	store := runenv.NewStore(filepath.Join(root, "state"), filepath.Join(root, "identity", "run-env.key"), runenv.Limits{})
+	scope, err := store.NewScope(runenv.Identity{RunID: "run-host", ChatID: "chat-host", Owner: "agent:test", AgentKey: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer scope.Destroy()
+	if _, err := scope.Mutate(runenv.MutationRequest{Operation: runenv.OperationSet, Name: "RUN_LOCAL_VALUE", Value: "dynamic-value"}); err != nil {
+		t.Fatal(err)
+	}
+	before, presentBefore := os.LookupEnv("RUN_LOCAL_VALUE")
+	executor := &RuntimeToolExecutor{cfg: config.Config{Bash: config.BashConfig{AllowedCommands: []string{"bash"}, ShellFeaturesEnabled: true, ShellExecutable: "bash", MaxCommandChars: 16000}}}
+	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": `printf '%s' "$RUN_LOCAL_VALUE"`}, &contracts.ExecutionContext{
+		Session: contracts.QuerySession{WorkspaceRoot: root}, StaticRuntimeEnv: map[string]string{"RUN_LOCAL_VALUE": "static-value"}, RunEnvironment: scope,
+	})
+	if err != nil || result.Error != "" || result.Output != "dynamic-value" {
+		t.Fatalf("bash result=%#v err=%v", result, err)
+	}
+	after, presentAfter := os.LookupEnv("RUN_LOCAL_VALUE")
+	if before != after || presentBefore != presentAfter {
+		t.Fatalf("process environment changed: before=(%q,%v) after=(%q,%v)", before, presentBefore, after, presentAfter)
+	}
+	if _, err := scope.Mutate(runenv.MutationRequest{Operation: runenv.OperationUnset, Name: "RUN_LOCAL_VALUE"}); err != nil {
+		t.Fatal(err)
+	}
+	result, err = executor.invokeHostBash(context.Background(), map[string]any{"command": `printf '%s' "$RUN_LOCAL_VALUE"`}, &contracts.ExecutionContext{
+		Session: contracts.QuerySession{WorkspaceRoot: root}, StaticRuntimeEnv: map[string]string{"RUN_LOCAL_VALUE": "static-value"}, RunEnvironment: scope,
+	})
+	if err != nil || result.Error != "" || result.Output != "static-value" {
+		t.Fatalf("bash fallback result=%#v err=%v", result, err)
+	}
+	if err := scope.Destroy(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mergeCommandEnv(&contracts.ExecutionContext{RunEnvironment: scope}); !errors.Is(err, runenv.ErrClosed) {
+		t.Fatalf("closed run environment snapshot error = %v, want ErrClosed", err)
+	}
+}
+
+func TestMergeEnvironmentListUsesCaseInsensitiveReplacement(t *testing.T) {
+	merged := mergeEnvironmentList([]string{"Path=base", "OTHER=value"}, map[string]string{"PATH": "override"})
+	count := 0
+	for _, item := range merged {
+		name, value, _ := strings.Cut(item, "=")
+		if strings.EqualFold(name, "PATH") {
+			count++
+			if value != "override" {
+				t.Fatalf("PATH value = %q", value)
+			}
+		}
+	}
+	if count != 1 {
+		t.Fatalf("case-insensitive PATH count = %d: %#v", count, merged)
+	}
+}
+
 func bashExecutionContext(workspaceRoot string) *contracts.ExecutionContext {
 	return &contracts.ExecutionContext{
 		Session: contracts.QuerySession{
@@ -1120,4 +1190,22 @@ func bashExecutionContext(workspaceRoot string) *contracts.ExecutionContext {
 			},
 		},
 	}
+}
+
+func mustMergeCommandEnv(t *testing.T, execCtx *contracts.ExecutionContext) []string {
+	t.Helper()
+	env, err := mergeCommandEnv(execCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return env
+}
+
+func mustMergeBashCommandEnv(t *testing.T, execCtx *contracts.ExecutionContext, identityFile string) []string {
+	t.Helper()
+	env, err := mergeBashCommandEnv(execCtx, identityFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return env
 }

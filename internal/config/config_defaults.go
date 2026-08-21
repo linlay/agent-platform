@@ -10,6 +10,7 @@ import (
 )
 
 func defaultConfig(options LoadOptions) Config {
+	runtimeMode, _ := ParseRuntimeMode(options.RuntimeMode)
 	runtimeRoot := defaultRuntimeRoot()
 	paths := PathsConfig{
 		RegistriesDir:   filepath.Join(runtimeRoot, "registries"),
@@ -25,9 +26,11 @@ func defaultConfig(options LoadOptions) Config {
 		KBaseDir:        filepath.Join(runtimeRoot, "kbase"),
 		PanDir:          filepath.Join(runtimeRoot, "pan"),
 		SkillsCenterDir: filepath.Join(runtimeRoot, "skills-center"),
+		RunStateDir:     filepath.Join(runtimeRoot, "run-state"),
 	}
 	return Config{
 		IdentityFile: options.IdentityFile,
+		RuntimeMode:  runtimeMode,
 		Server:       ServerConfig{Port: "8080"},
 		Paths:        paths,
 		Agents:       CatalogConfig{ExternalDir: paths.AgentsDir},
@@ -163,14 +166,6 @@ func defaultConfig(options LoadOptions) Config {
 			AgentIdleTimeout:    600,
 			DestroyQueueDelay:   5,
 		},
-		Desktop: DesktopConfig{
-			Action: DesktopBridgeConfig{
-				RequestTimeout: 120, // seconds
-			},
-			CDP: DesktopBridgeConfig{
-				RequestTimeout: 120, // seconds
-			},
-		},
 		AccessPolicy: defaultAccessPolicyConfig(),
 		Bash: BashConfig{
 			AllowedCommands: []string{
@@ -198,6 +193,13 @@ func defaultConfig(options LoadOptions) Config {
 					LSPDiagnostics: defaultLSPDiagnosticsHookConfig(),
 				},
 			},
+		},
+		PlatformControl: PlatformControlConfig{
+			Enabled:           true,
+			MaxDynamicKeys:    32,
+			MaxValueBytes:     4096,
+			MaxTotalBytes:     32768,
+			CheckpointKeyFile: filepath.Join(runtimeRoot, "identity", "run-env.key"),
 		},
 	}
 }
@@ -335,6 +337,8 @@ func (c *Config) normalize(configRoot string) error {
 	c.Paths.KBaseDir = filepath.Clean(c.Paths.KBaseDir)
 	c.Paths.PanDir = filepath.Clean(c.Paths.PanDir)
 	c.Paths.SkillsCenterDir = filepath.Clean(c.Paths.SkillsCenterDir)
+	c.Paths.RunStateDir = filepath.Clean(c.Paths.RunStateDir)
+	c.PlatformControl.CheckpointKeyFile = filepath.Clean(c.PlatformControl.CheckpointKeyFile)
 
 	c.Agents.ExternalDir = filepath.Clean(c.Paths.AgentsDir)
 	c.Teams.ExternalDir = filepath.Clean(c.Paths.TeamsDir)
@@ -356,8 +360,6 @@ func (c *Config) normalize(configRoot string) error {
 	if c.ContainerHub.DefaultSandboxLevel == "" {
 		c.ContainerHub.DefaultSandboxLevel = "run"
 	}
-	c.Desktop.Action = normalizeDesktopBridgeConfig(c.Desktop.Action)
-	c.Desktop.CDP = normalizeDesktopBridgeConfig(c.Desktop.CDP)
 	c.VisionRecognize = normalizeVisionRecognizeConfig(c.VisionRecognize)
 	c.WebFetch = normalizeWebFetchConfig(c.WebFetch)
 	c.ImageGenerate = normalizeImageGenerateConfig(c.ImageGenerate)
@@ -434,23 +436,6 @@ func normalizeKBaseConfig(cfg *KBaseConfig) error {
 	}
 	cfg.Extraction = normalizeKBaseExtractionConfig(cfg.Extraction)
 	return nil
-}
-
-func normalizeDesktopBridgeConfig(cfg DesktopBridgeConfig) DesktopBridgeConfig {
-	cfg.Host = strings.TrimSpace(cfg.Host)
-	cfg.Path = strings.TrimSpace(cfg.Path)
-	if cfg.RequestTimeout <= 0 {
-		cfg.RequestTimeout = 120
-	}
-	if cfg.Host == "" || cfg.Port <= 0 || cfg.Path == "" {
-		cfg.BridgeURL = ""
-		return cfg
-	}
-	if !strings.HasPrefix(cfg.Path, "/") {
-		cfg.Path = "/" + cfg.Path
-	}
-	cfg.BridgeURL = fmt.Sprintf("http://%s:%d%s", cfg.Host, cfg.Port, cfg.Path)
-	return cfg
 }
 
 func normalizeVisionRecognizeConfig(cfg VisionRecognizeConfig) VisionRecognizeConfig {

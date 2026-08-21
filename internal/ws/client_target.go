@@ -1,15 +1,16 @@
 package ws
 
 import (
-	"context"
-	"encoding/json"
 	"strings"
 	"unicode/utf8"
 
 	"agent-platform/internal/contracts"
 )
 
-const webClientSurfaceIDMaxRunes = 128
+const (
+	webClientSurfaceIDMaxRunes = 128
+	desktopMainClientSource    = "desktop-main"
+)
 
 func NormalizeWebClientDeviceID(deviceID string) string {
 	return monitorNormalizeDeviceID(deviceID)
@@ -96,6 +97,10 @@ func (h *Hub) unregisterWebClientLocked(conn *Conn) {
 }
 
 func (h *Hub) resolveWebClientConnection(target contracts.WebClientTarget) (*Conn, bool) {
+	return h.resolveClientConnection(target)
+}
+
+func (h *Hub) resolveClientConnection(target contracts.ClientTarget) (*Conn, bool) {
 	if h == nil || target.IsZero() {
 		return nil, false
 	}
@@ -116,45 +121,66 @@ func (h *Hub) resolveWebClientConnection(target contracts.WebClientTarget) (*Con
 	return nil, false
 }
 
-func (h *Hub) InvokeWebClientAction(
-	ctx context.Context,
-	target contracts.WebClientTarget,
-	request contracts.WebClientActionRequest,
-) (contracts.WebClientActionResponse, error) {
-	conn, ok := h.resolveWebClientConnection(target)
+func (h *Hub) registerDesktopMainLocked(conn *Conn) *Conn {
+	if h == nil || conn == nil {
+		return nil
+	}
+	if _, ok := conn.authenticatedDesktopMainTarget(); !ok {
+		return nil
+	}
+	replaced := h.desktopMainConn
+	h.desktopMainConn = conn
+	h.desktopMainSeen = true
+	if replaced == conn {
+		return nil
+	}
+	return replaced
+}
+
+func (h *Hub) unregisterDesktopMainLocked(conn *Conn) {
+	if h == nil || conn == nil || h.desktopMainConn != conn {
+		return
+	}
+	h.desktopMainConn = nil
+}
+
+func (h *Hub) ResolveDesktopMainTarget() (contracts.ClientTarget, contracts.DesktopMainTargetState) {
+	if h == nil {
+		return contracts.ClientTarget{}, contracts.DesktopMainTargetMissing
+	}
+	h.mu.RLock()
+	conn := h.desktopMainConn
+	seen := h.desktopMainSeen
+	h.mu.RUnlock()
+	if conn == nil || conn.isClosed() {
+		if seen {
+			return contracts.ClientTarget{}, contracts.DesktopMainTargetDisconnected
+		}
+		return contracts.ClientTarget{}, contracts.DesktopMainTargetMissing
+	}
+	target, ok := conn.authenticatedDesktopMainTarget()
 	if !ok {
-		return contracts.WebClientActionResponse{}, contracts.ErrWebClientTargetUnavailable
+		return contracts.ClientTarget{}, contracts.DesktopMainTargetDisconnected
 	}
-	payload, err := json.Marshal(request.Payload)
-	if err != nil {
-		return contracts.WebClientActionResponse{}, err
+	return target, contracts.DesktopMainTargetReady
+}
+
+func (c *Conn) authenticatedDesktopMainTarget() (contracts.ClientTarget, bool) {
+	if c == nil {
+		return contracts.ClientTarget{}, false
 	}
-	frames, cleanup, err := conn.OpenOutboundRequest(RequestFrame{
-		Frame:   FrameRequest,
-		Type:    request.Type,
-		ID:      request.ID,
-		Payload: payload,
-	})
-	if err != nil {
-		if conn.isClosed() {
-			return contracts.WebClientActionResponse{}, contracts.ErrWebClientDisconnected
-		}
-		return contracts.WebClientActionResponse{}, err
+	source, deviceID := c.monitorClientMetadata()
+	if source != desktopMainClientSource || strings.TrimSpace(deviceID) == "" {
+		return contracts.ClientTarget{}, false
 	}
-	defer cleanup()
-	select {
-	case <-ctx.Done():
-		return contracts.WebClientActionResponse{}, ctx.Err()
-	case <-conn.Done():
-		return contracts.WebClientActionResponse{}, contracts.ErrWebClientDisconnected
-	case data, open := <-frames:
-		if !open {
-			return contracts.WebClientActionResponse{}, contracts.ErrWebClientDisconnected
-		}
-		var response contracts.WebClientActionResponse
-		if err := json.Unmarshal(data, &response); err != nil {
-			return contracts.WebClientActionResponse{}, err
-		}
-		return response, nil
+	c.authMu.RLock()
+	authDeviceID := monitorNormalizeDeviceID(c.auth.DeviceID)
+	deviceIDVerified := c.auth.DeviceIDVerified
+	authScope := strings.TrimSpace(c.auth.Scope)
+	c.authMu.RUnlock()
+	if !deviceIDVerified || authScope != "app" || authDeviceID == "" || deviceID != authDeviceID {
+		return contracts.ClientTarget{}, false
 	}
+	target := c.WebClientTarget()
+	return target, !target.IsZero()
 }

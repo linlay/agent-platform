@@ -8,10 +8,11 @@
 
 - 已具备独立 HTTP 服务、统一 JSON 包裹与 `POST /api/query` 真流式 SSE。
 - 已具备 chat 摘要、事件流、raw messages、上传资源落盘、归档与搜索。
-- 已具备目录驱动的 agents / teams / skills / tools catalog，并在 Catalog 发布前将 Agent 定义、Agent 自有 Skill、技能中心 Skill 和 `.config` 组装到稳定的 `ru-agents/<agentKey>` 执行目录；query `mustUseSkills` 可在单次普通 Agent run 中强制使用额外技能中心 Skill，并以 Host 只读语义路径或 Container 整个技能中心只读挂载直接访问 `skills-center`，不复制、不生成 run-runtime。
+- 已具备目录驱动的 agents / teams / skills / tools catalog，并在 Catalog 发布前将 Agent 定义、Agent 自有 Skill、技能中心 Skill 和 `.config` 组装到稳定的 `ru-agents/<agentKey>` 执行目录；query `mustUseSkills` 可在单次普通 Agent run 中强制使用额外技能中心 Skill，并以 Host 只读语义路径或 Container 整个技能中心只读挂载直接访问 `skills-center`，不复制、不生成 run-runtime。Admin Agent 支持安全校验完整 ZIP、以隐藏 staging/backup 原子导入或整目录覆盖；硬重载失败恢复旧来源，catalog 可发布但单个 Agent 无效时保留导入结果并返回诊断。
 - 已具备 OpenAI / Anthropic 协议模型调用、统一 Tool、Container Hub sandbox 与 tools；`image_generate` 以统一参数支持文生图、最多四张本地/Chat 参考图的图生图，以及模型 YAML 显式声明的原生 mask/inpainting，生成和编辑请求分别由模型 YAML 的 `image.generation`、`image.edit` 协议块适配。
 - 已具备由 `build/builtins/<os>-<arch>/` cache 固定、校验并随服务包分发的 Host builtins（rg/dbx/httpx/kbase-lance-engine/poppler-pdftotext）；`file_grep/file_glob` 稳定包装 rg，dbx/httpx 保持 CLI，KBASE PDF 默认调用 Poppler `pdftotext` launcher。
 - 已具备 HITL question / approval / form、运行中 submit / steer / interrupt 协议入口，以及 question/planning 跨进程恢复和不可恢复等待项的幂等终态对账。
+- 已具备固定 Schema 的 `platform_control` system control plane：Agent 显式挂载 Tool 即可调用全部注册 operation；`run.env.*` 仅保留当前普通 native root run 的 `set/unset`，使用 lazy State、AES-GCM v2 checkpoint、operation-aware barrier 和 Host/Container 新 command snapshot，不修改 Platform 进程环境。遗留 `runtimeConfig.runEnv` 静默忽略。
 - 已具备 SQLite memory、FTS、可选 embedding、learn / consolidate / feedback 与 memory tools。
 - 已具备可由普通 Agent 挂载、并保留专用 `mode: KBASE` 预设的 KBASE 文本知识库公共能力，包括 LanceDB generation 检索、加权 RRF、目录增量 watcher 与本地 Rust sidecar 管理；SQLite `control.db` 只负责 generation、文件状态与恢复日志。
 - 已具备以 `runtimeConfig.workspaceRoot` 为唯一内容根的 KBASE 公共能力；专用 `mode: KBASE` 在 main/editing 两种 stage 使用相同的通用文本文件工具，当前 Chat 目录独立可写；单 run `editingMode` 只控制 KBASE Workspace mutation，写入与索引解耦，由 KBASE 目录 watcher 异步维护。
@@ -51,6 +52,7 @@ cmd/agent-platform/main.go
 - `internal/kbase`：mode 中立的 KBASE 公共能力；`Manager` 只作为公开门面和组件装配点，内部由 capability resolver/state、storage validator/auditor、watch/lifecycle supervisor、refresh coordinator、generation service、query/status/files service 与 Lance runtime 分别维护配置解析、存储契约、调度、索引/恢复、检索和 sidecar 生命周期。app adapter 只向 Manager 暴露 enabled capability，`AgentSpec.WorkspaceRoot` 是唯一内容根事实；未启用与不存在统一按 not found 处理。该包同时维护公共 prompt、HTTP 业务错误与五个工具 handler；不得 import `internal/agent` 或 `internal/catalog`。
 - `internal/agent/team`：内部 TEAM profile、硬编码调度规则、成员 roster prompt、session-local 隐藏工具与调度状态机；TEAM 不能配置成普通 agent。
 - `internal/runops`：显式挂载的 `run_query` / `run_status` / `run_interrupt` named handler、调用方/subject 所有权、父 run/tool ID 幂等与禁止链式调用；实际 query admission、detached executor 和 Proxy 控制复用 `internal/server` facade。
+- `internal/platformcontrol` 与 `internal/runenv`：统一 system control operation registry/handler，以及当前普通 native root run 的 lazy Scope、并发 State、HMAC 幂等和 AES-GCM v2 checkpoint。
 - `internal/server`：HTTP 路由、请求校验、响应包裹、SSE / WebSocket 协调。
 - `internal/llm`：模型协议、prompt 构建、run stream、HITL、planning、tool loop。
 - `internal/tools`：通用 tool registry/router、Bash、FileTools、memory、desktop、MCP tool 调用；mode 工具通过命名 handler 接入，不在 executor 中增加 mode switch。
@@ -136,7 +138,7 @@ KBASE 默认由 `AP_RUNTIME_KBASE_DIR` 控制，每个 agent storageDir 可包�
 - `.env`、真实 `configs/*.yml`、真实 `configs/*.pem`、真实 token 和私钥不得提交。
 - 工具运行时配置以 `configs/tools.yml` 为外部事实源，包含 access policy、bash 和 file tools。
 - `configs/tools.yml` 中的旧 YAML 路径策略键（如 `bash.allowed-paths`、`file-tools.allowed-read-paths`）会在启动阶段硬失败；Go 配置结构中的旧路径字段也已删除，目录权限统一走 `tools.access-policy`。
-- `@temp` 是进程启动时冻结的通用临时根：Unix/macOS 使用 `os.TempDir()` 与 canonical `/tmp`，Windows 只使用 `os.TempDir()`；effective default read/write roots 无条件包含它。临时根内 FileTools 跳过路径和通用写审批，但保留写前读、并发校验、大小与 history；Bash 执行审批规则不因 `@temp` 改变，临时根 symlink/junction 逃逸硬拒绝。
+- `@temp` 是进程启动时冻结的通用临时根：Unix/macOS 使用 `os.TempDir()` 与 canonical `/tmp`，Windows 只使用 `os.TempDir()`；effective default read/write roots 无条件包含它。临时根内 FileTools 跳过路径、LLM 预审批和通用写审批，但保留写前读、并发校验、大小与 history。单条 `python`/`python3` 直接执行临时 `.py`，或单条 `node` 直接执行临时 `.js/.mjs/.cjs` 时，各 accessLevel 均按普通 allow 执行；内联代码、重定向、复合命令和其他 opaque command 不适用。bashsec hard block、readonly、KBASE mutation gate 与临时根 symlink/junction 逃逸仍优先。
 - 新增能力优先放进对应 `internal/*` 模块，不在 server 层堆业务逻辑。
 - TEAM 是内部专用 mode：公共机制进入 `internal/agent`，调度规则进入 `internal/agent/team`。普通 `AgentDefinition` 必须拒绝 `mode: TEAM`，隐藏协调器不得注册到 `/api/agents`、`/api/agent` 或普通 `agent_invoke` 目标中。
 - 新增 API 保持统一 JSON 包裹、字段命名和错误语义。
@@ -168,12 +170,13 @@ make test
 - `POST /api/query` 默认逐事件 flush；启用 `configs/runtime.yml -> h2a.render.*` 缓冲后，客户端看到的输出可能不再逐事件抵达。
 - WebSocket 是控制面，浏览器/普通客户端文件字节仍走 `POST /api/upload` 和隐藏的 `GET /api/resource` 数据面。新 Markdown 的 Chat 文件只使用相对于当前 Chat 的 `<relativePath>`，也可引用普通 Agent Workspace 或冻结临时根内的实际 Host 绝对路径与 HTTP(S)/data/blob；Markdown 不使用 `@temp`。真实 `/api/resource` 请求地址和 `<currentChatId>/<relativePath>` 都不是 Markdown 协议，历史 endpoint Markdown 不迁移且不再预览。
 - `runtimeConfig.env` 不会通过 catalog API 回显，避免泄露代理、凭据或私有 endpoint。
+- `platform_control` 对所有 Agent 使用同一固定 Schema；Agent 显式挂载 Tool 即获得全部注册 operation，Skill 与 `mustUseSkills` 不会替 Agent 挂载 Tool。动态 key 无需预声明，只有当前普通 native root run 成功 set 的 key 才能 unset；set value 是会进入会话、trace 与导出的普通 Tool 参数，不得承载 Secret。子 Agent、Team、ACP、Proxy、Channel、Terminal、MCP、LSP、sidecar 和已启动进程不继承。旧 `platform_config` 以及 `platform-control.profiles/bindings` 配置硬失败，遗留 `runtimeConfig.runEnv` 静默忽略。
 - 文件工具权限独立于 Bash 权限，越权路径通过 HITL approval 兜底。
 - `AP_AGENT_CONFIG_HOME`、`AP_WORKSPACE_DIR`、`AP_CHAT_DIR` 与 `AP_ACCESS_TOKEN` 是 Platform 保留变量，agent、skill 和调用级 env 均不得覆盖。host bash/tool 与 Container Hub 使用前三者的 canonical 路径；Workspace Terminal 只使用 canonical `AP_AGENT_CONFIG_HOME` 与 `AP_WORKSPACE_DIR`，不注入 `AP_CHAT_DIR`。`AP_ACCESS_TOKEN` 仅在普通 Agent Host Bash 创建前从有效 identity 单行文件即时读取并注入，默认文件为 `<AP_RUNTIME_DIR>/identity/access-token`，显式 `--identity-file <absolute-path>` 优先，不进入 Terminal、Container、Proxy、ACP、MCP、LSP 或 sidecar。文件缺失、不可读、为空或非法时省略该变量，不缓存也不中断 Bash。
 - 专用 KBASE 未开启 editing 时 Workspace 可读但不可 mutation，当前 Chat 目录仍按 `@chat` 可读写；开启后 Workspace mutation 在 shipped default policy 下免逐次 HITL。external 和其他 chatId 默认进入 HITL，`writeRoots`、hostAccess、`full_access` 或 approval 可按通用策略放宽；这些授权不能放宽非 editing KBASE Workspace，管理员显式 block 仍优先。Workspace mutation 不触发同步索引 hook，KBASE watcher 按 debounce 与 change set 异步刷新。
 - MCP registry 同时支持 `streamable-http` 与 `stdio`，严格要求协商版本 `2025-11-25`。旧 external stdio 私有协议没有兼容期；`service.yml`、`type: external`、`external:` 或 `kind: external-service` 会使启动/热重载硬失败。平台、新版 stdio server 二进制和 registry 配置必须同批发布。
 - `agent_invoke` 只允许显式配置的普通主 agent 使用，当前禁止嵌套；orchestrated Team 自动注入 session-local embedded builtin `agent_delegate` 和三个 plan tools。普通 Agent 配置、session 与执行入口均拒绝 `agent_delegate`，该工具也不进入公开工具 catalog。
-- flat plan task 按数组顺序执行且同时最多一个 `in_progress`；合法迁移为 `init -> in_progress -> completed/failed/canceled`，终态重试必须追加新 task。TEAM 的 plan task 表示顺序阶段，但当前阶段内部仍可通过单次 `agent_delegate` 按 `maxParallel` 并行执行成员。
+- flat plan task 按数组顺序执行且同时最多一个 `in_progress`；最前面的非终态 task 可由 `init` 进入 `in_progress` 或直接进入 `completed/failed/canceled`，`in_progress` 可进入任一终态，终态重试必须追加新 task。TEAM 的 plan task 表示顺序阶段，但当前阶段内部仍可通过单次 `agent_delegate` 按 `maxParallel` 并行执行成员。
 - `run_query` / `run_status` / `run_interrupt` 只允许分别显式配置的普通主 Agent 根 run 使用，query 按精确 catalog `agentKey/teamId` 启动独立根 run；不设目标白名单、深度/并发配置或 maxActiveRuns。status/interrupt 只接受同一调用 Agent 与 subject 创建的 run，目标 run 禁止再次调用任一 run 工具。旧 `agent_run_query`、`agent_run_status`、`agent_run_interrupt` 已删除且配置引用会硬失败。
 - chat 创建后 `teamId` 固定。Team 以 `teamId` 为公开 owner，`agentKey` 不得与 Team 请求或控制请求同时出现；隐藏协调器 key 只用于进程内执行，不得作为公共 Agent 身份回显。
 - Team 成员、成员定义、协调器配置与 prompt 在 run 开始时解析为快照，运行中 catalog 热重载不改变该 run；下一次 run 才读取新快照。
@@ -190,6 +193,7 @@ make test
 - [真流式和H2A](docs/真流式和H2A.md)：SSE、heartbeat、`[DONE]`、attach、backlog、H2A 缓冲。
 - [记忆系统](docs/记忆系统.md)：remember、SQLite memory、FTS、embedding、learn、consolidate、memory tools。
 - [运行时和沙箱](docs/运行时和沙箱.md)：runtime 目录、Container Hub、mounts、host / sandbox 工具边界。
+- [Platform控制工具设计](docs/Platform控制工具设计.md)：`platform_control` operation、显式工具挂载、run-local 环境快照、并发、脱敏、恢复与执行通道边界。
 - [KBASE LanceDB 迁移](docs/KBASE-LanceDB迁移.md)：LanceDB sidecar、control.db、generation、加权 RRF、迁移验证、恢复、回滚与分发边界。
 - [KBASE 编辑模式](docs/KBASE编辑模式.md)：`editingMode`、通用文本文件、AccessPolicy/HITL、watcher 异步索引和 KBASE Workspace/Chats 分离。
 - [KBASE 编辑模式越权对抗测试报告](docs/KBASE编辑模式越权对抗测试报告.md)：准入、固定工具集、HITL、approval replay、路径逃逸、chat 隔离和索引 hook 的红队验证记录。

@@ -127,17 +127,18 @@ type Conn struct {
 	authMu sync.RWMutex
 	auth   AuthSession
 
-	mu               sync.Mutex
-	inflightRequests map[string]struct{}
-	outboundRequests map[string]*outboundRequest
-	activeStreams    map[string]*streamEntry
-	cancelledStreams map[string]struct{}
-	observingRuns    map[string]string
-	writeQueue       chan outboundMessage
-	closed           chan struct{}
-	closeOnce        sync.Once
-	closing          atomic.Bool
-	nextStreamID     atomic.Int64
+	mu                      sync.Mutex
+	inflightRequests        map[string]struct{}
+	outboundRequests        map[string]*outboundRequest
+	ignoredOutboundRequests map[string]time.Time
+	activeStreams           map[string]*streamEntry
+	cancelledStreams        map[string]struct{}
+	observingRuns           map[string]string
+	writeQueue              chan outboundMessage
+	closed                  chan struct{}
+	closeOnce               sync.Once
+	closing                 atomic.Bool
+	nextStreamID            atomic.Int64
 }
 
 func (c *Conn) SetRequestBaseURL(baseURL string) {
@@ -188,22 +189,23 @@ func NewConn(socket *gws.Conn, hub *Hub, cfg config.WebSocketConfig, heartbeatIn
 		remoteAddr = socket.RemoteAddr().String()
 	}
 	return &Conn{
-		sessionID:           fmt.Sprintf("ws_%d", nextSessionID.Add(1)),
-		socket:              socket,
-		hub:                 hub,
-		cfg:                 cfg,
-		heartbeatInterval:   heartbeatInterval,
-		writeQueueFullGrace: resolvedWriteQueueFullGrace(cfg),
-		remoteAddr:          remoteAddr,
-		locale:              i18n.DefaultLocale,
-		auth:                auth,
-		inflightRequests:    map[string]struct{}{},
-		outboundRequests:    map[string]*outboundRequest{},
-		activeStreams:       map[string]*streamEntry{},
-		cancelledStreams:    map[string]struct{}{},
-		observingRuns:       map[string]string{},
-		writeQueue:          make(chan outboundMessage, cfg.WriteQueueSize),
-		closed:              make(chan struct{}),
+		sessionID:               fmt.Sprintf("ws_%d", nextSessionID.Add(1)),
+		socket:                  socket,
+		hub:                     hub,
+		cfg:                     cfg,
+		heartbeatInterval:       heartbeatInterval,
+		writeQueueFullGrace:     resolvedWriteQueueFullGrace(cfg),
+		remoteAddr:              remoteAddr,
+		locale:                  i18n.DefaultLocale,
+		auth:                    auth,
+		inflightRequests:        map[string]struct{}{},
+		outboundRequests:        map[string]*outboundRequest{},
+		ignoredOutboundRequests: map[string]time.Time{},
+		activeStreams:           map[string]*streamEntry{},
+		cancelledStreams:        map[string]struct{}{},
+		observingRuns:           map[string]string{},
+		writeQueue:              make(chan outboundMessage, cfg.WriteQueueSize),
+		closed:                  make(chan struct{}),
 	}
 }
 
@@ -427,6 +429,11 @@ func (c *Conn) OpenOutboundRequest(req RequestFrame) (<-chan []byte, func(), err
 	}
 	outbound := newOutboundRequest(128)
 	c.mu.Lock()
+	c.pruneIgnoredOutboundRequestsLocked(time.Now())
+	if until, ignored := c.ignoredOutboundRequests[req.ID]; ignored && time.Now().Before(until) {
+		c.mu.Unlock()
+		return nil, nil, fmt.Errorf("outbound request id is cooling down after cancellation")
+	}
 	if _, exists := c.outboundRequests[req.ID]; exists {
 		c.mu.Unlock()
 		return nil, nil, fmt.Errorf("outbound request id is already in flight")
@@ -455,12 +462,33 @@ func (c *Conn) deliverOutboundFrame(id string, data []byte) bool {
 		return false
 	}
 	c.mu.Lock()
-	outbound := c.outboundRequests[strings.TrimSpace(id)]
+	now := time.Now()
+	c.pruneIgnoredOutboundRequestsLocked(now)
+	key := strings.TrimSpace(id)
+	outbound := c.outboundRequests[key]
+	_, ignored := c.ignoredOutboundRequests[key]
 	c.mu.Unlock()
 	if outbound == nil {
-		return false
+		return ignored
 	}
 	return outbound.deliver(data, c.closed)
+}
+
+func (c *Conn) ignoreOutboundRequest(id string, ttl time.Duration) {
+	if c == nil || strings.TrimSpace(id) == "" || ttl <= 0 {
+		return
+	}
+	c.mu.Lock()
+	c.ignoredOutboundRequests[strings.TrimSpace(id)] = time.Now().Add(ttl)
+	c.mu.Unlock()
+}
+
+func (c *Conn) pruneIgnoredOutboundRequestsLocked(now time.Time) {
+	for id, until := range c.ignoredOutboundRequests {
+		if !now.Before(until) {
+			delete(c.ignoredOutboundRequests, id)
+		}
+	}
 }
 
 func (c *Conn) closeOutboundRequest(id string) {

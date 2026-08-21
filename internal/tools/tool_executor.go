@@ -25,20 +25,21 @@ type ArtifactPusher interface {
 }
 
 type RuntimeToolExecutor struct {
-	cfg              config.Config
-	sandbox          SandboxClient
-	chats            chat.Store
-	memory           memory.Store
-	models           *models.ModelRegistry
-	skillCandidates  skills.CandidateStore
-	artifactPusher   ArtifactPusher
-	webClientAction  WebClientRequestInvoker
-	webClientTargets WebClientTargetStore
-	fileChangeHooks  []FileChangeHook
-	fileStateMu      sync.Mutex
-	httpClient       *http.Client
-	defs             []api.ToolDetailResponse
-	runtimeEnv       runtimeenv.Info
+	cfg             config.Config
+	sandbox         SandboxClient
+	chats           chat.Store
+	memory          memory.Store
+	models          *models.ModelRegistry
+	skillCandidates skills.CandidateStore
+	artifactPusher  ArtifactPusher
+	clientRequest   ClientRequestInvoker
+	clientTargets   ClientTargetStore
+	desktopMain     DesktopMainTargetProvider
+	fileChangeHooks []FileChangeHook
+	fileStateMu     sync.Mutex
+	httpClient      *http.Client
+	defs            []api.ToolDetailResponse
+	runtimeEnv      runtimeenv.Info
 }
 
 func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient, chats chat.Store, memoryStore memory.Store, skillCandidates skills.CandidateStore) (*RuntimeToolExecutor, error) {
@@ -114,16 +115,45 @@ func (t *RuntimeToolExecutor) WithArtifactPusher(pusher ArtifactPusher) *Runtime
 	return t
 }
 
-func (t *RuntimeToolExecutor) WithWebClientRequestInvoker(invoker WebClientRequestInvoker) *RuntimeToolExecutor {
+func (t *RuntimeToolExecutor) WithClientRequestInvoker(invoker ClientRequestInvoker) *RuntimeToolExecutor {
 	if t != nil {
-		t.webClientAction = invoker
+		t.clientRequest = invoker
 	}
 	return t
 }
 
 func (t *RuntimeToolExecutor) WithWebClientTargetStore(store WebClientTargetStore) *RuntimeToolExecutor {
 	if t != nil {
-		t.webClientTargets = store
+		t.clientTargets = webClientTargetStoreAdapter{store: store}
+	}
+	return t
+}
+
+type webClientTargetStoreAdapter struct {
+	store WebClientTargetStore
+}
+
+func (a webClientTargetStoreAdapter) BindClientTarget(runID string, target ClientTarget) bool {
+	return a.store != nil && a.store.BindWebClientTarget(runID, target)
+}
+
+func (a webClientTargetStoreAdapter) ResolveClientTarget(runID string) (ClientTarget, bool) {
+	if a.store == nil {
+		return ClientTarget{}, false
+	}
+	return a.store.ResolveWebClientTarget(runID)
+}
+
+func (t *RuntimeToolExecutor) WithClientTargetStore(store ClientTargetStore) *RuntimeToolExecutor {
+	if t != nil {
+		t.clientTargets = store
+	}
+	return t
+}
+
+func (t *RuntimeToolExecutor) WithDesktopMainTargetProvider(provider DesktopMainTargetProvider) *RuntimeToolExecutor {
+	if t != nil {
+		t.desktopMain = provider
 	}
 	return t
 }

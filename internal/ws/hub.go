@@ -14,6 +14,8 @@ type Hub struct {
 	gatewayConnSeq  int64
 	webClientConns  map[string]*Conn
 	webClientKeys   map[*Conn]string
+	desktopMainConn *Conn
+	desktopMainSeen bool
 
 	monitorMu          sync.RWMutex
 	monitorConns       map[string]*monitorConnectionState
@@ -55,10 +57,14 @@ func (h *Hub) register(conn *Conn) {
 		}
 	}
 	replacedWebClient := h.registerWebClientLocked(conn)
+	replacedDesktopMain := h.registerDesktopMainLocked(conn)
 	h.mu.Unlock()
 	h.monitorRegister(conn)
 	if replacedWebClient != nil {
 		replacedWebClient.close(1000, "webclient surface replaced")
+	}
+	if replacedDesktopMain != nil && replacedDesktopMain != replacedWebClient {
+		replacedDesktopMain.close(1000, "desktop main replaced")
 	}
 }
 
@@ -89,6 +95,7 @@ func (h *Hub) unregister(conn *Conn) {
 		}
 	}
 	h.unregisterWebClientLocked(conn)
+	h.unregisterDesktopMainLocked(conn)
 	h.mu.Unlock()
 	h.monitorClose(conn)
 }

@@ -7,6 +7,7 @@ import (
 
 	agentcontract "agent-platform/internal/agent"
 	"agent-platform/internal/api"
+	"agent-platform/internal/runenv"
 	"agent-platform/internal/stream"
 )
 
@@ -366,8 +367,10 @@ type QuerySession struct {
 	ChatRoot               string
 	AccessLevel            string
 	SkillHookDirs          []string
-	// RuntimeEnvOverrides carries agent/skill-level env defaults for both sandbox and host bash execution.
-	RuntimeEnvOverrides map[string]string
+	// StaticRuntimeEnv is the immutable Agent/Skill environment frozen at admission.
+	StaticRuntimeEnv map[string]string
+	// RunEnvironment is the root run's lazy dynamic environment scope.
+	RunEnvironment *runenv.Scope `json:"-"`
 	// ToolExecutionPolicy constrains execution without changing the tool specs
 	// sent to the model.
 	ToolExecutionPolicy string
@@ -433,10 +436,10 @@ type ExecutionContext struct {
 	PlanState             *PlanRuntimeState
 	PlanningState         *PlanningRuntimeState
 	PlanningRevision      int
-	// RuntimeEnvOverrides is reused by host bash as agent/skill-level env defaults.
-	RuntimeEnvOverrides map[string]string
-	AccessLevel         string
-	ToolExecutionPolicy string
+	StaticRuntimeEnv      map[string]string
+	RunEnvironment        *runenv.Scope
+	AccessLevel           string
+	ToolExecutionPolicy   string
 	// AccessPolicyApprovals stores one-shot approvals for exact host bash access-policy fingerprints.
 	AccessPolicyApprovals map[string]int
 	// AccessPolicyRuleApprovals stores run-scoped approvals for host bash access-policy rules.

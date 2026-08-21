@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/runenv"
 	"agent-platform/internal/stream"
 )
 
@@ -25,6 +26,7 @@ type managedRun struct {
 	completedAt         time.Time
 	recoveredAwaitingID string
 	recoveredClaimed    bool
+	runEnvironment      *runenv.Scope
 }
 
 type InMemoryRunManager struct {
@@ -119,6 +121,7 @@ func (m *InMemoryRunManager) registerLocked(session QuerySession) (context.Conte
 		eventBus:        eventBus,
 		webClientTarget: session.WebClientTarget,
 		runOrigin:       cloneRunOrigin(session.RunOrigin),
+		runEnvironment:  session.RunEnvironment,
 		startedAt:       startedAt,
 		activeSince:     startedAt,
 	}
@@ -155,6 +158,14 @@ func (m *InMemoryRunManager) ResolveWebClientTarget(runID string) (WebClientTarg
 		return WebClientTarget{}, false
 	}
 	return state.webClientTarget, true
+}
+
+func (m *InMemoryRunManager) BindClientTarget(runID string, target ClientTarget) bool {
+	return m.BindWebClientTarget(runID, target)
+}
+
+func (m *InMemoryRunManager) ResolveClientTarget(runID string) (ClientTarget, bool) {
+	return m.ResolveWebClientTarget(runID)
 }
 
 func (m *InMemoryRunManager) RegisterRecoveredAwaiting(_ context.Context, session QuerySession, awaitingID string, initialSeq int64) (RecoveredAwaitingRun, error) {
@@ -360,7 +371,22 @@ func (m *InMemoryRunManager) Finish(runID string) {
 	m.mu.Unlock()
 	if ok {
 		state.control.Finish()
+		if state.runEnvironment != nil {
+			if err := state.runEnvironment.Destroy(); err != nil {
+				log.Printf("[runctl] cleanup run environment run=%s: %v", runID, err)
+			}
+		}
 	}
+}
+
+func (m *InMemoryRunManager) RunEnvironment(runID string) (*runenv.Scope, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	state := m.runs[strings.TrimSpace(runID)]
+	if state == nil || state.runEnvironment == nil || !state.completedAt.IsZero() {
+		return nil, false
+	}
+	return state.runEnvironment, true
 }
 
 func (m *InMemoryRunManager) AttachObserver(runID string, afterSeq int64) (*stream.Observer, error) {
@@ -380,27 +406,39 @@ func (m *InMemoryRunManager) DetachObserver(runID string, observerID string) {
 }
 
 func (m *InMemoryRunManager) RunStatus(runID string) (RunStatusInfo, bool) {
-	state, ok := m.lookupRun(runID)
-	if !ok {
+	if m == nil {
 		return RunStatusInfo{}, false
 	}
-	info := RunStatusInfo{
-		RunID:             state.run.RunID,
-		ChatID:            state.run.ChatID,
-		AgentKey:          state.run.AgentKey,
-		TeamID:            state.run.TeamID,
-		ExecutionAgentKey: state.run.ExecutionAgentKey,
-		State:             state.control.State(),
-		LastSeq:           state.eventBus.LatestSeq(),
-		OldestSeq:         state.eventBus.OldestSeq(),
-		ObserverCount:     state.eventBus.ObserverCount(),
-		StartedAt:         state.startedAt.UnixMilli(),
-		RunOrigin:         cloneRunOrigin(state.runOrigin),
-		EditingMode:       state.run.EditingMode,
+	m.mu.Lock()
+	state := m.runs[strings.TrimSpace(runID)]
+	if state == nil {
+		m.mu.Unlock()
+		return RunStatusInfo{}, false
 	}
-	info.AccessLevel, info.AccessLevelVersion = state.control.AccessLevelSnapshot()
-	if !state.completedAt.IsZero() {
-		info.CompletedAt = state.completedAt.UnixMilli()
+	run := state.run
+	control := state.control
+	eventBus := state.eventBus
+	startedAt := state.startedAt
+	completedAt := state.completedAt
+	runOrigin := cloneRunOrigin(state.runOrigin)
+	m.mu.Unlock()
+	info := RunStatusInfo{
+		RunID:             run.RunID,
+		ChatID:            run.ChatID,
+		AgentKey:          run.AgentKey,
+		TeamID:            run.TeamID,
+		ExecutionAgentKey: run.ExecutionAgentKey,
+		State:             control.State(),
+		LastSeq:           eventBus.LatestSeq(),
+		OldestSeq:         eventBus.OldestSeq(),
+		ObserverCount:     eventBus.ObserverCount(),
+		StartedAt:         startedAt.UnixMilli(),
+		RunOrigin:         runOrigin,
+		EditingMode:       run.EditingMode,
+	}
+	info.AccessLevel, info.AccessLevelVersion = control.AccessLevelSnapshot()
+	if !completedAt.IsZero() {
+		info.CompletedAt = completedAt.UnixMilli()
 	}
 	return info, true
 }

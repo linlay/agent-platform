@@ -1,6 +1,6 @@
 name: plan_update_task
 label: 更新任务
-description: "Update one task in the ordered plan. Tasks run one at a time: only the first non-terminal task may move from init to in_progress, and only the current in_progress task may move to completed, failed, or canceled. Same-status updates are idempotent and may update description. Terminal tasks cannot be restarted; append a new task to retry."
+description: "Update one task in the optional ordered plan. Only the first non-terminal task may be updated from init, either through init -> in_progress -> completed/failed/canceled or directly through init -> completed/failed/canceled. If a task is in_progress, only that current task may move to completed, failed, or canceled; later tasks remain blocked. Same-status updates are idempotent and may update description. Terminal tasks cannot be restarted; append a new task to retry."
 clientVisible: true
 inputSchema:
   type: object
@@ -10,7 +10,7 @@ inputSchema:
       description: Required. taskId of the task to update.
     status:
       type: string
-      description: Required. New task status. Legal changes are init to in_progress, in_progress to completed/failed/canceled, or an idempotent same-status update.
+      description: Required. New task status. Legal changes are init to in_progress/completed/failed/canceled, in_progress to completed/failed/canceled, or an idempotent same-status update, subject to ordered execution and the single-active-task rule.
       enum:
         - init
         - in_progress

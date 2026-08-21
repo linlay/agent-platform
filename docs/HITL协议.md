@@ -26,6 +26,7 @@ assistant tool_calls[]
 
 - `question`：来自 `ask_user_question`，`params` 每项提交 `answer` 或 `answers`。
 - `approval`：来自 Bash HITL 或文件工具越权路径审批，用户只能 approve / approve_rule_run / reject，不能修改命令内容。
+- `platform_control` 的 `run.env.set/unset` 不使用专用 HITL；它们仍是 operation-aware barrier，并在执行时校验 key、value、limits、revision 与幂等。
 - `form`：来自 Bash HITL html form，approve 时提交修改后的 `form`，reject 可带 `reason`。
 - `planning`：wire-format 中来自 CODER 的 planning confirmation，`awaiting.ask.planning` 是单个对象；用户只能 `approve` 或 `reject`，reject 可带 `reason`。它不是 `plan_*` / plan-tasks 的执行任务计划。
 
@@ -41,7 +42,9 @@ Platform 启动时以 `CHATS.AWAITING_*` pending summary 为入口，对照同�
 
 恢复后的 question 与 planning reject 提交会原子 claim suspended run，状态短暂进入 `RESUMING`；`request.submit` 和 `awaiting.answer` 先按连续 live seq 持久化并发布到同一 EventBus，再从原 query、raw messages、ask 与答案重建 continuation。该路径保持原公开 `runId`，不重复发布 `run.started`，已在 submit 前 attach 的连接会直接收到后续 reasoning/content/tool 事件。native CODER planning approve 则先在旧 suspended planning run 上持久化并发布 submit、answer、tool result 与 `run.complete`，关闭旧 attach 后再启动新 execution run。
 
-`approval` / `form` 不跨进程恢复：已超时写 `error.code:"timeout"`，未超时写 `error.code:"runtime_restarted"`。已超时的 `question` 同样写 `timeout`；无法从持久化 task/tool 上下文安全确定子智能体或 Team continuation 的 `question` / `planning` 写 `runtime_restarted`。这些自动终态不伪造 `request.submit`，而是依次持久化 `awaiting.answer(status:"error")`、同原因且 `executed:false` 的 matching tool result、`finishReason:"cancel"` 的 run completion，最后清除 pending summary。任一步写入失败都会中止 Server 初始化；再次启动会从已有记录继续，不重复写 answer、result 或 completion。
+`approval` / `form` 不跨进程恢复：已超时写 `error.code:"timeout"`，未超时写 `error.code:"runtime_restarted"`。run env set/unset 不使用专用 HITL。已超时的 `question` 同样写 `timeout`；无法从持久化 task/tool 上下文安全确定子智能体或 Team continuation 的 `question` / `planning` 写 `runtime_restarted`。这些自动终态不伪造 `request.submit`，而是依次持久化 `awaiting.answer(status:"error")`、同原因且 `executed:false` 的 matching tool result、`finishReason:"cancel"` 的 run completion，最后清除 pending summary。任一步写入失败都会中止 Server 初始化；再次启动会从已有记录继续，不重复写 answer、result 或 completion。
+
+question/planning awaiting StepLine 内部保存 root Scope revision。revision 0 恢复为空 lazy scope且不要求 checkpoint；revision 大于 0 时必须从 Chat 目录外的 AES-256-GCM v2 checkpoint 解密同一 RunID 的 state，并校验 run/chat/subject/owner/agent 与精确 revision。缺失、损坏、密钥错误、身份不匹配或 v1 时以 `run_env_restore_failed` fail closed。native planning approve 创建新的 execute RunID，因此不继承旧 planning run 的动态值。
 
 恢复后的 question 剩余 timeout 由 suspended run supervisor 继续计时；`/api/interrupt` 和 reaper 也由同一 supervisor 收口。终态会按 `awaiting.answer -> tool.result(s) -> run.cancel` 的顺序发布到已 attach 连接，然后 freeze EventBus 并移除 active run。Platform 自身关闭仅取消进程内 supervisor，不伪造用户中断，pending 留给下次 hydration。
 
@@ -78,6 +81,7 @@ Platform 启动时以 `CHATS.AWAITING_*` pending summary 为入口，对照同�
 - run 在 awaiting 期间被 interrupt 时，后端按 `awaiting.answer -> tool.result(s) -> run.cancel` 发布。`awaiting.answer` 使用 `status:"error"`、`error.code/reason:"run_interrupted"`；所有可证明尚未执行的等待调用及其 queued sibling 都生成一个 matching result，正文固定为 `{"error":"run_interrupted","exitCode":-1,"output":"...","executed":false,"awaitingId":"..."}`。这里不会伪造 `decision:"reject"` 或 `role:"user"` approval。
 - `executed:false` 只表示平台能证明调用尚未开始。已经进入普通工具执行或并发执行批次、但没有确定结果的调用不补 synthetic result，后续回放返回 `chat_history_incomplete`。
 - interrupt 取消整个 Team 根 run；steer 写入协调器 run，不直接定向某个正在等待的成员。
+- run-env checkpoint 随正常完成、失败、interrupt、budget stop 或恢复终态统一清理；终态后的 state 拒绝新访问。
 
 ## 相关文件
 

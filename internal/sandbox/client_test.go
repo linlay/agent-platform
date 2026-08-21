@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,7 @@ import (
 
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/runenv"
 )
 
 func TestCreateSessionIncludesContainerHubErrorDetail(t *testing.T) {
@@ -293,14 +295,14 @@ func TestRunLevelSandboxSessionIDUsesSubTaskID(t *testing.T) {
 }
 
 func TestSandboxEnvironmentUsesReservedContainerContextAfterInvocationOverrides(t *testing.T) {
-	env := sandboxEnvironment(&contracts.ExecutionContext{
+	env := mustSandboxCommandEnvironment(t, &contracts.ExecutionContext{
 		Session: contracts.QuerySession{
 			RuntimeContext: contracts.RuntimeRequestContext{
 				LocalPaths:   contracts.LocalPaths{AgentDir: "/host/runtime/agents/reader"},
 				SandboxPaths: contracts.SandboxPaths{AgentDir: "/agent", WorkspaceDir: "/workspace", ChatDir: "/chat"},
 			},
 		},
-		RuntimeEnvOverrides: map[string]string{
+		StaticRuntimeEnv: map[string]string{
 			"HTTP_PROXY":           "http://agent-proxy",
 			"AP_AGENT_CONFIG_HOME": "/wrong-config",
 			"AP_WORKSPACE_DIR":     "/wrong-workspace",
@@ -337,7 +339,7 @@ func TestSandboxEnvironmentUsesReservedContainerContextAfterInvocationOverrides(
 }
 
 func TestSandboxEnvironmentUsesLocalEnginePaths(t *testing.T) {
-	env := sandboxEnvironment(&contracts.ExecutionContext{
+	env := mustSandboxCommandEnvironment(t, &contracts.ExecutionContext{
 		Session: contracts.QuerySession{
 			RuntimeContext: contracts.RuntimeRequestContext{
 				SandboxPaths: contracts.SandboxPaths{
@@ -368,8 +370,8 @@ func TestSandboxSessionFingerprintChangesWithResolvedEnvironment(t *testing.T) {
 	}, paths)
 	first := sandboxTestExecutionContext("run-a", "req-a", sandboxWorkspace(paths))
 	second := sandboxTestExecutionContext("run-b", "req-b", sandboxWorkspace(paths))
-	first.RuntimeEnvOverrides = map[string]string{"HTTP_PROXY": "http://proxy-a"}
-	second.RuntimeEnvOverrides = map[string]string{"HTTP_PROXY": "http://proxy-b"}
+	first.StaticRuntimeEnv = map[string]string{"HTTP_PROXY": "http://proxy-a"}
+	second.StaticRuntimeEnv = map[string]string{"HTTP_PROXY": "http://proxy-b"}
 
 	_, _, firstFingerprint, err := service.resolveSessionMountIdentity(first, "run")
 	if err != nil {
@@ -381,6 +383,52 @@ func TestSandboxSessionFingerprintChangesWithResolvedEnvironment(t *testing.T) {
 	}
 	if firstFingerprint == secondFingerprint {
 		t.Fatalf("resolved environment change must produce a new session fingerprint: %q", firstFingerprint)
+	}
+}
+
+func TestSandboxCommandSnapshotUpdatesWithoutChangingSessionFingerprint(t *testing.T) {
+	paths := sandboxTestPaths(t, "reader")
+	service := NewContainerHubSandboxService(config.ContainerHubConfig{Enabled: true, DefaultEnvironmentID: "daily-office-pro"}, paths)
+	execCtx := sandboxTestExecutionContext("run-dynamic", "req-dynamic", sandboxWorkspace(paths))
+	store := runenv.NewStore(filepath.Join(t.TempDir(), "state"), filepath.Join(t.TempDir(), "identity", "run-env.key"), runenv.Limits{})
+	scope, err := store.NewScope(runenv.Identity{RunID: "run-dynamic", ChatID: "chat-1", Owner: "agent:reader", AgentKey: "reader"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer scope.Destroy()
+	execCtx.StaticRuntimeEnv = map[string]string{"SESSION_CONTEXT": "static"}
+	execCtx.RunEnvironment = scope
+	_, _, beforeFingerprint, err := service.resolveSessionMountIdentity(execCtx, "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value := sandboxSessionEnvironment(execCtx)["SESSION_CONTEXT"]; value != "static" {
+		t.Fatalf("session base = %q", value)
+	}
+	if _, err := scope.Mutate(runenv.MutationRequest{Operation: runenv.OperationSet, Name: "SESSION_CONTEXT", Value: "dynamic"}); err != nil {
+		t.Fatal(err)
+	}
+	if value := mustSandboxCommandEnvironment(t, execCtx, nil)["SESSION_CONTEXT"]; value != "dynamic" {
+		t.Fatalf("command snapshot = %q", value)
+	}
+	_, _, afterFingerprint, err := service.resolveSessionMountIdentity(execCtx, "run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if beforeFingerprint != afterFingerprint {
+		t.Fatalf("dynamic revision changed reuse fingerprint: %q != %q", beforeFingerprint, afterFingerprint)
+	}
+	if _, err := scope.Mutate(runenv.MutationRequest{Operation: runenv.OperationUnset, Name: "SESSION_CONTEXT"}); err != nil {
+		t.Fatal(err)
+	}
+	if value := mustSandboxCommandEnvironment(t, execCtx, nil)["SESSION_CONTEXT"]; value != "static" {
+		t.Fatalf("unset did not fall back to static: %q", value)
+	}
+	if err := scope.Destroy(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sandboxCommandEnvironment(execCtx, nil); !errors.Is(err, runenv.ErrClosed) {
+		t.Fatalf("closed run environment snapshot error = %v, want ErrClosed", err)
 	}
 }
 
@@ -408,6 +456,15 @@ func sandboxTestExecutionContext(runID string, requestID string, workspaceRoot s
 	return sandboxTestExecutionContextWithSubTaskID(runID, requestID, "", workspaceRoot)
 }
 
+func mustSandboxCommandEnvironment(t *testing.T, execCtx *contracts.ExecutionContext, invocationEnv map[string]string) map[string]string {
+	t.Helper()
+	env, err := sandboxCommandEnvironment(execCtx, invocationEnv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return env
+}
+
 func sandboxTestExecutionContextWithSubTaskID(runID string, requestID string, subTaskID string, workspaceRoot string) *contracts.ExecutionContext {
 	return &contracts.ExecutionContext{
 		Session: contracts.QuerySession{
@@ -420,7 +477,7 @@ func sandboxTestExecutionContextWithSubTaskID(runID string, requestID string, su
 			WorkspaceRoot:          workspaceRoot,
 			RuntimeEnvironmentID:   "daily-office-pro",
 			RuntimeLevel:           "run",
-			RuntimeEnvOverrides:    map[string]string{},
+			StaticRuntimeEnv:       map[string]string{},
 			RuntimeExtraMounts:     nil,
 			AgentHasRuntimeSandbox: true,
 			RuntimeContext: contracts.RuntimeRequestContext{

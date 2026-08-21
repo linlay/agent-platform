@@ -622,7 +622,7 @@ func fingerprintTestSession() contracts.QuerySession {
 			Execute: contracts.StageSettings{SystemPrompt: "execute system"},
 			Summary: contracts.StageSettings{SystemPrompt: "summary system"},
 		},
-		RuntimeEnvOverrides: map[string]string{"FOO": "bar"},
+		StaticRuntimeEnv: map[string]string{"FOO": "bar"},
 	}
 }
 

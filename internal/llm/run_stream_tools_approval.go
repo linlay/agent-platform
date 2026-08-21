@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/accesspolicy"
+	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/bashsec"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
@@ -54,7 +55,7 @@ func (s *llmRunStream) rawBashAccessReview(invocation *preparedToolInvocation) a
 	cwd := strings.TrimSpace(mapStringArg(invocation.args, "cwd"))
 	var variables map[string]string
 	if s.execCtx != nil {
-		variables = s.execCtx.RuntimeEnvOverrides
+		variables = s.knownRuntimeVariables()
 	}
 	cfg := config.AccessPolicyConfig{}
 	if s.engine != nil {
@@ -174,6 +175,7 @@ func (s *llmRunStream) fileWritePlanNeedsApproval(plan filetools.WritePlan) bool
 	}
 	return !filetools.PathInSessionWorkspace(session, plan.FilePath) &&
 		!filetools.PathInSessionChat(session, plan.FilePath) &&
+		!filetools.PathInSessionTemp(session, plan.FilePath) &&
 		!filetools.PathInSessionHostWriteRoot(session, plan.FilePath)
 }
 
@@ -218,10 +220,23 @@ func fileAccessPlanInput(toolName string, args map[string]any) (filetools.Access
 }
 
 func (s *llmRunStream) reviewBashSecurity(command string) bashsec.ReviewResult {
-	if s == nil || s.execCtx == nil || len(s.execCtx.RuntimeEnvOverrides) == 0 {
+	if s == nil || s.execCtx == nil {
 		return bashsec.ReviewBashSecurity(command)
 	}
-	return bashsec.ReviewBashSecurityWithKnownVariables(command, s.execCtx.RuntimeEnvOverrides)
+	return bashsec.ReviewBashSecurityWithKnownVariables(command, s.knownRuntimeVariables())
+}
+
+func (s *llmRunStream) knownRuntimeVariables() map[string]string {
+	if s == nil || s.execCtx == nil {
+		return nil
+	}
+	var dynamic map[string]string
+	if s.execCtx.RunEnvironment != nil {
+		if snapshot, _, err := s.execCtx.RunEnvironment.Snapshot(); err == nil {
+			dynamic = snapshot
+		}
+	}
+	return agentconfig.Merge(s.execCtx.StaticRuntimeEnv, dynamic)
 }
 
 func (s *llmRunStream) executeApprovedFileAccessInvocation(invocation *preparedToolInvocation, plan filetools.AccessPlan) error {

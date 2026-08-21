@@ -918,8 +918,8 @@ func TestQueryExtraMustUseSkillAddsCenterContextAndReadonlyMount(t *testing.T) {
 	if centerMounts != 1 {
 		t.Fatalf("expected one center mount, got %#v", prepared.session.RuntimeExtraMounts)
 	}
-	if _, exists := prepared.session.RuntimeEnvOverrides["CENTER_EXTRA"]; exists {
-		t.Fatalf("extra skill runtime env must not be merged: %#v", prepared.session.RuntimeEnvOverrides)
+	if _, exists := prepared.session.StaticRuntimeEnv["CENTER_EXTRA"]; exists {
+		t.Fatalf("extra skill runtime env must not be merged: %#v", prepared.session.StaticRuntimeEnv)
 	}
 	for _, hookDir := range prepared.session.SkillHookDirs {
 		if strings.Contains(hookDir, "center-extra") {

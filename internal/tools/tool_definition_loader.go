@@ -86,6 +86,9 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	if readOnly, ok := root["readOnly"].(bool); ok {
 		meta["readOnly"] = readOnly
 	}
+	if operationAware, ok := root["operationAware"].(bool); ok {
+		meta["operationAware"] = operationAware
+	}
 	tags, err := publicToolTags(root["tags"])
 	if err != nil {
 		return api.ToolDetailResponse{}, err

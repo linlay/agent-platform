@@ -27,8 +27,9 @@ import (
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
 	"agent-platform/internal/observability"
-	"agent-platform/internal/platformconfig"
+	"agent-platform/internal/platformcontrol"
 	"agent-platform/internal/reload"
+	"agent-platform/internal/runenv"
 	"agent-platform/internal/runops"
 	"agent-platform/internal/runtimeenv"
 	"agent-platform/internal/sandbox"
@@ -154,14 +155,20 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	log.Printf("model registry ready in %s (root=%s)", startupElapsed(modelRegistryStartedAt), cfg.Paths.RegistriesDir)
 
 	runManager := contracts.NewInMemoryRunManager()
+	runEnvironmentStore := runenv.NewStore(cfg.Paths.RunStateDir, cfg.PlatformControl.CheckpointKeyFile, runenv.Limits{
+		MaxDynamicKeys: cfg.PlatformControl.MaxDynamicKeys, MaxValueBytes: cfg.PlatformControl.MaxValueBytes,
+		MaxTotalBytes:   cfg.PlatformControl.MaxTotalBytes,
+		ExtraDeniedKeys: append([]string(nil), cfg.PlatformControl.DenyKeys...),
+	})
 	wsHub := ws.NewHub()
 	sandboxClient := sandbox.NewContainerHubSandboxService(cfg.ContainerHub, cfg.Paths)
 	runtimeToolExecutor, err := tools.NewRuntimeToolExecutor(cfg, sandboxClient, chatStore, memoryStore, skillCandidateStore)
 	if err != nil {
 		return nil, fmt.Errorf("init runtime tools: %w", err)
 	}
-	runtimeToolExecutor.WithWebClientRequestInvoker(wsHub)
-	runtimeToolExecutor.WithWebClientTargetStore(runManager)
+	runtimeToolExecutor.WithClientRequestInvoker(wsHub)
+	runtimeToolExecutor.WithClientTargetStore(runManager)
+	runtimeToolExecutor.WithDesktopMainTargetProvider(wsHub)
 	runtimeToolExecutor.WithRuntimeEnv(hostEnv)
 	runtimeToolExecutor.WithModelRegistry(modelRegistry)
 	var lspManager *lsp.Manager
@@ -249,8 +256,8 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		len(registry.Skills("")),
 		len(toolExecutor.Definitions()),
 	)
-	if err := toolExecutor.RegisterHandler(platformconfig.NewToolHandler(cfg, registry)); err != nil {
-		return nil, fmt.Errorf("register platform_config tool: %w", err)
+	if err := toolExecutor.RegisterHandler(platformcontrol.NewToolHandler(cfg, registry)); err != nil {
+		return nil, fmt.Errorf("register platform_control tool: %w", err)
 	}
 	if err := toolExecutor.RegisterHandler(kbase.NewToolHandler(kbaseManager)); err != nil {
 		return nil, fmt.Errorf("register KBASE tools: %w", err)
@@ -341,6 +348,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Registry:          registry,
 		Models:            modelRegistry,
 		Runs:              runManager,
+		RunEnvironments:   runEnvironmentStore,
 		Agent:             agentEngine,
 		Tools:             toolExecutor,
 		Sandbox:           sandboxClient,

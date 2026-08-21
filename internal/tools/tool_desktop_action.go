@@ -3,21 +3,21 @@ package tools
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
-	"net/url"
+	"hash"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
-	"unicode/utf8"
 
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
@@ -28,15 +28,11 @@ const desktopCdpCaptureScreenshotMethod = "Page.captureScreenshot"
 const desktopCdpScreenshotMimeType = "image/png"
 
 const (
-	webClientSidebarGetState   = "webclient.sidebar.getState"
-	webClientSidebarOpenURL    = "webclient.sidebar.openUrl"
-	webClientSidebarRefreshURL = "webclient.sidebar.refreshUrl"
-	webClientSidebarSetState   = "webclient.sidebar.setState"
-)
-
-const (
-	webClientSidebarURLMaxLength   = 2048
-	webClientSidebarTitleMaxLength = 200
+	desktopActionRequestType        = "desktop.action.call"
+	desktopCDPRequestType           = "desktop.cdp.call"
+	desktopResponseDeltaEventType   = "desktop.bridge.response.delta"
+	desktopScreenshotDeltaEventType = "desktop.cdp.screenshot.delta"
+	desktopMaxDecodedResponseBytes  = 64 << 20
 )
 
 var desktopCdpBooleanParamKeys = map[string]bool{
@@ -77,7 +73,7 @@ var (
 	desktopActionAllowlistOnce sync.Once
 	desktopActionAllowlist     map[string]bool
 	desktopActionAllowlistErr  error
-	webClientActionRequestSeq  atomic.Uint64
+	desktopRequestSeq          atomic.Uint64
 )
 
 func getDesktopActionAllowlist() (map[string]bool, error) {
@@ -136,6 +132,7 @@ type desktopActionSource struct {
 	RunID    string `json:"runId,omitempty"`
 	ChatID   string `json:"chatId,omitempty"`
 	AgentKey string `json:"agentKey,omitempty"`
+	TeamID   string `json:"teamId,omitempty"`
 }
 
 type desktopCDPRequest struct {
@@ -161,245 +158,30 @@ func (t *RuntimeToolExecutor) invokeDesktopAction(ctx context.Context, args map[
 		return desktopActionErrorResult("unknown_action", "desktop action is not allowlisted", map[string]any{"action": action}), nil
 	}
 
-	rawActionArgs, hasActionArgs := args["args"]
-	actionArgs, ok := rawActionArgs.(map[string]any)
-	if strings.HasPrefix(action, "webclient.") && hasActionArgs && !ok {
-		return desktopActionErrorResult("invalid_args", "webclient action args must be an object", map[string]any{"action": action}), nil
-	}
+	actionArgs, ok := args["args"].(map[string]any)
 	if !ok || actionArgs == nil {
 		actionArgs = map[string]any{}
 	}
-	if strings.HasPrefix(action, "webclient.") {
-		return t.invokeWebClientAction(ctx, action, actionArgs, strings.TrimSpace(stringArg(args, "requestId")), execCtx)
+	if t.cfg.RuntimeMode != config.RuntimeModeDesktop && !strings.HasPrefix(action, "desktop.workpanel.") {
+		return desktopActionErrorResult("desktop_action_unsupported_runtime", "desktop action is unavailable in standalone runtime mode", map[string]any{"action": action}), nil
 	}
-	if summary := strings.TrimSpace(stringArg(args, "confirmationSummary")); summary != "" {
-		actionArgs["confirmationSummary"] = summary
+	if t.cfg.RuntimeMode == config.RuntimeModeDesktop {
+		if summary := strings.TrimSpace(stringArg(args, "confirmationSummary")); summary != "" {
+			actionArgs["confirmationSummary"] = summary
+		}
+	}
+	requestID := strings.TrimSpace(stringArg(args, "requestId"))
+	if requestID == "" {
+		requestID = newDesktopRequestID("dsa")
 	}
 
 	payload := desktopActionRequest{
-		RequestID: strings.TrimSpace(stringArg(args, "requestId")),
+		RequestID: requestID,
 		Action:    action,
 		Args:      actionArgs,
 		Source:    buildDesktopActionSource(execCtx),
 	}
-	return t.invokeDesktopBridge(ctx, t.cfg.Desktop.Action, payload, "desktop_action")
-}
-
-func (t *RuntimeToolExecutor) invokeWebClientAction(
-	ctx context.Context,
-	action string,
-	actionArgs map[string]any,
-	requestID string,
-	execCtx *ExecutionContext,
-) (ToolExecutionResult, error) {
-	if validationErr := validateWebClientActionArgs(action, actionArgs); validationErr != "" {
-		return desktopActionErrorResult("invalid_args", validationErr, map[string]any{"action": action}), nil
-	}
-	if t == nil || t.webClientAction == nil {
-		return desktopActionErrorResult("desktop_action_provider_unavailable", "webclient action provider is unavailable", map[string]any{"action": action}), nil
-	}
-	target := WebClientTarget{}
-	if execCtx != nil {
-		if t.webClientTargets != nil {
-			if current, ok := t.webClientTargets.ResolveWebClientTarget(execCtx.Session.RunID); ok {
-				target = current
-			}
-		} else {
-			target = execCtx.Session.WebClientTarget
-		}
-	}
-	if target.IsZero() {
-		return desktopActionErrorResult("desktop_action_target_unavailable", "webclient target is unavailable for this run", map[string]any{
-			"action": action,
-			"reason": "run_target_missing",
-		}), nil
-	}
-	if requestID == "" {
-		requestID = fmt.Sprintf("wsa-%d", webClientActionRequestSeq.Add(1))
-	}
-	timeout := time.Duration(t.cfg.Desktop.Action.RequestTimeout) * time.Second
-	if timeout <= 0 {
-		timeout = 20 * time.Second
-	}
-	requestCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	response, err := t.webClientAction.InvokeWebClientAction(requestCtx, target, WebClientActionRequest{
-		ID:      requestID,
-		Type:    action,
-		Payload: cloneDesktopMap(actionArgs),
-	})
-	if err != nil {
-		switch {
-		case errors.Is(err, context.DeadlineExceeded):
-			return desktopActionErrorResult("desktop_action_client_timeout", "webclient action request timed out", map[string]any{"action": action}), nil
-		case errors.Is(err, ErrWebClientTargetUnavailable):
-			return desktopActionErrorResult("desktop_action_target_unavailable", "webclient target is unavailable for this run", map[string]any{
-				"action": action,
-				"reason": "target_connection_unavailable",
-			}), nil
-		case errors.Is(err, ErrWebClientDisconnected):
-			return desktopActionErrorResult("desktop_action_client_disconnected", "webclient disconnected before completing the action", map[string]any{"action": action}), nil
-		default:
-			return desktopActionErrorResult("desktop_action_invalid_client_response", err.Error(), map[string]any{"action": action}), nil
-		}
-	}
-	if response.ID != requestID {
-		return desktopActionErrorResult("desktop_action_invalid_client_response", "webclient response id does not match request", map[string]any{"action": action}), nil
-	}
-	switch strings.ToLower(strings.TrimSpace(response.Frame)) {
-	case "error":
-		if strings.TrimSpace(response.Type) == "" || response.Code == nil || *response.Code <= 0 {
-			return desktopActionErrorResult("desktop_action_invalid_client_response", "webclient error frame must include a type and positive code", map[string]any{"action": action}), nil
-		}
-		clientData, dataErr := decodeWebClientActionData(response.Data)
-		if dataErr != nil {
-			return desktopActionErrorResult("desktop_action_invalid_client_response", dataErr.Error(), map[string]any{"action": action}), nil
-		}
-		details := map[string]any{
-			"action":          action,
-			"clientErrorType": response.Type,
-			"clientCode":      *response.Code,
-		}
-		if clientData != nil {
-			details["clientData"] = clientData
-		}
-		return desktopActionErrorResult("desktop_action_client_rejected", firstDesktopActionMessage(response.Msg, "webclient rejected the action"), details), nil
-	case "response":
-		if response.Type != action {
-			return desktopActionErrorResult("desktop_action_invalid_client_response", "webclient response type does not match action", map[string]any{"action": action}), nil
-		}
-		if response.Code == nil {
-			return desktopActionErrorResult("desktop_action_invalid_client_response", "webclient response frame must include code", map[string]any{"action": action}), nil
-		}
-		if *response.Code != 0 {
-			return desktopActionErrorResult("desktop_action_client_rejected", firstDesktopActionMessage(response.Msg, "webclient rejected the action"), map[string]any{
-				"action":     action,
-				"clientCode": *response.Code,
-			}), nil
-		}
-	default:
-		return desktopActionErrorResult("desktop_action_invalid_client_response", "webclient returned an unsupported frame", map[string]any{"action": action}), nil
-	}
-	resultData, dataErr := decodeWebClientActionData(response.Data)
-	if dataErr != nil {
-		return desktopActionErrorResult("desktop_action_invalid_client_response", dataErr.Error(), map[string]any{"action": action}), nil
-	}
-	if resultData == nil {
-		resultData = map[string]any{}
-	}
-	return structuredResultWithExit(resultData, 0), nil
-}
-
-func decodeWebClientActionData(data json.RawMessage) (map[string]any, error) {
-	if len(data) == 0 || string(data) == "null" {
-		return nil, nil
-	}
-	decoded := map[string]any{}
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return nil, errors.New("webclient response data must be an object")
-	}
-	return decoded, nil
-}
-
-func validateWebClientActionArgs(action string, args map[string]any) string {
-	switch action {
-	case webClientSidebarGetState:
-		if len(args) != 0 {
-			return "webclient.sidebar.getState args must be empty"
-		}
-		return ""
-	case webClientSidebarSetState:
-		for key := range args {
-			switch key {
-			case "sidebar", "open", "tab":
-			default:
-				return "webclient.sidebar.setState contains an unsupported argument: " + key
-			}
-		}
-		sidebar, ok := args["sidebar"].(string)
-		if !ok || (sidebar != "left" && sidebar != "right") {
-			return "sidebar must be left or right"
-		}
-		open, ok := args["open"].(bool)
-		if !ok {
-			return "open must be a boolean"
-		}
-		tab, hasTab := args["tab"]
-		if sidebar == "left" && hasTab {
-			return "tab is not supported for the left sidebar"
-		}
-		if !open && hasTab {
-			return "tab is not supported when closing a sidebar"
-		}
-		if hasTab {
-			tabName, ok := tab.(string)
-			if !ok || (tabName != "overview" && tabName != "btw" && tabName != "debug") {
-				return "tab must be overview, btw, or debug"
-			}
-		}
-		return ""
-	case webClientSidebarOpenURL:
-		for key := range args {
-			switch key {
-			case "url", "title":
-			default:
-				return "webclient.sidebar.openUrl contains an unsupported argument: " + key
-			}
-		}
-		if validationErr := validateWebClientSidebarURLArg(args); validationErr != "" {
-			return validationErr
-		}
-		if title, hasTitle := args["title"]; hasTitle {
-			titleText, ok := title.(string)
-			if !ok {
-				return "title must be a string"
-			}
-			if utf8.RuneCountInString(strings.TrimSpace(titleText)) > webClientSidebarTitleMaxLength {
-				return fmt.Sprintf("title must be at most %d characters", webClientSidebarTitleMaxLength)
-			}
-		}
-		return ""
-	case webClientSidebarRefreshURL:
-		for key := range args {
-			if key != "url" {
-				return "webclient.sidebar.refreshUrl contains an unsupported argument: " + key
-			}
-		}
-		return validateWebClientSidebarURLArg(args)
-	default:
-		return "unsupported webclient action"
-	}
-}
-
-func validateWebClientSidebarURLArg(args map[string]any) string {
-	rawURL, ok := args["url"].(string)
-	if !ok || strings.TrimSpace(rawURL) == "" {
-		return "url must be a non-empty string"
-	}
-	if utf8.RuneCountInString(strings.TrimSpace(rawURL)) > webClientSidebarURLMaxLength {
-		return fmt.Sprintf("url must be at most %d characters", webClientSidebarURLMaxLength)
-	}
-	return validateWebClientSidebarURL(rawURL)
-}
-
-func validateWebClientSidebarURL(rawURL string) string {
-	candidate := strings.TrimSpace(rawURL)
-	if strings.HasPrefix(candidate, "//") {
-		return "url must be an absolute http or https URL"
-	}
-	parsed, err := url.Parse(candidate)
-	if err != nil || parsed.Scheme == "" {
-		parsed, err = url.Parse("https://" + candidate)
-	}
-	if err != nil ||
-		(!strings.EqualFold(parsed.Scheme, "http") && !strings.EqualFold(parsed.Scheme, "https")) ||
-		parsed.Hostname() == "" {
-		return "url must be a valid http or https URL"
-	}
-	if parsed.User != nil {
-		return "url must not contain credentials"
-	}
-	return ""
+	return t.invokeDesktopClientRequest(ctx, requestID, desktopActionRequestType, payload, "desktop_action", false, execCtx)
 }
 
 func firstDesktopActionMessage(message string, fallback string) string {
@@ -414,12 +196,19 @@ func (t *RuntimeToolExecutor) invokeDesktopCDP(ctx context.Context, args map[str
 	if method == "" {
 		return desktopActionErrorResult("invalid_args", "method is required", nil), nil
 	}
+	if t.cfg.RuntimeMode != config.RuntimeModeDesktop {
+		return desktopActionErrorResult("desktop_cdp_unsupported_runtime", "desktop_cdp is unavailable in standalone runtime mode", nil), nil
+	}
 	params, ok := args["params"].(map[string]any)
 	if !ok || params == nil {
 		params = map[string]any{}
 	}
+	requestID := strings.TrimSpace(stringArg(args, "requestId"))
+	if requestID == "" {
+		requestID = newDesktopRequestID("dsc")
+	}
 	payload := desktopCDPRequest{
-		RequestID: strings.TrimSpace(stringArg(args, "requestId")),
+		RequestID: requestID,
 		Method:    method,
 		Params:    normalizeDesktopCDPParams(params),
 		TargetID:  strings.TrimSpace(stringArg(args, "targetId")),
@@ -427,11 +216,15 @@ func (t *RuntimeToolExecutor) invokeDesktopCDP(ctx context.Context, args map[str
 		SurfaceID: strings.TrimSpace(stringArg(args, "surfaceId")),
 		Source:    buildDesktopActionSource(execCtx),
 	}
-	result, err := t.invokeDesktopBridge(ctx, t.cfg.Desktop.CDP, payload, "desktop_cdp")
-	if err != nil || method != desktopCdpCaptureScreenshotMethod || result.ExitCode != 0 {
-		return result, err
+	return t.invokeDesktopClientRequest(ctx, requestID, desktopCDPRequestType, payload, "desktop_cdp", method == desktopCdpCaptureScreenshotMethod, execCtx)
+}
+
+func newDesktopRequestID(prefix string) string {
+	var raw [12]byte
+	if _, err := rand.Read(raw[:]); err == nil {
+		return prefix + "-" + hex.EncodeToString(raw[:])
 	}
-	return t.storeDesktopCdpScreenshot(result, execCtx), nil
+	return fmt.Sprintf("%s-%d-%d", prefix, time.Now().UnixNano(), desktopRequestSeq.Add(1))
 }
 
 func normalizeDesktopCDPParams(params map[string]any) map[string]any {
@@ -478,51 +271,460 @@ func parseDesktopCDPStringBool(value any) (bool, bool) {
 	}
 }
 
-func (t *RuntimeToolExecutor) invokeDesktopBridge(ctx context.Context, bridge config.DesktopBridgeConfig, payload any, toolName string) (ToolExecutionResult, error) {
-	bridgeURL := strings.TrimSpace(bridge.BridgeURL)
-	if bridgeURL == "" {
-		return desktopActionErrorResult(toolName+"_bridge_not_configured", "desktop bridge is not configured", nil), nil
+func (t *RuntimeToolExecutor) invokeDesktopClientRequest(ctx context.Context, requestID string, requestType string, payload any, toolName string, screenshot bool, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	if t == nil || t.clientRequest == nil {
+		return desktopActionErrorResult(toolName+"_provider_unavailable", "desktop client request provider is unavailable", nil), nil
 	}
-	body, err := json.Marshal(payload)
+	target, unavailableReason := t.resolveClientTarget(execCtx)
+	if target.IsZero() {
+		return desktopActionErrorResult(toolName+"_target_unavailable", "client target is unavailable for this run", map[string]any{"reason": unavailableReason}), nil
+	}
+	payloadMap, err := desktopPayloadMap(payload)
 	if err != nil {
 		return desktopActionErrorResult("invalid_args", err.Error(), nil), nil
 	}
-
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, bridgeURL, bytes.NewReader(body))
+	collector := newDesktopResponseCollector(t, screenshot, execCtx)
+	defer collector.abort()
+	request := ClientRequest{ID: requestID, Type: requestType, Payload: payloadMap}
+	err = t.clientRequest.InvokeClientRequest(ctx, target, request, collector.consume)
+	if errors.Is(err, ErrClientTargetUnavailable) && t.cfg.RuntimeMode == config.RuntimeModeDesktop {
+		refreshedTarget, refreshedReason := t.resolveDesktopMainTarget(execCtx)
+		if !refreshedTarget.IsZero() && refreshedTarget != target {
+			target = refreshedTarget
+			unavailableReason = ""
+			err = t.clientRequest.InvokeClientRequest(ctx, target, request, collector.consume)
+		} else if refreshedReason != "" {
+			unavailableReason = refreshedReason
+		}
+	}
 	if err != nil {
-		return desktopActionErrorResult("invalid_bridge_url", err.Error(), map[string]any{"bridgeUrl": bridgeURL}), nil
+		switch {
+		case errors.Is(err, context.DeadlineExceeded):
+			return desktopActionErrorResult(toolName+"_client_timeout", "client request timed out", nil), nil
+		case errors.Is(err, ErrClientTargetUnavailable):
+			if unavailableReason == "" {
+				unavailableReason = "target_connection_unavailable"
+			}
+			return desktopActionErrorResult(toolName+"_target_unavailable", "client target is unavailable for this run", map[string]any{"reason": unavailableReason}), nil
+		case errors.Is(err, ErrClientDisconnected):
+			return desktopActionErrorResult(toolName+"_client_disconnected", "client disconnected before completing the request", nil), nil
+		default:
+			return desktopActionErrorResult(toolName+"_invalid_client_response", err.Error(), nil), nil
+		}
 	}
-	request.Header.Set("Accept", "application/json")
-	request.Header.Set("Content-Type", "application/json")
-
-	timeout := time.Duration(bridge.RequestTimeout) * time.Second
-	if timeout <= 0 {
-		timeout = 20 * time.Second
+	frame := collector.final
+	if frame == nil {
+		return desktopActionErrorResult(toolName+"_invalid_client_response", "client response is missing", nil), nil
 	}
-	client := &http.Client{Timeout: timeout}
-	response, err := client.Do(request)
+	if strings.EqualFold(frame.Frame, "error") {
+		if strings.TrimSpace(frame.Type) == "" || frame.Code == nil || *frame.Code <= 0 {
+			return desktopActionErrorResult(toolName+"_invalid_client_response", "client error frame type or code is invalid", nil), nil
+		}
+		return desktopActionErrorResult(
+			toolName+"_client_rejected",
+			firstDesktopActionMessage(frame.Msg, "client rejected the request"),
+			desktopClientRejectionDetails(*frame),
+		), nil
+	}
+	if frame.Type != requestType || frame.Code == nil {
+		return desktopActionErrorResult(toolName+"_invalid_client_response", "client response type or code is invalid", nil), nil
+	}
+	if *frame.Code != 0 {
+		return desktopActionErrorResult(toolName+"_client_rejected", firstDesktopActionMessage(frame.Msg, "client rejected the request"), map[string]any{"clientCode": *frame.Code}), nil
+	}
+	decoded, err := collector.responseData(frame.Data)
 	if err != nil {
-		return desktopActionErrorResult(toolName+"_bridge_unavailable", err.Error(), map[string]any{"bridgeUrl": bridgeURL}), nil
+		return desktopActionErrorResult(toolName+"_invalid_client_response", err.Error(), nil), nil
 	}
-	defer response.Body.Close()
+	structured := map[string]any{"transport": "reverse-websocket", "response": decoded}
+	result := structuredResultWithExit(structured, 0)
+	if decoded["ok"] == false {
+		result = structuredResultWithExit(structured, -1)
+	}
+	if screenshot && result.ExitCode == 0 {
+		if collector.screenshot != nil {
+			return collector.commitScreenshotResult(structured), nil
+		}
+		return t.storeDesktopCdpScreenshot(result, execCtx), nil
+	}
+	return result, nil
+}
 
-	var decoded map[string]any
-	if err := json.NewDecoder(response.Body).Decode(&decoded); err != nil {
-		return desktopActionErrorResult("invalid_bridge_response", err.Error(), map[string]any{
-			"bridgeUrl":  bridgeURL,
-			"statusCode": response.StatusCode,
-		}), nil
+func desktopClientRejectionDetails(frame ClientResponseFrame) map[string]any {
+	details := map[string]any{
+		"clientErrorType": frame.Type,
+		"clientCode":      *frame.Code,
 	}
+	if len(frame.Data) == 0 {
+		return details
+	}
+	var metadata struct {
+		Retryable *bool          `json:"retryable"`
+		Details   map[string]any `json:"details"`
+	}
+	if err := json.Unmarshal(frame.Data, &metadata); err != nil {
+		return details
+	}
+	if metadata.Retryable != nil {
+		details["retryable"] = *metadata.Retryable
+	}
+	for _, key := range []string{"recovery", "reason"} {
+		if value, ok := metadata.Details[key].(string); ok && strings.TrimSpace(value) != "" {
+			details[key] = strings.TrimSpace(value)
+		}
+	}
+	return details
+}
 
-	exitCode := 0
-	if response.StatusCode < 200 || response.StatusCode >= 300 || decoded["ok"] == false {
-		exitCode = -1
+func (t *RuntimeToolExecutor) resolveClientTarget(execCtx *ExecutionContext) (ClientTarget, string) {
+	if execCtx == nil {
+		return ClientTarget{}, "run_target_missing"
 	}
-	return structuredResultWithExit(map[string]any{
-		"bridgeUrl":  bridgeURL,
-		"statusCode": response.StatusCode,
-		"response":   decoded,
-	}, exitCode), nil
+	if t.clientTargets != nil {
+		if current, ok := t.clientTargets.ResolveClientTarget(execCtx.Session.RunID); ok {
+			return current, ""
+		}
+		if t.cfg.RuntimeMode == config.RuntimeModeDesktop {
+			return t.resolveDesktopMainTarget(execCtx)
+		}
+		return ClientTarget{}, "run_target_missing"
+	}
+	if !execCtx.Session.WebClientTarget.IsZero() {
+		return execCtx.Session.WebClientTarget, ""
+	}
+	if t.cfg.RuntimeMode == config.RuntimeModeDesktop {
+		return t.resolveDesktopMainTarget(execCtx)
+	}
+	return ClientTarget{}, "run_target_missing"
+}
+
+func (t *RuntimeToolExecutor) resolveDesktopMainTarget(execCtx *ExecutionContext) (ClientTarget, string) {
+	if t == nil || t.desktopMain == nil {
+		return ClientTarget{}, "desktop_main_missing"
+	}
+	target, state := t.desktopMain.ResolveDesktopMainTarget()
+	switch state {
+	case DesktopMainTargetMissing:
+		return ClientTarget{}, "desktop_main_missing"
+	case DesktopMainTargetDisconnected:
+		return ClientTarget{}, "desktop_main_disconnected"
+	case DesktopMainTargetReady:
+		if target.IsZero() {
+			return ClientTarget{}, "desktop_main_disconnected"
+		}
+	default:
+		return ClientTarget{}, "desktop_main_missing"
+	}
+	if execCtx == nil || strings.TrimSpace(execCtx.Session.RunID) == "" || t.clientTargets == nil ||
+		!t.clientTargets.BindClientTarget(execCtx.Session.RunID, target) {
+		return ClientTarget{}, "run_target_missing"
+	}
+	return target, ""
+}
+
+func desktopPayloadMap(payload any) (map[string]any, error) {
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	decoded := map[string]any{}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return nil, err
+	}
+	return decoded, nil
+}
+
+type desktopStreamEvent struct {
+	Seq       int64  `json:"seq"`
+	Type      string `json:"type"`
+	Timestamp int64  `json:"timestamp"`
+	Encoding  string `json:"encoding"`
+	Chunk     string `json:"chunk"`
+}
+
+type desktopResponseCollector struct {
+	executor           *RuntimeToolExecutor
+	screenshotExpected bool
+	execCtx            *ExecutionContext
+	streamID           string
+	nextSeq            int64
+	streamType         string
+	response           bytes.Buffer
+	screenshot         *desktopScreenshotSink
+	final              *ClientResponseFrame
+}
+
+func newDesktopResponseCollector(executor *RuntimeToolExecutor, screenshotExpected bool, execCtx *ExecutionContext) *desktopResponseCollector {
+	return &desktopResponseCollector{executor: executor, screenshotExpected: screenshotExpected, execCtx: execCtx, nextSeq: 1}
+}
+
+func (c *desktopResponseCollector) consume(frame ClientResponseFrame) error {
+	switch strings.ToLower(strings.TrimSpace(frame.Frame)) {
+	case "response", "error":
+		if c.final != nil {
+			return errors.New("client returned multiple terminal frames")
+		}
+		copyFrame := frame
+		c.final = &copyFrame
+		return nil
+	case "stream":
+		if c.final != nil {
+			return errors.New("client returned a stream frame after the terminal response")
+		}
+	default:
+		return fmt.Errorf("unsupported client frame %q", frame.Frame)
+	}
+	if strings.TrimSpace(frame.StreamID) == "" {
+		return errors.New("desktop stream frame requires streamId")
+	}
+	if c.streamID == "" {
+		c.streamID = frame.StreamID
+	} else if c.streamID != frame.StreamID {
+		return errors.New("desktop streamId changed during the response")
+	}
+	var event desktopStreamEvent
+	if len(frame.Event) == 0 || json.Unmarshal(frame.Event, &event) != nil {
+		return errors.New("desktop stream event is invalid")
+	}
+	if event.Seq != c.nextSeq {
+		return fmt.Errorf("desktop stream seq is out of order: got %d want %d", event.Seq, c.nextSeq)
+	}
+	c.nextSeq++
+	if event.Timestamp <= 0 {
+		return errors.New("desktop stream event requires epoch-millisecond timestamp")
+	}
+	if event.Encoding != "base64" || event.Chunk == "" {
+		return errors.New("desktop stream event requires a non-empty base64 chunk")
+	}
+	if c.streamType == "" {
+		c.streamType = event.Type
+	} else if c.streamType != event.Type {
+		return errors.New("desktop stream event type changed during the response")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(event.Chunk)
+	if err != nil {
+		return fmt.Errorf("decode desktop stream chunk: %w", err)
+	}
+	switch event.Type {
+	case desktopResponseDeltaEventType:
+		if c.response.Len()+len(decoded) > desktopMaxDecodedResponseBytes {
+			return errors.New("desktop response exceeds 64 MiB")
+		}
+		_, err = c.response.Write(decoded)
+		return err
+	case desktopScreenshotDeltaEventType:
+		if !c.screenshotExpected {
+			return errors.New("unexpected desktop screenshot stream")
+		}
+		if c.screenshot == nil {
+			c.screenshot, err = newDesktopScreenshotSink(c.executor, c.execCtx)
+			if err != nil {
+				return err
+			}
+		}
+		return c.screenshot.write(decoded)
+	default:
+		return fmt.Errorf("unsupported desktop stream event type %q", event.Type)
+	}
+}
+
+func (c *desktopResponseCollector) responseData(raw json.RawMessage) (map[string]any, error) {
+	if c.response.Len() > 0 {
+		if c.streamType != desktopResponseDeltaEventType {
+			return nil, errors.New("desktop response stream type is invalid")
+		}
+		manifest, err := decodeDesktopResponseMap(raw)
+		if err != nil {
+			return nil, err
+		}
+		if err := c.validateStreamManifest(manifest, int64(c.response.Len())); err != nil {
+			return nil, err
+		}
+		decoded := map[string]any{}
+		if err := json.Unmarshal(c.response.Bytes(), &decoded); err != nil {
+			return nil, fmt.Errorf("decode streamed desktop response: %w", err)
+		}
+		return decoded, nil
+	}
+	decoded, err := decodeDesktopResponseMap(raw)
+	if err != nil {
+		return nil, err
+	}
+	if c.screenshot != nil {
+		if c.streamType != desktopScreenshotDeltaEventType {
+			return nil, errors.New("desktop screenshot stream type is invalid")
+		}
+		resultNode := cloneDesktopMapValue(decoded["result"])
+		manifest := cloneDesktopMapValue(resultNode["data"])
+		if err := c.validateStreamManifest(manifest, c.screenshot.size); err != nil {
+			return nil, err
+		}
+	} else if c.streamID != "" {
+		return nil, errors.New("desktop stream completed without decoded content")
+	}
+	return decoded, nil
+}
+
+func decodeDesktopResponseMap(raw json.RawMessage) (map[string]any, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return map[string]any{}, nil
+	}
+	decoded := map[string]any{}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return nil, errors.New("desktop response data must be an object")
+	}
+	return decoded, nil
+}
+
+func (c *desktopResponseCollector) validateStreamManifest(manifest map[string]any, totalBytes int64) error {
+	if manifest["streamed"] != true {
+		return errors.New("desktop stream terminal response requires streamed=true")
+	}
+	if streamID, _ := manifest["streamId"].(string); strings.TrimSpace(streamID) == "" || streamID != c.streamID {
+		return errors.New("desktop stream terminal response has an invalid streamId")
+	}
+	if encoding, _ := manifest["encoding"].(string); encoding != "base64" {
+		return errors.New("desktop stream terminal response has an invalid encoding")
+	}
+	if c.streamType == desktopResponseDeltaEventType {
+		if contentType, _ := manifest["contentType"].(string); contentType != "application/json" {
+			return errors.New("desktop stream terminal response has an invalid contentType")
+		}
+	}
+	chunkCount, ok := desktopManifestInteger(manifest["chunkCount"])
+	if !ok || chunkCount != c.nextSeq-1 {
+		return errors.New("desktop stream terminal response has an invalid chunkCount")
+	}
+	manifestBytes, ok := desktopManifestInteger(manifest["totalBytes"])
+	if !ok || manifestBytes != totalBytes {
+		return errors.New("desktop stream terminal response has an invalid totalBytes")
+	}
+	return nil
+}
+
+func desktopManifestInteger(value any) (int64, bool) {
+	number, ok := value.(float64)
+	if !ok || number < 0 || number != math.Trunc(number) || number > math.MaxInt64 {
+		return 0, false
+	}
+	return int64(number), true
+}
+
+func (c *desktopResponseCollector) commitScreenshotResult(structured map[string]any) ToolExecutionResult {
+	response := cloneDesktopMapValue(structured["response"])
+	resultNode := cloneDesktopMapValue(response["result"])
+	if len(resultNode) == 0 {
+		return desktopCdpScreenshotErrorResult(structured, "desktop_cdp_screenshot_data_missing", "Page.captureScreenshot response.result is missing", nil)
+	}
+	metadata, err := c.screenshot.commit()
+	if err != nil {
+		return desktopCdpScreenshotErrorResult(structured, "desktop_cdp_screenshot_write_failed", err.Error(), nil)
+	}
+	resultNode["data"] = metadata
+	response["result"] = resultNode
+	structured["response"] = response
+	return structuredResult(structured)
+}
+
+func (c *desktopResponseCollector) abort() {
+	if c != nil && c.screenshot != nil {
+		c.screenshot.abort()
+	}
+}
+
+type desktopScreenshotSink struct {
+	file          *os.File
+	temporaryPath string
+	finalPath     string
+	referenceName string
+	hash          hash.Hash
+	size          int64
+	committed     bool
+}
+
+func newDesktopScreenshotSink(executor *RuntimeToolExecutor, execCtx *ExecutionContext) (*desktopScreenshotSink, error) {
+	chatID := desktopCdpScreenshotChatID(execCtx)
+	if executor == nil || strings.TrimSpace(executor.cfg.Paths.ChatsDir) == "" || !chat.ValidChatID(chatID) {
+		return nil, errors.New("chat context and cfg.Paths.ChatsDir are required to save desktop_cdp screenshots")
+	}
+	chatDir := filepath.Join(executor.cfg.Paths.ChatsDir, chatID)
+	if err := os.MkdirAll(chatDir, 0o755); err != nil {
+		return nil, err
+	}
+	file, err := os.CreateTemp(chatDir, ".desktop-cdp-screenshot-*.tmp")
+	if err != nil {
+		return nil, err
+	}
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		_ = os.Remove(file.Name())
+		return nil, err
+	}
+	referenceName := desktopCdpScreenshotReferenceName(time.Now().UTC())
+	return &desktopScreenshotSink{
+		file:          file,
+		temporaryPath: file.Name(),
+		finalPath:     filepath.Join(chatDir, referenceName),
+		referenceName: referenceName,
+		hash:          sha256.New(),
+	}, nil
+}
+
+func (s *desktopScreenshotSink) write(decoded []byte) error {
+	if s == nil || s.file == nil {
+		return errors.New("desktop screenshot sink is unavailable")
+	}
+	if s.size+int64(len(decoded)) > desktopMaxDecodedResponseBytes {
+		return errors.New("desktop screenshot exceeds 64 MiB")
+	}
+	if _, err := s.file.Write(decoded); err != nil {
+		return err
+	}
+	if _, err := s.hash.Write(decoded); err != nil {
+		return err
+	}
+	s.size += int64(len(decoded))
+	return nil
+}
+
+func (s *desktopScreenshotSink) commit() (map[string]any, error) {
+	if s == nil || s.file == nil || s.size == 0 {
+		return nil, errors.New("desktop screenshot stream is empty")
+	}
+	if err := s.file.Sync(); err != nil {
+		return nil, err
+	}
+	if err := s.file.Close(); err != nil {
+		return nil, err
+	}
+	s.file = nil
+	if err := os.Rename(s.temporaryPath, s.finalPath); err != nil {
+		return nil, err
+	}
+	s.committed = true
+	return map[string]any{
+		"saved":                true,
+		"dataOmitted":          true,
+		"referenceName":        s.referenceName,
+		"filePath":             s.finalPath,
+		"mimeType":             desktopCdpScreenshotMimeType,
+		"sizeBytes":            s.size,
+		"sha256":               hex.EncodeToString(s.hash.Sum(nil)),
+		"visionRecognizeImage": map[string]any{"reference_name": s.referenceName},
+	}, nil
+}
+
+func (s *desktopScreenshotSink) abort() {
+	if s == nil || s.committed {
+		return
+	}
+	if s.file != nil {
+		_ = s.file.Close()
+		s.file = nil
+	}
+	if s.temporaryPath != "" {
+		_ = os.Remove(s.temporaryPath)
+	}
 }
 
 func (t *RuntimeToolExecutor) storeDesktopCdpScreenshot(result ToolExecutionResult, execCtx *ExecutionContext) ToolExecutionResult {
@@ -645,6 +847,7 @@ func buildDesktopActionSource(execCtx *ExecutionContext) desktopActionSource {
 		RunID:    execCtx.Session.RunID,
 		ChatID:   execCtx.Session.ChatID,
 		AgentKey: execCtx.Session.AgentKey,
+		TeamID:   execCtx.Session.TeamID,
 	}
 }
 

@@ -19,6 +19,7 @@ import (
 	"agent-platform/internal/memory"
 	"agent-platform/internal/plantasks"
 	"agent-platform/internal/querymessages"
+	"agent-platform/internal/runenv"
 	"agent-platform/internal/temppaths"
 )
 
@@ -270,7 +271,25 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		ChatRoot:                      strings.TrimSpace(runtimeContext.LocalPaths.ChatDir),
 		AccessLevel:                   normalizedAccessLevel(req.AccessLevel),
 		SkillHookDirs:                 skillHookDirs,
-		RuntimeEnvOverrides:           runtimeEnvOverrides,
+		StaticRuntimeEnv:              runtimeEnvOverrides,
+	}
+	if options.SubTaskID == "" && strings.TrimSpace(req.TeamID) == "" && !isProxyRoutedAgent(agentDef) && containsTool(agentDef.Tools, "platform_control") {
+		if existing, ok := lookupRunEnvironment(s.deps.Runs, req.RunID); ok {
+			session.RunEnvironment = existing
+		} else {
+			if s.deps.RunEnvironments == nil {
+				return contracts.QuerySession{}, fmt.Errorf("run environment store is unavailable")
+			}
+			subject := persistedRunEnvironmentSubject(summary)
+			scope, stateErr := s.deps.RunEnvironments.NewScope(runenv.Identity{
+				RunID: req.RunID, ChatID: req.ChatID, Subject: subject,
+				Owner: "agent:" + strings.TrimSpace(req.AgentKey), AgentKey: req.AgentKey,
+			})
+			if stateErr != nil {
+				return contracts.QuerySession{}, fmt.Errorf("initialize run environment: %w", stateErr)
+			}
+			session.RunEnvironment = scope
+		}
 	}
 	if shouldLoadPlanTaskContext(session) {
 		session.PlanTaskContext = s.loadPlanTaskContext(req.ChatID)
@@ -283,6 +302,42 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	}
 	session.CurrentMessages = s.buildCurrentMessages(req, session)
 	return session, nil
+}
+
+func persistedRunEnvironmentSubject(summary chat.Summary) string {
+	source := strings.TrimSpace(summary.Source)
+	if strings.HasPrefix(source, api.ChatSourceQueryPrefix) {
+		return strings.TrimSpace(strings.TrimPrefix(source, api.ChatSourceQueryPrefix))
+	}
+	return ""
+}
+
+type runEnvironmentLookup interface {
+	RunEnvironment(runID string) (*runenv.Scope, bool)
+}
+
+func lookupRunEnvironment(runs contracts.RunManager, runID string) (*runenv.Scope, bool) {
+	lookup, ok := runs.(runEnvironmentLookup)
+	if !ok || lookup == nil {
+		return nil, false
+	}
+	return lookup.RunEnvironment(strings.TrimSpace(runID))
+}
+
+func containsTool(tools []string, wanted string) bool {
+	for _, tool := range tools {
+		if strings.EqualFold(strings.TrimSpace(tool), wanted) {
+			return true
+		}
+	}
+	return false
+}
+
+func runEnvironmentRevisionOption(session contracts.QuerySession) chat.StepWriterOption {
+	if session.RunEnvironment == nil {
+		return nil
+	}
+	return chat.WithRunEnvironmentRevision(session.RunEnvironment.Revision)
 }
 
 func systemTempRoot() string {

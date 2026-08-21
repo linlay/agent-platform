@@ -89,7 +89,11 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	shellExecutable, shellArgs := resolveHostShellInvocation(t.cfg.Bash, command, runtimeInfo.GOOS)
 	cmd := exec.CommandContext(runCtx, shellExecutable, shellArgs...)
 	cmd.Dir = workingDir
-	cmd.Env = mergeBashCommandEnv(execCtx, t.cfg.IdentityFile)
+	commandEnv, err := mergeBashCommandEnv(execCtx, t.cfg.IdentityFile)
+	if err != nil {
+		return ToolExecutionResult{Output: err.Error(), Error: "run_env_snapshot_failed", ExitCode: -1}, nil
+	}
+	cmd.Env = commandEnv
 
 	stdoutFile, err := os.CreateTemp("", "agent-platform-bash-stdout-*.log")
 	if err != nil {
@@ -290,8 +294,14 @@ func bashSecurityKnownVariables(execCtx *ExecutionContext) map[string]string {
 	if execCtx == nil {
 		return nil
 	}
+	runtimeEnv := execCtx.StaticRuntimeEnv
+	if execCtx.RunEnvironment != nil {
+		if dynamic, _, err := execCtx.RunEnvironment.Snapshot(); err == nil {
+			runtimeEnv = agentconfig.Merge(runtimeEnv, dynamic)
+		}
+	}
 	return agentconfig.Merge(
-		execCtx.RuntimeEnvOverrides,
+		runtimeEnv,
 		agentconfig.HostEnvironment(
 			execCtx.Session.RuntimeContext.LocalPaths.AgentDir,
 			execCtx.Session.RuntimeContext.LocalPaths.WorkspaceDir,
@@ -323,7 +333,7 @@ func validateStrictCommand(command string, cfg config.BashConfig) error {
 	return nil
 }
 
-func mergeCommandEnv(execCtx *ExecutionContext) []string {
+func mergeCommandEnv(execCtx *ExecutionContext) ([]string, error) {
 	env := append([]string(nil), os.Environ()...)
 	var agentDir string
 	var workspaceDir string
@@ -333,39 +343,58 @@ func mergeCommandEnv(execCtx *ExecutionContext) []string {
 		agentDir = execCtx.Session.RuntimeContext.LocalPaths.AgentDir
 		workspaceDir = execCtx.Session.RuntimeContext.LocalPaths.WorkspaceDir
 		chatDir = execCtx.Session.RuntimeContext.LocalPaths.ChatDir
-		runtimeEnv = execCtx.RuntimeEnvOverrides
+		runtimeEnv = execCtx.StaticRuntimeEnv
+	}
+	if execCtx != nil && execCtx.RunEnvironment != nil {
+		dynamic, _, err := execCtx.RunEnvironment.Snapshot()
+		if err != nil {
+			return nil, fmt.Errorf("snapshot run environment: %w", err)
+		}
+		runtimeEnv = agentconfig.Merge(runtimeEnv, dynamic)
 	}
 	overrides := agentconfig.Merge(
 		runtimeEnv,
 		agentconfig.HostEnvironment(agentDir, workspaceDir, chatDir),
 	)
 	if len(overrides) == 0 {
-		return builtins.EnsureBinInEnv(env)
+		return builtins.EnsureBinInEnv(env), nil
 	}
-	for key, value := range overrides {
-		found := false
-		prefix := key + "="
-		for idx, item := range env {
-			if strings.HasPrefix(item, prefix) {
-				env[idx] = prefix + value
-				found = true
-				break
-			}
-		}
-		if !found {
-			env = append(env, prefix+value)
-		}
-	}
-	return builtins.EnsureBinInEnv(env)
+	env = mergeEnvironmentList(env, overrides)
+	return builtins.EnsureBinInEnv(env), nil
 }
 
-func mergeBashCommandEnv(execCtx *ExecutionContext, identityFile string) []string {
-	env := removeEnvironmentKey(mergeCommandEnv(execCtx), agentconfig.EnvAccessToken)
+func mergeEnvironmentList(base []string, overrides map[string]string) []string {
+	result := append([]string(nil), base...)
+	indexes := map[string]int{}
+	for index, item := range result {
+		name, _, ok := strings.Cut(item, "=")
+		if ok {
+			indexes[strings.ToUpper(name)] = index
+		}
+	}
+	for key, value := range overrides {
+		lookup := strings.ToUpper(key)
+		if index, ok := indexes[lookup]; ok {
+			result[index] = key + "=" + value
+			continue
+		}
+		indexes[lookup] = len(result)
+		result = append(result, key+"="+value)
+	}
+	return result
+}
+
+func mergeBashCommandEnv(execCtx *ExecutionContext, identityFile string) ([]string, error) {
+	commandEnv, err := mergeCommandEnv(execCtx)
+	if err != nil {
+		return nil, err
+	}
+	env := removeEnvironmentKey(commandEnv, agentconfig.EnvAccessToken)
 	token, err := agentconfig.ReadAccessTokenFile(identityFile)
 	if err != nil || token == "" {
-		return env
+		return env, nil
 	}
-	return append(env, agentconfig.EnvAccessToken+"="+token)
+	return append(env, agentconfig.EnvAccessToken+"="+token), nil
 }
 
 func removeEnvironmentKey(env []string, key string) []string {

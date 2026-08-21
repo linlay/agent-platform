@@ -85,7 +85,7 @@ func (e *LLMAgentEngine) logParsedToolDelta(runID string, delta openAIStreamTool
 		e.formatLogText(delta.ID),
 		e.formatLogText(delta.Type),
 		e.formatLogText(delta.Function.Name),
-		e.formatLogText(delta.Function.Arguments),
+		"[REDACTED_TOOL_ARGUMENTS]",
 	)
 }
 

@@ -20,6 +20,7 @@ func TestMonitorEndpointsExposeWebSocketSnapshot(t *testing.T) {
 	}, testFixtureOptions{
 		notifications: ws.NewHub(),
 		configure: func(cfg *config.Config) {
+			cfg.RuntimeMode = config.RuntimeModeDesktop
 			cfg.WebSocket.WriteQueueSize = 8
 			cfg.WebSocket.PingInterval = 30000
 		},
@@ -61,6 +62,9 @@ func TestMonitorEndpointsExposeWebSocketSnapshot(t *testing.T) {
 	}
 
 	overview := waitForMonitorOverview(t, server.URL, "/api/agents")
+	if overview.Runtime.Mode != config.RuntimeModeDesktop || overview.Runtime.ActionTransport != "reverse-websocket" {
+		t.Fatalf("unexpected runtime monitor summary: %#v", overview.Runtime)
+	}
 	if overview.WS.ConnectionCount != 1 {
 		t.Fatalf("expected one websocket connection, got %#v", overview)
 	}
@@ -117,6 +121,24 @@ func TestMonitorEndpointsValidateLimits(t *testing.T) {
 	}
 }
 
+func TestMonitorEndpointReportsStandaloneRuntimeMode(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.RuntimeMode = config.RuntimeModeStandalone
+		},
+	})
+	server := httptest.NewServer(fixture.server)
+	defer server.Close()
+
+	overview := getMonitorData[monitorOverview](t, server.URL+"/api/monitor")
+	if overview.Runtime.Mode != config.RuntimeModeStandalone || overview.Runtime.ActionTransport != "reverse-websocket" {
+		t.Fatalf("unexpected standalone runtime monitor summary: %#v", overview.Runtime)
+	}
+}
+
 func TestMonitorEndpointsBypassHTTPAuth(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
@@ -159,11 +181,11 @@ func TestMonitorEndpointsBypassHTTPAuth(t *testing.T) {
 	}
 }
 
-func waitForMonitorOverview(t *testing.T, baseURL string, messageType string) ws.MonitorOverview {
+func waitForMonitorOverview(t *testing.T, baseURL string, messageType string) monitorOverview {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		overview := getMonitorData[ws.MonitorOverview](t, baseURL+"/api/monitor")
+		overview := getMonitorData[monitorOverview](t, baseURL+"/api/monitor")
 		for _, msg := range overview.WS.RecentMessages {
 			if msg.Type == messageType {
 				return overview
@@ -172,7 +194,7 @@ func waitForMonitorOverview(t *testing.T, baseURL string, messageType string) ws
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for monitor message type %s", messageType)
-	return ws.MonitorOverview{}
+	return monitorOverview{}
 }
 
 func getMonitorData[T any](t *testing.T, url string) T {

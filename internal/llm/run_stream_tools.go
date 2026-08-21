@@ -14,6 +14,7 @@ import (
 	"agent-platform/internal/bashsec"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/hitl"
+	"agent-platform/internal/platformcontrol"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/toolpolicy"
 )
@@ -41,7 +42,7 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 	}
 	args, _ = expandedArgs.(map[string]any)
 
-	if s.readOnlyToolDenied(toolCall.Function.Name) {
+	if s.readOnlyToolDenied(toolCall.Function.Name, args) {
 		result := toolpolicy.DisabledResult(toolCall.Function.Name)
 		deltas, message := preparedToolResultMessage(toolID, toolCall.Function.Name, result, result.Output)
 		return nil, deltas, message
@@ -201,6 +202,17 @@ func (s *llmRunStream) prioritizeAwaitingToolCalls(invocations []*preparedToolIn
 	if len(invocations) < 2 {
 		return invocations
 	}
+	for _, invocation := range invocations {
+		if invocation == nil {
+			continue
+		}
+		if descriptor, ok := platformcontrol.InvocationDescriptor(invocation.toolName, invocation.args); ok && descriptor.Barrier {
+			// A barrier preserves the provider's exact call order. In particular,
+			// approval preflight must not move a later run.env mutation ahead of a
+			// process launch that is required to observe the previous revision.
+			return invocations
+		}
+	}
 	awaiting := make([]*preparedToolInvocation, 0)
 	ready := make([]*preparedToolInvocation, 0, len(invocations))
 	for _, invocation := range invocations {
@@ -288,7 +300,7 @@ func (s *llmRunStream) canInvokeToolConcurrently(invocation *preparedToolInvocat
 	if isPlanningWriteTool(invocation.toolName) || isPlanTool(invocation.toolName) {
 		return false
 	}
-	if !s.isConcurrentToolName(invocation.toolName) {
+	if !s.isConcurrentToolInvocation(invocation) {
 		return false
 	}
 	if s.invocationMayConsumeOneShotApproval(invocation) {
@@ -308,8 +320,14 @@ func (s *llmRunStream) canInvokeToolConcurrently(invocation *preparedToolInvocat
 	return true
 }
 
-func (s *llmRunStream) isConcurrentToolName(toolName string) bool {
-	switch strings.ToLower(strings.TrimSpace(toolName)) {
+func (s *llmRunStream) isConcurrentToolInvocation(invocation *preparedToolInvocation) bool {
+	if invocation == nil {
+		return false
+	}
+	if descriptor, ok := platformcontrol.InvocationDescriptor(invocation.toolName, invocation.args); ok {
+		return descriptor.ReadOnly && !descriptor.Barrier
+	}
+	switch strings.ToLower(strings.TrimSpace(invocation.toolName)) {
 	case "bash":
 		return s != nil && s.execCtx != nil &&
 			!s.session.AgentHasRuntimeSandbox &&
@@ -566,7 +584,8 @@ func (s *llmRunStream) concurrentExecutionContext(invocation *preparedToolInvoca
 	cloned.CurrentToolID = invocation.toolID
 	cloned.CurrentToolName = invocation.toolName
 	cloned.RunLoopState = RunLoopStateToolExecuting
-	cloned.RuntimeEnvOverrides = CloneStringMap(s.execCtx.RuntimeEnvOverrides)
+	cloned.StaticRuntimeEnv = CloneStringMap(s.execCtx.StaticRuntimeEnv)
+	cloned.RunEnvironment = s.execCtx.RunEnvironment
 	cloned.AccessPolicyApprovals = cloneIntMap(s.execCtx.AccessPolicyApprovals)
 	cloned.AccessPolicyRuleApprovals = cloneBoolMap(s.execCtx.AccessPolicyRuleApprovals)
 	cloned.BashSecurityApprovals = cloneIntMap(s.execCtx.BashSecurityApprovals)
@@ -1379,9 +1398,13 @@ func (s *llmRunStream) lookupToolDefinition(toolName string) (api.ToolDetailResp
 	return api.ToolDetailResponse{}, false
 }
 
-func (s *llmRunStream) readOnlyToolDenied(toolName string) bool {
+func (s *llmRunStream) readOnlyToolDenied(toolName string, args map[string]any) bool {
 	if s == nil || s.execCtx == nil || !IsReadOnlyToolExecutionPolicy(s.execCtx.ToolExecutionPolicy) {
 		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(toolName), platformcontrol.ToolName) {
+		descriptor, ok := platformcontrol.InvocationDescriptor(toolName, args)
+		return !ok || !descriptor.ReadOnly
 	}
 	def, found := s.lookupToolDefinition(toolName)
 	return !toolpolicy.AllowsReadOnly(def, found)

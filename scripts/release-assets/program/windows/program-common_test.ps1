@@ -88,6 +88,7 @@ public static class FakeAgentPlatformBackend
   $Script:LogDir = $logDir
   $Script:ProgramPort = '17078'
   $Script:IdentityFile = $identityFile
+  $Script:RuntimeMode = 'desktop'
   Update-ProgramPaths
   $env:AGENT_PLATFORM_TEST_CAPTURE_ARGS = $capturedArgsFile
   $env:AGENT_PLATFORM_TEST_BACKEND_DELAY_MS = '5000'
@@ -103,7 +104,7 @@ public static class FakeAgentPlatformBackend
   }
 
   $capturedArgs = @(Get-Content -LiteralPath $capturedArgsFile)
-  $expectedArgs = @('--config-dir', $configRoot, '--port', '17078', '--identity-file', $identityFile)
+  $expectedArgs = @('--config-dir', $configRoot, '--runtime-mode', 'desktop', '--port', '17078', '--identity-file', $identityFile)
   if ($capturedArgs.Count -ne $expectedArgs.Count) {
     throw "expected $($expectedArgs.Count) daemon arguments, got $($capturedArgs.Count): $($capturedArgs -join ' | ')"
   }
