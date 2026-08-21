@@ -57,6 +57,7 @@ $logDir = Join-Path $processTestRoot 'logs'
 $previousCapturePath = $env:AGENT_PLATFORM_TEST_CAPTURE_ARGS
 $previousDelayMs = $env:AGENT_PLATFORM_TEST_BACKEND_DELAY_MS
 $previousExitCode = $env:AGENT_PLATFORM_TEST_BACKEND_EXIT_CODE
+$previousStderr = $env:AGENT_PLATFORM_TEST_BACKEND_STDERR
 
 try {
   New-Item -ItemType Directory -Force -Path $configRoot, $runDir, $logDir | Out-Null
@@ -73,6 +74,8 @@ public static class FakeAgentPlatformBackend
         int delayMs;
         if (!int.TryParse(Environment.GetEnvironmentVariable("AGENT_PLATFORM_TEST_BACKEND_DELAY_MS"), out delayMs)) delayMs = 0;
         Thread.Sleep(delayMs);
+        string stderr = Environment.GetEnvironmentVariable("AGENT_PLATFORM_TEST_BACKEND_STDERR");
+        if (!string.IsNullOrEmpty(stderr)) Console.Error.WriteLine(stderr);
         int exitCode;
         if (!int.TryParse(Environment.GetEnvironmentVariable("AGENT_PLATFORM_TEST_BACKEND_EXIT_CODE"), out exitCode)) exitCode = 0;
         return exitCode;
@@ -144,7 +147,11 @@ public static class FakeAgentPlatformBackend
   $Script:DeployDesktopDeviceId = 'desktop-device-123'
   $env:AGENT_PLATFORM_TEST_CAPTURE_ARGS = $capturedArgsFile
   $env:AGENT_PLATFORM_TEST_BACKEND_EXIT_CODE = '0'
-  Invoke-ProgramRuntimeResourceSync
+  $env:AGENT_PLATFORM_TEST_BACKEND_STDERR = 'catalog warning'
+  $syncOutput = @(Invoke-ProgramRuntimeResourceSync 2>&1)
+  if (($syncOutput | Out-String) -notlike '*catalog warning*') {
+    throw "runtime resource stderr was not preserved: $($syncOutput | Out-String)"
+  }
   $capturedResourceArgs = @(Get-Content -LiteralPath $capturedArgsFile)
   $expectedResourceArgs = @(
     'runtime-resource-sync',
@@ -159,6 +166,8 @@ public static class FakeAgentPlatformBackend
   if (($capturedResourceArgs -join "`n") -cne ($expectedResourceArgs -join "`n")) {
     throw "runtime resource arguments were not forwarded exactly: $($capturedResourceArgs -join ' | ')"
   }
+  Write-Host '[test] runtime resource sync allows stderr with a zero exit code'
+  $env:AGENT_PLATFORM_TEST_BACKEND_STDERR = ''
   $env:AGENT_PLATFORM_TEST_BACKEND_EXIT_CODE = '23'
   $syncFailed = $false
   try {
@@ -178,6 +187,7 @@ public static class FakeAgentPlatformBackend
   $env:AGENT_PLATFORM_TEST_CAPTURE_ARGS = $previousCapturePath
   $env:AGENT_PLATFORM_TEST_BACKEND_DELAY_MS = $previousDelayMs
   $env:AGENT_PLATFORM_TEST_BACKEND_EXIT_CODE = $previousExitCode
+  $env:AGENT_PLATFORM_TEST_BACKEND_STDERR = $previousStderr
   if (Test-Path -LiteralPath $processTestRoot) {
     Remove-Item -LiteralPath $processTestRoot -Recurse -Force -ErrorAction SilentlyContinue
   }
