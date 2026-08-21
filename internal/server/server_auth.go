@@ -29,10 +29,6 @@ func (s *Server) handleCORS(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method != http.MethodOptions {
 		return false
 	}
-	if strings.HasPrefix(r.URL.Path, "/api/chat/share") && requestsPrivateTunnelHeaders(r.Header.Get("Access-Control-Request-Headers")) {
-		w.WriteHeader(http.StatusForbidden)
-		return true
-	}
 	if len(cfg.AllowedMethods) > 0 {
 		w.Header().Set("Access-Control-Allow-Methods", strings.Join(cfg.AllowedMethods, ", "))
 	}
@@ -44,16 +40,6 @@ func (s *Server) handleCORS(w http.ResponseWriter, r *http.Request) bool {
 	}
 	w.WriteHeader(http.StatusOK)
 	return true
-}
-
-func requestsPrivateTunnelHeaders(value string) bool {
-	for _, header := range strings.Split(value, ",") {
-		switch strings.ToLower(strings.TrimSpace(header)) {
-		case strings.ToLower(tunnelOriginHeader), strings.ToLower(tunnelAuthorizationHeader):
-			return true
-		}
-	}
-	return false
 }
 
 func (s *Server) withPrincipal(r *http.Request, w http.ResponseWriter) *http.Request {

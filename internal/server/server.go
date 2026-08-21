@@ -72,12 +72,11 @@ type Dependencies struct {
 	DeltaMappers           contracts.StreamDeltaMapperFactory
 	SystemInits            contracts.SystemInitBuilder
 	// GatewayResolver 按 chatId 查对应 gateway 的 BaseURL/Token。
-	GatewayResolver             GatewayResolver
-	AgentCardStatus             AgentCardStatusProvider
-	AgentCardRefresh            AgentCardRefreshScheduler
-	ChannelSessions             ChannelSessionObserver
-	ConversationHTMLTemplate    []byte
-	ConversationShareHTTPClient *http.Client
+	GatewayResolver          GatewayResolver
+	AgentCardStatus          AgentCardStatusProvider
+	AgentCardRefresh         AgentCardRefreshScheduler
+	ChannelSessions          ChannelSessionObserver
+	ConversationHTMLTemplate []byte
 }
 
 // GatewayResolver 是 ws_routes 下载时用来按 chatId 选对应 gateway 的只读视图，
@@ -132,7 +131,6 @@ type Server struct {
 	proxyRuns            map[string]*proxyRunRoute
 	backgroundCtx        context.Context
 	conversationHTML     *conversationexport.HTMLRenderer
-	conversationShares   *tunnelShareClient
 }
 
 type syncQueryContextKey struct{}
@@ -204,7 +202,6 @@ func New(deps Dependencies) (*Server, error) {
 			s.conversationHTML = renderer
 		}
 	}
-	s.conversationShares = newTunnelShareClient(deps.ConversationShareHTTPClient)
 	if s.backgroundCtx == nil {
 		s.backgroundCtx = context.Background()
 	}

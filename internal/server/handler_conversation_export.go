@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	chatMarkdownExportFormat = "markdown"
-	chatHTMLExportFormat     = "html"
+	chatMarkdownExportFormat            = "markdown"
+	chatHTMLExportFormat                = "html"
+	conversationExportAssetOriginHeader = "X-Conversation-Export-Asset-Origin"
 )
 
 func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +51,7 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 	if format == chatHTMLExportFormat {
 		body, err = s.conversationHTML.Render(
 			snapshot,
-			r.Header.Get(tunnelOriginHeader),
+			r.Header.Get(conversationExportAssetOriginHeader),
 		)
 		contentType = "text/html; charset=utf-8"
 		extension = ".html"
