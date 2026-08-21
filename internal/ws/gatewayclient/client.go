@@ -177,7 +177,7 @@ func (c *Client) run() {
 		})
 		log.Printf("gateway websocket connected: url=%s", c.cfg.URL)
 		startedAt := time.Now()
-		conn := ws.NewSilentConn(socket, c.hub, c.wsCfg, c.heartbeat, ws.AuthSession{Context: connCtx})
+		conn := ws.NewSilentConn(socket, c.hub, c.wsCfg, ws.AuthSession{Context: connCtx})
 		conn.SetLifecycleCallbacks(ws.ConnectionLifecycleCallbacks{
 			OnOpened: c.cfg.OnConnected,
 			OnPush:   c.cfg.OnPush,

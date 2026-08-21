@@ -162,6 +162,44 @@ func TestEmbeddedRunToolSchemasAndMetadata(t *testing.T) {
 	}
 }
 
+func TestDatetimeSchemaExposesOptionalBaseAndStaysClosed(t *testing.T) {
+	defs, err := LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatalf("load embedded tool definitions: %v", err)
+	}
+	found := false
+	for _, def := range defs {
+		if def.Name != "datetime" {
+			continue
+		}
+		found = true
+		if def.Parameters["type"] != "object" || def.Parameters["additionalProperties"] != false {
+			t.Fatalf("datetime schema is not a closed object: %#v", def.Parameters)
+		}
+		if _, exists := def.Parameters["oneOf"]; exists {
+			t.Fatalf("datetime schema must not use oneOf: %#v", def.Parameters)
+		}
+		properties := mapChild(t, def.Parameters, "properties")
+		base, exists := properties["base"]
+		if !exists {
+			t.Fatal("datetime schema is missing base property")
+		}
+		baseSchema, ok := base.(map[string]any)
+		if !ok {
+			t.Fatalf("datetime base property is not an object: %#v", base)
+		}
+		if baseSchema["type"] != "string" {
+			t.Fatalf("datetime base type = %#v, want string", baseSchema["type"])
+		}
+		if required, _ := def.Parameters["required"].([]any); len(required) != 0 {
+			t.Fatalf("datetime required = %#v, want none (base optional)", required)
+		}
+	}
+	if !found {
+		t.Fatal("datetime tool definition is unavailable")
+	}
+}
+
 func TestLoadEmbeddedToolDefinitionsAppliesBuiltinToolCatalogVisibility(t *testing.T) {
 	defs, err := LoadEmbeddedToolDefinitions()
 	if err != nil {

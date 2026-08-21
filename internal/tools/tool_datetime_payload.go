@@ -10,8 +10,22 @@ import (
 
 var offsetTokenPattern = regexp.MustCompile(`([+-])(\d+)([ywDHMmS])`)
 
+var zoneLessBaseLayouts = []string{
+	"2006-01-02",
+	"2006-01-02T15:04:05",
+	"2006-01-02 15:04:05",
+}
+
+type dateTimeAnchor struct {
+	instant        time.Time
+	displayLoc     *time.Location
+	zoneID         string
+	source         string
+	normalizedBase string
+}
+
 func buildDateTimePayload(args map[string]any, now time.Time) (map[string]any, error) {
-	location, zoneID, err := parseDateTimeZone(stringArg(args, "timezone"), now)
+	anchor, err := resolveDateTimeAnchor(args, now)
 	if err != nil {
 		return nil, err
 	}
@@ -19,14 +33,14 @@ func buildDateTimePayload(args map[string]any, now time.Time) (map[string]any, e
 	if err != nil {
 		return nil, err
 	}
-	dateTime, err := applyDateTimeOffset(now.In(location), normalizedOffset)
+	dateTime, err := applyDateTimeOffset(anchor.instant.In(anchor.displayLoc), normalizedOffset)
 	if err != nil {
 		return nil, err
 	}
 	_, offsetSeconds := dateTime.Zone()
 	dateTime = dateTime.Truncate(time.Second)
-	return map[string]any{
-		"timezone":       zoneID,
+	payload := map[string]any{
+		"timezone":       anchor.zoneID,
 		"timezoneOffset": utcOffsetOf(offsetSeconds),
 		"offset":         normalizedOffset,
 		"date":           dateTime.Format("2006-01-02"),
@@ -34,8 +48,112 @@ func buildDateTimePayload(args map[string]any, now time.Time) (map[string]any, e
 		"lunarDate":      lunarDateText(dateTime),
 		"time":           dateTime.Format("15:04:05"),
 		"iso":            dateTime.Format(time.RFC3339),
-		"source":         "system-clock",
+		"source":         anchor.source,
+	}
+	if anchor.normalizedBase != "" {
+		payload["base"] = anchor.normalizedBase
+	}
+	return payload, nil
+}
+
+func resolveDateTimeAnchor(args map[string]any, now time.Time) (*dateTimeAnchor, error) {
+	rawBase, hasBase, err := dateTimeBaseArg(args)
+	if err != nil {
+		return nil, err
+	}
+	if hasBase {
+		return parseDateTimeBase(rawBase, stringArg(args, "timezone"), now)
+	}
+	location, zoneID, err := parseDateTimeZone(stringArg(args, "timezone"), now)
+	if err != nil {
+		return nil, err
+	}
+	return &dateTimeAnchor{
+		instant:    now,
+		displayLoc: location,
+		zoneID:     zoneID,
+		source:     "system-clock",
 	}, nil
+}
+
+func dateTimeBaseArg(args map[string]any) (string, bool, error) {
+	value, exists := args["base"]
+	if !exists {
+		return "", false, nil
+	}
+	raw, ok := value.(string)
+	if !ok {
+		return "", false, invalidBaseError(value)
+	}
+	if strings.TrimSpace(raw) == "" {
+		return "", false, nil
+	}
+	return raw, true, nil
+}
+
+func parseDateTimeBase(raw string, timezoneParam string, now time.Time) (*dateTimeAnchor, error) {
+	location, zoneID, err := parseDateTimeZone(timezoneParam, now)
+	if err != nil {
+		return nil, err
+	}
+	for _, layout := range zoneLessBaseLayouts {
+		parsed, err := time.ParseInLocation(layout, raw, location)
+		if err != nil || parsed.Format(layout) != raw {
+			continue
+		}
+		return &dateTimeAnchor{
+			instant:        parsed,
+			displayLoc:     location,
+			zoneID:         zoneID,
+			source:         "input-base",
+			normalizedBase: parsed.Format(time.RFC3339),
+		}, nil
+	}
+	parsed, err := time.Parse(time.RFC3339, raw)
+	if err != nil || !rfc3339RoundTripOK(parsed, raw) {
+		return nil, invalidBaseError(raw)
+	}
+	_, inputOffset := parsed.Zone()
+	displayLoc, displayZoneID := parsed.Location(), fixedZoneIDOf(inputOffset)
+	if strings.TrimSpace(timezoneParam) != "" {
+		displayLoc, displayZoneID = location, zoneID
+	}
+	return &dateTimeAnchor{
+		instant:        parsed,
+		displayLoc:     displayLoc,
+		zoneID:         displayZoneID,
+		source:         "input-base",
+		normalizedBase: parsed.Format(time.RFC3339),
+	}, nil
+}
+
+func rfc3339RoundTripOK(parsed time.Time, raw string) bool {
+	if parsed.Format(time.RFC3339) == raw {
+		return true
+	}
+	// Go renders a zero offset as Z; accept the equivalent explicit ±00:00 forms.
+	_, offset := parsed.Zone()
+	if offset != 0 {
+		return false
+	}
+	for _, suffix := range []string{"+00:00", "-00:00"} {
+		if prefix, ok := strings.CutSuffix(raw, suffix); ok {
+			return prefix == parsed.UTC().Format("2006-01-02T15:04:05")
+		}
+	}
+	return false
+}
+
+func fixedZoneIDOf(totalSeconds int) string {
+	if totalSeconds == 0 {
+		return "Z"
+	}
+	sign := "+"
+	if totalSeconds < 0 {
+		sign = "-"
+		totalSeconds = -totalSeconds
+	}
+	return fmt.Sprintf("%s%02d:%02d", sign, totalSeconds/3600, (totalSeconds%3600)/60)
 }
 
 func parseDateTimeZone(raw string, now time.Time) (*time.Location, string, error) {
@@ -180,6 +298,10 @@ func invalidTimezoneError(raw string) error {
 
 func invalidOffsetError(raw string) error {
 	return fmt.Errorf("Invalid offset: %s. Use tokens like +1D, -2y, +3w or chained forms like +1D-3H+20m or +10M+25D.", raw)
+}
+
+func invalidBaseError(raw any) error {
+	return fmt.Errorf("Invalid base: %v. Use YYYY-MM-DD, YYYY-MM-DDTHH:mm:ss, YYYY-MM-DD HH:mm:ss, or RFC3339 YYYY-MM-DDTHH:mm:ssZ / YYYY-MM-DDTHH:mm:ss±HH:MM.", raw)
 }
 
 func utcOffsetOf(totalSeconds int) string {

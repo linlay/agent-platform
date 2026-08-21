@@ -107,7 +107,7 @@ func TestHubInvokeClientRequestTimeoutCancelsOnceAndDiscardsLateFrame(t *testing
 func newClientRequestTestConnection(t *testing.T) (*Hub, *httptest.Server, *gws.Conn, contracts.ClientTarget) {
 	t.Helper()
 	hub := NewHub()
-	handler := NewHandler(config.WebSocketConfig{WriteQueueSize: 8, PingInterval: 30}, time.Second, hub, testAuthenticator{})
+	handler := NewHandler(config.WebSocketConfig{WriteQueueSize: 8, PingInterval: 30}, hub, testAuthenticator{})
 	server := httptest.NewServer(handler)
 	socketURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws?source=desktop-main&deviceId=device-1&surfaceId=surface-1"
 	client, _, err := gws.DefaultDialer.Dial(socketURL, nil)

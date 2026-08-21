@@ -3,7 +3,6 @@ package ws
 import (
 	"context"
 	"testing"
-	"time"
 
 	"agent-platform/internal/config"
 )
@@ -21,7 +20,7 @@ func TestConnWebClientTargetDoesNotDependOnSource(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{
+			conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{
 				Context:  context.Background(),
 				Subject:  "user-1",
 				DeviceID: "device-1",

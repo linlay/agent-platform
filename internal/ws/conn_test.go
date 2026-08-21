@@ -15,7 +15,7 @@ import (
 )
 
 func TestConnRejectsDuplicateRequestID(t *testing.T) {
-	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{})
+	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{})
 	if err := conn.reserveRequest("req_1"); err != nil {
 		t.Fatalf("reserve first request: %v", err)
 	}
@@ -25,7 +25,7 @@ func TestConnRejectsDuplicateRequestID(t *testing.T) {
 }
 
 func TestConnRejectsDuplicateObserve(t *testing.T) {
-	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4, MaxObservesPerConn: 2}, time.Second, AuthSession{})
+	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4, MaxObservesPerConn: 2}, AuthSession{})
 	if _, err := conn.ReserveStream("req_1", "run_1"); err != nil {
 		t.Fatalf("reserve first stream: %v", err)
 	}
@@ -35,8 +35,8 @@ func TestConnRejectsDuplicateObserve(t *testing.T) {
 }
 
 func TestConnLocaleLocalizesErrorsPerConnection(t *testing.T) {
-	zhConn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{})
-	enConn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{})
+	zhConn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{})
+	enConn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{})
 	if !zhConn.SetLocale(i18n.LocaleZhCN) {
 		t.Fatalf("expected zh-CN locale to be accepted")
 	}
@@ -62,7 +62,7 @@ func TestConnLocaleLocalizesErrorsPerConnection(t *testing.T) {
 }
 
 func TestConnLocaleLocalizesStreamErrorWithoutMutatingOriginal(t *testing.T) {
-	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4, MaxObservesPerConn: 2}, time.Second, AuthSession{})
+	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4, MaxObservesPerConn: 2}, AuthSession{})
 	conn.SetLocale(i18n.LocaleZhCN)
 	if _, err := conn.ReserveStream("req_1", "run_1"); err != nil {
 		t.Fatalf("reserve stream: %v", err)
@@ -97,7 +97,7 @@ func TestConnLocaleLocalizesStreamErrorWithoutMutatingOriginal(t *testing.T) {
 }
 
 func TestConnEndsActiveStreamWithLocalErrorForTimeContractViolation(t *testing.T) {
-	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4, MaxObservesPerConn: 2}, time.Second, AuthSession{})
+	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4, MaxObservesPerConn: 2}, AuthSession{})
 	if _, err := conn.ReserveStream("req_1", "run_1"); err != nil {
 		t.Fatalf("reserve stream: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestConnEndsActiveStreamWithLocalErrorForTimeContractViolation(t *testing.T
 }
 
 func TestConnDetachRunStreamReleasesObserverAndAllowsReobserve(t *testing.T) {
-	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 8, MaxObservesPerConn: 2}, time.Second, AuthSession{})
+	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 8, MaxObservesPerConn: 2}, AuthSession{})
 	streamID, err := conn.ReserveStream("req_1", "run_1")
 	if err != nil {
 		t.Fatalf("reserve stream: %v", err)
@@ -182,33 +182,33 @@ func TestConnDetachRunStreamReleasesObserverAndAllowsReobserve(t *testing.T) {
 }
 
 func TestConnClientBoundaryKeyRequiresSubjectAndDevice(t *testing.T) {
-	first := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{Subject: "alice"})
-	second := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{Subject: "alice"})
+	first := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{Subject: "alice"})
+	second := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{Subject: "alice"})
 	if first.ClientBoundaryKey() == second.ClientBoundaryKey() {
 		t.Fatalf("subject without device id should not share boundary across connections")
 	}
 
-	withDeviceA := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{Subject: "alice", DeviceID: "device-1"})
-	withDeviceB := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{Subject: "alice", DeviceID: "device-1"})
+	withDeviceA := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{Subject: "alice", DeviceID: "device-1"})
+	withDeviceB := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{Subject: "alice", DeviceID: "device-1"})
 	if withDeviceA.ClientBoundaryKey() != withDeviceB.ClientBoundaryKey() {
 		t.Fatalf("same subject and device should share boundary")
 	}
 
-	anonymousDeviceA := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{DeviceID: "device-1"})
-	anonymousDeviceB := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{DeviceID: "device-1"})
+	anonymousDeviceA := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{DeviceID: "device-1"})
+	anonymousDeviceB := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{DeviceID: "device-1"})
 	if anonymousDeviceA.ClientBoundaryKey() != anonymousDeviceB.ClientBoundaryKey() {
 		t.Fatalf("same anonymous device should share boundary")
 	}
 
-	anonymousA := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{})
-	anonymousB := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{})
+	anonymousA := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{})
+	anonymousB := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{})
 	if anonymousA.ClientBoundaryKey() == anonymousB.ClientBoundaryKey() {
 		t.Fatalf("anonymous connections without device id should not share boundary")
 	}
 }
 
 func TestConnReleaseTerminalStreamValidatesKindAndSupportsPreCancel(t *testing.T) {
-	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 8, MaxObservesPerConn: 3}, time.Second, AuthSession{})
+	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 8, MaxObservesPerConn: 3}, AuthSession{})
 	if _, err := conn.ReserveStream("run_req", "run_1"); err != nil {
 		t.Fatalf("reserve run stream: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestConnReleaseTerminalStreamValidatesKindAndSupportsPreCancel(t *testing.T
 
 func TestConnClosesOnWriteQueueOverflow(t *testing.T) {
 	hub := NewHub()
-	conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 1}, time.Second, AuthSession{})
+	conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 1}, AuthSession{})
 	conn.writeQueueFullGrace = 20 * time.Millisecond
 	hub.register(conn)
 	if !conn.SendPush("heartbeat", map[string]any{"timestamp": 1}) {
@@ -272,7 +272,7 @@ func TestConnClosesOnWriteQueueOverflow(t *testing.T) {
 }
 
 func TestConnEnqueueWaitsForTransientWriteQueueBackpressure(t *testing.T) {
-	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 1}, time.Second, AuthSession{})
+	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 1}, AuthSession{})
 	conn.writeQueueFullGrace = 100 * time.Millisecond
 	if !conn.SendPush("first", nil) {
 		t.Fatalf("expected first enqueue to succeed")
@@ -314,17 +314,22 @@ func TestConnSourceKeepsAsyncDispatchAndConnectedOrdering(t *testing.T) {
 		t.Fatalf("expected Run() to dispatch requests asynchronously")
 	}
 	writeLoopIdx := strings.Index(source, `go c.writeLoop()`)
-	connectedIdx := strings.Index(source, `c.SendPush("connected", map[string]any{"sessionId": c.sessionID})`)
+	connectedIdx := strings.Index(source, `c.SendPush("connected", map[string]any{`)
+	hubRegisterIdx := strings.Index(source, `c.hub.register(c)`)
+	notifyOpenedIdx := strings.Index(source, `c.notifyOpened()`)
 	if writeLoopIdx < 0 || connectedIdx < 0 {
 		t.Fatalf("expected Run() to start writer and send connected push")
 	}
 	if writeLoopIdx > connectedIdx {
 		t.Fatalf("expected connected push to be enqueued after writeLoop starts")
 	}
+	if hubRegisterIdx < connectedIdx || notifyOpenedIdx < connectedIdx {
+		t.Fatalf("expected connected push to be enqueued before Hub registration and opened callback")
+	}
 }
 
 func TestConnStartStreamForwardMapsExpiredRunErrorToErrorReason(t *testing.T) {
-	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 8, MaxObservesPerConn: 2}, time.Second, AuthSession{})
+	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 8, MaxObservesPerConn: 2}, AuthSession{})
 	if _, err := conn.ReserveStream("req_1", "run_1"); err != nil {
 		t.Fatalf("reserve stream: %v", err)
 	}
@@ -365,7 +370,7 @@ func TestConnStartStreamForwardMapsExpiredRunErrorToErrorReason(t *testing.T) {
 }
 
 func TestConnStartStreamForwardMarksObserverDoneAfterTerminalFrame(t *testing.T) {
-	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 8, MaxObservesPerConn: 2}, time.Second, AuthSession{})
+	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 8, MaxObservesPerConn: 2}, AuthSession{})
 	if _, err := conn.ReserveStream("req_1", "run_1"); err != nil {
 		t.Fatalf("reserve stream: %v", err)
 	}
@@ -413,7 +418,7 @@ func TestConnStartStreamForwardMarksObserverDoneAfterTerminalFrame(t *testing.T)
 }
 
 func TestConnConnectedPushPayload(t *testing.T) {
-	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{})
+	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{})
 	if !conn.SendPush("connected", map[string]any{"sessionId": conn.SessionID()}) {
 		t.Fatalf("expected connected push to enqueue")
 	}

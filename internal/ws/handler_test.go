@@ -55,7 +55,7 @@ func TestWSIntegrationGated(t *testing.T) {
 	if os.Getenv("RUN_SOCKET_TESTS") == "" {
 		t.Skip("set RUN_SOCKET_TESTS=1 to run websocket integration tests")
 	}
-	handler := NewHandler(config.WebSocketConfig{WriteQueueSize: 4, PingInterval: 30}, time.Second, NewHub(), testAuthenticator{})
+	handler := NewHandler(config.WebSocketConfig{WriteQueueSize: 4, PingInterval: 30}, NewHub(), testAuthenticator{})
 	if handler == nil {
 		t.Fatalf("expected handler")
 	}
@@ -63,8 +63,8 @@ func TestWSIntegrationGated(t *testing.T) {
 
 func TestAuthRefreshValidatesExpiryBeforeUpdatingConnection(t *testing.T) {
 	oldExpiry := time.Now().Add(time.Hour).UnixMilli()
-	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{ExpiresAt: oldExpiry})
-	handler := NewHandler(config.WebSocketConfig{WriteQueueSize: 4}, time.Second, nil, refreshAuthenticator{
+	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{ExpiresAt: oldExpiry})
+	handler := NewHandler(config.WebSocketConfig{WriteQueueSize: 4}, nil, refreshAuthenticator{
 		auth: AuthSession{ExpiresAt: 1_700_000_000}, // Unix seconds, invalid for public expiry
 	})
 	handler.routeRequest(context.Background(), conn, RequestFrame{
@@ -88,8 +88,8 @@ func TestAuthRefreshValidatesExpiryBeforeUpdatingConnection(t *testing.T) {
 
 func TestAuthRefreshOmitsAbsentExpiryAndUsesEpochMilliseconds(t *testing.T) {
 	t.Run("absent", func(t *testing.T) {
-		conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{})
-		handler := NewHandler(config.WebSocketConfig{WriteQueueSize: 4}, time.Second, nil, refreshAuthenticator{auth: AuthSession{}})
+		conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{})
+		handler := NewHandler(config.WebSocketConfig{WriteQueueSize: 4}, nil, refreshAuthenticator{auth: AuthSession{}})
 		handler.routeRequest(context.Background(), conn, RequestFrame{Type: "auth.refresh", ID: "refresh-none", Payload: MarshalPayload(map[string]any{"token": "fresh"})})
 		message := mustReadQueuedMessage(t, conn.writeQueue)
 		frame, ok := message.frame.(ResponseFrame)
@@ -104,8 +104,8 @@ func TestAuthRefreshOmitsAbsentExpiryAndUsesEpochMilliseconds(t *testing.T) {
 
 	t.Run("milliseconds", func(t *testing.T) {
 		const expiresAt = int64(1_700_000_000_000)
-		conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{})
-		handler := NewHandler(config.WebSocketConfig{WriteQueueSize: 4}, time.Second, nil, refreshAuthenticator{auth: AuthSession{ExpiresAt: expiresAt}})
+		conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{})
+		handler := NewHandler(config.WebSocketConfig{WriteQueueSize: 4}, nil, refreshAuthenticator{auth: AuthSession{ExpiresAt: expiresAt}})
 		handler.routeRequest(context.Background(), conn, RequestFrame{Type: "auth.refresh", ID: "refresh-ms", Payload: MarshalPayload(map[string]any{"token": "fresh"})})
 		message := mustReadQueuedMessage(t, conn.writeQueue)
 		frame, ok := message.frame.(ResponseFrame)

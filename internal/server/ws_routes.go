@@ -115,7 +115,7 @@ func strictNumericDateSeconds(value any) (int64, error) {
 }
 
 func (s *Server) newWSHandler(hub *ws.Hub) *ws.Handler {
-	handler := ws.NewHandler(s.deps.Config.WebSocket, time.Duration(s.deps.Config.SSE.HeartbeatInterval)*time.Second, hub, wsTokenAuthenticator{server: s})
+	handler := ws.NewHandler(s.deps.Config.WebSocket, hub, wsTokenAuthenticator{server: s})
 	handler.SetDefaultLocale(i18n.DefaultLocale)
 	if s.deps.ChannelSessions != nil {
 		handler.SetChannelLifecycleCallbacks(ws.ConnectionLifecycleCallbacks{

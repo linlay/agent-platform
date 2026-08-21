@@ -2,13 +2,12 @@ package ws
 
 import (
 	"testing"
-	"time"
 
 	"agent-platform/internal/config"
 )
 
 func TestConnReleaseTerminalStatusStreamValidatesKind(t *testing.T) {
-	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 8, MaxObservesPerConn: 3}, time.Second, AuthSession{})
+	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 8, MaxObservesPerConn: 3}, AuthSession{})
 	if _, err := conn.ReserveStream("run_req", "run_1"); err != nil {
 		t.Fatalf("reserve run stream: %v", err)
 	}

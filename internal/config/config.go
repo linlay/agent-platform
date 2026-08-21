@@ -541,11 +541,14 @@ type LSPServerConfig struct {
 }
 
 type WebSocketConfig struct {
-	MaxMessageSizeBytes int
-	PingInterval        int64 // seconds
-	WriteTimeout        int64 // seconds
-	WriteQueueSize      int
-	MaxObservesPerConn  int
+	MaxMessageSizeBytes  int
+	PingInterval         int64 // seconds
+	PongTimeout          int64 // seconds
+	HeartbeatInterval    int64 // seconds
+	ClientSilenceTimeout int64 // seconds, advertised to protocol-v2 clients
+	WriteTimeout         int64 // seconds
+	WriteQueueSize       int
+	MaxObservesPerConn   int
 }
 
 const (

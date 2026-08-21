@@ -223,8 +223,8 @@ func TestInitialListFailureRetriesWithoutMutatingRegistrations(t *testing.T) {
 func TestAgentRegistrationWaitsForConnectedAndAggregatesSessions(t *testing.T) {
 	source := &cardTestCatalog{agents: []api.AgentSummary{{Key: "support"}}, defs: map[string]catalog.AgentDefinition{"support": exportedTestAgent("support", catalog.AgentChannelAllow{Query: true})}}
 	reporter := newAgentCardReporter(context.Background(), source, agentCardReporterOptions{AckTimeout: 20 * time.Millisecond, RetryDelays: []time.Duration{time.Millisecond}})
-	connA := ws.NewConn(nil, nil, testWebSocketConfig(), time.Second, ws.AuthSession{})
-	connB := ws.NewConn(nil, nil, testWebSocketConfig(), time.Second, ws.AuthSession{})
+	connA := ws.NewConn(nil, nil, testWebSocketConfig(), ws.AuthSession{})
+	connB := ws.NewConn(nil, nil, testWebSocketConfig(), ws.AuthSession{})
 	reporter.ChannelConnected("peer-a", connA, 10*time.Millisecond)
 	time.Sleep(20 * time.Millisecond)
 	status, ok := reporter.AgentCardStatus("peer-a", "support")
@@ -250,7 +250,7 @@ func TestAgentRegistrationWaitsForConnectedAndAggregatesSessions(t *testing.T) {
 func TestConflictingConnectedDeclarationStopsSessionReconciliation(t *testing.T) {
 	source := &cardTestCatalog{agents: []api.AgentSummary{{Key: "support"}}, defs: map[string]catalog.AgentDefinition{"support": exportedTestAgent("support", catalog.AgentChannelAllow{Query: true})}}
 	reporter := newAgentCardReporter(context.Background(), source, agentCardReporterOptions{})
-	conn := ws.NewConn(nil, nil, testWebSocketConfig(), time.Second, ws.AuthSession{})
+	conn := ws.NewConn(nil, nil, testWebSocketConfig(), ws.AuthSession{})
 	reporter.ChannelConnected("peer-a", conn, time.Second)
 	reporter.mu.Lock()
 	reporter.sessions[conn].connected = &api.GatewayAgentConnectedData{
