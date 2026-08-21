@@ -3,7 +3,6 @@ package ws
 import (
 	"context"
 	"testing"
-	"time"
 
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
@@ -40,10 +39,10 @@ func TestHubWebClientSurfaceReplacesOldConnection(t *testing.T) {
 		DeviceIDVerified: true,
 		Scope:            "app",
 	}
-	first := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, auth)
+	first := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, auth)
 	first.SetClientMetadata("desktop-chat", "device-1")
 	first.SetClientSurfaceID("surface-1")
-	second := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, auth)
+	second := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, auth)
 	second.SetClientMetadata("desktop-copilot", "device-1")
 	second.SetClientSurfaceID("surface-1")
 
@@ -73,7 +72,7 @@ func TestHubWebClientSurfaceReplacesOldConnection(t *testing.T) {
 
 func TestHubWebClientSessionTargetDoesNotRequireSurfaceOrSource(t *testing.T) {
 	hub := NewHub()
-	conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{
+	conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{
 		Context:  context.Background(),
 		Subject:  "user-1",
 		DeviceID: "device-1",
@@ -108,7 +107,7 @@ func TestHubDesktopMainTargetTracksLatestConnectionGeneration(t *testing.T) {
 		DeviceIDVerified: true,
 		Scope:            "app",
 	}
-	first := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, auth)
+	first := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, auth)
 	first.SetClientMetadata("desktop-main", "device-1")
 	hub.register(first)
 	firstTarget, state := hub.ResolveDesktopMainTarget()
@@ -124,7 +123,7 @@ func TestHubDesktopMainTargetTracksLatestConnectionGeneration(t *testing.T) {
 		t.Fatalf("valid refreshed identity did not recover default = %#v state=%q", target, currentState)
 	}
 
-	second := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, auth)
+	second := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, auth)
 	second.SetClientMetadata("DESKTOP-MAIN", "device-1")
 	hub.register(second)
 	secondTarget, state := hub.ResolveDesktopMainTarget()
@@ -165,7 +164,7 @@ func TestHubDesktopMainTargetRequiresDesktopSourceAndDevice(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			hub := NewHub()
-			conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{
+			conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{
 				Context:          context.Background(),
 				DeviceID:         test.authDeviceID,
 				DeviceIDVerified: test.deviceIDVerified,
@@ -182,7 +181,7 @@ func TestHubDesktopMainTargetRequiresDesktopSourceAndDevice(t *testing.T) {
 
 func TestHubWebClientSurfaceDoesNotCrossSubjects(t *testing.T) {
 	hub := NewHub()
-	conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{
+	conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{
 		Context:  context.Background(),
 		Subject:  "user-1",
 		DeviceID: "device-1",
@@ -202,7 +201,7 @@ func TestHubWebClientSurfaceDoesNotCrossSubjects(t *testing.T) {
 
 func TestHubWebClientSurfaceDoesNotCrossDevices(t *testing.T) {
 	hub := NewHub()
-	conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{
+	conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{
 		Context:  context.Background(),
 		Subject:  "user-1",
 		DeviceID: "device-1",
@@ -289,9 +288,9 @@ func TestHubGatewayConnectionsReturnsActiveSnapshots(t *testing.T) {
 		ID:      "public-entry",
 		Channel: "public-entry",
 	})
-	first := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{Context: ctx, Subject: "peer-a"})
+	first := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{Context: ctx, Subject: "peer-a"})
 	first.SetClientInfo("127.0.0.1:1000", "peer-agent/1")
-	second := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{Context: ctx, Subject: "peer-b"})
+	second := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{Context: ctx, Subject: "peer-b"})
 	second.SetClientInfo("127.0.0.1:1001", "peer-agent/2")
 
 	hub.register(first)

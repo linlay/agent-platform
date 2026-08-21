@@ -139,6 +139,11 @@ type Conn struct {
 	closeOnce               sync.Once
 	closing                 atomic.Bool
 	nextStreamID            atomic.Int64
+	heartbeatSequence       atomic.Int64
+	lastInboundAt           atomic.Int64
+	lastPingAt              atomic.Int64
+	lastPongAt              atomic.Int64
+	lastHeartbeatAt         atomic.Int64
 }
 
 func (c *Conn) SetRequestBaseURL(baseURL string) {
@@ -159,18 +164,27 @@ var nextSessionID atomic.Int64
 
 // NewSilentConn 是 NewConn 的 Channel 连接变体：不主动发普通客户端使用的
 // push.connected / heartbeat / auth.expiring；WebSocket ping、双向请求和对端 push 保留。
-func NewSilentConn(socket *gws.Conn, hub *Hub, cfg config.WebSocketConfig, heartbeatInterval time.Duration, auth AuthSession) *Conn {
-	c := NewConn(socket, hub, cfg, heartbeatInterval, auth)
+func NewSilentConn(socket *gws.Conn, hub *Hub, cfg config.WebSocketConfig, auth AuthSession) *Conn {
+	c := NewConn(socket, hub, cfg, auth)
 	c.silent = true
 	return c
 }
 
-func NewConn(socket *gws.Conn, hub *Hub, cfg config.WebSocketConfig, heartbeatInterval time.Duration, auth AuthSession) *Conn {
+func NewConn(socket *gws.Conn, hub *Hub, cfg config.WebSocketConfig, auth AuthSession) *Conn {
 	if cfg.MaxMessageSizeBytes <= 0 {
 		cfg.MaxMessageSizeBytes = defaultMaxMessageSizeBytes
 	}
 	if cfg.PingInterval <= 0 {
 		cfg.PingInterval = defaultPingInterval
+	}
+	if cfg.PongTimeout <= 0 {
+		cfg.PongTimeout = defaultPongTimeout
+	}
+	if cfg.HeartbeatInterval <= 0 {
+		cfg.HeartbeatInterval = defaultHeartbeatInterval
+	}
+	if cfg.ClientSilenceTimeout <= 0 {
+		cfg.ClientSilenceTimeout = defaultClientSilenceTimeout
 	}
 	if cfg.WriteTimeout <= 0 {
 		cfg.WriteTimeout = defaultWriteTimeout
@@ -181,9 +195,7 @@ func NewConn(socket *gws.Conn, hub *Hub, cfg config.WebSocketConfig, heartbeatIn
 	if cfg.MaxObservesPerConn <= 0 {
 		cfg.MaxObservesPerConn = defaultMaxObservesPerConn
 	}
-	if heartbeatInterval <= 0 {
-		heartbeatInterval = time.Duration(cfg.PingInterval) * time.Second
-	}
+	heartbeatInterval := time.Duration(cfg.HeartbeatInterval) * time.Second
 	remoteAddr := ""
 	if socket != nil && socket.RemoteAddr() != nil {
 		remoteAddr = socket.RemoteAddr().String()
@@ -332,32 +344,47 @@ func (c *Conn) Run(dispatch RouteHandler) {
 	if c == nil || c.socket == nil {
 		return
 	}
-	if c.hub != nil {
-		c.hub.register(c)
-	}
 	defer c.close(gws.CloseNormalClosure, "connection closed")
 
-	pongWait := 2 * time.Duration(c.cfg.PingInterval) * time.Second
+	pongWait := time.Duration(c.cfg.PongTimeout) * time.Second
 	if pongWait <= 0 {
 		pongWait = 60 * time.Second
 	}
 	c.socket.SetReadLimit(int64(c.cfg.MaxMessageSizeBytes))
 	_ = c.socket.SetReadDeadline(time.Now().Add(pongWait))
 	c.socket.SetPongHandler(func(string) error {
+		c.lastPongAt.Store(time.Now().UnixMilli())
 		return c.socket.SetReadDeadline(time.Now().Add(pongWait))
 	})
 
 	go c.writeLoop()
-	c.notifyOpened()
 	if !c.silent {
-		c.SendPush("connected", map[string]any{"sessionId": c.sessionID})
+		now := time.Now().UnixMilli()
+		if !c.SendPush("connected", map[string]any{
+			"protocolVersion": ProtocolVersion,
+			"sessionId":       c.sessionID,
+			"serverTime":      now,
+			"liveness": map[string]any{
+				"heartbeatIntervalMs": time.Duration(c.cfg.HeartbeatInterval) * time.Second / time.Millisecond,
+				"silenceTimeoutMs":    time.Duration(c.cfg.ClientSilenceTimeout) * time.Second / time.Millisecond,
+			},
+		}) {
+			return
+		}
 	}
+	// A normal client must observe connected v2 before any Hub broadcast or
+	// lifecycle callback can enqueue another frame for this connection.
+	if c.hub != nil {
+		c.hub.register(c)
+	}
+	c.notifyOpened()
 
 	for {
 		_, data, err := c.socket.ReadMessage()
 		if err != nil {
 			return
 		}
+		c.lastInboundAt.Store(time.Now().UnixMilli())
 		var req RequestFrame
 		if err := json.Unmarshal(data, &req); err != nil {
 			c.recordInboundMessage(data, RequestFrame{}, "invalid json frame")
@@ -971,7 +998,14 @@ func (c *Conn) writeLoop() {
 			return
 		case <-heartbeatTicker.C:
 			if !c.silent && !c.isClosed() {
-				c.SendPush("heartbeat", map[string]any{"timestamp": time.Now().UnixMilli()})
+				now := time.Now().UnixMilli()
+				sequence := c.heartbeatSequence.Add(1)
+				c.lastHeartbeatAt.Store(now)
+				c.SendPush("heartbeat", map[string]any{
+					"sessionId": c.sessionID,
+					"sequence":  sequence,
+					"timestamp": now,
+				})
 			}
 			expiresAt := c.expiresAt()
 			if expiresAt > 0 {
@@ -986,6 +1020,7 @@ func (c *Conn) writeLoop() {
 				}
 			}
 		case <-pingTicker.C:
+			c.lastPingAt.Store(time.Now().UnixMilli())
 			if err := c.writeControl(gws.PingMessage, nil); err != nil {
 				c.close(gws.CloseAbnormalClosure, err.Error())
 				return

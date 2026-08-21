@@ -53,6 +53,8 @@ type MonitorFilter struct {
 }
 
 type MonitorConnection struct {
+	ProtocolVersion  int    `json:"protocolVersion"`
+	Generation       int64  `json:"generation"`
 	SessionID        string `json:"sessionId"`
 	Kind             string `json:"kind"`
 	Active           bool   `json:"active"`
@@ -67,6 +69,10 @@ type MonitorConnection struct {
 	ClosedAt         int64  `json:"closedAt,omitempty"`
 	LastSeenAt       int64  `json:"lastSeenAt,omitempty"`
 	LastMessageAt    int64  `json:"lastMessageAt,omitempty"`
+	LastInboundAt    int64  `json:"lastInboundAt,omitempty"`
+	LastPingAt       int64  `json:"lastPingAt,omitempty"`
+	LastPongAt       int64  `json:"lastPongAt,omitempty"`
+	LastHeartbeatAt  int64  `json:"lastHeartbeatAt,omitempty"`
 	ReceivedMessages int64  `json:"receivedMessages"`
 	SentMessages     int64  `json:"sentMessages"`
 	Errors           int64  `json:"errors"`
@@ -118,6 +124,10 @@ type monitorRuntimeDetails struct {
 	InflightRequests int
 	ActiveStreams    int
 	WriteQueueDepth  int
+	LastInboundAt    int64
+	LastPingAt       int64
+	LastPongAt       int64
+	LastHeartbeatAt  int64
 }
 
 func (filter MonitorFilter) normalized() MonitorFilter {
@@ -341,6 +351,10 @@ func (h *Hub) monitorConnectionSnapshots(limit int, filter MonitorFilter) (int, 
 			item.InflightRequests = details.InflightRequests
 			item.ActiveStreams = details.ActiveStreams
 			item.WriteQueueDepth = details.WriteQueueDepth
+			item.LastInboundAt = details.LastInboundAt
+			item.LastPingAt = details.LastPingAt
+			item.LastPongAt = details.LastPongAt
+			item.LastHeartbeatAt = details.LastHeartbeatAt
 		}
 		connections = append(connections, item)
 	}
@@ -410,6 +424,8 @@ func (state *monitorConnectionState) snapshot() MonitorConnection {
 		return MonitorConnection{}
 	}
 	return MonitorConnection{
+		ProtocolVersion:  ProtocolVersion,
+		Generation:       state.ConnectedSeq,
 		SessionID:        state.SessionID,
 		Kind:             state.Kind,
 		Active:           state.Active,
@@ -517,6 +533,10 @@ func (c *Conn) monitorRuntimeDetails() monitorRuntimeDetails {
 		InflightRequests: inflightRequests,
 		ActiveStreams:    activeStreams,
 		WriteQueueDepth:  writeQueueDepth,
+		LastInboundAt:    c.lastInboundAt.Load(),
+		LastPingAt:       c.lastPingAt.Load(),
+		LastPongAt:       c.lastPongAt.Load(),
+		LastHeartbeatAt:  c.lastHeartbeatAt.Load(),
 	}
 }
 

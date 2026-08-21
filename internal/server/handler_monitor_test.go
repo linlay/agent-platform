@@ -44,6 +44,13 @@ func TestMonitorEndpointsExposeWebSocketSnapshot(t *testing.T) {
 	if connected.Frame != ws.FramePush || connected.Type != "connected" || sessionID == "" {
 		t.Fatalf("unexpected connected push: %#v", connected)
 	}
+	if data["protocolVersion"] != float64(ws.ProtocolVersion) || data["serverTime"] == nil {
+		t.Fatalf("expected protocol-v2 connected push, got %#v", data)
+	}
+	liveness, _ := data["liveness"].(map[string]any)
+	if liveness["heartbeatIntervalMs"] != float64(30000) || liveness["silenceTimeoutMs"] != float64(100000) {
+		t.Fatalf("unexpected liveness policy: %#v", liveness)
+	}
 
 	if err := conn.WriteJSON(ws.RequestFrame{
 		Frame:   ws.FrameRequest,

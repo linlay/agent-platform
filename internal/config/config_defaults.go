@@ -140,6 +140,12 @@ func defaultConfig(options LoadOptions) Config {
 		SSE: SSEConfig{
 			HeartbeatInterval: 30, // seconds
 		},
+		WebSocket: WebSocketConfig{
+			PingInterval:         30,
+			PongTimeout:          60,
+			HeartbeatInterval:    30,
+			ClientSilenceTimeout: 100,
+		},
 		Auth: AuthConfig{
 			Enabled:            true,
 			LocalPublicKeyFile: filepath.Join("configs", "local-public-key.pem"),

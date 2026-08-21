@@ -53,7 +53,7 @@ func TestClientConnectDispatchBroadcastAndReconnect(t *testing.T) {
 		WriteQueueSize:      8,
 		MaxObservesPerConn:  4,
 	}
-	handler := ws.NewHandler(wsCfg, 50*time.Millisecond, hub, testAuthenticator{})
+	handler := ws.NewHandler(wsCfg, hub, testAuthenticator{})
 	handler.RegisterRoute("/api/agents", func(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
 		conn.SendResponse(req.Type, req.ID, 0, "success", map[string]any{"agents": []string{"demo"}})
 		conn.CompleteRequest(req.ID)
@@ -160,7 +160,7 @@ func TestClientStopClosesActiveConnection(t *testing.T) {
 		WriteQueueSize:      8,
 		MaxObservesPerConn:  4,
 	}
-	handler := ws.NewHandler(wsCfg, 50*time.Millisecond, hub, testAuthenticator{})
+	handler := ws.NewHandler(wsCfg, hub, testAuthenticator{})
 	client := New(Config{
 		URL:              wsURL(server.URL),
 		Token:            "dev-token",
@@ -225,7 +225,7 @@ func TestClientStopBeforeStartMakesStartNoOp(t *testing.T) {
 		WriteQueueSize:      8,
 		MaxObservesPerConn:  4,
 	}
-	handler := ws.NewHandler(wsCfg, 50*time.Millisecond, hub, testAuthenticator{})
+	handler := ws.NewHandler(wsCfg, hub, testAuthenticator{})
 	client := New(Config{
 		URL:              wsURL(server.URL),
 		Token:            "dev-token",

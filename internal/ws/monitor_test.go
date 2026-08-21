@@ -44,7 +44,7 @@ func TestHubMonitorDropsMessagesWithoutValidTimestamp(t *testing.T) {
 
 func TestHubMonitorTracksConnectionLifecycle(t *testing.T) {
 	hub := NewHub()
-	conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{Subject: "tester"})
+	conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{Subject: "tester"})
 	conn.SetClientInfo("192.168.1.42:4815", "monitor-test-agent")
 	conn.SetClientMetadata("desktop-chat", "device-123")
 
@@ -60,6 +60,9 @@ func TestHubMonitorTracksConnectionLifecycle(t *testing.T) {
 	latest := overview.WS.LatestConnection
 	if latest.SessionID != conn.SessionID() || !latest.Active || latest.Kind != "client" || latest.Subject != "tester" {
 		t.Fatalf("unexpected latest connection: %#v", latest)
+	}
+	if latest.ProtocolVersion != ProtocolVersion || latest.Generation <= 0 {
+		t.Fatalf("expected protocol version and physical generation, got %#v", latest)
 	}
 	if latest.RemoteAddr != "192.168.1.0" {
 		t.Fatalf("expected masked remote address, got %q", latest.RemoteAddr)
@@ -95,7 +98,7 @@ func TestHubMonitorTracksConnectionLifecycle(t *testing.T) {
 
 func TestHubMonitorRecordsRecentMessagesAndSanitizesPreview(t *testing.T) {
 	hub := NewHub()
-	conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 8}, time.Second, AuthSession{})
+	conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 8}, AuthSession{})
 	conn.SetClientMetadata("APP", "device-message")
 	hub.register(conn)
 
@@ -137,7 +140,7 @@ func TestHubMonitorRecordsRecentMessagesAndSanitizesPreview(t *testing.T) {
 
 func TestMonitorRedactsTerminalInputPreview(t *testing.T) {
 	hub := NewHub()
-	conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 8}, time.Second, AuthSession{})
+	conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 8}, AuthSession{})
 	hub.register(conn)
 	raw := []byte(`{"frame":"request","type":"/api/terminal/input","id":"term_input","payload":{"terminalId":"term_1","data":"secret-token-value"}}`)
 	conn.recordInboundMessage(raw, RequestFrame{

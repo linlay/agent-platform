@@ -85,6 +85,9 @@ func TestLoadDefaults(t *testing.T) {
 				if cfg.SSE.HeartbeatInterval != 30 {
 					t.Fatalf("expected default heartbeat interval 30, got %d", cfg.SSE.HeartbeatInterval)
 				}
+				if cfg.WebSocket.PingInterval != 30 || cfg.WebSocket.PongTimeout != 60 || cfg.WebSocket.HeartbeatInterval != 30 || cfg.WebSocket.ClientSilenceTimeout != 100 {
+					t.Fatalf("unexpected websocket liveness defaults: %#v", cfg.WebSocket)
+				}
 				if !cfg.Logging.Request.Enabled ||
 					!cfg.Logging.Auth.Enabled ||
 					!cfg.Logging.Exception.Enabled ||

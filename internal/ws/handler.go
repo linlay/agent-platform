@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"strings"
-	"time"
 
 	"agent-platform/internal/config"
 	"agent-platform/internal/i18n"
@@ -17,24 +16,22 @@ import (
 )
 
 type Handler struct {
-	cfg               config.WebSocketConfig
-	heartbeatInterval time.Duration
-	hub               *Hub
-	authenticator     TokenAuthenticator
-	defaultLocale     string
-	upgrader          gws.Upgrader
-	routes            map[string]RouteHandler
-	dispatch          RouteHandler
-	channelLifecycle  ConnectionLifecycleCallbacks
+	cfg              config.WebSocketConfig
+	hub              *Hub
+	authenticator    TokenAuthenticator
+	defaultLocale    string
+	upgrader         gws.Upgrader
+	routes           map[string]RouteHandler
+	dispatch         RouteHandler
+	channelLifecycle ConnectionLifecycleCallbacks
 }
 
-func NewHandler(cfg config.WebSocketConfig, heartbeatInterval time.Duration, hub *Hub, authenticator TokenAuthenticator) *Handler {
+func NewHandler(cfg config.WebSocketConfig, hub *Hub, authenticator TokenAuthenticator) *Handler {
 	return &Handler{
-		cfg:               cfg,
-		heartbeatInterval: heartbeatInterval,
-		hub:               hub,
-		authenticator:     authenticator,
-		defaultLocale:     i18n.DefaultLocale,
+		cfg:           cfg,
+		hub:           hub,
+		authenticator: authenticator,
+		defaultLocale: i18n.DefaultLocale,
 		upgrader: gws.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
@@ -101,7 +98,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Printf("websocket upgrade failed: path=%s has_subprotocol=%t err=%v", r.URL.Path, subprotocol != "", err)
 		return
 	}
-	conn := NewConn(socket, h.hub, h.cfg, h.heartbeatInterval, auth)
+	conn := NewConn(socket, h.hub, h.cfg, auth)
 	if _, channelConnection := GatewayFromContext(auth.Context); channelConnection {
 		conn.silent = true
 		conn.SetLifecycleCallbacks(h.channelLifecycle)

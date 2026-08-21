@@ -625,7 +625,7 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 
 `/monitor` 页面标题旁按 `runtime.mode` 显示“运行形态 · Desktop 服务”或“运行形态 · 独立服务”，总览同时显示 Action Transport；总览加载失败时显示“运行形态未知”，不默认成 Standalone。
 
-连接项包含 `sessionId`、`kind`、`active`、`subject`、`gatewayId`、`channel`、`source`、`deviceId`、`remoteAddr`、`userAgent`、`connectedAt`、`closedAt`、`closeReason`、`lastSeenAt`、`lastMessageAt`、`receivedMessages`、`sentMessages`、`errors`、`inflightRequests`、`activeStreams`、`writeQueueDepth`。
+连接项包含 `protocolVersion`、`generation`、`sessionId`、`kind`、`active`、`subject`、`gatewayId`、`channel`、`source`、`deviceId`、`remoteAddr`、`userAgent`、`connectedAt`、`closedAt`、`closeReason`、`lastSeenAt`、`lastMessageAt`、`lastInboundAt`、`lastPingAt`、`lastPongAt`、`lastHeartbeatAt`、`receivedMessages`、`sentMessages`、`errors`、`inflightRequests`、`activeStreams`、`writeQueueDepth`。
 
 消息项包含 `seq`、`timestamp`、`sessionId`、`source`、`deviceId`、`direction`、`frame`、`type`、`id`、`sizeBytes`、`payloadPreview`、`truncated`、`error`。`payloadPreview` 只保存脱敏后的截断摘要，最多 512 字符；不会记录完整 payload，不记录 ping/pong/control frame，并跳过 `push.heartbeat`。
 
@@ -639,6 +639,10 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 - 客户端可通过 query 自报监控元数据：`source` 与 `deviceId`，例如 `/ws?source=webclient&deviceId=device-123`；`source` 转小写后只用于监控和日志展示，不参与 Action 路由、权限、能力声明或安全边界，缺省时不影响当前连接发起的 WS Query。
 - WebClient 控制连接额外携带 `surfaceId`，推荐形式为 `/ws?source=WebClient&deviceId=device-123&surfaceId=surface-123`。Platform 在握手时记录该元数据，不需要注册帧；同一 client boundary 与 `surfaceId` 的新连接替换旧连接。`source` 可以是 Desktop 提供的 `desktop-chat`、`desktop-copilot` 或其他观测值，不影响 Target 构造。
 - WebSocket 控制面常开；没有单独的关闭开关。
+
+普通 `/ws` 使用唯一的协议版本 2。Upgrade 成功后服务端必须先发送 `push.connected`；客户端校验该帧后才能把连接视为可用。版本缺失/不匹配、首帧不是 connected、字段缺失或存活参数越界都属于协议错误，应立即关闭而不是继续收发业务帧。握手等待上限为 10 秒。
+
+WebSocket 存活配置与 SSE heartbeat 完全独立。服务端默认每 30 秒发送 RFC WebSocket Ping，Pong 等待 60 秒；应用 heartbeat 默认每 30 秒发送一次，向客户端协商 100 秒静默阈值。`heartbeatIntervalMs` 只允许 5～120 秒；`silenceTimeoutMs` 至少为 `2 × heartbeatIntervalMs + 10 秒` 且不超过 10 分钟。客户端以任意合法入站帧刷新 `lastInboundAt`，单独记录 `lastHeartbeatAt` 仅用于诊断，不能在业务帧持续到达时因未见 heartbeat 而误断。
 
 ### 帧类型
 
@@ -692,7 +696,8 @@ Desktop 模式由 Main Broker 处理这两种 request；Standalone 只由当前�
 推送帧与错误帧：
 
 ```json
-{"frame":"push","type":"connected","data":{}}
+{"frame":"push","type":"connected","data":{"protocolVersion":2,"sessionId":"ws_123","serverTime":1787281659000,"liveness":{"heartbeatIntervalMs":30000,"silenceTimeoutMs":100000}}}
+{"frame":"push","type":"heartbeat","data":{"sessionId":"ws_123","sequence":17,"timestamp":1787281689000}}
 {"frame":"error","type":"invalid_request","id":"req-1","code":400,"msg":"...","data":{}}
 {"frame":"error","type":"active_run_conflict","id":"req-1","code":409,"msg":"multiple active runs found for chat","data":{"code":"active_run_conflict","message":"multiple active runs found for chat","chatId":"chat-id","runIds":["run-1","run-2"]}}
 ```
@@ -701,8 +706,8 @@ Desktop 模式由 Main Broker 处理这两种 request；Standalone 只由当前�
 
 | Push type | data |
 |---|---|
-| `connected` | `sessionId` |
-| `heartbeat` | `timestamp` |
+| `connected` | `protocolVersion=2`、`sessionId`、`serverTime`、`liveness.heartbeatIntervalMs`、`liveness.silenceTimeoutMs` |
+| `heartbeat` | `sessionId`、单调递增 `sequence`、`timestamp` |
 | `auth.expiring` | `expiresAt` |
 | `run.started` | `runId`、`chatId`、`agentKey`、必填 `startedAt` |
 | `run.finished` | `runId`、`chatId`、`status`、`finishReason`、必填 `finishedAt` |
