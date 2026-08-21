@@ -229,9 +229,24 @@ function Invoke-ProgramRuntimeResourceSync {
   if (-not [string]::IsNullOrWhiteSpace($Script:DeployRuntimeResourcePreviousSource)) {
     $arguments += @('--runtime-resource-previous-source', $Script:DeployRuntimeResourcePreviousSource)
   }
-  & $Script:BackendBin @arguments
-  if ($LASTEXITCODE -ne 0) {
-    Fail-Program "runtime-resource-sync failed with exit code $LASTEXITCODE"
+  $previousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try {
+    $nativeOutput = @(& $Script:BackendBin @arguments 2>&1)
+    $nativeExitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+  foreach ($item in $nativeOutput) {
+    if ($item -is [System.Management.Automation.ErrorRecord] -and
+        [string]$item.FullyQualifiedErrorId -eq 'NativeCommandError') {
+      Write-Output ([string]$item)
+      continue
+    }
+    Write-Output $item
+  }
+  if ($nativeExitCode -ne 0) {
+    Fail-Program "runtime-resource-sync failed with exit code $nativeExitCode"
   }
 }
 
