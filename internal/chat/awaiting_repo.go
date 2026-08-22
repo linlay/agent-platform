@@ -115,19 +115,17 @@ func loadPersistedAwaitingStepFromLines(lines []map[string]any, awaitingID strin
 			continue
 		}
 		latest = &PersistedAwaitingStep{
-			RunID:             strings.TrimSpace(stringValue(line["runId"])),
-			TaskID:            strings.TrimSpace(stringValue(line["taskId"])),
-			TaskStatus:        strings.TrimSpace(stringValue(line["taskStatus"])),
-			TaskSubAgentKey:   strings.TrimSpace(stringValue(line["taskSubAgentKey"])),
-			TeamID:            strings.TrimSpace(stringValue(line["teamId"])),
-			Presentation:      strings.TrimSpace(stringValue(line["presentation"])),
-			Stage:             strings.TrimSpace(stringValue(line["stage"])),
-			Seq:               int(int64FromAny(line["seq"])),
-			RunEnvRevision:    nonNegativeUint64(line["_runEnvRevision"]),
-			HasRunEnvRevision: line["_runEnvRevision"] != nil,
-			Ask:               matchedAsk,
-			ToolCalls:         persistedAwaitingToolCalls(line["messages"]),
-			ResultToolIDs:     map[string]bool{},
+			RunID:           strings.TrimSpace(stringValue(line["runId"])),
+			TaskID:          strings.TrimSpace(stringValue(line["taskId"])),
+			TaskStatus:      strings.TrimSpace(stringValue(line["taskStatus"])),
+			TaskSubAgentKey: strings.TrimSpace(stringValue(line["taskSubAgentKey"])),
+			TeamID:          strings.TrimSpace(stringValue(line["teamId"])),
+			Presentation:    strings.TrimSpace(stringValue(line["presentation"])),
+			Stage:           strings.TrimSpace(stringValue(line["stage"])),
+			Seq:             int(int64FromAny(line["seq"])),
+			Ask:             matchedAsk,
+			ToolCalls:       persistedAwaitingToolCalls(line["messages"]),
+			ResultToolIDs:   map[string]bool{},
 		}
 	}
 	if latest == nil {

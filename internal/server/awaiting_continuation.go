@@ -296,7 +296,7 @@ func (s *Server) startAwaitingContinuationWithAdmission(
 	runCtx, control := registered.RunCtx, registered.Control
 
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
-	stepWriter := chat.NewStepWriter(s.deps.Chats, chatID, runID, agentDef.Mode, runEnvironmentRevisionOption(session))
+	stepWriter := chat.NewStepWriter(s.deps.Chats, chatID, runID, agentDef.Mode)
 	StartRunExecutor(RunExecutorParams{
 		RunCtx:            runCtx,
 		Request:           req,

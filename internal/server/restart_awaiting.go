@@ -37,7 +37,7 @@ func persistedAwaitingCanContinue(step *chat.PersistedAwaitingStep, publicAwaiti
 func restartTerminalAwaitingCode(answer map[string]any) string {
 	errorPayload := contracts.AnyMapNode(answer["error"])
 	switch code := strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(errorPayload["code"]))); code {
-	case "timeout", "runtime_restarted", "run_env_restore_failed":
+	case "timeout", "runtime_restarted":
 		return code
 	default:
 		return ""

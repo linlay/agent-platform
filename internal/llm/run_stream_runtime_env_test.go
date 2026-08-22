@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"path/filepath"
 	"testing"
 
 	"agent-platform/internal/contracts"
@@ -9,18 +8,7 @@ import (
 )
 
 func TestKnownRuntimeVariablesMergesDynamicIntoEmptyStaticEnvironment(t *testing.T) {
-	root := t.TempDir()
-	store := runenv.NewStore(
-		filepath.Join(root, "state"),
-		filepath.Join(root, "identity", "run-env.key"),
-		runenv.Limits{},
-	)
-	scope, err := store.NewScope(runenv.Identity{
-		RunID: "run-1", ChatID: "chat-1", Owner: "agent:test", AgentKey: "test",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	scope := runenv.NewScope(runenv.Limits{})
 	defer scope.Destroy()
 
 	if _, err := scope.Mutate(runenv.MutationRequest{

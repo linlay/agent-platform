@@ -177,10 +177,6 @@ func (w *StepWriter) flushAllTaskSteps() {
 func (w *StepWriter) bufferAwaitingEvent(event stream.EventData) {
 	m := eventPayloadWithoutSeq(event)
 	w.pendingAwaiting = append(w.pendingAwaiting, m)
-	if w.runEnvRevision != nil {
-		revision := w.runEnvRevision()
-		w.pendingRunEnvRevision = &revision
-	}
 	w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
 	w.lastTimestamp = event.Timestamp
 	if w.modelTurnCommitRequired && !w.modelTurnCommitted {

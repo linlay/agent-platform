@@ -44,8 +44,6 @@ type StepWriter struct {
 
 	// pending step-level metadata captured during the current LLM turn
 	pendingAwaiting         []map[string]any
-	pendingRunEnvRevision   *uint64
-	runEnvRevision          func() uint64
 	pendingQueryMessages    []map[string]any
 	pendingApproval         *StepApproval
 	pendingSubmit           map[string]any
@@ -73,18 +71,8 @@ type StepWriter struct {
 	persistenceErr error
 }
 
-type StepWriterOption func(*StepWriter)
-
-// WithRunEnvironmentRevision snapshots private root-run recovery metadata when
-// an awaiting.ask is persisted. It does not modify the public stream event.
-func WithRunEnvironmentRevision(revision func() uint64) StepWriterOption {
-	return func(writer *StepWriter) {
-		writer.runEnvRevision = revision
-	}
-}
-
 // NewStepWriter creates a StepWriter for a single run.
-func NewStepWriter(store StepLineStore, chatID, runID, mode string, opts ...StepWriterOption) *StepWriter {
+func NewStepWriter(store StepLineStore, chatID, runID, mode string) *StepWriter {
 	w := &StepWriter{
 		store:         store,
 		chatID:        chatID,
@@ -94,11 +82,6 @@ func NewStepWriter(store StepLineStore, chatID, runID, mode string, opts ...Step
 		closedTaskIDs: map[string]bool{},
 		toolNames:     map[string]string{},
 		toolTaskIDs:   map[string]string{},
-	}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(w)
-		}
 	}
 	return w
 }
@@ -847,9 +830,7 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	}
 	if len(w.pendingAwaiting) > 0 {
 		line.Awaiting = w.pendingAwaiting
-		line.RunEnvRevision = w.pendingRunEnvRevision
 		w.pendingAwaiting = nil
-		w.pendingRunEnvRevision = nil
 	}
 	if w.pendingUsage != nil {
 		line.Usage = w.pendingUsage
@@ -902,7 +883,6 @@ func (w *StepWriter) clearCurrentStep() {
 	w.messages = nil
 	w.stepLiveSeq = 0
 	w.pendingAwaiting = nil
-	w.pendingRunEnvRevision = nil
 	w.pendingApproval = nil
 	w.pendingUsage = nil
 	w.pendingContextWindowMax = 0

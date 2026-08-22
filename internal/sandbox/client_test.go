@@ -390,11 +390,7 @@ func TestSandboxCommandSnapshotUpdatesWithoutChangingSessionFingerprint(t *testi
 	paths := sandboxTestPaths(t, "reader")
 	service := NewContainerHubSandboxService(config.ContainerHubConfig{Enabled: true, DefaultEnvironmentID: "daily-office-pro"}, paths)
 	execCtx := sandboxTestExecutionContext("run-dynamic", "req-dynamic", sandboxWorkspace(paths))
-	store := runenv.NewStore(filepath.Join(t.TempDir(), "state"), filepath.Join(t.TempDir(), "identity", "run-env.key"), runenv.Limits{})
-	scope, err := store.NewScope(runenv.Identity{RunID: "run-dynamic", ChatID: "chat-1", Owner: "agent:reader", AgentKey: "reader"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	scope := runenv.NewScope(runenv.Limits{})
 	defer scope.Destroy()
 	execCtx.StaticRuntimeEnv = map[string]string{"SESSION_CONTEXT": "static"}
 	execCtx.RunEnvironment = scope
@@ -424,9 +420,7 @@ func TestSandboxCommandSnapshotUpdatesWithoutChangingSessionFingerprint(t *testi
 	if value := mustSandboxCommandEnvironment(t, execCtx, nil)["SESSION_CONTEXT"]; value != "static" {
 		t.Fatalf("unset did not fall back to static: %q", value)
 	}
-	if err := scope.Destroy(); err != nil {
-		t.Fatal(err)
-	}
+	scope.Destroy()
 	if _, err := sandboxCommandEnvironment(execCtx, nil); !errors.Is(err, runenv.ErrClosed) {
 		t.Fatalf("closed run environment snapshot error = %v, want ErrClosed", err)
 	}

@@ -20,7 +20,6 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/llm"
-	"agent-platform/internal/runenv"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/ws"
 
@@ -1357,7 +1356,7 @@ func TestDeferredSubmitAcceptsWithinTimeout(t *testing.T) {
 	}
 }
 
-func TestHydrationTerminalizesMissingRunEnvironmentCheckpoint(t *testing.T) {
+func TestHydrationRestoresAwaitingWithEmptyRunEnvironment(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
@@ -1377,21 +1376,23 @@ func TestHydrationTerminalizesMissingRunEnvironmentCheckpoint(t *testing.T) {
 		},
 	})
 
-	const chatID = "chat-run-env-restore-failure"
-	const runID = "run-run-env-restore-failure"
-	const awaitingID = "await-run-env-restore-failure"
-	seedDeferredAwaitingPayload(t, fixture.chats, chatID, runID, awaitingID, "question", 60, time.Now().UnixMilli()-1000, map[string]any{
-		"_runEnvRevision": 1,
-		"questions":       []any{map[string]any{"id": "q1", "question": "Need confirmation", "type": "text"}},
-	})
+	const chatID = "chat-run-env-restart"
+	const runID = "run-run-env-restart"
+	const awaitingID = "await-run-env-restart"
+	seedDeferredAwaiting(t, fixture.chats, chatID, runID, awaitingID, "question", 60, time.Now().UnixMilli()-1000)
 
 	deps := deferredRestartDependencies(fixture, fixture.chats, contracts.NewNoopNotificationSink())
-	root := t.TempDir()
-	deps.RunEnvironments = runenv.NewStore(filepath.Join(root, "state"), filepath.Join(root, "identity", "missing.key"), runenv.Limits{})
 	if _, err := New(deps); err != nil {
-		t.Fatalf("run environment restore failure must terminalize only the affected run: %v", err)
+		t.Fatalf("restart hydration failed: %v", err)
 	}
-	assertRestartTerminalizedAwaiting(t, fixture.chats, chatID, runID, awaitingID, "run_env_restore_failed")
+	scope, ok := lookupRunEnvironment(deps.Runs, runID)
+	if !ok {
+		t.Fatal("recovered awaiting run has no process-local environment")
+	}
+	snapshot, revision, err := scope.Snapshot()
+	if err != nil || revision != 0 || len(snapshot) != 0 {
+		t.Fatalf("recovered environment snapshot=%#v revision=%d err=%v", snapshot, revision, err)
+	}
 }
 
 func seedDeferredAwaiting(t *testing.T, store chat.Store, chatID string, runID string, awaitingID string, mode string, timeoutSec int, createdAt int64) {
@@ -1415,12 +1416,6 @@ func seedDeferredAwaitingPayload(t *testing.T, store chat.Store, chatID string, 
 		"timestamp":  createdAt,
 		"mode":       mode,
 		"timeout":    timeoutSec,
-	}
-	var runEnvRevision *uint64
-	if rawRevision, exists := askPayload["_runEnvRevision"]; exists {
-		revision := uint64(contracts.AnyIntNode(rawRevision))
-		runEnvRevision = &revision
-		delete(askPayload, "_runEnvRevision")
 	}
 	for key, value := range askPayload {
 		ask[key] = value
@@ -1475,8 +1470,7 @@ func seedDeferredAwaitingPayload(t *testing.T, store chat.Store, chatID string, 
 			}},
 			Ts: &messageTs,
 		}},
-		Awaiting:       []map[string]any{ask},
-		RunEnvRevision: runEnvRevision,
+		Awaiting: []map[string]any{ask},
 	}); err != nil {
 		t.Fatalf("append awaiting step line: %v", err)
 	}

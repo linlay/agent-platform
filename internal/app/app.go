@@ -29,7 +29,6 @@ import (
 	"agent-platform/internal/observability"
 	"agent-platform/internal/platformcontrol"
 	"agent-platform/internal/reload"
-	"agent-platform/internal/runenv"
 	"agent-platform/internal/runops"
 	"agent-platform/internal/runtimeenv"
 	"agent-platform/internal/sandbox"
@@ -155,11 +154,6 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	log.Printf("model registry ready in %s (root=%s)", startupElapsed(modelRegistryStartedAt), cfg.Paths.RegistriesDir)
 
 	runManager := contracts.NewInMemoryRunManager()
-	runEnvironmentStore := runenv.NewStore(cfg.Paths.RunStateDir, cfg.PlatformControl.CheckpointKeyFile, runenv.Limits{
-		MaxDynamicKeys: cfg.PlatformControl.MaxDynamicKeys, MaxValueBytes: cfg.PlatformControl.MaxValueBytes,
-		MaxTotalBytes:   cfg.PlatformControl.MaxTotalBytes,
-		ExtraDeniedKeys: append([]string(nil), cfg.PlatformControl.DenyKeys...),
-	})
 	wsHub := ws.NewHub()
 	sandboxClient := sandbox.NewContainerHubSandboxService(cfg.ContainerHub, cfg.Paths)
 	runtimeToolExecutor, err := tools.NewRuntimeToolExecutor(cfg, sandboxClient, chatStore, memoryStore, skillCandidateStore)
@@ -344,7 +338,6 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Registry:          registry,
 		Models:            modelRegistry,
 		Runs:              runManager,
-		RunEnvironments:   runEnvironmentStore,
 		Agent:             agentEngine,
 		Tools:             toolExecutor,
 		Sandbox:           sandboxClient,

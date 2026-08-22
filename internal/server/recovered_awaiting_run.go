@@ -11,7 +11,6 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/runenv"
 	"agent-platform/internal/stream"
 )
 
@@ -60,33 +59,13 @@ func (s *Server) registerRecoveredAwaitingRun(item chat.PendingAwaitingWithChat,
 		EditingMode:     editingMode,
 	}
 	if admission.teamID == "" && !isProxyRoutedAgent(admission.agentDef) && containsTool(admission.agentDef.Tools, "platform_control") {
-		if s.deps.RunEnvironments == nil {
-			return contracts.RecoveredAwaitingRun{}, fmt.Errorf("run_env_restore_failed: run environment store is unavailable")
-		}
-		subject := persistedRunEnvironmentSubject(admission.summary)
-		identity := runenv.Identity{
-			RunID: item.RunID, ChatID: item.ChatID, Subject: subject,
-			Owner: "agent:" + strings.TrimSpace(admission.agentKey), AgentKey: admission.agentKey,
-		}
-		expectedRevision := uint64(0)
-		if step != nil && step.HasRunEnvRevision {
-			expectedRevision = step.RunEnvRevision
-		} else if exists, checkpointErr := s.deps.RunEnvironments.HasCheckpoint(identity); checkpointErr != nil {
-			return contracts.RecoveredAwaitingRun{}, fmt.Errorf("run_env_restore_failed: %w", checkpointErr)
-		} else if exists {
-			return contracts.RecoveredAwaitingRun{}, fmt.Errorf("run_env_restore_failed: awaiting step has no run environment revision")
-		}
-		scope, restoreErr := s.deps.RunEnvironments.RestoreScope(identity, expectedRevision)
-		if restoreErr != nil {
-			return contracts.RecoveredAwaitingRun{}, fmt.Errorf("run_env_restore_failed: %w", restoreErr)
-		}
-		session.RunEnvironment = scope
+		session.RunEnvironment = s.newRunEnvironmentScope()
 	}
 	initialSeq := s.persistedRunLiveSeq(item.ChatID, item.RunID)
 	recovered, err := runs.RegisterRecoveredAwaiting(s.backgroundCtx, session, item.AwaitingID, initialSeq)
 	if err != nil {
 		if session.RunEnvironment != nil {
-			_ = session.RunEnvironment.Destroy()
+			session.RunEnvironment.Destroy()
 		}
 		return contracts.RecoveredAwaitingRun{}, err
 	}

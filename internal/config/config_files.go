@@ -57,7 +57,6 @@ func (c *Config) applyPathsValues(values map[string]any) {
 	c.Paths.KBaseDir = stringValue(anyValue(values["kbase-dir"], c.Paths.KBaseDir), c.Paths.KBaseDir)
 	c.Paths.PanDir = stringValue(anyValue(values["pan-dir"], c.Paths.PanDir), c.Paths.PanDir)
 	c.Paths.SkillsCenterDir = stringValue(anyValue(values["skills-center-dir"], c.Paths.SkillsCenterDir), c.Paths.SkillsCenterDir)
-	c.Paths.RunStateDir = stringValue(anyValue(values["run-state-dir"], c.Paths.RunStateDir), c.Paths.RunStateDir)
 }
 
 func (c *Config) applySkillsValues(values map[string]any) {
@@ -500,7 +499,6 @@ func (c *Config) applyPlatformControlValues(path string, values map[string]any) 
 	c.PlatformControl.MaxDynamicKeys = intValue(anyValue(values["max-dynamic-keys"], c.PlatformControl.MaxDynamicKeys), c.PlatformControl.MaxDynamicKeys)
 	c.PlatformControl.MaxValueBytes = intValue(anyValue(values["max-value-bytes"], c.PlatformControl.MaxValueBytes), c.PlatformControl.MaxValueBytes)
 	c.PlatformControl.MaxTotalBytes = intValue(anyValue(values["max-total-bytes"], c.PlatformControl.MaxTotalBytes), c.PlatformControl.MaxTotalBytes)
-	c.PlatformControl.CheckpointKeyFile = stringValue(anyValue(values["checkpoint-key-file"], c.PlatformControl.CheckpointKeyFile), c.PlatformControl.CheckpointKeyFile)
 	for field, value := range map[string]int{
 		"max-dynamic-keys": c.PlatformControl.MaxDynamicKeys,
 		"max-value-bytes":  c.PlatformControl.MaxValueBytes,

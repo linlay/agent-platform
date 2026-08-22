@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -57,16 +55,7 @@ func TestInMemoryRunManagerRegisterDetachesFromParentContext(t *testing.T) {
 }
 
 func TestInMemoryRunManagerFinishDestroysRunEnvironment(t *testing.T) {
-	root := t.TempDir()
-	checkpointDir := filepath.Join(root, "state")
-	store := runenv.NewStore(checkpointDir, filepath.Join(root, "identity", "run-env.key"), runenv.Limits{})
-	scope, err := store.NewScope(runenv.Identity{
-		RunID: "run_env_cleanup", ChatID: "chat_env_cleanup", Subject: "alice",
-		Owner: "agent:office", AgentKey: "office",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	scope := runenv.NewScope(runenv.Limits{})
 	if _, err := scope.Mutate(runenv.MutationRequest{Operation: runenv.OperationSet, Name: "DOCUMENT_ID", Value: "doc"}); err != nil {
 		t.Fatal(err)
 	}
@@ -85,13 +74,6 @@ func TestInMemoryRunManagerFinishDestroysRunEnvironment(t *testing.T) {
 	}
 	if _, _, err := scope.Snapshot(); !errors.Is(err, runenv.ErrClosed) {
 		t.Fatalf("finished run environment snapshot error = %v, want ErrClosed", err)
-	}
-	entries, err := os.ReadDir(checkpointDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 0 {
-		t.Fatalf("run checkpoint remains after Finish: %#v", entries)
 	}
 }
 

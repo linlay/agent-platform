@@ -320,12 +320,7 @@ func TestExplicitToolGrantDoesNotDependOnAgentOrSkills(t *testing.T) {
 }
 
 func TestRunEnvironmentSetUnsetAreValueBlindAndRootScoped(t *testing.T) {
-	root := t.TempDir()
-	store := runenv.NewStore(filepath.Join(root, "state"), filepath.Join(root, "identity", "key"), runenv.Limits{})
-	scope, err := store.NewScope(runenv.Identity{RunID: "run-1", ChatID: "chat-1", Owner: "agent:office", AgentKey: "office"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	scope := runenv.NewScope(runenv.Limits{})
 	defer scope.Destroy()
 	cfg := config.Config{PlatformControl: config.PlatformControlConfig{Enabled: true}}
 	handler := NewToolHandler(cfg, nil)
