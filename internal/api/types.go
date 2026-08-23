@@ -1281,6 +1281,19 @@ type ChatSummaryResponse struct {
 	Error          *ChatErrorInfo `json:"error,omitempty"`
 }
 
+type ChatOrderResponse struct {
+	SortMode  string `json:"sortMode"`
+	UpdatedAt *int64 `json:"updatedAt,omitempty"`
+}
+
+type UpdateChatOrderRequest struct {
+	Operation    string `json:"operation"`
+	SortMode     string `json:"sortMode,omitempty"`
+	ChatID       string `json:"chatId,omitempty"`
+	BeforeChatID string `json:"beforeChatId,omitempty"`
+	AfterChatID  string `json:"afterChatId,omitempty"`
+}
+
 type ChatErrorInfo struct {
 	Code     string    `json:"code"`
 	Message  string    `json:"message"`

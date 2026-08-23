@@ -14,7 +14,6 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/kbase"
-	"agent-platform/internal/runenv"
 )
 
 func TestBuildSessionToolNamesDoesNotAutoAddInvokeAgents(t *testing.T) {
@@ -68,11 +67,9 @@ func TestBuildQuerySessionRejectsRemovedRunTool(t *testing.T) {
 	}
 }
 
-func TestBuildQuerySessionCreatesOnlyRootNativeLazyRunEnvironment(t *testing.T) {
-	root := t.TempDir()
-	store := runenv.NewStore(filepath.Join(root, "state"), filepath.Join(root, "identity", "run-env.key"), runenv.Limits{})
+func TestBuildQuerySessionCreatesOnlyRootNativeRunEnvironment(t *testing.T) {
 	runs := contracts.NewInMemoryRunManager()
-	server := &Server{deps: Dependencies{RunEnvironments: store, Runs: runs}}
+	server := &Server{deps: Dependencies{Runs: runs}}
 	definition := catalog.AgentDefinition{Key: "ordinary", Mode: "REACT", Tools: []string{"platform_control"}}
 	request := api.QueryRequest{AgentKey: "ordinary", ChatID: "chat-root", RunID: "run-root", Role: "user"}
 	session, err := server.BuildQuerySession(context.Background(), request, chat.Summary{ChatID: "chat-root"}, definition, querySessionBuildOptions{})
@@ -80,12 +77,7 @@ func TestBuildQuerySessionCreatesOnlyRootNativeLazyRunEnvironment(t *testing.T) 
 		t.Fatal(err)
 	}
 	if session.RunEnvironment == nil || session.RunEnvironment.Revision() != 0 {
-		t.Fatalf("root lazy scope = %#v", session.RunEnvironment)
-	}
-	if entries, err := os.ReadDir(filepath.Join(root, "state")); err == nil && len(entries) != 0 {
-		t.Fatalf("lazy scope created checkpoint files: %#v", entries)
-	} else if err != nil && !os.IsNotExist(err) {
-		t.Fatal(err)
+		t.Fatalf("root scope = %#v", session.RunEnvironment)
 	}
 	runs.Register(context.Background(), session)
 	child, err := server.BuildQuerySession(context.Background(), request, chat.Summary{ChatID: "chat-root"}, definition, querySessionBuildOptions{SubTaskID: "task-child"})

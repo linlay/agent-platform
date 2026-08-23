@@ -173,6 +173,7 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/teams", s.wsTeams)
 	handler.RegisterRoute("/api/skills", s.wsAgentSkills)
 	handler.RegisterRoute("/api/chats", s.wsChats)
+	handler.RegisterRoute("/api/chats/order", s.wsChatOrder)
 	handler.RegisterRoute("/api/chat", s.wsChat)
 	handler.RegisterRoute("/api/chat/jsonl", s.wsChatJSONL)
 	handler.RegisterRoute("/api/chat/system-prompt", s.wsChatSystemPrompt)

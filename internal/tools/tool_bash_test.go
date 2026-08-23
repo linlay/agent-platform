@@ -1126,11 +1126,7 @@ func TestHostBashReadsRunEnvironmentSnapshotWithoutChangingProcessEnvironment(t 
 		t.Skip("shell command assertion uses POSIX quoting")
 	}
 	root := t.TempDir()
-	store := runenv.NewStore(filepath.Join(root, "state"), filepath.Join(root, "identity", "run-env.key"), runenv.Limits{})
-	scope, err := store.NewScope(runenv.Identity{RunID: "run-host", ChatID: "chat-host", Owner: "agent:test", AgentKey: "test"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	scope := runenv.NewScope(runenv.Limits{})
 	defer scope.Destroy()
 	if _, err := scope.Mutate(runenv.MutationRequest{Operation: runenv.OperationSet, Name: "RUN_LOCAL_VALUE", Value: "dynamic-value"}); err != nil {
 		t.Fatal(err)
@@ -1156,9 +1152,7 @@ func TestHostBashReadsRunEnvironmentSnapshotWithoutChangingProcessEnvironment(t 
 	if err != nil || result.Error != "" || result.Output != "static-value" {
 		t.Fatalf("bash fallback result=%#v err=%v", result, err)
 	}
-	if err := scope.Destroy(); err != nil {
-		t.Fatal(err)
-	}
+	scope.Destroy()
 	if _, err := mergeCommandEnv(&contracts.ExecutionContext{RunEnvironment: scope}); !errors.Is(err, runenv.ErrClosed) {
 		t.Fatalf("closed run environment snapshot error = %v, want ErrClosed", err)
 	}

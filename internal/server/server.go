@@ -20,7 +20,6 @@ import (
 	"agent-platform/internal/kbase"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
-	"agent-platform/internal/runenv"
 	"agent-platform/internal/skills"
 	terminalpkg "agent-platform/internal/terminal"
 	"agent-platform/internal/toolinteraction"
@@ -52,7 +51,6 @@ type Dependencies struct {
 	Registry               catalog.Registry
 	Models                 *models.ModelRegistry
 	Runs                   contracts.RunManager
-	RunEnvironments        *runenv.Store
 	Agent                  contracts.AgentEngine
 	Tools                  contracts.ToolExecutor
 	Sandbox                contracts.SandboxClient

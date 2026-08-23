@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -64,7 +65,7 @@ func (s *Server) handleAdminAgentOrder(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid payload"))
 			return
 		}
-		response, err := s.updateAdminAgentOrder(req.Order)
+		response, err := s.updateAdminAgentOrder(r.Context(), req.Order)
 		s.writeAgentHTTPResponse(w, response, err)
 	default:
 		w.Header().Set("Allow", http.MethodGet+", "+http.MethodPut)
@@ -234,27 +235,40 @@ func (s *Server) readAdminAgentOrder() (api.AgentOrderResponse, error) {
 	}, nil
 }
 
-func (s *Server) updateAdminAgentOrder(order []string) (api.AgentOrderResponse, error) {
+func (s *Server) updateAdminAgentOrder(ctx context.Context, order []string) (api.AgentOrderResponse, error) {
+	s.adminAgentMutationMu.Lock()
+	defer s.adminAgentMutationMu.Unlock()
+
 	normalized, err := s.validateAdminAgentOrder(order)
 	if err != nil {
 		return api.AgentOrderResponse{}, err
 	}
+	return s.persistAgentOrder(ctx, normalized, normalized, "admin.agent-order")
+}
+
+func (s *Server) persistAgentOrder(ctx context.Context, persistedOrder, responseOrder []string, location string) (api.AgentOrderResponse, error) {
+	now := time.Now().UnixMilli()
 	file := catalog.AgentOrderFile{
 		Version:   1,
-		Order:     normalized,
-		UpdatedAt: time.Now().UnixMilli(),
+		Order:     append([]string(nil), persistedOrder...),
+		UpdatedAt: now,
 	}
 	if err := writeAgentOrderFile(s.deps.Config.Paths.AgentsDir, file); err != nil {
 		return api.AgentOrderResponse{}, err
 	}
-	s.broadcast("catalog.updated", catalogUpdatedPushPayload("agents", time.Now().UnixMilli()))
-	updatedAt, err := timecontract.OptionalEpochMillis(file.UpdatedAt, "updatedAt", "admin.agent-order")
+	if err := s.reloadAgentCatalog(ctx); err != nil {
+		return api.AgentOrderResponse{}, fmt.Errorf("reload agent catalog: %w", err)
+	}
+	if s.deps.CatalogReloader == nil {
+		s.broadcast("catalog.updated", catalogUpdatedPushPayload("agents", now))
+	}
+	updatedAt, err := timecontract.OptionalEpochMillis(file.UpdatedAt, "updatedAt", location)
 	if err != nil {
 		return api.AgentOrderResponse{}, err
 	}
 	return api.AgentOrderResponse{
 		Version:   file.Version,
-		Order:     append([]string(nil), file.Order...),
+		Order:     append([]string(nil), responseOrder...),
 		UpdatedAt: updatedAt,
 	}, nil
 }

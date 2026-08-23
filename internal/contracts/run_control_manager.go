@@ -372,9 +372,7 @@ func (m *InMemoryRunManager) Finish(runID string) {
 	if ok {
 		state.control.Finish()
 		if state.runEnvironment != nil {
-			if err := state.runEnvironment.Destroy(); err != nil {
-				log.Printf("[runctl] cleanup run environment run=%s: %v", runID, err)
-			}
+			state.runEnvironment.Destroy()
 		}
 	}
 }

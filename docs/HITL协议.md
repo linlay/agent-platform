@@ -44,7 +44,7 @@ Platform 启动时以 `CHATS.AWAITING_*` pending summary 为入口，对照同�
 
 `approval` / `form` 不跨进程恢复：已超时写 `error.code:"timeout"`，未超时写 `error.code:"runtime_restarted"`。run env set/unset 不使用专用 HITL。已超时的 `question` 同样写 `timeout`；无法从持久化 task/tool 上下文安全确定子智能体或 Team continuation 的 `question` / `planning` 写 `runtime_restarted`。这些自动终态不伪造 `request.submit`，而是依次持久化 `awaiting.answer(status:"error")`、同原因且 `executed:false` 的 matching tool result、`finishReason:"cancel"` 的 run completion，最后清除 pending summary。任一步写入失败都会中止 Server 初始化；再次启动会从已有记录继续，不重复写 answer、result 或 completion。
 
-question/planning awaiting StepLine 内部保存 root Scope revision。revision 0 恢复为空 lazy scope且不要求 checkpoint；revision 大于 0 时必须从 Chat 目录外的 AES-256-GCM v2 checkpoint 解密同一 RunID 的 state，并校验 run/chat/subject/owner/agent 与精确 revision。缺失、损坏、密钥错误、身份不匹配或 v1 时以 `run_env_restore_failed` fail closed。native planning approve 创建新的 execute RunID，因此不继承旧 planning run 的动态值。
+run env 仅存在于当前 Platform 进程内，不随 awaiting StepLine 持久化。重启恢复 question/planning 时，原公开 RunID 与 HITL continuation 流程保持不变，但 root Scope 固定从 revision 0 的空动态层开始；历史 set/unset 不从 Chat 重放。native planning approve 创建新的 execute RunID，同样不继承旧 planning run 的动态值。
 
 恢复后的 question 剩余 timeout 由 suspended run supervisor 继续计时；`/api/interrupt` 和 reaper 也由同一 supervisor 收口。终态会按 `awaiting.answer -> tool.result(s) -> run.cancel` 的顺序发布到已 attach 连接，然后 freeze EventBus 并移除 active run。Platform 自身关闭仅取消进程内 supervisor，不伪造用户中断，pending 留给下次 hydration。
 
@@ -81,7 +81,7 @@ question/planning awaiting StepLine 内部保存 root Scope revision。revision 
 - run 在 awaiting 期间被 interrupt 时，后端按 `awaiting.answer -> tool.result(s) -> run.cancel` 发布。`awaiting.answer` 使用 `status:"error"`、`error.code/reason:"run_interrupted"`；所有可证明尚未执行的等待调用及其 queued sibling 都生成一个 matching result，正文固定为 `{"error":"run_interrupted","exitCode":-1,"output":"...","executed":false,"awaitingId":"..."}`。这里不会伪造 `decision:"reject"` 或 `role:"user"` approval。
 - `executed:false` 只表示平台能证明调用尚未开始。已经进入普通工具执行或并发执行批次、但没有确定结果的调用不补 synthetic result，后续回放返回 `chat_history_incomplete`。
 - interrupt 取消整个 Team 根 run；steer 写入协调器 run，不直接定向某个正在等待的成员。
-- run-env checkpoint 随正常完成、失败、interrupt、budget stop 或恢复终态统一清理；终态后的 state 拒绝新访问。
+- run env Scope 在正常完成、失败、interrupt、budget stop 或恢复终态时统一清空；终态后的 Scope 拒绝新访问。
 
 ## 相关文件
 

@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"errors"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -224,9 +223,7 @@ func (s *Server) cleanupUnregisteredRunEnvironment(session contracts.QuerySessio
 	if existing, ok := lookupRunEnvironment(s.deps.Runs, session.RunID); ok && existing == state {
 		return
 	}
-	if err := state.Destroy(); err != nil {
-		log.Printf("[server][run-env] cleanup unregistered run=%s: %v", session.RunID, err)
-	}
+	state.Destroy()
 }
 
 // registeredQueryRun reads the single authoritative lifecycle timestamp from

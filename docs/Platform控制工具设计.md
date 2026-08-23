@@ -78,7 +78,7 @@ set/unset 成功数据统一为：
 - `platform-control.deny-keys` 追加 denylist；
 - 单值字节、动态 key 数和总字节限制；
 - optimistic `expectedRevision`；
-- HMAC 幂等指纹；
+- 当前 Scope 内的幂等请求记录；
 - operation-aware scheduling barrier；
 - `idempotencyKey` 与 Catalog candidate content 脱敏；run-env value 不脱敏。
 
@@ -96,13 +96,12 @@ set/unset 成功数据统一为：
 | `run_env_limit_exceeded` | key 数或总量超限 |
 | `run_env_revision_conflict` | expectedRevision 与当前 revision 不同 |
 | `run_env_idempotency_conflict` | 同一幂等 key 被用于不同参数 |
-| `run_env_restore_failed` | 等待态恢复无法可信重建 scope |
 
 Run env 不触发专用 HITL；文件与 Bash 仍各自遵守原有 AccessPolicy、bashsec 和 HITL。
 
 ## State、注入与环境优先级
 
-显式挂载 `platform_control` 的普通 native root run 在 admission 时取得 lazy `Scope`。此时不创建 State、checkpoint 或 checkpoint key。首次成功 set 才并发安全地 materialize State，并在内存发布前原子写入加密 checkpoint。失败的 set 和缺失 key 的 unset 不 materialize。
+显式挂载 `platform_control` 的普通 native root run 在 admission 时取得独立的进程内 `Scope`。Scope 直接维护 values、revision、limits 与幂等状态；set/unset 在同一把锁内完成校验和变更，不读取或写入任何运行状态文件。
 
 环境优先级从低到高为：
 
@@ -120,17 +119,11 @@ Host Bash、httpx/dbx、Node、Python、rg/file_glob/file_grep 和 Container 新
 
 ExecutionContext 的并发 clone 共享同一个 root `Scope`；但构建子任务 session 时禁止从相同 RunID 的 RunManager 取回它。因此子 Agent 即使复用父 RunID 也没有动态 scope。
 
-## Checkpoint v2 与恢复
+## 进程生命周期与重启
 
-checkpoint 位于 `paths.run-state-dir`，使用 `platform-control.checkpoint-key-file` 指向的 32-byte key 做 AES-256-GCM。AAD 绑定 `runId/chatId/subject/owner/agentKey`，不包含 Agent policy hash。
+动态 run env 只属于当前 Platform 进程内的当前普通 root run，不写入 Chat、runtime 目录或其他持久化存储。run 正常完成、失败、interrupt 或 budget stop 后，RunManager 关闭 Scope 并清空内存；终态后的 Scope 拒绝继续访问。
 
-awaiting StepLine 仅在 JSONL 内部保存 `_runEnvRevision`，不会加入公开 SSE awaiting payload：
-
-- revision `0`：恢复为空 lazy scope，不要求 checkpoint；若意外存在 checkpoint则 fail closed。
-- revision `> 0`：必须解密并恢复 revision 完全相同的 v2 checkpoint。
-- checkpoint 缺失、篡改、密钥错误、身份错误、revision 不一致或 v1 均以 `run_env_restore_failed` 终结该 run。
-
-旧 checkpoint 不迁移。run 结束时 RunManager 清零 State 并删除 checkpoint。
+Platform 重启后，question/planning 仍按 HITL 原协议恢复，但恢复的 run 获得 revision `0` 的全新空 Scope。历史 set/unset 不从 Chat 重放，旧进程中的动态值也不会继承。approval/form 的重启行为保持原协议不变。
 
 ## 配置
 
@@ -142,7 +135,7 @@ toolConfig:
     - platform_control
 ```
 
-`configs/tools.yml` 的可选平台配置只控制全局限额和存储位置：
+`configs/tools.yml` 的可选平台配置只控制全局限额：
 
 ```yaml
 platform-control:
@@ -151,7 +144,6 @@ platform-control:
   max-value-bytes: 4096
   max-total-bytes: 32768
   deny-keys: []
-  checkpoint-key-file: /protected/runtime/identity/run-env.key
 ```
 
 旧 `platform_config` 与 `platform-control.profiles/bindings` 仍会硬失败。`runtimeConfig.runEnv` 则为了平滑读取遗留 Agent 文件而静默忽略。
@@ -173,9 +165,8 @@ capabilities.list
 
 | 位置 | 职责 |
 | --- | --- |
-| `internal/runenv` | lazy Scope、State、limits、revision、幂等、checkpoint v2 |
+| `internal/runenv` | 进程内 Scope、limits、revision 与幂等状态 |
 | `internal/platformcontrol` | 固定操作注册、参数校验、错误映射、脱敏 |
 | `internal/server/session_builder.go` | root native scope admission 与子任务隔离 |
 | `internal/contracts/run_control_manager.go` | scope 生命周期与 run 终态 cleanup |
 | `internal/tools` / `internal/sandbox` | Host/Container 新 command snapshot |
-| `internal/chat` / `internal/server/recovered_awaiting_run.go` | awaiting revision 持久化与 fail-closed 恢复 |

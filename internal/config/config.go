@@ -95,16 +95,14 @@ type PathsConfig struct {
 	KBaseDir        string
 	PanDir          string
 	SkillsCenterDir string
-	RunStateDir     string
 }
 
 type PlatformControlConfig struct {
-	Enabled           bool
-	DenyKeys          []string
-	MaxDynamicKeys    int
-	MaxValueBytes     int
-	MaxTotalBytes     int
-	CheckpointKeyFile string
+	Enabled        bool
+	DenyKeys       []string
+	MaxDynamicKeys int
+	MaxValueBytes  int
+	MaxTotalBytes  int
 }
 
 // EffectiveRUAgentsDir returns the configured assembled Agent root. The

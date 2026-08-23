@@ -173,7 +173,7 @@ func (s *Server) startPreparedProxyRun(prepared preparedQuery, registered regist
 	route := newDetachedProxyRunRoute(prepared)
 	s.registerProxyRun(route)
 
-	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, runEnvironmentRevisionOption(prepared.session))
+	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
 	stepWriter.SetPendingSystemInit(prepared.systemInitLine)
 	stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
 	var chatUsage chat.UsageData

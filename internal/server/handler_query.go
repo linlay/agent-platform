@@ -174,7 +174,7 @@ func (s *Server) startPreparedLocalRun(
 		s.broadcast("run.started", runStartedPushPayload(prepared.req.RunID, prepared.req.ChatID, prepared.req.AgentKey, registered.StartedAtMillis))
 	}
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
-	stepWriter := chat.NewStepWriter(execution.StepLineStore, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, runEnvironmentRevisionOption(prepared.session))
+	stepWriter := chat.NewStepWriter(execution.StepLineStore, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
 	stepWriter.SetPendingSystemInit(prepared.systemInitLine)
 	stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
 	var onUnreadChanged func(chat.Summary)
@@ -880,7 +880,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 	}
 	processor := &runEventProcessor{
 		assistantText: &assistantText,
-		stepWriter:    chat.NewStepWriter(execution.StepLineStore, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, runEnvironmentRevisionOption(prepared.session)),
+		stepWriter:    chat.NewStepWriter(execution.StepLineStore, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode),
 		billing:       s.deps.Config.Billing,
 		models:        s.deps.Models,
 		chatUsage:     chatUsage,

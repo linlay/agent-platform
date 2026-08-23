@@ -122,15 +122,6 @@ func (s *Server) hydrateDeferredAwaitings() error {
 		recoveryItem.Mode = effectiveMode
 		recovered, err := s.registerRecoveredAwaitingRun(recoveryItem, step)
 		if err != nil {
-			if strings.Contains(err.Error(), "run_env_restore_failed") {
-				answer := contracts.AwaitingErrorAnswer(effectiveMode, "run_env_restore_failed", "Platform could not restore the current-run environment")
-				errorPayload := contracts.AnyMapNode(answer["error"])
-				errorPayload["reason"] = "run_env_restore_failed"
-				if terminalErr := s.finishRestartTerminalAwaiting(recoveryItem, step, answer, nowMs); terminalErr != nil {
-					return fmt.Errorf("terminalize run environment restore failure chatId=%s runId=%s awaitingId=%s: %w", recoveryItem.ChatID, recoveryItem.RunID, recoveryItem.AwaitingID, terminalErr)
-				}
-				continue
-			}
 			return fmt.Errorf("register recovered awaiting run chatId=%s runId=%s awaitingId=%s: %w", recoveryItem.ChatID, recoveryItem.RunID, recoveryItem.AwaitingID, err)
 		}
 		supervisorCtx, cancelSupervisor := context.WithCancel(s.backgroundCtx)

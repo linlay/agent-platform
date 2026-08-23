@@ -277,18 +277,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		if existing, ok := lookupRunEnvironment(s.deps.Runs, req.RunID); ok {
 			session.RunEnvironment = existing
 		} else {
-			if s.deps.RunEnvironments == nil {
-				return contracts.QuerySession{}, fmt.Errorf("run environment store is unavailable")
-			}
-			subject := persistedRunEnvironmentSubject(summary)
-			scope, stateErr := s.deps.RunEnvironments.NewScope(runenv.Identity{
-				RunID: req.RunID, ChatID: req.ChatID, Subject: subject,
-				Owner: "agent:" + strings.TrimSpace(req.AgentKey), AgentKey: req.AgentKey,
-			})
-			if stateErr != nil {
-				return contracts.QuerySession{}, fmt.Errorf("initialize run environment: %w", stateErr)
-			}
-			session.RunEnvironment = scope
+			session.RunEnvironment = s.newRunEnvironmentScope()
 		}
 	}
 	if shouldLoadPlanTaskContext(session) {
@@ -304,14 +293,6 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	return session, nil
 }
 
-func persistedRunEnvironmentSubject(summary chat.Summary) string {
-	source := strings.TrimSpace(summary.Source)
-	if strings.HasPrefix(source, api.ChatSourceQueryPrefix) {
-		return strings.TrimSpace(strings.TrimPrefix(source, api.ChatSourceQueryPrefix))
-	}
-	return ""
-}
-
 type runEnvironmentLookup interface {
 	RunEnvironment(runID string) (*runenv.Scope, bool)
 }
@@ -324,6 +305,16 @@ func lookupRunEnvironment(runs contracts.RunManager, runID string) (*runenv.Scop
 	return lookup.RunEnvironment(strings.TrimSpace(runID))
 }
 
+func (s *Server) newRunEnvironmentScope() *runenv.Scope {
+	cfg := s.deps.Config.PlatformControl
+	return runenv.NewScope(runenv.Limits{
+		MaxDynamicKeys:  cfg.MaxDynamicKeys,
+		MaxValueBytes:   cfg.MaxValueBytes,
+		MaxTotalBytes:   cfg.MaxTotalBytes,
+		ExtraDeniedKeys: append([]string(nil), cfg.DenyKeys...),
+	})
+}
+
 func containsTool(tools []string, wanted string) bool {
 	for _, tool := range tools {
 		if strings.EqualFold(strings.TrimSpace(tool), wanted) {
@@ -331,13 +322,6 @@ func containsTool(tools []string, wanted string) bool {
 		}
 	}
 	return false
-}
-
-func runEnvironmentRevisionOption(session contracts.QuerySession) chat.StepWriterOption {
-	if session.RunEnvironment == nil {
-		return nil
-	}
-	return chat.WithRunEnvironmentRevision(session.RunEnvironment.Revision)
 }
 
 func systemTempRoot() string {
