@@ -9,6 +9,7 @@
 当前已提供的接口：
 
 - `GET /api/agents`
+- `GET/PUT /api/agents/order`
 - `GET /api/agent?agentKey=...`
 - `GET /api/skills?agentKey=...`
 - `GET /api/teams`

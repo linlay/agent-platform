@@ -303,6 +303,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/monitor", s.handleMonitorPage)
 	s.router.HandleFunc("/monitor/", s.handleMonitorAsset)
 	s.router.HandleFunc("/api/agents", s.method(http.MethodGet, s.handleAgents))
+	s.router.HandleFunc("/api/agents/order", s.handleAgentOrder)
 	s.router.HandleFunc("/api/admin/agents", s.method(http.MethodGet, s.handleAdminAgents))
 	s.router.HandleFunc("/api/admin/agents/detail", s.method(http.MethodGet, s.handleAdminAgentDetail))
 	s.router.HandleFunc("/api/admin/source", s.handleAdminSource)

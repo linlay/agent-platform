@@ -15,11 +15,13 @@ func ShouldLoadRuntimeName(rawName string) bool {
 	return strings.TrimSpace(rawName) != "" && !isMarkedRuntimeName(rawName, exampleSuffix)
 }
 
-// ShouldIgnoreRuntimeWatchPath returns true for filesystem noise that should
-// never trigger runtime reloads.
+// ShouldIgnoreRuntimeWatchPath returns true for filesystem noise and
+// API-managed files that must not trigger a second runtime reload.
 func ShouldIgnoreRuntimeWatchPath(path string) bool {
 	name := filepath.Base(filepath.Clean(strings.TrimSpace(path)))
-	return name == ".DS_Store"
+	return name == ".DS_Store" ||
+		name == AgentOrderFileName ||
+		(strings.HasPrefix(name, ".agent-order-") && strings.HasSuffix(name, ".json"))
 }
 
 // ShouldWatchRuntimeDir returns true if a directory should be recursively

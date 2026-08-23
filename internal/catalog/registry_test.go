@@ -44,7 +44,10 @@ func TestShouldIgnoreRuntimeWatchPath(t *testing.T) {
 	}{
 		{path: ".DS_Store", want: true},
 		{path: "/tmp/runtime/.DS_Store", want: true},
+		{path: "/tmp/runtime/agents/agent-order.json", want: true},
+		{path: "/tmp/runtime/agents/.agent-order-123.json", want: true},
 		{path: "agent.yml", want: false},
+		{path: ".agent-order-not-json", want: false},
 		{path: "SKILL.md", want: false},
 		{path: "/tmp/runtime/demo.yaml", want: false},
 	}

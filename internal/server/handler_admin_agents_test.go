@@ -22,31 +22,36 @@ func setupAdminAgentsFixture(t *testing.T) testFixture {
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
 	}, testFixtureOptions{
 		setupRuntime: func(_ string, cfg *config.Config) {
-			semanticDir := filepath.Join(cfg.Paths.AgentsDir, "invalid-semantic")
-			if err := os.MkdirAll(semanticDir, 0o755); err != nil {
-				t.Fatalf("mkdir invalid semantic agent: %v", err)
-			}
-			if err := os.WriteFile(filepath.Join(semanticDir, "agent.yml"), []byte(strings.Join([]string{
-				"key: invalid-semantic",
-				"name: Invalid Semantic",
-				"mode: REACT",
-				"modelConfig:",
-				"  modelKey: mock-model",
-				"runtimeConfig:",
-				"  workspaceRoot: relative/path",
-			}, "\n")), 0o644); err != nil {
-				t.Fatalf("write invalid semantic agent: %v", err)
-			}
-
-			yamlDir := filepath.Join(cfg.Paths.AgentsDir, "invalid-yaml")
-			if err := os.MkdirAll(yamlDir, 0o755); err != nil {
-				t.Fatalf("mkdir invalid yaml agent: %v", err)
-			}
-			if err := os.WriteFile(filepath.Join(yamlDir, "agent.yml"), []byte("key: invalid-yaml\n  name: bad-indent\n"), 0o644); err != nil {
-				t.Fatalf("write invalid yaml agent: %v", err)
-			}
+			writeInvalidAdminAgentFixtures(t, cfg)
 		},
 	})
+}
+
+func writeInvalidAdminAgentFixtures(t *testing.T, cfg *config.Config) {
+	t.Helper()
+	semanticDir := filepath.Join(cfg.Paths.AgentsDir, "invalid-semantic")
+	if err := os.MkdirAll(semanticDir, 0o755); err != nil {
+		t.Fatalf("mkdir invalid semantic agent: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(semanticDir, "agent.yml"), []byte(strings.Join([]string{
+		"key: invalid-semantic",
+		"name: Invalid Semantic",
+		"mode: REACT",
+		"modelConfig:",
+		"  modelKey: mock-model",
+		"runtimeConfig:",
+		"  workspaceRoot: relative/path",
+	}, "\n")), 0o644); err != nil {
+		t.Fatalf("write invalid semantic agent: %v", err)
+	}
+
+	yamlDir := filepath.Join(cfg.Paths.AgentsDir, "invalid-yaml")
+	if err := os.MkdirAll(yamlDir, 0o755); err != nil {
+		t.Fatalf("mkdir invalid yaml agent: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(yamlDir, "agent.yml"), []byte("key: invalid-yaml\n  name: bad-indent\n"), 0o644); err != nil {
+		t.Fatalf("write invalid yaml agent: %v", err)
+	}
 }
 
 func TestAdminAgentsEndpointIncludesInvalidAgentsAndRuntimeEndpointDoesNot(t *testing.T) {

@@ -60,6 +60,7 @@ GET /ws -> request / response / stream / push / error frames
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
 | GET | `/api/agents` | query: `includeChats`、`includeTeam`、`scope`、`mode` | agent 列表；可选混入 Team 与最近 chat 摘要 |
+| GET/PUT | `/api/agents/order` | PUT body: `order` | 全部有效 runtime Agent 的 catalog 顺序 |
 | GET | `/api/agent` | query: `agentKey` | 单个运行时 agent 详情，不返回编辑专用字段 |
 | GET | `/api/skills` | query: `agentKey` | 有效技能中心 Skill 与该 Agent 已配置 Skill 的并集 |
 | POST | `/api/agent/model-config` | body: `agentKey`/`key`、`modelKey`、`reasoningEffort` | 更新 CODER agent 的运行时默认模型配置 |
@@ -69,6 +70,8 @@ GET /ws -> request / response / stream / push / error frames
 | GET | `/api/model-options` | 无 | 聊天运行时可选模型与思考深度 |
 
 `/api/agents` 的 `scope` 可取 `nav`、`copilot`、`invoke`、`internal`、`all`，省略时为 `all`；`includeChats` 为 `0..50`，省略时不附带 chat。可选 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；只接受 `REACT`、`CODER`、`KBASE`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`（大小写无关）。`PLAN_EXECUTE`、`ONESHOT`、ACP 别名、`TEAM` 和未知值均返回 400。`mode` 与 `scope` 为 AND，筛选普通 agent catalog 自身的 `mode`，不改变 `includeChats` 按 agentKey 获取 chat 的规则。
+
+`GET /api/agents/order` 返回所有有效 runtime Agent 的完整 catalog 顺序，不接受 `scope` 或 `mode` 过滤，也不暴露 invalid Agent。`PUT` 接受 `{ "order": ["agent-b", "agent-a"] }`：key 会裁剪空白并校验为空、重复、数量上限和当前有效 catalog 成员；请求未携带的当前有效 Agent 按现有 catalog 顺序追加。Platform 再把这份有效顺序替换进完整 admin 序列的有效 Agent 槽位，invalid Agent 的位置和相对顺序保持不变，并原子写入既有 `agent-order.json`、reload catalog、发布一次 `catalog.updated`。该接口仅提供 HTTP；`/api/admin/agents/order` 继续面向管理台，允许完整 admin catalog 与 invalid Agent，两者共享同一顺序文件且不迁移已有数据。
 
 `GET /api/skills` 是 WebClient slash 技能选择器的只读接口，要求精确的 `agentKey`。响应 `data` 固定为 `{ "agentKey": "...", "skills": [...] }`，每个 Skill 只包含 `key`、`name`、可选 `description` 与布尔值 `agentHasSkill`；不使用 `items`，也不返回 `meta` 或运行时选择来源。Agent 已配置 Skill 先按 Agent 配置顺序返回并标记为 `true`，其中包括只存在于 Agent 本地 `skills/` 的 Skill；随后按当前有效 skills-center catalog 的稳定顺序追加其余 Skill并标记为 `false`。两组按 key 大小写不敏感去重，`skills` 无结果时仍返回空数组。缺少 `agentKey` 返回 400 `agent_key_required`，Agent 不存在返回 404 `agent_not_found`，已配置 Skill 无法从稳定 Agent runtime 解析时返回 503 `skill_catalog_unavailable`。
 
