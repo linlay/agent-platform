@@ -111,8 +111,7 @@
       "__PROGRAM_COMMON__",
       ".env.example",
       "manifest.json",
-      "configs",
-      "resources/export/conversation.template.html"__POPLER_REQUIRED_PATHS__
+      "configs"__POPLER_REQUIRED_PATHS__
     ]
   },
   "web": {

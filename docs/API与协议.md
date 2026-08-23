@@ -420,9 +420,9 @@ curl -sS -X POST http://127.0.0.1:11949/api/query \
 
 `role` 可选值为 `user`、`assistant`、`automation`、`system`，普通 query 缺省为 `user`。`automation` / `system` 的 `request.query` 会保留在 trace 中，但不会作为可见用户消息参与搜索或对话导出。`role` 只影响本次 query 展示语义，不决定 chat 摘要的 `source`；外部请求不能通过 `role=automation` 或传入 `source` 伪造 automation 创建来源。普通 HTTP `/api/query` 传入 `sourceUser` 也不会改变 source；该字段只在受信 channel/gateway 上下文中作为远端用户提示使用。
 
-Markdown 与 HTML 导出统一由 `Summary + LoadChat` 投影一次内部 `ConversationSnapshotV1`。它只包含已绑定的可见根 query、reasoning/content snapshot 和运行终态，不包含子任务、工具、系统提示、附件、内部 ID 或原始 payload。Markdown 仅写出已完成轮次的用户问题和最后一个 assistant 回答；HTML 使用启动时校验缓存的 WebClient 模板 artifact，把 HTML-escaped Snapshot JSON 一次注入唯一 marker，并把当前 `X-Conversation-Export-Asset-Origin` 注入五个资源 origin marker。模板最大 256 KiB，只允许 Snapshot JSON 作为非外链 script payload，显示 CSS/JS 必须引用带 SRI 的 `conversation-export/<hash>` 内容寻址资产；origin 必须是 HTTPS，只有 loopback 开发地址允许 HTTP，路径、凭据、query 和 fragment 均拒绝。Snapshot 与最终 HTML 均最大 20 MiB，消息总数最多 2000 条，不限制单条消息字节数。
+Markdown 与 Snapshot 导出统一由 `Summary + LoadChat` 投影一次内部 `ConversationSnapshotV1`。它只包含已绑定的可见根 query、reasoning/content snapshot 和运行终态，不包含子任务、工具、系统提示、附件、内部 ID 或原始 payload。构建过程只执行一次 JSON 序列化，同一份字节用于 20 MiB 校验和 `format=snapshot` 响应；消息总数最多 2000 条，不限制单条消息字节数。Markdown 仅消费 Snapshot 结构体，写出已完成轮次的用户问题和最后一个 assistant 回答。
 
-Platform 不提供创建、列表或撤销分享的 API，不接收 Tunnel site token，也不依赖 Tunnel 可用性。Desktop main 可把经过校验的 Tunnel origin 放入 `X-Conversation-Export-Asset-Origin` 请求 HTML export；Platform 只返回完整、有界的静态 HTML 字节，不感知调用方随后落盘还是创建分享。Tunnel 协议、RFC3339 分享元数据和链接生命周期由 Desktop/Tunnel 边界负责。
+`GET /api/chat/export` 的空 `format` 与 `format=markdown` 返回 `text/markdown`；`format=snapshot` 返回 `application/json` 和 `<title>.snapshot.json` 文件名。Platform 不提供 `format=html`、模板加载、资源域名 Header 或创建、列表、撤销分享 API，也不接收 Tunnel site token。WebClient 拥有 HTML 模板和运行时，Desktop Worker 负责本地 HTML 生成，Tunnel 协议、RFC3339 分享元数据和链接生命周期由 Desktop/Tunnel 边界负责。
 
 `model` 可做本次 run 的模型覆盖：
 

@@ -15,7 +15,6 @@ $PROGRAM_NAME = "agent-platform"
 $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
 $REPO_ROOT = Split-Path -Parent $SCRIPT_DIR
 $PROGRAM_RELEASE_ASSETS_DIR = Join-Path $SCRIPT_DIR "release-assets/program"
-$CONVERSATION_EXPORT_TEMPLATE = Join-Path $SCRIPT_DIR "release-assets/conversation-export/conversation.template.html"
 $PROGRAM_COMMON_TEST = Join-Path $PROGRAM_RELEASE_ASSETS_DIR "windows/program-common_test.ps1"
 $RELEASE_DIR = Join-Path $REPO_ROOT "dist/release"
 
@@ -167,7 +166,6 @@ function Build-ProgramBundle {
         New-Item -ItemType Directory -Path $backendDir -Force | Out-Null
         New-Item -ItemType Directory -Path $scriptsDir -Force | Out-Null
         New-Item -ItemType Directory -Path (Join-Path $bundleRoot "configs") -Force | Out-Null
-        New-Item -ItemType Directory -Path (Join-Path $bundleRoot "resources/export") -Force | Out-Null
 
         Write-Host "[release] building program binary for $TargetOs..."
         $oldCGOEnabled = $env:CGO_ENABLED
@@ -190,7 +188,6 @@ function Build-ProgramBundle {
         Write-Host "[release] assembling program bundle for $TargetOs..."
 
         Copy-Item "$REPO_ROOT/.env.example" $bundleRoot
-        Copy-Item $CONVERSATION_EXPORT_TEMPLATE (Join-Path $bundleRoot "resources/export/conversation.template.html") -Force
 
         $manifestPath = Join-Path $bundleRoot "manifest.json"
         Write-ProgramManifest -Dest $manifestPath -TargetOs $TargetOs -TargetArch $TargetArch -BackendEntry $backendEntry -AssetFileName (Split-Path $bundleArchive -Leaf)
@@ -290,7 +287,6 @@ try {
     Test-ReleaseTools
     Test-RequiredFile (Join-Path $SCRIPT_DIR "stage-builtins.ps1")
     Test-RequiredFile $PROGRAM_COMMON_TEST
-    Test-RequiredFile $CONVERSATION_EXPORT_TEMPLATE
     & $PROGRAM_COMMON_TEST
 
     # Resolve version: read from file if not provided

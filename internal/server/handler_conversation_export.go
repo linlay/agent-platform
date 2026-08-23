@@ -14,9 +14,8 @@ import (
 )
 
 const (
-	chatMarkdownExportFormat            = "markdown"
-	chatHTMLExportFormat                = "html"
-	conversationExportAssetOriginHeader = "X-Conversation-Export-Asset-Origin"
+	chatMarkdownExportFormat = "markdown"
+	chatSnapshotExportFormat = "snapshot"
 )
 
 func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
@@ -34,12 +33,7 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid chatId"))
 		return
 	}
-	if format == chatHTMLExportFormat && s.conversationHTML == nil {
-		writeJSON(w, http.StatusServiceUnavailable, api.Failure(http.StatusServiceUnavailable, "conversation HTML export is unavailable"))
-		return
-	}
-
-	snapshot, err := s.loadConversationSnapshot(chatID, time.Now().UnixMilli())
+	document, err := s.loadConversationSnapshot(chatID, time.Now().UnixMilli())
 	if err != nil {
 		writeConversationExportError(w, err)
 		return
@@ -48,15 +42,12 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 	var body []byte
 	var contentType string
 	var extension string
-	if format == chatHTMLExportFormat {
-		body, err = s.conversationHTML.Render(
-			snapshot,
-			r.Header.Get(conversationExportAssetOriginHeader),
-		)
-		contentType = "text/html; charset=utf-8"
-		extension = ".html"
+	if format == chatSnapshotExportFormat {
+		body = document.JSON
+		contentType = "application/json; charset=utf-8"
+		extension = ".snapshot.json"
 	} else {
-		body, err = conversationexport.RenderMarkdown(snapshot)
+		body, err = conversationexport.RenderMarkdown(document.Snapshot)
 		contentType = "text/markdown; charset=utf-8"
 		extension = ".md"
 	}
@@ -65,7 +56,7 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filename := safeExportFilenameWithExtension(snapshot.Title, chatID, extension)
+	filename := safeExportFilenameWithExtension(document.Snapshot.Title, chatID, extension)
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, filename))
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
@@ -78,29 +69,29 @@ func parseConversationExportFormat(r *http.Request) (string, error) {
 	switch format {
 	case "", chatMarkdownExportFormat:
 		return chatMarkdownExportFormat, nil
-	case chatHTMLExportFormat:
-		return chatHTMLExportFormat, nil
+	case chatSnapshotExportFormat:
+		return chatSnapshotExportFormat, nil
 	default:
 		return "", fmt.Errorf("unsupported export format %q", format)
 	}
 }
 
-func (s *Server) loadConversationSnapshot(chatID string, capturedAt int64) (conversationexport.SnapshotV1, error) {
+func (s *Server) loadConversationSnapshot(chatID string, capturedAt int64) (conversationexport.SnapshotDocument, error) {
 	summary, err := s.deps.Chats.Summary(chatID)
 	if err != nil {
-		return conversationexport.SnapshotV1{}, err
+		return conversationexport.SnapshotDocument{}, err
 	}
 	if summary == nil {
-		return conversationexport.SnapshotV1{}, chat.ErrChatNotFound
+		return conversationexport.SnapshotDocument{}, chat.ErrChatNotFound
 	}
 	detail, err := s.deps.Chats.LoadChat(chatID)
 	if err != nil {
-		return conversationexport.SnapshotV1{}, err
+		return conversationexport.SnapshotDocument{}, err
 	}
 	if err := validatePublicTimeContract(detail.Events); err != nil {
-		return conversationexport.SnapshotV1{}, err
+		return conversationexport.SnapshotDocument{}, err
 	}
-	return conversationexport.BuildSnapshot(summary, detail.Events, capturedAt)
+	return conversationexport.BuildSnapshotDocument(summary, detail.Events, capturedAt)
 }
 
 func writeConversationExportError(w http.ResponseWriter, err error) {
@@ -111,8 +102,6 @@ func writeConversationExportError(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusUnprocessableEntity, api.Failure(http.StatusUnprocessableEntity, err.Error()))
 	case errors.Is(err, conversationexport.ErrTooLarge):
 		writeJSON(w, http.StatusRequestEntityTooLarge, api.Failure(http.StatusRequestEntityTooLarge, err.Error()))
-	case errors.Is(err, conversationexport.ErrAssetOriginInvalid):
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 	case isTimeContractViolation(err):
 		writeTimeContractViolation(w, err)
 	default:

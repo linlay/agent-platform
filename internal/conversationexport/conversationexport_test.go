@@ -2,6 +2,7 @@ package conversationexport
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -11,10 +12,15 @@ import (
 	"agent-platform/internal/timecontract"
 )
 
+func buildSnapshotForTest(summary *chat.Summary, events []stream.EventData, capturedAt int64) (SnapshotV1, error) {
+	document, err := BuildSnapshotDocument(summary, events, capturedAt)
+	return document.Snapshot, err
+}
+
 const testEpoch = int64(1_700_000_000_000)
 
 func TestBuildSnapshotProjectsVisibleRootTurns(t *testing.T) {
-	snapshot, err := BuildSnapshot(&chat.Summary{ChatName: " Export ", CreatedAt: testEpoch}, []stream.EventData{
+	snapshot, err := buildSnapshotForTest(&chat.Summary{ChatName: " Export ", CreatedAt: testEpoch}, []stream.EventData{
 		{Type: "request.query", Timestamp: testEpoch + 10, Payload: map[string]any{"role": "automation", "message": "hidden", "runId": "run-hidden"}},
 		{Type: "request.query", Timestamp: testEpoch + 100, Payload: map[string]any{"role": "user", "message": "question", "runId": "run-1"}},
 		{Type: "run.start", Timestamp: testEpoch + 90, Payload: map[string]any{"runId": "run-1"}},
@@ -45,7 +51,7 @@ func TestBuildSnapshotProjectsVisibleRootTurns(t *testing.T) {
 }
 
 func TestBuildSnapshotBindsPendingQueryAndKeepsRunning(t *testing.T) {
-	snapshot, err := BuildSnapshot(&chat.Summary{ChatName: "Pending", CreatedAt: testEpoch}, []stream.EventData{
+	snapshot, err := buildSnapshotForTest(&chat.Summary{ChatName: "Pending", CreatedAt: testEpoch}, []stream.EventData{
 		{Type: "request.query", Timestamp: testEpoch + 100, Payload: map[string]any{"role": "user", "message": "question"}},
 		{Type: "run.start", Timestamp: testEpoch + 110, Payload: map[string]any{"runId": "run-1"}},
 		{Type: "reasoning.snapshot", Timestamp: testEpoch + 120, Payload: map[string]any{"runId": "run-1", "text": "working"}},
@@ -65,7 +71,7 @@ func TestBuildSnapshotMapsTerminalOutcomes(t *testing.T) {
 		"run.error":    OutcomeFailed,
 	} {
 		t.Run(eventType, func(t *testing.T) {
-			snapshot, err := BuildSnapshot(&chat.Summary{ChatName: "Outcome", CreatedAt: testEpoch}, []stream.EventData{
+			snapshot, err := buildSnapshotForTest(&chat.Summary{ChatName: "Outcome", CreatedAt: testEpoch}, []stream.EventData{
 				{Type: "request.query", Timestamp: testEpoch + 100, Payload: map[string]any{"message": "question", "runId": "run-1"}},
 				{Type: eventType, Timestamp: testEpoch + 200, Payload: map[string]any{"runId": "run-1"}},
 			}, testEpoch+300)
@@ -76,14 +82,39 @@ func TestBuildSnapshotMapsTerminalOutcomes(t *testing.T) {
 	}
 }
 
+func TestBuildSnapshotDocumentReturnsCanonicalSafeJSON(t *testing.T) {
+	document, err := BuildSnapshotDocument(
+		&chat.Summary{ChatName: "</script>&x\u2028\u2029x", CreatedAt: testEpoch},
+		[]stream.EventData{
+			{Type: "request.query", Timestamp: testEpoch + 1, Payload: map[string]any{"message": "<question>", "runId": "run-1"}},
+			{Type: "run.complete", Timestamp: testEpoch + 2, Payload: map[string]any{"runId": "run-1"}},
+		},
+		testEpoch+3,
+	)
+	if err != nil {
+		t.Fatalf("build snapshot document: %v", err)
+	}
+	if bytes.Contains(document.JSON, []byte("</script>")) ||
+		!bytes.Contains(document.JSON, []byte(`\u003c/script\u003e\u0026x\u2028\u2029x`)) {
+		t.Fatalf("snapshot JSON is unsafe for transport: %s", document.JSON)
+	}
+	var decoded SnapshotV1
+	if err := json.Unmarshal(document.JSON, &decoded); err != nil {
+		t.Fatalf("decode snapshot JSON: %v", err)
+	}
+	if decoded.Title != document.Snapshot.Title || len(decoded.Turns) != 1 {
+		t.Fatalf("JSON and snapshot differ: decoded=%#v snapshot=%#v", decoded, document.Snapshot)
+	}
+}
+
 func TestBuildSnapshotValidatesEnvelopeTimes(t *testing.T) {
-	if _, err := BuildSnapshot(&chat.Summary{ChatName: "Bad", CreatedAt: 0}, nil, testEpoch); !timecontract.IsViolation(err) {
+	if _, err := buildSnapshotForTest(&chat.Summary{ChatName: "Bad", CreatedAt: 0}, nil, testEpoch); !timecontract.IsViolation(err) {
 		t.Fatalf("createdAt err=%v", err)
 	}
-	if _, err := BuildSnapshot(&chat.Summary{ChatName: "Bad", CreatedAt: testEpoch}, nil, testEpoch-1); !errors.Is(err, ErrInvalidTimeline) {
+	if _, err := buildSnapshotForTest(&chat.Summary{ChatName: "Bad", CreatedAt: testEpoch}, nil, testEpoch-1); !errors.Is(err, ErrInvalidTimeline) {
 		t.Fatalf("capturedAt ordering err=%v", err)
 	}
-	if _, err := BuildSnapshot(&chat.Summary{ChatName: "Bad", CreatedAt: testEpoch}, []stream.EventData{{
+	if _, err := buildSnapshotForTest(&chat.Summary{ChatName: "Bad", CreatedAt: testEpoch}, []stream.EventData{{
 		Type: "request.query", Timestamp: 0, Payload: map[string]any{"message": "question", "runId": "run-1"},
 	}}, testEpoch+1); !timecontract.IsViolation(err) {
 		t.Fatalf("event timestamp err=%v", err)
@@ -99,7 +130,7 @@ func TestBuildSnapshotFailsEarlyWhenProjectedTextExceedsJSONLimit(t *testing.T) 
 			stream.EventData{Type: "run.complete", Timestamp: testEpoch + int64(index*10+2), Payload: map[string]any{"runId": runID}},
 		)
 	}
-	if _, err := BuildSnapshot(&chat.Summary{ChatName: "Large", CreatedAt: testEpoch}, events, testEpoch+1_000); !errors.Is(err, ErrTooLarge) {
+	if _, err := buildSnapshotForTest(&chat.Summary{ChatName: "Large", CreatedAt: testEpoch}, events, testEpoch+1_000); !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("oversized projected text err=%v", err)
 	} else {
 		var sizeErr *SizeLimitError
@@ -111,7 +142,7 @@ func TestBuildSnapshotFailsEarlyWhenProjectedTextExceedsJSONLimit(t *testing.T) 
 
 func TestBuildSnapshotAllowsLargeItemWithinDocumentLimit(t *testing.T) {
 	message := strings.Repeat("q", 201*1024)
-	snapshot, err := BuildSnapshot(&chat.Summary{ChatName: "Large item", CreatedAt: testEpoch}, []stream.EventData{
+	snapshot, err := buildSnapshotForTest(&chat.Summary{ChatName: "Large item", CreatedAt: testEpoch}, []stream.EventData{
 		{Type: "request.query", Timestamp: testEpoch + 1, Payload: map[string]any{"message": message, "runId": "run-1"}},
 		{Type: "run.complete", Timestamp: testEpoch + 2, Payload: map[string]any{"runId": "run-1"}},
 	}, testEpoch+3)
@@ -142,7 +173,7 @@ func TestBuildSnapshotEnforcesTwoThousandItemLimit(t *testing.T) {
 		})
 	}
 
-	snapshot, err := BuildSnapshot(
+	snapshot, err := buildSnapshotForTest(
 		&chat.Summary{ChatName: "Item limit", CreatedAt: testEpoch},
 		buildEvents(MaxItems-1),
 		testEpoch+MaxItems+2,
@@ -151,7 +182,7 @@ func TestBuildSnapshotEnforcesTwoThousandItemLimit(t *testing.T) {
 		t.Fatalf("2000-item snapshot items=%d err=%v", len(snapshot.Turns[0].Items), err)
 	}
 
-	if _, err := BuildSnapshot(
+	if _, err := buildSnapshotForTest(
 		&chat.Summary{ChatName: "Item limit", CreatedAt: testEpoch},
 		buildEvents(MaxItems),
 		testEpoch+MaxItems+3,
@@ -178,7 +209,7 @@ func TestBuildSnapshotRejectsInvalidTimeline(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := BuildSnapshot(&chat.Summary{ChatName: "Invalid", CreatedAt: testEpoch}, events, testEpoch+500)
+			_, err := buildSnapshotForTest(&chat.Summary{ChatName: "Invalid", CreatedAt: testEpoch}, events, testEpoch+500)
 			if !errors.Is(err, ErrInvalidTimeline) {
 				t.Fatalf("err=%v", err)
 			}
@@ -222,86 +253,4 @@ func TestRenderMarkdownPreservesUnicodeAndCRLF(t *testing.T) {
 	if err != nil || !strings.Contains(string(markdown), "中文 **问题**\r\n第二行") || !strings.Contains(string(markdown), "答案 ✅\r\n完成") {
 		t.Fatalf("markdown=%q err=%v", markdown, err)
 	}
-}
-
-func TestHTMLRendererInjectsEscapedJSONOnce(t *testing.T) {
-	template := []byte(validHTMLTemplateForTest())
-	renderer, err := NewHTMLRenderer(template)
-	if err != nil {
-		t.Fatalf("new renderer: %v", err)
-	}
-	html, err := renderer.Render(SnapshotV1{
-		Version: 1, Title: "</script><script>alert(1)</script>&\u2028\u2029", CreatedAt: testEpoch, CapturedAt: testEpoch + 1,
-		Turns: []TurnV1{},
-	}, "http://127.0.0.1:11961/")
-	if err != nil {
-		t.Fatalf("render html: %v", err)
-	}
-	if bytes.Contains(html, []byte(TemplateMarker)) || bytes.Contains(html, []byte("</script><script>")) || !bytes.Contains(html, []byte(`\u003c/script\u003e`)) || !bytes.Contains(html, []byte(`\u0026`)) || !bytes.Contains(html, []byte(`\u2028\u2029`)) {
-		t.Fatalf("unsafe html injection: %s", html)
-	}
-	if strings.Count(string(html), `"version":1`) != 1 {
-		t.Fatalf("snapshot injected more than once: %s", html)
-	}
-	if bytes.Contains(html, []byte(AssetOriginMarker)) || !bytes.Contains(html, []byte(`http://127.0.0.1:11961/assets/conversation-export/`)) {
-		t.Fatalf("asset origin was not injected: %s", html)
-	}
-}
-
-func TestHTMLRendererRejectsUnsafeAssetOrigins(t *testing.T) {
-	renderer, err := NewHTMLRenderer([]byte(validHTMLTemplateForTest()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, origin := range []string{
-		"",
-		"http://share.example.test",
-		"https://127.0.0.2:11961",
-		"https://demo.localhost:11961",
-		"https://0.0.0.0:11961",
-		"https://user:pass@share.example.test",
-		"https://share.example.test/path",
-		"https://share.example.test/?query=1",
-	} {
-		if _, err := renderer.Render(SnapshotV1{Version: 1}, origin); !errors.Is(err, ErrAssetOriginInvalid) {
-			t.Fatalf("origin=%q err=%v", origin, err)
-		}
-	}
-}
-
-func TestHTMLRendererRejectsInlineExecutableAssets(t *testing.T) {
-	for name, extra := range map[string]string{
-		"style":  `<style>body{color:red}</style>`,
-		"script": `<script>alert(1)</script>`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			template := []byte(strings.Replace(validHTMLTemplateForTest(), "</head>", extra+"</head>", 1))
-			if _, err := NewHTMLRenderer(template); !errors.Is(err, ErrTemplateInvalid) {
-				t.Fatalf("err=%v", err)
-			}
-		})
-	}
-}
-
-func TestHTMLRendererRejectsInvalidExternalAssetContract(t *testing.T) {
-	const assetSet = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	const otherAssetSet = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-	valid := validHTMLTemplateForTest()
-	for name, template := range map[string]string{
-		"stylesheet without sri":   strings.Replace(valid, ` integrity="sha384-test"`, "", 1),
-		"stylesheet hash mismatch": strings.Replace(valid, `/conversation-export/`+assetSet+`/runtime.css`, `/conversation-export/`+otherAssetSet+`/runtime.css`, 1),
-		"runtime hash mismatch":    strings.Replace(valid, `/conversation-export/`+assetSet+`/runtime.js`, `/conversation-export/`+otherAssetSet+`/runtime.js`, 1),
-		"extra stylesheet":         strings.Replace(valid, "</head>", `<link rel="stylesheet" href="https://share.example.test/extra.css" integrity="sha384-test" crossorigin="anonymous"></head>`, 1),
-	} {
-		t.Run(name, func(t *testing.T) {
-			if _, err := NewHTMLRenderer([]byte(template)); !errors.Is(err, ErrTemplateInvalid) {
-				t.Fatalf("err=%v", err)
-			}
-		})
-	}
-}
-
-func validHTMLTemplateForTest() string {
-	const assetSet = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	return `<!doctype html><html><head><meta name="conversation-export-profile" content="conversation-snapshot-json-v1"><meta name="conversation-export-asset-set" content="` + assetSet + `"><meta http-equiv="Content-Security-Policy" content="font-src ` + AssetOriginMarker + `; style-src-elem ` + AssetOriginMarker + `; script-src ` + AssetOriginMarker + `"><link rel="stylesheet" href="` + AssetOriginMarker + `/assets/conversation-export/` + assetSet + `/runtime.css" integrity="sha384-test" crossorigin="anonymous"></head><body><script type="application/json">` + TemplateMarker + `</script><script src="` + AssetOriginMarker + `/assets/conversation-export/` + assetSet + `/runtime.js" integrity="sha384-test" crossorigin="anonymous"></script></body></html>`
 }

@@ -8,7 +8,6 @@ export REQUIRE_RELEASE_SBOM="${REQUIRE_RELEASE_SBOM:-1}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROGRAM_RELEASE_ASSETS_DIR="$SCRIPT_DIR/release-assets/program"
-CONVERSATION_EXPORT_TEMPLATE="$SCRIPT_DIR/release-assets/conversation-export/conversation.template.html"
 
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/release-common.sh"
@@ -27,7 +26,6 @@ require_file "$PROGRAM_RELEASE_ASSETS_DIR/windows/stop.ps1"
 require_file "$PROGRAM_RELEASE_ASSETS_DIR/windows/program-common.ps1"
 require_file "$PROGRAM_RELEASE_ASSETS_DIR/windows/tools.example.yml"
 require_file "$SCRIPT_DIR/stage-builtins.sh"
-require_file "$CONVERSATION_EXPORT_TEMPLATE"
 require_file "$REPO_ROOT/.env.example"
 require_dir "$REPO_ROOT/configs"
 cd "$REPO_ROOT"
@@ -92,7 +90,7 @@ build_program_bundle() {
   fi
   sidecar_path="$bundle_root/bin/$sidecar_name"
 
-  mkdir -p "$backend_dir" "$scripts_dir" "$bundle_root/configs" "$bundle_root/resources/export"
+  mkdir -p "$backend_dir" "$scripts_dir" "$bundle_root/configs"
 
   echo "[release] building program binary for $target_os..."
   CGO_ENABLED=0 GOOS="$target_os" GOARCH="$target_arch" \
@@ -102,7 +100,6 @@ build_program_bundle() {
 
   echo "[release] assembling program bundle for $target_os..."
   cp "$REPO_ROOT/.env.example" "$bundle_root/.env.example"
-  cp "$CONVERSATION_EXPORT_TEMPLATE" "$bundle_root/resources/export/conversation.template.html"
   write_program_manifest "$bundle_root/manifest.json" "$target_os" "$target_arch" "$backend_entry" "$(basename "$bundle_archive")"
   copy_config_templates "$bundle_root"
   if [[ "$target_os" == "windows" ]]; then

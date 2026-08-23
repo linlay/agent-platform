@@ -65,13 +65,6 @@ func TestVerifyBundleRootRejectsIncompleteRelease(t *testing.T) {
 			message: "runtime.requiredPaths is missing",
 		},
 		{
-			name: "conversation export template invalid",
-			mutate: func(t *testing.T, root string) {
-				writeFile(t, filepath.Join(root, "resources", "export", "conversation.template.html"), []byte("invalid"), 0o644)
-			},
-			message: "verify conversation export template",
-		},
-		{
 			name: "sidecar file missing",
 			mutate: func(t *testing.T, root string) {
 				if err := os.Remove(filepath.Join(root, "bin", sidecarName)); err != nil {
@@ -153,10 +146,7 @@ func writeCompleteBundle(t *testing.T, root, goos, goarch string) {
 	sidecarRelativePath := filepath.ToSlash(filepath.Join("bin", binaryName))
 	writeFile(t, filepath.Join(root, filepath.FromSlash(sidecarRelativePath)), []byte("sidecar-binary"), 0o755)
 	writeFile(t, filepath.Join(root, "backend", "agent-platform"), []byte("runtime-binary"), 0o755)
-	requiredPaths := []string{"backend/agent-platform", sidecarRelativePath, "resources/export/conversation.template.html"}
-	writeFile(t, filepath.Join(root, "resources", "export", "conversation.template.html"), []byte(
-		`<!doctype html><html><head><meta name="conversation-export-profile" content="conversation-snapshot-json-v1"><meta name="conversation-export-asset-set" content="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"><meta http-equiv="Content-Security-Policy" content="font-src __CONVERSATION_EXPORT_ASSET_ORIGIN__; style-src-elem __CONVERSATION_EXPORT_ASSET_ORIGIN__; script-src __CONVERSATION_EXPORT_ASSET_ORIGIN__"><link rel="stylesheet" href="__CONVERSATION_EXPORT_ASSET_ORIGIN__/assets/conversation-export/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/runtime.css" integrity="sha384-test" crossorigin="anonymous"></head><body><script type="application/json">__CONVERSATION_EXPORT_SNAPSHOT_JSON_V1__</script><script src="__CONVERSATION_EXPORT_ASSET_ORIGIN__/assets/conversation-export/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/runtime.js" integrity="sha384-test" crossorigin="anonymous"></script></body></html>`,
-	), 0o644)
+	requiredPaths := []string{"backend/agent-platform", sidecarRelativePath}
 	digest, err := fileSHA256(filepath.Join(root, filepath.FromSlash(sidecarRelativePath)))
 	if err != nil {
 		t.Fatal(err)

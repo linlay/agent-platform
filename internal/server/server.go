@@ -17,7 +17,6 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/conversationexport"
 	"agent-platform/internal/kbase"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
@@ -72,11 +71,10 @@ type Dependencies struct {
 	DeltaMappers           contracts.StreamDeltaMapperFactory
 	SystemInits            contracts.SystemInitBuilder
 	// GatewayResolver 按 chatId 查对应 gateway 的 BaseURL/Token。
-	GatewayResolver          GatewayResolver
-	AgentCardStatus          AgentCardStatusProvider
-	AgentCardRefresh         AgentCardRefreshScheduler
-	ChannelSessions          ChannelSessionObserver
-	ConversationHTMLTemplate []byte
+	GatewayResolver  GatewayResolver
+	AgentCardStatus  AgentCardStatusProvider
+	AgentCardRefresh AgentCardRefreshScheduler
+	ChannelSessions  ChannelSessionObserver
 }
 
 // GatewayResolver 是 ws_routes 下载时用来按 chatId 选对应 gateway 的只读视图，
@@ -130,7 +128,6 @@ type Server struct {
 	proxyMu              sync.RWMutex
 	proxyRuns            map[string]*proxyRunRoute
 	backgroundCtx        context.Context
-	conversationHTML     *conversationexport.HTMLRenderer
 }
 
 type syncQueryContextKey struct{}
@@ -193,14 +190,6 @@ func New(deps Dependencies) (*Server, error) {
 		deferredAwaitings: NewDeferredAwaitingStore(),
 		proxyRuns:         map[string]*proxyRunRoute{},
 		backgroundCtx:     deps.BackgroundContext,
-	}
-	if len(deps.ConversationHTMLTemplate) > 0 {
-		renderer, renderErr := conversationexport.NewHTMLRenderer(deps.ConversationHTMLTemplate)
-		if renderErr != nil {
-			log.Printf("conversation HTML export unavailable: invalid bundled template")
-		} else {
-			s.conversationHTML = renderer
-		}
 	}
 	if s.backgroundCtx == nil {
 		s.backgroundCtx = context.Background()

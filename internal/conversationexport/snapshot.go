@@ -15,8 +15,6 @@ import (
 const (
 	SnapshotVersion  = 1
 	MaxSnapshotBytes = 20 * 1024 * 1024
-	MaxHTMLBytes     = 20 * 1024 * 1024
-	MaxTemplateBytes = 256 * 1024
 	MaxItems         = 2_000
 	MaxTitleBytes    = 300
 	MaxLabelBytes    = 300
@@ -52,6 +50,14 @@ type SnapshotV1 struct {
 	CreatedAt  int64    `json:"createdAt"`
 	CapturedAt int64    `json:"capturedAt"`
 	Turns      []TurnV1 `json:"turns"`
+}
+
+// SnapshotDocument keeps the projected snapshot and its canonical JSON bytes
+// together so callers can render Markdown or write the JSON response without
+// serializing the same document twice.
+type SnapshotDocument struct {
+	Snapshot SnapshotV1
+	JSON     []byte
 }
 
 type TurnV1 struct {
@@ -94,25 +100,25 @@ type projectedTurn struct {
 	terminalSeen bool
 }
 
-func BuildSnapshot(summary *chat.Summary, events []stream.EventData, capturedAt int64) (SnapshotV1, error) {
+func BuildSnapshotDocument(summary *chat.Summary, events []stream.EventData, capturedAt int64) (SnapshotDocument, error) {
 	if summary == nil {
-		return SnapshotV1{}, ErrInvalidTimeline
+		return SnapshotDocument{}, ErrInvalidTimeline
 	}
 	if err := timecontract.ValidateEpochMillis(summary.CreatedAt, "createdAt", "conversation.snapshot.createdAt"); err != nil {
-		return SnapshotV1{}, err
+		return SnapshotDocument{}, err
 	}
 	if err := timecontract.ValidateEpochMillis(capturedAt, "capturedAt", "conversation.snapshot.capturedAt"); err != nil {
-		return SnapshotV1{}, err
+		return SnapshotDocument{}, err
 	}
 	if capturedAt < summary.CreatedAt {
-		return SnapshotV1{}, ErrInvalidTimeline
+		return SnapshotDocument{}, ErrInvalidTimeline
 	}
 	title := strings.TrimSpace(summary.ChatName)
 	if title == "" {
 		title = "Chat"
 	}
 	if len(title) > MaxTitleBytes {
-		return SnapshotV1{}, ErrTooLarge
+		return SnapshotDocument{}, ErrTooLarge
 	}
 
 	projectedTextBytes := len(title)
@@ -121,7 +127,7 @@ func BuildSnapshot(summary *chat.Summary, events []stream.EventData, capturedAt 
 	pendingTurn := -1
 	for _, event := range events {
 		if err := timecontract.ValidateEpochMillis(event.Timestamp, "timestamp", "conversation.snapshot.events"); err != nil {
-			return SnapshotV1{}, err
+			return SnapshotDocument{}, err
 		}
 		switch event.Type {
 		case "request.query":
@@ -136,12 +142,12 @@ func BuildSnapshot(summary *chat.Summary, events []stream.EventData, capturedAt 
 			}
 			projectedTextBytes += len(message)
 			if projectedTextBytes > MaxSnapshotBytes {
-				return SnapshotV1{}, newSizeLimitError(projectedTextBytes, MaxSnapshotBytes)
+				return SnapshotDocument{}, newSizeLimitError(projectedTextBytes, MaxSnapshotBytes)
 			}
 			runID := strings.TrimSpace(event.String("runId"))
 			if runID != "" {
 				if _, exists := turnByRunID[runID]; exists {
-					return SnapshotV1{}, ErrInvalidTimeline
+					return SnapshotDocument{}, ErrInvalidTimeline
 				}
 			}
 			index := len(turns)
@@ -194,7 +200,7 @@ func BuildSnapshot(summary *chat.Summary, events []stream.EventData, capturedAt 
 		switch event.Type {
 		case "run.start":
 			if turn.runStarted || turn.itemsStarted || turn.terminalSeen {
-				return SnapshotV1{}, ErrInvalidTimeline
+				return SnapshotDocument{}, ErrInvalidTimeline
 			}
 			turn.runStarted = true
 			turn.turn.StartedAt = event.Timestamp
@@ -203,35 +209,35 @@ func BuildSnapshot(summary *chat.Summary, events []stream.EventData, capturedAt 
 			}
 		case "reasoning.snapshot", "content.snapshot":
 			if turn.terminalSeen || event.Timestamp < turn.lowerBoundAt {
-				return SnapshotV1{}, ErrInvalidTimeline
+				return SnapshotDocument{}, ErrInvalidTimeline
 			}
 			text := event.String("text")
 			if strings.TrimSpace(text) == "" {
 				continue
 			}
 			if len(turn.turn.Items) >= MaxItems {
-				return SnapshotV1{}, ErrTooLarge
+				return SnapshotDocument{}, ErrTooLarge
 			}
 			item := ItemV1{Text: text, At: event.Timestamp}
 			if event.Type == "reasoning.snapshot" {
 				item.Kind = ItemReasoning
 				item.Label = strings.TrimSpace(event.String("reasoningLabel"))
 				if len(item.Label) > MaxLabelBytes {
-					return SnapshotV1{}, ErrTooLarge
+					return SnapshotDocument{}, ErrTooLarge
 				}
 			} else {
 				item.Kind = ItemAssistant
 			}
 			projectedTextBytes += len(item.Text) + len(item.Label)
 			if projectedTextBytes > MaxSnapshotBytes {
-				return SnapshotV1{}, newSizeLimitError(projectedTextBytes, MaxSnapshotBytes)
+				return SnapshotDocument{}, newSizeLimitError(projectedTextBytes, MaxSnapshotBytes)
 			}
 			turn.turn.Items = append(turn.turn.Items, item)
 			turn.itemsStarted = true
 			turn.lowerBoundAt = event.Timestamp
 		case "run.complete", "run.cancel", "run.error":
 			if turn.terminalSeen || event.Timestamp < turn.lowerBoundAt {
-				return SnapshotV1{}, ErrInvalidTimeline
+				return SnapshotDocument{}, ErrInvalidTimeline
 			}
 			endedAt := event.Timestamp
 			turn.turn.EndedAt = &endedAt
@@ -262,19 +268,19 @@ func BuildSnapshot(summary *chat.Summary, events []stream.EventData, capturedAt 
 		}
 		itemCount += len(turn.turn.Items)
 		if itemCount > MaxItems {
-			return SnapshotV1{}, ErrTooLarge
+			return SnapshotDocument{}, ErrTooLarge
 		}
 		snapshot.Turns = append(snapshot.Turns, turn.turn)
 	}
 	if len(snapshot.Turns) == 0 {
-		return SnapshotV1{}, ErrNoRootTurn
+		return SnapshotDocument{}, ErrNoRootTurn
 	}
 	encoded, err := json.Marshal(snapshot)
 	if err != nil {
-		return SnapshotV1{}, err
+		return SnapshotDocument{}, err
 	}
 	if len(encoded) > MaxSnapshotBytes {
-		return SnapshotV1{}, newSizeLimitError(len(encoded), MaxSnapshotBytes)
+		return SnapshotDocument{}, newSizeLimitError(len(encoded), MaxSnapshotBytes)
 	}
-	return snapshot, nil
+	return SnapshotDocument{Snapshot: snapshot, JSON: encoded}, nil
 }
