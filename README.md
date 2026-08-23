@@ -19,7 +19,7 @@
 - `GET /api/chat?chatId=...`
 - `POST /api/chats/search`
 - `POST /api/read`
-- `GET /api/chat/export?chatId=...`
+- `GET /api/chat/export?chatId=...&format=markdown|html`
 - `GET /api/archives`
 - `GET /api/archive?chatId=...`
 - `POST /api/archives/search`

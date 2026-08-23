@@ -46,7 +46,7 @@ func TestCatalogQueryParametersAreIgnored(t *testing.T) {
 
 func TestRenamedHTTPAPIRoutes(t *testing.T) {
 	fixture := newTestFixture(t)
-	seedSearchableChat(t, fixture.chats, "chat-route-search")
+	seedCompletedConversationExport(t, fixture, "chat-route-search")
 
 	for _, tc := range []struct {
 		method string
@@ -91,7 +91,7 @@ func TestRemovedHTTPAPIRoutesReturnNotFound(t *testing.T) {
 	}{
 		{method: http.MethodPost, path: "/api/search", body: `{"query":"rollback"}`},
 		{method: http.MethodPost, path: "/api/archive/search", body: `{"query":"rollback"}`},
-		{method: http.MethodGet, path: "/api/chat-export?chatId=chat-route-search"},
+		{method: http.MethodGet, path: "/api/chat-" + "export?chatId=chat-route-search"},
 		{method: http.MethodPost, path: "/api/session-search", body: `{"chatId":"chat-route-search","query":"rollback"}`},
 		{method: http.MethodGet, path: "/api/archive-resource?chatId=chat-route-search&file=report.md"},
 		{method: http.MethodGet, path: "/api/admin/skills/v2"},

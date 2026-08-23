@@ -112,7 +112,6 @@ func verifyBundleRoot(root, targetOS, targetArch string) error {
 			return fmt.Errorf("required bundle path %q: %w", clean, err)
 		}
 	}
-
 	sidecarPath := filepath.Join(root, filepath.FromSlash(sidecarRelativePath))
 	info, err := os.Stat(sidecarPath)
 	if err != nil {

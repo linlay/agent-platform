@@ -18,7 +18,7 @@
 
 platform 自己定义和拥有的 API、JSONL、SSE、WebSocket 与 trace 生命周期时间点，统一使用未加引号的 Unix epoch milliseconds JSON 整数（Go `int64`、客户端 `number`）。可接受范围固定为 `1000000000000..9007199254740991`：这既拒绝十位 Unix 秒，也保证 JavaScript number 精确表示。
 
-- 已声明的平台字段（例如 chat/run 的 `createdAt`、`updatedAt`、`startedAt`、`completedAt`，stream envelope 的 `timestamp`，以及 `expiresAt`）必须是 epoch-ms。可选字段缺失时必须省略；不得输出 `0`、`null`、数字字符串、ISO 字符串或浮点数。
+- 已声明的平台字段（例如 chat/run 的 `createdAt`、`updatedAt`、`startedAt`、`completedAt`，stream envelope 的 `timestamp`，以及 platform auth 的 `expiresAt`）必须是 epoch-ms。可选字段缺失时必须省略；除协议明确声明 nullable 的字段外，不得输出 `0`、`null`、数字字符串、ISO 字符串或浮点数。
 - 除 Automation 展示时间外，已声明的可读时间（`*Time` 或 `iso`）必须是带 `Z` 或 offset 的 RFC3339 / RFC3339Nano；若协议声明它与 epoch-ms 字段配对，两者必须表示同一毫秒时刻。Automation 的 `nextFireTime`、`startedTime`、`completedTime` 是例外：它们统一按 Platform `automation.default-zone-id`（无效或未配置时回退进程 `time.Local`）输出 `YYYY-MM-DD HH:mm:ss`，只用于展示，秒精度且不携带时区，不能用于还原精确时间点。
 - 名字不是契约：外部 tool result、MCP content、Desktop action result、trace request/response/tool payload 的 `createdAt`、`timestamp`、`iso` 等业务字段不会因名称被平台推断为时间。
 - 工具结果只有在其可选 `outputSchema` 显式声明时才校验时间：`x-platform-time: "epoch-ms"` 表示严格毫秒整数，`format: "date-time"` 表示 RFC3339 可读字符串，`x-platform-time-pair` 表示显式配对。未声明 `outputSchema` 的工具结果是透明 JSON。
@@ -179,7 +179,7 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 | POST | `/api/chat/rename` | body: `chatId`、`chatName` | 重命名结果 |
 | POST | `/api/chat/derive` | body: `sourceChatId`、`sourceRunId`、`chatId`、`chatName` | 从已完成 run 派生新 chat |
 | POST | `/api/chat/archive` | body: `chatId`、`reason` | 归档结果 |
-| GET | `/api/chat/export` | query: `chatId`，可选 `format=raw` | 默认 Markdown 导出；`raw` 返回消费者无关的安全 JSONL Transcript，首行为 `metadata`，之后每个可见 turn 一行，并包含关联的 reasoning |
+| GET | `/api/chat/export` | query: `chatId`，可选 `format=markdown\|html` | 默认 Markdown；`html` 返回完整静态只读文档；`sse` 与未知格式返回 400 |
 | GET | `/api/chat/jsonl` | query: `chatId` | 原始持久化 chat JSONL 文本；active 不存在时回退 archive，不得作为公开分享输入 |
 | GET | `/api/chat/system-prompt` | query: `chatId`、`runId`、`agentKey` | 获取该 agent 在历史 run 中首次使用的持久化 system message；服务端从 run 的 system-init / step `systemRef` 解析快照 |
 | GET | `/api/chat/llm-trace` | query: `file=<chatId>/.llm-records/<runId>_NNN.json` | 原始 LLM chat trace JSON 文本 |
@@ -425,14 +425,11 @@ curl -sS -X POST http://127.0.0.1:11949/api/query \
 
 `hidden` 是可选的 `request.query` 时间线展示标记；省略时普通 query 不隐藏，Automation 调度会按自身默认值传入 `true`。
 
-`role` 可选值为 `user`、`assistant`、`automation`、`system`，普通 query 缺省为 `user`。`automation` / `system` 的 `request.query` 会保留在 trace 中，但不会作为可见用户消息参与搜索、Markdown 或安全 Transcript 导出。`format=raw` 返回消费者无关的 JSONL：第一行是 `type=metadata` 的 `exportVersion=1` 元数据，之后每个 `type=turn` 记录只由能够与根 run 生命周期可靠关联的可见根 query 建立，关联的 `reasoning.snapshot` 与 `content.snapshot` 按事件顺序投影为 `items`；无法关联到可见根 query 的事件、省略的子任务 query、工具调用和系统提示均不导出。可靠 `run.complete` 只形成可选 `completedAt`，导出中不包含 `chatId`、`runId`、`agentKey`、reasoningId 或计算后的 duration。成功响应使用 `Content-Type: application/x-ndjson; charset=utf-8` 和安全标题的 `.jsonl` 附件名，不使用 `ApiResponse` 包裹；错误响应仍为 JSON `ApiResponse`。未知 format 返回 400。`/api/chat/jsonl` 返回原始持久化数据，与安全导出不是同一契约。`role` 只影响本次 query 展示语义，不决定 chat 摘要的 `source`；外部请求不能通过 `role=automation` 或传入 `source` 伪造 automation 创建来源。普通 HTTP `/api/query` 传入 `sourceUser` 也不会改变 source；该字段只在受信 channel/gateway 上下文中作为远端用户提示使用。
+`role` 可选值为 `user`、`assistant`、`automation`、`system`，普通 query 缺省为 `user`。`automation` / `system` 的 `request.query` 会保留在 trace 中，但不会作为可见用户消息参与搜索或对话导出。`role` 只影响本次 query 展示语义，不决定 chat 摘要的 `source`；外部请求不能通过 `role=automation` 或传入 `source` 伪造 automation 创建来源。普通 HTTP `/api/query` 传入 `sourceUser` 也不会改变 source；该字段只在受信 channel/gateway 上下文中作为远端用户提示使用。
 
-安全 JSONL 示例：
+Markdown 与 Snapshot 导出统一由 `Summary + LoadChat` 投影一次内部 `ConversationSnapshotV1`。它只包含已绑定的可见根 query、reasoning/content snapshot 和运行终态，不包含子任务、工具、系统提示、附件、内部 ID 或原始 payload。构建过程只执行一次 JSON 序列化，同一份字节用于 20 MiB 校验和 `format=snapshot` 响应；消息总数最多 2000 条，不限制单条消息字节数。Markdown 仅消费 Snapshot 结构体，写出已完成轮次的用户问题和最后一个 assistant 回答。
 
-```jsonl
-{"type":"metadata","exportVersion":1,"kind":"chat-transcript","title":"示例","createdAt":1700000000000,"updatedAt":1700000001000}
-{"type":"turn","startedAt":1700000000000,"completedAt":1700000001000,"items":[{"kind":"user-message","content":"你好","createdAt":1700000000000},{"kind":"assistant-reasoning","content":"分析问题","label":"正在思考","createdAt":1700000000500},{"kind":"assistant-message","content":"你好","createdAt":1700000001000}]}
-```
+`GET /api/chat/export` 的空 `format` 与 `format=markdown` 返回 `text/markdown`；`format=snapshot` 返回 `application/json` 和 `<title>.snapshot.json` 文件名。Platform 不提供 `format=html`、模板加载、资源域名 Header 或创建、列表、撤销分享 API，也不接收 Tunnel site token。WebClient 拥有 HTML 模板和运行时，Desktop Worker 负责本地 HTML 生成，Tunnel 协议、RFC3339 分享元数据和链接生命周期由 Desktop/Tunnel 边界负责。
 
 `model` 可做本次 run 的模型覆盖：
 

@@ -17,14 +17,15 @@ func TestWriterWritesImmediatelyWhenBufferingDisabled(t *testing.T) {
 		"type":   "content.delta",
 		"runId":  "run_1",
 		"chatId": "chat_1",
-		"delta":  "hello",
+		"delta":  "hello\nworld",
 	}); err != nil {
 		t.Fatalf("write json: %v", err)
 	}
 
 	body := rec.Body.String()
-	if !strings.Contains(body, `"type":"content.delta"`) {
-		t.Fatalf("expected immediate sse output, got %s", body)
+	want := "event: message\ndata: {\"chatId\":\"chat_1\",\"delta\":\"hello\\nworld\",\"runId\":\"run_1\",\"type\":\"content.delta\"}\n\n"
+	if body != want {
+		t.Fatalf("unexpected immediate sse output\nwant: %q\ngot:  %q", want, body)
 	}
 }
 
