@@ -166,6 +166,8 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
 | GET | `/api/chats` | query: `lastRunId`、`agentKey`、`mode`、`limit` | chat 摘要列表 |
+| GET | `/api/chats/order` | 无 | 当前 `sortMode` 与可选 `updatedAt` |
+| PUT | `/api/chats/order` | body: `set_mode` 或 `move` operation | 更新后的 `sortMode` 与 `updatedAt` |
 | GET | `/api/chat` | query: `chatId`、`includeRawMessages` | chat 详情，默认含 events |
 | POST | `/api/chats/search` | body: `query`、`agentKey`、`teamId`、`limit` | 全局 chat 搜索结果 |
 | POST | `/api/read` | body: `chatId` | 标记已读结果 |
@@ -179,7 +181,9 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 | GET | `/api/chat/system-prompt` | query: `chatId`、`runId`、`agentKey` | 获取该 agent 在历史 run 中首次使用的持久化 system message；服务端从 run 的 system-init / step `systemRef` 解析快照 |
 | GET | `/api/chat/llm-trace` | query: `file=<chatId>/.llm-records/<runId>_NNN.json` | 原始 LLM chat trace JSON 文本 |
 
-`/api/chats` 的 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；只接受 `REACT`、`CODER`、`KBASE`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`（大小写无关）。旧别名、`TEAM` 和未知值均返回 400。它筛选 Agent-owned chat，并与 `agentKey`、`lastRunId` 为 AND 关系；Team-owned chat 天然包含在全局列表中，不受合法 `mode` 影响。显式 `agentKey` 仍只返回该 agent 的 chat，不会匹配 Team。可选 `limit` 必须为正整数且不设上限；省略时返回全部匹配项，传入时在全部筛选和固定排序 `updatedAt DESC, chatId DESC` 后截断结果。`limit=0`、负数、空值或非整数返回 400；当前不支持 offset、分页游标或自定义排序。WebSocket 的 `/api/chats` 请求使用等价的 `mode` 与 `limit` 字段（`limit` 未传为全部）。旧 `agentMode` 参数或 payload 会返回 400，调用方应改用 `mode`。
+`/api/chats` 的 `mode` 支持逗号分隔和重复 query 参数，所有非空值组成 OR 集合；只接受 `REACT`、`CODER`、`KBASE`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`（大小写无关）。旧别名、`TEAM` 和未知值均返回 400。它筛选 Agent-owned chat，并与 `agentKey`、`lastRunId` 为 AND 关系；Team-owned chat 天然包含在全局列表中，不受合法 `mode` 影响。显式 `agentKey` 仍只返回该 agent 的 chat，不会匹配 Team。可选 `limit` 必须为正整数且不设上限；省略时返回全部匹配项，传入时必须在全部筛选和当前实例级排序后截断，不能先取最近记录再局部重排。`limit=0`、负数、空值或非整数返回 400；当前不支持 offset 或分页游标。WebSocket 的 `/api/chats` 请求使用等价的 `mode` 与 `limit` 字段（`limit` 未传为全部）。旧 `agentMode` 参数或 payload 会返回 400，调用方应改用 `mode`。
+
+`/api/chats/order` 管理同一 Platform 实例的 Chat 列表顺序。缺省 `recent` 按 `updatedAt DESC, chatId DESC`；`manual` 先把尚未进入保存序列的新建或恢复 Chat 按 recent 置顶，再接保存的全量 active Chat 顺序，已经归档、删除或不存在的 ID 自动忽略。`PUT` 的 `set_mode` 接受 `sortMode:"recent" | "manual"`；`move` 必须给出 `chatId`，并且只能给 `beforeChatId`、`afterChatId` 之一，目标和锚点都必须是当前 active Chat，不能自身锚定。recent 下首次 move 会以当时的全量 recent 顺序建立 manual 基线并原子切换模式；切回 recent 保留 manual 顺序，之后切回 manual 可恢复。HTTP 与 WebSocket 使用相同 operation 和错误语义；WebSocket 空 payload 相当于 GET。`/api/chats/order` 的成功 mutation 只改变展示顺序，不修改 Chat `updatedAt`。
 
 chat 摘要会在新数据中返回可选 `mode`；`/api/chat.runs[]`、`/api/agents?includeChats` 及 archive detail 中的共享 `runs[]` 均返回每次 run 的可选 `mode`。普通 agent 持久化规范 API mode（例如 `REACT`、`CODER`、`KBASE`、`PLAN-EXECUTE`、`PROXY`、`CHANNEL`）；Team 固定为 `TEAM`，不会暴露隐藏协调器 key。历史 chat/run 不根据当前 catalog 回填或转换，原始 mode 仅用于历史读取，不能作为当前筛选或运行输入；Team-owned chat 在合法 `/api/chats` mode 查询中始终保留。
 
@@ -765,6 +769,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/model-options` | 无 | `response` |
 | `/api/teams` | 无 | `response` |
 | `/api/chats` | `lastRunId`、`agentKey`、`mode`、`limit` | `response` |
+| `/api/chats/order` | 空 payload 读取；或 `operation` 与对应字段更新 | `response` |
 | `/api/chat` | `chatId`、`includeRawMessages` | `response` |
 | `/api/read` | `chatId` | `response` |
 | `/api/feedback` | feedback 字段 | `response` |

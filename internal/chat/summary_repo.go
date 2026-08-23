@@ -407,6 +407,10 @@ func (s *FileStore) ListChatsWithAgentModesAndLimit(lastRunID string, agentKey s
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	orderState := s.readChatOrderForListLocked()
+	if orderState.SortMode == SortModeManual {
+		items = orderSummaries(items, orderState.Order)
+	}
 	if limit > 0 && len(items) > limit {
 		items = items[:limit]
 	}
