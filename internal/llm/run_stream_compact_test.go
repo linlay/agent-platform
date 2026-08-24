@@ -16,6 +16,8 @@ import (
 	"agent-platform/internal/models"
 )
 
+const compactTestOnePixelPNGDataURL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+
 type compactPendingInteractionExecutor struct {
 	calls int
 }
@@ -81,7 +83,10 @@ func TestActiveRunL1CompactsCompletedToolGroupWithoutModel(t *testing.T) {
 			{Role: "system", Content: "system unchanged"},
 			{Role: "assistant", Content: "assistant prose unchanged", ToolCalls: []contracts.ModelToolCall{{ID: "tool-1", Type: "function", Function: contracts.ModelFunctionCall{Name: "file_write", Arguments: arguments}}}},
 			{Role: "tool", ToolCallID: "tool-1", Content: result},
-			{Role: "user", Content: "current root unchanged"},
+			{Role: "user", Content: []any{
+				map[string]any{"type": "text", "text": "current root unchanged"},
+				map[string]any{"type": "image_url", "image_url": map[string]any{"url": compactTestOnePixelPNGDataURL}},
+			}},
 		},
 		pinnedMessageStart: 3,
 		pinnedMessageEnd:   4,
@@ -92,8 +97,14 @@ func TestActiveRunL1CompactsCompletedToolGroupWithoutModel(t *testing.T) {
 	if err := stream.executeContextCompact(); err != nil {
 		t.Fatalf("execute l1 compact: %v", err)
 	}
-	if stream.messages[1].Content != "assistant prose unchanged" || stream.messages[3].Content != "current root unchanged" {
+	if stream.messages[1].Content != "assistant prose unchanged" {
 		t.Fatalf("ordinary messages changed: %#v", stream.messages)
+	}
+	pinnedContent, _ := stream.messages[3].Content.([]any)
+	pinnedImage, _ := pinnedContent[1].(map[string]any)
+	pinnedImageURL, _ := pinnedImage["image_url"].(map[string]any)
+	if pinnedImageURL["url"] != compactTestOnePixelPNGDataURL {
+		t.Fatalf("pinned image changed: %#v", stream.messages[3].Content)
 	}
 	if !strings.HasPrefix(fmt.Sprint(stream.messages[2].Content), "[Compacted tool interaction]") {
 		t.Fatalf("tool result was not compacted: %#v", stream.messages[2].Content)
@@ -110,6 +121,50 @@ func TestActiveRunL1CompactsCompletedToolGroupWithoutModel(t *testing.T) {
 	}
 	if !foundComplete {
 		t.Fatalf("l1 completion delta missing or invalid: %#v", stream.pending)
+	}
+}
+
+func TestAutomaticCompactStopsAfterMediaSafeL1Reestimate(t *testing.T) {
+	stream := &llmRunStream{
+		session: contracts.QuerySession{RunID: "run-auto-l1-only", ChatID: "chat-auto-l1-only"},
+		execCtx: &contracts.ExecutionContext{RunLoopState: contracts.RunLoopStateIdle},
+		model:   models.ModelDefinition{ContextWindow: 10000},
+		messages: []openAIMessage{
+			{Role: "system", Content: "system"},
+			{Role: "user", Content: []any{
+				map[string]any{"type": "text", "text": "inspect the image"},
+				map[string]any{"type": "image_url", "image_url": map[string]any{"url": compactTestOnePixelPNGDataURL}},
+			}},
+			{Role: "assistant", ToolCalls: []contracts.ModelToolCall{{ID: "tool-1", Type: "function", Function: contracts.ModelFunctionCall{Name: "file_read", Arguments: `{"path":"large.log"}`}}}},
+			{Role: "tool", ToolCallID: "tool-1", Content: strings.Repeat("tool output ", 3000)},
+		},
+		pinnedMessageStart: 1,
+		pinnedMessageEnd:   2,
+	}
+	if !stream.scheduleContextCompact(false) || stream.compactWork == nil || stream.compactWork.request.Level != "l1_tools" {
+		t.Fatalf("automatic l1 was not scheduled: %#v", stream.compactWork)
+	}
+	if err := stream.executeContextCompact(); err != nil {
+		t.Fatalf("execute automatic l1: %v", err)
+	}
+	if stream.compactWork != nil {
+		t.Fatalf("summary was scheduled after sufficient l1: %#v", stream.compactWork)
+	}
+	content, _ := stream.messages[1].Content.([]any)
+	imageBlock, _ := content[1].(map[string]any)
+	imageURL, _ := imageBlock["image_url"].(map[string]any)
+	if imageURL["url"] != compactTestOnePixelPNGDataURL {
+		t.Fatalf("l1 changed pinned image: %#v", stream.messages[1].Content)
+	}
+	levels := []string{}
+	for _, delta := range stream.pending {
+		if compact, ok := delta.(contracts.DeltaContextCompact); ok {
+			levels = append(levels, compact.Status+":"+compact.Level)
+		}
+	}
+	want := []string{"start:l1_tools", "complete:l1_tools"}
+	if strings.Join(levels, ",") != strings.Join(want, ",") {
+		t.Fatalf("compact levels = %#v, want %#v", levels, want)
 	}
 }
 
@@ -146,6 +201,69 @@ func TestAutomaticCompactRunsL1BeforeSchedulingSummary(t *testing.T) {
 	want := []string{"start:l1_tools", "complete:l1_tools", "start:summary"}
 	if strings.Join(levels, ",") != strings.Join(want, ",") {
 		t.Fatalf("compact levels = %#v, want %#v", levels, want)
+	}
+}
+
+func TestAutomaticCompactUsesProviderUsageForLargePinnedImage(t *testing.T) {
+	dataURL := "data:image/jpeg;base64," + strings.Repeat("A", 4_271_740)
+	stream := &llmRunStream{
+		session: contracts.QuerySession{RunID: "run-large-image", ChatID: "chat-large-image"},
+		execCtx: &contracts.ExecutionContext{RunLoopState: contracts.RunLoopStateToolExecuting},
+		model:   models.ModelDefinition{ContextWindow: 524288},
+		messages: []openAIMessage{
+			{Role: "system", Content: "system"},
+			{Role: "user", Content: []any{
+				map[string]any{"type": "text", "text": "extract the table"},
+				map[string]any{"type": "image_url", "image_url": map[string]any{"url": dataURL}},
+			}},
+			{Role: "assistant", ToolCalls: []contracts.ModelToolCall{
+				{ID: "vision-1", Type: "function", Function: contracts.ModelFunctionCall{Name: "vision_recognize", Arguments: `{"images":{"file_path":"@chat/image.png"}}`}},
+				{ID: "read-1", Type: "function", Function: contracts.ModelFunctionCall{Name: "file_read", Arguments: `{"file_path":"@skills/online-xlsx/SKILL.md"}`}},
+			}},
+			{Role: "tool", Name: "vision_recognize", ToolCallID: "vision-1", Content: `{"error":"vision_images_invalid_type"}`},
+			{Role: "tool", Name: "file_read", ToolCallID: "read-1", Content: strings.Repeat("skill text ", 750)},
+		},
+		pinnedMessageStart:       1,
+		pinnedMessageEnd:         2,
+		lastCallPromptTokens:     14848,
+		lastCallCompletionTokens: 435,
+	}
+	if next := stream.estimatedNextCallSize(); next >= compactTriggerThreshold(stream.effectiveContextWindow()) {
+		t.Fatalf("estimated next call = %d, unexpectedly above trigger", next)
+	}
+	if stream.scheduleContextCompact(false) {
+		t.Fatalf("large pinned image incorrectly scheduled compact: %#v", stream.compactWork)
+	}
+	if stream.compactCounter != 0 || len(stream.pending) != 0 {
+		t.Fatalf("unexpected compact side effects counter=%d pending=%#v", stream.compactCounter, stream.pending)
+	}
+	content, _ := stream.messages[1].Content.([]any)
+	imageBlock, _ := content[1].(map[string]any)
+	imageURL, _ := imageBlock["image_url"].(map[string]any)
+	if imageURL["url"] != dataURL {
+		t.Fatal("context estimation mutated the pinned image")
+	}
+}
+
+func TestAutomaticCompactFallbackEstimateDoesNotCountPinnedImageBase64(t *testing.T) {
+	stream := &llmRunStream{
+		session: contracts.QuerySession{RunID: "run-image-fallback", ChatID: "chat-image-fallback"},
+		model:   models.ModelDefinition{ContextWindow: 524288},
+		messages: []openAIMessage{
+			{Role: "system", Content: "system"},
+			{Role: "user", Content: []any{
+				map[string]any{"type": "text", "text": "inspect"},
+				map[string]any{"type": "image_url", "image_url": map[string]any{"url": "data:image/jpeg;base64," + strings.Repeat("A", 4_271_740)}},
+			}},
+		},
+		pinnedMessageStart: 1,
+		pinnedMessageEnd:   2,
+	}
+	if estimate := stream.fallbackContextEstimate(); estimate >= compactTriggerThreshold(stream.effectiveContextWindow()) {
+		t.Fatalf("fallback estimate = %d, unexpectedly above trigger", estimate)
+	}
+	if stream.scheduleContextCompact(false) {
+		t.Fatal("fallback estimate incorrectly scheduled compact")
 	}
 }
 

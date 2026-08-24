@@ -659,6 +659,77 @@ func TestCompactPromptKeepsMiddleHistoryAndRejectsOversizedSingleCall(t *testing
 	}
 }
 
+func TestHistoryCompactSnapshotUsesMediaSafeEstimateAndPromptProjection(t *testing.T) {
+	store := newCompactTestStore(t)
+	chatID := "chat-compact-inline-image"
+	ensureCompactTestChat(t, store, chatID)
+	dataURL := "data:image/jpeg;base64," + strings.Repeat("A", 1_000_000)
+	content := []any{
+		map[string]any{"type": "text", "text": "extract the table"},
+		map[string]any{"type": "image_url", "image_url": map[string]any{"url": dataURL}},
+	}
+	if err := store.AppendQueryLine(chatID, QueryLine{
+		Type:      "query",
+		ChatID:    chatID,
+		RunID:     "r1",
+		UpdatedAt: testEpochMillis(100),
+		Query:     map[string]any{"role": "user", "message": "extract the table"},
+		Messages:  []map[string]any{{"role": "user", "content": content, "ts": testEpochMillis(100)}},
+	}); err != nil {
+		t.Fatalf("AppendQueryLine: %v", err)
+	}
+	if err := store.AppendStepLine(chatID, StepLine{
+		Type:      StepLineTypeReact,
+		ChatID:    chatID,
+		RunID:     "r1",
+		UpdatedAt: testEpochMillis(101),
+		Messages: []StoredMessage{{
+			Role:    "assistant",
+			Content: []ContentPart{{Type: "text", Text: "image received"}},
+			Ts:      int64Ptr(testEpochMillis(101)),
+		}},
+	}); err != nil {
+		t.Fatalf("AppendStepLine: %v", err)
+	}
+	if err := completeRunForTest(store, RunCompletion{
+		ChatID: chatID, RunID: "r1", InitialMessage: "extract the table", AssistantText: "image received",
+		FinishReason: "complete", StartedAtMillis: testEpochMillis(100), UpdatedAtMillis: testEpochMillis(101),
+	}); err != nil {
+		t.Fatalf("complete r1: %v", err)
+	}
+	appendCompactTestRun(t, store, chatID, "r2", "user r2", "assistant r2")
+	appendCompactTestRun(t, store, chatID, "r3", "user r3", "assistant r3")
+
+	snapshot, err := store.BuildCompactSnapshot(chatID, 2)
+	if err != nil {
+		t.Fatalf("BuildCompactSnapshot: %v", err)
+	}
+	if snapshot.PreCompactEstimatedTokens < compactImageFallbackTokens || snapshot.PreCompactEstimatedTokens > compactImageFallbackTokens+2_000 {
+		t.Fatalf("history estimate = %d, want bounded media fallback", snapshot.PreCompactEstimatedTokens)
+	}
+	rawMessages, err := json.Marshal(snapshot.CoveredMessages)
+	if err != nil {
+		t.Fatalf("marshal covered messages: %v", err)
+	}
+	if !bytes.Contains(rawMessages, []byte(dataURL)) {
+		t.Fatal("history snapshot mutated the stored inline image")
+	}
+	prompt, err := BuildCompactPromptWithinBudget(snapshot.CoveredMessages, 10_000)
+	if err != nil {
+		t.Fatalf("BuildCompactPromptWithinBudget: %v", err)
+	}
+	for _, forbidden := range []string{"data:image/jpeg;base64", strings.Repeat("A", 128)} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatal("history summary prompt retained inline image bytes")
+		}
+	}
+	for _, required := range []string{"image_reference", "image/jpeg", "sizeBytes", "payloadSha256"} {
+		if !strings.Contains(prompt, required) {
+			t.Fatalf("history summary prompt missing %q", required)
+		}
+	}
+}
+
 func TestToolCompactCommitDetectsHistoryChanged(t *testing.T) {
 	store := newCompactTestStore(t)
 	chatID := "chat-tool-compact-race"

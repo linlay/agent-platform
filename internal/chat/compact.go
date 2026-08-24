@@ -389,7 +389,8 @@ func cloneJSONLineMap(src map[string]any) map[string]any {
 }
 
 func buildCompactPrompt(messages []map[string]any) string {
-	rendered := renderMessagesForCompact(normalizeCompactSummaryMessages(messages), 0)
+	mediaProjected, _ := projectCompactMediaMessages(messages, true)
+	rendered := renderMessagesForCompact(normalizeCompactSummaryMessages(mediaProjected), 0)
 	if strings.TrimSpace(rendered) == "" {
 		return ""
 	}
@@ -622,15 +623,16 @@ func EstimateRawMessageTokens(messages []map[string]any) int {
 	if len(messages) == 0 {
 		return 0
 	}
-	encoded, err := json.Marshal(messages)
+	projected, mediaTokens := projectCompactMediaMessages(messages, false)
+	encoded, err := json.Marshal(projected)
 	if err != nil {
-		total := 0
-		for _, msg := range messages {
+		total := mediaTokens
+		for _, msg := range projected {
 			total += EstimateTextTokens(compactMessageSnippet(msg, 2000))
 		}
 		return total
 	}
-	return EstimateTextTokens(string(encoded))
+	return EstimateTextTokens(string(encoded)) + mediaTokens
 }
 
 func EstimateTextTokens(text string) int {

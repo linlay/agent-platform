@@ -62,7 +62,8 @@ func (s *llmRunStream) scheduleContextCompact(finishAfter bool) bool {
 	preTokens := s.fallbackContextEstimate()
 	if !manual {
 		threshold := compactTriggerThreshold(s.effectiveContextWindow())
-		if !s.forceContextCompact && (threshold <= 0 || preTokens < threshold) {
+		triggerTokens := s.estimatedNextCallSize()
+		if !s.forceContextCompact && (threshold <= 0 || triggerTokens < threshold) {
 			return false
 		}
 		s.compactCounter++
@@ -719,16 +720,12 @@ func (s *llmRunStream) resetContextEstimateAfterCompact() {
 }
 
 func estimateModelContext(messages []openAIMessage, tools []openAIToolSpec) int {
-	total := 0
-	for _, message := range messages {
-		raw, _ := json.Marshal(message)
-		total += len(raw)
-	}
+	total := chat.EstimateRawMessageTokens(modelMessagesToMaps(messages))
 	if len(tools) > 0 {
 		raw, _ := json.Marshal(tools)
-		total += len(raw) / 2
+		total += len(raw) / 8
 	}
-	return total / 4
+	return total
 }
 
 func cloneModelMessages(messages []openAIMessage) []openAIMessage {

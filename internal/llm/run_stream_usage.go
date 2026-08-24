@@ -15,17 +15,17 @@ func (s *llmRunStream) currentContextSize() int {
 
 func (s *llmRunStream) estimatedNextCallSize() int {
 	if s.lastCallPromptTokens > 0 {
-		return s.lastCallPromptTokens + s.lastCallCompletionTokens + s.bytesAfterLastAssistant()/4
+		return s.lastCallPromptTokens + s.lastCallCompletionTokens + s.estimatedTokensAfterLastAssistant()
 	}
 	return s.fallbackContextEstimate()
 }
 
-// bytesAfterLastAssistant returns bytes of messages strictly after the
+// estimatedTokensAfterLastAssistant estimates messages strictly after the
 // last assistant message. Matches Claude Code's messages.slice(i+1) logic
 // in tokenCountWithEstimation: the assistant message itself is covered by
 // lastCallCompletionTokens (its output), so only tool_results / new user
 // messages added since then count as "new".
-func (s *llmRunStream) bytesAfterLastAssistant() int {
+func (s *llmRunStream) estimatedTokensAfterLastAssistant() int {
 	lastAssistant := -1
 	for i := len(s.messages) - 1; i >= 0; i-- {
 		if s.messages[i].Role == "assistant" {
@@ -36,25 +36,11 @@ func (s *llmRunStream) bytesAfterLastAssistant() int {
 	if lastAssistant == -1 {
 		return 0
 	}
-	newBytes := 0
-	for i := lastAssistant + 1; i < len(s.messages); i++ {
-		raw, _ := json.Marshal(s.messages[i])
-		newBytes += len(raw)
-	}
-	return newBytes
+	return estimateModelContext(s.messages[lastAssistant+1:], nil)
 }
 
 func (s *llmRunStream) fallbackContextEstimate() int {
-	total := 0
-	for _, msg := range s.messages {
-		raw, _ := json.Marshal(msg)
-		total += len(raw)
-	}
-	if len(s.toolSpecs) > 0 {
-		raw, _ := json.Marshal(s.toolSpecs)
-		total += len(raw) / 2
-	}
-	return total / 4
+	return estimateModelContext(s.messages, s.toolSpecs)
 }
 
 func (s *llmRunStream) effectiveContextWindow() int {
