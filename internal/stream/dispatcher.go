@@ -303,8 +303,20 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		if value.CompressionRatio > 0 {
 			payload["compressionRatio"] = value.CompressionRatio
 		}
+		if value.RemainingRatio > 0 {
+			payload["remainingRatio"] = value.RemainingRatio
+		}
+		if value.ReleasedRatio > 0 {
+			payload["releasedRatio"] = value.ReleasedRatio
+		}
 		if value.TokensFreed > 0 {
 			payload["tokensFreed"] = value.TokensFreed
+		}
+		if value.ToolsCleared > 0 {
+			payload["toolsCleared"] = value.ToolsCleared
+		}
+		if value.ToolsKept > 0 {
+			payload["toolsKept"] = value.ToolsKept
 		}
 		if len(value.CompactionUsage) > 0 {
 			payload["compactionUsage"] = clonePayload(value.CompactionUsage)

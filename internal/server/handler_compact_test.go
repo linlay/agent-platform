@@ -232,6 +232,42 @@ func TestHandleCompactWritesCheckpointAndReloadsRawMessages(t *testing.T) {
 	}
 }
 
+func TestHandleCompactSummaryEmptyFailsWithoutCheckpoint(t *testing.T) {
+	var calls atomic.Int32
+	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		writeProviderSSE(t, w, `{"choices":[{"delta":{},"finish_reason":"stop"}]}`, `[DONE]`)
+	})
+	chatID := "chat-api-compact-empty-summary"
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "empty summary"); err != nil {
+		t.Fatalf("EnsureChat: %v", err)
+	}
+	appendServerCompactRun(t, fixture.chats, chatID, "r1", "early anchor", strings.Repeat("history ", 500))
+
+	rec := httptest.NewRecorder()
+	body := bytes.NewBufferString(`{"chatId":"` + chatID + `","agentKey":"mock-agent","requestId":"req-empty","trigger":"manual","level":"summary"}`)
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/compact", body))
+	var response api.ApiResponse[api.CompactResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v body=%s", err, rec.Body.String())
+	}
+	if response.Data.Accepted || response.Data.Status != "failed" || response.Data.Detail != "summary_empty" || !response.Data.Retryable {
+		t.Fatalf("empty summary response = %#v", response.Data)
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("summary model calls = %d, want exactly one", calls.Load())
+	}
+	detail, err := fixture.chats.LoadChat(chatID)
+	if err != nil {
+		t.Fatalf("LoadChat: %v", err)
+	}
+	for _, event := range detail.Events {
+		if event.Type == "context.compact.complete" {
+			t.Fatalf("failed summary persisted a completion event: %#v", event)
+		}
+	}
+}
+
 func TestHandleCompactLevelL1ToolsClearsToolResultsWithoutModel(t *testing.T) {
 	modelCalls := 0
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
@@ -243,7 +279,7 @@ func TestHandleCompactLevelL1ToolsClearsToolResultsWithoutModel(t *testing.T) {
 		t.Fatalf("EnsureChat: %v", err)
 	}
 	for i := 1; i <= 7; i++ {
-		appendServerCompactToolResult(t, fixture.chats, chatID, fmt.Sprintf("r%d", i), fmt.Sprintf("tool-%d", i), "file_read", fmt.Sprintf("file result %d %s", i, strings.Repeat("x", 240)))
+		appendServerCompactToolResult(t, fixture.chats, chatID, fmt.Sprintf("r%d", i), fmt.Sprintf("tool-%d", i), "file_read", fmt.Sprintf("file result %d %s", i, strings.Repeat("x", 2000)))
 	}
 
 	body := bytes.NewBufferString(`{"chatId":"` + chatID + `","agentKey":"mock-agent","requestId":"req-compact-l1","trigger":"manual","level":"l1_tools"}`)
@@ -279,8 +315,8 @@ func TestHandleCompactLevelL1ToolsClearsToolResultsWithoutModel(t *testing.T) {
 			toolContent[stringValue(msg["tool_call_id"])] = stringValue(msg["content"])
 		}
 	}
-	if toolContent["tool-1"] != chat.ToolCompactClearedMessage || toolContent["tool-2"] != chat.ToolCompactClearedMessage {
-		t.Fatalf("old tool results were not cleared: %#v", toolContent)
+	if !strings.HasPrefix(toolContent["tool-1"], "[Compacted tool interaction]") || !strings.HasPrefix(toolContent["tool-2"], "[Compacted tool interaction]") {
+		t.Fatalf("old tool results were not structurally compacted: %#v", toolContent)
 	}
 	if !strings.Contains(toolContent["tool-7"], "file result 7") {
 		t.Fatalf("recent tool result should be kept, got %q", toolContent["tool-7"])
@@ -381,7 +417,7 @@ func TestWSCompactLevelL1Tools(t *testing.T) {
 		t.Fatalf("EnsureChat: %v", err)
 	}
 	for i := 1; i <= 7; i++ {
-		appendServerCompactToolResult(t, fixture.chats, chatID, fmt.Sprintf("r%d", i), fmt.Sprintf("tool-%d", i), "bash", fmt.Sprintf("bash result %d %s", i, strings.Repeat("x", 240)))
+		appendServerCompactToolResult(t, fixture.chats, chatID, fmt.Sprintf("r%d", i), fmt.Sprintf("tool-%d", i), "bash", fmt.Sprintf("bash result %d %s", i, strings.Repeat("x", 2000)))
 	}
 
 	server := httptest.NewServer(fixture.server)

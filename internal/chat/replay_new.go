@@ -458,8 +458,17 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			if ratio := float64FromJSONValue(line["compressionRatio"]); ratio > 0 {
 				payload["compressionRatio"] = ratio
 			}
+			if ratio := float64FromJSONValue(line["remainingRatio"]); ratio > 0 {
+				payload["remainingRatio"] = ratio
+			}
+			if ratio := float64FromJSONValue(line["releasedRatio"]); ratio > 0 {
+				payload["releasedRatio"] = ratio
+			}
 			if tokens := int64FromAny(line["tokensFreed"]); tokens > 0 {
 				payload["tokensFreed"] = tokens
+			}
+			if usage, ok := line["compactionUsage"].(map[string]any); ok && len(usage) > 0 {
+				payload["compactionUsage"] = cloneStringAnyMap(usage)
 			}
 			rd := ensureRun(runs, &runOrder, eventRunID)
 			rd.events = append(rd.events, stream.EventData{
@@ -494,8 +503,20 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			if ratio := float64FromJSONValue(line["compressionRatio"]); ratio > 0 {
 				payload["compressionRatio"] = ratio
 			}
+			if ratio := float64FromJSONValue(line["remainingRatio"]); ratio > 0 {
+				payload["remainingRatio"] = ratio
+			}
+			if ratio := float64FromJSONValue(line["releasedRatio"]); ratio > 0 {
+				payload["releasedRatio"] = ratio
+			}
 			if tokens := int64FromAny(line["tokensFreed"]); tokens > 0 {
 				payload["tokensFreed"] = tokens
+			}
+			if count := int64FromAny(line["toolsCleared"]); count > 0 {
+				payload["toolsCleared"] = count
+			}
+			if count := int64FromAny(line["toolsKept"]); count > 0 {
+				payload["toolsKept"] = count
 			}
 			if usage, ok := line["compactionUsage"].(map[string]any); ok && len(usage) > 0 {
 				payload["compactionUsage"] = cloneStringAnyMap(usage)
@@ -506,6 +527,36 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				Type:      "context.compact.complete",
 				Timestamp: int64FromAny(line["updatedAt"]),
 				Payload:   payload,
+			})
+		case ToolCompactLineType:
+			if lineIsCompacted(line) {
+				continue
+			}
+			eventRunID := strings.TrimSpace(summary.LastRunID)
+			payload := map[string]any{
+				"type":      "context.compact.complete",
+				"chatId":    chatID,
+				"compactId": stringFromAny(line["compactId"]),
+				"trigger":   firstNonEmptyReplayString(stringFromAny(line["trigger"]), "manual"),
+				"level":     "l1_tools",
+				"scope":     "history",
+			}
+			if eventRunID != "" {
+				payload["runId"] = eventRunID
+			}
+			for _, key := range []string{"preCompactEstimatedTokens", "postCompactEstimatedTokens", "tokensFreed", "toolsCleared", "toolsKept"} {
+				if value := int64FromAny(line[key]); value > 0 {
+					payload[key] = value
+				}
+			}
+			for _, key := range []string{"compressionRatio", "remainingRatio", "releasedRatio"} {
+				if value := float64FromJSONValue(line[key]); value > 0 {
+					payload[key] = value
+				}
+			}
+			rd := ensureRun(runs, &runOrder, eventRunID)
+			rd.events = append(rd.events, stream.EventData{
+				Seq: nextSeq(), Type: "context.compact.complete", Timestamp: int64FromAny(line["updatedAt"]), Payload: payload,
 			})
 		case "submit":
 			lineLiveSeq := int64FromAny(line["liveSeq"])

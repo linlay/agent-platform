@@ -89,7 +89,10 @@ func (p *runEventProcessor) Consume(event stream.StreamEvent) (stream.EventData,
 	if p.stepWriter != nil {
 		p.stepWriter.OnEvent(data)
 		if err := p.stepWriter.Err(); err != nil {
-			return stream.EventData{}, false, err
+			// Preserve the failing compact event so the executor can resolve the
+			// blocking request as compact_persist_failed without publishing the
+			// unpersisted completion.
+			return data, false, err
 		}
 	}
 	p.completeCompactControl(data)
@@ -119,7 +122,11 @@ func (p *runEventProcessor) completeCompactControl(data stream.EventData) {
 		PreCompactEstimatedTokens:  contracts.AnyIntNode(data.Value("preCompactEstimatedTokens")),
 		PostCompactEstimatedTokens: contracts.AnyIntNode(data.Value("postCompactEstimatedTokens")),
 		CompressionRatio:           compactFloat64(data.Value("compressionRatio")),
+		RemainingRatio:             compactFloat64(data.Value("remainingRatio")),
+		ReleasedRatio:              compactFloat64(data.Value("releasedRatio")),
 		TokensFreed:                contracts.AnyIntNode(data.Value("tokensFreed")),
+		ToolsCleared:               contracts.AnyIntNode(data.Value("toolsCleared")),
+		ToolsKept:                  contracts.AnyIntNode(data.Value("toolsKept")),
 		CompactionUsage:            contracts.CloneMap(compactionUsage),
 		Detail:                     data.String("detail"),
 		Retryable:                  data.Value("retryable") == true,
@@ -1035,7 +1042,7 @@ func compactCheckpointPersistenceFailedEvent(data stream.EventData) stream.Event
 		"trigger":   data.String("trigger"),
 		"level":     data.String("level"),
 		"scope":     data.String("scope"),
-		"detail":    "checkpoint_persist_failed",
+		"detail":    "compact_persist_failed",
 		"retryable": true,
 	}
 	return stream.EventData{

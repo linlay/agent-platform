@@ -131,6 +131,8 @@ type CompactCheckpointLine struct {
 	PreCompactEstimatedTokens  int            `json:"preCompactEstimatedTokens,omitempty"`
 	PostCompactEstimatedTokens int            `json:"postCompactEstimatedTokens,omitempty"`
 	CompressionRatio           float64        `json:"compressionRatio,omitempty"`
+	RemainingRatio             float64        `json:"remainingRatio,omitempty"`
+	ReleasedRatio              float64        `json:"releasedRatio,omitempty"`
 	TokensFreed                int            `json:"tokensFreed,omitempty"`
 	CompactionUsage            map[string]any `json:"compactionUsage"`
 }
@@ -150,7 +152,11 @@ type RunCompactCheckpointLine struct {
 	PreCompactEstimatedTokens  int              `json:"preCompactEstimatedTokens,omitempty"`
 	PostCompactEstimatedTokens int              `json:"postCompactEstimatedTokens,omitempty"`
 	CompressionRatio           float64          `json:"compressionRatio,omitempty"`
+	RemainingRatio             float64          `json:"remainingRatio,omitempty"`
+	ReleasedRatio              float64          `json:"releasedRatio,omitempty"`
 	TokensFreed                int              `json:"tokensFreed,omitempty"`
+	ToolsCleared               int              `json:"toolsCleared,omitempty"`
+	ToolsKept                  int              `json:"toolsKept,omitempty"`
 	CompactionUsage            map[string]any   `json:"compactionUsage,omitempty"`
 	Messages                   []map[string]any `json:"messages"`
 	PreviousRunState           string           `json:"previousRunState,omitempty"`
@@ -170,6 +176,8 @@ type ToolCompactLine struct {
 	PreCompactEstimatedTokens  int     `json:"preCompactEstimatedTokens,omitempty"`
 	PostCompactEstimatedTokens int     `json:"postCompactEstimatedTokens,omitempty"`
 	CompressionRatio           float64 `json:"compressionRatio,omitempty"`
+	RemainingRatio             float64 `json:"remainingRatio,omitempty"`
+	ReleasedRatio              float64 `json:"releasedRatio,omitempty"`
 }
 
 // StepLine represents a step line in chatId.jsonl.

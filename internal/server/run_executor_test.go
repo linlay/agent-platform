@@ -406,7 +406,7 @@ func TestCompactCheckpointPersistenceFailurePublishesFailureAndResolvesRequest(t
 	select {
 	case <-handle.Done():
 		result := handle.Result()
-		if result.Accepted || result.Status != "failed" || result.Detail != "checkpoint_persist_failed" || !result.Retryable {
+		if result.Accepted || result.Status != "failed" || result.Detail != "compact_persist_failed" || !result.Retryable {
 			t.Fatalf("compact result = %#v", result)
 		}
 	default:
@@ -414,7 +414,7 @@ func TestCompactCheckpointPersistenceFailurePublishesFailureAndResolvesRequest(t
 	}
 	select {
 	case event := <-observer.Events:
-		if event.Type != "context.compact.failed" || event.String("detail") != "checkpoint_persist_failed" || event.Value("retryable") != true {
+		if event.Type != "context.compact.failed" || event.String("detail") != "compact_persist_failed" || event.Value("retryable") != true {
 			t.Fatalf("failure event = %#v", event)
 		}
 		if event.Value("checkpointMessages") != nil {

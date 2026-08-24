@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -58,6 +59,93 @@ func TestBuildContextCompactPlanPinsCurrentInputAndKeepsToolPairAtomic(t *testin
 	}
 	if !foundCall || !foundResult {
 		t.Fatalf("tool group was split candidates=%#v retained=%#v", plan.candidates, plan.retained)
+	}
+}
+
+func TestActiveRunL1CompactsCompletedToolGroupWithoutModel(t *testing.T) {
+	control := contracts.NewRunControl(context.Background(), "run-l1")
+	control.EnableContextCompact()
+	if _, status := control.EnqueueCompact(contracts.CompactControlRequest{
+		RequestID: "req-l1", CompactID: "compact-l1", ChatID: "chat-l1", Trigger: "manual", Level: "l1_tools",
+	}); status != "queued" {
+		t.Fatalf("enqueue status = %q", status)
+	}
+	arguments := `{"path":"docs/large.md","body":"` + strings.Repeat("payload ", 500) + `"}`
+	result := "important path docs/large.md " + strings.Repeat("tool output ", 1200)
+	stream := &llmRunStream{
+		session:    contracts.QuerySession{RunID: "run-l1", ChatID: "chat-l1"},
+		runControl: control,
+		execCtx:    &contracts.ExecutionContext{RunLoopState: contracts.RunLoopStateIdle},
+		model:      models.ModelDefinition{ContextWindow: 2000},
+		messages: []openAIMessage{
+			{Role: "system", Content: "system unchanged"},
+			{Role: "assistant", Content: "assistant prose unchanged", ToolCalls: []contracts.ModelToolCall{{ID: "tool-1", Type: "function", Function: contracts.ModelFunctionCall{Name: "file_write", Arguments: arguments}}}},
+			{Role: "tool", ToolCallID: "tool-1", Content: result},
+			{Role: "user", Content: "current root unchanged"},
+		},
+		pinnedMessageStart: 3,
+		pinnedMessageEnd:   4,
+	}
+	if !stream.scheduleContextCompact(false) {
+		t.Fatal("l1 compact was not scheduled")
+	}
+	if err := stream.executeContextCompact(); err != nil {
+		t.Fatalf("execute l1 compact: %v", err)
+	}
+	if stream.messages[1].Content != "assistant prose unchanged" || stream.messages[3].Content != "current root unchanged" {
+		t.Fatalf("ordinary messages changed: %#v", stream.messages)
+	}
+	if !strings.HasPrefix(fmt.Sprint(stream.messages[2].Content), "[Compacted tool interaction]") {
+		t.Fatalf("tool result was not compacted: %#v", stream.messages[2].Content)
+	}
+	if got := stream.messages[1].ToolCalls[0].Function.Arguments; len(got) >= len(arguments) || !strings.Contains(got, `"_compacted":true`) {
+		t.Fatalf("tool arguments were not compacted: %s", got)
+	}
+	foundComplete := false
+	for _, delta := range stream.pending {
+		compact, ok := delta.(contracts.DeltaContextCompact)
+		if ok && compact.Status == "complete" && compact.Level == "l1_tools" {
+			foundComplete = compact.ToolsCleared == 1 && compact.ToolsKept == 0 && compact.TokensFreed > 0
+		}
+	}
+	if !foundComplete {
+		t.Fatalf("l1 completion delta missing or invalid: %#v", stream.pending)
+	}
+}
+
+func TestAutomaticCompactRunsL1BeforeSchedulingSummary(t *testing.T) {
+	stream := &llmRunStream{
+		session: contracts.QuerySession{RunID: "run-auto", ChatID: "chat-auto"},
+		execCtx: &contracts.ExecutionContext{RunLoopState: contracts.RunLoopStateIdle},
+		model:   models.ModelDefinition{ContextWindow: 2000},
+		messages: []openAIMessage{
+			{Role: "system", Content: "system"},
+			{Role: "assistant", Content: strings.Repeat("important prose ", 900)},
+			{Role: "assistant", ToolCalls: []contracts.ModelToolCall{{ID: "tool-1", Type: "function", Function: contracts.ModelFunctionCall{Name: "file_read", Arguments: `{"path":"large.log"}`}}}},
+			{Role: "tool", ToolCallID: "tool-1", Content: strings.Repeat("tool output ", 900)},
+			{Role: "user", Content: "current root"},
+		},
+		pinnedMessageStart: 4,
+		pinnedMessageEnd:   5,
+	}
+	if !stream.scheduleContextCompact(false) || stream.compactWork == nil || stream.compactWork.request.Level != "l1_tools" {
+		t.Fatalf("automatic l1 was not scheduled: %#v", stream.compactWork)
+	}
+	if err := stream.executeContextCompact(); err != nil {
+		t.Fatalf("execute automatic l1: %v", err)
+	}
+	if stream.compactWork == nil || stream.compactWork.request.Level != "summary" {
+		t.Fatalf("summary was not scheduled after insufficient l1: %#v", stream.compactWork)
+	}
+	levels := []string{}
+	for _, delta := range stream.pending {
+		if compact, ok := delta.(contracts.DeltaContextCompact); ok {
+			levels = append(levels, compact.Status+":"+compact.Level)
+		}
+	}
+	want := []string{"start:l1_tools", "complete:l1_tools", "start:summary"}
+	if strings.Join(levels, ",") != strings.Join(want, ",") {
+		t.Fatalf("compact levels = %#v, want %#v", levels, want)
 	}
 }
 

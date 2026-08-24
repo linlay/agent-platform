@@ -15,12 +15,12 @@ import (
 
 const (
 	DefaultCompactKeptRunCount = 2
-	compactPromptMaxChars      = 60000
 	compactFallbackMaxItems    = 24
 )
 
 var ErrNoCompactableHistory = errors.New("no compactable history")
 var ErrCompactHistoryChanged = errors.New("compact history changed")
+var ErrCompactSummaryInputTooLarge = errors.New("compact summary input too large")
 
 type CompactSnapshot struct {
 	ChatID                     string
@@ -33,6 +33,7 @@ type CompactSnapshot struct {
 	CompressionRatio           float64
 	Prompt                     string
 	FallbackSummary            string
+	CoveredMessages            []map[string]any
 	TailMessages               []map[string]any
 }
 
@@ -144,6 +145,7 @@ func (s *FileStore) BuildCompactSnapshot(chatID string, keptRunCount int) (Compa
 		CompressionRatio:           ratio,
 		Prompt:                     buildCompactPrompt(coveredMessages),
 		FallbackSummary:            fallbackSummary,
+		CoveredMessages:            coveredMessages,
 		TailMessages:               tailMessages,
 	}, nil
 }
@@ -375,15 +377,17 @@ func cloneJSONLineMap(src map[string]any) map[string]any {
 }
 
 func buildCompactPrompt(messages []map[string]any) string {
-	rendered := renderMessagesForCompact(messages, compactPromptMaxChars)
+	rendered := renderMessagesForCompact(normalizeCompactSummaryMessages(messages), 0)
 	if strings.TrimSpace(rendered) == "" {
 		return ""
 	}
 	return strings.TrimSpace(`你正在为一个长期对话生成上下文压缩摘要。
 
 请只基于下面提供的历史消息，总结后续继续对话必须知道的信息。要求：
-- 保留用户目标、已确认的偏好、重要约束、关键决策、尚未完成的事项。
-- 保留重要文件路径、接口、参数名、错误信息、结论和下一步。
+- 按时间顺序保留用户目标及其变化、已确认偏好、重要约束和关键决策。
+- 明确区分已完成工作、验证结果、失败与解决方式、尚未完成事项和下一步。
+- 保留重要文件路径、接口、参数名、错误信息、产物、URL、SHA、ID 与测试锚点。
+- 工具记录已经做过确定性降噪；从中提取重要事实，不要复述工具协议包装。
 - 不要编造未出现的信息。
 - 输出中文，使用简洁的分段或要点。
 - 不要解释你在做压缩，也不要包含寒暄。
@@ -395,6 +399,88 @@ func buildCompactPrompt(messages []map[string]any) string {
 
 func BuildCompactPrompt(messages []map[string]any) string {
 	return buildCompactPrompt(messages)
+}
+
+// BuildCompactPromptWithinBudget always renders the complete normalized
+// history. If one summary model call cannot contain it, callers must fail
+// explicitly rather than dropping the middle or recursively summarizing.
+func BuildCompactPromptWithinBudget(messages []map[string]any, maxInputTokens int) (string, error) {
+	prompt := buildCompactPrompt(messages)
+	if strings.TrimSpace(prompt) == "" {
+		return "", nil
+	}
+	if maxInputTokens > 0 && EstimateTextTokens(prompt) > maxInputTokens {
+		return "", ErrCompactSummaryInputTooLarge
+	}
+	return prompt, nil
+}
+
+func normalizeCompactSummaryMessages(messages []map[string]any) []map[string]any {
+	if len(messages) == 0 {
+		return nil
+	}
+	encoded, err := json.Marshal(messages)
+	if err != nil {
+		return messages
+	}
+	var cloned []any
+	if json.Unmarshal(encoded, &cloned) != nil {
+		return messages
+	}
+	line := map[string]any{"_type": StepLineTypeReact, "messages": cloned}
+	records := []jsonLineRecord{{Value: line}}
+	candidates := collectToolCompactCandidates(records)
+	if len(candidates) == 0 {
+		out := make([]map[string]any, 0, len(cloned))
+		for _, raw := range cloned {
+			if message, ok := raw.(map[string]any); ok {
+				out = append(out, message)
+			}
+		}
+		return out
+	}
+	replacements := make([]toolCompactReplacement, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.AlreadyCleared || strings.TrimSpace(candidate.Content) == "" {
+			continue
+		}
+		digest := ToolCompactDigest(candidate.ToolName, candidate.ToolID, candidate.Content)
+		arguments := CompactToolArguments(candidate.Arguments)
+		if EstimateTextTokens(digest)+EstimateTextTokens(arguments) >= EstimateTextTokens(candidate.Content)+EstimateTextTokens(candidate.Arguments) {
+			continue
+		}
+		replacements = append(replacements, toolCompactReplacement{
+			LineIndex: 0, MessageIndex: candidate.MessageIndex,
+			Content:            []map[string]any{{"type": "text", "text": digest}},
+			AssistantLineIndex: 0, AssistantMessageIndex: candidate.AssistantMessageIndex,
+			AssistantCallIndex: candidate.AssistantCallIndex, Arguments: arguments,
+		})
+	}
+	if len(replacements) == 0 {
+		out := make([]map[string]any, 0, len(cloned))
+		for _, raw := range cloned {
+			if message, ok := raw.(map[string]any); ok {
+				out = append(out, message)
+			}
+		}
+		return out
+	}
+	updated, err := applyToolCompactReplacements(line, 0, replacements)
+	if err != nil {
+		return messages
+	}
+	var normalized map[string]any
+	if json.Unmarshal(updated, &normalized) != nil {
+		return messages
+	}
+	rawMessages, _ := normalized["messages"].([]any)
+	out := make([]map[string]any, 0, len(rawMessages))
+	for _, raw := range rawMessages {
+		if message, ok := raw.(map[string]any); ok {
+			out = append(out, message)
+		}
+	}
+	return out
 }
 
 func renderMessagesForCompact(messages []map[string]any, maxChars int) string {

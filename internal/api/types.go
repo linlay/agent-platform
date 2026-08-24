@@ -482,6 +482,8 @@ type CompactResponse struct {
 	PreCompactEstimatedTokens  int            `json:"preCompactEstimatedTokens,omitempty"`
 	PostCompactEstimatedTokens int            `json:"postCompactEstimatedTokens,omitempty"`
 	CompressionRatio           float64        `json:"compressionRatio,omitempty"`
+	RemainingRatio             float64        `json:"remainingRatio,omitempty"`
+	ReleasedRatio              float64        `json:"releasedRatio,omitempty"`
 	CompactionUsage            map[string]any `json:"compactionUsage,omitempty"`
 	ToolsCleared               int            `json:"toolsCleared,omitempty"`
 	ToolsKept                  int            `json:"toolsKept,omitempty"`

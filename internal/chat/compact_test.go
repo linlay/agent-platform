@@ -398,7 +398,7 @@ func TestToolCompactClearsOlderCompactableToolResults(t *testing.T) {
 	chatID := "chat-tool-compact"
 	ensureCompactTestChat(t, store, chatID)
 	for i := 1; i <= 7; i++ {
-		appendCompactTestToolResult(t, store, chatID, fmt.Sprintf("r%d", i), fmt.Sprintf("tool-%d", i), "file_read", fmt.Sprintf("file result %d %s", i, strings.Repeat("x", 240)))
+		appendCompactTestToolResult(t, store, chatID, fmt.Sprintf("r%d", i), fmt.Sprintf("tool-%d", i), "file_read", fmt.Sprintf("file result %d %s", i, strings.Repeat("x", 2000)))
 	}
 	appendCompactTestToolResult(t, store, chatID, "r8", "tool-noncompact", "memory_search", "memory result should stay")
 
@@ -449,13 +449,13 @@ func TestToolCompactClearsOlderCompactableToolResults(t *testing.T) {
 		toolContent[stringFromAny(msg["tool_call_id"])] = stringFromAny(msg["content"])
 	}
 	for _, toolID := range []string{"tool-1", "tool-2"} {
-		if toolContent[toolID] != ToolCompactClearedMessage {
-			t.Fatalf("%s content = %q, want cleared marker", toolID, toolContent[toolID])
+		if !strings.HasPrefix(toolContent[toolID], "[Compacted tool interaction]") || !strings.Contains(toolContent[toolID], "contentSha256:") {
+			t.Fatalf("%s content = %q, want structured compact record", toolID, toolContent[toolID])
 		}
 	}
 	for i := 3; i <= 7; i++ {
 		toolID := fmt.Sprintf("tool-%d", i)
-		if strings.Contains(toolContent[toolID], ToolCompactClearedMessage) || !strings.Contains(toolContent[toolID], fmt.Sprintf("file result %d", i)) {
+		if strings.HasPrefix(toolContent[toolID], "[Compacted tool interaction]") || !strings.Contains(toolContent[toolID], fmt.Sprintf("file result %d", i)) {
 			t.Fatalf("%s should be kept, got %q", toolID, toolContent[toolID])
 		}
 	}
@@ -472,12 +472,76 @@ func TestToolCompactClearsOlderCompactableToolResults(t *testing.T) {
 	}
 }
 
+func TestToolCompactAllowsSingleCompletedLargeToolGroup(t *testing.T) {
+	store := newCompactTestStore(t)
+	chatID := "chat-tool-compact-single"
+	ensureCompactTestChat(t, store, chatID)
+	appendCompactTestToolResult(t, store, chatID, "r1", "tool-1", "file_read", "anchor "+strings.Repeat("large-result ", 1200))
+
+	snapshot, err := store.BuildToolCompactSnapshot(chatID, DefaultToolCompactKeepRecent)
+	if err != nil {
+		t.Fatalf("BuildToolCompactSnapshot: %v", err)
+	}
+	if snapshot.ToolsCleared != 1 || snapshot.ToolsKept != 0 || snapshot.TokensFreed <= 0 {
+		t.Fatalf("single tool compact snapshot = %#v", snapshot)
+	}
+}
+
+func TestToolCompactTargetProtectsRecentGroupsUntilRequired(t *testing.T) {
+	store := newCompactTestStore(t)
+	chatID := "chat-tool-compact-target"
+	ensureCompactTestChat(t, store, chatID)
+	for i := 1; i <= DefaultToolCompactKeepRecent; i++ {
+		appendCompactTestToolResult(t, store, chatID, fmt.Sprintf("r%d", i), fmt.Sprintf("tool-%d", i), "file_read", strings.Repeat("large-result ", 800))
+	}
+
+	baseline, err := store.BuildToolCompactSnapshot(chatID, DefaultToolCompactKeepRecent)
+	if err != nil {
+		t.Fatalf("BuildToolCompactSnapshot: %v", err)
+	}
+	protected, err := store.BuildToolCompactSnapshotToTarget(chatID, DefaultToolCompactKeepRecent, baseline.PreCompactEstimatedTokens)
+	if err != nil {
+		t.Fatalf("BuildToolCompactSnapshotToTarget protected: %v", err)
+	}
+	if protected.ToolsCleared != 0 || protected.ToolsKept != DefaultToolCompactKeepRecent {
+		t.Fatalf("recent groups should remain protected at target: %#v", protected)
+	}
+
+	released, err := store.BuildToolCompactSnapshotToTarget(chatID, DefaultToolCompactKeepRecent, 1)
+	if err != nil {
+		t.Fatalf("BuildToolCompactSnapshotToTarget released: %v", err)
+	}
+	if released.ToolsCleared != DefaultToolCompactKeepRecent || released.ToolsKept != 0 || released.TokensFreed <= 0 {
+		t.Fatalf("recent protection should release above target: %#v", released)
+	}
+}
+
+func TestCompactPromptKeepsMiddleHistoryAndRejectsOversizedSingleCall(t *testing.T) {
+	messages := []map[string]any{
+		{"role": "user", "content": "head-anchor " + strings.Repeat("h", 2000)},
+		{"role": "assistant", "content": "middle-anchor " + strings.Repeat("m", 2000)},
+		{"role": "user", "content": "tail-anchor " + strings.Repeat("t", 2000)},
+	}
+	prompt, err := BuildCompactPromptWithinBudget(messages, 10000)
+	if err != nil {
+		t.Fatalf("BuildCompactPromptWithinBudget: %v", err)
+	}
+	for _, anchor := range []string{"head-anchor", "middle-anchor", "tail-anchor"} {
+		if !strings.Contains(prompt, anchor) {
+			t.Fatalf("prompt dropped %q", anchor)
+		}
+	}
+	if _, err := BuildCompactPromptWithinBudget(messages, 10); !errors.Is(err, ErrCompactSummaryInputTooLarge) {
+		t.Fatalf("oversized prompt err = %v", err)
+	}
+}
+
 func TestToolCompactCommitDetectsHistoryChanged(t *testing.T) {
 	store := newCompactTestStore(t)
 	chatID := "chat-tool-compact-race"
 	ensureCompactTestChat(t, store, chatID)
 	for i := 1; i <= 7; i++ {
-		appendCompactTestToolResult(t, store, chatID, fmt.Sprintf("r%d", i), fmt.Sprintf("tool-%d", i), "bash", fmt.Sprintf("bash result %d %s", i, strings.Repeat("x", 240)))
+		appendCompactTestToolResult(t, store, chatID, fmt.Sprintf("r%d", i), fmt.Sprintf("tool-%d", i), "bash", fmt.Sprintf("bash result %d %s", i, strings.Repeat("x", 2000)))
 	}
 
 	snapshot, err := store.BuildToolCompactSnapshot(chatID, DefaultToolCompactKeepRecent)
@@ -501,7 +565,7 @@ func TestToolCompactCommitDetectsHistoryChanged(t *testing.T) {
 		t.Fatalf("LoadRawMessages: %v", err)
 	}
 	for _, msg := range raw {
-		if stringFromAny(msg["role"]) == "tool" && stringFromAny(msg["content"]) == ToolCompactClearedMessage {
+		if stringFromAny(msg["role"]) == "tool" && strings.HasPrefix(stringFromAny(msg["content"]), "[Compacted tool interaction]") {
 			t.Fatalf("tool result unexpectedly compacted after history_changed: %#v", msg)
 		}
 	}
@@ -521,7 +585,7 @@ func TestSummaryCompactCanCoverToolCompactMetadata(t *testing.T) {
 	chatID := "chat-tool-compact-then-summary"
 	ensureCompactTestChat(t, store, chatID)
 	for i := 1; i <= 7; i++ {
-		appendCompactTestToolResult(t, store, chatID, fmt.Sprintf("r%d", i), fmt.Sprintf("tool-%d", i), "file_grep", fmt.Sprintf("grep result %d %s", i, strings.Repeat("x", 240)))
+		appendCompactTestToolResult(t, store, chatID, fmt.Sprintf("r%d", i), fmt.Sprintf("tool-%d", i), "file_grep", fmt.Sprintf("grep result %d %s", i, strings.Repeat("x", 2000)))
 	}
 	toolSnapshot, err := store.BuildToolCompactSnapshot(chatID, DefaultToolCompactKeepRecent)
 	if err != nil {

@@ -379,7 +379,11 @@ type DeltaContextCompact struct {
 	PreCompactEstimatedTokens  int
 	PostCompactEstimatedTokens int
 	CompressionRatio           float64
+	RemainingRatio             float64
+	ReleasedRatio              float64
 	TokensFreed                int
+	ToolsCleared               int
+	ToolsKept                  int
 	CompactionUsage            map[string]any
 	Detail                     string
 	Retryable                  bool

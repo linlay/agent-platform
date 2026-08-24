@@ -20,6 +20,9 @@ type contextCompactWork struct {
 	finishAfter   bool
 	preTokens     int
 	plan          contextCompactPlan
+	toolMessages  []openAIMessage
+	toolsCleared  int
+	toolsKept     int
 	awaitingID    string
 }
 
@@ -68,12 +71,34 @@ func (s *llmRunStream) scheduleContextCompact(finishAfter bool) bool {
 			CompactID: fmt.Sprintf("compact_%s_%d", s.session.RunID, s.compactCounter),
 			ChatID:    s.session.ChatID,
 			Trigger:   "auto",
-			Level:     "summary",
+			Level:     "l1_tools",
 		}
 	}
-	plan := s.buildContextCompactPlan(manual)
-	if len(plan.candidates) == 0 {
+	request.Level = strings.ToLower(strings.TrimSpace(request.Level))
+	if request.Level == "" {
+		request.Level = "summary"
+	}
+	plan := contextCompactPlan{}
+	toolMessages := []openAIMessage(nil)
+	toolsCleared, toolsKept := 0, 0
+	if request.Level == "l1_tools" {
+		toolMessages, toolsCleared, toolsKept = s.compactRunToolMessages(
+			chat.DefaultToolCompactKeepRecent,
+			s.effectiveContextWindow()*runCompactTargetPercent/100,
+		)
+		if toolsCleared == 0 && !manual {
+			request = s.nextAutomaticCompactRequest("summary")
+		}
+	}
+	if request.Level == "summary" {
+		plan = s.buildContextCompactPlan(manual)
+	}
+	if (request.Level == "l1_tools" && toolsCleared == 0) || (request.Level == "summary" && len(plan.candidates) == 0) {
 		if manual && s.runControl != nil {
+			detail := "no_compactable_history"
+			if request.Level == "l1_tools" {
+				detail = "no_compactable_tools"
+			}
 			s.runControl.CompleteCompact(request.RequestID, api.CompactResponse{
 				Accepted:  false,
 				Status:    "skipped",
@@ -84,7 +109,7 @@ func (s *llmRunStream) scheduleContextCompact(finishAfter bool) bool {
 				Trigger:   request.Trigger,
 				Scope:     "run",
 				Level:     request.Level,
-				Detail:    "no_compactable_history",
+				Detail:    detail,
 			})
 			return false
 		}
@@ -111,6 +136,9 @@ func (s *llmRunStream) scheduleContextCompact(finishAfter bool) bool {
 		finishAfter:   finishAfter,
 		preTokens:     preTokens,
 		plan:          plan,
+		toolMessages:  toolMessages,
+		toolsCleared:  toolsCleared,
+		toolsKept:     toolsKept,
 		awaitingID:    awaitingID,
 	}
 	s.pending = append(s.pending, DeltaContextCompact{
@@ -126,6 +154,17 @@ func (s *llmRunStream) scheduleContextCompact(finishAfter bool) bool {
 		AwaitingID:       awaitingID,
 	})
 	return true
+}
+
+func (s *llmRunStream) nextAutomaticCompactRequest(level string) CompactControlRequest {
+	s.compactCounter++
+	return CompactControlRequest{
+		RequestID: fmt.Sprintf("auto_%s_%d", s.session.RunID, s.compactCounter),
+		CompactID: fmt.Sprintf("compact_%s_%d", s.session.RunID, s.compactCounter),
+		ChatID:    s.session.ChatID,
+		Trigger:   "auto",
+		Level:     level,
+	}
 }
 
 func (s *llmRunStream) buildContextCompactPlan(force bool) contextCompactPlan {
@@ -232,28 +271,35 @@ func (s *llmRunStream) executeContextCompact() error {
 	if work == nil {
 		return nil
 	}
+	if work.request.Level == "l1_tools" {
+		return s.executeToolContextCompact(work)
+	}
 	rawCandidates := modelMessagesToMaps(work.plan.candidates)
-	fallback := chat.DeterministicCompactSummary(rawCandidates)
-	summary := strings.TrimSpace(fallback)
-	summarySource := "deterministic_fallback"
+	maxInputTokens := compactTriggerThreshold(s.effectiveContextWindow())
+	prompt, err := chat.BuildCompactPromptWithinBudget(rawCandidates, maxInputTokens)
+	if errors.Is(err, chat.ErrCompactSummaryInputTooLarge) {
+		return s.failContextCompact(work, "summary_input_too_large", false)
+	}
+	if err != nil {
+		return s.failContextCompact(work, "summary_model_failed", true)
+	}
+	if strings.TrimSpace(prompt) == "" {
+		return s.failContextCompact(work, "no_compactable_history", false)
+	}
+	summary := ""
+	summarySource := "model"
 	usage := map[string]any{}
 	detail := "completed"
-	if prompt := chat.BuildCompactPrompt(rawCandidates); strings.TrimSpace(prompt) != "" {
-		modelSummary, modelUsage, err := s.generateContextCompactSummary(work.request, prompt)
-		if len(modelUsage) > 0 {
-			usage = modelUsage
-		}
-		if err == nil && strings.TrimSpace(modelSummary) != "" {
-			summary = strings.TrimSpace(modelSummary)
-			summarySource = "model"
-		} else if err != nil {
-			detail = "completed_with_fallback: " + err.Error()
-		} else {
-			detail = "completed_with_fallback: empty compact summary"
-		}
+	modelSummary, modelUsage, modelErr := s.generateContextCompactSummary(work.request, prompt)
+	if len(modelUsage) > 0 {
+		usage = modelUsage
 	}
-	if summary == "" {
-		return s.failContextCompact(work, "no_compactable_history", false)
+	if modelErr != nil {
+		return s.failContextCompact(work, "summary_model_failed", true)
+	}
+	summary = strings.TrimSpace(modelSummary)
+	if summary == "" || summary == "Model returned no assistant content." {
+		return s.failContextCompact(work, "summary_empty", true)
 	}
 	targetTokens := s.effectiveContextWindow() * runCompactTargetPercent / 100
 	baseMessages := make([]openAIMessage, 0, len(work.plan.system)+len(work.plan.pinned)+len(work.plan.retained))
@@ -286,6 +332,7 @@ func (s *llmRunStream) executeContextCompact() error {
 	if work.preTokens > 0 {
 		ratio = float64(postTokens) / float64(work.preTokens)
 	}
+	remainingRatio, releasedRatio := compactPercentages(ratio)
 	checkpointMessages := modelMessagesToMaps(newMessages[len(work.plan.system):])
 	s.pending = append(s.pending, DeltaContextCompact{
 		Status:                     "complete",
@@ -300,6 +347,8 @@ func (s *llmRunStream) executeContextCompact() error {
 		PreCompactEstimatedTokens:  work.preTokens,
 		PostCompactEstimatedTokens: postTokens,
 		CompressionRatio:           ratio,
+		RemainingRatio:             remainingRatio,
+		ReleasedRatio:              releasedRatio,
 		TokensFreed:                max(work.preTokens-postTokens, 0),
 		CompactionUsage:            usage,
 		Detail:                     detail,
@@ -320,6 +369,205 @@ func (s *llmRunStream) executeContextCompact() error {
 		s.finished = true
 	}
 	return nil
+}
+
+func (s *llmRunStream) executeToolContextCompact(work *contextCompactWork) error {
+	if work == nil || work.toolsCleared == 0 || len(work.toolMessages) == 0 {
+		return s.failContextCompact(work, "no_compactable_tools", false)
+	}
+	postTokens := estimateModelContext(work.toolMessages, s.toolSpecs)
+	if postTokens >= work.preTokens {
+		return s.failContextCompact(work, "no_compactable_tools", false)
+	}
+	s.messages = cloneModelMessages(work.toolMessages)
+	s.forceContextCompact = false
+	s.resetContextEstimateAfterCompact()
+	ratio := 0.0
+	if work.preTokens > 0 {
+		ratio = float64(postTokens) / float64(work.preTokens)
+	}
+	remainingRatio, releasedRatio := compactPercentages(ratio)
+	systemEnd := 0
+	for systemEnd < len(s.messages) && strings.EqualFold(strings.TrimSpace(s.messages[systemEnd].Role), "system") {
+		systemEnd++
+	}
+	checkpointMessages := modelMessagesToMaps(s.messages[systemEnd:])
+	s.pending = append(s.pending, DeltaContextCompact{
+		Status:                     "complete",
+		RequestID:                  work.request.RequestID,
+		CompactID:                  work.request.CompactID,
+		ChatID:                     work.request.ChatID,
+		RunID:                      s.session.RunID,
+		Trigger:                    work.request.Trigger,
+		Level:                      "l1_tools",
+		Scope:                      "run",
+		PreCompactEstimatedTokens:  work.preTokens,
+		PostCompactEstimatedTokens: postTokens,
+		CompressionRatio:           ratio,
+		RemainingRatio:             remainingRatio,
+		ReleasedRatio:              releasedRatio,
+		TokensFreed:                max(work.preTokens-postTokens, 0),
+		ToolsCleared:               work.toolsCleared,
+		ToolsKept:                  work.toolsKept,
+		Detail:                     "completed",
+		CheckpointMessages:         checkpointMessages,
+		PreviousRunState:           string(work.previousState),
+		AwaitingID:                 work.awaitingID,
+	})
+	finishAfter := work.finishAfter
+	previousState := work.previousState
+	awaitingID := work.awaitingID
+	s.compactWork = nil
+	targetTokens := s.effectiveContextWindow() * runCompactTargetPercent / 100
+	if work.request.Trigger == "auto" && postTokens > targetTokens {
+		request := s.nextAutomaticCompactRequest("summary")
+		plan := s.buildContextCompactPlan(false)
+		if len(plan.candidates) == 0 {
+			s.pending = append(s.pending, DeltaError{Error: map[string]any{"code": "context_window_uncompactable", "message": "Context cannot be reduced below the model window"}})
+			s.closeSteersAndFinish()
+			return nil
+		}
+		s.compactWork = &contextCompactWork{
+			request: request, previousState: previousState, finishAfter: finishAfter,
+			preTokens: postTokens, plan: plan, awaitingID: awaitingID,
+		}
+		s.pending = append(s.pending, DeltaContextCompact{
+			Status: "start", RequestID: request.RequestID, CompactID: request.CompactID,
+			ChatID: request.ChatID, RunID: s.session.RunID, Trigger: "auto",
+			Level: "summary", Scope: "run", PreviousRunState: string(previousState), AwaitingID: awaitingID,
+		})
+		return nil
+	}
+	s.restoreContextCompactState(work)
+	if finishAfter {
+		s.closeSteers()
+		s.finished = true
+	}
+	return nil
+}
+
+type runToolCompactCandidate struct {
+	messageIndex int
+	callIndex    int
+	toolID       string
+	toolName     string
+	arguments    string
+	resultIndex  int
+}
+
+func (s *llmRunStream) compactRunToolMessages(keepRecent, targetTokens int) ([]openAIMessage, int, int) {
+	if s == nil || len(s.messages) == 0 {
+		return nil, 0, 0
+	}
+	callByID := map[string]runToolCompactCandidate{}
+	siblingsByID := map[string][]string{}
+	resultIDs := map[string]bool{}
+	for messageIndex, message := range s.messages {
+		if strings.EqualFold(message.Role, "assistant") && len(message.ToolCalls) > 0 {
+			siblings := make([]string, 0, len(message.ToolCalls))
+			for _, call := range message.ToolCalls {
+				if id := strings.TrimSpace(call.ID); id != "" {
+					siblings = append(siblings, id)
+				}
+			}
+			for callIndex, call := range message.ToolCalls {
+				id := strings.TrimSpace(call.ID)
+				if id == "" {
+					continue
+				}
+				callByID[id] = runToolCompactCandidate{
+					messageIndex: messageIndex, callIndex: callIndex, toolID: id,
+					toolName: strings.TrimSpace(call.Function.Name), arguments: call.Function.Arguments,
+				}
+				siblingsByID[id] = append([]string(nil), siblings...)
+			}
+		}
+		if strings.EqualFold(message.Role, "tool") {
+			if id := strings.TrimSpace(message.ToolCallID); id != "" {
+				resultIDs[id] = true
+			}
+		}
+	}
+	candidates := make([]runToolCompactCandidate, 0)
+	for resultIndex, message := range s.messages {
+		if !strings.EqualFold(message.Role, "tool") || runCompactIndexPinned(resultIndex, s.pinnedMessageStart, s.pinnedMessageEnd) {
+			continue
+		}
+		id := strings.TrimSpace(message.ToolCallID)
+		call, ok := callByID[id]
+		if !ok || runCompactIndexPinned(call.messageIndex, s.pinnedMessageStart, s.pinnedMessageEnd) || !chat.ToolCompactable(call.toolName) {
+			continue
+		}
+		complete := true
+		for _, siblingID := range siblingsByID[id] {
+			if !resultIDs[siblingID] {
+				complete = false
+				break
+			}
+		}
+		content := strings.TrimSpace(fmt.Sprint(message.Content))
+		if !complete || content == "" || content == chat.ToolCompactClearedMessage || strings.HasPrefix(content, "[Compacted tool interaction]") {
+			continue
+		}
+		call.resultIndex = resultIndex
+		candidates = append(candidates, call)
+	}
+	if len(candidates) == 0 {
+		return nil, 0, 0
+	}
+	preferredCount := len(candidates) - keepRecent
+	if preferredCount < 0 {
+		preferredCount = 0
+	}
+	out := cloneModelMessages(s.messages)
+	cleared := 0
+	for index, candidate := range candidates {
+		if index >= preferredCount && targetTokens > 0 && estimateModelContext(out, s.toolSpecs) <= targetTokens {
+			break
+		}
+		originalContent := out[candidate.resultIndex].Content
+		digest := chat.ToolCompactDigest(candidate.toolName, candidate.toolID, originalContent)
+		arguments := chat.CompactToolArguments(candidate.arguments)
+		originalCost := chat.EstimateTextTokens(fmt.Sprint(originalContent)) + chat.EstimateTextTokens(candidate.arguments)
+		compactCost := chat.EstimateTextTokens(digest) + chat.EstimateTextTokens(arguments)
+		if compactCost >= originalCost {
+			continue
+		}
+		out[candidate.resultIndex].Content = digest
+		out[candidate.messageIndex].ToolCalls[candidate.callIndex].Function.Arguments = arguments
+		cleared++
+	}
+	if cleared == 0 {
+		return nil, 0, len(candidates)
+	}
+	return out, cleared, len(candidates) - cleared
+}
+
+func runCompactIndexPinned(index, start, end int) bool {
+	return start >= 0 && end >= start && index >= start && index < end
+}
+
+func compactPercentages(ratio float64) (float64, float64) {
+	if ratio < 0 {
+		ratio = 0
+	}
+	if ratio > 1 {
+		ratio = 1
+	}
+	remaining := ratio * 100
+	return remaining, 100 - remaining
+}
+
+func (s *llmRunStream) restoreContextCompactState(work *contextCompactWork) {
+	if work == nil {
+		return
+	}
+	if s.runControl != nil {
+		s.runControl.TransitionState(work.previousState)
+	}
+	if s.execCtx != nil {
+		s.execCtx.RunLoopState = work.previousState
+	}
 }
 
 func truncateContextCompactSummary(value string, maxBytes int) string {
@@ -362,11 +610,13 @@ func (s *llmRunStream) failContextCompact(work *contextCompactWork, detail strin
 		AwaitingID:       work.awaitingID,
 	})
 	s.compactWork = nil
-	if s.runControl != nil {
-		s.runControl.TransitionState(work.previousState)
-	}
-	if detail == "context_window_uncompactable" {
-		s.pending = append(s.pending, DeltaError{Error: map[string]any{"code": detail, "message": "Context cannot be reduced below the model window"}})
+	s.restoreContextCompactState(work)
+	if work.request.Trigger == "auto" || detail == "context_window_uncompactable" {
+		code := detail
+		if detail == "summary_input_too_large" || detail == "summary_model_failed" || detail == "summary_empty" {
+			code = "context_window_uncompactable"
+		}
+		s.pending = append(s.pending, DeltaError{Error: map[string]any{"code": code, "message": "Context cannot be reduced below the model window"}})
 		s.closeSteersAndFinish()
 	}
 	return nil

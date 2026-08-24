@@ -19,7 +19,7 @@ import (
 type compactChatStore interface {
 	BuildCompactSnapshot(chatID string, keptRunCount int) (chat.CompactSnapshot, error)
 	CommitCompactCheckpoint(chatID string, snapshot chat.CompactSnapshot, checkpoint chat.CompactCheckpointLine) error
-	BuildToolCompactSnapshot(chatID string, keepRecent int) (chat.ToolCompactSnapshot, error)
+	BuildToolCompactSnapshotToTarget(chatID string, keepRecent, targetTokens int) (chat.ToolCompactSnapshot, error)
 	CommitToolCompact(chatID string, snapshot chat.ToolCompactSnapshot, line chat.ToolCompactLine) error
 }
 
@@ -89,36 +89,25 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (resul
 	if chatSummary == nil {
 		return api.CompactResponse{}, &statusError{status: http.StatusNotFound, message: "chat not found"}
 	}
-	if level == "summary" {
-		if coordinator, ok := s.deps.Runs.(contracts.ChatCompactCoordinator); ok {
-			response, routed, historyOwner, routeErr := s.compactCoordinated(ctx, coordinator, baseResp)
-			if routeErr != nil || routed {
-				return response, routeErr
-			}
-			if historyOwner {
-				defer func() {
-					completion := result
-					if resultErr != nil {
-						completion = baseResp
-						completion.Status = "failed"
-						completion.Detail = resultErr.Error()
-						completion.Retryable = true
-					}
-					coordinator.CompleteChatMaintenance(chatID, requestID, completion)
-				}()
-			}
-		} else if response, routed, routeErr := s.compactActiveRun(ctx, baseResp); routed || routeErr != nil {
+	if coordinator, ok := s.deps.Runs.(contracts.ChatCompactCoordinator); ok {
+		response, routed, historyOwner, routeErr := s.compactCoordinated(ctx, coordinator, baseResp)
+		if routeErr != nil || routed {
 			return response, routeErr
 		}
-	} else if s.deps.Runs != nil {
-		if active, ok, activeErr := s.deps.Runs.ActiveRunForChat(chatID); activeErr != nil {
-			return api.CompactResponse{}, activeErr
-		} else if ok {
-			baseResp.RunID = active.RunID
-			baseResp.Scope = "run"
-			baseResp.Detail = "unsupported_active_level"
-			return baseResp, nil
+		if historyOwner {
+			defer func() {
+				completion := result
+				if resultErr != nil {
+					completion = baseResp
+					completion.Status = "failed"
+					completion.Detail = resultErr.Error()
+					completion.Retryable = true
+				}
+				coordinator.CompleteChatMaintenance(chatID, requestID, completion)
+			}()
 		}
+	} else if response, routed, routeErr := s.compactActiveRun(ctx, baseResp); routed || routeErr != nil {
+		return response, routeErr
 	}
 
 	agentKey := strings.TrimSpace(req.AgentKey)
@@ -148,16 +137,17 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (resul
 	if explicitAgentKey && !agentOK {
 		return api.CompactResponse{}, &statusError{status: http.StatusBadRequest, message: "agent not found"}
 	}
-	if level == "l1_tools" {
-		return s.compactChatToolResults(baseResp, store, chatID, requestID, trigger)
-	}
-
 	keptRunCount := chat.DefaultCompactKeptRunCount
 	historyTargetTokens := 0
+	summaryInputTokens := 0
 	if agentOK && s.deps.Models != nil {
 		if model, modelErr := s.deps.Models.GetModel(agentDef.ModelKey); modelErr == nil && model.ContextWindow > 0 {
 			historyTargetTokens = model.ContextWindow * historyCompactTargetPercent / 100
+			summaryInputTokens = compactTriggerThreshold(model.ContextWindow)
 		}
+	}
+	if level == "l1_tools" {
+		return s.compactChatToolResults(baseResp, store, chatID, requestID, trigger, historyTargetTokens)
 	}
 	snapshot, err := store.BuildCompactSnapshot(chatID, keptRunCount)
 	if err != nil {
@@ -180,34 +170,54 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (resul
 	}
 
 	compactID := "compact_" + newRunID()
-	summaryText := strings.TrimSpace(snapshot.FallbackSummary)
-	summarySource := "deterministic_fallback"
-	compactionUsage := map[string]any{}
-	modelErrDetail := ""
-	if strings.TrimSpace(snapshot.Prompt) != "" && agentOK && s.deps.Agent != nil {
-		resolvedReq := req
-		resolvedReq.AgentKey = agentKey
-		resolvedSummary := *chatSummary
-		resolvedSummary.TeamID = teamID
-		modelSummary, usage, err := s.generateCompactSummary(ctx, resolvedReq, resolvedSummary, agentDef, compactID, snapshot.Prompt)
-		if len(usage) > 0 {
-			compactionUsage = usage
-		}
-		if err != nil {
-			modelErrDetail = err.Error()
-		} else if strings.TrimSpace(modelSummary) != "" {
-			summaryText = strings.TrimSpace(modelSummary)
-			summarySource = "model"
-		} else {
-			modelErrDetail = "empty compact summary"
-		}
+	prompt, promptErr := chat.BuildCompactPromptWithinBudget(snapshot.CoveredMessages, summaryInputTokens)
+	if errors.Is(promptErr, chat.ErrCompactSummaryInputTooLarge) {
+		baseResp.CompactID = compactID
+		baseResp.Status = "failed"
+		baseResp.Detail = "summary_input_too_large"
+		return baseResp, nil
 	}
+	if promptErr != nil || strings.TrimSpace(prompt) == "" || !agentOK || s.deps.Agent == nil {
+		baseResp.CompactID = compactID
+		baseResp.Status = "failed"
+		baseResp.Detail = "summary_model_failed"
+		baseResp.Retryable = true
+		return baseResp, nil
+	}
+	resolvedReq := req
+	resolvedReq.AgentKey = agentKey
+	resolvedSummary := *chatSummary
+	resolvedSummary.TeamID = teamID
+	summaryText, compactionUsage, modelErr := s.generateCompactSummary(ctx, resolvedReq, resolvedSummary, agentDef, compactID, prompt)
+	if modelErr != nil {
+		baseResp.CompactID = compactID
+		baseResp.Status = "failed"
+		baseResp.Detail = "summary_model_failed"
+		baseResp.Retryable = true
+		return baseResp, nil
+	}
+	summaryText = strings.TrimSpace(summaryText)
+	if summaryText == "" || summaryText == "Model returned no assistant content." {
+		baseResp.CompactID = compactID
+		baseResp.Status = "failed"
+		baseResp.Detail = "summary_empty"
+		baseResp.Retryable = true
+		return baseResp, nil
+	}
+	summarySource := "model"
 
 	postTokens := chat.EstimateCompactPostTokens(summaryText, snapshot.TailMessages)
+	if postTokens >= snapshot.PreCompactEstimatedTokens || (historyTargetTokens > 0 && postTokens > historyTargetTokens) {
+		baseResp.CompactID = compactID
+		baseResp.Status = "failed"
+		baseResp.Detail = "context_window_uncompactable"
+		return baseResp, nil
+	}
 	ratio := 0.0
 	if snapshot.PreCompactEstimatedTokens > 0 {
 		ratio = float64(postTokens) / float64(snapshot.PreCompactEstimatedTokens)
 	}
+	remainingRatio, releasedRatio := compactResponsePercentages(ratio)
 	checkpoint := chat.CompactCheckpointLine{
 		Type:                       chat.CompactCheckpointLineType,
 		ChatID:                     chatID,
@@ -219,6 +229,8 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (resul
 		PreCompactEstimatedTokens:  snapshot.PreCompactEstimatedTokens,
 		PostCompactEstimatedTokens: postTokens,
 		CompressionRatio:           ratio,
+		RemainingRatio:             remainingRatio,
+		ReleasedRatio:              releasedRatio,
 		TokensFreed:                max(snapshot.PreCompactEstimatedTokens-postTokens, 0),
 		CompactionUsage:            compactionUsage,
 	}
@@ -233,13 +245,13 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (resul
 			baseResp.Detail = "no_compactable_history"
 			return baseResp, nil
 		}
-		return api.CompactResponse{}, err
+		baseResp.CompactID = compactID
+		baseResp.Status = "failed"
+		baseResp.Detail = "compact_persist_failed"
+		baseResp.Retryable = true
+		return baseResp, nil
 	}
 
-	detail := "completed"
-	if modelErrDetail != "" && summarySource != "model" {
-		detail = "completed_with_fallback: " + modelErrDetail
-	}
 	return api.CompactResponse{
 		Accepted:                   true,
 		Status:                     "completed",
@@ -253,9 +265,11 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (resul
 		PreCompactEstimatedTokens:  snapshot.PreCompactEstimatedTokens,
 		PostCompactEstimatedTokens: postTokens,
 		CompressionRatio:           ratio,
+		RemainingRatio:             remainingRatio,
+		ReleasedRatio:              releasedRatio,
 		TokensFreed:                max(snapshot.PreCompactEstimatedTokens-postTokens, 0),
 		CompactionUsage:            compactionUsage,
-		Detail:                     detail,
+		Detail:                     "completed",
 	}, nil
 }
 
@@ -364,18 +378,18 @@ func normalizeCompactLevel(level string) (string, error) {
 	}
 }
 
-func (s *Server) compactChatToolResults(baseResp api.CompactResponse, store compactChatStore, chatID string, requestID string, trigger string) (api.CompactResponse, error) {
-	snapshot, err := store.BuildToolCompactSnapshot(chatID, chat.DefaultToolCompactKeepRecent)
+func (s *Server) compactChatToolResults(baseResp api.CompactResponse, store compactChatStore, chatID string, requestID string, trigger string, targetTokens int) (api.CompactResponse, error) {
+	snapshot, err := store.BuildToolCompactSnapshotToTarget(chatID, chat.DefaultToolCompactKeepRecent, targetTokens)
 	if err != nil {
 		if errors.Is(err, chat.ErrNoCompactableHistory) {
-			baseResp.Detail = "no_compactable_tool_results"
+			baseResp.Detail = "no_compactable_tools"
 			return baseResp, nil
 		}
 		return api.CompactResponse{}, err
 	}
 	baseResp.ToolsKept = snapshot.ToolsKept
 	if snapshot.ToolsCleared == 0 {
-		baseResp.Detail = "no_compactable_tool_results"
+		baseResp.Detail = "no_compactable_tools"
 		return baseResp, nil
 	}
 
@@ -393,6 +407,8 @@ func (s *Server) compactChatToolResults(baseResp api.CompactResponse, store comp
 		PreCompactEstimatedTokens:  snapshot.PreCompactEstimatedTokens,
 		PostCompactEstimatedTokens: snapshot.PostCompactEstimatedTokens,
 		CompressionRatio:           snapshot.CompressionRatio,
+		RemainingRatio:             snapshot.CompressionRatio * 100,
+		ReleasedRatio:              100 - snapshot.CompressionRatio*100,
 	}
 	if err := store.CommitToolCompact(chatID, snapshot, line); err != nil {
 		if errors.Is(err, chat.ErrCompactHistoryChanged) {
@@ -402,10 +418,14 @@ func (s *Server) compactChatToolResults(baseResp api.CompactResponse, store comp
 		}
 		if errors.Is(err, chat.ErrNoCompactableHistory) {
 			baseResp.CompactID = compactID
-			baseResp.Detail = "no_compactable_tool_results"
+			baseResp.Detail = "no_compactable_tools"
 			return baseResp, nil
 		}
-		return api.CompactResponse{}, err
+		baseResp.CompactID = compactID
+		baseResp.Status = "failed"
+		baseResp.Detail = "compact_persist_failed"
+		baseResp.Retryable = true
+		return baseResp, nil
 	}
 
 	return api.CompactResponse{
@@ -420,6 +440,8 @@ func (s *Server) compactChatToolResults(baseResp api.CompactResponse, store comp
 		PreCompactEstimatedTokens:  snapshot.PreCompactEstimatedTokens,
 		PostCompactEstimatedTokens: snapshot.PostCompactEstimatedTokens,
 		CompressionRatio:           snapshot.CompressionRatio,
+		RemainingRatio:             snapshot.CompressionRatio * 100,
+		ReleasedRatio:              100 - snapshot.CompressionRatio*100,
 		ToolsCleared:               snapshot.ToolsCleared,
 		ToolsKept:                  snapshot.ToolsKept,
 		TokensFreed:                snapshot.TokensFreed,
@@ -456,6 +478,7 @@ func (s *Server) generateCompactSummary(ctx context.Context, req api.CompactRequ
 	session.RunID = compactID
 	session.Mode = "ONESHOT"
 	session.ToolNames = nil
+	session.ModeToolDefinitions = nil
 	session.HistoryMessages = nil
 	session.StableMemoryContext = ""
 	session.SessionMemoryContext = ""
@@ -494,39 +517,64 @@ func (s *Server) generateCompactSummary(ctx context.Context, req api.CompactRequ
 	return strings.TrimSpace(b.String()), usage, nil
 }
 
-func (s *Server) maybeAutoCompact(ctx context.Context, req api.QueryRequest, agentDef catalog.AgentDefinition, session *contracts.QuerySession) {
+func (s *Server) maybeAutoCompact(ctx context.Context, req api.QueryRequest, agentDef catalog.AgentDefinition, session *contracts.QuerySession) error {
 	if session == nil || s.deps.Models == nil || s.deps.Chats == nil {
-		return
+		return nil
 	}
 	if req.ChatID == "" || len(session.HistoryMessages) == 0 {
-		return
+		return nil
 	}
 	model, err := s.deps.Models.GetModel(session.ModelKey)
 	if err != nil || model.ContextWindow <= 0 {
-		return
+		return nil
 	}
 	estimated := chat.EstimateRawMessageTokens(session.HistoryMessages) + chat.EstimateTextTokens(req.Message)
 	if estimated < compactTriggerThreshold(model.ContextWindow) {
-		return
+		return nil
 	}
-	resp, err := s.compactChat(ctx, api.CompactRequest{
-		RequestID: req.RequestID,
+	l1Resp, err := s.compactChat(ctx, api.CompactRequest{
+		RequestID: req.RequestID + "_compact_l1",
 		ChatID:    req.ChatID,
 		AgentKey:  agentDef.Key,
 		Trigger:   "auto",
+		Level:     "l1_tools",
 	})
 	if err != nil {
-		log.Printf("[compact][auto] skipped chatId=%s err=%v", req.ChatID, err)
-		return
+		return fmt.Errorf("automatic l1 compact failed: %w", err)
+	}
+	if !l1Resp.Accepted && strings.EqualFold(strings.TrimSpace(l1Resp.Status), "failed") {
+		return fmt.Errorf("automatic l1 compact failed: %s", strings.TrimSpace(l1Resp.Detail))
+	}
+	if l1Resp.Accepted {
+		reloaded, reloadErr := s.deps.Chats.LoadRawMessages(req.ChatID, chat.DefaultHistoryRunWindow)
+		if reloadErr != nil {
+			return fmt.Errorf("automatic l1 compact reload failed: %w", reloadErr)
+		}
+		session.HistoryMessages = reloaded
+		estimated = chat.EstimateRawMessageTokens(reloaded) + chat.EstimateTextTokens(req.Message)
+		log.Printf("[compact][auto][l1] completed chatId=%s compactId=%s pre=%d post=%d ratio=%.4f",
+			req.ChatID, l1Resp.CompactID, l1Resp.PreCompactEstimatedTokens,
+			l1Resp.PostCompactEstimatedTokens, l1Resp.CompressionRatio)
+	}
+	if estimated <= model.ContextWindow*historyCompactTargetPercent/100 {
+		return nil
+	}
+	resp, err := s.compactChat(ctx, api.CompactRequest{
+		RequestID: req.RequestID + "_compact_l2",
+		ChatID:    req.ChatID,
+		AgentKey:  agentDef.Key,
+		Trigger:   "auto",
+		Level:     "summary",
+	})
+	if err != nil {
+		return fmt.Errorf("automatic summary compact failed: %w", err)
 	}
 	if !resp.Accepted {
-		log.Printf("[compact][auto] skipped chatId=%s detail=%s", req.ChatID, resp.Detail)
-		return
+		return fmt.Errorf("context_window_uncompactable: %s", strings.TrimSpace(resp.Detail))
 	}
 	reloaded, err := s.deps.Chats.LoadRawMessages(req.ChatID, chat.DefaultHistoryRunWindow)
 	if err != nil {
-		log.Printf("[compact][auto] reload history failed chatId=%s err=%v", req.ChatID, err)
-		return
+		return fmt.Errorf("automatic summary compact reload failed: %w", err)
 	}
 	session.HistoryMessages = reloaded
 	log.Printf("[compact][auto] completed chatId=%s compactId=%s pre=%d post=%d ratio=%.4f",
@@ -536,6 +584,18 @@ func (s *Server) maybeAutoCompact(ctx context.Context, req api.QueryRequest, age
 		resp.PostCompactEstimatedTokens,
 		resp.CompressionRatio,
 	)
+	return nil
+}
+
+func compactResponsePercentages(ratio float64) (float64, float64) {
+	if ratio < 0 {
+		ratio = 0
+	}
+	if ratio > 1 {
+		ratio = 1
+	}
+	remaining := ratio * 100
+	return remaining, 100 - remaining
 }
 
 func compactTriggerThreshold(contextWindow int) int {
