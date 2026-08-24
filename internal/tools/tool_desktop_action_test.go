@@ -1330,6 +1330,7 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 		"desktop.theme.set",
 		"desktop.web.activateSurface",
 		"desktop.web.closeTab",
+		"desktop.web.exportArtifact",
 		"desktop.web.getSurfaceState",
 		"desktop.web.goBack",
 		"desktop.web.listSurfaces",
@@ -1371,8 +1372,8 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 
 func TestDesktopActionAllowlistUsesDirectReverseRequestFrames(t *testing.T) {
 	actions := sortedDesktopActionAllowlist(t)
-	if len(actions) != 81 {
-		t.Fatalf("desktop action count = %d, want 81", len(actions))
+	if len(actions) != 82 {
+		t.Fatalf("desktop action count = %d, want 82", len(actions))
 	}
 	invoker := &routingClientRequestInvoker{}
 	executor := &RuntimeToolExecutor{

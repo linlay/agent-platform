@@ -26,6 +26,7 @@ inputSchema:
         - desktop.web.goBack
         - desktop.web.openTab
         - desktop.web.closeTab
+        - desktop.web.exportArtifact
         - desktop.web.switchTab
         - desktop.workpanel.getState
         - desktop.workpanel.openTab
