@@ -671,7 +671,16 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 	if handled, err := s.handleToolApprovalBeforeInvoke(invocation); handled {
 		return err
 	}
-	return s.invokeToolAndPublishResult(invocation)
+	err := s.invokeToolAndPublishResult(invocation)
+	if errors.Is(err, ErrContextCompactPending) {
+		if s.scheduleContextCompact(false) {
+			keepActive = true
+			s.skipPostToolHook = true
+			return nil
+		}
+		return err
+	}
+	return err
 }
 
 func (s *llmRunStream) beginToolInvocation(invocation *preparedToolInvocation) {
@@ -817,6 +826,9 @@ func (s *llmRunStream) invokeToolAndPublishResult(invocation *preparedToolInvoca
 	if invokeErr != nil {
 		if errors.Is(invokeErr, ErrRunInterrupted) {
 			return s.handleInterruptIfNeeded()
+		}
+		if errors.Is(invokeErr, ErrContextCompactPending) {
+			return invokeErr
 		}
 		result = ToolExecutionResult{Output: invokeErr.Error(), Error: "tool_execution_failed", ExitCode: -1}
 	}

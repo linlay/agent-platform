@@ -29,7 +29,7 @@ JWT `exp` / `iat` 与 resource ticket payload 的 `e` 仍是 token 内部的 Num
 
 ## Chat JSONL schema 错误
 
-Chat JSONL 每条物理行只允许一个 JSON object，`_type` 必填且只允许 `query`、`react`、`react-tool`、`event`、`steer`、`submit`、`compact.checkpoint`、`compact.tool`。空行、多行 object、同行多个 JSON 值、数组、标量、语法错误、非法 `_type` 及非法 system/planning/awaiting 结构统一返回 HTTP/WS `422 chat_storage_schema_violation`。
+Chat JSONL 每条物理行只允许一个 JSON object，`_type` 必填且只允许 `query`、`react`、`react-tool`、`event`、`steer`、`submit`、`compact.checkpoint`、`compact.run.checkpoint`、`compact.tool`。空行、多行 object、同行多个 JSON 值、数组、标量、语法错误、非法 `_type` 及非法 system/planning/awaiting 结构统一返回 HTTP/WS `422 chat_storage_schema_violation`。
 
 `_type:"steer"` 的持久化行使用专用 `steer` object，不使用通用 `event`：顶层 `updatedAt/liveSeq` 分别保存事件时间与公开 live cursor，`steer` 只保存 `requestId/chatId/runId/steerId/message/role` 业务字段，且 `requestId` 为空时省略。回放时重新合成扁平 `type:"request.steer"` 与 `timestamp`；SSE、WebSocket stream 和 `/api/chat.events[]` 的对外事件结构不变。旧 `_type:"steer" + event` 以及 `_type:"event" + event.type:"request.steer"` 均属于不支持的存储 schema，不兼容读取或迁移。
 
@@ -178,6 +178,7 @@ Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `base
 | POST | `/api/chat/delete` | body: `chatId` | 删除 chat 结果 |
 | POST | `/api/chat/rename` | body: `chatId`、`chatName` | 重命名结果 |
 | POST | `/api/chat/derive` | body: `sourceChatId`、`sourceRunId`、`chatId`、`chatName` | 从已完成 run 派生新 chat |
+| POST | `/api/compact` | body: `requestId`、`chatId`、`trigger`、`level` | 历史或活动原生根 Run 的上下文压缩最终结果 |
 | POST | `/api/chat/archive` | body: `chatId`、`reason` | 归档结果 |
 | GET | `/api/chat/export` | query: `chatId`，可选 `format=markdown\|html` | 默认 Markdown；`html` 返回完整静态只读文档；`sse` 与未知格式返回 400 |
 | GET | `/api/chat/jsonl` | query: `chatId` | 原始持久化 chat JSONL 文本；active 不存在时回退 archive，不得作为公开分享输入 |
@@ -197,6 +198,14 @@ chat 摘要会在新数据中返回可选 `mode`；`/api/chat.runs[]`、`/api/ag
 `POST /api/chat/derive` 只支持 active chat 存储，不从 archive 直接派生。`sourceRunId` 省略时使用 source chat 的 `lastRunId`；source chat 必须没有 active run 和 pending awaiting，且目标 source run 已完成。服务端会创建新的独立 `chatId`，复制截至 source run 的可回放 JSONL 历史与必要资源，并为复制出的历史 run 生成新的 runId；返回 `lastRunId` 是新 chat 中映射后的 runId。派生成功后客户端继续用新 `chatId` 调 `/api/query`，后续运行不会写回原 chat。
 
 `/api/chat` 返回 active run 时，`activeRun.lastSeq` 是本次 chat detail 已返回历史 events 覆盖到的公开 live stream 游标，客户端应用这些 events 后可把它作为 `/api/attach.lastSeq`。它来自 `chatId.jsonl` 每行顶层 `liveSeq` 的 replay 结果，不是内存 run 当前最新 seq；内存最新 seq 只用于服务端运行状态。新的 Native / Team run 只在事件实际发布时递增该游标，内部事件复用最近公开游标；历史 run 的旧游标不迁移。对 `WAITING_SUBMIT` active run，该 attach 应在 submit 前建立并保持等待；submit 成功不应再创建第二个 attach，同一连接会从 `request.submit` / `awaiting.answer` 开始继续接收该 run 的后续事件。
+
+`POST /api/compact` 的标准手动请求为 `{ "requestId":"...", "chatId":"...", "trigger":"manual", "level":"summary" }`，HTTP 与 WebSocket 字段一致。没有活动 Run 时，Platform 持有 Chat maintenance lease 后原子改写历史：一个终态 Run 整体压缩，两个压缩第一个，三个及以上默认保留最后两个；保留尾部仍超过模型窗口 60% 目标时逐步减少到一个或零个。`no_compactable_history` 只表示不存在尚未压缩的终态历史。maintenance lease 持有期间新 query 以 `409 compact_in_progress`拒绝，不会与 JSONL 替换竞态。
+
+普通 Agent 或 Team 协调器的活动原生根 Run 不改写活动 JSONL，而是把请求投递给 REACT 循环并阻塞等待最终结果。已启动的模型 Turn 或工具批次自然结束后，在下一次模型调用、HITL 等待或 run 终态边界的安全点压缩；已启动工具不取消也不重复。question/approval/form/planning 的未完成 tool group 与 `awaitingId` 保留，压缩后回到同一等待。安全点依次发布 `context.compact.start`、持久化 `_type:"compact.run.checkpoint"`、再发布 `context.compact.complete`；checkpoint 失败时不发布 compact complete，而是发布 `context.compact.failed(detail:"checkpoint_persist_failed")` 和终态 `run.error`，不发起下一次模型调用。
+
+压缩不消耗 Agent `maxSteps`、工具轮次或普通 LLM 调用计数，用量单独记录为 `compactionUsage`；摘要失败或为空时使用限长 deterministic fallback。Provider 在未提交 Turn 返回标准 context-length 错误时自动压缩并只重试一次；再次溢出，或 system、工具 Schema、当前用户输入与不可拆分待处理组本身超窗口时，以 `context_window_uncompactable` 终止。
+
+相同 `requestId` 重试会加入原请求并取得同一结果；不同请求并发返回 `accepted:false/status:"busy"/detail:"compact_in_progress"/retryable:true`。客户端断开只结束当前 HTTP/WS 等待，已入队任务继续并可从事件回放恢复。Interrupt 会将尚未完成的请求解决为 `failed/run_interrupted`。ACP、PROXY、CHANNEL 和 BTW 活动 Run 返回 `unsupported_active_run`；`l1_tools` 只保留无活动 Run 的历史能力。成功响应包含 `runId`（仅 run scope）、`trigger`、`scope:"history"|"run"`、`level`、Token 估算、压缩比、`tokensFreed`与 `compactionUsage`；失败/跳过通过 `status/detail/retryable` 表达。
 
 `/api/chat/jsonl`、`/api/chat/system-prompt`、chat/archive replay、搜索结果与 `/api/chat/llm-trace` 都在读取前验证各自明确拥有的时间字段。JSONL 的 line `updatedAt`、event `timestamp`、`messages[].ts` 和 awaiting/submit 时间保持严格；trace 中 `sentAt`、`responseStartedAt`、`completedAt` 以及 `interrupt.interruptedAt` 均为 epoch milliseconds，对应的 `sentTime`、`responseStartedTime`、`completedTime`、`interrupt.interruptedTime` 为 RFC3339Nano 可读时间。字符串、秒、浮点、零值或缺少必填平台时间会返回 `422 time_contract_violation`；trace 中外部 request/response/tool payload 保持透明。
 
@@ -246,6 +255,7 @@ Automation 的 Team 身份规则与 query 一致：只配置 `teamId`，同时�
 | POST | `/api/steer` | body: `agentKey` 或 `teamId`、`runId`、`message`、`requestId`、`chatId`、`steerId` | steer ack |
 | POST | `/api/interrupt` | body: `agentKey` 或 `teamId`、`runId`、`message`、`requestId`、`chatId` | interrupt ack |
 | POST | `/api/access-level` | body: `agentKey` 或 `teamId`、`runId`、`accessLevel`、`requestId`、`reason` | 动态更新 native run 的 accessLevel |
+| POST | `/api/compact` | body: `requestId`、`chatId`、`trigger:"manual"`、`level:"summary"` | 无活动 Run 时压缩历史；活动 native root Run 时阻塞到安全点压缩结束 |
 
 `POST /api/submit` 成功仍返回 200。已知终态返回 409，`msg` / `data.errorCode` 为 `awaiting_expired`、`awaiting_interrupted` 或 `already_resolved`；`data` 同时包含 `chatId`、`runId`、`awaitingId`、`status`、`detail` 与结构化 `error`。真正不存在或 awaiting 身份不匹配返回 400 `unknown_awaiting`。同一 `submitId` 在 answer 已持久化但 continuation 尚未恢复完成的崩溃窗口内仍可作为幂等重试继续完成原提交，不会重复写 submit/answer。
 
@@ -800,6 +810,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/submit` | `SubmitRequest` | `response` |
 | `/api/steer` | `SteerRequest` | `response` |
 | `/api/interrupt` | `InterruptRequest` | `response` |
+| `/api/compact` | `requestId`、`chatId`、`trigger`、`level` | `response`；活动 native root Run 时等待最终 completed/failed/skipped |
 | `/api/learn` | `LearnRequest` | `response` |
 | `/api/memory/meta` | 无 | `response` |
 | `/api/memory/context-preview` | `chatId`、`message` | `response` |

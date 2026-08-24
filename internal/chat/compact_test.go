@@ -124,6 +124,117 @@ func TestCompactCommitMarksCoveredLinesAndProjectsSummaryTail(t *testing.T) {
 	}
 }
 
+func TestCompactSingleCompletedRootRunCoversWholeRun(t *testing.T) {
+	store := newCompactTestStore(t)
+	chatID := "chat-compact-single-run"
+	ensureCompactTestChat(t, store, chatID)
+	appendCompactTestRun(t, store, chatID, "r1", strings.Repeat("single user ", 100), strings.Repeat("single assistant ", 100))
+
+	snapshot, err := store.BuildCompactSnapshot(chatID, DefaultCompactKeptRunCount)
+	if err != nil {
+		t.Fatalf("BuildCompactSnapshot: %v", err)
+	}
+	if snapshot.CoveredLineCount != 2 || len(snapshot.TailMessages) != 0 {
+		t.Fatalf("single-run snapshot = covered:%d tail:%d", snapshot.CoveredLineCount, len(snapshot.TailMessages))
+	}
+	if err := store.CommitCompactCheckpoint(chatID, snapshot, CompactCheckpointLine{
+		Type:            CompactCheckpointLineType,
+		ChatID:          chatID,
+		CompactID:       "compact_single",
+		UpdatedAt:       testEpochMillis(200),
+		Trigger:         "manual",
+		Summary:         "single run summary",
+		SummarySource:   "model",
+		CompactionUsage: map[string]any{},
+	}); err != nil {
+		t.Fatalf("CommitCompactCheckpoint: %v", err)
+	}
+	raw, err := store.LoadRawMessages(chatID, DefaultHistoryRunWindow)
+	if err != nil {
+		t.Fatalf("LoadRawMessages: %v", err)
+	}
+	if len(raw) != 1 || !strings.Contains(stringFromAny(raw[0]["content"]), "single run summary") {
+		t.Fatalf("single-run compacted raw messages = %#v", raw)
+	}
+}
+
+func TestCompactTwoCompletedRootRunsKeepsOnlyLatest(t *testing.T) {
+	store := newCompactTestStore(t)
+	chatID := "chat-compact-two-runs"
+	ensureCompactTestChat(t, store, chatID)
+	appendCompactTestRun(t, store, chatID, "r1", "user r1", "assistant r1")
+	appendCompactTestRun(t, store, chatID, "r2", "user r2", "assistant r2")
+
+	snapshot, err := store.BuildCompactSnapshot(chatID, DefaultCompactKeptRunCount)
+	if err != nil {
+		t.Fatalf("BuildCompactSnapshot: %v", err)
+	}
+	if snapshot.CoveredLineCount != 2 || len(snapshot.TailMessages) != 2 {
+		t.Fatalf("two-run snapshot = covered:%d tail:%d", snapshot.CoveredLineCount, len(snapshot.TailMessages))
+	}
+	for _, message := range snapshot.TailMessages {
+		if !strings.Contains(stringFromAny(message["content"]), "r2") {
+			t.Fatalf("unexpected retained message: %#v", message)
+		}
+	}
+}
+
+func TestRunCompactCheckpointReplacesLogicalMessagesAndReplaysPublicEvent(t *testing.T) {
+	store := newCompactTestStore(t)
+	chatID := "chat-run-compact-checkpoint"
+	ensureCompactTestChat(t, store, chatID)
+	appendCompactTestRun(t, store, chatID, "r1", "old user", "old assistant")
+	writer := NewStepWriter(store, chatID, "r2", "REACT")
+	writer.OnEvent(stream.EventData{
+		Seq:       10,
+		Type:      "context.compact.complete",
+		Timestamp: testEpochMillis(300),
+		Payload: map[string]any{
+			"runId":                      "r2",
+			"chatId":                     chatID,
+			"requestId":                  "req-run-compact",
+			"compactId":                  "compact-run-1",
+			"trigger":                    "manual",
+			"level":                      "summary",
+			"scope":                      "run",
+			"summarySource":              "model",
+			"preCompactEstimatedTokens":  1000,
+			"postCompactEstimatedTokens": 100,
+			"checkpointMessages": []any{
+				map[string]any{"role": "user", "content": "checkpoint summary"},
+				map[string]any{"role": "user", "content": "current instruction"},
+			},
+		},
+	})
+	if err := writer.Err(); err != nil {
+		t.Fatalf("checkpoint persistence: %v", err)
+	}
+	if err := completeRunForTest(store, RunCompletion{ChatID: chatID, RunID: "r2", FinishReason: "complete", StartedAtMillis: testEpochMillis(250), UpdatedAtMillis: testEpochMillis(350)}); err != nil {
+		t.Fatalf("complete checkpoint run: %v", err)
+	}
+	raw, err := store.LoadRawMessages(chatID, DefaultHistoryRunWindow)
+	if err != nil {
+		t.Fatalf("LoadRawMessages: %v", err)
+	}
+	if len(raw) != 2 || stringFromAny(raw[0]["content"]) != "checkpoint summary" || stringFromAny(raw[1]["content"]) != "current instruction" {
+		t.Fatalf("checkpoint raw messages = %#v", raw)
+	}
+	detail, err := store.LoadChat(chatID)
+	if err != nil {
+		t.Fatalf("LoadChat: %v", err)
+	}
+	if !compactReplayContains(detail.Events, "context.compact.complete", "compact-run-1") {
+		t.Fatalf("run compact replay event missing: %#v", detail.Events)
+	}
+	for _, event := range detail.Events {
+		if event.Type == "context.compact.complete" {
+			if _, leaked := event.Payload["checkpointMessages"]; leaked {
+				t.Fatalf("private checkpoint messages leaked: %#v", event.Payload)
+			}
+		}
+	}
+}
+
 func TestRawMessagesSkipCompactedLinesAndInactiveCheckpoints(t *testing.T) {
 	lines := []map[string]any{
 		{

@@ -39,6 +39,10 @@ func (s *FileStore) AppendSubmitLine(chatID string, line SubmitLine) error {
 	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
 }
 
+func (s *FileStore) AppendRunCompactCheckpoint(chatID string, line RunCompactCheckpointLine) error {
+	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
+}
+
 // chatJSONLPath returns the flat-file path for the chat's JSONL stream.
 func (s *FileStore) chatJSONLPath(chatID string) string {
 	return filepath.Join(s.root, chatID+".jsonl")

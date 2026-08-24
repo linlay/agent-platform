@@ -67,7 +67,10 @@ func (c *InteractionSubmitCoordinator) Await(ctx context.Context, execCtx *Execu
 	execCtx.RunControl.TransitionState(RunLoopStateWaitingSubmit)
 	waitStarted := time.Now()
 
-	result, err := execCtx.RunControl.AwaitSubmitWithTimeout(ctx, awaitingID, timeout)
+	result, compactRequested, err := execCtx.RunControl.AwaitSubmitWithTimeoutOrCompact(ctx, awaitingID, timeout)
+	if compactRequested {
+		return ToolExecutionResult{}, ErrContextCompactPending
+	}
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			elapsed := time.Since(waitStarted).Milliseconds() / 1000

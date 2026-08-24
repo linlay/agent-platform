@@ -23,6 +23,8 @@ type compactChatStore interface {
 	CommitToolCompact(chatID string, snapshot chat.ToolCompactSnapshot, line chat.ToolCompactLine) error
 }
 
+const historyCompactTargetPercent = 60
+
 func (s *Server) handleCompact(w http.ResponseWriter, r *http.Request) {
 	var req api.CompactRequest
 	if err := decodeJSON(r, &req); err != nil {
@@ -46,7 +48,7 @@ func (s *Server) handleCompact(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, api.Success(resp))
 }
 
-func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (api.CompactResponse, error) {
+func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (result api.CompactResponse, resultErr error) {
 	chatID := strings.TrimSpace(req.ChatID)
 	if chatID == "" {
 		return api.CompactResponse{}, &statusError{status: http.StatusBadRequest, message: "chatId is required"}
@@ -66,6 +68,8 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (api.C
 	baseResp := api.CompactResponse{
 		RequestID: requestID,
 		ChatID:    chatID,
+		Trigger:   trigger,
+		Scope:     "history",
 		Level:     level,
 		Status:    "skipped",
 		Detail:    "skipped",
@@ -84,6 +88,37 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (api.C
 	}
 	if chatSummary == nil {
 		return api.CompactResponse{}, &statusError{status: http.StatusNotFound, message: "chat not found"}
+	}
+	if level == "summary" {
+		if coordinator, ok := s.deps.Runs.(contracts.ChatCompactCoordinator); ok {
+			response, routed, historyOwner, routeErr := s.compactCoordinated(ctx, coordinator, baseResp)
+			if routeErr != nil || routed {
+				return response, routeErr
+			}
+			if historyOwner {
+				defer func() {
+					completion := result
+					if resultErr != nil {
+						completion = baseResp
+						completion.Status = "failed"
+						completion.Detail = resultErr.Error()
+						completion.Retryable = true
+					}
+					coordinator.CompleteChatMaintenance(chatID, requestID, completion)
+				}()
+			}
+		} else if response, routed, routeErr := s.compactActiveRun(ctx, baseResp); routed || routeErr != nil {
+			return response, routeErr
+		}
+	} else if s.deps.Runs != nil {
+		if active, ok, activeErr := s.deps.Runs.ActiveRunForChat(chatID); activeErr != nil {
+			return api.CompactResponse{}, activeErr
+		} else if ok {
+			baseResp.RunID = active.RunID
+			baseResp.Scope = "run"
+			baseResp.Detail = "unsupported_active_level"
+			return baseResp, nil
+		}
 	}
 
 	agentKey := strings.TrimSpace(req.AgentKey)
@@ -117,13 +152,31 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (api.C
 		return s.compactChatToolResults(baseResp, store, chatID, requestID, trigger)
 	}
 
-	snapshot, err := store.BuildCompactSnapshot(chatID, chat.DefaultCompactKeptRunCount)
+	keptRunCount := chat.DefaultCompactKeptRunCount
+	historyTargetTokens := 0
+	if agentOK && s.deps.Models != nil {
+		if model, modelErr := s.deps.Models.GetModel(agentDef.ModelKey); modelErr == nil && model.ContextWindow > 0 {
+			historyTargetTokens = model.ContextWindow * historyCompactTargetPercent / 100
+		}
+	}
+	snapshot, err := store.BuildCompactSnapshot(chatID, keptRunCount)
 	if err != nil {
 		if errors.Is(err, chat.ErrNoCompactableHistory) {
 			baseResp.Detail = "no_compactable_history"
 			return baseResp, nil
 		}
 		return api.CompactResponse{}, err
+	}
+	for historyTargetTokens > 0 && snapshot.PostCompactEstimatedTokens > historyTargetTokens && keptRunCount > 0 {
+		keptRunCount--
+		snapshot, err = store.BuildCompactSnapshot(chatID, keptRunCount)
+		if err != nil {
+			if errors.Is(err, chat.ErrNoCompactableHistory) {
+				baseResp.Detail = "no_compactable_history"
+				return baseResp, nil
+			}
+			return api.CompactResponse{}, err
+		}
 	}
 
 	compactID := "compact_" + newRunID()
@@ -166,6 +219,7 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (api.C
 		PreCompactEstimatedTokens:  snapshot.PreCompactEstimatedTokens,
 		PostCompactEstimatedTokens: postTokens,
 		CompressionRatio:           ratio,
+		TokensFreed:                max(snapshot.PreCompactEstimatedTokens-postTokens, 0),
 		CompactionUsage:            compactionUsage,
 	}
 	if err := store.CommitCompactCheckpoint(chatID, snapshot, checkpoint); err != nil {
@@ -192,14 +246,111 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (api.C
 		RequestID:                  requestID,
 		ChatID:                     chatID,
 		CompactID:                  compactID,
+		Trigger:                    trigger,
+		Scope:                      "history",
 		Level:                      level,
 		SummarySource:              summarySource,
 		PreCompactEstimatedTokens:  snapshot.PreCompactEstimatedTokens,
 		PostCompactEstimatedTokens: postTokens,
 		CompressionRatio:           ratio,
+		TokensFreed:                max(snapshot.PreCompactEstimatedTokens-postTokens, 0),
 		CompactionUsage:            compactionUsage,
 		Detail:                     detail,
 	}, nil
+}
+
+func (s *Server) compactCoordinated(ctx context.Context, coordinator contracts.ChatCompactCoordinator, base api.CompactResponse) (api.CompactResponse, bool, bool, error) {
+	compactID := "compact_" + newRunID()
+	ack, err := coordinator.RouteCompactForChat(contracts.CompactControlRequest{
+		RequestID: base.RequestID,
+		CompactID: compactID,
+		ChatID:    base.ChatID,
+		Trigger:   base.Trigger,
+		Level:     base.Level,
+	})
+	if err != nil {
+		return api.CompactResponse{}, true, false, err
+	}
+	switch ack.Status {
+	case "history_acquired":
+		return api.CompactResponse{}, false, true, nil
+	case "history_joined", "queued", "joined", "completed":
+		select {
+		case <-ack.Handle.Done():
+			return ack.Handle.Result(), true, false, nil
+		case <-ctx.Done():
+			return api.CompactResponse{}, true, false, ctx.Err()
+		}
+	case "unsupported":
+		base.RunID = ack.Run.RunID
+		base.CompactID = compactID
+		base.Scope = "run"
+		base.Detail = "unsupported_active_run"
+		return base, true, false, nil
+	case "busy":
+		base.RunID = ack.Run.RunID
+		base.CompactID = compactID
+		base.Status = "busy"
+		base.Detail = "compact_in_progress"
+		base.Retryable = true
+		return base, true, false, nil
+	case "invalid":
+		return api.CompactResponse{}, true, false, &statusError{status: http.StatusBadRequest, message: "invalid compact request"}
+	default:
+		return api.CompactResponse{}, true, false, fmt.Errorf("unsupported compact routing status %q", ack.Status)
+	}
+}
+
+func (s *Server) compactActiveRun(ctx context.Context, base api.CompactResponse) (api.CompactResponse, bool, error) {
+	if s == nil || s.deps.Runs == nil {
+		return api.CompactResponse{}, false, nil
+	}
+	router, ok := s.deps.Runs.(contracts.ActiveRunCompactService)
+	if !ok {
+		return api.CompactResponse{}, false, nil
+	}
+	compactID := "compact_" + newRunID()
+	ack, err := router.RequestCompactForChat(base.ChatID, contracts.CompactControlRequest{
+		RequestID: base.RequestID,
+		CompactID: compactID,
+		ChatID:    base.ChatID,
+		Trigger:   base.Trigger,
+		Level:     base.Level,
+	})
+	if err != nil {
+		return api.CompactResponse{}, true, err
+	}
+	switch ack.Status {
+	case "unmatched", "":
+		return api.CompactResponse{}, false, nil
+	case "unsupported":
+		base.RunID = ack.Run.RunID
+		base.CompactID = compactID
+		base.Scope = "run"
+		base.Detail = "unsupported_active_run"
+		return base, true, nil
+	case "busy":
+		base.RunID = ack.Run.RunID
+		base.CompactID = compactID
+		base.Scope = "run"
+		base.Status = "busy"
+		base.Detail = "compact_in_progress"
+		base.Retryable = true
+		return base, true, nil
+	case "invalid":
+		return api.CompactResponse{}, true, &statusError{status: http.StatusBadRequest, message: "invalid compact request"}
+	case "queued", "joined", "completed":
+		select {
+		case <-ack.Handle.Done():
+			return ack.Handle.Result(), true, nil
+		case <-ctx.Done():
+			// The compact request remains owned by the active run even when the
+			// caller disconnects; replay exposes its eventual terminal event.
+			return api.CompactResponse{}, true, ctx.Err()
+		}
+	default:
+		return api.CompactResponse{}, true, fmt.Errorf("unsupported compact routing status %q", ack.Status)
+	}
 }
 
 func normalizeCompactLevel(level string) (string, error) {
@@ -263,6 +414,8 @@ func (s *Server) compactChatToolResults(baseResp api.CompactResponse, store comp
 		RequestID:                  requestID,
 		ChatID:                     chatID,
 		CompactID:                  compactID,
+		Trigger:                    trigger,
+		Scope:                      "history",
 		Level:                      "l1_tools",
 		PreCompactEstimatedTokens:  snapshot.PreCompactEstimatedTokens,
 		PostCompactEstimatedTokens: snapshot.PostCompactEstimatedTokens,

@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -85,9 +86,57 @@ type submitWaiter struct {
 	ch chan SubmitResult
 }
 
+type CompactControlRequest struct {
+	RequestID string
+	CompactID string
+	ChatID    string
+	Trigger   string
+	Level     string
+}
+
+type compactControlState struct {
+	request CompactControlRequest
+	done    chan struct{}
+	result  api.CompactResponse
+	claimed bool
+	closed  bool
+}
+
+type CompactControlHandle struct {
+	state *compactControlState
+}
+
+func (h CompactControlHandle) Done() <-chan struct{} {
+	if h.state == nil {
+		closed := make(chan struct{})
+		close(closed)
+		return closed
+	}
+	return h.state.done
+}
+
+func (h CompactControlHandle) Result() api.CompactResponse {
+	if h.state == nil {
+		return api.CompactResponse{}
+	}
+	return h.state.result
+}
+
 type ActiveRunConflictError struct {
 	ChatID string
 	RunIDs []string
+}
+
+type ChatMaintenanceConflictError struct {
+	ChatID string
+	Detail string
+}
+
+func (e *ChatMaintenanceConflictError) Error() string {
+	if e == nil {
+		return "chat maintenance in progress"
+	}
+	return fmt.Sprintf("chat maintenance in progress: chatId=%s detail=%s", strings.TrimSpace(e.ChatID), strings.TrimSpace(e.Detail))
 }
 
 func (e *ActiveRunConflictError) Error() string {
@@ -118,6 +167,7 @@ type RunControl struct {
 	interrupted atomic.Bool
 	finished    atomic.Bool
 	observerCnt atomic.Int32
+	compactable atomic.Bool
 
 	mu              sync.Mutex
 	steerQueue      []api.SteerRequest
@@ -131,8 +181,11 @@ type RunControl struct {
 	state           RunLoopState
 	accessLevel     string
 	accessVersion   int64
+	compactPending  *compactControlState
+	compactResults  map[string]*compactControlState
 
 	accessLevelChanged chan struct{}
+	compactRequested   chan struct{}
 }
 
 func NewRunControl(parent context.Context, runID string) *RunControl {
@@ -152,7 +205,9 @@ func NewRunControl(parent context.Context, runID string) *RunControl {
 		state:              RunLoopStateIdle,
 		accessLevel:        AccessLevelDefault,
 		accessVersion:      1,
+		compactResults:     map[string]*compactControlState{},
 		accessLevelChanged: make(chan struct{}, 1),
+		compactRequested:   make(chan struct{}, 1),
 	}
 	control.observerCnt.Store(1)
 	return control
@@ -178,6 +233,16 @@ func (c *RunControl) Context() context.Context {
 		return context.Background()
 	}
 	return c.ctx
+}
+
+func (c *RunControl) EnableContextCompact() {
+	if c != nil {
+		c.compactable.Store(true)
+	}
+}
+
+func (c *RunControl) ContextCompactSupported() bool {
+	return c != nil && c.compactable.Load()
 }
 
 func (c *RunControl) Interrupted() bool {
@@ -215,7 +280,27 @@ func (c *RunControl) Interrupt(info InterruptInfo) bool {
 	c.steerClosed = true
 	c.steerQueue = nil
 	c.state = RunLoopStateCancelled
+	pending := c.compactPending
+	c.compactPending = nil
 	c.mu.Unlock()
+	completeCompactControlState(pending, api.CompactResponse{
+		Accepted: false,
+		Status:   "failed",
+		RequestID: func() string {
+			if pending != nil {
+				return pending.request.RequestID
+			}
+			return ""
+		}(),
+		RunID: func() string {
+			if pending != nil {
+				return c.runID
+			}
+			return ""
+		}(),
+		Detail:    "run_interrupted",
+		Retryable: true,
+	})
 	c.cancel()
 	c.closeWaiters("interrupted", "Run interrupted")
 	return true
@@ -236,7 +321,10 @@ func (c *RunControl) ClaimFailure() bool {
 	c.state = RunLoopStateFailed
 	c.steerClosed = true
 	c.steerQueue = nil
+	pending := c.compactPending
+	c.compactPending = nil
 	c.mu.Unlock()
+	completeCompactControlState(pending, compactControlTerminalResponse(c.runID, pending, "run_failed"))
 	c.closeWaiters("failed", "Run failed before submit arrived")
 	return true
 }
@@ -252,10 +340,155 @@ func (c *RunControl) Finish() bool {
 	if state != RunLoopStateCancelled && state != RunLoopStateFailed {
 		c.TransitionState(RunLoopStateCompleted)
 	}
+	c.failPendingCompact("run_finished")
 	c.closeSteers()
 	c.cancel()
 	c.closeWaiters("finished", "Run finished before submit arrived")
 	return true
+}
+
+func normalizeCompactControlRequest(req CompactControlRequest) CompactControlRequest {
+	req.RequestID = strings.TrimSpace(req.RequestID)
+	req.CompactID = strings.TrimSpace(req.CompactID)
+	req.ChatID = strings.TrimSpace(req.ChatID)
+	req.Trigger = strings.TrimSpace(req.Trigger)
+	req.Level = strings.TrimSpace(req.Level)
+	if req.Trigger == "" {
+		req.Trigger = "manual"
+	}
+	if req.Level == "" {
+		req.Level = "summary"
+	}
+	return req
+}
+
+// EnqueueCompact registers one blocking compact request for the root run.
+// The same requestId joins the existing/completed request; a different request
+// is rejected while one is pending or in flight.
+func (c *RunControl) EnqueueCompact(req CompactControlRequest) (CompactControlHandle, string) {
+	if c == nil {
+		return CompactControlHandle{}, "unmatched"
+	}
+	req = normalizeCompactControlRequest(req)
+	if req.RequestID == "" || req.CompactID == "" {
+		return CompactControlHandle{}, "invalid"
+	}
+	c.mu.Lock()
+	if completed := c.compactResults[req.RequestID]; completed != nil {
+		c.mu.Unlock()
+		return CompactControlHandle{state: completed}, "completed"
+	}
+	if c.finished.Load() || c.interrupted.Load() || isTerminalRunLoopState(c.state) {
+		c.mu.Unlock()
+		return CompactControlHandle{}, "unmatched"
+	}
+	if c.compactPending != nil {
+		if c.compactPending.request.RequestID == req.RequestID {
+			handle := CompactControlHandle{state: c.compactPending}
+			c.mu.Unlock()
+			return handle, "joined"
+		}
+		c.mu.Unlock()
+		return CompactControlHandle{}, "busy"
+	}
+	state := &compactControlState{request: req, done: make(chan struct{})}
+	c.compactPending = state
+	c.mu.Unlock()
+	select {
+	case c.compactRequested <- struct{}{}:
+	default:
+	}
+	return CompactControlHandle{state: state}, "queued"
+}
+
+func (c *RunControl) ClaimCompact() (CompactControlRequest, bool) {
+	if c == nil {
+		return CompactControlRequest{}, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	state := c.compactPending
+	if state == nil || state.claimed || state.closed {
+		return CompactControlRequest{}, false
+	}
+	state.claimed = true
+	select {
+	case <-c.compactRequested:
+	default:
+	}
+	return state.request, true
+}
+
+func (c *RunControl) CompleteCompact(requestID string, response api.CompactResponse) bool {
+	if c == nil {
+		return false
+	}
+	requestID = strings.TrimSpace(requestID)
+	c.mu.Lock()
+	state := c.compactPending
+	if state == nil || state.request.RequestID != requestID || state.closed {
+		c.mu.Unlock()
+		return false
+	}
+	c.compactPending = nil
+	c.compactResults[requestID] = state
+	state.result = response
+	state.closed = true
+	close(state.done)
+	c.mu.Unlock()
+	return true
+}
+
+func (c *RunControl) CompactRequested() <-chan struct{} {
+	if c == nil {
+		return nil
+	}
+	return c.compactRequested
+}
+
+func (c *RunControl) HasPendingCompact() bool {
+	if c == nil {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.compactPending != nil && !c.compactPending.closed
+}
+
+func (c *RunControl) failPendingCompact(detail string) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	pending := c.compactPending
+	c.compactPending = nil
+	if pending != nil {
+		c.compactResults[pending.request.RequestID] = pending
+	}
+	c.mu.Unlock()
+	completeCompactControlState(pending, compactControlTerminalResponse(c.runID, pending, detail))
+}
+
+func compactControlTerminalResponse(runID string, state *compactControlState, detail string) api.CompactResponse {
+	response := api.CompactResponse{Status: "failed", RunID: strings.TrimSpace(runID), Detail: detail, Retryable: true}
+	if state != nil {
+		response.RequestID = state.request.RequestID
+		response.ChatID = state.request.ChatID
+		response.CompactID = state.request.CompactID
+		response.Trigger = state.request.Trigger
+		response.Level = state.request.Level
+		response.Scope = "run"
+	}
+	return response
+}
+
+func completeCompactControlState(state *compactControlState, response api.CompactResponse) {
+	if state == nil || state.closed {
+		return
+	}
+	state.result = response
+	state.closed = true
+	close(state.done)
 }
 
 func (c *RunControl) EnqueueSteer(req api.SteerRequest) bool {
@@ -321,58 +554,74 @@ func (c *RunControl) AwaitSubmit(ctx context.Context, awaitingID string) (Submit
 // AwaitSubmitIndefinitely waits until a submit, interruption, or context cancellation.
 // It deliberately bypasses the timeout-based waiting path.
 func (c *RunControl) AwaitSubmitIndefinitely(ctx context.Context, awaitingID string) (SubmitResult, error) {
-	result, _, err := c.awaitSubmit(ctx, awaitingID, nil, -1)
+	result, _, _, err := c.awaitSubmit(ctx, awaitingID, nil, -1, false)
 	return result, err
 }
 
 func (c *RunControl) AwaitSubmitWithTimeout(ctx context.Context, awaitingID string, timeout time.Duration) (SubmitResult, error) {
-	result, _, err := c.awaitSubmit(ctx, awaitingID, &timeout, -1)
+	result, _, _, err := c.awaitSubmit(ctx, awaitingID, &timeout, -1, false)
 	return result, err
+}
+
+func (c *RunControl) AwaitSubmitWithTimeoutOrCompact(ctx context.Context, awaitingID string, timeout time.Duration) (SubmitResult, bool, error) {
+	result, _, compactRequested, err := c.awaitSubmit(ctx, awaitingID, &timeout, -1, true)
+	return result, compactRequested, err
 }
 
 func (c *RunControl) AwaitSubmitWithTimeoutOrAccessLevelChange(ctx context.Context, awaitingID string, timeout time.Duration, afterVersion int64) (SubmitResult, bool, error) {
 	if _, currentVersion := c.AccessLevelSnapshot(); currentVersion != afterVersion {
 		return SubmitResult{}, true, nil
 	}
-	return c.awaitSubmit(ctx, awaitingID, &timeout, afterVersion)
+	result, accessChanged, _, err := c.awaitSubmit(ctx, awaitingID, &timeout, afterVersion, false)
+	return result, accessChanged, err
 }
 
-func (c *RunControl) awaitSubmit(ctx context.Context, awaitingID string, timeout *time.Duration, breakOnAccessVersion int64) (SubmitResult, bool, error) {
+func (c *RunControl) AwaitSubmitWithTimeoutOrControlChange(ctx context.Context, awaitingID string, timeout time.Duration, afterVersion int64) (SubmitResult, bool, bool, error) {
+	if _, currentVersion := c.AccessLevelSnapshot(); currentVersion != afterVersion {
+		return SubmitResult{}, true, false, nil
+	}
+	if c.HasPendingCompact() {
+		return SubmitResult{}, false, true, nil
+	}
+	return c.awaitSubmit(ctx, awaitingID, &timeout, afterVersion, true)
+}
+
+func (c *RunControl) awaitSubmit(ctx context.Context, awaitingID string, timeout *time.Duration, breakOnAccessVersion int64, breakOnCompact bool) (SubmitResult, bool, bool, error) {
 	if c == nil {
-		return SubmitResult{}, false, ErrRunControlUnavailable
+		return SubmitResult{}, false, false, ErrRunControlUnavailable
 	}
 	if awaitingID == "" {
-		return SubmitResult{}, false, ErrInteractionSubmitMissingAwaitID
+		return SubmitResult{}, false, false, ErrInteractionSubmitMissingAwaitID
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if c.interrupted.Load() {
-		return SubmitResult{}, false, ErrRunInterrupted
+		return SubmitResult{}, false, false, ErrRunInterrupted
 	}
 	if c.finished.Load() {
-		return SubmitResult{}, false, ErrRunFinished
+		return SubmitResult{}, false, false, ErrRunFinished
 	}
 
 	waiter := &submitWaiter{ch: make(chan SubmitResult, 1)}
 	c.mu.Lock()
 	if c.interrupted.Load() {
 		c.mu.Unlock()
-		return SubmitResult{}, false, ErrRunInterrupted
+		return SubmitResult{}, false, false, ErrRunInterrupted
 	}
 	if c.finished.Load() {
 		c.mu.Unlock()
-		return SubmitResult{}, false, ErrRunFinished
+		return SubmitResult{}, false, false, ErrRunFinished
 	}
 	if _, exists := c.submitWaiters[awaitingID]; exists {
 		c.mu.Unlock()
-		return SubmitResult{}, false, ErrInteractionSubmitAlreadyWaiting
+		return SubmitResult{}, false, false, ErrInteractionSubmitAlreadyWaiting
 	}
 	awaitingCtx := c.awaitingSubmits[awaitingID]
 	if pending, exists := c.pendingSubmits[awaitingID]; exists {
 		delete(c.pendingSubmits, awaitingID)
 		c.mu.Unlock()
-		return pending, false, nil
+		return pending, false, false, nil
 	}
 	c.submitWaiters[awaitingID] = waiter
 	c.mu.Unlock()
@@ -394,41 +643,49 @@ func (c *RunControl) awaitSubmit(ctx context.Context, awaitingID string, timeout
 	if breakOnAccessVersion >= 0 {
 		accessChanged = c.accessLevelChanged
 	}
+	var compactRequested <-chan struct{}
+	if breakOnCompact {
+		compactRequested = c.compactRequested
+	}
 
 	for {
 		select {
 		case result := <-waiter.ch:
 			switch result.Status {
 			case "interrupted":
-				return SubmitResult{}, false, ErrRunInterrupted
+				return SubmitResult{}, false, false, ErrRunInterrupted
 			case "finished":
-				return SubmitResult{}, false, ErrRunFinished
+				return SubmitResult{}, false, false, ErrRunFinished
 			default:
-				return result, false, nil
+				return result, false, false, nil
 			}
 		case <-ctx.Done():
-			return SubmitResult{}, false, ctx.Err()
+			return SubmitResult{}, false, false, ctx.Err()
 		case <-c.ctx.Done():
 			if c.interrupted.Load() {
-				return SubmitResult{}, false, ErrRunInterrupted
+				return SubmitResult{}, false, false, ErrRunInterrupted
 			}
 			if c.finished.Load() {
-				return SubmitResult{}, false, ErrRunFinished
+				return SubmitResult{}, false, false, ErrRunFinished
 			}
-			return SubmitResult{}, false, context.Canceled
+			return SubmitResult{}, false, false, context.Canceled
 		case <-accessChanged:
 			if breakOnAccessVersion >= 0 {
 				if _, currentVersion := c.AccessLevelSnapshot(); currentVersion != breakOnAccessVersion {
-					return SubmitResult{}, true, nil
+					return SubmitResult{}, true, false, nil
 				}
+			}
+		case <-compactRequested:
+			if breakOnCompact && c.HasPendingCompact() {
+				return SubmitResult{}, false, true, nil
 			}
 		case <-waitTimerChan(timer):
 			c.clearTimedOutSubmit(awaitingID, waiter)
-			return SubmitResult{}, false, context.DeadlineExceeded
+			return SubmitResult{}, false, false, context.DeadlineExceeded
 		}
 		if breakOnAccessVersion >= 0 {
 			if _, currentVersion := c.AccessLevelSnapshot(); currentVersion != breakOnAccessVersion {
-				return SubmitResult{}, true, nil
+				return SubmitResult{}, true, false, nil
 			}
 		}
 	}

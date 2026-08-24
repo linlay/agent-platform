@@ -1,20 +1,180 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/contracts"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
 )
+
+func TestActiveRunManualCompactWaitsForCurrentTurnAndPersistsBeforeCompletion(t *testing.T) {
+	const chatID = "chat-active-blocking-compact"
+	draft := strings.Repeat("draft before compact ", 2048)
+	var calls atomic.Int32
+	releaseFirst := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseFirst) }) }
+	t.Cleanup(release)
+	firstStarted := make(chan struct{})
+	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		switch calls.Add(1) {
+		case 1:
+			writeProviderSSE(t, w, fmt.Sprintf(`{"choices":[{"delta":{"content":%q}}]}`, draft))
+			close(firstStarted)
+			<-releaseFirst
+			writeProviderSSE(t, w, `{"choices":[{"delta":{},"finish_reason":"stop"}]}`, `[DONE]`)
+		case 2:
+			writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"blocking compact summary"},"finish_reason":"stop"}]}`, `[DONE]`)
+		default:
+			t.Errorf("unexpected provider call %d", calls.Load())
+			writeProviderSSE(t, w, `[DONE]`)
+		}
+	})
+	httpServer := newLoopbackServer(t, fixture.server)
+	defer httpServer.Close()
+
+	queryResp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"chatId":"`+chatID+`","message":"keep this current instruction"}`))
+	if err != nil {
+		t.Fatalf("post query: %v", err)
+	}
+	defer queryResp.Body.Close()
+	reader := bufio.NewReader(queryResp.Body)
+	for {
+		line, readErr := reader.ReadString('\n')
+		if strings.Contains(line, "draft before compact") {
+			break
+		}
+		if readErr != nil {
+			t.Fatalf("read stream before compact: %v", readErr)
+		}
+	}
+	<-firstStarted
+
+	type compactHTTPResult struct {
+		response api.ApiResponse[api.CompactResponse]
+		err      error
+	}
+	compactDone := make(chan compactHTTPResult, 1)
+	go func() {
+		resp, postErr := http.Post(httpServer.URL+"/api/compact", "application/json", bytes.NewBufferString(`{"chatId":"`+chatID+`","requestId":"req-blocking","trigger":"manual","level":"summary"}`))
+		if postErr != nil {
+			compactDone <- compactHTTPResult{err: postErr}
+			return
+		}
+		defer resp.Body.Close()
+		var decoded api.ApiResponse[api.CompactResponse]
+		decodeErr := json.NewDecoder(resp.Body).Decode(&decoded)
+		compactDone <- compactHTTPResult{response: decoded, err: decodeErr}
+	}()
+	select {
+	case result := <-compactDone:
+		t.Fatalf("compact returned before current turn reached a safe point: %#v err=%v", result.response, result.err)
+	case <-time.After(30 * time.Millisecond):
+	}
+	release()
+	result := <-compactDone
+	if result.err != nil {
+		t.Fatalf("compact request: %v", result.err)
+	}
+	if !result.response.Data.Accepted || result.response.Data.Status != "completed" || result.response.Data.Scope != "run" || result.response.Data.SummarySource != "model" {
+		t.Fatalf("blocking compact response = %#v", result.response.Data)
+	}
+	if _, err := io.Copy(io.Discard, reader); err != nil {
+		t.Fatalf("drain query: %v", err)
+	}
+	if calls.Load() != 2 {
+		t.Fatalf("provider calls = %d, want original + compact summary", calls.Load())
+	}
+	detail, err := fixture.chats.LoadChat(chatID)
+	if err != nil {
+		t.Fatalf("LoadChat: %v", err)
+	}
+	compactIndex, completeIndex := -1, -1
+	for index, event := range detail.Events {
+		switch event.Type {
+		case "context.compact.complete":
+			compactIndex = index
+		case "run.complete":
+			completeIndex = index
+		}
+	}
+	if compactIndex < 0 || completeIndex < 0 || compactIndex >= completeIndex {
+		t.Fatalf("event order compact=%d complete=%d", compactIndex, completeIndex)
+	}
+	raw, err := fixture.chats.LoadRawMessages(chatID, chat.DefaultHistoryRunWindow)
+	if err != nil {
+		t.Fatalf("LoadRawMessages: %v", err)
+	}
+	if len(raw) < 2 || !strings.Contains(fmt.Sprint(raw[0]["content"]), "blocking compact summary") {
+		t.Fatalf("checkpoint messages were not restored: %#v", raw)
+	}
+}
+
+func TestHandleCompactRoutesActiveRunAndBlocksForPersistedResult(t *testing.T) {
+	fixture := newTestFixture(t)
+	chatID := "chat-active-compact"
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "active compact"); err != nil {
+		t.Fatalf("EnsureChat: %v", err)
+	}
+	_, control, _ := fixture.runs.Register(context.Background(), contracts.QuerySession{
+		RunID: "run-active-compact", ChatID: chatID, RunScopeID: chatID,
+	})
+	defer fixture.runs.Finish("run-active-compact")
+	control.EnableContextCompact()
+
+	recorder := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		fixture.server.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/compact", bytes.NewBufferString(`{"chatId":"`+chatID+`","requestId":"req-active","trigger":"manual","level":"summary"}`)))
+	}()
+	deadline := time.Now().Add(time.Second)
+	for !control.HasPendingCompact() && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	request, ok := control.ClaimCompact()
+	if !ok || request.RequestID != "req-active" {
+		t.Fatalf("active compact was not queued: %#v ok=%v", request, ok)
+	}
+	select {
+	case <-done:
+		t.Fatal("compact handler returned before the active run completed the request")
+	default:
+	}
+	control.CompleteCompact(request.RequestID, api.CompactResponse{
+		Accepted: true, Status: "completed", RequestID: request.RequestID, ChatID: chatID,
+		RunID: "run-active-compact", CompactID: request.CompactID, Trigger: "manual", Scope: "run", Level: "summary",
+		PostCompactEstimatedTokens: 1234,
+	})
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("compact handler did not unblock")
+	}
+	var response api.ApiResponse[api.CompactResponse]
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !response.Data.Accepted || response.Data.Scope != "run" || response.Data.RunID != "run-active-compact" || response.Data.PostCompactEstimatedTokens != 1234 {
+		t.Fatalf("active compact response = %#v", response.Data)
+	}
+}
 
 func TestHandleCompactWritesCheckpointAndReloadsRawMessages(t *testing.T) {
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {

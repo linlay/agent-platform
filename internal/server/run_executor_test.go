@@ -363,3 +363,64 @@ func TestRunExecutorFinalizesAfterStreamDrain(t *testing.T) {
 		t.Fatalf("unexpected finalization order: got %v want %v", got, want)
 	}
 }
+
+func TestCompactCheckpointPersistenceFailurePublishesFailureAndResolvesRequest(t *testing.T) {
+	control := NewRunControl(context.Background(), "run-compact-persist")
+	control.EnableContextCompact()
+	handle, status := control.EnqueueCompact(CompactControlRequest{
+		RequestID: "request-compact-persist",
+		CompactID: "compact-persist",
+		ChatID:    "chat-compact-persist",
+		Trigger:   "manual",
+		Level:     "summary",
+	})
+	if status != "queued" {
+		t.Fatalf("enqueue status = %q, want queued", status)
+	}
+	if _, ok := control.ClaimCompact(); !ok {
+		t.Fatal("compact request was not claimable")
+	}
+	bus := stream.NewRunEventBus(8, 0, nil)
+	observer, err := bus.Subscribe(0)
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	processor := &runEventProcessor{runControl: control}
+	complete := stream.EventData{
+		Seq:       7,
+		Type:      "context.compact.complete",
+		Timestamp: testEpochMillis,
+		Payload: map[string]any{
+			"requestId": "request-compact-persist",
+			"compactId": "compact-persist",
+			"chatId":    "chat-compact-persist",
+			"runId":     "run-compact-persist",
+			"trigger":   "manual",
+			"level":     "summary",
+			"scope":     "run",
+		},
+	}
+
+	handleCompactCheckpointPersistenceFailure(RunExecutorParams{EventBus: bus}, processor, complete)
+
+	select {
+	case <-handle.Done():
+		result := handle.Result()
+		if result.Accepted || result.Status != "failed" || result.Detail != "checkpoint_persist_failed" || !result.Retryable {
+			t.Fatalf("compact result = %#v", result)
+		}
+	default:
+		t.Fatal("compact request was not resolved")
+	}
+	select {
+	case event := <-observer.Events:
+		if event.Type != "context.compact.failed" || event.String("detail") != "checkpoint_persist_failed" || event.Value("retryable") != true {
+			t.Fatalf("failure event = %#v", event)
+		}
+		if event.Value("checkpointMessages") != nil {
+			t.Fatal("failure event leaked private checkpoint messages")
+		}
+	default:
+		t.Fatal("compact failure event was not published")
+	}
+}

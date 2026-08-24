@@ -72,12 +72,26 @@ func (s *FileStore) BuildCompactSnapshot(chatID string, keptRunCount int) (Compa
 		return CompactSnapshot{}, err
 	}
 
-	runOrder, firstRunIndex := activeRootRunOrder(records)
-	if len(runOrder) <= keptRunCount {
+	terminalRuns, err := s.terminalCompactRunIDs(chatID)
+	if err != nil {
+		return CompactSnapshot{}, err
+	}
+	runOrder, firstRunIndex := activeRootRunOrder(records, terminalRuns)
+	if len(runOrder) == 0 {
 		return CompactSnapshot{}, ErrNoCompactableHistory
 	}
-	keepStartRunID := runOrder[len(runOrder)-keptRunCount]
-	boundaryIndex := firstRunIndex[keepStartRunID]
+	// keptRunCount is a maximum tail, not an eligibility threshold. A single
+	// completed root run can itself exhaust the context window, so every
+	// snapshot must cover at least one completed run.
+	keepCount := keptRunCount
+	if keepCount >= len(runOrder) {
+		keepCount = len(runOrder) - 1
+	}
+	boundaryIndex := len(records)
+	if keepCount > 0 {
+		keepStartRunID := runOrder[len(runOrder)-keepCount]
+		boundaryIndex = firstRunIndex[keepStartRunID]
+	}
 	if boundaryIndex <= 0 {
 		return CompactSnapshot{}, ErrNoCompactableHistory
 	}
@@ -132,6 +146,25 @@ func (s *FileStore) BuildCompactSnapshot(chatID string, keptRunCount int) (Compa
 		FallbackSummary:            fallbackSummary,
 		TailMessages:               tailMessages,
 	}, nil
+}
+
+func (s *FileStore) terminalCompactRunIDs(chatID string) (map[string]bool, error) {
+	rows, err := s.db.Query(`SELECT RUN_ID_ FROM RUNS WHERE CHAT_ID_=? AND COMPLETED_AT_>0`, chatID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	runs := map[string]bool{}
+	for rows.Next() {
+		var runID string
+		if err := rows.Scan(&runID); err != nil {
+			return nil, err
+		}
+		if runID = strings.TrimSpace(runID); runID != "" {
+			runs[runID] = true
+		}
+	}
+	return runs, rows.Err()
 }
 
 func (s *FileStore) CommitCompactCheckpoint(chatID string, snapshot CompactSnapshot, checkpoint CompactCheckpointLine) error {
@@ -237,12 +270,15 @@ func jsonlContentHash(data []byte) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-func activeRootRunOrder(records []jsonLineRecord) ([]string, map[string]int) {
+func activeRootRunOrder(records []jsonLineRecord, eligibleRuns map[string]bool) ([]string, map[string]int) {
 	order := []string{}
 	seen := map[string]bool{}
 	firstIndex := map[string]int{}
 	for i, record := range records {
 		runID := compactRootRunID(record.Value)
+		if len(eligibleRuns) > 0 && !eligibleRuns[runID] {
+			continue
+		}
 		if runID == "" || seen[runID] {
 			continue
 		}
@@ -258,7 +294,7 @@ func compactRootRunID(line map[string]any) string {
 		return ""
 	}
 	lineType := strings.TrimSpace(stringFromAny(line["_type"]))
-	if lineType == CompactCheckpointLineType {
+	if lineType == CompactCheckpointLineType || lineType == RunCompactCheckpointLineType {
 		return ""
 	}
 	runID := strings.TrimSpace(stringFromAny(line["runId"]))
@@ -290,7 +326,8 @@ func hasActiveCompactCheckpoint(lines []map[string]any) bool {
 		if lineIsCompacted(line) {
 			continue
 		}
-		if strings.TrimSpace(stringFromAny(line["_type"])) == CompactCheckpointLineType {
+		lineType := strings.TrimSpace(stringFromAny(line["_type"]))
+		if lineType == CompactCheckpointLineType || lineType == RunCompactCheckpointLineType {
 			return true
 		}
 	}
@@ -354,6 +391,10 @@ func buildCompactPrompt(messages []map[string]any) string {
 历史消息如下：
 
 ` + rendered)
+}
+
+func BuildCompactPrompt(messages []map[string]any) string {
+	return buildCompactPrompt(messages)
 }
 
 func renderMessagesForCompact(messages []map[string]any, maxChars int) string {
@@ -420,6 +461,14 @@ func deterministicCompactSummary(messages []map[string]any) string {
 		b.WriteString(fmt.Sprintf("  - [%s] %s\n", role, text))
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func DeterministicCompactSummary(messages []map[string]any) string {
+	return deterministicCompactSummary(messages)
+}
+
+func CompactCheckpointSummaryMessage(summary string) string {
+	return compactCheckpointSummaryMessage(summary)
 }
 
 func compactSummarySampleMessages(messages []map[string]any, limit int) []map[string]any {

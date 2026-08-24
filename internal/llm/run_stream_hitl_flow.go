@@ -35,7 +35,13 @@ func (s *llmRunStream) awaitHITLSubmitOrAccessLevelChange(config hitlSubmitWaitC
 				return SubmitResult{Status: "hitl_timeout"}, nil
 			}
 		}
-		submitResult, accessChanged, err := s.runControl.AwaitSubmitWithTimeoutOrAccessLevelChange(s.ctx, config.awaitingID, wait, version)
+		submitResult, accessChanged, compactRequested, err := s.runControl.AwaitSubmitWithTimeoutOrControlChange(s.ctx, config.awaitingID, wait, version)
+		if compactRequested {
+			if s.scheduleContextCompact(false) {
+				return SubmitResult{Status: "context_compact_pending"}, nil
+			}
+			continue
+		}
 		if accessChanged {
 			if config.onAccessLevelChange == nil {
 				continue

@@ -366,6 +366,30 @@ type DeltaRunActivity struct {
 
 func (DeltaRunActivity) agentDeltaTag() {}
 
+type DeltaContextCompact struct {
+	Status                     string
+	RequestID                  string
+	CompactID                  string
+	ChatID                     string
+	RunID                      string
+	Trigger                    string
+	Level                      string
+	Scope                      string
+	SummarySource              string
+	PreCompactEstimatedTokens  int
+	PostCompactEstimatedTokens int
+	CompressionRatio           float64
+	TokensFreed                int
+	CompactionUsage            map[string]any
+	Detail                     string
+	Retryable                  bool
+	CheckpointMessages         []map[string]any
+	PreviousRunState           string
+	AwaitingID                 string
+}
+
+func (DeltaContextCompact) agentDeltaTag() {}
+
 type DeltaRunCancel struct {
 	RunID string
 }

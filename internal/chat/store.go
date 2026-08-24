@@ -23,6 +23,10 @@ type StepLineStore interface {
 	AppendSubmitLine(chatID string, line SubmitLine) error
 }
 
+type RunCompactCheckpointStore interface {
+	AppendRunCompactCheckpoint(chatID string, line RunCompactCheckpointLine) error
+}
+
 // RunStartRecorder persists the authoritative registration clock before a
 // stream can emit or replay run.start. It is deliberately optional so test
 // doubles and non-chat execution stores do not need to implement lifecycle

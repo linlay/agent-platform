@@ -39,6 +39,9 @@ type InMemoryRunManager struct {
 	completedRetention    time.Duration
 	eventBusMaxEvents     int
 	maxObserversPerRun    int
+	chatMaintenance       map[string]*compactControlState
+	chatMaintenanceResult map[string]*compactControlState
+	chatQueryAdmissions   map[string]map[string]int
 }
 
 func NewInMemoryRunManager() *InMemoryRunManager {
@@ -50,6 +53,9 @@ func NewInMemoryRunManager() *InMemoryRunManager {
 		completedRetention:    defaultRunCompletedRetention,
 		eventBusMaxEvents:     defaultRunEventBusMaxEvents,
 		maxObserversPerRun:    defaultRunMaxObserversPerRun,
+		chatMaintenance:       map[string]*compactControlState{},
+		chatMaintenanceResult: map[string]*compactControlState{},
+		chatQueryAdmissions:   map[string]map[string]int{},
 	}
 }
 
@@ -67,6 +73,10 @@ func (m *InMemoryRunManager) RegisterExclusiveForChat(_ context.Context, session
 	defer m.mu.Unlock()
 
 	scopeID := querySessionRunScopeID(session)
+	m.releaseChatQueryLocked(scopeID, session.RequestID)
+	if maintenance := m.chatMaintenance[scopeID]; maintenance != nil {
+		return ExclusiveRunRegistration{}, &ChatMaintenanceConflictError{ChatID: scopeID, Detail: "compact_in_progress"}
+	}
 	if scopeID != "" {
 		match, runIDs := m.activeRunMatchLocked(scopeID)
 		if len(runIDs) > 1 {
@@ -91,9 +101,54 @@ func (m *InMemoryRunManager) RegisterExclusiveForChat(_ context.Context, session
 	}, nil
 }
 
+func (m *InMemoryRunManager) ReserveChatQuery(chatID string, requestID string) (func(), error) {
+	chatID = strings.TrimSpace(chatID)
+	requestID = strings.TrimSpace(requestID)
+	if chatID == "" || requestID == "" {
+		return nil, fmt.Errorf("chatId and requestId are required")
+	}
+	m.mu.Lock()
+	if m.chatMaintenance[chatID] != nil {
+		m.mu.Unlock()
+		return nil, &ChatMaintenanceConflictError{ChatID: chatID, Detail: "compact_in_progress"}
+	}
+	if m.chatQueryAdmissions[chatID] == nil {
+		m.chatQueryAdmissions[chatID] = map[string]int{}
+	}
+	m.chatQueryAdmissions[chatID][requestID]++
+	m.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			m.mu.Lock()
+			m.releaseChatQueryLocked(chatID, requestID)
+			m.mu.Unlock()
+		})
+	}, nil
+}
+
+func (m *InMemoryRunManager) releaseChatQueryLocked(chatID string, requestID string) {
+	requests := m.chatQueryAdmissions[strings.TrimSpace(chatID)]
+	requestID = strings.TrimSpace(requestID)
+	if requests == nil || requestID == "" {
+		return
+	}
+	if requests[requestID] <= 1 {
+		delete(requests, requestID)
+	} else {
+		requests[requestID]--
+	}
+	if len(requests) == 0 {
+		delete(m.chatQueryAdmissions, strings.TrimSpace(chatID))
+	}
+}
+
 func (m *InMemoryRunManager) registerLocked(session QuerySession) (context.Context, *RunControl, ActiveRun) {
 	control := NewRunControl(context.Background(), session.RunID)
 	control.SetInitialAccessLevel(session.AccessLevel)
+	if session.SupportsContextCompaction {
+		control.EnableContextCompact()
+	}
 	owner := ResolveRunOwner(session.RunOwner)
 	run := ActiveRun{
 		RunID:             session.RunID,
@@ -463,6 +518,91 @@ func (m *InMemoryRunManager) ActiveRunForChat(chatID string) (RunStatusInfo, boo
 	}
 
 	return runStatusInfoFromManagedRun(match), true, nil
+}
+
+func (m *InMemoryRunManager) RequestCompactForChat(chatID string, req CompactControlRequest) (ActiveRunCompactAck, error) {
+	chatID = strings.TrimSpace(chatID)
+	if chatID == "" {
+		return ActiveRunCompactAck{Status: "unmatched"}, nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	match, runIDs := m.activeRunMatchLocked(chatID)
+	if len(runIDs) > 1 {
+		return ActiveRunCompactAck{}, &ActiveRunConflictError{ChatID: chatID, RunIDs: append([]string(nil), runIDs...)}
+	}
+	if len(runIDs) == 0 || match == nil || match.control == nil {
+		return ActiveRunCompactAck{Status: "unmatched"}, nil
+	}
+	ack := ActiveRunCompactAck{Run: runStatusInfoFromManagedRun(match)}
+	if !match.control.ContextCompactSupported() {
+		ack.Status = "unsupported"
+		return ack, nil
+	}
+	req.ChatID = chatID
+	handle, status := match.control.EnqueueCompact(req)
+	ack.Handle = handle
+	ack.Status = status
+	return ack, nil
+}
+
+func (m *InMemoryRunManager) RouteCompactForChat(req CompactControlRequest) (ActiveRunCompactAck, error) {
+	chatID := strings.TrimSpace(req.ChatID)
+	requestID := strings.TrimSpace(req.RequestID)
+	if chatID == "" || requestID == "" {
+		return ActiveRunCompactAck{Status: "invalid"}, nil
+	}
+	key := chatID + "\x00" + requestID
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	match, runIDs := m.activeRunMatchLocked(chatID)
+	if len(runIDs) > 1 {
+		return ActiveRunCompactAck{}, &ActiveRunConflictError{ChatID: chatID, RunIDs: append([]string(nil), runIDs...)}
+	}
+	if len(runIDs) == 1 && match != nil && match.control != nil {
+		ack := ActiveRunCompactAck{Run: runStatusInfoFromManagedRun(match)}
+		if !match.control.ContextCompactSupported() {
+			ack.Status = "unsupported"
+			return ack, nil
+		}
+		req.ChatID = chatID
+		ack.Handle, ack.Status = match.control.EnqueueCompact(req)
+		return ack, nil
+	}
+	if completed := m.chatMaintenanceResult[key]; completed != nil {
+		return ActiveRunCompactAck{Handle: CompactControlHandle{state: completed}, Status: "completed"}, nil
+	}
+	if pending := m.chatMaintenance[chatID]; pending != nil {
+		if pending.request.RequestID == requestID {
+			return ActiveRunCompactAck{Handle: CompactControlHandle{state: pending}, Status: "history_joined"}, nil
+		}
+		return ActiveRunCompactAck{Status: "busy"}, nil
+	}
+	if len(m.chatQueryAdmissions[chatID]) > 0 {
+		return ActiveRunCompactAck{Status: "busy"}, nil
+	}
+	state := &compactControlState{
+		request: req,
+		done:    make(chan struct{}),
+	}
+	m.chatMaintenance[chatID] = state
+	return ActiveRunCompactAck{Handle: CompactControlHandle{state: state}, Status: "history_acquired"}, nil
+}
+
+func (m *InMemoryRunManager) CompleteChatMaintenance(chatID string, requestID string, result api.CompactResponse) {
+	chatID = strings.TrimSpace(chatID)
+	requestID = strings.TrimSpace(requestID)
+	key := chatID + "\x00" + requestID
+	m.mu.Lock()
+	state := m.chatMaintenance[chatID]
+	if state == nil || state.request.RequestID != requestID {
+		m.mu.Unlock()
+		return
+	}
+	delete(m.chatMaintenance, chatID)
+	m.chatMaintenanceResult[key] = state
+	m.mu.Unlock()
+	completeCompactControlState(state, result)
 }
 
 func (m *InMemoryRunManager) activeRunMatchLocked(chatID string) (*managedRun, []string) {

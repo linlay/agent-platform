@@ -473,7 +473,10 @@ type CompactResponse struct {
 	Status                     string         `json:"status"`
 	RequestID                  string         `json:"requestId,omitempty"`
 	ChatID                     string         `json:"chatId,omitempty"`
+	RunID                      string         `json:"runId,omitempty"`
 	CompactID                  string         `json:"compactId,omitempty"`
+	Trigger                    string         `json:"trigger,omitempty"`
+	Scope                      string         `json:"scope,omitempty"`
 	Level                      string         `json:"level,omitempty"`
 	SummarySource              string         `json:"summarySource,omitempty"`
 	PreCompactEstimatedTokens  int            `json:"preCompactEstimatedTokens,omitempty"`
@@ -484,6 +487,7 @@ type CompactResponse struct {
 	ToolsKept                  int            `json:"toolsKept,omitempty"`
 	TokensFreed                int            `json:"tokensFreed,omitempty"`
 	Detail                     string         `json:"detail,omitempty"`
+	Retryable                  bool           `json:"retryable,omitempty"`
 }
 
 type DetachRequest struct {

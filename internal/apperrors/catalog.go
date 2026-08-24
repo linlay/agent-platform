@@ -68,6 +68,7 @@ var definitions = []Definition{
 	def(CodeProviderRateLimited, CategoryModel, ScopeModel, http.StatusTooManyRequests, true),
 	def(CodeProviderModelNotFound, CategoryModel, ScopeModel, http.StatusNotFound, false),
 	def(CodeProviderContextLengthExceeded, CategoryModel, ScopeModel, http.StatusBadRequest, false),
+	def(CodeContextWindowUncompactable, CategoryModel, ScopeModel, http.StatusBadRequest, false),
 	def(CodeProviderContentFilter, CategoryModel, ScopeModel, http.StatusBadRequest, false),
 	def(CodeProviderBadRequest, CategoryModel, ScopeModel, http.StatusBadRequest, false),
 	def(CodeProviderBadResponse, CategoryModel, ScopeModel, http.StatusBadGateway, true),

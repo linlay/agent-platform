@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"fmt"
 	"strings"
 
 	"agent-platform/internal/stream"
@@ -337,6 +338,52 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			w.captureRootUsageSnapshot(event)
 			w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
 			w.lastTimestamp = event.Timestamp
+		}
+
+	case "context.compact.start", "context.compact.failed":
+		w.flushCurrentStep()
+		w.flushAllTaskSteps()
+		w.appendTypedEventLine(event, "event")
+
+	case "context.compact.complete":
+		w.flushCurrentStep()
+		w.flushAllTaskSteps()
+		if w.store == nil {
+			break
+		}
+		checkpointMessages := messagesFromEventValue(event.Value("checkpointMessages"))
+		if len(checkpointMessages) == 0 {
+			w.recordPersistenceError(fmt.Errorf("compact run checkpoint messages are required"))
+			break
+		}
+		compactionUsage, _ := event.Value("compactionUsage").(map[string]any)
+		checkpointStore, ok := w.store.(RunCompactCheckpointStore)
+		if !ok {
+			w.recordPersistenceError(fmt.Errorf("run compact checkpoint store is not supported"))
+			break
+		}
+		if err := checkpointStore.AppendRunCompactCheckpoint(w.chatID, RunCompactCheckpointLine{
+			Type:                       RunCompactCheckpointLineType,
+			ChatID:                     w.chatID,
+			RunID:                      w.runID,
+			RequestID:                  event.String("requestId"),
+			CompactID:                  event.String("compactId"),
+			UpdatedAt:                  event.Timestamp,
+			LiveSeq:                    event.Seq,
+			Trigger:                    event.String("trigger"),
+			Level:                      event.String("level"),
+			Scope:                      event.String("scope"),
+			SummarySource:              event.String("summarySource"),
+			PreCompactEstimatedTokens:  toIntFromKeys(event.Payload, "preCompactEstimatedTokens"),
+			PostCompactEstimatedTokens: toIntFromKeys(event.Payload, "postCompactEstimatedTokens"),
+			CompressionRatio:           float64FromJSONValue(event.Value("compressionRatio")),
+			TokensFreed:                toIntFromKeys(event.Payload, "tokensFreed"),
+			CompactionUsage:            cloneStringAnyMap(compactionUsage),
+			Messages:                   checkpointMessages,
+			PreviousRunState:           event.String("previousRunState"),
+			AwaitingID:                 event.String("awaitingId"),
+		}); err != nil {
+			w.recordPersistenceError(err)
 		}
 
 	case "run.error":

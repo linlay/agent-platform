@@ -8,6 +8,7 @@ var (
 	ErrRunInterrupted                  = errors.New("run interrupted")
 	ErrRunFinished                     = errors.New("run finished")
 	ErrRunControlUnavailable           = errors.New("run control unavailable")
+	ErrContextCompactPending           = errors.New("context compact pending")
 	ErrInteractionSubmitMissingAwaitID = errors.New("tool interaction submit missing awaiting id")
 	ErrInteractionSubmitAlreadyWaiting = errors.New("tool interaction submit waiter already exists")
 	ErrToolArgsTemplateMissingValue    = errors.New("tool args template missing value")

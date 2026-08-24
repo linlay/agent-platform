@@ -188,7 +188,11 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 		s.hitlPendingBatch = nil
 		return nil
 	}
+	preserveAwaiting := false
 	defer func() {
+		if preserveAwaiting {
+			return
+		}
 		if s.runControl != nil {
 			s.runControl.ClearExpectedSubmit(batch.awaitingID)
 		}
@@ -208,6 +212,10 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 	submitResult, err := s.awaitHITLBatchSubmitOrAccessLevel(batch)
 	if err != nil {
 		return err
+	}
+	if submitResult.Status == "context_compact_pending" {
+		preserveAwaiting = true
+		return nil
 	}
 	if submitResult.Status == "access_level_auto_approved" || submitResult.Status == "hitl_timeout" {
 		s.hitlPendingBatch = nil

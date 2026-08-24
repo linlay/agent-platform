@@ -131,6 +131,17 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 				"content": compactCheckpointSummaryMessage(summary),
 				"ts":      line["updatedAt"],
 			})
+		case RunCompactCheckpointLineType:
+			checkpoint := anyMessageSlice(line["messages"])
+			if len(checkpoint) == 0 {
+				continue
+			}
+			messages = make([]map[string]any, 0, len(checkpoint))
+			for _, raw := range checkpoint {
+				msg := cloneMessageMap(raw)
+				msg["runId"] = runID
+				messages = append(messages, msg)
+			}
 		case "query":
 			if lineIsSystemInitQuery(line) {
 				continue
@@ -206,6 +217,10 @@ func teamMemberRawMessagesFromJSONLLines(lines []map[string]any, memberAgentKey 
 			if ok {
 				messages = append(messages, map[string]any{"role": "user", "content": compactCheckpointSummaryMessage(summary), "ts": line["updatedAt"]})
 			}
+		case RunCompactCheckpointLineType:
+			// Run checkpoints belong to the root/coordinator context. Team member
+			// histories remain isolated from coordinator-private messages.
+			continue
 		case "query":
 			if lineIsSystemInitQuery(line) || strings.TrimSpace(stringValue(line["taskId"])) != "" || strings.TrimSpace(stringValue(line["subAgentKey"])) != "" {
 				continue
@@ -242,6 +257,17 @@ func teamCoordinatorRawMessagesFromJSONLLines(lines []map[string]any) []map[stri
 			summary, ok := activeCompactCheckpointSummary(line)
 			if ok {
 				messages = append(messages, map[string]any{"role": "user", "content": compactCheckpointSummaryMessage(summary), "ts": line["updatedAt"]})
+			}
+		case RunCompactCheckpointLineType:
+			checkpoint := anyMessageSlice(line["messages"])
+			if len(checkpoint) == 0 {
+				continue
+			}
+			messages = make([]map[string]any, 0, len(checkpoint))
+			for _, raw := range checkpoint {
+				msg := cloneMessageMap(raw)
+				msg["runId"] = runID
+				messages = append(messages, msg)
 			}
 		case "query":
 			if lineIsSystemInitQuery(line) || strings.TrimSpace(stringValue(line["taskId"])) != "" || strings.TrimSpace(stringValue(line["subAgentKey"])) != "" {

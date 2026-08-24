@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"errors"
 	"time"
 
 	"agent-platform/internal/apperrors"
@@ -223,6 +224,28 @@ func (s *llmRunStream) canRetryModelAttempt(err error) bool {
 
 func (s *llmRunStream) handleModelAttemptError(err error) error {
 	if err == nil {
+		return nil
+	}
+	var appErr *apperrors.Error
+	if errors.As(err, &appErr) && appErr.Code() == apperrors.CodeProviderContextLengthExceeded &&
+		s.modelCall != nil && s.currentModelTurnRetrySafe() {
+		if !s.contextOverflowRecoveryUsed && !s.compactDisabled {
+			s.pending = append(s.pending, s.modelTurnDiscardDelta(s.modelCall, err, true, s.modelCall.attempt))
+			s.closeCurrentProviderTurn()
+			s.modelCall = nil
+			s.contextOverflowRecoveryUsed = true
+			s.forceContextCompact = true
+			return nil
+		}
+		s.pending = append(s.pending, s.modelTurnDiscardDelta(s.modelCall, err, false, s.modelCall.attempt))
+		s.closeCurrentProviderTurn()
+		s.modelCall = nil
+		s.modelTerminalError = apperrors.New(
+			apperrors.CodeContextWindowUncompactable,
+			"Context remains too large after compaction",
+			apperrors.WithCategory(apperrors.CategoryModel),
+			apperrors.WithScope(apperrors.ScopeModel),
+		)
 		return nil
 	}
 	if s.canRetryModelAttempt(err) {

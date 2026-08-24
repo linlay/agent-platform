@@ -277,6 +277,54 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 			payload["degradation"] = clonePayload(value.Degradation)
 		}
 		return []StreamEvent{NewEvent("run.activity", payload)}
+	case InputContextCompact:
+		status := strings.ToLower(strings.TrimSpace(value.Status))
+		if status != "start" && status != "complete" && status != "failed" {
+			return nil
+		}
+		payload := map[string]any{
+			"runId":     value.RunID,
+			"chatId":    value.ChatID,
+			"compactId": value.CompactID,
+			"requestId": value.RequestID,
+			"trigger":   value.Trigger,
+			"level":     value.Level,
+			"scope":     value.Scope,
+		}
+		if value.SummarySource != "" {
+			payload["summarySource"] = value.SummarySource
+		}
+		if value.PreCompactEstimatedTokens > 0 {
+			payload["preCompactEstimatedTokens"] = value.PreCompactEstimatedTokens
+		}
+		if value.PostCompactEstimatedTokens > 0 {
+			payload["postCompactEstimatedTokens"] = value.PostCompactEstimatedTokens
+		}
+		if value.CompressionRatio > 0 {
+			payload["compressionRatio"] = value.CompressionRatio
+		}
+		if value.TokensFreed > 0 {
+			payload["tokensFreed"] = value.TokensFreed
+		}
+		if len(value.CompactionUsage) > 0 {
+			payload["compactionUsage"] = clonePayload(value.CompactionUsage)
+		}
+		if value.Detail != "" {
+			payload["detail"] = value.Detail
+		}
+		if value.Retryable {
+			payload["retryable"] = true
+		}
+		if len(value.CheckpointMessages) > 0 {
+			payload["checkpointMessages"] = cloneMessagePayloads(value.CheckpointMessages)
+		}
+		if value.PreviousRunState != "" {
+			payload["previousRunState"] = value.PreviousRunState
+		}
+		if value.AwaitingID != "" {
+			payload["awaitingId"] = value.AwaitingID
+		}
+		return []StreamEvent{NewEvent("context.compact."+status, payload)}
 	case InputRunComplete:
 		d.state.runFinishReason = value.FinishReason
 		return nil

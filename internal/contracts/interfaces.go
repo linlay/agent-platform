@@ -117,6 +117,35 @@ type ActiveRunService interface {
 	ActiveRunForChat(chatID string) (RunStatusInfo, bool, error)
 }
 
+type ActiveRunCompactRequest struct {
+	Request CompactControlRequest
+}
+
+type ActiveRunCompactAck struct {
+	Run    RunStatusInfo
+	Handle CompactControlHandle
+	Status string
+}
+
+// ActiveRunCompactService is optional so lightweight run-manager test doubles
+// do not need to implement context compaction control.
+type ActiveRunCompactService interface {
+	RequestCompactForChat(chatID string, req CompactControlRequest) (ActiveRunCompactAck, error)
+}
+
+// ChatCompactCoordinator atomically chooses active-run delivery or a history
+// maintenance lease, closing the registration/JSONL rewrite race.
+type ChatCompactCoordinator interface {
+	RouteCompactForChat(req CompactControlRequest) (ActiveRunCompactAck, error)
+	CompleteChatMaintenance(chatID string, requestID string, result api.CompactResponse)
+}
+
+// ChatQueryAdmissionService reserves a chat while a query is being prepared.
+// The reservation is consumed atomically by RegisterExclusiveForChat.
+type ChatQueryAdmissionService interface {
+	ReserveChatQuery(chatID string, requestID string) (func(), error)
+}
+
 type ExclusiveRunRegistration struct {
 	Context    context.Context
 	Control    *RunControl
@@ -314,6 +343,7 @@ type QuerySession struct {
 	ToolNames                     []string
 	Mode                          string
 	ModeCapabilities              agentcontract.ModeCapabilities
+	SupportsContextCompaction     bool `json:"-"`
 	KBaseEnabled                  bool
 	CapabilityPrompts             []string
 	PlanningMode                  bool
@@ -698,6 +728,7 @@ const (
 	RunLoopStateToolExecuting  RunLoopState = "TOOL_EXECUTING"
 	RunLoopStateWaitingSubmit  RunLoopState = "WAITING_SUBMIT"
 	RunLoopStateResuming       RunLoopState = "RESUMING"
+	RunLoopStateCompacting     RunLoopState = "COMPACTING"
 	RunLoopStateCompleted      RunLoopState = "COMPLETED"
 	RunLoopStateCancelled      RunLoopState = "CANCELLED"
 	RunLoopStateFailed         RunLoopState = "FAILED"

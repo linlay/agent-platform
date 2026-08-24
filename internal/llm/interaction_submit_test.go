@@ -2,9 +2,11 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"agent-platform/internal/api"
 	contracts "agent-platform/internal/contracts"
@@ -78,6 +80,58 @@ func TestInteractionSubmitCoordinatorAwait_AskUserQuestionPreservesRawParams(t *
 	}
 	if answers[0]["id"] != "q1" || answers[1]["id"] != "q2" {
 		t.Fatalf("expected normalized ids from question definitions, got %#v", answers)
+	}
+}
+
+func TestInteractionSubmitCoordinatorAwait_CompactWakesAndPreservesAwaiting(t *testing.T) {
+	control := contracts.NewRunControl(context.Background(), "run-compact-wait")
+	control.EnableContextCompact()
+	control.ExpectSubmit(contracts.AwaitingSubmitContext{
+		AwaitingID: "tool-question",
+		Mode:       "question",
+		ItemCount:  1,
+		NoTimeout:  true,
+	})
+	execCtx := &contracts.ExecutionContext{
+		RunControl:      control,
+		CurrentToolID:   "tool-question",
+		CurrentToolName: "ask_user_question",
+	}
+	resultCh := make(chan error, 1)
+	go func() {
+		_, err := NewInteractionSubmitCoordinator(toolinteraction.NewDefaultRegistry()).Await(context.Background(), execCtx, map[string]any{
+			"questions": []any{map[string]any{"id": "answer", "question": "continue?"}},
+		})
+		resultCh <- err
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for control.State() != contracts.RunLoopStateWaitingSubmit && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if control.State() != contracts.RunLoopStateWaitingSubmit {
+		t.Fatalf("run state = %s, want %s", control.State(), contracts.RunLoopStateWaitingSubmit)
+	}
+	if _, status := control.EnqueueCompact(contracts.CompactControlRequest{
+		RequestID: "compact-request",
+		CompactID: "compact-id",
+		ChatID:    "chat-1",
+		Trigger:   "manual",
+		Level:     "summary",
+	}); status != "queued" {
+		t.Fatalf("enqueue compact status = %q, want queued", status)
+	}
+
+	select {
+	case err := <-resultCh:
+		if !errors.Is(err, contracts.ErrContextCompactPending) {
+			t.Fatalf("await error = %v, want %v", err, contracts.ErrContextCompactPending)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("interaction wait did not wake for compact")
+	}
+	if _, ok := control.LookupAwaiting("tool-question"); !ok {
+		t.Fatal("awaiting registration was cleared while compact was pending")
 	}
 }
 

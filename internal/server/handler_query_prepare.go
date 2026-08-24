@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 
 	agentcoder "agent-platform/internal/agent/coder"
 	agentkbase "agent-platform/internal/agent/kbase"
@@ -74,6 +75,7 @@ type queryAdmission struct {
 	resourceBaseURL  string
 	locale           string
 	strictOwner      bool
+	release          queryReleaseFunc
 }
 
 type statusError struct {
@@ -95,6 +97,19 @@ func (e *statusError) Error() string {
 func releaseQuery(release queryReleaseFunc) {
 	if release != nil {
 		release()
+	}
+}
+
+func combineQueryReleases(releases ...queryReleaseFunc) queryReleaseFunc {
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			for _, release := range releases {
+				if release != nil {
+					release()
+				}
+			}
+		})
 	}
 }
 
@@ -133,7 +148,7 @@ func (s *Server) prepareQueryAdmissionRequest(
 	requireMessage bool,
 	locale string,
 	resourceBaseURL string,
-) (queryAdmission, error) {
+) (result queryAdmission, resultErr error) {
 	if requireMessage && strings.TrimSpace(req.Message) == "" {
 		return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: "message is required"}
 	}
@@ -160,6 +175,30 @@ func (s *Server) prepareQueryAdmissionRequest(
 	chatID := strings.TrimSpace(req.ChatID)
 	if chatID == "" {
 		chatID = newChatID()
+	}
+	var admissionRelease queryReleaseFunc
+	if reservations, ok := s.deps.Runs.(contracts.ChatQueryAdmissionService); ok {
+		release, reserveErr := reservations.ReserveChatQuery(chatID, requestID)
+		if reserveErr != nil {
+			var maintenanceErr *contracts.ChatMaintenanceConflictError
+			if errors.As(reserveErr, &maintenanceErr) {
+				return queryAdmission{}, &statusError{
+					status:  http.StatusConflict,
+					code:    "compact_in_progress",
+					message: "context compaction is in progress",
+					data: map[string]any{"error": map[string]any{
+						"code": "compact_in_progress", "message": "context compaction is in progress", "retryable": true,
+					}},
+				}
+			}
+			return queryAdmission{}, reserveErr
+		}
+		admissionRelease = release
+		defer func() {
+			if resultErr != nil || result.release == nil {
+				releaseQuery(admissionRelease)
+			}
+		}()
 	}
 	var existingSummary *chat.Summary
 	if s.deps.Chats != nil {
@@ -267,10 +306,18 @@ func (s *Server) prepareQueryAdmissionRequest(
 		orchestratedTeam: orchestratedTeam,
 		resourceBaseURL:  resourceBaseURL,
 		locale:           locale,
+		release:          admissionRelease,
 	}, nil
 }
 
 func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAdmission, release queryReleaseFunc) (preparedQuery, error) {
+	combinedRelease := combineQueryReleases(admission.release, release)
+	succeeded := false
+	defer func() {
+		if !succeeded {
+			releaseQuery(combinedRelease)
+		}
+	}()
 	req := admission.req
 	agentDef := admission.agentDef
 	chatID := req.ChatID
@@ -373,7 +420,7 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 		return preparedQuery{}, err
 	}
 
-	return preparedQuery{
+	prepared := preparedQuery{
 		req:                req,
 		summary:            summary,
 		created:            created,
@@ -383,8 +430,10 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 		memoryUsageSummary: session.MemoryUsageSummary,
 		systemInitLine:     systemInitLine,
 		resourceBaseURL:    admission.resourceBaseURL,
-		release:            release,
-	}, nil
+		release:            combinedRelease,
+	}
+	succeeded = true
+	return prepared, nil
 }
 
 func chatAgentMode(agentDef catalog.AgentDefinition, orchestratedTeam bool) string {

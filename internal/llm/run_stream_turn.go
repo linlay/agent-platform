@@ -67,6 +67,9 @@ func (s *llmRunStream) fillNextPendingSource() error {
 	if err := s.handleInterruptIfNeeded(); err != nil || len(s.pending) > 0 {
 		return err
 	}
+	if s.compactWork != nil {
+		return s.executeContextCompact()
+	}
 	if s.finished {
 		return io.EOF
 	}
@@ -86,6 +89,9 @@ func (s *llmRunStream) fillNextPendingSource() error {
 		return s.invokeQueuedToolCallsAndPostHook()
 	}
 	if s.stopAfterToolBatch {
+		if s.scheduleContextCompact(true) {
+			return nil
+		}
 		s.closeSteersAndFinish()
 		return nil
 	}
@@ -153,6 +159,9 @@ func (s *llmRunStream) prepareTurnForPending() error {
 func (s *llmRunStream) prepareNextTurn() error {
 	s.appendPendingSteers()
 	if len(s.pending) > 0 {
+		return nil
+	}
+	if s.scheduleContextCompact(false) {
 		return nil
 	}
 	if s.allowToolUse && s.execCtx != nil && s.execCtx.PlanState == nil {
@@ -509,6 +518,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 	s.emitPendingUsageDelta()
 	s.emitDebugLLMChatDelta(turn.trace)
 	s.currentTurn = nil
+	s.contextOverflowRecoveryUsed = false
 
 	if len(toolCalls) == 0 {
 		if strings.TrimSpace(content) != "" {
@@ -535,6 +545,9 @@ func (s *llmRunStream) finishCurrentTurn() error {
 			s.pending = append(s.pending, DeltaFinishReason{Reason: finishReason})
 		}
 		s.markRunLimitFinalAnswerCompleted()
+		if s.scheduleContextCompact(true) {
+			return nil
+		}
 		s.finished = true
 		return nil
 	}

@@ -440,6 +440,8 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				"chatId":    chatID,
 				"compactId": stringFromAny(line["compactId"]),
 				"trigger":   stringFromAny(line["trigger"]),
+				"level":     "summary",
+				"scope":     "history",
 			}
 			if strings.TrimSpace(eventRunID) != "" {
 				payload["runId"] = eventRunID
@@ -456,7 +458,49 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			if ratio := float64FromJSONValue(line["compressionRatio"]); ratio > 0 {
 				payload["compressionRatio"] = ratio
 			}
+			if tokens := int64FromAny(line["tokensFreed"]); tokens > 0 {
+				payload["tokensFreed"] = tokens
+			}
 			rd := ensureRun(runs, &runOrder, eventRunID)
+			rd.events = append(rd.events, stream.EventData{
+				Seq:       nextSeq(),
+				Type:      "context.compact.complete",
+				Timestamp: int64FromAny(line["updatedAt"]),
+				Payload:   payload,
+			})
+		case RunCompactCheckpointLineType:
+			if lineIsCompacted(line) {
+				continue
+			}
+			payload := map[string]any{
+				"type":      "context.compact.complete",
+				"chatId":    chatID,
+				"runId":     runID,
+				"compactId": stringFromAny(line["compactId"]),
+				"requestId": stringFromAny(line["requestId"]),
+				"trigger":   firstNonEmptyReplayString(stringFromAny(line["trigger"]), "auto"),
+				"level":     firstNonEmptyReplayString(stringFromAny(line["level"]), "summary"),
+				"scope":     "run",
+			}
+			if source := strings.TrimSpace(stringFromAny(line["summarySource"])); source != "" {
+				payload["summarySource"] = source
+			}
+			if tokens := int64FromAny(line["preCompactEstimatedTokens"]); tokens > 0 {
+				payload["preCompactEstimatedTokens"] = tokens
+			}
+			if tokens := int64FromAny(line["postCompactEstimatedTokens"]); tokens > 0 {
+				payload["postCompactEstimatedTokens"] = tokens
+			}
+			if ratio := float64FromJSONValue(line["compressionRatio"]); ratio > 0 {
+				payload["compressionRatio"] = ratio
+			}
+			if tokens := int64FromAny(line["tokensFreed"]); tokens > 0 {
+				payload["tokensFreed"] = tokens
+			}
+			if usage, ok := line["compactionUsage"].(map[string]any); ok && len(usage) > 0 {
+				payload["compactionUsage"] = cloneStringAnyMap(usage)
+			}
+			rd := ensureRun(runs, &runOrder, runID)
 			rd.events = append(rd.events, stream.EventData{
 				Seq:       nextSeq(),
 				Type:      "context.compact.complete",

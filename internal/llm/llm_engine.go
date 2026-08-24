@@ -39,6 +39,8 @@ type runStreamOptions struct {
 	RequireTeamDelegation        bool
 	PreserveProvidedSystemPrompt bool
 	PostToolHook                 func(toolName string, toolID string) PostToolHookResult
+	DisableContextCompaction     bool
+	DisableRunControl            bool
 }
 
 func NewLLMAgentEngine(cfg config.Config, models *ModelRegistry, tools ToolExecutor, interactions *toolinteraction.Registry, sandbox SandboxClient) *LLMAgentEngine {
@@ -115,7 +117,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	if execCtx.RunEnvironment == nil {
 		execCtx.RunEnvironment = session.RunEnvironment
 	}
-	if execCtx.RunControl == nil {
+	if execCtx.RunControl == nil && !options.DisableRunControl {
 		execCtx.RunControl = RunControlFromContext(ctx)
 	}
 	if execCtx.Budget.Timeout <= 0 || execCtx.Budget.MaxSteps <= 0 {
@@ -141,6 +143,8 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		execCtx.RunControl.TransitionState(RunLoopStateModelStreaming)
 	}
 	messages := options.Messages
+	pinnedMessageStart := -1
+	pinnedMessageEnd := -1
 	if len(messages) == 0 {
 		if useCachedSystemInit {
 			messages = []openAIMessage{cachedSystem}
@@ -172,14 +176,20 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		if len(currentMessages) == 0 {
 			currentMessages = e.buildCurrentMessagesForRequest(req, session, model.IsVision)
 		}
+		pinnedMessageStart = len(messages)
 		for _, raw := range currentMessages {
 			msg := rawMessageToOpenAI(raw, preserveReasoning)
 			if msg.Role != "" {
 				messages = append(messages, msg)
 			}
 		}
+		pinnedMessageEnd = len(messages)
 	} else if useCachedSystemInit {
 		messages = replaceSystemMessage(messages, cachedSystem)
+	}
+	if pinnedMessageStart < 0 && len(session.CurrentMessages) > 0 && len(session.CurrentMessages) <= len(messages) {
+		pinnedMessageEnd = len(messages)
+		pinnedMessageStart = pinnedMessageEnd - len(session.CurrentMessages)
 	}
 	maxSteps := options.MaxSteps
 	if stageMaxSteps := budgetStageMaxSteps(session.ResolvedBudget, budgetStage); stageMaxSteps > 0 {
@@ -214,6 +224,9 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		toolSpecs:            toolSpecs,
 		requestedToolNames:   append([]string(nil), allowedTools...),
 		messages:             append([]openAIMessage(nil), messages...),
+		pinnedMessageStart:   pinnedMessageStart,
+		pinnedMessageEnd:     pinnedMessageEnd,
+		compactDisabled:      options.DisableContextCompaction || strings.HasPrefix(strings.TrimSpace(session.RunScopeID), "btw:"),
 		protocolConfig:       protocolConfig,
 		stageSettings:        stageSettings,
 		execCtx:              execCtx,
@@ -227,6 +240,9 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		onApprovalSummary:    approvalSummarySinkFromContext(ctx),
 		systemInitCacheKey:   cacheKey,
 		systemInitCacheUsed:  useCachedSystemInit,
+	}
+	if stream.runControl != nil && session.SupportsContextCompaction && strings.TrimSpace(session.SubTaskID) == "" && !options.DisableContextCompaction {
+		stream.runControl.EnableContextCompact()
 	}
 	stream.syncAccessLevelFromRunControl()
 	if len(session.SkillHookDirs) > 0 {

@@ -115,8 +115,9 @@ const (
 	StepLineTypeReact     = "react"
 	StepLineTypeReactTool = "react-tool"
 
-	CompactCheckpointLineType = "compact.checkpoint"
-	ToolCompactLineType       = "compact.tool"
+	CompactCheckpointLineType    = "compact.checkpoint"
+	RunCompactCheckpointLineType = "compact.run.checkpoint"
+	ToolCompactLineType          = "compact.tool"
 )
 
 type CompactCheckpointLine struct {
@@ -130,7 +131,30 @@ type CompactCheckpointLine struct {
 	PreCompactEstimatedTokens  int            `json:"preCompactEstimatedTokens,omitempty"`
 	PostCompactEstimatedTokens int            `json:"postCompactEstimatedTokens,omitempty"`
 	CompressionRatio           float64        `json:"compressionRatio,omitempty"`
+	TokensFreed                int            `json:"tokensFreed,omitempty"`
 	CompactionUsage            map[string]any `json:"compactionUsage"`
+}
+
+type RunCompactCheckpointLine struct {
+	Type                       string           `json:"_type"`
+	ChatID                     string           `json:"chatId"`
+	RunID                      string           `json:"runId"`
+	RequestID                  string           `json:"requestId,omitempty"`
+	CompactID                  string           `json:"compactId"`
+	UpdatedAt                  int64            `json:"updatedAt"`
+	LiveSeq                    int64            `json:"liveSeq,omitempty"`
+	Trigger                    string           `json:"trigger,omitempty"`
+	Level                      string           `json:"level,omitempty"`
+	Scope                      string           `json:"scope,omitempty"`
+	SummarySource              string           `json:"summarySource,omitempty"`
+	PreCompactEstimatedTokens  int              `json:"preCompactEstimatedTokens,omitempty"`
+	PostCompactEstimatedTokens int              `json:"postCompactEstimatedTokens,omitempty"`
+	CompressionRatio           float64          `json:"compressionRatio,omitempty"`
+	TokensFreed                int              `json:"tokensFreed,omitempty"`
+	CompactionUsage            map[string]any   `json:"compactionUsage,omitempty"`
+	Messages                   []map[string]any `json:"messages"`
+	PreviousRunState           string           `json:"previousRunState,omitempty"`
+	AwaitingID                 string           `json:"awaitingId,omitempty"`
 }
 
 type ToolCompactLine struct {

@@ -24,7 +24,11 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 		s.hitlAwaitArgs = nil
 		return nil
 	}
+	preserveAwaiting := false
 	defer func() {
+		if preserveAwaiting {
+			return
+		}
 		s.hitlPendingCall = nil
 		s.hitlMatch = nil
 		s.hitlAwaitingID = ""
@@ -49,6 +53,10 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 	submitResult, err := s.awaitHITLSubmitOrAccessLevel(invocation, match, awaitingID, awaitArgs)
 	if err != nil {
 		return err
+	}
+	if submitResult.Status == "context_compact_pending" {
+		preserveAwaiting = true
+		return nil
 	}
 	if submitResult.Status == "access_level_auto_approved" || submitResult.Status == "hitl_timeout" {
 		return nil

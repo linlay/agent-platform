@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/apperrors"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
@@ -91,7 +92,54 @@ func (p *runEventProcessor) Consume(event stream.StreamEvent) (stream.EventData,
 			return stream.EventData{}, false, err
 		}
 	}
+	p.completeCompactControl(data)
 	return data, shouldPublishClientEvent(data), nil
+}
+
+func (p *runEventProcessor) completeCompactControl(data stream.EventData) {
+	if p == nil || p.runControl == nil || (data.Type != "context.compact.complete" && data.Type != "context.compact.failed") {
+		return
+	}
+	status := "failed"
+	if data.Type == "context.compact.complete" {
+		status = "completed"
+	}
+	compactionUsage, _ := data.Value("compactionUsage").(map[string]any)
+	response := api.CompactResponse{
+		Accepted:                   data.Type == "context.compact.complete",
+		Status:                     status,
+		RequestID:                  data.String("requestId"),
+		ChatID:                     data.String("chatId"),
+		RunID:                      data.String("runId"),
+		CompactID:                  data.String("compactId"),
+		Trigger:                    data.String("trigger"),
+		Scope:                      data.String("scope"),
+		Level:                      data.String("level"),
+		SummarySource:              data.String("summarySource"),
+		PreCompactEstimatedTokens:  contracts.AnyIntNode(data.Value("preCompactEstimatedTokens")),
+		PostCompactEstimatedTokens: contracts.AnyIntNode(data.Value("postCompactEstimatedTokens")),
+		CompressionRatio:           compactFloat64(data.Value("compressionRatio")),
+		TokensFreed:                contracts.AnyIntNode(data.Value("tokensFreed")),
+		CompactionUsage:            contracts.CloneMap(compactionUsage),
+		Detail:                     data.String("detail"),
+		Retryable:                  data.Value("retryable") == true,
+	}
+	p.runControl.CompleteCompact(response.RequestID, response)
+}
+
+func compactFloat64(value any) float64 {
+	switch typed := value.(type) {
+	case float64:
+		return typed
+	case float32:
+		return float64(typed)
+	case int:
+		return float64(typed)
+	case int64:
+		return float64(typed)
+	default:
+		return 0
+	}
 }
 
 func (p *runEventProcessor) recordTerminal(data stream.EventData) {
@@ -664,12 +712,15 @@ func shouldPublishClientEvent(data stream.EventData) bool {
 }
 
 func clientVisibleEventData(data stream.EventData) stream.EventData {
-	if data.Type != "request.query" || len(data.Payload) == 0 {
+	if len(data.Payload) == 0 {
+		return data
+	}
+	if data.Type != "request.query" && !strings.HasPrefix(data.Type, "context.compact.") {
 		return data
 	}
 	payload := make(map[string]any, len(data.Payload))
 	for key, value := range data.Payload {
-		if key == "messages" || key == "system" {
+		if key == "messages" || key == "system" || key == "checkpointMessages" || key == "previousRunState" || key == "awaitingId" {
 			continue
 		}
 		payload[key] = value
@@ -765,10 +816,10 @@ func runExecutor(params RunExecutorParams) {
 		runCtx = chat.WithApprovalSummarySink(runCtx, params.StepWriter.RecordApproval)
 	}
 
-	var timeContractErr error
+	var processingErr error
 	publishEmissions := func(emissions []stream.EventEmission) error {
-		if timeContractErr != nil {
-			return timeContractErr
+		if processingErr != nil {
+			return processingErr
 		}
 		if len(emissions) == 0 {
 			return nil
@@ -780,7 +831,8 @@ func runExecutor(params RunExecutorParams) {
 			event.Seq = emission.Cursor
 			data, _, err := processor.Consume(event)
 			if err != nil {
-				timeContractErr = err
+				processingErr = err
+				handleCompactCheckpointPersistenceFailure(params, processor, data)
 				// Stop the producer as soon as the bad event is observed. The
 				// subsequent local run.error is platform-owned and is published
 				// below instead of repairing this event.
@@ -794,16 +846,16 @@ func runExecutor(params RunExecutorParams) {
 		}
 		return nil
 	}
-	failTimeContract := func(err error) {
+	failProcessing := func(err error) {
 		if params.RunControl != nil {
 			params.RunControl.TransitionState(contracts.RunLoopStateFailed)
 		}
-		publishLocalTimeContractRunError(params, err)
+		publishLocalRunProcessingError(params, err)
 		persisted, completion = persistRunCompletionWithReason(params, assistantText.String(), runUsage, "error", false)
 	}
 
 	if err := publishEmissions(params.Assembler.BootstrapEmissions()); err != nil {
-		failTimeContract(err)
+		failProcessing(err)
 		return
 	}
 
@@ -813,7 +865,7 @@ func runExecutor(params RunExecutorParams) {
 			params.RunControl.TransitionState(contracts.RunLoopStateFailed)
 		}
 		if publishErr := publishEmissions(params.Assembler.FailEmissions(err)); publishErr != nil {
-			failTimeContract(publishErr)
+			failProcessing(publishErr)
 			return
 		}
 		persisted, completion = persistRunCompletionWithReason(params, assistantText.String(), runUsage, "error", false)
@@ -822,7 +874,7 @@ func runExecutor(params RunExecutorParams) {
 	defer agentStream.Close()
 
 	emitDelta := func(delta contracts.AgentDelta) {
-		if timeContractErr != nil {
+		if processingErr != nil {
 			return
 		}
 		// The TEAM coordinator is a hidden runtime actor. Its reasoning is part of
@@ -842,7 +894,7 @@ func runExecutor(params RunExecutorParams) {
 		}
 		inputs := params.Mapper.Map(delta)
 		for _, input := range inputs {
-			if timeContractErr != nil {
+			if processingErr != nil {
 				return
 			}
 			if content, ok := input.(stream.ContentDelta); ok && params.Session.TeamRuntime != nil {
@@ -863,7 +915,7 @@ func runExecutor(params RunExecutorParams) {
 	}
 	emitInputs := func(inputs ...stream.StreamInput) {
 		for _, input := range inputs {
-			if timeContractErr != nil {
+			if processingErr != nil {
 				return
 			}
 			applyModelTurnControl(processor, input)
@@ -896,8 +948,8 @@ func runExecutor(params RunExecutorParams) {
 	}
 
 	streamFailed, streamInterrupted, orchestrateErr := orchestrator.Run(agentStream)
-	if timeContractErr != nil {
-		failTimeContract(timeContractErr)
+	if processingErr != nil {
+		failProcessing(processingErr)
 		return
 	}
 	if orchestrateErr != nil {
@@ -906,7 +958,7 @@ func runExecutor(params RunExecutorParams) {
 			params.RunControl.TransitionState(contracts.RunLoopStateFailed)
 		}
 		if publishErr := publishEmissions(params.Assembler.FailEmissions(orchestrateErr)); publishErr != nil {
-			failTimeContract(publishErr)
+			failProcessing(publishErr)
 			return
 		}
 	}
@@ -929,7 +981,7 @@ func runExecutor(params RunExecutorParams) {
 	}
 
 	if err := publishEmissions(params.Assembler.CompleteEmissions()); err != nil {
-		failTimeContract(err)
+		failProcessing(err)
 		return
 	}
 	persisted, completion = persistRunCompletionWithReason(params, assistantText.String(), runUsage, "complete", true)
@@ -945,6 +997,66 @@ func publishLocalTimeContractRunError(params RunExecutorParams, err error) {
 		params.Session.ChatID,
 		err,
 	))
+}
+
+func publishLocalRunProcessingError(params RunExecutorParams, err error) {
+	if isTimeContractViolation(err) {
+		publishLocalTimeContractRunError(params, err)
+		return
+	}
+	if params.EventBus == nil {
+		return
+	}
+	payload := apperrors.Payload(
+		apperrors.CodeStorageFailed,
+		"run event persistence failed",
+		apperrors.WithScope(apperrors.ScopeRun),
+		apperrors.WithRetryable(true),
+	)
+	params.EventBus.Publish(stream.EventData{
+		Seq:       params.EventBus.LatestSeq() + 1,
+		Type:      "run.error",
+		Timestamp: time.Now().UnixMilli(),
+		Payload: map[string]any{
+			"runId":   params.Session.RunID,
+			"chatId":  params.Session.ChatID,
+			"message": "run event persistence failed",
+			"error":   payload,
+		},
+	})
+}
+
+func compactCheckpointPersistenceFailedEvent(data stream.EventData) stream.EventData {
+	payload := map[string]any{
+		"requestId": data.String("requestId"),
+		"compactId": data.String("compactId"),
+		"chatId":    data.String("chatId"),
+		"runId":     data.String("runId"),
+		"trigger":   data.String("trigger"),
+		"level":     data.String("level"),
+		"scope":     data.String("scope"),
+		"detail":    "checkpoint_persist_failed",
+		"retryable": true,
+	}
+	return stream.EventData{
+		Seq:       data.Seq,
+		Type:      "context.compact.failed",
+		Timestamp: time.Now().UnixMilli(),
+		Payload:   payload,
+	}
+}
+
+func handleCompactCheckpointPersistenceFailure(params RunExecutorParams, processor *runEventProcessor, data stream.EventData) {
+	if data.Type != "context.compact.complete" {
+		return
+	}
+	failed := compactCheckpointPersistenceFailedEvent(data)
+	if processor != nil {
+		processor.completeCompactControl(failed)
+	}
+	if params.EventBus != nil {
+		params.EventBus.Publish(clientVisibleEventData(failed))
+	}
 }
 
 func shouldStartRunContinuation(persisted bool, completion chat.RunCompletion, continuation *contracts.DeltaRunContinuation) bool {

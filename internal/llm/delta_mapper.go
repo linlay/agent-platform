@@ -437,6 +437,29 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			Recovery:    CloneMap(value.Recovery),
 			Degradation: CloneMap(value.Degradation),
 		}}
+	case DeltaContextCompact:
+		m.lastKind = ""
+		return []stream.StreamInput{stream.InputContextCompact{
+			Status:                     value.Status,
+			RequestID:                  value.RequestID,
+			CompactID:                  value.CompactID,
+			ChatID:                     value.ChatID,
+			RunID:                      value.RunID,
+			Trigger:                    value.Trigger,
+			Level:                      value.Level,
+			Scope:                      value.Scope,
+			SummarySource:              value.SummarySource,
+			PreCompactEstimatedTokens:  value.PreCompactEstimatedTokens,
+			PostCompactEstimatedTokens: value.PostCompactEstimatedTokens,
+			CompressionRatio:           value.CompressionRatio,
+			TokensFreed:                value.TokensFreed,
+			CompactionUsage:            CloneMap(value.CompactionUsage),
+			Detail:                     value.Detail,
+			Retryable:                  value.Retryable,
+			CheckpointMessages:         cloneRawMessageMaps(value.CheckpointMessages),
+			PreviousRunState:           value.PreviousRunState,
+			AwaitingID:                 value.AwaitingID,
+		}}
 	case DeltaRunCancel:
 		return []stream.StreamInput{stream.RunCancel{RunID: value.RunID}}
 	default:

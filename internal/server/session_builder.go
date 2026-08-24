@@ -229,6 +229,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		ToolNames:                     toolNames,
 		Mode:                          agentDef.Mode,
 		ModeCapabilities:              resolvedModeCapabilities(agentDef),
+		SupportsContextCompaction:     !isProxyRoutedAgent(agentDef),
 		KBaseEnabled:                  agentDef.KBaseConfig.Enabled,
 		CapabilityPrompts:             capabilityPrompts,
 		PlanningMode:                  agentcoder.PlanningModeEnabled(agentDef.Mode, req.PlanningMode != nil && *req.PlanningMode),

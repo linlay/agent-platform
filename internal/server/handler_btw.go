@@ -171,6 +171,7 @@ func (s *Server) prepareBTWQuery(r *http.Request) (preparedQuery, *statusError) 
 	applyQueryModelOptionsToSession(req.Model, &session)
 	session.PlanningMode = false
 	session.RunScopeID = "btw:" + input.ChatID + ":" + btwID
+	session.SupportsContextCompaction = false
 	session.ToolExecutionPolicy = contracts.ToolExecutionPolicyReadOnly
 	session.RunLimits = contracts.RunLimits{
 		MaxToolRounds:     3,
