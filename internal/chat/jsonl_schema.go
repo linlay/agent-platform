@@ -28,6 +28,7 @@ var currentJSONLLineTypes = map[string]struct{}{
 }
 
 var currentSteerLineFields = map[string]struct{}{
+	"_compact":  {},
 	"_type":     {},
 	"chatId":    {},
 	"runId":     {},
@@ -148,6 +149,9 @@ func validateCurrentJSONLLine(line map[string]any) error {
 	if _, ok := currentJSONLLineTypes[lineType]; !ok {
 		return newJSONLSchemaViolation(line, "_type", chatStorageSchemaExpectedLineTypes, lineType, "unsupported line type")
 	}
+	if err := validateCurrentCompactMarkerSchema(line); err != nil {
+		return err
+	}
 	if lineType == "steer" {
 		if err := validateCurrentSteerSchema(line); err != nil {
 			return err
@@ -174,6 +178,18 @@ func validateCurrentJSONLLine(line map[string]any) error {
 	}
 	if err := validatePersistedSystemInitSchema([]map[string]any{line}); err != nil {
 		return newJSONLSchemaViolation(line, "system", "single query.system and exact step.systemRef", "invalid", err.Error())
+	}
+	return nil
+}
+
+func validateCurrentCompactMarkerSchema(line map[string]any) error {
+	rawCompactID, found := line["_compact"]
+	if !found {
+		return nil
+	}
+	compactID, ok := rawCompactID.(string)
+	if !ok || compactID == "" || compactID != strings.TrimSpace(compactID) {
+		return newJSONLSchemaViolation(line, "_compact", "exact non-empty string", jsonValueType(rawCompactID), "_compact must be an exact non-empty string")
 	}
 	return nil
 }

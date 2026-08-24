@@ -29,6 +29,21 @@ func TestDecodeJSONLRecordsAcceptsCurrentPhysicalLineSyntax(t *testing.T) {
 	}
 }
 
+func TestDecodeJSONLRecordsAcceptsCompactedSteer(t *testing.T) {
+	content := `{"_compact":"compact-1","_type":"steer","chatId":"chat-1","runId":"run-1","updatedAt":1700000000003,"liveSeq":3,"steer":{"requestId":"req-1","chatId":"chat-1","runId":"run-1","steerId":"steer-1","message":"shorter","role":"user"}}`
+
+	records, err := decodeJSONLRecords([]byte(content), "chat.jsonl", true)
+	if err != nil {
+		t.Fatalf("decode compacted steer: %v", err)
+	}
+	if len(records) != 1 || stringFromAny(records[0].Value["_compact"]) != "compact-1" {
+		t.Fatalf("unexpected compacted steer records %#v", records)
+	}
+	if err := ValidateJSONLContent(content, "chat.jsonl"); err != nil {
+		t.Fatalf("validate compacted steer: %v", err)
+	}
+}
+
 func TestDecodeJSONLRecordsRejectsInvalidPhysicalLineSyntax(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -83,6 +98,11 @@ func TestDecodeJSONLRecordsRejectsUnsupportedSchema(t *testing.T) {
 		{name: "steer event timestamp", content: `{"_type":"steer","chatId":"chat-1","runId":"run-1","updatedAt":1700000000001,"steer":{"timestamp":1700000000001,"chatId":"chat-1","runId":"run-1","steerId":"steer-1","message":"shorter","role":"user"}}`, field: "steer.timestamp"},
 		{name: "empty steer request id", content: `{"_type":"steer","chatId":"chat-1","runId":"run-1","updatedAt":1700000000001,"steer":{"requestId":"","chatId":"chat-1","runId":"run-1","steerId":"steer-1","message":"shorter","role":"user"}}`, field: "steer.requestId"},
 		{name: "steer identity mismatch", content: `{"_type":"steer","chatId":"chat-1","runId":"run-1","updatedAt":1700000000001,"steer":{"chatId":"chat-other","runId":"run-1","steerId":"steer-1","message":"shorter","role":"user"}}`, field: "steer.chatId"},
+		{name: "empty compact marker", content: `{"_compact":"","_type":"steer","chatId":"chat-1","runId":"run-1","updatedAt":1700000000001,"steer":{"chatId":"chat-1","runId":"run-1","steerId":"steer-1","message":"shorter","role":"user"}}`, field: "_compact"},
+		{name: "padded compact marker", content: `{"_compact":" compact-1 ","_type":"steer","chatId":"chat-1","runId":"run-1","updatedAt":1700000000001,"steer":{"chatId":"chat-1","runId":"run-1","steerId":"steer-1","message":"shorter","role":"user"}}`, field: "_compact"},
+		{name: "non-string compact marker", content: `{"_compact":1,"_type":"steer","chatId":"chat-1","runId":"run-1","updatedAt":1700000000001,"steer":{"chatId":"chat-1","runId":"run-1","steerId":"steer-1","message":"shorter","role":"user"}}`, field: "_compact"},
+		{name: "unknown compacted steer field", content: `{"_compact":"compact-1","_type":"steer","chatId":"chat-1","runId":"run-1","updatedAt":1700000000001,"future":true,"steer":{"chatId":"chat-1","runId":"run-1","steerId":"steer-1","message":"shorter","role":"user"}}`, field: "future"},
+		{name: "invalid query compact marker", content: `{"_compact":false,"_type":"query","updatedAt":1700000000001}`, field: "_compact"},
 		{name: "query awaiting", content: `{"_type":"query","updatedAt":1700000000001,"awaiting":[]}`, field: "awaiting"},
 		{name: "plan awaiting mode", content: `{"_type":"react","updatedAt":1700000000001,"messages":[],"awaiting":[{"type":"awaiting.ask","mode":"plan","timestamp":1700000000001}]}`, field: "awaiting[0].mode"},
 		{name: "planning id fallback", content: `{"_type":"react","updatedAt":1700000000001,"messages":[],"awaiting":[{"type":"awaiting.ask","mode":"planning","timestamp":1700000000001,"planning":{"id":"p1","planningFile":"/tmp/p1.md"}}]}`, field: "awaiting[0].planning.planningId"},

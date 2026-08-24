@@ -1,10 +1,12 @@
 package chat
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -121,6 +123,93 @@ func TestCompactCommitMarksCoveredLinesAndProjectsSummaryTail(t *testing.T) {
 	}
 	if !compactReplayContains(detail.Events, "context.compact.complete", "compact_1") {
 		t.Fatalf("LoadChat replay should expose compact completion marker")
+	}
+}
+
+func TestCompactCommitMarksCoveredSteerAndKeepsStorageReadable(t *testing.T) {
+	store := newCompactTestStore(t)
+	chatID := "chat-compact-steer"
+	ensureCompactTestChat(t, store, chatID)
+	appendCompactTestRun(t, store, chatID, "r1", "user r1", "assistant r1")
+	if err := store.AppendSteerLine(chatID, SteerLine{
+		Type:      "steer",
+		ChatID:    chatID,
+		RunID:     "r1",
+		UpdatedAt: testEpochMillis(102),
+		LiveSeq:   3,
+		Steer: map[string]any{
+			"requestId": "req-steer-1",
+			"chatId":    chatID,
+			"runId":     "r1",
+			"steerId":   "steer-1",
+			"message":   "covered steer must not return to model context",
+			"role":      "user",
+		},
+	}); err != nil {
+		t.Fatalf("append steer: %v", err)
+	}
+	appendCompactTestRun(t, store, chatID, "r2", "user r2", "assistant r2")
+	appendCompactTestRun(t, store, chatID, "r3", "user r3", "assistant r3")
+	appendCompactTestRun(t, store, chatID, "r4", "user r4", "assistant r4")
+
+	snapshot, err := store.BuildCompactSnapshot(chatID, 2)
+	if err != nil {
+		t.Fatalf("BuildCompactSnapshot: %v", err)
+	}
+	if err := store.CommitCompactCheckpoint(chatID, snapshot, CompactCheckpointLine{
+		Type:            CompactCheckpointLineType,
+		ChatID:          chatID,
+		CompactID:       "compact_steer",
+		UpdatedAt:       testEpochMillis(200),
+		Trigger:         "manual",
+		Summary:         "summary covering r1 and r2",
+		SummarySource:   "model",
+		CompactionUsage: map[string]any{},
+	}); err != nil {
+		t.Fatalf("CommitCompactCheckpoint: %v", err)
+	}
+
+	data, err := os.ReadFile(store.chatJSONLPath(chatID))
+	if err != nil {
+		t.Fatalf("read compacted JSONL: %v", err)
+	}
+	if err := ValidateJSONLContent(string(data), "chat.jsonl"); err != nil {
+		t.Fatalf("validate compacted JSONL: %v", err)
+	}
+	lines, err := readPersistedJSONLines(store.chatJSONLPath(chatID))
+	if err != nil {
+		t.Fatalf("read persisted compacted JSONL: %v", err)
+	}
+	coveredSteer := false
+	for _, line := range lines {
+		if stringFromAny(line["_type"]) == "steer" && stringFromAny(line["_compact"]) == "compact_steer" {
+			coveredSteer = true
+		}
+	}
+	if !coveredSteer {
+		t.Fatalf("covered steer was not marked with compact_steer")
+	}
+
+	raw, err := store.LoadRawMessages(chatID, 20)
+	if err != nil {
+		t.Fatalf("LoadRawMessages: %v", err)
+	}
+	if len(raw) == 0 || !strings.Contains(stringFromAny(raw[0]["content"]), "summary covering r1 and r2") {
+		t.Fatalf("raw messages do not start with compact summary: %#v", raw)
+	}
+	requestMessages := llmRequestMessagesFromJSONLLines(lines)
+	for _, message := range requestMessages {
+		if strings.Contains(stringFromAny(message["content"]), "covered steer must not return") {
+			t.Fatalf("compacted steer leaked into LLM context: %#v", requestMessages)
+		}
+	}
+
+	detail, err := store.LoadChat(chatID)
+	if err != nil {
+		t.Fatalf("LoadChat: %v", err)
+	}
+	if !compactReplayContains(detail.Events, "request.steer", "covered steer must not return") {
+		t.Fatalf("chat replay did not retain compacted steer history")
 	}
 }
 
@@ -390,6 +479,40 @@ func TestCompactCommitDetectsHistoryChanged(t *testing.T) {
 		if stringFromAny(line["_type"]) == CompactCheckpointLineType {
 			t.Fatalf("checkpoint unexpectedly written after history_changed: %#v", line)
 		}
+	}
+}
+
+func TestReplaceChatJSONLWithValidatedCompactRejectsInvalidOutputBeforeWrites(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "chat.jsonl")
+	backupDir := filepath.Join(root, "chat", ".compact-backups")
+	compactID := "compact_invalid"
+	originalData := []byte(validJSONLQueryLine("chat-write-guard") + "\n")
+	if err := os.WriteFile(path, originalData, 0o644); err != nil {
+		t.Fatalf("write original JSONL: %v", err)
+	}
+	invalidData := []byte(`{"_compact":"","_type":"steer","chatId":"chat-write-guard","runId":"run-1","updatedAt":1700000000002,"steer":{"chatId":"chat-write-guard","runId":"run-1","steerId":"steer-1","message":"invalid compact marker","role":"user"}}` + "\n")
+
+	err := replaceChatJSONLWithValidatedCompact(path, backupDir, compactID, originalData, invalidData)
+	if !IsJSONLSchemaViolation(err) {
+		t.Fatalf("replace error = %v, want JSONL schema violation", err)
+	}
+	if got := JSONLSchemaErrorData(err)["field"]; got != "_compact" {
+		t.Fatalf("schema violation field = %#v, want _compact", got)
+	}
+	afterData, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatalf("read original JSONL after failed replace: %v", readErr)
+	}
+	if !bytes.Equal(afterData, originalData) {
+		t.Fatalf("original JSONL changed after failed validation")
+	}
+	if _, statErr := os.Stat(backupDir); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("backup directory exists after failed validation: %v", statErr)
+	}
+	tmpPath := filepath.Join(root, ".chat.jsonl."+compactID+".tmp")
+	if _, statErr := os.Stat(tmpPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("temporary JSONL exists after failed validation: %v", statErr)
 	}
 }
 

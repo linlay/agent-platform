@@ -206,14 +206,6 @@ func (s *FileStore) CommitCompactCheckpoint(chatID string, snapshot CompactSnaps
 		return ErrNoCompactableHistory
 	}
 
-	backupDir := filepath.Join(s.ChatDir(chatID), ".compact-backups")
-	if err := os.MkdirAll(backupDir, 0o755); err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(backupDir, compactID+".jsonl"), data, 0o644); err != nil {
-		return err
-	}
-
 	checkpointBytes, err := validateJSONLLinePayload(checkpoint, "chat.jsonl.compact.write")
 	if err != nil {
 		return err
@@ -238,8 +230,28 @@ func (s *FileStore) CommitCompactCheckpoint(chatID string, snapshot CompactSnaps
 		}
 	}
 
+	backupDir := filepath.Join(s.ChatDir(chatID), ".compact-backups")
+	return replaceChatJSONLWithValidatedCompact(path, backupDir, compactID, data, out.Bytes())
+}
+
+func replaceChatJSONLWithValidatedCompact(path string, backupDir string, compactID string, originalData []byte, compactedData []byte) error {
+	records, err := decodeJSONLRecords(compactedData, "chat.jsonl.compact.write", true)
+	if err != nil {
+		return err
+	}
+	if err := validatePersistedTimeContract(recordValues(records), "chat.jsonl.compact.write"); err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(backupDir, compactID+".jsonl"), originalData, 0o644); err != nil {
+		return err
+	}
+
 	tmpPath := filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+"."+compactID+".tmp")
-	if err := os.WriteFile(tmpPath, out.Bytes(), 0o644); err != nil {
+	if err := os.WriteFile(tmpPath, compactedData, 0o644); err != nil {
 		return err
 	}
 	defer func() { _ = os.Remove(tmpPath) }()
