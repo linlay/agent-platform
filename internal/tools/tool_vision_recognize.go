@@ -86,8 +86,22 @@ func (t *RuntimeToolExecutor) invokeVisionRecognize(ctx context.Context, args ma
 }
 
 func (t *RuntimeToolExecutor) loadVisionImages(args map[string]any, execCtx *ExecutionContext, profile config.VisionRecognizeProfileConfig) ([]multimodal.ImagePayload, ToolExecutionResult, bool) {
-	rawImages, ok := args["images"].([]any)
-	if !ok || len(rawImages) == 0 {
+	raw, exists := args["images"]
+	if !exists || raw == nil {
+		return nil, visionToolError("vision_images_required", "images must contain at least one item", nil), true
+	}
+	rawImages, ok := raw.([]any)
+	if !ok {
+		return nil, visionToolError(
+			"vision_images_invalid_type",
+			`images must be a JSON array; for one image use {"images":[{"file_path":"@chat/image.png"}]}`,
+			map[string]any{
+				"expectedType": "array",
+				"actualType":   visionJSONType(raw),
+			},
+		), true
+	}
+	if len(rawImages) == 0 {
 		return nil, visionToolError("vision_images_required", "images must contain at least one item", nil), true
 	}
 	maxImages := maxInt(profile.MaxImages, defaultVisionRecognizeMaxImages)
@@ -118,6 +132,25 @@ func (t *RuntimeToolExecutor) loadVisionImages(args map[string]any, execCtx *Exe
 		images = append(images, image)
 	}
 	return images, ToolExecutionResult{}, false
+}
+
+func visionJSONType(value any) string {
+	switch value.(type) {
+	case nil:
+		return "null"
+	case map[string]any:
+		return "object"
+	case []any:
+		return "array"
+	case string:
+		return "string"
+	case bool:
+		return "boolean"
+	case float32, float64, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, json.Number:
+		return "number"
+	default:
+		return fmt.Sprintf("%T", value)
+	}
 }
 
 func visionImageSourcePolicy() toolImageSourcePolicy {

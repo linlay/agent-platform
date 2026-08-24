@@ -52,6 +52,81 @@ func TestVisionRecognizeRejectsNonVLModel(t *testing.T) {
 	}
 }
 
+func TestVisionRecognizeImagesArrayContract(t *testing.T) {
+	executor := &RuntimeToolExecutor{}
+	profile := config.VisionRecognizeProfileConfig{}
+	tests := []struct {
+		name       string
+		args       map[string]any
+		wantCode   string
+		actualType string
+	}{
+		{name: "missing", args: map[string]any{}, wantCode: "vision_images_required"},
+		{name: "null", args: map[string]any{"images": nil}, wantCode: "vision_images_required"},
+		{name: "empty", args: map[string]any{"images": []any{}}, wantCode: "vision_images_required"},
+		{name: "single object", args: map[string]any{"images": map[string]any{"file_path": "@chat/image.png"}}, wantCode: "vision_images_invalid_type", actualType: "object"},
+		{name: "string", args: map[string]any{"images": "@chat/image.png"}, wantCode: "vision_images_invalid_type", actualType: "string"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, result, handled := executor.loadVisionImages(test.args, &contracts.ExecutionContext{}, profile)
+			if !handled || result.Error != test.wantCode {
+				t.Fatalf("handled=%t result=%#v, want %s", handled, result, test.wantCode)
+			}
+			if test.actualType == "" {
+				return
+			}
+			if result.Structured["expectedType"] != "array" || result.Structured["actualType"] != test.actualType {
+				t.Fatalf("unexpected diagnostics %#v", result.Structured)
+			}
+			message, _ := result.Structured["message"].(string)
+			if !strings.Contains(message, `"images":[{"file_path":"@chat/image.png"}]`) {
+				t.Fatalf("missing correction example: %s", message)
+			}
+		})
+	}
+}
+
+func TestVisionRecognizeAcceptsMultipleImages(t *testing.T) {
+	var captured map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"two images"}}]}`))
+	}))
+	defer server.Close()
+
+	chatsDir := t.TempDir()
+	chatID := "chat-multiple"
+	writeTestPNG(t, filepath.Join(chatsDir, chatID, "first.png"))
+	writeTestPNG(t, filepath.Join(chatsDir, chatID, "second.png"))
+	registry := writeVisionRegistry(t, server.URL, "OPENAI", models.ModelTypeVL)
+	executor := visionTestExecutor(chatsDir, registry, server.Client())
+	result, err := executor.invokeVisionRecognize(context.Background(), map[string]any{
+		"images": []any{
+			map[string]any{"reference_name": "first.png"},
+			map[string]any{"reference_name": "second.png"},
+		},
+		"prompt": "compare",
+	}, &contracts.ExecutionContext{Request: api.QueryRequest{
+		ChatID: chatID,
+		References: []api.Reference{
+			{Name: "first.png", MimeType: "image/png"},
+			{Name: "second.png", MimeType: "image/png"},
+		},
+	}})
+	if err != nil || result.Error != "" {
+		t.Fatalf("invoke result=%#v err=%v", result, err)
+	}
+	messages, _ := captured["messages"].([]any)
+	user, _ := messages[1].(map[string]any)
+	content, _ := user["content"].([]any)
+	if len(content) != 3 {
+		t.Fatalf("expected prompt plus two images, got %#v", user["content"])
+	}
+}
+
 func TestVisionRecognizeReferenceNameOpenAI(t *testing.T) {
 	var captured map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

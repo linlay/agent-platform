@@ -1,13 +1,13 @@
 name: vision_recognize
 label: 图像识别
-description: Recognize images through the globally configured vision model. Use this when the active model cannot inspect images directly, or when OCR/visual extraction is needed as a tool result.
+description: Recognize images through the globally configured vision model. Use this when the active model cannot inspect images directly, or when OCR/visual extraction is needed as a tool result. Always pass images as a JSON array, even for one image.
 explicitOnly: true
 inputSchema:
   type: object
   properties:
     images:
       type: array
-      description: Required. Images to recognize. Each item must provide either reference_name for a current chat attachment or file_path for a host file.
+      description: 'Required. Images to recognize. Always pass an array, even for one image. Each item must provide exactly one source, for example: [{"reference_name":"image.png"}] or [{"file_path":"@chat/image.png"}].'
       minItems: 1
       items:
         type: object
