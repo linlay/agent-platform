@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"agent-platform/internal/contracts"
 	"agent-platform/internal/stream"
 )
 
@@ -17,10 +18,11 @@ const (
 )
 
 type RequestFrame struct {
-	Frame   string          `json:"frame"`
-	Type    string          `json:"type"`
-	ID      string          `json:"id"`
-	Payload json.RawMessage `json:"payload,omitempty"`
+	Frame   string                         `json:"frame"`
+	Type    string                         `json:"type"`
+	ID      string                         `json:"id"`
+	Source  *contracts.ClientRequestSource `json:"source,omitempty"`
+	Payload json.RawMessage                `json:"payload,omitempty"`
 }
 
 type ResponseFrame struct {

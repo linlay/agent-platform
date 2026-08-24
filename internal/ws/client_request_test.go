@@ -23,7 +23,9 @@ func TestHubInvokeClientRequestStreamsUntilTerminalResponse(t *testing.T) {
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- hub.InvokeClientRequest(context.Background(), target, contracts.ClientRequest{
-			ID: "desktop-stream-1", Type: "desktop.action.call", Payload: map[string]any{"action": "desktop.theme.get"},
+			ID: "desktop-stream-1", Type: "desktop.theme.get",
+			Source:  &contracts.ClientRequestSource{RunID: "run-1", ChatID: "chat-1", AgentKey: "agent-1"},
+			Payload: map[string]any{},
 		}, func(frame contracts.ClientResponseFrame) error {
 			frames <- frame
 			return nil
@@ -34,8 +36,11 @@ func TestHubInvokeClientRequestStreamsUntilTerminalResponse(t *testing.T) {
 	if err := client.ReadJSON(&request); err != nil {
 		t.Fatalf("read reverse request: %v", err)
 	}
-	if request.Frame != FrameRequest || request.ID != "desktop-stream-1" || request.Type != "desktop.action.call" {
+	if request.Frame != FrameRequest || request.ID != "desktop-stream-1" || request.Type != "desktop.theme.get" {
 		t.Fatalf("unexpected reverse request: %#v", request)
+	}
+	if request.Source == nil || request.Source.RunID != "run-1" || request.Source.ChatID != "chat-1" || request.Source.AgentKey != "agent-1" {
+		t.Fatalf("unexpected reverse request source: %#v", request.Source)
 	}
 	if err := client.WriteJSON(map[string]any{
 		"frame": "stream", "id": request.ID, "streamId": "stream-1",
@@ -69,7 +74,9 @@ func TestHubInvokeClientRequestTimeoutCancelsOnceAndDiscardsLateFrame(t *testing
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- hub.InvokeClientRequest(ctx, target, contracts.ClientRequest{
-			ID: "desktop-timeout-1", Type: "desktop.action.call", Payload: map[string]any{"action": "desktop.theme.set"},
+			ID: "desktop-timeout-1", Type: "desktop.theme.set",
+			Source:  &contracts.ClientRequestSource{RunID: "run-1", ChatID: "chat-1", AgentKey: "agent-1"},
+			Payload: map[string]any{"themeMode": "dark"},
 		}, nil)
 	}()
 

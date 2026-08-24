@@ -29,9 +29,20 @@ func (t ClientTarget) IsZero() bool {
 
 type WebClientTarget = ClientTarget
 
+// ClientRequestSource is trusted execution metadata attached by Platform to
+// outbound reverse requests. Clients must not treat caller-supplied source
+// fields as authoritative.
+type ClientRequestSource struct {
+	RunID    string `json:"runId"`
+	ChatID   string `json:"chatId"`
+	AgentKey string `json:"agentKey,omitempty"`
+	TeamID   string `json:"teamId,omitempty"`
+}
+
 type ClientRequest struct {
 	ID      string
 	Type    string
+	Source  *ClientRequestSource
 	Payload map[string]any
 }
 

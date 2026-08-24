@@ -671,14 +671,15 @@ WebSocket 存活配置与 SSE heartbeat 完全独立。服务端默认每 30 秒
 }
 ```
 
-Desktop/WorkPanel 统一反向请求使用带可信上下文的 envelope：
+Desktop Action 反向请求直接使用具体 Action 名作为 `type`，可信上下文位于帧顶层，payload 只包含该 Action 参数：
 
 ```json
-{"frame":"request","type":"desktop.action.call","id":"dsa-123","payload":{"requestId":"dsa-123","action":"desktop.workpanel.getState","args":{},"source":{"runId":"run-1","chatId":"chat-1","agentKey":"agent-1"}}}
+{"frame":"request","type":"desktop.workpanel.getState","id":"dsa-123","source":{"runId":"run-1","chatId":"chat-1","agentKey":"agent-1"},"payload":{}}
+{"frame":"request","type":"desktop.display","id":"dsa-124","source":{"runId":"run-1","chatId":"chat-1","agentKey":"agent-1"},"payload":{"kind":"effect","effect":"fireworks","durationMs":8000}}
 {"frame":"request","type":"desktop.cdp.call","id":"dsc-123","payload":{"requestId":"dsc-123","method":"Runtime.evaluate","params":{"expression":"document.title"},"targetId":"target-1","source":{"runId":"run-1","chatId":"chat-1","agentKey":"agent-1"}}}
 ```
 
-Desktop 模式由 Main Broker 处理这两种 request；Standalone 只由当前根 agent-webclient 处理 `desktop.action.call` 中的七个 `desktop.workpanel.*`。目标必须来自当前 run，缺失或断连立即失败，不选择其他连接。大 JSON 使用 `desktop.bridge.response.delta`，CDP 截图使用 `desktop.cdp.screenshot.delta`；stream event 包含 `seq/type/timestamp/encoding/chunk`，终态 response manifest 包含 `streamed/streamId/encoding/chunkCount/totalBytes`。超时或取消时 Platform 发送 `{"frame":"push","type":"desktop.bridge.cancel","payload":{"requestId":"..."}}`。
+Desktop 模式由 Main Broker 按正式 Action 注册表处理 81 个具体 `desktop.*` request type；Standalone 只由当前根 agent-webclient 处理七个 `desktop.workpanel.*` 与 `desktop.display`。Action 的 `id` 同时是工具请求标识，响应必须保持同 `id`、同 Action `type`；旧统一 envelope 不提供兼容入口。目标必须来自当前 run，缺失或断连立即失败，不选择其他连接。大 JSON 使用 `desktop.bridge.response.delta`，CDP 截图使用 `desktop.cdp.screenshot.delta`；stream event 包含 `seq/type/timestamp/encoding/chunk`，终态 response manifest 包含 `streamed/streamId/encoding/chunkCount/totalBytes`。超时或取消时 Platform 发送 `{"frame":"push","type":"desktop.bridge.cancel","payload":{"requestId":"..."}}`。
 
 服务端响应帧：
 

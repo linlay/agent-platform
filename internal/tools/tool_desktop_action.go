@@ -28,7 +28,6 @@ const desktopCdpCaptureScreenshotMethod = "Page.captureScreenshot"
 const desktopCdpScreenshotMimeType = "image/png"
 
 const (
-	desktopActionRequestType        = "desktop.action.call"
 	desktopCDPRequestType           = "desktop.cdp.call"
 	desktopResponseDeltaEventType   = "desktop.bridge.response.delta"
 	desktopScreenshotDeltaEventType = "desktop.cdp.screenshot.delta"
@@ -76,6 +75,11 @@ var (
 	desktopRequestSeq          atomic.Uint64
 )
 
+var desktopActionReservedArgFields = []string{
+	"source",
+	"confirmation" + "Summary",
+}
+
 func getDesktopActionAllowlist() (map[string]bool, error) {
 	desktopActionAllowlistOnce.Do(func() {
 		desktopActionAllowlist, desktopActionAllowlistErr = loadDesktopActionAllowlist()
@@ -121,28 +125,21 @@ func loadDesktopActionAllowlist() (map[string]bool, error) {
 	return nil, fmt.Errorf("desktop_action tool definition not found")
 }
 
-type desktopActionRequest struct {
-	RequestID string              `json:"requestId,omitempty"`
-	Action    string              `json:"action"`
-	Args      map[string]any      `json:"args"`
-	Source    desktopActionSource `json:"source,omitempty"`
+type desktopCDPRequest struct {
+	RequestID string           `json:"requestId,omitempty"`
+	Method    string           `json:"method"`
+	Params    map[string]any   `json:"params,omitempty"`
+	TargetID  string           `json:"targetId,omitempty"`
+	SessionID string           `json:"sessionId,omitempty"`
+	SurfaceID string           `json:"surfaceId,omitempty"`
+	Source    desktopCDPSource `json:"source,omitempty"`
 }
 
-type desktopActionSource struct {
+type desktopCDPSource struct {
 	RunID    string `json:"runId,omitempty"`
 	ChatID   string `json:"chatId,omitempty"`
 	AgentKey string `json:"agentKey,omitempty"`
 	TeamID   string `json:"teamId,omitempty"`
-}
-
-type desktopCDPRequest struct {
-	RequestID string              `json:"requestId,omitempty"`
-	Method    string              `json:"method"`
-	Params    map[string]any      `json:"params,omitempty"`
-	TargetID  string              `json:"targetId,omitempty"`
-	SessionID string              `json:"sessionId,omitempty"`
-	SurfaceID string              `json:"surfaceId,omitempty"`
-	Source    desktopActionSource `json:"source,omitempty"`
 }
 
 func (t *RuntimeToolExecutor) invokeDesktopAction(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
@@ -162,26 +159,24 @@ func (t *RuntimeToolExecutor) invokeDesktopAction(ctx context.Context, args map[
 	if !ok || actionArgs == nil {
 		actionArgs = map[string]any{}
 	}
-	if t.cfg.RuntimeMode != config.RuntimeModeDesktop && !strings.HasPrefix(action, "desktop.workpanel.") {
-		return desktopActionErrorResult("desktop_action_unsupported_runtime", "desktop action is unavailable in standalone runtime mode", map[string]any{"action": action}), nil
-	}
-	if t.cfg.RuntimeMode == config.RuntimeModeDesktop {
-		if summary := strings.TrimSpace(stringArg(args, "confirmationSummary")); summary != "" {
-			actionArgs["confirmationSummary"] = summary
+	for _, reserved := range desktopActionReservedArgFields {
+		if _, exists := actionArgs[reserved]; exists {
+			return desktopActionErrorResult("invalid_args", fmt.Sprintf("args.%s is reserved", reserved), map[string]any{"field": reserved}), nil
 		}
+	}
+	if t.cfg.RuntimeMode != config.RuntimeModeDesktop && !strings.HasPrefix(action, "desktop.workpanel.") && action != "desktop.display" {
+		return desktopActionErrorResult("desktop_action_unsupported_runtime", "desktop action is unavailable in standalone runtime mode", map[string]any{"action": action}), nil
 	}
 	requestID := strings.TrimSpace(stringArg(args, "requestId"))
 	if requestID == "" {
 		requestID = newDesktopRequestID("dsa")
 	}
 
-	payload := desktopActionRequest{
-		RequestID: requestID,
-		Action:    action,
-		Args:      actionArgs,
-		Source:    buildDesktopActionSource(execCtx),
+	source, sourceErr := buildDesktopActionSource(execCtx)
+	if sourceErr != nil {
+		return desktopActionErrorResult("invalid_execution_context", sourceErr.Error(), nil), nil
 	}
-	return t.invokeDesktopClientRequest(ctx, requestID, desktopActionRequestType, payload, "desktop_action", false, execCtx)
+	return t.invokeDesktopClientRequest(ctx, requestID, action, actionArgs, &source, "desktop_action", false, execCtx)
 }
 
 func firstDesktopActionMessage(message string, fallback string) string {
@@ -214,9 +209,9 @@ func (t *RuntimeToolExecutor) invokeDesktopCDP(ctx context.Context, args map[str
 		TargetID:  strings.TrimSpace(stringArg(args, "targetId")),
 		SessionID: strings.TrimSpace(stringArg(args, "sessionId")),
 		SurfaceID: strings.TrimSpace(stringArg(args, "surfaceId")),
-		Source:    buildDesktopActionSource(execCtx),
+		Source:    buildDesktopCDPSource(execCtx),
 	}
-	return t.invokeDesktopClientRequest(ctx, requestID, desktopCDPRequestType, payload, "desktop_cdp", method == desktopCdpCaptureScreenshotMethod, execCtx)
+	return t.invokeDesktopClientRequest(ctx, requestID, desktopCDPRequestType, payload, nil, "desktop_cdp", method == desktopCdpCaptureScreenshotMethod, execCtx)
 }
 
 func newDesktopRequestID(prefix string) string {
@@ -271,7 +266,7 @@ func parseDesktopCDPStringBool(value any) (bool, bool) {
 	}
 }
 
-func (t *RuntimeToolExecutor) invokeDesktopClientRequest(ctx context.Context, requestID string, requestType string, payload any, toolName string, screenshot bool, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+func (t *RuntimeToolExecutor) invokeDesktopClientRequest(ctx context.Context, requestID string, requestType string, payload any, source *ClientRequestSource, toolName string, screenshot bool, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	if t == nil || t.clientRequest == nil {
 		return desktopActionErrorResult(toolName+"_provider_unavailable", "desktop client request provider is unavailable", nil), nil
 	}
@@ -285,7 +280,7 @@ func (t *RuntimeToolExecutor) invokeDesktopClientRequest(ctx context.Context, re
 	}
 	collector := newDesktopResponseCollector(t, screenshot, execCtx)
 	defer collector.abort()
-	request := ClientRequest{ID: requestID, Type: requestType, Payload: payloadMap}
+	request := ClientRequest{ID: requestID, Type: requestType, Source: source, Payload: payloadMap}
 	err = t.clientRequest.InvokeClientRequest(ctx, target, request, collector.consume)
 	if errors.Is(err, ErrClientTargetUnavailable) && t.cfg.RuntimeMode == config.RuntimeModeDesktop {
 		refreshedTarget, refreshedReason := t.resolveDesktopMainTarget(execCtx)
@@ -839,11 +834,36 @@ func cloneDesktopMap(input map[string]any) map[string]any {
 	return out
 }
 
-func buildDesktopActionSource(execCtx *ExecutionContext) desktopActionSource {
+func buildDesktopActionSource(execCtx *ExecutionContext) (ClientRequestSource, error) {
 	if execCtx == nil {
-		return desktopActionSource{}
+		return ClientRequestSource{}, errors.New("run execution context is required")
 	}
-	return desktopActionSource{
+	source := ClientRequestSource{
+		RunID:  strings.TrimSpace(execCtx.Session.RunID),
+		ChatID: strings.TrimSpace(execCtx.Session.ChatID),
+	}
+	owner := ResolveRunOwner(execCtx.Session.RunOwner)
+	if owner.IsTeam() {
+		source.AgentKey = ""
+		source.TeamID = owner.TeamID
+	} else if owner.AgentKey != "" {
+		source.AgentKey = owner.AgentKey
+		source.TeamID = ""
+	}
+	if source.RunID == "" || source.ChatID == "" {
+		return ClientRequestSource{}, errors.New("runId and chatId are required for desktop actions")
+	}
+	if source.AgentKey != "" && source.TeamID != "" {
+		return ClientRequestSource{}, errors.New("desktop action source cannot contain both agentKey and teamId")
+	}
+	return source, nil
+}
+
+func buildDesktopCDPSource(execCtx *ExecutionContext) desktopCDPSource {
+	if execCtx == nil {
+		return desktopCDPSource{}
+	}
+	return desktopCDPSource{
 		RunID:    execCtx.Session.RunID,
 		ChatID:   execCtx.Session.ChatID,
 		AgentKey: execCtx.Session.AgentKey,
