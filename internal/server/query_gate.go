@@ -183,7 +183,7 @@ func (s *Server) registerQueryRun(ctx context.Context, prepared preparedQuery) (
 				data:    activeRunFoundInfo(chatID, runIDs),
 			}
 		}
-		return s.registeredQueryRun(registration.Context, registration.Control, prepared)
+		return s.registeredQueryRun(ctx, registration.Context, registration.Control, prepared)
 	}
 
 	runScopeID := strings.TrimSpace(prepared.session.RunScopeID)
@@ -212,7 +212,7 @@ func (s *Server) registerQueryRun(ctx context.Context, prepared preparedQuery) (
 		}
 	}
 	runCtx, control, _ := s.deps.Runs.Register(ctx, prepared.session)
-	return s.registeredQueryRun(runCtx, control, prepared)
+	return s.registeredQueryRun(ctx, runCtx, control, prepared)
 }
 
 func (s *Server) cleanupUnregisteredRunEnvironment(session contracts.QuerySession) {
@@ -231,7 +231,7 @@ func (s *Server) cleanupUnregisteredRunEnvironment(session contracts.QuerySessio
 // persistence and push path receives this same value; never infer it from a
 // run ID or a later completion timestamp.
 
-func (s *Server) registeredQueryRun(runCtx context.Context, control *contracts.RunControl, prepared preparedQuery) (registeredQueryRun, *statusError) {
+func (s *Server) registeredQueryRun(observerCtx context.Context, runCtx context.Context, control *contracts.RunControl, prepared preparedQuery) (registeredQueryRun, *statusError) {
 	runID := prepared.req.RunID
 	status, ok := s.deps.Runs.RunStatus(runID)
 	if !ok {
@@ -249,12 +249,7 @@ func (s *Server) registeredQueryRun(runCtx context.Context, control *contracts.R
 	}
 	execution := s.resolvedQueryExecution(prepared)
 	if !execution.HiddenRun {
-		recorder, ok := execution.CompletionStore.(chat.RunStartRecorder)
-		if !ok || recorder == nil {
-			s.deps.Runs.Finish(runID)
-			return registeredQueryRun{}, &statusError{status: http.StatusInternalServerError, code: "internal_error", message: "run start recorder is not configured"}
-		}
-		if err := recorder.OnRunStarted(chat.RunStart{
+		start := chat.RunStart{
 			ChatID:          prepared.req.ChatID,
 			RunID:           runID,
 			AgentKey:        prepared.req.AgentKey,
@@ -262,13 +257,20 @@ func (s *Server) registeredQueryRun(runCtx context.Context, control *contracts.R
 			TeamID:          prepared.req.TeamID,
 			InitialMessage:  prepared.req.Message,
 			StartedAtMillis: status.StartedAt,
-		}); err != nil {
+		}
+		recorder, ok := execution.CompletionStore.(chat.RunStartRecorder)
+		if !ok || recorder == nil {
+			s.deps.Runs.Finish(runID)
+			return registeredQueryRun{}, &statusError{status: http.StatusInternalServerError, code: "internal_error", message: "run start recorder is not configured"}
+		}
+		if err := recorder.OnRunStarted(start); err != nil {
 			s.deps.Runs.Finish(runID)
 			if isTimeContractViolation(err) {
 				return registeredQueryRun{}, &statusError{status: http.StatusUnprocessableEntity, code: "time_contract_violation", message: timeContractViolationMessage, data: timeContractErrorData(err)}
 			}
 			return registeredQueryRun{}, &statusError{status: http.StatusInternalServerError, code: "internal_error", message: err.Error()}
 		}
+		notifyInternalQueryRunStarted(observerCtx, start)
 	}
 	return registeredQueryRun{RunCtx: runCtx, Control: control, Managed: true, StartedAtMillis: status.StartedAt}, nil
 }

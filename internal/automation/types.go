@@ -1,11 +1,20 @@
 package automation
 
 import (
+	"context"
 	"strings"
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+)
+
+const (
+	ExecutionStatusRunning  = "running"
+	ExecutionStatusSuccess  = "success"
+	ExecutionStatusFailed   = "failed"
+	ExecutionStatusCanceled = "canceled"
 )
 
 type Definition struct {
@@ -30,11 +39,55 @@ type Execution struct {
 	AgentKey       string
 	TeamID         string
 	ZoneID         string
+	QueryContent   string
+	ChatID         string
+	RunID          string
 	Status         string
+	FinishReason   string
+	ResultContent  string
+	ResultPreview  string
 	Error          string
 	StartedAt      int64
+	RunStartedAt   *int64
 	CompletedAt    *int64
 	DurationMs     *int64
+}
+
+type QueryRunHooks struct {
+	OnRunStarted func(chat.RunStart)
+}
+
+type QueryRunResult struct {
+	Completion   *chat.RunCompletion
+	ErrorMessage string
+}
+
+type DispatchFunc func(context.Context, api.QueryRequest, QueryRunHooks) (QueryRunResult, error)
+
+type ExecutionRecorder interface {
+	Submit(Execution)
+}
+
+type ExecutionHistoryState string
+
+const (
+	ExecutionHistoryInitializing ExecutionHistoryState = "initializing"
+	ExecutionHistoryReady        ExecutionHistoryState = "ready"
+	ExecutionHistoryDegraded     ExecutionHistoryState = "degraded"
+	ExecutionHistoryUnavailable  ExecutionHistoryState = "unavailable"
+)
+
+type ExecutionHistoryStatus struct {
+	Available bool
+	State     ExecutionHistoryState
+	Message   string
+}
+
+type ExecutionHistoryReader interface {
+	Status() ExecutionHistoryStatus
+	ListByAutomation(automationID string, limit, offset int) ([]Execution, int, error)
+	LastExecution(automationID string) (*Execution, error)
+	GetExecution(executionID string) (*Execution, error)
 }
 
 type AutomationInfo struct {

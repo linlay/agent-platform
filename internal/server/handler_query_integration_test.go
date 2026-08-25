@@ -345,6 +345,41 @@ func TestExecuteInternalQueryPreservesTrustedChatSource(t *testing.T) {
 	}
 }
 
+func TestExecuteInternalQueryResultReturnsPersistedLifecycleAndIsolatesHookPanic(t *testing.T) {
+	fixture := newTestFixture(t)
+	var started chat.RunStart
+	result, err := fixture.server.ExecuteInternalQueryResult(context.Background(), api.QueryRequest{
+		ChatID:     "chat-internal-result",
+		Message:    "capture lifecycle",
+		AgentKey:   "mock-agent",
+		ChatSource: api.ChatSourceAutomationPrefix + "result-test",
+	}, InternalQueryHooks{OnRunStarted: func(start chat.RunStart) {
+		started = start
+	}})
+	if err != nil {
+		t.Fatalf("execute internal query result: %v", err)
+	}
+	if result.StatusCode != http.StatusOK || result.Completion == nil {
+		t.Fatalf("unexpected internal result %#v", result)
+	}
+	if started.ChatID != "chat-internal-result" || started.RunID == "" || started.StartedAtMillis <= 0 {
+		t.Fatalf("unexpected run start %#v", started)
+	}
+	if result.Completion.ChatID != started.ChatID || result.Completion.RunID != started.RunID || result.Completion.FinishReason != "complete" {
+		t.Fatalf("completion does not match persisted start: start=%#v completion=%#v", started, result.Completion)
+	}
+
+	panicResult, err := fixture.server.ExecuteInternalQueryResult(context.Background(), api.QueryRequest{
+		ChatID:     "chat-internal-hook-panic",
+		Message:    "hook panic must not affect query",
+		AgentKey:   "mock-agent",
+		ChatSource: api.ChatSourceAutomationPrefix + "panic-test",
+	}, InternalQueryHooks{OnRunStarted: func(chat.RunStart) { panic("history hook failed") }})
+	if err != nil || panicResult.StatusCode != http.StatusOK || panicResult.Completion == nil || panicResult.Completion.FinishReason != "complete" {
+		t.Fatalf("hook panic changed query result: result=%#v err=%v", panicResult, err)
+	}
+}
+
 func TestExecuteInternalQueryPersistsFinalReactMetadataWithAndWithoutLLMRecord(t *testing.T) {
 	for _, recordEnabled := range []bool{false, true} {
 		t.Run(map[bool]string{false: "record-disabled", true: "record-enabled"}[recordEnabled], func(t *testing.T) {

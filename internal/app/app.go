@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -51,7 +52,7 @@ type App struct {
 	automation           automationStopper
 	gateways             *gateway.Registry
 	wsHub                *ws.Hub
-	automationExecutions *automation.ExecutionStore
+	automationExecutions *automation.ExecutionHistoryService
 	lspManager           *lsp.Manager
 	mcpClient            *mcp.Client
 	kbaseManager         *kbase.Manager
@@ -296,33 +297,63 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	var srv *server.Server
 	var automationOrchestrator *automation.Orchestrator
 	var automationRegistry *automation.Registry
-	var automationExecutionStore *automation.ExecutionStore
+	var automationExecutionHistory *automation.ExecutionHistoryService
 	if cfg.Automation.Enabled {
 		automationRegistry = automation.NewRegistry(cfg.Automation.ExternalDir, registry)
-		automationExecutionStore, err = automation.NewExecutionStore(cfg.Automation.ExternalDir, "executions.db")
-		if err != nil {
-			return nil, fmt.Errorf("init automation execution store (%s): %w", cfg.Automation.ExternalDir, err)
-		}
 		var automationBroadcaster automation.Broadcaster
 		if hub, ok := notifications.(*ws.Hub); ok {
 			automationBroadcaster = hub
 		}
-		dispatcher := automation.NewDispatcher(func(ctx context.Context, req api.QueryRequest) error {
+		automationExecutionHistory = automation.NewExecutionHistoryService(
+			cfg.Automation.ExternalDir,
+			"executions.db",
+			automationBroadcaster,
+			func(chatID, runID string) (*chat.RunSummary, error) {
+				runs, err := chatStore.ListRuns(chatID)
+				if errors.Is(err, chat.ErrChatNotFound) {
+					return nil, nil
+				}
+				if err != nil {
+					return nil, err
+				}
+				for i := range runs {
+					if runs[i].RunID == runID {
+						item := runs[i]
+						return &item, nil
+					}
+				}
+				return nil, nil
+			},
+		)
+		dispatcher := automation.NewDispatcher(func(ctx context.Context, req api.QueryRequest, hooks automation.QueryRunHooks) (automation.QueryRunResult, error) {
 			if srv == nil {
-				return fmt.Errorf("server not initialized")
+				return automation.QueryRunResult{}, fmt.Errorf("server not initialized")
 			}
 			if strings.TrimSpace(req.Role) == "" {
 				req.Role = api.QueryRoleAutomation
 			}
-			status, body, err := srv.ExecuteInternalQuery(ctx, req)
+			result, err := srv.ExecuteInternalQueryResult(ctx, req, server.InternalQueryHooks{OnRunStarted: hooks.OnRunStarted})
+			queryResult := automation.QueryRunResult{Completion: result.Completion, ErrorMessage: result.ErrorMessage}
 			if err != nil {
-				return err
+				return queryResult, err
 			}
-			if status != http.StatusOK {
-				return fmt.Errorf("automation query failed with status %d: %s", status, summarizeAutomationErrorBody(body))
+			if result.StatusCode != http.StatusOK {
+				message := summarizeAutomationErrorBody(result.Body)
+				queryResult.ErrorMessage = firstNonBlankString(queryResult.ErrorMessage, message)
+				return queryResult, fmt.Errorf("automation query failed with status %d: %s", result.StatusCode, message)
 			}
-			return nil
-		}, automationBroadcaster, automationExecutionStore)
+			if result.Completion != nil {
+				switch strings.ToLower(strings.TrimSpace(result.Completion.FinishReason)) {
+				case "error":
+					message := firstNonBlankString(result.ErrorMessage, "automation query run failed")
+					return queryResult, fmt.Errorf("%s", message)
+				case "cancel":
+					message := firstNonBlankString(result.ErrorMessage, "automation query run canceled")
+					return queryResult, fmt.Errorf("%s", message)
+				}
+			}
+			return queryResult, nil
+		}, automationBroadcaster, automationExecutionHistory)
 		automationOrchestrator = automation.NewOrchestrator(automationRegistry, dispatcher, cfg.Automation)
 	}
 
@@ -362,15 +393,15 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			Prompts:                  cfg.Prompts,
 		}),
 		AutomationRegistry:   automationRegistry,
-		AutomationExecutions: automationExecutionStore,
+		AutomationExecutions: automationExecutionHistory,
 		GatewayResolver:      gatewayResolver,
 		AgentCardStatus:      cardReporter,
 		AgentCardRefresh:     cardReporter,
 		ChannelSessions:      cardReporter,
 	})
 	if err != nil {
-		if automationExecutionStore != nil {
-			_ = automationExecutionStore.Close()
+		if automationExecutionHistory != nil {
+			_ = automationExecutionHistory.Close()
 		}
 		return nil, fmt.Errorf("init server: %w", err)
 	}
@@ -404,8 +435,8 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	if automationOrchestrator != nil {
 		if err := automationOrchestrator.Start(backgroundCtx); err != nil {
 			backgroundCancel()
-			if automationExecutionStore != nil {
-				_ = automationExecutionStore.Close()
+			if automationExecutionHistory != nil {
+				_ = automationExecutionHistory.Close()
 			}
 			return nil, fmt.Errorf("start automation orchestrator: %w", err)
 		}
@@ -425,7 +456,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		automation:           automationOrchestrator,
 		gateways:             gwRegistry,
 		wsHub:                wsHub,
-		automationExecutions: automationExecutionStore,
+		automationExecutions: automationExecutionHistory,
 		lspManager:           lspManager,
 		mcpClient:            mcpClient,
 		kbaseManager:         kbaseManager,
@@ -619,4 +650,13 @@ func summarizeAutomationErrorBody(body string) string {
 		return body[:maxLen] + "..."
 	}
 	return body
+}
+
+func firstNonBlankString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }

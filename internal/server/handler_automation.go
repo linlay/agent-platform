@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -127,6 +128,16 @@ func (s *Server) handleAutomationExecutions(w http.ResponseWriter, r *http.Reque
 	s.writeAutomationHTTPResponse(w, response, err)
 }
 
+func (s *Server) handleAutomationExecution(w http.ResponseWriter, r *http.Request) {
+	var req api.AutomationExecutionRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid payload"))
+		return
+	}
+	response, err := s.loadAutomationExecution(req)
+	s.writeAutomationHTTPResponse(w, response, err)
+}
+
 func (s *Server) writeAutomationHTTPResponse(w http.ResponseWriter, response any, err error) {
 	if err == nil {
 		writeJSON(w, http.StatusOK, api.Success(response))
@@ -168,7 +179,11 @@ func (s *Server) listAutomations(_ api.AutomationListRequest) (api.AutomationLis
 		}
 	}
 
-	response := api.AutomationListResponse{Items: make([]api.AutomationSummaryResponse, 0, len(defs)), Total: len(defs)}
+	response := api.AutomationListResponse{
+		Items:            make([]api.AutomationSummaryResponse, 0, len(defs)),
+		Total:            len(defs),
+		ExecutionHistory: s.automationExecutionHistoryStatus(),
+	}
 	for _, def := range defs {
 		var next *time.Time
 		if item, ok := active[def.ID]; ok && !item.NextFireTime.IsZero() {
@@ -204,6 +219,7 @@ func (s *Server) loadAutomation(id string) (api.AutomationDetailResponse, error)
 	return api.AutomationDetailResponse{
 		AutomationSummaryResponse: summary,
 		Query:                     mapAutomationQuery(def.Query),
+		ExecutionHistory:          s.automationExecutionHistoryStatus(),
 	}, nil
 }
 
@@ -282,7 +298,11 @@ func (s *Server) listAutomationExecutions(req api.AutomationExecutionsRequest) (
 		return api.AutomationExecutionListResponse{}, err
 	}
 	if s.deps.AutomationExecutions == nil {
-		return api.AutomationExecutionListResponse{}, newAutomationStatusError(http.StatusServiceUnavailable, "unavailable", "automation execution store is not configured")
+		return api.AutomationExecutionListResponse{}, newAutomationStatusError(http.StatusServiceUnavailable, "unavailable", "automation execution history is not configured")
+	}
+	status := s.deps.AutomationExecutions.Status()
+	if !status.Available {
+		return api.AutomationExecutionListResponse{}, newAutomationStatusError(http.StatusServiceUnavailable, "unavailable", firstNonBlank(status.Message, "automation execution history is unavailable"))
 	}
 	id := firstNonBlank(req.ID, req.AutomationID)
 	if id == "" {
@@ -290,7 +310,7 @@ func (s *Server) listAutomationExecutions(req api.AutomationExecutionsRequest) (
 	}
 	items, total, err := s.deps.AutomationExecutions.ListByAutomation(id, req.Limit, req.Offset)
 	if err != nil {
-		return api.AutomationExecutionListResponse{}, err
+		return api.AutomationExecutionListResponse{}, newAutomationStatusError(http.StatusServiceUnavailable, "unavailable", "automation execution history is unreadable: "+err.Error())
 	}
 	loc := s.automationDisplayLocation()
 	response := api.AutomationExecutionListResponse{Items: make([]api.AutomationExecutionResponse, 0, len(items)), Total: total}
@@ -298,6 +318,47 @@ func (s *Server) listAutomationExecutions(req api.AutomationExecutionsRequest) (
 		response.Items = append(response.Items, mapAutomationExecution(item, loc))
 	}
 	return response, nil
+}
+
+func (s *Server) loadAutomationExecution(req api.AutomationExecutionRequest) (api.AutomationExecutionDetailResponse, error) {
+	if err := s.automationDepsReady(); err != nil {
+		return api.AutomationExecutionDetailResponse{}, err
+	}
+	if s.deps.AutomationExecutions == nil {
+		return api.AutomationExecutionDetailResponse{}, newAutomationStatusError(http.StatusServiceUnavailable, "unavailable", "automation execution history is not configured")
+	}
+	status := s.deps.AutomationExecutions.Status()
+	if !status.Available {
+		return api.AutomationExecutionDetailResponse{}, newAutomationStatusError(http.StatusServiceUnavailable, "unavailable", firstNonBlank(status.Message, "automation execution history is unavailable"))
+	}
+	executionID := firstNonBlank(req.ExecutionID, req.ID)
+	if executionID == "" {
+		return api.AutomationExecutionDetailResponse{}, newAutomationStatusError(http.StatusBadRequest, "invalid_request", "executionId is required")
+	}
+	item, err := s.deps.AutomationExecutions.GetExecution(executionID)
+	if err != nil {
+		return api.AutomationExecutionDetailResponse{}, newAutomationStatusError(http.StatusServiceUnavailable, "unavailable", "automation execution history is unreadable: "+err.Error())
+	}
+	if item == nil {
+		return api.AutomationExecutionDetailResponse{}, newAutomationStatusError(http.StatusNotFound, "not_found", "automation execution not found")
+	}
+	return api.AutomationExecutionDetailResponse{
+		AutomationExecutionResponse: mapAutomationExecution(*item, s.automationDisplayLocation()),
+		QueryContent:                item.QueryContent,
+		ResultContent:               item.ResultContent,
+	}, nil
+}
+
+func (s *Server) automationExecutionHistoryStatus() api.AutomationExecutionHistoryStatus {
+	if s == nil || s.deps.AutomationExecutions == nil {
+		return api.AutomationExecutionHistoryStatus{State: string(automation.ExecutionHistoryUnavailable), Message: "automation execution history is not configured"}
+	}
+	status := s.deps.AutomationExecutions.Status()
+	return api.AutomationExecutionHistoryStatus{
+		Available: status.Available,
+		State:     string(status.State),
+		Message:   status.Message,
+	}
 }
 
 func (s *Server) findAutomation(id string) (automation.Definition, error) {
@@ -355,12 +416,14 @@ func (s *Server) mapAutomationSummary(def automation.Definition, next *time.Time
 		resp.NextFireTime = &formatted
 	}
 	if s.deps.AutomationExecutions != nil {
-		last, err := s.deps.AutomationExecutions.LastExecution(def.ID)
-		if err != nil {
-			return api.AutomationSummaryResponse{}, err
-		}
-		if last != nil {
-			resp.LastExecution = mapAutomationExecutionBrief(*last, s.automationDisplayLocation())
+		status := s.deps.AutomationExecutions.Status()
+		if status.Available {
+			last, err := s.deps.AutomationExecutions.LastExecution(def.ID)
+			if err != nil {
+				log.Printf("[automation] load last execution failed automationID=%s err=%v", def.ID, err)
+			} else if last != nil {
+				resp.LastExecution = mapAutomationExecutionBrief(*last, s.automationDisplayLocation())
+			}
 		}
 	}
 	return resp, nil
@@ -430,14 +493,20 @@ func cloneAutomationBoolPtr(value *bool) *bool {
 
 func mapAutomationExecutionBrief(item automation.Execution, loc *time.Location) *api.AutomationExecutionBrief {
 	resp := &api.AutomationExecutionBrief{
-		ID:          item.ID,
-		Status:      item.Status,
-		ZoneID:      item.ZoneID,
-		StartedAt:   item.StartedAt,
-		StartedTime: automationReadableTimeMillis(item.StartedAt, loc),
-		CompletedAt: cloneInt64Ptr(item.CompletedAt),
-		DurationMs:  cloneInt64Ptr(item.DurationMs),
-		Error:       item.Error,
+		ID:            item.ID,
+		Status:        item.Status,
+		ZoneID:        item.ZoneID,
+		ChatID:        item.ChatID,
+		RunID:         item.RunID,
+		FinishReason:  item.FinishReason,
+		HasResult:     strings.TrimSpace(item.ResultPreview) != "",
+		ResultPreview: item.ResultPreview,
+		StartedAt:     item.StartedAt,
+		StartedTime:   automationReadableTimeMillis(item.StartedAt, loc),
+		RunStartedAt:  cloneInt64Ptr(item.RunStartedAt),
+		CompletedAt:   cloneInt64Ptr(item.CompletedAt),
+		DurationMs:    cloneInt64Ptr(item.DurationMs),
+		Error:         item.Error,
 	}
 	if item.CompletedAt != nil {
 		resp.CompletedTime = automationReadableTimeMillis(*item.CompletedAt, loc)
@@ -456,8 +525,14 @@ func mapAutomationExecution(item automation.Execution, loc *time.Location) api.A
 		Status:         item.Status,
 		Error:          item.Error,
 		ZoneID:         item.ZoneID,
+		ChatID:         item.ChatID,
+		RunID:          item.RunID,
+		FinishReason:   item.FinishReason,
+		HasResult:      strings.TrimSpace(firstNonBlank(item.ResultContent, item.ResultPreview)) != "",
+		ResultPreview:  item.ResultPreview,
 		StartedAt:      item.StartedAt,
 		StartedTime:    automationReadableTimeMillis(item.StartedAt, loc),
+		RunStartedAt:   cloneInt64Ptr(item.RunStartedAt),
 		CompletedAt:    cloneInt64Ptr(item.CompletedAt),
 		DurationMs:     cloneInt64Ptr(item.DurationMs),
 	}
@@ -609,6 +684,16 @@ func (s *Server) wsAutomationExecutions(_ context.Context, conn *ws.Conn, req ws
 	payload.ID = firstNonBlank(payload.AutomationID, payload.ID)
 	response, listErr := s.listAutomationExecutions(payload)
 	s.sendAutomationWSResponse(conn, req, response, listErr)
+}
+
+func (s *Server) wsAutomationExecution(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	payload, err := ws.DecodePayload[api.AutomationExecutionRequest](req)
+	if err != nil {
+		s.sendAutomationWSError(conn, req, newAutomationStatusError(http.StatusBadRequest, "invalid_request", "invalid payload"))
+		return
+	}
+	response, loadErr := s.loadAutomationExecution(payload)
+	s.sendAutomationWSResponse(conn, req, response, loadErr)
 }
 
 func (s *Server) sendAutomationWSResponse(conn *ws.Conn, req ws.RequestFrame, response any, err error) {

@@ -65,7 +65,7 @@ type Dependencies struct {
 	ChannelStatus          ChannelStatusProvider
 	AutomationOrchestrator *automation.Orchestrator
 	AutomationRegistry     *automation.Registry
-	AutomationExecutions   *automation.ExecutionStore
+	AutomationExecutions   automation.ExecutionHistoryReader
 	DeltaMappers           contracts.StreamDeltaMapperFactory
 	SystemInits            contracts.SystemInitBuilder
 	// GatewayResolver 按 chatId 查对应 gateway 的 BaseURL/Token。

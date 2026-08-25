@@ -10,7 +10,33 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/chat"
 )
+
+type capturingExecutionRecorder struct {
+	items []Execution
+}
+
+func (r *capturingExecutionRecorder) Submit(item Execution) {
+	r.items = append(r.items, cloneExecution(item))
+}
+
+func successfulTestQuery(req api.QueryRequest, hooks QueryRunHooks) QueryRunResult {
+	now := time.Now().UnixMilli()
+	runID := "run-" + NewExecutionID()
+	if hooks.OnRunStarted != nil {
+		hooks.OnRunStarted(chat.RunStart{ChatID: req.ChatID, RunID: runID, StartedAtMillis: now})
+	}
+	return QueryRunResult{Completion: &chat.RunCompletion{
+		ChatID:          req.ChatID,
+		RunID:           runID,
+		AssistantText:   "done",
+		InitialMessage:  req.Message,
+		FinishReason:    "complete",
+		StartedAtMillis: now,
+		UpdatedAtMillis: now + 1,
+	}}
+}
 
 func TestDispatcherBuildsStructuredQueryRequest(t *testing.T) {
 	def := Definition{
@@ -34,9 +60,9 @@ func TestDispatcherBuildsStructuredQueryRequest(t *testing.T) {
 	}
 
 	var got api.QueryRequest
-	dispatcher := NewDispatcher(func(_ context.Context, req api.QueryRequest) error {
+	dispatcher := NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
 		got = req
-		return nil
+		return successfulTestQuery(req, hooks), nil
 	}, nil, nil)
 	if err := dispatcher.Dispatch(context.Background(), def, "Asia/Shanghai"); err != nil {
 		t.Fatalf("dispatch: %v", err)
@@ -81,7 +107,9 @@ func TestDispatcherLogsDispatchLifecycle(t *testing.T) {
 	}
 
 	successLogs := captureDispatcherLogs(t, func() {
-		dispatcher := NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }, nil, nil)
+		dispatcher := NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
+			return successfulTestQuery(req, hooks), nil
+		}, nil, nil)
 		if err := dispatcher.Dispatch(context.Background(), def, "Asia/Shanghai"); err != nil {
 			t.Fatalf("dispatch success: %v", err)
 		}
@@ -97,7 +125,9 @@ func TestDispatcherLogsDispatchLifecycle(t *testing.T) {
 	}
 
 	failureLogs := captureDispatcherLogs(t, func() {
-		dispatcher := NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return errors.New("boom") }, nil, nil)
+		dispatcher := NewDispatcher(func(_ context.Context, _ api.QueryRequest, _ QueryRunHooks) (QueryRunResult, error) {
+			return QueryRunResult{}, errors.New("boom")
+		}, nil, nil)
 		err := dispatcher.Dispatch(context.Background(), def, "Asia/Shanghai")
 		if err == nil {
 			t.Fatal("expected dispatch failure")
@@ -129,7 +159,9 @@ func TestDispatcherRecordsExecutionLifecycle(t *testing.T) {
 		Query:       Query{Message: "hello"},
 	}
 
-	dispatcher := NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }, nil, store)
+	dispatcher := NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
+		return successfulTestQuery(req, hooks), nil
+	}, nil, store)
 	if err := dispatcher.Dispatch(context.Background(), def, "Asia/Shanghai"); err != nil {
 		t.Fatalf("dispatch success: %v", err)
 	}
@@ -146,7 +178,9 @@ func TestDispatcherRecordsExecutionLifecycle(t *testing.T) {
 	// a distinct timestamp so this test verifies its lifecycle rather than ID
 	// tie-breaking.
 	time.Sleep(time.Millisecond)
-	dispatcher = NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return expectedErr }, nil, store)
+	dispatcher = NewDispatcher(func(_ context.Context, _ api.QueryRequest, _ QueryRunHooks) (QueryRunResult, error) {
+		return QueryRunResult{}, expectedErr
+	}, nil, store)
 	if err := dispatcher.Dispatch(context.Background(), def, "UTC"); !errors.Is(err, expectedErr) {
 		t.Fatalf("expected dispatch error, got %v", err)
 	}
@@ -169,9 +203,9 @@ func TestDispatcherDoesNotBlockWhenExecutionStoreFails(t *testing.T) {
 	}
 
 	called := false
-	dispatcher := NewDispatcher(func(_ context.Context, _ api.QueryRequest) error {
+	dispatcher := NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
 		called = true
-		return nil
+		return successfulTestQuery(req, hooks), nil
 	}, nil, store)
 	if err := dispatcher.Dispatch(context.Background(), Definition{
 		ID:       "daily",
@@ -183,6 +217,52 @@ func TestDispatcherDoesNotBlockWhenExecutionStoreFails(t *testing.T) {
 	}
 	if !called {
 		t.Fatal("expected dispatch to continue after execution store failure")
+	}
+}
+
+func TestDispatcherMapsPersistedErrorAndCancelCompletionsWithPartialOutput(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		finishReason string
+		queryErr     error
+		wantStatus   string
+	}{
+		{name: "error", finishReason: "error", queryErr: errors.New("model failed"), wantStatus: ExecutionStatusFailed},
+		{name: "cancel", finishReason: "cancel", queryErr: context.Canceled, wantStatus: ExecutionStatusCanceled},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := &capturingExecutionRecorder{}
+			dispatchCalls := 0
+			dispatcher := NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
+				dispatchCalls++
+				now := time.Now().UnixMilli()
+				start := chat.RunStart{ChatID: "chat-partial", RunID: "run-partial", StartedAtMillis: now}
+				hooks.OnRunStarted(start)
+				return QueryRunResult{Completion: &chat.RunCompletion{
+					ChatID:          start.ChatID,
+					RunID:           start.RunID,
+					AssistantText:   "已经产生的部分助手输出",
+					InitialMessage:  req.Message,
+					FinishReason:    tc.finishReason,
+					StartedAtMillis: now,
+					UpdatedAtMillis: now + 10,
+				}}, tc.queryErr
+			}, nil, recorder)
+			err := dispatcher.Dispatch(context.Background(), Definition{ID: "daily", Name: "Daily", Enabled: true, AgentKey: "agent-a", Query: Query{Message: "hello"}}, "UTC")
+			if !errors.Is(err, tc.queryErr) {
+				t.Fatalf("dispatcher changed original query error: got %v want %v", err, tc.queryErr)
+			}
+			if dispatchCalls != 1 {
+				t.Fatalf("query called %d times, want exactly once", dispatchCalls)
+			}
+			if len(recorder.items) != 3 {
+				t.Fatalf("execution lifecycle snapshots=%d want 3: %#v", len(recorder.items), recorder.items)
+			}
+			terminal := recorder.items[len(recorder.items)-1]
+			if terminal.Status != tc.wantStatus || terminal.FinishReason != tc.finishReason || terminal.ResultContent != "已经产生的部分助手输出" {
+				t.Fatalf("unexpected terminal execution %#v", terminal)
+			}
+		})
 	}
 }
 

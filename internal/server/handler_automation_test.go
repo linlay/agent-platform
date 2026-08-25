@@ -96,7 +96,22 @@ func TestAutomationHTTPCRUDAndExecutionHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("record start: %v", err)
 	}
-	if err := fixture.executions.RecordComplete(executionID, nil); err != nil {
+	stored, err := fixture.executions.GetExecution(executionID)
+	if err != nil || stored == nil {
+		t.Fatalf("load started execution: %#v err=%v", stored, err)
+	}
+	completedAt := stored.StartedAt + 25
+	duration := int64(25)
+	stored.ChatID = "chat-execution"
+	stored.RunID = "run-execution"
+	stored.QueryContent = "hello"
+	stored.Status = automation.ExecutionStatusSuccess
+	stored.FinishReason = "complete"
+	stored.ResultContent = "完整助手输出结果"
+	stored.RunStartedAt = &stored.StartedAt
+	stored.CompletedAt = &completedAt
+	stored.DurationMs = &duration
+	if err := fixture.executions.Upsert(*stored); err != nil {
 		t.Fatalf("record complete: %v", err)
 	}
 
@@ -152,6 +167,13 @@ func TestAutomationHTTPCRUDAndExecutionHistory(t *testing.T) {
 		t.Fatalf("expected completed timing on history item %#v", history.Items[0])
 	}
 	assertAutomationReadableTimeMatches(t, history.Items[0].CompletedTime, *history.Items[0].CompletedAt, time.UTC)
+	if history.Items[0].ResultPreview != "完整助手输出结果" || !history.Items[0].HasResult || history.Items[0].ChatID != "chat-execution" || history.Items[0].RunID != "run-execution" {
+		t.Fatalf("expected execution result preview and run links, got %#v", history.Items[0])
+	}
+	detail := postAutomationJSON[api.AutomationExecutionDetailResponse](t, fixture.server, "/api/automation/execution", map[string]any{"executionId": executionID})
+	if detail.QueryContent != "hello" || detail.ResultContent != "完整助手输出结果" || detail.FinishReason != "complete" {
+		t.Fatalf("unexpected execution detail %#v", detail)
+	}
 }
 
 func TestAutomationHTTPCreateAllowsOmittedDescriptionAndQueryDefaults(t *testing.T) {
@@ -176,6 +198,35 @@ func TestAutomationHTTPCreateAllowsOmittedDescriptionAndQueryDefaults(t *testing
 	request := definitions[0].ToQueryRequest()
 	if request.Role != api.QueryRoleAutomation || request.Hidden == nil || !*request.Hidden {
 		t.Fatalf("unexpected execution defaults %#v", request)
+	}
+}
+
+func TestAutomationHistoryUnavailableDoesNotBreakConfigurationAPI(t *testing.T) {
+	root := t.TempDir()
+	registry := automation.NewRegistry(root, nil)
+	if err := registry.Persist(automation.Definition{
+		ID:       "daily",
+		Name:     "Daily",
+		Enabled:  true,
+		Cron:     "0 9 * * *",
+		AgentKey: "agent-a",
+		Query:    automation.Query{Message: "hello"},
+	}); err != nil {
+		t.Fatalf("persist automation: %v", err)
+	}
+	server, err := New(Dependencies{
+		Config:             config.Config{Auth: config.AuthConfig{Enabled: false}, Automation: config.AutomationConfig{DefaultZoneID: "UTC"}},
+		AutomationRegistry: registry,
+	})
+	if err != nil {
+		t.Fatalf("new server: %v", err)
+	}
+	list := postAutomationJSON[api.AutomationListResponse](t, server, "/api/automations", map[string]any{})
+	if list.Total != 1 || list.ExecutionHistory.Available || list.ExecutionHistory.State != string(automation.ExecutionHistoryUnavailable) {
+		t.Fatalf("configuration list must remain available with explicit history status: %#v", list)
+	}
+	if status := postAutomationStatus(t, server, "/api/automation/executions", map[string]any{"id": "daily"}); status != http.StatusServiceUnavailable {
+		t.Fatalf("history endpoint returned %d, want 503", status)
 	}
 }
 

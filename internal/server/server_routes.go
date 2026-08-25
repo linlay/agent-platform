@@ -119,6 +119,18 @@ func (s *Server) ExecuteInternalQuery(ctx context.Context, req api.QueryRequest)
 	return rec.Code, strings.TrimSpace(rec.Body.String()), nil
 }
 
+// ExecuteInternalQueryResult preserves the public query pipeline while also
+// returning the exact lifecycle records produced by that pipeline. Hooks are
+// observational: their failure or panic is isolated and never changes Query.
+func (s *Server) ExecuteInternalQueryResult(ctx context.Context, req api.QueryRequest, hooks InternalQueryHooks) (InternalQueryResult, error) {
+	capture := &internalQueryCapture{hooks: hooks}
+	status, body, err := s.ExecuteInternalQuery(withInternalQueryCapture(ctx, capture), req)
+	if err != nil {
+		return capture.result(status, body), err
+	}
+	return capture.result(status, body), nil
+}
+
 // ExecuteInternalQueryStream reuses the normal query pipeline for in-process
 // callers that need to react to each SSE event as it is emitted (e.g. the
 // gateway bridge). onEvent receives the raw JSON payload of each `data:` line
@@ -372,6 +384,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/automation/delete", s.method(http.MethodPost, s.handleAutomationDelete))
 	s.router.HandleFunc("/api/automation/toggle", s.method(http.MethodPost, s.handleAutomationToggle))
 	s.router.HandleFunc("/api/automation/executions", s.method(http.MethodPost, s.handleAutomationExecutions))
+	s.router.HandleFunc("/api/automation/execution", s.method(http.MethodPost, s.handleAutomationExecution))
 	s.router.HandleFunc("/api/query", s.method(http.MethodPost, s.handleQuery))
 	s.router.HandleFunc("/api/btw", s.method(http.MethodPost, s.handleBTW))
 	s.router.HandleFunc("/api/compact", s.method(http.MethodPost, s.handleCompact))

@@ -192,6 +192,7 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/automations", s.wsAutomations)
 	handler.RegisterRoute("/api/automation", s.wsAutomation)
 	handler.RegisterRoute("/api/automation/executions", s.wsAutomationExecutions)
+	handler.RegisterRoute("/api/automation/execution", s.wsAutomationExecution)
 	handler.RegisterRoute("/api/chats/search", s.wsGlobalSearch)
 	handler.RegisterRoute("/api/query", s.wsQuery)
 	handler.RegisterRoute("/api/attach", s.wsAttach)

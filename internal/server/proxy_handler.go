@@ -131,21 +131,22 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 	// line and completion record; never derive it from upstream traffic or a
 	// later completion.
 	startedAt := time.Now().UnixMilli()
+	runStart := chat.RunStart{
+		ChatID:          req.ChatID,
+		RunID:           req.RunID,
+		AgentKey:        req.AgentKey,
+		AgentMode:       chatAgentMode(agentDef, strings.TrimSpace(req.AgentKey) == "" && strings.TrimSpace(req.TeamID) != ""),
+		TeamID:          req.TeamID,
+		InitialMessage:  req.Message,
+		StartedAtMillis: startedAt,
+	}
 	if chatStore != nil {
 		recorder, ok := chatStore.(chat.RunStartRecorder)
 		if !ok || recorder == nil {
 			writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, "run start recorder is not configured"))
 			return
 		}
-		if err := recorder.OnRunStarted(chat.RunStart{
-			ChatID:          req.ChatID,
-			RunID:           req.RunID,
-			AgentKey:        req.AgentKey,
-			AgentMode:       chatAgentMode(agentDef, strings.TrimSpace(req.AgentKey) == "" && strings.TrimSpace(req.TeamID) != ""),
-			TeamID:          req.TeamID,
-			InitialMessage:  req.Message,
-			StartedAtMillis: startedAt,
-		}); err != nil {
+		if err := recorder.OnRunStarted(runStart); err != nil {
 			if isTimeContractViolation(err) {
 				writeTimeContractViolation(w, err)
 				return
@@ -154,6 +155,7 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 			return
 		}
 	}
+	notifyInternalQueryRunStarted(r.Context(), runStart)
 	s.broadcast("run.started", runStartedPushPayload(req.RunID, req.ChatID, req.AgentKey, startedAt))
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -467,6 +469,9 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 	s.broadcast("run.finished", runFinishedPushPayload(req.RunID, req.ChatID, finishReason, completedAt))
 	if persistedCompletion != nil {
 		s.broadcastRunCompletionNotifications(*persistedCompletion)
+	}
+	if persistedCompletion != nil {
+		notifyInternalQueryCompletion(r.Context(), persistedCompletion, "")
 	}
 	if firstTimeContractViolation != nil {
 		writeTimeContractViolation(w, firstTimeContractViolation)

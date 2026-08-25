@@ -5,8 +5,9 @@ type AutomationListRequest struct {
 }
 
 type AutomationListResponse struct {
-	Items []AutomationSummaryResponse `json:"items"`
-	Total int                         `json:"total"`
+	Items            []AutomationSummaryResponse      `json:"items"`
+	Total            int                              `json:"total"`
+	ExecutionHistory AutomationExecutionHistoryStatus `json:"executionHistory"`
 }
 
 type AutomationExecutionListResponse struct {
@@ -32,7 +33,14 @@ type AutomationSummaryResponse struct {
 
 type AutomationDetailResponse struct {
 	AutomationSummaryResponse
-	Query AutomationQueryResponse `json:"query"`
+	Query            AutomationQueryResponse          `json:"query"`
+	ExecutionHistory AutomationExecutionHistoryStatus `json:"executionHistory"`
+}
+
+type AutomationExecutionHistoryStatus struct {
+	Available bool   `json:"available"`
+	State     string `json:"state"`
+	Message   string `json:"message,omitempty"`
 }
 
 type AutomationQueryResponse struct {
@@ -47,8 +55,14 @@ type AutomationExecutionBrief struct {
 	ID            string `json:"id"`
 	Status        string `json:"status"`
 	ZoneID        string `json:"zoneId"`
+	ChatID        string `json:"chatId,omitempty"`
+	RunID         string `json:"runId,omitempty"`
+	FinishReason  string `json:"finishReason,omitempty"`
+	HasResult     bool   `json:"hasResult"`
+	ResultPreview string `json:"resultPreview,omitempty"`
 	StartedAt     int64  `json:"startedAt"`
 	StartedTime   string `json:"startedTime"`
+	RunStartedAt  *int64 `json:"runStartedAt,omitempty"`
 	CompletedAt   *int64 `json:"completedAt,omitempty"`
 	CompletedTime string `json:"completedTime,omitempty"`
 	DurationMs    *int64 `json:"durationMs,omitempty"`
@@ -65,11 +79,23 @@ type AutomationExecutionResponse struct {
 	Status         string `json:"status"`
 	Error          string `json:"error"`
 	ZoneID         string `json:"zoneId"`
+	ChatID         string `json:"chatId,omitempty"`
+	RunID          string `json:"runId,omitempty"`
+	FinishReason   string `json:"finishReason,omitempty"`
+	HasResult      bool   `json:"hasResult"`
+	ResultPreview  string `json:"resultPreview,omitempty"`
 	StartedAt      int64  `json:"startedAt"`
 	StartedTime    string `json:"startedTime"`
+	RunStartedAt   *int64 `json:"runStartedAt,omitempty"`
 	CompletedAt    *int64 `json:"completedAt,omitempty"`
 	CompletedTime  string `json:"completedTime,omitempty"`
 	DurationMs     *int64 `json:"durationMs,omitempty"`
+}
+
+type AutomationExecutionDetailResponse struct {
+	AutomationExecutionResponse
+	QueryContent  string `json:"queryContent"`
+	ResultContent string `json:"resultContent"`
 }
 
 type CreateAutomationRequest struct {
@@ -122,4 +148,9 @@ type AutomationExecutionsRequest struct {
 	AutomationID string `json:"automationId,omitempty"`
 	Limit        int    `json:"limit,omitempty"`
 	Offset       int    `json:"offset,omitempty"`
+}
+
+type AutomationExecutionRequest struct {
+	ExecutionID string `json:"executionId"`
+	ID          string `json:"id,omitempty"`
 }

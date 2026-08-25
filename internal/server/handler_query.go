@@ -260,13 +260,18 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 	sseWriter.StartHeartbeat()
 
 	lastSeq := int64(0)
-	_, runErr := s.runQuerySync(ctx, prepared, registered, func(data stream.EventData) error {
+	result, runErr := s.runQuerySync(ctx, prepared, registered, func(data stream.EventData) error {
 		if err := sseWriter.WriteJSON("message", localizeStreamEventData(locale, data)); err != nil {
 			return err
 		}
 		lastSeq = data.Seq
 		return nil
 	}, nil)
+	runErrorMessage := result.ErrorMessage
+	if strings.TrimSpace(runErrorMessage) == "" && runErr != nil {
+		runErrorMessage = runErr.Error()
+	}
+	notifyInternalQueryCompletion(ctx, result.Completion, runErrorMessage)
 	if runErr == nil {
 		_ = sseWriter.WriteDone()
 		return
@@ -315,6 +320,7 @@ type queryRunResult struct {
 	FullText      string
 	ErrorMessage  string
 	ErrorPayload  map[string]any
+	Completion    *chat.RunCompletion
 }
 
 type queryEventCollector struct {
@@ -847,6 +853,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 
 	completedAtMillis := int64(0)
 	pushFinishReason := "error"
+	var terminalCompletion *chat.RunCompletion
 	if !execution.HiddenRun {
 		s.broadcast("run.started", runStartedPushPayload(prepared.req.RunID, prepared.req.ChatID, prepared.req.AgentKey, registered.StartedAtMillis))
 		defer func() {
@@ -905,6 +912,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		// event itself is intentionally never passed to persistence.
 		processor.stepWriter.Flush()
 		persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, registered.StartedAtMillis, control, principal), assistantText.String(), runUsage, "error", false)
+		terminalCompletion = cloneRunCompletionPtr(completion)
 		completedAtMillis = completion.UpdatedAtMillis
 		pushFinishReason = completion.FinishReason
 		if persisted {
@@ -945,7 +953,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 
 	for _, emission := range assembler.BootstrapEmissions() {
 		if err := writeEmission(emission); err != nil {
-			return queryRunResult{}, err
+			return queryRunResult{Completion: terminalCompletion}, err
 		}
 	}
 
@@ -954,11 +962,12 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		control.TransitionState(contracts.RunLoopStateFailed)
 		for _, emission := range assembler.FailEmissions(err) {
 			if writeErr := writeEmission(emission); writeErr != nil {
-				return queryRunResult{}, writeErr
+				return queryRunResult{Completion: terminalCompletion}, writeErr
 			}
 		}
 		processor.stepWriter.Flush()
 		persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, registered.StartedAtMillis, control, principal), assistantText.String(), runUsage, "error", false)
+		terminalCompletion = cloneRunCompletionPtr(completion)
 		completedAtMillis = completion.UpdatedAtMillis
 		pushFinishReason = completion.FinishReason
 		if persisted {
@@ -970,6 +979,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 			Usage:         runUsage,
 			ErrorMessage:  err.Error(),
 			ErrorPayload:  apperrors.FromError(err, apperrors.CodeStreamFailed, apperrors.WithScope(apperrors.ScopeRun)),
+			Completion:    terminalCompletion,
 		}, nil
 	}
 	defer agentStream.Close()
@@ -992,7 +1002,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 			control.TransitionState(contracts.RunLoopStateFailed)
 			for _, emission := range assembler.FailEmissions(nextErr) {
 				if writeErr := writeEmission(emission); writeErr != nil {
-					return queryRunResult{}, writeErr
+					return queryRunResult{Completion: terminalCompletion}, writeErr
 				}
 			}
 			break
@@ -1002,7 +1012,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 			applyModelTurnControl(processor, input)
 			for _, emission := range assembler.ConsumeEmissions(input) {
 				if err := writeEmission(emission); err != nil {
-					return queryRunResult{}, err
+					return queryRunResult{Completion: terminalCompletion}, err
 				}
 			}
 		}
@@ -1033,6 +1043,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 			errorPayload = apperrors.FromError(streamErr, apperrors.CodeStreamFailed, apperrors.WithScope(apperrors.ScopeRun))
 		}
 		persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, registered.StartedAtMillis, control, principal), assistantText.String(), runUsage, finishReason, false)
+		terminalCompletion = cloneRunCompletionPtr(completion)
 		completedAtMillis = completion.UpdatedAtMillis
 		pushFinishReason = completion.FinishReason
 		if persisted {
@@ -1044,12 +1055,13 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 			Usage:         runUsage,
 			ErrorMessage:  errorMessage,
 			ErrorPayload:  errorPayload,
+			Completion:    terminalCompletion,
 		}, nil
 	}
 
 	for _, emission := range assembler.CompleteEmissions() {
 		if err := writeEmission(emission); err != nil {
-			return queryRunResult{}, err
+			return queryRunResult{Completion: terminalCompletion}, err
 		}
 	}
 	// Complete closes open content blocks and emits their final snapshots. Flush
@@ -1057,12 +1069,18 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 	// attached to the final React step instead of being discarded as orphaned.
 	processor.stepWriter.Flush()
 	persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, registered.StartedAtMillis, control, principal), assistantText.String(), runUsage, "complete", true)
+	terminalCompletion = cloneRunCompletionPtr(completion)
 	completedAtMillis = completion.UpdatedAtMillis
 	pushFinishReason = completion.FinishReason
 	if persisted {
 		syncBroadcastChatUpdated(s.deps.Notifications, completion)
 	}
-	return queryRunResult{AssistantText: assistantText.String(), FinishReason: "complete", Usage: runUsage}, nil
+	return queryRunResult{AssistantText: assistantText.String(), FinishReason: "complete", Usage: runUsage, Completion: terminalCompletion}, nil
+}
+
+func cloneRunCompletionPtr(completion chat.RunCompletion) *chat.RunCompletion {
+	copy := completion
+	return &copy
 }
 
 // syncRunExecutorParams 构造 handleQuerySync 三次持久化完成态调用所需参数

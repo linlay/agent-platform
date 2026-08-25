@@ -377,6 +377,9 @@ func (s *Server) runProxyWebSocket(
 		if persisted {
 			s.broadcastRunCompletionNotifications(completion)
 		}
+		if completion.RunID != "" {
+			notifyInternalQueryCompletion(runCtx, &completion, "")
+		}
 	}()
 
 	if proxyUpstreamTransport(prepared.agentDef.ProxyConfig) == "sse" {

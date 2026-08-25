@@ -321,8 +321,8 @@ func TestOrchestratorRegistersEnabledCronAutomation(t *testing.T) {
 		t.Fatalf("write disabled automation file: %v", err)
 	}
 
-	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, _ api.QueryRequest) error {
-		return nil
+	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
+		return successfulTestQuery(req, hooks), nil
 	}, nil, nil), config.AutomationConfig{})
 	if err := orchestrator.Start(context.Background()); err != nil {
 		t.Fatalf("start orchestrator: %v", err)
@@ -342,9 +342,9 @@ func TestOrchestratorConsumesRemainingRunsAndDeletesFile(t *testing.T) {
 	writeAutomation(t, path, automationBody("hello", "17 9 * * *", "remainingRuns: 2\n"))
 
 	dispatched := make(chan api.QueryRequest, 4)
-	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, req api.QueryRequest) error {
+	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
 		dispatched <- req
-		return nil
+		return successfulTestQuery(req, hooks), nil
 	}, nil, nil), config.AutomationConfig{})
 	if err := orchestrator.Start(context.Background()); err != nil {
 		t.Fatalf("start orchestrator: %v", err)
@@ -395,9 +395,9 @@ func TestOrchestratorConsumesRunOnDispatchFailure(t *testing.T) {
 
 	expectedErr := errors.New("dispatch failed")
 	attempts := make(chan api.QueryRequest, 2)
-	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, req api.QueryRequest) error {
+	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, req api.QueryRequest, _ QueryRunHooks) (QueryRunResult, error) {
 		attempts <- req
-		return expectedErr
+		return QueryRunResult{}, expectedErr
 	}, nil, nil), config.AutomationConfig{})
 	if err := orchestrator.Start(context.Background()); err != nil {
 		t.Fatalf("start orchestrator: %v", err)
@@ -421,8 +421,8 @@ func TestOrchestratorConsumesRunOnDispatchFailure(t *testing.T) {
 
 func TestOrchestratorWatchesAutomationDirectory(t *testing.T) {
 	root := t.TempDir()
-	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, _ api.QueryRequest) error {
-		return nil
+	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
+		return successfulTestQuery(req, hooks), nil
 	}, nil, nil), config.AutomationConfig{})
 	if err := orchestrator.Start(context.Background()); err != nil {
 		t.Fatalf("start orchestrator: %v", err)
@@ -475,7 +475,9 @@ func TestOrchestratorUsesDefaultZoneIDWhenAutomationZoneMissing(t *testing.T) {
 
 	orchestrator := NewOrchestrator(
 		NewRegistry(root, nil),
-		NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }, nil, nil),
+		NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
+			return successfulTestQuery(req, hooks), nil
+		}, nil, nil),
 		config.AutomationConfig{DefaultZoneID: "Asia/Shanghai"},
 	)
 	if err := orchestrator.Start(context.Background()); err != nil {
@@ -502,7 +504,9 @@ func TestOrchestratorAutomationZoneOverridesDefaultZoneID(t *testing.T) {
 
 	orchestrator := NewOrchestrator(
 		NewRegistry(root, nil),
-		NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }, nil, nil),
+		NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
+			return successfulTestQuery(req, hooks), nil
+		}, nil, nil),
 		config.AutomationConfig{DefaultZoneID: "Asia/Shanghai"},
 	)
 	if err := orchestrator.Start(context.Background()); err != nil {
@@ -522,7 +526,9 @@ func TestOrchestratorFallsBackToLocalWhenZonesMissing(t *testing.T) {
 
 	orchestrator := NewOrchestrator(
 		NewRegistry(root, nil),
-		NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }, nil, nil),
+		NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
+			return successfulTestQuery(req, hooks), nil
+		}, nil, nil),
 		config.AutomationConfig{},
 	)
 	if err := orchestrator.Start(context.Background()); err != nil {
@@ -545,7 +551,9 @@ func TestOrchestratorFirePersistsEffectiveZoneSnapshot(t *testing.T) {
 
 	orchestrator := NewOrchestrator(
 		nil,
-		NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }, nil, store),
+		NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
+			return successfulTestQuery(req, hooks), nil
+		}, nil, store),
 		config.AutomationConfig{PoolSize: 1},
 	)
 	tests := []struct {
@@ -596,7 +604,9 @@ func TestOrchestratorAutomationsReturnsActiveRegistrations(t *testing.T) {
 
 	orchestrator := NewOrchestrator(
 		NewRegistry(root, nil),
-		NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }, nil, nil),
+		NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
+			return successfulTestQuery(req, hooks), nil
+		}, nil, nil),
 		config.AutomationConfig{DefaultZoneID: "Asia/Shanghai"},
 	)
 	if err := orchestrator.Start(context.Background()); err != nil {
@@ -622,7 +632,9 @@ func TestOrchestratorLimitsDispatchConcurrency(t *testing.T) {
 	root := t.TempDir()
 	orchestrator := NewOrchestrator(
 		NewRegistry(root, nil),
-		NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }, nil, nil),
+		NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
+			return successfulTestQuery(req, hooks), nil
+		}, nil, nil),
 		config.AutomationConfig{PoolSize: 1},
 	)
 
@@ -649,7 +661,7 @@ func TestOrchestratorLimitsDispatchConcurrency(t *testing.T) {
 	entered := make(chan string, 2)
 	var current int32
 	var maxConcurrent int32
-	orchestrator.dispatcher = NewDispatcher(func(_ context.Context, req api.QueryRequest) error {
+	orchestrator.dispatcher = NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
 		next := atomic.AddInt32(&current, 1)
 		for {
 			prev := atomic.LoadInt32(&maxConcurrent)
@@ -660,7 +672,7 @@ func TestOrchestratorLimitsDispatchConcurrency(t *testing.T) {
 		entered <- req.Message
 		<-release
 		atomic.AddInt32(&current, -1)
-		return nil
+		return successfulTestQuery(req, hooks), nil
 	}, nil, nil)
 
 	done := make(chan error, 2)
@@ -709,7 +721,9 @@ func TestOrchestratorReleasesDispatchSlotAfterDispatchFailure(t *testing.T) {
 	root := t.TempDir()
 	orchestrator := NewOrchestrator(
 		NewRegistry(root, nil),
-		NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }, nil, nil),
+		NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
+			return successfulTestQuery(req, hooks), nil
+		}, nil, nil),
 		config.AutomationConfig{PoolSize: 1},
 	)
 
@@ -721,13 +735,13 @@ func TestOrchestratorReleasesDispatchSlotAfterDispatchFailure(t *testing.T) {
 	entered := make(chan string, 2)
 	release := make(chan struct{})
 	var calls int32
-	orchestrator.dispatcher = NewDispatcher(func(_ context.Context, req api.QueryRequest) error {
+	orchestrator.dispatcher = NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
 		entered <- req.Message
 		<-release
 		if atomic.AddInt32(&calls, 1) == 1 {
-			return errors.New("dispatch failed")
+			return QueryRunResult{}, errors.New("dispatch failed")
 		}
-		return nil
+		return successfulTestQuery(req, hooks), nil
 	}, nil, nil)
 
 	done1 := make(chan error, 1)
