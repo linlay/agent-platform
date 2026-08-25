@@ -43,6 +43,10 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	if err != nil {
 		return contracts.QuerySession{}, mustUseSkillUnavailableStatus(err)
 	}
+	runAccessRoots, err := mustUseSkillRunAccess(mustUseSkills.Skills)
+	if err != nil {
+		return contracts.QuerySession{}, mustUseSkillUnavailableStatus(err)
+	}
 	req.MustUseSkills = mustUseSkills.Keys
 	if !strings.EqualFold(strings.TrimSpace(agentDef.Mode), agentteam.Mode) {
 		if err := catalog.ValidateOrdinaryAgentTools(agentDef.Tools); err != nil {
@@ -266,6 +270,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		RuntimeLevel:                  extractRuntimeField(agentDef.Runtime, "level"),
 		RuntimeExtraMounts:            runtimeExtraMountsForMustUseSkills(agentDef.Runtime["sandboxMounts"], mustUseSkills.HasExtraSkills && hasRuntimeSandbox(agentDef.Runtime)),
 		RuntimeHostAccess:             runtimeHostAccess(agentDef.HostAccess),
+		RunAccessRoots:                runAccessRoots,
 		AgentHasRuntimeSandbox:        hasRuntimeSandbox(agentDef.Runtime),
 		AgentHasMemoryConfig:          agentDef.MemoryEnabled,
 		WorkspaceRoot:                 resolvedWorkspaceRoot,

@@ -49,6 +49,71 @@ func TestInvokeReadReadsAllowedFileWithLineRange(t *testing.T) {
 	}
 }
 
+func TestMustUseSkillRunAccessAllowsSelectedReadsAndBlocksMutations(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	center := filepath.Join(root, "skills-center")
+	selected := filepath.Join(center, "selected")
+	sibling := filepath.Join(center, "sibling")
+	for _, dir := range []string{workspace, selected, sibling} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	selectedFile := filepath.Join(selected, "SKILL.md")
+	selectedReference := filepath.Join(selected, "references", "guide.md")
+	if err := os.MkdirAll(filepath.Dir(selectedReference), 0o755); err != nil {
+		t.Fatalf("mkdir selected references: %v", err)
+	}
+	for path, content := range map[string]string{
+		selectedFile:                       "selected",
+		selectedReference:                  "guide",
+		filepath.Join(sibling, "SKILL.md"): "sibling",
+	} {
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+	executor := fileToolExecutor(workspace, false)
+	execCtx := fileToolExecutionContext(workspace)
+	execCtx.Session.RuntimeContext.LocalPaths.SkillsCenterDir = center
+	execCtx.Session.RunAccessRoots = contracts.RunAccessRoots{
+		ReadRoots:     []string{selected},
+		ReadonlyRoots: []string{selected},
+	}
+
+	read, err := executor.invokeRead(map[string]any{"file_path": "@skills-center/selected/SKILL.md"}, execCtx)
+	if err != nil || read.Error != "" || read.ExitCode != 0 {
+		t.Fatalf("selected skill read should succeed without approval: result=%#v err=%v", read, err)
+	}
+	referenceRead, err := executor.invokeRead(map[string]any{"file_path": "@skills-center/selected/references/guide.md"}, execCtx)
+	if err != nil || referenceRead.Error != "" || referenceRead.ExitCode != 0 {
+		t.Fatalf("selected skill subresource read should succeed without approval: result=%#v err=%v", referenceRead, err)
+	}
+	siblingRead, err := executor.invokeRead(map[string]any{"file_path": "@skills-center/sibling/SKILL.md"}, execCtx)
+	if err != nil || siblingRead.Structured["error"] != "file_read_approval_required" {
+		t.Fatalf("unselected sibling should require approval: result=%#v err=%v", siblingRead, err)
+	}
+	write, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path": "@skills-center/selected/SKILL.md",
+		"content":   "changed",
+	}, execCtx)
+	if err != nil || write.Structured["error"] != "file_write_path_blocked" {
+		t.Fatalf("selected skill write should be blocked: result=%#v err=%v", write, err)
+	}
+	edit, err := executor.invokeEdit(context.Background(), map[string]any{
+		"file_path":  "@skills-center/selected/SKILL.md",
+		"old_string": "selected",
+		"new_string": "changed",
+	}, execCtx)
+	if err != nil || edit.Structured["error"] != "file_edit_path_blocked" {
+		t.Fatalf("selected skill edit should be blocked: result=%#v err=%v", edit, err)
+	}
+	if data, err := os.ReadFile(selectedFile); err != nil || string(data) != "selected" {
+		t.Fatalf("selected skill was mutated: data=%q err=%v", string(data), err)
+	}
+}
+
 func TestTempFileWriteReadAndEditSkipHITL(t *testing.T) {
 	primary, ok := temppaths.System().Primary()
 	if !ok {
@@ -767,7 +832,7 @@ func TestInvokeWritePathEscapeRequiresApproval(t *testing.T) {
 	}
 }
 
-func TestInvokeWriteDoesNotUseSessionReadRootsForPathApproval(t *testing.T) {
+func TestInvokeWriteBlocksSessionReadonlyRootEvenWithAccessApprovals(t *testing.T) {
 	root := t.TempDir()
 	agentDir := filepath.Join(t.TempDir(), "agent-a")
 	if err := os.MkdirAll(agentDir, 0o755); err != nil {
@@ -780,17 +845,49 @@ func TestInvokeWriteDoesNotUseSessionReadRootsForPathApproval(t *testing.T) {
 			LocalPaths: contracts.LocalPaths{WorkspaceDir: root, AgentDir: agentDir, SkillsDir: filepath.Join(agentDir, "skills")},
 		},
 	}}
+	target := filepath.Join(agentDir, "AGENTS.md")
+	plan, err := filetools.BuildAccessPlanFromPolicy(executor.cfg.AccessPolicy, execCtx.Session, filetools.WriteAccess, target)
+	if err != nil {
+		t.Fatalf("build access plan: %v", err)
+	}
+	filetools.RegisterExactAccessApproval(execCtx, plan.Fingerprint)
+	filetools.RegisterRuleAccessApproval(execCtx, plan.RuleKey)
 
 	result, err := executor.invokeWrite(context.Background(), map[string]any{
-		"file_path":   filepath.Join(agentDir, "AGENTS.md"),
+		"file_path":   target,
 		"content":     "new",
 		"description": "写入 agent 文档",
 	}, execCtx)
 	if err != nil {
 		t.Fatalf("invokeWrite: %v", err)
 	}
+	if result.ExitCode == 0 || result.Structured["error"] != "file_write_path_blocked" {
+		t.Fatalf("expected readonly root to remain blocked despite approvals, got %#v", result)
+	}
+}
+
+func TestInvokeWriteDoesNotUseSessionHostReadRootsForPathApproval(t *testing.T) {
+	root := t.TempDir()
+	ownerDir := t.TempDir()
+	executor := fileToolExecutor(root, false)
+	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
+		WorkspaceRoot: root,
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{WorkspaceDir: root, OwnerDir: ownerDir},
+		},
+		RuntimeHostAccess: contracts.HostAccessRoots{ReadRoots: []string{"@owner"}},
+	}}
+
+	result, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path":   filepath.Join(ownerDir, "OWNER.md"),
+		"content":     "new",
+		"description": "写入 owner 文档",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeWrite: %v", err)
+	}
 	if result.ExitCode == 0 || result.Structured["error"] != "file_write_path_approval_required" {
-		t.Fatalf("expected session read root not to allow write path, got %#v", result)
+		t.Fatalf("expected session host read root not to allow write path, got %#v", result)
 	}
 }
 

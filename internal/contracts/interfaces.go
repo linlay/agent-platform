@@ -387,10 +387,14 @@ type QuerySession struct {
 	SummaryPrompt         string
 	ModeSystemPrompt      string
 
-	RuntimeEnvironmentID   string
-	RuntimeLevel           string
-	RuntimeExtraMounts     []SandboxExtraMount
-	RuntimeHostAccess      HostAccessRoots
+	RuntimeEnvironmentID string
+	RuntimeLevel         string
+	RuntimeExtraMounts   []SandboxExtraMount
+	RuntimeHostAccess    HostAccessRoots
+	// RunAccessRoots contains trusted, run-scoped path grants assembled by the
+	// Platform. It is runtime-only so protocol callers cannot forge additional
+	// access. ReadonlyRoots are hard mutation blocks for the lifetime of the run.
+	RunAccessRoots         RunAccessRoots `json:"-"`
 	AgentHasRuntimeSandbox bool
 	AgentHasMemoryConfig   bool
 	WorkspaceRoot          string
@@ -435,6 +439,11 @@ type ScopedFilePolicy struct {
 type HostAccessRoots struct {
 	ReadRoots  []string
 	WriteRoots []string
+}
+
+type RunAccessRoots struct {
+	ReadRoots     []string
+	ReadonlyRoots []string
 }
 
 type ReadFileSnapshot struct {

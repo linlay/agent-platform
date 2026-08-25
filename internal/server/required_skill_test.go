@@ -3,6 +3,7 @@ package server
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/pathutil"
 )
 
 type testSkillCenter map[string]catalog.SkillDefinition
@@ -73,6 +75,32 @@ func TestResolveMustUseSkillsSupportsConfiguredAndCenterSkills(t *testing.T) {
 	if got.Skills[1].InstructionsPath != "@skills-center/pdf/SKILL.md" || !got.Skills[1].Extra {
 		t.Fatalf("center skill = %#v", got.Skills[1])
 	}
+	designRoot, err := pathutil.Canonicalize(filepath.Join(runtimeDir, "skills", "design"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pdfRoot, err := pathutil.Canonicalize(filepath.Join(centerDir, "pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Skills[0].RootPath != designRoot.Host || got.Skills[1].RootPath != pdfRoot.Host {
+		t.Fatalf("unexpected canonical skill roots: %#v", got.Skills)
+	}
+	runAccess, err := mustUseSkillRunAccess(got.Skills)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(runAccess.ReadRoots, ",") != strings.Join([]string{designRoot.Host, pdfRoot.Host}, ",") ||
+		strings.Join(runAccess.ReadonlyRoots, ",") != strings.Join(runAccess.ReadRoots, ",") {
+		t.Fatalf("unexpected must-use run access %#v", runAccess)
+	}
+	emptyAccess, err := mustUseSkillRunAccess(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(emptyAccess.ReadRoots) != 0 || len(emptyAccess.ReadonlyRoots) != 0 {
+		t.Fatalf("empty selection must not create run access roots: %#v", emptyAccess)
+	}
 	if _, err := resolveMustUseSkills(def, centerDir, center, []string{"missing"}); err == nil {
 		t.Fatal("expected missing must-use skill to fail")
 	}
@@ -83,6 +111,22 @@ func TestResolveMustUseSkillsRevalidatesCenterContent(t *testing.T) {
 	center := testSkillCenter{"pdf": {Key: "pdf"}}
 	if _, err := resolveMustUseSkills(catalog.AgentDefinition{Key: "coder"}, centerDir, center, []string{"pdf"}); err == nil {
 		t.Fatal("expected catalog entry without current SKILL.md to fail")
+	}
+}
+
+func TestResolveMustUseSkillsRejectsSkillRootSymlinkEscape(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink setup is not portable on Windows")
+	}
+	centerDir := t.TempDir()
+	outside := t.TempDir()
+	writeTestSkill(t, outside, "pdf")
+	if err := os.Symlink(filepath.Join(outside, "pdf"), filepath.Join(centerDir, "pdf")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	center := testSkillCenter{"pdf": {Key: "pdf"}}
+	if _, err := resolveMustUseSkills(catalog.AgentDefinition{Key: "coder"}, centerDir, center, []string{"pdf"}); err == nil || !strings.Contains(err.Error(), "escapes") {
+		t.Fatalf("expected escaped center skill root rejection, got %v", err)
 	}
 }
 

@@ -935,6 +935,14 @@ func TestQueryExtraMustUseSkillAddsCenterContextAndReadonlyMount(t *testing.T) {
 	if strings.Join(prepared.session.MustUseSkills, ",") != "mock-skill,center-extra" {
 		t.Fatalf("mustUseSkills = %#v", prepared.session.MustUseSkills)
 	}
+	wantRunRoots := []string{
+		absTestPath(t, filepath.Join(prepared.agentDef.RuntimeDir, "skills", "mock-skill")),
+		absTestPath(t, filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "center-extra")),
+	}
+	if !reflect.DeepEqual(prepared.session.RunAccessRoots.ReadRoots, wantRunRoots) ||
+		!reflect.DeepEqual(prepared.session.RunAccessRoots.ReadonlyRoots, wantRunRoots) {
+		t.Fatalf("must-use run access roots = %#v, want %#v", prepared.session.RunAccessRoots, wantRunRoots)
+	}
 	if prepared.session.RuntimeContext.LocalPaths.SkillsCenterDir != fixture.cfg.Paths.SkillsCenterDir {
 		t.Fatalf("local skills-center = %q", prepared.session.RuntimeContext.LocalPaths.SkillsCenterDir)
 	}

@@ -397,6 +397,7 @@ type skillCenterCatalog interface {
 type resolvedMustUseSkill struct {
 	Key              string
 	InstructionsPath string
+	RootPath         string
 	Extra            bool
 	Definition       catalog.SkillDefinition
 }
@@ -534,6 +535,10 @@ func resolveMustUseSkills(def catalog.AgentDefinition, centerDir string, center 
 	for _, requestedKey := range normalizedRequested {
 		normalized := strings.ToLower(requestedKey)
 		if configuredKey, ok := configured[normalized]; ok {
+			rootPath, err := resolveMustUseSkillRoot(filepath.Join(def.RuntimeDir, "skills"), configuredKey)
+			if err != nil {
+				return mustUseSkillResolution{}, fmt.Errorf("resolve must-use skill %q root: %w", configuredKey, err)
+			}
 			definition, found, err := catalog.ResolveRuntimeSkillDefinition(def.RuntimeDir, configuredKey)
 			if err != nil {
 				return mustUseSkillResolution{}, fmt.Errorf("resolve must-use skill %q: %w", configuredKey, err)
@@ -544,6 +549,7 @@ func resolveMustUseSkills(def catalog.AgentDefinition, centerDir string, center 
 			result.Skills = append(result.Skills, resolvedMustUseSkill{
 				Key:              definition.Key,
 				InstructionsPath: "@skills/" + definition.Key + "/SKILL.md",
+				RootPath:         rootPath,
 				Definition:       definition,
 			})
 			result.Keys = append(result.Keys, definition.Key)
@@ -553,6 +559,10 @@ func resolveMustUseSkills(def catalog.AgentDefinition, centerDir string, center 
 		centerKey, ok := resolveCenterSkillKey(center, requestedKey)
 		if !ok {
 			return mustUseSkillResolution{}, fmt.Errorf("must-use skill %q is unavailable in the active skills center", requestedKey)
+		}
+		rootPath, err := resolveMustUseSkillRoot(centerDir, centerKey)
+		if err != nil {
+			return mustUseSkillResolution{}, fmt.Errorf("resolve must-use center skill %q root: %w", centerKey, err)
 		}
 		definition, found, err := catalog.ResolveSkillDefinition("", centerDir, centerKey)
 		if err != nil {
@@ -564,6 +574,7 @@ func resolveMustUseSkills(def catalog.AgentDefinition, centerDir string, center 
 		result.Skills = append(result.Skills, resolvedMustUseSkill{
 			Key:              definition.Key,
 			InstructionsPath: "@skills-center/" + definition.Key + "/SKILL.md",
+			RootPath:         rootPath,
 			Extra:            true,
 			Definition:       definition,
 		})
@@ -571,6 +582,63 @@ func resolveMustUseSkills(def catalog.AgentDefinition, centerDir string, center 
 		result.HasExtraSkills = true
 	}
 	return result, nil
+}
+
+func resolveMustUseSkillRoot(parentDir string, skillKey string) (string, error) {
+	parentDir = strings.TrimSpace(parentDir)
+	skillKey = strings.TrimSpace(skillKey)
+	if parentDir == "" || skillKey == "" {
+		return "", fmt.Errorf("skill root is unavailable")
+	}
+	parent, err := pathutil.Canonicalize(parentDir)
+	if err != nil {
+		return "", err
+	}
+	root, err := pathutil.Canonicalize(filepath.Join(parent.Host, skillKey))
+	if err != nil {
+		return "", err
+	}
+	if !pathutil.WithinRoot(root, parent) || root.Key == parent.Key {
+		return "", fmt.Errorf("skill root escapes its expected parent")
+	}
+	info, err := os.Stat(root.Host)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("skill root is not a directory")
+	}
+	return root.Host, nil
+}
+
+func mustUseSkillRunAccess(skills []resolvedMustUseSkill) (contracts.RunAccessRoots, error) {
+	if len(skills) == 0 {
+		return contracts.RunAccessRoots{}, nil
+	}
+	readRoots := make([]string, 0, len(skills))
+	seen := make(map[string]struct{}, len(skills))
+	for _, skill := range skills {
+		root, err := pathutil.Canonicalize(strings.TrimSpace(skill.RootPath))
+		if err != nil {
+			return contracts.RunAccessRoots{}, fmt.Errorf("resolve must-use skill %q run access root: %w", skill.Key, err)
+		}
+		info, err := os.Stat(root.Host)
+		if err != nil {
+			return contracts.RunAccessRoots{}, fmt.Errorf("resolve must-use skill %q run access root: %w", skill.Key, err)
+		}
+		if !info.IsDir() {
+			return contracts.RunAccessRoots{}, fmt.Errorf("resolve must-use skill %q run access root: not a directory", skill.Key)
+		}
+		if _, duplicate := seen[root.Key]; duplicate {
+			continue
+		}
+		seen[root.Key] = struct{}{}
+		readRoots = append(readRoots, root.Host)
+	}
+	return contracts.RunAccessRoots{
+		ReadRoots:     append([]string(nil), readRoots...),
+		ReadonlyRoots: append([]string(nil), readRoots...),
+	}, nil
 }
 
 func (s *Server) resolveQueryMustUseSkills(def catalog.AgentDefinition, requested []string) (mustUseSkillResolution, error) {

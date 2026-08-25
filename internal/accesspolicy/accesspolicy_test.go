@@ -3,6 +3,7 @@ package accesspolicy
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -225,6 +226,159 @@ func TestTempRootReadonlyAndSymlinkEscapeRemainBlocked(t *testing.T) {
 	scriptEscape := ReviewBashCommand(config.AccessPolicyConfig{}, session, "python3 "+scriptLink, "@temp", nil)
 	if !scriptEscape.Blocked() || !strings.Contains(scriptEscape.Reason, "blocked") {
 		t.Fatalf("temporary script symlink escape should be blocked: %#v", scriptEscape)
+	}
+}
+
+func TestReadonlyRootsBlockWritesBeforeOutsideApprovalOrHostAccess(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	readonly := filepath.Join(root, "readonly")
+	for _, dir := range []string{workspace, readonly} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	target := filepath.Join(readonly, "blocked.txt")
+	cfg := config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{
+		contracts.AccessLevelDefault: {
+			ReadRoots:     []string{"@workspace"},
+			WriteRoots:    []string{"@workspace"},
+			ReadonlyRoots: []string{readonly},
+			Approvals: config.AccessPolicyApprovalConfig{
+				WriteOutsideRoots: "hitl",
+			},
+		},
+	}}
+
+	for _, session := range []contracts.QuerySession{
+		{AccessLevel: contracts.AccessLevelDefault, WorkspaceRoot: workspace},
+		{
+			AccessLevel:   contracts.AccessLevelDefault,
+			WorkspaceRoot: workspace,
+			RuntimeHostAccess: contracts.HostAccessRoots{
+				WriteRoots: []string{readonly},
+			},
+		},
+	} {
+		plan, err := BuildPathPlan(cfg, session, WriteAccess, target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !plan.Blocked() || plan.RequiresApproval() || !strings.Contains(plan.Reason, "readonly") {
+			t.Fatalf("readonly path must be hard blocked before approval or host access: %#v", plan)
+		}
+	}
+}
+
+func TestRunAccessRootsAllowOnlySelectedSkillReadsAndRemainReadonly(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	center := filepath.Join(root, "skills-center")
+	selected := filepath.Join(center, "selected")
+	sibling := filepath.Join(center, "sibling")
+	for _, dir := range []string{workspace, selected, sibling} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	selectedFile := filepath.Join(selected, "SKILL.md")
+	siblingFile := filepath.Join(sibling, "SKILL.md")
+	for _, path := range []string{selectedFile, siblingFile} {
+		if err := os.WriteFile(path, []byte("skill"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+	cfg := config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{
+		contracts.AccessLevelDefault: {
+			ReadRoots:     []string{"@workspace"},
+			WriteRoots:    []string{"@workspace"},
+			ReadonlyRoots: []string{},
+			Approvals: config.AccessPolicyApprovalConfig{
+				ReadOutsideRoots:  "hitl",
+				WriteOutsideRoots: "hitl",
+			},
+		},
+	}}
+	session := contracts.QuerySession{
+		AccessLevel:   contracts.AccessLevelDefault,
+		WorkspaceRoot: workspace,
+		RuntimeContext: contracts.RuntimeRequestContext{LocalPaths: contracts.LocalPaths{
+			WorkspaceDir:    workspace,
+			SkillsCenterDir: center,
+		}},
+		RunAccessRoots: contracts.RunAccessRoots{
+			ReadRoots:     []string{selected},
+			ReadonlyRoots: []string{selected},
+		},
+	}
+
+	selectedRead, err := BuildPathPlan(cfg, session, ReadAccess, "@skills-center/selected/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !selectedRead.Allowed() || selectedRead.RequiresApproval() {
+		t.Fatalf("selected skill read should be allowed: %#v", selectedRead)
+	}
+	siblingRead, err := BuildPathPlan(cfg, session, ReadAccess, "@skills-center/sibling/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !siblingRead.RequiresApproval() || siblingRead.Allowed() {
+		t.Fatalf("unselected sibling read should retain outside-root approval: %#v", siblingRead)
+	}
+	selectedWrite, err := BuildPathPlan(cfg, session, WriteAccess, "@skills-center/selected/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !selectedWrite.Blocked() || selectedWrite.RequiresApproval() {
+		t.Fatalf("selected skill write should be hard blocked: %#v", selectedWrite)
+	}
+
+	fullAccess := session
+	fullAccess.AccessLevel = contracts.AccessLevelFullAccess
+	selectedFullWrite, err := BuildPathPlan(cfg, fullAccess, WriteAccess, selectedFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !selectedFullWrite.Blocked() {
+		t.Fatalf("run-scoped readonly must survive full_access: %#v", selectedFullWrite)
+	}
+}
+
+func TestRunAccessRootDoesNotFollowSelectedSkillSymlinkEscape(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink setup is not portable on Windows")
+	}
+	root := t.TempDir()
+	center := filepath.Join(root, "skills-center")
+	selected := filepath.Join(center, "selected")
+	outside := filepath.Join(root, "outside")
+	for _, dir := range []string{selected, outside} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	outsideFile := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(outsideFile, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(selected, "escape.txt")
+	if err := os.Symlink(outsideFile, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	session := contracts.QuerySession{
+		RuntimeContext: contracts.RuntimeRequestContext{LocalPaths: contracts.LocalPaths{SkillsCenterDir: center}},
+		RunAccessRoots: contracts.RunAccessRoots{ReadRoots: []string{selected}, ReadonlyRoots: []string{selected}},
+	}
+	cfg := config.AccessPolicyConfig{Levels: map[string]config.AccessPolicyLevelConfig{
+		contracts.AccessLevelDefault: {ReadRoots: []string{}, Approvals: config.AccessPolicyApprovalConfig{ReadOutsideRoots: "hitl"}},
+	}}
+	plan, err := BuildPathPlan(cfg, session, ReadAccess, "@skills-center/selected/escape.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plan.RequiresApproval() || plan.Path != realPathForTest(t, outsideFile) {
+		t.Fatalf("symlink escape must be reclassified outside the selected skill: %#v", plan)
 	}
 }
 

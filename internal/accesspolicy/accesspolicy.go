@@ -91,6 +91,14 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 		return buildPathPlan(mode, rawPath, realCandidate, tempRoot, accessLevel, DecisionBlock, "temporary path escapes its declared root"), nil
 	}
 
+	if mode == WriteAccess {
+		readonlyRoots := append([]string(nil), level.ReadonlyRoots...)
+		readonlyRoots = append(readonlyRoots, session.RunAccessRoots.ReadonlyRoots...)
+		if readonlyRoot, readonly := firstAllowedRoot(session, workspaceRoot, readonlyRoots, realCandidate); readonly {
+			return buildPathPlan(mode, rawPath, realCandidate, readonlyRoot, accessLevel, DecisionBlock, "path is under a readonly root"), nil
+		}
+	}
+
 	roots := level.ReadRoots
 	action := level.Approvals.ReadOutsideRoots
 	if mode == WriteAccess {
@@ -98,12 +106,10 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 		action = level.Approvals.WriteOutsideRoots
 	}
 	roots = appendSessionHostAccessRoots(roots, session, mode)
-	root, ok := firstAllowedRoot(session, workspaceRoot, roots, realCandidate)
-	if mode == WriteAccess && ok {
-		if readonlyRoot, readonly := firstAllowedRoot(session, workspaceRoot, level.ReadonlyRoots, realCandidate); readonly {
-			return buildPathPlan(mode, rawPath, realCandidate, readonlyRoot, accessLevel, DecisionBlock, "path is under a readonly root"), nil
-		}
+	if mode == ReadAccess {
+		roots = append(roots, session.RunAccessRoots.ReadRoots...)
 	}
+	root, ok := firstAllowedRoot(session, workspaceRoot, roots, realCandidate)
 	if ok {
 		return buildPathPlan(mode, rawPath, realCandidate, root, accessLevel, DecisionAllow, ""), nil
 	}
