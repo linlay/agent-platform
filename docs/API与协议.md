@@ -440,7 +440,7 @@ curl -sS -X POST http://127.0.0.1:11949/api/query \
   -d '{"message":"用一句话介绍 agent-platform","agentKey":"zenmi","stream":false,"includeFullText":true}'
 ```
 
-`params` 是业务透传对象，平台不读取、不写入、不约定内部 key。
+`params` 原则上是业务透传对象，平台不写入，也不通过它授予工具、运行环境或其他权限。当前只有一个收紧型运行时例外：当 `agentKey=zenmi` 且 `params.desktop.source=copilot`、`params.desktop.action=image_studio` 时，平台把该次图片工坊任务的 `MaxToolCalls` 与 `MaxToolRounds` 都限制为 `1`，避免图片工具失败后由模型再次调用；其他 Zenmi 对话继续使用智能体原有预算。该标记只会减少本次 run 的能力，不能扩大调用方权限。
 
 `hidden` 是可选的 `request.query` 时间线展示标记；省略时普通 query 不隐藏，Automation 调度会按自身默认值传入 `true`。
 

@@ -391,6 +391,7 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 		}
 		return preparedQuery{}, err
 	}
+	applyDesktopImageStudioRunLimits(req, &session)
 	if admission.orchestratedTeam && admission.teamSnapshot != nil {
 		if s.deps.Tools == nil {
 			return preparedQuery{}, fmt.Errorf("Team coordinator tool registry is unavailable")
@@ -436,6 +437,20 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 	}
 	succeeded = true
 	return prepared, nil
+}
+
+func applyDesktopImageStudioRunLimits(req api.QueryRequest, session *contracts.QuerySession) {
+	if session == nil || strings.TrimSpace(req.AgentKey) != "zenmi" {
+		return
+	}
+	desktop, ok := req.Params["desktop"].(map[string]any)
+	if !ok || strings.TrimSpace(fmt.Sprint(desktop["source"])) != "copilot" ||
+		strings.TrimSpace(fmt.Sprint(desktop["action"])) != "image_studio" {
+		return
+	}
+	session.RunLimits.MaxToolCalls = 1
+	session.RunLimits.MaxToolRounds = 1
+	session.RunLimits.FinalAnswerPrompt = "The Image Studio task has reached its only permitted tool round. Do not call any tool again; report the existing tool result accurately."
 }
 
 func chatAgentMode(agentDef catalog.AgentDefinition, orchestratedTeam bool) string {

@@ -739,6 +739,40 @@ func TestPrepareQueryDesktopParamsDoNotGrantToolsOrRuntimeEnv(t *testing.T) {
 	}
 }
 
+func TestPrepareQueryCapsDesktopImageStudioZenmiRunToOneToolCall(t *testing.T) {
+	chats, err := chat.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+	server := &Server{deps: Dependencies{
+		Config: config.Config{ContainerHub: config.ContainerHubConfig{Enabled: false}},
+		Chats:  chats,
+		Registry: queryMemoryRegistry{def: catalog.AgentDefinition{
+			Key: "zenmi", Name: "Zenmi", ModelKey: "mock-model", Tools: []string{"image_generate"},
+		}},
+	}}
+	body := `{"agentKey":"zenmi","chatId":"chat-image-studio","message":"edit image","params":{"desktop":{"source":"copilot","action":"image_studio"}}}`
+	prepared, err := prepareQueryForTest(server, httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(body)))
+	if err != nil {
+		t.Fatalf("prepareQueryForTest: %v", err)
+	}
+	if prepared.session.RunLimits.MaxToolCalls != 1 || prepared.session.RunLimits.MaxToolRounds != 1 {
+		t.Fatalf("unexpected Image Studio run limits: %#v", prepared.session.RunLimits)
+	}
+	if strings.TrimSpace(prepared.session.RunLimits.FinalAnswerPrompt) == "" {
+		t.Fatal("expected a final-answer-only prompt after the single tool round")
+	}
+
+	normalBody := `{"agentKey":"zenmi","chatId":"chat-normal","message":"hello","params":{"desktop":{"source":"copilot","action":"chat"}}}`
+	normal, err := prepareQueryForTest(server, httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(normalBody)))
+	if err != nil {
+		t.Fatalf("prepare normal query: %v", err)
+	}
+	if normal.session.RunLimits.MaxToolCalls != 0 || normal.session.RunLimits.MaxToolRounds != 0 {
+		t.Fatalf("normal Zenmi run must keep its configured budget: %#v", normal.session.RunLimits)
+	}
+}
+
 func containsAll(text string, needles []string) bool {
 	for _, needle := range needles {
 		if !strings.Contains(text, needle) {
