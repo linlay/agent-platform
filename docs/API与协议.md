@@ -448,7 +448,7 @@ curl -sS -X POST http://127.0.0.1:11949/api/query \
 
 Markdown 与 Snapshot 导出统一由 `Summary + LoadChat` 投影一次内部 `ConversationSnapshotV1`。它只包含已绑定的可见根 query、reasoning/content snapshot 和运行终态，不包含子任务、工具、系统提示、附件、内部 ID 或原始 payload。构建过程只执行一次 JSON 序列化，同一份字节用于 20 MiB 校验和 `format=snapshot` 响应；消息总数最多 2000 条，不限制单条消息字节数。Markdown 仅消费 Snapshot 结构体，写出已完成轮次的用户问题和最后一个 assistant 回答。
 
-`GET /api/chat/export` 的空 `format` 与 `format=markdown` 返回 `text/markdown`；`format=snapshot` 返回 `application/json` 和 `<title>.snapshot.json` 文件名。Platform 不提供 `format=html`、模板加载、资源域名 Header 或创建、列表、撤销分享 API，也不接收 Tunnel site token。WebClient 拥有 HTML 模板和运行时，Desktop Worker 负责本地 HTML 生成，Tunnel 协议、RFC3339 分享元数据和链接生命周期由 Desktop/Tunnel 边界负责。
+`GET /api/chat/export` 的空 `format` 与 `format=markdown` 返回 `text/markdown`；`format=snapshot` 返回 `application/json` 和 `<title>.snapshot.json` 文件名。响应的 `Content-Disposition` 使用标准媒体类型参数序列化：ASCII 文件名使用 `filename`，含非 ASCII 字符的文件名使用 RFC 编码的 `filename*`，响应头不会包含裸 Unicode。客户端必须按标准媒体类型参数解析文件名。Platform 不提供 `format=html`、模板加载、资源域名 Header 或创建、列表、撤销分享 API，也不接收 Tunnel site token。WebClient 拥有 HTML 模板和运行时，Desktop Worker 负责本地 HTML 生成，Tunnel 协议、RFC3339 分享元数据和链接生命周期由 Desktop/Tunnel 边界负责。
 
 `model` 可做本次 run 的模型覆盖：
 
