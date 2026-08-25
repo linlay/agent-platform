@@ -164,7 +164,9 @@ func (t *RuntimeToolExecutor) invokeDesktopAction(ctx context.Context, args map[
 			return desktopActionErrorResult("invalid_args", fmt.Sprintf("args.%s is reserved", reserved), map[string]any{"field": reserved}), nil
 		}
 	}
-	if t.cfg.RuntimeMode != config.RuntimeModeDesktop && !strings.HasPrefix(action, "desktop.workpanel.") && action != "desktop.display" {
+	if t.cfg.RuntimeMode != config.RuntimeModeDesktop &&
+		(action == "desktop.workpanel.openLocalFile" ||
+			(!strings.HasPrefix(action, "desktop.workpanel.") && action != "desktop.display")) {
 		return desktopActionErrorResult("desktop_action_unsupported_runtime", "desktop action is unavailable in standalone runtime mode", map[string]any{"action": action}), nil
 	}
 	requestID := strings.TrimSpace(stringArg(args, "requestId"))

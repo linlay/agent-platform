@@ -219,6 +219,12 @@ func TestDesktopRuntimeModeRoutingMatrix(t *testing.T) {
 	if err != nil || unsupported.Error != "desktop_action_unsupported_runtime" || invoker.calls != 1 {
 		t.Fatalf("standalone Desktop action was not rejected before dispatch: result=%#v calls=%d err=%v", unsupported, invoker.calls, err)
 	}
+	localFile, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"action": "desktop.workpanel.openLocalFile", "args": map[string]any{"path": "artifacts/report.html"},
+	}, desktopActionTestExecutionContext())
+	if err != nil || localFile.Error != "desktop_action_unsupported_runtime" || invoker.calls != 1 {
+		t.Fatalf("standalone local file action was not rejected before dispatch: result=%#v calls=%d err=%v", localFile, invoker.calls, err)
+	}
 	cdp, err := executor.invokeDesktopCDP(context.Background(), map[string]any{
 		"method": "Runtime.evaluate", "params": map[string]any{"expression": "1"},
 	}, &ExecutionContext{})
@@ -351,6 +357,7 @@ func TestDesktopRuntimeIndependentRunBindsDesktopMainTarget(t *testing.T) {
 		{name: "desktop.website.add", args: map[string]any{"url": "https://news.example.test", "label": "news"}},
 		{name: "desktop.pet.show", args: map[string]any{}},
 		{name: "desktop.theme.set", args: map[string]any{"themeMode": "dark"}},
+		{name: "desktop.workpanel.openLocalFile", args: map[string]any{"path": "artifacts/report.html", "title": "Report"}},
 	}
 	for index, action := range actions {
 		result, err := executor.invokeDesktopAction(context.Background(), map[string]any{
@@ -383,6 +390,10 @@ func TestDesktopRuntimeIndependentRunBindsDesktopMainTarget(t *testing.T) {
 		if source == nil || source.RunID != "run-independent" || source.ChatID != "chat-independent" || source.AgentKey != "agent-child" {
 			t.Fatalf("action %d source identity = %#v", index, source)
 		}
+	}
+	localFilePayload := requests[len(requests)-1].Payload
+	if localFilePayload["path"] != "artifacts/report.html" || localFilePayload["title"] != "Report" {
+		t.Fatalf("local file payload = %#v", localFilePayload)
 	}
 }
 
@@ -1193,6 +1204,7 @@ func TestInvokeDesktopActionAllowsCurrentDesktopActions(t *testing.T) {
 		"desktop.workpanel.getState",
 		"desktop.workpanel.openTab",
 		"desktop.workpanel.openWeb",
+		"desktop.workpanel.openLocalFile",
 		"desktop.workpanel.refreshWeb",
 		"desktop.workpanel.activateTab",
 		"desktop.workpanel.closeTab",
@@ -1291,6 +1303,7 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 		"desktop.workpanel.getState",
 		"desktop.workpanel.openTab",
 		"desktop.workpanel.openWeb",
+		"desktop.workpanel.openLocalFile",
 		"desktop.workpanel.refreshWeb",
 		"desktop.copilot.getPagePreferences",
 		"desktop.copilot.setPagePreference",
@@ -1372,8 +1385,8 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 
 func TestDesktopActionAllowlistUsesDirectReverseRequestFrames(t *testing.T) {
 	actions := sortedDesktopActionAllowlist(t)
-	if len(actions) != 82 {
-		t.Fatalf("desktop action count = %d, want 82", len(actions))
+	if len(actions) != 83 {
+		t.Fatalf("desktop action count = %d, want 83", len(actions))
 	}
 	invoker := &routingClientRequestInvoker{}
 	executor := &RuntimeToolExecutor{
