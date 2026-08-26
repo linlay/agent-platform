@@ -121,6 +121,7 @@ type providerTurnStream struct {
 	thinkTag       thinkTagParserState
 	toolCalls      map[int]*toolCallAccumulator
 	finishReason   string
+	finishSeenAt   time.Time
 	hasMeaningful  bool
 	usage          *openAIUsage
 	usageCommitted bool

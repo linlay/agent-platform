@@ -336,6 +336,15 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 		if strings.TrimSpace(contracts.FirstNonEmptyString(root["apiKey"], root["api-key"])) == "" {
 			addWarning("missing_api_key", "provider apiKey is empty")
 		}
+		for rawProtocol, rawDefinition := range contracts.AnyMapNode(root["protocols"]) {
+			if !strings.EqualFold(strings.TrimSpace(rawProtocol), "OPENAI") {
+				continue
+			}
+			definition := contracts.AnyMapNode(rawDefinition)
+			if _, err := models.ParseOpenAIResponseCompat(definition["compat"]); err != nil {
+				addError("invalid_openai_compat", err.Error())
+			}
+		}
 	case "models":
 		if strings.TrimSpace(contracts.FirstNonEmptyString(root["key"])) == "" {
 			addError("missing_key", "model key is required")
@@ -352,6 +361,11 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 		if _, exists := root["reasoningEffortMapping"]; exists {
 			if _, err := models.ParseReasoningEffortMapping(root["reasoningEffortMapping"], modelType, protocol); err != nil {
 				addError("invalid_reasoning_effort_mapping", err.Error())
+			}
+		}
+		if protocol == "" || strings.EqualFold(protocol, "OPENAI") {
+			if _, err := models.ParseOpenAIResponseCompat(root["compat"]); err != nil {
+				addError("invalid_openai_compat", err.Error())
 			}
 		}
 		if !models.IsACPPassthroughProtocol(protocol) {

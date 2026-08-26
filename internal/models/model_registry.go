@@ -507,7 +507,10 @@ func loadProviders(dir string) (map[string]ProviderDefinition, error) {
 		}
 		baseURL := resolveProviderBaseURL(key, values)
 		apiKey := strings.TrimSpace(stringNode(values["apiKey"]))
-		protocols := loadProviderProtocols(values, baseURL)
+		protocols, err := loadProviderProtocols(values, baseURL)
+		if err != nil {
+			return nil, fmt.Errorf("load provider %s: %w", entry.Name(), err)
+		}
 		memoryConfig, err := loadProviderMemory(values)
 		if err != nil {
 			return nil, fmt.Errorf("load provider %s: %w", entry.Name(), err)
@@ -586,7 +589,7 @@ func nestedMap(values map[string]any, keys ...string) map[string]any {
 	return current
 }
 
-func loadProviderProtocols(values map[string]any, baseURL string) map[string]ProtocolDefinition {
+func loadProviderProtocols(values map[string]any, baseURL string) (map[string]ProtocolDefinition, error) {
 	result := map[string]ProtocolDefinition{}
 	protocolNodes := contracts.AnyMapNode(values["protocols"])
 	for rawProtocol, rawValue := range protocolNodes {
@@ -595,6 +598,11 @@ func loadProviderProtocols(values map[string]any, baseURL string) map[string]Pro
 			continue
 		}
 		node := contracts.AnyMapNode(rawValue)
+		if protocol == "OPENAI" {
+			if _, err := ParseOpenAIResponseCompat(node["compat"]); err != nil {
+				return nil, fmt.Errorf("protocols.OPENAI: %w", err)
+			}
+		}
 		result[protocol] = ProtocolDefinition{
 			EndpointPath: resolveProviderEndpointPath(values, baseURL, protocol),
 			Headers:      stringMapNode(node["headers"]),
@@ -606,7 +614,7 @@ func loadProviderProtocols(values map[string]any, baseURL string) map[string]Pro
 			EndpointPath: resolveProviderEndpointPath(values, baseURL, "OPENAI"),
 		}
 	}
-	return result
+	return result, nil
 }
 
 func normalizeEndpointPath(value string, baseURL string, protocol string) string {
@@ -683,6 +691,11 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 		reasoningEffortMapping, err := ParseReasoningEffortMapping(values["reasoningEffortMapping"], modelType, protocol)
 		if err != nil {
 			return nil, fmt.Errorf("load model %s: %w", entry.Name(), err)
+		}
+		if protocol == "" || protocol == "OPENAI" {
+			if _, err := ParseOpenAIResponseCompat(values["compat"]); err != nil {
+				return nil, fmt.Errorf("load model %s: %w", entry.Name(), err)
+			}
 		}
 		model := ModelDefinition{
 			Key:                    key,

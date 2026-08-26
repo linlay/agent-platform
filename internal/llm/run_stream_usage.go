@@ -7,6 +7,7 @@ import (
 	"time"
 
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/models"
 )
 
 func (s *llmRunStream) currentContextSize() int {
@@ -390,19 +391,22 @@ func normalizeOpenAIUsage(usage *openAIUsage, protocolConfig protocolRuntimeConf
 	if raw == nil {
 		raw = openAIUsageRawMap(usage)
 	}
-	promptCacheHitTokens := usageCompatInt(raw, protocolConfig, "promptTokensDetails", "cacheHitTokens")
-	if promptCacheHitTokens <= 0 {
+	promptCacheHitTokens, cacheHitPathConfigured := usageCompatInt(raw, protocolConfig, "promptTokensDetails", "cacheHitTokens")
+	if !cacheHitPathConfigured {
 		promptCacheHitTokens = firstPositiveUsageInt(usage.PromptCacheHitTokens, usage.PromptTokensDetails.CachedTokens)
 	}
-	promptCacheMissTokens := usageCompatInt(raw, protocolConfig, "promptTokensDetails", "cacheMissTokens")
-	if promptCacheMissTokens <= 0 {
+	promptCacheMissTokens, cacheMissPathConfigured := usageCompatInt(raw, protocolConfig, "promptTokensDetails", "cacheMissTokens")
+	if !cacheMissPathConfigured {
 		promptCacheMissTokens = usage.PromptCacheMissTokens
+		derive := parsedOpenAIResponseCompat(protocolConfig).PromptCacheMissDerive
+		if promptCacheMissTokens <= 0 && derive == models.OpenAICacheMissDerivePromptMinusCacheHit {
+			promptCacheMissTokens = max(usage.PromptTokens-promptCacheHitTokens, 0)
+		} else if promptCacheMissTokens <= 0 && promptCacheHitTokens > 0 && usage.PromptTokens > promptCacheHitTokens {
+			promptCacheMissTokens = usage.PromptTokens - promptCacheHitTokens
+		}
 	}
-	if promptCacheMissTokens <= 0 && promptCacheHitTokens > 0 && usage.PromptTokens > promptCacheHitTokens {
-		promptCacheMissTokens = usage.PromptTokens - promptCacheHitTokens
-	}
-	reasoningTokens := usageCompatInt(raw, protocolConfig, "completionTokensDetails", "reasoningTokens")
-	if reasoningTokens <= 0 {
+	reasoningTokens, reasoningPathConfigured := usageCompatInt(raw, protocolConfig, "completionTokensDetails", "reasoningTokens")
+	if !reasoningPathConfigured {
 		reasoningTokens = usage.CompletionTokensDetails.ReasoningTokens
 	}
 
@@ -413,13 +417,17 @@ func normalizeOpenAIUsage(usage *openAIUsage, protocolConfig protocolRuntimeConf
 	}
 }
 
-func usageCompatInt(raw map[string]any, protocolConfig protocolRuntimeConfig, detailKey string, valueKey string) int {
+func usageCompatInt(raw map[string]any, protocolConfig protocolRuntimeConfig, detailKey string, valueKey string) (int, bool) {
 	rule := usageCompatRule(protocolConfig, detailKey, valueKey)
-	path := strings.TrimSpace(AnyStringNode(rule["path"]))
-	if path == "" {
-		return 0
+	rawPath, configured := rule["path"]
+	if !configured || rawPath == nil {
+		return 0, false
 	}
-	return intAtPath(raw, path)
+	path := strings.TrimSpace(AnyStringNode(rawPath))
+	if path == "" {
+		return 0, false
+	}
+	return intAtPath(raw, path), true
 }
 
 func usageCompatRule(protocolConfig protocolRuntimeConfig, detailKey string, valueKey string) map[string]any {

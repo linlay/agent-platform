@@ -181,6 +181,67 @@ func TestNormalizeOpenAIUsageInfersPromptCacheMissTokensByCompat(t *testing.T) {
 	}
 }
 
+func TestNormalizeOpenAIUsageDerivesColdCacheMissWhenCachedTokensAreZero(t *testing.T) {
+	protocolConfig := protocolRuntimeConfig{
+		Compat: map[string]any{
+			"response": map[string]any{
+				"usage": map[string]any{
+					"promptTokensDetails": map[string]any{
+						"cacheHitTokens": map[string]any{"path": "prompt_tokens_details.cached_tokens"},
+						"cacheMissTokens": map[string]any{
+							"path":   nil,
+							"derive": "prompt-minus-cache-hit",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	normalized := normalizeOpenAIUsage(&openAIUsage{
+		PromptTokens: 120,
+		Raw: map[string]any{
+			"prompt_tokens_details": map[string]any{"cached_tokens": 0},
+		},
+	}, protocolConfig)
+
+	if normalized.CacheHitTokens != 0 || normalized.CacheMissTokens != 120 {
+		t.Fatalf("expected a cold cache to report all prompt tokens as misses, got %#v", normalized)
+	}
+}
+
+func TestNormalizeOpenAIUsageConfiguredCacheMissPathWinsOverDerive(t *testing.T) {
+	protocolConfig := protocolRuntimeConfig{
+		Compat: map[string]any{
+			"response": map[string]any{
+				"usage": map[string]any{
+					"promptTokensDetails": map[string]any{
+						"cacheHitTokens": map[string]any{"path": "prompt_tokens_details.cached_tokens"},
+						"cacheMissTokens": map[string]any{
+							"path":   "prompt_tokens_details.miss_tokens",
+							"derive": "prompt-minus-cache-hit",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	normalized := normalizeOpenAIUsage(&openAIUsage{
+		PromptTokens: 100,
+		Raw: map[string]any{
+			"prompt_tokens_details": map[string]any{
+				"cached_tokens": 40,
+				"miss_tokens":   0,
+			},
+		},
+	}, protocolConfig)
+
+	if normalized.CacheHitTokens != 40 || normalized.CacheMissTokens != 0 {
+		t.Fatalf("expected configured cache miss path to take precedence over derivation, got %#v", normalized)
+	}
+}
+
 func TestNormalizeOpenAIUsageMapsDeepSeekCacheUsageByCompatPath(t *testing.T) {
 	protocolConfig := protocolRuntimeConfig{
 		Compat: map[string]any{

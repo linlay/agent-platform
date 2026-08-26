@@ -128,6 +128,51 @@ func TestCompatRequestOverridesMergeAlwaysAndReasoningScopedEntries(t *testing.T
 	}
 }
 
+func TestOpenAIResponseCompatModelDeepOverridesProviderAndClearsPath(t *testing.T) {
+	provider := ProviderDefinition{Protocols: map[string]ProtocolDefinition{
+		"OPENAI": {Compat: map[string]any{
+			"response": map[string]any{
+				"stream": map[string]any{
+					"termination":       "finish-reason",
+					"trailingTimeoutMs": 9000,
+				},
+				"usage": map[string]any{
+					"promptTokensDetails": map[string]any{
+						"cacheHitTokens":  map[string]any{"path": "provider.cache_hit"},
+						"cacheMissTokens": map[string]any{"path": "provider.cache_miss"},
+					},
+				},
+			},
+		}},
+	}}
+	model := ModelDefinition{Protocol: "OPENAI", Compat: map[string]any{
+		"response": map[string]any{
+			"stream": map[string]any{"termination": "stream-end", "trailingTimeoutMs": 1250},
+			"usage": map[string]any{
+				"promptTokensDetails": map[string]any{
+					"cacheHitTokens": map[string]any{"path": "prompt_tokens_details.cached_tokens"},
+					"cacheMissTokens": map[string]any{
+						"path":   nil,
+						"derive": "prompt-minus-cache-hit",
+					},
+				},
+			},
+		},
+	}}
+
+	config := resolveProtocolRuntimeConfig(provider, model)
+	parsed := parsedOpenAIResponseCompat(config)
+	if parsed.StreamTermination != OpenAIStreamTerminationStreamEnd || parsed.TrailingTimeoutMS != 1250 || parsed.PromptCacheMissDerive != OpenAICacheMissDerivePromptMinusCacheHit {
+		t.Fatalf("unexpected merged compat: %#v", parsed)
+	}
+	if path := AnyStringNode(usageCompatRule(config, "promptTokensDetails", "cacheHitTokens")["path"]); path != "prompt_tokens_details.cached_tokens" {
+		t.Fatalf("model cache hit path did not override provider: %q", path)
+	}
+	if value, exists := usageCompatRule(config, "promptTokensDetails", "cacheMissTokens")["path"]; !exists || value != nil {
+		t.Fatalf("model null did not clear provider cache miss path: %#v", value)
+	}
+}
+
 func TestPreserveReasoningContentRequiresCompatOnly(t *testing.T) {
 	protocolConfig := protocolRuntimeConfig{
 		Compat: map[string]any{

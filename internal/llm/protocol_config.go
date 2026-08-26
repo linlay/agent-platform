@@ -90,6 +90,21 @@ func responseUsageCompat(protocolConfig protocolRuntimeConfig) map[string]any {
 	return AnyMapNode(responseCompat["usage"])
 }
 
+func parsedOpenAIResponseCompat(protocolConfig protocolRuntimeConfig) OpenAIResponseCompat {
+	parsed, err := ParseOpenAIResponseCompat(protocolConfig.Compat)
+	if err != nil {
+		return OpenAIResponseCompat{
+			StreamTermination: OpenAIStreamTerminationFinishReason,
+			TrailingTimeoutMS: OpenAITrailingTimeoutDefaultMS,
+		}
+	}
+	return parsed
+}
+
+func openAIStreamWaitsForEnd(protocolConfig protocolRuntimeConfig) bool {
+	return parsedOpenAIResponseCompat(protocolConfig).StreamTermination == OpenAIStreamTerminationStreamEnd
+}
+
 func mergeStringMaps(maps ...map[string]string) map[string]string {
 	var out map[string]string
 	for _, current := range maps {

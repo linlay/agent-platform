@@ -38,7 +38,23 @@ func (s *llmRunStream) readCurrentSSEFrame() (string, string, error) {
 	if s == nil || s.currentTurn == nil || s.currentTurn.reader == nil {
 		return "", "", io.EOF
 	}
-	return readSSEFrameWithIdleTimeout(s.currentTurn.reader, s.currentTurn.body, s.modelStreamIdleTimeout())
+	return readSSEFrameWithIdleTimeout(s.currentTurn.reader, s.currentTurn.body, s.currentSSEIdleTimeout())
+}
+
+func (s *llmRunStream) currentSSEIdleTimeout() time.Duration {
+	if s == nil || !s.awaitingOpenAITerminalMetadata() {
+		return s.modelStreamIdleTimeout()
+	}
+	compat := parsedOpenAIResponseCompat(s.protocolConfig)
+	timeout := time.Duration(compat.TrailingTimeoutMS) * time.Millisecond
+	if s.currentTurn.finishSeenAt.IsZero() {
+		return timeout
+	}
+	remaining := timeout - time.Since(s.currentTurn.finishSeenAt)
+	if remaining <= 0 {
+		return time.Nanosecond
+	}
+	return remaining
 }
 
 func readSSEFrameWithIdleTimeout(reader *bufio.Reader, closer io.Closer, timeout time.Duration) (string, string, error) {

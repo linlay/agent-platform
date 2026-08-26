@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
@@ -185,6 +186,12 @@ func (p *openAIProtocol) ConsumeChunk(s *llmRunStream, _ string, rawChunk string
 	if err := json.Unmarshal([]byte(rawChunk), &decoded); err != nil {
 		return false, apperrors.Wrap(apperrors.CodeProviderStreamInvalid, fmt.Errorf("decode provider stream chunk: %w", err))
 	}
+	if s.awaitingOpenAITerminalMetadata() {
+		if decoded.Usage != nil {
+			s.accumulateUsage(decoded.Usage)
+		}
+		return false, nil
+	}
 	if len(decoded.Choices) == 0 {
 		if decoded.Usage != nil {
 			s.accumulateUsage(decoded.Usage)
@@ -217,7 +224,13 @@ func (p *openAIProtocol) ConsumeChunk(s *llmRunStream, _ string, rawChunk string
 		}
 		if strings.TrimSpace(choice.FinishReason) != "" {
 			s.currentTurn.finishReason = strings.TrimSpace(choice.FinishReason)
+			if s.currentTurn.finishSeenAt.IsZero() {
+				s.currentTurn.finishSeenAt = time.Now()
+			}
 			s.engine.logParsedDelta(s.session.RunID, "finish_reason", s.currentTurn.finishReason)
+			if openAIStreamWaitsForEnd(s.protocolConfig) {
+				return false, nil
+			}
 			if decoded.Usage == nil {
 				s.drainUsageChunk()
 			}
@@ -226,6 +239,17 @@ func (p *openAIProtocol) ConsumeChunk(s *llmRunStream, _ string, rawChunk string
 	}
 
 	return false, nil
+}
+
+func (s *llmRunStream) awaitingOpenAITerminalMetadata() bool {
+	if s == nil || s.currentTurn == nil || s.currentTurn.finishReason == "" {
+		return false
+	}
+	protocol := strings.ToUpper(strings.TrimSpace(s.model.Protocol))
+	if protocol == "" {
+		protocol = "OPENAI"
+	}
+	return protocol == "OPENAI" && openAIStreamWaitsForEnd(s.protocolConfig)
 }
 
 func toOpenAIToolSpecs(defs []api.ToolDetailResponse) []openAIToolSpec {

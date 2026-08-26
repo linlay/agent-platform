@@ -350,6 +350,9 @@ func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 		if s.isInterrupted() {
 			return false, nil
 		}
+		if s.awaitingOpenAITerminalMetadata() && isProviderTimeoutError(err) {
+			return true, s.finishCurrentTurn()
+		}
 		if errors.Is(err, io.EOF) {
 			if s.currentTurn.finishReason == "" && !s.currentTurn.hasMeaningful {
 				streamErr := apperrors.Wrap(
@@ -419,7 +422,11 @@ func (s *llmRunStream) finishCurrentTurn() error {
 	if turn.cancel != nil {
 		turn.cancel()
 	}
-	s.recordCurrentTurnTiming(time.Now())
+	completedAt := time.Now()
+	if !turn.finishSeenAt.IsZero() {
+		completedAt = turn.finishSeenAt
+	}
+	s.recordCurrentTurnTiming(completedAt)
 	s.modelCall = nil
 
 	toolCalls, err := turn.materializeToolCalls()
@@ -639,6 +646,11 @@ func (s *llmRunStream) finishCurrentTurn() error {
 	}
 	s.queuedToolCalls = s.prioritizeAwaitingToolCalls(s.queuedToolCalls)
 	return nil
+}
+
+func isProviderTimeoutError(err error) bool {
+	var appErr *apperrors.Error
+	return errors.As(err, &appErr) && appErr.Code() == apperrors.CodeProviderTimeout
 }
 
 func (s *llmRunStream) teamRouteRequired() bool {

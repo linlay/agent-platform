@@ -217,6 +217,52 @@ func TestAdminRegistryDiagnosticsRejectsReasoningEffortMappingOnACPModel(t *test
 	}
 }
 
+func TestAdminRegistryDiagnosticsValidateOpenAICompat(t *testing.T) {
+	server := &Server{}
+	providerDiagnostics := server.adminRegistryDiagnostics("providers", "provider.yml", map[string]any{
+		"key":     "provider",
+		"baseUrl": "https://example.com",
+		"apiKey":  "token",
+		"protocols": map[string]any{
+			"OPENAI": map[string]any{
+				"compat": map[string]any{
+					"response": map[string]any{
+						"stream": map[string]any{"termination": "invalid"},
+					},
+				},
+			},
+		},
+	}, "/providers/provider.yml")
+	assertAdminRegistryDiagnosticCode(t, providerDiagnostics, "invalid_openai_compat")
+
+	modelDiagnostics := server.adminRegistryDiagnostics("models", "model.yml", map[string]any{
+		"key":      "model",
+		"provider": "unknown",
+		"protocol": "OPENAI",
+		"modelId":  "model-id",
+		"compat": map[string]any{
+			"response": map[string]any{
+				"usage": map[string]any{
+					"promptTokensDetails": map[string]any{
+						"cacheMissTokens": map[string]any{"derive": "invalid"},
+					},
+				},
+			},
+		},
+	}, "/models/model.yml")
+	assertAdminRegistryDiagnosticCode(t, modelDiagnostics, "invalid_openai_compat")
+}
+
+func assertAdminRegistryDiagnosticCode(t *testing.T, diagnostics []api.AdminAgentDiagnostic, code string) {
+	t.Helper()
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == code {
+			return
+		}
+	}
+	t.Fatalf("expected diagnostic %q, got %#v", code, diagnostics)
+}
+
 func TestAdminRegistryDetailMCPWriteReloadsSynchronously(t *testing.T) {
 	fixture := setupAdminRegistriesFixture(t)
 	reloader := &recordingServerCatalogReloader{}
