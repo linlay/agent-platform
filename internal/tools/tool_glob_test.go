@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +25,104 @@ func TestInvokeGlobWithoutPathRequiresWorkspace(t *testing.T) {
 	}
 	if !strings.Contains(result.Output, "pass path explicitly") || !strings.Contains(result.Output, "@chat") {
 		t.Fatalf("expected actionable workspace_unavailable output, got %#v", result)
+	}
+}
+
+func TestInvokeGlobRejectsRootQualifiedPatternBeforePathResolution(t *testing.T) {
+	result, err := (&RuntimeToolExecutor{}).invokeGlob(context.Background(), map[string]any{
+		"pattern": "/Users/u/models/*.yml",
+	}, &contracts.ExecutionContext{})
+	if err != nil {
+		t.Fatalf("invokeGlob: %v", err)
+	}
+	if result.Error != "glob_invalid_pattern" || !strings.Contains(result.Output, "must be relative to path") {
+		t.Fatalf("expected actionable rooted-pattern rejection, got %#v", result)
+	}
+}
+
+func TestInvokeGlobBlocksFilesystemRootSearch(t *testing.T) {
+	root := hostFilesystemRootForTest(t)
+	executor := fileToolExecutor(root, false)
+	execCtx := fileToolExecutionContext(root)
+	cases := []struct {
+		name string
+		args map[string]any
+	}{
+		{name: "default workspace", args: map[string]any{"pattern": "*.yml"}},
+		{name: "explicit root", args: map[string]any{"pattern": "*.yml", "path": root}},
+		{name: "workspace alias", args: map[string]any{"pattern": "*.yml", "path": "@workspace"}},
+	}
+	if runtime.GOOS != "windows" {
+		link := filepath.Join(t.TempDir(), "root-link")
+		if err := os.Symlink(root, link); err != nil {
+			t.Fatalf("symlink root: %v", err)
+		}
+		cases = append(cases, struct {
+			name string
+			args map[string]any
+		}{name: "symlink to root", args: map[string]any{"pattern": "*.yml", "path": link}})
+	}
+
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := executor.invokeGlob(context.Background(), test.args, execCtx)
+			if err != nil {
+				t.Fatalf("invokeGlob: %v", err)
+			}
+			if result.Error != "glob_root_scan_blocked" || result.Structured["path"] != root {
+				t.Fatalf("expected root search rejection, got %#v", result)
+			}
+		})
+	}
+}
+
+func TestInvokeGlobAllowsNarrowAbsolutePathFromRootWorkspace(t *testing.T) {
+	requireRipgrep(t)
+	searchRoot := t.TempDir()
+	mustWriteFile(t, filepath.Join(searchRoot, "model.yml"), "key: model\n")
+	root := hostFilesystemRootForTest(t)
+	executor := fileToolExecutor(root, false)
+
+	result, err := executor.invokeGlob(context.Background(), map[string]any{
+		"pattern": "*.yml",
+		"path":    searchRoot,
+	}, fileToolExecutionContext(root))
+	if err != nil {
+		t.Fatalf("invokeGlob: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected narrow absolute search success, got %#v", result)
+	}
+}
+
+func TestInvokeGlobReportsRipgrepStderrAndPartialResults(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-script ripgrep fixture is Unix-only")
+	}
+	root := t.TempDir()
+	binDir := t.TempDir()
+	rgPath := filepath.Join(binDir, "rg")
+	mustWriteFile(t, rgPath, "#!/bin/sh\nfor arg in \"$@\"; do\n  if [ \"$arg\" = \"--no-messages\" ]; then\n    printf '%s\\n' 'messages unexpectedly hidden' >&2\n    exit 9\n  fi\ndone\nprintf '%s\\n' 'partial.yml'\nprintf '%s\\n' 'permission denied' >&2\nexit 2\n")
+	if err := os.Chmod(rgPath, 0o755); err != nil {
+		t.Fatalf("chmod fake rg: %v", err)
+	}
+	t.Setenv("AP_BUILTINS_BIN", binDir)
+	executor := fileToolExecutor(root, false)
+
+	result, err := executor.invokeGlob(context.Background(), map[string]any{
+		"pattern": "*.yml",
+	}, fileToolExecutionContext(root))
+	if err != nil {
+		t.Fatalf("invokeGlob: %v", err)
+	}
+	if result.Error != "glob_failed" || result.Structured["rgExitCode"] != 2 {
+		t.Fatalf("expected rg failure diagnostics, got %#v", result)
+	}
+	if !strings.Contains(result.Structured["stderr"].(string), "permission denied") {
+		t.Fatalf("expected visible rg stderr, got %#v", result.Structured)
+	}
+	if got := stringSliceResult(t, result.Structured["partialResults"]); len(got) != 1 || got[0] != "partial.yml" {
+		t.Fatalf("expected partial result, got %#v", result.Structured)
 	}
 }
 

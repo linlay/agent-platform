@@ -15,6 +15,7 @@ import (
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/hitl"
 	. "agent-platform/internal/models"
+	"agent-platform/internal/pathutil"
 	"agent-platform/internal/querymessages"
 	"agent-platform/internal/toolinteraction"
 )
@@ -436,6 +437,10 @@ func effectiveToolDefinitions(defs []api.ToolDetailResponse, allowed []string, s
 		for index := range out {
 			hardenWorkspaceLessToolDefinition(&out[index])
 		}
+	} else if sessionWorkspaceIsFilesystemRoot(session) {
+		for index := range out {
+			hardenFilesystemRootWorkspaceSearchToolDefinition(&out[index])
+		}
 	}
 	return out
 }
@@ -449,6 +454,14 @@ func sessionHasWorkspace(session QuerySession) bool {
 		return strings.TrimSpace(session.RuntimeContext.SandboxPaths.WorkspaceDir) != ""
 	}
 	return false
+}
+
+func sessionWorkspaceIsFilesystemRoot(session QuerySession) bool {
+	root := strings.TrimSpace(session.WorkspaceRoot)
+	if root == "" {
+		root = strings.TrimSpace(session.RuntimeContext.LocalPaths.WorkspaceDir)
+	}
+	return root != "" && pathutil.IsFilesystemRoot(root)
 }
 
 func cloneToolDefinitions(defs []api.ToolDetailResponse) []api.ToolDetailResponse {
@@ -518,6 +531,19 @@ func hardenWorkspaceLessToolDefinition(def *api.ToolDetailResponse) {
 	case "vision_recognize":
 		setNestedToolParameterDescription(def.Parameters, []string{"properties", "images", "items", "properties", "file_path"},
 			"Explicit host image path. This run has no Workspace, so relative paths and @workspace are unavailable. Prefer reference_name for a current Chat attachment or screenshot; otherwise use an explicit semantic-root or allowed absolute path.")
+	}
+}
+
+func hardenFilesystemRootWorkspaceSearchToolDefinition(def *api.ToolDetailResponse) {
+	if def == nil {
+		return
+	}
+	switch normalizedToolDefinitionName(*def) {
+	case "file_glob", "file_grep":
+		requireToolParameter(def.Parameters, "path")
+		setToolParameterDescription(def.Parameters, "path",
+			"Required because the current Workspace resolves to the filesystem root and root searches are blocked. Pass a narrower relative, semantic-root, or allowed absolute directory; path=\".\" and bare @workspace remain blocked.")
+		appendToolDefinitionNote(def, "The current Workspace is the filesystem root. Every file search must pass an explicit narrower path.")
 	}
 }
 

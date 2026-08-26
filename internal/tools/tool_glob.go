@@ -21,6 +21,9 @@ func (t *RuntimeToolExecutor) invokeGlob(ctx context.Context, args map[string]an
 	if pattern == "" {
 		return fileToolError("glob_invalid_pattern", "pattern is required"), nil
 	}
+	if err := validateRelativeSearchGlob(pattern, "pattern"); err != nil {
+		return fileToolError("glob_invalid_pattern", err.Error()), nil
+	}
 	rawPath := strings.TrimSpace(stringArg(args, "path"))
 	accessSession := accessPolicySession(execCtx)
 	if rawPath == "" {
@@ -32,6 +35,9 @@ func (t *RuntimeToolExecutor) invokeGlob(ctx context.Context, args map[string]an
 	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessSession, filetools.ReadAccess, rawPath)
 	if err != nil {
 		return filePathResolutionError("glob_invalid_path", err), nil
+	}
+	if result, blocked := filesystemRootSearchError("file_glob", "glob_root_scan_blocked", access.Path); blocked {
+		return result, nil
 	}
 	if access.Blocked {
 		return fileToolError("glob_path_blocked", access.Reason), nil
@@ -64,7 +70,6 @@ func (t *RuntimeToolExecutor) invokeGlob(ctx context.Context, args map[string]an
 		"--color", "never",
 		"--files",
 		"--hidden",
-		"--no-messages",
 		"--glob", "!.git",
 		"--glob", "!.svn",
 		"--glob", "!.hg",
@@ -95,17 +100,28 @@ func (t *RuntimeToolExecutor) invokeGlob(ctx context.Context, args map[string]an
 	runtimeInfo := t.runtimeInfo()
 	out := textcodec.DecodeSubprocessOutput(stdout.Bytes(), runtimeInfo)
 	errText := textcodec.DecodeSubprocessOutput(stderr.Bytes(), runtimeInfo)
-	if err != nil && strings.TrimSpace(out) == "" && exitCode != 1 {
+	if err != nil && exitCode != 1 {
+		code := "glob_failed"
 		if strings.Contains(strings.ToLower(errText), "glob") {
-			return fileToolError("glob_invalid_pattern", strings.TrimSpace(errText)), nil
+			code = "glob_invalid_pattern"
 		}
+		fallbackMessage := err.Error()
 		if ctx.Err() != nil {
-			return fileToolError("glob_failed", ctx.Err().Error()), nil
+			fallbackMessage = ctx.Err().Error()
 		}
-		if strings.TrimSpace(errText) == "" {
-			errText = err.Error()
-		}
-		return fileToolError("glob_failed", errText), nil
+		return ripgrepSearchFailure(
+			"file_glob",
+			code,
+			resolved.Path,
+			exitCode,
+			out,
+			errText,
+			fallbackMessage,
+			args,
+			defaultGlobHeadLimit,
+			true,
+			map[string]any{"pattern": pattern},
+		), nil
 	}
 
 	lines := splitOutputLines(out)

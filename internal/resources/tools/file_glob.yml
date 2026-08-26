@@ -9,10 +9,10 @@ inputSchema:
   properties:
     pattern:
       type: string
-      description: Required. Ripgrep-style glob pattern to match file paths, such as '*.go', '**/*.{ts,tsx}', or 'internal/**/*.go'.
+      description: Required. Ripgrep-style glob pattern relative to path, such as '*.go', '**/*.{ts,tsx}', or 'internal/**/*.go'. Do not include an absolute path, home prefix, URI, or semantic root here; put the search directory in path.
     path:
       type: string
-      description: Directory to search. Defaults to the current Workspace. Explicit semantic roots include @workspace, @chat, @agent, @skills, @skills-center, @owner, and @temp. A Workspace-less session requires path.
+      description: Directory to search. Defaults to the current Workspace unless it resolves to the filesystem root, which is never searchable and requires an explicit narrower path. Explicit semantic roots include @workspace, @chat, @agent, @skills, @skills-center, @owner, and @temp. A Workspace-less session requires path.
     head_limit:
       type: integer
       description: Maximum number of matching paths to return after offset. Defaults to 100; 0 means unlimited.

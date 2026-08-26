@@ -2,6 +2,7 @@ package llm
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -298,6 +299,37 @@ func TestEffectiveToolDefinitionsRequireExplicitRootsWithoutWorkspace(t *testing
 	}
 	if schemaRequiredSet(toolDefinitionByName(t, withWorkspace, "file_glob").Parameters)["path"] {
 		t.Fatalf("Workspace session unexpectedly requires file_glob.path: %#v", withWorkspace)
+	}
+
+	filesystemRoot := filepath.VolumeName(t.TempDir()) + string(filepath.Separator)
+	rootWorkspace := effectiveToolDefinitions(defs, allowed, contracts.QuerySession{
+		WorkspaceRoot: filesystemRoot,
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{WorkspaceDir: filesystemRoot, ChatDir: "/runtime/chats/chat-3"},
+		},
+	})
+	for _, toolName := range []string{"file_glob", "file_grep"} {
+		definition := toolDefinitionByName(t, rootWorkspace, toolName)
+		if !schemaRequiredSet(definition.Parameters)["path"] {
+			t.Fatalf("root Workspace must require %s.path: %#v", toolName, definition.Parameters)
+		}
+		if description := nestedSchemaDescription(definition.Parameters, "properties", "path"); !strings.Contains(description, "filesystem root") || !strings.Contains(description, "narrower") {
+			t.Fatalf("root Workspace path guidance is not actionable for %s: %q", toolName, description)
+		}
+	}
+	if schemaRequiredSet(toolDefinitionByName(t, rootWorkspace, "bash").Parameters)["cwd"] {
+		t.Fatalf("root Workspace file-search hardening must not require bash.cwd: %#v", rootWorkspace)
+	}
+	for _, toolName := range []string{"file_glob", "file_grep"} {
+		if schemaRequiredSet(toolDefinitionByName(t, defs, toolName).Parameters)["path"] {
+			t.Fatalf("root Workspace session mutated the source definition for %s: %#v", toolName, defs)
+		}
+	}
+	afterRootWorkspace := effectiveToolDefinitions(defs, allowed, contracts.QuerySession{WorkspaceRoot: "/workspace-after-root"})
+	for _, toolName := range []string{"file_glob", "file_grep"} {
+		if schemaRequiredSet(toolDefinitionByName(t, afterRootWorkspace, toolName).Parameters)["path"] {
+			t.Fatalf("root Workspace hardening leaked into a later ordinary session for %s: %#v", toolName, afterRootWorkspace)
+		}
 	}
 }
 

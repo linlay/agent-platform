@@ -78,6 +78,25 @@ func WithinRoot(target, root Canonical) bool {
 	return strings.HasPrefix(targetKey, rootKey+"/")
 }
 
+// IsFilesystemRoot reports whether path resolves to the host filesystem,
+// volume, or share root. Callers use this for operations whose cost or scope
+// makes searching an entire root unsafe even when ordinary path access is
+// otherwise allowed.
+func IsFilesystemRoot(path string) bool {
+	canonical, err := Canonicalize(path)
+	if err != nil {
+		return false
+	}
+	return IsCanonicalFilesystemRoot(canonical.Host)
+}
+
+// IsCanonicalFilesystemRoot is the non-resolving form of IsFilesystemRoot.
+// The input must already be an absolute canonical host path.
+func IsCanonicalFilesystemRoot(path string) bool {
+	cleaned := filepath.Clean(strings.TrimSpace(path))
+	return filepath.IsAbs(cleaned) && filepath.Dir(cleaned) == cleaned
+}
+
 func ExpandHome(path string) string {
 	path = strings.TrimSpace(path)
 	if path == "~" || strings.HasPrefix(path, "~/") {

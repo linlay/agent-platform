@@ -591,6 +591,10 @@ func TestFileGrepOutputModeEnumIsSchemaArray(t *testing.T) {
 			t.Fatalf("expected file_grep output_mode enum to include %q", want)
 		}
 	}
+	glob := properties["glob"].(map[string]any)
+	if description := fmt.Sprint(glob["description"]); !strings.Contains(description, "relative to path") || !strings.Contains(description, "search directory in path") {
+		t.Fatalf("expected file_grep.glob to explain the relative glob contract, got %q", description)
+	}
 }
 
 func TestFileGlobSchemaIncludesRequiredPattern(t *testing.T) {
@@ -611,8 +615,12 @@ func TestFileGlobSchemaIncludesRequiredPattern(t *testing.T) {
 	}
 
 	properties := mapChild(t, fileGlobDef, "properties")
-	if _, ok := properties["pattern"]; !ok {
+	pattern, ok := properties["pattern"].(map[string]any)
+	if !ok {
 		t.Fatal("expected file_glob pattern property")
+	}
+	if description := fmt.Sprint(pattern["description"]); !strings.Contains(description, "relative to path") || !strings.Contains(description, "search directory in path") {
+		t.Fatalf("expected file_glob.pattern to explain the relative glob contract, got %q", description)
 	}
 	required, ok := fileGlobDef["required"].([]any)
 	if !ok {

@@ -52,6 +52,92 @@ func TestInvokeGrepWithoutPathRequiresWorkspace(t *testing.T) {
 	}
 }
 
+func TestInvokeGrepRejectsRootQualifiedGlobBeforePathResolution(t *testing.T) {
+	result, err := (&RuntimeToolExecutor{}).invokeGrep(context.Background(), map[string]any{
+		"pattern": "needle",
+		"glob":    "@workspace/**/*.yml",
+	}, &contracts.ExecutionContext{})
+	if err != nil {
+		t.Fatalf("invokeGrep: %v", err)
+	}
+	if result.Error != "grep_invalid_glob" || !strings.Contains(result.Output, "must be relative to path") {
+		t.Fatalf("expected actionable rooted-glob rejection, got %#v", result)
+	}
+}
+
+func TestInvokeGrepDoesNotTreatContentPatternAsAPath(t *testing.T) {
+	requireRipgrep(t)
+	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "notes.txt"), "/Users/u/models/example.yml\n")
+	executor := fileToolExecutor(root, false)
+
+	result, err := executor.invokeGrep(context.Background(), map[string]any{
+		"pattern": "/Users/u/models",
+	}, fileToolExecutionContext(root))
+	if err != nil {
+		t.Fatalf("invokeGrep: %v", err)
+	}
+	if result.Error != "" || len(stringSliceResult(t, result.Structured["results"])) != 1 {
+		t.Fatalf("content pattern was incorrectly rejected as a path: %#v", result)
+	}
+}
+
+func TestInvokeGrepBlocksFilesystemRootSearch(t *testing.T) {
+	root := hostFilesystemRootForTest(t)
+	executor := fileToolExecutor(root, false)
+	execCtx := fileToolExecutionContext(root)
+	for _, test := range []struct {
+		name string
+		args map[string]any
+	}{
+		{name: "default workspace", args: map[string]any{"pattern": "needle"}},
+		{name: "explicit root", args: map[string]any{"pattern": "needle", "path": root}},
+		{name: "workspace alias", args: map[string]any{"pattern": "needle", "path": "@workspace"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := executor.invokeGrep(context.Background(), test.args, execCtx)
+			if err != nil {
+				t.Fatalf("invokeGrep: %v", err)
+			}
+			if result.Error != "grep_root_scan_blocked" || result.Structured["path"] != root {
+				t.Fatalf("expected root search rejection, got %#v", result)
+			}
+		})
+	}
+}
+
+func TestInvokeGrepReportsRipgrepStderrAndPartialResults(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell-script ripgrep fixture is Unix-only")
+	}
+	root := t.TempDir()
+	binDir := t.TempDir()
+	rgPath := filepath.Join(binDir, "rg")
+	mustWriteFile(t, rgPath, "#!/bin/sh\nprintf '%s\\n' 'notes.txt:1:needle'\nprintf '%s\\n' 'filesystem changed during search' >&2\nexit 2\n")
+	if err := os.Chmod(rgPath, 0o755); err != nil {
+		t.Fatalf("chmod fake rg: %v", err)
+	}
+	t.Setenv("AP_BUILTINS_BIN", binDir)
+	executor := fileToolExecutor(root, false)
+
+	result, err := executor.invokeGrep(context.Background(), map[string]any{
+		"pattern":     "needle",
+		"output_mode": "content",
+	}, fileToolExecutionContext(root))
+	if err != nil {
+		t.Fatalf("invokeGrep: %v", err)
+	}
+	if result.Error != "grep_failed" || result.Structured["rgExitCode"] != 2 {
+		t.Fatalf("expected rg failure diagnostics, got %#v", result)
+	}
+	if !strings.Contains(result.Structured["stderr"].(string), "filesystem changed") {
+		t.Fatalf("expected visible rg stderr, got %#v", result.Structured)
+	}
+	if got := stringSliceResult(t, result.Structured["partialResults"]); len(got) != 1 || got[0] != "notes.txt:1:needle" {
+		t.Fatalf("expected partial content result, got %#v", result.Structured)
+	}
+}
+
 func TestInvokeGrepWithoutWorkspaceAllowsExplicitChatPath(t *testing.T) {
 	requireRipgrep(t)
 	chatDir := t.TempDir()

@@ -30,6 +30,12 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 	if strings.TrimSpace(pattern) == "" {
 		return fileToolError("grep_invalid_pattern", "pattern is required"), nil
 	}
+	glob := strings.TrimSpace(stringArg(args, "glob"))
+	if glob != "" {
+		if err := validateRelativeSearchGlob(glob, "glob"); err != nil {
+			return fileToolError("grep_invalid_glob", err.Error()), nil
+		}
+	}
 	rawPath := strings.TrimSpace(stringArg(args, "path"))
 	accessSession := accessPolicySession(execCtx)
 	if rawPath == "" {
@@ -41,6 +47,9 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessSession, filetools.ReadAccess, rawPath)
 	if err != nil {
 		return filePathResolutionError("grep_invalid_path", err), nil
+	}
+	if result, blocked := filesystemRootSearchError("file_grep", "grep_root_scan_blocked", access.Path); blocked {
+		return result, nil
 	}
 	if access.Blocked {
 		return fileToolError("grep_path_blocked", access.Reason), nil
@@ -72,7 +81,6 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 		"--no-config",
 		"--color", "never",
 		"--hidden",
-		"--no-messages",
 		"--max-columns", "500",
 		"--glob", "!.git",
 		"--glob", "!.svn",
@@ -102,7 +110,7 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 	if boolArg(args, "multiline") {
 		rgArgs = append(rgArgs, "-U", "--multiline-dotall")
 	}
-	if glob := strings.TrimSpace(stringArg(args, "glob")); glob != "" {
+	if glob != "" {
 		rgArgs = append(rgArgs, "--glob", glob)
 	}
 	if typ := strings.TrimSpace(stringArg(args, "type")); typ != "" {
@@ -137,17 +145,38 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 	runtimeInfo := t.runtimeInfo()
 	out := textcodec.DecodeSubprocessOutput(stdout.Bytes(), runtimeInfo)
 	errText := textcodec.DecodeSubprocessOutput(stderr.Bytes(), runtimeInfo)
-	if err != nil && strings.TrimSpace(out) == "" && exitCode != 1 {
-		if strings.Contains(errText, "unrecognized file type") || strings.Contains(errText, "unknown file type") {
-			return fileToolError("grep_invalid_type", strings.TrimSpace(errText)), nil
+	if err != nil && exitCode != 1 {
+		code := "grep_failed"
+		lowerError := strings.ToLower(errText)
+		if strings.Contains(lowerError, "unrecognized file type") || strings.Contains(lowerError, "unknown file type") {
+			code = "grep_invalid_type"
+		} else if glob != "" && strings.Contains(lowerError, "glob") {
+			code = "grep_invalid_glob"
 		}
+		fallbackMessage := err.Error()
 		if ctx.Err() != nil {
-			return fileToolError("grep_failed", ctx.Err().Error()), nil
+			fallbackMessage = ctx.Err().Error()
 		}
-		if strings.TrimSpace(errText) == "" {
-			errText = err.Error()
+		extraFields := map[string]any{
+			"pattern": pattern,
+			"mode":    mode,
 		}
-		return fileToolError("grep_failed", errText), nil
+		if glob != "" {
+			extraFields["glob"] = glob
+		}
+		return ripgrepSearchFailure(
+			"file_grep",
+			code,
+			resolved.Path,
+			exitCode,
+			out,
+			errText,
+			fallbackMessage,
+			args,
+			defaultGrepHeadLimit,
+			mode == "files_with_matches",
+			extraFields,
+		), nil
 	}
 
 	lines := splitOutputLines(out)

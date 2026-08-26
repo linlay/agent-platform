@@ -76,6 +76,22 @@ func TestWithinRootUsesPathComponentBoundaries(t *testing.T) {
 	}
 }
 
+func TestIsFilesystemRoot(t *testing.T) {
+	root := filepath.VolumeName(t.TempDir()) + string(filepath.Separator)
+	if !IsFilesystemRoot(root) {
+		t.Fatalf("expected %q to resolve as a filesystem root", root)
+	}
+	if !IsCanonicalFilesystemRoot(root) {
+		t.Fatalf("expected canonical %q to be a filesystem root", root)
+	}
+	if IsFilesystemRoot(t.TempDir()) {
+		t.Fatal("temporary directory unexpectedly classified as a filesystem root")
+	}
+	if IsCanonicalFilesystemRoot(".") {
+		t.Fatal("relative path unexpectedly classified as a filesystem root")
+	}
+}
+
 func TestCanonicalKeyUsesPlatformCaseSensitivity(t *testing.T) {
 	root := t.TempDir()
 	upper, err := Canonicalize(filepath.Join(root, "A.txt"))
@@ -137,8 +153,12 @@ func TestCanonicalizeWindowsForms(t *testing.T) {
 		t.Fatalf("canonicalize drive root: %v", err)
 	} else if !WithinRoot(upper, root) {
 		t.Fatalf("expected %q to be within %q", upper.Key, root.Key)
+	} else if !IsCanonicalFilesystemRoot(root.Host) {
+		t.Fatalf("expected drive root %q to be classified as a filesystem root", root.Host)
 	}
-	_, _ = Canonicalize(`\\server\share\dir`)
+	if share, err := Canonicalize(`\\server\share\`); err == nil && !IsCanonicalFilesystemRoot(share.Host) {
+		t.Fatalf("expected UNC share root %q to be classified as a filesystem root", share.Host)
+	}
 }
 
 func realPathForTest(t *testing.T, path string) string {

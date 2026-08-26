@@ -15,10 +15,10 @@ inputSchema:
       description: Required. Regex pattern to search for, using ripgrep syntax.
     path:
       type: string
-      description: File or directory to search. Defaults to the current Workspace. Explicit semantic roots include @workspace, @chat, @agent, @skills, @skills-center, @owner, and @temp. A Workspace-less session requires path.
+      description: File or directory to search. Defaults to the current Workspace unless it resolves to the filesystem root, which is never searchable and requires an explicit narrower path. Explicit semantic roots include @workspace, @chat, @agent, @skills, @skills-center, @owner, and @temp. A Workspace-less session requires path.
     glob:
       type: string
-      description: Glob filter, such as '*.go' or '*.{ts,tsx}'.
+      description: Glob filter relative to path, such as '*.go' or '*.{ts,tsx}'. Do not include an absolute path, home prefix, URI, or semantic root here; put the search directory in path.
     type:
       type: string
       description: Ripgrep file type filter, such as 'go' or 'py'.
