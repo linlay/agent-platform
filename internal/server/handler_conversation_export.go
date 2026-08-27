@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"fmt"
+	"mime"
 	"net/http"
 	"strconv"
 	"strings"
@@ -58,7 +59,7 @@ func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 
 	filename := safeExportFilenameWithExtension(document.Snapshot.Title, chatID, extension)
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, filename))
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
 	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
