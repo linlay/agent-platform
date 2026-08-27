@@ -413,6 +413,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/viewport", s.method(http.MethodGet, s.handleViewport))
 	s.router.HandleFunc("/api/tool-result", s.method(http.MethodGet, s.handleToolResult))
 	s.router.HandleFunc("/api/resource", s.method(http.MethodGet, s.handleResource))
+	s.router.HandleFunc("/api/resource/image/commit", s.method(http.MethodPost, s.handleResourceImageCommit))
 	s.router.HandleFunc("/api/upload", s.method(http.MethodPost, s.handleUpload))
 	if s.wsHandler != nil {
 		s.router.HandleFunc("/ws/channel", s.handleChannelWebSocket)

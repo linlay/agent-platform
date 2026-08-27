@@ -83,11 +83,11 @@ func TestUploadAndResourceRoundTrip(t *testing.T) {
 	if summary.ChatName != chat.PendingChatName {
 		t.Fatalf("expected upload-created chat to use pending name, got %#v", summary)
 	}
-	wantUploadPath := filepath.Join(fixture.cfg.Paths.ChatsDir, response.Data.ChatID, "notes.txt")
+	wantUploadPath := filepath.Join(fixture.cfg.Paths.ChatsDir, response.Data.ChatID, "references", "notes.txt")
 	if response.Data.Upload.Path != wantUploadPath {
 		t.Fatalf("upload path = %q, want %q", response.Data.Upload.Path, wantUploadPath)
 	}
-	if response.Data.Upload.URL != "notes.txt" {
+	if response.Data.Upload.URL != "references/notes.txt" {
 		t.Fatalf("upload public URL = %q, want ChatScope relative path", response.Data.Upload.URL)
 	}
 	resourceKey, err := chat.BuildResourceKey(response.Data.ChatID, response.Data.Upload.URL)
@@ -103,8 +103,11 @@ func TestUploadAndResourceRoundTrip(t *testing.T) {
 	if got := resourceRec.Body.String(); got != "hello world" {
 		t.Fatalf("unexpected resource content: %q", got)
 	}
+	if revision := resourceRec.Header().Get("X-ZenMind-Resource-Revision"); revision == "" {
+		t.Fatal("expected resource revision header")
+	}
 
-	matches, err := filepath.Glob(filepath.Join(fixture.cfg.Paths.ChatsDir, "*", "notes.txt"))
+	matches, err := filepath.Glob(filepath.Join(fixture.cfg.Paths.ChatsDir, "*", "references", "notes.txt"))
 	if err != nil {
 		t.Fatalf("glob upload path: %v", err)
 	}
@@ -495,10 +498,10 @@ func TestUploadReturnsContainerPathWhenAgentUsesContainerRuntime(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode upload response: %v", err)
 	}
-	if response.Data.Upload.Path != "/chat/notes.txt" {
+	if response.Data.Upload.Path != "/chat/references/notes.txt" {
 		t.Fatalf("upload path = %q", response.Data.Upload.Path)
 	}
-	if response.Data.Upload.URL != "notes.txt" {
+	if response.Data.Upload.URL != "references/notes.txt" {
 		t.Fatalf("upload URL = %q", response.Data.Upload.URL)
 	}
 	if strings.Contains(rec.Body.String(), "sandboxPath") {
@@ -992,7 +995,7 @@ func TestWebSocketResourcePushesLocalFileToGateway(t *testing.T) {
 		Type:  "/api/resource",
 		ID:    "req_resource_ws",
 		Payload: ws.MarshalPayload(map[string]any{
-			"file":    "chat_ws_resource/resource.txt",
+			"file":    "chat_ws_resource/references/resource.txt",
 			"pushURL": gateway.URL + "/api/push/ticket-1",
 		}),
 	}); err != nil {

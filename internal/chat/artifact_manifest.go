@@ -134,5 +134,5 @@ func writeArtifactManifest(path string, manifest ArtifactManifest) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpName, path)
+	return atomicReplaceFile(tmpName, path)
 }

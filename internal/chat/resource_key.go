@@ -98,6 +98,28 @@ func validatedResourceSegments(relativePath string) ([]string, error) {
 }
 
 func validResourceSegment(segment string) bool {
-	return segment != "" && segment != "." && segment != ".." &&
-		!strings.ContainsAny(segment, `/\`) && !strings.ContainsRune(segment, 0)
+	if segment == "" || segment == "." || segment == ".." || strings.ContainsAny(segment, `/\`) {
+		return false
+	}
+	for _, value := range segment {
+		if value == 0 || value < 0x20 || value == 0x7f {
+			return false
+		}
+	}
+	decoded := segment
+	for depth := 0; depth < 4; depth++ {
+		next, err := url.PathUnescape(decoded)
+		if err != nil {
+			return true
+		}
+		if next == "." || next == ".." || strings.ContainsAny(next, `/\`) {
+			return false
+		}
+		if next == decoded {
+			return true
+		}
+		decoded = next
+	}
+	next, err := url.PathUnescape(decoded)
+	return err != nil || next == decoded
 }

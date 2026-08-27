@@ -32,6 +32,7 @@
 - `GET /api/viewport?viewportKey=...`
 - `GET /api/resource?file=...`
 - `POST /api/upload`
+- `POST /api/resource/image/commit`
 - `GET /api/file?agentKey=...&path=...`
 - `GET /api/project/tree?agentKey=...`
 - `GET /api/project/changes?agentKey=...&chatId=...`
@@ -384,7 +385,7 @@ docker compose logs -f
 - `bash` 执行失败：检查 `AP_CONTAINER_HUB_BASE_URL`、`container-hub.default-environment-id`，以及 runtime 目录配置是否为宿主机真实路径。
 - chat 没有持久化：检查 `AP_RUNTIME_CHATS_DIR` 是否可写。
 - memory learn 未生效：确认 `/api/learn` 请求体、agent memory 配置与 `AP_RUNTIME_MEMORY_DIR` 可写性。
-- 上传后无法下载：确认文件已落到 `AP_RUNTIME_CHATS_DIR/<chatId>/`，并检查 `/api/resource?file=...` 是否原样使用。
+- 上传后无法下载：确认文件已落到 `AP_RUNTIME_CHATS_DIR/<chatId>/references/`，并检查 `/api/resource?file=...` 是否使用响应中的 ChatScope `url`。
 
 ## 文档索引
 

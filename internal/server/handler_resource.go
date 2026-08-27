@@ -201,6 +201,7 @@ func (s *Server) serveResourcePath(w http.ResponseWriter, r *http.Request, path 
 	contentType := resourceContentType(info.Name(), file)
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-ZenMind-Resource-Revision", fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixMilli()))
 	disposition := ""
 	if resourceDownloadRequested(r) {
 		disposition = "attachment"
@@ -402,19 +403,20 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
-	targetPath := filepath.Join(s.deps.Chats.ChatDir(chatID), targetName)
+	referenceRelativePath := filepath.ToSlash(filepath.Join("references", targetName))
+	targetPath := filepath.Join(s.deps.Chats.ChatDir(chatID), filepath.FromSlash(referenceRelativePath))
 	sum, size, err := saveUploadedFile(targetPath, file)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
 
-	resourceURL, err := chat.BuildChatScopeRef(targetName)
+	resourceURL, err := chat.BuildChatScopeRef(referenceRelativePath)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, "failed to create upload resource reference"))
 		return
 	}
-	referencePath := s.uploadReferencePath(targetName, targetPath, agentKey)
+	referencePath := s.uploadReferencePath(referenceRelativePath, targetPath, agentKey)
 	writeJSON(w, http.StatusOK, api.Success(api.UploadResponse{
 		RequestID: requestID,
 		ChatID:    chatID,
@@ -431,9 +433,9 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}))
 }
 
-func (s *Server) uploadReferencePath(targetName string, targetPath string, agentKey string) string {
+func (s *Server) uploadReferencePath(relativePath string, targetPath string, agentKey string) string {
 	if s.agentUsesContainerHubForKey(agentKey) {
-		return "/chat/" + filepath.ToSlash(targetName)
+		return "/chat/" + filepath.ToSlash(relativePath)
 	}
 	if abs, err := filepath.Abs(targetPath); err == nil {
 		return abs
