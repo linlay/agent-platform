@@ -30,7 +30,7 @@ type proxyReferenceOptions struct {
 func prepareProxyReferences(store chat.Store, ticketService *ResourceTicketService, options proxyReferenceOptions) ([]api.Reference, error) {
 	out := make([]api.Reference, 0, len(options.References)+len(options.Files))
 	for _, ref := range options.References {
-		if resourceFileParam(ref.URL) == "" && strings.TrimSpace(ref.Path) != "" {
+		if resourceFileParamForChat(options.ChatID, ref.URL) == "" && strings.TrimSpace(ref.Path) != "" {
 			if ref.Path == "/workspace" || strings.HasPrefix(ref.Path, "/workspace/") {
 				return nil, fmt.Errorf("legacy path-only /workspace references are not accepted; re-materialize the file through the resource API")
 			}
@@ -52,7 +52,7 @@ func prepareProxyReferences(store chat.Store, ticketService *ResourceTicketServi
 			}
 			ref = materialized
 		}
-		ref = normalizeProxyReferencePath(ref)
+		ref = normalizeProxyReferencePath(ref, options.ChatID)
 		out = append(out, normalizeProxyReferenceURL(ref, ticketService, options))
 	}
 	for _, file := range options.Files {
@@ -208,8 +208,8 @@ func resolveProxyFileSource(store chat.Store, chatID string, chatDir string, wor
 	}
 }
 
-func normalizeProxyReferencePath(ref api.Reference) api.Reference {
-	if resourceFileParam(ref.URL) != "" {
+func normalizeProxyReferencePath(ref api.Reference, chatID string) api.Reference {
+	if resourceFileParamForChat(chatID, ref.URL) != "" {
 		ref.Path = ""
 	}
 	return ref
@@ -220,7 +220,7 @@ func normalizeProxyReferenceURL(ref api.Reference, ticketService *ResourceTicket
 	if rawURL == "" {
 		return ref
 	}
-	fileParam := resourceFileParam(rawURL)
+	fileParam := resourceFileParamForChat(options.ChatID, rawURL)
 	if fileParam == "" {
 		return ref
 	}
@@ -304,6 +304,33 @@ func resourceFileParam(rawURL string) string {
 		return ""
 	}
 	return filepath.ToSlash(filepath.Join(chatID, relativePath))
+}
+
+// resourceFileParamForChat resolves a public ChatScope URL against its
+// current Chat. Public reference URLs deliberately omit chatId; only the HTTP
+// /api/resource data plane carries a full <chatId>/<relativePath> key.
+func resourceFileParamForChat(chatID string, rawURL string) string {
+	raw := strings.TrimSpace(rawURL)
+	parsed, err := url.Parse(raw)
+	if err != nil || raw == "" {
+		return ""
+	}
+	if parsed.IsAbs() || isResourceURL(parsed, rawURL) {
+		return resourceFileParam(rawURL)
+	}
+	if parsed.Host != "" || parsed.RawQuery != "" || parsed.Fragment != "" ||
+		raw == "@chat" || strings.HasPrefix(raw, "@chat/") ||
+		raw == "@workspace" || strings.HasPrefix(raw, "@workspace/") ||
+		raw == "/chat" || strings.HasPrefix(raw, "/chat/") ||
+		raw == "/workspace" || strings.HasPrefix(raw, "/workspace/") ||
+		strings.HasPrefix(raw, "/") || strings.Contains(raw, `\`) {
+		return ""
+	}
+	fileParam, err := chat.BuildResourceKey(chatID, parsed.Path)
+	if err != nil {
+		return ""
+	}
+	return fileParam
 }
 
 func isResourceURL(parsed *url.URL, rawURL string) bool {

@@ -116,14 +116,16 @@ func validateResourceImageCommit(request ResourceImageCommitRequest) error {
 		return ErrResourceImageOverwriteDenied
 	}
 	segments, err := validatedResourceSegments(request.RelativePath)
-	if err != nil || len(segments) < 2 {
+	if err != nil {
 		return ErrResourceImageInvalid
 	}
-	expectedRoot := "artifacts"
+	validProfilePath := request.Profile == "artifact" && len(segments) >= 2 && segments[0] == "artifacts"
 	if request.Profile == "reference" {
-		expectedRoot = "references"
+		// Composer uploads keep the established root-level ChatScope contract.
+		// Cross-runtime references may already be materialized under references/.
+		validProfilePath = len(segments) == 1 || len(segments) >= 2 && segments[0] == "references"
 	}
-	if segments[0] != expectedRoot || resourceImageMIME(request.Data) != request.MIMEType {
+	if !validProfilePath || resourceImageMIME(request.Data) != request.MIMEType {
 		return ErrResourceImageInvalid
 	}
 	if request.Mode == "overwrite" && !resourceImagePathMatchesMIME(request.RelativePath, request.MIMEType) {

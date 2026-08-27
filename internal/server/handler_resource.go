@@ -403,8 +403,8 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
-	referenceRelativePath := filepath.ToSlash(filepath.Join("references", targetName))
-	targetPath := filepath.Join(s.deps.Chats.ChatDir(chatID), filepath.FromSlash(referenceRelativePath))
+	referenceRelativePath := targetName
+	targetPath := filepath.Join(s.deps.Chats.ChatDir(chatID), targetName)
 	sum, size, err := saveUploadedFile(targetPath, file)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))

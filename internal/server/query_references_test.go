@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -52,6 +53,41 @@ func TestPrepareQueryReferencesMaterializesRemoteResourceIntoCurrentChat(t *test
 	}
 	if data, err := os.ReadFile(materialized); err != nil || string(data) != "remote report\n" {
 		t.Fatalf("unexpected materialized file %q err=%v", string(data), err)
+	}
+}
+
+func TestPrepareQueryReferencesResolvesCurrentChatScopeURLs(t *testing.T) {
+	store, err := chat.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	const chatID = "chat-current"
+	if _, _, err := store.EnsureChat(chatID, "agent-1", "", "attachments"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	for relativePath, content := range map[string]string{
+		"督办事项.xlsx":            "root upload",
+		"references/督办事项.xlsx": "short-lived nested upload",
+	} {
+		target := filepath.Join(store.ChatDir(chatID), filepath.FromSlash(relativePath))
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			t.Fatalf("mkdir reference: %v", err)
+		}
+		if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
+			t.Fatalf("write reference: %v", err)
+		}
+	}
+	server := &Server{deps: Dependencies{Chats: store}}
+	prepared, err := server.prepareQueryReferences(context.Background(), chatID, []api.Reference{
+		{ID: "root", Type: "file", URL: "%E7%9D%A3%E5%8A%9E%E4%BA%8B%E9%A1%B9.xlsx"},
+		{ID: "nested", Type: "file", URL: "references/%E7%9D%A3%E5%8A%9E%E4%BA%8B%E9%A1%B9.xlsx"},
+	})
+	if err != nil {
+		t.Fatalf("prepare local references: %v", err)
+	}
+	if len(prepared) != 2 || prepared[0].ID != "root" || prepared[1].ID != "nested" {
+		t.Fatalf("unexpected prepared references: %#v", prepared)
 	}
 }
 

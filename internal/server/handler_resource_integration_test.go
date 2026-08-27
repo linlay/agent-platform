@@ -83,11 +83,11 @@ func TestUploadAndResourceRoundTrip(t *testing.T) {
 	if summary.ChatName != chat.PendingChatName {
 		t.Fatalf("expected upload-created chat to use pending name, got %#v", summary)
 	}
-	wantUploadPath := filepath.Join(fixture.cfg.Paths.ChatsDir, response.Data.ChatID, "references", "notes.txt")
+	wantUploadPath := filepath.Join(fixture.cfg.Paths.ChatsDir, response.Data.ChatID, "notes.txt")
 	if response.Data.Upload.Path != wantUploadPath {
 		t.Fatalf("upload path = %q, want %q", response.Data.Upload.Path, wantUploadPath)
 	}
-	if response.Data.Upload.URL != "references/notes.txt" {
+	if response.Data.Upload.URL != "notes.txt" {
 		t.Fatalf("upload public URL = %q, want ChatScope relative path", response.Data.Upload.URL)
 	}
 	resourceKey, err := chat.BuildResourceKey(response.Data.ChatID, response.Data.Upload.URL)
@@ -107,7 +107,7 @@ func TestUploadAndResourceRoundTrip(t *testing.T) {
 		t.Fatal("expected resource revision header")
 	}
 
-	matches, err := filepath.Glob(filepath.Join(fixture.cfg.Paths.ChatsDir, "*", "references", "notes.txt"))
+	matches, err := filepath.Glob(filepath.Join(fixture.cfg.Paths.ChatsDir, "*", "notes.txt"))
 	if err != nil {
 		t.Fatalf("glob upload path: %v", err)
 	}
@@ -498,10 +498,10 @@ func TestUploadReturnsContainerPathWhenAgentUsesContainerRuntime(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode upload response: %v", err)
 	}
-	if response.Data.Upload.Path != "/chat/references/notes.txt" {
+	if response.Data.Upload.Path != "/chat/notes.txt" {
 		t.Fatalf("upload path = %q", response.Data.Upload.Path)
 	}
-	if response.Data.Upload.URL != "references/notes.txt" {
+	if response.Data.Upload.URL != "notes.txt" {
 		t.Fatalf("upload URL = %q", response.Data.Upload.URL)
 	}
 	if strings.Contains(rec.Body.String(), "sandboxPath") {
@@ -514,7 +514,21 @@ func TestQueryAfterUploadDoesNotEmitChatStartInLiveStream(t *testing.T) {
 	server := fixture.server
 	upload := postTestUpload(t, server, "", "req_upload_before_query", "notes.txt", "hello world")
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"`+upload.ChatID+`","message":"summarize the upload","agentKey":"mock-agent"}`))
+	size := upload.Upload.SizeBytes
+	queryBody, err := json.Marshal(api.QueryRequest{
+		ChatID:   upload.ChatID,
+		Message:  "summarize the upload",
+		AgentKey: "mock-agent",
+		References: []api.Reference{{
+			ID: upload.Upload.ID, Type: upload.Upload.Type, Name: upload.Upload.Name,
+			Path: upload.Upload.Path, MimeType: upload.Upload.MimeType, SizeBytes: &size,
+			URL: upload.Upload.URL, SHA256: upload.Upload.SHA256,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(queryBody))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)
@@ -995,7 +1009,7 @@ func TestWebSocketResourcePushesLocalFileToGateway(t *testing.T) {
 		Type:  "/api/resource",
 		ID:    "req_resource_ws",
 		Payload: ws.MarshalPayload(map[string]any{
-			"file":    "chat_ws_resource/references/resource.txt",
+			"file":    "chat_ws_resource/resource.txt",
 			"pushURL": gateway.URL + "/api/push/ticket-1",
 		}),
 	}); err != nil {

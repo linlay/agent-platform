@@ -119,7 +119,7 @@ func TestResourceImageCommitEndpointRejectsRevisionConflictAndReferenceOverwrite
 		t.Fatalf("conflict status=%d body=%s", conflict.Code, conflict.Body.String())
 	}
 
-	referencePath := filepath.Join(fixture.chats.ChatDir("chat-image-conflict"), "references", "source.png")
+	referencePath := filepath.Join(fixture.chats.ChatDir("chat-image-conflict"), "source.png")
 	if err := os.MkdirAll(filepath.Dir(referencePath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestResourceImageCommitEndpointRejectsRevisionConflictAndReferenceOverwrite
 	}
 	denied := postResourceImageCommit(t, fixture.server, map[string]any{
 		"operation": "resource.image.commit", "profile": "reference", "agentKey": "mock-agent",
-		"chatId": "chat-image-conflict", "resourceId": "reference-1", "relativePath": "references/source.png",
+		"chatId": "chat-image-conflict", "resourceId": "reference-1", "relativePath": "source.png",
 		"mode": "overwrite", "expectedRevision": "1:1", "mimeType": "image/png",
 		"dataBase64": base64.StdEncoding.EncodeToString(png),
 	})

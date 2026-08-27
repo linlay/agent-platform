@@ -68,7 +68,7 @@ func (s *Server) prepareQueryReferences(ctx context.Context, currentChatID strin
 
 func (s *Server) prepareFileResourceReference(ctx context.Context, currentChatID string, reference api.Reference) (api.Reference, error) {
 	rawURL := strings.TrimSpace(reference.URL)
-	fileParam := resourceFileParam(rawURL)
+	fileParam := resourceFileParamForChat(currentChatID, rawURL)
 	if fileParam == "" {
 		return reference, nil
 	}

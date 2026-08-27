@@ -158,14 +158,14 @@ func (s *Server) referencePathForAgent(
 	case "chat", "site":
 		return "", nil
 	}
-	if resourceFileParam(reference.URL) == "" {
+	if resourceFileParamForChat(chatID, reference.URL) == "" {
 		rawPath := strings.TrimSpace(reference.Path)
 		if rawPath == "/workspace" || strings.HasPrefix(rawPath, "/workspace/") {
 			return "", fmt.Errorf("path-only /workspace references are not accepted; re-materialize the file through the resource API")
 		}
 	}
 	if s.agentUsesContainerHub(def) {
-		if fileParam := resourceFileParam(reference.URL); fileParam != "" {
+		if fileParam := resourceFileParamForChat(chatID, reference.URL); fileParam != "" {
 			rel, ok := currentChatResourceRelativePath(chatID, fileParam)
 			if !ok {
 				return "", fmt.Errorf("reference resource must be materialized in the current chat before Container Hub execution")
@@ -174,7 +174,7 @@ func (s *Server) referencePathForAgent(
 		}
 		return translateReferencePathForContainer(reference.Path, localPaths)
 	}
-	if fileParam := resourceFileParam(reference.URL); fileParam != "" && s != nil && s.deps.Chats != nil {
+	if fileParam := resourceFileParamForChat(chatID, reference.URL); fileParam != "" && s != nil && s.deps.Chats != nil {
 		if path, err := s.deps.Chats.ResolveResource(fileParam); err == nil {
 			return path, nil
 		}
@@ -347,7 +347,7 @@ func currentChatResourceRelativePath(chatID string, fileParam string) (string, b
 }
 
 func referenceResourceRelativePath(chatID string, reference api.Reference) string {
-	if fileParam := resourceFileParam(reference.URL); fileParam != "" {
+	if fileParam := resourceFileParamForChat(chatID, reference.URL); fileParam != "" {
 		clean := filepath.ToSlash(filepath.Clean(fileParam))
 		prefix := strings.TrimSpace(chatID) + "/"
 		if strings.TrimSpace(chatID) != "" && strings.HasPrefix(clean, prefix) {

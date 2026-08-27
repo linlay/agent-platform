@@ -121,7 +121,7 @@ func TestCommitResourceImageCreatesArtifactFromArtifactOrReference(t *testing.T)
 		t.Fatalf("new artifact=%x err=%v", got, err)
 	}
 
-	referencePath := "references/source.webp"
+	referencePath := "source.webp"
 	referenceFile := filepath.Join(store.ChatDir("chat-image-new"), filepath.FromSlash(referencePath))
 	if err := os.MkdirAll(filepath.Dir(referenceFile), 0o755); err != nil {
 		t.Fatal(err)
