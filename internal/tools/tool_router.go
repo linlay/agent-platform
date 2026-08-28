@@ -21,6 +21,10 @@ type toolCatalog interface {
 	Tool(name string) (api.ToolDetailResponse, bool)
 }
 
+type mcpServerToolCatalog interface {
+	ToolNamesForServers(serverKeys []string) []string
+}
+
 type interactionSubmitter interface {
 	Handles(toolName string) bool
 	Await(ctx context.Context, execCtx *ExecutionContext, args map[string]any) (ToolExecutionResult, error)
@@ -179,6 +183,34 @@ func (r *ToolRouter) Definitions() []api.ToolDetailResponse {
 	localDefs := append([]api.ToolDetailResponse(nil), r.localDefs...)
 	r.mu.RUnlock()
 	return MergeToolDefinitions(localDefs, nil, mcpDefs)
+}
+
+// MCPToolNamesForServers resolves an Agent's explicit MCP server allowlist to
+// synchronized tool names without allowing MCP/local name collisions to grant
+// an unrelated local tool.
+func (r *ToolRouter) MCPToolNamesForServers(serverKeys []string) []string {
+	if r == nil || r.mcpTools == nil || len(serverKeys) == 0 {
+		return nil
+	}
+	catalog, ok := r.mcpTools.(mcpServerToolCatalog)
+	if !ok {
+		return nil
+	}
+	names := catalog.ToolNamesForServers(serverKeys)
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	result := make([]string, 0, len(names))
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, conflictsWithLocal := r.localByName[strings.ToLower(name)]; conflictsWithLocal {
+			continue
+		}
+		result = append(result, name)
+	}
+	return result
 }
 
 func (r *ToolRouter) ReadFileHistory(chatID string, runID string, filePath string, version string) (string, error) {

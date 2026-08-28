@@ -3,8 +3,11 @@ package mcp
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"agent-platform/internal/api"
 )
 
 func TestRegistryLoadsStdioAndResolvesRelativePaths(t *testing.T) {
@@ -58,6 +61,52 @@ func TestRegistryDefaultsToStreamableHTTP(t *testing.T) {
 	}
 }
 
+func TestRegistryLoadsDesktopIdentityAuthSource(t *testing.T) {
+	root := t.TempDir()
+	writeMCPRegistryFile(t, filepath.Join(root, "http.yml"), "serverKey: demo\nbaseUrl: https://mcp.example.test\nauthSource: desktop-identity\n")
+	registry, err := NewRegistry(root)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	server, ok := registry.Server("demo")
+	if !ok || server.AuthSource != AuthSourceDesktopIdentity || server.AuthToken != "" {
+		t.Fatalf("unexpected desktop identity auth source: %#v", server)
+	}
+}
+
+func TestToolNamesForServersUsesAgentSelectedServerKeys(t *testing.T) {
+	root := t.TempDir()
+	writeMCPRegistryFile(t, filepath.Join(root, "alpha.yml"), "serverKey: alpha\nbaseUrl: https://alpha.example.test\n")
+	writeMCPRegistryFile(t, filepath.Join(root, "beta.yml"), "serverKey: beta\nbaseUrl: https://beta.example.test\n")
+	registry, err := NewRegistry(root)
+	if err != nil {
+		t.Fatalf("NewRegistry: %v", err)
+	}
+	syncer := NewToolSync(registry, nil)
+	syncer.snapshots = map[string]serverToolSnapshot{
+		"alpha": {toolsByName: map[string]api.ToolDetailResponse{
+			"alpha_only": {Name: "alpha_only", Meta: map[string]any{"serverKey": "alpha"}},
+			"shared":     {Name: "shared", Meta: map[string]any{"serverKey": "alpha"}},
+		}},
+		"beta": {toolsByName: map[string]api.ToolDetailResponse{
+			"beta_only": {Name: "beta_only", Meta: map[string]any{"serverKey": "beta"}},
+			"shared":    {Name: "shared", Meta: map[string]any{"serverKey": "beta"}},
+		}},
+	}
+	syncer.toolsByName, syncer.aliasToCanonical = mergeSnapshots(registry.Servers(), syncer.snapshots)
+	syncer.registryVersion = registry.Version()
+
+	if got := syncer.ToolNamesForServers([]string{"ALPHA"}); !reflect.DeepEqual(got, []string{"alpha_only"}) {
+		t.Fatalf("alpha tools = %#v", got)
+	}
+	if got := syncer.ToolNamesForServers([]string{"beta"}); !reflect.DeepEqual(got, []string{"beta_only"}) {
+		t.Fatalf("beta tools = %#v", got)
+	}
+	if got := syncer.ToolNamesForServers([]string{"missing"}); len(got) != 0 {
+		t.Fatalf("missing server tools = %#v", got)
+	}
+}
+
 func TestRegistryRejectsInvalidTransportFieldCombinations(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -69,6 +118,11 @@ func TestRegistryRejectsInvalidTransportFieldCombinations(t *testing.T) {
 		{name: "http with empty args", content: "serverKey: demo\nbaseUrl: http://127.0.0.1\nargs: []\n", want: "cannot declare stdio fields"},
 		{name: "stdio missing command", content: "serverKey: demo\ntransport: stdio\n", want: "requires command"},
 		{name: "stdio with base", content: "serverKey: demo\ntransport: stdio\ncommand: tool\nbaseUrl: http://127.0.0.1\n", want: "cannot declare HTTP fields"},
+		{name: "stdio with auth source", content: "serverKey: demo\ntransport: stdio\ncommand: tool\nauthSource: desktop-identity\n", want: "cannot declare HTTP fields"},
+		{name: "http with static and sourced auth", content: "serverKey: demo\nbaseUrl: https://mcp.example.test\nauthToken: fixed\nauthSource: desktop-identity\n", want: "cannot declare both authToken and authSource"},
+		{name: "http with unknown auth source", content: "serverKey: demo\nbaseUrl: https://mcp.example.test\nauthSource: unknown\n", want: "unsupported MCP authSource"},
+		{name: "desktop identity requires https", content: "serverKey: demo\nbaseUrl: http://mcp.example.test\nauthSource: desktop-identity\n", want: "requires a valid HTTPS baseUrl"},
+		{name: "registry Agent binding", content: "serverKey: demo\nbaseUrl: https://mcp.example.test\nbindings:\n  agents: [cutej]\n", want: "toolConfig.mcp-servers"},
 		{name: "unknown transport", content: "serverKey: demo\ntransport: websocket\nbaseUrl: http://127.0.0.1\n", want: "unsupported MCP transport"},
 	}
 	for _, test := range tests {

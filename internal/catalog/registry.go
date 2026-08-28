@@ -51,6 +51,7 @@ type AgentDefinition struct {
 	ACPBridgeID      string
 	VisibilityScopes []string
 	Tools            []string
+	MCPServers       []string
 	Skills           []string
 	Controls         []map[string]any
 	Runtime          map[string]any

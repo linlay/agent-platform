@@ -104,6 +104,39 @@ func (s *ToolSync) Definitions() []api.ToolDetailResponse {
 	return cloneSortedToolDefinitions(s.toolsByName)
 }
 
+// ToolNamesForServers returns the current synchronized tools owned by the
+// server keys explicitly selected by an Agent's toolConfig.mcp-servers.
+func (s *ToolSync) ToolNamesForServers(serverKeys []string) []string {
+	if s == nil || len(serverKeys) == 0 {
+		return nil
+	}
+	selected := make(map[string]struct{}, len(serverKeys))
+	for _, serverKey := range serverKeys {
+		if key := normalizeKey(serverKey); key != "" {
+			selected[key] = struct{}{}
+		}
+	}
+	if len(selected) == 0 {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.registryVersion != s.registry.Version() {
+		return nil
+	}
+	result := make([]string, 0)
+	for _, tool := range cloneSortedToolDefinitions(s.toolsByName) {
+		serverKey := normalizeKey(contracts.AnyStringNode(tool.Meta["serverKey"]))
+		if serverKey == "" {
+			serverKey = normalizeKey(contracts.AnyStringNode(tool.Meta["sourceKey"]))
+		}
+		if _, ok := selected[serverKey]; ok {
+			result = append(result, tool.Name)
+		}
+	}
+	return result
+}
+
 func (s *ToolSync) Tool(name string) (api.ToolDetailResponse, bool) {
 	if s == nil {
 		return api.ToolDetailResponse{}, false

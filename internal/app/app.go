@@ -177,7 +177,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		return nil, fmt.Errorf("load mcp registry: %w", err)
 	}
 	mcpGate := mcp.NewAvailabilityGate()
-	mcpClient := mcp.NewClientWithGate(mcpRegistry, nil, mcpGate)
+	mcpClient := mcp.NewClientWithGate(mcpRegistry, nil, mcpGate).WithIdentityFile(cfg.IdentityFile)
 	cleanupMCP := true
 	defer func() {
 		if cleanupMCP {

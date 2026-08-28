@@ -45,6 +45,18 @@ read-timeout: 30
 retry: 1
 ```
 
+需要复用当前 Desktop 登录身份的远程 MCP 必须显式声明：
+
+```yaml
+serverKey: flowCenter
+transport: streamable-http
+baseUrl: https://qiuer.net
+endpointPath: /mcp/flowCenter
+authSource: desktop-identity
+```
+
+Platform 会在每次 HTTP 请求前从 `--identity-file` 指向的单行文件读取最新 token，并设置 `Authorization: Bearer ...`。`authSource` 不能与 `authToken` 同时使用；身份只发送给 registry 中配置的 HTTPS 主机，跨主机或非标准 HTTPS 端口请求会被拒绝。没有声明 `authSource` 的 MCP 不继承 Desktop 身份。
+
 stdio 示例：
 
 ```yaml
@@ -62,12 +74,24 @@ retry: 1
 
 字段约束：
 
-- `streamable-http` 必须提供 `baseUrl`，不得出现 `command`、`args`、`env` 或 `workingDirectory`。
-- `stdio` 必须提供 `command`，不得出现 `baseUrl`、`endpointPath`、`authToken` 或 `headers`。
+- `streamable-http` 必须提供 `baseUrl`，可选 `authToken` 或 `authSource: desktop-identity`，两者不能同时出现；不得出现 `command`、`args`、`env` 或 `workingDirectory`。
+- `stdio` 必须提供 `command`，不得出现 `baseUrl`、`endpointPath`、`authToken`、`authSource` 或 `headers`。
 - 相对 `command` 与 `workingDirectory` 都相对于当前 registry YAML 所在目录解析。
 - stdio 环境继承 runtime 进程环境，并保留 Host builtin PATH；`env` 只覆盖或追加显式变量。
 - `startup-timeout` 控制初始化期限，`read-timeout` 控制 `tools/list` 和 `tools/call` 的单次操作期限，单位均为秒。
 - 任意非法 transport、缺少必填字段或字段混用都会使启动/热重载硬失败；registry 不会静默跳过这些文件。
+
+MCP Registry 只描述连接、鉴权和工具同步，不向 Agent 反向授权。Agent 通过 `toolConfig.mcp-servers` 主动选择可用的 MCP Server；Platform 在新 Run 创建时把这些 Server 当前同步成功的工具加入该 Agent 的最终工具集合。未选择的 Server 不会提供工具，已有 Run 也不会因后续热同步自动扩权。
+
+```yaml
+toolConfig:
+  tools:
+    - datetime
+  mcp-servers:
+    - flowCenter
+```
+
+Registry 中的 `bindings` 字段不受支持，避免与 Agent 配置形成两套权限来源。
 
 ## 工具来源与结果
 

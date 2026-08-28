@@ -3,6 +3,7 @@ package mcp
 import (
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -143,6 +144,9 @@ func parseServerTree(path string, tree any) (ServerDefinition, error) {
 	if !firstBool(root["enabled"], true) {
 		return ServerDefinition{}, nil
 	}
+	if _, declared := root["bindings"]; declared {
+		return ServerDefinition{}, fmt.Errorf("MCP registry bindings are not supported; configure Agent toolConfig.mcp-servers instead")
+	}
 	serverKey := normalizeKey(contracts.FirstNonEmptyString(root["serverKey"], root["server-key"], root["key"]))
 	if serverKey == "" {
 		base := filepath.Base(path)
@@ -156,6 +160,14 @@ func parseServerTree(path string, tree any) (ServerDefinition, error) {
 		return ServerDefinition{}, fmt.Errorf("unsupported MCP transport %q", transport)
 	}
 	baseURL := strings.TrimSpace(contracts.FirstNonEmptyString(root["baseUrl"], root["base-url"], root["url"]))
+	authToken := strings.TrimSpace(contracts.FirstNonEmptyString(root["authToken"], root["auth-token"]))
+	authSource := strings.ToLower(strings.TrimSpace(contracts.FirstNonEmptyString(root["authSource"], root["auth-source"])))
+	if authSource != "" && authSource != AuthSourceDesktopIdentity {
+		return ServerDefinition{}, fmt.Errorf("unsupported MCP authSource %q", authSource)
+	}
+	if authToken != "" && authSource != "" {
+		return ServerDefinition{}, fmt.Errorf("MCP server cannot declare both authToken and authSource")
+	}
 	command := strings.TrimSpace(contracts.FirstNonEmptyString(root["command"]))
 	args, err := normalizeStringSlice(root["args"])
 	if err != nil {
@@ -171,11 +183,17 @@ func parseServerTree(path string, tree any) (ServerDefinition, error) {
 		if hasAnyKey(root, "command", "args", "env", "workingDirectory", "working-directory") {
 			return ServerDefinition{}, fmt.Errorf("streamable-http MCP server cannot declare stdio fields")
 		}
+		if authSource == AuthSourceDesktopIdentity {
+			parsedBaseURL, err := url.Parse(baseURL)
+			if err != nil || parsedBaseURL.Scheme != "https" || parsedBaseURL.Hostname() == "" || parsedBaseURL.User != nil {
+				return ServerDefinition{}, fmt.Errorf("desktop-identity MCP server requires a valid HTTPS baseUrl")
+			}
+		}
 	} else {
 		if command == "" {
 			return ServerDefinition{}, fmt.Errorf("stdio MCP server requires command")
 		}
-		if hasAnyKey(root, "baseUrl", "base-url", "url", "endpointPath", "endpoint-path", "path", "authToken", "auth-token", "headers") {
+		if hasAnyKey(root, "baseUrl", "base-url", "url", "endpointPath", "endpoint-path", "path", "authToken", "auth-token", "authSource", "auth-source", "headers") {
 			return ServerDefinition{}, fmt.Errorf("stdio MCP server cannot declare HTTP fields")
 		}
 		if !filepath.IsAbs(command) {
@@ -202,7 +220,8 @@ func parseServerTree(path string, tree any) (ServerDefinition, error) {
 		Env:            env,
 		WorkingDir:     workingDir,
 		ToolPrefix:     strings.TrimSpace(contracts.FirstNonEmptyString(root["toolPrefix"], root["tool-prefix"])),
-		AuthToken:      strings.TrimSpace(contracts.FirstNonEmptyString(root["authToken"], root["auth-token"])),
+		AuthToken:      authToken,
+		AuthSource:     authSource,
 		Headers:        normalizeStringMap(contracts.AnyMapNode(root["headers"])),
 		AliasMap:       normalizeAliasMap(contracts.AnyMapNode(root["aliasMap"])),
 		ConnectTimeout: firstInt(root["connect-timeout"], nil, 3),

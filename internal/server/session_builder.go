@@ -188,7 +188,10 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		sortedStringKeys(runtimeEnvOverrides),
 	)
 
-	configuredToolNames := effectiveAgentTools(agentDef)
+	configuredToolNames := append(
+		effectiveAgentTools(agentDef),
+		mcpToolNamesForServers(s.deps.Tools, agentDef.MCPServers)...,
+	)
 	toolNames := buildSessionToolNames(configuredToolNames, options.AllowInvokeAgents)
 	toolNames = agentcoder.RuntimeToolNamesForAgent(agentDef.Mode, agentDef.ACPBridgeID, agentcoder.MainStage, toolNames)
 	if agentkbase.IsMode(agentDef.Mode) {
@@ -475,4 +478,16 @@ func buildSessionToolNames(base []string, allowInvokeAgents bool) []string {
 		tools = append(tools, name)
 	}
 	return tools
+}
+
+type mcpServerToolResolver interface {
+	MCPToolNamesForServers(serverKeys []string) []string
+}
+
+func mcpToolNamesForServers(tools contracts.ToolExecutor, serverKeys []string) []string {
+	resolver, ok := tools.(mcpServerToolResolver)
+	if !ok || resolver == nil || len(serverKeys) == 0 {
+		return nil
+	}
+	return resolver.MCPToolNamesForServers(serverKeys)
 }

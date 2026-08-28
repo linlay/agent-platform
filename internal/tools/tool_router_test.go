@@ -15,6 +15,38 @@ type stubBackendToolExecutor struct {
 	defs []api.ToolDetailResponse
 }
 
+type stubMCPServerToolCatalog struct {
+	defs []api.ToolDetailResponse
+}
+
+func (s stubMCPServerToolCatalog) Definitions() []api.ToolDetailResponse {
+	return append([]api.ToolDetailResponse(nil), s.defs...)
+}
+
+func (s stubMCPServerToolCatalog) Tool(name string) (api.ToolDetailResponse, bool) {
+	for _, def := range s.defs {
+		if strings.EqualFold(strings.TrimSpace(def.Name), strings.TrimSpace(name)) || strings.EqualFold(strings.TrimSpace(def.Key), strings.TrimSpace(name)) {
+			return def, true
+		}
+	}
+	return api.ToolDetailResponse{}, false
+}
+
+func (s stubMCPServerToolCatalog) ToolNamesForServers(serverKeys []string) []string {
+	selected := map[string]struct{}{}
+	for _, serverKey := range serverKeys {
+		selected[strings.ToLower(strings.TrimSpace(serverKey))] = struct{}{}
+	}
+	result := []string{}
+	for _, def := range s.defs {
+		serverKey, _ := def.Meta["serverKey"].(string)
+		if _, ok := selected[strings.ToLower(strings.TrimSpace(serverKey))]; ok {
+			result = append(result, def.Name)
+		}
+	}
+	return result
+}
+
 func mustNewToolRouter(t *testing.T, backend ToolExecutor, mcp McpClient, mcpTools toolCatalog, interaction interactionSubmitter, extraDefs ...api.ToolDetailResponse) *ToolRouter {
 	t.Helper()
 	router, err := NewToolRouter(backend, mcp, mcpTools, interaction, extraDefs...)
@@ -26,6 +58,20 @@ func mustNewToolRouter(t *testing.T, backend ToolExecutor, mcp McpClient, mcpToo
 
 func (s stubBackendToolExecutor) Definitions() []api.ToolDetailResponse {
 	return append([]api.ToolDetailResponse(nil), s.defs...)
+}
+
+func TestToolRouterResolvesSelectedMCPServersWithoutLocalNameCollision(t *testing.T) {
+	backend := stubBackendToolExecutor{defs: []api.ToolDetailResponse{{Name: "shared"}}}
+	mcpTools := stubMCPServerToolCatalog{defs: []api.ToolDetailResponse{
+		{Name: "remote_lookup", Meta: map[string]any{"sourceType": "mcp", "serverKey": "flowCenter"}},
+		{Name: "shared", Meta: map[string]any{"sourceType": "mcp", "serverKey": "flowCenter"}},
+		{Name: "other_lookup", Meta: map[string]any{"sourceType": "mcp", "serverKey": "other"}},
+	}}
+	router := mustNewToolRouter(t, backend, nil, mcpTools, nil)
+	got := router.MCPToolNamesForServers([]string{"FLOWCENTER"})
+	if len(got) != 1 || got[0] != "remote_lookup" {
+		t.Fatalf("selected MCP tools = %#v", got)
+	}
 }
 
 type recordingPolicyBackend struct {
