@@ -33,7 +33,14 @@ type Orchestrator struct {
 	runCtx        context.Context
 	dispatchSlots chan struct{}
 	wg            sync.WaitGroup
+	manualWG      sync.WaitGroup
+	stopping      bool
 }
+
+var (
+	ErrOrchestratorUnavailable = errors.New("automation orchestrator is unavailable")
+	ErrAutomationNotFound      = errors.New("automation not found")
+)
 
 type Registration struct {
 	Definition Definition
@@ -69,6 +76,7 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 	o.mu.Lock()
 	o.runCtx = runCtx
 	o.cancel = cancel
+	o.stopping = false
 	o.mu.Unlock()
 
 	if err := o.Reload(); err != nil {
@@ -128,6 +136,58 @@ func (o *Orchestrator) Automations() []AutomationInfo {
 		})
 	}
 	return items
+}
+
+// Trigger starts one manual execution from the current registry definition.
+// It does not mutate scheduling state or consume remainingRuns.
+func (o *Orchestrator) Trigger(id string) (Execution, error) {
+	if o == nil || o.registry == nil || o.dispatcher == nil || !o.dispatcher.available() {
+		return Execution{}, ErrOrchestratorUnavailable
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return Execution{}, fmt.Errorf("%w: id is required", ErrAutomationNotFound)
+	}
+
+	definitions, err := o.registry.Load()
+	if err != nil {
+		return Execution{}, err
+	}
+	var definition *Definition
+	for index := range definitions {
+		if definitions[index].ID == id {
+			item := definitions[index]
+			definition = &item
+			break
+		}
+	}
+	if definition == nil {
+		return Execution{}, fmt.Errorf("%w: %s", ErrAutomationNotFound, id)
+	}
+
+	o.mu.Lock()
+	if o.stopping || o.runCtx == nil || o.runCtx.Err() != nil {
+		o.mu.Unlock()
+		return Execution{}, ErrOrchestratorUnavailable
+	}
+	runCtx := o.runCtx
+	o.manualWG.Add(1)
+	o.mu.Unlock()
+
+	location := resolveAutomationLocation(definition.Environment.ZoneID, o.cfg.DefaultZoneID)
+	execution := o.dispatcher.prepareExecution(*definition, location.String())
+	go func(def Definition, item Execution) {
+		defer o.manualWG.Done()
+		if !o.acquireDispatchSlot(runCtx) {
+			_ = o.dispatcher.dispatchPrepared(runCtx, def, item)
+			return
+		}
+		defer o.releaseDispatchSlot()
+		if err := o.dispatcher.dispatchPrepared(runCtx, def, item); err != nil {
+			log.Printf("[automation] manual dispatch failed for %s: %v", def.ID, err)
+		}
+	}(*definition, execution)
+	return execution, nil
 }
 
 func (o *Orchestrator) reconcile(defs []Definition) {
@@ -398,13 +458,20 @@ func loadAutomationLocation(zoneID string) (*time.Location, error) {
 
 func (o *Orchestrator) Stop() context.Context {
 	done, cancel := context.WithCancel(context.Background())
+	if o == nil {
+		cancel()
+		return done
+	}
+	o.mu.Lock()
+	o.stopping = true
+	stop := o.cancel
+	o.mu.Unlock()
 	go func() {
-		if o != nil && o.cancel != nil {
-			o.cancel()
+		if stop != nil {
+			stop()
 		}
-		if o != nil {
-			o.wg.Wait()
-		}
+		o.wg.Wait()
+		o.manualWG.Wait()
 		cancel()
 	}()
 	return done

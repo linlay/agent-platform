@@ -138,6 +138,18 @@ type ToggleAutomationRequest struct {
 	Enabled      bool   `json:"enabled"`
 }
 
+type TriggerAutomationRequest struct {
+	ID           string `json:"id"`
+	AutomationID string `json:"automationId,omitempty"`
+}
+
+type TriggerAutomationResponse struct {
+	Accepted     bool   `json:"accepted"`
+	Status       string `json:"status"`
+	AutomationID string `json:"automationId"`
+	ExecutionID  string `json:"executionId"`
+}
+
 type DeleteAutomationRequest struct {
 	ID           string `json:"id"`
 	AutomationID string `json:"automationId,omitempty"`

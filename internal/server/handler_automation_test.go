@@ -12,6 +12,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/automation"
+	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/timecontract"
 	"agent-platform/internal/ws"
@@ -35,7 +36,23 @@ func newAutomationTestServer(t *testing.T, websocket bool) automationTestServer 
 	}
 	t.Cleanup(func() { _ = executions.Close() })
 
-	orchestrator := automation.NewOrchestrator(registry, nil, config.AutomationConfig{DefaultZoneID: "UTC", PoolSize: 1})
+	dispatcher := automation.NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks automation.QueryRunHooks) (automation.QueryRunResult, error) {
+		now := time.Now().UnixMilli()
+		runID := "run-" + automation.NewExecutionID()
+		if hooks.OnRunStarted != nil {
+			hooks.OnRunStarted(chat.RunStart{ChatID: req.ChatID, RunID: runID, StartedAtMillis: now})
+		}
+		return automation.QueryRunResult{Completion: &chat.RunCompletion{
+			ChatID:          req.ChatID,
+			RunID:           runID,
+			AssistantText:   "manual result",
+			InitialMessage:  req.Message,
+			FinishReason:    "complete",
+			StartedAtMillis: now,
+			UpdatedAtMillis: now + 1,
+		}}, nil
+	}, nil, executions)
+	orchestrator := automation.NewOrchestrator(registry, dispatcher, config.AutomationConfig{DefaultZoneID: "UTC", PoolSize: 1})
 	if err := orchestrator.Start(context.Background()); err != nil {
 		t.Fatalf("start orchestrator: %v", err)
 	}
@@ -201,6 +218,137 @@ func TestAutomationHTTPCreateAllowsOmittedDescriptionAndQueryDefaults(t *testing
 	}
 }
 
+func TestAutomationHTTPTriggerAcceptsIDAndAliasWithoutMutatingPausedDefinition(t *testing.T) {
+	fixture := newAutomationTestServer(t, false)
+	remainingRuns := 2
+	created := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/automation/create", map[string]any{
+		"name":          "Manual Trigger",
+		"cron":          "0 9 * * *",
+		"agentKey":      "demo-agent",
+		"enabled":       false,
+		"remainingRuns": remainingRuns,
+		"query":         map[string]any{"message": "hello"},
+	})
+
+	first := postAutomationJSON[api.TriggerAutomationResponse](t, fixture.server, "/api/automation/trigger", map[string]any{"id": created.ID})
+	second := postAutomationJSON[api.TriggerAutomationResponse](t, fixture.server, "/api/automation/trigger", map[string]any{"automationId": created.ID})
+	if !first.Accepted || first.Status != "accepted" || first.AutomationID != created.ID || first.ExecutionID == "" {
+		t.Fatalf("unexpected trigger response %#v", first)
+	}
+	if !second.Accepted || second.ExecutionID == "" || second.ExecutionID == first.ExecutionID {
+		t.Fatalf("expected distinct accepted execution, got %#v", second)
+	}
+	waitForAutomationExecution(t, fixture.executions, first.ExecutionID, automation.ExecutionStatusSuccess)
+	waitForAutomationExecution(t, fixture.executions, second.ExecutionID, automation.ExecutionStatusSuccess)
+
+	definitions, err := fixture.server.deps.AutomationRegistry.Load()
+	if err != nil || len(definitions) != 1 {
+		t.Fatalf("load automation definitions: %#v err=%v", definitions, err)
+	}
+	if definitions[0].Enabled || definitions[0].RemainingRuns == nil || *definitions[0].RemainingRuns != remainingRuns {
+		t.Fatalf("manual trigger mutated paused definition %#v", definitions[0])
+	}
+
+	for _, test := range []struct {
+		name    string
+		payload any
+		status  int
+	}{
+		{name: "missing id", payload: map[string]any{}, status: http.StatusBadRequest},
+		{name: "unknown id", payload: map[string]any{"id": "missing"}, status: http.StatusNotFound},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if status := postAutomationStatus(t, fixture.server, "/api/automation/trigger", test.payload); status != test.status {
+				t.Fatalf("trigger returned %d, want %d", status, test.status)
+			}
+		})
+	}
+}
+
+func TestAutomationHTTPTriggerDoesNotDependOnExecutionHistory(t *testing.T) {
+	root := t.TempDir()
+	registry := automation.NewRegistry(root, nil)
+	if err := registry.Persist(automation.Definition{
+		ID:       "history-free",
+		Name:     "History Free",
+		Enabled:  false,
+		Cron:     "0 9 * * *",
+		AgentKey: "agent-a",
+		Query:    automation.Query{Message: "run without history"},
+	}); err != nil {
+		t.Fatalf("persist automation: %v", err)
+	}
+	dispatched := make(chan struct{}, 1)
+	dispatcher := automation.NewDispatcher(func(_ context.Context, _ api.QueryRequest, _ automation.QueryRunHooks) (automation.QueryRunResult, error) {
+		dispatched <- struct{}{}
+		return automation.QueryRunResult{}, nil
+	}, nil, nil)
+	orchestrator := automation.NewOrchestrator(registry, dispatcher, config.AutomationConfig{PoolSize: 1})
+	if err := orchestrator.Start(context.Background()); err != nil {
+		t.Fatalf("start orchestrator: %v", err)
+	}
+	defer func() { <-orchestrator.Stop().Done() }()
+	server, err := New(Dependencies{
+		Config:                 config.Config{Auth: config.AuthConfig{Enabled: false}},
+		AutomationRegistry:     registry,
+		AutomationOrchestrator: orchestrator,
+	})
+	if err != nil {
+		t.Fatalf("new server: %v", err)
+	}
+	response := postAutomationJSON[api.TriggerAutomationResponse](t, server, "/api/automation/trigger", map[string]any{"id": "history-free"})
+	if !response.Accepted || response.ExecutionID == "" {
+		t.Fatalf("unexpected history-free trigger response %#v", response)
+	}
+	select {
+	case <-dispatched:
+	case <-time.After(time.Second):
+		t.Fatal("history-free manual trigger did not dispatch")
+	}
+}
+
+func TestAutomationHTTPTriggerRejectsMalformedAndUnavailableRequests(t *testing.T) {
+	fixture := newAutomationTestServer(t, false)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/automation/trigger", strings.NewReader("{"))
+	fixture.server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("malformed trigger returned %d, want %d", recorder.Code, http.StatusBadRequest)
+	}
+
+	root := t.TempDir()
+	registry := automation.NewRegistry(root, nil)
+	if err := registry.Persist(automation.Definition{
+		ID:       "not-started",
+		Name:     "Not Started",
+		Enabled:  false,
+		Cron:     "0 9 * * *",
+		AgentKey: "agent-a",
+		Query:    automation.Query{Message: "do not run"},
+	}); err != nil {
+		t.Fatalf("persist automation: %v", err)
+	}
+	dispatcher := automation.NewDispatcher(func(context.Context, api.QueryRequest, automation.QueryRunHooks) (automation.QueryRunResult, error) {
+		return automation.QueryRunResult{}, nil
+	}, nil, nil)
+	server, err := New(Dependencies{
+		Config:                 config.Config{Auth: config.AuthConfig{Enabled: false}},
+		AutomationRegistry:     registry,
+		AutomationOrchestrator: automation.NewOrchestrator(registry, dispatcher, config.AutomationConfig{PoolSize: 1}),
+	})
+	if err != nil {
+		t.Fatalf("new server: %v", err)
+	}
+	if status := postAutomationStatus(t, server, "/api/automation/trigger", map[string]any{"id": "not-started"}); status != http.StatusServiceUnavailable {
+		t.Fatalf("not-started trigger returned %d, want %d", status, http.StatusServiceUnavailable)
+	}
+
+	server.deps.AutomationOrchestrator = nil
+	if status := postAutomationStatus(t, server, "/api/automation/trigger", map[string]any{"id": "not-started"}); status != http.StatusServiceUnavailable {
+		t.Fatalf("unconfigured trigger returned %d, want %d", status, http.StatusServiceUnavailable)
+	}
+}
+
 func TestAutomationHistoryUnavailableDoesNotBreakConfigurationAPI(t *testing.T) {
 	root := t.TempDir()
 	registry := automation.NewRegistry(root, nil)
@@ -344,6 +492,7 @@ func TestAutomationWSRuntimeRoutesAndManagementRoutesRejected(t *testing.T) {
 		frameType string
 	}{
 		{id: "automation-create", frameType: "/api/automation/create"},
+		{id: "automation-trigger", frameType: "/api/automation/trigger"},
 	} {
 		if err := conn.WriteJSON(ws.RequestFrame{
 			Frame: ws.FrameRequest,
@@ -381,6 +530,23 @@ func TestAutomationWSRuntimeRoutesAndManagementRoutesRejected(t *testing.T) {
 	if listFrame.Frame != ws.FrameResponse || listFrame.ID != "list" || list.Total != 1 || list.Items[0].ID != created.ID {
 		t.Fatalf("unexpected list frame %#v data=%#v", listFrame, list)
 	}
+}
+
+func waitForAutomationExecution(t *testing.T, store *automation.ExecutionStore, executionID string, status string) automation.Execution {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		item, err := store.GetExecution(executionID)
+		if err != nil {
+			t.Fatalf("get execution %s: %v", executionID, err)
+		}
+		if item != nil && item.Status == status {
+			return *item
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("execution %s did not reach status %s", executionID, status)
+	return automation.Execution{}
 }
 
 func readAutomationConnectedPush(t *testing.T, conn *gws.Conn) {

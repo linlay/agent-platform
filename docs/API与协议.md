@@ -238,6 +238,7 @@ Archive 摘要、详情和搜索结果都会返回时间字段：`createdAt` 为
 | POST | `/api/automation/update` | body: `id` 或 `automationId`，以及可更新字段 | 更新后的 automation 详情 |
 | POST | `/api/automation/delete` | body: `id` 或 `automationId` | 删除结果 |
 | POST | `/api/automation/toggle` | body: `id` 或 `automationId`、`enabled` | 启停后的 automation 详情 |
+| POST | `/api/automation/trigger` | body: `id`（兼容 `automationId`） | 异步受理结果：`accepted`、`status`、`automationId`、`executionId` |
 | POST | `/api/automation/executions` | body: `id` 或 `automationId`、`limit`、`offset` | execution history |
 | POST | `/api/automation/execution` | body: `executionId`（兼容 `id`） | 单条 execution 与完整 query/result 内容 |
 
@@ -248,6 +249,10 @@ Automation 摘要和详情中的 `nextFireAt` 是下次触发时间的 epoch mil
 Automation 的 `description` 和 `zoneId` 均可省略。Execution 的 `zoneId` 是创建 execution 时解析出的有效业务时区快照，解析顺序为 automation `environment.zoneId`、Platform `automation.default-zone-id`、进程 `time.Local`。它不会随 automation 后续修改或删除而变化，也不参与上述 `*Time` 展示转换。
 
 Automation 列表和详情固定返回 `executionHistory:{available,state,message?}`，其中 `state` 为 `initializing|ready|degraded|unavailable`。History 不可读不影响 Automation 配置 API；`/api/automation/executions` 和 `/api/automation/execution` 此时返回 `503`。
+
+`POST /api/automation/trigger` 是 HTTP-only 的原生手动触发入口。每次请求都会创建不同的 Execution，并与 Cron 执行共用全局 Automation 并发池；暂停状态也可触发，但不会扣减 `remainingRuns`、持久化 Automation 或改变 `nextFireAt`。成功响应保持统一 200 包装，例如 `data:{"accepted":true,"status":"accepted","automationId":"daily-report","executionId":"exec_xxx"}`。该响应只表示已受理，Query 准入、模型执行、HITL 或停止取消等后续结果通过 execution history 和 `automation.execution.*` push 反映。
+
+触发受理时会固定完整 Definition、有效 `zoneId` 和 `automation:<id>` Chat source；后续编辑或删除不影响该 Execution。`startedAt` 是受理时间，`runStartedAt` 是 Query 真正注册时间。History 初始化或不可用不阻止触发。无 ID 或 payload 格式错误返回 400，不存在返回 404，orchestrator 未配置、未启动或正在停止返回 503。该路由不注册为普通 WebSocket 管理 route。
 
 Execution history item 与 `lastExecution` 可包含 `chatId`、`runId`、`finishReason`、`hasResult`、`resultPreview` 和 `runStartedAt`。`resultPreview` 由 Platform 从完整结果生成，最多约 240 字符；列表接口不读取或返回完整 `RESULT_CONTENT_`。`POST /api/automation/execution` 按需返回 `queryContent` 与 `resultContent`，其中结果来自对应 Run 持久化时的 `RunCompletion.AssistantText`，不是事后读取可能已变化的 Chat `lastRunContent`。
 

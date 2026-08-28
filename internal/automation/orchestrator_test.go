@@ -717,6 +717,328 @@ func TestOrchestratorLimitsDispatchConcurrency(t *testing.T) {
 	}
 }
 
+func TestOrchestratorManualTriggerRunsPausedWithoutMutatingScheduleState(t *testing.T) {
+	root := t.TempDir()
+	registry := NewRegistry(root, nil)
+	remainingRuns := 2
+	hidden := false
+	definition := Definition{
+		ID:            "paused-manual",
+		Name:          "Paused Manual",
+		Enabled:       false,
+		Cron:          "0 9 * * *",
+		RemainingRuns: &remainingRuns,
+		AgentKey:      "agent-a",
+		Environment:   Environment{ZoneID: "Asia/Shanghai"},
+		Query: Query{
+			ChatID:  "chat-existing",
+			Role:    "automation",
+			Hidden:  &hidden,
+			Message: "run paused automation",
+			Params:  map[string]any{"source": "manual-test"},
+		},
+	}
+	if err := registry.Persist(definition); err != nil {
+		t.Fatalf("persist automation: %v", err)
+	}
+	executions, err := NewExecutionStore(root, "executions.db")
+	if err != nil {
+		t.Fatalf("new execution store: %v", err)
+	}
+	defer executions.Close()
+
+	entered := make(chan api.QueryRequest, 2)
+	release := make(chan struct{}, 2)
+	dispatcher := NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
+		entered <- req
+		<-release
+		return successfulTestQuery(req, hooks), nil
+	}, nil, executions)
+	orchestrator := NewOrchestrator(registry, dispatcher, config.AutomationConfig{DefaultZoneID: "UTC", PoolSize: 1})
+	if err := orchestrator.Start(context.Background()); err != nil {
+		t.Fatalf("start orchestrator: %v", err)
+	}
+	defer func() { <-orchestrator.Stop().Done() }()
+
+	first, err := orchestrator.Trigger(definition.ID)
+	if err != nil {
+		t.Fatalf("trigger paused automation: %v", err)
+	}
+	if first.ID == "" || first.AutomationID != definition.ID || first.Status != ExecutionStatusRunning {
+		t.Fatalf("unexpected accepted execution %#v", first)
+	}
+	if first.ZoneID != "Asia/Shanghai" {
+		t.Fatalf("expected effective zone snapshot, got %#v", first)
+	}
+	req := waitForQueryRequest(t, entered, time.Second)
+	if req.AgentKey != definition.AgentKey || req.ChatID != definition.Query.ChatID || req.Message != definition.Query.Message || req.Role != definition.Query.Role {
+		t.Fatalf("manual trigger changed query request: %#v", req)
+	}
+	if req.Hidden == nil || *req.Hidden || req.ChatSource != api.ChatSourceAutomationPrefix+definition.ID || req.Params["source"] != "manual-test" {
+		t.Fatalf("manual trigger lost query metadata: %#v", req)
+	}
+
+	second, err := orchestrator.Trigger(definition.ID)
+	if err != nil {
+		t.Fatalf("trigger paused automation again: %v", err)
+	}
+	if second.ID == first.ID {
+		t.Fatalf("manual triggers must create distinct executions: %s", second.ID)
+	}
+	select {
+	case queued := <-entered:
+		t.Fatalf("second manual trigger bypassed shared pool: %#v", queued)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	loaded, err := registry.Load()
+	if err != nil || len(loaded) != 1 {
+		t.Fatalf("reload definitions: %#v err=%v", loaded, err)
+	}
+	if loaded[0].Enabled || loaded[0].RemainingRuns == nil || *loaded[0].RemainingRuns != remainingRuns {
+		t.Fatalf("manual trigger mutated schedule state: %#v", loaded[0])
+	}
+
+	release <- struct{}{}
+	_ = waitForQueryRequest(t, entered, time.Second)
+	release <- struct{}{}
+	waitForExecutionStatus(t, executions, first.ID, ExecutionStatusSuccess, time.Second)
+	waitForExecutionStatus(t, executions, second.ID, ExecutionStatusSuccess, time.Second)
+}
+
+func TestOrchestratorManualTriggerRunsEnabledWithoutChangingNextFire(t *testing.T) {
+	root := t.TempDir()
+	registry := NewRegistry(root, nil)
+	remainingRuns := 3
+	definition := Definition{
+		ID:            "enabled-manual",
+		Name:          "Enabled Manual",
+		Enabled:       true,
+		Cron:          "0 0 1 1 *",
+		RemainingRuns: &remainingRuns,
+		AgentKey:      "agent-a",
+		Query:         Query{Message: "run enabled automation"},
+	}
+	if err := registry.Persist(definition); err != nil {
+		t.Fatalf("persist automation: %v", err)
+	}
+	executions, err := NewExecutionStore(root, "executions.db")
+	if err != nil {
+		t.Fatalf("new execution store: %v", err)
+	}
+	defer executions.Close()
+	dispatched := make(chan api.QueryRequest, 1)
+	dispatcher := NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
+		dispatched <- req
+		return successfulTestQuery(req, hooks), nil
+	}, nil, executions)
+	orchestrator := NewOrchestrator(registry, dispatcher, config.AutomationConfig{DefaultZoneID: "UTC", PoolSize: 1})
+	if err := orchestrator.Start(context.Background()); err != nil {
+		t.Fatalf("start orchestrator: %v", err)
+	}
+	defer func() { <-orchestrator.Stop().Done() }()
+
+	before := orchestrator.Automations()
+	if len(before) != 1 || before[0].NextFireTime.IsZero() {
+		t.Fatalf("expected one scheduled automation, got %#v", before)
+	}
+	execution, err := orchestrator.Trigger(definition.ID)
+	if err != nil {
+		t.Fatalf("trigger enabled automation: %v", err)
+	}
+	request := waitForQueryRequest(t, dispatched, time.Second)
+	if request.AgentKey != definition.AgentKey || request.Message != definition.Query.Message {
+		t.Fatalf("unexpected enabled trigger request %#v", request)
+	}
+	waitForExecutionStatus(t, executions, execution.ID, ExecutionStatusSuccess, time.Second)
+	after := orchestrator.Automations()
+	if len(after) != 1 || !after[0].NextFireTime.Equal(before[0].NextFireTime) {
+		t.Fatalf("manual trigger changed next fire: before=%#v after=%#v", before, after)
+	}
+	loaded, err := registry.Load()
+	if err != nil || len(loaded) != 1 || loaded[0].RemainingRuns == nil || *loaded[0].RemainingRuns != remainingRuns {
+		t.Fatalf("manual trigger changed remainingRuns: %#v err=%v", loaded, err)
+	}
+}
+
+func TestOrchestratorManualTriggerKeepsQueuedTeamDefinitionSnapshot(t *testing.T) {
+	root := t.TempDir()
+	teams := fakeTeamLookup{teams: map[string]catalog.TeamSnapshot{
+		"research": {
+			TeamID:         "research",
+			AgentKeys:      []string{"writer", "reviewer"},
+			ValidAgentKeys: []string{"writer", "reviewer"},
+		},
+	}}
+	registry := NewRegistry(root, teams)
+	blocker := Definition{
+		ID:       "manual-blocker",
+		Name:     "Manual Blocker",
+		Enabled:  false,
+		Cron:     "0 9 * * *",
+		AgentKey: "agent-a",
+		Query:    Query{Message: "block the pool"},
+	}
+	hidden := false
+	target := Definition{
+		ID:          "team-snapshot",
+		Name:        "Team Snapshot",
+		Description: "accepted definition",
+		Enabled:     false,
+		Cron:        "0 9 * * *",
+		TeamID:      "research",
+		Environment: Environment{ZoneID: "Asia/Shanghai"},
+		Query: Query{
+			ChatID:  "chat-team",
+			Role:    api.QueryRoleSystem,
+			Hidden:  &hidden,
+			Message: "run accepted team definition",
+			Params:  map[string]any{"snapshot": "accepted"},
+		},
+	}
+	if err := registry.Persist(blocker); err != nil {
+		t.Fatalf("persist blocker: %v", err)
+	}
+	if err := registry.Persist(target); err != nil {
+		t.Fatalf("persist target: %v", err)
+	}
+	executions, err := NewExecutionStore(root, "executions.db")
+	if err != nil {
+		t.Fatalf("new execution store: %v", err)
+	}
+	defer executions.Close()
+	entered := make(chan api.QueryRequest, 2)
+	release := make(chan struct{}, 2)
+	dispatcher := NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
+		entered <- req
+		<-release
+		return successfulTestQuery(req, hooks), nil
+	}, nil, executions)
+	orchestrator := NewOrchestrator(registry, dispatcher, config.AutomationConfig{DefaultZoneID: "UTC", PoolSize: 1})
+	if err := orchestrator.Start(context.Background()); err != nil {
+		t.Fatalf("start orchestrator: %v", err)
+	}
+	defer func() { <-orchestrator.Stop().Done() }()
+
+	blockerExecution, err := orchestrator.Trigger(blocker.ID)
+	if err != nil {
+		t.Fatalf("trigger blocker: %v", err)
+	}
+	_ = waitForQueryRequest(t, entered, time.Second)
+	targetExecution, err := orchestrator.Trigger(target.ID)
+	if err != nil {
+		t.Fatalf("trigger target: %v", err)
+	}
+	if targetExecution.ZoneID != target.Environment.ZoneID {
+		t.Fatalf("unexpected zone snapshot %#v", targetExecution)
+	}
+	if err := registry.Delete(target); err != nil {
+		t.Fatalf("delete accepted automation: %v", err)
+	}
+
+	release <- struct{}{}
+	request := waitForQueryRequest(t, entered, time.Second)
+	if request.AgentKey != "" || request.TeamID != target.TeamID || request.ChatID != target.Query.ChatID || request.Role != target.Query.Role || request.Message != target.Query.Message {
+		t.Fatalf("queued trigger lost accepted Team definition: %#v", request)
+	}
+	if request.Hidden == nil || *request.Hidden || request.Params["snapshot"] != "accepted" || request.ChatSource != api.ChatSourceAutomationPrefix+target.ID {
+		t.Fatalf("queued trigger lost accepted metadata: %#v", request)
+	}
+	release <- struct{}{}
+	waitForExecutionStatus(t, executions, blockerExecution.ID, ExecutionStatusSuccess, time.Second)
+	waitForExecutionStatus(t, executions, targetExecution.ID, ExecutionStatusSuccess, time.Second)
+}
+
+func TestOrchestratorManualTriggerStopCancelsRunningAndQueuedExecutions(t *testing.T) {
+	root := t.TempDir()
+	registry := NewRegistry(root, nil)
+	if err := registry.Persist(Definition{
+		ID:       "manual-stop",
+		Name:     "Manual Stop",
+		Enabled:  false,
+		Cron:     "0 9 * * *",
+		AgentKey: "agent-a",
+		Query:    Query{Message: "wait for shutdown"},
+	}); err != nil {
+		t.Fatalf("persist automation: %v", err)
+	}
+	executions, err := NewExecutionStore(root, "executions.db")
+	if err != nil {
+		t.Fatalf("new execution store: %v", err)
+	}
+	defer executions.Close()
+
+	entered := make(chan struct{}, 2)
+	var calls int32
+	dispatcher := NewDispatcher(func(ctx context.Context, _ api.QueryRequest, _ QueryRunHooks) (QueryRunResult, error) {
+		atomic.AddInt32(&calls, 1)
+		entered <- struct{}{}
+		<-ctx.Done()
+		return QueryRunResult{}, ctx.Err()
+	}, nil, executions)
+	orchestrator := NewOrchestrator(registry, dispatcher, config.AutomationConfig{PoolSize: 1})
+	if err := orchestrator.Start(context.Background()); err != nil {
+		t.Fatalf("start orchestrator: %v", err)
+	}
+
+	first, err := orchestrator.Trigger("manual-stop")
+	if err != nil {
+		t.Fatalf("trigger first execution: %v", err)
+	}
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("first manual execution did not start")
+	}
+	second, err := orchestrator.Trigger("manual-stop")
+	if err != nil {
+		t.Fatalf("trigger queued execution: %v", err)
+	}
+
+	done := orchestrator.Stop()
+	select {
+	case <-done.Done():
+	case <-time.After(time.Second):
+		t.Fatal("orchestrator stop did not wait for manual executions")
+	}
+	if atomic.LoadInt32(&calls) != 1 {
+		t.Fatalf("queued execution should not enter query dispatch, calls=%d", atomic.LoadInt32(&calls))
+	}
+	waitForExecutionStatus(t, executions, first.ID, ExecutionStatusCanceled, time.Second)
+	waitForExecutionStatus(t, executions, second.ID, ExecutionStatusCanceled, time.Second)
+	if _, err := orchestrator.Trigger("manual-stop"); !errors.Is(err, ErrOrchestratorUnavailable) {
+		t.Fatalf("trigger after stop error=%v, want orchestrator unavailable", err)
+	}
+}
+
+func waitForQueryRequest(t *testing.T, values <-chan api.QueryRequest, timeout time.Duration) api.QueryRequest {
+	t.Helper()
+	select {
+	case value := <-values:
+		return value
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for query request")
+		return api.QueryRequest{}
+	}
+}
+
+func waitForExecutionStatus(t *testing.T, store *ExecutionStore, executionID string, status string, timeout time.Duration) Execution {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		item, err := store.GetExecution(executionID)
+		if err != nil {
+			t.Fatalf("get execution %s: %v", executionID, err)
+		}
+		if item != nil && item.Status == status {
+			return *item
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("execution %s did not reach status %s", executionID, status)
+	return Execution{}
+}
+
 func TestOrchestratorReleasesDispatchSlotAfterDispatchFailure(t *testing.T) {
 	root := t.TempDir()
 	orchestrator := NewOrchestrator(

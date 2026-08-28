@@ -30,6 +30,15 @@ func (d *Dispatcher) Dispatch(ctx context.Context, def Definition, zoneID string
 	if !def.Enabled {
 		return nil
 	}
+	execution := d.prepareExecution(def, zoneID)
+	return d.dispatchPrepared(ctx, def, execution)
+}
+
+func (d *Dispatcher) available() bool {
+	return d != nil && d.dispatch != nil
+}
+
+func (d *Dispatcher) prepareExecution(def Definition, zoneID string) Execution {
 	startedAt := time.Now()
 	triggeredAt := startedAt.Format(time.RFC3339)
 	log.Printf(
@@ -50,6 +59,28 @@ func (d *Dispatcher) Dispatch(ctx context.Context, def Definition, zoneID string
 		StartedAt:      startedAt.UnixMilli(),
 	}
 	d.submitExecution(execution)
+	return execution
+}
+
+func (d *Dispatcher) dispatchPrepared(ctx context.Context, def Definition, execution Execution) error {
+	if d == nil || d.dispatch == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	startedAt := time.UnixMilli(execution.StartedAt)
+	triggeredAt := startedAt.Format(time.RFC3339)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		completed := completeExecution(execution, nil, "", ctxErr)
+		d.submitExecution(completed)
+		log.Printf(
+			"[automation] dispatch canceled id=%s name=%s agentKey=%s teamId=%s source=%s triggeredAt=%s duration=%s err=%v",
+			def.ID, def.Name, def.AgentKey, def.TeamID, def.SourceFile, triggeredAt,
+			time.Since(time.UnixMilli(execution.StartedAt)).Round(time.Millisecond), ctxErr,
+		)
+		return ctxErr
+	}
 
 	hooks := QueryRunHooks{OnRunStarted: func(start chat.RunStart) {
 		bound := cloneExecution(execution)

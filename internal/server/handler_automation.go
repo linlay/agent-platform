@@ -112,6 +112,17 @@ func (s *Server) handleAutomationToggle(w http.ResponseWriter, r *http.Request) 
 	s.writeAutomationHTTPResponse(w, response, err)
 }
 
+func (s *Server) handleAutomationTrigger(w http.ResponseWriter, r *http.Request) {
+	var req api.TriggerAutomationRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid payload"))
+		return
+	}
+	id := firstNonBlank(req.ID, req.AutomationID)
+	response, err := s.triggerAutomation(id)
+	s.writeAutomationHTTPResponse(w, response, err)
+}
+
 func (s *Server) handleAutomationExecutions(w http.ResponseWriter, r *http.Request) {
 	var req api.AutomationExecutionsRequest
 	if err := decodeOptionalJSON(r, &req); err != nil {
@@ -291,6 +302,36 @@ func (s *Server) deleteAutomation(req api.DeleteAutomationRequest) (map[string]a
 func (s *Server) toggleAutomation(req api.ToggleAutomationRequest) (api.AutomationDetailResponse, error) {
 	req.ID = firstNonBlank(req.ID, req.AutomationID)
 	return s.updateAutomation(api.UpdateAutomationRequest{ID: req.ID, Enabled: &req.Enabled})
+}
+
+func (s *Server) triggerAutomation(id string) (api.TriggerAutomationResponse, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return api.TriggerAutomationResponse{}, newAutomationStatusError(http.StatusBadRequest, "invalid_request", "id is required")
+	}
+	if err := s.automationDepsReady(); err != nil {
+		return api.TriggerAutomationResponse{}, err
+	}
+	if s.deps.AutomationOrchestrator == nil {
+		return api.TriggerAutomationResponse{}, newAutomationStatusError(http.StatusServiceUnavailable, "unavailable", "automation orchestrator is not configured")
+	}
+	execution, err := s.deps.AutomationOrchestrator.Trigger(id)
+	if err != nil {
+		switch {
+		case errors.Is(err, automation.ErrAutomationNotFound):
+			return api.TriggerAutomationResponse{}, newAutomationStatusError(http.StatusNotFound, "not_found", "automation not found")
+		case errors.Is(err, automation.ErrOrchestratorUnavailable):
+			return api.TriggerAutomationResponse{}, newAutomationStatusError(http.StatusServiceUnavailable, "unavailable", "automation orchestrator is unavailable")
+		default:
+			return api.TriggerAutomationResponse{}, err
+		}
+	}
+	return api.TriggerAutomationResponse{
+		Accepted:     true,
+		Status:       "accepted",
+		AutomationID: execution.AutomationID,
+		ExecutionID:  execution.ID,
+	}, nil
 }
 
 func (s *Server) listAutomationExecutions(req api.AutomationExecutionsRequest) (api.AutomationExecutionListResponse, error) {
