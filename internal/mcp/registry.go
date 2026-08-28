@@ -3,6 +3,7 @@ package mcp
 import (
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -156,6 +157,14 @@ func parseServerTree(path string, tree any) (ServerDefinition, error) {
 		return ServerDefinition{}, fmt.Errorf("unsupported MCP transport %q", transport)
 	}
 	baseURL := strings.TrimSpace(contracts.FirstNonEmptyString(root["baseUrl"], root["base-url"], root["url"]))
+	authToken := strings.TrimSpace(contracts.FirstNonEmptyString(root["authToken"], root["auth-token"]))
+	authSource := strings.ToLower(strings.TrimSpace(contracts.FirstNonEmptyString(root["authSource"], root["auth-source"])))
+	if authSource != "" && authSource != AuthSourceDesktopIdentity {
+		return ServerDefinition{}, fmt.Errorf("unsupported MCP authSource %q", authSource)
+	}
+	if authToken != "" && authSource != "" {
+		return ServerDefinition{}, fmt.Errorf("MCP server cannot declare both authToken and authSource")
+	}
 	command := strings.TrimSpace(contracts.FirstNonEmptyString(root["command"]))
 	args, err := normalizeStringSlice(root["args"])
 	if err != nil {
@@ -171,11 +180,17 @@ func parseServerTree(path string, tree any) (ServerDefinition, error) {
 		if hasAnyKey(root, "command", "args", "env", "workingDirectory", "working-directory") {
 			return ServerDefinition{}, fmt.Errorf("streamable-http MCP server cannot declare stdio fields")
 		}
+		if authSource == AuthSourceDesktopIdentity {
+			parsedBaseURL, err := url.Parse(baseURL)
+			if err != nil || parsedBaseURL.Scheme != "https" || parsedBaseURL.Hostname() == "" || parsedBaseURL.User != nil {
+				return ServerDefinition{}, fmt.Errorf("desktop-identity MCP server requires a valid HTTPS baseUrl")
+			}
+		}
 	} else {
 		if command == "" {
 			return ServerDefinition{}, fmt.Errorf("stdio MCP server requires command")
 		}
-		if hasAnyKey(root, "baseUrl", "base-url", "url", "endpointPath", "endpoint-path", "path", "authToken", "auth-token", "headers") {
+		if hasAnyKey(root, "baseUrl", "base-url", "url", "endpointPath", "endpoint-path", "path", "authToken", "auth-token", "authSource", "auth-source", "headers") {
 			return ServerDefinition{}, fmt.Errorf("stdio MCP server cannot declare HTTP fields")
 		}
 		if !filepath.IsAbs(command) {
@@ -191,6 +206,25 @@ func parseServerTree(path string, tree any) (ServerDefinition, error) {
 	if transport == TransportStreamableHTTP {
 		endpointPath = normalizeEndpointPath(contracts.FirstNonEmptyString(root["endpointPath"], root["endpoint-path"], root["path"]))
 	}
+	boundAgentKeys := []string(nil)
+	if bindingsValue, declared := root["bindings"]; declared {
+		bindings := contracts.AnyMapNode(bindingsValue)
+		if bindings == nil {
+			return ServerDefinition{}, fmt.Errorf("bindings must be a map")
+		}
+		agentsValue, declaredAgents := bindings["agents"]
+		if !declaredAgents {
+			return ServerDefinition{}, fmt.Errorf("bindings.agents is required when bindings is declared")
+		}
+		boundAgentKeys, err = normalizeStringSlice(agentsValue)
+		if err != nil {
+			return ServerDefinition{}, fmt.Errorf("bindings.agents: %w", err)
+		}
+		boundAgentKeys = normalizeBoundAgentKeys(boundAgentKeys)
+		if len(boundAgentKeys) == 0 {
+			return ServerDefinition{}, fmt.Errorf("bindings.agents must contain at least one Agent key")
+		}
+	}
 	server := ServerDefinition{
 		Key:            serverKey,
 		Name:           fallbackString(contracts.FirstNonEmptyString(root["name"]), serverKey),
@@ -202,13 +236,15 @@ func parseServerTree(path string, tree any) (ServerDefinition, error) {
 		Env:            env,
 		WorkingDir:     workingDir,
 		ToolPrefix:     strings.TrimSpace(contracts.FirstNonEmptyString(root["toolPrefix"], root["tool-prefix"])),
-		AuthToken:      strings.TrimSpace(contracts.FirstNonEmptyString(root["authToken"], root["auth-token"])),
+		AuthToken:      authToken,
+		AuthSource:     authSource,
 		Headers:        normalizeStringMap(contracts.AnyMapNode(root["headers"])),
 		AliasMap:       normalizeAliasMap(contracts.AnyMapNode(root["aliasMap"])),
 		ConnectTimeout: firstInt(root["connect-timeout"], nil, 3),
 		StartupTimeout: firstInt(root["startup-timeout"], root["startupTimeout"], defaultStartupTimeout),
 		ReadTimeout:    firstInt(root["read-timeout"], nil, defaultReadTimeout),
 		Retry:          firstInt(root["retry"], nil, 1),
+		BoundAgentKeys: boundAgentKeys,
 	}
 	for index, item := range listMaps(root["tools"]) {
 		tool, err := parseToolDefinition(item)
@@ -218,6 +254,24 @@ func parseServerTree(path string, tree any) (ServerDefinition, error) {
 		server.Tools = append(server.Tools, tool)
 	}
 	return server, nil
+}
+
+func normalizeBoundAgentKeys(values []string) []string {
+	result := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		key := strings.TrimSpace(value)
+		if key == "" {
+			continue
+		}
+		normalized := strings.ToLower(key)
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, key)
+	}
+	return result
 }
 
 // ValidateServerCandidate parses an MCP server YAML candidate without opening

@@ -3,6 +3,7 @@ package llm
 import (
 	"encoding/json"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -151,6 +152,35 @@ func TestExplicitEmptyStageAllowlistRejectsCachedToolSpecs(t *testing.T) {
 	}
 	if !cachedToolsCompatibleWithStageOverride([]string{"datetime"}, cached) {
 		t.Fatal("non-empty stage allowlist retains existing mode-specific cache behavior")
+	}
+}
+
+func TestExecutionAllowlistContainsOnlyEffectiveToolDefinitions(t *testing.T) {
+	definitions := []api.ToolDetailResponse{{Name: "datetime"}}
+	effective := effectiveToolDefinitions(definitions, []string{"missing_tool"}, contracts.QuerySession{})
+	if got := toolNamesFromDefinitions(effective, nil); len(got) != 0 {
+		t.Fatalf("missing tool leaked into execution allowlist: %#v", got)
+	}
+}
+
+func TestEffectiveToolDefinitionsRequireMCPBindingGrant(t *testing.T) {
+	definitions := []api.ToolDetailResponse{
+		{Name: "datetime"},
+		{Name: "remote_tool", Meta: map[string]any{"sourceType": "mcp"}},
+	}
+	allowed := []string{"datetime", "remote_tool"}
+	withoutBinding := effectiveToolDefinitions(definitions, allowed, contracts.QuerySession{
+		ToolNames: allowed,
+	})
+	if got := toolNamesFromDefinitions(withoutBinding, nil); !reflect.DeepEqual(got, []string{"datetime"}) {
+		t.Fatalf("unbound MCP tool leaked into effective definitions: %#v", got)
+	}
+	withBinding := effectiveToolDefinitions(definitions, allowed, contracts.QuerySession{
+		ToolNames:    allowed,
+		MCPToolNames: []string{"remote_tool"},
+	})
+	if got := toolNamesFromDefinitions(withBinding, nil); !reflect.DeepEqual(got, allowed) {
+		t.Fatalf("bound MCP tool missing from effective definitions: %#v", got)
 	}
 }
 

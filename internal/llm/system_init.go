@@ -370,7 +370,9 @@ func buildPlanSystemInitProfile(session contracts.QuerySession, req api.QueryReq
 }
 
 func buildExecuteSystemInitProfile(session contracts.QuerySession, settings contracts.PlanExecuteSettings, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
-	tools := appendUniqueTools(stageToolsOrDefault(settings.Execute, session.ToolNames), "plan_update_task")
+	tools := stageToolsOrDefault(settings.Execute, session.ToolNames)
+	tools = appendUniqueTools(tools, session.MCPToolNames...)
+	tools = appendUniqueTools(tools, "plan_update_task")
 	effectiveDefs := effectiveToolDefinitions(toolDefs, tools, session)
 	systemPrompt := strings.TrimSpace(settings.Execute.PrimaryPrompt())
 	if systemPrompt == "" {

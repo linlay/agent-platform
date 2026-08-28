@@ -3820,6 +3820,12 @@ func newSerialToolBudgetExceededFixture(t *testing.T) (testFixture, *atomic.Int3
 			}
 			content := strings.Replace(
 				string(data),
+				"    - ask_user_question",
+				"    - ask_user_question\n    - plan_add_tasks\n    - plan_update_task",
+				1,
+			)
+			content = strings.Replace(
+				content,
 				"  tool:\n    timeout: 210",
 				"  tool:\n    maxCalls: 2\n    timeout: 210",
 				1,

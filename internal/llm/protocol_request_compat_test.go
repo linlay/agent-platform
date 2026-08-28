@@ -9,6 +9,7 @@ import (
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	. "agent-platform/internal/models"
+	"agent-platform/internal/platformcontrol"
 	runtimetools "agent-platform/internal/tools"
 )
 
@@ -537,6 +538,32 @@ func TestNewAssistantTurnMessageReasoningContentCompat(t *testing.T) {
 	}
 	if len(got.ToolCalls) != 1 {
 		t.Fatalf("expected tool call to be preserved, got %#v", got.ToolCalls)
+	}
+}
+
+func TestNewAssistantTurnMessagePreservesPlatformControlArgumentsForNextModelTurn(t *testing.T) {
+	rawArguments := `{"operation":"catalog.validate","params":{"resourceType":"skill","resourceKey":"demo","content":"full skill content"}}`
+	toolCalls := []openAIToolCall{{
+		ID:   "call_platform_control",
+		Type: "function",
+		Function: openAIFunctionCall{
+			Name:      platformcontrol.ToolName,
+			Arguments: rawArguments,
+		},
+	}}
+
+	stream := &llmRunStream{}
+	message := stream.newAssistantTurnMessage(nil, "", toolCalls)
+	if len(message.ToolCalls) != 1 || message.ToolCalls[0].Function.Arguments != rawArguments {
+		t.Fatalf("expected provider conversation to keep raw tool arguments, got %#v", message.ToolCalls)
+	}
+
+	sanitized := sanitizedToolCalls(toolCalls)
+	if len(sanitized) != 1 || sanitized[0].Function.Arguments == rawArguments {
+		t.Fatalf("expected trace copy to redact sensitive tool arguments, got %#v", sanitized)
+	}
+	if toolCalls[0].Function.Arguments != rawArguments {
+		t.Fatalf("sanitizing a trace copy must not mutate execution arguments")
 	}
 }
 

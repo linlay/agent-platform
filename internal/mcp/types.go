@@ -20,19 +20,22 @@ type ServerDefinition struct {
 	WorkingDir     string
 	ToolPrefix     string
 	AuthToken      string
+	AuthSource     string
 	Headers        map[string]string
 	AliasMap       map[string]string
 	ConnectTimeout int
 	StartupTimeout int
 	ReadTimeout    int
 	Retry          int
+	BoundAgentKeys []string
 	Tools          []ToolDefinition
 }
 
 const (
-	TransportStreamableHTTP = "streamable-http"
-	TransportStdio          = "stdio"
-	ProtocolVersion         = "2025-11-25"
+	TransportStreamableHTTP   = "streamable-http"
+	TransportStdio            = "stdio"
+	AuthSourceDesktopIdentity = "desktop-identity"
+	ProtocolVersion           = "2025-11-25"
 )
 
 func (s ServerDefinition) ResolvedURL() string {

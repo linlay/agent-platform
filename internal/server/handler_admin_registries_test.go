@@ -64,7 +64,7 @@ func setupAdminRegistriesFixture(t *testing.T) testFixture {
 			if err := os.WriteFile(filepath.Join(mcpDir, "invalid-yaml.yml"), []byte("serverKey: broken\n  baseUrl: bad\n"), 0o644); err != nil {
 				t.Fatalf("write invalid mcp registry: %v", err)
 			}
-			if err := os.WriteFile(filepath.Join(mcpDir, "demo.yml"), []byte("serverKey: demo-mcp\nbaseUrl: http://localhost:11969\n"), 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(mcpDir, "demo.yml"), []byte("serverKey: demo-mcp\nbaseUrl: http://localhost:11969\nbindings:\n  agents: [cutej, planner]\n"), 0o644); err != nil {
 				t.Fatalf("write demo mcp registry: %v", err)
 			}
 			if err := os.WriteFile(filepath.Join(mcpDir, "stdio.yml"), []byte("serverKey: stdio-mcp\ntransport: stdio\ncommand: private-tool\nargs: [serve]\nenv:\n  SECRET: hidden\n"), 0o644); err != nil {
@@ -174,6 +174,8 @@ func TestAdminRegistriesEndpointIncludesInvalidFiles(t *testing.T) {
 		t.Fatalf("mcp server list summary should expose runtime tool count: %#v", item)
 	} else if item.Summary["syncStatus"] != "unavailable" || intFromAny(item.Summary["lastSyncAttemptAt"]) != 1786000000000 || item.Summary["syncDiagnostic"] == nil {
 		t.Fatalf("mcp server list summary should expose tool sync status: %#v", item)
+	} else if boundAgentKeys, ok := item.Summary["boundAgentKeys"].([]any); !ok || len(boundAgentKeys) != 2 || boundAgentKeys[0] != "cutej" || boundAgentKeys[1] != "planner" {
+		t.Fatalf("mcp server list summary should expose bound Agent keys: %#v", item)
 	}
 	if item := byFile["mcp-servers/stdio.yml"]; item.Status != "ready" || item.Key != "stdio-mcp" || item.Summary["transport"] != "stdio" {
 		t.Fatalf("stdio mcp summary missing transport: %#v", item)

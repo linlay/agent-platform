@@ -16,6 +16,28 @@ import (
 	"agent-platform/internal/kbase"
 )
 
+type mcpBindingToolExecutor struct {
+	bound      map[string][]string
+	mcpTools   map[string]bool
+	generation int64
+}
+
+func (m mcpBindingToolExecutor) Definitions() []api.ToolDetailResponse { return nil }
+
+func (m mcpBindingToolExecutor) Invoke(context.Context, string, map[string]any, *contracts.ExecutionContext) (contracts.ToolExecutionResult, error) {
+	return contracts.ToolExecutionResult{}, nil
+}
+
+func (m mcpBindingToolExecutor) MCPToolNamesForAgent(agentKey string) []string {
+	return append([]string(nil), m.bound[agentKey]...)
+}
+
+func (m mcpBindingToolExecutor) IsMCPTool(toolName string) bool {
+	return m.mcpTools[strings.ToLower(strings.TrimSpace(toolName))]
+}
+
+func (m mcpBindingToolExecutor) MCPGeneration() int64 { return m.generation }
+
 func TestBuildSessionToolNamesDoesNotAutoAddInvokeAgents(t *testing.T) {
 	got := buildSessionToolNames([]string{"datetime"}, true)
 	want := []string{"datetime"}
@@ -44,6 +66,55 @@ func TestBuildSessionToolNamesKeepsEmptyAfterInvokeAgentsIsRemoved(t *testing.T)
 	got := buildSessionToolNames([]string{contracts.InvokeAgentsToolName}, false)
 	if len(got) != 0 {
 		t.Fatalf("removing agent_invoke must leave an empty allowlist, got %#v", got)
+	}
+}
+
+func TestBoundMCPToolNamesUsesExplicitAgentBindingProvider(t *testing.T) {
+	executor := mcpBindingToolExecutor{bound: map[string][]string{
+		"cutej": {"flowCenter_startlist", "flowCenter_query_todo_list"},
+	}}
+	if got := boundMCPToolNames(executor, " cutej "); !reflect.DeepEqual(got, []string{"flowCenter_startlist", "flowCenter_query_todo_list"}) {
+		t.Fatalf("boundMCPToolNames(cutej) = %#v", got)
+	}
+	if got := boundMCPToolNames(executor, "other"); len(got) != 0 {
+		t.Fatalf("boundMCPToolNames(other) = %#v", got)
+	}
+}
+
+func TestBoundMCPToolNamesOnlyAllowsReactAndPlanExecuteAgents(t *testing.T) {
+	executor := mcpBindingToolExecutor{bound: map[string][]string{"bound": {"remote_tool"}}}
+	for _, definition := range []catalog.AgentDefinition{
+		{Key: "bound", Mode: "KBASE"},
+		{Key: "bound", Mode: "CODER", ACPBridgeID: "codex"},
+		{Key: "bound", Mode: "CODER"},
+		{Key: "bound", Mode: "PROXY"},
+		{Key: "bound", Mode: "ONESHOT"},
+		{Key: "bound", Mode: "CHANNEL"},
+	} {
+		if got := boundMCPToolNamesForAgent(executor, definition); len(got) != 0 {
+			t.Fatalf("mode=%s acp=%s bound tools = %#v", definition.Mode, definition.ACPBridgeID, got)
+		}
+	}
+	for _, mode := range []string{"REACT", "PLAN-EXECUTE", "plan_execute"} {
+		if got := boundMCPToolNamesForAgent(executor, catalog.AgentDefinition{Key: "bound", Mode: mode}); !reflect.DeepEqual(got, []string{"remote_tool"}) {
+			t.Fatalf("mode=%s bound tools = %#v", mode, got)
+		}
+	}
+}
+
+func TestMCPBindingsReplaceManualMCPNamesAndFreezeGeneration(t *testing.T) {
+	executor := mcpBindingToolExecutor{
+		bound:      map[string][]string{"cutej": {"bound_tool"}},
+		mcpTools:   map[string]bool{"manual_tool": true, "bound_tool": true},
+		generation: 9,
+	}
+	configured := withoutMCPToolNames(executor, []string{"datetime", "manual_tool"})
+	if !reflect.DeepEqual(configured, []string{"datetime"}) {
+		t.Fatalf("manual MCP name bypassed bindings: %#v", configured)
+	}
+	bound := boundMCPToolNamesForAgent(executor, catalog.AgentDefinition{Key: "cutej", Mode: "REACT"})
+	if !reflect.DeepEqual(bound, []string{"bound_tool"}) || mcpCatalogGeneration(executor, bound) != 9 {
+		t.Fatalf("bound MCP snapshot mismatch names=%#v generation=%d", bound, mcpCatalogGeneration(executor, bound))
 	}
 }
 

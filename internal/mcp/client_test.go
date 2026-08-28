@@ -2,8 +2,10 @@ package mcp
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -374,6 +376,120 @@ func TestSanitizeSyncErrorRedactsConfiguredSecrets(t *testing.T) {
 			t.Fatalf("sync diagnostic leaked %q: %s", secret, message)
 		}
 	}
+}
+
+func TestHeaderRoundTripperReadsDesktopIdentityOnEveryRequest(t *testing.T) {
+	identityFile := filepath.Join(t.TempDir(), "sso-access-token.txt")
+	tokenA := unsignedJWTWithIssuer(t, "https://eiam.example.test/auth/oidc/dev", "subject-a")
+	tokenB := unsignedJWTWithIssuer(t, "https://eiam.example.test/auth/oidc/dev", "subject-b")
+	if err := os.WriteFile(identityFile, []byte(tokenA+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var authorizations []string
+	transport := headerRoundTripper{
+		base: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			authorizations = append(authorizations, request.Header.Get("Authorization"))
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader("")),
+				Request:    request,
+			}, nil
+		}),
+		authSource:   AuthSourceDesktopIdentity,
+		identityFile: identityFile,
+		identityHost: "example.test",
+	}
+	request, err := http.NewRequest(http.MethodPost, "https://example.test/mcp", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := transport.RoundTrip(request); err != nil {
+		t.Fatalf("first request: %v", err)
+	}
+	if err := os.WriteFile(identityFile, []byte(tokenB+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := transport.RoundTrip(request); err != nil {
+		t.Fatalf("second request: %v", err)
+	}
+	if got := strings.Join(authorizations, ","); got != "Bearer "+tokenA+",Bearer "+tokenB {
+		t.Fatalf("authorization headers = %q", got)
+	}
+}
+
+func TestHeaderRoundTripperAllowsIdentityIssuerOutsideConfiguredMCPHost(t *testing.T) {
+	identityFile := filepath.Join(t.TempDir(), "sso-access-token.txt")
+	token := unsignedJWTWithIssuer(t, "https://eiam.example.test/auth/oidc/dev", "subject")
+	if err := os.WriteFile(identityFile, []byte(token+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	transport := headerRoundTripper{
+		base: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader("")),
+				Request:    request,
+			}, nil
+		}),
+		authSource: AuthSourceDesktopIdentity, identityFile: identityFile, identityHost: "api.resource.test",
+	}
+	request, err := http.NewRequest(http.MethodPost, "https://api.resource.test/mcp", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := transport.RoundTrip(request); err != nil {
+		t.Fatalf("configured MCP host should not depend on token issuer: %v", err)
+	}
+}
+
+func TestHeaderRoundTripperRejectsDesktopIdentityOutsideConfiguredMCPHost(t *testing.T) {
+	identityFile := filepath.Join(t.TempDir(), "sso-access-token.txt")
+	if err := os.WriteFile(identityFile, []byte("desktop-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	transport := headerRoundTripper{
+		base: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			t.Fatalf("untrusted request reached base transport: %s", request.URL)
+			return nil, nil
+		}),
+		authSource: AuthSourceDesktopIdentity, identityFile: identityFile, identityHost: "api.resource.test",
+	}
+	request, err := http.NewRequest(http.MethodPost, "https://attacker.test/mcp", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := transport.RoundTrip(request); err == nil || !strings.Contains(err.Error(), "left the configured MCP host") {
+		t.Fatalf("expected configured MCP host rejection, got %v", err)
+	}
+}
+
+func TestServerFingerprintIgnoresAgentBindings(t *testing.T) {
+	base := ServerDefinition{Key: "demo", Transport: TransportStreamableHTTP, BaseURL: "https://example.test"}
+	bound := base
+	bound.BoundAgentKeys = []string{"cutej"}
+	if serverFingerprint(base) != serverFingerprint(bound) {
+		t.Fatal("Agent-only binding change must not recycle the MCP connection")
+	}
+	changed := base
+	changed.BaseURL = "https://other.example.test"
+	if serverFingerprint(base) == serverFingerprint(changed) {
+		t.Fatal("connection field change must recycle the MCP connection")
+	}
+}
+
+func unsignedJWTWithIssuer(t *testing.T, issuer string, subject string) string {
+	t.Helper()
+	header, _ := json.Marshal(map[string]any{"alg": "none", "typ": "JWT"})
+	payload, _ := json.Marshal(map[string]any{"iss": issuer, "sub": subject})
+	return base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(payload) + ".signature"
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
 }
 
 func TestAvailabilityGateBackoffPolicyAndReset(t *testing.T) {

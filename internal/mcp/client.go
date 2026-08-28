@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"sort"
@@ -16,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/builtins"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/observability"
@@ -25,10 +27,11 @@ import (
 )
 
 type Client struct {
-	registry   *Registry
-	httpClient *http.Client
-	gate       *AvailabilityGate
-	sdk        *sdkmcp.Client
+	registry     *Registry
+	httpClient   *http.Client
+	gate         *AvailabilityGate
+	identityFile string
+	sdk          *sdkmcp.Client
 
 	mu     sync.Mutex
 	slots  map[string]*sessionSlot
@@ -64,6 +67,11 @@ func NewClientWithGate(registry *Registry, httpClient *http.Client, gate *Availa
 		}, &sdkmcp.ClientOptions{Capabilities: &sdkmcp.ClientCapabilities{}}),
 		slots: map[string]*sessionSlot{},
 	}
+}
+
+func (c *Client) WithIdentityFile(filePath string) *Client {
+	c.identityFile = strings.TrimSpace(filePath)
+	return c
 }
 
 func (c *Client) Initialize(ctx context.Context, serverKey string) error {
@@ -447,14 +455,26 @@ func (c *Client) httpClientForServer(server ServerDefinition) *http.Client {
 		}
 		transport = typed
 	}
-	cloned.Transport = headerRoundTripper{base: transport, headers: server.Headers, authToken: server.AuthToken}
+	identityHost := ""
+	if server.AuthSource == AuthSourceDesktopIdentity {
+		if parsed, err := url.Parse(server.BaseURL); err == nil {
+			identityHost = parsed.Hostname()
+		}
+	}
+	cloned.Transport = headerRoundTripper{
+		base: transport, headers: server.Headers, authToken: server.AuthToken,
+		authSource: server.AuthSource, identityFile: c.identityFile, identityHost: identityHost,
+	}
 	return &cloned
 }
 
 type headerRoundTripper struct {
-	base      http.RoundTripper
-	headers   map[string]string
-	authToken string
+	base         http.RoundTripper
+	headers      map[string]string
+	authToken    string
+	authSource   string
+	identityFile string
+	identityHost string
 }
 
 func (t headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -463,10 +483,35 @@ func (t headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 	for key, value := range t.headers {
 		cloned.Header.Set(key, value)
 	}
-	if token := strings.TrimSpace(t.authToken); token != "" {
+	token := strings.TrimSpace(t.authToken)
+	if t.authSource == AuthSourceDesktopIdentity {
+		var err error
+		token, err = agentconfig.ReadAccessTokenFile(t.identityFile)
+		if err != nil {
+			return nil, fmt.Errorf("read desktop identity for MCP: %w", err)
+		}
+		if token == "" {
+			return nil, fmt.Errorf("desktop identity token is unavailable")
+		}
+		if err := validateDesktopIdentityRequest(cloned.URL, t.identityHost); err != nil {
+			return nil, err
+		}
+	}
+	if token != "" {
 		cloned.Header.Set("Authorization", "Bearer "+token)
 	}
 	return t.base.RoundTrip(cloned)
+}
+
+func validateDesktopIdentityRequest(requestURL *url.URL, configuredHost string) error {
+	configuredHost = strings.TrimSpace(configuredHost)
+	if requestURL == nil || requestURL.Scheme != "https" || requestURL.User != nil || (requestURL.Port() != "" && requestURL.Port() != "443") {
+		return fmt.Errorf("desktop identity MCP request requires HTTPS on the configured MCP host")
+	}
+	if configuredHost == "" || !strings.EqualFold(requestURL.Hostname(), configuredHost) {
+		return fmt.Errorf("desktop identity MCP request left the configured MCP host")
+	}
+	return nil
 }
 
 func toolDefinitionFromSDK(tool *sdkmcp.Tool) ToolDefinition {
@@ -521,7 +566,30 @@ func mapValue(value any) map[string]any {
 }
 
 func serverFingerprint(server ServerDefinition) string {
-	data, _ := json.Marshal(server)
+	connection := struct {
+		Key            string
+		Transport      string
+		BaseURL        string
+		EndpointPath   string
+		Command        string
+		Args           []string
+		Env            map[string]string
+		WorkingDir     string
+		AuthToken      string
+		AuthSource     string
+		Headers        map[string]string
+		ConnectTimeout int
+		StartupTimeout int
+		ReadTimeout    int
+		Retry          int
+	}{
+		Key: server.Key, Transport: server.Transport, BaseURL: server.BaseURL, EndpointPath: server.EndpointPath,
+		Command: server.Command, Args: server.Args, Env: server.Env, WorkingDir: server.WorkingDir,
+		AuthToken: server.AuthToken, AuthSource: server.AuthSource, Headers: server.Headers,
+		ConnectTimeout: server.ConnectTimeout, StartupTimeout: server.StartupTimeout,
+		ReadTimeout: server.ReadTimeout, Retry: server.Retry,
+	}
+	data, _ := json.Marshal(connection)
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }

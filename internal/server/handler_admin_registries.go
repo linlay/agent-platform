@@ -14,6 +14,7 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/mcp"
 	"agent-platform/internal/models"
 )
 
@@ -304,6 +305,11 @@ func (s *Server) analyzeAdminRegistry(category string, file string, content []by
 	summary.Name = strings.TrimSpace(contracts.FirstNonEmptyString(root["name"]))
 	summary.Summary = adminRegistryPublicSummary(category, root)
 	diagnostics := s.adminRegistryDiagnostics(category, file, root, sourcePath)
+	if category == "mcp-servers" {
+		if err := mcp.ValidateServerCandidate(summary.Key, content); err != nil {
+			diagnostics = append(diagnostics, adminRegistryDiagnostic("error", "invalid_mcp_config", err.Error(), sourcePath))
+		}
+	}
 	if len(diagnostics) > 0 {
 		summary.Diagnostics = diagnostics
 		if adminRegistryHasError(diagnostics) {
@@ -415,31 +421,8 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 			}
 		}
 	case "mcp-servers":
-		if adminRegistryKey(category, file, root) == "" {
-			addError("missing_key", "serverKey or key is required")
-		}
-		transport := strings.ToLower(strings.TrimSpace(contracts.FirstNonEmptyString(root["transport"])))
-		if transport == "" {
-			transport = "streamable-http"
-		}
-		switch transport {
-		case "streamable-http":
-			if strings.TrimSpace(contracts.FirstNonEmptyString(root["baseUrl"], root["base-url"], root["url"])) == "" {
-				addError("missing_base_url", "streamable-http MCP server baseUrl is required")
-			}
-			if adminRegistryHasAnyKey(root, "command", "args", "env", "workingDirectory", "working-directory") {
-				addError("mixed_transport_fields", "streamable-http MCP server cannot declare stdio fields")
-			}
-		case "stdio":
-			if strings.TrimSpace(contracts.FirstNonEmptyString(root["command"])) == "" {
-				addError("missing_command", "stdio MCP server command is required")
-			}
-			if adminRegistryHasAnyKey(root, "baseUrl", "base-url", "url", "endpointPath", "endpoint-path", "path", "authToken", "auth-token", "headers") {
-				addError("mixed_transport_fields", "stdio MCP server cannot declare HTTP fields")
-			}
-		default:
-			addError("invalid_transport", "MCP transport must be streamable-http or stdio")
-		}
+		// MCP candidate validation is delegated to mcp.ValidateServerCandidate
+		// so the management view and runtime parser cannot drift.
 	case "viewport-servers":
 		if adminRegistryKey(category, file, root) == "" {
 			addError("missing_key", "serverKey or key is required")
@@ -607,6 +590,8 @@ func adminRegistryPublicSummary(category string, root map[string]any) map[string
 		}
 		put("enabled", adminRegistryBool(root["enabled"], true))
 		put("toolPrefix", contracts.FirstNonEmptyString(root["toolPrefix"], root["tool-prefix"]))
+		bindings := contracts.AnyMapNode(root["bindings"])
+		out["boundAgentKeys"] = adminRegistryStringList(bindings["agents"])
 		if tools, ok := root["tools"].([]any); ok {
 			out["toolCount"] = len(tools)
 		}
@@ -616,6 +601,36 @@ func adminRegistryPublicSummary(category string, root map[string]any) map[string
 		put("timeout", root["timeout"])
 	}
 	return out
+}
+
+func adminRegistryStringList(raw any) []string {
+	values := []any{}
+	switch items := raw.(type) {
+	case []any:
+		values = items
+	case []string:
+		values = make([]any, 0, len(items))
+		for _, item := range items {
+			values = append(values, item)
+		}
+	case string:
+		text := strings.TrimSpace(items)
+		if !strings.HasPrefix(text, "[") || !strings.HasSuffix(text, "]") {
+			return nil
+		}
+		for _, item := range strings.Split(strings.TrimSpace(text[1:len(text)-1]), ",") {
+			values = append(values, strings.Trim(strings.TrimSpace(item), "\"'"))
+		}
+	default:
+		return nil
+	}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if item := strings.TrimSpace(contracts.AnyStringNode(value)); item != "" {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 func adminRegistryBool(raw any, fallback bool) bool {

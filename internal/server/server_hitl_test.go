@@ -1213,7 +1213,9 @@ type recordingMCPClient struct {
 }
 
 type stubMCPToolCatalog struct {
-	defs []api.ToolDetailResponse
+	defs       []api.ToolDetailResponse
+	bound      map[string][]string
+	generation int64
 }
 
 func (s *recordingSandbox) OpenIfNeeded(_ context.Context, _ *contracts.ExecutionContext) error {
@@ -1269,6 +1271,14 @@ func (c stubMCPToolCatalog) Tool(name string) (api.ToolDetailResponse, bool) {
 		}
 	}
 	return api.ToolDetailResponse{}, false
+}
+
+func (c stubMCPToolCatalog) BoundToolNames(agentKey string) []string {
+	return append([]string(nil), c.bound[agentKey]...)
+}
+
+func (c stubMCPToolCatalog) Generation() int64 {
+	return c.generation
 }
 
 func TestBashHITLApproveFlow(t *testing.T) {
@@ -1666,7 +1676,7 @@ func TestBashHITLSimpleBashApproveFlow(t *testing.T) {
 					"clientVisible": true,
 				},
 			},
-		}},
+		}, bound: map[string][]string{"mock-agent": {"simple-bash"}}, generation: 1},
 	})
 	expectedCommand := rebuildPayloadCommandForTest(t, defaultBashHITLCommand(), payloadFromCommandForTest(t, defaultBashHITLCommand()))
 	if len(executed) != 1 || executed[0] != expectedCommand {

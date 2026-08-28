@@ -47,6 +47,15 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 		deltas, message := preparedToolResultMessage(toolID, toolCall.Function.Name, result, result.Output)
 		return nil, deltas, message
 	}
+	if s.enforceToolAllowlist && !s.toolCallAllowed(toolCall.Function.Name) {
+		deltas, message := preparedToolErrorResult(
+			toolID,
+			toolCall.Function.Name,
+			"tool is not allowed in the current run: "+strings.TrimSpace(toolCall.Function.Name),
+			"tool_not_allowed",
+		)
+		return nil, deltas, message
+	}
 
 	if validationErr := s.validateInteractionToolArgs(toolCall.Function.Name, args); validationErr != nil {
 		deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, "invalid tool arguments: "+validationErr.Error(), "invalid_tool_arguments")
@@ -168,6 +177,19 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 		}
 	}
 	return invocation, nil, nil
+}
+
+func (s *llmRunStream) toolCallAllowed(toolName string) bool {
+	requested := strings.TrimSpace(toolName)
+	if requested == "" {
+		return false
+	}
+	for _, spec := range s.toolSpecs {
+		if strings.EqualFold(strings.TrimSpace(spec.Function.Name), requested) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *llmRunStream) activateNextToolCall() {

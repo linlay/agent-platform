@@ -45,6 +45,23 @@ read-timeout: 30
 retry: 1
 ```
 
+需要使用 Desktop 当前登录身份的 HTTP MCP 必须显式声明：
+
+```yaml
+authSource: desktop-identity
+```
+
+Platform 会在每次 HTTP 请求前从启动参数 `--identity-file` 指向的单行文件读取最新 token，并写入 `Authorization: Bearer ...`。该字段不能与 `authToken` 同时使用；文件缺失、为空或不可读时请求明确失败。身份头只会发送给 registry `baseUrl` 配置的 HTTPS 主机，跨主机重定向会拒绝继续携带身份。没有声明 `authSource` 的 MCP 不会继承 Desktop 身份。
+
+MCP 可以在同一份 registry 中显式绑定普通 Agent：
+
+```yaml
+bindings:
+  agents: [cutej]
+```
+
+Platform 完成 `tools/list` 后，会在新 QuerySession 创建时把该 server 当前同步成功且未发生跨 server 同名冲突的工具加入绑定 Agent 的最终工具集合，不需要再把每个工具名手工复制到 Agent 的 `toolConfig.tools`。绑定按 Agent key 大小写不敏感匹配。Run 会冻结创建时的 MCP catalog generation；registry 重载或同步工具发生变化后，旧 Run 不会切换到新的工具定义，而是拒绝继续调用 MCP 并提示新建 Run。自动绑定只适用于普通 `REACT` 与 `PLAN-EXECUTE` Agent；CODER、ACP CODER、KBASE、PROXY、CHANNEL、TEAM 与 ONESHOT 均不接受这种绑定。
+
 stdio 示例：
 
 ```yaml
@@ -62,7 +79,8 @@ retry: 1
 
 字段约束：
 
-- `streamable-http` 必须提供 `baseUrl`，不得出现 `command`、`args`、`env` 或 `workingDirectory`。
+- `streamable-http` 必须提供 `baseUrl`，可选 `authToken` 或 `authSource: desktop-identity`，两者不能同时出现；不得出现 `command`、`args`、`env` 或 `workingDirectory`。
+- `bindings.agents` 可选；一旦声明就必须是非空 Agent key 列表，按去除首尾空白后的 Agent key 大小写不敏感去重。它是显式 Agent 授权，不等同于把 MCP 工具全局开放给所有 Agent。
 - `stdio` 必须提供 `command`，不得出现 `baseUrl`、`endpointPath`、`authToken` 或 `headers`。
 - 相对 `command` 与 `workingDirectory` 都相对于当前 registry YAML 所在目录解析。
 - stdio 环境继承 runtime 进程环境，并保留 Host builtin PATH；`env` 只覆盖或追加显式变量。
@@ -154,7 +172,7 @@ Qiuerscript 已按此方式迁移。`qs_read`、`qs_glob`、`qs_grep`、`qs_writ
 
 ## 约束与注意事项
 
-- MCP tool 名称与本地工具冲突时，本地工具优先。
+- MCP tool 名称与本地工具冲突时，本地工具仍优先，但该 MCP 绑定不会因此把同名本地工具追加给 Agent；需要修改远端工具名或 `toolPrefix` 后再使用。
 - MCP server 暂时不可用或协议版本不兼容时，调用返回结构化 MCP unavailable 错误。
 - MCP streamable HTTP 和 stdio session、ACP、Proxy、Channel、LSP、KBASE sidecar 与其他长期驻留服务不继承动态 run env。stdio MCP 子进程仍只使用 registry 启动时的静态 `env`；运行中 `platform_control run.env.set/unset` 不重启或修改已存在 session。
 - `qiuerscript-tool` 在 stdin 关闭后正常退出，不支持私有 `shutdown` RPC。

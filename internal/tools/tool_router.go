@@ -26,6 +26,14 @@ type interactionSubmitter interface {
 	Await(ctx context.Context, execCtx *ExecutionContext, args map[string]any) (ToolExecutionResult, error)
 }
 
+type mcpAgentBindingCatalog interface {
+	BoundToolNames(agentKey string) []string
+}
+
+type mcpCatalogGeneration interface {
+	Generation() int64
+}
+
 type ToolRouter struct {
 	mu          sync.RWMutex
 	runtime     ToolExecutor
@@ -181,6 +189,66 @@ func (r *ToolRouter) Definitions() []api.ToolDetailResponse {
 	return MergeToolDefinitions(localDefs, nil, mcpDefs)
 }
 
+// MCPToolNamesForAgent returns the tools granted by explicit MCP registry
+// bindings. Agent mode restrictions are applied by the session builder after
+// this list is merged with the Agent's configured tools.
+func (r *ToolRouter) MCPToolNamesForAgent(agentKey string) []string {
+	if r == nil || r.mcpTools == nil {
+		return nil
+	}
+	bindings, ok := r.mcpTools.(mcpAgentBindingCatalog)
+	if !ok {
+		return nil
+	}
+	bound := bindings.BoundToolNames(agentKey)
+	if len(bound) == 0 {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	result := make([]string, 0, len(bound))
+	for _, name := range bound {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if _, conflictsWithLocalTool := r.localByName[strings.ToLower(name)]; conflictsWithLocalTool {
+			continue
+		}
+		result = append(result, name)
+	}
+	return result
+}
+
+func (r *ToolRouter) IsMCPTool(toolName string) bool {
+	if r == nil || r.mcpTools == nil {
+		return false
+	}
+	normalized := strings.ToLower(strings.TrimSpace(toolName))
+	if normalized == "" {
+		return false
+	}
+	r.mu.RLock()
+	_, conflictsWithLocal := r.localByName[normalized]
+	r.mu.RUnlock()
+	if conflictsWithLocal {
+		return false
+	}
+	_, ok := r.mcpTools.Tool(toolName)
+	return ok
+}
+
+func (r *ToolRouter) MCPGeneration() int64 {
+	if r == nil || r.mcpTools == nil {
+		return 0
+	}
+	catalog, ok := r.mcpTools.(mcpCatalogGeneration)
+	if !ok {
+		return 0
+	}
+	return catalog.Generation()
+}
+
 func (r *ToolRouter) ReadFileHistory(chatID string, runID string, filePath string, version string) (string, error) {
 	if r == nil {
 		return "", ErrNotImplemented
@@ -208,6 +276,13 @@ func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[strin
 	if execCtx != nil && IsReadOnlyToolExecutionPolicy(execCtx.ToolExecutionPolicy) && !allowsReadOnlyInvocation(def, ok, toolName, args) {
 		return toolpolicy.DisabledResult(toolName), nil
 	}
+	if execCtx != nil && execCtx.EnforceToolAllowlist && !toolNameAllowed(execCtx.AllowedToolNames, toolName) {
+		return ToolExecutionResult{
+			Output:   "tool is not allowed in the current run: " + strings.TrimSpace(toolName),
+			Error:    "tool_not_allowed",
+			ExitCode: -1,
+		}, nil
+	}
 	if !ok {
 		return ToolExecutionResult{
 			Output:   "tool not registered: " + strings.TrimSpace(toolName),
@@ -217,6 +292,13 @@ func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[strin
 	}
 
 	sourceType, _ := def.Meta["sourceType"].(string)
+	if strings.EqualFold(strings.TrimSpace(sourceType), "mcp") && execCtx != nil && execCtx.Session.MCPGeneration > 0 && execCtx.Session.MCPGeneration != r.MCPGeneration() {
+		return ToolExecutionResult{
+			Output:   "MCP catalog changed after this run started; start a new run before invoking MCP tools.",
+			Error:    "mcp_catalog_changed",
+			ExitCode: -1,
+		}, nil
+	}
 	if !strings.EqualFold(strings.TrimSpace(sourceType), "mcp") && r.interaction != nil && r.interaction.Handles(def.Name) {
 		result, err := r.invokeInteractionWithPolicy(ctx, def.Name, execCtx, func(callCtx context.Context) (ToolExecutionResult, error) {
 			return r.interaction.Await(callCtx, execCtx, args)
@@ -233,6 +315,19 @@ func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[strin
 		return r.runtime.Invoke(callCtx, toolName, args, execCtx)
 	})
 	return validateDeclaredOutputSchema(def, result, err)
+}
+
+func toolNameAllowed(allowedToolNames []string, toolName string) bool {
+	requested := strings.TrimSpace(toolName)
+	if requested == "" {
+		return false
+	}
+	for _, allowed := range allowedToolNames {
+		if strings.EqualFold(strings.TrimSpace(allowed), requested) {
+			return true
+		}
+	}
+	return false
 }
 
 func allowsReadOnlyInvocation(def api.ToolDetailResponse, found bool, toolName string, args map[string]any) bool {
