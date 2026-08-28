@@ -27,7 +27,6 @@ type ServerDefinition struct {
 	StartupTimeout int
 	ReadTimeout    int
 	Retry          int
-	BoundAgentKeys []string
 	Tools          []ToolDefinition
 }
 

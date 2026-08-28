@@ -217,6 +217,42 @@ func TestReactExplicitToolAllowlistExposesOnlyConfiguredTool(t *testing.T) {
 	}
 }
 
+func TestReactMCPServerAllowlistExposesOnlySelectedServerTools(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode model request: %v", err)
+		}
+		if toolNames := providerRequestToolNames(payload["tools"]); !reflect.DeepEqual(toolNames, []string{"web_fetch", "flow_start"}) {
+			t.Fatalf("MCP server allowlist = %#v", toolNames)
+		}
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{
+		mcpTools: stubMCPToolCatalog{defs: []api.ToolDetailResponse{
+			{Key: "flow_start", Name: "flow_start", Meta: map[string]any{"sourceType": "mcp", "serverKey": "flowCenter"}},
+			{Key: "other_search", Name: "other_search", Meta: map[string]any{"sourceType": "mcp", "serverKey": "other"}},
+		}},
+		setupRuntime: func(_ string, cfg *config.Config) {
+			definition := "key: mock-agent\nname: Mock Agent\nmode: REACT\nmodelConfig:\n  modelKey: mock-model\ntoolConfig:\n  tools:\n    - web_fetch\n  mcp-servers:\n    - flowCenter\n"
+			if err := os.WriteFile(filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []byte(definition), 0o644); err != nil {
+				t.Fatalf("write REACT agent: %v", err)
+			}
+		},
+	})
+
+	body := bytes.NewBufferString(`{"chatId":"chat-mcp-server-tools","message":"hello","agentKey":"mock-agent"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/query", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestQueryChatSourceCannotBeSpoofedByExternalPayload(t *testing.T) {
 	fixture := newTestFixture(t)
 	server := fixture.server
@@ -3820,12 +3856,6 @@ func newSerialToolBudgetExceededFixture(t *testing.T) (testFixture, *atomic.Int3
 			}
 			content := strings.Replace(
 				string(data),
-				"    - ask_user_question",
-				"    - ask_user_question\n    - plan_add_tasks\n    - plan_update_task",
-				1,
-			)
-			content = strings.Replace(
-				content,
 				"  tool:\n    timeout: 210",
 				"  tool:\n    maxCalls: 2\n    timeout: 210",
 				1,

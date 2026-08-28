@@ -144,6 +144,9 @@ func parseServerTree(path string, tree any) (ServerDefinition, error) {
 	if !firstBool(root["enabled"], true) {
 		return ServerDefinition{}, nil
 	}
+	if _, declared := root["bindings"]; declared {
+		return ServerDefinition{}, fmt.Errorf("MCP registry bindings are not supported; configure Agent toolConfig.mcp-servers instead")
+	}
 	serverKey := normalizeKey(contracts.FirstNonEmptyString(root["serverKey"], root["server-key"], root["key"]))
 	if serverKey == "" {
 		base := filepath.Base(path)
@@ -206,25 +209,6 @@ func parseServerTree(path string, tree any) (ServerDefinition, error) {
 	if transport == TransportStreamableHTTP {
 		endpointPath = normalizeEndpointPath(contracts.FirstNonEmptyString(root["endpointPath"], root["endpoint-path"], root["path"]))
 	}
-	boundAgentKeys := []string(nil)
-	if bindingsValue, declared := root["bindings"]; declared {
-		bindings := contracts.AnyMapNode(bindingsValue)
-		if bindings == nil {
-			return ServerDefinition{}, fmt.Errorf("bindings must be a map")
-		}
-		agentsValue, declaredAgents := bindings["agents"]
-		if !declaredAgents {
-			return ServerDefinition{}, fmt.Errorf("bindings.agents is required when bindings is declared")
-		}
-		boundAgentKeys, err = normalizeStringSlice(agentsValue)
-		if err != nil {
-			return ServerDefinition{}, fmt.Errorf("bindings.agents: %w", err)
-		}
-		boundAgentKeys = normalizeBoundAgentKeys(boundAgentKeys)
-		if len(boundAgentKeys) == 0 {
-			return ServerDefinition{}, fmt.Errorf("bindings.agents must contain at least one Agent key")
-		}
-	}
 	server := ServerDefinition{
 		Key:            serverKey,
 		Name:           fallbackString(contracts.FirstNonEmptyString(root["name"]), serverKey),
@@ -244,7 +228,6 @@ func parseServerTree(path string, tree any) (ServerDefinition, error) {
 		StartupTimeout: firstInt(root["startup-timeout"], root["startupTimeout"], defaultStartupTimeout),
 		ReadTimeout:    firstInt(root["read-timeout"], nil, defaultReadTimeout),
 		Retry:          firstInt(root["retry"], nil, 1),
-		BoundAgentKeys: boundAgentKeys,
 	}
 	for index, item := range listMaps(root["tools"]) {
 		tool, err := parseToolDefinition(item)
@@ -254,24 +237,6 @@ func parseServerTree(path string, tree any) (ServerDefinition, error) {
 		server.Tools = append(server.Tools, tool)
 	}
 	return server, nil
-}
-
-func normalizeBoundAgentKeys(values []string) []string {
-	result := make([]string, 0, len(values))
-	seen := make(map[string]struct{}, len(values))
-	for _, value := range values {
-		key := strings.TrimSpace(value)
-		if key == "" {
-			continue
-		}
-		normalized := strings.ToLower(key)
-		if _, exists := seen[normalized]; exists {
-			continue
-		}
-		seen[normalized] = struct{}{}
-		result = append(result, key)
-	}
-	return result
 }
 
 // ValidateServerCandidate parses an MCP server YAML candidate without opening

@@ -485,7 +485,6 @@ func (s *planPipelineStream) planStagePostToolHook(toolName string, _ string) Po
 
 func (s *planPipelineStream) executeStageTools() []string {
 	tools := stageToolsOrDefault(s.settings.Execute, s.session.ToolNames)
-	tools = appendUniqueTools(tools, s.session.MCPToolNames...)
 	// plan_update_task for status updates, no plan_get_tasks (per Zhang Qian's feedback)
 	return appendUniqueTools(tools, "plan_update_task")
 }

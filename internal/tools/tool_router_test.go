@@ -15,30 +15,37 @@ type stubBackendToolExecutor struct {
 	defs []api.ToolDetailResponse
 }
 
-type boundMCPToolCatalog struct {
-	defs       []api.ToolDetailResponse
-	bound      map[string][]string
-	generation int64
+type stubMCPServerToolCatalog struct {
+	defs []api.ToolDetailResponse
 }
 
-func (c boundMCPToolCatalog) Definitions() []api.ToolDetailResponse {
-	return append([]api.ToolDetailResponse(nil), c.defs...)
+func (s stubMCPServerToolCatalog) Definitions() []api.ToolDetailResponse {
+	return append([]api.ToolDetailResponse(nil), s.defs...)
 }
 
-func (c boundMCPToolCatalog) Tool(name string) (api.ToolDetailResponse, bool) {
-	for _, def := range c.defs {
-		if strings.EqualFold(strings.TrimSpace(def.Name), strings.TrimSpace(name)) {
+func (s stubMCPServerToolCatalog) Tool(name string) (api.ToolDetailResponse, bool) {
+	for _, def := range s.defs {
+		if strings.EqualFold(strings.TrimSpace(def.Name), strings.TrimSpace(name)) || strings.EqualFold(strings.TrimSpace(def.Key), strings.TrimSpace(name)) {
 			return def, true
 		}
 	}
 	return api.ToolDetailResponse{}, false
 }
 
-func (c boundMCPToolCatalog) BoundToolNames(agentKey string) []string {
-	return append([]string(nil), c.bound[agentKey]...)
+func (s stubMCPServerToolCatalog) ToolNamesForServers(serverKeys []string) []string {
+	selected := map[string]struct{}{}
+	for _, serverKey := range serverKeys {
+		selected[strings.ToLower(strings.TrimSpace(serverKey))] = struct{}{}
+	}
+	result := []string{}
+	for _, def := range s.defs {
+		serverKey, _ := def.Meta["serverKey"].(string)
+		if _, ok := selected[strings.ToLower(strings.TrimSpace(serverKey))]; ok {
+			result = append(result, def.Name)
+		}
+	}
+	return result
 }
-
-func (c boundMCPToolCatalog) Generation() int64 { return c.generation }
 
 func mustNewToolRouter(t *testing.T, backend ToolExecutor, mcp McpClient, mcpTools toolCatalog, interaction interactionSubmitter, extraDefs ...api.ToolDetailResponse) *ToolRouter {
 	t.Helper()
@@ -51,6 +58,20 @@ func mustNewToolRouter(t *testing.T, backend ToolExecutor, mcp McpClient, mcpToo
 
 func (s stubBackendToolExecutor) Definitions() []api.ToolDetailResponse {
 	return append([]api.ToolDetailResponse(nil), s.defs...)
+}
+
+func TestToolRouterResolvesSelectedMCPServersWithoutLocalNameCollision(t *testing.T) {
+	backend := stubBackendToolExecutor{defs: []api.ToolDetailResponse{{Name: "shared"}}}
+	mcpTools := stubMCPServerToolCatalog{defs: []api.ToolDetailResponse{
+		{Name: "remote_lookup", Meta: map[string]any{"sourceType": "mcp", "serverKey": "flowCenter"}},
+		{Name: "shared", Meta: map[string]any{"sourceType": "mcp", "serverKey": "flowCenter"}},
+		{Name: "other_lookup", Meta: map[string]any{"sourceType": "mcp", "serverKey": "other"}},
+	}}
+	router := mustNewToolRouter(t, backend, nil, mcpTools, nil)
+	got := router.MCPToolNamesForServers([]string{"FLOWCENTER"})
+	if len(got) != 1 || got[0] != "remote_lookup" {
+		t.Fatalf("selected MCP tools = %#v", got)
+	}
 }
 
 type recordingPolicyBackend struct {
@@ -112,50 +133,6 @@ func TestToolRouterRejectsUnregisteredToolWithoutCallingBackend(t *testing.T) {
 	}
 	if len(backend.calls) != 0 {
 		t.Fatalf("unregistered tool reached backend: %#v", backend.calls)
-	}
-}
-
-func TestMCPAgentBindingsDoNotGrantConflictingLocalTools(t *testing.T) {
-	router := mustNewToolRouter(
-		t,
-		stubBackendToolExecutor{defs: []api.ToolDetailResponse{{Name: "datetime"}}},
-		nil,
-		boundMCPToolCatalog{
-			defs: []api.ToolDetailResponse{
-				{Name: "datetime", Meta: map[string]any{"sourceType": "mcp"}},
-				{Name: "flowCenter_startlist", Meta: map[string]any{"sourceType": "mcp"}},
-			},
-			bound: map[string][]string{"cutej": {"datetime", "flowCenter_startlist"}},
-		},
-		nil,
-	)
-	got := router.MCPToolNamesForAgent("cutej")
-	if len(got) != 1 || got[0] != "flowCenter_startlist" {
-		t.Fatalf("unexpected bound MCP tools after local conflict filtering: %#v", got)
-	}
-}
-
-func TestToolRouterEnforcesRunAllowlistAndFrozenMCPGeneration(t *testing.T) {
-	catalog := boundMCPToolCatalog{
-		defs:  []api.ToolDetailResponse{{Name: "remote_tool", Meta: map[string]any{"sourceType": "mcp", "serverKey": "remote"}}},
-		bound: map[string][]string{"cutej": {"remote_tool"}}, generation: 7,
-	}
-	router := mustNewToolRouter(t, stubBackendToolExecutor{}, outputSchemaMCPClient{}, catalog, nil)
-	denied, err := router.Invoke(context.Background(), "remote_tool", nil, &ExecutionContext{
-		EnforceToolAllowlist: true,
-		Session:              QuerySession{RunID: "run_denied", ToolNames: []string{}},
-		AllowedToolNames:     []string{},
-	})
-	if err != nil || denied.Error != "tool_not_allowed" {
-		t.Fatalf("unlisted MCP invocation result=%#v err=%v", denied, err)
-	}
-	stale, err := router.Invoke(context.Background(), "remote_tool", nil, &ExecutionContext{
-		EnforceToolAllowlist: true,
-		Session:              QuerySession{RunID: "run_stale", ToolNames: []string{"remote_tool"}, MCPGeneration: 6},
-		AllowedToolNames:     []string{"remote_tool"},
-	})
-	if err != nil || stale.Error != "mcp_catalog_changed" {
-		t.Fatalf("stale MCP generation result=%#v err=%v", stale, err)
 	}
 }
 

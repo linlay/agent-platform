@@ -188,9 +188,10 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		sortedStringKeys(runtimeEnvOverrides),
 	)
 
-	configuredToolNames := withoutMCPToolNames(s.deps.Tools, effectiveAgentTools(agentDef))
-	boundMCPToolNames := boundMCPToolNamesForAgent(s.deps.Tools, agentDef)
-	configuredToolNames = append(configuredToolNames, boundMCPToolNames...)
+	configuredToolNames := append(
+		effectiveAgentTools(agentDef),
+		mcpToolNamesForServers(s.deps.Tools, agentDef.MCPServers)...,
+	)
 	toolNames := buildSessionToolNames(configuredToolNames, options.AllowInvokeAgents)
 	toolNames = agentcoder.RuntimeToolNamesForAgent(agentDef.Mode, agentDef.ACPBridgeID, agentcoder.MainStage, toolNames)
 	if agentkbase.IsMode(agentDef.Mode) {
@@ -233,8 +234,6 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		Locale:                        options.Locale,
 		ModelKey:                      agentDef.ModelKey,
 		ToolNames:                     toolNames,
-		MCPToolNames:                  append([]string(nil), boundMCPToolNames...),
-		MCPGeneration:                 mcpCatalogGeneration(s.deps.Tools, boundMCPToolNames),
 		Mode:                          agentDef.Mode,
 		ModeCapabilities:              resolvedModeCapabilities(agentDef),
 		SupportsContextCompaction:     !isProxyRoutedAgent(agentDef),
@@ -481,52 +480,14 @@ func buildSessionToolNames(base []string, allowInvokeAgents bool) []string {
 	return tools
 }
 
-type mcpAgentToolBinder interface {
-	MCPToolNamesForAgent(agentKey string) []string
+type mcpServerToolResolver interface {
+	MCPToolNamesForServers(serverKeys []string) []string
 }
 
-type mcpToolCatalog interface {
-	IsMCPTool(toolName string) bool
-	MCPGeneration() int64
-}
-
-func boundMCPToolNames(tools contracts.ToolExecutor, agentKey string) []string {
-	binder, ok := tools.(mcpAgentToolBinder)
-	if !ok || binder == nil {
+func mcpToolNamesForServers(tools contracts.ToolExecutor, serverKeys []string) []string {
+	resolver, ok := tools.(mcpServerToolResolver)
+	if !ok || resolver == nil || len(serverKeys) == 0 {
 		return nil
 	}
-	return binder.MCPToolNamesForAgent(strings.TrimSpace(agentKey))
-}
-
-func boundMCPToolNamesForAgent(tools contracts.ToolExecutor, agentDef catalog.AgentDefinition) []string {
-	mode := catalog.NormalizeAgentModeForRuntime(agentDef.Mode)
-	if mode != "REACT" && mode != "PLAN_EXECUTE" {
-		return nil
-	}
-	return boundMCPToolNames(tools, agentDef.Key)
-}
-
-func withoutMCPToolNames(tools contracts.ToolExecutor, names []string) []string {
-	catalog, ok := tools.(mcpToolCatalog)
-	if !ok || catalog == nil {
-		return append([]string(nil), names...)
-	}
-	result := make([]string, 0, len(names))
-	for _, name := range names {
-		if !catalog.IsMCPTool(name) {
-			result = append(result, name)
-		}
-	}
-	return result
-}
-
-func mcpCatalogGeneration(tools contracts.ToolExecutor, boundNames []string) int64 {
-	if len(boundNames) == 0 {
-		return 0
-	}
-	catalog, ok := tools.(mcpToolCatalog)
-	if !ok || catalog == nil {
-		return 0
-	}
-	return catalog.MCPGeneration()
+	return resolver.MCPToolNamesForServers(serverKeys)
 }

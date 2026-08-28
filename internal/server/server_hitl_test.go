@@ -1213,9 +1213,7 @@ type recordingMCPClient struct {
 }
 
 type stubMCPToolCatalog struct {
-	defs       []api.ToolDetailResponse
-	bound      map[string][]string
-	generation int64
+	defs []api.ToolDetailResponse
 }
 
 func (s *recordingSandbox) OpenIfNeeded(_ context.Context, _ *contracts.ExecutionContext) error {
@@ -1273,12 +1271,21 @@ func (c stubMCPToolCatalog) Tool(name string) (api.ToolDetailResponse, bool) {
 	return api.ToolDetailResponse{}, false
 }
 
-func (c stubMCPToolCatalog) BoundToolNames(agentKey string) []string {
-	return append([]string(nil), c.bound[agentKey]...)
-}
-
-func (c stubMCPToolCatalog) Generation() int64 {
-	return c.generation
+func (c stubMCPToolCatalog) ToolNamesForServers(serverKeys []string) []string {
+	selected := make(map[string]struct{}, len(serverKeys))
+	for _, serverKey := range serverKeys {
+		if key := strings.ToLower(strings.TrimSpace(serverKey)); key != "" {
+			selected[key] = struct{}{}
+		}
+	}
+	result := make([]string, 0)
+	for _, def := range c.defs {
+		serverKey, _ := def.Meta["serverKey"].(string)
+		if _, ok := selected[strings.ToLower(strings.TrimSpace(serverKey))]; ok {
+			result = append(result, def.Name)
+		}
+	}
+	return result
 }
 
 func TestBashHITLApproveFlow(t *testing.T) {
@@ -1676,7 +1683,7 @@ func TestBashHITLSimpleBashApproveFlow(t *testing.T) {
 					"clientVisible": true,
 				},
 			},
-		}, bound: map[string][]string{"mock-agent": {"simple-bash"}}, generation: 1},
+		}},
 	})
 	expectedCommand := rebuildPayloadCommandForTest(t, defaultBashHITLCommand(), payloadFromCommandForTest(t, defaultBashHITLCommand()))
 	if len(executed) != 1 || executed[0] != expectedCommand {

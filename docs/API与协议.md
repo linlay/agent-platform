@@ -158,7 +158,7 @@ GET /ws -> request / response / stream / push / error frames
 
 `/api/admin/registries` 是列表接口，不返回 registry 文件绝对路径、完整 `diagnostics[]` 或文件大小；编辑器应通过 `/api/admin/registries/detail` 获取 `source`、完整诊断、`content`、`parsed` 与 `size`。
 
-MCP Server 列表项的 `summary` 额外包含 `toolCount`、`syncStatus` 与 `boundAgentKeys`；未绑定 Agent 时 `boundAgentKeys` 为空数组。`syncStatus` 取值为 `pending`、`syncing`、`ready`、`unavailable` 或 `disabled`；可选的 `lastSyncAttemptAt`、`lastSyncSuccessAt` 使用 epoch milliseconds，可选 `syncDiagnostic` 只返回脱敏后的 `severity/code/message`。顶层 `status` 仍只表示 YAML 配置状态。通过通用 `PUT /api/admin/source`、`DELETE /api/admin/source` 或兼容的 `PUT /api/admin/registries/detail` 变更 `category=mcp-servers` 时，服务会在成功响应前完成 MCP registry 与工具同步；保存时远端不可达不会回滚合法配置，而是返回后由后台重试；删除或禁用 Server 会立即清理对应工具。
+MCP Server 列表项的 `summary` 额外包含 `toolCount` 与 `syncStatus`。`syncStatus` 取值为 `pending`、`syncing`、`ready`、`unavailable` 或 `disabled`；可选的 `lastSyncAttemptAt`、`lastSyncSuccessAt` 使用 epoch milliseconds，可选 `syncDiagnostic` 只返回脱敏后的 `severity/code/message`。顶层 `status` 仍只表示 YAML 配置状态。通过通用 `PUT /api/admin/source`、`DELETE /api/admin/source` 或兼容的 `PUT /api/admin/registries/detail` 变更 `category=mcp-servers` 时，服务会在成功响应前完成 MCP registry 与工具同步；保存时远端不可达不会回滚合法配置，而是返回后由后台重试；删除或禁用 Server 会立即清理对应工具。
 
 Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `baseUrl`；model 暴露 `provider/protocol/type/isVision/isReasoner/isFunction/maxInputTokens/maxOutputTokens/timeout`；MCP server 暴露 `transport/toolCount`，其中 HTTP 项另有 `baseUrl`，stdio 项不返回 `baseUrl`、`command`、`args` 或 `env`，`toolCount` 是当前已同步注册的 MCP 工具数量；viewport server 仅暴露 `baseUrl`，当前不返回 viewport 数量。
 

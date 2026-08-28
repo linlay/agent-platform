@@ -663,11 +663,7 @@ func (s *llmRunStream) newAssistantTurnMessage(turn *providerTurnStream, content
 		msg.Content = content
 	}
 	if len(toolCalls) > 0 {
-		// Keep the provider conversation lossless. Redaction belongs only in
-		// traces, persisted chat events and UI deltas; feeding sanitized arguments
-		// back to the model makes it imitate audit-only fields such as
-		// params.contentBytes on the next tool call.
-		msg.ToolCalls = append([]openAIToolCall(nil), toolCalls...)
+		msg.ToolCalls = sanitizedToolCalls(toolCalls)
 	}
 	if turn != nil && preserveReasoningContent(s.protocolConfig, s.stageSettings) {
 		msg.ReasoningContent = turn.reasoning.String()

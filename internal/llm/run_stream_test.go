@@ -2175,35 +2175,6 @@ func TestPrepareToolCallReadOnlyPolicyBlocksBeforeInvocationPreparation(t *testi
 	}
 }
 
-func TestPrepareToolCallRejectsToolOutsideCurrentStageAllowlist(t *testing.T) {
-	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{
-		{Name: "allowed_tool"},
-		{Name: "global_mcp_tool", Meta: map[string]any{"sourceType": "mcp"}},
-	}}
-	stream := &llmRunStream{
-		engine:               &LLMAgentEngine{tools: executor, interactions: toolinteraction.NewDefaultRegistry()},
-		session:              contracts.QuerySession{RunID: "run_allowlist", ToolNames: []string{"allowed_tool"}},
-		execCtx:              &contracts.ExecutionContext{},
-		toolSpecs:            toOpenAIToolSpecs([]api.ToolDetailResponse{{Name: "allowed_tool"}}),
-		enforceToolAllowlist: true,
-	}
-	invocation, deltas, toolMsg := stream.prepareToolCall(openAIToolCall{
-		ID:       "tool_unlisted",
-		Type:     "function",
-		Function: openAIFunctionCall{Name: "global_mcp_tool", Arguments: `{}`},
-	})
-	if invocation != nil || toolMsg == nil || len(deltas) != 1 {
-		t.Fatalf("expected immediate allowlist rejection, invocation=%#v deltas=%#v message=%#v", invocation, deltas, toolMsg)
-	}
-	result, ok := deltas[0].(contracts.DeltaToolResult)
-	if !ok || result.Result.Error != "tool_not_allowed" {
-		t.Fatalf("unexpected allowlist rejection %#v", deltas[0])
-	}
-	if len(executor.invocations) != 0 {
-		t.Fatalf("unlisted tool reached executor: %#v", executor.invocations)
-	}
-}
-
 func TestPrepareToolCall_InvokeAgentsAcceptsMaxTasks(t *testing.T) {
 	stream := &llmRunStream{
 		engine: &LLMAgentEngine{

@@ -92,7 +92,6 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	allowedTools := resolveAllowedToolNames(session, options.Stage, options.ToolNames)
 	allToolDefs := mergeToolDefinitions(e.tools.Definitions(), session.ModeToolDefinitions)
 	effectiveDefs := effectiveToolDefinitions(allToolDefs, allowedTools, session)
-	effectiveAllowedTools := toolNamesFromDefinitions(effectiveDefs, nil)
 	toolSpecs := toOpenAIToolSpecs(effectiveDefs)
 	execCtx := options.ExecCtx
 	if execCtx == nil {
@@ -110,8 +109,6 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	}
 	execCtx.Request = req
 	execCtx.Session = session
-	execCtx.EnforceToolAllowlist = true
-	execCtx.AllowedToolNames = append([]string(nil), effectiveAllowedTools...)
 	execCtx.AccessLevel = session.AccessLevel
 	execCtx.ToolExecutionPolicy = session.ToolExecutionPolicy
 	execCtx.RunLimits = session.RunLimits
@@ -226,8 +223,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		model:                model,
 		provider:             provider,
 		toolSpecs:            toolSpecs,
-		requestedToolNames:   append([]string(nil), effectiveAllowedTools...),
-		enforceToolAllowlist: true,
+		requestedToolNames:   append([]string(nil), allowedTools...),
 		messages:             append([]openAIMessage(nil), messages...),
 		pinnedMessageStart:   pinnedMessageStart,
 		pinnedMessageEnd:     pinnedMessageEnd,
@@ -419,7 +415,6 @@ func cachedToolsCompatibleWithStageOverride(override []string, cached []openAITo
 
 func effectiveToolDefinitions(defs []api.ToolDetailResponse, allowed []string, session QuerySession) []api.ToolDetailResponse {
 	filtered := filterToolDefinitions(defs, allowed)
-	filtered = filterMCPToolDefinitions(filtered, session.MCPToolNames)
 	if session.AgentHasRuntimeSandbox {
 		if sandboxBash, ok := sandboxBashAsPublicBash(defs); ok {
 			out := make([]api.ToolDetailResponse, 0, len(filtered))
@@ -448,27 +443,6 @@ func effectiveToolDefinitions(defs []api.ToolDetailResponse, allowed []string, s
 		}
 	}
 	return out
-}
-
-func filterMCPToolDefinitions(defs []api.ToolDetailResponse, granted []string) []api.ToolDetailResponse {
-	grantedSet := make(map[string]struct{}, len(granted))
-	for _, name := range granted {
-		if normalized := strings.ToLower(strings.TrimSpace(name)); normalized != "" {
-			grantedSet[normalized] = struct{}{}
-		}
-	}
-	filtered := make([]api.ToolDetailResponse, 0, len(defs))
-	for _, def := range defs {
-		sourceType, _ := def.Meta["sourceType"].(string)
-		if !strings.EqualFold(strings.TrimSpace(sourceType), "mcp") {
-			filtered = append(filtered, def)
-			continue
-		}
-		if _, ok := grantedSet[strings.ToLower(strings.TrimSpace(def.Name))]; ok {
-			filtered = append(filtered, def)
-		}
-	}
-	return filtered
 }
 
 func sessionHasWorkspace(session QuerySession) bool {

@@ -24,7 +24,6 @@ type ToolSync struct {
 	snapshots        map[string]serverToolSnapshot
 	statuses         map[string]api.MCPServerToolSyncStatus
 	registryVersion  int64
-	generation       int64
 }
 
 const (
@@ -99,88 +98,43 @@ func (s *ToolSync) SyncedRegistryVersion() int64 {
 	return s.registryVersion
 }
 
-func (s *ToolSync) Generation() int64 {
-	if s == nil {
-		return 0
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.generation
-}
-
 func (s *ToolSync) Definitions() []api.ToolDetailResponse {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return cloneSortedToolDefinitions(s.toolsByName)
 }
 
-// BoundToolNames resolves the synchronized tools explicitly granted to an
-// Agent by MCP registry bindings. It is evaluated when a session is created,
-// so a registry reload changes new runs without mutating an active run.
-func (s *ToolSync) BoundToolNames(agentKey string) []string {
-	if s == nil {
+// ToolNamesForServers returns the current synchronized tools owned by the
+// server keys explicitly selected by an Agent's toolConfig.mcp-servers.
+func (s *ToolSync) ToolNamesForServers(serverKeys []string) []string {
+	if s == nil || len(serverKeys) == 0 {
 		return nil
 	}
-	agentKey = strings.TrimSpace(agentKey)
-	if agentKey == "" {
+	selected := make(map[string]struct{}, len(serverKeys))
+	for _, serverKey := range serverKeys {
+		if key := normalizeKey(serverKey); key != "" {
+			selected[key] = struct{}{}
+		}
+	}
+	if len(selected) == 0 {
 		return nil
 	}
-	servers := s.registry.Servers()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.registryVersion != s.registry.Version() {
 		return nil
 	}
-	boundServerKeys := make(map[string]struct{}, len(servers))
-	for _, server := range servers {
-		if serverBindsAgent(server, agentKey) {
-			boundServerKeys[normalizeKey(server.Key)] = struct{}{}
+	result := make([]string, 0)
+	for _, tool := range cloneSortedToolDefinitions(s.toolsByName) {
+		serverKey := normalizeKey(contracts.AnyStringNode(tool.Meta["serverKey"]))
+		if serverKey == "" {
+			serverKey = normalizeKey(contracts.AnyStringNode(tool.Meta["sourceKey"]))
 		}
-	}
-	if len(boundServerKeys) == 0 {
-		return nil
-	}
-	result := []string(nil)
-	seen := map[string]struct{}{}
-	keys := make([]string, 0, len(s.toolsByName))
-	for key := range s.toolsByName {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		tool := s.toolsByName[key]
-		if _, bound := boundServerKeys[toolServerKey(tool)]; !bound {
-			continue
+		if _, ok := selected[serverKey]; ok {
+			result = append(result, tool.Name)
 		}
-		name := strings.TrimSpace(tool.Name)
-		if name == "" {
-			continue
-		}
-		normalized := strings.ToLower(name)
-		if _, exists := seen[normalized]; exists {
-			continue
-		}
-		seen[normalized] = struct{}{}
-		result = append(result, name)
 	}
 	return result
-}
-
-func toolServerKey(tool api.ToolDetailResponse) string {
-	serverKey := normalizeKey(contracts.AnyStringNode(tool.Meta["serverKey"]))
-	if serverKey == "" {
-		serverKey = normalizeKey(contracts.AnyStringNode(tool.Meta["sourceKey"]))
-	}
-	return serverKey
-}
-
-func serverBindsAgent(server ServerDefinition, agentKey string) bool {
-	for _, candidate := range server.BoundAgentKeys {
-		if strings.EqualFold(strings.TrimSpace(candidate), agentKey) {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *ToolSync) Tool(name string) (api.ToolDetailResponse, bool) {
@@ -284,19 +238,14 @@ func (s *ToolSync) refreshTools(ctx context.Context, targets map[string]struct{}
 	}
 
 	toolsByName, aliasToCanonical := mergeSnapshots(servers, nextSnapshots)
-	toolsChanged := !reflect.DeepEqual(previousTools, toolsByName)
-	changed := toolsChanged ||
+	changed := !reflect.DeepEqual(previousTools, toolsByName) ||
 		!reflect.DeepEqual(previousStatuses, comparableServerStatuses(nextStatuses))
-	nextRegistryVersion := s.registry.Version()
 	s.mu.Lock()
-	if toolsChanged || s.registryVersion != nextRegistryVersion {
-		s.generation++
-	}
 	s.snapshots = nextSnapshots
 	s.toolsByName = toolsByName
 	s.aliasToCanonical = aliasToCanonical
 	s.statuses = nextStatuses
-	s.registryVersion = nextRegistryVersion
+	s.registryVersion = s.registry.Version()
 	s.mu.Unlock()
 	return ToolSyncResult{Tools: cloneSortedToolDefinitions(toolsByName), Changed: changed}, nil
 }

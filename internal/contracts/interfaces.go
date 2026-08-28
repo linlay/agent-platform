@@ -341,8 +341,6 @@ type QuerySession struct {
 	Locale                        string
 	ModelKey                      string
 	ToolNames                     []string
-	MCPToolNames                  []string
-	MCPGeneration                 int64
 	Mode                          string
 	ModeCapabilities              agentcontract.ModeCapabilities
 	SupportsContextCompaction     bool `json:"-"`
@@ -481,8 +479,6 @@ type ExecutionContext struct {
 	RunEnvironment        *runenv.Scope
 	AccessLevel           string
 	ToolExecutionPolicy   string
-	EnforceToolAllowlist  bool
-	AllowedToolNames      []string
 	// AccessPolicyApprovals stores one-shot approvals for exact host bash access-policy fingerprints.
 	AccessPolicyApprovals map[string]int
 	// AccessPolicyRuleApprovals stores run-scoped approvals for host bash access-policy rules.

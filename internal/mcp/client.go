@@ -566,30 +566,7 @@ func mapValue(value any) map[string]any {
 }
 
 func serverFingerprint(server ServerDefinition) string {
-	connection := struct {
-		Key            string
-		Transport      string
-		BaseURL        string
-		EndpointPath   string
-		Command        string
-		Args           []string
-		Env            map[string]string
-		WorkingDir     string
-		AuthToken      string
-		AuthSource     string
-		Headers        map[string]string
-		ConnectTimeout int
-		StartupTimeout int
-		ReadTimeout    int
-		Retry          int
-	}{
-		Key: server.Key, Transport: server.Transport, BaseURL: server.BaseURL, EndpointPath: server.EndpointPath,
-		Command: server.Command, Args: server.Args, Env: server.Env, WorkingDir: server.WorkingDir,
-		AuthToken: server.AuthToken, AuthSource: server.AuthSource, Headers: server.Headers,
-		ConnectTimeout: server.ConnectTimeout, StartupTimeout: server.StartupTimeout,
-		ReadTimeout: server.ReadTimeout, Retry: server.Retry,
-	}
-	data, _ := json.Marshal(connection)
+	data, _ := json.Marshal(server)
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }

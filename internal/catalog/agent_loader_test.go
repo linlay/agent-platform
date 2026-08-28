@@ -55,6 +55,45 @@ func TestParseAgentFileSupportsFlattenedToolConfig(t *testing.T) {
 	}
 }
 
+func TestParseAgentFileSupportsMCPServerAllowlist(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent.yml")
+	content := "" +
+		"key: demo\n" +
+		"name: Demo\n" +
+		"mode: REACT\n" +
+		"modelConfig:\n" +
+		"  modelKey: demo-model\n" +
+		"toolConfig:\n" +
+		"  tools:\n" +
+		"    - datetime\n" +
+		"  mcp-servers:\n" +
+		"    - flowCenter\n" +
+		"    - search\n" +
+		"    - FLOWCENTER\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if !reflect.DeepEqual(def.MCPServers, []string{"flowCenter", "search"}) {
+		t.Fatalf("MCP servers = %#v", def.MCPServers)
+	}
+}
+
+func TestParseAgentFileRejectsInvalidMCPServerKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent.yml")
+	content := "key: demo\nmode: REACT\nmodelConfig:\n  modelKey: demo-model\ntoolConfig:\n  mcp-servers:\n    - ../flowCenter\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseAgentFile(path); err == nil || !strings.Contains(err.Error(), "toolConfig.mcp-servers") {
+		t.Fatalf("expected invalid MCP server key error, got %v", err)
+	}
+}
+
 func TestParseAgentFileRejectsInternalAgentDelegateTool(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "agent.yml")
 	content := "key: invalid-delegate\n" +
@@ -980,6 +1019,28 @@ func TestParseAgentFileRejectsACPCoderPlatformTools(t *testing.T) {
 	_, err := parseAgentFile(path)
 	if err == nil || !strings.Contains(err.Error(), "toolConfig.tools is not supported for ACP CODER") {
 		t.Fatalf("expected ACP CODER tools rejection, got %v", err)
+	}
+}
+
+func TestParseAgentFileRejectsACPCoderMCPServers(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "agent.yml")
+	workspace := t.TempDir()
+	content := "" +
+		"key: coder\n" +
+		"mode: CODER\n" +
+		"runtimeConfig:\n" +
+		"  acpBridgeId: codex\n" +
+		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
+		"toolConfig:\n" +
+		"  mcp-servers:\n" +
+		"    - flowCenter\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := parseAgentFile(path)
+	if err == nil || !strings.Contains(err.Error(), "toolConfig.mcp-servers is not supported for ACP CODER") {
+		t.Fatalf("expected ACP CODER MCP server rejection, got %v", err)
 	}
 }
 

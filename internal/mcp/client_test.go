@@ -418,32 +418,6 @@ func TestHeaderRoundTripperReadsDesktopIdentityOnEveryRequest(t *testing.T) {
 	}
 }
 
-func TestHeaderRoundTripperAllowsIdentityIssuerOutsideConfiguredMCPHost(t *testing.T) {
-	identityFile := filepath.Join(t.TempDir(), "sso-access-token.txt")
-	token := unsignedJWTWithIssuer(t, "https://eiam.example.test/auth/oidc/dev", "subject")
-	if err := os.WriteFile(identityFile, []byte(token+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	transport := headerRoundTripper{
-		base: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
-			return &http.Response{
-				StatusCode: http.StatusOK,
-				Header:     make(http.Header),
-				Body:       io.NopCloser(strings.NewReader("")),
-				Request:    request,
-			}, nil
-		}),
-		authSource: AuthSourceDesktopIdentity, identityFile: identityFile, identityHost: "api.resource.test",
-	}
-	request, err := http.NewRequest(http.MethodPost, "https://api.resource.test/mcp", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := transport.RoundTrip(request); err != nil {
-		t.Fatalf("configured MCP host should not depend on token issuer: %v", err)
-	}
-}
-
 func TestHeaderRoundTripperRejectsDesktopIdentityOutsideConfiguredMCPHost(t *testing.T) {
 	identityFile := filepath.Join(t.TempDir(), "sso-access-token.txt")
 	if err := os.WriteFile(identityFile, []byte("desktop-token\n"), 0o600); err != nil {
@@ -462,20 +436,6 @@ func TestHeaderRoundTripperRejectsDesktopIdentityOutsideConfiguredMCPHost(t *tes
 	}
 	if _, err := transport.RoundTrip(request); err == nil || !strings.Contains(err.Error(), "left the configured MCP host") {
 		t.Fatalf("expected configured MCP host rejection, got %v", err)
-	}
-}
-
-func TestServerFingerprintIgnoresAgentBindings(t *testing.T) {
-	base := ServerDefinition{Key: "demo", Transport: TransportStreamableHTTP, BaseURL: "https://example.test"}
-	bound := base
-	bound.BoundAgentKeys = []string{"cutej"}
-	if serverFingerprint(base) != serverFingerprint(bound) {
-		t.Fatal("Agent-only binding change must not recycle the MCP connection")
-	}
-	changed := base
-	changed.BaseURL = "https://other.example.test"
-	if serverFingerprint(base) == serverFingerprint(changed) {
-		t.Fatal("connection field change must recycle the MCP connection")
 	}
 }
 

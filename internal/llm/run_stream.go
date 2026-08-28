@@ -28,7 +28,6 @@ type llmRunStream struct {
 	provider                    ProviderDefinition
 	toolSpecs                   []openAIToolSpec
 	requestedToolNames          []string
-	enforceToolAllowlist        bool
 	messages                    []openAIMessage
 	pinnedMessageStart          int
 	pinnedMessageEnd            int

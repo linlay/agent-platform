@@ -475,7 +475,40 @@ func validateAgentToolConfig(toolConfig map[string]any) error {
 			return fmt.Errorf("toolConfig.%s is no longer supported; use toolConfig.tools", key)
 		}
 	}
+	if _, exists := toolConfig["mcp-servers"]; exists {
+		for _, serverKey := range listStrings(toolConfig["mcp-servers"]) {
+			if normalizeMCPServerKey(serverKey) == "" {
+				return fmt.Errorf("toolConfig.mcp-servers contains an invalid server key %q", serverKey)
+			}
+		}
+	}
 	return nil
+}
+
+func normalizeMCPServerKey(value string) string {
+	key := strings.TrimSpace(value)
+	if key == "" || key == "." || key == ".." || strings.HasPrefix(key, ".") || strings.ContainsAny(key, `/\`) {
+		return ""
+	}
+	return key
+}
+
+func normalizeMCPServerKeys(values []string) []string {
+	result := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		key := normalizeMCPServerKey(value)
+		if key == "" {
+			continue
+		}
+		normalized := strings.ToLower(key)
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, key)
+	}
+	return result
 }
 
 func mergeStageSettingsBudgets(budget map[string]any, stageSettings map[string]any) map[string]any {
@@ -656,6 +689,7 @@ func parseAgentTree(path string, tree any) (AgentDefinition, map[string]any, err
 		return AgentDefinition{}, nil, err
 	}
 	def.Tools = listStrings(toolConfig["tools"])
+	def.MCPServers = normalizeMCPServerKeys(listStrings(toolConfig["mcp-servers"]))
 	def.Skills = listStrings(mapNode(root["skillConfig"])["skills"])
 	def.Controls = cloneListMaps(listMaps(root["controls"]))
 	contextConfig := mapNode(root["contextConfig"])

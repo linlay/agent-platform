@@ -39,21 +39,6 @@ func TestPlanStageToolsPreservesExplicitPlanToolsWithoutSessionFallback(t *testi
 	}
 }
 
-func TestExecuteStageToolsKeepsBoundMCPWithExplicitStageTools(t *testing.T) {
-	stream := &planPipelineStream{
-		session: contracts.QuerySession{
-			ToolNames:    []string{"datetime", "flowCenter_startlist"},
-			MCPToolNames: []string{"flowCenter_startlist"},
-		},
-		settings: contracts.PlanExecuteSettings{
-			Execute: contracts.StageSettings{Tools: []string{"datetime"}},
-		},
-	}
-	if got, want := stream.executeStageTools(), []string{"datetime", "flowCenter_startlist", "plan_update_task"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("executeStageTools()=%#v want %#v", got, want)
-	}
-}
-
 func TestPlanStagePostToolHookStopsAfterTasksCreated(t *testing.T) {
 	stream := &planPipelineStream{
 		execCtx: &contracts.ExecutionContext{

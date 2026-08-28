@@ -313,8 +313,7 @@ func TestWorkspaceLessSystemInitAndDirectDefinitionsStayIdentical(t *testing.T) 
 func TestPlanExecuteSystemInitProfilesUseRuntimeSettings(t *testing.T) {
 	session := fingerprintTestSession()
 	session.Mode = "PLAN_EXECUTE"
-	session.ToolNames = []string{"bash", "flowCenter_startlist"}
-	session.MCPToolNames = []string{"flowCenter_startlist"}
+	session.ToolNames = []string{"bash"}
 	session.ResolvedPlanExecuteSettings = contracts.PlanExecuteSettings{}
 	session.StageSettings = map[string]any{
 		"plan": map[string]any{
@@ -348,7 +347,6 @@ func TestPlanExecuteSystemInitProfilesUseRuntimeSettings(t *testing.T) {
 			},
 		},
 		{Name: "custom_exec", Description: "exec"},
-		{Name: "flowCenter_startlist", Description: "list startable workflows"},
 		{Name: "plan_update_task", Description: "update task"},
 	}
 
@@ -376,10 +374,7 @@ func TestPlanExecuteSystemInitProfilesUseRuntimeSettings(t *testing.T) {
 	}
 
 	assertToolNames(t, byKey["plan-execute:plan"].Tools, []string{"custom_plan", "plan_add_tasks"})
-	executeTools := stageToolsOrDefault(settings.Execute, session.ToolNames)
-	executeTools = appendUniqueTools(executeTools, session.MCPToolNames...)
-	executeTools = appendUniqueTools(executeTools, "plan_update_task")
-	assertToolNames(t, byKey["plan-execute:execute"].Tools, executeTools)
+	assertToolNames(t, byKey["plan-execute:execute"].Tools, appendUniqueTools(stageToolsOrDefault(settings.Execute, session.ToolNames), "plan_update_task"))
 	assertToolNames(t, byKey["plan-execute:summary"].Tools, nil)
 	executeSpecs, err := cachedToolSpecsToOpenAI(byKey["plan-execute:execute"].Tools)
 	if err != nil {
