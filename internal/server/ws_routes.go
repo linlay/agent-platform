@@ -46,7 +46,7 @@ func (a wsTokenAuthenticator) VerifyToken(ctx context.Context, token string) (ws
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		return ws.AuthSession{Context: ctx}, nil
+		return ws.AuthSession{Context: ctx, AuthDisabled: true}, nil
 	}
 	principal, err := a.server.authVerifier.Verify(strings.TrimSpace(token))
 	if err != nil {
@@ -195,6 +195,7 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/automation/execution", s.wsAutomationExecution)
 	handler.RegisterRoute("/api/chats/search", s.wsGlobalSearch)
 	handler.RegisterRoute("/api/query", s.wsQuery)
+	handler.RegisterRoute("/api/btw", s.wsBTW)
 	handler.RegisterRoute("/api/attach", s.wsAttach)
 	handler.RegisterRoute("/api/detach", s.wsDetach)
 	handler.RegisterRoute("/api/submit", s.wsSubmit)

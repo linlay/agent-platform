@@ -30,6 +30,109 @@ func TestHubBroadcast(t *testing.T) {
 	}
 }
 
+func TestHubBroadcastSkipsDesktopBTW(t *testing.T) {
+	hub := NewHub()
+	primary := &Conn{
+		writeQueue: make(chan outboundMessage, 1),
+		closed:     make(chan struct{}),
+	}
+	primary.SetClientMetadata("desktop-main", "device-1")
+	btw := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{
+		Context:          context.Background(),
+		Subject:          "user-1",
+		DeviceID:         "device-1",
+		DeviceIDVerified: true,
+		Scope:            "app",
+	})
+	btw.SetClientMetadata("desktop-btw", "device-1")
+	hub.register(primary)
+	hub.register(btw)
+
+	hub.Broadcast("run.finished", map[string]any{"runId": "run-1"})
+
+	if len(primary.writeQueue) != 1 {
+		t.Fatalf("primary queue length = %d, want 1", len(primary.writeQueue))
+	}
+	if len(btw.writeQueue) != 0 {
+		t.Fatalf("desktop BTW received a global push")
+	}
+}
+
+func TestDesktopBTWSourceCannotSelfAuthorizeTheLane(t *testing.T) {
+	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{
+		Context:  context.Background(),
+		Subject:  "user-1",
+		DeviceID: "device-1",
+		Scope:    "openid",
+	})
+	conn.SetClientMetadata("desktop-btw", "device-1")
+	if conn.IsDesktopBTW() {
+		t.Fatal("an unverified desktop-btw source must not authorize the BTW lane")
+	}
+
+	conn.UpdateAuth(AuthSession{
+		Context:          context.Background(),
+		Subject:          "user-1",
+		DeviceID:         "device-1",
+		DeviceIDVerified: true,
+		Scope:            "app",
+	})
+	if !conn.IsDesktopBTW() {
+		t.Fatal("a verified app/device desktop-btw connection must authorize the BTW lane")
+	}
+}
+
+func TestDesktopBTWAllowsExplicitAuthDisabledDevelopmentMode(t *testing.T) {
+	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, AuthSession{
+		Context:      context.Background(),
+		DeviceID:     "device-1",
+		AuthDisabled: true,
+	})
+	conn.SetClientMetadata("desktop-btw", "device-1")
+	conn.SetClientSurfaceID("desktop-btw")
+	if !conn.IsDesktopBTW() {
+		t.Fatal("explicit auth-disabled mode should allow the desktop BTW lane")
+	}
+}
+
+func TestHubDesktopPrimaryAndBTWDoNotReplaceEachOther(t *testing.T) {
+	hub := NewHub()
+	auth := AuthSession{
+		Context:          context.Background(),
+		Subject:          "user-1",
+		DeviceID:         "device-1",
+		DeviceIDVerified: true,
+		Scope:            "app",
+	}
+	primary := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, auth)
+	primary.SetClientMetadata("desktop-main", "device-1")
+	btw := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, auth)
+	btw.SetClientMetadata("desktop-btw", "device-1")
+
+	hub.register(primary)
+	hub.register(btw)
+
+	if primary.isClosed() || btw.isClosed() {
+		t.Fatal("desktop primary and BTW lanes must coexist")
+	}
+	if hub.desktopMainConn != primary || hub.desktopBTWConn != btw {
+		t.Fatalf("unexpected lane registrations: main=%p btw=%p", hub.desktopMainConn, hub.desktopBTWConn)
+	}
+	if target, state := hub.ResolveDesktopMainTarget(); state != contracts.DesktopMainTargetReady || target.SessionID != primary.SessionID() {
+		t.Fatalf("BTW changed desktop main target: target=%#v state=%q", target, state)
+	}
+
+	replacement := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 4}, auth)
+	replacement.SetClientMetadata("desktop-btw", "device-1")
+	hub.register(replacement)
+	if !btw.isClosed() || replacement.isClosed() {
+		t.Fatal("a newer desktop BTW connection must replace only the previous BTW lane")
+	}
+	if primary.isClosed() || hub.desktopMainConn != primary || hub.desktopBTWConn != replacement {
+		t.Fatal("desktop BTW replacement changed the primary lane")
+	}
+}
+
 func TestHubWebClientSurfaceReplacesOldConnection(t *testing.T) {
 	hub := NewHub()
 	auth := AuthSession{

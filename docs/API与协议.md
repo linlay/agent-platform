@@ -296,6 +296,8 @@ run 控制接口从 `agentKey/teamId` 推导互斥身份：Agent-owned run 必�
 
 BTW 与普通 query 使用同一 Agent/ReAct、模型协议、SSE assembler、attach/interrupt 和 StepWriter；`request.query` 额外包含 `kind:"btw"`、`btwId`、`parentChatId`、`hidden:true`，不新增 event type，也不发送 `chat.start` / `chat.updated`。同一个 `btwId` 只允许一个 active run，父 chat 与不同 BTW 分支可以并行。
 
+Desktop 的 BTW 实时入口是普通 WebSocket v2 上的 route `/api/btw`，但只接受已认证且握手 metadata 为 `source=desktop-btw` 的连接；普通 `/api/query` 在该 lane 固定拒绝。一个 BTW 连接可以并发创建、继续和 attach 多个 BTW Run，detach、submit、steer 与 interrupt 沿用现有 run owner 校验。HTTP `POST /api/btw` 保留为 Platform 公共接口，但 Desktop 不把它作为旧协议 fallback。
+
 BTW 发给 provider 的 system、tools、tool choice 和 cache key 与普通 chat 保持一致；只读说明放在本次 user message。平台内置查询工具可执行，写文件、Bash、memory mutation、plan mutation、agent invoke、artifact/image、desktop、frontend/action 等工具返回 `btw_tool_disabled` 且不会进入 HITL。MCP / agent-local / external 工具只有 `meta.readOnly:true` 时可执行；MCP `annotations.readOnlyHint:true` 会映射为该字段。proxy/channel/ACP coder 因工具执行不经过本地门禁，返回 `btw_backend_unsupported`。
 
 `stream:false` 的 BTW 响应为：
@@ -662,8 +664,9 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 - 入口：`GET /ws`，HTTP upgrade 为 WebSocket。
 - 鉴权：复用 HTTP token 校验链路。
 - token 可通过 `Sec-WebSocket-Protocol: bearer.<token>` 或 query token 传递；服务端会在握手成功时回写匹配的 subprotocol。
-- 客户端可通过 query 自报监控元数据：`source` 与 `deviceId`，例如 `/ws?source=webclient&deviceId=device-123`；`source` 转小写后只用于监控和日志展示，不参与 Action 路由、权限、能力声明或安全边界，缺省时不影响当前连接发起的 WS Query。
-- WebClient 控制连接额外携带 `surfaceId`，推荐形式为 `/ws?source=WebClient&deviceId=device-123&surfaceId=surface-123`。Platform 在握手时记录该元数据，不需要注册帧；同一 client boundary 与 `surfaceId` 的新连接替换旧连接。`source` 可以是 Desktop 提供的 `desktop-chat`、`desktop-copilot` 或其他观测值，不影响 Target 构造。
+- 客户端可通过 query 自报监控元数据：`source` 与 `deviceId`，例如 `/ws?source=webclient&deviceId=device-123`。普通 source 转小写后只用于监控和日志展示，不参与权限或能力声明；Desktop 的 `desktop-main` / `desktop-btw` 是两个受限 lane 标识，但仍必须同时通过 app scope、JWT device claim 与握手 deviceId 校验，`source` 本身绝不构成授权。
+- WebClient 控制连接额外携带 `surfaceId`，推荐形式为 `/ws?source=WebClient&deviceId=device-123&surfaceId=surface-123`。Platform 在握手时记录该元数据，不需要注册帧；同一 client boundary 与 `surfaceId` 的新连接替换旧连接。Desktop Broker 不再按 Main Chat、Copilot 或 WebView surface 创建连接：同一设备只登记一个 `desktop-main`，并在首次 BTW 时登记一个 `desktop-btw`。
+- `desktop-main` 是唯一 Desktop Main 默认 target，接收全局 Push 和反向 Desktop Action/CDP；`desktop-btw` 不参与默认 target replacement，不接收这些 Push/request。第二条相同 Desktop lane 连接只替换该 lane 的旧连接，Primary 与 BTW 可以同时存活。
 - WebSocket 控制面常开；没有单独的关闭开关。
 
 普通 `/ws` 使用唯一的协议版本 2。Upgrade 成功后服务端必须先发送 `push.connected`；客户端校验该帧后才能把连接视为可用。版本缺失/不匹配、首帧不是 connected、字段缺失或存活参数越界都属于协议错误，应立即关闭而不是继续收发业务帧。握手等待上限为 10 秒。
@@ -753,6 +756,8 @@ Desktop 模式由 Main Broker 按正式 Action 注册表处理 83 个具体 `des
 | `awaiting.answered` | `chatId`、`runId`、`agentKey` 或 `teamId`、`awaitingId`、`mode`、`status`、`answeredAt`、可选 `errorCode` / `submitId` / `durationMs` |
 | `resource.pushed` | `chatId`、`artifactId`、`name`、`mimeType`、`sha256`、`sizeBytes`、`pushedAt` |
 
+上述全局 Push 广播排除 `desktop-btw` 连接。BTW lane 只接收握手、heartbeat、本连接请求的 response/error 与 Run stream；Desktop Primary 可以按全局唯一 runId 使用 `run.finished` 收敛 BTW RunChannel。
+
 除 `heartbeat.timestamp` 外，platform 主动发送的 push payload 不使用 `timestamp`；它们用上表的业务语义时间字段。这是硬切换，不会双写旧字段，前端与服务端需要同版本发布。SSE 与 WebSocket `frame:"stream"` 的 `event.timestamp` 仍是每个业务流事件必填的 epoch milliseconds。`auth.refresh` response 在 JWT 存在 `exp` 时才返回 `expiresAt = exp * 1000`；没有 `exp` 时省略字段。`auth.expiring.expiresAt` 同样始终是 epoch milliseconds。客户端不得把缺失 `readAt` / `expiresAt` 解释为 1970 或当前时间。
 
 `run.finished` 是 run 退出 active 状态的终态通知：`finishReason` 只允许 `complete | error | cancel`，对应的 `status` 分别是 `completed | failed | interrupted`。前端必须以 `status` 判断结果，不得仅因收到 `run.finished` 就当作成功；完整错误内容仍从同一 run 的 stream `run.error` 获取。
@@ -812,6 +817,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/automation/execution` | `executionId` 或 `id` | `response` |
 | `/api/chats/search` | `query`、`agentKey`、`teamId`、`limit` | `response` |
 | `/api/query` | `QueryRequest` | `stream` |
+| `/api/btw` | BTW query payload | `stream`；仅 `source=desktop-btw` 的已认证 Desktop lane |
 | `/api/attach` | `runId`、`agentKey` 或 `teamId`、`lastSeq` | `stream` |
 | `/api/detach` | `runId`、`agentKey` 或 `teamId`、`reason` | `response`；关闭当前 WS 连接上该 run 的 observer，不中断 run |
 | `/api/terminal/open` | `agentKey`、可选 `terminalKey`、`cols`、`rows` | `stream`；agent scope attach-or-create；兼容传入的 `chatId` 会被忽略 |
@@ -922,7 +928,7 @@ Channel 有两个互不替代的维度：`channel.mode` 只决定 WebSocket 由�
 
 - HTTP query 参数在 WS payload 中通常以同名 JSON 字段传入。
 - `GET /api/attach`、WS `/api/detach`、`POST /api/submit`、`POST /api/steer`、`POST /api/interrupt` 按 run 的公开 owner 校验 `agentKey` 或 `teamId`；二者不能用隐藏执行身份互相替代。
-- WS 客户端切换 current chat 时，应先对原 chat 的 active run 发送 `/api/detach`，再对新 chat 的 active run 发送 `/api/attach`；detach 只释放当前 WS 连接上的订阅流，不停止后台 run。
+- WS 客户端离开一个 active run 时应发送 `/api/detach`；detach 只释放当前连接上的订阅流，不停止后台 run。Desktop Broker 按每个 RunChannel 串行化 detach/attach：detach 尚未写入时可由新 observer 取消，已经写入时新 attach 等其完成后再从 lastSeq 恢复，不要求不同 Run 之间建立全局切换门禁。
 - WS `/api/resource` 要求 `file + pushURL`，用于将本地资源推给 gateway；`pushURL` 是 gateway HTTP 目的地址，通常为 `/api/push/...`，WS `/api/push` 不存在；HTTP `/api/resource` 直接返回文件字节。
 - WS `/api/file` 接受 `agentKey`、`path` 和可选 `encoding`；省略 `response` 或传 `response: "json"` 时，文本内容在 `response.data.content` 返回，读取上限为 `file-tools.max-read-bytes`（默认 1 MiB），超出时标记 `truncated: true`。二进制文件只返回 metadata 和 `contentUrl`；`response: "content"` 仅适用于 HTTP，WS 会返回 `400 invalid_request`。
 - `/ws/channel` 也允许 `/api/file`，直接按 payload 的 `agentKey` 读取工作区；它不经 `externalAgentKey` 映射，也不检查 agent export 或 `fileTransfer`。

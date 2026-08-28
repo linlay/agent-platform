@@ -63,6 +63,7 @@ type AuthSession struct {
 	Subject          string
 	DeviceID         string
 	DeviceIDVerified bool
+	AuthDisabled     bool
 	Scope            string
 	ExpiresAt        int64
 	Subprotocol      string

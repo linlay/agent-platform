@@ -16,6 +16,7 @@ type Hub struct {
 	webClientKeys   map[*Conn]string
 	desktopMainConn *Conn
 	desktopMainSeen bool
+	desktopBTWConn  *Conn
 
 	monitorMu          sync.RWMutex
 	monitorConns       map[string]*monitorConnectionState
@@ -58,6 +59,7 @@ func (h *Hub) register(conn *Conn) {
 	}
 	replacedWebClient := h.registerWebClientLocked(conn)
 	replacedDesktopMain := h.registerDesktopMainLocked(conn)
+	replacedDesktopBTW := h.registerDesktopBTWLocked(conn)
 	h.mu.Unlock()
 	h.monitorRegister(conn)
 	if replacedWebClient != nil {
@@ -65,6 +67,9 @@ func (h *Hub) register(conn *Conn) {
 	}
 	if replacedDesktopMain != nil && replacedDesktopMain != replacedWebClient {
 		replacedDesktopMain.close(1000, "desktop main replaced")
+	}
+	if replacedDesktopBTW != nil && replacedDesktopBTW != replacedWebClient {
+		replacedDesktopBTW.close(1000, "desktop btw replaced")
 	}
 }
 
@@ -96,6 +101,7 @@ func (h *Hub) unregister(conn *Conn) {
 	}
 	h.unregisterWebClientLocked(conn)
 	h.unregisterDesktopMainLocked(conn)
+	h.unregisterDesktopBTWLocked(conn)
 	h.mu.Unlock()
 	h.monitorClose(conn)
 }
@@ -106,6 +112,9 @@ func (h *Hub) Broadcast(eventType string, data map[string]any) {
 	}
 	conns := h.snapshotConnections()
 	for _, conn := range conns {
+		if conn.IsDesktopBTW() {
+			continue
+		}
 		conn.SendPush(eventType, data)
 	}
 }

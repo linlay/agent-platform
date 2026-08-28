@@ -126,7 +126,7 @@ KBASE 默认由 `AP_RUNTIME_KBASE_DIR` 控制，每个 agent storageDir 可包�
 - Catalog：`/api/agents`、HTTP-only `/api/agents/order`、`/api/agent`、`/api/skills`、`/api/teams`、`/api/admin/skills`、`/api/admin/tools`；`/api/skills` 同时支持 HTTP 与 WebSocket，按 `agentKey` 返回有效技能中心 Skill 和该 Agent 已配置 Skill 的并集，并用 `agentHasSkill` 标识 Agent 当前是否已有。
 - Chat：`/api/chats`、`/api/chat`、`/api/chats/search`、`/api/read`、`/api/chat/export`。
 - Archive：`/api/archives`、`/api/archive`、`/api/archives/search`。
-- Run：`/api/query`、`/api/attach`、`/api/submit`、`/api/steer`、`/api/interrupt`。
+- Run：`/api/query`、`/api/btw`、`/api/attach`、`/api/submit`、`/api/steer`、`/api/interrupt`。Desktop 的普通 `/ws` 同时支持唯一 `desktop-main` lane 与按需 `desktop-btw` lane；Primary 是默认 Desktop target 并接收全局 Push，BTW 只承载 BTW 请求和 Run。
 - Memory：`/api/learn`、memory console 相关接口。
 - KBASE：`/api/kbase/{agentKey}/status`、`/api/kbase/{agentKey}/refresh` 以及五个 KBASE tools。
 - Project / Resource：`/api/project/tree`、`/api/project/changes`、`/api/project/diff`、`/api/upload`、`/api/resource`、`/api/resource/image/commit`。Project 只读接口只接受 CODER/KBASE 的 Workspace 相对 POSIX 路径，复用 file-history 作为 Run Diff 基线；图片 commit 只修改 active Chat 的 Artifact/Reference 资源域。

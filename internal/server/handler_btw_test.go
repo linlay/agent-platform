@@ -11,11 +11,181 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
+	platformws "agent-platform/internal/ws"
+
+	gws "github.com/gorilla/websocket"
 )
+
+func TestBTWStreamsOverWebSocket(t *testing.T) {
+	fixture := newTestFixture(t)
+	const chatID = "chat-btw-websocket"
+	serveJSONRequestForBTWTest(t, fixture.server, "/api/query", `{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"parent"}`)
+	hub := platformws.NewHub()
+	fixture.server.wsHandler = fixture.server.newWSHandler(hub)
+	fixture.server.router.Handle("/ws", fixture.server.wsHandler)
+
+	server := newLoopbackServer(t, fixture.server)
+	defer server.Close()
+	conn, _, err := gws.DefaultDialer.Dial(
+		"ws"+strings.TrimPrefix(server.URL, "http")+"/ws?source=desktop-btw&deviceId=device-btw",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+	readConnectedPush(t, conn)
+
+	if err := conn.WriteJSON(platformws.RequestFrame{
+		Frame: platformws.FrameRequest,
+		Type:  "/api/btw",
+		ID:    "btw-ws-1",
+		Payload: platformws.MarshalPayload(map[string]any{
+			"chatId":  chatID,
+			"message": "side question",
+		}),
+	}); err != nil {
+		t.Fatalf("write websocket BTW request: %v", err)
+	}
+
+	var btwID string
+	var runID string
+	terminalReason := ""
+	for terminalReason == "" {
+		if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+			t.Fatalf("set read deadline: %v", err)
+		}
+		var frame platformws.StreamFrame
+		if err := conn.ReadJSON(&frame); err != nil {
+			t.Fatalf("read BTW stream: %v", err)
+		}
+		if frame.Frame != platformws.FrameStream || frame.ID != "btw-ws-1" {
+			t.Fatalf("unexpected BTW frame: %#v", frame)
+		}
+		if frame.Event != nil {
+			switch frame.Event.Type {
+			case "chat.start":
+				t.Fatal("BTW websocket stream must not emit chat.start")
+			case "request.query":
+				btwID, _ = frame.Event.Value("btwId").(string)
+				if kind, _ := frame.Event.Value("kind").(string); kind != "btw" {
+					t.Fatalf("unexpected request.query kind %q", kind)
+				}
+			case "run.start":
+				runID, _ = frame.Event.Value("runId").(string)
+			}
+		}
+		terminalReason = frame.Reason
+	}
+	if terminalReason != "done" || !chat.ValidBTWID(btwID) || runID == "" {
+		t.Fatalf("unexpected BTW websocket result: reason=%q btwId=%q runId=%q", terminalReason, btwID, runID)
+	}
+}
+
+func TestBTWWebSocketLaneGuardsAndMultiplexing(t *testing.T) {
+	fixture := newTestFixture(t)
+	const chatID = "chat-btw-websocket-multiplex"
+	serveJSONRequestForBTWTest(t, fixture.server, "/api/query", `{"chatId":"`+chatID+`","agentKey":"mock-agent","message":"parent"}`)
+	hub := platformws.NewHub()
+	fixture.server.wsHandler = fixture.server.newWSHandler(hub)
+	fixture.server.router.Handle("/ws", fixture.server.wsHandler)
+	server := newLoopbackServer(t, fixture.server)
+	defer server.Close()
+
+	dial := func(source string) *gws.Conn {
+		t.Helper()
+		conn, _, err := gws.DefaultDialer.Dial(
+			"ws"+strings.TrimPrefix(server.URL, "http")+"/ws?source="+source+"&deviceId=device-btw",
+			nil,
+		)
+		if err != nil {
+			t.Fatalf("dial %s websocket: %v", source, err)
+		}
+		readConnectedPush(t, conn)
+		return conn
+	}
+
+	primary := dial("desktop-main")
+	defer primary.Close()
+	if err := primary.WriteJSON(platformws.RequestFrame{
+		Frame: platformws.FrameRequest,
+		Type:  "/api/btw",
+		ID:    "btw-on-primary",
+		Payload: platformws.MarshalPayload(map[string]any{
+			"chatId":  chatID,
+			"message": "wrong lane",
+		}),
+	}); err != nil {
+		t.Fatalf("write primary BTW request: %v", err)
+	}
+	var laneError platformws.ErrorFrame
+	if err := primary.ReadJSON(&laneError); err != nil {
+		t.Fatalf("read primary BTW lane error: %v", err)
+	}
+	if laneError.Type != "btw_ws_lane_required" {
+		t.Fatalf("primary BTW error type = %q, want btw_ws_lane_required", laneError.Type)
+	}
+
+	btw := dial("desktop-btw")
+	defer btw.Close()
+	if err := btw.WriteJSON(platformws.RequestFrame{
+		Frame:   platformws.FrameRequest,
+		Type:    "/api/query",
+		ID:      "query-on-btw",
+		Payload: platformws.MarshalPayload(map[string]any{}),
+	}); err != nil {
+		t.Fatalf("write BTW query request: %v", err)
+	}
+	if err := btw.ReadJSON(&laneError); err != nil {
+		t.Fatalf("read BTW query lane error: %v", err)
+	}
+	if laneError.Type != "btw_lane_query_forbidden" {
+		t.Fatalf("BTW query error type = %q, want btw_lane_query_forbidden", laneError.Type)
+	}
+
+	requestIDs := []string{"btw-multiplex-1", "btw-multiplex-2"}
+	for _, requestID := range requestIDs {
+		if err := btw.WriteJSON(platformws.RequestFrame{
+			Frame: platformws.FrameRequest,
+			Type:  "/api/btw",
+			ID:    requestID,
+			Payload: platformws.MarshalPayload(map[string]any{
+				"chatId":  chatID,
+				"message": requestID,
+			}),
+		}); err != nil {
+			t.Fatalf("write multiplexed BTW request %s: %v", requestID, err)
+		}
+	}
+	completed := map[string]bool{}
+	runIDs := map[string]string{}
+	for len(completed) < len(requestIDs) {
+		if err := btw.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+			t.Fatalf("set multiplex read deadline: %v", err)
+		}
+		var frame platformws.StreamFrame
+		if err := btw.ReadJSON(&frame); err != nil {
+			t.Fatalf("read multiplexed BTW stream: %v", err)
+		}
+		if frame.Event != nil && frame.Event.Type == "run.start" {
+			runIDs[frame.ID], _ = frame.Event.Value("runId").(string)
+		}
+		if frame.Reason != "" {
+			if frame.Reason != "done" {
+				t.Fatalf("multiplexed BTW %s ended with %q", frame.ID, frame.Reason)
+			}
+			completed[frame.ID] = true
+		}
+	}
+	if len(runIDs) != 2 || runIDs[requestIDs[0]] == "" || runIDs[requestIDs[0]] == runIDs[requestIDs[1]] {
+		t.Fatalf("multiplexed BTW runs are not independent: %#v", runIDs)
+	}
+}
 
 func TestBTWCreatesHiddenBranchWithoutChangingParentChat(t *testing.T) {
 	fixture := newTestFixture(t)

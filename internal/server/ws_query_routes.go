@@ -14,6 +14,11 @@ import (
 )
 
 func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	if conn.IsDesktopBTW() {
+		conn.SendError(req.ID, "btw_lane_query_forbidden", http.StatusForbidden, "desktop-btw connections must use /api/btw", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
 	payload, statusErr := s.rewriteChannelRequestPayload(ctx, req.Type, req.Payload)
 	if statusErr != nil {
 		s.sendWSStatusError(conn, req.ID, statusErr)
@@ -108,6 +113,68 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 	conn.StartStreamForward(req.ID, observer)
 }
 
+func (s *Server) wsBTW(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	if !conn.IsDesktopBTW() {
+		conn.SendError(req.ID, "btw_ws_lane_required", http.StatusForbidden, "/api/btw requires the desktop-btw connection", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "/api/btw", bytes.NewReader(req.Payload))
+	if err != nil {
+		conn.SendError(req.ID, "internal_error", http.StatusInternalServerError, err.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	prepared, statusErr := s.prepareBTWQuery(httpReq)
+	if statusErr != nil {
+		s.sendWSStatusError(conn, req.ID, statusErr)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	prepared.resourceBaseURL = conn.RequestBaseURL()
+	if _, reserveErr := conn.ReserveStream(req.ID, prepared.req.RunID); reserveErr != nil {
+		if protoErr, ok := reserveErr.(*ws.ProtocolError); ok {
+			conn.SendProtocolError(req.ID, protoErr)
+		}
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	registered, statusErr := s.registerQueryRun(ctx, prepared)
+	if statusErr != nil {
+		releaseQuery(prepared.release)
+		conn.ReleaseStream(req.ID)
+		s.sendWSStatusError(conn, req.ID, statusErr)
+		return
+	}
+	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
+	if !ok {
+		releaseQuery(prepared.release)
+		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonEventBusUnavailable, "run event bus unavailable"))
+		s.finishRegisteredQueryRun(prepared, registered)
+		conn.ReleaseStream(req.ID)
+		conn.SendError(req.ID, "internal_error", http.StatusInternalServerError, "run event bus unavailable", nil)
+		return
+	}
+	observer, attachErr := s.deps.Runs.AttachObserver(prepared.req.RunID, 0)
+	if attachErr != nil {
+		releaseQuery(prepared.release)
+		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonObserverAttachFailed, attachErr.Error()))
+		s.finishRegisteredQueryRun(prepared, registered)
+		conn.ReleaseStream(req.ID)
+		s.sendWSAttachError(conn, req.ID, prepared.req.RunID, prepared.req.ChatID, attachErr)
+		return
+	}
+	conn.AttachObserver(req.ID, observer.ID, func() {
+		s.deps.Runs.DetachObserver(prepared.req.RunID, observer.ID)
+	})
+	principal := &Principal{Subject: prepared.session.Subject}
+	if strings.TrimSpace(principal.Subject) == "" {
+		principal = nil
+	}
+	s.startPreparedLocalRun(prepared, registered, eventBus, principal)
+	conn.StartStreamForward(req.ID, observer)
+}
+
 func (s *Server) wsAttach(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	payload, err := ws.DecodePayload[struct {
 		RunID    string `json:"runId"`
@@ -147,7 +214,9 @@ func (s *Server) wsAttach(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 	conn.AttachObserver(req.ID, observer.ID, func() {
 		s.deps.Runs.DetachObserver(payload.RunID, observer.ID)
 	})
-	bindRunWebClientTarget(s.deps.Runs, payload.RunID, conn.WebClientTarget())
+	if !conn.IsDesktopBTW() {
+		bindRunWebClientTarget(s.deps.Runs, payload.RunID, conn.WebClientTarget())
+	}
 	conn.StartStreamForward(req.ID, observer)
 }
 
