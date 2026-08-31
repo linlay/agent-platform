@@ -144,9 +144,6 @@ func parseServerTree(path string, tree any) (ServerDefinition, error) {
 	if !firstBool(root["enabled"], true) {
 		return ServerDefinition{}, nil
 	}
-	if _, declared := root["bindings"]; declared {
-		return ServerDefinition{}, fmt.Errorf("MCP registry bindings are not supported; configure Agent toolConfig.mcp-servers instead")
-	}
 	serverKey := normalizeKey(contracts.FirstNonEmptyString(root["serverKey"], root["server-key"], root["key"]))
 	if serverKey == "" {
 		base := filepath.Base(path)

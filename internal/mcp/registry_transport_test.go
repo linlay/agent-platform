@@ -122,7 +122,6 @@ func TestRegistryRejectsInvalidTransportFieldCombinations(t *testing.T) {
 		{name: "http with static and sourced auth", content: "serverKey: demo\nbaseUrl: https://mcp.example.test\nauthToken: fixed\nauthSource: identity-file\n", want: "cannot declare both authToken and authSource"},
 		{name: "http with unknown auth source", content: "serverKey: demo\nbaseUrl: https://mcp.example.test\nauthSource: unknown\n", want: "unsupported MCP authSource"},
 		{name: "identity file requires https", content: "serverKey: demo\nbaseUrl: http://mcp.example.test\nauthSource: identity-file\n", want: "requires a valid HTTPS baseUrl"},
-		{name: "registry Agent binding", content: "serverKey: demo\nbaseUrl: https://mcp.example.test\nbindings:\n  agents: [cutej]\n", want: "toolConfig.mcp-servers"},
 		{name: "unknown transport", content: "serverKey: demo\ntransport: websocket\nbaseUrl: http://127.0.0.1\n", want: "unsupported MCP transport"},
 	}
 	for _, test := range tests {

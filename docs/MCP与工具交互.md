@@ -91,8 +91,6 @@ toolConfig:
     - flowCenter
 ```
 
-Registry 中的 `bindings` 字段不受支持，避免与 Agent 配置形成两套权限来源。
-
 ## 工具来源与结果
 
 本地 platform tools 从 `internal/resources/tools/*.yml` 装载；`configs/runtime.yml -> paths.tools-dir` 中的 YAML 只能覆盖已有 Go 实现的 schema、文案、权限和可选 UI 元数据。没有已注册代码实现的名字会使启动或热重载失败；动态新能力必须由 Go handler 或 MCP 提供。`sourceCategory: external` 仍可作为普通工具的来源分类，但不表示执行类型或子进程协议。
