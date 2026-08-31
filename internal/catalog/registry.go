@@ -285,6 +285,7 @@ type FileRegistry struct {
 
 	mu             sync.RWMutex
 	privateSkillMu sync.Mutex
+	skillPackageMu sync.Mutex
 	agentArchiveMu sync.Mutex
 	agents         map[string]AgentDefinition
 	adminAgents    map[string]AdminAgent
