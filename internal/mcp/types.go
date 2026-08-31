@@ -31,10 +31,10 @@ type ServerDefinition struct {
 }
 
 const (
-	TransportStreamableHTTP   = "streamable-http"
-	TransportStdio            = "stdio"
-	AuthSourceDesktopIdentity = "desktop-identity"
-	ProtocolVersion           = "2025-11-25"
+	TransportStreamableHTTP = "streamable-http"
+	TransportStdio          = "stdio"
+	AuthSourceIdentityFile  = "identity-file"
+	ProtocolVersion         = "2025-11-25"
 )
 
 func (s ServerDefinition) ResolvedURL() string {

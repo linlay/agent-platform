@@ -52,10 +52,10 @@ serverKey: flowCenter
 transport: streamable-http
 baseUrl: https://qiuer.net
 endpointPath: /mcp/flowCenter
-authSource: desktop-identity
+authSource: identity-file
 ```
 
-Platform 会在每次 HTTP 请求前从 `--identity-file` 指向的单行文件读取最新 token，并设置 `Authorization: Bearer ...`。`authSource` 不能与 `authToken` 同时使用；身份只发送给 registry 中配置的 HTTPS 主机，跨主机或非标准 HTTPS 端口请求会被拒绝。没有声明 `authSource` 的 MCP 不继承 Desktop 身份。
+Platform 会在每次 HTTP 请求前从 `--identity-file` 指向的单行文件读取最新 token，并设置 `Authorization: Bearer ...`。`authSource` 不能与 `authToken` 同时使用；身份只发送给 registry 中配置的 HTTPS 主机，跨主机或非标准 HTTPS 端口请求会被拒绝。没有声明 `authSource` 的 MCP 不使用 identity 文件中的凭据。
 
 stdio 示例：
 
@@ -74,7 +74,7 @@ retry: 1
 
 字段约束：
 
-- `streamable-http` 必须提供 `baseUrl`，可选 `authToken` 或 `authSource: desktop-identity`，两者不能同时出现；不得出现 `command`、`args`、`env` 或 `workingDirectory`。
+- `streamable-http` 必须提供 `baseUrl`，可选 `authToken` 或 `authSource: identity-file`，两者不能同时出现；不得出现 `command`、`args`、`env` 或 `workingDirectory`。
 - `stdio` 必须提供 `command`，不得出现 `baseUrl`、`endpointPath`、`authToken`、`authSource` 或 `headers`。
 - 相对 `command` 与 `workingDirectory` 都相对于当前 registry YAML 所在目录解析。
 - stdio 环境继承 runtime 进程环境，并保留 Host builtin PATH；`env` 只覆盖或追加显式变量。

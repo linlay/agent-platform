@@ -378,7 +378,7 @@ func TestSanitizeSyncErrorRedactsConfiguredSecrets(t *testing.T) {
 	}
 }
 
-func TestHeaderRoundTripperReadsDesktopIdentityOnEveryRequest(t *testing.T) {
+func TestHeaderRoundTripperReadsIdentityFileOnEveryRequest(t *testing.T) {
 	identityFile := filepath.Join(t.TempDir(), "sso-access-token.txt")
 	tokenA := unsignedJWTWithIssuer(t, "https://eiam.example.test/auth/oidc/dev", "subject-a")
 	tokenB := unsignedJWTWithIssuer(t, "https://eiam.example.test/auth/oidc/dev", "subject-b")
@@ -396,9 +396,9 @@ func TestHeaderRoundTripperReadsDesktopIdentityOnEveryRequest(t *testing.T) {
 				Request:    request,
 			}, nil
 		}),
-		authSource:   AuthSourceDesktopIdentity,
-		identityFile: identityFile,
-		identityHost: "example.test",
+		authSource:     AuthSourceIdentityFile,
+		identityFile:   identityFile,
+		configuredHost: "example.test",
 	}
 	request, err := http.NewRequest(http.MethodPost, "https://example.test/mcp", nil)
 	if err != nil {
@@ -418,9 +418,9 @@ func TestHeaderRoundTripperReadsDesktopIdentityOnEveryRequest(t *testing.T) {
 	}
 }
 
-func TestHeaderRoundTripperRejectsDesktopIdentityOutsideConfiguredMCPHost(t *testing.T) {
+func TestHeaderRoundTripperRejectsIdentityFileOutsideConfiguredMCPHost(t *testing.T) {
 	identityFile := filepath.Join(t.TempDir(), "sso-access-token.txt")
-	if err := os.WriteFile(identityFile, []byte("desktop-token\n"), 0o600); err != nil {
+	if err := os.WriteFile(identityFile, []byte("identity-token\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	transport := headerRoundTripper{
@@ -428,7 +428,7 @@ func TestHeaderRoundTripperRejectsDesktopIdentityOutsideConfiguredMCPHost(t *tes
 			t.Fatalf("untrusted request reached base transport: %s", request.URL)
 			return nil, nil
 		}),
-		authSource: AuthSourceDesktopIdentity, identityFile: identityFile, identityHost: "api.resource.test",
+		authSource: AuthSourceIdentityFile, identityFile: identityFile, configuredHost: "api.resource.test",
 	}
 	request, err := http.NewRequest(http.MethodPost, "https://attacker.test/mcp", nil)
 	if err != nil {

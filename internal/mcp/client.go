@@ -455,26 +455,26 @@ func (c *Client) httpClientForServer(server ServerDefinition) *http.Client {
 		}
 		transport = typed
 	}
-	identityHost := ""
-	if server.AuthSource == AuthSourceDesktopIdentity {
+	configuredHost := ""
+	if server.AuthSource == AuthSourceIdentityFile {
 		if parsed, err := url.Parse(server.BaseURL); err == nil {
-			identityHost = parsed.Hostname()
+			configuredHost = parsed.Hostname()
 		}
 	}
 	cloned.Transport = headerRoundTripper{
 		base: transport, headers: server.Headers, authToken: server.AuthToken,
-		authSource: server.AuthSource, identityFile: c.identityFile, identityHost: identityHost,
+		authSource: server.AuthSource, identityFile: c.identityFile, configuredHost: configuredHost,
 	}
 	return &cloned
 }
 
 type headerRoundTripper struct {
-	base         http.RoundTripper
-	headers      map[string]string
-	authToken    string
-	authSource   string
-	identityFile string
-	identityHost string
+	base           http.RoundTripper
+	headers        map[string]string
+	authToken      string
+	authSource     string
+	identityFile   string
+	configuredHost string
 }
 
 func (t headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -484,16 +484,16 @@ func (t headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 		cloned.Header.Set(key, value)
 	}
 	token := strings.TrimSpace(t.authToken)
-	if t.authSource == AuthSourceDesktopIdentity {
+	if t.authSource == AuthSourceIdentityFile {
 		var err error
 		token, err = agentconfig.ReadAccessTokenFile(t.identityFile)
 		if err != nil {
-			return nil, fmt.Errorf("read desktop identity for MCP: %w", err)
+			return nil, fmt.Errorf("read identity file for MCP: %w", err)
 		}
 		if token == "" {
-			return nil, fmt.Errorf("desktop identity token is unavailable")
+			return nil, fmt.Errorf("identity file token is unavailable")
 		}
-		if err := validateDesktopIdentityRequest(cloned.URL, t.identityHost); err != nil {
+		if err := validateIdentityFileRequest(cloned.URL, t.configuredHost); err != nil {
 			return nil, err
 		}
 	}
@@ -503,13 +503,13 @@ func (t headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 	return t.base.RoundTrip(cloned)
 }
 
-func validateDesktopIdentityRequest(requestURL *url.URL, configuredHost string) error {
+func validateIdentityFileRequest(requestURL *url.URL, configuredHost string) error {
 	configuredHost = strings.TrimSpace(configuredHost)
 	if requestURL == nil || requestURL.Scheme != "https" || requestURL.User != nil || (requestURL.Port() != "" && requestURL.Port() != "443") {
-		return fmt.Errorf("desktop identity MCP request requires HTTPS on the configured MCP host")
+		return fmt.Errorf("identity-file MCP request requires HTTPS on the configured MCP host")
 	}
 	if configuredHost == "" || !strings.EqualFold(requestURL.Hostname(), configuredHost) {
-		return fmt.Errorf("desktop identity MCP request left the configured MCP host")
+		return fmt.Errorf("identity-file MCP request left the configured MCP host")
 	}
 	return nil
 }
