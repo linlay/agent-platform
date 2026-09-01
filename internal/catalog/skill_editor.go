@@ -252,6 +252,13 @@ func (r *FileRegistry) DeleteEditableSkill(key string) error {
 	if err := ValidateEditableSkillKey(key); err != nil {
 		return err
 	}
+	owners, err := readSkillPackageOwners(root)
+	if err != nil {
+		return err
+	}
+	if owner := owners[strings.TrimSpace(key)]; owner != "" {
+		return fmt.Errorf("%w: skill %s belongs to package %s", ErrSkillPackageConflict, strings.TrimSpace(key), owner)
+	}
 	dir, err := editableSkillDir(root, key)
 	if err != nil {
 		return err
@@ -754,7 +761,9 @@ func cleanupEditableSkillImportStaging(root string) error {
 		return err
 	}
 	for _, entry := range entries {
-		if !strings.HasPrefix(entry.Name(), editableSkillImportStagingPrefix) {
+		if !strings.HasPrefix(entry.Name(), editableSkillImportStagingPrefix) &&
+			!strings.HasPrefix(entry.Name(), skillPackageImportStagingPrefix) &&
+			!strings.HasPrefix(entry.Name(), skillPackageBackupPrefix) {
 			continue
 		}
 		pathOnDisk := filepath.Join(root, entry.Name())

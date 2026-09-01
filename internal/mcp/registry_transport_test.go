@@ -61,16 +61,16 @@ func TestRegistryDefaultsToStreamableHTTP(t *testing.T) {
 	}
 }
 
-func TestRegistryLoadsDesktopIdentityAuthSource(t *testing.T) {
+func TestRegistryLoadsIdentityFileAuthSource(t *testing.T) {
 	root := t.TempDir()
-	writeMCPRegistryFile(t, filepath.Join(root, "http.yml"), "serverKey: demo\nbaseUrl: https://mcp.example.test\nauthSource: desktop-identity\n")
+	writeMCPRegistryFile(t, filepath.Join(root, "http.yml"), "serverKey: demo\nbaseUrl: https://mcp.example.test\nauthSource: identity-file\n")
 	registry, err := NewRegistry(root)
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
 	}
 	server, ok := registry.Server("demo")
-	if !ok || server.AuthSource != AuthSourceDesktopIdentity || server.AuthToken != "" {
-		t.Fatalf("unexpected desktop identity auth source: %#v", server)
+	if !ok || server.AuthSource != AuthSourceIdentityFile || server.AuthToken != "" {
+		t.Fatalf("unexpected identity file auth source: %#v", server)
 	}
 }
 
@@ -118,11 +118,10 @@ func TestRegistryRejectsInvalidTransportFieldCombinations(t *testing.T) {
 		{name: "http with empty args", content: "serverKey: demo\nbaseUrl: http://127.0.0.1\nargs: []\n", want: "cannot declare stdio fields"},
 		{name: "stdio missing command", content: "serverKey: demo\ntransport: stdio\n", want: "requires command"},
 		{name: "stdio with base", content: "serverKey: demo\ntransport: stdio\ncommand: tool\nbaseUrl: http://127.0.0.1\n", want: "cannot declare HTTP fields"},
-		{name: "stdio with auth source", content: "serverKey: demo\ntransport: stdio\ncommand: tool\nauthSource: desktop-identity\n", want: "cannot declare HTTP fields"},
-		{name: "http with static and sourced auth", content: "serverKey: demo\nbaseUrl: https://mcp.example.test\nauthToken: fixed\nauthSource: desktop-identity\n", want: "cannot declare both authToken and authSource"},
+		{name: "stdio with auth source", content: "serverKey: demo\ntransport: stdio\ncommand: tool\nauthSource: identity-file\n", want: "cannot declare HTTP fields"},
+		{name: "http with static and sourced auth", content: "serverKey: demo\nbaseUrl: https://mcp.example.test\nauthToken: fixed\nauthSource: identity-file\n", want: "cannot declare both authToken and authSource"},
 		{name: "http with unknown auth source", content: "serverKey: demo\nbaseUrl: https://mcp.example.test\nauthSource: unknown\n", want: "unsupported MCP authSource"},
-		{name: "desktop identity requires https", content: "serverKey: demo\nbaseUrl: http://mcp.example.test\nauthSource: desktop-identity\n", want: "requires a valid HTTPS baseUrl"},
-		{name: "registry Agent binding", content: "serverKey: demo\nbaseUrl: https://mcp.example.test\nbindings:\n  agents: [cutej]\n", want: "toolConfig.mcp-servers"},
+		{name: "identity file requires https", content: "serverKey: demo\nbaseUrl: http://mcp.example.test\nauthSource: identity-file\n", want: "requires a valid HTTPS baseUrl"},
 		{name: "unknown transport", content: "serverKey: demo\ntransport: websocket\nbaseUrl: http://127.0.0.1\n", want: "unsupported MCP transport"},
 	}
 	for _, test := range tests {

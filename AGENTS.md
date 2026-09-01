@@ -8,7 +8,7 @@
 
 - 已具备独立 HTTP 服务、统一 JSON 包裹与 `POST /api/query` 真流式 SSE。
 - 已具备 chat 摘要、事件流、raw messages、上传资源落盘、归档与搜索；分层上下文压缩提供不调用模型的 `l1_tools` 和严格单次模型调用的 `summary`，两层都支持已结束历史以及普通 Agent/Team 协调器活动根 Run 的 REACT 安全点阻断式 checkpoint，自动压缩按 L1 后按需 L2 执行。
-- 已具备目录驱动的 agents / teams / skills / tools catalog，并在 Catalog 发布前将 Agent 定义、Agent 自有 Skill、技能中心 Skill 和 `.config` 组装到稳定的 `ru-agents/<agentKey>` 执行目录；query `mustUseSkills` 可在单次普通 Agent run 中强制使用额外技能中心 Skill，并为每个选中 Skill 目录建立 trusted read + readonly roots；Container 仍只读挂载整个技能中心，但 AccessPolicy 只免审读取选中目录，不复制、不生成 run-runtime。Admin Agent 支持安全校验完整 ZIP、以隐藏 staging/backup 原子导入或整目录覆盖；硬重载失败恢复旧来源，catalog 可发布但单个 Agent 无效时保留导入结果并返回诊断。
+- 已具备目录驱动的 agents / teams / skills / tools catalog，并在 Catalog 发布前将 Agent 定义、Agent 自有 Skill、技能中心 Skill 和 `.config` 组装到稳定的 `ru-agents/<agentKey>` 执行目录；query `mustUseSkills` 可在单次普通 Agent run 中强制使用额外技能中心 Skill，并为每个选中 Skill 目录建立 trusted read + readonly roots；Container 仍只读挂载整个技能中心，但 AccessPolicy 只免审读取选中目录，不复制、不生成 run-runtime。Admin Agent 支持安全校验完整 ZIP、以隐藏 staging/backup 原子导入或整目录覆盖；硬重载失败恢复旧来源，catalog 可发布但单个 Agent 无效时保留导入结果并返回诊断。Market 技能包由 Platform 原子安装为平铺子技能，包状态只保存在 `skills-center/.package`，临时 ZIP 不持久化。
 - 已具备 OpenAI / Anthropic 协议模型调用、统一 Tool、Container Hub sandbox 与 tools；`image_generate` 以统一参数支持文生图、最多四张本地/Chat 参考图的图生图，以及模型 YAML 显式声明的原生 mask/inpainting，生成和编辑请求分别由模型 YAML 的 `image.generation`、`image.edit` 协议块适配。
 - 已具备由 `build/builtins/<os>-<arch>/` cache 固定、校验并随服务包分发的 Host builtins（rg/dbx/httpx/kbase-lance-engine/poppler-pdftotext）；`file_grep/file_glob` 稳定包装 rg，dbx/httpx 保持 CLI，KBASE PDF 默认调用 Poppler `pdftotext` launcher。
 - 已具备 HITL question / approval / form、运行中 submit / steer / interrupt 协议入口，以及 question/planning 跨进程恢复和不可恢复等待项的幂等终态对账。
@@ -123,7 +123,7 @@ KBASE 默认由 `AP_RUNTIME_KBASE_DIR` 控制，每个 agent storageDir 可包�
 
 主要接口分组：
 
-- Catalog：`/api/agents`、HTTP-only `/api/agents/order`、`/api/agent`、`/api/skills`、`/api/teams`、`/api/admin/skills`、`/api/admin/tools`；`/api/skills` 同时支持 HTTP 与 WebSocket，按 `agentKey` 返回有效技能中心 Skill 和该 Agent 已配置 Skill 的并集，并用 `agentHasSkill` 标识 Agent 当前是否已有。
+- Catalog：`/api/agents`、HTTP-only `/api/agents/order`、`/api/agent`、`/api/skills`、`/api/teams`、`/api/admin/skills`、`/api/admin/skill-packages/*`、`/api/admin/tools`；`/api/skills` 同时支持 HTTP 与 WebSocket，按 `agentKey` 返回有效技能中心 Skill 和该 Agent 已配置 Skill 的并集，并用 `agentHasSkill` 标识 Agent 当前是否已有。
 - Chat：`/api/chats`、`/api/chat`、`/api/chats/search`、`/api/read`、`/api/chat/export`。
 - Archive：`/api/archives`、`/api/archive`、`/api/archives/search`。
 - Run：`/api/query`、`/api/btw`、`/api/attach`、`/api/submit`、`/api/steer`、`/api/interrupt`。Desktop 的普通 `/ws` 同时支持唯一 `desktop-main` lane 与按需 `desktop-btw` lane；Primary 是默认 Desktop target 并接收全局 Push，BTW 只承载 BTW 请求和 Run。

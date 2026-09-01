@@ -7,7 +7,7 @@ Agent Platform 将可编辑事实源与执行目录分离：
 ```text
 <AP_RUNTIME_DIR>/
 ├── agents/                         # Agent 定义与 Agent 自有 Skill
-├── skills-center/                  # 共享 Skill
+├── skills-center/                  # 共享 Skill；.package/ 保存技能包控制状态
 └── ru-agents/                      # Platform 生成，禁止人工编辑
     ├── .staging/
     └── <agentKey>/
@@ -19,6 +19,8 @@ Agent Platform 将可编辑事实源与执行目录分离：
 ```
 
 `agents/` 和 `skills-center/` 默认只在 Catalog 管理、编辑和组装阶段读取。Agent 配置内声明的 Skill 以及 Query、Workspace Terminal 和常规 Skill runtime 统一使用 `ru-agents/<agentKey>`。唯一的共享目录 run-scoped 例外是 query 的 `mustUseSkills` 选中了 Agent 未配置的技能中心 Skill：该 run 只读访问该选中 Skill 的 canonical 目录，不修改稳定 `ru-agents`，也不创建或复制到额外的 run-runtime。`AgentConfigDir`、Admin Source、Agent CRUD 和“打开配置目录”仍指向原始 `agents/`。
+
+Market 技能包不会作为一个可执行 Skill 目录存在。Platform 将每个子技能平铺到 `skills-center/<skill-id>/`，只在 `skills-center/.package/<package-id>.json` 保存包版本、归档摘要和子技能归属，用于整包更新、卸载与回滚。隐藏 `.package`、安装 staging 和 backup 都不进入 Skill Catalog；技能包 ZIP 仅作为临时请求输入，不在 `skills-center` 持久化。
 
 `ru-agents` 不是来源追踪系统：不生成版本目录、Skill lock、provenance 或来源 API，也不进入 release bundle、`zenmind-env/package.sh` 产物或环境 overlay。服务启动或 Catalog 热重载时可从事实源完整重建。
 

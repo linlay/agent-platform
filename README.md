@@ -14,6 +14,8 @@
 - `GET /api/skills?agentKey=...`
 - `GET /api/teams`
 - `GET /api/admin/skills`
+- `POST /api/admin/skill-packages/import`
+- `POST /api/admin/skill-packages/delete`
 - `GET /api/admin/tools`
 - `GET /api/chats`
 - `GET /api/chat?chatId=...`

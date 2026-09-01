@@ -28,6 +28,10 @@ type adminSkillRegistry interface {
 	AdminSkill(key string) (catalog.AdminSkill, bool, error)
 	CreateEditableSkill(key string, skillMd string, files []catalog.EditableSkillInlineFile) (catalog.AdminSkill, error)
 	ImportEditableSkillArchive(key string, source io.ReaderAt, size int64) (catalog.AdminSkill, error)
+	BeginImportEditableSkillPackageArchive(key string, version string, source io.ReaderAt, size int64) (*catalog.EditableSkillPackageMutation, catalog.SkillPackageRecord, error)
+	BeginDeleteEditableSkillPackage(key string) (*catalog.EditableSkillPackageMutation, catalog.SkillPackageRecord, error)
+	BeginDeleteEditableSkillPackageSkill(packageID string, skillID string) (*catalog.EditableSkillPackageMutation, catalog.SkillPackageRecord, bool, error)
+	EditableSkillPackages() ([]catalog.SkillPackageRecord, error)
 	DeleteEditableSkill(key string) error
 	EditableSkillUsage(key string) ([]string, error)
 	ReadEditableSkillFile(key string, relPath string) (catalog.EditableSkillFileContent, error)
@@ -1032,9 +1036,9 @@ func mapSkillEditError(err error) error {
 		return newAgentStatusErrorWithData(http.StatusUnprocessableEntity, "invalid_archive", archiveValidation.Error(), map[string]any{"diagnostics": diagnostics})
 	}
 	switch {
-	case errors.Is(err, catalog.ErrSkillNotFound):
+	case errors.Is(err, catalog.ErrSkillNotFound), errors.Is(err, catalog.ErrSkillPackageNotFound), errors.Is(err, catalog.ErrSkillPackageSkillNotFound):
 		return newAgentStatusError(http.StatusNotFound, "not_found", err.Error())
-	case errors.Is(err, catalog.ErrSkillAlreadyExists), errors.Is(err, catalog.ErrSkillConflict):
+	case errors.Is(err, catalog.ErrSkillAlreadyExists), errors.Is(err, catalog.ErrSkillConflict), errors.Is(err, catalog.ErrSkillPackageConflict):
 		return newAgentStatusError(http.StatusConflict, "conflict", err.Error())
 	case errors.Is(err, catalog.ErrSkillFileTooLarge), errors.Is(err, catalog.ErrSkillArchiveTooLarge), errors.Is(err, catalog.ErrSkillArchiveUploadTooLarge), errors.Is(err, catalog.ErrSkillArchiveTooManyFiles):
 		return newAgentStatusError(http.StatusRequestEntityTooLarge, "payload_too_large", err.Error())

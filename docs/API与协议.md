@@ -126,6 +126,10 @@ GET /ws -> request / response / stream / push / error frames
 | POST | `/api/admin/skills/create` | body: `key`、`skillMd`、`files[]` | 创建后的 skill 详情 |
 | POST | `/api/admin/skills/import` | multipart: `key`、`file` | 原子校验并导入完整 ZIP，返回创建后的 skill 详情 |
 | POST | `/api/admin/skills/delete` | body: `key` | 删除结果；仍被 agent 引用时返回 409 和 `usedByAgents` |
+| GET | `/api/admin/skill-packages` | 无 | 返回 Platform 已安装技能包及其子技能 ID、版本和包摘要 |
+| POST | `/api/admin/skill-packages/import` | query: `key`、`version`；raw ZIP body | 原子校验并安装或更新技能包，返回包状态与实际安装的子技能 |
+| POST | `/api/admin/skill-packages/delete` | body: `key` | 原子卸载技能包及其子技能，返回删除的子技能列表 |
+| POST | `/api/admin/skill-packages/skills/delete` | body: `packageId`、`skillId` | 原子删除包内单个子技能并更新包状态 |
 | GET/PUT | `/api/admin/skills/file` | query/body: `key`、`path`、`content`、`baseSha256` | 读取或保存 UTF-8 文本文件 |
 | POST | `/api/admin/skills/file/create` | body: `key`、`path`、`content` | 创建文本文件 |
 | POST | `/api/admin/skills/file/delete` | body: `key`、`path`、`recursive`、`baseSha256` | 删除 skill 内文件或目录 |
@@ -155,6 +159,8 @@ GET /ws -> request / response / stream / push / error frames
 `/api/admin/skills` 管理 Skill 的结构和二进制文件操作；可编辑文本内容可通过 `/api/admin/source` 的 Skill target 读取和保存。`detail` 不内联全量文件内容，而返回轻量 `fileManifest`：`revision`、`defaultOpenPath`、文件统计和预排序扁平 `entries[]`。每个 entry 使用完整相对 `path` 作为稳定 ID，并带 `parentPath/depth/order/contentKind/language/role/editable/downloadable/uploadable/renamable/deletable`。`openPath` 指向可编辑 UTF-8 文本文件时，`detail` 额外返回 `openedFile`；二进制或过大文件只返回 metadata。保存使用 `baseSha256` 做并发保护，冲突返回 409。创建、删除、重命名、上传和 mkdir 的 mutation 响应会返回新的 `fileManifest` 与 `selectedPath`，方便前端直接刷新文件树。列表和详情摘要会在 skill 目录存在 regular、非 symlink 的 `assets/<skill-id>.png` 时返回 `icon` 下载 URL；未提供图标时省略字段，由客户端负责默认图。skill 摘要从 `SKILL.md` frontmatter 提取可选 `version`：顶层 `version` 优先，缺失或空白时回退 `metadata.version`；两者皆无或空白时省略字段。`file/download` 只下载单一文件；`download` 返回 ZIP，包含安全的普通 skill 文件、跳过 symlink 与 `.runtime-env.json`，并限制未压缩内容为 256 MiB。
 
 `POST /api/admin/skills/import` 只接受单个不超过 32 MiB 的 ZIP，Skill Key 必须尚不存在。ZIP 可直接以 `SKILL.md` 为根，也可只有一层包装目录；`__MACOSX` 与 `.DS_Store` 被忽略。服务端拒绝目录逃逸、反斜杠路径、symlink、非普通文件、重复或大小写冲突路径、文件/目录冲突，并限制单文件 32 MiB、未压缩总量 256 MiB、最多 4096 个 entry。解包先进入 catalog 与 watcher 都忽略的隐藏 staging，完整验证 `SKILL.md`、`.runtime-env.json` 和 runtime 文件后再原子 rename；重名返回 409，非 ZIP 返回 415，包内诊断返回 422 `data.error.diagnostics[]`，所有失败都不保留目标目录。成功后沿用 `skills` reload 和 Agent 重组；reload 失败会删除刚导入的目录并恢复旧 catalog。
+
+`GET /api/admin/skill-packages` 是 `.package` 状态的只读投影，供 Desktop 将包内子技能识别为已安装并使用 manifest 版本比较；它不返回本地路径或 ZIP。`POST /api/admin/skill-packages/import` 是 Desktop Market 的技能包交付入口，不接受文件系统路径或 multipart。调用方以 `application/zip` 原样传入动态包，Platform 将请求体写入进程临时文件，完成 ZIP 安全检查、`manifest.json` 包身份与版本校验、必选子技能存在性以及每个子技能的标准 Skill 校验后，才在同一事务中替换 `skills-center/<skill-id>/`。更新会同时移除新版本不再包含的旧子技能；跨包抢占已有 Skill、删除仍被 Agent 使用的子技能或通过普通 Skill 接口绕过包状态均返回 409。包内子技能可以通过专用删除接口单独卸载，该操作会同步移除子技能目录和包记录中的成员；删除最后一个子技能时一并删除包状态。任一校验、文件切换或 Catalog 重载失败时，子技能目录和包状态全部恢复。成功后只保留子技能目录与 `skills-center/.package/<package-id>.json`，请求临时 ZIP、staging 和 backup 均删除；`.package` 不进入 Skill Catalog。整包卸载端点使用同一事务删除该包记录与剩余子技能，Catalog 重载失败同样回滚。
 
 `/api/admin/registries` 是列表接口，不返回 registry 文件绝对路径、完整 `diagnostics[]` 或文件大小；编辑器应通过 `/api/admin/registries/detail` 获取 `source`、完整诊断、`content`、`parsed` 与 `size`。
 
