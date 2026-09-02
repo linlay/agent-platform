@@ -115,18 +115,19 @@ func (s *Server) handleResourceImageCommit(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, status, api.Failure(status, err.Error()))
 		return
 	}
-	committer, ok := s.deps.Chats.(chat.ResourceImageCommitter)
+	committer, ok := s.deps.Chats.(chat.ResourceDocumentCommitter)
 	if !ok || committer == nil {
 		writeJSON(w, http.StatusServiceUnavailable, api.Failure(http.StatusServiceUnavailable, "resource image commit is unavailable"))
 		return
 	}
-	result, err := committer.CommitResourceImage(chat.ResourceImageCommitRequest{
+	result, err := committer.CommitResourceDocument(chat.ResourceDocumentCommitRequest{
 		ChatID:           request.ChatID,
 		Profile:          request.Profile,
 		ResourceID:       request.ResourceID,
 		RelativePath:     request.RelativePath,
 		Mode:             request.Mode,
 		ExpectedRevision: request.ExpectedRevision,
+		DocumentKind:     "document-image",
 		MIMEType:         request.MIMEType,
 		Data:             data,
 	})
@@ -134,13 +135,13 @@ func (s *Server) handleResourceImageCommit(w http.ResponseWriter, r *http.Reques
 		status := http.StatusInternalServerError
 		message := "resource image commit failed"
 		switch {
-		case errors.Is(err, chat.ErrResourceImageInvalid):
+		case errors.Is(err, chat.ErrResourceDocumentInvalid):
 			status, message = http.StatusBadRequest, "invalid resource image commit"
-		case errors.Is(err, chat.ErrResourceImageOverwriteDenied):
+		case errors.Is(err, chat.ErrResourceDocumentOverwriteDenied):
 			status, message = http.StatusForbidden, "Reference resources cannot be overwritten"
-		case errors.Is(err, chat.ErrResourceImageIdentityMismatch):
+		case errors.Is(err, chat.ErrResourceDocumentIdentityMismatch):
 			status, message = http.StatusForbidden, "resource identity mismatch"
-		case errors.Is(err, chat.ErrResourceImageRevisionConflict):
+		case errors.Is(err, chat.ErrResourceDocumentRevisionConflict):
 			status, message = http.StatusConflict, "resource revision conflict"
 		case errors.Is(err, chat.ErrChatNotFound), errors.Is(err, os.ErrNotExist):
 			status, message = http.StatusNotFound, "resource not found"

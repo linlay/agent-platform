@@ -615,6 +615,7 @@ curl -sS -X POST http://127.0.0.1:11949/api/kbase/docs_kbase/refresh \
 | GET | `/api/resource` | query: `file`、`chatId`、`t`、`download` | ChatScope 或普通 Agent Workspace/冻结临时根资源字节；绝对路径必须传 `chatId` |
 | GET | `/api/tool-result` | query: `chatId`、`path`、`t` | `.tools/results/<toolId>.json` 完整工具结果；`t` 为可选 resource ticket |
 | POST | `/api/upload` | multipart: `requestId`、`chatId`、`name`、`file` | upload ticket；文件保存为 `<chatId>/<name>` |
+| POST | `/api/document/commit` | body: 来源判别联合、`mode`、`expectedRevision`、MIME 与文本/二进制 payload | 覆盖原文档或生成新 Artifact 的身份、类型与 revision |
 | POST | `/api/resource/image/commit` | body: `operation=resource.image.commit`、`profile`、`agentKey`、`chatId`、`resourceId`、`relativePath`、`mode`、`expectedRevision`、`mimeType`、`dataBase64` | 覆盖原 Artifact 或生成新 Artifact 的身份与 revision |
 
 `/api/upload` 的 `chatId` 与 `name` 均可省略。无 `chatId` 时平台会先分配会话；同时无 `name` 时，该会话以 `<default>` 标记为尚未正式命名。上传文件保持既有契约，落入 `<chatId>/<name>`，公开 `url` 为不带 `chatId` 的 `<name>`。首条正式 query 在会话尚无历史 run 时会用 message 生成 `chatName`，并广播 `chat.renamed`；已命名或已有历史的会话不会被覆盖。
@@ -627,9 +628,11 @@ Project 三个端点是只读 HTTP 数据面，只接受服务端从 `agentKey` 
 
 `/api/project/changes` 验证 Chat owner 与 Agent 一致；指定 `runId` 时还会验证 Run 属于该 Chat。不指定 Run 时按每个 Run 的独立基线返回现有 file-history，不跨 Run 聚合；已离开当前 Workspace 的历史条目不回显。空目录和空历史分别固定返回 `entries:[]`、`runs:[]`、`items:[]`，不会返回 `null`。`/api/project/diff` 从同一历史存储一次返回 `original/current` 两侧；新增和删除由各侧 `exists` 表达。任一快照超过 `file-tools.max-read-bytes` 返回 413 `diff_too_large`，二进制、含二进制控制内容、无法按请求编码解码的快照返回 415 `unsupported_media_type`。Bash、ACP 或外部程序绕过 FileTools 的写入没有历史快照，只能通过 `/api/file` 读取实时内容，不会生成伪 Diff。
 
-`/api/resource` 的 ChatScope 数据面使用 `file=<chatId>/<relativePath>` 逻辑资源键。Markdown 的 `relativePath` 每段先做 URI path 编码，adapter 再把整个逻辑键做 query 编码；服务端逐段只解码一次并执行 canonical/symlink 边界检查，拒绝路径穿越、其他 chat 所有权和 `.tools`/`.btw` 内部目录。active 文件不存在时会在同一 chat 的 archive 副本中查找，使生成和发布资源可稳定回放。成功响应携带 `X-ZenMind-Resource-Revision: <size>:<mtimeMs>`，供远端缓存仍使用源资源 revision 做覆盖并发控制；客户端不得用缓存文件自身 mtime 替代。
+`/api/resource` 的 ChatScope 数据面使用 `file=<chatId>/<relativePath>` 逻辑资源键。Markdown 的 `relativePath` 每段先做 URI path 编码，adapter 再把整个逻辑键做 query 编码；服务端逐段只解码一次并执行 canonical/symlink 边界检查，拒绝路径穿越、其他 chat 所有权和 `.tools`/`.btw` 内部目录。active 文件不存在时会在同一 chat 的 archive 副本中查找，使生成和发布资源可稳定回放。成功读取同时返回不透明 revision 和权威 document content kind，供客户端替换加载前扩展名分类；远端缓存必须保留源资源 revision，不得用缓存文件自身 mtime 替代。
 
-`POST /api/resource/image/commit` 是 Desktop 原生图片编辑器使用的受鉴权提交数据面，单次图片字节上限 100 MiB，只接受签名与声明一致的 PNG、JPEG、WebP。请求必须命中 active 普通 Agent Chat，`agentKey` 必须与 Chat owner 一致；Artifact 的 `resourceId + relativePath` 还必须精确命中 `.tools/artifacts.json`。`mode=overwrite` 仅允许 Artifact，并以 `size:mtimeMs` expected revision 做乐观并发控制，冲突返回 409；Reference 可使用根目录上传路径，跨运行时物化的 Reference 也可位于 `references/`，两者都只能使用 `new-artifact`。新 Artifact 写入独立 `artifacts/image-edit-*/` 目录并追加 manifest。文件和 manifest 使用同目录 staging 与平台显式 Unix/Windows 原子替换分支；失败不返回成功身份。
+`POST /api/document/commit` 是统一文档提交数据面。Workspace File 只允许带 expected revision 原位覆盖；Artifact 默认创建新 Artifact，也可带 revision 明确覆盖；Reference 只允许创建新 Artifact。revision 对客户端不透明，冲突统一返回 409 `revision_conflict`。Platform 在每次提交中重新验证 Agent/Chat 所有权、Workspace 根、ChatScope profile、canonical path、普通文件、symlink 和 ChatsRoot 边界；文件与 Artifact manifest 通过同目录 staging 和平台显式原子替换提交。
+
+`POST /api/resource/image/commit` 保留为旧 Desktop 图片编辑器的兼容适配器，并委托统一 document committer。它继续保持原请求、响应和 PNG/JPEG/WebP 约束，不得形成第二套路径、revision 或 manifest 写入语义。
 
 绝对路径数据面使用 `file=<hostAbsolutePath>&chatId=<currentChatId>`，仅接受 Bearer/Cookie 主体，resource ticket 不能授权。服务端从 chat owner 解析 `agentKey` 和当前 `AgentDefinition.workspaceRoot`：普通 Agent 允许 canonical 后仍在 Workspace 或冻结临时根的路径，当前/其他 Chat 的绝对路径必须改用 ChatScope，Team chat 一律拒绝绝对路径。临时根由进程启动时的统一解析器冻结：Unix/macOS 纳入 `os.TempDir()` 与 canonical `/tmp`，macOS 自动把 `/tmp`、`/private/tmp` 视为同一根；Windows 只纳入 `os.TempDir()`，不硬编码 `C:\Windows\Temp`。所有临时请求按最终 canonical 目标校验，symlink/junction 逃逸与 `..` 逃逸拒绝。Workspace 和临时绝对路径都是实时引用，文件变化或删除会直接影响回放。两种读取均返回原始字节和准确 `Content-Type`；图片默认 `Content-Disposition: inline`，`download=true` 改为 `attachment`。
 

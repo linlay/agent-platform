@@ -202,6 +202,9 @@ func (s *Server) serveResourcePath(w http.ResponseWriter, r *http.Request, path 
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("X-ZenMind-Resource-Revision", fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixMilli()))
+	sample := make([]byte, 512)
+	n, _ := file.ReadAt(sample, 0)
+	w.Header().Set("X-ZenMind-Document-Kind", classifyDocumentKind(info.Name(), contentType, sample[:n]))
 	disposition := ""
 	if resourceDownloadRequested(r) {
 		disposition = "attachment"
@@ -244,13 +247,13 @@ func (s *Server) principalCanAccessResourceChat(principal *Principal, chatID str
 }
 
 func resourceContentType(filename string, file *os.File) string {
-	contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(filename)))
-	if contentType != "" {
-		return contentType
-	}
 	buffer := make([]byte, 512)
 	n, _ := file.Read(buffer)
 	_, _ = file.Seek(0, io.SeekStart)
+	if strings.EqualFold(filepath.Ext(filename), ".svg") && documentSampleIsText(buffer[:n]) &&
+		strings.Contains(strings.ToLower(string(buffer[:n])), "<svg") {
+		return "image/svg+xml"
+	}
 	return http.DetectContentType(buffer[:n])
 }
 

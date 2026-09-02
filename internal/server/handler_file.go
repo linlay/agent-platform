@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -159,10 +160,12 @@ func (s *Server) readAgentFileMetadata(resolved resolvedAgentFile, requestedEnco
 	if truncated {
 		data = data[:maxBytes]
 	}
+	response.Revision = agentFileRevision(resolved.Info)
+	response.DocumentKind = classifyDocumentKind(response.Name, response.MimeType, data)
 	response.ReadBytes = len(data)
 	response.Truncated = truncated
 
-	if !filetools.IsBinaryExtension(resolved.AbsolutePath) {
+	if documentKindTextual(response.DocumentKind) && documentSampleIsText(data) {
 		decoded, ok, decodeErr := textcodec.DecodeFileText(data, requestedEncoding, runtimeenv.Detect())
 		if decodeErr != nil {
 			return api.AgentFileResponse{}, newAgentStatusError(http.StatusUnsupportedMediaType, "unsupported_media_type", decodeErr.Error())
@@ -194,6 +197,10 @@ func baseAgentFileResponse(resolved resolvedAgentFile) api.AgentFileResponse {
 	}
 }
 
+func agentFileRevision(info os.FileInfo) string {
+	return fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixMilli())
+}
+
 func (s *Server) serveAgentFileContent(w http.ResponseWriter, r *http.Request, resolved resolvedAgentFile) {
 	file, err := os.Open(resolved.AbsolutePath)
 	if err != nil {
@@ -201,9 +208,13 @@ func (s *Server) serveAgentFileContent(w http.ResponseWriter, r *http.Request, r
 		return
 	}
 	defer file.Close()
-	if contentType := detectAgentFileMIME(resolved.AbsolutePath); strings.TrimSpace(contentType) != "" {
+	contentType := detectAgentFileMIME(resolved.AbsolutePath)
+	if strings.TrimSpace(contentType) != "" {
 		w.Header().Set("Content-Type", contentType)
 	}
+	sample, _, _ := readAgentFilePrefix(resolved.AbsolutePath, 512)
+	w.Header().Set("X-ZenMind-Document-Kind", classifyDocumentKind(resolved.Info.Name(), contentType, sample))
+	w.Header().Set("X-ZenMind-Resource-Revision", agentFileRevision(resolved.Info))
 	if disposition := mime.FormatMediaType("inline", map[string]string{"filename": resolved.Info.Name()}); disposition != "" {
 		w.Header().Set("Content-Disposition", disposition)
 	}
@@ -225,14 +236,7 @@ func readAgentFilePrefix(path string, maxBytes int64) ([]byte, bool, error) {
 }
 
 func detectAgentFileMIME(path string) string {
-	if value := mime.TypeByExtension(strings.ToLower(filepath.Ext(path))); strings.TrimSpace(value) != "" {
-		return value
-	}
-	data, _, err := readAgentFilePrefix(path, 512)
-	if err != nil || len(data) == 0 {
-		return "application/octet-stream"
-	}
-	return http.DetectContentType(data)
+	return detectDocumentMIME(path)
 }
 
 func agentFileContentURL(agentKey string, requestedPath string) string {

@@ -411,13 +411,14 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/memory/record/detail", s.method(http.MethodGet, s.handleMemoryRecord))
 	s.router.HandleFunc("/api/memory/record/timeline", s.method(http.MethodGet, s.handleMemoryRecordTimeline))
 	s.router.HandleFunc("/api/file", s.method(http.MethodGet, s.handleAgentFile))
+	s.router.HandleFunc("/api/document/commit", s.method(http.MethodPost, s.handleDocumentCommit))
 	s.router.HandleFunc("/api/file/history", s.method(http.MethodGet, s.handleFileHistory))
 	s.router.HandleFunc("/api/project/tree", s.method(http.MethodGet, s.handleProjectTree))
 	s.router.HandleFunc("/api/project/changes", s.method(http.MethodGet, s.handleProjectChanges))
 	s.router.HandleFunc("/api/project/diff", s.method(http.MethodGet, s.handleProjectDiff))
 	s.router.HandleFunc("/api/viewport", s.method(http.MethodGet, s.handleViewport))
 	s.router.HandleFunc("/api/tool-result", s.method(http.MethodGet, s.handleToolResult))
-	s.router.HandleFunc("/api/resource", s.method(http.MethodGet, s.handleResource))
+	s.router.HandleFunc("/api/resource", s.getOrHead(s.handleResource))
 	s.router.HandleFunc("/api/resource/image/commit", s.method(http.MethodPost, s.handleResourceImageCommit))
 	s.router.HandleFunc("/api/upload", s.method(http.MethodPost, s.handleUpload))
 	if s.wsHandler != nil {
@@ -460,6 +461,17 @@ func (s *Server) method(expected string, handler http.HandlerFunc) http.HandlerF
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != expected {
 			w.Header().Set("Allow", expected)
+			writeJSON(w, http.StatusMethodNotAllowed, api.Failure(http.StatusMethodNotAllowed, "method not allowed"))
+			return
+		}
+		handler(w, r)
+	}
+}
+
+func (s *Server) getOrHead(handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", http.MethodGet+", "+http.MethodHead)
 			writeJSON(w, http.StatusMethodNotAllowed, api.Failure(http.StatusMethodNotAllowed, "method not allowed"))
 			return
 		}

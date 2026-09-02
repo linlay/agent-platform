@@ -29,6 +29,8 @@ type AgentFileResponse struct {
 	Name           string `json:"name"`
 	Kind           string `json:"kind"`
 	ContentKind    string `json:"contentKind"`
+	DocumentKind   string `json:"documentKind"`
+	Revision       string `json:"revision"`
 	MimeType       string `json:"mimeType,omitempty"`
 	Encoding       string `json:"encoding,omitempty"`
 	Content        string `json:"content,omitempty"`
@@ -38,6 +40,44 @@ type AgentFileResponse struct {
 	ModifiedUnixMs int64  `json:"modifiedUnixMs,omitempty"`
 	Truncated      bool   `json:"truncated"`
 	ContentURL     string `json:"contentUrl,omitempty"`
+}
+
+type DocumentSource struct {
+	Kind         string `json:"kind"`
+	AgentKey     string `json:"agentKey"`
+	Path         string `json:"path,omitempty"`
+	ChatID       string `json:"chatId,omitempty"`
+	ResourceID   string `json:"resourceId,omitempty"`
+	RelativePath string `json:"relativePath,omitempty"`
+}
+
+type DocumentCommitPayload struct {
+	Kind       string  `json:"kind"`
+	MIMEType   string  `json:"mimeType,omitempty"`
+	Encoding   string  `json:"encoding,omitempty"`
+	Text       *string `json:"text,omitempty"`
+	DataBase64 string  `json:"dataBase64,omitempty"`
+}
+
+type DocumentCommitRequest struct {
+	Operation        string                `json:"operation"`
+	Source           DocumentSource        `json:"source"`
+	Mode             string                `json:"mode"`
+	ExpectedRevision string                `json:"expectedRevision"`
+	Payload          DocumentCommitPayload `json:"payload"`
+}
+
+type DocumentCommitResponse struct {
+	SourceKind   string `json:"sourceKind"`
+	AgentKey     string `json:"agentKey"`
+	Path         string `json:"path,omitempty"`
+	ChatID       string `json:"chatId,omitempty"`
+	ArtifactID   string `json:"artifactId,omitempty"`
+	ResourceID   string `json:"resourceId,omitempty"`
+	RelativePath string `json:"relativePath,omitempty"`
+	Revision     string `json:"revision"`
+	DocumentKind string `json:"documentKind"`
+	MIMEType     string `json:"mimeType,omitempty"`
 }
 
 type ProjectTreeEntry struct {
