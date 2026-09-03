@@ -110,6 +110,55 @@ func TestEditableSkillPackageInstallUpdateDeleteAndRollback(t *testing.T) {
 	}
 }
 
+func TestEditableSkillPackageAdoptsStandaloneSkillAndRestoresItOnRollback(t *testing.T) {
+	root := t.TempDir()
+	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsCenterDir: root}}}
+	standaloneRoot := filepath.Join(root, "word-helper")
+	if err := os.MkdirAll(standaloneRoot, 0o755); err != nil {
+		t.Fatalf("mkdir standalone skill: %v", err)
+	}
+	standaloneContent := []byte("---\nname: word-helper\ndescription: Standalone skill\nmetadata:\n  version: 0.9.0\n---\n\nStandalone content.\n")
+	standalonePath := filepath.Join(standaloneRoot, "SKILL.md")
+	if err := os.WriteFile(standalonePath, standaloneContent, 0o644); err != nil {
+		t.Fatalf("write standalone skill: %v", err)
+	}
+
+	archive := buildSkillPackageZIP(t, "office-pack", "1.0.0", []testSkillPackageEntry{
+		{ID: "word-helper", Version: "1.0.0", Present: true},
+		{ID: "excel-helper", Version: "1.0.0", Present: true},
+	})
+	mutation, record, err := registry.BeginImportEditableSkillPackageArchive("office-pack", "1.0.0", bytes.NewReader(archive), int64(len(archive)))
+	if err != nil {
+		t.Fatalf("begin package install over standalone skill: %v", err)
+	}
+	if record.ID != "office-pack" || len(record.Skills) != 2 {
+		t.Fatalf("unexpected adopted package record: %#v", record)
+	}
+	installedContent, err := os.ReadFile(standalonePath)
+	if err != nil {
+		t.Fatalf("read package-owned replacement: %v", err)
+	}
+	if bytes.Equal(installedContent, standaloneContent) {
+		t.Fatal("standalone skill was not replaced by package content")
+	}
+	if err := mutation.Rollback(); err != nil {
+		t.Fatalf("rollback package adoption: %v", err)
+	}
+	restoredContent, err := os.ReadFile(standalonePath)
+	if err != nil {
+		t.Fatalf("read restored standalone skill: %v", err)
+	}
+	if !bytes.Equal(restoredContent, standaloneContent) {
+		t.Fatalf("rollback did not restore standalone skill: %q", restoredContent)
+	}
+	if _, err := os.Stat(filepath.Join(root, "excel-helper")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("rollback left new package child: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".package", "office-pack.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("rollback left package state: %v", err)
+	}
+}
+
 func TestEditableSkillPackageRejectsMissingRequiredSkillWithoutResidue(t *testing.T) {
 	root := t.TempDir()
 	registry := &FileRegistry{cfg: config.Config{Paths: config.PathsConfig{SkillsCenterDir: root}}}

@@ -217,10 +217,6 @@ func (r *FileRegistry) BeginImportEditableSkillPackageArchive(packageID, version
 	if err != nil {
 		return nil, SkillPackageRecord{}, err
 	}
-	oldOwned := make(map[string]struct{}, len(oldRecord.Skills))
-	for _, skill := range oldRecord.Skills {
-		oldOwned[skill.ID] = struct{}{}
-	}
 	newIDs := make(map[string]struct{}, len(prepared))
 	for _, skill := range prepared {
 		newIDs[skill.ID] = struct{}{}
@@ -228,11 +224,7 @@ func (r *FileRegistry) BeginImportEditableSkillPackageArchive(packageID, version
 			return nil, SkillPackageRecord{}, fmt.Errorf("%w: skill %s is owned by package %s", ErrSkillPackageConflict, skill.ID, owner)
 		}
 		target := filepath.Join(root, skill.ID)
-		if _, statErr := os.Lstat(target); statErr == nil {
-			if _, owned := oldOwned[skill.ID]; !owned {
-				return nil, SkillPackageRecord{}, fmt.Errorf("%w: skill %s already exists", ErrSkillPackageConflict, skill.ID)
-			}
-		} else if !errors.Is(statErr, os.ErrNotExist) {
+		if _, statErr := os.Lstat(target); statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
 			return nil, SkillPackageRecord{}, statErr
 		}
 	}
