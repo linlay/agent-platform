@@ -98,7 +98,7 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource access denied"))
 		return
 	}
-	s.serveResourcePath(w, r, path)
+	s.serveResourcePath(w, r, path, relativePath)
 }
 
 func (s *Server) handleAbsoluteResource(w http.ResponseWriter, r *http.Request, rawPath string) {
@@ -147,7 +147,7 @@ func (s *Server) handleAbsoluteResource(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	if tempState == temppaths.Inside {
-		s.serveResourcePath(w, r, tempPath.Host)
+		s.serveResourcePath(w, r, tempPath.Host, cleanPath)
 		return
 	}
 	if s.deps.Registry == nil {
@@ -169,7 +169,7 @@ func (s *Server) handleAbsoluteResource(w http.ResponseWriter, r *http.Request, 
 		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "absolute resource path is outside the current workspace"))
 		return
 	}
-	s.serveResourcePath(w, r, candidate.Host)
+	s.serveResourcePath(w, r, candidate.Host, cleanPath)
 }
 
 func (s *Server) resourceChatOwner(chatID string) (string, string, bool) {
@@ -186,7 +186,7 @@ func (s *Server) resourceChatOwner(chatID string) (string, string, bool) {
 	return strings.TrimSpace(archived.Summary.AgentKey), strings.TrimSpace(archived.Summary.TeamID), true
 }
 
-func (s *Server) serveResourcePath(w http.ResponseWriter, r *http.Request, path string) {
+func (s *Server) serveResourcePath(w http.ResponseWriter, r *http.Request, path string, semanticName string) {
 	file, err := os.Open(path)
 	if err != nil {
 		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "resource not found"))
@@ -198,26 +198,32 @@ func (s *Server) serveResourcePath(w http.ResponseWriter, r *http.Request, path 
 		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "resource not found"))
 		return
 	}
-	contentType := resourceContentType(info.Name(), file)
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("X-ZenMind-Resource-Revision", fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixMilli()))
+	semanticName = strings.TrimSpace(semanticName)
+	if semanticName == "" {
+		semanticName = info.Name()
+	}
+	detectedMIME := resourceContentType(semanticName, file)
 	sample := make([]byte, 512)
 	n, _ := file.ReadAt(sample, 0)
-	w.Header().Set("X-ZenMind-Document-Kind", classifyDocumentKind(info.Name(), contentType, sample[:n]))
+	metadata := resolveDocumentMetadata(semanticName, detectedMIME, sample[:n])
+	w.Header().Set("Content-Type", metadata.MIMEType)
+	w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("X-ZenMind-Resource-Revision", fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixMilli()))
+	w.Header().Set("X-ZenMind-Document-Kind", metadata.DocumentKind)
 	disposition := ""
 	if resourceDownloadRequested(r) {
 		disposition = "attachment"
-	} else if strings.HasPrefix(strings.ToLower(contentType), "image/") {
+	} else if strings.HasPrefix(strings.ToLower(metadata.MIMEType), "image/") {
 		disposition = "inline"
 	}
 	if disposition != "" {
-		w.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": info.Name()}))
+		w.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": filepath.Base(semanticName)}))
 	}
-	if strings.HasPrefix(strings.ToLower(contentType), "image/svg+xml") {
+	if strings.HasPrefix(strings.ToLower(metadata.MIMEType), "image/svg+xml") {
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
 	}
-	http.ServeContent(w, r, info.Name(), info.ModTime(), file)
+	http.ServeContent(w, r, filepath.Base(semanticName), info.ModTime(), file)
 }
 
 func (s *Server) resolveResourcePath(chatID string, relativePath string, originalKey string) (string, error) {

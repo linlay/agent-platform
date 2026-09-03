@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"agent-platform/internal/api"
@@ -145,7 +146,7 @@ func agentContentRoot(def catalog.AgentDefinition) string {
 
 func (s *Server) readAgentFileMetadata(resolved resolvedAgentFile, requestedEncoding string) (api.AgentFileResponse, error) {
 	response := baseAgentFileResponse(resolved)
-	response.MimeType = detectAgentFileMIME(resolved.AbsolutePath)
+	detectedMIME := detectAgentFileMIME(resolved.AbsolutePath)
 	response.SHA256 = sha256FileHex(resolved.AbsolutePath)
 	response.ContentURL = agentFileContentURL(resolved.AgentKey, resolved.RequestedPath)
 
@@ -161,7 +162,9 @@ func (s *Server) readAgentFileMetadata(resolved resolvedAgentFile, requestedEnco
 		data = data[:maxBytes]
 	}
 	response.Revision = agentFileRevision(resolved.Info)
-	response.DocumentKind = classifyDocumentKind(response.Name, response.MimeType, data)
+	metadata := resolveDocumentMetadata(resolved.Path, detectedMIME, data)
+	response.DocumentKind = metadata.DocumentKind
+	response.MimeType = metadata.MIMEType
 	response.ReadBytes = len(data)
 	response.Truncated = truncated
 
@@ -208,17 +211,20 @@ func (s *Server) serveAgentFileContent(w http.ResponseWriter, r *http.Request, r
 		return
 	}
 	defer file.Close()
-	contentType := detectAgentFileMIME(resolved.AbsolutePath)
-	if strings.TrimSpace(contentType) != "" {
-		w.Header().Set("Content-Type", contentType)
-	}
 	sample, _, _ := readAgentFilePrefix(resolved.AbsolutePath, 512)
-	w.Header().Set("X-ZenMind-Document-Kind", classifyDocumentKind(resolved.Info.Name(), contentType, sample))
+	metadata := resolveDocumentMetadata(resolved.Path, detectAgentFileMIME(resolved.AbsolutePath), sample)
+	w.Header().Set("Content-Type", metadata.MIMEType)
+	w.Header().Set("Content-Length", strconv.FormatInt(resolved.Info.Size(), 10))
+	w.Header().Set("X-ZenMind-Document-Kind", metadata.DocumentKind)
 	w.Header().Set("X-ZenMind-Resource-Revision", agentFileRevision(resolved.Info))
-	if disposition := mime.FormatMediaType("inline", map[string]string{"filename": resolved.Info.Name()}); disposition != "" {
+	semanticName := filepath.Base(resolved.Path)
+	if semanticName == "." || semanticName == string(filepath.Separator) || strings.TrimSpace(semanticName) == "" {
+		semanticName = resolved.Info.Name()
+	}
+	if disposition := mime.FormatMediaType("inline", map[string]string{"filename": semanticName}); disposition != "" {
 		w.Header().Set("Content-Disposition", disposition)
 	}
-	http.ServeContent(w, r, resolved.Info.Name(), resolved.Info.ModTime(), file)
+	http.ServeContent(w, r, semanticName, resolved.Info.ModTime(), file)
 }
 
 func readAgentFilePrefix(path string, maxBytes int64) ([]byte, bool, error) {

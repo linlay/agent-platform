@@ -26,6 +26,9 @@ func TestAgentFileEndpointReadsCoderAndKBaseWorkspaceFiles(t *testing.T) {
 	if coderResp.AgentKey != "coder-file" || coderResp.ContentKind != "text" || coderResp.Encoding != "utf-8" {
 		t.Fatalf("unexpected coder response metadata: %#v", coderResp)
 	}
+	if coderResp.DocumentKind != documentKindMarkdown || coderResp.MimeType != "text/markdown; charset=utf-8" || coderResp.Revision == "" || coderResp.SizeBytes == 0 {
+		t.Fatalf("unexpected authoritative coder document metadata: %#v", coderResp)
+	}
 	if coderResp.Path != "docs/hello.md" || coderResp.Content != "# Hello\n\ncoder workspace\n" {
 		t.Fatalf("unexpected coder file content: %#v", coderResp)
 	}
@@ -88,6 +91,12 @@ func TestAgentFileEndpointSupportsAbsolutePathAndContentResponse(t *testing.T) {
 	if contentType := rec.Header().Get("Content-Type"); !strings.HasPrefix(contentType, "text/") {
 		t.Fatalf("expected text content type, got %q", contentType)
 	}
+	if got := rec.Header().Get("X-ZenMind-Document-Kind"); got != documentKindMarkdown {
+		t.Fatalf("expected markdown document kind, got %q", got)
+	}
+	if got := rec.Header().Get("X-ZenMind-Resource-Revision"); got == "" {
+		t.Fatal("expected content revision")
+	}
 
 	pdfResp := getAgentFileJSON(t, fixture.server, "coder-file", "docs/manual.pdf")
 	if pdfResp.ContentKind != "binary" || pdfResp.Content != "" || !strings.Contains(pdfResp.MimeType, "application/pdf") {
@@ -103,6 +112,19 @@ func TestAgentFileEndpointSupportsAbsolutePathAndContentResponse(t *testing.T) {
 	}
 	if contentType := rec.Header().Get("Content-Type"); !strings.Contains(contentType, "application/pdf") {
 		t.Fatalf("expected pdf content type, got %q", contentType)
+	}
+}
+
+func TestAgentFileEndpointKeepsUnsafeMarkdownReadOnly(t *testing.T) {
+	fixture, coderWorkspace, _ := newAgentFileTestFixture(t)
+	badPath := filepath.Join(coderWorkspace, "docs", "bad.md")
+	if err := os.WriteFile(badPath, []byte{0xff, 0xfe, 0, 1}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	response := getAgentFileJSON(t, fixture.server, "coder-file", "docs/bad.md")
+	if response.DocumentKind != documentKindBinary || response.ContentKind != "binary" || response.Content != "" || response.MimeType != "application/octet-stream" {
+		t.Fatalf("unsafe markdown response=%#v", response)
 	}
 }
 

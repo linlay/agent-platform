@@ -13,6 +13,7 @@ import (
 
 	"agent-platform/internal/chat"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/documentmeta"
 	"agent-platform/internal/rootpaths"
 	"agent-platform/internal/temppaths"
 )
@@ -218,8 +219,18 @@ func publishArtifacts(chatsRoot string, chatID string, runID string, workspaceRo
 			continue
 		}
 
+		targetInfo, statErr := os.Stat(targetPath)
+		if statErr != nil || !targetInfo.Mode().IsRegular() {
+			result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure(rawPath, "file_not_found", "published artifact is not a regular file"))
+			continue
+		}
 		sha256hex := sha256Hex(targetPath)
 		publishedFilename := filepath.Base(targetPath)
+		metadata, metadataErr := documentmeta.ResolveFile(targetPath, publishedFilename)
+		if metadataErr != nil {
+			result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure(rawPath, "metadata_failed", "failed to resolve artifact metadata: "+metadataErr.Error()))
+			continue
+		}
 		relativePath = filepath.ToSlash(relativePath)
 		resourceURL, resourceErr := chat.BuildChatScopeRef(relativePath)
 		if resourceErr != nil {
@@ -229,8 +240,8 @@ func publishArtifacts(chatsRoot string, chatID string, runID string, workspaceRo
 		result.PublishedArtifacts = append(result.PublishedArtifacts, map[string]any{
 			"artifactId": artifactID,
 			"name":       publishedFilename,
-			"mimeType":   guessMimeType(publishedFilename),
-			"sizeBytes":  info.Size(),
+			"mimeType":   metadata.MIMEType,
+			"sizeBytes":  targetInfo.Size(),
 			"sha256":     sha256hex,
 			"url":        resourceURL,
 			"type":       defaultStringArg(mapped, "type", "file"),
@@ -370,38 +381,4 @@ func copyFile(src string, dst string) error {
 		return err
 	}
 	return os.WriteFile(dst, data, 0o644)
-}
-
-func guessMimeType(filename string) string {
-	ext := strings.ToLower(filepath.Ext(filename))
-	switch ext {
-	case ".pdf":
-		return "application/pdf"
-	case ".docx":
-		return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-	case ".xlsx":
-		return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-	case ".pptx":
-		return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-	case ".png":
-		return "image/png"
-	case ".jpg", ".jpeg":
-		return "image/jpeg"
-	case ".gif":
-		return "image/gif"
-	case ".svg":
-		return "image/svg+xml"
-	case ".txt":
-		return "text/plain"
-	case ".html":
-		return "text/html"
-	case ".json":
-		return "application/json"
-	case ".zip":
-		return "application/zip"
-	case ".md":
-		return "text/markdown"
-	default:
-		return "application/octet-stream"
-	}
 }

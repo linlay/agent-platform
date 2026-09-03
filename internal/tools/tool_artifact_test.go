@@ -42,7 +42,7 @@ func TestPublishArtifactsUsesSourceBasenameAndIgnoresName(t *testing.T) {
 	if item["name"] != "服务前端全部迁移为 Webview.md" {
 		t.Fatalf("expected source basename with extension, got %#v", item["name"])
 	}
-	if item["mimeType"] != "text/markdown" {
+	if item["mimeType"] != "text/markdown; charset=utf-8" {
 		t.Fatalf("expected markdown MIME type, got %#v", item["mimeType"])
 	}
 	if !strings.Contains(item["url"].(string), "Webview.md") {
@@ -125,8 +125,38 @@ func TestPublishArtifactsKeepsExtensionlessSourceName(t *testing.T) {
 	if item["name"] != "README" {
 		t.Fatalf("expected extensionless source basename, got %#v", item["name"])
 	}
-	if item["mimeType"] != "application/octet-stream" {
-		t.Fatalf("expected octet-stream MIME type, got %#v", item["mimeType"])
+	if item["mimeType"] != "text/plain; charset=utf-8" {
+		t.Fatalf("expected normalized text MIME type, got %#v", item["mimeType"])
+	}
+}
+
+func TestPublishArtifactsNormalizesSafeTextAndRejectsUnsafeTextExtensions(t *testing.T) {
+	workspace := t.TempDir()
+	chatsRoot := filepath.Join(workspace, "chats")
+	tests := []struct {
+		name     string
+		content  []byte
+		wantMIME string
+	}{
+		{name: "report.markdown", content: []byte("# markdown\n"), wantMIME: "text/markdown; charset=utf-8"},
+		{name: "page.mdx", content: []byte("# mdx\n"), wantMIME: "text/markdown; charset=utf-8"},
+		{name: "notes.txt", content: []byte("中文文本\n"), wantMIME: "text/plain; charset=utf-8"},
+		{name: "unsafe.md", content: []byte{0xff, 0xfe, 0, 1}, wantMIME: "application/octet-stream"},
+	}
+	for index, test := range tests {
+		sourcePath := filepath.Join(workspace, test.name)
+		if err := os.WriteFile(sourcePath, test.content, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		result := publishArtifacts(chatsRoot, "chat-1", fmt.Sprintf("run-text-%d", index), workspace, []any{
+			map[string]any{"path": sourcePath},
+		})
+		if result.Status != "published" || len(result.PublishedArtifacts) != 1 {
+			t.Fatalf("publish %s: %#v", test.name, result)
+		}
+		if got := result.PublishedArtifacts[0]["mimeType"]; got != test.wantMIME {
+			t.Fatalf("%s MIME=%#v want=%q", test.name, got, test.wantMIME)
+		}
 	}
 }
 
