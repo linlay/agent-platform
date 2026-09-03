@@ -1466,8 +1466,14 @@ type MarkChatReadResponse struct {
 type ChatDetailResponse struct {
 	ChatID         string              `json:"chatId"`
 	ChatName       string              `json:"chatName"`
+	AgentKey       string              `json:"agentKey,omitempty"`
+	Mode           string              `json:"mode,omitempty"`
+	TeamID         string              `json:"teamId,omitempty"`
 	CreatedAt      int64               `json:"createdAt"`
 	UpdatedAt      int64               `json:"updatedAt"`
+	LastRunID      string              `json:"lastRunId,omitempty"`
+	LastRunContent string              `json:"lastRunContent,omitempty"`
+	Read           ChatReadState       `json:"read"`
 	Source         string              `json:"source,omitempty"`
 	ResourceTicket string              `json:"resourceTicket,omitempty"`
 	RawMessages    []map[string]any    `json:"rawMessages,omitempty"`

@@ -261,7 +261,13 @@ func (s *Server) buildMarkReadResponse(sum chat.Summary, agentUnreadCount int) a
 	}
 }
 
-func (s *Server) broadcastChatReadState(eventType string, sum chat.Summary, agentUnreadCount int) {
+func buildChatReadStatePush(eventType string, sum chat.Summary, agentUnreadCount int) (map[string]any, bool) {
+	if eventType == "chat.unread" && !chat.RunIDAfter(sum.LastRunID, sum.Read.ReadRunID) {
+		// MarkRead may win the race after run completion has persisted its
+		// summary but before the completion callback broadcasts. Never emit an
+		// unread projection that the current persisted summary already disproves.
+		return nil, false
+	}
 	payload := map[string]any{
 		"chatId":           sum.ChatID,
 		"agentKey":         sum.AgentKey,
@@ -280,6 +286,28 @@ func (s *Server) broadcastChatReadState(eventType string, sum chat.Summary, agen
 		if sum.Read.ReadAt != nil {
 			payload["readAt"] = *sum.Read.ReadAt
 		}
+	}
+	return payload, true
+}
+
+func (s *Server) broadcastChatReadState(eventType string, sum chat.Summary, agentUnreadCount int) {
+	if eventType == "chat.unread" {
+		// Completion callbacks may carry a summary that was current when the run
+		// committed but became stale because /api/read won immediately after it.
+		// Re-read the authority immediately before constructing the Push.
+		current, err := s.deps.Chats.Summary(sum.ChatID)
+		if err != nil || current == nil {
+			return
+		}
+		sum = *current
+		agentUnreadCount, err = s.agentUnreadCount(sum.AgentKey)
+		if err != nil {
+			return
+		}
+	}
+	payload, ok := buildChatReadStatePush(eventType, sum, agentUnreadCount)
+	if !ok {
+		return
 	}
 	s.broadcast(eventType, payload)
 }

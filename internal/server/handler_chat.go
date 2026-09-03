@@ -175,15 +175,21 @@ func (s *Server) loadChatDetail(ctx context.Context, chatID string, includeRawMe
 	s.enrichToolMetadata(detail.Events, summaryAgentKey(summary))
 
 	response := api.ChatDetailResponse{
-		ChatID:        detail.ChatID,
-		ChatName:      detail.ChatName,
-		CreatedAt:     summary.CreatedAt,
-		UpdatedAt:     summary.UpdatedAt,
-		Source:        summary.Source,
-		Awaiting:      toAPIAwaiting(summary.PendingAwaiting),
-		Events:        detail.Events,
-		ContextWindow: mapChatContextWindow(detail.ContextWindow),
-		References:    nil,
+		ChatID:         detail.ChatID,
+		ChatName:       detail.ChatName,
+		AgentKey:       summary.AgentKey,
+		Mode:           summary.AgentMode,
+		TeamID:         summary.TeamID,
+		CreatedAt:      summary.CreatedAt,
+		UpdatedAt:      summary.UpdatedAt,
+		LastRunID:      summary.LastRunID,
+		LastRunContent: summary.LastRunContent,
+		Read:           toAPIReadState(summary.Read),
+		Source:         summary.Source,
+		Awaiting:       toAPIAwaiting(summary.PendingAwaiting),
+		Events:         detail.Events,
+		ContextWindow:  mapChatContextWindow(detail.ContextWindow),
+		References:     nil,
 	}
 	runs, err := s.deps.Chats.ListRuns(chatID)
 	if err != nil {

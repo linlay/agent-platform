@@ -105,6 +105,12 @@ func TestServerSharedHelpersUseCommonChatAndMemoryStores(t *testing.T) {
 	if detail.ChatID != "chat-1" || len(detail.Events) == 0 || len(detail.RawMessages) < 2 {
 		t.Fatalf("unexpected chat detail %#v", detail)
 	}
+	if detail.AgentKey != "agent-1" || detail.LastRunID != "run-1" || detail.LastRunContent != "answer" {
+		t.Fatalf("expected chat detail summary identity and latest run, got %#v", detail)
+	}
+	if detail.Read.IsRead || detail.Read.ReadRunID != "" {
+		t.Fatalf("expected authoritative unread state in chat detail, got %#v", detail.Read)
+	}
 	if detail.Usage == nil || detail.Usage.LastRun == nil || detail.Usage.Chat == nil {
 		t.Fatalf("expected detailed chat detail usage breakdown, got %#v", detail.Usage)
 	}
@@ -147,6 +153,67 @@ func TestServerSharedHelpersUseCommonChatAndMemoryStores(t *testing.T) {
 	}
 	if len(matches) == 0 {
 		t.Fatalf("expected stored memory, got %#v", matches)
+	}
+}
+
+func TestBuildChatReadStatePushSuppressesUnreadCoveredByPersistedRead(t *testing.T) {
+	readAt := testEpochMillis + 2_000
+	covered := chat.Summary{
+		ChatID:    "chat-covered",
+		AgentKey:  "agent-1",
+		LastRunID: "loyw3v28",
+		UpdatedAt: testEpochMillis + 1_000,
+		Read: chat.ChatReadState{
+			IsRead:    true,
+			ReadAt:    &readAt,
+			ReadRunID: "loyw3v28",
+		},
+	}
+	if payload, ok := buildChatReadStatePush("chat.unread", covered, 0); ok || payload != nil {
+		t.Fatalf("covered run must not emit chat.unread, payload=%#v ok=%v", payload, ok)
+	}
+
+	newer := covered
+	newer.LastRunID = "loyw3v29"
+	newer.UpdatedAt = testEpochMillis + 3_000
+	payload, ok := buildChatReadStatePush("chat.unread", newer, 1)
+	if !ok {
+		t.Fatal("newer run must emit chat.unread")
+	}
+	if payload["lastRunId"] != "loyw3v29" || payload["readRunId"] != "loyw3v28" || payload["createdAt"] != newer.UpdatedAt {
+		t.Fatalf("unexpected newer unread payload %#v", payload)
+	}
+}
+
+func TestBroadcastChatUnreadRechecksPersistedReadState(t *testing.T) {
+	server, chats, _ := newServerForHelperTests(t)
+	notifications := &recordingNotificationSink{}
+	server.deps.Notifications = notifications
+	if _, _, err := chats.EnsureChat("chat-read-race", "agent-1", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	startServerFixtureRun(t, chats, "chat-read-race", "loyw3v28", testEpochMillis)
+	if err := chats.OnRunCompleted(chat.RunCompletion{
+		ChatID:          "chat-read-race",
+		RunID:           "loyw3v28",
+		AssistantText:   "answer",
+		InitialMessage:  "hello",
+		StartedAtMillis: testEpochMillis,
+		UpdatedAtMillis: testEpochMillis + 1,
+	}); err != nil {
+		t.Fatalf("complete run: %v", err)
+	}
+	stale, err := chats.Summary("chat-read-race")
+	if err != nil || stale == nil || stale.Read.IsRead {
+		t.Fatalf("load stale unread summary: summary=%#v err=%v", stale, err)
+	}
+	if _, err := chats.MarkRead("chat-read-race", "loyw3v28"); err != nil {
+		t.Fatalf("mark read: %v", err)
+	}
+
+	server.broadcastChatReadState("chat.unread", *stale, 1)
+	if got := notifications.EventTypes(); len(got) != 0 {
+		t.Fatalf("late stale summary emitted contradictory Pushes: %v", got)
 	}
 }
 
