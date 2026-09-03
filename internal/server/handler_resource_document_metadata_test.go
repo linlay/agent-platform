@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -51,6 +52,48 @@ func TestResourceHeadReturnsAuthoritativeDocumentMetadata(t *testing.T) {
 	fixture.server.ServeHTTP(methodDenied, httptest.NewRequest(http.MethodPost, resourceURL, nil))
 	if methodDenied.Code != http.StatusMethodNotAllowed || methodDenied.Header().Get("Allow") != "GET, HEAD" {
 		t.Fatalf("POST status=%d allow=%q", methodDenied.Code, methodDenied.Header().Get("Allow"))
+	}
+}
+
+func TestServeResourcePathKeepsUTF8PrefixSplitAtSampleBoundaryAsMarkdown(t *testing.T) {
+	tests := []struct {
+		name string
+		body []byte
+	}{
+		{
+			name: "three-byte rune",
+			body: append(bytes.Repeat([]byte("a"), 510), []byte("工作正文")...),
+		},
+		{
+			name: "four-byte rune",
+			body: append(bytes.Repeat([]byte("a"), 511), []byte("😀正文")...),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newTestFixture(t)
+			physicalPath := filepath.Join(t.TempDir(), "cached-resource")
+			if err := os.WriteFile(physicalPath, test.body, 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			recorder := httptest.NewRecorder()
+			fixture.server.serveResourcePath(
+				recorder,
+				httptest.NewRequest(http.MethodHead, "/api/resource", nil),
+				physicalPath,
+				"artifacts/run-1/空位.md",
+			)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("HEAD status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+			if got := recorder.Header().Get("X-Document-Kind"); got != documentKindMarkdown {
+				t.Fatalf("document kind=%q", got)
+			}
+			if got := recorder.Header().Get("Content-Type"); got != "text/markdown; charset=utf-8" {
+				t.Fatalf("content type=%q", got)
+			}
+		})
 	}
 }
 

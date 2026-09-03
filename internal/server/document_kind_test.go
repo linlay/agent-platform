@@ -25,7 +25,7 @@ func TestClassifyDocumentKindUsesSignatureThenSpecializedExtension(t *testing.T)
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := classifyDocumentKind(test.fileName, test.mimeType, test.sample); got != test.want {
+			if got := classifyDocumentKind(test.fileName, test.mimeType, test.sample, nil, true); got != test.want {
 				t.Fatalf("classifyDocumentKind() = %q, want %q", got, test.want)
 			}
 		})

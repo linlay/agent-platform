@@ -128,6 +128,24 @@ func TestAgentFileEndpointKeepsUnsafeMarkdownReadOnly(t *testing.T) {
 	}
 }
 
+func TestAgentFileEndpointKeepsUTF8SplitAtReadLimitAsMarkdown(t *testing.T) {
+	fixture, coderWorkspace, _ := newAgentFileTestFixture(t)
+	fixture.server.deps.Config.FileTools.MaxReadBytes = 512
+	body := append(bytes.Repeat([]byte("a"), 510), []byte("工作正文")...)
+	path := filepath.Join(coderWorkspace, "docs", "boundary.md")
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	response := getAgentFileJSON(t, fixture.server, "coder-file", "docs/boundary.md")
+	if response.DocumentKind != documentKindMarkdown || response.ContentKind != "text" || response.Encoding != "utf-8" {
+		t.Fatalf("boundary markdown metadata=%#v", response)
+	}
+	if !response.Truncated || response.ReadBytes != 510 || response.Content != string(bytes.Repeat([]byte("a"), 510)) {
+		t.Fatalf("boundary markdown prefix=%#v", response)
+	}
+}
+
 func TestAgentFileEndpointRejectsWorkspaceEscapes(t *testing.T) {
 	fixture, coderWorkspace, _ := newAgentFileTestFixture(t)
 	outsidePath := filepath.Join(filepath.Dir(coderWorkspace), "outside.md")

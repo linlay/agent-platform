@@ -75,15 +75,43 @@ func NormalizeMIME(value string) string {
 	return strings.TrimSpace(strings.SplitN(value, ";", 2)[0])
 }
 
-func SampleIsText(sample []byte) bool {
+func SampleIsText(sample []byte, lookahead []byte, complete bool) bool {
 	if len(sample) == 0 {
 		return true
 	}
-	return !bytes.ContainsRune(sample, 0) && utf8.Valid(sample)
+	if bytes.ContainsRune(sample, 0) {
+		return false
+	}
+	if utf8.Valid(sample) {
+		return true
+	}
+	if complete {
+		return false
+	}
+
+	// A fixed-size prefix can end inside a multi-byte rune. Locate a valid
+	// trailing rune start and use at most UTFMax-1 lookahead bytes to prove
+	// that the crossing rune is valid. Invalid bytes elsewhere remain binary.
+	maxSuffix := min(len(sample), utf8.UTFMax-1)
+	for suffixBytes := 1; suffixBytes <= maxSuffix; suffixBytes++ {
+		start := len(sample) - suffixBytes
+		if !utf8.RuneStart(sample[start]) || !utf8.Valid(sample[:start]) {
+			continue
+		}
+		crossing := make([]byte, 0, suffixBytes+len(lookahead))
+		crossing = append(crossing, sample[start:]...)
+		crossing = append(crossing, lookahead...)
+		r, size := utf8.DecodeRune(crossing)
+		if r == utf8.RuneError && size == 1 {
+			return false
+		}
+		return size > suffixBytes
+	}
+	return false
 }
 
-func Resolve(name string, detectedMIME string, sample []byte) Metadata {
-	kind := Classify(name, detectedMIME, sample)
+func Resolve(name string, detectedMIME string, sample []byte, lookahead []byte, complete bool) Metadata {
+	kind := Classify(name, detectedMIME, sample, lookahead, complete)
 	return Metadata{
 		DocumentKind: kind,
 		MIMEType:     resolvedMIME(name, kind, detectedMIME),
@@ -96,30 +124,38 @@ func ResolveFile(path string, semanticName string) (Metadata, error) {
 		return Metadata{}, err
 	}
 	defer file.Close()
-	sample := make([]byte, 512)
-	n, err := file.Read(sample)
-	if err != nil && err != io.EOF {
+	const sampleBytes = 512
+	buffer := make([]byte, sampleBytes+utf8.UTFMax-1)
+	n, err := io.ReadFull(file, buffer)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 		return Metadata{}, err
 	}
-	detectedMIME := DetectMIME(semanticName, sample[:n])
-	return Resolve(semanticName, detectedMIME, sample[:n]), nil
+	complete := n <= sampleBytes
+	sampleEnd := min(n, sampleBytes)
+	sample := buffer[:sampleEnd]
+	var lookahead []byte
+	if n > sampleEnd {
+		lookahead = buffer[sampleEnd:n]
+	}
+	detectedMIME := DetectMIME(semanticName, sample, lookahead, complete)
+	return Resolve(semanticName, detectedMIME, sample, lookahead, complete), nil
 }
 
-func DetectMIME(name string, sample []byte) string {
+func DetectMIME(name string, sample []byte, lookahead []byte, complete bool) string {
 	if len(sample) == 0 {
 		return "application/octet-stream"
 	}
-	if strings.EqualFold(filepath.Ext(name), ".svg") && SampleIsText(sample) &&
+	if strings.EqualFold(filepath.Ext(name), ".svg") && SampleIsText(sample, lookahead, complete) &&
 		strings.Contains(strings.ToLower(string(sample)), "<svg") {
 		return "image/svg+xml"
 	}
 	return NormalizeMIME(http.DetectContentType(sample))
 }
 
-func Classify(name string, mimeType string, sample []byte) string {
+func Classify(name string, mimeType string, sample []byte, lookahead []byte, complete bool) string {
 	ext := strings.ToLower(filepath.Ext(strings.TrimSpace(name)))
 	mimeType = NormalizeMIME(mimeType)
-	isText := SampleIsText(sample)
+	isText := SampleIsText(sample, lookahead, complete)
 
 	if strings.HasPrefix(mimeType, "application/vnd.openxmlformats-officedocument.") ||
 		mimeType == "application/msword" || strings.HasPrefix(mimeType, "application/vnd.ms-") {

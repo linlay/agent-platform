@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
@@ -154,22 +155,29 @@ func (s *Server) readAgentFileMetadata(resolved resolvedAgentFile, requestedEnco
 	if maxBytes <= 0 {
 		maxBytes = 1 << 20
 	}
-	data, truncated, err := readAgentFilePrefix(resolved.AbsolutePath, int64(maxBytes)+1)
+	probe, _, err := readAgentFilePrefix(resolved.AbsolutePath, int64(maxBytes)+utf8.UTFMax-1)
 	if err != nil {
 		return api.AgentFileResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", err.Error())
 	}
-	if truncated {
-		data = data[:maxBytes]
+	complete := len(probe) <= maxBytes
+	sampleEnd := min(len(probe), maxBytes)
+	data := probe[:sampleEnd]
+	var lookahead []byte
+	if len(probe) > sampleEnd {
+		lookahead = probe[sampleEnd:]
 	}
+	truncated := !complete
 	response.Revision = agentFileRevision(resolved.Info)
-	metadata := resolveDocumentMetadata(resolved.Path, detectedMIME, data)
+	metadata := resolveDocumentMetadata(resolved.Path, detectedMIME, data, lookahead, complete)
 	response.DocumentKind = metadata.DocumentKind
 	response.MimeType = metadata.MIMEType
 	response.ReadBytes = len(data)
 	response.Truncated = truncated
 
-	if documentKindTextual(response.DocumentKind) && documentSampleIsText(data) {
-		decoded, ok, decodeErr := textcodec.DecodeFileText(data, requestedEncoding, runtimeenv.Detect())
+	if documentKindTextual(response.DocumentKind) && documentSampleIsText(data, lookahead, complete) {
+		decodeData := trimIncompleteUTF8Suffix(data)
+		response.ReadBytes = len(decodeData)
+		decoded, ok, decodeErr := textcodec.DecodeFileText(decodeData, requestedEncoding, runtimeenv.Detect())
 		if decodeErr != nil {
 			return api.AgentFileResponse{}, newAgentStatusError(http.StatusUnsupportedMediaType, "unsupported_media_type", decodeErr.Error())
 		}
@@ -183,6 +191,16 @@ func (s *Server) readAgentFileMetadata(resolved resolvedAgentFile, requestedEnco
 	response.ContentKind = "binary"
 	response.ReadBytes = 0
 	return response, nil
+}
+
+func trimIncompleteUTF8Suffix(data []byte) []byte {
+	for trimBytes := 0; trimBytes < utf8.UTFMax && trimBytes <= len(data); trimBytes++ {
+		candidate := data[:len(data)-trimBytes]
+		if utf8.Valid(candidate) {
+			return candidate
+		}
+	}
+	return data
 }
 
 func baseAgentFileResponse(resolved resolvedAgentFile) api.AgentFileResponse {
@@ -211,8 +229,8 @@ func (s *Server) serveAgentFileContent(w http.ResponseWriter, r *http.Request, r
 		return
 	}
 	defer file.Close()
-	sample, _, _ := readAgentFilePrefix(resolved.AbsolutePath, 512)
-	metadata := resolveDocumentMetadata(resolved.Path, detectAgentFileMIME(resolved.AbsolutePath), sample)
+	sample, lookahead, complete, _ := readAgentDocumentSample(resolved.AbsolutePath, 512)
+	metadata := resolveDocumentMetadata(resolved.Path, detectAgentFileMIME(resolved.AbsolutePath), sample, lookahead, complete)
 	w.Header().Set("Content-Type", metadata.MIMEType)
 	w.Header().Set("Content-Length", strconv.FormatInt(resolved.Info.Size(), 10))
 	w.Header().Set(headerDocumentKind, metadata.DocumentKind)
@@ -239,6 +257,21 @@ func readAgentFilePrefix(path string, maxBytes int64) ([]byte, bool, error) {
 		return nil, false, err
 	}
 	return data, limited.N <= 0, nil
+}
+
+func readAgentDocumentSample(path string, maxBytes int64) ([]byte, []byte, bool, error) {
+	data, _, err := readAgentFilePrefix(path, maxBytes+utf8.UTFMax-1)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	complete := int64(len(data)) <= maxBytes
+	sampleEnd := min(int64(len(data)), maxBytes)
+	sample := data[:sampleEnd]
+	var lookahead []byte
+	if int64(len(data)) > sampleEnd {
+		lookahead = data[sampleEnd:]
+	}
+	return sample, lookahead, complete, nil
 }
 
 func detectAgentFileMIME(path string) string {

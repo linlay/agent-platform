@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
@@ -202,10 +203,18 @@ func (s *Server) serveResourcePath(w http.ResponseWriter, r *http.Request, path 
 	if semanticName == "" {
 		semanticName = info.Name()
 	}
-	detectedMIME := resourceContentType(semanticName, file)
-	sample := make([]byte, 512)
-	n, _ := file.ReadAt(sample, 0)
-	metadata := resolveDocumentMetadata(semanticName, detectedMIME, sample[:n])
+	const sampleBytes = 512
+	buffer := make([]byte, sampleBytes+utf8.UTFMax-1)
+	n, _ := file.ReadAt(buffer, 0)
+	sampleComplete := n <= sampleBytes
+	sampleEnd := min(n, sampleBytes)
+	sample := buffer[:sampleEnd]
+	var lookahead []byte
+	if n > sampleEnd {
+		lookahead = buffer[sampleEnd:n]
+	}
+	detectedMIME := detectDocumentSampleMIME(semanticName, sample, lookahead, sampleComplete)
+	metadata := resolveDocumentMetadata(semanticName, detectedMIME, sample, lookahead, sampleComplete)
 	w.Header().Set("Content-Type", metadata.MIMEType)
 	w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -250,17 +259,6 @@ func (s *Server) principalCanAccessResourceChat(principal *Principal, chatID str
 	}
 	summary := chat.Summary{ChatID: archived.Summary.ChatID, Source: archived.Summary.Source}
 	return queryPrincipalCanReferenceChat(WithPrincipal(context.Background(), principal), summary)
-}
-
-func resourceContentType(filename string, file *os.File) string {
-	buffer := make([]byte, 512)
-	n, _ := file.Read(buffer)
-	_, _ = file.Seek(0, io.SeekStart)
-	if strings.EqualFold(filepath.Ext(filename), ".svg") && documentSampleIsText(buffer[:n]) &&
-		strings.Contains(strings.ToLower(string(buffer[:n])), "<svg") {
-		return "image/svg+xml"
-	}
-	return http.DetectContentType(buffer[:n])
 }
 
 func resourceDownloadRequested(r *http.Request) bool {

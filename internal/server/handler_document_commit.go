@@ -155,12 +155,12 @@ func (s *Server) commitWorkspaceDocument(w http.ResponseWriter, request api.Docu
 		s.writeAgentHTTPResponse(w, nil, err)
 		return
 	}
-	sourceSample, _, err := readAgentFilePrefix(resolved.AbsolutePath, 512)
+	sourceSample, sourceLookahead, sourceComplete, err := readAgentDocumentSample(resolved.AbsolutePath, 512)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "document source could not be read"))
 		return
 	}
-	currentKind := classifyDocumentKind(resolved.Info.Name(), detectDocumentMIME(resolved.AbsolutePath), sourceSample)
+	currentKind := classifyDocumentKind(resolved.Info.Name(), detectDocumentMIME(resolved.AbsolutePath), sourceSample, sourceLookahead, sourceComplete)
 	if !documentKindEditable(currentKind) || currentKind != request.Payload.Kind ||
 		!validDocumentCommitResult(resolved.Info.Name(), request.Payload.Kind, request.Payload.MIMEType, data) {
 		writeJSON(w, http.StatusUnsupportedMediaType, api.Failure(http.StatusUnsupportedMediaType, "document type cannot be overwritten"))
