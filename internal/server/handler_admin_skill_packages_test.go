@@ -65,6 +65,39 @@ func TestAdminSkillPackageImportAndDelete(t *testing.T) {
 	}
 }
 
+func TestAdminSkillPackageImportAdoptsExistingStandaloneSkill(t *testing.T) {
+	fixture := newTestFixture(t)
+	standaloneRoot := filepath.Join(fixture.cfg.Paths.SkillsCenterDir, "word-helper")
+	if err := os.MkdirAll(standaloneRoot, 0o755); err != nil {
+		t.Fatalf("mkdir standalone skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(standaloneRoot, "SKILL.md"), []byte("---\nname: word-helper\ndescription: Standalone skill\nmetadata:\n  version: 0.9.0\n---\n\nStandalone content.\n"), 0o644); err != nil {
+		t.Fatalf("write standalone skill: %v", err)
+	}
+	archive := serverSkillImportZIP(t, map[string]string{
+		"manifest.json":               `{"schemaVersion":1,"type":"skill-package","id":"office-pack","version":"1.0.0","skills":[{"id":"word-helper","version":"1.0.0","path":"skills/word-helper/"}]}`,
+		"skills/word-helper/SKILL.md": "---\nname: word-helper\ndescription: Package skill\nmetadata:\n  version: 1.0.0\n---\n\nPackage content.\n",
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/skill-packages/import?key=office-pack&version=1.0.0", bytes.NewReader(archive))
+	request.Header.Set("Content-Type", "application/zip")
+	recorder := httptest.NewRecorder()
+	fixture.server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("package import over standalone skill expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	content, err := os.ReadFile(filepath.Join(standaloneRoot, "SKILL.md"))
+	if err != nil {
+		t.Fatalf("read adopted package child: %v", err)
+	}
+	if !bytes.Contains(content, []byte("Package content.")) {
+		t.Fatalf("package content did not replace standalone skill: %q", content)
+	}
+	if _, err := os.Stat(filepath.Join(fixture.cfg.Paths.SkillsCenterDir, ".package", "office-pack.json")); err != nil {
+		t.Fatalf("missing package state after adoption: %v", err)
+	}
+}
+
 func TestAdminSkillPackageImportRollsBackWhenCatalogReloadFails(t *testing.T) {
 	fixture := newTestFixture(t)
 	fixture.server.deps.CatalogReloader = failingSkillImportReloader{}
