@@ -215,8 +215,8 @@ func (s *Server) serveAgentFileContent(w http.ResponseWriter, r *http.Request, r
 	metadata := resolveDocumentMetadata(resolved.Path, detectAgentFileMIME(resolved.AbsolutePath), sample)
 	w.Header().Set("Content-Type", metadata.MIMEType)
 	w.Header().Set("Content-Length", strconv.FormatInt(resolved.Info.Size(), 10))
-	w.Header().Set("X-ZenMind-Document-Kind", metadata.DocumentKind)
-	w.Header().Set("X-ZenMind-Resource-Revision", agentFileRevision(resolved.Info))
+	w.Header().Set(headerDocumentKind, metadata.DocumentKind)
+	w.Header().Set(headerDocumentRevision, agentFileRevision(resolved.Info))
 	semanticName := filepath.Base(resolved.Path)
 	if semanticName == "." || semanticName == string(filepath.Separator) || strings.TrimSpace(semanticName) == "" {
 		semanticName = resolved.Info.Name()

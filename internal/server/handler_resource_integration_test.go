@@ -103,7 +103,7 @@ func TestUploadAndResourceRoundTrip(t *testing.T) {
 	if got := resourceRec.Body.String(); got != "hello world" {
 		t.Fatalf("unexpected resource content: %q", got)
 	}
-	if revision := resourceRec.Header().Get("X-ZenMind-Resource-Revision"); revision == "" {
+	if revision := resourceRec.Header().Get("X-Document-Revision"); revision == "" {
 		t.Fatal("expected resource revision header")
 	}
 

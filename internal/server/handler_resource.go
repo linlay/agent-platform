@@ -209,8 +209,8 @@ func (s *Server) serveResourcePath(w http.ResponseWriter, r *http.Request, path 
 	w.Header().Set("Content-Type", metadata.MIMEType)
 	w.Header().Set("Content-Length", strconv.FormatInt(info.Size(), 10))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("X-ZenMind-Resource-Revision", fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixMilli()))
-	w.Header().Set("X-ZenMind-Document-Kind", metadata.DocumentKind)
+	w.Header().Set(headerDocumentRevision, fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixMilli()))
+	w.Header().Set(headerDocumentKind, metadata.DocumentKind)
 	disposition := ""
 	if resourceDownloadRequested(r) {
 		disposition = "attachment"

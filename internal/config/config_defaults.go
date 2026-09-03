@@ -160,7 +160,7 @@ func defaultConfig(options LoadOptions) Config {
 			AllowedOriginPatterns: []string{"http://localhost:8081"},
 			AllowedMethods:        []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 			AllowedHeaders:        []string{"*"},
-			ExposedHeaders:        []string{"Content-Type"},
+			ExposedHeaders:        []string{"Content-Type", "X-Document-Kind", "X-Document-Revision"},
 			AllowCredentials:      false,
 			MaxAgeSeconds:         3600,
 		},

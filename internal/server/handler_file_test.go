@@ -91,10 +91,10 @@ func TestAgentFileEndpointSupportsAbsolutePathAndContentResponse(t *testing.T) {
 	if contentType := rec.Header().Get("Content-Type"); !strings.HasPrefix(contentType, "text/") {
 		t.Fatalf("expected text content type, got %q", contentType)
 	}
-	if got := rec.Header().Get("X-ZenMind-Document-Kind"); got != documentKindMarkdown {
+	if got := rec.Header().Get("X-Document-Kind"); got != documentKindMarkdown {
 		t.Fatalf("expected markdown document kind, got %q", got)
 	}
-	if got := rec.Header().Get("X-ZenMind-Resource-Revision"); got == "" {
+	if got := rec.Header().Get("X-Document-Revision"); got == "" {
 		t.Fatal("expected content revision")
 	}
 

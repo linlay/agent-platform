@@ -118,6 +118,8 @@ cors:
     - "*"
   exposed-headers:
     - Content-Type
+    - X-Document-Kind
+    - X-Document-Revision
   allow-credentials: false
   max-age-seconds: 3600
 

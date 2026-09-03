@@ -34,10 +34,10 @@ func TestResourceHeadReturnsAuthoritativeDocumentMetadata(t *testing.T) {
 	if recorder.Body.Len() != 0 {
 		t.Fatalf("HEAD returned %d body bytes", recorder.Body.Len())
 	}
-	if got := recorder.Header().Get("X-ZenMind-Document-Kind"); got != "document-html" {
+	if got := recorder.Header().Get("X-Document-Kind"); got != "document-html" {
 		t.Fatalf("document kind=%q", got)
 	}
-	if got := recorder.Header().Get("X-ZenMind-Resource-Revision"); got == "" {
+	if got := recorder.Header().Get("X-Document-Revision"); got == "" {
 		t.Fatal("missing resource revision")
 	}
 	if got := recorder.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
@@ -73,7 +73,7 @@ func TestServeResourcePathClassifiesByCanonicalSemanticName(t *testing.T) {
 		if recorder.Code != http.StatusOK {
 			t.Fatalf("%s status=%d body=%s", method, recorder.Code, recorder.Body.String())
 		}
-		if got := recorder.Header().Get("X-ZenMind-Document-Kind"); got != documentKindMarkdown {
+		if got := recorder.Header().Get("X-Document-Kind"); got != documentKindMarkdown {
 			t.Fatalf("%s document kind=%q", method, got)
 		}
 		if got := recorder.Header().Get("Content-Type"); got != "text/markdown; charset=utf-8" {
@@ -82,7 +82,7 @@ func TestServeResourcePathClassifiesByCanonicalSemanticName(t *testing.T) {
 		if got := recorder.Header().Get("Content-Length"); got != strconv.Itoa(len(body)) {
 			t.Fatalf("%s content length=%q", method, got)
 		}
-		if recorder.Header().Get("X-ZenMind-Resource-Revision") == "" {
+		if recorder.Header().Get("X-Document-Revision") == "" {
 			t.Fatalf("%s missing revision", method)
 		}
 		if method == http.MethodHead && recorder.Body.Len() != 0 {

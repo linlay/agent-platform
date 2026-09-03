@@ -76,6 +76,9 @@ func TestLoadDefaults(t *testing.T) {
 				if cfg.ResourceTicket.TTLSeconds != 86400 {
 					t.Fatalf("expected default resource ticket ttl 86400, got %d", cfg.ResourceTicket.TTLSeconds)
 				}
+				if got := strings.Join(cfg.CORS.ExposedHeaders, ","); got != "Content-Type,X-Document-Kind,X-Document-Revision" {
+					t.Fatalf("unexpected default CORS exposed headers: %q", got)
+				}
 				if cfg.Billing.Currency != "CNY" {
 					t.Fatalf("expected default billing currency CNY, got %q", cfg.Billing.Currency)
 				}

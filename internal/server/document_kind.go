@@ -7,6 +7,9 @@ import (
 )
 
 const (
+	headerDocumentKind     = "X-Document-Kind"
+	headerDocumentRevision = "X-Document-Revision"
+
 	documentKindHTML     = documentmeta.KindHTML
 	documentKindImage    = documentmeta.KindImage
 	documentKindMarkdown = documentmeta.KindMarkdown
