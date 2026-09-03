@@ -114,6 +114,46 @@ func TestPromotePendingChatNameReplacesLegacyPlaceholders(t *testing.T) {
 	}
 }
 
+func TestListChatsOmitsPendingUploadAllocationUntilFirstQuery(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+	pending, created, err := store.EnsureChat("chat-upload-pending", "", "", "")
+	if err != nil {
+		t.Fatalf("ensure pending upload chat: %v", err)
+	}
+	if !created || pending.ChatName != PendingChatName || pending.LastRunID != "" {
+		t.Fatalf("unexpected pending upload chat: %#v", pending)
+	}
+
+	items, err := store.ListChats("", "")
+	if err != nil {
+		t.Fatalf("list pending chats: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("pending upload allocation leaked into history: %#v", items)
+	}
+	if summary, err := store.Summary(pending.ChatID); err != nil || summary == nil {
+		t.Fatalf("pending upload chat must remain addressable: summary=%#v err=%v", summary, err)
+	}
+
+	promoted, changed, err := store.PromotePendingChatName(pending.ChatID, "分析附件")
+	if err != nil {
+		t.Fatalf("promote pending upload chat: %v", err)
+	}
+	if !changed || promoted.ChatName != "分析附件" {
+		t.Fatalf("unexpected promoted chat: changed=%v summary=%#v", changed, promoted)
+	}
+	items, err = store.ListChats("", "")
+	if err != nil {
+		t.Fatalf("list promoted chats: %v", err)
+	}
+	if len(items) != 1 || items[0].ChatID != pending.ChatID {
+		t.Fatalf("promoted chat missing from history: %#v", items)
+	}
+}
+
 func TestFileStoreSetPendingAwaitingPersistsIntoSummaryAndListChats(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {

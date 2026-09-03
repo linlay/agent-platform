@@ -399,6 +399,11 @@ func (s *FileStore) ListChatsWithAgentModesAndLimit(lastRunID string, agentKey s
 		if err := validateActiveSummaryTimeContract(sum, fmt.Sprintf("chat.list[%d]", len(items))); err != nil {
 			return nil, err
 		}
+		// Attachment upload may allocate a Chat before the first accepted query.
+		// Keep that shell addressable by chatId, but do not publish it as history.
+		if isPendingChatName(sum.ChatName) && strings.TrimSpace(sum.LastRunID) == "" {
+			continue
+		}
 		if lastRunID != "" && !RunIDAfter(sum.LastRunID, lastRunID) {
 			continue
 		}
