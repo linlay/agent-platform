@@ -350,9 +350,6 @@ func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 		if s.isInterrupted() {
 			return false, nil
 		}
-		if s.awaitingOpenAITerminalMetadata() && isProviderTimeoutError(err) {
-			return true, s.finishCurrentTurn()
-		}
 		if errors.Is(err, io.EOF) {
 			if s.currentTurn.finishReason == "" && !s.currentTurn.hasMeaningful {
 				streamErr := apperrors.Wrap(
@@ -373,10 +370,14 @@ func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 			}
 			return true, s.finishCurrentTurn()
 		}
-		if s.currentTurn != nil && s.currentTurn.trace != nil {
-			s.currentTurn.trace.completeError(err)
+		streamErr := providerTransportError(err)
+		if s.awaitingOpenAITerminalMetadata() && isProviderTimeoutError(streamErr) {
+			return true, s.finishCurrentTurn()
 		}
-		return false, err
+		if s.currentTurn != nil && s.currentTurn.trace != nil {
+			s.currentTurn.trace.completeError(streamErr)
+		}
+		return false, streamErr
 	}
 
 	if sessionHasTool(s.session, platformcontrol.ToolName) {

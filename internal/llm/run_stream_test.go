@@ -596,13 +596,26 @@ func TestReadCurrentSSEFrameTimesOutBetweenChunks(t *testing.T) {
 }
 
 type retryProtocolOutcome struct {
-	chunk string
-	err   error
+	chunk     string
+	err       error
+	streamErr error
 }
 
 type retryProtocolStub struct {
 	outcomes  []retryProtocolOutcome
 	openCount int
+}
+
+type retryStreamErrorReader struct {
+	reader *strings.Reader
+	err    error
+}
+
+func (r *retryStreamErrorReader) Read(p []byte) (int, error) {
+	if r.reader.Len() > 0 {
+		return r.reader.Read(p)
+	}
+	return 0, r.err
 }
 
 func (p *retryProtocolStub) PrepareRequest(protocolStreamParams) (preparedProviderRequest, error) {
@@ -624,7 +637,14 @@ func (p *retryProtocolStub) OpenStream(context.Context, protocolStreamParams, pr
 	if outcome.err != nil {
 		return nil, outcome.err
 	}
-	body := io.NopCloser(strings.NewReader("data: " + outcome.chunk + "\n\n"))
+	var reader io.Reader = strings.NewReader("data: " + outcome.chunk + "\n\n")
+	if outcome.streamErr != nil {
+		reader = &retryStreamErrorReader{
+			reader: strings.NewReader("data: " + outcome.chunk + "\n\n"),
+			err:    outcome.streamErr,
+		}
+	}
+	body := io.NopCloser(reader)
 	return &providerTurnStream{
 		body:   body,
 		reader: bufio.NewReader(body),
@@ -758,6 +778,68 @@ func TestModelRetryDiscardsTruncatedContentAttempt(t *testing.T) {
 	}
 }
 
+func TestModelRetryClassifiesMidStreamTransportErrors(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantCode apperrors.Code
+	}{
+		{
+			name:     "timeout",
+			err:      errors.New("read tcp 10.31.3.165:443: i/o timeout"),
+			wantCode: apperrors.CodeProviderTimeout,
+		},
+		{
+			name:     "connection reset",
+			err:      errors.New("read tcp: connection reset by peer"),
+			wantCode: apperrors.CodeProviderNetworkError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			protocol := &retryProtocolStub{outcomes: []retryProtocolOutcome{
+				{chunk: "partial", streamErr: tt.err},
+				{chunk: "ok"},
+			}}
+			stream := newRetryTestStream(protocol, 1)
+			if err := stream.prepareNextTurn(); err != nil {
+				t.Fatalf("prepareNextTurn: %v", err)
+			}
+
+			var sequence []string
+			for {
+				delta, err := stream.Next()
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				if err != nil {
+					t.Fatalf("stream next: %v", err)
+				}
+				switch typed := delta.(type) {
+				case contracts.DeltaContent:
+					sequence = append(sequence, "content:"+typed.Text)
+				case contracts.DeltaModelTurnDiscard:
+					if !typed.Retrying || typed.Reason != string(tt.wantCode) || typed.Attempt != 2 {
+						t.Fatalf("unexpected retry discard %#v", typed)
+					}
+					sequence = append(sequence, "discard:"+typed.Reason)
+				case contracts.DeltaModelTurnCommit:
+					sequence = append(sequence, "commit")
+				}
+			}
+
+			if protocol.openCount != 2 {
+				t.Fatalf("expected 2 provider attempts, got %d", protocol.openCount)
+			}
+			want := []string{"content:partial", "discard:" + string(tt.wantCode), "content:ok", "commit"}
+			if !reflect.DeepEqual(sequence, want) {
+				t.Fatalf("sequence=%#v want %#v", sequence, want)
+			}
+		})
+	}
+}
+
 func TestModelRetryEmitsFailedWhenAttemptsExhausted(t *testing.T) {
 	protocol := &retryProtocolStub{outcomes: []retryProtocolOutcome{
 		{err: modelStreamIdleTimeoutError(60 * time.Second)},
@@ -798,6 +880,41 @@ func TestModelRetryEmitsFailedWhenAttemptsExhausted(t *testing.T) {
 	want := []string{"waiting", "retrying", "retrying", "retrying"}
 	if !reflect.DeepEqual(statuses, want) {
 		t.Fatalf("statuses=%#v want %#v", statuses, want)
+	}
+}
+
+func TestModelRetryExhaustedMidStreamTransportTimeoutReturnsProviderTimeout(t *testing.T) {
+	transportTimeout := errors.New("read tcp 10.31.3.165:443: i/o timeout")
+	protocol := &retryProtocolStub{outcomes: []retryProtocolOutcome{
+		{chunk: "partial", streamErr: transportTimeout},
+		{chunk: "partial", streamErr: transportTimeout},
+	}}
+	stream := newRetryTestStream(protocol, 1)
+	if err := stream.prepareNextTurn(); err != nil {
+		t.Fatalf("prepareNextTurn: %v", err)
+	}
+
+	var finalErr error
+	for i := 0; i < 24; i++ {
+		_, err := stream.Next()
+		if err != nil {
+			finalErr = err
+			break
+		}
+	}
+	if finalErr == nil {
+		t.Fatal("expected terminal provider timeout")
+	}
+	var appErr *apperrors.Error
+	if !errors.As(finalErr, &appErr) || appErr.Code() != apperrors.CodeProviderTimeout {
+		t.Fatalf("expected provider timeout, got %T %v", finalErr, finalErr)
+	}
+	payload := appErr.Payload()
+	if payload["status"] != 504 || payload["retryable"] != true {
+		t.Fatalf("unexpected provider timeout payload %#v", payload)
+	}
+	if protocol.openCount != 2 {
+		t.Fatalf("expected 2 provider attempts, got %d", protocol.openCount)
 	}
 }
 

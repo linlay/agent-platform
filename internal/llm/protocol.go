@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -127,10 +128,19 @@ func (e *LLMAgentEngine) executeProviderRequestWithFirstResponseTimeout(req *htt
 }
 
 func providerTransportError(err error) error {
+	var appErr *apperrors.Error
+	if errors.As(err, &appErr) {
+		return err
+	}
+
 	code := apperrors.CodeProviderNetworkError
 	status := http.StatusBadGateway
 	lower := strings.ToLower(err.Error())
-	if errors.Is(err, context.DeadlineExceeded) || strings.Contains(lower, "timeout") || strings.Contains(lower, "deadline exceeded") {
+	var netErr net.Error
+	if errors.Is(err, context.DeadlineExceeded) ||
+		(errors.As(err, &netErr) && netErr.Timeout()) ||
+		strings.Contains(lower, "timeout") ||
+		strings.Contains(lower, "deadline exceeded") {
 		code = apperrors.CodeProviderTimeout
 		status = http.StatusGatewayTimeout
 	}

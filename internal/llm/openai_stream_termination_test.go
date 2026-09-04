@@ -3,6 +3,7 @@ package llm
 import (
 	"bufio"
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -131,6 +132,7 @@ func TestOpenAIStreamEndEOFAndTimeoutAfterFinishAreSuccessful(t *testing.T) {
 	}{
 		{name: "eof", body: io.NopCloser(strings.NewReader("")), timeout: 50},
 		{name: "timeout", body: newBlockingReadCloser(), timeout: 5},
+		{name: "transport timeout", body: io.NopCloser(&retryStreamErrorReader{reader: strings.NewReader(""), err: errors.New("read tcp: i/o timeout")}), timeout: 50},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

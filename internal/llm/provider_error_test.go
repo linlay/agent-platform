@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,12 @@ import (
 	"agent-platform/internal/apperrors"
 	"agent-platform/internal/config"
 )
+
+type providerTimeoutTestError struct{}
+
+func (providerTimeoutTestError) Error() string   { return "provider transport stalled" }
+func (providerTimeoutTestError) Timeout() bool   { return true }
+func (providerTimeoutTestError) Temporary() bool { return true }
 
 func TestClassifyProviderResponseError(t *testing.T) {
 	tests := []struct {
@@ -100,6 +107,67 @@ func TestProviderAuthFailureIsNotExposedAsEndUserUnauthorized(t *testing.T) {
 	payload := appErr.Payload()
 	if payload["code"] != string(apperrors.CodeProviderAuthFailed) || payload["status"] != http.StatusBadGateway {
 		t.Fatalf("unexpected provider auth payload %#v", payload)
+	}
+}
+
+func TestProviderTransportErrorClassification(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantCode   apperrors.Code
+		wantStatus int
+	}{
+		{
+			name:       "context deadline",
+			err:        context.DeadlineExceeded,
+			wantCode:   apperrors.CodeProviderTimeout,
+			wantStatus: http.StatusGatewayTimeout,
+		},
+		{
+			name:       "net error timeout",
+			err:        providerTimeoutTestError{},
+			wantCode:   apperrors.CodeProviderTimeout,
+			wantStatus: http.StatusGatewayTimeout,
+		},
+		{
+			name:       "timeout text fallback",
+			err:        errors.New("read tcp 10.31.3.165:443: i/o timeout"),
+			wantCode:   apperrors.CodeProviderTimeout,
+			wantStatus: http.StatusGatewayTimeout,
+		},
+		{
+			name:       "dns failure",
+			err:        &net.DNSError{Err: "no such host", Name: "provider.example.test"},
+			wantCode:   apperrors.CodeProviderNetworkError,
+			wantStatus: http.StatusBadGateway,
+		},
+		{
+			name:       "connection reset",
+			err:        errors.New("read tcp: connection reset by peer"),
+			wantCode:   apperrors.CodeProviderNetworkError,
+			wantStatus: http.StatusBadGateway,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := providerTransportError(tt.err)
+			var appErr *apperrors.Error
+			if !errors.As(err, &appErr) {
+				t.Fatalf("expected app error, got %T %v", err, err)
+			}
+			payload := appErr.Payload()
+			if appErr.Code() != tt.wantCode || payload["status"] != tt.wantStatus || payload["retryable"] != true {
+				t.Fatalf("unexpected provider transport payload %#v", payload)
+			}
+		})
+	}
+}
+
+func TestProviderTransportErrorPreservesClassifiedError(t *testing.T) {
+	existing := apperrors.New(apperrors.CodeProviderStreamInvalid, "invalid stream")
+	if got := providerTransportError(existing); got != existing {
+		t.Fatalf("expected classified error to be preserved, got %T %v", got, got)
 	}
 }
 
