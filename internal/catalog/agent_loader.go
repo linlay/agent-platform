@@ -639,11 +639,6 @@ func readOptionalMarkdown(path string) string {
 	return strings.TrimSpace(string(data))
 }
 
-func parseAgentFile(path string) (AgentDefinition, error) {
-	def, _, err := parseAgentFileRaw(path)
-	return def, err
-}
-
 func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	tree, err := config.LoadYAMLTree(path)
 	if err != nil {

@@ -602,7 +602,9 @@ func TestLegacyRepairOnlyInspectsLiteralLastReact(t *testing.T) {
 		},
 	}
 
-	filtered, err := filterLegacyIncompleteModelTurns(lines, map[string]bool{"run-failed": true})
+	filtered, err := filterLegacyIncompleteModelTurnsWithRuns(lines, map[string]legacyRepairableRunState{
+		"run-failed": {finishReason: "error"},
+	})
 	if err != nil {
 		t.Fatalf("filter legacy history: %v", err)
 	}
@@ -641,7 +643,9 @@ func TestLegacyRepairRejectsMalformedCallWithPersistedResult(t *testing.T) {
 		},
 	}
 
-	if _, err := filterLegacyIncompleteModelTurns(lines, map[string]bool{"run-failed": true}); !errors.Is(err, ErrChatHistoryIncomplete) {
+	if _, err := filterLegacyIncompleteModelTurnsWithRuns(lines, map[string]legacyRepairableRunState{
+		"run-failed": {finishReason: "error"},
+	}); !errors.Is(err, ErrChatHistoryIncomplete) {
 		t.Fatalf("malformed executed call must be blocked, got %v", err)
 	}
 }
@@ -664,7 +668,9 @@ func TestLegacyRepairTreatsEmptyArgumentsAsStructurallyComplete(t *testing.T) {
 		}},
 	}}
 
-	if _, err := filterLegacyIncompleteModelTurns(lines, map[string]bool{"run-failed": true}); !errors.Is(err, ErrChatHistoryIncomplete) {
+	if _, err := filterLegacyIncompleteModelTurnsWithRuns(lines, map[string]legacyRepairableRunState{
+		"run-failed": {finishReason: "error"},
+	}); !errors.Is(err, ErrChatHistoryIncomplete) {
 		t.Fatalf("empty arguments are valid and unmatched execution is ambiguous, got %v", err)
 	}
 }
@@ -686,7 +692,9 @@ func TestLegacyRepairRejectsTerminalToolTurnWithoutSequenceBoundary(t *testing.T
 		}},
 	}}
 
-	if _, err := filterLegacyIncompleteModelTurns(lines, map[string]bool{"run-failed": true}); !errors.Is(err, ErrChatHistoryIncomplete) {
+	if _, err := filterLegacyIncompleteModelTurnsWithRuns(lines, map[string]legacyRepairableRunState{
+		"run-failed": {finishReason: "error"},
+	}); !errors.Is(err, ErrChatHistoryIncomplete) {
 		t.Fatalf("missing seq boundary must be blocked, got %v", err)
 	}
 }

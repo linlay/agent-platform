@@ -161,7 +161,7 @@ func TestDispatcherRecordsExecutionLifecycle(t *testing.T) {
 
 	dispatcher := NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
 		return successfulTestQuery(req, hooks), nil
-	}, nil, store)
+	}, nil, synchronousExecutionRecorder{store: store})
 	if err := dispatcher.Dispatch(context.Background(), def, "Asia/Shanghai"); err != nil {
 		t.Fatalf("dispatch success: %v", err)
 	}
@@ -180,7 +180,7 @@ func TestDispatcherRecordsExecutionLifecycle(t *testing.T) {
 	time.Sleep(time.Millisecond)
 	dispatcher = NewDispatcher(func(_ context.Context, _ api.QueryRequest, _ QueryRunHooks) (QueryRunResult, error) {
 		return QueryRunResult{}, expectedErr
-	}, nil, store)
+	}, nil, synchronousExecutionRecorder{store: store})
 	if err := dispatcher.Dispatch(context.Background(), def, "UTC"); !errors.Is(err, expectedErr) {
 		t.Fatalf("expected dispatch error, got %v", err)
 	}
@@ -206,7 +206,7 @@ func TestDispatcherDoesNotBlockWhenExecutionStoreFails(t *testing.T) {
 	dispatcher := NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
 		called = true
 		return successfulTestQuery(req, hooks), nil
-	}, nil, store)
+	}, nil, synchronousExecutionRecorder{store: store})
 	if err := dispatcher.Dispatch(context.Background(), Definition{
 		ID:       "daily",
 		Enabled:  true,

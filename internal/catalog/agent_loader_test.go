@@ -24,6 +24,11 @@ func parseAgentFileWithPromptsForTest(path string, agentDir string) (AgentDefini
 	return def, nil
 }
 
+func parseAgentDefinitionForTest(path string) (AgentDefinition, error) {
+	def, _, err := parseAgentFileRaw(path)
+	return def, err
+}
+
 func TestParseAgentFileSupportsFlattenedToolConfig(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
@@ -41,7 +46,7 @@ func TestParseAgentFileSupportsFlattenedToolConfig(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -74,7 +79,7 @@ func TestParseAgentFileSupportsMCPServerAllowlist(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -89,7 +94,7 @@ func TestParseAgentFileRejectsInvalidMCPServerKey(t *testing.T) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := parseAgentFile(path); err == nil || !strings.Contains(err.Error(), "toolConfig.mcp-servers") {
+	if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "toolConfig.mcp-servers") {
 		t.Fatalf("expected invalid MCP server key error, got %v", err)
 	}
 }
@@ -107,7 +112,7 @@ func TestParseAgentFileRejectsInternalAgentDelegateTool(t *testing.T) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := parseAgentFile(path); err == nil || !strings.Contains(err.Error(), "only be used by an orchestrated Team coordinator") {
+	if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "only be used by an orchestrated Team coordinator") {
 		t.Fatalf("expected internal tool validation error, got %v", err)
 	}
 }
@@ -135,7 +140,7 @@ func TestParseAgentFileRejectsRemovedTools(t *testing.T) {
 			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			_, err := parseAgentFile(path)
+			_, err := parseAgentDefinitionForTest(path)
 			want := "was removed; use " + tc.replacement
 			if err == nil || !strings.Contains(err.Error(), want) {
 				t.Fatalf("expected %q, got %v", want, err)
@@ -174,7 +179,7 @@ func TestParseAgentFileSupportsNestedPlanExecuteStageConfig(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -225,7 +230,7 @@ func TestParseAgentFileMergesStageSettingsBudgetIntoResolvedBudget(t *testing.T)
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -252,7 +257,7 @@ func TestParseCoderUsesPlanningStageAndRejectsLegacyPlanStage(t *testing.T) {
 	if err := os.WriteFile(planningPath, []byte(planningConfig), 0o644); err != nil {
 		t.Fatalf("write planning config: %v", err)
 	}
-	def, err := parseAgentFile(planningPath)
+	def, err := parseAgentDefinitionForTest(planningPath)
 	if err != nil {
 		t.Fatalf("parse planning config: %v", err)
 	}
@@ -269,7 +274,7 @@ func TestParseCoderUsesPlanningStageAndRejectsLegacyPlanStage(t *testing.T) {
 	if err := os.WriteFile(legacyPath, []byte(legacyConfig), 0o644); err != nil {
 		t.Fatalf("write legacy config: %v", err)
 	}
-	if _, err := parseAgentFile(legacyPath); err == nil || !strings.Contains(err.Error(), "stageSettings.plan is unsupported") {
+	if _, err := parseAgentDefinitionForTest(legacyPath); err == nil || !strings.Contains(err.Error(), "stageSettings.plan is unsupported") {
 		t.Fatalf("expected legacy CODER plan stage rejection, got %v", err)
 	}
 }
@@ -290,7 +295,7 @@ func TestParseAgentFileReadsProxyTransport(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -314,7 +319,7 @@ func TestParseAgentFileDefaultsProxyTransportToWebSocket(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -339,7 +344,7 @@ func TestParseAgentFileKeepsExplicitProxySSETransport(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -399,7 +404,7 @@ func TestParseAgentFileRejectsNonACPAgentsWithoutModelConfig(t *testing.T) {
 			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 				t.Fatalf("write agent file: %v", err)
 			}
-			_, err := parseAgentFile(path)
+			_, err := parseAgentDefinitionForTest(path)
 			if err == nil || !strings.Contains(err.Error(), "modelConfig.modelKey is required") {
 				t.Fatalf("expected modelConfig.modelKey error, got %v", err)
 			}
@@ -429,7 +434,7 @@ func TestParseAgentFileAllowsProxyWithoutModelConfig(t *testing.T) {
 				t.Fatalf("write agent file: %v", err)
 			}
 
-			def, err := parseAgentFile(path)
+			def, err := parseAgentDefinitionForTest(path)
 			if err != nil {
 				t.Fatalf("parse agent file: %v", err)
 			}
@@ -458,7 +463,7 @@ func TestParseAgentFileAllowsChannelImportWithoutModelConfig(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -539,7 +544,7 @@ func TestParseAgentFileValidatesChannelImportConfig(t *testing.T) {
 			if err := os.WriteFile(path, []byte(strings.Join(tc.body, "\n")+"\n"), 0o644); err != nil {
 				t.Fatalf("write agent file: %v", err)
 			}
-			_, err := parseAgentFile(path)
+			_, err := parseAgentDefinitionForTest(path)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("expected %q error, got %v", tc.want, err)
 			}
@@ -570,7 +575,7 @@ func TestParseAgentFileReadsChannelExportsAndAllowDefaults(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -602,7 +607,7 @@ func TestParseAgentFileDefaultsModeAndVisibility(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -635,7 +640,7 @@ func TestParseAgentFileDefaultsEmptyOrInvalidVisibilityToNav(t *testing.T) {
 				t.Fatalf("write agent file: %v", err)
 			}
 
-			def, err := parseAgentFile(path)
+			def, err := parseAgentDefinitionForTest(path)
 			if err != nil {
 				t.Fatalf("parse agent file: %v", err)
 			}
@@ -661,7 +666,7 @@ func TestParseAgentFileAcceptsCanonicalPlanExecuteMode(t *testing.T) {
 				t.Fatalf("write agent file: %v", err)
 			}
 
-			def, err := parseAgentFile(path)
+			def, err := parseAgentDefinitionForTest(path)
 			if err != nil {
 				t.Fatalf("parse agent file: %v", err)
 			}
@@ -680,7 +685,7 @@ func TestParseAgentFileRejectsRetiredPublicModes(t *testing.T) {
 			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 				t.Fatalf("write agent file: %v", err)
 			}
-			if _, err := parseAgentFile(path); err == nil {
+			if _, err := parseAgentDefinitionForTest(path); err == nil {
 				t.Fatalf("retired mode %q must fail", mode)
 			}
 		})
@@ -754,7 +759,7 @@ func TestParseAgentFileReadsVisibility(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -786,7 +791,7 @@ func TestParseAgentFileRejectsRemovedToolConfigBuckets(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	if _, err := parseAgentFile(path); err == nil || !strings.Contains(err.Error(), "toolConfig.backends is no longer supported") {
+	if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "toolConfig.backends is no longer supported") {
 		t.Fatalf("expected removed toolConfig bucket error, got %v", err)
 	}
 }
@@ -807,7 +812,7 @@ func TestParseAgentFileLoadsRuntimeEnv(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -848,7 +853,7 @@ func TestParseAgentFileSilentlyIgnoresLegacyRunEnv(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -891,7 +896,7 @@ func TestParseAgentFileSupportsCoderWorkspace(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -935,7 +940,7 @@ func TestParseAgentFileSupportsACPCoderBridgeID(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -973,7 +978,7 @@ func TestParseAgentFileRejectsACPCoderPromptFiles(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	_, err := parseAgentFile(path)
+	_, err := parseAgentDefinitionForTest(path)
 	if err == nil || !strings.Contains(err.Error(), "projectConfig.promptFiles is not supported") {
 		t.Fatalf("expected ACP CODER promptFiles rejection, got %v", err)
 	}
@@ -995,7 +1000,7 @@ func TestParseAgentFileRejectsACPCoderProxyConfig(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	_, err := parseAgentFile(path)
+	_, err := parseAgentDefinitionForTest(path)
 	if err == nil || !strings.Contains(err.Error(), "proxyConfig is not supported") {
 		t.Fatalf("expected ACP CODER proxyConfig rejection, got %v", err)
 	}
@@ -1016,7 +1021,7 @@ func TestParseAgentFileRejectsACPCoderPlatformTools(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	_, err := parseAgentFile(path)
+	_, err := parseAgentDefinitionForTest(path)
 	if err == nil || !strings.Contains(err.Error(), "toolConfig.tools is not supported for ACP CODER") {
 		t.Fatalf("expected ACP CODER tools rejection, got %v", err)
 	}
@@ -1038,7 +1043,7 @@ func TestParseAgentFileRejectsACPCoderMCPServers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := parseAgentFile(path)
+	_, err := parseAgentDefinitionForTest(path)
 	if err == nil || !strings.Contains(err.Error(), "toolConfig.mcp-servers is not supported for ACP CODER") {
 		t.Fatalf("expected ACP CODER MCP server rejection, got %v", err)
 	}
@@ -1061,7 +1066,7 @@ func TestParseAgentFileUsesACPBackendFromBridgeID(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -1080,7 +1085,7 @@ func TestParseAgentFileRejectsLegacyACPProxyID(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	_, err := parseAgentFile(path)
+	_, err := parseAgentDefinitionForTest(path)
 	if err == nil || !strings.Contains(err.Error(), "runtimeConfig.acpProxyId was removed; use runtimeConfig.acpBridgeId") {
 		t.Fatalf("expected legacy ACP proxy id rejection, got %v", err)
 	}
@@ -1104,7 +1109,7 @@ func TestParseAgentFileAppliesCoderProfileDefaults(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -1156,7 +1161,7 @@ func TestParseAgentFileAllowsCoderProfileOverrides(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -1178,7 +1183,7 @@ func TestParseAgentFileRejectsCoderWithoutWorkspace(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	if _, err := parseAgentFile(path); err == nil || !strings.Contains(err.Error(), "workspaceRoot is required for CODER") {
+	if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "workspaceRoot is required for CODER") {
 		t.Fatalf("expected CODER workspace requirement, got %v", err)
 	}
 }
@@ -1261,7 +1266,7 @@ func TestParseAgentFileKBaseDefaultsAndConfig(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -1317,7 +1322,7 @@ func TestParseAgentFileRejectsInvalidKBaseRetrievalConfig(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	if _, err := parseAgentFile(path); err == nil || !strings.Contains(err.Error(), "not both zero") {
+	if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "not both zero") {
 		t.Fatalf("expected invalid KBASE retrieval config error, got %v", err)
 	}
 }
@@ -1338,7 +1343,7 @@ func TestParseAgentFileKBaseDefaultChunkUsesEstimatedTokens(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -1371,7 +1376,7 @@ func TestParseAgentFileKBaseTokenChunkConfig(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -1402,7 +1407,7 @@ func TestParseAgentFileKBaseCapsChunkOverlap(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -1551,7 +1556,7 @@ func TestParseAgentFileRejectsRemovedKBaseSource(t *testing.T) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := parseAgentFile(path); err == nil || !strings.Contains(err.Error(), "kbaseConfig.source has been removed") {
+	if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "kbaseConfig.source has been removed") {
 		t.Fatalf("expected removed KBASE source rejection, got %v", err)
 	}
 }
@@ -1690,7 +1695,7 @@ func TestOrdinaryAgentKBaseEnablementIsExplicitAndModeLimited(t *testing.T) {
 			if err := os.WriteFile(path, []byte(tt.content), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := parseAgentFile(path); err == nil || !strings.Contains(err.Error(), tt.want) {
+			if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("error = %v, want substring %q", err, tt.want)
 			}
 		})
@@ -1708,7 +1713,7 @@ func TestPlanExecuteAndNativeCoderAttachKBaseCapability(t *testing.T) {
 			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			def, err := parseAgentFile(path)
+			def, err := parseAgentDefinitionForTest(path)
 			if err != nil {
 				t.Fatalf("parse %s capability: %v", mode, err)
 			}
@@ -1733,7 +1738,7 @@ func TestKBaseCapabilityDisableAndDedicatedModeCompatibility(t *testing.T) {
 	if err := os.WriteFile(disabledPath, []byte(disabled), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	def, err := parseAgentFile(disabledPath)
+	def, err := parseAgentDefinitionForTest(disabledPath)
 	if err != nil {
 		t.Fatalf("parse disabled capability: %v", err)
 	}
@@ -1748,7 +1753,7 @@ func TestKBaseCapabilityDisableAndDedicatedModeCompatibility(t *testing.T) {
 	if err := os.WriteFile(dedicatedPath, []byte(dedicated), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	dedicatedDef, err := parseAgentFile(dedicatedPath)
+	dedicatedDef, err := parseAgentDefinitionForTest(dedicatedPath)
 	if err != nil {
 		t.Fatalf("parse dedicated KBASE workspace: %v", err)
 	}
@@ -1760,7 +1765,7 @@ func TestKBaseCapabilityDisableAndDedicatedModeCompatibility(t *testing.T) {
 	if err := os.WriteFile(falsePath, []byte("key: docs\nmode: KBASE\nkbaseConfig:\n  enabled: false\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := parseAgentFile(falsePath); err == nil || !strings.Contains(err.Error(), "cannot be false") {
+	if _, err := parseAgentDefinitionForTest(falsePath); err == nil || !strings.Contains(err.Error(), "cannot be false") {
 		t.Fatalf("mode KBASE enabled:false error = %v", err)
 	}
 }
@@ -1783,7 +1788,7 @@ func TestParseAgentFileRejectsRemovedKBaseEmbeddingFields(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	if _, err := parseAgentFile(path); err == nil || !strings.Contains(err.Error(), "kbaseConfig.embedding.providerKey is no longer supported") {
+	if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "kbaseConfig.embedding.providerKey is no longer supported") {
 		t.Fatalf("expected removed kbase embedding field error, got %v", err)
 	}
 }
@@ -1795,7 +1800,7 @@ func TestParseAgentFileRejectsKBaseWithoutWorkspace(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	_, err := parseAgentFile(path)
+	_, err := parseAgentDefinitionForTest(path)
 	if err == nil || !strings.Contains(err.Error(), "workspaceRoot is required") {
 		t.Fatalf("expected KBASE workspace error, got %v", err)
 	}
@@ -1808,7 +1813,7 @@ func TestParseAgentFileRejectsLegacyKBaseSource(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	_, err := parseAgentFile(path)
+	_, err := parseAgentDefinitionForTest(path)
 	if err == nil || !strings.Contains(err.Error(), "kbaseConfig.source has been removed") {
 		t.Fatalf("expected legacy KBASE source rejection, got %v", err)
 	}
@@ -1830,7 +1835,7 @@ func TestParseAgentFileRejectsKBaseWithoutModelConfig(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	_, err := parseAgentFile(path)
+	_, err := parseAgentDefinitionForTest(path)
 	if err == nil || !strings.Contains(err.Error(), "modelConfig.modelKey is required") {
 		t.Fatalf("expected KBASE model config error, got %v", err)
 	}
@@ -1843,7 +1848,7 @@ func TestParseAgentFileRejectsCoderRelativeWorkspace(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	_, err := parseAgentFile(path)
+	_, err := parseAgentDefinitionForTest(path)
 	if err == nil || !strings.Contains(err.Error(), "runtimeConfig.workspaceRoot must be an absolute path") {
 		t.Fatalf("expected absolute workspace requirement error, got %v", err)
 	}
@@ -1861,7 +1866,7 @@ func TestParseAgentFileExpandsHomeWorkspaceRoot(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -1883,7 +1888,7 @@ func TestParseAgentFileExpandsBareHomeWorkspaceRoot(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -1899,7 +1904,7 @@ func TestParseAgentFileRejectsOtherUserHomeWorkspaceRoot(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	_, err := parseAgentFile(path)
+	_, err := parseAgentDefinitionForTest(path)
 	if err == nil || !strings.Contains(err.Error(), "runtimeConfig.workspaceRoot must be an absolute path") {
 		t.Fatalf("expected absolute workspace requirement error, got %v", err)
 	}
@@ -1919,7 +1924,7 @@ func TestParseAgentFileRejectsChatWorkspaceRoot(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	if _, err := parseAgentFile(path); err == nil || !strings.Contains(err.Error(), `no longer supports "@chat"`) {
+	if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), `no longer supports "@chat"`) {
 		t.Fatalf("expected @chat workspace rejection, got %v", err)
 	}
 }
@@ -1938,7 +1943,7 @@ func TestParseAgentFileAcceptsSlashWorkspaceRoot(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -1978,7 +1983,7 @@ func TestParseAgentFileReadsHostAccessAndSandboxMounts(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -2012,7 +2017,7 @@ func TestParseAgentFileRuntimeWorkspaceRootSetsCoderWorkspace(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -2045,7 +2050,7 @@ func TestParseAgentFileLoadsProjectConfig(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -2079,7 +2084,7 @@ func TestParseAgentFileRejectsSandboxCoderWithoutHostWorkspace(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	if _, err := parseAgentFile(path); err == nil || !strings.Contains(err.Error(), "workspaceRoot is required for CODER") {
+	if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "workspaceRoot is required for CODER") {
 		t.Fatalf("expected sandbox CODER workspace requirement, got %v", err)
 	}
 }
@@ -2168,7 +2173,7 @@ func TestParseAgentFileInjectsMemoryManagementToolsOnlyWhenEnabled(t *testing.T)
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -2202,7 +2207,7 @@ func TestParseAgentFileKeepsBaseMemoryToolsDisabledByDefault(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -2231,7 +2236,7 @@ func TestParseAgentFileKeepsMemoryManagementToolsOptIn(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -2266,7 +2271,7 @@ func TestParseAgentFileParsesMemoryRuntimeConfig(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -2301,7 +2306,7 @@ func TestParseAgentFileAllowsOptingOutOfBaseMemoryTools(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -2495,7 +2500,7 @@ func TestParseAgentFileExportsWithoutExternalAgentKey(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -2531,7 +2536,7 @@ func TestParseAgentFileExportWithoutChannelIdFails(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	_, err := parseAgentFile(path)
+	_, err := parseAgentDefinitionForTest(path)
 	if err == nil || !strings.Contains(err.Error(), "channelConfig.exports[0].channelId is required") {
 		t.Fatalf("expected channelId required error, got %v", err)
 	}

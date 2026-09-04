@@ -188,7 +188,7 @@ func TestParseAgentFileReadsContextTagsBudgetStageSettingsAndControls(t *testing
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestParseAgentFilePreservesMultilineWonders(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestParseAgentFilePreservesMultilineGreetings(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -280,7 +280,7 @@ func TestParseAgentFileReadsSingularGreeting(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -309,7 +309,7 @@ func TestParseAgentFileReadsRuntimePromptsAndContextConfigTags(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -344,7 +344,7 @@ func TestParseAgentFileReadsOnlyContextConfigTags(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -374,7 +374,7 @@ func TestParseAgentFileReadsContextAgents(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -484,7 +484,7 @@ func TestParseAgentFileDropsSandboxContextTag(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -559,7 +559,7 @@ func TestParseAgentFileMapsModelReasoningIntoStageSettings(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -621,7 +621,7 @@ func TestParseAgentFileRejectsInvalidReasoningEffort(t *testing.T) {
 	), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
-	_, err := parseAgentFile(path)
+	_, err := parseAgentDefinitionForTest(path)
 	if err == nil || !strings.Contains(err.Error(), "NONE, LOW, MEDIUM, HIGH, XHIGH, or MAX") {
 		t.Fatalf("expected reasoning effort validation error, got %v", err)
 	}
@@ -642,7 +642,7 @@ func TestParseAgentFileNoneReasoningEffortDisablesReasoning(t *testing.T) {
 	), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -675,7 +675,7 @@ func TestParseAgentFilePreservesExplicitStageReasoningOverrides(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -711,7 +711,7 @@ func TestParseAgentFileMapsModelSamplingIntoStageSettings(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
+	def, err := parseAgentDefinitionForTest(path)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -743,7 +743,7 @@ func TestParseAgentFileRejectsInvalidSamplingType(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	_, err := parseAgentFile(path)
+	_, err := parseAgentDefinitionForTest(path)
 	if err == nil || !strings.Contains(err.Error(), "modelConfig.sampling.temperature must be a number") {
 		t.Fatalf("expected invalid sampling type error, got %v", err)
 	}
@@ -767,7 +767,7 @@ func TestParseAgentFileRejectsInvalidNestedStageSamplingType(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	_, err := parseAgentFile(path)
+	_, err := parseAgentDefinitionForTest(path)
 	if err == nil || !strings.Contains(err.Error(), "stageSettings.plan.modelConfig.sampling.temperature must be a number") {
 		t.Fatalf("expected invalid nested stage sampling type error, got %v", err)
 	}

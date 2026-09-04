@@ -442,11 +442,6 @@ func (s *Server) wsChatArchive(_ context.Context, conn *ws.Conn, req ws.RequestF
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	if err := validatePublicTimeContract(response); err != nil {
-		sendTimeContractViolation(conn, req.ID, err)
-		conn.CompleteRequest(req.ID)
-		return
-	}
 	conn.SendResponse(req.Type, req.ID, 0, "success", response)
 	conn.CompleteRequest(req.ID)
 }
@@ -466,11 +461,6 @@ func (s *Server) wsArchives(_ context.Context, conn *ws.Conn, req ws.RequestFram
 			return
 		}
 		conn.SendError(req.ID, "unavailable", 503, listErr.Error(), nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	if err := validatePublicTimeContract(response); err != nil {
-		sendTimeContractViolation(conn, req.ID, err)
 		conn.CompleteRequest(req.ID)
 		return
 	}
@@ -504,11 +494,6 @@ func (s *Server) wsArchive(ctx context.Context, conn *ws.Conn, req ws.RequestFra
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	if err := validatePublicTimeContract(response); err != nil {
-		sendTimeContractViolation(conn, req.ID, err)
-		conn.CompleteRequest(req.ID)
-		return
-	}
 	conn.SendResponse(req.Type, req.ID, 0, "success", response)
 	conn.CompleteRequest(req.ID)
 }
@@ -528,11 +513,6 @@ func (s *Server) wsArchiveSearch(_ context.Context, conn *ws.Conn, req ws.Reques
 			return
 		}
 		conn.SendError(req.ID, "unavailable", 503, searchErr.Error(), nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	if err := validatePublicTimeContract(response); err != nil {
-		sendTimeContractViolation(conn, req.ID, err)
 		conn.CompleteRequest(req.ID)
 		return
 	}
@@ -563,11 +543,6 @@ func (s *Server) wsArchiveDelete(_ context.Context, conn *ws.Conn, req ws.Reques
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	if err := validatePublicTimeContract(response); err != nil {
-		sendTimeContractViolation(conn, req.ID, err)
-		conn.CompleteRequest(req.ID)
-		return
-	}
 	conn.SendResponse(req.Type, req.ID, 0, "success", response)
 	conn.CompleteRequest(req.ID)
 }
@@ -587,11 +562,6 @@ func (s *Server) wsArchiveRestore(_ context.Context, conn *ws.Conn, req ws.Reque
 			return
 		}
 		conn.SendError(req.ID, "unavailable", 503, restoreErr.Error(), nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	if err := validatePublicTimeContract(response); err != nil {
-		sendTimeContractViolation(conn, req.ID, err)
 		conn.CompleteRequest(req.ID)
 		return
 	}

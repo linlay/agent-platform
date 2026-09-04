@@ -239,10 +239,6 @@ func compactToolExcerpt(text string, maxRunes int) string {
 	return strings.TrimSpace(string(runes[:head])) + " … " + strings.TrimSpace(string(runes[len(runes)-tail:]))
 }
 
-func (s *FileStore) BuildToolCompactSnapshot(chatID string, keepRecent int) (ToolCompactSnapshot, error) {
-	return s.BuildToolCompactSnapshotToTarget(chatID, keepRecent, 0)
-}
-
 // BuildToolCompactSnapshotToTarget normally protects the most recent complete
 // tool groups, then progressively releases that protection only while the
 // projected history remains above targetTokens. A non-positive target keeps

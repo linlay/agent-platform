@@ -2,7 +2,6 @@ package automation
 
 import (
 	"database/sql"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,10 +23,22 @@ func TestExecutionStoreRecordsAndListsExecutions(t *testing.T) {
 		t.Fatalf("expected db file: %v", err)
 	}
 
-	firstID, err := store.RecordStart("daily", "Daily", "/tmp/daily.yml", "agent-a", "team-a", "Asia/Shanghai")
-	if err != nil {
+	startedAt := time.Now().UnixMilli()
+	first := Execution{
+		ID:             NewExecutionID(),
+		AutomationID:   "daily",
+		AutomationName: "Daily",
+		SourceFile:     "/tmp/daily.yml",
+		AgentKey:       "agent-a",
+		TeamID:         "team-a",
+		ZoneID:         "Asia/Shanghai",
+		Status:         ExecutionStatusRunning,
+		StartedAt:      startedAt,
+	}
+	if err := store.Upsert(first); err != nil {
 		t.Fatalf("record first start: %v", err)
 	}
+	firstID := first.ID
 	if firstID == "" {
 		t.Fatal("expected execution id")
 	}
@@ -42,8 +53,13 @@ func TestExecutionStoreRecordsAndListsExecutions(t *testing.T) {
 		t.Fatalf("unexpected running execution %#v", items[0])
 	}
 
-	time.Sleep(time.Millisecond)
-	if err := store.RecordComplete(firstID, nil); err != nil {
+	firstCompletedAt := startedAt + 1
+	firstDuration := int64(1)
+	first.Status = ExecutionStatusSuccess
+	first.FinishReason = "complete"
+	first.CompletedAt = &firstCompletedAt
+	first.DurationMs = &firstDuration
+	if err := store.Upsert(first); err != nil {
 		t.Fatalf("record success: %v", err)
 	}
 	last, err := store.LastExecution("daily")
@@ -54,13 +70,27 @@ func TestExecutionStoreRecordsAndListsExecutions(t *testing.T) {
 		t.Fatalf("unexpected successful execution %#v", last)
 	}
 
-	secondID, err := store.RecordStart("daily", "Daily", "/tmp/daily.yml", "agent-a", "team-a", "UTC")
-	if err != nil {
+	secondCompletedAt := startedAt + 3
+	secondDuration := int64(1)
+	second := Execution{
+		ID:             NewExecutionID(),
+		AutomationID:   "daily",
+		AutomationName: "Daily",
+		SourceFile:     "/tmp/daily.yml",
+		AgentKey:       "agent-a",
+		TeamID:         "team-a",
+		ZoneID:         "UTC",
+		Status:         ExecutionStatusFailed,
+		FinishReason:   "error",
+		Error:          "boom",
+		StartedAt:      startedAt + 2,
+		CompletedAt:    &secondCompletedAt,
+		DurationMs:     &secondDuration,
+	}
+	if err := store.Upsert(second); err != nil {
 		t.Fatalf("record second start: %v", err)
 	}
-	if err := store.RecordComplete(secondID, errors.New("boom")); err != nil {
-		t.Fatalf("record failure: %v", err)
-	}
+	secondID := second.ID
 	recent, total, err := store.ListRecent(1, 0)
 	if err != nil {
 		t.Fatalf("list recent: %v", err)
@@ -94,7 +124,14 @@ func TestExecutionStoreDefaultPagingAndMissingLast(t *testing.T) {
 	}
 
 	for i := 0; i < 105; i++ {
-		if _, err := store.RecordStart("many", "Many", "", "", "", "UTC"); err != nil {
+		if err := store.Upsert(Execution{
+			ID:             NewExecutionID(),
+			AutomationID:   "many",
+			AutomationName: "Many",
+			ZoneID:         "UTC",
+			Status:         ExecutionStatusRunning,
+			StartedAt:      time.Now().UnixMilli() + int64(i),
+		}); err != nil {
 			t.Fatalf("record start %d: %v", i, err)
 		}
 	}
@@ -128,8 +165,8 @@ func TestExecutionStoreRejectsInvalidPersistedTimes(t *testing.T) {
 	if _, err := store.LastExecution("daily"); !timecontract.IsViolation(err) {
 		t.Fatalf("expected zero runStartedAt to fail instead of becoming absent, got %v", err)
 	}
-	if err := store.RecordComplete("exec_bad", nil); !timecontract.IsViolation(err) {
-		t.Fatalf("expected completion to reject invalid stored start time, got %v", err)
+	if _, err := store.GetExecution("exec_bad"); !timecontract.IsViolation(err) {
+		t.Fatalf("expected detail read to reject invalid stored start time, got %v", err)
 	}
 }
 
@@ -140,10 +177,12 @@ func TestExecutionStoreRequiresValidZoneID(t *testing.T) {
 	}
 	defer store.Close()
 
-	if _, err := store.RecordStart("daily", "Daily", "", "agent-a", "", ""); err == nil || !strings.Contains(err.Error(), "zoneId is required") {
+	item := Execution{ID: NewExecutionID(), AutomationID: "daily", AutomationName: "Daily", AgentKey: "agent-a", Status: ExecutionStatusRunning, StartedAt: time.Now().UnixMilli()}
+	if err := store.Upsert(item); err == nil || !strings.Contains(err.Error(), "zoneId is required") {
 		t.Fatalf("expected required zoneId error, got %v", err)
 	}
-	if _, err := store.RecordStart("daily", "Daily", "", "agent-a", "", "Not/A_Real_Zone"); err == nil || !strings.Contains(err.Error(), "invalid zoneId") {
+	item.ZoneID = "Not/A_Real_Zone"
+	if err := store.Upsert(item); err == nil || !strings.Contains(err.Error(), "invalid zoneId") {
 		t.Fatalf("expected invalid zoneId error, got %v", err)
 	}
 }

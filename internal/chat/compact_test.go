@@ -525,7 +525,7 @@ func TestToolCompactClearsOlderCompactableToolResults(t *testing.T) {
 	}
 	appendCompactTestToolResult(t, store, chatID, "r8", "tool-noncompact", "memory_search", "memory result should stay")
 
-	snapshot, err := store.BuildToolCompactSnapshot(chatID, DefaultToolCompactKeepRecent)
+	snapshot, err := store.BuildToolCompactSnapshotToTarget(chatID, DefaultToolCompactKeepRecent, 0)
 	if err != nil {
 		t.Fatalf("BuildToolCompactSnapshot: %v", err)
 	}
@@ -586,7 +586,7 @@ func TestToolCompactClearsOlderCompactableToolResults(t *testing.T) {
 		t.Fatalf("non compactable tool changed: %q", toolContent["tool-noncompact"])
 	}
 
-	second, err := store.BuildToolCompactSnapshot(chatID, DefaultToolCompactKeepRecent)
+	second, err := store.BuildToolCompactSnapshotToTarget(chatID, DefaultToolCompactKeepRecent, 0)
 	if err != nil {
 		t.Fatalf("second BuildToolCompactSnapshot: %v", err)
 	}
@@ -601,7 +601,7 @@ func TestToolCompactAllowsSingleCompletedLargeToolGroup(t *testing.T) {
 	ensureCompactTestChat(t, store, chatID)
 	appendCompactTestToolResult(t, store, chatID, "r1", "tool-1", "file_read", "anchor "+strings.Repeat("large-result ", 1200))
 
-	snapshot, err := store.BuildToolCompactSnapshot(chatID, DefaultToolCompactKeepRecent)
+	snapshot, err := store.BuildToolCompactSnapshotToTarget(chatID, DefaultToolCompactKeepRecent, 0)
 	if err != nil {
 		t.Fatalf("BuildToolCompactSnapshot: %v", err)
 	}
@@ -618,7 +618,7 @@ func TestToolCompactTargetProtectsRecentGroupsUntilRequired(t *testing.T) {
 		appendCompactTestToolResult(t, store, chatID, fmt.Sprintf("r%d", i), fmt.Sprintf("tool-%d", i), "file_read", strings.Repeat("large-result ", 800))
 	}
 
-	baseline, err := store.BuildToolCompactSnapshot(chatID, DefaultToolCompactKeepRecent)
+	baseline, err := store.BuildToolCompactSnapshotToTarget(chatID, DefaultToolCompactKeepRecent, 0)
 	if err != nil {
 		t.Fatalf("BuildToolCompactSnapshot: %v", err)
 	}
@@ -738,7 +738,7 @@ func TestToolCompactCommitDetectsHistoryChanged(t *testing.T) {
 		appendCompactTestToolResult(t, store, chatID, fmt.Sprintf("r%d", i), fmt.Sprintf("tool-%d", i), "bash", fmt.Sprintf("bash result %d %s", i, strings.Repeat("x", 2000)))
 	}
 
-	snapshot, err := store.BuildToolCompactSnapshot(chatID, DefaultToolCompactKeepRecent)
+	snapshot, err := store.BuildToolCompactSnapshotToTarget(chatID, DefaultToolCompactKeepRecent, 0)
 	if err != nil {
 		t.Fatalf("BuildToolCompactSnapshot: %v", err)
 	}
@@ -781,7 +781,7 @@ func TestSummaryCompactCanCoverToolCompactMetadata(t *testing.T) {
 	for i := 1; i <= 7; i++ {
 		appendCompactTestToolResult(t, store, chatID, fmt.Sprintf("r%d", i), fmt.Sprintf("tool-%d", i), "file_grep", fmt.Sprintf("grep result %d %s", i, strings.Repeat("x", 2000)))
 	}
-	toolSnapshot, err := store.BuildToolCompactSnapshot(chatID, DefaultToolCompactKeepRecent)
+	toolSnapshot, err := store.BuildToolCompactSnapshotToTarget(chatID, DefaultToolCompactKeepRecent, 0)
 	if err != nil {
 		t.Fatalf("BuildToolCompactSnapshot: %v", err)
 	}

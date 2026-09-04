@@ -653,60 +653,6 @@ func (s *ExecutionStore) Upsert(item Execution) error {
 	return err
 }
 
-// Submit lets the synchronous store act as a lightweight recorder in focused
-// tests. Production dispatch uses ExecutionHistoryService, whose Submit never
-// performs SQLite I/O on the query goroutine.
-func (s *ExecutionStore) Submit(item Execution) {
-	_ = s.Upsert(item)
-}
-
-// RecordStart and RecordComplete remain as compatibility helpers for store and
-// API tests; runtime dispatch uses full snapshots through Submit.
-func (s *ExecutionStore) RecordStart(automationID, automationName, sourceFile, agentKey, teamID, zoneID string) (string, error) {
-	item := Execution{
-		ID:             NewExecutionID(),
-		AutomationID:   automationID,
-		AutomationName: automationName,
-		SourceFile:     sourceFile,
-		AgentKey:       agentKey,
-		TeamID:         teamID,
-		ZoneID:         zoneID,
-		Status:         ExecutionStatusRunning,
-		StartedAt:      time.Now().UnixMilli(),
-	}
-	if err := s.Upsert(item); err != nil {
-		return "", err
-	}
-	return item.ID, nil
-}
-
-func (s *ExecutionStore) RecordComplete(executionID string, execErr error) error {
-	item, err := s.GetExecution(executionID)
-	if err != nil {
-		return err
-	}
-	if item == nil {
-		return sql.ErrNoRows
-	}
-	completedAt := time.Now().UnixMilli()
-	duration := completedAt - item.StartedAt
-	if duration < 0 {
-		duration = 0
-	}
-	item.CompletedAt = executionInt64Ptr(completedAt)
-	item.DurationMs = executionInt64Ptr(duration)
-	if execErr == nil {
-		item.Status = ExecutionStatusSuccess
-		item.FinishReason = "complete"
-		item.Error = ""
-	} else {
-		item.Status = ExecutionStatusFailed
-		item.FinishReason = "error"
-		item.Error = execErr.Error()
-	}
-	return s.Upsert(*item)
-}
-
 func normalizeExecution(item Execution) Execution {
 	item.ID = strings.TrimSpace(item.ID)
 	item.AutomationID = strings.TrimSpace(item.AutomationID)

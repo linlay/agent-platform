@@ -192,10 +192,3 @@ func timeContractStatusError(err error) *statusError {
 // invalid JSON record return the same public error without manufacturing a
 // current timestamp or a generic storage error.
 var errTimeContractViolation = errors.New("time contract violation")
-
-// validatePublicTimeContract remains as a narrow compatibility hook for
-// handlers that already own a typed DTO. There is intentionally no generic
-// JSON traversal here: external tool and bridge payloads can legally contain
-// business properties named createdAt, timestamp, or iso. Platform DTOs must
-// validate their declared time fields at their producer/read boundary.
-func validatePublicTimeContract(_ any) error { return nil }

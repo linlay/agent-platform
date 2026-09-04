@@ -45,13 +45,6 @@ func NewSyncCoordinator(registry *Registry, syncer *ToolSync, gate *Availability
 	}
 }
 
-// NewReconnectLoop is retained as the compatibility constructor for focused
-// MCP tests and callers. The loop now also performs the initial asynchronous
-// synchronization and accepts explicit refresh requests.
-func NewReconnectLoop(registry *Registry, syncer *ToolSync, gate *AvailabilityGate, interval time.Duration, notifications ...contracts.NotificationSink) *SyncCoordinator {
-	return NewSyncCoordinator(registry, syncer, gate, interval, notifications...)
-}
-
 // Start launches the worker and returns without contacting any MCP server.
 func (c *SyncCoordinator) Start(ctx context.Context) {
 	if c == nil || c.registry == nil || c.sync == nil || c.gate == nil {

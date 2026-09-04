@@ -241,11 +241,6 @@ func (s *Server) wsMemoryRecord(_ context.Context, conn *ws.Conn, req ws.Request
 }
 
 func sendMemoryWSResponse(conn *ws.Conn, req ws.RequestFrame, response any) {
-	if err := validatePublicTimeContract(response); err != nil {
-		sendTimeContractViolation(conn, req.ID, err)
-		conn.CompleteRequest(req.ID)
-		return
-	}
 	conn.SendResponse(req.Type, req.ID, 0, "success", response)
 	conn.CompleteRequest(req.ID)
 }

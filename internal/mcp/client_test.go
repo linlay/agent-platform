@@ -292,7 +292,7 @@ func TestToolSyncRetainsLastKnownToolsAndRecovers(t *testing.T) {
 	}
 }
 
-func TestReconnectLoopBroadcastsRecoveredToolState(t *testing.T) {
+func TestSyncCoordinatorBroadcastsRecoveredToolState(t *testing.T) {
 	server, unavailable := newToggleableSDKMCPTestServer(t, "remote_tool")
 	defer server.Close()
 	root := t.TempDir()
@@ -317,7 +317,7 @@ func TestReconnectLoopBroadcastsRecoveredToolState(t *testing.T) {
 	notifications := &recordingMCPNotificationSink{}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	NewReconnectLoop(registry, syncer, gate, time.Millisecond, notifications).Start(ctx)
+	NewSyncCoordinator(registry, syncer, gate, time.Millisecond, notifications).Start(ctx)
 
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {

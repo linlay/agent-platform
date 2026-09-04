@@ -26,6 +26,16 @@ type automationTestServer struct {
 	executions   *automation.ExecutionStore
 }
 
+type automationStoreRecorder struct {
+	store *automation.ExecutionStore
+}
+
+func (r automationStoreRecorder) Submit(item automation.Execution) {
+	if r.store != nil {
+		_ = r.store.Upsert(item)
+	}
+}
+
 func newAutomationTestServer(t *testing.T, websocket bool) automationTestServer {
 	t.Helper()
 	root := t.TempDir()
@@ -51,7 +61,7 @@ func newAutomationTestServer(t *testing.T, websocket bool) automationTestServer 
 			StartedAtMillis: now,
 			UpdatedAtMillis: now + 1,
 		}}, nil
-	}, nil, executions)
+	}, nil, automationStoreRecorder{store: executions})
 	orchestrator := automation.NewOrchestrator(registry, dispatcher, config.AutomationConfig{DefaultZoneID: "UTC", PoolSize: 1})
 	if err := orchestrator.Start(context.Background()); err != nil {
 		t.Fatalf("start orchestrator: %v", err)
@@ -109,8 +119,18 @@ func TestAutomationHTTPCRUDAndExecutionHistory(t *testing.T) {
 	}
 	assertAutomationReadableTimeMatches(t, *create.NextFireTime, *create.NextFireAt, time.UTC)
 
-	executionID, err := fixture.executions.RecordStart(create.ID, create.Name, create.SourceFile, create.AgentKey, create.TeamID, "Asia/Shanghai")
-	if err != nil {
+	executionID := automation.NewExecutionID()
+	if err := fixture.executions.Upsert(automation.Execution{
+		ID:             executionID,
+		AutomationID:   create.ID,
+		AutomationName: create.Name,
+		SourceFile:     create.SourceFile,
+		AgentKey:       create.AgentKey,
+		TeamID:         create.TeamID,
+		ZoneID:         "Asia/Shanghai",
+		Status:         automation.ExecutionStatusRunning,
+		StartedAt:      time.Now().UnixMilli(),
+	}); err != nil {
 		t.Fatalf("record start: %v", err)
 	}
 	stored, err := fixture.executions.GetExecution(executionID)

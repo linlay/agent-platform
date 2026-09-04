@@ -271,11 +271,6 @@ func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 			conn.CompleteRequest(req.ID)
 			return
 		}
-		if err := validatePublicTimeContract(items); err != nil {
-			sendTimeContractViolation(conn, req.ID, err)
-			conn.CompleteRequest(req.ID)
-			return
-		}
 		conn.SendResponse(req.Type, req.ID, 0, "success", items)
 		conn.CompleteRequest(req.ID)
 		return
@@ -288,11 +283,6 @@ func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 			return
 		}
 		conn.SendError(req.ID, "internal_error", 500, listErr.Error(), nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	if err := validatePublicTimeContract(items); err != nil {
-		sendTimeContractViolation(conn, req.ID, err)
 		conn.CompleteRequest(req.ID)
 		return
 	}
@@ -374,11 +364,6 @@ func (s *Server) wsChats(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	if err := validatePublicTimeContract(response); err != nil {
-		sendTimeContractViolation(conn, req.ID, err)
-		conn.CompleteRequest(req.ID)
-		return
-	}
 	conn.SendResponse(req.Type, req.ID, 0, "success", response)
 	conn.CompleteRequest(req.ID)
 }
@@ -432,11 +417,6 @@ func (s *Server) wsChat(ctx context.Context, conn *ws.Conn, req ws.RequestFrame)
 			return
 		}
 		conn.SendError(req.ID, "internal_error", 500, loadErr.Error(), nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	if err := validatePublicTimeContract(response); err != nil {
-		sendTimeContractViolation(conn, req.ID, err)
 		conn.CompleteRequest(req.ID)
 		return
 	}
@@ -813,11 +793,6 @@ func (s *Server) wsGlobalSearch(_ context.Context, conn *ws.Conn, req ws.Request
 		Query:   strings.TrimSpace(payload.Query),
 		Count:   len(results),
 		Results: results,
-	}
-	if err := validatePublicTimeContract(response); err != nil {
-		sendTimeContractViolation(conn, req.ID, err)
-		conn.CompleteRequest(req.ID)
-		return
 	}
 	conn.SendResponse(req.Type, req.ID, 0, "success", response)
 	conn.CompleteRequest(req.ID)

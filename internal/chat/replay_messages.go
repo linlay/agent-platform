@@ -17,10 +17,6 @@ type replayMessageOptions struct {
 	Presentation                 string
 }
 
-func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, liveSeq int64, nextSeq func() int64) ([]stream.EventData, error) {
-	return storedMessageToEventsWithOptions(msg, runID, taskID, stage, liveSeq, nextSeq, replayMessageOptions{})
-}
-
 func storedMessageToEventsWithOptions(msg map[string]any, runID, taskID, stage string, liveSeq int64, nextSeq func() int64, options replayMessageOptions) ([]stream.EventData, error) {
 	role, _ := msg["role"].(string)
 	ts, err := timecontract.ParseEpochMillis(msg["ts"], "ts", "chat.replay.message.ts")

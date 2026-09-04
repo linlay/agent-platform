@@ -89,9 +89,6 @@ func (s *Server) loadConversationSnapshot(chatID string, capturedAt int64) (conv
 	if err != nil {
 		return conversationexport.SnapshotDocument{}, err
 	}
-	if err := validatePublicTimeContract(detail.Events); err != nil {
-		return conversationexport.SnapshotDocument{}, err
-	}
 	return conversationexport.BuildSnapshotDocument(summary, detail.Events, capturedAt)
 }
 

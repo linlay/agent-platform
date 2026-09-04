@@ -553,7 +553,7 @@ func TestOrchestratorFirePersistsEffectiveZoneSnapshot(t *testing.T) {
 		nil,
 		NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
 			return successfulTestQuery(req, hooks), nil
-		}, nil, store),
+		}, nil, synchronousExecutionRecorder{store: store}),
 		config.AutomationConfig{PoolSize: 1},
 	)
 	tests := []struct {
@@ -753,7 +753,7 @@ func TestOrchestratorManualTriggerRunsPausedWithoutMutatingScheduleState(t *test
 		entered <- req
 		<-release
 		return successfulTestQuery(req, hooks), nil
-	}, nil, executions)
+	}, nil, synchronousExecutionRecorder{store: executions})
 	orchestrator := NewOrchestrator(registry, dispatcher, config.AutomationConfig{DefaultZoneID: "UTC", PoolSize: 1})
 	if err := orchestrator.Start(context.Background()); err != nil {
 		t.Fatalf("start orchestrator: %v", err)
@@ -831,7 +831,7 @@ func TestOrchestratorManualTriggerRunsEnabledWithoutChangingNextFire(t *testing.
 	dispatcher := NewDispatcher(func(_ context.Context, req api.QueryRequest, hooks QueryRunHooks) (QueryRunResult, error) {
 		dispatched <- req
 		return successfulTestQuery(req, hooks), nil
-	}, nil, executions)
+	}, nil, synchronousExecutionRecorder{store: executions})
 	orchestrator := NewOrchestrator(registry, dispatcher, config.AutomationConfig{DefaultZoneID: "UTC", PoolSize: 1})
 	if err := orchestrator.Start(context.Background()); err != nil {
 		t.Fatalf("start orchestrator: %v", err)
@@ -913,7 +913,7 @@ func TestOrchestratorManualTriggerKeepsQueuedTeamDefinitionSnapshot(t *testing.T
 		entered <- req
 		<-release
 		return successfulTestQuery(req, hooks), nil
-	}, nil, executions)
+	}, nil, synchronousExecutionRecorder{store: executions})
 	orchestrator := NewOrchestrator(registry, dispatcher, config.AutomationConfig{DefaultZoneID: "UTC", PoolSize: 1})
 	if err := orchestrator.Start(context.Background()); err != nil {
 		t.Fatalf("start orchestrator: %v", err)
@@ -975,7 +975,7 @@ func TestOrchestratorManualTriggerStopCancelsRunningAndQueuedExecutions(t *testi
 		entered <- struct{}{}
 		<-ctx.Done()
 		return QueryRunResult{}, ctx.Err()
-	}, nil, executions)
+	}, nil, synchronousExecutionRecorder{store: executions})
 	orchestrator := NewOrchestrator(registry, dispatcher, config.AutomationConfig{PoolSize: 1})
 	if err := orchestrator.Start(context.Background()); err != nil {
 		t.Fatalf("start orchestrator: %v", err)

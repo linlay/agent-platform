@@ -100,16 +100,6 @@ func legacyGroupFromLine(line map[string]any) legacyModelTurnGroup {
 	}
 }
 
-func filterLegacyIncompleteModelTurns(lines []map[string]any, eligibleRuns map[string]bool) ([]map[string]any, error) {
-	runs := make(map[string]legacyRepairableRunState, len(eligibleRuns))
-	for runID, eligible := range eligibleRuns {
-		if eligible {
-			runs[runID] = legacyRepairableRunState{finishReason: "error"}
-		}
-	}
-	return filterLegacyIncompleteModelTurnsWithRuns(lines, runs)
-}
-
 func filterLegacyIncompleteModelTurnsWithRuns(lines []map[string]any, eligibleRuns map[string]legacyRepairableRunState) ([]map[string]any, error) {
 	if len(lines) == 0 || len(eligibleRuns) == 0 {
 		return lines, nil
