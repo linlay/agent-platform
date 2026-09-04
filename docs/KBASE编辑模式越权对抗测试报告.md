@@ -14,7 +14,7 @@ KBASE 不再建立独立的 external 写入硬上限。安全目标是：所有�
 - 默认 external 与其他 chatId 写入先进入 HITL，批准后可成功。
 - AccessPolicy `writeRoots`、`runtimeConfig.hostAccess.writeRoots` 与 `full_access` 可直接允许写入。
 - 管理员 `block` 保持最终拒绝，且不会被 approval 放宽。
-- `..`、绝对路径、Workspace 内 symlink 和伪造的 `pathScope` 都按 canonical 实际目标判定。
+- `..`、绝对路径和 Workspace 内 symlink 都按 canonical 实际目标判定。
 - read approval 不能复用为 write approval。
 - 未在专用 KBASE 固定工具集内的工具不能通过伪造 tool call 注入。
 - KBASE Workspace 支持通用文本格式和通用编码；已有文件仍强制先读后写，新文件父目录必须存在。
@@ -38,7 +38,6 @@ internal/filetools/scoped_test.go
 1. 服务端 canonicalize 目标路径。
 2. 未批准时返回 `file_write_path_approval_required`，目标不变化。
 3. 注册匹配 canonical target 的 write access approval 后，写入成功。
-4. 请求自带的 `pathScope/path_scope` 不参与判定。
 
 ### 策略放宽与收紧
 

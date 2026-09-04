@@ -5,43 +5,6 @@ import (
 	"strings"
 )
 
-type pathScope struct {
-	prefix   string
-	matchers []matcher
-	ext      string
-}
-
-func newPathScope(prefix string, glob string, typ string) pathScope {
-	glob = normalizeKBaseGlob(glob)
-	var matchers []matcher
-	if glob != "" {
-		matchers = compileMatchers([]string{glob})
-	}
-	return pathScope{
-		prefix:   normalizeIndexedPath(prefix),
-		matchers: matchers,
-		ext:      normalizeKBaseExt(typ),
-	}
-}
-
-func (s pathScope) active() bool {
-	return s.prefix != "" || len(s.matchers) > 0 || s.ext != ""
-}
-
-func (s pathScope) matches(path string) bool {
-	path = normalizeIndexedPath(path)
-	if !pathMatchesPrefix(path, s.prefix) {
-		return false
-	}
-	if len(s.matchers) > 0 && !matchesAny(s.matchers, path) {
-		return false
-	}
-	if s.ext != "" && strings.ToLower(filepath.Ext(path)) != s.ext {
-		return false
-	}
-	return true
-}
-
 func normalizeIndexedPath(value string) string {
 	path := filepath.ToSlash(strings.TrimSpace(value))
 	path = strings.TrimPrefix(path, "./")

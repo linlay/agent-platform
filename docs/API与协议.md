@@ -577,7 +577,7 @@ status 中 Lance 字段是可选扩展，旧客户端可忽略：
 
 `lastIndexedAt`、`indexes.lastOptimizedAt` 以及尚未完成的 `lastRun.finishedAt` 都是可选时间点：尚未发生时省略，control DB 中字符串 metadata 只在映射为公开 status 时严格校验，不能透出 `0` 或原始字符串。
 
-KBASE 固定使用 LanceDB；没有 active generation 时 status/search 均标记 stale，search 会触发 refresh。sidecar 不可用时显式返回 unavailable，绝不回退 SQLite。generation 构建、建索引或验证失败时 active generation 不会被替换。watcher 的 change-set 路径不会通过 REST/tool 暴露，外部普通 refresh 仍是完整对账。当前没有新增公开的 generation rollback REST 路由，Lance generation 原子回滚能力保留在 KBASE Manager 内部。
+KBASE 固定使用 LanceDB；没有 active generation 时 status/search 均标记 stale，search 会触发 refresh。sidecar 不可用时显式返回 unavailable。generation 构建、建索引或验证失败时 active generation 不会被替换。watcher 的 change-set 路径不会通过 REST/tool 暴露，外部普通 refresh 仍是完整对账。当前没有新增公开的 generation rollback REST 路由，Lance generation 原子回滚能力保留在 KBASE Manager 内部。
 
 容器与本地进程探活使用免鉴权 `GET /healthz`。它不返回用户数据：始终检查 Go HTTP runtime；存在 enabled KBASE capability 时，还通过 Go 内部持有的 Bearer token 检查 sidecar protocol handshake。至少一个专用 `mode: KBASE` 将 sidecar 标为 required，不可用时返回 HTTP 503；只有普通 Agent optional capability 时仍返回 HTTP 200，并在 `data.kbase` 中报告 `degraded` 与错误。
 

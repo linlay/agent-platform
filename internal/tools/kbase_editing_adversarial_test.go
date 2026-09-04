@@ -44,10 +44,8 @@ func TestKBaseEditingAdversarialWritesFollowCanonicalAccessPolicy(t *testing.T) 
 		execCtx := cloneKBaseAdversarialContext(baseContext)
 		execCtx.Session.AccessLevel = contracts.AccessLevelDefault
 		args := map[string]any{
-			"file_path":  rawPath,
-			"content":    "approved",
-			"pathScope":  "workspace",
-			"path_scope": "workspace",
+			"file_path": rawPath,
+			"content":   "approved",
 		}
 		plan, err := filetools.BuildAccessPlanFromPolicy(
 			executor.cfg.AccessPolicy,

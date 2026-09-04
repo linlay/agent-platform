@@ -183,7 +183,7 @@ make test
 - `run_query` / `run_status` / `run_interrupt` 只允许分别显式配置的普通主 Agent 根 run 使用，query 按精确 catalog `agentKey/teamId` 启动独立根 run；不设目标白名单、深度/并发配置或 maxActiveRuns。status/interrupt 只接受同一调用 Agent 与 subject 创建的 run，目标 run 禁止再次调用任一 run 工具。旧 `agent_run_query`、`agent_run_status`、`agent_run_interrupt` 已删除且配置引用会硬失败。
 - chat 创建后 `teamId` 固定。Team 以 `teamId` 为公开 owner，`agentKey` 不得与 Team 请求或控制请求同时出现；隐藏协调器 key 只用于进程内执行，不得作为公共 Agent 身份回显。
 - Team 成员、成员定义、协调器配置与 prompt 在 run 开始时解析为快照，运行中 catalog 热重载不改变该 run；下一次 run 才读取新快照。
-- KBASE Lance sidecar 只监听 loopback，由 Go 生成一次性 Bearer token 并监督生命周期。存在 enabled KBASE capability 时会启动并探测 sidecar；`mode: KBASE` 将其标为 required，故障使健康检查失败，普通 Agent 附加能力将其标为 optional，故障只在 `/healthz` 和 capability 状态中报告 degraded。无 active generation 时 search 返回 stale 并触发冷建，sidecar 故障显式返回 unavailable，绝不回退旧 SQLite 文件。
+- KBASE Lance sidecar 只监听 loopback，由 Go 生成一次性 Bearer token 并监督生命周期。存在 enabled KBASE capability 时会启动并探测 sidecar；`mode: KBASE` 将其标为 required，故障使健康检查失败，普通 Agent 附加能力将其标为 optional，故障只在 `/healthz` 和 capability 状态中报告 degraded。无 active generation 时 search 返回 stale 并触发冷建，sidecar 故障显式返回 unavailable。
 - 当前 KBASE 只对文本抽取结果做 embedding/FTS；PDF/DOCX/PPTX/HTML 均是先抽取文本，不得宣称支持图片、音频或视频语义检索。
 - SQLite runtime store 使用 `application_id`（库类型）和 `user_version`（schema 版本）作为身份契约。仅在 `app.New` 启动装配期，`chats.db`、`archive.db`、Memory SQLite 与 KBASE `control.db` 的标记恰为 `0/0`，且表、列语义、约束、索引、触发器和 FTS 对象完整匹配当前 DDL 时，服务才会在事务中写入当前标记；列物理顺序不影响比较。运行期仅验证，绝不认领、迁移、删除或修复。其他标记组合、结构差异或残留旧数据均拒绝；chat/archive/memory 会阻止启动，required KBASE capability 会隔离对应 Agent 并保留管理端诊断，引用它的 Team 同样不可运行；optional capability 保留普通 Agent 可运行并报告 degraded/unavailable。
 
@@ -197,7 +197,7 @@ make test
 - [记忆系统](docs/记忆系统.md)：remember、SQLite memory、FTS、embedding、learn、consolidate、memory tools。
 - [运行时和沙箱](docs/运行时和沙箱.md)：runtime 目录、Container Hub、mounts、host / sandbox 工具边界。
 - [Platform控制工具设计](docs/Platform控制工具设计.md)：`platform_control` operation、显式工具挂载、run-local 环境快照、并发、脱敏、恢复与执行通道边界。
-- [KBASE LanceDB 迁移](docs/KBASE-LanceDB迁移.md)：LanceDB sidecar、control.db、generation、加权 RRF、迁移验证、恢复、回滚与分发边界。
+- [KBASE LanceDB 检索与控制面](docs/KBASE-LanceDB检索与控制面.md)：LanceDB sidecar、control.db、generation、加权 RRF、恢复、回滚与分发边界。
 - [KBASE 编辑模式](docs/KBASE编辑模式.md)：`editingMode`、通用文本文件、AccessPolicy/HITL、watcher 异步索引和 KBASE Workspace/Chats 分离。
 - [KBASE 编辑模式越权对抗测试报告](docs/KBASE编辑模式越权对抗测试报告.md)：准入、固定工具集、HITL、approval replay、路径逃逸、chat 隔离和索引 hook 的红队验证记录。
 - [API与协议](docs/API与协议.md)：HTTP API 参数、SSE、WebSocket、HTTP 文件数据面、resource ticket。

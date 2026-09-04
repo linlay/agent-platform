@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	neturl "net/url"
 	"strings"
@@ -149,24 +148,4 @@ func (e *Embedder) EmbedSingle(ctx context.Context, text string) ([]float64, err
 		return nil, fmt.Errorf("kbase embedding response empty")
 	}
 	return vectors[0], nil
-}
-
-func cosineSimilarity(a, b []float64) float64 {
-	if len(a) != len(b) || len(a) == 0 {
-		return 0
-	}
-	var dot, normA, normB float64
-	for i := range a {
-		dot += a[i] * b[i]
-		normA += a[i] * a[i]
-		normB += b[i] * b[i]
-	}
-	if normA == 0 || normB == 0 {
-		return 0
-	}
-	score := dot / (math.Sqrt(normA) * math.Sqrt(normB))
-	if score < 0 {
-		return 0
-	}
-	return score
 }
