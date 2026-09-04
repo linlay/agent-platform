@@ -131,9 +131,8 @@ type teamMode struct{}
 
 func (teamMode) Start(engine *LLMAgentEngine, ctx context.Context, req api.QueryRequest, session QuerySession) (AgentStream, error) {
 	return engine.newRunStreamWithOptions(ctx, req, session, true, runStreamOptions{
-		Stage:                 agentteam.MainStage,
-		ToolChoice:            "auto",
-		RequireTeamDelegation: true,
+		Stage:      agentteam.MainStage,
+		ToolChoice: "auto",
 	})
 }
 

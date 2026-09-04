@@ -298,8 +298,8 @@ func TestFrameOrchestratorTeamCustomTaskDelegationMergesParallelHITL(t *testing.
 	if mergedAskCount != 1 || len(engine.submits) != 2 {
 		t.Fatalf("delegation HITL was not merged/distributed: asks=%d submits=%d", mergedAskCount, len(engine.submits))
 	}
-	if len(main.injected) != 1 || main.injected[0].isError || !main.optionalToolsAllowed {
-		t.Fatalf("delegation did not resume coordinator: injected=%#v optional=%v", main.injected, main.optionalToolsAllowed)
+	if len(main.injected) != 1 || main.injected[0].isError {
+		t.Fatalf("delegation did not resume coordinator: injected=%#v", main.injected)
 	}
 }
 

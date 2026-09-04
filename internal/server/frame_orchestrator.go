@@ -549,9 +549,6 @@ func (o *frameOrchestrator) handleTeamDispatch(mainStream contracts.AgentStream,
 	if !main.InjectToolResult(dispatch.MainToolID, string(aggregated), anyFailed) {
 		return false, fmt.Errorf("TEAM coordinator rejected dispatch result")
 	}
-	if optional, ok := mainStream.(contracts.OptionalToolAgentStream); ok {
-		optional.AllowOptionalTools()
-	}
 	return false, nil
 }
 

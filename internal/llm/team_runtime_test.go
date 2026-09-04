@@ -21,7 +21,8 @@ func TestPrepareToolCallTeamDelegateEmitsHiddenDispatch(t *testing.T) {
 			Mode:        agentteam.Mode,
 			TeamRuntime: &contracts.TeamRuntimeContext{MaxParallel: 2, Members: members},
 		},
-		execCtx: &contracts.ExecutionContext{},
+		execCtx:          &contracts.ExecutionContext{},
+		teamStateMachine: agentteam.NewStateMachine(),
 	}
 
 	invocation, deltas, toolMessage := stream.prepareToolCall(openAIToolCall{
@@ -30,6 +31,9 @@ func TestPrepareToolCallTeamDelegateEmitsHiddenDispatch(t *testing.T) {
 	})
 	if toolMessage != nil || len(deltas) != 0 || invocation == nil || !invocation.awaitExternalResult {
 		t.Fatalf("unexpected preparation invocation=%#v deltas=%#v message=%#v", invocation, deltas, toolMessage)
+	}
+	if invocation.teamDispatch == nil || stream.teamStateMachine.Phase() != agentteam.PhaseRouting {
+		t.Fatalf("Team dispatch changed state during parsing: invocation=%#v phase=%q", invocation, stream.teamStateMachine.Phase())
 	}
 	if len(invocation.prelude) != 1 {
 		t.Fatalf("prelude=%#v", invocation.prelude)
@@ -54,7 +58,8 @@ func TestPrepareToolCallTeamDelegateValidatesFrozenRoster(t *testing.T) {
 			Mode:        agentteam.Mode,
 			TeamRuntime: &contracts.TeamRuntimeContext{MaxParallel: 1, Members: []contracts.TeamMember{{Key: "writer"}}},
 		},
-		execCtx: &contracts.ExecutionContext{},
+		execCtx:          &contracts.ExecutionContext{},
+		teamStateMachine: agentteam.NewStateMachine(),
 	}
 
 	invocation, deltas, toolMessage := stream.prepareToolCall(openAIToolCall{
@@ -67,6 +72,32 @@ func TestPrepareToolCallTeamDelegateValidatesFrozenRoster(t *testing.T) {
 	result, ok := deltas[0].(contracts.DeltaToolResult)
 	if !ok || result.Result.Error != "invalid_tool_arguments" {
 		t.Fatalf("unexpected Team validation result %#v", deltas[0])
+	}
+	if stream.teamStateMachine.Phase() != agentteam.PhaseRouting {
+		t.Fatalf("invalid Team dispatch changed phase to %q", stream.teamStateMachine.Phase())
+	}
+}
+
+func TestTeamNonDelegateToolDoesNotSatisfyInitialRoute(t *testing.T) {
+	stream := &llmRunStream{
+		engine:           &LLMAgentEngine{tools: stubToolExecutor{}, interactions: toolinteraction.NewDefaultRegistry()},
+		session:          contracts.QuerySession{RunID: "run-team", Mode: agentteam.Mode, TeamRuntime: &contracts.TeamRuntimeContext{}},
+		execCtx:          &contracts.ExecutionContext{},
+		teamStateMachine: agentteam.NewStateMachine(),
+	}
+	invocation, _, _ := stream.prepareToolCall(openAIToolCall{
+		ID: "plan-call", Type: "function",
+		Function: openAIFunctionCall{Name: contracts.PlanGetTasksToolName, Arguments: `{}`},
+	})
+	if invocation == nil {
+		t.Fatal("planning tool was not prepared")
+	}
+	stream.queuedToolCalls = []*preparedToolInvocation{invocation}
+	if err := stream.activateNextToolCall(); err != nil {
+		t.Fatalf("activate planning tool: %v", err)
+	}
+	if !stream.teamRouteRequired() || stream.teamStateMachine.Phase() != agentteam.PhaseRouting {
+		t.Fatalf("planning tool satisfied Team route: phase=%q", stream.teamStateMachine.Phase())
 	}
 }
 
@@ -110,11 +141,11 @@ func TestMergeToolDefinitionsKeepsTeamToolSessionLocal(t *testing.T) {
 
 func TestTeamMandatoryRouteSuppressesTextAndCorrectsOnlyOnce(t *testing.T) {
 	stream := &llmRunStream{
-		engine:               &LLMAgentEngine{},
-		session:              contracts.QuerySession{RunID: "run-team", TeamRuntime: &contracts.TeamRuntimeContext{}},
-		execCtx:              &contracts.ExecutionContext{},
-		toolChoice:           "auto",
-		teamDelegateRequired: true,
+		engine:           &LLMAgentEngine{},
+		session:          contracts.QuerySession{RunID: "run-team", TeamRuntime: &contracts.TeamRuntimeContext{}},
+		execCtx:          &contracts.ExecutionContext{},
+		toolChoice:       "auto",
+		teamStateMachine: agentteam.NewStateMachine(),
 	}
 
 	stream.currentTurn = &providerTurnStream{finishReason: "stop"}
@@ -128,8 +159,8 @@ func TestTeamMandatoryRouteSuppressesTextAndCorrectsOnlyOnce(t *testing.T) {
 	if err := stream.finishCurrentTurn(); err != nil {
 		t.Fatalf("first invalid route: %v", err)
 	}
-	if stream.teamRouteCorrections != 1 || stream.modelTerminalError != nil || len(stream.messages) != 1 {
-		t.Fatalf("first invalid route did not schedule exactly one correction: corrections=%d terminal=%v messages=%#v", stream.teamRouteCorrections, stream.modelTerminalError, stream.messages)
+	if stream.teamStateMachine.Phase() != agentteam.PhaseRouting || stream.modelTerminalError != nil || len(stream.messages) != 1 {
+		t.Fatalf("first invalid route did not schedule exactly one correction: phase=%q terminal=%v messages=%#v", stream.teamStateMachine.Phase(), stream.modelTerminalError, stream.messages)
 	}
 	if stream.messages[0].Role != "user" {
 		t.Fatalf("correction message=%#v", stream.messages[0])
@@ -144,6 +175,9 @@ func TestTeamMandatoryRouteSuppressesTextAndCorrectsOnlyOnce(t *testing.T) {
 	}
 	if stream.modelTerminalError == nil || !strings.Contains(stream.modelTerminalError.Error(), "did not produce a valid agent_delegate call") {
 		t.Fatalf("second invalid route was not terminated: %v", stream.modelTerminalError)
+	}
+	if stream.teamStateMachine.Phase() != agentteam.PhaseFailed {
+		t.Fatalf("second invalid route phase=%q, want failed", stream.teamStateMachine.Phase())
 	}
 }
 
@@ -204,7 +238,7 @@ func TestTeamModeUsesAutoProviderToolChoiceAndRetainsMandatoryDelegation(t *test
 	if stream.toolChoice != "auto" {
 		t.Fatalf("Team provider toolChoice = %q, want auto", stream.toolChoice)
 	}
-	if !stream.teamDelegateRequired || !stream.teamRouteRequired() {
+	if stream.teamStateMachine == nil || !stream.teamRouteRequired() || stream.teamStateMachine.Phase() != agentteam.PhaseRouting {
 		t.Fatalf("Team must retain its initial delegation requirement: %#v", stream)
 	}
 
@@ -225,8 +259,104 @@ func TestTeamModeUsesAutoProviderToolChoiceAndRetainsMandatoryDelegation(t *test
 		t.Fatalf("Team request tool_choice = %#v, want auto", got)
 	}
 
-	stream.AllowOptionalTools()
-	if stream.teamDelegateRequired || stream.teamRouteRequired() {
-		t.Fatalf("Team delegation requirement should clear after a member dispatch: %#v", stream)
+	dispatch := agentteam.Dispatch{Tasks: []agentteam.TaskSpec{{AgentKey: "writer"}}}
+	stream.queuedToolCalls = []*preparedToolInvocation{{
+		toolID:              "team-call",
+		toolName:            agentteam.ToolDelegate,
+		awaitExternalResult: true,
+		teamDispatch:        &dispatch,
+	}}
+	if err := stream.activateNextToolCall(); err != nil {
+		t.Fatalf("activate Team dispatch: %v", err)
+	}
+	if stream.teamStateMachine.Phase() != agentteam.PhaseWaiting || stream.teamRouteRequired() {
+		t.Fatalf("activated Team dispatch phase=%q required=%v", stream.teamStateMachine.Phase(), stream.teamRouteRequired())
+	}
+	if stream.InjectToolResult("wrong-call", `{"results":[]}`, false) {
+		t.Fatal("wrong Team tool id unexpectedly injected a result")
+	}
+	if stream.teamStateMachine.Phase() != agentteam.PhaseWaiting {
+		t.Fatalf("wrong Team tool id changed phase to %q", stream.teamStateMachine.Phase())
+	}
+	if !stream.InjectToolResult("team-call", `{"results":[]}`, false) {
+		t.Fatal("active Team dispatch rejected its result")
+	}
+	if stream.teamRouteRequired() || stream.teamStateMachine.Phase() != agentteam.PhaseCoordinator {
+		t.Fatalf("Team delegation result did not restore coordinator control: phase=%q", stream.teamStateMachine.Phase())
+	}
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("consume first Team result: %v", err)
+	}
+	secondDispatch := agentteam.Dispatch{Tasks: []agentteam.TaskSpec{{AgentKey: "reviewer"}}}
+	stream.queuedToolCalls = []*preparedToolInvocation{{
+		toolID:              "team-call-2",
+		toolName:            agentteam.ToolDelegate,
+		awaitExternalResult: true,
+		teamDispatch:        &secondDispatch,
+	}}
+	if err := stream.activateNextToolCall(); err != nil {
+		t.Fatalf("activate second Team dispatch: %v", err)
+	}
+	if stream.teamStateMachine.Phase() != agentteam.PhaseWaiting || stream.teamStateMachine.DispatchCount() != 2 {
+		t.Fatalf("second Team dispatch phase=%q count=%d", stream.teamStateMachine.Phase(), stream.teamStateMachine.DispatchCount())
+	}
+	if !stream.InjectToolResult("team-call-2", `{"results":[{"agentKey":"reviewer","status":"failed"}]}`, true) {
+		t.Fatal("failed second Team dispatch rejected its result")
+	}
+	if stream.teamStateMachine.Phase() != agentteam.PhaseCoordinator {
+		t.Fatalf("failed Team result did not return coordinator control: phase=%q", stream.teamStateMachine.Phase())
+	}
+}
+
+func TestTeamCoordinatorPlainTextCompletesStateMachine(t *testing.T) {
+	machine := agentteam.NewStateMachine()
+	if err := machine.BeginDispatch(agentteam.Dispatch{Tasks: []agentteam.TaskSpec{{AgentKey: "writer"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := machine.FinishDispatch(); err != nil {
+		t.Fatal(err)
+	}
+	stream := &llmRunStream{
+		engine:           &LLMAgentEngine{},
+		session:          contracts.QuerySession{RunID: "run-team", TeamRuntime: &contracts.TeamRuntimeContext{}},
+		execCtx:          &contracts.ExecutionContext{},
+		teamStateMachine: machine,
+		currentTurn:      &providerTurnStream{finishReason: "stop"},
+	}
+	stream.appendContentDelta("coordinator final answer")
+	if err := stream.finishCurrentTurn(); err != nil {
+		t.Fatalf("finish coordinator answer: %v", err)
+	}
+	if machine.Phase() != agentteam.PhaseComplete || !stream.finished {
+		t.Fatalf("coordinator answer phase=%q finished=%v", machine.Phase(), stream.finished)
+	}
+}
+
+func TestTeamCoordinatorTailSteerKeepsStateMachineActive(t *testing.T) {
+	machine := agentteam.NewStateMachine()
+	if err := machine.BeginDispatch(agentteam.Dispatch{Tasks: []agentteam.TaskSpec{{AgentKey: "writer"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := machine.FinishDispatch(); err != nil {
+		t.Fatal(err)
+	}
+	control := contracts.NewRunControl(context.Background(), "run-team")
+	if !control.EnqueueSteer(api.SteerRequest{RunID: "run-team", Message: "continue with a review"}) {
+		t.Fatal("enqueue Team steer")
+	}
+	stream := &llmRunStream{
+		engine:           &LLMAgentEngine{},
+		session:          contracts.QuerySession{RunID: "run-team", TeamRuntime: &contracts.TeamRuntimeContext{}},
+		execCtx:          &contracts.ExecutionContext{},
+		runControl:       control,
+		teamStateMachine: machine,
+		currentTurn:      &providerTurnStream{finishReason: "stop"},
+	}
+	stream.appendContentDelta("first coordinator answer")
+	if err := stream.finishCurrentTurn(); err != nil {
+		t.Fatalf("finish coordinator answer with steer: %v", err)
+	}
+	if machine.Phase() != agentteam.PhaseCoordinator || stream.finished {
+		t.Fatalf("tail steer phase=%q finished=%v", machine.Phase(), stream.finished)
 	}
 }

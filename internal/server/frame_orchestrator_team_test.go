@@ -69,9 +69,6 @@ func TestFrameOrchestratorTeamSingleDelegationReturnsMemberResultToCoordinator(t
 	if len(main.injected) != 1 || main.injected[0].isError || !strings.Contains(main.injected[0].text, `"agentKey":"writer"`) || !strings.Contains(main.injected[0].text, `"content":"member answer"`) {
 		t.Fatalf("single delegation did not return a structured result: %#v", main.injected)
 	}
-	if !main.optionalToolsAllowed {
-		t.Fatal("single delegation did not return normal coordinator control")
-	}
 	if len(emitted) != 2 {
 		t.Fatalf("single delegation lifecycle count=%d, want 2: %#v", len(emitted), emitted)
 	}
@@ -114,9 +111,6 @@ func TestFrameOrchestratorTeamMultiDelegationUsesSameCoordinatorReturnPath(t *te
 	}
 	if len(main.injected) != 1 || main.injected[0].isError || !strings.Contains(main.injected[0].text, "writer answer") || !strings.Contains(main.injected[0].text, "reviewer answer") {
 		t.Fatalf("unexpected multi-member result %#v", main.injected)
-	}
-	if !main.optionalToolsAllowed {
-		t.Fatal("multi-member delegation did not use normal coordinator return path")
 	}
 	if len(emitted) != 4 {
 		t.Fatalf("delegation lifecycle count=%d, want 4: %#v", len(emitted), emitted)
@@ -221,8 +215,8 @@ func TestFrameOrchestratorTeamCustomTaskUsesSameDelegationPath(t *testing.T) {
 	if err != nil || failed || interrupted {
 		t.Fatalf("Run() = failed=%v interrupted=%v err=%v", failed, interrupted, err)
 	}
-	if len(main.injected) != 1 || main.injected[0].isError || !main.optionalToolsAllowed {
-		t.Fatalf("custom delegation did not return result and release required routing gate: injected=%#v optional=%v", main.injected, main.optionalToolsAllowed)
+	if len(main.injected) != 1 || main.injected[0].isError {
+		t.Fatalf("custom delegation did not return result: injected=%#v", main.injected)
 	}
 }
 

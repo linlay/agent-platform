@@ -151,8 +151,8 @@ func TestTeamDelegationRunsEveryMemberThroughBoundedPool(t *testing.T) {
 	if len(engine.streamsByAgentKey) != 0 {
 		t.Fatalf("delegation left unexecuted members: %v", engine.streamsByAgentKey)
 	}
-	if len(main.injected) != 1 || main.injected[0].isError || !main.optionalToolsAllowed {
-		t.Fatalf("unexpected delegation completion: injected=%#v optional=%v", main.injected, main.optionalToolsAllowed)
+	if len(main.injected) != 1 || main.injected[0].isError {
+		t.Fatalf("unexpected delegation completion: injected=%#v", main.injected)
 	}
 }
 
@@ -185,8 +185,8 @@ func TestTeamDelegationPartialFailureDoesNotCancelOtherMembers(t *testing.T) {
 	if len(engine.streamsByAgentKey) != 0 {
 		t.Fatalf("partial failure cancelled or skipped members: %v", engine.streamsByAgentKey)
 	}
-	if len(main.injected) != 1 || !main.injected[0].isError || !main.optionalToolsAllowed {
-		t.Fatalf("unexpected partial delegation completion: injected=%#v optional=%v", main.injected, main.optionalToolsAllowed)
+	if len(main.injected) != 1 || !main.injected[0].isError {
+		t.Fatalf("unexpected partial delegation completion: injected=%#v", main.injected)
 	}
 	var aggregate teamDelegateToolResult
 	if err := json.Unmarshal([]byte(main.injected[0].text), &aggregate); err != nil {
@@ -237,7 +237,7 @@ func TestTeamSingleDelegationAlwaysReturnsControlToCoordinator(t *testing.T) {
 	if main.index != 2 {
 		t.Fatalf("single delegation consumed %d coordinator deltas, want dispatch and final answer", main.index)
 	}
-	if len(main.injected) != 1 || main.injected[0].isError || !main.optionalToolsAllowed {
+	if len(main.injected) != 1 || main.injected[0].isError {
 		t.Fatalf("single delegation did not return control to coordinator: %#v", main)
 	}
 	foundCoordinatorAnswer := false

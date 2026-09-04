@@ -1,41 +1,9 @@
 package team
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"strings"
-
-	"agent-platform/internal/api"
 )
-
-type DispatchRequest struct {
-	TeamID          string
-	RunID           string
-	ChatID          string
-	ToolID          string
-	OriginalMessage string
-	References      []api.Reference
-	Dispatch        Dispatch
-}
-
-type MemberResult struct {
-	AgentKey string `json:"agentKey"`
-	TaskName string `json:"taskName,omitempty"`
-	Content  string `json:"content,omitempty"`
-	Error    string `json:"error,omitempty"`
-}
-
-func (r MemberResult) Succeeded() bool {
-	return strings.TrimSpace(r.Error) == ""
-}
-
-// Runtime is implemented by the runtime adapter outside this package. The
-// Team package owns routing policy and state transitions; the adapter owns
-// catalog/session resolution, member streams, persistence and event routing.
-type Runtime interface {
-	ExecuteDispatch(ctx context.Context, request DispatchRequest) ([]MemberResult, error)
-}
 
 type Phase string
 
@@ -57,7 +25,7 @@ const (
 
 var (
 	ErrToolRouteRequired     = errors.New("Team coordinator must delegate with agent_delegate")
-	ErrRoutingRetryExhausted = errors.New("Team coordinator failed to produce a valid delegation")
+	ErrRoutingRetryExhausted = errors.New("TEAM coordinator did not produce a valid agent_delegate call after one correction")
 	ErrInvalidTransition     = errors.New("invalid Team coordinator transition")
 )
 
@@ -65,7 +33,6 @@ type StateMachine struct {
 	phase          Phase
 	routingRetries int
 	dispatchCount  int
-	active         Dispatch
 }
 
 func NewStateMachine() *StateMachine {
@@ -84,6 +51,10 @@ func (m *StateMachine) DispatchCount() int {
 		return 0
 	}
 	return m.dispatchCount
+}
+
+func (m *StateMachine) RequiresDelegation() bool {
+	return m != nil && m.Phase() == PhaseRouting
 }
 
 func (m *StateMachine) RejectPlainText() (NextAction, error) {
@@ -116,17 +87,18 @@ func (m *StateMachine) BeginDispatch(dispatch Dispatch) error {
 	if len(dispatch.Tasks) == 0 {
 		return fmt.Errorf("%w: dispatch requires tasks", ErrInvalidTransition)
 	}
-	m.active = dispatch
 	m.dispatchCount++
 	m.phase = PhaseWaiting
 	return nil
 }
 
-func (m *StateMachine) FinishDispatch(_ []MemberResult) (NextAction, error) {
+func (m *StateMachine) FinishDispatch() (NextAction, error) {
 	if m == nil || m.phase != PhaseWaiting {
 		return "", fmt.Errorf("%w: no active dispatch", ErrInvalidTransition)
 	}
-	m.active = Dispatch{}
+	// Member success or failure is coordinator input, not a state-machine
+	// branch. Either result returns control so the coordinator can retry,
+	// delegate another batch, or synthesize the final answer.
 	m.phase = PhaseCoordinator
 	return ActionContinueCoordinator, nil
 }

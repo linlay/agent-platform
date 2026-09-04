@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"agent-platform/internal/accesspolicy"
+	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
 	"agent-platform/internal/bashsec"
 	"agent-platform/internal/chat"
@@ -42,7 +43,7 @@ type llmRunStream struct {
 	maxSteps                    int
 	budgetStage                 string
 	toolChoice                  string
-	teamDelegateRequired        bool
+	teamStateMachine            *agentteam.StateMachine
 	postToolHook                func(string, string) PostToolHookResult
 	checker                     hitl.Checker
 
@@ -58,7 +59,6 @@ type llmRunStream struct {
 	fallbackSent         bool
 	cancelSent           bool
 	finalTurnAttempted   bool
-	teamRouteCorrections int
 	allowToolUse         bool
 	previousToolResult   any
 	queuedToolCalls      []*preparedToolInvocation
@@ -167,6 +167,7 @@ type preparedToolInvocation struct {
 	approvalDecision    string
 	hitlDecision        *hitlDecisionState
 	queuedResult        *ToolExecutionResult
+	teamDispatch        *agentteam.Dispatch
 }
 
 type pendingHITLApprovalBatch struct {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	agentcoder "agent-platform/internal/agent/coder"
+	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
@@ -37,7 +38,6 @@ type runStreamOptions struct {
 	MaxSteps                     int
 	Stage                        string
 	ToolChoice                   string
-	RequireTeamDelegation        bool
 	PreserveProvidedSystemPrompt bool
 	PostToolHook                 func(toolName string, toolID string) PostToolHookResult
 	DisableContextCompaction     bool
@@ -206,6 +206,10 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	if toolChoice == "" {
 		toolChoice = "auto"
 	}
+	var teamStateMachine *agentteam.StateMachine
+	if session.TeamRuntime != nil {
+		teamStateMachine = agentteam.NewStateMachine()
+	}
 	promptBuildOptions := PromptBuildOptions{
 		Stage:                   options.Stage,
 		StageInstructionsPrompt: "",
@@ -214,33 +218,33 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		IncludeAfterCallHints:   true,
 	}
 	stream := &llmRunStream{
-		engine:               e,
-		protocol:             resolveProtocol(e, model),
-		ctx:                  ctx,
-		req:                  req,
-		session:              session,
-		runControl:           execCtx.RunControl,
-		model:                model,
-		provider:             provider,
-		toolSpecs:            toolSpecs,
-		requestedToolNames:   append([]string(nil), allowedTools...),
-		messages:             append([]openAIMessage(nil), messages...),
-		pinnedMessageStart:   pinnedMessageStart,
-		pinnedMessageEnd:     pinnedMessageEnd,
-		compactDisabled:      options.DisableContextCompaction || strings.HasPrefix(strings.TrimSpace(session.RunScopeID), "btw:"),
-		protocolConfig:       protocolConfig,
-		stageSettings:        stageSettings,
-		execCtx:              execCtx,
-		maxSteps:             maxSteps,
-		budgetStage:          budgetStage,
-		toolChoice:           toolChoice,
-		teamDelegateRequired: options.RequireTeamDelegation,
-		postToolHook:         options.PostToolHook,
-		allowToolUse:         allowToolUse,
-		promptBuildOptions:   promptBuildOptions,
-		onApprovalSummary:    approvalSummarySinkFromContext(ctx),
-		systemInitCacheKey:   cacheKey,
-		systemInitCacheUsed:  useCachedSystemInit,
+		engine:              e,
+		protocol:            resolveProtocol(e, model),
+		ctx:                 ctx,
+		req:                 req,
+		session:             session,
+		runControl:          execCtx.RunControl,
+		model:               model,
+		provider:            provider,
+		toolSpecs:           toolSpecs,
+		requestedToolNames:  append([]string(nil), allowedTools...),
+		messages:            append([]openAIMessage(nil), messages...),
+		pinnedMessageStart:  pinnedMessageStart,
+		pinnedMessageEnd:    pinnedMessageEnd,
+		compactDisabled:     options.DisableContextCompaction || strings.HasPrefix(strings.TrimSpace(session.RunScopeID), "btw:"),
+		protocolConfig:      protocolConfig,
+		stageSettings:       stageSettings,
+		execCtx:             execCtx,
+		maxSteps:            maxSteps,
+		budgetStage:         budgetStage,
+		toolChoice:          toolChoice,
+		teamStateMachine:    teamStateMachine,
+		postToolHook:        options.PostToolHook,
+		allowToolUse:        allowToolUse,
+		promptBuildOptions:  promptBuildOptions,
+		onApprovalSummary:   approvalSummarySinkFromContext(ctx),
+		systemInitCacheKey:  cacheKey,
+		systemInitCacheUsed: useCachedSystemInit,
 	}
 	if stream.runControl != nil && session.SupportsContextCompaction && strings.TrimSpace(session.SubTaskID) == "" && !options.DisableContextCompaction {
 		stream.runControl.EnableContextCompact()

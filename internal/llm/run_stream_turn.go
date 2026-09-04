@@ -471,15 +471,15 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		})
 		s.currentTurn = nil
 		s.pending = append(s.pending, s.buildModelRunActivity("completed", nil, nil))
-		if s.teamRouteCorrections < agentteam.MaxRoutingRetries {
-			s.teamRouteCorrections++
+		action, routeErr := s.teamStateMachine.RejectPlainText()
+		if action == agentteam.ActionRetryRouting {
 			s.messages = append(s.messages, openAIMessage{
 				Role:    "user",
 				Content: "The previous response did not perform the mandatory Team delegation step. Call agent_delegate now; planning tools alone do not satisfy this requirement, and you must not answer with ordinary text yet.",
 			})
 			return nil
 		}
-		s.modelTerminalError = fmt.Errorf("TEAM coordinator did not produce a valid agent_delegate call after one correction")
+		s.modelTerminalError = routeErr
 		return nil
 	}
 	if s.teamRouteRequired() {
@@ -537,6 +537,16 @@ func (s *llmRunStream) finishCurrentTurn() error {
 				s.pending = append(s.pending, DeltaModelTurnCommit{TaskID: s.modelActivityTaskID(), RunSeq: runSeq})
 			}
 			return nil
+		}
+		if s.teamStateMachine != nil && s.teamStateMachine.Phase() == agentteam.PhaseCoordinator {
+			action, transitionErr := s.teamStateMachine.RejectPlainText()
+			if transitionErr != nil || action != agentteam.ActionComplete {
+				if transitionErr == nil {
+					transitionErr = agentteam.ErrInvalidTransition
+				}
+				s.modelTerminalError = transitionErr
+				return nil
+			}
 		}
 		if strings.TrimSpace(content) == "" {
 			if s.runLimitFinalAnswerActive() {
@@ -655,7 +665,7 @@ func isProviderTimeoutError(err error) bool {
 }
 
 func (s *llmRunStream) teamRouteRequired() bool {
-	return s != nil && s.session.TeamRuntime != nil && s.teamDelegateRequired
+	return s != nil && s.teamStateMachine != nil && s.teamStateMachine.RequiresDelegation()
 }
 
 func (s *llmRunStream) newAssistantTurnMessage(turn *providerTurnStream, content string, toolCalls []openAIToolCall) openAIMessage {
@@ -770,12 +780,23 @@ func (s *llmRunStream) InjectToolResult(toolID string, text string, isError bool
 		result.ExitCode = -1
 	}
 	if s.activeToolCall != nil && s.activeToolCall.awaitExternalResult && s.activeToolCall.toolID == strings.TrimSpace(toolID) {
+		if s.activeToolCall.teamDispatch != nil {
+			if s.teamStateMachine == nil {
+				return false
+			}
+			if _, err := s.teamStateMachine.FinishDispatch(); err != nil {
+				return false
+			}
+		}
 		s.activeToolCall.queuedResult = &result
 		return true
 	}
 	for _, invocation := range s.queuedToolCalls {
 		if invocation == nil || !invocation.awaitExternalResult || invocation.toolID != strings.TrimSpace(toolID) {
 			continue
+		}
+		if invocation.teamDispatch != nil {
+			return false
 		}
 		invocation.queuedResult = &result
 		return true
@@ -799,15 +820,6 @@ func (s *llmRunStream) FinalAssistantContent() (string, bool) {
 		return text, true
 	}
 	return "", false
-}
-
-func (s *llmRunStream) AllowOptionalTools() {
-	if s == nil {
-		return
-	}
-	s.allowToolUse = true
-	s.toolChoice = "auto"
-	s.teamDelegateRequired = false
 }
 
 func (s *llmRunStream) appendPendingSteers() {

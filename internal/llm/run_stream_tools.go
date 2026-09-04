@@ -87,6 +87,7 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 			toolName:            toolCall.Function.Name,
 			args:                args,
 			awaitExternalResult: true,
+			teamDispatch:        &dispatch,
 			prelude: []AgentDelta{DeltaTeamDispatch{
 				MainToolID: toolID,
 				Tasks:      tasks,
@@ -170,15 +171,25 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 	return invocation, nil, nil
 }
 
-func (s *llmRunStream) activateNextToolCall() {
+func (s *llmRunStream) activateNextToolCall() error {
 	if s.activeToolCall != nil || len(s.queuedToolCalls) == 0 {
-		return
+		return nil
 	}
-	s.activeToolCall = s.queuedToolCalls[0]
+	next := s.queuedToolCalls[0]
+	if next.teamDispatch != nil {
+		if s.teamStateMachine == nil {
+			return errors.New("TEAM dispatch is missing its coordinator state machine")
+		}
+		if err := s.teamStateMachine.BeginDispatch(*next.teamDispatch); err != nil {
+			return err
+		}
+	}
+	s.activeToolCall = next
 	s.queuedToolCalls = s.queuedToolCalls[1:]
 	if len(s.activeToolCall.prelude) > 0 {
 		s.pending = append(s.pending, s.activeToolCall.prelude...)
 	}
+	return nil
 }
 
 func (s *llmRunStream) invokeQueuedToolCallsAndPostHook() error {
@@ -190,8 +201,7 @@ func (s *llmRunStream) invokeQueuedToolCallsAndPostHook() error {
 	}
 	s.queuedToolCalls = s.prioritizeAwaitingToolCalls(s.queuedToolCalls)
 	if !s.canInvokeQueuedToolCallsConcurrently(s.queuedToolCalls) {
-		s.activateNextToolCall()
-		return nil
+		return s.activateNextToolCall()
 	}
 	invocations := append([]*preparedToolInvocation(nil), s.queuedToolCalls...)
 	s.queuedToolCalls = nil

@@ -62,13 +62,6 @@ type OrchestratableAgentStream interface {
 	FinalAssistantContent() (string, bool)
 }
 
-// OptionalToolAgentStream releases TEAM's initial tool-required routing gate
-// after the first delegation result so the coordinator may update its plan,
-// delegate a later batch, or produce its final answer.
-type OptionalToolAgentStream interface {
-	AllowOptionalTools()
-}
-
 type StreamDeltaMapper interface {
 	Map(delta AgentDelta) []stream.StreamInput
 	CloneIsolated(runID string, chatID string) StreamDeltaMapper
