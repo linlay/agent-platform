@@ -263,7 +263,7 @@ func assertAdminRegistryDiagnosticCode(t *testing.T, diagnostics []api.AdminAgen
 	t.Fatalf("expected diagnostic %q, got %#v", code, diagnostics)
 }
 
-func TestAdminRegistryDetailMCPWriteReloadsSynchronously(t *testing.T) {
+func TestAdminRegistryDetailMCPWritePublishesRegistryBeforeResponding(t *testing.T) {
 	fixture := setupAdminRegistriesFixture(t)
 	reloader := &recordingServerCatalogReloader{}
 	fixture.server.deps.CatalogReloader = reloader

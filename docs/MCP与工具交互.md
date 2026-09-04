@@ -4,9 +4,9 @@
 
 Go runtime 使用官方 Go MCP SDK `github.com/modelcontextprotocol/go-sdk` `v1.6.1`，同时支持 `streamable-http` 与 `stdio`。两种 transport 的唯一稳定协议版本都是 `2025-11-25`：client 在 `initialize` 中请求该版本，并在连接完成后严格检查服务端协商结果；返回旧版本、缺失版本或无效版本时会立即关闭会话、停止注册该 server 的工具，并将 server 放入 availability gate。
 
-MCP registry、session client、availability gate、reconnect、tool sync 与热重载已经接通。平台只保留一种 Tool；本地、MCP、用户问题交互和 Desktop 能力共享同一工具定义与 `tool.*` 事件协议。
+MCP registry、session client、availability gate、后台同步/重连与热重载已经接通。平台只保留一种 Tool；本地、MCP、用户问题交互和 Desktop 能力共享同一工具定义与 `tool.*` 事件协议。Platform 启动只同步装载和校验本地 MCP Registry，首次远端连接、初始化与 `tools/list` 由单 worker 在后台执行，不属于 HTTP 服务监听或 `/healthz` 的就绪条件。
 
-`registries/mcp-servers/*.yml` 由文件 watcher 热重载；管理端通过 `PUT /api/admin/source` 保存或 `DELETE /api/admin/source` 删除 MCP YAML 时会在响应前主动执行同一条 registry/session/tool sync 链路，不依赖 watcher 的 debounce。删除使用 `baseSha256` 防止误删并发修改，reload 硬失败时恢复原 YAML；删除或禁用 Server 会立即清理对应工具。合法配置即使远端暂时不可用也会保留，ToolSync 标记为 `unavailable` 并由 reconnect loop 重试；已有成功快照在临时失败期间继续保留。重连恢复或工具集合变化会发送 `catalog.updated(reason=mcp-servers)`，客户端无需重启 runtime。
+`registries/mcp-servers/*.yml` 由文件 watcher 热重载；管理端通过 `PUT /api/admin/source` 保存或 `DELETE /api/admin/source` 删除 MCP YAML 时，会在响应前完成本地 Registry 的原子校验、发布和 Agent catalog 级联，不依赖 watcher 的 debounce，但不会等待远端连接。删除使用 `baseSha256` 防止误删并发修改，本地 reload 硬失败时恢复原 YAML；删除或禁用 Server 会立即清理对应工具，新建或连接配置变化的 Server 会立即进入 `pending` 并清除旧连接的工具快照。远端初始化和工具发现由后台同步协调器串行、合并执行；配置再次变化会取消过期任务，只有匹配当前 Registry version 的结果可以发布。合法配置即使远端暂时不可用也会保留，ToolSync 标记为 `unavailable` 并按 availability backoff 重试；配置未变化的已有成功快照在临时失败期间继续保留。同步状态或工具集合变化会发送 `catalog.updated(reason=mcp-servers)`，客户端无需重启 runtime。
 
 服务包根目录的 `bin/{rg,dbx,httpx,pdftotext}` 属于 Host builtin executable，不是 MCP server。只有明确注册到 `registries/mcp-servers/*.yml` 的 HTTP endpoint 或 stdio command 才进入 MCP 生命周期。
 
@@ -23,7 +23,7 @@ AP_RUNTIME_REGISTRIES_DIR/mcp-servers
   -> normalize content / structuredContent / isError
 ```
 
-SDK 负责 session ID、MCP 协议头、JSON/SSE 响应、`notifications/initialized` 和标准关闭流程。registry 删除、连接字段变更、连接失效或应用关闭都会释放 session；stdio session 同时终止并回收子进程。连接和工具同步可按 `retry` 重试，但已经发出的 `tools/call` 不会自动重放，避免写工具重复执行。
+SDK 负责 session ID、MCP 协议头、JSON/SSE 响应、`notifications/initialized` 和标准关闭流程。registry 删除、连接字段变更、连接失效或应用关闭都会让后台协调器释放 session；stdio session 同时终止并回收子进程。`startup-timeout`、`read-timeout` 和 `retry` 仍约束单个后台同步任务，但不会延长 Platform 启动、管理端保存或 watcher reload；已经发出的 `tools/call` 不会自动重放，避免写工具重复执行。取消初始化时发送的 `notifications/cancelled` 和 HTTP session DELETE 采用额外的短清理上限，避免 SDK 的善后请求拖住新版本同步或关闭。
 
 ## Registry 配置
 

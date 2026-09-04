@@ -82,7 +82,7 @@ func TestAdminSourceRegistryReadWriteAndConflict(t *testing.T) {
 	}
 }
 
-func TestAdminSourceMCPWriteReloadsSynchronouslyAndRollsBackHardFailure(t *testing.T) {
+func TestAdminSourceMCPWritePublishesRegistryAndRollsBackHardFailure(t *testing.T) {
 	fixture := setupAdminRegistriesFixture(t)
 	target := api.AdminSourceTarget{Type: "registry", Category: "mcp-servers", File: "created-mcp.yml"}
 	content := "serverKey: created-mcp\nbaseUrl: http://127.0.0.1:11969\n"
@@ -110,7 +110,7 @@ func TestAdminSourceMCPWriteReloadsSynchronouslyAndRollsBackHardFailure(t *testi
 	}
 }
 
-func TestAdminSourceMCPDeleteReloadsSynchronouslyAndChecksConflict(t *testing.T) {
+func TestAdminSourceMCPDeletePublishesRegistryAndChecksConflict(t *testing.T) {
 	fixture := setupAdminRegistriesFixture(t)
 	target := api.AdminSourceTarget{Type: "registry", Category: "mcp-servers", File: "demo.yml"}
 	read := getAdminSourceForTest(t, fixture.server, target)

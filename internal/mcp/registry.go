@@ -71,6 +71,11 @@ func (r *Registry) Server(key string) (ServerDefinition, bool) {
 }
 
 func (r *Registry) Servers() []ServerDefinition {
+	servers, _ := r.snapshot()
+	return servers
+}
+
+func (r *Registry) snapshot() ([]ServerDefinition, int64) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	keys := make([]string, 0, len(r.servers))
@@ -82,7 +87,7 @@ func (r *Registry) Servers() []ServerDefinition {
 	for _, key := range keys {
 		out = append(out, r.servers[key])
 	}
-	return out
+	return out, r.version
 }
 
 func loadServersFromDir(root string) (map[string]ServerDefinition, error) {

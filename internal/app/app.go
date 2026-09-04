@@ -185,9 +185,6 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		}
 	}()
 	mcpToolSync := mcp.NewToolSync(mcpRegistry, mcpClient)
-	if _, err := mcpToolSync.Load(context.Background()); err != nil {
-		return nil, fmt.Errorf("load mcp tools: %w", err)
-	}
 	runtimeTools, err := tools.LoadRuntimeToolDefinitions(cfg.Paths.ToolsDir)
 	if err != nil {
 		return nil, fmt.Errorf("load runtime tools: %w", err)
@@ -277,11 +274,11 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		}
 	}()
 	cardReporter := gateway.NewAgentCardReporter(backgroundCtx, registry)
-	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcp.NewRegistryReloader(mcpRegistry, mcpToolSync), toolExecutor, cfg.Paths.ToolsDir, notifications, kbaseManager)
+	mcpSyncCoordinator := mcp.NewSyncCoordinator(mcpRegistry, mcpToolSync, mcpGate, 10*time.Second, notifications)
+	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcp.NewRegistryReloader(mcpRegistry, mcpToolSync, mcpSyncCoordinator), toolExecutor, cfg.Paths.ToolsDir, notifications, kbaseManager)
 	reloader.AddObserver(cardReporter)
 	kbaseManager.Start(backgroundCtx)
 	reload.StartBackgroundReloaders(backgroundCtx, cfg, reloader)
-	mcp.NewReconnectLoop(mcpRegistry, mcpToolSync, mcpGate, 10*time.Second, notifications).Start(backgroundCtx)
 	log.Printf("background file watchers started (agents=%s teams=%s skills=%s)",
 		cfg.Paths.AgentsDir,
 		cfg.Paths.TeamsDir,
@@ -409,6 +406,8 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		return nil, fmt.Errorf("register run tools: %w", err)
 	}
 	log.Printf("server dependencies wired in %s", startupElapsed(serverStartedAt))
+	mcpSyncCoordinator.Start(backgroundCtx)
+	log.Printf("MCP background tool synchronization scheduled")
 
 	// Gateway Registry 支持多条反向 WS 连接；configs/channels.yml 只在启动时读取。
 	var gwRegistry *gateway.Registry

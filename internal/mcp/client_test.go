@@ -439,6 +439,28 @@ func TestHeaderRoundTripperRejectsIdentityFileOutsideConfiguredMCPHost(t *testin
 	}
 }
 
+func TestHeaderRoundTripperBoundsCancellationNotification(t *testing.T) {
+	transport := headerRoundTripper{
+		base: roundTripperFunc(func(request *http.Request) (*http.Response, error) {
+			<-request.Context().Done()
+			return nil, request.Context().Err()
+		}),
+		cancellationTimeout: 20 * time.Millisecond,
+	}
+	request, err := http.NewRequest(http.MethodPost, "https://example.test/mcp", strings.NewReader(`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	startedAt := time.Now()
+	_, err = transport.RoundTrip(request)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("cancellation notification error = %v", err)
+	}
+	if elapsed := time.Since(startedAt); elapsed >= 500*time.Millisecond {
+		t.Fatalf("cancellation notification was not bounded: %s", elapsed)
+	}
+}
+
 func unsignedJWTWithIssuer(t *testing.T, issuer string, subject string) string {
 	t.Helper()
 	header, _ := json.Marshal(map[string]any{"alg": "none", "typ": "JWT"})

@@ -178,7 +178,7 @@ RUN_SOCKET_TESTS=1 make test-integration
 
 Platform 运行形态只由 `--runtime-mode=standalone|desktop` 指定，默认 `standalone`。Desktop 宿主启动内置 Platform 时固定传入 `desktop`；Platform 不根据端口、父进程、WS `source` 或 YAML 猜测运行形态。`desktop_action` / `desktop_cdp` 优先使用当前 run 绑定的反向 WebSocket target；Desktop 模式下，无绑定或旧连接在发送前已失效的 run 会补绑当前 `desktop-main`，Standalone 仍只认 run target。两种模式都不调用本地 HTTP bridge，也不重放已经发送的动作。
 
-MCP server 配置位于 `${AP_RUNTIME_REGISTRIES_DIR}/mcp-servers/*.yml`，支持默认的 `streamable-http` 与 `stdio`。两种 transport 都只接受协议版本 `2025-11-25`；stdio 子进程必须使用标准 MCP，旧 `tools-dir/service.yml`、`type: external`、`external:` 与 `kind: external-service` 会在启动或热重载时硬失败。配置示例和迁移边界见 [MCP与工具交互](./docs/MCP与工具交互.md)。
+MCP server 配置位于 `${AP_RUNTIME_REGISTRIES_DIR}/mcp-servers/*.yml`，支持默认的 `streamable-http` 与 `stdio`。两种 transport 都只接受协议版本 `2025-11-25`；本地 Registry 在启动和热重载时同步校验，远端初始化、工具发现与重试统一后台执行，不阻塞 Platform 监听、管理端保存或 watcher。stdio 子进程必须使用标准 MCP，旧 `tools-dir/service.yml`、`type: external`、`external:` 与 `kind: external-service` 会在启动或热重载时硬失败。配置示例和迁移边界见 [MCP与工具交互](./docs/MCP与工具交互.md)。
 
 ### 根 `.env.example`
 

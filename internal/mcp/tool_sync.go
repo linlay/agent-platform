@@ -23,6 +23,7 @@ type ToolSync struct {
 	aliasToCanonical map[string]string
 	snapshots        map[string]serverToolSnapshot
 	statuses         map[string]api.MCPServerToolSyncStatus
+	fingerprints     map[string]string
 	registryVersion  int64
 }
 
@@ -36,6 +37,7 @@ const (
 type ToolSyncResult struct {
 	Tools   []api.ToolDetailResponse
 	Changed bool
+	Stale   bool
 }
 
 type serverToolSnapshot struct {
@@ -44,14 +46,20 @@ type serverToolSnapshot struct {
 }
 
 func NewToolSync(registry *Registry, client *Client) *ToolSync {
-	return &ToolSync{
+	syncer := &ToolSync{
 		registry:         registry,
 		client:           client,
 		toolsByName:      map[string]api.ToolDetailResponse{},
 		aliasToCanonical: map[string]string{},
 		snapshots:        map[string]serverToolSnapshot{},
 		statuses:         map[string]api.MCPServerToolSyncStatus{},
+		fingerprints:     map[string]string{},
 	}
+	if registry != nil {
+		servers, version := registry.snapshot()
+		syncer.reconcileRegistry(servers, version)
+	}
+	return syncer
 }
 
 func (s *ToolSync) Load(ctx context.Context) ([]api.ToolDetailResponse, error) {
@@ -87,15 +95,6 @@ func (s *ToolSync) ServerStatus(serverKey string) (api.MCPServerToolSyncStatus, 
 	defer s.mu.RUnlock()
 	status, ok := s.statuses[normalizeKey(serverKey)]
 	return cloneServerSyncStatus(status), ok
-}
-
-func (s *ToolSync) SyncedRegistryVersion() int64 {
-	if s == nil {
-		return 0
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.registryVersion
 }
 
 func (s *ToolSync) Definitions() []api.ToolDetailResponse {
@@ -170,11 +169,87 @@ func (s *ToolSync) ResolveAlias(name string) (string, bool) {
 	return canonical, ok
 }
 
+// ReconcileRegistry applies the local registry snapshot without performing
+// any network or stdio work. Removed and connection-changed servers lose their
+// old tool snapshots immediately; unchanged servers retain their last-known
+// tools while a background refresh is pending.
+func (s *ToolSync) ReconcileRegistry() bool {
+	if s == nil || s.registry == nil {
+		return false
+	}
+	servers, version := s.registry.snapshot()
+	changed := s.reconcileRegistry(servers, version)
+	if s.client != nil && s.client.gate != nil {
+		keys := make([]string, 0, len(servers))
+		for _, server := range servers {
+			keys = append(keys, server.Key)
+		}
+		s.client.gate.Prune(keys)
+	}
+	return changed
+}
+
+func (s *ToolSync) reconcileRegistry(servers []ServerDefinition, version int64) bool {
+	if s == nil {
+		return false
+	}
+	nextFingerprints := make(map[string]string, len(servers))
+	for _, server := range servers {
+		nextFingerprints[normalizeKey(server.Key)] = serverFingerprint(server)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	previousTools := cloneToolMap(s.toolsByName)
+	previousStatuses := comparableServerStatuses(s.statuses)
+	if s.snapshots == nil {
+		s.snapshots = map[string]serverToolSnapshot{}
+	}
+	if s.statuses == nil {
+		s.statuses = map[string]api.MCPServerToolSyncStatus{}
+	}
+	if s.fingerprints == nil {
+		s.fingerprints = map[string]string{}
+	}
+
+	for key := range s.snapshots {
+		fingerprint, active := nextFingerprints[key]
+		if !active || s.fingerprints[key] != fingerprint {
+			delete(s.snapshots, key)
+		}
+	}
+	for key := range s.statuses {
+		if _, active := nextFingerprints[key]; !active {
+			delete(s.statuses, key)
+		}
+	}
+	for _, server := range servers {
+		key := normalizeKey(server.Key)
+		fingerprint := nextFingerprints[key]
+		if s.fingerprints[key] != fingerprint {
+			s.statuses[key] = api.MCPServerToolSyncStatus{Status: ToolSyncStatusPending}
+			continue
+		}
+		if status := s.statuses[key]; status.Status == "" {
+			s.statuses[key] = api.MCPServerToolSyncStatus{Status: ToolSyncStatusPending}
+		}
+	}
+	s.fingerprints = nextFingerprints
+	s.toolsByName, s.aliasToCanonical = mergeSnapshots(servers, s.snapshots)
+	s.registryVersion = version
+	return !reflect.DeepEqual(previousTools, s.toolsByName) ||
+		!reflect.DeepEqual(previousStatuses, comparableServerStatuses(s.statuses))
+}
+
 func (s *ToolSync) refreshTools(ctx context.Context, targets map[string]struct{}) (ToolSyncResult, error) {
 	s.refreshMu.Lock()
 	defer s.refreshMu.Unlock()
 
-	servers := s.registry.Servers()
+	if s.registry == nil || s.client == nil {
+		return ToolSyncResult{Tools: s.Definitions()}, nil
+	}
+	servers, registryVersion := s.registry.snapshot()
+	s.reconcileRegistry(servers, registryVersion)
 	activeKeys := make(map[string]struct{}, len(servers))
 	s.mu.RLock()
 	previousTools := cloneToolMap(s.toolsByName)
@@ -206,10 +281,13 @@ func (s *ToolSync) refreshTools(ctx context.Context, targets map[string]struct{}
 		status.LastSyncAttemptAt = attemptedAt
 		status.Diagnostic = nil
 		nextStatuses[serverKey] = status
-		s.setServerStatus(serverKey, status)
+		s.setServerStatus(serverKey, status, registryVersion)
 
 		snapshot, err := s.syncServer(ctx, server)
 		if err != nil {
+			if ctx.Err() != nil {
+				return ToolSyncResult{Tools: s.Definitions(), Stale: s.registry.Version() != registryVersion}, ctx.Err()
+			}
 			log.Printf("[mcp] failed to sync server %q: %v", server.Key, err)
 			status.Status = ToolSyncStatusUnavailable
 			status.Diagnostic = &api.AdminRegistryListDiagnostic{
@@ -241,22 +319,30 @@ func (s *ToolSync) refreshTools(ctx context.Context, targets map[string]struct{}
 	changed := !reflect.DeepEqual(previousTools, toolsByName) ||
 		!reflect.DeepEqual(previousStatuses, comparableServerStatuses(nextStatuses))
 	s.mu.Lock()
+	if s.registryVersion != registryVersion || s.registry.Version() != registryVersion {
+		currentTools := cloneSortedToolDefinitions(s.toolsByName)
+		s.mu.Unlock()
+		return ToolSyncResult{Tools: currentTools, Stale: true}, nil
+	}
 	s.snapshots = nextSnapshots
 	s.toolsByName = toolsByName
 	s.aliasToCanonical = aliasToCanonical
 	s.statuses = nextStatuses
-	s.registryVersion = s.registry.Version()
+	s.registryVersion = registryVersion
 	s.mu.Unlock()
 	return ToolSyncResult{Tools: cloneSortedToolDefinitions(toolsByName), Changed: changed}, nil
 }
 
-func (s *ToolSync) setServerStatus(serverKey string, status api.MCPServerToolSyncStatus) {
+func (s *ToolSync) setServerStatus(serverKey string, status api.MCPServerToolSyncStatus, registryVersion int64) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.registryVersion != registryVersion {
+		return
+	}
 	if s.statuses == nil {
 		s.statuses = map[string]api.MCPServerToolSyncStatus{}
 	}
 	s.statuses[serverKey] = cloneServerSyncStatus(status)
-	s.mu.Unlock()
 }
 
 type comparableServerStatus struct {

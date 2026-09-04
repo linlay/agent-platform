@@ -38,6 +38,11 @@ type Client struct {
 	closed bool
 }
 
+const (
+	sessionCloseTimeout             = time.Second
+	cancellationNotificationTimeout = 250 * time.Millisecond
+)
+
 type sessionSlot struct {
 	mu      sync.Mutex
 	current *managedSession
@@ -464,21 +469,37 @@ func (c *Client) httpClientForServer(server ServerDefinition) *http.Client {
 	cloned.Transport = headerRoundTripper{
 		base: transport, headers: server.Headers, authToken: server.AuthToken,
 		authSource: server.AuthSource, identityFile: c.identityFile, configuredHost: configuredHost,
+		closeTimeout: sessionCloseTimeout, cancellationTimeout: cancellationNotificationTimeout,
 	}
 	return &cloned
 }
 
 type headerRoundTripper struct {
-	base           http.RoundTripper
-	headers        map[string]string
-	authToken      string
-	authSource     string
-	identityFile   string
-	configuredHost string
+	base                http.RoundTripper
+	headers             map[string]string
+	authToken           string
+	authSource          string
+	identityFile        string
+	configuredHost      string
+	closeTimeout        time.Duration
+	cancellationTimeout time.Duration
 }
 
 func (t headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	cloned := req.Clone(req.Context())
+	requestCtx := req.Context()
+	var cancel context.CancelFunc
+	timeout := time.Duration(0)
+	switch {
+	case req.Method == http.MethodDelete:
+		timeout = t.closeTimeout
+	case isCancellationNotification(req):
+		timeout = t.cancellationTimeout
+	}
+	if timeout > 0 {
+		requestCtx, cancel = context.WithTimeout(requestCtx, timeout)
+		defer cancel()
+	}
+	cloned := req.Clone(requestCtx)
 	cloned.Header = req.Header.Clone()
 	for key, value := range t.headers {
 		cloned.Header.Set(key, value)
@@ -501,6 +522,21 @@ func (t headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 		cloned.Header.Set("Authorization", "Bearer "+token)
 	}
 	return t.base.RoundTrip(cloned)
+}
+
+func isCancellationNotification(req *http.Request) bool {
+	if req == nil || req.Method != http.MethodPost || req.GetBody == nil {
+		return false
+	}
+	body, err := req.GetBody()
+	if err != nil {
+		return false
+	}
+	defer body.Close()
+	var envelope struct {
+		Method string `json:"method"`
+	}
+	return json.NewDecoder(body).Decode(&envelope) == nil && envelope.Method == "notifications/cancelled"
 }
 
 func validateIdentityFileRequest(requestURL *url.URL, configuredHost string) error {
