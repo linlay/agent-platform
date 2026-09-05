@@ -7,10 +7,8 @@ import (
 )
 
 var (
-	ErrClientTargetUnavailable    = errors.New("client target unavailable")
-	ErrClientDisconnected         = errors.New("client disconnected")
-	ErrWebClientTargetUnavailable = ErrClientTargetUnavailable
-	ErrWebClientDisconnected      = ErrClientDisconnected
+	ErrClientTargetUnavailable = errors.New("client target unavailable")
+	ErrClientDisconnected      = errors.New("client disconnected")
 )
 
 // ClientTarget is runtime-only routing metadata bound to a root run. It may

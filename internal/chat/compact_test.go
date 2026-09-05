@@ -527,7 +527,7 @@ func TestToolCompactClearsOlderCompactableToolResults(t *testing.T) {
 
 	snapshot, err := store.BuildToolCompactSnapshotToTarget(chatID, DefaultToolCompactKeepRecent, 0)
 	if err != nil {
-		t.Fatalf("BuildToolCompactSnapshot: %v", err)
+		t.Fatalf("BuildToolCompactSnapshotToTarget: %v", err)
 	}
 	if snapshot.ToolsCleared != 2 || snapshot.ToolsKept != 5 || snapshot.TokensFreed <= 0 {
 		t.Fatalf("unexpected tool compact snapshot: %#v", snapshot)
@@ -588,7 +588,7 @@ func TestToolCompactClearsOlderCompactableToolResults(t *testing.T) {
 
 	second, err := store.BuildToolCompactSnapshotToTarget(chatID, DefaultToolCompactKeepRecent, 0)
 	if err != nil {
-		t.Fatalf("second BuildToolCompactSnapshot: %v", err)
+		t.Fatalf("second BuildToolCompactSnapshotToTarget: %v", err)
 	}
 	if second.ToolsCleared != 0 {
 		t.Fatalf("second tool compact should be idempotent, got %#v", second)
@@ -603,7 +603,7 @@ func TestToolCompactAllowsSingleCompletedLargeToolGroup(t *testing.T) {
 
 	snapshot, err := store.BuildToolCompactSnapshotToTarget(chatID, DefaultToolCompactKeepRecent, 0)
 	if err != nil {
-		t.Fatalf("BuildToolCompactSnapshot: %v", err)
+		t.Fatalf("BuildToolCompactSnapshotToTarget: %v", err)
 	}
 	if snapshot.ToolsCleared != 1 || snapshot.ToolsKept != 0 || snapshot.TokensFreed <= 0 {
 		t.Fatalf("single tool compact snapshot = %#v", snapshot)
@@ -620,7 +620,7 @@ func TestToolCompactTargetProtectsRecentGroupsUntilRequired(t *testing.T) {
 
 	baseline, err := store.BuildToolCompactSnapshotToTarget(chatID, DefaultToolCompactKeepRecent, 0)
 	if err != nil {
-		t.Fatalf("BuildToolCompactSnapshot: %v", err)
+		t.Fatalf("BuildToolCompactSnapshotToTarget: %v", err)
 	}
 	protected, err := store.BuildToolCompactSnapshotToTarget(chatID, DefaultToolCompactKeepRecent, baseline.PreCompactEstimatedTokens)
 	if err != nil {
@@ -740,7 +740,7 @@ func TestToolCompactCommitDetectsHistoryChanged(t *testing.T) {
 
 	snapshot, err := store.BuildToolCompactSnapshotToTarget(chatID, DefaultToolCompactKeepRecent, 0)
 	if err != nil {
-		t.Fatalf("BuildToolCompactSnapshot: %v", err)
+		t.Fatalf("BuildToolCompactSnapshotToTarget: %v", err)
 	}
 	appendCompactTestRun(t, store, chatID, "r8", "user r8", "assistant r8")
 	err = store.CommitToolCompact(chatID, snapshot, ToolCompactLine{
@@ -783,7 +783,7 @@ func TestSummaryCompactCanCoverToolCompactMetadata(t *testing.T) {
 	}
 	toolSnapshot, err := store.BuildToolCompactSnapshotToTarget(chatID, DefaultToolCompactKeepRecent, 0)
 	if err != nil {
-		t.Fatalf("BuildToolCompactSnapshot: %v", err)
+		t.Fatalf("BuildToolCompactSnapshotToTarget: %v", err)
 	}
 	if err := store.CommitToolCompact(chatID, toolSnapshot, ToolCompactLine{
 		Type:      ToolCompactLineType,

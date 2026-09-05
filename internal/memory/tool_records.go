@@ -21,21 +21,6 @@ const (
 	CategoryRemember        = "remember"
 )
 
-var standardMemoryCategories = map[string]struct{}{
-	CategoryGeneral:         {},
-	CategoryPreference:      {},
-	CategoryConstraint:      {},
-	CategoryProfile:         {},
-	CategoryWorkflow:        {},
-	CategoryDecision:        {},
-	CategoryGlossary:        {},
-	CategoryUnresolvedIssue: {},
-	CategoryBugfix:          {},
-	CategoryTodo:            {},
-	CategoryProject:         {},
-	CategoryRemember:        {},
-}
-
 var memoryCategoryAliases = map[string]string{
 	"preferences":   CategoryPreference,
 	"pref":          CategoryPreference,

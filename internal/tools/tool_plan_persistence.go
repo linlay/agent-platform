@@ -9,7 +9,6 @@ import (
 )
 
 type planTasksSnapshot = plantasks.Snapshot
-type planTaskSnapshot = plantasks.TaskSnapshot
 
 func (t *RuntimeToolExecutor) persistPlanTasksSnapshot(execCtx *ExecutionContext, state *PlanRuntimeState) {
 	if execCtx == nil || state == nil {

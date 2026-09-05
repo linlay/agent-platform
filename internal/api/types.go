@@ -607,18 +607,6 @@ type StoredMemoryResponse struct {
 	LastAccessedAt *int64   `json:"lastAccessedAt,omitempty"`
 }
 
-type PromptPreviewResponse struct {
-	SystemPrompt      string   `json:"systemPrompt,omitempty"`
-	UserPrompt        string   `json:"userPrompt,omitempty"`
-	ChatName          string   `json:"chatName,omitempty"`
-	RawMessageCount   int      `json:"rawMessageCount"`
-	EventCount        int      `json:"eventCount"`
-	ReferenceCount    int      `json:"referenceCount"`
-	RawMessageSamples []string `json:"rawMessageSamples,omitempty"`
-	EventSamples      []string `json:"eventSamples,omitempty"`
-	ReferenceSamples  []string `json:"referenceSamples,omitempty"`
-}
-
 type MemoryUsageItem struct {
 	ID        string `json:"id,omitempty"`
 	Kind      string `json:"kind,omitempty"`
@@ -1552,31 +1540,6 @@ type ActiveRunInfo struct {
 	StartedAt    int64  `json:"startedAt"`
 	PlanningMode bool   `json:"planningMode,omitempty"`
 	EditingMode  bool   `json:"editingMode,omitempty"`
-}
-
-type SessionSearchRequest struct {
-	ChatID string `json:"chatId"`
-	Query  string `json:"query"`
-	Limit  int    `json:"limit,omitempty"`
-}
-
-type SessionSearchResult struct {
-	Kind      string         `json:"kind"`
-	ChatID    string         `json:"chatId"`
-	RunID     string         `json:"runId,omitempty"`
-	Stage     string         `json:"stage,omitempty"`
-	Role      string         `json:"role,omitempty"`
-	Timestamp int64          `json:"timestamp"`
-	Snippet   string         `json:"snippet"`
-	Score     int            `json:"score"`
-	Meta      map[string]any `json:"meta,omitempty"`
-}
-
-type SessionSearchResponse struct {
-	ChatID  string                `json:"chatId"`
-	Query   string                `json:"query"`
-	Count   int                   `json:"count"`
-	Results []SessionSearchResult `json:"results"`
 }
 
 type FeedbackRequest struct {

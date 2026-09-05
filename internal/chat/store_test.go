@@ -1289,7 +1289,7 @@ func TestStoredMessageToEventsAddsReasoningLabel(t *testing.T) {
 		t.Fatalf("expected reasoning.snapshot, got %#v", events[0])
 	}
 	if got := events[0].Payload["reasoningLabel"]; got != stream.ReasoningLabelForID(runID+"_r_2") {
-		t.Fatalf("expected reasoningLabel in storedMessageToEvents, got %#v", events[0].Payload)
+		t.Fatalf("expected reasoningLabel in storedMessageToEventsWithOptions, got %#v", events[0].Payload)
 	}
 }
 

@@ -110,10 +110,6 @@ type ActiveRunService interface {
 	ActiveRunForChat(chatID string) (RunStatusInfo, bool, error)
 }
 
-type ActiveRunCompactRequest struct {
-	Request CompactControlRequest
-}
-
 type ActiveRunCompactAck struct {
 	Run    RunStatusInfo
 	Handle CompactControlHandle

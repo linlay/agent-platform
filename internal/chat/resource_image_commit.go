@@ -36,10 +36,6 @@ type ResourceImageCommitResult struct {
 	Revision     string `json:"revision"`
 }
 
-type ResourceImageCommitter interface {
-	CommitResourceImage(request ResourceImageCommitRequest) (ResourceImageCommitResult, error)
-}
-
 func resourceImageRevision(info os.FileInfo) string {
 	return fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixMilli())
 }
