@@ -18,6 +18,7 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	runtimeorchestration "agent-platform/internal/runtime/orchestration"
 	"agent-platform/internal/stream"
 )
 
@@ -44,35 +45,20 @@ type frameOrchestrator struct {
 }
 
 func (o *frameOrchestrator) Run(mainStream contracts.AgentStream) (bool, bool, error) {
-	for {
-		delta, nextErr := mainStream.Next()
-		if errors.Is(nextErr, io.EOF) {
-			return false, false, nil
-		}
-		if contracts.IsRunInterrupted(nextErr) {
-			return false, true, nil
-		}
-		if nextErr != nil {
-			return true, false, nextErr
-		}
+	result, err := runtimeorchestration.Run(mainStream, o)
+	return result.StreamFailed, result.StreamInterrupted, err
+}
 
-		switch value := delta.(type) {
-		case contracts.DeltaInvokeSubAgents:
-			if err := o.handleSubAgentBatch(mainStream, value); err != nil {
-				return true, false, err
-			}
-		case contracts.DeltaTeamDispatch:
-			terminal, err := o.handleTeamDispatch(mainStream, value)
-			if err != nil {
-				return true, false, err
-			}
-			if terminal {
-				return false, false, nil
-			}
-		default:
-			o.emitDelta(delta)
-		}
-	}
+func (o *frameOrchestrator) Emit(delta contracts.AgentDelta) {
+	o.emitDelta(delta)
+}
+
+func (o *frameOrchestrator) HandleSubAgents(mainStream contracts.AgentStream, invoke contracts.DeltaInvokeSubAgents) error {
+	return o.handleSubAgentBatch(mainStream, invoke)
+}
+
+func (o *frameOrchestrator) HandleTeamDispatch(mainStream contracts.AgentStream, dispatch contracts.DeltaTeamDispatch) (bool, error) {
+	return o.handleTeamDispatch(mainStream, dispatch)
 }
 
 type childTaskResult struct {
@@ -1393,46 +1379,14 @@ func namespaceChildIDs(taskID string, rawIDs []string) []string {
 }
 
 func deduplicateTeamReferences(references []api.Reference) []api.Reference {
-	if len(references) < 2 {
-		return append([]api.Reference(nil), references...)
-	}
-	out := make([]api.Reference, 0, len(references))
-	seen := make(map[string]struct{}, len(references)*3)
-	for _, reference := range references {
-		keys := teamReferenceIdentityKeys(reference)
-		duplicate := false
-		for _, key := range keys {
-			if _, exists := seen[key]; exists {
-				duplicate = true
-				break
-			}
-		}
-		if duplicate {
-			continue
-		}
-		for _, key := range keys {
-			seen[key] = struct{}{}
-		}
-		out = append(out, reference)
-	}
-	return out
+	runtimeReferences := runtimeReferencesFromAPI(references)
+	deduplicated := runtimeorchestration.DeduplicateReferences(runtimeReferences)
+	return apiReferencesFromRuntime(deduplicated)
 }
 
 func teamReferenceIdentityKeys(reference api.Reference) []string {
-	keys := make([]string, 0, 5)
-	appendKey := func(prefix string, value string) {
-		if value = strings.TrimSpace(value); value != "" {
-			keys = append(keys, prefix+value)
-		}
-	}
-	appendKey("id:", reference.ID)
-	appendKey("sha256:", reference.SHA256)
-	appendKey("path:", reference.Path)
-	appendKey("url:", reference.URL)
-	if referenceType, name := strings.TrimSpace(reference.Type), strings.TrimSpace(reference.Name); len(keys) == 0 && referenceType != "" && name != "" {
-		keys = append(keys, "name:"+referenceType+"\x00"+name)
-	}
-	return keys
+	converted := runtimeReferencesFromAPI([]api.Reference{reference})
+	return runtimeorchestration.ReferenceIdentityKeys(converted[0])
 }
 
 func firstNonEmpty(values ...string) string {

@@ -49,8 +49,8 @@ func (s *Server) readAgentOrder() (api.AgentOrderResponse, error) {
 }
 
 func (s *Server) updateAgentOrder(ctx context.Context, order []string) (api.AgentOrderResponse, error) {
-	s.adminAgentMutationMu.Lock()
-	defer s.adminAgentMutationMu.Unlock()
+	unlock := s.adminSources.LockAgentMutation()
+	defer unlock()
 
 	currentValidKeys := runtimeAgentKeys(s.deps.Registry.Agents("all"))
 	normalized, err := validatePublicAgentOrder(order, currentValidKeys)

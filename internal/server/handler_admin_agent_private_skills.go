@@ -80,8 +80,8 @@ func (s *Server) handleAdminAgentPrivateSkillDelete(w http.ResponseWriter, r *ht
 }
 
 func (s *Server) importAdminAgentPrivateSkill(ctx context.Context, agentKey, key string, source io.ReaderAt, size int64) (api.AdminAgentDetailResponse, error) {
-	s.adminAgentMutationMu.Lock()
-	defer s.adminAgentMutationMu.Unlock()
+	unlock := s.adminSources.LockAgentMutation()
+	defer unlock()
 	editor, err := s.adminAgentPrivateSkillEditor()
 	if err != nil {
 		return api.AdminAgentDetailResponse{}, err
@@ -121,8 +121,8 @@ func (s *Server) importAdminAgentPrivateSkill(ctx context.Context, agentKey, key
 }
 
 func (s *Server) deleteAdminAgentPrivateSkill(ctx context.Context, agentKey, key string) (api.AdminAgentDetailResponse, error) {
-	s.adminAgentMutationMu.Lock()
-	defer s.adminAgentMutationMu.Unlock()
+	unlock := s.adminSources.LockAgentMutation()
+	defer unlock()
 	editor, err := s.adminAgentPrivateSkillEditor()
 	if err != nil {
 		return api.AdminAgentDetailResponse{}, err

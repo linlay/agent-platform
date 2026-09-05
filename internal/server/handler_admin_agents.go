@@ -236,8 +236,8 @@ func (s *Server) readAdminAgentOrder() (api.AgentOrderResponse, error) {
 }
 
 func (s *Server) updateAdminAgentOrder(ctx context.Context, order []string) (api.AgentOrderResponse, error) {
-	s.adminAgentMutationMu.Lock()
-	defer s.adminAgentMutationMu.Unlock()
+	unlock := s.adminSources.LockAgentMutation()
+	defer unlock()
 
 	normalized, err := s.validateAdminAgentOrder(order)
 	if err != nil {

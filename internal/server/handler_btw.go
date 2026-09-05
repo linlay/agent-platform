@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	agentcoder "agent-platform/internal/agent/coder"
+	agentbuiltin "agent-platform/internal/agent/builtin"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
@@ -145,7 +145,7 @@ func (s *Server) prepareBTWQuery(r *http.Request) (preparedQuery, *statusError) 
 		AccessLevel:     accessLevel,
 		Model:           input.Model,
 	}
-	delete(req.Params, agentcoder.PlanningApproveContinuationParam)
+	delete(req.Params, agentbuiltin.CoderPlanningApproveContinuationParam)
 	session, buildErr := s.BuildQuerySession(r.Context(), req, *summary, agentDef, querySessionBuildOptions{
 		Created:           false,
 		Locale:            requestLocale(r, i18n.DefaultLocale),

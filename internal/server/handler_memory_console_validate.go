@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	agentcoder "agent-platform/internal/agent/coder"
+	agentbuiltin "agent-platform/internal/agent/builtin"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
@@ -278,7 +278,7 @@ func (s *Server) memoryContextPreviewContexts(ctx context.Context, req api.Memor
 	})
 	promptAppend := buildPromptAppendConfig(s.deps.Config.Prompts, agentDef)
 	stageSystemPrompt := ""
-	if agentcoder.IsMode(agentDef.Mode) {
+	if agentbuiltin.IsCoderMode(agentDef.Mode) {
 		stageSystemPrompt = contracts.ResolveCoderPlanningSettings(agentDef.StageSettings, s.deps.Config.Defaults.CoderPlanning.MaxSteps).Execute.SystemPrompt
 	} else {
 		stageSystemPrompt = contracts.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask).Execute.SystemPrompt

@@ -2,7 +2,6 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -14,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"agent-platform/internal/adminsource"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 )
@@ -167,14 +167,9 @@ func TestAdminAgentImportRestoresExistingAgentOnHardReloadFailure(t *testing.T) 
 }
 
 func TestAdminAgentImportReportsRollbackFailureDetails(t *testing.T) {
-	fixture := newTestFixture(t)
-	editor := &failingAgentArchiveRollbackRegistry{rollbackErr: errors.New("restore failed")}
-	err := fixture.server.rollbackAgentArchiveImport(
-		context.Background(),
-		editor,
-		&catalog.EditableAgentArchiveMutation{Key: "rollback-agent"},
-		errors.New("catalog reload failed"),
-	)
+	err := mapAdminArchiveImportTransactionError(&adminsource.ArchiveRollbackError{
+		AgentKey: "rollback-agent", Cause: errors.New("catalog reload failed"), RollbackErr: errors.New("restore failed"),
+	})
 	var statusErr agentStatusError
 	if !errors.As(err, &statusErr) || statusErr.status != http.StatusInternalServerError || statusErr.code != "rollback_failed" {
 		t.Fatalf("unexpected rollback error: %T %v", err, err)
@@ -271,20 +266,4 @@ func decodeAgentImportResponse(t *testing.T, rec *httptest.ResponseRecorder) api
 		t.Fatalf("decode agent import response: %v", err)
 	}
 	return response.Data
-}
-
-type failingAgentArchiveRollbackRegistry struct {
-	rollbackErr error
-}
-
-func (r *failingAgentArchiveRollbackRegistry) BeginImportEditableAgentArchive(io.ReaderAt, int64, bool) (*catalog.EditableAgentArchiveMutation, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (r *failingAgentArchiveRollbackRegistry) RollbackEditableAgentArchiveMutation(*catalog.EditableAgentArchiveMutation) error {
-	return r.rollbackErr
-}
-
-func (r *failingAgentArchiveRollbackRegistry) CommitEditableAgentArchiveMutation(*catalog.EditableAgentArchiveMutation) error {
-	return nil
 }

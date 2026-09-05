@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	agentcoder "agent-platform/internal/agent/coder"
+	agentbuiltin "agent-platform/internal/agent/builtin"
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
@@ -132,7 +132,7 @@ func (s *Server) hydrateDeferredAwaitings() error {
 			Mode:             effectiveMode,
 			CreatedAt:        item.CreatedAt,
 			Ask:              ask,
-			supervisorCancel: cancelSupervisor,
+			SupervisorCancel: cancelSupervisor,
 		})
 		go s.superviseRecoveredAwaiting(supervisorCtx, recoveryItem, step, recovered)
 	}
@@ -232,7 +232,7 @@ func (s *Server) prepareActiveSubmitContinuation(req api.SubmitRequest, awaiting
 	if !strings.EqualFold(strings.TrimSpace(awaiting.Mode), "planning") {
 		return req, nil
 	}
-	if agentcoder.SubmitPlanningDecision(req.Params) != "approve" {
+	if agentbuiltin.CoderSubmitPlanningDecision(req.Params) != "approve" {
 		return req, nil
 	}
 	if s == nil || s.deps.Runs == nil || s.deps.Registry == nil {
@@ -250,7 +250,7 @@ func (s *Server) prepareActiveSubmitContinuation(req api.SubmitRequest, awaiting
 	if err != nil {
 		return req, err
 	}
-	if !agentcoder.IsNativeBackend(admission.agentDef.Mode, admission.agentDef.ACPBridgeID) {
+	if !agentbuiltin.IsCoderNativeBackend(admission.agentDef.Mode, admission.agentDef.ACPBridgeID) {
 		return req, nil
 	}
 	if strings.TrimSpace(req.ContinuationRunID) == "" {
@@ -343,7 +343,7 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 	if err != nil {
 		return api.SubmitResponse{}, err
 	}
-	startsNewExecutionRun := agentcoder.StartsNewExecutionRun(deferred.Mode, normalized, continuationAdmission.agentDef.Mode, continuationAdmission.agentDef.ACPBridgeID)
+	startsNewExecutionRun := agentbuiltin.CoderStartsNewExecutionRun(deferred.Mode, normalized, continuationAdmission.agentDef.Mode, continuationAdmission.agentDef.ACPBridgeID)
 	if startsNewExecutionRun && strings.TrimSpace(req.ContinuationRunID) == "" {
 		req.ContinuationRunID = newRunID()
 	}

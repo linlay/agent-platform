@@ -207,7 +207,11 @@ func TestRunSelfTargetChatRules(t *testing.T) {
 		fixture.runs.Finish("self-parent-run")
 	})
 
-	handler := runopspkg.NewToolHandler(fixture.server, fixture.runs)
+	runtimeService, ok := fixture.server.deps.Runtime.(runopspkg.Runtime)
+	if !ok {
+		t.Fatalf("assembled runtime does not expose the run-tool surface")
+	}
+	handler := runopspkg.NewToolHandler(runtimeService, fixture.runs)
 	execContext := func(toolID string) *contracts.ExecutionContext {
 		return &contracts.ExecutionContext{
 			Session: contracts.QuerySession{

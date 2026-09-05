@@ -5,21 +5,23 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net/http"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"agent-platform/internal/adminsource"
 	"agent-platform/internal/api"
 	"agent-platform/internal/artifactpusher"
 	"agent-platform/internal/automation"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/channel"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/chatresource"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/conversation"
 	"agent-platform/internal/gateway"
 	"agent-platform/internal/kbase"
 	"agent-platform/internal/llm"
@@ -29,13 +31,20 @@ import (
 	"agent-platform/internal/models"
 	"agent-platform/internal/observability"
 	"agent-platform/internal/platformcontrol"
+	projectpkg "agent-platform/internal/project"
 	"agent-platform/internal/reload"
 	"agent-platform/internal/runops"
+	agentruntime "agent-platform/internal/runtime"
+	runtimeproxy "agent-platform/internal/runtime/proxy"
+	runtimequery "agent-platform/internal/runtime/query"
+	"agent-platform/internal/runtime/runstate"
+	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/runtimeenv"
 	"agent-platform/internal/sandbox"
 	"agent-platform/internal/server"
 	"agent-platform/internal/skills"
 	"agent-platform/internal/supportpkg"
+	"agent-platform/internal/terminal"
 	"agent-platform/internal/toolinteraction"
 	"agent-platform/internal/tools"
 	"agent-platform/internal/viewport"
@@ -154,7 +163,9 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}
 	log.Printf("model registry ready in %s (root=%s)", startupElapsed(modelRegistryStartedAt), cfg.Paths.RegistriesDir)
 
-	runManager := contracts.NewInMemoryRunManager()
+	runManager := runstate.NewManager()
+	runtimeService := agentruntime.NewService()
+	proxyRuntime := runtimeproxy.NewService()
 	wsHub := ws.NewHub()
 	sandboxClient := sandbox.NewContainerHubSandboxService(cfg.ContainerHub, cfg.Paths)
 	runtimeToolExecutor, err := tools.NewRuntimeToolExecutor(cfg, sandboxClient, chatStore, memoryStore, skillCandidateStore)
@@ -323,21 +334,13 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			},
 		)
 		dispatcher := automation.NewDispatcher(func(ctx context.Context, req api.QueryRequest, hooks automation.QueryRunHooks) (automation.QueryRunResult, error) {
-			if srv == nil {
-				return automation.QueryRunResult{}, fmt.Errorf("server not initialized")
-			}
 			if strings.TrimSpace(req.Role) == "" {
 				req.Role = api.QueryRoleAutomation
 			}
-			result, err := srv.ExecuteInternalQueryResult(ctx, req, server.InternalQueryHooks{OnRunStarted: hooks.OnRunStarted})
+			result, err := runtimeService.ExecuteQueryWithHooks(ctx, runtimeQueryCommand(req), runtimetypes.QueryHooks{OnRunStarted: hooks.OnRunStarted})
 			queryResult := automation.QueryRunResult{Completion: result.Completion, ErrorMessage: result.ErrorMessage}
 			if err != nil {
 				return queryResult, err
-			}
-			if result.StatusCode != http.StatusOK {
-				message := summarizeAutomationErrorBody(result.Body)
-				queryResult.ErrorMessage = firstNonBlankString(queryResult.ErrorMessage, message)
-				return queryResult, fmt.Errorf("automation query failed with status %d: %s", result.StatusCode, message)
 			}
 			if result.Completion != nil {
 				switch strings.ToLower(strings.TrimSpace(result.Completion.FinishReason)) {
@@ -355,6 +358,16 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}
 
 	serverStartedAt := time.Now()
+	adminSourceService := adminsource.NewService()
+	chatResourceService := chatresource.NewService(chatStore)
+	terminalManager := terminal.NewManager()
+	conversationService := conversation.NewService(chatStore, archiveStore, archiver, runManager)
+	deferredAwaitings := runtimequery.NewDeferredAwaitingStore()
+	var projectHistory contracts.ProjectFileHistoryReader = toolExecutor
+	projectService := &projectpkg.Service{
+		Registry: registry, Chats: chatStore, History: projectHistory,
+		ChatsRoot: cfg.Paths.ChatsDir, MaxReadBytes: cfg.FileTools.MaxReadBytes,
+	}
 	srv, err = server.New(server.Dependencies{
 		BackgroundContext: backgroundCtx,
 		Config:            cfg,
@@ -391,6 +404,14 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		}),
 		AutomationRegistry:   automationRegistry,
 		AutomationExecutions: automationExecutionHistory,
+		AdminSources:         adminSourceService,
+		ChatResources:        chatResourceService,
+		Terminals:            terminalManager,
+		Runtime:              runtimeService,
+		ProxyRuntime:         proxyRuntime,
+		Conversation:         conversationService,
+		Project:              projectService,
+		DeferredAwaitings:    deferredAwaitings,
 		GatewayResolver:      gatewayResolver,
 		AgentCardStatus:      cardReporter,
 		AgentCardRefresh:     cardReporter,
@@ -402,7 +423,18 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		}
 		return nil, fmt.Errorf("init server: %w", err)
 	}
-	if err := toolExecutor.RegisterHandler(runops.NewToolHandler(srv, runManager)); err != nil {
+	runtimeService.Bind(runtimequery.NewService(runtimequery.Dependencies{
+		Runs:       runManager,
+		Chats:      chatStore,
+		Execute:    srv.ExecuteQuery,
+		StartQuery: srv.StartQueryRuntime,
+		Start:      srv.StartRun,
+		Submit:     srv.SubmitRuntime,
+		Steer:      srv.SteerRuntime,
+		Interrupt:  srv.InterruptRuntime,
+		Access:     srv.SetAccessLevelRuntime,
+	}))
+	if err := toolExecutor.RegisterHandler(runops.NewToolHandler(runtimeService, runManager)); err != nil {
 		return nil, fmt.Errorf("register run tools: %w", err)
 	}
 	log.Printf("server dependencies wired in %s", startupElapsed(serverStartedAt))
@@ -658,4 +690,35 @@ func firstNonBlankString(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func runtimeQueryCommand(req api.QueryRequest) runtimetypes.QueryCommand {
+	references := make([]runtimetypes.Reference, len(req.References))
+	for index, reference := range req.References {
+		references[index] = runtimetypes.Reference{
+			ID: reference.ID, Type: reference.Type, Name: reference.Name, Path: reference.Path,
+			MimeType: reference.MimeType, SizeBytes: reference.SizeBytes, URL: reference.URL,
+			SHA256: reference.SHA256, Meta: contracts.CloneMap(reference.Meta),
+		}
+	}
+	var scene *runtimetypes.Scene
+	if req.Scene != nil {
+		scene = &runtimetypes.Scene{URL: req.Scene.URL, Title: req.Scene.Title}
+	}
+	var model *runtimetypes.QueryModelOptions
+	if req.Model != nil {
+		model = &runtimetypes.QueryModelOptions{
+			Key: req.Model.Key, ModelID: req.Model.ModelID,
+			ReasoningEffort: req.Model.ReasoningEffort, ServiceTier: req.Model.ServiceTier,
+		}
+	}
+	return runtimetypes.QueryCommand{
+		RequestID: req.RequestID, RunID: req.RunID, ChatID: req.ChatID, AgentKey: req.AgentKey, TeamID: req.TeamID,
+		Role: req.Role, Hidden: req.Hidden, Message: req.Message, SourceUser: req.SourceUser, References: references,
+		Params: contracts.CloneMap(req.Params), Scene: scene, Stream: req.Stream, IncludeUsage: req.IncludeUsage,
+		IncludeFullText: req.IncludeFullText, PlanningMode: req.PlanningMode, EditingMode: req.EditingMode,
+		MustUseSkills: append([]string(nil), req.MustUseSkills...), AccessLevel: req.AccessLevel, Model: model,
+		SyntheticQueryBootstrapped: req.SyntheticQueryBootstrapped, ChatSource: req.ChatSource,
+		TrustedQueryMetadata: contracts.CloneMap(req.TrustedQueryMetadata),
+	}
 }

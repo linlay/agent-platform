@@ -10,6 +10,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/i18n"
+	"agent-platform/internal/runtime/runstate"
 	"agent-platform/internal/stream"
 )
 
@@ -100,50 +101,7 @@ func (s *Server) StartRun(_ context.Context, request contracts.RunStartRequest) 
 }
 
 func (s *Server) GetRunStatus(runID string) (contracts.RunSnapshot, error) {
-	runID = strings.TrimSpace(runID)
-	status, ok := s.deps.Runs.RunStatus(runID)
-	if !ok {
-		return contracts.RunSnapshot{}, runToolError("run_not_found", "run not found")
-	}
-	snapshot := contracts.RunSnapshot{
-		RunID:       status.RunID,
-		ChatID:      status.ChatID,
-		AgentKey:    status.AgentKey,
-		TeamID:      status.TeamID,
-		Status:      runPublicStatus(status.State),
-		LastSeq:     status.LastSeq,
-		StartedAt:   status.StartedAt,
-		CompletedAt: status.CompletedAt,
-		Origin:      cloneRunOrigin(status.RunOrigin),
-	}
-	if status.State == contracts.RunLoopStateWaitingSubmit {
-		if lister, ok := s.deps.Runs.(contracts.ActiveAwaitingLister); ok {
-			for _, awaiting := range lister.ActiveAwaitings(runID) {
-				if !strings.EqualFold(strings.TrimSpace(awaiting.Mode), "question") {
-					continue
-				}
-				publicID := strings.TrimSpace(awaiting.PublicAwaitingID)
-				if publicID == "" {
-					publicID = strings.TrimSpace(awaiting.AwaitingID)
-				}
-				snapshot.Awaiting = &contracts.RunAwaiting{
-					AwaitingID: publicID,
-					Mode:       "question",
-					Questions:  append([]any(nil), awaiting.Questions...),
-				}
-				break
-			}
-		}
-	}
-	if eventBus, exists := s.deps.Runs.EventBus(runID); exists {
-		applyRunEventSnapshot(&snapshot, eventBus.Snapshot())
-	}
-	if snapshot.Status == "completed" && s.deps.Chats != nil {
-		if summary, err := s.deps.Chats.Summary(snapshot.ChatID); err == nil && summary != nil && strings.TrimSpace(summary.LastRunID) == runID {
-			snapshot.Content = summary.LastRunContent
-		}
-	}
-	return snapshot, nil
+	return runstate.Snapshot(s.deps.Runs, s.deps.Chats, runID)
 }
 
 func (s *Server) InterruptRun(req api.InterruptRequest) (api.InterruptResponse, error) {
@@ -169,6 +127,16 @@ func (s *Server) InterruptRun(req api.InterruptRequest) (api.InterruptResponse, 
 }
 
 func (s *Server) startPreparedProxyRun(prepared preparedQuery, registered registeredQueryRun, eventBus *stream.RunEventBus) {
+	s.launchPreparedProxyRun(prepared, registered, eventBus, nil)
+}
+
+func (s *Server) startPreparedProxyRunAndWait(prepared preparedQuery, registered registeredQueryRun, eventBus *stream.RunEventBus) error {
+	started := make(chan error, 1)
+	s.launchPreparedProxyRun(prepared, registered, eventBus, started)
+	return <-started
+}
+
+func (s *Server) launchPreparedProxyRun(prepared preparedQuery, registered registeredQueryRun, eventBus *stream.RunEventBus, started chan<- error) {
 	s.broadcast("run.started", runStartedPushPayload(prepared.req.RunID, prepared.req.ChatID, prepared.req.AgentKey, registered.StartedAtMillis))
 	route := newDetachedProxyRunRoute(prepared)
 	s.registerProxyRun(route)
@@ -181,7 +149,13 @@ func (s *Server) startPreparedProxyRun(prepared preparedQuery, registered regist
 		chatUsage = *prepared.summary.Usage
 	}
 	recorder := newProxyEventRecorder(prepared.req, registered.StartedAtMillis, prepared.agentDef, s.deps.Chats, stepWriter, registered.Control, s.deps.Notifications, chatUsage, s.deps.Models, s.deps.Config.Billing)
-	go s.runProxyWebSocket(registered.RunCtx, prepared, route, eventBus, recorder)
+	proxyCtx, cancelProxy := context.WithCancel(registered.RunCtx)
+	stopLifecycle := context.AfterFunc(s.backgroundCtx, cancelProxy)
+	go func() {
+		defer cancelProxy()
+		defer stopLifecycle()
+		s.runProxyWebSocketWithStartup(proxyCtx, prepared, route, eventBus, recorder, started)
+	}()
 }
 
 func runOwnerMatchesChat(summary *chat.Summary, agentKey string, teamID string) bool {
@@ -195,49 +169,11 @@ func runOwnerMatchesChat(summary *chat.Summary, agentKey string, teamID string) 
 }
 
 func runPublicStatus(state contracts.RunLoopState) string {
-	switch state {
-	case contracts.RunLoopStateWaitingSubmit:
-		return "awaiting"
-	case contracts.RunLoopStateCompleted:
-		return "completed"
-	case contracts.RunLoopStateFailed:
-		return "failed"
-	case contracts.RunLoopStateCancelled:
-		return "interrupted"
-	default:
-		return "running"
-	}
+	return runstate.PublicStatus(state)
 }
 
 func applyRunEventSnapshot(snapshot *contracts.RunSnapshot, events []stream.EventData) {
-	if snapshot == nil {
-		return
-	}
-	for index := len(events) - 1; index >= 0; index-- {
-		event := events[index]
-		switch event.Type {
-		case "content.snapshot":
-			if snapshot.Content == "" && strings.TrimSpace(event.String("taskId")) == "" {
-				snapshot.Content = event.String("text")
-			}
-		case "awaiting.ask":
-			if snapshot.Awaiting != nil && snapshot.Awaiting.Payload == nil && event.String("awaitingId") == snapshot.Awaiting.AwaitingID {
-				snapshot.Awaiting.Payload = contracts.CloneMap(event.Payload)
-			}
-		case "run.error":
-			if snapshot.Error == nil {
-				if payload, ok := event.Payload["error"].(map[string]any); ok {
-					snapshot.Error = contracts.CloneMap(payload)
-				} else {
-					snapshot.Error = contracts.CloneMap(event.Payload)
-				}
-			}
-		case "run.cancel":
-			if snapshot.Error == nil {
-				snapshot.Error = contracts.CloneMap(event.Payload)
-			}
-		}
-	}
+	runstate.ApplyEventSnapshot(snapshot, events)
 }
 
 func mapRunAdmissionError(err error, agentKey string, teamID string) error {
@@ -277,9 +213,5 @@ func runToolError(code string, message string) error {
 }
 
 func cloneRunOrigin(origin *contracts.RunOrigin) *contracts.RunOrigin {
-	if origin == nil {
-		return nil
-	}
-	cloned := *origin
-	return &cloned
+	return runstate.CloneRunOrigin(origin)
 }

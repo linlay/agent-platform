@@ -1,10 +1,15 @@
 package server
 
 import (
+	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/apperrors"
+	"agent-platform/internal/contracts"
+	runtimetypes "agent-platform/internal/runtime/types"
 )
 
 func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
@@ -14,29 +19,16 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Locale = requestLocale(r, responseLocale(w))
-	req = s.normalizeActiveSubmitRun(req)
-	if statusErr := s.validateSubmitOwner(req); statusErr != nil {
-		writeStatusError(w, statusErr)
-		return
-	}
-	if response, statusErr, ok := s.forwardProxySubmit(req); ok {
-		if statusErr != nil {
-			writeStatusError(w, statusErr)
-			return
-		}
-		writeJSON(w, http.StatusOK, api.Success(response))
-		return
-	}
-	response, _, _, err := s.resolveSubmit(req)
+	result, err := s.deps.Runtime.Submit(r.Context(), runtimeSubmitCommand(req))
 	if err != nil {
-		if statusErr, ok := err.(*statusError); ok {
-			writeStatusError(w, statusErr)
-			return
-		}
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
+		writeRuntimeControlError(w, err, http.StatusBadRequest)
 		return
 	}
-	writeJSON(w, http.StatusOK, api.Success(response))
+	writeJSON(w, http.StatusOK, api.Success(api.SubmitResponse{
+		Accepted: result.Accepted, Status: result.Status, ChatID: result.ChatID, RunID: result.RunID,
+		AwaitingID: result.AwaitingID, SubmitID: result.SubmitID, Continued: result.Continued,
+		ErrorCode: result.ErrorCode, Detail: result.Detail,
+	}))
 }
 
 func (s *Server) handleSteer(w http.ResponseWriter, r *http.Request) {
@@ -45,25 +37,14 @@ func (s *Server) handleSteer(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "runId and message are required"))
 		return
 	}
-	if statusErr := s.validateRunOwner(req.RunID, req.AgentKey, req.TeamID); statusErr != nil {
-		writeStatusError(w, statusErr)
+	result, err := s.deps.Runtime.Steer(r.Context(), runtimeSteerCommand(req))
+	if err != nil {
+		writeRuntimeControlError(w, err, http.StatusBadRequest)
 		return
 	}
-	if response, statusErr, ok := s.forwardProxySteer(req); ok {
-		if statusErr != nil {
-			writeStatusError(w, statusErr)
-			return
-		}
-		writeJSON(w, http.StatusOK, api.Success(response))
-		return
-	}
-	ack := s.deps.Runs.Steer(req)
 	writeJSON(w, http.StatusOK, api.Success(api.SteerResponse{
-		Accepted: ack.Accepted,
-		Status:   ack.Status,
-		RunID:    req.RunID,
-		SteerID:  ack.SteerID,
-		Detail:   ack.Detail,
+		Accepted: result.Accepted, Status: result.Status, RunID: result.RunID,
+		SteerID: result.SteerID, Detail: result.Detail,
 	}))
 }
 
@@ -73,23 +54,64 @@ func (s *Server) handleInterrupt(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "runId is required"))
 		return
 	}
-	if statusErr := s.validateRunOwner(req.RunID, req.AgentKey, req.TeamID); statusErr != nil {
+	result, err := s.deps.Runtime.Interrupt(r.Context(), runtimeInterruptCommand(req))
+	if err != nil {
+		writeRuntimeControlError(w, err, http.StatusBadRequest)
+		return
+	}
+	writeJSON(w, http.StatusOK, api.Success(api.InterruptResponse{
+		Accepted: result.Accepted, Status: result.Status, RunID: result.RunID, Detail: result.Detail,
+	}))
+}
+
+func runtimeSubmitCommand(req api.SubmitRequest) runtimetypes.SubmitCommand {
+	var params []json.RawMessage
+	if req.Params != nil {
+		params = make([]json.RawMessage, len(req.Params))
+		copy(params, req.Params)
+	}
+	return runtimetypes.SubmitCommand{
+		RunRef:     runtimetypes.RunRef{RunID: req.RunID, ChatID: req.ChatID, AgentKey: req.AgentKey, TeamID: req.TeamID},
+		AwaitingID: req.AwaitingID, SubmitID: req.SubmitID, Locale: req.Locale,
+		Params: params, ContinuationRunID: req.ContinuationRunID, ContinuationState: req.ContinuationState,
+	}
+}
+
+func runtimeSteerCommand(req api.SteerRequest) runtimetypes.SteerCommand {
+	return runtimetypes.SteerCommand{
+		RunRef:    runtimetypes.RunRef{RunID: req.RunID, ChatID: req.ChatID, AgentKey: req.AgentKey, TeamID: req.TeamID},
+		RequestID: req.RequestID, SteerID: req.SteerID, Message: req.Message,
+	}
+}
+
+func runtimeInterruptCommand(req api.InterruptRequest) runtimetypes.InterruptCommand {
+	return runtimetypes.InterruptCommand{
+		RunRef:    runtimetypes.RunRef{RunID: req.RunID, ChatID: req.ChatID, AgentKey: req.AgentKey, TeamID: req.TeamID},
+		RequestID: req.RequestID, Message: req.Message, Source: req.InterruptSource,
+		Reason: req.InterruptReason, Detail: req.InterruptDetail,
+	}
+}
+
+func writeRuntimeControlError(w http.ResponseWriter, err error, fallbackStatus int) {
+	var statusErr *statusError
+	if errors.As(err, &statusErr) {
 		writeStatusError(w, statusErr)
 		return
 	}
-	if response, statusErr, ok := s.forwardProxyInterrupt(req); ok {
-		if statusErr != nil {
-			writeStatusError(w, statusErr)
-			return
-		}
-		writeJSON(w, http.StatusOK, api.Success(response))
-		return
+	status := fallbackStatus
+	var appErr *apperrors.Error
+	if errors.As(err, &appErr) {
+		status = apperrorsStatus(appErr, fallbackStatus)
 	}
-	ack := s.deps.Runs.Interrupt(httpAPIUserInterruptRequest(req))
-	writeJSON(w, http.StatusOK, api.Success(api.InterruptResponse{
-		Accepted: ack.Accepted,
-		Status:   ack.Status,
-		RunID:    req.RunID,
-		Detail:   ack.Detail,
-	}))
+	writeJSON(w, status, api.Failure(status, err.Error()))
+}
+
+func apperrorsStatus(err *apperrors.Error, fallback int) int {
+	if err == nil {
+		return fallback
+	}
+	if status := contracts.AnyIntNode(err.Payload()["status"]); status > 0 {
+		return status
+	}
+	return fallback
 }

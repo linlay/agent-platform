@@ -6,15 +6,15 @@ import (
 	"sync"
 	"testing"
 
-	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
+	runtimetypes "agent-platform/internal/runtime/types"
 )
 
 type fakeRunToolService struct {
 	mu         sync.Mutex
 	starts     int
 	snapshots  map[string]contracts.RunSnapshot
-	interrupts []api.InterruptRequest
+	interrupts []runtimetypes.InterruptCommand
 }
 
 func newFakeRunToolService() *fakeRunToolService {
@@ -49,14 +49,14 @@ func (f *fakeRunToolService) GetRunStatus(runID string) (contracts.RunSnapshot, 
 	return snapshot, nil
 }
 
-func (f *fakeRunToolService) InterruptRun(req api.InterruptRequest) (api.InterruptResponse, error) {
+func (f *fakeRunToolService) Interrupt(_ context.Context, req runtimetypes.InterruptCommand) (runtimetypes.InterruptResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.interrupts = append(f.interrupts, req)
 	snapshot := f.snapshots[req.RunID]
 	snapshot.Status = "interrupted"
 	f.snapshots[req.RunID] = snapshot
-	return api.InterruptResponse{Accepted: true, Status: "accepted", RunID: req.RunID}, nil
+	return runtimetypes.InterruptResult{Accepted: true, Status: "accepted", RunID: req.RunID}, nil
 }
 
 func runToolExecContext(subject string, toolID string) *contracts.ExecutionContext {

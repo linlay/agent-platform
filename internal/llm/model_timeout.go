@@ -2,12 +2,11 @@ package llm
 
 import (
 	"bufio"
-	"fmt"
 	"io"
 	"time"
 
-	"agent-platform/internal/apperrors"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/modelclient"
 )
 
 type sseFrameReadResult struct {
@@ -81,14 +80,5 @@ func readSSEFrameWithIdleTimeout(reader *bufio.Reader, closer io.Closer, timeout
 }
 
 func modelStreamIdleTimeoutError(timeout time.Duration) error {
-	seconds := int64(timeout / time.Second)
-	if seconds <= 0 {
-		seconds = 1
-	}
-	return apperrors.New(
-		apperrors.CodeProviderTimeout,
-		fmt.Sprintf("model stream idle timeout after %d seconds", seconds),
-		apperrors.WithDiagnostic("timeoutSeconds", seconds),
-		apperrors.WithDiagnostic("reason", "model_stream_idle_timeout"),
-	)
+	return modelclient.StreamTimeoutError(timeout)
 }

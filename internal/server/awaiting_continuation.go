@@ -8,7 +8,7 @@ import (
 	"log"
 	"strings"
 
-	agentcoder "agent-platform/internal/agent/coder"
+	agentbuiltin "agent-platform/internal/agent/builtin"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
@@ -183,14 +183,14 @@ func (s *Server) startAwaitingContinuationWithAdmission(
 		}
 	}
 	planningMarkdown := s.awaitingContinuationPlanningMarkdown(chatID, mode)
-	planningDecision := agentcoder.PlanningContinuationDecision(mode, answer)
-	planningApprove := agentcoder.IsMode(agentDef.Mode) && planningDecision == "approve"
-	planningReject := agentcoder.IsMode(agentDef.Mode) && planningDecision == "reject"
+	planningDecision := agentbuiltin.CoderPlanningContinuationDecision(mode, answer)
+	planningApprove := agentbuiltin.IsCoderMode(agentDef.Mode) && planningDecision == "approve"
+	planningReject := agentbuiltin.IsCoderMode(agentDef.Mode) && planningDecision == "reject"
 	newExecutionRun := planningApprove && strings.TrimSpace(runID) != strings.TrimSpace(sourceRunID)
 	continuationInput := coderContinuationRequestInput(originalQuery, submitReq, summary, agentDef, mode, answer, planningMarkdown)
-	req := agentcoder.BuildContinuationRequest(continuationInput)
+	req := agentbuiltin.CoderBuildContinuationRequest(continuationInput)
 	if planningApprove {
-		req = agentcoder.BuildPlanningApproveContinuationRequest(continuationInput)
+		req = agentbuiltin.CoderBuildPlanningApproveContinuationRequest(continuationInput)
 	} else if planningReject {
 		planningMode := true
 		req.PlanningMode = &planningMode
@@ -213,7 +213,7 @@ func (s *Server) startAwaitingContinuationWithAdmission(
 	if !isProxyAgentMode(agentDef.Mode) {
 		applyQueryModelOptionsToSession(req.Model, &session)
 	}
-	if agentcoder.IsACPBackend(agentDef.Mode, agentDef.ACPBridgeID) {
+	if agentbuiltin.IsCoderACPBackend(agentDef.Mode, agentDef.ACPBridgeID) {
 		req.Model = s.acpCoderModelOptions(session, req.Model)
 	}
 	if continuationStartedAt != 0 {
@@ -413,13 +413,13 @@ func (s *Server) startRunContinuation(continuation contracts.DeltaRunContinuatio
 	return runID, nil
 }
 
-func coderContinuationRequestInput(original *chat.QueryLine, submitReq api.SubmitRequest, summary chat.Summary, agentDef catalog.AgentDefinition, mode string, answer map[string]any, planningMarkdown string) agentcoder.ContinuationRequestInput {
+func coderContinuationRequestInput(original *chat.QueryLine, submitReq api.SubmitRequest, summary chat.Summary, agentDef catalog.AgentDefinition, mode string, answer map[string]any, planningMarkdown string) agentbuiltin.CoderContinuationRequestInput {
 	var originalRequest api.QueryRequest
 	if original != nil && len(original.Query) > 0 {
 		data, _ := json.Marshal(original.Query)
 		_ = json.Unmarshal(data, &originalRequest)
 	}
-	return agentcoder.ContinuationRequestInput{
+	return agentbuiltin.CoderContinuationRequestInput{
 		Original:           originalRequest,
 		Submit:             submitReq,
 		SummaryChatID:      summary.ChatID,
@@ -452,7 +452,7 @@ func (s *Server) preparePlanningApproveContinuation(req api.QueryRequest, origin
 	}
 	var executeSystem chat.QueryLineSystem
 	for _, profile := range profiles {
-		if strings.TrimSpace(profile.CacheKey) != agentcoder.ExecuteCacheKey {
+		if strings.TrimSpace(profile.CacheKey) != agentbuiltin.CoderExecuteCacheKey {
 			continue
 		}
 		executeSystem = queryLineSystemFromProfile(profile)
@@ -473,7 +473,7 @@ func (s *Server) preparePlanningApproveContinuation(req api.QueryRequest, origin
 			}
 		}
 	}
-	executeTools := agentcoder.PlanningExecuteToolsForStage(session.ResolvedCoderPlanningSettings.Execute, session.ToolNames)
+	executeTools := agentbuiltin.CoderPlanningExecuteToolsForStage(session.ResolvedCoderPlanningSettings.Execute, session.ToolNames)
 	session.ToolNames = append([]string(nil), executeTools...)
 	if modelKey := strings.TrimSpace(session.ResolvedCoderPlanningSettings.Execute.ModelKey); modelKey != "" {
 		session.ModelKey = modelKey
@@ -489,9 +489,9 @@ func coderPlanningApproveSyntheticBootstrap(session contracts.QuerySession) *str
 	return &stream.SyntheticQuery{
 		ChatID:   session.ChatID,
 		Role:     api.QueryRoleUser,
-		Message:  agentcoder.ExecuteSyntheticQueryMessage(session.Locale),
+		Message:  agentbuiltin.CoderExecuteSyntheticQueryMessage(session.Locale),
 		Messages: cloneMessageMapsForSyntheticBootstrap(session.CurrentMessages),
-		System:   contracts.TakePendingSystemInitPayload(&session, agentcoder.ExecuteCacheKey),
+		System:   contracts.TakePendingSystemInitPayload(&session, agentbuiltin.CoderExecuteCacheKey),
 	}
 }
 

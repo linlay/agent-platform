@@ -1,4 +1,4 @@
-package stream
+package server
 
 import (
 	"encoding/json"
@@ -9,31 +9,30 @@ import (
 	"time"
 
 	"agent-platform/internal/config"
+	"agent-platform/internal/stream"
 )
 
-const DoneSentinel = "[DONE]"
-
-type Options struct {
+type sseWriterOptions struct {
 	SSE            config.SSEConfig
-	Render         RenderConfig
+	Render         stream.RenderConfig
 	LoggingEnabled bool
 }
 
-type Writer struct {
+type sseWriter struct {
 	responseWriter http.ResponseWriter
 	flusher        http.Flusher
-	opts           Options
+	opts           sseWriterOptions
 
 	mu            sync.Mutex
 	writeMu       sync.Mutex
-	pending       []frame
+	pending       []sseFrame
 	bufferedChars int
 	timer         *time.Timer
 	heartbeatStop chan struct{}
 	closed        bool
 }
 
-type frame struct {
+type sseFrame struct {
 	raw       string
 	eventType string
 	runID     string
@@ -43,7 +42,7 @@ type frame struct {
 	length    int
 }
 
-func NewWriter(w http.ResponseWriter, opts Options) (*Writer, error) {
+func newSSEWriter(w http.ResponseWriter, opts sseWriterOptions) (*sseWriter, error) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		return nil, fmt.Errorf("streaming unsupported")
@@ -54,7 +53,7 @@ func NewWriter(w http.ResponseWriter, opts Options) (*Writer, error) {
 	w.Header().Set("X-Accel-Buffering", "no")
 	flusher.Flush()
 
-	return &Writer{
+	return &sseWriter{
 		responseWriter: w,
 		flusher:        flusher,
 		opts:           opts,
@@ -62,7 +61,7 @@ func NewWriter(w http.ResponseWriter, opts Options) (*Writer, error) {
 	}, nil
 }
 
-func (w *Writer) StartHeartbeat() {
+func (w *sseWriter) StartHeartbeat() {
 	if w.opts.SSE.HeartbeatInterval <= 0 {
 		return
 	}
@@ -82,7 +81,7 @@ func (w *Writer) StartHeartbeat() {
 	}()
 }
 
-func (w *Writer) Close() error {
+func (w *sseWriter) Close() error {
 	w.stopHeartbeat()
 	w.mu.Lock()
 	if w.closed {
@@ -105,12 +104,12 @@ func (w *Writer) Close() error {
 	return nil
 }
 
-func (w *Writer) WriteJSON(eventName string, payload any) error {
+func (w *sseWriter) WriteJSON(eventName string, payload any) error {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	frame := frame{
+	sseFrame := sseFrame{
 		raw:       fmt.Sprintf("event: %s\ndata: %s\n\n", eventName, data),
 		eventType: eventTypeFromPayload(payload),
 		runID:     stringField(payload, "runId"),
@@ -118,30 +117,30 @@ func (w *Writer) WriteJSON(eventName string, payload any) error {
 		terminal:  isTerminalEvent(payload),
 		length:    len(data),
 	}
-	return w.writeFrame(frame)
+	return w.writeFrame(sseFrame)
 }
 
-func (w *Writer) WriteComment(comment string) error {
-	frame := frame{
+func (w *sseWriter) WriteComment(comment string) error {
+	sseFrame := sseFrame{
 		raw:       fmt.Sprintf(": %s\n\n", comment),
 		eventType: "heartbeat",
 		heartbeat: true,
 		length:    len(comment),
 	}
-	return w.writeFrame(frame)
+	return w.writeFrame(sseFrame)
 }
 
-func (w *Writer) WriteDone() error {
-	return w.writeFrame(frame{
-		raw:       fmt.Sprintf("event: message\ndata: %s\n\n", DoneSentinel),
-		eventType: DoneSentinel,
+func (w *sseWriter) WriteDone() error {
+	return w.writeFrame(sseFrame{
+		raw:       fmt.Sprintf("event: message\ndata: %s\n\n", stream.DoneSentinel),
+		eventType: stream.DoneSentinel,
 		terminal:  true,
-		length:    len(DoneSentinel),
+		length:    len(stream.DoneSentinel),
 	})
 }
 
-func (w *Writer) writeFrame(next frame) error {
-	var toWrite []frame
+func (w *sseWriter) writeFrame(next sseFrame) error {
+	var toWrite []sseFrame
 
 	w.mu.Lock()
 	if w.closed {
@@ -158,7 +157,7 @@ func (w *Writer) writeFrame(next frame) error {
 				return err
 			}
 		}
-		return w.writeFrames([]frame{next})
+		return w.writeFrames([]sseFrame{next})
 	}
 
 	w.pending = append(w.pending, next)
@@ -175,11 +174,11 @@ func (w *Writer) writeFrame(next frame) error {
 	return nil
 }
 
-func (w *Writer) bufferingEnabled() bool {
+func (w *sseWriter) bufferingEnabled() bool {
 	return w.opts.Render.FlushInterval > 0 || w.opts.Render.MaxBufferedChars > 0 || w.opts.Render.MaxBufferedEvents > 0
 }
 
-func (w *Writer) shouldFlushLocked(latest frame) bool {
+func (w *sseWriter) shouldFlushLocked(latest sseFrame) bool {
 	if latest.terminal {
 		return true
 	}
@@ -189,7 +188,7 @@ func (w *Writer) shouldFlushLocked(latest frame) bool {
 	return w.opts.Render.MaxBufferedChars > 0 && w.bufferedChars >= w.opts.Render.MaxBufferedChars
 }
 
-func (w *Writer) scheduleFlushLocked() {
+func (w *sseWriter) scheduleFlushLocked() {
 	if w.opts.Render.FlushInterval <= 0 || w.timer != nil {
 		return
 	}
@@ -198,7 +197,7 @@ func (w *Writer) scheduleFlushLocked() {
 	})
 }
 
-func (w *Writer) flushPending() error {
+func (w *sseWriter) flushPending() error {
 	w.mu.Lock()
 	toWrite := w.drainPendingLocked()
 	w.stopTimerLocked()
@@ -209,17 +208,17 @@ func (w *Writer) flushPending() error {
 	return w.writeFrames(toWrite)
 }
 
-func (w *Writer) drainPendingLocked() []frame {
+func (w *sseWriter) drainPendingLocked() []sseFrame {
 	if len(w.pending) == 0 {
 		return nil
 	}
-	drained := append([]frame(nil), w.pending...)
+	drained := append([]sseFrame(nil), w.pending...)
 	w.pending = nil
 	w.bufferedChars = 0
 	return drained
 }
 
-func (w *Writer) stopTimerLocked() {
+func (w *sseWriter) stopTimerLocked() {
 	if w.timer == nil {
 		return
 	}
@@ -227,7 +226,7 @@ func (w *Writer) stopTimerLocked() {
 	w.timer = nil
 }
 
-func (w *Writer) stopHeartbeat() {
+func (w *sseWriter) stopHeartbeat() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.heartbeatStop == nil {
@@ -237,22 +236,22 @@ func (w *Writer) stopHeartbeat() {
 	w.heartbeatStop = nil
 }
 
-func (w *Writer) writeFrames(frames []frame) error {
+func (w *sseWriter) writeFrames(frames []sseFrame) error {
 	w.writeMu.Lock()
 	defer w.writeMu.Unlock()
-	for _, frame := range frames {
-		if _, err := fmt.Fprint(w.responseWriter, frame.raw); err != nil {
+	for _, sseFrame := range frames {
+		if _, err := fmt.Fprint(w.responseWriter, sseFrame.raw); err != nil {
 			return err
 		}
 		if w.opts.LoggingEnabled {
 			log.Printf(
 				"[sse][run:%s][chat:%s] event=%s heartbeat=%t terminal=%t size=%d",
-				frame.runID,
-				frame.chatID,
-				frame.eventType,
-				frame.heartbeat,
-				frame.terminal,
-				frame.length,
+				sseFrame.runID,
+				sseFrame.chatID,
+				sseFrame.eventType,
+				sseFrame.heartbeat,
+				sseFrame.terminal,
+				sseFrame.length,
 			)
 		}
 	}
@@ -281,9 +280,9 @@ func isTerminalEvent(payload any) bool {
 
 func stringField(payload any, key string) string {
 	switch value := payload.(type) {
-	case EventData:
+	case stream.EventData:
 		return value.String(key)
-	case *EventData:
+	case *stream.EventData:
 		if value == nil {
 			return ""
 		}

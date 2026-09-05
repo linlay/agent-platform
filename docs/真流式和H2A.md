@@ -52,7 +52,7 @@ Desktop 使用两条独立的普通 WebSocket v2 lane：`desktop-main` 复用所
 
 ## 相关文件
 
-- `internal/stream/sse.go`
+- `internal/server/sse_writer.go`
 - `internal/stream/event_bus.go`
 - `internal/server/handler_query.go`
 - `internal/server/handler_run_stream_test.go`

@@ -10,9 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	agentcoder "agent-platform/internal/agent/coder"
-	agentkbase "agent-platform/internal/agent/kbase"
-	agentteam "agent-platform/internal/agent/team"
+	agentbuiltin "agent-platform/internal/agent/builtin"
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
@@ -114,11 +112,25 @@ func combineQueryReleases(releases ...queryReleaseFunc) queryReleaseFunc {
 }
 
 func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (queryAdmission, error) {
+	req, err := decodeQueryRequest(r)
+	if err != nil {
+		return queryAdmission{}, err
+	}
+	return s.prepareQueryAdmissionRequest(
+		r.Context(),
+		req,
+		requireMessage,
+		requestLocale(r, i18n.DefaultLocale),
+		requestBaseURL(r),
+	)
+}
+
+func decodeQueryRequest(r *http.Request) (api.QueryRequest, error) {
 	var req api.QueryRequest
 	if err := decodeJSON(r, &req); err != nil {
 		if errors.Is(err, api.ErrRequiredSkillKeysRemoved) {
 			const code = "required_skill_keys_removed"
-			return queryAdmission{}, &statusError{
+			return api.QueryRequest{}, &statusError{
 				status:  http.StatusBadRequest,
 				code:    code,
 				message: api.RequiredSkillKeysRemovedMessage,
@@ -131,15 +143,9 @@ func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (qu
 		if strings.Contains(err.Error(), api.ReferenceSandboxPathRemovedMessage) {
 			message = api.ReferenceSandboxPathRemovedMessage
 		}
-		return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: message}
+		return api.QueryRequest{}, &statusError{status: http.StatusBadRequest, message: message}
 	}
-	return s.prepareQueryAdmissionRequest(
-		r.Context(),
-		req,
-		requireMessage,
-		requestLocale(r, i18n.DefaultLocale),
-		requestBaseURL(r),
-	)
+	return req, nil
 }
 
 func (s *Server) prepareQueryAdmissionRequest(
@@ -253,10 +259,10 @@ func (s *Server) prepareQueryAdmissionRequest(
 	if err := s.validateQueryModelOptions(req.Model, agentDef); err != nil {
 		return queryAdmission{}, err
 	}
-	if req.PlanningMode != nil && *req.PlanningMode && !agentcoder.IsMode(agentDef.Mode) {
+	if req.PlanningMode != nil && *req.PlanningMode && !agentbuiltin.IsCoderMode(agentDef.Mode) {
 		return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: "planningMode is only supported for CODER agents"}
 	}
-	if req.EditingMode != nil && *req.EditingMode && !agentkbase.IsMode(agentDef.Mode) {
+	if req.EditingMode != nil && *req.EditingMode && !agentbuiltin.IsKBaseMode(agentDef.Mode) {
 		const code = "editing_mode_unsupported"
 		const message = "editingMode is only supported for dedicated KBASE agents"
 		return queryAdmission{}, &statusError{
@@ -398,7 +404,7 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 		}
 		baseTool, found := teamDelegateBaseDefinition(s.deps.Tools.Definitions())
 		if !found {
-			return preparedQuery{}, fmt.Errorf("embedded Team tool %q is unavailable", agentteam.ToolDelegate)
+			return preparedQuery{}, fmt.Errorf("embedded Team tool %q is unavailable", agentbuiltin.TeamToolDelegate)
 		}
 		if err := configureTeamCoordinatorSession(&session, *admission.teamSnapshot, baseTool); err != nil {
 			return preparedQuery{}, err
@@ -568,7 +574,7 @@ func (s *Server) validateQueryModelOptions(options *api.QueryModelOptions, agent
 				if err != nil {
 					return &statusError{status: http.StatusBadGateway, message: "failed to fetch ACP CODER models: " + err.Error()}
 				}
-				if !agentcoder.ModelKeyInOptions(modelKey, options) {
+				if !agentbuiltin.CoderModelKeyInOptions(modelKey, options) {
 					return &statusError{status: http.StatusBadRequest, message: "model " + modelKey + " is not available for ACP CODER"}
 				}
 			} else if err := s.validateLocalChatModelKey(modelKey, false); err != nil {
@@ -635,19 +641,19 @@ func applyQueryModelOptionsToSession(options *api.QueryModelOptions, session *co
 }
 
 func normalizeQueryModelReasoningEffort(value string) (string, bool) {
-	return agentcoder.NormalizeReasoningEffort(value)
+	return agentbuiltin.CoderNormalizeReasoningEffort(value)
 }
 
 func normalizeQueryModelServiceTier(value string) (string, bool) {
-	return agentcoder.NormalizeServiceTier(value)
+	return agentbuiltin.CoderNormalizeServiceTier(value)
 }
 
 func serviceTierAllowedForACPModel(serviceTier string, modelKey string, options []api.CoderModelOption) bool {
-	return agentcoder.ServiceTierAllowedForACPModel(serviceTier, modelKey, options)
+	return agentbuiltin.CoderServiceTierAllowedForACPModel(serviceTier, modelKey, options)
 }
 
 func reasoningEffortAllowedForACPModel(reasoningEffort string, modelKey string, options []api.CoderModelOption) bool {
-	return agentcoder.ReasoningEffortAllowedForACPModel(reasoningEffort, modelKey, options)
+	return agentbuiltin.CoderReasoningEffortAllowedForACPModel(reasoningEffort, modelKey, options)
 }
 
 func applyQueryModelOptionsToRawStageSettings(mode string, raw map[string]any, modelKey string, reasoningEffort string) map[string]any {
@@ -666,7 +672,7 @@ func applyQueryModelOptionsToRawStageSettings(mode string, raw map[string]any, m
 		out["reasoningEffort"] = reasoningEffort
 	}
 	stages := []string{"plan", "execute", "summary"}
-	if agentcoder.IsMode(mode) {
+	if agentbuiltin.IsCoderMode(mode) {
 		stages = []string{"planning", "execute"}
 	}
 	for _, stage := range stages {

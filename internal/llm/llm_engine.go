@@ -15,6 +15,7 @@ import (
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/hitl"
+	"agent-platform/internal/modelclient"
 	. "agent-platform/internal/models"
 	"agent-platform/internal/pathutil"
 	"agent-platform/internal/querymessages"
@@ -28,6 +29,7 @@ type LLMAgentEngine struct {
 	interactions *toolinteraction.Registry
 	sandbox      SandboxClient
 	httpClient   *http.Client
+	modelClient  *modelclient.Client
 }
 
 type runStreamOptions struct {
@@ -59,6 +61,7 @@ func NewLLMAgentEngineWithHTTPClient(cfg config.Config, models *ModelRegistry, t
 		interactions: interactions,
 		sandbox:      sandbox,
 		httpClient:   httpClient,
+		modelClient:  modelclient.New(httpClient),
 	}
 }
 

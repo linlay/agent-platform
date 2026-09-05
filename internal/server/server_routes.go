@@ -25,6 +25,7 @@ import (
 )
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.bindHostServerShutdown(r.Context())
 	startedAt := time.Now()
 	if s.handleCORS(w, r) {
 		return
@@ -55,6 +56,23 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	s.router.ServeHTTP(rec, r)
 	s.logRequest(r, rec.status, time.Since(startedAt))
+}
+
+// bindHostServerShutdown gives directly embedded Servers a lifecycle root
+// without coupling detached runs to an individual HTTP connection. app.New
+// supplies its own BackgroundContext, so this compatibility hook is inactive
+// in normal process assembly.
+func (s *Server) bindHostServerShutdown(ctx context.Context) {
+	if s == nil || s.backgroundCancel == nil || ctx == nil {
+		return
+	}
+	host, ok := ctx.Value(http.ServerContextKey).(*http.Server)
+	if !ok || host == nil {
+		return
+	}
+	s.shutdownHookOnce.Do(func() {
+		host.RegisterOnShutdown(s.backgroundCancel)
+	})
 }
 
 type localizedResponseWriter struct {
@@ -225,7 +243,7 @@ func createMultipartFilePart(writer *multipart.Writer, fieldName, fileName, mime
 // gateway bridge to read artifact bytes off local disk without re-downloading.
 
 func (s *Server) ResolveResourcePath(fileParam string) (string, error) {
-	return s.deps.Chats.ResolveResource(fileParam)
+	return s.deps.ChatResources.ResolveResource(fileParam)
 }
 
 type sseInterceptor struct {

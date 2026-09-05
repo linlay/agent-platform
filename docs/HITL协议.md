@@ -87,9 +87,11 @@ run env 仅存在于当前 Platform 进程内，不随 awaiting StepLine 持久�
 
 - `internal/hitl/`
 - `internal/hitl/normalize.go`
+- `internal/runtime/query/deferred.go`
+- `internal/runtime/types/continuation.go`
 - `internal/llm/run_stream_hitl_submit.go`
 - `internal/llm/run_stream_hitl_shell.go`
 - `internal/server/submit_validation.go`
-- `internal/server/deferred_awaiting.go`
+- `internal/server/deferred_awaiting.go`（迁移期适配）
 - `internal/server/restart_awaiting.go`
 - `docs/手工测试用例.md`

@@ -10,7 +10,6 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
-	"agent-platform/internal/contracts"
 	"agent-platform/internal/ws"
 )
 
@@ -159,132 +158,44 @@ func (s *Server) handleArchiveRestore(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) archiveChats(chatIDs []string) (api.ArchiveChatResponse, error) {
-	if s.deps.Archiver == nil {
-		return api.ArchiveChatResponse{}, errors.New("archiver is not configured")
+	results, err := s.conversationService().ArchiveChats(chatIDs)
+	if err != nil {
+		return api.ArchiveChatResponse{}, err
 	}
-	if len(chatIDs) == 0 {
-		return api.ArchiveChatResponse{}, errors.New("chatIds is required")
+	response := api.ArchiveChatResponse{Results: make([]api.ArchiveChatResult, 0, len(results))}
+	for _, result := range results {
+		response.Results = append(response.Results, api.ArchiveChatResult{ChatID: result.ChatID, Success: result.Success, Error: result.Error})
+		if result.Success {
+			s.broadcast("chat.archived", map[string]any{"chatId": result.ChatID, "agentKey": result.AgentKey})
+		}
 	}
-	results := make([]api.ArchiveChatResult, 0, len(chatIDs))
-	for _, rawChatID := range chatIDs {
-		chatID := strings.TrimSpace(rawChatID)
-		result := api.ArchiveChatResult{ChatID: chatID}
-		if !chat.ValidChatID(chatID) {
-			result.Error = "invalid chatId"
-			results = append(results, result)
-			continue
-		}
-		if err := s.ensureNoActiveRun(chatID); err != nil {
-			result.Error = err.Error()
-			results = append(results, result)
-			continue
-		}
-		if err := s.deps.Archiver.ArchiveChat(chatID); err != nil {
-			if isTimeContractViolation(err) {
-				return api.ArchiveChatResponse{}, err
-			}
-			result.Error = archiveResultError(err)
-			results = append(results, result)
-			continue
-		}
-		result.Success = true
-		results = append(results, result)
-		agentKey := ""
-		if s.deps.Archives != nil {
-			if archived, err := s.deps.Archives.LoadArchived(chatID); err == nil && archived != nil {
-				agentKey = archived.Summary.AgentKey
-			} else if isTimeContractViolation(err) {
-				return api.ArchiveChatResponse{}, err
-			}
-		}
-		s.broadcast("chat.archived", map[string]any{"chatId": chatID, "agentKey": agentKey})
-	}
-	return api.ArchiveChatResponse{Results: results}, nil
+	return response, nil
 }
 
 func (s *Server) restoreArchives(chatIDs []string) (api.ArchiveRestoreResponse, error) {
-	if s.deps.Archiver == nil {
-		return api.ArchiveRestoreResponse{}, errors.New("archiver is not configured")
+	results, err := s.conversationService().RestoreArchives(chatIDs)
+	if err != nil {
+		return api.ArchiveRestoreResponse{}, err
 	}
-	if len(chatIDs) == 0 {
-		return api.ArchiveRestoreResponse{}, errors.New("chatIds is required")
-	}
-	results := make([]api.ArchiveRestoreResult, 0, len(chatIDs))
-	for _, rawChatID := range chatIDs {
-		chatID := strings.TrimSpace(rawChatID)
-		result := api.ArchiveRestoreResult{ChatID: chatID}
-		if !chat.ValidChatID(chatID) {
-			result.Error = "invalid chatId"
-			results = append(results, result)
-			continue
+	response := api.ArchiveRestoreResponse{Results: make([]api.ArchiveRestoreResult, 0, len(results))}
+	for _, result := range results {
+		mapped := api.ArchiveRestoreResult{ChatID: result.ChatID, Success: result.Success, Error: result.Error}
+		if result.Summary != nil {
+			apiSummary := mapChatSummaries([]chat.Summary{*result.Summary})[0]
+			mapped.Summary = &apiSummary
+			s.broadcast("archive.restored", map[string]any{"chatId": result.ChatID, "agentKey": result.Summary.AgentKey, "summary": apiSummary})
 		}
-		summary, err := s.deps.Archiver.RestoreChat(chatID)
-		if err != nil {
-			if isTimeContractViolation(err) {
-				return api.ArchiveRestoreResponse{}, err
-			}
-			result.Error = restoreResultError(err)
-			results = append(results, result)
-			continue
-		}
-		result.Success = true
-		apiSummary := mapChatSummaries([]chat.Summary{summary})[0]
-		result.Summary = &apiSummary
-		results = append(results, result)
-		s.broadcast("archive.restored", map[string]any{"chatId": chatID, "agentKey": summary.AgentKey, "summary": apiSummary})
+		response.Results = append(response.Results, mapped)
 	}
-	return api.ArchiveRestoreResponse{Results: results}, nil
+	return response, nil
 }
 
 func (s *Server) ensureNoActiveRun(chatID string) error {
-	if s.deps.Runs == nil {
-		return nil
-	}
-	activeRun, ok, err := s.deps.Runs.ActiveRunForChat(chatID)
-	var conflictErr *contracts.ActiveRunConflictError
-	if errors.As(err, &conflictErr) {
-		return errors.New("active run conflict")
-	}
-	if err != nil {
-		return err
-	}
-	if ok || strings.TrimSpace(activeRun.RunID) != "" {
-		return errors.New("active run conflict")
-	}
-	return nil
-}
-
-func archiveResultError(err error) string {
-	switch {
-	case errors.Is(err, chat.ErrChatNotFound):
-		return "chat not found"
-	case errors.Is(err, chat.ErrChatAlreadyArchived):
-		return "already archived"
-	case errors.Is(err, os.ErrPermission):
-		return "invalid chatId"
-	default:
-		return err.Error()
-	}
-}
-
-func restoreResultError(err error) string {
-	switch {
-	case errors.Is(err, chat.ErrChatNotFound):
-		return "archive not found"
-	case errors.Is(err, chat.ErrChatAlreadyActive):
-		return "active chat already exists"
-	case errors.Is(err, os.ErrPermission):
-		return "invalid chatId"
-	default:
-		return err.Error()
-	}
+	return s.conversationService().EnsureNoActiveRun(chatID)
 }
 
 func (s *Server) listArchives(req api.ArchivesRequest) (api.ArchivesResponse, error) {
-	if s.deps.Archives == nil {
-		return api.ArchivesResponse{}, errors.New("archive store is not configured")
-	}
-	items, total, err := s.deps.Archives.ListArchived(req.AgentKey, req.Limit, req.Offset)
+	items, total, err := s.conversationService().ListArchives(req.AgentKey, req.Limit, req.Offset)
 	if err != nil {
 		return api.ArchivesResponse{}, err
 	}
@@ -296,10 +207,7 @@ func (s *Server) listArchives(req api.ArchivesRequest) (api.ArchivesResponse, er
 }
 
 func (s *Server) loadArchiveDetail(ctx context.Context, chatID string, includeRawMessages bool) (api.ArchivedChatDetailResponse, error) {
-	if s.deps.Archives == nil {
-		return api.ArchivedChatDetailResponse{}, errors.New("archive store is not configured")
-	}
-	archived, err := s.deps.Archives.LoadArchived(chatID)
+	archived, err := s.conversationService().LoadArchive(chatID)
 	if err != nil {
 		return api.ArchivedChatDetailResponse{}, err
 	}
@@ -337,10 +245,7 @@ func (s *Server) loadArchiveDetail(ctx context.Context, chatID string, includeRa
 }
 
 func (s *Server) searchArchives(req api.ArchiveSearchRequest) (api.ArchiveSearchResponse, error) {
-	if s.deps.Archives == nil {
-		return api.ArchiveSearchResponse{}, errors.New("archive store is not configured")
-	}
-	hits, err := s.deps.Archives.SearchArchived(req.Query, req.AgentKey, req.Limit)
+	hits, err := s.conversationService().SearchArchives(req.Query, req.AgentKey, req.Limit)
 	if err != nil {
 		return api.ArchiveSearchResponse{}, err
 	}
@@ -364,14 +269,8 @@ func (s *Server) searchArchives(req api.ArchiveSearchRequest) (api.ArchiveSearch
 }
 
 func (s *Server) deleteArchive(chatID string) (api.ArchiveDeleteResponse, error) {
-	if s.deps.Archives == nil {
-		return api.ArchiveDeleteResponse{}, errors.New("archive store is not configured")
-	}
 	chatID = strings.TrimSpace(chatID)
-	if !chat.ValidChatID(chatID) {
-		return api.ArchiveDeleteResponse{}, os.ErrPermission
-	}
-	if err := s.deps.Archives.DeleteArchived(chatID); err != nil {
+	if err := s.conversationService().DeleteArchive(chatID); err != nil {
 		return api.ArchiveDeleteResponse{}, err
 	}
 	s.broadcast("archive.deleted", map[string]any{"chatId": chatID})

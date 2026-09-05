@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/contracts"
 	projectpkg "agent-platform/internal/project"
 )
 
@@ -53,15 +52,16 @@ func (s *Server) handleProjectDiff(w http.ResponseWriter, r *http.Request) {
 	s.writeProjectHTTPResponse(w, response, err)
 }
 
-func (s *Server) projectService() projectpkg.Service {
-	reader, _ := s.deps.Tools.(contracts.ProjectFileHistoryReader)
-	return projectpkg.Service{
-		Registry:     s.deps.Registry,
-		Chats:        s.deps.Chats,
-		History:      reader,
-		ChatsRoot:    s.deps.Config.Paths.ChatsDir,
-		MaxReadBytes: s.deps.Config.FileTools.MaxReadBytes,
+func (s *Server) projectService() *projectpkg.Service {
+	if s.project == nil {
+		return nil
 	}
+	service := *s.project
+	// Config is immutable in production, while tests may replace this limit on
+	// an assembled Server. Preserve that established behavior without rebuilding
+	// the service dependencies in the transport layer.
+	service.MaxReadBytes = s.deps.Config.FileTools.MaxReadBytes
+	return &service
 }
 
 func (s *Server) writeProjectHTTPResponse(w http.ResponseWriter, response any, err error) {

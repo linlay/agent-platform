@@ -1,5 +1,7 @@
 package stream
 
+const DoneSentinel = "[DONE]"
+
 type RenderConfig struct {
 	FlushInterval        int64 // seconds; 0 means disabled
 	MaxBufferedChars     int

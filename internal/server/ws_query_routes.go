@@ -8,7 +8,9 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/apperrors"
 	"agent-platform/internal/contracts"
+	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/ws"
 )
@@ -26,91 +28,71 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		return
 	}
 	req.Payload = payload
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "/api/query", bytes.NewReader(req.Payload))
+	queryRequest, err := ws.DecodePayload[api.QueryRequest](req)
 	if err != nil {
-		conn.SendError(req.ID, "internal_error", 500, err.Error(), nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	admission, err := s.prepareQueryAdmission(httpReq, true)
-	if err != nil {
-		if isTimeContractViolation(err) {
-			sendTimeContractViolation(conn, req.ID, err)
-			conn.CompleteRequest(req.ID)
-			return
-		}
-		var statusErr *statusError
-		if errors.As(err, &statusErr) {
-			s.sendWSStatusError(conn, req.ID, statusErr)
+		if errors.Is(err, api.ErrRequiredSkillKeysRemoved) {
+			conn.SendError(req.ID, "required_skill_keys_removed", http.StatusBadRequest, api.RequiredSkillKeysRemovedMessage, nil)
+		} else if strings.Contains(err.Error(), api.ReferenceSandboxPathRemovedMessage) {
+			conn.SendError(req.ID, "invalid_request", http.StatusBadRequest, api.ReferenceSandboxPathRemovedMessage, nil)
 		} else {
-			conn.SendError(req.ID, "internal_error", 500, err.Error(), nil)
+			conn.SendError(req.ID, "invalid_request", http.StatusBadRequest, "invalid query payload", nil)
 		}
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	admission.resourceBaseURL = conn.RequestBaseURL()
-	if _, reserveErr := conn.ReserveStream(req.ID, admission.req.RunID); reserveErr != nil {
+	command := queryCommandFromAPI(queryRequest)
+	command.Locale = conn.Locale()
+	command.ResourceBaseURL = conn.RequestBaseURL()
+	command.ChatSource = chatSourceFromContext(ctx)
+	command.ClientTarget = runtimeClientTarget(conn.WebClientTarget())
+	if principal := PrincipalFromContext(ctx); principal != nil {
+		command.Caller.Subject = strings.TrimSpace(principal.Subject)
+	}
+	handle, err := s.deps.Runtime.StartQuery(ctx, command)
+	if err != nil {
+		s.sendWSQueryStartError(conn, req.ID, err)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if _, reserveErr := conn.ReserveStream(req.ID, handle.RunID); reserveErr != nil {
+		_, _ = s.deps.Runtime.Interrupt(ctx, runtimeSetupInterrupt(handle, contracts.InterruptReasonObserverAttachFailed, reserveErr.Error()))
 		if protoErr, ok := reserveErr.(*ws.ProtocolError); ok {
 			conn.SendProtocolError(req.ID, protoErr)
 		}
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	prepared, err := s.completeQueryPreparation(ctx, admission, nil)
+	subscription, err := s.deps.Runtime.AttachRun(ctx, runtimetypes.RunRef{
+		RunID: handle.RunID, ChatID: handle.ChatID, AgentKey: handle.AgentKey, TeamID: handle.TeamID,
+		Caller: command.Caller,
+	}, 0)
 	if err != nil {
-		if isTimeContractViolation(err) {
-			sendTimeContractViolation(conn, req.ID, err)
-			conn.ReleaseStream(req.ID)
-			return
-		}
-		if statusErr, ok := err.(*statusError); ok {
-			s.sendWSStatusError(conn, req.ID, statusErr)
-		} else {
-			conn.SendError(req.ID, "internal_error", 500, err.Error(), nil)
-		}
+		_, _ = s.deps.Runtime.Interrupt(ctx, runtimeSetupInterrupt(handle, contracts.InterruptReasonObserverAttachFailed, err.Error()))
 		conn.ReleaseStream(req.ID)
+		s.sendWSAttachError(conn, req.ID, handle.RunID, handle.ChatID, err)
 		return
 	}
-	prepared.session.WebClientTarget = conn.WebClientTarget()
-	if isProxyRoutedAgent(prepared.agentDef) {
-		s.wsProxyQuery(ctx, conn, req, prepared)
-		return
-	}
+	conn.AttachStreamCleanup(req.ID, subscription.Close)
+	conn.StartEventForward(req.ID, subscription.Events, subscription.Close)
+}
 
-	registered, statusErr := s.registerQueryRun(ctx, prepared)
-	if statusErr != nil {
-		releaseQuery(prepared.release)
-		conn.ReleaseStream(req.ID)
-		s.sendWSStatusError(conn, req.ID, statusErr)
+func (s *Server) sendWSQueryStartError(conn *ws.Conn, requestID string, err error) {
+	if isTimeContractViolation(err) {
+		sendTimeContractViolation(conn, requestID, err)
 		return
 	}
-	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
-	if !ok {
-		releaseQuery(prepared.release)
-		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonEventBusUnavailable, "run event bus unavailable"))
-		s.finishRegisteredQueryRun(prepared, registered)
-		conn.ReleaseStream(req.ID)
-		conn.SendError(req.ID, "internal_error", 500, "run event bus unavailable", nil)
+	var statusErr *statusError
+	if errors.As(err, &statusErr) {
+		s.sendWSStatusError(conn, requestID, statusErr)
 		return
 	}
-	observer, attachErr := s.deps.Runs.AttachObserver(prepared.req.RunID, 0)
-	if attachErr != nil {
-		releaseQuery(prepared.release)
-		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonObserverAttachFailed, attachErr.Error()))
-		s.finishRegisteredQueryRun(prepared, registered)
-		conn.ReleaseStream(req.ID)
-		s.sendWSAttachError(conn, req.ID, prepared.req.RunID, prepared.req.ChatID, attachErr)
+	var appErr *apperrors.Error
+	if errors.As(err, &appErr) {
+		status := apperrorsStatus(appErr, http.StatusInternalServerError)
+		conn.SendError(requestID, string(appErr.Code()), status, appErr.Error(), appErr.Payload())
 		return
 	}
-	conn.AttachObserver(req.ID, observer.ID, func() {
-		s.deps.Runs.DetachObserver(prepared.req.RunID, observer.ID)
-	})
-	principal := &Principal{Subject: prepared.session.Subject}
-	if strings.TrimSpace(principal.Subject) == "" {
-		principal = nil
-	}
-	s.startPreparedLocalRun(prepared, registered, eventBus, principal)
-	conn.StartStreamForward(req.ID, observer)
+	conn.SendError(requestID, "internal_error", http.StatusInternalServerError, err.Error(), nil)
 }
 
 func (s *Server) wsBTW(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {

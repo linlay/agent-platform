@@ -392,6 +392,7 @@ docker compose logs -f
 
 ## 文档索引
 
+- [Runtime模块边界](./docs/Runtime模块边界.md)
 - [智能体配置说明](./docs/智能体配置说明.md)
 - [配置化说明](./docs/配置化说明.md)
 - [工具目录权限](./docs/工具目录权限.md)

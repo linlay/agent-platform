@@ -220,7 +220,7 @@ func (s *Server) mapChatSummariesWithActiveRuns(items []chat.Summary, includeUsa
 		return response, nil
 	}
 	for i := range response {
-		activeRun, ok, err := s.deps.Runs.ActiveRunForChat(response[i].ChatID)
+		activeRun, ok, err := s.conversationService().ActiveRun(response[i].ChatID)
 		if err != nil {
 			var conflictErr *contracts.ActiveRunConflictError
 			if errors.As(err, &conflictErr) {

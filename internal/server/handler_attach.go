@@ -59,7 +59,7 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 	defer s.deps.Runs.DetachObserver(runID, observer.ID)
 	defer observer.MarkDone()
 
-	sseWriter, err := stream.NewWriter(w, stream.Options{
+	sseWriter, err := newSSEWriter(w, sseWriterOptions{
 		SSE:            s.deps.Config.SSE,
 		Render:         stream.DefaultRenderConfig(),
 		LoggingEnabled: s.deps.Config.Logging.SSE.Enabled,

@@ -8,9 +8,6 @@ import (
 
 	agentcontract "agent-platform/internal/agent"
 	agentbuiltin "agent-platform/internal/agent/builtin"
-	agentcoder "agent-platform/internal/agent/coder"
-	agentkbase "agent-platform/internal/agent/kbase"
-	agentteam "agent-platform/internal/agent/team"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
@@ -38,7 +35,7 @@ type querySessionBuildOptions struct {
 var memoryInjectionEnabled = false
 
 func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, summary chat.Summary, agentDef catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
-	editingMode := agentkbase.EditingModeEnabled(agentDef.Mode, req.EditingMode != nil && *req.EditingMode)
+	editingMode := agentbuiltin.KBaseEditingModeEnabled(agentDef.Mode, req.EditingMode != nil && *req.EditingMode)
 	mustUseSkills, err := s.resolveQueryMustUseSkills(agentDef, req.MustUseSkills)
 	if err != nil {
 		return contracts.QuerySession{}, mustUseSkillUnavailableStatus(err)
@@ -48,7 +45,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		return contracts.QuerySession{}, mustUseSkillUnavailableStatus(err)
 	}
 	req.MustUseSkills = mustUseSkills.Keys
-	if !strings.EqualFold(strings.TrimSpace(agentDef.Mode), agentteam.Mode) {
+	if !strings.EqualFold(strings.TrimSpace(agentDef.Mode), agentbuiltin.TeamMode) {
 		if err := catalog.ValidateOrdinaryAgentTools(agentDef.Tools); err != nil {
 			return contracts.QuerySession{}, err
 		}
@@ -153,14 +150,14 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		}
 	}
 	resolvedWorkspaceRoot := strings.TrimSpace(runtimeContext.LocalPaths.WorkspaceDir)
-	if err := agentcoder.ValidateWorkspaceGit(agentcoder.WorkspaceGitPolicy{
+	if err := agentbuiltin.CoderValidateWorkspaceGit(agentbuiltin.CoderWorkspaceGitPolicy{
 		Mode:           agentDef.Mode,
 		WorkspaceRoot:  resolvedWorkspaceRoot,
 		ExpectedBranch: agentDef.Project.Git.ExpectedBranch,
 	}); err != nil {
 		return contracts.QuerySession{}, err
 	}
-	workspaceAgentsPrompt, err := agentcoder.LoadWorkspacePrompt(agentcoder.WorkspacePromptPolicy{
+	workspaceAgentsPrompt, err := agentbuiltin.CoderLoadWorkspacePrompt(agentbuiltin.CoderWorkspacePromptPolicy{
 		Mode:                    agentDef.Mode,
 		ACPBridgeID:             agentDef.ACPBridgeID,
 		AgentDir:                agentDef.RuntimeDir,
@@ -193,9 +190,9 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		mcpToolNamesForServers(s.deps.Tools, agentDef.MCPServers)...,
 	)
 	toolNames := buildSessionToolNames(configuredToolNames, options.AllowInvokeAgents)
-	toolNames = agentcoder.RuntimeToolNamesForAgent(agentDef.Mode, agentDef.ACPBridgeID, agentcoder.MainStage, toolNames)
-	if agentkbase.IsMode(agentDef.Mode) {
-		toolNames = agentkbase.DefaultToolNames()
+	toolNames = agentbuiltin.CoderRuntimeToolNamesForAgent(agentDef.Mode, agentDef.ACPBridgeID, agentbuiltin.CoderMainStage, toolNames)
+	if agentbuiltin.IsKBaseMode(agentDef.Mode) {
+		toolNames = agentbuiltin.KBaseDefaultToolNames()
 	}
 	log.Printf("[server][session-tools] agent=%s mode=%s count=%d tools=%v", agentDef.Key, agentDef.Mode, len(toolNames), toolNames)
 	capabilityPrompts := []string(nil)
@@ -210,7 +207,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		resolvedCoderPlanningSettings.Execute.Tools = appendKBaseCapabilityToolsToExplicitStage(resolvedCoderPlanningSettings.Execute.Tools)
 	}
 	var scopedFilePolicy *contracts.ScopedFilePolicy
-	if agentkbase.IsMode(agentDef.Mode) {
+	if agentbuiltin.IsKBaseMode(agentDef.Mode) {
 		scopedFilePolicy = &contracts.ScopedFilePolicy{
 			WorkspaceRoot:            resolvedWorkspaceRoot,
 			WorkspaceMutationEnabled: editingMode,
@@ -239,7 +236,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		SupportsContextCompaction:     !isProxyRoutedAgent(agentDef),
 		KBaseEnabled:                  agentDef.KBaseConfig.Enabled,
 		CapabilityPrompts:             capabilityPrompts,
-		PlanningMode:                  agentcoder.PlanningModeEnabled(agentDef.Mode, req.PlanningMode != nil && *req.PlanningMode),
+		PlanningMode:                  agentbuiltin.CoderPlanningModeEnabled(agentDef.Mode, req.PlanningMode != nil && *req.PlanningMode),
 		EditingMode:                   editingMode,
 		ScopedFilePolicy:              scopedFilePolicy,
 		TeamID:                        req.TeamID,
@@ -420,7 +417,7 @@ func (s *Server) loadPlanTaskContext(chatID string) string {
 func resolvedModeCapabilities(def catalog.AgentDefinition) agentcontract.ModeCapabilities {
 	if descriptor, ok := agentbuiltin.Lookup(def.Mode); ok {
 		capabilities := descriptor.Capabilities
-		if agentcoder.IsACPBackend(def.Mode, def.ACPBridgeID) {
+		if agentbuiltin.IsCoderACPBackend(def.Mode, def.ACPBridgeID) {
 			capabilities.RunAsChild = false
 		}
 		return capabilities
@@ -433,13 +430,13 @@ func resolvedModeCapabilities(def catalog.AgentDefinition) agentcontract.ModeCap
 	}
 }
 
-func coderProjectPromptFiles(files []catalog.AgentProjectPromptFile) []agentcoder.ProjectPromptFile {
+func coderProjectPromptFiles(files []catalog.AgentProjectPromptFile) []agentbuiltin.CoderProjectPromptFile {
 	if len(files) == 0 {
 		return nil
 	}
-	out := make([]agentcoder.ProjectPromptFile, 0, len(files))
+	out := make([]agentbuiltin.CoderProjectPromptFile, 0, len(files))
 	for _, file := range files {
-		out = append(out, agentcoder.ProjectPromptFile{Source: file.Source, Path: file.Path})
+		out = append(out, agentbuiltin.CoderProjectPromptFile{Source: file.Source, Path: file.Path})
 	}
 	return out
 }

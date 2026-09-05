@@ -1,349 +1,98 @@
 package server
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
+	"errors"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/apperrors"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/models"
+	runtimeproxy "agent-platform/internal/runtime/proxy"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/timecontract"
 )
 
 func proxyWebSocketTarget(proxy *catalog.ProxyConfig) (string, http.Header, error) {
-	if proxy == nil || (strings.TrimSpace(proxy.BaseURL) == "" && strings.TrimSpace(proxy.WebSocketURL) == "") {
-		return "", nil, fmt.Errorf("PROXY agent missing proxyConfig.baseUrl")
-	}
-	rawURL := strings.TrimSpace(proxy.WebSocketURL)
-	directWS := rawURL != ""
-	if rawURL == "" {
-		rawURL = strings.TrimRight(proxy.BaseURL, "/")
-	}
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return "", nil, err
-	}
-	switch parsed.Scheme {
-	case "http":
-		parsed.Scheme = "ws"
-	case "https":
-		parsed.Scheme = "wss"
-	case "ws", "wss":
-	default:
-		return "", nil, fmt.Errorf("unsupported proxy websocket scheme: %s", parsed.Scheme)
-	}
-	if !directWS {
-		parsed.Path = strings.TrimRight(parsed.Path, "/") + "/ws"
-	}
-	query := parsed.Query()
-	if proxy.Token != "" {
-		query.Set("token", proxy.Token)
-	}
-	parsed.RawQuery = query.Encode()
-
-	header := http.Header{}
-	if proxy.Token != "" {
-		header.Set("Authorization", "Bearer "+proxy.Token)
-	}
-	return parsed.String(), header, nil
+	return runtimeproxy.WebSocketTarget(proxy)
 }
 
 func proxyUpstreamTransport(proxy *catalog.ProxyConfig) string {
-	if proxy == nil {
-		return "ws"
-	}
-	switch strings.ToLower(strings.TrimSpace(proxy.Transport)) {
-	case "sse":
-		return "sse"
-	case "ws", "websocket":
-		return "ws"
-	default:
-		return "ws"
-	}
+	return runtimeproxy.UpstreamTransport(proxy)
 }
 
 func proxyQueryPayload(req api.QueryRequest, proxy *catalog.ProxyConfig, references []api.Reference) map[string]any {
-	payload := map[string]any{
-		"requestId":   req.RequestID,
-		"runId":       req.RunID,
-		"chatId":      req.ChatID,
-		"agentKey":    proxyAgentKey(proxy, req.AgentKey),
-		"role":        req.Role,
-		"message":     req.Message,
-		"accessLevel": req.AccessLevel,
-		"references":  references,
-		"params":      proxyForwardParams(req, ""),
-		"model":       req.Model,
-		"scene":       req.Scene,
-		"stream":      true,
-	}
-	if req.Hidden != nil {
-		payload["hidden"] = *req.Hidden
-	}
-	if req.PlanningMode != nil {
-		payload["planningMode"] = *req.PlanningMode
-	}
-	if len(req.MustUseSkills) > 0 {
-		payload["mustUseSkills"] = append([]string(nil), req.MustUseSkills...)
-	}
-	return map[string]any{
-		"frame":   "request",
-		"type":    proxyRequestType(proxy, "query"),
-		"id":      req.RequestID,
-		"payload": payload,
-	}
+	return runtimeproxy.QueryPayload(queryCommandFromAPI(req), proxy, runtimeReferencesFromAPI(references))
 }
 
 func proxyRequestType(proxy *catalog.ProxyConfig, name string) string {
-	if strings.EqualFold(strings.TrimSpace(proxyProtocol(proxy)), config.ChannelProtocolPlatformWS) {
-		return "/api/" + strings.TrimSpace(name)
-	}
-	return "request." + strings.TrimSpace(name)
+	return runtimeproxy.RequestType(proxy, name)
 }
 
 func proxyRouteRequestType(route *proxyRunRoute, name string) string {
-	if route != nil && strings.EqualFold(strings.TrimSpace(route.protocol), config.ChannelProtocolPlatformWS) {
-		return "/api/" + strings.TrimSpace(name)
-	}
-	return "request." + strings.TrimSpace(name)
+	return route.RequestType(name)
 }
 
 func proxyProtocol(proxy *catalog.ProxyConfig) string {
-	if proxy == nil || strings.TrimSpace(proxy.Protocol) == "" {
-		return "agw-platform"
-	}
-	return strings.ToLower(strings.TrimSpace(proxy.Protocol))
+	return runtimeproxy.Protocol(proxy)
 }
 
 func proxyQueryPayloadWithWorkspace(req api.QueryRequest, proxy *catalog.ProxyConfig, references []api.Reference, workspaceRoot string) map[string]any {
-	payload := proxyQueryPayload(req, proxy, references)
-	if inner, ok := payload["payload"].(map[string]any); ok {
-		inner["params"] = proxyForwardParams(req, workspaceRoot)
-	}
-	return payload
+	return runtimeproxy.QueryPayloadWithWorkspace(queryCommandFromAPI(req), proxy, runtimeReferencesFromAPI(references), workspaceRoot)
 }
 
 func proxyForwardParams(req api.QueryRequest, workspaceRoot string) map[string]any {
-	_ = workspaceRoot
-	return contracts.CloneMap(req.Params)
+	return runtimeproxy.ForwardParams(queryCommandFromAPI(req), workspaceRoot)
 }
 
 func proxyRequestHasReservedCWD(params map[string]any) bool {
-	if params == nil {
-		return false
-	}
-	_, ok := params["cwd"]
-	return ok
+	return runtimeproxy.RequestHasReservedCWD(params)
 }
 
 func proxyAgentKey(proxy *catalog.ProxyConfig, fallback string) string {
-	if proxy != nil {
-		if key := strings.TrimSpace(proxy.AgentKey); key != "" {
-			return key
-		}
-	}
-	return strings.TrimSpace(fallback)
+	return runtimeproxy.AgentKey(proxy, fallback)
 }
 
-type proxyDecodedFrame struct {
-	Frame    string
-	Type     string
-	ID       string
-	Code     int
-	Msg      string
-	StreamID string
-	Reason   string
-	LastSeq  int64
-	Event    stream.EventData
-	HasEvent bool
-}
+type proxyDecodedFrame = runtimeproxy.DecodedFrame
 
 // decodeProxyFrameAt preserves JSON numeric syntax and validates every
 // upstream stream event before it can be forwarded or persisted. A malformed
 // non-event frame retains the historical "ignore it" behavior; a malformed
 // timestamp is a contract violation and must terminate the proxy run.
 func decodeProxyFrameAt(data []byte, eventLocation string) (proxyDecodedFrame, bool, error) {
-	var raw map[string]any
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	if err := decoder.Decode(&raw); err != nil {
-		return proxyDecodedFrame{}, false, nil
-	}
-	decoded := proxyDecodedFrame{
-		Frame:    strings.TrimSpace(contracts.AnyStringNode(raw["frame"])),
-		Type:     strings.TrimSpace(contracts.AnyStringNode(raw["type"])),
-		ID:       strings.TrimSpace(contracts.AnyStringNode(raw["id"])),
-		Code:     contracts.AnyIntNode(raw["code"]),
-		Msg:      strings.TrimSpace(contracts.AnyStringNode(raw["msg"])),
-		StreamID: strings.TrimSpace(contracts.AnyStringNode(raw["streamId"])),
-		Reason:   strings.TrimSpace(contracts.AnyStringNode(raw["reason"])),
-		LastSeq:  int64(contracts.AnyIntNode(raw["lastSeq"])),
-	}
-	if decoded.Frame != "" && !strings.EqualFold(decoded.Frame, "stream") {
-		return decoded, decoded.Frame != "", nil
-	}
-	eventNode := contracts.AnyMapNode(raw["event"])
-	if len(eventNode) == 0 && decoded.Frame == "" {
-		eventNode = raw
-	}
-	if len(eventNode) > 0 {
-		event, err := stream.ParseEventDataMap(eventNode, eventLocation)
-		if err != nil {
-			return proxyDecodedFrame{}, false, err
-		}
-		if strings.TrimSpace(event.Type) != "" {
-			decoded.Event = event
-			decoded.HasEvent = true
-		}
-	}
-	if decoded.Frame == "" && !decoded.HasEvent {
-		return proxyDecodedFrame{}, false, nil
-	}
-	return decoded, decoded.Frame != "" || decoded.HasEvent, nil
+	return runtimeproxy.DecodeFrameAt(data, eventLocation)
 }
 
 func proxyFrameMatchesRequest(frame proxyDecodedFrame, requestID string) bool {
-	if strings.TrimSpace(frame.Frame) == "" {
-		return true
-	}
-	frameName := strings.ToLower(strings.TrimSpace(frame.Frame))
-	switch frameName {
-	case "stream", "response", "error":
-	default:
-		return false
-	}
-	frameID := strings.TrimSpace(frame.ID)
-	return frameID != "" && frameID == strings.TrimSpace(requestID)
+	return runtimeproxy.FrameMatchesRequest(frame, requestID)
 }
 
 func proxyFrameError(frame proxyDecodedFrame) error {
-	frameName := strings.ToLower(strings.TrimSpace(frame.Frame))
-	switch frameName {
-	case "error":
-		msg := strings.TrimSpace(frame.Msg)
-		if msg == "" {
-			msg = "upstream websocket returned error"
-		}
-		if frame.Code > 0 {
-			return fmt.Errorf("%s (%d)", msg, frame.Code)
-		}
-		return fmt.Errorf("%s", msg)
-	case "response":
-		if frame.Code == 0 {
-			return nil
-		}
-		msg := strings.TrimSpace(frame.Msg)
-		if msg == "" {
-			msg = "upstream websocket request failed"
-		}
-		return fmt.Errorf("%s (%d)", msg, frame.Code)
-	default:
-		return nil
-	}
+	return runtimeproxy.FrameError(frame)
 }
 
 func decodeProxyEventAt(data []byte, eventLocation string) (stream.EventData, bool, error) {
-	frame, ok, err := decodeProxyFrameAt(data, eventLocation)
-	if err != nil {
-		return stream.EventData{}, false, err
-	}
-	if !ok || !frame.HasEvent {
-		return stream.EventData{}, false, nil
-	}
-	return frame.Event, true, nil
+	return runtimeproxy.DecodeEventAt(data, eventLocation)
 }
 
 func normalizeProxyEventIdentity(event stream.EventData, req api.QueryRequest) stream.EventData {
-	if event.Payload == nil {
-		event.Payload = map[string]any{}
-	}
-	if strings.TrimSpace(req.RequestID) != "" {
-		event.Payload["requestId"] = req.RequestID
-	}
-	if strings.TrimSpace(req.ChatID) != "" {
-		event.Payload["chatId"] = req.ChatID
-	}
-	if strings.TrimSpace(req.RunID) != "" {
-		event.Payload["runId"] = req.RunID
-	}
-	if strings.TrimSpace(req.AgentKey) != "" {
-		event.Payload["agentKey"] = req.AgentKey
-	}
-	if event.Type == "artifact.publish" {
-		normalizeProxyArtifactURLs(&event, req.ChatID)
-	}
-	return event
+	return runtimeproxy.NormalizeEventIdentity(event, queryCommandFromAPI(req))
 }
 
 func normalizeProxyArtifactURLs(event *stream.EventData, chatID string) {
-	if event == nil || event.Payload == nil {
-		return
-	}
-	rawItems, ok := event.Payload["artifacts"].([]map[string]any)
-	if !ok {
-		if genericItems, genericOK := event.Payload["artifacts"].([]any); genericOK {
-			rawItems = make([]map[string]any, 0, len(genericItems))
-			for _, rawItem := range genericItems {
-				if item, itemOK := rawItem.(map[string]any); itemOK {
-					rawItems = append(rawItems, item)
-				}
-			}
-		}
-	}
-	items := make([]map[string]any, 0, len(rawItems))
-	for _, item := range rawItems {
-		publicURL, valid := proxyPublicArtifactURL(contracts.AnyStringNode(item["url"]), chatID)
-		if !valid {
-			continue
-		}
-		cloned := make(map[string]any, len(item))
-		for key, value := range item {
-			cloned[key] = value
-		}
-		cloned["url"] = publicURL
-		items = append(items, cloned)
-	}
-	event.Payload["artifacts"] = items
-	event.Payload["artifactCount"] = len(items)
+	runtimeproxy.NormalizeArtifactURLs(event, chatID)
 }
 
 func proxyPublicArtifactURL(raw string, chatID string) (string, bool) {
-	raw = strings.TrimSpace(raw)
-	chatID = strings.TrimSpace(chatID)
-	if raw == "" || chatID == "" {
-		return "", false
-	}
-	parsed, err := url.Parse(raw)
-	if err == nil && isResourceURL(parsed, raw) {
-		resourceChatID, relativePath, parseErr := chat.ParseResourceKey(strings.TrimSpace(parsed.Query().Get("file")))
-		if parseErr != nil || resourceChatID != chatID {
-			return "", false
-		}
-		publicURL, buildErr := chat.BuildChatScopeRef(relativePath)
-		return publicURL, buildErr == nil
-	}
-	if resourceChatID, relativePath, parseErr := chat.ParseResourceKey(raw); parseErr == nil && resourceChatID == chatID {
-		publicURL, buildErr := chat.BuildChatScopeRef(relativePath)
-		return publicURL, buildErr == nil
-	}
-	resourceChatID, relativePath, parseErr := chat.ParseResourceKey(chatID + "/" + raw)
-	if parseErr != nil || resourceChatID != chatID {
-		return "", false
-	}
-	publicURL, buildErr := chat.BuildChatScopeRef(relativePath)
-	return publicURL, buildErr == nil
+	return runtimeproxy.PublicArtifactURL(raw, chatID)
 }
 
 func proxyRunErrorEvent(req api.QueryRequest, err error) stream.EventData {
@@ -387,20 +136,41 @@ func (s *Server) publishProxyError(
 	}
 }
 
+func (s *Server) publishProxyErrorAfter(
+	eventBus *stream.RunEventBus,
+	recorder *proxyEventRecorder,
+	req api.QueryRequest,
+	err error,
+	lastSeq int64,
+) {
+	event := proxyRunErrorEvent(req, err)
+	event.Seq = lastSeq + 1
+	if event.Seq <= 0 {
+		event.Seq = 1
+	}
+	log.Printf("[proxy][ws] %s", err)
+	if eventBus != nil {
+		eventBus.Publish(event)
+	}
+	if recorder != nil {
+		recorder.OnEvent(event)
+	}
+}
+
 func (s *Server) forwardProxySubmit(req api.SubmitRequest) (api.SubmitResponse, *statusError, bool) {
 	route, ok := s.lookupProxyRun(req.RunID)
 	if !ok {
 		return api.SubmitResponse{}, nil, false
 	}
-	if strings.TrimSpace(req.AgentKey) != strings.TrimSpace(route.agentKey) {
+	if strings.TrimSpace(req.AgentKey) != strings.TrimSpace(route.AgentKey) {
 		return api.SubmitResponse{}, &statusError{status: http.StatusForbidden, message: "agentKey does not match run"}, true
 	}
-	if route.transport == "sse" {
+	if route.Transport == "sse" {
 		var response api.SubmitResponse
 		statusErr := postProxyRunControl(route, "/api/submit", map[string]any{
 			"runId":      req.RunID,
-			"chatId":     route.chatID,
-			"agentKey":   firstNonBlank(route.upstreamAgentKey, route.agentKey),
+			"chatId":     route.ChatID,
+			"agentKey":   firstNonBlank(route.UpstreamAgentKey, route.AgentKey),
 			"awaitingId": req.AwaitingID,
 			"submitId":   req.SubmitID,
 			"params":     req.Params,
@@ -409,8 +179,8 @@ func (s *Server) forwardProxySubmit(req api.SubmitRequest) (api.SubmitResponse, 
 	}
 	payload := map[string]any{
 		"runId":      req.RunID,
-		"chatId":     route.chatID,
-		"agentKey":   route.agentKey,
+		"chatId":     route.ChatID,
+		"agentKey":   route.AgentKey,
 		"awaitingId": req.AwaitingID,
 		"submitId":   req.SubmitID,
 		"params":     req.Params,
@@ -424,7 +194,7 @@ func (s *Server) forwardProxySubmit(req api.SubmitRequest) (api.SubmitResponse, 
 		return api.SubmitResponse{
 			Accepted:   false,
 			Status:     "unmatched",
-			ChatID:     route.chatID,
+			ChatID:     route.ChatID,
 			RunID:      req.RunID,
 			AwaitingID: req.AwaitingID,
 			SubmitID:   req.SubmitID,
@@ -434,7 +204,7 @@ func (s *Server) forwardProxySubmit(req api.SubmitRequest) (api.SubmitResponse, 
 	return api.SubmitResponse{
 		Accepted:   true,
 		Status:     "accepted",
-		ChatID:     route.chatID,
+		ChatID:     route.ChatID,
 		RunID:      req.RunID,
 		AwaitingID: req.AwaitingID,
 		SubmitID:   req.SubmitID,
@@ -447,14 +217,14 @@ func (s *Server) forwardProxyAccessLevel(req api.AccessLevelRequest) (api.Access
 	if !ok {
 		return api.AccessLevelResponse{}, nil, false
 	}
-	if strings.TrimSpace(req.AgentKey) != strings.TrimSpace(route.agentKey) {
+	if strings.TrimSpace(req.AgentKey) != strings.TrimSpace(route.AgentKey) {
 		return api.AccessLevelResponse{}, &statusError{status: http.StatusForbidden, message: "agentKey does not match run"}, true
 	}
 	payload := map[string]any{
 		"requestId":   req.RequestID,
 		"runId":       req.RunID,
-		"chatId":      route.chatID,
-		"agentKey":    route.agentKey,
+		"chatId":      route.ChatID,
+		"agentKey":    route.AgentKey,
 		"accessLevel": req.AccessLevel,
 		"reason":      req.Reason,
 	}
@@ -489,17 +259,17 @@ func (s *Server) forwardProxyInterrupt(req api.InterruptRequest) (api.InterruptR
 	if !ok {
 		return api.InterruptResponse{}, nil, false
 	}
-	if strings.TrimSpace(req.AgentKey) != strings.TrimSpace(route.agentKey) {
+	if strings.TrimSpace(req.AgentKey) != strings.TrimSpace(route.AgentKey) {
 		return api.InterruptResponse{}, &statusError{status: http.StatusForbidden, message: "agentKey does not match run"}, true
 	}
 	forwarded := proxyWSInterruptRequest(req)
-	if route.transport == "sse" {
+	if route.Transport == "sse" {
 		var response api.InterruptResponse
 		statusErr := postProxyRunControl(route, "/api/interrupt", map[string]any{
 			"requestId": forwarded.RequestID,
 			"runId":     forwarded.RunID,
-			"chatId":    route.chatID,
-			"agentKey":  firstNonBlank(route.upstreamAgentKey, route.agentKey),
+			"chatId":    route.ChatID,
+			"agentKey":  firstNonBlank(route.UpstreamAgentKey, route.AgentKey),
 			"message":   forwarded.Message,
 			"source":    forwarded.InterruptSource,
 			"reason":    forwarded.InterruptReason,
@@ -510,8 +280,8 @@ func (s *Server) forwardProxyInterrupt(req api.InterruptRequest) (api.InterruptR
 	payload := map[string]any{
 		"requestId": forwarded.RequestID,
 		"runId":     forwarded.RunID,
-		"chatId":    route.chatID,
-		"agentKey":  route.agentKey,
+		"chatId":    route.ChatID,
+		"agentKey":  route.AgentKey,
 		"message":   forwarded.Message,
 		"source":    forwarded.InterruptSource,
 		"reason":    forwarded.InterruptReason,
@@ -543,20 +313,20 @@ func (s *Server) forwardProxySteer(req api.SteerRequest) (api.SteerResponse, *st
 	if !ok {
 		return api.SteerResponse{}, nil, false
 	}
-	if strings.TrimSpace(req.AgentKey) != strings.TrimSpace(route.agentKey) {
+	if strings.TrimSpace(req.AgentKey) != strings.TrimSpace(route.AgentKey) {
 		return api.SteerResponse{}, &statusError{status: http.StatusForbidden, message: "agentKey does not match run"}, true
 	}
 	steerID := strings.TrimSpace(req.SteerID)
 	if steerID == "" {
 		steerID = time.Now().UTC().Format("20060102150405.000000000")
 	}
-	if route.transport == "sse" {
+	if route.Transport == "sse" {
 		var response api.SteerResponse
 		statusErr := postProxyRunControl(route, "/api/steer", map[string]any{
 			"requestId": req.RequestID,
 			"runId":     req.RunID,
-			"chatId":    route.chatID,
-			"agentKey":  firstNonBlank(route.upstreamAgentKey, route.agentKey),
+			"chatId":    route.ChatID,
+			"agentKey":  firstNonBlank(route.UpstreamAgentKey, route.AgentKey),
 			"steerId":   steerID,
 			"message":   req.Message,
 		}, &response)
@@ -565,8 +335,8 @@ func (s *Server) forwardProxySteer(req api.SteerRequest) (api.SteerResponse, *st
 	payload := map[string]any{
 		"requestId": req.RequestID,
 		"runId":     req.RunID,
-		"chatId":    route.chatID,
-		"agentKey":  route.agentKey,
+		"chatId":    route.ChatID,
+		"agentKey":  route.AgentKey,
 		"steerId":   steerID,
 		"message":   req.Message,
 	}
@@ -594,65 +364,31 @@ func (s *Server) forwardProxySteer(req api.SteerRequest) (api.SteerResponse, *st
 }
 
 func postProxyRunControl(route *proxyRunRoute, path string, payload map[string]any, target any) *statusError {
-	if route == nil || strings.TrimSpace(route.baseURL) == "" {
+	if route == nil {
 		return &statusError{status: http.StatusBadGateway, code: "proxy_unavailable", message: "proxy control endpoint is unavailable"}
 	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return &statusError{status: http.StatusInternalServerError, code: "internal_error", message: err.Error()}
+	err := route.PostControl(path, payload, target)
+	if err == nil {
+		return nil
 	}
-	timeout := route.timeout
-	if timeout <= 0 || timeout > 30*time.Second {
-		timeout = 30 * time.Second
-	}
-	req, err := http.NewRequest(http.MethodPost, route.baseURL+path, bytes.NewReader(body))
-	if err != nil {
-		return &statusError{status: http.StatusBadGateway, code: "proxy_unavailable", message: err.Error()}
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if route.token != "" {
-		req.Header.Set("Authorization", "Bearer "+route.token)
-	}
-	resp, err := (&http.Client{Timeout: timeout}).Do(req)
-	if err != nil {
-		return &statusError{status: http.StatusBadGateway, code: "proxy_unavailable", message: err.Error()}
-	}
-	defer resp.Body.Close()
-	var envelope struct {
-		Code int             `json:"code"`
-		Msg  string          `json:"msg"`
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&envelope); err != nil {
-		return &statusError{status: http.StatusBadGateway, code: "proxy_invalid_response", message: err.Error()}
-	}
-	if resp.StatusCode != http.StatusOK || envelope.Code != 0 {
-		message := strings.TrimSpace(envelope.Msg)
-		if message == "" {
-			message = "proxy control request failed"
-		}
-		return &statusError{status: http.StatusBadGateway, code: "proxy_control_failed", message: message}
-	}
-	if target != nil && len(envelope.Data) > 0 {
-		if err := json.Unmarshal(envelope.Data, target); err != nil {
-			return &statusError{status: http.StatusBadGateway, code: "proxy_invalid_response", message: err.Error()}
+	statusErr := &statusError{status: http.StatusBadGateway, code: "proxy_unavailable", message: err.Error()}
+	var appErr *apperrors.Error
+	if errors.As(err, &appErr) {
+		switch appErr.Code() {
+		case apperrors.CodeInternalError:
+			statusErr.status = http.StatusInternalServerError
+			statusErr.code = "internal_error"
+		case apperrors.CodeProxyBadResponse:
+			statusErr.code = "proxy_invalid_response"
+		case apperrors.CodeProxyUpstreamError:
+			statusErr.code = "proxy_control_failed"
 		}
 	}
-	return nil
+	return statusErr
 }
 
 func sendProxyRouteMessage(route *proxyRunRoute, payload map[string]any) bool {
-	if route == nil {
-		return false
-	}
-	select {
-	case route.send <- payload:
-		return true
-	case <-route.done:
-		return false
-	case <-time.After(2 * time.Second):
-		return false
-	}
+	return route.Send(payload)
 }
 
 type proxyEventRecorder struct {

@@ -42,6 +42,7 @@ cmd/agent-platform/main.go
   -> model registry / MCP registry / gateway registry
   -> sandbox service / runtime tool executor
   -> LLM agent engine / automation orchestrator
+  -> runtime/runstate + runtime/query + runtime/proxy
   -> server.New()
 ```
 
@@ -52,16 +53,18 @@ cmd/agent-platform/main.go
 - `internal/agent/kbase`：专用 `mode: KBASE` 的 profile、prompt、system-init、创建默认值与严格工具/memory 边界。
 - `internal/kbase`：mode 中立的 KBASE 公共能力；`Manager` 只作为公开门面和组件装配点，内部由 capability resolver/state、storage validator/auditor、watch/lifecycle supervisor、refresh coordinator、generation service、query/status/files service 与 Lance runtime 分别维护配置解析、存储契约、调度、索引/恢复、检索和 sidecar 生命周期。app adapter 只向 Manager 暴露 enabled capability，`AgentSpec.WorkspaceRoot` 是唯一内容根事实；未启用与不存在统一按 not found 处理。该包同时维护公共 prompt、HTTP 业务错误与五个工具 handler；不得 import `internal/agent` 或 `internal/catalog`。
 - `internal/agent/team`：内部 TEAM profile、硬编码调度规则、成员 roster prompt、session-local 隐藏工具与调度状态机；TEAM 不能配置成普通 agent。
-- `internal/runops`：显式挂载的 `run_query` / `run_status` / `run_interrupt` named handler、调用方/subject 所有权、父 run/tool ID 幂等与禁止链式调用；实际 query admission、detached executor 和 Proxy 控制复用 `internal/server` facade。
+- `internal/runtime`：HTTP/WS 无关的 Query 与 Run 应用门面；`types` 保存内部命令和结果，`query` 负责准入/continuation 门面，`runstate` 持有活动 Run、observer 与 compact 协调，`runexec` 持有 usage/终态执行部件，`orchestration` 持有子 Agent/Team 公共编排部件，`proxy` 持有上游协议、活动 Proxy Run 路由和 HTTP/WS 控制客户端。Runtime 不得依赖 `internal/server`。
+- `internal/runops`：显式挂载的 `run_query` / `run_status` / `run_interrupt` named handler、调用方/subject 所有权、父 run/tool ID 幂等与禁止链式调用；直接依赖 `internal/runtime` 的窄接口，不经过 Server。
 - `internal/platformcontrol` 与 `internal/runenv`：统一 system control operation registry/handler，以及当前普通 native root run 的进程内并发 Scope、revision、limits 与幂等状态。
-- `internal/server`：HTTP 路由、请求校验、响应包裹、SSE / WebSocket 协调。
-- `internal/llm`：模型协议、prompt 构建、run stream、HITL、planning、tool loop。
+- `internal/server`：HTTP/WS 解码、鉴权、响应映射、SSE flush 和迁移期薄适配；不得直接依赖 `llm`、`tools` 或具体 Agent mode。
+- `internal/conversation`、`internal/adminsource`、`internal/chatresource`：分别承接会话/归档编排、管理端源码 mutation 并发事务、Chat 资源解析与 mutation 边界。
+- `internal/llm`：prompt 构建、run stream、HITL、planning、tool loop；Provider HTTP 打开、首响应超时和响应分类由 `internal/modelclient` 承接。
 - `internal/tools`：通用 tool registry/router、Bash、FileTools、memory、desktop、MCP tool 调用；mode 工具通过命名 handler 接入，不在 executor 中增加 mode switch。
 - `internal/chat`：chat 摘要、事件、StepLine、raw messages、资源文件、归档、回放。
 - `internal/memory`：SQLite memory、FTS、embedding、生命周期整理、反馈循环。
 - `internal/catalog`：agent / team / skill / tool 目录装载与定义解析；Team 只接受目录式 orchestrated 定义，并以原子快照冻结成员、协调器配置和 prompt。
 - `internal/config`：环境变量、YAML、默认值。
-- `internal/stream`：统一事件、dispatcher、SSE writer、事件归一化。
+- `internal/stream`：统一事件、dispatcher、assembler、normalizer 与 EventBus；SSE writer 属于 `internal/server` 传输层。
 - `internal/sandbox`：Container Hub client、mounts、sandbox 执行。
 - `internal/automation`：automation 注册、调度、执行记录。
 - `internal/ws` 与 `internal/gateway`：WebSocket 控制面与反向 gateway 连接。
@@ -77,7 +80,12 @@ cmd/agent-platform/main.go
 ├── docs/                        # 中文专题文档
 ├── internal/                    # Go runtime 实现
 │   ├── agent/                   # 中立 mode 契约及 CODER/KBASE/TEAM 特有实现
+│   ├── runtime/                 # Query/Run 门面、状态、执行、编排与 Proxy
 │   ├── runops/                  # 独立 run 工具组 handler、所有权与幂等
+│   ├── conversation/            # Chat/Archive/Compact 应用服务
+│   ├── adminsource/             # Admin source mutation 事务边界
+│   ├── chatresource/            # Chat 资源应用服务
+│   ├── modelclient/             # Provider 协议 HTTP 客户端
 │   └── kbase/                   # mode 中立的知识库公共能力
 ├── build/                       # 忽略的多平台 builtin 本地装配缓存
 ├── scripts/                     # 审计和辅助脚本
@@ -190,6 +198,7 @@ make test
 
 ## 特色功能文档索引
 
+- [Runtime模块边界](docs/Runtime模块边界.md)：Runtime 门面、子包职责、调用依赖规则、Run 订阅时序和迁移期约束。
 - [智能体配置说明](docs/智能体配置说明.md)：agent / team / skill 定义、CODER、KBASE、目录式 Team、prompt files、memoryConfig、runtimeConfig。
 - [Agent运行时组装](docs/Agent运行时组装.md)：`ru-agents`、Agent 自有/技能中心 Skill 选择、`.config` 冲突与热重载。
 - [配置化说明](docs/配置化说明.md)：环境变量、`configs/*.yml`、默认值、优先级、废弃变量。

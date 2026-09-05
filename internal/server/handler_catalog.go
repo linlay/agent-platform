@@ -16,8 +16,6 @@ import (
 	"time"
 
 	agentbuiltin "agent-platform/internal/agent/builtin"
-	agentcoder "agent-platform/internal/agent/coder"
-	agentkbase "agent-platform/internal/agent/kbase"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/contracts"
@@ -263,8 +261,8 @@ func (s *Server) agentEditor() (editableAgentRegistry, error) {
 }
 
 func (s *Server) createAgent(ctx context.Context, req api.CreateAgentRequest) (api.AgentDetailResponse, error) {
-	s.adminAgentMutationMu.Lock()
-	defer s.adminAgentMutationMu.Unlock()
+	unlock := s.adminSources.LockAgentMutation()
+	defer unlock()
 	editor, err := s.agentEditor()
 	if err != nil {
 		return api.AgentDetailResponse{}, err
@@ -346,7 +344,7 @@ func (s *Server) applyCoderDefaultAgentConfig(definition map[string]any) map[str
 		return definition
 	}
 	defaults := s.deps.Config.CoderSettings.DefaultAgent
-	return agentcoder.ApplyCreateDefaults(definition, agentcoder.CreateDefaults{
+	return agentbuiltin.ApplyCoderCreateDefaults(definition, agentbuiltin.CoderCreateDefaults{
 		ModelKey: defaults.ModelKey, ReasoningEffort: defaults.ReasoningEffort, Budget: defaults.Budget,
 	})
 }
@@ -360,7 +358,7 @@ func (s *Server) applyKBaseDefaultAgentConfig(definition map[string]any) map[str
 		return definition
 	}
 	defaults := s.deps.Config.KBase.DefaultAgent
-	return agentkbase.ApplyCreateDefaults(definition, agentkbase.CreateDefaults{
+	return agentbuiltin.ApplyKBaseCreateDefaults(definition, agentbuiltin.KBaseCreateDefaults{
 		ModelKey: defaults.ModelKey, ReasoningEffort: defaults.ReasoningEffort,
 		EmbeddingModelKey: s.deps.Config.KBase.Embedding.ModelKey,
 	})
@@ -391,8 +389,8 @@ func (s *Server) normalizeGeneratedModeCreation(key string, definition map[strin
 }
 
 func (s *Server) updateAgent(ctx context.Context, req api.UpdateAgentRequest) (api.AgentDetailResponse, error) {
-	s.adminAgentMutationMu.Lock()
-	defer s.adminAgentMutationMu.Unlock()
+	unlock := s.adminSources.LockAgentMutation()
+	defer unlock()
 	editor, err := s.agentEditor()
 	if err != nil {
 		return api.AgentDetailResponse{}, err
@@ -412,8 +410,8 @@ func (s *Server) updateAgent(ctx context.Context, req api.UpdateAgentRequest) (a
 }
 
 func (s *Server) updateAgentName(ctx context.Context, key string, name string) (api.AgentDetailResponse, error) {
-	s.adminAgentMutationMu.Lock()
-	defer s.adminAgentMutationMu.Unlock()
+	unlock := s.adminSources.LockAgentMutation()
+	defer unlock()
 	editor, err := s.agentEditor()
 	if err != nil {
 		return api.AgentDetailResponse{}, err
@@ -434,8 +432,8 @@ func (s *Server) updateAgentName(ctx context.Context, key string, name string) (
 }
 
 func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgentModelConfigRequest) (api.AgentModelConfigResponse, error) {
-	s.adminAgentMutationMu.Lock()
-	defer s.adminAgentMutationMu.Unlock()
+	unlock := s.adminSources.LockAgentMutation()
+	defer unlock()
 	editor, err := s.agentEditor()
 	if err != nil {
 		return api.AgentModelConfigResponse{}, err
@@ -471,7 +469,7 @@ func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgent
 	if !ok {
 		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusNotFound, "not_found", "agent not found")
 	}
-	if !agentcoder.IsMode(def.Mode) {
+	if !agentbuiltin.IsCoderMode(def.Mode) {
 		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "agent model config can only be updated for CODER agents")
 	}
 	isACPCoder := catalog.AgentUsesACPCoderBackend(def)
@@ -484,7 +482,7 @@ func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgent
 			if err != nil {
 				return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadGateway, "upstream_error", "failed to fetch ACP CODER models: "+err.Error())
 			}
-			if !agentcoder.ModelKeyInOptions(modelKey, options) {
+			if !agentbuiltin.CoderModelKeyInOptions(modelKey, options) {
 				return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "model "+modelKey+" is not available for ACP CODER")
 			}
 			if serviceTier != "" && !serviceTierAllowedForACPModel(serviceTier, modelKey, options) {
@@ -547,8 +545,8 @@ func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgent
 }
 
 func (s *Server) deleteAgent(ctx context.Context, req api.DeleteAgentRequest) (map[string]any, error) {
-	s.adminAgentMutationMu.Lock()
-	defer s.adminAgentMutationMu.Unlock()
+	unlock := s.adminSources.LockAgentMutation()
+	defer unlock()
 	editor, err := s.agentEditor()
 	if err != nil {
 		return nil, err

@@ -16,7 +16,7 @@ import (
 )
 
 func (s *Server) listChatSummariesWithAgentModesAndLimit(lastRunID string, agentKey string, agentModes []string, limit int) ([]api.ChatSummaryResponse, error) {
-	items, err := s.deps.Chats.ListChatsWithAgentModesAndLimit(lastRunID, agentKey, agentModes, limit)
+	items, err := s.conversationService().ListSummaries(lastRunID, agentKey, agentModes, limit)
 	if err != nil {
 		return nil, err
 	}

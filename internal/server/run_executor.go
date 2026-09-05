@@ -2,9 +2,7 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"log"
-	"strconv"
 	"strings"
 	"time"
 
@@ -15,7 +13,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/models"
-	"agent-platform/internal/observability"
+	"agent-platform/internal/runtime/runexec"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/timecontract"
 )
@@ -50,57 +48,13 @@ type RunExecutorParams struct {
 	OnComplete func(chat.RunCompletion)
 }
 
-type runEventProcessor struct {
-	assistantText        *strings.Builder
-	modelTurnPending     bool
-	modelTurnText        strings.Builder
-	stepWriter           *chat.StepWriter
-	billing              config.BillingConfig
-	models               *models.ModelRegistry
-	chatUsage            chat.UsageData
-	runUsage             *chat.UsageData
-	runModelKey          string
-	runModelMixed        bool
-	aggregateUsageByTask bool
-	taskRunUsage         map[string]chat.UsageData
-	runControl           *contracts.RunControl
-	runID                string
-	chatID               string
-	agentKey             string
-	terminalType         string
-	terminalError        map[string]any
-}
-
 type awaitingTracker struct {
 	pendingAwaitingID string
 	pendingMode       string
 }
 
-func (p *runEventProcessor) Consume(event stream.StreamEvent) (stream.EventData, bool, error) {
-	data := event.Data()
-	// Validate before decorate/StepWriter. A tool result can carry arbitrary
-	// nested structured data, so deferring this to SSE JSON marshaling would
-	// let an invalid time point leak into JSONL persistence first.
-	if err := stream.ValidateEventData(data, "run.executor.event"); err != nil {
-		return stream.EventData{}, false, err
-	}
-	p.decorate(&data)
-	p.recordTerminal(data)
-	if p.stepWriter != nil {
-		p.stepWriter.OnEvent(data)
-		if err := p.stepWriter.Err(); err != nil {
-			// Preserve the failing compact event so the executor can resolve the
-			// blocking request as compact_persist_failed without publishing the
-			// unpersisted completion.
-			return data, false, err
-		}
-	}
-	p.completeCompactControl(data)
-	return data, shouldPublishClientEvent(data), nil
-}
-
-func (p *runEventProcessor) completeCompactControl(data stream.EventData) {
-	if p == nil || p.runControl == nil || (data.Type != "context.compact.complete" && data.Type != "context.compact.failed") {
+func completeCompactControl(runControl *contracts.RunControl, data stream.EventData) {
+	if runControl == nil || (data.Type != "context.compact.complete" && data.Type != "context.compact.failed") {
 		return
 	}
 	status := "failed"
@@ -131,7 +85,7 @@ func (p *runEventProcessor) completeCompactControl(data stream.EventData) {
 		Detail:                     data.String("detail"),
 		Retryable:                  data.Value("retryable") == true,
 	}
-	p.runControl.CompleteCompact(response.RequestID, response)
+	runControl.CompleteCompact(response.RequestID, response)
 }
 
 func compactFloat64(value any) float64 {
@@ -147,564 +101,6 @@ func compactFloat64(value any) float64 {
 	default:
 		return 0
 	}
-}
-
-func (p *runEventProcessor) recordTerminal(data stream.EventData) {
-	if p == nil || p.terminalType != "" || strings.TrimSpace(data.String("taskId")) != "" {
-		return
-	}
-	switch data.Type {
-	case "run.complete", "run.cancel", "run.error":
-		p.terminalType = data.Type
-	default:
-		return
-	}
-	if data.Type != "run.error" {
-		return
-	}
-	if payload, ok := data.Payload["error"].(map[string]any); ok {
-		p.terminalError = contracts.CloneMap(payload)
-	}
-	if p.runControl != nil {
-		p.runControl.ClaimFailure()
-	}
-	p.logTerminalError(data)
-}
-
-func (p *runEventProcessor) terminalFinishReason() string {
-	if p == nil {
-		return ""
-	}
-	switch p.terminalType {
-	case "run.error":
-		return "error"
-	case "run.cancel":
-		return "cancel"
-	case "run.complete":
-		return "complete"
-	default:
-		return ""
-	}
-}
-
-func (p *runEventProcessor) terminalErrorPayload() map[string]any {
-	if p == nil {
-		return nil
-	}
-	return contracts.CloneMap(p.terminalError)
-}
-
-func (p *runEventProcessor) logTerminalError(data stream.EventData) {
-	errorPayload, _ := data.Payload["error"].(map[string]any)
-	diagnostics, _ := errorPayload["diagnostics"].(map[string]any)
-	fields := map[string]any{
-		"runId":     firstNonEmpty(strings.TrimSpace(p.runID), data.String("runId")),
-		"chatId":    strings.TrimSpace(p.chatID),
-		"agentKey":  strings.TrimSpace(p.agentKey),
-		"errorCode": strings.TrimSpace(contracts.AnyStringNode(errorPayload["code"])),
-	}
-	for _, key := range []string{"toolCalls", "limitValue", "limitName", "toolName"} {
-		if value, ok := diagnostics[key]; ok {
-			fields[key] = value
-		}
-	}
-	observability.Log("run.error", fields)
-}
-
-func (p *runEventProcessor) decorate(data *stream.EventData) {
-	if data == nil {
-		return
-	}
-	switch data.Type {
-	case "content.delta":
-		if strings.TrimSpace(data.String("taskId")) != "" {
-			return
-		}
-		if p.assistantText != nil {
-			if delta := data.String("delta"); delta != "" {
-				if p.modelTurnPending {
-					p.modelTurnText.WriteString(delta)
-				} else {
-					p.assistantText.WriteString(delta)
-				}
-			}
-		}
-	case "content.snapshot":
-		if strings.TrimSpace(data.String("taskId")) != "" {
-			return
-		}
-		if p.assistantText != nil {
-			if text := data.String("text"); text != "" {
-				if p.modelTurnPending {
-					p.modelTurnText.Reset()
-					p.modelTurnText.WriteString(text)
-				} else {
-					p.assistantText.Reset()
-					p.assistantText.WriteString(text)
-				}
-			}
-		}
-	case "debug.llmChat":
-		inner, ok := data.Payload["data"].(map[string]any)
-		if !ok {
-			return
-		}
-		usage, ok := inner["usage"].(map[string]any)
-		if !ok {
-			usage = map[string]any{}
-			inner["usage"] = usage
-		}
-		(usageCostDecorator{models: p.models, billing: p.billing}).decorateDebugLLMReturnUsage(inner)
-		if p.runUsage != nil && !p.aggregateUsageByTask {
-			if ru, ok := usage["runUsage"].(map[string]any); ok {
-				mergeUsageMapIntoRunData(p.runUsage, ru)
-				p.applyRunModelKey()
-			}
-		}
-		if p.runUsage != nil {
-			chatUsage := addUsageData(p.chatUsage, *p.runUsage)
-			chatUsage.ModelKey = ""
-			usage["chatUsage"] = usageDataMap(chatUsage)
-		}
-	case "usage.snapshot":
-		usage, ok := data.Payload["usage"].(map[string]any)
-		if !ok {
-			return
-		}
-		p.decorateUsageSnapshot(data)
-		if p.runUsage != nil {
-			chatUsage := addUsageData(p.chatUsage, *p.runUsage)
-			chatUsage.ModelKey = ""
-			usage["chat"] = usageDataMapForSnapshot(chatUsage)
-		}
-	case "run.complete", "run.error", "run.cancel":
-		if p.runUsage != nil && !p.aggregateUsageByTask {
-			if usage, ok := data.Payload["usage"].(map[string]any); ok {
-				if run, ok := usage["run"].(map[string]any); ok {
-					mergeUsageMapIntoRunData(p.runUsage, run)
-				} else {
-					mergeUsageMapIntoRunData(p.runUsage, usage)
-				}
-			}
-		}
-		p.decorateTerminalUsage(data)
-	}
-}
-
-func (p *runEventProcessor) beginModelTurn(taskID string) {
-	if p == nil || strings.TrimSpace(taskID) != "" {
-		return
-	}
-	p.modelTurnPending = true
-	p.modelTurnText.Reset()
-}
-
-func (p *runEventProcessor) commitModelTurn(taskID string) {
-	if p == nil || strings.TrimSpace(taskID) != "" || !p.modelTurnPending {
-		return
-	}
-	if p.assistantText != nil {
-		p.assistantText.Reset()
-		p.assistantText.WriteString(p.modelTurnText.String())
-	}
-	p.modelTurnText.Reset()
-	p.modelTurnPending = false
-}
-
-func (p *runEventProcessor) discardModelTurn(taskID string, _ bool) {
-	if p == nil || strings.TrimSpace(taskID) != "" {
-		return
-	}
-	p.modelTurnText.Reset()
-	// Keep the gate open even for a terminal discard. Most such paths proceed
-	// directly to run.error, while run-limit recovery may emit a replacement
-	// assistant reply that still requires an explicit commit.
-	p.modelTurnPending = true
-}
-
-func applyModelTurnControl(processor *runEventProcessor, input stream.StreamInput) {
-	if processor == nil || input == nil {
-		return
-	}
-	switch value := input.(type) {
-	case stream.InputLLMRequest:
-		processor.beginModelTurn(value.TaskID)
-	case stream.ModelTurnCommit:
-		processor.commitModelTurn(value.TaskID)
-		if processor.stepWriter != nil {
-			processor.stepWriter.CommitModelTurn(value.TaskID, value.RunSeq)
-		}
-	case stream.ModelTurnDiscard:
-		processor.discardModelTurn(value.TaskID, value.Retrying)
-		if processor.stepWriter != nil {
-			processor.stepWriter.DiscardModelTurn(value.TaskID, value.RunSeq, value.Retrying)
-		}
-	}
-}
-
-func (p *runEventProcessor) decorateUsageSnapshot(data *stream.EventData) {
-	if p == nil || data == nil {
-		return
-	}
-	usage, _ := data.Payload["usage"].(map[string]any)
-	if usage == nil {
-		return
-	}
-	var (
-		currentUsage chat.UsageData
-		hasCurrent   bool
-	)
-	if current, _ := usage["current"].(map[string]any); current != nil {
-		currentUsage, hasCurrent = (usageCostDecorator{models: p.models, billing: p.billing}).decorateCurrentUsage(data)
-		if modelKey := strings.TrimSpace(currentUsage.ModelKey); modelKey != "" {
-			p.recordRunModelKey(modelKey)
-		}
-	}
-	if p.aggregateUsageByTask {
-		p.decorateAggregatedTaskUsageSnapshot(data, usage, currentUsage)
-		return
-	}
-	if run, _ := usage["run"].(map[string]any); run != nil {
-		if p.runUsage != nil {
-			if usageEstimatedCostFromData(currentUsage) != nil {
-				addEstimatedUsageCost(p.runUsage, currentUsage)
-			}
-			mergeUsageMapIntoRunData(p.runUsage, run)
-			p.applyRunModelKey()
-			runUsage := *p.runUsage
-			runUsage.ModelKey = ""
-			usage["run"] = usageDataMapForSnapshot(runUsage)
-		}
-	} else if hasCurrent && p.runUsage != nil {
-		*p.runUsage = addUsageData(*p.runUsage, currentUsage)
-		p.applyRunModelKey()
-		runUsage := *p.runUsage
-		runUsage.ModelKey = ""
-		usage["run"] = usageDataMapForSnapshot(runUsage)
-	}
-}
-
-func (p *runEventProcessor) decorateAggregatedTaskUsageSnapshot(data *stream.EventData, usage map[string]any, currentUsage chat.UsageData) {
-	if p == nil || p.runUsage == nil || data == nil || usage == nil {
-		return
-	}
-	if p.taskRunUsage == nil {
-		p.taskRunUsage = map[string]chat.UsageData{}
-	}
-	key := strings.TrimSpace(data.String("taskId"))
-	if key == "" {
-		key = "__team_coordinator__"
-	}
-	accumulated := p.taskRunUsage[key]
-	if usageEstimatedCostFromData(currentUsage) != nil {
-		addEstimatedUsageCost(&accumulated, currentUsage)
-	}
-	if run, _ := usage["run"].(map[string]any); run != nil {
-		mergeRunUsageData(&accumulated, usageDataFromMap(run))
-	} else {
-		accumulated = addUsageData(accumulated, currentUsage)
-	}
-	p.taskRunUsage[key] = accumulated
-
-	total := chat.UsageData{}
-	for _, taskUsage := range p.taskRunUsage {
-		total = addUsageData(total, taskUsage)
-	}
-	*p.runUsage = total
-	p.applyRunModelKey()
-	runUsage := *p.runUsage
-	runUsage.ModelKey = ""
-	usage["run"] = usageDataMapForSnapshot(runUsage)
-}
-
-func (p *runEventProcessor) recordRunModelKey(modelKey string) {
-	if p == nil || p.runModelMixed {
-		return
-	}
-	modelKey = strings.TrimSpace(modelKey)
-	if modelKey == "" {
-		return
-	}
-	if p.runModelKey == "" {
-		p.runModelKey = modelKey
-		return
-	}
-	if p.runModelKey != modelKey {
-		p.runModelKey = ""
-		p.runModelMixed = true
-	}
-}
-
-func (p *runEventProcessor) applyRunModelKey() {
-	if p == nil || p.runUsage == nil {
-		return
-	}
-	if p.runModelMixed {
-		p.runUsage.ModelKey = ""
-		return
-	}
-	p.runUsage.ModelKey = strings.TrimSpace(p.runModelKey)
-}
-
-func (p *runEventProcessor) decorateTerminalUsage(data *stream.EventData) {
-	if data == nil || data.Payload == nil {
-		return
-	}
-	delete(data.Payload, "chatUsage")
-	if p.runUsage == nil || !usageHasData(*p.runUsage) {
-		delete(data.Payload, "usage")
-		return
-	}
-	p.applyRunModelKey()
-	chatUsage := addUsageData(p.chatUsage, *p.runUsage)
-	chatUsage.ModelKey = ""
-	runUsage := *p.runUsage
-	runUsage.ModelKey = ""
-	data.Payload["usage"] = map[string]any{
-		"chat": usageDataMap(chatUsage),
-		"run":  usageDataMap(runUsage),
-	}
-}
-
-func usageDataFromMap(usage map[string]any) chat.UsageData {
-	out := chat.UsageData{
-		ModelKey:               strings.TrimSpace(contracts.AnyStringNode(usage["modelKey"])),
-		PromptTokens:           contracts.AnyIntNode(usage["promptTokens"]),
-		CompletionTokens:       contracts.AnyIntNode(usage["completionTokens"]),
-		TotalTokens:            contracts.AnyIntNode(usage["totalTokens"]),
-		ReasoningTokens:        usageDetailInt(usage, "completionTokensDetails", "reasoningTokens"),
-		LlmChatCompletionCount: contracts.AnyIntNode(usage["llmChatCompletionCount"]),
-		ToolCallCount:          contracts.AnyIntNode(usage["toolCallCount"]),
-	}
-	cacheHitTokens, cacheMissTokens := usageCacheTokensFromMap(usage)
-	out.CachedTokens = cacheHitTokens
-	out.PromptCacheHitTokens = cacheHitTokens
-	out.PromptCacheMissTokens = cacheMissTokens
-	if estimatedCost := estimatedCostFromMap(usage); estimatedCost != nil {
-		out.EstimatedCostCurrency = strings.ToUpper(strings.TrimSpace(contracts.AnyStringNode(estimatedCost["currency"])))
-		out.EstimatedCostInputHit = floatValue(estimatedCost["inputCacheHit"])
-		out.EstimatedCostInputMiss = floatValue(estimatedCost["inputCacheMiss"])
-		out.EstimatedCostOutput = floatValue(estimatedCost["output"])
-		out.EstimatedCostTotal = floatValue(estimatedCost["total"])
-	}
-	applyUsageTimingFromMap(&out, usage)
-	return out
-}
-
-func mergeUsageMapIntoRunData(target *chat.UsageData, usage map[string]any) {
-	if target == nil || usage == nil {
-		return
-	}
-	incoming := usageDataFromMap(usage)
-	mergeRunUsageData(target, incoming)
-}
-
-func mergeRunUsageData(target *chat.UsageData, incoming chat.UsageData) {
-	if target == nil {
-		return
-	}
-	modelKey := target.ModelKey
-	currency := target.EstimatedCostCurrency
-	inputHit := target.EstimatedCostInputHit
-	inputMiss := target.EstimatedCostInputMiss
-	output := target.EstimatedCostOutput
-	total := target.EstimatedCostTotal
-	firstTokenLatencyTotalMs := target.FirstTokenLatencyTotalMs
-	firstTokenLatencyCount := target.FirstTokenLatencyCount
-	generationDurationMs := target.GenerationDurationMs
-	*target = incoming
-	if strings.TrimSpace(incoming.ModelKey) == "" {
-		target.ModelKey = modelKey
-	}
-	if strings.TrimSpace(incoming.EstimatedCostCurrency) == "" {
-		target.EstimatedCostCurrency = currency
-		target.EstimatedCostInputHit = inputHit
-		target.EstimatedCostInputMiss = inputMiss
-		target.EstimatedCostOutput = output
-		target.EstimatedCostTotal = total
-	}
-	if incoming.FirstTokenLatencyTotalMs == 0 && incoming.FirstTokenLatencyCount == 0 && incoming.GenerationDurationMs == 0 {
-		target.FirstTokenLatencyTotalMs = firstTokenLatencyTotalMs
-		target.FirstTokenLatencyCount = firstTokenLatencyCount
-		target.GenerationDurationMs = generationDurationMs
-	}
-}
-
-func addEstimatedUsageCost(target *chat.UsageData, delta chat.UsageData) {
-	if target == nil || strings.TrimSpace(delta.EstimatedCostCurrency) == "" {
-		return
-	}
-	if strings.TrimSpace(target.EstimatedCostCurrency) == "" {
-		target.EstimatedCostCurrency = strings.ToUpper(strings.TrimSpace(delta.EstimatedCostCurrency))
-	}
-	target.EstimatedCostInputHit += delta.EstimatedCostInputHit
-	target.EstimatedCostInputMiss += delta.EstimatedCostInputMiss
-	target.EstimatedCostOutput += delta.EstimatedCostOutput
-	target.EstimatedCostTotal += delta.EstimatedCostTotal
-}
-
-func estimatedCostFromMap(usage map[string]any) map[string]any {
-	estimatedCost, _ := usage["estimatedCost"].(map[string]any)
-	return estimatedCost
-}
-
-func floatValue(value any) float64 {
-	switch v := value.(type) {
-	case float64:
-		return v
-	case float32:
-		return float64(v)
-	case int:
-		return float64(v)
-	case int64:
-		return float64(v)
-	case json.Number:
-		n, _ := v.Float64()
-		return n
-	case string:
-		n, _ := strconv.ParseFloat(strings.TrimSpace(v), 64)
-		return n
-	default:
-		return 0
-	}
-}
-
-func usageDetailInt(usage map[string]any, detailKey string, valueKey string) int {
-	details, _ := usage[detailKey].(map[string]any)
-	return contracts.AnyIntNode(details[valueKey])
-}
-
-func applyUsageTimingFromMap(target *chat.UsageData, usage map[string]any) {
-	if target == nil || usage == nil {
-		return
-	}
-	timing, _ := usage["timing"].(map[string]any)
-	if timing == nil {
-		return
-	}
-	firstTokenLatencyTotalMs := int64(contracts.AnyIntNode(timing["firstTokenLatencyTotalMs"]))
-	firstTokenLatencyCount := contracts.AnyIntNode(timing["firstTokenLatencyCount"])
-	if firstTokenLatencyTotalMs <= 0 || firstTokenLatencyCount <= 0 {
-		if firstTokenLatencyMs := int64(contracts.AnyIntNode(timing["firstTokenLatencyMs"])); firstTokenLatencyMs > 0 {
-			firstTokenLatencyTotalMs = firstTokenLatencyMs
-			firstTokenLatencyCount = 1
-		}
-	}
-	target.FirstTokenLatencyTotalMs = firstTokenLatencyTotalMs
-	target.FirstTokenLatencyCount = firstTokenLatencyCount
-	target.GenerationDurationMs = int64(contracts.AnyIntNode(timing["generationDurationMs"]))
-}
-
-func addUsageData(base chat.UsageData, delta chat.UsageData) chat.UsageData {
-	return chat.UsageData{
-		ModelKey:                 mergedUsageModelKey(base, delta),
-		PromptTokens:             base.PromptTokens + delta.PromptTokens,
-		CompletionTokens:         base.CompletionTokens + delta.CompletionTokens,
-		TotalTokens:              base.TotalTokens + delta.TotalTokens,
-		CachedTokens:             base.CachedTokens + delta.CachedTokens,
-		ReasoningTokens:          base.ReasoningTokens + delta.ReasoningTokens,
-		PromptCacheHitTokens:     base.PromptCacheHitTokens + delta.PromptCacheHitTokens,
-		PromptCacheMissTokens:    base.PromptCacheMissTokens + delta.PromptCacheMissTokens,
-		EstimatedCostCurrency:    firstNonBlank(base.EstimatedCostCurrency, delta.EstimatedCostCurrency),
-		EstimatedCostInputHit:    base.EstimatedCostInputHit + delta.EstimatedCostInputHit,
-		EstimatedCostInputMiss:   base.EstimatedCostInputMiss + delta.EstimatedCostInputMiss,
-		EstimatedCostOutput:      base.EstimatedCostOutput + delta.EstimatedCostOutput,
-		EstimatedCostTotal:       base.EstimatedCostTotal + delta.EstimatedCostTotal,
-		LlmChatCompletionCount:   base.LlmChatCompletionCount + delta.LlmChatCompletionCount,
-		ToolCallCount:            base.ToolCallCount + delta.ToolCallCount,
-		FirstTokenLatencyTotalMs: base.FirstTokenLatencyTotalMs + delta.FirstTokenLatencyTotalMs,
-		FirstTokenLatencyCount:   base.FirstTokenLatencyCount + delta.FirstTokenLatencyCount,
-		GenerationDurationMs:     base.GenerationDurationMs + delta.GenerationDurationMs,
-	}
-}
-
-func addUsageTimingMap(out map[string]any, usage chat.UsageData) {
-	if out == nil {
-		return
-	}
-	timing := map[string]any{}
-	if usage.FirstTokenLatencyCount > 0 {
-		timing["firstTokenLatencyTotalMs"] = usage.FirstTokenLatencyTotalMs
-		timing["firstTokenLatencyCount"] = usage.FirstTokenLatencyCount
-	}
-	if usage.GenerationDurationMs > 0 {
-		timing["generationDurationMs"] = usage.GenerationDurationMs
-	}
-	if len(timing) > 0 {
-		out["timing"] = timing
-	}
-}
-
-func usageDataMap(usage chat.UsageData) map[string]any {
-	return usageDataMapWithOptions(usage, false)
-}
-
-func usageDataMapForSnapshot(usage chat.UsageData) map[string]any {
-	return usageDataMapWithOptions(usage, true)
-}
-
-func usageDataMapWithOptions(usage chat.UsageData, includeZeroToolCallCount bool) map[string]any {
-	out := map[string]any{
-		"promptTokens":     usage.PromptTokens,
-		"completionTokens": usage.CompletionTokens,
-		"totalTokens":      usage.TotalTokens,
-	}
-	if modelKey := strings.TrimSpace(usage.ModelKey); modelKey != "" {
-		out["modelKey"] = modelKey
-	}
-	if usage.CachedTokens > 0 {
-		out["promptTokensDetails"] = map[string]any{"cacheHitTokens": usage.CachedTokens}
-	}
-	if usage.ReasoningTokens > 0 || includeZeroToolCallCount {
-		out["completionTokensDetails"] = map[string]any{"reasoningTokens": usage.ReasoningTokens}
-	}
-	cacheHitTokens, cacheMissTokens := usageCacheTokens(usage)
-	if cacheHitTokens > 0 || cacheMissTokens > 0 {
-		promptDetails, _ := out["promptTokensDetails"].(map[string]any)
-		if promptDetails == nil {
-			promptDetails = map[string]any{}
-			out["promptTokensDetails"] = promptDetails
-		}
-		if cacheHitTokens > 0 || includeZeroToolCallCount {
-			promptDetails["cacheHitTokens"] = cacheHitTokens
-		}
-		if cacheMissTokens > 0 || includeZeroToolCallCount {
-			promptDetails["cacheMissTokens"] = cacheMissTokens
-		}
-	}
-	if usage.LlmChatCompletionCount > 0 {
-		out["llmChatCompletionCount"] = usage.LlmChatCompletionCount
-	}
-	if usage.ToolCallCount > 0 || includeZeroToolCallCount {
-		out["toolCallCount"] = usage.ToolCallCount
-	}
-	if estimated := usageEstimatedCostFromData(usage); estimated != nil {
-		out["estimatedCost"] = estimated
-	}
-	addUsageTimingMap(out, usage)
-	return out
-}
-
-func mergedUsageModelKey(base chat.UsageData, delta chat.UsageData) string {
-	baseKey := strings.TrimSpace(base.ModelKey)
-	deltaKey := strings.TrimSpace(delta.ModelKey)
-	if baseKey == "" && !usageHasData(base) {
-		return deltaKey
-	}
-	if deltaKey == "" && !usageHasData(delta) {
-		return baseKey
-	}
-	if baseKey != "" && baseKey == deltaKey {
-		return baseKey
-	}
-	return ""
-}
-
-func usageHasData(usage chat.UsageData) bool {
-	return usage.TotalTokens > 0 || usage.PromptTokens > 0 || usage.CompletionTokens > 0 ||
-		usage.LlmChatCompletionCount > 0 || usage.ToolCallCount > 0 ||
-		usage.EstimatedCostTotal > 0 || strings.TrimSpace(usage.EstimatedCostCurrency) != "" ||
-		usage.FirstTokenLatencyTotalMs > 0 || usage.FirstTokenLatencyCount > 0 || usage.GenerationDurationMs > 0
 }
 
 func shouldPublishClientEvent(data stream.EventData) bool {
@@ -792,19 +188,14 @@ func runExecutor(params RunExecutorParams) {
 	if params.Summary.Usage != nil {
 		chatUsage = *params.Summary.Usage
 	}
-	processor := &runEventProcessor{
-		assistantText:        &assistantText,
-		stepWriter:           params.StepWriter,
-		billing:              params.Billing,
-		models:               params.Models,
-		chatUsage:            chatUsage,
-		runUsage:             &runUsage,
-		aggregateUsageByTask: params.Session.TeamRuntime != nil,
-		runControl:           params.RunControl,
-		runID:                params.Session.RunID,
-		chatID:               params.Session.ChatID,
-		agentKey:             contracts.ResolveRunOwner(params.Session.RunOwner).AgentKey,
-	}
+	processor := runexec.NewProcessor(runexec.ProcessorOptions{
+		AssistantText: &assistantText, StepWriter: params.StepWriter,
+		Billing: params.Billing, Models: params.Models, ChatUsage: chatUsage, RunUsage: &runUsage,
+		AggregateUsageByTask: params.Session.TeamRuntime != nil, RunControl: params.RunControl,
+		RunID: params.Session.RunID, ChatID: params.Session.ChatID,
+		AgentKey:       contracts.ResolveRunOwner(params.Session.RunOwner).AgentKey,
+		OnCompactEvent: func(data stream.EventData) { completeCompactControl(params.RunControl, data) },
+	})
 
 	runCtx := params.RunCtx
 	if runCtx == nil {
@@ -904,7 +295,7 @@ func runExecutor(params RunExecutorParams) {
 				content.Presentation = "reply"
 				input = content
 			}
-			applyModelTurnControl(processor, input)
+			processor.ApplyModelTurnControl(input)
 			if marker, ok := input.(stream.StageMarker); ok && params.StepWriter != nil {
 				params.StepWriter.OnStageMarker(marker.Stage)
 			}
@@ -918,7 +309,7 @@ func runExecutor(params RunExecutorParams) {
 			if processingErr != nil {
 				return
 			}
-			applyModelTurnControl(processor, input)
+			processor.ApplyModelTurnControl(input)
 			if marker, ok := input.(stream.StageMarker); ok && params.StepWriter != nil {
 				params.StepWriter.OnStageMarker(marker.Stage)
 			}
@@ -963,7 +354,7 @@ func runExecutor(params RunExecutorParams) {
 		}
 	}
 
-	terminalFinishReason := processor.terminalFinishReason()
+	terminalFinishReason := processor.TerminalFinishReason()
 	if terminalFinishReason == "error" {
 		streamFailed = true
 		streamInterrupted = false
@@ -1046,14 +437,18 @@ func compactCheckpointPersistenceFailedEvent(data stream.EventData) stream.Event
 	}
 }
 
-func handleCompactCheckpointPersistenceFailure(params RunExecutorParams, processor *runEventProcessor, data stream.EventData) {
+func handleCompactCheckpointPersistenceFailure(params RunExecutorParams, processor any, data stream.EventData) {
 	if data.Type != "context.compact.complete" {
 		return
 	}
 	failed := compactCheckpointPersistenceFailedEvent(data)
-	if processor != nil {
-		processor.completeCompactControl(failed)
+	runControl := params.RunControl
+	if runControl == nil {
+		if provider, ok := processor.(interface{ RunControl() *contracts.RunControl }); ok {
+			runControl = provider.RunControl()
+		}
 	}
+	completeCompactControl(runControl, failed)
 	if params.EventBus != nil {
 		params.EventBus.Publish(clientVisibleEventData(failed))
 	}

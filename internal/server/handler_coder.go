@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	agentcoder "agent-platform/internal/agent/coder"
+	agentbuiltin "agent-platform/internal/agent/builtin"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
@@ -39,7 +39,7 @@ func (s *Server) buildModelOptionsForAgent(agentKey string) api.CoderModelOption
 }
 
 func coderModelConfigFromOptions(options api.CoderModelOptionsResponse) map[string]any {
-	return agentcoder.ModelConfigFromOptions(options)
+	return agentbuiltin.CoderModelConfigFromOptions(options)
 }
 
 func modelConfigString(modelConfig map[string]any, key string) string {
@@ -119,7 +119,7 @@ func (s *Server) modelOptionsFilterMode(agentKey string) string {
 	if !ok {
 		return ""
 	}
-	return agentcoder.ModelOptionsFilterMode(agentKey, def.Mode, def.ACPBridgeID)
+	return agentbuiltin.CoderModelOptionsFilterMode(agentKey, def.Mode, def.ACPBridgeID)
 }
 
 func (s *Server) shouldShowModelOption(model models.ModelDefinition) bool {
@@ -156,7 +156,7 @@ func (s *Server) defaultModelOptionKeyForAgent(options []api.CoderModelOption, a
 			defaultKey = strings.TrimSpace(model.Key)
 		}
 	}
-	return agentcoder.DefaultModelOptionKey(options, preferredKey, defaultKey)
+	return agentbuiltin.CoderDefaultModelOptionKey(options, preferredKey, defaultKey)
 }
 
 func (s *Server) defaultServiceTierForAgent(agentKey string, options []api.ServiceTierOption) string {
@@ -168,35 +168,35 @@ func (s *Server) defaultServiceTierForAgent(agentKey string, options []api.Servi
 	if !ok {
 		return ""
 	}
-	return agentcoder.DefaultServiceTier(catalog.AgentUsesACPCoderBackend(def), def.ServiceTier, options)
+	return agentbuiltin.CoderDefaultServiceTier(catalog.AgentUsesACPCoderBackend(def), def.ServiceTier, options)
 }
 
 func (s *Server) serviceTierOptionsForAgent(agentKey string, modelOptions []api.CoderModelOption) []api.ServiceTierOption {
 	agentKey = strings.TrimSpace(agentKey)
 	if agentKey == "" || s.deps.Registry == nil {
-		return agentcoder.ServiceTierOptions(false, modelOptions)
+		return agentbuiltin.CoderServiceTierOptions(false, modelOptions)
 	}
 	def, ok := s.deps.Registry.AgentDefinition(agentKey)
 	if !ok {
-		return agentcoder.ServiceTierOptions(false, modelOptions)
+		return agentbuiltin.CoderServiceTierOptions(false, modelOptions)
 	}
-	return agentcoder.ServiceTierOptions(catalog.AgentUsesACPCoderBackend(def), modelOptions)
+	return agentbuiltin.CoderServiceTierOptions(catalog.AgentUsesACPCoderBackend(def), modelOptions)
 }
 
 func (s *Server) reasoningEffortOptionsForAgent(agentKey string, modelOptions []api.CoderModelOption) []api.ReasoningEffortOption {
 	agentKey = strings.TrimSpace(agentKey)
 	if agentKey == "" || s.deps.Registry == nil {
-		return agentcoder.ReasoningEffortOptions(false, modelOptions)
+		return agentbuiltin.CoderReasoningEffortOptions(false, modelOptions)
 	}
 	def, ok := s.deps.Registry.AgentDefinition(agentKey)
 	if !ok {
-		return agentcoder.ReasoningEffortOptions(false, modelOptions)
+		return agentbuiltin.CoderReasoningEffortOptions(false, modelOptions)
 	}
-	return agentcoder.ReasoningEffortOptions(catalog.AgentUsesACPCoderBackend(def), modelOptions)
+	return agentbuiltin.CoderReasoningEffortOptions(catalog.AgentUsesACPCoderBackend(def), modelOptions)
 }
 
 func normalizeCoderReasoningEffort(value string) (string, bool) {
-	return agentcoder.NormalizeReasoningEffort(value)
+	return agentbuiltin.CoderNormalizeReasoningEffort(value)
 }
 
 type acpModelCatalogResponse struct {

@@ -893,11 +893,14 @@ func TestInvokeDesktopCDPStreamsScreenshotToChatFileAndCleansInvalidPartial(t *t
 		Seq: 1, Type: desktopScreenshotDeltaEventType, Timestamp: 1771888000000,
 		Encoding: "base64", Chunk: base64.StdEncoding.EncodeToString(png[:4]),
 	})
-	badExecutor := *executor
-	badExecutor.clientRequest = &scriptedClientRequestInvoker{frames: []ClientResponseFrame{
-		{Frame: "stream", ID: "bad-screenshot", StreamID: "bad-stream", Event: badEvent},
-		{Frame: "stream", ID: "bad-screenshot", StreamID: "bad-stream", Event: json.RawMessage(`{"seq":3,"type":"desktop.cdp.screenshot.delta","timestamp":1771888000001,"encoding":"base64","chunk":"AA=="}`)},
-	}}
+	badExecutor := &RuntimeToolExecutor{
+		cfg:           executor.cfg,
+		clientTargets: executor.clientTargets,
+		clientRequest: &scriptedClientRequestInvoker{frames: []ClientResponseFrame{
+			{Frame: "stream", ID: "bad-screenshot", StreamID: "bad-stream", Event: badEvent},
+			{Frame: "stream", ID: "bad-screenshot", StreamID: "bad-stream", Event: json.RawMessage(`{"seq":3,"type":"desktop.cdp.screenshot.delta","timestamp":1771888000001,"encoding":"base64","chunk":"AA=="}`)},
+		}},
+	}
 	badResult, badErr := badExecutor.invokeDesktopCDP(context.Background(), map[string]any{
 		"requestId": "bad-screenshot", "method": desktopCdpCaptureScreenshotMethod,
 	}, &ExecutionContext{Session: QuerySession{ChatID: chatID}})

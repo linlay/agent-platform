@@ -734,8 +734,20 @@ func (c *Conn) StartStreamForward(requestID string, observer *stream.Observer) {
 	if c == nil || observer == nil {
 		return
 	}
+	c.StartEventForward(requestID, observer.Events, observer.MarkDone)
+}
+
+// StartEventForward forwards a transport-neutral run subscription. The done
+// callback acknowledges delivery completion and may also detach the backing
+// subscription; it is safe for callers to make it idempotent.
+func (c *Conn) StartEventForward(requestID string, events <-chan stream.EventData, done func()) {
+	if c == nil || events == nil {
+		return
+	}
 	go func() {
-		defer observer.MarkDone()
+		if done != nil {
+			defer done()
+		}
 		var (
 			lastSeq int64
 			reason  = "detached"
@@ -744,7 +756,7 @@ func (c *Conn) StartStreamForward(requestID string, observer *stream.Observer) {
 			select {
 			case <-c.closed:
 				return
-			case event, ok := <-observer.Events:
+			case event, ok := <-events:
 				if !ok {
 					c.finishStream(requestID, reason, lastSeq)
 					return

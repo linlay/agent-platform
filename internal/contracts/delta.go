@@ -194,8 +194,8 @@ type DeltaInvokeSubAgents struct {
 func (DeltaInvokeSubAgents) agentDeltaTag() {}
 
 // DeltaTeamDispatch is emitted only by the hidden TEAM coordinator tools.
-// The server owns member execution because it has the frozen TeamSnapshot,
-// chat store, resource tickets and stream event bus.
+// Runtime orchestration owns member dispatch; concrete session, persistence,
+// and event ports are supplied by the application assembly.
 type DeltaTeamDispatch struct {
 	MainToolID string
 	Tasks      []SubAgentTaskSpec

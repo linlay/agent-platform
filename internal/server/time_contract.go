@@ -127,7 +127,7 @@ func nextLocalTimeContractErrorSeq(lastSeq int64, rejected stream.EventData) int
 // client-visible stream has been terminated. A completed replay is never
 // finished again: that would rewrite its completion lifecycle timestamp.
 func (s *Server) terminateSSEForTimeContractViolation(
-	sseWriter *stream.Writer,
+	sseWriter *sseWriter,
 	lastSeq int64,
 	rejected stream.EventData,
 	run api.InterruptRequest,

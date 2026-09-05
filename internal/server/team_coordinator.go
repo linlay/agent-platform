@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	agentteam "agent-platform/internal/agent/team"
+	agentbuiltin "agent-platform/internal/agent/builtin"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/contracts"
@@ -17,7 +17,7 @@ func hiddenTeamAgentKey(teamID string) string {
 }
 
 func buildTeamCoordinatorDefinition(snapshot catalog.TeamSnapshot) catalog.AgentDefinition {
-	budget := mergeTeamConfigMap(agentteam.DefaultBudget(), snapshot.Orchestrator.Budget)
+	budget := mergeTeamConfigMap(agentbuiltin.TeamDefaultBudget(), snapshot.Orchestrator.Budget)
 	return catalog.AgentDefinition{
 		Key:              hiddenTeamAgentKey(snapshot.TeamID),
 		Name:             firstNonEmpty(snapshot.Name, snapshot.TeamID),
@@ -26,10 +26,10 @@ func buildTeamCoordinatorDefinition(snapshot catalog.TeamSnapshot) catalog.Agent
 		Role:             "hidden Team coordinator",
 		ModelKey:         snapshot.Orchestrator.ModelKey,
 		ServiceTier:      snapshot.Orchestrator.ServiceTier,
-		Mode:             agentteam.Mode,
+		Mode:             agentbuiltin.TeamMode,
 		VisibilityScopes: []string{"internal"},
-		Tools:            agentteam.DefaultToolNames(),
-		ContextTags:      agentteam.DefaultContextTags(),
+		Tools:            agentbuiltin.TeamDefaultToolNames(),
+		ContextTags:      agentbuiltin.TeamDefaultContextTags(),
 		Budget:           budget,
 		StageSettings:    contracts.CloneMap(snapshot.Orchestrator.StageSettings),
 	}
@@ -40,7 +40,7 @@ func configureTeamCoordinatorSession(session *contracts.QuerySession, snapshot c
 		return nil
 	}
 	members := make([]contracts.TeamMember, 0, len(snapshot.ValidAgentKeys))
-	promptMembers := make([]agentteam.MemberSpec, 0, len(snapshot.ValidAgentKeys))
+	promptMembers := make([]agentbuiltin.TeamMemberSpec, 0, len(snapshot.ValidAgentKeys))
 	for _, key := range snapshot.ValidAgentKeys {
 		def, ok := snapshot.AgentDefinition(key)
 		if !ok {
@@ -48,9 +48,9 @@ func configureTeamCoordinatorSession(session *contracts.QuerySession, snapshot c
 		}
 		member := contracts.TeamMember{Key: key, Name: def.Name, Role: def.Role, Description: def.Description}
 		members = append(members, member)
-		promptMembers = append(promptMembers, agentteam.MemberSpec{Key: key, Name: def.Name, Role: def.Role, Description: def.Description})
+		promptMembers = append(promptMembers, agentbuiltin.TeamMemberSpec{Key: key, Name: def.Name, Role: def.Role, Description: def.Description})
 	}
-	maxParallel := agentteam.NormalizeMaxParallel(snapshot.Orchestrator.MaxParallel)
+	maxParallel := agentbuiltin.TeamNormalizeMaxParallel(snapshot.Orchestrator.MaxParallel)
 	session.RunOwner = contracts.TeamRunOwner(snapshot.TeamID, session.AgentKey)
 	session.TeamRuntime = &contracts.TeamRuntimeContext{
 		RuntimeMode:             snapshot.RuntimeMode,
@@ -60,12 +60,12 @@ func configureTeamCoordinatorSession(session *contracts.QuerySession, snapshot c
 		ToolSchemaFingerprint:   snapshot.ToolSchemaFingerprint,
 		OrchestratorFingerprint: snapshot.OrchestratorFingerprint,
 	}
-	toolDefinition, err := agentteam.BuildToolDefinition(baseTool, promptMembers)
+	toolDefinition, err := agentbuiltin.TeamBuildToolDefinition(baseTool, promptMembers)
 	if err != nil {
 		return fmt.Errorf("configure Team coordinator tool: %w", err)
 	}
 	session.ModeToolDefinitions = []api.ToolDetailResponse{toolDefinition}
-	session.ModeSystemPrompt = agentteam.BuildSystemPrompt(agentteam.PromptConfig{
+	session.ModeSystemPrompt = agentbuiltin.TeamBuildSystemPrompt(agentbuiltin.TeamPromptConfig{
 		TeamID:       snapshot.TeamID,
 		TeamName:     snapshot.Name,
 		Description:  snapshot.Description,
@@ -79,8 +79,8 @@ func configureTeamCoordinatorSession(session *contracts.QuerySession, snapshot c
 
 func teamDelegateBaseDefinition(definitions []api.ToolDetailResponse) (api.ToolDetailResponse, bool) {
 	for _, definition := range definitions {
-		if strings.EqualFold(strings.TrimSpace(definition.Name), agentteam.ToolDelegate) ||
-			strings.EqualFold(strings.TrimSpace(definition.Key), agentteam.ToolDelegate) {
+		if strings.EqualFold(strings.TrimSpace(definition.Name), agentbuiltin.TeamToolDelegate) ||
+			strings.EqualFold(strings.TrimSpace(definition.Key), agentbuiltin.TeamToolDelegate) {
 			return definition, true
 		}
 	}

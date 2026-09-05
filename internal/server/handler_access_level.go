@@ -6,6 +6,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
+	runtimetypes "agent-platform/internal/runtime/types"
 )
 
 func (s *Server) handleAccessLevel(w http.ResponseWriter, r *http.Request) {
@@ -14,12 +15,19 @@ func (s *Server) handleAccessLevel(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid access-level payload"))
 		return
 	}
-	response, statusErr := s.updateAccessLevel(req)
-	if statusErr != nil {
-		writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))
+	result, err := s.deps.Runtime.SetAccessLevel(r.Context(), runtimetypes.AccessLevelCommand{
+		RunRef:    runtimetypes.RunRef{RunID: req.RunID, AgentKey: req.AgentKey, TeamID: req.TeamID},
+		RequestID: req.RequestID, AccessLevel: req.AccessLevel, Reason: req.Reason,
+	})
+	if err != nil {
+		writeRuntimeControlError(w, err, http.StatusBadRequest)
 		return
 	}
-	writeJSON(w, http.StatusOK, api.Success(response))
+	writeJSON(w, http.StatusOK, api.Success(api.AccessLevelResponse{
+		Accepted: result.Accepted, Status: result.Status, RunID: result.RunID,
+		PreviousAccessLevel: result.PreviousAccessLevel, AccessLevel: result.AccessLevel,
+		Version: result.Version, Detail: result.Detail,
+	}))
 }
 
 func (s *Server) updateAccessLevel(req api.AccessLevelRequest) (api.AccessLevelResponse, *statusError) {

@@ -11,6 +11,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/chatresource"
 )
 
 const (
@@ -97,15 +98,6 @@ func (s *Server) handleResourceImageCommit(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource access denied"))
 		return
 	}
-	summary, err := s.deps.Chats.Summary(request.ChatID)
-	if err != nil || summary == nil {
-		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat resource not found"))
-		return
-	}
-	if strings.TrimSpace(summary.TeamID) != "" || strings.TrimSpace(summary.AgentKey) == "" || strings.TrimSpace(summary.AgentKey) != request.AgentKey {
-		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource owner mismatch"))
-		return
-	}
 	data, err := decodeResourceImageCommitPayload(request.DataBase64)
 	if err != nil {
 		status := http.StatusBadRequest
@@ -115,26 +107,19 @@ func (s *Server) handleResourceImageCommit(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, status, api.Failure(status, err.Error()))
 		return
 	}
-	committer, ok := s.deps.Chats.(chat.ResourceDocumentCommitter)
-	if !ok || committer == nil {
-		writeJSON(w, http.StatusServiceUnavailable, api.Failure(http.StatusServiceUnavailable, "resource image commit is unavailable"))
-		return
-	}
-	result, err := committer.CommitResourceDocument(chat.ResourceDocumentCommitRequest{
-		ChatID:           request.ChatID,
-		Profile:          request.Profile,
-		ResourceID:       request.ResourceID,
-		RelativePath:     request.RelativePath,
-		Mode:             request.Mode,
-		ExpectedRevision: request.ExpectedRevision,
-		DocumentKind:     "document-image",
-		MIMEType:         request.MIMEType,
-		Data:             data,
+	result, err := s.chatResources.CommitImage(chatresource.ImageCommitCommand{
+		AgentKey: request.AgentKey, ChatID: request.ChatID, Profile: request.Profile,
+		ResourceID: request.ResourceID, RelativePath: request.RelativePath, Mode: request.Mode,
+		ExpectedRevision: request.ExpectedRevision, MIMEType: request.MIMEType, Data: data,
 	})
 	if err != nil {
 		status := http.StatusInternalServerError
 		message := "resource image commit failed"
 		switch {
+		case errors.Is(err, chatresource.ErrNotConfigured):
+			status, message = http.StatusServiceUnavailable, "resource image commit is unavailable"
+		case errors.Is(err, chatresource.ErrOwnerMismatch):
+			status, message = http.StatusForbidden, "resource owner mismatch"
 		case errors.Is(err, chat.ErrResourceDocumentInvalid):
 			status, message = http.StatusBadRequest, "invalid resource image commit"
 		case errors.Is(err, chat.ErrResourceDocumentOverwriteDenied):

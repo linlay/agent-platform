@@ -106,6 +106,31 @@ type CompactControlHandle struct {
 	state *compactControlState
 }
 
+// NewCompactControlHandle creates an opaque compact coordination handle for
+// application-level chat maintenance. The state remains private to contracts;
+// runtime/runstate only coordinates the handle through this API.
+func NewCompactControlHandle(request CompactControlRequest) CompactControlHandle {
+	return CompactControlHandle{state: &compactControlState{
+		request: request,
+		done:    make(chan struct{}),
+	}}
+}
+
+func (h CompactControlHandle) Valid() bool {
+	return h.state != nil
+}
+
+func (h CompactControlHandle) Request() CompactControlRequest {
+	if h.state == nil {
+		return CompactControlRequest{}
+	}
+	return h.state.request
+}
+
+func (h CompactControlHandle) Complete(result api.CompactResponse) {
+	completeCompactControlState(h.state, result)
+}
+
 func (h CompactControlHandle) Done() <-chan struct{} {
 	if h.state == nil {
 		closed := make(chan struct{})

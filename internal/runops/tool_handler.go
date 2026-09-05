@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
+	runtimetypes "agent-platform/internal/runtime/types"
 )
 
 const (
@@ -25,14 +25,20 @@ type idempotentStart struct {
 }
 
 type ToolHandler struct {
-	service contracts.RunToolService
+	service Runtime
 	runs    contracts.RunManager
 
 	mu          sync.Mutex
 	idempotency map[string]*idempotentStart
 }
 
-func NewToolHandler(service contracts.RunToolService, runs contracts.RunManager) *ToolHandler {
+type Runtime interface {
+	StartRun(context.Context, contracts.RunStartRequest) (contracts.RunSnapshot, error)
+	GetRunStatus(string) (contracts.RunSnapshot, error)
+	Interrupt(context.Context, runtimetypes.InterruptCommand) (runtimetypes.InterruptResult, error)
+}
+
+func NewToolHandler(service Runtime, runs contracts.RunManager) *ToolHandler {
 	return &ToolHandler{
 		service:     service,
 		runs:        runs,
@@ -55,7 +61,7 @@ func (h *ToolHandler) Invoke(ctx context.Context, toolName string, args map[stri
 	case StatusToolName:
 		return h.status(args, origin)
 	case InterruptToolName:
-		return h.interrupt(args, origin)
+		return h.interrupt(ctx, args, origin)
 	default:
 		return errorResult("invalid_tool", "tool must be run_query, run_status, or run_interrupt"), nil
 	}
@@ -155,7 +161,7 @@ func (h *ToolHandler) status(args map[string]any, origin contracts.RunOrigin) (c
 	return successResult("status", true, snapshot.Status, snapshot), nil
 }
 
-func (h *ToolHandler) interrupt(args map[string]any, origin contracts.RunOrigin) (contracts.ToolExecutionResult, error) {
+func (h *ToolHandler) interrupt(ctx context.Context, args map[string]any, origin contracts.RunOrigin) (contracts.ToolExecutionResult, error) {
 	runID := strings.TrimSpace(contracts.AnyStringNode(args["runId"]))
 	if runID == "" {
 		return errorResult("invalid_request", "runId is required"), nil
@@ -168,13 +174,12 @@ func (h *ToolHandler) interrupt(args map[string]any, origin contracts.RunOrigin)
 		return resultFromError(err), nil
 	}
 	message := strings.TrimSpace(contracts.AnyStringNode(args["message"]))
-	response, err := h.service.InterruptRun(api.InterruptRequest{
-		RunID:           runID,
-		ChatID:          snapshot.ChatID,
-		AgentKey:        snapshot.AgentKey,
-		TeamID:          snapshot.TeamID,
-		Message:         message,
-		InterruptDetail: message,
+	response, err := h.service.Interrupt(ctx, runtimetypes.InterruptCommand{
+		RunRef: runtimetypes.RunRef{
+			RunID: runID, ChatID: snapshot.ChatID, AgentKey: snapshot.AgentKey, TeamID: snapshot.TeamID,
+		},
+		Message: message,
+		Detail:  message,
 	})
 	if err != nil {
 		return resultFromError(err), nil

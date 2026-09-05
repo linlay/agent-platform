@@ -15,36 +15,31 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/i18n"
+	"agent-platform/internal/runtime/runexec"
+	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/stream"
 )
 
 func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
-	admission, err := s.prepareQueryAdmission(r, true)
+	req, err := decodeQueryRequest(r)
 	if err != nil {
-		if isTimeContractViolation(err) {
-			writeTimeContractViolation(w, err)
-			return
-		}
-		var statusErr *statusError
-		if errors.As(err, &statusErr) {
-			writeStatusError(w, statusErr)
-			return
-		}
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		writeQueryStartError(w, err)
+		return
+	}
+	if !isSyncQueryContext(r.Context()) && !isNonStreamingQuery(req) {
+		s.handleRuntimeQueryAsync(w, r, req)
+		return
+	}
+	admission, err := s.prepareQueryAdmissionRequest(
+		r.Context(), req, true, requestLocale(r, i18n.DefaultLocale), requestBaseURL(r),
+	)
+	if err != nil {
+		writeQueryStartError(w, err)
 		return
 	}
 	prepared, err := s.completeQueryPreparation(r.Context(), admission, nil)
 	if err != nil {
-		if isTimeContractViolation(err) {
-			writeTimeContractViolation(w, err)
-			return
-		}
-		var statusErr *statusError
-		if errors.As(err, &statusErr) {
-			writeStatusError(w, statusErr)
-			return
-		}
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		writeQueryStartError(w, err)
 		return
 	}
 	prepared.session.WebClientTarget = webClientTargetFromHTTPRequest(r)
@@ -61,6 +56,94 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.handlePreparedLocalQuery(w, r, prepared)
+}
+
+func writeQueryStartError(w http.ResponseWriter, err error) {
+	if isTimeContractViolation(err) {
+		writeTimeContractViolation(w, err)
+		return
+	}
+	var statusErr *statusError
+	if errors.As(err, &statusErr) {
+		writeStatusError(w, statusErr)
+		return
+	}
+	var appErr *apperrors.Error
+	if errors.As(err, &appErr) {
+		status := apperrorsStatus(appErr, http.StatusInternalServerError)
+		writeJSON(w, status, api.Failure(status, err.Error()))
+		return
+	}
+	writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+}
+
+func (s *Server) handleRuntimeQueryAsync(w http.ResponseWriter, r *http.Request, req api.QueryRequest) {
+	command := queryCommandFromAPI(req)
+	command.Locale = requestLocale(r, i18n.DefaultLocale)
+	command.ResourceBaseURL = requestBaseURL(r)
+	command.ChatSource = chatSourceFromContext(r.Context())
+	command.ClientTarget = runtimeClientTarget(webClientTargetFromHTTPRequest(r))
+	if principal := PrincipalFromContext(r.Context()); principal != nil {
+		command.Caller.Subject = strings.TrimSpace(principal.Subject)
+	}
+	handle, err := s.deps.Runtime.StartQuery(r.Context(), command)
+	if err != nil {
+		writeQueryStartError(w, err)
+		return
+	}
+	sseWriter, err := newSSEWriter(w, sseWriterOptions{
+		SSE: s.deps.Config.SSE, Render: stream.DefaultRenderConfig(),
+		LoggingEnabled: s.deps.Config.Logging.SSE.Enabled,
+	})
+	if err != nil {
+		_, _ = s.deps.Runtime.Interrupt(r.Context(), runtimeSetupInterrupt(handle, contracts.InterruptReasonStreamWriterFailed, err.Error()))
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
+	}
+	defer sseWriter.Close()
+	sseWriter.StartHeartbeat()
+	subscription, err := s.deps.Runtime.AttachRun(r.Context(), runtimetypes.RunRef{
+		RunID: handle.RunID, ChatID: handle.ChatID, AgentKey: handle.AgentKey, TeamID: handle.TeamID,
+	}, 0)
+	if err != nil {
+		_, _ = s.deps.Runtime.Interrupt(r.Context(), runtimeSetupInterrupt(handle, contracts.InterruptReasonObserverAttachFailed, err.Error()))
+		_ = sseWriter.WriteDone()
+		return
+	}
+	defer subscription.Close()
+	lastSeq := int64(0)
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case event, ok := <-subscription.Events:
+			if !ok {
+				_ = sseWriter.WriteDone()
+				return
+			}
+			if err := sseWriter.WriteJSON("message", localizeStreamEventData(command.Locale, event)); err != nil {
+				if isTimeContractViolation(err) {
+					seq := event.Seq
+					if seq <= lastSeq {
+						seq = lastSeq + 1
+					}
+					local := localTimeContractRunErrorEvent(seq, handle.RunID, handle.ChatID, err)
+					_ = sseWriter.WriteJSON("message", localizeStreamEventData(command.Locale, local))
+					_ = sseWriter.WriteDone()
+					_, _ = s.deps.Runtime.Interrupt(r.Context(), runtimeSetupInterrupt(handle, contracts.InterruptReasonRunInterrupted, timeContractViolationMessage))
+				}
+				return
+			}
+			lastSeq = event.Seq
+		}
+	}
+}
+
+func runtimeSetupInterrupt(handle runtimetypes.RunHandle, reason, detail string) runtimetypes.InterruptCommand {
+	return runtimetypes.InterruptCommand{
+		RunRef: runtimetypes.RunRef{RunID: handle.RunID, ChatID: handle.ChatID, AgentKey: handle.AgentKey, TeamID: handle.TeamID, Caller: runtimetypes.Caller{Scope: "server"}},
+		Source: contracts.InterruptSourceServerSetup, Reason: reason, Detail: detail,
+	}
 }
 
 func (s *Server) handlePreparedLocalQuery(w http.ResponseWriter, r *http.Request, prepared preparedQuery) {
@@ -96,7 +179,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, "run event bus unavailable"))
 		return
 	}
-	sseWriter, err := stream.NewWriter(w, stream.Options{
+	sseWriter, err := newSSEWriter(w, sseWriterOptions{
 		SSE:            s.deps.Config.SSE,
 		Render:         stream.DefaultRenderConfig(),
 		LoggingEnabled: s.deps.Config.Logging.SSE.Enabled,
@@ -245,7 +328,7 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 		writeStatusError(w, statusErr)
 		return
 	}
-	sseWriter, err := stream.NewWriter(w, stream.Options{
+	sseWriter, err := newSSEWriter(w, sseWriterOptions{
 		SSE:            s.deps.Config.SSE,
 		Render:         stream.DefaultRenderConfig(),
 		LoggingEnabled: s.deps.Config.Logging.SSE.Enabled,
@@ -885,21 +968,16 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 	if prepared.summary.Usage != nil {
 		chatUsage = *prepared.summary.Usage
 	}
-	processor := &runEventProcessor{
-		assistantText: &assistantText,
-		stepWriter:    chat.NewStepWriter(execution.StepLineStore, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode),
-		billing:       s.deps.Config.Billing,
-		models:        s.deps.Models,
-		chatUsage:     chatUsage,
-		runUsage:      &runUsage,
-		runControl:    control,
-		runID:         prepared.req.RunID,
-		chatID:        prepared.req.ChatID,
-		agentKey:      prepared.req.AgentKey,
-	}
-	processor.stepWriter.SetPendingSystemInit(prepared.systemInitLine)
-	processor.stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
-	runCtx = chat.WithApprovalSummarySink(runCtx, processor.stepWriter.RecordApproval)
+	stepWriter := chat.NewStepWriter(execution.StepLineStore, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
+	processor := runexec.NewProcessor(runexec.ProcessorOptions{
+		AssistantText: &assistantText, StepWriter: stepWriter, Billing: s.deps.Config.Billing,
+		Models: s.deps.Models, ChatUsage: chatUsage, RunUsage: &runUsage, RunControl: control,
+		RunID: prepared.req.RunID, ChatID: prepared.req.ChatID, AgentKey: prepared.req.AgentKey,
+		OnCompactEvent: func(data stream.EventData) { completeCompactControl(control, data) },
+	})
+	stepWriter.SetPendingSystemInit(prepared.systemInitLine)
+	stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
+	runCtx = chat.WithApprovalSummarySink(runCtx, stepWriter.RecordApproval)
 	timeContractAborted := false
 	abortTimeContract := func(err error) {
 		if timeContractAborted {
@@ -910,7 +988,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		// Only previously validated events have reached the StepWriter. Flush
 		// them before recording the platform-owned error completion; the bad
 		// event itself is intentionally never passed to persistence.
-		processor.stepWriter.Flush()
+		stepWriter.Flush()
 		persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, registered.StartedAtMillis, control, principal), assistantText.String(), runUsage, "error", false)
 		terminalCompletion = cloneRunCompletionPtr(completion)
 		completedAtMillis = completion.UpdatedAtMillis
@@ -965,7 +1043,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 				return queryRunResult{Completion: terminalCompletion}, writeErr
 			}
 		}
-		processor.stepWriter.Flush()
+		stepWriter.Flush()
 		persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, registered.StartedAtMillis, control, principal), assistantText.String(), runUsage, "error", false)
 		terminalCompletion = cloneRunCompletionPtr(completion)
 		completedAtMillis = completion.UpdatedAtMillis
@@ -1009,7 +1087,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		}
 		inputs := mapper.Map(delta)
 		for _, input := range inputs {
-			applyModelTurnControl(processor, input)
+			processor.ApplyModelTurnControl(input)
 			for _, emission := range assembler.ConsumeEmissions(input) {
 				if err := writeEmission(emission); err != nil {
 					return queryRunResult{Completion: terminalCompletion}, err
@@ -1018,7 +1096,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		}
 	}
 
-	terminalFinishReason := processor.terminalFinishReason()
+	terminalFinishReason := processor.TerminalFinishReason()
 	if terminalFinishReason == "error" {
 		streamFailed = true
 		streamInterrupted = false
@@ -1027,7 +1105,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		streamFailed = false
 	}
 	if streamFailed || streamInterrupted {
-		processor.stepWriter.Flush()
+		stepWriter.Flush()
 		finishReason := "error"
 		if streamInterrupted {
 			finishReason = "cancel"
@@ -1036,7 +1114,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		if streamErr != nil {
 			errorMessage = streamErr.Error()
 		}
-		errorPayload := processor.terminalErrorPayload()
+		errorPayload := processor.TerminalErrorPayload()
 		if finishReason == "error" && len(errorPayload) > 0 {
 			errorMessage = strings.TrimSpace(contracts.AnyStringNode(errorPayload["message"]))
 		} else {
@@ -1067,7 +1145,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 	// Complete closes open content blocks and emits their final snapshots. Flush
 	// the step writer only after those events so pending model metadata is
 	// attached to the final React step instead of being discarded as orphaned.
-	processor.stepWriter.Flush()
+	stepWriter.Flush()
 	persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, registered.StartedAtMillis, control, principal), assistantText.String(), runUsage, "complete", true)
 	terminalCompletion = cloneRunCompletionPtr(completion)
 	completedAtMillis = completion.UpdatedAtMillis

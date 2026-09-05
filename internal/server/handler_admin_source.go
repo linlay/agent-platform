@@ -174,8 +174,8 @@ func (s *Server) readAdminAgentTextSource(target api.AdminSourceTarget) (api.Adm
 }
 
 func (s *Server) writeAdminAgentTextSource(ctx context.Context, target api.AdminSourceTarget, content string, baseSHA256 string) (api.AdminSourceResponse, error) {
-	s.adminAgentMutationMu.Lock()
-	defer s.adminAgentMutationMu.Unlock()
+	unlock := s.adminSources.LockAgentMutation()
+	defer unlock()
 	editor, err := s.adminAgentSourceEditor()
 	if err != nil {
 		return api.AdminSourceResponse{}, err
@@ -375,8 +375,8 @@ func (s *Server) writeAdminRegistryTextSource(ctx context.Context, target api.Ad
 		return api.AdminSourceResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_yaml", "invalid registry yaml")
 	}
 
-	s.adminSourceMu.Lock()
-	defer s.adminSourceMu.Unlock()
+	unlock := s.adminSources.LockSourceMutation()
+	defer unlock()
 	previousContent := []byte(nil)
 	previousExists := false
 	if currentContent, currentSHA, _, _, err := readAdminSourceTextFile(path); err == nil {
@@ -415,8 +415,8 @@ func (s *Server) deleteAdminMCPRegistryTextSource(ctx context.Context, target ap
 		return api.DeleteAdminSourceResponse{}, err
 	}
 
-	s.adminSourceMu.Lock()
-	defer s.adminSourceMu.Unlock()
+	unlock := s.adminSources.LockSourceMutation()
+	defer unlock()
 	content, currentSHA, _, _, err := readAdminSourceTextFile(path)
 	if err != nil {
 		return api.DeleteAdminSourceResponse{}, mapAdminRegistrySourceReadError(err)

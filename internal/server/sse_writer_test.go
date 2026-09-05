@@ -1,15 +1,17 @@
-package stream
+package server
 
 import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"agent-platform/internal/stream"
 	"time"
 )
 
 func TestWriterWritesImmediatelyWhenBufferingDisabled(t *testing.T) {
 	rec := httptest.NewRecorder()
-	writer, err := NewWriter(rec, Options{})
+	writer, err := newSSEWriter(rec, sseWriterOptions{})
 	if err != nil {
 		t.Fatalf("new writer: %v", err)
 	}
@@ -31,8 +33,8 @@ func TestWriterWritesImmediatelyWhenBufferingDisabled(t *testing.T) {
 
 func TestWriterFlushesBufferedEventsOnTerminalFrame(t *testing.T) {
 	rec := httptest.NewRecorder()
-	writer, err := NewWriter(rec, Options{
-		Render: RenderConfig{
+	writer, err := newSSEWriter(rec, sseWriterOptions{
+		Render: stream.RenderConfig{
 			MaxBufferedEvents:    8,
 			HeartbeatPassThrough: true,
 		},
@@ -69,8 +71,8 @@ func TestWriterFlushesBufferedEventsOnTerminalFrame(t *testing.T) {
 
 func TestWriterFlushesHeartbeatWhenPassThroughEnabled(t *testing.T) {
 	rec := httptest.NewRecorder()
-	writer, err := NewWriter(rec, Options{
-		Render: RenderConfig{
+	writer, err := newSSEWriter(rec, sseWriterOptions{
+		Render: stream.RenderConfig{
 			MaxBufferedEvents:    8,
 			HeartbeatPassThrough: true,
 		},
@@ -103,8 +105,8 @@ func TestWriterFlushesHeartbeatWhenPassThroughEnabled(t *testing.T) {
 
 func TestWriterFlushesByInterval(t *testing.T) {
 	rec := httptest.NewRecorder()
-	writer, err := NewWriter(rec, Options{
-		Render: RenderConfig{
+	writer, err := newSSEWriter(rec, sseWriterOptions{
+		Render: stream.RenderConfig{
 			FlushInterval:        1,
 			HeartbeatPassThrough: true,
 		},

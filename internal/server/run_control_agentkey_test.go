@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"agent-platform/internal/contracts"
+	runtimeproxy "agent-platform/internal/runtime/proxy"
 )
 
 func TestRunControlHTTPRequiresAndValidatesAgentKey(t *testing.T) {
@@ -159,15 +160,9 @@ func TestRunControlProxyMismatchReturnsForbiddenWithoutForwarding(t *testing.T) 
 		AgentKey: "proxy-agent",
 		RunOwner: contracts.AgentRunOwner("proxy-agent", ""),
 	})
-	route := &proxyRunRoute{
-		runID:    "run-proxy-agent-check",
-		chatID:   "chat-proxy-agent-check",
-		agentKey: "proxy-agent",
-		send:     make(chan map[string]any, 1),
-		done:     make(chan struct{}),
-	}
+	route := runtimeproxy.NewRoute("run-proxy-agent-check", "chat-proxy-agent-check", "proxy-agent")
 	fixture.server.registerProxyRun(route)
-	defer fixture.server.unregisterProxyRun(route.runID, route)
+	defer fixture.server.unregisterProxyRun(route.RunID, route)
 
 	tests := []struct {
 		name string
@@ -206,7 +201,7 @@ func TestRunControlProxyMismatchReturnsForbiddenWithoutForwarding(t *testing.T) 
 				t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
 			}
 			select {
-			case msg := <-route.send:
+			case msg := <-route.SendQueue:
 				t.Fatalf("did not expect proxy forward on mismatch, got %#v", msg)
 			case <-time.After(10 * time.Millisecond):
 			}
@@ -225,15 +220,9 @@ func TestAccessLevelHTTPForwardsForProxyRun(t *testing.T) {
 		AgentKey: "proxy-agent",
 		RunOwner: contracts.AgentRunOwner("proxy-agent", ""),
 	})
-	route := &proxyRunRoute{
-		runID:    "run-proxy-access-level",
-		chatID:   "chat-proxy-access-level",
-		agentKey: "proxy-agent",
-		send:     make(chan map[string]any, 1),
-		done:     make(chan struct{}),
-	}
+	route := runtimeproxy.NewRoute("run-proxy-access-level", "chat-proxy-access-level", "proxy-agent")
 	fixture.server.registerProxyRun(route)
-	defer fixture.server.unregisterProxyRun(route.runID, route)
+	defer fixture.server.unregisterProxyRun(route.RunID, route)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/access-level", bytes.NewBufferString(`{"agentKey":"proxy-agent","runId":"run-proxy-access-level","accessLevel":"auto_approve"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -246,7 +235,7 @@ func TestAccessLevelHTTPForwardsForProxyRun(t *testing.T) {
 		t.Fatalf("expected updated response, got %s", rec.Body.String())
 	}
 	select {
-	case msg := <-route.send:
+	case msg := <-route.SendQueue:
 		if msg["type"] != "request.access-level" {
 			t.Fatalf("expected access-level forward, got %#v", msg)
 		}
@@ -273,15 +262,9 @@ func TestRunControlProxyForwardsSubmitInterruptAndSteer(t *testing.T) {
 		AgentKey: "proxy-agent",
 		RunOwner: contracts.AgentRunOwner("proxy-agent", ""),
 	})
-	route := &proxyRunRoute{
-		runID:    "run-proxy-forward",
-		chatID:   "chat-proxy-forward",
-		agentKey: "proxy-agent",
-		send:     make(chan map[string]any, 3),
-		done:     make(chan struct{}),
-	}
+	route := runtimeproxy.NewRoute("run-proxy-forward", "chat-proxy-forward", "proxy-agent")
 	fixture.server.registerProxyRun(route)
-	defer fixture.server.unregisterProxyRun(route.runID, route)
+	defer fixture.server.unregisterProxyRun(route.RunID, route)
 
 	tests := []struct {
 		name string
@@ -319,7 +302,7 @@ func TestRunControlProxyForwardsSubmitInterruptAndSteer(t *testing.T) {
 				t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 			}
 			select {
-			case msg := <-route.send:
+			case msg := <-route.SendQueue:
 				if msg["type"] != tc.want {
 					t.Fatalf("expected %s, got %#v", tc.want, msg)
 				}

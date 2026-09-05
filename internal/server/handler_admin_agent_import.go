@@ -9,18 +9,13 @@ import (
 	"strconv"
 	"strings"
 
+	"agent-platform/internal/adminsource"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 )
 
-type adminAgentArchiveRegistry interface {
-	BeginImportEditableAgentArchive(source io.ReaderAt, size int64, overwrite bool) (*catalog.EditableAgentArchiveMutation, error)
-	RollbackEditableAgentArchiveMutation(mutation *catalog.EditableAgentArchiveMutation) error
-	CommitEditableAgentArchiveMutation(mutation *catalog.EditableAgentArchiveMutation) error
-}
-
-func (s *Server) adminAgentArchiveEditor() (adminAgentArchiveRegistry, error) {
-	registry, ok := s.deps.Registry.(adminAgentArchiveRegistry)
+func (s *Server) adminAgentArchiveEditor() (adminsource.AgentArchiveEditor, error) {
+	registry, ok := s.deps.Registry.(adminsource.AgentArchiveEditor)
 	if !ok || registry == nil {
 		return nil, newAgentStatusError(http.StatusServiceUnavailable, "unavailable", "agent archive import is not configured")
 	}
@@ -66,62 +61,39 @@ func (s *Server) handleAdminAgentImport(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) importAdminAgentArchive(ctx context.Context, source io.ReaderAt, size int64, overwrite bool) (api.AdminAgentDetailResponse, error) {
-	s.adminAgentMutationMu.Lock()
-	defer s.adminAgentMutationMu.Unlock()
 	editor, err := s.adminAgentArchiveEditor()
 	if err != nil {
 		return api.AdminAgentDetailResponse{}, err
 	}
-	mutation, err := editor.BeginImportEditableAgentArchive(source, size, overwrite)
-	if err != nil {
-		return api.AdminAgentDetailResponse{}, mapAgentArchiveEditError(err)
+	var detail api.AdminAgentDetailResponse
+	_, err = s.adminSources.ImportAgentArchive(ctx, editor, source, size, overwrite, s.reloadAgentCatalog, func(key string) error {
+		resolved, detailErr := s.adminAgentDetail(key)
+		detail = resolved
+		return detailErr
+	})
+	if err == nil {
+		return detail, nil
 	}
-	finalized := false
-	defer func() {
-		if finalized {
-			return
-		}
-		_ = editor.RollbackEditableAgentArchiveMutation(mutation)
-		_ = s.reloadAgentCatalog(context.WithoutCancel(ctx))
-	}()
-
-	if err := s.reloadAgentCatalog(ctx); err != nil {
-		finalized = true
-		return api.AdminAgentDetailResponse{}, s.rollbackAgentArchiveImport(ctx, editor, mutation, err)
-	}
-	detail, err := s.adminAgentDetail(mutation.Key)
-	if err != nil {
-		finalized = true
-		return api.AdminAgentDetailResponse{}, s.rollbackAgentArchiveImport(ctx, editor, mutation, err)
-	}
-	if err := editor.CommitEditableAgentArchiveMutation(mutation); err != nil {
-		finalized = true
-		return api.AdminAgentDetailResponse{}, s.rollbackAgentArchiveImport(ctx, editor, mutation, err)
-	}
-	finalized = true
-	return detail, nil
+	return api.AdminAgentDetailResponse{}, mapAdminArchiveImportTransactionError(err)
 }
 
-func (s *Server) rollbackAgentArchiveImport(ctx context.Context, editor adminAgentArchiveRegistry, mutation *catalog.EditableAgentArchiveMutation, cause error) error {
-	rollbackErr := editor.RollbackEditableAgentArchiveMutation(mutation)
-	reloadErr := s.reloadAgentCatalog(context.WithoutCancel(ctx))
-	if rollbackErr == nil && reloadErr == nil {
-		return cause
+func mapAdminArchiveImportTransactionError(err error) error {
+	var beginErr *adminsource.ArchiveBeginError
+	if errors.As(err, &beginErr) {
+		return mapAgentArchiveEditError(beginErr.Cause)
 	}
-	data := map[string]any{
-		"code":     "rollback_failed",
-		"agentKey": mutation.Key,
+	var rollbackErr *adminsource.ArchiveRollbackError
+	if errors.As(err, &rollbackErr) {
+		data := map[string]any{"code": "rollback_failed", "agentKey": rollbackErr.AgentKey}
+		if rollbackErr.RollbackErr != nil {
+			data["rollbackError"] = rollbackErr.RollbackErr.Error()
+		}
+		if rollbackErr.ReloadErr != nil {
+			data["reloadError"] = rollbackErr.ReloadErr.Error()
+		}
+		return newAgentStatusErrorWithData(http.StatusInternalServerError, "rollback_failed", rollbackErr.Error(), data)
 	}
-	message := "agent archive import failed: " + cause.Error()
-	if rollbackErr != nil {
-		data["rollbackError"] = rollbackErr.Error()
-		message += "; rollback agent source: " + rollbackErr.Error()
-	}
-	if reloadErr != nil {
-		data["reloadError"] = reloadErr.Error()
-		message += "; reload restored catalog: " + reloadErr.Error()
-	}
-	return newAgentStatusErrorWithData(http.StatusInternalServerError, "rollback_failed", message, data)
+	return err
 }
 
 func mapAgentArchiveEditError(err error) error {

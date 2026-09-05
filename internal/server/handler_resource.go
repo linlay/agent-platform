@@ -504,8 +504,8 @@ func saveUploadedFile(path string, src multipart.File) (string, int64, error) {
 }
 
 func (s *Server) allocateUploadID(chatID string, name string) (string, error) {
-	s.uploadMu.Lock()
-	defer s.uploadMu.Unlock()
+	unlock := s.chatResources.LockUploadMutation()
+	defer unlock()
 
 	chatDir := s.deps.Chats.ChatDir(chatID)
 	next, err := nextUploadSequence(chatDir)

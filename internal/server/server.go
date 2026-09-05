@@ -10,16 +10,22 @@ import (
 	"sync"
 	"time"
 
+	"agent-platform/internal/adminsource"
 	"agent-platform/internal/api"
 	"agent-platform/internal/automation"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/channel"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/chatresource"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/conversation"
 	"agent-platform/internal/kbase"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
+	projectpkg "agent-platform/internal/project"
+	runtimeproxy "agent-platform/internal/runtime/proxy"
+	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/skills"
 	terminalpkg "agent-platform/internal/terminal"
 	"agent-platform/internal/toolinteraction"
@@ -38,6 +44,17 @@ type KBaseService interface {
 
 type MCPToolSyncStatusProvider interface {
 	ServerStatus(serverKey string) (api.MCPServerToolSyncStatus, bool)
+}
+
+// QueryRuntime is the narrow application boundary used by the transport
+// adapters. Server has no access to runtime assembly or executor internals.
+type QueryRuntime interface {
+	StartQuery(context.Context, runtimetypes.QueryCommand) (runtimetypes.RunHandle, error)
+	AttachRun(context.Context, runtimetypes.RunRef, int64) (*runtimetypes.Subscription, error)
+	Submit(context.Context, runtimetypes.SubmitCommand) (runtimetypes.SubmitResult, error)
+	Steer(context.Context, runtimetypes.SteerCommand) (runtimetypes.SteerResult, error)
+	Interrupt(context.Context, runtimetypes.InterruptCommand) (runtimetypes.InterruptResult, error)
+	SetAccessLevel(context.Context, runtimetypes.AccessLevelCommand) (runtimetypes.AccessLevelResult, error)
 }
 
 type Dependencies struct {
@@ -68,6 +85,14 @@ type Dependencies struct {
 	AutomationExecutions   automation.ExecutionHistoryReader
 	DeltaMappers           contracts.StreamDeltaMapperFactory
 	SystemInits            contracts.SystemInitBuilder
+	AdminSources           *adminsource.Service
+	ChatResources          *chatresource.Service
+	Terminals              *terminalpkg.Manager
+	Runtime                QueryRuntime
+	ProxyRuntime           *runtimeproxy.Service
+	Conversation           *conversation.Service
+	Project                *projectpkg.Service
+	DeferredAwaitings      DeferredAwaitingStore
 	// GatewayResolver 按 chatId 查对应 gateway 的 BaseURL/Token。
 	GatewayResolver  GatewayResolver
 	AgentCardStatus  AgentCardStatusProvider
@@ -113,19 +138,20 @@ type ChannelConnectionSnapshotProvider interface {
 }
 
 type Server struct {
-	router               *http.ServeMux
-	deps                 Dependencies
-	authVerifier         *JWTVerifier
-	ticketService        *ResourceTicketService
-	wsHandler            *ws.Handler
-	terminals            *terminalpkg.Manager
-	deferredAwaitings    *DeferredAwaitingStore
-	uploadMu             sync.Mutex
-	adminSourceMu        sync.Mutex
-	adminAgentMutationMu sync.Mutex
-	proxyMu              sync.RWMutex
-	proxyRuns            map[string]*proxyRunRoute
-	backgroundCtx        context.Context
+	router            *http.ServeMux
+	deps              Dependencies
+	authVerifier      *JWTVerifier
+	ticketService     *ResourceTicketService
+	wsHandler         *ws.Handler
+	terminals         *terminalpkg.Manager
+	deferredAwaitings DeferredAwaitingStore
+	adminSources      *adminsource.Service
+	chatResources     *chatresource.Service
+	proxyRuntime      *runtimeproxy.Service
+	project           *projectpkg.Service
+	backgroundCtx     context.Context
+	backgroundCancel  context.CancelFunc
+	shutdownHookOnce  sync.Once
 }
 
 type syncQueryContextKey struct{}
@@ -162,6 +188,31 @@ func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 }
 
 func New(deps Dependencies) (*Server, error) {
+	if deps.AdminSources == nil {
+		deps.AdminSources = adminsource.NewService()
+	}
+	if deps.ChatResources == nil {
+		deps.ChatResources = chatresource.NewService(deps.Chats)
+	}
+	if deps.Terminals == nil {
+		deps.Terminals = terminalpkg.NewManager()
+	}
+	if deps.Conversation == nil {
+		deps.Conversation = conversation.NewService(deps.Chats, deps.Archives, deps.Archiver, deps.Runs)
+	}
+	if deps.ProxyRuntime == nil {
+		deps.ProxyRuntime = runtimeproxy.NewService()
+	}
+	if deps.Project == nil {
+		reader, _ := deps.Tools.(contracts.ProjectFileHistoryReader)
+		deps.Project = &projectpkg.Service{
+			Registry: deps.Registry, Chats: deps.Chats, History: reader,
+			ChatsRoot: deps.Config.Paths.ChatsDir, MaxReadBytes: deps.Config.FileTools.MaxReadBytes,
+		}
+	}
+	if deps.DeferredAwaitings == nil {
+		deps.DeferredAwaitings = newLocalDeferredAwaitingStore()
+	}
 	authVerifier := NewJWTVerifier(deps.Config.Auth)
 	if deps.Config.Auth.Enabled {
 		if err := authVerifier.ValidateConfiguration(); err != nil {
@@ -179,18 +230,29 @@ func New(deps Dependencies) (*Server, error) {
 	if deps.Notifications == nil {
 		deps.Notifications = contracts.NewNoopNotificationSink()
 	}
+	backgroundCtx := deps.BackgroundContext
+	var backgroundCancel context.CancelFunc
+	if backgroundCtx == nil {
+		backgroundCtx, backgroundCancel = context.WithCancel(context.Background())
+	}
 	s := &Server{
 		router:            http.NewServeMux(),
 		deps:              deps,
 		authVerifier:      authVerifier,
 		ticketService:     NewResourceTicketService(deps.Config.ResourceTicket),
-		terminals:         terminalpkg.NewManager(),
-		deferredAwaitings: NewDeferredAwaitingStore(),
-		proxyRuns:         map[string]*proxyRunRoute{},
-		backgroundCtx:     deps.BackgroundContext,
+		terminals:         deps.Terminals,
+		deferredAwaitings: deps.DeferredAwaitings,
+		adminSources:      deps.AdminSources,
+		chatResources:     deps.ChatResources,
+		proxyRuntime:      deps.ProxyRuntime,
+		project:           deps.Project,
+		backgroundCtx:     backgroundCtx,
+		backgroundCancel:  backgroundCancel,
 	}
-	if s.backgroundCtx == nil {
-		s.backgroundCtx = context.Background()
+	if s.deps.Runtime == nil {
+		// Compatibility for direct package tests and small embedders. app.New
+		// always supplies the assembled Runtime service.
+		s.deps.Runtime = &runtimeCompatibilityAdapter{server: s}
 	}
 	if err := s.hydrateDeferredAwaitings(); err != nil {
 		return nil, fmt.Errorf("reconcile persisted awaitings: %w", err)

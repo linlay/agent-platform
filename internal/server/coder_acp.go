@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	agentcoder "agent-platform/internal/agent/coder"
+	agentbuiltin "agent-platform/internal/agent/builtin"
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
@@ -12,7 +12,7 @@ import (
 )
 
 func isProxyRoutedAgent(def catalog.AgentDefinition) bool {
-	return isProxyAgentMode(def.Mode) || catalog.AgentIsChannelMode(def.Mode) || agentcoder.IsACPBackend(def.Mode, def.ACPBridgeID)
+	return isProxyAgentMode(def.Mode) || catalog.AgentIsChannelMode(def.Mode) || agentbuiltin.IsCoderACPBackend(def.Mode, def.ACPBridgeID)
 }
 
 func (s *Server) applyProxyRoutingConfig(def *catalog.AgentDefinition) *statusError {
@@ -22,13 +22,13 @@ func (s *Server) applyProxyRoutingConfig(def *catalog.AgentDefinition) *statusEr
 	if catalog.AgentIsChannelMode(def.Mode) {
 		return s.applyChannelImportRoutingConfig(def)
 	}
-	if !agentcoder.IsACPBackend(def.Mode, def.ACPBridgeID) {
+	if !agentbuiltin.IsCoderACPBackend(def.Mode, def.ACPBridgeID) {
 		return nil
 	}
 	bridgeID := strings.TrimSpace(def.ACPBridgeID)
-	routing, err := agentcoder.ResolveACPBridge(bridgeID, func(key string) (agentcoder.ACPBridgeConfig, bool) {
+	routing, err := agentbuiltin.CoderResolveACPBridge(bridgeID, func(key string) (agentbuiltin.CoderACPBridgeConfig, bool) {
 		bridge, ok := s.deps.Config.CoderSettings.ACPBridges[key]
-		return agentcoder.ACPBridgeConfig{
+		return agentbuiltin.CoderACPBridgeConfig{
 			BaseURL:   bridge.BaseURL,
 			AuthToken: bridge.AuthToken,
 			TimeoutMS: bridge.TimeoutMS,
@@ -100,7 +100,7 @@ func (s *Server) applyChannelImportRoutingConfig(def *catalog.AgentDefinition) *
 }
 
 func (s *Server) acpCoderModelOptions(session contracts.QuerySession, existing *api.QueryModelOptions) *api.QueryModelOptions {
-	return agentcoder.ResolveACPModelOptions(session.Mode, session.ModelKey, existing, func(modelKey string) string {
+	return agentbuiltin.CoderResolveACPModelOptions(session.Mode, session.ModelKey, existing, func(modelKey string) string {
 		if s != nil && s.deps.Models != nil {
 			if model, err := s.deps.Models.GetModel(modelKey); err == nil && strings.TrimSpace(model.ModelID) != "" {
 				return strings.TrimSpace(model.ModelID)

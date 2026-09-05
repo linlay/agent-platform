@@ -699,12 +699,6 @@ type RunSnapshot struct {
 	Origin      *RunOrigin     `json:"-"`
 }
 
-type RunToolService interface {
-	StartRun(ctx context.Context, req RunStartRequest) (RunSnapshot, error)
-	GetRunStatus(runID string) (RunSnapshot, error)
-	InterruptRun(req api.InterruptRequest) (api.InterruptResponse, error)
-}
-
 type RunToolError struct {
 	Code    string
 	Message string
