@@ -13,14 +13,6 @@ const (
 	desktopBTWClientSource     = "desktop-btw"
 )
 
-func (c *Conn) ClientSource() string {
-	if c == nil {
-		return ""
-	}
-	source, _ := c.monitorClientMetadata()
-	return source
-}
-
 func (c *Conn) IsDesktopBTW() bool {
 	_, ok := c.authenticatedDesktopLaneTarget(desktopBTWClientSource)
 	return ok
@@ -108,10 +100,6 @@ func (h *Hub) unregisterWebClientLocked(conn *Conn) {
 		return
 	}
 	delete(h.webClientConns, key)
-}
-
-func (h *Hub) resolveWebClientConnection(target contracts.WebClientTarget) (*Conn, bool) {
-	return h.resolveClientConnection(target)
 }
 
 func (h *Hub) resolveClientConnection(target contracts.ClientTarget) (*Conn, bool) {

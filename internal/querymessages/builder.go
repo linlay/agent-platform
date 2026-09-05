@@ -33,13 +33,6 @@ type BuildOptions struct {
 	Timezone           string
 }
 
-// BuildMessages returns the current query-derived messages prepared for the
-// model. query.message remains the raw API/user input; these messages are the
-// provider-safe model-side representation.
-func BuildMessages(chatsDir string, chatID string, role string, text string, references []api.Reference, isVision bool, logMedia bool) []map[string]any {
-	return BuildMessagesWithOptions(chatsDir, chatID, role, text, references, isVision, logMedia, BuildOptions{})
-}
-
 func BuildMessagesWithOptions(chatsDir string, chatID string, role string, text string, references []api.Reference, isVision bool, logMedia bool, options BuildOptions) []map[string]any {
 	providerRole, providerText := api.ProviderSafeQueryMessage(role, text)
 	options.Role = providerRole
@@ -49,13 +42,6 @@ func BuildMessagesWithOptions(chatsDir string, chatID string, role string, text 
 		"role":    providerRole,
 		"content": content,
 	}}
-}
-
-// BuildContent assembles the content payload for a model-side user/query
-// message. Vision models receive OpenAI-compatible multimodal blocks when
-// image references can be loaded from the chat directory.
-func BuildContent(chatsDir string, chatID string, text string, references []api.Reference, isVision bool, logMedia bool) any {
-	return BuildContentWithOptions(chatsDir, chatID, text, references, isVision, logMedia, BuildOptions{})
 }
 
 func BuildContentWithOptions(chatsDir string, chatID string, text string, references []api.Reference, isVision bool, logMedia bool, options BuildOptions) any {

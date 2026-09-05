@@ -56,7 +56,7 @@ func TestMonitorEndpointsExposeWebSocketSnapshot(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/agents",
 		ID:      "monitor_req_agents",
-		Payload: ws.MarshalPayload(map[string]any{}),
+		Payload: marshalPayload(map[string]any{}),
 	}); err != nil {
 		t.Fatalf("write websocket request: %v", err)
 	}

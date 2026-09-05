@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"agent-platform/internal/config"
+	"agent-platform/internal/testutil"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
@@ -89,7 +90,7 @@ func TestClientConnectDispatchBroadcastAndReconnect(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/agents",
 		ID:      "req_agents",
-		Payload: ws.MarshalPayload(map[string]any{}),
+		Payload: testutil.MarshalPayload(map[string]any{}),
 	}); err != nil {
 		t.Fatalf("write agents request: %v", err)
 	}
@@ -121,7 +122,7 @@ func TestClientConnectDispatchBroadcastAndReconnect(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/agents",
 		ID:      "req_agents_2",
-		Payload: ws.MarshalPayload(map[string]any{}),
+		Payload: testutil.MarshalPayload(map[string]any{}),
 	}); err != nil {
 		t.Fatalf("write agents request after reconnect: %v", err)
 	}

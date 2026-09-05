@@ -131,53 +131,10 @@ func (a *Archiver) RestoreChat(chatID string) (Summary, error) {
 	return summary, nil
 }
 
-func (a *Archiver) ArchiveBatch(chatIDs []string) []ArchiveResult {
-	results := make([]ArchiveResult, 0, len(chatIDs))
-	for _, chatID := range chatIDs {
-		chatID = strings.TrimSpace(chatID)
-		result := ArchiveResult{ChatID: chatID}
-		if err := a.ArchiveChat(chatID); err != nil {
-			result.Error = archiveErrorMessage(err)
-		} else {
-			result.Success = true
-		}
-		results = append(results, result)
-	}
-	return results
-}
-
-func (a *Archiver) RestoreBatch(chatIDs []string) []ArchiveResult {
-	results := make([]ArchiveResult, 0, len(chatIDs))
-	for _, chatID := range chatIDs {
-		chatID = strings.TrimSpace(chatID)
-		result := ArchiveResult{ChatID: chatID}
-		if _, err := a.RestoreChat(chatID); err != nil {
-			result.Error = archiveErrorMessage(err)
-		} else {
-			result.Success = true
-		}
-		results = append(results, result)
-	}
-	return results
-}
-
 func (s *ArchiveStore) exists(chatID string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.existsLocked(chatID)
-}
-
-func archiveErrorMessage(err error) string {
-	switch {
-	case errors.Is(err, ErrChatNotFound):
-		return "chat not found"
-	case errors.Is(err, ErrChatAlreadyArchived):
-		return "already archived"
-	case errors.Is(err, ErrChatAlreadyActive):
-		return "active chat already exists"
-	default:
-		return err.Error()
-	}
 }
 
 func readFileStringIfExists(path string) (string, error) {

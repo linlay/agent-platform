@@ -15,11 +15,11 @@ import (
 )
 
 func TestHandleLearnStoresObservationFromLatestRun(t *testing.T) {
-	chats, err := chat.NewFileStore(t.TempDir())
+	chats, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
-	memories, err := memory.NewFileStore(t.TempDir())
+	memories, err := newTestMemoryStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new memory store: %v", err)
 	}

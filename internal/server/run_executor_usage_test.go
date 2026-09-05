@@ -501,7 +501,7 @@ func TestRunEventProcessorDecoratesUsageSnapshotWithEstimatedCost(t *testing.T) 
 
 func TestRunEventProcessorPersistsDebugLLMChatEstimatedCostToJSONL(t *testing.T) {
 	root := t.TempDir()
-	store, err := chat.NewFileStore(root)
+	store, err := chat.NewFileStoreAtStartup(root)
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -815,7 +815,7 @@ func TestProxyUsageTrackerDecoratesUsageSnapshotWithEstimatedCost(t *testing.T) 
 }
 
 func TestProxyEventRecorderPersistsDecoratedUsageSnapshotCost(t *testing.T) {
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}

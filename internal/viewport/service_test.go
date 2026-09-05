@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"agent-platform/internal/contracts"
+	"agent-platform/internal/testutil"
 )
 
 func TestServiceLoadsLocalViewportAndFallbacks(t *testing.T) {
@@ -19,7 +19,7 @@ func TestServiceLoadsLocalViewportAndFallbacks(t *testing.T) {
 		t.Fatalf("write viewport file: %v", err)
 	}
 
-	service := NewService(NewRegistry(root), contracts.NewNoopViewportClient())
+	service := NewServiceWithServers(NewRegistry(root), nil, testutil.NewNoopViewportClient())
 	local, err := service.Get(context.Background(), "demo")
 	if err != nil {
 		t.Fatalf("load local viewport: %v", err)
@@ -34,6 +34,17 @@ func TestServiceLoadsLocalViewportAndFallbacks(t *testing.T) {
 	}
 	if fallback["status"] != "not_implemented" {
 		t.Fatalf("expected fallback payload, got %#v", fallback)
+	}
+}
+
+func TestServiceWithoutFallbackKeepsUnavailablePayload(t *testing.T) {
+	service := NewServiceWithServers(NewRegistry(t.TempDir()), nil, nil)
+	payload, err := service.Get(context.Background(), "missing")
+	if err != nil {
+		t.Fatalf("get missing viewport: %v", err)
+	}
+	if payload["viewportKey"] != "missing" || payload["status"] != "not_implemented" {
+		t.Fatalf("unexpected unavailable payload: %#v", payload)
 	}
 }
 
@@ -119,7 +130,7 @@ func TestServiceLoadsRemoteHTMLViewportBeforeFallback(t *testing.T) {
 	service := NewServiceWithServers(
 		NewRegistry(DefaultRoot(registriesRoot)),
 		NewSyncer(NewServerRegistry(serversRoot), remote.Client()),
-		contracts.NewNoopViewportClient(),
+		testutil.NewNoopViewportClient(),
 	)
 
 	payload, err := service.Get(context.Background(), "show_weather_card")

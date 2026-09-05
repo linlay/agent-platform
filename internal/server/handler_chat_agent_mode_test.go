@@ -116,7 +116,7 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/chats",
 		ID:    "mode_ws",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"mode": "ReAcT,PLAN-EXECUTE",
 		}),
 	}); err != nil {
@@ -140,7 +140,7 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/chats",
 		ID:      "mode_ws_retired",
-		Payload: ws.MarshalPayload(map[string]any{"mode": "PLAN_EXECUTE"}),
+		Payload: marshalPayload(map[string]any{"mode": "PLAN_EXECUTE"}),
 	}); err != nil {
 		t.Fatalf("write unknown-mode websocket request: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestChatsModeFiltersHTTPAndWebSocket(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/chats",
 		ID:      "deprecated_mode_ws",
-		Payload: ws.MarshalPayload(map[string]any{"agentMode": "REACT"}),
+		Payload: marshalPayload(map[string]any{"agentMode": "REACT"}),
 	}); err != nil {
 		t.Fatalf("write deprecated websocket request: %v", err)
 	}

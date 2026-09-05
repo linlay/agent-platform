@@ -373,7 +373,7 @@ func TestWSCompactWritesCheckpointAndReloadsRawMessages(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/compact",
 		ID:    "compact_ws",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"requestId": "req-ws-compact",
 			"chatId":    chatID,
 			"agentKey":  "mock-agent",
@@ -433,7 +433,7 @@ func TestWSCompactLevelL1Tools(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/compact",
 		ID:    "compact_ws_l1",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"requestId": "req-ws-compact-l1",
 			"chatId":    chatID,
 			"agentKey":  "mock-agent",
@@ -472,7 +472,7 @@ func TestWSCompactRejectsMissingChatID(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/compact",
 		ID:      "compact_missing_chat",
-		Payload: ws.MarshalPayload(map[string]any{"requestId": "req-missing-chat"}),
+		Payload: marshalPayload(map[string]any{"requestId": "req-missing-chat"}),
 	}); err != nil {
 		t.Fatalf("write compact ws request: %v", err)
 	}

@@ -41,7 +41,7 @@ func TestCompactAndBTWRejectInvalidHistoricalJSONLWith422(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/compact",
 		ID:      "compact-jsonl-time-contract",
-		Payload: ws.MarshalPayload(map[string]any{"chatId": chatID, "agentKey": "mock-agent"}),
+		Payload: marshalPayload(map[string]any{"chatId": chatID, "agentKey": "mock-agent"}),
 	}); err != nil {
 		t.Fatalf("write WS compact: %v", err)
 	}

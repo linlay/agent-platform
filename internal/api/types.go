@@ -208,14 +208,6 @@ func NormalizeQueryRole(role string) (string, bool) {
 	}
 }
 
-func DefaultQueryRole(role string) string {
-	normalized, ok := NormalizeQueryRole(role)
-	if !ok {
-		return ""
-	}
-	return normalized
-}
-
 func QueryRoleVisible(role string) bool {
 	normalized, ok := NormalizeQueryRole(role)
 	if !ok {

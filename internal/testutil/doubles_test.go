@@ -1,14 +1,16 @@
-package contracts
+package testutil
 
 import (
 	"context"
 	"errors"
 	"testing"
+
+	"agent-platform/internal/contracts"
 )
 
 func TestNoopToolExecutorReturnsErrNotImplemented(t *testing.T) {
 	result, err := NewNoopToolExecutor().Invoke(context.Background(), "demo_tool", map[string]any{"value": 1}, nil)
-	if !errors.Is(err, ErrNotImplemented) {
+	if !errors.Is(err, contracts.ErrNotImplemented) {
 		t.Fatalf("expected ErrNotImplemented, got %v", err)
 	}
 	if result.Error != "not_implemented" || result.ExitCode != -1 {
@@ -18,7 +20,7 @@ func TestNoopToolExecutorReturnsErrNotImplemented(t *testing.T) {
 
 func TestNoopSandboxClientReturnsErrNotImplemented(t *testing.T) {
 	result, err := NewNoopSandboxClient().Execute(context.Background(), nil, "pwd", "/tmp", 1000, nil)
-	if !errors.Is(err, ErrNotImplemented) {
+	if !errors.Is(err, contracts.ErrNotImplemented) {
 		t.Fatalf("expected ErrNotImplemented, got %v", err)
 	}
 	if result.ExitCode != -1 || result.Stderr != "status: not_implemented" {

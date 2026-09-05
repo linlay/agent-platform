@@ -18,6 +18,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/models"
+	"agent-platform/internal/testutil"
 )
 
 func TestLLMChatTraceWritesSimpleCompletion(t *testing.T) {
@@ -468,7 +469,7 @@ func newTraceTestEngine(t *testing.T, recordDir string, baseURL string, executor
 	if err != nil {
 		t.Fatalf("load model registry: %v", err)
 	}
-	return NewLLMAgentEngineWithHTTPClient(cfg, registry, executor, nil, contracts.NewNoopSandboxClient(), serverHTTPClient())
+	return NewLLMAgentEngineWithHTTPClient(cfg, registry, executor, nil, testutil.NewNoopSandboxClient(), serverHTTPClient())
 }
 
 func traceTestSession() contracts.QuerySession {

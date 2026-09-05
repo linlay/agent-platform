@@ -23,7 +23,7 @@ func TestPrepareQueryReferencesMaterializesRemoteResourceIntoCurrentChat(t *test
 	}))
 	defer upstream.Close()
 
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestPrepareQueryReferencesMaterializesRemoteResourceIntoCurrentChat(t *test
 }
 
 func TestPrepareQueryReferencesResolvesCurrentChatScopeURLs(t *testing.T) {
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestPrepareChatReferenceRejectsSelfReference(t *testing.T) {
 }
 
 func TestPrepareChatReferenceReloadsTrustedHistory(t *testing.T) {
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestPrepareChatReferenceReloadsTrustedHistory(t *testing.T) {
 }
 
 func TestPrepareChatReferenceRejectsAnotherQueryPrincipal(t *testing.T) {
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}

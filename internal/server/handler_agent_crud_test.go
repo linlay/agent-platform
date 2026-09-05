@@ -1823,7 +1823,7 @@ func TestAgentWSRuntimeModelConfigAndAdminRoutesRejected(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/agent/model-config",
 		ID:    "update-coder-model",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"agentKey":        coderCreated.Key,
 			"modelKey":        "mock-model",
 			"reasoningEffort": "NONE",

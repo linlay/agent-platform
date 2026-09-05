@@ -55,10 +55,6 @@ func (p PathPlan) Allowed() bool {
 	return p.Decision == DecisionAllow || p.Decision == DecisionAutoApproved
 }
 
-func (p PathPlan) RequiresApproval() bool {
-	return p.Decision == DecisionRequiresApproval
-}
-
 func (p PathPlan) AutoApproved() bool {
 	return p.Decision == DecisionAutoApproved
 }
@@ -345,22 +341,6 @@ func splitRootQualifiedPath(rawPath string) (string, string, bool) {
 		}
 	}
 	return "", "", false
-}
-
-func pathInSessionRoot(root string, path string) bool {
-	if strings.TrimSpace(root) == "" {
-		return false
-	}
-	rootCanonical, err := pathutil.Canonicalize(root)
-	if err != nil {
-		return false
-	}
-	candidate := pathutil.ExpandHome(path)
-	if !filepath.IsAbs(candidate) {
-		candidate = filepath.Join(rootCanonical.Host, candidate)
-	}
-	candidateCanonical, err := pathutil.Canonicalize(candidate)
-	return err == nil && pathutil.WithinRoot(candidateCanonical, rootCanonical)
 }
 
 func NormalizePath(path string) (string, error) {

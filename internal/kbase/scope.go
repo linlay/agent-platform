@@ -34,13 +34,6 @@ func normalizeKBaseExt(value string) string {
 	return ext
 }
 
-func pathMatchesPrefix(path string, prefix string) bool {
-	if prefix == "" {
-		return true
-	}
-	return path == prefix || strings.HasPrefix(path, prefix+"/")
-}
-
 func relativeToPrefix(path string, prefix string) (string, bool) {
 	path = normalizeIndexedPath(path)
 	prefix = normalizeIndexedPath(prefix)

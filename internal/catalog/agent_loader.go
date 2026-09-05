@@ -27,15 +27,6 @@ func resolveDirectoryAgentConfig(dirPath string) string {
 	return ""
 }
 
-func loadAgentsWithAdmin(root, centerDir, chatsDir string, globalMemoryEnabled bool) (map[string]AgentDefinition, map[string]AdminAgent, error) {
-	ruAgentsDir := filepath.Join(filepath.Dir(filepath.Clean(root)), "ru-agents")
-	assembler, err := newRuntimeAgentAssembler(ruAgentsDir, centerDir)
-	if err != nil {
-		return nil, nil, err
-	}
-	return loadAgentsWithAdminAssembler(root, centerDir, chatsDir, globalMemoryEnabled, assembler)
-}
-
 func loadAgentsWithAdminAssembler(root, centerDir, chatsDir string, globalMemoryEnabled bool, assembler *runtimeAgentAssembler) (map[string]AgentDefinition, map[string]AdminAgent, error) {
 	items := map[string]AgentDefinition{}
 	adminItems := map[string]AdminAgent{}

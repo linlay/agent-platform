@@ -535,7 +535,7 @@ func TestAutomationWSRuntimeRoutesAndManagementRoutesRejected(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/automations",
 		ID:      "list",
-		Payload: ws.MarshalPayload(map[string]any{}),
+		Payload: marshalPayload(map[string]any{}),
 	}); err != nil {
 		t.Fatalf("write list request: %v", err)
 	}

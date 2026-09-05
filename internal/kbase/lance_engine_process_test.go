@@ -50,7 +50,7 @@ func TestLanceEngineResolveExecutableUsesSupportPackage(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(pluginDir, supportpkg.ManifestName), manifest, 0o644); err != nil {
 		t.Fatalf("write support manifest: %v", err)
 	}
-	registry, loadErrs := supportpkg.LoadDir(root, supportpkg.Target{OS: runtime.GOOS, Arch: runtime.GOARCH})
+	registry, loadErrs := supportpkg.LoadDirs([]string{root}, supportpkg.Target{OS: runtime.GOOS, Arch: runtime.GOARCH})
 	if len(loadErrs) != 0 {
 		t.Fatalf("load support package: %v", loadErrs)
 	}

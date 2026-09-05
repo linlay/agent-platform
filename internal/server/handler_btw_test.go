@@ -45,7 +45,7 @@ func TestBTWStreamsOverWebSocket(t *testing.T) {
 		Frame: platformws.FrameRequest,
 		Type:  "/api/btw",
 		ID:    "btw-ws-1",
-		Payload: platformws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"chatId":  chatID,
 			"message": "side question",
 		}),
@@ -116,7 +116,7 @@ func TestBTWWebSocketLaneGuardsAndMultiplexing(t *testing.T) {
 		Frame: platformws.FrameRequest,
 		Type:  "/api/btw",
 		ID:    "btw-on-primary",
-		Payload: platformws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"chatId":  chatID,
 			"message": "wrong lane",
 		}),
@@ -137,7 +137,7 @@ func TestBTWWebSocketLaneGuardsAndMultiplexing(t *testing.T) {
 		Frame:   platformws.FrameRequest,
 		Type:    "/api/query",
 		ID:      "query-on-btw",
-		Payload: platformws.MarshalPayload(map[string]any{}),
+		Payload: marshalPayload(map[string]any{}),
 	}); err != nil {
 		t.Fatalf("write BTW query request: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestBTWWebSocketLaneGuardsAndMultiplexing(t *testing.T) {
 			Frame: platformws.FrameRequest,
 			Type:  "/api/btw",
 			ID:    requestID,
-			Payload: platformws.MarshalPayload(map[string]any{
+			Payload: marshalPayload(map[string]any{
 				"chatId":  chatID,
 				"message": requestID,
 			}),

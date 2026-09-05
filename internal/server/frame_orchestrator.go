@@ -878,10 +878,6 @@ func teamMergedAwaitingAnswer(params api.SubmitParams, submitID string) map[stri
 	return answer
 }
 
-func (o *frameOrchestrator) runChildTask(index int, task preparedSubTask, principal *Principal, route func(stream.StreamInput)) *childTaskResult {
-	return o.runChildTaskWithOptions(index, task, principal, route, childRunOptions{})
-}
-
 func (o *frameOrchestrator) runChildTaskWithOptions(index int, task preparedSubTask, principal *Principal, route func(stream.StreamInput), options childRunOptions) *childTaskResult {
 	result := &childTaskResult{
 		Index:       index,
@@ -1181,11 +1177,6 @@ func (o *frameOrchestrator) runProxyChildTask(result *childTaskResult, subReq ap
 		result.Error = result.Text
 	}
 	return result
-}
-
-func parseProxySSEDataLine(line string) (stream.EventData, bool) {
-	event, ok, _ := parseProxySSEDataLineAt(line)
-	return event, ok
 }
 
 func parseProxySSEDataLineAt(line string) (stream.EventData, bool, error) {

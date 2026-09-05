@@ -49,10 +49,6 @@ func modelConfigString(modelConfig map[string]any, key string) string {
 	return strings.TrimSpace(stringValue(modelConfig[key]))
 }
 
-func coderModelConfigReasoningEffort(modelConfig map[string]any) string {
-	return agentcoder.ModelConfigReasoningEffort(modelConfig)
-}
-
 func (s *Server) listModelOptionsForAgent(agentKey string) []api.CoderModelOption {
 	if options, _, ok := s.listACPCoderModelOptions(agentKey); ok {
 		return options
@@ -197,14 +193,6 @@ func (s *Server) reasoningEffortOptionsForAgent(agentKey string, modelOptions []
 		return agentcoder.ReasoningEffortOptions(false, modelOptions)
 	}
 	return agentcoder.ReasoningEffortOptions(catalog.AgentUsesACPCoderBackend(def), modelOptions)
-}
-
-func serviceTierInOptions(serviceTier string, options []api.ServiceTierOption) bool {
-	return agentcoder.ServiceTierInOptions(serviceTier, options)
-}
-
-func serviceTierLabel(serviceTier string) string {
-	return agentcoder.ServiceTierLabel(serviceTier)
 }
 
 func normalizeCoderReasoningEffort(value string) (string, bool) {

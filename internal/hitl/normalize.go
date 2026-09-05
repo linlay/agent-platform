@@ -158,15 +158,6 @@ func decodeItems(params any) ([]map[string]any, error) {
 	}
 }
 
-func firstNonBlank(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
-}
-
 func cloneAnySlice(value any) []any {
 	items, _ := value.([]any)
 	if len(items) == 0 {

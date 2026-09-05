@@ -1,16 +1,10 @@
 package llm
 
 import (
-	"strings"
-	"time"
-
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
+	"strings"
 )
-
-func toolTimeout(policy contracts.RetryPolicy) time.Duration {
-	return policy.TimeoutDuration()
-}
 
 func structuredOrOutput(result contracts.ToolExecutionResult) any {
 	if len(result.Structured) > 0 {

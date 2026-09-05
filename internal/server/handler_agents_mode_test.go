@@ -127,7 +127,7 @@ func TestAgentsModeFiltersHTTPAndWebSocket(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/agents",
 		ID:    "agents_mode_ws",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"scope":        "nav",
 			"mode":         "ReAcT,PLAN-EXECUTE",
 			"includeChats": 1,
@@ -154,7 +154,7 @@ func TestAgentsModeFiltersHTTPAndWebSocket(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/agents",
 		ID:      "retired_agents_mode_ws",
-		Payload: ws.MarshalPayload(map[string]any{"mode": "PLAN_EXECUTE"}),
+		Payload: marshalPayload(map[string]any{"mode": "PLAN_EXECUTE"}),
 	}); err != nil {
 		t.Fatalf("write retired mode websocket request: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestAgentsModeFiltersHTTPAndWebSocket(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/agents",
 		ID:      "deprecated_agents_mode_ws",
-		Payload: ws.MarshalPayload(map[string]any{"agentMode": "REACT"}),
+		Payload: marshalPayload(map[string]any{"agentMode": "REACT"}),
 	}); err != nil {
 		t.Fatalf("write deprecated agents websocket request: %v", err)
 	}

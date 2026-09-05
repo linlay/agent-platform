@@ -551,28 +551,6 @@ func toolCompactCallComplete(call toolCompactCallLocation, resultIDs map[string]
 	return true
 }
 
-func collectAssistantToolNames(message map[string]any, out map[string]string) {
-	rawCalls, _ := message["tool_calls"].([]any)
-	for _, rawCall := range rawCalls {
-		call, _ := rawCall.(map[string]any)
-		if call == nil {
-			continue
-		}
-		id := strings.TrimSpace(stringFromAny(call["id"]))
-		if id == "" {
-			continue
-		}
-		function, _ := call["function"].(map[string]any)
-		name := strings.TrimSpace(stringFromAny(function["name"]))
-		if name == "" {
-			name = strings.TrimSpace(stringFromAny(call["name"]))
-		}
-		if name != "" {
-			out[id] = name
-		}
-	}
-}
-
 func compactToolResultID(message map[string]any) string {
 	for _, key := range []string{"tool_call_id", "_toolId", "toolId"} {
 		if id := strings.TrimSpace(stringFromAny(message[key])); id != "" {

@@ -423,10 +423,6 @@ func buildCoderPlanningExecuteSystemInitProfile(session contracts.QuerySession, 
 	return buildCoderPlanningSystemInitProfile(session, req, agentcoder.PlanningExecuteSystemInitSpec(session, req, settings), toolDefs)
 }
 
-func buildCoderPlanningPlanningSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, _ contracts.CoderPlanningSettings, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
-	return buildCoderPlanningSystemInitProfile(session, req, agentcoder.PlanningSystemInitSpec(), toolDefs)
-}
-
 func buildCoderPlanningSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, spec agentcontract.SystemInitSpec, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
 	effectiveDefs := effectiveToolDefinitions(toolDefs, spec.ToolNames, session)
 	systemPrompt := strings.TrimSpace(spec.SystemPrompt)

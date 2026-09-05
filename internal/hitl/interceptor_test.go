@@ -25,7 +25,7 @@ commands:
 		t.Fatalf("write rule file: %v", err)
 	}
 
-	registry, err := NewRegistry(root)
+	registry, err := NewSkillChecker([]string{root})
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
@@ -122,7 +122,7 @@ commands:
 		t.Fatalf("write rule file: %v", err)
 	}
 
-	registry, err := NewRegistry(root)
+	registry, err := NewSkillChecker([]string{root})
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
@@ -250,7 +250,7 @@ commands:
 		t.Fatalf("write rule file: %v", err)
 	}
 
-	registry, err := NewRegistry(root)
+	registry, err := NewSkillChecker([]string{root})
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
@@ -296,7 +296,7 @@ commands:
 		t.Fatalf("write rule file: %v", err)
 	}
 
-	registry, err := NewRegistry(root)
+	registry, err := NewSkillChecker([]string{root})
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
@@ -322,7 +322,7 @@ commands:
 		t.Fatalf("write rule file: %v", err)
 	}
 
-	registry, err := NewRegistry(root)
+	registry, err := NewSkillChecker([]string{root})
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
@@ -353,7 +353,7 @@ commands:
 		t.Fatalf("write rule file: %v", err)
 	}
 
-	registry, err := NewRegistry(root)
+	registry, err := NewSkillChecker([]string{root})
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
@@ -401,7 +401,7 @@ commands:
 		t.Fatalf("write rule file: %v", err)
 	}
 
-	registry, err := NewRegistry(root)
+	registry, err := NewSkillChecker([]string{root})
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
@@ -431,7 +431,7 @@ commands:
 		t.Fatalf("write rule file: %v", err)
 	}
 
-	registry, err := NewRegistry(root)
+	registry, err := NewSkillChecker([]string{root})
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}

@@ -159,14 +159,6 @@ func loadPersistedAwaitingStepFromLines(lines []map[string]any, awaitingID strin
 	return latest
 }
 
-func nonNegativeUint64(value any) uint64 {
-	number := int64FromAny(value)
-	if number < 0 {
-		return 0
-	}
-	return uint64(number)
-}
-
 func persistedAwaitingToolCalls(rawMessages any) []PersistedAwaitingToolCall {
 	var result []PersistedAwaitingToolCall
 	seen := map[string]bool{}

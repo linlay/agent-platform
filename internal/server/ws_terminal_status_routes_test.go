@@ -56,7 +56,7 @@ func TestWebSocketTerminalStatusStreamPublishesSessionSnapshot(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/terminal/status",
 		ID:      "term_status_watch",
-		Payload: ws.MarshalPayload(map[string]any{}),
+		Payload: marshalPayload(map[string]any{}),
 	}); err != nil {
 		t.Fatalf("write terminal status stream: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestWebSocketTerminalStatusStreamPublishesSessionSnapshot(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/terminal/status/detach",
 		ID:    "term_status_detach",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"streamRequestId": "term_status_watch",
 		}),
 	}); err != nil {

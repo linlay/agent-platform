@@ -101,7 +101,7 @@ func TestWebSocketChannelsRouteRemovedAndAgentsIgnoreChannelFilter(t *testing.T)
 		Frame: ws.FrameRequest,
 		Type:  "/api/agents",
 		ID:    "req_agents",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"channel": "wecom",
 		}),
 	}); err != nil {
@@ -123,7 +123,7 @@ func TestWebSocketChannelsRouteRemovedAndAgentsIgnoreChannelFilter(t *testing.T)
 		Frame: ws.FrameRequest,
 		Type:  "/api/agents",
 		ID:    "req_agents_invalid",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"includeChats": 51,
 		}),
 	}); err != nil {
@@ -141,7 +141,7 @@ func TestWebSocketChannelsRouteRemovedAndAgentsIgnoreChannelFilter(t *testing.T)
 		Frame: ws.FrameRequest,
 		Type:  "/api/agents",
 		ID:    "req_agents_invalid_scope",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"scope": "missing",
 		}),
 	}); err != nil {

@@ -777,29 +777,6 @@ func (s *ExecutionStore) GetExecution(executionID string) (*Execution, error) {
 	return &item, nil
 }
 
-func (s *ExecutionStore) ListRecent(limit, offset int) ([]Execution, int, error) {
-	if s == nil || s.db == nil {
-		return nil, 0, ErrExecutionHistoryUnavailable
-	}
-	limit, offset = normalizeExecutionPage(limit, offset)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var total int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM AUTOMATION_EXECUTIONS`).Scan(&total); err != nil {
-		return nil, 0, err
-	}
-	rows, err := s.db.Query(executionBriefSelect+` ORDER BY STARTED_AT_ DESC, ID_ DESC LIMIT ? OFFSET ?`, limit, offset)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer rows.Close()
-	items, err := scanExecutionBriefs(rows)
-	if err != nil {
-		return nil, 0, err
-	}
-	return items, total, rows.Err()
-}
-
 func (s *ExecutionStore) ListRunning() ([]Execution, error) {
 	if s == nil || s.db == nil {
 		return nil, ErrExecutionHistoryUnavailable

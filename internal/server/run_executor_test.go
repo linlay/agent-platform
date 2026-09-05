@@ -45,7 +45,7 @@ func (s *recordingNotificationSink) Payloads() []map[string]any {
 }
 
 func TestPersistRunCompletionInvokesOnPersisted(t *testing.T) {
-	chats, err := chat.NewFileStore(t.TempDir())
+	chats, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestPersistRunCompletionInvokesOnPersisted(t *testing.T) {
 }
 
 func TestPersistRunCompletionSkipsOnPersistedWhenNotSuccessful(t *testing.T) {
-	chats, err := chat.NewFileStore(t.TempDir())
+	chats, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestPersistRunCompletionSkipsOnPersistedWhenNotSuccessful(t *testing.T) {
 }
 
 func TestBroadcastRunCompletionEmitsUnreadBeforeChatUpdated(t *testing.T) {
-	chats, err := chat.NewFileStore(t.TempDir())
+	chats, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -284,7 +284,7 @@ func TestHandleAwaitingLifecycleBroadcastsAwaitAskPushForApprovalAndPlan(t *test
 }
 
 func TestRunExecutorFinalizesAfterStreamDrain(t *testing.T) {
-	chats, err := chat.NewFileStore(t.TempDir())
+	chats, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}

@@ -55,10 +55,6 @@ func LoadYAMLTreeBytesWithOptions(data []byte, options YAMLTreeOptions) (any, er
 	return LoadYAMLTreeReaderWithOptions(bytes.NewReader(data), options)
 }
 
-func LoadYAMLTreeReader(reader io.Reader) (any, error) {
-	return LoadYAMLTreeReaderWithOptions(reader, YAMLTreeOptions{})
-}
-
 func LoadYAMLTreeReaderWithOptions(reader io.Reader, options YAMLTreeOptions) (any, error) {
 	if reader == nil {
 		return map[string]any{}, nil

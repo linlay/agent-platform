@@ -17,12 +17,3 @@ type TeamMember struct {
 	Role        string
 	Description string
 }
-
-func CloneTeamRuntimeContext(src *TeamRuntimeContext) *TeamRuntimeContext {
-	if src == nil {
-		return nil
-	}
-	dst := *src
-	dst.Members = append([]TeamMember(nil), src.Members...)
-	return &dst
-}

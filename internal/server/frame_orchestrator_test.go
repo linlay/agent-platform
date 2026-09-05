@@ -543,7 +543,7 @@ func TestFrameOrchestratorMaterializesProxySubAgentFiles(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -1098,7 +1098,7 @@ func TestFrameOrchestratorReportsACPCoderChildAsTaskError(t *testing.T) {
 }
 
 func TestFrameOrchestratorWritesSubAgentQueryAndSystemLines(t *testing.T) {
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
@@ -1208,7 +1208,7 @@ func TestFrameOrchestratorWritesSubAgentQueryAndSystemLines(t *testing.T) {
 }
 
 func TestSubTaskReactStepPersistsContentMessage(t *testing.T) {
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}

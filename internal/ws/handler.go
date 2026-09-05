@@ -258,11 +258,3 @@ func wsClientMetadataFromRequest(r *http.Request, auth AuthSession) (string, str
 	}
 	return monitorNormalizeSource(source), monitorNormalizeDeviceID(deviceID)
 }
-
-func MarshalPayload(value any) json.RawMessage {
-	if value == nil {
-		return nil
-	}
-	data, _ := json.Marshal(value)
-	return data
-}

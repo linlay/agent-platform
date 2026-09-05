@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -116,9 +115,4 @@ func originAllowed(origin string, allowed []string) bool {
 		}
 	}
 	return false
-}
-
-func resourceBelongsToChat(fileParam string, chatID string) bool {
-	clean := filepath.ToSlash(filepath.Clean(fileParam))
-	return clean == chatID || strings.HasPrefix(clean, chatID+"/")
 }

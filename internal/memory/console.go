@@ -316,23 +316,6 @@ func (s *SQLiteStore) ListAll(agentKey string) ([]api.StoredMemoryResponse, erro
 	return s.listProjectionItemsLocked(strings.TrimSpace(agentKey))
 }
 
-func (s *FileStore) ListAll(agentKey string) ([]api.StoredMemoryResponse, error) {
-	items, err := s.readAllStored()
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(agentKey) == "" {
-		return items, nil
-	}
-	filtered := make([]api.StoredMemoryResponse, 0, len(items))
-	for _, item := range items {
-		if strings.TrimSpace(item.AgentKey) == strings.TrimSpace(agentKey) {
-			filtered = append(filtered, item)
-		}
-	}
-	return filtered, nil
-}
-
 func (s *SQLiteStore) ReadConsoleDetail(agentKey string, id string) (ConsoleRecordDetail, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -369,19 +352,4 @@ func (s *SQLiteStore) ReadConsoleDetail(agentKey string, id string) (ConsoleReco
 	}
 	detail.RawFields = rawFields
 	return detail, nil
-}
-
-func (s *FileStore) ReadConsoleDetail(agentKey string, id string) (ConsoleRecordDetail, error) {
-	record, err := s.Read(strings.TrimSpace(id))
-	if err != nil || record == nil {
-		return ConsoleRecordDetail{}, err
-	}
-	if strings.TrimSpace(agentKey) != "" && strings.TrimSpace(record.AgentKey) != strings.TrimSpace(agentKey) {
-		return ConsoleRecordDetail{}, nil
-	}
-	return ConsoleRecordDetail{
-		Record:      normalizeStoredItem(*record),
-		SourceTable: sourceTableForKind(record.Kind),
-		RawFields:   map[string]any{},
-	}, nil
 }

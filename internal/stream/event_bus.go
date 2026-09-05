@@ -375,12 +375,3 @@ func (b *RunEventBus) Snapshot() []EventData {
 	}
 	return result
 }
-
-func (b *RunEventBus) Frozen() bool {
-	if b == nil {
-		return true
-	}
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	return b.frozen
-}

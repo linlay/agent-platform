@@ -346,7 +346,7 @@ func TestChannelImportStreamOnlySynthesizesControlPushes(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/query",
 		ID:    queryID,
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"requestId": queryID,
 			"chatId":    chatID,
 			"runId":     runID,

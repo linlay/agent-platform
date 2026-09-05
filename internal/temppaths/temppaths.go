@@ -98,10 +98,6 @@ func (r Resolver) Primary() (pathutil.Canonical, bool) {
 	return r.primary, r.primary.Key != ""
 }
 
-func (r Resolver) Roots() []pathutil.Canonical {
-	return append([]pathutil.Canonical(nil), r.roots...)
-}
-
 // Paths returns the frozen lexical and canonical root spellings. Session
 // snapshots retain these spellings so aliases such as macOS /tmp can still be
 // recognized as the declared root when a descendant symlink escapes it.

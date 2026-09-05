@@ -55,10 +55,6 @@ func ParseForSecurityWithKnownVariables(command string, variables map[string]str
 	return ParseResult{Kind: Simple, Commands: w.commands}
 }
 
-func ParseWithEmbeddedDetection(command string) (ParseResult, []EmbeddedScript) {
-	return ParseWithEmbeddedDetectionAndKnownVariables(command, nil)
-}
-
 func ParseWithEmbeddedDetectionAndKnownVariables(command string, variables map[string]string) (ParseResult, []EmbeddedScript) {
 	result := ParseForSecurityWithKnownVariables(command, variables)
 	if result.Kind != Simple {

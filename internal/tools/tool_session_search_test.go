@@ -10,7 +10,7 @@ import (
 )
 
 func TestSessionSearchToolUsesCurrentChatByDefault(t *testing.T) {
-	chats, err := chat.NewFileStore(t.TempDir())
+	chats, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}

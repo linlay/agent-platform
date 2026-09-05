@@ -101,7 +101,7 @@ Chat 默认由 `AP_RUNTIME_CHATS_DIR` 控制，主要包含：
 
 Automation 定义目录中的 `executions.db` 是 schema V2 的旁路执行历史库。已知旧版在后台创建一致性备份后重建为空 V2，不迁移旧行；History 初始化、备份和写入失败不得阻止 Platform、Automation 调度或 Query/Run。`AUTOMATION_EXECUTIONS` 保存触发快照、`chatId/runId`、真实 `finishReason` 和完整助手结果，列表只读取摘要，详情按需读取全文。
 
-Memory 默认由 `AP_RUNTIME_MEMORY_DIR` 控制，当前以 SQLite store 为主，支持 FTS、可选 embedding、observation / fact 生命周期、`/api/learn` 与 memory tools。
+Memory 默认由 `AP_RUNTIME_MEMORY_DIR` 控制，当前固定使用 SQLite store，支持 FTS、可选 embedding、observation / fact 生命周期、`/api/learn` 与 memory tools。
 
 KBASE 默认由 `AP_RUNTIME_KBASE_DIR` 控制，每个 agent storageDir 可包含：
 

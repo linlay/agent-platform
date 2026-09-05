@@ -143,7 +143,7 @@ func TestWebSocketSearchRoutesRenamed(t *testing.T) {
 			Frame:   ws.FrameRequest,
 			Type:    tc.route,
 			ID:      tc.id,
-			Payload: ws.MarshalPayload(map[string]any{"query": "rollback"}),
+			Payload: marshalPayload(map[string]any{"query": "rollback"}),
 		}); err != nil {
 			t.Fatalf("write %s request: %v", tc.route, err)
 		}
@@ -168,7 +168,7 @@ func TestWebSocketSearchRoutesRenamed(t *testing.T) {
 			Frame:   ws.FrameRequest,
 			Type:    tc.route,
 			ID:      tc.id,
-			Payload: ws.MarshalPayload(map[string]any{"query": "rollback"}),
+			Payload: marshalPayload(map[string]any{"query": "rollback"}),
 		}); err != nil {
 			t.Fatalf("write %s request: %v", tc.route, err)
 		}
@@ -185,7 +185,7 @@ func TestWebSocketSearchRoutesRenamed(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/pull",
 		ID:      "unsupported_pull_type",
-		Payload: ws.MarshalPayload(map[string]any{"query": "rollback"}),
+		Payload: marshalPayload(map[string]any{"query": "rollback"}),
 	}); err != nil {
 		t.Fatalf("write unsupported /api/pull request: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestWebSocketSearchRoutesRenamed(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/push",
 		ID:      "unsupported_push_type",
-		Payload: ws.MarshalPayload(map[string]any{"query": "rollback"}),
+		Payload: marshalPayload(map[string]any{"query": "rollback"}),
 	}); err != nil {
 		t.Fatalf("write unsupported /api/push request: %v", err)
 	}

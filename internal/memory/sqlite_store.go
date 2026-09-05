@@ -27,10 +27,6 @@ type SQLiteStore struct {
 	runtimeResolver RuntimeResolver
 }
 
-func NewSQLiteStore(root string, dbFileName string) (*SQLiteStore, error) {
-	return newSQLiteStore(root, dbFileName, false)
-}
-
 // NewSQLiteStoreAtStartup is the only memory-store constructor allowed to
 // claim a structurally exact, unmarked (0,0) database.
 func NewSQLiteStoreAtStartup(root string, dbFileName string) (*SQLiteStore, error) {
@@ -58,12 +54,6 @@ func newSQLiteStore(root string, dbFileName string, startupAdopt bool) (*SQLiteS
 		return nil, err
 	}
 	return store, nil
-}
-
-func (s *SQLiteStore) SetEmbedder(ep *EmbeddingProvider) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.embedder = ep
 }
 
 func (s *SQLiteStore) SetRememberSummarizer(summarizer RememberSummarizer) {

@@ -3578,7 +3578,7 @@ func TestQueryToolBudgetExceededIsVisibleAndDurable(t *testing.T) {
 		Frame: platformws.FrameRequest,
 		Type:  "/api/attach",
 		ID:    "attach-tool-budget",
-		Payload: platformws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"runId":    runID,
 			"agentKey": "mock-agent",
 		}),

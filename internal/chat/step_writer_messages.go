@@ -442,11 +442,6 @@ func storedMessageTextLen(message StoredMessage) int {
 	return total
 }
 
-func stringVal(v any) string {
-	s, _ := v.(string)
-	return strings.TrimSpace(s)
-}
-
 // toMapSlice converts an any value to []map[string]any.
 // Handles both []any (from JSON unmarshal) and []map[string]any (from Go engine).
 

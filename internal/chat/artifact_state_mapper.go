@@ -15,23 +15,6 @@ func artifactItemsFromValue(raw any) []ArtifactItemState {
 	return result
 }
 
-func artifactItemsFromEventPayload(payload map[string]any) []ArtifactItemState {
-	if len(payload) == 0 {
-		return nil
-	}
-	if items := artifactItemsFromValue(payload["artifacts"]); len(items) > 0 {
-		return items
-	}
-	item, _ := payload["artifact"].(map[string]any)
-	if len(item) == 0 {
-		return nil
-	}
-	if artifact, ok := artifactItemFromMap(item, stringValue(payload["artifactId"])); ok {
-		return []ArtifactItemState{artifact}
-	}
-	return nil
-}
-
 func artifactItemFromMap(item map[string]any, fallbackID string) (ArtifactItemState, bool) {
 	if len(item) == 0 {
 		return ArtifactItemState{}, false

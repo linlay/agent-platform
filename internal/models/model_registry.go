@@ -174,11 +174,6 @@ func IsChatModel(model ModelDefinition) bool {
 	return ok && modelType == ModelTypeChat
 }
 
-func IsEmbeddingModel(model ModelDefinition) bool {
-	modelType, ok := NormalizeModelType(model.Type)
-	return ok && modelType == ModelTypeEmbedding
-}
-
 func IsImageGenerationModel(model ModelDefinition) bool {
 	modelType, ok := NormalizeModelType(model.Type)
 	return ok && modelType == ModelTypeImageGeneration

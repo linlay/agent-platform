@@ -472,7 +472,7 @@ func TestRewriteChannelRequestPayloadNonMatchingExternalKeyForbidden(t *testing.
 
 func newServerForChannelTests(t *testing.T) (*Server, *chat.FileStore) {
 	t.Helper()
-	chats, err := chat.NewFileStore(t.TempDir())
+	chats, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}

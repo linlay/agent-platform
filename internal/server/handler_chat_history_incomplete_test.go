@@ -52,7 +52,7 @@ func TestWebSocketChatMapsIncompleteHistoryToConflict(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/chat",
 		ID:    "req-incomplete-chat",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"chatId": chatID,
 		}),
 	}); err != nil {

@@ -463,7 +463,7 @@ func TestMemoryWSRecordsMirrorsHTTP(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/memory/record/list",
 		ID:    "records",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"agentKey": "mock-agent",
 			"kind":     "fact",
 		}),
@@ -512,7 +512,7 @@ func TestMemoryWSRecordAndMeta(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/memory/record/detail",
 		ID:    "record",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"agentKey": "mock-agent",
 			"id":       "mem_obs_1",
 		}),
@@ -535,7 +535,7 @@ func TestMemoryWSRecordAndMeta(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/memory/meta",
 		ID:      "meta",
-		Payload: ws.MarshalPayload(map[string]any{}),
+		Payload: marshalPayload(map[string]any{}),
 	}); err != nil {
 		t.Fatalf("write meta request: %v", err)
 	}
@@ -588,8 +588,8 @@ func TestHandleMemoryRecordReturnsRawFields(t *testing.T) {
 	if resp.Data.SourceTable != "MEMORY_FACTS" {
 		t.Fatalf("unexpected source table: %#v", resp.Data)
 	}
-	if resp.Data.RawFields != nil {
-		t.Fatalf("expected file-store rawFields to be omitted, got %#v", resp.Data.RawFields)
+	if resp.Data.RawFields["sourceKind"] != "tool-write" || resp.Data.RawFields["sourceRef"] != "mem_fact_1" {
+		t.Fatalf("expected SQLite fact rawFields, got %#v", resp.Data.RawFields)
 	}
 }
 

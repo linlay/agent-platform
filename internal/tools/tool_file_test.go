@@ -1691,7 +1691,7 @@ func TestInvokeWriteAllowsChatScopedSnapshotAcrossRuns(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 	executor := fileToolExecutor(root, false)
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -1730,7 +1730,7 @@ func TestInvokeReadDoesNotPersistChatLedgerInReadOnlyMode(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 	executor := fileToolExecutor(root, false)
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -1756,7 +1756,7 @@ func TestInvokeWriteDoesNotReuseChatSnapshotForDifferentChat(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 	executor := fileToolExecutor(root, false)
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -1786,7 +1786,7 @@ func TestInvokeWriteRejectsModifiedFileAfterChatScopedSnapshot(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 	executor := fileToolExecutor(root, false)
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -1820,7 +1820,7 @@ func TestInvokeWriteRejectsSameStatDifferentSHAAfterChatScopedSnapshot(t *testin
 		t.Fatalf("write fixture: %v", err)
 	}
 	executor := fileToolExecutor(root, false)
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -1860,7 +1860,7 @@ func TestInvokeEditRefreshesChatScopedSnapshot(t *testing.T) {
 		t.Fatalf("write fixture: %v", err)
 	}
 	executor := fileToolExecutor(root, false)
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}

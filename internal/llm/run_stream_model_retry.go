@@ -68,10 +68,6 @@ func (s *llmRunStream) buildModelRunActivity(status string, call *pendingModelCa
 	return activity
 }
 
-func (s *llmRunStream) appendModelRunActivity(status string, err error) {
-	s.pending = append(s.pending, s.buildModelRunActivity(status, s.modelCall, err))
-}
-
 func (s *llmRunStream) modelActivityTaskID() string {
 	if s == nil {
 		return ""

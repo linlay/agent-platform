@@ -28,6 +28,7 @@ import (
 	"agent-platform/internal/models"
 	"agent-platform/internal/reload"
 	"agent-platform/internal/stream"
+	"agent-platform/internal/testutil"
 	"agent-platform/internal/toolinteraction"
 	"agent-platform/internal/tools"
 )
@@ -43,6 +44,22 @@ var disallowedPersistedEventTypes = []string{
 	"tool.args",
 	"tool.end",
 	"tool.output",
+}
+
+func marshalPayload(value any) json.RawMessage {
+	return testutil.MarshalPayload(value)
+}
+
+func newTestMemoryStore(root string) (*memory.SQLiteStore, error) {
+	return memory.NewSQLiteStoreAtStartup(root, "memory.db")
+}
+
+func (s *Server) listChatSummaries(lastRunID string, agentKey string) ([]api.ChatSummaryResponse, error) {
+	return s.listChatSummariesWithAgentModesAndLimit(lastRunID, agentKey, nil, 0)
+}
+
+func (s *Server) listAgentSummaries(includeChats int, scope string) ([]api.AgentSummary, error) {
+	return s.listAgentSummariesWithModes(includeChats, scope, nil)
 }
 
 func newServerFromFixture(t *testing.T, fixture testFixture) *Server {
@@ -314,14 +331,14 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		options.setupRuntime(root, &cfg)
 	}
 
-	chats, err := chat.NewFileStore(cfg.Paths.ChatsDir)
+	chats, err := chat.NewFileStoreAtStartup(cfg.Paths.ChatsDir)
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = chats.Close()
 	})
-	memories, err := memory.NewFileStore(cfg.Paths.MemoryDir)
+	memories, err := newTestMemoryStore(cfg.Paths.MemoryDir)
 	if err != nil {
 		t.Fatalf("new memory store: %v", err)
 	}
@@ -331,7 +348,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	}
 	sandboxClient := options.sandbox
 	if sandboxClient == nil {
-		sandboxClient = contracts.NewNoopSandboxClient()
+		sandboxClient = testutil.NewNoopSandboxClient()
 	}
 	runtimeTools, err := tools.NewRuntimeToolExecutor(cfg, sandboxClient, chats, memories, nil)
 	if err != nil {
@@ -339,7 +356,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	}
 	mcp := options.mcp
 	if mcp == nil {
-		mcp = contracts.NewNoopMcpClient()
+		mcp = testutil.NewNoopMcpClient()
 	}
 	interactionRegistry := toolinteraction.NewDefaultRegistry()
 	var mcpTools interface {
@@ -366,7 +383,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	runs := contracts.NewInMemoryRunManager()
 	sandbox := sandboxClient
 	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, interactionRegistry, sandbox)
-	viewport := contracts.NewNoopViewportClient()
+	viewport := testutil.NewNoopViewportClient()
 	server, err := New(Dependencies{
 		Config:           cfg,
 		Chats:            chats,

@@ -85,7 +85,7 @@ func TestRegistryReloaderPublishesLocalStateWithoutRemoteSync(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
 	}
-	client := NewClient(registry, server.Client())
+	client := NewClientWithGate(registry, server.Client(), nil)
 	defer client.Close()
 	syncer := NewToolSync(registry, client)
 	if tools, err := syncer.Load(context.Background()); err != nil || len(tools) != 1 {
@@ -131,7 +131,7 @@ func TestRegistryReloaderRetainsUnchangedToolsAndRemovesDeletedServers(t *testin
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
 	}
-	client := NewClient(registry, server.Client())
+	client := NewClientWithGate(registry, server.Client(), nil)
 	defer client.Close()
 	syncer := NewToolSync(registry, client)
 	if _, err := syncer.Load(context.Background()); err != nil {
@@ -249,7 +249,7 @@ func TestToolSyncDiscardsResultFromObsoleteRegistryVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
 	}
-	client := NewClient(registry, proxy.Client())
+	client := NewClientWithGate(registry, proxy.Client(), nil)
 	defer client.Close()
 	syncer := NewToolSync(registry, client)
 	resultCh := make(chan ToolSyncResult, 1)

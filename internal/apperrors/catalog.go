@@ -198,7 +198,3 @@ func Lookup(code Code) (Definition, bool) {
 	definition, ok := definitionsByCode[code]
 	return definition, ok
 }
-
-func Definitions() []Definition {
-	return append([]Definition(nil), definitions...)
-}

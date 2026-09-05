@@ -215,11 +215,11 @@ func newArchiveHandlerTestServer(t *testing.T, runs contracts.RunManager) (*Serv
 func newArchiveHandlerTestServerWithNotifications(t *testing.T, runs contracts.RunManager, notifications contracts.NotificationSink) (*Server, *chat.FileStore, *chat.ArchiveStore) {
 	t.Helper()
 	root := t.TempDir()
-	active, err := chat.NewFileStore(filepath.Join(root, "chats"))
+	active, err := chat.NewFileStoreAtStartup(filepath.Join(root, "chats"))
 	if err != nil {
 		t.Fatalf("new active store: %v", err)
 	}
-	archiveStore, err := chat.NewArchiveStore(filepath.Join(root, "chats"))
+	archiveStore, err := chat.NewArchiveStoreAtStartup(filepath.Join(root, "chats"))
 	if err != nil {
 		t.Fatalf("new archive store: %v", err)
 	}

@@ -9,6 +9,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/testutil"
 	"agent-platform/internal/toolinteraction"
 )
 
@@ -192,7 +193,7 @@ func TestTeamModeUsesAutoProviderToolChoiceAndRetainsMandatoryDelegation(t *test
 		newSystemInitTestModelRegistry(t),
 		stubToolExecutor{defs: []api.ToolDetailResponse{tool}},
 		toolinteraction.NewDefaultRegistry(),
-		contracts.NewNoopSandboxClient(),
+		testutil.NewNoopSandboxClient(),
 	)
 	session := contracts.QuerySession{
 		RunID:        "run-team",
@@ -297,8 +298,8 @@ func TestTeamModeUsesAutoProviderToolChoiceAndRetainsMandatoryDelegation(t *test
 	if err := stream.activateNextToolCall(); err != nil {
 		t.Fatalf("activate second Team dispatch: %v", err)
 	}
-	if stream.teamStateMachine.Phase() != agentteam.PhaseWaiting || stream.teamStateMachine.DispatchCount() != 2 {
-		t.Fatalf("second Team dispatch phase=%q count=%d", stream.teamStateMachine.Phase(), stream.teamStateMachine.DispatchCount())
+	if stream.teamStateMachine.Phase() != agentteam.PhaseWaiting {
+		t.Fatalf("second Team dispatch phase=%q", stream.teamStateMachine.Phase())
 	}
 	if !stream.InjectToolResult("team-call-2", `{"results":[{"agentKey":"reviewer","status":"failed"}]}`, true) {
 		t.Fatal("failed second Team dispatch rejected its result")

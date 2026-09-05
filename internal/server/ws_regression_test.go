@@ -1032,14 +1032,14 @@ func (wsRegressionCatalogRegistry) TeamDefinition(string) (catalog.TeamDefinitio
 
 func (wsRegressionCatalogRegistry) Reload(context.Context, string) error { return nil }
 
-func newServerForHelperTests(t *testing.T) (*Server, *chat.FileStore, *memory.FileStore) {
+func newServerForHelperTests(t *testing.T) (*Server, *chat.FileStore, *memory.SQLiteStore) {
 	t.Helper()
 	root := t.TempDir()
-	chats, err := chat.NewFileStore(filepath.Join(root, "chats"))
+	chats, err := chat.NewFileStoreAtStartup(filepath.Join(root, "chats"))
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
-	memories, err := memory.NewFileStore(filepath.Join(root, "memory"))
+	memories, err := newTestMemoryStore(filepath.Join(root, "memory"))
 	if err != nil {
 		t.Fatalf("new memory store: %v", err)
 	}

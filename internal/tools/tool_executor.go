@@ -122,28 +122,6 @@ func (t *RuntimeToolExecutor) WithClientRequestInvoker(invoker ClientRequestInvo
 	return t
 }
 
-func (t *RuntimeToolExecutor) WithWebClientTargetStore(store WebClientTargetStore) *RuntimeToolExecutor {
-	if t != nil {
-		t.clientTargets = webClientTargetStoreAdapter{store: store}
-	}
-	return t
-}
-
-type webClientTargetStoreAdapter struct {
-	store WebClientTargetStore
-}
-
-func (a webClientTargetStoreAdapter) BindClientTarget(runID string, target ClientTarget) bool {
-	return a.store != nil && a.store.BindWebClientTarget(runID, target)
-}
-
-func (a webClientTargetStoreAdapter) ResolveClientTarget(runID string) (ClientTarget, bool) {
-	if a.store == nil {
-		return ClientTarget{}, false
-	}
-	return a.store.ResolveWebClientTarget(runID)
-}
-
 func (t *RuntimeToolExecutor) WithClientTargetStore(store ClientTargetStore) *RuntimeToolExecutor {
 	if t != nil {
 		t.clientTargets = store
@@ -168,13 +146,6 @@ func (t *RuntimeToolExecutor) WithFileChangeHooks(hooks ...FileChangeHook) *Runt
 func (t *RuntimeToolExecutor) WithModelRegistry(registry *models.ModelRegistry) *RuntimeToolExecutor {
 	if t != nil {
 		t.models = registry
-	}
-	return t
-}
-
-func (t *RuntimeToolExecutor) WithHTTPClient(client *http.Client) *RuntimeToolExecutor {
-	if t != nil && client != nil {
-		t.httpClient = client
 	}
 	return t
 }

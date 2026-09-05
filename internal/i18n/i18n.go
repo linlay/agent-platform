@@ -198,11 +198,6 @@ func SupportedLocales() []string {
 	return append([]string(nil), supportedLocales...)
 }
 
-func IsSupported(locale string) bool {
-	_, ok := NormalizeLocale(locale)
-	return ok
-}
-
 func NormalizeLocale(locale string) (string, bool) {
 	normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(locale), "_", "-"))
 	switch {

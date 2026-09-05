@@ -466,13 +466,6 @@ func (p *runEventProcessor) decorateTerminalUsage(data *stream.EventData) {
 	}
 }
 
-func applyUsageMapToData(target *chat.UsageData, usage map[string]any) {
-	if target == nil || usage == nil {
-		return
-	}
-	*target = usageDataFromMap(usage)
-}
-
 func usageDataFromMap(usage map[string]any) chat.UsageData {
 	out := chat.UsageData{
 		ModelKey:               strings.TrimSpace(contracts.AnyStringNode(usage["modelKey"])),

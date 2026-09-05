@@ -9,7 +9,7 @@ import (
 )
 
 func TestRunEventProcessorSurfacesInvalidPersistedQueryMessageTime(t *testing.T) {
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}

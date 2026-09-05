@@ -231,7 +231,7 @@ func TestFrameOrchestratorTeamDelegationMergesFilesWithOriginalReferences(t *tes
 	}
 	child := &stubOrchestratableStream{finalText: "done"}
 	o := newTeamFrameOrchestrator(t, main, map[string]contracts.AgentStream{"writer": child}, defs, nil, nil)
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +274,7 @@ func TestFrameOrchestratorMaterializesInheritedWorkspaceReferenceIntoChat(t *tes
 	}
 	child := &stubOrchestratableStream{finalText: "done"}
 	o := newTeamFrameOrchestrator(t, main, map[string]contracts.AgentStream{"writer": child}, defs, nil, nil)
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

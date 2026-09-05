@@ -183,7 +183,7 @@ func writeTimeContractWSRequest(t *testing.T, conn *gws.Conn, frameType, id stri
 		Frame:   ws.FrameRequest,
 		Type:    frameType,
 		ID:      id,
-		Payload: ws.MarshalPayload(payload),
+		Payload: marshalPayload(payload),
 	}); err != nil {
 		t.Fatalf("write websocket %s request: %v", frameType, err)
 	}

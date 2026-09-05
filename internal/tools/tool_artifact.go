@@ -353,14 +353,6 @@ func samePath(left string, right string) bool {
 	return filepath.Clean(left) == filepath.Clean(right)
 }
 
-func pathWithinBase(path string, base string) bool {
-	rel, err := filepath.Rel(filepath.Clean(base), filepath.Clean(path))
-	if err != nil {
-		return false
-	}
-	return !isPathOutsideBase(rel)
-}
-
 func isPathOutsideBase(rel string) bool {
 	clean := filepath.Clean(rel)
 	return clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator))

@@ -134,25 +134,6 @@ func (s *ExecutionHistoryService) GetExecution(executionID string) (*Execution, 
 	return store.GetExecution(executionID)
 }
 
-func (s *ExecutionHistoryService) WaitReady(ctx context.Context) error {
-	if s == nil {
-		return ErrExecutionHistoryUnavailable
-	}
-	ticker := time.NewTicker(5 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		status := s.Status()
-		if status.Available {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-		}
-	}
-}
-
 func (s *ExecutionHistoryService) Close() error {
 	if s == nil {
 		return nil

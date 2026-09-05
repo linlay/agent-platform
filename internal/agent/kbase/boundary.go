@@ -1,10 +1,6 @@
 package kbase
 
-import (
-	"strings"
-
-	corekbase "agent-platform/internal/kbase"
-)
+import corekbase "agent-platform/internal/kbase"
 
 const (
 	ToolSearch   = corekbase.ToolSearch
@@ -25,29 +21,6 @@ var structuredFileToolNames = []string{
 
 func DefaultToolNames() []string {
 	return append(corekbase.DefaultToolNames(), structuredFileToolNames...)
-}
-
-func IsTool(name string) bool {
-	if corekbase.IsTool(name) {
-		return true
-	}
-	normalized := strings.ToLower(strings.TrimSpace(name))
-	for _, toolName := range structuredFileToolNames {
-		if normalized == toolName {
-			return true
-		}
-	}
-	return false
-}
-
-func FilterTools(tools []string) []string {
-	filtered := make([]string, 0, len(tools))
-	for _, toolName := range tools {
-		if IsTool(toolName) {
-			filtered = append(filtered, toolName)
-		}
-	}
-	return filtered
 }
 
 // BoundaryPolicy is the KBASE mode-owned runtime boundary consumed by the

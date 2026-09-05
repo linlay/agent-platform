@@ -33,8 +33,8 @@ func TestStateMachineAlwaysReturnsDelegationResultsToCoordinator(t *testing.T) {
 		t.Fatal("waiting state machine must not require another delegation")
 	}
 	action, err := machine.FinishDispatch()
-	if err != nil || action != ActionContinueCoordinator || machine.Phase() != PhaseCoordinator || machine.DispatchCount() != 1 {
-		t.Fatalf("action=%q err=%v phase=%q count=%d", action, err, machine.Phase(), machine.DispatchCount())
+	if err != nil || action != ActionContinueCoordinator || machine.Phase() != PhaseCoordinator {
+		t.Fatalf("action=%q err=%v phase=%q", action, err, machine.Phase())
 	}
 	action, err = machine.RejectPlainText()
 	if err != nil || action != ActionComplete || machine.Phase() != PhaseComplete {

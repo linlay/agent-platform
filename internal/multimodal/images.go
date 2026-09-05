@@ -11,7 +11,6 @@ import (
 	_ "image/gif"
 	"image/jpeg"
 	_ "image/png"
-	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -156,18 +155,4 @@ func shrinkImage(data []byte, quality int) ([]byte, string, bool) {
 		return nil, "", false
 	}
 	return buf.Bytes(), "image/jpeg", true
-}
-
-func ReadAllLimited(reader io.Reader, limit int64) ([]byte, error) {
-	if limit <= 0 {
-		limit = DefaultMaxImageBytes
-	}
-	data, err := io.ReadAll(io.LimitReader(reader, limit+1))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(data)) > limit {
-		return nil, ErrImageTooLarge
-	}
-	return data, nil
 }

@@ -18,10 +18,6 @@ func IsToolInternalPath(path string) bool {
 	return false
 }
 
-func IsToolResultsPath(path string) bool {
-	return IsToolInternalPath(path)
-}
-
 func IsToolResultRelativePath(path string) bool {
 	clean := filepath.Clean(strings.TrimSpace(path))
 	if clean == "." || clean == "" || filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {

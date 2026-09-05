@@ -32,7 +32,6 @@ var (
 type StateMachine struct {
 	phase          Phase
 	routingRetries int
-	dispatchCount  int
 }
 
 func NewStateMachine() *StateMachine {
@@ -44,13 +43,6 @@ func (m *StateMachine) Phase() Phase {
 		return PhaseRouting
 	}
 	return m.phase
-}
-
-func (m *StateMachine) DispatchCount() int {
-	if m == nil {
-		return 0
-	}
-	return m.dispatchCount
 }
 
 func (m *StateMachine) RequiresDelegation() bool {
@@ -87,7 +79,6 @@ func (m *StateMachine) BeginDispatch(dispatch Dispatch) error {
 	if len(dispatch.Tasks) == 0 {
 		return fmt.Errorf("%w: dispatch requires tasks", ErrInvalidTransition)
 	}
-	m.dispatchCount++
 	m.phase = PhaseWaiting
 	return nil
 }

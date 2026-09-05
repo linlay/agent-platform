@@ -21,10 +21,6 @@ type ArchiveStore struct {
 	db   *sql.DB
 }
 
-func NewArchiveStore(chatsRoot string) (*ArchiveStore, error) {
-	return newArchiveStore(chatsRoot, false)
-}
-
 // NewArchiveStoreAtStartup is the only archive-store constructor allowed to
 // claim a structurally exact, unmarked (0,0) database.
 func NewArchiveStoreAtStartup(chatsRoot string) (*ArchiveStore, error) {

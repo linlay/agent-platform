@@ -56,7 +56,7 @@ func TestWebSocketTerminalOpenInputAndExit(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/terminal/open",
 		ID:    "term_open",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"agentKey": "coder-terminal",
 			"cols":     80,
 			"rows":     24,
@@ -86,7 +86,7 @@ func TestWebSocketTerminalOpenInputAndExit(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/terminal/input",
 		ID:    "term_input",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"terminalId": terminalID,
 			"data":       terminalReadyInput(),
 		}),
@@ -167,7 +167,7 @@ func TestWebSocketTerminalOpen_reusesAgentTerminalAcrossChatsAndDetachReplaysOut
 		Frame: ws.FrameRequest,
 		Type:  "/api/terminal/input",
 		ID:    "term_input_shared",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"terminalId": terminalID,
 			"data":       "printf agent-terminal-shared\\n\n",
 		}),
@@ -182,7 +182,7 @@ func TestWebSocketTerminalOpen_reusesAgentTerminalAcrossChatsAndDetachReplaysOut
 		Frame: ws.FrameRequest,
 		Type:  "/api/terminal/detach",
 		ID:    "term_detach_a",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"terminalId":      terminalID,
 			"streamRequestId": "term_open_chat_a",
 		}),
@@ -220,7 +220,7 @@ func TestWebSocketTerminalOpen_reusesAgentTerminalAcrossChatsAndDetachReplaysOut
 		Frame: ws.FrameRequest,
 		Type:  "/api/terminal/input",
 		ID:    "term_input_exit",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"terminalId": terminalID,
 			"data":       "exit\n",
 		}),
@@ -433,7 +433,7 @@ func TestWebSocketTerminalIsolatesSessionsAcrossConnections(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/terminal/input",
 		ID:    "cross_owner_input",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"terminalId": terminalA,
 			"data":       "printf should-not-run\\n\n",
 		}),
@@ -520,7 +520,7 @@ func TestWebSocketTerminalDetachRequiresMatchingTerminalStream(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/terminal/detach",
 		ID:    "term_detach_wrong",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"terminalId":      "other-terminal",
 			"streamRequestId": "term_open_detach",
 		}),
@@ -535,7 +535,7 @@ func TestWebSocketTerminalDetachRequiresMatchingTerminalStream(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/terminal/detach",
 		ID:    "term_detach_right",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"terminalId":      terminalID,
 			"streamRequestId": "term_open_detach",
 		}),
@@ -572,7 +572,7 @@ func TestWebSocketTerminalOpensAtConfiguredWorkspace(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/terminal/open",
 		ID:    "term_react",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"agentKey": "mock-agent",
 			"chatId":   "chat-react",
 			"cols":     80,
@@ -615,9 +615,9 @@ func TestWebSocketTerminalUnknownSessionControlsReturnNotFound(t *testing.T) {
 	waitForPushFrameType(t, conn, "connected")
 
 	requests := []ws.RequestFrame{
-		{Frame: ws.FrameRequest, Type: "/api/terminal/input", ID: "input_missing", Payload: ws.MarshalPayload(map[string]any{"terminalId": "missing", "data": "x"})},
-		{Frame: ws.FrameRequest, Type: "/api/terminal/resize", ID: "resize_missing", Payload: ws.MarshalPayload(map[string]any{"terminalId": "missing", "cols": 80, "rows": 24})},
-		{Frame: ws.FrameRequest, Type: "/api/terminal/close", ID: "close_missing", Payload: ws.MarshalPayload(map[string]any{"terminalId": "missing"})},
+		{Frame: ws.FrameRequest, Type: "/api/terminal/input", ID: "input_missing", Payload: marshalPayload(map[string]any{"terminalId": "missing", "data": "x"})},
+		{Frame: ws.FrameRequest, Type: "/api/terminal/resize", ID: "resize_missing", Payload: marshalPayload(map[string]any{"terminalId": "missing", "cols": 80, "rows": 24})},
+		{Frame: ws.FrameRequest, Type: "/api/terminal/close", ID: "close_missing", Payload: marshalPayload(map[string]any{"terminalId": "missing"})},
 	}
 	for _, request := range requests {
 		if err := conn.WriteJSON(request); err != nil {
@@ -890,7 +890,7 @@ func openTerminalStream(t *testing.T, conn *gws.Conn, requestID string, payload 
 		Frame:   ws.FrameRequest,
 		Type:    "/api/terminal/open",
 		ID:      requestID,
-		Payload: ws.MarshalPayload(payload),
+		Payload: marshalPayload(payload),
 	}); err != nil {
 		t.Fatalf("write terminal open %s: %v", requestID, err)
 	}
@@ -902,7 +902,7 @@ func closeTerminalByID(t *testing.T, conn *gws.Conn, requestID string, terminalI
 		Frame: ws.FrameRequest,
 		Type:  "/api/terminal/close",
 		ID:    requestID,
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"terminalId": terminalID,
 		}),
 	}); err != nil {

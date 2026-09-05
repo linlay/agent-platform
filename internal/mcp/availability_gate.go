@@ -90,10 +90,6 @@ func (g *AvailabilityGate) ReadyToRetry(serverKeys []string) []string {
 	return ready
 }
 
-func (g *AvailabilityGate) IsUnavailable(serverKey string) bool {
-	return g.IsBlocked(serverKey)
-}
-
 func (g *AvailabilityGate) Prune(activeServerKeys []string) {
 	if g == nil {
 		return

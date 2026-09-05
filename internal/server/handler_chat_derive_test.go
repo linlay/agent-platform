@@ -210,7 +210,7 @@ func TestWebSocketChatDeriveRoute(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/chat/derive",
 		ID:    "derive_ws",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"sourceChatId": "chat-ws-source",
 			"chatId":       "chat-ws-derived",
 		}),

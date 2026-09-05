@@ -352,7 +352,7 @@ func writeAgentFileWSRequest(t *testing.T, conn *gws.Conn, requestID string, pay
 		Frame:   ws.FrameRequest,
 		Type:    "/api/file",
 		ID:      requestID,
-		Payload: ws.MarshalPayload(payload),
+		Payload: marshalPayload(payload),
 	}); err != nil {
 		t.Fatalf("write websocket file request: %v", err)
 	}

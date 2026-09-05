@@ -439,13 +439,6 @@ func (c *RunControl) CompleteCompact(requestID string, response api.CompactRespo
 	return true
 }
 
-func (c *RunControl) CompactRequested() <-chan struct{} {
-	if c == nil {
-		return nil
-	}
-	return c.compactRequested
-}
-
 func (c *RunControl) HasPendingCompact() bool {
 	if c == nil {
 		return false
@@ -547,10 +540,6 @@ func (c *RunControl) closeSteers() {
 	c.mu.Unlock()
 }
 
-func (c *RunControl) AwaitSubmit(ctx context.Context, awaitingID string) (SubmitResult, error) {
-	return c.AwaitSubmitIndefinitely(ctx, awaitingID)
-}
-
 // AwaitSubmitIndefinitely waits until a submit, interruption, or context cancellation.
 // It deliberately bypasses the timeout-based waiting path.
 func (c *RunControl) AwaitSubmitIndefinitely(ctx context.Context, awaitingID string) (SubmitResult, error) {
@@ -566,14 +555,6 @@ func (c *RunControl) AwaitSubmitWithTimeout(ctx context.Context, awaitingID stri
 func (c *RunControl) AwaitSubmitWithTimeoutOrCompact(ctx context.Context, awaitingID string, timeout time.Duration) (SubmitResult, bool, error) {
 	result, _, compactRequested, err := c.awaitSubmit(ctx, awaitingID, &timeout, -1, true)
 	return result, compactRequested, err
-}
-
-func (c *RunControl) AwaitSubmitWithTimeoutOrAccessLevelChange(ctx context.Context, awaitingID string, timeout time.Duration, afterVersion int64) (SubmitResult, bool, error) {
-	if _, currentVersion := c.AccessLevelSnapshot(); currentVersion != afterVersion {
-		return SubmitResult{}, true, nil
-	}
-	result, accessChanged, _, err := c.awaitSubmit(ctx, awaitingID, &timeout, afterVersion, false)
-	return result, accessChanged, err
 }
 
 func (c *RunControl) AwaitSubmitWithTimeoutOrControlChange(ctx context.Context, awaitingID string, timeout time.Duration, afterVersion int64) (SubmitResult, bool, bool, error) {
@@ -879,20 +860,6 @@ func (c *RunControl) ActiveAwaitings() []AwaitingSubmitContext {
 	return result
 }
 
-func (c *RunControl) HasNoTimeoutAwaiting() bool {
-	if c == nil {
-		return false
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for _, awaiting := range c.awaitingSubmits {
-		if awaiting.NoTimeout {
-			return true
-		}
-	}
-	return false
-}
-
 func (c *RunControl) LookupResolvedSubmit(awaitingID string) (SubmitAck, bool) {
 	if c == nil || awaitingID == "" {
 		return SubmitAck{}, false
@@ -1032,10 +999,6 @@ func (c *RunControl) SetObserverCount(count int32) {
 		count = 0
 	}
 	c.observerCnt.Store(count)
-}
-
-func (c *RunControl) HasObserver() bool {
-	return c != nil && c.observerCnt.Load() > 0
 }
 
 func (c *RunControl) ObserverCount() int32 {

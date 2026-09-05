@@ -39,7 +39,7 @@ func TestClientStrictlyRejectsNegotiatedProtocolVersions(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), ProtocolVersion) {
 				t.Fatalf("Initialize error = %v, want required version %s", err, ProtocolVersion)
 			}
-			if !gate.IsUnavailable("strict") {
+			if !gate.IsBlocked("strict") {
 				t.Fatal("version-incompatible server was not placed in the availability gate")
 			}
 			deadline := time.Now().Add(time.Second)

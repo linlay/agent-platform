@@ -475,11 +475,6 @@ func firstAny(values map[string]any, keys ...string) any {
 	return value
 }
 
-func hasAny(values map[string]any, keys ...string) bool {
-	_, ok := firstExisting(values, keys...)
-	return ok
-}
-
 func applyIntAliases(values map[string]any, target *int, keys ...string) {
 	for _, key := range keys {
 		if value, exists := values[key]; exists {

@@ -29,14 +29,6 @@ func (m mockRememberSummarizer) SummarizeLearn(input LearnSynthesisInput) ([]Mem
 	return m.learn(input)
 }
 
-func TestFileStoreToolQueries(t *testing.T) {
-	store, err := NewFileStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new file store: %v", err)
-	}
-	runToolQueriesTest(t, store, "like")
-}
-
 func TestSQLiteStoreToolQueries(t *testing.T) {
 	store, err := NewSQLiteStore(t.TempDir(), "memory.db")
 	if err != nil {
@@ -120,21 +112,11 @@ func TestSQLiteStoreRejectsResidualRuntimeData(t *testing.T) {
 	}
 }
 
-func TestConsolidateSupersedesNearDuplicateFactsAcrossStores(t *testing.T) {
+func TestSQLiteConsolidateSupersedesNearDuplicateFacts(t *testing.T) {
 	tests := []struct {
 		name  string
 		build func(t *testing.T) Store
 	}{
-		{
-			name: "file",
-			build: func(t *testing.T) Store {
-				store, err := NewFileStore(t.TempDir())
-				if err != nil {
-					t.Fatalf("new file store: %v", err)
-				}
-				return store
-			},
-		},
 		{
 			name: "sqlite",
 			build: func(t *testing.T) Store {
@@ -342,26 +324,11 @@ func historyHasOperation(events []HistoryEvent, operation string) bool {
 	return false
 }
 
-func TestLearnCanSkipStorageViaSummarizerAcrossStores(t *testing.T) {
+func TestSQLiteLearnCanSkipStorageViaSummarizer(t *testing.T) {
 	tests := []struct {
 		name  string
 		build func(t *testing.T) Store
 	}{
-		{
-			name: "file",
-			build: func(t *testing.T) Store {
-				store, err := NewFileStore(t.TempDir())
-				if err != nil {
-					t.Fatalf("new file store: %v", err)
-				}
-				store.SetRememberSummarizer(mockRememberSummarizer{
-					learn: func(input LearnSynthesisInput) ([]MemoryDraft, error) {
-						return nil, nil
-					},
-				})
-				return store
-			},
-		},
 		{
 			name: "sqlite",
 			build: func(t *testing.T) Store {
@@ -529,17 +496,6 @@ func TestBuildContextBundleSeparatesFactsAndObservations(t *testing.T) {
 		name  string
 		build func(t *testing.T) (Store, string)
 	}{
-		{
-			name: "file",
-			build: func(t *testing.T) (Store, string) {
-				root := t.TempDir()
-				store, err := NewFileStore(root)
-				if err != nil {
-					t.Fatalf("new file store: %v", err)
-				}
-				return store, root
-			},
-		},
 		{
 			name: "sqlite",
 			build: func(t *testing.T) (Store, string) {
@@ -886,17 +842,6 @@ func TestLearnStoresObservationAndRefreshesSnapshots(t *testing.T) {
 		build func(t *testing.T) (Store, string)
 	}{
 		{
-			name: "file",
-			build: func(t *testing.T) (Store, string) {
-				root := t.TempDir()
-				store, err := NewFileStore(root)
-				if err != nil {
-					t.Fatalf("new file store: %v", err)
-				}
-				return store, root
-			},
-		},
-		{
 			name: "sqlite",
 			build: func(t *testing.T) (Store, string) {
 				root := t.TempDir()
@@ -984,16 +929,6 @@ func TestLearnAutoConsolidatesDuplicateObservations(t *testing.T) {
 		build func(t *testing.T) Store
 	}{
 		{
-			name: "file",
-			build: func(t *testing.T) Store {
-				store, err := NewFileStore(t.TempDir())
-				if err != nil {
-					t.Fatalf("new file store: %v", err)
-				}
-				return store
-			},
-		},
-		{
 			name: "sqlite",
 			build: func(t *testing.T) Store {
 				store, err := NewSQLiteStore(t.TempDir(), "memory.db")
@@ -1076,16 +1011,6 @@ func TestLearnWritesProceduralSkillCandidate(t *testing.T) {
 		name  string
 		build func(t *testing.T) Store
 	}{
-		{
-			name: "file",
-			build: func(t *testing.T) Store {
-				store, err := NewFileStore(t.TempDir())
-				if err != nil {
-					t.Fatalf("new file store: %v", err)
-				}
-				return store
-			},
-		},
 		{
 			name: "sqlite",
 			build: func(t *testing.T) Store {
@@ -1296,16 +1221,6 @@ func TestWriteExactDuplicateBumpsExistingRecordInsteadOfCreatingNewOne(t *testin
 		build func(t *testing.T) Store
 	}{
 		{
-			name: "file",
-			build: func(t *testing.T) Store {
-				store, err := NewFileStore(t.TempDir())
-				if err != nil {
-					t.Fatalf("new file store: %v", err)
-				}
-				return store
-			},
-		},
-		{
 			name: "sqlite",
 			build: func(t *testing.T) Store {
 				store, err := NewSQLiteStore(t.TempDir(), "memory.db")
@@ -1396,16 +1311,6 @@ func TestWriteNearDuplicateFactMergesIntoExistingRecordInsteadOfCreatingNewOne(t
 		name  string
 		build func(t *testing.T) Store
 	}{
-		{
-			name: "file",
-			build: func(t *testing.T) Store {
-				store, err := NewFileStore(t.TempDir())
-				if err != nil {
-					t.Fatalf("new file store: %v", err)
-				}
-				return store
-			},
-		},
 		{
 			name: "sqlite",
 			build: func(t *testing.T) Store {
@@ -1500,16 +1405,6 @@ func TestMemoryWriteRejectsUnsafeContent(t *testing.T) {
 		name  string
 		build func(t *testing.T) Store
 	}{
-		{
-			name: "file",
-			build: func(t *testing.T) Store {
-				store, err := NewFileStore(t.TempDir())
-				if err != nil {
-					t.Fatalf("new file store: %v", err)
-				}
-				return store
-			},
-		},
 		{
 			name: "sqlite",
 			build: func(t *testing.T) Store {

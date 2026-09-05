@@ -13,7 +13,7 @@ import (
 
 func TestFileHistoryRecordsNewFileWithEmptyOriginal(t *testing.T) {
 	root := t.TempDir()
-	store, err := chat.NewFileStore(filepath.Join(t.TempDir(), "chats"))
+	store, err := chat.NewFileStoreAtStartup(filepath.Join(t.TempDir(), "chats"))
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestFileHistoryRecordsNewFileWithEmptyOriginal(t *testing.T) {
 
 func TestFileHistoryKeepsFirstOriginalAndLatestCurrent(t *testing.T) {
 	root := t.TempDir()
-	store, err := chat.NewFileStore(filepath.Join(t.TempDir(), "chats"))
+	store, err := chat.NewFileStoreAtStartup(filepath.Join(t.TempDir(), "chats"))
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestFileHistoryKeepsFirstOriginalAndLatestCurrent(t *testing.T) {
 
 func TestFileHistoryMissingEntryReturnsNotExist(t *testing.T) {
 	root := t.TempDir()
-	store, err := chat.NewFileStore(filepath.Join(t.TempDir(), "chats"))
+	store, err := chat.NewFileStoreAtStartup(filepath.Join(t.TempDir(), "chats"))
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}

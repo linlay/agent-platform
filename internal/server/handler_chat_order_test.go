@@ -126,7 +126,7 @@ func writeChatOrderWSRequest(t *testing.T, conn *gws.Conn, id string, payload ma
 		Frame:   ws.FrameRequest,
 		Type:    "/api/chats/order",
 		ID:      id,
-		Payload: ws.MarshalPayload(payload),
+		Payload: marshalPayload(payload),
 	}); err != nil {
 		t.Fatalf("write websocket request %s: %v", id, err)
 	}

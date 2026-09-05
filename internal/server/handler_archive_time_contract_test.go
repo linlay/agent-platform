@@ -59,7 +59,7 @@ func TestArchiveTimeContractViolationsReturn422OverHTTPAndWS(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/archives",
 		ID:      "archive-time-contract",
-		Payload: ws.MarshalPayload(api.ArchivesRequest{}),
+		Payload: marshalPayload(api.ArchivesRequest{}),
 	}); err != nil {
 		t.Fatalf("write WS request: %v", err)
 	}
@@ -75,11 +75,11 @@ func TestArchiveTimeContractViolationsReturn422OverHTTPAndWS(t *testing.T) {
 func newStrictArchiveContractServer(t *testing.T) (*Server, *chat.FileStore, *chat.ArchiveStore, string) {
 	t.Helper()
 	chatsRoot := filepath.Join(t.TempDir(), "chats")
-	active, err := chat.NewFileStore(chatsRoot)
+	active, err := chat.NewFileStoreAtStartup(chatsRoot)
 	if err != nil {
 		t.Fatalf("new active store: %v", err)
 	}
-	archives, err := chat.NewArchiveStore(chatsRoot)
+	archives, err := chat.NewArchiveStoreAtStartup(chatsRoot)
 	if err != nil {
 		t.Fatalf("new archive store: %v", err)
 	}

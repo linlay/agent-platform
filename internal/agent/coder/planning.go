@@ -71,13 +71,6 @@ func PlanningApproveExecutePrompt(originalRequest string, planningMarkdown strin
 	return "Execute the confirmed CODER planning.\n\nOriginal request:\n" + originalRequest + "\n\nConfirmed planning:\n" + planningMarkdown
 }
 
-func SystemPromptForMode(mode string, prompt string) string {
-	if !IsMode(mode) {
-		return ""
-	}
-	return strings.TrimSpace(prompt)
-}
-
 func RuntimeToolNamesForAgent(mode string, acpBridgeID string, stage string, toolNames []string) []string {
 	if !IsNativeBackend(mode, acpBridgeID) {
 		return append([]string(nil), toolNames...)

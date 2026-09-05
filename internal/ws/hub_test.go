@@ -155,12 +155,12 @@ func TestHubWebClientSurfaceReplacesOldConnection(t *testing.T) {
 		Subject:     "user-1",
 		SurfaceID:   "surface-1",
 	}
-	if got, ok := hub.resolveWebClientConnection(target); !ok || got != first {
+	if got, ok := hub.resolveClientConnection(target); !ok || got != first {
 		t.Fatalf("expected first webclient connection, got %#v ok=%v", got, ok)
 	}
 
 	hub.register(second)
-	if got, ok := hub.resolveWebClientConnection(target); !ok || got != second {
+	if got, ok := hub.resolveClientConnection(target); !ok || got != second {
 		t.Fatalf("expected latest webclient connection, got %#v ok=%v", got, ok)
 	}
 	if !first.isClosed() {
@@ -168,7 +168,7 @@ func TestHubWebClientSurfaceReplacesOldConnection(t *testing.T) {
 	}
 
 	hub.unregister(second)
-	if got, ok := hub.resolveWebClientConnection(target); ok || got != nil {
+	if got, ok := hub.resolveClientConnection(target); ok || got != nil {
 		t.Fatalf("expected no webclient connection, got %#v ok=%v", got, ok)
 	}
 }
@@ -192,7 +192,7 @@ func TestHubWebClientSessionTargetDoesNotRequireSurfaceOrSource(t *testing.T) {
 	if len(hub.webClientConns) != 0 || len(hub.webClientKeys) != 0 {
 		t.Fatalf("connection without surface must not enter logical surface map")
 	}
-	if got, ok := hub.resolveWebClientConnection(target); !ok || got != conn {
+	if got, ok := hub.resolveClientConnection(target); !ok || got != conn {
 		t.Fatalf("expected direct session resolution, got %#v ok=%v", got, ok)
 	}
 }
@@ -293,7 +293,7 @@ func TestHubWebClientSurfaceDoesNotCrossSubjects(t *testing.T) {
 	conn.SetClientSurfaceID("shared-surface")
 	hub.register(conn)
 
-	if got, ok := hub.resolveWebClientConnection(contracts.WebClientTarget{
+	if got, ok := hub.resolveClientConnection(contracts.WebClientTarget{
 		BoundaryKey: "subject:user-2\x00device:device-1",
 		Subject:     "user-2",
 		SurfaceID:   "shared-surface",
@@ -313,7 +313,7 @@ func TestHubWebClientSurfaceDoesNotCrossDevices(t *testing.T) {
 	conn.SetClientSurfaceID("shared-surface")
 	hub.register(conn)
 
-	if got, ok := hub.resolveWebClientConnection(contracts.WebClientTarget{
+	if got, ok := hub.resolveClientConnection(contracts.WebClientTarget{
 		BoundaryKey: "subject:user-1\x00device:device-2",
 		Subject:     "user-1",
 		SurfaceID:   "shared-surface",

@@ -324,7 +324,7 @@ func TestWSChatJSONLReturnsRawContent(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/chat/jsonl",
 		ID:      "req_raw_jsonl",
-		Payload: ws.MarshalPayload(map[string]any{"chatId": chatID}),
+		Payload: marshalPayload(map[string]any{"chatId": chatID}),
 	}); err != nil {
 		t.Fatalf("write request: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestWSChatJSONLValidationAndNotFound(t *testing.T) {
 				Frame:   ws.FrameRequest,
 				Type:    "/api/chat/jsonl",
 				ID:      tc.id,
-				Payload: ws.MarshalPayload(tc.payload),
+				Payload: marshalPayload(tc.payload),
 			}); err != nil {
 				t.Fatalf("write request: %v", err)
 			}
@@ -409,7 +409,7 @@ func TestChatJSONLReturnsSchemaViolationOverHTTPAndWebSocket(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/chat/jsonl",
 		ID:      "req_schema_violation",
-		Payload: ws.MarshalPayload(map[string]any{"chatId": chatID}),
+		Payload: marshalPayload(map[string]any{"chatId": chatID}),
 	}); err != nil {
 		t.Fatalf("write request: %v", err)
 	}
@@ -460,7 +460,7 @@ func TestWSChatSystemPromptReturnsPersistedSnapshot(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/chat/system-prompt",
 		ID:      "req_system_prompt",
-		Payload: ws.MarshalPayload(map[string]any{"chatId": chatID, "runId": runID, "agentKey": agentKey}),
+		Payload: marshalPayload(map[string]any{"chatId": chatID, "runId": runID, "agentKey": agentKey}),
 	}); err != nil {
 		t.Fatalf("write request: %v", err)
 	}
@@ -504,11 +504,11 @@ func TestWSChatSystemPromptValidationAndNotFound(t *testing.T) {
 		code    int
 		typeKey string
 	}{
-		{name: "missing", id: "req_system_prompt_missing", payload: ws.MarshalPayload(map[string]any{}), code: http.StatusBadRequest, typeKey: "invalid_request"},
+		{name: "missing", id: "req_system_prompt_missing", payload: marshalPayload(map[string]any{}), code: http.StatusBadRequest, typeKey: "invalid_request"},
 		{name: "malformed", id: "req_system_prompt_malformed", payload: json.RawMessage(`[]`), code: http.StatusBadRequest, typeKey: "invalid_request"},
-		{name: "invalid chat", id: "req_system_prompt_invalid", payload: ws.MarshalPayload(map[string]any{"chatId": "../chat", "runId": "run_1", "agentKey": "agent"}), code: http.StatusBadRequest, typeKey: "invalid_request"},
-		{name: "chat not found", id: "req_system_prompt_not_found", payload: ws.MarshalPayload(map[string]any{"chatId": "missing-chat", "runId": "run_1", "agentKey": "agent"}), code: http.StatusNotFound, typeKey: "not_found"},
-		{name: "snapshot not found", id: "req_system_prompt_snapshot_not_found", payload: ws.MarshalPayload(map[string]any{"chatId": noSnapshotChatID, "runId": "run_1", "agentKey": "agent-ws"}), code: http.StatusNotFound, typeKey: "not_found"},
+		{name: "invalid chat", id: "req_system_prompt_invalid", payload: marshalPayload(map[string]any{"chatId": "../chat", "runId": "run_1", "agentKey": "agent"}), code: http.StatusBadRequest, typeKey: "invalid_request"},
+		{name: "chat not found", id: "req_system_prompt_not_found", payload: marshalPayload(map[string]any{"chatId": "missing-chat", "runId": "run_1", "agentKey": "agent"}), code: http.StatusNotFound, typeKey: "not_found"},
+		{name: "snapshot not found", id: "req_system_prompt_snapshot_not_found", payload: marshalPayload(map[string]any{"chatId": noSnapshotChatID, "runId": "run_1", "agentKey": "agent-ws"}), code: http.StatusNotFound, typeKey: "not_found"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := conn.WriteJSON(ws.RequestFrame{
@@ -548,7 +548,7 @@ func TestWSChatSystemPromptTimeContractViolation(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/chat/system-prompt",
 		ID:      "req_system_prompt_invalid_time",
-		Payload: ws.MarshalPayload(map[string]any{"chatId": chatID, "runId": "run_1", "agentKey": "agent-ws"}),
+		Payload: marshalPayload(map[string]any{"chatId": chatID, "runId": "run_1", "agentKey": "agent-ws"}),
 	}); err != nil {
 		t.Fatalf("write request: %v", err)
 	}
@@ -573,7 +573,7 @@ func TestWSChatLLMTraceRejectsFinalizedTraceWithoutRequiredTimes(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/chat/llm-trace",
 		ID:      "req_raw_llm_trace",
-		Payload: ws.MarshalPayload(map[string]any{"file": fileParam}),
+		Payload: marshalPayload(map[string]any{"file": fileParam}),
 	}); err != nil {
 		t.Fatalf("write request: %v", err)
 	}
@@ -611,7 +611,7 @@ func TestWSChatLLMTraceValidationAndNotFound(t *testing.T) {
 				Frame:   ws.FrameRequest,
 				Type:    "/api/chat/llm-trace",
 				ID:      tc.id,
-				Payload: ws.MarshalPayload(tc.payload),
+				Payload: marshalPayload(tc.payload),
 			}); err != nil {
 				t.Fatalf("write request: %v", err)
 			}
@@ -627,7 +627,7 @@ func TestWSChatLLMTraceValidationAndNotFound(t *testing.T) {
 }
 
 func TestLoadJSONLContentRejectsInvalidChatID(t *testing.T) {
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new store: %v", err)
 	}

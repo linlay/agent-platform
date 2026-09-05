@@ -410,10 +410,6 @@ func buildCompactPrompt(messages []map[string]any) string {
 ` + rendered)
 }
 
-func BuildCompactPrompt(messages []map[string]any) string {
-	return buildCompactPrompt(messages)
-}
-
 // BuildCompactPromptWithinBudget always renders the complete normalized
 // history. If one summary model call cannot contain it, callers must fail
 // explicitly rather than dropping the middle or recursively summarizing.
@@ -560,10 +556,6 @@ func deterministicCompactSummary(messages []map[string]any) string {
 		b.WriteString(fmt.Sprintf("  - [%s] %s\n", role, text))
 	}
 	return strings.TrimSpace(b.String())
-}
-
-func DeterministicCompactSummary(messages []map[string]any) string {
-	return deterministicCompactSummary(messages)
 }
 
 func CompactCheckpointSummaryMessage(summary string) string {

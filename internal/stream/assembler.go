@@ -109,10 +109,6 @@ func (a *StreamEventAssembler) SetRunStartedAtMillis(value int64) {
 	a.request.StartedAtMillis = value
 }
 
-func (a *StreamEventAssembler) Bootstrap() []StreamEvent {
-	return visibleEmissionEvents(a.BootstrapEmissions())
-}
-
 func (a *StreamEventAssembler) BootstrapEmissions() []EventEmission {
 	queryPayload := map[string]any{
 		"requestId": a.request.RequestID,
@@ -260,24 +256,12 @@ func isEmptyValue(value any) bool {
 	}
 }
 
-func (a *StreamEventAssembler) Consume(input StreamInput) []StreamEvent {
-	return visibleEmissionEvents(a.ConsumeEmissions(input))
-}
-
 func (a *StreamEventAssembler) ConsumeEmissions(input StreamInput) []EventEmission {
 	return a.emit(a.dispatcher.Dispatch(input))
 }
 
-func (a *StreamEventAssembler) Complete() []StreamEvent {
-	return visibleEmissionEvents(a.CompleteEmissions())
-}
-
 func (a *StreamEventAssembler) CompleteEmissions() []EventEmission {
 	return a.emit(a.dispatcher.Complete())
-}
-
-func (a *StreamEventAssembler) Fail(err error) []StreamEvent {
-	return visibleEmissionEvents(a.FailEmissions(err))
 }
 
 func (a *StreamEventAssembler) FailEmissions(err error) []EventEmission {
@@ -311,17 +295,4 @@ func (a *StreamEventAssembler) emit(events []StreamEvent) []EventEmission {
 		emissions = append(emissions, EventEmission{Event: event, Normalized: normalized, Visible: visible, Cursor: cursor})
 	}
 	return emissions
-}
-
-func visibleEmissionEvents(emissions []EventEmission) []StreamEvent {
-	if len(emissions) == 0 {
-		return nil
-	}
-	events := make([]StreamEvent, 0, len(emissions))
-	for _, emission := range emissions {
-		if emission.Visible {
-			events = append(events, emission.Event)
-		}
-	}
-	return events
 }

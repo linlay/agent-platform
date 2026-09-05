@@ -23,7 +23,7 @@ func TestClientStdioSessionConcurrencyReloadAndClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRegistry: %v", err)
 	}
-	client := NewClient(registry, nil)
+	client := NewClientWithGate(registry, nil, nil)
 
 	tools, err := client.ListTools(t.Context(), "stdio-test")
 	if err != nil {

@@ -44,7 +44,7 @@ func TestToolSyncLoadsStaticAndDiscoveredTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
-	client := NewClient(registry, server.Client())
+	client := NewClientWithGate(registry, server.Client(), nil)
 	defer client.Close()
 	tools, err := NewToolSync(registry, client).Load(context.Background())
 	if err != nil {
@@ -89,7 +89,7 @@ func TestClientCallToolUsesJSONRPC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new registry: %v", err)
 	}
-	client := NewClient(registry, server.Client())
+	client := NewClientWithGate(registry, server.Client(), nil)
 	defer client.Close()
 	result, err := client.CallTool(context.Background(), "demo", "tool_a", map[string]any{"value": 1}, map[string]any{"toolName": "tool_a"})
 	if err != nil {
@@ -215,10 +215,10 @@ func TestToolSyncSkipsUnavailableServersAndKeepsReachableTools(t *testing.T) {
 	if len(tools) != 1 || tools[0].Name != "remote_tool" {
 		t.Fatalf("expected reachable tools only, got %#v", tools)
 	}
-	if !gate.IsUnavailable("dead") {
+	if !gate.IsBlocked("dead") {
 		t.Fatalf("expected dead server to be marked unavailable")
 	}
-	if gate.IsUnavailable("reachable") {
+	if gate.IsBlocked("reachable") {
 		t.Fatalf("expected reachable server to remain available")
 	}
 	if status, ok := syncer.ServerStatus("reachable"); !ok || status.Status != ToolSyncStatusReady || status.LastSyncSuccessAt == 0 || status.Diagnostic != nil {
@@ -485,7 +485,7 @@ func TestAvailabilityGateBackoffPolicyAndReset(t *testing.T) {
 		t.Fatalf("second backoff = %s, want 20ms", got)
 	}
 	gate.MarkSuccess(" demo ")
-	if gate.IsUnavailable("demo") {
+	if gate.IsBlocked("demo") {
 		t.Fatal("expected success to clear unavailable state")
 	}
 	if got := gate.currentBackoff["demo"]; got != 0 {

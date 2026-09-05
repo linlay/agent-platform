@@ -54,10 +54,6 @@ type managedSession struct {
 	session     *sdkmcp.ClientSession
 }
 
-func NewClient(registry *Registry, httpClient *http.Client) *Client {
-	return NewClientWithGate(registry, httpClient, nil)
-}
-
 func NewClientWithGate(registry *Registry, httpClient *http.Client, gate *AvailabilityGate) *Client {
 	if httpClient == nil {
 		httpClient = &http.Client{}

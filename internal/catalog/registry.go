@@ -602,28 +602,6 @@ func EffectiveAgentVisibilityScopes(def AgentDefinition) []string {
 	return append([]string(nil), def.VisibilityScopes...)
 }
 
-func projectPromptFilesMeta(files []AgentProjectPromptFile) []map[string]any {
-	if len(files) == 0 {
-		return nil
-	}
-	out := make([]map[string]any, 0, len(files))
-	for _, file := range files {
-		out = append(out, map[string]any{
-			"source": file.Source,
-			"path":   file.Path,
-		})
-	}
-	return out
-}
-
-func hasRuntimeSandboxDefinition(runtime map[string]any) bool {
-	if len(runtime) == 0 {
-		return false
-	}
-	environmentID, _ := runtime["environmentId"].(string)
-	return strings.TrimSpace(environmentID) != ""
-}
-
 func normalizeProxyTransport(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "sse":
@@ -633,17 +611,6 @@ func normalizeProxyTransport(value string) string {
 	default:
 		return "ws"
 	}
-}
-
-func runtimeSandboxSummaryMeta(runtime map[string]any) map[string]any {
-	out := map[string]any{
-		"environmentId": strings.TrimSpace(stringNode(runtime["environmentId"])),
-		"level":         strings.ToUpper(strings.TrimSpace(stringNode(runtime["level"]))),
-	}
-	if mounts := listMaps(runtime["sandboxMounts"]); len(mounts) > 0 {
-		out["sandboxMounts"] = cloneListMaps(mounts)
-	}
-	return out
 }
 
 func (r *FileRegistry) SkillDefinition(key string) (SkillDefinition, bool) {
@@ -903,22 +870,6 @@ func intNode(value any) int {
 		return int(v)
 	case string:
 		n, _ := strconv.Atoi(strings.TrimSpace(v))
-		return n
-	default:
-		return 0
-	}
-}
-
-func floatNode(value any) float64 {
-	switch v := value.(type) {
-	case float64:
-		return v
-	case int:
-		return float64(v)
-	case int64:
-		return float64(v)
-	case string:
-		n, _ := strconv.ParseFloat(strings.TrimSpace(v), 64)
 		return n
 	default:
 		return 0

@@ -565,10 +565,6 @@ func (c *Conn) ReserveStream(requestID string, runID string) (string, error) {
 	return streamID, nil
 }
 
-func (c *Conn) ReserveNamedStream(requestID string, streamID string) error {
-	return c.reserveNamedStream(requestID, streamID, "", "")
-}
-
 func (c *Conn) ReserveTerminalStream(requestID string, terminalID string) error {
 	return c.reserveNamedStream(requestID, terminalID, streamKindTerminal, terminalID)
 }

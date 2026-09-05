@@ -466,7 +466,7 @@ func TestDeferredQuestionSubmitRejectsInvalidAnswerAndAllowsRetry(t *testing.T) 
 
 func TestPersistDeferredAwaitingToolAnswerWritesReactToolLine(t *testing.T) {
 	root := t.TempDir()
-	store, err := chat.NewFileStore(root)
+	store, err := chat.NewFileStoreAtStartup(root)
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
@@ -590,7 +590,7 @@ func TestDeferredSubmitWSRestoresPendingAwaitingAfterRestart(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/submit",
 		ID:    "req_submit_deferred",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"chatId":     "chat-ws",
 			"submitId":   "submit-ws",
 			"agentKey":   "mock-agent",

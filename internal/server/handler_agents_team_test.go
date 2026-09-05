@@ -116,7 +116,7 @@ func TestAgentsIncludeTeamHTTPAndWebSocket(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/agents",
 		ID:    "agents_include_team",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"scope":        "nav",
 			"includeTeam":  true,
 			"includeChats": 1,
@@ -140,7 +140,7 @@ func TestAgentsIncludeTeamHTTPAndWebSocket(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/agents",
 		ID:      "agents_include_team_invalid",
-		Payload: ws.MarshalPayload(map[string]any{"includeTeam": "true"}),
+		Payload: marshalPayload(map[string]any{"includeTeam": "true"}),
 	}); err != nil {
 		t.Fatalf("write invalid includeTeam websocket request: %v", err)
 	}

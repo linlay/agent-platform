@@ -91,7 +91,7 @@ func TestExecutionStoreRecordsAndListsExecutions(t *testing.T) {
 		t.Fatalf("record second start: %v", err)
 	}
 	secondID := second.ID
-	recent, total, err := store.ListRecent(1, 0)
+	recent, total, err := store.ListByAutomation("daily", 1, 0)
 	if err != nil {
 		t.Fatalf("list recent: %v", err)
 	}

@@ -2,50 +2,7 @@ package hitl
 
 import (
 	"strings"
-	"sync"
 )
-
-type Registry struct {
-	root string
-
-	mu      sync.RWMutex
-	version int64
-	rules   []FlatRule
-	byCmd   map[string][]FlatRule
-}
-
-func NewRegistry(root string) (*Registry, error) {
-	registry := &Registry{
-		root:  root,
-		byCmd: map[string][]FlatRule{},
-	}
-	if err := registry.Reload(); err != nil {
-		return nil, err
-	}
-	return registry, nil
-}
-
-func (r *Registry) Reload() error {
-	rules, err := loadRulesFromDir(r.root)
-	if err != nil {
-		return err
-	}
-	byCmd := buildIndexes(rules)
-
-	r.mu.Lock()
-	r.rules = append([]FlatRule(nil), rules...)
-	r.byCmd = byCmd
-	r.version++
-	r.mu.Unlock()
-	return nil
-}
-
-func (r *Registry) Check(command string, chatLevel int) InterceptResult {
-	r.mu.RLock()
-	byCmd := r.byCmd
-	r.mu.RUnlock()
-	return checkRules(byCmd, command, chatLevel)
-}
 
 func matchesTokens(commandTokens []string, matchTokens []string) bool {
 	if len(matchTokens) == 0 {

@@ -53,11 +53,3 @@ func ValidateValue(value string, maxBytes int) error {
 	}
 	return nil
 }
-
-func HardDeniedNames() []string {
-	out := make([]string, 0, len(hardDeniedNames))
-	for name := range hardDeniedNames {
-		out = append(out, name)
-	}
-	return out
-}

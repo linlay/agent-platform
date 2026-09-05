@@ -137,7 +137,7 @@ func (r queryMemoryRegistry) AgentDefinition(key string) (catalog.AgentDefinitio
 }
 
 func TestPrepareQueryPromotesUploadCreatedChatNameAndUpdatesAgentKey(t *testing.T) {
-	chats, err := chat.NewFileStore(t.TempDir())
+	chats, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestPrepareQueryPromotesUploadCreatedChatNameAndUpdatesAgentKey(t *testing.
 
 func TestPrepareQueryNonSandboxAgentCreatesChatDirectory(t *testing.T) {
 	chatsRoot := t.TempDir()
-	chats, err := chat.NewFileStore(chatsRoot)
+	chats, err := chat.NewFileStoreAtStartup(chatsRoot)
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -236,11 +236,11 @@ func TestPrepareQueryNonSandboxAgentCreatesChatDirectory(t *testing.T) {
 }
 
 func TestPrepareQuerySkipsMemoryInjectionWhenTemporarilyDisabled(t *testing.T) {
-	chats, err := chat.NewFileStore(t.TempDir())
+	chats, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
-	memories, err := memory.NewFileStore(t.TempDir())
+	memories, err := newTestMemoryStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new memory store: %v", err)
 	}
@@ -368,11 +368,11 @@ func TestBuildMemoryHitItemsReflectsPromptInjectedRecords(t *testing.T) {
 }
 
 func TestPrepareQueryDoesNotInjectStableFactsWhenMemoryTemporarilyDisabled(t *testing.T) {
-	chats, err := chat.NewFileStore(t.TempDir())
+	chats, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
-	memories, err := memory.NewFileStore(t.TempDir())
+	memories, err := newTestMemoryStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new memory store: %v", err)
 	}
@@ -469,11 +469,11 @@ func TestPrepareQueryDoesNotInjectStableFactsWhenMemoryTemporarilyDisabled(t *te
 }
 
 func TestPrepareQueryDoesNotInjectSessionMemoryWhenMemoryTemporarilyDisabled(t *testing.T) {
-	chats, err := chat.NewFileStore(t.TempDir())
+	chats, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
-	memories, err := memory.NewFileStore(t.TempDir())
+	memories, err := newTestMemoryStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new memory store: %v", err)
 	}
@@ -555,11 +555,11 @@ func TestPrepareQueryDoesNotInjectSessionMemoryWhenMemoryTemporarilyDisabled(t *
 }
 
 func TestPrepareQuerySkipsMemoryContextWhenMemorySystemDisabled(t *testing.T) {
-	chats, err := chat.NewFileStore(t.TempDir())
+	chats, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
-	memories, err := memory.NewFileStore(t.TempDir())
+	memories, err := newTestMemoryStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new memory store: %v", err)
 	}
@@ -615,7 +615,7 @@ func TestPrepareQuerySkipsMemoryContextWhenMemorySystemDisabled(t *testing.T) {
 }
 
 func TestPrepareQueryFailsFastWhenSandboxAgentRequiresDisabledContainerHub(t *testing.T) {
-	chats, err := chat.NewFileStore(t.TempDir())
+	chats, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -650,7 +650,7 @@ func TestPrepareQueryFailsFastWhenSandboxAgentRequiresDisabledContainerHub(t *te
 }
 
 func TestPrepareQueryAllowsRuntimeEnvWithoutContainerHub(t *testing.T) {
-	chats, err := chat.NewFileStore(t.TempDir())
+	chats, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -691,7 +691,7 @@ func TestPrepareQueryAllowsRuntimeEnvWithoutContainerHub(t *testing.T) {
 }
 
 func TestPrepareQueryDesktopParamsDoNotGrantToolsOrRuntimeEnv(t *testing.T) {
-	chats, err := chat.NewFileStore(t.TempDir())
+	chats, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -740,7 +740,7 @@ func TestPrepareQueryDesktopParamsDoNotGrantToolsOrRuntimeEnv(t *testing.T) {
 }
 
 func TestPrepareQueryCapsDesktopImageStudioZenmiRunToOneToolCall(t *testing.T) {
-	chats, err := chat.NewFileStore(t.TempDir())
+	chats, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}

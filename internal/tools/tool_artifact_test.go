@@ -246,7 +246,7 @@ func TestInvokeArtifactPublishPersistsManifestBeforeReturningSuccess(t *testing.
 	workspace = mustGetwd(t)
 
 	chatsRoot := filepath.Join(workspace, "chats")
-	store, err := chat.NewFileStore(chatsRoot)
+	store, err := chat.NewFileStoreAtStartup(chatsRoot)
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -282,7 +282,7 @@ func TestInvokeArtifactPublishFailsWhenManifestCannotBeWritten(t *testing.T) {
 	workspace = mustGetwd(t)
 
 	chatsRoot := filepath.Join(workspace, "chats")
-	store, err := chat.NewFileStore(chatsRoot)
+	store, err := chat.NewFileStoreAtStartup(chatsRoot)
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}

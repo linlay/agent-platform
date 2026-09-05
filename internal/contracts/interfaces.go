@@ -780,54 +780,6 @@ type PlanningRuntimeState struct {
 	ToolName     string
 }
 
-type NoopToolExecutor struct{}
-
-func NewNoopToolExecutor() *NoopToolExecutor { return &NoopToolExecutor{} }
-
-func (n *NoopToolExecutor) Invoke(_ context.Context, toolName string, args map[string]any, _ *ExecutionContext) (ToolExecutionResult, error) {
-	result := ToolExecutionResult{
-		Output:     "status: not_implemented",
-		Structured: map[string]any{"toolName": toolName, "args": args, "status": "not_implemented"},
-		Error:      "not_implemented",
-		ExitCode:   -1,
-	}
-	return result, ErrNotImplemented
-}
-
-type NoopSandboxClient struct{}
-
-func NewNoopSandboxClient() *NoopSandboxClient { return &NoopSandboxClient{} }
-
-func (n *NoopSandboxClient) OpenIfNeeded(_ context.Context, _ *ExecutionContext) error { return nil }
-
-func (n *NoopSandboxClient) Execute(_ context.Context, _ *ExecutionContext, command string, cwd string, _ int64, _ map[string]string) (SandboxExecutionResult, error) {
-	result := SandboxExecutionResult{
-		ExitCode: -1,
-		Stdout:   "",
-		Stderr:   "status: not_implemented",
-		Cwd:      cwd,
-	}
-	return result, ErrNotImplemented
-}
-
-func (n *NoopSandboxClient) CloseQuietly(_ *ExecutionContext) {}
-
-type NoopMcpClient struct{}
-
-func NewNoopMcpClient() *NoopMcpClient { return &NoopMcpClient{} }
-
-func (n *NoopMcpClient) CallTool(_ context.Context, serverKey string, toolName string, args map[string]any, meta map[string]any) (any, error) {
-	return map[string]any{"serverKey": serverKey, "toolName": toolName, "args": args, "meta": meta, "status": "not_implemented"}, nil
-}
-
-type NoopViewportClient struct{}
-
-func NewNoopViewportClient() *NoopViewportClient { return &NoopViewportClient{} }
-
-func (n *NoopViewportClient) Get(_ context.Context, viewportKey string) (map[string]any, error) {
-	return map[string]any{"viewportKey": viewportKey, "status": "not_implemented"}, nil
-}
-
 func normalizeSteerID(steerID string) string {
 	if steerID != "" {
 		return steerID

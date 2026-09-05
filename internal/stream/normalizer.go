@@ -29,20 +29,6 @@ func (n *SseEventNormalizer) RegisterHiddenTools(names ...string) {
 	}
 }
 
-func (n *SseEventNormalizer) Normalize(events []StreamEvent) []StreamEvent {
-	if len(events) == 0 {
-		return nil
-	}
-	out := make([]StreamEvent, 0, len(events))
-	for _, event := range events {
-		if n.shouldDrop(event) {
-			continue
-		}
-		out = append(out, event)
-	}
-	return out
-}
-
 // IsVisible applies the stateful tool visibility policy to a single event.
 // Callers that assign public stream sequence numbers must call this before
 // reserving a sequence so hidden tool lifecycle events do not create gaps.

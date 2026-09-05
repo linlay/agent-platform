@@ -21,7 +21,7 @@ func TestLoadDirLoadsMatchingSupportPackageExecutable(t *testing.T) {
   }
 }`)
 
-	registry, errs := LoadDir(root, Target{OS: "windows", Arch: "amd64"})
+	registry, errs := LoadDirs([]string{root}, Target{OS: "windows", Arch: "amd64"})
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
@@ -95,7 +95,7 @@ func TestLoadDirSkipsNonMatchingPlatform(t *testing.T) {
   "executables": { "pdftotext": "pdftotext.exe" }
 }`)
 
-	registry, errs := LoadDir(root, Target{OS: "windows", Arch: "amd64"})
+	registry, errs := LoadDirs([]string{root}, Target{OS: "windows", Arch: "amd64"})
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
@@ -113,7 +113,7 @@ func TestLoadDirSkipsMissingExecutables(t *testing.T) {
   "platform": { "os": "windows", "arch": "amd64" }
 }`)
 
-	registry, errs := LoadDir(root, Target{OS: "windows", Arch: "amd64"})
+	registry, errs := LoadDirs([]string{root}, Target{OS: "windows", Arch: "amd64"})
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
@@ -132,7 +132,7 @@ func TestLoadDirSkipsMissingExecutableTarget(t *testing.T) {
   "executables": { "pdftotext": "missing.exe" }
 }`)
 
-	registry, errs := LoadDir(root, Target{OS: "windows", Arch: "amd64"})
+	registry, errs := LoadDirs([]string{root}, Target{OS: "windows", Arch: "amd64"})
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
@@ -151,7 +151,7 @@ func TestLoadDirIgnoresUnsupportedKind(t *testing.T) {
   "executables": { "pdftotext": "pdftotext.exe" }
 }`)
 
-	registry, errs := LoadDir(root, Target{OS: "windows", Arch: "amd64"})
+	registry, errs := LoadDirs([]string{root}, Target{OS: "windows", Arch: "amd64"})
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
@@ -172,7 +172,7 @@ func TestLoadDirIgnoresRetiredPDFExtractor(t *testing.T) {
   "executables": { "pdftotext": "pdftotext" }
 }`)
 
-	registry, errs := LoadDir(root, Target{OS: "darwin", Arch: "arm64"})
+	registry, errs := LoadDirs([]string{root}, Target{OS: "darwin", Arch: "arm64"})
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}

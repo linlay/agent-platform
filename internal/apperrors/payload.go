@@ -202,10 +202,6 @@ func Payload(code Code, message string, opts ...Option) map[string]any {
 	return payload
 }
 
-func FromCode(code Code, message string, opts ...Option) map[string]any {
-	return Payload(code, message, opts...)
-}
-
 func FromError(err error, fallback Code, opts ...Option) map[string]any {
 	var appErr *Error
 	if errors.As(err, &appErr) {

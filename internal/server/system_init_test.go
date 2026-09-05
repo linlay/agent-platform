@@ -26,7 +26,7 @@ func (s systemInitStaticToolExecutor) Invoke(context.Context, string, map[string
 }
 
 func TestPrepareSystemInitCacheWritesFreshSystemMessageOnPayloadChange(t *testing.T) {
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -111,7 +111,7 @@ func TestPrepareSystemInitCacheWritesFreshSystemMessageOnPayloadChange(t *testin
 }
 
 func TestPrepareSystemInitCacheReturnsPendingLineOnFingerprintChange(t *testing.T) {
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestPrepareSystemInitCacheReturnsPendingLineOnFingerprintChange(t *testing.
 }
 
 func TestPrepareSystemInitCacheRegistersPlanExecuteProfiles(t *testing.T) {
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestPrepareSystemInitCacheRegistersPlanExecuteProfiles(t *testing.T) {
 }
 
 func TestMainQueryDedupsSystemsOnlyWhenPayloadMatches(t *testing.T) {
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestMainQueryDedupsSystemsOnlyWhenPayloadMatches(t *testing.T) {
 }
 
 func TestMainQueryDedupsSystemsWhenOnlyReferencesChange(t *testing.T) {
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -358,7 +358,7 @@ func TestMainQueryDedupsSystemsWhenOnlyReferencesChange(t *testing.T) {
 }
 
 func TestSystemInitDedupIsScopedByAgentKey(t *testing.T) {
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}

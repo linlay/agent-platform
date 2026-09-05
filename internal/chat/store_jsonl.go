@@ -6,12 +6,6 @@ import (
 	"strings"
 )
 
-// readJSONLines reads the current chat JSONL format: exactly one JSON object
-// per physical line.
-func readJSONLines(path string) ([]map[string]any, error) {
-	return readJSONLinesWithNumber(path, false)
-}
-
 func readJSONLinesWithNumber(path string, useNumber bool) ([]map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {

@@ -135,7 +135,7 @@ func TestWebSocketRequestFramesAreLogged(t *testing.T) {
 			Frame:   ws.FrameRequest,
 			Type:    tc.frameType,
 			ID:      tc.id,
-			Payload: ws.MarshalPayload(map[string]any{}),
+			Payload: marshalPayload(map[string]any{}),
 		}); err != nil {
 			t.Fatalf("write %s request: %v", tc.frameType, err)
 		}
@@ -185,7 +185,7 @@ func TestWebSocketAgentEndpointDoesNotExposeEditableFields(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/agent",
 		ID:    "req_agent_detail",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"agentKey": "mock-agent",
 		}),
 	}); err != nil {
@@ -238,7 +238,7 @@ func TestWebSocketQueryAvailabilityRouteRemoved(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/query/availability",
 		ID:    "req_query_availability",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"agentKey": "mock-agent",
 			"chatId":   "chat-next",
 		}),
@@ -279,7 +279,7 @@ func TestWebSocketQueryRejectsRemovedRequiredSkillKeys(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/query",
 		ID:    "req_removed_skill_field",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"message":           "old field",
 			"requiredSkillKeys": []string{"mock-skill"},
 		}),
@@ -339,7 +339,7 @@ func TestWebSocketChatReturnsActiveRunConflict(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/chat",
 		ID:    "req_chat_conflict",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"chatId": "chat_ws_conflict",
 		}),
 	}); err != nil {
@@ -419,7 +419,7 @@ func TestWebSocketAgentsKeepsChatWithActiveRunConflictError(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/agents",
 		ID:    "req_agents_conflict",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"includeChats": 1,
 		}),
 	}); err != nil {
@@ -654,7 +654,7 @@ func TestWebSocketRunCompletionPushOrdering(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/query",
 		ID:    "req_query_order",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"chatId":   "chat_ws_order",
 			"runId":    "run_ws_order",
 			"agentKey": "mock-agent",
@@ -788,7 +788,7 @@ func TestWebSocketProxyRunCompletionPushOrdering(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/query",
 		ID:    "req_proxy_query_order",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"chatId":   "chat_proxy_ws_order",
 			"runId":    "run_proxy_ws_order",
 			"agentKey": "mock-agent",
@@ -876,7 +876,7 @@ func TestWebSocketRunStreamClosesDuringShutdown(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/attach",
 		ID:    "req_shutdown_stream",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"agentKey": "mock-agent",
 			"runId":    runID,
 		}),
@@ -995,7 +995,7 @@ func TestWebSocketAttachLatestSuccessfulConnectionOwnsWebClientTarget(t *testing
 			Frame: ws.FrameRequest,
 			Type:  "/api/attach",
 			ID:    requestID,
-			Payload: ws.MarshalPayload(map[string]any{
+			Payload: marshalPayload(map[string]any{
 				"agentKey": agentKey,
 				"runId":    runID,
 			}),
@@ -1063,7 +1063,7 @@ func TestWebSocketDetachReleasesRunObserverWithoutFinishingRun(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/attach",
 		ID:    "req_attach_detach",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"agentKey": "mock-agent",
 			"runId":    runID,
 		}),
@@ -1076,7 +1076,7 @@ func TestWebSocketDetachReleasesRunObserverWithoutFinishingRun(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/detach",
 		ID:    "req_detach",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"agentKey": "mock-agent",
 			"runId":    runID,
 			"reason":   "chat_switch",
@@ -1108,7 +1108,7 @@ func TestWebSocketDetachReleasesRunObserverWithoutFinishingRun(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/detach",
 		ID:    "req_detach_again",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"agentKey": "mock-agent",
 			"runId":    runID,
 		}),
@@ -1124,7 +1124,7 @@ func TestWebSocketDetachReleasesRunObserverWithoutFinishingRun(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/attach",
 		ID:    "req_attach_again",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"agentKey": "mock-agent",
 			"runId":    runID,
 		}),
@@ -1194,7 +1194,7 @@ func TestWebSocketDetachedAwaitingQuestionTimesOutAndReplays(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/query",
 		ID:    queryID,
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"agentKey": "mock-agent",
 			"chatId":   "chat_ws_detached_timeout",
 			"message":  "please confirm first",
@@ -1220,7 +1220,7 @@ func TestWebSocketDetachedAwaitingQuestionTimesOutAndReplays(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/detach",
 		ID:    detachID,
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"agentKey": "mock-agent",
 			"runId":    runID,
 			"reason":   "test_detach_before_timeout",
@@ -1240,7 +1240,7 @@ func TestWebSocketDetachedAwaitingQuestionTimesOutAndReplays(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/attach",
 		ID:    attachID,
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"agentKey": "mock-agent",
 			"runId":    runID,
 			"lastSeq":  int64(0),
@@ -1321,7 +1321,7 @@ func TestWebSocketPushAwaitingAskAndAnswerSyncPendingChatSummary(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/chat",
 		ID:    chatRequestID,
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"chatId": flow.chatID,
 		}),
 	}); err != nil {
@@ -1380,7 +1380,7 @@ func TestWebSocketPushAwaitingAskAndAnswerSyncPendingChatSummary(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/chat",
 		ID:    chatRequestID,
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"chatId": flow.chatID,
 		}),
 	}); err != nil {
@@ -1551,7 +1551,7 @@ func TestWebSocketQueryDebugVisibilityFollowsLLMChatRecord(t *testing.T) {
 				Frame: ws.FrameRequest,
 				Type:  "/api/query",
 				ID:    "req_query_debug",
-				Payload: ws.MarshalPayload(map[string]any{
+				Payload: marshalPayload(map[string]any{
 					"message": "websocket debug",
 				}),
 			}); err != nil {
@@ -1609,7 +1609,7 @@ func TestWebSocketQueryToolPayloadAlwaysVisible(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/query",
 		ID:    "req_query_payload",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"message": "websocket tool payload",
 		}),
 	}); err != nil {
@@ -1708,7 +1708,7 @@ Plan should stream over websocket.
 		Frame: ws.FrameRequest,
 		Type:  "/api/query",
 		ID:    requestID,
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"message":      "please plan over websocket",
 			"agentKey":     "coder-ws",
 			"chatId":       chatID,
@@ -1775,7 +1775,7 @@ Plan should stream over websocket.
 		Frame: ws.FrameRequest,
 		Type:  "/api/attach",
 		ID:    attachRequestID,
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"runId":    executionRunID,
 			"agentKey": "coder-ws",
 			"lastSeq":  0,

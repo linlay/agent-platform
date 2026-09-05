@@ -37,10 +37,6 @@ func toAPIActiveRunInfo(activeRun contracts.RunStatusInfo) *api.ActiveRunInfo {
 	}
 }
 
-func (s *Server) listAgentSummaries(includeChats int, scope string) ([]api.AgentSummary, error) {
-	return s.listAgentSummariesWithModes(includeChats, scope, nil)
-}
-
 func (s *Server) listAgentSummariesWithModes(includeChats int, scope string, modes []string) ([]api.AgentSummary, error) {
 	items := s.filteredAgentSummaries(scope, modes)
 	if s.deps.Chats == nil {

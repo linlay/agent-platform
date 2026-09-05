@@ -12,10 +12,6 @@ var (
 	projectRootDir  string
 )
 
-func ProjectFile(relative string) string {
-	return filepath.Join(projectRoot(), filepath.Clean(relative))
-}
-
 func ConfigFile(relative string) string {
 	return configFile("", relative)
 }
@@ -57,10 +53,6 @@ func projectRoot() string {
 		}
 	})
 	return projectRootDir
-}
-
-func stripInlineComment(raw string) string {
-	return stripInlineCommentWithDoubleQuoteEscapes(raw, false)
 }
 
 func stripInlineCommentWithDoubleQuoteEscapes(raw string, decodeDoubleQuotedEscapes bool) string {

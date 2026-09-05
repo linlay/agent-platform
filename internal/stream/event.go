@@ -63,10 +63,6 @@ func nonNegativeDurationMs(startedAt int64, endedAt int64) int64 {
 	return duration
 }
 
-func (e StreamEvent) ToData() map[string]any {
-	return e.Data().Map()
-}
-
 func (e StreamEvent) Data() EventData {
 	return EventData{
 		Seq:       e.Seq,

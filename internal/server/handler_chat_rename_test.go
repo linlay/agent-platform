@@ -59,7 +59,7 @@ func TestRenamedOldActionRoutesAreRemoved(t *testing.T) {
 
 func newChatRenameTestServer(t *testing.T) (*chat.FileStore, *Server) {
 	t.Helper()
-	store, err := chat.NewFileStore(filepath.Join(t.TempDir(), "chats"))
+	store, err := chat.NewFileStoreAtStartup(filepath.Join(t.TempDir(), "chats"))
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}

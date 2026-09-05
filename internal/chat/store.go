@@ -116,10 +116,6 @@ type FileStore struct {
 	db   *sql.DB
 }
 
-func NewFileStore(root string) (*FileStore, error) {
-	return newFileStore(root, false)
-}
-
 // NewFileStoreAtStartup is the only chat-store constructor allowed to claim a
 // structurally exact, unmarked (0,0) database.
 func NewFileStoreAtStartup(root string) (*FileStore, error) {

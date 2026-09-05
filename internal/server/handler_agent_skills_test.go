@@ -78,7 +78,7 @@ func TestAgentSkillsWebSocketReturnsSameData(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/skills",
 		ID:      "agent_skills",
-		Payload: ws.MarshalPayload(map[string]any{"agentKey": "mock-agent"}),
+		Payload: marshalPayload(map[string]any{"agentKey": "mock-agent"}),
 	}); err != nil {
 		t.Fatalf("write websocket request: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestAgentSkillsWebSocketReturnsSameData(t *testing.T) {
 		Frame:   ws.FrameRequest,
 		Type:    "/api/skills",
 		ID:      "agent_skills_missing_key",
-		Payload: ws.MarshalPayload(map[string]any{}),
+		Payload: marshalPayload(map[string]any{}),
 	}); err != nil {
 		t.Fatalf("write invalid websocket request: %v", err)
 	}

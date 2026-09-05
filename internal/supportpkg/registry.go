@@ -89,13 +89,6 @@ func LoadDirs(roots []string, target Target) (*Registry, []error) {
 	return registry, errs
 }
 
-func LoadDir(root string, target Target) (*Registry, []error) {
-	root = strings.TrimSpace(root)
-	registry := NewRegistry(root)
-	errs := loadDirInto(registry, root, target)
-	return registry, errs
-}
-
 func loadDirInto(registry *Registry, root string, target Target) []error {
 	root = strings.TrimSpace(root)
 	if root == "" {

@@ -67,16 +67,6 @@ func (s *ToolSync) Load(ctx context.Context) ([]api.ToolDetailResponse, error) {
 	return result.Tools, err
 }
 
-func (s *ToolSync) RefreshServer(ctx context.Context, serverKey string) ([]api.ToolDetailResponse, error) {
-	result, err := s.refreshTools(ctx, map[string]struct{}{normalizeKey(serverKey): {}})
-	return result.Tools, err
-}
-
-func (s *ToolSync) RefreshServers(ctx context.Context, serverKeys []string) ([]api.ToolDetailResponse, error) {
-	result, err := s.RefreshServersWithResult(ctx, serverKeys)
-	return result.Tools, err
-}
-
 func (s *ToolSync) RefreshServersWithResult(ctx context.Context, serverKeys []string) (ToolSyncResult, error) {
 	targets := map[string]struct{}{}
 	for _, key := range serverKeys {
@@ -156,17 +146,6 @@ func (s *ToolSync) Tool(name string) (api.ToolDetailResponse, bool) {
 		}
 	}
 	return api.ToolDetailResponse{}, false
-}
-
-func (s *ToolSync) ResolveAlias(name string) (string, bool) {
-	normalized := normalizeKey(name)
-	if normalized == "" {
-		return "", false
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	canonical, ok := s.aliasToCanonical[normalized]
-	return canonical, ok
 }
 
 // ReconcileRegistry applies the local registry snapshot without performing

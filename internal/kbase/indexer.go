@@ -538,16 +538,6 @@ func commitSkippedFile(store workspaceIndexStore, rec fileRecord, existing *file
 	return nil
 }
 
-func chunkText(path string, text string, chunkCfg ChunkConfig, embeddingModel string, embeddingDimension int) []chunkRecord {
-	lineCount := countLines(text)
-	return chunkExtractedDocument(path, extractedDocument{Blocks: []extractedBlock{{
-		SourceType: "text",
-		Content:    text,
-		StartLine:  1,
-		EndLine:    lineCount,
-	}}}, chunkCfg, embeddingModel, embeddingDimension)
-}
-
 func chunkExtractedDocument(path string, doc extractedDocument, chunkCfg ChunkConfig, embeddingModel string, embeddingDimension int) []chunkRecord {
 	budget := resolveChunkBudget(chunkCfg)
 	type block struct {

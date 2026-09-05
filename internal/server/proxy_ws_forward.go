@@ -170,11 +170,6 @@ type proxyDecodedFrame struct {
 	HasEvent bool
 }
 
-func decodeProxyFrame(data []byte) (proxyDecodedFrame, bool) {
-	decoded, ok, _ := decodeProxyFrameAt(data, "proxy.websocket.event")
-	return decoded, ok
-}
-
 // decodeProxyFrameAt preserves JSON numeric syntax and validates every
 // upstream stream event before it can be forwarded or persisted. A malformed
 // non-event frame retains the historical "ignore it" behavior; a malformed
@@ -257,11 +252,6 @@ func proxyFrameError(frame proxyDecodedFrame) error {
 	default:
 		return nil
 	}
-}
-
-func decodeProxyEvent(data []byte) (stream.EventData, bool) {
-	event, ok, _ := decodeProxyEventAt(data, "proxy.sse.event")
-	return event, ok
 }
 
 func decodeProxyEventAt(data []byte, eventLocation string) (stream.EventData, bool, error) {
@@ -1216,61 +1206,6 @@ func (r *proxyEventRecorder) Finish() (bool, chat.RunCompletion) {
 		return false, completion
 	}
 	return true, completion
-}
-
-func awaitingContextFromProxyEvent(event stream.EventData) contracts.AwaitingSubmitContext {
-	mode, _ := event.Payload["mode"].(string)
-	awaitingID, _ := event.Payload["awaitingId"].(string)
-	return contracts.AwaitingSubmitContext{
-		AwaitingID: awaitingID,
-		Mode:       mode,
-		ItemCount:  proxyAwaitItemCount(mode, event.Payload["questions"], event.Payload["approvals"], event.Payload["forms"], event.Payload["planning"]),
-		Questions:  proxyAwaitQuestions(mode, event.Payload["questions"]),
-		NoTimeout:  strings.EqualFold(strings.TrimSpace(mode), "planning"),
-	}
-}
-
-func proxyAwaitQuestions(mode string, value any) []any {
-	if !strings.EqualFold(strings.TrimSpace(mode), "question") {
-		return nil
-	}
-	switch questions := value.(type) {
-	case []any:
-		return append([]any(nil), questions...)
-	case []map[string]any:
-		result := make([]any, 0, len(questions))
-		for _, question := range questions {
-			result = append(result, question)
-		}
-		return result
-	default:
-		return nil
-	}
-}
-
-func proxyAwaitItemCount(mode string, questions any, approvals any, forms any, planning any) int {
-	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "question":
-		return lenAnySlice(questions)
-	case "approval":
-		return lenAnySlice(approvals)
-	case "form":
-		return lenAnySlice(forms)
-	case "planning":
-		if lenAnyMap(planning) > 0 {
-			return 1
-		}
-		return 0
-	default:
-		return 0
-	}
-}
-
-func lenAnySlice(value any) int {
-	if items, ok := value.([]any); ok {
-		return len(items)
-	}
-	return 0
 }
 
 func lenAnyMap(value any) int {

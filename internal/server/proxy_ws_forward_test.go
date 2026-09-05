@@ -33,7 +33,7 @@ func (s *proxyPlanningOrderSink) Broadcast(eventType string, payload map[string]
 }
 
 func TestProxyLiveTextOnlyPlanEmitsPlanningSnapshotBeforeAwaiting(t *testing.T) {
-	chats, err := chat.NewFileStore(t.TempDir())
+	chats, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestProxyRunErrorEventUsesLocalTimestampForContractViolation(t *testing.T) 
 }
 
 func TestProxyEventRecorderFinishKeepsCompletionTimestampWhenPersistenceFails(t *testing.T) {
-	store, err := chat.NewFileStore(t.TempDir())
+	store, err := chat.NewFileStoreAtStartup(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}

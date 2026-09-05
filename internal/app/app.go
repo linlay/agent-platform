@@ -375,7 +375,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Viewport: viewport.NewServiceWithServers(
 			viewport.NewRegistry(viewport.DefaultRoot(cfg.Paths.RegistriesDir)),
 			viewport.NewSyncer(viewport.NewServerRegistry(viewport.DefaultServersRoot(cfg.Paths.RegistriesDir)), nil),
-			contracts.NewNoopViewportClient(),
+			nil,
 		),
 		CatalogReloader:        reloader,
 		Notifications:          notifications,

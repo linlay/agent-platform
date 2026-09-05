@@ -111,7 +111,7 @@ func TestFinalizePlanningRejectsInvalidChatContext(t *testing.T) {
 
 func TestFinalizePlanningDoesNotPersistSnapshotRefs(t *testing.T) {
 	root := t.TempDir()
-	store, err := chat.NewFileStore(root)
+	store, err := chat.NewFileStoreAtStartup(root)
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}

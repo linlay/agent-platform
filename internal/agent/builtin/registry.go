@@ -40,10 +40,6 @@ func ProfileForAgent(mode string, acpBridgeID string) (agentcontract.ModeProfile
 	return descriptor.Profile, true
 }
 
-func MainSystemInitSpec(mode string) (agentcontract.SystemInitSpec, bool) {
-	return SystemInitSpec(mode, false)
-}
-
 func SystemInitSpec(mode string, editingMode bool) (agentcontract.SystemInitSpec, bool) {
 	switch strings.ToUpper(strings.TrimSpace(mode)) {
 	case coder.Mode:

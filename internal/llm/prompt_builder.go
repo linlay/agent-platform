@@ -230,24 +230,6 @@ func toolNamesFromDefinitions(definitions []api.ToolDetailResponse, fallback []s
 	return names
 }
 
-func normalizeToolNameList(values []string) []string {
-	out := make([]string, 0, len(values))
-	seen := map[string]struct{}{}
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		key := strings.ToLower(value)
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		out = append(out, value)
-	}
-	return out
-}
-
 func localTimezoneName() string {
 	tz := time.Local.String()
 	if tz == "Local" {

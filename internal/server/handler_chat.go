@@ -15,14 +15,6 @@ import (
 	"agent-platform/internal/stream"
 )
 
-func (s *Server) listChatSummaries(lastRunID string, agentKey string) ([]api.ChatSummaryResponse, error) {
-	return s.listChatSummariesWithAgentModes(lastRunID, agentKey, nil)
-}
-
-func (s *Server) listChatSummariesWithAgentModes(lastRunID string, agentKey string, agentModes []string) ([]api.ChatSummaryResponse, error) {
-	return s.listChatSummariesWithAgentModesAndLimit(lastRunID, agentKey, agentModes, 0)
-}
-
 func (s *Server) listChatSummariesWithAgentModesAndLimit(lastRunID string, agentKey string, agentModes []string, limit int) ([]api.ChatSummaryResponse, error) {
 	items, err := s.deps.Chats.ListChatsWithAgentModesAndLimit(lastRunID, agentKey, agentModes, limit)
 	if err != nil {

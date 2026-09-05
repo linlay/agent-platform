@@ -2,7 +2,6 @@ package viewport
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,8 +67,4 @@ func DefaultRoot(registriesDir string) string {
 
 func DefaultServersRoot(registriesDir string) string {
 	return filepath.Join(registriesDir, "viewport-servers")
-}
-
-func MissingViewportError(viewportKey string) error {
-	return fmt.Errorf("viewport %s not found", viewportKey)
 }

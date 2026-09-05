@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/contracts"
 	"agent-platform/internal/models"
 )
 
@@ -49,14 +48,6 @@ func ModelConfigFromOptions(options api.CoderModelOptionsResponse) map[string]an
 		modelConfig["serviceTier"] = serviceTier
 	}
 	return modelConfig
-}
-
-func ModelConfigReasoningEffort(modelConfig map[string]any) string {
-	reasoning := contracts.AnyMapNode(modelConfig["reasoning"])
-	if enabled, ok := reasoning["enabled"].(bool); ok && !enabled {
-		return "NONE"
-	}
-	return strings.TrimSpace(contracts.AnyStringNode(reasoning["effort"]))
 }
 
 func ModelOptionsFilterMode(agentKey string, mode string, acpBridgeID string) string {

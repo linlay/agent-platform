@@ -17,7 +17,7 @@ import (
 )
 
 func TestMemoryWriteSupportsExtendedMetadata(t *testing.T) {
-	store, err := memory.NewFileStore(t.TempDir())
+	store, err := newTestMemoryStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new memory store: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestMemoryWriteSupportsExtendedMetadata(t *testing.T) {
 }
 
 func TestMemoryWriteDefaultsUserScopeWithoutSubjectKeyArg(t *testing.T) {
-	store, err := memory.NewFileStore(t.TempDir())
+	store, err := newTestMemoryStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new memory store: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestMemoryWriteDefaultsUserScopeWithoutSubjectKeyArg(t *testing.T) {
 }
 
 func TestMemoryLifecycleToolsUpdateForgetAndTimeline(t *testing.T) {
-	store, err := memory.NewSQLiteStore(t.TempDir(), "memory.db")
+	store, err := memory.NewSQLiteStoreAtStartup(t.TempDir(), "memory.db")
 	if err != nil {
 		t.Fatalf("new sqlite store: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestMemoryLifecycleToolsUpdateForgetAndTimeline(t *testing.T) {
 }
 
 func TestMemoryPromoteCreatesFactFromObservation(t *testing.T) {
-	store, err := memory.NewSQLiteStore(t.TempDir(), "memory.db")
+	store, err := memory.NewSQLiteStoreAtStartup(t.TempDir(), "memory.db")
 	if err != nil {
 		t.Fatalf("new sqlite store: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestMemoryToolOperationsWriteDedicatedLogFile(t *testing.T) {
 		}
 	}()
 
-	store, err := memory.NewSQLiteStore(t.TempDir(), "memory.db")
+	store, err := memory.NewSQLiteStoreAtStartup(t.TempDir(), "memory.db")
 	if err != nil {
 		t.Fatalf("new sqlite store: %v", err)
 	}
@@ -332,7 +332,7 @@ func TestMemoryToolOperationsWriteDedicatedLogFile(t *testing.T) {
 }
 
 func TestMemoryWriteRejectsUnsafeContent(t *testing.T) {
-	store, err := memory.NewSQLiteStore(t.TempDir(), "memory.db")
+	store, err := memory.NewSQLiteStoreAtStartup(t.TempDir(), "memory.db")
 	if err != nil {
 		t.Fatalf("new sqlite store: %v", err)
 	}
@@ -367,7 +367,7 @@ func TestMemoryWriteRejectsUnsafeContent(t *testing.T) {
 }
 
 func TestMemoryConsolidateArchivesDuplicatesAndPromotesFact(t *testing.T) {
-	store, err := memory.NewSQLiteStore(t.TempDir(), "memory.db")
+	store, err := memory.NewSQLiteStoreAtStartup(t.TempDir(), "memory.db")
 	if err != nil {
 		t.Fatalf("new sqlite store: %v", err)
 	}

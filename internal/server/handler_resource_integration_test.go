@@ -349,7 +349,7 @@ func TestAbsoluteResourceEnforcesWorkspaceChatOwnerAndTeamBoundaries(t *testing.
 
 func TestResourceFallsBackToArchivedChatCopy(t *testing.T) {
 	fixture := newTestFixture(t)
-	archives, err := chat.NewArchiveStore(fixture.cfg.Paths.ChatsDir)
+	archives, err := chat.NewArchiveStoreAtStartup(fixture.cfg.Paths.ChatsDir)
 	if err != nil {
 		t.Fatalf("new archive store: %v", err)
 	}
@@ -591,7 +591,7 @@ func TestToolResultEndpointServesHiddenResultAndResourceRejectsIt(t *testing.T) 
 		t.Fatalf("expected traversal path rejected, got %d", traversalRec.Code)
 	}
 
-	archives, err := chat.NewArchiveStore(fixture.cfg.Paths.ChatsDir)
+	archives, err := chat.NewArchiveStoreAtStartup(fixture.cfg.Paths.ChatsDir)
 	if err != nil {
 		t.Fatalf("new archive store: %v", err)
 	}
@@ -890,7 +890,7 @@ func TestWebSocketUploadDownloadsGatewayURLAndReturnsUploadTicket(t *testing.T) 
 		Frame: ws.FrameRequest,
 		Type:  "/api/upload",
 		ID:    "req_upload_ws",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"chatId":    "chat_ws_upload",
 			"requestId": "req_upload_ws",
 			"upload": map[string]any{
@@ -1008,7 +1008,7 @@ func TestWebSocketResourcePushesLocalFileToGateway(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/resource",
 		ID:    "req_resource_ws",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"file":    "chat_ws_resource/resource.txt",
 			"pushURL": gateway.URL + "/api/push/ticket-1",
 		}),
@@ -1068,7 +1068,7 @@ func TestWebSocketResourceRejectsMissingLocalFile(t *testing.T) {
 		Frame: ws.FrameRequest,
 		Type:  "/api/resource",
 		ID:    "req_missing_resource",
-		Payload: ws.MarshalPayload(map[string]any{
+		Payload: marshalPayload(map[string]any{
 			"file":    "chat_missing/nope.txt",
 			"pushURL": "/api/push/ticket-1",
 		}),
@@ -1163,7 +1163,7 @@ func TestWebSocketUploadRejectsInvalidUploadMetadata(t *testing.T) {
 				Frame:   ws.FrameRequest,
 				Type:    "/api/upload",
 				ID:      "req_invalid_upload",
-				Payload: ws.MarshalPayload(payload),
+				Payload: marshalPayload(payload),
 			}); err != nil {
 				t.Fatalf("write websocket upload: %v", err)
 			}

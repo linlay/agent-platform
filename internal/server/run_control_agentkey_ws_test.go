@@ -137,7 +137,7 @@ func TestRunControlWSRequiresAndValidatesAgentKey(t *testing.T) {
 				Frame:   ws.FrameRequest,
 				Type:    tc.typ,
 				ID:      reqID,
-				Payload: ws.MarshalPayload(tc.payload),
+				Payload: marshalPayload(tc.payload),
 			}); err != nil {
 				t.Fatalf("write websocket request: %v", err)
 			}

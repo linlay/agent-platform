@@ -542,13 +542,6 @@ func (s *planPipelineStream) taskTemplate() string {
 	return defaultTaskExecutionPromptTemplate
 }
 
-func defaultTaskTemplate(settings PlanExecuteSettings) string {
-	if strings.TrimSpace(settings.TaskExecutionPrompt) != "" {
-		return settings.TaskExecutionPrompt
-	}
-	return defaultTaskExecutionPromptTemplate
-}
-
 func (s *planPipelineStream) renderPlanUserPrompt(planPrompt string, executeToolDesc string, planCallableDesc string) string {
 	template := defaultPlanUserPromptTemplate
 	if s.engine != nil && strings.TrimSpace(s.engine.cfg.Prompts.PlanExecute.PlanUserPromptTemplate) != "" {

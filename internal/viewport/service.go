@@ -12,10 +12,6 @@ type Service struct {
 	fallback contracts.ViewportClient
 }
 
-func NewService(registry *Registry, fallback contracts.ViewportClient) *Service {
-	return &Service{registry: registry, fallback: fallback}
-}
-
 func NewServiceWithServers(registry *Registry, syncer *Syncer, fallback contracts.ViewportClient) *Service {
 	return &Service{registry: registry, syncer: syncer, fallback: fallback}
 }
@@ -42,5 +38,5 @@ func (s *Service) Get(ctx context.Context, viewportKey string) (map[string]any, 
 	if s.fallback != nil {
 		return s.fallback.Get(ctx, viewportKey)
 	}
-	return nil, MissingViewportError(viewportKey)
+	return map[string]any{"viewportKey": viewportKey, "status": "not_implemented"}, nil
 }

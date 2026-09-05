@@ -23,10 +23,6 @@ type hybridScoreDetails struct {
 	combined       float64
 }
 
-func buildContextBundleFromStored(request ContextRequest, items []api.StoredMemoryResponse) ContextBundle {
-	return buildContextBundleWithHybrid(request, items, hybridParams{})
-}
-
 func buildContextBundleWithHybrid(request ContextRequest, items []api.StoredMemoryResponse, hp hybridParams) ContextBundle {
 	topFacts := normalizeLimit(request.TopFacts, 5)
 	topObs := normalizeLimit(request.TopObs, 5)
