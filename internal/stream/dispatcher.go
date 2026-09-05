@@ -31,6 +31,8 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		return d.handleToolArgs(value)
 	case ToolEnd:
 		return d.handleToolEnd(value)
+	case ToolOutput:
+		return d.handleToolOutput(value)
 	case ToolResult:
 		return d.handleToolResult(value)
 	case StageMarker:

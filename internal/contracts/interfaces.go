@@ -182,6 +182,14 @@ type ToolExecutor interface {
 	Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error)
 }
 
+// ToolOutputStreamingExecutor advertises invocations that may use the
+// ToolOutputSink while Invoke is in progress. The LLM loop uses this optional
+// capability to select its non-blocking execution runner without changing the
+// public tool input schema.
+type ToolOutputStreamingExecutor interface {
+	SupportsToolOutput(toolName string, execCtx *ExecutionContext) bool
+}
+
 type FileHistoryReader interface {
 	ReadFileHistory(chatID string, runID string, filePath string, version string) (string, error)
 }
@@ -452,12 +460,32 @@ type ReadFileSnapshot struct {
 	Truncated      bool
 }
 
+const (
+	ToolOutputStdout = "stdout"
+	ToolOutputStderr = "stderr"
+)
+
+// ToolOutput is a transient chunk produced while a tool invocation is still
+// running. It is intentionally separate from ToolExecutionResult: callers may
+// observe zero or more chunks, but every invocation still has one final result.
+type ToolOutput struct {
+	Stream string
+	Delta  string
+}
+
+// ToolOutputSink is supplied by the run stream. Tool implementations may emit
+// progress without knowing about public event sequencing or the EventBus.
+type ToolOutputSink interface {
+	EmitToolOutput(ctx context.Context, output ToolOutput) error
+}
+
 type ExecutionContext struct {
 	Request               api.QueryRequest
 	Session               QuerySession
 	RunControl            *RunControl
 	CurrentToolID         string
 	CurrentToolName       string
+	ToolOutputSink        ToolOutputSink
 	HITLLevel             int
 	AutoApproveLevels     map[int]bool
 	SandboxSession        *SandboxSession

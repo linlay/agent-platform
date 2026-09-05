@@ -32,6 +32,29 @@ func TestRunEventBusReplaysAndFreezes(t *testing.T) {
 	}
 }
 
+func TestRunEventBusReplaysToolOutputFromAttachCursor(t *testing.T) {
+	bus := NewRunEventBus(10, 0, nil)
+	bus.Publish(EventData{Seq: 7, Type: "tool.snapshot"})
+	bus.Publish(EventData{Seq: 8, Type: "tool.output", Payload: map[string]any{
+		"toolId": "tool_1", "toolName": "bash", "stream": "stdout", "delta": "qr\n", "chunkIndex": 0,
+	}})
+	bus.Publish(EventData{Seq: 9, Type: "tool.result"})
+
+	observer, err := bus.Subscribe(7)
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	defer bus.Unsubscribe(observer.ID)
+	output := <-observer.Events
+	if output.Seq != 8 || output.Type != "tool.output" || output.String("delta") != "qr\n" {
+		t.Fatalf("unexpected replayed tool output: %#v", output)
+	}
+	result := <-observer.Events
+	if result.Seq != 9 || result.Type != "tool.result" {
+		t.Fatalf("unexpected replayed tool result: %#v", result)
+	}
+}
+
 func TestRunEventBusDropsSlowObserver(t *testing.T) {
 	bus := NewRunEventBus(256, 0, nil)
 	observer, err := bus.Subscribe(0)

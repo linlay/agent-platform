@@ -6,6 +6,7 @@ type StreamEventStateData struct {
 	planID            string
 	activeTaskID      string
 	openTools         map[string]toolBlockState
+	endedTools        map[string]toolBlockState
 	contentSeen       bool
 	lastContentID     string
 	fullContent       string
@@ -75,6 +76,7 @@ func NewStateData() *StreamEventStateData {
 		activeReasonings:  map[string]activeReasoningState{},
 		activeContents:    map[string]activeContentState{},
 		openTools:         map[string]toolBlockState{},
+		endedTools:        map[string]toolBlockState{},
 		reasoningBuffer:   map[string]string{},
 		contentBuffer:     map[string]string{},
 		contentGuards:     map[string]*MarkdownDestinationGuard{},

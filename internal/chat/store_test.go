@@ -2265,8 +2265,20 @@ func TestStepWriterFormatsStructuredToolResultAsJSON(t *testing.T) {
 		},
 	})
 	onEventForTest(writer, stream.EventData{
-		Type:      "tool.result",
+		Type:      "tool.output",
 		Timestamp: testEpochMillis(1002),
+		Payload: map[string]any{
+			"runId":      "run-tool-result-json",
+			"toolId":     "tool-1",
+			"toolName":   "bash",
+			"stream":     "stdout",
+			"delta":      "transient-qr-marker",
+			"chunkIndex": 0,
+		},
+	})
+	onEventForTest(writer, stream.EventData{
+		Type:      "tool.result",
+		Timestamp: testEpochMillis(1003),
 		Payload: map[string]any{
 			"toolId":     "tool-1",
 			"durationMs": int64(77),
@@ -2285,6 +2297,13 @@ func TestStepWriterFormatsStructuredToolResultAsJSON(t *testing.T) {
 	}
 	if len(lines) != 2 {
 		t.Fatalf("expected tool call and tool result step lines, got %#v", lines)
+	}
+	rawJSONL, err := os.ReadFile(store.chatJSONLPath("chat-tool-result-json"))
+	if err != nil {
+		t.Fatalf("read raw chat jsonl: %v", err)
+	}
+	if strings.Contains(string(rawJSONL), "transient-qr-marker") || strings.Contains(string(rawJSONL), "tool.output") {
+		t.Fatalf("transient tool.output must not be persisted: %s", rawJSONL)
 	}
 	if lines[0]["_type"] != "react" || toIntValue(lines[0]["seq"]) != 1 {
 		t.Fatalf("expected tool call step seq=1, got %#v", lines[0])

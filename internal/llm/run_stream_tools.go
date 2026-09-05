@@ -1,11 +1,14 @@
 package llm
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
+	"unicode/utf8"
 
 	"agent-platform/internal/accesspolicy"
 	agentteam "agent-platform/internal/agent/team"
@@ -376,10 +379,71 @@ type batchToolCallResult struct {
 	internalOnly bool
 }
 
+type toolExecutionEvent struct {
+	output *DeltaToolOutput
+	result *batchToolCallResult
+}
+
+type activeToolExecution struct {
+	invocation *preparedToolInvocation
+	execCtx    *ExecutionContext
+	eventCh    chan toolExecutionEvent
+}
+
+type runToolOutputSink struct {
+	ctx        context.Context
+	invocation *preparedToolInvocation
+	eventCh    chan<- toolExecutionEvent
+	mu         sync.Mutex
+	nextIndex  int
+}
+
+func (s *runToolOutputSink) EmitToolOutput(ctx context.Context, output ToolOutput) error {
+	if s == nil || s.invocation == nil || s.eventCh == nil || output.Delta == "" {
+		return nil
+	}
+	if output.Stream != ToolOutputStdout && output.Stream != ToolOutputStderr {
+		return fmt.Errorf("unsupported tool output stream %q", output.Stream)
+	}
+	delta := output.Delta
+	if !utf8.ValidString(delta) {
+		delta = strings.ToValidUTF8(delta, "\uFFFD")
+	}
+	if delta == "" {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var runDone <-chan struct{}
+	if s.ctx != nil {
+		runDone = s.ctx.Done()
+	}
+	event := toolExecutionEvent{output: &DeltaToolOutput{
+		ToolID:     s.invocation.toolID,
+		ToolName:   s.invocation.toolName,
+		Stream:     output.Stream,
+		Delta:      delta,
+		ChunkIndex: s.nextIndex,
+	}}
+	select {
+	case s.eventCh <- event:
+		s.nextIndex++
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-runDone:
+		if s.ctx != nil {
+			return s.ctx.Err()
+		}
+		return context.Canceled
+	}
+}
+
 type activeToolBatch struct {
 	invocations []*preparedToolInvocation
 	results     []batchToolCallResult
-	resultCh    chan batchToolCallResult
+	eventCh     chan toolExecutionEvent
 	remaining   int
 }
 
@@ -389,7 +453,7 @@ func (s *llmRunStream) invokeToolCallBatchAndPostHooks(invocations []*preparedTo
 
 func (s *llmRunStream) startToolCallBatch(invocations []*preparedToolInvocation) error {
 	results := make([]batchToolCallResult, len(invocations))
-	resultCh := make(chan batchToolCallResult, len(invocations))
+	eventCh := make(chan toolExecutionEvent, 128)
 	remaining := 0
 
 	for index, invocation := range invocations {
@@ -403,7 +467,7 @@ func (s *llmRunStream) startToolCallBatch(invocations []*preparedToolInvocation)
 		if invocation.queuedResult != nil {
 			result.result = *invocation.queuedResult
 			invocation.queuedResult = nil
-			resultCh <- result
+			eventCh <- toolExecutionEvent{result: &result}
 			continue
 		}
 		if result := s.checkBudgetBeforeToolCall(invocation.toolName); result != nil {
@@ -414,25 +478,35 @@ func (s *llmRunStream) startToolCallBatch(invocations []*preparedToolInvocation)
 					*result = toolBudgetSkippedResult(*result)
 				}
 			}
-			resultCh <- batchToolCallResult{
+			completed := batchToolCallResult{
 				index:        index,
 				invocation:   invocation,
 				result:       *result,
 				internalOnly: internalOnly,
 			}
+			eventCh <- toolExecutionEvent{result: &completed}
 			continue
 		}
 		s.recordAccessPolicyAutoApproval(invocation)
 		execCtx := s.concurrentExecutionContext(invocation)
+		execCtx.ToolOutputSink = &runToolOutputSink{ctx: s.ctx, invocation: invocation, eventCh: eventCh}
 		results[index].execCtx = execCtx
 		go func(index int, invocation *preparedToolInvocation, execCtx *ExecutionContext) {
 			result, err := s.invokeToolForBatch(invocation, execCtx)
-			resultCh <- batchToolCallResult{
+			completed := batchToolCallResult{
 				index:      index,
 				invocation: invocation,
 				result:     result,
 				execCtx:    execCtx,
 				err:        err,
+			}
+			var runDone <-chan struct{}
+			if s.ctx != nil {
+				runDone = s.ctx.Done()
+			}
+			select {
+			case eventCh <- toolExecutionEvent{result: &completed}:
+			case <-runDone:
 			}
 		}(index, invocation, execCtx)
 	}
@@ -444,7 +518,7 @@ func (s *llmRunStream) startToolCallBatch(invocations []*preparedToolInvocation)
 	s.activeToolBatch = &activeToolBatch{
 		invocations: append([]*preparedToolInvocation(nil), invocations...),
 		results:     results,
-		resultCh:    resultCh,
+		eventCh:     eventCh,
 		remaining:   remaining,
 	}
 	return nil
@@ -455,10 +529,18 @@ func (s *llmRunStream) consumeActiveToolBatch() error {
 	if batch == nil {
 		return nil
 	}
-	result, err := s.awaitActiveToolBatchResult(batch)
+	event, err := s.awaitActiveToolBatchEvent(batch)
 	if err != nil {
 		return err
 	}
+	if event == nil {
+		return nil
+	}
+	if event.output != nil {
+		s.pending = append(s.pending, *event.output)
+		return nil
+	}
+	result := event.result
 	if result == nil {
 		return nil
 	}
@@ -499,7 +581,7 @@ func (s *llmRunStream) consumeActiveToolBatch() error {
 	return nil
 }
 
-func (s *llmRunStream) awaitActiveToolBatchResult(batch *activeToolBatch) (*batchToolCallResult, error) {
+func (s *llmRunStream) awaitActiveToolBatchEvent(batch *activeToolBatch) (*toolExecutionEvent, error) {
 	if batch == nil || batch.remaining == 0 {
 		return nil, nil
 	}
@@ -511,8 +593,8 @@ func (s *llmRunStream) awaitActiveToolBatchResult(batch *activeToolBatch) (*batc
 	defer ticker.Stop()
 	for {
 		select {
-		case result := <-batch.resultCh:
-			return &result, nil
+		case event := <-batch.eventCh:
+			return &event, nil
 		case <-done:
 			return nil, s.ctx.Err()
 		case <-ticker.C:
@@ -580,6 +662,148 @@ func (s *llmRunStream) invokeToolForBatch(invocation *preparedToolInvocation, ex
 		return ToolExecutionResult{Output: invokeErr.Error(), Error: "tool_execution_failed", ExitCode: -1}, nil
 	}
 	return result, nil
+}
+
+func (s *llmRunStream) startActiveToolExecution(invocation *preparedToolInvocation) error {
+	if invocation == nil {
+		return nil
+	}
+	if s.activeToolExecution != nil {
+		return fmt.Errorf("tool execution already active")
+	}
+	eventCh := make(chan toolExecutionEvent, 128)
+	execCtx := s.serialExecutionContext(invocation)
+	execCtx.ToolOutputSink = &runToolOutputSink{ctx: s.ctx, invocation: invocation, eventCh: eventCh}
+	s.activeToolExecution = &activeToolExecution{
+		invocation: invocation,
+		execCtx:    execCtx,
+		eventCh:    eventCh,
+	}
+	s.skipPostToolHook = true
+
+	go func() {
+		result, err := s.engine.tools.Invoke(s.ctx, invocation.toolName, invocation.args, execCtx)
+		completed := batchToolCallResult{
+			invocation: invocation,
+			result:     result,
+			execCtx:    execCtx,
+			err:        err,
+		}
+		var runDone <-chan struct{}
+		if s.ctx != nil {
+			runDone = s.ctx.Done()
+		}
+		select {
+		case eventCh <- toolExecutionEvent{result: &completed}:
+		case <-runDone:
+		}
+	}()
+	return nil
+}
+
+func (s *llmRunStream) serialExecutionContext(invocation *preparedToolInvocation) *ExecutionContext {
+	if s == nil || s.execCtx == nil {
+		return &ExecutionContext{
+			CurrentToolID:   invocation.toolID,
+			CurrentToolName: invocation.toolName,
+			RunLoopState:    RunLoopStateToolExecuting,
+		}
+	}
+	cloned := *s.execCtx
+	cloned.CurrentToolID = invocation.toolID
+	cloned.CurrentToolName = invocation.toolName
+	cloned.RunLoopState = RunLoopStateToolExecuting
+	return &cloned
+}
+
+func (s *llmRunStream) consumeActiveToolExecution() error {
+	execution := s.activeToolExecution
+	if execution == nil {
+		return nil
+	}
+	event, err := s.awaitActiveToolExecutionEvent(execution)
+	if err != nil {
+		return err
+	}
+	if event == nil {
+		return nil
+	}
+	if event.output != nil {
+		s.pending = append(s.pending, *event.output)
+		return nil
+	}
+	completed := event.result
+	if completed == nil {
+		return nil
+	}
+	invocation := execution.invocation
+	s.activeToolExecution = nil
+	if errors.Is(completed.err, ErrRunInterrupted) {
+		return s.handleInterruptIfNeeded()
+	}
+	if errors.Is(completed.err, ErrContextCompactPending) {
+		if s.activeToolCall == nil {
+			s.activeToolCall = invocation
+		}
+		if s.scheduleContextCompact(false) {
+			s.skipPostToolHook = true
+			return nil
+		}
+		return completed.err
+	}
+	result := completed.result
+	if completed.err != nil {
+		result = ToolExecutionResult{Output: completed.err.Error(), Error: "tool_execution_failed", ExitCode: -1}
+	}
+	if isPlanningWriteTool(invocation.toolName) && result.ExitCode == 0 {
+		if s.execCtx != nil && s.execCtx.PlanningState != nil {
+			s.execCtx.PlanningState.ToolCallID = invocation.toolID
+			s.execCtx.PlanningState.ToolName = invocation.toolName
+		}
+		s.appendFinalPlanningDeltas(invocation.toolID, result)
+	} else {
+		s.appendInteractionSubmitDeltas(invocation, result)
+		s.appendOriginalToolResult(invocation, result)
+		if isPlanTool(invocation.toolName) && s.execCtx != nil && s.execCtx.PlanState != nil && len(s.execCtx.PlanState.Tasks) > 0 {
+			s.pending = append(s.pending, DeltaPlanUpdate{
+				PlanID: s.execCtx.PlanState.PlanID,
+				ChatID: s.session.ChatID,
+				Plan:   PlanTasksArray(s.execCtx.PlanState),
+			})
+		}
+		appendSourcePublishDelta(&s.pending, s.session, invocation, result)
+		appendPublishedArtifactDelta(&s.pending, s.session, invocation, result.Structured["publishedArtifacts"])
+	}
+
+	s.finishToolInvocation(invocation)
+	if s.postToolHook != nil && s.postToolHook(invocation.toolName, invocation.toolID) == PostToolStop {
+		s.stopAfterToolBatch = true
+	}
+	return nil
+}
+
+func (s *llmRunStream) awaitActiveToolExecutionEvent(execution *activeToolExecution) (*toolExecutionEvent, error) {
+	if execution == nil {
+		return nil, nil
+	}
+	var done <-chan struct{}
+	if s != nil && s.ctx != nil {
+		done = s.ctx.Done()
+	}
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case event := <-execution.eventCh:
+			return &event, nil
+		case <-done:
+			return nil, s.ctx.Err()
+		case <-ticker.C:
+			if err := s.handleInterruptIfNeeded(); err != nil || len(s.pending) > 0 {
+				return nil, err
+			}
+		}
+	}
 }
 
 func (s *llmRunStream) concurrentExecutionContext(invocation *preparedToolInvocation) *ExecutionContext {
@@ -682,6 +906,9 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		return err
 	}
 	err := s.invokeToolAndPublishResult(invocation)
+	if s.activeToolExecution != nil {
+		keepActive = true
+	}
 	if errors.Is(err, ErrContextCompactPending) {
 		if s.scheduleContextCompact(false) {
 			keepActive = true
@@ -832,6 +1059,9 @@ func (s *llmRunStream) handleHITLApproval(invocation *preparedToolInvocation, re
 
 func (s *llmRunStream) invokeToolAndPublishResult(invocation *preparedToolInvocation) error {
 	s.recordAccessPolicyAutoApproval(invocation)
+	if s.toolSupportsOutputStreaming(invocation) {
+		return s.startActiveToolExecution(invocation)
+	}
 	result, invokeErr := s.engine.tools.Invoke(s.ctx, invocation.toolName, invocation.args, s.execCtx)
 	if invokeErr != nil {
 		if errors.Is(invokeErr, ErrRunInterrupted) {
@@ -862,6 +1092,14 @@ func (s *llmRunStream) invokeToolAndPublishResult(invocation *preparedToolInvoca
 	appendSourcePublishDelta(&s.pending, s.session, invocation, result)
 	appendPublishedArtifactDelta(&s.pending, s.session, invocation, result.Structured["publishedArtifacts"])
 	return nil
+}
+
+func (s *llmRunStream) toolSupportsOutputStreaming(invocation *preparedToolInvocation) bool {
+	if s == nil || s.engine == nil || s.engine.tools == nil || invocation == nil {
+		return false
+	}
+	support, ok := s.engine.tools.(ToolOutputStreamingExecutor)
+	return ok && support.SupportsToolOutput(invocation.toolName, s.execCtx)
 }
 
 func (s *llmRunStream) appendInteractionSubmitDeltas(invocation *preparedToolInvocation, result ToolExecutionResult) {

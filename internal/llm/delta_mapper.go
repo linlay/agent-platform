@@ -174,6 +174,14 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			delete(m.toolNames, toolID)
 		}
 		return inputs
+	case DeltaToolOutput:
+		return []stream.StreamInput{stream.ToolOutput{
+			ToolID:     value.ToolID,
+			ToolName:   value.ToolName,
+			Stream:     value.Stream,
+			Delta:      value.Delta,
+			ChunkIndex: value.ChunkIndex,
+		}}
 	case DeltaToolResult:
 		m.lastKind = ""
 		toolLabel, toolDescription := m.resolveToolMetadata(value.ToolName)

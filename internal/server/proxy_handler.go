@@ -24,8 +24,8 @@ import (
 // by non-PROXY agents.
 //
 // Upstream emits delta-style events (content.start / content.delta /
-// content.end, reasoning.start/delta/end, tool.start / tool.args / tool.end,
-// tool.result, run.complete). StepWriter only consumes snapshot-style events
+// content.end, reasoning.start/delta/end, tool.start / tool.args / tool.end /
+// tool.output, tool.result, run.complete). StepWriter only consumes snapshot-style events
 // (content.snapshot, reasoning.snapshot, tool.snapshot, tool.result, …), so
 // we accumulate per-id buffers and synthesise snapshot events at *.end.
 func proxyRequestTimeout(proxy *catalog.ProxyConfig) time.Duration {

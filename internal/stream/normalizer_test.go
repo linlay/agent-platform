@@ -25,6 +25,11 @@ func TestNormalizerHidesOnlyToolEventsForHiddenTool(t *testing.T) {
 		NewEvent("tool.end", map[string]any{
 			"toolId": "tool_1",
 		}),
+		NewEvent("tool.output", map[string]any{
+			"toolId": "tool_1",
+			"stream": "stdout",
+			"delta":  "hidden",
+		}),
 		NewEvent("request.submit", map[string]any{
 			"awaitingId": "tool_1",
 			"params":     []any{map[string]any{"answer": "approve"}},

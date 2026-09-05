@@ -218,6 +218,41 @@ func TestDispatcherEmitsRunActivity(t *testing.T) {
 	}
 }
 
+func TestDispatcherEmitsToolOutputAfterSnapshotWithTaskIdentity(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{RunID: "run_1", ChatID: "chat_1"})
+	assertEventTypes(t, dispatcher.Dispatch(ToolArgs{
+		ToolID: "tool_1", ToolName: "bash", TaskID: "task_1", Delta: `{}`, ChunkIndex: 0,
+	}), "tool.start", "tool.args")
+	assertEventTypes(t, dispatcher.Dispatch(ToolEnd{ToolID: "tool_1"}), "tool.end", "tool.snapshot")
+
+	events := dispatcher.Dispatch(ToolOutput{
+		ToolID: "tool_1", ToolName: "bash", Stream: "stderr", Delta: "scan now\n", ChunkIndex: 3,
+	})
+	assertEventTypes(t, events, "tool.output")
+	data := events[0].ToData()
+	if data["runId"] != "run_1" || data["taskId"] != "task_1" || data["toolId"] != "tool_1" || data["toolName"] != "bash" {
+		t.Fatalf("unexpected tool.output identity: %#v", data)
+	}
+	if data["stream"] != "stderr" || data["delta"] != "scan now\n" || data["chunkIndex"] != 3 {
+		t.Fatalf("unexpected tool.output payload: %#v", data)
+	}
+	assertEventTypes(t, dispatcher.Dispatch(ToolResult{ToolID: "tool_1", ToolName: "bash", Result: "done"}), "tool.result")
+}
+
+func TestDispatcherRejectsInvalidToolOutput(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{RunID: "run_1"})
+	for _, input := range []ToolOutput{
+		{ToolID: "tool_1", ToolName: "bash", Stream: "stdin", Delta: "x", ChunkIndex: 0},
+		{ToolID: "tool_1", ToolName: "bash", Stream: "stdout", Delta: "", ChunkIndex: 0},
+		{ToolID: "tool_1", ToolName: "bash", Stream: "stdout", Delta: "x", ChunkIndex: -1},
+		{ToolID: "tool_1", ToolName: "bash", Stream: "stdout", Delta: string([]byte{0xff}), ChunkIndex: 0},
+	} {
+		if events := dispatcher.Dispatch(input); len(events) != 0 {
+			t.Fatalf("invalid output %#v produced events %#v", input, events)
+		}
+	}
+}
+
 func TestDispatcherDiscardsIncompleteModelTurnWithoutClosingPartialBlocks(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{RunID: "run_1", ChatID: "chat_1"})
 	_ = dispatcher.Dispatch(ReasoningDelta{ReasoningID: "reasoning_1", Delta: "partial thought"})

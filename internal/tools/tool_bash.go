@@ -107,8 +107,15 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	defer cleanupBashOutputFile(stderrFile)
 	cmd.Stdout = stdoutFile
 	cmd.Stderr = stderrFile
+	var stdoutFollower, stderrFollower *bashOutputFollower
+	if execCtx != nil && execCtx.ToolOutputSink != nil {
+		stdoutFollower = newBashOutputFollower(ctx, stdoutFile, execCtx.ToolOutputSink, ToolOutputStdout)
+		stderrFollower = newBashOutputFollower(ctx, stderrFile, execCtx.ToolOutputSink, ToolOutputStderr)
+	}
 
 	err = cmd.Run()
+	stdoutFollower.Close()
+	stderrFollower.Close()
 	stdout, readErr := readBashOutputFile(stdoutFile, runtimeInfo)
 	if readErr != nil {
 		return bashResult("", readErr.Error(), "host", workingDir, -1, "bash_output_capture_failed"), nil

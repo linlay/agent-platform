@@ -63,6 +63,7 @@ type llmRunStream struct {
 	previousToolResult   any
 	queuedToolCalls      []*preparedToolInvocation
 	activeToolCall       *preparedToolInvocation
+	activeToolExecution  *activeToolExecution
 	activeToolBatch      *activeToolBatch
 	stopAfterToolBatch   bool
 	terminalErrorPayload map[string]any

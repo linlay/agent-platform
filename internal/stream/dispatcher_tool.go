@@ -1,6 +1,9 @@
 package stream
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 func (d *StreamEventDispatcher) handleToolArgs(input ToolArgs) []StreamEvent {
 	taskID := d.resolveTaskID(input.TaskID)
@@ -39,8 +42,37 @@ func (d *StreamEventDispatcher) handleToolEnd(input ToolEnd) []StreamEvent {
 	return d.closeTool(input.ToolID, input.FileChange)
 }
 
+func (d *StreamEventDispatcher) handleToolOutput(input ToolOutput) []StreamEvent {
+	if input.ToolID == "" || input.ToolName == "" || input.Delta == "" || input.ChunkIndex < 0 || !utf8.ValidString(input.Delta) {
+		return nil
+	}
+	if input.Stream != "stdout" && input.Stream != "stderr" {
+		return nil
+	}
+	taskID := strings.TrimSpace(input.TaskID)
+	if block, ok := d.state.endedTools[input.ToolID]; ok && taskID == "" {
+		taskID = block.TaskID
+	}
+	if taskID == "" {
+		taskID = d.resolveTaskID("")
+	}
+	payload := map[string]any{
+		"runId":      d.request.RunID,
+		"toolId":     input.ToolID,
+		"toolName":   input.ToolName,
+		"stream":     input.Stream,
+		"delta":      input.Delta,
+		"chunkIndex": input.ChunkIndex,
+	}
+	if taskID != "" {
+		payload["taskId"] = taskID
+	}
+	return []StreamEvent{NewEvent("tool.output", payload)}
+}
+
 func (d *StreamEventDispatcher) handleToolResult(input ToolResult) []StreamEvent {
 	events := d.closeTool(input.ToolID, nil)
+	delete(d.state.endedTools, input.ToolID)
 	payload := map[string]any{
 		"toolId":   input.ToolID,
 		"toolName": input.ToolName,
@@ -150,6 +182,7 @@ func (d *StreamEventDispatcher) closeTool(toolID string, fileChange map[string]a
 		return nil
 	}
 	delete(d.state.openTools, toolID)
+	d.state.endedTools[toolID] = block
 	endPayload := map[string]any{
 		"toolId": toolID,
 	}

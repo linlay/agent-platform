@@ -79,6 +79,9 @@ func (s *llmRunStream) fillNextPendingSource() error {
 	if s.hitlPendingCall != nil {
 		return s.awaitHITLSubmitAndExecute()
 	}
+	if s.activeToolExecution != nil {
+		return s.consumeActiveToolExecution()
+	}
 	if s.activeToolBatch != nil {
 		return s.consumeActiveToolBatch()
 	}
@@ -915,11 +918,13 @@ func (s *llmRunStream) handleInterruptIfNeeded() error {
 		}
 		s.appendInterruptedWaitingResults()
 		s.currentTurn = nil
+		s.activeToolExecution = nil
 		s.activeToolBatch = nil
 		s.pending = append(s.pending, DeltaRunCancel{RunID: s.session.RunID})
 		return nil
 	}
 	s.currentTurn = nil
+	s.activeToolExecution = nil
 	s.activeToolBatch = nil
 	return ErrRunInterrupted
 }

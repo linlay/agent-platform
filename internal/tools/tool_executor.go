@@ -201,6 +201,11 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 	return result, err
 }
 
+func (t *RuntimeToolExecutor) SupportsToolOutput(toolName string, execCtx *ExecutionContext) bool {
+	return strings.EqualFold(strings.TrimSpace(toolName), "bash") &&
+		execCtx != nil && !hasRuntimeSandbox(execCtx.Session)
+}
+
 func (t *RuntimeToolExecutor) invoke(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	if execCtx != nil && execCtx.ReadFileState == nil {
 		execCtx.ReadFileState = map[string]ReadFileSnapshot{}

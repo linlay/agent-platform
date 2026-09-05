@@ -19,7 +19,7 @@ func NewNormalizer() *SseEventNormalizer {
 }
 
 // RegisterHiddenTools marks tool names as non-client-visible.
-// Their tool.start/tool.args/tool.end/tool.snapshot/tool.result SSE events
+// Their tool.start/tool.args/tool.end/tool.snapshot/tool.output/tool.result SSE events
 // will be suppressed.
 func (n *SseEventNormalizer) RegisterHiddenTools(names ...string) {
 	for _, name := range names {
@@ -73,7 +73,7 @@ func (n *SseEventNormalizer) shouldDrop(event StreamEvent) bool {
 		return false
 	}
 
-	// tool.args, tool.end, tool.result — check by toolId
+	// tool.args, tool.end, tool.output, tool.result — check by toolId
 	if toolID != "" && n.hiddenToolIDs[toolID] {
 		if eventType == "tool.result" {
 			delete(n.hiddenToolIDs, toolID)

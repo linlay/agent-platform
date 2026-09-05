@@ -20,6 +20,19 @@ import (
 	"agent-platform/internal/runenv"
 )
 
+type collectingToolOutputSink struct {
+	chunks chan contracts.ToolOutput
+}
+
+func (s *collectingToolOutputSink) EmitToolOutput(ctx context.Context, output contracts.ToolOutput) error {
+	select {
+	case s.chunks <- output:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func TestResolveHostShellInvocationDefaultsToPowerShellOnWindows(t *testing.T) {
 	executable, args := resolveHostShellInvocation(config.BashConfig{}, "Get-Process", "windows")
 
@@ -145,6 +158,78 @@ func TestInvokeHostBashSuccessReturnsPlainStdout(t *testing.T) {
 	}
 }
 
+func TestInvokeHostBashStreamsOutputBeforeCompletion(t *testing.T) {
+	root := t.TempDir()
+	executor := &RuntimeToolExecutor{
+		cfg: config.Config{
+			Bash: config.BashConfig{
+				AllowedCommands:      []string{"printf", "sleep"},
+				ShellFeaturesEnabled: true,
+				ShellExecutable:      "bash",
+				MaxCommandChars:      16000,
+			},
+		},
+	}
+	sink := &collectingToolOutputSink{chunks: make(chan contracts.ToolOutput, 8)}
+	execCtx := bashExecutionContext(root)
+	execCtx.ToolOutputSink = sink
+	resultCh := make(chan contracts.ToolExecutionResult, 1)
+	go func() {
+		result, _ := executor.invokeHostBash(context.Background(), map[string]any{
+			"command": "printf 'scan-qr\\n'; sleep 0.25; printf 'done\\n'",
+		}, execCtx)
+		resultCh <- result
+	}()
+
+	select {
+	case chunk := <-sink.chunks:
+		if chunk.Stream != contracts.ToolOutputStdout || chunk.Delta != "scan-qr\n" {
+			t.Fatalf("unexpected first live chunk: %#v", chunk)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("did not receive live output while bash was running")
+	}
+	select {
+	case result := <-resultCh:
+		t.Fatalf("bash completed before the live output was observed: %#v", result)
+	default:
+	}
+	result := <-resultCh
+	if result.Output != "scan-qr\ndone\n" || result.ExitCode != 0 {
+		t.Fatalf("unexpected final result: %#v", result)
+	}
+}
+
+func TestInvokeHostBashWithSinkAndNoOutputEmitsNoChunks(t *testing.T) {
+	root := t.TempDir()
+	executor := &RuntimeToolExecutor{cfg: config.Config{Bash: config.BashConfig{
+		AllowedCommands: []string{"true"}, ShellFeaturesEnabled: true, ShellExecutable: "bash", MaxCommandChars: 16000,
+	}}}
+	sink := &collectingToolOutputSink{chunks: make(chan contracts.ToolOutput, 1)}
+	execCtx := bashExecutionContext(root)
+	execCtx.ToolOutputSink = sink
+	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "true"}, execCtx)
+	if err != nil || result.ExitCode != 0 {
+		t.Fatalf("unexpected no-output bash result: result=%#v err=%v", result, err)
+	}
+	select {
+	case chunk := <-sink.chunks:
+		t.Fatalf("no-output command emitted live chunk: %#v", chunk)
+	default:
+	}
+}
+
+func TestBashLiveOutputEncoderPreservesSplitUTF8AndReplacesInvalidBytes(t *testing.T) {
+	first, consumed := encodeBashLiveOutputPrefix([]byte{0xe4, 0xbd}, false, bashLiveOutputMaxChunkBytes)
+	if first != "" || consumed != 0 {
+		t.Fatalf("incomplete UTF-8 must remain buffered, got %q consumed=%d", first, consumed)
+	}
+	encoded, consumed := encodeBashLiveOutputPrefix([]byte{0xe4, 0xbd, 0xa0, 0xff, 'x'}, false, bashLiveOutputMaxChunkBytes)
+	if encoded != "你\uFFFDx" || consumed != 5 {
+		t.Fatalf("unexpected live UTF-8 encoding: %q consumed=%d", encoded, consumed)
+	}
+}
+
 func TestInvokeHostBashPipefailPreservesUpstreamFailure(t *testing.T) {
 	root := t.TempDir()
 	executor := &RuntimeToolExecutor{
@@ -197,7 +282,10 @@ func TestInvokeHostBashSuccessWithStderrReturnsStructuredJSON(t *testing.T) {
 		},
 	}
 
-	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "sh " + scriptPath}, bashExecutionContext(root))
+	sink := &collectingToolOutputSink{chunks: make(chan contracts.ToolOutput, 8)}
+	execCtx := bashExecutionContext(root)
+	execCtx.ToolOutputSink = sink
+	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "sh " + scriptPath}, execCtx)
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
 	}
@@ -220,6 +308,14 @@ func TestInvokeHostBashSuccessWithStderrReturnsStructuredJSON(t *testing.T) {
 	if payload["stderr"] != "warn\n" {
 		t.Fatalf("expected marshaled stderr to be preserved, got %#v", payload)
 	}
+	seenStreams := map[string]string{}
+	for len(sink.chunks) > 0 {
+		chunk := <-sink.chunks
+		seenStreams[chunk.Stream] += chunk.Delta
+	}
+	if seenStreams[contracts.ToolOutputStdout] != "ok\n" || seenStreams[contracts.ToolOutputStderr] != "warn\n" {
+		t.Fatalf("expected separated live stdout/stderr, got %#v", seenStreams)
+	}
 }
 
 func TestInvokeHostBashDoesNotWaitForBackgroundProcessOutput(t *testing.T) {
@@ -235,8 +331,11 @@ func TestInvokeHostBashDoesNotWaitForBackgroundProcessOutput(t *testing.T) {
 		},
 	}
 
+	sink := &collectingToolOutputSink{chunks: make(chan contracts.ToolOutput, 8)}
+	execCtx := bashExecutionContext(root)
+	execCtx.ToolOutputSink = sink
 	start := time.Now()
-	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "sleep 2 & echo done"}, bashExecutionContext(root))
+	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "sleep 2 & echo done"}, execCtx)
 	elapsed := time.Since(start)
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
@@ -250,6 +349,14 @@ func TestInvokeHostBashDoesNotWaitForBackgroundProcessOutput(t *testing.T) {
 	if result.ExitCode != 0 || result.Error != "" {
 		t.Fatalf("expected successful result, got %#v", result)
 	}
+	select {
+	case chunk := <-sink.chunks:
+		if chunk.Stream != contracts.ToolOutputStdout || chunk.Delta != "done\n" {
+			t.Fatalf("unexpected live background-process chunk: %#v", chunk)
+		}
+	default:
+		t.Fatal("expected live output before returning from background command")
+	}
 }
 
 func TestInvokeHostBashDefaultsTimeoutToToolBudget(t *testing.T) {
@@ -257,7 +364,7 @@ func TestInvokeHostBashDefaultsTimeoutToToolBudget(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				AllowedCommands:      []string{"sleep"},
+				AllowedCommands:      []string{"printf", "sleep"},
 				ShellFeaturesEnabled: true,
 				ShellExecutable:      "bash",
 				MaxCommandChars:      16000,
@@ -266,13 +373,16 @@ func TestInvokeHostBashDefaultsTimeoutToToolBudget(t *testing.T) {
 	}
 
 	start := time.Now()
+	sink := &collectingToolOutputSink{chunks: make(chan contracts.ToolOutput, 8)}
+	execCtx := &contracts.ExecutionContext{
+		Session:        contracts.QuerySession{WorkspaceRoot: root},
+		Budget:         contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 1}},
+		ToolOutputSink: sink,
+	}
 	result, err := executor.invokeHostBash(
 		context.Background(),
-		map[string]any{"command": "sleep 2"},
-		&contracts.ExecutionContext{
-			Session: contracts.QuerySession{WorkspaceRoot: root},
-			Budget:  contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 1}},
-		},
+		map[string]any{"command": "printf 'before-timeout\\n'; sleep 2"},
+		execCtx,
 	)
 	elapsed := time.Since(start)
 	if err != nil {
@@ -283,6 +393,14 @@ func TestInvokeHostBashDefaultsTimeoutToToolBudget(t *testing.T) {
 	}
 	if elapsed >= 2*time.Second {
 		t.Fatalf("expected budget timeout near 1s, took %s", elapsed)
+	}
+	select {
+	case chunk := <-sink.chunks:
+		if chunk.Stream != contracts.ToolOutputStdout || chunk.Delta != "before-timeout\n" {
+			t.Fatalf("unexpected live timeout chunk: %#v", chunk)
+		}
+	default:
+		t.Fatal("expected output emitted before timeout")
 	}
 }
 

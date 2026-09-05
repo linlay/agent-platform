@@ -42,6 +42,7 @@ var disallowedPersistedEventTypes = []string{
 	"tool.start",
 	"tool.args",
 	"tool.end",
+	"tool.output",
 }
 
 func newServerFromFixture(t *testing.T, fixture testFixture) *Server {

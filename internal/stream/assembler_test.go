@@ -246,6 +246,13 @@ func TestAssemblerHiddenToolEventsDoNotAdvancePublicSequence(t *testing.T) {
 	}
 	end := assembler.ConsumeEmissions(ToolEnd{ToolID: "tool_1"})
 	assertEmissionTypes(t, end, "tool.end", "tool.snapshot")
+	output := assembler.ConsumeEmissions(ToolOutput{
+		ToolID: "tool_1", ToolName: "internal_tool", Stream: "stdout", Delta: "hidden", ChunkIndex: 0,
+	})
+	assertEmissionTypes(t, output, "tool.output")
+	if output[0].Visible || output[0].Event.Seq != 0 || output[0].Cursor != 0 {
+		t.Fatalf("hidden tool output advanced public cursor: %#v", output[0])
+	}
 	result := assembler.ConsumeEmissions(ToolResult{ToolID: "tool_1", ToolName: "internal_tool", Result: "ok"})
 	assertEmissionTypes(t, result, "tool.result")
 	if assembler.CurrentSeq() != 0 {
@@ -255,6 +262,29 @@ func TestAssemblerHiddenToolEventsDoNotAdvancePublicSequence(t *testing.T) {
 	activity := assembler.Consume(InputRunActivity{ChatID: "chat_hidden_tool", Phase: "model_call", Status: "completed"})
 	if len(activity) != 1 || activity[0].Seq != 1 {
 		t.Fatalf("first public event after hidden tool=%#v want seq 1", activity)
+	}
+}
+
+func TestAssemblerPublishesToolOutputWithPublicSequence(t *testing.T) {
+	assembler := NewAssembler(StreamRequest{RunID: "run_output", ChatID: "chat_output"})
+	assertStampedTypes(t, assembler.Consume(ToolArgs{
+		ToolID: "tool_1", ToolName: "bash", Delta: `{}`, ChunkIndex: 0,
+	}), "tool.start", "tool.args")
+	assertStampedTypes(t, assembler.Consume(ToolEnd{ToolID: "tool_1"}), "tool.end")
+
+	output := assembler.Consume(ToolOutput{
+		ToolID: "tool_1", ToolName: "bash", Stream: "stderr", Delta: "scan now\n", ChunkIndex: 0,
+	})
+	assertStampedTypes(t, output, "tool.output")
+	payload := output[0].ToData()
+	if payload["runId"] != "run_output" || payload["toolId"] != "tool_1" || payload["toolName"] != "bash" ||
+		payload["stream"] != "stderr" || payload["delta"] != "scan now\n" || payload["chunkIndex"] != 0 {
+		t.Fatalf("unexpected public tool.output payload: %#v", payload)
+	}
+	result := assembler.Consume(ToolResult{ToolID: "tool_1", ToolName: "bash", Result: "done"})
+	assertStampedTypes(t, result, "tool.result")
+	if output[0].Seq >= result[0].Seq {
+		t.Fatalf("tool.output must precede tool.result: output=%d result=%d", output[0].Seq, result[0].Seq)
 	}
 }
 

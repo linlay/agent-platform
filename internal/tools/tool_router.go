@@ -267,6 +267,24 @@ func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[strin
 	return validateDeclaredOutputSchema(def, result, err)
 }
 
+func (r *ToolRouter) SupportsToolOutput(toolName string, execCtx *ExecutionContext) bool {
+	if r == nil || r.runtime == nil {
+		return false
+	}
+	def, ok := r.lookup(toolName)
+	if !ok || strings.EqualFold(strings.TrimSpace(AnyStringNode(def.Meta["sourceType"])), "mcp") {
+		return false
+	}
+	if r.interaction != nil && r.interaction.Handles(def.Name) {
+		return false
+	}
+	if r.namedHandler(def.Name) != nil {
+		return false
+	}
+	support, ok := r.runtime.(ToolOutputStreamingExecutor)
+	return ok && support.SupportsToolOutput(def.Name, execCtx)
+}
+
 func allowsReadOnlyInvocation(def api.ToolDetailResponse, found bool, toolName string, args map[string]any) bool {
 	if strings.EqualFold(strings.TrimSpace(toolName), platformcontrol.ToolName) || strings.EqualFold(strings.TrimSpace(def.Name), platformcontrol.ToolName) {
 		descriptor, ok := platformcontrol.InvocationDescriptor(platformcontrol.ToolName, args)

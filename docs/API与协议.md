@@ -369,7 +369,28 @@ Chat 与 Site 沿用同一 `references` 数组，但不按文件路径处理：
 
 `steam` 不是支持字段；如果误传 `steam:false`，不会触发非流式响应。
 
-实时 SSE / WS stream 中所有工具统一发送 `tool.start`、`tool.args`、`tool.end`、`tool.snapshot`、`tool.result`，不再存在 `action.*` 事件。Bash 进程非零退出时，`tool.result` 保留真实 `exitCode` 并作为可恢复的工具失败展示，不会自动升级为终止性的 `run.error`；成功但写入 stderr 的命令仍保持 `exitCode: 0`。持久化到 `chatId.jsonl` 时，同一 assistant turn 的多个工具调用会合并为一条 assistant message 的 `tool_calls[]`；如果该组存在 awaiting，确认前不会执行任何 sibling tool，确认后的所有结果写入同 `seq` 的 `_type:"react-tool"` continuation。
+实时 SSE / WS stream 中所有工具统一使用 `tool.start → tool.args × N → tool.end → tool.snapshot → tool.output × 0..N → tool.result` 生命周期，不再存在 `action.*` 事件。`tool.end` / `tool.snapshot` 只表示调用参数已经完整；只有唯一的 `tool.result` 收口执行结果。`tool.output` 是可选过程输出，当前只有 Native Host `bash` 发送，Container Hub `bash` 与 `bash_sandbox` 仍只返回最终结果；工具输入 Schema、模型参数和配置均未增加开关。
+
+`tool.output` 的公开结构如下；`taskId` 只在 Team / Plan task 范围内携带：
+
+```json
+{
+  "type": "tool.output",
+  "seq": 123,
+  "timestamp": 1788500000000,
+  "runId": "run_123",
+  "taskId": "task_123",
+  "toolId": "call_123",
+  "toolName": "bash",
+  "stream": "stdout",
+  "delta": "请扫描二维码：\n████████\n",
+  "chunkIndex": 0
+}
+```
+
+`stream` 只允许 `stdout` / `stderr`，`delta` 为非空有效 UTF-8；`chunkIndex` 从 `0` 开始并在同一 `toolId` 内跨两个 stream 单调递增。`seq` 仍由统一 Assembler 分配，事件进入 SSE、WebSocket 与 active Run 的 attach backlog。最终 `tool.result` 可以汇总、重组或概括过程输出，不要求机械拼接；Bash 进程非零退出时，`tool.result` 保留真实 `exitCode` 并作为可恢复的工具失败展示，不会自动升级为终止性的 `run.error`，成功但写入 stderr 的命令仍保持 `exitCode: 0`。
+
+`tool.output` 不进入 Chat JSONL、非流式 `fullText` 或导出；冷回放仍只有 `tool.snapshot + tool.result`。大型 Bash 最终结果继续使用 64 KiB spill / preview / `resultRef`。持久化到 `chatId.jsonl` 时，同一 assistant turn 的多个工具调用会合并为一条 assistant message 的 `tool_calls[]`；如果该组存在 awaiting，确认前不会执行任何 sibling tool，确认后的所有结果写入同 `seq` 的 `_type:"react-tool"` continuation。
 
 `budget.tool.maxCalls` 是平台硬限制。计数包含被拒绝的尝试，因此上限为 `60` 时，第 `61` 次调用不会进入 ToolRouter，而是先发送一次失败 `tool.result`。如果同一 assistant turn 在该调用之后还有 sibling，平台会先为所有确定尚未执行的 sibling 写入内部 `executed:false` 结果，保证持久化历史中的每个 `tool_call_id` 都有对应结果；这些内部结果不进入 SSE、WebSocket、attach、普通 Chat 回放或 full-text。串行和并行批次都完成上述收尾后，才发送唯一的 `run.error` 并结束，不再请求模型补答；已在预算内启动的并行 sibling 仍正常收尾。终止错误沿用公共错误结构：
 

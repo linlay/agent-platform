@@ -45,6 +45,17 @@ type ToolEnd struct {
 
 func (ToolEnd) streamInputTag() {}
 
+type ToolOutput struct {
+	ToolID     string
+	ToolName   string
+	Stream     string
+	Delta      string
+	ChunkIndex int
+	TaskID     string
+}
+
+func (ToolOutput) streamInputTag() {}
+
 type ToolResult struct {
 	ToolID          string
 	ToolName        string

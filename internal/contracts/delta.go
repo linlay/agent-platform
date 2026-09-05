@@ -40,6 +40,16 @@ type DeltaToolEnd struct {
 
 func (DeltaToolEnd) agentDeltaTag() {}
 
+type DeltaToolOutput struct {
+	ToolID     string
+	ToolName   string
+	Stream     string
+	Delta      string
+	ChunkIndex int
+}
+
+func (DeltaToolOutput) agentDeltaTag() {}
+
 type DeltaToolResult struct {
 	ToolID       string
 	ToolName     string

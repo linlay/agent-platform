@@ -34,6 +34,15 @@ func TestHandleAttachDefaultsMissingLastSeqToZero(t *testing.T) {
 			"chatId": session.ChatID,
 		},
 	})
+	eventBus.Publish(stream.EventData{
+		Seq:       2,
+		Type:      "tool.output",
+		Timestamp: testEpochMillis + 1,
+		Payload: map[string]any{
+			"runId": session.RunID, "toolId": "tool_1", "toolName": "bash",
+			"stream": "stdout", "delta": "scan-qr\n", "chunkIndex": 0,
+		},
+	})
 	runs.Finish(session.RunID)
 	eventBus.Freeze()
 
@@ -60,6 +69,9 @@ func TestHandleAttachDefaultsMissingLastSeqToZero(t *testing.T) {
 	body := rec.Body.String()
 	if !strings.Contains(body, `"type":"request.query"`) {
 		t.Fatalf("expected replayed request.query event, got %s", body)
+	}
+	if !strings.Contains(body, `"type":"tool.output"`) || !strings.Contains(body, `"delta":"scan-qr\n"`) {
+		t.Fatalf("expected replayed tool.output event, got %s", body)
 	}
 	if !strings.Contains(body, "data: [DONE]") {
 		t.Fatalf("expected done sentinel, got %s", body)
