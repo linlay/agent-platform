@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"strings"
@@ -13,7 +12,6 @@ import (
 )
 
 func (s *SQLiteStore) BuildContextBundle(request ContextRequest) (ContextBundle, error) {
-	runtime := s.runtimeForAgent(request.AgentKey)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -32,21 +30,8 @@ func (s *SQLiteStore) BuildContextBundle(request ContextRequest) (ContextBundle,
 		}
 	}
 
-	hp := hybridParams{
-		vectorWeight: s.ftsVectorWeight,
-		ftsWeight:    s.ftsFTSWeight,
-	}
-	query := strings.TrimSpace(request.Query)
-	if runtime.Embedder != nil && query != "" {
-		if qvec, err := runtime.Embedder.EmbedSingle(context.Background(), query); err == nil {
-			hp.queryEmbedding = qvec
-			hp.itemEmbeddings = s.loadEmbeddingsLocked(items)
-		}
-	}
-
-	bundle := buildContextBundleWithHybrid(request, items, hp)
+	bundle := buildContextBundleFromStored(request, items)
 	if request.FreezeStable && strings.TrimSpace(request.ChatID) != "" {
-		hadSnapshot := snapshot != nil
 		if snapshot == nil {
 			snapshot = &MemorySnapshot{
 				ID:              bundle.SnapshotID,
@@ -55,17 +40,13 @@ func (s *SQLiteStore) BuildContextBundle(request ContextRequest) (ContextBundle,
 				StableItemIDs:   memoryIDs(bundle.StableFacts),
 				ObservedItemIDs: memoryIDs(bundle.RelevantObservations),
 			}
-			if !request.PreviewOnly {
-				if err := s.saveMemorySnapshotLocked(*snapshot); err != nil {
-					return ContextBundle{}, err
-				}
+			if err := s.saveMemorySnapshotLocked(*snapshot); err != nil {
+				return ContextBundle{}, err
 			}
 		}
 		if snapshot != nil {
 			bundle.SnapshotID = snapshot.ID
-			if !request.PreviewOnly || hadSnapshot {
-				markStableSnapshotPinned(&bundle, snapshot.StableItemIDs)
-			}
+			markStableSnapshotPinned(&bundle, snapshot.StableItemIDs)
 		}
 	}
 	logMemoryOperation("build_context_bundle", map[string]any{
@@ -83,10 +64,9 @@ func (s *SQLiteStore) BuildContextBundle(request ContextRequest) (ContextBundle,
 		"observationChars": len(bundle.ObservationPrompt),
 		"layers":           bundle.DisclosedLayers,
 		"stopReason":       bundle.StopReason,
-		"hybrid":           len(hp.queryEmbedding) > 0,
 		"maxChars":         request.MaxChars,
 	})
-	_ = s.recordRecallHistoryLocked(request, bundle, len(items), len(hp.queryEmbedding) > 0)
+	_ = s.recordRecallHistoryLocked(request, bundle, len(items))
 	return bundle, nil
 }
 
@@ -178,9 +158,6 @@ func markStableSnapshotPinned(bundle *ContextBundle, stableIDs []string) {
 		for _, id := range decision.ItemIDs {
 			if _, ok := pinned[strings.TrimSpace(id)]; ok {
 				bundle.Decisions[i].Reason = string(SelectionReasonSnapshotPin)
-				for traceIdx := range bundle.Decisions[i].Traces {
-					bundle.Decisions[i].Traces[traceIdx].Reason = string(SelectionReasonSnapshotPin)
-				}
 				return
 			}
 		}
@@ -199,47 +176,6 @@ func decodeStringList(raw string) []string {
 		}
 	}
 	return out
-}
-
-func (s *SQLiteStore) loadEmbeddingsLocked(items []api.StoredMemoryResponse) map[string][]float64 {
-	ids := make([]string, 0, len(items))
-	for _, item := range items {
-		if normalizeMemoryKind(item.Kind) == KindObservation {
-			ids = append(ids, item.ID)
-		}
-	}
-	if len(ids) == 0 {
-		return nil
-	}
-	placeholders := make([]string, len(ids))
-	args := make([]any, len(ids))
-	for i, id := range ids {
-		placeholders[i] = "?"
-		args[i] = id
-	}
-	rows, err := s.db.Query(
-		`SELECT ID_, EMBEDDING_ FROM MEMORIES WHERE ID_ IN (`+strings.Join(placeholders, ",")+`) AND EMBEDDING_ IS NOT NULL`,
-		args...,
-	)
-	if err != nil {
-		return nil
-	}
-	defer rows.Close()
-
-	result := make(map[string][]float64)
-	for rows.Next() {
-		var id string
-		var blob []byte
-		if err := rows.Scan(&id, &blob); err != nil {
-			continue
-		}
-		var vec []float64
-		if err := json.Unmarshal(blob, &vec); err != nil {
-			continue
-		}
-		result[id] = vec
-	}
-	return result
 }
 
 func (s *SQLiteStore) listProjectionItemsLocked(agentKey string) ([]api.StoredMemoryResponse, error) {

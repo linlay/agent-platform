@@ -19,7 +19,9 @@ func (c *Config) applyStructuredConfig(configRoot string, ignoreRemovedWorkingDi
 	if err := c.applyToolsFile(configFile(configRoot, "configs/tools.yml"), ignoreRemovedWorkingDirectory); err != nil {
 		return err
 	}
-	c.applyPromptsFile(configFile(configRoot, "configs/prompts.yml"))
+	if err := c.applyPromptsFile(configFile(configRoot, "configs/prompts.yml")); err != nil {
+		return err
+	}
 	c.applyCoderPromptsFile(configFile(configRoot, "configs/coder-prompts.yml"))
 	c.applyKBasePromptsFile(configFile(configRoot, "configs/kbase-prompts.yml"))
 	if err := c.applyCoderSettingsFile(configFile(configRoot, "configs/coder-settings.yml")); err != nil {
@@ -95,15 +97,19 @@ func (c *Config) applyAutomationValues(values map[string]any) {
 	c.Automation.PoolSize = intValue(anyValue(values["pool-size"], c.Automation.PoolSize), c.Automation.PoolSize)
 }
 
-func (c *Config) applyMemoryValues(values map[string]any) {
+func (c *Config) applyMemoryValues(values map[string]any) error {
+	for _, key := range []string{"hybrid-vector-weight", "hybrid-fts-weight"} {
+		if _, exists := values[key]; exists {
+			return fmt.Errorf("memory.%s is no longer supported; memory uses text retrieval", key)
+		}
+	}
 	c.Memory.Enabled = boolValue(anyValue(values["enabled"], c.Memory.Enabled), c.Memory.Enabled)
 	c.Memory.DBFileName = stringValue(anyValue(values["db-file-name"], c.Memory.DBFileName), c.Memory.DBFileName)
 	c.Memory.ContextTopN = intValue(anyValue(values["context-top-n"], c.Memory.ContextTopN), c.Memory.ContextTopN)
 	c.Memory.ContextMaxChars = intValue(anyValue(values["context-max-chars"], c.Memory.ContextMaxChars), c.Memory.ContextMaxChars)
 	c.Memory.SearchDefaultLimit = intValue(anyValue(values["search-default-limit"], c.Memory.SearchDefaultLimit), c.Memory.SearchDefaultLimit)
-	c.Memory.HybridVectorWeight = floatValue(anyValue(values["hybrid-vector-weight"], c.Memory.HybridVectorWeight), c.Memory.HybridVectorWeight)
-	c.Memory.HybridFTSWeight = floatValue(anyValue(values["hybrid-fts-weight"], c.Memory.HybridFTSWeight), c.Memory.HybridFTSWeight)
 	c.Memory.DualWriteMarkdown = boolValue(anyValue(values["dual-write-markdown"], c.Memory.DualWriteMarkdown), c.Memory.DualWriteMarkdown)
+	return nil
 }
 
 func (c *Config) applyKBaseValues(values map[string]any) error {
@@ -210,7 +216,9 @@ func (c *Config) applyRuntimeFile(path string) error {
 		c.applyAutomationValues(automation)
 	}
 	if memory, ok := values["memory"].(map[string]any); ok && len(memory) > 0 {
-		c.applyMemoryValues(memory)
+		if err := c.applyMemoryValues(memory); err != nil {
+			return err
+		}
 	}
 	if defaults, ok := values["defaults"].(map[string]any); ok && len(defaults) > 0 {
 		c.applyRuntimeDefaultsValues(defaults)
@@ -636,18 +644,16 @@ func (c *Config) applyCORSValues(values map[string]any) {
 	c.CORS.MaxAgeSeconds = intValue(anyValue(values["max-age-seconds"], c.CORS.MaxAgeSeconds), c.CORS.MaxAgeSeconds)
 }
 
-func (c *Config) applyPromptsFile(path string) {
+func (c *Config) applyPromptsFile(path string) error {
 	values, err := loadYAMLMap(path)
 	if err != nil {
-		return
+		return nil
 	}
-	if len(values) == 0 {
-		return
+	if _, exists := values["memory"]; exists {
+		return fmt.Errorf("%s: memory is no longer supported; remove the retired memory prompt templates", path)
 	}
 	c.applyPromptsValues(values)
-	if memory, ok := values["memory"].(map[string]any); ok && len(memory) > 0 {
-		c.applyMemoryPromptsValues(memory)
-	}
+	return nil
 }
 
 func (c *Config) applyPromptsValues(values map[string]any) {
@@ -706,11 +712,6 @@ func (c *Config) applyKBasePromptsFile(path string) {
 		return
 	}
 	c.applyKBasePromptsValues(values)
-}
-
-func (c *Config) applyMemoryPromptsValues(values map[string]any) {
-	c.MemoryPrompts.SystemPromptTemplate = stringValue(anyValue(values["system-prompt-template"], c.MemoryPrompts.SystemPromptTemplate), c.MemoryPrompts.SystemPromptTemplate)
-	c.MemoryPrompts.UserPromptTemplate = stringValue(anyValue(values["user-prompt-template"], c.MemoryPrompts.UserPromptTemplate), c.MemoryPrompts.UserPromptTemplate)
 }
 
 func (c *Config) applyCoderSettingsFile(path string) error {

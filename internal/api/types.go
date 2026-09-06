@@ -560,21 +560,6 @@ type AccessLevelResponse struct {
 	Detail              string `json:"detail"`
 }
 
-type LearnRequest struct {
-	RequestID  string `json:"requestId,omitempty"`
-	ChatID     string `json:"chatId"`
-	SubjectKey string `json:"subjectKey,omitempty"`
-}
-
-type LearnResponse struct {
-	Accepted         bool                   `json:"accepted"`
-	Status           string                 `json:"status"`
-	RequestID        string                 `json:"requestId,omitempty"`
-	ChatID           string                 `json:"chatId"`
-	ObservationCount int                    `json:"observationCount"`
-	Stored           []StoredMemoryResponse `json:"stored,omitempty"`
-}
-
 type StoredMemoryResponse struct {
 	ID             string   `json:"id"`
 	RequestID      string   `json:"requestId,omitempty"`

@@ -22,23 +22,12 @@ type ProviderDefinition struct {
 	EndpointPath string
 	Protocols    map[string]ProtocolDefinition
 	Embedding    ProviderEmbeddingConfig
-	Memory       ProviderMemoryConfig
 }
 
 type ProtocolDefinition struct {
 	EndpointPath string
 	Headers      map[string]string
 	Compat       map[string]any
-}
-
-type ProviderMemoryConfig struct {
-	Embedding ProviderMemoryEmbeddingConfig
-}
-
-type ProviderMemoryEmbeddingConfig struct {
-	Model     string
-	Dimension int
-	Timeout   int
 }
 
 type ProviderEmbeddingConfig struct {
@@ -506,9 +495,8 @@ func loadProviders(dir string) (map[string]ProviderDefinition, error) {
 		if err != nil {
 			return nil, fmt.Errorf("load provider %s: %w", entry.Name(), err)
 		}
-		memoryConfig, err := loadProviderMemory(values)
-		if err != nil {
-			return nil, fmt.Errorf("load provider %s: %w", entry.Name(), err)
+		if _, exists := values["memory"]; exists {
+			return nil, fmt.Errorf("load provider %s: memory is no longer supported; remove this field (KBASE uses embedding models)", entry.Name())
 		}
 		embeddingConfig := loadProviderEmbedding(values)
 		result[key] = ProviderDefinition{
@@ -519,7 +507,6 @@ func loadProviders(dir string) (map[string]ProviderDefinition, error) {
 			EndpointPath: resolveProviderEndpointPath(values, baseURL, "OPENAI"),
 			Protocols:    protocols,
 			Embedding:    embeddingConfig,
-			Memory:       memoryConfig,
 		}
 	}
 	return result, nil
@@ -535,20 +522,6 @@ func loadProviderEmbedding(values map[string]any) ProviderEmbeddingConfig {
 		Dimension: intNode(embedding["dimension"]),
 		Timeout:   intNode(embedding["timeout"]),
 	}
-}
-
-func loadProviderMemory(values map[string]any) (ProviderMemoryConfig, error) {
-	embedding := nestedMap(values, "memory", "embedding")
-	if embedding == nil {
-		return ProviderMemoryConfig{}, nil
-	}
-	return ProviderMemoryConfig{
-		Embedding: ProviderMemoryEmbeddingConfig{
-			Model:     strings.TrimSpace(stringNode(embedding["model"])),
-			Dimension: intNode(embedding["dimension"]),
-			Timeout:   intNode(embedding["timeout"]),
-		},
-	}, nil
 }
 
 func resolveProviderBaseURL(key string, values map[string]any) string {

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/memory"
@@ -202,30 +201,16 @@ func TestMemoryPromoteCreatesFactFromObservation(t *testing.T) {
 		},
 	}
 
-	resp, err := store.Learn(memory.LearnInput{
-		Request: api.LearnRequest{RequestID: "learn-1", ChatID: "chat-1"},
-		Trace: chat.RunTrace{
-			ChatID:   "chat-1",
-			AgentKey: "agent-a",
-			RunID:    "run-1",
-			Query: &chat.QueryLine{
-				Query: map[string]any{"message": "remember that tests should run before merge"},
-			},
-			Steps: []chat.StepLine{{
-				Messages: []chat.StoredMessage{{
-					Role:    "assistant",
-					Content: []chat.ContentPart{{Type: "text", Text: "Established that tests should run before merge."}},
-				}},
-			}},
-		},
-		AgentKey: "agent-a",
-		TeamID:   "team-1",
-		UserKey:  "user-1",
-	})
-	if err != nil || len(resp.Stored) != 1 {
-		t.Fatalf("learn observation: %v %#v", err, resp)
+	observationID := "manual-observation"
+	if err := store.Write(api.StoredMemoryResponse{
+		ID: observationID, AgentKey: "agent-a", ChatID: "chat-1",
+		Kind: memory.KindObservation, ScopeType: memory.ScopeChat, ScopeKey: "chat:chat-1",
+		Summary: "Established that tests should run before merge.", SourceType: "manual",
+		Importance: 8, Confidence: 0.75, Status: memory.StatusOpen,
+		CreatedAt: 1700000000000, UpdatedAt: 1700000000000,
+	}); err != nil {
+		t.Fatalf("write observation: %v", err)
 	}
-	observationID := resp.Stored[0].ID
 
 	promoteResult, err := executor.Invoke(context.Background(), "memory_promote", map[string]any{
 		"id":            observationID,

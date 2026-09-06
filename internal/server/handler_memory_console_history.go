@@ -42,3 +42,33 @@ func (s *Server) handleMemoryHistory(w http.ResponseWriter, r *http.Request) {
 		Events:     events,
 	}))
 }
+
+func toMemoryHistoryEvents(events []memory.HistoryEvent) []api.MemoryHistoryEvent {
+	if len(events) == 0 {
+		return []api.MemoryHistoryEvent{}
+	}
+	out := make([]api.MemoryHistoryEvent, 0, len(events))
+	for _, event := range events {
+		out = append(out, api.MemoryHistoryEvent{
+			ID:         event.ID,
+			Timestamp:  event.Timestamp,
+			AgentKey:   event.AgentKey,
+			ChatID:     event.ChatID,
+			RunID:      event.RunID,
+			RequestID:  event.RequestID,
+			UserKey:    event.UserKey,
+			MemoryID:   event.MemoryID,
+			MemoryKind: event.MemoryKind,
+			ScopeType:  event.ScopeType,
+			ScopeKey:   event.ScopeKey,
+			Operation:  event.Operation,
+			Source:     event.Source,
+			Status:     event.Status,
+			Before:     event.Before,
+			After:      event.After,
+			Delta:      event.Delta,
+			Meta:       event.Meta,
+		})
+	}
+	return out
+}

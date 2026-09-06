@@ -74,10 +74,6 @@ type consolidationPlan struct {
 }
 
 func buildObservationConsolidationPlan(agentKey string, items []api.StoredMemoryResponse, now time.Time) consolidationPlan {
-	return buildObservationConsolidationPlanWithMode(agentKey, items, now, true)
-}
-
-func buildObservationConsolidationPlanWithMode(agentKey string, items []api.StoredMemoryResponse, now time.Time, allowHeuristicPromotion bool) consolidationPlan {
 	plan := consolidationPlan{
 		archiveIDs:   map[string]struct{}{},
 		mergeIDs:     map[string]struct{}{},
@@ -122,7 +118,7 @@ func buildObservationConsolidationPlanWithMode(agentKey string, items []api.Stor
 		if _, archived := plan.archiveIDs[item.ID]; archived {
 			continue
 		}
-		if shouldPromoteObservation(item, duplicateCount[fingerprint], allowHeuristicPromotion) {
+		if shouldPromoteObservation(item, duplicateCount[fingerprint]) {
 			plan.promoteIDs = append(plan.promoteIDs, item.ID)
 		}
 	}
@@ -195,7 +191,7 @@ func normalizeLifecycleText(text string) string {
 	return strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(text))), " ")
 }
 
-func shouldPromoteObservation(item api.StoredMemoryResponse, duplicateCount int, allowHeuristicPromotion bool) bool {
+func shouldPromoteObservation(item api.StoredMemoryResponse, duplicateCount int) bool {
 	if normalizeMemoryKind(item.Kind) != KindObservation {
 		return false
 	}
@@ -204,9 +200,6 @@ func shouldPromoteObservation(item api.StoredMemoryResponse, duplicateCount int,
 	}
 	if duplicateCount > 1 {
 		return true
-	}
-	if !allowHeuristicPromotion {
-		return false
 	}
 	if item.Importance >= 9 && item.Confidence >= 0.75 {
 		return true

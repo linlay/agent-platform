@@ -11,23 +11,10 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/chat"
-	"agent-platform/internal/skills"
 	"agent-platform/internal/sqlitecontract"
 )
 
 const testEpochMillis int64 = 1_700_000_000_000
-
-type mockRememberSummarizer struct {
-	learn func(input LearnSynthesisInput) ([]MemoryDraft, error)
-}
-
-func (m mockRememberSummarizer) SummarizeLearn(input LearnSynthesisInput) ([]MemoryDraft, error) {
-	if m.learn == nil {
-		return nil, nil
-	}
-	return m.learn(input)
-}
 
 func TestSQLiteStoreToolQueries(t *testing.T) {
 	store, err := NewSQLiteStore(t.TempDir(), "memory.db")
@@ -222,7 +209,7 @@ func TestSQLiteConsolidateSupersedesNearDuplicateFacts(t *testing.T) {
 	}
 }
 
-func TestSQLiteStoreRecordsMemoryHistoryForWriteUpdateAndFeedback(t *testing.T) {
+func TestSQLiteStoreRecordsMemoryHistoryForWriteAndUpdate(t *testing.T) {
 	store, err := NewSQLiteStore(t.TempDir(), "memory.db")
 	if err != nil {
 		t.Fatalf("new sqlite store: %v", err)
@@ -250,18 +237,14 @@ func TestSQLiteStoreRecordsMemoryHistoryForWriteUpdateAndFeedback(t *testing.T) 
 	if _, err := store.Update("agent-a", MutationInput{ID: item.ID, Importance: &importance}); err != nil {
 		t.Fatalf("update memory: %v", err)
 	}
-	if err := store.ApplyFeedback([]FeedbackSignal{{ItemID: item.ID, Referenced: true, ConfidenceDelta: feedbackBoost}}); err != nil {
-		t.Fatalf("apply feedback: %v", err)
-	}
 
 	result, err := store.History(HistoryFilter{AgentKey: "agent-a", MemoryID: item.ID, Limit: 20})
 	if err != nil {
 		t.Fatalf("history: %v", err)
 	}
 	if !historyHasOperation(result.Events, "write.create") ||
-		!historyHasOperation(result.Events, "update") ||
-		!historyHasOperation(result.Events, "feedback.boost") {
-		t.Fatalf("expected write/update/feedback history, got %#v", result.Events)
+		!historyHasOperation(result.Events, "update") {
+		t.Fatalf("expected write/update history, got %#v", result.Events)
 	}
 }
 
@@ -322,62 +305,6 @@ func historyHasOperation(events []HistoryEvent, operation string) bool {
 		}
 	}
 	return false
-}
-
-func TestSQLiteLearnCanSkipStorageViaSummarizer(t *testing.T) {
-	tests := []struct {
-		name  string
-		build func(t *testing.T) Store
-	}{
-		{
-			name: "sqlite",
-			build: func(t *testing.T) Store {
-				store, err := NewSQLiteStore(t.TempDir(), "memory.db")
-				if err != nil {
-					t.Fatalf("new sqlite store: %v", err)
-				}
-				store.SetRememberSummarizer(mockRememberSummarizer{
-					learn: func(input LearnSynthesisInput) ([]MemoryDraft, error) {
-						return nil, nil
-					},
-				})
-				return store
-			},
-		},
-	}
-
-	trace := chat.RunTrace{
-		ChatID:   "chat-1",
-		ChatName: "Demo",
-		AgentKey: "agent-a",
-		TeamID:   "team-1",
-		RunID:    "run-1",
-		Steps: []chat.StepLine{{
-			Messages: []chat.StoredMessage{{
-				Role:    "assistant",
-				Content: []chat.ContentPart{{Type: "text", Text: "只是一次性状态同步，没有长期价值。"}},
-			}},
-		}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			store := tt.build(t)
-			resp, err := store.Learn(LearnInput{
-				Request:  api.LearnRequest{RequestID: "learn-1", ChatID: "chat-1"},
-				Trace:    trace,
-				AgentKey: "agent-a",
-				TeamID:   "team-1",
-				UserKey:  "user-1",
-			})
-			if err != nil {
-				t.Fatalf("learn: %v", err)
-			}
-			if resp.Accepted || resp.ObservationCount != 0 || len(resp.Stored) != 0 {
-				t.Fatalf("expected skipped learn response, got %#v", resp)
-			}
-		})
-	}
 }
 
 func runToolQueriesTest(t *testing.T, store Store, expectedMatchType string) {
@@ -833,236 +760,6 @@ func TestBuildContextBundleKeepsDistinctStableFactsAcrossCategories(t *testing.T
 	}
 	if !strings.Contains(bundle.StablePrompt, "[fact-1]") || !strings.Contains(bundle.StablePrompt, "[fact-2]") {
 		t.Fatalf("expected both stable facts in prompt, got %q", bundle.StablePrompt)
-	}
-}
-
-func TestLearnStoresObservationAndRefreshesSnapshots(t *testing.T) {
-	tests := []struct {
-		name  string
-		build func(t *testing.T) (Store, string)
-	}{
-		{
-			name: "sqlite",
-			build: func(t *testing.T) (Store, string) {
-				root := t.TempDir()
-				store, err := NewSQLiteStore(root, "memory.db")
-				if err != nil {
-					t.Fatalf("new sqlite store: %v", err)
-				}
-				return store, root
-			},
-		},
-	}
-
-	trace := chat.RunTrace{
-		ChatID:   "chat-1",
-		ChatName: "Demo",
-		AgentKey: "agent-a",
-		TeamID:   "team-1",
-		RunID:    "run-1",
-		Query: &chat.QueryLine{
-			ChatID: "chat-1",
-			RunID:  "run-1",
-			Query: map[string]any{
-				"message": "please fix the memory scope bug",
-			},
-		},
-		Steps: []chat.StepLine{
-			{
-				ChatID: "chat-1",
-				RunID:  "run-1",
-				Messages: []chat.StoredMessage{
-					{
-						Role:    "assistant",
-						Content: []chat.ContentPart{{Type: "text", Text: "Fixed the memory scope bug and tightened retrieval."}},
-						ToolCalls: []chat.StoredToolCall{
-							{ID: "tool-1", Type: "function", Function: chat.StoredFunction{Name: "memory_search", Arguments: "{}"}},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			store, root := tt.build(t)
-			resp, err := store.Learn(LearnInput{
-				Request:  api.LearnRequest{RequestID: "learn-1", ChatID: "chat-1"},
-				Trace:    trace,
-				AgentKey: "agent-a",
-				TeamID:   "team-1",
-				UserKey:  "user-1",
-			})
-			if err != nil {
-				t.Fatalf("Learn: %v", err)
-			}
-			if !resp.Accepted || resp.ObservationCount != 1 {
-				t.Fatalf("unexpected learn response: %#v", resp)
-			}
-			record, err := store.ReadDetail("agent-a", resp.Stored[0].ID)
-			if err != nil {
-				t.Fatalf("ReadDetail: %v", err)
-			}
-			if record == nil || record.Kind != KindObservation || record.Category != "bugfix" {
-				t.Fatalf("unexpected learned record: %#v", record)
-			}
-			recentPath := filepath.Join(root, "agent-a", "exports", "recent-observations.md")
-			data, err := os.ReadFile(recentPath)
-			if err != nil {
-				t.Fatalf("read recent observations snapshot: %v", err)
-			}
-			if !strings.Contains(string(data), "Fixed the memory scope bug") {
-				t.Fatalf("snapshot missing learned observation: %s", string(data))
-			}
-			projectPath := filepath.Join(root, "agent-a", "snapshot", "PROJECT.md")
-			if _, err := os.Stat(projectPath); err != nil {
-				t.Fatalf("expected project snapshot to exist: %v", err)
-			}
-		})
-	}
-}
-
-func TestLearnAutoConsolidatesDuplicateObservations(t *testing.T) {
-	tests := []struct {
-		name  string
-		build func(t *testing.T) Store
-	}{
-		{
-			name: "sqlite",
-			build: func(t *testing.T) Store {
-				store, err := NewSQLiteStore(t.TempDir(), "memory.db")
-				if err != nil {
-					t.Fatalf("new sqlite store: %v", err)
-				}
-				return store
-			},
-		},
-	}
-
-	trace := chat.RunTrace{
-		ChatID:   "chat-1",
-		ChatName: "Demo",
-		AgentKey: "agent-a",
-		TeamID:   "team-1",
-		RunID:    "run-1",
-		Query: &chat.QueryLine{
-			ChatID: "chat-1",
-			RunID:  "run-1",
-			Query: map[string]any{
-				"message": "please fix the memory scope bug",
-			},
-		},
-		Steps: []chat.StepLine{{
-			ChatID: "chat-1",
-			RunID:  "run-1",
-			Messages: []chat.StoredMessage{{
-				Role:    "assistant",
-				Content: []chat.ContentPart{{Type: "text", Text: "Fixed the memory scope bug and tightened retrieval."}},
-			}},
-		}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			store := tt.build(t)
-			for i := 0; i < 2; i++ {
-				resp, err := store.Learn(LearnInput{
-					Request:  api.LearnRequest{RequestID: "learn-dup", ChatID: "chat-1"},
-					Trace:    trace,
-					AgentKey: "agent-a",
-					TeamID:   "team-1",
-					UserKey:  "user-1",
-				})
-				if err != nil {
-					t.Fatalf("Learn #%d: %v", i+1, err)
-				}
-				if !resp.Accepted || resp.ObservationCount != 1 {
-					t.Fatalf("unexpected learn response #%d: %#v", i+1, resp)
-				}
-			}
-
-			items, err := store.List("agent-a", "", 20, "recent")
-			if err != nil {
-				t.Fatalf("list memories: %v", err)
-			}
-			activeFacts := 0
-			archivedObservations := 0
-			for _, item := range items {
-				if item.Kind == KindFact && item.Status == StatusActive {
-					activeFacts++
-				}
-				if item.Kind == KindObservation && item.Status == StatusArchived {
-					archivedObservations++
-				}
-			}
-			if activeFacts != 0 {
-				t.Fatalf("expected duplicate learns to bump the existing observation without heuristic promotion, got %#v", items)
-			}
-			if archivedObservations != 0 {
-				t.Fatalf("expected duplicate observation to be merged on write instead of archived, got %#v", items)
-			}
-		})
-	}
-}
-
-func TestLearnWritesProceduralSkillCandidate(t *testing.T) {
-	tests := []struct {
-		name  string
-		build func(t *testing.T) Store
-	}{
-		{
-			name: "sqlite",
-			build: func(t *testing.T) Store {
-				store, err := NewSQLiteStore(t.TempDir(), "memory.db")
-				if err != nil {
-					t.Fatalf("new sqlite store: %v", err)
-				}
-				return store
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			store := tt.build(t)
-			candidates, err := skills.NewFileCandidateStore(t.TempDir())
-			if err != nil {
-				t.Fatalf("new candidate store: %v", err)
-			}
-			resp, err := store.Learn(LearnInput{
-				Request: api.LearnRequest{RequestID: "learn-skill", ChatID: "chat-1"},
-				Trace: chat.RunTrace{
-					ChatID:   "chat-1",
-					AgentKey: "agent-a",
-					RunID:    "run-1",
-					Steps: []chat.StepLine{{
-						Messages: []chat.StoredMessage{{
-							Role:    "assistant",
-							Content: []chat.ContentPart{{Type: "text", Text: "First verify health checks, then rollback deployment, then clear cache before retrying."}},
-						}},
-					}},
-				},
-				AgentKey:        "agent-a",
-				SkillCandidates: candidates,
-			})
-			if err != nil {
-				t.Fatalf("Learn: %v", err)
-			}
-			if !resp.Accepted {
-				t.Fatalf("expected learn accepted, got %#v", resp)
-			}
-			items, err := candidates.List("agent-a", 10)
-			if err != nil {
-				t.Fatalf("list candidates: %v", err)
-			}
-			if len(items) != 1 {
-				t.Fatalf("expected one skill candidate, got %#v", items)
-			}
-			if !strings.Contains(strings.ToLower(items[0].Procedure), "rollback") {
-				t.Fatalf("unexpected candidate procedure: %#v", items[0])
-			}
-		})
 	}
 }
 
@@ -1559,84 +1256,7 @@ func TestSQLiteStoreConsolidateArchivesStaleAndPromotesStrongObservation(t *test
 	}
 }
 
-func TestBuildContextBundleHybridScoring(t *testing.T) {
-	items := []api.StoredMemoryResponse{
-		{
-			ID: "obs-low-sim", AgentKey: "a", Kind: KindObservation,
-			ScopeType: ScopeAgent, ScopeKey: "agent:a",
-			Title: "unrelated topic", Summary: "something about weather",
-			Importance: 9, Status: StatusOpen, UpdatedAt: testEpochMillis + 100,
-		},
-		{
-			ID: "obs-high-sim", AgentKey: "a", Kind: KindObservation,
-			ScopeType: ScopeAgent, ScopeKey: "agent:a",
-			Title: "deployment fix", Summary: "CI pipeline timeout on staging",
-			Importance: 3, Status: StatusOpen, UpdatedAt: testEpochMillis + 50,
-		},
-	}
-	hp := hybridParams{
-		queryEmbedding: []float64{1, 0, 0},
-		itemEmbeddings: map[string][]float64{
-			"obs-low-sim":  {0, 1, 0},
-			"obs-high-sim": {0.95, 0.05, 0},
-		},
-		vectorWeight: 0.7,
-		ftsWeight:    0.3,
-	}
-	bundle := buildContextBundleWithHybrid(ContextRequest{
-		AgentKey: "a", Query: "deployment", TopObs: 5, MaxChars: 4000,
-	}, items, hp)
-	if len(bundle.RelevantObservations) != 2 {
-		t.Fatalf("expected 2 observations, got %d", len(bundle.RelevantObservations))
-	}
-	if bundle.RelevantObservations[0].ID != "obs-high-sim" {
-		t.Fatalf("expected obs-high-sim first (high vector similarity), got %s", bundle.RelevantObservations[0].ID)
-	}
-}
-
-func TestBuildContextBundleSelectionTracesOnlyInPreview(t *testing.T) {
-	items := []api.StoredMemoryResponse{
-		{
-			ID: "obs-high-sim", AgentKey: "a", Kind: KindObservation,
-			ScopeType: ScopeAgent, ScopeKey: "agent:a",
-			Title: "deployment fix", Summary: "CI pipeline timeout on staging",
-			Importance: 3, Status: StatusOpen, UpdatedAt: testEpochMillis + 50,
-		},
-	}
-	hp := hybridParams{
-		queryEmbedding: []float64{1, 0, 0},
-		itemEmbeddings: map[string][]float64{
-			"obs-high-sim": {0.95, 0.05, 0},
-		},
-		vectorWeight: 0.7,
-		ftsWeight:    0.3,
-	}
-	normalBundle := buildContextBundleWithHybrid(ContextRequest{
-		AgentKey: "a", Query: "deployment", TopObs: 5, MaxChars: 4000,
-	}, items, hp)
-	if len(normalBundle.Decisions) == 0 {
-		t.Fatalf("expected normal bundle decisions")
-	}
-	if len(normalBundle.Decisions[0].Traces) != 0 {
-		t.Fatalf("expected no traces outside preview, got %#v", normalBundle.Decisions[0].Traces)
-	}
-
-	previewBundle := buildContextBundleWithHybrid(ContextRequest{
-		AgentKey: "a", Query: "deployment", TopObs: 5, MaxChars: 4000, PreviewOnly: true,
-	}, items, hp)
-	if len(previewBundle.Decisions) == 0 || len(previewBundle.Decisions[0].Traces) != 1 {
-		t.Fatalf("expected one preview selection trace, got %#v", previewBundle.Decisions)
-	}
-	trace := previewBundle.Decisions[0].Traces[0]
-	if trace.ID != "obs-high-sim" || trace.Layer != LayerObservation || !trace.Selected {
-		t.Fatalf("unexpected trace identity: %#v", trace)
-	}
-	if trace.ScoreParts.VectorScore <= 0 || trace.ScoreParts.HybridCombined <= 0 || trace.Score != trace.ScoreParts.HybridCombined {
-		t.Fatalf("expected hybrid score details, got %#v", trace)
-	}
-}
-
-func TestBuildContextBundleFallbackWithoutEmbedder(t *testing.T) {
+func TestBuildContextBundleTextRanking(t *testing.T) {
 	items := []api.StoredMemoryResponse{
 		{
 			ID: "obs-a", AgentKey: "a", Kind: KindObservation,
@@ -1658,7 +1278,7 @@ func TestBuildContextBundleFallbackWithoutEmbedder(t *testing.T) {
 		t.Fatalf("expected 2 observations, got %d", len(bundle.RelevantObservations))
 	}
 	if bundle.RelevantObservations[0].ID != "obs-b" {
-		t.Fatalf("expected obs-b first (higher importance without hybrid), got %s", bundle.RelevantObservations[0].ID)
+		t.Fatalf("expected obs-b first (higher importance), got %s", bundle.RelevantObservations[0].ID)
 	}
 }
 
@@ -1699,61 +1319,51 @@ func TestComputeEffectiveImportanceBoost(t *testing.T) {
 	}
 }
 
-func TestComputeFeedbackReferencedBoost(t *testing.T) {
-	items := []api.StoredMemoryResponse{
-		{ID: "mem-1", Title: "deployment fix", Summary: "CI pipeline timeout on staging"},
-		{ID: "mem-2", Title: "weather info", Summary: "current weather is sunny"},
-	}
-	signals := ComputeFeedback([]string{"mem-1", "mem-2"}, "The deployment fix for the CI pipeline was applied successfully.", items)
-	if len(signals) != 2 {
-		t.Fatalf("expected 2 signals, got %d", len(signals))
-	}
-	for _, sig := range signals {
-		if sig.ItemID == "mem-1" {
-			if !sig.Referenced || sig.ConfidenceDelta != feedbackBoost {
-				t.Fatalf("expected mem-1 to be referenced with boost, got %+v", sig)
-			}
-		}
-		if sig.ItemID == "mem-2" {
-			if sig.Referenced || sig.ConfidenceDelta != feedbackDecay {
-				t.Fatalf("expected mem-2 to be unreferenced with decay, got %+v", sig)
-			}
-		}
-	}
-}
-
-func TestApplyFeedbackClampsConfidence(t *testing.T) {
+func TestTextMemoryPreservesButIgnoresHistoricalEmbeddings(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewSQLiteStore(root, "memory.db")
 	if err != nil {
-		t.Fatalf("new sqlite store: %v", err)
+		t.Fatal(err)
 	}
-	now := time.Now().UnixMilli()
-	if err := store.Write(api.StoredMemoryResponse{
-		ID: "mem-clamp", AgentKey: "a", Kind: KindFact,
-		ScopeType: ScopeAgent, ScopeKey: "agent:a",
-		Title: "test", Summary: "test item",
-		Importance: 5, Confidence: 0.95, Status: StatusActive,
-		CreatedAt: now, UpdatedAt: now,
-	}); err != nil {
-		t.Fatalf("write: %v", err)
+	for _, item := range []api.StoredMemoryResponse{
+		{ID: "matching", AgentKey: "a", Kind: KindObservation, ScopeType: ScopeAgent, ScopeKey: "agent:a", Summary: "deployment procedure", Importance: 5, Status: StatusOpen, SourceType: "manual", CreatedAt: testEpochMillis, UpdatedAt: testEpochMillis},
+		{ID: "unrelated", AgentKey: "a", Kind: KindObservation, ScopeType: ScopeAgent, ScopeKey: "agent:a", Summary: "gardening notes", Importance: 10, Status: StatusOpen, SourceType: "learn", CreatedAt: testEpochMillis, UpdatedAt: testEpochMillis},
+	} {
+		if err := store.Write(item); err != nil {
+			t.Fatal(err)
+		}
 	}
-	// Apply many boosts — should clamp at 1.0
-	signals := make([]FeedbackSignal, 10)
-	for i := range signals {
-		signals[i] = FeedbackSignal{ItemID: "mem-clamp", Referenced: true, ConfidenceDelta: feedbackBoost}
+	// The old columns remain part of the exact SQLite schema contract. A malformed
+	// historical vector must neither break text retrieval nor be repaired/deleted.
+	blob := []byte("legacy opaque vector")
+	if _, err := store.db.Exec(`UPDATE MEMORIES SET EMBEDDING_ = ?, EMBEDDING_MODEL_ = ? WHERE ID_ = ?`, blob, "retired-model", "unrelated"); err != nil {
+		t.Fatal(err)
 	}
-	if err := store.ApplyFeedback(signals); err != nil {
-		t.Fatalf("apply feedback: %v", err)
+	if err := store.db.Close(); err != nil {
+		t.Fatal(err)
 	}
-	item, err := store.Read("mem-clamp")
-	if err != nil || item == nil {
-		t.Fatalf("read: %v", err)
+	store, err = NewSQLiteStore(root, "memory.db")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if item.Confidence > 1.0 {
-		t.Fatalf("expected confidence <= 1.0, got %f", item.Confidence)
+	defer store.db.Close()
+	bundle, err := store.BuildContextBundle(ContextRequest{AgentKey: "a", Query: "deployment", TopObs: 5, MaxChars: 4000})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if item.Confidence < 0.95 {
-		t.Fatalf("expected confidence >= 0.95, got %f", item.Confidence)
+	if len(bundle.RelevantObservations) != 1 || bundle.RelevantObservations[0].ID != "matching" {
+		t.Fatalf("expected text-only match, got %#v", bundle.RelevantObservations)
+	}
+	importance := 9
+	if _, err := store.Update("a", MutationInput{ID: "unrelated", Importance: &importance}); err != nil {
+		t.Fatal(err)
+	}
+	var got []byte
+	var model string
+	if err := store.db.QueryRow(`SELECT EMBEDDING_, EMBEDDING_MODEL_ FROM MEMORIES WHERE ID_ = ?`, "unrelated").Scan(&got, &model); err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(blob) || model != "retired-model" {
+		t.Fatalf("historical embedding changed: %q %q", got, model)
 	}
 }

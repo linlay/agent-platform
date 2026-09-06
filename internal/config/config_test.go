@@ -156,8 +156,8 @@ func TestLoadDefaults(t *testing.T) {
 				if cfg.Defaults.Budget.Tool.Timeout != 600 {
 					t.Fatalf("expected default tool timeout 600, got %d", cfg.Defaults.Budget.Tool.Timeout)
 				}
-				if !cfg.Memory.Enabled {
-					t.Fatalf("expected memory runtime enabled by default")
+				if cfg.Memory.Enabled {
+					t.Fatalf("expected memory runtime disabled by default")
 				}
 				if cfg.RuntimeMode != RuntimeModeStandalone {
 					t.Fatalf("unexpected default runtime mode: %q", cfg.RuntimeMode)
@@ -363,7 +363,6 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 		"tool-appendix:\n",
 		"plan-execute:\n",
 		"btw:\n",
-		"memory:\n",
 	} {
 		if !strings.Contains(promptsExample, want) {
 			t.Fatalf("expected prompts example to contain %q", want)
@@ -715,14 +714,7 @@ func TestLoadPromptsConfigFromFile(t *testing.T) {
 			"btw:\n" +
 			"  user-prompt-template: |\n" +
 			"    custom BTW {{question_json}}\n" +
-			"  final-answer-prompt: custom BTW final\n" +
-			"memory:\n" +
-			"  system-prompt-template: |\n" +
-			"    custom memory system\n" +
-			"    {{task_instruction}}\n" +
-			"  user-prompt-template: |\n" +
-			"    custom memory user\n" +
-			"    {{source_text}}\n"
+			"  final-answer-prompt: custom BTW final\n"
 		withProjectFileContents(t, filepath.Join("configs", "prompts.yml"), &content, func() {
 			withProjectFileContents(t, filepath.Join("configs", "coder-prompts.yml"), nil, func() {
 				withProjectFileContents(t, filepath.Join("configs", "kbase-prompts.yml"), nil, func() {
@@ -767,12 +759,7 @@ func TestLoadPromptsConfigFromFile(t *testing.T) {
 					if cfg.Prompts.BTW.FinalAnswerPrompt != "custom BTW final" {
 						t.Fatalf("expected BTW final prompt override, got %q", cfg.Prompts.BTW.FinalAnswerPrompt)
 					}
-					if cfg.MemoryPrompts.SystemPromptTemplate != "custom memory system\n{{task_instruction}}" {
-						t.Fatalf("expected memory system prompt override, got %q", cfg.MemoryPrompts.SystemPromptTemplate)
-					}
-					if cfg.MemoryPrompts.UserPromptTemplate != "custom memory user\n{{source_text}}" {
-						t.Fatalf("expected memory user prompt override, got %q", cfg.MemoryPrompts.UserPromptTemplate)
-					}
+
 				})
 			})
 		})
@@ -817,31 +804,6 @@ func TestLoadKBasePromptsConfigFromFile(t *testing.T) {
 			}
 			if cfg.KBasePrompts.SystemPrompt != "dedicated kbase system\ncite evidence" {
 				t.Fatalf("expected dedicated kbase system prompt, got %q", cfg.KBasePrompts.SystemPrompt)
-			}
-		})
-	})
-}
-
-func TestLoadMemoryPromptsConfigFromFile(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		content := "" +
-			"memory:\n" +
-			"  system-prompt-template: |\n" +
-			"    custom memory system\n" +
-			"    {{task_instruction}}\n" +
-			"  user-prompt-template: |\n" +
-			"    custom memory user\n" +
-			"    {{source_text}}\n"
-		withProjectFileContents(t, filepath.Join("configs", "prompts.yml"), &content, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if cfg.MemoryPrompts.SystemPromptTemplate != "custom memory system\n{{task_instruction}}" {
-				t.Fatalf("expected memory system prompt override, got %q", cfg.MemoryPrompts.SystemPromptTemplate)
-			}
-			if cfg.MemoryPrompts.UserPromptTemplate != "custom memory user\n{{source_text}}" {
-				t.Fatalf("expected memory user prompt override, got %q", cfg.MemoryPrompts.UserPromptTemplate)
 			}
 		})
 	})
@@ -2869,4 +2831,30 @@ func withProjectFileContents(t *testing.T, relativePath string, content *string,
 	})
 
 	fn()
+}
+
+func TestLoadRejectsRetiredMemoryPrompts(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		content := "memory: {}\n"
+		withProjectFileContents(t, filepath.Join("configs", "prompts.yml"), &content, func() {
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "memory is no longer supported") {
+				t.Fatalf("expected retired memory prompts rejection, got %v", err)
+			}
+		})
+	})
+}
+
+func TestLoadRejectsRetiredMemoryHybridWeights(t *testing.T) {
+	for _, key := range []string{"hybrid-vector-weight", "hybrid-fts-weight"} {
+		t.Run(key, func(t *testing.T) {
+			withIsolatedEnv(t, nil, func() {
+				content := "memory:\n  enabled: false\n  " + key + ": 0\n"
+				withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
+					if _, err := Load(); err == nil || !strings.Contains(err.Error(), "memory."+key+" is no longer supported") {
+						t.Fatalf("expected retired weight rejection, got %v", err)
+					}
+				})
+			})
+		})
+	}
 }

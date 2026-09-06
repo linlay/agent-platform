@@ -209,10 +209,8 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/terminal/close", s.wsTerminalClose)
 	handler.RegisterRoute("/api/terminal/status", s.wsTerminalStatus)
 	handler.RegisterRoute("/api/terminal/status/detach", s.wsTerminalStatusDetach)
-	handler.RegisterRoute("/api/learn", s.wsLearn)
 	handler.RegisterRoute("/api/compact", s.wsCompact)
 	handler.RegisterRoute("/api/memory/meta", s.wsMemoryMeta)
-	handler.RegisterRoute("/api/memory/context-preview", s.wsMemoryContextPreview)
 	handler.RegisterRoute("/api/memory/scope/list", s.wsMemoryScopes)
 	handler.RegisterRoute("/api/memory/scope/detail", s.wsMemoryScopeDetail)
 	handler.RegisterRoute("/api/memory/scope/save", s.wsMemoryScopeSaveRoute)
@@ -795,22 +793,6 @@ func (s *Server) wsGlobalSearch(_ context.Context, conn *ws.Conn, req ws.Request
 		Results: results,
 	}
 	conn.SendResponse(req.Type, req.ID, 0, "success", response)
-	conn.CompleteRequest(req.ID)
-}
-
-func (s *Server) wsLearn(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	payload, err := ws.DecodePayload[api.LearnRequest](req)
-	if err != nil || strings.TrimSpace(payload.ChatID) == "" {
-		conn.SendError(req.ID, "invalid_request", 400, "chatId is required", nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	conn.SendResponse(req.Type, req.ID, 0, "success", api.LearnResponse{
-		Accepted:  false,
-		Status:    "not_connected",
-		RequestID: payload.RequestID,
-		ChatID:    payload.ChatID,
-	})
 	conn.CompleteRequest(req.ID)
 }
 

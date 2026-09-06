@@ -2247,50 +2247,6 @@ func TestParseAgentFileKeepsMemoryManagementToolsOptIn(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileParsesMemoryRuntimeConfig(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "agent.yml")
-	content := "" +
-		"key: demo\n" +
-		"name: Demo\n" +
-		"mode: REACT\n" +
-		"modelConfig:\n" +
-		"  modelKey: demo-model\n" +
-		"memoryConfig:\n" +
-		"  enabled: true\n" +
-		"  embedding:\n" +
-		"    providerKey: openai\n" +
-		"    model: text-embedding-3-small\n" +
-		"    dimension: 1536\n" +
-		"    timeout: 15\n" +
-		"  autoRemember:\n" +
-		"    enabled: true\n" +
-		"    modelKey: minimax-m2_7-anthropic\n" +
-		"    timeout: 60\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write agent file: %v", err)
-	}
-
-	def, err := parseAgentDefinitionForTest(path)
-	if err != nil {
-		t.Fatalf("parse agent file: %v", err)
-	}
-	if !def.MemoryConfig.Enabled || !def.MemoryEnabled {
-		t.Fatalf("expected memory enabled, got %#v", def.MemoryConfig)
-	}
-	if def.MemoryConfig.Embedding.ProviderKey != "openai" ||
-		def.MemoryConfig.Embedding.Model != "text-embedding-3-small" ||
-		def.MemoryConfig.Embedding.Dimension != 1536 ||
-		def.MemoryConfig.Embedding.Timeout != 15 {
-		t.Fatalf("unexpected embedding config: %#v", def.MemoryConfig.Embedding)
-	}
-	if !def.MemoryConfig.AutoRemember.Enabled ||
-		def.MemoryConfig.AutoRemember.ModelKey != "minimax-m2_7-anthropic" ||
-		def.MemoryConfig.AutoRemember.Timeout != 60 {
-		t.Fatalf("unexpected auto remember config: %#v", def.MemoryConfig.AutoRemember)
-	}
-}
-
 func TestParseAgentFileAllowsOptingOutOfBaseMemoryTools(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
@@ -2557,5 +2513,22 @@ func TestEffectiveChannelExportExternalKey(t *testing.T) {
 
 	if got := EffectiveChannelExportExternalKey("  kbaseOrchestrator  ", exp); got != "kbaseOrchestrator" {
 		t.Fatalf("expected trimmed fallback key, got %q", got)
+	}
+}
+
+func TestParseAgentFileRejectsRetiredMemoryConfig(t *testing.T) {
+	for _, field := range []string{"embedding", "autoRemember"} {
+		for _, value := range []string{"{}", "null", "false"} {
+			t.Run(field+"/"+value, func(t *testing.T) {
+				path := filepath.Join(t.TempDir(), "agent.yml")
+				content := "key: demo\nname: Demo\nmode: REACT\nmodelConfig:\n  modelKey: demo-model\nmemoryConfig:\n  enabled: false\n  " + field + ": " + value + "\n"
+				if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := parseAgentDefinitionForTest(path); err == nil || !strings.Contains(err.Error(), "memoryConfig."+field+" is no longer supported") {
+					t.Fatalf("expected retired field rejection, got %v", err)
+				}
+			})
+		}
 	}
 }

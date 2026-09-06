@@ -261,7 +261,6 @@ func (s *Server) startPreparedLocalRun(
 	stepWriter.SetPendingSystemInit(prepared.systemInitLine)
 	stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
 	var onUnreadChanged func(chat.Summary)
-	var onPersisted func(chat.RunCompletion)
 	var onContinuation func(contracts.DeltaRunContinuation) (string, error)
 	notifications := s.deps.Notifications
 	if execution.HiddenRun {
@@ -274,9 +273,7 @@ func (s *Server) startPreparedLocalRun(
 			}
 			s.broadcastChatReadState("chat.unread", summary, agentUnreadCount)
 		}
-		onPersisted = func(completion chat.RunCompletion) {
-			s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
-		}
+
 		onContinuation = s.startRunContinuation
 	}
 
@@ -303,7 +300,6 @@ func (s *Server) startPreparedLocalRun(
 		PrepareSystemInit: s.prepareSystemInitCache,
 		Notifications:     notifications,
 		OnUnreadChanged:   onUnreadChanged,
-		OnPersisted:       onPersisted,
 		OnContinuation:    onContinuation,
 		OnComplete: func(completion chat.RunCompletion) {
 			releaseQuery(prepared.release)
@@ -1185,9 +1181,6 @@ func syncRunExecutorParams(s *Server, prepared preparedQuery, startedAtMillis in
 			return
 		}
 		s.broadcastChatReadState("chat.unread", summary, agentUnreadCount)
-	}
-	params.OnPersisted = func(completion chat.RunCompletion) {
-		s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
 	}
 	return params
 }
