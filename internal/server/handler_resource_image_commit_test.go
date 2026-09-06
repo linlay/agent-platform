@@ -76,13 +76,14 @@ func TestResourceImageCommitEndpointCreatesArtifactAndValidatesOwner(t *testing.
 		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 	var response struct {
-		Code int                            `json:"code"`
-		Data chat.ResourceImageCommitResult `json:"data"`
+		Code int                               `json:"code"`
+		Data chat.ResourceDocumentCommitResult `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.Code != 0 || response.Data.ArtifactID == "" || response.Data.RelativePath == relativePath {
+	if response.Code != 0 || response.Data.ArtifactID == "" || response.Data.RelativePath == relativePath ||
+		response.Data.ResourceID != response.Data.ArtifactID || response.Data.Revision == "" {
 		t.Fatalf("unexpected response %#v", response)
 	}
 

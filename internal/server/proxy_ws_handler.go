@@ -59,68 +59,6 @@ func (s *Server) lookupProxyRun(runID string) (*proxyRunRoute, bool) {
 	return s.proxyRuntime.Lookup(runID)
 }
 
-func (s *Server) wsProxyQuery(
-	ctx context.Context,
-	conn *platformws.Conn,
-	req platformws.RequestFrame,
-	prepared preparedQuery,
-) {
-	registered, statusErr := s.registerQueryRun(ctx, prepared)
-	if statusErr != nil {
-		releaseQuery(prepared.release)
-		conn.ReleaseStream(req.ID)
-		s.sendWSStatusError(conn, req.ID, statusErr)
-		return
-	}
-	runCtx, control := registered.RunCtx, registered.Control
-	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
-	if !ok {
-		releaseQuery(prepared.release)
-		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonEventBusUnavailable, "run event bus unavailable"))
-		s.finishRegisteredQueryRun(prepared, registered)
-		conn.ReleaseStream(req.ID)
-		conn.SendError(req.ID, "internal_error", 500, "run event bus unavailable", nil)
-		return
-	}
-	observer, attachErr := s.deps.Runs.AttachObserver(prepared.req.RunID, 0)
-	if attachErr != nil {
-		releaseQuery(prepared.release)
-		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonObserverAttachFailed, attachErr.Error()))
-		s.finishRegisteredQueryRun(prepared, registered)
-		conn.ReleaseStream(req.ID)
-		s.sendWSAttachError(conn, req.ID, prepared.req.RunID, prepared.req.ChatID, attachErr)
-		return
-	}
-	conn.AttachObserver(req.ID, observer.ID, func() {
-		s.deps.Runs.DetachObserver(prepared.req.RunID, observer.ID)
-	})
-	s.broadcast("run.started", runStartedPushPayload(prepared.req.RunID, prepared.req.ChatID, prepared.req.AgentKey, registered.StartedAtMillis))
-
-	upstreamTransport := proxyUpstreamTransport(prepared.agentDef.ProxyConfig)
-	var route *proxyRunRoute
-	if upstreamTransport == "ws" {
-		route = runtimeproxy.NewRoute(prepared.req.RunID, prepared.req.ChatID, prepared.req.AgentKey)
-		route.Protocol = proxyProtocol(prepared.agentDef.ProxyConfig)
-		s.registerProxyRun(route)
-	}
-
-	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
-	stepWriter.SetPendingSystemInit(prepared.systemInitLine)
-	stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
-	var proxyControl *contracts.RunControl
-	if upstreamTransport == "ws" {
-		proxyControl = control
-	}
-	var chatUsage chat.UsageData
-	if prepared.summary.Usage != nil {
-		chatUsage = *prepared.summary.Usage
-	}
-	recorder := newProxyEventRecorder(prepared.req, registered.StartedAtMillis, prepared.agentDef, s.deps.Chats, stepWriter, proxyControl, s.deps.Notifications, chatUsage, s.deps.Models, s.deps.Config.Billing)
-
-	go s.runProxyWebSocket(runCtx, prepared, route, eventBus, recorder)
-	conn.StartStreamForward(req.ID, observer)
-}
-
 func (s *Server) handleProxyWebSocketQuery(w http.ResponseWriter, r *http.Request, prepared preparedQuery) {
 	registered, statusErr := s.registerQueryRun(r.Context(), prepared)
 	if statusErr != nil {

@@ -671,18 +671,6 @@ func (l *lazyGatewayResolver) Resolve(chatID string) (string, string, bool) {
 	return r.Resolve(chatID)
 }
 
-func summarizeAutomationErrorBody(body string) string {
-	body = strings.Join(strings.Fields(strings.TrimSpace(body)), " ")
-	if body == "" {
-		return "<empty body>"
-	}
-	const maxLen = 240
-	if len(body) > maxLen {
-		return body[:maxLen] + "..."
-	}
-	return body
-}
-
 func firstNonBlankString(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {

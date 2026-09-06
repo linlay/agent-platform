@@ -1384,11 +1384,6 @@ func deduplicateTeamReferences(references []api.Reference) []api.Reference {
 	return apiReferencesFromRuntime(deduplicated)
 }
 
-func teamReferenceIdentityKeys(reference api.Reference) []string {
-	converted := runtimeReferencesFromAPI([]api.Reference{reference})
-	return runtimeorchestration.ReferenceIdentityKeys(converted[0])
-}
-
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if strings.TrimSpace(value) != "" {

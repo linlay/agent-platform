@@ -168,14 +168,6 @@ func runOwnerMatchesChat(summary *chat.Summary, agentKey string, teamID string) 
 	return strings.TrimSpace(summary.TeamID) == "" && strings.TrimSpace(summary.AgentKey) == agentKey
 }
 
-func runPublicStatus(state contracts.RunLoopState) string {
-	return runstate.PublicStatus(state)
-}
-
-func applyRunEventSnapshot(snapshot *contracts.RunSnapshot, events []stream.EventData) {
-	runstate.ApplyEventSnapshot(snapshot, events)
-}
-
 func mapRunAdmissionError(err error, agentKey string, teamID string) error {
 	var statusErr *statusError
 	if !errors.As(err, &statusErr) {
