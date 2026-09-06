@@ -15,88 +15,101 @@ import (
 const (
 	bashLiveOutputMaxChunkBytes = 16 * 1024
 	bashLiveOutputFlushInterval = 50 * time.Millisecond
+	bashOutputPipeWaitDelay     = 250 * time.Millisecond
 )
 
-type bashOutputFollower struct {
+type bashOutputCapture struct {
 	file *os.File
 	live *bashLiveOutputWriter
 
 	stop     chan struct{}
 	done     chan struct{}
 	stopOnce sync.Once
-	offset   int64
+
+	errMu sync.Mutex
+	err   error
 }
 
-func newBashOutputFollower(ctx context.Context, file *os.File, sink ToolOutputSink, stream string) *bashOutputFollower {
-	if file == nil || sink == nil {
+func newBashOutputCapture(ctx context.Context, file *os.File, sink ToolOutputSink, stream string) *bashOutputCapture {
+	if file == nil {
 		return nil
 	}
-	follower := &bashOutputFollower{
-		file: file,
-		live: &bashLiveOutputWriter{
-			ctx:    ctx,
-			sink:   sink,
-			stream: stream,
-		},
-		stop: make(chan struct{}),
-		done: make(chan struct{}),
+	capture := &bashOutputCapture{file: file}
+	if sink == nil {
+		return capture
 	}
-	go follower.run()
-	return follower
+	capture.live = &bashLiveOutputWriter{
+		ctx:    ctx,
+		sink:   sink,
+		stream: stream,
+	}
+	capture.stop = make(chan struct{})
+	capture.done = make(chan struct{})
+	go capture.run()
+	return capture
 }
 
-func (f *bashOutputFollower) run() {
-	defer close(f.done)
+func (c *bashOutputCapture) run() {
+	defer close(c.done)
 	ticker := time.NewTicker(bashLiveOutputFlushInterval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
-			f.readAvailable(false)
-		case <-f.stop:
-			f.readAvailable(true)
-			f.live.Close()
+			c.live.Flush(false)
+		case <-c.stop:
+			c.live.Close()
 			return
 		}
 	}
 }
 
-func (f *bashOutputFollower) readAvailable(final bool) {
-	if f == nil || f.file == nil || f.live == nil {
-		return
+func (c *bashOutputCapture) Write(p []byte) (int, error) {
+	if c == nil || c.file == nil || len(p) == 0 {
+		return len(p), nil
 	}
-	for {
-		info, err := f.file.Stat()
-		if err != nil || info.Size() <= f.offset {
-			break
-		}
-		remaining := info.Size() - f.offset
-		readSize := int64(bashLiveOutputMaxChunkBytes)
-		if remaining < readSize {
-			readSize = remaining
-		}
-		buffer := make([]byte, int(readSize))
-		n, readErr := f.file.ReadAt(buffer, f.offset)
-		if n > 0 {
-			f.offset += int64(n)
-			_ = f.live.Write(buffer[:n])
-		}
-		if readErr != nil && readErr != io.EOF {
-			break
-		}
-		if n == 0 {
-			break
-		}
+	n, err := c.file.Write(p)
+	if err == nil && n != len(p) {
+		err = io.ErrShortWrite
 	}
-	f.live.Flush(final)
+	if err != nil {
+		c.recordError(err)
+		return n, err
+	}
+	if c.live != nil {
+		// The file is the final fact source. A canceled live stream must not
+		// corrupt it or turn an otherwise successful command into a failure.
+		_ = c.live.Write(p)
+	}
+	return n, nil
 }
 
-func (f *bashOutputFollower) Close() {
-	if f == nil {
+func (c *bashOutputCapture) recordError(err error) {
+	if c == nil || err == nil {
 		return
 	}
-	f.stopOnce.Do(func() { close(f.stop) })
-	<-f.done
+	c.errMu.Lock()
+	defer c.errMu.Unlock()
+	if c.err == nil {
+		c.err = err
+	}
+}
+
+func (c *bashOutputCapture) Err() error {
+	if c == nil {
+		return nil
+	}
+	c.errMu.Lock()
+	defer c.errMu.Unlock()
+	return c.err
+}
+
+func (c *bashOutputCapture) Close() {
+	if c == nil || c.live == nil {
+		return
+	}
+	c.stopOnce.Do(func() { close(c.stop) })
+	<-c.done
 }
 
 type bashLiveOutputWriter struct {

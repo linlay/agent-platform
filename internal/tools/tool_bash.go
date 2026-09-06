@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -88,6 +89,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	runtimeInfo := t.runtimeInfo()
 	shellExecutable, shellArgs := resolveHostShellInvocation(t.cfg.Bash, command, runtimeInfo.GOOS)
 	cmd := exec.CommandContext(runCtx, shellExecutable, shellArgs...)
+	cmd.WaitDelay = bashOutputPipeWaitDelay
 	cmd.Dir = workingDir
 	commandEnv, err := mergeBashCommandEnv(execCtx, t.cfg.IdentityFile)
 	if err != nil {
@@ -105,17 +107,22 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 		return bashResult("", err.Error(), "host", workingDir, -1, "bash_output_capture_failed"), nil
 	}
 	defer cleanupBashOutputFile(stderrFile)
-	cmd.Stdout = stdoutFile
-	cmd.Stderr = stderrFile
-	var stdoutFollower, stderrFollower *bashOutputFollower
-	if execCtx != nil && execCtx.ToolOutputSink != nil {
-		stdoutFollower = newBashOutputFollower(ctx, stdoutFile, execCtx.ToolOutputSink, ToolOutputStdout)
-		stderrFollower = newBashOutputFollower(ctx, stderrFile, execCtx.ToolOutputSink, ToolOutputStderr)
+	var outputSink ToolOutputSink
+	if execCtx != nil {
+		outputSink = execCtx.ToolOutputSink
 	}
+	stdoutCapture := newBashOutputCapture(ctx, stdoutFile, outputSink, ToolOutputStdout)
+	stderrCapture := newBashOutputCapture(ctx, stderrFile, outputSink, ToolOutputStderr)
+	cmd.Stdout = stdoutCapture
+	cmd.Stderr = stderrCapture
 
 	err = cmd.Run()
-	stdoutFollower.Close()
-	stderrFollower.Close()
+	stdoutCapture.Close()
+	stderrCapture.Close()
+	if captureErr := firstBashOutputCaptureError(stdoutCapture, stderrCapture); captureErr != nil {
+		return bashResult("", captureErr.Error(), "host", workingDir, -1, "bash_output_capture_failed"), nil
+	}
+	err = normalizeBashCommandError(err, runCtx, cmd)
 	stdout, readErr := readBashOutputFile(stdoutFile, runtimeInfo)
 	if readErr != nil {
 		return bashResult("", readErr.Error(), "host", workingDir, -1, "bash_output_capture_failed"), nil
@@ -141,6 +148,22 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 		appendBashAccessPolicyMetadata(&result, accessReview, stdout, stderr, workingDir, exitCode)
 	}
 	return result, nil
+}
+
+func firstBashOutputCaptureError(captures ...*bashOutputCapture) error {
+	for _, capture := range captures {
+		if err := capture.Err(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func normalizeBashCommandError(err error, runCtx context.Context, cmd *exec.Cmd) error {
+	if !errors.Is(err, exec.ErrWaitDelay) || runCtx == nil || runCtx.Err() != nil || cmd == nil || cmd.ProcessState == nil || !cmd.ProcessState.Success() {
+		return err
+	}
+	return nil
 }
 
 func (t *RuntimeToolExecutor) resolveBashTimeoutSeconds(args map[string]any, execCtx *ExecutionContext) int64 {

@@ -200,6 +200,63 @@ func TestInvokeHostBashStreamsOutputBeforeCompletion(t *testing.T) {
 	}
 }
 
+func TestInvokeHostBashStreamsCarriageReturnUpdates(t *testing.T) {
+	root := t.TempDir()
+	executor := &RuntimeToolExecutor{
+		cfg: config.Config{
+			Bash: config.BashConfig{
+				AllowedCommands:      []string{"printf", "sleep"},
+				ShellFeaturesEnabled: true,
+				ShellExecutable:      "bash",
+				MaxCommandChars:      16000,
+			},
+		},
+	}
+	sink := &collectingToolOutputSink{chunks: make(chan contracts.ToolOutput, 16)}
+	execCtx := bashExecutionContext(root)
+	execCtx.ToolOutputSink = sink
+	resultCh := make(chan contracts.ToolExecutionResult, 1)
+	go func() {
+		result, _ := executor.invokeHostBash(context.Background(), map[string]any{
+			"command": "printf '\\rprogress=000%%'; sleep 0.12; printf '\\rprogress=050%%'; sleep 0.12; printf '\\033[2K\\rprogress=100%%\\n'",
+		}, execCtx)
+		resultCh <- result
+	}()
+
+	var first contracts.ToolOutput
+	select {
+	case first = <-sink.chunks:
+	case <-time.After(time.Second):
+		t.Fatal("did not receive the initial carriage-return progress chunk")
+	}
+	if first.Stream != contracts.ToolOutputStdout || first.Delta != "\rprogress=000%" {
+		t.Fatalf("unexpected first progress chunk: %#v", first)
+	}
+	select {
+	case result := <-resultCh:
+		t.Fatalf("bash completed before progress updates were streamed: %#v", result)
+	default:
+	}
+
+	result := <-resultCh
+	want := "\rprogress=000%\rprogress=050%\x1b[2K\rprogress=100%\n"
+	if result.Output != want || result.ExitCode != 0 || result.Error != "" {
+		t.Fatalf("unexpected final carriage-return result: %#v", result)
+	}
+	var live strings.Builder
+	live.WriteString(first.Delta)
+	for len(sink.chunks) > 0 {
+		chunk := <-sink.chunks
+		if chunk.Stream != contracts.ToolOutputStdout {
+			t.Fatalf("unexpected progress stream: %#v", chunk)
+		}
+		live.WriteString(chunk.Delta)
+	}
+	if live.String() != want {
+		t.Fatalf("live carriage-return output %q, want %q", live.String(), want)
+	}
+}
+
 func TestInvokeHostBashWithSinkAndNoOutputEmitsNoChunks(t *testing.T) {
 	root := t.TempDir()
 	executor := &RuntimeToolExecutor{cfg: config.Config{Bash: config.BashConfig{

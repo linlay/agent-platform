@@ -4,7 +4,7 @@
 
 `POST /api/query` 默认成功时返回 SSE event stream。服务端按 provider 原始流式 chunk 逐步映射为 `content.delta`、`tool.*`、`reasoning.*` 等事件，结束时写入 `data: [DONE]`。默认行为是逐事件 flush。请求体显式传 `stream:false` 时，服务端仍执行完整 run，但会聚合最终回答并返回普通 JSON，默认 `data` 只包含 `content`；可用 `includeUsage:true` / `includeFullText:true` 追加 `usage` / `fullText`。错拼字段 `steam` 不会触发非流式。
 
-Native Host Bash 在调用参数闭合后可发送 `tool.output`。stdout / stderr 原始字节仍由子进程直接写入各自临时文件作为最终 `tool.result` 的事实源，Platform 同时以最多 16 KiB、最长 50ms 的节奏增量跟随文件内容并发送到 live stream；两个 stream 共用同一 `chunkIndex`。保留子进程到文件的直接写入，是为了不改变 `os/exec` 在 timeout 和仍持有输出句柄的后台子进程场景中的等待语义。实时 UTF-8 编码会保留跨块的不完整字符并替换非法字节，最终结果仍对完整原始字节使用平台既有 subprocess 解码，因此 Windows ACP 兼容行为不变。输出通道容量固定为 128，慢消费者会对过程事件发送施加背压，Run context 可中断等待。
+Native Host Bash 在调用参数闭合后可发送 `tool.output`。子进程的 stdout / stderr 使用普通 pipe，由 Platform 在读取时先将原始字节写入各自临时文件作为最终 `tool.result` 的事实源，再把同一批字节以最多 16 KiB、最长 50ms 的节奏发送到 live stream；因此 `\r`、退格与 ANSI 光标控制不会因文件原位覆盖而丢失，两个 stream 继续共用同一 `chunkIndex`。即使调用没有 output sink，也使用同一 pipe capture，避免 CLI 因输出是否流式而观察到不同的 stdout 类型。Host Bash 使用 250ms `WaitDelay` 回收已经退出的 shell 遗留的 I/O pipe；只有 shell 成功、Run context 未取消且错误仅为 `exec.ErrWaitDelay` 时才忽略该回收错误，timeout、interrupt 和非零退出语义不变。实时 UTF-8 编码会保留跨块的不完整字符并替换非法字节，最终结果仍对完整原始字节使用平台既有 subprocess 解码，因此 Windows ACP 兼容行为不变。输出通道容量固定为 128，慢消费者会对过程事件发送施加背压，Run context 可中断等待。
 
 `tool.output` 先于同一调用的 `tool.result`，但不同并行调用可交错；每条事件都通过 Delta mapper、Dispatcher、Normalizer 和 Assembler 后才进入 EventBus，不允许工具线程直接分配公开 `seq`。隐藏工具的过程输出与其他 `tool.*` 一样被抑制。attach 使用公开 `seq` 续接 active backlog；冷 Chat replay 不恢复这些过程块。
 
