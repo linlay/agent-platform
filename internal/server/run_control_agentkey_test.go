@@ -16,7 +16,7 @@ func TestRunControlHTTPRequiresAndValidatesAgentKey(t *testing.T) {
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	})
-	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	runs := fixture.runs
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    "run-agent-check",
 		ChatID:   "chat-agent-check",
@@ -127,7 +127,7 @@ func TestAccessLevelHTTPUpdatesRunAccessLevel(t *testing.T) {
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	})
-	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	runs := fixture.runs
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:       "run-access-http",
 		ChatID:      "chat-access-http",
@@ -153,7 +153,7 @@ func TestRunControlProxyMismatchReturnsForbiddenWithoutForwarding(t *testing.T) 
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	})
-	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	runs := fixture.runs
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    "run-proxy-agent-check",
 		ChatID:   "chat-proxy-agent-check",
@@ -213,7 +213,7 @@ func TestAccessLevelHTTPForwardsForProxyRun(t *testing.T) {
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	})
-	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	runs := fixture.runs
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    "run-proxy-access-level",
 		ChatID:   "chat-proxy-access-level",
@@ -255,7 +255,7 @@ func TestRunControlProxyForwardsSubmitInterruptAndSteer(t *testing.T) {
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	})
-	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	runs := fixture.runs
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    "run-proxy-forward",
 		ChatID:   "chat-proxy-forward",

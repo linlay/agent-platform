@@ -20,6 +20,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/llm"
+	"agent-platform/internal/runtime/runstate"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/ws"
 
@@ -128,7 +129,7 @@ func TestDeferredPlanningApproveContinuationUsesCoderExecuteSystem(t *testing.T)
 	awaitingID := "tool_plan"
 	seedCoderPlanningAwaitingForDeferredSubmit(t, fixture.chats, chatID, runID, awaitingID, fixture.cfg.Paths.ChatsDir)
 
-	restartedRuns := contracts.NewInMemoryRunManager()
+	restartedRuns := runstate.NewManager()
 	restarted, err := New(Dependencies{
 		Config:          fixture.cfg,
 		Chats:           fixture.chats,
@@ -222,6 +223,7 @@ planningComplete:
 }
 
 func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
+	restartedRuns := runstate.NewManager()
 	notifications := &recordingNotificationSink{}
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
@@ -245,7 +247,7 @@ func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
 		Memory:          fixture.memories,
 		Registry:        fixture.registry,
 		Models:          fixture.modelRegistry,
-		Runs:            fixture.runs,
+		Runs:            restartedRuns,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
 		DeltaMappers:    llm.DeltaMapperFactory{Interactions: fixture.interactions},
@@ -259,7 +261,7 @@ func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new restarted server: %v", err)
 	}
-	status, ok := fixture.runs.RunStatus("run-http")
+	status, ok := restartedRuns.RunStatus("run-http")
 	if !ok || status.State != contracts.RunLoopStateWaitingSubmit || status.StartedAt != persistedStartedAt {
 		t.Fatalf("expected recovered WAITING_SUBMIT active run, got %#v", status)
 	}
@@ -271,11 +273,11 @@ func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
 	if chatDetail.Awaiting == nil || chatDetail.Awaiting.AwaitingID != "await-http" || chatDetail.ActiveRun == nil || chatDetail.ActiveRun.RunID != "run-http" || chatDetail.ActiveRun.State != string(contracts.RunLoopStateWaitingSubmit) || chatDetail.ActiveRun.LastSeq != attachCursor {
 		t.Fatalf("expected authoritative awaiting plus attachable activeRun, got awaiting=%#v activeRun=%#v", chatDetail.Awaiting, chatDetail.ActiveRun)
 	}
-	observer, err := fixture.runs.AttachObserver("run-http", attachCursor)
+	observer, err := restartedRuns.AttachObserver("run-http", attachCursor)
 	if err != nil {
 		t.Fatalf("attach recovered run at cursor %d: %v", attachCursor, err)
 	}
-	defer fixture.runs.DetachObserver("run-http", observer.ID)
+	defer restartedRuns.DetachObserver("run-http", observer.ID)
 
 	reqBody := bytes.NewBufferString(`{"chatId":"chat-http","submitId":"submit-http","agentKey":"mock-agent","runId":"run-http","awaitingId":"await-http","params":[{"id":"q1","answer":"Approve"}]}`)
 	rec := httptest.NewRecorder()
@@ -312,7 +314,7 @@ func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
 		observer.MarkDone()
 	}()
 	waitForRecordedNotificationType(t, notifications, "run.finished")
-	if status, ok := fixture.runs.RunStatus("run-http"); !ok || status.StartedAt != persistedStartedAt {
+	if status, ok := restartedRuns.RunStatus("run-http"); !ok || status.StartedAt != persistedStartedAt {
 		t.Fatalf("restarted run lifecycle start = %#v; want %d", status, persistedStartedAt)
 	}
 	if runs, err := fixture.chats.ListRuns("chat-http"); err != nil || len(runs) != 1 || runs[0].StartedAt != persistedStartedAt {
@@ -366,6 +368,7 @@ func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
 }
 
 func TestDeferredQuestionSubmitRejectsInvalidAnswerAndAllowsRetry(t *testing.T) {
+	restartedRuns := runstate.NewManager()
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	})
@@ -387,7 +390,7 @@ func TestDeferredQuestionSubmitRejectsInvalidAnswerAndAllowsRetry(t *testing.T) 
 		Memory:          fixture.memories,
 		Registry:        fixture.registry,
 		Models:          fixture.modelRegistry,
-		Runs:            fixture.runs,
+		Runs:            restartedRuns,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
 		DeltaMappers:    llm.DeltaMapperFactory{Interactions: fixture.interactions},
@@ -540,6 +543,7 @@ func TestPersistDeferredAwaitingToolAnswerWritesReactToolLine(t *testing.T) {
 }
 
 func TestDeferredSubmitWSRestoresPendingAwaitingAfterRestart(t *testing.T) {
+	restartedRuns := runstate.NewManager()
 	hub := ws.NewHub()
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
@@ -559,7 +563,7 @@ func TestDeferredSubmitWSRestoresPendingAwaitingAfterRestart(t *testing.T) {
 		Memory:          fixture.memories,
 		Registry:        fixture.registry,
 		Models:          fixture.modelRegistry,
-		Runs:            fixture.runs,
+		Runs:            restartedRuns,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
 		DeltaMappers:    llm.DeltaMapperFactory{Interactions: fixture.interactions},
@@ -662,6 +666,7 @@ func TestDeferredSubmitWSRestoresPendingAwaitingAfterRestart(t *testing.T) {
 }
 
 func TestDeferredSubmitSubmitIDIsIdempotent(t *testing.T) {
+	restartedRuns := runstate.NewManager()
 	notifications := &recordingNotificationSink{}
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
@@ -677,7 +682,7 @@ func TestDeferredSubmitSubmitIDIsIdempotent(t *testing.T) {
 		Memory:          fixture.memories,
 		Registry:        fixture.registry,
 		Models:          fixture.modelRegistry,
-		Runs:            fixture.runs,
+		Runs:            restartedRuns,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
 		DeltaMappers:    llm.DeltaMapperFactory{Interactions: fixture.interactions},
@@ -754,6 +759,7 @@ func TestDeferredSubmitSubmitIDIsIdempotent(t *testing.T) {
 }
 
 func TestDeferredSubmitRestoresQuestionAndPlanAfterRestart(t *testing.T) {
+	restartedRuns := runstate.NewManager()
 	notifications := &recordingNotificationSink{}
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
@@ -849,7 +855,7 @@ func TestDeferredSubmitRestoresQuestionAndPlanAfterRestart(t *testing.T) {
 		Memory:          fixture.memories,
 		Registry:        fixture.registry,
 		Models:          fixture.modelRegistry,
-		Runs:            fixture.runs,
+		Runs:            restartedRuns,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
 		DeltaMappers:    llm.DeltaMapperFactory{Interactions: fixture.interactions},
@@ -946,6 +952,7 @@ func TestDeferredSubmitRestoresQuestionAndPlanAfterRestart(t *testing.T) {
 }
 
 func TestDeferredSubmitRejectsExpiredAwaiting(t *testing.T) {
+	restartedRuns := runstate.NewManager()
 	notifications := &recordingNotificationSink{}
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
@@ -961,7 +968,7 @@ func TestDeferredSubmitRejectsExpiredAwaiting(t *testing.T) {
 		Memory:          fixture.memories,
 		Registry:        fixture.registry,
 		Models:          fixture.modelRegistry,
-		Runs:            fixture.runs,
+		Runs:            restartedRuns,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
 		DeltaMappers:    llm.DeltaMapperFactory{Interactions: fixture.interactions},
@@ -998,6 +1005,7 @@ func TestDeferredSubmitRejectsExpiredAwaiting(t *testing.T) {
 }
 
 func TestHydrationSkipsExpiredAwaitings(t *testing.T) {
+	restartedRuns := runstate.NewManager()
 	notifications := &recordingNotificationSink{}
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
@@ -1015,7 +1023,7 @@ func TestHydrationSkipsExpiredAwaitings(t *testing.T) {
 		Memory:          fixture.memories,
 		Registry:        fixture.registry,
 		Models:          fixture.modelRegistry,
-		Runs:            fixture.runs,
+		Runs:            restartedRuns,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
 		DeltaMappers:    llm.DeltaMapperFactory{Interactions: fixture.interactions},
@@ -1057,6 +1065,7 @@ func TestHydrationSkipsExpiredAwaitings(t *testing.T) {
 }
 
 func TestRecoveredAwaitingSupervisorTerminalizesTimeoutOnAttachedRun(t *testing.T) {
+	restartedRuns := runstate.NewManager()
 	notifications := &recordingNotificationSink{}
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
@@ -1064,16 +1073,16 @@ func TestRecoveredAwaitingSupervisorTerminalizesTimeoutOnAttachedRun(t *testing.
 
 	createdAt := time.Now().UnixMilli() - 1200
 	seedDeferredAwaiting(t, fixture.chats, "chat-runtime-timeout", "run-runtime-timeout", "await-runtime-timeout", "question", 2, createdAt)
-	restarted, err := New(deferredRestartDependencies(fixture, fixture.chats, notifications))
+	restarted, err := New(deferredRestartDependencies(fixture, restartedRuns, fixture.chats, notifications))
 	if err != nil {
 		t.Fatalf("new restarted server: %v", err)
 	}
 	cursor := restarted.persistedRunLiveSeq("chat-runtime-timeout", "run-runtime-timeout")
-	observer, err := fixture.runs.AttachObserver("run-runtime-timeout", cursor)
+	observer, err := restartedRuns.AttachObserver("run-runtime-timeout", cursor)
 	if err != nil {
 		t.Fatalf("attach recovered timeout run: %v", err)
 	}
-	defer fixture.runs.DetachObserver("run-runtime-timeout", observer.ID)
+	defer restartedRuns.DetachObserver("run-runtime-timeout", observer.ID)
 
 	var events []stream.EventData
 	deadline := time.After(3 * time.Second)
@@ -1103,7 +1112,7 @@ completed:
 	if result["executed"] != false || contracts.AnyStringNode(result["error"]) != "timeout" || contracts.AnyStringNode(result["awaitingId"]) != "await-runtime-timeout" {
 		t.Fatalf("unexpected recovered timeout tool result %#v", result)
 	}
-	if _, active, err := fixture.runs.ActiveRunForChat("chat-runtime-timeout"); err != nil || active {
+	if _, active, err := restartedRuns.ActiveRunForChat("chat-runtime-timeout"); err != nil || active {
 		t.Fatalf("recovered timeout run remained active: active=%v err=%v", active, err)
 	}
 	assertRestartTerminalizedAwaiting(t, fixture.chats, "chat-runtime-timeout", "run-runtime-timeout", "await-runtime-timeout", "timeout")
@@ -1111,23 +1120,24 @@ completed:
 }
 
 func TestRecoveredAwaitingSupervisorTerminalizesInterrupt(t *testing.T) {
+	restartedRuns := runstate.NewManager()
 	notifications := &recordingNotificationSink{}
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{notifications: notifications})
 
 	seedDeferredAwaiting(t, fixture.chats, "chat-runtime-interrupt", "run-runtime-interrupt", "await-runtime-interrupt", "question", 0, time.Now().UnixMilli())
-	restarted, err := New(deferredRestartDependencies(fixture, fixture.chats, notifications))
+	restarted, err := New(deferredRestartDependencies(fixture, restartedRuns, fixture.chats, notifications))
 	if err != nil {
 		t.Fatalf("new restarted server: %v", err)
 	}
 	cursor := restarted.persistedRunLiveSeq("chat-runtime-interrupt", "run-runtime-interrupt")
-	observer, err := fixture.runs.AttachObserver("run-runtime-interrupt", cursor)
+	observer, err := restartedRuns.AttachObserver("run-runtime-interrupt", cursor)
 	if err != nil {
 		t.Fatalf("attach recovered interrupt run: %v", err)
 	}
-	defer fixture.runs.DetachObserver("run-runtime-interrupt", observer.ID)
-	ack := fixture.runs.Interrupt(api.InterruptRequest{
+	defer restartedRuns.DetachObserver("run-runtime-interrupt", observer.ID)
+	ack := restartedRuns.Interrupt(api.InterruptRequest{
 		ChatID: "chat-runtime-interrupt", RunID: "run-runtime-interrupt", InterruptReason: "user_requested",
 	})
 	if !ack.Accepted {
@@ -1162,6 +1172,7 @@ completed:
 }
 
 func TestHydrationReconcilesRestartAwaitingModesAndStructuredConflicts(t *testing.T) {
+	restartedRuns := runstate.NewManager()
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	})
@@ -1178,7 +1189,7 @@ func TestHydrationReconcilesRestartAwaitingModesAndStructuredConflicts(t *testin
 	})
 	seedDeferredAwaiting(t, fixture.chats, "chat-old-question-no-timeout", "run-old-question-no-timeout", "await-old-question-no-timeout", "question", 0, nowMs-7*24*60*60*1000)
 
-	restarted, err := New(deferredRestartDependencies(fixture, fixture.chats, nil))
+	restarted, err := New(deferredRestartDependencies(fixture, restartedRuns, fixture.chats, nil))
 	if err != nil {
 		t.Fatalf("new restarted server: %v", err)
 	}
@@ -1215,7 +1226,7 @@ func TestHydrationReconciliationIsIdempotentAcrossEveryWriteStage(t *testing.T) 
 			seedDeferredAwaiting(t, fixture.chats, chatID, runID, awaitingID, "question", 1, time.Now().UnixMilli()-5_000)
 
 			failing := &awaitingReconcileFailureStore{Store: fixture.chats, stage: stage}
-			if _, err := New(deferredRestartDependencies(fixture, failing, nil)); err == nil || !strings.Contains(err.Error(), "reconcile persisted awaitings") {
+			if _, err := New(deferredRestartDependencies(fixture, runstate.NewManager(), failing, nil)); err == nil || !strings.Contains(err.Error(), "reconcile persisted awaitings") {
 				t.Fatalf("expected startup reconciliation failure at %s, got %v", stage, err)
 			}
 			summary, err := fixture.chats.Summary(chatID)
@@ -1226,7 +1237,7 @@ func TestHydrationReconciliationIsIdempotentAcrossEveryWriteStage(t *testing.T) 
 				t.Fatalf("pending awaiting was cleared before %s completed: %#v", stage, summary)
 			}
 
-			if _, err := New(deferredRestartDependencies(fixture, fixture.chats, nil)); err != nil {
+			if _, err := New(deferredRestartDependencies(fixture, runstate.NewManager(), fixture.chats, nil)); err != nil {
 				t.Fatalf("resume reconciliation after %s failure: %v", stage, err)
 			}
 			assertRestartTerminalizedAwaiting(t, fixture.chats, chatID, runID, awaitingID, "timeout")
@@ -1239,7 +1250,7 @@ func TestHydrationReconciliationIsIdempotentAcrossEveryWriteStage(t *testing.T) 
 			}); err != nil {
 				t.Fatalf("restore stale pending marker: %v", err)
 			}
-			if _, err := New(deferredRestartDependencies(fixture, fixture.chats, nil)); err != nil {
+			if _, err := New(deferredRestartDependencies(fixture, runstate.NewManager(), fixture.chats, nil)); err != nil {
 				t.Fatalf("repeat reconciliation after %s: %v", stage, err)
 			}
 			assertRestartTerminalizedAwaiting(t, fixture.chats, chatID, runID, awaitingID, "timeout")
@@ -1248,6 +1259,7 @@ func TestHydrationReconciliationIsIdempotentAcrossEveryWriteStage(t *testing.T) 
 }
 
 func TestHydrationClearsDanglingAndAnsweredAwaitings(t *testing.T) {
+	restartedRuns := runstate.NewManager()
 	notifications := &recordingNotificationSink{}
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
@@ -1290,7 +1302,7 @@ func TestHydrationClearsDanglingAndAnsweredAwaitings(t *testing.T) {
 		Memory:          fixture.memories,
 		Registry:        fixture.registry,
 		Models:          fixture.modelRegistry,
-		Runs:            fixture.runs,
+		Runs:            restartedRuns,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
 		DeltaMappers:    llm.DeltaMapperFactory{Interactions: fixture.interactions},
@@ -1317,6 +1329,7 @@ func TestHydrationClearsDanglingAndAnsweredAwaitings(t *testing.T) {
 }
 
 func TestDeferredSubmitAcceptsWithinTimeout(t *testing.T) {
+	restartedRuns := runstate.NewManager()
 	notifications := &recordingNotificationSink{}
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
@@ -1332,7 +1345,7 @@ func TestDeferredSubmitAcceptsWithinTimeout(t *testing.T) {
 		Memory:          fixture.memories,
 		Registry:        fixture.registry,
 		Models:          fixture.modelRegistry,
-		Runs:            fixture.runs,
+		Runs:            restartedRuns,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
 		DeltaMappers:    llm.DeltaMapperFactory{Interactions: fixture.interactions},
@@ -1357,6 +1370,7 @@ func TestDeferredSubmitAcceptsWithinTimeout(t *testing.T) {
 }
 
 func TestHydrationRestoresAwaitingWithEmptyRunEnvironment(t *testing.T) {
+	restartedRuns := runstate.NewManager()
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
@@ -1381,7 +1395,7 @@ func TestHydrationRestoresAwaitingWithEmptyRunEnvironment(t *testing.T) {
 	const awaitingID = "await-run-env-restart"
 	seedDeferredAwaiting(t, fixture.chats, chatID, runID, awaitingID, "question", 60, time.Now().UnixMilli()-1000)
 
-	deps := deferredRestartDependencies(fixture, fixture.chats, contracts.NewNoopNotificationSink())
+	deps := deferredRestartDependencies(fixture, restartedRuns, fixture.chats, contracts.NewNoopNotificationSink())
 	if _, err := New(deps); err != nil {
 		t.Fatalf("restart hydration failed: %v", err)
 	}
@@ -1484,14 +1498,14 @@ func seedDeferredAwaitingPayload(t *testing.T, store chat.Store, chatID string, 
 	}
 }
 
-func deferredRestartDependencies(fixture testFixture, store chat.Store, notifications contracts.NotificationSink) Dependencies {
+func deferredRestartDependencies(fixture testFixture, runs *runstate.Manager, store chat.Store, notifications contracts.NotificationSink) Dependencies {
 	return Dependencies{
 		Config:          fixture.cfg,
 		Chats:           store,
 		Memory:          fixture.memories,
 		Registry:        fixture.registry,
 		Models:          fixture.modelRegistry,
-		Runs:            fixture.runs,
+		Runs:            runs,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
 		DeltaMappers:    llm.DeltaMapperFactory{Interactions: fixture.interactions},

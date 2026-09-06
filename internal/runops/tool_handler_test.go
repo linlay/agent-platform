@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/runtime/runstate"
 	runtimetypes "agent-platform/internal/runtime/types"
 )
 
@@ -72,7 +73,7 @@ func runToolExecContext(subject string, toolID string) *contracts.ExecutionConte
 
 func TestRunQueryIsIdempotentPerParentRunAndToolID(t *testing.T) {
 	service := newFakeRunToolService()
-	runs := contracts.NewInMemoryRunManager()
+	runs := runstate.NewManager()
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID: "parent-run", ChatID: "parent-chat", AgentKey: "zenmi", RunOwner: contracts.AgentRunOwner("zenmi", ""),
 	})

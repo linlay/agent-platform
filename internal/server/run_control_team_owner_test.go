@@ -15,7 +15,7 @@ func TestTeamOwnedRunControlUsesTeamIDAndHidesExecutionAgent(t *testing.T) {
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	})
-	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	runs := fixture.runs
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    "run-team-control",
 		ChatID:   "chat-team-control",
@@ -121,7 +121,7 @@ func TestTeamOwnedRunInterruptAcceptsOnlyTeamOwner(t *testing.T) {
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	})
-	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	runs := fixture.runs
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    "run-team-interrupt",
 		ChatID:   "chat-team-interrupt",

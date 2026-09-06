@@ -1,7 +1,6 @@
 package contracts
 
 import (
-	"context"
 	"testing"
 )
 
@@ -29,33 +28,5 @@ func TestResolveRunOwnerDoesNotInferLegacySessionIdentity(t *testing.T) {
 	owner := ResolveRunOwner(RunOwner{})
 	if owner.AgentKey != "" || owner.TeamID != "" || owner.ExecutionAgentKey != "" {
 		t.Fatalf("empty owner was unexpectedly populated: %#v", owner)
-	}
-}
-
-func TestRunManagerStatusKeepsTeamCoordinatorPrivate(t *testing.T) {
-	runs := NewInMemoryRunManager()
-	_, _, active := runs.Register(context.Background(), QuerySession{
-		RunID:    "run-team-owner",
-		ChatID:   "chat-team-owner",
-		AgentKey: "__team_coordinator",
-		TeamID:   "team-a",
-		RunOwner: TeamRunOwner("team-a", "__team_coordinator"),
-	})
-	if !IsTeamRunOwner(active.AgentKey, active.TeamID) || active.AgentKey != "" || active.TeamID != "team-a" {
-		t.Fatalf("unexpected active run %#v", active)
-	}
-	if active.ExecutionAgentKey != "__team_coordinator" {
-		t.Fatalf("execution agent = %q", active.ExecutionAgentKey)
-	}
-
-	status, ok := runs.RunStatus("run-team-owner")
-	if !ok {
-		t.Fatal("team run status not found")
-	}
-	if !IsTeamRunOwner(status.AgentKey, status.TeamID) || status.AgentKey != "" || status.TeamID != "team-a" {
-		t.Fatalf("unexpected run status %#v", status)
-	}
-	if status.ExecutionAgentKey != "__team_coordinator" {
-		t.Fatalf("status execution agent = %q", status.ExecutionAgentKey)
 	}
 }

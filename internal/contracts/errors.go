@@ -16,3 +16,7 @@ var (
 	ErrMCPCallFailed                   = errors.New("mcp call failed")
 	ErrNotImplemented                  = errors.New("not implemented")
 )
+
+func IsRunInterrupted(err error) bool {
+	return errors.Is(err, ErrRunInterrupted)
+}

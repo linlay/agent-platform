@@ -6,6 +6,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/runtime/runstate"
 )
 
 func TestInterruptRequestHelpersStoreHTTPAndWSCauses(t *testing.T) {
@@ -49,7 +50,7 @@ func TestInterruptRequestHelpersStoreHTTPAndWSCauses(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			manager := contracts.NewInMemoryRunManager()
+			manager := runstate.NewManager()
 			_, control, _ := manager.Register(context.Background(), contracts.QuerySession{
 				RunID:  tt.request.RunID,
 				ChatID: tt.request.ChatID,

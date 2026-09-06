@@ -106,7 +106,7 @@ func TestChatsActiveRunHTTPAndWebSocket(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("complete persisted run: %v", err)
 	}
-	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	runs := fixture.runs
 	_, control, _ := runs.Register(context.Background(), contracts.QuerySession{
 		RunID:           activeRunID,
 		ChatID:          chatID,

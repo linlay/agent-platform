@@ -27,6 +27,7 @@ import (
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
 	"agent-platform/internal/reload"
+	"agent-platform/internal/runtime/runstate"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/testutil"
 	"agent-platform/internal/toolinteraction"
@@ -93,7 +94,7 @@ type testFixture struct {
 	memories        memory.Store
 	registry        catalog.Registry
 	modelRegistry   *models.ModelRegistry
-	runs            contracts.RunManager
+	runs            *runstate.Manager
 	agent           contracts.AgentEngine
 	tools           contracts.ToolExecutor
 	interactions    *toolinteraction.Registry
@@ -380,7 +381,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	}
 	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, nil, nil, "", notifications)
 
-	runs := contracts.NewInMemoryRunManager()
+	runs := runstate.NewManager()
 	sandbox := sandboxClient
 	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, interactionRegistry, sandbox)
 	viewport := testutil.NewNoopViewportClient()

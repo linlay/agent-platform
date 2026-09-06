@@ -36,6 +36,10 @@ run tools ────────┘                    ├> runexec
 
 ## 生命周期时序
 
+`runtime/runstate.Manager` 是生产与集成测试唯一的 RunManager 实现，统一由 `runstate.NewManager()` 创建；同一运行环境的 Query、控制接口与客户端目标绑定共享该实例。`contracts` 保留 `RunManager` 等接口、`RunControl`、错误与不透明 `CompactControlHandle`，依赖方向固定为 `runstate -> contracts`，不提供旧 Manager 的别名或转发构造函数。
+
+Manager 行为测试位于 `runtime/runstate` 同包，回收测试可以直接调整私有时间状态并调用回收逻辑，不为测试扩展生产接口。`contracts` 中的纯 RunControl 和 owner 契约测试继续保留。Server fixture 固定持有 `*runstate.Manager`；模拟重启时显式注入新 Manager，只从持久化存储恢复 awaiting、原始开始时间和事件游标，不复用旧实例中的 Run、claim 或 compact 状态。
+
 异步 Query 的稳定时序是：
 
 ```text
@@ -45,6 +49,8 @@ decode/auth -> Runtime.StartQuery -> Runtime.AttachRun -> transport forward
 ```
 
 客户端断开只关闭本订阅，不中断 Run。EventBus freeze 时订阅必须确认 delivery done，否则终态注销、Chat admission 和下一轮 Query 都可能被阻塞。SSE 与 WS 现在复用 Runtime 的相同订阅语义。
+
+订阅关闭必须同时执行 detach 和 `Observer.MarkDone()`：freeze 已从 EventBus 移除 live observer 后，单独 detach 无法再找到它并确认交付完成。Manager 的 `Finish` 不接管 EventBus 的冻结等待，执行端仍先完成终态持久化与交付确认，再释放 Run 的活动状态。
 
 ## 相邻应用服务
 

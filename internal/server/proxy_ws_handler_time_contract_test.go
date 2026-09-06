@@ -60,7 +60,7 @@ func TestProxyWebSocketHTTPSSEObserverTerminatesInvalidEventWithLocalTimeContrac
 			})
 		},
 	})
-	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	runs := fixture.runs
 	const (
 		runID  = "run_proxy_ws_sse_time_contract"
 		chatID = "chat_proxy_ws_sse_time_contract"
