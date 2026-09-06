@@ -2,7 +2,6 @@ package runstate
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -384,14 +383,17 @@ func (m *Manager) Interrupt(req api.InterruptRequest) contracts.InterruptAck {
 }
 
 func (m *Manager) UpdateAccessLevel(req api.AccessLevelRequest) contracts.AccessLevelAck {
-	state, ok := m.lookupRun(req.RunID)
+	m.mu.Lock()
+	state, ok := m.runs[req.RunID]
+	completed := ok && !state.completedAt.IsZero()
+	m.mu.Unlock()
 	if !ok {
 		return contracts.AccessLevelAck{Accepted: false, Status: "unmatched", Detail: "No active run found"}
 	}
 	if strings.TrimSpace(req.AgentKey) != "" && strings.TrimSpace(state.run.AgentKey) != strings.TrimSpace(req.AgentKey) {
 		return contracts.AccessLevelAck{Accepted: false, Status: "forbidden", Detail: "agentKey does not match run"}
 	}
-	if state.control == nil || state.control.Interrupted() || state.control.Finished() || !state.completedAt.IsZero() {
+	if state.control == nil || state.control.Interrupted() || state.control.Finished() || completed {
 		return contracts.AccessLevelAck{Accepted: false, Status: "unmatched", Detail: "Run is no longer active"}
 	}
 	previous, current, version, changed := state.control.UpdateAccessLevel(req.AccessLevel)
@@ -788,11 +790,10 @@ func (m *Manager) lookupRun(runID string) (*managedRun, bool) {
 	return state, ok
 }
 
-func IsRunInterrupted(err error) bool {
-	return errors.Is(err, contracts.ErrRunInterrupted)
-}
-
 var (
+	_ contracts.ClientTargetStore           = (*Manager)(nil)
+	_ contracts.WebClientTargetStore        = (*Manager)(nil)
+	_ contracts.ActiveAwaitingLister        = (*Manager)(nil)
 	_ contracts.RunManager                  = (*Manager)(nil)
 	_ contracts.ChatQueryAdmissionService   = (*Manager)(nil)
 	_ contracts.ExclusiveRunRegistrar       = (*Manager)(nil)

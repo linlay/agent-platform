@@ -17,6 +17,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	runopspkg "agent-platform/internal/runops"
+	"agent-platform/internal/runtime/runstate"
 	"agent-platform/internal/stream"
 )
 
@@ -299,7 +300,7 @@ func TestGetRunStatusReportsQuestionAwaiting(t *testing.T) {
 }
 
 func TestGetRunStatusReturnsFailedError(t *testing.T) {
-	runs := contracts.NewInMemoryRunManager()
+	runs := runstate.NewManager()
 	_, control, _ := runs.Register(context.Background(), contracts.QuerySession{
 		RunID: "failed-run", ChatID: "failed-chat", AgentKey: "mock-agent", RunOwner: contracts.AgentRunOwner("mock-agent", ""),
 	})

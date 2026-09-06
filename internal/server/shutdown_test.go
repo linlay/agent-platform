@@ -116,7 +116,7 @@ func TestHTTPRunStreamDetachesObserverDuringRootContextShutdown(t *testing.T) {
 	defer cancelRoot()
 
 	fixture := newTestFixture(t)
-	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	runs := fixture.runs
 	runID := "run_http_shutdown"
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    runID,
@@ -297,7 +297,7 @@ func waitForBodyClose(t *testing.T, body io.ReadCloser, timeout time.Duration) {
 	}
 }
 
-func waitForObserverCount(t *testing.T, runs *contracts.InMemoryRunManager, runID string, want int, timeout time.Duration) {
+func waitForObserverCount(t *testing.T, runs contracts.RunManager, runID string, want int, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {

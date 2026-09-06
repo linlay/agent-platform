@@ -773,10 +773,3 @@ type PlanningRuntimeState struct {
 	ToolCallID   string
 	ToolName     string
 }
-
-func normalizeSteerID(steerID string) string {
-	if steerID != "" {
-		return steerID
-	}
-	return time.Now().UTC().Format("20060102150405.000000000")
-}

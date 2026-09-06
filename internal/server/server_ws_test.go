@@ -311,7 +311,7 @@ func TestWebSocketChatReturnsActiveRunConflict(t *testing.T) {
 	if _, _, err := fixture.chats.EnsureChat("chat_ws_conflict", "mock-agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	runs := fixture.runs
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    "run_ws_1",
 		ChatID:   "chat_ws_conflict",
@@ -390,7 +390,7 @@ func TestWebSocketAgentsKeepsChatWithActiveRunConflictError(t *testing.T) {
 	if _, _, err := fixture.chats.EnsureChat("chat_ws_agents_conflict", "mock-agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	runs := fixture.runs
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    "run_ws_agents_1",
 		ChatID:   "chat_ws_agents_conflict",
@@ -843,7 +843,7 @@ func TestWebSocketRunStreamClosesDuringShutdown(t *testing.T) {
 		},
 	})
 
-	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	runs := fixture.runs
 	runID := "run_ws_shutdown"
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    runID,
@@ -937,7 +937,7 @@ func TestWebSocketAttachLatestSuccessfulConnectionOwnsWebClientTarget(t *testing
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{notifications: hub})
-	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	runs := fixture.runs
 	runID := "run_ws_latest_target"
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    runID,
@@ -1041,7 +1041,7 @@ func TestWebSocketDetachReleasesRunObserverWithoutFinishingRun(t *testing.T) {
 		},
 	})
 
-	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	runs := fixture.runs
 	runID := "run_ws_detach"
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    runID,
@@ -1178,7 +1178,7 @@ func TestWebSocketDetachedAwaitingQuestionTimesOutAndReplays(t *testing.T) {
 		},
 	})
 
-	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	runs := fixture.runs
 	server := httptest.NewServer(fixture.server)
 	defer server.Close()
 
@@ -1763,7 +1763,7 @@ Plan should stream over websocket.
 	if executionRunID == "" || executionRunID == runID {
 		t.Fatalf("expected distinct execution run id, got %q old=%q", executionRunID, runID)
 	}
-	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	runs := fixture.runs
 	sourceTarget, sourceOK := runs.ResolveWebClientTarget(runID)
 	executionTarget, executionOK := runs.ResolveWebClientTarget(executionRunID)
 	if !sourceOK || !executionOK || sourceTarget.IsZero() || executionTarget != sourceTarget {
@@ -2224,7 +2224,7 @@ func waitForWebSocketStreamEvent(t *testing.T, conn *gws.Conn, requestID string,
 	return ws.StreamFrame{}
 }
 
-func waitForRunCompleted(t *testing.T, runs *contracts.InMemoryRunManager, runID string, timeout time.Duration) {
+func waitForRunCompleted(t *testing.T, runs contracts.RunManager, runID string, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {

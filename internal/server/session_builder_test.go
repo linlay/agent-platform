@@ -14,6 +14,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/kbase"
+	"agent-platform/internal/runtime/runstate"
 )
 
 func TestBuildSessionToolNamesDoesNotAutoAddInvokeAgents(t *testing.T) {
@@ -68,7 +69,7 @@ func TestBuildQuerySessionRejectsRemovedRunTool(t *testing.T) {
 }
 
 func TestBuildQuerySessionCreatesOnlyRootNativeRunEnvironment(t *testing.T) {
-	runs := contracts.NewInMemoryRunManager()
+	runs := runstate.NewManager()
 	server := &Server{deps: Dependencies{Runs: runs}}
 	definition := catalog.AgentDefinition{Key: "ordinary", Mode: "REACT", Tools: []string{"platform_control"}}
 	request := api.QueryRequest{AgentKey: "ordinary", ChatID: "chat-root", RunID: "run-root", Role: "user"}

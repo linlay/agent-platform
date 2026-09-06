@@ -17,6 +17,7 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/memory"
+	"agent-platform/internal/runtime/runstate"
 	"agent-platform/internal/stream"
 )
 
@@ -294,7 +295,7 @@ func TestLoadChatDetailReturnsNotFoundAcrossHTTP(t *testing.T) {
 
 func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) {
 	server, chats, _ := newServerForHelperTests(t)
-	runs := contracts.NewInMemoryRunManager()
+	runs := runstate.NewManager()
 	server.deps.Runs = runs
 
 	if _, _, err := chats.EnsureChat("chat-live", "agent-1", "", "hello"); err != nil {
@@ -551,7 +552,7 @@ func TestActiveRunInPlanningStage(t *testing.T) {
 
 func TestLoadChatDetailActiveRunPlanningModeReflectsPlanningDecision(t *testing.T) {
 	server, chats, _ := newServerForHelperTests(t)
-	runs := contracts.NewInMemoryRunManager()
+	runs := runstate.NewManager()
 	server.deps.Runs = runs
 
 	chatID := "chat-live-plan-approved"
@@ -630,7 +631,7 @@ func TestLoadChatDetailActiveRunPlanningModeReflectsPlanningDecision(t *testing.
 
 func TestLoadChatDetailActiveRunLastSeqUsesPersistedLiveSeqCursor(t *testing.T) {
 	server, chats, _ := newServerForHelperTests(t)
-	runs := contracts.NewInMemoryRunManager()
+	runs := runstate.NewManager()
 	server.deps.Runs = runs
 
 	if _, _, err := chats.EnsureChat("chat-live-cursor", "agent-1", "", "hello"); err != nil {
@@ -814,7 +815,7 @@ func TestGatewayPullAndPushURLBuildersUseDirectionalEndpoints(t *testing.T) {
 
 func TestListAgentSummariesIncludesChatStats(t *testing.T) {
 	server, chats, _ := newServerForHelperTests(t)
-	runs := contracts.NewInMemoryRunManager()
+	runs := runstate.NewManager()
 	server.deps.Runs = runs
 	server.deps.Registry = wsRegressionCatalogRegistry{
 		items: []api.AgentSummary{

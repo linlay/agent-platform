@@ -21,6 +21,7 @@ import (
 
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/runtime/runstate"
 )
 
 type httpBackedClientRequestInvoker struct {
@@ -248,7 +249,7 @@ func TestDesktopRuntimeModeRoutingMatrix(t *testing.T) {
 }
 
 func TestDesktopReverseRequestDoesNotUseStaleSessionTargetWhenRunTargetIsMissing(t *testing.T) {
-	runs := NewInMemoryRunManager()
+	runs := runstate.NewManager()
 	runs.Register(context.Background(), QuerySession{
 		RunID: "run-without-reverse-target", ChatID: "chat-1", AgentKey: "agent-1", RunOwner: AgentRunOwner("agent-1", ""),
 	})
@@ -278,7 +279,7 @@ func TestDesktopReverseRequestUsesLatestRunTarget(t *testing.T) {
 	invoker := &scriptedClientRequestInvoker{frames: []ClientResponseFrame{{
 		Frame: "response", Type: "desktop.workpanel.getState", ID: "latest-target", Code: &code, Data: data,
 	}}}
-	runs := NewInMemoryRunManager()
+	runs := runstate.NewManager()
 	stale := ClientTarget{SessionID: "ws-stale"}
 	latest := ClientTarget{SessionID: "ws-latest"}
 	runs.Register(context.Background(), QuerySession{
@@ -306,7 +307,7 @@ func TestDesktopReverseRequestUsesLatestRunTarget(t *testing.T) {
 }
 
 func TestDesktopReverseRequestDoesNotInheritTargetForIndependentRootRun(t *testing.T) {
-	runs := NewInMemoryRunManager()
+	runs := runstate.NewManager()
 	rootTarget := ClientTarget{SessionID: "ws-root"}
 	runs.Register(context.Background(), QuerySession{
 		RunID: "run-root", ChatID: "chat-root", AgentKey: "agent-1",
@@ -342,7 +343,7 @@ func TestDesktopReverseRequestDoesNotInheritTargetForIndependentRootRun(t *testi
 }
 
 func TestDesktopRuntimeIndependentRunBindsDesktopMainTarget(t *testing.T) {
-	runs := NewInMemoryRunManager()
+	runs := runstate.NewManager()
 	parentTarget := ClientTarget{SessionID: "ws-parent"}
 	runs.Register(context.Background(), QuerySession{
 		RunID: "run-parent", ChatID: "chat-parent", AgentKey: "agent-parent",
@@ -412,7 +413,7 @@ func TestDesktopRuntimeIndependentRunBindsDesktopMainTarget(t *testing.T) {
 }
 
 func TestDesktopRuntimeKeepsExistingRunTarget(t *testing.T) {
-	runs := NewInMemoryRunManager()
+	runs := runstate.NewManager()
 	existing := ClientTarget{SessionID: "ws-existing"}
 	runs.Register(context.Background(), QuerySession{
 		RunID: "run-existing", ChatID: "chat-existing", AgentKey: "agent-1",
@@ -448,7 +449,7 @@ func TestDesktopRuntimeKeepsExistingRunTarget(t *testing.T) {
 }
 
 func TestDesktopRuntimeRebindsStaleRunTargetBeforeDispatch(t *testing.T) {
-	runs := NewInMemoryRunManager()
+	runs := runstate.NewManager()
 	stale := ClientTarget{SessionID: "ws-stale"}
 	current := ClientTarget{SessionID: "ws-current"}
 	runs.Register(context.Background(), QuerySession{
@@ -477,7 +478,7 @@ func TestDesktopRuntimeRebindsStaleRunTargetBeforeDispatch(t *testing.T) {
 }
 
 func TestDesktopRuntimeDoesNotReplayAfterClientDisconnect(t *testing.T) {
-	runs := NewInMemoryRunManager()
+	runs := runstate.NewManager()
 	stale := ClientTarget{SessionID: "ws-inflight"}
 	runs.Register(context.Background(), QuerySession{
 		RunID: "run-inflight", ChatID: "chat-inflight", AgentKey: "agent-1",
@@ -515,7 +516,7 @@ func TestDesktopRuntimeReportsDesktopMainAvailability(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			runs := NewInMemoryRunManager()
+			runs := runstate.NewManager()
 			runs.Register(context.Background(), QuerySession{
 				RunID: "run-no-target", ChatID: "chat-no-target", AgentKey: "agent-1", RunOwner: AgentRunOwner("agent-1", ""),
 			})
@@ -544,7 +545,7 @@ func TestDesktopRuntimeReportsDesktopMainAvailability(t *testing.T) {
 }
 
 func TestDesktopRuntimeDefaultTargetDoesNotGrantWorkPanel(t *testing.T) {
-	runs := NewInMemoryRunManager()
+	runs := runstate.NewManager()
 	runs.Register(context.Background(), QuerySession{
 		RunID: "run-without-chat-grant", ChatID: "chat-detached", AgentKey: "agent-child",
 		RunOwner: AgentRunOwner("agent-child", ""),
@@ -583,7 +584,7 @@ func TestDesktopRuntimeDefaultTargetDoesNotGrantWorkPanel(t *testing.T) {
 }
 
 func TestDesktopRuntimeTeamSourceKeepsTeamIdentity(t *testing.T) {
-	runs := NewInMemoryRunManager()
+	runs := runstate.NewManager()
 	runs.Register(context.Background(), QuerySession{
 		RunID: "run-team", ChatID: "chat-team", TeamID: "research",
 		RunOwner:      TeamRunOwner("research", "__team_coordinator"),
@@ -616,7 +617,7 @@ func TestDesktopRuntimeTeamSourceKeepsTeamIdentity(t *testing.T) {
 }
 
 func TestDesktopRuntimeCDPBindsDesktopMainTarget(t *testing.T) {
-	runs := NewInMemoryRunManager()
+	runs := runstate.NewManager()
 	runs.Register(context.Background(), QuerySession{
 		RunID: "run-cdp-default", ChatID: "chat-cdp-default", AgentKey: "agent-1", RunOwner: AgentRunOwner("agent-1", ""),
 	})
@@ -641,7 +642,7 @@ func TestDesktopRuntimeCDPBindsDesktopMainTarget(t *testing.T) {
 
 func TestDesktopRuntimeConcurrentRunsKeepReverseRequestsIsolated(t *testing.T) {
 	const runCount = 12
-	runs := NewInMemoryRunManager()
+	runs := runstate.NewManager()
 	provider := &desktopMainTargetProviderStub{target: ClientTarget{SessionID: "ws-desktop-main"}, state: DesktopMainTargetReady}
 	invoker := &routingClientRequestInvoker{}
 	executor := (&RuntimeToolExecutor{cfg: config.Config{RuntimeMode: config.RuntimeModeDesktop}}).

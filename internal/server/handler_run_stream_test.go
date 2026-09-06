@@ -9,11 +9,12 @@ import (
 
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/runtime/runstate"
 	"agent-platform/internal/stream"
 )
 
 func TestHandleAttachDefaultsMissingLastSeqToZero(t *testing.T) {
-	runs := contracts.NewInMemoryRunManager()
+	runs := runstate.NewManager()
 	session := contracts.QuerySession{
 		RunID:    "run_1",
 		ChatID:   "chat_1",
@@ -79,7 +80,7 @@ func TestHandleAttachDefaultsMissingLastSeqToZero(t *testing.T) {
 }
 
 func TestHandleAttachBindsLatestWebClientTargetAfterSuccess(t *testing.T) {
-	runs := contracts.NewInMemoryRunManager()
+	runs := runstate.NewManager()
 	initial := contracts.WebClientTarget{SessionID: "ws-initial"}
 	session := contracts.QuerySession{
 		RunID:           "run_attach_target",
@@ -113,7 +114,7 @@ func TestHandleAttachBindsLatestWebClientTargetAfterSuccess(t *testing.T) {
 }
 
 func TestHandleAttachWithoutTargetOrWithInvalidOwnerDoesNotReplaceBinding(t *testing.T) {
-	runs := contracts.NewInMemoryRunManager()
+	runs := runstate.NewManager()
 	initial := contracts.WebClientTarget{SessionID: "ws-initial"}
 	session := contracts.QuerySession{
 		RunID:           "run_attach_keep_target",
@@ -155,7 +156,7 @@ func TestHandleAttachWithoutTargetOrWithInvalidOwnerDoesNotReplaceBinding(t *tes
 }
 
 func TestHandleAttachTerminatesInvalidObserverEventWithLocalTimeContractError(t *testing.T) {
-	runs := contracts.NewInMemoryRunManager()
+	runs := runstate.NewManager()
 	session := contracts.QuerySession{
 		RunID:    "run_attach_time_contract",
 		ChatID:   "chat_attach_time_contract",
@@ -242,7 +243,7 @@ func TestHandleAttachTerminatesInvalidObserverEventWithLocalTimeContractError(t 
 }
 
 func TestHandleAttachInvalidCompletedReplayDoesNotCancelHistoricalRun(t *testing.T) {
-	runs := contracts.NewInMemoryRunManager()
+	runs := runstate.NewManager()
 	session := contracts.QuerySession{
 		RunID:    "run_attach_completed_time_contract",
 		ChatID:   "chat_attach_completed_time_contract",

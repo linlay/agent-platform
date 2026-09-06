@@ -21,7 +21,7 @@ func TestRunControlWSRequiresAndValidatesAgentKey(t *testing.T) {
 	}, testFixtureOptions{
 		notifications: ws.NewHub(),
 	})
-	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	runs := fixture.runs
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    "run-ws-agent-check",
 		ChatID:   "chat-ws-agent-check",
