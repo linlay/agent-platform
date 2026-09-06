@@ -126,15 +126,16 @@ func (s *Server) ExecuteInternalQuery(ctx context.Context, req api.QueryRequest)
 	if req.ChatSource != "" {
 		ctx = withChatSourceContext(ctx, req.ChatSource)
 	}
-	body, err := json.Marshal(req)
+	prepared, err := s.prepareBlockingQuery(ctx, req, i18n.DefaultLocale, "")
+	response := newQueryResponseBuffer()
 	if err != nil {
-		return 0, "", err
+		writeQueryStartError(response, err)
+	} else if isProxyRoutedAgent(prepared.agentDef) {
+		s.executePreparedProxyCompatibility(response, ctx, prepared)
+	} else {
+		s.handleQuerySync(response, ctx, prepared)
 	}
-	httpReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(body)).WithContext(withSyncQueryContext(ctx))
-	httpReq.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	s.handleQuery(rec, httpReq)
-	return rec.Code, strings.TrimSpace(rec.Body.String()), nil
+	return response.status, strings.TrimSpace(response.body.String()), nil
 }
 
 // ExecuteInternalQueryResult preserves the public query pipeline while also
@@ -166,14 +167,26 @@ func (s *Server) ExecuteInternalQueryStream(
 	if req.ChatSource != "" {
 		ctx = withChatSourceContext(ctx, req.ChatSource)
 	}
-	body, err := json.Marshal(req)
-	if err != nil {
-		return err
+	command := queryCommandFromAPI(req)
+	command.Locale = i18n.DefaultLocale
+	command.ChatSource = chatSourceFromContext(ctx)
+	if principal := PrincipalFromContext(ctx); principal != nil {
+		command.Caller.Subject = principal.Subject
 	}
-	httpReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(body)).WithContext(ctx)
-	httpReq.Header.Set("Content-Type", "application/json")
 	rw := newSSEInterceptor(onEvent)
-	s.handleQuery(rw, httpReq)
+	if isNonStreamingQuery(req) {
+		prepared, err := s.prepareBlockingQuery(ctx, req, command.Locale, "")
+		if err != nil {
+			writeQueryStartError(rw, err)
+		} else if isProxyRoutedAgent(prepared.agentDef) {
+			request, _ := http.NewRequestWithContext(ctx, http.MethodPost, "/api/query", nil)
+			s.handleProxyQueryNonStream(rw, request, prepared)
+		} else {
+			s.handleQueryNonStream(rw, ctx, prepared)
+		}
+	} else {
+		s.writeRuntimeQueryStream(rw, ctx, command)
+	}
 	return rw.err
 }
 

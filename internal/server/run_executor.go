@@ -13,12 +13,15 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/models"
+	"agent-platform/internal/runtime/orchestration"
 	"agent-platform/internal/runtime/runexec"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/timecontract"
 )
 
 type RunExecutorParams struct {
+	ObserveEvent      func(stream.EventData)
+	EmitVisible       func(stream.EventData) error
 	RunCtx            context.Context
 	Request           api.QueryRequest
 	Session           contracts.QuerySession
@@ -129,253 +132,64 @@ func StartRunExecutor(params RunExecutorParams) {
 	go runExecutor(params)
 }
 
-func runExecutor(params RunExecutorParams) {
+func runExecutor(params RunExecutorParams) runexec.Result {
 	tracker := &awaitingTracker{}
-	var (
-		persisted    bool
-		completion   chat.RunCompletion
-		continuation *contracts.DeltaRunContinuation
-	)
-	defer func() {
-		maybeBroadcastInterruptedAwaiting(params, tracker)
-		if params.StepWriter != nil {
-			params.StepWriter.Flush()
-		}
-		if params.EventBus != nil {
-			params.EventBus.FreezeAndWait()
-		}
-		if params.OnComplete != nil {
-			params.OnComplete(completion)
-		}
-		if shouldStartRunContinuation(persisted, completion, continuation) && params.OnContinuation != nil {
-			if _, err := params.OnContinuation(*continuation); err != nil {
-				log.Printf("[server][run] start continuation failed sourceRunId=%s continuationRunId=%s err=%v", params.Session.RunID, continuation.RunID, err)
+	result := runexec.Execute(runexec.ExecuteOptions{
+		RunCtx: params.RunCtx, Session: params.Session,
+		StartedAtMillis: params.StartedAtMillis, Summary: params.Summary,
+		StartStream: func(ctx context.Context) (contracts.AgentStream, error) {
+			return params.Agent.Stream(ctx, params.Request, params.Session)
+		},
+		Assembler: params.Assembler, Mapper: params.Mapper, Billing: params.Billing,
+		Models: params.Models, StepWriter: params.StepWriter, RunControl: params.RunControl,
+		ObserveEvent:         params.ObserveEvent,
+		OnCompactEvent:       func(data stream.EventData) { completeCompactControl(params.RunControl, data) },
+		OnPersistenceFailure: func(data stream.EventData) { handleCompactCheckpointPersistenceFailure(params, nil, data) },
+		OnProcessingError:    func(err error) { publishLocalRunProcessingError(params, err) },
+		OnEvent:              func(data stream.EventData) { handleAwaitingLifecycle(params, data, tracker) },
+		Publish: func(data stream.EventData) error {
+			data = clientVisibleEventData(data)
+			if params.EventBus != nil {
+				params.EventBus.Publish(data)
 			}
-		}
-		if persisted {
-			broadcastRunCompletion(params, completion)
-		}
-	}()
-	if err := timecontract.ValidateEpochMillis(params.StartedAtMillis, "startedAt", "run.executor"); err != nil {
-		// This is a local platform failure, so its error event is allowed to use
-		// the platform's actual error time.  Crucially, we do not repair the
-		// invalid start time or continue the run with a guessed value.
-		completion = chat.RunCompletion{
-			ChatID:          params.Session.ChatID,
-			RunID:           params.Session.RunID,
-			FinishReason:    "error",
-			StartedAtMillis: params.StartedAtMillis,
-			UpdatedAtMillis: time.Now().UnixMilli(),
-		}
-		if params.RunControl != nil {
-			params.RunControl.TransitionState(contracts.RunLoopStateFailed)
-		}
-		publishLocalTimeContractRunError(params, err)
-		return
-	}
-	// Bind the assembler to the single timestamp captured by run registration.
-	// Bootstrap must never call its own clock for run.start: Desktop compares
-	// that event with activeRun.startedAt and the run.started notification.
-	if params.Assembler != nil {
-		params.Assembler.SetRunStartedAtMillis(params.StartedAtMillis)
-	}
-
-	var (
-		assistantText strings.Builder
-		runUsage      chat.UsageData
-		chatUsage     chat.UsageData
-	)
-	if params.Summary.Usage != nil {
-		chatUsage = *params.Summary.Usage
-	}
-	processor := runexec.NewProcessor(runexec.ProcessorOptions{
-		AssistantText: &assistantText, StepWriter: params.StepWriter,
-		Billing: params.Billing, Models: params.Models, ChatUsage: chatUsage, RunUsage: &runUsage,
-		AggregateUsageByTask: params.Session.TeamRuntime != nil, RunControl: params.RunControl,
-		RunID: params.Session.RunID, ChatID: params.Session.ChatID,
-		AgentKey:       contracts.ResolveRunOwner(params.Session.RunOwner).AgentKey,
-		OnCompactEvent: func(data stream.EventData) { completeCompactControl(params.RunControl, data) },
-	})
-
-	runCtx := params.RunCtx
-	if runCtx == nil {
-		runCtx = context.Background()
-	}
-	runCtx, cancelExecution := context.WithCancel(runCtx)
-	defer cancelExecution()
-	if params.StepWriter != nil {
-		runCtx = chat.WithApprovalSummarySink(runCtx, params.StepWriter.RecordApproval)
-	}
-
-	var processingErr error
-	publishEmissions := func(emissions []stream.EventEmission) error {
-		if processingErr != nil {
-			return processingErr
-		}
-		if len(emissions) == 0 {
+			if params.EmitVisible != nil {
+				return params.EmitVisible(data)
+			}
 			return nil
-		}
-		for _, emission := range emissions {
-			event := emission.Event
-			// Storage records the public coverage boundary. Hidden events reuse
-			// the latest cursor but never reserve or publish that sequence.
-			event.Seq = emission.Cursor
-			data, _, err := processor.Consume(event)
-			if err != nil {
-				processingErr = err
-				handleCompactCheckpointPersistenceFailure(params, processor, data)
-				// Stop the producer as soon as the bad event is observed. The
-				// subsequent local run.error is platform-owned and is published
-				// below instead of repairing this event.
-				cancelExecution()
-				return err
+		},
+		PersistCompletion: func(text string, usage chat.UsageData, reason string, notify bool) (bool, chat.RunCompletion) {
+			return persistRunCompletionWithReason(params, text, usage, reason, notify)
+		},
+		NewOrchestrator: func(ctx context.Context, emitDelta func(contracts.AgentDelta), emitInputs func(...stream.StreamInput)) orchestration.DeltaHandler {
+			return &frameOrchestrator{
+				runCtx: ctx, request: params.Request, session: params.Session, summary: params.Summary,
+				agent: params.Agent, registry: params.Registry, teamSnapshot: params.TeamSnapshot,
+				buildQuerySession: params.BuildQuerySession, chats: params.Chats,
+				resourceBaseURL: params.ResourceBaseURL, resourceTickets: params.ResourceTickets,
+				prepareSystemInit: params.PrepareSystemInit, mapper: params.Mapper,
+				emitDelta: emitDelta, emitInputs: emitInputs, currentLiveSeq: params.Assembler.CurrentSeq,
 			}
-			handleAwaitingLifecycle(params, data, tracker)
-			if emission.Visible && params.EventBus != nil {
-				params.EventBus.Publish(clientVisibleEventData(data))
-			}
-		}
-		return nil
+		},
+	})
+	maybeBroadcastInterruptedAwaiting(params, tracker)
+	if params.StepWriter != nil {
+		params.StepWriter.Flush()
 	}
-	failProcessing := func(err error) {
-		if params.RunControl != nil {
-			params.RunControl.TransitionState(contracts.RunLoopStateFailed)
-		}
-		publishLocalRunProcessingError(params, err)
-		persisted, completion = persistRunCompletionWithReason(params, assistantText.String(), runUsage, "error", false)
+	if params.EventBus != nil {
+		params.EventBus.FreezeAndWait()
 	}
-
-	if err := publishEmissions(params.Assembler.BootstrapEmissions()); err != nil {
-		failProcessing(err)
-		return
+	if params.OnComplete != nil {
+		params.OnComplete(result.Completion)
 	}
-
-	agentStream, err := params.Agent.Stream(runCtx, params.Request, params.Session)
-	if err != nil {
-		if params.RunControl != nil {
-			params.RunControl.TransitionState(contracts.RunLoopStateFailed)
-		}
-		if publishErr := publishEmissions(params.Assembler.FailEmissions(err)); publishErr != nil {
-			failProcessing(publishErr)
-			return
-		}
-		persisted, completion = persistRunCompletionWithReason(params, assistantText.String(), runUsage, "error", false)
-		return
-	}
-	defer agentStream.Close()
-
-	emitDelta := func(delta contracts.AgentDelta) {
-		if processingErr != nil {
-			return
-		}
-		// The TEAM coordinator is a hidden runtime actor. Its reasoning is part of
-		// the routing implementation, not user-visible conversation content.
-		// Child-agent reasoning is routed through emitInputs below and remains
-		// task-scoped, so this only suppresses the coordinator's own reasoning.
-		if params.Session.TeamRuntime != nil {
-			if _, ok := delta.(contracts.DeltaReasoning); ok {
-				return
-			}
-		}
-		if value, ok := delta.(contracts.DeltaRunContinuation); ok {
-			cloned := value
-			cloned.Answer = contracts.CloneMap(value.Answer)
-			continuation = &cloned
-			return
-		}
-		inputs := params.Mapper.Map(delta)
-		for _, input := range inputs {
-			if processingErr != nil {
-				return
-			}
-			if content, ok := input.(stream.ContentDelta); ok && params.Session.TeamRuntime != nil {
-				content.ActorType = "team"
-				content.TeamID = strings.TrimSpace(params.Session.TeamID)
-				content.AgentKey = ""
-				content.Presentation = "reply"
-				input = content
-			}
-			processor.ApplyModelTurnControl(input)
-			if marker, ok := input.(stream.StageMarker); ok && params.StepWriter != nil {
-				params.StepWriter.OnStageMarker(marker.Stage)
-			}
-			if err := publishEmissions(params.Assembler.ConsumeEmissions(input)); err != nil {
-				return
-			}
+	if shouldStartRunContinuation(result.Persisted, result.Completion, result.Continuation) && params.OnContinuation != nil {
+		if _, err := params.OnContinuation(*result.Continuation); err != nil {
+			log.Printf("[server][run] start continuation failed sourceRunId=%s continuationRunId=%s err=%v", params.Session.RunID, result.Continuation.RunID, err)
 		}
 	}
-	emitInputs := func(inputs ...stream.StreamInput) {
-		for _, input := range inputs {
-			if processingErr != nil {
-				return
-			}
-			processor.ApplyModelTurnControl(input)
-			if marker, ok := input.(stream.StageMarker); ok && params.StepWriter != nil {
-				params.StepWriter.OnStageMarker(marker.Stage)
-			}
-			if err := publishEmissions(params.Assembler.ConsumeEmissions(input)); err != nil {
-				return
-			}
-		}
+	if result.Persisted {
+		broadcastRunCompletion(params, result.Completion)
 	}
-
-	orchestrator := &frameOrchestrator{
-		runCtx:            runCtx,
-		request:           params.Request,
-		session:           params.Session,
-		summary:           params.Summary,
-		agent:             params.Agent,
-		registry:          params.Registry,
-		teamSnapshot:      params.TeamSnapshot,
-		buildQuerySession: params.BuildQuerySession,
-		chats:             params.Chats,
-		resourceBaseURL:   params.ResourceBaseURL,
-		resourceTickets:   params.ResourceTickets,
-		prepareSystemInit: params.PrepareSystemInit,
-		mapper:            params.Mapper,
-		emitDelta:         emitDelta,
-		emitInputs:        emitInputs,
-		currentLiveSeq:    params.Assembler.CurrentSeq,
-	}
-
-	streamFailed, streamInterrupted, orchestrateErr := orchestrator.Run(agentStream)
-	if processingErr != nil {
-		failProcessing(processingErr)
-		return
-	}
-	if orchestrateErr != nil {
-		streamFailed = true
-		if params.RunControl != nil {
-			params.RunControl.TransitionState(contracts.RunLoopStateFailed)
-		}
-		if publishErr := publishEmissions(params.Assembler.FailEmissions(orchestrateErr)); publishErr != nil {
-			failProcessing(publishErr)
-			return
-		}
-	}
-
-	terminalFinishReason := processor.TerminalFinishReason()
-	if terminalFinishReason == "error" {
-		streamFailed = true
-		streamInterrupted = false
-	} else if terminalFinishReason == "cancel" {
-		streamInterrupted = true
-		streamFailed = false
-	}
-	if streamFailed || streamInterrupted {
-		finishReason := "error"
-		if streamInterrupted {
-			finishReason = "cancel"
-		}
-		persisted, completion = persistRunCompletionWithReason(params, assistantText.String(), runUsage, finishReason, false)
-		return
-	}
-
-	if err := publishEmissions(params.Assembler.CompleteEmissions()); err != nil {
-		failProcessing(err)
-		return
-	}
-	persisted, completion = persistRunCompletionWithReason(params, assistantText.String(), runUsage, "complete", true)
+	return result
 }
 
 func publishLocalTimeContractRunError(params RunExecutorParams, err error) {

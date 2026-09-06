@@ -337,6 +337,8 @@ Chat 与 Site 沿用同一 `references` 数组，但不按文件路径处理：
 
 文件引用的 `url` 只用于平台资源下载、ticket 与 gateway 数据面，不进入模型 prompt；只有 Site 引用的可信指针 URL 会作为引用元数据展示给模型。
 
+Native Query 的 SSE、`stream:false` 和进程内阻塞调用共用同一执行核心，因此子 Agent/Team、usage 聚合和阶段处理不因返回方式不同而分叉。`content` 与持久化完成记录一致，`fullText` 保留内部模型轮次丢弃语义。Proxy 仍使用现有协议适配。
+
 普通非流式 query 的默认响应：
 
 ```json
