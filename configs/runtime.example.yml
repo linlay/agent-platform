@@ -66,8 +66,6 @@ memory:
   context-top-n: 5
   context-max-chars: 4000
   search-default-limit: 10
-  hybrid-vector-weight: 0.7
-  hybrid-fts-weight: 0.3
   dual-write-markdown: true
 
 # KBASE behavior settings live in configs/kbase-settings.yml.

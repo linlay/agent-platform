@@ -15,16 +15,8 @@ type Store interface {
 	List(agentKey string, category string, limit int, sort string) ([]ToolRecord, error)
 	Write(item api.StoredMemoryResponse) error
 	BuildContextBundle(request ContextRequest) (ContextBundle, error)
-	Learn(input LearnInput) (api.LearnResponse, error)
 	Consolidate(agentKey string) (ConsolidationResult, error)
 }
-
-type RuntimeConfig struct {
-	Embedder   *EmbeddingProvider
-	Summarizer RememberSummarizer
-}
-
-type RuntimeResolver func(agentKey string) RuntimeConfig
 
 func isNearDuplicateFactMemory(existing api.StoredMemoryResponse, incoming api.StoredMemoryResponse) bool {
 	if strings.TrimSpace(existing.ID) == strings.TrimSpace(incoming.ID) {

@@ -113,21 +113,6 @@ type AgentProjectGitConfig struct {
 type AgentMemoryConfig struct {
 	Enabled         bool
 	ManagementTools bool
-	Embedding       AgentMemoryEmbeddingConfig
-	AutoRemember    AgentMemoryAutoRememberConfig
-}
-
-type AgentMemoryEmbeddingConfig struct {
-	ProviderKey string
-	Model       string
-	Dimension   int
-	Timeout     int
-}
-
-type AgentMemoryAutoRememberConfig struct {
-	Enabled  bool
-	ModelKey string
-	Timeout  int64
 }
 
 type AgentRuntimePrompts struct {

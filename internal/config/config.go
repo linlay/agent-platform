@@ -18,7 +18,6 @@ type Config struct {
 	Prompts         PromptsConfig
 	CoderPrompts    CoderPromptsConfig
 	KBasePrompts    KBasePromptsConfig
-	MemoryPrompts   MemoryPromptsConfig
 	CoderSettings   CoderSettingsConfig
 	KBase           KBaseConfig
 	VisionRecognize VisionRecognizeConfig
@@ -171,11 +170,6 @@ type CoderPromptsConfig struct {
 
 type KBasePromptsConfig struct {
 	SystemPrompt string
-}
-
-type MemoryPromptsConfig struct {
-	SystemPromptTemplate string
-	UserPromptTemplate   string
 }
 
 type CoderSettingsConfig struct {
@@ -336,8 +330,6 @@ type MemoryConfig struct {
 	ContextTopN        int
 	ContextMaxChars    int
 	SearchDefaultLimit int
-	HybridVectorWeight float64
-	HybridFTSWeight    float64
 	DualWriteMarkdown  bool
 	StorageDir         string
 }

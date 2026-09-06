@@ -224,9 +224,6 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 			err,
 		)
 	}
-	if cfg.Memory.Enabled && sqliteMemoryStore != nil {
-		sqliteMemoryStore.SetRuntimeResolver(memoryRuntimeResolver(cfg, registry, modelRegistry))
-	}
 	kbaseSource := kbaseCatalogSource{registry: registry}
 	kbaseManager := kbase.NewManager(kbaseManagerOptions(cfg), kbaseSource, modelRegistry).WithSupportPackages(supportPackages)
 	if lspManager != nil {
@@ -551,83 +548,6 @@ func (a *App) Close() error {
 
 func startupElapsed(startedAt time.Time) time.Duration {
 	return time.Since(startedAt).Round(time.Millisecond)
-}
-
-func memoryRuntimeResolver(cfg config.Config, registry catalog.Registry, modelRegistry *models.ModelRegistry) memory.RuntimeResolver {
-	var logOnce sync.Map
-	return func(agentKey string) memory.RuntimeConfig {
-		agent, ok := registry.AgentDefinition(strings.TrimSpace(agentKey))
-		if !ok || !agent.MemoryConfig.Enabled {
-			return memory.RuntimeConfig{}
-		}
-		return memory.RuntimeConfig{
-			Embedder:   resolveMemoryEmbedder(cfg, agent, modelRegistry, &logOnce),
-			Summarizer: resolveMemorySummarizer(cfg, agent, modelRegistry),
-		}
-	}
-}
-
-func resolveMemorySummarizer(cfg config.Config, agent catalog.AgentDefinition, modelRegistry *models.ModelRegistry) memory.RememberSummarizer {
-	modelKey := strings.TrimSpace(agent.MemoryConfig.AutoRemember.ModelKey)
-	if modelKey == "" {
-		return nil
-	}
-	timeout := agent.MemoryConfig.AutoRemember.Timeout
-	if timeout <= 0 {
-		timeout = 60
-	}
-	return memory.NewLLMMemorySummarizer(modelRegistry, modelKey, timeout, cfg.MemoryPrompts)
-}
-
-func resolveMemoryEmbedder(_ config.Config, agent catalog.AgentDefinition, modelRegistry *models.ModelRegistry, logOnce *sync.Map) *memory.EmbeddingProvider {
-	embeddingCfg := agent.MemoryConfig.Embedding
-	providerKey := strings.TrimSpace(embeddingCfg.ProviderKey)
-	if providerKey == "" {
-		return nil
-	}
-	provider, err := modelRegistry.GetProvider(providerKey)
-	if err != nil {
-		logMemoryEmbeddingOnce(logOnce, agent.Key, providerKey, "missing-provider", fmt.Sprintf("[memory][embedding] provider %q not found for agent %s, hybrid search disabled: %v", providerKey, agent.Key, err))
-		return nil
-	}
-	model := firstNonBlank(embeddingCfg.Model, provider.Memory.Embedding.Model)
-	dimension := firstPositiveInt(embeddingCfg.Dimension, provider.Memory.Embedding.Dimension)
-	timeout := firstPositiveInt(embeddingCfg.Timeout, provider.Memory.Embedding.Timeout, 15)
-	baseURL := strings.TrimRight(strings.TrimSpace(provider.BaseURL), "/")
-	if baseURL == "" || model == "" || dimension <= 0 {
-		logMemoryEmbeddingOnce(logOnce, agent.Key, providerKey, "incomplete", fmt.Sprintf("[memory][embedding] disabled for agent %s: provider %s missing baseURL/model/dimension", agent.Key, providerKey))
-		return nil
-	}
-	return memory.NewEmbeddingProvider(baseURL, provider.APIKey, model, dimension, timeout)
-}
-
-func logMemoryEmbeddingOnce(logOnce *sync.Map, agentKey string, providerKey string, reason string, message string) {
-	if logOnce == nil {
-		log.Print(message)
-		return
-	}
-	key := strings.TrimSpace(agentKey) + "|" + strings.TrimSpace(providerKey) + "|" + strings.TrimSpace(reason)
-	if _, loaded := logOnce.LoadOrStore(key, struct{}{}); !loaded {
-		log.Print(message)
-	}
-}
-
-func firstNonBlank(values ...string) string {
-	for _, value := range values {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
-}
-
-func firstPositiveInt(values ...int) int {
-	for _, value := range values {
-		if value > 0 {
-			return value
-		}
-	}
-	return 0
 }
 
 // lazyGatewayResolver 把 artifactpusher 的 resolver 和 Registry 构建解耦。

@@ -43,37 +43,6 @@ func TestLoadModelRegistryKeepsAESLikeProviderAPIKeyUnchanged(t *testing.T) {
 	}
 }
 
-func TestLoadModelRegistryParsesProviderMemoryEmbedding(t *testing.T) {
-	root := t.TempDir()
-	writeTestProviderAndModel(t, root, strings.Join([]string{
-		"apiKey: plain-text",
-		"memory:",
-		"  embedding:",
-		"    model: text-embedding-3-small",
-		"    dimension: 1536",
-		"    timeout: 15",
-	}, "\n"))
-
-	registry, err := LoadModelRegistry(root)
-	if err != nil {
-		t.Fatalf("LoadModelRegistry returned error: %v", err)
-	}
-
-	provider, err := registry.GetProvider("mock")
-	if err != nil {
-		t.Fatalf("GetProvider returned error: %v", err)
-	}
-	if provider.Memory.Embedding.Model != "text-embedding-3-small" {
-		t.Fatalf("unexpected embedding model: %q", provider.Memory.Embedding.Model)
-	}
-	if provider.Memory.Embedding.Dimension != 1536 {
-		t.Fatalf("unexpected embedding dimension: %d", provider.Memory.Embedding.Dimension)
-	}
-	if provider.Memory.Embedding.Timeout != 15 {
-		t.Fatalf("unexpected embedding timeout: %d", provider.Memory.Embedding.Timeout)
-	}
-}
-
 func TestLoadModelRegistryParsesProviderEmbedding(t *testing.T) {
 	root := t.TempDir()
 	writeTestProviderAndModel(t, root, strings.Join([]string{
@@ -101,9 +70,6 @@ func TestLoadModelRegistryParsesProviderEmbedding(t *testing.T) {
 	}
 	if provider.Embedding.Timeout != 15 {
 		t.Fatalf("unexpected embedding timeout: %d", provider.Embedding.Timeout)
-	}
-	if provider.Memory.Embedding.Model != "" {
-		t.Fatalf("provider.embedding must not populate memory embedding, got %#v", provider.Memory.Embedding)
 	}
 }
 
@@ -742,5 +708,17 @@ func writeTestProviderlessModel(t *testing.T, root string, key string, modelID s
 	}
 	if err := os.WriteFile(filepath.Join(modelsDir, key+".yml"), []byte(modelConfig), 0o644); err != nil {
 		t.Fatalf("write providerless model config: %v", err)
+	}
+}
+
+func TestLoadModelRegistryRejectsRetiredMemory(t *testing.T) {
+	for _, value := range []string{"{}", "null", "{embedding: {model: old}}"} {
+		t.Run(value, func(t *testing.T) {
+			root := t.TempDir()
+			writeTestProviderAndModel(t, root, "apiKey: plain-text\nmemory: "+value)
+			if _, err := LoadModelRegistry(root); err == nil || !strings.Contains(err.Error(), "memory is no longer supported") {
+				t.Fatalf("expected retired provider memory rejection, got %v", err)
+			}
+		})
 	}
 }

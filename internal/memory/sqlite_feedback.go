@@ -11,58 +11,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func (s *SQLiteStore) ApplyFeedback(signals []FeedbackSignal) error {
-	if len(signals) == 0 {
-		return nil
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	now := time.Now().UnixMilli()
-	for _, sig := range signals {
-		before, _ := s.readProjectionByIDLocked(strings.TrimSpace(sig.ItemID))
-		_, err := s.db.Exec(
-			`UPDATE MEMORIES SET
-				CONFIDENCE_ = MAX(0.1, MIN(1.0, CONFIDENCE_ + ?)),
-				ACCESS_COUNT_ = ACCESS_COUNT_ + 1,
-				LAST_ACCESSED_AT_ = ?,
-				UPDATED_AT_ = ?
-			WHERE ID_ = ?`,
-			sig.ConfidenceDelta, now, now, sig.ItemID,
-		)
-		if err != nil {
-			return fmt.Errorf("apply feedback for %s: %w", sig.ItemID, err)
-		}
-		_, _ = s.db.Exec(
-			`UPDATE MEMORY_FACTS SET CONFIDENCE_ = MAX(0.1, MIN(1.0, CONFIDENCE_ + ?)), UPDATED_AT_ = ? WHERE ID_ = ?`,
-			sig.ConfidenceDelta, now, sig.ItemID,
-		)
-		_, _ = s.db.Exec(
-			`UPDATE MEMORY_OBSERVATIONS SET CONFIDENCE_ = MAX(0.1, MIN(1.0, CONFIDENCE_ + ?)), UPDATED_AT_ = ? WHERE ID_ = ?`,
-			sig.ConfidenceDelta, now, sig.ItemID,
-		)
-		after, _ := s.readProjectionByIDLocked(strings.TrimSpace(sig.ItemID))
-		if after != nil {
-			operation := "feedback.decay"
-			if sig.Referenced {
-				operation = "feedback.boost"
-			}
-			event := historyEventFromMemory(*after, operation, "feedback")
-			if before != nil {
-				event.Before = historyAfterFromStored(*before)
-			}
-			event.After = historyAfterFromStored(*after)
-			event.Delta = map[string]any{
-				"confidenceDelta": sig.ConfidenceDelta,
-				"referenced":      sig.Referenced,
-			}
-			_ = s.recordHistoryLocked(event)
-		}
-	}
-	logMemoryOperation("apply_feedback", map[string]any{"signalCount": len(signals)})
-	return nil
-}
-
 func (s *SQLiteStore) History(filter HistoryFilter) (HistoryResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -121,11 +69,8 @@ func (s *SQLiteStore) History(filter HistoryFilter) (HistoryResult, error) {
 	return result, nil
 }
 
-func (s *SQLiteStore) recordRecallHistoryLocked(request ContextRequest, bundle ContextBundle, totalCandidates int, hybrid bool) error {
+func (s *SQLiteStore) recordRecallHistoryLocked(request ContextRequest, bundle ContextBundle, totalCandidates int) error {
 	source := "query"
-	if request.PreviewOnly {
-		source = "preview"
-	}
 	contextEvent := HistoryEvent{
 		AgentKey:  strings.TrimSpace(request.AgentKey),
 		ChatID:    strings.TrimSpace(request.ChatID),
@@ -145,7 +90,6 @@ func (s *SQLiteStore) recordRecallHistoryLocked(request ContextRequest, bundle C
 			"stableChars":      len(strings.TrimSpace(bundle.StablePrompt)),
 			"sessionChars":     len(strings.TrimSpace(bundle.SessionPrompt)),
 			"observationChars": len(strings.TrimSpace(bundle.ObservationPrompt)),
-			"hybrid":           hybrid,
 			"maxChars":         request.MaxChars,
 			"topFacts":         request.TopFacts,
 			"topObs":           request.TopObs,

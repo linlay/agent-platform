@@ -15,16 +15,11 @@ import (
 )
 
 type SQLiteStore struct {
-	root            string
-	dbPath          string
-	dualWriteMD     bool
-	mu              sync.Mutex
-	db              *sql.DB
-	ftsVectorWeight float64
-	ftsFTSWeight    float64
-	embedder        *EmbeddingProvider
-	summarizer      RememberSummarizer
-	runtimeResolver RuntimeResolver
+	root        string
+	dbPath      string
+	dualWriteMD bool
+	mu          sync.Mutex
+	db          *sql.DB
 }
 
 // NewSQLiteStoreAtStartup is the only memory-store constructor allowed to
@@ -41,11 +36,9 @@ func newSQLiteStore(root string, dbFileName string, startupAdopt bool) (*SQLiteS
 		dbFileName = "memory.db"
 	}
 	store := &SQLiteStore{
-		root:            root,
-		dbPath:          filepath.Join(root, dbFileName),
-		dualWriteMD:     true,
-		ftsVectorWeight: 0.7,
-		ftsFTSWeight:    0.3,
+		root:        root,
+		dbPath:      filepath.Join(root, dbFileName),
+		dualWriteMD: true,
 	}
 	if err := store.initDB(startupAdopt); err != nil {
 		if store.db != nil {
@@ -54,44 +47,6 @@ func newSQLiteStore(root string, dbFileName string, startupAdopt bool) (*SQLiteS
 		return nil, err
 	}
 	return store, nil
-}
-
-func (s *SQLiteStore) SetRememberSummarizer(summarizer RememberSummarizer) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.summarizer = summarizer
-}
-
-func (s *SQLiteStore) SetRuntimeResolver(resolver RuntimeResolver) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.runtimeResolver = resolver
-}
-
-func (s *SQLiteStore) runtimeForAgent(agentKey string) RuntimeConfig {
-	if s == nil {
-		return RuntimeConfig{}
-	}
-	s.mu.Lock()
-	resolver := s.runtimeResolver
-	embedder := s.embedder
-	summarizer := s.summarizer
-	s.mu.Unlock()
-	runtime := RuntimeConfig{
-		Embedder:   embedder,
-		Summarizer: summarizer,
-	}
-	if resolver == nil {
-		return runtime
-	}
-	resolved := resolver(agentKey)
-	if resolved.Embedder != nil {
-		runtime.Embedder = resolved.Embedder
-	}
-	if resolved.Summarizer != nil {
-		runtime.Summarizer = resolved.Summarizer
-	}
-	return runtime
 }
 
 func (s *SQLiteStore) Search(query string, limit int) ([]api.StoredMemoryResponse, error) {
@@ -196,10 +151,9 @@ func (s *SQLiteStore) SearchDetailed(agentKey string, query string, category str
 }
 
 func (s *SQLiteStore) Write(item api.StoredMemoryResponse) error {
-	embedder := s.runtimeForAgent(item.AgentKey).Embedder
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	err := s.writeLocked(item, embedder)
+	err := s.writeLocked(item)
 	if err == nil {
 		logMemoryWrite("write", normalizeStoredItem(item))
 	}

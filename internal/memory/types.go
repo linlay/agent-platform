@@ -7,8 +7,6 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/chat"
-	"agent-platform/internal/skills"
 )
 
 const (
@@ -70,7 +68,6 @@ type ContextRequest struct {
 	MaxChars        int
 	AvailableTokens int
 	FreezeStable    bool
-	PreviewOnly     bool
 }
 
 type Layer string
@@ -89,36 +86,12 @@ const (
 	SelectionReasonQueryMatch  SelectionReason = "query_match"
 	SelectionReasonHighRank    SelectionReason = "high_rank"
 	SelectionReasonSnapshotPin SelectionReason = "snapshot_pinned"
-	SelectionReasonHybridScore SelectionReason = "hybrid_score"
 )
 
 type DisclosureDecision struct {
 	Layer   Layer
 	ItemIDs []string
 	Reason  string
-	Traces  []ItemSelectionTrace
-}
-
-type SelectionScoreParts struct {
-	Importance          float64
-	EffectiveImportance float64
-	Decay               float64
-	AccessBoost         float64
-	Recency             float64
-	ScopeMatch          float64
-	QueryMatch          float64
-	VectorScore         float64
-	ImportanceNorm      float64
-	HybridCombined      float64
-}
-
-type ItemSelectionTrace struct {
-	ID         string
-	Layer      Layer
-	Selected   bool
-	Score      float64
-	ScoreParts SelectionScoreParts
-	Reason     string
 }
 
 type MemorySnapshot struct {
@@ -142,15 +115,6 @@ type ContextBundle struct {
 	StablePrompt         string
 	SessionPrompt        string
 	ObservationPrompt    string
-}
-
-type LearnInput struct {
-	Request         api.LearnRequest
-	Trace           chat.RunTrace
-	AgentKey        string
-	TeamID          string
-	UserKey         string
-	SkillCandidates skills.CandidateStore
 }
 
 func normalizeStoredItem(item api.StoredMemoryResponse) api.StoredMemoryResponse {
@@ -291,21 +255,6 @@ func normalizeMemoryConfidence(confidence float64, kind string) float64 {
 	return confidence
 }
 
-func buildLearnResponse(input LearnInput, stored []api.StoredMemoryResponse) api.LearnResponse {
-	status := "stored"
-	if len(stored) == 0 {
-		status = "no_memory_extracted"
-	}
-	return api.LearnResponse{
-		Accepted:         len(stored) > 0,
-		Status:           status,
-		RequestID:        input.Request.RequestID,
-		ChatID:           input.Request.ChatID,
-		ObservationCount: len(stored),
-		Stored:           append([]api.StoredMemoryResponse(nil), stored...),
-	}
-}
-
 func scopeMatches(item api.StoredMemoryResponse, request ContextRequest) bool {
 	switch normalizeScopeType(item.ScopeType) {
 	case ScopeUser:
@@ -319,88 +268,6 @@ func scopeMatches(item api.StoredMemoryResponse, request ContextRequest) bool {
 	default:
 		return strings.TrimSpace(item.ScopeKey) == normalizeScopeKey(ScopeAgent, "", request.AgentKey, "", "", "")
 	}
-}
-
-func classifyObservationCategory(text string) string {
-	needle := strings.ToLower(strings.TrimSpace(text))
-	switch {
-	case strings.Contains(needle, "bug"):
-		return CategoryBugfix
-	case strings.Contains(needle, "fix"):
-		return CategoryBugfix
-	case strings.Contains(needle, "偏好"):
-		return CategoryPreference
-	case strings.Contains(needle, "prefer"):
-		return CategoryPreference
-	case strings.Contains(needle, "习惯"):
-		return CategoryPreference
-	case strings.Contains(needle, "待确认"):
-		return CategoryUnresolvedIssue
-	case strings.Contains(needle, "风险"):
-		return CategoryUnresolvedIssue
-	case strings.Contains(needle, "unresolved"):
-		return CategoryUnresolvedIssue
-	case strings.Contains(needle, "open question"):
-		return CategoryUnresolvedIssue
-	case strings.Contains(needle, "blocked"):
-		return CategoryUnresolvedIssue
-	case strings.Contains(needle, "必须"):
-		return CategoryConstraint
-	case strings.Contains(needle, "规则"):
-		return CategoryConstraint
-	case strings.Contains(needle, "权限"):
-		return CategoryConstraint
-	case strings.Contains(needle, "合规"):
-		return CategoryConstraint
-	case strings.Contains(needle, "constraint"):
-		return CategoryConstraint
-	case strings.Contains(needle, "policy"):
-		return CategoryConstraint
-	case strings.Contains(needle, "已确认"):
-		return CategoryDecision
-	case strings.Contains(needle, "决定"):
-		return CategoryDecision
-	case strings.Contains(needle, "决策"):
-		return CategoryDecision
-	case strings.Contains(needle, "选型"):
-		return CategoryDecision
-	case strings.Contains(needle, "decision"):
-		return CategoryDecision
-	case strings.Contains(needle, "流程"):
-		return CategoryWorkflow
-	case strings.Contains(needle, "步骤"):
-		return CategoryWorkflow
-	case strings.Contains(needle, "workflow"):
-		return CategoryWorkflow
-	case strings.Contains(needle, "runbook"):
-		return CategoryWorkflow
-	case strings.Contains(needle, "术语"):
-		return CategoryGlossary
-	case strings.Contains(needle, "缩写"):
-		return CategoryGlossary
-	case strings.Contains(needle, "glossary"):
-		return CategoryGlossary
-	case strings.Contains(needle, "terminology"):
-		return CategoryGlossary
-	case strings.Contains(needle, "todo"):
-		return CategoryTodo
-	case strings.Contains(needle, "待办"):
-		return CategoryTodo
-	default:
-		return CategoryGeneral
-	}
-}
-
-func summarizeObservationTitle(text string) string {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return "Observed run outcome"
-	}
-	return normalizeMemoryTitle("", text)
-}
-
-func observationScopeKey(input LearnInput) string {
-	return normalizeScopeKey(ScopeChat, "", input.AgentKey, "", input.Request.ChatID, "")
 }
 
 func formatScopeLabel(scopeType string) string {

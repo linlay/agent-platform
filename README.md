@@ -1,6 +1,6 @@
 # agent-platform
 
-本仓库是 `agent-platform` 的 Go 版运行时实现，当前以 Java runtime 的 `.env` / `application.yml` 契约为事实源，支持目录驱动的 agents / teams / skills catalog、带隐藏协调器的 orchestrated Team、`run_query` / `run_status` / `run_interrupt` 独立根 run 工具组、`platform_control` system control plane、JWT 鉴权、resource ticket、chat 文件落盘、memory learn、Container Hub sandbox、LanceDB 本地混合检索 KBASE，以及最小 OpenAI 协议模型与统一 tool loop。
+本仓库是 `agent-platform` 的 Go 版运行时实现，当前以 Java runtime 的 `.env` / `application.yml` 契约为事实源，支持目录驱动的 agents / teams / skills catalog、带隐藏协调器的 orchestrated Team、`run_query` / `run_status` / `run_interrupt` 独立根 run 工具组、`platform_control` system control plane、JWT 鉴权、resource ticket、chat 文件落盘、可选手工 Memory、Container Hub sandbox、LanceDB 本地混合检索 KBASE，以及最小 OpenAI 协议模型与统一 tool loop。
 
 > 项目事实、架构与开发约束见 [AGENTS.md](./AGENTS.md)，补充说明见 [docs/](./docs)。
 
@@ -30,7 +30,6 @@
 - `POST /api/submit`
 - `POST /api/steer`
 - `POST /api/interrupt`
-- `POST /api/learn`
 - `GET /api/viewport?viewportKey=...`
 - `GET /api/resource?file=...`
 - `POST /api/upload`
@@ -68,7 +67,7 @@
 - 专用 `mode: KBASE` 与普通 KBASE capability 都以 `runtimeConfig.workspaceRoot` 为唯一内容根；专用 mode 在 main/editing 两种 stage 提供相同的五个通用文本文件工具，当前 Chat 目录独立可读写。单次 `/api/query` 顶层 `editingMode:true` 只允许 KBASE Workspace mutation，未开启时 Workspace 仍可读但不可 write/edit；所有目录先服从 AccessPolicy/HITL，索引由 KBASE watcher 异步维护。普通 Agent 附加的 KBASE capability 与其他 mode 不支持该字段。
 - `platform_control` 对所有显式配置它的 Agent 暴露同一固定 Schema 和全部注册 operation；动态环境只保留当前普通 native root run 的 `run.env.set/unset`，无需在 Agent 配置预声明 key。动态值仅存在于当前 Platform 进程内，只在新建 Host/Container 命令前生成独立快照，绝不调用 `os.Setenv`；Platform 重启后的 question/planning 续接使用新的空环境。
 
-当前仍未与 Java 版完全对齐的能力主要集中在 MCP 全量生产验证，以及更深层的 memory / automation 执行编排细节；MCP 的 HTTP/stdio client、严格 `2025-11-25` 版本校验、session 生命周期与 tool sync 已接通。平台工具模型已统一，不再区分 frontend/action/backend/builtin。
+当前仍未与 Java 版完全对齐的能力主要集中在 MCP 全量生产验证，以及更深层的 automation 执行编排细节；MCP 的 HTTP/stdio client、严格 `2025-11-25` 版本校验、session 生命周期与 tool sync 已接通。平台工具模型已统一，不再区分 frontend/action/backend/builtin。
 
 ## 2. 快速开始
 
@@ -387,7 +386,7 @@ docker compose logs -f
 - Query 看起来不像真流式：默认 SSE writer 会逐事件 flush；优先检查代理、浏览器、网关或调用方是否缓冲。
 - `bash` 执行失败：检查 `AP_CONTAINER_HUB_BASE_URL`、`container-hub.default-environment-id`，以及 runtime 目录配置是否为宿主机真实路径。
 - chat 没有持久化：检查 `AP_RUNTIME_CHATS_DIR` 是否可写。
-- memory learn 未生效：确认 `/api/learn` 请求体、agent memory 配置与 `AP_RUNTIME_MEMORY_DIR` 可写性。
+- Memory 升级：learn、自动反馈、向量检索和 context-preview 已退役；删除旧配置字段，保留数据库与手工记录。详见 [记忆系统](./docs/记忆系统.md)。
 - 上传后无法下载：确认文件已落到 `AP_RUNTIME_CHATS_DIR/<chatId>/`，并检查 `/api/resource?file=...` 是否使用响应中的 ChatScope `url`。
 
 ## 文档索引

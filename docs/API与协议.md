@@ -305,7 +305,7 @@ WebSocket 使用现有错误 envelope 表达相同语义。Team 无效时不会�
 
 run 控制接口从 `agentKey/teamId` 推导互斥身份：Agent-owned run 必须传 `agentKey`；Team run 必须只传 `teamId`，漏传返回 400，错 Team 返回 403，同时传 `agentKey` 也返回 400。Team 的 `request.query` 与 `run.start` 携带 `teamId` 且 `agentKey` 为空；chat/run summary 同样使用这一身份对表达公开归属。虚拟协调器 key 不是公共 API 身份。
 
-`/api/btw` 用于“顺便问”：`chatId` 必须指向已有 active chat；不传 `btwId` 时从当前主 JSONL 创建隐藏快照并在响应头 `X-Btw-Id` 与首个 `request.query.btwId` 返回分支 ID，传 `btwId` 时继续该分支。BTW 固定继承父 chat 的 agent/team，固定 `role:user` 且关闭 planning mode。主 chat 的 active run、pending awaiting、摘要、未读、搜索、自动 learn 和 JSONL 都不会被 BTW 更新。
+`/api/btw` 用于“顺便问”：`chatId` 必须指向已有 active chat；不传 `btwId` 时从当前主 JSONL 创建隐藏快照并在响应头 `X-Btw-Id` 与首个 `request.query.btwId` 返回分支 ID，传 `btwId` 时继续该分支。BTW 固定继承父 chat 的 agent/team，固定 `role:user` 且关闭 planning mode。主 chat 的 active run、pending awaiting、摘要、未读、搜索和 JSONL 都不会被 BTW 更新。
 
 BTW 与普通 query 使用同一 Agent/ReAct、模型协议、SSE assembler、attach/interrupt 和 StepWriter；`request.query` 额外包含 `kind:"btw"`、`btwId`、`parentChatId`、`hidden:true`，不新增 event type，也不发送 `chat.start` / `chat.updated`。同一个 `btwId` 只允许一个 active run，父 chat 与不同 BTW 分支可以并行。
 
@@ -612,11 +612,11 @@ curl -sS -X POST http://127.0.0.1:11949/api/kbase/docs_kbase/refresh \
 
 ### Memory
 
+`/api/learn` 和 `/api/memory/context-preview` 已退役，HTTP 为未注册路由（404），WebSocket 为未知 type（invalid_request，400）。记录、scope、历史及显式 memory tools 保留；不再自动学习或反馈。
+
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
-| POST | `/api/learn` | body: `requestId`、`chatId`、`subjectKey` | learn / auto memory 结果 |
 | GET | `/api/memory/meta` | 无 | memory category/type/scope/status 元数据 |
-| POST | `/api/memory/context-preview` | body: `chatId`、`message` | memory context 预览 |
 | GET | `/api/memory/scope/list` | query: `agentKey` | scope 列表 |
 | GET | `/api/memory/scope/detail` | query: `agentKey`、`scopeType`、`scopeKey` | scope 详情 |
 | POST | `/api/memory/scope/save` | body: `agentKey`、`scopeType`、`scopeKey`、`mode`、`markdown`、`records`、`archiveMissing` | scope 保存结果 |
@@ -868,9 +868,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/steer` | `SteerRequest` | `response` |
 | `/api/interrupt` | `InterruptRequest` | `response` |
 | `/api/compact` | `requestId`、`chatId`、`trigger`、`level` | `response`；活动 native root Run 时等待最终 completed/failed/skipped |
-| `/api/learn` | `LearnRequest` | `response` |
 | `/api/memory/meta` | 无 | `response` |
-| `/api/memory/context-preview` | `chatId`、`message` | `response` |
 | `/api/memory/scope/list` | `agentKey` | `response` |
 | `/api/memory/scope/detail` | `agentKey`、`scopeType`、`scopeKey` | `response` |
 | `/api/memory/scope/save` | scope 保存字段 | `response` |

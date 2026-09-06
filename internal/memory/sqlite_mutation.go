@@ -1,98 +1,31 @@
 package memory
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/skills"
 
 	_ "modernc.org/sqlite"
 )
 
-func (s *SQLiteStore) Learn(input LearnInput) (api.LearnResponse, error) {
-	runtime := s.runtimeForAgent(input.AgentKey)
-	s.mu.Lock()
-	history, err := s.listProjectionItemsLocked(input.AgentKey)
-	s.mu.Unlock()
-	if err != nil {
-		return api.LearnResponse{}, err
-	}
-	drafts := summarizeLearnWithFallback(runtime.Summarizer, LearnSynthesisInput{
-		Request:  input.Request,
-		Trace:    input.Trace,
-		AgentKey: input.AgentKey,
-		TeamID:   input.TeamID,
-		UserKey:  input.UserKey,
-		History:  history,
-	})
-	stored := buildLearnedMemoriesFromDrafts(input, drafts)
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, item := range stored {
-		if err := s.writeLocked(item, runtime.Embedder); err != nil {
-			return api.LearnResponse{}, err
-		}
-	}
-	response := buildLearnResponse(input, stored)
-	if len(stored) == 0 {
-		response.Accepted = false
-	}
-	autoConsolidation := ConsolidationResult{}
-	candidateCount := 0
-	if input.SkillCandidates != nil {
-		if candidate, ok := skills.CandidateFromRunTrace(input.Trace, input.AgentKey, input.Request.ChatID); ok {
-			if _, err := input.SkillCandidates.Write(candidate); err != nil {
-				return api.LearnResponse{}, err
-			}
-			candidateCount = 1
-		}
-	}
-	if strings.TrimSpace(input.AgentKey) != "" && len(stored) > 0 {
-		items, err := s.listProjectionItemsLocked(input.AgentKey)
-		if err != nil {
-			return api.LearnResponse{}, err
-		}
-		autoConsolidation, err = s.applyConsolidationPlanLocked(input.AgentKey, buildObservationConsolidationPlanWithMode(input.AgentKey, items, time.Now(), false), runtime.Embedder)
-		if err != nil {
-			return api.LearnResponse{}, err
-		}
-	}
-	logMemoryOperation("learn", map[string]any{
-		"agentKey":            input.AgentKey,
-		"chatId":              input.Request.ChatID,
-		"requestId":           input.Request.RequestID,
-		"observationCount":    len(stored),
-		"skillCandidateCount": candidateCount,
-		"archivedCount":       autoConsolidation.ArchivedCount,
-		"mergedCount":         autoConsolidation.MergedCount,
-		"promotedCount":       autoConsolidation.PromotedCount,
-		"accepted":            response.Accepted,
-	})
-	return response, nil
-}
-
 func (s *SQLiteStore) Consolidate(agentKey string) (ConsolidationResult, error) {
-	embedder := s.runtimeForAgent(agentKey).Embedder
 	s.mu.Lock()
 	items, err := s.listProjectionItemsLocked(agentKey)
 	if err != nil {
 		s.mu.Unlock()
 		return ConsolidationResult{}, err
 	}
-	result, err := s.applyConsolidationPlanLocked(agentKey, buildConsolidationPlan(agentKey, items, time.Now()), embedder)
+	result, err := s.applyConsolidationPlanLocked(agentKey, buildConsolidationPlan(agentKey, items, time.Now()))
 	s.mu.Unlock()
 	return result, err
 }
 
-func (s *SQLiteStore) applyConsolidationPlanLocked(agentKey string, plan consolidationPlan, embedder *EmbeddingProvider) (ConsolidationResult, error) {
+func (s *SQLiteStore) applyConsolidationPlanLocked(agentKey string, plan consolidationPlan) (ConsolidationResult, error) {
 	result := ConsolidationResult{}
 	for id := range plan.archiveIDs {
-		record, err := s.updateLocked(agentKey, MutationInput{ID: id, Status: ptrString(StatusArchived)}, embedder)
+		record, err := s.updateLocked(agentKey, MutationInput{ID: id, Status: ptrString(StatusArchived)})
 		if err != nil {
 			return result, err
 		}
@@ -104,7 +37,7 @@ func (s *SQLiteStore) applyConsolidationPlanLocked(agentKey string, plan consoli
 		}
 	}
 	for id, keeperID := range plan.supersedeIDs {
-		record, err := s.updateLocked(agentKey, MutationInput{ID: id, Status: ptrString(StatusSuperseded)}, embedder)
+		record, err := s.updateLocked(agentKey, MutationInput{ID: id, Status: ptrString(StatusSuperseded)})
 		if err != nil {
 			return result, err
 		}
@@ -120,7 +53,7 @@ func (s *SQLiteStore) applyConsolidationPlanLocked(agentKey string, plan consoli
 			SourceID:      id,
 			ScopeType:     ScopeAgent,
 			ArchiveSource: true,
-		}, embedder)
+		})
 		if err != nil {
 			return result, err
 		}
@@ -139,14 +72,13 @@ func (s *SQLiteStore) applyConsolidationPlanLocked(agentKey string, plan consoli
 }
 
 func (s *SQLiteStore) Update(agentKey string, input MutationInput) (*ToolRecord, error) {
-	embedder := s.runtimeForAgent(agentKey).Embedder
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.updateLocked(agentKey, input, embedder)
+	return s.updateLocked(agentKey, input)
 }
 
-func (s *SQLiteStore) updateLocked(agentKey string, input MutationInput, embedder *EmbeddingProvider) (*ToolRecord, error) {
+func (s *SQLiteStore) updateLocked(agentKey string, input MutationInput) (*ToolRecord, error) {
 
 	current, err := s.readProjectionByIDLocked(strings.TrimSpace(input.ID))
 	if err != nil || current == nil {
@@ -184,7 +116,7 @@ func (s *SQLiteStore) updateLocked(agentKey string, input MutationInput, embedde
 		current.Tags = normalizeTags(input.Tags)
 	}
 	current.UpdatedAt = time.Now().UnixMilli()
-	if err := s.writeLocked(*current, embedder); err != nil {
+	if err := s.writeLocked(*current); err != nil {
 		return nil, err
 	}
 	record := toolRecordFromStored(*current)
@@ -274,14 +206,13 @@ func (s *SQLiteStore) Timeline(agentKey string, id string, limit int) ([]Timelin
 }
 
 func (s *SQLiteStore) Promote(agentKey string, input PromoteInput) (*ToolRecord, error) {
-	embedder := s.runtimeForAgent(agentKey).Embedder
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.promoteLocked(agentKey, input, embedder)
+	return s.promoteLocked(agentKey, input)
 }
 
-func (s *SQLiteStore) promoteLocked(agentKey string, input PromoteInput, embedder *EmbeddingProvider) (*ToolRecord, error) {
+func (s *SQLiteStore) promoteLocked(agentKey string, input PromoteInput) (*ToolRecord, error) {
 
 	source, err := s.readProjectionByIDLocked(strings.TrimSpace(input.SourceID))
 	if err != nil || source == nil {
@@ -319,7 +250,7 @@ func (s *SQLiteStore) promoteLocked(agentKey string, input PromoteInput, embedde
 		item.ScopeType = ScopeAgent
 	}
 	item.ScopeKey = normalizeScopeKey(item.ScopeType, item.ScopeKey, item.AgentKey, "", item.ChatID, "")
-	if err := s.writeLocked(item, embedder); err != nil {
+	if err := s.writeLocked(item); err != nil {
 		return nil, err
 	}
 	if err := s.insertMemoryLinkLocked(item.ID, source.ID, "derived_from", 1.0); err != nil {
@@ -333,7 +264,7 @@ func (s *SQLiteStore) promoteLocked(agentKey string, input PromoteInput, embedde
 		beforeSource := *source
 		source.Status = StatusArchived
 		source.UpdatedAt = time.Now().UnixMilli()
-		if err := s.writeLocked(*source, embedder); err != nil {
+		if err := s.writeLocked(*source); err != nil {
 			return nil, err
 		}
 		archiveEvent := historyEventFromMemory(*source, "promote.archive_source", "promote")
@@ -347,7 +278,7 @@ func (s *SQLiteStore) promoteLocked(agentKey string, input PromoteInput, embedde
 	return &record, nil
 }
 
-func (s *SQLiteStore) writeLocked(item api.StoredMemoryResponse, embedder *EmbeddingProvider) error {
+func (s *SQLiteStore) writeLocked(item api.StoredMemoryResponse) error {
 	if item.ID == "" {
 		item.ID = generateMemoryID()
 	}
@@ -403,19 +334,6 @@ func (s *SQLiteStore) writeLocked(item api.StoredMemoryResponse, embedder *Embed
 	}
 	if s.dualWriteMD {
 		_ = AppendJournal(s.root, item)
-	}
-	if embedder != nil {
-		text := strings.TrimSpace(item.Title + " " + item.Summary)
-		if text != "" {
-			if vec, err := embedder.EmbedSingle(context.Background(), text); err == nil {
-				if blob, err := json.Marshal(vec); err == nil {
-					_, _ = s.db.Exec(
-						`UPDATE MEMORIES SET EMBEDDING_ = ?, EMBEDDING_MODEL_ = ? WHERE ID_ = ?`,
-						blob, embedder.Model, item.ID,
-					)
-				}
-			}
-		}
 	}
 	_ = s.refreshSnapshotsLocked(item.AgentKey)
 	operation := "write.create"

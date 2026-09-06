@@ -133,26 +133,12 @@ func TestServerSharedHelpersUseCommonChatAndMemoryStores(t *testing.T) {
 		t.Fatalf("expected detailed run summary usage, got %#v", detail.Runs)
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/learn", strings.NewReader(`{"requestId":"req-learn","chatId":"chat-1"}`))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	server.handleLearn(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("learn expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-	var learnResp api.ApiResponse[api.LearnResponse]
-	if err := json.Unmarshal(rec.Body.Bytes(), &learnResp); err != nil {
-		t.Fatalf("decode learn response: %v", err)
-	}
-	if !learnResp.Data.Accepted || learnResp.Data.ObservationCount == 0 {
-		t.Fatalf("unexpected learn response %#v", learnResp.Data)
-	}
 	matches, err := memories.Search("answer", 10)
 	if err != nil {
 		t.Fatalf("search memories: %v", err)
 	}
-	if len(matches) == 0 {
-		t.Fatalf("expected stored memory, got %#v", matches)
+	if len(matches) != 0 {
+		t.Fatalf("run completion must not create memory, got %#v", matches)
 	}
 }
 

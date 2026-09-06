@@ -899,19 +899,11 @@ func parseAgentMemoryConfig(path string, value any) (AgentMemoryConfig, error) {
 	if managementTools, ok := node["managementTools"].(bool); ok {
 		cfg.ManagementTools = managementTools
 	}
-	embedding := mapNode(node["embedding"])
-	cfg.Embedding = AgentMemoryEmbeddingConfig{
-		ProviderKey: stringNode(embedding["providerKey"]),
-		Model:       stringNode(embedding["model"]),
-		Dimension:   intNode(embedding["dimension"]),
-		Timeout:     intNode(embedding["timeout"]),
+	for _, key := range []string{"embedding", "autoRemember"} {
+		if _, exists := node[key]; exists {
+			return cfg, fmt.Errorf("%s: memoryConfig.%s is no longer supported; remove this field", path, key)
+		}
 	}
-	autoRemember := mapNode(node["autoRemember"])
-	if enabled, ok := autoRemember["enabled"].(bool); ok {
-		cfg.AutoRemember.Enabled = enabled
-	}
-	cfg.AutoRemember.ModelKey = stringNode(autoRemember["modelKey"])
-	cfg.AutoRemember.Timeout = int64(intNode(autoRemember["timeout"]))
 	return cfg, nil
 }
 

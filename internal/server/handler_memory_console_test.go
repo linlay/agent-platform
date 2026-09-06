@@ -10,57 +10,11 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/catalog"
-	"agent-platform/internal/contracts"
 	"agent-platform/internal/memory"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
 )
-
-func TestMemoryPreviewKeepsIdentityFactsSeparateFromSubAgentCandidateSemantics(t *testing.T) {
-	identity := memoryPreviewAgentIdentity(catalog.AgentDefinition{
-		Key:         "cutej",
-		Name:        "小君",
-		Role:        "平台总管",
-		Description: "治理平台",
-		Mode:        "REACT",
-	})
-	for _, expected := range []string{
-		"key: cutej",
-		"name: 小君",
-		"role: 平台总管",
-		"description: 治理平台",
-		"mode: REACT",
-	} {
-		if !strings.Contains(identity, expected) {
-			t.Fatalf("expected identity preview %q, got %q", expected, identity)
-		}
-	}
-	if strings.Contains(identity, "当前智能体") || strings.Contains(identity, "本智能体") || strings.Contains(identity, "你自己") {
-		t.Fatalf("expected identity preview to contain facts only, got %q", identity)
-	}
-
-	candidates := memoryPreviewAgentsContext([]contracts.AgentDigest{{
-		Key:         "webOperator",
-		Name:        "网驭",
-		Role:        "网页操作",
-		Description: "操作当前网页",
-	}})
-	for _, expected := range []string{
-		"Runtime Context: Sub-Agent Candidates",
-		"可调用/委派子智能体候选摘要",
-		"这些候选不是当前智能体",
-		"key: webOperator",
-	} {
-		if !strings.Contains(candidates, expected) {
-			t.Fatalf("expected candidate preview %q, got %q", expected, candidates)
-		}
-	}
-	if strings.Contains(candidates, "Runtime Context: Agents") {
-		t.Fatalf("legacy agents context title remained in preview: %q", candidates)
-	}
-}
 
 func TestHandleMemoryScopesReturnsEditableScopes(t *testing.T) {
 	fixture := newMemoryEnabledTestFixture(t)
@@ -149,89 +103,6 @@ func TestHandleMemoryMetaReturnsFrontendEnums(t *testing.T) {
 	}
 }
 
-func TestHandleMemoryContextPreviewReturnsInjectedMemory(t *testing.T) {
-	fixture := newMemoryEnabledTestFixture(t)
-	server := fixture.server
-
-	if _, _, err := fixture.chats.EnsureChat("chat-preview", "mock-agent", "team-1", "memory preview"); err != nil {
-		t.Fatalf("ensure chat: %v", err)
-	}
-	writeTestMemory(t, server.deps.Memory, api.StoredMemoryResponse{
-		ID:         "mem_agent_release",
-		AgentKey:   "mock-agent",
-		Kind:       memory.KindFact,
-		ScopeType:  memory.ScopeAgent,
-		ScopeKey:   "agent:mock-agent",
-		Title:      "Desktop builtin release",
-		Summary:    "desktop builtin 发布流程是先 make release-program，再同步 desktop assets。",
-		SourceType: "tool-write",
-		Category:   memory.CategoryWorkflow,
-		Importance: 9,
-		Confidence: 0.95,
-		Status:     memory.StatusActive,
-		CreatedAt:  testEpochMillis + 100,
-		UpdatedAt:  testEpochMillis + 200,
-	})
-	writeTestMemory(t, fixture.memories, api.StoredMemoryResponse{
-		ID:         "mem_chat_release",
-		AgentKey:   "mock-agent",
-		Kind:       memory.KindObservation,
-		ScopeType:  memory.ScopeChat,
-		ScopeKey:   "chat:chat-preview",
-		ChatID:     "chat-preview",
-		Title:      "desktop builtin 发布排查",
-		Summary:    "desktop builtin 发布流程需要确认 VERSION 和 dist/release 输出。",
-		SourceType: "learn",
-		Category:   memory.CategoryWorkflow,
-		Importance: 8,
-		Confidence: 0.75,
-		Status:     memory.StatusOpen,
-		CreatedAt:  testEpochMillis + 110,
-		UpdatedAt:  testEpochMillis + 210,
-	})
-
-	req := httptest.NewRequest(http.MethodPost, "/api/memory/context-preview", bytes.NewBufferString(`{"chatId":"chat-preview","message":"desktop builtin 发布流程"}`))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-	var resp api.ApiResponse[api.MemoryContextPreviewResponse]
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if !resp.Data.Enabled || resp.Data.AgentKey != "mock-agent" || resp.Data.ChatID != "chat-preview" {
-		t.Fatalf("unexpected preview envelope: %#v", resp.Data)
-	}
-	if !strings.Contains(resp.Data.Prompts.Stable, "make release-program") {
-		t.Fatalf("expected stable prompt to include release memory, got %q", resp.Data.Prompts.Stable)
-	}
-	if len(resp.Data.Layers) == 0 || resp.Data.Summary.StableCount == 0 {
-		t.Fatalf("expected preview layers and stable summary, got %#v", resp.Data)
-	}
-	if resp.Data.Layers[0].Items[0].ID == "" || resp.Data.Layers[0].Items[0].Importance == 0 {
-		t.Fatalf("expected memory item details, got %#v", resp.Data.Layers[0].Items)
-	}
-	if len(resp.Data.Decisions) == 0 || len(resp.Data.Decisions[0].Traces) == 0 {
-		t.Fatalf("expected preview decisions to include selection traces, got %#v", resp.Data.Decisions)
-	}
-	trace := resp.Data.Decisions[0].Traces[0]
-	if trace.ID == "" || trace.Layer == "" || !trace.Selected || trace.Score <= 0 {
-		t.Fatalf("expected selected trace with score, got %#v", trace)
-	}
-	if trace.ScoreParts.Importance == 0 || trace.ScoreParts.EffectiveImportance == 0 {
-		t.Fatalf("expected trace score parts, got %#v", trace.ScoreParts)
-	}
-	if !memoryPreviewHasContext(resp.Data.Contexts, "systemPrompt", "memory.stable", "make release-program") {
-		t.Fatalf("expected system memory context section, got %#v", resp.Data.Contexts)
-	}
-	if !memoryPreviewHasContext(resp.Data.Contexts, "userPrompt", "request.message", "desktop builtin 发布流程") {
-		t.Fatalf("expected user message context section, got %#v", resp.Data.Contexts)
-	}
-}
-
 func TestHandleMemoryScopeReturnsMarkdownAndRecords(t *testing.T) {
 	fixture := newMemoryEnabledTestFixture(t)
 	server := fixture.server
@@ -270,15 +141,6 @@ func TestHandleMemoryScopeReturnsMarkdownAndRecords(t *testing.T) {
 	if len(resp.Data.Records) != 1 || resp.Data.Records[0].ID != "mem_user_1" {
 		t.Fatalf("unexpected records: %#v", resp.Data.Records)
 	}
-}
-
-func memoryPreviewHasContext(sections []api.MemoryContextPreviewContextSection, promptType string, category string, contains string) bool {
-	for _, section := range sections {
-		if section.PromptType == promptType && section.Category == category && strings.Contains(section.Content, contains) {
-			return true
-		}
-	}
-	return false
 }
 
 func TestHandleMemoryScopeValidateRejectsBadImportance(t *testing.T) {
@@ -621,4 +483,42 @@ func dialMemoryWebSocket(t *testing.T, handler http.Handler) *gws.Conn {
 	}
 	readAutomationConnectedPush(t, conn)
 	return conn
+}
+
+func TestRetiredMemoryRoutesAreUnavailable(t *testing.T) {
+	fixture := newMemoryEnabledTestFixture(t)
+	enableMemoryFixtureWebSocket(t, fixture.server)
+	conn := dialMemoryWebSocket(t, fixture.server)
+	defer conn.Close()
+	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	for _, route := range []string{"/api/learn", "/api/memory/context-preview"} {
+		t.Run(route, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, route, strings.NewReader(`{"chatId":"unused","message":"hello"}`))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			fixture.server.ServeHTTP(rec, req)
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("retired HTTP route returned %d: %s", rec.Code, rec.Body.String())
+			}
+			if err := conn.WriteJSON(ws.RequestFrame{Frame: ws.FrameRequest, Type: route, ID: route, Payload: marshalPayload(map[string]any{"chatId": "unused", "message": "hello"})}); err != nil {
+				t.Fatal(err)
+			}
+			var frame ws.ErrorFrame
+			if err := conn.ReadJSON(&frame); err != nil {
+				t.Fatal(err)
+			}
+			if frame.Frame != ws.FrameError || frame.ID != route || frame.Code != http.StatusBadRequest {
+				t.Fatalf("retired WS route returned %#v", frame)
+			}
+		})
+	}
+	items, err := fixture.memories.List("", "", 100, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("retired routes wrote memory: %#v", items)
+	}
 }
