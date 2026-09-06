@@ -10,6 +10,7 @@ import (
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/i18n"
 	runtimetypes "agent-platform/internal/runtime/types"
+	"agent-platform/internal/stream"
 )
 
 func (s *Server) StartQueryRuntime(ctx context.Context, command runtimetypes.QueryCommand) (runtimetypes.RunHandle, error) {
@@ -69,10 +70,8 @@ func (s *Server) StartQueryRuntime(ctx context.Context, command runtimetypes.Que
 	}, nil
 }
 
-// ExecuteQuery adapts the transport-neutral Runtime command to the legacy
-// query pipeline while that pipeline is being extracted from server. New
-// in-process callers depend on Runtime; this adapter is intentionally the
-// only reverse seam during the migration.
+// ExecuteQuery waits for a Native executor result directly. Proxy retains its
+// protocol-specific compatibility adapter until that driver is extracted.
 func (s *Server) ExecuteQuery(ctx context.Context, cmd runtimetypes.QueryCommand, hooks runtimetypes.QueryHooks) (runtimetypes.QueryResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -81,18 +80,50 @@ func (s *Server) ExecuteQuery(ctx context.Context, cmd runtimetypes.QueryCommand
 		ctx = WithPrincipal(ctx, &Principal{Subject: subject})
 	}
 	req := queryRequestFromRuntime(cmd)
-	result, err := s.ExecuteInternalQueryResult(ctx, req, InternalQueryHooks{OnRunStarted: hooks.OnRunStarted})
-	queryResult := runtimetypes.QueryResult{
-		Completion:   result.Completion,
-		ErrorMessage: result.ErrorMessage,
+	if req.ChatSource != "" {
+		ctx = withChatSourceContext(ctx, req.ChatSource)
 	}
+	capture := &internalQueryCapture{hooks: InternalQueryHooks{OnRunStarted: hooks.OnRunStarted}}
+	ctx = withInternalQueryCapture(ctx, capture)
+	locale := strings.TrimSpace(cmd.Locale)
+	if locale == "" {
+		locale = i18n.DefaultLocale
+	}
+	prepared, err := s.prepareBlockingQuery(ctx, req, locale, cmd.ResourceBaseURL)
 	if err != nil {
-		return queryResult, err
+		return runtimetypes.QueryResult{}, err
 	}
-	if result.StatusCode != http.StatusOK {
-		return queryResult, fmt.Errorf("query failed with status %d: %s", result.StatusCode, summarizeRuntimeQueryBody(result.Body))
+	prepared.session.WebClientTarget = contracts.WebClientTarget{
+		SessionID: cmd.ClientTarget.SessionID, BoundaryKey: cmd.ClientTarget.BoundaryKey,
+		Subject: cmd.ClientTarget.Subject, SurfaceID: cmd.ClientTarget.SurfaceID,
 	}
-	return queryResult, nil
+	if isProxyRoutedAgent(prepared.agentDef) {
+		response := newQueryResponseBuffer()
+		s.executePreparedProxyCompatibility(response, ctx, prepared)
+		result := capture.result(response.status, response.body.String())
+		output := runtimetypes.QueryResult{Completion: result.Completion, ErrorMessage: result.ErrorMessage}
+		if result.StatusCode != http.StatusOK {
+			return output, fmt.Errorf("query failed with status %d: %s", result.StatusCode, summarizeRuntimeQueryBody(result.Body))
+		}
+		return output, nil
+	}
+	registered, statusErr := s.registerQueryRun(ctx, prepared)
+	if statusErr != nil {
+		releaseQuery(prepared.release)
+		return runtimetypes.QueryResult{}, statusErr
+	}
+	var fullText *queryFullTextBuilder
+	var observe func(stream.EventData)
+	if req.IncludeFullText {
+		fullText = newQueryFullTextBuilder()
+		observe = fullText.Observe
+	}
+	result, runErr := s.executePreparedLocalQuery(ctx, prepared, registered, nil, observe)
+	output := runtimetypes.QueryResult{Completion: result.Completion, Content: result.AssistantText, ErrorMessage: result.ErrorMessage}
+	if fullText != nil {
+		output.FullText = fullText.Text(result.AssistantText)
+	}
+	return output, runErr
 }
 
 func (s *Server) SubmitRuntime(_ context.Context, command runtimetypes.SubmitCommand) (runtimetypes.SubmitResult, error) {

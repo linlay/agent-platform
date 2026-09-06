@@ -5,17 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/apperrors"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/i18n"
-	"agent-platform/internal/runtime/runexec"
 	runtimetypes "agent-platform/internal/runtime/types"
 	"agent-platform/internal/stream"
 )
@@ -86,7 +83,11 @@ func (s *Server) handleRuntimeQueryAsync(w http.ResponseWriter, r *http.Request,
 	if principal := PrincipalFromContext(r.Context()); principal != nil {
 		command.Caller.Subject = strings.TrimSpace(principal.Subject)
 	}
-	handle, err := s.deps.Runtime.StartQuery(r.Context(), command)
+	s.writeRuntimeQueryStream(w, r.Context(), command)
+}
+
+func (s *Server) writeRuntimeQueryStream(w http.ResponseWriter, ctx context.Context, command runtimetypes.QueryCommand) {
+	handle, err := s.deps.Runtime.StartQuery(ctx, command)
 	if err != nil {
 		writeQueryStartError(w, err)
 		return
@@ -96,17 +97,17 @@ func (s *Server) handleRuntimeQueryAsync(w http.ResponseWriter, r *http.Request,
 		LoggingEnabled: s.deps.Config.Logging.SSE.Enabled,
 	})
 	if err != nil {
-		_, _ = s.deps.Runtime.Interrupt(r.Context(), runtimeSetupInterrupt(handle, contracts.InterruptReasonStreamWriterFailed, err.Error()))
+		_, _ = s.deps.Runtime.Interrupt(ctx, runtimeSetupInterrupt(handle, contracts.InterruptReasonStreamWriterFailed, err.Error()))
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
 	defer sseWriter.Close()
 	sseWriter.StartHeartbeat()
-	subscription, err := s.deps.Runtime.AttachRun(r.Context(), runtimetypes.RunRef{
+	subscription, err := s.deps.Runtime.AttachRun(ctx, runtimetypes.RunRef{
 		RunID: handle.RunID, ChatID: handle.ChatID, AgentKey: handle.AgentKey, TeamID: handle.TeamID,
 	}, 0)
 	if err != nil {
-		_, _ = s.deps.Runtime.Interrupt(r.Context(), runtimeSetupInterrupt(handle, contracts.InterruptReasonObserverAttachFailed, err.Error()))
+		_, _ = s.deps.Runtime.Interrupt(ctx, runtimeSetupInterrupt(handle, contracts.InterruptReasonObserverAttachFailed, err.Error()))
 		_ = sseWriter.WriteDone()
 		return
 	}
@@ -114,7 +115,7 @@ func (s *Server) handleRuntimeQueryAsync(w http.ResponseWriter, r *http.Request,
 	lastSeq := int64(0)
 	for {
 		select {
-		case <-r.Context().Done():
+		case <-ctx.Done():
 			return
 		case event, ok := <-subscription.Events:
 			if !ok {
@@ -130,7 +131,7 @@ func (s *Server) handleRuntimeQueryAsync(w http.ResponseWriter, r *http.Request,
 					local := localTimeContractRunErrorEvent(seq, handle.RunID, handle.ChatID, err)
 					_ = sseWriter.WriteJSON("message", localizeStreamEventData(command.Locale, local))
 					_ = sseWriter.WriteDone()
-					_, _ = s.deps.Runtime.Interrupt(r.Context(), runtimeSetupInterrupt(handle, contracts.InterruptReasonRunInterrupted, timeContractViolationMessage))
+					_, _ = s.deps.Runtime.Interrupt(ctx, runtimeSetupInterrupt(handle, contracts.InterruptReasonRunInterrupted, timeContractViolationMessage))
 				}
 				return
 			}
@@ -246,12 +247,16 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 	}
 }
 
-func (s *Server) startPreparedLocalRun(
+func (s *Server) startPreparedLocalRun(prepared preparedQuery, registered registeredQueryRun, eventBus *stream.RunEventBus, principal *Principal) {
+	StartRunExecutor(s.localRunExecutorParams(prepared, registered, eventBus, principal))
+}
+
+func (s *Server) localRunExecutorParams(
 	prepared preparedQuery,
 	registered registeredQueryRun,
 	eventBus *stream.RunEventBus,
 	principal *Principal,
-) {
+) RunExecutorParams {
 	execution := s.resolvedQueryExecution(prepared)
 	if !execution.HiddenRun {
 		s.broadcast("run.started", runStartedPushPayload(prepared.req.RunID, prepared.req.ChatID, prepared.req.AgentKey, registered.StartedAtMillis))
@@ -277,7 +282,7 @@ func (s *Server) startPreparedLocalRun(
 		onContinuation = s.startRunContinuation
 	}
 
-	StartRunExecutor(RunExecutorParams{
+	return RunExecutorParams{
 		RunCtx:            registered.RunCtx,
 		Request:           prepared.req,
 		Session:           prepared.session,
@@ -303,7 +308,7 @@ func (s *Server) startPreparedLocalRun(
 		OnContinuation:    onContinuation,
 		OnComplete: func(completion chat.RunCompletion) {
 			releaseQuery(prepared.release)
-			s.deps.Runs.Finish(completion.RunID)
+			s.finishRegisteredQueryRun(prepared, registered)
 			if !execution.HiddenRun {
 				s.broadcast("run.finished", runFinishedPushPayload(
 					completion.RunID,
@@ -313,7 +318,7 @@ func (s *Server) startPreparedLocalRun(
 				))
 			}
 		},
-	})
+	}
 }
 
 func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, prepared preparedQuery) {
@@ -339,7 +344,7 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 	sseWriter.StartHeartbeat()
 
 	lastSeq := int64(0)
-	result, runErr := s.runQuerySync(ctx, prepared, registered, func(data stream.EventData) error {
+	result, runErr := s.executePreparedLocalQuery(ctx, prepared, registered, func(data stream.EventData) error {
 		if err := sseWriter.WriteJSON("message", localizeStreamEventData(locale, data)); err != nil {
 			return err
 		}
@@ -371,8 +376,13 @@ func (s *Server) handleQueryNonStream(w http.ResponseWriter, ctx context.Context
 		writeStatusError(w, statusErr)
 		return
 	}
-	collector := newQueryEventCollector(prepared.req.IncludeFullText)
-	result, err := s.runQuerySync(ctx, prepared, registered, nil, collector.Consume)
+	var fullText *queryFullTextBuilder
+	var observe func(stream.EventData)
+	if prepared.req.IncludeFullText {
+		fullText = newQueryFullTextBuilder()
+		observe = fullText.Observe
+	}
+	result, err := s.executePreparedLocalQuery(ctx, prepared, registered, nil, observe)
 	if err != nil {
 		if isTimeContractViolation(err) {
 			writeTimeContractViolation(w, err)
@@ -381,9 +391,8 @@ func (s *Server) handleQueryNonStream(w http.ResponseWriter, ctx context.Context
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
-	result = mergeObservedQueryRunResult(result, collector.Result())
 	if prepared.req.IncludeFullText {
-		result.FullText = collector.FullText(result.AssistantText)
+		result.FullText = fullText.Text(result.AssistantText)
 	}
 	if queryRunFailed(result) {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, queryRunErrorMessage(result), queryRunErrorPayload(result)))
@@ -530,6 +539,16 @@ func (c *queryEventCollector) FullText(content string) string {
 		return ""
 	}
 	return c.fullText.Text(content)
+}
+
+// Observe retains internal recovery signals; public EventBus events alone
+// cannot reconstruct discarded model attempts for a blocking fullText result.
+func (b *queryFullTextBuilder) Observe(event stream.EventData) {
+	if event.Type == "run.activity" && isDiscardIncompleteModelTurnRecovery(event.Value("recovery")) {
+		b.DiscardModelTurn(event.Value("recovery"))
+		return
+	}
+	b.Consume(event)
 }
 
 type queryFullTextBuilder struct {
@@ -829,25 +848,6 @@ func queryResponsePayload(prepared preparedQuery, result queryRunResult) any {
 	}
 }
 
-func mergeObservedQueryRunResult(result queryRunResult, observed queryRunResult) queryRunResult {
-	if strings.TrimSpace(result.AssistantText) == "" && strings.TrimSpace(observed.AssistantText) != "" {
-		result.AssistantText = observed.AssistantText
-	}
-	if strings.EqualFold(strings.TrimSpace(observed.FinishReason), "error") || strings.TrimSpace(result.FinishReason) == "" {
-		result.FinishReason = observed.FinishReason
-	}
-	if strings.TrimSpace(result.ErrorMessage) == "" {
-		result.ErrorMessage = observed.ErrorMessage
-	}
-	if len(result.ErrorPayload) == 0 {
-		result.ErrorPayload = cloneQueryErrorPayload(observed.ErrorPayload)
-	}
-	if result.Usage.TotalTokens == 0 && observed.Usage.TotalTokens > 0 {
-		result.Usage = observed.Usage
-	}
-	return result
-}
-
 func queryRunFailed(result queryRunResult) bool {
 	return strings.EqualFold(strings.TrimSpace(result.FinishReason), "error")
 }
@@ -908,294 +908,35 @@ func cloneQueryErrorPayload(input map[string]any) map[string]any {
 	return out
 }
 
-func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registered registeredQueryRun, emitVisible func(stream.EventData) error, observeEvent func(stream.EventData)) (queryRunResult, error) {
-	defer releaseQuery(prepared.release)
-	execution := s.resolvedQueryExecution(prepared)
-	control := registered.Control
-	if control == nil {
+// executePreparedLocalQuery waits on the same executor used by detached runs.
+// A blocking caller remains an observer for its whole execution, preserving the
+// existing run-control policy independently of HTTP request cancellation.
+func (s *Server) executePreparedLocalQuery(ctx context.Context, prepared preparedQuery, registered registeredQueryRun, emitVisible func(stream.EventData) error, observeEvent func(stream.EventData)) (queryRunResult, error) {
+	if registered.Control == nil {
+		releaseQuery(prepared.release)
+		s.finishRegisteredQueryRun(prepared, registered)
 		return queryRunResult{}, fmt.Errorf("run control unavailable")
 	}
-	control.SetObserverCount(1)
-	runCtx := registered.RunCtx
-	if runCtx == nil {
-		runCtx = contracts.WithRunControl(control.Context(), control)
+	registered.Control.SetObserverCount(1)
+	defer registered.Control.SetObserverCount(0)
+	if registered.RunCtx == nil {
+		registered.RunCtx = contracts.WithRunControl(registered.Control.Context(), registered.Control)
 	}
-	defer control.SetObserverCount(0)
-	var syncEventBus *stream.RunEventBus
+	var eventBus *stream.RunEventBus
 	if registered.Managed {
-		defer s.deps.Runs.Finish(prepared.req.RunID)
-		if eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID); ok {
-			syncEventBus = eventBus
-			defer syncEventBus.FreezeAndWait()
-		}
+		eventBus, _ = s.deps.Runs.EventBus(prepared.req.RunID)
 	}
-
-	completedAtMillis := int64(0)
-	pushFinishReason := "error"
-	var terminalCompletion *chat.RunCompletion
-	if !execution.HiddenRun {
-		s.broadcast("run.started", runStartedPushPayload(prepared.req.RunID, prepared.req.ChatID, prepared.req.AgentKey, registered.StartedAtMillis))
-		defer func() {
-			// If the execution failed before the completion record could be
-			// persisted, this is still a platform-owned finish event.  Capture its
-			// actual finish time instead of manufacturing a time for any upstream
-			// event.
-			if completedAtMillis == 0 {
-				completedAtMillis = time.Now().UnixMilli()
-			}
-			s.broadcast("run.finished", runFinishedPushPayload(prepared.req.RunID, prepared.req.ChatID, pushFinishReason, completedAtMillis))
-		}()
+	principal := PrincipalFromContext(ctx)
+	if principal == nil && strings.TrimSpace(prepared.session.Subject) != "" {
+		principal = &Principal{Subject: prepared.session.Subject}
 	}
-
-	assembler, mapper := s.newAssemblerAndMapper(prepared)
-	// The synchronous path does not use runExecutor, so bind its bootstrap
-	// run.start event to the same registration clock explicitly.
-	assembler.SetRunStartedAtMillis(registered.StartedAtMillis)
-	principal := &Principal{Subject: prepared.session.Subject}
-	if strings.TrimSpace(principal.Subject) == "" {
-		principal = nil
-	}
-
-	var (
-		assistantText strings.Builder
-		chatUsage     chat.UsageData
-		runUsage      chat.UsageData
-	)
-	if prepared.summary.Usage != nil {
-		chatUsage = *prepared.summary.Usage
-	}
-	stepWriter := chat.NewStepWriter(execution.StepLineStore, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
-	processor := runexec.NewProcessor(runexec.ProcessorOptions{
-		AssistantText: &assistantText, StepWriter: stepWriter, Billing: s.deps.Config.Billing,
-		Models: s.deps.Models, ChatUsage: chatUsage, RunUsage: &runUsage, RunControl: control,
-		RunID: prepared.req.RunID, ChatID: prepared.req.ChatID, AgentKey: prepared.req.AgentKey,
-		OnCompactEvent: func(data stream.EventData) { completeCompactControl(control, data) },
-	})
-	stepWriter.SetPendingSystemInit(prepared.systemInitLine)
-	stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
-	runCtx = chat.WithApprovalSummarySink(runCtx, stepWriter.RecordApproval)
-	timeContractAborted := false
-	abortTimeContract := func(err error) {
-		if timeContractAborted {
-			return
-		}
-		timeContractAborted = true
-		control.TransitionState(contracts.RunLoopStateFailed)
-		// Only previously validated events have reached the StepWriter. Flush
-		// them before recording the platform-owned error completion; the bad
-		// event itself is intentionally never passed to persistence.
-		stepWriter.Flush()
-		persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, registered.StartedAtMillis, control, principal), assistantText.String(), runUsage, "error", false)
-		terminalCompletion = cloneRunCompletionPtr(completion)
-		completedAtMillis = completion.UpdatedAtMillis
-		pushFinishReason = completion.FinishReason
-		if persisted {
-			syncBroadcastChatUpdated(s.deps.Notifications, completion)
-		}
-	}
-	writeEmission := func(emission stream.EventEmission) error {
-		event := emission.Event
-		event.Seq = emission.Cursor
-		data, visible, err := processor.Consume(event)
-		if err != nil {
-			if isTimeContractViolation(err) {
-				abortTimeContract(err)
-			}
-			return err
-		}
-		if observeEvent != nil && emission.Normalized {
-			observeEvent(data)
-		}
-		if !emission.Visible || !visible {
-			return nil
-		}
-		clientData := clientVisibleEventData(data)
-		if syncEventBus != nil {
-			syncEventBus.Publish(clientData)
-		}
-		if emitVisible == nil {
-			return nil
-		}
-		if err := emitVisible(clientData); err != nil {
-			if isTimeContractViolation(err) {
-				abortTimeContract(err)
-			}
-			return err
-		}
-		return nil
-	}
-
-	for _, emission := range assembler.BootstrapEmissions() {
-		if err := writeEmission(emission); err != nil {
-			return queryRunResult{Completion: terminalCompletion}, err
-		}
-	}
-
-	agentStream, err := s.deps.Agent.Stream(runCtx, prepared.req, prepared.session)
-	if err != nil {
-		control.TransitionState(contracts.RunLoopStateFailed)
-		for _, emission := range assembler.FailEmissions(err) {
-			if writeErr := writeEmission(emission); writeErr != nil {
-				return queryRunResult{Completion: terminalCompletion}, writeErr
-			}
-		}
-		stepWriter.Flush()
-		persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, registered.StartedAtMillis, control, principal), assistantText.String(), runUsage, "error", false)
-		terminalCompletion = cloneRunCompletionPtr(completion)
-		completedAtMillis = completion.UpdatedAtMillis
-		pushFinishReason = completion.FinishReason
-		if persisted {
-			syncBroadcastChatUpdated(s.deps.Notifications, completion)
-		}
-		return queryRunResult{
-			AssistantText: assistantText.String(),
-			FinishReason:  "error",
-			Usage:         runUsage,
-			ErrorMessage:  err.Error(),
-			ErrorPayload:  apperrors.FromError(err, apperrors.CodeStreamFailed, apperrors.WithScope(apperrors.ScopeRun)),
-			Completion:    terminalCompletion,
-		}, nil
-	}
-	defer agentStream.Close()
-
-	streamFailed := false
-	streamInterrupted := false
-	var streamErr error
-	for {
-		delta, nextErr := agentStream.Next()
-		if errors.Is(nextErr, io.EOF) {
-			break
-		}
-		if contracts.IsRunInterrupted(nextErr) {
-			streamInterrupted = true
-			break
-		}
-		if nextErr != nil {
-			streamFailed = true
-			streamErr = nextErr
-			control.TransitionState(contracts.RunLoopStateFailed)
-			for _, emission := range assembler.FailEmissions(nextErr) {
-				if writeErr := writeEmission(emission); writeErr != nil {
-					return queryRunResult{Completion: terminalCompletion}, writeErr
-				}
-			}
-			break
-		}
-		inputs := mapper.Map(delta)
-		for _, input := range inputs {
-			processor.ApplyModelTurnControl(input)
-			for _, emission := range assembler.ConsumeEmissions(input) {
-				if err := writeEmission(emission); err != nil {
-					return queryRunResult{Completion: terminalCompletion}, err
-				}
-			}
-		}
-	}
-
-	terminalFinishReason := processor.TerminalFinishReason()
-	if terminalFinishReason == "error" {
-		streamFailed = true
-		streamInterrupted = false
-	} else if terminalFinishReason == "cancel" {
-		streamInterrupted = true
-		streamFailed = false
-	}
-	if streamFailed || streamInterrupted {
-		stepWriter.Flush()
-		finishReason := "error"
-		if streamInterrupted {
-			finishReason = "cancel"
-		}
-		errorMessage := ""
-		if streamErr != nil {
-			errorMessage = streamErr.Error()
-		}
-		errorPayload := processor.TerminalErrorPayload()
-		if finishReason == "error" && len(errorPayload) > 0 {
-			errorMessage = strings.TrimSpace(contracts.AnyStringNode(errorPayload["message"]))
-		} else {
-			errorPayload = apperrors.FromError(streamErr, apperrors.CodeStreamFailed, apperrors.WithScope(apperrors.ScopeRun))
-		}
-		persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, registered.StartedAtMillis, control, principal), assistantText.String(), runUsage, finishReason, false)
-		terminalCompletion = cloneRunCompletionPtr(completion)
-		completedAtMillis = completion.UpdatedAtMillis
-		pushFinishReason = completion.FinishReason
-		if persisted {
-			syncBroadcastChatUpdated(s.deps.Notifications, completion)
-		}
-		return queryRunResult{
-			AssistantText: assistantText.String(),
-			FinishReason:  finishReason,
-			Usage:         runUsage,
-			ErrorMessage:  errorMessage,
-			ErrorPayload:  errorPayload,
-			Completion:    terminalCompletion,
-		}, nil
-	}
-
-	for _, emission := range assembler.CompleteEmissions() {
-		if err := writeEmission(emission); err != nil {
-			return queryRunResult{Completion: terminalCompletion}, err
-		}
-	}
-	// Complete closes open content blocks and emits their final snapshots. Flush
-	// the step writer only after those events so pending model metadata is
-	// attached to the final React step instead of being discarded as orphaned.
-	stepWriter.Flush()
-	persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, registered.StartedAtMillis, control, principal), assistantText.String(), runUsage, "complete", true)
-	terminalCompletion = cloneRunCompletionPtr(completion)
-	completedAtMillis = completion.UpdatedAtMillis
-	pushFinishReason = completion.FinishReason
-	if persisted {
-		syncBroadcastChatUpdated(s.deps.Notifications, completion)
-	}
-	return queryRunResult{AssistantText: assistantText.String(), FinishReason: "complete", Usage: runUsage, Completion: terminalCompletion}, nil
-}
-
-func cloneRunCompletionPtr(completion chat.RunCompletion) *chat.RunCompletion {
-	copy := completion
-	return &copy
-}
-
-// syncRunExecutorParams 构造 handleQuerySync 三次持久化完成态调用所需参数
-// 调用共用的 RunExecutorParams，避免重复拼装三份 callback。
-func syncRunExecutorParams(s *Server, prepared preparedQuery, startedAtMillis int64, control *contracts.RunControl, principal *Principal) RunExecutorParams {
-	execution := s.resolvedQueryExecution(prepared)
-	params := RunExecutorParams{
-		Request:           prepared.req,
-		Session:           prepared.session,
-		StartedAtMillis:   startedAtMillis,
-		Chats:             execution.CompletionStore,
-		RunControl:        control,
-		ResourceBaseURL:   prepared.resourceBaseURL,
-		ResourceTickets:   s.ticketService,
-		PrepareSystemInit: s.prepareSystemInitCache,
-	}
-	if execution.HiddenRun {
-		return params
-	}
-	params.Notifications = s.deps.Notifications
-	params.OnUnreadChanged = func(summary chat.Summary) {
-		agentUnreadCount, err := s.agentUnreadCount(summary.AgentKey)
-		if err != nil {
-			return
-		}
-		s.broadcastChatReadState("chat.unread", summary, agentUnreadCount)
-	}
-	return params
-}
-
-// syncBroadcastChatUpdated 复刻 run_executor.broadcastRunCompletion 的 chat.updated
-// 广播语义。async 路径在 StartRunExecutor 内部走那条；sync 路径没经过 StartRunExecutor，
-// 这里手动补上，让 automation 触发的 run 也能通知 hub（进而透传到 gateway / webclient）。
-func syncBroadcastChatUpdated(notifications contracts.NotificationSink, completion chat.RunCompletion) {
-	if notifications == nil {
-		return
-	}
-	notifications.Broadcast("chat.updated", map[string]any{
-		"chatId":         completion.ChatID,
-		"lastRunId":      completion.RunID,
-		"lastRunContent": completion.AssistantText,
-		"updatedAt":      completion.UpdatedAtMillis,
-	})
+	params := s.localRunExecutorParams(prepared, registered, eventBus, principal)
+	params.EmitVisible, params.ObserveEvent = emitVisible, observeEvent
+	result := runExecutor(params)
+	completion := result.Completion
+	return queryRunResult{
+		AssistantText: completion.AssistantText, FinishReason: completion.FinishReason,
+		Usage: completion.Usage, Completion: &completion,
+		ErrorMessage: result.ErrorMessage, ErrorPayload: result.ErrorPayload,
+	}, result.Err
 }
