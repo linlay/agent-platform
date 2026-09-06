@@ -1,0 +1,528 @@
+{
+  "ChatID": "chat-replay",
+  "ChatName": "回放兼容",
+  "RawMessages": [
+    {
+      "_contentId": "c1",
+      "_reasoningId": "r1",
+      "content": "中间进度",
+      "reasoning_content": "思考",
+      "role": "assistant",
+      "runId": "run-1",
+      "tool_calls": [
+        {
+          "_toolId": "tool-1",
+          "function": {
+            "arguments": "{}",
+            "name": "question"
+          },
+          "id": "call-1",
+          "type": "function"
+        },
+        {
+          "_toolId": "tool-2",
+          "function": {
+            "arguments": "{}",
+            "name": "file_read"
+          },
+          "id": "call-2",
+          "type": "function"
+        }
+      ],
+      "ts": 1700000000020
+    },
+    {
+      "_toolId": "tool-1",
+      "content": "3",
+      "role": "tool",
+      "runId": "run-1",
+      "tool_call_id": "call-1",
+      "ts": 1700000000045
+    },
+    {
+      "_toolId": "tool-2",
+      "content": "file text",
+      "role": "tool",
+      "runId": "run-1",
+      "tool_call_id": "call-2",
+      "ts": 1700000000046
+    },
+    {
+      "content": "子任务结果",
+      "role": "assistant",
+      "runId": "run-1",
+      "ts": 1700000000068
+    },
+    {
+      "actorType": "agent",
+      "agentKey": "member-b",
+      "content": "直接回复",
+      "presentation": "reply",
+      "role": "assistant",
+      "runId": "run-1",
+      "ts": 1700000000072
+    },
+    {
+      "_contentId": "final",
+      "content": "第一轮最终答案",
+      "role": "assistant",
+      "runId": "run-1",
+      "ts": 1700000000078
+    },
+    {
+      "content": "第2轮答案",
+      "role": "assistant",
+      "runId": "run-2",
+      "ts": 1700000000219
+    },
+    {
+      "content": "第3轮答案",
+      "role": "assistant",
+      "runId": "run-3",
+      "ts": 1700000000319
+    },
+    {
+      "content": "第4轮答案",
+      "role": "assistant",
+      "runId": "run-4",
+      "ts": 1700000000419
+    },
+    {
+      "content": "以下是此前对话的上下文压缩摘要。它替代所有已标记 _compact 的历史。\n\n压缩摘要",
+      "role": "user",
+      "ts": 1700000000450
+    }
+  ],
+  "Events": [
+    {
+      "seq": 1,
+      "type": "chat.start",
+      "chatId": "chat-replay",
+      "chatName": "回放兼容",
+      "timestamp": 1700000000000
+    },
+    {
+      "seq": 2,
+      "type": "request.query",
+      "chatId": "chat-replay",
+      "role": "user",
+      "message": "第一轮问题",
+      "liveSeq": 10,
+      "timestamp": 1700000000010
+    },
+    {
+      "seq": 3,
+      "type": "run.start",
+      "runId": "run-1",
+      "chatId": "chat-replay",
+      "timestamp": 1700000000010
+    },
+    {
+      "seq": 4,
+      "type": "content.snapshot",
+      "contentId": "c1",
+      "runId": "run-1",
+      "text": "中间进度",
+      "actor": {
+        "teamId": "team-a",
+        "type": "team"
+      },
+      "liveSeq": 30,
+      "presentation": "reply",
+      "teamId": "team-a",
+      "timestamp": 1700000000020
+    },
+    {
+      "seq": 5,
+      "type": "awaiting.ask",
+      "awaitingId": "tool-1",
+      "mode": "question",
+      "runId": "run-1",
+      "questions": [
+        {
+          "question": "数量？"
+        }
+      ],
+      "liveSeq": 30,
+      "timestamp": 1700000000025
+    },
+    {
+      "seq": 6,
+      "type": "planning.snapshot",
+      "planningId": "plan-1",
+      "planningFile": "fixture-plan.md",
+      "chatId": "chat-replay",
+      "runId": "run-1",
+      "text": "# Plan\n\nReview",
+      "timestamp": 1700000000026
+    },
+    {
+      "seq": 7,
+      "type": "awaiting.ask",
+      "awaitingId": "unmatched",
+      "mode": "planning",
+      "runId": "run-1",
+      "planning": {
+        "planningFile": "fixture-plan.md",
+        "planningId": "plan-1",
+        "text": "# Plan\n\nReview"
+      },
+      "liveSeq": 30,
+      "timestamp": 1700000000026
+    },
+    {
+      "seq": 8,
+      "type": "request.submit",
+      "runId": "run-1",
+      "awaitingId": "tool-1",
+      "params": [],
+      "liveSeq": 40,
+      "timestamp": 1700000000039
+    },
+    {
+      "seq": 9,
+      "type": "awaiting.answer",
+      "awaitingId": "tool-1",
+      "mode": "question",
+      "durationMs": 15,
+      "liveSeq": 40,
+      "questions": [
+        {
+          "answer": 3,
+          "question": "数量？"
+        }
+      ],
+      "runId": "run-1",
+      "timestamp": 1700000000040
+    },
+    {
+      "seq": 10,
+      "type": "source.publish",
+      "runId": "run-1",
+      "toolId": "tool-2",
+      "sources": [
+        {
+          "title": "source",
+          "url": "source.txt"
+        }
+      ],
+      "liveSeq": 50,
+      "timestamp": 1700000000047
+    },
+    {
+      "seq": 11,
+      "type": "request.steer",
+      "requestId": "request-steer",
+      "chatId": "chat-replay",
+      "runId": "run-1",
+      "steerId": "steer-1",
+      "message": "补充说明",
+      "role": "user",
+      "liveSeq": 60,
+      "timestamp": 1700000000060
+    },
+    {
+      "seq": 12,
+      "type": "task.start",
+      "taskId": "task-1",
+      "runId": "run-1",
+      "taskName": "Review",
+      "description": "检查子任务",
+      "subAgentKey": "member-a",
+      "invokingToolId": "delegate-1",
+      "actor": {
+        "agentKey": "member-a",
+        "teamId": "team-a",
+        "type": "agent"
+      },
+      "presentation": "task",
+      "teamId": "team-a",
+      "timestamp": 1700000000065
+    },
+    {
+      "seq": 13,
+      "type": "request.query",
+      "chatId": "chat-replay",
+      "message": "检查子任务",
+      "taskId": "task-1",
+      "timestamp": 1700000000065
+    },
+    {
+      "seq": 14,
+      "type": "content.snapshot",
+      "contentId": "",
+      "runId": "run-1",
+      "text": "子任务结果",
+      "taskId": "task-1",
+      "actor": {
+        "agentKey": "member-a",
+        "teamId": "team-a",
+        "type": "agent"
+      },
+      "agentKey": "member-a",
+      "presentation": "task",
+      "teamId": "team-a",
+      "timestamp": 1700000000068
+    },
+    {
+      "seq": 15,
+      "type": "task.complete",
+      "taskId": "task-1",
+      "actor": {
+        "agentKey": "member-a",
+        "teamId": "team-a",
+        "type": "agent"
+      },
+      "presentation": "task",
+      "teamId": "team-a",
+      "timestamp": 1700000000070
+    },
+    {
+      "seq": 16,
+      "type": "content.snapshot",
+      "contentId": "",
+      "runId": "run-1",
+      "text": "直接回复",
+      "taskId": "direct",
+      "actor": {
+        "agentKey": "member-b",
+        "teamId": "team-a",
+        "type": "agent"
+      },
+      "agentKey": "member-b",
+      "presentation": "reply",
+      "teamId": "team-a",
+      "timestamp": 1700000000072
+    },
+    {
+      "seq": 17,
+      "type": "content.snapshot",
+      "contentId": "final",
+      "runId": "run-1",
+      "text": "第一轮最终答案",
+      "actor": {
+        "teamId": "team-a",
+        "type": "team"
+      },
+      "liveSeq": 80,
+      "presentation": "reply",
+      "teamId": "team-a",
+      "timestamp": 1700000000078
+    },
+    {
+      "seq": 18,
+      "type": "run.complete",
+      "runId": "run-1",
+      "liveSeq": 90,
+      "timestamp": 1700000000090
+    },
+    {
+      "seq": 19,
+      "type": "request.query",
+      "chatId": "chat-replay",
+      "role": "user",
+      "message": "第2轮问题",
+      "timestamp": 1700000000210
+    },
+    {
+      "seq": 20,
+      "type": "run.start",
+      "runId": "run-2",
+      "chatId": "chat-replay",
+      "timestamp": 1700000000210
+    },
+    {
+      "seq": 21,
+      "type": "content.snapshot",
+      "contentId": "",
+      "runId": "run-2",
+      "text": "第2轮答案",
+      "actor": {
+        "teamId": "team-a",
+        "type": "team"
+      },
+      "presentation": "reply",
+      "teamId": "team-a",
+      "timestamp": 1700000000219
+    },
+    {
+      "seq": 22,
+      "type": "run.error",
+      "runId": "run-2",
+      "error": {
+        "category": "chat_run",
+        "code": "run_error",
+        "message": "run failed",
+        "retryable": false,
+        "scope": "run",
+        "status": 500,
+        "userSafeMessageKey": "run_error"
+      },
+      "timestamp": 1700000000290
+    },
+    {
+      "seq": 23,
+      "type": "request.query",
+      "chatId": "chat-replay",
+      "role": "user",
+      "message": "第3轮问题",
+      "timestamp": 1700000000310
+    },
+    {
+      "seq": 24,
+      "type": "run.start",
+      "runId": "run-3",
+      "chatId": "chat-replay",
+      "timestamp": 1700000000310
+    },
+    {
+      "seq": 25,
+      "type": "content.snapshot",
+      "contentId": "",
+      "runId": "run-3",
+      "text": "第3轮答案",
+      "actor": {
+        "teamId": "team-a",
+        "type": "team"
+      },
+      "presentation": "reply",
+      "teamId": "team-a",
+      "timestamp": 1700000000319
+    },
+    {
+      "seq": 26,
+      "type": "run.cancel",
+      "runId": "run-3",
+      "timestamp": 1700000000390
+    },
+    {
+      "seq": 27,
+      "type": "request.query",
+      "chatId": "chat-replay",
+      "role": "user",
+      "message": "第4轮问题",
+      "timestamp": 1700000000410
+    },
+    {
+      "seq": 28,
+      "type": "run.start",
+      "runId": "run-4",
+      "chatId": "chat-replay",
+      "timestamp": 1700000000410
+    },
+    {
+      "seq": 29,
+      "type": "content.snapshot",
+      "contentId": "",
+      "runId": "run-4",
+      "text": "第4轮答案",
+      "actor": {
+        "teamId": "team-a",
+        "type": "team"
+      },
+      "presentation": "reply",
+      "teamId": "team-a",
+      "timestamp": 1700000000419
+    },
+    {
+      "seq": 30,
+      "type": "context.compact.complete",
+      "chatId": "chat-replay",
+      "compactId": "compact-history",
+      "compactionUsage": {
+        "totalTokens": 7
+      },
+      "compressionRatio": 0.4,
+      "level": "summary",
+      "postCompactEstimatedTokens": 40,
+      "preCompactEstimatedTokens": 100,
+      "runId": "run-4",
+      "scope": "history",
+      "summarySource": "model",
+      "trigger": "",
+      "type": "context.compact.complete",
+      "timestamp": 1700000000450
+    },
+    {
+      "seq": 31,
+      "type": "context.compact.complete",
+      "chatId": "chat-replay",
+      "compactId": "compact-run",
+      "level": "l1_tools",
+      "postCompactEstimatedTokens": 20,
+      "preCompactEstimatedTokens": 40,
+      "requestId": "compact-request",
+      "runId": "run-4",
+      "scope": "run",
+      "toolsCleared": 2,
+      "toolsKept": 1,
+      "trigger": "auto",
+      "type": "context.compact.complete",
+      "timestamp": 1700000000460
+    },
+    {
+      "seq": 32,
+      "type": "context.compact.complete",
+      "chatId": "chat-replay",
+      "compactId": "compact-tools",
+      "level": "l1_tools",
+      "runId": "run-4",
+      "scope": "history",
+      "tokensFreed": 10,
+      "toolsCleared": 1,
+      "trigger": "manual",
+      "type": "context.compact.complete",
+      "timestamp": 1700000000470
+    },
+    {
+      "seq": 33,
+      "type": "run.complete",
+      "runId": "run-4",
+      "finishReason": "stop",
+      "timestamp": 1700000000490
+    }
+  ],
+  "ContextWindow": {
+    "currentSize": 30,
+    "maxSize": 1000
+  },
+  "ReplayUsage": {
+    "LastRunID": "run-4",
+    "LastRun": {
+      "promptTokens": 4,
+      "completionTokens": 1,
+      "totalTokens": 5
+    },
+    "Chat": {
+      "promptTokens": 33,
+      "completionTokens": 15,
+      "totalTokens": 48
+    }
+  },
+  "References": null,
+  "Plan": {
+    "planId": "plan-4",
+    "tasks": [
+      {
+        "taskId": "task-4",
+        "description": "Review",
+        "status": "completed"
+      }
+    ]
+  },
+  "Planning": {
+    "planningId": "plan-1",
+    "planningFile": "fixture-plan.md",
+    "text": "# Plan\n\nReview"
+  },
+  "Artifact": {
+    "items": [
+      {
+        "artifactId": "artifact-1",
+        "type": "file",
+        "name": "result.txt",
+        "url": "artifacts/run-4/result.txt"
+      }
+    ]
+  }
+}

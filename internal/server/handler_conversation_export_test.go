@@ -129,3 +129,21 @@ func seedCompletedConversationExport(t *testing.T, fixture testFixture, chatID s
 		}
 	}
 }
+
+func TestHandleChatExportDoesNotFallBackToArchive(t *testing.T) {
+	server, active, _ := newArchiveHandlerTestServer(t, nil)
+	const chatID = "chat-export-archived"
+	seedArchiveHandlerChat(t, active, chatID)
+	archiveRec := httptest.NewRecorder()
+	server.ServeHTTP(archiveRec, httptest.NewRequest(http.MethodPost, "/api/chat/archive", strings.NewReader(`{"chatIds":["`+chatID+`"]}`)))
+	if archiveRec.Code != http.StatusOK {
+		t.Fatalf("archive status=%d body=%s", archiveRec.Code, archiveRec.Body.String())
+	}
+	for _, format := range []string{"markdown", "snapshot"} {
+		rec := httptest.NewRecorder()
+		server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat/export?chatId="+chatID+"&format="+format, nil))
+		if rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), `"msg":"chat not found"`) {
+			t.Fatalf("%s: status=%d body=%s", format, rec.Code, rec.Body.String())
+		}
+	}
+}
