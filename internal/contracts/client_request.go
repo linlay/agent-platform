@@ -31,10 +31,11 @@ type WebClientTarget = ClientTarget
 // outbound reverse requests. Clients must not treat caller-supplied source
 // fields as authoritative.
 type ClientRequestSource struct {
-	RunID    string `json:"runId"`
-	ChatID   string `json:"chatId"`
-	AgentKey string `json:"agentKey,omitempty"`
-	TeamID   string `json:"teamId,omitempty"`
+	RunID         string `json:"runId"`
+	ChatID        string `json:"chatId"`
+	AgentKey      string `json:"agentKey,omitempty"`
+	TeamID        string `json:"teamId,omitempty"`
+	WorkspaceRoot string `json:"workspaceRoot,omitempty"`
 }
 
 type ClientRequest struct {

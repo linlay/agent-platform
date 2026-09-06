@@ -49,6 +49,10 @@ inputSchema:
         - desktop.webapp.restart
         - desktop.webapp.open
         - desktop.webapp.updatePreferences
+        - desktop.webapp.manifest.init
+        - desktop.webapp.manifest.validate
+        - desktop.webapp.package.validate
+        - desktop.webapp.package.build
         - desktop.webapp.install
         - desktop.webapp.uninstall
         - desktop.webapp.getPublishStatus
@@ -93,7 +97,7 @@ inputSchema:
         - desktop.pet.set
     args:
       type: object
-      description: JSON arguments for the selected action. Use only fields documented by that action's static contract; reserved transport or confirmation fields are rejected. desktop.workpanel.* never accepts caller-selected top-level ownership or internal fields such as chatId, workspaceId, surfaceId, agentKey, stableKey, preload, or webPreferences; Platform injects trusted source metadata at the request-frame top level. A contract-valid webclient descriptor.context may carry matching contextual identities but cannot override the trusted owner chat. desktop.workpanel.openLocalFile uses exact {path,title?}, where path is relative to the current Agent's authoritative Workspace.
+      description: JSON arguments for the selected action. Use only fields documented by that action's static contract; reserved transport or confirmation fields are rejected. Platform injects trusted source metadata, including the current Session WorkspaceRoot, at the request-frame top level; args cannot override or read that absolute root. desktop.workpanel.* never accepts caller-selected top-level ownership or internal fields such as chatId, workspaceId, surfaceId, agentKey, stableKey, preload, or webPreferences. A contract-valid webclient descriptor.context may carry matching contextual identities but cannot override the trusted owner chat. desktop.workpanel.openLocalFile uses exact {path,title?}, where path is Workspace-relative. WebApp Tooling actions accept only Workspace-relative project/archive/output paths. desktop.webapp.install must use workspaceArchivePath when invoked by Agent Platform.
       additionalProperties: true
     requestId:
       type: string

@@ -78,6 +78,7 @@ var (
 var desktopActionReservedArgFields = []string{
 	"source",
 	"confirmation" + "Summary",
+	"workspaceRoot",
 }
 
 func getDesktopActionAllowlist() (map[string]bool, error) {
@@ -177,6 +178,11 @@ func (t *RuntimeToolExecutor) invokeDesktopAction(ctx context.Context, args map[
 	source, sourceErr := buildDesktopActionSource(execCtx)
 	if sourceErr != nil {
 		return desktopActionErrorResult("invalid_execution_context", sourceErr.Error(), nil), nil
+	}
+	if t.cfg.RuntimeMode != config.RuntimeModeDesktop {
+		// Standalone WorkPanel actions target the originating WebClient and must
+		// not expose the host workspace root. Desktop-only actions are rejected above.
+		source.WorkspaceRoot = ""
 	}
 	return t.invokeDesktopClientRequest(ctx, requestID, action, actionArgs, &source, "desktop_action", false, execCtx)
 }
@@ -841,8 +847,9 @@ func buildDesktopActionSource(execCtx *ExecutionContext) (ClientRequestSource, e
 		return ClientRequestSource{}, errors.New("run execution context is required")
 	}
 	source := ClientRequestSource{
-		RunID:  strings.TrimSpace(execCtx.Session.RunID),
-		ChatID: strings.TrimSpace(execCtx.Session.ChatID),
+		RunID:         strings.TrimSpace(execCtx.Session.RunID),
+		ChatID:        strings.TrimSpace(execCtx.Session.ChatID),
+		WorkspaceRoot: strings.TrimSpace(execCtx.Session.WorkspaceRoot),
 	}
 	owner := ResolveRunOwner(execCtx.Session.RunOwner)
 	if owner.IsTeam() {

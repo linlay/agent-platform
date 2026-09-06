@@ -111,6 +111,7 @@ func desktopActionTestExecutionContext() *ExecutionContext {
 	return &ExecutionContext{Session: QuerySession{
 		RunID: "run-desktop-action-test", ChatID: "chat-desktop-action-test",
 		AgentKey: "agent-desktop-action-test", RunOwner: AgentRunOwner("agent-desktop-action-test", ""),
+		WorkspaceRoot: "/trusted/workspaces/agent-desktop-action-test",
 	}}
 }
 
@@ -191,6 +192,9 @@ func TestDesktopRuntimeModeRoutingMatrix(t *testing.T) {
 	if err != nil || result.ExitCode != 0 || invoker.calls != 1 || invoker.request.Type != "desktop.workpanel.getState" {
 		t.Fatalf("standalone WorkPanel route failed: result=%#v calls=%d request=%#v err=%v", result, invoker.calls, invoker.request, err)
 	}
+	if invoker.request.Source == nil || invoker.request.Source.WorkspaceRoot != "" {
+		t.Fatalf("standalone WorkPanel source exposed workspace root: %#v", invoker.request.Source)
+	}
 
 	displayData, _ := json.Marshal(map[string]any{
 		"ok": true, "action": "desktop.display",
@@ -212,6 +216,9 @@ func TestDesktopRuntimeModeRoutingMatrix(t *testing.T) {
 	if err != nil || display.ExitCode != 0 || displayInvoker.calls != 1 || displayInvoker.request.Type != "desktop.display" {
 		t.Fatalf("standalone display route failed: result=%#v calls=%d request=%#v err=%v", display, displayInvoker.calls, displayInvoker.request, err)
 	}
+	if displayInvoker.request.Source == nil || displayInvoker.request.Source.WorkspaceRoot != "" {
+		t.Fatalf("standalone display source exposed workspace root: %#v", displayInvoker.request.Source)
+	}
 
 	unsupported, err := executor.invokeDesktopAction(context.Background(), map[string]any{
 		"action": "desktop.theme.get", "args": map[string]any{},
@@ -224,6 +231,13 @@ func TestDesktopRuntimeModeRoutingMatrix(t *testing.T) {
 	}, desktopActionTestExecutionContext())
 	if err != nil || localFile.Error != "desktop_action_unsupported_runtime" || invoker.calls != 1 {
 		t.Fatalf("standalone local file action was not rejected before dispatch: result=%#v calls=%d err=%v", localFile, invoker.calls, err)
+	}
+	tooling, err := executor.invokeDesktopAction(context.Background(), map[string]any{
+		"action": "desktop.webapp.package.build",
+		"args":   map[string]any{"projectPath": "app", "outputPath": "artifacts/app.zip"},
+	}, desktopActionTestExecutionContext())
+	if err != nil || tooling.Error != "desktop_action_unsupported_runtime" || invoker.calls != 1 {
+		t.Fatalf("standalone WebApp Tooling action was not rejected before dispatch: result=%#v calls=%d err=%v", tooling, invoker.calls, err)
 	}
 	cdp, err := executor.invokeDesktopCDP(context.Background(), map[string]any{
 		"method": "Runtime.evaluate", "params": map[string]any{"expression": "1"},
@@ -572,7 +586,8 @@ func TestDesktopRuntimeTeamSourceKeepsTeamIdentity(t *testing.T) {
 	runs := NewInMemoryRunManager()
 	runs.Register(context.Background(), QuerySession{
 		RunID: "run-team", ChatID: "chat-team", TeamID: "research",
-		RunOwner: TeamRunOwner("research", "__team_coordinator"),
+		RunOwner:      TeamRunOwner("research", "__team_coordinator"),
+		WorkspaceRoot: "/trusted/workspaces/research",
 	})
 	provider := &desktopMainTargetProviderStub{target: ClientTarget{SessionID: "ws-desktop-main"}, state: DesktopMainTargetReady}
 	invoker := &routingClientRequestInvoker{}
@@ -584,14 +599,15 @@ func TestDesktopRuntimeTeamSourceKeepsTeamIdentity(t *testing.T) {
 		"requestId": "team-action", "action": "desktop.theme.get", "args": map[string]any{},
 	}, &ExecutionContext{Session: QuerySession{
 		RunID: "run-team", ChatID: "chat-team", TeamID: "research",
-		RunOwner: TeamRunOwner("research", "__team_coordinator"),
+		RunOwner:      TeamRunOwner("research", "__team_coordinator"),
+		WorkspaceRoot: "/trusted/workspaces/research",
 	}})
 	if err != nil || result.ExitCode != 0 {
 		t.Fatalf("team action failed: result=%#v err=%v", result, err)
 	}
 	_, requests := invoker.snapshots()
 	source := requests[0].Source
-	if source == nil || source.RunID != "run-team" || source.ChatID != "chat-team" || source.TeamID != "research" {
+	if source == nil || source.RunID != "run-team" || source.ChatID != "chat-team" || source.TeamID != "research" || source.WorkspaceRoot != "/trusted/workspaces/research" {
 		t.Fatalf("team source identity = %#v", source)
 	}
 	if source.AgentKey != "" {
@@ -1358,6 +1374,10 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 		"desktop.webapp.checkRuntime",
 		"desktop.webapp.getPublishStatus",
 		"desktop.webapp.getStatus",
+		"desktop.webapp.manifest.init",
+		"desktop.webapp.manifest.validate",
+		"desktop.webapp.package.build",
+		"desktop.webapp.package.validate",
 		"desktop.webapp.install",
 		"desktop.webapp.open",
 		"desktop.webapp.publish",
@@ -1388,8 +1408,8 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 
 func TestDesktopActionAllowlistUsesDirectReverseRequestFrames(t *testing.T) {
 	actions := sortedDesktopActionAllowlist(t)
-	if len(actions) != 83 {
-		t.Fatalf("desktop action count = %d, want 83", len(actions))
+	if len(actions) != 87 {
+		t.Fatalf("desktop action count = %d, want 87", len(actions))
 	}
 	invoker := &routingClientRequestInvoker{}
 	executor := &RuntimeToolExecutor{
@@ -1416,7 +1436,7 @@ func TestDesktopActionAllowlistUsesDirectReverseRequestFrames(t *testing.T) {
 		if request.Type != actions[index] || request.ID != fmt.Sprintf("direct-action-%d", index) {
 			t.Fatalf("request %d identity = %#v", index, request)
 		}
-		if request.Source == nil || request.Source.RunID != "run-desktop-action-test" || request.Source.ChatID != "chat-desktop-action-test" || request.Source.AgentKey != "agent-desktop-action-test" || request.Source.TeamID != "" {
+		if request.Source == nil || request.Source.RunID != "run-desktop-action-test" || request.Source.ChatID != "chat-desktop-action-test" || request.Source.AgentKey != "agent-desktop-action-test" || request.Source.TeamID != "" || request.Source.WorkspaceRoot != "/trusted/workspaces/agent-desktop-action-test" {
 			t.Fatalf("request %d source = %#v", index, request.Source)
 		}
 		if len(request.Payload) != 0 {
@@ -1426,7 +1446,7 @@ func TestDesktopActionAllowlistUsesDirectReverseRequestFrames(t *testing.T) {
 }
 
 func TestDesktopActionRejectsReservedArgs(t *testing.T) {
-	for _, field := range []string{"source", "confirmationSummary"} {
+	for _, field := range []string{"source", "confirmationSummary", "workspaceRoot"} {
 		t.Run(field, func(t *testing.T) {
 			result, err := (&RuntimeToolExecutor{}).invokeDesktopAction(context.Background(), map[string]any{
 				"action": "desktop.theme.set",

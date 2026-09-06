@@ -24,7 +24,10 @@ func TestHubInvokeClientRequestStreamsUntilTerminalResponse(t *testing.T) {
 	go func() {
 		errCh <- hub.InvokeClientRequest(context.Background(), target, contracts.ClientRequest{
 			ID: "desktop-stream-1", Type: "desktop.theme.get",
-			Source:  &contracts.ClientRequestSource{RunID: "run-1", ChatID: "chat-1", AgentKey: "agent-1"},
+			Source: &contracts.ClientRequestSource{
+				RunID: "run-1", ChatID: "chat-1", AgentKey: "agent-1",
+				WorkspaceRoot: "/trusted/workspaces/run-1",
+			},
 			Payload: map[string]any{},
 		}, func(frame contracts.ClientResponseFrame) error {
 			frames <- frame
@@ -39,7 +42,7 @@ func TestHubInvokeClientRequestStreamsUntilTerminalResponse(t *testing.T) {
 	if request.Frame != FrameRequest || request.ID != "desktop-stream-1" || request.Type != "desktop.theme.get" {
 		t.Fatalf("unexpected reverse request: %#v", request)
 	}
-	if request.Source == nil || request.Source.RunID != "run-1" || request.Source.ChatID != "chat-1" || request.Source.AgentKey != "agent-1" {
+	if request.Source == nil || request.Source.RunID != "run-1" || request.Source.ChatID != "chat-1" || request.Source.AgentKey != "agent-1" || request.Source.WorkspaceRoot != "/trusted/workspaces/run-1" {
 		t.Fatalf("unexpected reverse request source: %#v", request.Source)
 	}
 	if err := client.WriteJSON(map[string]any{
