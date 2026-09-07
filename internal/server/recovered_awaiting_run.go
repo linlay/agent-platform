@@ -95,7 +95,7 @@ func (s *Server) superviseRecoveredAwaiting(ctx context.Context, item chat.Pendi
 		return
 	case <-timeout:
 		answer := contracts.AwaitingTimeoutAnswer(mode, int64(contracts.AnyIntNode(step.Ask.Payload["timeout"])), maxInt64((time.Now().UnixMilli()-item.CreatedAt)/1000, 0))
-		if _, err := s.finishRecoveredAwaiting(item, step, answer, time.Now().UnixMilli()); err != nil {
+		if _, err := s.finishTerminalAwaiting(item, answer, time.Now().UnixMilli()); err != nil {
 			log.Printf("[server][awaiting] finish recovered timeout failed chatId=%s runId=%s awaitingId=%s err=%v", item.ChatID, item.RunID, item.AwaitingID, err)
 		}
 	case <-recovered.Control.Context().Done():
@@ -105,25 +105,15 @@ func (s *Server) superviseRecoveredAwaiting(ctx context.Context, item chat.Pendi
 		answer := contracts.AwaitingErrorAnswer(mode, "run_interrupted", "Run interrupted while waiting for input")
 		errorPayload := contracts.AnyMapNode(answer["error"])
 		errorPayload["reason"] = "run_interrupted"
-		if _, err := s.finishRecoveredAwaiting(item, step, answer, time.Now().UnixMilli()); err != nil {
+		if _, err := s.finishTerminalAwaiting(item, answer, time.Now().UnixMilli()); err != nil {
 			log.Printf("[server][awaiting] finish recovered interrupt failed chatId=%s runId=%s awaitingId=%s err=%v", item.ChatID, item.RunID, item.AwaitingID, err)
 		}
 	}
 }
 
-func (s *Server) finishRecoveredAwaiting(item chat.PendingAwaitingWithChat, step *chat.PersistedAwaitingStep, answer map[string]any, resolvedAt int64) (bool, error) {
-	runs, ok := s.deps.Runs.(contracts.RecoveredAwaitingRunService)
-	if !ok {
-		return false, nil
-	}
-	claimed, claimedOK := runs.ClaimRecoveredAwaiting(item.RunID, item.AwaitingID)
-	if !claimedOK {
-		return false, nil
-	}
-	if err := s.finishRestartTerminalAwaiting(item, step, answer, resolvedAt); err != nil {
-		runs.ReleaseRecoveredAwaiting(item.RunID, item.AwaitingID)
-		return true, err
-	}
+// publishRecoveredAwaitingTerminal runs only after the claim owner has persisted
+// every terminal record successfully.
+func (s *Server) publishRecoveredAwaitingTerminal(item chat.PendingAwaitingWithChat, step *chat.PersistedAwaitingStep, answer map[string]any, resolvedAt int64, claimed *contracts.RecoveredAwaitingRun) {
 	payload := contracts.CloneMap(answer)
 	payload["awaitingId"] = item.AwaitingID
 	payload["runId"] = item.RunID
@@ -142,7 +132,6 @@ func (s *Server) finishRecoveredAwaiting(item chat.PendingAwaitingWithChat, step
 		ChatID: item.ChatID, RunID: item.RunID, AwaitingID: item.AwaitingID, Mode: item.Mode,
 	}, payload, resolvedAt)
 	s.broadcast("run.finished", runFinishedPushPayload(item.RunID, item.ChatID, "cancel", resolvedAt))
-	return true, nil
 }
 
 func recoveredTerminalToolResults(item chat.PendingAwaitingWithChat, step *chat.PersistedAwaitingStep, answer map[string]any, resolvedAt int64) []map[string]any {

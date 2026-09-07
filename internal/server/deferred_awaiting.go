@@ -4,6 +4,7 @@ import (
 	"strings"
 	"sync"
 
+	"agent-platform/internal/contracts"
 	runtimetypes "agent-platform/internal/runtime/types"
 )
 
@@ -13,11 +14,13 @@ type DeferredAwaitingStore interface {
 	Register(DeferredAwaiting)
 	Lookup(string) (DeferredAwaiting, bool)
 	Remove(string)
+	LockResolution(chatID, runID, awaitingID string) func()
 }
 
 // localDeferredAwaitingStore is retained only for direct Server construction.
 // app.New injects the query runtime's continuation store.
 type localDeferredAwaitingStore struct {
+	contracts.AwaitingResolutionCoordinator
 	mu    sync.Mutex
 	items map[string]DeferredAwaiting
 }

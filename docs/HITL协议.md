@@ -40,6 +40,8 @@ Host Bash 的 builtin 审批准备与命令启动分离：`approve`（仅本次�
 
 整批取消统一提交 `params: []`，后端归一化为 `status:"error"` 与 `error.code:"user_dismissed"`。
 
+活动普通 Run 的等待项始终由原执行流程收尾，包含等待提交、提交已接收但结果尚未落盘、恢复执行和结束中的阶段。会话详情读取与 Query 准入即使发现持久化等待时间已过期，也不能补写 answer / tool result、清除 pending 或提前记录 Run 完成；`LookupAwaiting` 中已移除等待项不等于执行流程已结束。批次超时只为实际等待审批的调用生成超时结果，无需审批的 sibling 仍按原流程执行。
+
 ## 跨进程重启
 
 Platform 启动时以 `CHATS.AWAITING_*` pending summary 为入口，对照同一 awaiting 的物理 step、answer、matching tool result 与 run completion 做幂等对账。`question` 在未超时或 `timeout=0` 时恢复，`planning` 不受停机时长或历史 timeout 字段影响，始终恢复。可恢复项不只注册 deferred submit：启动 hydration 还会为原公开 `runId` 注册真实的 suspended active run，保留原 `startedAt`、公开 owner、access level 与 run scope，状态为 `WAITING_SUBMIT`，EventBus cursor 从该 run 已持久化的最大 `liveSeq` 开始。因此重启后 `/api/chat` 会同时返回权威 `awaiting` 与可 attach 的 `activeRun`，客户端应在用户点击提交之前立即使用 `activeRun.lastSeq` attach。
@@ -51,6 +53,8 @@ Platform 启动时以 `CHATS.AWAITING_*` pending summary 为入口，对照同�
 run env 仅存在于当前 Platform 进程内，不随 awaiting StepLine 持久化。重启恢复 question/planning 时，原公开 RunID 与 HITL continuation 流程保持不变，但 root Scope 固定从 revision 0 的空动态层开始；历史 set/unset 不从 Chat 重放。native planning approve 创建新的 execute RunID，同样不继承旧 planning run 的动态值。
 
 恢复后的 question 剩余 timeout 由 suspended run supervisor 继续计时；`/api/interrupt` 和 reaper 也由同一 supervisor 收口。终态会按 `awaiting.answer -> tool.result(s) -> run.cancel` 的顺序发布到已 attach 连接，然后 freeze EventBus 并移除 active run。Platform 自身关闭仅取消进程内 supervisor，不伪造用户中断，pending 留给下次 hydration。
+
+所有自动终态入口共用收尾路由：成功取得恢复 claim 才能替 suspended run 持久化并发布终态；claim 失败必须重新确认运行时所有权，已被其他流程接管或已激活的 continuation 不得退回重启补写。竞争中的读取保留 pending，重复提交返回既有 `already_resolved` 冲突。只有明确没有运行时执行者的遗留等待项允许直接补写；continuation 协调器按 `chatId/runId/awaitingId` 串行处理，并在取得锁后重新读取 answer、matching tool results 与 completion。写入失败保留 pending，重试只补齐缺失步骤。此协调仅覆盖单 Platform 进程，不改变原始历史，也不对已污染 JSONL 做去重或迁移。
 
 没有 pending summary 的孤立历史 `awaiting.ask` 不迁移、也不恢复为活动态。`/api/chat.awaiting` 是客户端判断可提交状态的唯一事实源；历史 ask 只保留用于时间线和匹配完整交互内容。
 

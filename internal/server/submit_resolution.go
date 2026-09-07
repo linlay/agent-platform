@@ -26,6 +26,9 @@ func (s *Server) hydrateDeferredAwaitings() error {
 		return fmt.Errorf("load pending awaitings: %w", err)
 	}
 	for _, item := range items {
+		if contracts.AwaitingHasLiveExecutor(s.deps.Runs, item.RunID, item.AwaitingID) {
+			continue
+		}
 		nowMs := time.Now().UnixMilli()
 		if mode := strings.ToLower(strings.TrimSpace(item.Mode)); mode != "" && !isAwaitingGateMode(mode) {
 			log.Printf("[server][awaiting] clearing non-restorable pending awaiting chatId=%s awaitingId=%s mode=%s", item.ChatID, item.AwaitingID, item.Mode)
@@ -44,7 +47,7 @@ func (s *Server) hydrateDeferredAwaitings() error {
 		}
 		if latest != nil {
 			if restartTerminalAwaitingCode(latest.Answer) != "" {
-				if err := s.finishRestartTerminalAwaiting(item, step, latest.Answer, latest.UpdatedAt); err != nil {
+				if _, err := s.finishTerminalAwaiting(item, latest.Answer, latest.UpdatedAt); err != nil {
 					return err
 				}
 			} else if err := s.deps.Chats.ClearPendingAwaiting(item.ChatID, item.AwaitingID); err != nil {
@@ -93,7 +96,7 @@ func (s *Server) hydrateDeferredAwaitings() error {
 		if awaitingTimeoutApplies(effectiveMode) && timeoutSec > 0 && nowMs-item.CreatedAt > int64(timeoutSec)*1000 {
 			log.Printf("[server][awaiting] terminalizing expired deferred awaiting chatId=%s awaitingId=%s age=%dms timeout=%ds", item.ChatID, item.AwaitingID, nowMs-item.CreatedAt, timeoutSec)
 			answer := contracts.AwaitingTimeoutAnswer(effectiveMode, int64(timeoutSec), maxInt64((nowMs-item.CreatedAt)/1000, int64(timeoutSec)))
-			if err := s.finishRestartTerminalAwaiting(item, step, answer, nowMs); err != nil {
+			if _, err := s.finishTerminalAwaiting(item, answer, nowMs); err != nil {
 				return err
 			}
 			continue
@@ -103,7 +106,7 @@ func (s *Server) hydrateDeferredAwaitings() error {
 			answer := contracts.AwaitingErrorAnswer(effectiveMode, "runtime_restarted", "Platform restarted while waiting; submit the operation again")
 			errorPayload := contracts.AnyMapNode(answer["error"])
 			errorPayload["reason"] = "runtime_restarted"
-			if err := s.finishRestartTerminalAwaiting(item, step, answer, nowMs); err != nil {
+			if _, err := s.finishTerminalAwaiting(item, answer, nowMs); err != nil {
 				return err
 			}
 			continue
@@ -112,7 +115,7 @@ func (s *Server) hydrateDeferredAwaitings() error {
 			answer := contracts.AwaitingErrorAnswer(effectiveMode, "runtime_restarted", "Platform could not reconstruct the persisted awaiting context")
 			errorPayload := contracts.AnyMapNode(answer["error"])
 			errorPayload["reason"] = "continuation_context_unavailable"
-			if err := s.finishRestartTerminalAwaiting(item, step, answer, nowMs); err != nil {
+			if _, err := s.finishTerminalAwaiting(item, answer, nowMs); err != nil {
 				return err
 			}
 			continue
@@ -287,10 +290,6 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 	}
 	timeoutSec := contracts.AnyIntNode(deferred.Ask.Payload["timeout"])
 	if nowMs := time.Now().UnixMilli(); awaitingTimeoutApplies(deferred.Mode) && timeoutSec > 0 && nowMs-deferred.CreatedAt > int64(timeoutSec)*1000 {
-		step, err := s.loadPersistedAwaitingStep(deferred.ChatID, req.AwaitingID)
-		if err != nil {
-			return api.SubmitResponse{}, err
-		}
 		answer := contracts.AwaitingTimeoutAnswer(deferred.Mode, int64(timeoutSec), maxInt64((nowMs-deferred.CreatedAt)/1000, int64(timeoutSec)))
 		item := chat.PendingAwaitingWithChat{
 			ChatID:     deferred.ChatID,
@@ -299,14 +298,12 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 			Mode:       deferred.Mode,
 			CreatedAt:  deferred.CreatedAt,
 		}
-		finished, err := s.finishRecoveredAwaiting(item, step, answer, nowMs)
+		state, err := s.finishTerminalAwaiting(item, answer, nowMs)
 		if err != nil {
 			return api.SubmitResponse{}, err
 		}
-		if !finished {
-			if err := s.finishRestartTerminalAwaiting(item, step, answer, nowMs); err != nil {
-				return api.SubmitResponse{}, err
-			}
+		if state == contracts.AwaitingResolutionOwned {
+			return api.SubmitResponse{}, awaitingSubmitConflictError(req, deferred.ChatID, "already_resolved", "already_resolved", "awaiting continuation is already resuming")
 		}
 		return api.SubmitResponse{}, awaitingSubmitConflictError(req, deferred.ChatID, "expired", "awaiting_expired", "awaiting has expired")
 	}
@@ -366,6 +363,12 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 				runs.ReleaseRecoveredAwaiting(req.RunID, req.AwaitingID)
 			}
 		}()
+	} else if s.deps.Runs != nil {
+		// The shell may have activated between the persisted-submit lookup
+		// and IsRecoveredAwaiting. Its live executor still owns all writes.
+		if _, registered := s.deps.Runs.RunStatus(req.RunID); registered {
+			return api.SubmitResponse{}, awaitingSubmitConflictError(req, deferred.ChatID, "already_resolved", "already_resolved", "awaiting continuation is already resuming")
+		}
 	}
 
 	resolvedAt := time.Now().UnixMilli()

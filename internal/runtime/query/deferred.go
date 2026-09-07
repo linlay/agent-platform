@@ -4,12 +4,14 @@ import (
 	"strings"
 	"sync"
 
+	"agent-platform/internal/contracts"
 	runtimetypes "agent-platform/internal/runtime/types"
 )
 
 type DeferredAwaiting = runtimetypes.DeferredAwaiting
 
 type DeferredAwaitingStore struct {
+	contracts.AwaitingResolutionCoordinator
 	mu    sync.Mutex
 	items map[string]DeferredAwaiting
 }

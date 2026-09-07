@@ -72,6 +72,12 @@ func (s *Server) validPendingAwaitingInfo(chatID string, pending *chat.PendingAw
 	if chatID == "" || awaitingID == "" {
 		return nil, nil
 	}
+	pendingInfo := func(runID, mode string) *api.ChatErrorInfo {
+		return awaitingPendingInfo(chatID, api.Awaiting{AwaitingID: awaitingID, RunID: runID, Mode: mode, Status: "awaiting", CreatedAt: pending.CreatedAt})
+	}
+	if contracts.AwaitingHasLiveExecutor(s.deps.Runs, pending.RunID, awaitingID) {
+		return pendingInfo(pending.RunID, pending.Mode), nil
+	}
 	pendingMode := strings.ToLower(strings.TrimSpace(pending.Mode))
 	if !isAwaitingGateMode(pendingMode) {
 		s.clearPendingAwaitingGate(chatID, awaitingID)
@@ -93,13 +99,13 @@ func (s *Server) validPendingAwaitingInfo(chatID string, pending *chat.PendingAw
 		s.clearPendingAwaitingGate(chatID, awaitingID)
 		return nil, nil
 	}
+	runID := firstNonBlank(pending.RunID, ask.RunID, stringValue(ask.Payload["runId"]))
+	if contracts.AwaitingHasLiveExecutor(s.deps.Runs, runID, awaitingID) {
+		return pendingInfo(runID, effectiveMode), nil
+	}
 	timeoutSec := contracts.AnyIntNode(ask.Payload["timeout"])
 	if awaitingTimeoutApplies(effectiveMode) && timeoutSec > 0 && time.Now().UnixMilli()-pending.CreatedAt > int64(timeoutSec)*1000 {
 		resolvedAt := time.Now().UnixMilli()
-		step, err := s.loadPersistedAwaitingStep(chatID, awaitingID)
-		if err != nil {
-			return nil, err
-		}
 		answer := contracts.AwaitingTimeoutAnswer(effectiveMode, int64(timeoutSec), maxInt64((resolvedAt-pending.CreatedAt)/1000, int64(timeoutSec)))
 		item := chat.PendingAwaitingWithChat{
 			ChatID:     chatID,
@@ -108,14 +114,12 @@ func (s *Server) validPendingAwaitingInfo(chatID string, pending *chat.PendingAw
 			Mode:       effectiveMode,
 			CreatedAt:  pending.CreatedAt,
 		}
-		finished, err := s.finishRecoveredAwaiting(item, step, answer, resolvedAt)
+		state, err := s.finishTerminalAwaiting(item, answer, resolvedAt)
 		if err != nil {
 			return nil, err
 		}
-		if !finished {
-			if err := s.finishRestartTerminalAwaiting(item, step, answer, resolvedAt); err != nil {
-				return nil, err
-			}
+		if state == contracts.AwaitingResolutionOwned {
+			return pendingInfo(runID, effectiveMode), nil
 		}
 		return nil, nil
 	}

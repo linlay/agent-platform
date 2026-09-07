@@ -44,11 +44,78 @@ func restartTerminalAwaitingCode(answer map[string]any) string {
 	}
 }
 
-func (s *Server) finishRestartTerminalAwaiting(
+// finishTerminalAwaiting is the only entry to persisted terminal reconciliation.
+// Live executors and already-claimed recovery shells keep their own write path.
+func (s *Server) finishTerminalAwaiting(item chat.PendingAwaitingWithChat, answer map[string]any, resolvedAt int64) (contracts.AwaitingResolutionState, error) {
+	state, claimed := contracts.ClaimAwaitingResolution(s.deps.Runs, item.RunID, item.AwaitingID)
+	if claimed == nil && state != contracts.AwaitingResolutionUnowned {
+		return state, nil
+	}
+	if s.deferredAwaitings == nil {
+		if claimed != nil {
+			s.deps.Runs.(contracts.RecoveredAwaitingRunService).ReleaseRecoveredAwaiting(item.RunID, item.AwaitingID)
+		}
+		return state, fmt.Errorf("awaiting resolution coordinator is required")
+	}
+	unlock := s.deferredAwaitings.LockResolution(item.ChatID, item.RunID, item.AwaitingID)
+	defer unlock()
+	if claimed == nil {
+		// An earlier reconciler may have finished, or a continuation may now own it.
+		state, claimed = contracts.ClaimAwaitingResolution(s.deps.Runs, item.RunID, item.AwaitingID)
+		if claimed == nil && state != contracts.AwaitingResolutionUnowned {
+			return state, nil
+		}
+	}
+	if claimed != nil {
+		defer s.deps.Runs.(contracts.RecoveredAwaitingRunService).ReleaseRecoveredAwaiting(item.RunID, item.AwaitingID)
+	}
+	// Never reuse a snapshot captured before acquiring ownership and the lock.
+	step, err := s.loadPersistedAwaitingStep(item.ChatID, item.AwaitingID)
+	if err != nil {
+		return state, err
+	}
+	latest, err := s.deps.Chats.LoadLatestAwaitingSubmit(item.ChatID, item.AwaitingID)
+	if err != nil {
+		return state, err
+	}
+	if latest != nil {
+		switch code := contracts.AnyStringNode(contracts.AnyMapNode(latest.Answer["error"])["code"]); code {
+		case "timeout", "runtime_restarted", "run_interrupted":
+			answer = contracts.CloneMap(latest.Answer)
+			resolvedAt = latest.UpdatedAt
+		default:
+			// A submitted answer owns its continuation, even after a partial write.
+			return contracts.AwaitingResolutionOwned, nil
+		}
+	}
+	if resolvedAt <= 0 {
+		resolvedAt = time.Now().UnixMilli()
+	}
+	answer = contracts.CloneMap(answer)
+	answer["type"] = "awaiting.answer"
+	answer["timestamp"] = resolvedAt
+	answer["awaitingId"] = item.AwaitingID
+	answer["runId"] = item.RunID
+	if duration, ok := awaitingDurationMs(item.CreatedAt, resolvedAt); ok {
+		answer["durationMs"] = duration
+	}
+	if err := s.persistTerminalAwaiting(item, step, answer, resolvedAt, latest != nil); err != nil {
+		return state, err
+	}
+	if claimed != nil {
+		s.publishRecoveredAwaitingTerminal(item, step, answer, resolvedAt, claimed)
+	}
+	return contracts.AwaitingResolutionFinished, nil
+}
+
+// persistTerminalAwaiting requires recovery ownership or absence of a runtime
+// owner, plus the continuation coordinator's per-awaiting resolution lock.
+func (s *Server) persistTerminalAwaiting(
 	item chat.PendingAwaitingWithChat,
 	step *chat.PersistedAwaitingStep,
 	answer map[string]any,
 	resolvedAt int64,
+	answerPersisted bool,
 ) error {
 	if step == nil || step.Ask == nil {
 		return fmt.Errorf("terminalize awaiting chatId=%s awaitingId=%s: persisted awaiting step is required", item.ChatID, item.AwaitingID)
@@ -59,28 +126,7 @@ func (s *Server) finishRestartTerminalAwaiting(
 	if itemRunID, stepRunID := strings.TrimSpace(item.RunID), strings.TrimSpace(step.RunID); itemRunID != "" && stepRunID != "" && itemRunID != stepRunID {
 		return fmt.Errorf("terminalize awaiting chatId=%s awaitingId=%s: persisted runId does not match", item.ChatID, item.AwaitingID)
 	}
-	if resolvedAt <= 0 {
-		resolvedAt = time.Now().UnixMilli()
-	}
-
-	latest, err := s.deps.Chats.LoadLatestAwaitingSubmit(item.ChatID, item.AwaitingID)
-	if err != nil {
-		return fmt.Errorf("terminalize awaiting chatId=%s awaitingId=%s: load answer: %w", item.ChatID, item.AwaitingID, err)
-	}
-	if latest != nil {
-		answer = contracts.CloneMap(latest.Answer)
-		if latest.UpdatedAt > 0 {
-			resolvedAt = latest.UpdatedAt
-		}
-	} else {
-		answer = contracts.CloneMap(answer)
-		answer["type"] = "awaiting.answer"
-		answer["timestamp"] = resolvedAt
-		answer["awaitingId"] = item.AwaitingID
-		answer["runId"] = item.RunID
-		if duration, ok := awaitingDurationMs(item.CreatedAt, resolvedAt); ok {
-			answer["durationMs"] = duration
-		}
+	if !answerPersisted {
 		if err := s.deps.Chats.AppendSubmitLine(item.ChatID, chat.SubmitLine{
 			ChatID:    item.ChatID,
 			RunID:     item.RunID,
