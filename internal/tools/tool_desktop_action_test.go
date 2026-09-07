@@ -1374,8 +1374,7 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 		"desktop.webapp.checkRuntime",
 		"desktop.webapp.getPublishStatus",
 		"desktop.webapp.getStatus",
-		"desktop.webapp.manifest.init",
-		"desktop.webapp.manifest.validate",
+		"desktop.webapp.package.init",
 		"desktop.webapp.package.build",
 		"desktop.webapp.package.validate",
 		"desktop.webapp.install",
@@ -1408,8 +1407,8 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 
 func TestDesktopActionAllowlistUsesDirectReverseRequestFrames(t *testing.T) {
 	actions := sortedDesktopActionAllowlist(t)
-	if len(actions) != 87 {
-		t.Fatalf("desktop action count = %d, want 87", len(actions))
+	if len(actions) != 86 {
+		t.Fatalf("desktop action count = %d, want 86", len(actions))
 	}
 	invoker := &routingClientRequestInvoker{}
 	executor := &RuntimeToolExecutor{
