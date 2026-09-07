@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"agent-platform/internal/connector"
 )
@@ -84,8 +85,10 @@ func ProcessConnectorsRoot() (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if pkg.Version != component.Version {
-			return "", fmt.Errorf("builtin %s manifest version mismatch", id)
+		// WriteBuiltin removes the release tag's optional v prefix when
+		// producing the SemVer required by connector.json.
+		if pkg.Version != strings.TrimPrefix(component.Version, "v") {
+			return "", fmt.Errorf("builtin connector %s manifest version mismatch: connector.json=%q, builtins.manifest.json=%q", id, pkg.Version, component.Version)
 		}
 		found = true
 	}

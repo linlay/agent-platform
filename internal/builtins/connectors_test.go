@@ -5,11 +5,61 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"agent-platform/internal/connector"
 	"agent-platform/internal/resources"
 )
+
+func TestBuiltinConnectorManifestVersionComparison(t *testing.T) {
+	for _, tc := range []struct {
+		name, component, bundleVersion, connectorVersion string
+		wantMismatch                                     bool
+	}{
+		{"dbx_release_tag", "dbx", "v0.1.2", "0.1.2", false},
+		{"httpx_release_tag", "httpx", "v0.1.8", "0.1.8", false},
+		{"plain_version", "dbx", "0.1.2", "0.1.2", false},
+		{"prerelease_tag", "dbx", "v0.1.2-beta.1", "0.1.2-beta.1", false},
+		{"different_release", "dbx", "v0.1.3", "0.1.2", true},
+		{"different_prerelease", "dbx", "v0.1.2-beta.2", "0.1.2-beta.1", true},
+		{"different_build", "dbx", "v0.1.2+build.2", "0.1.2+build.1", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bundle := t.TempDir()
+			relative := "connectors/builtin." + tc.component
+			dir := filepath.Join(bundle, filepath.FromSlash(relative))
+			if err := connector.WriteBuiltin(dir, tc.component, tc.connectorVersion, runtime.GOOS); err != nil {
+				t.Fatal(err)
+			}
+			outputs := []TreeOutput{{Path: relative, Type: "dir"}}
+			digest, err := TreeDigest(bundle, outputs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest := Manifest{
+				SchemaVersion: manifestSchemaVersion,
+				Platform:      ManifestPlatform{OS: runtime.GOOS, Arch: runtime.GOARCH},
+				Components: []ManifestComponent{{
+					Name: tc.component, Version: tc.bundleVersion,
+					Path: relative, Tree: outputs, SHA256: digest,
+				}},
+			}
+			writeCacheManifest(t, filepath.Join(bundle, "builtins.manifest.json"), manifest)
+			setProcessBinDirForTest(t, filepath.Join(bundle, "bin"))
+			root, err := ProcessConnectorsRoot()
+			if tc.wantMismatch {
+				if err == nil || !strings.Contains(err.Error(), "manifest version mismatch") || !strings.Contains(err.Error(), tc.bundleVersion) || !strings.Contains(err.Error(), tc.connectorVersion) {
+					t.Fatalf("expected both mismatched versions in diagnostic, got root=%q err=%v", root, err)
+				}
+				return
+			}
+			if err != nil || root != filepath.Join(bundle, "connectors") {
+				t.Fatalf("matching release rejected: root=%q err=%v", root, err)
+			}
+		})
+	}
+}
 
 func TestBuiltinConnectorBundleLoadsWithoutRuntimeInstall(t *testing.T) {
 	cache := t.TempDir()
