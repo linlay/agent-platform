@@ -20,6 +20,7 @@ type Session struct {
 	scope       string
 	cwd         string
 	shell       string
+	args        []string
 	proc        ptyProcess
 	startOnce   sync.Once
 	closeOnce   sync.Once

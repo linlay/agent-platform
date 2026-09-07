@@ -10,6 +10,7 @@ import (
 
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/catalog"
+	"agent-platform/internal/hostshell"
 	terminalpkg "agent-platform/internal/terminal"
 )
 
@@ -36,15 +37,33 @@ func (s *Server) openTerminalSession(payload terminalOpenPayload, ownerKey strin
 	if err != nil {
 		return terminalpkg.OpenResult{}, err
 	}
+	launch, shellErr := hostshell.Resolve(s.deps.Config.Bash, hostshell.Options{
+		GOOS: runtime.GOOS, Interactive: true, CWD: cwd,
+		Env: append(os.Environ(), terminalEnvironment(def, cwd)...), TempDir: hostshell.TempDir(nil),
+	})
+	if shellErr != nil {
+		return terminalpkg.OpenResult{}, &statusError{status: http.StatusServiceUnavailable, message: shellErr.Error()}
+	}
+	// Strip chat/identity values from the complete inherited environment, not
+	// only definition overrides. Terminal is never a chat execution channel.
+	filteredEnv := launch.Env[:0]
+	for _, entry := range launch.Env {
+		name, _, _ := strings.Cut(entry, "=")
+		if !strings.EqualFold(name, agentconfig.EnvChatDir) && !strings.EqualFold(name, agentconfig.EnvAccessToken) {
+			filteredEnv = append(filteredEnv, entry)
+		}
+	}
 	result, openErr := s.terminals.Open(terminalpkg.OpenRequest{
 		OwnerKey:    ownerKey,
 		AgentKey:    agentKey,
 		TerminalKey: strings.TrimSpace(payload.TerminalKey),
 		CWD:         cwd,
-		Shell:       resolveTerminalShell(s.deps.Config.Bash.ShellExecutable),
+		Shell:       launch.Executable,
+		Args:        launch.Args,
+		Managed:     launch.GitBash,
 		Cols:        payload.Cols,
 		Rows:        payload.Rows,
-		Env:         terminalEnvironment(def, cwd),
+		Env:         filteredEnv,
 	})
 	if openErr != nil {
 		if errors.Is(openErr, terminalpkg.ErrUnsupported) {
@@ -107,14 +126,5 @@ func resolveTerminalShell(configured string) string {
 }
 
 func resolveTerminalShellForGOOS(configured string, envShell string, goos string) string {
-	if shell := strings.TrimSpace(configured); shell != "" {
-		return shell
-	}
-	if goos == "windows" {
-		return "powershell.exe"
-	}
-	if shell := strings.TrimSpace(envShell); shell != "" {
-		return shell
-	}
-	return "/bin/bash"
+	return hostshell.TerminalExecutable(configured, envShell, goos)
 }

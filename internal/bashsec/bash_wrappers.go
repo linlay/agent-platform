@@ -3,11 +3,35 @@ package bashsec
 import (
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
 func normalizedCommandBase(command string) string {
-	return strings.ToLower(filepath.Base(strings.TrimSpace(command)))
+	base := strings.ToLower(filepath.Base(strings.TrimSpace(command)))
+	if runtime.GOOS == "windows" {
+		base = strings.TrimSuffix(base, ".exe")
+	}
+	return base
+}
+
+// UnwrapCommandForPaths exposes only deterministic wrappers. Cwd-changing env
+// wrappers are rejected until the filesystem planner can model their cwd.
+func UnwrapCommandForPaths(argv []string) ([]string, bool) {
+	chain := deterministicCommandChain(argv)
+	if len(chain) == 0 {
+		return nil, false
+	}
+	for _, command := range chain {
+		if normalizedCommandBase(command[0]) == "env" {
+			for _, arg := range command[1:] {
+				if arg == "-C" || strings.HasPrefix(arg, "--chdir") || arg == "-S" || strings.HasPrefix(arg, "--split-string") || arg == "-i" || arg == "--ignore-environment" {
+					return nil, false
+				}
+			}
+		}
+	}
+	return chain[len(chain)-1], true
 }
 
 func deterministicCommandChain(argv []string) [][]string {

@@ -3,11 +3,13 @@ package terminal
 import "io"
 
 type startPTYRequest struct {
-	Shell string
-	CWD   string
-	Cols  int
-	Rows  int
-	Env   []string
+	Shell   string
+	Args    []string
+	Managed bool
+	CWD     string
+	Cols    int
+	Rows    int
+	Env     []string
 }
 
 type ptyProcess interface {

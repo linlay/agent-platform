@@ -12,7 +12,7 @@ import (
 	"unicode/utf16"
 	"unsafe"
 
-	"agent-platform/internal/builtins"
+	"agent-platform/internal/processgroup"
 
 	"golang.org/x/sys/windows"
 )
@@ -23,6 +23,7 @@ type windowsPTYProcess struct {
 	output  *os.File
 	process windows.Handle
 	thread  windows.Handle
+	job     *processgroup.Job
 
 	mu          sync.Mutex
 	closeOnce   sync.Once
@@ -71,6 +72,9 @@ func startPTY(req startPTYRequest) (ptyProcess, error) {
 	}
 	if err := proc.startShell(req); err != nil {
 		proc.Close()
+		// An assignment/resume failure may leave a terminated process with
+		// open process/thread handles. No session will call Wait in this path.
+		_, _ = proc.Wait()
 		if isUnsupportedPseudoConsoleError(err) {
 			return nil, ErrUnsupported
 		}
@@ -102,7 +106,7 @@ func (p *windowsPTYProcess) startShell(req startPTYRequest) error {
 		ProcThreadAttributeList: attributeList.List(),
 	}
 
-	commandLine, err := windows.UTF16PtrFromString(windows.ComposeCommandLine([]string{req.Shell}))
+	commandLine, err := windows.UTF16PtrFromString(windows.ComposeCommandLine(append([]string{req.Shell}, req.Args...)))
 	if err != nil {
 		return err
 	}
@@ -113,7 +117,7 @@ func (p *windowsPTYProcess) startShell(req startPTYRequest) error {
 			return err
 		}
 	}
-	env, err := windowsEnvBlock(builtins.EnsureBinInEnv(mergeEnvironment(os.Environ(), req.Env)))
+	env, err := windowsEnvBlock(processEnvironment(req))
 	if err != nil {
 		return err
 	}
@@ -123,13 +127,21 @@ func (p *windowsPTYProcess) startShell(req startPTYRequest) error {
 	}
 
 	processInfo := new(windows.ProcessInformation)
+	flags := uint32(windows.CREATE_DEFAULT_ERROR_MODE | windows.CREATE_UNICODE_ENVIRONMENT | windows.EXTENDED_STARTUPINFO_PRESENT)
+	if req.Managed {
+		p.job, err = processgroup.NewJob()
+		if err != nil {
+			return err
+		}
+		flags |= windows.CREATE_SUSPENDED
+	}
 	err = windows.CreateProcess(
 		nil,
 		commandLine,
 		nil,
 		nil,
 		false,
-		windows.CREATE_DEFAULT_ERROR_MODE|windows.CREATE_UNICODE_ENVIRONMENT|windows.EXTENDED_STARTUPINFO_PRESENT,
+		flags,
 		envPtr,
 		cwd,
 		&startupInfo.StartupInfo,
@@ -140,6 +152,14 @@ func (p *windowsPTYProcess) startShell(req startPTYRequest) error {
 	}
 	p.process = processInfo.Process
 	p.thread = processInfo.Thread
+	if p.job != nil {
+		if err := p.job.Assign(p.process); err != nil {
+			return err
+		}
+		if _, err := windows.ResumeThread(p.thread); err != nil {
+			return err
+		}
+	}
 	go p.closeConsoleAfterExit(processInfo.Process)
 	return nil
 }
@@ -188,6 +208,9 @@ func (p *windowsPTYProcess) Close() error {
 	}
 	var err error
 	p.closeOnce.Do(func() {
+		if p.job != nil {
+			_ = p.job.Close()
+		}
 		if p.process != 0 {
 			_ = windows.TerminateProcess(p.process, 1)
 		}
@@ -222,6 +245,9 @@ func (p *windowsPTYProcess) Wait() (*int, error) {
 		}
 		exitCode := int(code)
 		p.waitCode = &exitCode
+		if p.job != nil {
+			_ = p.job.Close()
+		}
 		if p.thread != 0 {
 			_ = windows.CloseHandle(p.thread)
 			p.thread = 0

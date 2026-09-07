@@ -189,7 +189,7 @@ func classifyRedirectAccess(redirect bashast.Redirect) redirectAccessKind {
 }
 
 func isDevNullRedirectTarget(target string) bool {
-	return filepath.Clean(pathutil.ExpandHome(strings.TrimSpace(target))) == "/dev/null"
+	return filepath.ToSlash(filepath.Clean(pathutil.ExpandHome(strings.TrimSpace(target)))) == "/dev/null"
 }
 
 func isFileDescriptorRedirectTarget(target string) bool {

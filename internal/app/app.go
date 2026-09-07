@@ -23,6 +23,7 @@ import (
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/conversation"
 	"agent-platform/internal/gateway"
+	"agent-platform/internal/hostshell"
 	"agent-platform/internal/kbase"
 	"agent-platform/internal/llm"
 	"agent-platform/internal/lsp"
@@ -85,6 +86,12 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	cfg, err := config.Load(configOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
+	}
+	if err := hostshell.Configure(&cfg.Bash, hostEnv.GOOS, hostEnv.GOARCH); err != nil {
+		return nil, fmt.Errorf("initialize host shell: %w", err)
+	}
+	if hostshell.Enabled(cfg.Bash, hostEnv.GOOS) {
+		log.Printf("verified bundled Git Bash runtime: %s", cfg.Bash.GitBash.RuntimeRoot)
 	}
 	if cfg.ContainerHub.Enabled {
 		runtimeInfo := sandbox.NewContainerHubClient(cfg.ContainerHub).GetRuntimeInfo()

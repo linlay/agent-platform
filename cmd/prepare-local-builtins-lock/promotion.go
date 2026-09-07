@@ -108,7 +108,11 @@ func offerUpdate(lockPath, collectionRoot, durableRoot, hostTarget string, input
 	}
 
 	for _, update := range selected {
-		candidate.Lock.Components[update.ComponentIndex] = update.Component
+		if update.ComponentIndex == len(candidate.Lock.Components) {
+			candidate.Lock.Components = append(candidate.Lock.Components, update.Component)
+		} else {
+			candidate.Lock.Components[update.ComponentIndex] = update.Component
+		}
 	}
 	candidate.Lock.SchemaVersion = 2
 	payload, err := json.MarshalIndent(candidate.Lock, "", "  ")
@@ -150,8 +154,13 @@ func prepareRolloutCandidate(lockPath, collectionRoot, durableRoot, hostTarget s
 	lock.SchemaVersion = 2
 	candidate := rolloutCandidate{Lock: lock, Original: original, LockPath: absLockPath, TargetKey: targetKey}
 
-	for index := range candidate.Lock.Components {
-		canonical := candidate.Lock.Components[index]
+	components := append([]builtins.Component(nil), candidate.Lock.Components...)
+	if targetKey == "windows-amd64" {
+		if _, err := builtins.FindComponent(lock, builtins.GitBashComponent); err != nil {
+			components = append(components, gitBashSeed())
+		}
+	}
+	for index, canonical := range components {
 		if !isLocallyVersionedComponent(canonical.Name) {
 			continue
 		}
@@ -190,13 +199,17 @@ func prepareRolloutCandidate(lockPath, collectionRoot, durableRoot, hostTarget s
 		}
 
 		currentTarget, targetExists := canonical.Targets[targetKey]
-		if !targetExists && !canonical.Required {
+		if !targetExists && !canonical.Required && !(canonical.Name == builtins.GitBashComponent && targetKey == "windows-amd64") {
 			continue
 		}
 		mode := "follower"
 		promoted := cloneComponent(canonical)
 		if versionComparison > 0 {
 			mode = "leader"
+			if canonical.Name == builtins.GitBashComponent && !hasCommit {
+				candidate.Notices = append(candidate.Notices, "git-bash requires an exact clean Git commit before canonical registration")
+				continue
+			}
 			if !clean {
 				candidate.Notices = append(candidate.Notices, fmt.Sprintf("local %s version %s is newer than %s, but its repository has uncommitted changes; leader update was not offered", canonical.Name, localVersion, canonical.Version))
 				continue

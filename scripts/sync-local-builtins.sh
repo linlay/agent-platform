@@ -135,6 +135,15 @@ copy_project httpx
 copy_project kbase-lance-engine
 copy_project poppler-pdftotext
 
+for target in "${TARGETS[@]}"; do
+  if [[ "$target" == "windows/amd64" ]]; then
+    [[ -d "$BUILTINS_ROOT/git-bash" ]] || die "missing prepared git-bash builtin project"
+    copy_project git-bash
+    (cd "$collection_root/git-bash" && scripts/release/build.sh)
+    break
+  fi
+done
+
 # dbx, httpx, kbase-lance-engine, and poppler-pdftotext are local source
 # projects. Rebuild their archives from the isolated collection on every sync.
 # ripgrep is the only precompiled component and is only copied and verified.

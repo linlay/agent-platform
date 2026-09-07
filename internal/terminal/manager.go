@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -41,6 +42,8 @@ type OpenRequest struct {
 	TerminalKey string
 	CWD         string
 	Shell       string
+	Args        []string
+	Managed     bool
 	Cols        int
 	Rows        int
 	Env         []string
@@ -108,7 +111,7 @@ func (m *Manager) Open(req OpenRequest) (OpenResult, error) {
 	}
 
 	registryKey := agentSessionKey(req.OwnerKey, req.AgentKey, req.TerminalKey)
-	if session, ok, err := m.lookupAgentSession(registryKey, req.CWD, req.Shell); ok || err != nil {
+	if session, ok, err := m.lookupAgentSession(registryKey, req.CWD, req.Shell, req.Args...); ok || err != nil {
 		return OpenResult{Session: session, Reused: ok}, err
 	}
 	if err := m.checkSessionLimits(req.OwnerKey, req.AgentKey); err != nil {
@@ -116,11 +119,13 @@ func (m *Manager) Open(req OpenRequest) (OpenResult, error) {
 	}
 
 	proc, err := startPTY(startPTYRequest{
-		Shell: req.Shell,
-		CWD:   req.CWD,
-		Cols:  req.Cols,
-		Rows:  req.Rows,
-		Env:   req.Env,
+		Shell:   req.Shell,
+		Args:    append([]string(nil), req.Args...),
+		Managed: req.Managed,
+		CWD:     req.CWD,
+		Cols:    req.Cols,
+		Rows:    req.Rows,
+		Env:     req.Env,
 	})
 	if err != nil {
 		return OpenResult{}, err
@@ -135,6 +140,7 @@ func (m *Manager) Open(req OpenRequest) (OpenResult, error) {
 		scope:       ScopeAgent,
 		cwd:         req.CWD,
 		shell:       req.Shell,
+		args:        append([]string(nil), req.Args...),
 		proc:        proc,
 		subscribers: map[int64]chan Event{},
 		done:        make(chan struct{}),
@@ -150,7 +156,7 @@ func (m *Manager) Open(req OpenRequest) (OpenResult, error) {
 				m.mu.Unlock()
 				_ = proc.Close()
 				_, _ = proc.Wait()
-				if existing.CWD() != req.CWD || existing.Shell() != req.Shell {
+				if existing.CWD() != req.CWD || existing.Shell() != req.Shell || !slices.Equal(existing.args, req.Args) {
 					return OpenResult{}, fmt.Errorf("%w: terminalKey already exists with different cwd or shell", ErrSessionConflict)
 				}
 				return OpenResult{Session: existing, Reused: true}, nil
@@ -258,7 +264,7 @@ func (m *Manager) lookupOwned(ownerKey string, terminalID string) (*Session, err
 	return session, nil
 }
 
-func (m *Manager) lookupAgentSession(registryKey string, cwd string, shell string) (*Session, bool, error) {
+func (m *Manager) lookupAgentSession(registryKey string, cwd string, shell string, args ...string) (*Session, bool, error) {
 	m.mu.RLock()
 	sessionID := m.agentSessions[registryKey]
 	session := m.sessions[sessionID]
@@ -266,7 +272,7 @@ func (m *Manager) lookupAgentSession(registryKey string, cwd string, shell strin
 	if session == nil || session.Finished() {
 		return nil, false, nil
 	}
-	if session.CWD() != cwd || session.Shell() != shell {
+	if session.CWD() != cwd || session.Shell() != shell || !slices.Equal(session.args, args) {
 		return nil, false, fmt.Errorf("%w: terminalKey already exists with different cwd or shell", ErrSessionConflict)
 	}
 	return session, true, nil

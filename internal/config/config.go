@@ -459,11 +459,19 @@ type ContainerHubConfig struct {
 }
 
 type BashConfig struct {
+	GitBash              GitBashConfig
 	AllowedCommands      []string
 	ShellFeaturesEnabled bool
 	ShellExecutable      string
 	ShellArgs            []string
 	MaxCommandChars      int
+}
+
+// GitBashConfig selects the platform-owned Windows shell. RuntimeRoot is
+// resolved and verified during startup, never loaded from YAML or the API.
+type GitBashConfig struct {
+	Enabled     bool
+	RuntimeRoot string
 }
 
 type FileToolsConfig struct {

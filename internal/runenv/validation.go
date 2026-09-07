@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"agent-platform/internal/shellenv"
 )
 
 var portableNamePattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,127}$`)
@@ -30,6 +32,9 @@ func ValidateName(name string, extraDenied []string) error {
 		return fmt.Errorf("environment variable name must match %s", portableNamePattern.String())
 	}
 	upper := strings.ToUpper(name)
+	if shellenv.Reserved(upper) || upper == "HOME" || upper == "TMPDIR" || upper == "TMP" || upper == "TEMP" {
+		return fmt.Errorf("environment variable %s is reserved by the host shell", name)
+	}
 	if _, denied := hardDeniedNames[upper]; denied {
 		return fmt.Errorf("environment variable %s is reserved or denied", name)
 	}

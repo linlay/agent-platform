@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"agent-platform/internal/shellenv"
 )
 
 const (
@@ -86,6 +88,9 @@ func environment(configHome string, workspaceDir string, chatDir string) map[str
 // IsReserved reports whether a key is owned by Agent Platform. The comparison
 // is case-insensitive so definitions remain portable to Windows environments.
 func IsReserved(key string) bool {
+	if shellenv.Reserved(key) {
+		return true
+	}
 	switch {
 	case strings.EqualFold(strings.TrimSpace(key), EnvAgentConfigHome):
 		return true

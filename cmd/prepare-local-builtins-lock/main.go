@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"agent-platform/internal/builtins"
@@ -43,6 +44,10 @@ func main() {
 		return
 	}
 	if *offerCanonicalUpdate {
+		if *hostTarget != runtime.GOOS+"/"+runtime.GOARCH {
+			fmt.Fprintln(os.Stderr, "canonical lock updates require the exact native host target")
+			os.Exit(1)
+		}
 		if err := offerUpdate(*input, *collectionRoot, *durableBuiltinsRoot, *hostTarget, os.Stdin, os.Stdout, stdinIsTerminal()); err != nil {
 			fmt.Fprintf(os.Stderr, "prepare local builtins lock: %v\n", err)
 			os.Exit(1)
@@ -89,6 +94,14 @@ func run(input, output, collectionRoot string, requestedTargets []string) error 
 		return err
 	}
 	lock.SchemaVersion = 2
+	for _, requested := range requestedTargets {
+		if requested == "windows/amd64" {
+			if _, err := builtins.FindComponent(lock, builtins.GitBashComponent); err != nil {
+				lock.Components = append(lock.Components, gitBashSeed())
+			}
+			break
+		}
+	}
 	for index := range lock.Components {
 		component := &lock.Components[index]
 		if !isLocallyVersionedComponent(component.Name) {
@@ -135,7 +148,7 @@ func run(input, output, collectionRoot string, requestedTargets []string) error 
 		for index := range lock.Components {
 			component := &lock.Components[index]
 			target, ok := component.Targets[key]
-			if !ok && !component.Required {
+			if !ok && !component.Required && !(component.Name == builtins.GitBashComponent && key == "windows-amd64") {
 				continue
 			}
 			if isLocallyVersionedComponent(component.Name) {
@@ -250,6 +263,14 @@ func declaredComponentTargets(input, componentName string, requestedTargets []st
 
 func localTargetTemplate(component builtins.Component, target builtins.Target, exists bool, goos, goarch string) (builtins.Target, error) {
 	version := "v" + strings.TrimPrefix(strings.TrimSpace(component.Version), "v")
+	if component.Name == builtins.GitBashComponent {
+		if goos != "windows" || goarch != "amd64" {
+			return builtins.Target{}, errors.New("git-bash only supports windows/amd64")
+		}
+		return builtins.Target{Version: component.Version, Source: component.Source, Commit: component.Commit,
+			Path: fmt.Sprintf("dist/%s/git-bash_%s_windows_amd64.zip", version, version), Format: "zip",
+			Tree: &builtins.TreeLayout{Root: "runtime", Outputs: []builtins.TreeOutput{{Path: builtins.GitBashRelativeRoot, Type: "dir"}}}}, nil
+	}
 	if exists {
 		target.Path = fmt.Sprintf("dist/%s/%s_%s_%s_%s.%s", version, component.Name, version, goos, goarch, target.Format)
 		return target, nil
@@ -288,11 +309,19 @@ func localTargetTemplate(component builtins.Component, target builtins.Target, e
 
 func isLocallyVersionedComponent(name string) bool {
 	switch name {
-	case "dbx", "httpx", "kbase-lance-engine", "poppler-pdftotext":
+	case "dbx", "httpx", "kbase-lance-engine", "poppler-pdftotext", builtins.GitBashComponent:
 		return true
 	default:
 		return false
 	}
+}
+
+// Bootstrap metadata is only materialized in a throwaway local lock. The
+// first canonical target still requires a clean native checkout and exact yes.
+func gitBashSeed() builtins.Component {
+	return builtins.Component{Name: builtins.GitBashComponent, Version: "v0.0.0", Repository: "git-bash",
+		Source: "agent-platform-builtins/git-bash", Kind: "archive-tree", Required: false,
+		License: "See bundled LICENSE.txt and mingw64/share/licenses", Targets: map[string]builtins.Target{}}
 }
 
 func stdinIsTerminal() bool {

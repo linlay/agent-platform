@@ -284,6 +284,17 @@ func TestDeclaredComponentTargetsReturnsOnlyLockedRequestedTargets(t *testing.T)
 func TestRunRecordsLocalCheckoutCommitOnlyInDerivedLock(t *testing.T) {
 	root := t.TempDir()
 	collection := filepath.Join(root, "collection")
+	gitRoot := filepath.Join(collection, "git-bash")
+	gitArchive := filepath.Join(gitRoot, "dist/v1.0.0/git-bash_v1.0.0_windows_amd64.zip")
+	if err := os.MkdirAll(filepath.Dir(gitArchive), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitRoot, "VERSION"), []byte("v1.0.0"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(gitArchive, []byte("prepared tree fixture"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	repository := filepath.Join(collection, "dbx")
 	archivePath := filepath.Join(repository, "dist", "v1", "dbx_v1_windows_amd64.zip")
 	if err := os.MkdirAll(filepath.Dir(archivePath), 0o755); err != nil {
@@ -329,6 +340,13 @@ func TestRunRecordsLocalCheckoutCommitOnlyInDerivedLock(t *testing.T) {
 	}
 	if got := canonical.Components[0].Commit; got != canonicalCommit {
 		t.Fatalf("canonical commit = %q, want %q", got, canonicalCommit)
+	}
+	if _, err := builtins.FindComponent(canonical, builtins.GitBashComponent); err == nil {
+		t.Fatal("cross build changed canonical component set")
+	}
+	gitBash, err := builtins.FindComponent(derived, builtins.GitBashComponent)
+	if err != nil || gitBash.Targets["windows-amd64"].Tree == nil {
+		t.Fatalf("local bootstrap: %+v %v", gitBash, err)
 	}
 }
 

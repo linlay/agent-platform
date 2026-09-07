@@ -6,8 +6,6 @@ import (
 	"os"
 	"os/exec"
 
-	"agent-platform/internal/builtins"
-
 	"github.com/creack/pty"
 	"golang.org/x/sys/unix"
 )
@@ -19,9 +17,9 @@ type unixPTYProcess struct {
 }
 
 func startPTY(req startPTYRequest) (ptyProcess, error) {
-	cmd := exec.Command(req.Shell)
+	cmd := exec.Command(req.Shell, req.Args...)
 	cmd.Dir = req.CWD
-	cmd.Env = builtins.EnsureBinInEnv(mergeEnvironment(os.Environ(), req.Env))
+	cmd.Env = processEnvironment(req)
 	file, err := pty.StartWithSize(cmd, &pty.Winsize{
 		Rows: uint16(req.Rows),
 		Cols: uint16(req.Cols),

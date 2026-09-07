@@ -404,6 +404,9 @@ func parseAccessPolicyApprovals(raw any, fallback AccessPolicyApprovalConfig) Ac
 }
 
 func (c *Config) applyBashValues(values map[string]any) {
+	if gitBash, ok := values["git-bash"].(map[string]any); ok {
+		c.Bash.GitBash.Enabled = boolValue(gitBash["enabled"], c.Bash.GitBash.Enabled)
+	}
 	c.Bash.AllowedCommands = csvOrList(anyValue(values["allowed-commands"], c.Bash.AllowedCommands), c.Bash.AllowedCommands)
 	c.Bash.ShellFeaturesEnabled = boolValue(anyValue(values["shell-features-enabled"], c.Bash.ShellFeaturesEnabled), c.Bash.ShellFeaturesEnabled)
 	c.Bash.ShellExecutable = stringValue(anyValue(values["shell-executable"], c.Bash.ShellExecutable), c.Bash.ShellExecutable)
@@ -472,6 +475,9 @@ func (c *Config) applyToolsFile(path string, ignoreRemovedWorkingDirectory bool)
 		if err := rejectRemovedPathPolicyKeys(path, "bash", bash, "allowed-paths", "path-checked-commands", "path-check-bypass-commands"); err != nil {
 			return err
 		}
+		if err := validateGitBashValues(bash); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
 		c.applyBashValues(bash)
 	}
 	if sandboxBash, ok := values["sandbox-bash"].(map[string]any); ok && len(sandboxBash) > 0 {
@@ -491,6 +497,26 @@ func (c *Config) applyToolsFile(path string, ignoreRemovedWorkingDirectory bool)
 	if platformControl, ok := values["platform-control"].(map[string]any); ok && len(platformControl) > 0 {
 		if err := c.applyPlatformControlValues(path, platformControl); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func validateGitBashValues(bash map[string]any) error {
+	raw, exists := bash["git-bash"]
+	if !exists {
+		return nil
+	}
+	values, ok := raw.(map[string]any)
+	if !ok {
+		return fmt.Errorf("bash.git-bash must be a mapping")
+	}
+	for key, value := range values {
+		if key != "enabled" {
+			return fmt.Errorf("unknown bash.git-bash key %q", key)
+		}
+		if _, ok := value.(bool); !ok {
+			return fmt.Errorf("bash.git-bash.enabled must be a boolean")
 		}
 	}
 	return nil

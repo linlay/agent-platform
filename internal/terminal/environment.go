@@ -1,8 +1,13 @@
 package terminal
 
 import (
+	"os"
 	"runtime"
 	"strings"
+
+	"agent-platform/internal/agentconfig"
+	"agent-platform/internal/builtins"
+	"agent-platform/internal/shellenv"
 )
 
 // mergeEnvironment applies overrides without relying on platform-specific
@@ -36,4 +41,19 @@ func normalizeEnvironmentKey(key string) string {
 		return strings.ToUpper(key)
 	}
 	return key
+}
+
+func processEnvironment(req startPTYRequest) []string {
+	env := req.Env
+	if !req.Managed {
+		env = shellenv.StripLocator(mergeEnvironment(os.Environ(), req.Env))
+	}
+	filtered := make([]string, 0, len(env))
+	for _, entry := range env {
+		key, _, _ := strings.Cut(entry, "=")
+		if !strings.EqualFold(key, agentconfig.EnvChatDir) && !strings.EqualFold(key, agentconfig.EnvAccessToken) {
+			filtered = append(filtered, entry)
+		}
+	}
+	return builtins.EnsureBinInEnv(filtered)
 }

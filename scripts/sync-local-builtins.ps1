@@ -123,6 +123,16 @@ try {
         Copy-IsolatedProject -Name $component -CollectionRoot $CollectionRoot
     }
 
+    if ($Targets -contains "windows/amd64") {
+        if (-not (Test-Path -LiteralPath (Join-Path $BuiltinsRoot "git-bash") -PathType Container)) {
+            throw "Missing prepared git-bash builtin project"
+        }
+        Copy-IsolatedProject -Name "git-bash" -CollectionRoot $CollectionRoot
+        Invoke-Native -Command "powershell" -WorkingDirectory (Join-Path $CollectionRoot "git-bash") -Arguments @(
+            "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts/release/build.ps1", "-TargetOS", "windows", "-TargetArch", "amd64"
+        )
+    }
+
     foreach ($item in $Targets) {
         $parts = $item.Split('/')
         $targetOS = $parts[0]

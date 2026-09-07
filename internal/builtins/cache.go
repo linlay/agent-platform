@@ -154,6 +154,9 @@ func StageCache(options CacheStageOptions) (CacheStageResult, error) {
 	if err := VerifyManifest(cacheDir, manifest); err != nil {
 		return CacheStageResult{}, fmt.Errorf("local builtins cache verification failed: %w", err)
 	}
+	if err := RequirePlatformComponents(manifest); err != nil {
+		return CacheStageResult{}, err
+	}
 
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return CacheStageResult{}, err
