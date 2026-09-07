@@ -2,6 +2,8 @@ package chat
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -40,7 +42,44 @@ func (s *FileStore) AppendSubmitLine(chatID string, line SubmitLine) error {
 }
 
 func (s *FileStore) AppendRunCompactCheckpoint(chatID string, line RunCompactCheckpointLine) error {
-	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	path := s.chatJSONLPath(chatID)
+	records, _, err := readJSONLineRecords(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	line.Version = 2
+	line.CoveredThroughLine = len(records)
+	line.PreviousCompactID = previousEffectiveCompactID(records)
+	raw, err := validateJSONLLinePayload(line, "chat.jsonl.runCompact.write")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	raw = append(raw, '\n')
+	n, err := file.Write(raw)
+	if err == nil && n != len(raw) {
+		err = io.ErrShortWrite
+	}
+	if err == nil {
+		err = file.Sync()
+	}
+	if err != nil {
+		return errors.Join(err, file.Truncate(info.Size()), file.Sync())
+	}
+	return nil
 }
 
 // chatJSONLPath returns the flat-file path for the chat's JSONL stream.

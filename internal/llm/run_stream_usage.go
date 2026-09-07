@@ -16,7 +16,7 @@ func (s *llmRunStream) currentContextSize() int {
 
 func (s *llmRunStream) estimatedNextCallSize() int {
 	if s.lastCallPromptTokens > 0 {
-		return s.lastCallPromptTokens + s.lastCallCompletionTokens + s.estimatedTokensAfterLastAssistant()
+		return max(s.fallbackContextEstimate(), s.lastCallPromptTokens+s.lastCallCompletionTokens+s.estimatedTokensAfterLastAssistant())
 	}
 	return s.fallbackContextEstimate()
 }
@@ -41,7 +41,7 @@ func (s *llmRunStream) estimatedTokensAfterLastAssistant() int {
 }
 
 func (s *llmRunStream) fallbackContextEstimate() int {
-	return estimateModelContext(s.messages, s.toolSpecs)
+	return s.estimateCompactContext(s.messages)
 }
 
 func (s *llmRunStream) effectiveContextWindow() int {

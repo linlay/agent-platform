@@ -401,6 +401,8 @@ type InputRunActivity struct {
 func (InputRunActivity) streamInputTag() {}
 
 type InputContextCompact struct {
+	CycleID                    string
+	CycleComplete              bool
 	Status                     string
 	RequestID                  string
 	CompactID                  string

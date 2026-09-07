@@ -7,7 +7,7 @@
 当前仓库定位是“最小可运行闭环 + 特色能力持续补齐”：
 
 - 已具备独立 HTTP 服务、统一 JSON 包裹与 `POST /api/query` 真流式 SSE。
-- 已具备 chat 摘要、事件流、raw messages、上传资源落盘、归档与搜索；分层上下文压缩提供不调用模型的 `l1_tools` 和严格单次模型调用的 `summary`，两层都支持已结束历史以及普通 Agent/Team 协调器活动根 Run 的 REACT 安全点阻断式 checkpoint，自动压缩按 L1 后按需 L2 执行。
+- 已具备 chat 摘要、事件流、raw messages、上传资源落盘、归档与搜索；分层上下文压缩提供不调用模型的 `l1_tools` 和严格单次模型调用的 `summary`，两层都支持已结束历史以及普通 Agent/Team 协调器活动根 Run 的 REACT 安全点阻断式 checkpoint，自动压缩在完整请求估算达到 80% 时执行 L1 并硬保留最近 5 次完整工具调用（并行批次整体保护），L1 后仍达到 90% 才执行 L2；60% 仅是目标，L2 可摘要已完成的近期工具组。
 - 已具备目录驱动的 agents / teams / skills / tools catalog，并在 Catalog 发布前将 Agent 定义、Agent 自有 Skill、技能中心 Skill 和 `.config` 组装到稳定的 `ru-agents/<agentKey>` 执行目录；query `mustUseSkills` 可在单次普通 Agent run 中强制使用额外技能中心 Skill，并为每个选中 Skill 目录建立 trusted read + readonly roots；Container 仍只读挂载整个技能中心，但 AccessPolicy 只免审读取选中目录，不复制、不生成 run-runtime。Admin Agent 支持安全校验完整 ZIP、以隐藏 staging/backup 原子导入或整目录覆盖；硬重载失败恢复旧来源，catalog 可发布但单个 Agent 无效时保留导入结果并返回诊断。Market 技能包由 Platform 原子安装为平铺子技能，包状态只保存在 `skills-center/.package`，临时 ZIP 不持久化。
 - 已具备 OpenAI / Anthropic 协议模型调用、统一 Tool、Container Hub sandbox 与 tools；`image_generate` 以统一参数支持文生图、最多四张本地/Chat 参考图的图生图，以及模型 YAML 显式声明的原生 mask/inpainting，生成和编辑请求分别由模型 YAML 的 `image.generation`、`image.edit` 协议块适配。
 - 统一工具生命周期支持 live-only `tool.output`（每次调用 `0..N` 条，最终仍由唯一 `tool.result` 收口）；当前仅 Native Host Bash 通过普通 pipe 接收 stdout/stderr，以 tee 临时文件作为最终事实源并按 50ms 周期发送原始控制流，Container Hub Bash、Chat JSONL 与冷回放不保存过程输出。

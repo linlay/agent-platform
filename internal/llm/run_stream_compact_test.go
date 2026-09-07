@@ -91,6 +91,7 @@ func TestActiveRunL1CompactsCompletedToolGroupWithoutModel(t *testing.T) {
 		pinnedMessageStart: 3,
 		pinnedMessageEnd:   4,
 	}
+	appendRecentCompactTestTools(stream, 5)
 	if !stream.scheduleContextCompact(false) {
 		t.Fatal("l1 compact was not scheduled")
 	}
@@ -116,7 +117,7 @@ func TestActiveRunL1CompactsCompletedToolGroupWithoutModel(t *testing.T) {
 	for _, delta := range stream.pending {
 		compact, ok := delta.(contracts.DeltaContextCompact)
 		if ok && compact.Status == "complete" && compact.Level == "l1_tools" {
-			foundComplete = compact.ToolsCleared == 1 && compact.ToolsKept == 0 && compact.TokensFreed > 0
+			foundComplete = compact.ToolsCleared == 1 && compact.ToolsKept == 5 && compact.TokensFreed > 0
 		}
 	}
 	if !foundComplete {
@@ -141,6 +142,7 @@ func TestAutomaticCompactStopsAfterMediaSafeL1Reestimate(t *testing.T) {
 		pinnedMessageStart: 1,
 		pinnedMessageEnd:   2,
 	}
+	appendRecentCompactTestTools(stream, 5)
 	if !stream.scheduleContextCompact(false) || stream.compactWork == nil || stream.compactWork.request.Level != "l1_tools" {
 		t.Fatalf("automatic l1 was not scheduled: %#v", stream.compactWork)
 	}
@@ -183,6 +185,7 @@ func TestAutomaticCompactRunsL1BeforeSchedulingSummary(t *testing.T) {
 		pinnedMessageStart: 4,
 		pinnedMessageEnd:   5,
 	}
+	appendRecentCompactTestTools(stream, 5)
 	if !stream.scheduleContextCompact(false) || stream.compactWork == nil || stream.compactWork.request.Level != "l1_tools" {
 		t.Fatalf("automatic l1 was not scheduled: %#v", stream.compactWork)
 	}
@@ -526,5 +529,14 @@ func TestProviderContextOverflowCompactsOnceThenReturnsUncompactable(t *testing.
 	var terminal *apperrors.Error
 	if !errors.As(stream.modelTerminalError, &terminal) || terminal.Code() != apperrors.CodeContextWindowUncompactable {
 		t.Fatalf("terminal error = %v, want context_window_uncompactable", stream.modelTerminalError)
+	}
+}
+
+func appendRecentCompactTestTools(s *llmRunStream, count int) {
+	for i := 0; i < count; i++ {
+		id := fmt.Sprintf("recent-%d", i)
+		s.messages = append(s.messages,
+			openAIMessage{Role: "assistant", ToolCalls: []contracts.ModelToolCall{{ID: id, Type: "function", Function: contracts.ModelFunctionCall{Name: "file_read", Arguments: "{}"}}}},
+			openAIMessage{Role: "tool", ToolCallID: id, Content: "recent unchanged"})
 	}
 }

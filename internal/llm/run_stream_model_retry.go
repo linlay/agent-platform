@@ -11,7 +11,7 @@ import (
 const modelActivityPhase = "model_call"
 
 func (s *llmRunStream) modelMaxAttempts() int {
-	if s == nil || s.execCtx == nil {
+	if s == nil || s.execCtx == nil || s.summaryCall {
 		return 1
 	}
 	budget := NormalizeBudget(s.execCtx.Budget)

@@ -377,6 +377,8 @@ type DeltaRunActivity struct {
 func (DeltaRunActivity) agentDeltaTag() {}
 
 type DeltaContextCompact struct {
+	CycleID                    string
+	CycleComplete              bool
 	Status                     string
 	RequestID                  string
 	CompactID                  string

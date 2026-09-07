@@ -33,6 +33,8 @@ type LLMAgentEngine struct {
 }
 
 type runStreamOptions struct {
+	EstimateOnly                 bool
+	SummaryOutputTokens          int
 	ExecCtx                      *ExecutionContext
 	Messages                     []openAIMessage
 	ToolNames                    []string
@@ -91,6 +93,10 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	}
 	protocolConfig := resolveProtocolRuntimeConfig(provider, model)
 	stageSettings := stageSettingsForSession(session, options.Stage)
+	if options.SummaryOutputTokens > 0 {
+		stageSettings.MaxOutputTokens = options.SummaryOutputTokens
+		stageSettings.ReasoningEnabled = false
+	}
 	budgetStage := budgetStageForName(session, options.Stage)
 	allowedTools := resolveAllowedToolNames(session, options.Stage, options.ToolNames)
 	allToolDefs := mergeToolDefinitions(e.tools.Definitions(), session.ModeToolDefinitions)
@@ -221,6 +227,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		IncludeAfterCallHints:   true,
 	}
 	stream := &llmRunStream{
+		summaryCall:         options.SummaryOutputTokens > 0,
 		engine:              e,
 		protocol:            resolveProtocol(e, model),
 		ctx:                 ctx,
@@ -274,6 +281,9 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	if !stream.allowToolUse {
 		stream.toolSpecs = nil
 		stream.maxSteps = 1
+	}
+	if options.EstimateOnly {
+		return stream, nil
 	}
 	if err := stream.prepareNextTurn(); err != nil {
 		stream.Close()

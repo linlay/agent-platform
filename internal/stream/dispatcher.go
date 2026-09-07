@@ -293,6 +293,10 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 			"level":     value.Level,
 			"scope":     value.Scope,
 		}
+		if value.CycleID != "" {
+			payload["cycleId"] = value.CycleID
+			payload["cycleComplete"] = value.CycleComplete
+		}
 		if value.SummarySource != "" {
 			payload["summarySource"] = value.SummarySource
 		}

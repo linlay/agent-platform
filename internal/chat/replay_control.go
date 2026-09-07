@@ -77,6 +77,10 @@ func (r *historyReplay) replayRunCompact(line map[string]any) error {
 		"level":     firstNonEmptyReplayString(stringFromAny(line["level"]), "summary"),
 		"scope":     "run",
 	}
+	if id, ok := line["cycleId"].(string); ok && id != "" {
+		payload["cycleId"] = id
+		payload["cycleComplete"] = line["cycleComplete"]
+	}
 	if source := strings.TrimSpace(stringFromAny(line["summarySource"])); source != "" {
 		payload["summarySource"] = source
 	}

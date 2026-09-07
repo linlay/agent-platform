@@ -1,6 +1,8 @@
 package contracts
 
 type ModelMessage struct {
+	OriginRunID      string          `json:"-"`
+	OriginActor      string          `json:"-"`
 	Role             string          `json:"role"`
 	Content          any             `json:"content,omitempty"`
 	Name             string          `json:"name,omitempty"`

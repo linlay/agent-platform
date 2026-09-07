@@ -136,6 +136,14 @@ func (p *openAIProtocol) PrepareRequest(params protocolStreamParams) (preparedPr
 			requestBody["reasoning_effort"] = strings.ToLower(effort)
 		}
 	}
+	if params.stageSettings.MaxOutputTokens > 0 {
+		if _, legacyLimit := requestBody["max_tokens"]; legacyLimit {
+			requestBody["max_tokens"] = params.stageSettings.MaxOutputTokens
+			delete(requestBody, "max_completion_tokens")
+		} else {
+			requestBody["max_completion_tokens"] = params.stageSettings.MaxOutputTokens
+		}
+	}
 	modelrequest.ApplyOpenAICompatibleSampling(requestBody, params.stageSettings.Sampling)
 	body, err := json.Marshal(requestBody)
 	if err != nil {
@@ -280,6 +288,8 @@ func rawMessageToOpenAI(raw map[string]any, preserveReasoning bool) openAIMessag
 		contentValue = raw["content"]
 	}
 	msg := openAIMessage{Role: role, Content: contentValue}
+	msg.OriginRunID, _ = raw["runId"].(string)
+	msg.OriginActor, _ = raw["agentKey"].(string)
 	if role == "assistant" {
 		if preserveReasoning {
 			msg.ReasoningContent = rawReasoningContentText(raw["reasoning_content"])

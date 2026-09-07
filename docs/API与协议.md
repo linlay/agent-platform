@@ -209,13 +209,21 @@ chat 摘要会在新数据中返回可选 `mode`；`/api/chat.runs[]`、`/api/ag
 
 `POST /api/compact` 的标准手动请求为 `{ "requestId":"...", "chatId":"...", "trigger":"manual", "level":"l1_tools"|"summary" }`，HTTP 与 WebSocket 字段一致。`l1_tools` 只确定性压缩白名单内已经完成、配对完整的 assistant tool call/result，普通 user/assistant/system、引用、附件、未完成工具与 HITL 原样保留；它不调用模型，也不产生 `compactionUsage`。`summary` 将符合条件的多个旧 Run 和活动 Run 已完成前缀合并成一个摘要，严格只调用一次摘要模型；摘要输入先做不落盘的 L1 结构化投影，完整规范化输入仍超出预算时返回 `summary_input_too_large`，绝不丢弃中间历史或拆成多次摘要调用。
 
-压缩规划、L1 前后计算、L2 mandatory 检查和结果校验共用同一套多模态安全估算。普通文本和工具 Schema 继续按现有字符口径估算；`image_url` 的 Base64 正文不作为文本计数，可从有界图片头读取尺寸时按 `ceil(width×height/750)` 计算并限制在 256–32768 token，WebP、外部 URL、非法 Data URL 或无法识别尺寸时固定为 8192 token；尺寸检查不会完整解码或访问网络。活动 Run 有有效 provider prompt usage 时，自动触发优先以该 usage 加上 assistant 之后新增消息估算；否则估算完整上下文。L1 完成后用同一口径重新计算，只有仍高于模型窗口 60% 目标才进入 L2。L2 摘要 prompt 会将候选图片正文临时投影为 MIME、字节大小、可读宽高和 payload SHA-256，不修改活动消息、Chat JSONL 或 checkpoint 中保留的原始图片消息。
+压缩规划、L1 前后计算、L2 mandatory 检查和结果校验共用同一套多模态安全估算。普通文本和工具 Schema 使用同一文本 Token 估算器；`image_url` 的 Base64 正文不作为文本计数，可从有界图片头读取尺寸时按 `ceil(width×height/750)` 计算并限制在 256–32768 token，WebP、外部 URL、非法 Data URL 或无法识别尺寸时固定为 8192 token；尺寸检查不会完整解码或访问网络。活动 Run 有有效 provider prompt usage 时，自动触发取该 usage 增量估算与完整请求估算的较大值，压缩后保留保守校准系数。L1 完成后用同一口径重新计算，只有仍达到模型窗口 90% 才进入 L2；60% 仅为压缩目标，最近 5 次完整工具调用在 L1 中始终硬保留。L2 摘要 prompt 会将候选图片正文临时投影为 MIME、字节大小、可读宽高和 payload SHA-256，不修改活动消息、Chat JSONL 或 checkpoint 中保留的原始图片消息。
 
-没有活动 Run 时，Platform 持有 Chat maintenance lease 后原子改写历史。L1 使用 `_type:"compact.tool"` 和 `_compact` 标记；L2 使用 `_type:"compact.checkpoint"`。L2 对一个终态 Run 可整体压缩，两个压缩第一个，三个及以上默认保留最后两个；保留尾部仍超过模型窗口 60% 目标时逐步减少到一个或零个。`no_compactable_tools` 与 `no_compactable_history` 分别表示不存在可做 L1 的工具组和不存在尚未压缩的终态历史。maintenance lease 持有期间新 query 以 `409 compact_in_progress` 拒绝，不会与 JSONL 替换竞态。
+没有活动 Run 时，Platform 持有 Chat maintenance lease 后原子改写历史。L1 在有效上下文中替换工具参数/结果并追加 `_type:"compact.tool"`；L2 使用 `_type:"compact.checkpoint"` 和被覆盖历史的 `_compact` 标记。L2 对一个终态 Run 可整体压缩，两个压缩第一个，三个及以上默认保留最后两个；保留尾部仍超过模型窗口 60% 目标时逐步减少到一个或零个。`no_compactable_tools` 与 `no_compactable_history` 分别表示不存在可做 L1 的旧工具组和不存在尚未压缩的终态历史。maintenance lease 持有期间新 query 以 `409 compact_in_progress` 拒绝，不会与 JSONL 替换竞态。
 
 普通 Agent 或 Team 协调器的活动原生根 Run 同时支持 L1/L2，不改写活动 JSONL，而是把请求投递给 REACT 循环并阻塞等待最终结果。已启动的模型 Turn 或工具批次自然结束后，在下一次模型调用、HITL 等待或 run 终态边界的安全点压缩；已启动工具不取消也不重复。question/approval/form/planning 的未完成 tool group 与 `awaitingId` 保留，压缩后回到同一等待。安全点依次发布 `context.compact.start`、持久化 `_type:"compact.run.checkpoint"`、再发布 `context.compact.complete`；checkpoint 失败时不发布 compact complete，而是发布 `context.compact.failed(detail:"compact_persist_failed")` 和终态 `run.error`，不发起下一次模型调用。
 
-手动 L2 的模型失败、空摘要和输入过大分别返回 `summary_model_failed`、`summary_empty`、`summary_input_too_large`，保持逻辑上下文不变且不创建 checkpoint；新压缩不再生成 deterministic fallback，已有旧 checkpoint 仍兼容回放。压缩不消耗 Agent `maxSteps`、工具轮次或普通 LLM 调用计数，L2 用量单独记录为 `compactionUsage`。自动压缩达到阈值后固定执行 L1、重新估算，仍高于模型窗口 60% 目标才执行一次 L2；自动 L2 失败时不继续下一次模型调用。Provider 在未提交 Turn 返回标准 context-length 错误时自动压缩并只重试一次；再次溢出，或 system、工具 Schema、当前用户输入与不可拆分待处理组本身超窗口时，以 `context_window_uncompactable` 终止。
+手动 L2 的模型失败、空摘要和输入过大分别返回 `summary_model_failed`、`summary_empty`、`summary_input_too_large`，保持逻辑上下文不变且不创建 checkpoint；新压缩不再生成 deterministic fallback，已有旧 checkpoint 仍兼容回放。压缩不消耗 Agent `maxSteps`、工具轮次或普通 LLM 调用计数，L2 用量单独记录为 `compactionUsage`。自动压缩达到完整请求 80% 后执行 L1、重新估算，仍达到模型窗口 90% 才执行一次 L2；自动 L2 失败时不继续下一次模型调用。Provider 在未提交 Turn 返回标准 context-length 错误时自动压缩并只重试一次；再次溢出，或 system、工具 Schema、当前用户输入与不可拆分待处理组本身超窗口时，以 `context_window_uncompactable` 终止。
+
+#### Compact 自动周期可选字段
+
+公共完成响应与 `context.compact.start/complete/failed` 增加可选 `cycleId`、`cycleComplete`。自动 L1→L2 的两层使用不同 compactId、同一 cycleId；L1 后仍需 L2 时 cycleComplete 为 false，最终完成/失败为 true。旧事件无这些字段时按单次操作解释。skipped 不发布完成事件。
+
+手动 L1 不受 60% 停止目标限制，但不能修改最近 5 次完整工具调用；不足 5 次和单个巨大工具结果可返回 no_compactable_tools。直接手动 L2 仍只执行一次摘要，不写 L1 checkpoint。L2 输入和输出额度在请求前确定，所有 provider 摘要请求禁用工具和重试；不截断模型返回摘要。
+
+新压缩记录使用可选 version:2、previousCompactId、coveredThroughLine 保存逻辑上下文链和物理覆盖边界，私有消息保留原 Run/执行主体来源。checkpoint 的 messages 是逻辑快照，不是新增 Step，不要求每条补写 ts；记录自身 updatedAt 仍严格验证，普通 Step 的 messages[].ts 校验不变。私有快照只进入存储与显式 raw export，不进入普通回放、SSE 或 WebSocket。
 
 相同 `requestId` 重试会加入原请求并取得同一结果；不同请求并发返回 `accepted:false/status:"busy"/detail:"compact_in_progress"/retryable:true`。客户端断开只结束当前 HTTP/WS 等待，已入队任务继续并可从事件回放恢复。Interrupt 会将尚未完成的请求解决为 `failed/run_interrupted`。ACP、PROXY、CHANNEL 和 BTW 活动 Run 返回 `unsupported_active_run`。成功响应包含 `runId`（仅 run scope）、`trigger`、`scope:"history"|"run"`、`level`、Token 估算、`remainingRatio`、`releasedRatio`、`tokensFreed`、工具统计，以及 L2 可选的 `compactionUsage`；失败/跳过通过 `status/detail/retryable` 表达。
 

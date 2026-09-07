@@ -66,6 +66,8 @@ func completeCompactControl(runControl *contracts.RunControl, data stream.EventD
 	}
 	compactionUsage, _ := data.Value("compactionUsage").(map[string]any)
 	response := api.CompactResponse{
+		CycleID:                    data.String("cycleId"),
+		CycleComplete:              compactCycleFlag(data.Value("cycleComplete")),
 		Accepted:                   data.Type == "context.compact.complete",
 		Status:                     status,
 		RequestID:                  data.String("requestId"),
@@ -243,12 +245,23 @@ func compactCheckpointPersistenceFailedEvent(data stream.EventData) stream.Event
 		"detail":    "compact_persist_failed",
 		"retryable": true,
 	}
+	if id := data.String("cycleId"); id != "" {
+		payload["cycleId"] = id
+		payload["cycleComplete"] = true
+	}
 	return stream.EventData{
 		Seq:       data.Seq,
 		Type:      "context.compact.failed",
 		Timestamp: time.Now().UnixMilli(),
 		Payload:   payload,
 	}
+}
+
+func compactCycleFlag(value any) *bool {
+	if flag, ok := value.(bool); ok {
+		return &flag
+	}
+	return nil
 }
 
 func handleCompactCheckpointPersistenceFailure(params RunExecutorParams, processor any, data stream.EventData) {

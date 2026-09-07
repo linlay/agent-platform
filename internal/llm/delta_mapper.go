@@ -448,6 +448,8 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 	case DeltaContextCompact:
 		m.lastKind = ""
 		return []stream.StreamInput{stream.InputContextCompact{
+			CycleID:                    value.CycleID,
+			CycleComplete:              value.CycleComplete,
 			Status:                     value.Status,
 			RequestID:                  value.RequestID,
 			CompactID:                  value.CompactID,

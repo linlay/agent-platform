@@ -416,6 +416,10 @@ func (c *RunControl) EnqueueCompact(req CompactControlRequest) (CompactControlHa
 		c.mu.Unlock()
 		return CompactControlHandle{}, "busy"
 	}
+	if c.state == RunLoopStateCompacting {
+		c.mu.Unlock()
+		return CompactControlHandle{}, "busy"
+	}
 	state := &compactControlState{request: req, done: make(chan struct{})}
 	c.compactPending = state
 	c.mu.Unlock()
@@ -442,6 +446,18 @@ func (c *RunControl) ClaimCompact() (CompactControlRequest, bool) {
 	default:
 	}
 	return state.request, true
+}
+
+// BeginAutomaticCompact atomically gives already queued manual requests priority.
+func (c *RunControl) BeginAutomaticCompact() (RunLoopState, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	previous := c.state
+	if c.compactPending != nil || c.finished.Load() || c.interrupted.Load() || isTerminalRunLoopState(c.state) {
+		return previous, false
+	}
+	c.state = RunLoopStateCompacting
+	return previous, true
 }
 
 func (c *RunControl) CompleteCompact(requestID string, response api.CompactResponse) bool {
@@ -471,6 +487,17 @@ func (c *RunControl) HasPendingCompact() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.compactPending != nil && !c.compactPending.closed
+}
+
+// HasUnclaimedCompact is the retry gate when a manual request races automatic
+// admission. An already claimed request must never recursively claim itself.
+func (c *RunControl) HasUnclaimedCompact() bool {
+	if c == nil {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.compactPending != nil && !c.compactPending.closed && !c.compactPending.claimed
 }
 
 func (c *RunControl) failPendingCompact(detail string) {

@@ -1653,9 +1653,12 @@ func assertFinalReactMetadataForServerTest(t *testing.T, store chat.Store, chatI
 		t.Fatalf("unexpected final react usage %#v in %#v", usage, final)
 	}
 	contextWindow, _ := final["contextWindow"].(map[string]any)
+	// Provider usage in this fake is deliberately tiny. The complete next
+	// request estimate also includes system prompt and tool schemas, so usage
+	// plus completion is a lower bound, not an exact context estimate.
 	if testIntValue(contextWindow["maxSize"]) != 128000 ||
 		testIntValue(contextWindow["currentSize"]) != want.CurrentContextSize ||
-		testIntValue(contextWindow["estimatedNextCallSize"]) != want.EstimatedNextCallSize {
+		testIntValue(contextWindow["estimatedNextCallSize"]) < want.EstimatedNextCallSize {
 		t.Fatalf("unexpected final react contextWindow %#v in %#v", contextWindow, final)
 	}
 	if stringValue(final["modelKey"]) != "mock-model" {

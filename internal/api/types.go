@@ -501,6 +501,8 @@ type CompactRequest struct {
 }
 
 type CompactResponse struct {
+	CycleID                    string         `json:"cycleId,omitempty"`
+	CycleComplete              *bool          `json:"cycleComplete,omitempty"`
 	Accepted                   bool           `json:"accepted"`
 	Status                     string         `json:"status"`
 	RequestID                  string         `json:"requestId,omitempty"`

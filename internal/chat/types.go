@@ -121,23 +121,32 @@ const (
 )
 
 type CompactCheckpointLine struct {
-	Type                       string         `json:"_type"`
-	ChatID                     string         `json:"chatId"`
-	CompactID                  string         `json:"compactId"`
-	UpdatedAt                  int64          `json:"updatedAt"`
-	Trigger                    string         `json:"trigger,omitempty"`
-	Summary                    string         `json:"summary,omitempty"`
-	SummarySource              string         `json:"summarySource,omitempty"`
-	PreCompactEstimatedTokens  int            `json:"preCompactEstimatedTokens,omitempty"`
-	PostCompactEstimatedTokens int            `json:"postCompactEstimatedTokens,omitempty"`
-	CompressionRatio           float64        `json:"compressionRatio,omitempty"`
-	RemainingRatio             float64        `json:"remainingRatio,omitempty"`
-	ReleasedRatio              float64        `json:"releasedRatio,omitempty"`
-	TokensFreed                int            `json:"tokensFreed,omitempty"`
-	CompactionUsage            map[string]any `json:"compactionUsage"`
+	Version                    int              `json:"version,omitempty"`
+	PreviousCompactID          string           `json:"previousCompactId,omitempty"`
+	CoveredThroughLine         int              `json:"coveredThroughLine,omitempty"`
+	Messages                   []map[string]any `json:"messages,omitempty"`
+	Type                       string           `json:"_type"`
+	ChatID                     string           `json:"chatId"`
+	CompactID                  string           `json:"compactId"`
+	UpdatedAt                  int64            `json:"updatedAt"`
+	Trigger                    string           `json:"trigger,omitempty"`
+	Summary                    string           `json:"summary,omitempty"`
+	SummarySource              string           `json:"summarySource,omitempty"`
+	PreCompactEstimatedTokens  int              `json:"preCompactEstimatedTokens,omitempty"`
+	PostCompactEstimatedTokens int              `json:"postCompactEstimatedTokens,omitempty"`
+	CompressionRatio           float64          `json:"compressionRatio,omitempty"`
+	RemainingRatio             float64          `json:"remainingRatio,omitempty"`
+	ReleasedRatio              float64          `json:"releasedRatio,omitempty"`
+	TokensFreed                int              `json:"tokensFreed,omitempty"`
+	CompactionUsage            map[string]any   `json:"compactionUsage"`
 }
 
 type RunCompactCheckpointLine struct {
+	Version                    int              `json:"version,omitempty"`
+	PreviousCompactID          string           `json:"previousCompactId,omitempty"`
+	CoveredThroughLine         int              `json:"coveredThroughLine,omitempty"`
+	CycleID                    string           `json:"cycleId,omitempty"`
+	CycleComplete              *bool            `json:"cycleComplete,omitempty"`
 	Type                       string           `json:"_type"`
 	ChatID                     string           `json:"chatId"`
 	RunID                      string           `json:"runId"`
@@ -164,6 +173,9 @@ type RunCompactCheckpointLine struct {
 }
 
 type ToolCompactLine struct {
+	Version                    int     `json:"version,omitempty"`
+	PreviousCompactID          string  `json:"previousCompactId,omitempty"`
+	CoveredThroughLine         int     `json:"coveredThroughLine,omitempty"`
 	Type                       string  `json:"_type"`
 	ChatID                     string  `json:"chatId"`
 	CompactID                  string  `json:"compactId"`

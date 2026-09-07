@@ -41,7 +41,10 @@ func validatePersistedTimeContract(lines []map[string]any, baseLocation string) 
 		if err := validatePersistedAnswerPayload(line["answer"], location+".answer"); err != nil {
 			return err
 		}
-		if lineType != RunCompactCheckpointLineType {
+		// Version 2 history checkpoints may carry a private logical message
+		// snapshot, like run checkpoints. These are not timestamped Step messages.
+		privateSnapshot := lineType == RunCompactCheckpointLineType || (lineType == CompactCheckpointLineType && int64FromAny(line["version"]) >= 2)
+		if !privateSnapshot {
 			if err := validatePersistedStepMessages(line["messages"], location+".messages"); err != nil {
 				return err
 			}

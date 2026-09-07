@@ -122,6 +122,13 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 
 		switch lineType {
 		case CompactCheckpointLineType:
+			if snapshot := anyMessageSlice(line["messages"]); len(snapshot) > 0 {
+				messages = nil
+				for _, raw := range snapshot {
+					messages = append(messages, cloneMessageMap(raw))
+				}
+				continue
+			}
 			summary, ok := activeCompactCheckpointSummary(line)
 			if !ok {
 				continue
@@ -139,7 +146,9 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 			messages = make([]map[string]any, 0, len(checkpoint))
 			for _, raw := range checkpoint {
 				msg := cloneMessageMap(raw)
-				msg["runId"] = runID
+				if stringFromAny(msg["runId"]) == "" {
+					msg["runId"] = runID
+				}
 				messages = append(messages, msg)
 			}
 		case "query":
@@ -213,6 +222,7 @@ func teamMemberRawMessagesFromJSONLLines(lines []map[string]any, memberAgentKey 
 		runID, _ := line["runId"].(string)
 		switch lineType {
 		case CompactCheckpointLineType:
+
 			summary, ok := activeCompactCheckpointSummary(line)
 			if ok {
 				messages = append(messages, map[string]any{"role": "user", "content": compactCheckpointSummaryMessage(summary), "ts": line["updatedAt"]})
@@ -254,6 +264,13 @@ func teamCoordinatorRawMessagesFromJSONLLines(lines []map[string]any) []map[stri
 		runID, _ := line["runId"].(string)
 		switch lineType {
 		case CompactCheckpointLineType:
+			if snapshot := anyMessageSlice(line["messages"]); len(snapshot) > 0 {
+				messages = nil
+				for _, raw := range snapshot {
+					messages = append(messages, cloneMessageMap(raw))
+				}
+				continue
+			}
 			summary, ok := activeCompactCheckpointSummary(line)
 			if ok {
 				messages = append(messages, map[string]any{"role": "user", "content": compactCheckpointSummaryMessage(summary), "ts": line["updatedAt"]})
@@ -266,7 +283,9 @@ func teamCoordinatorRawMessagesFromJSONLLines(lines []map[string]any) []map[stri
 			messages = make([]map[string]any, 0, len(checkpoint))
 			for _, raw := range checkpoint {
 				msg := cloneMessageMap(raw)
-				msg["runId"] = runID
+				if stringFromAny(msg["runId"]) == "" {
+					msg["runId"] = runID
+				}
 				messages = append(messages, msg)
 			}
 		case "query":
@@ -354,6 +373,9 @@ func mapValue(value any) map[string]any {
 }
 
 func anyMessageSlice(value any) []map[string]any {
+	if items, ok := value.([]map[string]any); ok {
+		return items
+	}
 	items, _ := value.([]any)
 	out := make([]map[string]any, 0, len(items))
 	for _, raw := range items {

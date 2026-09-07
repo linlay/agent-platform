@@ -283,6 +283,8 @@ func TestRunCompactCheckpointReplacesLogicalMessagesAndReplaysPublicEvent(t *tes
 			"chatId":                     chatID,
 			"requestId":                  "req-run-compact",
 			"compactId":                  "compact-run-1",
+			"cycleId":                    "cycle-1",
+			"cycleComplete":              false,
 			"trigger":                    "manual",
 			"level":                      "summary",
 			"scope":                      "run",
@@ -317,6 +319,9 @@ func TestRunCompactCheckpointReplacesLogicalMessagesAndReplaysPublicEvent(t *tes
 	}
 	for _, event := range detail.Events {
 		if event.Type == "context.compact.complete" {
+			if event.String("cycleId") != "cycle-1" || event.Value("cycleComplete") != false {
+				t.Fatalf("cycle metadata lost during persistence/replay: %#v", event.Payload)
+			}
 			if _, leaked := event.Payload["checkpointMessages"]; leaked {
 				t.Fatalf("private checkpoint messages leaked: %#v", event.Payload)
 			}
@@ -529,7 +534,7 @@ func TestToolCompactClearsOlderCompactableToolResults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildToolCompactSnapshotToTarget: %v", err)
 	}
-	if snapshot.ToolsCleared != 2 || snapshot.ToolsKept != 5 || snapshot.TokensFreed <= 0 {
+	if snapshot.ToolsCleared != 3 || snapshot.ToolsKept != 5 || snapshot.TokensFreed <= 0 {
 		t.Fatalf("unexpected tool compact snapshot: %#v", snapshot)
 	}
 	if err := store.CommitToolCompact(chatID, snapshot, ToolCompactLine{
@@ -571,12 +576,12 @@ func TestToolCompactClearsOlderCompactableToolResults(t *testing.T) {
 		}
 		toolContent[stringFromAny(msg["tool_call_id"])] = stringFromAny(msg["content"])
 	}
-	for _, toolID := range []string{"tool-1", "tool-2"} {
+	for _, toolID := range []string{"tool-1", "tool-2", "tool-3"} {
 		if !strings.HasPrefix(toolContent[toolID], "[Compacted tool interaction]") || !strings.Contains(toolContent[toolID], "contentSha256:") {
 			t.Fatalf("%s content = %q, want structured compact record", toolID, toolContent[toolID])
 		}
 	}
-	for i := 3; i <= 7; i++ {
+	for i := 4; i <= 7; i++ {
 		toolID := fmt.Sprintf("tool-%d", i)
 		if strings.HasPrefix(toolContent[toolID], "[Compacted tool interaction]") || !strings.Contains(toolContent[toolID], fmt.Sprintf("file result %d", i)) {
 			t.Fatalf("%s should be kept, got %q", toolID, toolContent[toolID])
@@ -595,7 +600,7 @@ func TestToolCompactClearsOlderCompactableToolResults(t *testing.T) {
 	}
 }
 
-func TestToolCompactAllowsSingleCompletedLargeToolGroup(t *testing.T) {
+func TestToolCompactHardProtectsSingleCompletedLargeToolGroup(t *testing.T) {
 	store := newCompactTestStore(t)
 	chatID := "chat-tool-compact-single"
 	ensureCompactTestChat(t, store, chatID)
@@ -605,12 +610,12 @@ func TestToolCompactAllowsSingleCompletedLargeToolGroup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildToolCompactSnapshotToTarget: %v", err)
 	}
-	if snapshot.ToolsCleared != 1 || snapshot.ToolsKept != 0 || snapshot.TokensFreed <= 0 {
+	if snapshot.ToolsCleared != 0 || snapshot.ToolsKept != 1 || snapshot.TokensFreed != 0 {
 		t.Fatalf("single tool compact snapshot = %#v", snapshot)
 	}
 }
 
-func TestToolCompactTargetProtectsRecentGroupsUntilRequired(t *testing.T) {
+func TestToolCompactTargetNeverReleasesRecentGroups(t *testing.T) {
 	store := newCompactTestStore(t)
 	chatID := "chat-tool-compact-target"
 	ensureCompactTestChat(t, store, chatID)
@@ -634,8 +639,8 @@ func TestToolCompactTargetProtectsRecentGroupsUntilRequired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildToolCompactSnapshotToTarget released: %v", err)
 	}
-	if released.ToolsCleared != DefaultToolCompactKeepRecent || released.ToolsKept != 0 || released.TokensFreed <= 0 {
-		t.Fatalf("recent protection should release above target: %#v", released)
+	if released.ToolsCleared != 0 || released.ToolsKept != DefaultToolCompactKeepRecent || released.TokensFreed != 0 {
+		t.Fatalf("recent protection must remain above target: %#v", released)
 	}
 }
 

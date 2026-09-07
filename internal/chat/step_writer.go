@@ -367,6 +367,8 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			break
 		}
 		if err := checkpointStore.AppendRunCompactCheckpoint(w.chatID, RunCompactCheckpointLine{
+			CycleID:                    event.String("cycleId"),
+			CycleComplete:              compactCycleComplete(event.Value("cycleComplete")),
 			Type:                       RunCompactCheckpointLineType,
 			ChatID:                     w.chatID,
 			RunID:                      w.runID,
@@ -972,4 +974,11 @@ func (w *StepWriter) assignReactSeq(line *StepLine) {
 	if stepLineCanReuseReactSeq(*line) && w.seqCounter > 0 {
 		line.Seq = w.seqCounter
 	}
+}
+
+func compactCycleComplete(value any) *bool {
+	if result, ok := value.(bool); ok {
+		return &result
+	}
+	return nil
 }

@@ -10,10 +10,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"agent-platform/internal/compaction"
 )
 
 const (
-	DefaultToolCompactKeepRecent = 5
+	DefaultToolCompactKeepRecent = compaction.KeepRecentTools
 	ToolCompactClearedMessage    = "[Old tool result content cleared]" // legacy replay marker
 	toolCompactMaxExcerptRunes   = 72
 	toolCompactMaxScalarRunes    = 180
@@ -64,15 +66,6 @@ type toolCompactCandidate struct {
 	Arguments             string
 }
 
-type toolCompactCallLocation struct {
-	ToolName     string
-	LineIndex    int
-	MessageIndex int
-	CallIndex    int
-	Arguments    string
-	SiblingIDs   []string
-}
-
 // ToolCompactDigest returns a deterministic, bounded, auditable replacement
 // for a completed tool result. It deliberately keeps protocol identity and
 // useful scalar metadata while removing the potentially unbounded body.
@@ -84,8 +77,15 @@ func ToolCompactDigest(toolName, toolID string, content any) string {
 	}
 	sum := sha256.Sum256(encoded)
 	status := "success"
-	lower := strings.ToLower(text)
-	if strings.Contains(lower, "error") || strings.Contains(lower, "failed") || strings.Contains(lower, "exception") {
+	var result map[string]any
+	_ = json.Unmarshal([]byte(text), &result)
+	if value, ok := content.(map[string]any); ok {
+		result = value
+	}
+	if result["success"] == false || result["isError"] == true ||
+		(result["error"] != nil && result["error"] != "") ||
+		result["status"] == "failed" || result["status"] == "error" ||
+		(result["exitCode"] != nil && fmt.Sprint(result["exitCode"]) != "0") {
 		status = "error"
 	}
 	metadata := compactToolMetadata(content)
@@ -135,7 +135,13 @@ func compactToolArgumentValue(value any, depth int) any {
 	switch typed := value.(type) {
 	case map[string]any:
 		out := make(map[string]any, len(typed))
-		for key, item := range typed {
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			item := typed[key]
 			out[key] = compactToolArgumentValue(item, depth+1)
 		}
 		return out
@@ -278,54 +284,49 @@ func (s *FileStore) BuildToolCompactSnapshotToTarget(chatID string, keepRecent, 
 		}, nil
 	}
 
-	preferredCount := len(candidates) - keepRecent
-	if preferredCount < 0 {
-		preferredCount = 0
-	}
+	protected := protectedToolBatches(candidates, keepRecent)
 	preTokens := EstimateRawMessageTokens(rawMessagesFromJSONLLines(recordValues(records)))
 	replacements := make([]toolCompactReplacement, 0, len(candidates))
 	tokensFreed := 0
-	for index, candidate := range candidates {
-		if index >= preferredCount {
-			if targetTokens > 0 && preTokens-tokensFreed <= targetTokens {
-				break
-			}
-			if targetTokens <= 0 && preferredCount > 0 {
-				break
-			}
+	for _, candidate := range candidates {
+		if targetTokens > 0 && preTokens-tokensFreed <= targetTokens {
+			break
 		}
-		if candidate.AlreadyCleared || strings.TrimSpace(candidate.Content) == "" {
+		if protected[toolBatchKey(candidate)] || !ToolCompactable(candidate.ToolName) {
 			continue
 		}
-		digest := ToolCompactDigest(candidate.ToolName, candidate.ToolID, candidate.Content)
-		arguments := CompactToolArguments(candidate.Arguments)
-		originalCost := EstimateTextTokens(candidate.Content) + EstimateTextTokens(candidate.Arguments)
-		compactCost := EstimateTextTokens(digest) + EstimateTextTokens(arguments)
-		if compactCost >= originalCost {
+		replacement, freed, ok := toolReplacement(candidate)
+		if !ok {
 			continue
 		}
-		replacements = append(replacements, toolCompactReplacement{
-			LineIndex:    candidate.LineIndex,
-			MessageIndex: candidate.MessageIndex,
-			Content: []map[string]any{{
-				"type": "text",
-				"text": digest,
-			}},
-			AssistantLineIndex:    candidate.AssistantLineIndex,
-			AssistantMessageIndex: candidate.AssistantMessageIndex,
-			AssistantCallIndex:    candidate.AssistantCallIndex,
-			Arguments:             arguments,
-		})
-		freed := originalCost - compactCost
-		if freed > 0 {
-			tokensFreed += freed
-		}
+		replacements = append(replacements, replacement)
+		tokensFreed += freed
 	}
 
-	postTokens := preTokens - tokensFreed
-	if postTokens < 0 {
-		postTokens = 0
+	projectedRecords := append([]jsonLineRecord(nil), records...)
+	for _, replacement := range replacements {
+		indices := []int{replacement.LineIndex}
+		if replacement.AssistantLineIndex != replacement.LineIndex {
+			indices = append(indices, replacement.AssistantLineIndex)
+		}
+		for _, index := range indices {
+			raw, err := applyToolCompactReplacements(projectedRecords[index].Value, index, []toolCompactReplacement{replacement})
+			if err != nil {
+				return ToolCompactSnapshot{}, err
+			}
+			var value map[string]any
+			if err := json.Unmarshal(raw, &value); err != nil {
+				return ToolCompactSnapshot{}, err
+			}
+			projectedRecords[index] = jsonLineRecord{Raw: raw, Value: value}
+		}
 	}
+	postTokens := EstimateRawMessageTokens(rawMessagesFromJSONLLines(recordValues(projectedRecords)))
+	if postTokens >= preTokens {
+		replacements = nil
+		postTokens = preTokens
+	}
+	tokensFreed = max(0, preTokens-postTokens)
 	ratio := 0.0
 	if preTokens > 0 {
 		ratio = float64(postTokens) / float64(preTokens)
@@ -380,6 +381,9 @@ func (s *FileStore) CommitToolCompact(chatID string, snapshot ToolCompactSnapsho
 	if jsonlContentHash(data) != snapshot.FileHash {
 		return ErrCompactHistoryChanged
 	}
+	line.Version = 2
+	line.CoveredThroughLine = len(records)
+	line.PreviousCompactID = previousEffectiveCompactID(records)
 
 	replacementsByLine := map[int][]toolCompactReplacement{}
 	for _, replacement := range snapshot.replacements {
@@ -429,126 +433,171 @@ func (s *FileStore) CommitToolCompact(chatID string, snapshot ToolCompactSnapsho
 	return nil
 }
 
+// collectToolCompactCandidates reads the effective checkpoint and subsequent
+// steps only. Calls are matched in order within their run/actor, never globally.
 func collectToolCompactCandidates(records []jsonLineRecord) []toolCompactCandidate {
-	callByID := map[string]toolCompactCallLocation{}
-	resultIDs := map[string]bool{}
-	for lineIndex, record := range records {
-		if lineIsCompacted(record.Value) {
-			continue
-		}
-		lineType := strings.TrimSpace(stringFromAny(record.Value["_type"]))
-		if lineType != StepLineTypeReact && lineType != StepLineTypeReactTool {
-			continue
-		}
-		messages, _ := record.Value["messages"].([]any)
-		for messageIndex, rawMessage := range messages {
-			message, _ := rawMessage.(map[string]any)
-			if message == nil {
-				continue
-			}
-			role := strings.ToLower(strings.TrimSpace(stringFromAny(message["role"])))
-			if role == "assistant" {
-				collectAssistantToolLocations(message, lineIndex, messageIndex, callByID)
-			} else if role == "tool" {
-				if id := compactToolResultID(message); id != "" {
-					resultIDs[id] = true
-				}
-			}
-		}
+	type pendingCall struct {
+		candidate toolCompactCandidate
+		matched   bool
+		pinned    bool
 	}
-	candidates := []toolCompactCandidate{}
+	type batch struct{ calls []*pendingCall }
+	var batches []*batch
+	pending := map[string]*pendingCall{}
 	for lineIndex, record := range records {
-		if lineIsCompacted(record.Value) {
+		line := record.Value
+		if lineIsCompacted(line) {
 			continue
 		}
-		lineType := strings.TrimSpace(stringFromAny(record.Value["_type"]))
-		if lineType != StepLineTypeReact && lineType != StepLineTypeReactTool {
+		lineType := stringFromAny(line["_type"])
+		if lineType == RunCompactCheckpointLineType || (lineType == CompactCheckpointLineType && len(anyMessageSlice(line["messages"])) > 0) {
+			batches = nil
+			pending = map[string]*pendingCall{}
+		} else if lineType != StepLineTypeReact && lineType != StepLineTypeReactTool {
 			continue
 		}
-		messages, _ := record.Value["messages"].([]any)
-		for messageIndex, rawMessage := range messages {
-			message, _ := rawMessage.(map[string]any)
-			if message == nil {
-				continue
+		if stringFromAny(line["taskSubAgentKey"]) != "" {
+			continue
+		}
+		for messageIndex, message := range anyMessageSlice(line["messages"]) {
+			runID := stringFromAny(message["runId"])
+			if runID == "" {
+				runID = stringFromAny(line["runId"])
 			}
-			role := strings.ToLower(strings.TrimSpace(stringFromAny(message["role"])))
-			switch role {
+			actor := stringFromAny(message["taskSubAgentKey"]) + ":" + stringFromAny(message["agentKey"])
+			scope := runID + "\x00" + actor + "\x00"
+			switch stringFromAny(message["role"]) {
+			case "assistant":
+				calls := anyMessageSlice(message["tool_calls"])
+				if len(calls) == 0 {
+					continue
+				}
+				group := &batch{}
+				for callIndex, call := range calls {
+					id := stringFromAny(call["id"])
+					function, _ := call["function"].(map[string]any)
+					item := &pendingCall{candidate: toolCompactCandidate{
+						AssistantLineIndex: lineIndex, AssistantMessageIndex: messageIndex,
+						AssistantCallIndex: callIndex, ToolID: id, ToolName: stringFromAny(function["name"]),
+						Arguments: stringFromAny(function["arguments"]),
+					}, pinned: message["_compactPinned"] == true}
+					group.calls = append(group.calls, item)
+					if id != "" {
+						pending[scope+id] = item
+					}
+				}
+				batches = append(batches, group)
 			case "tool":
-				toolID := compactToolResultID(message)
-				if toolID == "" {
+				item := pending[scope+compactToolResultID(message)]
+				if item == nil || item.matched {
 					continue
 				}
-				call, found := callByID[toolID]
-				if !found || !toolCompactCallComplete(call, resultIDs) {
-					continue
-				}
-				toolName := strings.TrimSpace(call.ToolName)
-				if toolName == "" {
-					toolName = strings.TrimSpace(stringFromAny(message["name"]))
-				}
-				if !toolCompactable(toolName) {
-					continue
-				}
-				content := strings.TrimSpace(anyCompactText(message["content"]))
-				candidates = append(candidates, toolCompactCandidate{
-					LineIndex:             lineIndex,
-					MessageIndex:          messageIndex,
-					ToolID:                toolID,
-					ToolName:              toolName,
-					Content:               content,
-					AlreadyCleared:        content == ToolCompactClearedMessage || strings.HasPrefix(content, "[Compacted tool interaction]"),
-					AssistantLineIndex:    call.LineIndex,
-					AssistantMessageIndex: call.MessageIndex,
-					AssistantCallIndex:    call.CallIndex,
-					Arguments:             call.Arguments,
-				})
+				item.matched = true
+				item.pinned = item.pinned || message["_compactPinned"] == true
+				item.candidate.LineIndex = lineIndex
+				item.candidate.MessageIndex = messageIndex
+				item.candidate.Content = strings.TrimSpace(anyCompactText(message["content"]))
+				content := item.candidate.Content
+				item.candidate.AlreadyCleared = content == ToolCompactClearedMessage || strings.HasPrefix(content, "[Compacted tool interaction]")
 			}
 		}
 	}
-	return candidates
+	var out []toolCompactCandidate
+	for _, group := range batches {
+		complete := true
+		for _, item := range group.calls {
+			if !item.matched || item.pinned {
+				complete = false
+			}
+		}
+		if complete {
+			for _, item := range group.calls {
+				out = append(out, item.candidate)
+			}
+		}
+	}
+	return out
 }
 
-func collectAssistantToolLocations(message map[string]any, lineIndex, messageIndex int, out map[string]toolCompactCallLocation) {
-	rawCalls, _ := message["tool_calls"].([]any)
-	siblingIDs := make([]string, 0, len(rawCalls))
-	for _, rawCall := range rawCalls {
-		call, _ := rawCall.(map[string]any)
-		if id := strings.TrimSpace(stringFromAny(call["id"])); id != "" {
-			siblingIDs = append(siblingIDs, id)
-		}
-	}
-	for callIndex, rawCall := range rawCalls {
-		call, _ := rawCall.(map[string]any)
-		if call == nil {
-			continue
-		}
-		id := strings.TrimSpace(stringFromAny(call["id"]))
-		if id == "" {
-			continue
-		}
-		function, _ := call["function"].(map[string]any)
-		name := strings.TrimSpace(stringFromAny(function["name"]))
-		if name == "" {
-			name = strings.TrimSpace(stringFromAny(call["name"]))
-		}
-		out[id] = toolCompactCallLocation{
-			ToolName: name, LineIndex: lineIndex, MessageIndex: messageIndex,
-			CallIndex: callIndex, Arguments: strings.TrimSpace(stringFromAny(function["arguments"])),
-			SiblingIDs: append([]string(nil), siblingIDs...),
-		}
-	}
+func toolBatchKey(candidate toolCompactCandidate) [2]int {
+	return [2]int{candidate.AssistantLineIndex, candidate.AssistantMessageIndex}
 }
 
-func toolCompactCallComplete(call toolCompactCallLocation, resultIDs map[string]bool) bool {
-	if len(call.SiblingIDs) == 0 {
-		return false
+func protectedToolBatches(candidates []toolCompactCandidate, keepRecent int) map[[2]int]bool {
+	protected := map[[2]int]bool{}
+	for i := max(0, len(candidates)-keepRecent); i < len(candidates); i++ {
+		protected[toolBatchKey(candidates[i])] = true
 	}
-	for _, id := range call.SiblingIDs {
-		if !resultIDs[id] {
-			return false
+	return protected
+}
+
+func toolReplacement(candidate toolCompactCandidate) (toolCompactReplacement, int, bool) {
+	if candidate.AlreadyCleared || strings.TrimSpace(candidate.Content) == "" {
+		return toolCompactReplacement{}, 0, false
+	}
+	digest := ToolCompactDigest(candidate.ToolName, candidate.ToolID, candidate.Content)
+	arguments := CompactToolArguments(candidate.Arguments)
+	freed := EstimateTextTokens(candidate.Content) + EstimateTextTokens(candidate.Arguments) -
+		EstimateTextTokens(digest) - EstimateTextTokens(arguments)
+	if freed <= 0 {
+		return toolCompactReplacement{}, 0, false
+	}
+	return toolCompactReplacement{
+		LineIndex: candidate.LineIndex, MessageIndex: candidate.MessageIndex,
+		Content:            []map[string]any{{"type": "text", "text": digest}},
+		AssistantLineIndex: candidate.AssistantLineIndex, AssistantMessageIndex: candidate.AssistantMessageIndex,
+		AssistantCallIndex: candidate.AssistantCallIndex, Arguments: arguments,
+	}, freed, true
+}
+
+// CompactToolMessages is the shared, non-mutating L1 projection used by active
+// runs and summary input normalization. A zero keepRecent is allowed for L2's
+// in-memory projection; public L1 always passes KeepRecentTools.
+func CompactToolMessages(messages []map[string]any, keepRecent, targetTokens, pinnedStart, pinnedEnd int) ([]map[string]any, int, int) {
+	cloned := make([]map[string]any, len(messages))
+	for i, message := range messages {
+		cloned[i] = cloneMessageMap(message)
+		if i >= pinnedStart && i < pinnedEnd {
+			cloned[i]["_compactPinned"] = true
 		}
 	}
-	return true
+	items := make([]any, len(cloned))
+	for i := range cloned {
+		items[i] = cloned[i]
+	}
+	line := map[string]any{"_type": StepLineTypeReact, "messages": items}
+	records := []jsonLineRecord{{Value: line}}
+	candidates := collectToolCompactCandidates(records)
+	protected := protectedToolBatches(candidates, keepRecent)
+	out := line
+	cleared := 0
+	for _, candidate := range candidates {
+		if targetTokens > 0 && EstimateRawMessageTokens(anyMessageSlice(out["messages"])) <= targetTokens {
+			break
+		}
+		if protected[toolBatchKey(candidate)] || !ToolCompactable(candidate.ToolName) {
+			continue
+		}
+		replacement, _, ok := toolReplacement(candidate)
+		if !ok {
+			continue
+		}
+		raw, err := applyToolCompactReplacements(out, 0, []toolCompactReplacement{replacement})
+		if err != nil {
+			continue
+		}
+		var next map[string]any
+		if json.Unmarshal(raw, &next) != nil {
+			continue
+		}
+		out = next
+		cleared++
+	}
+	result := anyMessageSlice(out["messages"])
+	for _, message := range result {
+		delete(message, "_compactPinned")
+	}
+	return result, cleared, len(candidates) - cleared
 }
 
 func compactToolResultID(message map[string]any) string {

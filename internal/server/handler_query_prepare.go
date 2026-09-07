@@ -416,11 +416,6 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 	}
 	sessionReq.References = req.References
 	session.CurrentMessages = s.buildCurrentMessages(sessionReq, session)
-	if !created {
-		if err := s.maybeAutoCompact(ctx, req, agentDef, &session); err != nil {
-			return preparedQuery{}, err
-		}
-	}
 	if catalog.AgentUsesACPCoderBackend(agentDef) {
 		req.Model = s.acpCoderModelOptions(session, req.Model)
 	}

@@ -70,6 +70,13 @@ func (s *llmRunStream) fillNextPendingSource() error {
 	if s.compactWork != nil {
 		return s.executeContextCompact()
 	}
+	if s.compactFinishPending {
+		s.compactFinishPending = false
+		if !s.scheduleContextCompact(true) {
+			s.closeSteersAndFinish()
+		}
+		return nil
+	}
 	if s.finished {
 		return io.EOF
 	}
@@ -198,6 +205,11 @@ func (s *llmRunStream) prepareNextTurn() error {
 	})
 	if err != nil {
 		return err
+	}
+	if s.summaryCall {
+		if err := s.prepareSummaryRequest(&preparedRequest); err != nil {
+			return err
+		}
 	}
 	runSeq := s.runLLMChatCompletionCount + 1
 	effectiveToolChoice := effectiveTraceToolChoice(s.toolChoice, s.toolSpecs)

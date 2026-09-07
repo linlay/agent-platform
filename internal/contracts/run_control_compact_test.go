@@ -59,3 +59,26 @@ func TestRunControlInterruptResolvesPendingCompact(t *testing.T) {
 		t.Fatalf("interrupt compact result = %#v", got)
 	}
 }
+
+func TestRunControlAutomaticCompactAdmissionAndManualPriority(t *testing.T) {
+	control := NewRunControl(context.Background(), "run-auto")
+	defer control.Finish()
+	request := CompactControlRequest{RequestID: "manual", CompactID: "compact"}
+	if _, status := control.EnqueueCompact(request); status != "queued" || !control.HasUnclaimedCompact() {
+		t.Fatal("manual request was not queued")
+	}
+	if _, admitted := control.BeginAutomaticCompact(); admitted {
+		t.Fatal("automatic request overtook manual request")
+	}
+	control.ClaimCompact()
+	if control.HasUnclaimedCompact() || !control.HasPendingCompact() {
+		t.Fatal("in-flight request cannot be claimed twice")
+	}
+	control.CompleteCompact(request.RequestID, api.CompactResponse{Status: "skipped"})
+	if _, admitted := control.BeginAutomaticCompact(); !admitted {
+		t.Fatal("automatic request was not admitted after manual result")
+	}
+	if _, status := control.EnqueueCompact(CompactControlRequest{RequestID: "other", CompactID: "other"}); status != "busy" {
+		t.Fatalf("automatic cycle must reject overlapping request: %s", status)
+	}
+}

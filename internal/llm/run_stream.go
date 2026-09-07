@@ -32,6 +32,10 @@ type llmRunStream struct {
 	messages                    []openAIMessage
 	pinnedMessageStart          int
 	pinnedMessageEnd            int
+	summaryCall                 bool
+	compactEstimateScale        float64
+	lastNoopToolsFingerprint    string
+	compactFinishPending        bool
 	compactDisabled             bool
 	compactWork                 *contextCompactWork
 	compactCounter              int

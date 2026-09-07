@@ -9,13 +9,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 )
 
 const (
 	DefaultCompactKeptRunCount = 2
-	compactFallbackMaxItems    = 24
 )
 
 var ErrNoCompactableHistory = errors.New("no compactable history")
@@ -23,6 +21,7 @@ var ErrCompactHistoryChanged = errors.New("compact history changed")
 var ErrCompactSummaryInputTooLarge = errors.New("compact summary input too large")
 
 type CompactSnapshot struct {
+	LogicalSnapshot            bool
 	ChatID                     string
 	FileHash                   string
 	InsertAfterIndex           int
@@ -32,7 +31,6 @@ type CompactSnapshot struct {
 	PostCompactEstimatedTokens int
 	CompressionRatio           float64
 	Prompt                     string
-	FallbackSummary            string
 	CoveredMessages            []map[string]any
 	TailMessages               []map[string]any
 }
@@ -57,7 +55,7 @@ func (s *FileStore) BuildCompactSnapshot(chatID string, keptRunCount int) (Compa
 	if sum == nil {
 		return CompactSnapshot{}, ErrChatNotFound
 	}
-	if keptRunCount <= 0 {
+	if keptRunCount < 0 {
 		keptRunCount = DefaultCompactKeptRunCount
 	}
 
@@ -76,6 +74,12 @@ func (s *FileStore) BuildCompactSnapshot(chatID string, keptRunCount int) (Compa
 	terminalRuns, err := s.terminalCompactRunIDs(chatID)
 	if err != nil {
 		return CompactSnapshot{}, err
+	}
+	for _, record := range records {
+		if !lineIsCompacted(record.Value) && len(anyMessageSlice(record.Value["messages"])) > 0 &&
+			(record.Value["_type"] == RunCompactCheckpointLineType || record.Value["_type"] == CompactCheckpointLineType) {
+			return logicalCompactSnapshot(chatID, records, data, keptRunCount, terminalRuns)
+		}
 	}
 	runOrder, firstRunIndex := activeRootRunOrder(records, terminalRuns)
 	if len(runOrder) == 0 {
@@ -126,9 +130,8 @@ func (s *FileStore) BuildCompactSnapshot(chatID string, keptRunCount int) (Compa
 	allMessages := rawMessagesFromJSONLLines(allLines)
 	coveredMessages := rawMessagesFromJSONLLines(coveredLines)
 	tailMessages := rawMessagesFromJSONLLines(tailLines)
-	fallbackSummary := deterministicCompactSummary(coveredMessages)
 	preTokens := EstimateRawMessageTokens(allMessages)
-	postTokens := EstimateCompactPostTokens(fallbackSummary, tailMessages)
+	postTokens := EstimateRawMessageTokens(tailMessages)
 	ratio := 0.0
 	if preTokens > 0 {
 		ratio = float64(postTokens) / float64(preTokens)
@@ -144,7 +147,6 @@ func (s *FileStore) BuildCompactSnapshot(chatID string, keptRunCount int) (Compa
 		PostCompactEstimatedTokens: postTokens,
 		CompressionRatio:           ratio,
 		Prompt:                     buildCompactPrompt(coveredMessages),
-		FallbackSummary:            fallbackSummary,
 		CoveredMessages:            coveredMessages,
 		TailMessages:               tailMessages,
 	}, nil
@@ -206,6 +208,12 @@ func (s *FileStore) CommitCompactCheckpoint(chatID string, snapshot CompactSnaps
 		return ErrNoCompactableHistory
 	}
 
+	checkpoint.Version = 2
+	checkpoint.CoveredThroughLine = snapshot.InsertAfterIndex + 1
+	checkpoint.PreviousCompactID = previousEffectiveCompactID(records)
+	if snapshot.LogicalSnapshot {
+		checkpoint.Messages = append([]map[string]any{{"role": "user", "content": CompactCheckpointSummaryMessage(checkpoint.Summary)}}, snapshot.TailMessages...)
+	}
 	checkpointBytes, err := validateJSONLLinePayload(checkpoint, "chat.jsonl.compact.write")
 	if err != nil {
 		return err
@@ -425,71 +433,8 @@ func BuildCompactPromptWithinBudget(messages []map[string]any, maxInputTokens in
 }
 
 func normalizeCompactSummaryMessages(messages []map[string]any) []map[string]any {
-	if len(messages) == 0 {
-		return nil
-	}
-	encoded, err := json.Marshal(messages)
-	if err != nil {
-		return messages
-	}
-	var cloned []any
-	if json.Unmarshal(encoded, &cloned) != nil {
-		return messages
-	}
-	line := map[string]any{"_type": StepLineTypeReact, "messages": cloned}
-	records := []jsonLineRecord{{Value: line}}
-	candidates := collectToolCompactCandidates(records)
-	if len(candidates) == 0 {
-		out := make([]map[string]any, 0, len(cloned))
-		for _, raw := range cloned {
-			if message, ok := raw.(map[string]any); ok {
-				out = append(out, message)
-			}
-		}
-		return out
-	}
-	replacements := make([]toolCompactReplacement, 0, len(candidates))
-	for _, candidate := range candidates {
-		if candidate.AlreadyCleared || strings.TrimSpace(candidate.Content) == "" {
-			continue
-		}
-		digest := ToolCompactDigest(candidate.ToolName, candidate.ToolID, candidate.Content)
-		arguments := CompactToolArguments(candidate.Arguments)
-		if EstimateTextTokens(digest)+EstimateTextTokens(arguments) >= EstimateTextTokens(candidate.Content)+EstimateTextTokens(candidate.Arguments) {
-			continue
-		}
-		replacements = append(replacements, toolCompactReplacement{
-			LineIndex: 0, MessageIndex: candidate.MessageIndex,
-			Content:            []map[string]any{{"type": "text", "text": digest}},
-			AssistantLineIndex: 0, AssistantMessageIndex: candidate.AssistantMessageIndex,
-			AssistantCallIndex: candidate.AssistantCallIndex, Arguments: arguments,
-		})
-	}
-	if len(replacements) == 0 {
-		out := make([]map[string]any, 0, len(cloned))
-		for _, raw := range cloned {
-			if message, ok := raw.(map[string]any); ok {
-				out = append(out, message)
-			}
-		}
-		return out
-	}
-	updated, err := applyToolCompactReplacements(line, 0, replacements)
-	if err != nil {
-		return messages
-	}
-	var normalized map[string]any
-	if json.Unmarshal(updated, &normalized) != nil {
-		return messages
-	}
-	rawMessages, _ := normalized["messages"].([]any)
-	out := make([]map[string]any, 0, len(rawMessages))
-	for _, raw := range rawMessages {
-		if message, ok := raw.(map[string]any); ok {
-			out = append(out, message)
-		}
-	}
-	return out
+	projected, _, _ := CompactToolMessages(messages, 0, 0, -1, -1)
+	return projected
 }
 
 func renderMessagesForCompact(messages []map[string]any, maxChars int) string {
@@ -514,64 +459,8 @@ func renderMessagesForCompact(messages []map[string]any, maxChars int) string {
 	return b.String()
 }
 
-func deterministicCompactSummary(messages []map[string]any) string {
-	if len(messages) == 0 {
-		return ""
-	}
-	runIDs := map[string]bool{}
-	roleCounts := map[string]int{}
-	for _, msg := range messages {
-		if runID := strings.TrimSpace(stringFromAny(msg["runId"])); runID != "" {
-			runIDs[runID] = true
-		}
-		role := strings.TrimSpace(stringFromAny(msg["role"]))
-		if role == "" {
-			role = "unknown"
-		}
-		roleCounts[role]++
-	}
-	roles := make([]string, 0, len(roleCounts))
-	for role, count := range roleCounts {
-		roles = append(roles, fmt.Sprintf("%s:%d", role, count))
-	}
-	sort.Strings(roles)
-
-	var b strings.Builder
-	b.WriteString("上下文压缩摘要（deterministic fallback）：\n")
-	b.WriteString(fmt.Sprintf("- 覆盖消息数：%d\n", len(messages)))
-	b.WriteString(fmt.Sprintf("- 覆盖 root run 数：%d\n", len(runIDs)))
-	if len(roles) > 0 {
-		b.WriteString("- 角色分布：" + strings.Join(roles, ", ") + "\n")
-	}
-	b.WriteString("- 关键内容摘录：\n")
-	for _, msg := range compactSummarySampleMessages(messages, compactFallbackMaxItems) {
-		role := strings.TrimSpace(stringFromAny(msg["role"]))
-		if role == "" {
-			role = "unknown"
-		}
-		text := compactMessageSnippet(msg, 360)
-		if text == "" {
-			continue
-		}
-		b.WriteString(fmt.Sprintf("  - [%s] %s\n", role, text))
-	}
-	return strings.TrimSpace(b.String())
-}
-
 func CompactCheckpointSummaryMessage(summary string) string {
 	return compactCheckpointSummaryMessage(summary)
-}
-
-func compactSummarySampleMessages(messages []map[string]any, limit int) []map[string]any {
-	if limit <= 0 || len(messages) <= limit {
-		return messages
-	}
-	headCount := limit / 2
-	tailCount := limit - headCount
-	sampled := make([]map[string]any, 0, limit)
-	sampled = append(sampled, messages[:headCount]...)
-	sampled = append(sampled, messages[len(messages)-tailCount:]...)
-	return sampled
 }
 
 func compactMessageSnippet(msg map[string]any, maxChars int) string {
@@ -616,6 +505,11 @@ func EstimateRawMessageTokens(messages []map[string]any) int {
 		return 0
 	}
 	projected, mediaTokens := projectCompactMediaMessages(messages, false)
+	for _, message := range projected {
+		for _, key := range []string{"runId", "agentKey", "taskSubAgentKey", "msgId", "ts", "_compactPinned"} {
+			delete(message, key)
+		}
+	}
 	encoded, err := json.Marshal(projected)
 	if err != nil {
 		total := mediaTokens
