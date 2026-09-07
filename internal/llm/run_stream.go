@@ -62,6 +62,8 @@ type llmRunStream struct {
 	closed               bool
 	fallbackSent         bool
 	cancelSent           bool
+	cancellationErr      error
+	toolShutdownTimeout  time.Duration
 	finalTurnAttempted   bool
 	allowToolUse         bool
 	previousToolResult   any
@@ -175,6 +177,7 @@ type preparedToolInvocation struct {
 	hitlDecision          *hitlDecisionState
 	queuedResult          *ToolExecutionResult
 	teamDispatch          *agentteam.Dispatch
+	executionStarted      bool
 }
 
 type pendingHITLApprovalBatch struct {

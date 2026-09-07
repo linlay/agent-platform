@@ -8,6 +8,10 @@ Native Host Bash 在调用参数闭合后可发送 `tool.output`。子进程的 
 
 `tool.output` 先于同一调用的 `tool.result`，但不同并行调用可交错；每条事件都通过 Delta mapper、Dispatcher、Normalizer 和 Assembler 后才进入 EventBus，不允许工具线程直接分配公开 `seq`。隐藏工具的过程输出与其他 `tool.*` 一样被抑制。attach 使用公开 `seq` 续接 active backlog；冷 Chat replay 不恢复这些过程块。
 
+工具 worker 的最终返回另存于独立的 completion mailbox，不依赖 live 输出队列能否投递。显式 interrupt 与 Run context 取消均由 LLM stream 保留收尾权：取消活动 worker，在整批共享的 2 秒期限内读取已返回的真实结果，再关闭尚未启动的调用，最后发出 `run.cancel` 或返回原 context 错误形成 `run.error`。取消时可以丢弃尚未发布的过程输出，不能丢弃已经返回的最终结果；部分并行结果已经发布时不重复发布，模型结果按原调用顺序整理。
+
+期限内未返回，或 executor 只返回取消/超时错误时，平台发出失败结果 `tool_execution_outcome_unknown`，携带 `executionState:"unknown"` 和原因，不声明成功、未执行或副作用已回滚。该记录是平台对取消的观察；后续模型必须先核实外部状态再考虑重试。worker 迟到返回只能结束自身，不再发布第二个结果或写入已结束 Run。不响应 context 的第三方 executor 无法被 Go 强行终止；此期限限制 Run 的等待，不能证明远端请求、遗留子进程或其他副作用已经停止。Host Bash 仍使用既有 `CommandContext` 和 250ms pipe `WaitDelay`，不据此推断整个进程树已退出。
+
 Native Agent 与 orchestrated Team 的 live `seq` 是连续的公开事件游标：只有实际发布到 SSE / WebSocket / EventBus 的事件才递增。`llm.request`、除 `usage.snapshot` 外的内部 `*.snapshot`、system-init query、内部 tool result 和 `clientVisible:false` 工具生命周期不占用公开序号。PROXY / CHANNEL 仍保留上游序号语义。
 
 H2A render 是传输层缓冲能力，用于控制前端渲染节奏。当前服务默认禁用 H2A 缓冲并逐事件 flush，heartbeat 透传；这些是源码内部默认值，不提供 runtime YAML 配置。

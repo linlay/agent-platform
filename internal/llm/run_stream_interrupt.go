@@ -19,9 +19,8 @@ type interruptedPendingInvocation struct {
 }
 
 // appendInterruptedWaitingResults closes committed tool calls whose execution
-// is known not to have started. It deliberately excludes active execution
-// batches and ordinary active tool calls because their side-effect state may
-// be unknown after interruption.
+// is known not to have started. Active workers are settled separately before
+// this function runs; external dispatches retain an explicitly unknown outcome.
 func (s *llmRunStream) appendInterruptedWaitingResults() {
 	if s == nil {
 		return
@@ -67,6 +66,16 @@ func (s *llmRunStream) appendInterruptedWaitingResults() {
 			mode = "question"
 		}
 		pending = append(pending, interruptedPendingInvocation{invocation: invocation})
+	} else if invocation := s.activeToolCall; invocation != nil {
+		switch {
+		case invocation.queuedResult != nil:
+			s.appendOriginalToolResult(invocation, *invocation.queuedResult)
+		case invocation.executionStarted || invocation.awaitExternalResult:
+			s.appendOriginalToolResult(invocation, unknownToolOutcome("external_execution_interrupted"))
+		default:
+			pending = append(pending, interruptedPendingInvocation{invocation: invocation})
+		}
+		s.activeToolCall = nil
 	}
 
 	if s.hitlPendingBatch == nil {
@@ -109,6 +118,11 @@ func (s *llmRunStream) appendInterruptedWaitingResults() {
 			continue
 		}
 		seen[toolID] = true
+		if invocation.queuedResult != nil {
+			s.appendOriginalToolResult(invocation, *invocation.queuedResult)
+			invocation.queuedResult = nil
+			continue
+		}
 		output := runInterruptedExecutionOutput
 		if item.beforeApproval {
 			output = runInterruptedApprovalOutput
