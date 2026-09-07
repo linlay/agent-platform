@@ -50,6 +50,8 @@ decode/auth -> Runtime.StartQuery -> Runtime.AttachRun -> transport forward
 
 客户端断开只关闭本订阅，不中断 Run。EventBus freeze 时订阅必须确认 delivery done，否则终态注销、Chat admission 和下一轮 Query 都可能被阻塞。SSE 与 WS 现在复用 Runtime 的相同订阅语义。
 
+Native LLM stream 在工具执行中收到取消后，先完成工具结果收尾，再交付终态或 context 错误；运行中的异步工具共享 2 秒收尾期限，结果不可确认时保留明确的未知副作用失败记录。`runexec` 继续通过 Mapper/Processor/StepWriter 持久化这些普通工具结果，终态前 flush；worker 不直接操作 Chat store 或 EventBus。持久层失败、进程崩溃或强制终止不在此内存收尾保证内，历史读取仍对无结果的有效调用 fail closed。
+
 订阅关闭必须同时执行 detach 和 `Observer.MarkDone()`：freeze 已从 EventBus 移除 live observer 后，单独 detach 无法再找到它并确认交付完成。Manager 的 `Finish` 不接管 EventBus 的冻结等待，执行端仍先完成终态持久化与交付确认，再释放 Run 的活动状态。
 
 ## 同步与异步 Query 的共用执行核心

@@ -35,6 +35,12 @@ func (s *llmRunStream) Close() error {
 		return nil
 	}
 	s.closed = true
+	if s.activeToolExecution != nil {
+		s.activeToolExecution.cancel()
+	}
+	if s.activeToolBatch != nil && s.activeToolBatch.cancel != nil {
+		s.activeToolBatch.cancel()
+	}
 	if s.currentTurn != nil && s.currentTurn.body != nil {
 		_ = s.currentTurn.body.Close()
 		if s.currentTurn.cancel != nil {
@@ -900,9 +906,20 @@ func (s *llmRunStream) isInterrupted() bool {
 }
 
 func (s *llmRunStream) handleInterruptIfNeeded() error {
-	if !s.isInterrupted() {
+	if s.cancellationErr != nil {
+		return s.cancellationErr
+	}
+	interrupted := s.isInterrupted()
+	var cancelErr error
+	if interrupted {
+		cancelErr = ErrRunInterrupted
+	} else if s.ctx != nil {
+		cancelErr = s.ctx.Err()
+	}
+	if cancelErr == nil {
 		return nil
 	}
+	s.cancellationErr = cancelErr
 	if s.currentTurn != nil && s.currentTurn.body != nil {
 		_ = s.currentTurn.body.Close()
 		if s.currentTurn.cancel != nil {
@@ -928,15 +945,18 @@ func (s *llmRunStream) handleInterruptIfNeeded() error {
 			s.pending = append(s.pending, s.modelTurnDiscardDelta(s.modelCall, ErrRunInterrupted, false, s.modelCall.attempt))
 			s.modelCall = nil
 		}
+		// The stream keeps ownership until every committed call has a result.
+		// Consumers persist these deltas before the terminal event/error.
+		s.appendCanceledExecutionResults()
 		s.appendInterruptedWaitingResults()
 		s.currentTurn = nil
-		s.activeToolExecution = nil
-		s.activeToolBatch = nil
-		s.pending = append(s.pending, DeltaRunCancel{RunID: s.session.RunID})
-		return nil
+		if interrupted {
+			s.pending = append(s.pending, DeltaRunCancel{RunID: s.session.RunID})
+		}
+		if len(s.pending) > 0 {
+			return nil
+		}
 	}
 	s.currentTurn = nil
-	s.activeToolExecution = nil
-	s.activeToolBatch = nil
-	return ErrRunInterrupted
+	return cancelErr
 }

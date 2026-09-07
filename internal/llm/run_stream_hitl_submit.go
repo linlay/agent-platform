@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"errors"
 	"log"
 	"strings"
 
@@ -224,12 +223,10 @@ func (s *llmRunStream) executeOriginalBash(invocation *preparedToolInvocation) e
 	if s.toolSupportsOutputStreaming(invocation) {
 		return s.startActiveToolExecution(invocation)
 	}
+	invocation.executionStarted = true
 	result, invokeErr := s.engine.tools.Invoke(s.ctx, invocation.toolName, invocation.args, s.execCtx)
 	if invokeErr != nil {
-		if errors.Is(invokeErr, ErrRunInterrupted) {
-			return s.handleInterruptIfNeeded()
-		}
-		result = ToolExecutionResult{Output: invokeErr.Error(), Error: "tool_execution_failed", ExitCode: -1}
+		result = completedToolResult(batchToolCallResult{result: result, err: invokeErr})
 	}
 	s.appendOriginalToolResult(invocation, result)
 	s.execCtx.CurrentToolID = ""

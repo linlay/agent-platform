@@ -114,7 +114,7 @@ func TestRunStreamInterruptKeepsQueuedBatchCallOrder(t *testing.T) {
 	assertInterruptedToolResult(t, stream.pending[2], "tool-approval-second", "await-ordered-batch", runInterruptedApprovalOutput)
 }
 
-func TestRunStreamInterruptDoesNotFabricateResultForActiveExecution(t *testing.T) {
+func TestRunStreamInterruptClosesActivatedButNotStartedCall(t *testing.T) {
 	control := contracts.NewRunControl(context.Background(), "run-interrupt-active")
 	stream := &llmRunStream{
 		session:    contracts.QuerySession{RunID: "run-interrupt-active"},
@@ -130,15 +130,16 @@ func TestRunStreamInterruptDoesNotFabricateResultForActiveExecution(t *testing.T
 	if err := stream.handleInterruptIfNeeded(); err != nil {
 		t.Fatalf("handle interrupt: %v", err)
 	}
-	if len(stream.pending) != 1 {
-		t.Fatalf("active execution must only emit run cancel, got %#v", stream.pending)
+	if len(stream.pending) != 2 {
+		t.Fatalf("unstarted call must emit result then cancel, got %#v", stream.pending)
 	}
-	if _, ok := stream.pending[0].(contracts.DeltaRunCancel); !ok {
-		t.Fatalf("delta = %#v, want run cancel", stream.pending[0])
+	assertInterruptedToolResult(t, stream.pending[0], "tool-running", "", runInterruptedExecutionOutput)
+	if _, ok := stream.pending[1].(contracts.DeltaRunCancel); !ok {
+		t.Fatalf("delta = %#v, want run cancel", stream.pending[1])
 	}
 }
 
-func TestRunStreamInterruptDoesNotFabricateResultForActiveConcurrentBatch(t *testing.T) {
+func TestRunStreamInterruptRecordsUnknownActiveBatchOutcome(t *testing.T) {
 	control := contracts.NewRunControl(context.Background(), "run-interrupt-active-batch")
 	stream := &llmRunStream{
 		session:    contracts.QuerySession{RunID: "run-interrupt-active-batch"},
@@ -157,11 +158,15 @@ func TestRunStreamInterruptDoesNotFabricateResultForActiveConcurrentBatch(t *tes
 	if err := stream.handleInterruptIfNeeded(); err != nil {
 		t.Fatalf("handle interrupt: %v", err)
 	}
-	if len(stream.pending) != 1 {
-		t.Fatalf("active batch must only emit run cancel, got %#v", stream.pending)
+	if len(stream.pending) != 2 {
+		t.Fatalf("active batch must emit unknown outcome then cancel, got %#v", stream.pending)
 	}
-	if _, ok := stream.pending[0].(contracts.DeltaRunCancel); !ok {
-		t.Fatalf("delta = %#v, want run cancel", stream.pending[0])
+	result, ok := stream.pending[0].(contracts.DeltaToolResult)
+	if !ok || result.Result.Structured["executionState"] != "unknown" || result.Result.Structured["executed"] != nil {
+		t.Fatalf("unexpected outcome: %#v", stream.pending[0])
+	}
+	if _, ok := stream.pending[1].(contracts.DeltaRunCancel); !ok {
+		t.Fatalf("delta = %#v, want run cancel", stream.pending[1])
 	}
 }
 

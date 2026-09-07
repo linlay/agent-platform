@@ -25,6 +25,46 @@ type collectingToolOutputSink struct {
 	chunks chan contracts.ToolOutput
 }
 
+func TestInvokeHostBashCancellationPreservesPartialOutput(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	command := "echo started; while :; do :; done"
+	if runtime.GOOS == "windows" {
+		command = "Write-Output started; Start-Sleep -Seconds 30"
+	}
+	executor := &RuntimeToolExecutor{cfg: config.Config{Bash: config.BashConfig{
+		AllowedCommands: []string{"*"}, ShellFeaturesEnabled: true, MaxCommandChars: 16000,
+	}}}
+	execCtx := bashExecutionContext(t.TempDir())
+	execCtx.Session.AccessLevel = contracts.AccessLevelFullAccess
+	sink := &collectingToolOutputSink{chunks: make(chan contracts.ToolOutput, 8)}
+	execCtx.ToolOutputSink = sink
+	resultCh := make(chan contracts.ToolExecutionResult, 1)
+	go func() {
+		result, err := executor.invokeHostBash(ctx, map[string]any{"command": command}, execCtx)
+		if err != nil {
+			result.Error = err.Error()
+		}
+		resultCh <- result
+	}()
+	select {
+	case <-sink.chunks:
+	case result := <-resultCh:
+		t.Fatalf("Bash exited before cancellation: %#v", result)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Bash produced no startup output")
+	}
+	cancel()
+	select {
+	case result := <-resultCh:
+		if result.ExitCode == 0 || !strings.Contains(result.Output, "started") {
+			t.Fatalf("canceled Bash lost failure/partial output: %#v", result)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Bash cancellation did not return within the Run cleanup bound")
+	}
+}
+
 func (s *collectingToolOutputSink) EmitToolOutput(ctx context.Context, output contracts.ToolOutput) error {
 	select {
 	case s.chunks <- output:
