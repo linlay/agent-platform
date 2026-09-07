@@ -5,6 +5,7 @@ import (
 	"log"
 	"strings"
 
+	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/apperrors"
 	"agent-platform/internal/bashsec"
 	. "agent-platform/internal/contracts"
@@ -194,6 +195,21 @@ func (s *llmRunStream) currentAccessLevel() string {
 
 func (s *llmRunStream) executeOriginalBash(invocation *preparedToolInvocation) error {
 	s.refreshAccessLevelForInvocation(invocation)
+	if isBashTool(invocation.toolName) {
+		current := s.lookupBashAccessReview(invocation)
+		if current.Blocked() {
+			s.appendOriginalToolResult(invocation, ToolExecutionResult{Output: current.Reason, Error: "bash_access_blocked", ExitCode: -1})
+			return nil
+		}
+		if current.RequiresApproval() && !accesspolicy.HasApproval(s.execCtx, current) {
+			invocation.approvalDecision = ""
+			if invocation.hitlDecision != nil && invocation.hitlDecision.AwaitingID != "" {
+				s.appendOriginalToolResult(invocation, ToolExecutionResult{Output: "Bash requirements changed after approval; retry for a new review. " + current.Reason, Error: "bash_access_approval_required", ExitCode: -1})
+				return nil
+			}
+			return s.emitApprovalRequestDeltas(s.bashAccessApprovalRequest(invocation, current))
+		}
+	}
 	s.execCtx.CurrentToolID = invocation.toolID
 	s.execCtx.CurrentToolName = invocation.toolName
 	s.execCtx.RunLoopState = RunLoopStateToolExecuting
@@ -288,6 +304,14 @@ func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) 
 		command = s.fileToolApprovalDisplayCommand(invocation, nil, plan)
 	}
 	description := approvalDescription(invocation)
+	if request := invocation.shownApproval; request != nil && isBashTool(invocation.toolName) {
+		if request.bashSecurityReview != nil {
+			description += "\n" + request.bashSecurityReview.Reason
+		}
+		if request.bashAccessReview != nil {
+			description += "\n" + request.bashAccessReview.Reason
+		}
+	}
 	if combinedWriteApproval {
 		description = strings.TrimSpace(description)
 		if description == "" {
@@ -323,6 +347,9 @@ func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) 
 		result = *invocation.precheckedHITL
 	} else if s.checker != nil {
 		result = s.lookupPrecheckedHITL(invocation)
+	}
+	if invocation.shownApproval != nil {
+		result = invocation.shownApproval.result
 	}
 	if result.Intercepted {
 		if ruleKey := strings.TrimSpace(result.Rule.RuleKey); ruleKey != "" {

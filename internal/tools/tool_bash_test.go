@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -1144,11 +1145,19 @@ func TestInvokeHostBashAppliesChatAndTempScriptApprovalRules(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			fakeInterpreter := filepath.Join(binDir, test.interpreter)
-			if err := os.WriteFile(fakeInterpreter, []byte("#!/bin/sh\nprintf 'ran:%s\\n' \"$1\"\n"), 0o755); err != nil {
-				t.Fatalf("write fake interpreter: %v", err)
+			interpreter, err := exec.LookPath(test.interpreter)
+			if err != nil {
+				t.Skip("interpreter unavailable: ", err)
 			}
-			command := fakeInterpreter + " " + test.script
+			dir, content := tempRoot, "console.log('ran:"+test.script+"')\n"
+			if test.interpreter == "python3" {
+				dir = chatDir
+				content = "print('ran:" + test.script + "')\n"
+			}
+			if err := os.WriteFile(filepath.Join(dir, test.script), []byte(content), 0600); err != nil {
+				t.Fatal(err)
+			}
+			command := "'" + interpreter + "' " + test.script
 			execCtx.Session.AccessLevel = test.accessLevel
 			result, err := executor.invokeHostBash(context.Background(), map[string]any{
 				"command": command,
@@ -1166,7 +1175,7 @@ func TestInvokeHostBashAppliesChatAndTempScriptApprovalRules(t *testing.T) {
 					!strings.HasPrefix(fmt.Sprint(meta["ruleKey"]), "bash-access:opaque:") {
 					t.Fatalf("expected opaque auto approval metadata, got %#v", result.Structured["accessPolicy"])
 				}
-			} else if hasAudit {
+			} else if hasAudit && meta["decision"] != "allow" {
 				t.Fatalf("temporary script allow must not be recorded as an auto approval: %#v", meta)
 			}
 		})

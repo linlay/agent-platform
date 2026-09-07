@@ -14,12 +14,14 @@ import (
 )
 
 type BashPlan struct {
-	Decision    Decision
-	Reason      string
-	RuleKey     string
-	Fingerprint string
-	CommandText string
-	AccessLevel string
+	// Requirements are leaf decisions; a rule approval never approves sibling requirements.
+	Requirements []BashPlan
+	Decision     Decision
+	Reason       string
+	RuleKey      string
+	Fingerprint  string
+	CommandText  string
+	AccessLevel  string
 }
 
 type redirectAccessKind int
@@ -47,109 +49,13 @@ func (p BashPlan) Blocked() bool {
 	return p.Decision == DecisionBlock
 }
 
-func ReviewBashCommand(cfg config.AccessPolicyConfig, session QuerySession, command string, cwd string, variables map[string]string) BashPlan {
-	accessLevel := sessionAccessLevel(session)
-	level := EffectiveLevel(cfg, accessLevel)
-	command = strings.TrimSpace(command)
-	if command == "" {
-		return bashPlan(command, accessLevel, DecisionAllow, "", "", "")
-	}
-	cwdPath := strings.TrimSpace(cwd)
-	if cwdPath == "" {
-		cwdPath = "@workspace"
-	}
-	workingDir, err := ResolveSessionPath(session, cwdPath)
-	if err != nil {
-		return bashPlan(command, accessLevel, DecisionBlock, err.Error(), "bash-access:cwd", cwdPath)
-	}
-	workingDir, _ = NormalizePath(workingDir)
-	autoPlan := BashPlan{}
-	if workingDir != "" {
-		cwdPlan, err := BuildPathPlan(cfg, session, ReadAccess, workingDir)
-		if err == nil {
-			if !cwdPlan.Allowed() {
-				return bashPlanFromPath(command, cwdPlan, "bash cwd is outside allowed roots")
-			}
-			if cwdPlan.AutoApproved() {
-				autoPlan = bashPlanFromPath(command, cwdPlan, "bash cwd is outside allowed roots")
-			}
-		}
-	}
-
-	result := bashast.ParseForSecurityWithKnownVariables(command, variables)
-	if result.Kind != bashast.Simple {
-		return bashPlanForAction(command, accessLevel, level.Approvals.BashComplexFilesystem, "bash command is too complex for access-policy path analysis", "bash-access:complex")
-	}
-	for _, cmd := range result.Commands {
-		if len(cmd.Argv) == 0 {
-			continue
-		}
-		base := normalizedCommandBase(cmd.Argv[0])
-		if isOpaqueCommand(base) {
-			if len(result.Commands) == 1 && len(cmd.Redirects) == 0 {
-				if plan, handled := directTempScriptExecutionPlan(cfg, session, command, accessLevel, base, cmd.Argv, workingDir); handled {
-					if plan.Allowed() && autoPlan.AutoApproved() {
-						return autoPlan
-					}
-					return plan
-				}
-			}
-			return opaqueBashPlan(command, accessLevel, level.Approvals.BashOpaqueCommand, base, workingDir)
-		}
-		for _, redirect := range cmd.Redirects {
-			kind := classifyRedirectAccess(redirect)
-			if kind == redirectAccessNeutral {
-				continue
-			}
-			if strings.TrimSpace(redirect.Target) == "" || containsUnresolvedPlaceholder(redirect.Target) {
-				return bashPlanForAction(command, accessLevel, level.Approvals.BashComplexFilesystem, "bash redirection target cannot be resolved statically", "bash-access:complex")
-			}
-			mode := ReadAccess
-			switch kind {
-			case redirectAccessRead:
-				mode = ReadAccess
-			case redirectAccessWrite:
-				mode = WriteAccess
-			default:
-				return bashPlanForAction(command, accessLevel, level.Approvals.BashComplexFilesystem, "bash redirection target cannot be resolved statically", "bash-access:complex")
-			}
-			pathPlan, err := BuildPathPlan(cfg, session, mode, resolveAgainstCwd(redirect.Target, workingDir))
-			if err == nil {
-				review := reviewBashPathPlan(command, accessLevel, level, mode, pathPlan, "bash redirection path is outside allowed roots")
-				if review.Decision == DecisionRequiresApproval || review.Decision == DecisionBlock {
-					return review
-				}
-				if review.Decision == DecisionAutoApproved {
-					autoPlan = review
-				}
-			}
-		}
-		mode := commandPathMode(base)
-		for _, arg := range cmd.Argv[1:] {
-			if !isPathArg(arg) {
-				continue
-			}
-			if containsUnresolvedPlaceholder(arg) {
-				return bashPlanForAction(command, accessLevel, level.Approvals.BashComplexFilesystem, "bash path argument cannot be resolved statically", "bash-access:complex")
-			}
-			pathPlan, err := BuildPathPlan(cfg, session, mode, resolveAgainstCwd(arg, workingDir))
-			if err == nil {
-				review := reviewBashPathPlan(command, accessLevel, level, mode, pathPlan, "bash path argument is outside allowed roots")
-				if review.Decision == DecisionRequiresApproval || review.Decision == DecisionBlock {
-					return review
-				}
-				if review.Decision == DecisionAutoApproved {
-					autoPlan = review
-				}
-			}
-		}
-	}
-	if autoPlan.Decision == DecisionAutoApproved {
-		return autoPlan
-	}
-	return bashPlan(command, accessLevel, DecisionAllow, "", "", "")
+func ReviewBashCommand(cfg config.AccessPolicyConfig, session QuerySession, command string, cwd string, variables map[string]string, contexts ...*ExecutionContext) BashPlan {
+	return reviewBashExecution(cfg, session, command, cwd, variables, nil, contexts...)
 }
 
+func ReviewBashCommandInEnvironment(cfg config.AccessPolicyConfig, session QuerySession, command, cwd string, variables map[string]string, environment *BashEnvironment, ctx *ExecutionContext) BashPlan {
+	return reviewBashExecution(cfg, session, command, cwd, variables, environment, ctx)
+}
 func classifyRedirectAccess(redirect bashast.Redirect) redirectAccessKind {
 	if redirect.IsHeredoc {
 		return redirectAccessNeutral
@@ -242,6 +148,20 @@ func RegisterRuleApproval(execCtx *ExecutionContext, ruleKey string) {
 }
 
 func ConsumeApproval(execCtx *ExecutionContext, plan BashPlan) bool {
+	if plan.Blocked() {
+		return false
+	}
+	if len(plan.Requirements) > 0 && !hasExactApproval(execCtx, plan) {
+		if !HasApproval(execCtx, plan) {
+			return false
+		}
+		for _, leaf := range plan.Requirements {
+			if leaf.RequiresApproval() && !ConsumeApproval(execCtx, leaf) {
+				return false
+			}
+		}
+		return true
+	}
 	if execCtx == nil {
 		return false
 	}
@@ -264,6 +184,17 @@ func ConsumeApproval(execCtx *ExecutionContext, plan BashPlan) bool {
 }
 
 func HasApproval(execCtx *ExecutionContext, plan BashPlan) bool {
+	if plan.Blocked() {
+		return false
+	}
+	if len(plan.Requirements) > 0 && !hasExactApproval(execCtx, plan) {
+		for _, leaf := range plan.Requirements {
+			if leaf.RequiresApproval() && !HasApproval(execCtx, leaf) {
+				return false
+			}
+		}
+		return true
+	}
 	if execCtx == nil {
 		return false
 	}
@@ -304,7 +235,7 @@ func bashPlanForAction(command string, accessLevel string, action string, reason
 
 func opaqueBashPlan(command string, accessLevel string, action string, base string, cwd string) BashPlan {
 	hash := sha256.Sum256([]byte(base + "\x00" + cwd))
-	return bashPlan(command, accessLevel, decisionForAction(action), fmt.Sprintf("bash command %q may access files internally", base), "bash-access:opaque:"+hex.EncodeToString(hash[:8]), command)
+	return bashPlan(command, accessLevel, decisionForAction(action), fmt.Sprintf("bash command %q may access files internally; run approval scope: entry + cwd %q", base, cwd), "bash-access:opaque:"+hex.EncodeToString(hash[:8]), command)
 }
 
 func bashPlan(command string, accessLevel string, decision Decision, reason string, ruleKey string, fingerprintInput string) BashPlan {
@@ -330,6 +261,10 @@ func normalizedCommandBase(command string) string {
 }
 
 func isOpaqueCommand(base string) bool {
+	base = commandFamily(base)
+	if isInterpreter(base) {
+		return true
+	}
 	switch base {
 	case "go", "npm", "npx", "yarn", "pnpm", "node", "python", "python3", "pip", "make", "bash", "sh":
 		return true

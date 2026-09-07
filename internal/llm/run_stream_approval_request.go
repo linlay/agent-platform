@@ -39,6 +39,15 @@ type approvalRequest struct {
 }
 
 func (s *llmRunStream) approvalRequestForInvocation(invocation *preparedToolInvocation) (approvalRequest, bool) {
+	if invocation == nil {
+		return approvalRequest{}, false
+	}
+	if invocation != nil && invocation.approvalDecision != "" && invocation.shownApproval != nil {
+		return *invocation.shownApproval, true
+	}
+	if isBashTool(invocation.toolName) && (s.lookupBashSecurityReview(invocation).Decision == bashsec.ReviewBlock || s.lookupBashAccessReview(invocation).Blocked()) {
+		return approvalRequest{}, false
+	}
 	if accessPlan, writePlan, ok := s.combinedFileWriteApprovalPlans(invocation); ok {
 		return approvalRequest{
 			kind:           approvalKindFileAccess,
@@ -86,11 +95,13 @@ func (s *llmRunStream) fileWriteApprovalRequest(invocation *preparedToolInvocati
 }
 
 func (s *llmRunStream) bashSecurityApprovalRequest(invocation *preparedToolInvocation, review bashsec.ReviewResult) approvalRequest {
+	access := s.lookupBashAccessReview(invocation)
 	return approvalRequest{
 		kind:               approvalKindBashSecurity,
 		invocation:         invocation,
 		result:             bashSecurityInterceptResult(invocation, review),
 		bashSecurityReview: &review,
+		bashAccessReview:   &access,
 	}
 }
 
@@ -114,6 +125,7 @@ func hitlApprovalRequest(invocation *preparedToolInvocation, result hitl.Interce
 
 func (s *llmRunStream) emitApprovalRequestDeltas(request approvalRequest) error {
 	invocation := request.invocation
+	invocation.shownApproval = &request
 	result := request.result
 	s.hitlPendingCall = invocation
 	s.hitlMatch = &result
@@ -143,6 +155,12 @@ func (s *llmRunStream) approvalRequestArgs(request approvalRequest) map[string]a
 }
 
 func (s *llmRunStream) executeApprovedApprovalRequest(request approvalRequest) error {
+	request.invocation.shownApproval = nil
+	// Security and path/opaque requirements share one displayed item. Grant only
+	// its frozen access requirements, then executeOriginalBash re-evaluates them.
+	if (request.kind == approvalKindBashSecurity || request.kind == approvalKindHITL) && request.bashAccessReview != nil {
+		s.grantDisplayedBashAccess(request.invocation.approvalDecision, *request.bashAccessReview)
+	}
 	switch request.kind {
 	case approvalKindFileAccess:
 		if request.fileAccessPlan != nil {

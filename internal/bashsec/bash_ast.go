@@ -9,13 +9,15 @@ import (
 
 func reviewFromAST(command string, result bashast.ParseResult, embeddedScripts []bashast.EmbeddedScript) ReviewResult {
 	legacy := reviewLegacyCompatibleWithAST(command, result)
-	if legacy.Decision != ReviewAllow {
+	if legacy.Decision == ReviewBlock {
 		return legacy
 	}
 
 	for _, cmd := range result.Commands {
-		if review := reviewASTCommand(command, cmd); review.Decision != ReviewAllow {
+		if review := reviewASTCommand(command, cmd); review.Decision == ReviewBlock {
 			return review
+		} else if review.Decision == ReviewRequiresApproval && legacy.Decision == ReviewAllow {
+			legacy = review
 		}
 	}
 	for _, script := range embeddedScripts {
@@ -23,13 +25,11 @@ func reviewFromAST(command string, result bashast.ParseResult, embeddedScripts [
 			return blockReview(fmt.Sprintf("Command contains dangerous embedded %s code", script.Language))
 		}
 	}
-	return ReviewResult{Decision: ReviewAllow}
+	return legacy
 }
 
 func reviewASTCommand(command string, cmd bashast.SimpleCommand) ReviewResult {
-	if len(cmd.Argv) == 0 {
-		return ReviewResult{Decision: ReviewAllow}
-	}
+	result := ReviewResult{Decision: ReviewAllow}
 	commandChain := deterministicCommandChain(cmd.Argv)
 	for _, argv := range commandChain {
 		if len(argv) == 0 {
@@ -39,8 +39,10 @@ func reviewASTCommand(command string, cmd bashast.SimpleCommand) ReviewResult {
 		if isDangerousASTCommand(base) {
 			return blockReview(fmt.Sprintf("Command uses unsupported shell builtin: %s", base))
 		}
-		if review := reviewRuntimeWrapperCommand(command, argv); review.Decision != ReviewAllow {
+		if review := reviewRuntimeWrapperCommand(command, argv); review.Decision == ReviewBlock {
 			return review
+		} else if review.Decision == ReviewRequiresApproval {
+			result = review
 		}
 	}
 	if bashast.HasDangerousJQFileFlag(cmd) {
@@ -52,11 +54,13 @@ func reviewASTCommand(command string, cmd bashast.SimpleCommand) ReviewResult {
 		}
 	}
 	for _, redir := range cmd.Redirects {
-		if review := reviewASTRedirect(command, redir); review.Decision != ReviewAllow {
+		if review := reviewASTRedirect(command, redir); review.Decision == ReviewBlock {
 			return review
+		} else if review.Decision == ReviewRequiresApproval {
+			result = review
 		}
 	}
-	return ReviewResult{Decision: ReviewAllow}
+	return result
 }
 
 func reviewASTRedirect(command string, redir bashast.Redirect) ReviewResult {

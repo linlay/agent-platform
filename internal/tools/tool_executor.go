@@ -178,6 +178,7 @@ func (t *RuntimeToolExecutor) SupportsToolOutput(toolName string, execCtx *Execu
 }
 
 func (t *RuntimeToolExecutor) invoke(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	execCtx.EnsureAuthoredScripts()
 	if execCtx != nil && execCtx.ReadFileState == nil {
 		execCtx.ReadFileState = map[string]ReadFileSnapshot{}
 	}

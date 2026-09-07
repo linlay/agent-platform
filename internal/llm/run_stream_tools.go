@@ -153,14 +153,11 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 		review := s.reviewBashSecurity(strings.TrimSpace(mapStringArg(invocation.args, "command")))
 		switch review.Decision {
 		case bashsec.ReviewRequiresApproval:
-			invocation.bashSecurityReview = &review
 		case bashsec.ReviewBlock:
 			invocation.bashSecurityReview = &review
-			if result := s.lookupPrecheckedHITL(invocation); !result.Intercepted {
-				blocked := bashSecurityBlockedToolResult(review)
-				deltas, message := preparedToolResultMessage(toolID, toolCall.Function.Name, blocked, blocked.Output)
-				return nil, deltas, message
-			}
+			blocked := bashSecurityBlockedToolResult(review)
+			deltas, message := preparedToolResultMessage(toolID, toolCall.Function.Name, blocked, blocked.Output)
+			return nil, deltas, message
 		}
 	}
 	if accessPlan, ok := s.buildFileAccessPlan(invocation); ok {
@@ -198,6 +195,10 @@ func (s *llmRunStream) activateNextToolCall() error {
 func (s *llmRunStream) invokeQueuedToolCallsAndPostHook() error {
 	if len(s.queuedToolCalls) == 0 {
 		return nil
+	}
+	s.execCtx.EnsureAuthoredScripts()
+	if hasWriteExecutionBarrier(s.queuedToolCalls) {
+		return s.activateNextToolCall()
 	}
 	if s.prepareQueuedBashApprovalBatch() {
 		return nil
@@ -702,6 +703,9 @@ func (s *llmRunStream) startActiveToolExecution(invocation *preparedToolInvocati
 }
 
 func (s *llmRunStream) serialExecutionContext(invocation *preparedToolInvocation) *ExecutionContext {
+	if s != nil {
+		s.execCtx.EnsureAuthoredScripts()
+	}
 	if s == nil || s.execCtx == nil {
 		return &ExecutionContext{
 			CurrentToolID:   invocation.toolID,
@@ -807,6 +811,9 @@ func (s *llmRunStream) awaitActiveToolExecutionEvent(execution *activeToolExecut
 }
 
 func (s *llmRunStream) concurrentExecutionContext(invocation *preparedToolInvocation) *ExecutionContext {
+	if s != nil {
+		s.execCtx.EnsureAuthoredScripts()
+	}
 	if s == nil || s.execCtx == nil {
 		return &ExecutionContext{
 			CurrentToolID:   invocation.toolID,
@@ -960,6 +967,18 @@ func (s *llmRunStream) handleDeferredToolInvocation(invocation *preparedToolInvo
 }
 
 func (s *llmRunStream) handleToolApprovalBeforeInvoke(invocation *preparedToolInvocation) (bool, error) {
+	if isBashTool(invocation.toolName) {
+		if s.handleBashSecurityBlockBeforeInvoke(invocation) {
+			return true, nil
+		}
+		if review := s.lookupBashAccessReview(invocation); review.Blocked() {
+			s.appendOriginalToolResult(invocation, ToolExecutionResult{Output: review.Reason, Error: "bash_access_blocked", ExitCode: -1})
+			return true, nil
+		}
+	}
+	if invocation.approvalDecision != "" && invocation.shownApproval != nil {
+		return true, s.executeApprovedApprovalRequest(*invocation.shownApproval)
+	}
 	if handled, err := s.handleFileApprovalBeforeInvoke(invocation); handled {
 		return true, err
 	}
@@ -1043,6 +1062,8 @@ func (s *llmRunStream) handleHITLApproval(invocation *preparedToolInvocation, re
 		s.skipPostToolHook = true
 	}
 	request := hitlApprovalRequest(invocation, result)
+	access := s.lookupBashAccessReview(invocation)
+	request.bashAccessReview = &access
 	if strings.EqualFold(result.Rule.ViewportType, "builtin") {
 		if options.allowExistingDecision && request.hasApprovalDecision() {
 			return s.executeApprovedApprovalRequest(request)

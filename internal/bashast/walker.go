@@ -19,11 +19,12 @@ func tooComplex(nodeType, format string, args ...any) *walkError {
 }
 
 type varScope struct {
-	vars map[string]string
+	vars     map[string]string
+	assigned map[string]bool
 }
 
 func newVarScope() *varScope {
-	scope := &varScope{vars: map[string]string{}}
+	scope := &varScope{vars: map[string]string{}, assigned: map[string]bool{}}
 	for _, name := range safeEnvironmentVariables {
 		scope.vars[name] = TrackedVariablePlaceholder
 	}
@@ -41,9 +42,12 @@ func newVarScopeWithKnownVariables(variables map[string]string) *varScope {
 }
 
 func (s *varScope) snapshot() *varScope {
-	next := &varScope{vars: make(map[string]string, len(s.vars))}
+	next := &varScope{vars: make(map[string]string, len(s.vars)), assigned: make(map[string]bool, len(s.assigned))}
 	for key, value := range s.vars {
 		next.vars[key] = value
+	}
+	for key, value := range s.assigned {
+		next.assigned[key] = value
 	}
 	return next
 }
@@ -53,6 +57,55 @@ func (s *varScope) set(name, value string) {
 		return
 	}
 	s.vars[name] = value
+	s.assigned[name] = true
+}
+
+// Branch joins must not restore the initial value of PATH or a script operand
+// when a conditional assignment may have changed it.
+func joinScopes(scopes ...*varScope) *varScope {
+	joined := scopes[0].snapshot()
+	for _, scope := range scopes[1:] {
+		for key, value := range joined.vars {
+			if other, exists := scope.vars[key]; !exists || value != other {
+				joined.set(key, TrackedVariablePlaceholder)
+			}
+		}
+		for key, value := range scope.vars {
+			if previous, exists := joined.vars[key]; !exists || previous != value {
+				joined.set(key, TrackedVariablePlaceholder)
+			}
+			if scope.assigned[key] {
+				joined.assigned[key] = true
+			}
+		}
+	}
+	return joined
+}
+
+func (w *walker) markLoopMutation(start int, before, after *varScope) {
+	mark := func() {
+		for i := start; i < len(w.commands); i++ {
+			w.commands[i].Uncertain = true
+		}
+	}
+	for _, cmd := range w.commands[start:] {
+		argv := cmd.Argv
+		if len(argv) > 1 && (argv[0] == "command" || argv[0] == "builtin") {
+			argv = argv[1:]
+		}
+		if len(argv) > 0 && argv[0] == "cd" {
+			// A subsequent iteration may resolve the same script under a new cwd.
+			mark()
+			return
+		}
+	}
+	joined := joinScopes(before, after)
+	for key, value := range joined.vars {
+		if original, exists := before.vars[key]; !exists || original != value {
+			mark()
+			return
+		}
+	}
 }
 
 func (s *varScope) get(name string) (string, bool) {
@@ -101,7 +154,25 @@ func (w *walker) walkStmts(stmts []*syntax.Stmt, scope *varScope) (*varScope, *w
 }
 
 func (w *walker) walkStmt(stmt *syntax.Stmt, scope *varScope) (*varScope, *walkError) {
-	if stmt == nil || stmt.Cmd == nil {
+	if stmt == nil {
+		return scope, nil
+	}
+	if stmt.Background {
+		foreground := *stmt
+		foreground.Background = false
+		_, err := w.walkStmt(&foreground, scope.snapshot())
+		return scope, err
+	}
+	if stmt.Cmd == nil {
+		redirects, err := w.parseRedirects(stmt.Redirs, scope)
+		if err != nil {
+			return scope, err
+		}
+		if len(redirects) > 0 {
+			if err := w.appendCommand(SimpleCommand{Redirects: redirects, Text: w.sourceForNode(stmt), Variables: scope.knownValues()}); err != nil {
+				return scope, err
+			}
+		}
 		return scope, nil
 	}
 	if stmt.Coprocess || stmt.Disown {
@@ -165,8 +236,16 @@ func (w *walker) walkBinaryCmd(cmd *syntax.BinaryCmd, scope *varScope) (*varScop
 		if err != nil {
 			return scope, err
 		}
-		return w.walkStmt(cmd.Y, next)
-	case syntax.OrStmt, syntax.Pipe, syntax.PipeAll:
+		last, err := w.walkStmt(cmd.Y, next.snapshot())
+		return joinScopes(next, last), err
+	case syntax.OrStmt:
+		left, err := w.walkStmt(cmd.X, scope.snapshot())
+		if err != nil {
+			return scope, err
+		}
+		right, err := w.walkStmt(cmd.Y, left.snapshot())
+		return joinScopes(left, right), err
+	case syntax.Pipe, syntax.PipeAll:
 		if _, err := w.walkStmt(cmd.X, scope.snapshot()); err != nil {
 			return scope, err
 		}
@@ -185,6 +264,15 @@ func (w *walker) walkCallExpr(call *syntax.CallExpr, redirs []*syntax.Redirect, 
 		return scope, err
 	}
 	if len(call.Args) == 0 {
+		if len(redirs) > 0 {
+			redirects, err := w.parseRedirects(redirs, scope)
+			if err != nil {
+				return scope, err
+			}
+			if err := w.appendCommand(SimpleCommand{EnvVars: envVars, Redirects: redirects, Text: w.sourceForNode(stmt), Variables: scope.knownValues()}); err != nil {
+				return scope, err
+			}
+		}
 		next := scope.snapshot()
 		for _, envVar := range envVars {
 			next.set(envVar.Name, envVar.Value)
@@ -204,6 +292,7 @@ func (w *walker) walkCallExpr(call *syntax.CallExpr, redirs []*syntax.Redirect, 
 		return scope, err
 	}
 	if err := w.appendCommand(SimpleCommand{
+		Variables: scope.knownValues(),
 		Argv:      argv,
 		EnvVars:   envVars,
 		Redirects: redirects,
@@ -266,6 +355,7 @@ func (w *walker) walkDeclClause(decl *syntax.DeclClause, redirs []*syntax.Redire
 		return scope, err
 	}
 	if err := w.appendCommand(SimpleCommand{
+		Variables: scope.knownValues(),
 		Argv:      argv,
 		EnvVars:   envVars,
 		Redirects: redirects,
@@ -274,6 +364,20 @@ func (w *walker) walkDeclClause(decl *syntax.DeclClause, redirs []*syntax.Redire
 		return scope, err
 	}
 	return next, nil
+}
+
+func (s *varScope) knownValues() map[string]string {
+	var values map[string]string
+	for key, value := range s.vars {
+		if value == TrackedVariablePlaceholder && !s.assigned[key] {
+			continue
+		}
+		if values == nil {
+			values = map[string]string{}
+		}
+		values[key] = value
+	}
+	return values
 }
 
 func (w *walker) appendCommand(cmd SimpleCommand) *walkError {
@@ -294,28 +398,36 @@ func isRestrictedDeclVariant(variant string) bool {
 }
 
 func (w *walker) walkIfClause(clause *syntax.IfClause, scope *varScope) (*varScope, *walkError) {
-	if _, err := w.walkStmts(clause.Cond, scope.snapshot()); err != nil {
+	condition, err := w.walkStmts(clause.Cond, scope.snapshot())
+	if err != nil {
 		return scope, err
 	}
-	if _, err := w.walkStmts(clause.Then, scope.snapshot()); err != nil {
+	then, err := w.walkStmts(clause.Then, condition.snapshot())
+	if err != nil {
 		return scope, err
 	}
+	otherwise := condition
 	if clause.Else != nil {
-		if _, err := w.walkIfClause(clause.Else, scope.snapshot()); err != nil {
+		otherwise, err = w.walkIfClause(clause.Else, condition.snapshot())
+		if err != nil {
 			return scope, err
 		}
 	}
-	return scope, nil
+	return joinScopes(then, otherwise), nil
 }
 
 func (w *walker) walkWhileClause(clause *syntax.WhileClause, scope *varScope) (*varScope, *walkError) {
-	if _, err := w.walkStmts(clause.Cond, scope.snapshot()); err != nil {
+	start := len(w.commands)
+	condition, err := w.walkStmts(clause.Cond, scope.snapshot())
+	if err != nil {
 		return scope, err
 	}
-	if _, err := w.walkStmts(clause.Do, scope.snapshot()); err != nil {
+	body, err := w.walkStmts(clause.Do, condition.snapshot())
+	if err != nil {
 		return scope, err
 	}
-	return scope, nil
+	w.markLoopMutation(start, scope, joinScopes(condition, body))
+	return joinScopes(condition, body), nil
 }
 
 func (w *walker) walkForClause(clause *syntax.ForClause, scope *varScope) (*varScope, *walkError) {
@@ -332,10 +444,13 @@ func (w *walker) walkForClause(clause *syntax.ForClause, scope *varScope) (*varS
 			return scope, err
 		}
 	}
-	if _, err := w.walkStmts(clause.Do, loopScope); err != nil {
+	start := len(w.commands)
+	body, err := w.walkStmts(clause.Do, loopScope.snapshot())
+	if err != nil {
 		return scope, err
 	}
-	return scope, nil
+	w.markLoopMutation(start, loopScope, body)
+	return joinScopes(scope, body), nil
 }
 
 func (w *walker) parseAssignments(assigns []*syntax.Assign, scope *varScope) ([]EnvVar, *walkError) {
@@ -480,7 +595,7 @@ func (w *walker) parseWordPart(part syntax.WordPart, scope *varScope, insideDoub
 		if !ok {
 			return "", tooComplex("syntax.ParamExp", "unknown variable %s", node.Param.Value)
 		}
-		if !insideDoubleQuote && hasBareVarUnsafeChars(value) {
+		if !insideDoubleQuote && (hasBareVarUnsafeChars(value) || value == TrackedVariablePlaceholder && scope.assigned[node.Param.Value]) {
 			return "", tooComplex("syntax.ParamExp", "variable %s expands to unsafe unquoted value", node.Param.Value)
 		}
 		return value, nil

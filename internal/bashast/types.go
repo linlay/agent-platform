@@ -9,6 +9,8 @@ const (
 )
 
 type SimpleCommand struct {
+	Uncertain bool              // loop iterations may observe different variable values
+	Variables map[string]string // statically known shell scope before this command
 	Argv      []string
 	EnvVars   []EnvVar
 	Redirects []Redirect

@@ -167,6 +167,7 @@ type preparedToolInvocation struct {
 	precheckedHITL      *hitl.InterceptResult
 	bashSecurityReview  *bashsec.ReviewResult
 	bashAccessReview    *accesspolicy.BashPlan
+	shownApproval       *approvalRequest // immutable requirements displayed to the user
 	fileAccessPlan      *filetools.AccessPlan
 	fileWritePlan       *filetools.WritePlan
 	approvalDecision    string

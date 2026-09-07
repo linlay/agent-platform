@@ -36,9 +36,6 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	switch securityReview.Decision {
 	case bashsec.ReviewAllow:
 	case bashsec.ReviewRequiresApproval:
-		if !consumeBashSecurityApproval(execCtx, securityReview.Fingerprint) {
-			return ToolExecutionResult{Output: securityReview.Reason, Error: "bash_security_approval_required", ExitCode: -1}, nil
-		}
 	default:
 		return ToolExecutionResult{Output: securityReview.Reason, Error: "bash_security_blocked", ExitCode: -1}, nil
 	}
@@ -65,11 +62,11 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 		}
 		return ToolExecutionResult{Output: err.Error(), Error: code, ExitCode: -1}, nil
 	}
-	accessReview := accesspolicy.ReviewBashCommand(t.cfg.AccessPolicy, session, command, workingDir, bashSecurityKnownVariables(execCtx))
+	accessReview := accesspolicy.PendingBashPlan(execCtx, t.ReviewBashAccess(ctx, args, execCtx, t.cfg.AccessPolicy))
 	switch accessReview.Decision {
 	case accesspolicy.DecisionAllow, accesspolicy.DecisionAutoApproved:
 	case accesspolicy.DecisionRequiresApproval:
-		if !accesspolicy.ConsumeApproval(execCtx, accessReview) {
+		if !accesspolicy.HasApproval(execCtx, accessReview) {
 			return ToolExecutionResult{Output: accessReview.Reason, Error: "bash_access_approval_required", ExitCode: -1}, nil
 		}
 	default:
@@ -116,6 +113,20 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	cmd.Stdout = stdoutCapture
 	cmd.Stderr = stderrCapture
 
+	// Revalidate immediately before launch against the environment actually passed
+	// to the child. Only this final check consumes a one-shot approval.
+	rawFinalReview := accesspolicy.ReviewBashCommand(t.cfg.AccessPolicy, accessPolicySession(execCtx), command, workingDir, bashEnvironmentVariables(cmd.Env), execCtx)
+	approvalSource := accesspolicy.BashApprovalSource(execCtx, rawFinalReview)
+	accessReview = accesspolicy.PendingBashPlan(execCtx, rawFinalReview)
+	if accessReview.Blocked() {
+		return ToolExecutionResult{Output: accessReview.Reason, Error: "bash_access_blocked", ExitCode: -1}, nil
+	}
+	if accessReview.RequiresApproval() && !accesspolicy.ConsumeApproval(execCtx, accessReview) {
+		return ToolExecutionResult{Output: accessReview.Reason, Error: "bash_access_approval_required", ExitCode: -1}, nil
+	}
+	if securityReview.Decision == bashsec.ReviewRequiresApproval && !consumeBashSecurityApproval(execCtx, securityReview.Fingerprint) {
+		return ToolExecutionResult{Output: securityReview.Reason, Error: "bash_security_approval_required", ExitCode: -1}, nil
+	}
 	err = cmd.Run()
 	stdoutCapture.Close()
 	stderrCapture.Close()
@@ -146,6 +157,17 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	result := bashResult(stdout, stderr, "host", workingDir, exitCode, "")
 	if accessReview.AutoApproved() {
 		appendBashAccessPolicyMetadata(&result, accessReview, stdout, stderr, workingDir, exitCode)
+	}
+	if approvalSource != "" || accessReview.RuleKey == "bash-access:authored-script" || accessReview.RuleKey == "bash-access:temp-script" {
+		if result.Structured == nil {
+			result.Structured = map[string]any{"stdout": stdout, "stderr": stderr, "mode": "host", "cwd": workingDir, "exitCode": exitCode}
+		}
+		result.Structured["accessPolicy"] = accesspolicy.BashPlanMetadata(accessReview)
+		if approvalSource != "" {
+			metadata := result.Structured["accessPolicy"].(map[string]any)
+			metadata["decision"] = "allow"
+			metadata["approvalSource"] = approvalSource
+		}
 	}
 	return result, nil
 }
@@ -217,11 +239,7 @@ func appendBashAccessPolicyMetadata(result *ToolExecutionResult, review accesspo
 			"stderr":   stderr,
 		}
 	}
-	result.Structured["accessPolicy"] = map[string]any{
-		"accessLevel": review.AccessLevel,
-		"decision":    "auto_approved",
-		"ruleKey":     review.RuleKey,
-	}
+	result.Structured["accessPolicy"] = accesspolicy.BashPlanMetadata(review)
 }
 
 const hostShellCommandPlaceholder = "{{command}}"

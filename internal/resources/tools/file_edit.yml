@@ -2,6 +2,7 @@ name: file_edit
 label: 编辑文件
 description: |
   Edit a single text file on the host filesystem by replacing an exact string. Prefer this tool for modifying existing files when available; use file_write for full overwrites.
+  Editing preserves a run-authored script proof only when this run already fully wrote the file and its pre-edit bytes still match. Editing an external script, or creating one through file_edit alone, does not create this proof.
   Do not use bash redirection, heredocs, cat/echo/printf/tee, or interpreter one-liners to edit files when this tool is available.
   Existing files must be fully read in the same run before editing; external changes after read return file_edit_modified_since_read. Successful results include lineStats with addedLines, deletedLines, and editedLines.
   Existing text files keep their detected encoding when it is UTF-8, gb18030/gbk, or the current Windows ACP unless encoding is supplied.

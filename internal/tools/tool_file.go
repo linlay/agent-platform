@@ -257,6 +257,10 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 	if err := atomicWriteFile(plan.FilePath, writeBytes); err != nil {
 		return fileToolError("file_write_failed", err.Error()), nil
 	}
+	if execCtx != nil {
+		execCtx.EnsureAuthoredScripts()
+		execCtx.AuthoredScripts.Record(execCtx.ScriptOwner(), plan.FilePath, writeBytes, "", true)
+	}
 	after := fileSHA256(plan.FilePath)
 	info, _ := os.Stat(plan.FilePath)
 	lineStats := computeLineDiffStats(beforeContent, contentText)
@@ -431,6 +435,10 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 	}
 	if err := atomicWriteFile(plan.FilePath, updatedBytes); err != nil {
 		return fileToolError("file_edit_failed", err.Error()), nil
+	}
+	if execCtx != nil {
+		execCtx.EnsureAuthoredScripts()
+		execCtx.AuthoredScripts.Record(execCtx.ScriptOwner(), plan.FilePath, updatedBytes, before, false)
 	}
 	after := fileSHA256(plan.FilePath)
 	info, _ := os.Stat(plan.FilePath)

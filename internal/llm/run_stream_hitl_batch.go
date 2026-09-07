@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/bashsec"
 	"agent-platform/internal/chat"
 	. "agent-platform/internal/contracts"
@@ -19,15 +18,9 @@ func (s *llmRunStream) executeApprovedBashInvocation(invocation *preparedToolInv
 		return nil
 	case "approve_rule_run":
 		s.registerRuleWhitelist(result.Rule.RuleKey)
-		if review := s.rawBashAccessReview(invocation); review.RequiresApproval() {
-			accesspolicy.RegisterExactApproval(s.execCtx, review.Fingerprint)
-		}
 		invocation.approvalDecision = ""
 		return s.executeOriginalBash(invocation)
 	case "approve":
-		if review := s.rawBashAccessReview(invocation); review.RequiresApproval() {
-			accesspolicy.RegisterExactApproval(s.execCtx, review.Fingerprint)
-		}
 		invocation.approvalDecision = ""
 		return s.executeOriginalBash(invocation)
 	default:
@@ -46,7 +39,7 @@ func (s *llmRunStream) shouldAutoApproveHITL(result hitl.InterceptResult) bool {
 }
 
 func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
-	if len(s.queuedToolCalls) == 0 || s.hitlPendingBatch != nil || s.hitlPendingCall != nil {
+	if len(s.queuedToolCalls) == 0 || s.hitlPendingBatch != nil || s.hitlPendingCall != nil || hasWriteExecutionBarrier(s.queuedToolCalls) {
 		return false
 	}
 
@@ -111,6 +104,7 @@ func (s *llmRunStream) queuedApprovalCandidate(invocation *preparedToolInvocatio
 		if handled, _ := s.tryResolveApprovalFastPath(request, approvalFastPathSkipBatch); handled {
 			return queuedBashApprovalCandidate{}, false
 		}
+		invocation.shownApproval = &request
 		return queuedBashApprovalCandidate{invocation: invocation, match: request.result}, true
 	}
 	if isBashTool(invocation.toolName) {
@@ -129,12 +123,13 @@ func (s *llmRunStream) queuedBashApprovalCandidate(invocation *preparedToolInvoc
 		return queuedBashApprovalCandidate{}, false
 	}
 	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewBlock {
-		return s.queuedGenericHITLApprovalCandidate(invocation)
+		return queuedBashApprovalCandidate{}, false
 	} else if review.Decision == bashsec.ReviewRequiresApproval {
 		request := s.bashSecurityApprovalRequest(invocation, review)
 		if handled, _ := s.tryResolveApprovalFastPath(request, approvalFastPathSkipBatch); handled {
 			return queuedBashApprovalCandidate{}, false
 		}
+		invocation.shownApproval = &request
 		return queuedBashApprovalCandidate{invocation: invocation, match: request.result}, true
 	}
 	if review := s.lookupBashAccessReview(invocation); review.RequiresApproval() {
@@ -142,7 +137,11 @@ func (s *llmRunStream) queuedBashApprovalCandidate(invocation *preparedToolInvoc
 		if handled, _ := s.tryResolveApprovalFastPath(request, approvalFastPathSkipBatch); handled {
 			return queuedBashApprovalCandidate{}, false
 		}
+		invocation.shownApproval = &request
 		return queuedBashApprovalCandidate{invocation: invocation, match: request.result}, true
+	}
+	if s.lookupBashAccessReview(invocation).Blocked() {
+		return queuedBashApprovalCandidate{}, false
 	}
 	return s.queuedGenericHITLApprovalCandidate(invocation)
 }
@@ -156,9 +155,12 @@ func (s *llmRunStream) queuedGenericHITLApprovalCandidate(invocation *preparedTo
 		return queuedBashApprovalCandidate{}, false
 	}
 	request := hitlApprovalRequest(invocation, result)
+	access := s.lookupBashAccessReview(invocation)
+	request.bashAccessReview = &access
 	if handled, _ := s.tryResolveHITLApprovalFastPath(request, approvalFastPathSkipBatch); handled {
 		return queuedBashApprovalCandidate{}, false
 	}
+	invocation.shownApproval = &request
 	return queuedBashApprovalCandidate{invocation: invocation, match: result}, true
 }
 

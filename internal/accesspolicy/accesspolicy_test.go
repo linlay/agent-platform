@@ -116,7 +116,16 @@ func TestChatAndTempScriptExecutionRespectsAccessLevel(t *testing.T) {
 			defaultSession := baseSession
 			defaultSession.AccessLevel = contracts.AccessLevelDefault
 			defaultSession.AgentHasRuntimeSandbox = test.sandbox
-			defaultPlan := ReviewBashCommand(config.AccessPolicyConfig{}, defaultSession, test.command, test.cwd, nil)
+			var environment *BashEnvironment
+			if test.sandbox {
+				environment = &BashEnvironment{Resolve: func(name, cwd string, env map[string]string) (string, error) {
+					if strings.HasPrefix(name, "/") {
+						return name, nil
+					}
+					return "/usr/bin/" + name, nil
+				}}
+			}
+			defaultPlan := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, defaultSession, test.command, test.cwd, nil, environment, nil)
 			if test.temp {
 				if !defaultPlan.Allowed() || defaultPlan.RequiresApproval() || defaultPlan.AutoApproved() || defaultPlan.RuleKey != "bash-access:temp-script" {
 					t.Fatalf("default temporary script execution must be allowed: %#v", defaultPlan)
@@ -128,7 +137,7 @@ func TestChatAndTempScriptExecutionRespectsAccessLevel(t *testing.T) {
 			autoSession := baseSession
 			autoSession.AccessLevel = contracts.AccessLevelAutoApprove
 			autoSession.AgentHasRuntimeSandbox = test.sandbox
-			autoPlan := ReviewBashCommand(config.AccessPolicyConfig{}, autoSession, test.command, test.cwd, nil)
+			autoPlan := ReviewBashCommandInEnvironment(config.AccessPolicyConfig{}, autoSession, test.command, test.cwd, nil, environment, nil)
 			if test.temp {
 				if !autoPlan.Allowed() || autoPlan.RequiresApproval() || autoPlan.AutoApproved() || autoPlan.RuleKey != "bash-access:temp-script" {
 					t.Fatalf("auto_approve temporary script execution must be allowed without an approval decision: %#v", autoPlan)

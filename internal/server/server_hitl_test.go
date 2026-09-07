@@ -1221,6 +1221,13 @@ func (s *recordingSandbox) OpenIfNeeded(_ context.Context, _ *contracts.Executio
 }
 
 func (s *recordingSandbox) Execute(_ context.Context, _ *contracts.ExecutionContext, command string, cwd string, _ int64, env map[string]string) (contracts.SandboxExecutionResult, error) {
+	if strings.HasPrefix(command, "test -d '") {
+		target := strings.SplitN(strings.TrimPrefix(command, "test -d '"), "'", 2)[0]
+		return contracts.SandboxExecutionResult{Stdout: target + "\n", Cwd: cwd}, nil
+	}
+	if strings.HasPrefix(command, "p=$(command -v") || strings.HasPrefix(command, "test -f ") {
+		return contracts.SandboxExecutionResult{ExitCode: 127, Cwd: cwd}, nil
+	}
 	s.commands = append(s.commands, command)
 	s.envs = append(s.envs, contracts.CloneStringMap(env))
 	return contracts.SandboxExecutionResult{
@@ -1238,6 +1245,13 @@ func (s *scriptedSandbox) OpenIfNeeded(_ context.Context, _ *contracts.Execution
 }
 
 func (s *scriptedSandbox) Execute(_ context.Context, _ *contracts.ExecutionContext, command string, cwd string, _ int64, env map[string]string) (contracts.SandboxExecutionResult, error) {
+	if strings.HasPrefix(command, "test -d '") {
+		target := strings.SplitN(strings.TrimPrefix(command, "test -d '"), "'", 2)[0]
+		return contracts.SandboxExecutionResult{Stdout: target + "\n", Cwd: cwd}, nil
+	}
+	if strings.HasPrefix(command, "p=$(command -v -- 'ls')") || strings.HasPrefix(command, "p=$(command -v -- '/usr/bin/ls')") {
+		return contracts.SandboxExecutionResult{Stdout: "/usr/bin/ls\n", Cwd: cwd}, nil
+	}
 	if s.execute == nil {
 		return contracts.SandboxExecutionResult{ExitCode: 0, Cwd: cwd}, nil
 	}
@@ -1876,6 +1890,11 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 	if strings.TrimSpace(options.command) != "" {
 		command = options.command
 	}
+	// This fixture tests business forms, not shell brace expansion. Send valid
+	// quoted JSON so a business approval never has to override a hard block.
+	if strings.Contains(command, "--payload ") {
+		command = rebuildPayloadCommandForTest(t, command, payloadFromCommandForTest(t, command))
+	}
 	ruleLines := []string{
 		"commands:",
 		"  - command: mock",
@@ -1927,6 +1946,9 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 		mcp:      options.mcp,
 		mcpTools: options.mcpTools,
 		configure: func(cfg *config.Config) {
+			// Business-HITL tests use a virtual command with no real executable.
+			// Script entry policy is covered separately; only this fixture allows it.
+			cfg.AccessPolicy.Levels = map[string]config.AccessPolicyLevelConfig{contracts.AccessLevelDefault: {Approvals: config.AccessPolicyApprovalConfig{BashOpaqueCommand: "allow"}}}
 			cfg.Defaults.Budget.Hitl.Timeout = 600
 			if options.timeout > 0 {
 				cfg.Defaults.Budget.Hitl.Timeout = options.timeout
@@ -1983,7 +2005,7 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 			}
 		}
 		if readErr != nil {
-			t.Fatalf("read query stream before submit: %v", readErr)
+			t.Fatalf("read query stream before submit: %v; stream=%s", readErr, streamBody.String())
 		}
 	}
 

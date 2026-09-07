@@ -8,6 +8,7 @@ import (
 	agentcontract "agent-platform/internal/agent"
 	"agent-platform/internal/api"
 	"agent-platform/internal/runenv"
+	"agent-platform/internal/scriptstate"
 	"agent-platform/internal/stream"
 )
 
@@ -476,6 +477,8 @@ type ToolOutputSink interface {
 }
 
 type ExecutionContext struct {
+	// AuthoredScripts is shared only by tool invocations of this run; never serialized.
+	AuthoredScripts       *scriptstate.Scope `json:"-"`
 	Request               api.QueryRequest
 	Session               QuerySession
 	RunControl            *RunControl
@@ -525,6 +528,24 @@ type ExecutionContext struct {
 	RunLimitFinalAnswerPending   bool
 	RunLimitFinalAnswerActive    bool
 	RunLimitFinalAnswerCompleted bool
+}
+
+func (c *ExecutionContext) ScriptOwner() scriptstate.Owner {
+	if c == nil {
+		return scriptstate.Owner{}
+	}
+	environment := "host:" + c.Session.RuntimeEnvironmentID
+	if c.Session.AgentHasRuntimeSandbox {
+		environment = "sandbox:" + c.Session.RuntimeEnvironmentID
+	}
+	return scriptstate.Owner{Agent: c.Session.AgentKey, Run: c.Session.RunID, Environment: environment}
+}
+
+// Called by the serial run dispatcher before creating concurrent tool contexts.
+func (c *ExecutionContext) EnsureAuthoredScripts() {
+	if c != nil && !c.AuthoredScripts.Owns(c.ScriptOwner()) {
+		c.AuthoredScripts = scriptstate.New(c.ScriptOwner())
+	}
 }
 
 type SandboxSession struct {
