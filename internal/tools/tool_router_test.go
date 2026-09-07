@@ -407,7 +407,7 @@ func TestLoadRuntimeToolDefinitionsRejectsDeprecatedExternalConfigs(t *testing.T
 			if err := os.WriteFile(filepath.Join(root, tc.file), []byte(tc.content), 0o644); err != nil {
 				t.Fatalf("write deprecated config: %v", err)
 			}
-			if _, err := LoadRuntimeToolDefinitions(root); err == nil || !strings.Contains(err.Error(), "transport: stdio") {
+			if _, err := LoadRuntimeToolDefinitions(root); err == nil || !strings.Contains(err.Error(), "runtime/connectors with mcp.json type: stdio") {
 				t.Fatalf("expected migration error, got %v", err)
 			}
 		})

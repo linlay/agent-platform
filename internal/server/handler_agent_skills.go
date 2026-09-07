@@ -8,6 +8,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
+	"agent-platform/internal/connector"
 	"agent-platform/internal/ws"
 )
 
@@ -50,7 +51,7 @@ func (s *Server) listSkillsForAgent(agentKey string) (api.AgentSkillsResponse, e
 	for _, configuredKey := range definition.Skills {
 		configuredKey = strings.TrimSpace(configuredKey)
 		normalized := strings.ToLower(configuredKey)
-		if normalized == "" {
+		if normalized == "" || connector.IsReservedSkill(configuredKey) || definition.IsConnectorSkill(configuredKey) {
 			continue
 		}
 		if _, duplicate := seen[normalized]; duplicate {
@@ -81,7 +82,7 @@ func (s *Server) listSkillsForAgent(agentKey string) (api.AgentSkillsResponse, e
 	}
 	for _, centerSkill := range centerSkills {
 		normalized := strings.ToLower(strings.TrimSpace(centerSkill.Key))
-		if normalized == "" {
+		if normalized == "" || connector.IsReservedSkill(centerSkill.Key) {
 			continue
 		}
 		if _, duplicate := seen[normalized]; duplicate {

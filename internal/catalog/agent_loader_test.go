@@ -71,10 +71,11 @@ func TestParseAgentFileSupportsMCPServerAllowlist(t *testing.T) {
 		"toolConfig:\n" +
 		"  tools:\n" +
 		"    - datetime\n" +
-		"  mcp-servers:\n" +
-		"    - flowCenter\n" +
+		"connectorConfig:\n" +
+		"  connectors:\n" +
+		"    - flowcenter\n" +
 		"    - search\n" +
-		"    - FLOWCENTER\n"
+		"    - flowcenter\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -83,8 +84,8 @@ func TestParseAgentFileSupportsMCPServerAllowlist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if !reflect.DeepEqual(def.MCPServers, []string{"flowCenter", "search"}) {
-		t.Fatalf("MCP servers = %#v", def.MCPServers)
+	if !reflect.DeepEqual(def.Connectors, []string{"flowcenter", "search"}) {
+		t.Fatalf("MCP servers = %#v", def.Connectors)
 	}
 }
 
@@ -1037,14 +1038,15 @@ func TestParseAgentFileRejectsACPCoderMCPServers(t *testing.T) {
 		"  acpBridgeId: codex\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
 		"toolConfig:\n" +
-		"  mcp-servers:\n" +
-		"    - flowCenter\n"
+		"connectorConfig:\n" +
+		"  connectors:\n" +
+		"    - flowcenter\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	_, err := parseAgentDefinitionForTest(path)
-	if err == nil || !strings.Contains(err.Error(), "toolConfig.mcp-servers is not supported for ACP CODER") {
+	if err == nil || !strings.Contains(err.Error(), "connectorConfig.connectors is not supported for ACP CODER") {
 		t.Fatalf("expected ACP CODER MCP server rejection, got %v", err)
 	}
 }

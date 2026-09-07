@@ -17,6 +17,7 @@ import (
 	"agent-platform/internal/bashsec"
 	"agent-platform/internal/builtins"
 	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/runtimeenv"
 	"agent-platform/internal/textcodec"
@@ -381,6 +382,13 @@ func validateStrictCommand(command string, cfg config.BashConfig) error {
 	return nil
 }
 
+func connectorBins(execCtx *ExecutionContext) []string {
+	if execCtx == nil {
+		return nil
+	}
+	return execCtx.Session.ConnectorBinDirs
+}
+
 func mergeCommandEnv(execCtx *ExecutionContext) ([]string, error) {
 	env := append([]string(nil), os.Environ()...)
 	var agentDir string
@@ -405,10 +413,10 @@ func mergeCommandEnv(execCtx *ExecutionContext) ([]string, error) {
 		agentconfig.HostEnvironment(agentDir, workspaceDir, chatDir),
 	)
 	if len(overrides) == 0 {
-		return builtins.EnsureBinInEnv(env), nil
+		return connector.WithPath(builtins.EnsureBinInEnv(env), connectorBins(execCtx)), nil
 	}
 	env = mergeEnvironmentList(env, overrides)
-	return builtins.EnsureBinInEnv(env), nil
+	return connector.WithPath(builtins.EnsureBinInEnv(env), connectorBins(execCtx)), nil
 }
 
 func mergeEnvironmentList(base []string, overrides map[string]string) []string {

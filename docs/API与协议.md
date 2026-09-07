@@ -111,7 +111,9 @@ GET /ws -> request / response / stream / push / error frames
 |---|---|---|---|
 | GET | `/api/admin/agents` | 无 | admin agent 列表，包含 invalid agent 诊断 |
 | GET | `/api/admin/agents/detail` | query: `agentKey` | admin agent 详情，包含编辑配置、来源和诊断 |
-| GET/PUT/DELETE | `/api/admin/source` | GET query: `type`、`key`、`path`、`category`、`file`；PUT body: `target`、`content`、`baseSha256`；DELETE body: `target`、`baseSha256` | 读取或保存受控的 Agent、Skill、Automation、Registry 文本 source；删除目前仅允许 `registry/mcp-servers`；mutation 使用可选哈希防止覆盖并发修改 |
+| GET | `/api/connectors`、`/api/admin/connectors` | 无 | 已安装连接器及组件、技能和 MCP 同步状态 |
+| GET/PUT | `/api/admin/connectors/detail` | GET: `id/file`；PUT: `id/file/content/baseSha256` | 读取或原子保存连接器定义，旧 MCP Registry 管理接口已移除 |
+| GET/PUT/DELETE | `/api/admin/source` | GET query: `type`、`key`、`path`、`category`、`file`；PUT body: `target`、`content`、`baseSha256`；DELETE body: `target`、`baseSha256` | 读取或保存受控的 Agent、Skill、Automation、Registry 文本 source；旧 MCP source 删除入口已退役；mutation 使用可选哈希防止覆盖并发修改 |
 | GET/PUT | `/api/admin/agents/order` | PUT body: `order` | agent 展示顺序 |
 | POST | `/api/admin/agents/create` | body: `key`、`definition`、`soulPrompt`、`agentsPrompt` | 创建后的 agent 详情 |
 | POST | `/api/admin/agents/import` | multipart: `file`、可选 `overwrite` | 导入完整 Agent ZIP，返回包含 `status` 与 `diagnostics` 的 admin agent 详情 |
@@ -148,7 +150,7 @@ GET /ws -> request / response / stream / push / error frames
 
 同 Key 已存在且 `overwrite` 省略或为 `false` 时返回 409，`data.error` 包含 `code`、`agentKey`、`existingName` 与 `overwriteRequired:true`。确认后以同一 ZIP 和 `overwrite=true` 重试会整目录替换旧来源；目录型 Agent 原位替换，平铺 YAML Agent 转换为规范目录来源，不合并或保留旧 `.config`、专属 Skills 或资源。导入使用隐藏 staging/backup 完成原子切换；catalog 硬重载失败时恢复旧来源，回滚失败返回明确的 500 诊断。ZIP 布局、YAML、Key 或公共 mode 等结构性错误返回 422 和文件级 diagnostics，非 ZIP 返回 415，超限返回 413。若 catalog 可以重载、但该 Agent 因本机模型、工具、Workspace、KBASE 或 Skill 缺失而为 `invalid`，导入结果仍保留并以 200 返回无效状态与 diagnostics。
 
-`/api/admin/source` 的 target 是逻辑标识而不是文件系统路径：`agent` 与 `automation` 使用 `key`，`skill` 使用 `key` 与相对 `path`，`registry` 使用 `category` 与 `file`。GET 响应固定返回 target、实际受控来源、原始 `content`、`encoding`、`sha256`、`size` 和 `updatedAt`；文本必须为 UTF-8 且不超过 1 MiB。Agent 保存只允许该 agent 的 `agent.yml`，并 reload agent catalog；Skill 与 Automation 保存分别 reload 对应 catalog / orchestrator。`registry/mcp-servers` 的 PUT 保存与 DELETE 删除都在成功响应前完成本地 Registry 校验、发布和对应工具快照清理，远端初始化与 tool sync 随后在后台执行；DELETE 成功返回 `target` 与 `deleted: true`，本地 reload 硬失败时会恢复原 YAML。旧的 Skill 文件结构、二进制上传下载接口，以及 Registry detail 接口仍保留兼容。
+`/api/admin/source` 的 target 是逻辑标识而不是文件系统路径：`agent` 与 `automation` 使用 `key`，`skill` 使用 `key` 与相对 `path`，`registry` 使用 `category` 与 `file`。GET 响应固定返回 target、实际受控来源、原始 `content`、`encoding`、`sha256`、`size` 和 `updatedAt`；文本必须为 UTF-8 且不超过 1 MiB。Agent 保存只允许该 agent 的 `agent.yml`，并 reload agent catalog；Skill 与 Automation 保存分别 reload 对应 catalog / orchestrator。MCP 配置编辑改走连接器接口，旧 category=mcp-servers 的 GET/PUT/DELETE 均拒绝。旧的 Skill 文件结构、二进制上传下载接口，以及 Registry detail 接口仍保留兼容。
 
 `/api/admin/tools` 中 `kind` 表示调用方式（如 `backend`、`frontend`、`action`），`sourceType` 表示定义来源类型（如 `local`、`agent-local`、`mcp`），`sourceCategory` 表示来源分类：`platform` 为 runtime 自带工具，`external` 可用于 `paths.tools-dir` 下普通 frontend/action/agent-local YAML 的来源分类，`mcp` 为 MCP registry 同步工具。`external` 不再表示子进程调用协议。MCP 工具额外返回 `serverKey`。列表响应只返回 `key`、`name`、`label`、`description`、`kind`、`sourceType`、`sourceCategory`、`serverKey`，不透出内部 tool definition `meta`；接口不接收 query 过滤参数。
 
@@ -164,9 +166,9 @@ GET /ws -> request / response / stream / push / error frames
 
 `/api/admin/registries` 是列表接口，不返回 registry 文件绝对路径、完整 `diagnostics[]` 或文件大小；编辑器应通过 `/api/admin/registries/detail` 获取 `source`、完整诊断、`content`、`parsed` 与 `size`。
 
-MCP Server 列表项的 `summary` 额外包含 `toolCount` 与 `syncStatus`。`syncStatus` 取值为 `pending`、`syncing`、`ready`、`unavailable` 或 `disabled`；可选的 `lastSyncAttemptAt`、`lastSyncSuccessAt` 使用 epoch milliseconds，可选 `syncDiagnostic` 只返回脱敏后的 `severity/code/message`。顶层 `status` 仍只表示 YAML 配置状态。通过通用 `PUT /api/admin/source`、`DELETE /api/admin/source` 或兼容的 `PUT /api/admin/registries/detail` 变更 `category=mcp-servers` 时，成功响应只保证合法本地配置已经发布：新建或连接变化的 Server 此时可以是 `pending`/`syncing`，随后变为 `ready` 或 `unavailable` 并发送 `catalog.updated(reason=mcp-servers)`。远端不可达不会回滚合法配置；删除或禁用 Server 会在响应前清理对应工具。
+连接器列表使用 `GET /api/connectors` 或 `GET /api/admin/connectors`，响应 `data.connectors[]` 包含包清单、`hasMcp/hasCli/hasBin/skills`；`mcp[]` 包含 `serverKey/toolCount/status` 和可选同步时间、脱敏诊断。读取定义使用 `GET /api/admin/connectors/detail?id=...&file=...`，保存使用同路径 PUT（`id/file/content/baseSha256`，哈希必填，冲突 409）。仅支持已存在的 connector.json/mcp.json/cli.json；先校验、原子替换、本地 reload，失败恢复。远端初始化继续后台执行，发送 `catalog.updated(reason=connectors)`。完整契约见 [连接器](连接器.md)。
 
-Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `baseUrl`；model 暴露 `provider/protocol/type/isVision/isReasoner/isFunction/maxInputTokens/maxOutputTokens/timeout`；MCP server 暴露 `transport/toolCount`，其中 HTTP 项另有 `baseUrl`，stdio 项不返回 `baseUrl`、`command`、`args` 或 `env`，`toolCount` 是当前已同步注册的 MCP 工具数量；viewport server 仅暴露 `baseUrl`，当前不返回 viewport 数量。
+Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `baseUrl`；model 暴露 `provider/protocol/type/isVision/isReasoner/isFunction/maxInputTokens/maxOutputTokens/timeout`；viewport server 仅暴露 `baseUrl`，当前不返回 viewport 数量。
 
 `/api/teams` 每项返回 `teamId`、`name`、可选 `description/icon`、`agentKeys` 与安全摘要 `meta`。`meta` 包含 `validAgentKeys`、`invalidAgentKeys`、`orchestrated:true` 与 `maxParallel`；不再返回 `runtimeMode` 或任何 legacy runtime metadata。接口不会返回隐藏总控 key、总控模型配置、system prompt、`SOUL.md/AGENTS.md` 内容或 internal-only `agent_delegate` 定义；`/api/admin/tools` 同样不列出该工具。
 

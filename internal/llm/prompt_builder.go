@@ -390,7 +390,7 @@ func appendSandboxContextPaths(lines *[]string, paths SandboxPaths, localMode bo
 	appendContextDir(lines, "memory_dir", paths.MemoryDir, "记忆存储目录")
 	appendContextDir(lines, "models_dir", paths.ModelsDir, "模型注册配置目录")
 	appendContextDir(lines, "providers_dir", paths.ProvidersDir, "供应商注册配置目录")
-	appendContextDir(lines, "mcp_servers_dir", paths.MCPServersDir, "MCP 服务注册目录")
+	appendContextDir(lines, "connectors_dir", paths.ConnectorsDir, "连接器安装目录")
 	appendContextDir(lines, "viewport_servers_dir", paths.ViewportServersDir, "Viewport 服务注册目录")
 	appendContextDir(lines, "pan_dir", paths.PanDir, panDirDesc)
 }
@@ -411,7 +411,7 @@ func appendLocalContextPaths(lines *[]string, paths LocalPaths) {
 	appendContextDir(lines, "memory_dir", paths.MemoryDir, "记忆存储目录")
 	appendContextDir(lines, "models_dir", paths.ModelsDir, "模型注册配置目录")
 	appendContextDir(lines, "providers_dir", paths.ProvidersDir, "供应商注册配置目录")
-	appendContextDir(lines, "mcp_servers_dir", paths.MCPServersDir, "MCP 服务注册目录")
+	appendContextDir(lines, "connectors_dir", paths.ConnectorsDir, "连接器安装目录")
 	appendContextDir(lines, "viewport_servers_dir", paths.ViewportServersDir, "Viewport 服务注册目录")
 	appendContextDir(lines, "pan_dir", paths.PanDir, "用户网盘目录")
 }

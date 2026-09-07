@@ -266,8 +266,8 @@ func ValidateAgentCoderBackend(def AgentDefinition) error {
 		if len(def.Tools) > 0 {
 			return fmt.Errorf("toolConfig.tools is not supported for ACP CODER; ACP bridges do not execute platform tools")
 		}
-		if len(def.MCPServers) > 0 {
-			return fmt.Errorf("toolConfig.mcp-servers is not supported for ACP CODER; ACP bridges do not execute platform tools")
+		if len(def.Connectors) > 0 {
+			return fmt.Errorf("connectorConfig.connectors is not supported for ACP CODER; ACP bridges do not execute platform tools")
 		}
 		return nil
 	}

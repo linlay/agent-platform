@@ -8,11 +8,12 @@ import (
 	"testing"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/config"
 )
 
 func TestRegistryLoadsStdioAndResolvesRelativePaths(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, "nested", "qiuerscript.yml")
+	path := filepath.Join(root, "qiuerscript.yml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -127,8 +128,8 @@ func TestRegistryRejectsInvalidTransportFieldCombinations(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
-			writeMCPRegistryFile(t, filepath.Join(root, "server.yml"), test.content)
-			_, err := NewRegistry(root)
+			tree, _ := config.LoadYAMLTreeBytes([]byte(test.content))
+			_, _, _, err := ConvertLegacy(filepath.Join(root, "server.yml"), tree)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("NewRegistry error = %v, want %q", err, test.want)
 			}
@@ -136,14 +137,15 @@ func TestRegistryRejectsInvalidTransportFieldCombinations(t *testing.T) {
 	}
 }
 
-func TestRegistryRejectsRemovedToolClassificationFields(t *testing.T) {
+func TestMigrationRejectsRemovedToolClassificationFields(t *testing.T) {
 	for _, field := range []string{"type", "kind", "toolAction", "submitResultFormat"} {
 		t.Run(field, func(t *testing.T) {
-			root := t.TempDir()
-			writeMCPRegistryFile(t, filepath.Join(root, "server.yml"), "serverKey: demo\nbaseUrl: http://127.0.0.1:8080\ntools:\n  - name: lookup\n    "+field+": legacy\n")
-			_, err := NewRegistry(root)
-			if err == nil || !strings.Contains(err.Error(), field+" is no longer supported") {
-				t.Fatalf("NewRegistry error = %v, want removed field %q rejection", err, field)
+			tree, err := config.LoadYAMLTreeBytes([]byte("key: demo\nbaseUrl: https://example.test\ntools:\n  - name: test\n    " + field + ": removed\n"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, _, err := ConvertLegacy(filepath.Join(t.TempDir(), "demo.yml"), tree); err == nil || !strings.Contains(err.Error(), field) {
+				t.Fatalf("removed field accepted: %v", err)
 			}
 		})
 	}
@@ -151,7 +153,7 @@ func TestRegistryRejectsRemovedToolClassificationFields(t *testing.T) {
 
 func writeMCPRegistryFile(t *testing.T, path string, content string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(strings.TrimLeft(content, "\n")), 0o644); err != nil {
+	if err := writeConnectorFixture(path, []byte(strings.TrimLeft(content, "\n")), 0o644); err != nil {
 		t.Fatalf("write registry file: %v", err)
 	}
 }

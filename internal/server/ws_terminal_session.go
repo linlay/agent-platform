@@ -10,6 +10,7 @@ import (
 
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/catalog"
+	"agent-platform/internal/connector"
 	"agent-platform/internal/hostshell"
 	terminalpkg "agent-platform/internal/terminal"
 )
@@ -88,6 +89,16 @@ func terminalEnvironment(def catalog.AgentDefinition, workspaceDir string) []str
 		runtimeAgentEnv(def.Runtime["env"]),
 		agentconfig.HostEnvironment(def.RuntimeDir, workspaceDir, ""),
 	)
+	if len(def.ConnectorBinDirs) > 0 {
+		if env == nil {
+			env = map[string]string{}
+		}
+		current := env["PATH"]
+		if current == "" {
+			current = os.Getenv("PATH")
+		}
+		env["PATH"] = connector.PathValue(current, def.ConnectorBinDirs, string(os.PathListSeparator))
+	}
 	for key := range env {
 		if strings.EqualFold(strings.TrimSpace(key), agentconfig.EnvChatDir) ||
 			strings.EqualFold(strings.TrimSpace(key), agentconfig.EnvAccessToken) {

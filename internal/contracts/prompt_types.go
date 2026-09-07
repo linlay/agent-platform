@@ -111,7 +111,7 @@ type LocalPaths struct {
 	OwnerDir           string
 	ModelsDir          string
 	ProvidersDir       string
-	MCPServersDir      string
+	ConnectorsDir      string
 	ViewportServersDir string
 	ToolsDir           string
 	ViewportsDir       string
@@ -134,7 +134,7 @@ type SandboxPaths struct {
 	MemoryDir          string
 	ModelsDir          string
 	ProvidersDir       string
-	MCPServersDir      string
+	ConnectorsDir      string
 	ViewportServersDir string
 	ToolsDir           string
 	ViewportsDir       string

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"agent-platform/internal/builtins"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
 	"agent-platform/internal/mcp"
@@ -17,11 +18,15 @@ import (
 )
 
 func validateCandidate(root string) error {
+	builtinRoot, err := builtins.ProcessConnectorsRoot()
+	if err != nil {
+		return fmt.Errorf("validate Platform connector resources: %w", err)
+	}
 	registriesDir := filepath.Join(root, "registries")
 	if _, err := models.LoadModelRegistry(registriesDir); err != nil {
 		return fmt.Errorf("validate Model/Provider Registry: %w", err)
 	}
-	if _, err := mcp.NewRegistry(filepath.Join(registriesDir, "mcp-servers")); err != nil {
+	if _, err := mcp.NewRegistry(filepath.Join(root, "connectors"), builtinRoot); err != nil {
 		return fmt.Errorf("validate MCP Registry: %w", err)
 	}
 	toolDefinitions, err := tools.LoadRuntimeToolDefinitions(filepath.Join(root, "tools"))
@@ -30,15 +35,17 @@ func validateCandidate(root string) error {
 	}
 	cfg := config.Config{
 		Paths: config.PathsConfig{
-			RegistriesDir:   registriesDir,
-			ToolsDir:        filepath.Join(root, "tools"),
-			AgentsDir:       filepath.Join(root, "agents"),
-			RUAgentsDir:     filepath.Join(root, ".validation", "ru-agents"),
-			TeamsDir:        filepath.Join(root, "teams"),
-			RootDir:         root,
-			ChatsDir:        filepath.Join(root, ".validation", "chats"),
-			MemoryDir:       filepath.Join(root, ".validation", "memory"),
-			SkillsCenterDir: filepath.Join(root, "skills-center"),
+			BuiltinConnectorsDir: builtinRoot,
+			ConnectorsDir:        filepath.Join(root, "connectors"),
+			RegistriesDir:        registriesDir,
+			ToolsDir:             filepath.Join(root, "tools"),
+			AgentsDir:            filepath.Join(root, "agents"),
+			RUAgentsDir:          filepath.Join(root, ".validation", "ru-agents"),
+			TeamsDir:             filepath.Join(root, "teams"),
+			RootDir:              root,
+			ChatsDir:             filepath.Join(root, ".validation", "chats"),
+			MemoryDir:            filepath.Join(root, ".validation", "memory"),
+			SkillsCenterDir:      filepath.Join(root, "skills-center"),
 		},
 		Skills: config.SkillCatalogConfig{MaxPromptChars: 1 << 20},
 	}

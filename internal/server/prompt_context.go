@@ -12,6 +12,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/pathutil"
 	"agent-platform/internal/rootpaths"
@@ -426,12 +427,12 @@ func mustUseSkillUnavailableStatus(err error) *statusError {
 
 func buildSkillCatalogPrompt(def catalog.AgentDefinition, centerDir string, appendConfig contracts.PromptAppendConfig, mustUseSkills ...resolvedMustUseSkill) string {
 	_ = centerDir
-	if len(def.Skills) == 0 && len(mustUseSkills) == 0 {
+	if len(def.EffectiveSkills()) == 0 && len(mustUseSkills) == 0 {
 		return ""
 	}
-	blocks := make([]string, 0, len(def.Skills)+len(mustUseSkills))
+	blocks := make([]string, 0, len(def.EffectiveSkills())+len(mustUseSkills))
 	seen := map[string]struct{}{}
-	for _, configuredSkill := range def.Skills {
+	for _, configuredSkill := range def.EffectiveSkills() {
 		skillID := strings.ToLower(strings.TrimSpace(configuredSkill))
 		if skillID == "" {
 			continue
@@ -533,6 +534,9 @@ func resolveMustUseSkills(def catalog.AgentDefinition, centerDir string, center 
 		Keys:   make([]string, 0, len(normalizedRequested)),
 	}
 	for _, requestedKey := range normalizedRequested {
+		if def.IsConnectorSkill(requestedKey) || connector.IsReservedSkill(requestedKey) {
+			return mustUseSkillResolution{}, fmt.Errorf("connector skill %q cannot be selected by mustUseSkills", requestedKey)
+		}
 		normalized := strings.ToLower(requestedKey)
 		if configuredKey, ok := configured[normalized]; ok {
 			rootPath, err := resolveMustUseSkillRoot(filepath.Join(def.RuntimeDir, "skills"), configuredKey)
@@ -730,7 +734,7 @@ func resolveLocalPaths(paths config.PathsConfig, chatID string, agentDir string,
 		OwnerDir:           cleanOrEmpty(paths.OwnerDir),
 		ModelsDir:          cleanOrEmpty(filepath.Join(paths.RegistriesDir, "models")),
 		ProvidersDir:       cleanOrEmpty(filepath.Join(paths.RegistriesDir, "providers")),
-		MCPServersDir:      cleanOrEmpty(filepath.Join(paths.RegistriesDir, "mcp-servers")),
+		ConnectorsDir:      cleanOrEmpty(paths.EffectiveConnectorsDir()),
 		ViewportServersDir: cleanOrEmpty(filepath.Join(paths.RegistriesDir, "viewport-servers")),
 		ToolsDir:           cleanOrEmpty(paths.ToolsDir),
 		ViewportsDir:       cleanOrEmpty(filepath.Join(filepath.Dir(filepath.Clean(paths.RegistriesDir)), "viewports")),
@@ -820,7 +824,7 @@ func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 	memoryDir := ifNonEmpty(cfg.Paths.MemoryDir, "/memory")
 	var modelsDir string
 	var providersDir string
-	var mcpServersDir string
+	var connectorsDir string
 	var viewportServersDir string
 	var toolsDir string
 	var viewportsDir string
@@ -840,8 +844,8 @@ func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 			modelsDir = "/models"
 		case "providers":
 			providersDir = "/providers"
-		case "mcp-servers":
-			mcpServersDir = "/mcp-servers"
+		case "connectors":
+			connectorsDir = "/connectors"
 		case "viewport-servers":
 			viewportServersDir = "/viewport-servers"
 		case "tools":
@@ -867,7 +871,7 @@ func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 		MemoryDir:          memoryDir,
 		ModelsDir:          modelsDir,
 		ProvidersDir:       providersDir,
-		MCPServersDir:      mcpServersDir,
+		ConnectorsDir:      connectorsDir,
 		ViewportServersDir: viewportServersDir,
 		ToolsDir:           toolsDir,
 		ViewportsDir:       viewportsDir,
@@ -911,8 +915,8 @@ func resolveLocalSandboxPaths(cfg config.Config, def catalog.AgentDefinition, lo
 			paths.ModelsDir = absOrEmpty(filepath.Join(cfg.Paths.RegistriesDir, "models"))
 		case "providers":
 			paths.ProvidersDir = absOrEmpty(filepath.Join(cfg.Paths.RegistriesDir, "providers"))
-		case "mcp-servers":
-			paths.MCPServersDir = absOrEmpty(filepath.Join(cfg.Paths.RegistriesDir, "mcp-servers"))
+		case "connectors":
+			paths.ConnectorsDir = absOrEmpty(cfg.Paths.EffectiveConnectorsDir())
 		case "viewport-servers":
 			paths.ViewportServersDir = absOrEmpty(filepath.Join(cfg.Paths.RegistriesDir, "viewport-servers"))
 		case "tools":

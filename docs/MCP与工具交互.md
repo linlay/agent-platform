@@ -6,90 +6,24 @@ Go runtime 使用官方 Go MCP SDK `github.com/modelcontextprotocol/go-sdk` `v1.
 
 MCP registry、session client、availability gate、后台同步/重连与热重载已经接通。平台只保留一种 Tool；本地、MCP、用户问题交互和 Desktop 能力共享同一工具定义与 `tool.*` 事件协议。Platform 启动只同步装载和校验本地 MCP Registry，首次远端连接、初始化与 `tools/list` 由单 worker 在后台执行，不属于 HTTP 服务监听或 `/healthz` 的就绪条件。
 
-`registries/mcp-servers/*.yml` 由文件 watcher 热重载；管理端通过 `PUT /api/admin/source` 保存或 `DELETE /api/admin/source` 删除 MCP YAML 时，会在响应前完成本地 Registry 的原子校验、发布和 Agent catalog 级联，不依赖 watcher 的 debounce，但不会等待远端连接。删除使用 `baseSha256` 防止误删并发修改，本地 reload 硬失败时恢复原 YAML；删除或禁用 Server 会立即清理对应工具，新建或连接配置变化的 Server 会立即进入 `pending` 并清除旧连接的工具快照。远端初始化和工具发现由后台同步协调器串行、合并执行；配置再次变化会取消过期任务，只有匹配当前 Registry version 的结果可以发布。合法配置即使远端暂时不可用也会保留，ToolSync 标记为 `unavailable` 并按 availability backoff 重试；配置未变化的已有成功快照在临时失败期间继续保留。同步状态或工具集合变化会发送 `catalog.updated(reason=mcp-servers)`，客户端无需重启 runtime。
+外部连接器放在 `<AP_RUNTIME_DIR>/connectors/<id>/`；内置连接器放在 Platform 随包 `connectors/`，使用相同的加载与 Agent 挂载契约。MCP 通过包内 `mcp.json` 注册，CLI 可以与 MCP、`bin/` 和技能放在同一个包里；`dbx/httpx` 已成为 `builtin.dbx/builtin.httpx`，不再处于全局 builtin bin。
 
-服务包根目录的 `bin/{rg,dbx,httpx,pdftotext}` 属于 Host builtin executable，不是 MCP server。只有明确注册到 `registries/mcp-servers/*.yml` 的 HTTP endpoint 或 stdio command 才进入 MCP 生命周期。
-
-## 核心流程
+## 连接器与 MCP
 
 ```text
-AP_RUNTIME_REGISTRIES_DIR/mcp-servers
-  -> MCP registry
-  -> official SDK initialize + notifications/initialized
-  -> one concurrent-safe session per serverKey
-  -> paginated tools/list
-  -> runtime tool registry
+runtime/connectors/<id>/{connector.json,mcp.json}
+  -> MCP registry 本地校验
+  -> 后台 official SDK initialize + notifications/initialized
+  -> per-server session / tools/list
+  -> 已挂载 connector 的 Agent run 工具集合
   -> ToolRouter tools/call
-  -> normalize content / structuredContent / isError
 ```
 
-SDK 负责 session ID、MCP 协议头、JSON/SSE 响应、`notifications/initialized` 和标准关闭流程。registry 删除、连接字段变更、连接失效或应用关闭都会让后台协调器释放 session；stdio session 同时终止并回收子进程。`startup-timeout`、`read-timeout` 和 `retry` 仍约束单个后台同步任务，但不会延长 Platform 启动、管理端保存或 watcher reload；已经发出的 `tools/call` 不会自动重放，避免写工具重复执行。取消初始化时发送的 `notifications/cancelled` 和 HTTP session DELETE 采用额外的短清理上限，避免 SDK 的善后请求拖住新版本同步或关闭。
+Agent 使用 `connectorConfig.connectors: [remote-search]` 挂载。挂载同时导入该包技能并添加 bin PATH；连接器技能禁止通过 mustUseSkills 选择。JSON 示例、组件边界、builtin 包布局和迁移命令见 [连接器](连接器.md)。旧 `registries/mcp-servers` 目录直接忽略，不影响启动；`toolConfig.mcp-servers` 与对应 Registry 管理入口已移除，运行时只加载新连接器定义。
 
-## Registry 配置
+连接器目录变化会本地校验、发布 Registry 并级联 Agent catalog。`PUT /api/admin/connectors/detail` 校验完整候选包并立即 reload；失败恢复原文件。远端初始化、工具发现与重连由后台协调器串行、合并执行；删除、禁用或连接配置变化会清除对应旧工具快照，只有匹配当前 Registry version 的结果可以发布。远端暂时不可用时保留合法配置，标记 unavailable 并重试；同步状态或工具集合变化发送 `catalog.updated(reason=connectors)`。
 
-`transport` 默认为 `streamable-http`，所以已有合法 HTTP 配置不需要补字段。
-
-HTTP 示例：
-
-```yaml
-serverKey: remote-search
-name: Remote Search
-transport: streamable-http
-baseUrl: http://127.0.0.1:8080
-endpointPath: /mcp
-authToken: ${REMOTE_MCP_TOKEN}
-headers:
-  X-Tenant: local
-connect-timeout: 3
-read-timeout: 30
-retry: 1
-```
-
-需要复用当前 Desktop 登录身份的远程 MCP 必须显式声明：
-
-```yaml
-serverKey: flowCenter
-transport: streamable-http
-baseUrl: https://qiuer.net
-endpointPath: /mcp/flowCenter
-authSource: identity-file
-```
-
-Platform 会在每次 HTTP 请求前从 `--identity-file` 指向的单行文件读取最新 token，并设置 `Authorization: Bearer ...`。`authSource` 不能与 `authToken` 同时使用；身份只发送给 registry 中配置的 HTTPS 主机，跨主机或非标准 HTTPS 端口请求会被拒绝。没有声明 `authSource` 的 MCP 不使用 identity 文件中的凭据。
-
-stdio 示例：
-
-```yaml
-serverKey: qiuerscript
-name: Qiuerscript
-transport: stdio
-command: ../../tools/qiuerscript/qiuerscript-tool
-args: [serve, --datasource, dev]
-env: {}
-workingDirectory: ../..
-startup-timeout: 5
-read-timeout: 30
-retry: 1
-```
-
-字段约束：
-
-- `streamable-http` 必须提供 `baseUrl`，可选 `authToken` 或 `authSource: identity-file`，两者不能同时出现；不得出现 `command`、`args`、`env` 或 `workingDirectory`。
-- `stdio` 必须提供 `command`，不得出现 `baseUrl`、`endpointPath`、`authToken`、`authSource` 或 `headers`。
-- 相对 `command` 与 `workingDirectory` 都相对于当前 registry YAML 所在目录解析。
-- stdio 环境继承 runtime 进程环境，并保留 Host builtin PATH；`env` 只覆盖或追加显式变量。
-- `startup-timeout` 控制初始化期限，`read-timeout` 控制 `tools/list` 和 `tools/call` 的单次操作期限，单位均为秒。
-- 任意非法 transport、缺少必填字段或字段混用都会使启动/热重载硬失败；registry 不会静默跳过这些文件。
-
-MCP Registry 只描述连接、鉴权和工具同步，不向 Agent 反向授权。Agent 通过 `toolConfig.mcp-servers` 主动选择可用的 MCP Server；Platform 在新 Run 创建时把这些 Server 当前同步成功的工具加入该 Agent 的最终工具集合。未选择的 Server 不会提供工具，已有 Run 也不会因后续热同步自动扩权。
-
-```yaml
-toolConfig:
-  tools:
-    - datetime
-  mcp-servers:
-    - flowCenter
-```
+SDK 负责 session ID、协议头、JSON/SSE、初始化通知和标准关闭；stdio session 关闭时回收子进程。已发出的 tools/call 不自动重放。清单 `auth_mode` 和已准备环境的当前支持范围见连接器专题，不能将原方案中的 OAuth、用户绑定、CLI 登录写为已实现能力。迁移后的 `platform.authSource=identity-file` 保持已有的即时读 token、限定 HTTPS 目标和拒绝跨主机转发规则。
 
 ## 工具来源与结果
 
@@ -164,7 +98,7 @@ Desktop 模式只将 `scope=app` 且 JWT `device_id` 与握手 `deviceId` 完全
 - `external:` 字段，包括空对象
 - `kind: external-service`
 
-迁移方式是删除旧 service/tool YAML，把子进程改为标准 MCP server，并新增一个 `registries/mcp-servers/*.yml` 的 `transport: stdio` 定义。平台二进制、stdio server 二进制和 registry 配置必须同批发布，旧私有配置不能与新版 runtime 滚动混用。
+迁移方式是删除旧 service/tool YAML，把子进程改为标准 MCP server，并将其作为连接器包，在 `mcp.json` 中声明 `type: stdio`。平台二进制、stdio server 二进制和 registry 配置必须同批发布，旧私有配置不能与新版 runtime 滚动混用。
 
 Qiuerscript 已按此方式迁移。`qs_read`、`qs_glob`、`qs_grep`、`qs_write`、`qs_edit`、`qs_delete` 的工具名、参数、默认值和结构化业务结果保持不变；前三项声明只读 annotations，后三项声明写入/破坏性 annotations。
 

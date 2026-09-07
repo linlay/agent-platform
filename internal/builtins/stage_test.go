@@ -76,7 +76,11 @@ func TestStageBuiltins(t *testing.T) {
 		"dbx":   "dbx-binary",
 		"httpx": "httpx-binary",
 	} {
-		payload, err := os.ReadFile(filepath.Join(outputDir, "bin", name))
+		dir := filepath.Join(outputDir, "bin")
+		if name == "dbx" || name == "httpx" {
+			dir = filepath.Join(outputDir, "connectors", "builtin."+name, "bin")
+		}
+		payload, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			t.Fatalf("read staged %s: %v", name, err)
 		}

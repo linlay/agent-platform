@@ -23,7 +23,7 @@ const (
 	adminRegistryStatusDisabled = "disabled"
 )
 
-var adminRegistryCategories = []string{"providers", "models", "mcp-servers", "viewport-servers"}
+var adminRegistryCategories = []string{"providers", "models", "viewport-servers"}
 
 func (s *Server) handleAdminRegistries(w http.ResponseWriter, r *http.Request) {
 	response, err := s.listAdminRegistries()
@@ -98,7 +98,7 @@ func (s *Server) listAdminRegistries() (api.AdminRegistryListResponse, error) {
 				summary.UpdatedAt = info.ModTime().UnixMilli()
 				summary.Size = info.Size()
 			}
-			items = append(items, adminRegistryListItem(s.adminRegistryListSummary(summary)))
+			items = append(items, adminRegistryListItem(summary))
 		}
 	}
 	sort.SliceStable(items, func(i, j int) bool {
@@ -108,74 +108,6 @@ func (s *Server) listAdminRegistries() (api.AdminRegistryListResponse, error) {
 		return items[i].File < items[j].File
 	})
 	return api.AdminRegistryListResponse{Items: items, Total: len(items)}, nil
-}
-
-func (s *Server) adminRegistryListSummary(summary api.AdminRegistrySummary) api.AdminRegistrySummary {
-	if summary.Category != "mcp-servers" {
-		return summary
-	}
-	if summary.Summary == nil {
-		summary.Summary = map[string]any{}
-	}
-	summary.Summary["toolCount"] = s.adminRegistryMCPToolCount(summary.Key)
-	if summary.Status == "disabled" {
-		summary.Summary["syncStatus"] = "disabled"
-		return summary
-	}
-	if s.deps.MCPToolSyncStatus != nil {
-		if status, ok := s.deps.MCPToolSyncStatus.ServerStatus(summary.Key); ok {
-			summary.Summary["syncStatus"] = status.Status
-			if status.LastSyncAttemptAt > 0 {
-				summary.Summary["lastSyncAttemptAt"] = status.LastSyncAttemptAt
-			}
-			if status.LastSyncSuccessAt > 0 {
-				summary.Summary["lastSyncSuccessAt"] = status.LastSyncSuccessAt
-			}
-			if status.Diagnostic != nil {
-				summary.Summary["syncDiagnostic"] = status.Diagnostic
-			}
-			return summary
-		}
-	}
-	summary.Summary["syncStatus"] = "pending"
-	return summary
-}
-
-func (s *Server) adminRegistryMCPToolCount(serverKey string) int {
-	serverKey = strings.TrimSpace(serverKey)
-	if s == nil || s.deps.Tools == nil || serverKey == "" {
-		return 0
-	}
-	count := 0
-	seen := map[string]struct{}{}
-	for _, tool := range s.deps.Tools.Definitions() {
-		if canonical, ok := canonicalizePublicToolDefinition(tool); ok {
-			tool = canonical
-		}
-		if toolSourceCategory(tool) != "mcp" {
-			continue
-		}
-		sourceKey := strings.TrimSpace(anyStringValue(tool.Meta["sourceKey"]))
-		if sourceKey == "" {
-			sourceKey = strings.TrimSpace(anyStringValue(tool.Meta["serverKey"]))
-		}
-		if !strings.EqualFold(sourceKey, serverKey) {
-			continue
-		}
-		name := strings.ToLower(strings.TrimSpace(tool.Name))
-		if name == "" {
-			name = strings.ToLower(strings.TrimSpace(tool.Key))
-		}
-		if name == "" {
-			continue
-		}
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		seen[name] = struct{}{}
-		count++
-	}
-	return count
 }
 
 func adminRegistryListItem(summary api.AdminRegistrySummary) api.AdminRegistryListItem {
@@ -225,13 +157,6 @@ func (s *Server) readAdminRegistryDetail(category string, file string) (api.Admi
 }
 
 func (s *Server) saveAdminRegistryDetail(ctx context.Context, req api.AdminRegistryDetailRequest) (api.AdminRegistryDetailResponse, error) {
-	if strings.TrimSpace(req.Category) == "mcp-servers" {
-		target := api.AdminSourceTarget{Type: "registry", Category: req.Category, File: req.File}
-		if _, err := s.writeAdminRegistryTextSource(ctx, target, req.Content, ""); err != nil {
-			return api.AdminRegistryDetailResponse{}, err
-		}
-		return s.readAdminRegistryDetail(req.Category, req.File)
-	}
 	path, err := s.adminRegistryFilePath(req.Category, req.File)
 	if err != nil {
 		return api.AdminRegistryDetailResponse{}, err
@@ -414,32 +339,6 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 				}
 			}
 		}
-	case "mcp-servers":
-		if adminRegistryKey(category, file, root) == "" {
-			addError("missing_key", "serverKey or key is required")
-		}
-		transport := strings.ToLower(strings.TrimSpace(contracts.FirstNonEmptyString(root["transport"])))
-		if transport == "" {
-			transport = "streamable-http"
-		}
-		switch transport {
-		case "streamable-http":
-			if strings.TrimSpace(contracts.FirstNonEmptyString(root["baseUrl"], root["base-url"], root["url"])) == "" {
-				addError("missing_base_url", "streamable-http MCP server baseUrl is required")
-			}
-			if adminRegistryHasAnyKey(root, "command", "args", "env", "workingDirectory", "working-directory") {
-				addError("mixed_transport_fields", "streamable-http MCP server cannot declare stdio fields")
-			}
-		case "stdio":
-			if strings.TrimSpace(contracts.FirstNonEmptyString(root["command"])) == "" {
-				addError("missing_command", "stdio MCP server command is required")
-			}
-			if adminRegistryHasAnyKey(root, "baseUrl", "base-url", "url", "endpointPath", "endpoint-path", "path", "authToken", "auth-token", "headers") {
-				addError("mixed_transport_fields", "stdio MCP server cannot declare HTTP fields")
-			}
-		default:
-			addError("invalid_transport", "MCP transport must be streamable-http or stdio")
-		}
 	case "viewport-servers":
 		if adminRegistryKey(category, file, root) == "" {
 			addError("missing_key", "serverKey or key is required")
@@ -451,15 +350,6 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 		addError("invalid_category", "unsupported registry category")
 	}
 	return diagnostics
-}
-
-func adminRegistryHasAnyKey(values map[string]any, keys ...string) bool {
-	for _, key := range keys {
-		if _, ok := values[key]; ok {
-			return true
-		}
-	}
-	return false
 }
 
 func (s *Server) adminRegistryProviderExists(provider string) bool {
@@ -540,7 +430,7 @@ func adminRegistrySource(category string, path string) *api.AgentSource {
 
 func adminRegistryKey(category string, file string, root map[string]any) string {
 	switch category {
-	case "mcp-servers", "viewport-servers":
+	case "viewport-servers":
 		if key := strings.TrimSpace(contracts.FirstNonEmptyString(root["serverKey"], root["server-key"], root["key"])); key != "" {
 			return key
 		}
@@ -595,21 +485,6 @@ func adminRegistryPublicSummary(category string, root map[string]any) map[string
 		put("maxInputTokens", root["maxInputTokens"])
 		put("maxOutputTokens", root["maxOutputTokens"])
 		put("timeout", root["timeout"])
-	case "mcp-servers":
-		transport := strings.ToLower(strings.TrimSpace(contracts.FirstNonEmptyString(root["transport"])))
-		if transport == "" {
-			transport = "streamable-http"
-		}
-		put("transport", transport)
-		if transport == "streamable-http" {
-			put("baseUrl", contracts.FirstNonEmptyString(root["baseUrl"], root["base-url"], root["url"]))
-			put("endpointPath", contracts.FirstNonEmptyString(root["endpointPath"], root["endpoint-path"], root["path"]))
-		}
-		put("enabled", adminRegistryBool(root["enabled"], true))
-		put("toolPrefix", contracts.FirstNonEmptyString(root["toolPrefix"], root["tool-prefix"]))
-		if tools, ok := root["tools"].([]any); ok {
-			out["toolCount"] = len(tools)
-		}
 	case "viewport-servers":
 		put("baseUrl", contracts.FirstNonEmptyString(root["baseUrl"], root["base-url"], root["url"]))
 		put("endpointPath", contracts.FirstNonEmptyString(root["endpointPath"], root["endpoint-path"], root["path"]))

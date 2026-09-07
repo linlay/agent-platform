@@ -84,7 +84,7 @@ func (r *RuntimeCatalogReloader) AddObserver(observer CatalogReloadObserver) {
 //	models          → reload models + reload agents (cascade for affected agents)
 //	providers       → reload providers only (independent)
 //	tools           → reload runtime tool definitions + reload agents (cascade)
-//	mcp-servers     → reload mcp registry + reload agents (cascade)
+//	connectors     → reload mcp registry + reload agents (cascade)
 //	viewport-servers → reload agents (cascade; viewport server registry reads
 //	                  on-demand and doesn't cache)
 //	viewports       → broadcast update only (local viewports are read on-demand)
@@ -140,14 +140,14 @@ func (r *RuntimeCatalogReloader) Reload(ctx context.Context, reason string) erro
 		if err := r.reloadCatalog(ctx, "agents"); err != nil {
 			return err
 		}
-	case "mcp-servers":
+	case "connectors":
 		if r.mcp != nil {
 			if err := r.mcp.Reload(ctx); err != nil {
 				log.Printf("[reload] mcp registry reload failed: %v", err)
 				return err
 			}
 		}
-		log.Printf("[reload] cascade: mcp-servers → agents")
+		log.Printf("[reload] cascade: connectors → agents")
 		if err := r.reloadCatalog(ctx, "agents"); err != nil {
 			return err
 		}
@@ -313,7 +313,7 @@ func backgroundWatchEntries(cfg config.Config) []watchEntry {
 		{filepath.Join(cfg.Paths.RegistriesDir, "providers"), "providers"},
 		{cfg.Paths.ToolsDir, "tools"},
 		{filepath.Join(filepath.Dir(filepath.Clean(cfg.Paths.RegistriesDir)), "viewports"), "viewports"},
-		{filepath.Join(cfg.Paths.RegistriesDir, "mcp-servers"), "mcp-servers"},
+		{cfg.Paths.EffectiveConnectorsDir(), "connectors"},
 		{filepath.Join(cfg.Paths.RegistriesDir, "viewport-servers"), "viewport-servers"},
 	}
 }

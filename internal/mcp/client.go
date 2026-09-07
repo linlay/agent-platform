@@ -19,6 +19,7 @@ import (
 
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/builtins"
+	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/observability"
 
@@ -389,11 +390,14 @@ func (c *Client) slot(serverKey string) (*sessionSlot, error) {
 }
 
 func (c *Client) transport(server ServerDefinition) (sdkmcp.Transport, error) {
+	if server.SetupError != "" {
+		return nil, fmt.Errorf("%s", server.SetupError)
+	}
 	switch server.Transport {
 	case TransportStdio:
 		cmd := exec.Command(server.Command, server.Args...)
 		cmd.Dir = server.WorkingDir
-		cmd.Env = builtins.EnsureBinInEnv(append(os.Environ(), envPairs(server.Env)...))
+		cmd.Env = connector.WithPath(builtins.EnsureBinInEnv(append(os.Environ(), envPairs(server.Env)...)), []string{server.ConnectorBinDir})
 		cmd.Stderr = os.Stderr
 		return &sdkmcp.CommandTransport{
 			Command:           cmd,

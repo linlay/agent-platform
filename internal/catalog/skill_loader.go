@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/agentconfig"
+	"agent-platform/internal/connector"
 )
 
 // ResolveSkillDefinition loads a declared skill from real host paths.
@@ -41,7 +42,7 @@ func loadSkills(root string, maxPromptChars int) (map[string]SkillDefinition, er
 		root,
 		nil,
 		func(name string, entry os.DirEntry) bool {
-			return entry.IsDir() && !strings.HasPrefix(name, ".") && ShouldLoadRuntimeName(name)
+			return entry.IsDir() && !strings.HasPrefix(name, ".") && ShouldLoadRuntimeName(name) && !connector.IsReservedSkill(name)
 		},
 		func(name string, _ os.DirEntry) {
 			if loadErr != nil {

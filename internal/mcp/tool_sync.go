@@ -94,7 +94,7 @@ func (s *ToolSync) Definitions() []api.ToolDetailResponse {
 }
 
 // ToolNamesForServers returns the current synchronized tools owned by the
-// server keys explicitly selected by an Agent's toolConfig.mcp-servers.
+// server keys resolved from an Agent's connectorConfig.connectors.
 func (s *ToolSync) ToolNamesForServers(serverKeys []string) []string {
 	if s == nil || len(serverKeys) == 0 {
 		return nil
@@ -395,6 +395,16 @@ func (s *ToolSync) syncServer(ctx context.Context, server ServerDefinition) (ser
 	toolsByName := map[string]api.ToolDetailResponse{}
 	aliasToCanonical := map[string]string{}
 	for _, tool := range discovered {
+		disabled := false
+		for _, name := range server.DisabledTools {
+			if name == tool.Name {
+				disabled = true
+				break
+			}
+		}
+		if disabled {
+			continue
+		}
 		normalizedName := normalizeKey(tool.Name)
 		if normalizedName == "" {
 			continue
@@ -405,6 +415,9 @@ func (s *ToolSync) syncServer(ctx context.Context, server ServerDefinition) (ser
 		}
 		tool = applyServerToolOverride(tool, findServerToolOverride(server.Tools, tool))
 		def := tool.ToAPITool(server.Key)
+		if server.ConnectorID != "" {
+			def.Meta["connectorId"] = server.ConnectorID
+		}
 		toolsByName[normalizedName] = def
 		registerAliases(server, normalizedName, tool.Aliases, aliasToCanonical)
 	}

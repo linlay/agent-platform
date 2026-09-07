@@ -10,6 +10,7 @@ import (
 	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
 	. "agent-platform/internal/contracts"
 )
 
@@ -43,6 +44,7 @@ func (t *RuntimeToolExecutor) ReviewBashAccess(ctx context.Context, args map[str
 			return accesspolicy.BashPlan{Decision: accesspolicy.DecisionBlock, Reason: err.Error()}
 		}
 		vars = agentconfig.Merge(vars, invocationEnv, agentconfig.ContainerEnvironment(session.RuntimeContext.SandboxPaths.AgentDir, session.RuntimeContext.SandboxPaths.WorkspaceDir, session.RuntimeContext.SandboxPaths.ChatDir))
+		vars = connector.ContainerEnvironment(vars, session.ConnectorBinDirs)
 		environment = t.sandboxBashEnvironment(ctx, execCtx)
 	}
 	return accesspolicy.ReviewBashCommandInEnvironment(cfg, session, stringArg(args, "command"), stringArg(args, "cwd"), vars, environment, execCtx)

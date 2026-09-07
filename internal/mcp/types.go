@@ -9,25 +9,29 @@ import (
 )
 
 type ServerDefinition struct {
-	Key            string
-	Name           string
-	Transport      string
-	BaseURL        string
-	EndpointPath   string
-	Command        string
-	Args           []string
-	Env            map[string]string
-	WorkingDir     string
-	ToolPrefix     string
-	AuthToken      string
-	AuthSource     string
-	Headers        map[string]string
-	AliasMap       map[string]string
-	ConnectTimeout int
-	StartupTimeout int
-	ReadTimeout    int
-	Retry          int
-	Tools          []ToolDefinition
+	ConnectorID     string
+	ConnectorBinDir string
+	DisabledTools   []string
+	SetupError      string
+	Key             string
+	Name            string
+	Transport       string
+	BaseURL         string
+	EndpointPath    string
+	Command         string
+	Args            []string
+	Env             map[string]string
+	WorkingDir      string
+	ToolPrefix      string
+	AuthToken       string
+	AuthSource      string
+	Headers         map[string]string
+	AliasMap        map[string]string
+	ConnectTimeout  int
+	StartupTimeout  int
+	ReadTimeout     int
+	Retry           int
+	Tools           []ToolDefinition
 }
 
 const (

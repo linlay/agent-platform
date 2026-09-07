@@ -12,6 +12,7 @@ import (
 
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 )
 
@@ -486,7 +487,7 @@ func sandboxSessionEnvironment(execCtx *contracts.ExecutionContext) map[string]s
 	if execCtx == nil {
 		return nil
 	}
-	return agentconfig.Merge(
+	env := agentconfig.Merge(
 		execCtx.StaticRuntimeEnv,
 		agentconfig.ContainerEnvironment(
 			execCtx.Session.RuntimeContext.SandboxPaths.AgentDir,
@@ -494,6 +495,7 @@ func sandboxSessionEnvironment(execCtx *contracts.ExecutionContext) map[string]s
 			execCtx.Session.RuntimeContext.SandboxPaths.ChatDir,
 		),
 	)
+	return sandboxConnectorEnvironment(execCtx, env)
 }
 
 func sandboxCommandEnvironment(execCtx *contracts.ExecutionContext, invocationEnv map[string]string) (map[string]string, error) {
@@ -508,7 +510,7 @@ func sandboxCommandEnvironment(execCtx *contracts.ExecutionContext, invocationEn
 			return nil, err
 		}
 	}
-	return agentconfig.Merge(
+	env := agentconfig.Merge(
 		execCtx.StaticRuntimeEnv,
 		dynamic,
 		invocationEnv,
@@ -517,7 +519,12 @@ func sandboxCommandEnvironment(execCtx *contracts.ExecutionContext, invocationEn
 			execCtx.Session.RuntimeContext.SandboxPaths.WorkspaceDir,
 			execCtx.Session.RuntimeContext.SandboxPaths.ChatDir,
 		),
-	), nil
+	)
+	return sandboxConnectorEnvironment(execCtx, env), nil
+}
+
+func sandboxConnectorEnvironment(execCtx *contracts.ExecutionContext, env map[string]string) map[string]string {
+	return connector.ContainerEnvironment(env, execCtx.Session.ConnectorBinDirs)
 }
 
 func stringValue(value any) string {

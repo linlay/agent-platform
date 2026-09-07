@@ -15,6 +15,7 @@
 #   memory-dir: ./runtime/memory
 #   kbase-dir: ./runtime/kbase
 #   pan-dir: ./runtime/pan
+#   connectors-dir: ./runtime/connectors # 外部连接器；内置连接器与技能随 Platform 提供
 #   skills-center-dir: ./runtime/skills-center
 
 skills:

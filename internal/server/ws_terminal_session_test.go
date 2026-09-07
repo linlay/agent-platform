@@ -1,13 +1,27 @@
 package server
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
 )
+
+func TestTerminalIncludesOnlyMountedConnectorPath(t *testing.T) {
+	t.Setenv("PATH", "/system/bin")
+	bin := filepath.Join(t.TempDir(), "builtin.dbx", "bin")
+	got := terminalEnvironmentValues(terminalEnvironment(catalog.AgentDefinition{ConnectorBinDirs: []string{bin}}, ""))
+	if got["PATH"] != bin+string(os.PathListSeparator)+"/system/bin" || strings.Contains(got["PATH"], "libs") {
+		t.Fatalf("unexpected terminal PATH %q", got["PATH"])
+	}
+	if other := terminalEnvironmentValues(terminalEnvironment(catalog.AgentDefinition{}, "")); other["PATH"] != "" {
+		t.Fatal("connector path leaked into another agent")
+	}
+}
 
 func TestTerminalEnvironmentUsesReservedAgentAndWorkspaceContext(t *testing.T) {
 	agentDir := filepath.Join("/runtime", "agents", "reader")

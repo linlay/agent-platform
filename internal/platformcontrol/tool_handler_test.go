@@ -226,20 +226,20 @@ func TestValidateCandidateResources(t *testing.T) {
 			content: "---\nname: demo-skill\n  broken: value\ndescription: Demo\n---\n\n# Demo\n",
 		},
 		{
-			name: "mcp valid", resourceType: "mcp-server", resourceKey: "remote", wantValid: true,
-			content: "serverKey: remote\ntransport: streamable-http\nbaseUrl: http://127.0.0.1:8080/mcp\n",
+			name: "connector valid", resourceType: "connector", resourceKey: "remote", wantValid: true,
+			content: `{"id":"remote","name":"Remote","version":"1.0.0","type":"mcp","auth_mode":"none"}`,
 		},
 		{
-			name: "mcp mixed transports", resourceType: "mcp-server", resourceKey: "remote", wantValid: false,
-			content: "serverKey: remote\ntransport: streamable-http\nbaseUrl: http://127.0.0.1:8080/mcp\ncommand: node\n",
+			name: "connector invalid type", resourceType: "connector", resourceKey: "remote", wantValid: false,
+			content: `{"id":"remote","name":"Remote","version":"1.0.0","type":"external","auth_mode":"none"}`,
 		},
 		{
-			name: "mcp key mismatch", resourceType: "mcp-server", resourceKey: "remote", wantValid: false,
-			content: "serverKey: another\ntransport: streamable-http\nbaseUrl: http://127.0.0.1:8080/mcp\n",
+			name: "connector id mismatch", resourceType: "connector", resourceKey: "remote", wantValid: false,
+			content: `{"id":"another","name":"Remote","version":"1.0.0","type":"mcp","auth_mode":"none"}`,
 		},
 		{
-			name: "mcp syntax error", resourceType: "mcp-server", resourceKey: "remote", wantValid: false,
-			content: "serverKey: remote\n  broken: value\n",
+			name: "connector syntax error", resourceType: "connector", resourceKey: "remote", wantValid: false,
+			content: `{"id":`,
 		},
 	}
 
@@ -265,9 +265,9 @@ func TestValidateCandidateResources(t *testing.T) {
 
 func TestValidateDoesNotEchoCandidateSecrets(t *testing.T) {
 	const secret = "mcp-secret-value-that-must-not-leak"
-	content := "serverKey: remote\ntransport: streamable-http\nbaseUrl: http://127.0.0.1:8080/mcp\nauthToken: " + secret + "\n"
+	content := `{"id":"remote","name":"Remote","version":"1.0.0","type":"mcp","auth_mode":"none","description":"` + secret + `"}`
 	result, err := invokeTestOperation(NewToolHandler(config.Config{}, nil), "catalog.validate", map[string]any{
-		"resourceType": "mcp-server",
+		"resourceType": "connector",
 		"resourceKey":  "remote",
 		"content":      content,
 	})

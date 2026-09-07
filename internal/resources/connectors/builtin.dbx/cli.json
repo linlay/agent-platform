@@ -1,0 +1,11 @@
+{
+  "versionCheck": {
+    "command": {
+      "darwin": "dbx --version",
+      "linux": "dbx --version",
+      "win32": "dbx.exe --version"
+    },
+    "minVersion": "0.1.2",
+    "versionPattern": "v?([0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?)"
+  }
+}

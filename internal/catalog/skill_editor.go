@@ -18,6 +18,8 @@ import (
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	"agent-platform/internal/connector"
 )
 
 const (
@@ -144,7 +146,7 @@ func (r *FileRegistry) AdminSkills() ([]AdminSkill, error) {
 	}
 	for _, entry := range entries {
 		name := strings.TrimSpace(entry.Name())
-		if !entry.IsDir() || strings.HasPrefix(name, ".") || !ShouldLoadRuntimeName(name) {
+		if !entry.IsDir() || strings.HasPrefix(name, ".") || !ShouldLoadRuntimeName(name) || connector.IsReservedSkill(name) {
 			continue
 		}
 		item, err := buildAdminSkill(root, name, usage[name], false)
@@ -1140,6 +1142,9 @@ func (r *FileRegistry) UploadEditableSkillFile(key string, relPath string, src i
 
 func ValidateEditableSkillKey(key string) error {
 	key = strings.TrimSpace(key)
+	if connector.IsReservedSkill(key) {
+		return fmt.Errorf("%w: connector skills belong to their connector package", ErrInvalidSkillKey)
+	}
 	if key == "" {
 		return fmt.Errorf("%w: skill key is required", ErrInvalidSkillKey)
 	}

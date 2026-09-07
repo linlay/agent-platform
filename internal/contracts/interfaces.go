@@ -352,6 +352,7 @@ type QuerySession struct {
 	Subject                       string
 	SkillKeys                     []string
 	MustUseSkills                 []string
+	ConnectorBinDirs              []string
 	ContextTags                   []string
 	Budget                        map[string]any
 	StageSettings                 map[string]any

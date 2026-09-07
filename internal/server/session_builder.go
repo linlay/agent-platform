@@ -44,6 +44,9 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	if err != nil {
 		return contracts.QuerySession{}, mustUseSkillUnavailableStatus(err)
 	}
+	if err := addConnectorAccessRoots(&runAccessRoots, agentDef); err != nil {
+		return contracts.QuerySession{}, err
+	}
 	req.MustUseSkills = mustUseSkills.Keys
 	if !strings.EqualFold(strings.TrimSpace(agentDef.Mode), agentbuiltin.TeamMode) {
 		if err := catalog.ValidateOrdinaryAgentTools(agentDef.Tools); err != nil {
@@ -173,21 +176,21 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		runtimeAgentEnv(agentDef.Runtime["env"]),
 		agentDef.RuntimeDir,
 		s.deps.Config.Paths.SkillsCenterDir,
-		agentDef.Skills,
+		agentDef.EffectiveSkills(),
 	)
 	if err != nil {
 		return contracts.QuerySession{}, err
 	}
 	log.Printf("[server][skill-runtime] agent=%s skills=%v hookDirs=%v runtimeEnvKeys=%v",
 		agentDef.Key,
-		agentDef.Skills,
+		agentDef.EffectiveSkills(),
 		skillHookDirs,
 		sortedStringKeys(runtimeEnvOverrides),
 	)
 
 	configuredToolNames := append(
 		effectiveAgentTools(agentDef),
-		mcpToolNamesForServers(s.deps.Tools, agentDef.MCPServers)...,
+		mcpToolNamesForServers(s.deps.Tools, agentDef.ConnectorMCPServers)...,
 	)
 	toolNames := buildSessionToolNames(configuredToolNames, options.AllowInvokeAgents)
 	toolNames = agentbuiltin.CoderRuntimeToolNamesForAgent(agentDef.Mode, agentDef.ACPBridgeID, agentbuiltin.CoderMainStage, toolNames)
@@ -241,8 +244,9 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		ScopedFilePolicy:              scopedFilePolicy,
 		TeamID:                        req.TeamID,
 		Created:                       options.Created,
-		SkillKeys:                     append([]string(nil), agentDef.Skills...),
+		SkillKeys:                     append([]string(nil), agentDef.EffectiveSkills()...),
 		MustUseSkills:                 append([]string(nil), req.MustUseSkills...),
+		ConnectorBinDirs:              append([]string(nil), agentDef.ConnectorBinDirs...),
 		ContextTags:                   append([]string(nil), agentDef.ContextTags...),
 		Budget:                        contracts.CloneMap(agentDef.Budget),
 		StageSettings:                 contracts.CloneMap(agentDef.StageSettings),
@@ -268,7 +272,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		ModeSystemPrompt:              agentbuiltin.ConfiguredSystemPrompt(agentDef.Mode, s.deps.Config.CoderPrompts.SystemPrompt, s.deps.Config.KBasePrompts.SystemPrompt),
 		RuntimeEnvironmentID:          extractRuntimeField(agentDef.Runtime, "environmentId"),
 		RuntimeLevel:                  extractRuntimeField(agentDef.Runtime, "level"),
-		RuntimeExtraMounts:            runtimeExtraMountsForMustUseSkills(agentDef.Runtime["sandboxMounts"], mustUseSkills.HasExtraSkills && hasRuntimeSandbox(agentDef.Runtime)),
+		RuntimeExtraMounts:            runtimeConnectorMounts(runtimeExtraMountsForMustUseSkills(agentDef.Runtime["sandboxMounts"], mustUseSkills.HasExtraSkills && hasRuntimeSandbox(agentDef.Runtime)), agentDef),
 		RuntimeHostAccess:             runtimeHostAccess(agentDef.HostAccess),
 		RunAccessRoots:                runAccessRoots,
 		AgentHasRuntimeSandbox:        hasRuntimeSandbox(agentDef.Runtime),

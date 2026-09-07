@@ -95,7 +95,7 @@ func TestBackgroundWatchEntriesExcludeConfigs(t *testing.T) {
 		"providers",
 		"tools",
 		"viewports",
-		"mcp-servers",
+		"connectors",
 		"viewport-servers",
 	}
 	if !reflect.DeepEqual(gotReasons, wantReasons) {

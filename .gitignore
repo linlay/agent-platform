@@ -21,7 +21,8 @@ coverage.out
 /chats/
 /data/
 /models/
-/mcp-servers/
+# External runtime connectors; internal/resources/connectors is versioned.
+/connectors/
 /providers/
 /skills/
 /schedules/

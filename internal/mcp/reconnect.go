@@ -176,7 +176,7 @@ func (c *SyncCoordinator) broadcastUpdate() {
 		return
 	}
 	c.notifications.Broadcast("catalog.updated", map[string]any{
-		"reason":    "mcp-servers",
+		"reason":    "connectors",
 		"updatedAt": time.Now().UnixMilli(),
 	})
 }

@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -171,6 +172,10 @@ func TestSyncOverwritesAllPackagedPlatformResourceDomains(t *testing.T) {
 		writeTestFile(t, filepath.Join(runtimeRoot, scope, "existing", "local-only.txt"), "local-"+scope)
 		writeTestFile(t, filepath.Join(runtimeRoot, scope, "unknown", "content.txt"), "unknown-"+scope)
 	}
+	for _, id := range []string{"existing", "unknown"} {
+		writeTestFile(t, filepath.Join(runtimeRoot, "connectors", id, "connector.json"), fmt.Sprintf(`{"id":%q,"name":%q,"version":"1.0.0","type":"cli","auth_mode":"none"}`, id, id))
+		writeTestFile(t, filepath.Join(runtimeRoot, "connectors", id, "cli.json"), `{}`)
+	}
 	existingScript := filepath.Join(runtimeRoot, "agents", "existing", "keep-mode.sh")
 	writeTestFile(t, existingScript, "#!/bin/sh\necho old\n")
 	if err := os.Chmod(existingScript, 0o640); err != nil {
@@ -187,6 +192,10 @@ func TestSyncOverwritesAllPackagedPlatformResourceDomains(t *testing.T) {
 	entries["env/agents/existing/keep-mode.sh"] = "#!/bin/sh\necho new\n"
 	entries["env/agents/new/run.sh"] = "#!/bin/sh\n"
 	entries["env/registries/authoritative.yml"] = "new-registry"
+	for _, id := range []string{"existing", "new"} {
+		entries["env/connectors/"+id+"/connector.json"] = fmt.Sprintf(`{"id":%q,"name":%q,"version":"2.0.0","type":"cli","auth_mode":"none"}`, id, id)
+		entries["env/connectors/"+id+"/cli.json"] = `{}`
+	}
 	source := writeTestZip(t, entries)
 	result, err := Sync(Options{
 		RuntimeDir:  runtimeRoot,
@@ -199,7 +208,7 @@ func TestSyncOverwritesAllPackagedPlatformResourceDomains(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Changed || result.Stats.AddedUnits != 4 || result.Stats.OverwrittenUnits != 4 ||
+	if !result.Changed || result.Stats.AddedUnits != len(unitScopes) || result.Stats.OverwrittenUnits != len(unitScopes) ||
 		result.Stats.PreservedUnits != 0 ||
 		result.Stats.OverwrittenRegistryFiles != 1 {
 		t.Fatalf("unexpected result: %#v", result)

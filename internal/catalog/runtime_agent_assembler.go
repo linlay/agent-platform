@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"agent-platform/internal/connector"
 )
 
 type runtimeAgentAssemblyError struct {
@@ -40,14 +42,15 @@ func runtimeAgentAssemblyDiagnosticCode(err error) string {
 }
 
 type runtimeAgentAssembler struct {
-	root      string
-	centerDir string
+	root       string
+	centerDir  string
+	connectors connector.Sources
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex
 }
 
-func newRuntimeAgentAssembler(root, centerDir string) (*runtimeAgentAssembler, error) {
+func newRuntimeAgentAssembler(root, centerDir string, connectorsDirs ...string) (*runtimeAgentAssembler, error) {
 	root = strings.TrimSpace(root)
 	if root == "" {
 		return nil, fmt.Errorf("ru-agents directory is required")
@@ -56,10 +59,18 @@ func newRuntimeAgentAssembler(root, centerDir string) (*runtimeAgentAssembler, e
 	if err != nil {
 		return nil, fmt.Errorf("resolve ru-agents directory: %w", err)
 	}
+	connectorsDir := filepath.Join(filepath.Dir(absolute), "connectors")
+	if len(connectorsDirs) > 0 {
+		connectorsDir = connectorsDirs[0]
+	}
 	assembler := &runtimeAgentAssembler{
-		root:      filepath.Clean(absolute),
-		centerDir: strings.TrimSpace(centerDir),
-		locks:     map[string]*sync.Mutex{},
+		root:       filepath.Clean(absolute),
+		centerDir:  strings.TrimSpace(centerDir),
+		connectors: connector.Sources{ExternalRoot: connectorsDir},
+		locks:      map[string]*sync.Mutex{},
+	}
+	if len(connectorsDirs) > 1 {
+		assembler.connectors.BuiltinRoot = connectorsDirs[1]
 	}
 	if info, err := os.Lstat(assembler.root); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
@@ -121,7 +132,7 @@ func (a *runtimeAgentAssembler) assemble(source EditableAgentSource, def AgentDe
 	if err := os.MkdirAll(filepath.Join(candidate, ".config"), 0o700); err != nil {
 		return "", fmt.Errorf("create runtime config directory: %w", err)
 	}
-	if err := a.materializeSkills(source, candidate, def.Skills); err != nil {
+	if err := a.materializeSkills(source, candidate, def); err != nil {
 		return "", err
 	}
 	if source.Kind == "directory" {
@@ -212,14 +223,14 @@ func copyRuntimeAgentSource(source EditableAgentSource, candidate string) error 
 	return nil
 }
 
-func (a *runtimeAgentAssembler) materializeSkills(source EditableAgentSource, candidate string, declared []string) error {
-	ordered, err := orderedSkillIDs(declared)
+func (a *runtimeAgentAssembler) materializeSkills(source EditableAgentSource, candidate string, def AgentDefinition) error {
+	ordered, err := orderedSkillIDs(def.EffectiveSkills())
 	if err != nil {
 		return err
 	}
 	configEntries := map[string]runtimeConfigEntry{}
 	for _, skillID := range ordered {
-		skillSource, err := a.resolveSkillSource(source, skillID)
+		skillSource, err := a.resolveEffectiveSkillSource(source, def, skillID)
 		if err != nil {
 			return err
 		}
@@ -596,7 +607,7 @@ func validateRuntimeAgentCandidate(candidate string, expected AgentDefinition) e
 	if def.Key != expected.Key {
 		return fmt.Errorf("runtime agent key changed during assembly: got %q want %q", def.Key, expected.Key)
 	}
-	ordered, err := orderedSkillIDs(expected.Skills)
+	ordered, err := orderedSkillIDs(expected.EffectiveSkills())
 	if err != nil {
 		return err
 	}

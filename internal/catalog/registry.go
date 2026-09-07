@@ -38,35 +38,39 @@ type TeamResolver interface {
 }
 
 type AgentDefinition struct {
-	Key              string
-	Name             string
-	Icon             any
-	Description      string
-	Role             string
-	Greetings        []string
-	Wonders          []string
-	ModelKey         string
-	ServiceTier      string
-	Mode             string
-	ACPBridgeID      string
-	VisibilityScopes []string
-	Tools            []string
-	MCPServers       []string
-	Skills           []string
-	Controls         []map[string]any
-	Runtime          map[string]any
-	HostAccess       AgentHostAccessConfig
-	Workspace        AgentWorkspaceConfig
-	Project          AgentProjectConfig
-	KBaseConfig      kbase.Config
-	KBaseRequirement kbase.Requirement
-	ContextTags      []string
-	ContextAgents    []string
-	Budget           map[string]any
-	StageSettings    map[string]any
-	RuntimePrompts   AgentRuntimePrompts
-	AgentDir         string
-	RuntimeDir       string `json:"-"`
+	Key                 string
+	Name                string
+	Icon                any
+	Description         string
+	Role                string
+	Greetings           []string
+	Wonders             []string
+	ModelKey            string
+	ServiceTier         string
+	Mode                string
+	ACPBridgeID         string
+	VisibilityScopes    []string
+	Tools               []string
+	Connectors          []string
+	ConnectorMCPServers []string
+	ConnectorBinDirs    []string
+	ConnectorMounts     []ConnectorMount
+	ConnectorSkills     []ConnectorSkill
+	Skills              []string
+	Controls            []map[string]any
+	Runtime             map[string]any
+	HostAccess          AgentHostAccessConfig
+	Workspace           AgentWorkspaceConfig
+	Project             AgentProjectConfig
+	KBaseConfig         kbase.Config
+	KBaseRequirement    kbase.Requirement
+	ContextTags         []string
+	ContextAgents       []string
+	Budget              map[string]any
+	StageSettings       map[string]any
+	RuntimePrompts      AgentRuntimePrompts
+	AgentDir            string
+	RuntimeDir          string `json:"-"`
 
 	// PROXY mode: forward /api/query to a remote AGW-compatible service.
 	ProxyConfig *ProxyConfig
@@ -286,7 +290,7 @@ func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*Fil
 	if err := cleanupEditableSkillImportStaging(cfg.Paths.SkillsCenterDir); err != nil {
 		return nil, fmt.Errorf("cleanup skill import staging: %w", err)
 	}
-	assembler, err := newRuntimeAgentAssembler(cfg.Paths.EffectiveRUAgentsDir(), cfg.Paths.SkillsCenterDir)
+	assembler, err := newRuntimeAgentAssembler(cfg.Paths.EffectiveRUAgentsDir(), cfg.Paths.SkillsCenterDir, cfg.Paths.EffectiveConnectorsDir(), cfg.Paths.BuiltinConnectorsDir)
 	if err != nil {
 		return nil, err
 	}
@@ -732,6 +736,11 @@ func cloneAgentDefinitionSnapshot(src AgentDefinition) AgentDefinition {
 	dst.VisibilityScopes = append([]string(nil), src.VisibilityScopes...)
 	dst.Tools = append([]string(nil), src.Tools...)
 	dst.Skills = append([]string(nil), src.Skills...)
+	dst.Connectors = append([]string(nil), src.Connectors...)
+	dst.ConnectorMCPServers = append([]string(nil), src.ConnectorMCPServers...)
+	dst.ConnectorBinDirs = append([]string(nil), src.ConnectorBinDirs...)
+	dst.ConnectorMounts = append([]ConnectorMount(nil), src.ConnectorMounts...)
+	dst.ConnectorSkills = append([]ConnectorSkill(nil), src.ConnectorSkills...)
 	if len(src.Controls) > 0 {
 		dst.Controls = make([]map[string]any, 0, len(src.Controls))
 		for _, control := range src.Controls {

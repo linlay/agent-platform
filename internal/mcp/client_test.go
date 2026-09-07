@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -27,7 +26,7 @@ func TestToolSyncLoadsStaticAndDiscoveredTools(t *testing.T) {
 	defer server.Close()
 
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "server.yml"), []byte(
+	if err := writeConnectorFixture(filepath.Join(root, "server.yml"), []byte(
 		"key: demo\n"+
 			"baseUrl: "+server.URL+"\n"+
 			"tools:\n"+
@@ -55,7 +54,7 @@ func TestToolSyncLoadsStaticAndDiscoveredTools(t *testing.T) {
 	}
 
 	// Remove static tools and verify discovery path.
-	if err := os.WriteFile(filepath.Join(root, "server.yml"), []byte(
+	if err := writeConnectorFixture(filepath.Join(root, "server.yml"), []byte(
 		"key: demo\n"+
 			"baseUrl: "+server.URL+"\n",
 	), 0o644); err != nil {
@@ -78,7 +77,7 @@ func TestClientCallToolUsesJSONRPC(t *testing.T) {
 	defer server.Close()
 
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "server.yml"), []byte(
+	if err := writeConnectorFixture(filepath.Join(root, "server.yml"), []byte(
 		"key: demo\n"+
 			"baseUrl: "+server.URL+"\n",
 	), 0o644); err != nil {
@@ -104,13 +103,13 @@ func TestClientCallToolUsesJSONRPC(t *testing.T) {
 
 func TestRegistrySkipsExampleServerFiles(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "demo.yml"), []byte(
+	if err := writeConnectorFixture(filepath.Join(root, "demo.yml"), []byte(
 		"key: demo\n"+
 			"baseUrl: http://127.0.0.1:11969\n",
 	), 0o644); err != nil {
 		t.Fatalf("write registry file: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "ignored.example.yml"), []byte(
+	if err := writeConnectorFixture(filepath.Join(root, "ignored.example.yml"), []byte(
 		"key: ignored\n"+
 			"baseUrl: http://127.0.0.1:11970\n",
 	), 0o644); err != nil {
@@ -132,7 +131,7 @@ func TestRegistrySkipsExampleServerFiles(t *testing.T) {
 func TestRegistryReloadKeepsVersionForSemanticNoop(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "demo.yml")
-	if err := os.WriteFile(path, []byte("key: demo\nbaseUrl: http://127.0.0.1:11969\n"), 0o644); err != nil {
+	if err := writeConnectorFixture(path, []byte("key: demo\nbaseUrl: http://127.0.0.1:11969\n"), 0o644); err != nil {
 		t.Fatalf("write registry file: %v", err)
 	}
 	registry, err := NewRegistry(root)
@@ -140,7 +139,7 @@ func TestRegistryReloadKeepsVersionForSemanticNoop(t *testing.T) {
 		t.Fatalf("new registry: %v", err)
 	}
 	version := registry.Version()
-	if err := os.WriteFile(path, []byte("# comment only\nkey: demo\nbaseUrl: http://127.0.0.1:11969\n"), 0o644); err != nil {
+	if err := writeConnectorFixture(path, []byte("# comment only\nkey: demo\nbaseUrl: http://127.0.0.1:11969\n"), 0o644); err != nil {
 		t.Fatalf("rewrite registry file: %v", err)
 	}
 	if err := registry.Reload(); err != nil {
@@ -153,7 +152,7 @@ func TestRegistryReloadKeepsVersionForSemanticNoop(t *testing.T) {
 
 func TestRegistryLoadsServerTimeoutSeconds(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "server.yml"), []byte(
+	if err := writeConnectorFixture(filepath.Join(root, "server.yml"), []byte(
 		"key: demo\n"+
 			"baseUrl: http://127.0.0.1:11969\n"+
 			"connect-timeout: 3\n"+
@@ -187,13 +186,13 @@ func TestToolSyncSkipsUnavailableServersAndKeepsReachableTools(t *testing.T) {
 	_ = deadListener.Close()
 
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "reachable.yml"), []byte(
+	if err := writeConnectorFixture(filepath.Join(root, "reachable.yml"), []byte(
 		"key: reachable\n"+
 			"baseUrl: "+reachable.URL+"\n",
 	), 0o644); err != nil {
 		t.Fatalf("write reachable registry file: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "dead.yml"), []byte(
+	if err := writeConnectorFixture(filepath.Join(root, "dead.yml"), []byte(
 		"key: dead\n"+
 			"baseUrl: "+deadURL+"\n",
 	), 0o644); err != nil {
@@ -234,7 +233,7 @@ func TestToolSyncRetainsLastKnownToolsAndRecovers(t *testing.T) {
 	defer server.Close()
 
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "server.yml"), []byte(
+	if err := writeConnectorFixture(filepath.Join(root, "server.yml"), []byte(
 		"key: demo\n"+
 			"baseUrl: "+server.URL+"\n"+
 			"retry: 0\n",
@@ -278,7 +277,7 @@ func TestToolSyncRetainsLastKnownToolsAndRecovers(t *testing.T) {
 		t.Fatalf("recovered status = %#v, found=%v", status, ok)
 	}
 
-	if err := os.Remove(filepath.Join(root, "server.yml")); err != nil {
+	if err := removeConnectorFixture(filepath.Join(root, "server.yml")); err != nil {
 		t.Fatalf("remove registry file: %v", err)
 	}
 	if err := registry.Reload(); err != nil {
@@ -296,7 +295,7 @@ func TestSyncCoordinatorBroadcastsRecoveredToolState(t *testing.T) {
 	server, unavailable := newToggleableSDKMCPTestServer(t, "remote_tool")
 	defer server.Close()
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "server.yml"), []byte(
+	if err := writeConnectorFixture(filepath.Join(root, "server.yml"), []byte(
 		"key: demo\nbaseUrl: "+server.URL+"\nretry: 0\n",
 	), 0o644); err != nil {
 		t.Fatalf("write registry file: %v", err)
@@ -382,7 +381,7 @@ func TestHeaderRoundTripperReadsIdentityFileOnEveryRequest(t *testing.T) {
 	identityFile := filepath.Join(t.TempDir(), "sso-access-token.txt")
 	tokenA := unsignedJWTWithIssuer(t, "https://eiam.example.test/auth/oidc/dev", "subject-a")
 	tokenB := unsignedJWTWithIssuer(t, "https://eiam.example.test/auth/oidc/dev", "subject-b")
-	if err := os.WriteFile(identityFile, []byte(tokenA+"\n"), 0o600); err != nil {
+	if err := writeConnectorFixture(identityFile, []byte(tokenA+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var authorizations []string
@@ -407,7 +406,7 @@ func TestHeaderRoundTripperReadsIdentityFileOnEveryRequest(t *testing.T) {
 	if _, err := transport.RoundTrip(request); err != nil {
 		t.Fatalf("first request: %v", err)
 	}
-	if err := os.WriteFile(identityFile, []byte(tokenB+"\n"), 0o600); err != nil {
+	if err := writeConnectorFixture(identityFile, []byte(tokenB+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := transport.RoundTrip(request); err != nil {
@@ -420,7 +419,7 @@ func TestHeaderRoundTripperReadsIdentityFileOnEveryRequest(t *testing.T) {
 
 func TestHeaderRoundTripperRejectsIdentityFileOutsideConfiguredMCPHost(t *testing.T) {
 	identityFile := filepath.Join(t.TempDir(), "sso-access-token.txt")
-	if err := os.WriteFile(identityFile, []byte("identity-token\n"), 0o600); err != nil {
+	if err := writeConnectorFixture(identityFile, []byte("identity-token\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	transport := headerRoundTripper{

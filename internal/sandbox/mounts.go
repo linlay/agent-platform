@@ -264,7 +264,7 @@ func (r *ContainerHubMountResolver) platformMountDef(platform string, agentKey s
 		"agent":         {destination: "/agent", overrideOnly: true},
 		"agents":        {destination: "/agents", source: func() (string, error) { return hostPath("RU_AGENTS_DIR", r.paths.EffectiveRUAgentsDir()) }},
 		"memory":        {destination: "/memory", overrideOnly: true},
-		"mcp-servers":   {destination: "/mcp-servers", source: func() (string, error) { return r.registryChildSource("mcp-servers") }},
+		"connectors":    {destination: "/connectors", source: func() (string, error) { return hostPath("paths.connectors-dir", r.paths.EffectiveConnectorsDir()) }},
 		"models":        {destination: "/models", source: func() (string, error) { return r.registryChildSource("models") }},
 		"owner":         {destination: "/owner", overrideOnly: true},
 		"providers":     {destination: "/providers", source: func() (string, error) { return r.registryChildSource("providers") }},

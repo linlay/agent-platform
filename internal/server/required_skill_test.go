@@ -106,6 +106,14 @@ func TestResolveMustUseSkillsSupportsConfiguredAndCenterSkills(t *testing.T) {
 	}
 }
 
+func TestMustUseRejectsMountedConnectorSkillEvenIfAlsoInConfiguredList(t *testing.T) {
+	key := "connector-11-builtin.dbx-dbx"
+	def := catalog.AgentDefinition{Skills: []string{key}, ConnectorSkills: []catalog.ConnectorSkill{{Key: key, ConnectorID: "builtin.dbx", Name: "dbx"}}}
+	if _, err := resolveMustUseSkills(def, t.TempDir(), testSkillCenter{}, []string{strings.ToUpper(key)}); err == nil || !strings.Contains(err.Error(), "cannot be selected") {
+		t.Fatalf("connector skill accepted by mustUseSkills: %v", err)
+	}
+}
+
 func TestResolveMustUseSkillsRevalidatesCenterContent(t *testing.T) {
 	centerDir := t.TempDir()
 	center := testSkillCenter{"pdf": {Key: "pdf"}}
@@ -161,5 +169,14 @@ func TestRuntimeExtraMountsForMustUseSkillsAddsOneReadonlyCenterMount(t *testing
 	}, true)
 	if len(mounts) != 1 || mounts[0].Mode != "ro" {
 		t.Fatalf("deduplicated mounts = %#v", mounts)
+	}
+}
+
+func TestMustUseRejectsLegacyBuiltinSkillNames(t *testing.T) {
+	for _, key := range []string{"builtin-httpx", "builtin-dbx", "BUILTIN-DBX"} {
+		def := catalog.AgentDefinition{Skills: []string{key}}
+		if _, err := resolveMustUseSkills(def, t.TempDir(), testSkillCenter{}, []string{key}); err == nil || !strings.Contains(err.Error(), "cannot be selected") {
+			t.Fatalf("legacy builtin skill accepted: %s %v", key, err)
+		}
 	}
 }

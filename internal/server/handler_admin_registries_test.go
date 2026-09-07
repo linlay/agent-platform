@@ -158,9 +158,12 @@ func TestAdminRegistriesEndpointIncludesInvalidFiles(t *testing.T) {
 	if item := byFile["providers/mock.yml"]; item.Summary["baseUrl"] == "" {
 		t.Fatalf("provider list summary should expose baseUrl: %#v", item)
 	}
-	if item := byFile["mcp-servers/invalid-yaml.yml"]; item.Status != "invalid" || item.Diagnostic == nil || item.Diagnostic.Code != "invalid_yaml" || item.DiagnosticCount != 1 {
-		t.Fatalf("invalid yaml diagnostic summary missing: %#v", item)
+	for key := range byFile {
+		if strings.HasPrefix(key, "mcp-servers/") {
+			t.Fatalf("retired registry still listed: %s", key)
+		}
 	}
+
 	if item := byFile["models/unknown-provider.yml"]; item.Status != "invalid" || item.Diagnostic == nil || item.Diagnostic.Code != "unknown_provider" || item.DiagnosticCount != 1 {
 		t.Fatalf("unknown provider diagnostic summary missing: %#v", item)
 	}
@@ -169,18 +172,6 @@ func TestAdminRegistriesEndpointIncludesInvalidFiles(t *testing.T) {
 	}
 	if item := byFile["models/capability-model.yml"]; item.Status != "ready" || item.Name != "Capability Model" || item.Summary["type"] != "chat" || item.Summary["provider"] != "mock" || item.Summary["protocol"] != "OPENAI" || item.Summary["isVision"] != true || item.Summary["isReasoner"] != true || item.Summary["isFunction"] != true {
 		t.Fatalf("capability model list summary missing display fields: %#v", item)
-	}
-	if item := byFile["mcp-servers/demo.yml"]; item.Status != "ready" || item.Key != "demo-mcp" || item.Summary["transport"] != "streamable-http" || item.Summary["baseUrl"] != "http://localhost:11969" || intFromAny(item.Summary["toolCount"]) != 2 {
-		t.Fatalf("mcp server list summary should expose runtime tool count: %#v", item)
-	} else if item.Summary["syncStatus"] != "unavailable" || intFromAny(item.Summary["lastSyncAttemptAt"]) != 1786000000000 || item.Summary["syncDiagnostic"] == nil {
-		t.Fatalf("mcp server list summary should expose tool sync status: %#v", item)
-	}
-	if item := byFile["mcp-servers/stdio.yml"]; item.Status != "ready" || item.Key != "stdio-mcp" || item.Summary["transport"] != "stdio" {
-		t.Fatalf("stdio mcp summary missing transport: %#v", item)
-	} else if _, hasCommand := item.Summary["command"]; hasCommand {
-		t.Fatalf("stdio mcp summary leaked command: %#v", item)
-	} else if _, hasBaseURL := item.Summary["baseUrl"]; hasBaseURL {
-		t.Fatalf("stdio mcp summary exposed meaningless baseUrl: %#v", item)
 	}
 	if item := byFile["viewport-servers/missing-base.yml"]; item.Status != "invalid" || item.Diagnostic == nil || item.Diagnostic.Code != "missing_base_url" || item.DiagnosticCount != 1 {
 		t.Fatalf("viewport diagnostic summary missing: %#v", item)
@@ -263,25 +254,13 @@ func assertAdminRegistryDiagnosticCode(t *testing.T, diagnostics []api.AdminAgen
 	t.Fatalf("expected diagnostic %q, got %#v", code, diagnostics)
 }
 
-func TestAdminRegistryDetailMCPWritePublishesRegistryBeforeResponding(t *testing.T) {
+func TestRetiredMCPRegistryDetailRejectsWrite(t *testing.T) {
 	fixture := setupAdminRegistriesFixture(t)
-	reloader := &recordingServerCatalogReloader{}
-	fixture.server.deps.CatalogReloader = reloader
-	payload, err := json.Marshal(api.AdminRegistryDetailRequest{
-		Category: "mcp-servers",
-		File:     "created-detail.yml",
-		Content:  "serverKey: created-detail\nbaseUrl: http://127.0.0.1:11969\n",
-	})
-	if err != nil {
-		t.Fatalf("marshal registry detail: %v", err)
-	}
+	body, _ := json.Marshal(api.AdminRegistryDetailRequest{Category: "mcp-servers", File: "new.yml", Content: "serverKey: new\nbaseUrl: https://example.test\n"})
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/api/admin/registries/detail", bytes.NewReader(payload)))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("save mcp registry detail status = %d body=%s", rec.Code, rec.Body.String())
-	}
-	if len(reloader.reasons) != 1 || reloader.reasons[0] != "mcp-servers" {
-		t.Fatalf("mcp registry detail reload reasons = %#v", reloader.reasons)
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/api/admin/registries/detail", bytes.NewReader(body)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("retired registry write accepted: %d", rec.Code)
 	}
 }
 

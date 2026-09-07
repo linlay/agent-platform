@@ -1,0 +1,8 @@
+{
+  "id": "builtin.httpx",
+  "name": "httpx",
+  "version": "0.1.8",
+  "type": "cli",
+  "auth_mode": "none",
+  "description": "Platform bundled httpx CLI"
+}

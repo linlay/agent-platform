@@ -81,19 +81,23 @@ type ServerConfig struct {
 }
 
 type PathsConfig struct {
-	RegistriesDir   string
-	ToolsDir        string
-	OwnerDir        string
-	AgentsDir       string
-	RUAgentsDir     string
-	TeamsDir        string
-	RootDir         string
-	AutomationsDir  string
-	ChatsDir        string
-	MemoryDir       string
-	KBaseDir        string
-	PanDir          string
-	SkillsCenterDir string
+	// BuiltinConnectorsDir is set by app assembly from the verified Platform
+	// bundle. It is not a user-configurable runtime path.
+	BuiltinConnectorsDir string
+	ConnectorsDir        string
+	RegistriesDir        string
+	ToolsDir             string
+	OwnerDir             string
+	AgentsDir            string
+	RUAgentsDir          string
+	TeamsDir             string
+	RootDir              string
+	AutomationsDir       string
+	ChatsDir             string
+	MemoryDir            string
+	KBaseDir             string
+	PanDir               string
+	SkillsCenterDir      string
 }
 
 type PlatformControlConfig struct {
@@ -113,6 +117,19 @@ func (p PathsConfig) EffectiveRUAgentsDir() string {
 	}
 	if agentsDir := strings.TrimSpace(p.AgentsDir); agentsDir != "" {
 		return filepath.Join(filepath.Dir(filepath.Clean(agentsDir)), "ru-agents")
+	}
+	return ""
+}
+
+func (p PathsConfig) EffectiveConnectorsDir() string {
+	if value := strings.TrimSpace(p.ConnectorsDir); value != "" {
+		return value
+	}
+	if value := strings.TrimSpace(p.AgentsDir); value != "" {
+		return filepath.Join(filepath.Dir(filepath.Clean(value)), "connectors")
+	}
+	if value := strings.TrimSpace(p.RegistriesDir); value != "" {
+		return filepath.Join(filepath.Dir(filepath.Clean(value)), "connectors")
 	}
 	return ""
 }
@@ -684,6 +701,7 @@ func validateRUAgentsDir(paths PathsConfig) error {
 		return fmt.Errorf("paths.ru-agents-dir must not be a filesystem root")
 	}
 	for name, candidate := range map[string]string{
+		"connectors-dir":    paths.EffectiveConnectorsDir(),
 		"registries-dir":    paths.RegistriesDir,
 		"tools-dir":         paths.ToolsDir,
 		"owner-dir":         paths.OwnerDir,

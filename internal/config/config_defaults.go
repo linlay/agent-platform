@@ -13,6 +13,7 @@ func defaultConfig(options LoadOptions) Config {
 	runtimeMode, _ := ParseRuntimeMode(options.RuntimeMode)
 	runtimeRoot := defaultRuntimeRoot()
 	paths := PathsConfig{
+		ConnectorsDir:   filepath.Join(runtimeRoot, "connectors"),
 		RegistriesDir:   filepath.Join(runtimeRoot, "registries"),
 		ToolsDir:        filepath.Join(runtimeRoot, "tools"),
 		OwnerDir:        filepath.Join(runtimeRoot, "owner"),
@@ -318,6 +319,7 @@ func defaultAccessPolicyConfig() AccessPolicyConfig {
 }
 
 func (c *Config) normalize(configRoot string) error {
+	c.Paths.ConnectorsDir = filepath.Clean(c.Paths.ConnectorsDir)
 	c.Paths.RegistriesDir = filepath.Clean(c.Paths.RegistriesDir)
 	c.Paths.ToolsDir = filepath.Clean(c.Paths.ToolsDir)
 	c.Paths.OwnerDir = filepath.Clean(c.Paths.OwnerDir)

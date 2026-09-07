@@ -29,7 +29,19 @@ type shutdownServer interface {
 }
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "connector-migrate" {
+		if err := runConnectorMigration(os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) >= 2 && os.Args[1] == "runtime-resource-sync" {
+		// Resource validation resolves the same bundled connectors as startup.
+		if _, err := builtins.ConfigureProcessPath(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 		if err := runRuntimeResourceSync(os.Args[2:], os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)

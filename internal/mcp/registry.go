@@ -2,9 +2,7 @@ package mcp
 
 import (
 	"fmt"
-	"io/fs"
 	"net/url"
-	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -12,8 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"agent-platform/internal/catalog"
-	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 )
 
@@ -23,17 +20,20 @@ const (
 )
 
 type Registry struct {
-	root string
+	sources connector.Sources
 
 	mu      sync.RWMutex
 	version int64
 	servers map[string]ServerDefinition
 }
 
-func NewRegistry(root string) (*Registry, error) {
+func NewRegistry(root string, builtinRoots ...string) (*Registry, error) {
 	registry := &Registry{
-		root:    root,
+		sources: connector.Sources{ExternalRoot: root},
 		servers: map[string]ServerDefinition{},
+	}
+	if len(builtinRoots) > 0 {
+		registry.sources.BuiltinRoot = builtinRoots[0]
 	}
 	if err := registry.Reload(); err != nil {
 		return nil, err
@@ -42,7 +42,7 @@ func NewRegistry(root string) (*Registry, error) {
 }
 
 func (r *Registry) Reload() error {
-	servers, err := loadServersFromDir(r.root)
+	servers, err := loadConnectorServers(r.sources)
 	if err != nil {
 		return err
 	}
@@ -88,57 +88,6 @@ func (r *Registry) snapshot() ([]ServerDefinition, int64) {
 		out = append(out, r.servers[key])
 	}
 	return out, r.version
-}
-
-func loadServersFromDir(root string) (map[string]ServerDefinition, error) {
-	if _, err := os.Stat(root); os.IsNotExist(err) {
-		return map[string]ServerDefinition{}, nil
-	} else if err != nil {
-		return nil, err
-	}
-
-	files := make([]string, 0, 16)
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d == nil || d.IsDir() {
-			return nil
-		}
-		name := d.Name()
-		if !catalog.ShouldLoadRuntimeName(name) || (!strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml")) {
-			return nil
-		}
-		files = append(files, path)
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	sort.Strings(files)
-	servers := map[string]ServerDefinition{}
-	for _, path := range files {
-		server, err := parseServerFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("load MCP server %s: %w", path, err)
-		}
-		if server.Key == "" || !server.Enabled() {
-			continue
-		}
-		if _, exists := servers[server.Key]; exists {
-			return nil, fmt.Errorf("duplicate MCP server key %q in %s", server.Key, path)
-		}
-		servers[server.Key] = server
-	}
-	return servers, nil
-}
-
-func parseServerFile(path string) (ServerDefinition, error) {
-	tree, err := config.LoadYAMLTree(path)
-	if err != nil {
-		return ServerDefinition{}, err
-	}
-	return parseServerTree(path, tree)
 }
 
 func parseServerTree(path string, tree any) (ServerDefinition, error) {
@@ -239,30 +188,6 @@ func parseServerTree(path string, tree any) (ServerDefinition, error) {
 		server.Tools = append(server.Tools, tool)
 	}
 	return server, nil
-}
-
-// ValidateServerCandidate parses an MCP server YAML candidate without opening
-// a network connection or writing it into the runtime registry.
-func ValidateServerCandidate(resourceKey string, content []byte) error {
-	resourceKey = normalizeKey(resourceKey)
-	if resourceKey == "" {
-		return fmt.Errorf("MCP server key is required")
-	}
-	if resourceKey == "." || resourceKey == ".." || strings.HasPrefix(resourceKey, ".") || strings.ContainsAny(resourceKey, `/\`) {
-		return fmt.Errorf("invalid MCP server key")
-	}
-	tree, err := config.LoadYAMLTreeBytes(content)
-	if err != nil {
-		return err
-	}
-	server, err := parseServerTree(filepath.Join(".", resourceKey+".yml"), tree)
-	if err != nil {
-		return err
-	}
-	if server.Key != "" && server.Key != resourceKey {
-		return fmt.Errorf("serverKey must match resourceKey")
-	}
-	return nil
 }
 
 func hasAnyKey(values map[string]any, keys ...string) bool {

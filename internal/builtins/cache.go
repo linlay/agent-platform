@@ -161,7 +161,7 @@ func StageCache(options CacheStageOptions) (CacheStageResult, error) {
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return CacheStageResult{}, err
 	}
-	for _, subtree := range []string{"bin", "libexec", "licenses", "sbom"} {
+	for _, subtree := range []string{"bin", "connectors", "libexec", "licenses", "sbom"} {
 		source := filepath.Join(cacheDir, subtree)
 		info, err := os.Lstat(source)
 		if errors.Is(err, os.ErrNotExist) {
@@ -181,8 +181,12 @@ func StageCache(options CacheStageOptions) (CacheStageResult, error) {
 			return CacheStageResult{}, err
 		}
 	}
+	manifest, err = PromoteConnectors(outputDir, manifest)
+	if err != nil {
+		return CacheStageResult{}, err
+	}
 	destinationManifestPath := filepath.Join(outputDir, "builtins.manifest.json")
-	if err := copyCacheFile(cacheManifestPath, destinationManifestPath); err != nil {
+	if err := writeJSONAtomic(destinationManifestPath, manifest); err != nil {
 		return CacheStageResult{}, err
 	}
 	return CacheStageResult{

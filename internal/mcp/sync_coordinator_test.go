@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"reflect"
 	"sync"
@@ -154,7 +153,7 @@ func TestRegistryReloaderRetainsUnchangedToolsAndRemovesDeletedServers(t *testin
 		t.Fatalf("new server status = %#v, found=%v", status, ok)
 	}
 
-	if err := os.Remove(stablePath); err != nil {
+	if err := removeConnectorFixture(stablePath); err != nil {
 		t.Fatalf("remove stable registry: %v", err)
 	}
 	if err := reloader.Reload(context.Background()); err != nil {

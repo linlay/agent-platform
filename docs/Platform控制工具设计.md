@@ -14,7 +14,7 @@ Agent 配置不再声明动态 key。遗留 `runtimeConfig.runEnv` 会被静默�
 
 - `capabilities.list`
 - `catalog.defaults.get`
-- `catalog.validate`
+- `catalog.validate`：resourceType 为 agent/team/skill/connector；connector 只校验 connector.json，旧 mcp-server 类型已退役。
 - `run.env.set`
 - `run.env.unset`
 - `runtime.status`

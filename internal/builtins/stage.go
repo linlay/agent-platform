@@ -16,6 +16,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"agent-platform/internal/connector"
 )
 
 const (
@@ -276,7 +278,11 @@ func Stage(options StageOptions) (StageResult, error) {
 			if err != nil {
 				return StageResult{}, fmt.Errorf("%s payload: %w", component.Name, err)
 			}
-			destination, err := joinWithin(filepath.Join(outputDir, "bin"), target.Output)
+			destinationRoot := filepath.Join(outputDir, "bin")
+			if component.Name == "dbx" || component.Name == "httpx" {
+				destinationRoot = filepath.Join(outputDir, "connectors", "builtin."+component.Name, "bin")
+			}
+			destination, err := joinWithin(destinationRoot, target.Output)
 			if err != nil {
 				return StageResult{}, err
 			}
@@ -296,6 +302,18 @@ func Stage(options StageOptions) (StageResult, error) {
 			}
 			if target.Metadata != nil {
 				staged.Distribution = "checksum-verified-artifact"
+			}
+		}
+		if component.Name == "dbx" || component.Name == "httpx" {
+			relative := filepath.ToSlash(filepath.Join("connectors", "builtin."+component.Name))
+			if err := connector.WriteBuiltin(filepath.Join(outputDir, filepath.FromSlash(relative)), component.Name, target.Version, options.GOOS); err != nil {
+				return StageResult{}, err
+			}
+			staged.Path = relative
+			staged.Tree = []TreeOutput{{Path: relative, Type: "dir"}}
+			staged.SHA256, err = TreeDigest(outputDir, staged.Tree)
+			if err != nil {
+				return StageResult{}, err
 			}
 		}
 		manifest.Components = append(manifest.Components, staged)

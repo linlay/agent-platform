@@ -2,12 +2,59 @@ package app
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
+
+	"agent-platform/internal/config"
 )
 
 type blockingAutomation struct {
 	done context.Context
+}
+
+func TestAppStartupIgnoresLegacyMCPRegistry(t *testing.T) {
+	root := t.TempDir()
+	for _, key := range []string{"AP_RUNTIME_REGISTRIES_DIR", "AP_RUNTIME_CHATS_DIR", "AP_RUNTIME_MEMORY_DIR", "AP_RUNTIME_KBASE_DIR", "AP_RUNTIME_PAN_DIR"} {
+		t.Setenv(key, "")
+	}
+	t.Setenv("AP_RUNTIME_DIR", filepath.Join(root, "runtime"))
+	legacy := filepath.Join(root, "runtime", "registries", "mcp-servers", "invalid.yml")
+	if err := os.MkdirAll(filepath.Dir(legacy), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	content := []byte("serverKey: [broken YAML deliberately ignored\n")
+	if err := os.WriteFile(legacy, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "configs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "configs", "runtime.yml"), []byte("auth:\n  enabled: false\ncontainer-hub:\n  enabled: false\nautomation:\n  enabled: false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "configs", "tools.yml"), []byte("bash:\n  git-bash:\n    enabled: false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	application, err := New(ctx, config.LoadOptions{ConfigDir: root})
+	if err != nil {
+		t.Fatalf("legacy registry blocked startup: %v", err)
+	}
+	defer application.Close()
+	recorder := httptest.NewRecorder()
+	application.Router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("health: %d %s", recorder.Code, recorder.Body.String())
+	}
+	data, err := os.ReadFile(legacy)
+	if err != nil || string(data) != string(content) {
+		t.Fatalf("startup changed ignored source: %v", err)
+	}
 }
 
 func (s blockingAutomation) Stop() context.Context {

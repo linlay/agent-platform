@@ -68,10 +68,7 @@ func (s *Server) handleAdminSource(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteAdminSource(ctx context.Context, target api.AdminSourceTarget, baseSHA256 string) (api.DeleteAdminSourceResponse, error) {
-	if target.Type != "registry" || target.Category != "mcp-servers" {
-		return api.DeleteAdminSourceResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "source deletion only supports mcp-servers registry files")
-	}
-	return s.deleteAdminMCPRegistryTextSource(ctx, target, baseSHA256)
+	return api.DeleteAdminSourceResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "source deletion is no longer supported; manage connector packages separately")
 }
 
 func adminSourceTargetFromQuery(r *http.Request) (api.AdminSourceTarget, error) {
@@ -86,6 +83,9 @@ func adminSourceTargetFromQuery(r *http.Request) (api.AdminSourceTarget, error) 
 }
 
 func normalizeAdminSourceTarget(target api.AdminSourceTarget) (api.AdminSourceTarget, error) {
+	if strings.EqualFold(strings.TrimSpace(target.Category), "mcp-servers") {
+		return api.AdminSourceTarget{}, newAgentStatusError(http.StatusBadRequest, "removed_registry", "mcp-servers was removed; use connectors")
+	}
 	target.Type = strings.ToLower(strings.TrimSpace(target.Type))
 	target.Key = strings.TrimSpace(target.Key)
 	target.Path = strings.TrimSpace(target.Path)
@@ -377,11 +377,7 @@ func (s *Server) writeAdminRegistryTextSource(ctx context.Context, target api.Ad
 
 	unlock := s.adminSources.LockSourceMutation()
 	defer unlock()
-	previousContent := []byte(nil)
-	previousExists := false
-	if currentContent, currentSHA, _, _, err := readAdminSourceTextFile(path); err == nil {
-		previousContent = []byte(currentContent)
-		previousExists = true
+	if _, currentSHA, _, _, err := readAdminSourceTextFile(path); err == nil {
 		if expected := strings.TrimSpace(baseSHA256); expected != "" && expected != currentSHA {
 			return api.AdminSourceResponse{}, newAgentStatusError(http.StatusConflict, "conflict", "registry source conflict")
 		}
@@ -396,58 +392,7 @@ func (s *Server) writeAdminRegistryTextSource(ctx context.Context, target api.Ad
 	if err := atomicWriteAdminRegistryFile(path, data); err != nil {
 		return api.AdminSourceResponse{}, err
 	}
-	if target.Category == "mcp-servers" && s.deps.CatalogReloader != nil {
-		if err := s.deps.CatalogReloader.Reload(ctx, "mcp-servers"); err != nil {
-			rollbackErr := rollbackAdminRegistrySource(path, previousContent, previousExists)
-			if rollbackErr == nil {
-				_ = s.deps.CatalogReloader.Reload(context.WithoutCancel(ctx), "mcp-servers")
-				return api.AdminSourceResponse{}, err
-			}
-			return api.AdminSourceResponse{}, fmt.Errorf("reload mcp registry: %w; rollback failed: %v", err, rollbackErr)
-		}
-	}
 	return s.readAdminRegistryTextSource(target)
-}
-
-func (s *Server) deleteAdminMCPRegistryTextSource(ctx context.Context, target api.AdminSourceTarget, baseSHA256 string) (api.DeleteAdminSourceResponse, error) {
-	path, err := s.adminRegistryFilePath(target.Category, target.File)
-	if err != nil {
-		return api.DeleteAdminSourceResponse{}, err
-	}
-
-	unlock := s.adminSources.LockSourceMutation()
-	defer unlock()
-	content, currentSHA, _, _, err := readAdminSourceTextFile(path)
-	if err != nil {
-		return api.DeleteAdminSourceResponse{}, mapAdminRegistrySourceReadError(err)
-	}
-	if expected := strings.TrimSpace(baseSHA256); expected != "" && expected != currentSHA {
-		return api.DeleteAdminSourceResponse{}, newAgentStatusError(http.StatusConflict, "conflict", "registry source conflict")
-	}
-	if err := os.Remove(path); err != nil {
-		return api.DeleteAdminSourceResponse{}, mapAdminRegistrySourceReadError(err)
-	}
-	if s.deps.CatalogReloader != nil {
-		if err := s.deps.CatalogReloader.Reload(ctx, "mcp-servers"); err != nil {
-			rollbackErr := atomicWriteAdminRegistryFile(path, []byte(content))
-			if rollbackErr == nil {
-				_ = s.deps.CatalogReloader.Reload(context.WithoutCancel(ctx), "mcp-servers")
-				return api.DeleteAdminSourceResponse{}, err
-			}
-			return api.DeleteAdminSourceResponse{}, fmt.Errorf("reload mcp registry after delete: %w; rollback failed: %v", err, rollbackErr)
-		}
-	}
-	return api.DeleteAdminSourceResponse{Target: target, Deleted: true}, nil
-}
-
-func rollbackAdminRegistrySource(path string, previousContent []byte, previousExists bool) error {
-	if previousExists {
-		return atomicWriteAdminRegistryFile(path, previousContent)
-	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
 }
 
 func readAdminSourceTextFile(path string) (string, string, int64, int64, error) {

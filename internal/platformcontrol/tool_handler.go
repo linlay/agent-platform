@@ -10,9 +10,9 @@ import (
 	agentkbase "agent-platform/internal/agent/kbase"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
+	"agent-platform/internal/connector"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
-	"agent-platform/internal/mcp"
 	"agent-platform/internal/observability"
 	"agent-platform/internal/runenv"
 )
@@ -187,12 +187,12 @@ func (h *ToolHandler) validate(resourceType string, resourceKey string, content 
 		for _, item := range catalog.ValidateSkillCandidate(resourceKey, []byte(content), h.cfg.Skills.MaxPromptChars) {
 			diagnostics = append(diagnostics, diagnostic(item.Severity, item.Code, sanitizeDiagnostic(item.Message)))
 		}
-	case "mcp-server":
-		if err := mcp.ValidateServerCandidate(resourceKey, []byte(content)); err != nil {
-			diagnostics = append(diagnostics, candidateError("invalid_mcp_server_config", err))
+	case "connector":
+		if err := connector.ValidateManifest(resourceKey, []byte(content)); err != nil {
+			diagnostics = append(diagnostics, candidateError("invalid_connector_manifest", err))
 		}
 	default:
-		return errorResult("unsupported_resource_type", "resourceType must be agent, team, skill, or mcp-server")
+		return errorResult("unsupported_resource_type", "resourceType must be agent, team, skill, or connector")
 	}
 
 	return successResult(map[string]any{

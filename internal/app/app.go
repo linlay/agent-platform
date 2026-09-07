@@ -15,6 +15,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/artifactpusher"
 	"agent-platform/internal/automation"
+	"agent-platform/internal/builtins"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/channel"
 	"agent-platform/internal/chat"
@@ -190,7 +191,11 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 	}
 	// artifactPusher 在下面 notifications 就绪后再接入 runtimeToolExecutor，
 	// 这样它发出的 push frame 能走到 WS hub，转给网关做 artifact 预告。
-	mcpRegistry, err := mcp.NewRegistry(filepath.Join(cfg.Paths.RegistriesDir, "mcp-servers"))
+	cfg.Paths.BuiltinConnectorsDir, err = builtins.ProcessConnectorsRoot()
+	if err != nil {
+		return nil, fmt.Errorf("load builtin connectors: %w", err)
+	}
+	mcpRegistry, err := mcp.NewRegistry(cfg.Paths.EffectiveConnectorsDir(), cfg.Paths.BuiltinConnectorsDir)
 	if err != nil {
 		return nil, fmt.Errorf("load mcp registry: %w", err)
 	}
