@@ -98,11 +98,7 @@ func (c *Config) applyAutomationValues(values map[string]any) {
 }
 
 func (c *Config) applyMemoryValues(values map[string]any) error {
-	for _, key := range []string{"hybrid-vector-weight", "hybrid-fts-weight"} {
-		if _, exists := values[key]; exists {
-			return fmt.Errorf("memory.%s is no longer supported; memory uses text retrieval", key)
-		}
-	}
+	// Retired hybrid-vector-weight and hybrid-fts-weight are intentionally ignored.
 	c.Memory.Enabled = boolValue(anyValue(values["enabled"], c.Memory.Enabled), c.Memory.Enabled)
 	c.Memory.DBFileName = stringValue(anyValue(values["db-file-name"], c.Memory.DBFileName), c.Memory.DBFileName)
 	c.Memory.ContextTopN = intValue(anyValue(values["context-top-n"], c.Memory.ContextTopN), c.Memory.ContextTopN)
@@ -675,9 +671,7 @@ func (c *Config) applyPromptsFile(path string) error {
 	if err != nil {
 		return nil
 	}
-	if _, exists := values["memory"]; exists {
-		return fmt.Errorf("%s: memory is no longer supported; remove the retired memory prompt templates", path)
-	}
+	// Retired memory prompt templates are intentionally ignored.
 	c.applyPromptsValues(values)
 	return nil
 }

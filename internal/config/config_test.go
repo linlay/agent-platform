@@ -2833,27 +2833,82 @@ func withProjectFileContents(t *testing.T, relativePath string, content *string,
 	fn()
 }
 
-func TestLoadRejectsRetiredMemoryPrompts(t *testing.T) {
+func TestLoadIgnoresRetiredMemoryPrompts(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
-		content := "memory: {}\n"
-		withProjectFileContents(t, filepath.Join("configs", "prompts.yml"), &content, func() {
-			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "memory is no longer supported") {
-				t.Fatalf("expected retired memory prompts rejection, got %v", err)
-			}
-		})
+		configDir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(configDir, "configs"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(configDir, "configs", "prompts.yml")
+		content := "btw:\n  user-prompt-template: preserved BTW prompt\n"
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		baseline, err := Load(LoadOptions{ConfigDir: configDir})
+		if err != nil {
+			t.Fatalf("load baseline: %v", err)
+		}
+		if baseline.Prompts.BTW.UserPromptTemplate != "preserved BTW prompt" {
+			t.Fatal("supported prompt was not loaded")
+		}
+		for name, retired := range map[string]string{
+			"empty":      "memory: {}\n",
+			"configured": "memory:\n  system-prompt-template: retired system prompt\n  user-prompt-template: retired user prompt\n",
+		} {
+			t.Run(name, func(t *testing.T) {
+				if err := os.WriteFile(path, []byte(content+retired), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				cfg, err := Load(LoadOptions{ConfigDir: configDir})
+				if err != nil {
+					t.Fatalf("load with retired memory prompts: %v", err)
+				}
+				if !reflect.DeepEqual(cfg.Prompts, baseline.Prompts) {
+					t.Fatalf("retired memory prompts changed effective prompts: got %#v, want %#v", cfg.Prompts, baseline.Prompts)
+				}
+			})
+		}
 	})
 }
 
-func TestLoadRejectsRetiredMemoryHybridWeights(t *testing.T) {
-	for _, key := range []string{"hybrid-vector-weight", "hybrid-fts-weight"} {
-		t.Run(key, func(t *testing.T) {
+func TestLoadIgnoresRetiredMemoryHybridWeights(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("enabled=%t", enabled), func(t *testing.T) {
 			withIsolatedEnv(t, nil, func() {
-				content := "memory:\n  enabled: false\n  " + key + ": 0\n"
-				withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
-					if _, err := Load(); err == nil || !strings.Contains(err.Error(), "memory."+key+" is no longer supported") {
-						t.Fatalf("expected retired weight rejection, got %v", err)
-					}
-				})
+				configDir := t.TempDir()
+				if err := os.MkdirAll(filepath.Join(configDir, "configs"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				path := filepath.Join(configDir, "configs", "runtime.yml")
+				content := fmt.Sprintf("memory:\n  enabled: %t\n  search-default-limit: 17\n", enabled)
+				if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				baseline, err := Load(LoadOptions{ConfigDir: configDir})
+				if err != nil {
+					t.Fatalf("load baseline: %v", err)
+				}
+				if baseline.Memory.Enabled != enabled || baseline.Memory.SearchDefaultLimit != 17 {
+					t.Fatalf("supported memory settings were not loaded: %#v", baseline.Memory)
+				}
+				for name, retired := range map[string]string{
+					"vector": "  hybrid-vector-weight: 0.7\n",
+					"fts":    "  hybrid-fts-weight: 0.3\n",
+					"both":   "  hybrid-vector-weight: 0.7\n  hybrid-fts-weight: 0.3\n",
+				} {
+					t.Run(name, func(t *testing.T) {
+						if err := os.WriteFile(path, []byte(content+retired), 0o644); err != nil {
+							t.Fatal(err)
+						}
+						cfg, err := Load(LoadOptions{ConfigDir: configDir})
+						if err != nil {
+							t.Fatalf("load with retired memory weights: %v", err)
+						}
+						if cfg.Memory != baseline.Memory {
+							t.Fatalf("retired weights changed effective memory settings: got %#v, want %#v", cfg.Memory, baseline.Memory)
+						}
+					})
+				}
 			})
 		})
 	}
