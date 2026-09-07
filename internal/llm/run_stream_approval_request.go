@@ -155,6 +155,10 @@ func (s *llmRunStream) approvalRequestArgs(request approvalRequest) map[string]a
 }
 
 func (s *llmRunStream) executeApprovedApprovalRequest(request approvalRequest) error {
+	if s.usesHostBashAuthorization(request.invocation) {
+		request.invocation.shownApproval = &request
+		return s.invokeAuthorizedHostBash(request.invocation)
+	}
 	request.invocation.shownApproval = nil
 	// Security and path/opaque requirements share one displayed item. Grant only
 	// its frozen access requirements, then executeOriginalBash re-evaluates them.

@@ -34,6 +34,10 @@ native CODER planning 的 `planning approve` 有独立 run 边界：后端先在
 
 同一 assistant turn 的 `tool_calls[]` 是 awaiting 原子批次：只要其中任意工具需要 `question` / `approval` / `form` 等等待态，整组工具都会暂停，确认前不执行任何 sibling tool。planning confirmation 使用 `mode:"planning"`，由 `finalize_planning` 专门产生；它永久等待，不使用 HITL timeout。`approval` 类型的 builtin 等待项可合并为一个 `awaiting.ask(mode:"approval", approvals:[...])`；不同 mode 的等待项按原始 `tool_calls[]` 顺序逐个等待。全部等待项进入终态后，后端才开始执行本组工具：approve 的工具与无需确认的 sibling 正常执行，reject / timeout 的工具生成 synthetic tool result。
 
+Host Bash 的 builtin 审批准备与命令启动分离：`approve`（仅本次批准）、`approve_rule_run`（本轮批准）和自动批准在完成授权校验后均可进入现有并发调度。同批符合并发条件的独立命令可以同时启动；本轮规则复用也不会因曾经需要审批而被强制串行。一次性授权绑定对应 `toolID`，不复制给兄弟调用；同规则的兄弟调用获批也不能覆盖显式拒绝。写文件与 Bash 同批、`run.env` 等控制操作屏障仍按原顺序执行；Container Bash、表单与 planning 保持原调度规则。
+
+并发调用的 `tool.output` 按各自 `toolID` 和递增 `chunkIndex` 发送，`tool.result` 按实际完成时间实时发布；模型消息和审批摘要仍按原始调用顺序整理，每个调用只有一个最终结果。提交审批和模型一次生成多个调用都不能单独证明命令已并发启动，应以实际过程输出和执行时序验证。
+
 整批取消统一提交 `params: []`，后端归一化为 `status:"error"` 与 `error.code:"user_dismissed"`。
 
 ## 跨进程重启

@@ -158,22 +158,23 @@ type toolCallAccumulator struct {
 }
 
 type preparedToolInvocation struct {
-	toolID              string
-	toolName            string
-	args                map[string]any
-	prelude             []AgentDelta
-	awaitExternalResult bool
-	toolCallCounted     bool
-	precheckedHITL      *hitl.InterceptResult
-	bashSecurityReview  *bashsec.ReviewResult
-	bashAccessReview    *accesspolicy.BashPlan
-	shownApproval       *approvalRequest // immutable requirements displayed to the user
-	fileAccessPlan      *filetools.AccessPlan
-	fileWritePlan       *filetools.WritePlan
-	approvalDecision    string
-	hitlDecision        *hitlDecisionState
-	queuedResult        *ToolExecutionResult
-	teamDispatch        *agentteam.Dispatch
+	toolID                string
+	toolName              string
+	args                  map[string]any
+	prelude               []AgentDelta
+	awaitExternalResult   bool
+	toolCallCounted       bool
+	precheckedHITL        *hitl.InterceptResult
+	bashSecurityReview    *bashsec.ReviewResult
+	bashAccessReview      *accesspolicy.BashPlan
+	shownApproval         *approvalRequest // immutable requirements displayed to the user
+	fileAccessPlan        *filetools.AccessPlan
+	fileWritePlan         *filetools.WritePlan
+	approvalDecision      string
+	hostBashAuthorization *hostBashAuthorization
+	hitlDecision          *hitlDecisionState
+	queuedResult          *ToolExecutionResult
+	teamDispatch          *agentteam.Dispatch
 }
 
 type pendingHITLApprovalBatch struct {

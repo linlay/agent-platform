@@ -197,7 +197,7 @@ func (s *llmRunStream) invokeQueuedToolCallsAndPostHook() error {
 		return nil
 	}
 	s.execCtx.EnsureAuthoredScripts()
-	if hasWriteExecutionBarrier(s.queuedToolCalls) {
+	if hasToolExecutionBarrier(s.queuedToolCalls) {
 		return s.activateNextToolCall()
 	}
 	if s.prepareQueuedBashApprovalBatch() {
@@ -249,6 +249,9 @@ func (s *llmRunStream) invocationMayAwaitBeforeResult(invocation *preparedToolIn
 	if invocation == nil {
 		return false
 	}
+	if s.usesHostBashAuthorization(invocation) {
+		return s.prepareHostBashAuthorization(invocation) != nil
+	}
 	if strings.TrimSpace(invocation.approvalDecision) != "" {
 		return false
 	}
@@ -299,6 +302,9 @@ func (s *llmRunStream) canInvokeQueuedToolCallsConcurrently(invocations []*prepa
 		if !s.canInvokeToolConcurrently(invocation) {
 			return false
 		}
+		if invocation.queuedResult != nil {
+			continue
+		}
 		runnable++
 	}
 	return runnable > 1
@@ -307,6 +313,9 @@ func (s *llmRunStream) canInvokeQueuedToolCallsConcurrently(invocations []*prepa
 func (s *llmRunStream) canInvokeToolConcurrently(invocation *preparedToolInvocation) bool {
 	if invocation == nil || invocation.awaitExternalResult || len(invocation.prelude) > 0 {
 		return false
+	}
+	if s.usesHostBashAuthorization(invocation) {
+		return s.prepareHostBashAuthorization(invocation) == nil
 	}
 	if strings.TrimSpace(invocation.approvalDecision) != "" {
 		return false
@@ -717,6 +726,7 @@ func (s *llmRunStream) serialExecutionContext(invocation *preparedToolInvocation
 	cloned.CurrentToolID = invocation.toolID
 	cloned.CurrentToolName = invocation.toolName
 	cloned.RunLoopState = RunLoopStateToolExecuting
+	takeHostBashAuthorization(invocation, &cloned)
 	return &cloned
 }
 
@@ -827,9 +837,9 @@ func (s *llmRunStream) concurrentExecutionContext(invocation *preparedToolInvoca
 	cloned.RunLoopState = RunLoopStateToolExecuting
 	cloned.StaticRuntimeEnv = CloneStringMap(s.execCtx.StaticRuntimeEnv)
 	cloned.RunEnvironment = s.execCtx.RunEnvironment
-	cloned.AccessPolicyApprovals = cloneIntMap(s.execCtx.AccessPolicyApprovals)
+	cloned.AccessPolicyApprovals = nil
 	cloned.AccessPolicyRuleApprovals = cloneBoolMap(s.execCtx.AccessPolicyRuleApprovals)
-	cloned.BashSecurityApprovals = cloneIntMap(s.execCtx.BashSecurityApprovals)
+	cloned.BashSecurityApprovals = nil
 	cloned.FileReadApprovals = cloneIntMap(s.execCtx.FileReadApprovals)
 	cloned.FileReadRuleApprovals = cloneBoolMap(s.execCtx.FileReadRuleApprovals)
 	cloned.FileAccessApprovals = cloneIntMap(s.execCtx.FileAccessApprovals)
@@ -837,6 +847,7 @@ func (s *llmRunStream) concurrentExecutionContext(invocation *preparedToolInvoca
 	cloned.FileWriteApprovals = cloneIntMap(s.execCtx.FileWriteApprovals)
 	cloned.FileWriteRuleApprovals = cloneBoolMap(s.execCtx.FileWriteRuleApprovals)
 	cloned.ReadFileState = cloneReadFileState(s.execCtx.ReadFileState)
+	takeHostBashAuthorization(invocation, &cloned)
 	return &cloned
 }
 
@@ -967,6 +978,9 @@ func (s *llmRunStream) handleDeferredToolInvocation(invocation *preparedToolInvo
 }
 
 func (s *llmRunStream) handleToolApprovalBeforeInvoke(invocation *preparedToolInvocation) (bool, error) {
+	if s.usesHostBashAuthorization(invocation) {
+		return true, s.invokeAuthorizedHostBash(invocation)
+	}
 	if isBashTool(invocation.toolName) {
 		if s.handleBashSecurityBlockBeforeInvoke(invocation) {
 			return true, nil
@@ -1083,7 +1097,11 @@ func (s *llmRunStream) invokeToolAndPublishResult(invocation *preparedToolInvoca
 	if s.toolSupportsOutputStreaming(invocation) {
 		return s.startActiveToolExecution(invocation)
 	}
-	result, invokeErr := s.engine.tools.Invoke(s.ctx, invocation.toolName, invocation.args, s.execCtx)
+	execCtx := s.execCtx
+	if invocation.hostBashAuthorization != nil {
+		execCtx = s.serialExecutionContext(invocation)
+	}
+	result, invokeErr := s.engine.tools.Invoke(s.ctx, invocation.toolName, invocation.args, execCtx)
 	if invokeErr != nil {
 		if errors.Is(invokeErr, ErrRunInterrupted) {
 			return s.handleInterruptIfNeeded()
@@ -1384,6 +1402,13 @@ func (s *llmRunStream) emitRecordedTerminalToolBudgetError() {
 }
 
 func (s *llmRunStream) prepareToolResultForPublish(invocation *preparedToolInvocation, result ToolExecutionResult) ToolExecutionResult {
+	if authorization := invocation.hostBashAuthorization; authorization != nil {
+		authorization.access, authorization.security = nil, nil
+		authorization.retired = true
+		if !authorization.dispatched && invocation.hitlDecision != nil {
+			invocation.hitlDecision.Executed = false
+		}
+	}
 	result = applyHITLMetadata(result, invocation)
 	return s.maybeSpillToolResult(invocation, result)
 }

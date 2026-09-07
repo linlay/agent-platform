@@ -194,6 +194,9 @@ func (s *llmRunStream) currentAccessLevel() string {
 }
 
 func (s *llmRunStream) executeOriginalBash(invocation *preparedToolInvocation) error {
+	if s.usesHostBashAuthorization(invocation) {
+		return s.invokeAuthorizedHostBash(invocation)
+	}
 	s.refreshAccessLevelForInvocation(invocation)
 	if isBashTool(invocation.toolName) {
 		current := s.lookupBashAccessReview(invocation)

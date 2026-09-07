@@ -3240,8 +3240,8 @@ func TestBashSecuritySoftBlockAutoApprovesByHITLLevel(t *testing.T) {
 	if stream.hitlPendingCall != nil || len(stream.pending) != 1 {
 		t.Fatalf("expected no approval ask and one tool result, pending=%#v hitlPending=%#v", stream.pending, stream.hitlPendingCall)
 	}
-	if got := stream.execCtx.BashSecurityApprovals[bashsec.ApprovalFingerprint(command)]; got != 1 {
-		t.Fatalf("expected fingerprint approval registered before host bash execution, got %d in %#v", got, stream.execCtx.BashSecurityApprovals)
+	if len(stream.execCtx.BashSecurityApprovals) != 0 {
+		t.Fatalf("host invocation leaked its security approval into the run: %#v", stream.execCtx.BashSecurityApprovals)
 	}
 }
 
@@ -6237,12 +6237,7 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 
 func TestAwaitHITLApprovalBatchAndContinueUsesStoredMatch(t *testing.T) {
 	runControl := contracts.NewRunControl(context.Background(), "run_1")
-	review := bashsec.ReviewResult{
-		Decision:    bashsec.ReviewRequiresApproval,
-		RuleKey:     "bash-security::stored",
-		Fingerprint: "stored-fingerprint",
-		Level:       1,
-	}
+	review := bashsec.ReviewBashSecurity("cat <<EOF > out.txt\nhello\nEOF")
 	invocation := &preparedToolInvocation{
 		toolID:             "tool_1",
 		toolName:           "bash",
@@ -6287,7 +6282,7 @@ func TestAwaitHITLApprovalBatchAndContinueUsesStoredMatch(t *testing.T) {
 	if invocation.hitlDecision == nil {
 		t.Fatal("expected HITL decision to be recorded")
 	}
-	if invocation.hitlDecision.RuleKey != "bash-security::stored" {
+	if invocation.hitlDecision.RuleKey != review.RuleKey {
 		t.Fatalf("expected stored match ruleKey, got %#v", invocation.hitlDecision)
 	}
 }

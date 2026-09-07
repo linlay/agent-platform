@@ -39,7 +39,7 @@ func (s *llmRunStream) shouldAutoApproveHITL(result hitl.InterceptResult) bool {
 }
 
 func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
-	if len(s.queuedToolCalls) == 0 || s.hitlPendingBatch != nil || s.hitlPendingCall != nil || hasWriteExecutionBarrier(s.queuedToolCalls) {
+	if len(s.queuedToolCalls) == 0 || s.hitlPendingBatch != nil || s.hitlPendingCall != nil || hasToolExecutionBarrier(s.queuedToolCalls) {
 		return false
 	}
 
@@ -93,6 +93,14 @@ type queuedBashApprovalCandidate struct {
 func (s *llmRunStream) queuedApprovalCandidate(invocation *preparedToolInvocation) (queuedBashApprovalCandidate, bool) {
 	if invocation == nil {
 		return queuedBashApprovalCandidate{}, false
+	}
+	if s.usesHostBashAuthorization(invocation) {
+		request := s.prepareHostBashAuthorization(invocation)
+		if request == nil || !approvalRequestCanJoinBatch(*request) {
+			return queuedBashApprovalCandidate{}, false
+		}
+		invocation.shownApproval = request
+		return queuedBashApprovalCandidate{invocation: invocation, match: request.result}, true
 	}
 	if strings.TrimSpace(invocation.approvalDecision) != "" {
 		return queuedBashApprovalCandidate{}, false
