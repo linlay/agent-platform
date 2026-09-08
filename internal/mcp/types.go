@@ -38,7 +38,9 @@ const (
 	TransportStreamableHTTP = "streamable-http"
 	TransportStdio          = "stdio"
 	AuthSourceIdentityFile  = "identity-file"
-	ProtocolVersion         = "2025-11-25"
+	// ProtocolVersion is the preferred version requested by the pinned SDK.
+	// The SDK also accepts its supported older versions during negotiation.
+	ProtocolVersion = "2025-11-25"
 )
 
 func (s ServerDefinition) ResolvedURL() string {

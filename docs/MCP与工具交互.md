@@ -2,7 +2,9 @@
 
 ## 当前状态
 
-Go runtime 使用官方 Go MCP SDK `github.com/modelcontextprotocol/go-sdk` `v1.6.1`，同时支持 `streamable-http` 与 `stdio`。两种 transport 的唯一稳定协议版本都是 `2025-11-25`：client 在 `initialize` 中请求该版本，并在连接完成后严格检查服务端协商结果；返回旧版本、缺失版本或无效版本时会立即关闭会话、停止注册该 server 的工具，并将 server 放入 availability gate。
+Go runtime 使用官方 Go MCP SDK `github.com/modelcontextprotocol/go-sdk` `v1.6.1`，同时支持 `streamable-http` 与 `stdio`。两种 transport 都在 `initialize` 中优先请求 `2025-11-25`，并接受 SDK 支持的 `2025-06-18`、`2025-03-26` 和 `2024-11-05`。兼容范围由锁定的 SDK 校验，不要求连接器配置版本；返回缺失、无效或未知版本时会关闭连接、停止注册该 server 的工具，并将 server 放入 availability gate。
+
+SDK 使用实际协商版本处理后续消息；HTTP 的 `notifications/initialized`、`tools/list`、`tools/call` 和关闭请求均携带协商后的 `MCP-Protocol-Version`，初始化响应日志也记录实际版本。Platform 只在 Transport 层保留初始化失败的清理引用，不包装 SDK Connection，避免遮蔽 SDK 内部的 session 状态更新和 SSE 启动。OAuth 授权成功不代表 MCP 同步成功；上游 `429 Too Many Requests` 属于独立的限流失败，协议兼容不会绕过限流或自动重放已发出的工具调用。
 
 MCP registry、session client、availability gate、后台同步/重连与热重载已经接通。平台只保留一种 Tool；本地、MCP、用户问题交互和 Desktop 能力共享同一工具定义与 `tool.*` 事件协议。Platform 启动只同步装载和校验本地 MCP Registry，首次远端连接、初始化与 `tools/list` 由单 worker 在后台执行，不属于 HTTP 服务监听或 `/healthz` 的就绪条件。
 

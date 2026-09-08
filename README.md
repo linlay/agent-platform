@@ -68,7 +68,7 @@
 - 专用 `mode: KBASE` 与普通 KBASE capability 都以 `runtimeConfig.workspaceRoot` 为唯一内容根；专用 mode 在 main/editing 两种 stage 提供相同的五个通用文本文件工具，当前 Chat 目录独立可读写。单次 `/api/query` 顶层 `editingMode:true` 只允许 KBASE Workspace mutation，未开启时 Workspace 仍可读但不可 write/edit；所有目录先服从 AccessPolicy/HITL，索引由 KBASE watcher 异步维护。普通 Agent 附加的 KBASE capability 与其他 mode 不支持该字段。
 - `platform_control` 对所有显式配置它的 Agent 暴露同一固定 Schema 和全部注册 operation；动态环境只保留当前普通 native root run 的 `run.env.set/unset`，无需在 Agent 配置预声明 key。动态值仅存在于当前 Platform 进程内，只在新建 Host/Container 命令前生成独立快照，绝不调用 `os.Setenv`；Platform 重启后的 question/planning 续接使用新的空环境。
 
-当前仍未与 Java 版完全对齐的能力主要集中在 MCP 全量生产验证，以及更深层的 automation 执行编排细节；MCP 的 HTTP/stdio client、严格 `2025-11-25` 版本校验、session 生命周期与 tool sync 已接通。平台工具模型已统一，不再区分 frontend/action/backend/builtin。
+当前仍未与 Java 版完全对齐的能力主要集中在 MCP 全量生产验证，以及更深层的 automation 执行编排细节；MCP 的 HTTP/stdio client、SDK 支持版本的自动协商、session 生命周期与 tool sync 已接通。平台工具模型已统一，不再区分 frontend/action/backend/builtin。
 
 ## 2. 快速开始
 
@@ -180,7 +180,7 @@ RUN_SOCKET_TESTS=1 make test-integration
 
 Platform 运行形态只由 `--runtime-mode=standalone|desktop` 指定，默认 `standalone`。Desktop 宿主启动内置 Platform 时固定传入 `desktop`；Platform 不根据端口、父进程、WS `source` 或 YAML 猜测运行形态。`desktop_action` / `desktop_cdp` 优先使用当前 run 绑定的反向 WebSocket target；Desktop 模式下，无绑定或旧连接在发送前已失效的 run 会补绑当前 `desktop-main`，Standalone 仍只认 run target。两种模式都不调用本地 HTTP bridge，也不重放已经发送的动作。
 
-外部连接器原包安装在 `<AP_RUNTIME_DIR>/connectors-center/<id>`；内置原包由 Platform 随包提供，不可修改或删除。两类包统一组装到共享 `<AP_RUNTIME_DIR>/ru-connectors/<id>`，持久化授权状态独立存放 `connector-state/`。两类连接器统一由 Agent 的 `connectorConfig.connectors` 挂载；挂载自动增加共享运行包 bin PATH、导入全部技能元数据并接入 MCP 工具；技能正文和资源从 `@connectors/<id>/skills/...` 读取，不再复制到各 Agent 的 ru-agents；skillId 使用原始技能名，不添加连接器前缀，同一 Agent 内技能重名时返回冲突诊断。包允许 `bin/libs`，连接器技能不能被 `mustUseSkills` 选中。`dbx/httpx` 的清单和完整技能源码位于 `internal/resources/connectors/builtin.{dbx,httpx}/`，与二进制一起打包并校验；旧 `registries/mcp-servers` 目录直接忽略，不影响启动；需要沿用其中定义时可通过 `agent-platform connector-migrate` 迁移，Agent 挂载使用新字段。MCP 的 HTTP/stdio、严格 `2025-11-25` 与后台 tool sync 保持不变。包结构、管理接口、迁移步骤及未实现的认证生命周期见 [连接器](./docs/连接器.md)，协议细节见 [MCP与工具交互](./docs/MCP与工具交互.md)。
+外部连接器原包安装在 `<AP_RUNTIME_DIR>/connectors-center/<id>`；内置原包由 Platform 随包提供，不可修改或删除。两类包统一组装到共享 `<AP_RUNTIME_DIR>/ru-connectors/<id>`，持久化授权状态独立存放 `connector-state/`。两类连接器统一由 Agent 的 `connectorConfig.connectors` 挂载；挂载自动增加共享运行包 bin PATH、导入全部技能元数据并接入 MCP 工具；技能正文和资源从 `@connectors/<id>/skills/...` 读取，不再复制到各 Agent 的 ru-agents；skillId 使用原始技能名，不添加连接器前缀，同一 Agent 内技能重名时返回冲突诊断。包允许 `bin/libs`，连接器技能不能被 `mustUseSkills` 选中。`dbx/httpx` 的清单和完整技能源码位于 `internal/resources/connectors/builtin.{dbx,httpx}/`，与二进制一起打包并校验；旧 `registries/mcp-servers` 目录直接忽略，不影响启动；需要沿用其中定义时可通过 `agent-platform connector-migrate` 迁移，Agent 挂载使用新字段。MCP 的 HTTP/stdio 优先请求 `2025-11-25`，兼容 SDK 支持的 `2025-06-18`、`2025-03-26` 和 `2024-11-05`，并保持后台 tool sync。包结构、管理接口、迁移步骤及未实现的认证生命周期见 [连接器](./docs/连接器.md)，协议细节见 [MCP与工具交互](./docs/MCP与工具交互.md)。
 
 ### 根 `.env.example`
 

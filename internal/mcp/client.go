@@ -23,7 +23,6 @@ import (
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/observability"
 
-	sdkjsonrpc "github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -262,25 +261,24 @@ func (c *Client) ensureSession(ctx context.Context, server ServerDefinition) (*m
 		return nil, fmt.Errorf("%w: %v", contracts.ErrMCPCallFailed, err)
 	}
 	observability.Log("mcp.request", map[string]any{"serverKey": server.Key, "method": "initialize", "transport": server.Transport})
-	session, err := c.sdk.Connect(connectCtx, strictVersionTransport{base: transport}, nil)
+	initializing := &initializingTransport{base: transport}
+	session, err := c.sdk.Connect(connectCtx, initializing, nil)
 	if err != nil {
+		// SDK v1.6.1 leaves the connection open on an unsupported version.
+		// Close is safe to repeat for other initialization failures.
+		if initializing.connection != nil {
+			_ = initializing.connection.Close()
+		}
 		if strings.Contains(err.Error(), "unsupported protocol version") {
-			return nil, fmt.Errorf("%w: server %s returned an incompatible protocol version (%v); required %s", contracts.ErrMCPCallFailed, server.Key, err, ProtocolVersion)
+			return nil, fmt.Errorf("%w: server %s: %v", contracts.ErrMCPCallFailed, server.Key, err)
 		}
 		return nil, fmt.Errorf("%w: initialize: %v", contracts.ErrMCPCallFailed, err)
 	}
-	result := session.InitializeResult()
-	if result == nil || result.ProtocolVersion != ProtocolVersion {
-		negotiated := ""
-		if result != nil {
-			negotiated = result.ProtocolVersion
-		}
-		_ = session.Close()
-		return nil, fmt.Errorf("%w: server %s negotiated unsupported protocol version %q; required %s", contracts.ErrMCPCallFailed, server.Key, negotiated, ProtocolVersion)
-	}
+	// The SDK validates its supported versions and applies the negotiated
+	// version to the transport before sending notifications/initialized.
 	managed := &managedSession{fingerprint: fingerprint, transport: server.Transport, session: session}
 	slot.current = managed
-	observability.Log("mcp.response", map[string]any{"serverKey": server.Key, "method": "initialize", "protocolVersion": ProtocolVersion})
+	observability.Log("mcp.response", map[string]any{"serverKey": server.Key, "method": "initialize", "protocolVersion": session.InitializeResult().ProtocolVersion})
 	return managed, nil
 }
 
@@ -298,80 +296,18 @@ func closeManagedSession(managed *managedSession) error {
 	return err
 }
 
-// strictVersionTransport closes connections whose initialize result is not a
-// protocol version understood by the SDK. The SDK closes normal initialize
-// failures itself, but v1.6.1 does not close the connection when a peer returns
-// an unknown version. Known legacy versions remain open long enough for the
-// caller's exact-version check to report a useful incompatibility error and
-// perform the standard session close.
-type strictVersionTransport struct {
-	base sdkmcp.Transport
+// initializingTransport retains the connection for cleanup if SDK initialization
+// fails. Return the original connection: wrapping it hides the SDK's private
+// sessionUpdated hook, breaking negotiated HTTP headers and standalone SSE.
+type initializingTransport struct {
+	base       sdkmcp.Transport
+	connection sdkmcp.Connection
 }
 
-func (t strictVersionTransport) Connect(ctx context.Context) (sdkmcp.Connection, error) {
+func (t *initializingTransport) Connect(ctx context.Context) (sdkmcp.Connection, error) {
 	connection, err := t.base.Connect(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &strictVersionConnection{
-		Connection:    connection,
-		initializeIDs: map[string]struct{}{},
-	}, nil
-}
-
-type strictVersionConnection struct {
-	sdkmcp.Connection
-	mu            sync.Mutex
-	initializeIDs map[string]struct{}
-}
-
-func (c *strictVersionConnection) Write(ctx context.Context, message sdkjsonrpc.Message) error {
-	if request, ok := message.(*sdkjsonrpc.Request); ok && request.Method == "initialize" {
-		c.mu.Lock()
-		c.initializeIDs[jsonRPCIDKey(request.ID.Raw())] = struct{}{}
-		c.mu.Unlock()
-	}
-	return c.Connection.Write(ctx, message)
-}
-
-func (c *strictVersionConnection) Read(ctx context.Context) (sdkjsonrpc.Message, error) {
-	message, err := c.Connection.Read(ctx)
-	if err != nil {
-		return nil, err
-	}
-	response, ok := message.(*sdkjsonrpc.Response)
-	if !ok {
-		return message, nil
-	}
-	c.mu.Lock()
-	key := jsonRPCIDKey(response.ID.Raw())
-	_, initialize := c.initializeIDs[key]
-	delete(c.initializeIDs, key)
-	c.mu.Unlock()
-	if !initialize || response.Error != nil {
-		return message, nil
-	}
-	var result struct {
-		ProtocolVersion string `json:"protocolVersion"`
-	}
-	if json.Unmarshal(response.Result, &result) != nil || !sdkKnownProtocolVersion(result.ProtocolVersion) {
-		_ = c.Connection.Close()
-	}
-	return message, nil
-}
-
-func jsonRPCIDKey(value any) string {
-	data, _ := json.Marshal(value)
-	return string(data)
-}
-
-func sdkKnownProtocolVersion(version string) bool {
-	switch version {
-	case ProtocolVersion, "2025-06-18", "2025-03-26", "2024-11-05":
-		return true
-	default:
-		return false
-	}
+	t.connection = connection
+	return connection, err
 }
 
 func (c *Client) slot(serverKey string) (*sessionSlot, error) {
