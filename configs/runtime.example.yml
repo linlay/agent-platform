@@ -64,24 +64,10 @@ container-hub:
   agent-idle-timeout: 600
   destroy-queue-delay: 5
 
-  # Default mounts come from runtime directory config:
-  # /workspace -> canonical runtimeConfig.workspaceRoot (rw)
-  # /chat      -> AP_RUNTIME_CHATS_DIR/<chatId> (rw)
-  # /root      -> AP_RUNTIME_DIR/root (rw)
-  # /skills    -> AP_RUNTIME_DIR/ru-agents/<agentKey>/skills (ro, only run/agent; global skips it)
-  # /pan       -> AP_RUNTIME_PAN_DIR (rw)
-  # /agent     -> AP_RUNTIME_DIR/ru-agents/<agentKey> (ro, required)
-  # /owner     -> AP_RUNTIME_DIR/owner (ro)
-  # /memory    -> AP_RUNTIME_MEMORY_DIR/<agentKey> (ro)
-  #
-  # runtimeConfig.sandboxMounts controls Container Hub session mounts:
-  # platform + mode             -> on-demand platform mount; skills-center mounts to /skills-center
-  # destination + mode          -> override non-reserved default mount mode
-  # source + destination + mode -> add a custom mount
-  # Protocol: dual-root-v2. When ChatsRoot is inside Workspace, Platform also
-  # sends a reserved /workspace/<ChatsRoot-relative> mask so Chat is visible
-  # only through /chat.
-  # /workspace, /chat, masks, and their descendants are reserved and cannot be overridden.
+  # 默认挂载由 Platform 自动生成；扩展挂载在 Agent 的 runtimeConfig.sandboxMounts 中配置。
+  # mode: ro（只读）或 rw（可读写）。
+  # /workspace、/chat、隔离路径及其子路径不可覆盖。
+  # 目录映射与扩展写法见 docs/配置化说明.md 的「Container Hub」节。
 
 cors:
   enabled: false
