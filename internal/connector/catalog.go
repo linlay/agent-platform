@@ -13,15 +13,16 @@ import (
 
 type Summary struct {
 	Manifest
-	Builtin   bool          `json:"builtin"`
-	ReadOnly  bool          `json:"readOnly"`
-	CanDelete bool          `json:"canDelete"`
-	HasMCP    bool          `json:"hasMcp"`
-	HasCLI    bool          `json:"hasCli"`
-	HasView   bool          `json:"hasView"`
-	Views     []ViewSummary `json:"views,omitempty"`
-	HasBin    bool          `json:"hasBin"`
-	Skills    []string      `json:"skills"`
+	Builtin    bool          `json:"builtin"`
+	ReadOnly   bool          `json:"readOnly"`
+	CanDelete  bool          `json:"canDelete"`
+	HasMCP     bool          `json:"hasMcp"`
+	HasCLI     bool          `json:"hasCli"`
+	HasView    bool          `json:"hasView"`
+	Views      []ViewSummary `json:"views,omitempty"`
+	HasBin     bool          `json:"hasBin"`
+	IconSHA256 string        `json:"iconSha256,omitempty"`
+	Skills     []string      `json:"skills"`
 }
 
 type ViewSummary struct {
@@ -47,6 +48,7 @@ func (s Sources) Summaries() ([]Summary, error) {
 		for _, skill := range pkg.Skills {
 			summary.Skills = append(summary.Skills, skill.Name)
 		}
+		summary.IconSHA256 = pkg.iconSHA256
 		summary.HasView = len(pkg.Views) > 0
 		for key, definition := range pkg.Views {
 			source := "local"

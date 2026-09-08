@@ -27,6 +27,7 @@ type Manifest struct {
 	Type        string          `json:"type"`
 	AuthMode    AuthMode        `json:"auth_mode"`
 	Description string          `json:"description,omitempty"`
+	Icon        string          `json:"icon,omitempty"`
 	TokenSchema json.RawMessage `json:"token_schema,omitempty"`
 	OAuth       json.RawMessage `json:"oauth,omitempty"`
 }
@@ -34,14 +35,15 @@ type Manifest struct {
 // Package is an immutable, secret-free description of an installed package.
 type Package struct {
 	Manifest
-	Builtin   bool
-	StateRoot string
-	Dir       string
-	BinDir    string
-	Skills    []Skill
-	MCP       map[string]map[string]any
-	CLI       map[string]any
-	Views     map[string]view.Definition
+	Builtin    bool
+	StateRoot  string
+	Dir        string
+	BinDir     string
+	Skills     []Skill
+	MCP        map[string]map[string]any
+	CLI        map[string]any
+	Views      map[string]view.Definition
+	iconSHA256 string
 }
 
 type Skill struct {
@@ -111,6 +113,13 @@ func loadDefinition(root, id, file string, content []byte) (Package, error) {
 		return Package{}, err
 	}
 	pkg.Dir = dir
+	if pkg.Icon != "" {
+		icon, err := pkg.ReadIcon()
+		if err != nil {
+			return Package{}, fmt.Errorf("connector %s icon: %w", id, err)
+		}
+		pkg.iconSHA256 = icon.SHA256
+	}
 	if info, err := os.Stat(filepath.Join(dir, "bin")); err == nil {
 		if !info.IsDir() {
 			return Package{}, fmt.Errorf("connector %s bin must be a directory", id)
@@ -181,6 +190,9 @@ func validateManifest(id string, pkg Manifest) error {
 	}
 	if pkg.Type != "mcp" && pkg.Type != "cli" && pkg.Type != "view" {
 		return fmt.Errorf("connector %s type must be mcp, cli or view", id)
+	}
+	if pkg.Icon != "" && !validIconPath(pkg.Icon) {
+		return fmt.Errorf("connector %s icon must be a package-relative SVG or PNG path under assets/", id)
 	}
 	switch pkg.AuthMode {
 	case AuthDelegated, AuthOneID, AuthMCP:

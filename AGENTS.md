@@ -63,7 +63,7 @@ cmd/agent-platform/main.go
 - `internal/chat`：chat 摘要、事件、StepLine、raw messages、资源文件、归档、回放。
 - `internal/memory`：SQLite memory、FTS 文本检索、上下文召回与显式生命周期整理。
 - `internal/view`：VIEW 展示定义、声明资源、远端模板获取和 Chat 内容寻址快照；无 Tool 执行或 HITL 决策职责。VIEW 与 MCP/CLI 组件可组合，纯 VIEW 不授予 Bash/PATH。
-- `internal/connector`：中立连接器包/JSON/技能结构校验、ZIP 原子导入、Agent PATH 合并与定义编辑；`internal/connectormigrate` 是旧 MCP 目录和 Agent 引用的显式离线迁移入口。MCP 通过统一 Sources 读取 Platform 内置包和 runtime/connectors-center 外部原包，执行读取各 Agent 的 ru-agents/<agentKey>/connectors，MCP 按 Agent/连接器/组件建立独立实例，旧 registries/mcp-servers 目录直接忽略；`internal/connectorauth` 负责部署级 token 保存/退出、null 模式显式受管 CLI 准备/扫码、普通 OAuth 授权码与 MCP OAuth 发现、PKCE、loopback 回调和持久化刷新；oneid-token 复用 Desktop identity-file，按调用环境注入 AP_ACCESS_TOKEN，HTTP MCP 按同一来源生成 Bearer Header，不复制 SSO 凭据到连接器状态目录。按用户凭据绑定与通用 runtime 安装尚未实现，见连接器专题。
+- `internal/connector`：中立连接器包/JSON/技能与 assets 图标结构校验、ZIP 原子导入、Agent PATH 合并与定义编辑；`internal/connectormigrate` 是旧 MCP 目录和 Agent 引用的显式离线迁移入口。MCP 通过统一 Sources 读取 Platform 内置包和 runtime/connectors-center 外部原包，执行读取各 Agent 的 ru-agents/<agentKey>/connectors，MCP 按 Agent/连接器/组件建立独立实例，旧 registries/mcp-servers 目录直接忽略；`internal/connectorauth` 负责部署级 token 保存/退出、null 模式显式受管 CLI 准备/扫码、普通 OAuth 授权码与 MCP OAuth 发现、PKCE、loopback 回调和持久化刷新；oneid-token 复用 Desktop identity-file，按调用环境注入 AP_ACCESS_TOKEN，HTTP MCP 按同一来源生成 Bearer Header，不复制 SSO 凭据到连接器状态目录。按用户凭据绑定与通用 runtime 安装尚未实现，见连接器专题。
 - `internal/catalog`：agent / team / skill / tool 目录装载与定义解析；Team 只接受目录式 orchestrated 定义，并以原子快照冻结成员、协调器配置和 prompt。
 - `internal/config`：环境变量、YAML、默认值。
 - `internal/stream`：统一事件、dispatcher、assembler、normalizer 与 EventBus；SSE writer 属于 `internal/server` 传输层。
@@ -159,6 +159,7 @@ KBASE 默认由 `AP_RUNTIME_KBASE_DIR` 控制，每个 agent storageDir 可包�
 - 新增能力优先放进对应 `internal/*` 模块，不在 server 层堆业务逻辑。
 - TEAM 是内部专用 mode：公共机制进入 `internal/agent`，调度规则进入 `internal/agent/team`。普通 `AgentDefinition` 必须拒绝 `mode: TEAM`，隐藏协调器不得注册到 `/api/agents`、`/api/agent` 或普通 `agent_invoke` 目标中。
 - 新增 API 保持统一 JSON 包裹、字段命名和错误语义。
+- WorkBuddy 连接器包版本原样使用来源市场条目的 `version`；上游未声明时统一为 `0.1.0`，Platform 适配、补图标和重新打包不得自行递增版本，也不得用 CLI 或 Skill 版本替代连接器版本。
 - KBASE 对外 tool/REST/`source.publish` 契约以 LanceDB 路径回归；只有 `indexHash` 变化可触发新 generation，`queryHash` 中的 topK/RRF/权重/候选池调整不得引发全量重建。
 - KBASE watcher 对所有 `kbaseConfig.enabled: true` 的 capability 使用路径级 change set 更新 active generation；启动、手工普通 refresh 与周期 reconcile 才做全目录对账，`force=true`、首次索引和 `indexHash` 变化才创建新 generation。
 - 专用 KBASE 的 Workspace 始终是最终 canonical `runtimeConfig.workspaceRoot`，当前 Chat 目录只保存在 `ChatDir`；main/editing 两种 stage 固定提供相同的五个文件工具。KBASE editing 是 Workspace mutation 的 run 授权，不是 Agent 配置。它复用通用 `AccessPolicy -> AccessPlan -> HITL -> FileTools` 主链路；session 冻结的 `ScopedFilePolicy` 只负责固定工具准入、Workspace 识别、`WorkspaceMutationEnabled`、Workspace 已有文件先读后写和新文件父目录已存在，不覆盖 AccessPlan，也不限制文本扩展名或编码。`accessLevel`、hostAccess 与 HITL 按通用规则作用于 external，但不能替代 `editingMode:true`；固定工具集仍不可扩大。

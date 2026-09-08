@@ -22,12 +22,13 @@ import (
 )
 
 type cliSettings struct {
-	NPMPackage string `json:"npmPackage"`
-	NPMVersion string `json:"npmVersion"`
-	Entry      string `json:"entry"`
-	Command    string `json:"command"`
-	ConfigEnv  string `json:"configEnv"`
-	LogoutMode string `json:"logoutMode,omitempty"`
+	NPMPackage  string `json:"npmPackage"`
+	NPMVersion  string `json:"npmVersion"`
+	Entry       string `json:"entry"`
+	NativeEntry string `json:"nativeEntry,omitempty"`
+	Command     string `json:"command"`
+	ConfigEnv   string `json:"configEnv"`
+	LogoutMode  string `json:"logoutMode,omitempty"`
 }
 
 func cliSettingsFor(pkg connector.Package) (cliSettings, error) {
@@ -45,13 +46,17 @@ func cliSettingsFor(pkg connector.Package) (cliSettings, error) {
 	if s.Entry == "" || filepath.IsAbs(s.Entry) || strings.ContainsAny(s.Entry, "\\:") || strings.Contains(s.Entry, "..") {
 		return s, fmt.Errorf("invalid npm entry path")
 	}
+	if s.NativeEntry != "" && (filepath.IsAbs(s.NativeEntry) || strings.ContainsAny(s.NativeEntry, "\\:") || strings.Contains(s.NativeEntry, "..")) {
+		return s, fmt.Errorf("invalid native entry path")
+	}
 	if s.LogoutMode != "" && s.LogoutMode != "delete-config" {
 		return s, fmt.Errorf("invalid CLI logout mode")
 	}
-	for _, key := range []string{"auth", "status"} {
-		if _, err := cliArgs(pkg, key, s.Command); err != nil {
-			return s, err
-		}
+	if _, err := cliAuthSteps(pkg, s.Command); err != nil {
+		return s, err
+	}
+	if _, err := cliArgs(pkg, "status", s.Command); err != nil {
+		return s, err
 	}
 	if s.LogoutMode == "" {
 		if _, err := cliArgs(pkg, "unAuth", s.Command); err != nil {
@@ -59,15 +64,15 @@ func cliSettingsFor(pkg connector.Package) (cliSettings, error) {
 		}
 	}
 	pattern, _ := pkg.CLI["statusMatch"].(string)
-	if pattern == "" {
-		return s, fmt.Errorf("CLI requires statusMatch")
-	}
-	if _, err := regexp.Compile(pattern); err != nil {
+	if expected, exists := pkg.CLI["statusMatchJson"]; exists {
+		fields, ok := expected.(map[string]any)
+		if !ok || len(fields) == 0 || pattern != "" {
+			return s, fmt.Errorf("CLI requires a nonempty statusMatchJson object or statusMatch")
+		}
+	} else if pattern == "" {
+		return s, fmt.Errorf("CLI requires statusMatch or statusMatchJson")
+	} else if _, err := regexp.Compile(pattern); err != nil {
 		return s, fmt.Errorf("invalid statusMatch")
-	}
-	domain, _ := pkg.CLI["authUrlDomain"].(string)
-	if domain == "" || !regexp.MustCompile(`^[a-z0-9]+(?:[.-][a-z0-9]+)*$`).MatchString(domain) {
-		return s, fmt.Errorf("CLI requires a valid authUrlDomain")
 	}
 	if _, err := cliVersionArgs(pkg, s.Command); err != nil {
 		return s, err
@@ -87,6 +92,50 @@ func cliSettingsFor(pkg connector.Package) (cliSettings, error) {
 		return s, fmt.Errorf("CLI requires versionCheck")
 	}
 	return s, nil
+}
+
+type cliAuthStep struct {
+	args, skipArgs []string
+	domain         string
+}
+
+// Ordered authorization steps still invoke only the pinned executable.
+func cliAuthSteps(pkg connector.Package, command string) ([]cliAuthStep, error) {
+	declarations, multi := pkg.CLI["auth"].([]any)
+	if !multi {
+		declarations = []any{map[string]any{"command": pkg.CLI["auth"], "authUrlDomain": pkg.CLI["authUrlDomain"]}}
+	}
+	if len(declarations) == 0 || len(declarations) > 16 {
+		return nil, fmt.Errorf("CLI auth requires 1 to 16 steps")
+	}
+	var steps []cliAuthStep
+	for _, declaration := range declarations {
+		fields, ok := declaration.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("CLI auth step must be an object")
+		}
+		step := cliAuthStep{}
+		step.domain, _ = fields["authUrlDomain"].(string)
+		if !regexp.MustCompile(`^[a-z0-9]+(?:[.-][a-z0-9]+)*$`).MatchString(step.domain) {
+			return nil, fmt.Errorf("CLI auth step requires a valid authUrlDomain")
+		}
+		var err error
+		step.args, err = cliArgs(connector.Package{CLI: fields}, "command", command)
+		if err != nil {
+			return nil, err
+		}
+		if _, exists := fields["skipIf"]; exists {
+			step.skipArgs, err = cliArgs(connector.Package{CLI: fields}, "skipIf", command)
+			if err != nil {
+				return nil, err
+			}
+			if len(step.skipArgs) == 0 {
+				return nil, fmt.Errorf("CLI skipIf requires explicit arguments")
+			}
+		}
+		steps = append(steps, step)
+	}
+	return steps, nil
 }
 
 func cliVersionArgs(pkg connector.Package, command string) ([]string, error) {
@@ -287,6 +336,11 @@ func (m *Manager) cliStatus(ctx context.Context, pkg connector.Package) (bool, e
 	if err != nil {
 		return false, err
 	}
+	// Status must not start an installer's implicit binary download. Only the
+	// explicit preparation/version-check phase may run an unprepared wrapper.
+	if err := m.requireNativeCLI(pkg, s); err != nil {
+		return false, err
+	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	args, err := cliArgs(pkg, "status", s.Command)
@@ -300,16 +354,55 @@ func (m *Manager) cliStatus(ctx context.Context, pkg connector.Package) (bool, e
 	var output boundedOutput
 	cmd.Stdout = &output
 	cmd.Stderr = &output
+	if pkg.CLI["statusMatchJson"] != nil {
+		cmd.Stderr = io.Discard
+	}
 	err = cmd.Run()
 	if ctx.Err() != nil {
 		return false, fmt.Errorf("CLI authorization status timed out")
 	}
-	pattern, _ := pkg.CLI["statusMatch"].(string)
-	matched := regexp.MustCompile(pattern).MatchString(output.String())
 	if err != nil {
 		return false, fmt.Errorf("CLI authorization status command failed")
 	}
-	return err == nil && matched, nil
+	if expected, ok := pkg.CLI["statusMatchJson"].(map[string]any); ok {
+		var actual map[string]any
+		if err := json.Unmarshal([]byte(output.String()), &actual); err != nil {
+			return false, fmt.Errorf("CLI authorization status was not valid JSON")
+		}
+		if actual["ok"] == false {
+			return false, nil
+		}
+		if actual["ok"] == true {
+			if data, ok := actual["data"].(map[string]any); ok {
+				actual = data
+			}
+		}
+		return jsonSubset(actual, expected), nil
+	}
+	pattern, _ := pkg.CLI["statusMatch"].(string)
+	return regexp.MustCompile(pattern).MatchString(output.String()), nil
+}
+
+func jsonSubset(actual, expected map[string]any) bool {
+	for key, want := range expected {
+		got, exists := actual[key]
+		if !exists {
+			return false
+		}
+		if child, ok := want.(map[string]any); ok {
+			object, ok := got.(map[string]any)
+			if !ok || !jsonSubset(object, child) {
+				return false
+			}
+		} else {
+			a, _ := json.Marshal(got)
+			b, _ := json.Marshal(want)
+			if string(a) != string(b) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (m *Manager) loginCLI(ctx context.Context, pkg connector.Package, l *login) error {
@@ -323,32 +416,35 @@ func (m *Manager) loginCLI(ctx context.Context, pkg connector.Package, l *login)
 	if ok, err := m.cliStatus(ctx, pkg); err == nil && ok {
 		return nil
 	}
-	args, err := cliArgs(pkg, "auth", s.Command)
+	steps, err := cliAuthSteps(pkg, s.Command)
 	if err != nil {
 		return err
 	}
-	cmd, err := m.cliCommand(ctx, pkg, s, args...)
-	if err != nil {
-		return err
-	}
-	domain, _ := pkg.CLI["authUrlDomain"].(string)
-	if domain == "" {
-		return fmt.Errorf("CLI authUrlDomain is required")
-	}
-	re := regexp.MustCompile(`https://[^\s<>"'\\]+`)
-	output := boundedOutput{onWrite: func(text string) {
-		for _, raw := range re.FindAllString(text, -1) {
-			u, err := url.Parse(strings.TrimRight(raw, ").,\r\n"))
-			if err == nil && u.User == nil && (u.Hostname() == domain || strings.HasSuffix(u.Hostname(), "."+domain)) {
-				m.setURL(l, u.String())
-				return
+	for _, step := range steps {
+		if len(step.skipArgs) > 0 {
+			checkCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+			check, err := m.cliCommand(checkCtx, pkg, s, step.skipArgs...)
+			if err != nil {
+				cancel()
+				return err
+			}
+			// Configuration output may contain app secrets: discard it entirely.
+			err = check.Run()
+			checkExpired := checkCtx.Err()
+			cancel()
+			if checkExpired != nil {
+				return fmt.Errorf("CLI authorization prerequisite check timed out")
+			}
+			if err == nil {
+				continue
 			}
 		}
-	}}
-	cmd.Stdout = &output
-	cmd.Stderr = &output
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("CLI login failed or expired; start login again")
+		m.mu.Lock()
+		l.URL, l.Status, l.Message = "", "preparing", "Preparing authorization step"
+		m.mu.Unlock()
+		if err := m.runCLIAuthStep(ctx, pkg, s, l, step); err != nil {
+			return err
+		}
 	}
 	ok, err := m.cliStatus(ctx, pkg)
 	if err != nil {
@@ -358,6 +454,52 @@ func (m *Manager) loginCLI(ctx context.Context, pkg connector.Package, l *login)
 		return fmt.Errorf("CLI exited without an authorized login state")
 	}
 	return nil
+}
+
+func (m *Manager) runCLIAuthStep(ctx context.Context, pkg connector.Package, s cliSettings, l *login, step cliAuthStep) error {
+	cmd, err := m.cliCommand(ctx, pkg, s, step.args...)
+	if err != nil {
+		return err
+	}
+	output := boundedOutput{onWrite: func(text string) {
+		if raw := cliAuthorizationURL(text, step.domain); raw != "" {
+			m.setURL(l, raw)
+		}
+	}}
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("CLI login failed or expired; start login again")
+	}
+	return nil
+}
+
+func cliAuthorizationURL(text, domain string) string {
+	allowed := func(raw string) bool {
+		u, err := url.Parse(raw)
+		return err == nil && u.Scheme == "https" && u.User == nil &&
+			(u.Hostname() == domain || strings.HasSuffix(u.Hostname(), "."+domain))
+	}
+	// JSON encoders can escape '&' as \u0026 or '/' as \/. Decode only the
+	// JSON string, preserving the URL itself and its query encoding verbatim.
+	for _, literal := range regexp.MustCompile(`"(?:\\.|[^"\\])*"`).FindAllString(text, -1) {
+		var raw string
+		if json.Unmarshal([]byte(literal), &raw) == nil && allowed(raw) {
+			return raw
+		}
+	}
+	for _, span := range regexp.MustCompile(`https://[^\s<>"'\\]+`).FindAllStringIndex(text, -1) {
+		// An output chunk may end mid-URL or mid-JSON escape. Wait for the
+		// terminator instead of exposing a truncated authorization link.
+		if span[1] == len(text) || text[span[1]] == '\\' {
+			continue
+		}
+		raw := strings.TrimRight(text[span[0]:span[1]], ").,\r\n")
+		if allowed(raw) {
+			return raw
+		}
+	}
+	return ""
 }
 
 func (m *Manager) logoutCLI(ctx context.Context, pkg connector.Package) error {
@@ -373,6 +515,9 @@ func (m *Manager) logoutCLI(ctx context.Context, pkg connector.Package) error {
 		// Only Platform's own per-connector credential subtree is removable.
 		return os.RemoveAll(filepath.Join(dir, "config"))
 	}
+	if err := m.requireNativeCLI(pkg, s); err != nil {
+		return err
+	}
 	args, err := cliArgs(pkg, "unAuth", s.Command)
 	if err != nil {
 		return err
@@ -385,6 +530,25 @@ func (m *Manager) logoutCLI(ctx context.Context, pkg connector.Package) error {
 	}
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("CLI logout failed")
+	}
+	return nil
+}
+
+func (m *Manager) requireNativeCLI(pkg connector.Package, s cliSettings) error {
+	if s.NativeEntry == "" {
+		return nil
+	}
+	dir, err := StateDir(m.sources.PersistentRoot(), pkg.ID)
+	if err != nil {
+		return err
+	}
+	entry := s.NativeEntry
+	if runtime.GOOS == "windows" {
+		entry += ".exe"
+	}
+	info, err := os.Stat(filepath.Join(dir, "npm", "node_modules", filepath.FromSlash(s.NPMPackage), filepath.FromSlash(entry)))
+	if err != nil || !info.Mode().IsRegular() {
+		return fmt.Errorf("native CLI is not prepared; start connector login to install it")
 	}
 	return nil
 }

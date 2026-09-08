@@ -112,6 +112,7 @@ GET /ws -> request / response / stream / push / error frames
 | GET | `/api/admin/agents` | 无 | admin agent 列表，包含 invalid agent 诊断 |
 | GET | `/api/admin/agents/detail` | query: `agentKey` | admin agent 详情，包含编辑配置、来源和诊断 |
 | GET | `/api/connectors`、`/api/admin/connectors` | 无 | 已安装连接器及组件、技能和 MCP 同步状态 |
+| GET | `/api/connectors/icon` | query: `id`；可选缓存标识 `v` | 清单声明的 SVG/PNG 图片；沿用服务鉴权，支持 ETag/304，缺失返回 404 |
 | GET/PUT | `/api/admin/connectors/detail` | GET: `id/file`；PUT: `id/file/content/baseSha256` | 读取或原子保存连接器定义，旧 MCP Registry 管理接口已移除 |
 | POST | `/api/admin/connectors/import` | multipart `file` ZIP、可选 `overwrite` | 原子安装或覆盖外部连接器 |
 | GET/POST/DELETE | `/api/admin/connectors/auth?id=<id>` | 连接器 id | 查询状态、发起登录、退出登录 |
@@ -170,6 +171,8 @@ GET /ws -> request / response / stream / push / error frames
 `/api/admin/registries` 是列表接口，不返回 registry 文件绝对路径、完整 `diagnostics[]` 或文件大小；编辑器应通过 `/api/admin/registries/detail` 获取 `source`、完整诊断、`content`、`parsed` 与 `size`。
 
 连接器列表使用 `GET /api/connectors` 或 `GET /api/admin/connectors`，响应 `data.connectors[]` 包含包清单、`hasMcp/hasCli/hasBin/skills`；`mcp[]` 包含 `serverKey/toolCount/status` 和可选同步时间、脱敏诊断。读取定义使用 `GET /api/admin/connectors/detail?id=...&file=...`，保存使用同路径 PUT（`id/file/content/baseSha256`，哈希必填，冲突 409）。仅支持已存在的 connector.json/mcp.json/cli.json；先校验、原子替换、本地 reload，失败恢复。远端初始化继续后台执行，发送 `catalog.updated(reason=connectors)`。完整契约见 [连接器](连接器.md)。
+
+带图标的连接器另返回 `icon`（例如 `assets/icon.svg`）、`iconSha256` 和 `iconUrl`（`/api/connectors/icon?id=<id>&v=<sha256>`）；未声明图标时省略这些字段。图标接口成功响应直接为 `image/svg+xml` 或 `image/png` 字节，失败沿用 JSON 错误包裹；仅允许读取该连接器清单声明的图片，不能用 `file` 参数读取其他包文件。启用鉴权时必须携带有效认证。缓存使用 `private, max-age=0, must-revalidate` 和内容 SHA-256 ETag；`If-None-Match` 命中返回 304。客户端通过带认证请求获取 Blob，再用 `<img>` 显示，失败显示默认图标。
 
 Registry 列表的 `summary` 按分类返回展示字段：provider 暴露 `baseUrl`；model 暴露 `provider/protocol/type/isVision/isReasoner/isFunction/maxInputTokens/maxOutputTokens/timeout`；viewport server 仅暴露 `baseUrl`，当前不返回 viewport 数量。
 

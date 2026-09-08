@@ -183,6 +183,8 @@ Platform 运行形态只由 `--runtime-mode=standalone|desktop` 指定，默认 
 
 外部连接器原包安装在 `<AP_RUNTIME_DIR>/connectors-center/<id>`；内置原包由 Platform 随包提供，不可修改或删除。Agent 挂载后，两类包统一组装到 `<AP_RUNTIME_DIR>/ru-agents/<agentKey>/connectors/<id>`，持久化授权状态保存在通用 `.state` 根下的 `.state/connectors/<id>/`。两类连接器统一由 Agent 的 `connectorConfig.connectors` 挂载；挂载自动增加本 Agent 运行包 bin PATH、导入全部技能元数据并接入 MCP 工具，同时授权运行包内 CLI 的全部子命令和参数，在所有 accessLevel 下直接执行、无需 HITL 或自动审批审计；技能正文和资源随包复制，从本 Agent 的 `@connectors/<id>/skills/...` 读取，不再重复放进同级 skills 目录；skillId 使用原始技能名，不添加连接器前缀，同一 Agent 内技能重名时返回冲突诊断。包允许 `bin/libs`，连接器技能不能被 `mustUseSkills` 选中。`dbx/httpx` 的清单和完整技能源码位于 `internal/resources/connectors/builtin.{dbx,httpx}/`，与二进制一起打包并校验；旧 `registries/mcp-servers` 目录直接忽略，不影响启动；需要沿用其中定义时可通过 `agent-platform connector-migrate` 迁移，Agent 挂载使用新字段。MCP 的 HTTP/stdio 优先请求 `2025-11-25`，兼容 SDK 支持的 `2025-06-18`、`2025-03-26` 和 `2024-11-05`，并保持后台 tool sync。ZIP 导入、CLI 登录与独立凭据、MCP OAuth PKCE 与令牌刷新见 [连接器安装与授权](./docs/连接器安装与授权.md)；包结构与迁移步骤见 [连接器](./docs/连接器.md)，协议细节见 [MCP与工具交互](./docs/MCP与工具交互.md)。
 
+WorkBuddy 来源的十个独立 ZIP 都包含 `assets/` 品牌图标，并由 `connector.json.icon` 引用。版本沿用 WorkBuddy 清单，未声明时使用约定的 `0.1.0`，补图标不自行升级版本。图标导入与显示、CLI 安装命令保留方式，以及“真实 CLI / 启动器 / 远程 MCP 定义”的区别见 [WorkBuddy 连接器打包](./docs/WorkBuddy连接器打包.md)。
+
 ### 根 `.env.example`
 
 根 `.env.example` 现在是面向最终用户的最小启动模板，只保留以下配置：

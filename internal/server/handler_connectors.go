@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"agent-platform/internal/api"
@@ -26,7 +27,8 @@ func (s *Server) handleConnectors(w http.ResponseWriter, r *http.Request) {
 	}
 	type entry struct {
 		connector.Summary
-		MCP []mcpStatus `json:"mcp,omitempty"`
+		MCP     []mcpStatus `json:"mcp,omitempty"`
+		IconURL string      `json:"iconUrl,omitempty"`
 	}
 	var mounts []connector.AgentRuntime
 	if provider, ok := s.deps.Registry.(mcp.AgentConnectorSource); ok {
@@ -35,6 +37,9 @@ func (s *Server) handleConnectors(w http.ResponseWriter, r *http.Request) {
 	result := make([]entry, 0, len(items))
 	for _, item := range items {
 		value := entry{Summary: item}
+		if item.Icon != "" {
+			value.IconURL = "/api/connectors/icon?id=" + url.QueryEscape(item.ID) + "&v=" + item.IconSHA256
+		}
 		pkg, err := sources.Load(item.ID)
 		if err != nil {
 			s.writeAgentHTTPResponse(w, nil, err)
