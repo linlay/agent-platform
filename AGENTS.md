@@ -62,7 +62,7 @@ cmd/agent-platform/main.go
 - `internal/tools`：通用 tool registry/router、Bash、FileTools、memory、desktop、MCP tool 调用；mode 工具通过命名 handler 接入，不在 executor 中增加 mode switch。
 - `internal/chat`：chat 摘要、事件、StepLine、raw messages、资源文件、归档、回放。
 - `internal/memory`：SQLite memory、FTS 文本检索、上下文召回与显式生命周期整理。
-- `internal/connector`：中立连接器包/JSON/技能结构校验、Agent PATH 合并与定义编辑；`internal/connectormigrate` 是旧 MCP 目录和 Agent 引用的显式离线迁移入口。MCP 通过统一 Sources 读取 Platform 内置包和 runtime/connectors-center 外部原包，执行读取统一 ru-connectors，旧 registries/mcp-servers 目录直接忽略，不加载、不校验、不因其存在阻止启动或资源包校验；未实现的 CLI 登录、依赖准备、OAuth 与按用户凭据绑定见连接器专题。
+- `internal/connector`：中立连接器包/JSON/技能结构校验、ZIP 原子导入、Agent PATH 合并与定义编辑；`internal/connectormigrate` 是旧 MCP 目录和 Agent 引用的显式离线迁移入口。MCP 通过统一 Sources 读取 Platform 内置包和 runtime/connectors-center 外部原包，执行读取统一 ru-connectors，旧 registries/mcp-servers 目录直接忽略；`internal/connectorauth` 负责部署级受管 CLI 准备/扫码、HTTP MCP OAuth 发现、PKCE、loopback 回调和持久化刷新。按用户凭据绑定与通用 runtime 安装尚未实现，见连接器专题。
 - `internal/catalog`：agent / team / skill / tool 目录装载与定义解析；Team 只接受目录式 orchestrated 定义，并以原子快照冻结成员、协调器配置和 prompt。
 - `internal/config`：环境变量、YAML、默认值。
 - `internal/stream`：统一事件、dispatcher、assembler、normalizer 与 EventBus；SSE writer 属于 `internal/server` 传输层。

@@ -20,6 +20,7 @@ import (
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/builtins"
 	"agent-platform/internal/connector"
+	"agent-platform/internal/connectorauth"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/observability"
 
@@ -406,6 +407,13 @@ func (c *Client) httpClientForServer(server ServerDefinition) *http.Client {
 		base: transport, headers: server.Headers, authToken: server.AuthToken,
 		authSource: server.AuthSource, identityFile: c.identityFile, configuredHost: configuredHost,
 		closeTimeout: sessionCloseTimeout, cancellationTimeout: cancellationNotificationTimeout,
+	}
+	if server.ConnectorOAuth {
+		authClient := &http.Client{Transport: transport, Timeout: 30 * time.Second}
+		cloned.Transport = connectorauth.AuthorizingTransport{
+			Base: cloned.Transport, Client: authClient,
+			Root: server.ConnectorAuthRoot, ID: server.ConnectorID, Resource: server.ResolvedURL(),
+		}
 	}
 	return &cloned
 }

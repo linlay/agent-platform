@@ -18,6 +18,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/chatresource"
 	"agent-platform/internal/config"
+	"agent-platform/internal/connectorauth"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/conversation"
 	"agent-platform/internal/kbase"
@@ -152,6 +153,7 @@ type Server struct {
 	backgroundCtx     context.Context
 	backgroundCancel  context.CancelFunc
 	shutdownHookOnce  sync.Once
+	connectorAuth     *connectorauth.Manager
 }
 
 type syncQueryContextKey struct{}
@@ -249,6 +251,12 @@ func New(deps Dependencies) (*Server, error) {
 		backgroundCtx:     backgroundCtx,
 		backgroundCancel:  backgroundCancel,
 	}
+	s.connectorAuth = connectorauth.New(backgroundCtx, s.connectorSources(), func(ctx context.Context, _ string) error {
+		if s.deps.CatalogReloader != nil {
+			return s.deps.CatalogReloader.Reload(ctx, "connectors")
+		}
+		return nil
+	})
 	if s.deps.Runtime == nil {
 		// Compatibility for direct package tests and small embedders. app.New
 		// always supplies the assembled Runtime service.

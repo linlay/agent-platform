@@ -43,6 +43,10 @@ func (s Sources) Load(id string) (Package, error) {
 }
 
 func (s Sources) LoadAll() ([]Package, error) {
+	return s.loadAllExcept("")
+}
+
+func (s Sources) loadAllExcept(exclude string) ([]Package, error) {
 	packages := []Package{}
 	for _, source := range []struct {
 		root    string
@@ -60,6 +64,9 @@ func (s Sources) LoadAll() ([]Package, error) {
 		}
 		for _, entry := range entries {
 			id := entry.Name()
+			if id == exclude {
+				continue
+			}
 			if strings.HasPrefix(id, ".") {
 				continue
 			}

@@ -10,6 +10,7 @@ import (
 
 	"agent-platform/internal/agentconfig"
 	"agent-platform/internal/connector"
+	"agent-platform/internal/connectorauth"
 )
 
 func loadConnectorServers(sources connector.Sources) (map[string]ServerDefinition, error) {
@@ -19,6 +20,9 @@ func loadConnectorServers(sources connector.Sources) (map[string]ServerDefinitio
 	}
 	servers := map[string]ServerDefinition{}
 	for _, pkg := range packages {
+		if err := connectorauth.ValidatePackage(pkg); err != nil {
+			return nil, fmt.Errorf("connector %s authentication: %w", pkg.ID, err)
+		}
 		names := make([]string, 0, len(pkg.MCP))
 		for name := range pkg.MCP {
 			names = append(names, name)
@@ -179,7 +183,15 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 	if err != nil {
 		return ServerDefinition{}, fmt.Errorf("disabledTools: %w", err)
 	}
-	if pkg.AuthMode != "none" && !(pkg.AuthMode == "token" && credentialReady) {
+	if pkg.AuthMode == "oauth" || pkg.AuthMode == "mcp" {
+		if err := connectorauth.ValidatePackage(pkg); err != nil {
+			return ServerDefinition{}, err
+		}
+		server.ConnectorOAuth = true
+		server.ConnectorAuthRoot = pkg.PersistentRoot()
+		credentialReady = connectorauth.CredentialReady(server.ConnectorAuthRoot, pkg.ID, server.ResolvedURL())
+	}
+	if pkg.AuthMode != "none" && !((pkg.AuthMode == "token" || server.ConnectorOAuth) && credentialReady) {
 		// Account authorization is deliberately not inferred from process env or
 		// CLI output. These modes require a configured credential provider.
 		server.SetupError = "connector authentication requires setup: " + pkg.AuthMode
@@ -191,6 +203,9 @@ func connectorServer(pkg connector.Package, name string) (ServerDefinition, erro
 }
 
 func ValidateConnectorPackage(pkg connector.Package) error {
+	if err := connectorauth.ValidatePackage(pkg); err != nil {
+		return err
+	}
 	for name := range pkg.MCP {
 		if _, err := connectorServer(pkg, name); err != nil {
 			return err
