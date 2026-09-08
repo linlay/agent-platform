@@ -202,9 +202,9 @@ func (t *RuntimeToolExecutor) invokeDesktopCDP(ctx context.Context, args map[str
 	if t.cfg.RuntimeMode != config.RuntimeModeDesktop {
 		return desktopActionErrorResult("desktop_cdp_unsupported_runtime", "desktop_cdp is unavailable in standalone runtime mode", nil), nil
 	}
-	params, ok := args["params"].(map[string]any)
-	if !ok || params == nil {
-		params = map[string]any{}
+	params, failure, failed := t.resolveDesktopCDPParams(args, execCtx)
+	if failed {
+		return failure, nil
 	}
 	requestID := strings.TrimSpace(stringArg(args, "requestId"))
 	if requestID == "" {

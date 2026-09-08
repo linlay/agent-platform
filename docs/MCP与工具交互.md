@@ -75,6 +75,33 @@ Mask 必须与第一张图同尺寸并显式指定 `mode`：`alpha` 表示透明
 
 `openWeb` 与 `refreshWeb` 只接受显式 `http:` 或 `https:` URL，拒绝用户名和密码，但不排除宿主可达的本地 HTTP 服务；`file://` 仍不是 Web URL。`openLocalFile` 只允许普通 Agent 的 Desktop Platform Run，Standalone、Team、Desktop WebSocket、HTTP Action Bridge、调试入口、WebApp 与 Agent WebClient 均无此能力。WorkPanel 的 `tabId` 是条目 ID，不是 CDP `targetId`；不要把它传给 `desktop_cdp`。WorkPanel 也不进入普通 `desktop.web.listSurfaces` 或 `Target.getTargets`，因此高层 Tab/WebView 操作应使用上述动作；只有已经获得独立 CDP `targetId` 时才能进行页面级 CDP 调用，Desktop 仍会校验其 `ownerChatId` 与可信 `source.chatId` 一致。
 
+## `desktop_cdp` 参数文件
+
+`desktop_cdp` 可直接传入 `params` 对象，也可通过 `paramsFile` 读取参数文件。两者互斥（包括显式传入 `params: null`）；都省略时保持无参数调用。工具层使用 `paramsFile`，没有 `param-file` 或 `params-file` 别名。
+
+```json
+{
+  "method": "Runtime.evaluate",
+  "targetId": "实际 targetId",
+  "paramsFile": "params.json"
+}
+```
+
+`params.json` 只保存原来的 `params` 内容，不包含外层 `method`、`targetId` 等请求字段：
+
+```json
+{
+  "expression": "document.title",
+  "returnByValue": true
+}
+```
+
+相对路径按本次执行 Workspace 解析；没有 Workspace 时返回 `workspace_unavailable`，不回退到 Platform 进程目录。也支持 `@workspace`、`@chat`、`@temp` 等通用路径别名，以及经授权的绝对路径；Container 执行路径使用现有映射解析为 Host 路径。文件读取复用 AccessPolicy 和文件预审批，越权读取进入 HITL，批准后继续执行；canonical 路径校验与临时根逃逸阻断仍生效。
+
+文件必须是 UTF-8 编码的单个 JSON 对象，拒绝目录、设备等非普通文件、空内容、`null`、数组、JSON 后的额外内容及非法 JSON。读取上限复用 `configs/tools.yml -> file-tools.max-read-bytes`（默认 1 MiB），超限报错，不截断。路径、读取、JSON 或大小校验失败时均不向 Desktop 发送请求。
+
+Platform 读取后沿现有链路归一化布尔参数并发送 `params`；`paramsFile` 路径不进入 `desktop.cdp.call` payload。Desktop CDP 协议和页面目标授权保持现有契约。
+
 ## Desktop 反向 Provider
 
 Agent 仍然只看到 `desktop_action` 与 `desktop_cdp`。Action 白名单由 `internal/resources/tools/desktop_action.yml` 静态声明。Platform 为每个 run 保留独立的内存 target；Desktop 模式还在现有 WebSocket Hub 中维护唯一 `desktop-main` 默认连接，但它不是新的窗口/surface registry，也不允许 HTTP 或其他浏览器 fallback：

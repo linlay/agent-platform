@@ -29,8 +29,11 @@ inputSchema:
         - Network.disable
     params:
       type: object
-      description: JSON parameters for the selected CDP method. Use native JSON value types; for example Runtime.evaluate returnByValue and awaitPromise must be booleans true/false, not strings "true"/"false". Prefer the top-level targetId for Target.closeTarget; params.targetId exists only for CDP compatibility, and conflicting values are invalid.
+      description: JSON parameters for the selected CDP method. Mutually exclusive with paramsFile; omit both for no parameters. Use native JSON value types; for example Runtime.evaluate returnByValue and awaitPromise must be booleans true/false, not strings "true"/"false". Prefer the top-level targetId for Target.closeTarget; params.targetId exists only for CDP compatibility, and conflicting values are invalid.
       additionalProperties: true
+    paramsFile:
+      type: string
+      description: Optional path to a UTF-8 JSON file containing only the params object, not the full request. Mutually exclusive with params. Relative paths resolve from the execution workspace; explicit roots such as @chat and authorized absolute paths follow the standard file read AccessPolicy and approval rules. The file must be regular and fit within file-tools.max-read-bytes (default 1 MiB); it is read in full without truncation. Platform sends its contents as params through the existing CDP request.
     targetId:
       type: string
       description: Desktop-managed target id required for every method except Target.getCurrentTarget and Target.getTargets. It may identify the current Desktop surface or a WorkPanel target owned by the current run's chat. Do not pass a desktop.workpanel.* tabId here; WorkPanel tab ids and CDP target ids are different identifiers.

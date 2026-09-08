@@ -92,6 +92,9 @@ func (s *llmRunStream) buildFileAccessPlan(invocation *preparedToolInvocation) (
 	if invocation == nil {
 		return nil, false
 	}
+	if strings.EqualFold(strings.TrimSpace(invocation.toolName), "desktop_cdp") && s.engine.cfg.RuntimeMode != config.RuntimeModeDesktop {
+		return nil, false
+	}
 	mode, rawPath, ok := fileAccessPlanInput(invocation.toolName, invocation.args)
 	if !ok {
 		return nil, false
@@ -202,6 +205,10 @@ func fileAccessPlanInput(toolName string, args map[string]any) (filetools.Access
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
 	case "file_read":
 		return filetools.ReadAccess, mapStringArg(args, "file_path"), strings.TrimSpace(mapStringArg(args, "file_path")) != ""
+	case "desktop_cdp":
+		path, ok := args["paramsFile"].(string)
+		_, hasParams := args["params"]
+		return filetools.ReadAccess, path, ok && strings.TrimSpace(path) != "" && !hasParams && strings.TrimSpace(mapStringArg(args, "method")) != ""
 	case "file_glob", "file_grep":
 		rawPath := strings.TrimSpace(mapStringArg(args, "path"))
 		if rawPath == "" {
